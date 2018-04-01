@@ -6,3 +6,5 @@
 import dmet
 dmet_object = dmet.dmet
 
+import mrh.util
+
