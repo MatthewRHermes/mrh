@@ -1,6 +1,7 @@
 # A collection of useful manipulations of basis sets (i.e., rectangular matrices) and operators (square matrices)
 
-from la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent
+import numpy as np
+from mrh.util.la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options
 
 ################	basic queries and assertions for basis-set-related objects	################
 
@@ -83,7 +84,7 @@ def project_operator_into_subspace (braOket, ket_basis, bra_basis = None):
 	return (lPl * lOr * rPr)
 
 def compute_operator_trace_in_subset (the_operator, the_subset_basis):
-	return represent_operator_in_basis (the_operator, the_subset_basis).trace ()
+	return np.trace (represent_operator_in_subspace (the_operator, the_subset_basis))
 
 compute_nelec_in_subspace = compute_operator_trace_in_subset
 
@@ -96,17 +97,17 @@ compute_nelec_in_subspace = compute_operator_trace_in_subset
 def get_overlapping_states (bra_basis, ket_basis, across_operator = None, nrvecs=0, nlvecs=0, num_zero_atol=1.0e-8):
 	c2p = np.asmatrix (bra_basis)
 	c2q = np.asmatrix (ket_basis)
-	cOc = np.asmatrix (across_operator) if across_operator else 1
+	cOc = np.asmatrix (across_operator) if np.any (across_operator) else 1
 	assert (c2p.shape[0] == c2q.shape[0]), "you need to give the two spaces in the same basis"
 	assert (c2p.shape[1] <= c2p.shape[0]), "you need to give the first state in a complete basis (c2p). Did you accidentally transpose it?"
 	assert (c2q.shape[1] <= c2q.shape[0]), "you need to give the second state in a complete basis (c2q). Did you accidentally transpose it?"
-	assert (nlvecs <= c2p.shape[1]) "you can't ask for more left states than are in your left space"
-	assert (nrvecs <= c2q.shape[1]) "you can't ask for more right states than are in your right space"
-	if across_operator:
+	assert (nlvecs <= c2p.shape[1]), "you can't ask for more left states than are in your left space"
+	assert (nrvecs <= c2q.shape[1]), "you can't ask for more right states than are in your right space"
+	if np.any (across_operator):
 		assert (c2p.shape[0] == cOc.shape[0] and c2p.shape[0] == cOc.shape[1]), "when specifying an across_operator, it's dimensions need to be the same as the external basis"
 
 	p2c = c2p.H
-	pOq = p2c * cOc * c2p
+	pOq = p2c * cOc * c2q
 
 	''' I think the eigendecomposition is actually more stable than the explicit svd so I'm going to do it that way (it's equivalent)
 	q2r, p2l, svals = matrix_svd_control_options (pOq, svd_full_matrices = (not omit_id_zero_svals), sort_vecs=True)
@@ -139,20 +140,20 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator = None, nrvecs
 			c2b_len = len (svals)
 		return c2b[:,:c2b_len]
 
-	c2r = getbasis_from_olap_trunc_ (c2r, get_top_nrvecs)
-	c2l = getbasis_from_olap_trunc_ (c2l, get_top_nlvecs)
+	c2r = getbasis_from_olap_trunc_ (c2r, nrvecs)
+	c2l = getbasis_from_olap_trunc_ (c2l, nlvecs)
 
 	return c2l, c2r, svals
 	
 def measure_basis_olap (bra_basis, ket_basis):
-	svals = get_overlapping_states (bra_basis, ket_basis)
+	svals = get_overlapping_states (bra_basis, ket_basis)[2]
 	olap_ndf = len (svals)
 	olap_mag = np.norm (svals)
 	return olap_mag, olap_ndf
 
 def orthonormalize_a_basis (overlapping_basis, num_zero_atol=1.0e-8):
 	if (is_basis_orthonormal (overlapping_basis)):
-		return c2b
+		return overlapping_basis
 	c2b = np.asmatrix (incomplete_basis)
 	b2c = c2b.H
 	bOb = b2c * c2b
@@ -176,7 +177,7 @@ def orthonormalize_a_basis (overlapping_basis, num_zero_atol=1.0e-8):
 	return c2n
 
 def get_basis_from_projector (the_projector, num_zero_atol=1.0e-8):
-	proj_cc = np.asmatrix (proj_cc)
+	proj_cc = np.asmatrix (the_projector)
 	assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (proj_cc - proj_cc.H)
 	assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str ((proj_cc * proj_cc) - proj_cc)
 	evals, p2x = matrix_eigen_control_options (proj_cc, sort_vecs=True, only_nonzero_vals=True)
@@ -185,7 +186,7 @@ def get_basis_from_projector (the_projector, num_zero_atol=1.0e-8):
 def basis_complement (incomplete_basis):
 	orthonormal_basis = orthonormalize_a_basis (incomplete_basis)
 	if is_basis_orthonormal_and_complete (orthonormal_basis):
-		print "warning: tried to construct a complement for a basis that was already complete"
+		print ("warning: tried to construct a complement for a basis that was already complete")
 		return None
 
 	c2b = np.asmatrix (orthonormal_basis)

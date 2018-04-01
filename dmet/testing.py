@@ -21,14 +21,14 @@ def schmidt_decompose_1RDM (the_1RDM, loc2frag, num_zero_atol=1.0e-8):
 
 	# We need to SVD the fragment-environment block of the 1RDM
 	# The bath states are from the right-singular vectors corresponding to nonzero singular value
-	loc2env = np.eye (norbs_tot, dtype=the_1RDM.dtype) - loc2frag
-	loc2bath = mrh.util.basis.get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM)
+	loc2env = mrh.util.basis.basis_complement (loc2frag)
+	loc2bath = mrh.util.basis.get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM)[0]
 	norbs_bath = loc2bath.shape[1]
 	loc2imp = np.append (loc2frag, loc2bath, axis=1)
-	assert (mrh.util.la.is_matrix_orthonormal (loc2imp))
+	assert (mrh.util.basis.is_basis_orthonormal (loc2imp))
 
 	loc2core = mrh.util.basis.basis_complement (loc2imp)
-	norbs_core = loc2.core.shape[1]
+	norbs_core = loc2core.shape[1]
 	assert (norbs_tot == (norbs_frag + norbs_bath + norbs_core))
 
 	loc2emb = np.append (loc2imp, loc2core, axis=1)
@@ -57,7 +57,7 @@ def deform_embedding_basis (imp_case_str, frag_states, loc2fragbanned, loc2envba
 
 	# Expand the fragment states in the fragallowed basis	
 	loc2fragallowed = mrh.util.basis.basis_complement (loc2fragbanned)
-	loc2dfrag = mrh.util.basis.get_overlapping_states (loc2fragallowed, loc2rfrag, nlvecs=norbs_frag)
+	loc2dfrag = mrh.util.basis.get_overlapping_states (loc2fragallowed, loc2rfrag, nlvecs=norbs_frag)[0]
 	assert (loc2dfrag.shape[1] == norbs_frag)
 	loc2env = mrh.util.basis.basis_complement (loc2dfrag)
 
@@ -66,7 +66,7 @@ def deform_embedding_basis (imp_case_str, frag_states, loc2fragbanned, loc2envba
 	# This is probably why there's not much effect from just deforming the environment basis 
 	# unless loc2fragbanned and loc2envbanned happen to be the same
 	loc2envallowed = mrh.util.basis.basis_complement (loc2envbanned)
-	loc2denv = mrh.util.basis.get_overlapping_states (loc2env, loc2envallowed)
+	loc2denv = mrh.util.basis.get_overlapping_states (loc2env, loc2envallowed)[0]
 	norbs_denv = loc2denv.shape[1]
 
 	# Complete the basis if necessary
@@ -134,10 +134,10 @@ def calc_mp2_ecorr_correction_to_dmetcasci_using_idempotent_1RDM (imp_case, DMET
 	dloc2emb,      norbs_bath,      nelec_imp      = schmidt_decompose_1RDM (idem_1RDM_dloc_basis, log2frag)
 
 	# Count orbitals and arrange coefficients
-        loc2emb = np.dot (loc2dloc, dloc2emb)
+	loc2emb = np.dot (loc2dloc, dloc2emb)
 	loc2froz = loc2def[:,norbs_emb:]
-        loc2dmet = np.append (loc2emb, loc2froz, axis=1)
-        assert (mrh.util.basis.is_basis_orthonormal_and_complete (loc2dmet))
+	loc2dmet = np.append (loc2emb, loc2froz, axis=1)
+	assert (mrh.util.basis.is_basis_orthonormal_and_complete (loc2dmet))
 	assert (norbs_frag + norbs_bath <= norbs_emb)
 	norbs_imp = norbs_frag + norbs_bath
 	norbs_imp_corr = norbs_frag + norbs_bath_corr
@@ -154,10 +154,10 @@ def calc_mp2_ecorr_correction_to_dmetcasci_using_idempotent_1RDM (imp_case, DMET
 	# Count electrons; compare results for schmidt-decomposing the whole thing to schmidt-decomposing only the idempotent 1RDM
 	nelec_tot = np.trace (correlated_1RDM)
 	nelec_bleed = mrh.util.basis.compute_nelec_in_subspace (core_1RDM, loc2imp)
-        report_str1 = "{0} Schmidt-decomposition report:".format (imp_case)
-        report_str2 = "Decomposing the correlated 1RDM leads to a {0:.3f}-electron in {1} orbital impurity problem".format (nelec_imp_corr, norbs_imp_corr)
-        report_str3 = "Decomposing the idempotent 1RDM leads to a {0:.3f}-electron in {1} orbital impurity problem".format (nelec_imp, norbs_imp)
-        report_str4 = "in which {0} electrons from the correlated 1RDM were found bleeding on to the impurity space".format (nelec_bleed)
+	report_str1 = "{0} Schmidt-decomposition report:".format (imp_case)
+	report_str2 = "Decomposing the correlated 1RDM leads to a {0:.3f}-electron in {1} orbital impurity problem".format (nelec_imp_corr, norbs_imp_corr)
+	report_str3 = "Decomposing the idempotent 1RDM leads to a {0:.3f}-electron in {1} orbital impurity problem".format (nelec_imp, norbs_imp)
+	report_str4 = "in which {0} electrons from the correlated 1RDM were found bleeding on to the impurity space".format (nelec_bleed)
 	print ("{0}\n{1}\n{2} {3}".format (report_str1, report_str2, report_str3, report_str4))
 	for space, nelec in (("impurity", nelec_imp), ("total", nelec_tot)):
 		err_str = "{0} number of {1} electrons not an even integer ({2})".format (imp_case, space, nelec)

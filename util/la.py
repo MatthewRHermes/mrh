@@ -1,3 +1,5 @@
+import numpy as np
+
 # A collection of simple manipulations of matrices that I somehow can't find in numpy
 
 def is_matrix_zero (test_matrix):
@@ -60,11 +62,11 @@ def matrix_eigen_control_options (the_matrix, sort_vecs=True, only_nonzero_vals=
 	# Add the diagonal average to the eigenvalues when returning!
 	evals = evals + np.diag (diag_avg)
 	if only_nonzero_vals:
-		idx = np.where (np.abs (evals) > num_zero_atol)
+		idx = np.where (np.abs (evals) > num_zero_atol)[0]
 		evals = evals[idx]
 		evecs = evecs[:,idx]
 	if sort_vecs:
-		idx = np.abs (evals[idx]).argsort ()[::-1]
+		idx = np.abs (evals).argsort ()[::-1]
 		evals = evals[idx]
 		evecs = evecs[:,idx]
 	return evals, evecs
