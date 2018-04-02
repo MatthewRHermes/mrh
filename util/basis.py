@@ -53,7 +53,7 @@ def basis_olap (bra_basis, ket_basis):
 	c2p = np.asmatrix (bra_basis)
 	c2q = np.asmatrix (ket_basis)
 	p2c = c2p.H
-	return (p2c * c2q)
+	return np.asarray (p2c * c2q)
 
 def represent_operator_in_subspace (braOket, ket_basis, bra_basis = None):
 	# Note that this CHANGES the basis that braOket is stored in
@@ -66,7 +66,7 @@ def represent_operator_in_subspace (braOket, ket_basis, bra_basis = None):
 
 	p2l = l2p.H
 	q2r = r2q.H
-	return (p2l * lOr * r2q)
+	return np.asarray (p2l * lOr * r2q)
 
 def project_operator_into_subspace (braOket, ket_basis, bra_basis = None):
 	# Note that this DOESN'T change the basis that braOket is stored in
@@ -81,7 +81,7 @@ def project_operator_into_subspace (braOket, ket_basis, bra_basis = None):
 
 	lPl = l2p * p2l
 	rPr = r2q * q2r
-	return (lPl * lOr * rPr)
+	return np.asarray (lPl * lOr * rPr)
 
 def compute_operator_trace_in_subset (the_operator, the_subset_basis):
 	return np.trace (represent_operator_in_subspace (the_operator, the_subset_basis))
@@ -143,12 +143,13 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator = None, nrvecs
 	c2r = getbasis_from_olap_trunc_ (c2r, nrvecs)
 	c2l = getbasis_from_olap_trunc_ (c2l, nlvecs)
 
+	c2l, c2r, svals = (np.asarray (output) for output in (c2l, c2r, svals))
 	return c2l, c2r, svals
 	
 def measure_basis_olap (bra_basis, ket_basis):
 	svals = get_overlapping_states (bra_basis, ket_basis)[2]
 	olap_ndf = len (svals)
-	olap_mag = np.norm (svals)
+	olap_mag = np.linalg.norm (svals)
 	return olap_mag, olap_ndf
 
 def orthonormalize_a_basis (overlapping_basis, num_zero_atol=1.0e-8):
@@ -174,18 +175,18 @@ def orthonormalize_a_basis (overlapping_basis, num_zero_atol=1.0e-8):
 	c2n = c2x * x2n
 	assert (is_basis_orthonormal (c2n)), "failed to orthonormalize basis somehow\n" + str (c2n)
 
-	return c2n
+	return np.asarray (c2n)
 
-def get_basis_from_projector (the_projector, num_zero_atol=1.0e-8):
+def get_states_from_projector (the_projector, num_zero_atol=1.0e-8):
 	proj_cc = np.asmatrix (the_projector)
 	assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (proj_cc - proj_cc.H)
 	assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str ((proj_cc * proj_cc) - proj_cc)
 	evals, p2x = matrix_eigen_control_options (proj_cc, sort_vecs=True, only_nonzero_vals=True)
-	return p2x
+	return np.asarray (p2x)
 
-def basis_complement (incomplete_basis):
+def get_complementary_states (incomplete_basis, already_complete_warning=True):
 	orthonormal_basis = orthonormalize_a_basis (incomplete_basis)
-	if is_basis_orthonormal_and_complete (orthonormal_basis):
+	if is_basis_orthonormal_and_complete (orthonormal_basis) and already_complete_warning:
 		print ("warning: tried to construct a complement for a basis that was already complete")
 		return None
 
@@ -197,5 +198,13 @@ def basis_complement (incomplete_basis):
 	Projb_cc = c2b * b2c
 	Projq_cc = np.eye (nstates_c, dtype=Projb_cc.dtype) - Projb_cc
 	
-	return get_basis_from_projector (Projq_cc)
+	return get_states_from_projector (Projq_cc)
+
+def get_complete_basis (incomplete_basis):
+	complementary_states = get_complementary_states (incomplete_basis, already_complete_warning = False)
+	if np.any (complementary_states):
+		return np.append (incomplete_basis, complementary_states, axis=1)
+	else:
+		return incomplete_basis
+
 
