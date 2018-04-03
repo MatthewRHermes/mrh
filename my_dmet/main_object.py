@@ -136,8 +136,8 @@ class dmet:
             maxiter = 1
         for counter in range( maxiter ):
             impurityOrbs = np.abs(self.impClust[ counter ])
-            numImpOrbs = np.sum( impurityOrbs )
-            thearray.append( numImpOrbs )
+            norbs_frag = np.sum( impurityOrbs )
+            thearray.append( norbs_frag )
         thearray = np.array( thearray )
         return thearray
 
@@ -222,13 +222,13 @@ class dmet:
 
             flagged_frag = int (np.sum(self.impClust[ counter ])) < 0
             impurityOrbs = np.abs(self.impClust[ counter ])
-            numImpOrbs   = np.sum( impurityOrbs )
+            norbs_frag   = np.sum( impurityOrbs )
             if (self.BATH_ORBS != None and self.BATH_ORBS[ counter ] != 0):
-                numBathOrbs = self.BATH_ORBS[ counter ]
+                norbs_bath = self.BATH_ORBS[ counter ]
             else:
-                numBathOrbs = numImpOrbs
+                norbs_bath = norbs_frag
 				
-            numBathOrbs, loc2dmet, core1RDM_dmet = self.helper.constructbath( OneRDM, impurityOrbs, numBathOrbs )
+            norbs_bath, loc2dmet, core1RDM_dmet = self.helper.constructbath( OneRDM, impurityOrbs, norbs_bath )
             if ( self.BATH_ORBS == None ):
                 core_cutoff = 0.01
             else:
@@ -242,80 +242,80 @@ class dmet:
                     print ("Bad DMET bath orbital selection: trying to put a bath orbital with occupation", core1RDM_dmet[ cnt ], "into the environment :-(.")
                     assert( 0 == 1 )
 
-            Norb_in_imp  = numImpOrbs + numBathOrbs
-            Nelec_in_imp = int(round(self.ints.Nelec - np.sum( core1RDM_dmet )))
+            norbs_imp  = norbs_frag + norbs_bath
+            nelec_imp = int(round(self.ints.Nelec - np.sum( core1RDM_dmet )))
             core1RDM_loc = np.dot( np.dot( loc2dmet, np.diag( core1RDM_dmet ) ), loc2dmet.T )   			
-            self.dmetOrbs.append( loc2dmet[ :, :Norb_in_imp ] ) # Impurity and bath orbitals only
-            assert( Norb_in_imp <= self.Norb )
-            dmetOEI  = self.ints.dmet_oei(  loc2dmet, Norb_in_imp )
-            dmetFOCK = self.ints.dmet_fock( loc2dmet, Norb_in_imp, core1RDM_loc )
-            dmetTEI  = self.ints.dmet_tei(  loc2dmet, Norb_in_imp )
+            self.dmetOrbs.append( loc2dmet[ :, :norbs_imp ] ) # Impurity and bath orbitals only
+            assert( norbs_imp <= self.Norb )
+            dmetOEI  = self.ints.dmet_oei(  loc2dmet, norbs_imp )
+            dmetFOCK = self.ints.dmet_fock( loc2dmet, norbs_imp, core1RDM_loc )
+            dmetTEI  = self.ints.dmet_tei(  loc2dmet, norbs_imp )
             
             if ( self.NI_hack == True ):
-                dmetTEI[:,:,:,numImpOrbs:]=0.0
-                dmetTEI[:,:,numImpOrbs:,:]=0.0
-                dmetTEI[:,numImpOrbs:,:,:]=0.0
-                dmetTEI[numImpOrbs:,:,:,:]=0.0
+                dmetTEI[:,:,:,norbs_frag:]=0.0
+                dmetTEI[:,:,norbs_frag:,:]=0.0
+                dmetTEI[:,norbs_frag:,:,:]=0.0
+                dmetTEI[norbs_frag:,:,:,:]=0.0
             
                 umat_rotated = np.dot(np.dot(loc2dmet.T, self.umat), loc2dmet)
-                umat_rotated[:numImpOrbs,:numImpOrbs]=0.0
-                dmetOEI += umat_rotated[:Norb_in_imp,:Norb_in_imp]
+                umat_rotated[:norbs_frag,:norbs_frag]=0.0
+                dmetOEI += umat_rotated[:norbs_imp,:norbs_imp]
                 dmetFOCK = np.array( dmetOEI, copy=True )
             
-            print ("DMET::exact : Performing a (", Norb_in_imp, "orb,", Nelec_in_imp, "el ) DMET active space calculation.")
+            print ("DMET::exact : Performing a (", norbs_imp, "orb,", nelec_imp, "el ) DMET active space calculation.")
             if ( flagged_frag and self.flagged_frag_method == 'RHF' ):
                 print ("DMET::exact : Performing RHF calculation for this (flagged) impurity")
                 from . import pyscf_rhf
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_rhf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, DMguessRHF, chempot_imp ) #self.CC_E_TYPE, chempot_imp )
+                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
+                IMP_energy, IMP_1RDM = pyscf_rhf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp ) #self.CC_E_TYPE, chempot_imp )
             elif ( flagged_frag and self.flagged_frag_method == 'MP2' ):
                 print ("DMET::exact : Performing MP2 calculation for this (flagged) impurity")
                 from . import pyscf_mp2
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_mp2.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, DMguessRHF, chempot_imp )
+                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
+                IMP_energy, IMP_1RDM = pyscf_mp2.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp )
 #            if ( flag_rhf and self.UHF == True):
 #                from . import pyscf_uhf
-#                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_imp )
-#                IMP_energy, IMP_1RDM = pyscf_uhf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, DMguessRHF, chempot_imp )				
+#                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
+#                IMP_energy, IMP_1RDM = pyscf_uhf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp )				
             elif ( self.method == 'ED' ):
                 print ("DMET::exact : Performing exact diagonalization for this impurity")
                 from . import chemps2
-                IMP_energy, IMP_1RDM = chemps2.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, chempot_imp )
+                IMP_energy, IMP_1RDM = chemps2.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, chempot_imp )
             elif ( self.method == 'CC' ):
                 print ("DMET::exact : Performing CC calculation for this impurity")
                 from . import pyscf_cc
-                assert( Nelec_in_imp % 2 == 0 )
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_cc.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, DMguessRHF, self.CC_E_TYPE, chempot_imp )
+                assert( nelec_imp % 2 == 0 )
+                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
+                IMP_energy, IMP_1RDM = pyscf_cc.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, self.CC_E_TYPE, chempot_imp )
             elif ( self.method == 'MP2' ):
                 print ("DMET::exact : Performing MP2 calculation for this impurity")
                 from . import pyscf_mp2
-                assert( Nelec_in_imp % 2 == 0 )
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_mp2.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, DMguessRHF, chempot_imp )
+                assert( nelec_imp % 2 == 0 )
+                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
+                IMP_energy, IMP_1RDM = pyscf_mp2.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp )
             elif ( self.method == 'CASSCF' ):
                 from . import pyscf_casscf
                 print ("DMET::exact : Performing CASSCF calculation for this impurity")
-                assert( Nelec_in_imp % 2 == 0 )
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_imp )
-                IMP_energy, IMP_1RDM, MOmf, MO, MOnat, OccNum = pyscf_casscf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, self.impCAS, self.CASlist, DMguessRHF, self.CC_E_TYPE, chempot_imp )
+                assert( nelec_imp % 2 == 0 )
+                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
+                IMP_energy, IMP_1RDM, MOmf, MO, MOnat, OccNum = pyscf_casscf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, self.impCAS, self.CASlist, DMguessRHF, self.CC_E_TYPE, chempot_imp )
                 
                 self.MOmf = MOmf
                 self.MO = MO	#the MO is updated eveytime the CASSCF solver called
                 self.MOnat = MOnat
-                self.loc2dmet = loc2dmet	#similar to MO		[:,:Norb_in_imp]	
+                self.loc2dmet = loc2dmet	#similar to MO		[:,:norbs_imp]	
                 self.OccNum = OccNum
             elif ( self.method == 'RHF' ):
                 print ("DMET::exact : Performing RHF calculation for this impurity")
                 from . import pyscf_rhf
-                assert( Nelec_in_imp % 2 == 0 )
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_rhf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, DMguessRHF, chempot_imp ) # self.CC_E_TYPE, chempot_imp )
+                assert( nelec_imp % 2 == 0 )
+                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
+                IMP_energy, IMP_1RDM = pyscf_rhf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp ) # self.CC_E_TYPE, chempot_imp )
             self.energy += IMP_energy
             E_frag.append(IMP_energy)
             self.imp_1RDM.append( IMP_1RDM )
             if ( self.doDET == True ) and ( self.doDET_NO == True ):
-                RDMeigenvals, RDMeigenvecs = np.linalg.eigh( IMP_1RDM[ :numImpOrbs, :numImpOrbs ] )
+                RDMeigenvals, RDMeigenvecs = np.linalg.eigh( IMP_1RDM[ :norbs_frag, :norbs_frag ] )
                 self.NOvecs.append( RDMeigenvecs )
                 self.NOdiag.append( RDMeigenvals )
                 
