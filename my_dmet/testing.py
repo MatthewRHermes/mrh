@@ -10,7 +10,7 @@ import mrh.util
 import numpy as np
 import mrh.my_dmet.pyscf_mp2, mrh.my_dmet.pyscf_rhf
 
-def schmidt_decompose_1RDM (the_1RDM, loc2frag, num_zero_atol=1.0e-8):
+def schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=1.0e-8):
 	fn_head = "schmidt_decompose_1RDM ::"
 	norbs_tot = mrh.util.la.assert_matrix_square (the_1RDM)
 	norbs_frag = loc2frag.shape[1]
@@ -23,8 +23,8 @@ def schmidt_decompose_1RDM (the_1RDM, loc2frag, num_zero_atol=1.0e-8):
 	# The bath states are from the right-singular vectors corresponding to nonzero singular value
 	loc2env = mrh.util.basis.get_complementary_states (loc2frag)
 	loc2bath = mrh.util.basis.get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM)[0]
-	norbs_bath = loc2bath.shape[1]
-	loc2imp = np.append (loc2frag, loc2bath, axis=1)
+	norbs_bath = min (loc2bath.shape[1], norbs_bath_max)
+	loc2imp = np.append (loc2frag, loc2bath[:,:norbs_bath], axis=1)
 	assert (mrh.util.basis.is_basis_orthonormal (loc2imp))
 
 	loc2emb = mrh.util.basis.get_complete_basis (loc2imp)
