@@ -13,31 +13,28 @@ def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list 
     norbs_in_atom = [np.sum ([2 * ints.mol.bas_angular (shell) + 1 for shell in ints.mol.atom_shell_ids (atom)]) for atom in range (ints.mol.natm)]
     norbs_thru_atom = [np.sum (norbs_in_atom[:atom]) for atom in range (ints.mol.natm)]
     frag_orb_list = [range (norbs_thru_atom[atom-1],norbs_thru_atom[atom]) for atom in range (ints.mol.natm)]
-    print ("Fragment atom list\n{0}\nproduces a fragment orbital list as:\n{1}".format (ints.mol.atom[frag_atom_list], frag_orb_list))
+    print ("Fragment atom list\n{0}\nproduces a fragment orbital list as:".format (ints.mol.atom[frag_atom_list]))
+    print (' '.join (frag_orb_list))
     return fragment_object (ints, np.asarray (frag_orb_list), solver_name, active_orb_list=active_orb_list)
 
 def make_fragment_orb_list (ints, frag_orb_list, solver_name, active_orb_list = np.empty (0, dtype=int)):
-    is_frag_orb = np.zeros (ints.mol.nao_nr (), dtype=bool)
-    is_active_orb = np.zeros (ints.mol.nao_nr (), dtype=bool)
-    is_frag_orb[frag_orb_list] = True
-    is_active_orb[active_orb_list] = True
-    return fragment_object (ints, is_frag_orb, solver_name, is_active_orb)
+    return fragment_object (ints, frag_orb_list, solver_name, active_orb_list)
 
 
 class fragment_object:
 
-    def __init__ (self, ints, is_frag_orb, solver_name, is_active_orb):
+    def __init__ (self, ints, frag_orb_list, solver_name, active_orb_list):
 
         # I really hope this doesn't copy.  I think it doesn't.
         self.ints = ints
-        self.is_frag_orb = is_frag_orb
-        self.is_active_orb = is_active_orb
-        self.norbs_tot = len (self.is_frag_orb)
-        self.norbs_frag = np.count_nonzero (self.is_frag_orb)
+        self.norbs_tot = self.ints.nao_nr ()
+        self.frag_orb_list = frag_orb_list
+        self.active_orb_list = active_orb_list
+        self.norbs_frag = len (self.frag_orb_list)
         self.norbs_bath = 0
         self.nelec_imp = 0
-        self.norbs_active = np.count_nonzero (self.is_active_orb)
-        self.norbs_bath_max = self.norbs_tot - self.norbs_frag
+        self.norbs_active = len (self.active_orb_list)
+        self.norbs_bath_max = self.norbs_frag
 
         # Assign solver function
         solver_function_map = {
@@ -67,9 +64,8 @@ class fragment_object:
                  
         # Set up the main basis functions. Before any Schmidt decomposition all environment states are treated as "core"
         # self.loc2emb is always defined to have the norbs_frag fragment states, the norbs_bath bath states, and the norbs_core core states in that order
-        idx = np.append (np.where (self.is_frag_orb)[0], np.where (np.logical_not (self.is_frag_orbs))[0])
+        idx = np.append (self.frag_orb_list, self.env_orb_list)
         self.loc2emb = np.eye (norbs_tot, dtype=float)[:,idx]
-        print ("Testing loc2emb initial construction:\n{0}".format (self.loc2emb))
         
         # Impurity Hamiltonian
         self.impham_CONST = None
@@ -90,6 +86,11 @@ class fragment_object:
         self.CASMOnat = None
         self.CASOccNum = None
 
+`       # Report
+        print ("Constructed a fragment of {0} orbitals for a system with {1} total orbitals".format (self.norbs_frag, self.norbs_tot))
+        print ("Using a {0} [{1}] calculation to solve the impurity problem".format (self.imp_solver_longname, self.imp_solver_method))
+        print ("Fragment orbitals: " + ' '.join (self.frag_orb_list))
+        print ("Testing loc2emb matrix:\n{0}".format (self.loc2emb))
 
 
     # Dependent attributes, never to be modified directly
@@ -124,6 +125,34 @@ class fragment_object:
             return self.imp_solver_name + str (self.active_space)
         except AttributeError:
             return self.imp_solver_name
+
+    @property
+    def is_frag_orb (self):
+        r = np.zeros (self.norbs_tot, dtype=bool)
+        r[self.frag_orb_list] = True
+        return r
+
+    @property
+    def is_env_orb (self):
+        return np.logical_not (self.is_frag_orb)
+
+    @property
+    def env_orb_list (self):
+        return np.flatnonzero (self.is_env_orb))
+
+    @property
+    def is_active_orb (self):
+        r = np.zeros (self.norbs_tot, dtype=bool)
+        r[self.active_orb_list] = True
+        return r
+
+    @property
+    def is_inactive_orb (self):
+        return np.logical_not (self.is_active_orb)
+
+    @property
+    def inactive_orb_list (self):
+        return np.flatnonzero (self.is_inactive_orb)
     ############################################################################################################################
 
 
@@ -133,6 +162,7 @@ class fragment_object:
     ############################################################################################################################
     def do_Schmidt_decomposition (self, guide_1RDM):
         self.loc2emb, self.norbs_bath, self.nelec_imp = testing.schmidt_decompose_1RDM (guide_1RDM, self.loc2frag, self.norbs_bath_max)
+        print ("Schmidt decomposition found a total of {0} bath orbitals for this fragment, of an allowed total of {1}".format (self.norbs_bath, self.norbs_bath_max))
         return self.loc2emb, self.norbs_bath, self.nelec_imp
     ##############################################################################################################################
 
