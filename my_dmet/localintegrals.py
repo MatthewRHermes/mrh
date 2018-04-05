@@ -24,7 +24,7 @@ from pyscf.tools import molden
 import mrh.my_dmet.rhf
 from . import iao_helper
 import numpy as np
-import mrh.util.basis.represent_an_operator_in_subspace
+import mrh.util.basis
 
 
 class localintegrals:
@@ -199,7 +199,7 @@ class localintegrals:
         norbs_tot=self.mol.nao_nr ()
         norbs_core=norbs_tot - norbs_imp
         loc2core = loc2dmet[:,::-1] 
-        GAMMA = mrh.util.basis.represent_an_operator_in_subspace (wm_approx_dmet, loc2core[:,:norbs_core])
+        GAMMA = mrh.util.basis.represent_operator_in_subspace (wm_approx_dmet, loc2core[:,:norbs_core])
         OEI = self.dmet_oei (loc2core, norbs_core)
         FOCK = self.dmet_fock (loc2core, norbs_core, wm_approx_1RDM)
         return 0.5 * np.einsum ('ij,ij->', GAMMA, OEI + FOCK)
