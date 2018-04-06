@@ -29,86 +29,55 @@ import time
 
 class dmet:
 
-    def __init__( self, theInts, impurityClusters, isTranslationInvariant, method='ED', SCmethod='LSTSQ', fitImpBath=True, use_constrained_opt=False, doDET=False,doDET_NO=False):
+    def __init__( self, theInts, fragments, isTranslationInvariant, SCmethod='LSTSQ', incl_bath_errvec=True, use_constrained_opt=False, doDET=False,doDET_NO=False):
     
         if ( isTranslationInvariant == True ):
             assert( theInts.TI_OK == True )
+            assert( len (fragments) == 1 )
         
-        assert (( method == 'ED' ) or ( method == 'CC' ) or ( method == 'MP2' ) or ( method == 'CASSCF' ) or ( method == 'RHF' ))
         assert (( SCmethod == 'LSTSQ' ) or ( SCmethod == 'BFGS' ) or ( SCmethod == 'NONE' ))
         
         self.ints       = theInts
-        self.Norb       = self.ints.Norbs
-        self.impClust   = impurityClusters
-        self.umat       = np.zeros([ self.Norb, self.Norb ], dtype=float)
+        self.norbs_tot  = self.ints.Norbs
+        self.fragments  = fragments
+        self.umat       = np.zeros([ self.norbs_tot, self.norbs_tot ], dtype=float)
         self.relaxation = 0.0
         
         self.NI_hack    = False
-        self.method     = method
         self.doSCF      = False
         self.TransInv   = isTranslationInvariant
         self.SCmethod   = SCmethod
         self.CC_E_TYPE  = 'LAMBDA' #'CASCI'/'LAMBDA'
-        self.BATH_ORBS  = None
-        self.fitImpBath = fitImpBath
+        self.incl_bath_errvec = incl_bath_errvec
         self.doDET      = doDET
         self.doDET_NO   = doDET_NO
-        self.NOrotation = None
+        self.loc2fno = None
         self.altcostfunc = use_constrained_opt
-
-        #HP: Define impurity CAS space 
-        self.impCAS = (2,2)  #default
-        self.CASlist = None  #default
-        self.MOmf = None
-        self.MO = None
-        self.MOnat = None		
-        self.ao2loc = self.ints.ao2loc    #transform AO to LOC		
-        self.loc2dmet = None  #transform LOC to DMET, only imp + bath will be stored		
-        self.OccNum = None
 
         #HP: use UHF solver
         self.UHF = False
-        self.flagged_frag_method = 'RHF'
 		
         self.minFunc    = None
         if self.altcostfunc:
             self.minFunc = 'FOCK_INIT'  # 'OEI'
-            assert (self.fitImpBath == False)
+            assert (self.incl_bath_errvec == False)
             assert (self.doDET == False)
             assert (self.SCmethod == 'BFGS' or self.SCmethod == 'NONE')
-        
-        if (( self.method == 'CC' ) and ( self.CC_E_TYPE == 'CASCI' )):
-            assert( len( self.impClust ) == 1 )
-
-        #HP: debugging CASCI method
-        if (( self.method == 'RHF' ) and ( self.CC_E_TYPE == 'CASCI' )):
-            assert( len( self.impClust ) == 1 ) 
-			
-        #HP: modified for CASSCF solver			
-        if (( self.method == 'CASSCF' ) and ( self.CC_E_TYPE == 'CASCI' )):
-            assert( len( self.impClust ) == 1 ) 
-			
+       
         if ( self.doDET == True ):
             # Cfr Bulik, PRB 89, 035140 (2014)
-            self.fitImpBath = False
-            if ( self.doDET_NO == True ):
-                self.NOvecs = None
-                self.NOdiag = None
+            self.incl_bath_errvec = False
         
         self.print_u   = True
         self.print_rdm = True
         
-        allOne = self.testclusters()
-        if ( allOne == False ): # One or more impurities which do not cover the entire system
+        self.get_allcore_orbs ()
+        if ( self.norbs_allcore > 0 ): # One or more impurities which do not cover the entire system
             assert( self.TransInv == False ) # Make sure that you don't work translational invariant
             # Note on working with impurities which do no tile the entire system: they should be the first orbitals in the Hamiltonian!
         
         self.energy   = 0.0
-        self.imp_1RDM = []
-        self.dmetOrbs = []
-        self.imp_size = self.make_imp_size()
         self.mu_imp   = 0.0
-        self.mask     = self.make_mask()
         self.helper   = qcdmethelper.qcdmethelper( self.ints, self.makelist_H1(), self.altcostfunc, self.minFunc )
         
         self.time_ed  = 0.0
@@ -118,251 +87,113 @@ class dmet:
         
         np.set_printoptions(precision=3, linewidth=160)
         
-    def testclusters( self ):
-    
-        quicktest = np.zeros([ self.Norb ], dtype=int)
-        for item in self.impClust:
-            quicktest += np.abs(item)
+    def get_allcore_orbs ( self ):
+        # I guess this just determines whether every orbital has a fragment or not    
+
+        quicktest = np.zeros([ self.norbs_tot ], dtype=int)
+        for frag in self.fragments:
+            quicktest += np.abs(frag.is_frag_orb.astype (int))
         assert( np.all( quicktest >= 0 ) )
         assert( np.all( quicktest <= 1 ) )
-        allOne = np.all( quicktest == 1 )
-        return allOne
+        self.is_allcore_orb = np.logical_not (quicktest.astype (bool))
             
-    def make_imp_size( self ):
-    
-        thearray = []
-        maxiter = len( self.impClust )
-        if ( self.TransInv == True ):
-            maxiter = 1
-        for counter in range( maxiter ):
-            impurityOrbs = np.abs(self.impClust[ counter ])
-            norbs_frag = np.sum( impurityOrbs )
-            thearray.append( norbs_frag )
-        thearray = np.array( thearray )
-        return thearray
+    @property
+    def loc2allcore (self):
+        return np.eye (self.norbs_tot, dtype=float)[:,self.is_allcore_orb]
+
+    @property
+    def norbs_allcore (self):
+        return np.count_nonzero (self.is_allcore_orb)
+
+    @property
+    def allcore_orb_list (self):
+        return np.flatnonzero (self.is_allcore_orb)
 
     def makelist_H1( self ):
-    
+   
+        # OK, this is somehow related to the C code that came with this that does rhf response. 
         theH1 = []
         if ( self.doDET == True ): # Do density embedding theory
             if ( self.TransInv == True ): # Translational invariance assumed
-                localsize = self.imp_size[ 0 ]
-                for row in range( localsize ):
-                    H1 = np.zeros( [ self.Norb, self.Norb ], dtype=int )
-                    for jumper in range( self.Norb // localsize ):
-                        jumpsquare = localsize * jumper
+                # In this case, it appears that H1 identifies a set of diagonal 1RDM elements that are equivalent by symmetry
+                for row in range( self.fragments[0].norbs_frag ):
+                    H1 = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=int )
+                    for jumper in range( self.norbs_tot // self.fragments[0].norbs_frag ):
+                        jumpsquare = self.fragments[0].norbs_frag * jumper
                         H1[ jumpsquare + row, jumpsquare + row ] = 1
                     theH1.append( H1 )
             else: # NO translational invariance assumed
+                # Huh? In this case it's a long list of giant matrices with only one nonzero value each
                 jumpsquare = 0
-                for localsize in self.imp_size:
-                    for row in range( localsize ):
-                        H1 = np.zeros( [ self.Norb, self.Norb ], dtype=int )
+                for frag in self.fragments:
+                    for row in range( frag.norbs_frag ):
+                        H1 = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=int )
                         H1[ jumpsquare + row, jumpsquare + row ] = 1
                         theH1.append( H1 )
-                    jumpsquare += localsize
+                    jumpsquare += frag.norbs_frag
         else: # Do density MATRIX embedding theory
+            # Upper triangular parts of 1RDMs only
             if ( self.TransInv == True ): # Translational invariance assumed
-                localsize = self.imp_size[ 0 ]
-                for row in range( localsize ):
-                    for col in range( row, localsize ):
-                        H1 = np.zeros( [ self.Norb, self.Norb ], dtype=int )
-                        for jumper in range( self.Norb // localsize ):
-                            jumpsquare = localsize * jumper
+                # Same as above
+                for row in range( self.fragments[0].norbs_frag ):
+                    for col in range( row, self.fragments[0].norbs_frag ):
+                        H1 = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=int )
+                        for jumper in range( self.norbs_tot // self.fragments[0].norbs_frag ):
+                            jumpsquare = self.fragments[0].norbs_frag * jumper
                             H1[ jumpsquare + row, jumpsquare + col ] = 1
                             H1[ jumpsquare + col, jumpsquare + row ] = 1
                         theH1.append( H1 )
             else: # NO translational invariance assumed
+                # same as above
                 jumpsquare = 0
-                for localsize in self.imp_size:
-                    for row in range( localsize ):
-                        for col in range( row, localsize ):
-                            H1 = np.zeros( [ self.Norb, self.Norb ], dtype=int )
+                for frag in self.fragments:
+                    for row in range( frag.norbs_frag ):
+                        for col in range( row, frag.norbs_frag ):
+                            H1 = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=int )
                             H1[ jumpsquare + row, jumpsquare + col ] = 1
                             H1[ jumpsquare + col, jumpsquare + row ] = 1
                             theH1.append( H1 )
-                    jumpsquare += localsize
+                    jumpsquare += frag.norbs_frag
         return theH1
         
-    def make_mask( self ):
-    
-        themask = np.zeros( [ self.Norb, self.Norb ], dtype=bool )
-        if ( self.doDET == True ): # Do density embedding theory
-            jump = 0
-            for localsize in self.imp_size: # self.imp_size has length 1 if self.TransInv
-                for row in range( localsize ):
-                    themask[ jump + row, jump + row ] = True
-                jump += localsize
-        else: # Do density MATRIX embedding theory
-            jump = 0
-            for localsize in self.imp_size: # self.imp_size has length 1 if self.TransInv
-                for row in range( localsize ):
-                    for col in range( row, localsize ):
-                        themask[ jump + row, jump + col ] = True
-                jump += localsize
-        return themask
-        
-    def doexact( self, chempot_imp=0.0 ):  
+    def doexact( self, chempot_frag=0.0 ):  
         OneRDM = self.helper.construct1RDM_loc( self.doSCF, self.umat ) #HP: construct 1rdm (in AO) for the total system from the Fock matrix in local ao basis. projected on atoms?
         self.energy   = 0.0												#This OneRDM will be used to construct the bath
-        self.imp_1RDM = []
-        self.dmetOrbs = []
-        if ( self.doDET == True ) and ( self.doDET_NO == True ):
-            self.NOvecs = []
-            self.NOdiag = []
-        
-        maxiter = len( self.impClust )
-        if ( self.TransInv == True ):
-            maxiter = 1
-            
-        remainingOrbs = np.ones( [ len( self.impClust[ 0 ] ) ], dtype=float )
 
-        E_frag = [] #HP: to export fragment energies
-        for counter in range( maxiter ):
-
-            flagged_frag = int (np.sum(self.impClust[ counter ])) < 0
-            impurityOrbs = np.abs(self.impClust[ counter ])
-            norbs_frag   = np.sum( impurityOrbs )
-            if (self.BATH_ORBS != None and self.BATH_ORBS[ counter ] != 0):
-                norbs_bath = self.BATH_ORBS[ counter ]
-            else:
-                norbs_bath = norbs_frag
-				
-            norbs_bath, loc2dmet, core1RDM_dmet = self.helper.constructbath( OneRDM, impurityOrbs, norbs_bath )
-            if ( self.BATH_ORBS == None ):
-                core_cutoff = 0.01
-            else:
-                core_cutoff = 0.5
-            for cnt in range(len(core1RDM_dmet)):
-                if ( core1RDM_dmet[ cnt ] < core_cutoff ):
-                    core1RDM_dmet[ cnt ] = 0.0
-                elif ( core1RDM_dmet[ cnt ] > 2.0 - core_cutoff ):
-                    core1RDM_dmet[ cnt ] = 2.0
-                else:
-                    print ("Bad DMET bath orbital selection: trying to put a bath orbital with occupation", core1RDM_dmet[ cnt ], "into the environment :-(.")
-                    assert( 0 == 1 )
-
-            norbs_imp  = norbs_frag + norbs_bath
-            nelec_imp = int(round(self.ints.Nelec - np.sum( core1RDM_dmet )))
-            core1RDM_loc = np.dot( np.dot( loc2dmet, np.diag( core1RDM_dmet ) ), loc2dmet.T )   			
-            self.dmetOrbs.append( loc2dmet[ :, :norbs_imp ] ) # Impurity and bath orbitals only
-            assert( norbs_imp <= self.Norb )
-            dmetOEI  = self.ints.dmet_oei(  loc2dmet, norbs_imp )
-            dmetFOCK = self.ints.dmet_fock( loc2dmet, norbs_imp, core1RDM_loc )
-            dmetTEI  = self.ints.dmet_tei(  loc2dmet, norbs_imp )
-            
-            if ( self.NI_hack == True ):
-                dmetTEI[:,:,:,norbs_frag:]=0.0
-                dmetTEI[:,:,norbs_frag:,:]=0.0
-                dmetTEI[:,norbs_frag:,:,:]=0.0
-                dmetTEI[norbs_frag:,:,:,:]=0.0
-            
-                umat_rotated = np.dot(np.dot(loc2dmet.T, self.umat), loc2dmet)
-                umat_rotated[:norbs_frag,:norbs_frag]=0.0
-                dmetOEI += umat_rotated[:norbs_imp,:norbs_imp]
-                dmetFOCK = np.array( dmetOEI, copy=True )
-            
-            print ("DMET::exact : Performing a (", norbs_imp, "orb,", nelec_imp, "el ) DMET active space calculation.")
-            if ( flagged_frag and self.flagged_frag_method == 'RHF' ):
-                print ("DMET::exact : Performing RHF calculation for this (flagged) impurity")
-                from . import pyscf_rhf
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_rhf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp ) #self.CC_E_TYPE, chempot_imp )
-            elif ( flagged_frag and self.flagged_frag_method == 'MP2' ):
-                print ("DMET::exact : Performing MP2 calculation for this (flagged) impurity")
-                from . import pyscf_mp2
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_mp2.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp )
-#            if ( flag_rhf and self.UHF == True):
-#                from . import pyscf_uhf
-#                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
-#                IMP_energy, IMP_1RDM = pyscf_uhf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp )				
-            elif ( self.method == 'ED' ):
-                print ("DMET::exact : Performing exact diagonalization for this impurity")
-                from . import chemps2
-                IMP_energy, IMP_1RDM = chemps2.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, chempot_imp )
-            elif ( self.method == 'CC' ):
-                print ("DMET::exact : Performing CC calculation for this impurity")
-                from . import pyscf_cc
-                assert( nelec_imp % 2 == 0 )
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_cc.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, self.CC_E_TYPE, chempot_imp )
-            elif ( self.method == 'MP2' ):
-                print ("DMET::exact : Performing MP2 calculation for this impurity")
-                from . import pyscf_mp2
-                assert( nelec_imp % 2 == 0 )
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_mp2.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp )
-            elif ( self.method == 'CASSCF' ):
-                from . import pyscf_casscf
-                print ("DMET::exact : Performing CASSCF calculation for this impurity")
-                assert( nelec_imp % 2 == 0 )
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
-                IMP_energy, IMP_1RDM, MOmf, MO, MOnat, OccNum = pyscf_casscf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, self.impCAS, self.CASlist, DMguessRHF, self.CC_E_TYPE, chempot_imp )
-                
-                self.MOmf = MOmf
-                self.MO = MO	#the MO is updated eveytime the CASSCF solver called
-                self.MOnat = MOnat
-                self.loc2dmet = loc2dmet	#similar to MO		[:,:norbs_imp]	
-                self.OccNum = OccNum
-            elif ( self.method == 'RHF' ):
-                print ("DMET::exact : Performing RHF calculation for this impurity")
-                from . import pyscf_rhf
-                assert( nelec_imp % 2 == 0 )
-                DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, norbs_imp, nelec_imp//2, norbs_frag, chempot_imp )
-                IMP_energy, IMP_1RDM = pyscf_rhf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, norbs_imp, nelec_imp, norbs_frag, DMguessRHF, chempot_imp ) # self.CC_E_TYPE, chempot_imp )
-            self.energy += IMP_energy
-            E_frag.append(IMP_energy)
-            self.imp_1RDM.append( IMP_1RDM )
-            if ( self.doDET == True ) and ( self.doDET_NO == True ):
-                RDMeigenvals, RDMeigenvecs = np.linalg.eigh( IMP_1RDM[ :norbs_frag, :norbs_frag ] )
-                self.NOvecs.append( RDMeigenvecs )
-                self.NOdiag.append( RDMeigenvals )
-                
-            remainingOrbs -= impurityOrbs
+        for frag in self.fragments:
+            frag.do_Schmidt_decomposition (OneRDM)
+            frag.construct_impurity_hamiltonian (OneRDM)
+            frag.solve_impurity_problem (chempot_frag, self.CC_E_TYPE)
+            self.energy += frag.E_frag
         
         if ( self.doDET == True ) and ( self.doDET_NO == True ):
-            self.NOrotation = self.constructNOrotation()
+            self.loc2fno = self.constructloc2fno()
         
-        Nelectrons = 0.0
-        Nefrag = []
-        for counter in range( maxiter ):
-            Nelectrons += np.trace( self.imp_1RDM[counter][ :self.imp_size[counter], :self.imp_size[counter] ] )
-            Nefrag.append(np.trace( self.imp_1RDM[counter][ :self.imp_size[counter], :self.imp_size[counter] ] ))
+        Nefrag = [np.trace (frag.oneRDM_imp[:frag.norbs_frag,:frag.norbs_frag]) for frag in self.fragments]
+        Nelectrons = sum (Nefrag)
 			
         if ( self.TransInv == True ):
-            Nelectrons = Nelectrons * len( self.impClust )
-            self.energy = self.energy * len( self.impClust )
-            remainingOrbs[:] = 0
+            Nelectrons = Nelectrons * len( self.fragments )
+            self.energy = self.energy * len( self.fragments )
 
 		#HungPham		
-        print('Fragment energies:',E_frag)
+        print('Fragment energies:', [frag.E_frag for frag in self.fragments])
         print('Fragment electrons:',Nefrag)
         E1 = self.energy	
         print('DEBUG Energy before adding up envi contribution:',E1)
 		
         # When an incomplete impurity tiling is used for the Hamiltonian, self.energy should be augmented with the remaining HF part
-        if ( np.sum( remainingOrbs ) != 0 ):
+        if ( self.norbs_allcore > 0 ):
         
             if ( self.CC_E_TYPE == 'CASCI' ):
-                '''
-                If CASCI is passed as CC energy type, the energy of the one and only full impurity Hamiltonian is returned.
-                The one-electron integrals of this impurity Hamiltonian is the full Fock operator of the CORE orbitals!
-                The constant part of the energy still needs to be added: sum_occ ( 2 * OEI[occ,occ] + JK[occ,occ] )
-                                                                         = einsum( core1RDM_loc, OEI ) + 0.5 * einsum( core1RDM_loc, JK )
-                                                                         = 0.5 * einsum( core1RDM_loc, OEI + FOCK )
-                '''
-                assert( maxiter == 1 )		
+                assert( len (self.fragments) == 1 )		
                 print("-----NOTE: CASCI or Single embedding is used-----")				
-                transfo = np.eye( self.Norb, dtype=float )
-                totalOEI  = self.ints.dmet_oei(  transfo, self.Norb )
-                totalFOCK = self.ints.dmet_fock( transfo, self.Norb, core1RDM_loc )
-                self.energy += 0.5 * np.einsum( 'ij,ij->', core1RDM_loc, totalOEI + totalFOCK )	
-                Nelectrons = np.trace( self.imp_1RDM[ 0 ] ) + np.trace( core1RDM_loc ) # Because full active space is used to compute the energy
+                self.energy = self.frag[0].E_imp
+                Nelectrons = np.trace( self.frag[0].oneRDM_loc ) # Because full active space is used to compute the energy
             else:
-                #transfo = np.eye( self.Norb, dtype=float )
-                #totalOEI  = self.ints.dmet_oei(  transfo, self.Norb )
-                #totalFOCK = self.ints.dmet_fock( transfo, self.Norb, OneRDM )
+                #transfo = np.eye( self.norbs_tot, dtype=float )
+                #totalOEI  = self.ints.dmet_oei(  transfo, self.norbs_tot )
+                #totalFOCK = self.ints.dmet_fock( transfo, self.norbs_tot, OneRDM )
                 #self.energy += 0.5 * np.einsum( 'ij,ij->', OneRDM[remainingOrbs==1,:], \
                 #         totalOEI[remainingOrbs==1,:] + totalFOCK[remainingOrbs==1,:] )
                 #Nelectrons += np.trace( (OneRDM[remainingOrbs==1,:])[:,remainingOrbs==1] )
@@ -374,9 +205,8 @@ class dmet:
                 mol_ = self.ints.mol
                 mf_  = scf.RHF(mol_)
 
-                impOrbs = remainingOrbs==1
                 xorb = np.dot(mf_.get_ovlp(), self.ints.ao2loc)
-                hc  = -chempot_imp * np.dot(xorb[:,impOrbs], xorb[:,impOrbs].T)
+                hc  = -chempot_imp * np.dot(xorb[:,self.is_allcore_orb], xorb[:,self.is_allcore_orb].T)
                 dm0 = np.dot(self.ints.ao2loc, np.dot(OneRDM, self.ints.ao2loc.T))
 
                 def mf_hcore (self, mol=None):
@@ -395,38 +225,35 @@ class dmet:
                 jk   = np.dot(self.ints.ao2loc.T, np.dot(jk, self.ints.ao2loc))
 
                 ImpEnergy = \
-                   + 0.50 * np.einsum('ji,ij->', rdm1[:,impOrbs], oei[impOrbs,:]) \
-                   + 0.50 * np.einsum('ji,ij->', rdm1[impOrbs,:], oei[:,impOrbs]) \
-                   + 0.25 * np.einsum('ji,ij->', rdm1[:,impOrbs], jk[impOrbs,:]) \
-                   + 0.25 * np.einsum('ji,ij->', rdm1[impOrbs,:], jk[:,impOrbs])
+                   + 0.50 * np.einsum('ji,ij->', rdm1[:,is_allcore_orb], oei[impOrbs,:]) \
+                   + 0.50 * np.einsum('ji,ij->', rdm1[is_allcore_orb,:], oei[:,impOrbs]) \
+                   + 0.25 * np.einsum('ji,ij->', rdm1[:,is_allcore_orb], jk[impOrbs,:]) \
+                   + 0.25 * np.einsum('ji,ij->', rdm1[is_allcore_orb,:], jk[:,impOrbs])
                 self.energy += ImpEnergy
-                Nelectrons += np.trace(rdm1[np.ix_(impOrbs,impOrbs)])
+                Nelectrons += np.trace(rdm1[np.ix_(is_allcore_orb,impOrbs)])
 
-            remainingOrbs[ remainingOrbs==1 ] -= 1
-        assert( np.all( remainingOrbs == 0 ) )
-		
         print('Energy decomposition for debug:',E1, self.energy-E1, self.energy) #HP: for debug
         print('Nuclear potential:',self.ints.const()) 		
         self.energy += self.ints.const()
         return Nelectrons
         
-    def constructNOrotation( self ):
+    def constructloc2fno( self ):
     
-        myNOrotation = np.zeros( [ self.Norb, self.Norb ], dtype=float )
+        myloc2fno = np.empty ((0,0), dtype=float )
         jumpsquare = 0
-        for count in range( len( self.imp_size ) ): # self.imp_size has length 1 if self.TransInv
-            myNOrotation[ jumpsquare : jumpsquare + self.imp_size[ count ], jumpsquare : jumpsquare + self.imp_size[ count ] ] = self.NOvecs[ count ]
-            jumpsquare += self.imp_size[ count ]
-        for count in range( jumpsquare, self.Norb ):
-            myNOrotation[ count, count ] = 1.0
+        for frag in self.fragments:
+            myloc2fno = np.append (myloc2fno, frag.loc2fno)
+            jumpsquare += frag.norbs_frag
         if ( self.TransInv == True ):
-            size = self.imp_size[ 0 ]
-            for it in range( 1, self.Norb / size ):
-                myNOrotation[ it*size:(it+1)*size, it*size:(it+1)*size ] = myNOrotation[ 0:size, 0:size ]
+            norbs_frag = self.fragments[0].norbs_frag
+            for it in range( 1, self.norbs_tot / norbs_frag ):
+                myloc2fno[ it*norbs_frag:(it+1)*norbs_frag, it*norbs_frag:(it+1)*norbs_frag ] = myloc2fno[ 0:norbs_frag, 0:norbs_frag ]
         '''if True:
-            assert ( np.linalg.norm( np.dot( myNOrotation.T, myNOrotation ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )
-            assert ( np.linalg.norm( np.dot( myNOrotation, myNOrotation.T ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )'''
-        return myNOrotation
+            assert ( np.linalg.norm( np.dot( myloc2fno.T, myloc2fno ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )
+            assert ( np.linalg.norm( np.dot( myloc2fno, myloc2fno.T ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )'''
+        elif (jumpsquare != frag.norbs_tot):
+            myloc2fno = mrh.util.basis.complete_a_basis (myloc2fno)
+        return myloc2fno
         
     def costfunction( self, newumatflat ):
 
@@ -437,7 +264,8 @@ class dmet:
         newumatsquare_loc = self.flat2square( newumatflat )
         OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
 
-        errors    = self.rdm_differences_bis( newumatflat )
+#        errors    = self.rdm_differences_bis( newumatflat )
+        errors    = self.rdm_differences (numatflat) # I should have collapsed the function of rdm_differences_bis into rdm_differences
         errors_sq = self.flat2square (errors)
 
         if self.minFunc == 'OEI' :
@@ -459,76 +287,79 @@ class dmet:
 
     def alt_costfunction_derivative( self, newumatflat ):
         
-        errors = self.rdm_differences_bis( newumatflat )
+#        errors = self.rdm_differences_bis( newumatflat )
+        errors = self.rdm_differences (numatflat) # I should have collapsed the function of rdm_differences_bis into rdm_differences
         return -errors
-    
+
+    def len_errvec (self):
+        if self.doDET:
+            # Diagonal elements only
+            assert (not self.incl_bath_errvec)
+            return np.sum ([frag.norbs_frag for frag in self.fragments])
+        elif self.altcostfunc:
+            # Upper triangular elements only
+            assert (not self.incl_bath_errvec)
+            return np.sum ([(frag.norbs_frag ** 2 + frag.norbs_frag) // 2 for frag in self.fragments])
+        elif self.incl_bath_errvec:
+            # Fragment and bath orbital diagonals and off-diagonals
+            return np.sum ([frag.norbs_imp ** 2 for frag in self.fragments])
+        else:
+            # Fragment-orbital only diagonals and off-diagonals
+            return np.sum ([frag.norbs_frag ** 2 for frag in self.fragments])
+
+    def unroll_err1RDM (self, frag, err_1RDM_imp):
+        # Fragment and bath diagonals and off-diagonals
+        if self.incl_bath_errvec:
+            return err_1RDM_imp.flatten (order='F')
+        err_1RDM_frag = err_1RDM_imp[:frag.norbs_frag,:frag.norbs_frag]
+        if self.doDET:
+            if self.doDET_NO:
+        # Fragment natural-orbital diagonals
+                return np.diag (np.dot (np.dot (frag.frag2fno.T, err_1RDM_frag), frag.frag2fno))
+        # Fragment local diagonals
+            return np.diag (err_1RDM_frag)
+        # Upper-triangular fragment diagonals and off-diagonals
+        if self.altcostfunc:
+            return err_1RDM_frag[np.triu_indices (frag.norbs_frag)]
+        # All fragment diagonals and off-diagonals
+        return err_1RDM_frag.flatten (order='F')
+
     def rdm_differences( self, newumatflat ):
     
         start_func = time.time()
     
         newumatsquare_loc = self.flat2square( newumatflat )
         OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
+        errvec = np.empty (0, dtype=float)
         
-        thesize = 0
-        for count in range(len(self.imp_size)):
-            if ( self.doDET == True ): # Do density embedding theory: fit only impurity
-                thesize += self.imp_size[ count ]
-                assert ( self.fitImpBath == False )
-            else: # Do density MATRIX embedding theory
-                if ( self.fitImpBath == True ):
-                    thesize += self.dmetOrbs[count].shape[1] * self.dmetOrbs[count].shape[1]
-                else:
-                    thesize += self.imp_size[ count ] * self.imp_size[ count ]
-        errors = np.zeros( [ thesize ], dtype=float )
-        
-        jump = 0
-        for count in range( len( self.imp_size ) ): # self.imp_size has length 1 if self.TransInv
-            if ( self.fitImpBath == True ):
-                mf_1RDM = np.dot( np.dot( self.dmetOrbs[ count ].T, OneRDM_loc ), self.dmetOrbs[ count ] )
-                ed_1RDM = self.imp_1RDM[count]
-            else:
-                mf_1RDM = (OneRDM_loc[:,np.flatnonzero(self.impClust[count])])[np.flatnonzero(self.impClust[count]),:]
-                ed_1RDM = self.imp_1RDM[count][:self.imp_size[count],:self.imp_size[count]]
-            if ( self.doDET == True ): # Do density embedding theory
-                if ( self.doDET_NO == True ): # Work in the NO basis
-                    theerror = np.diag( np.dot( np.dot( self.NOvecs[ count ].T, mf_1RDM ), self.NOvecs[ count ] ) ) - self.NOdiag[ count ]
-                else: # Work in the lattice basis
-                    theerror = np.diag( mf_1RDM - ed_1RDM )
-                errors[ jump : jump + len( theerror ) ] = theerror
-                jump += len( theerror )
-            else: # Do density MATRIX embedding theory
-                theerror = mf_1RDM - ed_1RDM
-                squaresize = theerror.shape[0] * theerror.shape[1]
-                errors[ jump : jump + squaresize ] = np.reshape( theerror, squaresize, order='F' )
-                jump += squaresize
-        assert ( jump == thesize )
-        
+        for frag in self.fragments:
+            mf_1RDM = np.dot (np.dot (frag.loc2imp.T, OneRDM_loc), frag.loc2imp)
+            ed_1RDM = frag.oneRDM_imp
+            error_1RDM = mf_1RDM - ed_1RDM
+            errvec = np.append (errvec, self.unroll_err1RDM (frag, err_1RDM_imp))
+        assert (len (errvec.shape) == 1), "{0}".format (errvec.shape)
+        assert (errvec.shape[0] = self.len_errvec ()), "{0}".format (errvec.shape[0])
+
         stop_func = time.time()
         self.time_func += ( stop_func - start_func )
         
-        return errors
-        
+        return errvec
+
+'''
+    I think I collapsed the function of this into rdm_differences when I defined unroll_err1RDM 
     def rdm_differences_bis( self, newumatflat ):
     
         start_func = time.time()
     
         newumatsquare_loc = self.flat2square( newumatflat )
         OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
+        errvec = np.empty (0, dtype=float)
 
-        thesize = 0
-        jump = 0
-        for count in range(len(self.imp_size)):
-            # thesize += self.imp_size[ count ] * self.imp_size[ count ]
-            mask_t = self.mask[ np.ix_(range(jump,jump+self.imp_size[count]),range(jump,jump+self.imp_size[count])) ]
-            thesize += np.count_nonzero( mask_t )
-            jump += self.imp_size[count]
-        errors = np.zeros( [ thesize ], dtype=float )
-        
-        jump = 0
-        jumpc = 0
-        for count in range( len( self.imp_size ) ): # self.imp_size has length 1 if self.TransInv
-            mf_1RDM = (OneRDM_loc[:,np.flatnonzero(self.impClust[count])])[np.flatnonzero(self.impClust[count]),:]
-            ed_1RDM = self.imp_1RDM[count][:self.imp_size[count],:self.imp_size[count]]
+        for frag in self.fragments:
+            mf_1RDM = 
+#        for count in range( len( self.imp_size ) ): # self.imp_size has length 1 if self.TransInv
+            mf_1RDM = OneRDM_loc[np.ix_(frag.frag_orb_list, frag.frag_orb_list)]
+            ed_1RDM = frag.oneRDM_imp[:frag.norbs_frag,:frag.norbs_frag]
             theerror = mf_1RDM - ed_1RDM
             # squaresize = theerror.shape[0] * theerror.shape[1]
             # errors[ jump : jump + squaresize ] = np.reshape( theerror, squaresize, order='F' )
@@ -543,49 +374,39 @@ class dmet:
         self.time_func += ( stop_func - start_func )
         
         return errors
+'''
+
+    def unroll_deriv1RDM (self, frag, deriv1RDM_loc):
+        # altcostfunc doesn't appear here because its derivative is computed differently
+        if self.incl_bath_errvec:
+            return np.dot (np.dot (frag.loc2imp.T, deriv1RDM_loc), frag.loc2imp).flatten (order='F')
+        deriv1RDM_frag = np.dot (np.dot (frag.loc2frag.T, deriv1RDM_loc), frag.loc2frag)
+        if self.doDET_NO:
+            deriv1RDM_fno = np.dot (np.dot (frag.frag2fno.T, deriv1RDM_frag), frag.frag2fno)
+            return np.diag (deriv1RDM_fno)
+        if self.doDET:
+            return np.diag (deriv1RDM_frag)
+        return deriv1RDM_frag.flatten ()
 
     def rdm_differences_derivative( self, newumatflat ):
         
         start_grad = time.time()
         
         newumatsquare_loc = self.flat2square( newumatflat )
-        RDMderivs_rot = self.helper.construct1RDM_response( self.doSCF, newumatsquare_loc, self.NOrotation )
-        
-        thesize = 0
-        for count in range(len(self.imp_size)):
-            if ( self.doDET == True ): # Do density embedding theory: fit only impurity
-                thesize += self.imp_size[ count ]
-                assert ( self.fitImpBath == False )
-            else: # Do density MATRIX embedding theory
-                if ( self.fitImpBath == True ):
-                    thesize += self.dmetOrbs[count].shape[1] * self.dmetOrbs[count].shape[1]
-                else:
-                    thesize += self.imp_size[ count ] * self.imp_size[ count ]
+        # RDMderivs_rot appears to be in the natural-orbital basis if doDET_NO is specified and the local basis otherwise
+        RDMderivs_rot = self.helper.construct1RDM_response( self.doSCF, newumatsquare_loc, self.loc2fno )
         
         gradient = []
         for countgr in range( len( newumatflat ) ):
-            error_deriv = np.zeros( [ thesize ], dtype=float )
-            jump = 0
-            jumpsquare = 0
-            for count in range( len( self.imp_size ) ): # self.imp_size has length 1 if self.TransInv
-                if ( self.fitImpBath == True ):
-                    local_derivative = np.dot( np.dot( self.dmetOrbs[ count ].T, RDMderivs_rot[ countgr, :, : ] ), self.dmetOrbs[ count ] )
-                else:
-                    if ( self.doDET == True ) and ( self.doDET_NO == True ):
-                        local_derivative = RDMderivs_rot[ countgr, jumpsquare : jumpsquare + self.imp_size[ count ],\
-                                                                   jumpsquare : jumpsquare + self.imp_size[ count ] ]
-                        jumpsquare += self.imp_size[ count ]
-                    else:
-                        local_derivative = ((RDMderivs_rot[ countgr, :, : ])[:,np.flatnonzero(self.impClust[count])])[np.flatnonzero(self.impClust[count]),:]
-                if ( self.doDET == True ): # Do density embedding theory
-                    local_derivative = np.diag( local_derivative )
-                    error_deriv[ jump : jump + len( local_derivative ) ] = local_derivative
-                    jump += len( local_derivative )
-                else: # Do density MATRIX embedding theory
-                    squaresize = local_derivative.shape[0] * local_derivative.shape[1]
-                    error_deriv[ jump : jump + squaresize ] = np.reshape( local_derivative, squaresize, order='F' )
-                    jump += squaresize
-            assert ( jump == thesize )
+            errvec = np.empty (0, dtype=float )
+            deriv1RDM_loc = RDMderivs_rot[countgr, :, :]
+            if doDET_NO:
+                # It comes out of construct1RDM in the NO basis; I need to change it BACK to make sense of anything
+                deriv1RDM_loc = np.dot (np.dot (self.loc2fno, deriv1RDM_loc), self.loc2fno.T)
+            for frag in self.fragments:
+                errvec = np.append (errvec, self.unroll_deriv1RDM (frag, deriv1RDM_loc))
+                assert (len (errvec.shape) == 1), "{0}".format (errvec.shape)
+                assert (errvec.shape[0] = self.len_errvec ()), "{0}".format (errvec.shape[0])
             gradient.append( error_deriv )
         gradient = np.array( gradient ).T
         
@@ -629,31 +450,31 @@ class dmet:
         
     def flat2square( self, umatflat ):
     
-        umatsquare = np.zeros( [ self.Norb, self.Norb ], dtype=float )
-        umatsquare[ self.mask ] = umatflat
+        umatsquare = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=float )
+        umatsquare[ np.triu_indices (self.norbs_tot) ] = umatflat
         umatsquare = umatsquare.T
-        umatsquare[ self.mask ] = umatflat
+        umatsquare[ np.triu_indices (self.norbs_tot) ] = umatflat
         if ( self.TransInv == True ):
-            size = self.imp_size[ 0 ]
-            for it in range( 1, self.Norb // size ):
-                umatsquare[ it*size:(it+1)*size, it*size:(it+1)*size ] = umatsquare[ 0:size, 0:size ]
+            norbs_frag = self.fragments[0].norbs_frag
+            for it in range( 1, self.norbs_tot // norbs_frag ):
+                umatsquare[ it*norbs_frag:(it+1)*norbs_frag, it*norbs_frag:(it+1)*norbs_frag ] = umatsquare[ 0:norbs_frag, 0:norbs_frag ]
                 
         '''if True:
-            umatsquare_bis = np.zeros( [ self.Norb, self.Norb ], dtype=float )
+            umatsquare_bis = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=float )
             for cnt in range( len( umatflat ) ):
                 umatsquare_bis += umatflat[ cnt ] * self.helper.list_H1[ cnt ]
             print "Verification flat2square = ", np.linalg.norm( umatsquare - umatsquare_bis )'''
         
-        if ( self.NOrotation != None ):
-            umatsquare = np.dot( np.dot( self.NOrotation, umatsquare ), self.NOrotation.T )
+        if ( self.loc2fno != None ):
+            umatsquare = np.dot( np.dot( self.loc2fno, umatsquare ), self.loc2fno.T )
         return umatsquare
         
     def square2flat( self, umatsquare ):
     
         umatsquare_bis = np.array( umatsquare, copy=True )
-        if ( self.NOrotation != None ):
-            umatsquare_bis = np.dot( np.dot( self.NOrotation.T, umatsquare_bis ), self.NOrotation )
-        umatflat = umatsquare_bis[ self.mask ]
+        if ( self.loc2fno != None ):
+            umatsquare_bis = np.dot( np.dot( self.loc2fno.T, umatsquare_bis ), self.loc2fno )
+        umatflat = umatsquare_bis[ np.triu_indices (self.norbs_tot) ]
         return umatflat
         
     def numeleccostfunction( self, chempot_imp ):
@@ -745,34 +566,33 @@ class dmet:
     
         print ("The u-matrix =")
         squarejumper = 0
-        for localsize in self.imp_size: # self.imp_size has length 1 if self.TransInv
-            print (self.umat[ squarejumper:squarejumper+localsize , squarejumper:squarejumper+localsize ])
-            squarejumper += localsize
+        for frag in self.fragments:
+            print (self.umat[ squarejumper:squarejumper+frag.norbs_frag , squarejumper:squarejumper+frag.norbs_frag ])
+            squarejumper += frag.norbs_frag
     
     def print_1rdm( self ):
     
         print ("The ED 1-RDM of the impurities ( + baths ) =")
-        for count in range( len( self.imp_size ) ): # self.imp_size has length 1 if self.TransInv
-            print (self.imp_1RDM[ count ])
+        for frag in self.fragments:
+            print (frag.oneRDM_imp)
             
     def transform_ed_1rdm( self ):
     
         result = np.zeros( [self.umat.shape[0], self.umat.shape[0]], dtype=float )
         squarejumper = 0
-        for count in range( len( self.imp_1RDM ) ): # self.imp_size has length 1 if self.TransInv
-            localsize = self.imp_size[ count ]
-            result[ squarejumper:squarejumper+localsize , squarejumper:squarejumper+localsize ] = self.imp_1RDM[ count ][ :localsize , :localsize ]
-            squarejumper += localsize
+        for frag in self.fragments:
+            result[ squarejumper:squarejumper+frag.norbs_frag , squarejumper:squarejumper+frag.norbs_frag ] = frag.oneRDM_imp[ :frag.norbs_frag , :frag.norbs_frag ]
+            squarejumper += frag.norbs_frag
         return result
         
-    def dump_bath_orbs( self, filename, impnumber=0 ):
+    def dump_bath_orbs( self, filename, frag_idx=0 ):
         
         from . import qcdmet_paths
         from pyscf import tools
         from pyscf.tools import molden
         with open( filename, 'w' ) as thefile:
             molden.header( self.ints.mol, thefile )
-            molden.orbital_coeff( self.ints.mol, thefile, np.dot( self.ints.ao2loc, self.dmetOrbs[impnumber] ) )
+            molden.orbital_coeff( self.ints.mol, thefile, np.dot( self.ints.ao2loc, self.fragment[frag_idx].loc2imp ) )
     
     def onedm_solution_rhf(self):
         return self.helper.construct1RDM_loc( self.doSCF, self.umat )

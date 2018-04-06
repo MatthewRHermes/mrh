@@ -5,7 +5,7 @@ import re
 import numpy as np
 from pyscf import gto
 from . import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, testing, qcdmethelper
-import mrh.util.basis.get_complementary_states
+import mrh.util.basis
 
 def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int)):
     assert (len (atom_list) < ints.mol.natm)
@@ -74,8 +74,8 @@ class fragment_object:
         self.impham_TEI = None
 
         # Basic outputs of solving the impurity problem
-        self.E_frag = None
-        self.E_imp = None
+        self.E_frag = 0
+        self.E_imp = 0
         self.oneRDM_imp = None
         self.twoRDM_imp = None
         self.nelec_frag = None
@@ -163,6 +163,7 @@ class fragment_object:
     def do_Schmidt_decomposition (self, guide_1RDM):
         self.loc2emb, self.norbs_bath, self.nelec_imp = testing.schmidt_decompose_1RDM (guide_1RDM, self.loc2frag, self.norbs_bath_max)
         print ("Schmidt decomposition found a total of {0} bath orbitals for this fragment, of an allowed total of {1}".format (self.norbs_bath, self.norbs_bath_max))
+        self.oneRDM_core = mrh.util.basis.represent_operator_in_basis (guide_1RDM, self.loc2core)
         return self.loc2emb, self.norbs_bath, self.nelec_imp
     ##############################################################################################################################
 
@@ -185,7 +186,7 @@ class fragment_object:
     def get_guess_1RDM (self, chempot_frag):
         return self.ints.dmet_init_guess_rhf (self.loc2emb, self.norbs_imp, self.nelec_imp // 2, self.norbs_frag, chempot_frag)
 
-    def solve_impurity_problem (self, chempot_freq, CC_E_TYPE):
+    def solve_impurity_problem (self, chempot_frag, CC_E_TYPE):
 
         # For all solvers, the input arguments begin as:
         # CONST, OEI, FOCK, TEI, norbs_imp, nelec_imp, norbs_frag
@@ -197,7 +198,7 @@ class fragment_object:
             inputlist.extend ([(self.nelec_active, self.norbs_active), self.is_active_orb])
         # For everything except exact diagonalization, the next item is the guess 1RDM
         if not (self.imp_solver_name == "ED"):
-            inputlist.append (self.get_guess_1RDM ())
+            inputlist.append (self.get_guess_1RDM (chempot_frag))
         # For the CC and CASSCF methods, the next item is CC_E_TYPE
         if (self.imp_solver_name == "CC") or (self.imp_solver_name == "CASSCF"):
             inputlist.append (CC_E_TYPE)
@@ -212,14 +213,17 @@ class fragment_object:
         else:
             self.E_frag = outputtuple[0]
 
-        # The second item in the output tuple is the impurity 1RDM
+        # The second item in the output tuple is the impurity 1RDM.
         self.oneRDM_imp = outputtuple[1]
+        self.oneRDM_loc = mrh.util.basis.represent_operator_in_basis (np.diag (self.oneRDM_imp, self.oneRDM_core), self.loc2emb.T) 
 
         # CASSCF additionally has MOmf, MO, MOnat, and OccNum as a legacy of Hung's hackery
         if (self.imp_solver_name == "CASSCF"):
             self.CASMOmf, self.CASMO, self.CASMOnat, self.CASOccNum = outputtuple[3:]
 
-
+        # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals
+        self.fno_evals, self.frag2fno = np.linalg.eigh (self.oneRDM_imp[:norbs_frag,:norbs_frag])
+        self.loc2fno = np.dot (self.loc2frag, self.frag2fno)
 
 
 
