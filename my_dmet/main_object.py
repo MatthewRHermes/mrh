@@ -26,6 +26,8 @@ from . import localintegrals, qcdmethelper
 import numpy as np
 from scipy import optimize
 import time
+from mrh.util.basis import represent_operator_in_basis
+
 
 class dmet:
 
@@ -48,7 +50,7 @@ class dmet:
         self.TransInv   = isTranslationInvariant
         self.SCmethod   = SCmethod
         self.CC_E_TYPE  = 'LAMBDA' #'CASCI'/'LAMBDA'
-        self.incl_bath_errvec = incl_bath_errvec
+        self.incl_bath_errvec = False if doDET else incl_bath_errvec
         self.doDET      = doDET
         self.doDET_NO   = doDET_NO
         self.loc2fno = None
@@ -56,18 +58,18 @@ class dmet:
 
         #HP: use UHF solver
         self.UHF = False
-		
-        self.minFunc    = None
-        if self.altcostfunc:
-            self.minFunc = 'FOCK_INIT'  # 'OEI'
-            assert (self.incl_bath_errvec == False)
-            assert (self.doDET == False)
-            assert (self.SCmethod == 'BFGS' or self.SCmethod == 'NONE')
-       
+
         if ( self.doDET == True ):
             # Cfr Bulik, PRB 89, 035140 (2014)
             self.incl_bath_errvec = False
-        
+		
+        self.acceptable_errvec_check ()
+
+        self.minFunc    = None
+        if self.altcostfunc:
+            self.minFunc = 'FOCK_INIT'  # 'OEI'
+            assert (self.SCmethod == 'BFGS' or self.SCmethod == 'NONE')
+       
         self.print_u   = True
         self.print_rdm = True
         
@@ -87,6 +89,18 @@ class dmet:
         
         np.set_printoptions(precision=3, linewidth=160)
         
+    def acceptable_errvec_check (obj):
+        errcheck = (
+         ("bath in errvec incompatible with DET" ,             obj.incl_bath_errvec and obj.doDET),
+         ("constrained opt incompatible with DET" ,            obj.altcostfunc and obj.doDET),
+         ("bath in errvec incompatible with constrained opt" , obj.altcostfunc and obj.incl_bath_errvec),
+         ("natural orbital basis not meaningful for DMET" ,    obj.doDET_NO and (not obj.doDET))
+                   )
+    for errstr, err in errcheck:
+        if err:
+            raise RuntimeError(errstr)
+
+
     def get_allcore_orbs ( self ):
         # I guess this just determines whether every orbital has a fragment or not    
 
@@ -166,13 +180,13 @@ class dmet:
             frag.solve_impurity_problem (chempot_frag, self.CC_E_TYPE)
             self.energy += frag.E_frag
         
-        if ( self.doDET == True ) and ( self.doDET_NO == True ):
+        if (self.doDET and self.doDET_NO):
             self.loc2fno = self.constructloc2fno()
         
         Nefrag = [np.trace (frag.oneRDM_imp[:frag.norbs_frag,:frag.norbs_frag]) for frag in self.fragments]
         Nelectrons = sum (Nefrag)
 			
-        if ( self.TransInv == True ):
+        if self.TransInv:
             Nelectrons = Nelectrons * len( self.fragments )
             self.energy = self.energy * len( self.fragments )
 
@@ -238,21 +252,20 @@ class dmet:
         return Nelectrons
         
     def constructloc2fno( self ):
-    
-        myloc2fno = np.empty ((0,0), dtype=float )
-        jumpsquare = 0
+
+        myloc2fno = np.zeros ((self.norbs_tot, self.norbs_tot))
         for frag in self.fragments:
-            myloc2fno = np.append (myloc2fno, frag.loc2fno)
-            jumpsquare += frag.norbs_frag
-        if ( self.TransInv == True ):
+            myloc2fno[:,frag.frag_orb_list] = frag.loc2fno
+        if self.TransInv:
+            raise RuntimeError("fix constructloc2fno before you try to do translationally-invariant NO-basis things")
             norbs_frag = self.fragments[0].norbs_frag
             for it in range( 1, self.norbs_tot / norbs_frag ):
                 myloc2fno[ it*norbs_frag:(it+1)*norbs_frag, it*norbs_frag:(it+1)*norbs_frag ] = myloc2fno[ 0:norbs_frag, 0:norbs_frag ]
         '''if True:
             assert ( np.linalg.norm( np.dot( myloc2fno.T, myloc2fno ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )
-            assert ( np.linalg.norm( np.dot( myloc2fno, myloc2fno.T ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )'''
+            assert ( np.linalg.norm( np.dot( myloc2fno, myloc2fno.T ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )
         elif (jumpsquare != frag.norbs_tot):
-            myloc2fno = mrh.util.basis.complete_a_basis (myloc2fno)
+            myloc2fno = mrh.util.basis.complete_a_basis (myloc2fno)'''
         return myloc2fno
         
     def costfunction( self, newumatflat ):
@@ -265,7 +278,7 @@ class dmet:
         OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
 
 #        errors    = self.rdm_differences_bis( newumatflat )
-        errors    = self.rdm_differences (numatflat) # I should have collapsed the function of rdm_differences_bis into rdm_differences
+        errors    = self.rdm_differences (numatflat) # I think I collapsed the function of rdm_differences_bis into rdm_differences
         errors_sq = self.flat2square (errors)
 
         if self.minFunc == 'OEI' :
@@ -291,123 +304,36 @@ class dmet:
         errors = self.rdm_differences (numatflat) # I should have collapsed the function of rdm_differences_bis into rdm_differences
         return -errors
 
-    def len_errvec (self):
-        if self.doDET:
-            # Diagonal elements only
-            assert (not self.incl_bath_errvec)
-            return np.sum ([frag.norbs_frag for frag in self.fragments])
-        elif self.altcostfunc:
-            # Upper triangular elements only
-            assert (not self.incl_bath_errvec)
-            return np.sum ([(frag.norbs_frag ** 2 + frag.norbs_frag) // 2 for frag in self.fragments])
-        elif self.incl_bath_errvec:
-            # Fragment and bath orbital diagonals and off-diagonals
-            return np.sum ([frag.norbs_imp ** 2 for frag in self.fragments])
-        else:
-            # Fragment-orbital only diagonals and off-diagonals
-            return np.sum ([frag.norbs_frag ** 2 for frag in self.fragments])
-
-    def unroll_err1RDM (self, frag, err_1RDM_imp):
-        # Fragment and bath diagonals and off-diagonals
-        if self.incl_bath_errvec:
-            return err_1RDM_imp.flatten (order='F')
-        err_1RDM_frag = err_1RDM_imp[:frag.norbs_frag,:frag.norbs_frag]
-        if self.doDET:
-            if self.doDET_NO:
-        # Fragment natural-orbital diagonals
-                return np.diag (np.dot (np.dot (frag.frag2fno.T, err_1RDM_frag), frag.frag2fno))
-        # Fragment local diagonals
-            return np.diag (err_1RDM_frag)
-        # Upper-triangular fragment diagonals and off-diagonals
-        if self.altcostfunc:
-            return err_1RDM_frag[np.triu_indices (frag.norbs_frag)]
-        # All fragment diagonals and off-diagonals
-        return err_1RDM_frag.flatten (order='F')
-
     def rdm_differences( self, newumatflat ):
     
         start_func = time.time()
-    
+   
+        self.acceptable_errvec_check ()
+        errvec_fn = self.get_errvec_fn ()
         newumatsquare_loc = self.flat2square( newumatflat )
-        OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
-        errvec = np.empty (0, dtype=float)
-        
-        for frag in self.fragments:
-            mf_1RDM = np.dot (np.dot (frag.loc2imp.T, OneRDM_loc), frag.loc2imp)
-            ed_1RDM = frag.oneRDM_imp
-            error_1RDM = mf_1RDM - ed_1RDM
-            errvec = np.append (errvec, self.unroll_err1RDM (frag, err_1RDM_imp))
-        assert (len (errvec.shape) == 1), "{0}".format (errvec.shape)
-        assert (errvec.shape[0] = self.len_errvec ()), "{0}".format (errvec.shape[0])
 
+        OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
+        errvec = np.concatenate ([frag.get_errvec (self, OneRDM_loc) for frag in self.fragments])
+        
         stop_func = time.time()
         self.time_func += ( stop_func - start_func )
         
         return errvec
 
-'''
-    I think I collapsed the function of this into rdm_differences when I defined unroll_err1RDM 
-    def rdm_differences_bis( self, newumatflat ):
-    
-        start_func = time.time()
-    
-        newumatsquare_loc = self.flat2square( newumatflat )
-        OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
-        errvec = np.empty (0, dtype=float)
-
-        for frag in self.fragments:
-            mf_1RDM = 
-#        for count in range( len( self.imp_size ) ): # self.imp_size has length 1 if self.TransInv
-            mf_1RDM = OneRDM_loc[np.ix_(frag.frag_orb_list, frag.frag_orb_list)]
-            ed_1RDM = frag.oneRDM_imp[:frag.norbs_frag,:frag.norbs_frag]
-            theerror = mf_1RDM - ed_1RDM
-            # squaresize = theerror.shape[0] * theerror.shape[1]
-            # errors[ jump : jump + squaresize ] = np.reshape( theerror, squaresize, order='F' )
-            mask_t = self.mask[ np.ix_(range(jumpc,jumpc+self.imp_size[count]),range(jumpc,jumpc+self.imp_size[count])) ]
-            squaresize = np.count_nonzero( mask_t )
-            errors[ jump : jump + squaresize ] = np.reshape( theerror[mask_t], squaresize, order='F' )
-            jump  += squaresize
-            jumpc += self.imp_size[count]
-        assert ( jump == thesize )
-        
-        stop_func = time.time()
-        self.time_func += ( stop_func - start_func )
-        
-        return errors
-'''
-
-    def unroll_deriv1RDM (self, frag, deriv1RDM_loc):
-        # altcostfunc doesn't appear here because its derivative is computed differently
-        if self.incl_bath_errvec:
-            return np.dot (np.dot (frag.loc2imp.T, deriv1RDM_loc), frag.loc2imp).flatten (order='F')
-        deriv1RDM_frag = np.dot (np.dot (frag.loc2frag.T, deriv1RDM_loc), frag.loc2frag)
-        if self.doDET_NO:
-            deriv1RDM_fno = np.dot (np.dot (frag.frag2fno.T, deriv1RDM_frag), frag.frag2fno)
-            return np.diag (deriv1RDM_fno)
-        if self.doDET:
-            return np.diag (deriv1RDM_frag)
-        return deriv1RDM_frag.flatten ()
-
     def rdm_differences_derivative( self, newumatflat ):
         
         start_grad = time.time()
-        
+
+        self.acceptable_errvec_check ()
+        errvec_fn = self.get_errvec_fn ()        
         newumatsquare_loc = self.flat2square( newumatflat )
         # RDMderivs_rot appears to be in the natural-orbital basis if doDET_NO is specified and the local basis otherwise
         RDMderivs_rot = self.helper.construct1RDM_response( self.doSCF, newumatsquare_loc, self.loc2fno )
-        
         gradient = []
         for countgr in range( len( newumatflat ) ):
-            errvec = np.empty (0, dtype=float )
-            deriv1RDM_loc = RDMderivs_rot[countgr, :, :]
-            if doDET_NO:
-                # It comes out of construct1RDM in the NO basis; I need to change it BACK to make sense of anything
-                deriv1RDM_loc = np.dot (np.dot (self.loc2fno, deriv1RDM_loc), self.loc2fno.T)
-            for frag in self.fragments:
-                errvec = np.append (errvec, self.unroll_deriv1RDM (frag, deriv1RDM_loc))
-                assert (len (errvec.shape) == 1), "{0}".format (errvec.shape)
-                assert (errvec.shape[0] = self.len_errvec ()), "{0}".format (errvec.shape[0])
-            gradient.append( error_deriv )
+            rsp_1RDM = RDMderivs_rot[countgr, :, :]
+            errvec = np.concatenate ([frag.get_rsp_1RDM_elements (self, rsp_1RDM) for frag in self.fragments])
+            gradient.append( errvec )
         gradient = np.array( gradient ).T
         
         stop_grad = time.time()
@@ -500,15 +426,10 @@ class dmet:
             
             # Find the chemical potential for the correlated impurity problem
             start_ed = time.time()
-            if (( self.method == 'CC' ) and ( self.CC_E_TYPE == 'CASCI' )):
+            if ( self.CC_E_TYPE == 'CASCI' ):
+                assert (len (self.fragments) == 1)
                 self.mu_imp = 0.0
                 self.doexact( self.mu_imp )
-            elif (( self.method == 'CASSCF' ) and ( self.CC_E_TYPE == 'CASCI' )):
-                self.mu_imp = 0.0
-                self.doexact( self.mu_imp )
-            elif (( self.method == 'RHF' ) and ( self.CC_E_TYPE == 'CASCI' )):
-                self.mu_imp = 0.0
-                self.doexact( self.mu_imp )				
             else:
                 self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp )
                 print ("   Chemical potential =", self.mu_imp)
