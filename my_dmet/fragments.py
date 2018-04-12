@@ -107,7 +107,6 @@ class fragment_object:
         print ("Constructed a fragment of {0} orbitals for a system with {1} total orbitals".format (self.norbs_frag, self.norbs_tot))
         print ("Using a {0} [{1}] calculation to solve the impurity problem".format (self.imp_solver_longname, self.imp_solver_method))
         print ("Fragment orbitals: {0}".format (self.frag_orb_list))
-        print ("Testing loc2emb matrix:\n{0}".format (self.loc2emb))
 
 
 
@@ -208,7 +207,7 @@ class fragment_object:
         self.schmidt_done = True
         self.impham_built = False
         self.imp_solved = False
-        self.oneRDM_core = mrh.util.basis.represent_operator_in_subspace (guide_1RDM, self.loc2core)
+        self.oneRDMcore_loc = mrh.util.basis.project_operator_into_subspace (guide_1RDM, self.loc2core)
         return self.loc2emb, self.norbs_bath, self.nelec_imp
     ##############################################################################################################################
 
@@ -218,15 +217,17 @@ class fragment_object:
 
     # Impurity Hamiltonian
     ###############################################################################################################################
-    def construct_impurity_hamiltonian (self, core1RDM, get_core2RDM=None):
+    def construct_impurity_hamiltonian (self):
         self.warn_check_schmidt ("construct_impurity_hamiltonian")
-        core1RDM_imp = mrh.util.basis.represent_operator_in_subspace (core1RDM, self.loc2imp)
-        self.impham_CONST = self.ints.dmet_electronic_const (self.loc2emb, self.norbs_imp, core1RDM)
+        self.impham_CONST = 0.0
         self.impham_OEI = self.ints.dmet_oei (self.loc2emb, self.norbs_imp)
-        self.impham_FOCK = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, core1RDM)
+        self.impham_FOCK = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc)
         self.impham_TEI = self.ints.dmet_tei (self.loc2emb, self.norbs_imp)
         self.impham_built = True
         self.imp_solved = False
+
+    def impurity_hamiltonian_CONST (self):
+        return self.ints.dmet_electronic_const (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc)
     ###############################################################################################################################
 
 
@@ -288,8 +289,7 @@ class fragment_object:
     def oneRDM_loc (self):
         self.warn_check_imp_solve ("oneRDM_loc")
         oneRDMimp_loc = mrh.util.basis.represent_operator_in_subspace (self.oneRDM_imp, self.loc2imp.T)
-        oneRDMcore_loc = mrh.util.basis.represent_operator_in_subspace (self.oneRDM_core, self.loc2core.T)
-        return oneRDMimp_loc + oneRDMcore_loc
+        return oneRDMimp_loc + self.oneRDMcore_loc
 
 
     @property

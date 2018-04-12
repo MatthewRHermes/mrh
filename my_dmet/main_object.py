@@ -185,7 +185,7 @@ class dmet:
 
         for frag in self.fragments:
             frag.do_Schmidt_decomposition (OneRDM)
-            frag.construct_impurity_hamiltonian (OneRDM)
+            frag.construct_impurity_hamiltonian ()
             frag.solve_impurity_problem (chempot_frag, self.CC_E_TYPE)
             self.energy += frag.E_frag
         
@@ -212,7 +212,7 @@ class dmet:
             if ( self.CC_E_TYPE == 'CASCI' ):
                 assert( len (self.fragments) == 1 )		
                 print("-----NOTE: CASCI or Single embedding is used-----")				
-                self.energy = self.frag[0].E_imp
+                self.energy = self.frag[0].E_imp + self.frag[0].impurity_hamiltonian_CONST ()
                 Nelectrons = np.trace( self.frag[0].oneRDM_loc ) # Because full active space is used to compute the energy
             else:
                 #transfo = np.eye( self.norbs_tot, dtype=float )
