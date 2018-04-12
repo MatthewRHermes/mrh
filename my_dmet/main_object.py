@@ -26,12 +26,12 @@ from . import localintegrals, qcdmethelper
 import numpy as np
 from scipy import optimize
 import time
-from mrh.util.basis import represent_operator_in_basis
+from mrh.util.basis import represent_operator_in_subspace
 
 
 class dmet:
 
-    def __init__( self, theInts, fragments, isTranslationInvariant, SCmethod='LSTSQ', incl_bath_errvec=True, use_constrained_opt=False, doDET=False,doDET_NO=False):
+    def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, doDET=False,doDET_NO=False):
     
         if ( isTranslationInvariant == True ):
             assert( theInts.TI_OK == True )
@@ -77,6 +77,15 @@ class dmet:
         if ( self.norbs_allcore > 0 ): # One or more impurities which do not cover the entire system
             assert( self.TransInv == False ) # Make sure that you don't work translational invariant
             # Note on working with impurities which do no tile the entire system: they should be the first orbitals in the Hamiltonian!
+
+        def umat_ftriu_mask (x, k=0):
+            r = np.zeros (x.shape, dtype=np.bool)
+            for frag in self.fragments:
+                ftriu = np.triu_indices (frag.norbs_frag)
+                c = tuple (np.asarray ([frag.frag_orb_list[i] for i in f]) for f in ftriu)
+                r[c] = True
+            return r
+        self.umat_ftriu_idx = np.mask_indices (self.norbs_tot, umat_ftriu_mask)
         
         self.energy   = 0.0
         self.mu_imp   = 0.0
@@ -96,9 +105,9 @@ class dmet:
          ("bath in errvec incompatible with constrained opt" , obj.altcostfunc and obj.incl_bath_errvec),
          ("natural orbital basis not meaningful for DMET" ,    obj.doDET_NO and (not obj.doDET))
                    )
-    for errstr, err in errcheck:
-        if err:
-            raise RuntimeError(errstr)
+        for errstr, err in errcheck:
+            if err:
+                raise RuntimeError(errstr)
 
 
     def get_allcore_orbs ( self ):
@@ -191,6 +200,7 @@ class dmet:
             self.energy = self.energy * len( self.fragments )
 
 		#HungPham		
+        frag_times = [frag.solve_time for frag in self.fragments]
         print('Fragment energies:', [frag.E_frag for frag in self.fragments])
         print('Fragment electrons:',Nefrag)
         E1 = self.energy	
@@ -309,7 +319,6 @@ class dmet:
         start_func = time.time()
    
         self.acceptable_errvec_check ()
-        errvec_fn = self.get_errvec_fn ()
         newumatsquare_loc = self.flat2square( newumatflat )
 
         OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
@@ -325,7 +334,6 @@ class dmet:
         start_grad = time.time()
 
         self.acceptable_errvec_check ()
-        errvec_fn = self.get_errvec_fn ()        
         newumatsquare_loc = self.flat2square( newumatflat )
         # RDMderivs_rot appears to be in the natural-orbital basis if doDET_NO is specified and the local basis otherwise
         RDMderivs_rot = self.helper.construct1RDM_response( self.doSCF, newumatsquare_loc, self.loc2fno )
@@ -377,10 +385,12 @@ class dmet:
     def flat2square( self, umatflat ):
     
         umatsquare = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=float )
-        umatsquare[ np.triu_indices (self.norbs_tot) ] = umatflat
+        umat_idx = np.diag_indices (self.norbs_tot) if self.doDET else self.umat_ftriu_idx
+        umatsquare[ umat_idx ] = umatflat
         umatsquare = umatsquare.T
-        umatsquare[ np.triu_indices (self.norbs_tot) ] = umatflat
+        umatsquare[ umat_idx ] = umatflat
         if ( self.TransInv == True ):
+            assert (False), "No translational invariance until you fix it!"
             norbs_frag = self.fragments[0].norbs_frag
             for it in range( 1, self.norbs_tot // norbs_frag ):
                 umatsquare[ it*norbs_frag:(it+1)*norbs_frag, it*norbs_frag:(it+1)*norbs_frag ] = umatsquare[ 0:norbs_frag, 0:norbs_frag ]
@@ -400,7 +410,8 @@ class dmet:
         umatsquare_bis = np.array( umatsquare, copy=True )
         if ( self.loc2fno != None ):
             umatsquare_bis = np.dot( np.dot( self.loc2fno.T, umatsquare_bis ), self.loc2fno )
-        umatflat = umatsquare_bis[ np.triu_indices (self.norbs_tot) ]
+        umat_idx = np.diag_indices (self.norbs_tot) if self.doDET else self.umat_ftriu_idx
+        umatflat = umatsquare_bis[ umat_idx ]
         return umatflat
         
     def numeleccostfunction( self, chempot_imp ):
@@ -415,14 +426,17 @@ class dmet:
         iteration = 0
         u_diff = 1.0
         convergence_threshold = 1e-5
+        rdm_new = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=float)
+        for frag in self.fragments:
+            frag.solve_time = 0.0
         print ("RHF energy =", self.ints.fullEhf)
         
         while ( u_diff > convergence_threshold ):
         
             iteration += 1
+            rdm_old = rdm_new
             print ("DMET iteration", iteration)
             umat_old = np.array( self.umat, copy=True )
-            rdm_old = self.transform_ed_1rdm() # At the very first iteration, this matrix will be zero
             
             # Find the chemical potential for the correlated impurity problem
             start_ed = time.time()
@@ -467,7 +481,8 @@ class dmet:
             
             # Get the error measure
             u_diff   = np.linalg.norm( umat_old - self.umat )
-            rdm_diff = np.linalg.norm( rdm_old - self.transform_ed_1rdm() )
+            rdm_new = self.transform_ed_1rdm ()
+            rdm_diff = np.linalg.norm( rdm_old - rdm_new )
             self.umat = self.relaxation * umat_old + ( 1.0 - self.relaxation ) * self.umat
             print ("   2-norm of difference old and new u-mat =", u_diff)
             print ("   2-norm of difference old and new 1-RDM =", rdm_diff)
@@ -500,10 +515,8 @@ class dmet:
     def transform_ed_1rdm( self ):
     
         result = np.zeros( [self.umat.shape[0], self.umat.shape[0]], dtype=float )
-        squarejumper = 0
         for frag in self.fragments:
-            result[ squarejumper:squarejumper+frag.norbs_frag , squarejumper:squarejumper+frag.norbs_frag ] = frag.oneRDM_imp[ :frag.norbs_frag , :frag.norbs_frag ]
-            squarejumper += frag.norbs_frag
+            result[np.ix_(frag.frag_orb_list, frag.frag_orb_list)] = frag.oneRDM_frag
         return result
         
     def dump_bath_orbs( self, filename, frag_idx=0 ):

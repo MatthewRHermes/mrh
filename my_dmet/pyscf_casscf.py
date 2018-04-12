@@ -64,7 +64,7 @@ def solve( CONST, OEI, FOCK, TEI, Norb, Nel, Nimp, impCAS, cas_list, DMguessRHF,
         CASorb = Norb
     mc = mcscf.CASSCF(mf, CASorb, CASe)	
     #mc.natorb = True
-    if cas_list is not None: 
+    if np.prod (cas_list.shape) > 0: 
         print('Impurity active space selection:', cas_list)
         mo = mc.sort_mo(cas_list)
         E_CASSCF = mc.kernel(mo)[0]
@@ -73,9 +73,9 @@ def solve( CONST, OEI, FOCK, TEI, Norb, Nel, Nimp, impCAS, cas_list, DMguessRHF,
     MO = mc.mo_coeff #save the MO coefficient
     MOnat = mc.cas_natorb()[0]
     OccNum = mc.cas_natorb()[2]	
-    print('Dimension:', MO.shape[0] )	
-    print('Impurity active space: ', CASe, 'electrons in ', CASorb, ' orbitals')	
-    print('Impurity CASSCF energy: ', E_CASSCF)	
+    #print('Dimension:', MO.shape[0] )	
+    #print('Impurity active space: ', CASe, 'electrons in ', CASorb, ' orbitals')	
+    #print('Impurity CASSCF energy: ', E_CASSCF)	
     #print('CASSCF orbital:', mc.mo_energy)	
     #print('NATURAL ORBITAL:')	
     #mc.analyze()
