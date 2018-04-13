@@ -55,7 +55,7 @@ def basis_olap (bra_basis, ket_basis):
 	p2c = c2p.H
 	return np.asarray (p2c * c2q)
 
-def represent_operator_in_subspace (braOket, ket_basis, bra_basis = None):
+def represent_operator_in_basis (braOket, ket_basis, bra_basis = None):
 	# Note that this CHANGES the basis that braOket is stored in
 	lOr = np.asmatrix (braOket)
 	if not bra_basis:
@@ -84,7 +84,7 @@ def project_operator_into_subspace (braOket, ket_basis, bra_basis = None):
 	return np.asarray (lPl * lOr * rPr)
 
 def compute_operator_trace_in_subset (the_operator, the_subset_basis):
-	return np.trace (represent_operator_in_subspace (the_operator, the_subset_basis))
+	return np.trace (represent_operator_in_basis (the_operator, the_subset_basis))
 
 compute_nelec_in_subspace = compute_operator_trace_in_subset
 

@@ -18,22 +18,22 @@ def warn_with_traceback(message, category, filename, lineno, file=None, line=Non
 
 warnings.showwarning = warn_with_traceback
 
-def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int)):
+def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE"):
     assert (len (frag_atom_list) < ints.mol.natm)
     assert (np.amax (frag_atom_list) < ints.mol.natm)
     norbs_in_atom = [int (np.sum ([2 * ints.mol.bas_angular (shell) + 1 for shell in ints.mol.atom_shell_ids (atom)])) for atom in range (ints.mol.natm)]
     norbs_to_atom = [int (np.sum (norbs_in_atom[:atom])) for atom in range (ints.mol.natm)]
     frag_orb_list = [i + norbs_to_atom[atom] for atom in frag_atom_list for i in range (norbs_in_atom[atom])]
     print ("Fragment atom list\n{0}\nproduces a fragment orbital list as {1}".format ([ints.mol.atom[atom] for atom in frag_atom_list], frag_orb_list))
-    return fragment_object (ints, np.asarray (frag_orb_list), solver_name, active_orb_list=np.asarray (active_orb_list))
+    return fragment_object (ints, np.asarray (frag_orb_list), solver_name, active_orb_list=np.asarray (active_orb_list), name=name)
 
-def make_fragment_orb_list (ints, frag_orb_list, solver_name, active_orb_list = np.empty (0, dtype=int)):
-    return fragment_object (ints, frag_orb_list, solver_name, np.asarray (active_orb_list))
+def make_fragment_orb_list (ints, frag_orb_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE"):
+    return fragment_object (ints, frag_orb_list, solver_name, np.asarray (active_orb_list), name=name)
 
 
 class fragment_object:
 
-    def __init__ (self, ints, frag_orb_list, solver_name, active_orb_list):
+    def __init__ (self, ints, frag_orb_list, solver_name, active_orb_list, name):
 
         # I really hope this doesn't copy.  I think it doesn't.
         self.ints = ints
@@ -47,6 +47,8 @@ class fragment_object:
         self.norbs_bath_max = self.norbs_frag
         self.num_zero_atol = 1.0e-8
         self.solve_time = 0.0
+        self.frag_name = name
+        self.active_space = None
 
         # Assign solver function
         solver_function_map = {
@@ -80,7 +82,6 @@ class fragment_object:
         self.loc2emb = np.eye (self.norbs_tot, dtype=float)[:,idx]
         
         # Impurity Hamiltonian
-        self.impham_CONST = None
         self.impham_OEI = None
         self.impham_FOCK = None
         self.impham_TEI = None
@@ -90,6 +91,12 @@ class fragment_object:
         self.E_imp = 0
         self.oneRDM_imp = None
         self.twoRDM_imp = None
+        self.loc2fno = None
+        self.fno_evals = None
+
+        # Outputs of CAS calculations use to fix CAS-DMET
+        self.loc2mcno = None
+        self.mcno_evals = None
 
         # Legacy variables of Hung's hackery. Clean this up as soon as possible
         self.CASMOmf = None
@@ -219,14 +226,13 @@ class fragment_object:
     ###############################################################################################################################
     def construct_impurity_hamiltonian (self):
         self.warn_check_schmidt ("construct_impurity_hamiltonian")
-        self.impham_CONST = 0.0
         self.impham_OEI = self.ints.dmet_oei (self.loc2emb, self.norbs_imp)
         self.impham_FOCK = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc)
         self.impham_TEI = self.ints.dmet_tei (self.loc2emb, self.norbs_imp)
         self.impham_built = True
         self.imp_solved = False
 
-    def impurity_hamiltonian_CONST (self):
+    def get_impham_CONST (self):
         return self.ints.dmet_electronic_const (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc)
     ###############################################################################################################################
 
@@ -238,45 +244,18 @@ class fragment_object:
     def get_guess_1RDM (self, chempot_frag):
         return self.ints.dmet_init_guess_rhf (self.loc2emb, self.norbs_imp, self.nelec_imp // 2, self.norbs_frag, chempot_frag)
 
-    def solve_impurity_problem (self, chempot_frag, CC_E_TYPE):
+    def solve_impurity_problem (self, chempot_frag):
         self.warn_check_impham ("solve_impurity_problem")
-        # For all solvers, the input arguments begin as:
-        # CONST, OEI, FOCK, TEI, norbs_imp, nelec_imp, norbs_frag
-        inputlist = [self.impham_CONST, self.impham_OEI, self.impham_FOCK,
-                     self.impham_TEI, self.norbs_imp, self.nelec_imp,
-                     self.norbs_frag]
-        # For the CASSCF solver, the next items are the definitions of the active space
-        if self.imp_solver_name == "CASSCF":
-            inputlist.extend ([self.active_space, self.active_orb_list])
-        # For everything except exact diagonalization, the next item is the guess 1RDM
-        if not (self.imp_solver_name == "ED"):
-            inputlist.append (self.get_guess_1RDM (chempot_frag))
-        # For the CC and CASSCF methods, the next item is CC_E_TYPE
-        if (self.imp_solver_name == "CC") or (self.imp_solver_name == "CASSCF"):
-            inputlist.append (CC_E_TYPE)
-        # For all solvers, the final argument is chempot
-        inputlist.append (chempot_frag)
-            
-        outputtuple = self.imp_solver_function (*inputlist)
+        guess_1RDM = self.get_guess_1RDM (chempot_frag)
+        self.imp_solver_function (self, guess_1RDM, chempot_frag)
         self.imp_solved = True
 
         # The first item in the output tuple is "IMP_energy," which is the *impurity* energy for CC or CASSCF with CC_E_TYPE=CASCI and the *fragment* energy otherwise
-        print ("Energy returned by the {0} solution for this impurity: {1}".format (self.imp_solver_longname, outputtuple[0]))
-        if ((self.imp_solver_name == "CC") or (self.imp_solver_name == "CASSCF")) and CC_E_TYPE == "CASCI":
-            self.E_imp = outputtuple[0]
-        else:
-            self.E_frag = outputtuple[0]
-
-        # The second item in the output tuple is the impurity 1RDM.
-        self.oneRDM_imp = outputtuple[1]
-
-        # CASSCF additionally has MOmf, MO, MOnat, and OccNum as a legacy of Hung's hackery
-        if (self.imp_solver_name == "CASSCF"):
-            self.CASMOmf, self.CASMO, self.CASMOnat, self.CASOccNum = outputtuple[2:]
+        print ("{0} energy results for {1}: E_frag = {2}; E_imp - CONST = {3}".format (self.imp_solver_longname, self.frag_name, self.E_frag, self.E_imp))
 
         # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals
-        self.fno_evals, self.frag2fno = np.linalg.eigh (self.oneRDM_imp[:self.norbs_frag,:self.norbs_frag])
-        self.loc2fno = np.dot (self.loc2frag, self.frag2fno)
+        self.fno_evals, frag2fno = np.linalg.eigh (self.oneRDM_imp[:self.norbs_frag,:self.norbs_frag])
+        self.loc2fno = np.dot (self.loc2frag, frag2fno)
     ###############################################################################################################################
 
 
@@ -288,7 +267,7 @@ class fragment_object:
     @property
     def oneRDM_loc (self):
         self.warn_check_imp_solve ("oneRDM_loc")
-        oneRDMimp_loc = mrh.util.basis.represent_operator_in_subspace (self.oneRDM_imp, self.loc2imp.T)
+        oneRDMimp_loc = mrh.util.basis.represent_operator_in_basis (self.oneRDM_imp, self.loc2imp.T)
         return oneRDMimp_loc + self.oneRDMcore_loc
 
 
@@ -310,14 +289,14 @@ class fragment_object:
         self.warn_check_imp_solve ("get_errvec")
         # Fragment natural-orbital basis matrix elements needed
         if dmet.doDET_NO:
-            mf_1RDM_fno = mrh.util.basis.represent_operator_in_subspace (mf_1RDM_loc, self.loc2fno)
+            mf_1RDM_fno = mrh.util.basis.represent_operator_in_basis (mf_1RDM_loc, self.loc2fno)
             return np.diag (mf_1RDM_fno) - self.fno_evals
         # Bath-orbital matrix elements needed
         if dmet.incl_bath_errvec:
-            mf_err1RDM_imp = mrh.util.basis.represent_operator_in_subspace (mf_1RDM_loc, self.loc2imp) - self.oneRDM_imp
+            mf_err1RDM_imp = mrh.util.basis.represent_operator_in_basis (mf_1RDM_loc, self.loc2imp) - self.oneRDM_imp
             return mf_err1RDM_imp.flatten (order='F')
         # Only fragment-orbital matrix elements needed
-        mf_err1RDM_frag = mrh.util.basis.represent_operator_in_subspace (mf_1RDM_loc, self.loc2frag) - self.oneRDM_frag
+        mf_err1RDM_frag = mrh.util.basis.represent_operator_in_basis (mf_1RDM_loc, self.loc2frag) - self.oneRDM_frag
         if dmet.doDET:
             return np.diag (mf_err1RDM_frag)
         elif dmet.altcostfunc:
@@ -335,10 +314,10 @@ class fragment_object:
             return np.diag (rsp_1RDM)[self.frag_orb_list]
         # Bath-orbital matrix elements needed
         if dmet.incl_bath_errvec:
-            rsp_1RDM_imp = mrh.util.basis.represent_operator_in_subspace (rsp_1RDM, self.loc2imp)
+            rsp_1RDM_imp = mrh.util.basis.represent_operator_in_basis (rsp_1RDM, self.loc2imp)
             return rsp_1RDM_imp.flatten (order='F')
         # Only fragment-orbital matrix elements needed
-        rsp_1RDM_frag = mrh.util.basis.represent_operator_in_subspace (rsp_1RDM, self.loc2frag)
+        rsp_1RDM_frag = mrh.util.basis.represent_operator_in_basis (rsp_1RDM, self.loc2frag)
         if dmet.doDET:
             return np.diag (rsp_1RDM_frag)
         else:

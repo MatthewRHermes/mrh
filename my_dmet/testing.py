@@ -77,8 +77,8 @@ def calc_mp2_ecorr_correction_to_dmetcasci_using_idempotent_1RDM (imp_case, DMET
 	def2frag = np.eye (norbs_emb, dtype=idempotent_1RDM.dtype)[:,:norbs_frag]
 	loc2emb  = loc2def[:,:norbs_emb]
 	loc2froz = loc2def[:,norbs_emb:]
-	idem_1RDM_def_basis = mrh.util.basis.represent_operator_in_subspace (idempotent_1RDM, loc2emb)
-	corr_1RDM_def_basis = mrh.util.basis.represent_operator_in_subspace (correlated_1RDM, loc2emb)
+	idem_1RDM_def_basis = mrh.util.basis.represent_operator_in_basis (idempotent_1RDM, loc2emb)
+	corr_1RDM_def_basis = mrh.util.basis.represent_operator_in_basis (correlated_1RDM, loc2emb)
 	emb2dmeta_corr, norbs_bath_corr, nelec_imp_corr = schmidt_decompose_1RDM (corr_1RDM_def_basis, def2frag)
 	emb2dmeta,      norbs_bath,      nelec_imp      = schmidt_decompose_1RDM (idem_1RDM_def_basis, def2frag)
 	loc2dmet = np.append (np.dot (loc2emb, emb2dmeta), loc2froz, axis=1)

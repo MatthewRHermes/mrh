@@ -1,15 +1,15 @@
 '''
 pyscf-CASSCF SOLVER for DMET
 
-To use this solver, one need to modify the dmet module to recognize the pyscf_casscf.
+To use this solver, one need to modify the dmet module to recognize the pyscf_mcascf.
 Specifically:
 line 33: assert (( method == 'ED' ) or ( method == 'CC' ) or ( method == 'MP2' ) or ( method == 'CASSCF' ))
 line 257-261:
 elif ( self.method == 'CASSCF' ):
-    import pyscf_casscf
+    import pyscf_mcascf
     assert( Nelec_in_imp % 2 == 0 )
-    DMguessRHF = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_imp )
-    IMP_energy, IMP_1RDM = pyscf_casscf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, DMguessRHF, chempot_imp )
+    guess_1RDM = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_frag )
+    IMP_energy, IMP_1RDM = pyscf_mcascf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, guess_1RDM, chempot_frag )
 
 History: 
 
@@ -28,106 +28,111 @@ import sys
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo, mcscf
 #np.set_printoptions(threshold=np.nan)
+from mrh.util.basis import represent_operator_in_basis
 
-def solve( CONST, OEI, FOCK, TEI, Norb, Nel, Nimp, impCAS, cas_list, DMguessRHF, energytype='CASCI', chempot_imp=0.0, printoutput=True ):
+#def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
+def solve (frag, guess_1RDM, chempot_frag=0.0):
 
     # Augment the FOCK operator with the chemical potential
-    FOCKcopy = FOCK.copy()
-    if (chempot_imp != 0.0):
-        for orb in range(Nimp):
-            FOCKcopy[ orb, orb ] -= chempot_imp
+    FOCKcopy = frag.impham_FOCK.copy()
+    if (chempot_frag != 0.0):
+        for orb in range(frag.norbs_frag):
+            FOCKcopy[ orb, orb ] -= chempot_frag
     
     # Get the RHF solution
     mol = gto.Mole()
     mol.build(verbose=0)
     mol.atom.append(('H', (0, 0, 0)))
-    mol.nelectron = Nel
+    mol.nelectron = frag.nelec_imp
     #mol.incore_anyway = True
     mf = scf.RHF(mol)
     mf.get_hcore = lambda *args: FOCKcopy
-    mf.get_ovlp = lambda *args: np.eye(Norb)
-    mf._eri = ao2mo.restore(8, TEI, Norb)
-    mf.scf()
-    MOmf = mf.mo_coeff
-    #print(mf.mo_occ)	
-    '''	
+    mf.get_ovlp = lambda *args: np.eye(frag.norbs_imp)
+    mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+    mf.scf(guess_1RDM)
+    #print(mf.mo_occ)    
+    '''    
     idx = mf.mo_energy.argsort()
     mf.mo_energy = mf.mo_energy[idx]
     mf.mo_coeff = mf.mo_coeff[:,idx]'''
 
     # Get the CASSCF solution
-    CASe = impCAS[0]
-    CASorb = impCAS[1]	
-    checkCAS =  (CASe <= Nel) and (CASorb <= Norb)
+    CASe = frag.active_space[0]
+    CASorb = frag.active_space[1]    
+    checkCAS =  (CASe <= frag.nelec_imp) and (CASorb <= frag.norbs_imp)
     if (checkCAS == False):
-        CASe = Nel
-        CASorb = Norb
-    mc = mcscf.CASSCF(mf, CASorb, CASe)	
+        CASe = frag.nelec_imp
+        CASorb = frag.norbs_imp
+    mc = mcscf.CASSCF(mf, CASorb, CASe)    
     #mc.natorb = True
-    if np.prod (cas_list.shape) > 0: 
-        print('Impurity active space selection:', cas_list)
-        mo = mc.sort_mo(cas_list)
+    if np.prod (frag.active_orb_list.shape) > 0: 
+        print('Impurity active space selection:', frag.active_orb_list)
+        mo = mc.sort_mo(frag.active_orb_list)
         E_CASSCF = mc.kernel(mo)[0]
     else:
         E_CASSCF = mc.kernel()[0]
-    MO = mc.mo_coeff #save the MO coefficient
-    MOnat = mc.cas_natorb()[0]
-    OccNum = mc.cas_natorb()[2]	
-    #print('Dimension:', MO.shape[0] )	
-    #print('Impurity active space: ', CASe, 'electrons in ', CASorb, ' orbitals')	
-    #print('Impurity CASSCF energy: ', E_CASSCF)	
-    #print('CASSCF orbital:', mc.mo_energy)	
-    #print('NATURAL ORBITAL:')	
+    imp2mcno = mc.cas_natorb()[0]
+    frag.loc2mcno = np.dot (frag.loc2imp, imp2mcno)
+    frag.mcno_evals = mc.cas_natorb()[2]    
+    #print('Dimension:', MO.shape[0] )    
+    #print('Impurity active space: ', CASe, 'electrons in ', CASorb, ' orbitals')    
+    #print('Impurity CASSCF energy: ', E_CASSCF)    
+    #print('CASSCF orbital:', mc.mo_energy)    
+    #print('NATURAL ORBITAL:')    
     #mc.analyze()
-	
-    # Get TwoRDM + OneRDM
-    Norbcas = mc.ncas
-    Norbcore = mc.ncore
-    Nelcas = mc.nelecas	
+    
+    # Get twoRDM + oneRDM. mcc: MC-SCF core, mca: MC-SCF active space
+    # I'm going to need to keep some representation of the active-space orbitals
+    norbs_mca = mc.ncas
+    norbs_mcc = mc.ncore
+    nelec_mca = mc.nelecas    
 
-    mocore = mc.mo_coeff[:,:Norbcore]
-    mocas = mc.mo_coeff[:,Norbcore:Norbcore+Norbcas]
+    imp2mcc = mc.mo_coeff[:,:norbs_mcc]
+    imp2mca = mc.mo_coeff[:,norbs_mcc:norbs_mcc+norbs_mca]
+    imp2mcno = mc.cas_natorb()[0][:,norbs_mcc:norbs_mcc+norbs_mca]
+    frag.loc2mcno = np.dot (frag.loc2imp, imp2mcno)
+    frag.mcno_evals = mc.cas_natorb()[2][norbs_mcc:norbs_mcc+norbs_mca]
 
-	
-    casdm1 = mc.fcisolver.make_rdm1(mc.ci, Norbcas, Nelcas) #in CAS space
-	# Transform the casdm2 (in CAS space) to casdm2lo (localized space).     
-    # Dumb and lazy way: casdm1lo = np.einsum('pq,ap,bq->ab', casdm1, mocas, mocas) #in localized space
-    casdm1lo = np.einsum('ap,pq->aq', mocas, casdm1)
-    casdm1lo = np.einsum('bq,aq->ab', mocas, casdm1lo)
-    coredm1 = np.dot(mocore, mocore.T) * 2 #in localized space
-    OneRDM = coredm1 + casdm1lo	
+    # MC-core oneRDM and twoRDM 
+    oneRDMmcc_imp = np.dot(imp2mcc, imp2mcc.T) * 2 
+    twoRDMmcc_imp = np.zeros([frag.norbs_imp, frag.norbs_imp, frag.norbs_imp, frag.norbs_imp]) 
+    twoRDMmcc_imp +=     np.einsum('pq,rs-> pqrs',oneRDMmcc_imp,oneRDMmcc_imp)
+    twoRDMmcc_imp -= 0.5*np.einsum('ps,rq-> pqrs',oneRDMmcc_imp,oneRDMmcc_imp)
 
-    casdm2 = mc.fcisolver.make_rdm2(mc.ci,Norbcas,Nelcas) #in CAS space
-	# Transform the casdm2 (in CAS space) to casdm2lo (localized space). 
-	# Dumb and lazy way: casdm2ao = np.einsum('pqrs,ap,bq,cr,ds->abcd',casdm2,mocas,mocas,mocas,mocas)
-    casdm2lo = np.einsum('ap,pqrs->aqrs', mocas, casdm2)
-    casdm2lo = np.einsum('bq,aqrs->abrs', mocas, casdm2lo)
-    casdm2lo = np.einsum('cr,abrs->abcs', mocas, casdm2lo)
-    casdm2lo = np.einsum('ds,abcs->abcd', mocas, casdm2lo)	
-	
-    coredm2 = np.zeros([Norb, Norb, Norb, Norb]) #in AO
-    coredm2 += np.einsum('pq,rs-> pqrs',coredm1,coredm1)
-    coredm2 -= 0.5*np.einsum('ps,rq-> pqrs',coredm1,coredm1)
-	
-    effdm2 = np.zeros([Norb, Norb, Norb, Norb]) #in AO
-    effdm2 += 2*np.einsum('pq,rs-> pqrs',casdm1lo,coredm1)
-    effdm2 -= np.einsum('ps,rq-> pqrs',casdm1lo,coredm1)				
-					
-    TwoRDM = coredm2 + casdm2lo + effdm2	
+    # MC-active oneRDM 
+    oneRDMmca_mca = mc.fcisolver.make_rdm1(mc.ci, norbs_mca, nelec_mca)
+    oneRDMmca_imp = np.einsum('ap,pq->aq', imp2mca, oneRDMmca_mca)
+    oneRDMmca_imp = np.einsum('bq,aq->ab', imp2mca, oneRDMmca_imp)
+
+    # MC-active twoRDM
+    twoRDMmca_mca = mc.fcisolver.make_rdm2(mc.ci,norbs_mca,nelec_mca) #in CAS space
+    twoRDMmca_imp = np.einsum('ap,pqrs->aqrs', imp2mca, twoRDMmca_mca)
+    twoRDMmca_imp = np.einsum('bq,aqrs->abrs', imp2mca, twoRDMmca_imp)
+    twoRDMmca_imp = np.einsum('cr,abrs->abcs', imp2mca, twoRDMmca_imp)
+    twoRDMmca_imp = np.einsum('ds,abcs->abcd', imp2mca, twoRDMmca_imp)    
+    
+    # MC-active/MC-core oneRDM cumulant-expansion twoRDM residual (pqrs = pq*rs - ps*qr) (Mulliken/chemist's notation!)
+    # Note the abuse of symmetry!
+    twoRDMres_imp = np.zeros([frag.norbs_imp, frag.norbs_imp, frag.norbs_imp, frag.norbs_imp])
+    twoRDMres_imp += 2*np.einsum('pq,rs-> pqrs',oneRDMmca_imp,oneRDMmcc_imp)
+    twoRDMres_imp -=   np.einsum('ps,rq-> pqrs',oneRDMmca_imp,oneRDMmcc_imp)
+
+    frag.oneRDM_imp = oneRDMmcc_imp + oneRDMmca_imp    
+    frag.twoRDM_imp = twoRDMmcc_imp + twoRDMmca_imp + twoRDMres_imp    
     # To calculate the impurity energy, rescale the JK matrix with a factor 0.5 to avoid double counting: 0.5 * ( OEI + FOCK ) = OEI + 0.5 * JK
     '''
     This is the equation taken from the chemps2 solver:
-    ImpurityEnergy = CONST
-    ImpurityEnergy += 0.5 * np.einsum( 'ij,ij->', OneRDM[:Nimp,:], OEI[:Nimp,:] + FOCK[:Nimp,:] )
-    ImpurityEnergy += 0.5 * np.einsum( 'ijkl,ijkl->', TwoRDM[:Nimp,:,:,:], TEI[:Nimp,:,:,:] )'''
+    ImpurityEnergy = frag.CONST
+    ImpurityEnergy += 0.5 * np.einsum( 'ij,ij->', oneRDM[:frag.norbs_frag,:], OEI[:frag.norbs_frag,:] + FOCK[:frag.norbs_frag,:] )
+    ImpurityEnergy += 0.5 * np.einsum( 'ijkl,ijkl->', twoRDM[:frag.norbs_frag,:,:,:], TEI[:frag.norbs_frag,:,:,:] )'''
     #This is the equation taken from the cc solver:
-    if ( energytype == 'CASCI' ):
-        ImpurityEnergy = E_CASSCF
-    else:		
-        ImpurityEnergy = CONST \
-                       + 0.50  * np.einsum('ij,ij->',     OneRDM[:Nimp,:],     FOCK[:Nimp,:] + OEI[:Nimp,:]) \
-                       + 0.125 * np.einsum('ijkl,ijkl->', TwoRDM[:Nimp,:,:,:], TEI[:Nimp,:,:,:]) \
-                       + 0.125 * np.einsum('ijkl,ijkl->', TwoRDM[:,:Nimp,:,:], TEI[:,:Nimp,:,:]) \
-                       + 0.125 * np.einsum('ijkl,ijkl->', TwoRDM[:,:,:Nimp,:], TEI[:,:,:Nimp,:]) \
-                       + 0.125 * np.einsum('ijkl,ijkl->', TwoRDM[:,:,:,:Nimp], TEI[:,:,:,:Nimp])
-    return ( ImpurityEnergy, OneRDM, MOmf, MO, MOnat, OccNum)
+    frag.E_imp  = E_CASSCF
+    frag.E_frag = 0.50   * np.einsum('ij,ij->',     frag.oneRDM_imp[:frag.norbs_frag,:],     frag.impham_FOCK[:frag.norbs_frag,:] + frag.impham_OEI[:frag.norbs_frag,:]) \
+                 + 0.125 * np.einsum('ijkl,ijkl->', frag.twoRDM_imp[:frag.norbs_frag,:,:,:], frag.impham_TEI[:frag.norbs_frag,:,:,:]) \
+                 + 0.125 * np.einsum('ijkl,ijkl->', frag.twoRDM_imp[:,:frag.norbs_frag,:,:], frag.impham_TEI[:,:frag.norbs_frag,:,:]) \
+                 + 0.125 * np.einsum('ijkl,ijkl->', frag.twoRDM_imp[:,:,:frag.norbs_frag,:], frag.impham_TEI[:,:,:frag.norbs_frag,:]) \
+                 + 0.125 * np.einsum('ijkl,ijkl->', frag.twoRDM_imp[:,:,:,:frag.norbs_frag], frag.impham_TEI[:,:,:,:frag.norbs_frag])
+
+    return None
+
+
