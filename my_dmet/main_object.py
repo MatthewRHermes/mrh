@@ -60,18 +60,6 @@ class dmet:
 
         # Whole-molecule active-space-related attributes
         self.wma_options = False
-        self.MCcore_Schmidt_decomp = False
-        self.oneRDMwma = np.zeros ((self.norbs_tot, self.norbs_tot))
-        self.norbs_wma = 0
-        self.nelec_wma = 0
-        for frag in self.fragments:
-            if frag.active_space:
-                self.nelec_wma += frag.active_space[0]
-                self.norbs_wma += frag.active_space[1]
-        self.norbs_wmc = self.norbs_tot - self.norbs_wma
-        self.loc2wma = None 
-        self.loc2wmc = None
-
 
         if ( self.doDET == True ):
             # Cfr Bulik, PRB 89, 035140 (2014)
@@ -146,6 +134,18 @@ class dmet:
     def allcore_orb_list (self):
         return np.flatnonzero (self.is_allcore_orb)
 
+    @property
+    def nelec_wma (self):
+        return int (sum (frag.active_space[0] for frag in self.fragments))
+
+    @property
+    def norbs_wma (self):
+        return int (sum (frag.active_space[1] for frag in self.fragments))
+
+    @property
+    def norbs_wmc (self):
+        return self.norbs_tot - self.norbs_wma
+
     def makelist_H1( self ):
    
         # OK, this is somehow related to the C code that came with this that does rhf response. 
@@ -206,15 +206,6 @@ class dmet:
         if (self.doDET and self.doDET_NO):
             self.loc2fno = self.constructloc2fno()
 
-        if self.wma_options:
-            wm_mcno_evals = np.concatenate ([frag.mcno_evals if frag.active_space for frag in self.fragments])
-            loc2mcno = np.concatenate ([frag.loc2mcno if frag.active_space for frag in self.fragments], axis=1)
-            self.oneRDMwma = represent_operator_in_basis (np.diag (wm_mcno_evals), loc2mcno.T)
-            self.loc2wma = orthonormalize_a_basis (loc2mcno)
-            if (self.loc2wma.shape[0] != self.norbs_wma):
-                raise RuntimeError("norbs_wma = {0}; loc2wma.shape = {1}. Linear dependencies?".format (self.norbs_wma, self.loc2wma.shape))
-            self.loc2wmc = get_complementary_states (self.loc2wma)
-        
         Nefrag = [np.trace (frag.oneRDM_imp[:frag.norbs_frag,:frag.norbs_frag]) for frag in self.fragments]
         Nelectrons = sum (Nefrag)
 			
