@@ -26,7 +26,7 @@ from . import localintegrals, qcdmethelper
 import numpy as np
 from scipy import optimize
 import time
-from mrh.util.basis import represent_operator_in_subspace
+from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states
 
 
 class dmet:
@@ -42,7 +42,7 @@ class dmet:
         self.ints       = theInts
         self.norbs_tot  = self.ints.Norbs
         self.fragments  = fragments
-        self.umat       = np.zeros([ self.norbs_tot, self.norbs_tot ], dtype=float)
+        self.umat       = np.zeros([ self.norbs_tot, self.norbs_tot ])
         self.relaxation = 0.0
         
         self.NI_hack    = False
@@ -55,9 +55,23 @@ class dmet:
         self.doDET_NO   = doDET_NO
         self.loc2fno = None
         self.altcostfunc = use_constrained_opt
-
-        #HP: use UHF solver
+        self.num_zero_atol = 1.0e-8 
         self.UHF = False
+
+        # Whole-molecule active-space-related attributes
+        self.wma_options = False
+        self.MCcore_Schmidt_decomp = False
+        self.oneRDMwma = np.zeros ((self.norbs_tot, self.norbs_tot))
+        self.norbs_wma = 0
+        self.nelec_wma = 0
+        for frag in self.fragments:
+            if frag.active_space:
+                self.nelec_wma += frag.active_space[0]
+                self.norbs_wma += frag.active_space[1]
+        self.norbs_wmc = self.norbs_tot - self.norbs_wma
+        self.loc2wma = None 
+        self.loc2wmc = None
+
 
         if ( self.doDET == True ):
             # Cfr Bulik, PRB 89, 035140 (2014)
@@ -180,17 +194,26 @@ class dmet:
         return theH1
         
     def doexact( self, chempot_frag=0.0 ):  
-        OneRDM = self.helper.construct1RDM_loc( self.doSCF, self.umat ) #HP: construct 1rdm (in AO) for the total system from the Fock matrix in local ao basis. projected on atoms?
-        self.energy   = 0.0												#This OneRDM will be used to construct the bath
+        OneRDM = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
+        self.energy   = 0.0												
 
         for frag in self.fragments:
             frag.do_Schmidt_decomposition (OneRDM)
             frag.construct_impurity_hamiltonian ()
-            frag.solve_impurity_problem (chempot_frag, self.CC_E_TYPE)
+            frag.solve_impurity_problem (chempot_frag)
             self.energy += frag.E_frag
         
         if (self.doDET and self.doDET_NO):
             self.loc2fno = self.constructloc2fno()
+
+        if self.wma_options:
+            wm_mcno_evals = np.concatenate ([frag.mcno_evals if frag.active_space for frag in self.fragments])
+            loc2mcno = np.concatenate ([frag.loc2mcno if frag.active_space for frag in self.fragments], axis=1)
+            self.oneRDMwma = represent_operator_in_basis (np.diag (wm_mcno_evals), loc2mcno.T)
+            self.loc2wma = orthonormalize_a_basis (loc2mcno)
+            if (self.loc2wma.shape[0] != self.norbs_wma):
+                raise RuntimeError("norbs_wma = {0}; loc2wma.shape = {1}. Linear dependencies?".format (self.norbs_wma, self.loc2wma.shape))
+            self.loc2wmc = get_complementary_states (self.loc2wma)
         
         Nefrag = [np.trace (frag.oneRDM_imp[:frag.norbs_frag,:frag.norbs_frag]) for frag in self.fragments]
         Nelectrons = sum (Nefrag)
@@ -210,10 +233,7 @@ class dmet:
         if ( self.norbs_allcore > 0 ):
         
             if ( self.CC_E_TYPE == 'CASCI' ):
-                assert( len (self.fragments) == 1 )		
-                print("-----NOTE: CASCI or Single embedding is used-----")				
-                self.energy = self.frag[0].E_imp + self.frag[0].impurity_hamiltonian_CONST ()
-                Nelectrons = np.trace( self.frag[0].oneRDM_loc ) # Because full active space is used to compute the energy
+                Nelectrons = self.frag[0].nelec_frag # Because full active space is used to compute the energy
             else:
                 #transfo = np.eye( self.norbs_tot, dtype=float )
                 #totalOEI  = self.ints.dmet_oei(  transfo, self.norbs_tot )
@@ -287,8 +307,7 @@ class dmet:
         newumatsquare_loc = self.flat2square( newumatflat )
         OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
 
-#        errors    = self.rdm_differences_bis( newumatflat )
-        errors    = self.rdm_differences (numatflat) # I think I collapsed the function of rdm_differences_bis into rdm_differences
+        errors    = self.rdm_differences (numatflat) 
         errors_sq = self.flat2square (errors)
 
         if self.minFunc == 'OEI' :
@@ -490,7 +509,14 @@ class dmet:
             
             if ( self.SCmethod == 'NONE' ):
                 u_diff = 0.1 * convergence_threshold # Do only 1 iteration
-        
+
+        # Only at the very end does impham_CONST matter
+        for frag in self.fragments:
+            frag.E_imp += frag.get_impham_CONST ()
+        if ( self.CC_E_TYPE == 'CASCI' ):
+            assert( len (self.fragments) == 1 )		
+            print("-----NOTE: CASCI or Single embedding is used-----")				
+            self.energy = self.frag[0].E_imp 
         print ("Time cf func =", self.time_func)
         print ("Time cf grad =", self.time_grad)
         print ("Time dmet ed =", self.time_ed)

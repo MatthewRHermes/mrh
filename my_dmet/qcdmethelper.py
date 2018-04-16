@@ -22,6 +22,7 @@ import mrh.my_dmet.rhf
 import numpy as np
 import ctypes
 from ctypes.util import find_library
+from mrh.util.basis import represent_operator_in_basis
 lib_qcdmet = ctypes.CDLL('/home/gagliard/herme068/Apps/QC-DMET/lib/libqcdmet.so')
 #lib_qcdmet = ctypes.CDLL(find_library('qcdmet'))
 
@@ -29,6 +30,7 @@ class qcdmethelper:
 
     def __init__( self, theLocalIntegrals, list_H1, altcf, minFunc ):
     
+
         self.locints = theLocalIntegrals
         assert( self.locints.Nelec % 2 == 0 )
         self.numPairs = int (self.locints.Nelec / 2)
@@ -46,6 +48,15 @@ class qcdmethelper:
         self.H1row = H1row
         self.H1col = H1col
         self.Nterms = len( self.H1start ) - 1
+
+        # Variables related to the 1RDM calculations, possibly dependent on some frozen degrees of freedom
+        self.OEI_wrk = None
+        self.OEI_loc = None
+        self.oneRDMfrz_loc = None
+        self.TEI_wrk = None
+        self.ao2wrk = None
+        self.numPairs_wrk = self.numPairs
+        self.loc2wrk = None
         
     def convertH1sparse( self ):
     
@@ -66,40 +77,72 @@ class qcdmethelper:
         H1col   = np.array( H1col,   dtype=ctypes.c_int )
         return ( H1start, H1row, H1col )
 
-    def construct1RDM_loc( self, doSCF, umat_loc ):
-        
-        # Everything in this functions works in the original local AO / lattice basis!
-        if self.altcf and self.minFunc == 'OEI' :
-            OEI = self.locints.loc_oei() + umat_loc
-        elif self.altcf and self.minFunc == 'FOCK_INIT' :
-            OEI = self.locints.loc_rhf_fock() + umat_loc
+    def init_oei_for_umat_cycle (self):
+        if ((self.loc2wrk==None) != (self.oneRDMfrz_loc==None)) or ((self.loc2wrk==None) != (self.nelec_frz==None)):
+            raise RuntimeError("Set all of helper.loc2wrk, helper.oneRDMfrz_loc, and helper.nelec_frz or none of them!")
+        self.numPairs_wrk = self.numPairs - (int (round (self.nelec_frz)) // 2) if self.nelec_frz else self.numPairs
+        self.OEI_wrk, self.TEI_wrk, self.ao2wrk = self.OEI_for_construct1RDM_loc ()
+        self.OEI_loc = represent_operator_in_basis (self.OEI_wrk, loc2wrk.T) if self.loc2wrk else self.OEI_wrk
+
+    def OEI_for_construct1RDM_loc ( self ):
+        use_OEI = (self.altcf and self.minFunc == 'OEI')
+
+        TEI_wrk = None
+        ao2wrk = None
+        if self.locints.ERIinMem: 
+            TEI_wrk = self.locints.loc_tei ()
         else:
-            OEI   = self.locints.loc_rhf_fock() + umat_loc
-        DMloc = self.construct1RDM_base( OEI, self.numPairs )
+            ao2wrk = self.locints.ao2loc
+
+        if self.loc2wrk == None:
+            GOCK_wrk = self.locints.loc_oei () if use_OEI else self.locints.loc_rhf_fock ()
+            return GOCK_wrk, TEI_wrk, ao2wrk
+
+        GOCK_wrk = represent_operator_in_basis (self.locints.loc_rhf_fock_bis (self.oneRDMfrz_loc), self.loc2wrk)
+        if use_OEI:
+            return GOCK_wrk, TEI_wrk, ao2wrk
+
+        oneRDM_wrk = self.construct1RDM_base (GOCK_wrk, numPairs_wrk)
+        if ( self.locints.ERIinMEM == True ):
+            TEI_wrk = self.locints.dmet_tei (self.loc2wrk, self.loc2wrk.shape[1]) 
+            oneRDM_wrk = rhf.solve_ERI( GOCK_wrk, TEI_wrk, oneRDM_wrk, numPairs_wrk )
+        else:
+            ao2wrk = np.dot (self.locints.ao2loc, self.loc2wrk) 
+            oneRDM_wrk = rhf.solve_JK( GOCK_wrk, self.locints.mol, ao2wrk, oneRDM_wrk, numPairs_wrk )
+        oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, self.loc2wrk.T) + self.oneRDMfrz_loc
+        FOCKINIT_loc = self.locints.loc_rhf_fock_bis (oneRDM_loc)
+        FOCKINIT_wrk = represent_operator_in_basis (FOCKINIT_loc, self.loc2wrk)
+        return FOCKINIT_wrk, TEI_wrk, ao2wrk
+        
+    def construct1RDM_loc( self, doSCF, umat_loc):
+        umat_wrk = represent_operator_in_basis (umat_loc, self.loc2wrk) if self.loc2wrk else umat_loc
+        OEI_plus_umat = self.OEI_wrk + umat_wrk
+        oneRDM_wrk = self.construct1RDM_base( OEI_plus_umat, self.numPairs_wrk )
         if ( doSCF == True ):
             if ( self.locints.ERIinMEM == True ):
-                DMloc = mrh.my_dmet.rhf.solve_ERI( self.locints.loc_oei() + umat_loc, self.locints.loc_tei(), DMloc, self.numPairs )
+                oneRDM_wrk = rhf.solve_ERI( OEI_plus_umat, self.TEI_wrk, oneRDM_wrk, self.numPairs_wrk )
             else:
-                DMloc = mrh.my_dmet.rhf.solve_JK( self.locints.loc_oei() + umat_loc, self.locints.mol, self.locints.ao2loc, DMloc, self.numPairs )
-        return DMloc
-    
-    def construct1RDM_response( self, doSCF, umat_loc, NOrotation ):
+                oneRDM_wrk = rhf.solve_JK( OEI_plus_umat, self.locints.mol, self.ao2wrk, oneRDM_wrk, self.numPairs_wrk )
+        oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, self.loc2wrk.T) + self.oneRDMfrz_loc if self.loc2wrk else oneRDM_wrk
+        return oneRDM_loc
+
+    def construct1RDM_response( self, doSCF, umat_loc, loc2rspwork ):
+        if doSCF:
+            oneRDM_loc = self.construct1RDM_loc (doSCF, umat_loc)
+            OEI_plus_umat = self.locints.loc_rhf_fock_bis( oneRDM_loc ) + umat_loc
+        else:
+            OEI_plus_umat = self.OEI_loc + umat_loc
         
-        # This part works in the original local AO / lattice basis!
-        OEI = self.locints.loc_rhf_fock() + umat_loc
-        if ( doSCF == True ):
-            DMloc = self.construct1RDM_base( OEI, self.numPairs )
-            if ( self.locints.ERIinMEM == True ):
-                DMloc = rhf.solve_ERI( self.locints.loc_oei() + umat_loc, self.locints.loc_tei(), DMloc, self.numPairs )
-            else:
-                DMloc = rhf.solve_JK( self.locints.loc_oei() + umat_loc, self.locints.mol, self.locints.ao2loc, DMloc, self.numPairs )
-            OEI = self.locints.loc_rhf_fock_bis( DMloc ) + umat_loc
-        
-        # This part works in the rotated NO basis if NOrotation is specified
+        # MRH: only the derivative of the constructed 1RDM ("gamma_D" in my notes) is necessary here, not the wma part of the 1RDM
+        # MRH: However I'm not 100% sure that this can be done in a complete basis because what if the derivatives tell that part of the 1RDM
+        #      to go into the wma part???  How does rhf_response work????
+        # MRH: I ~think~ I don't have to do anything to the rhf_response part; I just have to make sure that I give it the right OEI ("GOCK")
+        # MRH: since the complete derivative gets multiplied by a component which is zero in the wma by construction, there shouldn't be a problem
+        #      as long as I set up the error vector correctly 
         rdm_deriv_rot = np.ones( [ self.locints.Norbs * self.locints.Norbs * self.Nterms ], dtype=ctypes.c_double )
-        if ( NOrotation != None ):
-            OEI = np.dot( np.dot( NOrotation.T, OEI ), NOrotation )
-        OEI = np.array( OEI.reshape( (self.locints.Norbs * self.locints.Norbs) ), dtype=ctypes.c_double )
+        if ( loc2rspwork != None ):
+            OEI_plus_umat = np.dot( np.dot( loc2rspwork.T, OEI_plus_umat ), loc2rspwork )
+        OEI = np.array( OEI_plus_umat.reshape( (self.locints.Norbs * self.locints.Norbs) ), dtype=ctypes.c_double )
         
         lib_qcdmet.rhf_response( ctypes.c_int( self.locints.Norbs ),
                                  ctypes.c_int( self.Nterms ),
