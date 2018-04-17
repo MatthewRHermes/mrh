@@ -23,40 +23,40 @@ from . import localintegrals
 from pyscf import ao2mo, gto, scf
 from pyscf.tools import rhf_newtonraphson
 
-def solve( CONST, OEI, FOCK, TEI, Norb, Nel, Nimp, DMguessRHF, chempot_imp=0.0 ):
+#def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, guess_1RDM, chempot_frag=0.0 ):
+def solve (frag, guess_1RDM, chempot_frag=0.0):
 
     # Augment the FOCK operator with the chemical potential
-    FOCKcopy = FOCK.copy()
-    if (chempot_imp != 0.0):
-        for orb in range(Nimp):
-            FOCKcopy[ orb, orb ] -= chempot_imp
+    FOCKcopy = frag.impham_FOCK.copy()
+    if (chempot_frag != 0.0):
+        for orb in range(frag.norbs_frag):
+            FOCKcopy[ orb, orb ] -= chempot_frag
     
     # Get the RHF solution
     mol = gto.Mole()
     mol.build( verbose=0 )
     mol.atom.append(('C', (0, 0, 0)))
-    mol.nelectron = Nel
+    mol.nelectron = frag.nelec_imp
     mol.incore_anyway = True
     mf = scf.RHF( mol )
     mf.get_hcore = lambda *args: FOCKcopy
-    mf.get_ovlp = lambda *args: np.eye( Norb )
-    mf._eri = ao2mo.restore(8, TEI, Norb)
-    mf.scf( DMguessRHF )
+    mf.get_ovlp = lambda *args: np.eye( frag.norbs_imp )
+    mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+    mf.scf( guess_1RDM )
     DMloc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
     if ( mf.converged == False ):
         mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
         DMloc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
     
-    ERHF = mf.e_tot
-    RDM1 = mf.make_rdm1()
-    JK   = mf.get_veff(None, dm=RDM1)
+    frag.E_imp = mf.e_tot
+    frag.oneRDM_imp = mf.make_rdm1()
+    JK   = mf.get_veff(None, dm=frag.oneRDM_imp)
  
     # To calculate the impurity energy, rescale the JK matrix with a factor 0.5 to avoid double counting: 0.5 * ( OEI + FOCK ) = OEI + 0.5 * JK
-    ImpurityEnergy = CONST \
-                   + 0.25 * np.einsum('ji,ij->', RDM1[:,:Nimp], FOCK[:Nimp,:] + OEI[:Nimp,:]) \
-                   + 0.25 * np.einsum('ji,ij->', RDM1[:Nimp,:], FOCK[:,:Nimp] + OEI[:,:Nimp]) \
-                   + 0.25 * np.einsum('ji,ij->', RDM1[:,:Nimp], JK[:Nimp,:]) \
-                   + 0.25 * np.einsum('ji,ij->', RDM1[:Nimp,:], JK[:,:Nimp])
+    frag.E_frag =  0.25 * np.einsum('ji,ij->', frag.oneRDM_imp[:,:frag.norbs_frag], frag.impham_FOCK[:frag.norbs_frag,:] + frag.impham_OEI[:frag.norbs_frag,:]) \
+                 + 0.25 * np.einsum('ji,ij->', frag.oneRDM_imp[:frag.norbs_frag,:], frag.impham_FOCK[:,:frag.norbs_frag] + frag.impham_OEI[:,:frag.norbs_frag]) \
+                 + 0.25 * np.einsum('ji,ij->', frag.oneRDM_imp[:,:frag.norbs_frag], JK[:frag.norbs_frag,:]) \
+                 + 0.25 * np.einsum('ji,ij->', frag.oneRDM_imp[:frag.norbs_frag,:], JK[:,:frag.norbs_frag])
     
-    return ( ImpurityEnergy, RDM1 )
+    return None
 

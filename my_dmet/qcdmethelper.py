@@ -22,8 +22,8 @@ import mrh.my_dmet.rhf
 import numpy as np
 import ctypes
 from ctypes.util import find_library
-#lib_qcdmet = ctypes.CDLL(find_library('qcdmet'))
 lib_qcdmet = ctypes.CDLL('/home/gagliard/herme068/Apps/QC-DMET/lib/libqcdmet.so')
+#lib_qcdmet = ctypes.CDLL(find_library('qcdmet'))
 
 class qcdmethelper:
 

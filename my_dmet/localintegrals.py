@@ -121,7 +121,7 @@ class localintegrals:
         eigvals, eigvecs = np.linalg.eigh( self.activeFOCK )
         eigvecs = eigvecs[ :, eigvals.argsort() ]
         assert( self.Nelec % 2 == 0 )
-        numPairs = self.Nelec / 2
+        numPairs = self.Nelec // 2
         DMguess = 2 * np.dot( eigvecs[ :, :numPairs ], eigvecs[ :, :numPairs ].T )
         if ( self.ERIinMEM == True ):
             DMloc = mrh.my_dmet.rhf.solve_ERI( self.activeOEI, self.activeERI, DMguess, numPairs )
@@ -146,7 +146,7 @@ class localintegrals:
     
         return self.activeFOCK
         
-    def loc_rhf_fock_bis( self, DMloc ):
+    def loc_rhf_jk_bis( self, DMloc ):
     
         if ( self.ERIinMEM == False ):
             DM_ao = np.dot( np.dot( self.ao2loc, DMloc ), self.ao2loc.T )
@@ -154,14 +154,16 @@ class localintegrals:
             JK_loc = np.dot( np.dot( self.ao2loc.T, JK_ao ), self.ao2loc )
         else:
             JK_loc = np.einsum( 'ijkl,ij->kl', self.activeERI, DMloc ) - 0.5 * np.einsum( 'ijkl,ik->jl', self.activeERI, DMloc )
-        FOCKloc = self.activeOEI + JK_loc
-        return FOCKloc
+        return JK_loc
+
+    def loc_rhf_fock_bis( self, DMloc ):
+    
+        return self.activeOEI + self.loc_rhf_jk_bis (DMloc)
 
     def loc_tei( self ):
     
         if ( self.ERIinMEM == False ):
-            print("localintegrals::loc_tei : ERI of the localized orbitals are not stored in memory.")
-        assert ( self.ERIinMEM == True )
+            raise RuntimeError ("localintegrals::loc_tei : ERI of the localized orbitals are not stored in memory.")
         return self.activeERI
         
     def dmet_oei( self, loc2dmet, numActive ):
@@ -194,12 +196,12 @@ class localintegrals:
             TEIdmet = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.Norbs), loc2dmet[:,:numAct], compact=False).reshape(numAct, numAct, numAct, numAct)
         return TEIdmet
         
-    def dmet_electronic_const (self, loc2dmet, norbs_imp, wm_approx_1RDM, otherimp_approx_ecorr=None):
+    def dmet_electronic_const (self, loc2dmet, norbs_imp, wm_approx_1RDM):
 
         norbs_tot=self.mol.nao_nr ()
         norbs_core=norbs_tot - norbs_imp
         loc2core = loc2dmet[:,::-1] 
-        GAMMA = mrh.util.basis.represent_operator_in_subspace (wm_approx_dmet, loc2core[:,:norbs_core])
+        GAMMA = mrh.util.basis.represent_operator_in_basis (wm_approx_1RDM, loc2core[:,:norbs_core])
         OEI = self.dmet_oei (loc2core, norbs_core)
         FOCK = self.dmet_fock (loc2core, norbs_core, wm_approx_1RDM)
         return 0.5 * np.einsum ('ij,ij->', GAMMA, OEI + FOCK)
