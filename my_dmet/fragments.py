@@ -6,6 +6,7 @@ import numpy as np
 from pyscf import gto
 from . import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, testing, qcdmethelper
 import mrh.util.basis
+from mrh.util.la import matrix_eigen_control_options
 import warnings
 import traceback
 import sys
@@ -18,7 +19,7 @@ def warn_with_traceback(message, category, filename, lineno, file=None, line=Non
 
 warnings.showwarning = warn_with_traceback
 
-def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE"):
+def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0):
     assert (len (frag_atom_list) < ints.mol.natm)
     assert (np.amax (frag_atom_list) < ints.mol.natm)
     norbs_in_atom = [int (np.sum ([2 * ints.mol.bas_angular (shell) + 1 for shell in ints.mol.atom_shell_ids (atom)])) for atom in range (ints.mol.natm)]
@@ -27,13 +28,13 @@ def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list 
     print ("Fragment atom list\n{0}\nproduces a fragment orbital list as {1}".format ([ints.mol.atom[atom] for atom in frag_atom_list], frag_orb_list))
     return fragment_object (ints, np.asarray (frag_orb_list), solver_name, active_orb_list=np.asarray (active_orb_list), name=name)
 
-def make_fragment_orb_list (ints, frag_orb_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE"):
+def make_fragment_orb_list (ints, frag_orb_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0):
     return fragment_object (ints, frag_orb_list, solver_name, np.asarray (active_orb_list), name=name)
 
 
 class fragment_object:
 
-    def __init__ (self, ints, frag_orb_list, solver_name, active_orb_list, name):
+    def __init__ (self, ints, frag_orb_list, solver_name, active_orb_list, name, norbs_bath_max=None, idempotize_thresh=0.0):
 
         # I really hope this doesn't copy.  I think it doesn't.
         self.ints = ints
@@ -44,11 +45,12 @@ class fragment_object:
         self.norbs_bath = 0
         self.nelec_imp = 0
         self.norbs_active = len (self.active_orb_list)
-        self.norbs_bath_max = self.norbs_frag
+        self.norbs_bath_max = self.norbs_frag if norbs_bath_max == None else norbs_bath_max
         self.num_zero_atol = 1.0e-8
         self.solve_time = 0.0
         self.frag_name = name
         self.active_space = None
+        self.idempotize_thresh = abs (idempotize_thresh)
 
         # Assign solver function
         solver_function_map = {
@@ -165,9 +167,9 @@ class fragment_object:
 
     @property
     def imp_solver_method (self):
-        try:
+        if self.active_space:
             return self.imp_solver_name + str (self.active_space)
-        except AttributeError:
+        else:
             return self.imp_solver_name
 
     @property
@@ -206,16 +208,35 @@ class fragment_object:
     ############################################################################################################################
     def do_Schmidt_decomposition (self, guide_1RDM):
         self.loc2emb, self.norbs_bath, self.nelec_imp = testing.schmidt_decompose_1RDM (guide_1RDM, self.loc2frag, self.norbs_bath_max)
+        self.schmidt_done = True
         print ("Schmidt decomposition found a total of {0} bath orbitals for this fragment, of an allowed total of {1}".format (self.norbs_bath, self.norbs_bath_max))
         print ("Schmidt decomposition found {0} electrons in this impurity".format (self.nelec_imp))
-        if (abs (round (self.nelec_imp) - self.nelec_imp) > self.num_zero_atol):
-            raise RuntimeError ("Can't do non-integer numbers of electrons!")
+        self.oneRDMcore_loc = mrh.util.basis.project_operator_into_subspace (guide_1RDM, self.loc2core)
+        if abs (self.idempotize_thresh) > self.num_zero_atol:
+            self.oneRDMcore_loc, nelec_core_diff = self.idempotize_1RDM (self.oneRDMcore_loc, self.idempotize_thresh)
+            self.nelec_imp -= nelec_core_diff
+            print ("After attempting to idempotize the core (part of the putatively idempotent guide) 1RDM with a threshold of " 
+                + "{0}, {1} electrons were found in the impurity".format (self.idempotize_thresh, self.nelec_imp))
+        nelec_imp_eint_err = round (self.nelec_imp/2) - (self.nelec_imp/2)
+        if (abs (nelec_imp_eint_err) > self.num_zero_atol):
+            raise RuntimeError ("Can't solve impurity problems without even-integer number of electrons! err={0}".format (nelec_imp_eint_err))
         self.nelec_imp = int (round (self.nelec_imp))
-        self.schmidt_done = True
         self.impham_built = False
         self.imp_solved = False
-        self.oneRDMcore_loc = mrh.util.basis.project_operator_into_subspace (guide_1RDM, self.loc2core)
         return self.loc2emb, self.norbs_bath, self.nelec_imp
+
+    def idempotize_1RDM (self, oneRDM, thresh):
+        evals, evecs = np.linalg.eigh (oneRDM)
+        diff_evals = (2.0 * np.around (evals / 2.0)) - evals
+        # Only allow evals to change by at most +-thresh
+        idx_floor = np.where (diff_evals < -abs (thresh))[0]
+        idx_ceil  = np.where (diff_evals >  abs (thresh))[0]
+        diff_evals[idx_floor] = -abs(thresh)
+        diff_evals[idx_ceil]  =  abs(thresh)
+        nelec_diff = np.sum (diff_evals)
+        new_evals = evals + diff_evals
+        new_oneRDM = mrh.util.basis.represent_operator_in_basis (np.diag (new_evals), evecs.T)
+        return new_oneRDM, nelec_diff
     ##############################################################################################################################
 
 
@@ -249,8 +270,6 @@ class fragment_object:
         guess_1RDM = self.get_guess_1RDM (chempot_frag)
         self.imp_solver_function (self, guess_1RDM, chempot_frag)
         self.imp_solved = True
-
-        # The first item in the output tuple is "IMP_energy," which is the *impurity* energy for CC or CASSCF with CC_E_TYPE=CASCI and the *fragment* energy otherwise
         print ("{0} energy results for {1}: E_frag = {2}; E_imp - CONST = {3}".format (self.imp_solver_longname, self.frag_name, self.E_frag, self.E_imp))
 
         # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals

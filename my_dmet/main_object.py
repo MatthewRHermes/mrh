@@ -31,50 +31,42 @@ from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, 
 
 class dmet:
 
-    def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, doDET=False,doDET_NO=False):
-    
-        if ( isTranslationInvariant == True ):
+    def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
+                    doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', num_zero_atol=1.0e-8, minFunc='FOCK_INIT', wma_options=False, print_u=True,
+                    print_rdm=True):
+
+        if isTranslationInvariant:
+            raise RuntimeError ("The translational invariance option doesn't work!  It needs to be completely rebuilt!")
             assert( theInts.TI_OK == True )
             assert( len (fragments) == 1 )
         
         assert (( SCmethod == 'LSTSQ' ) or ( SCmethod == 'BFGS' ) or ( SCmethod == 'NONE' ))
-        
-        self.ints       = theInts
-        self.norbs_tot  = self.ints.Norbs
-        self.fragments  = fragments
-        self.umat       = np.zeros([ self.norbs_tot, self.norbs_tot ])
-        self.relaxation = 0.0
-        
-        self.NI_hack    = False
-        self.doSCF      = False
-        self.TransInv   = isTranslationInvariant
-        self.SCmethod   = SCmethod
-        self.CC_E_TYPE  = 'LAMBDA' #'CASCI'/'LAMBDA'
-        self.incl_bath_errvec = False if doDET else incl_bath_errvec
-        self.doDET      = doDET
-        self.doDET_NO   = doDET_NO
-        self.loc2fno = None
-        self.altcostfunc = use_constrained_opt
-        self.num_zero_atol = 1.0e-8 
-        self.UHF = False
+        assert (( CC_E_TYPE == 'LAMBDA') or ( CC_E_TYPE == 'CASCI'))        
 
-        # Whole-molecule active-space-related attributes
-        self.wma_options = False
+        self.ints             = theInts
+        self.norbs_tot        = self.ints.Norbs
+        self.fragments        = fragments
+        self.NI_hack          = False
+        self.doSCF            = False
+        self.TransInv         = isTranslationInvariant
+        self.doDET            = doDET or doDET_NO
+        self.doDET_NO         = doDET_NO
+        self.CC_E_TYPE        = CC_E_TYPE
+        self.num_zero_atol    = num_zero_atol
+        self.minFunc          = minFunc
+        self.wma_options      = wma_options
+        self.print_u          = print_u
+        self.print_rdm        = print_rdm
+        self.SCmethod         = 'NONE' if self.doDET else SCmethod
+        self.incl_bath_errvec = False if self.doDET else incl_bath_errvec
+        self.altcostfunc      = False if self.doDET else use_constrained_opt
+        if self.doDET:
+            print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
 
-        if ( self.doDET == True ):
-            # Cfr Bulik, PRB 89, 035140 (2014)
-            self.incl_bath_errvec = False
-		
         self.acceptable_errvec_check ()
-
-        self.minFunc    = None
         if self.altcostfunc:
-            self.minFunc = 'FOCK_INIT'  # 'OEI'
             assert (self.SCmethod == 'BFGS' or self.SCmethod == 'NONE')
-       
-        self.print_u   = True
-        self.print_rdm = True
-        
+
         self.get_allcore_orbs ()
         if ( self.norbs_allcore > 0 ): # One or more impurities which do not cover the entire system
             assert( self.TransInv == False ) # Make sure that you don't work translational invariant
@@ -89,9 +81,12 @@ class dmet:
             return r
         self.umat_ftriu_idx = np.mask_indices (self.norbs_tot, umat_ftriu_mask)
         
-        self.energy   = 0.0
-        self.mu_imp   = 0.0
-        self.helper   = qcdmethelper.qcdmethelper( self.ints, self.makelist_H1(), self.altcostfunc, self.minFunc )
+        self.loc2fno    = None
+        self.umat       = np.zeros([ self.norbs_tot, self.norbs_tot ])
+        self.relaxation = 0.0
+        self.energy     = 0.0
+        self.mu_imp     = 0.0
+        self.helper     = qcdmethelper.qcdmethelper( self.ints, self.makelist_H1(), self.altcostfunc, self.minFunc )
         
         self.time_ed  = 0.0
         self.time_cf  = 0.0
@@ -224,7 +219,7 @@ class dmet:
         if ( self.norbs_allcore > 0 ):
         
             if ( self.CC_E_TYPE == 'CASCI' ):
-                Nelectrons = self.frag[0].nelec_frag # Because full active space is used to compute the energy
+                Nelectrons = self.fragments[0].nelec_frag # Because full active space is used to compute the energy
             else:
                 #transfo = np.eye( self.norbs_tot, dtype=float )
                 #totalOEI  = self.ints.dmet_oei(  transfo, self.norbs_tot )
@@ -507,7 +502,7 @@ class dmet:
         if ( self.CC_E_TYPE == 'CASCI' ):
             assert( len (self.fragments) == 1 )		
             print("-----NOTE: CASCI or Single embedding is used-----")				
-            self.energy = self.frag[0].E_imp 
+            self.energy = self.fragments[0].E_imp + self.ints.const ()
         print ("Time cf func =", self.time_func)
         print ("Time cf grad =", self.time_grad)
         print ("Time dmet ed =", self.time_ed)
