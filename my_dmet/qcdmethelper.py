@@ -74,26 +74,23 @@ class qcdmethelper:
         elif self.altcf and self.minFunc == 'FOCK_INIT' :
             OEI = self.locints.loc_rhf_fock() + umat_loc
         else:
-            OEI   = self.locints.loc_rhf_fock() + umat_loc
-        DMloc = self.construct1RDM_base( OEI, self.numPairs )
-        if ( doSCF == True ):
-            if ( self.locints.ERIinMEM == True ):
-                DMloc = mrh.my_dmet.rhf.solve_ERI( self.locints.loc_oei() + umat_loc, self.locints.loc_tei(), DMloc, self.numPairs )
-            else:
-                DMloc = mrh.my_dmet.rhf.solve_JK( self.locints.loc_oei() + umat_loc, self.locints.mol, self.locints.ao2loc, DMloc, self.numPairs )
+            OEI = self.locints.loc_rhf_fock() + umat_loc
+
+        if doSCF:
+            DMloc = self.locints.do_wm_scf (self.locints.loc_oei() + umat_loc)
+        else:
+            DMloc = self.construct1RDM_base( OEI, self.numPairs )
+
         return DMloc
     
     def construct1RDM_response( self, doSCF, umat_loc, NOrotation ):
         
         # This part works in the original local AO / lattice basis!
-        OEI = self.locints.loc_rhf_fock() + umat_loc
-        if ( doSCF == True ):
-            DMloc = self.construct1RDM_base( OEI, self.numPairs )
-            if ( self.locints.ERIinMEM == True ):
-                DMloc = rhf.solve_ERI( self.locints.loc_oei() + umat_loc, self.locints.loc_tei(), DMloc, self.numPairs )
-            else:
-                DMloc = rhf.solve_JK( self.locints.loc_oei() + umat_loc, self.locints.mol, self.locints.ao2loc, DMloc, self.numPairs )
+        if doSCF:
+            DMloc = self.locints.do_wm_scf (self.locints.loc_oei() + umat_loc)
             OEI = self.locints.loc_rhf_fock_bis( DMloc ) + umat_loc
+        else:
+            OEI = self.locints.loc_rhf_fock() + umat_loc
         
         # This part works in the rotated NO basis if NOrotation is specified
         rdm_deriv_rot = np.ones( [ self.locints.Norbs * self.locints.Norbs * self.Nterms ], dtype=ctypes.c_double )

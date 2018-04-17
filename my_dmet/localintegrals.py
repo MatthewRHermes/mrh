@@ -21,17 +21,18 @@
 from pyscf import gto, scf, ao2mo, tools, lo
 from pyscf.lo import nao, orth, boys
 from pyscf.tools import molden
-import mrh.my_dmet.rhf
+import . import rhf as wm_rhf
 from . import iao_helper
 import numpy as np
-import mrh.util.basis
-
+from mrh.util.basis import represent_operator_in_basis
+from mrh.util.la import matrix_eigen_control_options
 
 class localintegrals:
 
     def __init__( self, the_mf, active_orbs, localizationtype, ao_rotation=None, use_full_hessian=True, localization_threshold=1e-6 ):
 
         assert (( localizationtype == 'meta_lowdin' ) or ( localizationtype == 'boys' ) or ( localizationtype == 'lowdin' ) or ( localizationtype == 'iao' ))
+        self.num_zero_atol = 1.0e-8
         
         # Information on the full HF problem
         self.mol        = the_mf.mol
@@ -91,7 +92,7 @@ class localintegrals:
         self.frozenJKao  = scf.hf.get_veff( self.mol, self.frozenDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
         self.frozenOEIao = self.fullFOCKao - self.fullJKao + self.frozenJKao
         
-        # Active space OEI and ERI
+        # Localized OEI and ERI
         self.activeCONST = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEIao - 0.5*self.frozenJKao, self.frozenDMao )
         self.activeOEI   = np.dot( np.dot( self.ao2loc.T, self.frozenOEIao ), self.ao2loc )
         self.activeFOCK  = np.dot( np.dot( self.ao2loc.T, self.fullFOCKao  ), self.ao2loc )
@@ -102,6 +103,14 @@ class localintegrals:
             self.ERIinMEM  = False
             self.activeERI = None
         
+        self.loc2wmc = np.eye (self.Norbs)
+        self.nelec_wmc = self.Nelec
+        self.TEI_wmc = None
+        self.ao2wmc = None
+        if self.ERIinMEM:
+            self.TEI_wmc = self.activeERI
+        else:
+            self.ao2wmc = self.ao2loc
         #self.debug_matrixelements()
         
     def molden( self, filename ):
@@ -124,9 +133,9 @@ class localintegrals:
         numPairs = self.Nelec // 2
         DMguess = 2 * np.dot( eigvecs[ :, :numPairs ], eigvecs[ :, :numPairs ].T )
         if ( self.ERIinMEM == True ):
-            DMloc = mrh.my_dmet.rhf.solve_ERI( self.activeOEI, self.activeERI, DMguess, numPairs )
+            DMloc = wm_rhf.solve_ERI( self.activeOEI, self.activeERI, DMguess, numPairs )
         else:
-            DMloc = mrh.my_dmet.rhf.solve_JK( self.activeOEI, self.mol, self.ao2loc, DMguess, numPairs )
+            DMloc = wm_rhf.solve_JK( self.activeOEI, self.mol, self.ao2loc, DMguess, numPairs )
         newFOCKloc = self.loc_rhf_fock_bis( DMloc )
         newRHFener = self.activeCONST + 0.5 * np.einsum( 'ij,ij->', DMloc, self.activeOEI + newFOCKloc )
         print("2-norm difference of RDM(self.activeFOCK) and RDM(self.active{OEI,ERI})  =", np.linalg.norm( DMguess - DMloc ))
@@ -143,8 +152,8 @@ class localintegrals:
         return self.activeOEI
         
     def loc_rhf_fock( self ):
-    
-        return self.activeFOCK
+
+        return project_operator_into_basis (self.activeFOCK, self.loc2wmc)
         
     def loc_rhf_jk_bis( self, DMloc ):
     
@@ -165,7 +174,45 @@ class localintegrals:
         if ( self.ERIinMEM == False ):
             raise RuntimeError ("localintegrals::loc_tei : ERI of the localized orbitals are not stored in memory.")
         return self.activeERI
-        
+
+    def do_wm_scf (self, custom_OEI_loc):
+
+        npairs_wmc = self.nelec_wmc // 2
+        OEI_wmc = represent_operator_in_basis (custom_OEI_loc, self.loc2wmc)
+        _, wmc2mo = matrix_eigen_control_options (OEI_wmc, sort_vecs=True) # Sorts them ~highest-to-lowest~, so I have to reverse it
+        wmc2mo = wmc2mo[:,::-1]
+        wmc2mo = wmc2mo[:,:npairs_wmc]
+        oneRDM_wmc = 2 * np.dot (wmc2mo, wmc2mo.T)
+        if self.ERIinMEM:
+            oneRDM_wmc = wm_rhf.solve_ERI (OEI_wmc, self.TEI_wmc, oneRDM_wmc, npairs_wmc)
+        else:
+            oneRDM_wmc = wm_rhf.solve_JK (OEI_wmc, self.mol, self.ao2wmc, oneRDM_wmc, npairs_wmc)
+        return represent_operator_in_basis (oneRDM_wmc, self.loc2wmc.T)        
+
+    def setup_wmc (self, oneRDMwma_loc):
+
+        nelec_wma = np.trace (oneRDMwma_loc)
+        if abs ((2*round (nelec_wma/2)) - nelec_wma) > self.num_zero_atol:
+            raise RuntimeError ("oneRDMwma_loc has non-even-integer number electrons ({0})".format (nelec_wma))
+        self.nelec_wmc = self.Nelec - round (self.nelec_wma) # important line
+        GOCK_loc = self.loc_rhf_fock_bis (oneRDMwma_loc)
+        self.loc2wmc = wm_rhf.get_unfrozen_states (oneRDMwma_loc) # important line
+        oneRDMwmc_loc = self.do_wm_scf (GOCK_loc)
+        self.activeFOCK = self.loc_rhf_fock_bis (oneRDMwma_loc + oneRDMwmc_loc) # important line
+        if self.ERIinMEM:
+            self.TEI_wmc = self.dmet_tei (self.loc2wmc, self.loc2wmc.shape[1])
+        else:
+            self.ao2wmc = np.dot (self.ao2loc, self.loc2wmc)
+
+    def restore_original_wm_scf (self):
+        self.nelec_wmc   = self.Nelec
+        self.loc2wmc     = np.eye (self.Norbs)
+        self.activeFOCK  = np.dot( np.dot( self.ao2loc.T, self.fullFOCKao  ), self.ao2loc )
+        if self.ERIinMEM:
+            self.TEI_wmc = self.activeERI
+        else:
+            self.ao2wmc = self.ao2loc
+
     def dmet_oei( self, loc2dmet, numActive ):
     
         OEIdmet = np.dot( np.dot( loc2dmet[:,:numActive].T, self.activeOEI ), loc2dmet[:,:numActive] )
@@ -176,12 +223,11 @@ class localintegrals:
         FOCKdmet = np.dot( np.dot( loc2dmet[:,:numActive].T, self.loc_rhf_fock_bis( coreDMloc ) ), loc2dmet[:,:numActive] )
         return FOCKdmet
         
-    def dmet_init_guess_rhf( self, loc2dmet, numActive, numPairs, Nimp, chempot_imp ):
+    def dmet_init_guess_rhf( self, loc2dmet, numActive, numPairs, norbs_frag, chempot_imp ):
     
         Fock_small = np.dot( np.dot( loc2dmet[:,:numActive].T, self.activeFOCK ), loc2dmet[:,:numActive] )
         if (chempot_imp != 0.0):
-            for orb in range(Nimp):
-                Fock_small[ orb, orb ] -= chempot_imp
+            Fock_small[np.diag_indices(norbs_frag)] -= chempot_imp
         eigvals, eigvecs = np.linalg.eigh( Fock_small )
         eigvecs = eigvecs[ :, eigvals.argsort() ]
         DMguess = 2 * np.dot( eigvecs[ :, :numPairs ], eigvecs[ :, :numPairs ].T )
@@ -196,14 +242,14 @@ class localintegrals:
             TEIdmet = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.Norbs), loc2dmet[:,:numAct], compact=False).reshape(numAct, numAct, numAct, numAct)
         return TEIdmet
         
-    def dmet_electronic_const (self, loc2dmet, norbs_imp, wm_approx_1RDM):
+    def dmet_electronic_const (self, loc2dmet, norbs_imp, oneRDMwm_loc):
 
         norbs_tot=self.mol.nao_nr ()
         norbs_core=norbs_tot - norbs_imp
         loc2core = loc2dmet[:,::-1] 
-        GAMMA = mrh.util.basis.represent_operator_in_basis (wm_approx_1RDM, loc2core[:,:norbs_core])
+        GAMMA = represent_operator_in_basis (oneRDMwm_loc, loc2core[:,:norbs_core])
         OEI = self.dmet_oei (loc2core, norbs_core)
-        FOCK = self.dmet_fock (loc2core, norbs_core, wm_approx_1RDM)
+        FOCK = self.dmet_fock (loc2core, norbs_core, oneRDMwm_loc)
         return 0.5 * np.einsum ('ij,ij->', GAMMA, OEI + FOCK)
 
  

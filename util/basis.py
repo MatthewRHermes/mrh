@@ -60,6 +60,8 @@ def represent_operator_in_basis (braOket, ket_basis, bra_basis = None):
 	lOr = np.asmatrix (braOket)
 	if not bra_basis:
 		bra_basis = ket_basis
+    if bra_basis == np.eye (lOr.shape[0]) and ket_basis == np.eye (lOr.shape[1]):
+        return np.asarray (lOr)
 
 	l2p = np.asmatrix (bra_basis)
 	r2q = np.asmatrix (ket_basis)
@@ -73,6 +75,8 @@ def project_operator_into_subspace (braOket, ket_basis, bra_basis = None):
 	lOr = np.asmatrix (braOket)
 	if not bra_basis:
 		bra_basis = ket_basis
+    if bra_basis == np.eye (lOr.shape[0]) and ket_basis == np.eye (lOr.shape[1]):
+        return np.asarray (lOr)
 
 	l2p = np.asmatrix (bra_basis)
 	p2l = l2p.H
