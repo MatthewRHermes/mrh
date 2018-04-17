@@ -24,8 +24,9 @@ from pyscf.tools import molden
 import . import rhf as wm_rhf
 from . import iao_helper
 import numpy as np
-from mrh.util.basis import represent_operator_in_basis
-from mrh.util.la import matrix_eigen_control_options
+from mrh.util.rdm import get_1RDM_from_OEI
+from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
+from math import sqrt
 
 class localintegrals:
 
@@ -43,19 +44,19 @@ class localintegrals:
         self.fullFOCKao = self.mol.intor('cint1e_kin_sph') + self.mol.intor('cint1e_nuc_sph') + self.fullJKao
         
         # Active space information
-        self._which   = localizationtype
-        self.active   = np.zeros( [ self.mol.nao_nr() ], dtype=int )
+        self._which    = localizationtype
+        self.active    = np.zeros( [ self.mol.nao_nr() ], dtype=int )
         self.active[ active_orbs ] = 1
-        self.Norbs    = np.sum( self.active ) # Number of active space orbitals
-        self.Nelec    = int(np.rint( self.mol.nelectron - np.sum( the_mf.mo_occ[ self.active==0 ] ))) # Total number of electrons minus frozen part
+        self.norbs_tot = np.sum( self.active ) # Number of active space orbitals
+        self.nelec_tot = int(np.rint( self.mol.nelectron - np.sum( the_mf.mo_occ[ self.active==0 ] ))) # Total number of electrons minus frozen part
         
         # Localize the orbitals
         if (( self._which == 'meta_lowdin' ) or ( self._which == 'boys' )):
             if ( self._which == 'meta_lowdin' ):
-                assert( self.Norbs == self.mol.nao_nr() ) # Full active space required
+                assert( self.norbs_tot == self.mol.nao_nr() ) # Full active space required
             if ( self._which == 'boys' ):
                 self.ao2loc = the_mf.mo_coeff[ : , self.active==1 ]
-            if ( self.Norbs == self.mol.nao_nr() ): # If you want the full active, do meta-Lowdin
+            if ( self.norbs_tot == self.mol.nao_nr() ): # If you want the full active, do meta-Lowdin
                 nao.AOSHELL[4] = ['1s0p0d0f', '2s1p0d0f'] # redefine the valence shell for Be
                 self.ao2loc = orth.orth_ao( self.mol, 'meta_lowdin' )
                 if ( ao_rotation != None ):
@@ -70,14 +71,14 @@ class localintegrals:
                 self.ao2loc = loc.kernel ()
             self.TI_OK = False # Check yourself if OK, then overwrite
         if ( self._which == 'lowdin' ):
-            assert( self.Norbs == self.mol.nao_nr() ) # Full active space required
+            assert( self.norbs_tot == self.mol.nao_nr() ) # Full active space required
             ovlp = self.mol.intor('cint1e_ovlp_sph')
             ovlp_eigs, ovlp_vecs = np.linalg.eigh( ovlp )
             assert ( np.linalg.norm( np.dot( np.dot( ovlp_vecs, np.diag( ovlp_eigs ) ), ovlp_vecs.T ) - ovlp ) < 1e-10 )
             self.ao2loc = np.dot( np.dot( ovlp_vecs, np.diag( np.power( ovlp_eigs, -0.5 ) ) ), ovlp_vecs.T )
             self.TI_OK  = False # Check yourself if OK, then overwrite
         if ( self._which == 'iao' ):
-            assert( self.Norbs == self.mol.nao_nr() ) # Full active space assumed
+            assert( self.norbs_tot == self.mol.nao_nr() ) # Full active space assumed
             self.ao2loc = iao_helper.localize_iao( self.mol, the_mf )
             if ( ao_rotation != None ):
                 self.ao2loc = np.dot( self.ao2loc, ao_rotation.T )
@@ -94,24 +95,18 @@ class localintegrals:
         
         # Localized OEI and ERI
         self.activeCONST = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEIao - 0.5*self.frozenJKao, self.frozenDMao )
-        self.activeOEI   = np.dot( np.dot( self.ao2loc.T, self.frozenOEIao ), self.ao2loc )
-        self.activeFOCK  = np.dot( np.dot( self.ao2loc.T, self.fullFOCKao  ), self.ao2loc )
-        if ( self.Norbs <= 150 ):
+        self.activeOEI   = represent_operator_in_basis (self.frozenOEIao, self.ao2loc )
+        self.activeFOCK  = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
+        self.ERIinMEM    = False
+        self.activeERI   = None
+        if ( self.norbs_tot <= 150 ):
             self.ERIinMEM  = True
-            self.activeERI = ao2mo.outcore.full_iofree( self.mol, self.ao2loc, compact=False ).reshape(self.Norbs, self.Norbs, self.Norbs, self.Norbs)
-        else:
-            self.ERIinMEM  = False
-            self.activeERI = None
-        
-        self.loc2wmc = np.eye (self.Norbs)
-        self.nelec_wmc = self.Nelec
-        self.TEI_wmc = None
-        self.ao2wmc = None
-        if self.ERIinMEM:
-            self.TEI_wmc = self.activeERI
-        else:
-            self.ao2wmc = self.ao2loc
-        #self.debug_matrixelements()
+            self.activeERI = ao2mo.outcore.full_iofree( self.mol, self.ao2loc, compact=False ).reshape(self.norbs_tot, self.norbs_tot, self.norbs_tot, self.norbs_tot)
+        self.loc2idem       = None
+        self.JKcorr         = None
+        self.JKidem         = self.activeFOCK - self.activeOEI
+        self.oneRDMcorr_loc = None
+        self.nelec_idem     = self.nelec_tot
         
     def molden( self, filename ):
     
@@ -122,15 +117,15 @@ class localintegrals:
     def loc_ortho( self ):
     
 #        ShouldBeI = np.dot( np.dot( self.ao2loc.T , self.mol.intor('cint1e_ovlp_sph') ) , self.ao2loc )
-        ShouldBeI = np.dot( np.dot( self.ao2loc.T , self.fullovlpao () ) , self.ao2loc )
+        ShouldBeI = represent_operator_in_basis (self.fullovlpao (), self.ao2loc )
         return np.linalg.norm( ShouldBeI - np.eye( ShouldBeI.shape[0] ) )
         
     def debug_matrixelements( self ):
     
         eigvals, eigvecs = np.linalg.eigh( self.activeFOCK )
         eigvecs = eigvecs[ :, eigvals.argsort() ]
-        assert( self.Nelec % 2 == 0 )
-        numPairs = self.Nelec // 2
+        assert( self.nelec_tot % 2 == 0 )
+        numPairs = self.nelec_tot // 2
         DMguess = 2 * np.dot( eigvecs[ :, :numPairs ], eigvecs[ :, :numPairs ].T )
         if ( self.ERIinMEM == True ):
             DMloc = wm_rhf.solve_ERI( self.activeOEI, self.activeERI, DMguess, numPairs )
@@ -146,27 +141,37 @@ class localintegrals:
     def const( self ):
     
         return self.activeCONST
-        
+
     def loc_oei( self ):
-        
-        return self.activeOEI
+        # This function gets an OEIidem
+        # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
+        # the correlated part, if it exists, is kept unchanged
+
+        if self.JKcorr and self.loc2idem:
+            return project_operator_into_subspace (self.activeOEI + self.JKcorr, self.loc2idem)
+        else:
+            return self.activeOEI
         
     def loc_rhf_fock( self ):
+        # This function gets an OEIidem
+        # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
+        # the correlated part, if it exists, is kept unchanged
 
-        return project_operator_into_basis (self.activeFOCK, self.loc2wmc)
+        return self.loc_oei () + self.JK_idem
         
     def loc_rhf_jk_bis( self, DMloc ):
     
         if ( self.ERIinMEM == False ):
-            DM_ao = np.dot( np.dot( self.ao2loc, DMloc ), self.ao2loc.T )
+            DM_ao = represent_operator_in_basis (DMloc, self.ao2loc.T )
             JK_ao = scf.hf.get_veff( self.mol, DM_ao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
-            JK_loc = np.dot( np.dot( self.ao2loc.T, JK_ao ), self.ao2loc )
+            JK_loc = represent_operator_in_basis (JK_ao, self.ao2loc )
         else:
             JK_loc = np.einsum( 'ijkl,ij->kl', self.activeERI, DMloc ) - 0.5 * np.einsum( 'ijkl,ik->jl', self.activeERI, DMloc )
         return JK_loc
 
     def loc_rhf_fock_bis( self, DMloc ):
-    
+   
+        # I can't alter activeOEI because I don't want the meaning of this function to change 
         return self.activeOEI + self.loc_rhf_jk_bis (DMloc)
 
     def loc_tei( self ):
@@ -175,43 +180,69 @@ class localintegrals:
             raise RuntimeError ("localintegrals::loc_tei : ERI of the localized orbitals are not stored in memory.")
         return self.activeERI
 
-    def do_wm_scf (self, custom_OEI_loc):
+    # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
+    # the correlated part, if it exists, is kept unchanged
 
-        npairs_wmc = self.nelec_wmc // 2
-        OEI_wmc = represent_operator_in_basis (custom_OEI_loc, self.loc2wmc)
-        _, wmc2mo = matrix_eigen_control_options (OEI_wmc, sort_vecs=True) # Sorts them ~highest-to-lowest~, so I have to reverse it
-        wmc2mo = wmc2mo[:,::-1]
-        wmc2mo = wmc2mo[:,:npairs_wmc]
-        oneRDM_wmc = 2 * np.dot (wmc2mo, wmc2mo.T)
+    def get_wm_1RDM_from_OEIidem (self, OEI, nelec=self.nelec_idem):
+
+        oneRDM_loc = 2 * get_1RDM_from_OEI (OEI, nelec // 2) 
+        if self.oneRDMcorr_loc:
+            oneRDM_loc += self.oneRDMcorr_loc
+        return oneRDM_loc
+
+    def get_wm_1RDM_from_scf_on_OEIidem (self, OEI, nelec=self.nelec_idem):
+
+        # DON'T call self.get_wm_1RDM_from_OEI here because you need to hold oneRDMcorr_loc frozen until the end of the scf!
+        oneRDM_loc = 2 * get_1RDM_from_OEI (OEI, nelec // 2)
         if self.ERIinMEM:
-            oneRDM_wmc = wm_rhf.solve_ERI (OEI_wmc, self.TEI_wmc, oneRDM_wmc, npairs_wmc)
+            oneRDM_loc = wm_rhf.solve_ERI (OEI, self.activeERI, oneRDM_loc, nelec // 2)
         else:
-            oneRDM_wmc = wm_rhf.solve_JK (OEI_wmc, self.mol, self.ao2wmc, oneRDM_wmc, npairs_wmc)
-        return represent_operator_in_basis (oneRDM_wmc, self.loc2wmc.T)        
+            oneRDM_loc = wm_rhf.solve_JK (OEI, self.mol, self.ao2loc, oneRDM_loc, nelec // 2)
+        if self.oneRDMcorr_loc:
+            oneRDM_loc += self.oneRDMcorr_loc
+        return oneRDM_loc
 
-    def setup_wmc (self, oneRDMwma_loc):
+    def setup_wm_core_scf (self, oneRDMcorr_loc):
 
-        nelec_wma = np.trace (oneRDMwma_loc)
-        if abs ((2*round (nelec_wma/2)) - nelec_wma) > self.num_zero_atol:
-            raise RuntimeError ("oneRDMwma_loc has non-even-integer number electrons ({0})".format (nelec_wma))
-        self.nelec_wmc = self.Nelec - round (self.nelec_wma) # important line
-        GOCK_loc = self.loc_rhf_fock_bis (oneRDMwma_loc)
-        self.loc2wmc = wm_rhf.get_unfrozen_states (oneRDMwma_loc) # important line
-        oneRDMwmc_loc = self.do_wm_scf (GOCK_loc)
-        self.activeFOCK = self.loc_rhf_fock_bis (oneRDMwma_loc + oneRDMwmc_loc) # important line
-        if self.ERIinMEM:
-            self.TEI_wmc = self.dmet_tei (self.loc2wmc, self.loc2wmc.shape[1])
-        else:
-            self.ao2wmc = np.dot (self.ao2loc, self.loc2wmc)
+        # I want to alter the outputs of self.loc_oei (), self.loc_rhf_fock (), and the get_wm_1RDM_etc () functions.
+        # self.loc_oei ()      = P_idem * (activeOEI + JKcorr - shift) * P_idem
+        # self.loc_rhf_fock () = P_idem * (activeOEI + JKcorr + JKidem - shift) * P_idem
+        # The get_wm_1RDM_etc () functions will need to add oneRDMcorr_loc to their final return value
+        # The shift is so that identically zero eigenvalues (from the projector) don't cross paths with accidental numerically zero eigenvalues
+        #  that may possibly appear in the idem subspace
+        # I therefore need to stash:
+        #   - P_idem
+        #   - JKcorr - shift
+        #   - P_idem * JKidem * P_idem
+        #   - oneRDMcorr_loc itself
 
-    def restore_original_wm_scf (self):
-        self.nelec_wmc   = self.Nelec
-        self.loc2wmc     = np.eye (self.Norbs)
-        self.activeFOCK  = np.dot( np.dot( self.ao2loc.T, self.fullFOCKao  ), self.ao2loc )
-        if self.ERIinMEM:
-            self.TEI_wmc = self.activeERI
-        else:
-            self.ao2wmc = self.ao2loc
+        nelec_corr     = np.trace (oneRDMcorr_loc)
+        if nelec_corr.is_integer () == False:
+            raise ValueError ("nelec_corr not an even integer!")
+        nelec_idem     = self.nelec_tot - int (round (nelec_corr))
+        loc2idem       = wm_rhf.get_unfrozen_states (oneRDMcorr_loc)
+        JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
+        trialOEI       = represent_operator_in_basis (self.activeOEI + JKcorr, loc2idem)
+        evals, evecs   = np.linalg.eigh (trialOEI)
+        shift          = np.eye(self.norbs_tot) * 2 * np.amax (evals)
+        trialOEI       = project_operator_into_subspace (self.activeOEI + JKcorr - shift, loc2idem) # Now all meaningful eigenvalues are guaranteed to be below zero
+        oneRDMidem_loc = get_wm_1RDM_from_scf_on_OEIidem (trialOEI, nelec=nelec_idem)
+        JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
+
+        ########################################################################################################        
+        self.loc2idem       = loc2idem
+        self.JKcorr         = JKcorr - shift
+        self.JKidem         = project_operator_into_subspace (JKidem, loc2idem)
+        self.oneRDMcorr_loc = oneRDMcorr_loc
+        self.nelec_idem     = nelec_idem
+        ########################################################################################################
+
+    def restore_wm_full_scf (self):
+        self.loc2idem       = None
+        self.JKcorr         = None
+        self.JKidem         = self.activeFOCK - self.activeOEI
+        self.oneRDMcorr_loc = None
+        self.nelec_idem     = self.nelec_tot
 
     def dmet_oei( self, loc2dmet, numActive ):
     
@@ -225,7 +256,7 @@ class localintegrals:
         
     def dmet_init_guess_rhf( self, loc2dmet, numActive, numPairs, norbs_frag, chempot_imp ):
     
-        Fock_small = np.dot( np.dot( loc2dmet[:,:numActive].T, self.activeFOCK ), loc2dmet[:,:numActive] )
+        Fock_small = np.dot( np.dot( loc2dmet[:,:numActive].T, self.loc_rhf_fock ()), loc2dmet[:,:numActive] )
         if (chempot_imp != 0.0):
             Fock_small[np.diag_indices(norbs_frag)] -= chempot_imp
         eigvals, eigvecs = np.linalg.eigh( Fock_small )
@@ -239,7 +270,7 @@ class localintegrals:
             transfo = np.dot( self.ao2loc, loc2dmet[:,:numAct] )
             TEIdmet = ao2mo.outcore.full_iofree(self.mol, transfo, compact=False).reshape(numAct, numAct, numAct, numAct)
         else:
-            TEIdmet = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.Norbs), loc2dmet[:,:numAct], compact=False).reshape(numAct, numAct, numAct, numAct)
+            TEIdmet = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2dmet[:,:numAct], compact=False).reshape(numAct, numAct, numAct, numAct)
         return TEIdmet
         
     def dmet_electronic_const (self, loc2dmet, norbs_imp, oneRDMwm_loc):

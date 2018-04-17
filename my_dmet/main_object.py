@@ -296,6 +296,9 @@ class dmet:
         errors    = self.rdm_differences (numatflat) 
         errors_sq = self.flat2square (errors)
 
+        # The below involve two examples of OEIidem's
+        # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
+        # the correlated part, if it exists, is kept unchanged
         if self.minFunc == 'OEI' :
             e_fun = np.trace( np.dot(self.ints.loc_oei(), OneRDM_loc) )
         elif self.minFunc == 'FOCK_INIT' :
