@@ -25,7 +25,7 @@ import . import rhf as wm_rhf
 from . import iao_helper
 import numpy as np
 from mrh.util.rdm import get_1RDM_from_OEI
-from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
+from mrh.util.basis import represent_operator_in_basis 
 from math import sqrt
 
 class localintegrals:
@@ -94,20 +94,22 @@ class localintegrals:
         self.frozenOEIao = self.fullFOCKao - self.fullJKao + self.frozenJKao
         
         # Localized OEI and ERI
-        self.activeCONST = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEIao - 0.5*self.frozenJKao, self.frozenDMao )
-        self.activeOEI   = represent_operator_in_basis (self.frozenOEIao, self.ao2loc )
-        self.activeFOCK  = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
-        self.ERIinMEM    = False
-        self.activeERI   = None
-        if ( self.norbs_tot <= 150 ):
-            self.ERIinMEM  = True
-            self.activeERI = ao2mo.outcore.full_iofree( self.mol, self.ao2loc, compact=False ).reshape(self.norbs_tot, self.norbs_tot, self.norbs_tot, self.norbs_tot)
-        self.loc2idem       = None
-        self.JKcorr         = None
-        self.JKidem         = self.activeFOCK - self.activeOEI
-        self.oneRDMcorr_loc = None
+        self.activeCONST    = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEIao - 0.5*self.frozenJKao, self.frozenDMao )
+        self.activeOEI      = represent_operator_in_basis (self.frozenOEIao, self.ao2loc )
+        self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
+        self.activeJKidem   = self.activeFOCK - self.activeOEI
+        self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
+        self.oneRDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
+        self.loc2idem       = np.eye (self.norbs_tot, dtype=self.activeOEI.dtype)
         self.nelec_idem     = self.nelec_tot
-        
+        self.ERIinMEM       = False
+        self.activeERI      = None
+        self.idemERI        = None
+        if ( self.norbs_tot <= 150 ):
+            self.ERIinMEM   = True
+            self.activeERI  = ao2mo.outcore.full_iofree( self.mol, self.ao2loc, compact=False ).reshape(self.norbs_tot, self.norbs_tot, self.norbs_tot, self.norbs_tot)
+            self.idemERI    = self.activeERI
+
     def molden( self, filename ):
     
         with open( filename, 'w' ) as thefile:
@@ -143,21 +145,12 @@ class localintegrals:
         return self.activeCONST
 
     def loc_oei( self ):
-        # This function gets an OEIidem
-        # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
-        # the correlated part, if it exists, is kept unchanged
 
-        if self.JKcorr and self.loc2idem:
-            return project_operator_into_subspace (self.activeOEI + self.JKcorr, self.loc2idem)
-        else:
-            return self.activeOEI
+        return self.activeOEI + self.JKcorr
         
     def loc_rhf_fock( self ):
-        # This function gets an OEIidem
-        # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
-        # the correlated part, if it exists, is kept unchanged
 
-        return self.loc_oei () + self.JK_idem
+        return self.activeOEI + self.JKcorr + self.JKidem
         
     def loc_rhf_jk_bis( self, DMloc ):
     
@@ -183,66 +176,80 @@ class localintegrals:
     # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
     # the correlated part, if it exists, is kept unchanged
 
-    def get_wm_1RDM_from_OEIidem (self, OEI, nelec=self.nelec_idem):
+    def get_wm_1RDM_from_OEI (self, OEI, nelec=None, loc2wrk=None):
 
-        oneRDM_loc = 2 * get_1RDM_from_OEI (OEI, nelec // 2) 
+        nelec   = nelec   or self.nelec_idem
+        loc2wrk = loc2wrk or self.loc2idem
+        nocc    = nelec // 2
+
+        OEI_wrk = represent_operator_in_basis (OEI, loc2wrk)
+        oneRDM_wrk = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
+        oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         if self.oneRDMcorr_loc:
             oneRDM_loc += self.oneRDMcorr_loc
         return oneRDM_loc
 
-    def get_wm_1RDM_from_scf_on_OEIidem (self, OEI, nelec=self.nelec_idem):
+    def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, ERI_wrk=None):
 
-        # DON'T call self.get_wm_1RDM_from_OEI here because you need to hold oneRDMcorr_loc frozen until the end of the scf!
-        oneRDM_loc = 2 * get_1RDM_from_OEI (OEI, nelec // 2)
+        nelec   = nelec   or self.nelec_idem
+        loc2wrk = loc2wrk or self.loc2idem
+        ERI_wrk = ERI_wrk or self.idemERI
+        nocc    = nelec // 2
+
+        # DON'T call self.get_wm_1RDM_from_OEIidem here because you need to hold oneRDMcorr_loc frozen until the end of the scf!
+        OEI_wrk        = represent_operator_in_basis (OEI, loc2wrk)
+        oneRDM_wrk     = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
         if self.ERIinMEM:
-            oneRDM_loc = wm_rhf.solve_ERI (OEI, self.activeERI, oneRDM_loc, nelec // 2)
+            oneRDM_wrk = wm_rhf.solve_ERI(OEI_wrk, ERI_wrk, oneRDM_wrk, nocc)
         else:
-            oneRDM_loc = wm_rhf.solve_JK (OEI, self.mol, self.ao2loc, oneRDM_loc, nelec // 2)
+            ao2wrk     = np.dot (self.ao2loc, loc2wrk)
+            oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, self.mol, self.ao2wrk, oneRDM_wrk, nocc)
+            oneRDM_loc     = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         if self.oneRDMcorr_loc:
             oneRDM_loc += self.oneRDMcorr_loc
         return oneRDM_loc
 
     def setup_wm_core_scf (self, oneRDMcorr_loc):
 
+        self.restore_wm_full_scf ()
+
         # I want to alter the outputs of self.loc_oei (), self.loc_rhf_fock (), and the get_wm_1RDM_etc () functions.
-        # self.loc_oei ()      = P_idem * (activeOEI + JKcorr - shift) * P_idem
-        # self.loc_rhf_fock () = P_idem * (activeOEI + JKcorr + JKidem - shift) * P_idem
+        # self.loc_oei ()      = P_idem * (activeOEI + JKcorr) * P_idem
+        # self.loc_rhf_fock () = P_idem * (activeOEI + JKcorr + JKidem) * P_idem
         # The get_wm_1RDM_etc () functions will need to add oneRDMcorr_loc to their final return value
-        # The shift is so that identically zero eigenvalues (from the projector) don't cross paths with accidental numerically zero eigenvalues
-        #  that may possibly appear in the idem subspace
-        # I therefore need to stash:
-        #   - P_idem
-        #   - JKcorr - shift
-        #   - P_idem * JKidem * P_idem
-        #   - oneRDMcorr_loc itself
+        # The chemical potential is so that identically zero eigenvalues from the projection into the idem space don't get confused
+        # with numerically-zero eigenvalues in the idem space: all occupied orbitals must have negative energy
 
         nelec_corr     = np.trace (oneRDMcorr_loc)
         if nelec_corr.is_integer () == False:
-            raise ValueError ("nelec_corr not an even integer!")
-        nelec_idem     = self.nelec_tot - int (round (nelec_corr))
+            raise ValueError ("nelec_corr not an integer!")
+        nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         loc2idem       = wm_rhf.get_unfrozen_states (oneRDMcorr_loc)
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
-        trialOEI       = represent_operator_in_basis (self.activeOEI + JKcorr, loc2idem)
-        evals, evecs   = np.linalg.eigh (trialOEI)
-        shift          = np.eye(self.norbs_tot) * 2 * np.amax (evals)
-        trialOEI       = project_operator_into_subspace (self.activeOEI + JKcorr - shift, loc2idem) # Now all meaningful eigenvalues are guaranteed to be below zero
-        oneRDMidem_loc = get_wm_1RDM_from_scf_on_OEIidem (trialOEI, nelec=nelec_idem)
+        idemERI        = None
+        if self.ERIinMEM:
+            norbs      = loc2idem.shape[1]
+            ao2idem    = np.dot (self.ao2loc, loc2idem)
+            idemERI    = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2idem, compact=False).reshape(norbs, norbs, norbs, norbs)
+        oneRDMidem_loc = get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, ERI_wrk=idemERI)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
-
+        
         ########################################################################################################        
-        self.loc2idem       = loc2idem
-        self.JKcorr         = JKcorr - shift
-        self.JKidem         = project_operator_into_subspace (JKidem, loc2idem)
+        self.activeJKidem   = JKidem
+        self.activeJKcorr   = JKcorr
         self.oneRDMcorr_loc = oneRDMcorr_loc
+        self.loc2idem       = loc2idem
         self.nelec_idem     = nelec_idem
+        self.idemERI        = idemERI
         ########################################################################################################
 
     def restore_wm_full_scf (self):
-        self.loc2idem       = None
-        self.JKcorr         = None
-        self.JKidem         = self.activeFOCK - self.activeOEI
-        self.oneRDMcorr_loc = None
+        self.activeJKidem   = self.activeFOCK - self.activeOEI
+        self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
+        self.oneRDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
+        self.loc2idem       = np.eye (self.norbs_tot, dtype=self.activeOEI.dtype)
         self.nelec_idem     = self.nelec_tot
+        self.idemERI        = self.activeERI
 
     def dmet_oei( self, loc2dmet, numActive ):
     

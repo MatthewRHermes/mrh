@@ -20,10 +20,12 @@
 from . import localintegrals
 import mrh.my_dmet.rhf
 from mrh.util.rdm import get_1RDM_from_OEI_in_subspace
+from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
 import numpy as np
 import ctypes
 from ctypes.util import find_library
-lib_qcdmet = ctypes.CDLL('/home/gagliard/herme068/Apps/QC-DMET/lib/libqcdmet.so')
+lib_qcdmet = ctypes.CDLL('/home/gagliard/herme068/lib/libqcdmet.so')
+#lib_qcdmet = ctypes.CDLL('/home/gagliard/herme068/Apps/QC-DMET/lib/libqcdmet.so')
 #lib_qcdmet = ctypes.CDLL(find_library('qcdmet'))
 
 class qcdmethelper:
@@ -31,8 +33,8 @@ class qcdmethelper:
     def __init__( self, theLocalIntegrals, list_H1, altcf, minFunc ):
     
         self.locints = theLocalIntegrals
-        assert( self.locints.Nelec % 2 == 0 )
-        self.numPairs = int (self.locints.Nelec / 2)
+        assert( self.locints.nelec_tot % 2 == 0 )
+        self.numPairs = int (self.locints.nelec_tot / 2)
         self.altcf = altcf
         self.minFunc = None
 
@@ -70,42 +72,47 @@ class qcdmethelper:
     def construct1RDM_loc( self, doSCF, umat_loc ):
         
         # Everything in this functions works in the original local AO / lattice basis!
-        # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
-        # the correlated part, if it exists, is kept unchanged
         if doSCF:
-            return self.locints.get_wm_1RDM_from_scf_on_OEIidem (self.locints.loc_oei ()      + umat_loc)
+            return self.locints.get_wm_1RDM_from_scf_on_OEI (self.locints.loc_oei ()      + umat_loc)
         elif self.altcf and self.minFunc == 'OEI' :
-            return self.locints.get_wm_1RDM_from_OEIidem        (self.locints.loc_oei ()      + umat_loc)
+            return self.locints.get_wm_1RDM_from_OEI        (self.locints.loc_oei ()      + umat_loc)
         else:
-            return self.locints.get_wm_1RDM_from_OEIidem        (self.locints.loc_rhf_fock () + umat_loc)
+            return self.locints.get_wm_1RDM_from_OEI        (self.locints.loc_rhf_fock () + umat_loc)
     
     def construct1RDM_response( self, doSCF, umat_loc, NOrotation ):
 
         # This part is local-basis        
-        # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
-        # the correlated part, if it exists, is kept unchanged
         if doSCF:
-            oneRDM = self.locints.get_wm_1RDM_from_scf_on_OEIidem (self.loc_oei () + umat_loc)
+            oneRDM = self.locints.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + umat_loc)
             OEI    = self.locints.loc_rhf_fock_bis (oneRDM)
         else:
             OEI    = self.locints.loc_rhf_fock() + umat_loc
-        
+
+        # Do I need to project this into the into the idempotent subspace?
+        # The overall derivative is going to be -2 * dg_mol/du . |g_imps - g_mol|
+        # If you separate g and g_err into the idem and corr spaces
+        #   P_idem |g_imps - g_mol| P_idem is the thing I really want to differentiate
+        #   P_idem |g_imps - g_mol| P_corr is small but not generally zero due to active spaces changing between iterations
+        #   P_corr |g_imps - g_mol| P_corr is zero by construction
+        #   P_idem dg_mol/du P_idem needs to be zero but might not be if OEI is defined in the entire space
+        #   However I think I can solve this by projecting the ~final~ derivative up in main_object into the working space
+
         # This part works in the rotated NO basis if NOrotation is specified
-        rdm_deriv_rot = np.ones( [ self.locints.Norbs * self.locints.Norbs * self.Nterms ], dtype=ctypes.c_double )
+        rdm_deriv_rot = np.ones( [ self.locints.norbs_tot * self.locints.norbs_tot * self.Nterms ], dtype=ctypes.c_double )
         if ( NOrotation != None ):
             OEI = np.dot( np.dot( NOrotation.T, OEI ), NOrotation )
-        OEI = np.array( OEI.reshape( (self.locints.Norbs * self.locints.Norbs) ), dtype=ctypes.c_double )
+        OEI = np.array( OEI.reshape( (self.locints.norbs_tot * self.locints.norbs_tot) ), dtype=ctypes.c_double )
         
-        lib_qcdmet.rhf_response( ctypes.c_int( self.locints.Norbs ),
+        lib_qcdmet.rhf_response( ctypes.c_int( self.locints.norbs_tot ),
                                  ctypes.c_int( self.Nterms ),
-                                 ctypes.c_int( self.numPairs ),
+                                 ctypes.c_int( nocc ),
                                  self.H1start.ctypes.data_as( ctypes.c_void_p ),
                                  self.H1row.ctypes.data_as( ctypes.c_void_p ),
                                  self.H1col.ctypes.data_as( ctypes.c_void_p ),
                                  OEI.ctypes.data_as( ctypes.c_void_p ),
                                  rdm_deriv_rot.ctypes.data_as( ctypes.c_void_p ) )
         
-        rdm_deriv_rot = rdm_deriv_rot.reshape( (self.Nterms, self.locints.Norbs, self.locints.Norbs), order='C' )
+        rdm_deriv_rot = rdm_deriv_rot.reshape( (self.Nterms, self.locints.norbs_tot, self.locints.norbs_tot), order='C' )
         return rdm_deriv_rot
         
     def constructbath( self, OneDM, impurityOrbs, numBathOrbs, threshold=1e-13 ):

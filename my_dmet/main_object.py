@@ -26,7 +26,7 @@ from . import localintegrals, qcdmethelper
 import numpy as np
 from scipy import optimize
 import time
-from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states
+from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
 
 
 class dmet:
@@ -44,7 +44,7 @@ class dmet:
         assert (( CC_E_TYPE == 'LAMBDA') or ( CC_E_TYPE == 'CASCI'))        
 
         self.ints             = theInts
-        self.norbs_tot        = self.ints.Norbs
+        self.norbs_tot        = self.ints.norbs_tot
         self.fragments        = fragments
         self.NI_hack          = False
         self.doSCF            = False
@@ -296,9 +296,6 @@ class dmet:
         errors    = self.rdm_differences (numatflat) 
         errors_sq = self.flat2square (errors)
 
-        # The below involve two examples of OEIidem's
-        # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
-        # the correlated part, if it exists, is kept unchanged
         if self.minFunc == 'OEI' :
             e_fun = np.trace( np.dot(self.ints.loc_oei(), OneRDM_loc) )
         elif self.minFunc == 'FOCK_INIT' :
@@ -347,7 +344,8 @@ class dmet:
         RDMderivs_rot = self.helper.construct1RDM_response( self.doSCF, newumatsquare_loc, self.loc2fno )
         gradient = []
         for countgr in range( len( newumatflat ) ):
-            rsp_1RDM = RDMderivs_rot[countgr, :, :]
+            # The projection below should do nothing for ordinary DMET, but when a wma space is used it should prevent the derivative from pointing into the wma space
+            rsp_1RDM = project_operator_into_subspace (RDMderivs_rot[countgr, :, :], self.ints.loc2idem) 
             errvec = np.concatenate ([frag.get_rsp_1RDM_elements (self, rsp_1RDM) for frag in self.fragments])
             gradient.append( errvec )
         gradient = np.array( gradient ).T
@@ -425,7 +423,7 @@ class dmet:
     def numeleccostfunction( self, chempot_imp ):
         
         Nelec_dmet   = self.doexact( chempot_imp )
-        Nelec_target = self.ints.Nelec
+        Nelec_target = self.ints.nelec_tot
         print ("      (chemical potential , number of electrons) = (", chempot_imp, "," , Nelec_dmet ,")")
         return Nelec_dmet - Nelec_target
 
