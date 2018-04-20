@@ -209,7 +209,10 @@ class fragment_object:
 
     @property
     def nelec_as (self):
-        return np.trace (self.oneRDMas_loc)
+        result = np.trace (self.oneRDMas_loc)
+        if is_close_to_integer (result, self.num_zero_atol) == False:
+            raise RuntimeError ("Somehow you got a non-integer number of electrons in your active space!")
+        return int (round (result))
     ############################################################################################################################
 
 
@@ -239,9 +242,9 @@ class fragment_object:
         print ("Other-fragment-core Schmidt decomposition of {0} fragment".format (self.frag_name))
         self.restore_default_embedding_basis ()
         print ("Starting with Schmidt decomposition in the idempotent subspace")
-        oneRDMidem_loc = project_operator_into_subspace (oneRDM_loc, loc2idem)
-        loc2ifrag      = get_overlapping_states (loc2idem, self.loc2frag)
-        norbs_ifrag    = loc2ifrag.shape[1]
+        oneRDMidem_loc      = project_operator_into_subspace (oneRDM_loc, loc2idem)
+        loc2ifrag, _, svals = get_overlapping_states (loc2idem, self.loc2frag)
+        norbs_ifrag         = loc2ifrag.shape[1]
         print ("{0} fragment orbitals becoming {1} pseudo-fragment orbitals in idempotent subspace".format (self.norbs_frag, norbs_ifrag))
         loc2iemb, norbs_ibath, nelec_iimp, oneRDMidemcore_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMidem_loc, 
             loc2ifrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=self.num_zero_atol)
@@ -258,6 +261,9 @@ class fragment_object:
         print ("Found {0} electrons from the core bleeding onto impurity states".format (nelec_bleed))
         print ("(If this number is large, you either are dealing with overlapping fragment active spaces or you made an error)")
         print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
+        self.Schmidt_done = True
+        self.impham_built = False
+        self.imp_solved = False
 
     ##############################################################################################################################
 
@@ -301,6 +307,13 @@ class fragment_object:
         self.fno_evals, frag2fno = np.linalg.eigh (self.oneRDM_frag)
         self.loc2fno = np.dot (self.loc2frag, frag2fno)
 
+        # Testing
+        '''
+        oneRDMimp_loc = represent_operator_in_basis (self.oneRDM_imp, self.imp2loc)
+        idx = np.ix_(self.frag_orb_list, self.frag_orb_list)
+        print ("Number of electrons on {0} from the impurity model: {1}; from the core: {2}".format (
+            self.frag_name, np.trace (oneRDMimp_loc[idx]), np.trace (self.oneRDMcore_loc[idx])))
+        '''
     ###############################################################################################################################
 
 

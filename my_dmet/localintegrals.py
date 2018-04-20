@@ -180,7 +180,7 @@ class localintegrals:
     def get_wm_1RDM_from_OEI (self, OEI, nelec=None, loc2wrk=None):
 
         nelec   = nelec   or self.nelec_idem
-        loc2wrk = loc2wrk or self.loc2idem
+        loc2wrk = loc2wrk if np.any (loc2wrk) else self.loc2idem
         nocc    = nelec // 2
 
         OEI_wrk = represent_operator_in_basis (OEI, loc2wrk)
@@ -191,8 +191,8 @@ class localintegrals:
     def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, ERI_wrk=None):
 
         nelec   = nelec   or self.nelec_idem
-        loc2wrk = loc2wrk or self.loc2idem
-        ERI_wrk = ERI_wrk or self.idemERI
+        loc2wrk = loc2wrk if np.any (loc2wrk) else self.loc2idem
+        ERI_wrk = ERI_wrk if np.any (ERI_wrk) else self.idemERI
         nocc    = nelec // 2
 
         # DON'T call self.get_wm_1RDM_from_OEIidem here because you need to hold oneRDMcorr_loc frozen until the end of the scf!
@@ -203,14 +203,14 @@ class localintegrals:
         else:
             ao2wrk     = np.dot (self.ao2loc, loc2wrk)
             oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, self.mol, self.ao2wrk, oneRDM_wrk, nocc)
-            oneRDM_loc     = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
+        oneRDM_loc     = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
     def setup_wm_core_scf (self, fragments):
 
         self.restore_wm_full_scf ()
         oneRDMcorr_loc = sum ((frag.oneRDMas_loc for frag in fragments))
-        loc2corr = np.concatenate ([frag.loc2as for frag in fragments])
+        loc2corr = np.concatenate ([frag.loc2as for frag in fragments], axis=1)
         loc2idem = get_complementary_states (loc2corr)
 
         # I want to alter the outputs of self.loc_oei (), self.loc_rhf_fock (), and the get_wm_1RDM_etc () functions.
@@ -222,7 +222,7 @@ class localintegrals:
         
 
         nelec_corr     = np.trace (oneRDMcorr_loc)
-        if is_close_to_integer (nelec_corr) == False:
+        if is_close_to_integer (nelec_corr, self.num_zero_atol) == False:
             raise ValueError ("nelec_corr not an integer!")
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
@@ -231,7 +231,7 @@ class localintegrals:
             norbs      = loc2idem.shape[1]
             ao2idem    = np.dot (self.ao2loc, loc2idem)
             idemERI    = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2idem, compact=False).reshape(norbs, norbs, norbs, norbs)
-        oneRDMidem_loc = get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, ERI_wrk=idemERI)
+        oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, ERI_wrk=idemERI)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
         
         ########################################################################################################        
