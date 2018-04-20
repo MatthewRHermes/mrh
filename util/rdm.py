@@ -50,14 +50,20 @@ def electronic_energy_orbital_decomposition (norbs_tot, OEI=None, oneRDM=None, T
     E_bas = np.zeros (norbs_tot)
     if (OEI is not None) and (oneRDM is not None):
         # Let's make sure that matrix-multiplication doesn't mess me up
-        OEI    = np.asarray (OEI)
-        oneRDM = np.asarray (oneRDM)
-        E_bas  = np.einsum ('ij->i', symmetrize_tensor (OEI * oneRDM))[:norbs_tot]
+        OEI     = np.asarray (OEI)
+        oneRDM  = np.asarray (oneRDM)
+        prod    = OEI * oneRDM
+        E_bas  += 0.5 * np.einsum ('ij->i', prod)[:norbs_tot]
+        E_bas  += 0.5 * np.einsum ('ij->j', prod)[:norbs_tot]
     if (TEI is not None) and (twoRDM is not None):
         # Let's make sure that matrix-multiplication doesn't mess me up
         TEI    = np.asarray (TEI)
         twoRDM = np.asarray (twoRDM)
-        E_bas += (0.5 * np.einsum ('ijkl->i', symmetrize_tensor (TEI * twoRDM)))[:norbs_tot]
+        prod = TEI * twoRDM
+        E_bas += (0.125 * np.einsum ('ijkl->i', prod))[:norbs_tot]
+        E_bas += (0.125 * np.einsum ('ijkl->j', prod))[:norbs_tot]
+        E_bas += (0.125 * np.einsum ('ijkl->k', prod))[:norbs_tot]
+        E_bas += (0.125 * np.einsum ('ijkl->l', prod))[:norbs_tot]
     return E_bas
 
 def idempotize_1RDM (oneRDM, thresh):

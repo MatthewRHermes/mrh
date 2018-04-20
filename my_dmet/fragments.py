@@ -270,8 +270,8 @@ class fragment_object:
     def construct_impurity_hamiltonian (self):
         self.warn_check_Schmidt ("construct_impurity_hamiltonian")
         self.impham_CONST = self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc) + self.Efroz_imp
-        self.impham_OEI   = symmetrize_tensor (self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc))
-        self.impham_TEI   = symmetrize_tensor (self.ints.dmet_tei (self.loc2emb, self.norbs_imp))
+        self.impham_OEI   = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc)
+        self.impham_TEI   = self.ints.dmet_tei (self.loc2emb, self.norbs_imp)
         self.impham_built = True
         self.imp_solved   = False
     ###############################################################################################################################

@@ -48,7 +48,7 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
         mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
     
     frag.E_imp       = frag.impham_CONST + mf.e_tot
-    frag.oneRDM_imp  = symmetrize_tensor (mf.make_rdm1())
+    frag.oneRDM_imp  = mf.make_rdm1()
     frag.twoRDMR_imp = np.zeros ((frag.norbs_imp, frag.norbs_imp, frag.norbs_imp, frag.norbs_imp))
     
     return None

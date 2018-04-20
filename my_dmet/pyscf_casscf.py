@@ -95,19 +95,15 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     oneRDMas_as  = mc.fcisolver.make_rdm1(mc.ci, norbs_as, nelec_as)
     oneRDMas_imp = np.einsum('ap,pq->aq', imp2as, oneRDMas_as)
     oneRDMas_imp = np.einsum('bq,aq->ab', imp2as, oneRDMas_imp)
-    oneRDMas_as  = symmetrize_tensor (oneRDMas_as)
-    oneRDMas_imp = symmetrize_tensor (oneRDMas_imp)
 
     # MC-active twoRDMR
     twoRDMR_as  = mc.fcisolver.make_rdm2(mc.ci,norbs_as,nelec_as) #in CAS space
     twoRDMR_as -=     np.einsum ('pq,rs->pqrs', oneRDMas_as, oneRDMas_as)
     twoRDMR_as += 0.5*np.einsum ('ps,rq->pqrs', oneRDMas_as, oneRDMas_as)
-    twoRDMR_as  = symmetrize_tensor (twoRDMR_as)
     twoRDMR_imp = np.einsum('ap,pqrs->aqrs', imp2as, twoRDMR_as)
     twoRDMR_imp = np.einsum('bq,aqrs->abrs', imp2as, twoRDMR_imp)
     twoRDMR_imp = np.einsum('cr,abrs->abcs', imp2as, twoRDMR_imp)
     twoRDMR_imp = np.einsum('ds,abcs->abcd', imp2as, twoRDMR_imp)    
-    twoRDMR_imp = symmetrize_tensor (twoRDMR_imp)
 
     # General impurity data
     frag.oneRDM_imp  = oneRDMcs_imp + oneRDMas_imp

@@ -255,12 +255,13 @@ class dmet:
                 jk   = mf_.get_veff(dm=rdm1)
 
                 xorb = np.dot(mf_.get_ovlp(), self.ints.ao2loc)
-                rdm1 = symmetrize_tensor (np.dot(xorb.T, np.dot(rdm1, xorb)))
-                oei  = symmetrize_tensor (np.dot(self.ints.ao2loc.T, np.dot(mf_.get_hcore()-hc, self.ints.ao2loc)))
-                jk   = symmetrize_tensor (np.dot(self.ints.ao2loc.T, np.dot(jk, self.ints.ao2loc)))
+                rdm1 = np.dot(xorb.T, np.dot(rdm1, xorb))
+                oei  = np.dot(self.ints.ao2loc.T, np.dot(mf_.get_hcore()-hc, self.ints.ao2loc))
+                jk   = np.dot(self.ints.ao2loc.T, np.dot(jk, self.ints.ao2loc))
+                oei_eff = oei + (0.5 * jk)
 
-                AllcoreEnergy = np.einsum('ji,ij->', rdm1[:,is_allcore_orb], oei[is_allcore_orb,:]) \
-                       + 0.50 * np.einsum('ji,ij->', rdm1[:,is_allcore_orb], jk[is_allcore_orb,:]) 
+                AllcoreEnergy = 0.5 * np.einsum('ij,ij->', rdm1[:,is_allcore_orb], oei_eff[:,is_allcore_orb]) \
+                              + 0.5 * np.einsum('ij,ij->', rdm1[is_allcore_orb,:], oei_eff[is_allcore_orb,:]) 
                 self.energy += ImpEnergy
                 Nelectrons += np.trace(rdm1[np.ix_(is_allcore_orb,is_allcore_orb)])
 
