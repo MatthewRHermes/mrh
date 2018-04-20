@@ -47,7 +47,6 @@ class fragment_object:
         self.norbs_frag = len (self.frag_orb_list)
         self.norbs_bath = 0
         self.nelec_imp = 0
-        self.norbs_active = len (self.active_orb_list)
         self.norbs_bath_max = self.norbs_frag if norbs_bath_max == None else norbs_bath_max
         self.num_zero_atol = 1.0e-8
         self.solve_time = 0.0

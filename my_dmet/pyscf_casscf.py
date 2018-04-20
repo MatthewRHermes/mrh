@@ -88,7 +88,7 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     cs2imp = np.asarray (np.asmatrix (imp2cs).H)
 
     # MC-core oneRDM 
-    oneRDMcs_imp = (imp2cs * cs2imp) * 2 
+    oneRDMcs_imp = (np.dot (imp2cs, cs2imp)) * 2 
 
     # MC-active oneRDM 
     oneRDMas_as  = mc.fcisolver.make_rdm1(mc.ci, norbs_as, nelec_as)
