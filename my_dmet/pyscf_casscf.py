@@ -114,12 +114,12 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     frag.E_imp       = frag.impham_CONST + E_CASSCF
 
     # Active-space data
-    loc2imp = np.asmatrix (frag.loc2imp)
-    imp2loc = np.asarray  (loc2imp.H)
-    E2c_as  = electronic_energy_orbital_decomposition (norbs_imp, TEI=frag.impham_TEI, twoRDM=twoRDMR_as)
+    loc2imp    = np.asmatrix (frag.loc2imp)
+    imp2loc    = np.asarray  (loc2imp.H)
+    E2cas_imp  = electronic_energy_orbital_decomposition (norbs_imp, TEI=frag.impham_TEI, twoRDM=twoRDMR_imp)
     frag.loc2as       = np.asarray (loc2imp * imp2as)
     frag.oneRDMas_loc = represent_operator_in_basis (oneRDMas_imp, imp2loc)
-    frag.E2cas_loc    = np.einsum ('ij,j->', frag.loc2as, E2c_as)
+    frag.E2cas_loc    = np.dot (E2cas_imp, imp2loc)
 
     return None
 
