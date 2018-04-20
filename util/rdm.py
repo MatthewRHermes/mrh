@@ -6,8 +6,11 @@ from .tensors import symmetrize_tensor
 from .my_math import is_close_to_integer
 
 def get_1RDM_from_OEI (one_electron_hamiltonian, nocc):
-    evals, evecs = matrix_eigen_control_options (one_electron_hamiltonian, sort_vecs=True)
-    l2p = np.asmatrix (evecs[:,::-1])[:,:nocc]
+    evals, evecs = np.linalg.eigh (one_electron_hamiltonian)
+    idx = evals.argsort ()
+    evals=evals[idx]
+    evecs=evecs[:,idx]
+    l2p = np.asmatrix (evecs[:,:nocc])
     p2l = l2p.H
     return np.asarray (l2p * p2l)
 
