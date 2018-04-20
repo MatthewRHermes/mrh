@@ -281,7 +281,7 @@ class localintegrals:
         return TEIdmet
         
     def dmet_const (self, loc2dmet, norbs_imp, oneRDMcore_loc):
-        norbs_core = loc2dmet.shape[0] - norbs_imp
+        norbs_core = self.norbs_tot - norbs_imp
         if norbs_core == 0:
             return 0.0
         loc2core = loc2dmet[:,norbs_imp:]

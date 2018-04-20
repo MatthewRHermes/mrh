@@ -72,7 +72,7 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
         E_CASSCF = mc.kernel()[0]
     #print('Dimension:', MO.shape[0] )    
     #print('Impurity active space: ', CASe, 'electrons in ', CASorb, ' orbitals')    
-    #print('Impurity CASSCF energy: ', E_CASSCF)    
+    print('Impurity CASSCF energy: ', E_CASSCF)    
     #print('CASSCF orbital:', mc.mo_energy)    
     #print('NATURAL ORBITAL:')    
     #mc.analyze()
