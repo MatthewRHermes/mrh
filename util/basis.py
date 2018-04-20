@@ -188,7 +188,7 @@ def get_states_from_projector (the_projector, num_zero_atol=1.0e-8):
 	evals, p2x = matrix_eigen_control_options (proj_cc, sort_vecs=True, only_nonzero_vals=True)
 	return np.asarray (p2x)
 
-def get_complementary_states (incomplete_basis, already_complete_warning=True):
+def get_complementary_states (incomplete_basis, in_subspace = None, already_complete_warning=True):
 	orthonormal_basis = orthonormalize_a_basis (incomplete_basis)
 	if is_basis_orthonormal_and_complete (orthonormal_basis) and already_complete_warning:
 		print ("warning: tried to construct a complement for a basis that was already complete")
@@ -198,6 +198,11 @@ def get_complementary_states (incomplete_basis, already_complete_warning=True):
 	nstates_b = c2b.shape[1]
 	nstates_c = c2b.shape[0]
 
+    c2s = np.asmatrix (in_subspace or np.eye (c2b.shape[0], dtype=c2b.dtype))
+    s2c = c2s.H
+    cSc = c2s * s2c
+
+    c2b = cSc * c2b
 	b2c = c2b.H
 	Projb_cc = c2b * b2c
 	Projq_cc = np.eye (nstates_c, dtype=Projb_cc.dtype) - Projb_cc

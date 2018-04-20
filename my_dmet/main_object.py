@@ -27,13 +27,13 @@ import numpy as np
 from scipy import optimize
 import time
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
-
+from mrh.util.tensors import symmetrize_tensors
 
 class dmet:
 
     def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
                     doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', num_zero_atol=1.0e-8, minFunc='FOCK_INIT', wma_options=False, print_u=True,
-                    print_rdm=True):
+                    print_rdm=True, ofc_embedding=False):
 
         if isTranslationInvariant:
             raise RuntimeError ("The translational invariance option doesn't work!  It needs to be completely rebuilt!")
@@ -60,6 +60,7 @@ class dmet:
         self.SCmethod         = 'NONE' if self.doDET else SCmethod
         self.incl_bath_errvec = False if self.doDET else incl_bath_errvec
         self.altcostfunc      = False if self.doDET else use_constrained_opt
+        self.ofc_embedding    = ofc_embedding
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
 
@@ -119,7 +120,7 @@ class dmet:
             
     @property
     def loc2allcore (self):
-        return np.eye (self.norbs_tot, dtype=float)[:,self.is_allcore_orb]
+        return np.eye (self.norbs_tot)[:,self.is_allcore_orb]
 
     @property
     def norbs_allcore (self):
@@ -189,26 +190,34 @@ class dmet:
         return theH1
         
     def doexact( self, chempot_frag=0.0 ):  
-        OneRDM = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
-        self.energy   = 0.0												
+        oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
+        self.energy = 0.0												
+        E2cas_loc = sum ((frag.E2cas_loc for frag in self.fragments))
 
         for frag in self.fragments:
-            frag.do_Schmidt_decomposition (OneRDM)
+            if self.ofc_embedding:
+                E2froz_loc = E2cas_loc - frag.E2cas_loc
+                frag.do_Schmidt_ofc_embedding (oneRDM_loc, self.ints.loc2idem)
+                frag.Efroz_imp  = np.sum (E2froz_loc)
+                frag.Efroz_frag = np.sum (E2froz_loc[frag.frag_orb_list])
+            else:
+                frag.do_Schmidt_normal (oneRDM_loc)
             frag.construct_impurity_hamiltonian ()
             frag.solve_impurity_problem (chempot_frag)
             self.energy += frag.E_frag
+
+        if self.ofc_embedding:
+            self.ints.setup_wm_core_scf (self.fragments)
         
         if (self.doDET and self.doDET_NO):
             self.loc2fno = self.constructloc2fno()
 
-        Nefrag = [np.trace (frag.oneRDM_imp[:frag.norbs_frag,:frag.norbs_frag]) for frag in self.fragments]
-        Nelectrons = sum (Nefrag)
+        Nelectrons = sum ((frag.nelec_frag for frag in self.fragments))
 			
         if self.TransInv:
             Nelectrons = Nelectrons * len( self.fragments )
             self.energy = self.energy * len( self.fragments )
 
-		#HungPham		
         frag_times = [frag.solve_time for frag in self.fragments]
         print('Fragment energies:', [frag.E_frag for frag in self.fragments])
         print('Fragment electrons:',Nefrag)
@@ -219,14 +228,14 @@ class dmet:
         if ( self.norbs_allcore > 0 ):
         
             if ( self.CC_E_TYPE == 'CASCI' ):
-                Nelectrons = self.fragments[0].nelec_frag # Because full active space is used to compute the energy
+                Nelectrons = np.trace (self.fragments[0].oneRDM_loc) # Because full active space is used to compute the energy
             else:
                 #transfo = np.eye( self.norbs_tot, dtype=float )
                 #totalOEI  = self.ints.dmet_oei(  transfo, self.norbs_tot )
-                #totalFOCK = self.ints.dmet_fock( transfo, self.norbs_tot, OneRDM )
-                #self.energy += 0.5 * np.einsum( 'ij,ij->', OneRDM[remainingOrbs==1,:], \
+                #totalFOCK = self.ints.dmet_fock( transfo, self.norbs_tot, oneRDM )
+                #self.energy += 0.5 * np.einsum( 'ij,ij->', oneRDM[remainingOrbs==1,:], \
                 #         totalOEI[remainingOrbs==1,:] + totalFOCK[remainingOrbs==1,:] )
-                #Nelectrons += np.trace( (OneRDM[remainingOrbs==1,:])[:,remainingOrbs==1] )
+                #Nelectrons += np.trace( (oneRDM[remainingOrbs==1,:])[:,remainingOrbs==1] )
 
                 assert (np.array_equal(self.ints.active, np.ones([self.ints.mol.nao_nr()], dtype=int)))
 
@@ -237,7 +246,7 @@ class dmet:
 
                 xorb = np.dot(mf_.get_ovlp(), self.ints.ao2loc)
                 hc  = -chempot_imp * np.dot(xorb[:,self.is_allcore_orb], xorb[:,self.is_allcore_orb].T)
-                dm0 = np.dot(self.ints.ao2loc, np.dot(OneRDM, self.ints.ao2loc.T))
+                dm0 = np.dot(self.ints.ao2loc, np.dot(oneRDM, self.ints.ao2loc.T))
 
                 def mf_hcore (self, mol=None):
                     if mol is None: mol = self.mol
@@ -250,20 +259,15 @@ class dmet:
                 jk   = mf_.get_veff(dm=rdm1)
 
                 xorb = np.dot(mf_.get_ovlp(), self.ints.ao2loc)
-                rdm1 = np.dot(xorb.T, np.dot(rdm1, xorb))
-                oei  = np.dot(self.ints.ao2loc.T, np.dot(mf_.get_hcore()-hc, self.ints.ao2loc))
-                jk   = np.dot(self.ints.ao2loc.T, np.dot(jk, self.ints.ao2loc))
+                rdm1 = symmetrize_tensor (np.dot(xorb.T, np.dot(rdm1, xorb)))
+                oei  = symmetrize_tensor (np.dot(self.ints.ao2loc.T, np.dot(mf_.get_hcore()-hc, self.ints.ao2loc)))
+                jk   = symmetrize_tensor (np.dot(self.ints.ao2loc.T, np.dot(jk, self.ints.ao2loc)))
 
-                ImpEnergy = \
-                   + 0.50 * np.einsum('ji,ij->', rdm1[:,is_allcore_orb], oei[impOrbs,:]) \
-                   + 0.50 * np.einsum('ji,ij->', rdm1[is_allcore_orb,:], oei[:,impOrbs]) \
-                   + 0.25 * np.einsum('ji,ij->', rdm1[:,is_allcore_orb], jk[impOrbs,:]) \
-                   + 0.25 * np.einsum('ji,ij->', rdm1[is_allcore_orb,:], jk[:,impOrbs])
+                AllcoreEnergy = np.einsum('ji,ij->', rdm1[:,is_allcore_orb], oei[is_allcore_orb,:]) \
+                       + 0.50 * np.einsum('ji,ij->', rdm1[:,is_allcore_orb], jk[is_allcore_orb,:]) 
                 self.energy += ImpEnergy
-                Nelectrons += np.trace(rdm1[np.ix_(is_allcore_orb,impOrbs)])
+                Nelectrons += np.trace(rdm1[np.ix_(is_allcore_orb,is_allcore_orb)])
 
-        print('Energy decomposition for debug:',E1, self.energy-E1, self.energy) #HP: for debug
-        print('Nuclear potential:',self.ints.const()) 		
         self.energy += self.ints.const()
         return Nelectrons
         
@@ -291,15 +295,15 @@ class dmet:
     def alt_costfunction( self, newumatflat ):
 
         newumatsquare_loc = self.flat2square( newumatflat )
-        OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
+        oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
 
         errors    = self.rdm_differences (numatflat) 
         errors_sq = self.flat2square (errors)
 
         if self.minFunc == 'OEI' :
-            e_fun = np.trace( np.dot(self.ints.loc_oei(), OneRDM_loc) )
+            e_fun = np.trace( np.dot(self.ints.loc_oei(), oneRDM_loc) )
         elif self.minFunc == 'FOCK_INIT' :
-            e_fun = np.trace( np.dot(self.ints.loc_rhf_fock(), OneRDM_loc) )
+            e_fun = np.trace( np.dot(self.ints.loc_rhf_fock(), oneRDM_loc) )
         # e_cstr = np.sum( newumatflat * errors )    # not correct, but gives correct verify_gradient results
         e_cstr = np.sum( newumatsquare_loc * errors_sq )
         return -e_fun-e_cstr
@@ -308,7 +312,7 @@ class dmet:
         
         errors = self.rdm_differences( newumatflat )
         error_derivs = self.rdm_differences_derivative( newumatflat )
-        thegradient = np.zeros([ len( newumatflat ) ], dtype=float)
+        thegradient = np.zeros([ len( newumatflat ) ])
         for counter in range( len( newumatflat ) ):
             thegradient[ counter ] = 2 * np.sum( np.multiply( error_derivs[ : , counter ], errors ) )
         return thegradient
@@ -326,8 +330,8 @@ class dmet:
         self.acceptable_errvec_check ()
         newumatsquare_loc = self.flat2square( newumatflat )
 
-        OneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
-        errvec = np.concatenate ([frag.get_errvec (self, OneRDM_loc) for frag in self.fragments])
+        oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
+        errvec = np.concatenate ([frag.get_errvec (self, oneRDM_loc) for frag in self.fragments])
         
         stop_func = time.time()
         self.time_func += ( stop_func - start_func )
@@ -359,7 +363,7 @@ class dmet:
     
         gradient = self.costfunction_derivative( umatflat )
         cost_reference = self.costfunction( umatflat )
-        gradientbis = np.zeros( [ len( gradient ) ], dtype=float )
+        gradientbis = np.zeros( [ len( gradient ) ])
         stepsize = 1e-7
         for cnt in range( len( gradient ) ):
             umatbis = np.array( umatflat, copy=True )
@@ -373,7 +377,7 @@ class dmet:
     
         stepsize = 1e-7
         gradient_reference = self.costfunction_derivative( umatflat )
-        hessian = np.zeros( [ len( umatflat ), len( umatflat ) ], dtype=float )
+        hessian = np.zeros( [ len( umatflat ), len( umatflat ) ] )
         for cnt in range( len( umatflat ) ):
             gradient = umatflat.copy()
             gradient[ cnt ] += stepsize
@@ -390,7 +394,7 @@ class dmet:
         
     def flat2square( self, umatflat ):
     
-        umatsquare = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=float )
+        umatsquare = np.zeros( [ self.norbs_tot, self.norbs_tot ], )
         umat_idx = np.diag_indices (self.norbs_tot) if self.doDET else self.umat_ftriu_idx
         umatsquare[ umat_idx ] = umatflat
         umatsquare = umatsquare.T
@@ -432,7 +436,7 @@ class dmet:
         iteration = 0
         u_diff = 1.0
         convergence_threshold = 1e-5
-        rdm_new = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=float)
+        rdm_new = np.zeros ((self.norbs_tot, self.norbs_tot))
         for frag in self.fragments:
             frag.solve_time = 0.0
         print ("RHF energy =", self.ints.fullEhf)
@@ -527,7 +531,7 @@ class dmet:
             
     def transform_ed_1rdm( self ):
     
-        result = np.zeros( [self.umat.shape[0], self.umat.shape[0]], dtype=float )
+        result = np.zeros( [self.umat.shape[0], self.umat.shape[0]] )
         for frag in self.fragments:
             result[np.ix_(frag.frag_orb_list, frag.frag_orb_list)] = frag.oneRDM_frag
         return result

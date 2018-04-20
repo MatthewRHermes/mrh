@@ -22,15 +22,14 @@ import numpy as np
 from . import localintegrals
 from pyscf import ao2mo, gto, scf
 from pyscf.tools import rhf_newtonraphson
+from mrh.util.basis import represent_operator_in_basis
+from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, guess_1RDM, chempot_frag=0.0 ):
 def solve (frag, guess_1RDM, chempot_frag=0.0):
 
-    # Augment the FOCK operator with the chemical potential
-    FOCKcopy = frag.impham_FOCK.copy()
-    if (chempot_frag != 0.0):
-        for orb in range(frag.norbs_frag):
-            FOCKcopy[ orb, orb ] -= chempot_frag
+    # Augment OEI operator with the chemical potential
+    OEI = frag.impham_OEI - represent_operator_in_basis (chempot_frag * np.eye (frag.norbs_frag), frag.frag2imp)
     
     # Get the RHF solution
     mol = gto.Mole()
@@ -39,24 +38,17 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     mol.nelectron = frag.nelec_imp
     mol.incore_anyway = True
     mf = scf.RHF( mol )
-    mf.get_hcore = lambda *args: FOCKcopy
+    mf.get_hcore = lambda *args: OEI
     mf.get_ovlp = lambda *args: np.eye( frag.norbs_imp )
     mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
     mf.scf( guess_1RDM )
     DMloc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
     if ( mf.converged == False ):
         mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
-        DMloc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
     
-    frag.E_imp = mf.e_tot
-    frag.oneRDM_imp = mf.make_rdm1()
-    JK   = mf.get_veff(None, dm=frag.oneRDM_imp)
- 
-    # To calculate the impurity energy, rescale the JK matrix with a factor 0.5 to avoid double counting: 0.5 * ( OEI + FOCK ) = OEI + 0.5 * JK
-    frag.E_frag =  0.25 * np.einsum('ji,ij->', frag.oneRDM_imp[:,:frag.norbs_frag], frag.impham_FOCK[:frag.norbs_frag,:] + frag.impham_OEI[:frag.norbs_frag,:]) \
-                 + 0.25 * np.einsum('ji,ij->', frag.oneRDM_imp[:frag.norbs_frag,:], frag.impham_FOCK[:,:frag.norbs_frag] + frag.impham_OEI[:,:frag.norbs_frag]) \
-                 + 0.25 * np.einsum('ji,ij->', frag.oneRDM_imp[:,:frag.norbs_frag], JK[:frag.norbs_frag,:]) \
-                 + 0.25 * np.einsum('ji,ij->', frag.oneRDM_imp[:frag.norbs_frag,:], JK[:,:frag.norbs_frag])
+    frag.E_imp       = frag.impham_CONST + mf.e_tot
+    frag.oneRDM_imp  = symmetrize_tensor (mf.make_rdm1())
+    frag.twoRDMR_imp = np.zeros ((frag.norbs_imp, frag.norbs_imp, frag.norbs_imp, frag.norbs_imp))
     
     return None
 

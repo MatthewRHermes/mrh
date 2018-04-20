@@ -24,8 +24,9 @@ from pyscf.tools import molden
 import . import rhf as wm_rhf
 from . import iao_helper
 import numpy as np
+from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
-from mrh.util.basis import represent_operator_in_basis 
+from mrh.util.basis import represent_operator_in_basis, get_complementary_states 
 from math import sqrt
 
 class localintegrals:
@@ -209,9 +210,12 @@ class localintegrals:
             oneRDM_loc += self.oneRDMcorr_loc
         return oneRDM_loc
 
-    def setup_wm_core_scf (self, oneRDMcorr_loc):
+    def setup_wm_core_scf (self, fragments):
 
         self.restore_wm_full_scf ()
+        oneRDMcorr_loc = sum ((frag.oneRDMas_loc for frag in fragments))
+        loc2corr = np.concatenate ([frag.loc2as for frag in fragments])
+        loc2idem = get_complementary_states (loc2corr)
 
         # I want to alter the outputs of self.loc_oei (), self.loc_rhf_fock (), and the get_wm_1RDM_etc () functions.
         # self.loc_oei ()      = P_idem * (activeOEI + JKcorr) * P_idem
@@ -219,12 +223,12 @@ class localintegrals:
         # The get_wm_1RDM_etc () functions will need to add oneRDMcorr_loc to their final return value
         # The chemical potential is so that identically zero eigenvalues from the projection into the idem space don't get confused
         # with numerically-zero eigenvalues in the idem space: all occupied orbitals must have negative energy
+        
 
         nelec_corr     = np.trace (oneRDMcorr_loc)
-        if nelec_corr.is_integer () == False:
+        if is_close_to_integer (nelec_corr) == False:
             raise ValueError ("nelec_corr not an integer!")
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
-        loc2idem       = wm_rhf.get_unfrozen_states (oneRDMcorr_loc)
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
         idemERI        = None
         if self.ERIinMEM:
@@ -280,14 +284,12 @@ class localintegrals:
             TEIdmet = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2dmet[:,:numAct], compact=False).reshape(numAct, numAct, numAct, numAct)
         return TEIdmet
         
-    def dmet_electronic_const (self, loc2dmet, norbs_imp, oneRDMwm_loc):
+    def dmet_const (self, loc2dmet, norbs_imp, oneRDMcore_loc):
 
-        norbs_tot=self.mol.nao_nr ()
-        norbs_core=norbs_tot - norbs_imp
-        loc2core = loc2dmet[:,::-1] 
-        GAMMA = represent_operator_in_basis (oneRDMwm_loc, loc2core[:,:norbs_core])
+        loc2core = loc2dmet[:,norbs_imp:]
+        GAMMA = represent_operator_in_basis (oneRDMcore_loc, loc2core)
         OEI = self.dmet_oei (loc2core, norbs_core)
-        FOCK = self.dmet_fock (loc2core, norbs_core, oneRDMwm_loc)
+        FOCK = self.dmet_fock (loc2core, norbs_core, oneRDMcore_loc)
         return 0.5 * np.einsum ('ij,ij->', GAMMA, OEI + FOCK)
 
  
