@@ -28,7 +28,7 @@ from mrh.util.la import matrix_eigen_control_options
 def solve_ERI( OEI, TEI, oneRDMguess_loc, numPairs):
 
     mol = gto.Mole()
-    mol.build(verbose=3)
+    mol.build(verbose=0)
     mol.atom.append(('C', (0, 0, 0)))
     mol.nelectron = 2 * numPairs
 

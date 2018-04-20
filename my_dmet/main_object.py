@@ -213,7 +213,7 @@ class dmet:
             self.loc2fno = self.constructloc2fno()
 
         Nelectrons = sum ((frag.nelec_frag for frag in self.fragments))
-			
+
         if self.TransInv:
             Nelectrons = Nelectrons * len( self.fragments )
             self.energy = self.energy * len( self.fragments )

@@ -340,6 +340,7 @@ class fragment_object:
     def oneRDM_frag (self):
         self.warn_check_imp_solve ("oneRDM_frag")
         return self.oneRDM_loc [np.ix_(self.frag_orb_list, self.frag_orb_list)]
+
     ###############################################################################################################################
 
 
