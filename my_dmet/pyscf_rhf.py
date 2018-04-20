@@ -29,7 +29,8 @@ from mrh.util.tensors import symmetrize_tensor
 def solve (frag, guess_1RDM, chempot_frag=0.0):
 
     # Augment OEI operator with the chemical potential
-    OEI = frag.impham_OEI - represent_operator_in_basis (chempot_frag * np.eye (frag.norbs_frag), frag.frag2imp)
+    chempot = represent_operator_in_basis (chempot_frag * np.eye (frag.norbs_frag), frag.frag2imp)
+    OEI = frag.impham_OEI - chempot
     
     # Get the RHF solution
     mol = gto.Mole()
