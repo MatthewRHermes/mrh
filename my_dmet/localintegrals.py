@@ -21,7 +21,7 @@
 from pyscf import gto, scf, ao2mo, tools, lo
 from pyscf.lo import nao, orth, boys
 from pyscf.tools import molden
-import . import rhf as wm_rhf
+from . import rhf as wm_rhf
 from . import iao_helper
 import numpy as np
 from mrh.util.my_math import is_close_to_integer
@@ -147,11 +147,11 @@ class localintegrals:
 
     def loc_oei( self ):
 
-        return self.activeOEI + self.JKcorr
+        return self.activeOEI + self.activeJKcorr
         
     def loc_rhf_fock( self ):
 
-        return self.activeOEI + self.JKcorr + self.JKidem
+        return self.activeOEI + self.activeJKcorr + self.activeJKidem
         
     def loc_rhf_jk_bis( self, DMloc ):
     
@@ -186,9 +186,7 @@ class localintegrals:
         OEI_wrk = represent_operator_in_basis (OEI, loc2wrk)
         oneRDM_wrk = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
         oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
-        if self.oneRDMcorr_loc:
-            oneRDM_loc += self.oneRDMcorr_loc
-        return oneRDM_loc
+        return oneRDM_loc + self.oneRDMcorr_loc
 
     def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, ERI_wrk=None):
 
@@ -206,9 +204,7 @@ class localintegrals:
             ao2wrk     = np.dot (self.ao2loc, loc2wrk)
             oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, self.mol, self.ao2wrk, oneRDM_wrk, nocc)
             oneRDM_loc     = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
-        if self.oneRDMcorr_loc:
-            oneRDM_loc += self.oneRDMcorr_loc
-        return oneRDM_loc
+        return oneRDM_loc + self.oneRDMcorr_loc
 
     def setup_wm_core_scf (self, fragments):
 
@@ -285,7 +281,9 @@ class localintegrals:
         return TEIdmet
         
     def dmet_const (self, loc2dmet, norbs_imp, oneRDMcore_loc):
-
+        norbs_core = loc2dmet.shape[0] - norbs_imp
+        if norbs_core == 0:
+            return 0.0
         loc2core = loc2dmet[:,norbs_imp:]
         GAMMA = represent_operator_in_basis (oneRDMcore_loc, loc2core)
         OEI = self.dmet_oei (loc2core, norbs_core)

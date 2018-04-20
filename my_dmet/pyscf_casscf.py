@@ -36,7 +36,7 @@ from mrh.util.tensors import symmetrize_tensor
 def solve (frag, guess_1RDM, chempot_frag=0.0):
 
     # Augment OEI with the chemical potential
-    OEI   = frag.impham_OEI - represent_operator_in_basis (chempot_frag * np.eye (frag.norbs_frag), frag.frag2imp)
+    OEI = frag.impham_OEI - represent_operator_in_basis (chempot_frag * np.eye (frag.norbs_frag), frag.frag2imp)
     
     # Get the RHF solution
     mol = gto.Mole()
@@ -82,10 +82,10 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     norbs_as = mc.ncas
     norbs_cs = mc.ncore
     nelec_as = mc.nelecas    
-    imp2cs = np.asmatrix (mc.mo_coeff[:,:norbs_cs])
-    imp2as = np.asmatrix (mc.mo_coeff[:,norbs_cs:norbs_cs+norbs_as])
-    as2imp = imp2as.H
-    cs2imp = imp2cs.H
+    imp2cs = mc.mo_coeff[:,:norbs_cs]
+    imp2as = mc.mo_coeff[:,norbs_cs:norbs_cs+norbs_as]
+    as2imp = np.asarray (np.asmatrix (imp2as).H)
+    cs2imp = np.asarray (np.asmatrix (imp2cs).H)
 
     # MC-core oneRDM 
     oneRDMcs_imp = (imp2cs * cs2imp) * 2 
@@ -114,9 +114,10 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     frag.E_imp       = frag.impham_CONST + E_CASSCF
 
     # Active-space data
+    E2cas_imp  = electronic_energy_orbital_decomposition (frag.norbs_imp, TEI=frag.impham_TEI, twoRDM=twoRDMR_imp)
+    imp2as     = np.asmatrix (imp2as)
     loc2imp    = np.asmatrix (frag.loc2imp)
     imp2loc    = np.asarray  (loc2imp.H)
-    E2cas_imp  = electronic_energy_orbital_decomposition (norbs_imp, TEI=frag.impham_TEI, twoRDM=twoRDMR_imp)
     frag.loc2as       = np.asarray (loc2imp * imp2as)
     frag.oneRDMas_loc = represent_operator_in_basis (oneRDMas_imp, imp2loc)
     frag.E2cas_loc    = np.dot (E2cas_imp, imp2loc)

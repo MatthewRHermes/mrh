@@ -15,10 +15,12 @@ def symmetrize_tensor_conj (tensor):
 def symmetrize_tensor_elec (tensor):
     # tensors are by default in Mulliken/chemists order
     nelec = len (tensor.shape) // 2
+    if nelec == 1:
+        return tensor
     norbs = tensor.shape[0]
     ngems = norbs * norbs
-    orbshape = (norbs for x in range (nelec*2))
-    gemshape = (ngems for x in range (nelec))
+    orbshape = tuple(norbs for x in range (nelec*2))
+    gemshape = tuple(ngems for x in range (nelec))
     tensor = tensor.reshape(gemshape)
     ###
     start_perm = range (nelec)

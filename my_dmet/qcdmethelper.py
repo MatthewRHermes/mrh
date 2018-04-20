@@ -105,7 +105,7 @@ class qcdmethelper:
         
         lib_qcdmet.rhf_response( ctypes.c_int( self.locints.norbs_tot ),
                                  ctypes.c_int( self.Nterms ),
-                                 ctypes.c_int( nocc ),
+                                 ctypes.c_int( self.numPairs ),
                                  self.H1start.ctypes.data_as( ctypes.c_void_p ),
                                  self.H1row.ctypes.data_as( ctypes.c_void_p ),
                                  self.H1col.ctypes.data_as( ctypes.c_void_p ),

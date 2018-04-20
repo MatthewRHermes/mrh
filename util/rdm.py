@@ -3,7 +3,7 @@ import itertools
 from .la import *
 from .basis import *
 from .tensors import symmetrize_tensor
-
+from .my_math import is_close_to_integer
 
 def get_1RDM_from_OEI (one_electron_hamiltonian, nocc):
     evals, evecs = matrix_eigen_control_options (one_electron_hamiltonian, sort_vecs=True)
@@ -19,7 +19,7 @@ def get_1RDM_from_OEI_in_subspace (one_electron_hamiltonian, subspace_basis, noc
     oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, w2l)
     return oneRDM_loc
     
-def schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=1.0e-8):
+def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=1.0e-8):
     norbs_tot = assert_matrix_square (the_1RDM)
     norbs_frag = loc2frag.shape[1]
     assert (norbs_tot >= norbs_frag and loc2frag.shape[0] == norbs_tot)
@@ -44,13 +44,13 @@ def schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=1.
     return loc2emb, norbs_bath, nelec_imp
 
 def electronic_energy_orbital_decomposition (norbs_tot, OEI=None, oneRDM=None, TEI=None, twoRDM=None):
-    E_tot = np.zeros (norbs_tot)
-    if OEI and oneRDM:
+    E_bas = np.zeros (norbs_tot)
+    if (OEI is not None) and (oneRDM is not None):
         # Let's make sure that matrix-multiplication doesn't mess me up
         OEI    = np.asarray (OEI)
         oneRDM = np.asarray (oneRDM)
         E_bas  = np.einsum ('ij->i', symmetrize_tensor (OEI * oneRDM))[:norbs_tot]
-    if TEI and twoRDM:
+    if (TEI is not None) and (twoRDM is not None):
         # Let's make sure that matrix-multiplication doesn't mess me up
         TEI    = np.asarray (TEI)
         twoRDM = np.asarray (twoRDM)
@@ -73,19 +73,21 @@ def idempotize_1RDM (oneRDM, thresh):
 def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bath_max, idempotize_thresh=0, num_zero_atol=0):
     norbs_tot = loc2wfrag.shape[0]
     norbs_wfrag = loc2wfrag.shape[1]
-    loc2wemb, norbs_wbath, nelec_wimp = schmidt_decompose_1RDM (working_1RDM, loc2wfrag, norbs_bath_max)
+    loc2wemb, norbs_wbath, nelec_wimp = Schmidt_decompose_1RDM (working_1RDM, loc2wfrag, norbs_bath_max)
     norbs_wimp  = norbs_wfrag + norbs_wbath
-    norbs_wcore = norbs_tot - norbs_wimb
-    loc2wimp = loc2wemb[:,:norbs_wimp]
+    norbs_wcore = norbs_tot - norbs_wimp
+    loc2wimp  = loc2wemb[:,:norbs_wimp]
     loc2wcore = loc2wemb[:,norbs_wimp:]
-    print ("Schmidt decomposition found {0} bath orbitals for this fragment, of an allowed total of {1}".format (norbs_wbath, norbs_wbath_max))
+    print ("Schmidt decomposition found {0} bath orbitals for this fragment, of an allowed total of {1}".format (norbs_wbath, norbs_bath_max))
     print ("Schmidt decomposition found {0} electrons in this impurity".format (nelec_wimp))
-    working_1RDM_core = project_operator_into_subspace (working_1RDM, loc2wcore)
-    if abs (idempotize_thresh) > num_zero_atol:
-        working_1RDM_core, nelec_wcore_diff = idempotize_1RDM (working_1RDM_core, idempotize_thresh)
-        nelec_wimp -= nelec_wcore_diff
-        print ("After attempting to idempotize the core (part of the putatively idempotent guide) 1RDM with a threshold of "
-        + "{0}, {1} electrons were found in the impurity".format (idempotize_thresh, nelec_wimp))
+    working_1RDM_core = np.zeros(working_1RDM.shape)
+    if norbs_wcore > 0:
+        working_1RDM_core = project_operator_into_subspace (working_1RDM, loc2wcore)
+        if abs (idempotize_thresh) > num_zero_atol:
+            working_1RDM_core, nelec_wcore_diff = idempotize_1RDM (working_1RDM_core, idempotize_thresh)
+            nelec_wimp -= nelec_wcore_diff
+            print ("After attempting to idempotize the core (part of the putatively idempotent guide) 1RDM with a threshold of "
+            + "{0}, {1} electrons were found in the impurity".format (idempotize_thresh, nelec_wimp))
     if not is_close_to_integer (nelec_wimp // 2, num_zero_atol):
         raise RuntimeError ("Can't solve impurity problems without even-integer number of electrons! nelec_wimp={0}".format (nelec_wimp))
     return loc2wemb, norbs_wbath, int (round (nelec_wimp)), working_1RDM_core

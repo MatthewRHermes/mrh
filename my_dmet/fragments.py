@@ -6,9 +6,9 @@ import numpy as np
 from pyscf import gto
 from . import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper
 from mrh.util.basis import *
-from mrh.util.rdm import schmidt_decomposition_idempotent_wrapper, idempotize_1RDM
+from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM
 from mrh.util.rdm import electronic_energy_orbital_decomposition as get_E_orbs
-from mrh.util.tensor import symmetrize_tensor
+from mrh.util.tensors import symmetrize_tensor
 from mrh.util.my_math import is_close_to_integer
 import warnings
 import traceback
@@ -107,7 +107,7 @@ class fragment_object:
         self.E2cas_loc = np.zeros (self.norbs_tot)
 
         # Initialize some runtime warning bools
-        self.schmidt_done = False
+        self.Schmidt_done = False
         self.impham_built = False
         self.imp_solved = False
 
@@ -120,9 +120,9 @@ class fragment_object:
 
     # Common runtime warning checks
     ###########################################################################################################################
-    def warn_check_schmidt (self, cstr="NONE"):
+    def warn_check_Schmidt (self, cstr="NONE"):
         wstr = "Schmidt decomposition not performed at call to {0}. Undefined behavior likely!".format (cstr)
-        return warnings.warn (wstr, RuntimeWarning) if (not self.schmidt_done) else None
+        return warnings.warn (wstr, RuntimeWarning) if (not self.Schmidt_done) else None
 
     def warn_check_impham (self, cstr="NONE"):
         wstr =  "Impurity Hamiltonian not built at call to {0} (did you redo the Schmidt decomposition".format (cstr)
@@ -144,7 +144,7 @@ class fragment_object:
 
     @property
     def norbs_core (self):
-        self.warn_check_schmidt ("norbs_core")
+        self.warn_check_Schmidt ("norbs_core")
         return self.norbs_tot - self.norbs_imp
 
     @property
@@ -160,6 +160,10 @@ class fragment_object:
         imp2loc = np.asmatrix (self.imp2loc)
         loc2frag = np.asmatrix (self.loc2frag)
         return np.asarray (imp2loc * loc2frag)
+
+    @property
+    def frag2imp (self):
+        return np.asarray (np.asmatrix (self.imp2frag).H)
 
     @property
     def loc2core (self):
@@ -227,7 +231,7 @@ class fragment_object:
         self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMcore_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
             self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=self.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_bath
-        self.schmidt_done = True
+        self.Schmidt_done = True
         self.impham_built = False
         self.imp_solved = False
         print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
@@ -265,15 +269,12 @@ class fragment_object:
     # Impurity Hamiltonian
     ###############################################################################################################################
     def construct_impurity_hamiltonian (self):
-        self.warn_check_schmidt ("construct_impurity_hamiltonian")
-        self.impham_CONST = self.ints_dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc) + self.Efroz_imp
+        self.warn_check_Schmidt ("construct_impurity_hamiltonian")
+        self.impham_CONST = self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc) + self.Efroz_imp
         self.impham_OEI   = symmetrize_tensor (self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc))
         self.impham_TEI   = symmetrize_tensor (self.ints.dmet_tei (self.loc2emb, self.norbs_imp))
         self.impham_built = True
         self.imp_solved   = False
-
-    def get_impham_CONST (self):
-        return self.ints.dmet_electronic_const (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc)
     ###############################################################################################################################
 
 
@@ -298,7 +299,7 @@ class fragment_object:
             self.E_imp, self.E_frag, self.nelec_frag))
 
         # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals
-        self.fno_evals, frag2fno = np.linalg.eigh (self.get_oneRDM_frag ())
+        self.fno_evals, frag2fno = np.linalg.eigh (self.oneRDM_frag)
         self.loc2fno = np.dot (self.loc2frag, frag2fno)
 
     ###############################################################################################################################
@@ -326,7 +327,7 @@ class fragment_object:
     @property
     def oneRDM_frag (self):
         self.warn_check_imp_solve ("oneRDM_frag")
-        return self.oneRDM_loc (np.ix_(self.frag_orb_list, self.frag_orb_list))
+        return self.oneRDM_loc [np.ix_(self.frag_orb_list, self.frag_orb_list)]
     ###############################################################################################################################
 
 

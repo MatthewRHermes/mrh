@@ -27,7 +27,7 @@ import numpy as np
 from scipy import optimize
 import time
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
-from mrh.util.tensors import symmetrize_tensors
+from mrh.util.tensors import symmetrize_tensor
 
 class dmet:
 
@@ -219,10 +219,6 @@ class dmet:
             self.energy = self.energy * len( self.fragments )
 
         frag_times = [frag.solve_time for frag in self.fragments]
-        print('Fragment energies:', [frag.E_frag for frag in self.fragments])
-        print('Fragment electrons:',Nefrag)
-        E1 = self.energy	
-        print('DEBUG Energy before adding up envi contribution:',E1)
 		
         # When an incomplete impurity tiling is used for the Hamiltonian, self.energy should be augmented with the remaining HF part
         if ( self.norbs_allcore > 0 ):
@@ -501,9 +497,6 @@ class dmet:
             if ( self.SCmethod == 'NONE' ):
                 u_diff = 0.1 * convergence_threshold # Do only 1 iteration
 
-        # Only at the very end does impham_CONST matter
-        for frag in self.fragments:
-            frag.E_imp += frag.get_impham_CONST ()
         if ( self.CC_E_TYPE == 'CASCI' ):
             assert( len (self.fragments) == 1 )		
             print("-----NOTE: CASCI or Single embedding is used-----")				
