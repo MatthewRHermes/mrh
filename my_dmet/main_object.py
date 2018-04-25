@@ -26,14 +26,15 @@ from . import localintegrals, qcdmethelper
 import numpy as np
 from scipy import optimize
 import time
-from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
+from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye
 from mrh.util.tensors import symmetrize_tensor
+from .debug import debug_ofc_oneRDM, debug_Etot
 
 class dmet:
 
     def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
                     doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', num_zero_atol=1.0e-8, minFunc='FOCK_INIT', wma_options=False, print_u=True,
-                    print_rdm=True, ofc_embedding=False):
+                    print_rdm=True, ofc_embedding=False, debug_energy=False):
 
         if isTranslationInvariant:
             raise RuntimeError ("The translational invariance option doesn't work!  It needs to be completely rebuilt!")
@@ -61,6 +62,7 @@ class dmet:
         self.incl_bath_errvec = False if self.doDET else incl_bath_errvec
         self.altcostfunc      = False if self.doDET else use_constrained_opt
         self.ofc_embedding    = ofc_embedding
+        self.debug_energy     = debug_energy
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
 
@@ -117,10 +119,15 @@ class dmet:
         assert( np.all( quicktest >= 0 ) )
         assert( np.all( quicktest <= 1 ) )
         self.is_allcore_orb = np.logical_not (quicktest.astype (bool))
+        self.oneRDMallcore_loc = np.zeros_like (self.ints.activeOEI)
             
     @property
     def loc2allcore (self):
         return np.eye (self.norbs_tot)[:,self.is_allcore_orb]
+
+    @property
+    def Pallcore (self):
+        return np.diag (self.is_allcore_orb).astype (int)
 
     @property
     def norbs_allcore (self):
@@ -192,16 +199,9 @@ class dmet:
     def doexact( self, chempot_frag=0.0 ):  
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
         self.energy = 0.0												
-        E2cas_loc = sum ((frag.E2cas_loc for frag in self.fragments))
 
         for frag in self.fragments:
-            if self.ofc_embedding:
-                E2froz_loc = E2cas_loc - frag.E2cas_loc
-                frag.do_Schmidt_ofc_embedding (oneRDM_loc, self.ints.loc2idem)
-                frag.Efroz_imp  = np.sum (E2froz_loc)
-                frag.Efroz_frag = np.sum (E2froz_loc[frag.frag_orb_list])
-            else:
-                frag.do_Schmidt_normal (oneRDM_loc)
+            frag.do_Schmidt (oneRDM_loc, self.fragments, self.ofc_embedding)
             frag.construct_impurity_hamiltonian ()
             frag.solve_impurity_problem (chempot_frag)
             self.energy += frag.E_frag
@@ -264,6 +264,7 @@ class dmet:
                               + 0.5 * np.einsum('ij,ij->', rdm1[is_allcore_orb,:], oei_eff[is_allcore_orb,:]) 
                 self.energy += ImpEnergy
                 Nelectrons += np.trace(rdm1[np.ix_(is_allcore_orb,is_allcore_orb)])
+                self.oneRDMallcore_loc = rdm1
 
         self.energy += self.ints.const()
         return Nelectrons
@@ -430,6 +431,14 @@ class dmet:
 
     def doselfconsistent( self ):
     
+        if self.ofc_embedding:
+            print ("Setup iterations before optimizing the chemical potential")
+            print ("----------------------------------------------------------------------------------------------------------------")
+            for i in range(3):
+                self.doexact (0.0)
+            print ("Setup iterations complete")
+            print ("----------------------------------------------------------------------------------------------------------------")
+
         iteration = 0
         u_diff = 1.0
         convergence_threshold = 1e-5
@@ -447,12 +456,15 @@ class dmet:
             
             # Find the chemical potential for the correlated impurity problem
             start_ed = time.time()
-            if ( self.CC_E_TYPE == 'CASCI' ):
+            if self.CC_E_TYPE == 'CASCI':
                 assert (len (self.fragments) == 1)
                 self.mu_imp = 0.0
                 self.doexact( self.mu_imp )
             else:
-                self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp )
+                try:
+                    self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp )
+                except RuntimeError:
+                    print ("Chemical potential failed to converge!!!! Did I get the chemical potential back?? {0}".format (self.mu_imp))
                 print ("   Chemical potential =", self.mu_imp)
             stop_ed = time.time()
             self.time_ed += ( stop_ed - start_ed )
@@ -501,11 +513,15 @@ class dmet:
         if ( self.CC_E_TYPE == 'CASCI' ):
             assert( len (self.fragments) == 1 )		
             print("-----NOTE: CASCI or Single embedding is used-----")				
-            self.energy = self.fragments[0].E_imp + self.ints.const ()
+            self.energy = self.fragments[0].E_imp
         print ("Time cf func =", self.time_func)
         print ("Time cf grad =", self.time_grad)
         print ("Time dmet ed =", self.time_ed)
         print ("Time dmet cf =", self.time_cf)
+        if self.debug_energy:
+            test_energy = debug_Etot (self)
+            print ("DEBUG ENERGY: object energy = {0:.5f}, test energy = {1:.5f}, difference = {2:.5f}".format(
+                self.energy, test_energy, self.energy - test_energy))
         
         return self.energy
         
@@ -521,13 +537,13 @@ class dmet:
     
         print ("The ED 1-RDM of the impurities ( + baths ) =")
         for frag in self.fragments:
-            print (frag.oneRDM_imp)
+            print (frag.get_oneRDM_imp ())
             
     def transform_ed_1rdm( self ):
     
         result = np.zeros( [self.umat.shape[0], self.umat.shape[0]] )
         for frag in self.fragments:
-            result[np.ix_(frag.frag_orb_list, frag.frag_orb_list)] = frag.oneRDM_frag
+            result[np.ix_(frag.frag_orb_list, frag.frag_orb_list)] = frag.get_oneRDM_frag ()
         return result
         
     def dump_bath_orbs( self, filename, frag_idx=0 ):

@@ -55,28 +55,71 @@ def basis_olap (bra_basis, ket_basis):
     p2c = c2p.H
     return np.asarray (p2c * c2q)
 
-def represent_operator_in_basis (braOket, ket_basis, bra_basis = None):
-    # Note that this CHANGES the basis that braOket is stored in
-    lOr = np.asmatrix (braOket)
-    if not bra_basis:
-        bra_basis = ket_basis
-    if is_matrix_eye (bra_basis) and is_matrix_eye (ket_basis):
-        return np.asarray (lOr)
+def represent_operator_in_basis (braOket, bra1_basis = None, ket1_basis = None, bra2_basis = None, ket2_basis = None):
+    # This CHANGES the basis that braOket is stored in
+    allbases = [i for i in [bra1_basis, ket1_basis, bra2_basis, ket2_basis] if i is not None]
+    if len (allbases) == 0:
+        raise RuntimeError ("needs at least one basis")
+    bra1_basis = allbases[0]
+    ket1_basis = bra1_basis if ket1_basis is None else ket1_basis
+    bra2_basis = bra1_basis if bra2_basis is None else bra2_basis
+    ket2_basis = bra2_basis if ket2_basis is None else ket2_basis
+    the_bases = [bra1_basis, ket1_basis, bra2_basis, ket2_basis]
+    if any ([i.shape[0] == 0 for i in the_bases]):
+        newshape = tuple ([i.shape[1] for i in the_bases])
+        return np.zeros (newshape, dtype=braOket.dtype)
+    if all ([is_matrix_eye (i) for i in the_bases]):
+        return braOket
+    if len (braOket.shape) == 2:
+        return represent_operator_in_basis_1body (braOket, bra1_basis, ket1_basis)
+    elif len (braOket.shape) == 4:
+        return represent_operator_in_basis_2body (braOket, bra1_basis, ket1_basis, bra2_basis, ket2_basis)
+    else:
+        raise ValueError ("Only one- and two-body operators (two- and four-index arrays) supported")
 
+def represent_operator_in_basis_1body (braOket, bra_basis, ket_basis):
+    lOr = np.asmatrix (braOket)
     l2p = np.asmatrix (bra_basis)
     r2q = np.asmatrix (ket_basis)
-
     p2l = l2p.H
-    q2r = r2q.H
     return np.asarray (p2l * lOr * r2q)
 
-def project_operator_into_subspace (braOket, ket_basis, bra_basis = None):
-    # Note that this DOESN'T change the basis that braOket is stored in
+def represent_operator_in_basis_2body (braOket, bra1_basis, ket1_basis, bra2_basis, ket2_basis):
+    abcd = braOket
+    az = np.conj (bra1_basis)
+    bz = ket1_basis
+    cz = np.conj (bra2_basis)
+    dz = ket2_basis
+
+    abcd = np.einsum ('abcd,az->zbcd',abcd,az)
+    abcd = np.einsum ('abcd,bz->azcd',abcd,bz)
+    abcd = np.einsum ('abcd,cz->abzd',abcd,cz)
+    abcd = np.einsum ('abcd,dz->abcz',abcd,dz)
+    return abcd
+
+def project_operator_into_subspace (braOket, ket1_basis = None, bra1_basis = None, ket2_basis = None, bra2_basis = None):
+    # This DOESN'T CHANGE the basis that braOket is stored in
+    allbases = [i for i in [bra1_basis, ket1_basis, bra2_basis, ket2_basis] if i is not None]
+    if len (allbases) == 0:
+        raise RuntimeError ("needs at least one basis")
+    bra1_basis = allbases[0]
+    ket1_basis = bra1_basis if ket1_basis is None else ket1_basis
+    bra2_basis = bra1_basis if bra2_basis is None else bra2_basis
+    ket2_basis = bra2_basis if ket2_basis is None else ket2_basis
+    the_bases = [bra1_basis, ket1_basis, bra2_basis, ket2_basis]
+    if any ([basis.shape[1] == 0 for basis in the_bases]):
+        return np.zeros_like (braOket)
+    if all ([is_matrix_eye (basis) for basis in the_bases]):
+        return braOket
+    if len (braOket.shape) == 2:
+        return project_operator_into_subspace_1body (braOket, bra1_basis, ket1_basis)
+    elif len (braOket.shape) == 4:
+        return project_operator_into_subspace_2body (braOket, bra1_basis, ket1_basis, bra2_basis, ket2_basis)
+    else:
+        raise ValueError ("Only one- and two-body operators (two- and four-index arrays) supported")
+
+def project_operator_into_subspace_1body (braOket, bra_basis, ket_basis):
     lOr = np.asmatrix (braOket)
-    if not bra_basis:
-        bra_basis = ket_basis
-    if is_matrix_eye (bra_basis) and is_matrix_eye (ket_basis):
-        return np.asarray (lOr)
 
     l2p = np.asmatrix (bra_basis)
     p2l = l2p.H
@@ -86,6 +129,22 @@ def project_operator_into_subspace (braOket, ket_basis, bra_basis = None):
     lPl = l2p * p2l
     rPr = r2q * q2r
     return np.asarray (lPl * lOr * rPr)
+
+def project_operator_into_subspace_2body (braOket, bra1_basis, ket1_basis, bra2_basis, ket2_basis):
+    abcd = braOket
+
+    l2a = np.asmatrix (bra1_basis)
+    l2b = np.asmatrix (ket1_basis)
+    l2c = np.asmatrix (bra2_basis)
+    l2d = np.asmatrix (ket2_basis)
+
+    abcd = np.einsum ('abcd,az->zbcd', abcd, np.asarray (l2a.H * l2a))
+    abcd = np.einsum ('abcd,bz->azcd', abcd, np.asarray (l2b.H * l2b))
+    abcd = np.einsum ('abcd,cz->abzd', abcd, np.asarray (l2c.H * l2c))
+    abcd = np.einsum ('abcd,dz->abcz', abcd, np.asarray (l2d.H * l2d))
+    return abcd
+
+
 
 def compute_operator_trace_in_subset (the_operator, the_subset_basis):
     return np.trace (represent_operator_in_basis (the_operator, the_subset_basis))
@@ -151,9 +210,11 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator = None, nrvecs
     return c2l, c2r, svals
     
 def measure_basis_olap (bra_basis, ket_basis):
+    if bra_basis.shape[1] == 0 or ket_basis.shape[1] == 0:
+        return 0, 0
     svals = get_overlapping_states (bra_basis, ket_basis)[2]
     olap_ndf = len (svals)
-    olap_mag = np.linalg.norm (svals)
+    olap_mag = np.sum (svals * svals)
     return olap_mag, olap_ndf
 
 def orthonormalize_a_basis (overlapping_basis, num_zero_atol=1.0e-8):
@@ -189,6 +250,8 @@ def get_states_from_projector (the_projector, num_zero_atol=1.0e-8):
     return np.asarray (p2x)
 
 def get_complementary_states (incomplete_basis, in_subspace = None, already_complete_warning=True):
+    if incomplete_basis.shape[1] == 0:
+        return np.eye (incomplete_basis.shape[0])
     orthonormal_basis = orthonormalize_a_basis (incomplete_basis)
     if is_basis_orthonormal_and_complete (orthonormal_basis) and already_complete_warning:
         print ("warning: tried to construct a complement for a basis that was already complete")
@@ -216,4 +279,8 @@ def get_complete_basis (incomplete_basis):
     else:
         return incomplete_basis
 
+def get_projector_from_states (the_states):
+    l2p = np.asmatrix (the_states)
+    p2l = l2p.H
+    return np.asarray (l2p * p2l)
 

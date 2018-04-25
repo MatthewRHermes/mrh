@@ -28,15 +28,15 @@ import sys
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo, mcscf
 #np.set_printoptions(threshold=np.nan)
-from mrh.util.basis import represent_operator_in_basis
-from mrh.util.rdm import electronic_energy_orbital_decomposition
+from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
+from mrh.util.rdm import get_2RDM_residual
 from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
-def solve (frag, guess_1RDM, chempot_frag=0.0):
+def solve (frag, guess_1RDM, chempot_imp):
 
     # Augment OEI with the chemical potential
-    OEI = frag.impham_OEI - represent_operator_in_basis (chempot_frag * np.eye (frag.norbs_frag), frag.frag2imp)
+    OEI = frag.impham_OEI - chempot_imp
     
     # Get the RHF solution
     mol = gto.Mole()
@@ -73,7 +73,7 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
         E_CASSCF = mc.kernel()[0]
     #print('Dimension:', MO.shape[0] )    
     #print('Impurity active space: ', CASe, 'electrons in ', CASorb, ' orbitals')    
-    print('Impurity CASSCF energy: ', E_CASSCF)    
+    print('Impurity CASSCF energy (incl chempot): ', frag.impham_CONST + E_CASSCF)    
     #print('CASSCF orbital:', mc.mo_energy)    
     #print('NATURAL ORBITAL:')    
     #mc.analyze()
@@ -85,39 +85,37 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     nelec_as = mc.nelecas    
     imp2cs = mc.mo_coeff[:,:norbs_cs]
     imp2as = mc.mo_coeff[:,norbs_cs:norbs_cs+norbs_as]
-    as2imp = np.asarray (np.asmatrix (imp2as).H)
-    cs2imp = np.asarray (np.asmatrix (imp2cs).H)
+    frag.loc2as = np.dot (frag.loc2imp, imp2as)
 
     # MC-core oneRDM 
-    oneRDMcs_imp = (np.dot (imp2cs, cs2imp)) * 2 
+    oneRDMcs_imp = project_operator_into_subspace (2.0 * np.eye (frag.norbs_imp), imp2cs) 
 
     # MC-active oneRDM 
-    oneRDMas_as  = mc.fcisolver.make_rdm1(mc.ci, norbs_as, nelec_as)
-    oneRDMas_imp = np.einsum('ap,pq->aq', imp2as, oneRDMas_as)
-    oneRDMas_imp = np.einsum('bq,aq->ab', imp2as, oneRDMas_imp)
+    oneRDMas_as    = mc.fcisolver.make_rdm1(mc.ci, norbs_as, nelec_as)
+    oneRDMas_imp   = represent_operator_in_basis (oneRDMas_as, frag.as2imp)
+    oneRDMimp_imp  = oneRDMcs_imp + oneRDMas_imp
 
     # MC-active twoRDMR
-    twoRDMR_as  = mc.fcisolver.make_rdm2(mc.ci,norbs_as,nelec_as) #in CAS space
-    twoRDMR_as -=     np.einsum ('pq,rs->pqrs', oneRDMas_as, oneRDMas_as)
-    twoRDMR_as += 0.5*np.einsum ('ps,rq->pqrs', oneRDMas_as, oneRDMas_as)
-    twoRDMR_imp = np.einsum('ap,pqrs->aqrs', imp2as, twoRDMR_as)
-    twoRDMR_imp = np.einsum('bq,aqrs->abrs', imp2as, twoRDMR_imp)
-    twoRDMR_imp = np.einsum('cr,abrs->abcs', imp2as, twoRDMR_imp)
-    twoRDMR_imp = np.einsum('ds,abcs->abcd', imp2as, twoRDMR_imp)    
+    twoRDMRimp_as  = get_2RDM_residual (mc.fcisolver.make_rdm2 (mc.ci, norbs_as, nelec_as), oneRDMas_as)
+    twoRDMRimp_imp = represent_operator_in_basis (twoRDMRimp_as, frag.as2imp)
+    '''
+    twoRDMRimp_as  = mc.fcisolver.make_rdm2(mc.ci,norbs_as,nelec_as) #in CAS space
+    twoRDMRimp_as -=     np.einsum ('pq,rs->pqrs', oneRDMas_as, oneRDMas_as)
+    twoRDMRimp_as += 0.5*np.einsum ('ps,rq->pqrs', oneRDMas_as, oneRDMas_as)
+    twoRDMRimp_imp = np.einsum('ap,pqrs->aqrs', imp2as, twoRDMRimp_as)
+    twoRDMRimp_imp = np.einsum('bq,aqrs->abrs', imp2as, twoRDMRimp_imp)
+    twoRDMRimp_imp = np.einsum('cr,abrs->abcs', imp2as, twoRDMRimp_imp)
+    twoRDMRimp_imp = np.einsum('ds,abcs->abcd', imp2as, twoRDMRimp_imp)    
+    '''
 
     # General impurity data
-    frag.oneRDM_imp  = oneRDMcs_imp + oneRDMas_imp
-    frag.twoRDMR_imp = twoRDMR_imp
-    frag.E_imp       = frag.impham_CONST + E_CASSCF
+    frag.oneRDM_loc  = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
+    frag.twoRDMR_imp = frag.twoRDMRfroz_imp + twoRDMRimp_imp
+    frag.E_imp       = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDMimp_imp)
 
-    # Active-space data
-    E2cas_imp  = electronic_energy_orbital_decomposition (frag.norbs_imp, TEI=frag.impham_TEI, twoRDM=twoRDMR_imp)
-    imp2as     = np.asmatrix (imp2as)
-    loc2imp    = np.asmatrix (frag.loc2imp)
-    imp2loc    = np.asarray  (loc2imp.H)
-    frag.loc2as       = np.asarray (loc2imp * imp2as)
-    frag.oneRDMas_loc = represent_operator_in_basis (oneRDMas_imp, imp2loc)
-    frag.E2cas_loc    = np.dot (E2cas_imp, imp2loc)
+    # Active-space RDM data
+    frag.oneRDMas_loc = represent_operator_in_basis (oneRDMas_imp, frag.imp2loc)
+    frag.twoRDMR_as   = twoRDMRimp_as
 
     return None
 

@@ -6,8 +6,7 @@ import numpy as np
 from pyscf import gto
 from . import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper
 from mrh.util.basis import *
-from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM
-from mrh.util.rdm import electronic_energy_orbital_decomposition as get_E_orbs
+from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.my_math import is_close_to_integer
 import warnings
@@ -45,7 +44,6 @@ class fragment_object:
         self.frag_orb_list = frag_orb_list
         self.active_orb_list = active_orb_list
         self.norbs_frag = len (self.frag_orb_list)
-        self.norbs_bath = 0
         self.nelec_imp = 0
         self.norbs_bath_max = self.norbs_frag if norbs_bath_max == None else norbs_bath_max
         self.num_zero_atol = 1.0e-8
@@ -72,7 +70,7 @@ class fragment_object:
         imp_solver_name = re.sub ("\([0-9,]+\)", "", solver_name)
         self.imp_solver_name = imp_solver_name
         self.imp_solver_longname = solver_longname_map[imp_solver_name]
-        self.imp_solver_function = solver_function_map[imp_solver_name]
+        self.imp_solver_function = solver_function_map[imp_solver_name].__get__(self)
         active_space = re.compile ("\([0-9,]+\)").search (solver_name)
         if active_space:
             self.active_space = eval (active_space.group (0))
@@ -84,31 +82,33 @@ class fragment_object:
         # self.loc2emb is always defined to have the norbs_frag fragment states, the norbs_bath bath states, and the norbs_core core states in that order
         self.loc2frag = np.eye(self.norbs_tot)[:,self.frag_orb_list]
         self.restore_default_embedding_basis ()
+        self.oneRDMfroz_loc  = None
+        self.twoRDMRfroz_imp = None
         
         # Impurity Hamiltonian
+        self.Ecore_frag   = 0.0  # In case this exists
         self.impham_CONST = None # Does not include nuclear potential
         self.impham_OEI   = None
         self.impham_FOCK  = None
         self.impham_TEI   = None
 
         # Basic outputs of solving the impurity problem
-        self.E_frag = 0
-        self.E_imp = 0
-        self.oneRDM_imp = None
-        self.oneRDM_loc = None
+        self.E_frag = 0.0
+        self.E_imp  = 0.0
+        self.oneRDM_loc  = None
         self.twoRDMR_imp = None
-        self.loc2fno = None
-        self.fno_evals = None
+        self.loc2fno     = None
+        self.fno_evals   = None
 
         # Outputs of CAS calculations use to fix CAS-DMET
-        self.loc2as = np.zeros((self.norbs_tot,0))
+        self.loc2as       = np.zeros((self.norbs_tot,0))
         self.oneRDMas_loc = np.zeros((self.norbs_tot,self.norbs_tot))
-        self.E2cas_loc = np.zeros (self.norbs_tot)
+        self.twoRDMR_as   = np.zeros((0,0,0,0))
 
         # Initialize some runtime warning bools
         self.Schmidt_done = False
         self.impham_built = False
-        self.imp_solved = False
+        self.imp_solved   = False
 
         # Report
         print ("Constructed a fragment of {0} orbitals for a system with {1} total orbitals".format (self.norbs_frag, self.norbs_tot))
@@ -138,42 +138,53 @@ class fragment_object:
     # Dependent attributes, never to be modified directly
     ###########################################################################################################################
     @property
-    def frag2loc (self):
-        return np.asarray (np.asmatrix (self.loc2frag).H)
-
-    @property
-    def norbs_core (self):
-        self.warn_check_Schmidt ("norbs_core")
-        return self.norbs_tot - self.norbs_imp
-
-    @property
     def loc2imp (self):
         return self.loc2emb[:,:self.norbs_imp]
-
-    @property
-    def imp2loc (self):
-        return np.asarray (np.asmatrix (self.loc2imp).H)
-
-    @property
-    def imp2frag (self):
-        imp2loc = np.asmatrix (self.imp2loc)
-        loc2frag = np.asmatrix (self.loc2frag)
-        return np.asarray (imp2loc * loc2frag)
-
-    @property
-    def frag2imp (self):
-        return np.asarray (np.asmatrix (self.imp2frag).H)
 
     @property
     def loc2core (self):
         return self.loc2emb[:,self.norbs_imp:]
 
     @property
-    def imp_solver_method (self):
-        if self.active_space:
-            return self.imp_solver_name + str (self.active_space)
-        else:
-            return self.imp_solver_name
+    def frag2loc (self):
+        loc2frag = np.asmatrix (self.loc2frag)
+        return np.asarray (loc2frag.H)
+
+    @property
+    def as2loc (self):
+        loc2as = np.asmatrix (self.loc2as)
+        return np.asarray (loc2as.H)
+
+    @property
+    def emb2loc (self):
+        loc2emb = np.asmatrix (self.loc2emb)
+        return np.asarray (loc2emb.H)
+
+    @property
+    def imp2loc (self):
+        loc2imp = np.asmatrix (self.loc2imp)
+        return np.asarray (loc2imp.H)
+
+    @property
+    def core2loc (self):
+        loc2core = np.asmatrix (self.loc2core)
+        return np.asarray (loc1core.H)
+
+    @property
+    def imp2frag (self):
+        return np.dot (self.imp2loc, self.loc2frag)
+
+    @property
+    def frag2imp (self):
+        return np.dot (self.frag2loc, self.loc2imp)
+
+    @property
+    def as2imp (self):
+        return np.dot (self.as2loc, self.loc2imp)
+
+    @property
+    def imp2as (self):
+        return np.dot (self.imp2loc, self.loc2as)
 
     @property
     def is_frag_orb (self):
@@ -213,6 +224,18 @@ class fragment_object:
         if is_close_to_integer (result, self.num_zero_atol) == False:
             raise RuntimeError ("Somehow you got a non-integer number of electrons in your active space!")
         return int (round (result))
+
+    @property
+    def norbs_core (self):
+        self.warn_check_Schmidt ("norbs_core")
+        return self.norbs_tot - self.norbs_imp
+
+    @property
+    def imp_solver_method (self):
+        if self.active_space:
+            return self.imp_solver_name + str (self.active_space)
+        else:
+            return self.imp_solver_name
     ############################################################################################################################
 
 
@@ -224,46 +247,77 @@ class fragment_object:
         idx            = np.append (self.frag_orb_list, self.env_orb_list)
         self.norbs_imp = self.norbs_frag
         self.loc2emb   = np.eye (self.norbs_tot)[:,idx]
-        self.Efroz_imp  = 0.0
-        self.Efroz_frag = 0.0
+        loc2frag       = np.asmatrix (self.loc2frag)
+        frag2loc       = loc2frag.H
+
+    def do_Schmidt (self, oneRDM_loc, all_frags, do_ofc_embedding):
+        if do_ofc_embedding:
+            self.do_Schmidt_ofc_embedding (oneRDM_loc, all_frags)
+        else:
+            self.do_Schmidt_normal (oneRDM_loc)
 
     def do_Schmidt_normal (self, oneRDM_loc):
         print ("Normal Schmidt decomposition of {0} fragment".format (self.frag_name))
         self.restore_default_embedding_basis ()
-        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMcore_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
+        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
             self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=self.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_bath
+        self.twoRDMRfroz_imp = np.zeros ((self.norbs_imp, self.norbs_imp, self.norbs_imp, self.norbs_imp))
         self.Schmidt_done = True
         self.impham_built = False
         self.imp_solved = False
         print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
 
-    def do_Schmidt_ofc_embedding (self, oneRDM_loc, loc2idem):
+    def do_Schmidt_ofc_embedding (self, oneRDM_loc, all_frags):
         print ("Other-fragment-core Schmidt decomposition of {0} fragment".format (self.frag_name))
         self.restore_default_embedding_basis ()
-        print ("Starting with Schmidt decomposition in the idempotent subspace")
-        oneRDMidem_loc      = project_operator_into_subspace (oneRDM_loc, loc2idem)
-        loc2ifrag, _, svals = get_overlapping_states (loc2idem, self.loc2frag)
+        other_frags = [frag for frag in all_frags if frag is not self]
+
+        # (Re)build the whole-molecule active and core spaces
+        loc2wmas = np.concatenate ([frag.loc2as for frag in all_frags], axis=1)
+        loc2wmcs = get_complementary_states (loc2wmas)
+
+        # Starting with Schmidt decomposition in the idempotent subspace
+        oneRDMwmcs_loc      = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
+        loc2ifrag, _, svals = get_overlapping_states (loc2wmcs, self.loc2frag)
         norbs_ifrag         = loc2ifrag.shape[1]
+        assert (not np.any (svals > 1.0 + self.num_zero_atol)), "{0}".format (svals)
         print ("{0} fragment orbitals becoming {1} pseudo-fragment orbitals in idempotent subspace".format (self.norbs_frag, norbs_ifrag))
-        loc2iemb, norbs_ibath, nelec_iimp, oneRDMidemcore_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMidem_loc, 
+        loc2iemb, norbs_ibath, nelec_iimp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMwmcs_loc, 
             loc2ifrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=self.num_zero_atol)
         norbs_iimp = norbs_ifrag + norbs_ibath
         loc2iimp = loc2iemb[:,:norbs_iimp]
+        assert (is_matrix_zero (np.dot (loc2wmas.T, loc2iimp))), "{0}".format (np.dot (loc2wmas.T, loc2iimp))
+
+        # Add this-fragment active-space orbitals from last iteration to the impurity
         print ("Adding {0} this-fragment active-space orbitals and {1} this-fragment active-space electrons to the impurity".format (self.norbs_as, self.nelec_as))
         self.nelec_imp = nelec_iimp + self.nelec_as
         self.norbs_imp = norbs_iimp + self.norbs_as
-        loc2imp = orthonormalize_a_basis (np.append (loc2iimp, self.loc2as, axis=1))
+        loc2imp = np.append (loc2iimp, self.loc2as, axis=1)
+        assert (is_basis_orthonormal (loc2imp))
         self.loc2emb = get_complete_basis (loc2imp)
-        print ("Adding other-fragment active-space 1RDMs to core1RDM")
-        self.oneRDMcore_loc = oneRDMidemcore_loc + (oneRDM_loc - oneRDMidem_loc - self.oneRDMas_loc)
-        nelec_bleed = compute_nelec_in_subspace (self.oneRDMcore_loc, self.loc2imp)
+
+        # Keep track of where the fragment orbitals went
+        olap_mag = measure_basis_olap (self.loc2frag, self.loc2imp)[0]
+        print ("Final impurity model overlap with raw fragment states: {0} / {1}".format (olap_mag, self.norbs_frag))
+        olap_mag += measure_basis_olap (self.loc2frag, loc2wmas)[0]
+        olap_mag -= measure_basis_olap (self.loc2frag, self.loc2as)[0]
+        if (abs (olap_mag - self.norbs_frag) > self.num_zero_atol):
+            raise RuntimeError ("Fragment states have vanished? olap_mag = {0} / {1}".format (olap_mag, self.norbs_frag))
+
+        # Add other-fragment active-space RDMs to core RDMs
+        self.twoRDMRfroz_imp = np.zeros ((self.norbs_imp, self.norbs_imp, self.norbs_imp, self.norbs_imp))
+        for ofrag in other_frags:
+            ofas2imp = np.dot (ofrag.as2loc, self.loc2imp)
+            self.oneRDMfroz_loc  += ofrag.oneRDMas_loc
+            self.twoRDMRfroz_imp += represent_operator_in_basis (ofrag.twoRDMR_as, ofas2imp)
+        nelec_bleed = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
         print ("Found {0} electrons from the core bleeding onto impurity states".format (nelec_bleed))
         print ("(If this number is large, you either are dealing with overlapping fragment active spaces or you made an error)")
+
         print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
         self.Schmidt_done = True
         self.impham_built = False
-        self.imp_solved = False
 
     ##############################################################################################################################
 
@@ -273,13 +327,14 @@ class fragment_object:
 
     # Impurity Hamiltonian
     ###############################################################################################################################
-    def construct_impurity_hamiltonian (self):
+    def construct_impurity_hamiltonian (self, xtra_CONST=0.0):
         self.warn_check_Schmidt ("construct_impurity_hamiltonian")
-        self.impham_CONST = self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc) + self.Efroz_imp
-        self.impham_OEI   = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMcore_loc)
-        self.impham_TEI   = self.ints.dmet_tei (self.loc2emb, self.norbs_imp)
-        self.impham_built = True
-        self.imp_solved   = False
+        self.impham_CONST  = self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc) + self.ints.const () + xtra_CONST
+        self.impham_OEI    = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+        self.impham_TEI    = self.ints.dmet_tei (self.loc2emb, self.norbs_imp)
+        self.impham_CONST += 0.5 * np.einsum ('ijkl,ijkl->', self.impham_TEI, self.twoRDMRfroz_imp)
+        self.impham_built  = True
+        self.imp_solved    = False
     ###############################################################################################################################
 
 
@@ -292,27 +347,32 @@ class fragment_object:
 
     def solve_impurity_problem (self, chempot_frag):
         self.warn_check_impham ("solve_impurity_problem")
-        guess_1RDM = self.get_guess_1RDM (chempot_frag)
-        self.imp_solver_function (self, guess_1RDM, chempot_frag)
+
+        # Make chemical potential matrix and guess_1RDM
+        chempot_loc = chempot_frag * np.diag (self.is_frag_orb).astype (int)
+        chempot_imp = represent_operator_in_basis (chempot_loc, self.loc2imp)
+        guess_1RDM = 2.0 * get_1RDM_from_OEI (self.impham_OEI + chempot_imp, self.nelec_imp // 2)
+
+        # Execute solver function
+        self.imp_solver_function (guess_1RDM, chempot_imp)
         self.imp_solved = True
 
         # Main results: oneRDM in local basis and nelec_frag
-        self.oneRDM_loc = self.get_oneRDM_loc ()
         self.nelec_frag = self.get_nelec_frag ()
         self.E_frag     = self.get_E_frag ()
-        print ("Impurity results for {0}: E_imp (elec) = {1}, E_frag (elec) = {2}, nelec_frag = {3}".format (self.frag_name,
+        print ("Impurity results for {0}: E_imp = {1}, E_frag = {2}, nelec_frag = {3}".format (self.frag_name,
             self.E_imp, self.E_frag, self.nelec_frag))
 
         # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals
-        self.fno_evals, frag2fno = np.linalg.eigh (self.oneRDM_frag)
+        self.fno_evals, frag2fno = np.linalg.eigh (self.get_oneRDM_frag ())
         self.loc2fno = np.dot (self.loc2frag, frag2fno)
 
         # Testing
         '''
-        oneRDMimp_loc = represent_operator_in_basis (self.oneRDM_imp, self.imp2loc)
+        oneRDMimp_loc = represent_operator_in_basis (self.oneRDMimp_imp, self.imp2loc)
         idx = np.ix_(self.frag_orb_list, self.frag_orb_list)
         print ("Number of electrons on {0} from the impurity model: {1}; from the core: {2}".format (
-            self.frag_name, np.trace (oneRDMimp_loc[idx]), np.trace (self.oneRDMcore_loc[idx])))
+            self.frag_name, np.trace (oneRDMimp_loc[idx]), np.trace (self.oneRDMfroz_loc[idx])))
         '''
     ###############################################################################################################################
 
@@ -322,25 +382,36 @@ class fragment_object:
 
     # Convenience functions and properties for results
     ###############################################################################################################################
-    def get_oneRDM_loc (self):
-        self.warn_check_imp_solve ("oneRDM_loc")
-        oneRDMimp_loc = represent_operator_in_basis (self.oneRDM_imp, self.imp2loc)
-        return oneRDMimp_loc + self.oneRDMcore_loc
-
     def get_nelec_frag (self):
-        return np.trace (self.oneRDM_frag)
+        self.warn_check_imp_solve ("get_nelec_frag")
+        return np.trace (self.get_oneRDM_frag ())
 
     def get_E_frag (self):
-        OEIeff_loc = self.ints.loc_rhf_fock_bis (0.5 * self.oneRDM_loc) # 0.5 to compensate for overcounting by Fock 
-        E_imp_loc  =         get_E_orbs (self.norbs_tot, OEI=OEIeff_loc,      oneRDM=self.oneRDM_loc)
-        E_imp_loc += np.dot (get_E_orbs (self.norbs_imp, TEI=self.impham_TEI, twoRDM=self.twoRDMR_imp), self.imp2loc)
-        return np.sum (E_imp_loc[self.frag_orb_list]) + self.Efroz_frag
+        self.warn_check_imp_solve ("get_E_frag")
+        OEIeff_loc = self.ints.loc_rhf_fock_bis (0.5 * self.oneRDM_loc)
+        E1_loc  = 0.5 * np.einsum ('ij,ij->i', OEIeff_loc, self.oneRDM_loc)
+        E1_loc += 0.5 * np.einsum ('ij,ij->j', OEIeff_loc, self.oneRDM_loc)
+        E2_imp  = 0.125 * np.einsum ('ijkl,ijkl->i', self.impham_TEI, self.twoRDMR_imp)
+        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->j', self.impham_TEI, self.twoRDMR_imp)
+        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->k', self.impham_TEI, self.twoRDMR_imp)
+        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->l', self.impham_TEI, self.twoRDMR_imp)
+        E_loc = E1_loc + np.dot (self.loc2imp, E2_imp)
+        return np.sum (E_loc[self.frag_orb_list])
 
-    @property
-    def oneRDM_frag (self):
+    def get_twoRDM_imp (self, xtra_oneRDMcore_loc=None):
+        oneRDM_imp = self.get_oneRDM_imp ()
+        if np.any (xtra_oneRDMcore_loc):
+            oneRDM_imp += represent_operator_in_basis (xtra_oneRDMcore_loc, self.loc2imp)
+        return (self.twoRDMR_imp + np.einsum ('pq,rs->pqrs', oneRDM_imp, oneRDM_imp) 
+                           - 0.5 * np.einsum ('ps,rq->pqrs', oneRDM_imp, oneRDM_imp))
+
+    def get_oneRDM_frag (self):
         self.warn_check_imp_solve ("oneRDM_frag")
         return self.oneRDM_loc [np.ix_(self.frag_orb_list, self.frag_orb_list)]
 
+    def get_oneRDM_imp (self):
+        self.warn_check_imp_solve ("oneRDM_imp")
+        return represent_operator_in_basis (self.oneRDM_loc, self.loc2imp)
     ###############################################################################################################################
 
 
@@ -356,16 +427,16 @@ class fragment_object:
             return np.diag (mf_1RDM_fno) - self.fno_evals
         # Bath-orbital matrix elements needed
         if dmet.incl_bath_errvec:
-            mf_err1RDM_imp = represent_operator_in_basis (mf_1RDM_loc, self.loc2imp) - self.oneRDM_imp
+            mf_err1RDM_imp = represent_operator_in_basis (mf_1RDM_loc, self.loc2imp) - self.get_oneRDM_imp ()
             return mf_err1RDM_imp.flatten (order='F')
         # Only fragment-orbital matrix elements needed
-        mf_err1RDM_frag = represent_operator_in_basis (mf_1RDM_loc, self.loc2frag) - self.oneRDM_frag
+        mf_err1RDM_frag = represent_operator_in_basis (mf_1RDM_loc, self.loc2frag) - self.get_oneRDM_frag ()
         if dmet.doDET:
             return np.diag (mf_err1RDM_frag)
         elif dmet.altcostfunc:
             return mf_err1RDM_frag[np.triu_indices(self.norbs_frag)]
         else:
-            return self.oneRDM_frag.flatten (order='F')
+            return self.get_oneRDM_frag ().flatten (order='F')
 
 
     def get_rsp_1RDM_elements (self, dmet, rsp_1RDM):

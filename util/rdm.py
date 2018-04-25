@@ -1,5 +1,6 @@
 import numpy as np
 import itertools
+from math import factorial
 from .la import *
 from .basis import *
 from .tensors import symmetrize_tensor
@@ -66,6 +67,15 @@ def electronic_energy_orbital_decomposition (norbs_tot, OEI=None, oneRDM=None, T
         E_bas += (0.125 * np.einsum ('ijkl->l', prod))[:norbs_tot]
     return E_bas
 
+def get_E_from_RDMs (EIs, RDMs):
+    energy = 0.0
+    for EI, RDM in zip (EIs, RDMs):
+        pref    = 1.0 / factorial (len (EI.shape))
+        EI      = np.ravel (np.asarray (EI))
+        RDM     = np.ravel (np.asarray (RDM))
+        energy += pref * np.dot (EI, RDM)
+    return energy
+
 def idempotize_1RDM (oneRDM, thresh):
     evals, evecs = np.linalg.eigh (oneRDM)
     diff_evals = (2.0 * np.around (evals / 2.0)) - evals
@@ -101,4 +111,8 @@ def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bat
         raise RuntimeError ("Can't solve impurity problems without even-integer number of electrons! nelec_wimp={0}".format (nelec_wimp))
     return loc2wemb, norbs_wbath, int (round (nelec_wimp)), working_1RDM_core
 
+def get_2RDM_residual (twoRDM, oneRDM):
+    twoRDMR  = twoRDM - np.einsum ('pq,rs->pqrs', oneRDM, oneRDM)
+    twoRDMR +=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
+    return twoRDMR
 

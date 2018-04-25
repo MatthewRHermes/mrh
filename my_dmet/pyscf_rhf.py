@@ -22,16 +22,15 @@ import numpy as np
 from . import localintegrals
 from pyscf import ao2mo, gto, scf
 from pyscf.tools import rhf_newtonraphson
-from mrh.util.basis import represent_operator_in_basis
+from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
 from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, guess_1RDM, chempot_frag=0.0 ):
-def solve (frag, guess_1RDM, chempot_frag=0.0):
+def solve (frag, guess_1RDM, chempot_imp):
 
-    # Augment OEI operator with the chemical potential
-    chempot = represent_operator_in_basis (chempot_frag * np.eye (frag.norbs_frag), frag.frag2imp)
-    OEI = frag.impham_OEI - chempot
-    
+    # Augment OEI with the chemical potential
+    OEI = frag.impham_OEI - chempot_imp
+ 
     # Get the RHF solution
     mol = gto.Mole()
     mol.build( verbose=0 )
@@ -46,10 +45,11 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     DMloc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
     if ( mf.converged == False ):
         mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
-    
-    frag.E_imp       = frag.impham_CONST + mf.e_tot
-    frag.oneRDM_imp  = mf.make_rdm1()
-    frag.twoRDMR_imp = np.zeros ((frag.norbs_imp, frag.norbs_imp, frag.norbs_imp, frag.norbs_imp))
+    oneRDMimp_imp = mf.make_rdm1()    
+
+    frag.oneRDM_loc  = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
+    frag.twoRDMR_imp = frag.twoRDMRfroz_imp
+    frag.E_imp       = frag.impham_CONST + mf.e_tot + np.einsum ('ab,ab->', oneRDMimp_imp, chempot_imp)
     
     return None
 

@@ -279,15 +279,23 @@ class localintegrals:
         else:
             TEIdmet = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2dmet[:,:numAct], compact=False).reshape(numAct, numAct, numAct, numAct)
         return TEIdmet
-        
-    def dmet_const (self, loc2dmet, norbs_imp, oneRDMcore_loc):
+
+    def dmet_const (self, loc2dmet, norbs_imp, oneRDMfroz_loc):
         norbs_core = self.norbs_tot - norbs_imp
         if norbs_core == 0:
             return 0.0
         loc2core = loc2dmet[:,norbs_imp:]
-        GAMMA = represent_operator_in_basis (oneRDMcore_loc, loc2core)
+        GAMMA = represent_operator_in_basis (oneRDMfroz_loc, loc2core)
         OEI = self.dmet_oei (loc2core, norbs_core)
-        FOCK = self.dmet_fock (loc2core, norbs_core, oneRDMcore_loc)
+        FOCK = self.dmet_fock (loc2core, norbs_core, oneRDMfroz_loc)
         return 0.5 * np.einsum ('ij,ij->', GAMMA, OEI + FOCK)
 
- 
+    def general_tei (self, loc2bas_list):
+        norbs = [loc2bas.shape[1] for loc2bas in loc2bas_list]
+        if self.ERIinMEM:
+            TEI = ao2mo.incore.general(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2bas_list, compact=False).reshape(norbs[0], norbs[1], norbs[2], norbs[3])
+        else:
+            ao2bas_list = [np.dot (self.ao2loc, loc2bas) for loc2bas in loc2bas_list]
+            TEI = ao2mo.outcore.general_iofree(self.mol, ao2bas_list, compact=False).reshape(norbs[0], norbs[1], norbs[2], norbs[3])
+        return TEI
+
