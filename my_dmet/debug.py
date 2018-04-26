@@ -93,6 +93,6 @@ def debug_Etot (dmet_obj):
                f.frag_name, f.E_frag, f.E1_test, f.E2_test, E_test, E_diff))
         del f.E1_test
         del f.E2_test
-    return Etot
 
+    return Etot
 

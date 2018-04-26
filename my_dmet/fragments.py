@@ -103,9 +103,10 @@ class fragment_object:
         self.fno_evals      = None
 
         # Outputs of CAS calculations use to fix CAS-DMET
-        self.loc2as       = np.zeros((self.norbs_tot,0))
-        self.oneRDMas_loc = np.zeros((self.norbs_tot,self.norbs_tot))
-        self.twoRDMR_as   = np.zeros((0,0,0,0))
+        self.loc2as        = np.zeros((self.norbs_tot,0))
+        self.loc2imp_last  = np.zeros((self.norbs_tot,0))
+        self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
+        self.twoRDMRas_imp = np.zeros((0,0,0,0))
 
         # Initialize some runtime warning bools
         self.Schmidt_done = False
@@ -313,13 +314,13 @@ class fragment_object:
 
         # Add other-fragment active-space RDMs to core RDMs
         ofrags_w_as          = [ofrag for ofrag in other_frags if ofrag.norbs_as > 0]
-        ofrags_1RDM_as       = [represent_operator_in_basis (ofrag.oneRDM_loc, ofrag.loc2as) for ofrag in ofrags_w_as]
-        ofrags_2RDM_as       = [get_2RDM_from_2RDMR (ofrag.twoRDMR_as, oneRDM) for ofrag, oneRDM in zip (ofrags_w_as, ofrags_1RDM_as)]
-        self.oneRDMfroz_loc  += sum([ofrag.oneRDMas_loc for ofrag in ofrags_w_as])
-        oneRDMfroz_ofas      = [represent_operator_in_basis (self.oneRDMfroz_loc, ofrag.loc2as) for ofrag in ofrags_w_as]
-        self.twoRDMRfroz_tbc = [get_2RDMR_from_2RDM (twoRDM, oneRDM) for oneRDM, twoRDM in zip (oneRDMfroz_ofas, ofrags_2RDM_as)]
-        self.loc2tbc         = [np.copy (ofrag.loc2as) for ofrag in ofrags_w_as]
-        self.TEI_tbc         = [self.ints.dmet_tei (ofrag.loc2as, ofrag.norbs_as) for ofrag in ofrags_w_as]
+        ofrags_1RDMas_imp    = [represent_operator_in_basis (ofrag.oneRDMas_loc, ofrag.loc2imp) for ofrag in ofrags_w_as]
+        ofrags_2RDM_imp      = [get_2RDM_from_2RDMR (ofrag.twoRDMRas_imp, oneRDM) for ofrag, oneRDM in zip (ofrags_w_as, ofrags_1RDMas_imp)]
+        self.oneRDMfroz_loc += sum([ofrag.oneRDMas_loc for ofrag in ofrags_w_as])
+        oneRDMfroz_ofimp     = [represent_operator_in_basis (self.oneRDMfroz_loc, ofrag.loc2imp) for ofrag in ofrags_w_as]
+        self.twoRDMRfroz_tbc = [get_2RDMR_from_2RDM (twoRDM, oneRDM) for oneRDM, twoRDM in zip (oneRDMfroz_ofimp, ofrags_2RDM_imp)]
+        self.loc2tbc         = [np.copy (ofrag.loc2imp_last) for ofrag in ofrags_w_as]
+        self.TEI_tbc         = [np.copy (ofrag.impham_TEI) for ofrag in ofrags_w_as]
         nelec_bleed          = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
         print ("Found {0} electrons from the core bleeding onto impurity states".format (nelec_bleed))
         print ("(If this number is large, you either are dealing with overlapping fragment active spaces or you made an error)")
