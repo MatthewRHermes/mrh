@@ -5,9 +5,10 @@ import re
 import numpy as np
 from pyscf import gto
 from . import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper
+from mrh.util import params
 from mrh.util.basis import *
 from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2RDMR, get_2RDMR_from_2RDM
-from mrh.util.tensors import symmetrize_tensor
+from mrh.util.tensors import symmetrize_tensors
 from mrh.util.my_math import is_close_to_integer
 import warnings
 import traceback
@@ -46,7 +47,6 @@ class fragment_object:
         self.norbs_frag = len (self.frag_orb_list)
         self.nelec_imp = 0
         self.norbs_bath_max = self.norbs_frag if norbs_bath_max == None else norbs_bath_max
-        self.num_zero_atol = 1.0e-8
         self.solve_time = 0.0
         self.frag_name = name
         self.active_space = None
@@ -223,7 +223,7 @@ class fragment_object:
     @property
     def nelec_as (self):
         result = np.trace (self.oneRDMas_loc)
-        if is_close_to_integer (result, self.num_zero_atol) == False:
+        if is_close_to_integer (result, params.num_zero_atol) == False:
             raise RuntimeError ("Somehow you got a non-integer number of electrons in your active space!")
         return int (round (result))
 
@@ -267,7 +267,7 @@ class fragment_object:
         print ("Normal Schmidt decomposition of {0} fragment".format (self.frag_name))
         self.restore_default_embedding_basis ()
         self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
-            self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=self.num_zero_atol)
+            self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_bath
         self.Schmidt_done = True
         self.impham_built = False
@@ -287,10 +287,10 @@ class fragment_object:
         oneRDMwmcs_loc      = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
         loc2ifrag, _, svals = get_overlapping_states (loc2wmcs, self.loc2frag)
         norbs_ifrag         = loc2ifrag.shape[1]
-        assert (not np.any (svals > 1.0 + self.num_zero_atol)), "{0}".format (svals)
+        assert (not np.any (svals > 1.0 + params.num_zero_atol)), "{0}".format (svals)
         print ("{0} fragment orbitals becoming {1} pseudo-fragment orbitals in idempotent subspace".format (self.norbs_frag, norbs_ifrag))
         loc2iemb, norbs_ibath, nelec_iimp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMwmcs_loc, 
-            loc2ifrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=self.num_zero_atol)
+            loc2ifrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         norbs_iimp = norbs_ifrag + norbs_ibath
         loc2iimp   = loc2iemb[:,:norbs_iimp]
         assert (is_matrix_zero (np.dot (loc2wmas.T, loc2iimp))), "{0}".format (np.dot (loc2wmas.T, loc2iimp))
@@ -308,7 +308,7 @@ class fragment_object:
         print ("Final impurity model overlap with raw fragment states: {0} / {1}".format (olap_mag, self.norbs_frag))
         olap_mag += measure_basis_olap (self.loc2frag, loc2wmas)[0]
         olap_mag -= measure_basis_olap (self.loc2frag, self.loc2as)[0]
-        if (abs (olap_mag - self.norbs_frag) > self.num_zero_atol):
+        if (abs (olap_mag - self.norbs_frag) > params.num_zero_atol):
             raise RuntimeError ("Fragment states have vanished? olap_mag = {0} / {1}".format (olap_mag, self.norbs_frag))
 
         # Add other-fragment active-space RDMs to core RDMs

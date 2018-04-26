@@ -1,4 +1,5 @@
 import numpy as np
+from . import params
 
 # A collection of simple manipulations of matrices that I somehow can't find in numpy
 
@@ -32,7 +33,7 @@ def assert_matrix_square (test_matrix, matdim=None):
     assert ((test_matrix.ndim == 2) and (test_matrix.shape[0] == matdim) and (test_matrix.shape[1] == matdim)), "Matrix shape is {0}; should be ({1},{1})".format (test_matrix.shape, matdim)
     return matdim
 
-def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=True, only_nonzero_vals=False, num_zero_atol=1.0e-8):
+def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=True, only_nonzero_vals=False, num_zero_atol=params.num_zero_atol):
     pMq = np.asmatrix (the_matrix)
     lvecs_pl, svals_lr, rvecs_rq = np.linalg.svd (the_matrix, full_matrices=full_matrices)
     p2l = np.asmatrix (lvecs_pl)
@@ -55,7 +56,7 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=True,
     q2r, p2l, svals_lr = (np.asarray (output) for output in (q2r, p2l, svals_lr))
     return q2r, p2l, svals_lr
 
-def matrix_eigen_control_options (the_matrix, sort_vecs=True, only_nonzero_vals=False, num_zero_atol=1.0e-8):
+def matrix_eigen_control_options (the_matrix, sort_vecs=True, only_nonzero_vals=False, num_zero_atol=params.num_zero_atol):
     # Subtract a diagonal average from the matrix to fight rounding error
     diag_avg = np.eye (the_matrix.shape[0]) * np.mean (np.diag (the_matrix))
     pMq = np.asmatrix (the_matrix - diag_avg)

@@ -30,7 +30,6 @@ from pyscf import gto, scf, ao2mo, mcscf
 #np.set_printoptions(threshold=np.nan)
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
 from mrh.util.rdm import get_2RDMR_from_2RDM
-from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
 def solve (frag, guess_1RDM, chempot_imp):

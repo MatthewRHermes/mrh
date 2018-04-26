@@ -9,8 +9,9 @@
 import mrh.util
 import numpy as np
 import mrh.my_dmet.pyscf_mp2, mrh.my_dmet.pyscf_rhf
+from mrh.util import params
 
-def schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=1.0e-8):
+def schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=params.num_zero_atol):
 	fn_head = "schmidt_decompose_1RDM ::"
 	norbs_tot = mrh.util.la.assert_matrix_square (the_1RDM)
 	norbs_frag = loc2frag.shape[1]
@@ -63,7 +64,7 @@ def deform_embedding_basis (imp_case_str, loc2rfrag, loc2fragbanned, loc2envbann
 
 	return loc2def, norbs_emb
 
-def calc_mp2_ecorr_correction_to_dmetcasci_using_idempotent_1RDM (imp_case, DMET_object, idempotent_1RDM, correlated_1RDM, loc2def, norbs_frag, norbs_emb, num_zero_atol=1.0e-8):
+def calc_mp2_ecorr_correction_to_dmetcasci_using_idempotent_1RDM (imp_case, DMET_object, idempotent_1RDM, correlated_1RDM, loc2def, norbs_frag, norbs_emb, num_zero_atol=params.num_zero_atol):
 	norbs_tot = mrh.util.la.assert_matrix_square (idempotent_1RDM)
 	mrh.util.la.assert_matrix_square (correlated_1RDM, matdim=norbs_tot)
 	mrh.util.la.assert_matrix_square (loc2def, matdim=norbs_tot)

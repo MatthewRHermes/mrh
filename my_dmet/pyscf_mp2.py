@@ -21,7 +21,6 @@ import numpy as np
 from pyscf import gto, scf, ao2mo, mp
 from mrh.util.basis import represent_operator_in_basis
 from mrh.util.rdm import get_2RDMR_from_2RDM
-from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, Norb, Nel, Nimp, DMguessRHF, chempot_imp=0.0, printoutput=True ):
 def solve (frag, guess_1RDM, chempot_frag=0.0):

@@ -1,5 +1,6 @@
 import numpy as np
 import itertools
+from . import params
 from .la import matrix_eigen_control_options, assert_matrix_square
 from .basis import represent_operator_in_basis, get_complementary_states, get_overlapping_states, get_complete_basis, is_basis_orthonormal, is_basis_orthonormal_and_complete, compute_nelec_in_subspace
 
@@ -25,13 +26,11 @@ def symmetrize_tensor_elec (tensor):
     ###
     start_perm = range (nelec)
     allperms = tuple (itertools.permutations (range (nelec)))
-    tensor *= (1.0 / len (allperms))
-    for perm in allperms[1:]:
-        tensor += np.transpose (tensor, perm)
+    tensor = sum ([np.transpose (tensor, perm) for perm in allperms]) / len (allperms)
     ###
     tensor = tensor.reshape (orbshape) 
     return tensor
 
-def symmetrize_tensor (tensor):
-    return symmetrize_tensor_elec (symmetrize_tensor_conj (tensor))
+def symmetrize_tensors (*tensors):
+    return (symmetrize_tensor_elec (symmetrize_tensor_conj (tensor)) for tensor in tensors)
 

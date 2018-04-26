@@ -26,14 +26,14 @@ from . import localintegrals, qcdmethelper
 import numpy as np
 from scipy import optimize
 import time
+from mrh.util import params
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye
-from mrh.util.tensors import symmetrize_tensor
 from .debug import debug_ofc_oneRDM, debug_Etot
 
 class dmet:
 
     def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
-                    doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', num_zero_atol=1.0e-8, minFunc='FOCK_INIT', wma_options=False, print_u=True,
+                    doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', minFunc='FOCK_INIT', wma_options=False, print_u=True,
                     print_rdm=True, ofc_embedding=False, debug_energy=False):
 
         if isTranslationInvariant:
@@ -53,7 +53,6 @@ class dmet:
         self.doDET            = doDET or doDET_NO
         self.doDET_NO         = doDET_NO
         self.CC_E_TYPE        = CC_E_TYPE
-        self.num_zero_atol    = num_zero_atol
         self.minFunc          = minFunc
         self.wma_options      = wma_options
         self.print_u          = print_u

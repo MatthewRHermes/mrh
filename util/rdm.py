@@ -3,8 +3,8 @@ import itertools
 from math import factorial
 from .la import *
 from .basis import *
-from .tensors import symmetrize_tensor
 from .my_math import is_close_to_integer
+from . import params
 
 def get_1RDM_from_OEI (one_electron_hamiltonian, nocc):
     evals, evecs = np.linalg.eigh (one_electron_hamiltonian)
@@ -23,7 +23,7 @@ def get_1RDM_from_OEI_in_subspace (one_electron_hamiltonian, subspace_basis, noc
     oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, w2l)
     return oneRDM_loc
     
-def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=1.0e-8):
+def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=params.num_zero_atol):
     norbs_tot = assert_matrix_square (the_1RDM)
     norbs_frag = loc2frag.shape[1]
     assert (norbs_tot >= norbs_frag and loc2frag.shape[0] == norbs_tot)

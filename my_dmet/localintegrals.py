@@ -27,6 +27,7 @@ import numpy as np
 from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
 from mrh.util.basis import represent_operator_in_basis, get_complementary_states 
+from mrh.util import params
 from math import sqrt
 
 class localintegrals:
@@ -34,7 +35,6 @@ class localintegrals:
     def __init__( self, the_mf, active_orbs, localizationtype, ao_rotation=None, use_full_hessian=True, localization_threshold=1e-6 ):
 
         assert (( localizationtype == 'meta_lowdin' ) or ( localizationtype == 'boys' ) or ( localizationtype == 'lowdin' ) or ( localizationtype == 'iao' ))
-        self.num_zero_atol = 1.0e-8
         
         # Information on the full HF problem
         self.mol        = the_mf.mol
@@ -222,7 +222,7 @@ class localintegrals:
         
 
         nelec_corr     = np.trace (oneRDMcorr_loc)
-        if is_close_to_integer (nelec_corr, self.num_zero_atol) == False:
+        if is_close_to_integer (nelec_corr, params.num_zero_atol) == False:
             raise ValueError ("nelec_corr not an integer!")
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)

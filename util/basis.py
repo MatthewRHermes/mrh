@@ -1,7 +1,8 @@
 # A collection of useful manipulations of basis sets (i.e., rectangular matrices) and operators (square matrices)
 
 import numpy as np
-from mrh.util.la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options
+from .la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options
+from . import params
 
 ################    basic queries and assertions for basis-set-related objects    ################
 
@@ -157,7 +158,7 @@ compute_nelec_in_subspace = compute_operator_trace_in_subset
 
 
 
-def get_overlapping_states (bra_basis, ket_basis, across_operator = None, nrvecs=0, nlvecs=0, num_zero_atol=1.0e-8):
+def get_overlapping_states (bra_basis, ket_basis, across_operator = None, nrvecs=0, nlvecs=0, num_zero_atol=params.num_zero_atol):
     c2p = np.asmatrix (bra_basis)
     c2q = np.asmatrix (ket_basis)
     cOc = np.asmatrix (across_operator) if np.any (across_operator) else 1
@@ -217,7 +218,7 @@ def measure_basis_olap (bra_basis, ket_basis):
     olap_mag = np.sum (svals * svals)
     return olap_mag, olap_ndf
 
-def orthonormalize_a_basis (overlapping_basis, num_zero_atol=1.0e-8):
+def orthonormalize_a_basis (overlapping_basis, num_zero_atol=params.num_zero_atol):
     if (is_basis_orthonormal (overlapping_basis)):
         return overlapping_basis
     c2b = np.asmatrix (incomplete_basis)
@@ -242,7 +243,7 @@ def orthonormalize_a_basis (overlapping_basis, num_zero_atol=1.0e-8):
 
     return np.asarray (c2n)
 
-def get_states_from_projector (the_projector, num_zero_atol=1.0e-8):
+def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol):
     proj_cc = np.asmatrix (the_projector)
     assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (proj_cc - proj_cc.H)
     assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str ((proj_cc * proj_cc) - proj_cc)
