@@ -115,7 +115,7 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Active-space RDM data
     frag.oneRDMas_loc = represent_operator_in_basis (oneRDMas_imp, frag.imp2loc)
-    frag.twoRDMas_imp = represent_operator_in_basis (twoRDMimp_as, frag.as2imp)
+    frag.twoRDMRas_imp = np.copy (frag.twoRDMRimp_imp)
     frag.loc2imp_last = np.copy (frag.loc2imp)
 
     return None

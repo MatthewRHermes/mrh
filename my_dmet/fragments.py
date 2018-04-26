@@ -103,10 +103,10 @@ class fragment_object:
         self.fno_evals      = None
 
         # Outputs of CAS calculations use to fix CAS-DMET
-        self.loc2as       = np.zeros((self.norbs_tot,0))
-        self.loc2imp_last = np.zeros((self.norbs_tot,0))
-        self.oneRDMas_loc = np.zeros((self.norbs_tot,self.norbs_tot))
-        self.twoRDMas_imp = np.zeros((0,0,0,0))
+        self.loc2as        = np.zeros((self.norbs_tot,0))
+        self.loc2imp_last  = np.zeros((self.norbs_tot,0))
+        self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
+        self.twoRDMRas_imp = np.zeros((0,0,0,0))
 
         # Initialize some runtime warning bools
         self.Schmidt_done = False
@@ -334,11 +334,9 @@ class fragment_object:
             raise RuntimeError ("Fragment states have vanished? olap_mag = {0} / {1}".format (olap_mag, self.norbs_frag))
 
         # Add other-fragment active-space RDMs to core RDMs
-        self.loc2tbc         = [np.copy (ofrag.loc2imp_last) for ofrag in other_frags]
-        twoRDMfroz_tbc       = [ofrag.twoRDMas_imp for ofrag in other_frags]
-        oneRDMfroz_tbc       = [represent_operator_in_basis (ofrag.oneRDMas_loc, loc2bas) for ofrag, loc2bas in zip (other_frags, self.loc2tbc)]
         self.oneRDMfroz_loc += sum([ofrag.oneRDMas_loc for ofrag in other_frags])
-        self.twoRDMRfroz_tbc = [get_2RDMR_from_2RDM (twoRDM, oneRDM) for oneRDM, twoRDM in zip (oneRDMfroz_tbc, twoRDMfroz_tbc)]
+        self.twoRDMRfroz_tbc = [ofrag.twoRDMRas_imp for ofrag in other_frags]
+        self.loc2tbc         = [np.copy (ofrag.loc2imp_last) for ofrag in other_frags]
         self.TEI_tbc         = [self.ints.dmet_tei (loc2bas, loc2bas.shape[1]) for loc2bas in self.loc2tbc]
 
         nelec_bleed = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
