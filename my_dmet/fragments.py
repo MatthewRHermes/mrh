@@ -103,10 +103,10 @@ class fragment_object:
         self.fno_evals      = None
 
         # Outputs of CAS calculations use to fix CAS-DMET
-        self.loc2as        = np.zeros((self.norbs_tot,0))
-        self.loc2imp_last  = np.zeros((self.norbs_tot,0))
-        self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
-        self.twoRDMRas_imp = np.zeros((0,0,0,0))
+        self.loc2as       = np.zeros((self.norbs_tot,0))
+        self.loc2imp_last = np.zeros((self.norbs_tot,0))
+        self.oneRDMas_loc = np.zeros((self.norbs_tot,self.norbs_tot))
+        self.twoRDMas_imp = np.zeros((0,0,0,0))
 
         # Initialize some runtime warning bools
         self.Schmidt_done = False
@@ -243,6 +243,18 @@ class fragment_object:
             return self.imp_solver_name + str (self.active_space)
         else:
             return self.imp_solver_name
+
+    @property
+    def loc2tb_all (self):
+        return [self.loc2imp] + self.loc2tbc
+
+    @property
+    def TEI_all (self):
+        return [self.impham_TEI] + self.TEI_tbc
+
+    @property
+    def twoRDMR_all (self):
+        return [self.twoRDMRimp_imp] + self.twoRDMRfroz_tbc
     ############################################################################################################################
 
 
@@ -278,7 +290,7 @@ class fragment_object:
     def do_Schmidt_ofc_embedding (self, oneRDM_loc, all_frags):
         print ("Other-fragment-core Schmidt decomposition of {0} fragment".format (self.frag_name))
         self.restore_default_embedding_basis ()
-        other_frags = [frag for frag in all_frags if frag is not self]
+        other_frags = [frag for frag in all_frags if (frag is not self) and (frag.norbs_as > 0)]
 
         # (Re)build the whole-molecule active and core spaces
         loc2wmas = np.concatenate ([frag.loc2as for frag in all_frags], axis=1)
@@ -313,14 +325,12 @@ class fragment_object:
             raise RuntimeError ("Fragment states have vanished? olap_mag = {0} / {1}".format (olap_mag, self.norbs_frag))
 
         # Add other-fragment active-space RDMs to core RDMs
-        ofrags_w_as          = [ofrag for ofrag in other_frags if ofrag.norbs_as > 0]
-        ofrags_1RDMas_imp    = [represent_operator_in_basis (ofrag.oneRDMas_loc, ofrag.loc2imp) for ofrag in ofrags_w_as]
-        ofrags_2RDM_imp      = [get_2RDM_from_2RDMR (ofrag.twoRDMRas_imp, oneRDM) for ofrag, oneRDM in zip (ofrags_w_as, ofrags_1RDMas_imp)]
-        self.oneRDMfroz_loc += sum([ofrag.oneRDMas_loc for ofrag in ofrags_w_as])
-        oneRDMfroz_ofimp     = [represent_operator_in_basis (self.oneRDMfroz_loc, ofrag.loc2imp) for ofrag in ofrags_w_as]
-        self.twoRDMRfroz_tbc = [get_2RDMR_from_2RDM (twoRDM, oneRDM) for oneRDM, twoRDM in zip (oneRDMfroz_ofimp, ofrags_2RDM_imp)]
-        self.loc2tbc         = [np.copy (ofrag.loc2imp_last) for ofrag in ofrags_w_as]
-        self.TEI_tbc         = [np.copy (ofrag.impham_TEI) for ofrag in ofrags_w_as]
+        self.loc2tbc         = [np.copy (ofrag.loc2imp_last) for ofrag in other_frags]
+        twoRDMfroz_tbc       = [ofrag.twoRDMas_imp for ofrag in other_frags]
+        oneRDMfroz_tbc       = [represent_operator_in_basis (ofrag.oneRDMas_loc, loc2bas) for ofrag, loc2bas in zip (other_frags, self.loc2tbc)]
+        self.oneRDMfroz_loc += sum([ofrag.oneRDMas_loc for ofrag in other_frags])
+        self.twoRDMRfroz_tbc = [get_2RDMR_from_2RDM (twoRDM, oneRDM) for oneRDM, twoRDM in zip (oneRDMfroz_tbc, twoRDMfroz_tbc)]
+        self.TEI_tbc         = [self.ints.dmet_tei (loc2bas, loc2bas.shape[1]) for loc2bas in self.loc2tbc]
         nelec_bleed          = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
         print ("Found {0} electrons from the core bleeding onto impurity states".format (nelec_bleed))
         print ("(If this number is large, you either are dealing with overlapping fragment active spaces or you made an error)")
@@ -409,23 +419,7 @@ class fragment_object:
         E2_loc  = 0.5 * np.einsum ('ij,ij->i', JK_loc, self.oneRDM_loc)
         E2_loc += 0.5 * np.einsum ('ij,ij->j', JK_loc, self.oneRDM_loc)
 
-        '''
-        This brute-force recovery of the full twoRDM ~works~, which means the problem ~must~ somehow
-        be in the code below. I can't for the life of me fucking figure out what's wrong though!
-        TEI_loc     = np.copy (self.ints.activeERI)
-        twoRDMR_loc = self.get_twoRDMR (np.eye (self.norbs_tot))
-        E2_loc += 0.125 * np.einsum ('ijkl,ijkl->i', TEI_loc, twoRDMR_loc)
-        E2_loc += 0.125 * np.einsum ('ijkl,ijkl->j', TEI_loc, twoRDMR_loc)
-        E2_loc += 0.125 * np.einsum ('ijkl,ijkl->k', TEI_loc, twoRDMR_loc)
-        E2_loc += 0.125 * np.einsum ('ijkl,ijkl->l', TEI_loc, twoRDMR_loc)
-        '''
-        
-        E2_imp  = 0.125 * np.einsum ('iqrs,jqrs->ij', self.impham_TEI, self.twoRDMRimp_imp)
-        E2_imp += 0.125 * np.einsum ('aipq,ajpq->ij', self.impham_TEI, self.twoRDMRimp_imp)
-        E2_imp += 0.125 * np.einsum ('abip,abjp->ij', self.impham_TEI, self.twoRDMRimp_imp)
-        E2_imp += 0.125 * np.einsum ('abci,abcj->ij', self.impham_TEI, self.twoRDMRimp_imp)
-        E2_loc += np.diag (represent_operator_in_basis (E2_imp, self.imp2loc))
-        for loc2bas, TEI, twoRDMR in zip (self.loc2tbc, self.TEI_tbc, self.twoRDMRfroz_tbc):
+        for loc2bas, TEI, twoRDMR in zip (self.loc2tb_all, self.TEI_all, self.twoRDMR_all):
             E2_bas  = 0.125 * np.einsum ('iqrs,jqrs->ij', TEI, twoRDMR)
             E2_bas += 0.125 * np.einsum ('aipq,ajpq->ij', TEI, twoRDMR)
             E2_bas += 0.125 * np.einsum ('abip,abjp->ij', TEI, twoRDMR)
@@ -437,38 +431,24 @@ class fragment_object:
 
         return E1 + E2
 
-    def get_twoRDM (self, bra1_basis=None, ket1_basis=None, bra2_basis=None, ket2_basis=None):
-        all_bases = [basis for basis in [bra1_basis, ket1_basis, bra2_basis, ket2_basis] if basis is not None]
-        bra1_basis = all_bases[0]
-        ket1_basis = ket1_basis if np.any (ket1_basis) else bra1_basis
-        bra2_basis = bra2_basis if np.any (bra2_basis) else bra1_basis
-        ket2_basis = ket2_basis if np.any (ket2_basis) else bra2_basis
-        oneRDM_b1k1 = represent_operator_in_basis (self.oneRDM_loc, bra1_basis, ket1_basis)
-        oneRDM_b2k2 = represent_operator_in_basis (self.oneRDM_loc, bra2_basis, ket2_basis)
-        oneRDM_b1k2 = represent_operator_in_basis (self.oneRDM_loc, bra1_basis, ket2_basis)
-        oneRDM_b2k1 = represent_operator_in_basis (self.oneRDM_loc, bra2_basis, ket1_basis)
-        twoRDM  =       np.einsum ('pq,rs->pqrs', oneRDM_b1k1, oneRDM_b2k2)
-        twoRDM -= 0.5 * np.einsum ('ps,rq->pqrs', oneRDM_b1k2, oneRDM_b2k1)
-        return twoRDM + self.get_twoRDMR (bra1_basis, ket1_basis, bra2_basis, ket2_basis)
+    def get_twoRDM (self, *bases):
+        bases = bases if len (bases) == 4 else (basis[0] for i in range[4])
+        oneRDM_pq = represent_operator_in_basis (self.oneRDM_loc, bases[0], bases[1])
+        oneRDM_rs = represent_operator_in_basis (self.oneRDM_loc, bases[2], bases[3])
+        oneRDM_ps = represent_operator_in_basis (self.oneRDM_loc, bases[0], bases[3])
+        oneRDM_rq = represent_operator_in_basis (self.oneRDM_loc, bases[2], bases[1])
+        twoRDM  =       np.einsum ('pq,rs->pqrs', oneRDM_pq, oneRDM_rs)
+        twoRDM -= 0.5 * np.einsum ('ps,rq->pqrs', oneRDM_ps, oneRDM_rq)
+        return twoRDM + self.get_twoRDMR (*bases)
 
-    def get_twoRDMR (self, bra1_basis=None, ket1_basis=None, bra2_basis=None, ket2_basis=None):
-        all_bases = [basis for basis in [bra1_basis, ket1_basis, bra2_basis, ket2_basis] if basis is not None]
-        bra1_basis = all_bases[0]
-        ket1_basis = ket1_basis if np.any (ket1_basis) else bra1_basis
-        bra2_basis = bra2_basis if np.any (bra2_basis) else bra1_basis
-        ket2_basis = ket2_basis if np.any (ket2_basis) else bra2_basis
-        i2b1 = np.dot (self.imp2loc, bra1_basis)
-        i2k1 = np.dot (self.imp2loc, ket1_basis)
-        i2b2 = np.dot (self.imp2loc, bra2_basis)
-        i2k2 = np.dot (self.imp2loc, ket2_basis)
-        twoRDMR = represent_operator_in_basis (self.twoRDMRimp_imp, i2b1, i2k1, i2b2, i2k2)
-        for loc2froz, twoRDMR_froz in zip (self.loc2tbc, self.twoRDMRfroz_tbc):
-            froz2loc = np.conj (loc2froz.T)
-            f2b1 = np.dot (froz2loc, bra1_basis)
-            f2k1 = np.dot (froz2loc, ket1_basis)
-            f2b2 = np.dot (froz2loc, bra2_basis)
-            f2k2 = np.dot (froz2loc, ket2_basis)
-            twoRDMR += represent_operator_in_basis (twoRDMR_froz, f2b1, f2k1, f2b2, f2k2)
+    def get_twoRDMR (self, *bases):
+        bases = bases if len (bases) == 4 else (basis[0] for i in range[4])
+        bra1_basis, ket1_basis, bra2_basis, ket2_basis = bases
+        twoRDMR = np.zeros (tuple(basis.shape[1] for basis in bases))
+        for loc2tb, twoRDMR_tb in zip (self.loc2tb_all, self.twoRDMR_all):
+            tb2loc = np.conj (loc2tb.T)
+            tb2bs = (np.dot (tb2loc, basis) for basis in bases)
+            twoRDMR += represent_operator_in_basis (twoRDMR_tb, *tb2bs)
         return twoRDMR
 
     def get_oneRDM_frag (self):
