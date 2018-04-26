@@ -114,9 +114,8 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.E_imp          = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDMimp_imp)
 
     # Active-space RDM data
-    frag.oneRDMas_loc = represent_operator_in_basis (oneRDMas_imp, frag.imp2loc)
-    frag.twoRDMRas_imp = np.copy (frag.twoRDMRimp_imp)
-    frag.loc2imp_last = np.copy (frag.loc2imp)
+    frag.oneRDMas_loc  = represent_operator_in_basis (oneRDMas_imp, frag.imp2loc)
+    frag.twoRDMRimp_as = twoRDMRimp_as
 
     return None
 

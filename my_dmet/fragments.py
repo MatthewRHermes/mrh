@@ -85,7 +85,6 @@ class fragment_object:
         self.oneRDMfroz_loc  = None
         self.twoRDMRfroz_tbc = []
         self.loc2tbc         = []
-        self.TEI_tbc         = []
         
         # Impurity Hamiltonian
         self.Ecore_frag   = 0.0  # In case this exists
@@ -104,9 +103,8 @@ class fragment_object:
 
         # Outputs of CAS calculations use to fix CAS-DMET
         self.loc2as        = np.zeros((self.norbs_tot,0))
-        self.loc2imp_last  = np.zeros((self.norbs_tot,0))
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
-        self.twoRDMRas_imp = np.zeros((0,0,0,0))
+        self.twoRDMRimp_as = np.zeros((0,0,0,0))
 
         # Initialize some runtime warning bools
         self.Schmidt_done = False
@@ -252,6 +250,10 @@ class fragment_object:
             return self.loc2tbc
 
     @property
+    def TEI_tbc (self):
+        return [self.ints.dmet_tei (loc2tb, loc2tb.shape[1]) for loc2tb in self.loc2tbc]
+
+    @property
     def TEI_all (self):
         if self.imp_solver_name != 'RHF':
             return [self.impham_TEI] + self.TEI_tbc
@@ -277,7 +279,6 @@ class fragment_object:
         self.loc2emb         = np.eye (self.norbs_tot)[:,idx]
         self.twoRDMRfroz_tbc = []
         self.loc2tbc         = []
-        self.TEI_tbc         = []
 
     def do_Schmidt (self, oneRDM_loc, all_frags, do_ofc_embedding):
         if do_ofc_embedding:
@@ -335,9 +336,8 @@ class fragment_object:
 
         # Add other-fragment active-space RDMs to core RDMs
         self.oneRDMfroz_loc += sum([ofrag.oneRDMas_loc for ofrag in other_frags])
-        self.twoRDMRfroz_tbc = [ofrag.twoRDMRas_imp for ofrag in other_frags]
-        self.loc2tbc         = [np.copy (ofrag.loc2imp_last) for ofrag in other_frags]
-        self.TEI_tbc         = [self.ints.dmet_tei (loc2bas, loc2bas.shape[1]) for loc2bas in self.loc2tbc]
+        self.twoRDMRfroz_tbc = [np.copy (ofrag.twoRDMRimp_as) for ofrag in other_frags]
+        self.loc2tbc         = [np.copy (ofrag.loc2as) for ofrag in other_frags]
 
         nelec_bleed = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
         assert (nelec_bleed < params.num_zero_atol), "Core electrons on the impurity! Overlapping active states?"
@@ -429,15 +429,18 @@ class fragment_object:
             print ("get_E_frag {0} :: E_JK_frag = {1:.5f}".format (self.frag_name, E1_JK))
 
         E2 = 0.0
-        for loc2bas, TEI, twoRDMR in zip (self.loc2tb_all, self.TEI_all, self.twoRDMR_all):
+        for loc2bas, twoRDMR in zip (self.loc2tb_all, self.twoRDMR_all):
             E2_t = 0.0
             frag2bas = np.dot (self.frag2loc, loc2bas)
             contractions = ['ip,pqrs->iqrs',
                             'iq,pqrs->pirs',
                             'ir,pqrs->pqis',
                             'is,pqrs->pqri']
-            for contraction in contractions:
-                V, G = (np.einsum (contraction, frag2bas, T) for T in [TEI, twoRDMR])
+            for idx, contraction in zip (range(4), contractions):
+                bases      = [loc2bas for i in range(4)]
+                bases[idx] = self.loc2frag
+                V = self.ints.general_tei (bases)
+                G = np.einsum (contraction, frag2bas, twoRDMR) 
                 E2_t += 0.125 * np.einsum ('pqrs,pqrs->', V, G)
             if self.debug_energy:
                 print ("get_E_frag {0} :: E2 from this 2RDMR = {1:.5f}".format (self.frag_name, E2_t))
