@@ -6,7 +6,7 @@ import numpy as np
 from pyscf import gto
 from . import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper
 from mrh.util.basis import *
-from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI
+from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2RDMR, get_2RDMR_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.my_math import is_close_to_integer
 import warnings
@@ -83,7 +83,9 @@ class fragment_object:
         self.loc2frag = np.eye(self.norbs_tot)[:,self.frag_orb_list]
         self.restore_default_embedding_basis ()
         self.oneRDMfroz_loc  = None
-        self.twoRDMRfroz_imp = None
+        self.twoRDMRfroz_tbc = []
+        self.loc2tbc         = []
+        self.TEI_tbc         = []
         
         # Impurity Hamiltonian
         self.Ecore_frag   = 0.0  # In case this exists
@@ -95,10 +97,10 @@ class fragment_object:
         # Basic outputs of solving the impurity problem
         self.E_frag = 0.0
         self.E_imp  = 0.0
-        self.oneRDM_loc  = None
-        self.twoRDMR_imp = None
-        self.loc2fno     = None
-        self.fno_evals   = None
+        self.oneRDM_loc     = None
+        self.twoRDMRimp_imp = None
+        self.loc2fno        = None
+        self.fno_evals      = None
 
         # Outputs of CAS calculations use to fix CAS-DMET
         self.loc2as       = np.zeros((self.norbs_tot,0))
@@ -226,6 +228,10 @@ class fragment_object:
         return int (round (result))
 
     @property
+    def norbs_tbc (self):
+        return loc2tbc.shape[1]
+
+    @property
     def norbs_core (self):
         self.warn_check_Schmidt ("norbs_core")
         return self.norbs_tot - self.norbs_imp
@@ -244,11 +250,12 @@ class fragment_object:
     # The Schmidt decomposition
     ############################################################################################################################
     def restore_default_embedding_basis (self):
-        idx            = np.append (self.frag_orb_list, self.env_orb_list)
-        self.norbs_imp = self.norbs_frag
-        self.loc2emb   = np.eye (self.norbs_tot)[:,idx]
-        loc2frag       = np.asmatrix (self.loc2frag)
-        frag2loc       = loc2frag.H
+        idx                  = np.append (self.frag_orb_list, self.env_orb_list)
+        self.norbs_imp       = self.norbs_frag
+        self.loc2emb         = np.eye (self.norbs_tot)[:,idx]
+        self.twoRDMRfroz_tbc = []
+        self.loc2tbc         = []
+        self.TEI_tbc         = []
 
     def do_Schmidt (self, oneRDM_loc, all_frags, do_ofc_embedding):
         if do_ofc_embedding:
@@ -262,7 +269,6 @@ class fragment_object:
         self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
             self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=self.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_bath
-        self.twoRDMRfroz_imp = np.zeros ((self.norbs_imp, self.norbs_imp, self.norbs_imp, self.norbs_imp))
         self.Schmidt_done = True
         self.impham_built = False
         self.imp_solved = False
@@ -286,19 +292,19 @@ class fragment_object:
         loc2iemb, norbs_ibath, nelec_iimp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMwmcs_loc, 
             loc2ifrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=self.num_zero_atol)
         norbs_iimp = norbs_ifrag + norbs_ibath
-        loc2iimp = loc2iemb[:,:norbs_iimp]
+        loc2iimp   = loc2iemb[:,:norbs_iimp]
         assert (is_matrix_zero (np.dot (loc2wmas.T, loc2iimp))), "{0}".format (np.dot (loc2wmas.T, loc2iimp))
 
         # Add this-fragment active-space orbitals from last iteration to the impurity
         print ("Adding {0} this-fragment active-space orbitals and {1} this-fragment active-space electrons to the impurity".format (self.norbs_as, self.nelec_as))
         self.nelec_imp = nelec_iimp + self.nelec_as
         self.norbs_imp = norbs_iimp + self.norbs_as
-        loc2imp = np.append (loc2iimp, self.loc2as, axis=1)
+        loc2imp        = np.append (loc2iimp, self.loc2as, axis=1)
         assert (is_basis_orthonormal (loc2imp))
-        self.loc2emb = get_complete_basis (loc2imp)
+        self.loc2emb   = get_complete_basis (loc2imp)
 
         # Keep track of where the fragment orbitals went
-        olap_mag = measure_basis_olap (self.loc2frag, self.loc2imp)[0]
+        olap_mag  = measure_basis_olap (self.loc2frag, self.loc2imp)[0]
         print ("Final impurity model overlap with raw fragment states: {0} / {1}".format (olap_mag, self.norbs_frag))
         olap_mag += measure_basis_olap (self.loc2frag, loc2wmas)[0]
         olap_mag -= measure_basis_olap (self.loc2frag, self.loc2as)[0]
@@ -306,12 +312,15 @@ class fragment_object:
             raise RuntimeError ("Fragment states have vanished? olap_mag = {0} / {1}".format (olap_mag, self.norbs_frag))
 
         # Add other-fragment active-space RDMs to core RDMs
-        self.twoRDMRfroz_imp = np.zeros ((self.norbs_imp, self.norbs_imp, self.norbs_imp, self.norbs_imp))
-        for ofrag in other_frags:
-            ofas2imp = np.dot (ofrag.as2loc, self.loc2imp)
-            self.oneRDMfroz_loc  += ofrag.oneRDMas_loc
-            self.twoRDMRfroz_imp += represent_operator_in_basis (ofrag.twoRDMR_as, ofas2imp)
-        nelec_bleed = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
+        ofrags_w_as          = [ofrag for ofrag in other_frags if ofrag.norbs_as > 0]
+        ofrags_1RDM_as       = [represent_operator_in_basis (ofrag.oneRDM_loc, ofrag.loc2as) for ofrag in ofrags_w_as]
+        ofrags_2RDM_as       = [get_2RDM_from_2RDMR (ofrag.twoRDMR_as, oneRDM) for ofrag, oneRDM in zip (ofrags_w_as, ofrags_1RDM_as)]
+        self.oneRDMfroz_loc  += sum([ofrag.oneRDMas_loc for ofrag in ofrags_w_as])
+        oneRDMfroz_ofas      = [represent_operator_in_basis (self.oneRDMfroz_loc, ofrag.loc2as) for ofrag in ofrags_w_as]
+        self.twoRDMRfroz_tbc = [get_2RDMR_from_2RDM (twoRDM, oneRDM) for oneRDM, twoRDM in zip (oneRDMfroz_ofas, ofrags_2RDM_as)]
+        self.loc2tbc         = [np.copy (ofrag.loc2as) for ofrag in ofrags_w_as]
+        self.TEI_tbc         = [self.ints.dmet_tei (ofrag.loc2as, ofrag.norbs_as) for ofrag in ofrags_w_as]
+        nelec_bleed          = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
         print ("Found {0} electrons from the core bleeding onto impurity states".format (nelec_bleed))
         print ("(If this number is large, you either are dealing with overlapping fragment active spaces or you made an error)")
 
@@ -332,7 +341,8 @@ class fragment_object:
         self.impham_CONST  = self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc) + self.ints.const () + xtra_CONST
         self.impham_OEI    = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
         self.impham_TEI    = self.ints.dmet_tei (self.loc2emb, self.norbs_imp)
-        self.impham_CONST += 0.5 * np.einsum ('ijkl,ijkl->', self.impham_TEI, self.twoRDMRfroz_imp)
+        self.impham_CONST += sum ([0.5 * np.einsum ('ijkl,ijkl->', TEI, twoRDMR) for TEI, twoRDMR in zip (
+                                    self.TEI_tbc, self.twoRDMRfroz_tbc)])
         self.impham_built  = True
         self.imp_solved    = False
     ###############################################################################################################################
@@ -388,22 +398,58 @@ class fragment_object:
 
     def get_E_frag (self):
         self.warn_check_imp_solve ("get_E_frag")
-        OEIeff_loc = self.ints.loc_rhf_fock_bis (0.5 * self.oneRDM_loc)
-        E1_loc  = 0.5 * np.einsum ('ij,ij->i', OEIeff_loc, self.oneRDM_loc)
-        E1_loc += 0.5 * np.einsum ('ij,ij->j', OEIeff_loc, self.oneRDM_loc)
-        E2_imp  = 0.125 * np.einsum ('ijkl,ijkl->i', self.impham_TEI, self.twoRDMR_imp)
-        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->j', self.impham_TEI, self.twoRDMR_imp)
-        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->k', self.impham_TEI, self.twoRDMR_imp)
-        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->l', self.impham_TEI, self.twoRDMR_imp)
-        E_loc = E1_loc + np.dot (self.loc2imp, E2_imp)
-        return np.sum (E_loc[self.frag_orb_list])
+        E1_loc  = 0.5 * np.einsum ('ij,ij->i', self.ints.activeOEI, self.oneRDM_loc)
+        E1_loc += 0.5 * np.einsum ('ij,ij->j', self.ints.activeOEI, self.oneRDM_loc)
+        E1 = np.sum (E1_loc[self.frag_orb_list])
+        if self.debug_energy:
+            print ("get_E_frag {0} :: E1 = {1:.5f}".format (self.frag_name, E1))
 
-    def get_twoRDM_imp (self, xtra_oneRDMcore_loc=None):
-        oneRDM_imp = self.get_oneRDM_imp ()
-        if np.any (xtra_oneRDMcore_loc):
-            oneRDM_imp += represent_operator_in_basis (xtra_oneRDMcore_loc, self.loc2imp)
-        return (self.twoRDMR_imp + np.einsum ('pq,rs->pqrs', oneRDM_imp, oneRDM_imp) 
-                           - 0.5 * np.einsum ('ps,rq->pqrs', oneRDM_imp, oneRDM_imp))
+        twoRDMimp_imp = get_2RDM_from_2RDMR (self.twoRDMRimp_imp, self.get_oneRDM_imp ())
+        E2_imp  = 0.125 * np.einsum ('ijkl,ijkl->i', self.impham_TEI, twoRDMimp_imp)
+        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->j', self.impham_TEI, twoRDMimp_imp)
+        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->k', self.impham_TEI, twoRDMimp_imp)
+        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->l', self.impham_TEI, twoRDMimp_imp)
+        E2_loc  = np.dot (self.loc2imp, E2_imp)
+        for loc2bas, TEI, twoRDMR in zip (self.loc2tbc, self.TEI_tbc, self.twoRDMRfroz_tbc):
+            oneRDM = represent_operator_in_basis (self.oneRDMfroz_loc, loc2bas)
+            twoRDM = get_2RDM_from_2RDMR (twoRDMR, oneRDM)
+            E2_bas  = 0.125 * np.einsum ('ijkl,ijkl->i', TEI, twoRDM)
+            E2_bas += 0.125 * np.einsum ('ijkl,ijkl->j', TEI, twoRDM)
+            E2_bas += 0.125 * np.einsum ('ijkl,ijkl->k', TEI, twoRDM)
+            E2_bas += 0.125 * np.einsum ('ijkl,ijkl->l', TEI, twoRDM)
+            E2_loc += np.dot (loc2bas, E2_bas)
+        E2 = np.sum (E2_loc[self.frag_orb_list])
+        if self.debug_energy:
+            print ("get_E_frag {0} :: E2 = {1:.5f}".format (self.frag_name, E2))
+
+        return E1 + E2
+
+    def get_twoRDM (self, bra1_basis=None, ket1_basis=None, bra2_basis=None, ket2_basis=None):
+        all_bases = [basis for basis in [bra1_basis, ket1_basis, bra2_basis, ket2_basis] if basis is not None]
+        bra1_basis = all_bases[0]
+        ket1_basis = ket1_basis if np.any (ket1_basis) else bra1_basis
+        bra2_basis = bra2_basis if np.any (bra2_basis) else bra1_basis
+        ket2_basis = ket2_basis if np.any (ket2_basis) else bra2_basis
+        oneRDM_b1k1 = represent_operator_in_basis (self.oneRDM_loc, bra1_basis, ket1_basis)
+        oneRDM_b2k2 = represent_operator_in_basis (self.oneRDM_loc, bra2_basis, ket2_basis)
+        oneRDM_b1k2 = represent_operator_in_basis (self.oneRDM_loc, bra1_basis, ket2_basis)
+        oneRDM_b2k1 = represent_operator_in_basis (self.oneRDM_loc, bra2_basis, ket1_basis)
+        twoRDM  =       np.einsum ('pq,rs->pqrs', oneRDM_b1k1, oneRDM_b2k2)
+        twoRDM -= 0.5 * np.einsum ('ps,rq->pqrs', oneRDM_b1k2, oneRDM_b2k1)
+        i2b1 = np.dot (self.imp2loc, bra1_basis)
+        i2k1 = np.dot (self.imp2loc, ket1_basis)
+        i2b2 = np.dot (self.imp2loc, bra2_basis)
+        i2k2 = np.dot (self.imp2loc, ket2_basis)
+        twoRDM += represent_operator_in_basis (self.twoRDMRimp_imp, i2b1, i2k1, i2b2, i2k2)
+        for loc2froz, twoRDMR in zip (self.loc2tbc, self.twoRDMRfroz_tbc):
+            froz2loc = np.conj (loc2froz.T)
+            f2b1 = np.dot (froz2loc, bra1_basis)
+            f2k1 = np.dot (froz2loc, ket1_basis)
+            f2b2 = np.dot (froz2loc, bra2_basis)
+            f2k2 = np.dot (froz2loc, ket2_basis)
+            twoRDM += represent_operator_in_basis (twoRDMR, f2b1, f2k1, f2b2, f2k2)
+        return twoRDM
+
 
     def get_oneRDM_frag (self):
         self.warn_check_imp_solve ("oneRDM_frag")

@@ -29,7 +29,7 @@ import sys
 from pyscf import gto, scf, ao2mo, mcscf
 #np.set_printoptions(threshold=np.nan)
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
-from mrh.util.rdm import get_2RDM_residual
+from mrh.util.rdm import get_2RDMR_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
@@ -96,7 +96,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     oneRDMimp_imp  = oneRDMcs_imp + oneRDMas_imp
 
     # MC-active twoRDMR
-    twoRDMRimp_as  = get_2RDM_residual (mc.fcisolver.make_rdm2 (mc.ci, norbs_as, nelec_as), oneRDMas_as)
+    twoRDMRimp_as  = get_2RDMR_from_2RDM (mc.fcisolver.make_rdm2 (mc.ci, norbs_as, nelec_as), oneRDMas_as)
     twoRDMRimp_imp = represent_operator_in_basis (twoRDMRimp_as, frag.as2imp)
     '''
     twoRDMRimp_as  = mc.fcisolver.make_rdm2(mc.ci,norbs_as,nelec_as) #in CAS space
@@ -109,9 +109,9 @@ def solve (frag, guess_1RDM, chempot_imp):
     '''
 
     # General impurity data
-    frag.oneRDM_loc  = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
-    frag.twoRDMR_imp = frag.twoRDMRfroz_imp + twoRDMRimp_imp
-    frag.E_imp       = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDMimp_imp)
+    frag.oneRDM_loc     = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
+    frag.twoRDMRimp_imp = twoRDMRimp_imp
+    frag.E_imp          = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDMimp_imp)
 
     # Active-space RDM data
     frag.oneRDMas_loc = represent_operator_in_basis (oneRDMas_imp, frag.imp2loc)

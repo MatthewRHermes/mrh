@@ -20,7 +20,7 @@
 import numpy as np
 from pyscf import gto, scf, ao2mo, mp
 from mrh.util.basis import represent_operator_in_basis
-from mrh.util.rdm import get_2RDM_residual
+from mrh.util.rdm import get_2RDMR_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, Norb, Nel, Nimp, DMguessRHF, chempot_imp=0.0, printoutput=True ):
@@ -50,12 +50,12 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     mp2 = mp.MP2( mf )
     mp2.kernel()
     oneRDMimp_imp  = mp2.make_rdm1()
-    twoRDMRimp_imp = get_2RDM_residual (mp2.make_rdm2 (), oneRDMimp_imp)
+    twoRDMRimp_imp = get_2RDMR_from_2RDM (mp2.make_rdm2 (), oneRDMimp_imp)
 
     # General impurity data
-    frag.oneRDM_loc  = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
-    frag.twoRDMR_imp = frag.twoRDMRfroz_imp + twoRDMRimp_imp
-    frag.E_imp       = frag.impham_CONST + mp2.e_tot + np.einsum ('ab,ab->', oneRDMimp_imp, chempot_imp)
+    frag.oneRDM_loc     = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
+    frag.twoRDMRimp_imp = twoRDMRimp_imp
+    frag.E_imp          = frag.impham_CONST + mp2.e_tot + np.einsum ('ab,ab->', oneRDMimp_imp, chempot_imp)
 
     return None
 

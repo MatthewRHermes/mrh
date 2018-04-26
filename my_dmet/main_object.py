@@ -63,6 +63,8 @@ class dmet:
         self.altcostfunc      = False if self.doDET else use_constrained_opt
         self.ofc_embedding    = ofc_embedding
         self.debug_energy     = debug_energy
+        for frag in self.fragments:
+            frag.debug_energy = debug_energy
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
 
@@ -519,9 +521,7 @@ class dmet:
         print ("Time dmet ed =", self.time_ed)
         print ("Time dmet cf =", self.time_cf)
         if self.debug_energy:
-            test_energy = debug_Etot (self)
-            print ("DEBUG ENERGY: object energy = {0:.5f}, test energy = {1:.5f}, difference = {2:.5f}".format(
-                self.energy, test_energy, self.energy - test_energy))
+            debug_Etot (self)
         
         return self.energy
         

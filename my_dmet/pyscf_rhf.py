@@ -47,9 +47,9 @@ def solve (frag, guess_1RDM, chempot_imp):
         mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
     oneRDMimp_imp = mf.make_rdm1()    
 
-    frag.oneRDM_loc  = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
-    frag.twoRDMR_imp = frag.twoRDMRfroz_imp
-    frag.E_imp       = frag.impham_CONST + mf.e_tot + np.einsum ('ab,ab->', oneRDMimp_imp, chempot_imp)
+    frag.oneRDM_loc     = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
+    frag.twoRDMRimp_imp = np.zeros_like (frag.impham_TEI)
+    frag.E_imp          = frag.impham_CONST + mf.e_tot + np.einsum ('ab,ab->', oneRDMimp_imp, chempot_imp)
     
     return None
 

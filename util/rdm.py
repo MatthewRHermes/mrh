@@ -111,8 +111,16 @@ def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bat
         raise RuntimeError ("Can't solve impurity problems without even-integer number of electrons! nelec_wimp={0}".format (nelec_wimp))
     return loc2wemb, norbs_wbath, int (round (nelec_wimp)), working_1RDM_core
 
-def get_2RDM_residual (twoRDM, oneRDM):
+def get_2RDMR_from_2RDM (twoRDM, oneRDM):
     twoRDMR  = twoRDM - np.einsum ('pq,rs->pqrs', oneRDM, oneRDM)
     twoRDMR +=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
     return twoRDMR
+
+def get_2RDM_from_2RDMR (twoRDMR, oneRDM):
+    twoRDM  = twoRDMR + np.einsum ('pq,rs->pqrs', oneRDM, oneRDM)
+    twoRDM -=     0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
+    return twoRDM
+
+
+
 
