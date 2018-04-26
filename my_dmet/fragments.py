@@ -404,20 +404,32 @@ class fragment_object:
         if self.debug_energy:
             print ("get_E_frag {0} :: E1 = {1:.5f}".format (self.frag_name, E1))
 
-        twoRDMimp_imp = get_2RDM_from_2RDMR (self.twoRDMRimp_imp, self.get_oneRDM_imp ())
-        E2_imp  = 0.125 * np.einsum ('ijkl,ijkl->i', self.impham_TEI, twoRDMimp_imp)
-        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->j', self.impham_TEI, twoRDMimp_imp)
-        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->k', self.impham_TEI, twoRDMimp_imp)
-        E2_imp += 0.125 * np.einsum ('ijkl,ijkl->l', self.impham_TEI, twoRDMimp_imp)
-        E2_loc  = np.dot (self.loc2imp, E2_imp)
+        JK_loc  = self.ints.loc_rhf_jk_bis (0.5 * self.oneRDM_loc)
+        E2_loc  = 0.5 * np.einsum ('ij,ij->i', JK_loc, self.oneRDM_loc)
+        E2_loc += 0.5 * np.einsum ('ij,ij->j', JK_loc, self.oneRDM_loc)
+
+        '''
+        This brute-force recovery of the full twoRDM ~works~, which means the problem ~must~ somehow
+        be in the code below. I can't for the life of me fucking figure out what's wrong though!
+        TEI_loc     = np.copy (self.ints.activeERI)
+        twoRDMR_loc = self.get_twoRDMR (np.eye (self.norbs_tot))
+        E2_loc += 0.125 * np.einsum ('ijkl,ijkl->i', TEI_loc, twoRDMR_loc)
+        E2_loc += 0.125 * np.einsum ('ijkl,ijkl->j', TEI_loc, twoRDMR_loc)
+        E2_loc += 0.125 * np.einsum ('ijkl,ijkl->k', TEI_loc, twoRDMR_loc)
+        E2_loc += 0.125 * np.einsum ('ijkl,ijkl->l', TEI_loc, twoRDMR_loc)
+        '''
+        
+        E2_imp  = 0.125 * np.einsum ('iqrs,jqrs->ij', self.impham_TEI, self.twoRDMRimp_imp)
+        E2_imp += 0.125 * np.einsum ('aipq,ajpq->ij', self.impham_TEI, self.twoRDMRimp_imp)
+        E2_imp += 0.125 * np.einsum ('abip,abjp->ij', self.impham_TEI, self.twoRDMRimp_imp)
+        E2_imp += 0.125 * np.einsum ('abci,abcj->ij', self.impham_TEI, self.twoRDMRimp_imp)
+        E2_loc += np.diag (represent_operator_in_basis (E2_imp, self.imp2loc))
         for loc2bas, TEI, twoRDMR in zip (self.loc2tbc, self.TEI_tbc, self.twoRDMRfroz_tbc):
-            oneRDM = represent_operator_in_basis (self.oneRDMfroz_loc, loc2bas)
-            twoRDM = get_2RDM_from_2RDMR (twoRDMR, oneRDM)
-            E2_bas  = 0.125 * np.einsum ('ijkl,ijkl->i', TEI, twoRDM)
-            E2_bas += 0.125 * np.einsum ('ijkl,ijkl->j', TEI, twoRDM)
-            E2_bas += 0.125 * np.einsum ('ijkl,ijkl->k', TEI, twoRDM)
-            E2_bas += 0.125 * np.einsum ('ijkl,ijkl->l', TEI, twoRDM)
-            E2_loc += np.dot (loc2bas, E2_bas)
+            E2_bas  = 0.125 * np.einsum ('iqrs,jqrs->ij', TEI, twoRDMR)
+            E2_bas += 0.125 * np.einsum ('aipq,ajpq->ij', TEI, twoRDMR)
+            E2_bas += 0.125 * np.einsum ('abip,abjp->ij', TEI, twoRDMR)
+            E2_bas += 0.125 * np.einsum ('abci,abcj->ij', TEI, twoRDMR)
+            E2_loc += np.diag (represent_operator_in_basis (E2_bas, loc2bas.T))
         E2 = np.sum (E2_loc[self.frag_orb_list])
         if self.debug_energy:
             print ("get_E_frag {0} :: E2 = {1:.5f}".format (self.frag_name, E2))
@@ -436,20 +448,27 @@ class fragment_object:
         oneRDM_b2k1 = represent_operator_in_basis (self.oneRDM_loc, bra2_basis, ket1_basis)
         twoRDM  =       np.einsum ('pq,rs->pqrs', oneRDM_b1k1, oneRDM_b2k2)
         twoRDM -= 0.5 * np.einsum ('ps,rq->pqrs', oneRDM_b1k2, oneRDM_b2k1)
+        return twoRDM + self.get_twoRDMR (bra1_basis, ket1_basis, bra2_basis, ket2_basis)
+
+    def get_twoRDMR (self, bra1_basis=None, ket1_basis=None, bra2_basis=None, ket2_basis=None):
+        all_bases = [basis for basis in [bra1_basis, ket1_basis, bra2_basis, ket2_basis] if basis is not None]
+        bra1_basis = all_bases[0]
+        ket1_basis = ket1_basis if np.any (ket1_basis) else bra1_basis
+        bra2_basis = bra2_basis if np.any (bra2_basis) else bra1_basis
+        ket2_basis = ket2_basis if np.any (ket2_basis) else bra2_basis
         i2b1 = np.dot (self.imp2loc, bra1_basis)
         i2k1 = np.dot (self.imp2loc, ket1_basis)
         i2b2 = np.dot (self.imp2loc, bra2_basis)
         i2k2 = np.dot (self.imp2loc, ket2_basis)
-        twoRDM += represent_operator_in_basis (self.twoRDMRimp_imp, i2b1, i2k1, i2b2, i2k2)
-        for loc2froz, twoRDMR in zip (self.loc2tbc, self.twoRDMRfroz_tbc):
+        twoRDMR = represent_operator_in_basis (self.twoRDMRimp_imp, i2b1, i2k1, i2b2, i2k2)
+        for loc2froz, twoRDMR_froz in zip (self.loc2tbc, self.twoRDMRfroz_tbc):
             froz2loc = np.conj (loc2froz.T)
             f2b1 = np.dot (froz2loc, bra1_basis)
             f2k1 = np.dot (froz2loc, ket1_basis)
             f2b2 = np.dot (froz2loc, bra2_basis)
             f2k2 = np.dot (froz2loc, ket2_basis)
-            twoRDM += represent_operator_in_basis (twoRDMR, f2b1, f2k1, f2b2, f2k2)
-        return twoRDM
-
+            twoRDMR += represent_operator_in_basis (twoRDMR_froz, f2b1, f2k1, f2b2, f2k2)
+        return twoRDMR
 
     def get_oneRDM_frag (self):
         self.warn_check_imp_solve ("oneRDM_frag")
