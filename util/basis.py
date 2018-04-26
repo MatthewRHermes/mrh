@@ -139,10 +139,10 @@ def project_operator_into_subspace_2body (braOket, bra1_basis, ket1_basis, bra2_
     l2c = np.asmatrix (bra2_basis)
     l2d = np.asmatrix (ket2_basis)
 
-    abcd = np.einsum ('abcd,az->zbcd', abcd, np.asarray (l2a.H * l2a))
-    abcd = np.einsum ('abcd,bz->azcd', abcd, np.asarray (l2b.H * l2b))
-    abcd = np.einsum ('abcd,cz->abzd', abcd, np.asarray (l2c.H * l2c))
-    abcd = np.einsum ('abcd,dz->abcz', abcd, np.asarray (l2d.H * l2d))
+    abcd = np.einsum ('abcd,az->zbcd', abcd, np.asarray (l2a * l2a.H))
+    abcd = np.einsum ('abcd,bz->azcd', abcd, np.asarray (l2b * l2b.H))
+    abcd = np.einsum ('abcd,cz->abzd', abcd, np.asarray (l2c * l2c.H))
+    abcd = np.einsum ('abcd,dz->abcz', abcd, np.asarray (l2d * l2d.H))
     return abcd
 
 

@@ -331,10 +331,66 @@ class fragment_object:
         self.oneRDMfroz_loc += sum([ofrag.oneRDMas_loc for ofrag in other_frags])
         self.twoRDMRfroz_tbc = [get_2RDMR_from_2RDM (twoRDM, oneRDM) for oneRDM, twoRDM in zip (oneRDMfroz_tbc, twoRDMfroz_tbc)]
         self.TEI_tbc         = [self.ints.dmet_tei (loc2bas, loc2bas.shape[1]) for loc2bas in self.loc2tbc]
-        nelec_bleed          = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
-        print ("Found {0} electrons from the core bleeding onto impurity states".format (nelec_bleed))
-        print ("(If this number is large, you either are dealing with overlapping fragment active spaces or you made an error)")
 
+        # Try to transform into the as basis. Why doesn't it work?
+        tbc2ofas        = [np.dot (loc2tbc.conjugate ().T, ofrag.loc2as) for loc2tbc, ofrag in zip (self.loc2tbc, other_frags)]
+        twoRDMRofas_tbc = [project_operator_into_subspace (twoRDMR, tbc2as) for twoRDMR, tbc2as in zip (self.twoRDMRfroz_tbc, tbc2ofas)]
+        error_space     = [np.linalg.norm (twoRDMR - twoRDMRofas) for twoRDMR, twoRDMRofas in zip (self.twoRDMRfroz_tbc, twoRDMRofas_tbc)]
+        print ("Does the twoRDMRfroz_tbc have any component outside the ofas? answer = {0}".format (error_space))
+
+        # Okay, in the impurity basis, contract all but one, THEN mess with the basis of just the last two orbitals
+        for loc2oi, twoRDMR, TEI, ofrag in zip (self.loc2tbc, self.twoRDMRfroz_tbc, self.TEI_tbc, other_frags):
+            E2_oi  = 0.125 * np.einsum ('iqrs,jqrs->ij', TEI, twoRDMR)
+            E2_oi += 0.125 * np.einsum ('aipq,ajpq->ij', TEI, twoRDMR)
+            E2_oi += 0.125 * np.einsum ('abip,abjp->ij', TEI, twoRDMR)
+            E2_oi += 0.125 * np.einsum ('abci,abcj->ij', TEI, twoRDMR)
+            E2_oi_loc = represent_operator_in_basis (E2_oi, loc2oi.conjugate ().T)
+            print ("E2_oi contribution to E_imp: {0}".format (np.trace (E2_oi)))
+            print ("E2_oi contribution to E_frag: {0}".format (np.sum (np.diag (E2_oi_loc)[self.frag_orb_list])))
+            oi2oa = np.dot (loc2oi.conjugate ().T, ofrag.loc2as)
+            E2_oa = represent_operator_in_basis (E2_oi, oi2oa)
+            E2_oa_loc = represent_operator_in_basis (E2_oa, ofrag.loc2as.conjugate ().T)
+            print ("Rotate E2_oi directly into oa basis")
+            print ("E2_oa contribution to E_imp: {0}".format (np.trace (E2_oa)))
+            print ("E2_oa contribution to E_frag: {0}".format (np.sum (np.diag (E2_oi_loc)[self.frag_orb_list])))
+            TEI_     = represent_operator_in_basis (TEI, ofrag.imp2as)
+            twoRDMR_ = represent_operator_in_basis (twoRDMR, ofrag.imp2as)
+            E2_oa_  = 0.125 * np.einsum ('iqrs,jqrs->ij', TEI_, twoRDMR_)
+            E2_oa_ += 0.125 * np.einsum ('aipq,ajpq->ij', TEI_, twoRDMR_)
+            E2_oa_ += 0.125 * np.einsum ('abip,abjp->ij', TEI_, twoRDMR_)
+            E2_oa_ += 0.125 * np.einsum ('abci,abcj->ij', TEI_, twoRDMR_)
+            E2_oa__loc = represent_operator_in_basis (E2_oa_, ofrag.loc2as.conjugate ().T)
+            print ("Rotate TEI and twoRDMR and then calculate oa")
+            print ("E2_oa contribution to E_imp: {0}".format (np.trace (E2_oa_)))
+            print ("E2_oa contribution to E_frag: {0}".format (np.sum (np.diag (E2_oa__loc)[self.frag_orb_list])))
+            TEI_ = self.ints.general_tei ([ofrag.loc2as for i in range(4)])
+            E2_oa_  = 0.125 * np.einsum ('iqrs,jqrs->ij', TEI_, twoRDMR_)
+            E2_oa_ += 0.125 * np.einsum ('aipq,ajpq->ij', TEI_, twoRDMR_)
+            E2_oa_ += 0.125 * np.einsum ('abip,abjp->ij', TEI_, twoRDMR_)
+            E2_oa_ += 0.125 * np.einsum ('abci,abcj->ij', TEI_, twoRDMR_)
+            E2_oa__loc = represent_operator_in_basis (E2_oa_, ofrag.loc2as.conjugate ().T)
+            print ("Rotate twoRDMR, recompute TEI explicitly in oa basis, and then calculate oa")
+            print ("E2_oa contribution to E_imp: {0}".format (np.trace (E2_oa_)))
+            print ("E2_oa contribution to E_frag: {0}".format (np.sum (np.diag (E2_oa__loc)[self.frag_orb_list])))
+            E2_oa_frag = 0.0
+            E2_oa_imp = 0.0
+            for i in range(4):
+                basis_list_TEI = [ofrag.loc2as for j in range (4)]
+                basis_list_2RDMR = [np.eye (ofrag.norbs_as) for j in range (4)]
+                TEI__ = self.ints.general_tei (basis_list_TEI)
+                twoRDMR__ = represent_operator_in_basis (twoRDMR_, *basis_list_2RDMR)
+                E2_oa_imp += 0.125 * np.einsum ('ijkl,ijkl->', TEI__, twoRDMR__)
+                basis_list_TEI[i] = self.loc2frag
+                basis_list_2RDMR[i] = np.dot (ofrag.as2loc, self.loc2frag)
+                TEI__ = self.ints.general_tei (basis_list_TEI)
+                twoRDMR__ = represent_operator_in_basis (twoRDMR_, *basis_list_2RDMR)
+                E2_oa_frag += 0.125 * np.einsum ('ijkl,ijkl->', TEI__, twoRDMR__)
+            print ("Transform 1 index column at a time from oa to frag basis - isn't this essentially what the debug calculator does?")
+            print ("E2_oa contribution to E_imp: {0}".format (E2_oa_imp))
+            print ("E2_oa contribution to E_frag: {0}".format (E2_oa_frag))
+
+        nelec_bleed = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
+        assert (nelec_bleed < params.num_zero_atol), "Core electrons on the impurity! Overlapping active states?"
         print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
         self.Schmidt_done = True
         self.impham_built = False
@@ -424,7 +480,11 @@ class fragment_object:
             E2_bas += 0.125 * np.einsum ('aipq,ajpq->ij', TEI, twoRDMR)
             E2_bas += 0.125 * np.einsum ('abip,abjp->ij', TEI, twoRDMR)
             E2_bas += 0.125 * np.einsum ('abci,abcj->ij', TEI, twoRDMR)
-            E2_loc += np.diag (represent_operator_in_basis (E2_bas, loc2bas.T))
+            E2_tloc = np.diag (represent_operator_in_basis (E2_bas, loc2bas.T))
+            E2_loc += E2_tloc
+            E2_tfrag = np.sum (E2_tloc[self.frag_orb_list])
+            if self.debug_energy:
+                print ("get_E_frag {0} :: E2 from this 2RDMR = {1:.5f}".format (self.frag_name, E2_tfrag))
         E2 = np.sum (E2_loc[self.frag_orb_list])
         if self.debug_energy:
             print ("get_E_frag {0} :: E2 = {1:.5f}".format (self.frag_name, E2))
