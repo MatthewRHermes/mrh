@@ -1,6 +1,7 @@
 import numpy as np
 import itertools
-from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
+import math
+from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, is_basis_orthonormal, measure_basis_olap
 
 def debug_ofc_oneRDM ( dmet_obj ):
 
@@ -95,4 +96,17 @@ def debug_Etot (dmet_obj):
         del f.E2_test
 
     return Etot
+
+def examine_ifrag_olap (dmet_obj):
+    frags = dmet_obj.fragments
+    for f1, f2 in itertools.combinations_with_replacement (frags, 2):
+        if f1 is not f2:
+            olap_mag = measure_basis_olap (f1.loc2emb[:,:f1.norbs_frag], f2.loc2emb[:,:f2.norbs_frag])[0]
+            print ("Quasi-fragment overlap magnitude between {0} and {1}: {2:.2f}".format(
+                f1.frag_name, f2.frag_name, olap_mag))
+        else:
+            if not is_basis_orthonormal (f1.loc2imp[:,:f1.norbs_frag]):
+                raise RuntimeError ("{0} quasi-fragment basis not orthonormal?? Overlap=\n{1}".format (
+                    f1.frag_name, np.dot (f1.imp2loc[:f1.norbs_frag,:],f1.loc2imp[:,:f1.norbs_frag])))
+
 

@@ -333,7 +333,7 @@ class fragment_object:
         print ("Adding {0} this-fragment active-space orbitals and {1} this-fragment active-space electrons to the impurity".format (self.norbs_as, self.nelec_as))
         self.nelec_imp = nelec_iimp + self.nelec_as
         self.norbs_imp = norbs_iimp + self.norbs_as
-        loc2imp        = np.append (loc2iimp, self.loc2as, axis=1)
+        loc2imp        = np.append (self.loc2as, loc2iimp, axis=1)
         assert (is_basis_orthonormal (loc2imp))
         self.loc2emb   = get_complete_basis (loc2imp)
 

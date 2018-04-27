@@ -28,7 +28,7 @@ from scipy import optimize
 import time
 from mrh.util import params
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye
-from .debug import debug_ofc_oneRDM, debug_Etot
+from .debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap
 
 class dmet:
 
@@ -208,6 +208,7 @@ class dmet:
             for frag in self.fragments:
                 frag.do_Schmidt (oneRDM_loc, self.fragments, self.ofc_embedding)
                 frag.construct_impurity_hamiltonian ()
+            examine_ifrag_olap (self)
 
         for frag in self.fragments:
             frag.solve_impurity_problem (chempot_frag)
