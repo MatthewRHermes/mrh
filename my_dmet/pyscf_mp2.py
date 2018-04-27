@@ -19,15 +19,14 @@
 
 import numpy as np
 from pyscf import gto, scf, ao2mo, mp
+from pyscf.tools import rhf_newtonraphson
 from mrh.util.basis import represent_operator_in_basis
 from mrh.util.rdm import get_2RDMR_from_2RDM
 
 #def solve( CONST, OEI, FOCK, TEI, Norb, Nel, Nimp, DMguessRHF, chempot_imp=0.0, printoutput=True ):
-def solve (frag, guess_1RDM, chempot_frag=0.0):
+def solve (frag, guess_1RDM, chempot_imp):
 
     # Augment OEI with the chemical potential
-    chempot_loc = chempot_frag * np.diag (frag.is_frag_orb).astype (frag.impham_OEI.dtype)
-    chempot_imp = represent_operator_in_basis (chempot_loc, frag.loc2imp)
     OEI = frag.impham_OEI - chempot_imp
 
     # Get the RHF solution
@@ -48,8 +47,12 @@ def solve (frag, guess_1RDM, chempot_frag=0.0):
     # Get the MP2 solution
     mp2 = mp.MP2( mf )
     mp2.kernel()
-    oneRDMimp_imp  = mp2.make_rdm1()
-    twoRDMRimp_imp = get_2RDMR_from_2RDM (mp2.make_rdm2 (), oneRDMimp_imp)
+    imp2mo         = mf.mo_coeff
+    mo2imp         = imp2mo.conjugate ().T
+    oneRDMimp_imp  = mf.make_rdm1()
+    twoRDMimp_mo   = mp2.make_rdm2()
+    twoRDMimp_imp  = represent_operator_in_basis (twoRDMimp_mo, mo2imp)
+    twoRDMRimp_imp = get_2RDMR_from_2RDM (twoRDMimp_imp, oneRDMimp_imp)
 
     # General impurity data
     frag.oneRDM_loc     = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)

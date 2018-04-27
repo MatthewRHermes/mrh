@@ -276,6 +276,7 @@ class fragment_object:
     def restore_default_embedding_basis (self):
         idx                  = np.append (self.frag_orb_list, self.env_orb_list)
         self.norbs_imp       = self.norbs_frag
+        self.loc2frag        = np.eye (self.norbs_tot)[:,self.frag_orb_list]
         self.loc2emb         = np.eye (self.norbs_tot)[:,idx]
         self.twoRDMRfroz_tbc = []
         self.loc2tbc         = []
@@ -305,6 +306,16 @@ class fragment_object:
         # (Re)build the whole-molecule active and core spaces
         loc2wmas = np.concatenate ([frag.loc2as for frag in all_frags], axis=1)
         loc2wmcs = get_complementary_states (loc2wmas)
+
+        # For now, let's not mix loc2wmcs up.  Let's just find the best choices for this fragment
+        '''
+        frag2wmcs = loc2wmcs[self.frag_orb_list,:]
+        Pfrag_wmcs = np.diag (np.dot (frag2wmcs.conjugate ().T, frag2wmcs))
+        print ("Pfrag_wmcs diagonals for {0} fragment is: {1}".format (self.frag_name, Pfrag_wmcs))
+        idx = Pfrag_wmcs.argsort ()[::-1]
+        print ("The best wmcs states for {0} fragment are: {1}".format (self.frag_name, idx[:self.norbs_frag-self.norbs_as]))
+        '''
+
 
         # Starting with Schmidt decomposition in the idempotent subspace
         oneRDMwmcs_loc      = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
@@ -376,8 +387,7 @@ class fragment_object:
         self.warn_check_impham ("solve_impurity_problem")
 
         # Make chemical potential matrix and guess_1RDM
-        chempot_loc = chempot_frag * np.diag (self.is_frag_orb).astype (int)
-        chempot_imp = represent_operator_in_basis (chempot_loc, self.loc2imp)
+        chempot_imp = represent_operator_in_basis (chempot_frag * np.eye (self.norbs_frag), self.frag2imp)
         guess_1RDM = 2.0 * get_1RDM_from_OEI (self.impham_OEI + chempot_imp, self.nelec_imp // 2)
 
         # Execute solver function
@@ -417,14 +427,14 @@ class fragment_object:
         self.warn_check_imp_solve ("get_E_frag")
         E1_loc  = 0.5 * np.einsum ('ij,ij->i', self.ints.activeOEI, self.oneRDM_loc)
         E1_loc += 0.5 * np.einsum ('ij,ij->j', self.ints.activeOEI, self.oneRDM_loc)
-        E1 = np.sum (E1_loc[self.frag_orb_list])
+        E1 = np.sum (np.dot (E1_loc, self.loc2frag))
         if self.debug_energy:
             print ("get_E_frag {0} :: E1 = {1:.5f}".format (self.frag_name, E1))
 
-        JK_loc  = self.ints.loc_rhf_jk_bis (0.5 * self.oneRDM_loc)
-        E2_loc  = 0.5 * np.einsum ('ij,ij->i', JK_loc, self.oneRDM_loc)
-        E2_loc += 0.5 * np.einsum ('ij,ij->j', JK_loc, self.oneRDM_loc)
-        E1_JK = np.sum (E2_loc[self.frag_orb_list])
+        JK_loc     = self.ints.loc_rhf_jk_bis (0.5 * self.oneRDM_loc)
+        E1_JK_loc  = 0.5 * np.einsum ('ij,ij->i', JK_loc, self.oneRDM_loc)
+        E1_JK_loc += 0.5 * np.einsum ('ij,ij->j', JK_loc, self.oneRDM_loc)
+        E1_JK = np.sum (np.dot (E1_JK_loc, self.loc2frag))
         if self.debug_energy:
             print ("get_E_frag {0} :: E_JK_frag = {1:.5f}".format (self.frag_name, E1_JK))
 
@@ -472,7 +482,7 @@ class fragment_object:
 
     def get_oneRDM_frag (self):
         self.warn_check_imp_solve ("oneRDM_frag")
-        return self.oneRDM_loc [np.ix_(self.frag_orb_list, self.frag_orb_list)]
+        return represent_operator_in_basis (self.oneRDM_loc, self.loc2frag)
 
     def get_oneRDM_imp (self):
         self.warn_check_imp_solve ("oneRDM_imp")

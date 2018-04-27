@@ -34,7 +34,7 @@ class dmet:
 
     def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
                     doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', minFunc='FOCK_INIT', wma_options=False, print_u=True,
-                    print_rdm=True, ofc_embedding=False, debug_energy=False):
+                    print_rdm=True, ofc_embedding=False, debug_energy=False, noselfconsistent=False):
 
         if isTranslationInvariant:
             raise RuntimeError ("The translational invariance option doesn't work!  It needs to be completely rebuilt!")
@@ -62,6 +62,9 @@ class dmet:
         self.altcostfunc      = False if self.doDET else use_constrained_opt
         self.ofc_embedding    = ofc_embedding
         self.debug_energy     = debug_energy
+        self.noselfconsistent = noselfconsistent
+        if self.noselfconsistent:
+            SCmethod = 'NONE'
         for frag in self.fragments:
             frag.debug_energy = debug_energy
         if self.doDET:
@@ -197,13 +200,16 @@ class dmet:
                     jumpsquare += frag.norbs_frag
         return theH1
         
-    def doexact( self, chempot_frag=0.0 ):  
+    def doexact( self, chempot_frag=0.0, redo_Schmidt=True):  
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
         self.energy = 0.0												
 
+        if redo_Schmidt:
+            for frag in self.fragments:
+                frag.do_Schmidt (oneRDM_loc, self.fragments, self.ofc_embedding)
+                frag.construct_impurity_hamiltonian ()
+
         for frag in self.fragments:
-            frag.do_Schmidt (oneRDM_loc, self.fragments, self.ofc_embedding)
-            frag.construct_impurity_hamiltonian ()
             frag.solve_impurity_problem (chempot_frag)
             self.energy += frag.E_frag
 
@@ -268,6 +274,7 @@ class dmet:
                 self.oneRDMallcore_loc = rdm1
 
         self.energy += self.ints.const()
+        print ("Current whole-molecule energy: {0:.6f}".format (self.energy))
         return Nelectrons
         
     def constructloc2fno( self ):
@@ -425,7 +432,7 @@ class dmet:
         
     def numeleccostfunction( self, chempot_imp ):
         
-        Nelec_dmet   = self.doexact( chempot_imp )
+        Nelec_dmet   = self.doexact( chempot_imp , redo_Schmidt=False )
         Nelec_target = self.ints.nelec_tot
         print ("      (chemical potential , number of electrons) = (", chempot_imp, "," , Nelec_dmet ,")")
         return Nelec_dmet - Nelec_target
@@ -447,7 +454,7 @@ class dmet:
         for frag in self.fragments:
             frag.solve_time = 0.0
         print ("RHF energy =", self.ints.fullEhf)
-        
+
         while ( u_diff > convergence_threshold ):
         
             iteration += 1
@@ -463,7 +470,11 @@ class dmet:
                 self.doexact( self.mu_imp )
             else:
                 try:
-                    self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp )
+                    self.doexact (self.mu_imp)
+                    if self.noselfconsistent:
+                        print ("Chemical potential optimization disabled!")
+                    else:
+                        self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp )
                 except RuntimeError:
                     print ("Chemical potential failed to converge!!!! Did I get the chemical potential back?? {0}".format (self.mu_imp))
                 print ("   Chemical potential =", self.mu_imp)
