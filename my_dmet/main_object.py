@@ -69,6 +69,9 @@ class dmet:
             frag.debug_energy = debug_energy
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
+        self.examine_ifrag_olap = False
+        self.examine_wmcs = False
+        self.ofc_emb_init_ncycles = 3
 
         self.acceptable_errvec_check ()
         if self.altcostfunc:
@@ -208,8 +211,10 @@ class dmet:
             for frag in self.fragments:
                 frag.do_Schmidt (oneRDM_loc, self.fragments, self.ofc_embedding)
                 frag.construct_impurity_hamiltonian ()
-            #examine_ifrag_olap (self)
-            #examine_wmcs (self)
+            if self.examine_ifrag_olap:
+                examine_ifrag_olap (self)
+            if self.examine_wmcs:
+                examine_wmcs (self)
 
         for frag in self.fragments:
             frag.solve_impurity_problem (chempot_frag)
@@ -442,9 +447,9 @@ class dmet:
     def doselfconsistent( self ):
     
         if self.ofc_embedding:
-            print ("Setup iterations before optimizing the chemical potential")
+            print ("{0} setup iterations before optimizing the chemical potential".format (self.ofc_emb_init_ncycles))
             print ("----------------------------------------------------------------------------------------------------------------")
-            for i in range(10):
+            for i in range(self.ofc_emb_init_ncycles):
                 self.doexact (0.0)
             for frag in self.fragments:
                 if frag.imp_solver_name == 'CASSCF':
