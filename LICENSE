@@ -1,9 +1,11 @@
-mrh: MRH's personal research code.  Contains a modified version of 
+mrh: MRH's personal research code.
+Copyright (C) 2018 Matthew R Hermes
+Contains a modified version of 
 
 QC-DMET: a python implementation of density matrix embedding theory for ab initio quantum chemistry
 Copyright (C) 2015 Sebastian Wouters
 
-which was forked on 04/01/2018 and continuously modified beginning then.
+which was copied on 04/01/2018 and continuously modified beginning then.
 
 
 
