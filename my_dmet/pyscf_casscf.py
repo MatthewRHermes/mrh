@@ -26,10 +26,13 @@ from . import localintegrals
 import os, time
 import sys
 #import qcdmet_paths
-from pyscf import gto, scf, ao2mo, mcscf
+from pyscf import gto, scf, ao2mo, mcscf, ao2mo
+from pyscf.tools import molden
 #np.set_printoptions(threshold=np.nan)
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
 from mrh.util.rdm import get_2RDMR_from_2RDM
+from mrh.util.tensors import symmetrize_tensor
+from functools import reduce
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
 def solve (frag, guess_1RDM, chempot_imp):
@@ -54,6 +57,13 @@ def solve (frag, guess_1RDM, chempot_imp):
     idx = mf.mo_energy.argsort()
     mf.mo_energy = mf.mo_energy[idx]
     mf.mo_coeff = mf.mo_coeff[:,idx]'''
+
+    # If I haven't yet, print out the MOs so I can pick a good active space
+    if frag.mfmo_printed == False:
+        imp2mo = mf.mo_coeff
+        frag.loc2mo = np.dot (frag.loc2imp, imp2mo)
+        frag.impurity_molden ('init_HF')
+        frag.mfmo_printed = True
 
     # Get the CASSCF solution
     CASe = frag.active_space[0]
@@ -82,8 +92,10 @@ def solve (frag, guess_1RDM, chempot_imp):
     norbs_as = mc.ncas
     norbs_cs = mc.ncore
     nelec_as = mc.nelecas    
-    imp2cs = mc.mo_coeff[:,:norbs_cs]
-    imp2as = mc.mo_coeff[:,norbs_cs:norbs_cs+norbs_as]
+    imp2mo = mc.mo_coeff #mc.cas_natorb()[0]
+    imp2cs = imp2mo[:,:norbs_cs]
+    imp2as = imp2mo[:,norbs_cs:norbs_cs+norbs_as]
+    frag.loc2mo = np.dot (frag.loc2imp, imp2mo)
     frag.loc2as = np.dot (frag.loc2imp, imp2as)
 
     # MC-core oneRDM 
@@ -109,12 +121,12 @@ def solve (frag, guess_1RDM, chempot_imp):
     '''
 
     # General impurity data
-    frag.oneRDM_loc     = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
-    frag.twoRDMRimp_imp = twoRDMRimp_imp
+    frag.oneRDM_loc     = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc))
+    frag.twoRDMRimp_imp = symmetrize_tensor (twoRDMRimp_imp)
     frag.E_imp          = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDMimp_imp)
 
     # Active-space RDM data
-    frag.oneRDMas_loc  = represent_operator_in_basis (oneRDMas_imp, frag.imp2loc)
+    frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDMas_imp, frag.imp2loc))
     frag.twoRDMRimp_as = twoRDMRimp_as
 
     return None

@@ -28,7 +28,7 @@ from scipy import optimize
 import time
 from mrh.util import params
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye
-from .debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap
+from .debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 
 class dmet:
 
@@ -208,7 +208,8 @@ class dmet:
             for frag in self.fragments:
                 frag.do_Schmidt (oneRDM_loc, self.fragments, self.ofc_embedding)
                 frag.construct_impurity_hamiltonian ()
-            examine_ifrag_olap (self)
+            #examine_ifrag_olap (self)
+            #examine_wmcs (self)
 
         for frag in self.fragments:
             frag.solve_impurity_problem (chempot_frag)
@@ -433,7 +434,7 @@ class dmet:
         
     def numeleccostfunction( self, chempot_imp ):
         
-        Nelec_dmet   = self.doexact( chempot_imp , redo_Schmidt=False )
+        Nelec_dmet   = self.doexact (chempot_imp, redo_Schmidt=False)
         Nelec_target = self.ints.nelec_tot
         print ("      (chemical potential , number of electrons) = (", chempot_imp, "," , Nelec_dmet ,")")
         return Nelec_dmet - Nelec_target
@@ -443,8 +444,11 @@ class dmet:
         if self.ofc_embedding:
             print ("Setup iterations before optimizing the chemical potential")
             print ("----------------------------------------------------------------------------------------------------------------")
-            for i in range(3):
+            for i in range(10):
                 self.doexact (0.0)
+            for frag in self.fragments:
+                if frag.imp_solver_name == 'CASSCF':
+                    frag.impurity_molden ('setup')
             print ("Setup iterations complete")
             print ("----------------------------------------------------------------------------------------------------------------")
 
@@ -461,14 +465,14 @@ class dmet:
             iteration += 1
             rdm_old = rdm_new
             print ("DMET iteration", iteration)
-            umat_old = np.array( self.umat, copy=True )
+            umat_old = np.array(self.umat, copy=True)
             
             # Find the chemical potential for the correlated impurity problem
             start_ed = time.time()
             if self.CC_E_TYPE == 'CASCI':
                 assert (len (self.fragments) == 1)
                 self.mu_imp = 0.0
-                self.doexact( self.mu_imp )
+                self.doexact (self.mu_imp)
             else:
                 try:
                     self.doexact (self.mu_imp)
@@ -531,6 +535,9 @@ class dmet:
         print ("Time cf grad =", self.time_grad)
         print ("Time dmet ed =", self.time_ed)
         print ("Time dmet cf =", self.time_cf)
+        for frag in self.fragments:
+            if frag.imp_solver_name == 'CASSCF':
+                frag.impurity_molden ('end')
         if self.debug_energy:
             debug_Etot (self)
         

@@ -23,6 +23,7 @@ from . import localintegrals
 from pyscf import ao2mo, gto, scf
 from pyscf.tools import rhf_newtonraphson
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
+from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, guess_1RDM, chempot_frag=0.0 ):
 def solve (frag, guess_1RDM, chempot_imp):
@@ -46,7 +47,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
     oneRDMimp_imp = mf.make_rdm1()    
 
-    frag.oneRDM_loc     = frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc)
+    frag.oneRDM_loc     = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc))
     frag.twoRDMRimp_imp = np.zeros_like (frag.impham_TEI)
     frag.E_imp          = frag.impham_CONST + mf.e_tot + np.einsum ('ab,ab->', oneRDMimp_imp, chempot_imp)
     

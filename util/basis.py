@@ -216,7 +216,7 @@ def measure_basis_olap (bra_basis, ket_basis):
     svals = get_overlapping_states (bra_basis, ket_basis)[2]
     olap_ndf = len (svals)
     olap_mag = np.sum (svals * svals)
-    return olap_mag, olap_ndf
+    return olap_mag, svals
 
 def orthonormalize_a_basis (overlapping_basis, num_zero_atol=params.num_zero_atol):
     if (is_basis_orthonormal (overlapping_basis)):

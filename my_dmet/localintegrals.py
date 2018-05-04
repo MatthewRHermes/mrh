@@ -21,14 +21,17 @@
 from pyscf import gto, scf, ao2mo, tools, lo
 from pyscf.lo import nao, orth, boys
 from pyscf.tools import molden
+from pyscf.lib import numpy_helper as pyscf_np
 from . import rhf as wm_rhf
 from . import iao_helper
 import numpy as np
 from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
 from mrh.util.basis import represent_operator_in_basis, get_complementary_states 
+from mrh.util.tensors import symmetrize_tensor
 from mrh.util import params
 from math import sqrt
+import itertools
 
 class localintegrals:
 
@@ -253,13 +256,13 @@ class localintegrals:
 
     def dmet_oei( self, loc2dmet, numActive ):
     
-        OEIdmet = np.dot( np.dot( loc2dmet[:,:numActive].T, self.activeOEI ), loc2dmet[:,:numActive] )
-        return OEIdmet
+        OEIdmet  = np.dot( np.dot( loc2dmet[:,:numActive].T, self.activeOEI ), loc2dmet[:,:numActive] )
+        return symmetrize_tensor (OEIdmet)
         
     def dmet_fock( self, loc2dmet, numActive, coreDMloc ):
     
-        FOCKdmet = np.dot( np.dot( loc2dmet[:,:numActive].T, self.loc_rhf_fock_bis( coreDMloc ) ), loc2dmet[:,:numActive] )
-        return FOCKdmet
+        FOCKdmet  = np.dot( np.dot( loc2dmet[:,:numActive].T, self.loc_rhf_fock_bis( coreDMloc ) ), loc2dmet[:,:numActive] )
+        return symmetrize_tensor (FOCKdmet)
         
     def dmet_init_guess_rhf( self, loc2dmet, numActive, numPairs, norbs_frag, chempot_imp ):
     
@@ -271,14 +274,12 @@ class localintegrals:
         DMguess = 2 * np.dot( eigvecs[ :, :numPairs ], eigvecs[ :, :numPairs ].T )
         return DMguess
         
-    def dmet_tei( self, loc2dmet, numAct ):
-    
-        if ( self.ERIinMEM == False ):
-            transfo = np.dot( self.ao2loc, loc2dmet[:,:numAct] )
-            TEIdmet = ao2mo.outcore.full_iofree(self.mol, transfo, compact=False).reshape(numAct, numAct, numAct, numAct)
-        else:
-            TEIdmet = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2dmet[:,:numAct], compact=False).reshape(numAct, numAct, numAct, numAct)
-        return TEIdmet
+    def dmet_tei( self, loc2dmet, numAct=None ):
+
+        numAct = loc2dmet.shape[1] if numAct==None else numAct
+        loc2imp = loc2dmet[:,:numAct]
+        TEI = symmetrize_tensor (self.general_tei ([loc2imp for i in range(4)]))
+        return TEI
 
     def dmet_const (self, loc2dmet, norbs_imp, oneRDMfroz_loc):
         norbs_core = self.norbs_tot - norbs_imp
@@ -292,10 +293,12 @@ class localintegrals:
 
     def general_tei (self, loc2bas_list):
         norbs = [loc2bas.shape[1] for loc2bas in loc2bas_list]
+
         if self.ERIinMEM:
-            TEI = ao2mo.incore.general(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2bas_list, compact=False).reshape(norbs[0], norbs[1], norbs[2], norbs[3])
+            TEI = ao2mo.incore.general(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2bas_list, compact=False).reshape (*norbs)
         else:
-            ao2bas_list = [np.dot (self.ao2loc, loc2bas) for loc2bas in loc2bas_list]
-            TEI = ao2mo.outcore.general_iofree(self.mol, ao2bas_list, compact=False).reshape(norbs[0], norbs[1], norbs[2], norbs[3])
+            a2b_list = [np.dot (self.ao2loc, l2b) for l2b in loc2bas_list]
+            TEI  = ao2mo.outcore.general_iofree(self.mol, a2b_list, compact=False).reshape (*norbs)
+
         return TEI
 
