@@ -10,7 +10,7 @@ import mrh.util
 import numpy as np
 import mrh.my_dmet.pyscf_mp2, mrh.my_dmet.pyscf_rhf
 from mrh.util import params
-from mrh.util.rdm import get_2RDMR_from_2RDM 
+from mrh.util.rdm import get_2CDM_from_2RDM 
 from mrh.util.basis import represent_operator_in_basis
 from pyscf import gto, scf, ao2mo, mp
 from pyscf.tools import rhf_newtonraphson

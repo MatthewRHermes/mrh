@@ -213,7 +213,7 @@ class localintegrals:
 
         self.restore_wm_full_scf ()
         oneRDMcorr_loc = sum ((frag.oneRDMas_loc for frag in fragments))
-        loc2corr = np.concatenate ([frag.loc2as for frag in fragments], axis=1)
+        loc2corr = np.concatenate ([frag.loc2amo for frag in fragments], axis=1)
         loc2idem = get_complementary_states (loc2corr)
 
         # I want to alter the outputs of self.loc_oei (), self.loc_rhf_fock (), and the get_wm_1RDM_etc () functions.

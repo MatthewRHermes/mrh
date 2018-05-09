@@ -27,7 +27,7 @@ def debug_ofc_oneRDM ( dmet_obj ):
         Ptidem_loc - Pidem_loc, np.linalg.norm (Ptidem_loc - Pidem_loc)))
     loc2tcorr = evecs[:,corr_idx]
     l2t = np.asmatrix (loc2tcorr)
-    l2c = np.asmatrix (np.concatenate ([frag.loc2as for frag in dmet_obj.fragments], axis=1))
+    l2c = np.asmatrix (np.concatenate ([frag.loc2amo for frag in dmet_obj.fragments], axis=1))
     t2l = l2t.H
     c2l = l2c.H
     Pcorr_loc  = np.asarray (l2c * c2l)
@@ -43,10 +43,10 @@ def debug_Eimp (dmet_obj, frag):
     OEI = dmet_obj.ints.loc_rhf_fock_bis (0.5 * frag.oneRDM_loc)
     TEI = frag.impham_TEI
     Eimp = (dmet_obj.ints.const () + np.einsum ('ij,ij->', OEI, frag.oneRDM_loc)
-                             + 0.5 * np.einsum ('ijkl,ijkl->', TEI, frag.twoRDMRimp_imp))
-    for loc2tb, twoRDMR in zip (frag.loc2tbc, frag.twoRDMRfroz_tbc):
+                             + 0.5 * np.einsum ('ijkl,ijkl->', TEI, frag.twoCDM_imp))
+    for loc2tb, twoCDM in zip (frag.loc2tbc, frag.twoCDMfroz_tbc):
         V     = dmet_obj.ints.dmet_tei (loc2tb)
-        Eimp += 0.5 * np.einsum ('ijkl,ijkl->', V, twoRDMR)
+        Eimp += 0.5 * np.einsum ('ijkl,ijkl->', V, twoCDM)
 
     print ("debug_Eimp :: fragment {0} impurity energy = {1:.5f}, test energy = {2:.5f}, difference = {3:.5f}".format(
             frag.frag_name, frag.E_imp, Eimp, frag.E_imp - Eimp))
@@ -82,7 +82,7 @@ def debug_Etot (dmet_obj):
         fname    = "{0} + {1} + {2} + {3}".format (f[0].frag_name, f[1].frag_name, f[2].frag_name, f[3].frag_name) 
         loc2frag = [i.loc2frag for i in f]
         TEI      = dmet_obj.ints.general_tei (loc2frag)
-        twoRDM_i = [0.25 * i.get_twoRDMR(*loc2frag) for i in f]
+        twoRDM_i = [0.25 * i.get_twoCDM(*loc2frag) for i in f]
         E2_i     = [0.5 * np.einsum ('ijkl,ijkl->', TEI, twoRDM) for twoRDM in twoRDM_i]
         E2      += sum(E2_i)
         print ("debug_Etot :: fragments {0} E2 = {1}".format (fname, sum(E2_i)))
@@ -162,7 +162,7 @@ def compare_basis_to_loc (loc2bas, frags, nlead=3, quiet=False):
 
 
 def examine_wmcs (dmet_obj):
-    loc2wmas = np.concatenate ([f.loc2as for f in dmet_obj.fragments], axis=1)
+    loc2wmas = np.concatenate ([f.loc2amo for f in dmet_obj.fragments], axis=1)
     loc2wmcs = get_complementary_states (loc2wmas)
 
     print ("Examining whole-molecule active space:")

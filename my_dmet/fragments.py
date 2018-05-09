@@ -8,7 +8,7 @@ from pyscf.tools import molden
 from . import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper
 from mrh.util import params
 from mrh.util.basis import *
-from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2RDMR, get_2RDMR_from_2RDM
+from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2CDM, get_2CDM_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.my_math import is_close_to_integer
 from functools import reduce
@@ -84,7 +84,7 @@ class fragment_object:
         # self.loc2emb is always defined to have the norbs_frag fragment states, the norbs_bath bath states, and the norbs_core core states in that order
         self.restore_default_embedding_basis ()
         self.oneRDMfroz_loc  = None
-        self.twoRDMRfroz_tbc = []
+        self.twoCDMfroz_tbc = []
         self.loc2tbc         = []
         
         # Impurity Hamiltonian
@@ -98,15 +98,15 @@ class fragment_object:
         self.E_frag = 0.0
         self.E_imp  = 0.0
         self.oneRDM_loc     = None
-        self.twoRDMRimp_imp = None
+        self.twoCDM_imp = None
         self.loc2mo         = np.zeros((self.norbs_tot,0))
         self.loc2fno        = np.zeros((self.norbs_tot,0))
         self.fno_evals      = None
 
         # Outputs of CAS calculations use to fix CAS-DMET
-        self.loc2as        = np.zeros((self.norbs_tot,0))
+        self.loc2amo       = np.zeros((self.norbs_tot,0))
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
-        self.twoRDMRimp_as = np.zeros((0,0,0,0))
+        self.twoCDMimp_amo = np.zeros((0,0,0,0))
         self.mfmo_printed  = False
 
         # Initialize some runtime warning bools
@@ -159,8 +159,8 @@ class fragment_object:
         return self.loc2frag.conjugate ().T
 
     @property
-    def as2loc (self):
-        return self.loc2as.conjugate ().T
+    def amo2loc (self):
+        return self.loc2amo.conjugate ().T
 
     @property
     def emb2loc (self):
@@ -183,12 +183,12 @@ class fragment_object:
         return np.dot (self.frag2loc, self.loc2imp)
 
     @property
-    def as2imp (self):
-        return np.dot (self.as2loc, self.loc2imp)
+    def amo2imp (self):
+        return np.dot (self.amo2loc, self.loc2imp)
 
     @property
-    def imp2as (self):
-        return np.dot (self.imp2loc, self.loc2as)
+    def imp2amo (self):
+        return np.dot (self.imp2loc, self.loc2amo)
 
     @property
     def is_frag_orb (self):
@@ -220,7 +220,7 @@ class fragment_object:
 
     @property
     def norbs_as (self):
-        return self.loc2as.shape[1]
+        return self.loc2amo.shape[1]
 
     @property
     def nelec_as (self):
@@ -253,11 +253,11 @@ class fragment_object:
             return self.loc2tbc
 
     @property
-    def twoRDMR_all (self):
+    def twoCDM_all (self):
         if self.imp_solver_name != 'RHF':
-            return [self.twoRDMRimp_imp] + self.twoRDMRfroz_tbc
+            return [self.twoCDM_imp] + self.twoCDMfroz_tbc
         else:
-            return self.twoRDMRfroz_tbc
+            return self.twoCDMfroz_tbc
     ############################################################################################################################
 
 
@@ -270,7 +270,7 @@ class fragment_object:
         self.norbs_imp       = self.norbs_frag
         self.loc2emb         = np.eye (self.norbs_tot)[:,idx]
         self.E2_frag_core    = 0
-        self.twoRDMRfroz_tbc = []
+        self.twoCDMfroz_tbc = []
         self.loc2tbc         = []
 
     def do_Schmidt (self, oneRDM_loc, all_frags, do_ofc_embedding):
@@ -296,7 +296,7 @@ class fragment_object:
         other_frags = [frag for frag in all_frags if (frag is not self) and (frag.norbs_as > 0)]
 
         # (Re)build the whole-molecule active and core spaces
-        loc2wmas = np.concatenate ([frag.loc2as for frag in all_frags], axis=1)
+        loc2wmas = np.concatenate ([frag.loc2amo for frag in all_frags], axis=1)
         loc2wmcs = get_complementary_states (loc2wmas)
 
         # Starting with Schmidt decomposition in the idempotent subspace
@@ -315,14 +315,14 @@ class fragment_object:
         print ("Adding {0} this-fragment active-space orbitals and {1} this-fragment active-space electrons to the impurity".format (self.norbs_as, self.nelec_as))
         self.nelec_imp = nelec_iimp + self.nelec_as
         self.norbs_imp = norbs_iimp + self.norbs_as
-        loc2imp        = np.append (self.loc2as, loc2iimp, axis=1)
+        loc2imp        = np.append (self.loc2amo, loc2iimp, axis=1)
         assert (is_basis_orthonormal (loc2imp))
         self.loc2emb   = get_complete_basis (loc2imp)
 
         # Add other-fragment active-space RDMs to core RDMs
         self.oneRDMfroz_loc += sum([ofrag.oneRDMas_loc for ofrag in other_frags])
-        self.twoRDMRfroz_tbc = [np.copy (ofrag.twoRDMRimp_as) for ofrag in other_frags]
-        self.loc2tbc         = [np.copy (ofrag.loc2as) for ofrag in other_frags]
+        self.twoCDMfroz_tbc  = [np.copy (ofrag.twoCDMimp_amo) for ofrag in other_frags]
+        self.loc2tbc         = [np.copy (ofrag.loc2amo) for ofrag in other_frags]
 
         nelec_bleed = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
         assert (nelec_bleed < params.num_zero_atol), "Core electrons on the impurity! Overlapping active states?"
@@ -343,25 +343,25 @@ class fragment_object:
         self.impham_OEI = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
         self.impham_TEI = self.ints.dmet_tei (self.loc2emb, self.norbs_imp) 
 
-        # Constant contribution to energy from core 2RDMRs
+        # Constant contribution to energy from core 2CDMs
         self.impham_CONST = self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc) + self.ints.const () + xtra_CONST
         self.E2_frag_core = 0
-        for loc2tb, twoRDMR in zip (self.loc2tbc, self.twoRDMRfroz_tbc):
+        for loc2tb, twoCDM in zip (self.loc2tbc, self.twoCDMfroz_tbc):
             # Impurity energy
             V     = self.ints.dmet_tei (loc2tb)
-            L     = twoRDMR
+            L     = twoCDM
             Eimp  = 0.5 * np.tensordot (V, L, axes=4)
             # Fragment energy
             f     = self.loc2frag
             c     = loc2tb
             V     = self.ints.general_tei ([f, c, c, c])
-            L     = reduce (lambda x,y: np.tensordot (x, y, axes=1), [self.frag2loc, loc2tb, twoRDMR])
+            L     = reduce (lambda x,y: np.tensordot (x, y, axes=1), [self.frag2loc, loc2tb, twoCDM])
             Efrag = 0.5 * np.tensordot (V, L, axes=4)
             #
             self.impham_CONST += Eimp
             self.E2_frag_core += Efrag
             if self.debug_energy:
-                print ("construct_impurity_hamiltonian {0}: Eimp = {1:.5f}, Efrag = {2:.5f} from this 2RDMR".format (
+                print ("construct_impurity_hamiltonian {0}: Eimp = {1:.5f}, Efrag = {2:.5f} from this 2CDM".format (
                     self.frag_name, float (Eimp), float (Efrag)))
 
         # Fragment energy TEI - just to be completely sure!
@@ -437,7 +437,7 @@ class fragment_object:
             print ("get_E_frag {0} :: E1 = {1:.5f}".format (self.frag_name, float (E1)))
 
         V_fiii = self.impham_TEI_fiii
-        L_fiii = np.tensordot (self.frag2imp, self.twoRDMRimp_imp, axes=1)
+        L_fiii = np.tensordot (self.frag2imp, self.twoCDM_imp, axes=1)
         E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
         if self.debug_energy:
             print ("get_E_frag {0} :: E2 = {1:.5f}".format (self.frag_name, float (E2)))
@@ -455,17 +455,17 @@ class fragment_object:
         oneRDM_rq = represent_operator_in_basis (self.oneRDM_loc, bases[2], bases[1])
         twoRDM  =       np.einsum ('pq,rs->pqrs', oneRDM_pq, oneRDM_rs)
         twoRDM -= 0.5 * np.einsum ('ps,rq->pqrs', oneRDM_ps, oneRDM_rq)
-        return twoRDM + self.get_twoRDMR (*bases)
+        return twoRDM + self.get_twoCDM (*bases)
 
-    def get_twoRDMR (self, *bases):
+    def get_twoCDM (self, *bases):
         bases = bases if len (bases) == 4 else (basis[0] for i in range[4])
         bra1_basis, ket1_basis, bra2_basis, ket2_basis = bases
-        twoRDMR = np.zeros (tuple(basis.shape[1] for basis in bases))
-        for loc2tb, twoRDMR_tb in zip (self.loc2tb_all, self.twoRDMR_all):
+        twoCDM = np.zeros (tuple(basis.shape[1] for basis in bases))
+        for loc2tb, twoCDM_tb in zip (self.loc2tb_all, self.twoCDM_all):
             tb2loc = np.conj (loc2tb.T)
             tb2bs = (np.dot (tb2loc, basis) for basis in bases)
-            twoRDMR += represent_operator_in_basis (twoRDMR_tb, *tb2bs)
-        return twoRDMR
+            twoCDM += represent_operator_in_basis (twoCDM_tb, *tb2bs)
+        return twoCDM
 
     def get_oneRDM_frag (self):
         self.warn_check_imp_solve ("oneRDM_frag")

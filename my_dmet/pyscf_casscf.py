@@ -1,15 +1,15 @@
 '''
 pyscf-CASSCF SOLVER for DMET
 
-To use this solver, one need to modify the dmet module to recognize the pyscf_asscf.
+To use this solver, one need to modify the dmet module to recognize the pyscf_amoscf.
 Specifically:
 line 33: assert (( method == 'ED' ) or ( method == 'CC' ) or ( method == 'MP2' ) or ( method == 'CASSCF' ))
 line 257-261:
 elif ( self.method == 'CASSCF' ):
-    import pyscf_asscf
+    import pyscf_amoscf
     assert( Nelec_in_imp % 2 == 0 )
     guess_1RDM = self.ints.dmet_init_guess_rhf( loc2dmet, Norb_in_imp, Nelec_in_imp//2, numImpOrbs, chempot_frag )
-    IMP_energy, IMP_1RDM = pyscf_asscf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, guess_1RDM, chempot_frag )
+    IMP_energy, IMP_1RDM = pyscf_amoscf.solve( 0.0, dmetOEI, dmetFOCK, dmetTEI, Norb_in_imp, Nelec_in_imp, numImpOrbs, guess_1RDM, chempot_frag )
 
 History: 
 
@@ -30,7 +30,7 @@ from pyscf import gto, scf, ao2mo, mcscf, ao2mo
 from pyscf.tools import molden
 #np.set_printoptions(threshold=np.nan)
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
-from mrh.util.rdm import get_2RDMR_from_2RDM
+from mrh.util.rdm import get_2CDM_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
 from functools import reduce
 
@@ -89,45 +89,29 @@ def solve (frag, guess_1RDM, chempot_imp):
     
     # Get twoRDM + oneRDM. cs: MC-SCF core, as: MC-SCF active space
     # I'm going to need to keep some representation of the active-space orbitals
-    norbs_as = mc.ncas
-    norbs_cs = mc.ncore
-    nelec_as = mc.nelecas    
+    norbs_amo = mc.ncas
+    norbs_cmo = mc.ncore
+    nelec_amo = mc.nelecas    
     imp2mo = mc.mo_coeff #mc.cas_natorb()[0]
-    imp2cs = imp2mo[:,:norbs_cs]
-    imp2as = imp2mo[:,norbs_cs:norbs_cs+norbs_as]
     frag.loc2mo = np.dot (frag.loc2imp, imp2mo)
-    frag.loc2as = np.dot (frag.loc2imp, imp2as)
+    frag.loc2amo = np.copy (frag.loc2mo[:,norbs_cmo:norbs_cmo+norbs_amo])
 
-    # MC-core oneRDM 
-    oneRDMcs_imp = project_operator_into_subspace (2.0 * np.eye (frag.norbs_imp), imp2cs) 
+    # oneRDM
+    oneRDM_imp = mc.make_rdm1 ()
 
-    # MC-active oneRDM 
-    oneRDMas_as    = mc.fcisolver.make_rdm1(mc.ci, norbs_as, nelec_as)
-    oneRDMas_imp   = represent_operator_in_basis (oneRDMas_as, frag.as2imp)
-    oneRDMimp_imp  = oneRDMcs_imp + oneRDMas_imp
-
-    # MC-active twoRDMR
-    twoRDMimp_as   = mc.fcisolver.make_rdm2 (mc.ci, norbs_as, nelec_as)
-    twoRDMRimp_as  = get_2RDMR_from_2RDM (mc.fcisolver.make_rdm2 (mc.ci, norbs_as, nelec_as), oneRDMas_as)
-    twoRDMRimp_imp = represent_operator_in_basis (twoRDMRimp_as, frag.as2imp)
-    '''
-    twoRDMRimp_as  = mc.fcisolver.make_rdm2(mc.ci,norbs_as,nelec_as) #in CAS space
-    twoRDMRimp_as -=     np.einsum ('pq,rs->pqrs', oneRDMas_as, oneRDMas_as)
-    twoRDMRimp_as += 0.5*np.einsum ('ps,rq->pqrs', oneRDMas_as, oneRDMas_as)
-    twoRDMRimp_imp = np.einsum('ap,pqrs->aqrs', imp2as, twoRDMRimp_as)
-    twoRDMRimp_imp = np.einsum('bq,aqrs->abrs', imp2as, twoRDMRimp_imp)
-    twoRDMRimp_imp = np.einsum('cr,abrs->abcs', imp2as, twoRDMRimp_imp)
-    twoRDMRimp_imp = np.einsum('ds,abcs->abcd', imp2as, twoRDMRimp_imp)    
-    '''
+    # twoCDM
+    oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, norbs_amo, nelec_amo)
+    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
+    twoCDM_imp = represent_operator_in_basis (twoCDM_amo, frag.amo2imp)
 
     # General impurity data
-    frag.oneRDM_loc     = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc))
-    frag.twoRDMRimp_imp = symmetrize_tensor (twoRDMRimp_imp)
-    frag.E_imp          = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDMimp_imp)
+    frag.oneRDM_loc    = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
+    frag.twoCDM_imp = symmetrize_tensor (twoCDM_imp)
+    frag.E_imp         = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
 
     # Active-space RDM data
-    frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDMas_imp, frag.imp2loc))
-    frag.twoRDMRimp_as = twoRDMRimp_as
+    frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, frag.amo2loc))
+    frag.twoCDMimp_amo = twoCDM_amo
 
     return None
 

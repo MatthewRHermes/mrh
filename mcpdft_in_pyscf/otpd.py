@@ -1,5 +1,5 @@
 import numpy as np
-from mrh.util.rdm import get_2RDMR_from_2RDM
+from mrh.util.rdm import get_2CDM_from_2RDM
 from pyscf.dft.numint import eval_rho, eval_ao 
 
 deriv_dict = {'LDA': 0,
@@ -41,7 +41,7 @@ def get_ontop_pair_density (mc, ks, rho=None, ao=None):
 `   ao2amo = mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
     grid2amo = np.dot (grid2ao, ao2amo)
     oneCDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 ()
-    twoCDM_amo = get_2RDMR_from_2RDM (twoRDM_amo, oneCDM_amo)
+    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneCDM_amo)
     Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2ao, grid2ao, grid2ao, grid2ao)
 
     return Pi

@@ -21,7 +21,7 @@ import numpy as np
 from pyscf import gto, scf, ao2mo, mp
 from pyscf.tools import rhf_newtonraphson
 from mrh.util.basis import represent_operator_in_basis
-from mrh.util.rdm import get_2RDMR_from_2RDM
+from mrh.util.rdm import get_2CDM_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, Norb, Nel, Nimp, DMguessRHF, chempot_imp=0.0, printoutput=True ):
@@ -53,11 +53,11 @@ def solve (frag, guess_1RDM, chempot_imp):
     oneRDMimp_imp  = mf.make_rdm1()
     twoRDMimp_mo   = mp2.make_rdm2()
     twoRDMimp_imp  = represent_operator_in_basis (twoRDMimp_mo, mo2imp)
-    twoRDMRimp_imp = get_2RDMR_from_2RDM (twoRDMimp_imp, oneRDMimp_imp)
+    twoCDM_imp = get_2CDM_from_2RDM (twoRDMimp_imp, oneRDMimp_imp)
 
     # General impurity data
     frag.oneRDM_loc     = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc))
-    frag.twoRDMRimp_imp = symmetrize_tensor (twoRDMRimp_imp)
+    frag.twoCDM_imp = symmetrize_tensor (twoCDM_imp)
     frag.E_imp          = frag.impham_CONST + mp2.e_tot + np.einsum ('ab,ab->', oneRDMimp_imp, chempot_imp)
 
     return None
