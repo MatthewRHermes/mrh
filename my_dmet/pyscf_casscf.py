@@ -29,7 +29,7 @@ import sys
 from pyscf import gto, scf, ao2mo, mcscf, ao2mo
 from pyscf.tools import molden
 #np.set_printoptions(threshold=np.nan)
-from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
+from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, orthonormalize_a_basis, get_complete_basis
 from mrh.util.rdm import get_2CDM_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
 from functools import reduce
@@ -64,7 +64,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         frag.loc2mo = np.dot (frag.loc2imp, imp2mo)
         frag.impurity_molden ('init_HF')
         frag.mfmo_printed = True
-
+        
     # Get the CASSCF solution
     CASe = frag.active_space[0]
     CASorb = frag.active_space[1]    
@@ -74,18 +74,23 @@ def solve (frag, guess_1RDM, chempot_imp):
         CASorb = frag.norbs_imp
     mc = mcscf.CASSCF(mf, CASorb, CASe)    
     #mc.natorb = True
-    if np.prod (frag.active_orb_list.shape) > 0: 
+
+    # Guess orbitals
+    if frag.norbs_as > 0:
+        print ("Projecting stored active-space mos (frag.loc2amo) onto the impurity basis")
+        imp2mo = orthonormalize_a_basis (frag.imp2amo)
+        assert (imp2mo.shape[1] == CASorb)
+        imp2mo = get_complete_basis (imp2mo)
+        imp2mo = mc.sort_mo (list(range(frag.norbs_as)), mo_coeff=imp2mo, base=0)
+        assert (imp2mo.shape == (frag.norbs_imp, frag.norbs_imp))
+    elif np.prod (frag.active_orb_list.shape) > 0: 
         print('Impurity active space selection:', frag.active_orb_list)
-        mo = mc.sort_mo(frag.active_orb_list)
-        E_CASSCF = mc.kernel(mo)[0]
+        imp2mo = mc.sort_mo(frag.active_orb_list)
     else:
-        E_CASSCF = mc.kernel()[0]
-    #print('Dimension:', MO.shape[0] )    
-    #print('Impurity active space: ', CASe, 'electrons in ', CASorb, ' orbitals')    
+        imp2mo = mc.mo_coeff 
+    E_CASSCF = mc.kernel(imp2mo)[0]
+    E_CASSCF = mc.kernel()[0] # Because the convergence checker is sometimes bad
     print('Impurity CASSCF energy (incl chempot): ', frag.impham_CONST + E_CASSCF)    
-    #print('CASSCF orbital:', mc.mo_energy)    
-    #print('NATURAL ORBITAL:')    
-    #mc.analyze()
     
     # Get twoRDM + oneRDM. cs: MC-SCF core, as: MC-SCF active space
     # I'm going to need to keep some representation of the active-space orbitals
@@ -105,9 +110,9 @@ def solve (frag, guess_1RDM, chempot_imp):
     twoCDM_imp = represent_operator_in_basis (twoCDM_amo, frag.amo2imp)
 
     # General impurity data
-    frag.oneRDM_loc    = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
+    frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
     frag.twoCDM_imp = symmetrize_tensor (twoCDM_imp)
-    frag.E_imp         = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
+    frag.E_imp      = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
 
     # Active-space RDM data
     frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, frag.amo2loc))

@@ -83,9 +83,9 @@ class fragment_object:
         # Set up the main basis functions. Before any Schmidt decomposition all environment states are treated as "core"
         # self.loc2emb is always defined to have the norbs_frag fragment states, the norbs_bath bath states, and the norbs_core core states in that order
         self.restore_default_embedding_basis ()
-        self.oneRDMfroz_loc  = None
+        self.oneRDMfroz_loc = None
         self.twoCDMfroz_tbc = []
-        self.loc2tbc         = []
+        self.loc2tbc        = []
         
         # Impurity Hamiltonian
         self.Ecore_frag   = 0.0  # In case this exists
@@ -97,11 +97,11 @@ class fragment_object:
         # Basic outputs of solving the impurity problem
         self.E_frag = 0.0
         self.E_imp  = 0.0
-        self.oneRDM_loc     = None
+        self.oneRDM_loc = None
         self.twoCDM_imp = None
-        self.loc2mo         = np.zeros((self.norbs_tot,0))
-        self.loc2fno        = np.zeros((self.norbs_tot,0))
-        self.fno_evals      = None
+        self.loc2mo     = np.zeros((self.norbs_tot,0))
+        self.loc2fno    = np.zeros((self.norbs_tot,0))
+        self.fno_evals  = None
 
         # Outputs of CAS calculations use to fix CAS-DMET
         self.loc2amo       = np.zeros((self.norbs_tot,0))
@@ -175,6 +175,10 @@ class fragment_object:
         return self.loc2core.conjugate ().T
 
     @property
+    def mo2loc (self):
+        return self.loc2mo.conjugate ().T
+
+    @property
     def imp2frag (self):
         return np.dot (self.imp2loc, self.loc2frag)
 
@@ -189,6 +193,14 @@ class fragment_object:
     @property
     def imp2amo (self):
         return np.dot (self.imp2loc, self.loc2amo)
+
+    @property
+    def mo2imp (self):
+        return np.dot (self.mo2loc, self.loc2imp)
+
+    @property
+    def imp2mo (self):
+        return np.dot (self.imp2loc, self.loc2mo)
 
     @property
     def is_frag_orb (self):
