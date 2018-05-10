@@ -50,6 +50,20 @@ def are_bases_orthogonal (bra_basis, ket_basis):
 
 
 
+def enforce_maxel_positive (the_basis):
+    '''Multiply coefficients for states with negative largest coefficient by -1'''
+    idx0 = np.asarray (np.abs (the_basis)).argmax (axis=0)
+    idx1 = list(range(the_basis.shape[1]))
+    cols = np.where (np.asarray (the_basis)[idx0,idx1]<0)[0]
+    the_basis[:,cols] *= -1
+    return the_basis
+
+def sort_states_by_diag_maxabs (the_basis):
+    '''Sort states so that the coefficients in each with the maximum absolute value are on the diagonal'''
+    cols = np.asarray (np.abs (the_basis)).argmax (axis=0).argsort ()
+    the_basis = the_basis[:,cols]
+    return the_basis
+
 def basis_olap (bra_basis, ket_basis):
     c2p = np.asmatrix (bra_basis)
     c2q = np.asmatrix (ket_basis)
@@ -158,15 +172,15 @@ compute_nelec_in_subspace = compute_operator_trace_in_subset
 
 
 
-def get_overlapping_states (bra_basis, ket_basis, across_operator = None, nrvecs=0, nlvecs=0, num_zero_atol=params.num_zero_atol):
+def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol):
     c2p = np.asmatrix (bra_basis)
     c2q = np.asmatrix (ket_basis)
-    cOc = np.asmatrix (across_operator) if np.any (across_operator) else 1
+    cOc = 1 if across_operator is None else np.asmatrix (across_operator)
     assert (c2p.shape[0] == c2q.shape[0]), "you need to give the two spaces in the same basis"
     assert (c2p.shape[1] <= c2p.shape[0]), "you need to give the first state in a complete basis (c2p). Did you accidentally transpose it?"
     assert (c2q.shape[1] <= c2q.shape[0]), "you need to give the second state in a complete basis (c2q). Did you accidentally transpose it?"
-    assert (nlvecs <= c2p.shape[1]), "you can't ask for more left states than are in your left space"
-    assert (nrvecs <= c2q.shape[1]), "you can't ask for more right states than are in your right space"
+    assert (max_nlvecs <= c2p.shape[1]), "you can't ask for more left states than are in your left space"
+    assert (max_nrvecs <= c2q.shape[1]), "you can't ask for more right states than are in your right space"
     if np.any (across_operator):
         assert (c2p.shape[0] == cOc.shape[0] and c2p.shape[0] == cOc.shape[1]), "when specifying an across_operator, it's dimensions need to be the same as the external basis"
 
@@ -190,22 +204,21 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator = None, nrvecs
     c2l = c2p * p2l
     c2r = c2q * q2r
 
-    # get_top_nvecs = 0 means get all nvecs (or nonzero nvecs if omit_id_zero_svals, which I took care of above)
-    def getbasis_from_olap_trunc_ (c2b, c2b_len):
-        if c2b_len < 1:
-            c2b_len = len (svals)
+    # Truncate the basis if requested
+    max_nlvecs = max_nlvecs or len (svals)
+    max_nrvecs = max_nrvecs or len (svals)
 
-        # Print a note if you asked for more states than are left at this point
-        if (c2b_len > len (svals)):
-            head_str = "get_overlapping_states :: note : "
-            note_1 = "{0} states projected into overlap space requested, but only {1} such pairs found ; ".format (c2b_len, len (svals))
-            note_2 = "returning only {0} states to caller".format (len (svals))
-            print (head_str + note_1 + note_2)
-            c2b_len = len (svals)
-        return c2b[:,:c2b_len]
-
-    c2r = getbasis_from_olap_trunc_ (c2r, nrvecs)
-    c2l = getbasis_from_olap_trunc_ (c2l, nlvecs)
+    # But you can't truncate it smaller than it already is
+    notes = (side for side in [(max_nlvecs, 'left'), (max_nrvecs, 'right')] if side[0] > len (svals))
+    for requested, side in notes:
+        head_str = "get_overlapping_states :: note : "
+        note_1 = "{0} states projected into overlap space requested on the {1} side, but only {2} such pairs found ; ".format (requested, side, len (svals))
+        note_2 = "returning only {0} states to caller".format (len (svals))
+        print (head_str + note_1 + note_2)
+    max_nlvecs = min (max_nrvecs, len (svals))
+    max_nrvecs = min (max_nlvecs, len (svals))
+    c2r = c2r[:,:max_nrvecs]
+    c2l = c2l[:,:max_nlvecs]
 
     c2l, c2r, svals = (np.asarray (output) for output in (c2l, c2r, svals))
     return c2l, c2r, svals
@@ -221,7 +234,7 @@ def measure_basis_olap (bra_basis, ket_basis):
 def orthonormalize_a_basis (overlapping_basis, num_zero_atol=params.num_zero_atol):
     if (is_basis_orthonormal (overlapping_basis)):
         return overlapping_basis
-    c2b = np.asmatrix (incomplete_basis)
+    c2b = np.asmatrix (overlapping_basis)
     b2c = c2b.H
     bOb = b2c * c2b
     assert (not is_matrix_zero (bOb)), "overlap matrix is zero! problem with basis?"
@@ -262,7 +275,7 @@ def get_complementary_states (incomplete_basis, in_subspace = None, already_comp
     nstates_b = c2b.shape[1]
     nstates_c = c2b.shape[0]
 
-    c2s = np.asmatrix (in_subspace or np.eye (c2b.shape[0], dtype=c2b.dtype))
+    c2s = np.asmatrix (np.eye (c2b.shape[0], dtype=c2b.dtype)) if in_subspace is None else np.asmatrix (in_subspace)
     s2c = c2s.H
     cSc = c2s * s2c
 

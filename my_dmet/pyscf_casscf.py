@@ -29,7 +29,8 @@ import sys
 from pyscf import gto, scf, ao2mo, mcscf, ao2mo
 from pyscf.tools import molden
 #np.set_printoptions(threshold=np.nan)
-from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, orthonormalize_a_basis, get_complete_basis
+from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, orthonormalize_a_basis, get_complete_basis, get_complementary_states
+from mrh.util.basis import is_basis_orthonormal, get_overlapping_states, is_basis_orthonormal_and_complete
 from mrh.util.rdm import get_2CDM_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
 from functools import reduce
@@ -77,20 +78,18 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Guess orbitals
     if frag.norbs_as > 0:
-        print ("Projecting stored active-space mos (frag.loc2amo) onto the impurity basis")
-        imp2mo = orthonormalize_a_basis (frag.imp2amo)
-        assert (imp2mo.shape[1] == CASorb)
-        imp2mo = get_complete_basis (imp2mo)
-        imp2mo = mc.sort_mo (list(range(frag.norbs_as)), mo_coeff=imp2mo, base=0)
-        assert (imp2mo.shape == (frag.norbs_imp, frag.norbs_imp))
+        print ("Projecting stored mos (frag.loc2mo) onto the impurity basis")
+        imp2mo = mcscf.addons.project_init_guess (mc, np.dot (frag.imp2loc, frag.loc2mo))
     elif np.prod (frag.active_orb_list.shape) > 0: 
         print('Impurity active space selection:', frag.active_orb_list)
         imp2mo = mc.sort_mo(frag.active_orb_list)
     else:
         imp2mo = mc.mo_coeff 
+    t_start = time.time()
     E_CASSCF = mc.kernel(imp2mo)[0]
     E_CASSCF = mc.kernel()[0] # Because the convergence checker is sometimes bad
-    print('Impurity CASSCF energy (incl chempot): ', frag.impham_CONST + E_CASSCF)    
+    t_end = time.time()
+    print('Impurity CASSCF energy (incl chempot): {0}; time to solve: {1}'.format (frag.impham_CONST + E_CASSCF, t_end - t_start))
     
     # Get twoRDM + oneRDM. cs: MC-SCF core, as: MC-SCF active space
     # I'm going to need to keep some representation of the active-space orbitals
