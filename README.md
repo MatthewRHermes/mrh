@@ -9,4 +9,5 @@ have this somewhere. At some point I'll actually put the source code for that li
 ### DEPENDENCIES:
 - PySCF
 - CheMPS2
+- QC-DMET
 
