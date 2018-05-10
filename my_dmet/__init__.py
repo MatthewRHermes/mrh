@@ -22,5 +22,5 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 '''
 
-from .main_object import dmet
+from mrh.my_dmet.main_object import dmet
 

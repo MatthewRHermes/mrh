@@ -17,7 +17,7 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 '''
 
-from . import localintegrals
+from mrh.my_dmet import localintegrals
 import mrh.my_dmet.rhf
 from mrh.util.rdm import get_1RDM_from_OEI_in_subspace
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace

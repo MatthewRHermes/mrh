@@ -19,7 +19,7 @@
 
 import numpy as np
 #import qcdmet_paths
-from . import localintegrals
+from mrh.my_dmet import localintegrals
 from pyscf import ao2mo, gto, scf
 from pyscf.tools import rhf_newtonraphson
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace

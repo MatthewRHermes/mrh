@@ -1,8 +1,8 @@
 # A collection of useful manipulations of basis sets (i.e., rectangular matrices) and operators (square matrices)
 
 import numpy as np
-from .la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options
-from . import params
+from mrh.util.la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options
+from mrh.util import params
 
 ################    basic queries and assertions for basis-set-related objects    ################
 

@@ -1,10 +1,10 @@
 import numpy as np
 import itertools
 from math import factorial
-from .la import *
-from .basis import *
-from .my_math import is_close_to_integer
-from . import params
+from mrh.util.la import *
+from mrh.util.basis import *
+from mrh.util.my_math import is_close_to_integer
+from mrh.util import params
 
 def get_1RDM_from_OEI (one_electron_hamiltonian, nocc):
     evals, evecs = np.linalg.eigh (one_electron_hamiltonian)

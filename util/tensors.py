@@ -1,8 +1,8 @@
 import numpy as np
 import itertools
-from . import params
-from .la import matrix_eigen_control_options, assert_matrix_square
-from .basis import represent_operator_in_basis, get_complementary_states, get_overlapping_states, get_complete_basis, is_basis_orthonormal, is_basis_orthonormal_and_complete, compute_nelec_in_subspace
+from mrh.util import params
+from mrh.util.la import matrix_eigen_control_options, assert_matrix_square
+from mrh.util.basis import represent_operator_in_basis, get_complementary_states, get_overlapping_states, get_complete_basis, is_basis_orthonormal, is_basis_orthonormal_and_complete, compute_nelec_in_subspace
 from math import factorial
 
 def symmetrize_tensor_conj (tensor):

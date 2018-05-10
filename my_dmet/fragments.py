@@ -5,7 +5,7 @@ import re
 import numpy as np
 from pyscf import gto, scf
 from pyscf.tools import molden
-from . import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper
+from mrh.my_dmet import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper
 from mrh.util import params
 from mrh.util.basis import *
 from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2CDM, get_2CDM_from_2RDM

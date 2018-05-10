@@ -22,8 +22,8 @@ from pyscf import gto, scf, ao2mo, tools, lo
 from pyscf.lo import nao, orth, boys
 from pyscf.tools import molden
 from pyscf.lib import numpy_helper as pyscf_np
-from . import rhf as wm_rhf
-from . import iao_helper
+from mrh.my_dmet import rhf as wm_rhf
+from mrh.my_dmet import iao_helper
 import numpy as np
 from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI

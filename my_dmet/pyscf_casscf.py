@@ -22,7 +22,7 @@ author: Hung Pham (email: phamx494@umn.edu)
 '''
 
 import numpy as np
-from . import localintegrals
+from mrh.my_dmet import localintegrals
 import os, time
 import sys
 #import qcdmet_paths
@@ -80,6 +80,16 @@ def solve (frag, guess_1RDM, chempot_imp):
     if frag.norbs_as > 0:
         print ("Projecting stored mos (frag.loc2mo) onto the impurity basis")
         imp2mo = mcscf.addons.project_init_guess (mc, np.dot (frag.imp2loc, frag.loc2mo))
+        amo2mo = reduce (np.dot, [frag.amo2loc, frag.loc2imp, imp2mo])
+        amo_idxs = np.sort (np.diag (np.dot (amo2mo.conjugate ().T, amo2mo)).argsort()[-CASorb:])
+        ncore = (frag.nelec_imp - CASe) // 2
+        print ("The most probable amos from the projected mos are {0} (standard selection: {1})".format (
+            amo_idxs, np.array (range(ncore,ncore+CASorb))))
+        imp2imo = np.delete (imp2mo, amo_idxs, axis=1)
+        imo_mask = np.delete (np.array (range(imp2mo.shape[1])), amo_idxs, axis=None)
+        omo_idxs = np.sort (imo_mask[np.diag (represent_operator_in_basis (mf.make_rdm1(), imp2imo)).argsort ()[-ncore:]])
+        print ("The most probable cmos from the projected mos are {0}".format (omo_idxs))
+        
     elif np.prod (frag.active_orb_list.shape) > 0: 
         print('Impurity active space selection:', frag.active_orb_list)
         imp2mo = mc.sort_mo(frag.active_orb_list)

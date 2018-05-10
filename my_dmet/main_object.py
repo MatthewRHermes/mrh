@@ -22,13 +22,13 @@
     51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 '''
 
-from . import localintegrals, qcdmethelper
+from mrh.my_dmet import localintegrals, qcdmethelper
 import numpy as np
 from scipy import optimize
 import time
 from mrh.util import params
-from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye
-from .debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
+from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye, measure_basis_olap
+from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 
 class dmet:
 
@@ -97,11 +97,6 @@ class dmet:
         self.energy     = 0.0
         self.mu_imp     = 0.0
         self.helper     = qcdmethelper.qcdmethelper( self.ints, self.makelist_H1(), self.altcostfunc, self.minFunc )
-        
-        self.time_ed  = 0.0
-        self.time_cf  = 0.0
-        self.time_func= 0.0
-        self.time_grad= 0.0
         
         np.set_printoptions(precision=3, linewidth=160)
         
@@ -203,18 +198,9 @@ class dmet:
                     jumpsquare += frag.norbs_frag
         return theH1
         
-    def doexact( self, chempot_frag=0.0, redo_Schmidt=True):  
+    def doexact( self, chempot_frag=0.0):  
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
         self.energy = 0.0												
-
-        if redo_Schmidt:
-            for frag in self.fragments:
-                frag.do_Schmidt (oneRDM_loc, self.fragments, self.ofc_embedding)
-                frag.construct_impurity_hamiltonian ()
-            if self.examine_ifrag_olap:
-                examine_ifrag_olap (self)
-            if self.examine_wmcs:
-                examine_wmcs (self)
 
         for frag in self.fragments:
             frag.solve_impurity_problem (chempot_frag)
@@ -232,7 +218,6 @@ class dmet:
             Nelectrons = Nelectrons * len( self.fragments )
             self.energy = self.energy * len( self.fragments )
 
-        frag_times = [frag.solve_time for frag in self.fragments]
 		
         # When an incomplete impurity tiling is used for the Hamiltonian, self.energy should be augmented with the remaining HF part
         if ( self.norbs_allcore > 0 ):
@@ -338,23 +323,16 @@ class dmet:
 
     def rdm_differences( self, newumatflat ):
     
-        start_func = time.time()
-   
         self.acceptable_errvec_check ()
         newumatsquare_loc = self.flat2square( newumatflat )
 
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, newumatsquare_loc )
         errvec = np.concatenate ([frag.get_errvec (self, oneRDM_loc) for frag in self.fragments])
         
-        stop_func = time.time()
-        self.time_func += ( stop_func - start_func )
-        
         return errvec
 
     def rdm_differences_derivative( self, newumatflat ):
         
-        start_grad = time.time()
-
         self.acceptable_errvec_check ()
         newumatsquare_loc = self.flat2square( newumatflat )
         # RDMderivs_rot appears to be in the natural-orbital basis if doDET_NO is specified and the local basis otherwise
@@ -366,9 +344,6 @@ class dmet:
             errvec = np.concatenate ([frag.get_rsp_1RDM_elements (self, rsp_1RDM) for frag in self.fragments])
             gradient.append( errvec )
         gradient = np.array( gradient ).T
-        
-        stop_grad = time.time()
-        self.time_grad += ( stop_grad - start_grad )
         
         return gradient
         
@@ -439,107 +414,27 @@ class dmet:
         
     def numeleccostfunction( self, chempot_imp ):
         
-        Nelec_dmet   = self.doexact (chempot_imp, redo_Schmidt=False)
+        Nelec_dmet   = self.doexact (chempot_imp)
         Nelec_target = self.ints.nelec_tot
         print ("      (chemical potential , number of electrons) = (", chempot_imp, "," , Nelec_dmet ,")")
         return Nelec_dmet - Nelec_target
 
-    def doselfconsistent( self ):
+    def doselfconsistent (self):
     
-        if self.ofc_embedding:
-            print ("{0} setup iterations before optimizing the chemical potential".format (self.ofc_emb_init_ncycles))
-            print ("----------------------------------------------------------------------------------------------------------------")
-            for i in range(self.ofc_emb_init_ncycles):
-                self.doexact (0.0)
-            for frag in self.fragments:
-                if frag.imp_solver_name == 'CASSCF':
-                    frag.impurity_molden ('setup')
-            print ("Setup iterations complete")
-            print ("----------------------------------------------------------------------------------------------------------------")
-
         iteration = 0
         u_diff = 1.0
         convergence_threshold = 1e-5
-        rdm_new = np.zeros ((self.norbs_tot, self.norbs_tot))
-        for frag in self.fragments:
-            frag.solve_time = 0.0
+        rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
 
-        while ( u_diff > convergence_threshold ):
-        
-            iteration += 1
-            rdm_old = rdm_new
-            print ("DMET iteration", iteration)
-            umat_old = np.array(self.umat, copy=True)
-            
-            # Find the chemical potential for the correlated impurity problem
-            start_ed = time.time()
-            if self.CC_E_TYPE == 'CASCI':
-                assert (len (self.fragments) == 1)
-                self.mu_imp = 0.0
-                self.doexact (self.mu_imp)
-            else:
-                try:
-                    self.doexact (self.mu_imp)
-                    if self.noselfconsistent:
-                        print ("Chemical potential optimization disabled!")
-                    else:
-                        self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp )
-                except RuntimeError:
-                    print ("Chemical potential failed to converge!!!! Did I get the chemical potential back?? {0}".format (self.mu_imp))
-                print ("   Chemical potential =", self.mu_imp)
-            stop_ed = time.time()
-            self.time_ed += ( stop_ed - start_ed )
-            print ("   Energy =", self.energy)
-            # self.verify_gradient( self.square2flat( self.umat ) ) # Only works for self.doSCF == False!!
-            if ( self.SCmethod != 'NONE' and not(self.altcostfunc) ):
-                self.hessian_eigenvalues( self.square2flat( self.umat ) )
-            
-            # Solve for the u-matrix
-            start_cf = time.time()
-            if ( self.altcostfunc and self.SCmethod == 'BFGS' ):
-                result = optimize.minimize( self.alt_costfunction, self.square2flat( self.umat ), jac=self.alt_costfunction_derivative, options={'disp': False} )
-                self.umat = self.flat2square( result.x )
-            elif ( self.SCmethod == 'LSTSQ' ):
-                result = optimize.leastsq( self.rdm_differences, self.square2flat( self.umat ), Dfun=self.rdm_differences_derivative, factor=0.1 )
-                self.umat = self.flat2square( result[ 0 ] )
-            elif ( self.SCmethod == 'BFGS' ):
-                result = optimize.minimize( self.costfunction, self.square2flat( self.umat ), jac=self.costfunction_derivative, options={'disp': False} )
-                self.umat = self.flat2square( result.x )
-            self.umat = self.umat - np.eye( self.umat.shape[ 0 ] ) * np.average( np.diag( self.umat ) ) # Remove arbitrary chemical potential shifts
-            if ( self.altcostfunc ):
-                print ("   Cost function after convergence =", self.alt_costfunction( self.square2flat( self.umat ) ))
-            else:
-                print ("   Cost function after convergence =", self.costfunction( self.square2flat( self.umat ) ))
-            stop_cf = time.time()
-            self.time_cf += ( stop_cf - start_cf )
-            
-            # Possibly print the u-matrix / 1-RDM
-            if self.print_u:
-                self.print_umat()
-            if self.print_rdm:
-                self.print_1rdm()
-            
-            # Get the error measure
-            u_diff   = np.linalg.norm( umat_old - self.umat )
-            rdm_new = self.transform_ed_1rdm ()
-            rdm_diff = np.linalg.norm( rdm_old - rdm_new )
-            self.umat = self.relaxation * umat_old + ( 1.0 - self.relaxation ) * self.umat
-            print ("   2-norm of difference old and new u-mat =", u_diff)
-            print ("   2-norm of difference old and new 1-RDM =", rdm_diff)
-            print ("******************************************************")
-            
-            if ( self.SCmethod == 'NONE' ):
-                u_diff = 0.1 * convergence_threshold # Do only 1 iteration
+        while (u_diff > convergence_threshold):
+            u_diff, rdm = self.doselfconsistent_corrpot (rdm, [('corrpot', iteration)])
+            iteration += 1 
 
         if ( self.CC_E_TYPE == 'CASCI' ):
             assert( len (self.fragments) == 1 )		
             print("-----NOTE: CASCI or Single embedding is used-----")				
             self.energy = self.fragments[0].E_imp
-        print ("Time cf func =", self.time_func)
-        print ("Time cf grad =", self.time_grad)
-        print ("Time dmet ed =", self.time_ed)
-        print ("Time dmet cf =", self.time_cf)
         for frag in self.fragments:
             if frag.imp_solver_name == 'CASSCF':
                 frag.impurity_molden ('end')
@@ -547,6 +442,96 @@ class dmet:
             debug_Etot (self)
         
         return self.energy
+
+    def doselfconsistent_corrpot (self, rdm_old, iters):
+        umat_old = np.array(self.umat, copy=True)
+        
+        # Find the chemical potential for the correlated impurity problem
+        iteration = 0
+        orb_diff = 1.0
+        convergence_threshold = 1e-5
+        while (orb_diff > convergence_threshold):
+            lower_iters = iters + [('orbs', iteration)]
+            orb_diff = self.doselfconsistent_orbs (lower_iters)
+            iteration += 1
+
+        # self.verify_gradient( self.square2flat( self.umat ) ) # Only works for self.doSCF == False!!
+        if ( self.SCmethod != 'NONE' and not(self.altcostfunc) ):
+            self.hessian_eigenvalues( self.square2flat( self.umat ) )
+        
+        # Solve for the u-matrix
+        if ( self.altcostfunc and self.SCmethod == 'BFGS' ):
+            result = optimize.minimize( self.alt_costfunction, self.square2flat( self.umat ), jac=self.alt_costfunction_derivative, options={'disp': False} )
+            self.umat = self.flat2square( result.x )
+        elif ( self.SCmethod == 'LSTSQ' ):
+            result = optimize.leastsq( self.rdm_differences, self.square2flat( self.umat ), Dfun=self.rdm_differences_derivative, factor=0.1 )
+            self.umat = self.flat2square( result[ 0 ] )
+        elif ( self.SCmethod == 'BFGS' ):
+            result = optimize.minimize( self.costfunction, self.square2flat( self.umat ), jac=self.costfunction_derivative, options={'disp': False} )
+            self.umat = self.flat2square( result.x )
+        self.umat = self.umat - np.eye( self.umat.shape[ 0 ] ) * np.average( np.diag( self.umat ) ) # Remove arbitrary chemical potential shifts
+        if ( self.altcostfunc ):
+            print ("   Cost function after convergence =", self.alt_costfunction( self.square2flat( self.umat ) ))
+        else:
+            print ("   Cost function after convergence =", self.costfunction( self.square2flat( self.umat ) ))
+        
+        # Possibly print the u-matrix / 1-RDM
+        if self.print_u:
+            self.print_umat()
+        if self.print_rdm:
+            self.print_1rdm()
+        
+        # Get the error measure
+        u_diff = np.linalg.norm( umat_old - self.umat )
+        rdm_new = self.transform_ed_1rdm ()
+        rdm_diff = np.linalg.norm( rdm_old - rdm_new )
+        self.umat = self.relaxation * umat_old + ( 1.0 - self.relaxation ) * self.umat
+        print ("   2-norm of difference old and new u-mat =", u_diff)
+        print ("   2-norm of difference old and new 1-RDM =", rdm_diff)
+        print ("******************************************************")
+        
+        if ( self.SCmethod == 'NONE' ):
+            u_diff = 0 # Do only 1 iteration
+
+        return u_diff, rdm_new
+
+    def doselfconsistent_orbs (self, iters):
+
+        loc2wmcs_old = get_complementary_states (np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1))
+
+        oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
+        self.energy = 0.0
+        for frag in self.fragments:
+            frag.do_Schmidt (oneRDM_loc, self.fragments, self.ofc_embedding)
+            frag.construct_impurity_hamiltonian ()
+        if self.examine_ifrag_olap:
+            examine_ifrag_olap (self)
+        if self.examine_wmcs:
+            examine_wmcs (self)
+
+        # This is probably where I should put the new fragment definitions
+
+        for itertype, iteridx in iters:
+            print ("{0} iteration {1}".format (itertype, iteridx))
+
+        if self.CC_E_TYPE == 'CASCI' or self.noselfconsistent:
+            self.mu_imp = 0.0
+            self.doexact (self.mu_imp)
+        else:
+            self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp, tol=1e-6 )
+            print ("   Chemical potential =", self.mu_imp)
+        
+        loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+        try:
+            orb_diff = measure_basis_olap (loc2wmas_new, loc2wmcs_old)[0] // loc2wmas_new.shape[1]
+        except:
+            raise RuntimeError("what?\n{0}\n{1}".format(loc2wmas_new.shape,loc2wmcs_old.shape))
+
+        print ("Whole-molecule active-space orbital shift = {0}".format (orb_diff))
+        if self.ofc_embedding == False:
+            orb_diff = 0 # Do only 1 iteration
+
+        return orb_diff 
         
     def print_umat( self ):
     
@@ -571,7 +556,7 @@ class dmet:
         
     def dump_bath_orbs( self, filename, frag_idx=0 ):
         
-        from . import qcdmet_paths
+        from mrh.my_dmet import qcdmet_paths
         from pyscf import tools
         from pyscf.tools import molden
         with open( filename, 'w' ) as thefile:

@@ -1,5 +1,5 @@
 import numpy as np
-from . import params
+from mrh.util import params
 
 # A collection of simple manipulations of matrices that I somehow can't find in numpy
 
