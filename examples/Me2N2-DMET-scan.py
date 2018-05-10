@@ -7,7 +7,7 @@
 #    -> ofc_emb: to use MRH's "other-fragment core embedding" rather than standard DMET
 
 import sys,re
-sys.path.append ('../my_dmet')
+sys.path.append ('../..')
 import localintegrals, dmet, fragments
 from fragments import make_fragment_atom_list, make_fragment_orb_list
 from pyscf import scf

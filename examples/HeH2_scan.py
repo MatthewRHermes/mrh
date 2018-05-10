@@ -8,6 +8,7 @@
 #    -> ofc_emb: to use MRH's "other-fragment core embedding" rather than standard DMET
 
 import sys,re
+sys.path.append ('../..')
 from mrh.my_dmet import localintegrals, dmet
 from mrh.my_dmet.fragments import make_fragment_atom_list, make_fragment_orb_list
 import numpy as np
