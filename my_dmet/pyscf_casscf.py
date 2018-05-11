@@ -52,7 +52,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     mf.get_ovlp = lambda *args: np.eye(frag.norbs_imp)
     mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
     mf.scf(guess_1RDM)
-    print ("CASSCF RHF-step energy: {0}".format (mf.e_tot))
+    print ("CASSCF RHF-step energy: {0}".format (mf.e_tot + frag.impham_CONST))
     #print(mf.mo_occ)    
     '''    
     idx = mf.mo_energy.argsort()
