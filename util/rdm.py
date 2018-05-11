@@ -107,7 +107,7 @@ def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bat
             nelec_wimp -= nelec_wcore_diff
             print ("After attempting to idempotize the core (part of the putatively idempotent guide) 1RDM with a threshold of "
             + "{0}, {1} electrons were found in the impurity".format (idempotize_thresh, nelec_wimp))
-    if not is_close_to_integer (nelec_wimp // 2, num_zero_atol):
+    if not is_close_to_integer (nelec_wimp / 2, num_zero_atol):
         raise RuntimeError ("Can't solve impurity problems without even-integer number of electrons! nelec_wimp={0}".format (nelec_wimp))
     return loc2wemb, norbs_wbath, int (round (nelec_wimp)), working_1RDM_core
 

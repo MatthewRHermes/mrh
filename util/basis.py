@@ -197,8 +197,10 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrve
     qPq = pOq.H * pOq
     pevals, p2l = matrix_eigen_control_options (pQp, sort_vecs=True, only_nonzero_vals=True)
     qevals, q2r = matrix_eigen_control_options (qPq, sort_vecs=True, only_nonzero_vals=True)
-    assert (np.allclose (pevals, qevals)), str (pevals) + "\n" + str (qevals)
-    svals = np.sqrt (np.mean ([pevals, qevals], axis=0))
+    try:
+        svals = np.sqrt (np.mean ([pevals, qevals], axis=0))
+    except ValueError:
+        p2l, svals, q2l = matrix_svd_control_options (pOq, sort_vecs=True, only_nonzero_vals=True, full_matrices=False)
 
     # Get the left- and right-vectors back in the external basis
     c2l = c2p * p2l

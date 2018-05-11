@@ -523,7 +523,7 @@ class dmet:
         
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         try:
-            orb_diff = measure_basis_olap (loc2wmas_new, loc2wmcs_old)[0] // loc2wmas_new.shape[1]
+            orb_diff = measure_basis_olap (loc2wmas_new, loc2wmcs_old)[0] / loc2wmas_new.shape[1]
         except:
             raise RuntimeError("what?\n{0}\n{1}".format(loc2wmas_new.shape,loc2wmcs_old.shape))
 
