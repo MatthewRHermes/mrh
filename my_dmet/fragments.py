@@ -398,7 +398,8 @@ class fragment_object:
 
         # Make chemical potential matrix and guess_1RDM
         chempot_imp = represent_operator_in_basis (chempot_frag * np.eye (self.norbs_frag), self.frag2imp)
-        guess_1RDM = 2.0 * get_1RDM_from_OEI (self.impham_OEI - chempot_imp, self.nelec_imp // 2)
+        eff_OEI = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
+        guess_1RDM = 2.0 * get_1RDM_from_OEI (eff_OEI, self.nelec_imp // 2)
 
         # Execute solver function
         self.imp_solver_function (guess_1RDM, chempot_imp)
