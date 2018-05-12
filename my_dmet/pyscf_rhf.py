@@ -44,9 +44,9 @@ def solve (frag, guess_1RDM, chempot_imp):
         molt.nelectron = frag.nelec_imp
         molt.incore_anyway = True
         mft = scf.RHF( molt )
-        mft.get_hcore = lambda *args: OEI
+        mft.get_hcore = lambda *args: OEI_wrking
         mft.get_ovlp = lambda *args: np.eye( frag.norbs_imp )
-        mft._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+        mft._eri = ao2mo.restore(8, TEI_wrking, frag.norbs_imp)
         mft.scf()
         print ("Ham_wrking E_scf = {0}".format (mft.e_tot))
 
