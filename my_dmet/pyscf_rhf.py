@@ -33,9 +33,11 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Testing: load hamiltonian from working copy
     if not hasattr (frag, 'loaded'):
+        guess_1RDM_wrking = np.load (frag.frag_name + '_1rdm.npy')
         OEI_wrking = np.load (frag.frag_name + '_oei.npy')
         TEI_wrking = np.load (frag.frag_name + '_tei.npy')
         frag.loaded = True
+        print ("guess_1RDM versus guess_1RDM_wrking: {0}".format (np.linalg.norm (guess_1RDM - guess_1RDM_wrking)))
         print ("OEI versus OEI_wrking: {0}".format (np.linalg.norm (OEI - OEI_wrking)))
         print ("TEI versus TEI_wrking: {0}".format (np.linalg.norm (frag.impham_TEI - TEI_wrking)))
         molt = gto.Mole()
@@ -47,7 +49,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         mft.get_hcore = lambda *args: OEI_wrking
         mft.get_ovlp = lambda *args: np.eye( frag.norbs_imp )
         mft._eri = ao2mo.restore(8, TEI_wrking, frag.norbs_imp)
-        mft.scf()
+        mft.scf(guess_1RDM_wrking)
         print ("Ham_wrking E_scf = {0}".format (mft.e_tot))
 
     # Get the RHF solution
@@ -65,6 +67,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     if ( mf.converged == False ):
         mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
     oneRDMimp_imp = mf.make_rdm1()    
+    print ("This branch E_scf = {0}".format (mf.e_tot))
 
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc))
     frag.twoCDM_imp = np.zeros_like (frag.impham_TEI)
