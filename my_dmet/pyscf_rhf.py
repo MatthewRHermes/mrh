@@ -57,17 +57,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         mft.get_ovlp = lambda *args: np.eye( frag.norbs_imp )
         mft._eri = ao2mo.restore(8, TEI_wrking, frag.norbs_imp)
         mft.scf(guess_1RDM_wrking)
-        print ("Ham_wrking E_scf = {0}".format (mft.e_tot))
-        no_occs_wrking, imp2no_wrking = np.linalg.eigh (guess_1RDM_wrking)
-        idx = no_occs_wrking.argsort ()[::-1]
-        no_occs_wrking = no_occs_wrking[idx]
-        imp2no_wrking = imp2no_wrking[:,idx]
-        no_occs, imp2no = np.linalg.eigh (guess_1RDM)
-        idx = no_occs.argsort ()[::-1]
-        no_occs = no_occs[idx]
-        imp2no = imp2no[:,idx]
-        olap_mag, svals = measure_basis_olap (imp2no[:,:frag.nelec_imp//2], imp2no_wrking[:,:frag.nelec_imp//2])
-        print ("guess no overlap mag = {0}; svals = {1}".format (olap_mag, svals))
+        print ("Ham_wrking E_scf = {0}".format (mft.e_tot + frag.impham_CONST))
 
     # Get the RHF solution
     mol = gto.Mole()
@@ -84,7 +74,6 @@ def solve (frag, guess_1RDM, chempot_imp):
     if ( mf.converged == False ):
         mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
     oneRDMimp_imp = mf.make_rdm1()    
-    print ("This branch E_scf = {0}".format (mf.e_tot))
 
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc))
     frag.twoCDM_imp = np.zeros_like (frag.impham_TEI)
