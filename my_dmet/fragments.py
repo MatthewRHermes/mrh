@@ -390,16 +390,16 @@ class fragment_object:
 
     # Solving the impurity problem
     ###############################################################################################################################
-    def get_guess_1RDM (self, chempot_frag):
-        return self.ints.dmet_init_guess_rhf (self.loc2emb, self.norbs_imp, self.nelec_imp // 2, self.norbs_frag, chempot_frag)
+    def get_guess_1RDM (self, chempot_imp):
+        eff_OEI = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
+        return 2.0 * get_1RDM_from_OEI (eff_OEI, self.nelec_imp // 2)
 
     def solve_impurity_problem (self, chempot_frag):
         self.warn_check_impham ("solve_impurity_problem")
 
         # Make chemical potential matrix and guess_1RDM
         chempot_imp = represent_operator_in_basis (chempot_frag * np.eye (self.norbs_frag), self.frag2imp)
-        eff_OEI = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
-        guess_1RDM = 2.0 * get_1RDM_from_OEI (eff_OEI, self.nelec_imp // 2)
+        guess_1RDM = self.get_guess_1RDM (chempot_imp)
 
         # Execute solver function
         self.imp_solver_function (guess_1RDM, chempot_imp)

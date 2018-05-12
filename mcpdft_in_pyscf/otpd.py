@@ -38,6 +38,8 @@ def get_ontop_pair_density (mc, ks, rho=None, ao=None):
     ngrids = rho.shape[-1]
     norbs_ao = ao.shape[-1]
 
+    Pi = np.zeros_like (rho[0])
+
     # First cumulant
     Pi = np.multiply (rho[0], rho[1])
 
