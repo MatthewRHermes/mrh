@@ -22,7 +22,7 @@ import numpy as np
 from mrh.my_dmet import localintegrals
 from pyscf import ao2mo, gto, scf
 from pyscf.tools import rhf_newtonraphson
-from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
+from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, measure_basis_olap
 from mrh.util.tensors import symmetrize_tensor
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, guess_1RDM, chempot_frag=0.0 ):
@@ -33,10 +33,17 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Testing: load hamiltonian from working copy
     if not hasattr (frag, 'loaded'):
+        loc2imp_wrking = np.load (frag.frag_name + '_loc2imp.npy')
         guess_1RDM_wrking = np.load (frag.frag_name + '_1rdm.npy')
         OEI_wrking = np.load (frag.frag_name + '_oei.npy')
         TEI_wrking = np.load (frag.frag_name + '_tei.npy')
         frag.loaded = True
+        olap_mag = measure_basis_olap (frag.loc2imp, loc2imp_wrking)[0] / frag.norbs_imp
+        print ("working norbs_imp = {0}; current norbs_imp = {1}; overlap = {2}".format (loc2imp_wrking.shape[1], frag.norbs_imp, olap_mag))
+        oldimp2newimp = np.dot (loc2imp_wrking.conjugate ().T, frag.loc2imp)
+        guess_1RDM_wrking = represent_operator_in_basis (guess_1RDM_wrking, oldimp2newimp)
+        OEI_wrking = represent_operator_in_basis (OEI_wrking, oldimp2newimp)
+        TEI_wrking = represent_operator_in_basis (TEI_wrking, oldimp2newimp)
         print ("guess_1RDM versus guess_1RDM_wrking: {0}".format (np.linalg.norm (guess_1RDM - guess_1RDM_wrking)))
         print ("OEI versus OEI_wrking: {0}".format (np.linalg.norm (OEI - OEI_wrking)))
         print ("TEI versus TEI_wrking: {0}".format (np.linalg.norm (frag.impham_TEI - TEI_wrking)))
@@ -51,6 +58,16 @@ def solve (frag, guess_1RDM, chempot_imp):
         mft._eri = ao2mo.restore(8, TEI_wrking, frag.norbs_imp)
         mft.scf(guess_1RDM_wrking)
         print ("Ham_wrking E_scf = {0}".format (mft.e_tot))
+        no_occs_wrking, imp2no_wrking = np.linalg.eigh (guess_1RDM_wrking)
+        idx = no_occs_wrking.argsort ()[::-1]
+        no_occs_wrking = no_occs_wrking[idx]
+        imp2no_wrking = imp2no_wrking[:,idx]
+        no_occs, imp2no = np.linalg.eigh (guess_1RDM)
+        idx = no_occs.argsort ()[::-1]
+        no_occs = no_occs[idx]
+        imp2no = imp2no[:,idx]
+        olap_mag, svals = measure_basis_olap (imp2no[:,:frag.nelec_imp//2], imp2no_wrking[:,:frag.nelec_imp//2])
+        print ("guess no overlap mag = {0}; svals = {1}".format (olap_mag, svals))
 
     # Get the RHF solution
     mol = gto.Mole()
