@@ -30,7 +30,26 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Augment OEI with the chemical potential
     OEI = frag.impham_OEI - chempot_imp
- 
+
+    # Testing: load hamiltonian from working copy
+    if not hasattr (frag, 'loaded'):
+        OEI_wrking = np.load (frag.frag_name + '_oei.npy')
+        TEI_wrking = np.load (frag.frag_name + '_tei.npy')
+        frag.loaded = True
+        print ("OEI versus OEI_wrking: {0}".format (np.linalg.norm (OEI - OEI_wrking)))
+        print ("TEI versus TEI_wrking: {0}".format (np.linalg.norm (frag.impham_TEI - TEI_wrking)))
+        molt = gto.Mole()
+        molt.build( verbose=0 )
+        molt.atom.append(('C', (0, 0, 0)))
+        molt.nelectron = frag.nelec_imp
+        molt.incore_anyway = True
+        mft = scf.RHF( molt )
+        mft.get_hcore = lambda *args: OEI
+        mft.get_ovlp = lambda *args: np.eye( frag.norbs_imp )
+        mft._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+        mft.scf()
+        print ("Ham_wrking E_scf = {0}".format (mft.e_tot))
+
     # Get the RHF solution
     mol = gto.Mole()
     mol.build( verbose=0 )
