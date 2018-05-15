@@ -454,6 +454,7 @@ class dmet:
             lower_iters = iters + [('orbs', iteration)]
             orb_diff = self.doselfconsistent_orbs (lower_iters)
             iteration += 1
+        
 
         # self.verify_gradient( self.square2flat( self.umat ) ) # Only works for self.doSCF == False!!
         if ( self.SCmethod != 'NONE' and not(self.altcostfunc) ):
