@@ -31,15 +31,20 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=pa
     norbs_env = norbs_tot - norbs_frag
     nelec_tot = np.trace (the_1RDM)
 
-    # We need to SVD the fragment-environment block of the 1RDM
-    # The bath states are from the right-singular vectors corresponding to nonzero singular value
+    # We need to SVD the environment-fragment block of the 1RDM
+    # The bath states are from the left-singular vectors corresponding to nonzero singular value
+    # The fragment semi-natural orbitals are from the right-singular vectors of ~any~ singular value
     loc2env = get_complementary_states (loc2frag)
-    loc2bath = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM)[0]
-    norbs_bath = min (loc2bath.shape[1], norbs_bath_max)
+    loc2bath, loc2frag, svals = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, only_nonzero_vals=False)
+    norbs_bath = min (np.count_nonzero (svals>num_zero_atol), norbs_bath_max)
     loc2imp = np.append (loc2frag, loc2bath[:,:norbs_bath], axis=1)
     assert (is_basis_orthonormal (loc2imp))
 
-    loc2emb = get_complete_basis (loc2imp)
+    # get semi-natural core orbitals
+    loc2ext = get_complementary_states (loc2imp)
+    no_occ, ext2core = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2ext))
+    loc2core = np.dot (loc2ext, ext2core) 
+    loc2emb = np.append (loc2imp, loc2core, axis=1)
     assert (is_basis_orthonormal_and_complete (loc2emb))
 
     # Calculate the number of electrons in the would-be impurity model

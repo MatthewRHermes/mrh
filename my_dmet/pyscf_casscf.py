@@ -61,9 +61,11 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # If I haven't yet, print out the MOs so I can pick a good active space
     if frag.mfmo_printed == False:
+        oneRDM_loc = represent_operator_in_basis (mf.make_rdm1(), frag.imp2loc)
+        frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + oneRDM_loc)
         imp2mo = mf.mo_coeff
         frag.loc2mo = np.dot (frag.loc2imp, imp2mo)
-        frag.impurity_molden ('init_HF')
+        frag.impurity_molden ('natorb_begin', canonicalize=True)
         frag.mfmo_printed = True
         
     # Get the CASSCF solution

@@ -3,6 +3,7 @@
 
 import re
 import numpy as np
+import scipy as sp 
 from pyscf import gto, scf
 from pyscf.tools import molden
 from mrh.my_dmet import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper
@@ -97,7 +98,7 @@ class fragment_object:
         # Basic outputs of solving the impurity problem
         self.E_frag = 0.0
         self.E_imp  = 0.0
-        self.oneRDM_loc = None
+        self.oneRDM_loc = get_1RDM_from_OEI (self.ints.activeFOCK, self.ints.nelec_tot // 2)
         self.twoCDM_imp = None
         self.loc2mo     = np.zeros((self.norbs_tot,0))
         self.loc2fno    = np.zeros((self.norbs_tot,0))
@@ -108,6 +109,7 @@ class fragment_object:
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.twoCDMimp_amo = np.zeros((0,0,0,0))
         self.mfmo_printed  = False
+        self.impo_printed  = False
 
         # Initialize some runtime warning bools
         self.Schmidt_done = False
@@ -282,7 +284,7 @@ class fragment_object:
         self.norbs_imp       = self.norbs_frag
         self.loc2emb         = np.eye (self.norbs_tot)[:,idx]
         self.E2_frag_core    = 0
-        self.twoCDMfroz_tbc = []
+        self.twoCDMfroz_tbc  = []
         self.loc2tbc         = []
 
     def do_Schmidt (self, oneRDM_loc, all_frags, do_ofc_embedding):
@@ -290,6 +292,9 @@ class fragment_object:
             self.do_Schmidt_ofc_embedding (oneRDM_loc, all_frags)
         else:
             self.do_Schmidt_normal (oneRDM_loc)
+        if self.impo_printed == False:
+            self.impurity_molden ('imporb_begin')
+            self.impo_printed = True
 
     def do_Schmidt_normal (self, oneRDM_loc):
         print ("Normal Schmidt decomposition of {0} fragment".format (self.frag_name))
@@ -327,7 +332,7 @@ class fragment_object:
         print ("Adding {0} this-fragment active-space orbitals and {1} this-fragment active-space electrons to the impurity".format (self.norbs_as, self.nelec_as))
         self.nelec_imp = nelec_iimp + self.nelec_as
         self.norbs_imp = norbs_iimp + self.norbs_as
-        loc2imp        = np.append (self.loc2amo, loc2iimp, axis=1)
+        loc2imp        = np.append (loc2iimp, self.loc2amo, axis=1)
         assert (is_basis_orthonormal (loc2imp))
         self.loc2emb   = get_complete_basis (loc2imp)
 
@@ -391,8 +396,8 @@ class fragment_object:
     # Solving the impurity problem
     ###############################################################################################################################
     def get_guess_1RDM (self, chempot_imp):
-        eff_OEI = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
-        return 2.0 * get_1RDM_from_OEI (eff_OEI, self.nelec_imp // 2)
+        FOCK = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
+        return 2.0 * get_1RDM_from_OEI (FOCK, self.nelec_imp // 2)
 
     def solve_impurity_problem (self, chempot_frag):
         self.warn_check_impham ("solve_impurity_problem")
@@ -481,20 +486,35 @@ class fragment_object:
         return twoCDM
 
     def get_oneRDM_frag (self):
-        self.warn_check_imp_solve ("oneRDM_frag")
         return represent_operator_in_basis (self.oneRDM_loc, self.loc2frag)
 
     def get_oneRDM_imp (self):
-        self.warn_check_imp_solve ("oneRDM_imp")
+        self.warn_check_Schmidt ("oneRDM_imp")
         return represent_operator_in_basis (self.oneRDM_loc, self.loc2imp)
 
-    def impurity_molden (self, tag=None):
+    def impurity_molden (self, tag=None, canonicalize=False, natorb=False):
         tag = '.' if tag == None else '.' + str (tag) + '.'
-        filename = self.frag_name + '_impurity_MOs' + tag + 'molden'
+        filename = self.frag_name + '_impurity' + tag + 'molden'
         mol = self.ints.mol.copy ()
         mol.nelectron = self.nelec_imp
-        ao2mo = np.dot (self.ints.ao2loc, self.loc2mo)
-        molden.from_mo (mol, filename, ao2mo)
+
+        oneRDM = self.get_oneRDM_imp ()
+        FOCK = represent_operator_in_basis (self.ints.loc_rhf_fock_bis (self.oneRDM_loc), self.loc2imp)
+        ao2imp = np.dot (self.ints.ao2loc, self.loc2imp) 
+
+        ene = None
+        occ = np.diag (oneRDM)
+        ao2molden = ao2imp
+        if natorb:
+            assert (not canonicalize)
+            occ, imp2molden = matrix_eigen_control_options (oneRDM, sort_vecs=True, only_nonzero_vals=False)
+            ao2molden = np.dot (ao2imp, imp2molden)
+        elif canonicalize:
+            ene, imp2molden = matrix_eigen_control_options (FOCK, sort_vecs=True, only_nonzero_vals=False)
+            occ = np.einsum ('ip,ij,jp->p', imp2molden.conjugate (), oneRDM, imp2molden)
+            ao2molden = np.dot (ao2imp, imp2molden)
+
+        molden.from_mo (mol, filename, ao2molden, ene=ene, occ=occ)
     ###############################################################################################################################
 
 

@@ -437,7 +437,8 @@ class dmet:
             self.energy = self.fragments[0].E_imp
         for frag in self.fragments:
             if frag.imp_solver_name == 'CASSCF':
-                frag.impurity_molden ('end')
+                frag.impurity_molden ('natorb_end', natorb=True)
+                frag.impurity_molden ('imporb_end')
         if self.debug_energy:
             debug_Etot (self)
         

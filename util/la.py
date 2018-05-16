@@ -55,7 +55,7 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=True,
     lvecs, svals_lr, rvecs = (np.asarray (output) for output in (p2l, svals_lr, q2r))
     return lvecs, svals_lr, rvecs
 
-def matrix_eigen_control_options (the_matrix, sort_vecs=True, only_nonzero_vals=False, num_zero_atol=params.num_zero_atol):
+def matrix_eigen_control_options (the_matrix, sort_vecs=True, only_nonzero_vals=False, round_zero_vals=False, num_zero_atol=params.num_zero_atol):
     # Subtract a diagonal average from the matrix to fight rounding error
     diag_avg = np.eye (the_matrix.shape[0]) * np.mean (np.diag (the_matrix))
     pMq = np.asmatrix (the_matrix - diag_avg)
@@ -74,6 +74,9 @@ def matrix_eigen_control_options (the_matrix, sort_vecs=True, only_nonzero_vals=
         idx = np.abs (evals).argsort ()[::-1]
         evals = evals[idx]
         evecs = evecs[:,idx]
+    if round_zero_vals:
+        idx = np.where (np.abs (evals) < num_zero_atol)[0]
+        evals[idx] = 0
     evals, evecs = (np.asarray (output) for output in (evals, evecs))
     return evals, evecs
 

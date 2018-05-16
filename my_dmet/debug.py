@@ -5,6 +5,7 @@ from mrh.util.basis import represent_operator_in_basis, project_operator_into_su
 from pyscf.lo import boys
 from pyscf.scf.hf import get_ovlp
 from functools import reduce
+from pyscf.tools import molden
 
 def debug_ofc_oneRDM ( dmet_obj ):
 
@@ -121,7 +122,7 @@ def compare_basis_to_loc (loc2bas, frags, nlead=3, quiet=False):
     nfrags = len (frags)
     norbs_tot, norbs_bas = loc2bas.shape
     if norbs_bas == 0:
-        return np.zeros (nfrags)
+        return np.zeros (nfrags), loc2bas
     my_dtype  = sum ([[('weight{0}'.format (i), 'f8'), ('frag{0}'.format (i), 'U3')] for i in range (nfrags)], [])
     my_dtype += sum ([[('coeff{0}'.format (i), 'f8'), ('coord{0}'.format (i), 'U9')] for i in range (nlead)],  [])
     analysis = np.array ([ sum (((0, '-') for j in range (len (my_dtype) // 2)), tuple()) for i in range (norbs_bas) ], dtype=my_dtype)
@@ -158,7 +159,7 @@ def compare_basis_to_loc (loc2bas, frags, nlead=3, quiet=False):
             print (format_str.format (*analysis[i]))
         print ("Worst fragment localization: {:.2f}".format (np.amin (analysis['weight0'])))
 
-    return np.array ([np.count_nonzero (analysis['frag0'] == f.frag_name) for f in frags])
+    return np.array ([np.count_nonzero (analysis['frag0'] == f.frag_name) for f in frags]), loc2bas[:,overall_idx]
 
 
 def examine_wmcs (dmet_obj):
@@ -166,11 +167,11 @@ def examine_wmcs (dmet_obj):
     loc2wmcs = get_complementary_states (loc2wmas)
 
     print ("Examining whole-molecule active space:")
-    compare_basis_to_loc (loc2wmas, dmet_obj.fragments)
+    loc2wmas = compare_basis_to_loc (loc2wmas, dmet_obj.fragments)[1]
     norbs_wmas = np.array ([f.norbs_as for f in dmet_obj.fragments])
 
     print ("Examining whole-molecule core space:")
-    norbs_wmcs_before = compare_basis_to_loc (loc2wmcs, dmet_obj.fragments, quiet=True)
+    norbs_wmcs_before = compare_basis_to_loc (loc2wmcs, dmet_obj.fragments, quiet=True)[0]
     norbs_before = norbs_wmas + norbs_wmcs_before
     ao2loc = dmet_obj.ints.ao2loc
     loc2ao = ao2loc.conjugate ().T
@@ -178,16 +179,21 @@ def examine_wmcs (dmet_obj):
     ao2wmcs_new = boys.Boys (dmet_obj.ints.mol, ao2wmcs).kernel ()
     aoOao_inv = np.linalg.inv (np.dot (ao2loc, loc2ao))
     loc2wmcs_new = reduce (np.dot, [loc2ao, aoOao_inv, ao2wmcs_new])
-    norbs_wmcs_after = compare_basis_to_loc (loc2wmcs_new, dmet_obj.fragments)
+    norbs_wmcs_after, loc2wmcs_new = compare_basis_to_loc (loc2wmcs_new, dmet_obj.fragments)
     norbs_after = norbs_wmas + norbs_wmcs_after
 
     loc2new = np.append (loc2wmas, loc2wmcs_new, axis=1)
+    active_flag = np.append (np.ones (loc2wmas.shape[1]), np.zeros (loc2wmcs_new.shape[1]))
     print ("Is the new basis orthonormal and complete? {0}".format (is_basis_orthonormal_and_complete (loc2new)))
     print ("Fragment-orbital assignment breakdown:")
     print ("Frag Before After")
     for frag, bef, aft in zip (dmet_obj.fragments, norbs_before, norbs_after):
         print ('{:>4s} {:6d} {:5d}'.format (frag.frag_name, int (bef), int (aft)))
 
+    filename = 'relocalized_basis.molden'
+    mol = dmet_obj.ints.mol.copy ()
+    ao2new = np.dot (dmet_obj.ints.ao2loc, loc2new)
+    molden.from_mo (mol, filename, ao2new, occ=active_flag)
     '''
     for idx, frag in enumerate (dmet_obj.fragments):
         print ("{0} fragment impurity orbitals".format (frag.frag_name))
