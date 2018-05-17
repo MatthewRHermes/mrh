@@ -513,10 +513,10 @@ class fragment_object:
         ao2molden = ao2imp
         if natorb:
             assert (not canonicalize)
-            occ, imp2molden = matrix_eigen_control_options (oneRDM, sort_vecs=True, only_nonzero_vals=False)
+            occ, imp2molden = matrix_eigen_control_options (oneRDM, sort_vecs=-1, only_nonzero_vals=False)
             ao2molden = np.dot (ao2imp, imp2molden)
         elif canonicalize:
-            ene, imp2molden = matrix_eigen_control_options (FOCK, sort_vecs=True, only_nonzero_vals=False)
+            ene, imp2molden = matrix_eigen_control_options (FOCK, sort_vecs=-1, only_nonzero_vals=False)
             occ = np.einsum ('ip,ij,jp->p', imp2molden.conjugate (), oneRDM, imp2molden)
             ao2molden = np.dot (ao2imp, imp2molden)
 

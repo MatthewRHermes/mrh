@@ -42,7 +42,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=pa
 
     # get semi-natural core orbitals
     loc2ext = get_complementary_states (loc2imp)
-    no_occ, ext2core = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2ext))
+    no_occ, ext2core = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2ext), sort_vecs=-1)
     loc2core = np.dot (loc2ext, ext2core) 
     loc2emb = np.append (loc2imp, loc2core, axis=1)
     assert (is_basis_orthonormal_and_complete (loc2emb))

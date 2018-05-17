@@ -33,14 +33,14 @@ def assert_matrix_square (test_matrix, matdim=None):
     assert ((test_matrix.ndim == 2) and (test_matrix.shape[0] == matdim) and (test_matrix.shape[1] == matdim)), "Matrix shape is {0}; should be ({1},{1})".format (test_matrix.shape, matdim)
     return matdim
 
-def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=True, only_nonzero_vals=False, num_zero_atol=params.num_zero_atol):
+def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=-1, only_nonzero_vals=False, num_zero_atol=params.num_zero_atol):
     pMq = np.asmatrix (the_matrix)
     lvecs_pl, svals_lr, rvecs_rq = np.linalg.svd (the_matrix, full_matrices=full_matrices)
     p2l = np.asmatrix (lvecs_pl)
     r2q = np.asmatrix (rvecs_rq)
     q2r = r2q.H
     if sort_vecs:
-        idx_sval = (np.abs (svals_lr)).argsort ()[::-1]
+        idx_sval = (np.abs (svals_lr)).argsort ()[::sort_vecs]
         idx_q2r = np.append (idx_sval, np.arange (len (idx_sval), q2r.shape[1], dtype=idx_sval.dtype))
         idx_p2l = np.append (idx_sval, np.arange (len (idx_sval), p2l.shape[1], dtype=idx_sval.dtype))
         svals_lr = svals_lr[idx_sval]
@@ -55,7 +55,7 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=True,
     lvecs, svals_lr, rvecs = (np.asarray (output) for output in (p2l, svals_lr, q2r))
     return lvecs, svals_lr, rvecs
 
-def matrix_eigen_control_options (the_matrix, sort_vecs=True, only_nonzero_vals=False, round_zero_vals=False, num_zero_atol=params.num_zero_atol):
+def matrix_eigen_control_options (the_matrix, sort_vecs=-1, only_nonzero_vals=False, round_zero_vals=False, num_zero_atol=params.num_zero_atol):
     # Subtract a diagonal average from the matrix to fight rounding error
     diag_avg = np.eye (the_matrix.shape[0]) * np.mean (np.diag (the_matrix))
     pMq = np.asmatrix (the_matrix - diag_avg)
@@ -71,7 +71,7 @@ def matrix_eigen_control_options (the_matrix, sort_vecs=True, only_nonzero_vals=
         evals = evals[idx]
         evecs = evecs[:,idx]
     if sort_vecs:
-        idx = np.abs (evals).argsort ()[::-1]
+        idx = evals.argsort ()[::sort_vecs]
         evals = evals[idx]
         evecs = evecs[:,idx]
     if round_zero_vals:

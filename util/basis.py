@@ -188,22 +188,22 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrve
     pOq = p2c * cOc * c2q
 
     ''' I think the eigendecomposition is actually more stable than the explicit svd so I'm going to do it that way (it's equivalent)
-    q2r, p2l, svals = matrix_svd_control_options (pOq, svd_full_matrices = (not omit_id_zero_svals), sort_vecs=True)
+    q2r, p2l, svals = matrix_svd_control_options (pOq, svd_full_matrices = (not omit_id_zero_svals), sort_vecs=-1)
     c2l = c2p * p2l
     c2r = c2q * q2r
     '''
 
     pQp = pOq * pOq.H
     qPq = pOq.H * pOq
-    pevals, p2l = matrix_eigen_control_options (pQp, sort_vecs=True, only_nonzero_vals=only_nonzero_vals, round_zero_vals=True, num_zero_atol=num_zero_atol)
-    qevals, q2r = matrix_eigen_control_options (qPq, sort_vecs=True, only_nonzero_vals=only_nonzero_vals, round_zero_vals=True, num_zero_atol=num_zero_atol)
+    pevals, p2l = matrix_eigen_control_options (pQp, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, round_zero_vals=True, num_zero_atol=num_zero_atol)
+    qevals, q2r = matrix_eigen_control_options (qPq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, round_zero_vals=True, num_zero_atol=num_zero_atol)
     nsvals = min (c2p.shape[1], c2q.shape[1])
     pevals = pevals[:nsvals] # Has no effect if only_nonzero_vals==True, because len (pevals) couldn't possibly be > nsvals in that case
     qevals = qevals[:nsvals] # ditto
     try:
         svals = np.sqrt (np.mean ([pevals, qevals], axis=0))
     except ValueError: # If only_nonzero_vals==True, numerical noise might strip an eigenvalue on one side but not the other
-        p2l, svals, q2l = matrix_svd_control_options (pOq, sort_vecs=True, only_nonzero_vals=only_nonzero_vals, full_matrices=False)
+        p2l, svals, q2l = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, full_matrices=False)
 
     # Get the left- and right-vectors back in the external basis
     c2l = c2p * p2l
@@ -246,7 +246,7 @@ def orthonormalize_a_basis (overlapping_basis, num_zero_atol=params.num_zero_ato
     assert (np.allclose (bOb, bOb.H)), "overlap matrix not hermitian! problem with basis?"
     assert (np.abs (np.trace (bOb)) > num_zero_atol), "overlap matrix zero or negative trace! problem with basis?"
      
-    evals, p2x = matrix_eigen_control_options (bOb, sort_vecs=True, only_nonzero_vals=True)
+    evals, p2x = matrix_eigen_control_options (bOb, sort_vecs=-1, only_nonzero_vals=True)
     c2x = c2b * p2x 
     assert (not np.any (evals < 0)), "overlap matrix has negative eigenvalues! problem with basis?"
 
@@ -265,7 +265,7 @@ def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol
     proj_cc = np.asmatrix (the_projector)
     assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (proj_cc - proj_cc.H)
     assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str ((proj_cc * proj_cc) - proj_cc)
-    evals, p2x = matrix_eigen_control_options (proj_cc, sort_vecs=True, only_nonzero_vals=True)
+    evals, p2x = matrix_eigen_control_options (proj_cc, sort_vecs=-1, only_nonzero_vals=True)
     return np.asarray (p2x)
 
 def get_complementary_states (incomplete_basis, in_subspace = None, already_complete_warning=True):
