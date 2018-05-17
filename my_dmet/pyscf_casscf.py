@@ -29,8 +29,9 @@ import sys
 from pyscf import gto, scf, ao2mo, mcscf, ao2mo
 from pyscf.tools import molden
 #np.set_printoptions(threshold=np.nan)
+from mrh.util.la import matrix_eigen_control_options
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, orthonormalize_a_basis, get_complete_basis, get_complementary_states
-from mrh.util.basis import is_basis_orthonormal, get_overlapping_states, is_basis_orthonormal_and_complete
+from mrh.util.basis import is_basis_orthonormal, get_overlapping_states, is_basis_orthonormal_and_complete, compute_nelec_in_subspace
 from mrh.util.rdm import get_2CDM_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
 from functools import reduce
@@ -61,11 +62,8 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # If I haven't yet, print out the MOs so I can pick a good active space
     if frag.mfmo_printed == False:
-        oneRDM_loc = represent_operator_in_basis (mf.make_rdm1(), frag.imp2loc)
-        frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + oneRDM_loc)
-        imp2mo = mf.mo_coeff
-        frag.loc2mo = np.dot (frag.loc2imp, imp2mo)
-        frag.impurity_molden ('natorb_begin', canonicalize=True)
+        ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, mf.mo_coeff])
+        molden.from_mo (frag.ints.mol, frag.frag_name + '_molorb.molden', ao2mfmo, occ=mf.mo_occ, ene=mf.mo_energy)
         frag.mfmo_printed = True
         
     # Get the CASSCF solution
@@ -126,9 +124,84 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.E_imp      = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
 
     # Active-space RDM data
+    #oneRDM_amo, twoCDM_amo = get_fragcasci (mf, mc, oneRDM_imp, chempot_imp)
     frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, frag.amo2loc))
     frag.twoCDMimp_amo = twoCDM_amo
 
+    if not hasattr (frag, 'test_fragcasci'):
+        examine_nos (frag, mc)
+        get_fragcasci (frag, mf, mc, chempot_imp)
+        frag.test_fragcasci = 'done'
+
     return None
+
+def examine_nos (frag, mc):
+    imp2no, ci, no_occ = mc.cas_natorb ()
+    print ("examine_nos :: no occupancy is {0}".format (np.array2string (no_occ, precision=3, suppress_small=True)))
+
+    oneRDM_frag = represent_operator_in_basis (frag.oneRDM_loc, frag.loc2frag)
+    oneRDM_bath = represent_operator_in_basis (frag.oneRDM_loc, frag.get_loc2bath ())
+
+    fno_occ = matrix_eigen_control_options (oneRDM_frag, sort_vecs=True)[0]
+    bno_occ = matrix_eigen_control_options (oneRDM_bath, sort_vecs=True)[0]
+    print ("examine_nos :: fno occupancy is {0}".format (np.array2string (fno_occ, precision=3, suppress_small=True)))
+    print ("examine_nos :: bno occupancy is {0}".format (np.array2string (bno_occ, precision=3, suppress_small=True)))
+
+    return None
+
+def get_fragcasci (frag, mf, mc, oneRDM_imp, chempot_imp):
+    # Assume that fragment orbitals are contained entirely within impurity orbitals
+
+    imp2amo = mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
+    imp2famo, _, svals = get_overlapping_states (frag.imp2frag, imp2amo, only_nonzero_vals=False)
+    norbs_amo = mc.ncas
+    nelec_amo = mc.nelecas
+    norbs_cmo = mc.ncore
+
+    # Get semi-natural famos
+    oneRDM_famo = represent_operator_in_basis (oneRDM_imp, imp2famo)
+    evals_famo, evecs = matrix_eigen_control_options (oneRDM_famo, sort_vecs=True)
+    imp2famo = np.dot (imp2famo, evecs)
+
+    # Get proper core and virtuals from 1RDM
+    imp2fimo = get_complementary_states (imp2famo)
+    oneRDM_fimo = represent_operator_in_basis (oneRDM_imp, imp2fimo)
+    evals_fimo, evecs = np.linalg.eigh (oneRDM_fimo)
+    idx = evals_fimo.argsort ()[::-1]
+    evals_fimo = evals_fimo[idx]
+    evecs = evecs[:,idx]
+    imp2fcmo = np.dot (imp2fimo, evecs[:,:mc.ncore])
+    imp2fvmo = np.dot (imp2fimo, evecs[:,mc.ncore:])
+    imp2mo = np.concatenate ([imp2fcmo, imp2famo, imp2fvmo], axis=1)
+    assert (is_basis_orthonormal_and_complete (imp2mo))
+    nelec_fcmo = compute_nelec_in_subspace (oneRDM_imp, imp2fcmo)
+    nelec_famo = compute_nelec_in_subspace (oneRDM_imp, imp2famo)
+
+    # Do CASCI
+    ci = mcscf.CASCI (mf, mc.ncas, mc.nelecas)
+    E_CASCI = ci.kernel(imp2mo)[0]
+    
+    # Compare energies
+    oneRDM_imp = ci.make_rdm1 ()
+    E_imp_CASCI = frag.impham_CONST + E_CASCI + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)    
+    print ("get_fragcasci :: fragment-active have overlap with CASSCF active of {0}".format (np.array2string (svals, precision=3, suppress_small=True)))
+    print ("get_fragcasci :: making core with CASSCF occupancy: {0}".format (np.array2string (evals_fimo[:mc.ncore], precision=3, suppress_small=True)))
+    print ("get_fragcasci :: making active with CASSCF occupancy: {0}".format (np.array2string (evals_famo, precision=3, suppress_small=True)))
+    print ("get_fragcasci :: making virtual with CASSCF occupancy: {0}".format (np.array2string (evals_fimo[mc.ncore:], precision=3, suppress_small=True)))
+    print ("get_fragcasci :: {0} electrons in fragCASCI core space according to CASSCF".format (nelec_fcmo))
+    print ("get_fragcasci :: {0} electrons in fragCASCI active space according to CASSCF".format (nelec_famo))
+
+    mol = frag.ints.mol
+    filename = "fragcasci.molden"
+    orbs = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
+    occ = np.concatenate ([evals_fimo[:mc.ncore], evals_famo, evals_fimo[mc.ncore:]])
+    molden.from_mo (mol, filename, orbs, occ=occ)
+    print ("E_imp(CASSCF) = {:.5f} ; E_imp(fragCASCI) = {:.5f}".format (frag.E_imp, E_imp_CASCI))
+
+    oneRDM_amo, twoRDM_amo = ci.fcisolver.make_rdm12 (ci.ci, norbs_amo, nelec_amo)
+    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
+
+    return oneRDM_amo, twoCDM_amo
+
 
 

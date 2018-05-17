@@ -272,6 +272,13 @@ class fragment_object:
             return [self.twoCDM_imp] + self.twoCDMfroz_tbc
         else:
             return self.twoCDMfroz_tbc
+
+    def get_loc2bath (self):
+        ''' Don't use this too much... I don't know how it's gonna behave under ofc_emb'''
+        loc2nonbath = orthonormalize_a_basis (np.append (self.loc2frag, self.loc2core, axis=1))
+        loc2bath = get_complementary_states (loc2nonbath)
+        return loc2bath
+
     ############################################################################################################################
 
 
@@ -492,7 +499,7 @@ class fragment_object:
         self.warn_check_Schmidt ("oneRDM_imp")
         return represent_operator_in_basis (self.oneRDM_loc, self.loc2imp)
 
-    def impurity_molden (self, tag=None, canonicalize=False, natorb=False):
+    def impurity_molden (self, tag=None, canonicalize=False, natorb=False, ene=None, occ=None):
         tag = '.' if tag == None else '.' + str (tag) + '.'
         filename = self.frag_name + '_impurity' + tag + 'molden'
         mol = self.ints.mol.copy ()
@@ -502,8 +509,7 @@ class fragment_object:
         FOCK = represent_operator_in_basis (self.ints.loc_rhf_fock_bis (self.oneRDM_loc), self.loc2imp)
         ao2imp = np.dot (self.ints.ao2loc, self.loc2imp) 
 
-        ene = None
-        occ = np.diag (oneRDM)
+        occ = np.diag (oneRDM) if occ is None else occ
         ao2molden = ao2imp
         if natorb:
             assert (not canonicalize)
