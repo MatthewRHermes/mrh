@@ -83,12 +83,12 @@ def solve (frag, guess_1RDM, chempot_imp):
         amo2mo = reduce (np.dot, [frag.amo2loc, frag.loc2imp, imp2mo])
         amo_idxs = np.sort (np.diag (np.dot (amo2mo.conjugate ().T, amo2mo)).argsort()[-CASorb:])
         ncore = (frag.nelec_imp - CASe) // 2
-        print ("The most probable amos from the projected mos are {0} (standard selection: {1})".format (
-            amo_idxs, np.array (range(ncore,ncore+CASorb))))
+        #print ("The most probable amos from the projected mos are {0} (standard selection: {1})".format (
+        #    amo_idxs, np.array (range(ncore,ncore+CASorb))))
         imp2imo = np.delete (imp2mo, amo_idxs, axis=1)
         imo_mask = np.delete (np.array (range(imp2mo.shape[1])), amo_idxs, axis=None)
         omo_idxs = np.sort (imo_mask[np.diag (represent_operator_in_basis (mf.make_rdm1(), imp2imo)).argsort ()[-ncore:]])
-        print ("The most probable cmos from the projected mos are {0}".format (omo_idxs))
+        #print ("The most probable cmos from the projected mos are {0}".format (omo_idxs))
         
     elif np.prod (frag.active_orb_list.shape) > 0: 
         print('Impurity active space selection:', frag.active_orb_list)
@@ -124,27 +124,9 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.E_imp      = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
 
     # Active-space RDM data
+    oneRDM_amo, twoCDM_amo = get_fragcasci (frag, mf, mc, oneRDM_imp, chempot_imp)
     frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, frag.amo2loc))
     frag.twoCDMimp_amo = twoCDM_amo
-
-    if not hasattr (frag, 'test_fragcasci'):
-        examine_nos (frag, mc)
-        get_fragcasci (frag, mf, mc, oneRDM_imp, chempot_imp)
-        frag.test_fragcasci = 'done'
-
-    return None
-
-def examine_nos (frag, mc):
-    imp2no, ci, no_occ = mc.cas_natorb ()
-    print ("examine_nos :: no occupancy is {0}".format (np.array2string (no_occ, precision=3, suppress_small=True)))
-
-    oneRDM_frag = represent_operator_in_basis (frag.oneRDM_loc, frag.loc2frag)
-    oneRDM_bath = represent_operator_in_basis (frag.oneRDM_loc, frag.get_loc2bath ())
-
-    fno_occ = matrix_eigen_control_options (oneRDM_frag, sort_vecs=-1)[0]
-    bno_occ = matrix_eigen_control_options (oneRDM_bath, sort_vecs=-1)[0]
-    print ("examine_nos :: fno occupancy is {0}".format (np.array2string (fno_occ, precision=3, suppress_small=True)))
-    print ("examine_nos :: bno occupancy is {0}".format (np.array2string (bno_occ, precision=3, suppress_small=True)))
 
     return None
 
@@ -166,7 +148,6 @@ def get_fragcasci (frag, mf, mc, oneRDM_imp, chempot_imp):
     # Get proper core and virtuals from the mean-field fock matrix (Note: this is not self-consistent.  It should be)
     imp2imo = get_complementary_states (imp2amo)
     imo_energy, evecs = matrix_eigen_control_options (represent_operator_in_basis (mf_fock, imp2imo), sort_vecs=1)
-    print (imo_energy)
     imp2imo = np.dot (imp2imo, evecs)
     imo_occ = np.einsum ('ip,ij,jp->p', imp2imo.conjugate (), oneRDM_imp, imp2imo)
 
@@ -184,9 +165,9 @@ def get_fragcasci (frag, mf, mc, oneRDM_imp, chempot_imp):
 
     assert (is_basis_orthonormal_and_complete (imp2mo))
 
-    mo_actwt = np.einsum ('ip,ij,jp->p', imp2mo.conjugate (), Projamo_imp, imp2mo)
-    mo_mcenergy = np.einsum ('ip,ij,jp->p', imp2mo.conjugate (), mc.get_fock (), imp2mo)
-    analyze_fragcasci_basis (frag, oneRDM_imp, imp2mo, mo_occ, mo_energy, mo_mcenergy, mo_actwt, norbs_cmo, norbs_amo, nelec_amo)
+    #mo_actwt = np.einsum ('ip,ij,jp->p', imp2mo.conjugate (), Projamo_imp, imp2mo)
+    #mo_mcenergy = np.einsum ('ip,ij,jp->p', imp2mo.conjugate (), mc.get_fock (), imp2mo)
+    #analyze_fragcasci_basis (frag, oneRDM_imp, imp2mo, mo_occ, mo_energy, mo_mcenergy, mo_actwt, norbs_cmo, norbs_amo, nelec_amo)
 
     # Do CASCI
     casci = mcscf.CASCI (mf, norbs_amo, nelec_amo)
