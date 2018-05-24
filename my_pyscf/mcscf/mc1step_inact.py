@@ -21,9 +21,19 @@ def orth_orb (orb, ovlp):
 
 def rotate_orb_cc_wrapper (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, x0_guess=None,
                   conv_tol_grad=1e-4, max_stepsize=None, verbose=None):
-    ovlp_ao = casscf._scf.get_ovlp ()
+    ncore = casscf.ncore
+    ncas = casscf.ncas
+    ncasrot = casscf.ncasrot
+    nocc = ncore + ncas
+
+    # Test to make sure the orbitals never leave the proper space
+    cas_ao = casscf.cas_ao
+    err = np.linalg.norm (mo[~cas_ao,ncore:nocc])
+    assert (abs (err) < 1e-10), err
+
+    ovlp_ao = casscf._scf.get_ovlp ()    
     mo2casrot = reduce (np.dot, [mo.conjugate ().T, ovlp_ao, casscf.casrot_coeff])
-    a2c = mo2casrot[casscf.ncore:casscf.ncore+casscf.ncas,:casscf.ncasrot]
+    a2c = mo2casrot[ncore:nocc,:ncasrot]
     proj = np.dot (a2c.conjugate ().T, a2c)
     evals, evecs = sp.linalg.eigh (proj)
     assert (np.all (np.logical_or (np.isclose (evals, 1), np.isclose (evals, 0))))
@@ -32,10 +42,26 @@ def rotate_orb_cc_wrapper (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, x0_guess=
     evecs = evecs[:,idx]
     u_casrot = np.dot (mo2casrot[:,:casscf.ncasrot], evecs)
     casscf._u_casrot = u_casrot
-    for rota in mc1step.rotate_orb_cc (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, 
+
+    rota = mc1step.rotate_orb_cc (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, 
             x0_guess=x0_guess, conv_tol_grad=conv_tol_grad, max_stepsize=max_stepsize, 
-            verbose=verbose):
-        yield rota
+            verbose=verbose)
+    for u_mo, g_orb, njk, r0 in rota:
+        ''' This is not very efficient, because it doesn't really take effect until the last microcycle, but I don't know what else to do '''
+        fock = casscf.get_fock (mo_coeff=mo, ci=fcivec, eris=eris, casdm1=fcasdm1(), verbose=verbose)
+        mo1 = np.dot (mo, u_mo)
+        idx = np.zeros(mo.shape[0], dtype=np.bool_)
+        idx[:ncore] = True
+        idx[nocc:] = True
+        idx2 = np.ix_(idx,idx)
+        fock_mo1 = reduce (np.dot, [mo1.conjugate ().T, fock, mo1])[idx2]
+        evals, evecs = sp.linalg.eigh (fock_mo1)
+        evecs = evecs[:,evals.argsort ()]
+        evecs[:,np.diag(evecs)<0] *= -1
+        u_fock = np.eye (u_mo.shape[0], dtype=u_mo.dtype)
+        u_fock[idx2] = evecs
+        u_mo = np.dot (u_mo, u_fock)
+        yield u_mo, g_orb, njk, r0
 
 def casci_scf_relaxation (envs):
     mc = envs['casscf']
@@ -105,12 +131,8 @@ class CASSCF(mc1step.CASSCF):
 
         molden.from_mo (self.mol, 'init.molden', mo_coeff, occ=self._scf.mo_occ)
         self.mo_coeff = mo_coeff
-        def callback_wrapper (envs):
-            #casci_scf_relaxation (envs)
-            if callable (callback):
-                callback (envs)
 
-        return mc1step.CASSCF.kernel (self, mo_coeff=mo_coeff, ci0=ci0, callback=callback_wrapper, _kern=_kern)
+        return mc1step.CASSCF.kernel (self, mo_coeff=mo_coeff, ci0=ci0, callback=callback, _kern=_kern)
 
     def build_casrot (self, cas_ao=None):
         if cas_ao is None:
