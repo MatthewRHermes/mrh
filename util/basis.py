@@ -33,16 +33,22 @@ def assert_vector_stateis (test_vector, vecdim=None):
     cond_bool = np.all (np.logical_or (test_vector == 1, test_vector == 0))
     assert (cond_isvec and cond_len and cond_bool), err_str
 
-def is_basis_orthonormal (the_basis):
+def is_basis_orthonormal (the_basis, ovlp=1):
+    cOc = np.asmatrix (ovlp) 
     c2b = np.asmatrix (the_basis)
     b2c = c2b.H
-    return is_matrix_eye (b2c * c2b)
+    try:
+        test_matrix = b2c * cOc * c2b
+    except ValueError:
+        test_matrix = b2c * cOc[0,0] * c2b
+    return is_matrix_eye (test_matrix)
 
 def is_basis_orthonormal_and_complete (the_basis):
     return (is_basis_orthonormal (the_basis) and (the_basis.shape[1] == the_basis.shape[0]))
 
-def are_bases_orthogonal (bra_basis, ket_basis):
-    return is_matrix_zero (basis_olap (bra_basis, ket_basis))
+def are_bases_orthogonal (bra_basis, ket_basis, ovlp=1):
+    test_matrix = basis_olap (bra_basis, ket_basis, ovlp)
+    return is_matrix_zero (test_matrix), test_matrix
 
 
 
@@ -64,11 +70,15 @@ def sort_states_by_diag_maxabs (the_basis):
     the_basis = the_basis[:,cols]
     return the_basis
 
-def basis_olap (bra_basis, ket_basis):
+def basis_olap (bra_basis, ket_basis, ovlp=1):
     c2p = np.asmatrix (bra_basis)
     c2q = np.asmatrix (ket_basis)
     p2c = c2p.H
-    return np.asarray (p2c * c2q)
+    cOc = np.asmatrix (ovlp)
+    try:
+        return np.asarray (p2c * cOc * c2q)
+    except ValueError:
+        return np.asarray (p2c * cOc[0,0] * c2q)
 
 def represent_operator_in_basis (braOket, bra1_basis = None, ket1_basis = None, bra2_basis = None, ket2_basis = None):
     # This CHANGES the basis that braOket is stored in
@@ -236,12 +246,15 @@ def measure_basis_olap (bra_basis, ket_basis):
     olap_mag = np.sum (svals * svals)
     return olap_mag, svals
 
-def orthonormalize_a_basis (overlapping_basis, num_zero_atol=params.num_zero_atol):
+def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_zero_atol):
     if (is_basis_orthonormal (overlapping_basis)):
         return overlapping_basis
     c2b = np.asmatrix (overlapping_basis)
     b2c = c2b.H
-    bOb = b2c * c2b
+    cOc = ovlp
+    if isinstance (ovlp, np.ndarray):
+        cOc = np.asmatrix (ovlp)
+    bOb = b2c * cOc * c2b
     assert (not is_matrix_zero (bOb)), "overlap matrix is zero! problem with basis?"
     assert (np.allclose (bOb, bOb.H)), "overlap matrix not hermitian! problem with basis?"
     assert (np.abs (np.trace (bOb)) > num_zero_atol), "overlap matrix zero or negative trace! problem with basis?"
