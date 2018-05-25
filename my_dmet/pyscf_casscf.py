@@ -169,7 +169,8 @@ def get_fragcasci (frag, mf, mc, oneRDM_imp, chempot_imp):
     #mo_mcenergy = np.einsum ('ip,ij,jp->p', imp2mo.conjugate (), mc.get_fock (), imp2mo)
     #analyze_fragcasci_basis (frag, oneRDM_imp, imp2mo, mo_occ, mo_energy, mo_mcenergy, mo_actwt, norbs_cmo, norbs_amo, nelec_amo)
 
-    # Do CASCI (CASSCF with active orbitals frozen!)
+    # Do constrained CASSCF with active orbitals frozen!
+    
     caslist = list(range(norbs_cmo,norbs_occ))
     casci = mcscf.CASSCF (mf, norbs_amo, nelec_amo, frozen=caslist)
     E_CASCI = casci.kernel(imp2mo)[0]

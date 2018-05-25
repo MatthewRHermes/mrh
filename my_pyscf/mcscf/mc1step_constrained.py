@@ -7,6 +7,7 @@ import scipy as sp
 from pyscf.lo.orth import orth_ao
 from pyscf.scf import hf
 from pyscf.mcscf import mc1step, addons
+from pyscf.mcscf.mc1step import expmat
 from pyscf.tools import molden
 from functools import reduce
 from mrh.my_pyscf.scf import hf_as
@@ -40,21 +41,22 @@ def rotate_orb_cc_wrapper (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, x0_guess=
     idx = evals.argsort ()[::-1]
     evals = evals[idx]
     evecs = evecs[:,idx]
-    u_casrot = np.dot (mo2casrot[:,:casscf.ncasrot], evecs)
-    casscf._u_casrot = u_casrot
+    mo2casrot[:,:ncasrot] = np.dot (mo2casrot[:,:ncasrot], evecs)
+    casscf._u_casrot = mo2casrot
 
     rota = mc1step.rotate_orb_cc (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, 
             x0_guess=x0_guess, conv_tol_grad=conv_tol_grad, max_stepsize=max_stepsize, 
             verbose=verbose)
+    fock_mo = reduce (np.dot, [mo.conjugate ().T,
+        casscf.get_fock (mo_coeff=mo, ci=fcivec, eris=eris, casdm1=fcasdm1(), verbose=verbose),
+        mo])
     for u_mo, g_orb, njk, r0 in rota:
         ''' This is not very efficient, because it doesn't really take effect until the last microcycle, but I don't know what else to do '''
-        fock = casscf.get_fock (mo_coeff=mo, ci=fcivec, eris=eris, casdm1=fcasdm1(), verbose=verbose)
-        mo1 = np.dot (mo, u_mo)
         idx = np.zeros(mo.shape[0], dtype=np.bool_)
         idx[:ncore] = True
         idx[nocc:] = True
         idx2 = np.ix_(idx,idx)
-        fock_mo1 = reduce (np.dot, [mo1.conjugate ().T, fock, mo1])[idx2]
+        fock_mo1 = reduce (np.dot, [u_mo.conjugate ().T, fock_mo, u_mo])[idx2]
         evals, evecs = sp.linalg.eigh (fock_mo1)
         evecs = evecs[:,evals.argsort ()]
         evecs[:,np.diag(evecs)<0] *= -1
@@ -249,41 +251,30 @@ class CASSCF(mc1step.CASSCF):
 
     def pack_uniq_var (self, rot):
         u = self._u_casrot
+        uH = u.conjugate ().T
+        nmo = rot.shape[0]
         ncas = self.ncas
         ncore = self.ncore
         nocc = ncore + ncas
-        rot = np.dot (rot[ncore:nocc,:], u)[:,ncas:]
-        return rot.ravel ()
-        '''
-        uH = u.conjugate ().T
         ncasrot = self.ncasrot
-        idx = np.tril_indices (ncasrot, -1)
-        rot = reduce (np.dot, [uH, rot, u])
-        return rot[idx]
-        '''
+        #Active space
+        rot = np.dot (rot[ncore:nocc,:], u)[:,ncas:ncasrot].ravel ()
+        return rot 
 
     def unpack_uniq_var (self, rot):
-        u = self._u_casrot.conjugate ().T
+        u = self._u_casrot
+        uH = u.conjugate ().T
         nmo = self.casrot_coeff.shape[1]
         ncas = self.ncas
         ncore = self.ncore
         nocc = ncore + ncas
+        nvirt = nmo - nocc
         ncasrot = self.ncasrot
-        rot = rot.reshape (ncas, ncasrot - ncas)
+        n1 = ncas * (ncasrot - ncas)
+        # Active space
+        rot = rot[:n1].reshape (ncas, ncasrot - ncas)
         mat = np.zeros ((nmo,nmo), dtype=u.dtype)
         mat[ncore:nocc,ncas:ncasrot] = rot
-        mat[ncore:nocc,:] = np.dot (mat[ncore:nocc,:ncasrot], u)
-        mat = mat - mat.T
-        return mat
-
-        '''
-        uH = u.conjugate ().T
-        ncasrot = self.ncasrot
-        idx = np.tril_indices (ncasrot, -1)
-        mat = np.zeros ((u.shape[1], u.shape[1]), dtype=u.dtype)
-        mat[idx] = rot
-        mat = mat - mat.T
-        return reduce (np.dot, [u, mat, uH])
-        '''
-        
+        mat[ncore:nocc,:] = np.dot (mat[ncore:nocc,:ncasrot], uH[:ncasrot,:])
+        return mat - mat.T
 
