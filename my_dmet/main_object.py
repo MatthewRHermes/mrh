@@ -198,11 +198,12 @@ class dmet:
                     jumpsquare += frag.norbs_frag
         return theH1
         
-    def doexact( self, chempot_frag=0.0):  
+    def doexact( self, chempot_frag=0.0, frag_constrained_casscf=False ):  
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
         self.energy = 0.0												
 
         for frag in self.fragments:
+            frag.frag_constrained_casscf = frag_constrained_casscf
             frag.solve_impurity_problem (chempot_frag)
             self.energy += frag.E_frag
 
@@ -435,10 +436,6 @@ class dmet:
             assert( len (self.fragments) == 1 )		
             print("-----NOTE: CASCI or Single embedding is used-----")				
             self.energy = self.fragments[0].E_imp
-        for frag in self.fragments:
-            #if frag.imp_solver_name == 'CASSCF':
-            frag.impurity_molden ('natorb_end', natorb=True)
-            frag.impurity_molden ('imporb_end')
         if self.debug_energy:
             debug_Etot (self)
         
@@ -516,12 +513,14 @@ class dmet:
         for itertype, iteridx in iters:
             print ("{0} iteration {1}".format (itertype, iteridx))
 
+        # Iterate on chemical potential
         if self.CC_E_TYPE == 'CASCI' or self.noselfconsistent:
             self.mu_imp = 0.0
             self.doexact (self.mu_imp)
         else:
             self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp, tol=1e-6 )
             print ("   Chemical potential =", self.mu_imp)
+        self.doexact (self.mu_imp, frag_constrained_casscf=True)
         
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         try:
@@ -532,6 +531,9 @@ class dmet:
         print ("Whole-molecule active-space orbital shift = {0}".format (orb_diff))
         if self.ofc_embedding == False:
             orb_diff = 0 # Do only 1 iteration
+        for frag in self.fragments:
+            frag.impurity_molden ('natorb', natorb=True)
+            frag.impurity_molden ('imporb')
 
         return orb_diff 
         

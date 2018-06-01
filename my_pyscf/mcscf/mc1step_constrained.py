@@ -131,7 +131,7 @@ class CASSCF(mc1step.CASSCF):
 
         mo_coeff = self.project_init_guess (mo_coeff)
 
-        molden.from_mo (self.mol, 'init.molden', mo_coeff, occ=self._scf.mo_occ)
+        #molden.from_mo (self.mol, 'init.molden', mo_coeff, occ=self._scf.mo_occ)
         self.mo_coeff = mo_coeff
 
         return mc1step.CASSCF.kernel (self, mo_coeff=mo_coeff, ci0=ci0, callback=callback, _kern=_kern)
@@ -139,7 +139,7 @@ class CASSCF(mc1step.CASSCF):
     def build_casrot (self, cas_ao=None):
         if cas_ao is None:
             cas_ao = self.cas_ao
-        nao = self.mol.nao_nr ()
+        nao = self._scf.get_ovlp ().shape[1]
         x = np.zeros (nao, np.bool_)
         x[cas_ao] = True
         cas_ao = x
@@ -231,7 +231,7 @@ class CASSCF(mc1step.CASSCF):
         mo_energy[nocc:] += 100
         casdm1 = np.diag (mo_occ[ncore:nocc])
         self._scf.build_frozen_from_mo (mo_coeff, ncore, ncas)
-        molden.from_mo (self.mol, 'scf_before.molden', mo_coeff, occ=mo_occ, ene=mo_energy)
+        #molden.from_mo (self.mol, 'scf_before.molden', mo_coeff, occ=mo_occ, ene=mo_energy)
         self._scf.diis = None
         dm0 = hf.make_rdm1 (mo_coeff, mo_occ)
         self._scf.kernel (dm0)
@@ -241,7 +241,7 @@ class CASSCF(mc1step.CASSCF):
         mo_energy = np.copy (self._scf.mo_energy)
         mo_energy[:ncore] -= 100
         mo_energy[nocc:] += 100
-        molden.from_mo (self.mol, 'scf_after.molden', self._scf.mo_coeff, occ=self._scf.mo_occ, ene=mo_energy)
+        #molden.from_mo (self.mol, 'scf_after.molden', self._scf.mo_coeff, occ=self._scf.mo_occ, ene=mo_energy)
         assert (abs (err) < 1e-10), "{0}".format (amo_ovlp)
         assert (np.allclose (self._scf.mo_coeff[~cas_ao,ncore:nocc], 0))
 

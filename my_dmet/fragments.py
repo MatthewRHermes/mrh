@@ -6,7 +6,7 @@ import numpy as np
 import scipy as sp 
 from pyscf import gto, scf
 from pyscf.tools import molden
-from mrh.my_dmet import chemps2, pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper
+from mrh.my_dmet import pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper#, chemps2
 from mrh.util import params
 from mrh.util.basis import *
 from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2CDM, get_2CDM_from_2RDM
@@ -57,7 +57,7 @@ class fragment_object:
 
         # Assign solver function
         solver_function_map = {
-            "ED"     : chemps2.solve ,
+#            "ED"     : chemps2.solve ,
             "RHF"    : pyscf_rhf.solve ,
             "MP2"    : pyscf_mp2.solve ,
             "CC"     : pyscf_cc.solve ,
@@ -115,6 +115,7 @@ class fragment_object:
         self.Schmidt_done = False
         self.impham_built = False
         self.imp_solved   = False
+        self.frag_constrained_casscf = False
 
         # Report
         print ("Constructed a fragment of {0} orbitals for a system with {1} total orbitals".format (self.norbs_frag, self.norbs_tot))
@@ -341,7 +342,13 @@ class fragment_object:
         self.norbs_imp = norbs_iimp + self.norbs_as
         loc2imp        = np.append (loc2iimp, self.loc2amo, axis=1)
         assert (is_basis_orthonormal (loc2imp))
-        self.loc2emb   = get_complete_basis (loc2imp)
+
+        # Reorder impurity orbitals so that fragments are at the top, as much as possible
+        proj = np.dot (loc2imp[self.frag_orb_list,:].conjugate ().T, loc2imp[self.frag_orb_list,:])
+        evals, u_imp = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
+        assert (np.logical_and (np.allclose (evals[:self.norbs_frag], 1), np.allclose (evals[self.norbs_frag:], 0))), evals
+        loc2imp = np.dot (loc2imp, u_imp)
+        self.loc2emb = get_complete_basis (loc2imp)
 
         # Add other-fragment active-space RDMs to core RDMs
         self.oneRDMfroz_loc += sum([ofrag.oneRDMas_loc for ofrag in other_frags])

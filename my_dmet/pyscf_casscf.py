@@ -34,6 +34,8 @@ from mrh.util.basis import represent_operator_in_basis, project_operator_into_su
 from mrh.util.basis import is_basis_orthonormal, get_overlapping_states, is_basis_orthonormal_and_complete, compute_nelec_in_subspace
 from mrh.util.rdm import get_2CDM_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
+from mrh.my_pyscf import mcscf as my_mcscf
+from mrh.my_pyscf.scf import hf_as
 from functools import reduce
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
@@ -105,10 +107,12 @@ def solve (frag, guess_1RDM, chempot_imp):
     # I'm going to need to keep some representation of the active-space orbitals
     norbs_amo = mc.ncas
     norbs_cmo = mc.ncore
-    nelec_amo = mc.nelecas    
-    imp2mo = mc.mo_coeff #mc.cas_natorb()[0]
-    frag.loc2mo = np.dot (frag.loc2imp, imp2mo)
-    frag.loc2amo = np.copy (frag.loc2mo[:,norbs_cmo:norbs_cmo+norbs_amo])
+    nelec_amo = mc.nelecas
+    norbs_occ = norbs_amo + norbs_cmo
+    imp2mo = np.copy (mc.mo_coeff) #mc.cas_natorb()[0]
+    loc2mo = np.dot (frag.loc2imp, imp2mo)
+    imp2amo = imp2mo[:,norbs_cmo:norbs_occ]
+    loc2amo = loc2mo[:,norbs_cmo:norbs_occ]
 
     # oneRDM
     oneRDM_imp = mc.make_rdm1 ()
@@ -116,7 +120,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     # twoCDM
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, norbs_amo, nelec_amo)
     twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
-    twoCDM_imp = represent_operator_in_basis (twoCDM_amo, frag.amo2imp)
+    twoCDM_imp = represent_operator_in_basis (twoCDM_amo, imp2amo.conjugate ().T)
 
     # General impurity data
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
@@ -124,86 +128,65 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.E_imp      = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
 
     # Active-space RDM data
-    oneRDM_amo, twoCDM_amo = get_fragcasci (frag, mf, mc, oneRDM_imp, chempot_imp)
-    frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, frag.amo2loc))
+    if (frag.frag_constrained_casscf):
+        oneRDM_amo, twoCDM_amo, _, loc2amo = get_fragcasscf (frag, mf, loc2mo)
+    frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, loc2amo.conjugate ().T))
     frag.twoCDMimp_amo = twoCDM_amo
+    frag.loc2mo = loc2mo
+    frag.loc2amo = loc2amo
+
+
+    '''
+    mol = frag.ints.mol.copy ()
+    mol.nelectron = frag.nelec_imp
+    no_coeffs, _, no_occ = mc.cas_natorb ()
+    loc2no = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, no_coeffs])
+    molden.from_mo (mol, 'test_casscf.molden', loc2no, occ=no_occ)
+    '''
 
     return None
 
-def get_fragcasci (frag, mf, mc, oneRDM_imp, chempot_imp):
+def get_fragcasscf (frag, mf, loc2mo):
 
     norbs_amo = frag.active_space[1]
     nelec_amo = frag.active_space[0]
+    mo = np.dot (frag.imp2loc, loc2mo)
+
+    mf2 = hf_as.RHF(mf.mol)
+    mf2.wo_coeff = np.eye (mf.get_ovlp ().shape[0])
+    mf2.get_hcore = lambda *args: mf.get_hcore ()
+    mf2.get_ovlp = lambda *args: mf.get_ovlp ()
+    mf2._eri = mf._eri
+    mf2.scf(mf.make_rdm1 ())
+
+    mc = my_mcscf.constrCASSCF (mf2, norbs_amo, nelec_amo, cas_ao=list(range(frag.norbs_frag)))
     norbs_cmo = mc.ncore
     norbs_occ = norbs_cmo + norbs_amo
-    imp2amo = np.copy (mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas])
-    Projamo_imp = np.dot (imp2amo, imp2amo.conjugate ().T)
-    mf_fock = mf.get_fock ()
+    t_start = time.time ()
+    E_fragCASSCF = mc.kernel (mo)[0]
+    E_fragCASSCF = mc.kernel ()[0]
+    t_end = time.time ()
+    assert (mc.converged)
+    print('Impurity fragCASSCF energy (incl chempot): {0}; time to solve: {1}'.format (frag.impham_CONST + E_fragCASSCF, t_end - t_start))
 
-    # Project amos onto fragment
-    imp2amo = get_overlapping_states (frag.imp2frag, imp2amo)[0] 
-    amo_occ = np.einsum ('ip,ij,jp->p', imp2amo.conjugate (), oneRDM_imp, imp2amo)
-    amo_energy = np.einsum ('ip,ij,jp->p', imp2amo.conjugate (), mf_fock, imp2amo)
+    casci = mcscf.CASCI (mf2, norbs_amo, nelec_amo)
+    E_testfragCASSCF = casci.kernel (mc.mo_coeff)[0]
+    assert (abs (E_testfragCASSCF - E_fragCASSCF) < 1e-8), E_testfragCASSCF
 
-    # Get proper core and virtuals from the mean-field fock matrix (Note: this is not self-consistent.  It should be)
-    imp2imo = get_complementary_states (imp2amo)
-    imo_energy, evecs = matrix_eigen_control_options (represent_operator_in_basis (mf_fock, imp2imo), sort_vecs=1)
-    imp2imo = np.dot (imp2imo, evecs)
-    imo_occ = np.einsum ('ip,ij,jp->p', imp2imo.conjugate (), oneRDM_imp, imp2imo)
+    loc2mo = np.dot (frag.loc2imp, mc.mo_coeff)
+    loc2amo = loc2mo[:,norbs_cmo:norbs_occ]
 
-    cmo_occ = imo_occ[:norbs_cmo]
-    cmo_energy = imo_energy[:norbs_cmo]
-    imp2cmo = imp2imo[:,:norbs_cmo]
+    '''
+    mol = frag.ints.mol.copy ()
+    mol.nelectron = frag.nelec_imp
+    imp2no, _, no_occ = mc.cas_natorb ()
+    loc2no = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2no])
+    molden.from_mo (mol, 'test_fragcasscf.molden', loc2no, occ=no_occ)
+    '''
 
-    vmo_occ = imo_occ[norbs_cmo:]
-    vmo_energy = imo_energy[norbs_cmo:]
-    imp2vmo = imp2imo[:,norbs_cmo:]
-
-    mo_occ = np.concatenate ([cmo_occ, amo_occ, vmo_occ])
-    imp2mo = np.concatenate ([imp2cmo, imp2amo, imp2vmo], axis=1)
-    mo_energy = np.concatenate ([cmo_energy, amo_energy, vmo_energy])
-
-    assert (is_basis_orthonormal_and_complete (imp2mo))
-
-    #mo_actwt = np.einsum ('ip,ij,jp->p', imp2mo.conjugate (), Projamo_imp, imp2mo)
-    #mo_mcenergy = np.einsum ('ip,ij,jp->p', imp2mo.conjugate (), mc.get_fock (), imp2mo)
-    #analyze_fragcasci_basis (frag, oneRDM_imp, imp2mo, mo_occ, mo_energy, mo_mcenergy, mo_actwt, norbs_cmo, norbs_amo, nelec_amo)
-
-    # Do constrained CASSCF with active orbitals frozen!
-    
-    caslist = list(range(norbs_cmo,norbs_occ))
-    casci = mcscf.CASSCF (mf, norbs_amo, nelec_amo, frozen=caslist)
-    E_CASCI = casci.kernel(imp2mo)[0]
-    
-    # Compare energies
-    oneRDM_imp = casci.make_rdm1 ()
-    E_imp_CASCI = frag.impham_CONST + E_CASCI + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)    
-    print ("E_imp(CASSCF) = {:.5f} ; E_imp(fragCASCI) = {:.5f}".format (frag.E_imp, E_imp_CASCI))
-
-    oneRDM_amo, twoRDM_amo = casci.fcisolver.make_rdm12 (casci.ci, casci.ncas, casci.nelecas)
+    oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, norbs_amo, nelec_amo)
     twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
-
-    return oneRDM_amo, twoCDM_amo
-
-
-def analyze_fragcasci_basis (frag, oneRDM_imp, imp2mo, mo_occ, mo_mfenergy, mo_mcenergy, mo_actwt, norbs_cmo, norbs_amo, nelec_amo):
-    print ("CASCI({},{}) basis from CASSCF:".format (nelec_amo, norbs_amo))
-    print ("{:>8s} {:>6s} {:>8s} {:>8s} {:>6s}".format ('Type', 'Occ', 'MFEnergy', 'MCEnergy', 'ActWt'))
-    norbs_occ = norbs_cmo + norbs_amo
-    norbs_vmo = len (mo_occ) - norbs_occ
-    types = ['core' for i in range(norbs_cmo)] + ['active' for i in range(norbs_amo)] + ['virtual' for i in range(norbs_vmo)]
-    for t, occ, mfene, mcene, actwt in zip (types, mo_occ, mo_mfenergy, mo_mcenergy, mo_actwt):
-        print ("{:>8s} {:6.3f} {:8.3f} {:8.3f} {:6.3f}".format (t, occ, mfene, mcene, actwt))
-    imp2cmo = imp2mo[:,:norbs_cmo]
-    imp2amo = imp2mo[:,norbs_cmo:norbs_occ]
-    nelec_cmo = compute_nelec_in_subspace (oneRDM_imp, imp2cmo)
-    nelec_amo = compute_nelec_in_subspace (oneRDM_imp, imp2amo)
-    print ("{0} electrons in fragCASCI core space according to CASSCF".format (nelec_cmo))
-    print ("{0} electrons in fragCASCI active space according to CASSCF".format (nelec_amo))
-    mol = frag.ints.mol
-    filename = "fragcasci.molden"
-    orbs = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
-    molden.from_mo (mol, filename, orbs, occ=mo_occ)
+    return oneRDM_amo, twoCDM_amo, loc2mo, loc2amo
     
 
 

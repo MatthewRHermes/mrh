@@ -133,7 +133,7 @@ class RHF(hf.RHF):
         return self.wo_coeff[:,self.ncore:self.ncore+self.nfroz]
 
     def get_ufo_coeff (self):
-        idx = np.zeros (self.mol.nao_nr (), np.bool_)
+        idx = np.zeros (self.wo_coeff.shape[1], np.bool_)
         idx[:self.ncore] = True
         idx[self.ncore+self.nfroz:] = True
         return self.wo_coeff[:,idx]
@@ -207,12 +207,12 @@ class RHF(hf.RHF):
         ncore = mf.ncore  
         nocc = mf.ncore + mf.nfroz
 
-        if cycle >= 0 and diis is not None:
+        #if cycle >= 0 and diis is not None:
         # I still don't know how to fix the diis here...
-            f = reduce (np.dot, [mf.wo_coeff.conjugate ().T, f, mf.wo_coeff])
-            f[:ncore,ncore:nocc] = f[nocc:,ncore:nocc] = f[ncore:nocc,:ncore] = f[ncore:nocc,nocc:] = 0
-            f[ncore:nocc,ncore:nocc] = np.diag (np.diag (f[ncore:nocc,ncore:nocc]))
-            f = reduce (np.dot, [mf.wo_coeff, f, mf.wo_coeff.conjugate ()])
+            #f = reduce (np.dot, [mf.wo_coeff.conjugate ().T, f, mf.wo_coeff])
+            #f[:ncore,ncore:nocc] = f[nocc:,ncore:nocc] = f[ncore:nocc,:ncore] = f[ncore:nocc,nocc:] = 0
+            #f[ncore:nocc,ncore:nocc] = np.diag (np.diag (f[ncore:nocc,ncore:nocc]))
+            #f = reduce (np.dot, [mf.wo_coeff, f, mf.wo_coeff.conjugate ()])
         
         return hf.get_fock (mf, h1e=h1e, s1e=s1e, vhf=vhf, dm=dm, 
                 cycle=cycle, diis=diis, diis_start_cycle=diis_start_cycle,
