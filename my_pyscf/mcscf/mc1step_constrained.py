@@ -4,6 +4,7 @@ MRH: In which I attempt to modify the pyscf MC-SCF class(es) to allow arbitrary 
 
 import numpy as np
 import scipy as sp
+from pyscf.lib import logger
 from pyscf.lo.orth import orth_ao
 from pyscf.scf import hf
 from pyscf.mcscf import mc1step, addons
@@ -20,11 +21,52 @@ def orth_orb (orb, ovlp):
     idx = evals>1e-10
     return np.dot (orb, evecs[:,idx]) / np.sqrt (evals[idx])
 
+def _get_u_casrot (mo, casrot, ovlp, ncore, ncas, ncasrot):
+    ''' Obtain a unitary matrix for transforming from the mo basis to the casrot basis.
+    The first ncas columns (block 1) span the active mos , the next ncasrot - ncas columns (block 2)
+    are the orbitals the amos are allowed to rotate in to in descending order of their entanglement
+    with the final nmo - ncasrot columns (block 3). An SVD diagonalizes the density matrices inside
+    blocks 2 and 3, but does not sort them by occupancy. Also returns the occupancy by core electrons.'''
+
+    mo2casrot = reduce (np.dot, [mo.conjugate ().T, ovlp, casrot])
+    nocc = ncore + ncas
+    nmo = mo.shape[1]
+
+    # block 1
+    proj = np.dot (mo2casrot[ncore:nocc,:ncasrot].conjugate ().T, mo2casrot[ncore:nocc,:ncasrot])
+    evals, evecs = sp.linalg.eigh (proj)
+    idx = evals.argsort ()[::-1]
+    assert (np.all (np.logical_or (np.isclose (evals, 1), np.isclose (evals, 0))))
+    mo2casrot[:,:ncasrot] = np.dot (mo2casrot[:,:ncasrot], evecs[:,idx])
+
+    # block 2
+    coredm1 = 2 * np.dot (mo2casrot[:ncore,:].conjugate ().T, mo2casrot[:ncore,:])
+    block2_mat = np.dot (coredm1[ncas:ncasrot,ncasrot:], coredm1[ncasrot:,ncas:ncasrot])
+    evals, evecs = sp.linalg.eigh (block2_mat)
+    idx = evals.argsort ()[::-1]
+    test_evals = np.append (evals[idx], np.zeros (nmo - ncasrot - evals.size))
+    mo2casrot[:,ncas:ncasrot] = np.dot (mo2casrot[:,ncas:ncasrot], evecs[:,idx])
+
+    # Make block 3
+    block3_mat = np.dot (coredm1[ncasrot:,ncas:ncasrot], coredm1[ncas:ncasrot,ncasrot:])
+    evals, evecs = sp.linalg.eigh (block3_mat)
+    idx = evals.argsort ()[::-1]
+    evals = evals[idx]
+    assert (np.all (np.isclose (evals, test_evals)))
+    mo2casrot[:,ncasrot:] = np.dot (mo2casrot[:,ncasrot:], evecs[:,idx])
+
+    # Get occupancy  
+    coreoccs = 2 * np.einsum ('ip,ip->p', mo2casrot[:ncore,:].conjugate (), mo2casrot[:ncore,:])
+    assert (abs (np.sum (coreoccs) - 2*ncore) < 1e-10), "{} {}".format (2*ncore, np.sum (coreoccs))
+    return mo2casrot, coreoccs
+
+
 def rotate_orb_cc_wrapper (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, x0_guess=None,
                   conv_tol_grad=1e-4, max_stepsize=None, verbose=None):
     ncore = casscf.ncore
     ncas = casscf.ncas
     ncasrot = casscf.ncasrot
+    nelectron = casscf.mol.nelectron
     nocc = ncore + ncas
 
     # Test to make sure the orbitals never leave the proper space
@@ -32,17 +74,8 @@ def rotate_orb_cc_wrapper (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, x0_guess=
     err = np.linalg.norm (mo[~cas_ao,ncore:nocc])
     assert (abs (err) < 1e-10), err
 
-    ovlp_ao = casscf._scf.get_ovlp ()    
-    mo2casrot = reduce (np.dot, [mo.conjugate ().T, ovlp_ao, casscf.casrot_coeff])
-    a2c = mo2casrot[ncore:nocc,:ncasrot]
-    proj = np.dot (a2c.conjugate ().T, a2c)
-    evals, evecs = sp.linalg.eigh (proj)
-    assert (np.all (np.logical_or (np.isclose (evals, 1), np.isclose (evals, 0))))
-    idx = evals.argsort ()[::-1]
-    evals = evals[idx]
-    evecs = evecs[:,idx]
-    mo2casrot[:,:ncasrot] = np.dot (mo2casrot[:,:ncasrot], evecs)
-    casscf._u_casrot = mo2casrot
+    # Make _u_casrot
+    casscf._u_casrot, casscf._crocc = casscf.get_u_casrot (mo)
 
     rota = mc1step.rotate_orb_cc (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, 
             x0_guess=x0_guess, conv_tol_grad=conv_tol_grad, max_stepsize=max_stepsize, 
@@ -51,7 +84,7 @@ def rotate_orb_cc_wrapper (casscf, mo, fcivec, fcasdm1, fcasdm2, eris, x0_guess=
         casscf.get_fock (mo_coeff=mo, ci=fcivec, eris=eris, casdm1=fcasdm1(), verbose=verbose),
         mo])
     for u_mo, g_orb, njk, r0 in rota:
-        ''' This is not very efficient, because it doesn't really take effect until the last microcycle, but I don't know what else to do '''
+        ''' This is not very efficient, because it constitutes a sort of rectangular taxicab descent on the orbital surface, but at least it's stable '''
         idx = np.zeros(mo.shape[0], dtype=np.bool_)
         idx[:ncore] = True
         idx[nocc:] = True
@@ -105,6 +138,8 @@ class CASSCF(mc1step.CASSCF):
         self.casrot_coeff = None
         self.ncasrot = None
         assert (isinstance (mf, hf_as.RHF))
+        if frozen is not None:
+            raise NotImplementedError ("frozen mos in a constrained CASSCF context")
         mc1step.CASSCF.__init__(self, mf, ncas, nelecas, ncore, frozen)
 
     def kernel (self, mo_coeff=None, ci0=None, cas_ao=None, callback=None, _kern=mc1step.kernel):
@@ -120,6 +155,9 @@ class CASSCF(mc1step.CASSCF):
         Parent class documentation follows:
 
         ''' + mc1step.CASSCF.kernel.__doc__
+
+        if self.frozen is not None:
+            raise NotImplementedError ("frozen mos in a constrained CASSCF context")
 
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
@@ -222,26 +260,20 @@ class CASSCF(mc1step.CASSCF):
         mo_energy[ncore:nocc] = amo_energy
         mo_coeff[:,ncore:nocc] = amo_coeff
 
+        # fc-scf to get the correct core
         nelecb = self.mol.nelectron // 2
         neleca = nelecb + (self.mol.nelectron % 2)
         mo_occ = np.zeros (mo_coeff.shape[1])
         mo_occ[:neleca] += 1
         mo_occ[:nelecb] += 1
-        mo_energy[:ncore] -= 100
-        mo_energy[nocc:] += 100
         casdm1 = np.diag (mo_occ[ncore:nocc])
         self._scf.build_frozen_from_mo (mo_coeff, ncore, ncas)
-        #molden.from_mo (self.mol, 'scf_before.molden', mo_coeff, occ=mo_occ, ene=mo_energy)
         self._scf.diis = None
         dm0 = hf.make_rdm1 (mo_coeff, mo_occ)
         self._scf.kernel (dm0)
         amo_ovlp = reduce (np.dot, [mo_coeff[:,ncore:nocc].conjugate ().T, ovlp_ao, self._scf.mo_coeff[:,ncore:nocc]])
         amo_ovlp = np.dot (amo_ovlp, amo_ovlp.conjugate ().T)
         err = np.trace (amo_ovlp) - ncas
-        mo_energy = np.copy (self._scf.mo_energy)
-        mo_energy[:ncore] -= 100
-        mo_energy[nocc:] += 100
-        #molden.from_mo (self.mol, 'scf_after.molden', self._scf.mo_coeff, occ=self._scf.mo_occ, ene=mo_energy)
         assert (abs (err) < 1e-10), "{0}".format (amo_ovlp)
         assert (np.allclose (self._scf.mo_coeff[~cas_ao,ncore:nocc], 0))
 
@@ -249,32 +281,42 @@ class CASSCF(mc1step.CASSCF):
 
     rotate_orb_cc = rotate_orb_cc_wrapper
 
+    def get_u_casrot (self, mo=None, casrot=None, ovlp=None):
+        if mo is None:
+            mo = self.mo_coeffs
+        if ovlp is None:
+            ovlp = self._scf.get_ovlp ()
+        if casrot is None:
+            casrot = self.casrot_coeff
+
+        return _get_u_casrot (mo, casrot, ovlp, self.ncore, self.ncas, self.ncasrot)
+
+    def uniq_var_indices (self):
+        # Most essential: active to casrot
+        nmo = self.casrot_coeff.shape[1]
+        ncas = self.ncas
+        ncasrot = self.ncasrot
+        mask = np.zeros ((nmo,nmo), dtype=np.bool_)
+        mask[ncas:ncasrot,:ncas] = True
+        # Can I add others to get occ-vir rotation without spoiling it?
+        return mask
+
     def pack_uniq_var (self, rot):
         u = self._u_casrot
         uH = u.conjugate ().T
-        nmo = rot.shape[0]
-        ncas = self.ncas
-        ncore = self.ncore
-        nocc = ncore + ncas
-        ncasrot = self.ncasrot
-        #Active space
-        rot = np.dot (rot[ncore:nocc,:], u)[:,ncas:ncasrot].ravel ()
-        return rot 
+        rot = reduce (np.dot, [uH, rot, u])
+        idx = self.uniq_var_indices ()
+        #rot = np.dot (rot[ncore:nocc,:], u[:,ncas:ncasrot]).ravel ()
+        return rot[idx]
 
     def unpack_uniq_var (self, rot):
         u = self._u_casrot
         uH = u.conjugate ().T
         nmo = self.casrot_coeff.shape[1]
-        ncas = self.ncas
-        ncore = self.ncore
-        nocc = ncore + ncas
-        nvirt = nmo - nocc
-        ncasrot = self.ncasrot
-        n1 = ncas * (ncasrot - ncas)
-        # Active space
-        rot = rot[:n1].reshape (ncas, ncasrot - ncas)
         mat = np.zeros ((nmo,nmo), dtype=u.dtype)
-        mat[ncore:nocc,ncas:ncasrot] = rot
-        mat[ncore:nocc,:] = np.dot (mat[ncore:nocc,:ncasrot], uH[:ncasrot,:])
-        return mat - mat.T
+        idx = self.uniq_var_indices ()
+        mat[idx] = rot
+        mat = mat - mat.T
+        mat = reduce (np.dot, [u, mat, uH])
+        return mat
 
