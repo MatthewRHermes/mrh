@@ -299,6 +299,14 @@ class CASSCF(mc1step.CASSCF):
         mask = np.zeros ((nmo,nmo), dtype=np.bool_)
         mask[ncas:ncasrot,:ncas] = True
         # Can I add others to get occ-vir rotation without spoiling it?
+        # Yes I can, but this ~slows it down~ somehow! (At least it doesn't break it, but I'm not sure it's doing anything?)
+        idx_unocc1 = np.isclose (self._crocc, 0)
+        idx_occ1 = ~idx_unocc1
+        idx_occ2, idx_unocc2 = np.copy (idx_occ1), np.copy (idx_unocc1)
+        idx_occ1[ncasrot:] = idx_unocc1[ncasrot:] = False
+        idx_occ2[:ncasrot] = idx_unocc2[:ncasrot] = False
+        mask[np.ix_(idx_occ1,idx_unocc1)] = True
+        mask[np.ix_(idx_occ2,idx_unocc2)] = True
         return mask
 
     def pack_uniq_var (self, rot):
