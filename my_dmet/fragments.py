@@ -346,7 +346,6 @@ class fragment_object:
         # Reorder impurity orbitals so that fragments are at the top, as much as possible
         proj = np.dot (loc2imp[self.frag_orb_list,:].conjugate ().T, loc2imp[self.frag_orb_list,:])
         evals, u_imp = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
-        assert (np.logical_and (np.allclose (evals[:self.norbs_frag], 1), np.allclose (evals[self.norbs_frag:], 0))), evals
         loc2imp = np.dot (loc2imp, u_imp)
         self.loc2emb = get_complete_basis (loc2imp)
 

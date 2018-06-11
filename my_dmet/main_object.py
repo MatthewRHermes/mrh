@@ -34,7 +34,7 @@ class dmet:
 
     def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
                     doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', minFunc='FOCK_INIT', wma_options=False, print_u=True,
-                    print_rdm=True, ofc_embedding=False, debug_energy=False, noselfconsistent=False):
+                    print_rdm=True, ofc_embedding=False, debug_energy=False, noselfconsistent=False, do_constrCASSCF=False):
 
         if isTranslationInvariant:
             raise RuntimeError ("The translational invariance option doesn't work!  It needs to be completely rebuilt!")
@@ -63,6 +63,7 @@ class dmet:
         self.ofc_embedding    = ofc_embedding
         self.debug_energy     = debug_energy
         self.noselfconsistent = noselfconsistent
+        self.do_constrCASSCF  = do_constrCASSCF
         if self.noselfconsistent:
             SCmethod = 'NONE'
         for frag in self.fragments:
@@ -520,7 +521,8 @@ class dmet:
         else:
             self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp, tol=1e-6 )
             print ("   Chemical potential =", self.mu_imp)
-        self.doexact (self.mu_imp, frag_constrained_casscf=True)
+        if self.do_constrCASSCF:
+            self.doexact (self.mu_imp, frag_constrained_casscf=True)
         
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         try:

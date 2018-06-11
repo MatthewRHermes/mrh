@@ -262,8 +262,8 @@ def _subst_actv_vec_rdm (term: Term, rdm: IndexedBase, actv_range, op_parser, re
     actv_parsed = [p for r, p in zip (ranges, parsed) if r==actv_range]
     amp = term.amp
     if len (actv_parsed) > 0:
-        actv_cr_idxs = sum([list(p[2]) for p in actv_parsed if p[1]==CR], [])
-        actv_an_idxs = sum([list(p[2]) for p in reversed (actv_parsed) if p[1]==AN], [])
+        actv_cr_idxs = sum([[p[2][0]] for p in actv_parsed if p[1]==CR], [])
+        actv_an_idxs = sum([[p[2][0]] for p in reversed (actv_parsed) if p[1]==AN], [])
         actv_idxs = actv_cr_idxs + actv_an_idxs
         amp = amp * rdm[actv_idxs]
     return Term (term.sums, amp, inac_vecs)
