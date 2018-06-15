@@ -118,60 +118,16 @@ def examine_ifrag_olap (dmet_obj):
                 raise RuntimeError ("{0} quasi-fragment basis not orthonormal?? Overlap=\n{1}".format (
                     f1.frag_name, np.dot (f1.imp2loc[:f1.norbs_frag,:],f1.loc2imp[:,:f1.norbs_frag])))
 
-def compare_basis_to_loc (loc2bas, frags, nlead=3, quiet=False):
-    nfrags = len (frags)
-    norbs_tot, norbs_bas = loc2bas.shape
-    if norbs_bas == 0:
-        return np.zeros (nfrags), loc2bas
-    my_dtype  = sum ([[('weight{0}'.format (i), 'f8'), ('frag{0}'.format (i), 'U3')] for i in range (nfrags)], [])
-    my_dtype += sum ([[('coeff{0}'.format (i), 'f8'), ('coord{0}'.format (i), 'U9')] for i in range (nlead)],  [])
-    analysis = np.array ([ sum (((0, '-') for j in range (len (my_dtype) // 2)), tuple()) for i in range (norbs_bas) ], dtype=my_dtype)
-    bas_weights   = np.asarray ([np.diag (represent_operator_in_basis (np.diag (f.is_frag_orb.astype (int)), loc2bas)) for f in frags]).T
-    bas_frags_idx = np.argsort (bas_weights, axis=1)[:,::-1]
-    bas_weights   = np.sort    (bas_weights, axis=1)[:,::-1]
-    for j in range (nfrags):
-        analysis['weight{0}'.format (j)] = bas_weights[:,j]
-        analysis['frag{0}'.format (j)] = [frags[i].frag_name for i in bas_frags_idx[:,j]]
-
-    def find_frag_fragorb (loc_orbs):
-        thefrag     = [np.where ([f.is_frag_orb[i] for f in frags])[0][0] for i in loc_orbs]
-        thefragorb  = [np.where (frags[i].frag_orb_list == j)[0][0] for i, j in zip (thefrag, loc_orbs)]
-        thefragname = [frags[i].frag_name for i in thefrag]
-        thestring = ['{:d}:{:s}'.format (idx, name) for name, idx in zip (thefragname, thefragorb)]
-        return thestring
-
-    weights_idx0 = np.argsort (np.absolute (loc2bas), axis=0)[:-nlead-1:-1,:]
-    weights_idx1 = np.array ([range (norbs_bas) for i in range (nlead)])
-    leading_coeffs = loc2bas[weights_idx0,weights_idx1].T
-    overall_idx = np.argsort (weights_idx0[0,:])
-    for j in range (nlead):
-        analysis['coeff{0}'.format (j)] = leading_coeffs[:,j]
-        analysis['coord{0}'.format (j)] = find_frag_fragorb (weights_idx0[j,:])
-    analysis = analysis[overall_idx]
-
-    if quiet == False:
-        format_str = ' '.join (['{:' + str (len (name)) + 's}' for name in analysis.dtype.names])
-        print (format_str.format (*analysis.dtype.names))
-        format_str  = ' '.join (sum([['{:'  + str (len (analysis.dtype.names[2*i]))     + '.2f}', 
-                                      '{:>' + str (len (analysis.dtype.names[(2*i)+1])) + 's}']
-                                    for i in range (nfrags + nlead)], []))
-        for i in range (norbs_bas):
-            print (format_str.format (*analysis[i]))
-        print ("Worst fragment localization: {:.2f}".format (np.amin (analysis['weight0'])))
-
-    return np.array ([np.count_nonzero (analysis['frag0'] == f.frag_name) for f in frags]), loc2bas[:,overall_idx]
-
-
 def examine_wmcs (dmet_obj):
     loc2wmas = np.concatenate ([f.loc2amo for f in dmet_obj.fragments], axis=1)
     loc2wmcs = get_complementary_states (loc2wmas)
 
     print ("Examining whole-molecule active space:")
-    loc2wmas = compare_basis_to_loc (loc2wmas, dmet_obj.fragments)[1]
+    loc2wmas = dmet_obj.ints.compare_basis_to_loc (loc2wmas, dmet_obj.fragments, quiet=False)[0]
     norbs_wmas = np.array ([f.norbs_as for f in dmet_obj.fragments])
 
     print ("Examining whole-molecule core space:")
-    norbs_wmcs_before = compare_basis_to_loc (loc2wmcs, dmet_obj.fragments, quiet=True)[0]
+    norbs_wmcs_before = dmet_obj.ints.compare_basis_to_loc (loc2wmcs, dmet_obj.fragments, quiet=True)[1]
     norbs_before = norbs_wmas + norbs_wmcs_before
     ao2loc = dmet_obj.ints.ao2loc
     loc2ao = ao2loc.conjugate ().T
@@ -179,7 +135,7 @@ def examine_wmcs (dmet_obj):
     ao2wmcs_new = boys.Boys (dmet_obj.ints.mol, ao2wmcs).kernel ()
     aoOao_inv = np.linalg.inv (np.dot (ao2loc, loc2ao))
     loc2wmcs_new = reduce (np.dot, [loc2ao, aoOao_inv, ao2wmcs_new])
-    norbs_wmcs_after, loc2wmcs_new = compare_basis_to_loc (loc2wmcs_new, dmet_obj.fragments)
+    loc2wmcs_new, norbs_wmcs_after = dmet_obj.ints.compare_basis_to_loc (loc2wmcs_new, dmet_obj.fragments, quiet=False)
     norbs_after = norbs_wmas + norbs_wmcs_after
 
     loc2new = np.append (loc2wmas, loc2wmcs_new, axis=1)
@@ -200,7 +156,8 @@ def examine_wmcs (dmet_obj):
         ao2imp = np.dot (ao2loc, frag.loc2imp)
         ao2imp_new = boys.Boys (dmet_obj.ints.mol, ao2imp).kernel ()
         loc2imp_new = reduce (np.dot, [loc2ao, aoOao_inv, ao2imp_new])
-        norbs_imp = compare_basis_to_loc (loc2imp_new, dmet_obj.fragments)
+        norbs_imp = dmet_obj.ints.compare_basis_to_loc (loc2imp_new, dmet_obj.fragments, quiet=False)[1]
         print ("{0} fragment-localized impurity orbitals compared to {1} user-specified fragment orbitals".format (norbs_imp[idx], frag.norbs_frag))
     '''
 
+    

@@ -25,6 +25,7 @@ from pyscf.lib import numpy_helper as pyscf_np
 from mrh.my_dmet import rhf as wm_rhf
 from mrh.my_dmet import iao_helper
 import numpy as np
+import scipy
 from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
 from mrh.util.basis import represent_operator_in_basis, get_complementary_states 
@@ -32,6 +33,7 @@ from mrh.util.tensors import symmetrize_tensor
 from mrh.util import params
 from math import sqrt
 import itertools
+from functools import reduce
 
 class localintegrals:
 
@@ -89,6 +91,10 @@ class localintegrals:
             self.TI_OK = False # Check yourself if OK, then overwrite
             #self.molden( 'dump.molden' ) # Debugging mode
         assert( self.loc_ortho() < 1e-8 )
+
+        # Stored inverse overlap matrix
+        self.ao_ovlp = np.dot (self.ao2loc, self.ao2loc.conjugate ().T)
+        self.ao_ovlp_inv = scipy.linalg.inv (self.ao_ovlp)
         
         # Effective Hamiltonian due to frozen part
         self.frozenDMmo  = np.array( the_mf.mo_occ, copy=True )
@@ -301,4 +307,66 @@ class localintegrals:
             TEI  = ao2mo.outcore.general_iofree(self.mol, a2b_list, compact=False).reshape (*norbs)
 
         return TEI
+
+    def compare_basis_to_loc (self, loc2bas, frags, nlead=3, quiet=True):
+        nfrags = len (frags)
+        norbs_tot, norbs_bas = loc2bas.shape
+        if norbs_bas == 0:
+            return np.zeros (nfrags), loc2bas
+        my_dtype  = sum ([[('weight{0}'.format (i), 'f8'), ('frag{0}'.format (i), 'U3')] for i in range (nfrags)], [])
+        my_dtype += sum ([[('coeff{0}'.format (i), 'f8'), ('coord{0}'.format (i), 'U9')] for i in range (nlead)],  [])
+        analysis = np.array ([ sum (((0, '-') for j in range (len (my_dtype) // 2)), tuple()) for i in range (norbs_bas) ], dtype=my_dtype)
+        bas_weights   = np.asarray ([np.diag (represent_operator_in_basis (np.diag (f.is_frag_orb.astype (int)), loc2bas)) for f in frags]).T
+        bas_frags_idx = np.argsort (bas_weights, axis=1)[:,::-1]
+        bas_weights   = np.sort    (bas_weights, axis=1)[:,::-1]
+        for j in range (nfrags):
+            analysis['weight{0}'.format (j)] = bas_weights[:,j]
+            analysis['frag{0}'.format (j)] = [frags[i].frag_name for i in bas_frags_idx[:,j]]
+    
+        def find_frag_fragorb (loc_orbs):
+            thefrag     = [np.where ([f.is_frag_orb[i] for f in frags])[0][0] for i in loc_orbs]
+            thefragorb  = [np.where (frags[i].frag_orb_list == j)[0][0] for i, j in zip (thefrag, loc_orbs)]
+            thefragname = [frags[i].frag_name for i in thefrag]
+            thestring = ['{:d}:{:s}'.format (idx, name) for name, idx in zip (thefragname, thefragorb)]
+            return thestring
+    
+        weights_idx0 = np.argsort (np.absolute (loc2bas), axis=0)[:-nlead-1:-1,:]
+        weights_idx1 = np.array ([range (norbs_bas) for i in range (nlead)])
+        leading_coeffs = loc2bas[weights_idx0,weights_idx1].T
+        overall_idx = np.argsort (weights_idx0[0,:])
+        for j in range (nlead):
+            analysis['coeff{0}'.format (j)] = leading_coeffs[:,j]
+            analysis['coord{0}'.format (j)] = find_frag_fragorb (weights_idx0[j,:])
+        analysis = analysis[overall_idx]
+    
+        if quiet == False:
+            format_str = ' '.join (['{:' + str (len (name)) + 's}' for name in analysis.dtype.names])
+            print (format_str.format (*analysis.dtype.names))
+            format_str  = ' '.join (sum([['{:'  + str (len (analysis.dtype.names[2*i]))     + '.2f}',
+                                          '{:>' + str (len (analysis.dtype.names[(2*i)+1])) + 's}']
+                                        for i in range (nfrags + nlead)], []))
+            for i in range (norbs_bas):
+                print (format_str.format (*analysis[i]))
+            print ("Worst fragment localization: {:.2f}".format (np.amin (analysis['weight0'])))
+    
+        return loc2bas[:,overall_idx], np.array ([np.count_nonzero (analysis['frag0'] == f.frag_name) for f in frags])
+
+
+
+    def relocalize_states (self, loc2bas, fragments):
+        '''Do Boys localization on a subspace and assign resulting states to the various fragments using projection operators'''
+
+        ao2bas = boys.Boys (self.mol, np.dot (self.ao2loc, loc2bas)).kernel ()
+        loc2bas = reduce (np.dot, [self.ao2loc.conjugate ().T, self.ao_ovlp_inv, ao2bas])
+        
+        weights = np.asarray ([np.einsum ('ip,ip->p', loc2bas[f.frag_orb_list,:].conjugate (), loc2bas[f.frag_orb_list,:]) for f in fragments])
+        frag_assignments = np.argmax (weights, axis=0)
+
+        loc2bas_assigned = []        
+        for idx, frag in enumerate (fragments):
+            pick_orbs = (frag_assignments == idx)
+            print ("{} states found for fragment {}".format (np.count_nonzero (pick_orbs), frag.frag_name))
+            loc2bas_assigned.append (loc2bas[:,pick_orbs])
+        return loc2bas_assigned
+
 

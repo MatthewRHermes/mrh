@@ -9,7 +9,7 @@ from pyscf.tools import molden
 from mrh.my_dmet import pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper#, chemps2
 from mrh.util import params
 from mrh.util.basis import *
-from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2CDM, get_2CDM_from_2RDM
+from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2CDM, get_2CDM_from_2RDM, Schmidt_decompose_1RDM
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.my_math import is_close_to_integer
 from functools import reduce
@@ -54,6 +54,7 @@ class fragment_object:
         self.frag_name = name
         self.active_space = None
         self.idempotize_thresh = abs (idempotize_thresh)
+        self.incl_impcore_correlation = False
 
         # Assign solver function
         solver_function_map = {
@@ -144,11 +145,6 @@ class fragment_object:
 
     # Dependent attributes, never to be modified directly
     ###########################################################################################################################
-    @property
-    def loc2frag (self):
-        return np.eye (self.norbs_tot)[:,self.frag_orb_list]
-        #return self.loc2emb[:,:self.norbs_frag]
-
     @property
     def loc2imp (self):
         return self.loc2emb[:,:self.norbs_imp]
@@ -280,6 +276,9 @@ class fragment_object:
         loc2bath = get_complementary_states (loc2nonbath)
         return loc2bath
 
+    def get_true_loc2frag (self):
+        return np.eye (self.norbs_tot)[:,self.frag_orb_list]
+
     ############################################################################################################################
 
 
@@ -289,24 +288,36 @@ class fragment_object:
     ############################################################################################################################
     def restore_default_embedding_basis (self):
         idx                  = np.append (self.frag_orb_list, self.env_orb_list)
+        self.norbs_frag      = len (self.frag_orb_list)
         self.norbs_imp       = self.norbs_frag
+        self.loc2frag        = self.get_true_loc2frag ()
         self.loc2emb         = np.eye (self.norbs_tot)[:,idx]
         self.E2_frag_core    = 0
         self.twoCDMfroz_tbc  = []
         self.loc2tbc         = []
 
-    def do_Schmidt (self, oneRDM_loc, all_frags, do_ofc_embedding):
-        if do_ofc_embedding:
-            self.do_Schmidt_ofc_embedding (oneRDM_loc, all_frags)
-        else:
+    def set_new_fragment_basis (self, loc2frag):
+        self.loc2frag = loc2frag
+        self.loc2emb = np.eye (self.norbs_tot)
+        self.norbs_frag = loc2frag.shape[1]
+        self.norbs_imp = self.norbs_frag
+        self.E2_frag_core = 0
+        self.twoCDM_froz_tbc = []
+        self.loc2tbc = []
+
+    def do_Schmidt (self, oneRDM_loc, all_frags, loc2wmcs, mc_dmet_switch=0):
+        if mc_dmet_switch == 0:
             self.do_Schmidt_normal (oneRDM_loc)
+        elif mc_dmet_switch == 1:
+            self.do_Schmidt_ofc_embedding (oneRDM_loc, all_frags, loc2wmcs)
+        elif mc_dmet_switch == 2:
+            self.do_Schmidt_refragmentation (oneRDM_loc, all_frags, loc2wmcs)
         if self.impo_printed == False:
             self.impurity_molden ('imporb_begin')
             self.impo_printed = True
 
     def do_Schmidt_normal (self, oneRDM_loc):
         print ("Normal Schmidt decomposition of {0} fragment".format (self.frag_name))
-        self.restore_default_embedding_basis ()
         self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
             self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_bath
@@ -315,18 +326,14 @@ class fragment_object:
         self.imp_solved = False
         print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
 
-    def do_Schmidt_ofc_embedding (self, oneRDM_loc, all_frags):
+    def do_Schmidt_ofc_embedding (self, oneRDM_loc, all_frags, loc2wmcs):
+        ''' The essential feature of this one is that the impurity does not necessarily contain the entire fragment '''
         print ("Other-fragment-core Schmidt decomposition of {0} fragment".format (self.frag_name))
-        self.restore_default_embedding_basis ()
         other_frags = [frag for frag in all_frags if (frag is not self) and (frag.norbs_as > 0)]
-
-        # (Re)build the whole-molecule active and core spaces
-        loc2wmas = np.concatenate ([frag.loc2amo for frag in all_frags], axis=1)
-        loc2wmcs = get_complementary_states (loc2wmas)
 
         # Starting with Schmidt decomposition in the idempotent subspace
         oneRDMwmcs_loc      = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
-        loc2ifrag, _, svals = get_overlapping_states (loc2wmcs, self.loc2frag)
+        loc2ifrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())
         norbs_ifrag         = loc2ifrag.shape[1]
         assert (not np.any (svals > 1.0 + params.num_zero_atol)), "{0}".format (svals)
         print ("{0} fragment orbitals becoming {1} pseudo-fragment orbitals in idempotent subspace".format (self.norbs_frag, norbs_ifrag))
@@ -334,7 +341,6 @@ class fragment_object:
             loc2ifrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         norbs_iimp = norbs_ifrag + norbs_ibath
         loc2iimp   = loc2iemb[:,:norbs_iimp]
-        assert (is_matrix_zero (np.dot (loc2wmas.T, loc2iimp))), "{0}".format (np.dot (loc2wmas.T, loc2iimp))
 
         # Add this-fragment active-space orbitals from last iteration to the impurity
         print ("Adding {0} this-fragment active-space orbitals and {1} this-fragment active-space electrons to the impurity".format (self.norbs_as, self.nelec_as))
@@ -358,7 +364,53 @@ class fragment_object:
         assert (nelec_bleed < params.num_zero_atol), "Core electrons on the impurity! Overlapping active states?"
         print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
         self.Schmidt_done = True
+        self.purify_twoCDMfroz ()
         self.impham_built = False
+
+    def do_Schmidt_refragmentation (self, oneRDM_loc, all_frags, loc2wmcs):
+        print ("Refragmentation Schmidt decomposition of {0} fragment".format (self.frag_name))
+        # First, I should add as many "quasi-fragment" states as there are last-iteration active orbitals, just so I don't
+        # lose bath states.
+        # How many do I need?
+        frag2wmcs = np.dot (self.frag2loc, loc2wmcs)
+        proj = np.dot (frag2wmcs.conjugate ().T, frag2wmcs)
+        norbs_wmcsf = np.trace (proj)
+        norbs_xtra = int (round (self.norbs_frag - norbs_wmcsf))
+
+        # Now get them. (Make sure I don't add active-space orbitals by mistake!)
+        loc2qfrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())
+        loc2qenv = get_complementary_states (loc2qfrag, already_complete_warning=False)
+        loc2wmas = get_complementary_states (loc2wmcs, already_complete_warning=False)
+        loc2qfrag = get_complementary_states (np.concatenate ([self.loc2frag, loc2qenv, loc2wmas], axis=1), already_complete_warning=False)
+        norbs_qfrag = min (loc2qfrag.shape[1], norbs_xtra)
+        if norbs_qfrag > 0:
+            print ("Add {} of {} possible quasi-fragment orbitals ".format (
+                norbs_qfrag, loc2qfrag.shape[1])
+                + "to compensate for {} active orbitals which cannot generate bath states".format (self.norbs_as))
+        loc2wfrag = np.append (self.loc2frag, loc2qfrag[:,:norbs_qfrag], axis=1)
+        assert (is_basis_orthonormal (loc2wfrag))
+
+        # This will RuntimeError on me if I don't have even integer.
+        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
+            loc2wfrag, self.norbs_bath_max, idempotize_thresh=0, num_zero_atol=params.num_zero_atol)
+        self.norbs_imp = self.norbs_frag + norbs_qfrag + norbs_bath
+        self.Schmidt_done = True
+
+        # Core 2CDMs
+        active_frags = [frag for frag in all_frags if frag.norbs_as > 0]
+        self.twoCDMfroz_tbc = [np.copy (frag.twoCDMimp_amo) for frag in active_frags]
+        self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
+
+        self.purify_twoCDMfroz ()
+        self.impham_built = False
+
+    def purify_twoCDMfroz (self):
+        # Either constrain the frozen twoCDM to the cccc space, or subtract the part in the iiii space
+        if self.incl_impcore_correlation:
+            twoCDMfroz = [L - project_operator_into_subspace (L, np.dot (b.conjugate ().T, self.loc2imp)) for L, b in zip (self.twoCDMfroz_tbc, self.loc2tbc)]
+        else:
+            twoCDMfroz = [project_operator_into_subspace (L, np.dot (b.conjugate ().T, self.loc2core)) for L, b in zip (self.twoCDMfroz_tbc, self.loc2tbc)]
+        self.twoCDMfroz_tbc = twoCDMfroz
 
     ##############################################################################################################################
 
@@ -378,16 +430,15 @@ class fragment_object:
         self.E2_frag_core = 0
         for loc2tb, twoCDM in zip (self.loc2tbc, self.twoCDMfroz_tbc):
             # Impurity energy
-            V     = self.ints.dmet_tei (loc2tb)
-            L     = twoCDM
-            Eimp  = 0.5 * np.tensordot (V, L, axes=4)
+            V      = self.ints.dmet_tei (loc2tb)
+            L      = twoCDM
+            Eimp   = 0.5 * np.tensordot (V, L, axes=4)
             # Fragment energy
-            f     = self.loc2frag
-            c     = loc2tb
-            V     = self.ints.general_tei ([f, c, c, c])
-            L     = reduce (lambda x,y: np.tensordot (x, y, axes=1), [self.frag2loc, loc2tb, twoCDM])
-            Efrag = 0.5 * np.tensordot (V, L, axes=4)
-            #
+            f      = self.loc2frag
+            c      = loc2tb
+            V      = self.ints.general_tei ([f, c, c, c])
+            L      = reduce (lambda x,y: np.tensordot (x, y, axes=1), [self.frag2loc, loc2tb, twoCDM])
+            Efrag  = 0.5 * np.tensordot (V, L, axes=4)
             self.impham_CONST += Eimp
             self.E2_frag_core += Efrag
             if self.debug_energy:

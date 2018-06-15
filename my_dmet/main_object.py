@@ -24,17 +24,21 @@
 
 from mrh.my_dmet import localintegrals, qcdmethelper
 import numpy as np
-from scipy import optimize
+from scipy import optimize, linalg
 import time
+from pyscf.tools import molden
 from mrh.util import params
-from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye, measure_basis_olap
+from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
+from functools import reduce
+from itertools import combinations
 
 class dmet:
 
     def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
                     doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', minFunc='FOCK_INIT', wma_options=False, print_u=True,
-                    print_rdm=True, ofc_embedding=False, debug_energy=False, noselfconsistent=False, do_constrCASSCF=False):
+                    print_rdm=True, mc_dmet=False, debug_energy=False, debug_reloc=False, noselfconsistent=False, do_constrCASSCF=False,
+                    do_refragmentation=True, incl_impcore_correlation=False, nelec_int_thresh=1e-6):
 
         if isTranslationInvariant:
             raise RuntimeError ("The translational invariance option doesn't work!  It needs to be completely rebuilt!")
@@ -44,30 +48,37 @@ class dmet:
         assert (( SCmethod == 'LSTSQ' ) or ( SCmethod == 'BFGS' ) or ( SCmethod == 'NONE' ))
         assert (( CC_E_TYPE == 'LAMBDA') or ( CC_E_TYPE == 'CASCI'))        
 
-        self.ints             = theInts
-        self.norbs_tot        = self.ints.norbs_tot
-        self.fragments        = fragments
-        self.NI_hack          = False
-        self.doSCF            = False
-        self.TransInv         = isTranslationInvariant
-        self.doDET            = doDET or doDET_NO
-        self.doDET_NO         = doDET_NO
-        self.CC_E_TYPE        = CC_E_TYPE
-        self.minFunc          = minFunc
-        self.wma_options      = wma_options
-        self.print_u          = print_u
-        self.print_rdm        = print_rdm
-        self.SCmethod         = 'NONE' if self.doDET else SCmethod
-        self.incl_bath_errvec = False if self.doDET else incl_bath_errvec
-        self.altcostfunc      = False if self.doDET else use_constrained_opt
-        self.ofc_embedding    = ofc_embedding
-        self.debug_energy     = debug_energy
-        self.noselfconsistent = noselfconsistent
-        self.do_constrCASSCF  = do_constrCASSCF
+        self.ints                     = theInts
+        self.norbs_tot                = self.ints.norbs_tot
+        self.fragments                = fragments
+        self.NI_hack                  = False
+        self.doSCF                    = False
+        self.TransInv                 = isTranslationInvariant
+        self.doDET                    = doDET or doDET_NO
+        self.doDET_NO                 = doDET_NO
+        self.CC_E_TYPE                = CC_E_TYPE
+        self.minFunc                  = minFunc
+        self.wma_options              = wma_options
+        self.print_u                  = print_u
+        self.print_rdm                = print_rdm
+        self.SCmethod                 = 'NONE' if self.doDET else SCmethod
+        self.incl_bath_errvec         = False if self.doDET else incl_bath_errvec
+        self.altcostfunc              = False if self.doDET else use_constrained_opt
+        self.mc_dmet                  = mc_dmet
+        self.debug_energy             = debug_energy
+        self.debug_reloc              = debug_reloc
+        self.noselfconsistent         = noselfconsistent
+        self.do_constrCASSCF          = do_constrCASSCF
+        self.do_refragmentation       = do_refragmentation
+        self.incl_impcore_correlation = incl_impcore_correlation
+        self.nelec_int_thresh         = nelec_int_thresh
+        assert (np.any (np.array ([do_constrCASSCF, do_refragmentation]) == False)), 'constrCASSCF and refragmentation inconsistent with each other'
+
         if self.noselfconsistent:
             SCmethod = 'NONE'
         for frag in self.fragments:
-            frag.debug_energy = debug_energy
+            frag.debug_energy             = debug_energy
+            frag.incl_impcore_correlation = incl_impcore_correlation
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
         self.examine_ifrag_olap = False
@@ -208,8 +219,6 @@ class dmet:
             frag.solve_impurity_problem (chempot_frag)
             self.energy += frag.E_frag
 
-        if self.ofc_embedding:
-            self.ints.setup_wm_core_scf (self.fragments)
         
         if (self.doDET and self.doDET_NO):
             self.loc2fno = self.constructloc2fno()
@@ -282,15 +291,15 @@ class dmet:
             for it in range( 1, self.norbs_tot / norbs_frag ):
                 myloc2fno[ it*norbs_frag:(it+1)*norbs_frag, it*norbs_frag:(it+1)*norbs_frag ] = myloc2fno[ 0:norbs_frag, 0:norbs_frag ]
         '''if True:
-            assert ( np.linalg.norm( np.dot( myloc2fno.T, myloc2fno ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )
-            assert ( np.linalg.norm( np.dot( myloc2fno, myloc2fno.T ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )
+            assert ( linalg.norm( np.dot( myloc2fno.T, myloc2fno ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )
+            assert ( linalg.norm( np.dot( myloc2fno, myloc2fno.T ) - np.eye( self.umat.shape[0] ) ) < 1e-10 )
         elif (jumpsquare != frag.norbs_tot):
             myloc2fno = mrh.util.basis.complete_a_basis (myloc2fno)'''
         return myloc2fno
         
     def costfunction( self, newumatflat ):
 
-        return np.linalg.norm( self.rdm_differences( newumatflat ) )**2
+        return linalg.norm( self.rdm_differences( newumatflat ) )**2
 
     def alt_costfunction( self, newumatflat ):
 
@@ -360,8 +369,8 @@ class dmet:
             umatbis[cnt] += stepsize
             costbis = self.costfunction( umatbis )
             gradientbis[ cnt ] = ( costbis - cost_reference ) / stepsize
-        print ("   Norm( gradient difference ) =", np.linalg.norm( gradient - gradientbis ))
-        print ("   Norm( gradient )            =", np.linalg.norm( gradient ))
+        print ("   Norm( gradient difference ) =", linalg.norm( gradient - gradientbis ))
+        print ("   Norm( gradient )            =", linalg.norm( gradient ))
         
     def hessian_eigenvalues( self, umatflat ):
     
@@ -374,7 +383,7 @@ class dmet:
             gradient = self.costfunction_derivative( gradient )
             hessian[ :, cnt ] = ( gradient - gradient_reference ) / stepsize
         hessian = 0.5 * ( hessian + hessian.T )
-        eigvals, eigvecs = np.linalg.eigh( hessian )
+        eigvals, eigvecs = linalg.eigh( hessian )
         idx = eigvals.argsort()
         eigvals = eigvals[ idx ]
         eigvecs = eigvecs[ :, idx ]
@@ -399,7 +408,7 @@ class dmet:
             umatsquare_bis = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=float )
             for cnt in range( len( umatflat ) ):
                 umatsquare_bis += umatflat[ cnt ] * self.helper.list_H1[ cnt ]
-            print "Verification flat2square = ", np.linalg.norm( umatsquare - umatsquare_bis )'''
+            print "Verification flat2square = ", linalg.norm( umatsquare - umatsquare_bis )'''
         
         if ( self.loc2fno != None ):
             umatsquare = np.dot( np.dot( self.loc2fno, umatsquare ), self.loc2fno.T )
@@ -482,9 +491,9 @@ class dmet:
             self.print_1rdm()
         
         # Get the error measure
-        u_diff = np.linalg.norm( umat_old - self.umat )
+        u_diff = linalg.norm( umat_old - self.umat )
         rdm_new = self.transform_ed_1rdm ()
-        rdm_diff = np.linalg.norm( rdm_old - rdm_new )
+        rdm_diff = linalg.norm( rdm_old - rdm_new )
         self.umat = self.relaxation * umat_old + ( 1.0 - self.relaxation ) * self.umat
         print ("   2-norm of difference old and new u-mat =", u_diff)
         print ("   2-norm of difference old and new 1-RDM =", rdm_diff)
@@ -497,19 +506,28 @@ class dmet:
 
     def doselfconsistent_orbs (self, iters):
 
-        loc2wmcs_old = get_complementary_states (np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1))
+        loc2wmas_old = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+        loc2wmcs_old = get_complementary_states (loc2wmas_old)
+        mc_dmet_switch = int (self.mc_dmet)
+        if self.do_refragmentation and self.mc_dmet:
+            mc_dmet_switch = 2
+
 
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
+        if self.do_refragmentation and self.mc_dmet:
+            oneRDM_loc = self.refragmentation (loc2wmas_old, loc2wmcs_old, oneRDM_loc)
+        else:
+            for frag in self.fragments:
+                frag.restore_default_embedding_basis ()
+
         self.energy = 0.0
         for frag in self.fragments:
-            frag.do_Schmidt (oneRDM_loc, self.fragments, self.ofc_embedding)
+            frag.do_Schmidt (oneRDM_loc, self.fragments, loc2wmcs_old, mc_dmet_switch)
             frag.construct_impurity_hamiltonian ()
         if self.examine_ifrag_olap:
             examine_ifrag_olap (self)
         if self.examine_wmcs:
             examine_wmcs (self)
-
-        # This is probably where I should put the new fragment definitions
 
         for itertype, iteridx in iters:
             print ("{0} iteration {1}".format (itertype, iteridx))
@@ -521,8 +539,9 @@ class dmet:
         else:
             self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp, tol=1e-6 )
             print ("   Chemical potential =", self.mu_imp)
-        if self.do_constrCASSCF:
-            self.doexact (self.mu_imp, frag_constrained_casscf=True)
+        self.doexact (self.mu_imp, frag_constrained_casscf=self.do_constrCASSCF)
+        if self.mc_dmet:
+            self.ints.setup_wm_core_scf (self.fragments)
         
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         try:
@@ -531,7 +550,7 @@ class dmet:
             raise RuntimeError("what?\n{0}\n{1}".format(loc2wmas_new.shape,loc2wmcs_old.shape))
 
         print ("Whole-molecule active-space orbital shift = {0}".format (orb_diff))
-        if self.ofc_embedding == False:
+        if self.mc_dmet == False:
             orb_diff = 0 # Do only 1 iteration
         for frag in self.fragments:
             frag.impurity_molden ('natorb', natorb=True)
@@ -571,4 +590,45 @@ class dmet:
     
     def onedm_solution_rhf(self):
         return self.helper.construct1RDM_loc( self.doSCF, self.umat )
-    
+   
+    def refragmentation (self, loc2wmas, loc2wmcs, oneRDM_loc):
+        ''' Separately ortho-localize the whole-molecule active orbitals and whole-molecule core orbitals and adjust the RDM and CDMs. '''
+
+        # Don't waste time if there are no active orbitals
+        if loc2wmas.shape[1] == 0:
+            return oneRDM_loc
+
+        # Separately localize and assigne the inactive and active orbitals as fragment orbitals
+        loc2wmas = self.ints.relocalize_states (orthonormalize_a_basis (loc2wmas), self.fragments)
+        loc2wmcs = self.ints.relocalize_states (loc2wmcs, self.fragments)
+
+        # Examine localized states if necessary
+        if self.debug_reloc:
+            ao2reloc = np.dot (self.ints.ao2loc, np.concatenate (loc2wmas + loc2wmcs, axis=1))
+            molden.from_mo (self.ints.mol, "main_object.refragmentation.loc2reloc.molden", ao2reloc)
+
+        # Evaluate how many electrons are in each active subspace
+        for loc2amo, frag in zip (loc2wmas, self.fragments):
+            nelec_amo = np.einsum ("ip,ij,jp->",loc2amo.conjugate (), oneRDM_loc, loc2amo)
+            interr = nelec_amo - round (nelec_amo)
+            print ("{} fragment has {:.5f} active electrons (integer error: {:.2e})".format (frag.frag_name, nelec_amo, interr))
+            assert (interr < self.nelec_int_thresh)
+            interr = np.eye (loc2amo.shape[1]) * interr / loc2amo.shape[1]
+            oneRDM_loc -= reduce (np.dot, [loc2amo, interr, loc2amo.conjugate ().T])
+            
+        # Evaluate the entanglement of the active subspaces
+        for (o1, f1), (o2, f2) in combinations (zip (loc2wmas, self.fragments), 2):
+            if o1.shape[1] > 0 and o2.shape[1] > 0:
+                RDM_12 = reduce (np.dot, [o1.conjugate ().T, oneRDM_loc, o2])
+                RDM_12_sq = np.dot (RDM_12.conjugate ().T, RDM_12)
+                evals, evecs = linalg.eigh (RDM_12_sq)
+                entanglement = sum (evals)
+                print ("Fragments {} and {} have an active-space entanglement trace of {:.2e}".format (f1.frag_name, f2.frag_name, entanglement))
+
+        for loc2imo, loc2amo, frag in zip (loc2wmcs, loc2wmas, self.fragments):
+            frag.set_new_fragment_basis (np.append (loc2imo, loc2amo, axis=1))
+
+        return oneRDM_loc
+
+
+

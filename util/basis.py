@@ -285,9 +285,10 @@ def get_complementary_states (incomplete_basis, in_subspace = None, already_comp
     if incomplete_basis.shape[1] == 0:
         return np.eye (incomplete_basis.shape[0])
     orthonormal_basis = orthonormalize_a_basis (incomplete_basis)
-    if is_basis_orthonormal_and_complete (orthonormal_basis) and already_complete_warning:
-        print ("warning: tried to construct a complement for a basis that was already complete")
-        return None
+    if is_basis_orthonormal_and_complete (orthonormal_basis):
+        if already_complete_warning:
+            print ("warning: tried to construct a complement for a basis that was already complete")
+        return np.zeros ((incomplete_basis.shape[0], 0))
 
     c2b = np.asmatrix (orthonormal_basis)
     nstates_b = c2b.shape[1]

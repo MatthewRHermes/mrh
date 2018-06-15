@@ -1,4 +1,5 @@
 import numpy as np
+import scipy
 from mrh.util import params
 
 # A collection of simple manipulations of matrices that I somehow can't find in numpy
@@ -35,7 +36,7 @@ def assert_matrix_square (test_matrix, matdim=None):
 
 def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=-1, only_nonzero_vals=False, num_zero_atol=params.num_zero_atol):
     pMq = np.asmatrix (the_matrix)
-    lvecs_pl, svals_lr, rvecs_rq = np.linalg.svd (the_matrix, full_matrices=full_matrices)
+    lvecs_pl, svals_lr, rvecs_rq = scipy.linalg.svd (the_matrix, full_matrices=full_matrices)
     p2l = np.asmatrix (lvecs_pl)
     r2q = np.asmatrix (rvecs_rq)
     q2r = r2q.H
@@ -63,7 +64,7 @@ def matrix_eigen_control_options (the_matrix, sort_vecs=-1, only_nonzero_vals=Fa
     evals = np.diagonal (pMq)
     evecs = np.asmatrix (np.eye (len (evals), dtype=evals.dtype))
     if not is_matrix_diagonal (pMq):
-        evals, evecs = np.linalg.eigh (pMq) if is_matrix_hermitian (pMq) else np.linalg.eig (pMq)
+        evals, evecs = scipy.linalg.eigh (pMq) if is_matrix_hermitian (pMq) else scipy.linalg.eig (pMq)
     # Add the diagonal average to the eigenvalues when returning!
     evals = evals + np.diag (diag_avg)
     if only_nonzero_vals:
