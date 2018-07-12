@@ -19,7 +19,6 @@
 
 import numpy as np
 from pyscf import gto, scf, ao2mo, mp
-from pyscf.tools import rhf_newtonraphson
 from mrh.util.basis import represent_operator_in_basis
 from mrh.util.rdm import get_2CDM_from_2RDM
 from mrh.util.tensors import symmetrize_tensor
@@ -43,7 +42,8 @@ def solve (frag, guess_1RDM, chempot_imp):
     mf.scf( guess_1RDM )
     DMloc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
     if ( mf.converged == False ):
-        mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
+        mf = mf.newton ()
+        mf.kernel ()
     
     # Get the MP2 solution
     mp2 = mp.MP2( mf )

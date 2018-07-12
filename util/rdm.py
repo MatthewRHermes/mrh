@@ -7,10 +7,7 @@ from mrh.util.my_math import is_close_to_integer
 from mrh.util import params
 
 def get_1RDM_from_OEI (one_electron_hamiltonian, nocc):
-    evals, evecs = np.linalg.eigh (one_electron_hamiltonian)
-    idx = evals.argsort ()
-    evals=evals[idx]
-    evecs=evecs[:,idx]
+    evals, evecs = matrix_eigen_control_options (one_electron_hamiltonian, sort_vecs=1, only_nonzero_vals=False)
     l2p = np.asmatrix (evecs[:,:nocc])
     p2l = l2p.H
     return np.asarray (l2p * p2l)
@@ -23,7 +20,7 @@ def get_1RDM_from_OEI_in_subspace (one_electron_hamiltonian, subspace_basis, noc
     oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, w2l)
     return oneRDM_loc
     
-def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=params.num_zero_atol):
+def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, num_zero_atol=params.num_zero_atol):
     norbs_tot = assert_matrix_square (the_1RDM)
     norbs_frag = loc2frag.shape[1]
     assert (norbs_tot >= norbs_frag and loc2frag.shape[0] == norbs_tot)
@@ -36,7 +33,8 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=pa
     # The fragment semi-natural orbitals are from the right-singular vectors of ~any~ singular value
     loc2env = get_complementary_states (loc2frag)
     loc2bath, loc2frag, svals = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, only_nonzero_vals=False)
-    norbs_bath = min (np.count_nonzero (svals>num_zero_atol), norbs_bath_max)
+    norbs_bath = min (np.count_nonzero (svals>bath_tol), norbs_bath_max)
+    svals = svals[:norbs_bath]
     loc2imp = np.append (loc2frag, loc2bath[:,:norbs_bath], axis=1)
     assert (is_basis_orthonormal (loc2imp))
 
@@ -49,6 +47,24 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=pa
 
     # Calculate the number of electrons in the would-be impurity model
     nelec_imp = compute_nelec_in_subspace (the_1RDM, loc2imp)
+
+    # Check the fidelity of the diagonalizations
+    test = represent_operator_in_basis (the_1RDM, loc2emb)
+    test[np.diag_indices_from (test)] = 0
+    idx_rectdiag = np.diag_indices (norbs_bath)
+    test_fe = test[:norbs_frag,norbs_frag:]
+    svals_test = np.copy (test_fe[idx_rectdiag])
+    test_fe[idx_rectdiag] = 0
+    test_ef = test[norbs_frag:,:norbs_frag]
+    test_ef[idx_rectdiag] = 0
+    print ("Schmidt decomposition total diagonal error: {}".format (np.linalg.norm (test)))
+    sec = ('frag', 'bath', 'core')
+    lim = (0, norbs_frag, norbs_frag+norbs_bath, norbs_tot)
+    for i, j in itertools.product (range (3), repeat=2):
+        test_view = test[lim[i]:lim[i+1],lim[j]:lim[j+1]]
+        print ("Schmidt decomposition {}-{} block diagonal error: {}".format (sec[i],sec[j],np.linalg.norm(test_view)))
+    print ("Schmidt decomposition svals error: {}".format (np.linalg.norm (svals - svals_test)))
+    print ("Schmidt decomposition smallest sval: {}".format (np.amin (np.abs (svals))))
 
     return loc2emb, norbs_bath, nelec_imp
 
@@ -94,10 +110,10 @@ def idempotize_1RDM (oneRDM, thresh):
     new_oneRDM = represent_operator_in_basis (np.diag (new_evals), evecs.T)
     return new_oneRDM, nelec_diff
 
-def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bath_max, idempotize_thresh=0, num_zero_atol=0):
+def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bath_max, bath_tol=1e-5, idempotize_thresh=0, num_zero_atol=0):
     norbs_tot = loc2wfrag.shape[0]
     norbs_wfrag = loc2wfrag.shape[1]
-    loc2wemb, norbs_wbath, nelec_wimp = Schmidt_decompose_1RDM (working_1RDM, loc2wfrag, norbs_bath_max)
+    loc2wemb, norbs_wbath, nelec_wimp = Schmidt_decompose_1RDM (working_1RDM, loc2wfrag, norbs_bath_max, bath_tol=bath_tol)
     norbs_wimp  = norbs_wfrag + norbs_wbath
     norbs_wcore = norbs_tot - norbs_wimp
     loc2wimp  = loc2wemb[:,:norbs_wimp]
@@ -123,7 +139,7 @@ def get_2CDM_from_2RDM (twoRDM, oneRDM):
 
 def get_2RDM_from_2CDM (twoCDM, oneRDM):
     twoRDM  = twoCDM + np.einsum ('pq,rs->pqrs', oneRDM, oneRDM)
-    twoRDM -=     0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
+    twoRDM -=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
     return twoRDM
 
 

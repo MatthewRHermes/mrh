@@ -21,11 +21,10 @@ import numpy as np
 import scipy.sparse.linalg
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo
-from pyscf.tools import rhf_newtonraphson
 from mrh.util.basis import get_complementary_states
 from mrh.util.la import matrix_eigen_control_options
 
-def solve_ERI( OEI, TEI, oneRDMguess_loc, numPairs):
+def solve_ERI( OEI, TEI, oneRDMguess_loc, numPairs, num_mf_stab_checks):
 
     mol = gto.Mole()
     mol.build(verbose=0)
@@ -37,12 +36,29 @@ def solve_ERI( OEI, TEI, oneRDMguess_loc, numPairs):
     mf.get_hcore = lambda *args: OEI
     mf.get_ovlp = lambda *args: np.eye( L )
     mf._eri = ao2mo.restore(8, TEI, L)
-
+    mf.verbose=0
     mf.scf( oneRDMguess_loc )
-    oneRDM_loc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
+    #oneRDM_loc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
+    oneRDM_loc = mf.make_rdm1 ()
     if ( mf.converged == False ):
-        mf = rhf_newtonraphson.solve( mf, dm_guess=oneRDM_loc )
-        oneRDM_loc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
+        mf.newton ().kernel ( oneRDM_loc )
+        oneRDM_loc = mf.make_rdm1 () #np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
+
+    # Instability check and repeat
+    for i in range (num_mf_stab_checks):
+        mf.mo_coeff = mf.stability ()[0]
+        oneRDMguess_loc = mf.make_rdm1 ()
+        mf = scf.RHF( mol )
+        mf.get_hcore = lambda *args: OEI
+        mf.get_ovlp = lambda *args: np.eye( L )
+        mf._eri = ao2mo.restore(8, TEI, L)
+        mf.verbose=0
+        mf.scf( oneRDMguess_loc )
+        oneRDM_loc = mf.make_rdm1 ()
+        if ( mf.converged == False ):
+            mf.newton ().kernel ( oneRDM_loc )
+            oneRDM_loc = mf.make_rdm1 () #np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
+    
     return oneRDM_loc
     
 def wrap_my_jk( mol_orig, ao2basis ): # mol_orig works in ao

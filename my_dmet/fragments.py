@@ -55,6 +55,8 @@ class fragment_object:
         self.active_space = None
         self.idempotize_thresh = abs (idempotize_thresh)
         self.incl_impcore_correlation = False
+        self.bath_tol = 1e-8
+        self.num_mf_stab_checks = 0
 
         # Assign solver function
         solver_function_map = {
@@ -107,6 +109,7 @@ class fragment_object:
 
         # Outputs of CAS calculations use to fix CAS-DMET
         self.loc2amo       = np.zeros((self.norbs_tot,0))
+        self.loc2amo_guess = np.zeros((self.norbs_tot,0))
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.twoCDMimp_amo = np.zeros((0,0,0,0))
         self.mfmo_printed  = False
@@ -319,7 +322,7 @@ class fragment_object:
     def do_Schmidt_normal (self, oneRDM_loc):
         print ("Normal Schmidt decomposition of {0} fragment".format (self.frag_name))
         self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
-            self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
+            self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, bath_tol=self.bath_tol, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_bath
         self.Schmidt_done = True
         self.impham_built = False
@@ -338,7 +341,7 @@ class fragment_object:
         assert (not np.any (svals > 1.0 + params.num_zero_atol)), "{0}".format (svals)
         print ("{0} fragment orbitals becoming {1} pseudo-fragment orbitals in idempotent subspace".format (self.norbs_frag, norbs_ifrag))
         loc2iemb, norbs_ibath, nelec_iimp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMwmcs_loc, 
-            loc2ifrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
+            loc2ifrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, bath_tol=self.bath_tol, num_zero_atol=params.num_zero_atol)
         norbs_iimp = norbs_ifrag + norbs_ibath
         loc2iimp   = loc2iemb[:,:norbs_iimp]
 
@@ -391,10 +394,19 @@ class fragment_object:
         assert (is_basis_orthonormal (loc2wfrag))
 
         # This will RuntimeError on me if I don't have even integer.
-        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
-            loc2wfrag, self.norbs_bath_max, idempotize_thresh=0, num_zero_atol=params.num_zero_atol)
+        # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
+        oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
+        oneRDMa_loc = oneRDM_loc - oneRDMi_loc
+        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMi_loc, 
+            loc2wfrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_qfrag + norbs_bath
         self.Schmidt_done = True
+        oneRDMacore_loc = project_operator_into_subspace (oneRDMa_loc, self.loc2core)
+        nelec_impa = compute_nelec_in_subspace (oneRDMa_loc, self.loc2imp)
+        print ("Adding {} active-space electrons to impurity and {} active-space electrons to core".format (nelec_impa, np.trace (oneRDMacore_loc)))
+        assert (is_close_to_integer (nelec_impa / 2, params.num_zero_atol))
+        self.oneRDMfroz_loc += oneRDMacore_loc
+        self.nelec_imp += int (round (nelec_impa))
 
         # Core 2CDMs
         active_frags = [frag for frag in all_frags if frag.norbs_as > 0]
@@ -491,6 +503,68 @@ class fragment_object:
         print ("Number of electrons on {0} from the impurity model: {1}; from the core: {2}".format (
             self.frag_name, np.trace (oneRDMimp_loc[idx]), np.trace (self.oneRDMfroz_loc[idx])))
         '''
+
+    def load_amo_guess_from_casscf_molden (self, moldenfile, norbs_cmo, norbs_amo):
+        ''' Use moldenfile from whole-molecule casscf calculation to guess active orbitals '''
+        print ("Attempting to load guess active orbitals from {}".format (moldenfile))
+        mol, _, mo_coeff, mo_occ = molden.load (moldenfile)[:4]
+        print ("Difference btwn self mol coords and moldenfile mol coords: {}".format (sp.linalg.norm (mol.atom_coords () - self.ints.mol.atom_coords ())))
+        norbs_occ = norbs_cmo + norbs_amo
+        amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
+        amo_coeff = scf.addons.project_mo_nr2nr (mol, amo_coeff, self.ints.mol)
+        self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp_inv, amo_coeff])
+        self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
+
+    def load_amo_guess_from_casscf_npy (self, npyfile, norbs_cmo, norbs_amo):
+        ''' Use npy from whole-molecule casscf calculation to guess active orbitals. Must have identical geometry orientation and basis! 
+        npyfile must contain an array of shape (norbs_tot+1,norbs_active), where the first row contains natural-orbital occupancies
+        for the active orbitals, and subsequent rows contain active natural orbital coefficients.'''
+        matrix = np.load (npyfile)
+        ano_occ = matrix[0,:]
+        ano_coeff = matrix[1:,:]
+        loc2ano = reduce (np.dot, (self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp_inv, ano_coeff))
+        oneRDMwm_ano = np.diag (ano_occ)
+        frag2ano = loc2ano[self.frag_orb_list,:]
+        oneRDMano_frag = represent_operator_in_basis (oneRDMwm_ano, frag2ano.conjugate ().T)
+        evals, evecs = matrix_eigen_control_options (oneRDMano_frag, sort_vecs=-1, only_nonzero_vals=False)
+        self.loc2amo_guess = np.zeros ((self.norbs_tot, self.active_space[1]))
+        self.loc2amo_guess[self.frag_orb_list,:] = evecs[:,:self.active_space[1]]
+        #norbs_occ = norbs_cmo + norbs_amo
+        #mo_coeff = np.load (npyfile)
+        #amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
+        #self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp_inv, amo_coeff])
+        #self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
+
+    def retain_projected_guess_amo (self, loc2amo_guess):
+        print ("Diagonalizing fragment projector in guess amo basis and retaining highest {} eigenvalues".format (self.active_space[1]))
+        frag2amo = loc2amo_guess[self.frag_orb_list,:]
+        proj = np.dot (frag2amo.conjugate ().T, frag2amo)
+        evals, evecs = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
+        print ("Projector eigenvalues: {}".format (evals))
+        return np.dot (self.loc2amo_guess, evecs[:,:self.active_space[1]])
+
+    def retain_fragonly_guess_amo (self, loc2amo_guess):
+        print ("Diagonalizing guess amo projector in fragment basis and retaining highest {} eigenvalues".format (self.active_space[1]))
+        frag2amo = loc2amo_guess[self.frag_orb_list,:]
+        proj = np.dot (frag2amo, frag2amo.conjugate ().T)
+        evals, evecs = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
+        print ("Projector eigenvalues: {}".format (evals))
+        return np.dot (self.get_true_loc2frag (), evecs[:,:self.active_space[1]])
+        
+    def load_amo_guess_from_dmet_molden (self, moldenfile):
+        ''' Use moldenfile of impurity from another DMET calculation with the same active space (i.e., at a different geometry) to guess active orbitals '''
+        print ("Attempting to load guess active orbitals from {}".format (moldenfile))
+        mol, _, mo_coeff, mo_occ = molden.load (moldenfile)[:4]
+        nelec_amo, norbs_amo = self.active_space
+        nelec_tot = int (round (np.sum (mo_occ)))
+        norbs_cmo = (nelec_tot - nelec_amo) // 2
+        norbs_occ = norbs_cmo + norbs_amo
+        amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
+        amo_coeff = scf.addons.project_mo_nr2nr (mol, amo_coeff, self.ints.mol)
+        self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp_inv, amo_coeff])
+        self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
+        
+
     ###############################################################################################################################
 
 
@@ -556,9 +630,9 @@ class fragment_object:
         self.warn_check_Schmidt ("oneRDM_imp")
         return represent_operator_in_basis (self.oneRDM_loc, self.loc2imp)
 
-    def impurity_molden (self, tag=None, canonicalize=False, natorb=False, ene=None, occ=None):
-        tag = '.' if tag == None else '.' + str (tag) + '.'
-        filename = self.frag_name + '_impurity' + tag + 'molden'
+    def impurity_molden (self, tag=None, canonicalize=False, natorb=False, molorb=False, ene=None, occ=None):
+        tag = '.' if tag == None else '_' + str (tag) + '.'
+        filename = self.frag_name + tag + 'molden'
         mol = self.ints.mol.copy ()
         mol.nelectron = self.nelec_imp
 
@@ -566,11 +640,17 @@ class fragment_object:
         FOCK = represent_operator_in_basis (self.ints.loc_rhf_fock_bis (self.oneRDM_loc), self.loc2imp)
         ao2imp = np.dot (self.ints.ao2loc, self.loc2imp) 
 
-        occ = np.diag (oneRDM) if occ is None else occ
         ao2molden = ao2imp
+        if molorb:
+            assert (not natorb)
+            assert (not canonicalize)
+            ao2molden = np.dot (self.ints.ao2loc, self.loc2mo)
+            occ = np.einsum ('ip,ij,jp->p', self.imp2mo.conjugate (), oneRDM, self.imp2mo)
+            ene = np.einsum ('ip,ij,jp->p', self.imp2mo.conjugate (), FOCK, self.imp2mo)
         if natorb:
             assert (not canonicalize)
             occ, imp2molden = matrix_eigen_control_options (oneRDM, sort_vecs=-1, only_nonzero_vals=False)
+            ene = np.einsum ('ip,ij,jp->p', imp2molden.conjugate (), FOCK, imp2molden)
             ao2molden = np.dot (ao2imp, imp2molden)
         elif canonicalize:
             ene, imp2molden = matrix_eigen_control_options (FOCK, sort_vecs=-1, only_nonzero_vals=False)

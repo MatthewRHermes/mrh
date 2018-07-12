@@ -197,12 +197,9 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrve
     p2c = c2p.H
     pOq = p2c * cOc * c2q
 
-    ''' I think the eigendecomposition is actually more stable than the explicit svd so I'm going to do it that way (it's equivalent)
-    q2r, p2l, svals = matrix_svd_control_options (pOq, svd_full_matrices = (not omit_id_zero_svals), sort_vecs=-1)
-    c2l = c2p * p2l
-    c2r = c2q * q2r
-    '''
+    p2l, svals, q2r = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals)
 
+    '''
     pQp = pOq * pOq.H
     qPq = pOq.H * pOq
     pevals, p2l = matrix_eigen_control_options (pQp, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, round_zero_vals=True, num_zero_atol=num_zero_atol)
@@ -214,6 +211,7 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrve
         svals = np.sqrt (np.mean ([pevals, qevals], axis=0))
     except ValueError: # If only_nonzero_vals==True, numerical noise might strip an eigenvalue on one side but not the other
         p2l, svals, q2l = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, full_matrices=False)
+    '''
 
     # Get the left- and right-vectors back in the external basis
     c2l = c2p * p2l

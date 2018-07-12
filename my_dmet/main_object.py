@@ -28,6 +28,7 @@ from scipy import optimize, linalg
 import time
 from pyscf.tools import molden
 from mrh.util import params
+from mrh.util.la import matrix_eigen_control_options
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
@@ -38,7 +39,7 @@ class dmet:
     def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
                     doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', minFunc='FOCK_INIT', wma_options=False, print_u=True,
                     print_rdm=True, mc_dmet=False, debug_energy=False, debug_reloc=False, noselfconsistent=False, do_constrCASSCF=False,
-                    do_refragmentation=True, incl_impcore_correlation=False, nelec_int_thresh=1e-6):
+                    do_refragmentation=True, incl_impcore_correlation=False, nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0):
 
         if isTranslationInvariant:
             raise RuntimeError ("The translational invariance option doesn't work!  It needs to be completely rebuilt!")
@@ -72,13 +73,17 @@ class dmet:
         self.do_refragmentation       = do_refragmentation
         self.incl_impcore_correlation = incl_impcore_correlation
         self.nelec_int_thresh         = nelec_int_thresh
+        self.chempot_init             = chempot_init
+        self.num_mf_stab_checks       = num_mf_stab_checks
         assert (np.any (np.array ([do_constrCASSCF, do_refragmentation]) == False)), 'constrCASSCF and refragmentation inconsistent with each other'
 
         if self.noselfconsistent:
             SCmethod = 'NONE'
+        self.ints.num_mf_stab_checks = num_mf_stab_checks
         for frag in self.fragments:
             frag.debug_energy             = debug_energy
             frag.incl_impcore_correlation = incl_impcore_correlation
+            frag.num_mf_stab_checks       = num_mf_stab_checks
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
         self.examine_ifrag_olap = False
@@ -434,6 +439,7 @@ class dmet:
     
         iteration = 0
         u_diff = 1.0
+        self.mu_imp = self.chempot_init
         convergence_threshold = 1e-5
         rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
@@ -448,6 +454,11 @@ class dmet:
             self.energy = self.fragments[0].E_imp
         if self.debug_energy:
             debug_Etot (self)
+
+        for frag in self.fragments:
+            frag.impurity_molden ('natorb', natorb=True)
+            frag.impurity_molden ('imporb')
+            frag.impurity_molden ('molorb', molorb=True)
         
         return self.energy
 
@@ -512,7 +523,6 @@ class dmet:
         if self.do_refragmentation and self.mc_dmet:
             mc_dmet_switch = 2
 
-
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
         if self.do_refragmentation and self.mc_dmet:
             oneRDM_loc = self.refragmentation (loc2wmas_old, loc2wmcs_old, oneRDM_loc)
@@ -539,6 +549,10 @@ class dmet:
         else:
             self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp, tol=1e-6 )
             print ("   Chemical potential =", self.mu_imp)
+        for frag in self.fragments:
+            frag.impurity_molden ('natorb', natorb=True)
+            frag.impurity_molden ('imporb')
+            frag.impurity_molden ('molorb', molorb=True)
         self.doexact (self.mu_imp, frag_constrained_casscf=self.do_constrCASSCF)
         if self.mc_dmet:
             self.ints.setup_wm_core_scf (self.fragments)
@@ -552,9 +566,6 @@ class dmet:
         print ("Whole-molecule active-space orbital shift = {0}".format (orb_diff))
         if self.mc_dmet == False:
             orb_diff = 0 # Do only 1 iteration
-        for frag in self.fragments:
-            frag.impurity_molden ('natorb', natorb=True)
-            frag.impurity_molden ('imporb')
 
         return orb_diff 
         
@@ -598,21 +609,20 @@ class dmet:
         if loc2wmas.shape[1] == 0:
             return oneRDM_loc
 
-        # Separately localize and assigne the inactive and active orbitals as fragment orbitals
-        loc2wmas = self.ints.relocalize_states (orthonormalize_a_basis (loc2wmas), self.fragments)
-        loc2wmcs = self.ints.relocalize_states (loc2wmcs, self.fragments)
-
-        # Examine localized states if necessary
+        # Examine the states that turn into I relocalize if the debug is specified.
         if self.debug_reloc:
-            ao2reloc = np.dot (self.ints.ao2loc, np.concatenate (loc2wmas + loc2wmcs, axis=1))
-            molden.from_mo (self.ints.mol, "main_object.refragmentation.loc2reloc.molden", ao2reloc)
+            ao2before = np.dot (self.ints.ao2loc, np.append (loc2wmas, loc2wmcs, axis=1))
+
+        # Separately localize and assigne the inactive and active orbitals as fragment orbitals
+        loc2wmas = self.ints.relocalize_states (orthonormalize_a_basis (loc2wmas), self.fragments, oneRDM_loc, natorb=True)
+        loc2wmcs = self.ints.relocalize_states (loc2wmcs, self.fragments, oneRDM_loc, canonicalize=True)
 
         # Evaluate how many electrons are in each active subspace
         for loc2amo, frag in zip (loc2wmas, self.fragments):
             nelec_amo = np.einsum ("ip,ij,jp->",loc2amo.conjugate (), oneRDM_loc, loc2amo)
             interr = nelec_amo - round (nelec_amo)
             print ("{} fragment has {:.5f} active electrons (integer error: {:.2e})".format (frag.frag_name, nelec_amo, interr))
-            assert (interr < self.nelec_int_thresh)
+            assert (interr < self.nelec_int_thresh), "Fragment with non-integer number of electrons appears"
             interr = np.eye (loc2amo.shape[1]) * interr / loc2amo.shape[1]
             oneRDM_loc -= reduce (np.dot, [loc2amo, interr, loc2amo.conjugate ().T])
             
@@ -624,6 +634,23 @@ class dmet:
                 evals, evecs = linalg.eigh (RDM_12_sq)
                 entanglement = sum (evals)
                 print ("Fragments {} and {} have an active-space entanglement trace of {:.2e}".format (f1.frag_name, f2.frag_name, entanglement))
+
+        # Examine localized states if necessary
+        # Put this at the end so if I get all the way to another orbiter and assert-fails on the integer thing, I can look at the ~last~ set of relocalized orbitals
+        if self.debug_reloc:
+            fock_loc = self.ints.loc_rhf_fock_bis (oneRDM_loc)
+            loc2c = np.concatenate (loc2wmcs, axis=1)
+            loc2a = np.concatenate (loc2wmas, axis=1)
+            lo_ene, evecs_c = matrix_eigen_control_options (represent_operator_in_basis (fock_loc, loc2c), sort_vecs=1, only_nonzero_vals=False)
+            loc2c = np.dot (loc2c, evecs_c)
+            lo_ene = np.append (-999 * np.ones (loc2a.shape[1]), lo_ene)
+            loc2after = np.append (loc2a, loc2c, axis=1)
+            lo_occ = np.einsum ('ip,ij,jp->p', loc2after, oneRDM_loc, loc2after)
+            ao2after = np.dot (self.ints.ao2loc, loc2after)
+            occ = np.zeros (ao2before.shape[1])
+            occ[:sum([l.shape[1] for l in loc2wmas])] = 1
+            molden.from_mo (self.ints.mol, "main_object.refragmentation.before.molden", ao2before, occ=occ)
+            molden.from_mo (self.ints.mol, "main_object.refragmentation.after.molden", ao2after, occ=lo_occ, ene=lo_ene)
 
         for loc2imo, loc2amo, frag in zip (loc2wmcs, loc2wmas, self.fragments):
             frag.set_new_fragment_basis (np.append (loc2imo, loc2amo, axis=1))

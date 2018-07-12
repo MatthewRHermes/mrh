@@ -13,7 +13,6 @@ from mrh.util import params
 from mrh.util.rdm import get_2CDM_from_2RDM 
 from mrh.util.basis import represent_operator_in_basis
 from pyscf import gto, scf, ao2mo, mp
-from pyscf.tools import rhf_newtonraphson
 
 def schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, num_zero_atol=params.num_zero_atol):
     fn_head = "schmidt_decompose_1RDM ::"
@@ -137,7 +136,8 @@ def calc_mp2_ecorr_correction_to_dmetcasci_using_idempotent_1RDM (imp_case, DMET
     mf.scf( DMguessRHF )
     DMloc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
     if ( mf.converged == False ):
-        mf = rhf_newtonraphson.solve( mf, dm_guess=DMloc )
+        mf = mf.newton ()
+        mf.kernel ()
     
     # Get the MP2 solution
     mp2 = mp.MP2( mf )

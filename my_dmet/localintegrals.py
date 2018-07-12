@@ -28,8 +28,9 @@ import numpy as np
 import scipy
 from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
-from mrh.util.basis import represent_operator_in_basis, get_complementary_states 
+from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace 
 from mrh.util.tensors import symmetrize_tensor
+from mrh.util.la import matrix_eigen_control_options
 from mrh.util import params
 from math import sqrt
 import itertools
@@ -40,6 +41,7 @@ class localintegrals:
     def __init__( self, the_mf, active_orbs, localizationtype, ao_rotation=None, use_full_hessian=True, localization_threshold=1e-6 ):
 
         assert (( localizationtype == 'meta_lowdin' ) or ( localizationtype == 'boys' ) or ( localizationtype == 'lowdin' ) or ( localizationtype == 'iao' ))
+        self.num_mf_stab_checks = 0
         
         # Information on the full HF problem
         self.mol        = the_mf.mol
@@ -140,7 +142,7 @@ class localintegrals:
         numPairs = self.nelec_tot // 2
         DMguess = 2 * np.dot( eigvecs[ :, :numPairs ], eigvecs[ :, :numPairs ].T )
         if ( self.ERIinMEM == True ):
-            DMloc = wm_rhf.solve_ERI( self.activeOEI, self.activeERI, DMguess, numPairs )
+            DMloc = wm_rhf.solve_ERI( self.activeOEI, self.activeERI, DMguess, numPairs, num_mf_stab_checks )
         else:
             DMloc = wm_rhf.solve_JK( self.activeOEI, self.mol, self.ao2loc, DMguess, numPairs )
         newFOCKloc = self.loc_rhf_fock_bis( DMloc )
@@ -197,18 +199,20 @@ class localintegrals:
         oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
-    def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, ERI_wrk=None):
+    def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, ERI_wrk=None, oneRDMguess_loc=None):
 
-        nelec   = nelec   or self.nelec_idem
-        loc2wrk = loc2wrk if np.any (loc2wrk) else self.loc2idem
-        ERI_wrk = ERI_wrk if np.any (ERI_wrk) else self.idemERI
-        nocc    = nelec // 2
+        nelec      = nelec   or self.nelec_idem
+        loc2wrk    = loc2wrk if np.any (loc2wrk) else self.loc2idem
+        ERI_wrk    = ERI_wrk if np.any (ERI_wrk) else self.idemERI
+        oneRDM_wrk = represent_operator_in_basis (oneRDMguess_loc, loc2wrk) if np.any (oneRDMguess_loc) else None
+        nocc       = nelec // 2
 
         # DON'T call self.get_wm_1RDM_from_OEIidem here because you need to hold oneRDMcorr_loc frozen until the end of the scf!
         OEI_wrk        = represent_operator_in_basis (OEI, loc2wrk)
-        oneRDM_wrk     = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
+        if oneRDM_wrk is None:
+            oneRDM_wrk = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
         if self.ERIinMEM:
-            oneRDM_wrk = wm_rhf.solve_ERI(OEI_wrk, ERI_wrk, oneRDM_wrk, nocc)
+            oneRDM_wrk = wm_rhf.solve_ERI(OEI_wrk, ERI_wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks)
         else:
             ao2wrk     = np.dot (self.ao2loc, loc2wrk)
             oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, self.mol, self.ao2wrk, oneRDM_wrk, nocc)
@@ -221,6 +225,8 @@ class localintegrals:
         oneRDMcorr_loc = sum ((frag.oneRDMas_loc for frag in fragments))
         loc2corr = np.concatenate ([frag.loc2amo for frag in fragments], axis=1)
         loc2idem = get_complementary_states (loc2corr)
+        evecs = matrix_eigen_control_options (represent_operator_in_basis (self.loc_oei (), loc2idem), sort_vecs=1, only_nonzero_vals=False)[1]
+        loc2idem = np.dot (loc2idem, evecs)
 
         # I want to alter the outputs of self.loc_oei (), self.loc_rhf_fock (), and the get_wm_1RDM_etc () functions.
         # self.loc_oei ()      = P_idem * (activeOEI + JKcorr) * P_idem
@@ -229,6 +235,11 @@ class localintegrals:
         # The chemical potential is so that identically zero eigenvalues from the projection into the idem space don't get confused
         # with numerically-zero eigenvalues in the idem space: all occupied orbitals must have negative energy
         
+        # Make true output 1RDM from fragments to use as guess for wm mcscf calculation
+        oneRDMguess_loc = np.zeros_like (oneRDMcorr_loc)
+        for f in itertools.product (fragments, fragments):
+            loc2frag         = [i.loc2frag for i in f] 
+            oneRDMguess_loc += sum ([0.5 * project_operator_into_subspace (i.oneRDM_loc, *loc2frag) for i in f])
 
         nelec_corr     = np.trace (oneRDMcorr_loc)
         if is_close_to_integer (nelec_corr, params.num_zero_atol) == False:
@@ -240,7 +251,7 @@ class localintegrals:
             norbs      = loc2idem.shape[1]
             ao2idem    = np.dot (self.ao2loc, loc2idem)
             idemERI    = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2idem, compact=False).reshape(norbs, norbs, norbs, norbs)
-        oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, ERI_wrk=idemERI)
+        oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, ERI_wrk=idemERI, oneRDMguess_loc=oneRDMguess_loc)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
         
         ########################################################################################################        
@@ -251,6 +262,27 @@ class localintegrals:
         self.nelec_idem     = nelec_idem
         self.idemERI        = idemERI
         ########################################################################################################
+
+        # Analysis: molden and total energy
+        oei = self.activeOEI + (JKcorr + JKidem) / 2
+        fock = self.activeOEI + JKcorr + JKidem
+        oneRDM = oneRDMidem_loc + oneRDMcorr_loc
+        E = self.activeCONST + np.tensordot (oei, oneRDM, axes=2)
+        for frag in fragments:
+            if frag.norbs_as > 0:
+                V  = self.dmet_tei (frag.loc2amo)
+                L  = frag.twoCDMimp_amo
+                E += np.tensordot (V, L, axes=4) / 2
+        print ("Whole-molecule model wave function total energy: {:.6f}".format (E))
+        fock_idem = represent_operator_in_basis (fock, loc2idem)
+        oneRDM_corr = represent_operator_in_basis (oneRDM, loc2corr)
+        idem_evecs = matrix_eigen_control_options (fock_idem, sort_vecs=1, only_nonzero_vals=False)[1]
+        corr_evecs =  matrix_eigen_control_options (oneRDM_corr, sort_vecs=-1, only_nonzero_vals=False)[1]
+        loc2molden = np.append (np.dot (loc2idem, idem_evecs), np.dot (loc2corr, corr_evecs), axis=1)
+        wm_ene = np.einsum ('ip,ij,jp->p', loc2molden, fock, loc2molden)
+        wm_occ = np.einsum ('ip,ij,jp->p', loc2molden, oneRDM, loc2molden)
+        ao2molden = np.dot (self.ao2loc, loc2molden)
+        molden.from_mo (self.mol, 'wm_wvfn.molden', ao2molden, occ=wm_occ, ene=wm_ene)
 
     def restore_wm_full_scf (self):
         self.activeJKidem   = self.activeFOCK - self.activeOEI
@@ -350,12 +382,14 @@ class localintegrals:
             print ("Worst fragment localization: {:.2f}".format (np.amin (analysis['weight0'])))
     
         return loc2bas[:,overall_idx], np.array ([np.count_nonzero (analysis['frag0'] == f.frag_name) for f in frags])
+        
 
 
+    def relocalize_states (self, loc2bas, fragments, oneRDM_loc, natorb=False, canonicalize=False):
+        '''Do Boys localization on a subspace and assign resulting states to the various fragments using projection operators.
+           Optionally diagonalize either the fock or the density matrix inside each subspace. Canonicalize overrides natorb'''
 
-    def relocalize_states (self, loc2bas, fragments):
-        '''Do Boys localization on a subspace and assign resulting states to the various fragments using projection operators'''
-
+        fock_loc = self.loc_rhf_fock_bis (oneRDM_loc)
         ao2bas = boys.Boys (self.mol, np.dot (self.ao2loc, loc2bas)).kernel ()
         loc2bas = reduce (np.dot, [self.ao2loc.conjugate ().T, self.ao_ovlp_inv, ao2bas])
         
@@ -365,8 +399,18 @@ class localintegrals:
         loc2bas_assigned = []        
         for idx, frag in enumerate (fragments):
             pick_orbs = (frag_assignments == idx)
-            print ("{} states found for fragment {}".format (np.count_nonzero (pick_orbs), frag.frag_name))
-            loc2bas_assigned.append (loc2bas[:,pick_orbs])
+            norbs = np.count_nonzero (pick_orbs)
+            print ("{} states found for fragment {}".format (norbs, frag.frag_name))
+            loc2pick = loc2bas[:,pick_orbs]
+            if canonicalize and norbs:
+                f = represent_operator_in_basis (fock_loc, loc2pick)
+                evals, evecs = matrix_eigen_control_options (f, sort_vecs=1, only_nonzero_vals=False)
+                loc2pick = np.dot (loc2pick, evecs)
+            elif natorb and norbs:
+                f = represent_operator_in_basis (oneRDM_loc, loc2pick)
+                evals, evecs = matrix_eigen_control_options (f, sort_vecs=-1, only_nonzero_vals=False)
+                loc2pick = np.dot (loc2pick, evecs)
+            loc2bas_assigned.append (loc2pick)
         return loc2bas_assigned
 
 
