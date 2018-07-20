@@ -325,10 +325,16 @@ class dmet:
     def costfunction_derivative( self, newumatflat ):
         
         errors = self.rdm_differences( newumatflat )
-        error_derivs = self.rdm_differences_derivative( newumatflat )
+#        error_derivs = self.rdm_differences_derivative( newumatflat )
         thegradient = np.zeros([ len( newumatflat ) ])
-        for counter in range( len( newumatflat ) ):
-            thegradient[ counter ] = 2 * np.sum( np.multiply( error_derivs[ : , counter ], errors ) )
+#        for counter in range( len( newumatflat ) ):
+        idx = 0
+        for error_derivs in self.rdm_differences_derivative (newumatflat):
+            #thegradient[ counter ] = 2 * np.sum( np.multiply( error_derivs[ : , counter ], errors ) )
+            #thegradient[ counter ] = 2 * np.dot( error_derivs[ : , counter ], errors )
+            thegradient[ idx ] = 2 * np.dot( error_derivs, errors )
+            idx += 1
+        assert (idx == len (newumatflat))
         return thegradient
 
     def alt_costfunction_derivative( self, newumatflat ):
@@ -356,12 +362,15 @@ class dmet:
         gradient = []
         for countgr in range( len( newumatflat ) ):
             # The projection below should do nothing for ordinary DMET, but when a wma space is used it should prevent the derivative from pointing into the wma space
-            rsp_1RDM = project_operator_into_subspace (RDMderivs_rot[countgr, :, :], self.ints.loc2idem) 
+            rsp_1RDM = RDMderivs_rot[countgr,:,:]
+            if self.mc_dmet:
+                rsp_1RDM = project_operator_into_subspace (RDMderivs_rot[countgr, :, :], self.ints.loc2idem) 
             errvec = np.concatenate ([frag.get_rsp_1RDM_elements (self, rsp_1RDM) for frag in self.fragments])
-            gradient.append( errvec )
-        gradient = np.array( gradient ).T
+            yield errvec
+#            gradient.append( errvec )
+#        gradient = np.array( gradient ).T
         
-        return gradient
+#        return gradient
         
     def verify_gradient( self, umatflat ):
     
@@ -380,7 +389,14 @@ class dmet:
     def hessian_eigenvalues( self, umatflat ):
     
         stepsize = 1e-7
+        print ('Calculating hessian eigenvalues...')
+        grad_start = time.time ()
         gradient_reference = self.costfunction_derivative( umatflat )
+        grad_end = time.time ()
+        print ("Gradient-reference calculated in {} seconds".format (grad_end - grad_start))
+        print ("Gradient is an array of length {}".format (gradient_reference.shape))
+        print ("Hessian is a {}-by-{} matrix".format (len (umatflat), len (umatflat)))
+        hess_start = time.time ()
         hessian = np.zeros( [ len( umatflat ), len( umatflat ) ] )
         for cnt in range( len( umatflat ) ):
             gradient = umatflat.copy()
@@ -388,7 +404,11 @@ class dmet:
             gradient = self.costfunction_derivative( gradient )
             hessian[ :, cnt ] = ( gradient - gradient_reference ) / stepsize
         hessian = 0.5 * ( hessian + hessian.T )
+        hess_end = time.time ()
+        print ("Hessian evaluated in {} seconds".format (hess_end - hess_start))
+        diag_start = time.time ()
         eigvals, eigvecs = linalg.eigh( hessian )
+        diag_end = time.time ()
         idx = eigvals.argsort()
         eigvals = eigvals[ idx ]
         eigvecs = eigvecs[ :, idx ]
@@ -440,7 +460,7 @@ class dmet:
         iteration = 0
         u_diff = 1.0
         self.mu_imp = self.chempot_init
-        convergence_threshold = 1e-5
+        convergence_threshold = 1e-6
         rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
 
@@ -476,8 +496,8 @@ class dmet:
         
 
         # self.verify_gradient( self.square2flat( self.umat ) ) # Only works for self.doSCF == False!!
-        if ( self.SCmethod != 'NONE' and not(self.altcostfunc) ):
-            self.hessian_eigenvalues( self.square2flat( self.umat ) )
+        # if ( self.SCmethod != 'NONE' and not(self.altcostfunc) ):
+        #    self.hessian_eigenvalues( self.square2flat( self.umat ) )
         
         # Solve for the u-matrix
         if ( self.altcostfunc and self.SCmethod == 'BFGS' ):
@@ -487,8 +507,11 @@ class dmet:
             result = optimize.leastsq( self.rdm_differences, self.square2flat( self.umat ), Dfun=self.rdm_differences_derivative, factor=0.1 )
             self.umat = self.flat2square( result[ 0 ] )
         elif ( self.SCmethod == 'BFGS' ):
-            result = optimize.minimize( self.costfunction, self.square2flat( self.umat ), jac=self.costfunction_derivative, options={'disp': False} )
+            print ("Doing BFGS for chemical potential.....")
+            bfgs_start = time.time ()
+            result = optimize.minimize( self.costfunction, self.square2flat( self.umat ), jac=self.costfunction_derivative, options={'disp': True} )
             self.umat = self.flat2square( result.x )
+            print ("BFGS done after {} seconds".format (time.time () - bfgs_start))
         self.umat = self.umat - np.eye( self.umat.shape[ 0 ] ) * np.average( np.diag( self.umat ) ) # Remove arbitrary chemical potential shifts
         if ( self.altcostfunc ):
             print ("   Cost function after convergence =", self.alt_costfunction( self.square2flat( self.umat ) ))
@@ -509,7 +532,8 @@ class dmet:
         print ("   2-norm of difference old and new u-mat =", u_diff)
         print ("   2-norm of difference old and new 1-RDM =", rdm_diff)
         print ("******************************************************")
-        
+
+        u_diff = rdm_diff        
         if ( self.SCmethod == 'NONE' ):
             u_diff = 0 # Do only 1 iteration
 

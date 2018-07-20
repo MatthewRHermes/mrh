@@ -127,10 +127,12 @@ def solve (frag, guess_1RDM, chempot_imp):
     t_start = time.time()
     mc.fcisolver = fci.solver (mf.mol, singlet=True)
     mc.verbose = 0
+    mc.ah_start_tol = 1e-8
     E_CASSCF = mc.kernel(imp2mo)[0]
     mc.conv_tol = 1e-12
+    mc.ah_start_tol = 1e-10
     mc.ah_conv_tol = 1e-12
-    E_CASSCF = mc.kernel()[0] # Because the convergence checker is sometimes bad
+    E_CASSCF = mc.kernel()[0]
     assert (mc.converged)
     t_end = time.time()
     print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (frag.impham_CONST + E_CASSCF, spin_square (mc)[1], t_end - t_start))
