@@ -31,17 +31,42 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     # We need to SVD the environment-fragment block of the 1RDM
     # The bath states are from the left-singular vectors corresponding to nonzero singular value
     # The fragment semi-natural orbitals are from the right-singular vectors of ~any~ singular value
+    # Note that only ~entangled~ fragment orbitals are returned so don't overwrite loc2frag!
     loc2env = get_complementary_states (loc2frag)
-    loc2bath, loc2frag, svals = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, only_nonzero_vals=False)
+    loc2bath, loc2efrag, svals = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, only_nonzero_vals=False)
+
+    # If I specified that I want less than the maxiumum possible number of bath orbitals, I need to implement that here
     norbs_bath = min (np.count_nonzero (svals>bath_tol), norbs_bath_max)
     svals = svals[:norbs_bath]
-    loc2imp = np.append (loc2frag, loc2bath[:,:norbs_bath], axis=1)
-    assert (is_basis_orthonormal (loc2imp))
+    loc2bath = loc2bath[:,:norbs_bath]
 
-    # get semi-natural core orbitals
-    loc2ext = get_complementary_states (loc2imp)
-    no_occ, ext2core = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2ext), sort_vecs=-1)
-    loc2core = np.dot (loc2ext, ext2core) 
+    # Check that I haven't messed up the entangled orbitals so far
+    loc2ent = np.append (loc2efrag, loc2bath, axis=1)
+    assert (is_basis_orthonormal (loc2ent))
+
+    # Get unentangled natural orbitals. Unfortunately, it will be necessary to do ~3~ diagonalizations here, because of degeneracy leading to
+    # undetermined rotations.
+    Pfrag_loc = np.dot (loc2frag, loc2frag.conjugate ().T)
+    loc2une = get_complementary_states (loc2ent)
+    pfrag, pfrag_evecs = matrix_eigen_control_options (represent_operator_in_basis (Pfrag_loc, loc2une))
+    loc2une = np.dot (loc2une, pfrag_evecs)
+    idx_frag = np.isclose (pfrag, 1)
+    idx_core = np.isclose (pfrag, 0)
+    # Check that math works
+    assert (np.all (np.logical_or (idx_frag, idx_core))), pfrag
+    loc2ufrag = loc2une[:,idx_frag]
+    loc2core  = loc2une[:,idx_core]
+    no_occs_frag, no_evecs_frag = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2ufrag))
+    no_occs_core, no_evecs_core = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2core))
+    loc2ufrag = np.dot (loc2ufrag, no_evecs_frag)
+    loc2core  = np.dot (loc2core, no_evecs_core)
+
+    # Build embedding basis: frag (efrag then ufrag, check that this is complete!), bath, core. Check for zero frag-core entanglement
+    loc2frag = np.append (loc2efrag, loc2ufrag, axis=1)
+    assert (is_matrix_eye (represent_operator_in_basis (Pfrag_loc, loc2frag)))
+    assert (loc2core.shape[1] == 0 or is_matrix_zero (represent_operator_in_basis (the_1RDM, loc2frag, loc2core)))
+    loc2imp = np.append (loc2frag, loc2bath, axis=1)
+    assert (is_basis_orthonormal (loc2imp))
     loc2emb = np.append (loc2imp, loc2core, axis=1)
     assert (is_basis_orthonormal_and_complete (loc2emb))
 
@@ -65,7 +90,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
         print ("Schmidt decomposition {}-{} block diagonal error: {}".format (sec[i],sec[j],np.linalg.norm(test_view)))
     print ("Schmidt decomposition svals error: {}".format (np.linalg.norm (svals - svals_test)))
     print ("Schmidt decomposition smallest sval: {}".format (np.amin (np.abs (svals))))
-
+    
     return loc2emb, norbs_bath, nelec_imp
 
 def electronic_energy_orbital_decomposition (norbs_tot, OEI=None, oneRDM=None, TEI=None, twoRDM=None):

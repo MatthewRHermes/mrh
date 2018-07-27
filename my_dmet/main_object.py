@@ -26,6 +26,7 @@ from mrh.my_dmet import localintegrals, qcdmethelper
 import numpy as np
 from scipy import optimize, linalg
 import time
+#import tracemalloc
 from pyscf.tools import molden
 from mrh.util import params
 from mrh.util.la import matrix_eigen_control_options
@@ -48,6 +49,8 @@ class dmet:
         
         assert (( SCmethod == 'LSTSQ' ) or ( SCmethod == 'BFGS' ) or ( SCmethod == 'NONE' ))
         assert (( CC_E_TYPE == 'LAMBDA') or ( CC_E_TYPE == 'CASCI'))        
+
+        #tracemalloc.start (10)
 
         self.ints                     = theInts
         self.norbs_tot                = self.ints.norbs_tot
@@ -116,7 +119,10 @@ class dmet:
         self.helper     = qcdmethelper.qcdmethelper( self.ints, self.makelist_H1(), self.altcostfunc, self.minFunc )
         
         np.set_printoptions(precision=3, linewidth=160)
+        #objinit = tracemalloc.take_snapshot ()
+        #objinit.dump ('objinit.snpsht')
         
+
     def acceptable_errvec_check (obj):
         errcheck = (
          ("bath in errvec incompatible with DET" ,             obj.incl_bath_errvec and obj.doDET),
@@ -457,6 +463,8 @@ class dmet:
 
     def doselfconsistent (self):
     
+        #scfinit = tracemalloc.take_snapshot ()
+        #scfinit.dump ('scfinit.snpsht')
         iteration = 0
         u_diff = 1.0
         self.mu_imp = self.chempot_init
@@ -486,13 +494,16 @@ class dmet:
         umat_old = np.array(self.umat, copy=True)
         
         # Find the chemical potential for the correlated impurity problem
-        iteration = 0
+        myiter = iters[-1][-1]
+        nextiter = 0
         orb_diff = 1.0
         convergence_threshold = 1e-5
         while (orb_diff > convergence_threshold):
-            lower_iters = iters + [('orbs', iteration)]
+            lower_iters = iters + [('orbs', nextiter)]
             orb_diff = self.doselfconsistent_orbs (lower_iters)
-            iteration += 1
+            nextiter += 1
+        #itersnap = tracemalloc.take_snapshot ()
+        #itersnap.dump ('iter{}bgn.snpsht'.format (myiter))
         
 
         # self.verify_gradient( self.square2flat( self.umat ) ) # Only works for self.doSCF == False!!
@@ -512,7 +523,10 @@ class dmet:
             result = optimize.minimize( self.costfunction, self.square2flat( self.umat ), jac=self.costfunction_derivative, options={'disp': True} )
             self.umat = self.flat2square( result.x )
             print ("BFGS done after {} seconds".format (time.time () - bfgs_start))
-        self.umat = self.umat - np.eye( self.umat.shape[ 0 ] ) * np.average( np.diag( self.umat ) ) # Remove arbitrary chemical potential shifts
+        if self.CC_E_TYPE == 'CASCI':
+            # You NEED the diagonal component if the molecule isn't tiled out with fragments!
+            # But otherwise, it's a redundant chemical potential term
+            self.umat = self.umat - np.eye( self.umat.shape[ 0 ] ) * np.average( np.diag( self.umat ) ) # Remove arbitrary chemical potential shifts
         if ( self.altcostfunc ):
             print ("   Cost function after convergence =", self.alt_costfunction( self.square2flat( self.umat ) ))
         else:
@@ -521,21 +535,25 @@ class dmet:
         # Possibly print the u-matrix / 1-RDM
         if self.print_u:
             self.print_umat()
+            np.save ('umat.npy', self.umat)
         if self.print_rdm:
             self.print_1rdm()
         
         # Get the error measure
         u_diff = linalg.norm( umat_old - self.umat )
+        print ("   2-norm of difference old and new u-mat =", u_diff)
         rdm_new = self.transform_ed_1rdm ()
         rdm_diff = linalg.norm( rdm_old - rdm_new )
-        self.umat = self.relaxation * umat_old + ( 1.0 - self.relaxation ) * self.umat
-        print ("   2-norm of difference old and new u-mat =", u_diff)
         print ("   2-norm of difference old and new 1-RDM =", rdm_diff)
         print ("******************************************************")
+        self.umat = self.relaxation * umat_old + ( 1.0 - self.relaxation ) * self.umat
 
         u_diff = rdm_diff        
         if ( self.SCmethod == 'NONE' ):
             u_diff = 0 # Do only 1 iteration
+
+        #itersnap = tracemalloc.take_snapshot ()
+        #itersnap.dump ('iter{}end.snpsht'.format (myiter))
 
         return u_diff, rdm_new
 
