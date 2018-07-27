@@ -57,6 +57,7 @@ class fragment_object:
         self.incl_impcore_correlation = False
         self.bath_tol = 1e-8
         self.num_mf_stab_checks = 0
+        self.spin_S = 0
 
         # Assign solver function
         solver_function_map = {

@@ -125,7 +125,10 @@ def solve (frag, guess_1RDM, chempot_imp):
         imp2mo = mc.mo_coeff 
         print ("Default impurity active space selection: {}".format (np.arange (norbs_cmo, norbs_occ, 1, dtype=int)))
     t_start = time.time()
-    mc.fcisolver = fci.solver (mf.mol, singlet=True)
+    mc.fcisolver = fci.solver (mf.mol, singlet=(frag.spin_S == 0))
+    if frag.spin_S != 0:
+        s2_eval = frag.spin_S * (frag.spin_S + 1)
+        mc.fix_spin_(ss=s2_eval)
     mc.verbose = 0
     mc.ah_start_tol = 1e-8
     E_CASSCF = mc.kernel(imp2mo)[0]
