@@ -36,7 +36,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     loc2bath, loc2efrag, svals = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, only_nonzero_vals=False)
 
     # If I specified that I want less than the maxiumum possible number of bath orbitals, I need to implement that here
-    norbs_bath = min (np.count_nonzero (svals>bath_tol), norbs_bath_max)
+    norbs_bath = min (np.count_nonzero (np.abs (svals)>bath_tol), norbs_bath_max)
     svals = svals[:norbs_bath]
     loc2bath = loc2bath[:,:norbs_bath]
 
@@ -44,7 +44,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     loc2ent = np.append (loc2efrag, loc2bath, axis=1)
     assert (is_basis_orthonormal (loc2ent))
 
-    # Get unentangled natural orbitals. Unfortunately, it will be necessary to do ~3~ diagonalizations here, because of degeneracy leading to
+    # Get unentangled natural orbitals, separated into fragment and core. Unfortunately, it will be necessary to do ~3~ diagonalizations here, because of degeneracy leading to
     # undetermined rotations.
     Pfrag_loc = np.dot (loc2frag, loc2frag.conjugate ().T)
     loc2une = get_complementary_states (loc2ent)
@@ -60,11 +60,13 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     no_occs_core, no_evecs_core = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2core))
     loc2ufrag = np.dot (loc2ufrag, no_evecs_frag)
     loc2core  = np.dot (loc2core, no_evecs_core)
+    print ("Found {} unentangled fragment orbitals and {} core orbitals".format (loc2ufrag.shape[1], loc2core.shape[1]))
 
     # Build embedding basis: frag (efrag then ufrag, check that this is complete!), bath, core. Check for zero frag-core entanglement
     loc2frag = np.append (loc2efrag, loc2ufrag, axis=1)
     assert (is_matrix_eye (represent_operator_in_basis (Pfrag_loc, loc2frag)))
-    assert (loc2core.shape[1] == 0 or is_matrix_zero (represent_operator_in_basis (the_1RDM, loc2frag, loc2core)))
+    errmat = represent_operator_in_basis (the_1RDM, loc2frag, loc2core)
+    assert (loc2core.shape[1] == 0 or is_matrix_zero (errmat))
     loc2imp = np.append (loc2frag, loc2bath, axis=1)
     assert (is_basis_orthonormal (loc2imp))
     loc2emb = np.append (loc2imp, loc2core, axis=1)

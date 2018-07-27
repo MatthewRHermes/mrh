@@ -47,10 +47,12 @@ def solve (frag, guess_1RDM, chempot_imp):
     
     # Get the RHF solution
     mol = gto.Mole()
-    mol.build(verbose=0)
+    mol.spin = 2*frag.spin_MS
+    mol.verbose = 0 if frag.mol_output is None else 4
+    mol.output = frag.mol_output
+    mol.build ()
     mol.atom.append(('H', (0, 0, 0)))
     mol.nelectron = frag.nelec_imp
-    mol.spin = 0
     #mol.incore_anyway = True
     mf = scf.RHF(mol)
     mf.get_hcore = lambda *args: OEI
@@ -129,7 +131,6 @@ def solve (frag, guess_1RDM, chempot_imp):
     if frag.spin_S != 0:
         s2_eval = frag.spin_S * (frag.spin_S + 1)
         mc.fix_spin_(ss=s2_eval)
-    mc.verbose = 0
     mc.ah_start_tol = 1e-8
     E_CASSCF = mc.kernel(imp2mo)[0]
     mc.conv_tol = 1e-12

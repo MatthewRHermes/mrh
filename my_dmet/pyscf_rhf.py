@@ -33,7 +33,10 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Get the RHF solution
     mol = gto.Mole()
-    mol.build( verbose=0 )
+    mol.spin = 2*frag.spin_MS
+    mol.verbose = 0 if frag.mol_output is None else 4
+    mol.output = frag.mol_output
+    mol.build ()
     mol.atom.append(('C', (0, 0, 0)))
     mol.nelectron = frag.nelec_imp
     mol.incore_anyway = True

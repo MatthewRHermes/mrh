@@ -58,6 +58,8 @@ class fragment_object:
         self.bath_tol = 1e-8
         self.num_mf_stab_checks = 0
         self.spin_S = 0
+        self.spin_MS = 0
+        self.mol_output = None
 
         # Assign solver function
         solver_function_map = {
@@ -399,7 +401,7 @@ class fragment_object:
         oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
         oneRDMa_loc = oneRDM_loc - oneRDMi_loc
         self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMi_loc, 
-            loc2wfrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
+            loc2wfrag, self.norbs_bath_max, bath_tol=self.bath_tol, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_qfrag + norbs_bath
         self.Schmidt_done = True
         oneRDMacore_loc = project_operator_into_subspace (oneRDMa_loc, self.loc2core)
