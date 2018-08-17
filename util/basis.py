@@ -107,7 +107,14 @@ def represent_operator_in_basis_1body (braOket, bra_basis, ket_basis):
     l2p = np.asmatrix (bra_basis)
     r2q = np.asmatrix (ket_basis)
     p2l = l2p.H
-    return np.asarray (p2l * lOr * r2q)
+    try:
+        return np.asarray (p2l * lOr * r2q)
+    except ValueError as err:
+        print (p2l.shape)
+        print (lOr.shape)
+        print (r2q.shape)
+        raise (err)
+
 
 def represent_operator_in_basis_2body (braOket, bra1_basis, ket1_basis, bra2_basis, ket2_basis):
     abcd = braOket
@@ -197,7 +204,16 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrve
     p2c = c2p.H
     pOq = p2c * cOc * c2q
 
-    p2l, svals, q2r = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals)
+    try:
+        p2l, svals, q2r = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals)
+    except ValueError as e:
+        if 0 in pOq.shape:
+            print ("get_overlapping_states: one of bra or ket basis is zero size; returning bra and ket basis unchanged")
+            return bra_basis, ket_basis, np.zeros (0)
+        else:
+            print (pOq.shape)
+            raise (e)
+            
 
     '''
     pQp = pOq * pOq.H

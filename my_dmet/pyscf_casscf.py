@@ -106,7 +106,11 @@ def solve (frag, guess_1RDM, chempot_imp):
     #mc.natorb = True
 
     # Guess orbitals
-    if frag.norbs_as > 0:
+    ci0 = None
+    if len (frag.imp_cache) == 2:
+        imp2mo, ci0 = frag.imp_cache
+        print ("Taking molecular orbitals and ci vector from cache")
+    elif frag.norbs_as > 0:
         #if frag.loc2mo.shape[1] == frag.norbs_imp:
         #    print ("Projecting stored mos (frag.loc2mo) onto the impurity basis")
         #    imp2mo = mcscf.addons.project_init_guess (mc, np.dot (frag.imp2loc, frag.loc2mo))
@@ -132,7 +136,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         s2_eval = frag.spin_S * (frag.spin_S + 1)
         mc.fix_spin_(ss=s2_eval)
     mc.ah_start_tol = 1e-8
-    E_CASSCF = mc.kernel(imp2mo)[0]
+    E_CASSCF = mc.kernel(imp2mo, ci0)[0]
     mc.conv_tol = 1e-12
     mc.ah_start_tol = 1e-10
     mc.ah_conv_tol = 1e-12
@@ -141,12 +145,13 @@ def solve (frag, guess_1RDM, chempot_imp):
         mc = mc.newton ()
         E_CASSCF = mc.kernel()[0]
     assert (mc.converged)
+    frag.imp_cache = [mc.mo_coeff, mc.ci]
     t_end = time.time()
     print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (frag.impham_CONST + E_CASSCF, spin_square (mc)[1], t_end - t_start))
     
     # Get twoRDM + oneRDM. cs: MC-SCF core, as: MC-SCF active space
     # I'm going to need to keep some representation of the active-space orbitals
-    imp2mo = np.copy (mc.mo_coeff) #mc.cas_natorb()[0]
+    imp2mo = mc.mo_coeff #mc.cas_natorb()[0]
     loc2mo = np.dot (frag.loc2imp, imp2mo)
     imp2amo = imp2mo[:,norbs_cmo:norbs_occ]
     loc2amo = loc2mo[:,norbs_cmo:norbs_occ]

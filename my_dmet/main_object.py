@@ -30,17 +30,19 @@ import time
 from pyscf.tools import molden
 from mrh.util import params
 from mrh.util.la import matrix_eigen_control_options
-from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete
+from mrh.util.rdm import S2_exptval
+from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
-from itertools import combinations
+from itertools import combinations, product
 
 class dmet:
 
     def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
                     doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', minFunc='FOCK_INIT', wma_options=False, print_u=True,
                     print_rdm=True, mc_dmet=False, debug_energy=False, debug_reloc=False, noselfconsistent=False, do_constrCASSCF=False,
-                    do_refragmentation=True, incl_impcore_correlation=False, nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0):
+                    do_refragmentation=True, incl_impcore_correlation=False, nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
+                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0):
 
         if isTranslationInvariant:
             raise RuntimeError ("The translational invariance option doesn't work!  It needs to be completely rebuilt!")
@@ -78,6 +80,11 @@ class dmet:
         self.nelec_int_thresh         = nelec_int_thresh
         self.chempot_init             = chempot_init
         self.num_mf_stab_checks       = num_mf_stab_checks
+        self.corrpot_maxiter          = corrpot_maxiter
+        self.orb_maxiter              = orb_maxiter
+        self.chempot_tol              = chempot_tol
+        self.corrpot_mf_moldens       = corrpot_mf_moldens
+        self.corrpot_mf_molden_cnt    = 0
         assert (np.any (np.array ([do_constrCASSCF, do_refragmentation]) == False)), 'constrCASSCF and refragmentation inconsistent with each other'
 
         if self.noselfconsistent:
@@ -115,6 +122,7 @@ class dmet:
         self.umat       = np.zeros([ self.norbs_tot, self.norbs_tot ])
         self.relaxation = 0.0
         self.energy     = 0.0
+        self.spin       = 0.0
         self.mu_imp     = 0.0
         self.helper     = qcdmethelper.qcdmethelper( self.ints, self.makelist_H1(), self.altcostfunc, self.minFunc )
         
@@ -224,11 +232,13 @@ class dmet:
     def doexact( self, chempot_frag=0.0, frag_constrained_casscf=False ):  
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
         self.energy = 0.0												
+        self.spin = 0.0
 
         for frag in self.fragments:
             frag.frag_constrained_casscf = frag_constrained_casscf
             frag.solve_impurity_problem (chempot_frag)
             self.energy += frag.E_frag
+            self.spin += frag.S2_frag
 
         
         if (self.doDET and self.doDET_NO):
@@ -289,6 +299,7 @@ class dmet:
 
         self.energy += self.ints.const()
         print ("Current whole-molecule energy: {0:.6f}".format (self.energy))
+        print ("Current whole-molecule spin: {0:.6f}".format (self.spin))
         return Nelectrons
         
     def constructloc2fno( self ):
@@ -475,6 +486,8 @@ class dmet:
         while (u_diff > convergence_threshold):
             u_diff, rdm = self.doselfconsistent_corrpot (rdm, [('corrpot', iteration)])
             iteration += 1 
+            if iteration > self.corrpot_maxiter:
+                raise RuntimeError ('Maximum correlation-potential cycles!')
 
         if ( self.CC_E_TYPE == 'CASCI' ):
             assert( len (self.fragments) == 1 )		
@@ -482,6 +495,7 @@ class dmet:
             self.energy = self.fragments[0].E_imp
         if self.debug_energy:
             debug_Etot (self)
+        print (self.S2_exptval ())
 
         for frag in self.fragments:
             frag.impurity_molden ('natorb', natorb=True)
@@ -502,6 +516,8 @@ class dmet:
             lower_iters = iters + [('orbs', nextiter)]
             orb_diff = self.doselfconsistent_orbs (lower_iters)
             nextiter += 1
+            if nextiter > self.orb_maxiter:
+                raise RuntimeError ('Maximum active-orbital rotation cycles!')
         #itersnap = tracemalloc.take_snapshot ()
         #itersnap.dump ('iter{}bgn.snpsht'.format (myiter))
         
@@ -538,6 +554,15 @@ class dmet:
             np.save ('umat.npy', self.umat)
         if self.print_rdm:
             self.print_1rdm()
+        if self.corrpot_mf_molden_cnt < self.corrpot_mf_moldens:
+            fname = 'dmet_corrpot.{:d}.molden'.format (self.corrpot_mf_molden_cnt)
+            oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
+            mf_occ, loc2mf = matrix_eigen_control_options (oneRDM_loc, sort_vecs=-1)
+            mf_coeff = np.dot (self.ints.ao2loc, loc2mf)
+            molden.from_mo (self.ints.mol, fname, mf_coeff, occ=mf_occ)
+            self.corrpot_mf_molden_cnt += 1
+            if self.corrpot_mf_molden_cnt == self.corrpot_mf_moldens:
+                self.corrpot_mf_molden_cnt = 0
         
         # Get the error measure
         u_diff = linalg.norm( umat_old - self.umat )
@@ -573,6 +598,7 @@ class dmet:
                 frag.restore_default_embedding_basis ()
 
         self.energy = 0.0
+        self.spin = 0.0
         for frag in self.fragments:
             frag.do_Schmidt (oneRDM_loc, self.fragments, loc2wmcs_old, mc_dmet_switch)
             frag.construct_impurity_hamiltonian ()
@@ -589,7 +615,7 @@ class dmet:
             self.mu_imp = 0.0
             self.doexact (self.mu_imp)
         else:
-            self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp, tol=1e-6 )
+            self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp, tol=self.chempot_tol )
             print ("   Chemical potential =", self.mu_imp)
         for frag in self.fragments:
             frag.impurity_molden ('natorb', natorb=True)
@@ -627,10 +653,17 @@ class dmet:
             
     def transform_ed_1rdm( self ):
     
-        result = np.zeros( [self.umat.shape[0], self.umat.shape[0]] )
-        for frag in self.fragments:
-            result[np.ix_(frag.frag_orb_list, frag.frag_orb_list)] = frag.get_oneRDM_frag ()
-        return result
+        norbs_frag = [f.loc2frag.shape[1] for f in self.fragments]
+        result = np.zeros( [sum (norbs_frag), sum (norbs_frag)], dtype = np.float64)
+        loc2frag = np.concatenate ([f.loc2frag for f in self.fragments], axis=1)
+        assert (is_basis_orthonormal (loc2frag))
+        assert (sum (norbs_frag) == loc2frag.shape[1])
+        frag_ranges = [sum (norbs_frag[:i]) for i in range (len (norbs_frag) + 1)]
+        for idx, frag in enumerate (self.fragments):
+            i = frag_ranges[idx]
+            j = frag_ranges[idx+1]
+            result[i:j,i:j] = frag.get_oneRDM_frag ()
+        return represent_operator_in_basis (result, loc2frag.conjugate ().T)
         
     def dump_bath_orbs( self, filename, frag_idx=0 ):
         
@@ -698,6 +731,36 @@ class dmet:
             frag.set_new_fragment_basis (np.append (loc2imo, loc2amo, axis=1))
 
         return oneRDM_loc
+
+    def S2_exptval (self, fragments = None):
+
+        if fragments is None:
+            fragments = self.fragments
+
+        S2_tot = 0
+        print ("Spin expectation value fragment breakdown:")
+        for f1, f2 in product (fragments, repeat=2):
+            if f1 is f2:
+                oneRDM = f1.get_oneRDM_frag ()
+                twoCDM = represent_operator_in_basis (f1.twoCDM_imp, f1.imp2frag)
+                S2 = S2_exptval (oneRDM, twoCDM, cumulant=True)
+            else:
+                DM_pq = (represent_operator_in_basis (f1.oneRDM_loc, f1.loc2frag, f2.loc2frag)
+                       + represent_operator_in_basis (f2.oneRDM_loc, f1.loc2frag, f2.loc2frag)) / 2
+                DM_qp = (represent_operator_in_basis (f1.oneRDM_loc, f2.loc2frag, f1.loc2frag)
+                       + represent_operator_in_basis (f2.oneRDM_loc, f2.loc2frag, f1.loc2frag)) / 2
+                S2 = -3 * np.einsum ('pq,qp->', DM_pq, DM_qp) / 8
+                P1 = np.dot (f1.imp2frag, f1.frag2imp)
+                P2 = reduce (np.dot, (f1.imp2loc, f2.loc2frag, f2.frag2loc, f1.loc2imp))
+                S2 -= np.einsum ('ad,da->', np.einsum ('abcd,cb->ad', f1.twoCDM_imp, P2), P1) / 4
+                S2 -= np.einsum ('ab,ba->', np.einsum ('abcd,cd->ab', f1.twoCDM_imp, P2), P1) / 8
+                P1 = reduce (np.dot, (f2.imp2loc, f1.loc2frag, f1.frag2loc, f2.loc2imp))
+                P2 = np.dot (f2.imp2frag, f2.frag2imp)
+                S2 -= np.einsum ('ad,da->', np.einsum ('abcd,cb->ad', f2.twoCDM_imp, P2), P1) / 4
+                S2 -= np.einsum ('ab,ba->', np.einsum ('abcd,cd->ab', f2.twoCDM_imp, P2), P1) / 8
+            print ("{}-{}: {:.5f}".format (f1.frag_name, f2.frag_name, S2))
+            S2_tot += S2
+        return S2_tot
 
 
 

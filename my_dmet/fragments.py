@@ -63,14 +63,14 @@ class fragment_object:
 
         # Assign solver function
         solver_function_map = {
-#            "ED"     : chemps2.solve ,
+            "FCI"    : pyscf_fci.solve ,
             "RHF"    : pyscf_rhf.solve ,
             "MP2"    : pyscf_mp2.solve ,
             "CC"     : pyscf_cc.solve ,
             "CASSCF" : pyscf_casscf.solve
             }
         solver_longname_map = {
-            "ED"     : "exact diagonalization",
+            "FCI"    : "full configuration interaction",
             "RHF"    : "restricted Hartree-Fock",
             "MP2"    : "MP2 perturbation theory",
             "CC"     : "coupled-cluster with singles and doubles",
@@ -93,6 +93,7 @@ class fragment_object:
         self.oneRDMfroz_loc = None
         self.twoCDMfroz_tbc = []
         self.loc2tbc        = []
+        self.imp_cache      = []
         
         # Impurity Hamiltonian
         self.Ecore_frag   = 0.0  # In case this exists
@@ -312,6 +313,7 @@ class fragment_object:
         self.loc2tbc = []
 
     def do_Schmidt (self, oneRDM_loc, all_frags, loc2wmcs, mc_dmet_switch=0):
+        self.imp_cache = []
         if mc_dmet_switch == 0:
             self.do_Schmidt_normal (oneRDM_loc)
         elif mc_dmet_switch == 1:
@@ -324,6 +326,7 @@ class fragment_object:
 
     def do_Schmidt_normal (self, oneRDM_loc):
         print ("Normal Schmidt decomposition of {0} fragment".format (self.frag_name))
+        loc2env = get_complementary_states (self.loc2frag)
         self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
             self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, bath_tol=self.bath_tol, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_bath
@@ -492,8 +495,9 @@ class fragment_object:
         # Main results: oneRDM in local basis and nelec_frag
         self.nelec_frag = self.get_nelec_frag ()
         self.E_frag     = self.get_E_frag ()
-        print ("Impurity results for {0}: E_imp = {1}, E_frag = {2}, nelec_frag = {3}".format (self.frag_name,
-            self.E_imp, self.E_frag, self.nelec_frag))
+        self.S2_frag    = self.get_S2_frag ()
+        print ("Impurity results for {0}: E_imp = {1}, E_frag = {2}, nelec_frag = {3}, S2_frag = {4}".format (self.frag_name,
+            self.E_imp, self.E_frag, self.nelec_frag, self.S2_frag))
 
         # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals
         self.fno_evals, frag2fno = np.linalg.eigh (self.get_oneRDM_frag ())
@@ -606,6 +610,13 @@ class fragment_object:
 
         return float (E1 + E2 + self.E2_frag_core)
 
+    def get_S2_frag (self):
+        self.warn_check_imp_solve ("get_S2_frag")
+        # S2_f = Tr_f [G - (G**2)/2] - 1/2 sum_fi L_fiif
+        
+        exc_mat = self.oneRDM_loc - np.dot (self.oneRDM_loc, self.oneRDM_loc)/2 - np.einsum ('pqqr->pr', self.twoCDM_imp)/2
+        return np.einsum ('fp,pq,qf->', self.frag2loc, exc_mat, self.loc2frag)
+
     def get_twoRDM (self, *bases):
         bases = bases if len (bases) == 4 else (basis[0] for i in range[4])
         oneRDM_pq = represent_operator_in_basis (self.oneRDM_loc, bases[0], bases[1])
@@ -661,6 +672,8 @@ class fragment_object:
             ao2molden = np.dot (ao2imp, imp2molden)
 
         molden.from_mo (mol, filename, ao2molden, ene=ene, occ=occ)
+
+
     ###############################################################################################################################
 
 

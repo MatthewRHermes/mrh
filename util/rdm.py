@@ -91,7 +91,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
         test_view = test[lim[i]:lim[i+1],lim[j]:lim[j+1]]
         print ("Schmidt decomposition {}-{} block diagonal error: {}".format (sec[i],sec[j],np.linalg.norm(test_view)))
     print ("Schmidt decomposition svals error: {}".format (np.linalg.norm (svals - svals_test)))
-    print ("Schmidt decomposition smallest sval: {}".format (np.amin (np.abs (svals))))
+    print ("Schmidt decomposition smallest sval: {}".format (np.amin (np.insert (np.abs (svals), 0, 0))))
     
     return loc2emb, norbs_bath, nelec_imp
 
@@ -169,6 +169,32 @@ def get_2RDM_from_2CDM (twoCDM, oneRDM):
     twoRDM -=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
     return twoRDM
 
+def S2_exptval (oneDM, twoDM, Nelec=None, cumulant=False):
+    ''' Evaluate S^2 expectation value from spin-summed one- and two-body density matrices.
+        <S^2> = 1/4 (3N - sum_pq [2P_pqqp + P_ppqq])
+              = Tr[D-(D**2)/2] - 1/2 sum_pq L_pqqp
+
+        Args:
+
+        oneDM: ndarray of shape = (M,M)
+            spin-summed one-body density matrix
+
+        twoDM: ndarray of shape = (M,M,M,M)
+            spin-summed two-body density matrix if cumulant == False or density cumulant if cumulant == True
+
+        Kwargs:
+
+        Nelec: int, default = None
+            if not supplied, is computed as trace of oneDM
+
+        cumulant: bool, default = False
+            whether the cumulant expansion is used for oneDM and twoDM
+    '''
+
+    if not cumulant:
+        twoDM = get_2CDM_from_2RDM (twoDM, oneDM)
+
+    return np.sum (np.diag (oneDM) - np.einsum ('pq,qp->p', oneDM, oneDM)/2 - np.einsum ('pqqp->p', twoDM)/2)
 
 
 
