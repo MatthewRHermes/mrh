@@ -6,7 +6,7 @@ import numpy as np
 import scipy as sp 
 from pyscf import gto, scf
 from pyscf.tools import molden
-from mrh.my_dmet import pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper#, chemps2
+from mrh.my_dmet import pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper, pyscf_fci #, chemps2
 from mrh.util import params
 from mrh.util.basis import *
 from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2CDM, get_2CDM_from_2RDM, Schmidt_decompose_1RDM
@@ -57,8 +57,8 @@ class fragment_object:
         self.incl_impcore_correlation = False
         self.bath_tol = 1e-8
         self.num_mf_stab_checks = 0
-        self.spin_S = 0
-        self.spin_MS = 0
+        self.target_S = 0
+        self.target_MS = 0
         self.mol_output = None
 
         # Assign solver function
@@ -385,6 +385,7 @@ class fragment_object:
         proj = np.dot (frag2wmcs.conjugate ().T, frag2wmcs)
         norbs_wmcsf = np.trace (proj)
         norbs_xtra = int (round (self.norbs_frag - norbs_wmcsf))
+        assert (norbs_xtra == self.norbs_as)
 
         # Now get them. (Make sure I don't add active-space orbitals by mistake!)
         loc2qfrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())
@@ -399,6 +400,29 @@ class fragment_object:
         loc2wfrag = np.append (self.loc2frag, loc2qfrag[:,:norbs_qfrag], axis=1)
         assert (is_basis_orthonormal (loc2wfrag))
 
+        # TEST
+        if self.norbs_as:
+            # This test is equal to what I do above:
+            loc2tildef = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())[0]
+            tildef2frag = np.dot (loc2tildef.conjugate ().T, self.loc2frag)
+            tildef2wmas = np.dot (loc2tildef.conjugate ().T, loc2wmas)
+            tildef2qfrag = get_complementary_states (np.append (tildef2frag, tildef2wmas, axis=1), already_complete_warning=False)
+            print ("TEST: {} states complementary to Ptilde |frag> and Ptilde |wmas> in tilde basis found; {} needed".format (tildef2qfrag.shape[1], self.norbs_as))
+            test = np.dot (loc2tildef, tildef2qfrag)
+            wfrag = loc2wfrag[:,-self.norbs_as:]
+            svals = get_overlapping_states (test, wfrag)[2]
+            print ("TEST: svals of <test|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
+
+            # So is this:
+            loc2xq = get_complementary_states (np.append (self.loc2frag, loc2wmas, axis=1), already_complete_warning=False)
+            Qhat = np.dot (loc2xq, loc2xq.conjugate ().T)
+            Qhat_tildef = represent_operator_in_basis (Qhat, loc2tildef)
+            evals, evecs = matrix_eigen_control_options (Qhat_tildef, sort_vecs=-1, only_nonzero_vals=False)
+            idx = np.isclose (evals, 1)
+            test2 = np.dot (loc2tildef, evecs[:,idx])
+            svals = get_overlapping_states (test, wfrag)[2]
+            print ("TEST: svals of <evecs of PtildeF Q PtildeF|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
+
         # This will RuntimeError on me if I don't have even integer.
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
         oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
@@ -410,7 +434,7 @@ class fragment_object:
         oneRDMacore_loc = project_operator_into_subspace (oneRDMa_loc, self.loc2core)
         nelec_impa = compute_nelec_in_subspace (oneRDMa_loc, self.loc2imp)
         print ("Adding {} active-space electrons to impurity and {} active-space electrons to core".format (nelec_impa, np.trace (oneRDMacore_loc)))
-        assert (is_close_to_integer (nelec_impa / 2, params.num_zero_atol))
+        assert (is_close_to_integer ((nelec_impa - self.active_space[1]) / 2, params.num_zero_atol))
         self.oneRDMfroz_loc += oneRDMacore_loc
         self.nelec_imp += int (round (nelec_impa))
 
@@ -613,9 +637,10 @@ class fragment_object:
     def get_S2_frag (self):
         self.warn_check_imp_solve ("get_S2_frag")
         # S2_f = Tr_f [G - (G**2)/2] - 1/2 sum_fi L_fiif
-        
-        exc_mat = self.oneRDM_loc - np.dot (self.oneRDM_loc, self.oneRDM_loc)/2 - np.einsum ('pqqr->pr', self.twoCDM_imp)/2
-        return np.einsum ('fp,pq,qf->', self.frag2loc, exc_mat, self.loc2frag)
+
+        dm = self.get_oneRDM_imp ()
+        exc_mat = dm - np.dot (dm, dm)/2 - np.einsum ('prrq->pq', self.twoCDM_imp)/2
+        return np.einsum ('fp,pq,qf->', self.frag2imp, exc_mat, self.imp2frag) 
 
     def get_twoRDM (self, *bases):
         bases = bases if len (bases) == 4 else (basis[0] for i in range[4])
@@ -649,6 +674,7 @@ class fragment_object:
         filename = self.frag_name + tag + 'molden'
         mol = self.ints.mol.copy ()
         mol.nelectron = self.nelec_imp
+        mol.spin = int (round (2 * self.target_MS))
 
         oneRDM = self.get_oneRDM_imp ()
         FOCK = represent_operator_in_basis (self.ints.loc_rhf_fock_bis (self.oneRDM_loc), self.loc2imp)

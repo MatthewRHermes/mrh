@@ -33,7 +33,7 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Get the RHF solution
     mol = gto.Mole()
-    mol.spin = 2*frag.spin_MS
+    mol.spin = int (round (2 * frag.target_MS))
     mol.verbose = 0 if frag.mol_output is None else 4
     mol.output = frag.mol_output
     mol.build ()

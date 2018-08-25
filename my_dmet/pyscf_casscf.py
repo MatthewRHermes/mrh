@@ -47,12 +47,12 @@ def solve (frag, guess_1RDM, chempot_imp):
     
     # Get the RHF solution
     mol = gto.Mole()
-    mol.spin = 2*frag.spin_MS
+    mol.spin = int (round (2 * frag.target_MS))
     mol.verbose = 0 if frag.mol_output is None else 4
     mol.output = frag.mol_output
-    mol.build ()
     mol.atom.append(('H', (0, 0, 0)))
     mol.nelectron = frag.nelec_imp
+    mol.build ()
     #mol.incore_anyway = True
     mf = scf.RHF(mol)
     mf.get_hcore = lambda *args: OEI
@@ -110,7 +110,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     if len (frag.imp_cache) == 2:
         imp2mo, ci0 = frag.imp_cache
         print ("Taking molecular orbitals and ci vector from cache")
-    elif frag.norbs_as > 0:
+    elif frag.norbs_as == frag.active_space[1]:
         #if frag.loc2mo.shape[1] == frag.norbs_imp:
         #    print ("Projecting stored mos (frag.loc2mo) onto the impurity basis")
         #    imp2mo = mcscf.addons.project_init_guess (mc, np.dot (frag.imp2loc, frag.loc2mo))
@@ -131,9 +131,9 @@ def solve (frag, guess_1RDM, chempot_imp):
         imp2mo = mc.mo_coeff 
         print ("Default impurity active space selection: {}".format (np.arange (norbs_cmo, norbs_occ, 1, dtype=int)))
     t_start = time.time()
-    mc.fcisolver = fci.solver (mf.mol, singlet=(frag.spin_S == 0))
-    if frag.spin_S != 0:
-        s2_eval = frag.spin_S * (frag.spin_S + 1)
+    mc.fcisolver = fci.solver (mf.mol, singlet=(frag.target_S == 0))
+    if frag.target_S != 0:
+        s2_eval = frag.target_S * (frag.target_S + 1)
         mc.fix_spin_(ss=s2_eval)
     mc.ah_start_tol = 1e-8
     E_CASSCF = mc.kernel(imp2mo, ci0)[0]

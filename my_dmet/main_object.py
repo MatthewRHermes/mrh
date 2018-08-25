@@ -589,6 +589,8 @@ class dmet:
         mc_dmet_switch = int (self.mc_dmet)
         if self.do_refragmentation and self.mc_dmet:
             mc_dmet_switch = 2
+        if self.mc_dmet:
+            self.ints.setup_wm_core_scf (self.fragments)
 
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
         if self.do_refragmentation and self.mc_dmet:
@@ -622,12 +624,12 @@ class dmet:
             frag.impurity_molden ('imporb')
             frag.impurity_molden ('molorb', molorb=True)
         self.doexact (self.mu_imp, frag_constrained_casscf=self.do_constrCASSCF)
-        if self.mc_dmet:
-            self.ints.setup_wm_core_scf (self.fragments)
+        #if self.mc_dmet:
+        #    self.ints.setup_wm_core_scf (self.fragments)
         
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         try:
-            orb_diff = measure_basis_olap (loc2wmas_new, loc2wmcs_old)[0] / loc2wmas_new.shape[1]
+            orb_diff = measure_basis_olap (loc2wmas_new, loc2wmcs_old)[0] / max (1,loc2wmas_new.shape[1])
         except:
             raise RuntimeError("what?\n{0}\n{1}".format(loc2wmas_new.shape,loc2wmcs_old.shape))
 
@@ -697,7 +699,7 @@ class dmet:
             nelec_amo = np.einsum ("ip,ij,jp->",loc2amo.conjugate (), oneRDM_loc, loc2amo)
             interr = nelec_amo - round (nelec_amo)
             print ("{} fragment has {:.5f} active electrons (integer error: {:.2e})".format (frag.frag_name, nelec_amo, interr))
-            assert (interr < self.nelec_int_thresh), "Fragment with non-integer number of electrons appears"
+            #assert (interr < self.nelec_int_thresh), "Fragment with non-integer number of electrons appears"
             interr = np.eye (loc2amo.shape[1]) * interr / loc2amo.shape[1]
             oneRDM_loc -= reduce (np.dot, [loc2amo, interr, loc2amo.conjugate ().T])
             
