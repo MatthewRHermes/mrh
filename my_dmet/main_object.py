@@ -30,7 +30,6 @@ import time
 from pyscf.tools import molden
 from mrh.util import params
 from mrh.util.la import matrix_eigen_control_options
-from mrh.util.rdm import S2_exptval
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace, is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
@@ -495,7 +494,6 @@ class dmet:
             self.energy = self.fragments[0].E_imp
         if self.debug_energy:
             debug_Etot (self)
-        print (self.S2_exptval ())
 
         for frag in self.fragments:
             frag.impurity_molden ('natorb', natorb=True)
@@ -695,13 +693,16 @@ class dmet:
         loc2wmcs = self.ints.relocalize_states (loc2wmcs, self.fragments, oneRDM_loc, canonicalize=True)
 
         # Evaluate how many electrons are in each active subspace
+        interrs = []
         for loc2amo, frag in zip (loc2wmas, self.fragments):
             nelec_amo = np.einsum ("ip,ij,jp->",loc2amo.conjugate (), oneRDM_loc, loc2amo)
             interr = nelec_amo - round (nelec_amo)
-            print ("{} fragment has {:.5f} active electrons (integer error: {:.2e})".format (frag.frag_name, nelec_amo, interr))
+            interrs.append (interr)
+            print ("{0} fragment has {1:.5f} active electrons (integer error: {2:.2e})".format (frag.frag_name, nelec_amo, interr))
             #assert (interr < self.nelec_int_thresh), "Fragment with non-integer number of electrons appears"
             interr = np.eye (loc2amo.shape[1]) * interr / loc2amo.shape[1]
             oneRDM_loc -= reduce (np.dot, [loc2amo, interr, loc2amo.conjugate ().T])
+        assert (all ((i < self.nelec_int_thresh for i in interrs))), "Fragment with non-integer number of electrons appears"
             
         # Evaluate the entanglement of the active subspaces
         for (o1, f1), (o2, f2) in combinations (zip (loc2wmas, self.fragments), 2):
@@ -733,36 +734,4 @@ class dmet:
             frag.set_new_fragment_basis (np.append (loc2imo, loc2amo, axis=1))
 
         return oneRDM_loc
-
-    def S2_exptval (self, fragments = None):
-
-        if fragments is None:
-            fragments = self.fragments
-
-        S2_tot = 0
-        print ("Spin expectation value fragment breakdown:")
-        for f1, f2 in product (fragments, repeat=2):
-            if f1 is f2:
-                oneRDM = f1.get_oneRDM_frag ()
-                twoCDM = represent_operator_in_basis (f1.twoCDM_imp, f1.imp2frag)
-                S2 = S2_exptval (oneRDM, twoCDM, cumulant=True)
-            else:
-                DM_pq = (represent_operator_in_basis (f1.oneRDM_loc, f1.loc2frag, f2.loc2frag)
-                       + represent_operator_in_basis (f2.oneRDM_loc, f1.loc2frag, f2.loc2frag)) / 2
-                DM_qp = (represent_operator_in_basis (f1.oneRDM_loc, f2.loc2frag, f1.loc2frag)
-                       + represent_operator_in_basis (f2.oneRDM_loc, f2.loc2frag, f1.loc2frag)) / 2
-                S2 = -3 * np.einsum ('pq,qp->', DM_pq, DM_qp) / 8
-                P1 = np.dot (f1.imp2frag, f1.frag2imp)
-                P2 = reduce (np.dot, (f1.imp2loc, f2.loc2frag, f2.frag2loc, f1.loc2imp))
-                S2 -= np.einsum ('ad,da->', np.einsum ('abcd,cb->ad', f1.twoCDM_imp, P2), P1) / 4
-                S2 -= np.einsum ('ab,ba->', np.einsum ('abcd,cd->ab', f1.twoCDM_imp, P2), P1) / 8
-                P1 = reduce (np.dot, (f2.imp2loc, f1.loc2frag, f1.frag2loc, f2.loc2imp))
-                P2 = np.dot (f2.imp2frag, f2.frag2imp)
-                S2 -= np.einsum ('ad,da->', np.einsum ('abcd,cb->ad', f2.twoCDM_imp, P2), P1) / 4
-                S2 -= np.einsum ('ab,ba->', np.einsum ('abcd,cd->ab', f2.twoCDM_imp, P2), P1) / 8
-            print ("{}-{}: {:.5f}".format (f1.frag_name, f2.frag_name, S2))
-            S2_tot += S2
-        return S2_tot
-
-
 

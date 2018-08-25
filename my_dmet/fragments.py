@@ -433,8 +433,8 @@ class fragment_object:
         self.Schmidt_done = True
         oneRDMacore_loc = project_operator_into_subspace (oneRDMa_loc, self.loc2core)
         nelec_impa = compute_nelec_in_subspace (oneRDMa_loc, self.loc2imp)
+        nelec_impa_target = 0 if self.active_space is None else self.active_space[1]
         print ("Adding {} active-space electrons to impurity and {} active-space electrons to core".format (nelec_impa, np.trace (oneRDMacore_loc)))
-        assert (is_close_to_integer ((nelec_impa - self.active_space[1]) / 2, params.num_zero_atol))
         self.oneRDMfroz_loc += oneRDMacore_loc
         self.nelec_imp += int (round (nelec_impa))
 
