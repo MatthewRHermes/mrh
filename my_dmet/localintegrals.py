@@ -30,7 +30,7 @@ from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
 from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace 
 from mrh.util.tensors import symmetrize_tensor
-from mrh.util.la import matrix_eigen_control_options
+from mrh.util.la import matrix_eigen_control_options, is_matrix_eye
 from mrh.util import params
 from math import sqrt
 import itertools
@@ -44,6 +44,7 @@ class localintegrals:
         self.num_mf_stab_checks = 0
         
         # Information on the full HF problem
+        self.mf         = the_mf
         self.mol        = the_mf.mol
         self.fullovlpao = the_mf.get_ovlp
         self.fullEhf    = the_mf.e_tot
@@ -95,8 +96,9 @@ class localintegrals:
         assert( self.loc_ortho() < 1e-8 )
 
         # Stored inverse overlap matrix
-        self.ao_ovlp = np.dot (self.ao2loc, self.ao2loc.conjugate ().T)
-        self.ao_ovlp_inv = scipy.linalg.inv (self.ao_ovlp)
+        self.ao_ovlp_inv = np.dot (self.ao2loc, self.ao2loc.conjugate ().T)
+        self.ao_ovlp     = the_mf.get_ovlp ()
+        assert (is_matrix_eye (np.dot (self.ao_ovlp, self.ao_ovlp_inv)))
         
         # Effective Hamiltonian due to frozen part
         self.frozenDMmo  = np.array( the_mf.mo_occ, copy=True )
@@ -223,6 +225,17 @@ class localintegrals:
 
         self.restore_wm_full_scf ()
         oneRDMcorr_loc = sum ((frag.oneRDMas_loc for frag in fragments))
+        if np.all (np.isclose (oneRDMcorr_loc, 0)):
+            print ("Null correlated 1-RDM; default settings for wm wvfn")
+            self.activeJKidem   = self.activeFOCK - self.activeOEI
+            self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot))
+            self.oneRDMcorr_loc = oneRDMcorr_loc
+            self.loc2idem       = np.eye (self.norbs_tot)
+            self.nelec_idem     = self.nelec_tot
+            if ( self.norbs_tot <= 150 ):
+                self.idemERI    = self.activeERI
+            return
+
         loc2corr = np.concatenate ([frag.loc2amo for frag in fragments], axis=1)
         loc2idem = get_complementary_states (loc2corr)
         evecs = matrix_eigen_control_options (represent_operator_in_basis (self.loc_oei (), loc2idem), sort_vecs=1, only_nonzero_vals=False)[1]
@@ -243,7 +256,7 @@ class localintegrals:
 
         nelec_corr     = np.trace (oneRDMcorr_loc)
         if is_close_to_integer (nelec_corr, params.num_zero_atol) == False:
-            raise ValueError ("nelec_corr not an integer!")
+            raise ValueError ("nelec_corr not an integer! {}".format (nelec_corr))
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
         idemERI        = None
@@ -391,7 +404,7 @@ class localintegrals:
 
         fock_loc = self.loc_rhf_fock_bis (oneRDM_loc)
         ao2bas = boys.Boys (self.mol, np.dot (self.ao2loc, loc2bas)).kernel ()
-        loc2bas = reduce (np.dot, [self.ao2loc.conjugate ().T, self.ao_ovlp_inv, ao2bas])
+        loc2bas = reduce (np.dot, [self.ao2loc.conjugate ().T, self.ao_ovlp, ao2bas])
         
         weights = np.asarray ([np.einsum ('ip,ip->p', loc2bas[f.frag_orb_list,:].conjugate (), loc2bas[f.frag_orb_list,:]) for f in fragments])
         frag_assignments = np.argmax (weights, axis=0)

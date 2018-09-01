@@ -36,13 +36,14 @@ def solve_ERI( OEI, TEI, oneRDMguess_loc, numPairs, num_mf_stab_checks):
     mf.get_hcore = lambda *args: OEI
     mf.get_ovlp = lambda *args: np.eye( L )
     mf._eri = ao2mo.restore(8, TEI, L)
-    mf.verbose=0
+    mf.verbose = 4
     mf.scf( oneRDMguess_loc )
     #oneRDM_loc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
-    oneRDM_loc = mf.make_rdm1 ()
     if ( mf.converged == False ):
-        mf.newton ().kernel ( oneRDM_loc )
-        oneRDM_loc = mf.make_rdm1 () #np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
+        mf = mf.newton ()
+        mf.kernel ()
+    oneRDM_loc = mf.make_rdm1 ()
+    assert (mf.converged)
 
     # Instability check and repeat
     for i in range (num_mf_stab_checks):
@@ -106,7 +107,12 @@ def solve_JK( OEI, mol_orig, ao2basis, oneRDMguess_loc, numPairs):
     mf.damp_factor = 0.33
     
     mf.scf( oneRDMguess_loc )
-    oneRDM_loc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
+    oneRDM_loc = mf.make_rdm1 ()
+    if not mf.converged:
+        mf = mf.newton ()
+        mf.kernel ( oneRDM_loc )
+        oneRDM_loc = mf.make_rdm1 ()
+    assert (mf.converged)
     return oneRDM_loc
     
 def get_unfrozen_states (oneRDMfroz_loc):

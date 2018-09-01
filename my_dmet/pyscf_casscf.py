@@ -144,7 +144,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     if not mc.converged:
         mc = mc.newton ()
         E_CASSCF = mc.kernel()[0]
-    assert (mc.converged)
+    # assert (mc.converged)
     frag.imp_cache = [mc.mo_coeff, mc.ci]
     t_end = time.time()
     print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (frag.impham_CONST + E_CASSCF, spin_square (mc)[1], t_end - t_start))

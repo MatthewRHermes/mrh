@@ -5,10 +5,12 @@ import re
 import numpy as np
 import scipy as sp 
 from pyscf import gto, scf
+from pyscf.scf.addons import project_mo_nr2nr
 from pyscf.tools import molden
 from mrh.my_dmet import pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper, pyscf_fci #, chemps2
 from mrh.util import params
 from mrh.util.basis import *
+from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2CDM, get_2CDM_from_2RDM, Schmidt_decompose_1RDM
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.my_math import is_close_to_integer
@@ -401,14 +403,15 @@ class fragment_object:
         assert (is_basis_orthonormal (loc2wfrag))
 
         # TEST
+        '''
         if self.norbs_as:
             # This test is equal to what I do above:
-            loc2tildef = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())[0]
-            tildef2frag = np.dot (loc2tildef.conjugate ().T, self.loc2frag)
-            tildef2wmas = np.dot (loc2tildef.conjugate ().T, loc2wmas)
-            tildef2qfrag = get_complementary_states (np.append (tildef2frag, tildef2wmas, axis=1), already_complete_warning=False)
-            print ("TEST: {} states complementary to Ptilde |frag> and Ptilde |wmas> in tilde basis found; {} needed".format (tildef2qfrag.shape[1], self.norbs_as))
-            test = np.dot (loc2tildef, tildef2qfrag)
+            loc2tildeg = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())[0]
+            tildeg2frag = np.dot (loc2tildeg.conjugate ().T, self.loc2frag)
+            tildeg2wmas = np.dot (loc2tildeg.conjugate ().T, loc2wmas)
+            tildeg2qfrag = get_complementary_states (np.append (tildeg2frag, tildeg2wmas, axis=1), already_complete_warning=False)
+            print ("TEST: {} states complementary to PtildeG |frag> and PtildeG |wmas> in tilde basis found; {} needed".format (tildeg2qfrag.shape[1], self.norbs_as))
+            test = np.dot (loc2tildeg, tildeg2qfrag)
             wfrag = loc2wfrag[:,-self.norbs_as:]
             svals = get_overlapping_states (test, wfrag)[2]
             print ("TEST: svals of <test|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
@@ -416,12 +419,42 @@ class fragment_object:
             # So is this:
             loc2xq = get_complementary_states (np.append (self.loc2frag, loc2wmas, axis=1), already_complete_warning=False)
             Qhat = np.dot (loc2xq, loc2xq.conjugate ().T)
-            Qhat_tildef = represent_operator_in_basis (Qhat, loc2tildef)
-            evals, evecs = matrix_eigen_control_options (Qhat_tildef, sort_vecs=-1, only_nonzero_vals=False)
+            Qhat_tildeg = represent_operator_in_basis (Qhat, loc2tildeg)
+            evals, evecs = matrix_eigen_control_options (Qhat_tildeg, sort_vecs=-1, only_nonzero_vals=False)
             idx = np.isclose (evals, 1)
-            test2 = np.dot (loc2tildef, evecs[:,idx])
+            test2 = np.dot (loc2tildeg, evecs[:,idx])
             svals = get_overlapping_states (test, wfrag)[2]
-            print ("TEST: svals of <evecs of PtildeF Q PtildeF|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
+            print ("TEST: svals of <evecs of PtildeG Q PtildeG|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
+
+            # Is this? --Yes
+            Ptildeg = np.dot (loc2tildeg, loc2tildeg.conjugate ().T)
+            Ptildeg_xq = represent_operator_in_basis (Ptildeg, loc2xq)
+            evals, evecs = matrix_eigen_control_options (Ptildeg_xq, sort_vecs=-1, only_nonzero_vals=False)
+            print ("TEST: evals of Q PtildeG Q:\n{}".format (evals)) 
+            idx = np.isclose (evals, 1)
+            test2 = np.dot (loc2xq, evecs[:,idx])
+            svals = get_overlapping_states (test, wfrag)[2]
+            print ("TEST: svals of <evecs of Q PtildeG Q|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
+
+            # PtildeG is perhaps best written as R = S^(1/2) S^(-1) S^(1/2), with S = Pxmol Pgp Pxmol. But let's test that explicitly
+            Pgp = np.dot (self.get_true_loc2frag (), self.get_true_loc2frag ().conjugate ().T)
+            Pxmol = np.dot (loc2wmcs, loc2wmcs.conjugate ().T)
+            S = reduce (np.dot, (Pxmol, Pgp, Pxmol))
+            evals, evecs = matrix_eigen_control_options (S, sort_vecs=-1, only_nonzero_vals=True)
+            sqrtS = reduce (np.dot, (evecs, np.diag (np.sqrt (evals)), evecs.conjugate ().T))
+            Sinv = reduce (np.dot, (evecs, np.diag (np.reciprocal (evals)), evecs.conjugate ().T))
+            Ptest = reduce (np.dot, (sqrtS, Sinv, sqrtS))
+            print ("TEST: || Ptildeg - S^(1/2) S^(-1) S^(1/2) [S = Pxmol Pgp Pxmol, my sqrtm and pinv] || = {}".format (sp.linalg.norm (Ptest - Ptildeg)))
+
+            # So THIS is my quasi-fragments, right??
+            Pquasi = reduce (np.dot, (Qhat, Ptest, Qhat))
+            evals, evecs = matrix_eigen_control_options (Pquasi, sort_vecs=-1, only_nonzero_vals=True)
+            print ("TEST: eigenvalues of sum_QR Pxq S^(1/2) S^(-1) S^(1/2) Pxr (count = {0}) =\n{1}".format (len (evals), evals))
+            idx = np.isclose (evals, 1)
+            test = evecs[:,idx]
+            svals = get_overlapping_states (test, wfrag)[2]
+            print ("TEST: svals of <top evecs of above|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
+        '''
 
         # This will RuntimeError on me if I don't have even integer.
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
@@ -433,7 +466,7 @@ class fragment_object:
         self.Schmidt_done = True
         oneRDMacore_loc = project_operator_into_subspace (oneRDMa_loc, self.loc2core)
         nelec_impa = compute_nelec_in_subspace (oneRDMa_loc, self.loc2imp)
-        nelec_impa_target = 0 if self.active_space is None else self.active_space[1]
+        nelec_impa_target = 0 if self.active_space is None else self.active_space[0]
         print ("Adding {} active-space electrons to impurity and {} active-space electrons to core".format (nelec_impa, np.trace (oneRDMacore_loc)))
         self.oneRDMfroz_loc += oneRDMacore_loc
         self.nelec_imp += int (round (nelec_impa))
@@ -543,7 +576,7 @@ class fragment_object:
         norbs_occ = norbs_cmo + norbs_amo
         amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
         amo_coeff = scf.addons.project_mo_nr2nr (mol, amo_coeff, self.ints.mol)
-        self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp_inv, amo_coeff])
+        self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
         self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
 
     def load_amo_guess_from_casscf_npy (self, npyfile, norbs_cmo, norbs_amo):
@@ -553,7 +586,7 @@ class fragment_object:
         matrix = np.load (npyfile)
         ano_occ = matrix[0,:]
         ano_coeff = matrix[1:,:]
-        loc2ano = reduce (np.dot, (self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp_inv, ano_coeff))
+        loc2ano = reduce (np.dot, (self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, ano_coeff))
         oneRDMwm_ano = np.diag (ano_occ)
         frag2ano = loc2ano[self.frag_orb_list,:]
         oneRDMano_frag = represent_operator_in_basis (oneRDMwm_ano, frag2ano.conjugate ().T)
@@ -563,8 +596,35 @@ class fragment_object:
         #norbs_occ = norbs_cmo + norbs_amo
         #mo_coeff = np.load (npyfile)
         #amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
-        #self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp_inv, amo_coeff])
+        #self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
         #self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
+
+    def save_amo_guess_for_pes_scan (self, npyfile):
+        no_occ, no_coeff = matrix_eigen_control_options (self.oneRDMas_loc, sort_vecs=-1, only_nonzero_vals=True)
+        no_coeff = np.dot (self.ints.ao2loc, no_coeff)
+        matrix = np.insert (no_coeff, 0, no_occ, axis=0)
+        np.save (npyfile, matrix)
+
+    def load_amo_guess_for_pes_scan (self, npyfile, old_mol):
+        print ("Loading amo guess from npyfile")
+        matrix = np.load (npyfile)
+        no_occ = matrix[0,:]
+        print ("NO occupancies: {}".format (no_occ))
+        no_coeff = matrix[1:,:]
+        no_coeff = project_mo_nr2nr (old_mol, no_coeff, self.ints.mol)
+        loc2ano = reduce (np.dot, (self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, no_coeff))
+        ovlp = np.dot (loc2ano.conjugate ().T, loc2ano)
+        print ("Active orbital overlap matrix:\n{}".format (prettyprint (ovlp, fmt='{:5.2f}')))
+        evals, evecs = matrix_eigen_control_options (ovlp, sort_vecs=-1)
+        print ("Overlap eigenvalues: {}".format (evals))
+        oneRDM_ano = represent_operator_in_basis (np.diag (no_occ), evecs)
+        print ("1RDM_ano (trace = {}):\n{}".format (np.trace (oneRDM_ano), prettyprint (oneRDM_ano, fmt='{:5.2f}')))
+        loc2ano = np.dot (loc2ano, evecs) / np.sqrt (evals)
+        print ("New overlap matrix:\n{}".format (np.dot (loc2ano.conjugate ().T, loc2ano)))
+        m = loc2ano.shape[1]
+        self.loc2amo = loc2ano
+        self.oneRDMas_loc = represent_operator_in_basis (oneRDM_ano, self.loc2amo.conjugate ().T)
+        self.twoCDMimp_amo = np.zeros ((m,m,m,m), dtype=self.oneRDMas_loc.dtype)
 
     def retain_projected_guess_amo (self, loc2amo_guess):
         print ("Diagonalizing fragment projector in guess amo basis and retaining highest {} eigenvalues".format (self.active_space[1]))
@@ -592,7 +652,7 @@ class fragment_object:
         norbs_occ = norbs_cmo + norbs_amo
         amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
         amo_coeff = scf.addons.project_mo_nr2nr (mol, amo_coeff, self.ints.mol)
-        self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp_inv, amo_coeff])
+        self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
         self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
         
 

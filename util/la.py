@@ -35,6 +35,8 @@ def assert_matrix_square (test_matrix, matdim=None):
     return matdim
 
 def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=-1, only_nonzero_vals=False, num_zero_atol=params.num_zero_atol):
+    if the_matrix.shape == tuple((0,0)):
+        return np.zeros ((0)), np.zeros ((0,0))
     pMq = np.asmatrix (the_matrix)
     lvecs_pl, svals_lr, rvecs_rq = scipy.linalg.svd (the_matrix, full_matrices=full_matrices)
     p2l = np.asmatrix (lvecs_pl)
@@ -56,15 +58,18 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=-1, o
     lvecs, svals_lr, rvecs = (np.asarray (output) for output in (p2l, svals_lr, q2r))
     return lvecs, svals_lr, rvecs
 
-def matrix_eigen_control_options (the_matrix, sort_vecs=-1, only_nonzero_vals=False, round_zero_vals=False, num_zero_atol=params.num_zero_atol):
+def matrix_eigen_control_options (the_matrix, sort_vecs=-1, only_nonzero_vals=False, round_zero_vals=False, b_matrix=None, num_zero_atol=params.num_zero_atol):
+    if the_matrix.shape == tuple((0,0)):
+        return np.zeros ((0)), np.zeros ((0,0))
     # Subtract a diagonal average from the matrix to fight rounding error
     diag_avg = np.eye (the_matrix.shape[0]) * np.mean (np.diag (the_matrix))
     pMq = np.asmatrix (the_matrix - diag_avg)
+    qSr = None if b_matrix is None else np.asmatrix (b_matrix)
     # Use hermitian diagonalizer if possible and don't do anything if the matrix is already diagonal
     evals = np.diagonal (pMq)
     evecs = np.asmatrix (np.eye (len (evals), dtype=evals.dtype))
     if not is_matrix_diagonal (pMq):
-        evals, evecs = scipy.linalg.eigh (pMq) if is_matrix_hermitian (pMq) else scipy.linalg.eig (pMq)
+        evals, evecs = scipy.linalg.eigh (pMq, qSr) if is_matrix_hermitian (pMq) else scipy.linalg.eig (pMq, qSr)
     # Add the diagonal average to the eigenvalues when returning!
     evals = evals + np.diag (diag_avg)
     if only_nonzero_vals:
