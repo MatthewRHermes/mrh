@@ -1,7 +1,7 @@
 import numpy as np
-import pyscf import dft
-from mrh.mcpdft_in_pyscf.otpd import get_ontop_pair_density
-
+from pyscf import dft
+from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
+from mrh.util.rdm import get_2CDM_from_2RDM
 
 def get_mcpdft_elec_energy (ot, oneCDMs, twoCDM_amo, ao2amo, deriv=0, max_memory=20000, hermi=0):
     ''' E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi] 
@@ -31,25 +31,28 @@ def get_mcpdft_elec_energy (ot, oneCDMs, twoCDM_amo, ao2amo, deriv=0, max_memory
             The MC-PDFT electronic energy (not including the internuclear constant) 
 
     '''
-    xctype = ks._numint._xc_type
-    deriv = ot.deriv
-    xctype = tuple('LDA', 'GGA', 'MGGA')[deriv]
-    try:
-        ks = ot.ks
-    except AttributeError:
-        ks = dft.UKS(mol)
+    ks = ot.ks
+    xctype = ks._numint._xc_type (ks.xc)
+    deriv = ot.xc_deriv
+    norbs_ao = ao2amo.shape[0]
 
-    E_DFT = ks.energy_elec (dm=oneCDMs)
-    E_xc = ks.get_veff (dm=oneCDSM_ao).exc
+    E_DFT = ks.energy_elec (dm=oneCDMs)[0]
+    E_xc = ks.get_veff (dm=oneCDMs).exc
     E_ot = 0.0
 
     make_rho = tuple (ks._numint._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
     for ao, mask, weight, coords in ks._numint.block_loop (ot.mol, ks.grids, norbs_ao, deriv, max_memory):
-        rho = nd.asarray ([m (0, ao, mask, xctype) for m in make_rho])
+        rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
         Pi = get_ontop_pair_density (rho, ao, twoCDM_amo, ao2amo, deriv)        
         E_ot += ot.get_E_ot (rho, Pi, weight)
 
     E_MCPDFT = E_DFT - E_xc + E_ot
     return E_MCPDFT
     
+def mcpdft_kernel (mc, ot):
+    dm1 = np.asarray (mc.make_rdm1s ())
+    amo = mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
+    adm1, adm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
+    adm2 = get_2CDM_from_2RDM (adm2, adm1)
+    return get_mcpdft_elec_energy (ot, dm1, adm2, amo) + mc._scf.energy_nuc ()
 

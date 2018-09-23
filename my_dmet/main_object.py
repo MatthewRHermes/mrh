@@ -709,9 +709,7 @@ class dmet:
 
         # Separately localize and assign the inactive and active orbitals as fragment orbitals
         loc2wmas = self.refrag_lowdin_active (loc2wmas, oneRDM_loc)
-        #loc2wmas = self.ints.relocalize_states (orthonormalize_a_basis (loc2wmas), self.fragments, oneRDM_loc, natorb=True)
         loc2wmcs = self.refrag_lowdin_external (loc2wmcs, loc2wmas)
-        #loc2wmcs = self.ints.relocalize_states (loc2wmcs, self.fragments, oneRDM_loc, canonicalize=True)
 
         # Evaluate how many electrons are in each active subspace
         interrs = []
@@ -759,6 +757,8 @@ class dmet:
     def refrag_lowdin_active (self, loc2wmas, oneRDM_loc):
         
         ovlp_wmas = np.dot (loc2wmas.conjugate ().T, loc2wmas)
+        oneRDM_amo = represent_operator_in_basis (oneRDM_loc, loc2wmas)
+        print ("Trace of oneRDM_amo = {}".format (np.trace (oneRDM_amo)))
 
         print ("Active orbital overlap matrix:\n{}".format (prettyprint (ovlp_wmas)))
 
@@ -808,6 +808,7 @@ class dmet:
             Mxk_rem = Mxk_tot - Mxk
             ix_rem = Mxk_rem > 0
             for ix_frag, f in enumerate (self.fragments):
+                print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
                 if loc2x.shape[1] == 0 or Mxk_rem[ix_frag] == 0:
                     continue
                 p = represent_operator_in_basis (proj_gfrag[:,:,ix_frag], loc2x)
@@ -824,7 +825,7 @@ class dmet:
                 loc2x = loc2evecs[:,~ix_loc]
             it = it + 1
             if it > 10:
-                raise RuntimeError ("To many external-relocalization iterations")
+                raise RuntimeError ("Too many external-relocalization iterations")
 
         for loc2, f in zip (loc2wmcs, self.fragments):
             print ("Projector eigenvalues of {} external fragment orbitals:".format (f.frag_name))
@@ -856,5 +857,55 @@ class dmet:
                 evals, evecs = matrix_eigen_control_options (p, sort_vecs=-1, only_nonzero_vals=False)
                 evals = evals[:f.active_space[1]]
                 f.loc2amo_guess = np.dot (f.get_true_loc2frag (), evecs[:,:f.active_space[1]])
+
+
+    def save_checkpoint_las (self, fname):
+        ''' Data array structure: nao_nr, 1RDM, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
+        nao = self.ints.mol.nao_nr ()
+        chkdata = np.average (np.stack ([f.oneRDM_loc for f in self.fragments], axis=0), axis=0)
+        chkdata = represent_operator_in_basis (chkdata, self.ints.ao2loc.conjugate ().T).flatten (order='C')
+        chkdata = np.append (np.asarray ([nao]), chkdata)
+        for f in self.fragments:
+            chkdata = np.append (chkdata, [f.norbs_as])
+            chkdata = np.append (chkdata, np.dot (self.ints.ao2loc, f.loc2amo).flatten (order='C'))
+            chkdata = np.append (chkdata, represent_operator_in_basis (f.oneRDM_loc, f.loc2amo).flatten (order='C'))
+            chkdata = np.append (chkdata, f.twoCDMimp_amo.flatten (order='C'))
+        np.save (fname, chkdata)
+
+    def load_checkpoint_las (self, fname):
+        aoSloc = np.dot (self.ints.ao_ovlp, self.ints.ao2loc)
+        nelec_amo = sum ((f.active_space[0] for f in self.fragments if f.active_space is not None))
+        norbs_amo = sum ((f.active_space[1] for f in self.fragments if f.active_space is not None))
+        norbs_cmo = (self.ints.mol.nelectron - nelec_amo) // 2
+        norbs_omo = norbs_cmo + norbs_amo
+        chkdata = np.load (fname)
+        nao, chkdata = int (round (chkdata[0])), chkdata[1:] 
+        print ("{} atomic orbital basis functions reported in checkpoint file, as opposed to {} in integral object".format (nao, self.ints.mol.nao_nr ()))
+        oneRDM, chkdata = chkdata[:nao**2].reshape (nao, nao, order='C'), chkdata[nao**2:]
+        oneRDM = represent_operator_in_basis (oneRDM, aoSloc)
+
+        for f in self.fragments:
+            self.ints.oneRDM_loc = oneRDM.copy ()
+            namo, chkdata = int (round (chkdata[0])), chkdata[1:]
+            print ("{} active orbitals reported in checkpoint file for fragment {}".format (namo, f.frag_name))
+            if namo > 0:
+                f.loc2amo,       chkdata = chkdata[:nao*namo].reshape (nao, namo, order='C'), chkdata[nao*namo:]
+                f.oneRDMas_loc,  chkdata = chkdata[:namo**2].reshape (namo, namo, order='C'), chkdata[namo**2:]
+                print ("{} fragment oneRDM_amo (trace = {}):\n{}".format (
+                    f.frag_name, np.trace (f.oneRDMas_loc), prettyprint (f.oneRDMas_loc, fmt='{:6.3f}')))
+                f.twoCDMimp_amo, chkdata = chkdata[:namo**4].reshape (namo, namo, namo, namo, order='C'), chkdata[namo**4:]
+                f.loc2amo      = np.dot (aoSloc.conjugate ().T, f.loc2amo)
+                ovlp = np.dot (f.loc2amo.conjugate ().T, f.loc2amo)
+                evecs = orth.lowdin (ovlp)
+                f.loc2amo = np.dot (f.loc2amo, evecs)
+                f.oneRDMas_loc = represent_operator_in_basis (f.oneRDMas_loc, f.loc2amo.conjugate ().T)
+                print ("{} fragment oneRDM_amo (trace = {}):\n{}".format (
+                    f.frag_name, np.trace (f.oneRDMas_loc), prettyprint (represent_operator_in_basis (f.oneRDMas_loc, f.loc2amo), fmt='{:6.3f}')))
+        assert (chkdata.shape == tuple((0,))), chkdata.shape               
+
+        # In PES, f.loc2amo may have overlap with occupied core orbitals due to changes in the overlap matrix. Therefore it may have to be changed
+
+        
+
 
 

@@ -5,8 +5,8 @@ from itertools import product
 
 
 def get_ontop_pair_density (rho, ao, twoCDM_amo, ao2amo, deriv=0):
-    r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*g_ijkl 
-               = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl
+    r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*g_ijkl / 2
+               = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2
 
         Args:
             rho : ndarray of shape (2,*,ngrids) 
@@ -39,17 +39,17 @@ def get_ontop_pair_density (rho, ao, twoCDM_amo, ao2amo, deriv=0):
     Pi = np.zeros_like (rho[0])
     Pi[0] = rho[0,0] * rho[1,0]
     for ideriv in range(1,deriv):
-        Pi[ideriv] = (rho[0,ideriv] * rho[1,0] 
-                    + rho[0,0] * rho[1,ideriv])
+        Pi[ideriv] = 2 * (rho[0,ideriv] * rho[1,0] 
+                       + rho[0,0] * rho[1,ideriv])
 
     # Second cumulant and derivatives (chain rule! product rule!)
     grid2amo = np.einsum ('ijk,kl->ijl', ao, ao2amo)
-    Pi[0] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[0], grid2amo[0], grid2amo[0])
+    Pi[0] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[0], grid2amo[0], grid2amo[0]) / 2
     for ideriv in range(1, deriv):
-        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[ideriv], grid2amo[0], grid2amo[0], grid2amo[0])
-        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[ideriv], grid2amo[0], grid2amo[0])
-        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[0], grid2amo[ideriv], grid2amo[0])
-        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[0], grid2amo[0], grid2amo[ideriv])
+        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[ideriv], grid2amo[0], grid2amo[0], grid2amo[0]) / 2
+        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[ideriv], grid2amo[0], grid2amo[0]) / 2
+        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[0], grid2amo[ideriv], grid2amo[0]) / 2
+        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[0], grid2amo[0], grid2amo[ideriv]) / 2
 
     # Unfix dimensionality of rho, ao, and Pi
     if Pi.shape[0] == 1:

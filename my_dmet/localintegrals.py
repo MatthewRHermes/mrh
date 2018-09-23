@@ -28,7 +28,7 @@ import numpy as np
 import scipy
 from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
-from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace 
+from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace, orthonormalize_a_basis, get_overlapping_states
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.la import matrix_eigen_control_options, is_matrix_eye
 from mrh.util import params
@@ -44,7 +44,6 @@ class localintegrals:
         self.num_mf_stab_checks = 0
         
         # Information on the full HF problem
-        self.mf         = the_mf
         self.mol        = the_mf.mol
         self.fullovlpao = the_mf.get_ovlp
         self.fullEhf    = the_mf.e_tot
@@ -266,7 +265,14 @@ class localintegrals:
             idemERI    = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2idem, compact=False).reshape(norbs, norbs, norbs, norbs)
         oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, ERI_wrk=idemERI, oneRDMguess_loc=oneRDMguess_loc)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
-        
+        print ("trace of oneRDMcorr_loc = {}".format (np.trace (oneRDMcorr_loc)))
+        print ("trace of oneRDMidem_loc = {}".format (np.trace (oneRDMidem_loc)))
+        print ("trace of oneRDM_loc in corr basis = {}".format (np.trace (represent_operator_in_basis (oneRDMcorr_loc + oneRDMidem_loc, orthonormalize_a_basis (loc2corr)))))
+        svals = get_overlapping_states (loc2idem, loc2corr)[2]
+        print ("trace of <idem|corr|idem> = {}".format (np.sum (svals * svals)))
+        print (loc2corr.shape)
+        print (loc2idem.shape)
+
         ########################################################################################################        
         self.activeJKidem   = JKidem
         self.activeJKcorr   = JKcorr

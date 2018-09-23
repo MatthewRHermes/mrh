@@ -293,7 +293,8 @@ def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol
     assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (proj_cc - proj_cc.H)
     assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str ((proj_cc * proj_cc) - proj_cc)
     evals, p2x = matrix_eigen_control_options (proj_cc, sort_vecs=-1, only_nonzero_vals=True)
-    return np.asarray (p2x)
+    idx = np.isclose (evals, 1)
+    return np.asarray (p2x[:,idx])
 
 def get_complementary_states (incomplete_basis, in_subspace = None, already_complete_warning=True):
     if incomplete_basis.shape[1] == 0:

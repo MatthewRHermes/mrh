@@ -1,6 +1,5 @@
 import numpy as np
 from mrh.util import params
-from mrh.mcpdft_in_pyscf.otfnal import otfnal
 
 class otfnal:
 
@@ -8,7 +7,7 @@ class otfnal:
         self.mol = mol
 
     def get_E_ot (self, rho, Pi, weight):
-    r''' get the on-top energy
+        r''' get the on-top energy
 
         Args:
             rho : ndarray of shape (2,*,ngrids)
@@ -19,17 +18,20 @@ class otfnal:
                 containing numerical integration weights
 
         Returns : MC-PDFT electronic energy as a float
-    '''
-    raise RuntimeError("on-top functional not defined")
-    return 0
+        '''
+
+        raise RuntimeError("on-top functional not defined")
+        return 0
+
 
 class transfnal (otfnal):
     r''' "translated functional" of Li Manni et al., JCTC 10, 3669 (2014).
     '''
 
     def __init__ (self, ks, **kwargs):
-        super().__init__(ks.mol, kwargs)
+        super().__init__(ks.mol, **kwargs)
         self.ks = ks
+        self.xc_deriv = ['LDA', 'GGA', 'MGGA'].index (self.ks._numint._xc_type (self.ks.xc))
 
     def get_E_ot (self, rho, Pi, weight):
         r''' E_ot[rho, Pi] = V_xc[rho_translated] 
@@ -46,40 +48,43 @@ class transfnal (otfnal):
                 The on-top exchange-correlation energy, for an on-top xc functional
                 which uses a translated density with an otherwise standard xc functional
         '''
-        assert (all (rho.shape[1:] == Pi.shape[:])), "rho.shape={0}, Pi.shape={1}".format (rho.shape, Pi.shape)
+        assert (rho.shape[1:] == Pi.shape[:]), "rho.shape={0}, Pi.shape={1}".format (rho.shape, Pi.shape)
         if rho.ndim == 2:
             rho = np.expand_dims (rho, 1)
             Pi = np.expand_dims (Pi, 0)
             
-        rho_t = self.get_rho_translated (rho, Pi)
-        dexc_ddens = self.ks._numint.eval_xc (self.ks.xc, (rho_t[0], rho_t[1]), spin=1, relativity=0, deriv=0, verbose=self.ks.verbose)
+        rho_t = self.get_rho_translated (Pi, rho, weight)
+        dexc_ddens = self.ks._numint.eval_xc (self.ks.xc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=0, verbose=self.ks.verbose)[0]
         dens = rho_t[0,0,:] + rho_t[1,0,:]
-    
+ 
         rho = np.squeeze (rho)
         Pi = np.squeeze (Pi)
+        #print ("Electron number sum: {}".format (np.dot (dens, weight)))
+        #print ("Electron alpha number sum: {}".format (np.dot (rho_t[0,0,:], weight)))
+        #print ("Electron beta number sum: {}".format (np.dot (rho_t[1,0,:], weight)))
 
         return np.einsum ('i,i,i->', dexc_ddens, dens, weight)
 
-    def get_ratio (self, Pi, rho_avg):
+    def get_ratio (self, Pi, rho_avg, weight):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
         '''
         assert (Pi.shape == rho_avg.shape)
         nderiv = Pi.shape[0]
         if nderiv > 4:
             raise NotImplementedError("derivatives above order 1")
+        idx = np.argsort (np.abs (rho_avg[0,:]))
 
         R = np.ones_like (Pi)
-        idx = np.where (np.logical_not (Pi[0] == rho_avg[0] == 0))[0]
+        idx = np.logical_not (np.isclose (rho_avg[0], 0, atol=1e-15))
         # Chain rule!
         for ideriv in range (nderiv):
-            R[ideriv,idx] = Pi[ideriv,idx] * np.power (rho_avg[0,idx], -2)
+            R[ideriv,idx] = Pi[ideriv,idx] / (rho_avg[0,idx] * rho_avg[0,idx])
         # Product rule!
         for ideriv in range (1,nderiv):
-            R[ideriv,idx] -= 2 * rho_avg[ideriv,idx] * Pi[0,idx] * np.power (rho_avg[0,idx], -3)
-
+            R[ideriv,idx] -= 2 * rho_avg[ideriv,idx] * R[0,idx] / rho_avg[0,idx]
         return R
 
-    def get_rho_translated (self, Pi, rho, Rmax=1, xi_deriv=False):
+    def get_rho_translated (self, Pi, rho, weight, Rmax=1, xi_deriv=False):
         r''' original translation, Li Manni et al., JCTC 10, 3669 (2014).
         rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + xi)
         rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - xi) 
@@ -108,15 +113,16 @@ class transfnal (otfnal):
         nderiv = rho.shape[1]
         nderiv_xi = nderiv if xi_deriv else 1
     
-        rho_avg = (rho[0] + rho[1]) / 2
+        rho_avg = (rho[0,:,:] + rho[1,:,:]) / 2
         rho_t = np.stack ([rho_avg, rho_avg], axis=0)
-        
-        R = self.get_ratio (Pi[0:1,:], rho_avg[0:1,:])
+
+        R = self.get_ratio (Pi[0:1,:], rho_avg[0:1,:], weight)
+        idx = np.argsort (R[0,:])
         idx = np.where (R[0] < Rmax)[0]
         xi = np.empty_like (R[:,idx])
         xi[0] = np.sqrt (1 - R[0,idx])
         # Chain rule!
-        for ideriv in range (nderiv_xi):
+        for ideriv in range (1, nderiv_xi):
             xi[ideriv] = -R[ideriv,idx] / xi[0] / 2
     
         # Chain rule!
@@ -144,7 +150,7 @@ class ftransfnal (transfnal):
         self.B=-379.47331922 
         self.C=-85.38149682
 
-    def get_rho_translated (self, Pi, rho, Rmax=None, xi_deriv=True):
+    def get_rho_translated (self, Pi, rho, weight, Rmax=None, xi_deriv=True):
         r''' "full" translation, Carlson et al., JCTC 11, 4077 (2015)
         rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + xi)
         rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - xi)
@@ -172,10 +178,10 @@ class ftransfnal (transfnal):
             raise NotImplementedError("derivatives above order 1")
         R0, R1, A, B, C = self.R0, self.R1, self.A, self.B, self.C
     
-        rho_ft = super().get_rho_translated (Pi, rho, Rmax=R0, xi_deriv=True)
+        rho_ft = super().get_rho_translated (Pi, rho, weight, Rmax=R0, xi_deriv=True)
     
         rho_avg = (rho[0] + rho[1]) / 2
-        R = self.get_ratio (Pi, rho_avg)
+        R = self.get_ratio (Pi, rho_avg, weight)
     
         idx = np.where (np.logical_and (R[0] >= self.R0, R[0] <= self.R1))[0]
         R_m_R0 = np.stack ([np.power (R[0,idx] - R0, n) for n in range (2,6)], axis=0)

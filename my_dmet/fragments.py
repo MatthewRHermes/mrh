@@ -605,13 +605,12 @@ class fragment_object:
         matrix = np.insert (no_coeff, 0, no_occ, axis=0)
         np.save (npyfile, matrix)
 
-    def load_amo_guess_for_pes_scan (self, npyfile, old_mol):
+    def load_amo_guess_for_pes_scan (self, npyfile):
         print ("Loading amo guess from npyfile")
         matrix = np.load (npyfile)
         no_occ = matrix[0,:]
         print ("NO occupancies: {}".format (no_occ))
         no_coeff = matrix[1:,:]
-        no_coeff = project_mo_nr2nr (old_mol, no_coeff, self.ints.mol)
         loc2ano = reduce (np.dot, (self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, no_coeff))
         ovlp = np.dot (loc2ano.conjugate ().T, loc2ano)
         print ("Active orbital overlap matrix:\n{}".format (prettyprint (ovlp, fmt='{:5.2f}')))

@@ -131,8 +131,8 @@ def solve (frag, guess_1RDM, chempot_imp):
         imp2mo = mc.mo_coeff 
         print ("Default impurity active space selection: {}".format (np.arange (norbs_cmo, norbs_occ, 1, dtype=int)))
     t_start = time.time()
-    mc.fcisolver = fci.solver (mf.mol, singlet=(frag.target_S == 0))
-    if frag.target_S != 0:
+    mc.fcisolver = fci.solver (mf.mol, singlet=False)#(frag.target_S == 0))
+    if frag.target_S is not None: #!= 0:
         s2_eval = frag.target_S * (frag.target_S + 1)
         mc.fix_spin_(ss=s2_eval)
     mc.ah_start_tol = 1e-8
