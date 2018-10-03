@@ -89,7 +89,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     lim = (0, norbs_frag, norbs_frag+norbs_bath, norbs_tot)
     for i, j in itertools.product (range (3), repeat=2):
         test_view = test[lim[i]:lim[i+1],lim[j]:lim[j+1]]
-        print ("Schmidt decomposition {}-{} block diagonal error: {}".format (sec[i],sec[j],np.linalg.norm(test_view)))
+        #print ("Schmidt decomposition {}-{} block diagonal error: {}".format (sec[i],sec[j],np.linalg.norm(test_view)))
     print ("Schmidt decomposition svals error: {}".format (np.linalg.norm (svals - svals_test)))
     print ("Schmidt decomposition smallest sval: {}".format (np.amin (np.insert (np.abs (svals), 0, 0))))
     

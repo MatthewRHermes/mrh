@@ -602,6 +602,7 @@ class dmet:
             for frag in self.fragments:
                 frag.restore_default_embedding_basis ()
 
+        old_energy = self.energy
         self.energy = 0.0
         self.spin = 0.0
         for frag in self.fragments:
@@ -650,11 +651,19 @@ class dmet:
         print ("Whole-molecule Eimp stdev = {}".format (Eimp_stdev))
         print ("Whole-molecule active-space orbital shift = {0}".format (orb_diff))
         if self.mc_dmet == False:
-            orb_diff = oneRDM_diff = Eimp_stdev = 0 # Do only 1 iteration
+            orb_diff = oneRDM_diff = Eimp_stdev = Eiter = 0 # Do only 1 iteration
         else:
             self.energy = np.average (energies)
+            Eiter = self.energy - old_energy
+        print ("Whole-molecule energy difference = {}".format (Eiter))
 
-        return orb_diff, oneRDM_diff, Eimp_stdev
+        # Safety until I figure out how to deal with this degenerate-orbital thing
+        if abs (Eiter) < 1e-7 and np.all (np.abs (energies - self.energy) < 1e-7):
+            print ("Energies all converged to 100 nanoEh threshold; punking out of 1-RDM and orbital convergence")
+            orb_diff = oneRDM_diff = 0
+            
+
+        return orb_diff, oneRDM_diff, Eimp_stdev, abs (Eiter)
         
     def print_umat( self ):
     
@@ -760,23 +769,23 @@ class dmet:
         oneRDM_amo = represent_operator_in_basis (oneRDM_loc, loc2wmas)
         print ("Trace of oneRDM_amo = {}".format (np.trace (oneRDM_amo)))
 
-        print ("Active orbital overlap matrix:\n{}".format (prettyprint (ovlp_wmas)))
+        #print ("Active orbital overlap matrix:\n{}".format (prettyprint (ovlp_wmas)))
 
         orth_idx = np.isclose (np.sum (ovlp_wmas - np.eye (ovlp_wmas.shape[0]), axis=1), 0)
         print ("{} active orbitals with overlap and {} active orbitals with no overlap".format (np.sum (~orth_idx), np.sum (orth_idx)))
 
         evecs = orth.lowdin (ovlp_wmas)        
-        print ("Orthonormal active orbitals eigenvectors:\n{}".format (prettyprint (evecs)))
+        #print ("Orthonormal active orbitals eigenvectors:\n{}".format (prettyprint (evecs)))
         loc2wmas = np.dot (loc2wmas, evecs)
 
         for f in self.fragments:
             if f.loc2amo.shape[1] == 0:
                 continue
             proj = represent_operator_in_basis (np.dot (f.loc2amo, f.loc2amo.conjugate ().T), loc2wmas)
-            print ("Projector matrix of {} active orbitals in orthonormal active basis:\n{}".format (
-                f.frag_name, prettyprint (proj, fmt='{:5.2f}')))
+            #print ("Projector matrix of {} active orbitals in orthonormal active basis:\n{}".format (
+            #    f.frag_name, prettyprint (proj, fmt='{:5.2f}')))
         frag_weights = np.stack ([np.einsum ('ip,ij,jp->p', loc2wmas.conjugate (), np.dot (f.loc2amo, f.loc2amo.conjugate ().T), loc2wmas) for f in self.fragments], axis=-1)
-        print ("Fragment weights of orthonormal amos:\n{}".format (prettyprint (frag_weights, fmt='{:5.2f}')))
+        #print ("Fragment weights of orthonormal amos:\n{}".format (prettyprint (frag_weights, fmt='{:5.2f}')))
         idx = np.argsort (frag_weights, axis=1)[:,-1]
 
         loc2amo = [loc2wmas[:,(idx == i)] for i in range (len (self.fragments))]     
@@ -790,7 +799,7 @@ class dmet:
             print ("{}-{}: {}".format (f1.frag_name, f2.frag_name, np.linalg.norm (np.einsum ('ip,ij,iq->pq', loc2amo[idx1], oneRDM_loc, loc2amo[idx2]))))
 
         dm = represent_operator_in_basis (oneRDM_loc, np.concatenate (loc2amo, axis=1))
-        print ("Density matrix in symmetrically-orthogonalized active-orbital basis:\n{}".format (prettyprint (dm))) 
+        #print ("Density matrix in symmetrically-orthogonalized active-orbital basis:\n{}".format (prettyprint (dm))) 
 
         return loc2amo
 
@@ -808,7 +817,7 @@ class dmet:
             Mxk_rem = Mxk_tot - Mxk
             ix_rem = Mxk_rem > 0
             for ix_frag, f in enumerate (self.fragments):
-                print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
+                #print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
                 if loc2x.shape[1] == 0 or Mxk_rem[ix_frag] == 0:
                     continue
                 p = represent_operator_in_basis (proj_gfrag[:,:,ix_frag], loc2x)
@@ -819,22 +828,22 @@ class dmet:
                 evals = evals / exptvals
                 ix_loc = evals > 1/2
                 ix_loc[Mxk_rem[ix_frag]:] = False
-                print ("{} fragment, iteration {}: {} eigenvalues above 1/2 found of {} total sought:\n{}".format (
-                    f.frag_name, it, np.count_nonzero (ix_loc), Mxk_rem[ix_frag], evals[ix_loc]))
+                #print ("{} fragment, iteration {}: {} eigenvalues above 1/2 found of {} total sought:\n{}".format (
+                #    f.frag_name, it, np.count_nonzero (ix_loc), Mxk_rem[ix_frag], evals[ix_loc]))
                 loc2wmcs[ix_frag] = np.append (loc2wmcs[ix_frag], loc2evecs[:,ix_loc], axis=1)
                 loc2x = loc2evecs[:,~ix_loc]
             it = it + 1
             if it > 10:
                 raise RuntimeError ("Too many external-relocalization iterations")
 
-        for loc2, f in zip (loc2wmcs, self.fragments):
-            print ("Projector eigenvalues of {} external fragment orbitals:".format (f.frag_name))
-            frag_weights = np.einsum ('ip,ijq,jp->pq', loc2.conjugate (), proj_gfrag, loc2)
-            print (prettyprint (frag_weights))
+        #for loc2, f in zip (loc2wmcs, self.fragments):
+        #    print ("Projector eigenvalues of {} external fragment orbitals:".format (f.frag_name))
+        #    frag_weights = np.einsum ('ip,ijq,jp->pq', loc2.conjugate (), proj_gfrag, loc2)
+        #    print (prettyprint (frag_weights))
              
         return loc2wmcs
 
-    def generate_frag_cas_guess (self, mf, CASlist=None):
+    def generate_frag_cas_guess (self, mf, CASlist=None, confine_guess=True):
 
         nelec_cas = sum ((f.active_space[0] for f in self.fragments if f.active_space is not None))
         norbs_cas = sum ((f.active_space[1] for f in self.fragments if f.active_space is not None))
@@ -853,11 +862,16 @@ class dmet:
 
         for f in self.fragments:
             if f.active_space is not None:
-                p = represent_operator_in_basis (proj_amo, f.get_true_loc2frag ())
-                evals, evecs = matrix_eigen_control_options (p, sort_vecs=-1, only_nonzero_vals=False)
-                evals = evals[:f.active_space[1]]
-                f.loc2amo_guess = np.dot (f.get_true_loc2frag (), evecs[:,:f.active_space[1]])
-
+                if confine_guess:
+                    p = represent_operator_in_basis (proj_amo, f.get_true_loc2frag ())
+                    evals, evecs = matrix_eigen_control_options (p, sort_vecs=-1, only_nonzero_vals=False)
+                    evals = evals[:f.active_space[1]]
+                    f.loc2amo_guess = np.dot (f.get_true_loc2frag (), evecs[:,:f.active_space[1]])
+                else:
+                    proj_frag = np.dot (f.get_true_loc2frag (), f.get_true_loc2frag ().conjugate ().T)
+                    proj_frag = represent_operator_in_basis (proj_frag, loc2amo)
+                    evals, evecs = matrix_eigen_control_options (proj_frag, sort_vecs=-1, only_nonzero_vals=False)
+                    f.loc2amo_guess = np.dot (loc2amo, evecs[:,:f.active_space[1]]) 
 
     def save_checkpoint_las (self, fname):
         ''' Data array structure: nao_nr, 1RDM, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''

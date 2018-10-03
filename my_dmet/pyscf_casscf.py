@@ -22,6 +22,7 @@ author: Hung Pham (email: phamx494@umn.edu)
 '''
 
 import numpy as np
+import scipy
 from mrh.my_dmet import localintegrals
 import os, time
 import sys
@@ -34,6 +35,7 @@ from mrh.util.la import matrix_eigen_control_options
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, orthonormalize_a_basis, get_complete_basis, get_complementary_states
 from mrh.util.basis import is_basis_orthonormal, get_overlapping_states, is_basis_orthonormal_and_complete, compute_nelec_in_subspace
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2RDM_from_2CDM
+from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.tensors import symmetrize_tensor
 from mrh.my_pyscf import mcscf as my_mcscf
 from mrh.my_pyscf.scf import hf_as
@@ -130,22 +132,34 @@ def solve (frag, guess_1RDM, chempot_imp):
     else:
         imp2mo = mc.mo_coeff 
         print ("Default impurity active space selection: {}".format (np.arange (norbs_cmo, norbs_occ, 1, dtype=int)))
+    if len (frag.imp_cache) != 2 and frag.ci_as is not None:
+        print ("Loading ci guess despite shifted impurity orbitals")
+        ci0 = frag.ci_as
     t_start = time.time()
     mc.fcisolver = fci.solver (mf.mol, singlet=False)#(frag.target_S == 0))
     if frag.target_S is not None: #!= 0:
         s2_eval = frag.target_S * (frag.target_S + 1)
         mc.fix_spin_(ss=s2_eval)
-    mc.ah_start_tol = 1e-8
+    mc.ah_start_tol = 1e-6
+    mc.ah_conv_tol = 1e-10
+    mc.conv_tol = 1e-9
     E_CASSCF = mc.kernel(imp2mo, ci0)[0]
+    if not mc.converged:
+        mc = mc.newton ()
+        E_CASSCF = mc.kernel(mc.mo_coeff, mc.ci)[0]
+    assert (mc.converged)
+    '''
     mc.conv_tol = 1e-12
     mc.ah_start_tol = 1e-10
     mc.ah_conv_tol = 1e-12
-    E_CASSCF = mc.kernel()[0]
+    E_CASSCF = mc.kernel(mc.mo_coeff, mc.ci)[0]
     if not mc.converged:
         mc = mc.newton ()
-        E_CASSCF = mc.kernel()[0]
-    # assert (mc.converged)
+        E_CASSCF = mc.kernel(mc.mo_coeff, mc.ci)[0]
+    #assert (mc.converged)
+    '''
     frag.imp_cache = [mc.mo_coeff, mc.ci]
+    frag.ci_as = mc.ci
     t_end = time.time()
     print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (frag.impham_CONST + E_CASSCF, spin_square (mc)[1], t_end - t_start))
     
@@ -231,9 +245,9 @@ def get_fragcasscf (frag, mf, loc2mo):
     return oneRDM_amo, twoCDM_amo, loc2mo, loc2amo
     
 
-def project_amo_manually (loc2imp, loc2amo, fock_mf, norbs_cmo):
-    norbs_amo = loc2amo.shape[1]
-    amo2imp = np.dot (loc2amo.conjugate ().T, loc2imp)
+def project_amo_manually (loc2imp, loc2gamo, fock_mf, norbs_cmo):
+    norbs_amo = loc2gamo.shape[1]
+    amo2imp = np.dot (loc2gamo.conjugate ().T, loc2imp)
     proj = np.dot (amo2imp.conjugate ().T, amo2imp)
     evals, evecs = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
     imp2amo = np.copy (evecs[:,:norbs_amo])
@@ -242,7 +256,49 @@ def project_amo_manually (loc2imp, loc2amo, fock_mf, norbs_cmo):
     imp2imo = np.dot (imp2imo, evecs)
     imp2cmo = imp2imo[:,:norbs_cmo]
     imp2vmo = imp2imo[:,norbs_cmo:]
-    return np.concatenate ([imp2cmo, imp2amo, imp2vmo], axis=1)
+    # Sort amo in order to apply stored ci vector
+    imp2gamo = np.dot (loc2imp.conjugate ().T, loc2gamo)
+    amoOgamo = np.dot (imp2amo.conjugate ().T, imp2gamo)
+    #print ("Overlap matrix between guess-active and active:")
+    #print (prettyprint (amoOgamo, fmt='{:5.2f}'))
+    Pgamo1_amo = np.einsum ('ik,jk->ijk', amoOgamo, amoOgamo.conjugate ())
+    imp2ramo = np.zeros_like (imp2amo)
+    ramo_evals = np.zeros (imp2ramo.shape[1], dtype=imp2ramo.dtype)
+    while (Pgamo1_amo.shape[0] > 0):
+        max_eval = 0
+        argmax_eval = -1
+        argmax_evecs = None
+        for idx in range (Pgamo1_amo.shape[2]):
+            evals, evecs = matrix_eigen_control_options (Pgamo1_amo[:,:,idx], sort_vecs=-1, only_nonzero_vals=False)
+            if evals[0] > max_eval:
+                max_eval = evals[0]
+                max_evecs = evecs
+                argmax_eval = idx
+        #print ("With {} amos to go, assigned highest eigenvalue ({}) to {}".format (Pgamo1_amo.shape[0], max_eval, argmax_eval))
+        ramo_evals[argmax_eval] = max_eval
+        imp2ramo[:,argmax_eval] = np.einsum ('ij,j->i', imp2amo, max_evecs[:,0])
+        imp2amo = np.dot (imp2amo, max_evecs[:,1:])
+        amoOgamo = np.dot (imp2amo.conjugate ().T, imp2gamo)
+        Pgamo1_amo = np.einsum ('ik,jk->ijk', amoOgamo, amoOgamo.conjugate ())
+    imp2amo = imp2ramo
+    print ("Fidelity of projection of guess active orbitals onto impurity space:\n{}".format (ramo_evals))
+    amoOgamo = np.dot (imp2amo.conjugate ().T, imp2gamo)
+    idx_signflip = np.diag (amoOgamo) < 0
+    imp2amo[:,idx_signflip] *= -1
+    amoOgamo = np.dot (imp2amo.conjugate ().T, imp2gamo)
+    '''
+    print ("Overlap matrix between guess-active and active:")
+    print (prettyprint (amoOgamo, fmt='{:5.2f}'))
+    O = np.dot (imp2amo.conjugate ().T, imp2amo) - np.eye (imp2amo.shape[1]) 
+    print ("Overlap error between active and active: {}".format (scipy.linalg.norm (O)))
+    O = np.dot (imp2amo.conjugate ().T, imp2cmo)    
+    print ("Overlap error between active and occupied: {}".format (scipy.linalg.norm (O)))
+    O = np.dot (imp2amo.conjugate ().T, imp2vmo)    
+    print ("Overlap error between active and virtual: {}".format (scipy.linalg.norm (O)))
+    '''
+    imp2mo = np.concatenate ([imp2cmo, imp2amo, imp2vmo], axis=1)
+    assert (is_basis_orthonormal_and_complete (imp2mo))
+    return imp2mo
 
 def make_guess_molden (frag, filename, imp2mo, norbs_cmo, norbs_amo):
     norbs_tot = imp2mo.shape[1]

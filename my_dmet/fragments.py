@@ -118,6 +118,7 @@ class fragment_object:
         self.loc2amo_guess = np.zeros((self.norbs_tot,0))
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.twoCDMimp_amo = np.zeros((0,0,0,0))
+        self.ci_as         = None
         self.mfmo_printed  = False
         self.impo_printed  = False
 
