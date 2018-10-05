@@ -147,6 +147,14 @@ def solve (frag, guess_1RDM, chempot_imp):
     if not mc.converged:
         mc = mc.newton ()
         E_CASSCF = mc.kernel(mc.mo_coeff, mc.ci)[0]
+    if not mc.converged:
+        print ('Assuming ci vector is poisoned; discarding...')
+        imp2mo = mc.mo_coeff.copy ()
+        mc = mcscf.CASSCF(mf, CASorb, CASe)
+        E_CASSCF = mc.kernel(imp2mo)[0]
+        if not mc.converged:
+            mc = mc.newton ()
+            E_CASSCF = mc.kernel(mc.mo_coeff, mc.ci)[0]
     assert (mc.converged)
     '''
     mc.conv_tol = 1e-12

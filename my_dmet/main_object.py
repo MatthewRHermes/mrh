@@ -874,10 +874,13 @@ class dmet:
                     f.loc2amo_guess = np.dot (loc2amo, evecs[:,:f.active_space[1]]) 
 
     def save_checkpoint_las (self, fname):
-        ''' Data array structure: nao_nr, 1RDM, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
+        ''' Data array structure: nao_nr, 1RDM or umat, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
         nao = self.ints.mol.nao_nr ()
-        chkdata = np.average (np.stack ([f.oneRDM_loc for f in self.fragments], axis=0), axis=0)
-        chkdata = represent_operator_in_basis (chkdata, self.ints.ao2loc.conjugate ().T).flatten (order='C')
+        if self.mc_dmet:
+            chkdata = np.average (np.stack ([f.oneRDM_loc for f in self.fragments], axis=0), axis=0)
+            chkdata = represent_operator_in_basis (chkdata, self.ints.ao2loc.conjugate ().T).flatten (order='C')
+        else:
+            chkdata = represent_operator_in_basis (self.umat, self.ints.ao2loc.conjugate ().T).flatten (order='C')
         chkdata = np.append (np.asarray ([nao]), chkdata)
         for f in self.fragments:
             chkdata = np.append (chkdata, [f.norbs_as])
@@ -895,11 +898,15 @@ class dmet:
         chkdata = np.load (fname)
         nao, chkdata = int (round (chkdata[0])), chkdata[1:] 
         print ("{} atomic orbital basis functions reported in checkpoint file, as opposed to {} in integral object".format (nao, self.ints.mol.nao_nr ()))
-        oneRDM, chkdata = chkdata[:nao**2].reshape (nao, nao, order='C'), chkdata[nao**2:]
-        oneRDM = represent_operator_in_basis (oneRDM, aoSloc)
+        mat, chkdata = chkdata[:nao**2].reshape (nao, nao, order='C'), chkdata[nao**2:]
+        mat = represent_operator_in_basis (mat, aoSloc)
+
+        if self.mc_dmet:
+            self.ints.oneRDM_loc = mat.copy ()
+        else:
+            self.umat = mat.copy ()
 
         for f in self.fragments:
-            self.ints.oneRDM_loc = oneRDM.copy ()
             namo, chkdata = int (round (chkdata[0])), chkdata[1:]
             print ("{} active orbitals reported in checkpoint file for fragment {}".format (namo, f.frag_name))
             if namo > 0:
