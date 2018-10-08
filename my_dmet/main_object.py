@@ -873,15 +873,15 @@ class dmet:
                     evals, evecs = matrix_eigen_control_options (proj_frag, sort_vecs=-1, only_nonzero_vals=False)
                     f.loc2amo_guess = np.dot (loc2amo, evecs[:,:f.active_space[1]]) 
 
-    def save_checkpoint_las (self, fname):
-        ''' Data array structure: nao_nr, 1RDM or umat, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
+    def save_checkpoint (self, fname):
+        ''' Data array structure: nao_nr, chempot, 1RDM or umat, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
         nao = self.ints.mol.nao_nr ()
         if self.mc_dmet:
             chkdata = np.average (np.stack ([f.oneRDM_loc for f in self.fragments], axis=0), axis=0)
             chkdata = represent_operator_in_basis (chkdata, self.ints.ao2loc.conjugate ().T).flatten (order='C')
         else:
             chkdata = represent_operator_in_basis (self.umat, self.ints.ao2loc.conjugate ().T).flatten (order='C')
-        chkdata = np.append (np.asarray ([nao]), chkdata)
+        chkdata = np.append (np.asarray ([nao, self.mu_imp]), chkdata)
         for f in self.fragments:
             chkdata = np.append (chkdata, [f.norbs_as])
             chkdata = np.append (chkdata, np.dot (self.ints.ao2loc, f.loc2amo).flatten (order='C'))
@@ -889,14 +889,14 @@ class dmet:
             chkdata = np.append (chkdata, f.twoCDMimp_amo.flatten (order='C'))
         np.save (fname, chkdata)
 
-    def load_checkpoint_las (self, fname):
+    def load_checkpoint (self, fname):
         aoSloc = np.dot (self.ints.ao_ovlp, self.ints.ao2loc)
         nelec_amo = sum ((f.active_space[0] for f in self.fragments if f.active_space is not None))
         norbs_amo = sum ((f.active_space[1] for f in self.fragments if f.active_space is not None))
         norbs_cmo = (self.ints.mol.nelectron - nelec_amo) // 2
         norbs_omo = norbs_cmo + norbs_amo
         chkdata = np.load (fname)
-        nao, chkdata = int (round (chkdata[0])), chkdata[1:] 
+        nao, self.mu_imp, chkdata = int (round (chkdata[0])), chkdata[1], chkdata[2:] 
         print ("{} atomic orbital basis functions reported in checkpoint file, as opposed to {} in integral object".format (nao, self.ints.mol.nao_nr ()))
         mat, chkdata = chkdata[:nao**2].reshape (nao, nao, order='C'), chkdata[nao**2:]
         mat = represent_operator_in_basis (mat, aoSloc)
