@@ -881,7 +881,7 @@ class dmet:
             chkdata = represent_operator_in_basis (chkdata, self.ints.ao2loc.conjugate ().T).flatten (order='C')
         else:
             chkdata = represent_operator_in_basis (self.umat, self.ints.ao2loc.conjugate ().T).flatten (order='C')
-        chkdata = np.append (np.asarray ([nao]), chkdata)
+        chkdata = np.append (np.asarray ([nao, self.mu_imp]), chkdata)
         for f in self.fragments:
             chkdata = np.append (chkdata, [f.norbs_as])
             chkdata = np.append (chkdata, np.dot (self.ints.ao2loc, f.loc2amo).flatten (order='C'))
@@ -896,7 +896,7 @@ class dmet:
         norbs_cmo = (self.ints.mol.nelectron - nelec_amo) // 2
         norbs_omo = norbs_cmo + norbs_amo
         chkdata = np.load (fname)
-        nao, chkdata = int (round (chkdata[0])), chkdata[1:] 
+        nao, self.mu_imp, chkdata = int (round (chkdata[0])), chkdata[1], chkdata[2:] 
         print ("{} atomic orbital basis functions reported in checkpoint file, as opposed to {} in integral object".format (nao, self.ints.mol.nao_nr ()))
         mat, chkdata = chkdata[:nao**2].reshape (nao, nao, order='C'), chkdata[nao**2:]
         mat = represent_operator_in_basis (mat, aoSloc)
