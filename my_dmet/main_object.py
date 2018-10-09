@@ -42,10 +42,11 @@ from itertools import combinations, product
 
 class dmet:
 
-    def __init__( self, theInts, fragments, isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
-                    doDET=False, doDET_NO=False, CC_E_TYPE='LAMBDA', minFunc='FOCK_INIT', wma_options=False, print_u=True,
-                    print_rdm=True, mc_dmet=False, debug_energy=False, debug_reloc=False, noselfconsistent=False, do_constrCASSCF=False,
-                    do_refragmentation=True, incl_impcore_correlation=False, nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
+    def __init__( self, theInts, fragments, calcname='DMET', isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
+                    doDET=False, doDET_NO=False, do1SHOT=False, do0SHOT=False, doLASSCF=False, do1EMB=False,
+                    minFunc='FOCK_INIT', print_u=True,
+                    print_rdm=True, debug_energy=False, debug_reloc=False,
+                    nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
                     corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0):
 
         if isTranslationInvariant:
@@ -54,50 +55,44 @@ class dmet:
             assert( len (fragments) == 1 )
         
         assert (( SCmethod == 'LSTSQ' ) or ( SCmethod == 'BFGS' ) or ( SCmethod == 'NONE' ))
-        assert (( CC_E_TYPE == 'LAMBDA') or ( CC_E_TYPE == 'CASCI'))        
 
         #tracemalloc.start (10)
 
+        self.calcname                 = calcname
         self.ints                     = theInts
         self.norbs_tot                = self.ints.norbs_tot
         self.fragments                = fragments
         self.NI_hack                  = False
         self.doSCF                    = False
         self.TransInv                 = isTranslationInvariant
-        self.doDET                    = doDET or doDET_NO
+        self.doDET                    = doDET or doDET_NO or do1SHOT or do1EMB
         self.doDET_NO                 = doDET_NO
-        self.CC_E_TYPE                = CC_E_TYPE
+        self.do1SHOT                  = do1SHOT
+        self.do0SHOT                  = do0SHOT
+        self.doLASSCF                 = doLASSCF
+        self.do1EMB                   = do1EMB
         self.minFunc                  = minFunc
-        self.wma_options              = wma_options
         self.print_u                  = print_u
         self.print_rdm                = print_rdm
-        self.SCmethod                 = 'NONE' if self.doDET else SCmethod
+        self.SCmethod                 = 'NONE' if (do1SHOT or do0SHOT or doLASSCF or do1EMB) else SCmethod
         self.incl_bath_errvec         = False if self.doDET else incl_bath_errvec
         self.altcostfunc              = False if self.doDET else use_constrained_opt
-        self.mc_dmet                  = mc_dmet
         self.debug_energy             = debug_energy
         self.debug_reloc              = debug_reloc
-        self.noselfconsistent         = noselfconsistent
-        self.do_constrCASSCF          = do_constrCASSCF
-        self.do_refragmentation       = do_refragmentation
-        self.incl_impcore_correlation = incl_impcore_correlation
         self.nelec_int_thresh         = nelec_int_thresh
-        self.chempot_init             = chempot_init
+        self.chempot                  = chempot_init
         self.num_mf_stab_checks       = num_mf_stab_checks
         self.corrpot_maxiter          = corrpot_maxiter
         self.orb_maxiter              = orb_maxiter
         self.chempot_tol              = chempot_tol
         self.corrpot_mf_moldens       = corrpot_mf_moldens
         self.corrpot_mf_molden_cnt    = 0
-        assert (np.any (np.array ([do_constrCASSCF, do_refragmentation]) == False)), 'constrCASSCF and refragmentation inconsistent with each other'
+        self.ints.num_mf_stab_checks  = num_mf_stab_checks
 
-        if self.noselfconsistent:
-            SCmethod = 'NONE'
-        self.ints.num_mf_stab_checks = num_mf_stab_checks
         for frag in self.fragments:
             frag.debug_energy             = debug_energy
-            frag.incl_impcore_correlation = incl_impcore_correlation
             frag.num_mf_stab_checks       = num_mf_stab_checks
+            frag.filehead                 = self.calcname + '_'
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
         self.examine_ifrag_olap = False
@@ -127,7 +122,6 @@ class dmet:
         self.relaxation = 0.0
         self.energy     = 0.0
         self.spin       = 0.0
-        self.mu_imp     = 0.0
         self.helper     = qcdmethelper.qcdmethelper( self.ints, self.makelist_H1(), self.altcostfunc, self.minFunc )
         
         np.set_printoptions(precision=3, linewidth=160)
@@ -233,13 +227,12 @@ class dmet:
                     jumpsquare += frag.norbs_frag
         return theH1
         
-    def doexact( self, chempot_frag=0.0, frag_constrained_casscf=False ):  
+    def doexact( self, chempot_frag=0.0 ):
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
         self.energy = 0.0												
         self.spin = 0.0
 
         for frag in self.fragments:
-            frag.frag_constrained_casscf = frag_constrained_casscf
             frag.solve_impurity_problem (chempot_frag)
             self.energy += frag.E_frag
             self.spin += frag.S2_frag
@@ -258,7 +251,7 @@ class dmet:
         # When an incomplete impurity tiling is used for the Hamiltonian, self.energy should be augmented with the remaining HF part
         if ( self.norbs_allcore > 0 ):
         
-            if ( self.CC_E_TYPE == 'CASCI' ):
+            if ( self.do1EMB ):
                 Nelectrons = np.trace (self.fragments[0].oneRDM_loc) # Because full active space is used to compute the energy
             else:
                 #transfo = np.eye( self.norbs_tot, dtype=float )
@@ -384,7 +377,7 @@ class dmet:
         for countgr in range( len( newumatflat ) ):
             # The projection below should do nothing for ordinary DMET, but when a wma space is used it should prevent the derivative from pointing into the wma space
             rsp_1RDM = RDMderivs_rot[countgr,:,:]
-            if self.mc_dmet:
+            if self.doLASSCF:
                 rsp_1RDM = project_operator_into_subspace (RDMderivs_rot[countgr, :, :], self.ints.loc2idem) 
             errvec = np.concatenate ([frag.get_rsp_1RDM_elements (self, rsp_1RDM) for frag in self.fragments])
             yield errvec
@@ -482,7 +475,6 @@ class dmet:
         #scfinit.dump ('scfinit.snpsht')
         iteration = 0
         u_diff = 1.0
-        self.mu_imp = self.chempot_init
         convergence_threshold = 1e-6
         rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
@@ -493,7 +485,7 @@ class dmet:
             if iteration > self.corrpot_maxiter:
                 raise RuntimeError ('Maximum correlation-potential cycles!')
 
-        if ( self.CC_E_TYPE == 'CASCI' ):
+        if self.do1EMB:
             assert( len (self.fragments) == 1 )		
             print("-----NOTE: CASCI or Single embedding is used-----")				
             self.energy = self.fragments[0].E_imp
@@ -542,7 +534,7 @@ class dmet:
             result = optimize.minimize( self.costfunction, self.square2flat( self.umat ), jac=self.costfunction_derivative, options={'disp': True} )
             self.umat = self.flat2square( result.x )
             print ("BFGS done after {} seconds".format (time.time () - bfgs_start))
-        if self.CC_E_TYPE == 'CASCI':
+        if self.do1EMB:
             # You NEED the diagonal component if the molecule isn't tiled out with fragments!
             # But otherwise, it's a redundant chemical potential term
             self.umat = self.umat - np.eye( self.umat.shape[ 0 ] ) * np.average( np.diag( self.umat ) ) # Remove arbitrary chemical potential shifts
@@ -564,8 +556,6 @@ class dmet:
             mf_coeff = np.dot (self.ints.ao2loc, loc2mf)
             molden.from_mo (self.ints.mol, fname, mf_coeff, occ=mf_occ)
             self.corrpot_mf_molden_cnt += 1
-            if self.corrpot_mf_molden_cnt == self.corrpot_mf_moldens:
-                self.corrpot_mf_molden_cnt = 0
         
         # Get the error measure
         u_diff = linalg.norm( umat_old - self.umat )
@@ -589,14 +579,11 @@ class dmet:
 
         loc2wmas_old = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         loc2wmcs_old = get_complementary_states (loc2wmas_old)
-        mc_dmet_switch = int (self.mc_dmet)
-        if self.do_refragmentation and self.mc_dmet:
-            mc_dmet_switch = 2
-        if self.mc_dmet:
-            self.ints.setup_wm_core_scf (self.fragments)
+        if self.doLASSCF:
+            self.ints.setup_wm_core_scf (self.fragments, self.calcname)
 
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
-        if self.do_refragmentation and self.mc_dmet:
+        if self.doLASSCF:
             oneRDM_loc = self.refragmentation (loc2wmas_old, loc2wmcs_old, oneRDM_loc)
         else:
             for frag in self.fragments:
@@ -606,7 +593,7 @@ class dmet:
         self.energy = 0.0
         self.spin = 0.0
         for frag in self.fragments:
-            frag.do_Schmidt (oneRDM_loc, self.fragments, loc2wmcs_old, mc_dmet_switch)
+            frag.do_Schmidt (oneRDM_loc, self.fragments, loc2wmcs_old, self.doLASSCF)
             frag.construct_impurity_hamiltonian ()
         if self.examine_ifrag_olap:
             examine_ifrag_olap (self)
@@ -617,19 +604,16 @@ class dmet:
             print ("{0} iteration {1}".format (itertype, iteridx))
 
         # Iterate on chemical potential
-        if self.CC_E_TYPE == 'CASCI' or self.noselfconsistent or self.mc_dmet:
-            self.mu_imp = 0.0
-            self.doexact (self.mu_imp)
+        if self.do1EMB or self.do0SHOT or self.doLASSCF:
+            self.chempot = 0.0
+            self.doexact (self.chempot)
         else:
-            self.mu_imp = optimize.newton( self.numeleccostfunction, self.mu_imp, tol=self.chempot_tol )
-            print ("   Chemical potential =", self.mu_imp)
+            self.chempot = optimize.newton( self.numeleccostfunction, self.chempot, tol=self.chempot_tol )
+            print ("   Chemical potential =", self.chempot)
         for frag in self.fragments:
             frag.impurity_molden ('natorb', natorb=True)
             frag.impurity_molden ('imporb')
             frag.impurity_molden ('molorb', molorb=True)
-        #self.doexact (self.mu_imp, frag_constrained_casscf=self.do_constrCASSCF)
-        #if self.mc_dmet:
-        #    self.ints.setup_wm_core_scf (self.fragments)
         
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         try:
@@ -646,11 +630,11 @@ class dmet:
         no_occs, no_evecs = matrix_eigen_control_options (oneRDM_mean, sort_vecs=-1, only_nonzero_vals=False)
         print ("Whole-molecule natural orbital occupancies:\n{}".format (no_occs))
         ao2no = np.dot (self.ints.ao2loc, no_evecs)
-        molden.from_mo (self.ints.mol, 'wm_nos.molden', ao2no, occ=no_occs)
+        molden.from_mo (self.ints.mol, self.calcname + '_natorb.molden', ao2no, occ=no_occs)
         print ("Whole-molecule 1RDM stdev norm = {}".format (oneRDM_diff))
         print ("Whole-molecule Eimp stdev = {}".format (Eimp_stdev))
         print ("Whole-molecule active-space orbital shift = {0}".format (orb_diff))
-        if self.mc_dmet == False:
+        if self.doLASSCF == False:
             orb_diff = oneRDM_diff = Eimp_stdev = Eiter = 0 # Do only 1 iteration
         else:
             self.energy = np.average (energies)
@@ -876,12 +860,12 @@ class dmet:
     def save_checkpoint (self, fname):
         ''' Data array structure: nao_nr, chempot, 1RDM or umat, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
         nao = self.ints.mol.nao_nr ()
-        if self.mc_dmet:
+        if self.doLASSCF:
             chkdata = np.average (np.stack ([f.oneRDM_loc for f in self.fragments], axis=0), axis=0)
             chkdata = represent_operator_in_basis (chkdata, self.ints.ao2loc.conjugate ().T).flatten (order='C')
         else:
             chkdata = represent_operator_in_basis (self.umat, self.ints.ao2loc.conjugate ().T).flatten (order='C')
-        chkdata = np.append (np.asarray ([nao, self.mu_imp]), chkdata)
+        chkdata = np.append (np.asarray ([nao, self.chempot]), chkdata)
         for f in self.fragments:
             chkdata = np.append (chkdata, [f.norbs_as])
             chkdata = np.append (chkdata, np.dot (self.ints.ao2loc, f.loc2amo).flatten (order='C'))
@@ -896,12 +880,12 @@ class dmet:
         norbs_cmo = (self.ints.mol.nelectron - nelec_amo) // 2
         norbs_omo = norbs_cmo + norbs_amo
         chkdata = np.load (fname)
-        nao, self.mu_imp, chkdata = int (round (chkdata[0])), chkdata[1], chkdata[2:] 
+        nao, self.chempot, chkdata = int (round (chkdata[0])), chkdata[1], chkdata[2:] 
         print ("{} atomic orbital basis functions reported in checkpoint file, as opposed to {} in integral object".format (nao, self.ints.mol.nao_nr ()))
         mat, chkdata = chkdata[:nao**2].reshape (nao, nao, order='C'), chkdata[nao**2:]
         mat = represent_operator_in_basis (mat, aoSloc)
 
-        if self.mc_dmet:
+        if self.doLASSCF:
             self.ints.oneRDM_loc = mat.copy ()
         else:
             self.umat = mat.copy ()
