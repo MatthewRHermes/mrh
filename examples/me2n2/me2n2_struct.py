@@ -4,7 +4,7 @@ import numpy as np
 def structure( distance, basis):
 
     mol = gto.Mole()
-    file = open("Me2N2-opt.gjf")
+    file = open("me2n2_geom.gjf")
 
     for i in range(6):
         file.readline()    
