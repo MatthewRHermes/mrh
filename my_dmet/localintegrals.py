@@ -220,7 +220,7 @@ class localintegrals:
         oneRDM_loc     = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
-    def setup_wm_core_scf (self, fragments):
+    def setup_wm_core_scf (self, fragments, calcname):
 
         self.restore_wm_full_scf ()
         oneRDMcorr_loc = sum ((frag.oneRDMas_loc for frag in fragments))
@@ -301,7 +301,7 @@ class localintegrals:
         wm_ene = np.einsum ('ip,ij,jp->p', loc2molden, fock, loc2molden)
         wm_occ = np.einsum ('ip,ij,jp->p', loc2molden, oneRDM, loc2molden)
         ao2molden = np.dot (self.ao2loc, loc2molden)
-        molden.from_mo (self.mol, 'wm_wvfn.molden', ao2molden, occ=wm_occ, ene=wm_ene)
+        molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=wm_occ, ene=wm_ene)
 
     def restore_wm_full_scf (self):
         self.activeJKidem   = self.activeFOCK - self.activeOEI

@@ -56,12 +56,12 @@ class fragment_object:
         self.frag_name = name
         self.active_space = None
         self.idempotize_thresh = abs (idempotize_thresh)
-        self.incl_impcore_correlation = False
         self.bath_tol = 1e-8
         self.num_mf_stab_checks = 0
         self.target_S = 0
         self.target_MS = 0
         self.mol_output = None
+        self.filehead = None
 
         # Assign solver function
         solver_function_map = {
@@ -126,7 +126,6 @@ class fragment_object:
         self.Schmidt_done = False
         self.impham_built = False
         self.imp_solved   = False
-        self.frag_constrained_casscf = False
 
         # Report
         print ("Constructed a fragment of {0} orbitals for a system with {1} total orbitals".format (self.norbs_frag, self.norbs_tot))
@@ -315,72 +314,25 @@ class fragment_object:
         self.twoCDM_froz_tbc = []
         self.loc2tbc = []
 
-    def do_Schmidt (self, oneRDM_loc, all_frags, loc2wmcs, mc_dmet_switch=0):
+    def do_Schmidt (self, oneRDM_loc, all_frags, loc2wmcs, doLASSCF):
         self.imp_cache = []
-        if mc_dmet_switch == 0:
-            self.do_Schmidt_normal (oneRDM_loc)
-        elif mc_dmet_switch == 1:
-            self.do_Schmidt_ofc_embedding (oneRDM_loc, all_frags, loc2wmcs)
-        elif mc_dmet_switch == 2:
-            self.do_Schmidt_refragmentation (oneRDM_loc, all_frags, loc2wmcs)
+        if doLASSCF:
+            self.do_Schmidt_LASSCF (oneRDM_loc, all_frags, loc2wmcs)
+        else:
+            print ("DMET Schmidt decomposition of {0} fragment".format (self.frag_name))
+            self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
+                self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, bath_tol=self.bath_tol, num_zero_atol=params.num_zero_atol)
+            self.norbs_imp = self.norbs_frag + norbs_bath
+            self.Schmidt_done = True
+            self.impham_built = False
+            self.imp_solved = False
+            print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
         if self.impo_printed == False:
             self.impurity_molden ('imporb_begin')
             self.impo_printed = True
 
-    def do_Schmidt_normal (self, oneRDM_loc):
-        print ("Normal Schmidt decomposition of {0} fragment".format (self.frag_name))
-        loc2env = get_complementary_states (self.loc2frag)
-        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
-            self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, bath_tol=self.bath_tol, num_zero_atol=params.num_zero_atol)
-        self.norbs_imp = self.norbs_frag + norbs_bath
-        self.Schmidt_done = True
-        self.impham_built = False
-        self.imp_solved = False
-        print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
-
-    def do_Schmidt_ofc_embedding (self, oneRDM_loc, all_frags, loc2wmcs):
-        ''' The essential feature of this one is that the impurity does not necessarily contain the entire fragment '''
-        print ("Other-fragment-core Schmidt decomposition of {0} fragment".format (self.frag_name))
-        other_frags = [frag for frag in all_frags if (frag is not self) and (frag.norbs_as > 0)]
-
-        # Starting with Schmidt decomposition in the idempotent subspace
-        oneRDMwmcs_loc      = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
-        loc2ifrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())
-        norbs_ifrag         = loc2ifrag.shape[1]
-        assert (not np.any (svals > 1.0 + params.num_zero_atol)), "{0}".format (svals)
-        print ("{0} fragment orbitals becoming {1} pseudo-fragment orbitals in idempotent subspace".format (self.norbs_frag, norbs_ifrag))
-        loc2iemb, norbs_ibath, nelec_iimp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMwmcs_loc, 
-            loc2ifrag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, bath_tol=self.bath_tol, num_zero_atol=params.num_zero_atol)
-        norbs_iimp = norbs_ifrag + norbs_ibath
-        loc2iimp   = loc2iemb[:,:norbs_iimp]
-
-        # Add this-fragment active-space orbitals from last iteration to the impurity
-        print ("Adding {0} this-fragment active-space orbitals and {1} this-fragment active-space electrons to the impurity".format (self.norbs_as, self.nelec_as))
-        self.nelec_imp = nelec_iimp + self.nelec_as
-        self.norbs_imp = norbs_iimp + self.norbs_as
-        loc2imp        = np.append (loc2iimp, self.loc2amo, axis=1)
-        assert (is_basis_orthonormal (loc2imp))
-
-        # Reorder impurity orbitals so that fragments are at the top, as much as possible
-        proj = np.dot (loc2imp[self.frag_orb_list,:].conjugate ().T, loc2imp[self.frag_orb_list,:])
-        evals, u_imp = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
-        loc2imp = np.dot (loc2imp, u_imp)
-        self.loc2emb = get_complete_basis (loc2imp)
-
-        # Add other-fragment active-space RDMs to core RDMs
-        self.oneRDMfroz_loc += sum([ofrag.oneRDMas_loc for ofrag in other_frags])
-        self.twoCDMfroz_tbc  = [np.copy (ofrag.twoCDMimp_amo) for ofrag in other_frags]
-        self.loc2tbc         = [np.copy (ofrag.loc2amo) for ofrag in other_frags]
-
-        nelec_bleed = compute_nelec_in_subspace (self.oneRDMfroz_loc, self.loc2imp)
-        assert (nelec_bleed < params.num_zero_atol), "Core electrons on the impurity! Overlapping active states?"
-        print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
-        self.Schmidt_done = True
-        self.purify_twoCDMfroz ()
-        self.impham_built = False
-
-    def do_Schmidt_refragmentation (self, oneRDM_loc, all_frags, loc2wmcs):
-        print ("Refragmentation Schmidt decomposition of {0} fragment".format (self.frag_name))
+    def do_Schmidt_LASSCF (self, oneRDM_loc, all_frags, loc2wmcs):
+        print ("LASSCF Schmidt decomposition of {0} fragment".format (self.frag_name))
         # First, I should add as many "quasi-fragment" states as there are last-iteration active orbitals, just so I don't
         # lose bath states.
         # How many do I need?
@@ -403,60 +355,6 @@ class fragment_object:
         loc2wfrag = np.append (self.loc2frag, loc2qfrag[:,:norbs_qfrag], axis=1)
         assert (is_basis_orthonormal (loc2wfrag))
 
-        # TEST
-        '''
-        if self.norbs_as:
-            # This test is equal to what I do above:
-            loc2tildeg = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())[0]
-            tildeg2frag = np.dot (loc2tildeg.conjugate ().T, self.loc2frag)
-            tildeg2wmas = np.dot (loc2tildeg.conjugate ().T, loc2wmas)
-            tildeg2qfrag = get_complementary_states (np.append (tildeg2frag, tildeg2wmas, axis=1), already_complete_warning=False)
-            print ("TEST: {} states complementary to PtildeG |frag> and PtildeG |wmas> in tilde basis found; {} needed".format (tildeg2qfrag.shape[1], self.norbs_as))
-            test = np.dot (loc2tildeg, tildeg2qfrag)
-            wfrag = loc2wfrag[:,-self.norbs_as:]
-            svals = get_overlapping_states (test, wfrag)[2]
-            print ("TEST: svals of <test|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
-
-            # So is this:
-            loc2xq = get_complementary_states (np.append (self.loc2frag, loc2wmas, axis=1), already_complete_warning=False)
-            Qhat = np.dot (loc2xq, loc2xq.conjugate ().T)
-            Qhat_tildeg = represent_operator_in_basis (Qhat, loc2tildeg)
-            evals, evecs = matrix_eigen_control_options (Qhat_tildeg, sort_vecs=-1, only_nonzero_vals=False)
-            idx = np.isclose (evals, 1)
-            test2 = np.dot (loc2tildeg, evecs[:,idx])
-            svals = get_overlapping_states (test, wfrag)[2]
-            print ("TEST: svals of <evecs of PtildeG Q PtildeG|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
-
-            # Is this? --Yes
-            Ptildeg = np.dot (loc2tildeg, loc2tildeg.conjugate ().T)
-            Ptildeg_xq = represent_operator_in_basis (Ptildeg, loc2xq)
-            evals, evecs = matrix_eigen_control_options (Ptildeg_xq, sort_vecs=-1, only_nonzero_vals=False)
-            print ("TEST: evals of Q PtildeG Q:\n{}".format (evals)) 
-            idx = np.isclose (evals, 1)
-            test2 = np.dot (loc2xq, evecs[:,idx])
-            svals = get_overlapping_states (test, wfrag)[2]
-            print ("TEST: svals of <evecs of Q PtildeG Q|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
-
-            # PtildeG is perhaps best written as R = S^(1/2) S^(-1) S^(1/2), with S = Pxmol Pgp Pxmol. But let's test that explicitly
-            Pgp = np.dot (self.get_true_loc2frag (), self.get_true_loc2frag ().conjugate ().T)
-            Pxmol = np.dot (loc2wmcs, loc2wmcs.conjugate ().T)
-            S = reduce (np.dot, (Pxmol, Pgp, Pxmol))
-            evals, evecs = matrix_eigen_control_options (S, sort_vecs=-1, only_nonzero_vals=True)
-            sqrtS = reduce (np.dot, (evecs, np.diag (np.sqrt (evals)), evecs.conjugate ().T))
-            Sinv = reduce (np.dot, (evecs, np.diag (np.reciprocal (evals)), evecs.conjugate ().T))
-            Ptest = reduce (np.dot, (sqrtS, Sinv, sqrtS))
-            print ("TEST: || Ptildeg - S^(1/2) S^(-1) S^(1/2) [S = Pxmol Pgp Pxmol, my sqrtm and pinv] || = {}".format (sp.linalg.norm (Ptest - Ptildeg)))
-
-            # So THIS is my quasi-fragments, right??
-            Pquasi = reduce (np.dot, (Qhat, Ptest, Qhat))
-            evals, evecs = matrix_eigen_control_options (Pquasi, sort_vecs=-1, only_nonzero_vals=True)
-            print ("TEST: eigenvalues of sum_QR Pxq S^(1/2) S^(-1) S^(1/2) Pxr (count = {0}) =\n{1}".format (len (evals), evals))
-            idx = np.isclose (evals, 1)
-            test = evecs[:,idx]
-            svals = get_overlapping_states (test, wfrag)[2]
-            print ("TEST: svals of <top evecs of above|wfrag> ({0}-by-{1}):\n{2}".format (test.shape[1], wfrag.shape[1], svals))
-        '''
-
         # This will RuntimeError on me if I don't have even integer.
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
         oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
@@ -473,20 +371,14 @@ class fragment_object:
         self.nelec_imp += int (round (nelec_impa))
 
         # Core 2CDMs
-        active_frags = [frag for frag in all_frags if frag.norbs_as > 0]
+        active_frags = [frag for frag in all_frags if frag is not self and frag.norbs_as > 0]
         self.twoCDMfroz_tbc = [np.copy (frag.twoCDMimp_amo) for frag in active_frags]
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
+        # Yes, I need the line below, because otherwise I double-count electron correlation!
+        self.twoCDMfroz = [project_operator_into_subspace (L, np.dot (b.conjugate ().T, self.loc2core)) for L, b in zip (self.twoCDMfroz_tbc, self.loc2tbc)]
 
-        self.purify_twoCDMfroz ()
         self.impham_built = False
 
-    def purify_twoCDMfroz (self):
-        # Either constrain the frozen twoCDM to the cccc space, or subtract the part in the iiii space
-        if self.incl_impcore_correlation:
-            twoCDMfroz = [L - project_operator_into_subspace (L, np.dot (b.conjugate ().T, self.loc2imp)) for L, b in zip (self.twoCDMfroz_tbc, self.loc2tbc)]
-        else:
-            twoCDMfroz = [project_operator_into_subspace (L, np.dot (b.conjugate ().T, self.loc2core)) for L, b in zip (self.twoCDMfroz_tbc, self.loc2tbc)]
-        self.twoCDMfroz_tbc = twoCDMfroz
 
     ##############################################################################################################################
 
@@ -731,7 +623,7 @@ class fragment_object:
 
     def impurity_molden (self, tag=None, canonicalize=False, natorb=False, molorb=False, ene=None, occ=None):
         tag = '.' if tag == None else '_' + str (tag) + '.'
-        filename = self.frag_name + tag + 'molden'
+        filename = self.filehead + self.frag_name + tag + 'molden'
         mol = self.ints.mol.copy ()
         mol.nelectron = self.nelec_imp
         mol.spin = int (round (2 * self.target_MS))

@@ -89,7 +89,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     # If I haven't yet, print out the MOs so I can pick a good active space
     if frag.mfmo_printed == False:
         ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, mf.mo_coeff])
-        molden.from_mo (frag.ints.mol, frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=mf.mo_occ, ene=mf.mo_energy)
+        molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=mf.mo_occ, ene=mf.mo_energy)
         frag.mfmo_printed = True
         
     # Get the CASSCF solution
@@ -119,13 +119,13 @@ def solve (frag, guess_1RDM, chempot_imp):
         #else:
         print ("Projecting stored amos (frag.loc2amo) onto the impurity basis")
         imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (), norbs_cmo)
-        make_guess_molden (frag, frag.frag_name + '_orbiter.molden', imp2mo, norbs_cmo, norbs_amo)
+        make_guess_molden (frag, frag.filehead + frag.frag_name + '_orbiter.molden', imp2mo, norbs_cmo, norbs_amo)
     elif frag.loc2amo_guess.shape[1] > 0:
         print ("Projecting provided guess orbitals onto the impurity basis")
         imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo_guess, mf.get_fock (), norbs_cmo)
         frag.loc2amo_guess = np.zeros ((frag.norbs_tot, 0))
         #imp2mo = mcscf.addons.project_init_guess (mc, imp2mo)
-        make_guess_molden (frag, frag.frag_name + '_guess.molden', imp2mo, norbs_cmo, norbs_amo)
+        make_guess_molden (frag, frag.filehead + frag.frag_name + '_guess.molden', imp2mo, norbs_cmo, norbs_amo)
     elif np.prod (frag.active_orb_list.shape) > 0: 
         print('Impurity active space selection:', frag.active_orb_list)
         imp2mo = mc.sort_mo(frag.active_orb_list)
@@ -192,25 +192,15 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.E_imp      = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
 
     # Active-space RDM data
-    if (frag.frag_constrained_casscf):
-        oneRDM_amo, twoCDM_amo, _, loc2amo = get_fragcasscf (frag, mf, loc2mo)
     frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, loc2amo.conjugate ().T))
     frag.twoCDMimp_amo = twoCDM_amo
     frag.loc2mo = loc2mo
     frag.loc2amo = loc2amo
 
-
-    '''
-    mol = frag.ints.mol.copy ()
-    mol.nelectron = frag.nelec_imp
-    no_coeffs, _, no_occ = mc.cas_natorb ()
-    loc2no = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, no_coeffs])
-    molden.from_mo (mol, 'test_casscf.molden', loc2no, occ=no_occ)
-    '''
-
     return None
 
 def get_fragcasscf (frag, mf, loc2mo):
+    ''' Obsolete function, left here just for reference to how I use constrCASSCF object '''
 
     norbs_amo = frag.active_space[1]
     nelec_amo = frag.active_space[0]
@@ -239,14 +229,6 @@ def get_fragcasscf (frag, mf, loc2mo):
 
     loc2mo = np.dot (frag.loc2imp, mc.mo_coeff)
     loc2amo = loc2mo[:,norbs_cmo:norbs_occ]
-
-    '''
-    mol = frag.ints.mol.copy ()
-    mol.nelectron = frag.nelec_imp
-    imp2no, _, no_occ = mc.cas_natorb ()
-    loc2no = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2no])
-    molden.from_mo (mol, 'test_fragcasscf.molden', loc2no, occ=no_occ)
-    '''
 
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, norbs_amo, nelec_amo)
     twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
