@@ -23,10 +23,8 @@ from mrh.util.rdm import get_1RDM_from_OEI_in_subspace
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace
 import numpy as np
 import ctypes
-from ctypes.util import find_library
-lib_qcdmet = ctypes.CDLL('/home/gagliard/herme068/lib/libqcdmet.so')
-#lib_qcdmet = ctypes.CDLL('/home/gagliard/herme068/Apps/QC-DMET/lib/libqcdmet.so')
-#lib_qcdmet = ctypes.CDLL(find_library('qcdmet'))
+from mrh.lib.helper import load_library
+lib_qcdmet = load_library ('libqcdmet')
 
 class qcdmethelper:
 

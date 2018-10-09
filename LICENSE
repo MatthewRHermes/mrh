@@ -10,9 +10,12 @@ and
 casdmet: The modified QC-DMET to use with CASSCF solver (CASDMET)
 Copyright (C) 2018 Hung Pham
 
-which were copied on 04/01/2018 and continuously modified beginning then
+which were forked on 04/01/2018 and continuously modified beginning then
 
+Additionally contains code copied from
 
+PySCF: the Python‐based simulations of chemistry framework
+https://github.com/sunqm/pyscf
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
