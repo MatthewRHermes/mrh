@@ -1,3 +1,5 @@
+import sys
+sys.path.append ('../../..')
 from pyscf import gto, dft, scf, mcscf
 from pyscf.tools import molden
 from mrh.my_dmet import localintegrals, dmet, fragments
@@ -6,7 +8,6 @@ from pyscf.mcscf.addons import project_init_guess, spin_square, sort_mo_by_irrep
 from pyscf.lib.parameters import BOHR
 from functools import reduce
 import numpy as np
-import sys
 import re
 import me2n2_struct
 import tracemalloc
