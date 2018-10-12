@@ -17,10 +17,11 @@ class otfnal:
             weight : ndarray of shape (ngrids)
                 containing numerical integration weights
 
-        Returns : MC-PDFT electronic energy as a float
+        Returns : float
+            The on-top exchange-correlation energy for the given on-top xc functional
         '''
 
-        raise RuntimeError("on-top functional not defined")
+        raise RuntimeError("on-top xc functional not defined")
         return 0
 
 
@@ -67,6 +68,7 @@ class transfnal (otfnal):
 
     def get_ratio (self, Pi, rho_avg, weight):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
+            An intermediate quantity when computing the translated spin densities
         '''
         assert (Pi.shape == rho_avg.shape)
         nderiv = Pi.shape[0]
