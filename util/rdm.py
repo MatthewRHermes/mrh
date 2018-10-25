@@ -163,6 +163,7 @@ def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bat
     return loc2wemb, norbs_wbath, int (round (nelec_wimp)), working_1RDM_core
 
 def get_2CDM_from_2RDM (twoRDM, oneRDMs):
+    oneRDMs = np.asarray (oneRDMs)
     if len (oneRDMs.shape) < 3:
         warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
@@ -181,6 +182,7 @@ def get_2CDM_from_2RDM (twoRDM, oneRDMs):
     return twoCDM
 
 def get_2RDM_from_2CDM (twoCDM, oneRDMs):
+    oneRDMs = np.asarray (oneRDMs)
     if len (oneRDMs.shape) < 3:
         warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
