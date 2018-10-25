@@ -61,7 +61,8 @@ def solve (frag, guess_1RDM, chempot_imp):
     
     # oneRDM and twoCDM
     oneRDM_imp, twoRDM_imp = ed.make_rdm12 (ci, frag.norbs_imp, frag.nelec_imp)
-    twoCDM_imp = get_2CDM_from_2RDM (twoRDM_imp, oneRDM_imp)
+    oneRDMs_imp = ed.make_rdm1s (ci, frag.norbs_imp, frag.nelec_imp)
+    twoCDM_imp = get_2CDM_from_2RDM (twoRDM_imp, oneRDMs_imp)
 
     # General impurity data
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))

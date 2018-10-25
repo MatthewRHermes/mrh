@@ -189,7 +189,8 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # twoCDM
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
-    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
+    oneRDMs_amo = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
+    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDMs_amo)
     twoCDM_imp = represent_operator_in_basis (twoCDM_amo, imp2amo.conjugate ().T)
 
     # General impurity data
@@ -237,7 +238,8 @@ def get_fragcasscf (frag, mf, loc2mo):
     loc2amo = loc2mo[:,norbs_cmo:norbs_occ]
 
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, norbs_amo, nelec_amo)
-    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
+    oneRDMs_amo = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
+    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDMs_amo)
     return oneRDM_amo, twoCDM_amo, loc2mo, loc2amo
     
 
