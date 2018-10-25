@@ -496,6 +496,11 @@ class dmet:
             frag.impurity_molden ('natorb', natorb=True)
             frag.impurity_molden ('imporb')
             frag.impurity_molden ('molorb', molorb=True)
+        rdm = self.transform_ed_1rdm (get_od=True)
+        no_occs, no_evecs = matrix_eigen_control_options (rdm, sort_vecs=-1, only_nonzero_vals=False)
+        print ("Whole-molecule natural orbital occupancies:\n{}".format (no_occs))
+        ao2no = np.dot (self.ints.ao2loc, no_evecs)
+        molden.from_mo (self.ints.mol, self.calcname + '_natorb.molden', ao2no, occ=no_occs)
         
         return self.energy
 
@@ -580,10 +585,12 @@ class dmet:
         loc2wmas_old = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         loc2wmcs_old = get_complementary_states (loc2wmas_old)
         if self.doLASSCF:
+            print ("Entering setup_wm_core_scf")
             self.ints.setup_wm_core_scf (self.fragments, self.calcname)
 
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
         if self.doLASSCF:
+            print ("Entering refragmentation")
             oneRDM_loc = self.refragmentation (loc2wmas_old, loc2wmcs_old, oneRDM_loc)
         else:
             for frag in self.fragments:
@@ -593,8 +600,14 @@ class dmet:
         self.energy = 0.0
         self.spin = 0.0
         for frag in self.fragments:
+            print ("Entering Schmidt decomposition for {}".format (frag.frag_name))
+            t0 = time.time ()
             frag.do_Schmidt (oneRDM_loc, self.fragments, loc2wmcs_old, self.doLASSCF)
+            t1 = time.time ()
+            print ("Entering impurity Hamiltonian construction for {}".format (frag.frag_name))
             frag.construct_impurity_hamiltonian ()
+            t2 = time.time ()
+            print ("Schmidt decomposition: {} seconds; impurity Hamiltonian construction: {} seconds".format (t1-t0, t2-t1))
         if self.examine_ifrag_olap:
             examine_ifrag_olap (self)
         if self.examine_wmcs:
@@ -610,10 +623,10 @@ class dmet:
         else:
             self.chempot = optimize.newton( self.numeleccostfunction, self.chempot, tol=self.chempot_tol )
             print ("   Chemical potential =", self.chempot)
-        for frag in self.fragments:
-            frag.impurity_molden ('natorb', natorb=True)
-            frag.impurity_molden ('imporb')
-            frag.impurity_molden ('molorb', molorb=True)
+        #for frag in self.fragments:
+            #frag.impurity_molden ('natorb', natorb=True)
+            #frag.impurity_molden ('imporb')
+            #frag.impurity_molden ('molorb', molorb=True)
         
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         try:
@@ -626,11 +639,11 @@ class dmet:
         oneRDM_stdev = np.std (oneRDM_locs, axis=2)
         oneRDM_diff = np.linalg.norm (oneRDM_stdev)
         Eimp_stdev = np.std (energies)
-        oneRDM_mean = np.average (oneRDM_locs, axis=2)
-        no_occs, no_evecs = matrix_eigen_control_options (oneRDM_mean, sort_vecs=-1, only_nonzero_vals=False)
+        oneRDM_avg = self.transform_ed_1rdm (get_od=True)
+        no_occs, no_evecs = matrix_eigen_control_options (oneRDM_avg, sort_vecs=-1, only_nonzero_vals=False)
         print ("Whole-molecule natural orbital occupancies:\n{}".format (no_occs))
-        ao2no = np.dot (self.ints.ao2loc, no_evecs)
-        molden.from_mo (self.ints.mol, self.calcname + '_natorb.molden', ao2no, occ=no_occs)
+        #ao2no = np.dot (self.ints.ao2loc, no_evecs)
+        #molden.from_mo (self.ints.mol, self.calcname + '_natorb.molden', ao2no, occ=no_occs)
         print ("Whole-molecule 1RDM stdev norm = {}".format (oneRDM_diff))
         print ("Whole-molecule Eimp stdev = {}".format (Eimp_stdev))
         print ("Whole-molecule active-space orbital shift = {0}".format (orb_diff))
@@ -663,7 +676,7 @@ class dmet:
         for frag in self.fragments:
             print (frag.get_oneRDM_imp ())
             
-    def transform_ed_1rdm( self ):
+    def transform_ed_1rdm( self, get_od=False ):
     
         norbs_frag = [f.loc2frag.shape[1] for f in self.fragments]
         result = np.zeros( [sum (norbs_frag), sum (norbs_frag)], dtype = np.float64)
@@ -671,10 +684,18 @@ class dmet:
         assert (is_basis_orthonormal (loc2frag))
         assert (sum (norbs_frag) == loc2frag.shape[1])
         frag_ranges = [sum (norbs_frag[:i]) for i in range (len (norbs_frag) + 1)]
-        for idx, frag in enumerate (self.fragments):
+        for idx, f1 in enumerate (self.fragments):
             i = frag_ranges[idx]
             j = frag_ranges[idx+1]
-            result[i:j,i:j] = frag.get_oneRDM_frag ()
+            result[i:j,i:j] = f1.get_oneRDM_frag ()
+            if get_od and idx+1 < len (self.fragments):
+                for idx2, f2 in enumerate (self.fragments[idx+1:]):
+                    k = frag_ranges[idx2+idx+1]
+                    l = frag_ranges[idx2+idx+2]
+                    result[i:j,k:l]  = represent_operator_in_basis (f1.oneRDM_loc, f1.loc2frag, f2.loc2frag)
+                    result[i:j,k:l] += represent_operator_in_basis (f2.oneRDM_loc, f1.loc2frag, f2.loc2frag)
+                    result[i:j,k:l] /= 2
+                    result[k:l,i:j]  = result[i:j,k:l].T
         return represent_operator_in_basis (result, loc2frag.conjugate ().T)
         
     def dump_bath_orbs( self, filename, frag_idx=0 ):

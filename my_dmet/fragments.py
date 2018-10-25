@@ -62,6 +62,7 @@ class fragment_object:
         self.target_MS = 0
         self.mol_output = None
         self.filehead = None
+        self.imp_maxiter = None # Currently only does anything for casscf solver
 
         # Assign solver function
         solver_function_map = {
@@ -327,9 +328,9 @@ class fragment_object:
             self.impham_built = False
             self.imp_solved = False
             print ("Final impurity for {0}: {1} electrons in {2} orbitals".format (self.frag_name, self.nelec_imp, self.norbs_imp))
-        if self.impo_printed == False:
-            self.impurity_molden ('imporb_begin')
-            self.impo_printed = True
+        #if self.impo_printed == False:
+        #    self.impurity_molden ('imporb_begin')
+        #    self.impo_printed = True
 
     def do_Schmidt_LASSCF (self, oneRDM_loc, all_frags, loc2wmcs):
         print ("LASSCF Schmidt decomposition of {0} fragment".format (self.frag_name))
@@ -353,7 +354,7 @@ class fragment_object:
                 norbs_qfrag, loc2qfrag.shape[1])
                 + "to compensate for {} active orbitals which cannot generate bath states".format (self.norbs_as))
         loc2wfrag = np.append (self.loc2frag, loc2qfrag[:,:norbs_qfrag], axis=1)
-        assert (is_basis_orthonormal (loc2wfrag))
+        assert (is_basis_orthonormal (loc2wfrag)), prettyprint (np.dot (loc2wfrag.conjugate ().T, loc2wfrag))
 
         # This will RuntimeError on me if I don't have even integer.
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
@@ -375,7 +376,7 @@ class fragment_object:
         self.twoCDMfroz_tbc = [np.copy (frag.twoCDMimp_amo) for frag in active_frags]
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
         # Yes, I need the line below, because otherwise I double-count electron correlation!
-        self.twoCDMfroz = [project_operator_into_subspace (L, np.dot (b.conjugate ().T, self.loc2core)) for L, b in zip (self.twoCDMfroz_tbc, self.loc2tbc)]
+        #self.twoCDMfroz = [project_operator_into_subspace (L, np.dot (b.conjugate ().T, self.loc2core)) for L, b in zip (self.twoCDMfroz_tbc, self.loc2tbc)]
 
         self.impham_built = False
 

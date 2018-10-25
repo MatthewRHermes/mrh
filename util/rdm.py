@@ -1,5 +1,6 @@
 import numpy as np
 import itertools
+from scipy import linalg
 from math import factorial
 from mrh.util.la import *
 from mrh.util.basis import *
@@ -37,6 +38,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
 
     # If I specified that I want less than the maxiumum possible number of bath orbitals, I need to implement that here
     norbs_bath = min (np.count_nonzero (np.abs (svals)>bath_tol), norbs_bath_max)
+    dropped_svals_norm = 0 if len (svals) == norbs_bath else linalg.norm (svals[norbs_bath:])
     svals = svals[:norbs_bath]
     loc2bath = loc2bath[:,:norbs_bath]
 
@@ -84,13 +86,13 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     test_fe[idx_rectdiag] = 0
     test_ef = test[norbs_frag:,:norbs_frag]
     test_ef[idx_rectdiag] = 0
-    print ("Schmidt decomposition total diagonal error: {}".format (np.linalg.norm (test)))
+    print ("Schmidt decomposition total diagonal error: {}".format (linalg.norm (test)))
     sec = ('frag', 'bath', 'core')
     lim = (0, norbs_frag, norbs_frag+norbs_bath, norbs_tot)
     for i, j in itertools.product (range (3), repeat=2):
         test_view = test[lim[i]:lim[i+1],lim[j]:lim[j+1]]
-        #print ("Schmidt decomposition {}-{} block diagonal error: {}".format (sec[i],sec[j],np.linalg.norm(test_view)))
-    print ("Schmidt decomposition svals error: {}".format (np.linalg.norm (svals - svals_test)))
+        #print ("Schmidt decomposition {}-{} block diagonal error: {}".format (sec[i],sec[j],linalg.norm(test_view)))
+    print ("Schmidt decomposition svals error: {}".format (linalg.norm (svals - svals_test)))
     print ("Schmidt decomposition smallest sval: {}".format (np.amin (np.insert (np.abs (svals), 0, 0))))
     
     return loc2emb, norbs_bath, nelec_imp
@@ -125,7 +127,7 @@ def get_E_from_RDMs (EIs, RDMs):
     return energy
 
 def idempotize_1RDM (oneRDM, thresh):
-    evals, evecs = np.linalg.eigh (oneRDM)
+    evals, evecs = linalg.eigh (oneRDM)
     diff_evals = (2.0 * np.around (evals / 2.0)) - evals
     # Only allow evals to change by at most +-thresh
     idx_floor = np.where (diff_evals < -abs (thresh))[0]

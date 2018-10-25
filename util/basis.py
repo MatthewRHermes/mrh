@@ -1,6 +1,7 @@
 # A collection of useful manipulations of basis sets (i.e., rectangular matrices) and operators (square matrices)
 
 import numpy as np
+from mrh.util.io import prettyprint_ndarray
 from mrh.util.la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util import params
 
@@ -273,7 +274,8 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
     assert (np.allclose (bOb, bOb.H)), "overlap matrix not hermitian! problem with basis?"
     assert (np.abs (np.trace (bOb)) > num_zero_atol), "overlap matrix zero or negative trace! problem with basis?"
      
-    evals, p2x = matrix_eigen_control_options (bOb, sort_vecs=-1, only_nonzero_vals=True)
+    evals, evecs = matrix_eigen_control_options (bOb, sort_vecs=-1, only_nonzero_vals=True)
+    p2x = np.asmatrix (evecs)
     c2x = c2b * p2x 
     assert (not np.any (evals < 0)), "overlap matrix has negative eigenvalues! problem with basis?"
 
@@ -284,17 +286,31 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
     # x2n = evals_xx^{-1/2}
     x2n = np.asmatrix (np.diag (np.reciprocal (np.sqrt (evals))))
     c2n = c2x * x2n
-    assert (is_basis_orthonormal (c2n)), "failed to orthonormalize basis somehow\n" + str (c2n)
+    n2c = c2n.H
+    nOn = n2c * cOc * c2n
+    if not is_basis_orthonormal (c2n):
+        # Assuming numerical problem due to massive degeneracy; remove constant from diagonal to improve solver?
+        assert (np.all (np.isclose (np.diag (nOn), 1))), np.diag (nOn) - 1
+        nOn[np.diag_indices_from (nOn)] -= 1
+        evals, evecs = matrix_eigen_control_options (nOn, sort_vecs=-1, only_nonzero_vals=True)
+        n2x = np.asmatrix (evecs)
+        c2x = c2n * n2x
+        x2n = np.asmatrix (np.diag (np.reciprocal (np.sqrt (evals + 1))))
+        c2n = c2x * x2n
+        n2c = c2n.H
+        nOn = n2c * cOc * c2n
+        assert (is_basis_orthonormal (c2n)), "failed to orthonormalize basis even after two tries somehow\n" + str (
+            prettyprint_ndarray (nOn)) + "\n" + str (np.linalg.norm (nOn - np.eye (c2n.shape[1]))) + "\n" + str (evals)
 
     return np.asarray (c2n)
 
 def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol):
     proj_cc = np.asmatrix (the_projector)
-    assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (proj_cc - proj_cc.H)
-    assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str ((proj_cc * proj_cc) - proj_cc)
-    evals, p2x = matrix_eigen_control_options (proj_cc, sort_vecs=-1, only_nonzero_vals=True)
+    assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (np.linalg.norm (proj_cc - proj_cc.H))
+    assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str (np.linalg.norm ((proj_cc * proj_cc) - proj_cc))
+    evals, evecs = matrix_eigen_control_options (proj_cc, sort_vecs=-1, only_nonzero_vals=True)
     idx = np.isclose (evals, 1)
-    return np.asarray (p2x[:,idx])
+    return evecs[:,idx]
 
 def get_complementary_states (incomplete_basis, in_subspace = None, already_complete_warning=True):
     if incomplete_basis.shape[1] == 0:

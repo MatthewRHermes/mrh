@@ -118,7 +118,7 @@ class localintegrals:
         self.ERIinMEM       = False
         self.activeERI      = None
         self.idemERI        = None
-        if ( self.norbs_tot <= 150 ):
+        if ( self.norbs_tot <= 125 ):
             self.ERIinMEM   = True
             self.activeERI  = ao2mo.outcore.full_iofree( self.mol, self.ao2loc, compact=False ).reshape(self.norbs_tot, self.norbs_tot, self.norbs_tot, self.norbs_tot)
             self.idemERI    = self.activeERI
@@ -216,7 +216,7 @@ class localintegrals:
             oneRDM_wrk = wm_rhf.solve_ERI(OEI_wrk, ERI_wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks)
         else:
             ao2wrk     = np.dot (self.ao2loc, loc2wrk)
-            oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, self.mol, self.ao2wrk, oneRDM_wrk, nocc)
+            oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, self.mol, ao2wrk, oneRDM_wrk, nocc)
         oneRDM_loc     = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
@@ -251,7 +251,7 @@ class localintegrals:
         oneRDMguess_loc = np.zeros_like (oneRDMcorr_loc)
         for f in itertools.product (fragments, fragments):
             loc2frag         = [i.loc2frag for i in f] 
-            oneRDMguess_loc += sum ([0.5 * project_operator_into_subspace (i.oneRDM_loc, *loc2frag) for i in f])
+            oneRDMguess_loc += sum ((0.5 * project_operator_into_subspace (i.oneRDM_loc, *loc2frag) for i in f))
 
         nelec_corr     = np.trace (oneRDMcorr_loc)
         if is_close_to_integer (nelec_corr, params.num_zero_atol) == False:
@@ -283,6 +283,7 @@ class localintegrals:
         ########################################################################################################
 
         # Analysis: molden and total energy
+        print ("Analyzing LASSCF trial wave function")
         oei = self.activeOEI + (JKcorr + JKidem) / 2
         fock = self.activeOEI + JKcorr + JKidem
         oneRDM = oneRDMidem_loc + oneRDMcorr_loc
@@ -292,7 +293,7 @@ class localintegrals:
                 V  = self.dmet_tei (frag.loc2amo)
                 L  = frag.twoCDMimp_amo
                 E += np.tensordot (V, L, axes=4) / 2
-        print ("Whole-molecule model wave function total energy: {:.6f}".format (E))
+        print ("LASSCF trial wave function total energy: {:.6f}".format (E))
         fock_idem = represent_operator_in_basis (fock, loc2idem)
         oneRDM_corr = represent_operator_in_basis (oneRDM, loc2corr)
         idem_evecs = matrix_eigen_control_options (fock_idem, sort_vecs=1, only_nonzero_vals=False)[1]

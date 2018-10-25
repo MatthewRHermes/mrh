@@ -104,7 +104,7 @@ def solve_JK( OEI, mol_orig, ao2basis, oneRDMguess_loc, numPairs):
     mf.get_jk   = wrap_my_jk(   mol_orig, ao2basis )
     mf.get_veff = wrap_my_veff( mol_orig, ao2basis )
     mf.max_cycle = 500
-    mf.damp_factor = 0.33
+    mf.damp = 0.33
     
     mf.scf( oneRDMguess_loc )
     oneRDM_loc = mf.make_rdm1 ()

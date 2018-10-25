@@ -54,47 +54,50 @@ class transfnal (otfnal):
             rho = np.expand_dims (rho, 1)
             Pi = np.expand_dims (Pi, 0)
             
-        rho_t = self.get_rho_translated (Pi, rho, weight)
+        rho_t = self.get_rho_translated (Pi, rho)
         dexc_ddens = self.ks._numint.eval_xc (self.ks.xc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=0, verbose=self.ks.verbose)[0]
         dens = rho_t[0,0,:] + rho_t[1,0,:]
  
         rho = np.squeeze (rho)
         Pi = np.squeeze (Pi)
-        #print ("Electron number sum: {}".format (np.dot (dens, weight)))
-        #print ("Electron alpha number sum: {}".format (np.dot (rho_t[0,0,:], weight)))
-        #print ("Electron beta number sum: {}".format (np.dot (rho_t[1,0,:], weight)))
 
-        return np.einsum ('i,i,i->', dexc_ddens, dens, weight)
+        dexc_ddens *= dens
+        dexc_ddens *= weight
+        E_ot = np.sum (dexc_ddens)
 
-    def get_ratio (self, Pi, rho_avg, weight):
+        return E_ot
+
+    def get_ratio (self, Pi, rho_avg):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
             An intermediate quantity when computing the translated spin densities
+
+            Note this function returns 1.0 for every point where the charge density is close to zero (i.e., convention: 0/0 = 1)
         '''
         assert (Pi.shape == rho_avg.shape)
         nderiv = Pi.shape[0]
         if nderiv > 4:
             raise NotImplementedError("derivatives above order 1")
-        idx = np.argsort (np.abs (rho_avg[0,:]))
 
         R = np.ones_like (Pi)
-        idx = np.logical_not (np.isclose (rho_avg[0], 0, atol=1e-15))
+        idx = rho_avg[0] >= (1e-15 / 2)
         # Chain rule!
         for ideriv in range (nderiv):
-            R[ideriv,idx] = Pi[ideriv,idx] / (rho_avg[0,idx] * rho_avg[0,idx])
+            R[ideriv,idx] = Pi[ideriv,idx] / rho_avg[0,idx] / rho_avg[0,idx]
         # Product rule!
         for ideriv in range (1,nderiv):
             R[ideriv,idx] -= 2 * rho_avg[ideriv,idx] * R[0,idx] / rho_avg[0,idx]
         return R
 
-    def get_rho_translated (self, Pi, rho, weight, Rmax=1, xi_deriv=False):
+    def get_rho_translated (self, Pi, rho, Rmax=1, zeta_deriv=False):
         r''' original translation, Li Manni et al., JCTC 10, 3669 (2014).
-        rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + xi)
-        rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - xi) 
+        rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + zeta)
+        rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - zeta) 
     
         where
     
-        xi = (1-ratio)^(1/2) ; ratio < 1
-           = 0               ; otherwise
+        zeta = (1-ratio)^(1/2) ; ratio < 1
+             = 0               ; otherwise
+        with
         ratio = Pi / [{(rho[0] + rho[1]) / 2}^2]
     
             Args:
@@ -105,36 +108,47 @@ class transfnal (otfnal):
     
             Kwargs:
                 Rmax : float
-                    cutoff for value of ratio in computing xi; not inclusive
-                xi_deriv : logical
-                    whether to include the derivative of xi in the gradient of rho_t
+                    cutoff for value of ratio in computing zeta; not inclusive
+                zeta_deriv : logical
+                    whether to include the derivative of zeta in the gradient of rho_t
     
             Returns: ndarray of shape (2,*,ngrids)
                 containing translated spin density (and derivatives)
         '''
+        assert (Rmax <= 1), "Don't set Rmax above 1.0!"
         nderiv = rho.shape[1]
-        nderiv_xi = nderiv if xi_deriv else 1
+        nderiv_zeta = nderiv if zeta_deriv else 1
     
         rho_avg = (rho[0,:,:] + rho[1,:,:]) / 2
-        rho_t = np.stack ([rho_avg, rho_avg], axis=0)
+        rho_t = rho.copy ()
 
-        R = self.get_ratio (Pi[0:1,:], rho_avg[0:1,:], weight)
-        idx = np.argsort (R[0,:])
-        idx = np.where (R[0] < Rmax)[0]
-        xi = np.empty_like (R[:,idx])
-        xi[0] = np.sqrt (1 - R[0,idx])
+        R = self.get_ratio (Pi[0:1,:], rho_avg[0:1,:])
+
+        # For nonzero charge & pair density, set alpha dens = beta dens = 1/2 charge dens
+        idx = (Pi[0] >= 1e-15) & (rho_avg[0] >= (1e-15 / 2))
+        rho_t[0][:,idx] = rho_t[1][:,idx] = rho_avg[:,idx]
+
+        # For 0 <= ratio < 1 and 0 <= rho, correct spin density using on-top density
+        idx &= (Rmax > R[0])
+        assert (np.all (R[0,idx] >= 0)), np.amin (R[0,idx])
+        assert (np.all (R[0,idx] <= Rmax)), np.amax (R[0,idx])
+        zeta = np.empty_like (R[:,idx])
+        zeta[0] = np.sqrt (1.0 - R[0,idx])
+
         # Chain rule!
-        for ideriv in range (1, nderiv_xi):
-            xi[ideriv] = -R[ideriv,idx] / xi[0] / 2
+        for ideriv in range (1, nderiv_zeta):
+            zeta[ideriv] = -R[ideriv,idx] / zeta[0] / 2
     
         # Chain rule!
         for ideriv in range (nderiv):
-            rho_t[0,ideriv,idx] *= (1 + xi[0])
-            rho_t[1,ideriv,idx] *= (1 - xi[0])
+            w = rho_avg[ideriv,idx] * zeta[0]
+            rho_t[0,ideriv,idx] += w
+            rho_t[1,ideriv,idx] -= w
         # Product rule!
-        for ideriv in range (1,nderiv_xi):
-            rho_t[0,ideriv,idx] += rho_t[0,0,idx] * xi[ideriv]
-            rho_t[1,ideriv,idx] -= rho_t[1,0,idx] * xi[ideriv]
+        for ideriv in range (1,nderiv_zeta):
+            w = rho_t[0,idx] * zeta[ideriv]
+            rho_t[0,ideriv,idx] += w
+            rho_t[1,ideriv,idx] -= w
     
         return rho_t
 
@@ -152,7 +166,7 @@ class ftransfnal (transfnal):
         self.B=-379.47331922 
         self.C=-85.38149682
 
-    def get_rho_translated (self, Pi, rho, weight, Rmax=None, xi_deriv=True):
+    def get_rho_translated (self, Pi, rho, Rmax=None, xi_deriv=True):
         r''' "full" translation, Carlson et al., JCTC 11, 4077 (2015)
         rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + xi)
         rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - xi)
@@ -180,10 +194,10 @@ class ftransfnal (transfnal):
             raise NotImplementedError("derivatives above order 1")
         R0, R1, A, B, C = self.R0, self.R1, self.A, self.B, self.C
     
-        rho_ft = super().get_rho_translated (Pi, rho, weight, Rmax=R0, xi_deriv=True)
+        rho_ft = super().get_rho_translated (Pi, rho, Rmax=R0, xi_deriv=True)
     
         rho_avg = (rho[0] + rho[1]) / 2
-        R = self.get_ratio (Pi, rho_avg, weight)
+        R = self.get_ratio (Pi, rho_avg)
     
         idx = np.where (np.logical_and (R[0] >= self.R0, R[0] <= self.R1))[0]
         R_m_R0 = np.stack ([np.power (R[0,idx] - R0, n) for n in range (2,6)], axis=0)
