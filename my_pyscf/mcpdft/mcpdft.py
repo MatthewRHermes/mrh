@@ -54,9 +54,7 @@ def mcpdft_kernel (mc, ot):
     amo = mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
     # make_rdm12s returns (a, b), (aa, ab, bb)
     adm1s = np.stack (mc.fcisolver.make_rdm12s (mc.ci, mc.ncas, mc.nelecas)[0], axis=0)
-    adm1, adm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
-    adm2 -= np.multiply.outer (adm1, adm1)
-    adm2 += (np.multiply.outer (adm1s[0], adm1s[0]) + np.multiply.outer (adm1s[1], adm1s[1])).transpose (0, 1, 3, 2)
+    adm2 = get_2CDM_from_2RDM (mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)[1], adm1s)
     E_ot = get_mcpdft_elec_energy (ot, dm1, adm2, amo) + mc._scf.energy_nuc ()
     return E_ot
 
