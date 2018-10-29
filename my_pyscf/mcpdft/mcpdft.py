@@ -3,6 +3,26 @@ from pyscf import dft
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.util.rdm import get_2CDM_from_2RDM
 
+
+def kernel (mc, ot):
+    ''' Calculate MC-PDFT total energy
+
+        Args:
+            mc : an instance of CASSCF or CASCI class (after running MC-SCF calculation)
+            ot : an instance of on-top density functional class - see otfnal.py
+
+        Returns:
+            Total MC-PDFT energy including nuclear repulsion energy.
+    '''
+
+    dm1 = np.asarray (mc.make_rdm1s ())
+    amo = mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
+    # make_rdm12s returns (a, b), (aa, ab, bb)
+    adm1s = np.stack (mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas), axis=0)
+    adm2 = get_2CDM_from_2RDM (mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)[1], adm1s)
+    E_ot = get_mcpdft_elec_energy (ot, dm1, adm2, amo) + mc._scf.energy_nuc ()
+    return E_ot
+
 def get_mcpdft_elec_energy (ot, oneCDMs, twoCDM_amo, ao2amo, deriv=0, max_memory=20000, hermi=0):
     ''' E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi] 
         or, in other terms, 
@@ -49,12 +69,4 @@ def get_mcpdft_elec_energy (ot, oneCDMs, twoCDM_amo, ao2amo, deriv=0, max_memory
     E_MCPDFT = E_DFT - E_xc + E_ot
     return E_MCPDFT
     
-def mcpdft_kernel (mc, ot):
-    dm1 = np.asarray (mc.make_rdm1s ())
-    amo = mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
-    # make_rdm12s returns (a, b), (aa, ab, bb)
-    adm1s = np.stack (mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas), axis=0)
-    adm2 = get_2CDM_from_2RDM (mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)[1], adm1s)
-    E_ot = get_mcpdft_elec_energy (ot, dm1, adm2, amo) + mc._scf.energy_nuc ()
-    return E_ot
 

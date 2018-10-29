@@ -175,10 +175,8 @@ def get_2CDM_from_2RDM (twoRDM, oneRDMs):
     #twoCDM +=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
     twoCDM  = twoRDM.copy ()
     twoCDM -= np.multiply.outer (oneRDM, oneRDM)
-    twoCDM += np.multiply.outer (oneRDMs[0], oneRDMs[0]).transpose (0, 2, 1, 3) / 2
-    twoCDM += np.multiply.outer (oneRDMs[0], oneRDMs[0]).transpose (3, 1, 2, 0) / 2
-    twoCDM += np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (0, 2, 1, 3) / 2
-    twoCDM += np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (3, 1, 2, 0) / 2
+    twoCDM += np.multiply.outer (oneRDMs[0], oneRDMs[0]).transpose (0, 3, 2, 1)
+    twoCDM += np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (0, 3, 2, 1)
     return twoCDM
 
 def get_2RDM_from_2CDM (twoCDM, oneRDMs):
@@ -194,10 +192,8 @@ def get_2RDM_from_2CDM (twoCDM, oneRDMs):
     #twoRDM -=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
     twoRDM  = twoCDM.copy ()
     twoRDM += np.multiply.outer (oneRDM, oneRDM)
-    twoRDM -= np.multiply.outer (oneRDMs[0], oneRDMs[0]).transpose (0, 2, 1, 3) / 2
-    twoRDM -= np.multiply.outer (oneRDMs[0], oneRDMs[0]).transpose (3, 1, 2, 0) / 2
-    twoRDM -= np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (0, 2, 1, 3) / 2
-    twoRDM -= np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (3, 1, 2, 0) / 2
+    twoRDM -= np.multiply.outer (oneRDMs[0], oneRDMs[0]).transpose (0, 3, 2, 1)
+    twoRDM -= np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (0, 3, 2, 1)
     return twoRDM
 
 def S2_exptval (oneDM, twoDM, Nelec=None, cumulant=False):
