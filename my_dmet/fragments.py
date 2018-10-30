@@ -536,7 +536,7 @@ class fragment_object:
         norbs_cmo = (nelec_tot - nelec_amo) // 2
         norbs_occ = norbs_cmo + norbs_amo
         amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
-        amo_coeff = scf.addons.project_mo_nr2nr (mol, amo_coeff, self.ints.mol)
+        #amo_coeff = scf.addons.project_mo_nr2nr (mol, amo_coeff, self.ints.mol)
         self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
         self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
         
@@ -634,11 +634,44 @@ class fragment_object:
             ene = np.einsum ('ip,ij,jp->p', self.imp2mo.conjugate (), FOCK, self.imp2mo)
         if natorb:
             assert (not canonicalize)
-            occ, imp2molden = matrix_eigen_control_options (oneRDM, sort_vecs=-1, only_nonzero_vals=False)
-            ene = np.einsum ('ip,ij,jp->p', imp2molden.conjugate (), FOCK, imp2molden)
+            # Separate active and external (inactive + virtual) orbitals and pry their energies apart by +-1e4 Eh so Jmol sets them 
+            # in the proper order
+            if self.norbs_as > 0:
+                imp2xmo = get_complementary_states (self.imp2amo)
+                FOCK_amo = represent_operator_in_basis (FOCK, self.imp2amo)
+                FOCK_xmo = represent_operator_in_basis (FOCK, imp2xmo)
+                oneRDM_xmo = represent_operator_in_basis (oneRDM, imp2xmo)
+                oneRDM_amo = represent_operator_in_basis (oneRDM, self.imp2amo)
+                ene_xmo, xmo2molden = matrix_eigen_control_options (FOCK_xmo, sort_vecs=1, only_nonzero_vals=False)
+                occ_amo, amo2molden = matrix_eigen_control_options (oneRDM_amo, sort_vecs=-1, only_nonzero_vals=False)
+                occ_xmo = np.einsum ('ip,ij,jp->p', xmo2molden.conjugate (), oneRDM_xmo, xmo2molden)
+                ene_amo = np.einsum ('ip,ij,jp->p', amo2molden.conjugate (), FOCK_amo, amo2molden)
+                norbs_imo = (self.nelec_imp - self.nelec_as) // 2
+                occ = np.concatenate ((occ_xmo[:norbs_imo], occ_amo, occ_xmo[norbs_imo:]))
+                ene = np.concatenate ((ene_xmo[:norbs_imo]-1e4, ene_amo, ene_xmo[norbs_imo:]+1e4))
+                imp2molden = np.concatenate ((np.dot (imp2xmo, xmo2molden[:,:norbs_imo]),
+                                              np.dot (self.imp2amo, amo2molden),
+                                              np.dot (imp2xmo, xmo2molden[:,norbs_imo:])), axis=1)
+            else:
+                occ, imp2molden = matrix_eigen_control_options (oneRDM, sort_vecs=-1, only_nonzero_vals=False)
+                ene = np.einsum ('ip,ij,jp->p', imp2molden.conjugate (), FOCK, imp2molden)
             ao2molden = np.dot (ao2imp, imp2molden)
         elif canonicalize:
-            ene, imp2molden = matrix_eigen_control_options (FOCK, sort_vecs=-1, only_nonzero_vals=False)
+            # Separate active and external (inactive + virtual) orbitals and pry their energies apart by +-1e4 Eh so Jmol sets them 
+            # in the proper order
+            if self.norbs_as > 0:
+                imp2xmo = get_complementary_states (self.imp2amo)
+                FOCK_amo = represent_operator_in_basis (FOCK, self.imp2amo)
+                FOCK_xmo = represent_operator_in_basis (FOCK, imp2xmo)
+                ene_xmo, xmo2molden = matrix_eigen_control_options (FOCK_xmo, sort_vecs=1, only_nonzero_vals=False)
+                ene_amo, amo1molden = matrix_eigen_control_options (FOCK_amo, sort_vecs=1, only_nonzero_vals=False)
+                norbs_imo = (self.nelec_imp - self.nelec_as) // 2
+                ene = np.concatenate ((ene_xmo[:norbs_imo]-1e4, ene_amo, ene_xmo[norbs_imo:]+1e4))
+                imp2molden = np.concatenate ((np.dot (imp2xmo, xmo2molden[:,:norbs_imo]),
+                                              np.dot (self.imp2amo, amo2molden),
+                                              np.dot (imp2xmo, xmo2molden[:,norbs_imo:])), axis=1)
+            else:
+                ene, imp2molden = matrix_eigen_control_options (FOCK, sort_vecs=-1, only_nonzero_vals=False)
             occ = np.einsum ('ip,ij,jp->p', imp2molden.conjugate (), oneRDM, imp2molden)
             ao2molden = np.dot (ao2imp, imp2molden)
 
