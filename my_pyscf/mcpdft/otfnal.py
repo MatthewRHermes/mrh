@@ -61,6 +61,8 @@ class transfnal (otfnal):
         rho = np.squeeze (rho)
         Pi = np.squeeze (Pi)
 
+        # E_ot[rho,Pi] = \int {dE_ot/ddens}(r) * dens(r) dr
+        #              = \sum_i {dE_ot/ddens}_i * dens_i * weight_i
         dexc_ddens *= dens
         dexc_ddens *= weight
         E_ot = np.sum (dexc_ddens)
