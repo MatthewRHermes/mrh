@@ -1,4 +1,4 @@
-import re
+import re, os
 
 ctr_re = re.compile ('[0-9]+[spdfgh]')
 lm_qn = {'s': 0, 'p': 1, 'd': 2, 'f': 3, 'g': 4, 'h': 5}
@@ -51,13 +51,12 @@ def contract_ano_basis (mol, contractions):
 def parse_basis_tbl (contr):
     ''' Read OpenMolcas's basis.tbl to get the meaning of strings like MB, VTZP, etc. '''
     splitter = re.compile ('\.|\ ')
-    with open ('basis.tbl', 'r') as f:
+    with open (os.path.join (os.path.dirname (__file__), 'basis.tbl'), 'r') as f:
         for line in f:
             if not 'ANO-RCC' in line:
                 continue
             cols = splitter.split (line)
             if cols[0] in contr and cols[1] == 'ANO-RCC-' + contr[cols[0]].upper ():
-                print (cols[-2])
                 contr[cols[0]] = cols[-2]
     return contr
                 
