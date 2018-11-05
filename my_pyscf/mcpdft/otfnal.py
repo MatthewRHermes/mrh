@@ -1,4 +1,5 @@
 import numpy as np
+from pyscf.lib import logger
 from mrh.util import params
 
 class otfnal:
@@ -33,6 +34,10 @@ class transfnal (otfnal):
         super().__init__(ks.mol, **kwargs)
         self.ks = ks
         self.xc_deriv = ['LDA', 'GGA', 'MGGA'].index (self.ks._numint._xc_type (self.ks.xc))
+        self.verbose = ks.verbose
+        self.stdout = ks.stdout
+        self.otxc = 't' + self.ks.xc
+        logger.info (self, 'Building %s functional', self.otxc)
 
     def get_E_ot (self, rho, Pi, weight):
         r''' E_ot[rho, Pi] = V_xc[rho_translated] 

@@ -1,14 +1,17 @@
 import numpy as np
+import time
+from pyscf.lib import logger, numpy_helper
 from mrh.util.rdm import get_2CDM_from_2RDM
 from itertools import product
 
 
 
-def get_ontop_pair_density (rho, ao, twoCDM_amo, ao2amo, deriv=0):
+def get_ontop_pair_density (ot, rho, ao, twoCDM_amo, ao2amo, deriv=0):
     r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*g_ijkl / 2
                = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2
 
         Args:
+            ot : on-top pair density functional object
             rho : ndarray of shape (2,*,ngrids) 
                 contains spin density [and derivatives] 
             ao : ndarray of shape (*, ngrids, nao)
@@ -43,13 +46,20 @@ def get_ontop_pair_density (rho, ao, twoCDM_amo, ao2amo, deriv=0):
                        + rho[0,0] * rho[1,ideriv])
 
     # Second cumulant and derivatives (chain rule! product rule!)
-    grid2amo = np.einsum ('ijk,kl->ijl', ao, ao2amo)
-    Pi[0] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[0], grid2amo[0], grid2amo[0]) / 2
+    # np.multiply, np.sum, and np.tensordot are linked against compiled libraries with multithreading, but np.einsum is not
+    # Therefore I abandon the use of np.einsum
+    # ijkl, ai, aj, ak, al -> a
+    t0 = (time.clock (), time.time ())
+    grid2amo = np.tensordot (ao, ao2amo, axes=1) #np.einsum ('ijk,kl->ijl', ao, ao2amo)
+    gridkern = grid2amo[0,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]  # 0ai, 0aj -> 0aij
+    wrk = np.tensordot (gridkern, twoCDM_amo, axes=2)                   # 0aij, ijkl -> 0akl
+    Pi[0] += (gridkern * wrk).sum ((1,2)) / 2                           # 0akl, 0akl -> 0a
+    t0 = logger.timer (ot, 'otpd second cumulant value', *t0)
     for ideriv in range(1, deriv):
-        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[ideriv], grid2amo[0], grid2amo[0], grid2amo[0]) / 2
-        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[ideriv], grid2amo[0], grid2amo[0]) / 2
-        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[0], grid2amo[ideriv], grid2amo[0]) / 2
-        Pi[ideriv] += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, grid2amo[0], grid2amo[0], grid2amo[0], grid2amo[ideriv]) / 2
+        # Fourfold tensor symmetry ijkl = klij = jilk = lkji & product rule -> factor of 4
+        gridkern1 = grid2amo[ideriv,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]    # 0ai, 1aj -> 1aij
+        Pi[ideriv] = (gridkern1 * wrk).sum ((1,2)) * 2                              # 1akl, 0akl -> 1a  
+        t0 = logger.timer (ot, 'otpd second cumulant derivative {}'.format (ideriv), *t0)
 
     # Unfix dimensionality of rho, ao, and Pi
     if Pi.shape[0] == 1:
