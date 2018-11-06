@@ -1,3 +1,5 @@
+import sys
+sys.path.append ('../../..')
 from pyscf import gto, mcscf, scf, fci, dft
 from mrh.my_pyscf.mcpdft import mcpdft, otfnal
 

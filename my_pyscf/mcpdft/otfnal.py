@@ -1,5 +1,7 @@
 import numpy as np
+import copy
 from pyscf.lib import logger
+from pyscf.dft.numint import _NumInt
 from mrh.util import params
 
 class otfnal:
@@ -32,12 +34,23 @@ class transfnal (otfnal):
 
     def __init__ (self, ks, **kwargs):
         super().__init__(ks.mol, **kwargs)
-        self.ks = ks
-        self.xc_deriv = ['LDA', 'GGA', 'MGGA'].index (self.ks._numint._xc_type (self.ks.xc))
+        self.otxc = 't' + ks.xc
+        self._numint = copy.copy (ks._numint)
+        self.grids = copy.copy (ks.grids)
         self.verbose = ks.verbose
         self.stdout = ks.stdout
-        self.otxc = 't' + self.ks.xc
+        self._numint.hybrid_coeff = t_hybrid_coeff.__get__(self._numint)
+        self._numint.nlc_coeff = t_nlc_coeff.__get__(self._numint)
+        self._numint.rsh_coeff = t_rsh_coeff.__get__(self._numint)
+        self._numint.eval_xc = t_eval_xc.__get__(self._numint)
+        self._numint._xc_type = t_xc_type.__get__(self._numint)
+        #self._numint.rsh_and_hybrid_coeff = t_rsh_and_hybrid_coeff.__get__(self._numint)
+        #self.xctype = self._numint._xc_type (self.otxc)
+        #self.xc_deriv = ['LDA', 'GGA', 'MGGA'].index (self.xctype)
         logger.info (self, 'Building %s functional', self.otxc)
+        omega, alpha, hyb = self._numint.rsh_and_hybrid_coeff(self.otxc, spin=self.mol.spin)
+        if hyb > 0:
+            logger.info (self, 'Hybrid functional with %s CASSCF exchange', hyb)
 
     def get_E_ot (self, rho, Pi, weight):
         r''' E_ot[rho, Pi] = V_xc[rho_translated] 
@@ -60,7 +73,7 @@ class transfnal (otfnal):
             Pi = np.expand_dims (Pi, 0)
             
         rho_t = self.get_rho_translated (Pi, rho)
-        dexc_ddens = self.ks._numint.eval_xc (self.ks.xc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=0, verbose=self.ks.verbose)[0]
+        dexc_ddens = self._numint.eval_xc (self.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=0, verbose=self.verbose)[0]
         dens = rho_t[0,0,:] + rho_t[1,0,:]
  
         rho = np.squeeze (rho)
@@ -231,4 +244,54 @@ class ftransfnal (transfnal):
 
 
 
+__t_doc__ = "For 'translated' functionals, otxc string = 't' + xc string\n"
+__ft_doc__ = "For 'fully translated' functionals, otxc string = 'ft' + xc string\n"
+
+def t_hybrid_coeff(ni, xc_code, spin=0):
+    return _NumInt.hybrid_coeff(ni, xc_code[1:], spin=0)
+t_hybrid_coeff.__doc__ = __t_doc__ + str(_NumInt.hybrid_coeff.__doc__)
+
+def t_nlc_coeff(ni, xc_code):
+    return _NumInt.nlc_coeff(ni, xc_code[1:])
+t_nlc_coeff.__doc__ = __t_doc__ + str(_NumInt.nlc_coeff.__doc__)
+
+def t_rsh_coeff(ni, xc_code):
+    return _NumInt.rsh_coeff(ni, xc_code[1:])
+t_rsh_coeff.__doc__ = __t_doc__ + str(_NumInt.rsh_coeff.__doc__)
+
+def t_eval_xc(ni, xc_code, rho, spin=0, relativity=0, deriv=1, verbose=None):
+    return _NumInt.eval_xc(ni, xc_code[1:], rho, spin=spin, relativity=relativity, deriv=deriv, verbose=verbose)
+t_eval_xc.__doc__ = __t_doc__ + str(_NumInt.eval_xc.__doc__)
+
+def t_xc_type(ni, xc_code):
+    return _NumInt._xc_type(ni, xc_code[1:])
+t_xc_type.__doc__ = __t_doc__ + str(_NumInt._xc_type.__doc__)
+
+def t_rsh_and_hybrid_coeff(ni, xc_code, spin=0):
+    return _NumInt.rsh_and_hybrid_coeff (ni, xc_code[1:], spin=spin)
+t_rsh_and_hybrid_coeff.__doc__ = __t_doc__ + str(_NumInt.rsh_and_hybrid_coeff.__doc__)
+
+def ft_hybrid_coeff(ni, xc_code, spin=0):
+    return _NumInt.hybrid_coeff(ni, xc_code[2:], spin=0)
+ft_hybrid_coeff.__doc__ = __ft_doc__ + str(_NumInt.hybrid_coeff.__doc__)
+
+def ft_nlc_coeff(ni, xc_code):
+    return _NumInt.nlc_coeff(ni, xc_code[2:])
+ft_nlc_coeff.__doc__ = __ft_doc__ + str(_NumInt.nlc_coeff.__doc__)
+
+def ft_rsh_coeff(ni, xc_code):
+    return _NumInt.rsh_coeff(ni, xc_code[2:])
+ft_rsh_coeff.__doc__ = __ft_doc__ + str(_NumInt.rsh_coeff.__doc__)
+
+def ft_eval_xc(ni, xc_code, rho, spin=0, relativity=0, deriv=1, verbose=None):
+    return _NumInt.eval_xc(ni, xc_code[2:], rho, spin=spin, relativity=relativity, deriv=deriv, verbose=verbose)
+ft_eval_xc.__doc__ = __ft_doc__ + str(_NumInt.eval_xc.__doc__)
+
+def ft_xc_type(ni, xc_code):
+    return _NumInt._xc_type(ni, xc_code[2:])
+ft_xc_type.__doc__ = __ft_doc__ + str(_NumInt._xc_type.__doc__)
+
+def ft_rsh_and_hybrid_coeff(ni, xc_code, spin=0):
+    return _NumInt.rsh_and_hybrid_coeff (ni, xc_code[2:], spin=spin)
+ft_rsh_and_hybrid_coeff.__doc__ = __ft_doc__ + str(_NumInt.rsh_and_hybrid_coeff.__doc__)
 

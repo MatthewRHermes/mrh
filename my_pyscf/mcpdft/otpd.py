@@ -51,15 +51,15 @@ def get_ontop_pair_density (ot, rho, ao, twoCDM_amo, ao2amo, deriv=0):
     # ijkl, ai, aj, ak, al -> a
     t0 = (time.clock (), time.time ())
     grid2amo = np.tensordot (ao, ao2amo, axes=1) #np.einsum ('ijk,kl->ijl', ao, ao2amo)
-    gridkern = grid2amo[0,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]  # 0ai, 0aj -> 0aij
-    wrk = np.tensordot (gridkern, twoCDM_amo, axes=2)                   # 0aij, ijkl -> 0akl
-    Pi[0] += (gridkern * wrk).sum ((1,2)) / 2                           # 0akl, 0akl -> 0a
-    t0 = logger.timer (ot, 'otpd second cumulant value', *t0)
+    gridkern0 = grid2amo[0,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]  # r_0ai,  r_0aj  -> r_0aij
+    wrk0 = np.tensordot (gridkern0, twoCDM_amo, axes=2)                   # r_0aij, P_ijkl -> P_0akl
+    Pi[0] += (gridkern0 * wrk0).sum ((1,2)) / 2                          # r_0aij, P_0aij -> P_0a
+    t0 = logger.timer (ot, 'otpd second cumulant 0th derivative', *t0)
     for ideriv in range(1, deriv):
         # Fourfold tensor symmetry ijkl = klij = jilk = lkji & product rule -> factor of 4
-        gridkern1 = grid2amo[ideriv,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]    # 0ai, 1aj -> 1aij
-        Pi[ideriv] = (gridkern1 * wrk).sum ((1,2)) * 2                              # 1akl, 0akl -> 1a  
-        t0 = logger.timer (ot, 'otpd second cumulant derivative {}'.format (ideriv), *t0)
+        gridkern1 = grid2amo[ideriv,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]    # r_0ai,  r_1aj  -> r_1aij
+        Pi[ideriv] = (gridkern1 * wrk0).sum ((1,2)) * 2                             # r_1aij, P_0aij -> P_1a  
+        t0 = logger.timer (ot, 'otpd second cumulant 1st derivative ({})'.format (ideriv), *t0)
 
     # Unfix dimensionality of rho, ao, and Pi
     if Pi.shape[0] == 1:
