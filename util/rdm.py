@@ -179,6 +179,24 @@ def get_2CDM_from_2RDM (twoRDM, oneRDMs):
     twoCDM += np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (0, 3, 2, 1)
     return twoCDM
 
+def get_2CDMs_from_2RDMs (twoRDM, oneRDMs):
+    ''' PySCF stores spin-separated twoRDMs as (aa, ab, bb) '''
+    oneRDMs = np.asarray (oneRDMs)
+    if len (oneRDMs.shape) < 3:
+        warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
+        oneRDM = oneRDMs.copy ()
+        oneRDMs /= 2
+        oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)
+    #twoCDM  = twoRDM - np.einsum ('pq,rs->pqrs', oneRDM, oneRDM)
+    #twoCDM +=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
+    twoCDM = [i.copy () for i in twoRDM]
+    twoCDM[0] -= np.multiply.outer (oneRDMs[0], oneRDMs[0])
+    twoCDM[1] -= np.multiply.outer (oneRDMs[0], oneRDMs[1]) 
+    twoCDM[2] -= np.multiply.outer (oneRDMs[1], oneRDMs[1])
+    twoCDM[0] += np.multiply.outer (oneRDMs[0], oneRDMs[0]).transpose (0, 3, 2, 1)
+    twoCDM[2] += np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (0, 3, 2, 1)
+    return tuple (twoCDM)
+
 def get_2RDM_from_2CDM (twoCDM, oneRDMs):
     oneRDMs = np.asarray (oneRDMs)
     if len (oneRDMs.shape) < 3:
@@ -195,6 +213,26 @@ def get_2RDM_from_2CDM (twoCDM, oneRDMs):
     twoRDM -= np.multiply.outer (oneRDMs[0], oneRDMs[0]).transpose (0, 3, 2, 1)
     twoRDM -= np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (0, 3, 2, 1)
     return twoRDM
+
+def get_2RDMs_from_2CDMs (twoCDM, oneRDMs):
+    ''' PySCF stores spin-separated twoRDMs as (aa, ab, bb) '''
+    oneRDMs = np.asarray (oneRDMs)
+    if len (oneRDMs.shape) < 3:
+        warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
+        oneRDM = oneRDMs.copy ()
+        oneRDMs /= 2
+        oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)
+    #twoCDM  = twoRDM - np.einsum ('pq,rs->pqrs', oneRDM, oneRDM)
+    #twoCDM +=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
+    twoRDM = [i.copy () for i in twoCDM]
+    twoRDM[0] += np.multiply.outer (oneRDMs[0], oneRDMs[0])
+    twoRDM[1] += np.multiply.outer (oneRDMs[0], oneRDMs[1])
+    twoRDM[2] += np.multiply.outer (oneRDMs[1], oneRDMs[1])
+    twoRDM[0] -= np.multiply.outer (oneRDMs[0], oneRDMs[0]).transpose (0, 3, 2, 1)
+    twoRDM[2] -= np.multiply.outer (oneRDMs[1], oneRDMs[1]).transpose (0, 3, 2, 1)
+    return tuple (twoRDM)
+
+
 
 def S2_exptval (oneDM, twoDM, Nelec=None, cumulant=False):
     ''' Evaluate S^2 expectation value from spin-summed one- and two-body density matrices.
