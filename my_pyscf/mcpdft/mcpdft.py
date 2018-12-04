@@ -1,5 +1,6 @@
 import numpy as np
 import time
+from scipy import linalg
 from pyscf import dft, ao2mo, fci, mcscf
 from pyscf.lib import logger
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
@@ -127,6 +128,11 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, xc_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
+        if ot.verbose > logger.DEBUG and xc_deriv > 0:
+            for ideriv in range (1,4):
+                rho_test  = np.einsum ('ijk,aj,ak->ia', oneCDMs, ao[ideriv], ao[0])
+                rho_test += np.einsum ('ijk,ak,aj->ia', oneCDMs, ao[ideriv], ao[0])
+                logger.debug (ot, "Spin-density derivatives, |PySCF-einsum| = %s", linalg.norm (rho[:,ideriv,:]-rho_test))
         t0 = logger.timer (ot, 'untransformed density', *t0)
         Pi = get_ontop_pair_density (ot, rho, ao, twoCDM_amo, ao2amo, xc_deriv) 
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0) 

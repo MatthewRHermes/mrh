@@ -81,9 +81,9 @@ class transfnal (otfnal):
 
         # E_ot[rho,Pi] = \int {dE_ot/ddens}(r) * dens(r) dr
         #              = \sum_i {dE_ot/ddens}_i * dens_i * weight_i
-        dexc_ddens *= dens
-        dexc_ddens *= weight
-        E_ot = np.sum (dexc_ddens)
+        dens *= weight
+        E_ot = np.sum (dexc_ddens * dens)
+        logger.debug (self, 'Total number of electrons in (this chunk of) the translated density = %s', np.sum (dens))
 
         return E_ot
 
@@ -91,14 +91,15 @@ class transfnal (otfnal):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
             An intermediate quantity when computing the translated spin densities
 
-            Note this function returns 1.0 for every point where the charge density is close to zero (i.e., convention: 0/0 = 1)
+            Note this function returns 1 for values and 0 for derivatives for every point where the charge density is close to zero (i.e., convention: 0/0 = 1)
         '''
         assert (Pi.shape == rho_avg.shape)
         nderiv = Pi.shape[0]
         if nderiv > 4:
             raise NotImplementedError("derivatives above order 1")
 
-        R = np.ones_like (Pi)
+        R = np.zeros_like (Pi)  
+        R[0,:] = 1
         idx = rho_avg[0] >= (1e-15 / 2)
         # Chain rule!
         for ideriv in range (nderiv):
@@ -142,10 +143,10 @@ class transfnal (otfnal):
         rho_avg = (rho[0,:,:] + rho[1,:,:]) / 2
         rho_t = rho.copy ()
 
-        R = self.get_ratio (Pi[0:1,:], rho_avg[0:1,:])
+        R = self.get_ratio (Pi[0:nderiv_zeta,:], rho_avg[0:nderiv_zeta,:])
 
         # For nonzero charge & pair density, set alpha dens = beta dens = 1/2 charge dens
-        idx = (Pi[0] >= 1e-15) & (rho_avg[0] >= (1e-15 / 2))
+        idx = (rho_avg[0] >= (1e-15 / 2)) & (Pi[0] >= 1e-15) 
         rho_t[0][:,idx] = rho_t[1][:,idx] = rho_avg[:,idx]
 
         # For 0 <= ratio < 1 and 0 <= rho, correct spin density using on-top density
@@ -166,9 +167,13 @@ class transfnal (otfnal):
             rho_t[1,ideriv,idx] -= w
         # Product rule!
         for ideriv in range (1,nderiv_zeta):
-            w = rho_t[0,idx] * zeta[ideriv]
+            w = rho_avg[0,idx] * zeta[ideriv]
             rho_t[0,ideriv,idx] += w
             rho_t[1,ideriv,idx] -= w
+
+        if self.verbose > logger.DEBUG:
+            logger.debug (self, "R < R0")
+            ft_continuity_debug (self, R[0,idx], rho_t[:,0,idx], zeta, 0.9, 1.15)
     
         return rho_t
 
@@ -179,24 +184,24 @@ class ftransfnal (transfnal):
     '''
 
     def __init__ (self, ks, **kwargs):
-        super().__init__(ks, kwargs)
+        super().__init__(ks, **kwargs)
         self.R0=0.9
         self.R1=1.15
         self.A=-475.60656009
         self.B=-379.47331922 
         self.C=-85.38149682
 
-    def get_rho_translated (self, Pi, rho, Rmax=None, xi_deriv=True):
+    def get_rho_translated (self, Pi, rho, Rmax=None, zeta_deriv=True):
         r''' "full" translation, Carlson et al., JCTC 11, 4077 (2015)
-        rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + xi)
-        rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - xi)
+        rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + zeta)
+        rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - zeta)
     
         where
-        xi = (1-ratio)^(1/2)                                  ; ratio < R0
+        zeta = (1-ratio)^(1/2)                                  ; ratio < R0
            = A*(ratio-R1)^5 + B*(ratio-R1)^4 + C*(ratio-R1)^3 ; R0 <= ratio <= R1
            = 0                                                ; otherwise
     
-        Propagate derivatives thru xi
+        Propagate derivatives thru zeta
     
             Args:
                 Pi : ndarray of shape (*, ngrids)
@@ -214,34 +219,49 @@ class ftransfnal (transfnal):
             raise NotImplementedError("derivatives above order 1")
         R0, R1, A, B, C = self.R0, self.R1, self.A, self.B, self.C
     
-        rho_ft = super().get_rho_translated (Pi, rho, Rmax=R0, xi_deriv=True)
+        rho_ft = super().get_rho_translated (Pi, rho, Rmax=R0, zeta_deriv=True)
     
         rho_avg = (rho[0] + rho[1]) / 2
         R = self.get_ratio (Pi, rho_avg)
     
         idx = np.where (np.logical_and (R[0] >= self.R0, R[0] <= self.R1))[0]
-        R_m_R0 = np.stack ([np.power (R[0,idx] - R0, n) for n in range (2,6)], axis=0)
-        xi = np.empty_like (R[:,idx])
-        xi[0] = (self.A*R_m_R0[5-2] 
-               + self.B*R_m_R0[4-2] 
-               + self.C*R_m_R0[3-2])
+        R_m_R1 = np.stack ([np.power (R[0,idx] - R1, n) for n in range (2,6)], axis=0)
+        zeta = np.empty_like (R[:,idx])
+        zeta[0] = (A*R_m_R1[5-2] + B*R_m_R1[4-2] + C*R_m_R1[3-2])
         # Chain rule!
         for ideriv in range (1, nderiv):
-            xi[ideriv] = R[ideriv,idx] * (5*self.A*R_m_R0[4-2] 
-                                        + 4*self.B*R_m_R0[3-2] 
-                                        + 3*self.C*R_m_R0[2-2])
+            zeta[ideriv] = R[ideriv,idx] * (5*A*R_m_R1[4-2] + 4*B*R_m_R1[3-2] + 3*C*R_m_R1[2-2])
     
+
         # Chain rule!
         for ideriv in range (nderiv):
-            rho_ft[0,ideriv,idx] *= (1 + xi[0])
-            rho_ft[1,ideriv,idx] *= (1 - xi[0])
+            rho_ft[0,ideriv,idx] *= (1 + zeta[0])
+            rho_ft[1,ideriv,idx] *= (1 - zeta[0])
         # Product rule!
         for ideriv in range (1,nderiv):
-            rho_ft[0,ideriv,idx] += rho_ft[0,0,idx] * xi[ideriv]
-            rho_ft[1,ideriv,idx] -= rho_ft[1,0,idx] * xi[ideriv]
+            rho_ft[0,ideriv,idx] += rho_avg[0,idx] * zeta[ideriv]
+            rho_ft[1,ideriv,idx] -= rho_avg[0,idx] * zeta[ideriv]
     
+        if self.verbose > logger.DEBUG:
+            logger.debug (self, "R0 <= R < R1")
+            ft_continuity_debug (self, R[0,idx], rho_ft[:,0,idx], zeta, R0, R1)
+
         return np.squeeze (rho_ft)
 
+def ft_continuity_debug (ot, R, rho, zeta, R0, R1, nrows=50):
+    idx = np.argsort (np.abs (R - R0))
+    logger.debug (ot, "Close to R0 (%s)", R0)
+    logger.debug (ot, "{:19s} {:19s} {:19s} {:19s} {:19s} {:19s} {:19s}".format ("R", "rho_a", "rho_b", "zeta", "zeta_x", "zeta_y", "zeta_z"))
+    for irow in idx[:nrows]:
+        debugstr = "{:19.12e} {:19.12e} {:19.12e} {:19.12e} {:19.12e} {:19.12e} {:19.12e}".format (R[irow], *rho[:,irow], *zeta[:,irow]) 
+        logger.debug (ot, debugstr)
+    idx = np.argsort (np.abs (R - R1))
+    logger.debug (ot, "Close to R1 (%s)", R1)
+    logger.debug (ot, "{:19s} {:19s} {:19s} {:19s} {:19s} {:19s} {:19s}".format ("R", "rho_a", "rho_b", "zeta", "zeta_x", "zeta_y", "zeta_z"))
+    for irow in idx[:nrows]:
+        debugstr = "{:19.12e} {:19.12e} {:19.12e} {:19.12e} {:19.12e} {:19.12e} {:19.12e}".format (R[irow], *rho[:,irow], *zeta[:,irow]) 
+        logger.debug (ot, debugstr)
+    
 
 
 __t_doc__ = "For 'translated' functionals, otxc string = 't' + xc string\n"
