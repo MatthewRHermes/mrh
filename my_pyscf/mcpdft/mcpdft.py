@@ -117,26 +117,25 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
             The MC-PDFT on-top exchange-correlation energy
 
     '''
-    ni = ot._numint
-    xctype = ni._xc_type (ot.otxc)
-    xc_deriv = ['LDA', 'GGA', 'MGGA'].index (xctype)
+    ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
     norbs_ao = ao2amo.shape[0]
 
     E_ot = 0.0
 
     t0 = (time.clock (), time.time ())
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
-    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, xc_deriv, max_memory):
+    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
-        if ot.verbose > logger.DEBUG and xc_deriv > 0:
+        if ot.verbose > logger.DEBUG and dens_deriv > 0:
             for ideriv in range (1,4):
                 rho_test  = np.einsum ('ijk,aj,ak->ia', oneCDMs, ao[ideriv], ao[0])
                 rho_test += np.einsum ('ijk,ak,aj->ia', oneCDMs, ao[ideriv], ao[0])
                 logger.debug (ot, "Spin-density derivatives, |PySCF-einsum| = %s", linalg.norm (rho[:,ideriv,:]-rho_test))
         t0 = logger.timer (ot, 'untransformed density', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, twoCDM_amo, ao2amo, xc_deriv) 
+        Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, dens_deriv) 
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0) 
         E_ot += ot.get_E_ot (rho, Pi, weight)
+        t0 = logger.timer (ot, 'on-top exchange-correlation energy calculation', *t0) 
 
     return E_ot
     

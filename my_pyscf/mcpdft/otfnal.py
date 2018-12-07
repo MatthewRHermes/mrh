@@ -1,13 +1,44 @@
 import numpy as np
 import copy
 from pyscf.lib import logger
-from pyscf.dft.numint import _NumInt
+from pyscf.dft.gen_grid import Grids
+from pyscf.dft.numint import _NumInt, NumInt
 from mrh.util import params
 
 class otfnal:
+    r''' Needs:
+        mol: object of class pyscf.gto.mole
+        grids: object of class pyscf.dft.gen_grid.Grids
+        get_E_ot: function with calling signature shown below
+        _numint: object of class pyscf.dft.NumInt
+            member functions "hybrid_coeff", "nlc_coeff, "rsh_coeff", and "_xc_type" (at least)
+            must be overloaded; see below
+        verbose: integer
+            for PySCF's logger system
+        stdout: record
+            for PySCF's logger system
+        otxc: string
+            name of on-top pair-density exchange-correlation functional
+    '''
 
     def __init__ (self, mol, **kwargs):
         self.mol = mol
+        self.verbose = mol.verbose
+        self.stdout = mol.stdout    
+
+    def _init_info (self):
+        logger.info (self, 'Building %s functional', self.otxc)
+        omega, alpha, hyb = self._numint.rsh_and_hybrid_coeff(self.otxc, spin=self.mol.spin)
+        if hyb > 0:
+            logger.info (self, 'Hybrid functional with %s CASSCF exchange', hyb)
+
+    @property
+    def xctype (self):
+        return self._numint._xc_type (self.otxc)
+
+    @property
+    def dens_deriv (self):
+        return ['LDA', 'GGA', 'MGGA'].index (self.xctype)
 
     def get_E_ot (self, rho, Pi, weight):
         r''' get the on-top energy
@@ -33,24 +64,18 @@ class transfnal (otfnal):
     '''
 
     def __init__ (self, ks, **kwargs):
-        super().__init__(ks.mol, **kwargs)
+        otfnal.__init__(self, ks.mol, **kwargs)
         self.otxc = 't' + ks.xc
         self._numint = copy.copy (ks._numint)
         self.grids = copy.copy (ks.grids)
-        self.verbose = ks.verbose
-        self.stdout = ks.stdout
         self._numint.hybrid_coeff = t_hybrid_coeff.__get__(self._numint)
         self._numint.nlc_coeff = t_nlc_coeff.__get__(self._numint)
         self._numint.rsh_coeff = t_rsh_coeff.__get__(self._numint)
         self._numint.eval_xc = t_eval_xc.__get__(self._numint)
         self._numint._xc_type = t_xc_type.__get__(self._numint)
-        #self._numint.rsh_and_hybrid_coeff = t_rsh_and_hybrid_coeff.__get__(self._numint)
-        #self.xctype = self._numint._xc_type (self.otxc)
-        #self.xc_deriv = ['LDA', 'GGA', 'MGGA'].index (self.xctype)
-        logger.info (self, 'Building %s functional', self.otxc)
-        omega, alpha, hyb = self._numint.rsh_and_hybrid_coeff(self.otxc, spin=self.mol.spin)
-        if hyb > 0:
-            logger.info (self, 'Hybrid functional with %s CASSCF exchange', hyb)
+        self._init_info ()
+
+
 
     def get_E_ot (self, rho, Pi, weight):
         r''' E_ot[rho, Pi] = V_xc[rho_translated] 
@@ -171,25 +196,35 @@ class transfnal (otfnal):
             rho_t[0,ideriv,idx] += w
             rho_t[1,ideriv,idx] -= w
 
-        if self.verbose > logger.DEBUG:
-            logger.debug (self, "R < R0")
-            ft_continuity_debug (self, R[0,idx], rho_t[:,0,idx], zeta, 0.9, 1.15)
     
         return rho_t
 
-
+_FT_R0_DEFAULT=0.9
+_FT_R1_DEFAULT=1.15
+_FT_A_DEFAULT=-475.60656009
+_FT_B_DEFAULT=-379.47331922 
+_FT_C_DEFAULT=-85.38149682
 
 class ftransfnal (transfnal):
     r''' "fully translated functional" of Carlson et al., JCTC 11, 4077 (2015)
     '''
 
     def __init__ (self, ks, **kwargs):
-        super().__init__(ks, **kwargs)
-        self.R0=0.9
-        self.R1=1.15
-        self.A=-475.60656009
-        self.B=-379.47331922 
-        self.C=-85.38149682
+        otfnal.__init__(self, ks.mol, **kwargs)
+        self.R0=_FT_R0_DEFAULT
+        self.R1=_FT_R1_DEFAULT
+        self.A=_FT_A_DEFAULT
+        self.B=_FT_B_DEFAULT
+        self.C=_FT_C_DEFAULT
+        self.otxc = 'ft' + ks.xc
+        self._numint = copy.copy (ks._numint)
+        self.grids = copy.copy (ks.grids)
+        self._numint.hybrid_coeff = ft_hybrid_coeff.__get__(self._numint)
+        self._numint.nlc_coeff = ft_nlc_coeff.__get__(self._numint)
+        self._numint.rsh_coeff = ft_rsh_coeff.__get__(self._numint)
+        self._numint.eval_xc = ft_eval_xc.__get__(self._numint)
+        self._numint._xc_type = ft_xc_type.__get__(self._numint)
+        self._init_info ()
 
     def get_rho_translated (self, Pi, rho, Rmax=None, zeta_deriv=True):
         r''' "full" translation, Carlson et al., JCTC 11, 4077 (2015)
@@ -220,11 +255,10 @@ class ftransfnal (transfnal):
         R0, R1, A, B, C = self.R0, self.R1, self.A, self.B, self.C
     
         rho_ft = super().get_rho_translated (Pi, rho, Rmax=R0, zeta_deriv=True)
-    
         rho_avg = (rho[0] + rho[1]) / 2
         R = self.get_ratio (Pi, rho_avg)
     
-        idx = np.where (np.logical_and (R[0] >= self.R0, R[0] <= self.R1))[0]
+        idx = np.where (np.logical_and (R[0] >= R0, R[0] <= R1))[0]
         R_m_R1 = np.stack ([np.power (R[0,idx] - R1, n) for n in range (2,6)], axis=0)
         zeta = np.empty_like (R[:,idx])
         zeta[0] = (A*R_m_R1[5-2] + B*R_m_R1[4-2] + C*R_m_R1[3-2])
@@ -242,13 +276,60 @@ class ftransfnal (transfnal):
             rho_ft[0,ideriv,idx] += rho_avg[0,idx] * zeta[ideriv]
             rho_ft[1,ideriv,idx] -= rho_avg[0,idx] * zeta[ideriv]
     
-        if self.verbose > logger.DEBUG:
-            logger.debug (self, "R0 <= R < R1")
-            ft_continuity_debug (self, R[0,idx], rho_ft[:,0,idx], zeta, R0, R1)
-
         return np.squeeze (rho_ft)
 
+_CS_a_DEFAULT = 0.04918
+_CS_b_DEFAULT = 0.132
+_CS_c_DEFAULT = 0.2533
+_CS_d_DEFAULT = 0.349
+
+class colle_salvetti_corr (otfnal):
+
+
+    def __init__(self, mol, **kwargs):
+        super().__init__(mol, **kwargs)
+        self.otxc = 'Colle_Salvetti'
+        self._numint = NumInt ()
+        self.grids = Grids (mol)
+        self._numint.hybrid_coeff = lambda * args : 0
+        self._numint.nlc_coeff = lambda * args : [0, 0]
+        self._numint.rsh_coeff = lambda * args : [0, 0, 0]
+        self._numint._xc_type = lambda * args : 'MGGA'
+        self.CS_a =_CS_a_DEFAULT
+        self.CS_b =_CS_b_DEFAULT
+        self.CS_c =_CS_c_DEFAULT
+        self.CS_d =_CS_d_DEFAULT 
+        self._init_info ()
+
+    def get_E_ot (self, rho, Pi, weight):
+        r''' Colle & Salvetti, Theor. Chim. Acta 37, 329 (1975)
+        see also Lee, Yang, Parr, Phys. Rev. B 37, 785 (1988) [Eq. (3)]'''
+
+        a, b, c, d = self.CS_a, self.CS_b, self.CS_c, self.CS_d
+        rho_tot = rho[0,0] + rho[1,0]
+        idx = rho_tot > 1e-15
+
+        num  = -c * np.power (rho_tot[idx], -1/3)
+        num  = np.exp (num, num)
+        num *= Pi[4,idx]
+        num *= b * np.power (rho_tot[idx], -8/3)
+        num += 1
+
+        denom  = d * np.power (rho_tot[idx], -1/3)
+        denom += 1
+
+        num /= denom
+        num *= Pi[0,idx]
+        num /= rho_tot[idx]
+        num *= weight[idx]
+
+        E_ot  = np.sum (num)
+        E_ot *= -4 * a
+        return E_ot      
+                
+
 def ft_continuity_debug (ot, R, rho, zeta, R0, R1, nrows=50):
+    r''' Not working - I need to rethink this '''
     idx = np.argsort (np.abs (R - R0))
     logger.debug (ot, "Close to R0 (%s)", R0)
     logger.debug (ot, "{:19s} {:19s} {:19s} {:19s} {:19s} {:19s} {:19s}".format ("R", "rho_a", "rho_b", "zeta", "zeta_x", "zeta_y", "zeta_z"))
