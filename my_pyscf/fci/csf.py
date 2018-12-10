@@ -26,11 +26,11 @@ class FCISolver (direct_spin1.FCISolver):
         if self.csd_mask_cache != [norb, neleca, nelecb] or self.csd_mask is None:
             self.csd_mask = make_csd_mask (norb, neleca, nelecb)
             self.csd_mask_cache = [norb, neleca, nelecb]
-        hdiag_csf = transform_civec_det2csf (hdiag, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)[0]
+        hdiag_csf = transform_civec_det2csf (hdiag, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask, do_normalize=False)[0]
         ncsf = count_all_csfs (norb, neleca, nelecb, self.smult)
         assert (ncsf >= nroots), "Can't find {} roots among only {} CSFs".format (nroots, ncsfs)
         ci_csf = _get_init_guess (ncsf, 1, nroots, hdiag_csf)
-        ci = [transform_civec_csf2det (c, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)[0].ravel () for c in ci_csf]
+        ci = transform_civec_csf2det (ci_csf, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)[0]
         return ci
 
     def kernel(self, h1e, eri, norb, nelec, ci0=None, smult=None,
@@ -69,8 +69,7 @@ class FCISolver (direct_spin1.FCISolver):
             self.converged = True
             op_csf = transform_opmat_det2csf (op, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)
             e, ci = scipy.linalg.eigh (op_csf)
-            ci = np.stack ([transform_civec_csf2det (ci[:,i], norb, neleca, nelecb,
-                self.smult, csd_mask=self.csd_mask)[0].ravel () for i in range (ci.shape[-1])], axis=-1)
+            ci = transform_civec_csf2det (ci, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask, vec_on_cols=True)[0]
             return e, ci
         return super().eig (op, x0, precond, **kwargs)
 

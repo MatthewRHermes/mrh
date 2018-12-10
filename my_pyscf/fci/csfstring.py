@@ -52,61 +52,142 @@ def project_civec_csf (detarr, norb, neleca, nelecb, smult, csd_mask=None):
     '''
     return detarr / detnorm, detnorm
 
-def transform_civec_det2csf (detarr, norb, neleca, nelecb, smult, csd_mask=None):
+def transform_civec_det2csf (detarr, norb, neleca, nelecb, smult, csd_mask=None, vec_on_cols=False, do_normalize=True):
     ''' Express CI vector in terms of CSFs for spin s
 
     Args
-    detarr: ndarray of shape 
+    detarr: ndarray of size = ndet, or list, tuple, or kD-ndarray (k>1) of size ndet * nvec
         ndet = (norb choose neleca) * (norb choose nelecb)
     norb, neleca, nelecb, smult: ints
 
+    Kwargs
+    csd_mask: ndarray of shape (ndet,), ints
+        Index mask array for reordering determinant pairs in csd order
+    vec_on_cols: bool
+        If true, multiple CI vectors are considered to be on the last dimension, not the first
+        (i.e., an eigenvector matrix) (requires 2d ndarray for detarr)
+    do_normalize: bool
+        If false, do NOT normalize the vector (i.e., if it is a matrix-vector product
+
     Returns
-    csfarr: contiguous ndarray of shape (ncsf) or (ncsf, ncsf) where ncsf < ndet
-        Normalized CI vector in terms of CSFs
-    csfnorm: float
+    csfarr: same data type as detarr
+        Normalized CI vector in terms of CSFs, with zero-norm vectors dropped
+    csfnorm: ndarray of (maximum) length nvec, floats
     '''
  
     ndeta = special.comb (norb, neleca, exact=True)
     ndetb = special.comb (norb, nelecb, exact=True)
     ndet = ndeta*ndetb
-    assert (detarr.shape == tuple((ndeta,ndetb)) or detarr.shape == tuple((ndet,)))
-    detarr = np.ravel (detarr, order='C')
-        
-    csfarr = _transform_detcsf_vec_or_mat (detarr, norb, neleca, nelecb, smult, reverse=False, op_matrix=False, csd_mask=csd_mask, project=False)
-    try:
-        csfnorm = linalg.norm (csfarr)
-    except Exception as ex:
-        if csfarr.shape == (0,):
-            return np.zeros (0, dtype=detarr.dtype), 0
-        assert (csfarr.shape == tuple((1,))), "{} {}".format (csfarr.shape, ex)
-        csfnorm = csfarr[0];
-    '''
-    if np.isclose (csfnorm, 0):
-        raise RuntimeWarning (('CI vector projected into CSF space (norb, na, nb, s = {}, {}, {}, {})'
-            ' has zero norm; did you project onto a different spin before?').format (norb, neleca, nelecb, (smult-1)/2))
-    '''
-    return csfarr / csfnorm, csfnorm
+    is_list = isinstance (detarr, list)
+    is_tuple = isinstance (detarr, tuple)
+    if is_list or is_tuple:
+        is_flat = False
+        nvec = len (detarr)
+        detarr = np.ascontiguousarray (detarr)
+    else:
+        assert (detarr.size % ndet == 0), 'Impossible CI vector size {0} for system with {1} determinants'.format (detarr.size, ndet)
+        nvec = detarr.size // ndet
+        is_flat = len (detarr.shape) == 1
+        if vec_on_cols:
+            detarr = detarr.reshape (ndet, nvec)
+            detarr = np.ascontiguousarray (detarr.T)
+        else:
+            detarr = np.ascontiguousarray (detarr.reshape (nvec, ndet))
+     
 
-def transform_civec_csf2det (csfarr, norb, neleca, nelecb, smult, csd_mask=None):
+    # Driver needs an ndarray of explicit shape (*, ndet)        
+    csfarr = _transform_detcsf_vec_or_mat (detarr, norb, neleca, nelecb, smult, reverse=False, op_matrix=False, csd_mask=csd_mask, project=False)
+    if csfarr.size == 0:
+        return np.zeros (0, dtype=detarr.dtype), 0.0
+
+    # Manipulate csfarr back into the original shape
+    csfnorm = linalg.norm (csfarr, axis=1)
+    idx_norm = ~np.isclose (csfnorm, 0)
+    if do_normalize:
+        csfarr = csfarr[idx_norm,:] / csfnorm[idx_norm,np.newaxis]
+    if vec_on_cols:
+        csfarr = csfarr.T
+    csfarr = np.ascontiguousarray (csfarr)
+    if is_flat:
+        csfarr = csfarr.ravel ()
+    elif is_list:
+        csfarr = list (csfarr)
+    elif is_tuple:
+        csfarr = tuple (csfarr)
+
+    if csfnorm.size == 1:
+        csfnorm = csfnorm[0]
+    elif csfnorm.size == 0:
+        csfnorm = 0.0
+    return csfarr, csfnorm
+
+def transform_civec_csf2det (csfarr, norb, neleca, nelecb, smult, csd_mask=None, vec_on_cols=False, do_normalize=True):
     ''' Transform CI vector in terms of CSFs back into determinants
 
     Args
-    csfarr: ndarray of shape (ncsf) or (ncsf, ncsf)
+    csfarr: ndarray of size = ncsf, or list, tuple, or kD-ndarray (k>1) of size ncsf * nvec
     norb, neleca, nelecb, smult: ints
 
+    Kwargs
+    csd_mask: ndarray of shape (ndet,), ints
+        Index mask array for reordering determinant pairs in csd order
+    vec_on_cols: bool
+        If true, multiple CI vectors are considered to be on the last dimension, not the first
+        (i.e., an eigenvector matrix) (requires 2d ndarray for detarr)
+    do_normalize: bool
+        If false, do NOT normalize the vector (i.e., if it is a matrix-vector product
+        
+
     Returns
-    detarr: contiguous ndarray of shape (ndeta,ndetb)
-        Normalized CI vector in terms of determinants
-    detnorm: float
+    detarr: same data type as csfarr. Last dimension is of length ndeta*ndetb
+        Normalized CI vector in terms of CSFs, with zero-norm vectors dropped
+    detnorm: ndarray of (maximum) length nvec, floats
     '''
+    if np.asarray (csfarr).size == 0:
+        return np.zeros (0, dtype=detarr.dtype), 0.0
 
     ndeta = special.comb (norb, neleca, exact=True) 
     ndetb = special.comb (norb, nelecb, exact=True)
-    if csfarr.shape == (0,):
-        return np.zeros ((ndeta, ndetb), dtype=csfarr.dtype), 0
+    ndet = ndeta*ndetb
+    ncsf = count_all_csfs (norb, neleca, nelecb, smult)
+    is_list = isinstance (csfarr, list)
+    is_tuple = isinstance (csfarr, tuple)
+    if is_list or is_tuple:
+        is_flat = False
+        nvec = len (csfarr)
+        csfarr = np.ascontiguousarray (csfarr)
+    else:
+        assert (csfarr.size % ncsf == 0), 'Impossible CI vector size {0} for system with {1} CSFs'.format (csfarr.size, ncsf)
+        nvec = csfarr.size // ncsf
+        is_flat = len (csfarr.shape) == 1
+        if vec_on_cols:
+            csfarr = csfarr.reshape (ncsf, nvec)
+            csfarr = np.ascontiguousarray (csfarr.T)
+        else:
+            csfarr = np.ascontiguousarray (csfarr.reshape (nvec, ncsf))
+
     detarr = _transform_detcsf_vec_or_mat (csfarr, norb, neleca, nelecb, smult, reverse=True, op_matrix=False, csd_mask=csd_mask, project=False)
-    detnorm = linalg.norm (detarr)
-    return detarr.reshape (ndeta, ndetb) / detnorm, detnorm
+
+    # Manipulate detarr back into the original shape
+    detnorm = linalg.norm (detarr, axis=1)
+    if do_normalize:
+        detarr = detarr / detnorm[:,np.newaxis]
+    detarr = detarr.reshape (nvec, ndet)
+    if vec_on_cols:
+        detarr = detarr.T
+    detarr = np.ascontiguousarray (detarr)
+    if is_flat:
+        detarr = detarr.ravel ()
+    elif is_list:
+        detarr = list (detarr)
+    elif is_tuple:
+        detarr = tuple (detarr)
+
+    if detnorm.size == 1:
+        detnorm = detnorm[0]
+    elif detnorm.size == 0:
+        detnorm = 0.0
+    return detarr, detnorm
 
 def transform_opmat_det2csf (detarr, norb, neleca, nelecb, smult, csd_mask=None):
     ''' Express operator matrix in terms of CSFs for spin s
@@ -129,7 +210,28 @@ def transform_opmat_det2csf (detarr, norb, neleca, nelecb, smult, csd_mask=None)
     return csfarr
 
 def _transform_detcsf_vec_or_mat (arr, norb, neleca, nelecb, smult, reverse=False, op_matrix=False, csd_mask=None, project=False):
-    ''' Wrapper to manipulate array into correct shape and transform both dimensions if an operator matrix '''
+    ''' Wrapper to manipulate array into correct shape and transform both dimensions if an operator matrix 
+
+    Args
+    arr: ndarray of shape (nrow, ncol)
+        ncol = num determinant pairs (or num csfs if reverse = True
+        nrow = integer divisor of arr.size by ncol
+    norb, neleca, nelecb, smult : ints
+        num orbitals, num alpha electrons, num beta electrons, and 2S+1
+
+    Kwargs
+    reverse: bool
+        if true, transform back into determinants from csfs
+    op_matrix: bool
+        if true, arr is transformed along both dimensions (must be square matrix)
+    csd_mask: ndarray of shape ndeta*ndetb (int)
+        index array for reordering determinant pairs in csd format
+    project: bool
+        if true, arr is projected, rather than transformed
+
+    Returns
+    arr: ndarray of shape (nrow, ncol)
+    '''
 
     ndeta = special.comb (norb, neleca, exact=True) 
     ndetb = special.comb (norb, nelecb, exact=True)
@@ -137,11 +239,10 @@ def _transform_detcsf_vec_or_mat (arr, norb, neleca, nelecb, smult, reverse=Fals
     ncsf_all = count_all_csfs (norb, neleca, nelecb, smult)
 
     ncol = ncsf_all if reverse else ndet_all
+    nrow = arr.size // ncol
     if op_matrix:
-        assert (arr.shape == tuple((ncol, ncol))), "array shape should be ({0}, {0}); is {1}".format (ncol, arr.shape)
-    else:
-        assert (arr.shape == tuple((ncol, ))), "array shape should be ({0},); is {1}".format (ncol, arr.shape)
-        arr = arr[np.newaxis,:]
+        assert (nrow == ncol), "operator matrix must be square"
+    assert (arr.shape == tuple((nrow, ncol))), "array shape should be {0}; is {1}".format ((nrow, ncol), arr.shape)
 
     arr = _transform_det2csf (arr, norb, neleca, nelecb, smult, reverse=reverse, csd_mask=csd_mask, project=project)
     if op_matrix:
@@ -149,13 +250,15 @@ def _transform_detcsf_vec_or_mat (arr, norb, neleca, nelecb, smult, reverse=Fals
         arr = _transform_det2csf (arr, norb, neleca, nelecb, smult, reverse=reverse, csd_mask=csd_mask, project=project)
         arr = numpy_helper.transpose (arr, inplace=True)
 
-    ncol = ndet_all if (reverse or project) else ncsf_all
-    if op_matrix:
-        assert (arr.shape == tuple((ncol, ncol))), "array shape should be ({0}, {0}); is {1}".format (ncol, arr.shape)
+    if arr.size == 0:
+        nrow = 1
+        ncol = 0
     else:
-        assert (arr.shape == tuple((1, ncol))), "array shape should be (1,{0}); is {1}".format (ncol, arr.shape)
-        arr = arr[0,:]
-
+        ncol = ndet_all if (reverse or project) else ncsf_all
+        nrow = arr.size // ncol
+    if op_matrix:
+        assert (nrow == ncol), "operator matrix must be square"
+    assert (arr.shape == tuple((nrow, ncol))), "array shape should be {0}; is {1}".format ((nrow, ncol), arr.shape)
 
     return arr
 
