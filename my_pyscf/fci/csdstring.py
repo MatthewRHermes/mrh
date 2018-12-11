@@ -41,6 +41,22 @@ def make_csd_mask (norb, neleca, nelecb):
     #        time.time () - t_start, mask.nbytes / 1e6, ndeta*ndetb*4 / 1e6))
     return mask
 
+def make_econf_det_mask (norb, neleca, nelecb, csd_mask):
+    ''' Get a mask index to identify the electron configuration (i.e., in csd order) of a given determinant pair address (in determinant-pair order) '''
+    ndeta = int (special.comb (norb, neleca))
+    ndetb = int (special.comb (norb, nelecb))
+    mask = np.empty (ndeta*ndetb, dtype=np.uint32)
+    min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size = get_csdaddrs_shape (norb, neleca, nelecb)
+    npair_conf_size = npair_dconf_size * npair_sconf_size
+    npair_det_size = npair_conf_size * npair_spins_size
+    iconf = 0
+    for npair in range (min_npair, nelecb+1):
+        ipair = npair - min_npair
+        irange = np.arange (iconf, iconf+npair_conf_size[ipair], dtype=np.uint32)
+        iconf += npair_conf_size[ipair]
+        mask[npair_offset[ipair]:][:npair_det_size[ipair]] = np.repeat (irange, npair_spins_size[ipair])
+    return mask[np.argsort (csd_mask)]
+
 def get_nspin_dets (norb, neleca, nelecb, nspin):
     ''' Grab all determinant pair addresses corresponding to nspin unpaired electrons, sorted by spin configuration
         and separated into electron configuration blocks for easy spin-state transformations 

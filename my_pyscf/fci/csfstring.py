@@ -15,6 +15,7 @@ def check_spinstate_norm (detarr, norb, neleca, nelecb, smult, csd_mask=None):
     ''' Calculate the norm of the given CI vector projected onto spin-state smult (= 2S+1) '''
     return transform_civec_det2csf (detarr, norb, neleca, nelecb, smult, csd_mask=csd_mask)[1]
 
+
 def project_civec_csf (detarr, norb, neleca, nelecb, smult, csd_mask=None):
     ''' Project the total spin = s [= (smult-1) / 2] component of a CI vector using CSFs 
 
@@ -357,7 +358,21 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
     '''
     return outarr
 
-
+def make_econf_csf_mask (norb, neleca, nelecb, smult):
+    ''' Make a mask index matching csfs to electron configurations '''
+    
+    min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_csf_size = get_csfvec_shape (norb, neleca, nelecb, smult)
+    ncsf = count_all_csfs (norb, neleca, nelecb, smult)
+    mask = np.empty (ncsf, dtype=np.uint32)
+    npair_conf_size = npair_dconf_size * npair_sconf_size
+    npair_size = npair_conf_size * npair_csf_size
+    iconf = 0
+    for npair in range (min_npair, nelecb+1):
+        ipair = npair - min_npair
+        irange = np.arange (iconf, iconf+npair_conf_size[ipair], dtype=np.uint32)
+        iconf += npair_conf_size[ipair]
+        mask[npair_offset[ipair]:][:npair_size[ipair]] = np.repeat (irange, npair_csf_size[ipair])
+    return mask
     
 def csf_gentable (nspin, smult):
     ''' Example of a genealogical coupling table for 8 spins and s = 1 (triplet), counting from the final state
