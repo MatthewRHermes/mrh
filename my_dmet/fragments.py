@@ -54,6 +54,7 @@ class fragment_object:
         self.target_MS = 0
         self.mol_output = None
         self.filehead = None
+        self.debug_energy = False
         self.imp_maxiter = None # Currently only does anything for casscf solver
 
         # Assign solver function
@@ -367,8 +368,6 @@ class fragment_object:
         active_frags = [frag for frag in all_frags if frag is not self and frag.norbs_as > 0]
         self.twoCDMfroz_tbc = [np.copy (frag.twoCDMimp_amo) for frag in active_frags]
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
-        # Yes, I need the line below, because otherwise I double-count electron correlation!
-        #self.twoCDMfroz = [project_operator_into_subspace (L, np.dot (b.conjugate ().T, self.loc2core)) for L, b in zip (self.twoCDMfroz_tbc, self.loc2tbc)]
 
         self.impham_built = False
 
@@ -443,7 +442,7 @@ class fragment_object:
             self.E_imp, self.E_frag, self.nelec_frag, self.S2_frag))
 
         # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals
-        self.fno_evals, frag2fno = np.linalg.eigh (self.get_oneRDM_frag ())
+        self.fno_evals, frag2fno = sp.linalg.eigh (self.get_oneRDM_frag ())
         self.loc2fno = np.dot (self.loc2frag, frag2fno)
 
         # Testing

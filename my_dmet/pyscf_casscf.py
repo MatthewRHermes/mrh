@@ -22,7 +22,7 @@ author: Hung Pham (email: phamx494@umn.edu)
 '''
 
 import numpy as np
-import scipy
+from scipy import linalg
 from mrh.my_dmet import localintegrals
 import os, time
 import sys
