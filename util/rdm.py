@@ -165,7 +165,7 @@ def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bat
 def get_2CDM_from_2RDM (twoRDM, oneRDMs):
     oneRDMs = np.asarray (oneRDMs)
     if len (oneRDMs.shape) < 3:
-        warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
+        #warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
         oneRDMs = oneRDM / 2
         oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)
@@ -183,7 +183,7 @@ def get_2CDMs_from_2RDMs (twoRDM, oneRDMs):
     ''' PySCF stores spin-separated twoRDMs as (aa, ab, bb) '''
     oneRDMs = np.asarray (oneRDMs)
     if len (oneRDMs.shape) < 3:
-        warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
+        #warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
         oneRDMs = oneRDM / 2
         oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)
@@ -200,7 +200,7 @@ def get_2CDMs_from_2RDMs (twoRDM, oneRDMs):
 def get_2RDM_from_2CDM (twoCDM, oneRDMs):
     oneRDMs = np.asarray (oneRDMs)
     if len (oneRDMs.shape) < 3:
-        warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
+        #warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
         oneRDMs = oneRDM / 2
         oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)
@@ -218,7 +218,7 @@ def get_2RDMs_from_2CDMs (twoCDM, oneRDMs):
     ''' PySCF stores spin-separated twoRDMs as (aa, ab, bb) '''
     oneRDMs = np.asarray (oneRDMs)
     if len (oneRDMs.shape) < 3:
-        warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
+        #warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
         oneRDMs = oneRDM / 2
         oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)

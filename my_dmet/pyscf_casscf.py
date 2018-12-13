@@ -29,9 +29,10 @@ import sys
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo, mcscf, fci
 from pyscf.mcscf.addons import spin_square
+from pyscf.fci.addons import transform_ci_for_orbital_rotation
 from pyscf.tools import molden
 #np.set_printoptions(threshold=np.nan)
-from mrh.util.la import matrix_eigen_control_options
+from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, orthonormalize_a_basis, get_complete_basis, get_complementary_states
 from mrh.util.basis import is_basis_orthonormal, get_overlapping_states, is_basis_orthonormal_and_complete, compute_nelec_in_subspace
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2RDM_from_2CDM
@@ -39,6 +40,7 @@ from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.tensors import symmetrize_tensor
 from mrh.my_pyscf import mcscf as my_mcscf
 from mrh.my_pyscf.scf import hf_as
+from mrh.my_pyscf.fci import csf_solver
 from functools import reduce
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
@@ -99,8 +101,10 @@ def solve (frag, guess_1RDM, chempot_imp):
     if (checkCAS == False):
         CASe = frag.nelec_imp
         CASorb = frag.norbs_imp
-    if (frag.target_MS > frag.target_MS):
+    if (frag.target_MS > frag.target_S):
         CASe = ((CASe + frag.target_S) // 2, (CASe - frag.target_S) // 2)
+    else:
+        CASe = ((CASe + frag.target_MS) // 2, (CASe - frag.target_MS) // 2)
     mc = mcscf.CASSCF(mf, CASorb, CASe)
     norbs_amo = mc.ncas
     norbs_cmo = mc.ncore
@@ -135,13 +139,18 @@ def solve (frag, guess_1RDM, chempot_imp):
         imp2mo = mc.mo_coeff 
         print ("Default impurity active space selection: {}".format (np.arange (norbs_cmo, norbs_occ, 1, dtype=int)))
     if len (frag.imp_cache) != 2 and frag.ci_as is not None:
-        print ("Loading ci guess despite shifted impurity orbitals")
-        ci0 = frag.ci_as
+        loc2amo_guess = np.dot (frag.loc2imp, imp2mo[:,norbs_cmo:norbs_occ])
+        gOc = np.dot (loc2amo_guess.conjugate ().T, frag.ci_as_orb)
+        umat_g, svals, umat_c = matrix_svd_control_options (gOc, sort_vecs=-1, only_nonzero_vals=True)
+        if (svals.size == norbs_amo):
+            print ("Loading ci guess despite shifted impurity orbitals; singular value sum: {}".format (np.sum (svals)))
+            imp2mo[:,norbs_cmo:norbs_occ] = np.dot (imp2mo[:,norbs_cmo:norbs_occ], umat_g)
+            ci0 = transform_ci_for_orbital_rotation (frag.ci_as, CASorb, CASe, umat_c)
+        else:
+            print ("Discarding stored ci guess because orbitals are too different (missing {} nonzero svals)".format (norbs_amo-svals.size))
     t_start = time.time()
-    mc.fcisolver = fci.solver (mf.mol, singlet=False)#(frag.target_S == 0))
-    if frag.target_S is not None: #!= 0:
-        s2_eval = frag.target_S * (frag.target_S + 1)
-        mc.fix_spin_(ss=s2_eval)
+    smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
+    mc.fcisolver = csf_solver (mf.mol, smult)
     mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
     mc.ah_start_tol = 1e-8
     mc.ah_conv_tol = 1e-10
@@ -172,10 +181,6 @@ def solve (frag, guess_1RDM, chempot_imp):
         E_CASSCF = mc.kernel(mc.mo_coeff, mc.ci)[0]
     #assert (mc.converged)
     '''
-    frag.imp_cache = [mc.mo_coeff, mc.ci]
-    frag.ci_as = mc.ci
-    t_end = time.time()
-    print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (frag.impham_CONST + E_CASSCF, spin_square (mc)[1], t_end - t_start))
     
     # Get twoRDM + oneRDM. cs: MC-SCF core, as: MC-SCF active space
     # I'm going to need to keep some representation of the active-space orbitals
@@ -183,6 +188,11 @@ def solve (frag, guess_1RDM, chempot_imp):
     loc2mo = np.dot (frag.loc2imp, imp2mo)
     imp2amo = imp2mo[:,norbs_cmo:norbs_occ]
     loc2amo = loc2mo[:,norbs_cmo:norbs_occ]
+    frag.imp_cache = [mc.mo_coeff, mc.ci]
+    frag.ci_as = mc.ci
+    frag.ci_as_orb = loc2amo.copy ()
+    t_end = time.time()
+    print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (frag.impham_CONST + E_CASSCF, spin_square (mc)[1], t_end - t_start))
 
     # oneRDM
     oneRDM_imp = mc.make_rdm1 ()
