@@ -168,12 +168,10 @@ class localintegrals:
     def loc_rhf_jk_bis( self, DMloc ):
     
         if ( self.ERIinMEM == False ):
-            # FIXME: assumes DMloc_alpha = DMloc_beta!
             DM_ao = represent_operator_in_basis (DMloc, self.ao2loc.T )
             JK_ao = scf.hf.get_veff( self.mol, DM_ao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
             JK_loc = represent_operator_in_basis (JK_ao, self.ao2loc )
         else:
-            # FIXME: assumes DMloc_alpha = DMloc_beta!
             JK_loc = np.einsum( 'ijkl,ij->kl', self.activeERI, DMloc ) - 0.5 * np.einsum( 'ijkl,ik->jl', self.activeERI, DMloc )
         return JK_loc
 

@@ -189,8 +189,10 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # twoCDM
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
-    oneRDMs_amo = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
-    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDMs_amo)
+    # Note that I do _not_ do the *real* cumulant decomposition; I do one assuming oneRDMs_amo_alpha = oneRDMs_amo_beta
+    # This is fine as long as I keep it consistent, since it is only in the orbital gradients for this impurity that
+    # the spin density matters. But it has to stay consistent!
+    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
     twoCDM_imp = represent_operator_in_basis (twoCDM_amo, imp2amo.conjugate ().T)
 
     # General impurity data

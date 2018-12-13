@@ -167,7 +167,7 @@ def get_2CDM_from_2RDM (twoRDM, oneRDMs):
     if len (oneRDMs.shape) < 3:
         warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
-        oneRDMs /= 2
+        oneRDMs = oneRDM / 2
         oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)
     else:
         oneRDM = oneRDMs[0] + oneRDMs[1]
@@ -185,7 +185,7 @@ def get_2CDMs_from_2RDMs (twoRDM, oneRDMs):
     if len (oneRDMs.shape) < 3:
         warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
-        oneRDMs /= 2
+        oneRDMs = oneRDM / 2
         oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)
     #twoCDM  = twoRDM - np.einsum ('pq,rs->pqrs', oneRDM, oneRDM)
     #twoCDM +=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
@@ -202,7 +202,7 @@ def get_2RDM_from_2CDM (twoCDM, oneRDMs):
     if len (oneRDMs.shape) < 3:
         warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
-        oneRDMs /= 2
+        oneRDMs = oneRDM / 2
         oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)
     else:
         oneRDM = oneRDMs[0] + oneRDMs[1]
@@ -220,7 +220,7 @@ def get_2RDMs_from_2CDMs (twoCDM, oneRDMs):
     if len (oneRDMs.shape) < 3:
         warnings.warn ("requires spin-separated 1-RDM - approximating as [1/2 dm, 1/2 dm]", RuntimeWarning)
         oneRDM = oneRDMs.copy ()
-        oneRDMs /= 2
+        oneRDMs = oneRDM / 2
         oneRDMs = np.stack ((oneRDMs, oneRDMs), axis=0)
     #twoCDM  = twoRDM - np.einsum ('pq,rs->pqrs', oneRDM, oneRDM)
     #twoCDM +=    0.5 * np.einsum ('ps,rq->pqrs', oneRDM, oneRDM)
