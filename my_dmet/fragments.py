@@ -557,6 +557,7 @@ class fragment_object:
 
         # E_f = H_fi G_fi + 1/2 V_fiii G_fiii                            + E2_frag_core
         #     = H_fi G_fi + 1/2 V_fijkl (G_fi*G_jk - G_fk*G_ji + L_fijk) + E2_frag_core
+        # FIXME: assumes G_alpha = G_beta!
         #     = (H_fi + 1/2 JK_fi[G]) G_fi + 1/2 V_fiii L_fiii           + E2_frag_core
         #     = (H_fi + JK_fi[1/2 G]) G_fi + 1/2 V_fiii L_fiii           + E2_frag_core
         #     = F[1/2 G]_fi G_fi           + 1/2 V_fiii L_fiii           + E2_frag_core
