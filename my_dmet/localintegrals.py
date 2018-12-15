@@ -120,7 +120,7 @@ class localintegrals:
         self.ERIinMEM       = False
         self.activeERI      = None
         self.idemERI        = None
-        if ( self.norbs_tot <= 125 ):
+        if ( self.norbs_tot <= 150 ):
             self.ERIinMEM   = True
             self.activeERI  = ao2mo.outcore.full_iofree( self.mol, self.ao2loc, compact=False ).reshape(self.norbs_tot, self.norbs_tot, self.norbs_tot, self.norbs_tot)
             self.idemERI    = self.activeERI
