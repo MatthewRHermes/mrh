@@ -128,17 +128,21 @@ class FCISolver (direct_spin1_symm.FCISolver):
         if smult is not None:
             self.smult = smult
         wfnsym = self.guess_wfnsym(norb, nelec, ci0, wfnsym, **kwargs)
-        self.check_mask_cache ()
-        if nroots is not None:
-            ncsf = np.count_nonzero (self.confsym[self.econf_csf_mask] == wfnsym)
-            assert (ncsf >= nroots), "Can't find {} roots among only {} CSFs with symmetry {}\n{}\n{}".format (nroots, ncsf, wfnsym, self.confsym[self.econf_csf_mask], self.econf_csf_mask)
+
         self.wfnsym = wfnsym
         self.orbsym = orbsym
+        self.check_mask_cache ()
+
+        nroots_test = nroots or 1
+        ncsf = np.count_nonzero (self.confsym[self.econf_csf_mask] == wfnsym)
+        assert (ncsf >= nroots_test), "Can't find {} roots among only {} CSFs with symmetry {}\n{}\n{}".format (
+            nroots_test, ncsf, wfnsym, self.confsym[self.econf_csf_mask], self.econf_csf_mask)
         e, c = kernel_ms1(self, h1e, eri, norb, nelec, ci0, None,
                           tol, lindep, max_cycle, max_space,
                           nroots, davidson_only, pspace_size,
                           ecore=ecore, **kwargs)
         self.eci, self.ci = e, c
+
         self.orbsym = orbsym_back
         self.wfnsym = wfnsym_back
         return e, c

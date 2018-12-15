@@ -49,8 +49,10 @@ class localintegrals:
         self.fullEhf    = the_mf.e_tot
         self.fullDMao   = np.dot(np.dot( the_mf.mo_coeff, np.diag( the_mf.mo_occ )), the_mf.mo_coeff.T )
         self.fullJKao   = scf.hf.get_veff( self.mol, self.fullDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
-        self.fullFOCKao = self.mol.intor('cint1e_kin_sph') + self.mol.intor('cint1e_nuc_sph') + self.fullJKao
-        
+        # self.fullFOCKao = self.mol.intor('cint1e_kin_sph') + self.mol.intor('cint1e_nuc_sph') + self.fullJKao
+        # To use x2c, I need to change this.
+        self.fullFOCKao = the_mf.get_hcore () + self.fullJKao
+
         # Active space information
         self._which    = localizationtype
         self.active    = np.zeros( [ self.mol.nao_nr() ], dtype=int )

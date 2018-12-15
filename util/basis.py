@@ -124,10 +124,17 @@ def represent_operator_in_basis_2body (braOket, bra1_basis, ket1_basis, bra2_bas
     cz = np.conj (bra2_basis)
     dz = ket2_basis
 
-    abcd = np.einsum ('abcd,az->zbcd',abcd,az)
-    abcd = np.einsum ('abcd,bz->azcd',abcd,bz)
-    abcd = np.einsum ('abcd,cz->abzd',abcd,cz)
-    abcd = np.einsum ('abcd,dz->abcz',abcd,dz)
+
+    #abcd = np.einsum ('abcd,az->zbcd',abcd,az)
+    #abcd = np.einsum ('abcd,bz->azcd',abcd,bz)
+    #abcd = np.einsum ('abcd,cz->abzd',abcd,cz)
+    #abcd = np.einsum ('abcd,dz->abcz',abcd,dz)
+    # Order matters when doing this with tensordot! It puts the remaining
+    # axes in the order that the tensors are supplied as arguments.
+    abcd = np.tensordot (bz, abcd, axes=(0,1)) # xacd 
+    abcd = np.tensordot (az, abcd, axes=(0,1)) # wxcd
+    abcd = np.tensordot (abcd, cz, axes=(2,0)) # wxdy
+    abcd = np.tensordot (abcd, dz, axes=(2,0)) # wxyz
     return abcd
 
 def project_operator_into_subspace (braOket, ket1_basis = None, bra1_basis = None, ket2_basis = None, bra2_basis = None):
@@ -171,10 +178,16 @@ def project_operator_into_subspace_2body (braOket, bra1_basis, ket1_basis, bra2_
     l2c = np.asmatrix (bra2_basis)
     l2d = np.asmatrix (ket2_basis)
 
-    abcd = np.einsum ('abcd,az->zbcd', abcd, np.asarray (l2a * l2a.H))
-    abcd = np.einsum ('abcd,bz->azcd', abcd, np.asarray (l2b * l2b.H))
-    abcd = np.einsum ('abcd,cz->abzd', abcd, np.asarray (l2c * l2c.H))
-    abcd = np.einsum ('abcd,dz->abcz', abcd, np.asarray (l2d * l2d.H))
+    #abcd = np.einsum ('abcd,az->zbcd', abcd, np.asarray (l2a * l2a.H))
+    #abcd = np.einsum ('abcd,bz->azcd', abcd, np.asarray (l2b * l2b.H))
+    #abcd = np.einsum ('abcd,cz->abzd', abcd, np.asarray (l2c * l2c.H))
+    #abcd = np.einsum ('abcd,dz->abcz', abcd, np.asarray (l2d * l2d.H))
+    # Order matters when doing this with tensordot! It puts the remaining
+    # axes in the order that the tensors are supplied as arguments.
+    abcd = np.tensordot (np.asarray (l2b * l2b.H), abcd, axes=(0,1)) # xacd
+    abcd = np.tensordot (np.asarray (l2a * l2a.H), abcd, axes=(0,1)) # wxcd
+    abcd = np.tensordot (abcd, np.asarray (l2c * l2c.H), axes=(2,0)) # wxdy
+    abcd = np.tensordot (abcd, np.asarray (l2d * l2d.H), axes=(2,0)) # wxyz
     return abcd
 
 

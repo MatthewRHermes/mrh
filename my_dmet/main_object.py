@@ -894,8 +894,7 @@ class dmet:
             chkdata = np.append (chkdata, f.twoCDMimp_amo.flatten (order='C'))
         np.save (fname, chkdata)
 
-    def load_checkpoint (self, fname):
-        aoSloc = np.dot (self.ints.ao_ovlp, self.ints.ao2loc)
+    def load_checkpoint (self, fname, prev_mol=None):
         nelec_amo = sum ((f.active_space[0] for f in self.fragments if f.active_space is not None))
         norbs_amo = sum ((f.active_space[1] for f in self.fragments if f.active_space is not None))
         norbs_cmo = (self.ints.mol.nelectron - nelec_amo) // 2
@@ -903,6 +902,13 @@ class dmet:
         chkdata = np.load (fname)
         nao, self.chempot, chkdata = int (round (chkdata[0])), chkdata[1], chkdata[2:] 
         print ("{} atomic orbital basis functions reported in checkpoint file, as opposed to {} in integral object".format (nao, self.ints.mol.nao_nr ()))
+        assert (prev_mol is not None or nao == self.ints.mol.nao_nr ())
+        if prev_mol:
+            oldSnew = mole.intor_cross('int1e_ovlp', prev_mol, self.ints.mol)
+            aoSloc = np.dot (oldSnew, self.ints.ao2loc)
+        else:
+            aoSloc = np.dot (self.ints.ao_ovlp, self.ints.ao2loc)
+
         mat, chkdata = chkdata[:nao**2].reshape (nao, nao, order='C'), chkdata[nao**2:]
         mat = represent_operator_in_basis (mat, aoSloc)
 
