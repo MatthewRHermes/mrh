@@ -127,10 +127,11 @@ class FCISolver (direct_spin1_symm.FCISolver):
         self.nelec = nelec
         if smult is not None:
             self.smult = smult
-        wfnsym = self.guess_wfnsym(norb, nelec, ci0, wfnsym, **kwargs)
 
-        self.wfnsym = wfnsym
+        # The order of the four things below is super sensitive
         self.orbsym = orbsym
+        wfnsym = self.guess_wfnsym(norb, nelec, ci0, wfnsym, **kwargs)
+        self.wfnsym = wfnsym
         self.check_mask_cache ()
 
         nroots_test = nroots or 1

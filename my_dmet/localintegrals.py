@@ -21,7 +21,9 @@
 from pyscf import gto, scf, ao2mo, tools, lo
 from pyscf.lo import nao, orth, boys
 from pyscf.tools import molden
+from pyscf.lib import current_memory
 from pyscf.lib import numpy_helper as pyscf_np
+from pyscf.scf.hf import dot_eri_dm
 from mrh.my_dmet import rhf as wm_rhf
 from mrh.my_dmet import iao_helper
 import numpy as np
@@ -45,13 +47,15 @@ class localintegrals:
         
         # Information on the full HF problem
         self.mol        = the_mf.mol
+        self.max_memory = the_mf.max_memory
         self.fullovlpao = the_mf.get_ovlp
         self.fullEhf    = the_mf.e_tot
         self.fullDMao   = np.dot(np.dot( the_mf.mo_coeff, np.diag( the_mf.mo_occ )), the_mf.mo_coeff.T )
-        self.fullJKao   = scf.hf.get_veff( self.mol, self.fullDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
+        self.fullJKao   = the_mf.get_veff( self.mol, self.fullDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
         # self.fullFOCKao = self.mol.intor('cint1e_kin_sph') + self.mol.intor('cint1e_nuc_sph') + self.fullJKao
         # To use x2c, I need to change this.
         self.fullFOCKao = the_mf.get_hcore () + self.fullJKao
+        print ("First block")
 
         # Active space information
         self._which    = localizationtype
@@ -59,7 +63,8 @@ class localintegrals:
         self.active[ active_orbs ] = 1
         self.norbs_tot = np.sum( self.active ) # Number of active space orbitals
         self.nelec_tot = int(np.rint( self.mol.nelectron - np.sum( the_mf.mo_occ[ self.active==0 ] ))) # Total number of electrons minus frozen part
-        
+        print ("Active space information")        
+
         # Localize the orbitals
         if (( self._which == 'meta_lowdin' ) or ( self._which == 'boys' )):
             if ( self._which == 'meta_lowdin' ):
@@ -67,6 +72,7 @@ class localintegrals:
             if ( self._which == 'boys' ):
                 self.ao2loc = the_mf.mo_coeff[ : , self.active==1 ]
             if ( self.norbs_tot == self.mol.nao_nr() ): # If you want the full active, do meta-Lowdin
+                print ("Meta-lowdin, right?")
                 nao.AOSHELL[4] = ['1s0p0d0f', '2s1p0d0f'] # redefine the valence shell for Be
                 self.ao2loc = orth.orth_ao( self.mol, 'meta_lowdin' )
                 if ( ao_rotation != None ):
@@ -95,19 +101,22 @@ class localintegrals:
             self.TI_OK = False # Check yourself if OK, then overwrite
             #self.molden( 'dump.molden' ) # Debugging mode
         assert( self.loc_ortho() < 1e-8 )
+        print ("Localization done")
 
         # Stored inverse overlap matrix
         self.ao_ovlp_inv = np.dot (self.ao2loc, self.ao2loc.conjugate ().T)
         self.ao_ovlp     = the_mf.get_ovlp ()
         assert (is_matrix_eye (np.dot (self.ao_ovlp, self.ao_ovlp_inv)))
-        
+        print ("Inverse overlap matrix stored")
+
         # Effective Hamiltonian due to frozen part
         self.frozenDMmo  = np.array( the_mf.mo_occ, copy=True )
         self.frozenDMmo[ self.active==1 ] = 0 # Only the frozen MO occupancies nonzero
         self.frozenDMao  = np.dot(np.dot( the_mf.mo_coeff, np.diag( self.frozenDMmo )), the_mf.mo_coeff.T )
-        self.frozenJKao  = scf.hf.get_veff( self.mol, self.frozenDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
+        self.frozenJKao  = the_mf.get_veff( self.mol, self.frozenDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
         self.frozenOEIao = self.fullFOCKao - self.fullJKao + self.frozenJKao
-        
+        print ("Frozen part of Heff")        
+
         # Localized OEI and ERI
         self.activeCONST    = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEIao - 0.5*self.frozenJKao, self.frozenDMao )
         self.activeOEI      = represent_operator_in_basis (self.frozenOEIao, self.ao2loc )
@@ -120,10 +129,23 @@ class localintegrals:
         self.ERIinMEM       = False
         self.activeERI      = None
         self.idemERI        = None
-        if ( self.norbs_tot <= 150 ):
+        def _is_mem_enough ():
+            return self.norbs_tot**4/2e6 + current_memory ()[0] < self.max_memory*0.95
+        # Unfortunately, there is currently no way to do the integral transformation directly on the antisymmetrized two-electron
+        # integrals, at least none already implemented in PySCF. Therefore the smallest possible memory footprint involves 
+        # two arrays of fourfold symmetry, which works out to roughly one half of an array with no symmetry
+        if _is_mem_enough ():
+            print ("Storing eris in memory")
+            print (current_memory ()[0])
             self.ERIinMEM   = True
-            self.activeERI  = ao2mo.outcore.full_iofree( self.mol, self.ao2loc, compact=False ).reshape(self.norbs_tot, self.norbs_tot, self.norbs_tot, self.norbs_tot)
+            if the_mf._eri is not None:
+                self.activeERI = ao2mo.restore (8, ao2mo.incore.full (the_mf._eri, self.ao2loc, compact=True), self.norbs_tot)
+            else:
+                self.activeERI = ao2mo.restore (8, ao2mo.outcore.full_iofree (self.mol, self.ao2loc, compact=True), self.norbs_tot)
             self.idemERI    = self.activeERI
+            print (current_memory ()[0])
+        else:
+            print ("Direct calculation")
 
     def molden( self, filename ):
     
@@ -174,7 +196,9 @@ class localintegrals:
             JK_ao = scf.hf.get_veff( self.mol, DM_ao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
             JK_loc = represent_operator_in_basis (JK_ao, self.ao2loc )
         else:
-            JK_loc = np.einsum( 'ijkl,ij->kl', self.activeERI, DMloc ) - 0.5 * np.einsum( 'ijkl,ik->jl', self.activeERI, DMloc )
+            #JK_loc = np.einsum( 'ijkl,ij->kl', self.activeERI, DMloc ) - 0.5 * np.einsum( 'ijkl,ik->jl', self.activeERI, DMloc )
+            j, k = dot_eri_dm (self.activeERI, DMloc, hermi=1)
+            JK_loc = j - 0.5*k
         return JK_loc
 
     def loc_rhf_fock_bis( self, DMloc ):
@@ -233,8 +257,7 @@ class localintegrals:
             self.oneRDMcorr_loc = oneRDMcorr_loc
             self.loc2idem       = np.eye (self.norbs_tot)
             self.nelec_idem     = self.nelec_tot
-            if ( self.norbs_tot <= 150 ):
-                self.idemERI    = self.activeERI
+            self.idemERI        = self.activeERI
             return
 
         loc2corr = np.concatenate ([frag.loc2amo for frag in fragments], axis=1)
@@ -262,9 +285,11 @@ class localintegrals:
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
         idemERI        = None
         if self.ERIinMEM:
+            print (current_memory ()[0])
             norbs      = loc2idem.shape[1]
             ao2idem    = np.dot (self.ao2loc, loc2idem)
-            idemERI    = ao2mo.incore.full(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2idem, compact=False).reshape(norbs, norbs, norbs, norbs)
+            idemERI    = ao2mo.restore (8, ao2mo.incore.full(self.activeERI, loc2idem, compact=True), norbs)
+            print (current_memory ()[0])
         oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, ERI_wrk=idemERI, oneRDMguess_loc=oneRDMguess_loc)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
         print ("trace of oneRDMcorr_loc = {}".format (np.trace (oneRDMcorr_loc)))
@@ -355,7 +380,7 @@ class localintegrals:
         norbs = [loc2bas.shape[1] for loc2bas in loc2bas_list]
 
         if self.ERIinMEM:
-            TEI = ao2mo.incore.general(ao2mo.restore(8, self.activeERI, self.norbs_tot), loc2bas_list, compact=False).reshape (*norbs)
+            TEI = ao2mo.incore.general(self.activeERI, loc2bas_list, compact=False).reshape (*norbs)
         else:
             a2b_list = [np.dot (self.ao2loc, l2b) for l2b in loc2bas_list]
             TEI  = ao2mo.outcore.general_iofree(self.mol, a2b_list, compact=False).reshape (*norbs)
