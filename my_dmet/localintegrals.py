@@ -22,7 +22,7 @@ from pyscf import gto, scf, ao2mo, tools, lo
 from pyscf.lo import nao, orth, boys
 from pyscf.tools import molden
 from pyscf.lib import current_memory
-from pyscf.lib import numpy_helper as pyscf_np
+from pyscf.lib.numpy_helper import tag_array
 from pyscf.scf.hf import dot_eri_dm
 from mrh.my_dmet import rhf as wm_rhf
 from mrh.my_dmet import iao_helper
@@ -52,8 +52,6 @@ class localintegrals:
         self.fullEhf    = the_mf.e_tot
         self.fullDMao   = np.dot(np.dot( the_mf.mo_coeff, np.diag( the_mf.mo_occ )), the_mf.mo_coeff.T )
         self.fullJKao   = the_mf.get_veff( self.mol, self.fullDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
-        # self.fullFOCKao = self.mol.intor('cint1e_kin_sph') + self.mol.intor('cint1e_nuc_sph') + self.fullJKao
-        # To use x2c, I need to change this.
         self.fullFOCKao = the_mf.get_hcore () + self.fullJKao
         print ("First block")
 
@@ -126,24 +124,29 @@ class localintegrals:
         self.oneRDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
         self.loc2idem       = np.eye (self.norbs_tot, dtype=self.activeOEI.dtype)
         self.nelec_idem     = self.nelec_tot
-        self.ERIinMEM       = False
-        self.activeERI      = None
-        self.idemERI        = None
+        self._eri           = None
         def _is_mem_enough ():
             return self.norbs_tot**4/2e6 + current_memory ()[0] < self.max_memory*0.95
         # Unfortunately, there is currently no way to do the integral transformation directly on the antisymmetrized two-electron
         # integrals, at least none already implemented in PySCF. Therefore the smallest possible memory footprint involves 
         # two arrays of fourfold symmetry, which works out to roughly one half of an array with no symmetry
-        if _is_mem_enough ():
+        if the_mf._eri is not None:
+            print ("Found eris on scf object")
+            loc2ao = self.ao2loc.conjugate ().T
+            aoOloc = np.dot (self.ao_ovlp, self.ao2loc)
+            locOao = aoOloc.conjugate ().T
+            self._eri = the_mf._eri
+            self._eri = tag_array (self._eri, loc2eri_bas = lambda x: np.dot (self.ao2loc, x))
+            self._eri = tag_array (self._eri, loc2eri_op = lambda x: reduce (np.dot, (self.ao2loc, x, loc2ao)))
+            self._eri = tag_array (self._eri, eri2loc_bas = lambda x: np.dot (locOao, x))
+            self._eri = tag_array (self._eri, eri2loc_op = lambda x: reduce (np.dot, (locOao, x, aoOloc)))
+        elif _is_mem_enough ():
             print ("Storing eris in memory")
-            print (current_memory ()[0])
-            self.ERIinMEM   = True
-            if the_mf._eri is not None:
-                self.activeERI = ao2mo.restore (8, ao2mo.incore.full (the_mf._eri, self.ao2loc, compact=True), self.norbs_tot)
-            else:
-                self.activeERI = ao2mo.restore (8, ao2mo.outcore.full_iofree (self.mol, self.ao2loc, compact=True), self.norbs_tot)
-            self.idemERI    = self.activeERI
-            print (current_memory ()[0])
+            self._eri = ao2mo.restore (8, ao2mo.outcore.full_iofree (self.mol, self.ao2loc, compact=True), self.norbs_tot)
+            self._eri = tag_array (self._eri, loc2eri_bas = lambda x: x)
+            self._eri = tag_array (self._eri, loc2eri_op = lambda x: x)
+            self._eri = tag_array (self._eri, eri2loc_bas = lambda x: x)
+            self._eri = tag_array (self._eri, eri2loc_op = lambda x: x)
         else:
             print ("Direct calculation")
 
@@ -166,8 +169,8 @@ class localintegrals:
         assert( self.nelec_tot % 2 == 0 )
         numPairs = self.nelec_tot // 2
         DMguess = 2 * np.dot( eigvecs[ :, :numPairs ], eigvecs[ :, :numPairs ].T )
-        if ( self.ERIinMEM == True ):
-            DMloc = wm_rhf.solve_ERI( self.activeOEI, self.activeERI, DMguess, numPairs, num_mf_stab_checks )
+        if self._eri is not None:
+            DMloc = wm_rhf.solve_ERI( self.activeOEI, self._eri, DMguess, numPairs, num_mf_stab_checks )
         else:
             DMloc = wm_rhf.solve_JK( self.activeOEI, self.mol, self.ao2loc, DMguess, numPairs )
         newFOCKloc = self.loc_rhf_fock_bis( DMloc )
@@ -191,14 +194,13 @@ class localintegrals:
         
     def loc_rhf_jk_bis( self, DMloc ):
     
-        if ( self.ERIinMEM == False ):
+        if self._eri is not None:
             DM_ao = represent_operator_in_basis (DMloc, self.ao2loc.T )
             JK_ao = scf.hf.get_veff( self.mol, DM_ao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
             JK_loc = represent_operator_in_basis (JK_ao, self.ao2loc )
         else:
-            #JK_loc = np.einsum( 'ijkl,ij->kl', self.activeERI, DMloc ) - 0.5 * np.einsum( 'ijkl,ik->jl', self.activeERI, DMloc )
-            j, k = dot_eri_dm (self.activeERI, DMloc, hermi=1)
-            JK_loc = j - 0.5*k
+            j, k = dot_eri_dm (self._eri, self._eri.loc2eri_op (DMloc), hermi=1)
+            JK_loc = self._eri.eri2loc_op (j - 0.5*k)
         return JK_loc
 
     def loc_rhf_fock_bis( self, DMloc ):
@@ -208,9 +210,7 @@ class localintegrals:
 
     def loc_tei( self ):
     
-        if ( self.ERIinMEM == False ):
-            raise RuntimeError ("localintegrals::loc_tei : ERI of the localized orbitals are not stored in memory.")
-        return self.activeERI
+        raise RuntimeError ("localintegrals::loc_tei : ERI of the localized orbitals are not stored in memory.")
 
     # OEIidem means that the OEI is only used to determine the idempotent part of the 1RDM;
     # the correlated part, if it exists, is kept unchanged
@@ -226,22 +226,28 @@ class localintegrals:
         oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
-    def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, ERI_wrk=None, oneRDMguess_loc=None):
+    def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, oneRDMguess_loc=None):
 
         nelec      = nelec   or self.nelec_idem
         loc2wrk    = loc2wrk if np.any (loc2wrk) else self.loc2idem
-        ERI_wrk    = ERI_wrk if np.any (ERI_wrk) else self.idemERI
         oneRDM_wrk = represent_operator_in_basis (oneRDMguess_loc, loc2wrk) if np.any (oneRDMguess_loc) else None
         nocc       = nelec // 2
 
         # DON'T call self.get_wm_1RDM_from_OEIidem here because you need to hold oneRDMcorr_loc frozen until the end of the scf!
-        OEI_wrk        = represent_operator_in_basis (OEI, loc2wrk)
+        OEI_wrk = represent_operator_in_basis (OEI, loc2wrk)
         if oneRDM_wrk is None:
             oneRDM_wrk = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
-        if self.ERIinMEM:
+        if self._eri is not None:
+            # I just need a view of self._eri with different tags. ao2loc . loc2wrk = ao2wrk
+            wrk2loc    = loc2wrk.conjugate ().T
+            ERI_wrk    = self._eri.view ()
+            ERI_wrk    = tag_array (ERI_wrk, loc2eri_bas = lambda x: self._eri.loc2eri_bas (np.dot (loc2wrk, x)))
+            ERI_wrk    = tag_array (ERI_wrk, loc2eri_op = lambda x: self._eri.loc2eri_op (reduce (np.dot, (loc2wrk, x, wrk2loc))))
+            ERI_wrk    = tag_array (ERI_wrk, eri2loc_bas = lambda x: np.dot (wrk2loc, self._eri.eri2loc_bas (x)))
+            ERI_wrk    = tag_array (ERI_wrk, eri2loc_op = lambda x: reduce (np.dot, (wrk2loc, self._eri.eri2loc_op (x), loc2wrk)))
             oneRDM_wrk = wm_rhf.solve_ERI(OEI_wrk, ERI_wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks)
         else:
-            ao2wrk     = np.dot (self.ao2loc, loc2wrk)
+            ao2wrk  = np.dot (self.ao2loc, loc2wrk)
             oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, self.mol, ao2wrk, oneRDM_wrk, nocc)
         oneRDM_loc     = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
@@ -257,7 +263,6 @@ class localintegrals:
             self.oneRDMcorr_loc = oneRDMcorr_loc
             self.loc2idem       = np.eye (self.norbs_tot)
             self.nelec_idem     = self.nelec_tot
-            self.idemERI        = self.activeERI
             return
 
         loc2corr = np.concatenate ([frag.loc2amo for frag in fragments], axis=1)
@@ -283,14 +288,7 @@ class localintegrals:
             raise ValueError ("nelec_corr not an integer! {}".format (nelec_corr))
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
-        idemERI        = None
-        if self.ERIinMEM:
-            print (current_memory ()[0])
-            norbs      = loc2idem.shape[1]
-            ao2idem    = np.dot (self.ao2loc, loc2idem)
-            idemERI    = ao2mo.restore (8, ao2mo.incore.full(self.activeERI, loc2idem, compact=True), norbs)
-            print (current_memory ()[0])
-        oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, ERI_wrk=idemERI, oneRDMguess_loc=oneRDMguess_loc)
+        oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, oneRDMguess_loc=oneRDMguess_loc)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
         print ("trace of oneRDMcorr_loc = {}".format (np.trace (oneRDMcorr_loc)))
         print ("trace of oneRDMidem_loc = {}".format (np.trace (oneRDMidem_loc)))
@@ -306,7 +304,6 @@ class localintegrals:
         self.oneRDMcorr_loc = oneRDMcorr_loc
         self.loc2idem       = loc2idem
         self.nelec_idem     = nelec_idem
-        self.idemERI        = idemERI
         ########################################################################################################
 
         # Analysis: molden and total energy
@@ -337,7 +334,6 @@ class localintegrals:
         self.oneRDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
         self.loc2idem       = np.eye (self.norbs_tot, dtype=self.activeOEI.dtype)
         self.nelec_idem     = self.nelec_tot
-        self.idemERI        = self.activeERI
 
     def dmet_oei( self, loc2dmet, numActive ):
     
@@ -379,8 +375,9 @@ class localintegrals:
     def general_tei (self, loc2bas_list):
         norbs = [loc2bas.shape[1] for loc2bas in loc2bas_list]
 
-        if self.ERIinMEM:
-            TEI = ao2mo.incore.general(self.activeERI, loc2bas_list, compact=False).reshape (*norbs)
+        if self._eri is not None:
+            a2b_list = [self._eri.loc2eri_bas (l2b) for l2b in loc2bas_list]
+            TEI = ao2mo.incore.general(self._eri, a2b_list, compact=False).reshape (*norbs)
         else:
             a2b_list = [np.dot (self.ao2loc, l2b) for l2b in loc2bas_list]
             TEI  = ao2mo.outcore.general_iofree(self.mol, a2b_list, compact=False).reshape (*norbs)

@@ -90,7 +90,7 @@ def kernel (mc, ot, root=-1):
     e_tot = Vnn + Te_Vne + E_j + (hyb * E_x) + E_ot
     logger.info (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
 
-    return e_tot
+    return e_tot, E_ot
 
 def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
     ''' E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi] 

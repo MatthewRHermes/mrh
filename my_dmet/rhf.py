@@ -21,8 +21,33 @@ import numpy as np
 import scipy.sparse.linalg
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo
+from pyscf.scf.hf import dot_eri_dm
 from mrh.util.basis import get_complementary_states
 from mrh.util.la import matrix_eigen_control_options
+
+# The TEI is tagged and I must wrap_my_veff and wrap_my_jk in solve_ERI as well
+
+def wrap_my_jk_ERI (TEI):
+
+    def my_jk (mol, dm, hermi=1, vhfopt=None):
+        vj, vk = dot_eri_dm (TEI, TEI.loc2eri_op (dm), hermi=1)
+        vj = TEI.eri2loc_op (vj)
+        vk = TEI.eri2loc_op (vk)
+        return vj, vk
+    return my_jk
+
+def wrap_my_veff_ERI (TEI):
+
+    def my_veff (mol, dm, dm_last=0, vhf_last=0, hermi=1, vhfopt=None):
+        
+        ddm_basis    = np.array(dm, copy=False) - np.array (dm_last, copy=False)
+        ddm_ao       = TEI.loc2eri_op (ddm_basis)
+        vj_ao, vk_ao = dot_eri_dm (TEI, ddm_ao, hermi=hermi)
+        veff_ao      = vj_ao - 0.5 * vk_ao
+        veff_basis   = TEI.eri2loc_op (veff_ao) + np.array (vhf_last, copy=False)
+        return veff_basis
+        
+    return my_veff
 
 def solve_ERI( OEI, TEI, oneRDMguess_loc, numPairs, num_mf_stab_checks):
 
@@ -35,10 +60,11 @@ def solve_ERI( OEI, TEI, oneRDMguess_loc, numPairs, num_mf_stab_checks):
     mf = scf.RHF( mol )
     mf.get_hcore = lambda *args: OEI
     mf.get_ovlp = lambda *args: np.eye( L )
-    mf._eri = ao2mo.restore(8, TEI, L)
+    mf._eri = None # ao2mo.restore(8, TEI, L)
+    mf.get_jk   = wrap_my_jk_ERI   (TEI)
+    mf.get_veff = wrap_my_veff_ERI (TEI)
     mf.verbose = 4
     mf.scf( oneRDMguess_loc )
-    #oneRDM_loc = np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
     if ( mf.converged == False ):
         mf = mf.newton ()
         mf.kernel ()
@@ -52,7 +78,9 @@ def solve_ERI( OEI, TEI, oneRDMguess_loc, numPairs, num_mf_stab_checks):
         mf = scf.RHF( mol )
         mf.get_hcore = lambda *args: OEI
         mf.get_ovlp = lambda *args: np.eye( L )
-        mf._eri = ao2mo.restore(8, TEI, L)
+        mf._eri = None # ao2mo.restore(8, TEI, L)
+        mf.get_jk   = wrap_my_jk_ERI   (TEI)
+        mf.get_veff = wrap_my_veff_ERI (TEI)
         mf.verbose=0
         mf.scf( oneRDMguess_loc )
         oneRDM_loc = mf.make_rdm1 ()
