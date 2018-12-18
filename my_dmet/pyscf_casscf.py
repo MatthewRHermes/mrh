@@ -163,9 +163,8 @@ def solve (frag, guess_1RDM, chempot_imp):
         print ('Assuming ci vector is poisoned; discarding...')
         imp2mo = mc.mo_coeff.copy ()
         mc = mcscf.CASSCF(mf, CASorb, CASe)
-        if frag.target_S is not None: #!= 0:
-            s2_eval = frag.target_S * (frag.target_S + 1)
-            mc.fix_spin_(ss=s2_eval)
+        smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
+        mc.fcisolver = csf_solver (mf.mol, smult)
         E_CASSCF = mc.kernel(imp2mo)[0]
         if not mc.converged:
             mc = mc.newton ()

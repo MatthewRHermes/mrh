@@ -29,6 +29,7 @@ import time
 #import tracemalloc
 from pyscf import mcscf
 from pyscf.lo import orth, nao
+from pyscf.gto import mole
 from pyscf.tools import molden
 from mrh.util import params
 from mrh.util.io import prettyprint_ndarray as prettyprint
