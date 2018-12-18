@@ -194,12 +194,12 @@ class localintegrals:
     def loc_rhf_jk_bis( self, DMloc ):
     
         if self._eri is not None:
+            j, k = dot_eri_dm (self._eri, self._eri.loc2eri_op (DMloc), hermi=1)
+            JK_loc = self._eri.eri2loc_op (j - 0.5*k)
+        else:
             DM_ao = represent_operator_in_basis (DMloc, self.ao2loc.T )
             JK_ao = scf.hf.get_veff( self.mol, DM_ao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
             JK_loc = represent_operator_in_basis (JK_ao, self.ao2loc )
-        else:
-            j, k = dot_eri_dm (self._eri, self._eri.loc2eri_op (DMloc), hermi=1)
-            JK_loc = self._eri.eri2loc_op (j - 0.5*k)
         return JK_loc
 
     def loc_rhf_fock_bis( self, DMloc ):
