@@ -305,7 +305,7 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
         # Assuming numerical problem due to massive degeneracy; remove constant from diagonal to improve solver?
         assert (np.all (np.isclose (np.diag (nOn), 1))), np.diag (nOn) - 1
         nOn[np.diag_indices_from (nOn)] -= 1
-        evals, evecs = matrix_eigen_control_options (nOn, sort_vecs=-1, only_nonzero_vals=True)
+        evals, evecs = matrix_eigen_control_options (nOn, sort_vecs=-1, only_nonzero_vals=False)
         n2x = np.asmatrix (evecs)
         c2x = c2n * n2x
         x2n = np.asmatrix (np.diag (np.reciprocal (np.sqrt (evals + 1))))

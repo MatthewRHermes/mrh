@@ -1,6 +1,3 @@
-# Matt, DON'T do any hairy bullshit until you can just reproduce the results of the existing code!
-
-
 import re
 import numpy as np
 import scipy as sp 
@@ -22,9 +19,19 @@ import sys
 def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0):
     assert (len (frag_atom_list) < ints.mol.natm)
     assert (np.amax (frag_atom_list) < ints.mol.natm)
+    ao_offset = ints.mol.offset_ao_by_atom ()
+    frag_orb_list = [orb for atom in frag_atom_list for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
+    '''
+    for atom in range (ints.mol.natm):
+        print ("atom_shell_ids({}) = {}".format (atom, ints.mol.atom_shell_ids (atom)))
+        print ("angular momentum = {}".format ([ints.mol.bas_angular (shell) for shell in ints.mol.atom_shell_ids (atom)]))
     norbs_in_atom = [int (np.sum ([2 * ints.mol.bas_angular (shell) + 1 for shell in ints.mol.atom_shell_ids (atom)])) for atom in range (ints.mol.natm)]
+    print ("norbs_in_atom = {}".format (norbs_in_atom))
     norbs_to_atom = [int (np.sum (norbs_in_atom[:atom])) for atom in range (ints.mol.natm)]
+    print ("norbs_to_atom = {}".format (norbs_to_atom))
     frag_orb_list = [i + norbs_to_atom[atom] for atom in frag_atom_list for i in range (norbs_in_atom[atom])]
+    print ("frag_orb_list = {}".format (frag_orb_list))
+    '''
     print ("Fragment atom list\n{0}\nproduces a fragment orbital list as {1}".format ([ints.mol.atom_symbol (atom) for atom in frag_atom_list], frag_orb_list))
     return fragment_object (ints, np.asarray (frag_orb_list), solver_name, active_orb_list=np.asarray (active_orb_list), name=name)
 
