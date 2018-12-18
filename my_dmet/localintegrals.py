@@ -133,13 +133,12 @@ class localintegrals:
         if the_mf._eri is not None:
             print ("Found eris on scf object")
             loc2ao = self.ao2loc.conjugate ().T
-            aoOloc = np.dot (self.ao_ovlp, self.ao2loc)
-            locOao = aoOloc.conjugate ().T
+            locOao = np.dot (loc2ao, self.ao_ovlp)
             self._eri = the_mf._eri
             self._eri = tag_array (self._eri, loc2eri_bas = lambda x: np.dot (self.ao2loc, x))
             self._eri = tag_array (self._eri, loc2eri_op = lambda x: reduce (np.dot, (self.ao2loc, x, loc2ao)))
             self._eri = tag_array (self._eri, eri2loc_bas = lambda x: np.dot (locOao, x))
-            self._eri = tag_array (self._eri, eri2loc_op = lambda x: reduce (np.dot, (locOao, x, aoOloc)))
+            self._eri = tag_array (self._eri, eri2loc_op = lambda x: reduce (np.dot, (loc2ao, x, self.ao2loc)))
         elif _is_mem_enough ():
             print ("Storing eris in memory")
             self._eri = ao2mo.restore (8, ao2mo.outcore.full_iofree (self.mol, self.ao2loc, compact=True), self.norbs_tot)
