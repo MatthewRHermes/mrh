@@ -17,24 +17,37 @@ def get_mo_from_h5 (mol, h5fname):
     '''
 
     idx_irrep = np.argsort (IRREP_ID_MOLCAS[mol.groupname])
-    nmo_irrep = [mol.symm_orb[ir].shape[1] for ir in idx_irrep]
+    try:
+        nmo_irrep = [mol.symm_orb[ir].shape[1] for ir in idx_irrep]
+    except:
+        assert (not mol.symmetry), mol.symmetry
 
     with h5py.File (h5fname, 'r') as f:
-        molcas_basids = np.asarray (f['DESYM_BASIS_FUNCTION_IDS'])
-        molcas_usymm = np.asarray (f['DESYM_MATRIX'])
+        try:
+            molcas_basids = np.asarray (f['DESYM_BASIS_FUNCTION_IDS'])
+            molcas_usymm = np.asarray (f['DESYM_MATRIX'])
+        except KeyError:
+            assert (not mol.symmetry), "Can't find desym_ data; mol.symmetry = {}".format (mol.symmetry)
+            molcas_basids = np.asarray (f['BASIS_FUNCTION_IDS'])
         molcas_coeff = np.asarray (f['MO_VECTORS'])
         mo_energy = np.asarray (f['MO_ENERGIES'])
 
-    uuu = [m_ir * mol.nao_nr () for m_ir in nmo_irrep]
-    usymm_irrep_offset = [0] + [sum (uuu[:i+1]) for i in range (len (uuu)-1)]
-    uuu = [m_ir * m_ir for m_ir in nmo_irrep]
-    coeff_irrep_offset = [0] + [sum (uuu[:i+1]) for i in range (len (uuu)-1)]
-    orb_irrep_offset = [0] + [sum (nmo_irrep[:i+1]) for i in range (len (nmo_irrep)-1)]
-    mo_coeff = np.zeros ((mol.nao_nr (), mol.nao_nr ()), dtype=np.float_)
-    for m_ir, orb_off, usymm_off, coeff_off in zip (nmo_irrep, orb_irrep_offset, usymm_irrep_offset, coeff_irrep_offset):
-        usymm = molcas_usymm[usymm_off:usymm_off+(m_ir*mol.nao_nr ())].reshape (m_ir, mol.nao_nr ()).T
-        coeff = molcas_coeff[coeff_off:coeff_off+(m_ir*m_ir)].reshape (m_ir, m_ir).T
-        mo_coeff[:,orb_off:orb_off+m_ir] = np.dot (usymm, coeff)
+    if mol.symmetry:
+        uuu = [m_ir * mol.nao_nr () for m_ir in nmo_irrep]
+        usymm_irrep_offset = [0] + [sum (uuu[:i+1]) for i in range (len (uuu)-1)]
+        uuu = [m_ir * m_ir for m_ir in nmo_irrep]
+        coeff_irrep_offset = [0] + [sum (uuu[:i+1]) for i in range (len (uuu)-1)]
+        orb_irrep_offset = [0] + [sum (nmo_irrep[:i+1]) for i in range (len (nmo_irrep)-1)]
+        mo_coeff = np.zeros ((mol.nao_nr (), mol.nao_nr ()), dtype=np.float_)
+        for m_ir, orb_off, usymm_off, coeff_off in zip (nmo_irrep, orb_irrep_offset, usymm_irrep_offset, coeff_irrep_offset):
+            usymm = molcas_usymm[usymm_off:usymm_off+(m_ir*mol.nao_nr ())].reshape (m_ir, mol.nao_nr ()).T
+            coeff = molcas_coeff[coeff_off:coeff_off+(m_ir*m_ir)].reshape (m_ir, m_ir).T
+            mo_coeff[:,orb_off:orb_off+m_ir] = np.dot (usymm, coeff)
+    else:
+        assert (molcas_coeff.shape == (mol.nao_nr ()**2,)), 'mo_vectors.shape = {} but {} AOs'.format (
+            molcas_coeff.shape, mol.nao_nr ())
+        mo_coeff = molcas_coeff.reshape (mol.nao_nr (), mol.nao_nr ()).T
+        
 
     idx_ao = []
     for (c, n, l, m) in molcas_basids:
