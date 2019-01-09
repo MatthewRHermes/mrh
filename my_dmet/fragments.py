@@ -446,7 +446,8 @@ class fragment_object:
     ###############################################################################################################################
     def get_guess_1RDM (self, chempot_imp):
         FOCK = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
-        return 2.0 * get_1RDM_from_OEI (FOCK, self.nelec_imp // 2)
+        return (get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) + self.target_MS)
+              + get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) - self.target_MS))
 
     def solve_impurity_problem (self, chempot_frag):
         self.warn_check_impham ("solve_impurity_problem")
@@ -563,6 +564,18 @@ class fragment_object:
         #amo_coeff = scf.addons.project_mo_nr2nr (mol, amo_coeff, self.ints.mol)
         self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
         self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
+
+    def load_amo_from_aobasis (self, ao2amo, dm, twoRDM=None, twoCDM=None):
+        print ("Attempting to load the provided active orbitals to fragment {}".format (self.frag_name))
+        self.loc2amo = reduce (np.dot, (self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, ao2amo))
+        self.oneRDMas_loc = represent_operator_in_basis (dm, self.loc2amo.conjugate ().T)
+        if twoRDM is not None:
+            self.twoCDMimp_amo = get_2CDM_from_2RDM (twoRDM, dm)
+        elif twoCDM is not None:
+            self.twoCDMimp_amo = twoCDM
+        else:
+            self.twoCDMimp_amo = np.zeros ([self.norbs_as for i in range (4)])
+              
         
 
     ###############################################################################################################################

@@ -339,6 +339,7 @@ class localintegrals:
         corr_evecs =  matrix_eigen_control_options (oneRDM_corr, sort_vecs=-1, only_nonzero_vals=False)[1]
         loc2molden = np.append (np.dot (loc2idem, idem_evecs), np.dot (loc2corr, corr_evecs), axis=1)
         wm_ene = np.einsum ('ip,ij,jp->p', loc2molden, fock, loc2molden)
+        wm_ene[-loc2corr.shape[1]:] = 0
         wm_occ = np.einsum ('ip,ij,jp->p', loc2molden, oneRDM, loc2molden)
         ao2molden = np.dot (self.ao2loc, loc2molden)
         molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=wm_occ, ene=wm_ene)
