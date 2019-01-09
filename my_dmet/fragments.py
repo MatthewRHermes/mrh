@@ -63,6 +63,7 @@ class fragment_object:
         self.filehead = None
         self.debug_energy = False
         self.imp_maxiter = None # Currently only does anything for casscf solver
+        self.quasidirect = True # Currently only does anything for rhf (in development)
 
         # Assign solver function
         solver_function_map = {
@@ -96,6 +97,7 @@ class fragment_object:
         self.oneRDMfroz_loc = None
         self.twoCDMfroz_tbc = []
         self.loc2tbc        = []
+        self.E2froz_tbc     = []
         self.imp_cache      = []
         
         # Impurity Hamiltonian
@@ -113,6 +115,7 @@ class fragment_object:
         self.loc2mo     = np.zeros((self.norbs_tot,0))
         self.loc2fno    = np.zeros((self.norbs_tot,0))
         self.fno_evals  = None
+        self.E2_cum     = 0
 
         # Outputs of CAS calculations use to fix CAS-DMET
         self.loc2amo       = np.zeros((self.norbs_tot,0))
@@ -375,6 +378,7 @@ class fragment_object:
         active_frags = [frag for frag in all_frags if frag is not self and frag.norbs_as > 0]
         self.twoCDMfroz_tbc = [np.copy (frag.twoCDMimp_amo) for frag in active_frags]
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
+        self.E2froz_tbc     = [frag.E2_cum for frag in active_frags]
 
         self.impham_built = False
 
@@ -390,32 +394,46 @@ class fragment_object:
     def construct_impurity_hamiltonian (self, xtra_CONST=0.0):
         self.warn_check_Schmidt ("construct_impurity_hamiltonian")
         self.impham_OEI = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
-        self.impham_TEI = self.ints.dmet_tei (self.loc2emb, self.norbs_imp) 
+        if self.imp_solver_name == "RHF" and self.quasidirect:
+            ao2imp = np.dot (self.ints.ao2loc, self.loc2imp)
+            def my_jk (mol, dm, hermi=1):
+                dm_ao        = represent_operator_in_basis (dm, ao2imp.T)
+                vj_ao, vk_ao = self.ints.get_jk_ao (dm_ao, hermi)
+                vj_basis     = represent_operator_in_basis (vj_ao, ao2imp)
+                vk_basis     = represent_operator_in_basis (vk_ao, ao2imp)
+                return vj_basis, vk_basis
+            self.impham_TEI = np.empty ([self.norbs_imp for i in range (4)], dtype=np.float64)
+            self.impham_TEI_fiii = np.empty ([self.norbs_frag] + [self.norbs_imp for i in range (3)], dtype=np.float64)
+            self.impham_get_jk = my_jk
+        else:
+            f = self.loc2frag
+            i = self.loc2imp
+            self.impham_TEI = self.ints.dmet_tei (self.loc2emb, self.norbs_imp) 
+            self.impham_TEI_fiii = self.ints.general_tei ([f, i, i, i])
+            self.impham_get_jk = None
 
         # Constant contribution to energy from core 2CDMs
-        self.impham_CONST = self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc) + self.ints.const () + xtra_CONST
+        self.impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+                             + self.ints.const () + xtra_CONST + sum (self.E2froz_tbc))
         self.E2_frag_core = 0
+        '''
         for loc2tb, twoCDM in zip (self.loc2tbc, self.twoCDMfroz_tbc):
             # Impurity energy
             V      = self.ints.dmet_tei (loc2tb)
             L      = twoCDM
             Eimp   = 0.5 * np.tensordot (V, L, axes=4)
-            # Fragment energy
+            # Fragment energy is zero by construction (old version had nonzero Efrag from core)
             f      = self.loc2frag
             c      = loc2tb
             V      = self.ints.general_tei ([f, c, c, c])
             L      = reduce (lambda x,y: np.tensordot (x, y, axes=1), [self.frag2loc, loc2tb, twoCDM])
-            Efrag  = 0.5 * np.tensordot (V, L, axes=4)
+            Efrag  = 0 #0.5 * np.tensordot (V, L, axes=4)
             self.impham_CONST += Eimp
             self.E2_frag_core += Efrag
             if self.debug_energy:
                 print ("construct_impurity_hamiltonian {0}: Eimp = {1:.5f}, Efrag = {2:.5f} from this 2CDM".format (
                     self.frag_name, float (Eimp), float (Efrag)))
-
-        # Fragment energy TEI - just to be completely sure!
-        f = self.loc2frag
-        i = self.loc2imp
-        self.impham_TEI_fiii = self.ints.general_tei ([f, i, i, i])
+        '''
 
         self.impham_built = True
         self.imp_solved   = False
@@ -604,7 +622,7 @@ class fragment_object:
         return twoRDM + self.get_twoCDM (*bases)
 
     def get_twoCDM (self, *bases):
-        bases = bases if len (bases) == 4 else (basis[0] for i in range[4])
+        bases = bases if len (bases) == 4 else (bases[0] for i in range[4])
         bra1_basis, ket1_basis, bra2_basis, ket2_basis = bases
         twoCDM = np.zeros (tuple(basis.shape[1] for basis in bases))
         for loc2tb, twoCDM_tb in zip (self.loc2tb_all, self.twoCDM_all):

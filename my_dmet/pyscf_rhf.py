@@ -18,6 +18,7 @@
 '''
 
 import numpy as np
+import time
 #import qcdmet_paths
 from mrh.my_dmet import localintegrals
 from pyscf import ao2mo, gto, scf
@@ -27,6 +28,8 @@ from functools import reduce
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, guess_1RDM, chempot_frag=0.0 ):
 def solve (frag, guess_1RDM, chempot_imp):
+
+    t_start = time.time ()
 
     # Augment OEI with the chemical potential
     OEI = frag.impham_OEI - chempot_imp
@@ -43,7 +46,10 @@ def solve (frag, guess_1RDM, chempot_imp):
     mf = scf.RHF( mol )
     mf.get_hcore = lambda *args: OEI
     mf.get_ovlp = lambda *args: np.eye( frag.norbs_imp )
-    mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+    if frag.quasidirect:
+        mf.get_jk = frag.impham_get_jk 
+    else:
+        mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
     mf.scf( guess_1RDM )
     if ( mf.converged == False ):
         mf = mf.newton ()
@@ -56,7 +62,10 @@ def solve (frag, guess_1RDM, chempot_imp):
         mf = scf.RHF( mol )
         mf.get_hcore = lambda *args: OEI
         mf.get_ovlp = lambda *args: np.eye( frag.norbs_imp )
-        mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+        if frag.quasidirect:
+            mf.get_jk = frag.impham_get_jk 
+        else:
+            mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
         mf.scf( guess_1RDM )
         if ( mf.converged == False ):
             mf = mf.newton ()
@@ -65,9 +74,11 @@ def solve (frag, guess_1RDM, chempot_imp):
     oneRDMimp_imp = mf.make_rdm1()    
 
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc))
-    frag.twoCDM_imp = np.zeros_like (frag.impham_TEI)
+    frag.twoCDM_imp = np.zeros ([frag.norbs_imp for i in range (4)], dtype=np.float64)
     frag.E_imp      = frag.impham_CONST + mf.e_tot + np.einsum ('ab,ab->', oneRDMimp_imp, chempot_imp)
     frag.loc2mo     = np.dot (frag.loc2imp, mf.mo_coeff)
-    
+
+    print ("Time for impurity RHF: {} seconds".format (time.time () - t_start))
+
     return None
 

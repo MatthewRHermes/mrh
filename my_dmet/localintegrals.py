@@ -36,7 +36,7 @@ from mrh.util.la import matrix_eigen_control_options, is_matrix_eye
 from mrh.util import params
 from math import sqrt
 import itertools
-from functools import reduce
+from functools import reduce, partial
 
 class localintegrals:
 
@@ -46,13 +46,18 @@ class localintegrals:
         self.num_mf_stab_checks = 0
         
         # Information on the full HF problem
-        self.mol        = the_mf.mol
-        self.max_memory = the_mf.max_memory
-        self.fullovlpao = the_mf.get_ovlp
-        self.fullEhf    = the_mf.e_tot
-        self.fullDMao   = np.dot(np.dot( the_mf.mo_coeff, np.diag( the_mf.mo_occ )), the_mf.mo_coeff.T )
-        self.fullJKao   = the_mf.get_veff( self.mol, self.fullDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
-        self.fullFOCKao = the_mf.get_hcore () + self.fullJKao
+        self.mol         = the_mf.mol
+        self.max_memory  = the_mf.max_memory
+        self.get_jk_ao   = partial (the_mf.get_jk, self.mol)
+        self.get_veff_ao = partial (the_mf.get_veff, self.mol)
+        self.fullovlpao  = the_mf.get_ovlp
+        self.fullEhf     = the_mf.e_tot
+        self.fullDMao    = np.dot(np.dot( the_mf.mo_coeff, np.diag( the_mf.mo_occ )), the_mf.mo_coeff.T )
+        self.fullJKao    = self.get_veff_ao (dm=self.fullDMao, dm_last=0, vhf_last=0, hermi=1) #Last 3 numbers: dm_last, vhf_last, hermi
+        if self.fullJKao.ndim == 3:
+            self.fullJKao = self.fullJKao[0] 
+            # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
+        self.fullFOCKao  = the_mf.get_hcore () + self.fullJKao
         print ("First block")
 
         # Active space information
@@ -111,7 +116,10 @@ class localintegrals:
         self.frozenDMmo  = np.array( the_mf.mo_occ, copy=True )
         self.frozenDMmo[ self.active==1 ] = 0 # Only the frozen MO occupancies nonzero
         self.frozenDMao  = np.dot(np.dot( the_mf.mo_coeff, np.diag( self.frozenDMmo )), the_mf.mo_coeff.T )
-        self.frozenJKao  = the_mf.get_veff( self.mol, self.frozenDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
+        self.frozenJKao  = self.get_veff_ao (self.frozenDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
+        if self.frozenJKao.ndim == 3:
+            self.frozenJKao = self.frozenJKao[0]
+            # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
         self.frozenOEIao = self.fullFOCKao - self.fullJKao + self.frozenJKao
         print ("Frozen part of Heff")        
 
@@ -168,10 +176,12 @@ class localintegrals:
         assert( self.nelec_tot % 2 == 0 )
         numPairs = self.nelec_tot // 2
         DMguess = 2 * np.dot( eigvecs[ :, :numPairs ], eigvecs[ :, :numPairs ].T )
+        '''
         if self._eri is not None:
             DMloc = wm_rhf.solve_ERI( self.activeOEI, self._eri, DMguess, numPairs, num_mf_stab_checks )
         else:
-            DMloc = wm_rhf.solve_JK( self.activeOEI, self.mol, self.ao2loc, DMguess, numPairs )
+        '''
+        DMloc = wm_rhf.solve_JK( self.activeOEI, self.mol, self.ao2loc, DMguess, numPairs )
         newFOCKloc = self.loc_rhf_fock_bis( DMloc )
         newRHFener = self.activeCONST + 0.5 * np.einsum( 'ij,ij->', DMloc, self.activeOEI + newFOCKloc )
         print("2-norm difference of RDM(self.activeFOCK) and RDM(self.active{OEI,ERI})  =", np.linalg.norm( DMguess - DMloc ))
@@ -192,14 +202,18 @@ class localintegrals:
         return self.activeOEI + self.activeJKcorr + self.activeJKidem
         
     def loc_rhf_jk_bis( self, DMloc ):
-    
+
+        '''    
         if self._eri is not None:
             j, k = dot_eri_dm (self._eri, self._eri.loc2eri_op (DMloc), hermi=1)
             JK_loc = self._eri.eri2loc_op (j - 0.5*k)
         else:
-            DM_ao = represent_operator_in_basis (DMloc, self.ao2loc.T )
-            JK_ao = scf.hf.get_veff( self.mol, DM_ao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
-            JK_loc = represent_operator_in_basis (JK_ao, self.ao2loc )
+        '''
+        DM_ao = represent_operator_in_basis (DMloc, self.ao2loc.T )
+        JK_ao = self.get_veff_ao (DM_ao, 0, 0, 1) #Last 3 numbers: dm_last, vhf_last, hermi
+        if JK_ao.ndim == 3:
+            JK_ao = JK_ao[0]
+        JK_loc = represent_operator_in_basis (JK_ao, self.ao2loc )
         return JK_loc
 
     def loc_rhf_fock_bis( self, DMloc ):
@@ -236,6 +250,7 @@ class localintegrals:
         OEI_wrk = represent_operator_in_basis (OEI, loc2wrk)
         if oneRDM_wrk is None:
             oneRDM_wrk = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
+        '''
         if self._eri is not None:
             # I just need a view of self._eri with different tags. ao2loc . loc2wrk = ao2wrk
             wrk2loc    = loc2wrk.conjugate ().T
@@ -246,9 +261,10 @@ class localintegrals:
             ERI_wrk    = tag_array (ERI_wrk, eri2loc_op = lambda x: reduce (np.dot, (wrk2loc, self._eri.eri2loc_op (x), loc2wrk)))
             oneRDM_wrk = wm_rhf.solve_ERI(OEI_wrk, ERI_wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks)
         else:
-            ao2wrk  = np.dot (self.ao2loc, loc2wrk)
-            oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, self.mol, ao2wrk, oneRDM_wrk, nocc)
-        oneRDM_loc     = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
+        '''
+        ao2wrk     = np.dot (self.ao2loc, loc2wrk)
+        oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, ao2wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks, self.get_veff_ao, self.get_jk_ao)
+        oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
     def setup_wm_core_scf (self, fragments, calcname):

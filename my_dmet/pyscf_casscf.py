@@ -214,6 +214,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.twoCDMimp_amo = twoCDM_amo
     frag.loc2mo = loc2mo
     frag.loc2amo = loc2amo
+    frag.E2_cum = 0.5 * np.tensordot (ao2mo.restore (1, mc.get_h2eff (), mc.ncas), twoCDM_amo, axes=4)
 
     return None
 

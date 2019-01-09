@@ -90,34 +90,41 @@ def solve_ERI( OEI, TEI, oneRDMguess_loc, numPairs, num_mf_stab_checks):
     
     return oneRDM_loc
     
-def wrap_my_jk( mol_orig, ao2basis ): # mol_orig works in ao
+def wrap_my_jk (get_jk_ao, ao2basis ): # mol_orig works in ao
 
     #get_jk(mol, dm, hermi=1, vhfopt=None)
-    def my_jk( mol, dm, hermi=1, vhfopt=None ): # mol works in basis, dm is in basis
+    def my_jk (mol, dm, hermi=1): # mol works in basis, dm is in basis
     
         dm_ao        = np.dot( np.dot( ao2basis, dm ), ao2basis.T )
-        vj_ao, vk_ao = scf.hf.get_jk( mol_orig, dm_ao, hermi, vhfopt )
+        vj_ao, vk_ao = get_jk_ao (dm_ao, hermi)
         vj_basis     = np.dot( np.dot( ao2basis.T, vj_ao ), ao2basis )
         vk_basis     = np.dot( np.dot( ao2basis.T, vk_ao ), ao2basis )
         return vj_basis, vk_basis
     
     return my_jk
 
-def wrap_my_veff( mol_orig, ao2basis ): # mol_orig works in ao
+def wrap_my_veff (get_veff_ao, ao2basis ): 
 
     #get_veff(mol, dm, dm_last=0, vhf_last=0, hermi=1, vhfopt=None)
-    def my_veff( mol, dm, dm_last=0, vhf_last=0, hermi=1, vhfopt=None ): # mol works in basis, dm is in basis
+    def my_veff (mol, dm, dm_last=0, vhf_last=0, hermi=1): # mol works in basis, dm is in basis
         
-        ddm_basis    = np.array(dm, copy=False) - np.array(dm_last, copy=False)
-        ddm_ao       = np.dot( np.dot( ao2basis, ddm_basis ), ao2basis.T )
-        vj_ao, vk_ao = scf.hf.get_jk( mol_orig, ddm_ao, hermi, vhfopt )
-        veff_ao      = vj_ao - 0.5 * vk_ao
-        veff_basis   = np.dot( np.dot( ao2basis.T, veff_ao ), ao2basis ) + np.array( vhf_last, copy=False )
+        ddm_basis   = np.array(dm, copy=False) - np.array(dm_last, copy=False)
+        ddm_ao      = np.dot( np.dot( ao2basis, ddm_basis ), ao2basis.T )
+        if isinstance (dm_last, np.ndarray):
+            dm_last_ao  = np.dot( np.dot( ao2basis, dm_last ), ao2basis.T )
+        else:
+            dm_last_ao = dm_last
+        if isinstance (vhf_last, np.ndarray):
+            vhf_last_ao = np.dot( np.dot( ao2basis, vhf_last ), ao2basis.T )
+        else:
+            vhf_last_ao = vhf_last
+        veff_ao     = get_veff_ao (ddm_ao, dm_last_ao, vhf_last_ao, hermi)
+        veff_basis  = np.dot( np.dot( ao2basis.T, veff_ao ), ao2basis ) + np.array( vhf_last, copy=False )
         return veff_basis
         
     return my_veff
 
-def solve_JK( OEI, mol_orig, ao2basis, oneRDMguess_loc, numPairs):
+def solve_JK( OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks, get_veff_ao, get_jk_ao):
 
     mol = gto.Mole()
     mol.build(verbose=0)
@@ -129,8 +136,8 @@ def solve_JK( OEI, mol_orig, ao2basis, oneRDMguess_loc, numPairs):
     mf.get_hcore = lambda *args: OEI
     mf.get_ovlp = lambda *args: np.eye( L )
     mf._eri = None
-    mf.get_jk   = wrap_my_jk(   mol_orig, ao2basis )
-    mf.get_veff = wrap_my_veff( mol_orig, ao2basis )
+    mf.get_jk   = wrap_my_jk   (get_jk_ao, ao2basis)
+    #mf.get_veff = wrap_my_veff (get_veff_ao, ao2basis)
     mf.max_cycle = 500
     mf.damp = 0.33
     
@@ -141,6 +148,25 @@ def solve_JK( OEI, mol_orig, ao2basis, oneRDMguess_loc, numPairs):
         mf.kernel ( oneRDM_loc )
         oneRDM_loc = mf.make_rdm1 ()
     assert (mf.converged)
+
+    # Instability check and repeat
+    for i in range (num_mf_stab_checks):
+        mf.mo_coeff = mf.stability ()[0]
+        oneRDMguess_loc = mf.make_rdm1 ()
+        mf = scf.RHF( mol )
+        mf.get_hcore = lambda *args: OEI
+        mf.get_ovlp = lambda *args: np.eye( L )
+        mf._eri = None # ao2mo.restore(8, TEI, L)
+        mf._eri = None
+        mf.get_jk   = wrap_my_jk   (get_jk_ao, ao2basis)
+        #mf.get_veff = wrap_my_veff (get_veff_ao, ao2basis)
+        mf.verbose=0
+        mf.scf( oneRDMguess_loc )
+        oneRDM_loc = mf.make_rdm1 ()
+        if ( mf.converged == False ):
+            mf.newton ().kernel ( oneRDM_loc )
+            oneRDM_loc = mf.make_rdm1 () #np.dot(np.dot( mf.mo_coeff, np.diag( mf.mo_occ )), mf.mo_coeff.T )
+
     return oneRDM_loc
     
 def get_unfrozen_states (oneRDMfroz_loc):
