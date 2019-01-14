@@ -37,7 +37,7 @@ def project_civec_csf (detarr, norb, neleca, nelecb, smult, csd_mask=None):
     ndeta = special.comb (norb, neleca, exact=True)
     ndetb = special.comb (norb, nelecb, exact=True)
     ndet = ndeta*ndetb
-    assert (detarr.shape == tuple((ndeta,ndetb)) or detarr.shape == tuple((ndet,)))
+    assert (detarr.shape == tuple((ndeta,ndetb)) or detarr.shape == tuple((ndet,))), '{} {}'.format (detarr.shape, ndet)
     detarr = np.ravel (detarr, order='C')
         
     detarr = _transform_detcsf_vec_or_mat (detarr, norb, neleca, nelecb, smult, reverse=False, op_matrix=False, csd_mask=csd_mask, project=True)
@@ -206,7 +206,7 @@ def transform_opmat_det2csf (detarr, norb, neleca, nelecb, smult, csd_mask=None)
     ndeta = special.comb (norb, neleca, exact=True)
     ndetb = special.comb (norb, nelecb, exact=True)
     ndet = ndeta*ndetb
-    assert (detarr.shape == tuple((ndet,ndet)) or detarr.shape == tuple((ndet**2,)))
+    assert (detarr.shape == tuple((ndet,ndet)) or detarr.shape == tuple((ndet**2,))), "{} {} (({},{}),{})".format (detarr.shape, ndet, neleca, nelecb, norb)
     csfarr = _transform_detcsf_vec_or_mat (detarr, norb, neleca, nelecb, smult, reverse=False, op_matrix=True, csd_mask=csd_mask, project=False)
     return csfarr
 

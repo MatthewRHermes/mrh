@@ -73,7 +73,8 @@ class FCISolver (direct_spin1.FCISolver):
         neleca, nelecb = _unpack_nelec (self.nelec)
         self.check_mask_cache ()
         if isinstance(op, np.ndarray):
-            assert (isinstance (self.smult, (int, np.number)))
+            ''' OOPS (01/12/2019): this eig gets called for other things besides diagonalizing the whole damn operator matrix! 
+            I really just need to fix pspace '''
             self.converged = True
             op_csf = transform_opmat_det2csf (op, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)
             e, ci = scipy.linalg.eigh (op_csf)
