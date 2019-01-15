@@ -351,12 +351,107 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
     d = ['determinants','csfs']
     '''
     print (('Transforming {} into {} summary: {:.2f} seconds to get determinants,'
-            ' {:.2f} seconds to build umat, {:.2f} seconds matrix-vector multiplication,'
+            ' {:.2f} seconds to build umat, {:.2f} seconds matrix-vector multiplication,            ' {:.2f} MB largest umat').format (d[reverse], d[~reverse], time_getdet, time_umat,
             ' {:.2f} MB largest umat').format (d[reverse], d[~reverse], time_getdet, time_umat,
             time_mult, size_umat / 1e6))
     print ('Total time spend in _transform_det2csf: {:.2f} seconds'.format (time.time () - t_start))
     '''
     return outarr
+
+def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd_mask, econf_det_mask, econf_csf_mask):
+    ''' Transform and operator matrix from the determinant basis to the csf basis, in a subspace of determinants spanning
+        the electron configurations addressed by econfs
+
+    Args:
+        op: square ndarray
+            operator matrix in the determinant basis
+            the basis must be arranged in the order (econfs[0], det[0]), (econfs [0], det[1]), ...
+            (econfs[1], det[0]), ...
+            where det[n] is the nth configuration of spins compatible with a given spinless
+            electron configuration (i.e., a configuration with no singly-occupied orbitals has only 1 determinant, etc.)
+            It MUST include ALL determinants within each electron configuration given by econfs
+        econfs: ndarray of ints
+            addresses for electron configurations in the canonical order defined by csdstring.py
+            (NOT determinants, refers to strings like 2 2 1 2 0 0)
+        norb, neleca, nelecb, smult: ints
+            basic parameters: numbers of orbitals and electrons and 2s+1
+        csd_mask: ndarray of ints
+            csd_mask[idx_csd] = idx_dd
+        econf_det_mask: ndarray of ints
+            econf_det_mask[idx_dd] = idx_econf
+        econf_csf_mask: ndarray of ints
+            econf_det_mask[idx_csf] = idx_econf
+
+    Returns:
+        op: ndarray
+            In csf basis
+        csf_addrs: ndarray of ints
+            CI vector element addresses in CSF basis
+    '''
+
+    nconf_all = econfs.size ()
+    # I basically need to invert econf_det_mask and econf_csf_mask. I can't use argsort for this because their elements aren't unique
+    # csf_addrs needs to be sorted because I don't want to make a second reduced_csd_mask index for the csf-basis version (see below);
+    # just return the damn thing in the canonical order!
+    det_addrs = np.concatenate ([np.nonzero (econf_det_mask == conf)[0] for conf in econfs])
+    csf_addrs = np.sort (np.concatenate ([np.nonzero (econf_csf_mask == conf)[0] for conf in econfs]))
+    ndet_all = det_addrs.size
+    ncsf_all = csf_addrs.size
+    # econfs could have been provided in any order and defines the indexing of "op" (via det_addrs as generated above).
+    #   I need to generate a mask array to address the elements of "op"
+    #   in the "canonical" ordering (ipair, doubly-occupied string, singly-occupied string, and spin configuration)
+    #   that I developed in csd string but spanning only those configurations that are included in econfs.
+    #   The next line should accomplish this. np.argsort (mask) inverts a given mask index array (assuming its elements are unique).
+    #   So for instance, np.argsort (csd_mask)[det_addrs] gives you csd addresses.
+    #   Then np.argsort (np.argsort (csd_mask)[det_addrs])[csd_addrs] inverts it twice, and gives you determinant addresses,
+    #   but if det_addrs doesn't span the whole space, then csd_addrs can't either. In other words, the csd indices are compressed
+    #   and correspond to the elements of op.
+    reduced_csd_mask = np.argsort (np.argsort (csd_mask)[det_addrs])
+    assert (op.shape == (ndet_all, ndet_all)), "operator matrix shape problem ({} for det_addrs of size {})".format (op.shape, det_addrs.size)
+    min_npair, npair_csd_offset, npair_dconf_size, npair_sconf_size, npair_sdet_size = csdstring.get_csdaddrs_shape (norb, neleca, nelecb)
+    _, npair_csf_offset, _, _, npair_csf_size = get_csfvec_shape (norb, neleca, nelecb, smult)
+    npair_econf_size = npair_dconf_size * npair_sconf_size
+    max_npair = nelecb
+    csf_idx = np.zeros (ncsf_all, dtype=np.bool)
+    def ax_b (mat):
+        nrow = mat.shape[0]
+        assert (mat.shape[1] == ndet_all)
+        outmat = np.zeros ((nrow, ncsf_all), dtype=mat.dtype)
+        det_offset = 0
+        csf_offset = 0
+        full_conf_offset = 0
+        for npair in range (min_npair, max_npair+1):
+            ipair = npair - min_npair
+            nconf_full = npair_econf_reduced[ipair]
+            nconf = np.count_nonzero (np.isin (range (full_conf_offset, full_conf_offset+nconf_full), econfs))
+            full_conf_offset += nconf_full
+            ncsf = npair_csf_size[ipair]
+            ndet = npair_sdet_size[ipair]
+            if nconf == 0 or ncsf == 0 or ndet == 0:
+                continue
+            csf_offset = npair_reduced_csf_offset[ipair]
+            det_offset = npair_reduced_det_offset[ipair]
+
+            csf_idx[:] = False
+            csf_idx[csf_offset:csf_offset+nconf*ncsf] = True
+
+            det_idx = reduced_csd_mask[det_offset:det_offset+nconf*ndet].reshape (nconf, ndet, order='C')
+
+            umat = np.asarray_chkfinite (get_spin_evecs (nspin, neleca, nelecb, smult))
+
+            outmat[:,csf_idx] = np.tensordot (mat[:,det_idx], umat, axes=1).reshape (nrow, ncsf*nconf, order='C')
+
+            det_offset += nconf*ndet
+            csf_offset += nconf*ncsf
+
+        assert (det_offset == ndet_all), "{} {}".format (det_offset, ndet_all)
+        assert (csf_offset == ncsf_all), "{} {}".format (csf_offset, ncsf_all)
+        return outmat
+
+    op = ax_b (ax_b (op).conj ().T).conj ().T
+    return op, csf_addrs
+            
+
 
 def make_econf_csf_mask (norb, neleca, nelecb, smult):
     ''' Make a mask index matching csfs to electron configurations '''

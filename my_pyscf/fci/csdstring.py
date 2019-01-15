@@ -25,7 +25,9 @@ def check_csd_mask_size (norb, neleca, nelecb):
 
 def make_csd_mask (norb, neleca, nelecb):
     ''' Get a mask index to reorder a (flattened) CI vector matrix in terms of
-        (double_configuration, single_configuration, spin_configuration) '''
+        (double_configuration, single_configuration, spin_configuration) 
+
+    mask[idx_csd] = idx_dd '''
 
     t_start = time.time ()
     ndeta = int (special.comb (norb, neleca))
