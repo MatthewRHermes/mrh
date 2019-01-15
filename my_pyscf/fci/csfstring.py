@@ -389,7 +389,7 @@ def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd
             CI vector element addresses in CSF basis
     '''
 
-    nconf_all = econfs.size ()
+    nconf_all = econfs.size 
     # I basically need to invert econf_det_mask and econf_csf_mask. I can't use argsort for this because their elements aren't unique
     # csf_addrs needs to be sorted because I don't want to make a second reduced_csd_mask index for the csf-basis version (see below);
     # just return the damn thing in the canonical order!
@@ -420,23 +420,24 @@ def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd
         det_offset = 0
         csf_offset = 0
         full_conf_offset = 0
+        full_det_offset = 0
         for npair in range (min_npair, max_npair+1):
             ipair = npair - min_npair
-            nconf_full = npair_econf_reduced[ipair]
+            nconf_full = npair_econf_size[ipair]
             nconf = np.count_nonzero (np.isin (range (full_conf_offset, full_conf_offset+nconf_full), econfs))
             full_conf_offset += nconf_full
             ncsf = npair_csf_size[ipair]
             ndet = npair_sdet_size[ipair]
+            full_det_offset += nconf_full * ndet
             if nconf == 0 or ncsf == 0 or ndet == 0:
                 continue
-            csf_offset = npair_reduced_csf_offset[ipair]
-            det_offset = npair_reduced_det_offset[ipair]
 
             csf_idx[:] = False
             csf_idx[csf_offset:csf_offset+nconf*ncsf] = True
 
             det_idx = reduced_csd_mask[det_offset:det_offset+nconf*ndet].reshape (nconf, ndet, order='C')
-
+    
+            nspin = neleca + nelecb - 2*npair
             umat = np.asarray_chkfinite (get_spin_evecs (nspin, neleca, nelecb, smult))
 
             outmat[:,csf_idx] = np.tensordot (mat[:,det_idx], umat, axes=1).reshape (nrow, ncsf*nconf, order='C')
@@ -444,7 +445,7 @@ def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd
             det_offset += nconf*ndet
             csf_offset += nconf*ncsf
 
-        assert (det_offset == ndet_all), "{} {}".format (det_offset, ndet_all)
+        assert (full_det_offset == ndet_all), "{} {}".format (full_det_offset, ndet_all)
         assert (csf_offset == ncsf_all), "{} {}".format (csf_offset, ncsf_all)
         return outmat
 
