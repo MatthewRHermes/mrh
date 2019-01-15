@@ -1,8 +1,8 @@
 import numpy as np
 import scipy
-from pyscf.lib import logger, davidson1
+from pyscf import lib
 from pyscf.fci import direct_spin1, cistring
-from pyscf.fci.direct_spin1 import _unpack_nelec, _get_init_guess, kernel_ms1
+from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1
 from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask
 from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det, transform_opmat_det2csf, count_all_csfs, make_econf_csf_mask
 
@@ -33,28 +33,62 @@ class FCISolver (direct_spin1.FCISolver):
                nroots=None, davidson_only=None, pspace_size=None,
                orbsym=None, wfnsym=None, ecore=0, **kwargs):
         ''' Over the top of the existing kernel, I just need to set the parameters and cache values related to spin. '''
-        if self.verbose >= logger.WARN:
+        if self.verbose >= lib.logger.WARN:
             self.check_sanity()
         self.norb = norb
         self.nelec = nelec
-        neleca, nelecb = _unpack_nelec (nelec)
+        nelec = _unpack_nelec(nelec, self.spin)
+        neleca, nelecb = nelec
         if smult is not None:
             self.smult = smult
         self.check_mask_cache ()
+        hdiag = transform_civec_det2csf (self.make_hdiag(h1e, eri, norb, nelec), norb,
+            neleca, nelecb, self.smult, csd_mask=self.csd_mask, do_normalize=False)[0] 
+        nroots = min(hdiag.size, nroots)
+        ncsf = count_all_csfs (norb, neleca, nelecb, self.smult)
         if nroots is not None:
-            ncsf = count_all_csfs (norb, neleca, nelecb, self.smult)
             assert (ncsf >= nroots), "Can't find {} roots among only {} CSFs".format (nroots, ncsf)
+        link_indexa, link_indexb = _unpack(norb, nelec, None)
+        na = link_indexa.shape[0]
+        nb = link_indexb.shape[0]
+    
+        addr, h0 = self.pspace(h1e, eri, norb, nelec, hdiag, max(pspace_size,nroots))
+        if pspace_size > 0:
+            pw, pv = scipy.linalg.eigh (h0)
+        else:
+            pw = pv = None
+    
+        if pspace_size >= ncsf and ci0 is None and not davidson_only:
+            if ncsf == 1:
+                civec = transform_civec_csf2det (pv[:,0].reshape (1,1), norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)[0]
+                return pw[0]+ecore, civec
+            elif nroots > 1:
+                civec = numpy.empty((nroots,na*nb))
+                civec[:,addr] = pv[:,:nroots].T
+                civec = transform_civec_csf2det (civec, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)[0]
+                return pw[:nroots]+ecore, [c.reshape(na,nb) for c in civec]
+            elif abs(pw[0]-pw[1]) > 1e-12:
+                civec = numpy.empty((ncsf))
+                civec[addr] = pv[:,0]
+                civec = transform_civec_csf2det (civec, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)[0]
+                return pw[0]+ecore, civec.reshape(na,nb)
+    
+        precond = self.make_precond(hdiag, pw, pv, addr)
+        '''
         self.eci, self.ci = \
                 kernel_ms1(self, h1e, eri, norb, nelec, ci0, None,
                            tol, lindep, max_cycle, max_space, nroots,
                            davidson_only, pspace_size, ecore=ecore, **kwargs)
+        '''
         return self.eci, self.ci
 
 
+    '''
+    01/14/2019: Changing strategy; I'm now replacing the kernel and pspace functions instead of this
     def make_precond(self, hdiag, pspaceig, pspaceci, addr):
-        ''' I need to transform hdiag, pspaceci, and addr into the CSF basis
+        '' I need to transform hdiag, pspaceci, and addr into the CSF basis
         addr is trickiest. I match the determinant address to the electron configuration,
-        and from there match the electron configuration to the CSFs. '''
+        and from there match the electron configuration to the CSFs. ''
 
         norb, smult = self.norb, self.smult
         neleca, nelecb = _unpack_nelec (self.nelec)
@@ -66,8 +100,46 @@ class FCISolver (direct_spin1.FCISolver):
         addr = np.nonzero (np.isin (self.econf_csf_mask, np.unique (self.econf_det_mask[addr])))[0]
 
         return super().make_precond (hdiag, pspaceig, pspaceci, addr)
+    '''
 
-    def eig(self, op, x0=None, precond=None, **kwargs):
+    def pspace (self, h1e, eri, norb, nelec, hdiag=None, npsp=400):
+        if norb > 63:
+            raise NotImplementedError('norb > 63')
+    
+        neleca, nelecb = _unpack_nelec(nelec)
+        h1e = np.ascontiguousarray(h1e)
+        eri = ao2mo.restore(1, eri, norb)
+        nb = cistring.num_strings(norb, nelecb)
+        if hdiag is None:
+            hdiag = transform_civec_det2csf (self.make_hdiag(h1e, eri, norb, nelec), norb,
+                neleca, nelecb, self.smult, csd_mask=self.csd_mask, do_normalize=False)[0] 
+        if hdiag.size < npsp:
+            addr = np.arange(hdiag.size)
+        else:
+            try:
+                addr = np.argpartition(hdiag, npsp-1)[:npsp]
+            except AttributeError:
+                addr = np.argsort(hdiag)[:npsp]
+
+
+        addra, addrb = divmod(addr, nb)
+        stra = cistring.addrs2str(norb, neleca, addra)
+        strb = cistring.addrs2str(norb, nelecb, addrb)
+        npsp = len(addr)
+        h0 = np.zeros((npsp,npsp))
+        libfci.FCIpspace_h0tril(h0.ctypes.data_as(ctypes.c_void_p),
+                                h1e.ctypes.data_as(ctypes.c_void_p),
+                                eri.ctypes.data_as(ctypes.c_void_p),
+                                stra.ctypes.data_as(ctypes.c_void_p),
+                                strb.ctypes.data_as(ctypes.c_void_p),
+                                ctypes.c_int(norb), ctypes.c_int(npsp))
+    
+        for i in range(npsp):
+            h0[i,i] = hdiag[addr[i]]
+        h0 = lib.hermi_triu(h0)
+        return addr, h0
+
+    def eig (self, op, x0=None, precond=None, **kwargs):
         r''' op and x0 need to be put in the CSF basis. '''
         norb = self.norb
         neleca, nelecb = _unpack_nelec (self.nelec)
@@ -90,7 +162,7 @@ class FCISolver (direct_spin1.FCISolver):
         except AttributeError as e:
             x0_csf = lambda: transform_civec_det2csf (x0 (), norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)[0]
         self.converged, e, ci = \
-                davidson1(lambda xs: [op_csf(x) for x in xs],
+                lib.davidson1(lambda xs: [op_csf(x) for x in xs],
                               x0_csf, precond, lessio=self.lessio, **kwargs)
         ci = transform_civec_csf2det (ci, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)[0]
         if kwargs['nroots'] == 1:
@@ -116,6 +188,11 @@ class FCISolver (direct_spin1.FCISolver):
         return e, ci
     '''
 
+    def kernel(self, h1e, eri, norb, nelec, ci0=None,
+               tol=None, lindep=None, max_cycle=None, max_space=None,
+               nroots=None, davidson_only=None, pspace_size=None,
+               orbsym=None, wfnsym=None, ecore=0, **kwargs):
+
     def check_mask_cache (self):
         assert (isinstance (self.smult, (int, np.number)))
         neleca, nelecb = _unpack_nelec (self.nelec)
@@ -124,5 +201,3 @@ class FCISolver (direct_spin1.FCISolver):
             self.econf_det_mask = make_econf_det_mask (self.norb, neleca, nelecb, self.csd_mask)
             self.econf_csf_mask = make_econf_csf_mask (self.norb, neleca, nelecb, self.smult)
             self.mask_cache = [self.norb, neleca, nelecb, self.smult]
-            
-
