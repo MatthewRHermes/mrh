@@ -7,6 +7,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.fci.direct_spin1_symm import _gen_strs_irrep, _id_wfnsym
 from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, pretty_ddaddrs
 from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det, transform_opmat_det2csf, count_all_csfs, make_econf_csf_mask
+from mrh.my_pyscf.fci.csf import pspace, kernel
 
 def make_confsym (norb, neleca, nelecb, econf_det_mask, orbsym):
     strsa = cistring.gen_strings4orblist(range(norb), neleca)
