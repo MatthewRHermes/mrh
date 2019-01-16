@@ -445,7 +445,7 @@ def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd
             det_offset += nconf*ndet
             csf_offset += nconf*ncsf
 
-        assert (full_det_offset == ndet_all), "{} {}".format (full_det_offset, ndet_all)
+        assert (det_offset <= ndet_all), "{} {}".format (det_offset, ndet_all) # Can be less because npair < min_npair corresponds to some dets that are skipped
         assert (csf_offset == ncsf_all), "{} {}".format (csf_offset, ncsf_all)
         return outmat
 
