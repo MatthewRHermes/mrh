@@ -1,7 +1,7 @@
 import numpy as np
 import scipy
 import ctypes
-from pyscf import lib, ao2mo
+from pyscf import lib, ao2mo, __config__
 from pyscf.fci import direct_spin1, cistring
 from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1, make_hdiag
 from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, get_nspin_dets, get_csdaddrs_shape, pretty_csdaddrs
@@ -43,6 +43,7 @@ def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None)
         else:
             det_addr = csd_mask[csd_offset:][:nconf*ndet].reshape (nconf, ndet, order='C')
         if ndet == 1:
+            # Closed-shell singlets
             assert (ncsf == 1)
             hdiag_csf[csf_offset:][:nconf] = hdiag_det[det_addr.flat]
             hdiag_csf_check[csf_offset:][:nconf] = False
@@ -76,6 +77,8 @@ class FCISolver (direct_spin1.FCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
     out in the CSF basis. However, the ci attribute is put in the determinant basis at the end of it all, and "ci0" is also assumed
     to be in the determinant basis.'''
+
+    pspace_size = getattr(__config__, 'fci_csf_FCI_pspace_size', 200)
 
     def __init__(self, mol=None, smult=None):
         self.smult = smult
@@ -129,8 +132,8 @@ class FCISolver (direct_spin1.FCISolver):
         na = link_indexa.shape[0]
         nb = link_indexb.shape[0]
     
-        addr, h0 = self.pspace(h1e, eri, norb, nelec, hdiag_det, max(pspace_size,nroots))
-        lib.logger.debug (self, 'csf_solver.kernel: error of hdiag_csf: %s', scipy.linalg.norm (hdiag_csf[addr]-np.diag (h0)))
+        addr, h0 = self.pspace(h1e, eri, norb, nelec, hdiag_det=hdiag_det, hdiag_csf=hdiag_csf, npsp=max(pspace_size,nroots))
+        lib.logger.debug (self, 'csf_solver.kernel: error of hdiag_csf: %s', np.amax (np.abs (hdiag_csf[addr]-np.diag (h0))))
         if pspace_size > 0:
             pw, pv = scipy.linalg.eigh (h0)
         else:
@@ -209,10 +212,11 @@ class FCISolver (direct_spin1.FCISolver):
     01/14/2019: Changing strategy; I'm now replacing the kernel and pspace functions instead of make_precond and eig
     '''
 
-    def pspace (self, h1e, eri, norb, nelec, hdiag=None, npsp=400):
-        ''' npsp will be taken as the minimum number of determinants to include
-        the actual number of determinants included in pspace will be determined
-        to span the electron configurations of the npsp lowest-energy determinants '''
+    def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200):
+        ''' Note that getting pspace for npsp CSFs is substantially more costly than getting it for npsp determinants,
+        until I write code than can evaluate Hamiltonian matrix elements of CSFs directly. On the other hand
+        a pspace of determinants contains many redundant degrees of freedom for the same reason. Therefore I have
+        reduced the default pspace size by a factor of 2.'''
         if norb > 63:
             raise NotImplementedError('norb > 63')
     
@@ -221,44 +225,44 @@ class FCISolver (direct_spin1.FCISolver):
         eri = ao2mo.restore(1, eri, norb)
         nb = cistring.num_strings(norb, nelecb)
         self.check_mask_cache ()
-        if hdiag is None:
-            self.make_hdiag(h1e, eri, norb, nelec)
-        if hdiag.size < npsp:
-            addr = np.arange(hdiag.size)
+        if hdiag_det is None:
+            hdiag_det = self.make_hdiag(h1e, eri, norb, nelec)
+        if hdiag_csf is None:
+            hdiag_csf = self.make_hdiag_csf(h1e, eri, norb, nelec, hdiag_det=hdiag_det)
+        if hdiag_csf.size < npsp:
+            csf_addr = np.arange(hdiag_csf.size)
         else:
             try:
-                addr = np.argpartition(hdiag, npsp-1)[:npsp]
+                csf_addr = np.argpartition(hdiag_csf, npsp-1)[:npsp]
             except AttributeError:
-                addr = np.argsort(hdiag)[:npsp]
+                csf_addr = np.argsort(hdiag_csf)[:npsp]
 
-        # Now make sure that the addrs span full electron configurations
-        addr_econfs = np.unique (self.econf_det_mask[addr])
-        addr = np.concatenate ([np.nonzero (self.econf_det_mask == conf)[0] for conf in addr_econfs])
-        lib.logger.debug (self, ("csf_solver.pspace: Lowest-energy %s determinants correspond to %s configurations"
-            " which are spanned by %s determinants"), npsp, addr_econfs.size, addr.size)
+        # To build 
+        econf_addr = np.unique (self.econf_csf_mask[csf_addr])
+        det_addr = np.concatenate ([np.nonzero (self.econf_det_mask == conf)[0] for conf in econf_addr])
+        lib.logger.debug (self, ("csf_solver.pspace: Lowest-energy %s CSFs correspond to %s configurations"
+            " which are spanned by %s determinants"), npsp, econf_addr.size, det_addr.size)
 
-        addra, addrb = divmod(addr, nb)
+        addra, addrb = divmod(det_addr, nb)
         stra = cistring.addrs2str(norb, neleca, addra)
         strb = cistring.addrs2str(norb, nelecb, addrb)
-        npsp = len(addr)
-        h0 = np.zeros((npsp,npsp))
+        npsp_det = len(det_addr)
+        h0 = np.zeros((npsp_det,npsp_det))
         libfci.FCIpspace_h0tril(h0.ctypes.data_as(ctypes.c_void_p),
                                 h1e.ctypes.data_as(ctypes.c_void_p),
                                 eri.ctypes.data_as(ctypes.c_void_p),
                                 stra.ctypes.data_as(ctypes.c_void_p),
                                 strb.ctypes.data_as(ctypes.c_void_p),
-                                ctypes.c_int(norb), ctypes.c_int(npsp))
+                                ctypes.c_int(norb), ctypes.c_int(npsp_det))
     
-        for i in range(npsp):
-            h0[i,i] = hdiag[addr[i]]
+        for i in range(npsp_det):
+            h0[i,i] = hdiag_det[det_addr[i]]
         h0 = lib.hermi_triu(h0)
 
         if self.verbose >= lib.logger.DEBUG: evals_before = scipy.linalg.eigh (h0)[0]
 
-        h0, csf_addr = transform_opmat_det2csf_pspace (h0, addr_econfs, norb, neleca, nelecb, self.smult,
+        h0, csf_addr = transform_opmat_det2csf_pspace (h0, econf_addr, norb, neleca, nelecb, self.smult,
             self.csd_mask, self.econf_det_mask, self.econf_csf_mask) 
-
-        lib.logger.debug (self, "csf_solver.pspace: pspace of %s configurations corresponds to %s CSFs", addr_econfs.size, csf_addr.size)
 
         if self.verbose >= lib.logger.DEBUG:
             lib.logger.debug2 (self, "csf_solver.pspace: eigenvalues of h0 before transformation %s", evals_before)
@@ -267,8 +271,19 @@ class FCISolver (direct_spin1.FCISolver):
             idx = [np.argmin (np.abs (evals_before - ev)) for ev in evals_after]
             resid = evals_after - evals_before[idx]
             lib.logger.debug2 (self, "csf_solver.pspace: best h0 eigenvalue matching differences after transformation: %s", resid)
-            lib.logger.debug (self, "csf_solver.pspace: if the transformation of h0 worked the following number will be zero: %s", scipy.linalg.norm (resid))
-                
+            lib.logger.debug (self, "csf_solver.pspace: if the transformation of h0 worked the following number will be zero: %s", np.max (np.abs(resid)))
+
+        # We got extra CSFs from building the configurations most of the time.
+        if csf_addr.size > npsp:
+            try:
+                csf_addr_2 = np.argpartition(np.diag (h0), npsp-1)[:npsp]
+            except AttributeError:
+                csf_addr_2 = np.argsort(np.diag (h0))[:npsp]
+            csf_addr = csf_addr[csf_addr_2]
+            h0 = h0[np.ix_(csf_addr_2,csf_addr_2)]
+        npsp_csf = csf_addr.size
+        lib.logger.debug (self, "csf_solver.pspace: asked for %s-CSF pspace; found %s CSFs", npsp, npsp_csf)
+
         return csf_addr, h0
 
 
