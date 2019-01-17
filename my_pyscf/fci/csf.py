@@ -12,6 +12,75 @@ from mrh.my_pyscf.fci.csfstring import get_csfvec_shape
 
 libfci = lib.load_library('libfci')
 
+def unpack_sym_ci (ci, idx, vec_on_cols=False):
+    if idx is None: return ci
+    tot_len = idx.size
+    sym_len = np.count_nonzero (idx)
+    if isinstance (ci, list) or isinstance (ci, tuple):
+        assert (ci[0].size == sym_len), '{} {}'.format (ci[0].size, sym_len)
+        dummy = np.zeros ((len (ci), tot_len), dtype=ci[0].dtype)
+        dummy[:,idx] = np.asarray (ci)[:,:]
+        if isinstance (ci, list):
+            ci = list (dummy)
+        else:
+            ci = tuple (dummy)
+        return ci
+    elif ci.ndim == 2:
+        if vec_on_cols:
+                ci = ci.T
+        assert (ci.shape[1] == sym_len), '{} {}'.format (ci.shape, sym_len)
+        dummy = np.zeros ((ci.shape[0], tot_len), dtype=ci.dtype)
+        dummy[:,idx] = ci
+        if vec_on_cols:
+            dummy = dummy.T
+        return dummy
+    else:
+        assert (ci.ndim == 1), ci.ndim
+        dummy = np.zeros (tot_len, dtype=ci.dtype)
+        dummy[idx] = ci
+        return dummy
+
+def pack_sym_ci (ci, idx, vec_on_cols=False):
+    if idx is None: return ci
+    tot_len = idx.size
+    sym_len = np.count_nonzero (idx)
+    if isinstance (ci, list) or isinstance (ci, tuple):
+        assert (ci[0].size == tot_len), '{} {}'.format (ci[0].size, tot_len)
+        dummy = np.asarray (ci)[:,idx]
+        if isinstance (ci, list):
+            ci = list (dummy)
+        else:
+            ci = tuple (dummy)
+        return ci
+    elif ci.ndim == 2:
+        if vec_on_cols:
+            ci = ci.T
+        assert (ci.shape[1] == tot_len), '{} {}'.format (ci.shape, tot_len)
+        dummy = ci[:,idx]
+        if vec_on_cols:
+            dummy = dummy.T
+        return dummy
+    else:
+        assert (ci.ndim == 1)
+        return ci[idx]
+
+def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=None, idx_sym=None):
+    ''' The existing _get_init_guess function will work in the csf basis if I pass it with na, nb = ncsf, 1. This might change in future PySCF versions though. 
+
+    ...For point-group symmetry, I pass the direct_spin1.py version of _get_init_guess with na, nb = ncsf_sym, 1 and hdiag_csf including only csfs of the right point-group symmetry.
+    This should clean up the symmetry-breaking "noise" in direct_spin1_symm.py! '''
+    neleca, nelecb = _unpack_nelec (nelec)
+    ncsf_tot = count_all_csfs (norb, neleca, nelecb, smult)
+    if idx_sym is None:
+        ncsf_sym = ncsf_tot
+    else:
+        ncsf_sym = np.count_nonzero (idx_sym)
+    assert (ncsf_sym >= nroots), "Can't find {} roots among only {} CSFs of symmetry {}".format (nroots, ncsf_sym, wfnsym_str)
+    ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf[idx_sym])
+    ci = unpack_sym_ci (ci, idx_sym)
+    ci = transform_civec_csf2det (ci, norb, neleca, nelecb, smult, csd_mask=csd_mask)[0]
+    return ci
+
 def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
     if hdiag_det is None:
         hdiag_det = make_hdiag (h1e, eri, norb, nelec)
@@ -89,10 +158,13 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
         hdiag_det = fci.make_hdiag(h1e, eri, norb, nelec)
     if hdiag_csf is None:
         hdiag_csf = fci.make_hdiag_csf(h1e, eri, norb, nelec, hdiag_det=hdiag_det)
+    csf_addr = np.arange (hdiag_csf.size, dtype=np.int)
     if idx_sym is None:
-        idx_sym = np.ones (hdiag_csf.size, dtype=np.bool)
-    csf_addr = np.arange (hdiag_csf.size, dtype=np.int)[idx_sym]
-    if np.count_nonzero (idx_sym) > npsp:
+        ncsf_sym = hdiag_csf.size
+    else:
+        ncsf_sym = np.count_nonzero (idx_sym)
+        csf_addr = csf_addr[idx_sym]
+    if ncsf_sym > npsp:
         try:
             csf_addr = csf_addr[np.argpartition(hdiag_csf[csf_addr], npsp-1)[:npsp]]
         except AttributeError:
@@ -166,8 +238,9 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     hdiag_csf = fci.make_hdiag_csf (h1e, eri, norb, nelec, hdiag_det=hdiag_det)
     ncsf_all = count_all_csfs (norb, neleca, nelecb, smult)
     if idx_sym is None:
-        idx_sym = np.ones (ncsf_all, dtype=np.bool)
-    ncsf_sym = np.count_nonzero (idx_sym)
+        ncsf_sym = ncsf_all
+    else:
+        ncsf_sym = np.count_nonzero (idx_sym)
     nroots = min(ncsf_sym, nroots)
     if nroots is not None:
         assert (ncsf_sym >= nroots), "Can't find {} roots among only {} CSFs".format (nroots, ncsf_sym)
@@ -184,8 +257,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
 
     if pspace_size >= ncsf_sym and not davidson_only:
         if ncsf_sym == 1:
-            civec = np.zeros (ncsf_all, dtype=np.float64) 
-            civec[idx_sym] = pv[:,0].reshape (1,1)
+            civec = unpack_sym_ci (pv[:,0].reshape (1,1), idx_sym)
             civec = transform_civec_csf2det (civec, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
             return pw[0]+ecore, civec
         elif nroots > 1:
@@ -199,7 +271,12 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
             civec = transform_civec_csf2det (civec, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
             return pw[0]+ecore, civec.reshape(na,nb)
 
-    precond = fci.make_precond(hdiag_csf, pw, pv, addr)
+    if idx_sym is None:
+        precond = fci.make_precond(hdiag_csf, pw, pv, addr)
+    else:
+        addr_bool = np.zeros (ncsf_all, dtype=np.bool)
+        addr_bool[addr] = True
+        precond = fci.make_precond(hdiag_csf[idx_sym], pw, pv, addr_bool[idx_sym])
     '''
     fci.eci, fci.ci = \
             kernel_ms1(fci, h1e, eri, norb, nelec, ci0, None,
@@ -207,28 +284,18 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
                        davidson_only, pspace_size, ecore=ecore, **kwargs)
     '''
     h2e = fci.absorb_h1e(h1e, eri, norb, nelec, .5)
-    def hop_nosym(x):
-        x_det = transform_civec_csf2det (x, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
+    def hop(x):
+        x_det = transform_civec_csf2det (unpack_sym_ci (x, idx_sym), norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
         hx = fci.contract_2e(h2e, x_det, norb, nelec, (link_indexa,link_indexb))
         hx = transform_civec_det2csf (hx, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask, do_normalize=False)[0]
-        return hx.ravel()
-    hop = hop_nosym
-    if ncsf_sym < ncsf_all:
-        def hop_sym (x):
-            # Memory wastage
-            x_csf = np.zeros (ncsf_all, dtype=x.dtype)
-            x_csf[idx_sym] = x
-            x_csf = hop_nosym (x_csf)
-            return (x_csf[idx_sym])
-        hop = hop_sym
+        return pack_sym_ci (hx, idx_sym).ravel()
 
     if ci0 is None:
         if hasattr(fci, 'get_init_guess'):
             def ci0 ():
-                x0 = transform_civec_det2csf (fci.get_init_guess(norb, nelec, nroots, hdiag_det), 
+                x0 = transform_civec_det2csf (fci.get_init_guess(norb, nelec, nroots, hdiag_csf), 
                     norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
-                x0 = [x[idx_sym] for x in x0]
-                return x0
+                return pack_sym_ci (x0, idx_sym)
                     
         else:
             def ci0():  # lazy initialization to reduce memory footprint
@@ -240,11 +307,12 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
                 return x0
     else:
         if isinstance(ci0, np.ndarray) and ci0.size == na*nb:
-            ci0 = [transform_civec_det2csf (ci0.ravel (), norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]]
+            ci0 = pack_sym_ci ([transform_civec_det2csf (ci0.ravel (), norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]], idx_sym)
         else:
-            ci0 = np.asarray (ci0)
-            ci0 = ci0.reshape (ci0.shape[0], na*nb)
-            ci0 = [x for x in transform_civec_det2csf (ci0, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask, vec_on_cols=False)[0]]
+            nrow = len (ci0)
+            ci0 = np.asarray (ci0).reshape (nrow, -1, order='C')
+            ci0 = np.ascontiguousarray (ci0)
+            ci0 = pack_sym_ci (transform_civec_det2csf (ci0, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0], idx_sym)
 
     if tol is None: tol = fci.conv_tol
     if lindep is None: lindep = fci.lindep
@@ -259,9 +327,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
                        max_cycle=max_cycle, max_space=max_space, nroots=nroots,
                        max_memory=max_memory, verbose=verbose, follow_state=True,
                        tol_residual=tol_residual, **kwargs)
-    ci = np.zeros ((nroots, ncsf_all), dtype=np.asarray (c).dtype)
-    ci[:,idx_sym] = np.asarray (c)
-    c = transform_civec_csf2det (ci, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask, vec_on_cols=False)[0]
+    c = transform_civec_csf2det (unpack_sym_ci (c, idx_sym), norb, neleca, nelecb, smult, csd_mask=fci.csd_mask, vec_on_cols=False)[0]
     if nroots > 1:
         return e+ecore, [ci.reshape(na,nb) for ci in c]
     else:
@@ -280,22 +346,14 @@ class FCISolver (direct_spin1.FCISolver):
         self.mask_cache = [0, 0, 0, 0]
         super().__init__(mol)
 
-    def get_init_guess(self, norb, nelec, nroots, hdiag):
-        ''' The existing _get_init_guess function will work in the csf basis if I pass it with na, nb = ncsf, 1. This might change in future PySCF versions though. '''
-        neleca, nelecb = _unpack_nelec (nelec)
+    def get_init_guess(self, norb, nelec, nroots, hdiag_csf):
         self.check_mask_cache ()
-        hdiag_csf = transform_civec_det2csf (hdiag, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask, do_normalize=False)[0]
-        ncsf = count_all_csfs (norb, neleca, nelecb, self.smult)
-        assert (ncsf >= nroots), "Can't find {} roots among only {} CSFs".format (nroots, ncsf)
-        ci_csf = _get_init_guess (ncsf, 1, nroots, hdiag_csf)
-        ci = transform_civec_csf2det (ci_csf, norb, neleca, nelecb, self.smult, csd_mask=self.csd_mask)[0]
-        return ci
+        return get_init_guess (norb, nelec, nroots, hdiag_csf, smult=self.smult, csd_mask=self.csd_mask,
+            wfnsym_str=None, idx_sym=None)
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
         self.check_mask_cache ()
         return make_hdiag_csf (h1e, eri, norb, nelec, self.smult, csd_mask=self.csd_mask, hdiag_det=hdiag_det)
-
-
 
     '''
     01/14/2019: Changing strategy; I'm now replacing the kernel and pspace functions instead of make_precond and eig
@@ -308,18 +366,16 @@ class FCISolver (direct_spin1.FCISolver):
             econf_det_mask=self.econf_det_mask, econf_csf_mask=self.econf_csf_mask)
         
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
-           #ci0=None, smult=None,
-           #tol=None, lindep=None, max_cycle=None, max_space=None,
-           #nroots=None, davidson_only=None, pspace_size=None, max_memory=None,
-           #orbsym=None, wfnsym=None, ecore=0, **kwargs):
         self.norb = norb
         self.nelec = nelec
         if 'smult' in kwargs:
             self.smult = kwargs['smult']
             kwargs.pop ('smult')
         self.check_mask_cache ()
-        return kernel (self, h1e, eri, norb, nelec, smult=self.smult,
+        e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult,
             idx_sym=None, ci0=ci0, **kwargs)
+        self.eci, self.ci = e, c
+        return e, c
 
     def check_mask_cache (self):
         assert (isinstance (self.smult, (int, np.number)))
