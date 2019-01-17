@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 import ctypes
+import time
 from pyscf import lib, ao2mo, __config__
 from pyscf.fci import direct_spin1, cistring
 from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1, make_hdiag
@@ -82,6 +83,8 @@ def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=N
     return ci
 
 def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
+    ''' This is tricky because I need the diagonal blocks for each configuration in order to get
+    the correct csf hdiag values, not just the diagonal elements for each determinant. '''
     if hdiag_det is None:
         hdiag_det = make_hdiag (h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
@@ -108,9 +111,9 @@ def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None)
         csf_offset = npair_csf_offset[ipair]
         hdiag_conf = np.ascontiguousarray (np.zeros ((nconf, ndet, ndet), dtype=np.float64))
         if csd_mask is None:
-            det_addr = get_nspin_dets (norb, neleca, nelecb, nspin)
+            det_addr = get_nspin_dets (norb, neleca, nelecb, nspin).ravel (order = 'C')
         else:
-            det_addr = csd_mask[csd_offset:][:nconf*ndet].reshape (nconf, ndet, order='C')
+            det_addr = csd_mask[csd_offset:][:nconf*ndet]
         if ndet == 1:
             # Closed-shell singlets
             assert (ncsf == 1)
@@ -118,20 +121,30 @@ def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None)
             hdiag_csf_check[csf_offset:][:nconf] = False
             continue
         umat = get_spin_evecs (nspin, neleca, nelecb, smult)
+        det_addra, det_addrb = divmod (det_addr, ndetb_all)
+        det_stra = cistring.addrs2str (norb, neleca, det_addra).reshape (nconf, ndet, order='C')
+        det_strb = cistring.addrs2str (norb, nelecb, det_addrb).reshape (nconf, ndet, order='C')
+        det_addr = det_addr.reshape (nconf, ndet, order='C')
+        diag_idx = np.diag_indices (ndet)
         ipair_check = 0
+        # I would usually consider this to be way too large of a loop to explicitly have in python code.
+        # I can't multithread over configurations the way this is currently written. On the other hand,
+        # there may eventually be situations where it makes more sense to multithread over determinants
+        # instead of configurations (seems I can't easily do both). It'll depend on which is larger:
+        # the number of configurations? Or the number of lower-triangular Hamiltonian matrix elements
+        # for a single configuration?
         for iconf in range (nconf):
             addr = det_addr[iconf]
             assert (len (addr) == ndet)
-            addra, addrb = divmod (addr, ndetb_all)
-            stra = cistring.addrs2str(norb, neleca, addra).astype (np.uint64)
-            strb = cistring.addrs2str(norb, nelecb, addrb).astype (np.uint64)
+            stra = det_stra[iconf]
+            strb = det_strb[iconf]
             libfci.FCIpspace_h0tril(hdiag_conf[iconf].ctypes.data_as(ctypes.c_void_p),
                 h1e.ctypes.data_as(ctypes.c_void_p),
                 eri.ctypes.data_as(ctypes.c_void_p),
                 stra.ctypes.data_as(ctypes.c_void_p),
                 strb.ctypes.data_as(ctypes.c_void_p),
                 ctypes.c_int(norb), ctypes.c_int(ndet))
-            hdiag_conf[iconf][np.diag_indices (ndet)] = hdiag_det[addr]
+            hdiag_conf[iconf][diag_idx] = hdiag_det[addr]
             hdiag_conf[iconf] = lib.hermi_triu(hdiag_conf[iconf])
 
         hdiag_conf = np.tensordot (hdiag_conf, umat, axes=1)
@@ -150,6 +163,7 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
     if norb > 63:
         raise NotImplementedError('norb > 63')
 
+    t0 = (time.clock (), time.time ())
     neleca, nelecb = _unpack_nelec(nelec)
     h1e = np.ascontiguousarray(h1e)
     eri = ao2mo.restore(1, eri, norb)
@@ -173,7 +187,7 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
     # To build 
     econf_addr = np.unique (econf_csf_mask[csf_addr])
     det_addr = np.concatenate ([np.nonzero (econf_det_mask == conf)[0] for conf in econf_addr])
-    lib.logger.debug (fci, ("csf_solver.pspace: Lowest-energy %s CSFs correspond to %s configurations"
+    lib.logger.debug (fci, ("csf.pspace: Lowest-energy %s CSFs correspond to %s configurations"
         " which are spanned by %s determinants"), npsp, econf_addr.size, det_addr.size)
 
     addra, addrb = divmod(det_addr, nb)
@@ -181,12 +195,14 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
     strb = cistring.addrs2str(norb, nelecb, addrb)
     npsp_det = len(det_addr)
     h0 = np.zeros((npsp_det,npsp_det))
+    t0 = lib.logger.timer (fci, "csf.pspace: index manipulation", *t0)
     libfci.FCIpspace_h0tril(h0.ctypes.data_as(ctypes.c_void_p),
                             h1e.ctypes.data_as(ctypes.c_void_p),
                             eri.ctypes.data_as(ctypes.c_void_p),
                             stra.ctypes.data_as(ctypes.c_void_p),
                             strb.ctypes.data_as(ctypes.c_void_p),
                             ctypes.c_int(norb), ctypes.c_int(npsp_det))
+    t0 = lib.logger.timer (fci, "csf.pspace: pspace Hamiltonian in determinant basis", *t0)
 
     for i in range(npsp_det):
         h0[i,i] = hdiag_det[det_addr[i]]
@@ -196,15 +212,16 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
 
     h0, csf_addr = transform_opmat_det2csf_pspace (h0, econf_addr, norb, neleca, nelecb, smult,
         csd_mask, econf_det_mask, econf_csf_mask) 
+    t0 = lib.logger.timer (fci, "csf.pspace: transform pspace Hamiltonian into CSF basis", *t0)
 
     if fci.verbose >= lib.logger.DEBUG:
-        lib.logger.debug2 (fci, "csf_solver.pspace: eigenvalues of h0 before transformation %s", evals_before)
+        lib.logger.debug2 (fci, "csf.pspace: eigenvalues of h0 before transformation %s", evals_before)
         evals_after = scipy.linalg.eigh (h0)[0]
-        lib.logger.debug2 (fci, "csf_solver.pspace: eigenvalues of h0 after transformation %s", evals_after)
+        lib.logger.debug2 (fci, "csf.pspace: eigenvalues of h0 after transformation %s", evals_after)
         idx = [np.argmin (np.abs (evals_before - ev)) for ev in evals_after]
         resid = evals_after - evals_before[idx]
-        lib.logger.debug2 (fci, "csf_solver.pspace: best h0 eigenvalue matching differences after transformation: %s", resid)
-        lib.logger.debug (fci, "csf_solver.pspace: if the transformation of h0 worked the following number will be zero: %s", np.max (np.abs(resid)))
+        lib.logger.debug2 (fci, "csf.pspace: best h0 eigenvalue matching differences after transformation: %s", resid)
+        lib.logger.debug (fci, "csf.pspace: if the transformation of h0 worked the following number will be zero: %s", np.max (np.abs(resid)))
 
     # We got extra CSFs from building the configurations most of the time.
     if csf_addr.size > npsp:
@@ -217,12 +234,14 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
     npsp_csf = csf_addr.size
     lib.logger.debug (fci, "csf_solver.pspace: asked for %s-CSF pspace; found %s CSFs", npsp, npsp_csf)
 
+    t0 = lib.logger.timer (fci, "csf.pspace wrapup", *t0)
     return csf_addr, h0
 
 def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
            tol=None, lindep=None, max_cycle=None, max_space=None,
            nroots=None, davidson_only=None, pspace_size=None, max_memory=None,
            orbsym=None, wfnsym=None, ecore=0, **kwargs):
+    t0 = (time.clock (), time.time ())
     if 'verbose' in kwargs:
         verbose = kwargs['verbose']
         kwargs.pop ('verbose')
@@ -234,8 +253,11 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     if davidson_only is None: davidson_only = fci.davidson_only
     nelec = _unpack_nelec(nelec, fci.spin)
     neleca, nelecb = nelec
+    t0 = lib.logger.timer (fci, "csf.kernel: throat-clearing", *t0)
     hdiag_det = fci.make_hdiag (h1e, eri, norb, nelec)
+    t0 = lib.logger.timer (fci, "csf.kernel: hdiag_det", *t0)
     hdiag_csf = fci.make_hdiag_csf (h1e, eri, norb, nelec, hdiag_det=hdiag_det)
+    t0 = lib.logger.timer (fci, "csf.kernel: hdiag_csf", *t0)
     ncsf_all = count_all_csfs (norb, neleca, nelecb, smult)
     if idx_sym is None:
         ncsf_sym = ncsf_all
@@ -248,8 +270,10 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     na = link_indexa.shape[0]
     nb = link_indexb.shape[0]
 
+    t0 = lib.logger.timer (fci, "csf.kernel: throat-clearing", *t0)
     addr, h0 = fci.pspace(h1e, eri, norb, nelec, idx_sym=idx_sym, hdiag_det=hdiag_det, hdiag_csf=hdiag_csf, npsp=max(pspace_size,nroots))
-    lib.logger.debug (fci, 'csf_solver.kernel: error of hdiag_csf: %s', np.amax (np.abs (hdiag_csf[addr]-np.diag (h0))))
+    lib.logger.debug (fci, 'csf.kernel: error of hdiag_csf: %s', np.amax (np.abs (hdiag_csf[addr]-np.diag (h0))))
+    t0 = lib.logger.timer (fci, "csf.kernel: make pspace", *t0)
     if pspace_size > 0:
         pw, pv = fci.eig (h0)
     else:
@@ -271,12 +295,14 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
             civec = transform_civec_csf2det (civec, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
             return pw[0]+ecore, civec.reshape(na,nb)
 
+    t0 = lib.logger.timer (fci, "csf.kernel: throat-clearing", *t0)
     if idx_sym is None:
         precond = fci.make_precond(hdiag_csf, pw, pv, addr)
     else:
         addr_bool = np.zeros (ncsf_all, dtype=np.bool)
         addr_bool[addr] = True
         precond = fci.make_precond(hdiag_csf[idx_sym], pw, pv, addr_bool[idx_sym])
+    t0 = lib.logger.timer (fci, "csf.kernel: make preconditioner", *t0)
     '''
     fci.eci, fci.ci = \
             kernel_ms1(fci, h1e, eri, norb, nelec, ci0, None,
@@ -284,12 +310,14 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
                        davidson_only, pspace_size, ecore=ecore, **kwargs)
     '''
     h2e = fci.absorb_h1e(h1e, eri, norb, nelec, .5)
+    t0 = lib.logger.timer (fci, "csf.kernel: h2e", *t0)
     def hop(x):
         x_det = transform_civec_csf2det (unpack_sym_ci (x, idx_sym), norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
         hx = fci.contract_2e(h2e, x_det, norb, nelec, (link_indexa,link_indexb))
         hx = transform_civec_det2csf (hx, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask, do_normalize=False)[0]
         return pack_sym_ci (hx, idx_sym).ravel()
 
+    t0 = lib.logger.timer (fci, "csf.kernel: make hop", *t0)
     if ci0 is None:
         if hasattr(fci, 'get_init_guess'):
             def ci0 ():
@@ -313,6 +341,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
             ci0 = np.asarray (ci0).reshape (nrow, -1, order='C')
             ci0 = np.ascontiguousarray (ci0)
             ci0 = pack_sym_ci (transform_civec_det2csf (ci0, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0], idx_sym)
+    t0 = lib.logger.timer (fci, "csf.kernel: ci0 handling", *t0)
 
     if tol is None: tol = fci.conv_tol
     if lindep is None: lindep = fci.lindep
@@ -327,7 +356,9 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
                        max_cycle=max_cycle, max_space=max_space, nroots=nroots,
                        max_memory=max_memory, verbose=verbose, follow_state=True,
                        tol_residual=tol_residual, **kwargs)
+    t0 = lib.logger.timer (fci, "csf.kernel: running fci.eig", *t0)
     c = transform_civec_csf2det (unpack_sym_ci (c, idx_sym), norb, neleca, nelecb, smult, csd_mask=fci.csd_mask, vec_on_cols=False)[0]
+    t0 = lib.logger.timer (fci, "csf.kernel: transforming final ci vector", *t0)
     if nroots > 1:
         return e+ecore, [ci.reshape(na,nb) for ci in c]
     else:
