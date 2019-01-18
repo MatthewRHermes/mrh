@@ -74,10 +74,11 @@ def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=N
     ncsf_tot = count_all_csfs (norb, neleca, nelecb, smult)
     if idx_sym is None:
         ncsf_sym = ncsf_tot
+        ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf)
     else:
         ncsf_sym = np.count_nonzero (idx_sym)
-    assert (ncsf_sym >= nroots), "Can't find {} roots among only {} CSFs of symmetry {}".format (nroots, ncsf_sym, wfnsym_str)
-    ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf[idx_sym])
+        assert (ncsf_sym >= nroots), "Can't find {} roots among only {} CSFs of symmetry {}".format (nroots, ncsf_sym, wfnsym_str)
+        ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf[idx_sym])
     ci = unpack_sym_ci (ci, idx_sym)
     ci = transform_civec_csf2det (ci, norb, neleca, nelecb, smult, csd_mask=csd_mask)[0]
     return ci

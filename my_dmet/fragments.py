@@ -119,7 +119,6 @@ class fragment_object:
 
         # Outputs of CAS calculations use to fix CAS-DMET
         self.loc2amo       = np.zeros((self.norbs_tot,0))
-        self.loc2amo_guess = np.zeros((self.norbs_tot,0))
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.twoCDMimp_amo = np.zeros((0,0,0,0))
         self.ci_as         = None
@@ -347,17 +346,22 @@ class fragment_object:
         assert (norbs_xtra == self.norbs_as)
 
         # Now get them. (Make sure I don't add active-space orbitals by mistake!)
-        loc2qfrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())
-        loc2qenv = get_complementary_states (loc2qfrag, already_complete_warning=False)
-        loc2wmas = get_complementary_states (loc2wmcs, already_complete_warning=False)
-        loc2qfrag = get_complementary_states (np.concatenate ([self.loc2frag, loc2qenv, loc2wmas], axis=1), already_complete_warning=False)
-        norbs_qfrag = min (loc2qfrag.shape[1], norbs_xtra)
-        if norbs_qfrag > 0:
-            print ("Add {} of {} possible quasi-fragment orbitals ".format (
-                norbs_qfrag, loc2qfrag.shape[1])
-                + "to compensate for {} active orbitals which cannot generate bath states".format (self.norbs_as))
-        loc2wfrag = np.append (self.loc2frag, loc2qfrag[:,:norbs_qfrag], axis=1)
-        assert (is_basis_orthonormal (loc2wfrag)), prettyprint (np.dot (loc2wfrag.conjugate ().T, loc2wfrag))
+        if norbs_xtra:
+            loc2qfrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())
+            loc2qenv = get_complementary_states (loc2qfrag, already_complete_warning=False)
+            loc2wmas = get_complementary_states (loc2wmcs, already_complete_warning=False)
+            loc2qfrag = get_complementary_states (np.concatenate ([self.loc2frag, loc2qenv, loc2wmas], axis=1), already_complete_warning=False)
+            norbs_qfrag = min (loc2qfrag.shape[1], norbs_xtra)
+            if norbs_qfrag > 0:
+                print ("Add {} of {} possible quasi-fragment orbitals ".format (
+                    norbs_qfrag, loc2qfrag.shape[1])
+                    + "to compensate for {} active orbitals which cannot generate bath states".format (self.norbs_as))
+            loc2wfrag = np.append (self.loc2frag, loc2qfrag[:,:norbs_qfrag], axis=1)
+            assert (is_basis_orthonormal (loc2wfrag)), prettyprint (np.dot (loc2wfrag.conjugate ().T, loc2wfrag))
+        else:
+            norbs_qfrag = 0
+            loc2wfrag = self.loc2frag
+            print ("NO quasi-fragment orbitals constructed")
 
         # This will RuntimeError on me if I don't have even integer.
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
@@ -487,8 +491,8 @@ class fragment_object:
         norbs_occ = norbs_cmo + norbs_amo
         amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
         amo_coeff = scf.addons.project_mo_nr2nr (mol, amo_coeff, self.ints.mol)
-        self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
-        self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
+        self.loc2amo = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
+        self.loc2amo = self.retain_fragonly_guess_amo (self.loc2amo)
 
     def load_amo_guess_from_casscf_npy (self, npyfile, norbs_cmo, norbs_amo):
         ''' Use npy from whole-molecule casscf calculation to guess active orbitals. Must have identical geometry orientation and basis! 
@@ -502,13 +506,13 @@ class fragment_object:
         frag2ano = loc2ano[self.frag_orb_list,:]
         oneRDMano_frag = represent_operator_in_basis (oneRDMwm_ano, frag2ano.conjugate ().T)
         evals, evecs = matrix_eigen_control_options (oneRDMano_frag, sort_vecs=-1, only_nonzero_vals=False)
-        self.loc2amo_guess = np.zeros ((self.norbs_tot, self.active_space[1]))
-        self.loc2amo_guess[self.frag_orb_list,:] = evecs[:,:self.active_space[1]]
+        self.loc2amo = np.zeros ((self.norbs_tot, self.active_space[1]))
+        self.loc2amo[self.frag_orb_list,:] = evecs[:,:self.active_space[1]]
         #norbs_occ = norbs_cmo + norbs_amo
         #mo_coeff = np.load (npyfile)
         #amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
-        #self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
-        #self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
+        #self.loc2amo = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
+        #self.loc2amo = self.retain_fragonly_guess_amo (self.loc2amo)
 
     def save_amo_guess_for_pes_scan (self, npyfile):
         no_occ, no_coeff = matrix_eigen_control_options (self.oneRDMas_loc, sort_vecs=-1, only_nonzero_vals=True)
@@ -542,7 +546,7 @@ class fragment_object:
         proj = np.dot (frag2amo.conjugate ().T, frag2amo)
         evals, evecs = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
         print ("Projector eigenvalues: {}".format (evals))
-        return np.dot (self.loc2amo_guess, evecs[:,:self.active_space[1]])
+        return np.dot (loc2amo_guess, evecs[:,:self.active_space[1]])
 
     def retain_fragonly_guess_amo (self, loc2amo_guess):
         print ("Diagonalizing guess amo projector in fragment basis and retaining highest {} eigenvalues".format (self.active_space[1]))
@@ -562,8 +566,8 @@ class fragment_object:
         norbs_occ = norbs_cmo + norbs_amo
         amo_coeff = mo_coeff[:,norbs_cmo:norbs_occ]
         #amo_coeff = scf.addons.project_mo_nr2nr (mol, amo_coeff, self.ints.mol)
-        self.loc2amo_guess = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
-        self.loc2amo_guess = self.retain_fragonly_guess_amo (self.loc2amo_guess)
+        self.loc2amo = reduce (np.dot, [self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, amo_coeff])
+        self.loc2amo = self.retain_fragonly_guess_amo (self.loc2amo)
 
     def load_amo_from_aobasis (self, ao2amo, dm, twoRDM=None, twoCDM=None):
         print ("Attempting to load the provided active orbitals to fragment {}".format (self.frag_name))

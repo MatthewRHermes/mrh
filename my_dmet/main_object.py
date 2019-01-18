@@ -583,8 +583,14 @@ class dmet:
 
     def doselfconsistent_orbs (self, iters):
 
+        print (linalg.LinAlgError)
         loc2wmas_old = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
-        loc2wmcs_old = get_complementary_states (loc2wmas_old)
+        try:
+            loc2wmcs_old = get_complementary_states (loc2wmas_old)
+        except linalg.LinAlgError as e:
+            print (np.dot (loc2wmas_old.T, loc2wmas_old))
+            raise (e)
+
         if self.doLASSCF:
             print ("Entering setup_wm_core_scf")
             self.ints.setup_wm_core_scf (self.fragments, self.calcname)
@@ -919,6 +925,7 @@ class dmet:
             self.umat = mat.copy ()
 
         for f in self.fragments:
+            if self.doLASSCF: f.oneRDM_loc = self.ints.oneRDM_loc
             namo, chkdata = int (round (chkdata[0])), chkdata[1:]
             print ("{} active orbitals reported in checkpoint file for fragment {}".format (namo, f.frag_name))
             if namo > 0:

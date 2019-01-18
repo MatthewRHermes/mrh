@@ -61,6 +61,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     mf = scf.RHF(mol)
     mf.get_hcore = lambda *args: OEI
     mf.get_ovlp = lambda *args: np.eye(frag.norbs_imp)
+    mf.energy_nuc = lambda *args: frag.impham_CONST
     mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
     mf.scf (guess_1RDM)
     if not mf.converged:
@@ -81,19 +82,13 @@ def solve (frag, guess_1RDM, chempot_imp):
             mf = mf.newton ()
             mf.kernel ()
     
-    print ("CASSCF RHF-step energy: {} (elec: {})".format (mf.e_tot + frag.impham_CONST, mf.e_tot))
+    print ("CASSCF RHF-step energy: {}".format (mf.e_tot))
     #print(mf.mo_occ)    
     '''    
     idx = mf.mo_energy.argsort()
     mf.mo_energy = mf.mo_energy[idx]
     mf.mo_coeff = mf.mo_coeff[:,idx]'''
 
-    # If I haven't yet, print out the MOs so I can pick a good active space
-    if frag.mfmo_printed == False:
-        ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, mf.mo_coeff])
-        #molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=mf.mo_occ, ene=mf.mo_energy)
-        frag.mfmo_printed = True
-        
     # Get the CASSCF solution
     CASe = frag.active_space[0]
     CASorb = frag.active_space[1]    
@@ -102,9 +97,9 @@ def solve (frag, guess_1RDM, chempot_imp):
         CASe = frag.nelec_imp
         CASorb = frag.norbs_imp
     if (frag.target_MS > frag.target_S):
-        CASe = ((CASe + frag.target_S) // 2, (CASe - frag.target_S) // 2)
+        CASe = ((CASe//2) + frag.target_S, (CASe//2) - frag.target_S)
     else:
-        CASe = ((CASe + frag.target_MS) // 2, (CASe - frag.target_MS) // 2)
+        CASe = ((CASe//2) + frag.target_MS, (CASe//2) - frag.target_MS)
     mc = mcscf.CASSCF(mf, CASorb, CASe)
     norbs_amo = mc.ncas
     norbs_cmo = mc.ncore
@@ -119,25 +114,31 @@ def solve (frag, guess_1RDM, chempot_imp):
         imp2mo, ci0 = frag.imp_cache
         print ("Taking molecular orbitals and ci vector from cache")
     elif frag.norbs_as == frag.active_space[1]:
-        #if frag.loc2mo.shape[1] == frag.norbs_imp:
-        #    print ("Projecting stored mos (frag.loc2mo) onto the impurity basis")
-        #    imp2mo = mcscf.addons.project_init_guess (mc, np.dot (frag.imp2loc, frag.loc2mo))
-        #else:
         print ("Projecting stored amos (frag.loc2amo) onto the impurity basis")
-        imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (), norbs_cmo)
-        #make_guess_molden (frag, frag.filehead + frag.frag_name + '_orbiter.molden', imp2mo, norbs_cmo, norbs_amo)
-    elif frag.loc2amo_guess.shape[1] > 0:
-        print ("Projecting provided guess orbitals onto the impurity basis")
-        imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo_guess, mf.get_fock (), norbs_cmo)
-        frag.loc2amo_guess = np.zeros ((frag.norbs_tot, 0))
-        #imp2mo = mcscf.addons.project_init_guess (mc, imp2mo)
-        #make_guess_molden (frag, frag.filehead + frag.frag_name + '_guess.molden', imp2mo, norbs_cmo, norbs_amo)
-    elif np.prod (frag.active_orb_list.shape) > 0: 
-        print('Impurity active space selection:', frag.active_orb_list)
-        imp2mo = mc.sort_mo(frag.active_orb_list)
+        imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo)
+    elif frag.norbs_as > 0:
+        nelec_imp_guess = int (round (np.trace (frag.oneRDMas_loc)))
+        norbs_cmo_guess = (frag.nelec_imp - nelec_imp_guess) // 2
+        print ("Projecting stored amos (frag.loc2amo; spanning {} electrons) onto the impurity basis and filling the remainder with default guess".format (nelec_imp_guess))
+        imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo_guess)
+        if frag.mfmo_printed == False:
+            ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
+            molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=mf.mo_occ, ene=mf.mo_energy)
+            frag.mfmo_printed = True
+        if frag.active_orb_list.size > 0:
+            print('Applying caslst: {}'.format (frag.active_orb_list))
+            imp2mo = mc.sort_mo(frag.active_orb_list, mo_coeff=imp2mo)
     else:
         imp2mo = mc.mo_coeff 
-        print ("Default impurity active space selection: {}".format (np.arange (norbs_cmo, norbs_occ, 1, dtype=int)))
+        print ("No stored amos; using mean-field canonical MOs as initial guess")
+        if frag.mfmo_printed == False:
+            ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
+            molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=mf.mo_occ, ene=mf.mo_energy)
+            frag.mfmo_printed = True
+        if frag.active_orb_list.size > 0:
+            print('Applying caslst: {}'.format (frag.active_orb_list))
+            imp2mo = mc.sort_mo(frag.active_orb_list, mo_coeff=imp2mo)
+
     if len (frag.imp_cache) != 2 and frag.ci_as is not None:
         loc2amo_guess = np.dot (frag.loc2imp, imp2mo[:,norbs_cmo:norbs_occ])
         gOc = np.dot (loc2amo_guess.conjugate ().T, frag.ci_as_orb)
@@ -152,7 +153,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
     mc.fcisolver = csf_solver (mf.mol, smult)
     mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
-    mc.ah_start_tol = 1e-8
+    mc.ah_start_tol = 1e-10
     mc.ah_conv_tol = 1e-10
     mc.conv_tol = 1e-9
     E_CASSCF = mc.kernel(imp2mo, ci0)[0]
@@ -191,7 +192,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.ci_as = mc.ci
     frag.ci_as_orb = loc2amo.copy ()
     t_end = time.time()
-    print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (frag.impham_CONST + E_CASSCF, spin_square (mc)[1], t_end - t_start))
+    print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (E_CASSCF, spin_square (mc)[1], t_end - t_start))
 
     # oneRDM
     oneRDM_imp = mc.make_rdm1 ()
@@ -207,7 +208,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     # General impurity data
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
     frag.twoCDM_imp = symmetrize_tensor (twoCDM_imp)
-    frag.E_imp      = frag.impham_CONST + E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
+    frag.E_imp      = E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
 
     # Active-space RDM data
     frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, loc2amo.conjugate ().T))
