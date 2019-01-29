@@ -86,6 +86,8 @@ def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=N
 def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
     ''' This is tricky because I need the diagonal blocks for each configuration in order to get
     the correct csf hdiag values, not just the diagonal elements for each determinant. '''
+    t0, w0 = time.clock (), time.time ()
+    tstr = tlib = tloop = wstr = wlib = wloop = 0
     if hdiag_det is None:
         hdiag_det = make_hdiag (h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
@@ -123,36 +125,48 @@ def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None)
             continue
         umat = get_spin_evecs (nspin, neleca, nelecb, smult)
         det_addra, det_addrb = divmod (det_addr, ndetb_all)
+        t1, w1 = time.clock (), time.time ()
         det_stra = cistring.addrs2str (norb, neleca, det_addra).reshape (nconf, ndet, order='C')
         det_strb = cistring.addrs2str (norb, nelecb, det_addrb).reshape (nconf, ndet, order='C')
+        tstr += time.clock () - t1
+        wstr += time.time () - w1
         det_addr = det_addr.reshape (nconf, ndet, order='C')
         diag_idx = np.diag_indices (ndet)
+        triu_idx = np.triu_indices (ndet)   
         ipair_check = 0
-        # I would usually consider this to be way too large of a loop to explicitly have in python code.
-        # I can't multithread over configurations the way this is currently written. On the other hand,
-        # there may eventually be situations where it makes more sense to multithread over determinants
-        # instead of configurations (seems I can't easily do both). It'll depend on which is larger:
-        # the number of configurations? Or the number of lower-triangular Hamiltonian matrix elements
-        # for a single configuration?
+        # It looks like the library call below is, itself, usually responsible for about 50% of the
+        # clock and wall time that this function consumes.
+        t1, w1 = time.clock (), time.time ()
         for iconf in range (nconf):
             addr = det_addr[iconf]
             assert (len (addr) == ndet)
             stra = det_stra[iconf]
             strb = det_strb[iconf]
+            t2, w2 = time.clock (), time.time ()
             libfci.FCIpspace_h0tril(hdiag_conf[iconf].ctypes.data_as(ctypes.c_void_p),
                 h1e.ctypes.data_as(ctypes.c_void_p),
                 eri.ctypes.data_as(ctypes.c_void_p),
                 stra.ctypes.data_as(ctypes.c_void_p),
                 strb.ctypes.data_as(ctypes.c_void_p),
                 ctypes.c_int(norb), ctypes.c_int(ndet))
-            hdiag_conf[iconf][diag_idx] = hdiag_det[addr]
-            hdiag_conf[iconf] = lib.hermi_triu(hdiag_conf[iconf])
+            tlib += time.clock () - t2
+            wlib += time.time () - w2
+            #hdiag_conf[iconf][diag_idx] = hdiag_det[addr]
+            #hdiag_conf[iconf] = lib.hermi_triu(hdiag_conf[iconf])
+        for iconf in range (nconf): hdiag_conf[iconf] = lib.hermi_triu (hdiag_conf[iconf])
+        for iconf in range (nconf): hdiag_conf[iconf][diag_idx] = hdiag_det[det_addr[iconf]]
+        tloop += time.clock () - t1
+        wloop += time.time () - w1
 
         hdiag_conf = np.tensordot (hdiag_conf, umat, axes=1)
         hdiag_conf = (hdiag_conf * umat[np.newaxis,:,:]).sum (1)
         hdiag_csf[csf_offset:][:nconf*ncsf] = hdiag_conf.ravel (order='C')
         hdiag_csf_check[csf_offset:][:nconf*ncsf] = False
     assert (np.count_nonzero (hdiag_csf_check) == 0), np.count_nonzero (hdiag_csf_check)
+    #print ("Total time in hdiag_csf: {}, {}".format (time.clock () - t0, time.time () - w0))
+    #print ("    Loop: {}, {}".format (tloop, wloop))
+    #print ("    Library: {}, {}".format (tlib, wlib))
+    #print ("    Cistring: {}, {}".format (tstr, wstr))
     return hdiag_csf
 
 def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdiag_csf=None, csd_mask=None,

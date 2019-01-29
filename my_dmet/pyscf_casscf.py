@@ -27,7 +27,7 @@ from mrh.my_dmet import localintegrals
 import os, time
 import sys
 #import qcdmet_paths
-from pyscf import gto, scf, ao2mo, mcscf, fci
+from pyscf import gto, scf, ao2mo, mcscf, fci, lib
 from pyscf.mcscf.addons import spin_square
 from pyscf.fci.addons import transform_ci_for_orbital_rotation
 from pyscf.tools import molden
@@ -52,7 +52,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     # Get the RHF solution
     mol = gto.Mole()
     mol.spin = int (round (2 * frag.target_MS))
-    mol.verbose = 0 if frag.mol_output is None else 4
+    mol.verbose = 0 if frag.mol_output is None else lib.logger.DEBUG
     mol.output = frag.mol_output
     mol.atom.append(('H', (0, 0, 0)))
     mol.nelectron = frag.nelec_imp
@@ -115,15 +115,15 @@ def solve (frag, guess_1RDM, chempot_imp):
         print ("Taking molecular orbitals and ci vector from cache")
     elif frag.norbs_as == frag.active_space[1]:
         print ("Projecting stored amos (frag.loc2amo) onto the impurity basis")
-        imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo)
+        imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo)[0]
     elif frag.norbs_as > 0:
         nelec_imp_guess = int (round (np.trace (frag.oneRDMas_loc)))
         norbs_cmo_guess = (frag.nelec_imp - nelec_imp_guess) // 2
         print ("Projecting stored amos (frag.loc2amo; spanning {} electrons) onto the impurity basis and filling the remainder with default guess".format (nelec_imp_guess))
-        imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo_guess)
+        imp2mo, my_occ = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo_guess, dm=frag.oneRDMas_loc)
         if frag.mfmo_printed == False:
             ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
-            molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=mf.mo_occ, ene=mf.mo_energy)
+            molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=my_occ)
             frag.mfmo_printed = True
         if frag.active_orb_list.size > 0:
             print('Applying caslst: {}'.format (frag.active_orb_list))
@@ -256,9 +256,17 @@ def get_fragcasscf (frag, mf, loc2mo):
     return oneRDM_amo, twoCDM_amo, loc2mo, loc2amo
     
 
-def project_amo_manually (loc2imp, loc2gamo, fock_mf, norbs_cmo):
+def project_amo_manually (loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
     norbs_amo = loc2gamo.shape[1]
     amo2imp = np.dot (loc2gamo.conjugate ().T, loc2imp)
+    ovlp = np.dot (amo2imp, amo2imp.conjugate ().T)
+    '''
+    print ("Do impurity orbitals span guess amos?")
+    print (prettyprint (ovlp, fmt='{:5.2f}'))
+    if dm is not None:
+        print ("Density matrix?")
+        print (prettyprint (represent_operator_in_basis (dm, loc2gamo), fmt='{:5.2f}'))
+    '''
     proj = np.dot (amo2imp.conjugate ().T, amo2imp)
     evals, evecs = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
     imp2amo = np.copy (evecs[:,:norbs_amo])
@@ -297,19 +305,28 @@ def project_amo_manually (loc2imp, loc2gamo, fock_mf, norbs_cmo):
     idx_signflip = np.diag (amoOgamo) < 0
     imp2amo[:,idx_signflip] *= -1
     amoOgamo = np.dot (imp2amo.conjugate ().T, imp2gamo)
-    '''
+    ''' 
     print ("Overlap matrix between guess-active and active:")
     print (prettyprint (amoOgamo, fmt='{:5.2f}'))
     O = np.dot (imp2amo.conjugate ().T, imp2amo) - np.eye (imp2amo.shape[1]) 
-    print ("Overlap error between active and active: {}".format (scipy.linalg.norm (O)))
+    print ("Overlap error between active and active: {}".format (linalg.norm (O)))
     O = np.dot (imp2amo.conjugate ().T, imp2cmo)    
-    print ("Overlap error between active and occupied: {}".format (scipy.linalg.norm (O)))
+    print ("Overlap error between active and occupied: {}".format (linalg.norm (O)))
     O = np.dot (imp2amo.conjugate ().T, imp2vmo)    
-    print ("Overlap error between active and virtual: {}".format (scipy.linalg.norm (O)))
+    print ("Overlap error between active and virtual: {}".format (linalg.norm (O)))
     '''
+    my_occ = np.zeros (loc2imp.shape[1], dtype=np.float64)
+    my_occ[:norbs_cmo] = 2
+    my_occ[norbs_cmo:][:imp2amo.shape[1]] = 1
+    if dm is not None:
+        loc2amo = np.dot (loc2imp, imp2amo)
+        evals, evecs = matrix_eigen_control_options (represent_operator_in_basis (dm, loc2amo), sort_vecs=-1, only_nonzero_vals=False)
+        imp2amo = np.dot (imp2amo, evecs)
+        print ("Guess density matrix eigenvalues for guess amo: {}".format (evals))
+        my_occ[norbs_cmo:][:imp2amo.shape[1]] = evals
     imp2mo = np.concatenate ([imp2cmo, imp2amo, imp2vmo], axis=1)
     assert (is_basis_orthonormal_and_complete (imp2mo))
-    return imp2mo
+    return imp2mo, my_occ
 
 def make_guess_molden (frag, filename, imp2mo, norbs_cmo, norbs_amo):
     norbs_tot = imp2mo.shape[1]

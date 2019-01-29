@@ -579,6 +579,8 @@ class dmet:
         #itersnap = tracemalloc.take_snapshot ()
         #itersnap.dump ('iter{}end.snpsht'.format (myiter))
 
+        if not self.doLASSCF: self.save_checkpoint (self.calcname + '.chk.npy')
+
         return u_diff, rdm_new
 
     def doselfconsistent_orbs (self, iters):
@@ -594,6 +596,7 @@ class dmet:
         if self.doLASSCF:
             print ("Entering setup_wm_core_scf")
             self.ints.setup_wm_core_scf (self.fragments, self.calcname)
+            self.save_checkpoint (self.calcname + '.chk.npy')
 
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
         if self.doLASSCF:
@@ -824,10 +827,12 @@ class dmet:
         # First pass: Only retain the highest Mfk - Mak eigenvalues, for which the eigenvalue is larger than 1/2
         Mxk_tot = np.asarray ([f.norbs_frag - loc2wmas[ix].shape[1] for ix, f in enumerate (self.fragments)])
         it = 0
+        assign_thresh = 1/2
         while loc2x.shape[1] > 0:
             Mxk = np.asarray ([w.shape[1] for w in loc2wmcs])
             Mxk_rem = Mxk_tot - Mxk
             ix_rem = Mxk_rem > 0
+            max_eval = np.zeros (len (self.fragments))
             for ix_frag, f in enumerate (self.fragments):
                 #print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
                 if loc2x.shape[1] == 0 or Mxk_rem[ix_frag] == 0:
@@ -838,15 +843,20 @@ class dmet:
                 # Scale the eigenvalues to evaluate their comparison to the sum of projector expt vals of unfull fragments
                 exptvals = np.einsum ('ip,ijk,k,jp->p', loc2evecs.conjugate (), proj_gfrag, ix_rem.astype (int), loc2evecs)
                 evals = evals / exptvals
-                ix_loc = evals > 1/2
+                max_eval[ix_frag] = np.max (evals)
+                ix_loc = evals > assign_thresh
                 ix_loc[Mxk_rem[ix_frag]:] = False
                 #print ("{} fragment, iteration {}: {} eigenvalues above 1/2 found of {} total sought:\n{}".format (
-                #    f.frag_name, it, np.count_nonzero (ix_loc), Mxk_rem[ix_frag], evals[ix_loc]))
+                #    f.frag_name, it, np.count_nonzero (ix_loc), Mxk_rem[ix_frag], evals))
                 loc2wmcs[ix_frag] = np.append (loc2wmcs[ix_frag], loc2evecs[:,ix_loc], axis=1)
                 loc2x = loc2evecs[:,~ix_loc]
-            it = it + 1
-            if it > 10:
-                raise RuntimeError ("Too many external-relocalization iterations")
+            if np.all (max_eval < assign_thresh):
+                print (("Warning: external orbital assignment threshold lowered from {} to {}"
+                    " after failing to assign any orbitals in iteration {}").format (assign_thresh, np.max (max_eval)*0.99, it))
+                assign_thresh = np.max (max_eval)*0.99
+            it += 1
+            if assign_thresh < 1e-8:
+                raise RuntimeError ("At least one unassignable orbital")
 
         #for loc2, f in zip (loc2wmcs, self.fragments):
         #    print ("Projector eigenvalues of {} external fragment orbitals:".format (f.frag_name))
@@ -889,7 +899,7 @@ class dmet:
         ''' Data array structure: nao_nr, chempot, 1RDM or umat, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
         nao = self.ints.mol.nao_nr ()
         if self.doLASSCF:
-            chkdata = np.average (np.stack ([f.oneRDM_loc for f in self.fragments], axis=0), axis=0)
+            chkdata = self.helper.construct1RDM_loc (self.doSCF, self.umat)
             chkdata = represent_operator_in_basis (chkdata, self.ints.ao2loc.conjugate ().T).flatten (order='C')
         else:
             chkdata = represent_operator_in_basis (self.umat, self.ints.ao2loc.conjugate ().T).flatten (order='C')

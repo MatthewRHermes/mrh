@@ -51,7 +51,7 @@ class FCISolver (direct_spin1_symm.FCISolver):
 
         ...For point-group symmetry, I pass the direct_spin1.py version of _get_init_guess with na, nb = ncsf_sym, 1 and hdiag_csf including only csfs of the right point-group symmetry.
         This should clean up the symmetry-breaking "noise" in direct_spin0_symm.py! '''
-        wfnsym = _id_wfnsym(self, norb, nelec, self.wfnsym)
+        wfnsym = _id_wfnsym(self, norb, nelec, self.orbsym, self.wfnsym)
         wfnsym_str = symm.irrep_id2name (self.mol.groupname, wfnsym)
         self.check_mask_cache ()
         idx_sym = self.confsym[self.econf_csf_mask] == wfnsym
