@@ -133,11 +133,21 @@ class localintegrals:
         self.loc2idem       = np.eye (self.norbs_tot, dtype=self.activeOEI.dtype)
         self.nelec_idem     = self.nelec_tot
         self._eri           = None
+        self.with_df        = None
         def _is_mem_enough ():
             return self.norbs_tot**4/2e6 + current_memory ()[0] < self.max_memory*0.95
         # Unfortunately, there is currently no way to do the integral transformation directly on the antisymmetrized two-electron
         # integrals, at least none already implemented in PySCF. Therefore the smallest possible memory footprint involves 
         # two arrays of fourfold symmetry, which works out to roughly one half of an array with no symmetry
+        if hasattr (the_mf, 'with_df') and hasattr (the_mf.with_df, '_cderi') and the_mf.with_df._cderi is not None:
+            print ("Found density-fitting three-center integrals scf object")
+            loc2ao = self.ao2loc.conjugate ().T
+            locOao = np.dot (loc2ao, self.ao_ovlp)
+            self.with_df = the_mf.with_df
+            self.with_df.loc2eri_bas = lambda x: np.dot (self.ao2loc, x)
+            self.with_df.loc2eri_op = lambda x: reduce (np.dot, (self.ao2loc, x, loc2ao))
+            self.with_df.eri2loc_bas = lambda x: np.dot (locOao, x)
+            self.with_df.eri2loc_op = lambda x: reduce (np.dot, (loc2ao, x, self.ao2loc))
         if the_mf._eri is not None:
             print ("Found eris on scf object")
             loc2ao = self.ao2loc.conjugate ().T
@@ -391,7 +401,10 @@ class localintegrals:
     def general_tei (self, loc2bas_list):
         norbs = [loc2bas.shape[1] for loc2bas in loc2bas_list]
 
-        if self._eri is not None:
+        if self.with_df is not None:
+            a2b_list = [self.with_df.loc2eri_bas (l2b) for l2b in loc2bas_list]
+            TEI = self.with_df.ao2mo (a2b_list, compact=False).reshape (*norbs) 
+        elif self._eri is not None:
             a2b_list = [self._eri.loc2eri_bas (l2b) for l2b in loc2bas_list]
             TEI = ao2mo.incore.general(self._eri, a2b_list, compact=False).reshape (*norbs)
         else:
