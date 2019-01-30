@@ -10,8 +10,10 @@ from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_
 from mrh.my_pyscf.fci.csfstring import transform_opmat_det2csf, transform_opmat_det2csf_pspace
 from mrh.my_pyscf.fci.csfstring import count_all_csfs, make_econf_csf_mask, get_spin_evecs
 from mrh.my_pyscf.fci.csfstring import get_csfvec_shape
+from mrh.lib.helper import load_library as mrh_load_library
 
 libfci = lib.load_library('libfci')
+libcsf = mrh_load_library('libcsf')
 
 def unpack_sym_ci (ci, idx, vec_on_cols=False):
     if idx is None: return ci
@@ -84,6 +86,69 @@ def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=N
     return ci
 
 def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
+    if hdiag_det is None:
+        hdiag_det = make_hdiag (h1e, eri, norb, nelec)
+    eri = ao2mo.restore(1, eri, norb)
+    tlib = wlib = 0
+    neleca, nelecb = _unpack_nelec (nelec)
+    min_npair, npair_csd_offset, npair_dconf_size, npair_sconf_size, npair_sdet_size = get_csdaddrs_shape (norb, neleca, nelecb)
+    _, npair_csf_offset, _, _, npair_csf_size = get_csfvec_shape (norb, neleca, nelecb, smult)
+    npair_econf_size = npair_dconf_size * npair_sconf_size
+    max_npair = nelecb
+    ncsf_all = count_all_csfs (norb, neleca, nelecb, smult)
+    ndeta_all = cistring.num_strings(norb, neleca)
+    ndetb_all = cistring.num_strings(norb, nelecb)
+    ndet_all = ndeta_all * ndetb_all
+    hdiag_csf = np.ascontiguousarray (np.zeros (ncsf_all, dtype=np.float64))
+    hdiag_csf_check = np.ones (ncsf_all, dtype=np.bool)
+    for npair in range (min_npair, max_npair+1):
+        ipair = npair - min_npair
+        nconf = npair_econf_size[ipair]
+        ndet = npair_sdet_size[ipair]
+        ncsf = npair_csf_size[ipair]
+        if ncsf == 0:
+            continue
+        nspin = neleca + nelecb - 2*npair
+        csd_offset = npair_csd_offset[ipair]
+        csf_offset = npair_csf_offset[ipair]
+        hdiag_conf = np.ascontiguousarray (np.zeros ((nconf, ndet, ndet), dtype=np.float64))
+        if csd_mask is None:
+            det_addr = get_nspin_dets (norb, neleca, nelecb, nspin).ravel (order = 'C')
+        else:
+            det_addr = csd_mask[csd_offset:][:nconf*ndet]
+        if ndet == 1:
+            # Closed-shell singlets
+            assert (ncsf == 1)
+            hdiag_csf[csf_offset:][:nconf] = hdiag_det[det_addr.flat]
+            hdiag_csf_check[csf_offset:][:nconf] = False
+            continue
+        det_addra, det_addrb = divmod (det_addr, ndetb_all)
+        det_stra = np.ascontiguousarray (cistring.addrs2str (norb, neleca, det_addra).reshape (nconf, ndet, order='C'))
+        det_strb = np.ascontiguousarray (cistring.addrs2str (norb, nelecb, det_addrb).reshape (nconf, ndet, order='C'))
+        det_addr = det_addr.reshape (nconf, ndet, order='C')
+        hdiag_conf = np.ascontiguousarray (np.zeros ((nconf, ndet, ndet), dtype=np.float64))
+        hdiag_conf_det = np.ascontiguousarray (hdiag_det[det_addr], dtype=np.float64)
+        t1 = time.clock ()
+        w1 = time.time ()
+        libcsf.FCICSFhdiag (hdiag_conf.ctypes.data_as (ctypes.c_void_p),
+                            hdiag_conf_det.ctypes.data_as (ctypes.c_void_p),
+                            eri.ctypes.data_as (ctypes.c_void_p),
+                            det_stra.ctypes.data_as (ctypes.c_void_p),
+                            det_strb.ctypes.data_as (ctypes.c_void_p),
+                            ctypes.c_uint (norb), ctypes.c_uint (nconf), ctypes.c_uint (ndet))
+        tlib += time.clock () - t1
+        wlib += time.time () - w1
+        umat = get_spin_evecs (nspin, neleca, nelecb, smult)
+        hdiag_conf = np.tensordot (hdiag_conf, umat, axes=1)
+        hdiag_conf *= umat[np.newaxis,:,:]
+        hdiag_csf[csf_offset:][:nconf*ncsf] = hdiag_conf.sum (1).ravel (order='C')
+        hdiag_csf_check[csf_offset:][:nconf*ncsf] = False
+    assert (np.count_nonzero (hdiag_csf_check) == 0), np.count_nonzero (hdiag_csf_check)
+    #print ("Time in hdiag_csf library: {}, {}".format (tlib, wlib))
+    return hdiag_csf
+
+
+def make_hdiag_csf_slower (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
     ''' This is tricky because I need the diagonal blocks for each configuration in order to get
     the correct csf hdiag values, not just the diagonal elements for each determinant. '''
     t0, w0 = time.clock (), time.time ()

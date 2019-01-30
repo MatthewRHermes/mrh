@@ -286,3 +286,71 @@ void FCICSFaddrs2str (uint64_t * strings, int * addrs, int nstr, int * gentable_
     free (gentable);
 }
 
+void FCICSFhdiag (double * hdiag, double * hdiag_det, double * eri, uint64_t * astrs, uint64_t * bstrs, unsigned int norb, unsigned int nconf, unsigned int ndet)
+{
+
+    unsigned int ndet_lt = ndet * (ndet+1) / 2;
+
+#pragma omp parallel default(shared)
+{
+
+    unsigned int idetconf, iconf, idet_lt, idetx, idety, iorb, nexc;
+    uint64_t exc_str, somo_str, big_idx1, big_idx2, hdiag_idx_lt, hdiag_idx_ut;
+    unsigned int exc[2];
+    int sgn, esgn;
+
+#pragma omp for schedule(static) 
+
+    for (idetconf = 0; idetconf < nconf * ndet_lt; idetconf++){
+        iconf = idetconf / ndet_lt;
+        idety = idetconf % ndet_lt;
+        for (idetx = 0; idetx < ndet; idetx++){
+            if (idetx < idety){ idety -= idetx + 1; }
+            else { break; }
+        }
+        // Careful with possible integer overflow
+        hdiag_idx_lt = ndet;
+        hdiag_idx_lt *= ndet;
+        hdiag_idx_lt *= iconf;
+        hdiag_idx_ut = hdiag_idx_lt;
+        big_idx1 = ndet;
+        big_idx1 *= idety;
+        big_idx2 = ndet;
+        big_idx2 *= idetx;
+        hdiag_idx_lt += big_idx1;
+        hdiag_idx_ut += big_idx2;
+        hdiag_idx_lt += idetx;
+        hdiag_idx_ut += idety;
+        if (idetx == idety){ 
+            hdiag[hdiag_idx_lt] = hdiag_det[(iconf*ndet)+idetx];
+            continue;
+        }
+        // Fear of integer overflow is only reasonable for off-diagonal elements of a Hamiltonian matrix
+        // It's not reasonable for anything else
+        big_idx1 = (ndet*iconf) + idetx;
+        big_idx2 = (ndet*iconf) + idety;
+        exc_str  = astrs[big_idx1] ^ astrs[big_idx2];
+        somo_str = astrs[big_idx1] ^ bstrs[big_idx1];
+        nexc = 0; esgn = 1; sgn = -1;
+        for (iorb = 0; iorb < norb; iorb++){
+            if (somo_str & 1ULL << iorb){ esgn *= -1; }
+            if (exc_str & 1ULL << iorb){
+                if (nexc < 2){ exc[nexc] = iorb; }
+                nexc++;
+                if (nexc > 2){ break; }
+                sgn *= esgn;
+            }
+        } 
+        if (nexc > 2){ continue; }
+        assert (nexc == 2);
+
+        // Fear of integer overflow is only reasonable for off-diagonal elements of a Hamiltonian matrix
+        // It's not reasonable for anything else
+        big_idx1 = exc[0]*norb*norb*norb + exc[1]*norb*norb + exc[1]*norb + exc[0];
+        hdiag[hdiag_idx_lt] = sgn * eri[big_idx1];
+        hdiag[hdiag_idx_ut] = hdiag[hdiag_idx_lt];
+    }
+
+}
+}
+
