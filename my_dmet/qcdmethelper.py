@@ -41,8 +41,8 @@ class qcdmethelper:
             self.minFunc = minFunc
         
         # Variables for c gradient calculation
-        self.list_H1 = list_H1
-        H1start, H1row, H1col = self.convertH1sparse()
+        #self.list_H1 = list_H1
+        H1start, H1row, H1col = list_H1#self.convertH1sparse()
         self.H1start = H1start
         self.H1row = H1row
         self.H1col = H1col

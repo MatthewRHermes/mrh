@@ -25,7 +25,7 @@
 from mrh.my_dmet import localintegrals, qcdmethelper
 import numpy as np
 from scipy import optimize, linalg
-import time
+import time, ctypes
 #import tracemalloc
 from pyscf import mcscf
 from pyscf.lo import orth, nao
@@ -100,15 +100,18 @@ class dmet:
         self.examine_wmcs = False
         self.ofc_emb_init_ncycles = 3
 
+        print ("Before acceptable_errvec_check")
         self.acceptable_errvec_check ()
         if self.altcostfunc:
             assert (self.SCmethod == 'BFGS' or self.SCmethod == 'NONE')
 
+        print ("Before get_allcore_orbs")
         self.get_allcore_orbs ()
         if ( self.norbs_allcore > 0 ): # One or more impurities which do not cover the entire system
             assert( self.TransInv == False ) # Make sure that you don't work translational invariant
             # Note on working with impurities which do no tile the entire system: they should be the first orbitals in the Hamiltonian!
 
+        print ("Before umat_ftriu_mask construction")
         def umat_ftriu_mask (x, k=0):
             r = np.zeros (x.shape, dtype=np.bool)
             for frag in self.fragments:
@@ -116,14 +119,18 @@ class dmet:
                 c = tuple (np.asarray ([frag.frag_orb_list[i] for i in f]) for f in ftriu)
                 r[c] = True
             return r
+        print ("Before umat_ftriu_mask execution")
         self.umat_ftriu_idx = np.mask_indices (self.norbs_tot, umat_ftriu_mask)
         
         self.loc2fno    = None
+        print ("Before umat construction")
         self.umat       = np.zeros([ self.norbs_tot, self.norbs_tot ])
         self.relaxation = 0.0
         self.energy     = 0.0
         self.spin       = 0.0
+        print ("Before qcdmethelper")
         self.helper     = qcdmethelper.qcdmethelper( self.ints, self.makelist_H1(), self.altcostfunc, self.minFunc )
+        print ("After qcdmethelper")
         
         np.set_printoptions(precision=3, linewidth=160)
         #objinit = tracemalloc.take_snapshot ()
@@ -184,7 +191,20 @@ class dmet:
     def makelist_H1( self ):
    
         # OK, this is somehow related to the C code that came with this that does rhf response. 
-        theH1 = []
+        #theH1 = []
+        H1start = []
+        H1row   = []
+        H1col   = []
+        H1start.append( 0 )
+        totalsize = 0
+        def sparsify (list_H1, totalsize, H1start, H1row, H1col):
+            rowco, colco = np.where( list_H1 == 1 )
+            totalsize += len( rowco )
+            H1start.append( totalsize )
+            for count2 in range( len( rowco ) ):
+                H1row.append( rowco[ count2 ] )
+                H1col.append( colco[ count2 ] )
+            return totalsize, H1start, H1row, H1col
         if ( self.doDET == True ): # Do density embedding theory
             if ( self.TransInv == True ): # Translational invariance assumed
                 # In this case, it appears that H1 identifies a set of diagonal 1RDM elements that are equivalent by symmetry
@@ -193,7 +213,8 @@ class dmet:
                     for jumper in range( self.norbs_tot // self.fragments[0].norbs_frag ):
                         jumpsquare = self.fragments[0].norbs_frag * jumper
                         H1[ jumpsquare + row, jumpsquare + row ] = 1
-                    theH1.append( H1 )
+                    #theH1.append( H1 )
+                    totalsize, H1start, H1row, H1col = sparsify (H1, totalsize, H1start, H1row, H1col)
             else: # NO translational invariance assumed
                 # Huh? In this case it's a long list of giant matrices with only one nonzero value each
                 jumpsquare = 0
@@ -201,7 +222,8 @@ class dmet:
                     for row in range( frag.norbs_frag ):
                         H1 = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=int )
                         H1[ jumpsquare + row, jumpsquare + row ] = 1
-                        theH1.append( H1 )
+                        #theH1.append( H1 )
+                        totalsize, H1start, H1row, H1col = sparsify (H1, totalsize, H1start, H1row, H1col)
                     jumpsquare += frag.norbs_frag
         else: # Do density MATRIX embedding theory
             # Upper triangular parts of 1RDMs only
@@ -214,7 +236,8 @@ class dmet:
                             jumpsquare = self.fragments[0].norbs_frag * jumper
                             H1[ jumpsquare + row, jumpsquare + col ] = 1
                             H1[ jumpsquare + col, jumpsquare + row ] = 1
-                        theH1.append( H1 )
+                        #theH1.append( H1 )
+                        totalsize, H1start, H1row, H1col = sparsify (H1, totalsize, H1start, H1row, H1col)
             else: # NO translational invariance assumed
                 # same as above
                 jumpsquare = 0
@@ -224,9 +247,13 @@ class dmet:
                             H1 = np.zeros( [ self.norbs_tot, self.norbs_tot ], dtype=int )
                             H1[ jumpsquare + row, jumpsquare + col ] = 1
                             H1[ jumpsquare + col, jumpsquare + row ] = 1
-                            theH1.append( H1 )
+                            #theH1.append( H1 )
+                            totalsize, H1start, H1row, H1col = sparsify (H1, totalsize, H1start, H1row, H1col)
                     jumpsquare += frag.norbs_frag
-        return theH1
+        H1start = np.array( H1start, dtype=ctypes.c_int )
+        H1row   = np.array( H1row,   dtype=ctypes.c_int )
+        H1col   = np.array( H1col,   dtype=ctypes.c_int )
+        return ( H1start, H1row, H1col )
         
     def doexact( self, chempot_frag=0.0 ):
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat ) 
