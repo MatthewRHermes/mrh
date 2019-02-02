@@ -343,7 +343,7 @@ class fragment_object:
         proj = np.dot (frag2wmcs.conjugate ().T, frag2wmcs)
         norbs_wmcsf = np.trace (proj)
         norbs_xtra = int (round (self.norbs_frag - norbs_wmcsf))
-        assert (norbs_xtra == self.norbs_as)
+        assert (norbs_xtra == self.norbs_as), "{} active orbitals, {} extra fragment orbitals".format (self.norbs_as, norbs_xtra)
 
         # Now get them. (Make sure I don't add active-space orbitals by mistake!)
         if norbs_xtra:

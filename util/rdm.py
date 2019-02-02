@@ -26,7 +26,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     norbs_tot = assert_matrix_square (the_1RDM)
     norbs_frag = loc2frag.shape[1]
     assert (norbs_tot >= norbs_frag and loc2frag.shape[0] == norbs_tot)
-    assert (is_basis_orthonormal (loc2frag))
+    assert (is_basis_orthonormal (loc2frag)), linalg.norm (np.dot (loc2frag.T, loc2frag) - np.eye (loc2frag.shape[1]))
     norbs_env = norbs_tot - norbs_frag
     nelec_tot = np.trace (the_1RDM)
 
