@@ -406,14 +406,14 @@ class fragment_object:
                 vj_basis     = represent_operator_in_basis (vj_ao, ao2imp)
                 vk_basis     = represent_operator_in_basis (vk_ao, ao2imp)
                 return vj_basis, vk_basis
-            self.impham_TEI = np.empty ([self.norbs_imp for i in range (4)], dtype=np.float64)
-            self.impham_TEI_fiii = np.empty ([self.norbs_frag] + [self.norbs_imp for i in range (3)], dtype=np.float64)
+            self.impham_TEI = None # np.empty ([self.norbs_imp for i in range (4)], dtype=np.float64)
+            #self.impham_TEI_fiii = None # np.empty ([self.norbs_frag] + [self.norbs_imp for i in range (3)], dtype=np.float64)
             self.impham_get_jk = my_jk
         else:
             f = self.loc2frag
             i = self.loc2imp
             self.impham_TEI = self.ints.dmet_tei (self.loc2emb, self.norbs_imp) 
-            self.impham_TEI_fiii = self.ints.general_tei ([f, i, i, i])
+            #self.impham_TEI_fiii = self.ints.general_tei ([f, i, i, i])
             self.impham_get_jk = None
 
         # Constant contribution to energy from core 2CDMs
@@ -609,7 +609,7 @@ class fragment_object:
         if self.debug_energy:
             print ("get_E_frag {0} :: E1 = {1:.5f}".format (self.frag_name, float (E1)))
 
-        V_fiii = self.impham_TEI_fiii
+        V_fiii = np.tensordot (self.frag2imp, self.impham_TEI, axes=1) # self.impham_TEI_fiii
         L_fiii = np.tensordot (self.frag2imp, self.twoCDM_imp, axes=1)
         E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
         if self.debug_energy:
