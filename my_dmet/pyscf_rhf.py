@@ -72,9 +72,10 @@ def solve (frag, guess_1RDM, chempot_imp):
             mf.kernel ()
 
     oneRDMimp_imp = mf.make_rdm1()    
+    print ("Maximum distance between oneRDMimp_imp and guess_1RDM: {}".format (np.amax (np.abs (oneRDMimp_imp - guess_1RDM))))
 
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDMimp_imp, frag.imp2loc))
-    frag.twoCDM_imp = np.zeros ([frag.norbs_imp for i in range (4)], dtype=np.float64)
+    frag.twoCDM_imp = None
     frag.E_imp      = frag.impham_CONST + mf.e_tot + np.einsum ('ab,ab->', oneRDMimp_imp, chempot_imp)
     frag.loc2mo     = np.dot (frag.loc2imp, mf.mo_coeff)
 

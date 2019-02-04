@@ -38,6 +38,15 @@ def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list 
 def make_fragment_orb_list (ints, frag_orb_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0):
     return fragment_object (ints, frag_orb_list, solver_name, np.asarray (active_orb_list), name=name)
 
+def dummy_rhf (frag, oneRDM_imp, chempot_imp):
+    ''' Skip solving the impurity problem and assume the trial and impurity wave functions are the same. '''
+    assert (np.amax (np.abs (chempot_imp)) < 1e-10)
+    frag.oneRDM_loc = frag.ints.oneRDM_loc
+    frag.twoRDM_imp = None
+    frag.E_imp = frag.ints.e_tot
+    frag.loc2mo = np.dot (frag.loc2imp, 
+        matrix_eigen_control_options (represent_operator_in_basis (frag.ints.activeFOCK, frag.loc2imp),
+            sort_vecs=1, only_nonzero_vals=False)[1])
 
 class fragment_object:
 
@@ -67,18 +76,20 @@ class fragment_object:
 
         # Assign solver function
         solver_function_map = {
-            "FCI"    : pyscf_fci.solve ,
-            "RHF"    : pyscf_rhf.solve ,
-            "MP2"    : pyscf_mp2.solve ,
-            "CC"     : pyscf_cc.solve ,
-            "CASSCF" : pyscf_casscf.solve
+            "dummy RHF" : dummy_rhf ,
+            "FCI"       : pyscf_fci.solve ,
+            "RHF"       : pyscf_rhf.solve ,
+            "MP2"       : pyscf_mp2.solve ,
+            "CC"        : pyscf_cc.solve ,
+            "CASSCF"    : pyscf_casscf.solve
             }
         solver_longname_map = {
-            "FCI"    : "full configuration interaction",
-            "RHF"    : "restricted Hartree-Fock",
-            "MP2"    : "MP2 perturbation theory",
-            "CC"     : "coupled-cluster with singles and doubles",
-            "CASSCF" : "complete active space SCF"
+            "dummy RHF" : "dummy restricted Hartree-Fock",
+            "FCI"       : "full configuration interaction",
+            "RHF"       : "restricted Hartree-Fock",
+            "MP2"       : "MP2 perturbation theory",
+            "CC"        : "coupled-cluster with singles and doubles",
+            "CASSCF"    : "complete active space SCF"
             }
         imp_solver_name = re.sub ("\([0-9,]+\)", "", solver_name)
         self.imp_solver_name = imp_solver_name
@@ -397,6 +408,11 @@ class fragment_object:
     ###############################################################################################################################
     def construct_impurity_hamiltonian (self, xtra_CONST=0.0):
         self.warn_check_Schmidt ("construct_impurity_hamiltonian")
+        if self.imp_solver_name == "dummy RHF":
+            self.E2_frag_core = 0
+            self.impham_built = True
+            self.imp_solved   = False
+            return
         self.impham_OEI = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
         if self.imp_solver_name == "RHF" and self.quasidirect:
             ao2imp = np.dot (self.ints.ao2loc, self.loc2imp)
@@ -406,7 +422,7 @@ class fragment_object:
                 vj_basis     = represent_operator_in_basis (vj_ao, ao2imp)
                 vk_basis     = represent_operator_in_basis (vk_ao, ao2imp)
                 return vj_basis, vk_basis
-            self.impham_TEI = None # np.empty ([self.norbs_imp for i in range (4)], dtype=np.float64)
+            self.impham_TEI = None 
             #self.impham_TEI_fiii = None # np.empty ([self.norbs_frag] + [self.norbs_imp for i in range (3)], dtype=np.float64)
             self.impham_get_jk = my_jk
         else:
@@ -482,6 +498,7 @@ class fragment_object:
         print ("Number of electrons on {0} from the impurity model: {1}; from the core: {2}".format (
             self.frag_name, np.trace (oneRDMimp_loc[idx]), np.trace (self.oneRDMfroz_loc[idx])))
         '''
+
 
     def load_amo_guess_from_casscf_molden (self, moldenfile, norbs_cmo, norbs_amo):
         ''' Use moldenfile from whole-molecule casscf calculation to guess active orbitals '''
@@ -609,9 +626,11 @@ class fragment_object:
         if self.debug_energy:
             print ("get_E_frag {0} :: E1 = {1:.5f}".format (self.frag_name, float (E1)))
 
-        V_fiii = np.tensordot (self.frag2imp, self.impham_TEI, axes=1) # self.impham_TEI_fiii
-        L_fiii = np.tensordot (self.frag2imp, self.twoCDM_imp, axes=1)
-        E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
+        E2 = 0
+        if isinstance (self.twoCDM_imp, np.ndarray):
+            V_fiii = np.tensordot (self.frag2imp, self.impham_TEI, axes=1) # self.impham_TEI_fiii
+            L_fiii = np.tensordot (self.frag2imp, self.twoCDM_imp, axes=1)
+            E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
         if self.debug_energy:
             print ("get_E_frag {0} :: E2 = {1:.5f}".format (self.frag_name, float (E2)))
 
@@ -625,7 +644,9 @@ class fragment_object:
         # S2_f = Tr_f [G - (G**2)/2] - 1/2 sum_fi L_fiif
 
         dm = self.get_oneRDM_imp ()
-        exc_mat = dm - np.dot (dm, dm)/2 - np.einsum ('prrq->pq', self.twoCDM_imp)/2
+        exc_mat = dm - np.dot (dm, dm)/2
+        if isinstance (self.twoCDM_imp, np.ndarray):
+            exc_mat -= np.einsum ('prrq->pq', self.twoCDM_imp)/2
         return np.einsum ('fp,pq,qf->', self.frag2imp, exc_mat, self.imp2frag) 
 
     def get_twoRDM (self, *bases):
@@ -763,5 +784,9 @@ class fragment_object:
             return np.diag (rsp_1RDM_frag)
         else:
             return rsp_1RDM_frag.flatten (order='F')
+
+
+
+
 
 

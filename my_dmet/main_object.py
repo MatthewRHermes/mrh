@@ -101,18 +101,15 @@ class dmet:
         self.examine_wmcs = False
         self.ofc_emb_init_ncycles = 3
 
-        print ("Before acceptable_errvec_check")
         self.acceptable_errvec_check ()
         if self.altcostfunc:
             assert (self.SCmethod == 'BFGS' or self.SCmethod == 'NONE')
 
-        print ("Before get_allcore_orbs")
         self.get_allcore_orbs ()
         if ( self.norbs_allcore > 0 ): # One or more impurities which do not cover the entire system
             assert( self.TransInv == False ) # Make sure that you don't work translational invariant
             # Note on working with impurities which do no tile the entire system: they should be the first orbitals in the Hamiltonian!
 
-        print ("Before umat_ftriu_mask construction")
         def umat_ftriu_mask (x, k=0):
             r = np.zeros (x.shape, dtype=np.bool)
             for frag in self.fragments:
@@ -120,18 +117,14 @@ class dmet:
                 c = tuple (np.asarray ([frag.frag_orb_list[i] for i in f]) for f in ftriu)
                 r[c] = True
             return r
-        print ("Before umat_ftriu_mask execution")
         self.umat_ftriu_idx = np.mask_indices (self.norbs_tot, umat_ftriu_mask)
         
         self.loc2fno    = None
-        print ("Before umat construction")
         self.umat       = np.zeros([ self.norbs_tot, self.norbs_tot ])
         self.relaxation = 0.0
         self.energy     = 0.0
         self.spin       = 0.0
-        print ("Before qcdmethelper")
         self.helper     = qcdmethelper.qcdmethelper( self.ints, self.makelist_H1(), self.altcostfunc, self.minFunc )
-        print ("After qcdmethelper")
         
         np.set_printoptions(precision=3, linewidth=160)
         #objinit = tracemalloc.take_snapshot ()
@@ -613,7 +606,6 @@ class dmet:
 
     def doselfconsistent_orbs (self, iters):
 
-        print (linalg.LinAlgError)
         loc2wmas_old = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         try:
             loc2wmcs_old = get_complementary_states (loc2wmas_old)

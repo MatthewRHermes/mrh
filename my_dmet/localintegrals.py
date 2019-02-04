@@ -58,7 +58,8 @@ class localintegrals:
             self.fullJKao = self.fullJKao[0] 
             # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
         self.fullFOCKao  = the_mf.get_hcore () + self.fullJKao
-        print ("First block")
+        self.oneRDM_loc  = the_mf.make_rdm1 ()
+        self.e_tot       = the_mf.e_tot
 
         # Active space information
         self._which    = localizationtype
@@ -66,7 +67,6 @@ class localintegrals:
         self.active[ active_orbs ] = 1
         self.norbs_tot = np.sum( self.active ) # Number of active space orbitals
         self.nelec_tot = int(np.rint( self.mol.nelectron - np.sum( the_mf.mo_occ[ self.active==0 ] ))) # Total number of electrons minus frozen part
-        print ("Active space information")        
 
         # Localize the orbitals
         if (( self._which == 'meta_lowdin' ) or ( self._which == 'boys' )):
@@ -75,7 +75,6 @@ class localintegrals:
             if ( self._which == 'boys' ):
                 self.ao2loc = the_mf.mo_coeff[ : , self.active==1 ]
             if ( self.norbs_tot == self.mol.nao_nr() ): # If you want the full active, do meta-Lowdin
-                print ("Meta-lowdin, right?")
                 nao.AOSHELL[4] = ['1s0p0d0f', '2s1p0d0f'] # redefine the valence shell for Be
                 self.ao2loc = orth.orth_ao( self.mol, 'meta_lowdin' )
                 if ( ao_rotation != None ):
@@ -104,13 +103,11 @@ class localintegrals:
             self.TI_OK = False # Check yourself if OK, then overwrite
             #self.molden( 'dump.molden' ) # Debugging mode
         assert( self.loc_ortho() < 1e-8 )
-        print ("Localization done")
 
         # Stored inverse overlap matrix
         self.ao_ovlp_inv = np.dot (self.ao2loc, self.ao2loc.conjugate ().T)
         self.ao_ovlp     = the_mf.get_ovlp ()
         assert (is_matrix_eye (np.dot (self.ao_ovlp, self.ao_ovlp_inv)))
-        print ("Inverse overlap matrix stored")
 
         # Effective Hamiltonian due to frozen part
         self.frozenDMmo  = np.array( the_mf.mo_occ, copy=True )
@@ -121,7 +118,6 @@ class localintegrals:
             self.frozenJKao = self.frozenJKao[0]
             # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
         self.frozenOEIao = self.fullFOCKao - self.fullJKao + self.frozenJKao
-        print ("Frozen part of Heff")        
 
         # Localized OEI and ERI
         self.activeCONST    = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEIao - 0.5*self.frozenJKao, self.frozenDMao )
@@ -283,6 +279,7 @@ class localintegrals:
         oneRDMcorr_loc = sum ((frag.oneRDMas_loc for frag in fragments))
         if np.all (np.isclose (oneRDMcorr_loc, 0)):
             print ("Null correlated 1-RDM; default settings for wm wvfn")
+            self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
             self.activeJKidem   = self.activeFOCK - self.activeOEI
             self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot))
             self.oneRDMcorr_loc = oneRDMcorr_loc
@@ -324,6 +321,7 @@ class localintegrals:
         print (loc2idem.shape)
 
         ########################################################################################################        
+        self.activeFOCK     = self.activeOEI + JKidem + JKcorr
         self.activeJKidem   = JKidem
         self.activeJKcorr   = JKcorr
         self.oneRDMcorr_loc = oneRDMcorr_loc
@@ -331,22 +329,27 @@ class localintegrals:
         self.nelec_idem     = nelec_idem
         ########################################################################################################
 
-        # Analysis: molden and total energy
+        # Analysis: 1RDM and total energy
         print ("Analyzing LASSCF trial wave function")
         oei = self.activeOEI + (JKcorr + JKidem) / 2
-        fock = self.activeOEI + JKcorr + JKidem
+        fock = self.activeFOCK
         oneRDM = oneRDMidem_loc + oneRDMcorr_loc
         E = self.activeCONST + np.tensordot (oei, oneRDM, axes=2)
         for frag in fragments:
             if frag.norbs_as > 0:
-                V  = self.dmet_tei (frag.loc2amo)
-                L  = frag.twoCDMimp_amo
-                E += np.tensordot (V, L, axes=4) / 2
+                #V  = self.dmet_tei (frag.loc2amo)
+                #L  = frag.twoCDMimp_amo
+                #E += np.tensordot (V, L, axes=4) / 2
+                E += frag.E2_cum
         print ("LASSCF trial wave function total energy: {:.6f}".format (E))
+        self.oneRDM_loc = oneRDM
+        self.e_tot = E
+
+        # Molden
         fock_idem = represent_operator_in_basis (fock, loc2idem)
         oneRDM_corr = represent_operator_in_basis (oneRDM, loc2corr)
         idem_evecs = matrix_eigen_control_options (fock_idem, sort_vecs=1, only_nonzero_vals=False)[1]
-        corr_evecs =  matrix_eigen_control_options (oneRDM_corr, sort_vecs=-1, only_nonzero_vals=False)[1]
+        corr_evecs = matrix_eigen_control_options (oneRDM_corr, sort_vecs=-1, only_nonzero_vals=False)[1]
         loc2molden = np.append (np.dot (loc2idem, idem_evecs), np.dot (loc2corr, corr_evecs), axis=1)
         wm_ene = np.einsum ('ip,ij,jp->p', loc2molden, fock, loc2molden)
         wm_ene[-loc2corr.shape[1]:] = 0
@@ -355,6 +358,7 @@ class localintegrals:
         molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=wm_occ, ene=wm_ene)
 
     def restore_wm_full_scf (self):
+        self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
         self.activeJKidem   = self.activeFOCK - self.activeOEI
         self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
         self.oneRDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
