@@ -38,6 +38,7 @@ from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
 from mrh.util.basis import is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal, get_overlapping_states
 from mrh.util.basis import is_matrix_zero
+from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
 from itertools import combinations, product
@@ -317,8 +318,8 @@ class dmet:
                 self.oneRDMallcore_loc = rdm1
 
         self.energy += self.ints.const()
-        print ("Current whole-molecule energy: {0:.6f}".format (self.energy))
-        print ("Current whole-molecule spin: {0:.6f}".format (self.spin))
+        print ("Current sum of fragment energies: {0:.6f}".format (self.energy))
+        print ("Current sum of fragment spins: {0:.6f}".format (self.spin))
         return Nelectrons
         
     def constructloc2fno( self ):
@@ -515,9 +516,10 @@ class dmet:
             debug_Etot (self)
 
         for frag in self.fragments:
-            frag.impurity_molden ('natorb', natorb=True)
-            frag.impurity_molden ('imporb')
-            frag.impurity_molden ('molorb', molorb=True)
+            if not (frag.imp_solver_name == 'dummy RHF'):
+                frag.impurity_molden ('natorb', natorb=True)
+                frag.impurity_molden ('imporb')
+                frag.impurity_molden ('molorb', molorb=True)
         rdm = self.transform_ed_1rdm (get_od=True)
         no_occs, no_evecs = matrix_eigen_control_options (rdm, sort_vecs=-1, only_nonzero_vals=False)
         print ("Whole-molecule natural orbital occupancies:\n{}".format (no_occs))
@@ -854,20 +856,22 @@ class dmet:
             ix_rem = Mxk_rem > 0
             max_eval = np.zeros (len (self.fragments))
             for ix_frag, f in enumerate (self.fragments):
-                #print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
+                print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
                 if loc2x.shape[1] == 0 or Mxk_rem[ix_frag] == 0:
                     continue
                 p = represent_operator_in_basis (proj_gfrag[:,:,ix_frag], loc2x)
                 evals, evecs = matrix_eigen_control_options (p, sort_vecs=-1, only_nonzero_vals=False)
+                ix_zero = np.abs (evals) < 1e-8
                 loc2evecs = np.dot (loc2x, evecs)
                 # Scale the eigenvalues to evaluate their comparison to the sum of projector expt vals of unfull fragments
                 exptvals = np.einsum ('ip,ijk,k,jp->p', loc2evecs.conjugate (), proj_gfrag, ix_rem.astype (int), loc2evecs)
                 evals = evals / exptvals
+                evals[ix_zero] = 0
                 max_eval[ix_frag] = np.max (evals)
-                ix_loc = evals > assign_thresh
+                ix_loc = evals >= assign_thresh
                 ix_loc[Mxk_rem[ix_frag]:] = False
-                #print ("{} fragment, iteration {}: {} eigenvalues above 1/2 found of {} total sought:\n{}".format (
-                #    f.frag_name, it, np.count_nonzero (ix_loc), Mxk_rem[ix_frag], evals))
+                print ("{} fragment, iteration {}: {} eigenvalues above 1/2 found of {} total sought:\n{}".format (
+                    f.frag_name, it, np.count_nonzero (ix_loc), Mxk_rem[ix_frag], evals))
                 loc2wmcs[ix_frag] = np.append (loc2wmcs[ix_frag], loc2evecs[:,ix_loc], axis=1)
                 loc2x = loc2evecs[:,~ix_loc]
             if np.all (max_eval < assign_thresh):
@@ -875,8 +879,26 @@ class dmet:
                     " after failing to assign any orbitals in iteration {}").format (assign_thresh, np.max (max_eval)*0.99, it))
                 assign_thresh = np.max (max_eval)*0.99
             it += 1
+            '''
             if assign_thresh < 1e-8:
                 raise RuntimeError ("At least one unassignable orbital")
+            '''
+
+        for ix, loc2frag in enumerate (loc2wmcs):
+            ovlp = loc2frag.conjugate ().T
+            ovlp = np.dot (ovlp, loc2frag)
+            err = linalg.norm (ovlp - np.eye (ovlp.shape[0]))
+            it = 0
+            while (abs (err) > 1e-8):
+                umat = orth.lowdin (ovlp)
+                loc2frag = np.dot (loc2frag, umat)
+                ovlp = loc2frag.conjugate ().T
+                ovlp = np.dot (ovlp, loc2frag)
+                err = linalg.norm (ovlp - np.eye (ovlp.shape[0]))
+                it += 1
+                if it > 100:
+                    raise RuntimeError ("I tried 100 times to orthonormalize this and failed")
+            loc2wmcs[ix] = loc2frag
 
         #for loc2, f in zip (loc2wmcs, self.fragments):
         #    print ("Projector eigenvalues of {} external fragment orbitals:".format (f.frag_name))
@@ -885,7 +907,7 @@ class dmet:
              
         return loc2wmcs
 
-    def generate_frag_cas_guess (self, mf, CASlist=None, confine_guess=True):
+    def generate_frag_cas_guess (self, mf, CASlist=None, confine_guess=True, guess_somos = []):
 
         nelec_cas = sum ((f.active_space[0] for f in self.fragments if f.active_space is not None))
         norbs_cas = sum ((f.active_space[1] for f in self.fragments if f.active_space is not None))
@@ -900,7 +922,7 @@ class dmet:
         
         loc2amo = reduce (np.dot, (self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, mo[:,ncore_cas:ncore_cas+norbs_cas]))
         proj_amo = np.dot (loc2amo, loc2amo.conjugate ().T)
-
+        fock = self.ints.activeFOCK
 
         for f in self.fragments:
             if f.active_space is not None:
@@ -908,13 +930,38 @@ class dmet:
                     p = represent_operator_in_basis (proj_amo, f.get_true_loc2frag ())
                     evals, evecs = matrix_eigen_control_options (p, sort_vecs=-1, only_nonzero_vals=False)
                     evals = evals[:f.active_space[1]]
-                    f.loc2amo_guess = np.dot (f.get_true_loc2frag (), evecs[:,:f.active_space[1]])
+                    loc2amo_guess = np.dot (f.get_true_loc2frag (), evecs[:,:f.active_space[1]])
                 else:
                     proj_frag = np.dot (f.get_true_loc2frag (), f.get_true_loc2frag ().conjugate ().T)
                     proj_frag = represent_operator_in_basis (proj_frag, loc2amo)
                     evals, evecs = matrix_eigen_control_options (proj_frag, sort_vecs=-1, only_nonzero_vals=False)
-                    f.loc2amo_guess = np.dot (loc2amo, evecs[:,:f.active_space[1]]) 
+                    loc2amo_guess = np.dot (loc2amo, evecs[:,:f.active_space[1]]) 
+            fock = represent_operator_in_basis (self.ints.activeFOCK, loc2amo_guess)
+            evals, evecs = matrix_eigen_control_options (fock, sort_vecs=1, only_nonzero_vals=False)
+            f.loc2amo_guess = np.dot (loc2amo_guess, evecs)
 
+        if len (guess_somos) == len (self.fragments):
+            # construct rohf-like density matrices and set loc2amo_guess -> loc2amo
+            for nsomo, f, in zip (guess_somos, self.fragments):
+                if f.active_space is None:
+                    continue
+                assert (nsomo % 2 == f.active_space[0] % 2)
+                assert (nsomo <= f.active_space[1])
+                neleca = (f.active_space[0] + nsomo) // 2
+                nelecb = (f.active_space[0] - nsomo) // 2
+                occa = np.zeros (f.active_space[1], dtype=np.float64)
+                occb = np.zeros (f.active_space[1], dtype=np.float64)
+                occa[:neleca] += 1
+                occb[:nelecb] += 1
+                dma, dmb = np.diag (occa), np.diag (occb)
+                # This is to cajole my ROHF-like pseudo-cumulant decomposition
+                twoCDM = np.zeros ([f.active_space[1] for i in range (4)], dtype=np.float64)
+                twoRDM = get_2RDM_from_2CDM (twoCDM, [dma, dmb])
+                dm = dma + dmb
+                f.loc2amo = f.loc2amo_guess.copy ()
+                f.twoCDMimp_amo = get_2CDM_from_2RDM (twoRDM, dm) 
+                f.oneRDMas_loc = represent_operator_in_basis (dm, f.loc2amo.conjugate ().T)
+            
     def save_checkpoint (self, fname):
         ''' Data array structure: nao_nr, chempot, 1RDM or umat, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
         nao = self.ints.mol.nao_nr ()
@@ -944,7 +991,7 @@ class dmet:
         if prev_mol:
             oldSnew = mole.intor_cross('int1e_ovlp', prev_mol, self.ints.mol)
             aoSloc = np.dot (oldSnew, self.ints.ao2loc)
-            if same_mol (prev_mol, self.ints.mol, cmp_basis): #basis set expansion
+            if same_mol (prev_mol, self.ints.mol, cmp_basis = False): #basis set expansion
                 locSao = np.dot (self.ints.ao_ovlp, self.ints.ao2loc).conjugate ().T
             else: # geometry change
                 locSao = aoSloc.conjugate ().T
@@ -956,8 +1003,9 @@ class dmet:
         mat = represent_operator_in_basis (mat, aoSloc)
         if self.doLASSCF:
             self.ints.oneRDM_loc = mat.copy ()
-            assert (abs (np.trace (self.ints.oneRDM_loc) - self.ints.nelec_tot) < 1e-8), "checkpoint oneRDM trace = {}; nelec_tot = {}".format (
-                np.trace (self.ints.oneRDM_loc), self.ints.nelec_tot)
+            if prev_mol is not None:
+                assert (abs (np.trace (self.ints.oneRDM_loc) - self.ints.nelec_tot) < 1e-8), "checkpoint oneRDM trace = {}; nelec_tot = {}".format (
+                    np.trace (self.ints.oneRDM_loc), self.ints.nelec_tot)
         else:
             self.umat = mat.copy ()
 
@@ -976,10 +1024,15 @@ class dmet:
                 ovlp = np.dot (f.loc2amo.conjugate ().T, f.loc2amo)
                 evecs = orth.lowdin (ovlp)
                 f.loc2amo = np.dot (f.loc2amo, evecs)
-                f.oneRDMas_loc = represent_operator_in_basis (f.oneRDMas_loc, f.loc2amo.conjugate ().T)
                 f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, evecs)
+                # natorbify
+                no_occ, no_evecs = matrix_eigen_control_options (f.oneRDMas_loc, sort_vecs=-1, only_nonzero_vals=False)
+                f.loc2amo = np.dot (f.loc2amo, no_evecs)
+                f.oneRDMas_loc = represent_operator_in_basis (np.diag (no_occ), f.loc2amo.conjugate ().T)
+                f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, no_evecs)
                 print ("{} fragment oneRDM_amo (trace = {}):\n{}".format (
                     f.frag_name, np.trace (f.oneRDMas_loc), prettyprint (represent_operator_in_basis (f.oneRDMas_loc, f.loc2amo), fmt='{:6.3f}')))
+               
                 if np.amax (np.abs (f.twoCDMimp_amo)) > 1e-10:
                     tei = self.ints.dmet_tei (f.loc2amo)
                     f.E2_cum = np.tensordot (tei, f.twoCDMimp_amo, axes=4) / 2
@@ -988,6 +1041,55 @@ class dmet:
         # In PES, f.loc2amo may have overlap with occupied core orbitals due to changes in the overlap matrix. Therefore it may have to be changed
 
         
+    def expand_active_space (self, callables):
+        ''' Add occupied or vitual orbitals from the whole molecule to one or several fragments' active spaces using functions in list "callables"
+            Callables should have signature (self.ints.mol, mo, myamo, ncore, ncas) where mo is mo coefficients and myamo is the active orbital
+            coefficients of the current fragment. They should return the expanded set of active orbital coefficients.
+            All orbital coefficients interacting with the callables are in the ao basis (not the orthonormal localized DMET/LASSCF basis)
+
+            Keeping the additional orbitals localized is your responsibility '''
+
+        loc2wmas = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+        loc2wmcs = get_complementary_states (loc2wmas) 
+        self.ints.setup_wm_core_scf (self.fragments, self.calcname)
+
+        norbs_amo = np.sum ([frag.norbs_as for frag in self.fragments])
+        nelec_amo = np.sum ([frag.nelec_as for frag in self.fragments])
+        norbs_cmo = (self.ints.nelec_tot - nelec_amo) // 2
+        assert (self.ints.nelec_tot % 2 == nelec_amo % 2)
+        fock = represent_operator_in_basis (self.ints.activeFOCK, loc2wmcs)
+        mo_ene, evecs = matrix_eigen_control_options (fock, sort_vecs=1, only_nonzero_vals=False)
+        loc2mo = np.concatenate ([np.dot (loc2wmcs, evecs[:,:norbs_cmo]), loc2wmas, np.dot (loc2wmcs, evecs[:,norbs_cmo:])], axis=1)
+        mo = np.dot (self.ints.ao2loc, loc2mo)
+
+        for frag, cal in zip (self.fragments, callables):
+            if frag.active_space is None:
+                continue
+            myamo = cal (self.ints.mol, mo, np.dot (self.ints.ao2loc, frag.loc2amo), norbs_cmo, norbs_amo)
+            old2new_amo = frag.loc2amo.conjugate ().T.copy ()
+            frag.loc2amo = reduce (np.dot, (self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, myamo))
+            old2new_amo = np.dot (old2new_amo, frag.loc2amo)
+            frag.oneRDMas_loc = project_operator_into_subspace (self.ints.oneRDM_loc, frag.loc2amo) 
+            frag.twoCDMimp_amo = represent_operator_in_basis (frag.twoCDMimp_amo, old2new_amo) 
+
+
+    def save_las_mos (self):
+        ''' Save MOs in a form that can be loaded for a CAS calculation on a npy file '''
+
+        loc2wmas = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+        loc2wmcs = get_complementary_states (loc2wmas) 
+        self.ints.setup_wm_core_scf (self.fragments, self.calcname)
+
+        norbs_amo = np.sum ([frag.norbs_as for frag in self.fragments])
+        nelec_amo = np.sum ([frag.nelec_as for frag in self.fragments])
+        norbs_cmo = (self.ints.nelec_tot - nelec_amo) // 2
+        assert (self.ints.nelec_tot % 2 == nelec_amo % 2)
+        fock = represent_operator_in_basis (self.ints.activeFOCK, loc2wmcs)
+        mo_ene, evecs = matrix_eigen_control_options (fock, sort_vecs=1, only_nonzero_vals=False)
+        loc2mo = np.concatenate ([np.dot (loc2wmcs, evecs[:,:norbs_cmo]), loc2wmas, np.dot (loc2wmcs, evecs[:,norbs_cmo:])], axis=1)
+        mo = np.dot (self.ints.ao2loc, loc2mo)
+        np.save (self.calcname + '_mo.npy', mo)
+
 
 
 

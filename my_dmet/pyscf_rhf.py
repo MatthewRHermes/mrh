@@ -50,6 +50,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         mf.get_jk = frag.impham_get_jk 
     else:
         mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+    mf.__dict__.update (frag.mf_attr)
     mf.scf( guess_1RDM )
     if ( mf.converged == False ):
         mf = mf.newton ()

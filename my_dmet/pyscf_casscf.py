@@ -25,7 +25,7 @@ import numpy as np
 from scipy import linalg
 from mrh.my_dmet import localintegrals
 import os, time
-import sys
+import sys, copy
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo, mcscf, fci, lib
 from pyscf.mcscf.addons import spin_square
@@ -48,7 +48,10 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Augment OEI with the chemical potential
     OEI = frag.impham_OEI - chempot_imp
-    
+
+    # Do I need to get the full RHF solution?
+    guess_orbs_av = len (frag.imp_cache) == 2 or frag.norbs_as > 0 
+
     # Get the RHF solution
     mol = gto.Mole()
     mol.spin = int (round (2 * frag.target_MS))
@@ -62,25 +65,32 @@ def solve (frag, guess_1RDM, chempot_imp):
     mf.get_hcore = lambda *args: OEI
     mf.get_ovlp = lambda *args: np.eye(frag.norbs_imp)
     mf.energy_nuc = lambda *args: frag.impham_CONST
-    mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+    if frag.impham_CDERI is not None:
+        mf = mf.density_fit ()
+        mf.with_df._cderi = frag.impham_CDERI
+    else:
+        mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+    mf.__dict__.update (frag.mf_attr)
+    if guess_orbs_av: mf.max_cycle = 2
     mf.scf (guess_1RDM)
-    if not mf.converged:
+    if (not mf.converged) and (not guess_orbs_av):
         print ("CASSCF RHF-step not converged on fixed-point iteration; initiating newton solver")
         mf = mf.newton ()
         mf.kernel ()
 
     # Instability check and repeat
-    for i in range (frag.num_mf_stab_checks):
-        mf.mo_coeff = mf.stability ()[0]
-        guess_1RDM = mf.make_rdm1 ()
-        mf = scf.RHF(mol)
-        mf.get_hcore = lambda *args: OEI
-        mf.get_ovlp = lambda *args: np.eye(frag.norbs_imp)
-        mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
-        mf.scf (guess_1RDM)
-        if not mf.converged:
-            mf = mf.newton ()
-            mf.kernel ()
+    if not guess_orbs_av:
+        for i in range (frag.num_mf_stab_checks):
+            mf.mo_coeff = mf.stability ()[0]
+            guess_1RDM = mf.make_rdm1 ()
+            mf = scf.RHF(mol)
+            mf.get_hcore = lambda *args: OEI
+            mf.get_ovlp = lambda *args: np.eye(frag.norbs_imp)
+            mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+            mf.scf (guess_1RDM)
+            if not mf.converged:
+                mf = mf.newton ()
+                mf.kernel ()
     
     print ("CASSCF RHF-step energy: {}".format (mf.e_tot))
     #print(mf.mo_occ)    
@@ -100,7 +110,10 @@ def solve (frag, guess_1RDM, chempot_imp):
         CASe = ((CASe//2) + frag.target_S, (CASe//2) - frag.target_S)
     else:
         CASe = ((CASe//2) + frag.target_MS, (CASe//2) - frag.target_MS)
-    mc = mcscf.CASSCF(mf, CASorb, CASe)
+    if frag.impham_CDERI is not None:
+        mc = mcscf.DFCASSCF(mf, CASorb, CASe)
+    else:
+        mc = mcscf.CASSCF(mf, CASorb, CASe)
     norbs_amo = mc.ncas
     norbs_cmo = mc.ncore
     norbs_imo = frag.norbs_imp - norbs_amo
@@ -113,32 +126,42 @@ def solve (frag, guess_1RDM, chempot_imp):
     if len (frag.imp_cache) == 2:
         imp2mo, ci0 = frag.imp_cache
         print ("Taking molecular orbitals and ci vector from cache")
-    elif frag.norbs_as == frag.active_space[1]:
-        print ("Projecting stored amos (frag.loc2amo) onto the impurity basis")
-        imp2mo = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo)[0]
     elif frag.norbs_as > 0:
         nelec_imp_guess = int (round (np.trace (frag.oneRDMas_loc)))
         norbs_cmo_guess = (frag.nelec_imp - nelec_imp_guess) // 2
         print ("Projecting stored amos (frag.loc2amo; spanning {} electrons) onto the impurity basis and filling the remainder with default guess".format (nelec_imp_guess))
         imp2mo, my_occ = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo_guess, dm=frag.oneRDMas_loc)
-        if frag.mfmo_printed == False:
-            ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
-            molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=my_occ)
-            frag.mfmo_printed = True
-        if frag.active_orb_list.size > 0:
-            print('Applying caslst: {}'.format (frag.active_orb_list))
-            imp2mo = mc.sort_mo(frag.active_orb_list, mo_coeff=imp2mo)
+    elif frag.loc2amo_guess is not None:
+        print ("Projecting stored amos (frag.loc2amo_guess) onto the impurity basis (no dm available)")
+        imp2mo, my_occ = project_amo_manually (frag.loc2imp, frag.loc2amo_guess, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo, dm=None)
+        frag.loc2amo_guess = None
     else:
         imp2mo = mc.mo_coeff 
+        my_occ = mf.mo_occ
         print ("No stored amos; using mean-field canonical MOs as initial guess")
-        if frag.mfmo_printed == False:
-            ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
-            molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=mf.mo_occ, ene=mf.mo_energy)
-            frag.mfmo_printed = True
-        if frag.active_orb_list.size > 0:
-            print('Applying caslst: {}'.format (frag.active_orb_list))
-            imp2mo = mc.sort_mo(frag.active_orb_list, mo_coeff=imp2mo)
 
+    # Guess orbital processing
+    if callable (frag.cas_guess_callback):
+        mo = reduce (np.dot, (frag.ints.ao2loc, frag.loc2imp, imp2mo))
+        mo = frag.cas_guess_callback (frag.ints.mol, mc, mo)
+        imp2mo = reduce (np.dot, (frag.imp2loc, frag.ints.ao2loc.conjugate ().T, frag.ints.ao_ovlp, mo))
+        frag.cas_guess_callback = None
+    elif len (frag.active_orb_list) > 0:
+        print('Applying caslst: {}'.format (frag.active_orb_list))
+        imp2mo = mc.sort_mo(frag.active_orb_list, mo_coeff=imp2mo)
+        frag.active_orb_list = []
+    if len (frag.frozen_orb_list) > 0:
+        mc.frozen = copy.copy (frag.frozen_orb_list)
+        print ("Applying frozen-orbital list (this macroiteration only): {}".format (frag.frozen_orb_list))
+        frag.frozen_orb_list = []
+
+    # Guess orbital printing
+    if frag.mfmo_printed == False:
+        ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
+        molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=my_occ)
+        frag.mfmo_printed = True
+
+    # Guess CI vector
     if len (frag.imp_cache) != 2 and frag.ci_as is not None:
         loc2amo_guess = np.dot (frag.loc2imp, imp2mo[:,norbs_cmo:norbs_occ])
         gOc = np.dot (loc2amo_guess.conjugate ().T, frag.ci_as_orb)
@@ -149,6 +172,7 @@ def solve (frag, guess_1RDM, chempot_imp):
             ci0 = transform_ci_for_orbital_rotation (frag.ci_as, CASorb, CASe, umat_c)
         else:
             print ("Discarding stored ci guess because orbitals are too different (missing {} nonzero svals)".format (norbs_amo-svals.size))
+
     t_start = time.time()
     smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
     mc.fcisolver = csf_solver (mf.mol, smult)
@@ -156,6 +180,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     mc.ah_start_tol = 1e-10
     mc.ah_conv_tol = 1e-10
     mc.conv_tol = 1e-9
+    mc.__dict__.update (frag.corr_attr)
     E_CASSCF = mc.kernel(imp2mo, ci0)[0]
     if not mc.converged:
         mc = mc.newton ()
@@ -171,6 +196,7 @@ def solve (frag, guess_1RDM, chempot_imp):
             mc = mc.newton ()
             E_CASSCF = mc.kernel(mc.mo_coeff, mc.ci)[0]
     assert (mc.converged)
+
     '''
     mc.conv_tol = 1e-12
     mc.ah_start_tol = 1e-10

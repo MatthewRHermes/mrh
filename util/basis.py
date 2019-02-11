@@ -1,6 +1,7 @@
 # A collection of useful manipulations of basis sets (i.e., rectangular matrices) and operators (square matrices)
 
 import numpy as np
+from scipy import linalg
 from mrh.util.io import prettyprint_ndarray
 from mrh.util.la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util import params
@@ -334,6 +335,16 @@ def get_complementary_states (incomplete_basis, in_subspace = None, already_comp
             print ("warning: tried to construct a complement for a basis that was already complete")
         return np.zeros ((incomplete_basis.shape[0], 0))
 
+    Q, R = linalg.qr (orthonormal_basis)
+    ovlp = np.dot (Q.conjugate ().T, orthonormal_basis)
+    nbas = orthonormal_basis.shape[1]
+    err = linalg.norm (np.dot (ovlp[:nbas,:].T, ovlp[:nbas,:]) - np.eye (nbas)) / nbas
+    assert (abs (err) < 1e-8), err
+    err = linalg.norm (ovlp[nbas:,:]) / nbas
+    assert (abs (err) < 1e-8), err
+    return orthonormalize_a_basis (Q[:,nbas:])
+
+    '''
     c2b = np.asmatrix (orthonormal_basis)
     nstates_b = c2b.shape[1]
     nstates_c = c2b.shape[0]
@@ -348,6 +359,7 @@ def get_complementary_states (incomplete_basis, in_subspace = None, already_comp
     Projq_cc = np.eye (nstates_c, dtype=Projb_cc.dtype) - Projb_cc
     
     return get_states_from_projector (Projq_cc)
+    '''
 
 def get_complete_basis (incomplete_basis):
     complementary_states = get_complementary_states (incomplete_basis, already_complete_warning = False)

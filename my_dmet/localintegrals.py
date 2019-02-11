@@ -32,10 +32,11 @@ from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
 from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace, orthonormalize_a_basis, get_overlapping_states
 from mrh.util.tensors import symmetrize_tensor
-from mrh.util.la import matrix_eigen_control_options, is_matrix_eye
+from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options, is_matrix_eye
 from mrh.util import params
 from math import sqrt
 import itertools
+import time
 from functools import reduce, partial
 
 class localintegrals:
@@ -58,7 +59,8 @@ class localintegrals:
             self.fullJKao = self.fullJKao[0] 
             # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
         self.fullFOCKao  = the_mf.get_hcore () + self.fullJKao
-        self.oneRDM_loc  = the_mf.make_rdm1 ()
+        self.oneRDM_loc  = np.asarray (the_mf.make_rdm1 ())
+        if self.oneRDM_loc.ndim > 2: self.oneRDM_loc = self.oneRDM_loc[0] + self.oneRDM_loc[1]
         self.e_tot       = the_mf.e_tot
 
         # Active space information
@@ -120,6 +122,8 @@ class localintegrals:
         self.frozenOEIao = self.fullFOCKao - self.fullJKao + self.frozenJKao
 
         # Localized OEI and ERI
+        self.oneRDM_loc     = reduce (np.dot, (self.ao2loc.conjugate ().T, self.ao_ovlp, self.oneRDM_loc, self.ao_ovlp, self.ao2loc))
+        assert (abs (np.trace (self.oneRDM_loc) - self.nelec_tot) < 1e-8), '{} {}'.format (np.trace (self.oneRDM_loc), self.nelec_tot)
         self.activeCONST    = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEIao - 0.5*self.frozenJKao, self.frozenDMao )
         self.activeOEI      = represent_operator_in_basis (self.frozenOEIao, self.ao2loc )
         self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
@@ -144,7 +148,7 @@ class localintegrals:
             self.with_df.loc2eri_op = lambda x: reduce (np.dot, (self.ao2loc, x, loc2ao))
             self.with_df.eri2loc_bas = lambda x: np.dot (locOao, x)
             self.with_df.eri2loc_op = lambda x: reduce (np.dot, (loc2ao, x, self.ao2loc))
-        if the_mf._eri is not None:
+        elif the_mf._eri is not None:
             print ("Found eris on scf object")
             loc2ao = self.ao2loc.conjugate ().T
             locOao = np.dot (loc2ao, self.ao_ovlp)
@@ -245,7 +249,7 @@ class localintegrals:
         oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
-    def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, oneRDMguess_loc=None):
+    def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, oneRDMguess_loc=None, output=None):
 
         nelec      = nelec   or self.nelec_idem
         loc2wrk    = loc2wrk if np.any (loc2wrk) else self.loc2idem
@@ -269,7 +273,7 @@ class localintegrals:
         else:
         '''
         ao2wrk     = np.dot (self.ao2loc, loc2wrk)
-        oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, ao2wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks, self.get_veff_ao, self.get_jk_ao)
+        oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, ao2wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks, self.get_veff_ao, self.get_jk_ao, output=output)
         oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
@@ -306,11 +310,11 @@ class localintegrals:
             oneRDMguess_loc += sum ((0.5 * project_operator_into_subspace (i.oneRDM_loc, *loc2frag) for i in f))
 
         nelec_corr     = np.trace (oneRDMcorr_loc)
-        if is_close_to_integer (nelec_corr, params.num_zero_atol) == False:
+        if is_close_to_integer (nelec_corr, 100*params.num_zero_atol) == False:
             raise ValueError ("nelec_corr not an integer! {}".format (nelec_corr))
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
-        oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, oneRDMguess_loc=oneRDMguess_loc)
+        oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, oneRDMguess_loc=oneRDMguess_loc, output = calcname + '_trial_wvfn.log')
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
         print ("trace of oneRDMcorr_loc = {}".format (np.trace (oneRDMcorr_loc)))
         print ("trace of oneRDMidem_loc = {}".format (np.trace (oneRDMidem_loc)))
@@ -337,9 +341,10 @@ class localintegrals:
         E = self.activeCONST + np.tensordot (oei, oneRDM, axes=2)
         for frag in fragments:
             if frag.norbs_as > 0:
-                #V  = self.dmet_tei (frag.loc2amo)
-                #L  = frag.twoCDMimp_amo
-                #E += np.tensordot (V, L, axes=4) / 2
+                if frag.E2_cum == 0 and np.amax (np.abs (frag.twoCDMimp_amo)) > 0:
+                    V  = self.dmet_tei (frag.loc2amo)
+                    L  = frag.twoCDMimp_amo
+                    frag.E2_cum = np.tensordot (V, L, axes=4) / 2
                 E += frag.E2_cum
         print ("LASSCF trial wave function total energy: {:.6f}".format (E))
         self.oneRDM_loc = oneRDM
@@ -384,7 +389,37 @@ class localintegrals:
         eigvecs = eigvecs[ :, eigvals.argsort() ]
         DMguess = 2 * np.dot( eigvecs[ :, :numPairs ], eigvecs[ :, :numPairs ].T )
         return DMguess
-        
+
+    def dmet_cderi (self, loc2dmet, numAct=None):
+
+        t0 = time.clock ()
+        w0 = time.time ()     
+        norbs_aux = self.with_df.get_naoaux ()   
+        numAct = loc2dmet.shape[1] if numAct==None else numAct
+        loc2imp = loc2dmet[:,:numAct]
+        assert (self.with_df is not None), "density fitting required"
+        CDERI = np.empty ((self.with_df.get_naoaux (), numAct*(numAct+1)//2), dtype=loc2dmet.dtype)
+        print ("Size comparison: cderi is ({0},{1},{1})->{2} total; eri is ({1},{1},{1},{1})->{3} total".format (
+                norbs_aux, numAct, CDERI.size, numAct*numAct*numAct*numAct))
+        ao2imp = np.dot (self.ao2loc, loc2imp)
+        ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (ao2imp, ao2imp, compact=True)
+        b0 = 0
+        for eri1 in self.with_df.loop ():
+            b1 = b0 + eri1.shape[0]
+            eri2 = CDERI[b0:b1]
+            eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym, out=eri2)
+            b0 = b1
+        t1 = time.clock ()
+        w1 = time.time ()
+        print (("({0}, {1}) seconds to turn compactified ({2},{3},{3})-shape full"
+                "cderi array into compactified ({2},{4},{4})-shape impurity cderi array").format (
+                t1 - t0, w1 - w0, norbs_aux, self.norbs_tot, numAct))
+        sigma, vmat = matrix_svd_control_options (CDERI, sort_vecs=-1, only_nonzero_vals=True, full_matrices=False)[1:]
+        print ("With SVD: CDERI array of size {}, compared to eri of size {}; ({}, {}) seconds".format (
+            vmat.size, numAct*numAct*numAct*numAct, time.clock () - t1, time.time () - w1))
+        CDERI = np.ascontiguousarray ((vmat * sigma).T)
+        return CDERI
+
     def dmet_tei( self, loc2dmet, numAct=None ):
 
         numAct = loc2dmet.shape[1] if numAct==None else numAct

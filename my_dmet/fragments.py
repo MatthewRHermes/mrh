@@ -2,6 +2,7 @@ import re
 import numpy as np
 import scipy as sp 
 from pyscf import gto, scf
+from pyscf.scf.hf import dot_eri_dm
 from pyscf.scf.addons import project_mo_nr2nr
 from pyscf.tools import molden
 from mrh.my_dmet import pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper, pyscf_fci #, chemps2
@@ -12,11 +13,13 @@ from mrh.util.io import warnings
 from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1RDM, get_1RDM_from_OEI, get_2RDM_from_2CDM, get_2CDM_from_2RDM, Schmidt_decompose_1RDM
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.my_math import is_close_to_integer
+from mrh.my_pyscf.tools.jmol import cas_mo_energy_shift_4_jmol
 from functools import reduce
 import traceback
 import sys
 
-def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0):
+#def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0, mf_attr={}, corr_attr={}):
+def make_fragment_atom_list (ints, frag_atom_list, solver_name, **kwargs):
     assert (len (frag_atom_list) < ints.mol.natm)
     assert (np.amax (frag_atom_list) < ints.mol.natm)
     ao_offset = ints.mol.offset_ao_by_atom ()
@@ -33,16 +36,19 @@ def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list 
     print ("frag_orb_list = {}".format (frag_orb_list))
     '''
     print ("Fragment atom list\n{0}\nproduces a fragment orbital list as {1}".format ([ints.mol.atom_symbol (atom) for atom in frag_atom_list], frag_orb_list))
-    return fragment_object (ints, np.asarray (frag_orb_list), solver_name, active_orb_list=np.asarray (active_orb_list), name=name)
+    #return fragment_object (ints, np.asarray (frag_orb_list), solver_name, active_orb_list=np.asarray (active_orb_list), name=name, mf_attr=mf_attr, corr_attr=corr_attr)
+    return fragment_object (ints, np.asarray (frag_orb_list), solver_name, **kwargs)
 
-def make_fragment_orb_list (ints, frag_orb_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0):
-    return fragment_object (ints, frag_orb_list, solver_name, np.asarray (active_orb_list), name=name)
+#def make_fragment_orb_list (ints, frag_orb_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0, mf_attr={}, corr_attr={}):
+#    return fragment_object (ints, frag_orb_list, solver_name, np.asarray (active_orb_list), name=name, mf_attr=mf_attr, corr_attr=corr_attr)
+def make_fragment_orb_list (ints, frag_orb_list, solver_name, **kwargs):
+    return fragment_object (ints, frag_orb_list, solver_name, **kwargs)
 
 def dummy_rhf (frag, oneRDM_imp, chempot_imp):
     ''' Skip solving the impurity problem and assume the trial and impurity wave functions are the same. '''
     assert (np.amax (np.abs (chempot_imp)) < 1e-10)
     frag.oneRDM_loc = frag.ints.oneRDM_loc
-    frag.twoRDM_imp = None
+    frag.twoCDM_imp = None
     frag.E_imp = frag.ints.e_tot
     frag.loc2mo = np.dot (frag.loc2imp, 
         matrix_eigen_control_options (represent_operator_in_basis (frag.ints.activeFOCK, frag.loc2imp),
@@ -50,20 +56,21 @@ def dummy_rhf (frag, oneRDM_imp, chempot_imp):
 
 class fragment_object:
 
-    def __init__ (self, ints, frag_orb_list, solver_name, active_orb_list, name, norbs_bath_max=None, idempotize_thresh=0.0):
+    def __init__ (self, ints, frag_orb_list, solver_name, **kwargs): #active_orb_list, name, norbs_bath_max=None, idempotize_thresh=0.0, mf_attr={}, corr_attr={}):
 
         # I really hope this doesn't copy.  I think it doesn't.
         self.ints = ints
         self.norbs_tot = self.ints.mol.nao_nr ()
         self.frag_orb_list = frag_orb_list
-        self.active_orb_list = active_orb_list
+        self.active_orb_list = []
+        self.frozen_orb_list = [] 
         self.norbs_frag = len (self.frag_orb_list)
         self.nelec_imp = 0
-        self.norbs_bath_max = self.norbs_frag if norbs_bath_max == None else norbs_bath_max
+        self.norbs_bath_max = self.norbs_frag 
         self.solve_time = 0.0
-        self.frag_name = name
+        self.frag_name = 'None'
         self.active_space = None
-        self.idempotize_thresh = abs (idempotize_thresh)
+        self.idempotize_thresh = 0.0
         self.bath_tol = 1e-8
         self.num_mf_stab_checks = 0
         self.target_S = 0
@@ -73,6 +80,15 @@ class fragment_object:
         self.debug_energy = False
         self.imp_maxiter = None # Currently only does anything for casscf solver
         self.quasidirect = True # Currently only does anything for rhf (in development)
+        self.project_cderi = False
+        self.mf_attr = {}
+        self.corr_attr = {}
+        self.cas_guess_callback = None
+        for key in kwargs:
+            if key in self.__dict__:
+                self.__dict__[key] = kwargs[key]
+        if 'name' in kwargs:
+            self.frag_name = kwargs['name']
 
         # Assign solver function
         solver_function_map = {
@@ -117,11 +133,12 @@ class fragment_object:
         self.impham_OEI   = None
         self.impham_FOCK  = None
         self.impham_TEI   = None
+        self.impham_CDERI = None
 
         # Basic outputs of solving the impurity problem
         self.E_frag = 0.0
         self.E_imp  = 0.0
-        self.oneRDM_loc = get_1RDM_from_OEI (self.ints.activeFOCK, self.ints.nelec_tot // 2)
+        self.oneRDM_loc = self.ints.oneRDM_loc
         self.twoCDM_imp = None
         self.loc2mo     = np.zeros((self.norbs_tot,0))
         self.loc2fno    = np.zeros((self.norbs_tot,0))
@@ -130,6 +147,7 @@ class fragment_object:
 
         # Outputs of CAS calculations use to fix CAS-DMET
         self.loc2amo       = np.zeros((self.norbs_tot,0))
+        self.loc2amo_guess = None
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.twoCDMimp_amo = np.zeros((0,0,0,0))
         self.ci_as         = None
@@ -395,7 +413,32 @@ class fragment_object:
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
         self.E2froz_tbc     = [frag.E2_cum for frag in active_frags]
 
+        self.analyze_ao_imp (oneRDM_loc, loc2wmcs)
         self.impham_built = False
+
+    def analyze_ao_imp (self, oneRDM_loc, loc2wmcs):
+        ''' See how much of the atomic-orbitals corresponding to the true fragment ended up in the impurity and how much ended 
+            up in the virtual-core space '''
+        loc2ao = orthonormalize_a_basis (self.ints.ao2loc[self.frag_orb_list,:].conjugate ().T)
+        svals = get_overlapping_states (loc2ao, self.loc2core)[2]
+        lost_aos = np.sum (svals)
+
+        oneRDM_wmcs = represent_operator_in_basis (oneRDM_loc, loc2wmcs)
+        mo_occ, mo_evec = matrix_eigen_control_options (oneRDM_wmcs, sort_vecs=1, only_nonzero_vals=False)
+        idx_virtunac = np.isclose (mo_occ, 0)
+        loc2virtunac = np.dot (loc2wmcs, mo_evec[:,idx_virtunac])
+        ''' These orbitals have to be splittable into purely on the impurity/purely in the core for the same reason that nelec_imp has to
+            be an integer, I think. '''
+        loc2virtunaccore, loc2corevirtunac, svals = get_overlapping_states (loc2virtunac, self.loc2core)
+        assert (np.all (np.logical_or (np.isclose (svals, 0), np.isclose (svals, 1)))), svals
+        idx_virtunaccore = np.isclose (svals, 1)
+        loc2virtunaccore = loc2virtunaccore[:,idx_virtunaccore]
+        svals = get_overlapping_states (loc2ao, loc2virtunaccore)[2]
+        aos_in_virt_core = np.sum (svals) 
+        aos_on_other_act = lost_aos - aos_in_virt_core
+        print (("For this Schmidt decomposition, the impurity basis loses {} of {} atomic orbitals, of which {} are on the virtual core\n"
+        "and the remaining {} are in other fragment's active spaces").format (lost_aos, self.norbs_frag, aos_in_virt_core, aos_on_other_act))
+        
 
 
     ##############################################################################################################################
@@ -425,6 +468,10 @@ class fragment_object:
             self.impham_TEI = None 
             #self.impham_TEI_fiii = None # np.empty ([self.norbs_frag] + [self.norbs_imp for i in range (3)], dtype=np.float64)
             self.impham_get_jk = my_jk
+        elif self.project_cderi:
+            self.impham_TEI = None
+            self.impham_get_jk = None
+            self.impham_CDERI = self.ints.dmet_cderi (self.loc2emb, self.norbs_imp)
         else:
             f = self.loc2frag
             i = self.loc2imp
@@ -620,14 +667,26 @@ class fragment_object:
         #     = (H_fi + JK_fi[1/2 G]) G_fi + 1/2 V_fiii L_fiii           + E2_frag_core
         #     = F[1/2 G]_fi G_fi           + 1/2 V_fiii L_fiii           + E2_frag_core
 
-        F_fi = np.dot (self.frag2loc, self.ints.loc_rhf_fock_bis (0.5 * self.oneRDM_loc))
-        G_fi = np.dot (self.frag2loc, self.oneRDM_loc)
+        if self.imp_solver_name == 'dummy RHF':
+            fock = (self.ints.activeFOCK + self.ints.activeOEI)/2
+            F_fi = np.dot (self.frag2loc, fock)
+            G_fi = np.dot (self.frag2loc, self.oneRDM_loc)
+        elif isinstance (self.impham_TEI, np.ndarray):
+            vj, vk = dot_eri_dm (self.impham_TEI, self.get_oneRDM_imp (), hermi=1)
+            fock = (self.ints.dmet_oei (self.loc2emb, self.norbs_imp) + (self.impham_OEI + vj - vk/2))/2
+            F_fi = np.dot (self.frag2imp, fock)
+            G_fi = np.dot (self.frag2imp, self.get_oneRDM_imp ())
+        else:
+            fock = self.ints.loc_rhf_fock_bis (self.oneRDM_loc/2)        
+            F_fi = np.dot (self.frag2loc, fock)
+            G_fi = np.dot (self.frag2loc, self.oneRDM_loc)
+
         E1 = np.tensordot (F_fi, G_fi, axes=2)
         if self.debug_energy:
             print ("get_E_frag {0} :: E1 = {1:.5f}".format (self.frag_name, float (E1)))
 
         E2 = 0
-        if isinstance (self.twoCDM_imp, np.ndarray):
+        if isinstance (self.twoCDM_imp, np.ndarray) and isinstance (self.impham_TEI, np.ndarray):
             V_fiii = np.tensordot (self.frag2imp, self.impham_TEI, axes=1) # self.impham_TEI_fiii
             L_fiii = np.tensordot (self.frag2imp, self.twoCDM_imp, axes=1)
             E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
@@ -694,6 +753,8 @@ class fragment_object:
             ao2molden = np.dot (self.ints.ao2loc, self.loc2mo)
             occ = np.einsum ('ip,ij,jp->p', self.imp2mo.conjugate (), oneRDM, self.imp2mo)
             ene = np.einsum ('ip,ij,jp->p', self.imp2mo.conjugate (), FOCK, self.imp2mo)
+            if self.norbs_as > 0:
+                ene = cas_mo_energy_shift_4_jmol (ene, self.norbs_imp, self.nelec_imp, self.norbs_as, self.nelec_as)
         if natorb:
             assert (not canonicalize)
             # Separate active and external (inactive + virtual) orbitals and pry their energies apart by +-1e4 Eh so Jmol sets them 
@@ -710,7 +771,8 @@ class fragment_object:
                 ene_amo = np.einsum ('ip,ij,jp->p', amo2molden.conjugate (), FOCK_amo, amo2molden)
                 norbs_imo = (self.nelec_imp - self.nelec_as) // 2
                 occ = np.concatenate ((occ_xmo[:norbs_imo], occ_amo, occ_xmo[norbs_imo:]))
-                ene = np.concatenate ((ene_xmo[:norbs_imo]-1e4, ene_amo, ene_xmo[norbs_imo:]+1e4))
+                ene = np.concatenate ((ene_xmo[:norbs_imo], ene_amo, ene_xmo[norbs_imo:]))
+                ene = cas_mo_energy_shift_4_jmol (ene, self.norbs_imp, self.nelec_imp, self.norbs_as, self.nelec_as)
                 imp2molden = np.concatenate ((np.dot (imp2xmo, xmo2molden[:,:norbs_imo]),
                                               np.dot (self.imp2amo, amo2molden),
                                               np.dot (imp2xmo, xmo2molden[:,norbs_imo:])), axis=1)
@@ -728,7 +790,8 @@ class fragment_object:
                 ene_xmo, xmo2molden = matrix_eigen_control_options (FOCK_xmo, sort_vecs=1, only_nonzero_vals=False)
                 ene_amo, amo1molden = matrix_eigen_control_options (FOCK_amo, sort_vecs=1, only_nonzero_vals=False)
                 norbs_imo = (self.nelec_imp - self.nelec_as) // 2
-                ene = np.concatenate ((ene_xmo[:norbs_imo]-1e4, ene_amo, ene_xmo[norbs_imo:]+1e4))
+                ene = np.concatenate ((ene_xmo[:norbs_imo], ene_amo, ene_xmo[norbs_imo:]))
+                ene = cas_mo_energy_shift_4_jmol (ene, self.norbs_imp, self.nelec_imp, self.norbs_as, self.nelec_as)
                 imp2molden = np.concatenate ((np.dot (imp2xmo, xmo2molden[:,:norbs_imo]),
                                               np.dot (self.imp2amo, amo2molden),
                                               np.dot (imp2xmo, xmo2molden[:,norbs_imo:])), axis=1)

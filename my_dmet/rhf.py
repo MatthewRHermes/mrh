@@ -22,6 +22,7 @@ import scipy.sparse.linalg
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo
 from pyscf.scf.hf import dot_eri_dm
+from pyscf.lib import logger
 from mrh.util.basis import get_complementary_states
 from mrh.util.la import matrix_eigen_control_options
 
@@ -124,12 +125,14 @@ def wrap_my_veff (get_veff_ao, ao2basis ):
         
     return my_veff
 
-def solve_JK( OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks, get_veff_ao, get_jk_ao):
+def solve_JK( OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks, get_veff_ao, get_jk_ao, verbose=logger.INFO, output=None):
 
     mol = gto.Mole()
-    mol.build(verbose=0)
     mol.atom.append(('C', (0, 0, 0)))
     mol.nelectron = 2 * numPairs
+    mol.verbose = 0 if output is None else verbose
+    if output is not None: mol.output = output
+    mol.build ()
 
     L = OEI.shape[0]
     mf = scf.RHF( mol )

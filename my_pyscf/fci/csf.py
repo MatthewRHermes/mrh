@@ -326,7 +326,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
         verbose = kwargs['verbose']
         kwargs.pop ('verbose')
     else: verbose = lib.logger.Logger (stdout=fci.stdout, verbose=fci.verbose)
-    if (isinstance (verbose, lib.logger.Logger) and verbose.verbose >= lib.logger.WARN) or verbose >= lib.logger.WARN:
+    if (isinstance (verbose, lib.logger.Logger) and verbose.verbose >= lib.logger.WARN) or (isinstance (verbose, int) and verbose >= lib.logger.WARN):
         fci.check_sanity()
     if nroots is None: nroots = fci.nroots
     if pspace_size is None: pspace_size = fci.pspace_size

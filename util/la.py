@@ -37,11 +37,11 @@ def assert_matrix_square (test_matrix, matdim=None):
 def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=-1, only_nonzero_vals=False, num_zero_atol=params.num_zero_atol):
     if the_matrix.shape == tuple((0,0)):
         return np.zeros ((0)), np.zeros ((0,0))
-    pMq = np.asmatrix (the_matrix)
-    lvecs_pl, svals_lr, rvecs_rq = scipy.linalg.svd (the_matrix, full_matrices=full_matrices)
-    p2l = np.asmatrix (lvecs_pl)
-    r2q = np.asmatrix (rvecs_rq)
-    q2r = r2q.H
+    pMq = np.asarray (the_matrix)
+    lvecs_pl, svals_lr, rvecs_rq = scipy.linalg.svd (np.asarray (the_matrix), full_matrices=full_matrices)
+    p2l = lvecs_pl
+    r2q = rvecs_rq
+    q2r = r2q.conjugate ().T
     if sort_vecs:
         idx_sval = (np.abs (svals_lr)).argsort ()[::sort_vecs]
         idx_q2r = np.append (idx_sval, np.arange (len (idx_sval), q2r.shape[1], dtype=idx_sval.dtype))
