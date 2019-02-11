@@ -17,6 +17,7 @@ from mrh.my_pyscf.tools.jmol import cas_mo_energy_shift_4_jmol
 from functools import reduce
 import traceback
 import sys
+import copy
 
 #def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0, mf_attr={}, corr_attr={}):
 def make_fragment_atom_list (ints, frag_atom_list, solver_name, **kwargs):
@@ -242,6 +243,14 @@ class fragment_object:
         return np.dot (self.imp2loc, self.loc2mo)
 
     @property
+    def amo2frag (self):
+        return np.dot (self.amo2loc, self.loc2frag)
+
+    @property
+    def frag2amo (self):
+        return np.dot (self.frag2loc, self.loc2amo)
+
+    @property
     def is_frag_orb (self):
         r = np.zeros (self.norbs_tot, dtype=bool)
         r[self.frag_orb_list] = True
@@ -299,16 +308,18 @@ class fragment_object:
     @property
     def loc2tb_all (self):
         if self.imp_solver_name != 'RHF':
+            if self.norbs_as > 0:
+                return [self.loc2as] + self.loc2tbc
             return [self.loc2imp] + self.loc2tbc
-        else:
-            return self.loc2tbc
+        return self.loc2tbc
 
     @property
     def twoCDM_all (self):
         if self.imp_solver_name != 'RHF':
+            if self.norbs_as > 0:
+                return [self.twoCDMimp_amo] + self.twoCDMfroz_tbc
             return [self.twoCDM_imp] + self.twoCDMfroz_tbc
-        else:
-            return self.twoCDMfroz_tbc
+        return self.twoCDMfroz_tbc
 
     def get_loc2bath (self):
         ''' Don't use this too much... I don't know how it's gonna behave under ofc_emb'''
@@ -691,10 +702,34 @@ class fragment_object:
             print ("get_E_frag {0} :: E1 = {1:.5f}".format (self.frag_name, float (E1)))
 
         E2 = 0
-        if isinstance (self.twoCDM_imp, np.ndarray) and isinstance (self.impham_TEI, np.ndarray):
-            V_fiii = np.tensordot (self.frag2imp, self.impham_TEI, axes=1) # self.impham_TEI_fiii
-            L_fiii = np.tensordot (self.frag2imp, self.twoCDM_imp, axes=1)
+        # Remember that non-overlapping fragments are now, by necessity, ~contained~ within the impurity!
+        if self.norbs_as > 0:
+            L_fiii = np.tensordot (self.frag2amo, self.twoCDMimp_amo, axes=1)
+            if isinstance (self.impham_TEI, np.ndarray):
+                V_fiii = represent_operator_in_basis (self.impham_TEI, self.imp2frag, self.imp2amo, self.imp2amo, self.imp2amo)
+            elif isinstance (self.impham_CDERI, np.ndarray):
+                with_df = copy.copy (self.ints.with_df)
+                with_df._cderi = self.impham_CDERI
+                norbs = [self.norbs_frag, self.norbs_as, self.norbs_as, self.norbs_as]
+                V_fiii = with_df.ao2mo ([self.imp2frag, self.imp2amo, self.imp2amo, self.imp2amo], compact=False).reshape (*norbs)
+            else:
+                V_fiii = self.ints.general_tei ([self.loc2frag, self.loc2amo, self.loc2amo, self.loc2amo])
             E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
+        elif isinstance (self.twoCDM_imp, np.ndarray):
+            L_iiif = np.tensordot (self.twoCDM_imp, self.imp2frag, axes=1)
+            if isinstance (self.impham_TEI, np.ndarray):
+                V_iiif = np.tensordot (self.impham_TEI, self.imp2frag, axes=1) 
+                E2 = 0.5 * np.tensordot (V_iiif, L_iiif, axes=4)
+            elif isinstance (self.impham_CDERI, np.ndarray):
+                raise NotImplementedError ("No opportunity to test this yet.")
+                # It'll be something like:
+                # (P|ii) * L_iiif -> R^P_if
+                # (P|ii) * u^i_f -> (P|if)
+                # (P|if) * R^P_if -> E2
+                # But factors of 2 abound especially with the orbital-pair compacting of CDERI
+            else:
+                V_iiif = self.ints.general_tei ([self.loc2frag, self.loc2imp, self.loc2imp, self.loc2imp])
+                E2 = 0.5 * np.tensordot (V_iiif, L_iiif, axes=4)
         if self.debug_energy:
             print ("get_E_frag {0} :: E2 = {1:.5f}".format (self.frag_name, float (E2)))
 
@@ -709,7 +744,9 @@ class fragment_object:
 
         dm = self.get_oneRDM_imp ()
         exc_mat = dm - np.dot (dm, dm)/2
-        if isinstance (self.twoCDM_imp, np.ndarray):
+        if self.norbs_as > 0:
+            exc_mat -= represent_operator_in_basis (np.einsum ('prrq->pq', self.twoCDMimp_amo)/2, self.amo2imp)
+        elif isinstance (self.twoCDM_imp, np.ndarray):
             exc_mat -= np.einsum ('prrq->pq', self.twoCDM_imp)/2
         return np.einsum ('fp,pq,qf->', self.frag2imp, exc_mat, self.imp2frag) 
 
