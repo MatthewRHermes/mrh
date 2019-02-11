@@ -433,12 +433,14 @@ class fragment_object:
         assert (np.all (np.logical_or (np.isclose (svals, 0), np.isclose (svals, 1)))), svals
         idx_virtunaccore = np.isclose (svals, 1)
         loc2virtunaccore = loc2virtunaccore[:,idx_virtunaccore]
-        svals = get_overlapping_states (loc2ao, loc2virtunaccore)[2]
+        loc2virtbath, svals_virtbath = get_overlapping_states (loc2ao, loc2virtunaccore)[1:]
         aos_in_virt_core = np.sum (svals) 
         aos_on_other_act = lost_aos - aos_in_virt_core
         print (("For this Schmidt decomposition, the impurity basis loses {} of {} atomic orbitals, of which {} are on the virtual core\n"
         "and the remaining {} are in other fragment's active spaces").format (lost_aos, self.norbs_frag, aos_in_virt_core, aos_on_other_act))
-        
+        check_nocc = np.trace (represent_operator_in_basis (oneRDM_loc, loc2virtbath))
+        check_bath = np.amax (np.abs (np.dot (self.imp2loc, loc2virtbath)))
+        print ("Are my `virtual bath' orbitals unoccupied and currently in the core? check_nocc = {}, check_bath = {}".format (check_nocc, check_bath))
 
 
     ##############################################################################################################################
