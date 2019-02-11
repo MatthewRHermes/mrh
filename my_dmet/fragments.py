@@ -1,4 +1,4 @@
-import re
+import re, sys
 import numpy as np
 import scipy as sp 
 from pyscf import gto, scf
@@ -362,6 +362,7 @@ class fragment_object:
         #if self.impo_printed == False:
         #    self.impurity_molden ('imporb_begin')
         #    self.impo_printed = True
+        sys.stdout.flush ()
 
     def do_Schmidt_LASSCF (self, oneRDM_loc, all_frags, loc2wmcs):
         print ("LASSCF Schmidt decomposition of {0} fragment".format (self.frag_name))
@@ -415,6 +416,7 @@ class fragment_object:
 
         self.analyze_ao_imp (oneRDM_loc, loc2wmcs)
         self.impham_built = False
+        sys.stdout.flush ()
 
     def analyze_ao_imp (self, oneRDM_loc, loc2wmcs):
         ''' See how much of the atomic-orbitals corresponding to the true fragment ended up in the impurity and how much ended 
@@ -506,6 +508,7 @@ class fragment_object:
 
         self.impham_built = True
         self.imp_solved   = False
+        sys.stdout.flush ()
     ###############################################################################################################################
 
 

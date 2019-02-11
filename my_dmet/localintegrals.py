@@ -36,7 +36,7 @@ from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util import params
 from math import sqrt
 import itertools
-import time
+import time, sys
 from functools import reduce, partial
 
 class localintegrals:
@@ -134,8 +134,9 @@ class localintegrals:
         self.nelec_idem     = self.nelec_tot
         self._eri           = None
         self.with_df        = None
+        sys.stdout.flush ()
         def _is_mem_enough ():
-            return self.norbs_tot**4/2e6 + current_memory ()[0] < self.max_memory*0.95
+            return 2*(self.norbs_tot**4)/1e6 + current_memory ()[0] < self.max_memory*0.95
         # Unfortunately, there is currently no way to do the integral transformation directly on the antisymmetrized two-electron
         # integrals, at least none already implemented in PySCF. Therefore the smallest possible memory footprint involves 
         # two arrays of fourfold symmetry, which works out to roughly one half of an array with no symmetry
@@ -166,6 +167,7 @@ class localintegrals:
             self._eri = tag_array (self._eri, eri2loc_op = lambda x: x)
         else:
             print ("Direct calculation")
+        sys.stdout.flush ()
 
     def molden( self, filename ):
     
@@ -439,6 +441,9 @@ class localintegrals:
 
     def general_tei (self, loc2bas_list):
         norbs = [loc2bas.shape[1] for loc2bas in loc2bas_list]
+        print ("Formal max memory: {} MB; Current usage: {} MB; Minimal requirements of this TEI tensor: {} MB".format (
+            self.max_memory, current_memory ()[0], 8*norbs[0]*norbs[1]*norbs[2]*norbs[3]/1e6))
+        sys.stdout.flush ()
 
         if self.with_df is not None:
             a2b_list = [self.with_df.loc2eri_bas (l2b) for l2b in loc2bas_list]
