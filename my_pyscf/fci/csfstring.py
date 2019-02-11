@@ -757,9 +757,8 @@ if __name__ == '__main__':
             t_start = time.time ()
             evals = np.concatenate (evals)
             evecs = np.concatenate (evecs, axis=-1)
+            print ('Is the final CSF vector matrix square with correct dimension? {} vs {}'.format (evecs.shape, S2mat.shape))
             issquare = np.all (evecs.shape == S2mat.shape)
-            print (('Is the final CSF vector matrix square with correct dimension?'
-                    ' {}').format (("NO ({0}-by-{1} vs {2}-by-{3})".format (*evecs.shape, *S2mat.shape), "Yes")[issquare]))
             if not issquare:
                 print ("{} spins, {} projected spin overall: FAILED".format (nspin, ms))
                 continue
