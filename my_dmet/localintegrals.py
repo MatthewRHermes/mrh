@@ -24,6 +24,7 @@ from pyscf.tools import molden
 from pyscf.lib import current_memory
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.scf.hf import dot_eri_dm
+from pyscf import __config__
 from mrh.my_dmet import rhf as wm_rhf
 from mrh.my_dmet import iao_helper
 import numpy as np
@@ -38,6 +39,8 @@ from math import sqrt
 import itertools
 import time, sys
 from functools import reduce, partial
+
+LINEAR_DEP_THR = getattr(__config__, 'df_df_DF_lindep', 1e-12)
 
 class localintegrals:
 
@@ -401,8 +404,12 @@ class localintegrals:
         loc2imp = loc2dmet[:,:numAct]
         assert (self.with_df is not None), "density fitting required"
         CDERI = np.empty ((self.with_df.get_naoaux (), numAct*(numAct+1)//2), dtype=loc2dmet.dtype)
-        print ("Size comparison: cderi is ({0},{1},{1})->{2} total; eri is ({1},{1},{1},{1})->{3} total".format (
-                norbs_aux, numAct, CDERI.size, numAct*numAct*numAct*numAct))
+        full_cderi_size = (norbs_aux * self.mol.nao_nr () * (self.mol.nao_nr () + 1) * CDERI.itemsize // 2) / 1e6
+        imp_eri_size = CDERI.itemsize * (numAct**4) / 1e6 # Since I don't use symmetry yet
+        imp_eri_ideal_size = CDERI.itemsize * (numAct*(numAct+1)//2)**2 / 1e6 # Eightfold symmetry is not practical because ao2mos will have to happen
+        imp_cderi_size = CDERI.size * CDERI.itemsize / 1e6
+        print ("Size comparison: cderi is ({0},{1},{1})->{2:.0f} MB total; eri is ({1},{1},{1},{1})->{3:.0f} MB total ({4:.0f} MB ideal)".format (
+                norbs_aux, numAct, imp_cderi_size, imp_eri_size, imp_eri_ideal_size))
         ao2imp = np.dot (self.ao2loc, loc2imp)
         ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (ao2imp, ao2imp, compact=True)
         b0 = 0
@@ -413,12 +420,13 @@ class localintegrals:
             b0 = b1
         t1 = time.clock ()
         w1 = time.time ()
-        print (("({0}, {1}) seconds to turn compactified ({2},{3},{3})-shape full"
-                "cderi array into compactified ({2},{4},{4})-shape impurity cderi array").format (
-                t1 - t0, w1 - w0, norbs_aux, self.norbs_tot, numAct))
-        sigma, vmat = matrix_svd_control_options (CDERI, sort_vecs=-1, only_nonzero_vals=True, full_matrices=False)[1:]
-        print ("With SVD: CDERI array of size {}, compared to eri of size {}; ({}, {}) seconds".format (
-            vmat.size, numAct*numAct*numAct*numAct, time.clock () - t1, time.time () - w1))
+        print (("({0}, {1}) seconds to turn {2:.0f}-MB full"
+                "cderi array into {3:.0f}-MP impurity cderi array").format (
+                t1 - t0, w1 - w0, full_cderi_size, imp_cderi_size))
+        sigma, vmat = matrix_svd_control_options (CDERI, sort_vecs=-1, only_nonzero_vals=True, full_matrices=False, num_zero_atol=sqrt(LINEAR_DEP_THR))[1:]
+        imp_cderi_size = vmat.size * vmat.itemsize / 1e6
+        print ("With SVD: {0:.0f}-MB CDERI array, compared to {1:.0f}-MB ideal eri; ({2}, {3}) seconds".format (
+            imp_cderi_size, imp_eri_ideal_size, time.clock () - t1, time.time () - w1))
         CDERI = np.ascontiguousarray ((vmat * sigma).T)
         return CDERI
 
