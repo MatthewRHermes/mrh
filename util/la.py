@@ -6,13 +6,13 @@ from mrh.util import params
 
 def is_matrix_zero (test_matrix):
     test_zero = np.zeros (test_matrix.shape, dtype=test_matrix.dtype)
-    return np.allclose (test_matrix, test_zero)
+    return np.allclose (test_matrix, test_zero, rtol=1)
 
 def is_matrix_eye (test_matrix, matdim=None):
     if (test_matrix.shape[0] != test_matrix.shape[1]):
         return False
     test_eye = np.eye (test_matrix.shape[0], dtype=test_matrix.dtype)
-    return np.allclose (test_matrix, test_eye)
+    return np.allclose (test_matrix, test_eye, rtol=1)
 
 def is_matrix_idempotent (test_matrix):
     if (test_matrix.shape[0] != test_matrix.shape[1]):
@@ -58,9 +58,51 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=-1, o
     lvecs, svals_lr, rvecs = (np.asarray (output) for output in (p2l, svals_lr, q2r))
     return lvecs, svals_lr, rvecs
 
-def matrix_eigen_control_options (the_matrix, sort_vecs=-1, only_nonzero_vals=False, round_zero_vals=False, b_matrix=None, num_zero_atol=params.num_zero_atol):
+def matrix_eigen_control_options (the_matrix, symm_blocks=None, sort_vecs=-1, only_nonzero_vals=False, round_zero_vals=False, b_matrix=None, num_zero_atol=params.num_zero_atol):
     if the_matrix.shape == tuple((0,0)):
         return np.zeros ((0)), np.zeros ((0,0))
+    # Use recursion to make this work
+    # This must assume that bra and ket bases are the same... if they aren't I should be doing SVD anyway
+    if symm_blocks is not None:
+        # If you gave me a list of basis spaces:
+        if isinstance (symm_blocks[0], np.ndarray):
+            symm_umat = np.concatenate (symm_blocks, axis=1)
+            assert (symm_umat.shape == the_matrix.shape), "I can't guess how to map symmetry blocks to different bases!"
+            symm_lbls = np.concatenate ([idx * np.ones (blk.shape[1]) for idx, blk in enumerate (symm_blocks)])
+            assert (not isinstance (symm_lbls[0], np.ndarray)), '? {}'.format (symm_lbls)
+            symm_matr = symm_umat.conjugate ().T @ the_matrix @ symm_umat
+            evals, symm_evecs, labels = matrix_eigen_control_options (symm_matr, symm_blocks=symm_lbls,
+                sort_vecs=sort_vecs, only_nonzero_vals=only_nonzero_vals, round_zero_vals=round_zero_vals,
+                b_matrix=b_matrix, num_zero_atol=num_zero_atol)
+            evecs = symm_umat @ symm_evecs
+            return evals, evecs, labels
+        # If you gave me a list of integers or irrep symbols:
+        uniq_lbls = np.unique (symm_blocks)
+        evals = []
+        evecs = []
+        labels = []
+        for lbl in uniq_lbls:
+            idx_blk = np.ix_(symm_blocks == lbl, symm_blocks == lbl)
+            mat_blk = the_matrix[idx_blk]
+            evals_blk, _evecs_blk = matrix_eigen_control_options (mat_blk, symm_blocks=None,
+                sort_vecs=sort_vecs, only_nonzero_vals=only_nonzero_vals, round_zero_vals=round_zero_vals,
+                b_matrix=b_matrix, num_zero_atol=num_zero_atol)
+            evecs_blk = np.zeros ((the_matrix.shape[0], _evecs_blk.shape[1]), dtype=_evecs_blk.dtype)
+            evecs_blk[symm_blocks == lbl,:] = _evecs_blk
+            evals.append (evals_blk)
+            evecs.append (evecs_blk)
+            labels.extend ([lbl for ix in range (len (evals_blk))])
+        evals = np.concatenate (evals)
+        evecs = np.concatenate (evecs, axis=1)
+        labels = np.asarray (labels)
+        if sort_vecs:
+            idx = evals.argsort ()[::sort_vecs]
+            evals = evals[idx]
+            evecs = evecs[:,idx]
+            labels = labels[idx]
+        return evals, evecs, labels
+
+    # Now for the actual damn kernel            
     # Subtract a diagonal average from the matrix to fight rounding error
     diag_avg = np.eye (the_matrix.shape[0]) * np.mean (np.diag (the_matrix))
     pMq = np.asmatrix (the_matrix - diag_avg)

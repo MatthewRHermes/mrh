@@ -29,6 +29,7 @@ import sys, copy
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo, mcscf, fci, lib
 from pyscf.mcscf.addons import spin_square
+from pyscf.symm.addons import eigh as symm_eigh
 from pyscf.fci.addons import transform_ci_for_orbital_rotation
 from pyscf.tools import molden
 #np.set_printoptions(threshold=np.nan)
@@ -123,6 +124,8 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Guess orbitals
     ci0 = None
+    dm_imp = frag.get_oneRDM_imp ()
+    fock_imp = mf.get_fock (dm=dm_imp)
     if len (frag.imp_cache) == 2:
         imp2mo, ci0 = frag.imp_cache
         print ("Taking molecular orbitals and ci vector from cache")
@@ -130,14 +133,20 @@ def solve (frag, guess_1RDM, chempot_imp):
         nelec_imp_guess = int (round (np.trace (frag.oneRDMas_loc)))
         norbs_cmo_guess = (frag.nelec_imp - nelec_imp_guess) // 2
         print ("Projecting stored amos (frag.loc2amo; spanning {} electrons) onto the impurity basis and filling the remainder with default guess".format (nelec_imp_guess))
-        imp2mo, my_occ = project_amo_manually (frag.loc2imp, frag.loc2amo, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo_guess, dm=frag.oneRDMas_loc)
+        imp2mo, my_occ = project_amo_manually (frag, frag.loc2imp, frag.loc2amo, fock_imp, norbs_cmo_guess, dm=frag.oneRDMas_loc)
     elif frag.loc2amo_guess is not None:
-        print ("Projecting stored amos (frag.loc2amo_guess) onto the impurity basis (no dm available)")
-        imp2mo, my_occ = project_amo_manually (frag.loc2imp, frag.loc2amo_guess, mf.get_fock (dm=frag.get_oneRDM_imp ()), norbs_cmo, dm=None)
+        print ("Projecting stored amos (frag.loc2amo_guess) onto the impurity basis (no amo dm available)")
+        imp2mo, my_occ = project_amo_manually (frag, frag.loc2imp, frag.loc2amo_guess, fock_imp, norbs_cmo, dm=None)
         frag.loc2amo_guess = None
     else:
-        imp2mo = mc.mo_coeff 
-        my_occ = mf.mo_occ
+        dm_imp = np.asarray (mf.make_rdm1 ())
+        while dm_imp.ndim > 2:
+            dm_imp = dm_imp.sum (0)
+        fock_imp = mf.make_fock (dm=dm_imp)
+        imp2mo, mo_symm = frag.symmetrize_imp_mos (mc.mo_coeff)
+        fock_mo = represent_operator_in_basis (fock_imp, imp2mo)
+        _, evecs = symm_eigh (fock_mo, mo_symm)
+        my_occ = ((dm_imp @ imp2mo) * imp2mo).sum (0)
         print ("No stored amos; using mean-field canonical MOs as initial guess")
 
     # Guess orbital processing
@@ -146,6 +155,11 @@ def solve (frag, guess_1RDM, chempot_imp):
         mo = frag.cas_guess_callback (frag.ints.mol, mc, mo)
         imp2mo = reduce (np.dot, (frag.imp2loc, frag.ints.ao2loc.conjugate ().T, frag.ints.ao_ovlp, mo))
         frag.cas_guess_callback = None
+    # Guess orbital printing
+    if frag.mfmo_printed == False:
+        ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
+        molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=my_occ)
+        frag.mfmo_printed = True
     elif len (frag.active_orb_list) > 0:
         print('Applying caslst: {}'.format (frag.active_orb_list))
         imp2mo = mc.sort_mo(frag.active_orb_list, mo_coeff=imp2mo)
@@ -155,11 +169,6 @@ def solve (frag, guess_1RDM, chempot_imp):
         print ("Applying frozen-orbital list (this macroiteration only): {}".format (frag.frozen_orb_list))
         frag.frozen_orb_list = []
 
-    # Guess orbital printing
-    if frag.mfmo_printed == False:
-        ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
-        molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=my_occ)
-        frag.mfmo_printed = True
 
     # Guess CI vector
     if len (frag.imp_cache) != 2 and frag.ci_as is not None:
@@ -282,7 +291,7 @@ def get_fragcasscf (frag, mf, loc2mo):
     return oneRDM_amo, twoCDM_amo, loc2mo, loc2amo
     
 
-def project_amo_manually (loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
+def project_amo_manually (frag, loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
     norbs_amo = loc2gamo.shape[1]
     amo2imp = np.dot (loc2gamo.conjugate ().T, loc2imp)
     ovlp = np.dot (amo2imp, amo2imp.conjugate ().T)
@@ -297,7 +306,9 @@ def project_amo_manually (loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
     evals, evecs = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
     imp2amo = np.copy (evecs[:,:norbs_amo])
     imp2imo = np.copy (evecs[:,norbs_amo:])
-    _, evecs = matrix_eigen_control_options (represent_operator_in_basis (fock_mf, imp2imo), sort_vecs=1, only_nonzero_vals=False)
+    imp2imo, imo_symm = frag.symmetrize_imp_mos (imp2imo)
+    fock_imo = represent_operator_in_basis (fock_mf, imp2imo)
+    _, evecs = symm_eigh (fock_imo, imo_symm)#matrix_eigen_control_options (represent_operator_in_basis (fock_mf, imp2imo), sort_vecs=1, only_nonzero_vals=False)
     imp2imo = np.dot (imp2imo, evecs)
     imp2cmo = imp2imo[:,:norbs_cmo]
     imp2vmo = imp2imo[:,norbs_cmo:]
@@ -344,14 +355,15 @@ def project_amo_manually (loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
     my_occ = np.zeros (loc2imp.shape[1], dtype=np.float64)
     my_occ[:norbs_cmo] = 2
     my_occ[norbs_cmo:][:imp2amo.shape[1]] = 1
+    imp2amo, amo_symm = frag.symmetrize_imp_mos (imp2amo, sort_mat=fock_mf)
     if dm is not None:
         loc2amo = np.dot (loc2imp, imp2amo)
-        evals, evecs = matrix_eigen_control_options (represent_operator_in_basis (dm, loc2amo), sort_vecs=-1, only_nonzero_vals=False)
+        evals, evecs = symm_eigh (represent_operator_in_basis (-dm, loc2amo), amo_symm)
+        evals = -evals
         imp2amo = np.dot (imp2amo, evecs)
         print ("Guess density matrix eigenvalues for guess amo: {}".format (evals))
         my_occ[norbs_cmo:][:imp2amo.shape[1]] = evals
     imp2mo = np.concatenate ([imp2cmo, imp2amo, imp2vmo], axis=1)
-    assert (is_basis_orthonormal_and_complete (imp2mo))
     return imp2mo, my_occ
 
 def make_guess_molden (frag, filename, imp2mo, norbs_cmo, norbs_amo):

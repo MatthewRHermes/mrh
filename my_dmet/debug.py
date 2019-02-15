@@ -37,6 +37,7 @@ def debug_ofc_oneRDM ( dmet_obj ):
         Ptcorr_loc - Pcorr_loc, np.linalg.norm (Ptcorr_loc - Pcorr_loc)))
 
 def debug_Eimp (dmet_obj, frag):
+    raise NotImplementedError ("Hopelessly broken since last used.")
     E0 = dmet_obj.ints.const ()
     E1 = 0.0
     E2 = 0.0
@@ -54,6 +55,7 @@ def debug_Eimp (dmet_obj, frag):
     return Eimp
 
 def debug_Etot (dmet_obj):
+    raise NotImplementedError ("Hopelessly broken since last used.")
     if dmet_obj.CC_E_TYPE == 'CASCI':
         print ("debug_Etot :: CASCI calculation; passing to debug_Eimp")
         return debug_Eimp (dmet_obj, dmet_obj.fragments[0])

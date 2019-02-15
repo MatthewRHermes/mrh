@@ -23,6 +23,8 @@ from pyscf.lo import nao, orth, boys
 from pyscf.tools import molden
 from pyscf.lib import current_memory
 from pyscf.lib.numpy_helper import tag_array
+from pyscf.symm.addons import symmetrize_space, label_orb_symm
+from pyscf.symm.addons import eigh as eigh_symm
 from pyscf.scf.hf import dot_eri_dm
 from pyscf import __config__
 from mrh.my_dmet import rhf as wm_rhf
@@ -31,7 +33,8 @@ import numpy as np
 import scipy
 from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
-from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace, orthonormalize_a_basis, get_overlapping_states
+from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace, orthonormalize_a_basis
+from mrh.util.basis import get_overlapping_states, is_subspace_block_adapted, symmetrize_basis, compute_nelec_in_subspace
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options, is_matrix_eye
 from mrh.util import params
@@ -114,6 +117,16 @@ class localintegrals:
         self.ao_ovlp     = the_mf.get_ovlp ()
         assert (is_matrix_eye (np.dot (self.ao_ovlp, self.ao_ovlp_inv)))
 
+        # Symmetry information
+        try:
+            self.loc2symm = [self.ao2loc.conjugate ().T @ self.ao_ovlp @ ir_orb for ir_orb in self.mol.symm_orb]
+            self.symmetry = self.mol.groupname
+        except (AttributeError, TypeError):
+            self.loc2symm = [np.eye (self.norbs_tot)]
+            self.symmetry = False
+        for loc2ir in self.loc2symm:
+            loc2ir[:,:] = orthonormalize_a_basis (loc2ir)
+
         # Effective Hamiltonian due to frozen part
         self.frozenDMmo  = np.array( the_mf.mo_occ, copy=True )
         self.frozenDMmo[ self.active==1 ] = 0 # Only the frozen MO occupancies nonzero
@@ -178,6 +191,11 @@ class localintegrals:
             molden.header( self.mol, thefile )
             molden.orbital_coeff( self.mol, thefile, self.ao2loc )
             
+    @property
+    def loc2symm_wvfn (self):
+        if self.symmetry: return self.loc2symm
+        return None
+
     def loc_ortho( self ):
     
 #        ShouldBeI = np.dot( np.dot( self.ao2loc.T , self.mol.intor('cint1e_ovlp_sph') ) , self.ao2loc )
@@ -297,7 +315,11 @@ class localintegrals:
             return
 
         loc2corr = np.concatenate ([frag.loc2amo for frag in fragments], axis=1)
-        loc2idem = get_complementary_states (loc2corr)
+        if self.symmetry and not is_subspace_block_adapted (loc2corr, self.loc2symm_wvfn):
+            self.symmetry = False
+            print ("The active orbitals have broken symmetry :(")
+            
+        loc2idem = get_complementary_states (loc2corr, symm_blocks=self.loc2symm_wvfn)
         evecs = matrix_eigen_control_options (represent_operator_in_basis (self.loc_oei (), loc2idem), sort_vecs=1, only_nonzero_vals=False)[1]
         loc2idem = np.dot (loc2idem, evecs)
 
@@ -356,16 +378,8 @@ class localintegrals:
         self.e_tot = E
 
         # Molden
-        fock_idem = represent_operator_in_basis (fock, loc2idem)
-        oneRDM_corr = represent_operator_in_basis (oneRDM, loc2corr)
-        idem_evecs = matrix_eigen_control_options (fock_idem, sort_vecs=1, only_nonzero_vals=False)[1]
-        corr_evecs = matrix_eigen_control_options (oneRDM_corr, sort_vecs=-1, only_nonzero_vals=False)[1]
-        loc2molden = np.append (np.dot (loc2idem, idem_evecs), np.dot (loc2corr, corr_evecs), axis=1)
-        wm_ene = np.einsum ('ip,ij,jp->p', loc2molden, fock, loc2molden)
-        wm_ene[-loc2corr.shape[1]:] = 0
-        wm_occ = np.einsum ('ip,ij,jp->p', loc2molden, oneRDM, loc2molden)
-        ao2molden = np.dot (self.ao2loc, loc2molden)
-        molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=wm_occ, ene=wm_ene)
+        ao2molden, ene_no, occ_no = self.get_trial_nos (aobasis=True, loc2wmas=loc2corr, oneRDM_loc=oneRDM, fock=fock, jmol_shift=True, try_symmetrize=True)
+        molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=occ_no, ene=ene_no)
 
     def restore_wm_full_scf (self):
         self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
@@ -403,13 +417,13 @@ class localintegrals:
         numAct = loc2dmet.shape[1] if numAct==None else numAct
         loc2imp = loc2dmet[:,:numAct]
         assert (self.with_df is not None), "density fitting required"
-        CDERI = np.empty ((self.with_df.get_naoaux (), numAct*(numAct+1)//2), dtype=loc2dmet.dtype)
+        npair = numAct*(numAct+1)//2
+        CDERI = np.empty ((self.with_df.get_naoaux (), npair), dtype=loc2dmet.dtype)
         full_cderi_size = (norbs_aux * self.mol.nao_nr () * (self.mol.nao_nr () + 1) * CDERI.itemsize // 2) / 1e6
-        imp_eri_size = CDERI.itemsize * (numAct**4) / 1e6 # Since I don't use symmetry yet
-        imp_eri_ideal_size = CDERI.itemsize * (numAct*(numAct+1)//2)**2 / 1e6 # Eightfold symmetry is not practical because ao2mos will have to happen
+        imp_eri_size = (CDERI.itemsize * npair * (npair+1) // 2) / 1e6 
         imp_cderi_size = CDERI.size * CDERI.itemsize / 1e6
-        print ("Size comparison: cderi is ({0},{1},{1})->{2:.0f} MB total; eri is ({1},{1},{1},{1})->{3:.0f} MB total ({4:.0f} MB ideal)".format (
-                norbs_aux, numAct, imp_cderi_size, imp_eri_size, imp_eri_ideal_size))
+        print ("Size comparison: cderi is ({0},{1},{1})->{2:.0f} MB compacted; eri is ({1},{1},{1},{1})->{3:.0f} MB compacted".format (
+                norbs_aux, numAct, imp_cderi_size, imp_eri_size))
         ao2imp = np.dot (self.ao2loc, loc2imp)
         ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (ao2imp, ao2imp, compact=True)
         b0 = 0
@@ -423,19 +437,27 @@ class localintegrals:
         print (("({0}, {1}) seconds to turn {2:.0f}-MB full"
                 "cderi array into {3:.0f}-MP impurity cderi array").format (
                 t1 - t0, w1 - w0, full_cderi_size, imp_cderi_size))
+
+        # Compression step 1: remove zero rows
+        idx_nonzero = np.amax (np.abs (CDERI), axis=1) > sqrt(LINEAR_DEP_THR)
+        print ("From {} auxiliary functions, {} have nonzero rows of the 3-center integral".format (norbs_aux, np.count_nonzero (idx_nonzero)))
+        CDERI = CDERI[idx_nonzero]
+
+        # Compression step 2: svd
         sigma, vmat = matrix_svd_control_options (CDERI, sort_vecs=-1, only_nonzero_vals=True, full_matrices=False, num_zero_atol=sqrt(LINEAR_DEP_THR))[1:]
         imp_cderi_size = vmat.size * vmat.itemsize / 1e6
-        print ("With SVD: {0:.0f}-MB CDERI array, compared to {1:.0f}-MB ideal eri; ({2}, {3}) seconds".format (
-            imp_cderi_size, imp_eri_ideal_size, time.clock () - t1, time.time () - w1))
+        print ("From {} nonzero aux-function rows, {} nonzero singular values found".format (np.count_nonzero (idx_nonzero), len (sigma)))
+        print ("With SVD: {0:.0f}-MB CDERI array, compared to {1:.0f}-MB eri; ({2}, {3}) seconds".format (
+            imp_cderi_size, imp_eri_size, time.clock () - t1, time.time () - w1))
         CDERI = np.ascontiguousarray ((vmat * sigma).T)
         return CDERI
 
-    def dmet_tei( self, loc2dmet, numAct=None ):
+    def dmet_tei (self, loc2dmet, numAct=None, symmetry=1):
 
         numAct = loc2dmet.shape[1] if numAct==None else numAct
         loc2imp = loc2dmet[:,:numAct]
-        TEI = symmetrize_tensor (self.general_tei ([loc2imp for i in range(4)]))
-        return TEI
+        TEI = symmetrize_tensor (self.general_tei ([loc2imp for i in range(4)], compact=True))
+        return ao2mo.restore (symmetry, TEI, numAct)
 
     def dmet_const (self, loc2dmet, norbs_imp, oneRDMfroz_loc):
         norbs_core = self.norbs_tot - norbs_imp
@@ -447,21 +469,23 @@ class localintegrals:
         FOCK = self.dmet_fock (loc2core, norbs_core, oneRDMfroz_loc)
         return 0.5 * np.einsum ('ij,ij->', GAMMA, OEI + FOCK)
 
-    def general_tei (self, loc2bas_list):
+    def general_tei (self, loc2bas_list, compact=False):
         norbs = [loc2bas.shape[1] for loc2bas in loc2bas_list]
-        print ("Formal max memory: {} MB; Current usage: {} MB; Minimal requirements of this TEI tensor: {} MB".format (
+        print ("Formal max memory: {} MB; Current usage: {} MB; Maximal storage requirements of this TEI tensor: {} MB".format (
             self.max_memory, current_memory ()[0], 8*norbs[0]*norbs[1]*norbs[2]*norbs[3]/1e6))
         sys.stdout.flush ()
 
         if self.with_df is not None:
             a2b_list = [self.with_df.loc2eri_bas (l2b) for l2b in loc2bas_list]
-            TEI = self.with_df.ao2mo (a2b_list, compact=False).reshape (*norbs) 
+            TEI = self.with_df.ao2mo (a2b_list, compact=compact) 
         elif self._eri is not None:
             a2b_list = [self._eri.loc2eri_bas (l2b) for l2b in loc2bas_list]
-            TEI = ao2mo.incore.general(self._eri, a2b_list, compact=False).reshape (*norbs)
+            TEI = ao2mo.incore.general(self._eri, a2b_list, compact=compact)
         else:
             a2b_list = [np.dot (self.ao2loc, l2b) for l2b in loc2bas_list]
-            TEI  = ao2mo.outcore.general_iofree(self.mol, a2b_list, compact=False).reshape (*norbs)
+            TEI  = ao2mo.outcore.general_iofree(self.mol, a2b_list, compact=compact)
+
+        if not compact: TEI = TEI.reshape (*norbs)
 
         return TEI
 
@@ -538,4 +562,39 @@ class localintegrals:
             loc2bas_assigned.append (loc2pick)
         return loc2bas_assigned
 
+    def get_trial_nos (self, aobasis=False, loc2wmas=None, oneRDM_loc=None, fock=None, jmol_shift=False, try_symmetrize=True):
+        if oneRDM_loc is None: oneRDM_loc = self.oneRDM_loc
+        if fock is None:
+            fock = self.activeFOCK
+        elif isinstance (fock, str) and fock == 'calculate':
+            fock = self.loc_rhf_fock_bis (oneRDM_loc)
+        if loc2wmas is None: loc2wmas = np.zeros ((self.norbs_tot, 0), dtype=self.ao2loc.dtype)
+
+        loc2wmcs = get_complementary_states (loc2wmas, symm_blocks=self.loc2symm_wvfn)
+        norbs_wmas = loc2wmas.shape[1]
+        norbs_wmcs = loc2wmcs.shape[1]
+        loc2wmcs, wmcs_symm, ene_wmcs = symmetrize_basis (loc2wmcs, self.loc2symm_wvfn, sorting_metric=fock,
+            do_eigh_metric=True, sort_vecs=1, check_metric_block_adapted=True)
+        loc2wmas, wmas_symm, occ_wmas = symmetrize_basis (loc2wmas, self.loc2symm_wvfn, sorting_metric=oneRDM_loc,
+            do_eigh_metric=True, sort_vecs=-1, check_metric_block_adapted=True)
+
+        nelec_wmas = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2wmas)))
+        assert ((self.nelec_tot - nelec_wmas) % 2 == 0), 'Non-even number of unactive electrons {}'.format (self.nelec_tot - nelec_wmas)
+        norbs_core = (self.nelec_tot - nelec_wmas) // 2
+        norbs_virt = norbs_wmcs - norbs_core
+
+        loc2no = np.concatenate ((loc2wmcs[:,:norbs_core], loc2wmas, loc2wmcs[:,norbs_core:]), axis=1)
+        occ_no = np.concatenate ((2*np.ones (norbs_core), occ_wmas, np.zeros (norbs_virt)))
+        ene_no = np.concatenate ((ene_wmcs[:norbs_core], np.zeros (norbs_wmas), ene_wmcs[norbs_core:]))
+        assert (len (occ_no) == len (ene_no) and loc2no.shape[1] == len (occ_no)), '{} {} {}'.format (loc2no.shape, len (ene_no), len (occ_no))
+        norbs_occ = norbs_core + norbs_wmas
+        if jmol_shift:
+            print ("Shifting natural-orbital energies so that jmol puts them in the correct order:")
+            if ene_no[norbs_core-1] > 0: ene_no[:norbs_core] -= ene_no[norbs_core-1] + 1e-6
+            if ene_no[norbs_occ] < 0: ene_no[norbs_occ:] -= ene_no[norbs_occ] - 1e-6
+            assert (np.all (np.diff (ene_no) >=0)), ene_no
+        if aobasis:
+            return self.ao2loc @ loc2no, ene_no, occ_no
+        return loc2no, ene_no, occ_no
+        
 
