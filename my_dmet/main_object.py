@@ -611,6 +611,7 @@ class dmet:
 
         loc2wmas_old = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         if self.doLASSCF and self.ints.symmetry and not is_subspace_block_adapted (loc2wmas_old, self.ints.loc2symm_wvfn):
+            print ("Active orbitals break symmetry :(")
             self.ints.symmetry = False
         try:
             loc2wmcs_old = get_complementary_states (loc2wmas_old, symm_blocks=self.ints.loc2symm_wvfn)
@@ -801,6 +802,9 @@ class dmet:
 
         for loc2imo, loc2amo, frag in zip (loc2wmcs, loc2wmas, self.fragments):
             frag.set_new_fragment_basis (np.append (loc2imo, loc2amo, axis=1))
+            assert (is_basis_orthonormal (loc2imo))
+            assert (is_basis_orthonormal (loc2amo))
+            assert (is_basis_orthonormal (frag.loc2frag))
 
         return oneRDM_loc
 
@@ -841,6 +845,8 @@ class dmet:
 
         dm = represent_operator_in_basis (oneRDM_loc, np.concatenate (loc2amo, axis=1))
         #print ("Density matrix in symmetrically-orthogonalized active-orbital basis:\n{}".format (prettyprint (dm))) 
+        for l in loc2amo:
+            assert (is_basis_orthonormal (l))
 
         return loc2amo
 
@@ -921,6 +927,8 @@ class dmet:
         #    frag_weights = np.einsum ('ip,ijq,jp->pq', loc2.conjugate (), proj_gfrag, loc2)
         #    print (prettyprint (frag_weights))
              
+        for l in loc2wmcs:
+            assert (is_basis_orthonormal (l))
         return loc2wmcs
 
     def generate_frag_cas_guess (self, mo_coeff=None, caslst=None, cas_irrep_nocc=None, cas_irrep_ncore=None, replace=False, force_imp=False, confine_guess=True, guess_somos = []):
@@ -1003,6 +1011,7 @@ class dmet:
                 idx = np.argsort (evals)
                 f.loc2amo_guess = np.dot (loc2amo_guess, evecs[:,idx])
                 if force_imp:
+                    print ("force_imp!")
                     old2new_amo = f.loc2amo.conjugate ().T @ f.loc2amo_guess
                     f.loc2amo = f.loc2amo_guess.copy ()
                     f.oneRDMas_loc = project_operator_into_subspace (self.ints.oneRDM_loc, f.loc2amo)
@@ -1156,6 +1165,7 @@ class dmet:
                 print (old2new)
                 f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, old2new)
         else:
+            print ("If 'this system lost its symmetry' then I should be here")
             for f in self.fragments: f.symmetry = False
             self.ints.symmetry = False
 

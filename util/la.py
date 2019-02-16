@@ -4,15 +4,15 @@ from mrh.util import params
 
 # A collection of simple manipulations of matrices that I somehow can't find in numpy
 
-def is_matrix_zero (test_matrix):
+def is_matrix_zero (test_matrix, rtol=1e-5, atol=1e-8):
     test_zero = np.zeros (test_matrix.shape, dtype=test_matrix.dtype)
-    return np.allclose (test_matrix, test_zero, rtol=1)
+    return np.allclose (test_matrix, test_zero)
 
 def is_matrix_eye (test_matrix, matdim=None):
     if (test_matrix.shape[0] != test_matrix.shape[1]):
         return False
     test_eye = np.eye (test_matrix.shape[0], dtype=test_matrix.dtype)
-    return np.allclose (test_matrix, test_eye, rtol=1)
+    return np.allclose (test_matrix, test_eye)
 
 def is_matrix_idempotent (test_matrix):
     if (test_matrix.shape[0] != test_matrix.shape[1]):

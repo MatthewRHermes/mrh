@@ -418,8 +418,11 @@ class fragment_object:
             loc2qfrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())
             loc2qenv = get_complementary_states (loc2qfrag, already_complete_warning=False)
             loc2wmas = get_complementary_states (loc2wmcs, already_complete_warning=False)
+            assert (is_basis_orthonormal (self.loc2frag))
             loc2p = orthonormalize_a_basis (np.concatenate ([self.loc2frag, loc2qenv, loc2wmas], axis=1))
+            assert (is_basis_orthonormal (loc2p))
             loc2qfrag = get_complementary_states (loc2p)
+            assert (is_basis_orthonormal (loc2qfrag))
             norbs_qfrag = min (loc2qfrag.shape[1], norbs_xtra)
             if norbs_qfrag > 0:
                 print ("Add {} of {} possible quasi-fragment orbitals ".format (
@@ -479,7 +482,7 @@ class fragment_object:
         ''' These orbitals have to be splittable into purely on the impurity/purely in the core for the same reason that nelec_imp has to
             be an integer, I think. '''
         loc2virtunaccore, loc2corevirtunac, svals = get_overlapping_states (loc2virtunac, self.loc2core)
-        assert (np.all (np.logical_or (np.isclose (svals, 0), np.isclose (svals, 1)))), svals
+        assert (np.all (np.logical_or (np.isclose (svals, 0, atol=1e-6), np.isclose (svals, 1, atol=1e-6)))), svals
         idx_virtunaccore = np.isclose (svals, 1)
         loc2virtunaccore = loc2virtunaccore[:,idx_virtunaccore]
 

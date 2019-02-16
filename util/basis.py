@@ -343,17 +343,28 @@ def get_complementary_states (incomplete_basis, symm_blocks=None, already_comple
     if symm_blocks is not None:
         if not isinstance (symm_blocks[0], np.ndarray):
             raise RuntimeError ("You need to pass the actual symmetry basis, I can't just guess how many states are supposed to be in each irrep!")
-        symmetrized_states, labels = symmetrize_basis (orthonormal_basis, symm_blocks)
-        complementary_states = []
+        c2p, labels = symmetrize_basis (orthonormal_basis, symm_blocks)
+        c2q = []
         for idx, c2s in enumerate (symm_blocks):
             if np.count_nonzero (labels==idx) == 0:
-                complementary_states.append (c2s)
+                c2q.append (c2s)
                 continue
-            s2p = c2s.conjugate ().T @ orthonormal_basis[:,labels==idx]
+            s2p = c2s.conjugate ().T @ c2p[:,labels==idx]
             s2q = get_complementary_states (s2p, already_complete_warning=False)
-            complementary_states.append (c2s @ s2q)
+            c2q.append (c2s @ s2q)
         # Yadda yadda linear algebra breaks orthogonality
-        return symmetrize_basis (np.concatenate (complementary_states, axis=1), symm_blocks)[0]
+        c2q = np.concatenate (c2q, axis=1)
+        ovlp_PQ = c2p.conjugate ().T @ c2q
+        assert (are_states_block_adapted (c2q, symm_blocks))
+        assert (is_basis_orthonormal (c2q))
+        if not is_matrix_zero (ovlp_PQ):
+            assert (linalg.norm (ovlp_PQ) / sum (ovlp_PQ.shape) < 1e-8)
+            proj_PP = c2p @ c2p.conjugate ().T
+            c2q -= proj_PP @ c2q
+            c2q = symmetrize_basis (c2q, symm_blocks)
+            ovlp_PQ = c2p.conjugate ().T @ c2q
+            assert (is_matrix_zero (ovlp_PQ))
+        return c2q
 
     # Kernel
     nbas = orthonormal_basis.shape[1]
@@ -397,7 +408,7 @@ def get_projector_from_states (the_states):
 
 # Should work with overlapping states!
 def is_operator_block_adapted (the_operator, the_blocks):
-    assert (is_basis_orthonormal_and_complete (np.concatenate (the_blocks, axis=1))), 'Symmetry blocks must be orthonormal and complete'
+    assert (is_basis_orthonormal_and_complete (np.concatenate (the_blocks, axis=1))), 'Symmetry blocks must be orthonormal and complete, {}'.format (len (the_blocks))
     for blk1, blk2 in combinations (the_blocks, 2):
         off_blk = represent_operator_in_basis (the_operator, blk1, blk2)
         if not is_matrix_zero (off_blk): return False
@@ -431,7 +442,7 @@ def assign_blocks (the_basis, the_blocks):
     return labels
     
 def symmetrize_basis (the_basis, the_blocks, sorting_metric=None, sort_vecs=1, do_eigh_metric=True, check_metric_block_adapted=True):
-    if the_blocks is None: the_blocks=np.eye (the_basis.shape[0])
+    if the_blocks is None: the_blocks=[np.eye (the_basis.shape[0])]
     assert (is_subspace_block_adapted (the_basis, the_blocks)), 'Basis space must be block-adapted before blockifying states'
     if are_states_block_adapted (the_basis, the_blocks):
         symmetrized_basis = the_basis

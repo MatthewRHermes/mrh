@@ -34,7 +34,7 @@ import scipy
 from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
 from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace, orthonormalize_a_basis
-from mrh.util.basis import get_overlapping_states, is_subspace_block_adapted, symmetrize_basis, compute_nelec_in_subspace
+from mrh.util.basis import get_overlapping_states, is_subspace_block_adapted, symmetrize_basis, compute_nelec_in_subspace, is_operator_block_adapted
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options, is_matrix_eye
 from mrh.util import params
@@ -119,11 +119,15 @@ class localintegrals:
 
         # Symmetry information
         try:
-            self.loc2symm = [self.ao2loc.conjugate ().T @ self.ao_ovlp @ ir_orb for ir_orb in self.mol.symm_orb]
+            self.loc2symm = [orthonormalize_a_basis (scipy.linalg.solve (self.ao2loc, ao2ir)) for ao2ir in self.mol.symm_orb]
             self.symmetry = self.mol.groupname
-        except (AttributeError, TypeError):
+        except (AttributeError, TypeError) as e:
+            if self.mol.symmetry: raise (e)
             self.loc2symm = [np.eye (self.norbs_tot)]
             self.symmetry = False
+        for loc2ir1, loc2ir2 in itertools.combinations (self.loc2symm, 2):
+            proj = loc2ir1 @ loc2ir1.conjugate ().T
+            loc2ir2[:,:] -= proj @ loc2ir2
         for loc2ir in self.loc2symm:
             loc2ir[:,:] = orthonormalize_a_basis (loc2ir)
 
@@ -318,6 +322,12 @@ class localintegrals:
         if self.symmetry and not is_subspace_block_adapted (loc2corr, self.loc2symm_wvfn):
             self.symmetry = False
             print ("The active orbitals have broken symmetry :(")
+        elif self.symmetry and not is_operator_block_adapted (self.oneRDMcorr_loc, self.loc2symm_wvfn):
+            self.symmetry = False
+            print ("The active-orbital density has broken symmetry :(")
+        elif self.symmetry and not is_operator_block_adapted (self.oneRDM_loc, self.loc2symm_wvfn):
+            self.symmetry = False
+            print ("The full density has broken symmetry but none of the active orbitals have, which is really weird.")
             
         loc2idem = get_complementary_states (loc2corr, symm_blocks=self.loc2symm_wvfn)
         evecs = matrix_eigen_control_options (represent_operator_in_basis (self.loc_oei (), loc2idem), sort_vecs=1, only_nonzero_vals=False)[1]
