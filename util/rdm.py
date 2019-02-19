@@ -1,7 +1,7 @@
 import numpy as np
 import itertools
 from scipy import linalg
-from math import factorial
+from math import factorial, sqrt
 from mrh.util.la import *
 from mrh.util.basis import *
 from mrh.util.my_math import is_close_to_integer
@@ -22,13 +22,14 @@ def get_1RDM_from_OEI_in_subspace (one_electron_hamiltonian, subspace_basis, noc
     oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, w2l)
     return oneRDM_loc
     
-def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, num_zero_atol=params.num_zero_atol):
+def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
     norbs_tot = assert_matrix_square (the_1RDM)
     norbs_frag = loc2frag.shape[1]
     assert (norbs_tot >= norbs_frag and loc2frag.shape[0] == norbs_tot)
     assert (is_basis_orthonormal (loc2frag)), linalg.norm (np.dot (loc2frag.T, loc2frag) - np.eye (loc2frag.shape[1]))
     norbs_env = norbs_tot - norbs_frag
     nelec_tot = np.trace (the_1RDM)
+    loc2frag_inp = loc2frag.copy ()
 
     # We need to SVD the environment-fragment block of the 1RDM
     # The bath states are from the left-singular vectors corresponding to nonzero singular value
@@ -67,9 +68,10 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
 
     # Build embedding basis: frag (efrag then ufrag, check that this is complete!), bath, core. Check for zero frag-core entanglement
     loc2frag = np.append (loc2efrag, loc2ufrag, axis=1)
-    assert (is_matrix_eye (represent_operator_in_basis (Pfrag_loc, loc2frag)))
+    err = linalg.norm (represent_operator_in_basis (Pfrag_loc, loc2frag) - np.eye (loc2frag.shape[1]))
+    assert (are_bases_equivalent (loc2frag_inp, loc2frag)), err
     errmat = represent_operator_in_basis (the_1RDM, loc2frag, loc2core)
-    assert (loc2core.shape[1] == 0 or is_matrix_zero (errmat))
+    assert (loc2core.shape[1] == 0 or is_matrix_zero (errmat, atol=num_zero_atol*sqrt (loc2core.shape[1] * loc2frag.shape[1])))
     loc2imp = np.append (loc2frag, loc2bath, axis=1)
     assert (is_basis_orthonormal (loc2imp))
     loc2emb = np.append (loc2imp, loc2core, axis=1)

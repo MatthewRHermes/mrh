@@ -1,11 +1,14 @@
 # A collection of useful manipulations of basis sets (i.e., rectangular matrices) and operators (square matrices)
 
+import sys
 import numpy as np
 from scipy import linalg
 from mrh.util.io import prettyprint_ndarray
 from mrh.util.la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util import params
 from itertools import combinations
+from math import sqrt
+import copy
 
 ################    basic queries and assertions for basis-set-related objects    ################
 
@@ -36,24 +39,36 @@ def assert_vector_stateis (test_vector, vecdim=None):
     cond_bool = np.all (np.logical_or (test_vector == 1, test_vector == 0))
     assert (cond_isvec and cond_len and cond_bool), err_str
 
-def is_basis_orthonormal (the_basis, ovlp=1):
-    cOc = np.asmatrix (ovlp) 
-    c2b = np.asmatrix (the_basis)
-    b2c = c2b.H
+def is_basis_orthonormal (the_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+    cOc = np.atleast_2d (ovlp) 
+    c2b = np.asarray (the_basis)
+    b2c = c2b.conjugate ().T
     try:
-        test_matrix = b2c * cOc * c2b
+        test_matrix = b2c @ cOc @ c2b
     except ValueError:
-        test_matrix = b2c * cOc[0,0] * c2b
-    return is_matrix_eye (test_matrix)
+        test_matrix = (b2c * cOc[0,0]) @ c2b
+    rtol *= test_matrix.shape[0]
+    atol *= test_matrix.shape[0]
+    return is_matrix_eye (test_matrix, rtol=rtol, atol=atol)
 
-def is_basis_orthonormal_and_complete (the_basis):
-    return (is_basis_orthonormal (the_basis) and (the_basis.shape[1] == the_basis.shape[0]))
+def is_basis_orthonormal_and_complete (the_basis, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+    return (is_basis_orthonormal (the_basis, rtol=rtol, atol=atol) and (the_basis.shape[1] == the_basis.shape[0]))
 
-def are_bases_orthogonal (bra_basis, ket_basis, ovlp=1):
+def are_bases_orthogonal (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
     test_matrix = basis_olap (bra_basis, ket_basis, ovlp)
-    return is_matrix_zero (test_matrix), test_matrix
+    rtol *= sqrt (bra_basis.shape[1] * ket_basis.shape[1])
+    atol *= sqrt (bra_basis.shape[1] * ket_basis.shape[1])
+    return is_matrix_zero (test_matrix, rtol=rtol, atol=atol), test_matrix
 
-
+def are_bases_equivalent (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+    bra_basis = orthonormalize_a_basis (bra_basis)
+    ket_basis = orthonormalize_a_basis (ket_basis)
+    if bra_basis.shape[1] != ket_basis.shape[1]: return False
+    svals = get_overlapping_states (bra_basis, ket_basis, only_nonzero_vals=True)[2]
+    rtol *= sqrt (bra_basis.shape[1] * ket_basis.shape[1])
+    atol *= sqrt (bra_basis.shape[1] * ket_basis.shape[1])
+    return np.allclose (svals, 1, rtol=rtol, atol=atol)
+    
 
 
 ################    simple manipulations and common calculations        ################
@@ -222,7 +237,7 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrve
     pOq = p2c * cOc * c2q
 
     try:
-        p2l, svals, q2r = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals)
+        p2l, svals, q2r = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
     except ValueError as e:
         if 0 in pOq.shape:
             print ("get_overlapping_states: one of bra or ket basis is zero size; returning bra and ket basis unchanged")
@@ -331,7 +346,7 @@ def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol
     idx = np.isclose (evals, 1)
     return evecs[:,idx]
 
-def get_complementary_states (incomplete_basis, symm_blocks=None, already_complete_warning=True):
+def get_complementary_states (incomplete_basis, symm_blocks=None, already_complete_warning=True, atol=params.num_zero_atol):
     if incomplete_basis.shape[1] == 0:
         if symm_blocks is None:
             return np.eye (incomplete_basis.shape[0])
@@ -357,13 +372,12 @@ def get_complementary_states (incomplete_basis, symm_blocks=None, already_comple
         ovlp_PQ = c2p.conjugate ().T @ c2q
         assert (are_states_block_adapted (c2q, symm_blocks))
         assert (is_basis_orthonormal (c2q))
-        if not is_matrix_zero (ovlp_PQ):
+        if not are_bases_orthogonal (c2p, c2q):
             assert (linalg.norm (ovlp_PQ) / sum (ovlp_PQ.shape) < 1e-8)
             proj_PP = c2p @ c2p.conjugate ().T
             c2q -= proj_PP @ c2q
-            c2q = symmetrize_basis (c2q, symm_blocks)
-            ovlp_PQ = c2p.conjugate ().T @ c2q
-            assert (is_matrix_zero (ovlp_PQ))
+            c2q = symmetrize_basis (c2q, symm_blocks)[0]
+            assert (are_bases_orthogonal (c2p, c2q))
         return c2q
 
     # Kernel
@@ -373,11 +387,8 @@ def get_complementary_states (incomplete_basis, symm_blocks=None, already_comple
             print ("warning: tried to construct a complement for a basis that was already complete")
         return np.zeros ((incomplete_basis.shape[0], 0))
     Q, R = linalg.qr (orthonormal_basis)
-    ovlp = np.dot (Q.conjugate ().T, orthonormal_basis)
-    ovlp_PP = ovlp[:nbas,:] @ ovlp[:nbas,:].conjugate ().T
-    ovlp_PQ = ovlp[nbas,:]
-    assert (is_matrix_eye (ovlp_PP)), linalg.norm (np.eye (nbas) - ovlp_PP)
-    assert (is_matrix_zero (ovlp_PQ))
+    assert (are_bases_equivalent (Q[:,:nbas], orthonormal_basis))
+    assert (are_bases_orthogonal (Q[:,nbas:], orthonormal_basis))
     '''
     err = linalg.norm (ovlp[:nbas,:].T @ ovlp[:nbas,:]) - np.eye (nbas)) / nbas
     assert (abs (err) < 1e-8), err
@@ -407,44 +418,57 @@ def get_projector_from_states (the_states):
 
 
 # Should work with overlapping states!
-def is_operator_block_adapted (the_operator, the_blocks):
-    assert (is_basis_orthonormal_and_complete (np.concatenate (the_blocks, axis=1))), 'Symmetry blocks must be orthonormal and complete, {}'.format (len (the_blocks))
-    for blk1, blk2 in combinations (the_blocks, 2):
-        off_blk = represent_operator_in_basis (the_operator, blk1, blk2)
-        if not is_matrix_zero (off_blk): return False
-    return True
+def is_operator_block_adapted (the_operator, the_blocks, tol=params.num_zero_atol):
+    tol *= the_operator.shape[0]
+    if isinstance (the_blocks[0], np.ndarray):
+        umat = np.concatenate (the_blocks, axis=1)
+        assert (is_basis_orthonormal_and_complete (umat)), 'Symmetry blocks must be orthonormal and complete, {}'.format (len (the_blocks))
+        operator_block = represent_operator_in_basis (the_operator, umat)
+        labels = np.concatenate ([[idx,] * blk.shape[1] for idx, blk in enumerate (the_blocks)])
+        return is_operator_block_adapted (operator_block, labels)
+    iterable = the_blocks if isinstance (the_blocks[0], np.ndarray) else np.unique (the_blocks)
+    offblk_operator = the_operator.copy ()
+    for blk in np.unique (the_blocks):
+        offblk_operator[np.ix_(the_blocks==blk,the_blocks==blk)] = 0
+    return is_matrix_zero (offblk_operator, atol=tol)
 
 # Should work with overlapping states!
-def is_subspace_block_adapted (the_basis, the_blocks):
-    return is_operator_block_adapted (the_basis @ the_basis.conjugate ().T, the_blocks)
+def is_subspace_block_adapted (the_basis, the_blocks, tol=params.num_zero_atol):
+    return is_operator_block_adapted (the_basis @ the_basis.conjugate ().T, the_blocks, tol=tol)
 
 # Should work with overlapping states!
-def are_states_block_adapted (the_basis, the_blocks):
-    if not is_subspace_block_adapted (the_basis, the_blocks): return False
+def are_states_block_adapted (the_basis, the_blocks, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
+    if not is_subspace_block_adapted (the_basis, the_blocks, tol=atol): return False
+    atol *= the_basis.shape[0]
+    rtol *= the_basis.shape[0]
     for blk in the_blocks:
         projector = blk @ blk.conjugate ().T
         is_symm = ((projector @ the_basis) * the_basis).sum (0)
-        if not (np.all (np.logical_or (np.isclose (is_symm, 0), np.isclose (is_symm, 1)))): return False
+        if not (np.all (np.logical_or (np.isclose (is_symm, 0, atol=atol, rtol=rtol),
+                                       np.isclose (is_symm, 1, atol=atol, rtol=rtol)))): return False
     return True
-    blocked_basis = np.concatenate (the_blocks, axis=1)
 
 # Should work with overlapping states!
-def assign_blocks (the_basis, the_blocks):
-    assert (is_subspace_block_adapted (the_basis, the_blocks)), 'Basis space must be block-adapted before assigning states'
-    labels = -np.ones (the_basis.shape[1])
+def assign_blocks (the_basis, the_blocks, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
+    assert (is_subspace_block_adapted (the_basis, the_blocks, tol=atol)), 'Basis space must be block-adapted before assigning states'
+    atol *= the_basis.shape[0]
+    rtol *= the_basis.shape[0]
+    labels = -np.ones (the_basis.shape[1], dtype=int)
     for idx, blk in enumerate (the_blocks):
         projector = blk @ blk.conjugate ().T
         is_symm = ((projector @ the_basis) * the_basis).sum (0)
-        check = np.all (np.logical_or (np.isclose (is_symm, 0), np.isclose (is_symm, 1)))
+        check = np.all (np.logical_or (np.isclose (is_symm, 0, atol=atol, rtol=rtol), np.isclose (is_symm, 1, atol=atol, rtol=rtol)))
         assert (check), 'Basis states must be individually block-adapted before being assigned (is_symm = {} for label {})'.format (is_symm, idx)
-        labels[np.isclose(is_symm, 1)] = idx
+        labels[np.isclose(is_symm, 1, atol=atol, rtol=rtol)] = idx
     assert (np.all (labels>=0)), 'Failed to assign states {}'.format (np.where (labels<0)[0])
-    return labels
+    return labels.astype (int)
     
-def symmetrize_basis (the_basis, the_blocks, sorting_metric=None, sort_vecs=1, do_eigh_metric=True, check_metric_block_adapted=True):
+def symmetrize_basis (the_basis, the_blocks, sorting_metric=None, sort_vecs=1, do_eigh_metric=True, check_metric_block_adapted=True, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
+    atol_scl = atol * the_basis.shape[0]
+    rtol_scl = rtol * the_basis.shape[0]
     if the_blocks is None: the_blocks=[np.eye (the_basis.shape[0])]
-    assert (is_subspace_block_adapted (the_basis, the_blocks)), 'Basis space must be block-adapted before blockifying states'
-    if are_states_block_adapted (the_basis, the_blocks):
+    assert (is_subspace_block_adapted (the_basis, the_blocks, tol=atol)), 'Basis space must be block-adapted before blockifying states'
+    if are_states_block_adapted (the_basis, the_blocks, atol=atol, rtol=rtol):
         symmetrized_basis = the_basis
         labels = assign_blocks (the_basis, the_blocks)
     else:
@@ -452,26 +476,145 @@ def symmetrize_basis (the_basis, the_blocks, sorting_metric=None, sort_vecs=1, d
         labels = []
         symmetrized_basis = []
         for idx, blk in enumerate (the_blocks):
-            c2s_blk, c2s_p, svals = get_overlapping_states (blk, orthonormal_basis, only_nonzero_vals=True)
-            assert (np.all (np.isclose (svals, 1))), 'Failed to find block-adapted states in block {}; svals = {}'.format (idx, svals)
+            c2s_blk, c2s_p, svals = get_overlapping_states (blk, orthonormal_basis, only_nonzero_vals=True, num_zero_atol=1e-3)
+            assert (np.all (np.isclose (svals, 1, atol=atol_scl, rtol=rtol_scl))), 'Failed to find block-adapted states in block {}; svals = {}'.format (idx, svals)
             labels.append (idx * svals)
             symmetrized_basis.append (c2s_blk)
         labels = np.around (np.concatenate (labels)).astype (int)
         symmetrized_basis = np.concatenate (symmetrized_basis, axis=1)
-        assert (is_basis_orthonormal (symmetrized_basis)), "? labels = {}".format (labels)
+        assert (is_basis_orthonormal (symmetrized_basis, atol=atol, rtol=rtol)), "? labels = {}".format (labels)
 
     if sorting_metric is None:
         return symmetrized_basis, labels
     else:
-        if check_metric_block_adapted:
-            assert (is_operator_block_adapted (sorting_metric, the_blocks))
-        metric_symm = represent_operator_in_basis (sorting_metric, symmetrized_basis)
-        metric_evals, evecs, labels = matrix_eigen_control_options (metric_symm, symm_blocks=labels, sort_vecs=sort_vecs, only_nonzero_vals=False)
+        if sorting_metric.shape[0] == the_basis.shape[0]:
+            metric_symm = represent_operator_in_basis (sorting_metric, symmetrized_basis)
+        else:
+            assert (sorting_metric.shape[0] == the_basis.shape[1]), 'The sorting metric must be in either the row or column basis of the orbital matrix that is being symmetrized'
+            metric_symm = represent_operator_in_basis (sorting_metric, the_basis.conjugate ().T @ symmetrized_basis)
+        if check_metric_block_adapted: assert (is_operator_block_adapted (metric_symm, labels, tol=atol))
+        metric_evals, evecs, labels = matrix_eigen_control_options (metric_symm, symm_blocks=labels, sort_vecs=sort_vecs, only_nonzero_vals=False, num_zero_atol=atol)
         symmetrized_basis = symmetrized_basis @ evecs
         return symmetrized_basis, labels, metric_evals
 
+def align_states (unaligned_states, the_blocks, sorting_metric=None, sort_vecs=1, do_eigh_metric=True, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
+    ''' Symmbreak-tolerant '''
+    unaligned_states = orthonormalize_a_basis (unaligned_states)
+    if the_blocks is None: the_blocks=[np.eye (unaligned_states.shape[0])]
+    assert (is_basis_orthonormal_and_complete (np.concatenate (the_blocks, axis=1))), 'Symmetry blocks must be orthonormal and complete, {}'.format (len (the_blocks))
+    if sorting_metric is None: sorting_metric=np.diag (np.arange (unaligned_states.shape[1]))
+    if sorting_metric.shape[0] == unaligned_states.shape[0]: sorting_metric=represent_operator_in_basis (sorting_metric, unaligned_states)
+    measure = [get_overlapping_states (blk, unaligned_states, only_nonzero_vals=True)[1:] for blk in the_blocks]
+    orig_states = unaligned_states.copy ()
+    # First pass: symmetry-adapted states
+    aligned_states = np.concatenate ([rvecs[:,np.isclose (svals, 1, rtol=rtol, atol=atol)] for rvecs, svals in measure], axis=1)
+    if aligned_states.shape[1] == orig_states.shape[1]:
+        assert (are_bases_equivalent (orig_states, aligned_states))
+        return aligned_states
+    umat = orig_states.conjugate ().T @ aligned_states
+    evecs = get_complementary_states (umat)
+    unaligned_states = orig_states @ evecs
+    unaligned_states = get_complementary_states (aligned_states)    
+    n_unaligned = unaligned_states.shape[1]
+    # Then: maximum svalues, one at a time
+    for i in range (n_unaligned):
+        assert (is_basis_orthonormal (aligned_states))
+        assert (is_basis_orthonormal (unaligned_states))
+        assert (are_bases_orthogonal (aligned_states, unaligned_states))
+        measure = [get_overlapping_states (blk, unaligned_states, only_nonzero_vals=True)[1:] for blk in the_blocks]
+        idx = np.argmax ([svals[0] if len (svals) > 0 else 0 for rvecs, svals in measure])
+        aligned_states = np.append (aligned_states, measure[idx][0][:,0:1], axis=1)
+        umat = orig_states.conjugate ().T @ aligned_states
+        evecs = get_complementary_states (umat)
+        unaligned_states = orig_states @ evecs
+    umat = orig_states.conjugate ().T @ aligned_states
+    ovlp = umat.conjugate ().T @ umat    
+    assert (are_bases_equivalent (orig_states, aligned_states)), linalg.norm (ovlp - np.eye (ovlp.shape[0]))
+    sortval = ((sorting_metric @ umat) * umat).sum (0)
+    aligned_states = aligned_states[:,np.argsort (sortval)[::sort_vecs]]
+    return aligned_states
 
+def eigen_weaksymm (the_matrix, the_blocks, subspace=None, sort_vecs=1, only_nonzero_vals=False, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
+    if the_blocks is None: the_blocks=[np.eye (the_matrix.shape[0])]
+    if subspace is None: subspace = np.eye (the_matrix.shape[0])
+    subspace_matrix = represent_operator_in_basis (the_matrix, subspace)
+    evals, evecs = matrix_eigen_control_options (subspace_matrix, symm_blocks=None, sort_vecs=sort_vecs, only_nonzero_vals=only_nonzero_vals,
+        num_zero_atol=atol)
+    evecs = subspace @ evecs
+    idx_unchk = np.ones (len (evals), dtype=np.bool_)
+    while np.count_nonzero (idx_unchk > 0):
+        chk_1st_eval = evals[idx_unchk][0]
+        idx_degen = np.isclose (evals, chk_1st_eval, rtol=rtol, atol=atol)
+        if np.count_nonzero (idx_degen) > 1:
+            evecs[:,idx_degen] = align_states (evecs[:,idx_degen], the_blocks, atol=atol, rtol=rtol)
+        idx_unchk[idx_degen] = False
+    return evals, evecs, assign_blocks_weakly (evecs, the_blocks)
 
+def assign_blocks_weakly (the_states, the_blocks):
+    projectors = [blk @ blk.conjugate ().T for blk in the_blocks]
+    vals = np.stack ([((proj @ the_states) * the_states).sum (0) for proj in projectors], axis=-1)
+    return np.argmax (vals, axis=1)
 
+def cleanup_operator_symmetry (the_operator, the_blocks):
+    if the_blocks is None or len (the_blocks) == 1:
+        return the_operator
+    if not isinstance (the_blocks[0], np.ndarray):
+        dummy_blocks = [np.eye (the_operator.shape[0])[:,the_blocks==lbl] for lbl in np.unique (the_blocks)]
+        return cleanup_operator_symmetry (the_operator, dummy_blocks)
+    trashbin = np.zeros_like (the_operator)
+    for blk1, blk2 in combinations (the_blocks, 2):
+        trashbin += project_operator_into_subspace (the_operator, blk1, blk2)
+        trashbin += project_operator_into_subspace (the_operator, blk2, blk1)
+    print ("Norm of matrix elements thrown in the trash: {}".format (linalg.norm (trashbin)))
+    the_operator -= trashbin
+    assert (is_operator_block_adapted (the_operator, the_blocks))
+    return the_operator
+
+def analyze_operator_blockbreaking (the_operator, the_blocks, block_labels=None):
+    if block_labels is None: block_labels = np.arange (len (the_blocks))
+    if isinstance (the_blocks[0], np.ndarray):
+        block_umat = np.concatenate (the_blocks, axis=1)
+        assert (is_basis_orthonormal_and_complete (block_umat)), "Symmetry block problem? Not a complete, orthonormal basis."
+        blocked_operator = represent_operator_in_basis (the_operator, block_umat)
+        blocked_idx = np.concatenate ([[idx,] * blk.shape[1] for idx, blk in enumerate (the_blocks)])
+        s2l, op_svals, s2r = analyze_operator_blockbreaking (blocked_operator, blocked_idx, block_labels=block_labels)
+        c2l = copy.copy (s2l)
+        c2r = copy.copy (s2r)
+        for idx, c2s in enumerate (the_blocks):
+            c2l[idx] = c2s @ s2l[idx]
+            c2r[idx] = c2s @ s2r[idx]
+        return c2l, op_svals, c2r
+    elif np.asarray (the_blocks).dtype == np.asarray (block_labels).dtype:
+        the_indices = np.empty (len (the_blocks), dtype=np.int)
+        for idx, lbl in enumerate (block_labels):
+            idx_indices = (the_blocks == lbl)
+            the_indices[idx_indices] = idx
+        return analyze_operator_blockbreaking (the_operator, the_indices, block_labels)
+    c2l = []
+    c2r = []
+    op_svals = []
+    norbs = the_operator.shape[0]
+    for idx1, idx2 in combinations (range (len (block_labels)), 2):
+        idx12 = np.ix_(the_blocks==idx1, the_blocks==idx2)
+        lvecs = np.eye (norbs, dtype=the_operator.dtype)[:,the_blocks==idx1]
+        rvecs = np.eye (norbs, dtype=the_operator.dtype)[:,the_blocks==idx2]
+        try:
+            vecs1, svals, vecs2 = matrix_svd_control_options (the_operator[idx12], sort_vecs=-1, only_nonzero_vals=True)
+            lvecs = lvecs @ vecs1
+            rvecs = rvecs @ vecs2
+        except ValueError as e:
+            if the_operator[idx12].size > 0: raise (e)
+            lvecs = np.zeros ((norbs,0), dtype=the_operator.dtype)
+            rvecs = np.zeros ((norbs,0), dtype=the_operator.dtype)
+            svals = np.zeros ((0), dtype=the_operator.dtype)
+        #print ("Coupling between {} and {}: {} svals, norm = {}".format (idx1, idx2, len (svals), linalg.norm (svals)))
+        c2l.append (lvecs)
+        c2r.append (rvecs)
+        op_svals.append (svals)
+    return c2l, op_svals, c2r
+
+def analyze_subspace_blockbreaking (the_basis, the_blocks, block_labels=None):
+    projector = the_basis @ the_basis.conjugate ().T
+    return analyze_operator_blockbreaking (projector, the_blocks, block_labels=block_labels)
 
 

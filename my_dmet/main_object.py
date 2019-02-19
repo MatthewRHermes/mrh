@@ -38,7 +38,7 @@ from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
 from mrh.util.basis import is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal, get_overlapping_states
-from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted
+from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis
 from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
@@ -97,6 +97,8 @@ class dmet:
             frag.debug_energy             = debug_energy
             frag.num_mf_stab_checks       = num_mf_stab_checks
             frag.filehead                 = self.calcname + '_'
+            frag.loc2symm                 = self.ints.loc2symm
+            frag.ir_names                 = self.ints.mol.irrep_name   
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
         self.examine_ifrag_olap = False
@@ -462,7 +464,7 @@ class dmet:
         umatsquare = umatsquare.T
         umatsquare[ umat_idx ] = umatflat
         if ( self.TransInv == True ):
-            assert (False), "No translational invariance until you fix it!"
+            raise RuntimeError ("No translational invariance until you fix it!")
             norbs_frag = self.fragments[0].norbs_frag
             for it in range( 1, self.norbs_tot // norbs_frag ):
                 umatsquare[ it*norbs_frag:(it+1)*norbs_frag, it*norbs_frag:(it+1)*norbs_frag ] = umatsquare[ 0:norbs_frag, 0:norbs_frag ]
@@ -497,6 +499,7 @@ class dmet:
     
         #scfinit = tracemalloc.take_snapshot ()
         #scfinit.dump ('scfinit.snpsht')
+        self.energy = self.ints.e_tot
         iteration = 0
         u_diff = 1.0
         convergence_threshold = 1e-6
@@ -804,7 +807,7 @@ class dmet:
             frag.set_new_fragment_basis (np.append (loc2imo, loc2amo, axis=1))
             assert (is_basis_orthonormal (loc2imo))
             assert (is_basis_orthonormal (loc2amo))
-            assert (is_basis_orthonormal (frag.loc2frag))
+            assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
 
         return oneRDM_loc
 
@@ -988,7 +991,14 @@ class dmet:
             
             
         amo_new_coeff = np.append (mo_coeff[:,ncore_target:ncore_current], mo_coeff[:,nocc_current:nocc_target], axis=1)
-        loc2amo_new = self.ints.ao2loc.conjugate ().T @ self.ints.ao_ovlp @ amo_new_coeff
+
+        loc2amo_new = orthonormalize_a_basis (linalg.solve (self.ints.ao2loc, amo_new_coeff))
+        if self.ints.symmetry:
+            if is_subspace_block_adapted (loc2amo_new, self.ints.loc2symm_wvfn):
+                loc2amo_new, labels = symmetrize_basis (loc2amo_new, self.ints.loc2symm_wvfn)[:2]
+                print ("Guess active orbital irreps: {}".format (labels))
+            else:
+                print ("NOTE: symmetric system but guess active orbital space is NOT symmetry-adapted!")
         projamo = np.dot (loc2amo_new, loc2amo_new.conjugate ().T)
 
         for f in self.fragments:
@@ -1004,6 +1014,16 @@ class dmet:
                     proj_frag = represent_operator_in_basis (proj_frag, loc2amo_new)
                     evals, evecs = matrix_eigen_control_options (proj_frag, sort_vecs=-1, only_nonzero_vals=False)
                     loc2amo_guess = np.dot (loc2amo_new, evecs[:,:my_new_orbs]) 
+                # Set up somo twoCDM for accurate initial guess energy
+                evals, evecs = matrix_eigen_control_options (represent_operator_in_basis (self.ints.oneRDM_loc, loc2amo_guess))
+                idx_somo = (evals > 0.8) & (evals < 1.2)
+                nsomo = np.count_nonzero (idx_somo)
+                if nsomo > 0:
+                    loc2somo = loc2amo_guess @ evecs[:,idx_somo]
+                    dma = np.eye (nsomo)
+                    dmb = np.zeros ((nsomo, nsomo), dtype=dma.dtype)
+                    twoCDM_somo = get_2CDM_from_2RDM (get_2RDM_from_2CDM (np.zeros ([nsomo,]*4, dtype=dma.dtype), [dma,dmb]), dma+dmb)
+                # Back to the guess orbitals
                 loc2amo_guess = np.append (f.loc2amo, loc2amo_guess, axis=1)
                 fock = represent_operator_in_basis (self.ints.activeFOCK, loc2amo_guess)
                 ovlp = loc2amo_guess.conjugate ().T @ loc2amo_guess
@@ -1016,6 +1036,9 @@ class dmet:
                     f.loc2amo = f.loc2amo_guess.copy ()
                     f.oneRDMas_loc = project_operator_into_subspace (self.ints.oneRDM_loc, f.loc2amo)
                     f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, old2new_amo)
+                    if nsomo > 0:
+                        somo2amo = loc2somo.conjugate ().T @ f.loc2amo
+                        f.twoCDMimp_amo += represent_operator_in_basis (twoCDM_somo, somo2amo)
                     f.ci_as = None
 
         if len (guess_somos) == len (self.fragments):
@@ -1155,7 +1178,6 @@ class dmet:
             fake_mol = type ('', (), {'symm_orb': self.ints.loc2symm_wvfn}) ()
             for f in self.fragments:
                 f.symmetry = symmetry
-                f.loc2symm = self.ints.loc2symm
                 f.ir_names = ir_names
                 if not f.norbs_as:
                     continue

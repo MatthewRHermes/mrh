@@ -4,29 +4,29 @@ from mrh.util import params
 
 # A collection of simple manipulations of matrices that I somehow can't find in numpy
 
-def is_matrix_zero (test_matrix, rtol=1e-5, atol=1e-8):
+def is_matrix_zero (test_matrix, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
     test_zero = np.zeros (test_matrix.shape, dtype=test_matrix.dtype)
-    return np.allclose (test_matrix, test_zero)
+    return np.allclose (test_matrix, test_zero, rtol=rtol, atol=atol)
 
-def is_matrix_eye (test_matrix, matdim=None):
+def is_matrix_eye (test_matrix, matdim=None, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
     if (test_matrix.shape[0] != test_matrix.shape[1]):
         return False
     test_eye = np.eye (test_matrix.shape[0], dtype=test_matrix.dtype)
-    return np.allclose (test_matrix, test_eye)
+    return np.allclose (test_matrix, test_eye, atol=atol, rtol=rtol)
 
-def is_matrix_idempotent (test_matrix):
+def is_matrix_idempotent (test_matrix, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
     if (test_matrix.shape[0] != test_matrix.shape[1]):
         return False
     test_m2 = np.dot (test_matrix, test_matrix)
-    return np.allclose (test_matrix, test_m2)
+    return np.allclose (test_matrix, test_m2, atol=atol, rtol=rtol)
 
-def is_matrix_diagonal (test_matrix):
+def is_matrix_diagonal (test_matrix, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
     test_diagonal = np.diag (np.diag (test_matrix))
-    return np.allclose (test_matrix, test_diagonal)
+    return np.allclose (test_matrix, test_diagonal, atol=atol, rtol=rtol)
 
-def is_matrix_hermitian (test_matrix):
+def is_matrix_hermitian (test_matrix, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
     test_adjoint = np.transpose (np.conjugate (test_matrix))
-    return np.allclose (test_matrix, test_adjoint)
+    return np.allclose (test_matrix, test_adjoint, atol=atol, rtol=rtol)
 
 def assert_matrix_square (test_matrix, matdim=None):
     if (matdim == None):

@@ -35,6 +35,7 @@ from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
 from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace, orthonormalize_a_basis
 from mrh.util.basis import get_overlapping_states, is_subspace_block_adapted, symmetrize_basis, compute_nelec_in_subspace, is_operator_block_adapted
+from mrh.util.basis import is_basis_orthonormal_and_complete, cleanup_operator_symmetry, assign_blocks, eigen_weaksymm
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options, is_matrix_eye
 from mrh.util import params
@@ -142,18 +143,18 @@ class localintegrals:
         self.frozenOEIao = self.fullFOCKao - self.fullJKao + self.frozenJKao
 
         # Localized OEI and ERI
-        self.oneRDM_loc     = reduce (np.dot, (self.ao2loc.conjugate ().T, self.ao_ovlp, self.oneRDM_loc, self.ao_ovlp, self.ao2loc))
-        assert (abs (np.trace (self.oneRDM_loc) - self.nelec_tot) < 1e-8), '{} {}'.format (np.trace (self.oneRDM_loc), self.nelec_tot)
         self.activeCONST    = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEIao - 0.5*self.frozenJKao, self.frozenDMao )
         self.activeOEI      = represent_operator_in_basis (self.frozenOEIao, self.ao2loc )
         self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
         self.activeJKidem   = self.activeFOCK - self.activeOEI
         self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
+        self.oneRDM_loc     = self.ao2loc.conjugate ().T @ self.ao_ovlp @ self.fullDMao @ self.ao_ovlp @ self.ao2loc
         self.oneRDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
         self.loc2idem       = np.eye (self.norbs_tot, dtype=self.activeOEI.dtype)
         self.nelec_idem     = self.nelec_tot
         self._eri           = None
         self.with_df        = None
+        assert (abs (np.trace (self.oneRDM_loc) - self.nelec_tot) < 1e-8), '{} {}'.format (np.trace (self.oneRDM_loc), self.nelec_tot)
         sys.stdout.flush ()
         def _is_mem_enough ():
             return 2*(self.norbs_tot**4)/1e6 + current_memory ()[0] < self.max_memory*0.95
@@ -198,7 +199,7 @@ class localintegrals:
     @property
     def loc2symm_wvfn (self):
         if self.symmetry: return self.loc2symm
-        return None
+        return [np.eye (self.norbs_tot)]
 
     def loc_ortho( self ):
     
@@ -276,7 +277,7 @@ class localintegrals:
         oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
-    def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, oneRDMguess_loc=None, output=None):
+    def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, oneRDMguess_loc=None, output=None, working_const=0):
 
         nelec      = nelec   or self.nelec_idem
         loc2wrk    = loc2wrk if np.any (loc2wrk) else self.loc2idem
@@ -287,20 +288,8 @@ class localintegrals:
         OEI_wrk = represent_operator_in_basis (OEI, loc2wrk)
         if oneRDM_wrk is None:
             oneRDM_wrk = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
-        '''
-        if self._eri is not None:
-            # I just need a view of self._eri with different tags. ao2loc . loc2wrk = ao2wrk
-            wrk2loc    = loc2wrk.conjugate ().T
-            ERI_wrk    = self._eri.view ()
-            ERI_wrk    = tag_array (ERI_wrk, loc2eri_bas = lambda x: self._eri.loc2eri_bas (np.dot (loc2wrk, x)))
-            ERI_wrk    = tag_array (ERI_wrk, loc2eri_op = lambda x: self._eri.loc2eri_op (reduce (np.dot, (loc2wrk, x, wrk2loc))))
-            ERI_wrk    = tag_array (ERI_wrk, eri2loc_bas = lambda x: np.dot (wrk2loc, self._eri.eri2loc_bas (x)))
-            ERI_wrk    = tag_array (ERI_wrk, eri2loc_op = lambda x: reduce (np.dot, (wrk2loc, self._eri.eri2loc_op (x), loc2wrk)))
-            oneRDM_wrk = wm_rhf.solve_ERI(OEI_wrk, ERI_wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks)
-        else:
-        '''
         ao2wrk     = np.dot (self.ao2loc, loc2wrk)
-        oneRDM_wrk = wm_rhf.solve_JK (OEI_wrk, ao2wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks, self.get_veff_ao, self.get_jk_ao, output=output)
+        oneRDM_wrk = wm_rhf.solve_JK (working_const, OEI_wrk, ao2wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks, self.get_veff_ao, self.get_jk_ao, output=output)
         oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
@@ -328,9 +317,20 @@ class localintegrals:
         elif self.symmetry and not is_operator_block_adapted (self.oneRDM_loc, self.loc2symm_wvfn):
             self.symmetry = False
             print ("The full density has broken symmetry but none of the active orbitals have, which is really weird.")
+
+        # Calculate E2_cum            
+        E2_cum = 0
+        for frag in fragments:
+            if frag.norbs_as > 0:
+                if frag.E2_cum == 0 and np.amax (np.abs (frag.twoCDMimp_amo)) > 0:
+                    V  = self.dmet_tei (frag.loc2amo)
+                    L  = frag.twoCDMimp_amo
+                    frag.E2_cum = np.tensordot (V, L, axes=4) / 2
+                E2_cum += frag.E2_cum
             
         loc2idem = get_complementary_states (loc2corr, symm_blocks=self.loc2symm_wvfn)
-        evecs = matrix_eigen_control_options (represent_operator_in_basis (self.loc_oei (), loc2idem), sort_vecs=1, only_nonzero_vals=False)[1]
+        symm_labels = assign_blocks (loc2idem, self.loc2symm_wvfn)
+        evecs = matrix_eigen_control_options (represent_operator_in_basis (self.loc_oei (), loc2idem), symm_blocks=symm_labels, sort_vecs=1, only_nonzero_vals=False)[1]
         loc2idem = np.dot (loc2idem, evecs)
 
         # I want to alter the outputs of self.loc_oei (), self.loc_rhf_fock (), and the get_wm_1RDM_etc () functions.
@@ -351,7 +351,10 @@ class localintegrals:
             raise ValueError ("nelec_corr not an integer! {}".format (nelec_corr))
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
-        oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, oneRDMguess_loc=oneRDMguess_loc, output = calcname + '_trial_wvfn.log')
+        oei            = self.activeOEI + JKcorr/2
+        working_const  = self.activeCONST + np.tensordot (oei, oneRDMcorr_loc, axes=2) + E2_cum
+        oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, oneRDMguess_loc=oneRDMguess_loc,
+            output = calcname + '_trial_wvfn.log', working_const=working_const)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
         print ("trace of oneRDMcorr_loc = {}".format (np.trace (oneRDMcorr_loc)))
         print ("trace of oneRDMidem_loc = {}".format (np.trace (oneRDMidem_loc)))
@@ -375,14 +378,7 @@ class localintegrals:
         oei = self.activeOEI + (JKcorr + JKidem) / 2
         fock = self.activeFOCK
         oneRDM = oneRDMidem_loc + oneRDMcorr_loc
-        E = self.activeCONST + np.tensordot (oei, oneRDM, axes=2)
-        for frag in fragments:
-            if frag.norbs_as > 0:
-                if frag.E2_cum == 0 and np.amax (np.abs (frag.twoCDMimp_amo)) > 0:
-                    V  = self.dmet_tei (frag.loc2amo)
-                    L  = frag.twoCDMimp_amo
-                    frag.E2_cum = np.tensordot (V, L, axes=4) / 2
-                E += frag.E2_cum
+        E = self.activeCONST + np.tensordot (oei, oneRDM, axes=2) + E2_cum
         print ("LASSCF trial wave function total energy: {:.6f}".format (E))
         self.oneRDM_loc = oneRDM
         self.e_tot = E
@@ -583,10 +579,15 @@ class localintegrals:
         loc2wmcs = get_complementary_states (loc2wmas, symm_blocks=self.loc2symm_wvfn)
         norbs_wmas = loc2wmas.shape[1]
         norbs_wmcs = loc2wmcs.shape[1]
-        loc2wmcs, wmcs_symm, ene_wmcs = symmetrize_basis (loc2wmcs, self.loc2symm_wvfn, sorting_metric=fock,
-            do_eigh_metric=True, sort_vecs=1, check_metric_block_adapted=True)
-        loc2wmas, wmas_symm, occ_wmas = symmetrize_basis (loc2wmas, self.loc2symm_wvfn, sorting_metric=oneRDM_loc,
-            do_eigh_metric=True, sort_vecs=-1, check_metric_block_adapted=True)
+        ene_wmcs, loc2wmcs, wmcs_symm = eigen_weaksymm (fock, self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False)
+        if self.mol.symmetry:
+            wmcs_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmcs_symm==x) for x in np.unique (wmcs_symm)}
+            print ("get_trial_nos: unactive-orbital irreps (weakly assigned) = {}".format (wmcs_symm))
+
+        occ_wmas, loc2wmas, wmas_symm = eigen_weaksymm (oneRDM_loc, self.loc2symm, subspace=loc2wmas, sort_vecs=-1, only_nonzero_vals=False)
+        if self.mol.symmetry:
+            wmas_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmas_symm==x) for x in np.unique (wmas_symm)} 
+            print ("get_trial_nos: active-orbital irreps (weakly assigned) = {}".format (wmas_symm))
 
         nelec_wmas = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2wmas)))
         assert ((self.nelec_tot - nelec_wmas) % 2 == 0), 'Non-even number of unactive electrons {}'.format (self.nelec_tot - nelec_wmas)

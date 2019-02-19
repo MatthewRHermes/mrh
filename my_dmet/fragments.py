@@ -270,13 +270,7 @@ class fragment_object:
 
     @property
     def imp2symm (self):
-        if (not self.symmetry) or self.imp_solver_name == 'dummy RHF':
-            return [np.eye (self.norbs_imp)]
-        fake_mol = type ('', (), {'symm_orb': self.loc2symm, 'verbose': logger.DEBUG, 'stdout': sys.stdout}) ()
-        ir_range = range (len (self.loc2symm))
-        loc2symm_imp = symmetrize_space (fake_mol, self.loc2imp, s=np.eye (self.norbs_tot))
-        symmlist = label_orb_symm (fake_mol, list (ir_range), self.loc2symm, loc2symm_imp, s=np.eye (self.norbs_tot))
-        return [np.dot (self.imp2loc, loc2symm_imp[:,symmlist==idx]) for idx in ir_range]
+        return [orthonormalize_a_basis (np.dot (self.imp2loc, loc2ir)) for loc2ir in self.loc2symm]
 
     @property
     def is_frag_orb (self):
@@ -337,7 +331,7 @@ class fragment_object:
     def loc2tb_all (self):
         if self.imp_solver_name != 'RHF':
             if self.norbs_as > 0:
-                return [self.loc2as] + self.loc2tbc
+                return [self.loc2amo] + self.loc2tbc
             return [self.loc2imp] + self.loc2tbc
         return self.loc2tbc
 
@@ -435,6 +429,7 @@ class fragment_object:
             loc2wfrag = self.loc2frag
             print ("NO quasi-fragment orbitals constructed")
 
+
         # This will RuntimeError on me if I don't have even integer.
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
         oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
@@ -457,6 +452,17 @@ class fragment_object:
             self.loc2emb[:,self.norbs_imp:][:,:norbs_virtbath] = loc2virtbath[:,:norbs_virtbath]
             self.norbs_imp += norbs_virtbath
             self.loc2emb = get_complete_basis (self.loc2imp)
+
+        # Weak symmetry alignment, for the sake of moldening. (Extended) fragment, then (extended) bath
+        if self.loc2symm is not None and len (self.loc2symm) > 1:
+            evals, evecs, labels = eigen_weaksymm (oneRDM_loc, self.loc2symm, subspace=self.loc2emb[:,:loc2wfrag.shape[1]],
+                sort_vecs=-1, only_nonzero_vals=False)
+            self.loc2emb[:,:loc2wfrag.shape[1]] = evecs
+            print ("Weakly-assigned fragment irreps: {}".format ({ir: np.count_nonzero (labels==idx) for idx, ir in enumerate (self.ir_names)}))
+            evals, evecs, labels = eigen_weaksymm (oneRDM_loc, self.loc2symm, subspace=self.loc2imp[:,loc2wfrag.shape[1]:],
+                sort_vecs=1, only_nonzero_vals=False)
+            self.loc2emb[:,loc2wfrag.shape[1]:self.norbs_imp] = evecs
+            print ("Weakly-assigned bath irreps: {}".format ({ir: np.count_nonzero (labels==idx) for idx, ir in enumerate (self.ir_names)}))
 
         # Core 2CDMs
         active_frags = [frag for frag in all_frags if frag is not self and frag.norbs_as > 0]
@@ -731,31 +737,42 @@ class fragment_object:
         else:
             self.twoCDMimp_amo = np.zeros ([self.norbs_as for i in range (4)])
 
-    '''              
-    def symmetrize_imp_mos (self, imp2mo, oneRDM_imp, fock_imp, ncore, ncas):
-        if self.symmetry and self.imp_solver_name != 'dummy RHF':
-            fake_mol = type ('', (), {'symm_orb': self.imp2symm, 'verbose': logger.DEBUG, 'stdout': sys.stdout}) ()
-            nocc = ncore + ncas
-            imp2mo[:,:ncore] = symmetrize_space (fake_mol, imp2mo[:,:ncore], s=np.eye (self.norbs_imp), tol=1e-6)
-            if ncas > 0: # be sure to sort by energy so initial guesses aren't crazy!
-                imp2mo[:,ncore:nocc] = symmetrize_space (fake_mol, imp2mo[:,ncore:nocc], s=np.eye (self.norbs_imp), tol=1e-6)
-                cas_ene = ((fock_imp @ imp2mo[:,ncore:nocc]) * imp2mo[:,ncore:nocc]).sum (0)
-                imp2mo[:,ncore:nocc] = imp2mo[:,ncore:nocc][:,np.argsort (cas_ene)]
-            imp2mo[:,nocc:] = symmetrize_space (fake_mol, imp2mo[:,nocc:], s=np.eye (self.norbs_imp), tol=1e-6)
-        return imp2mo, ((oneRDM_imp @ imp2mo) * imp2mo).sum (0), ((fock_imp @ imp2mo) * imp2mo).sum (0)
-    '''
-
-    def symmetrize_imp_mos (self, imp2mo, sort_mat=None):
-        irreps = np.zeros (imp2mo.shape[1])
-        if self.symmetry and self.imp_solver_name != 'dummy RHF':
-            fake_mol = type ('', (), {'symm_orb': self.imp2symm, 'verbose': logger.DEBUG, 'stdout': sys.stdout}) ()
-            ir_range = range (len (self.loc2symm))
-            imp2mo = symmetrize_space (fake_mol, imp2mo, s=np.eye (self.norbs_imp))
-            if sort_mat is not None:
-                idx = np.argsort (((sort_mat @ imp2mo) * imp2mo).sum (0))
-                imp2mo = imp2mo[:,idx]
-            irreps = label_orb_symm (fake_mol, list (ir_range), fake_mol.symm_orb, imp2mo, s=np.eye (self.norbs_imp))
-        return imp2mo, irreps
+    def align_imporb_basis (self, oneRDM_loc=None):
+        if self.loc2symm is None or len (self.loc2symm) == 1:
+            return imp2mo, np.eye (imp2mo.shape[1])
+        if oneRDM_loc is None: oneRDM_loc=self.oneRDM_loc
+        
+        
+    def align_imporbs_symm (self, imp2mo, symmetry_metric=None, sort_vecs=1, sorting_metric=None, orbital_type=""):
+        if self.loc2symm is None or len (self.loc2symm) == 1:
+            return imp2mo, np.eye (imp2mo.shape[1])
+        if len (orbital_type) > 0: orbital_type += " "
+        loc2mo = self.loc2imp @ imp2mo
+        if not is_subspace_block_adapted (loc2mo, self.loc2symm):
+            fig = np.concatenate (analyze_subspace_blockbreaking (loc2mo, self.loc2symm, self.ir_names)[1])
+            print ("Failed to align {}orbitals because subspace is not symmetry-adapted ({})".format (orbital_type, fig))
+            return imp2mo, np.eye (imp2mo.shape[1])
+        if sorting_metric is not None:
+            if sorting_metric.shape[0] == self.norbs_imp: sorting_metric = represent_operator_in_basis (sorting_metric, imp2mo)
+        new_loc2mo, labels, evals = symmetrize_basis (loc2mo, self.loc2symm, sorting_metric=sorting_metric,
+            check_metric_block_adapted=False, sort_vecs=sort_vecs)
+        symm_umat = loc2mo.conjugate ().T @ new_loc2mo
+        new_imp2mo = imp2mo @ symm_umat
+        if symmetry_metric is not None:
+            if symmetry_metric.shape[0] == self.norbs_tot:
+                symmetry_metric = represent_operator_in_basis (symmetry_metric, new_loc2mo)
+            elif symmetry_metric.shape[0] == self.norbs_imp:
+                symmetry_metric = represent_operator_in_basis (symmetry_metric, new_imp2mo)
+            else:
+                assert (symmetry_metric.shape[0] == imp2mo.shape[1]), 'Symmetry metric must be in the loc, imp, or MO basis'
+                symmetry_metric = represent_operator_in_basis (symmetry_metric, symm_umat)
+            if not is_operator_block_adapted (symmetry_metric, labels):
+                fig = np.concatenate (analyze_operator_blockbreaking (symmetry_metric, labels, self.ir_names)[1])
+                print ("Failed to align {}orbitals because metric is not symmetry-adapted ({})".format (orbital_type, fig))
+                return imp2mo, np.eye (imp2mo.shape[1])
+        labels_dict = {lbl: np.count_nonzero (labels==idx) for idx, lbl in enumerate (self.ir_names) if np.count_nonzero (labels==idx)>0}
+        print ("Successfully aligned {}orbitals: {}".format (orbital_type, labels_dict))
+        return new_imp2mo, symm_umat
 
 
     ###############################################################################################################################
@@ -889,58 +906,50 @@ class fragment_object:
         ao2imp = np.dot (self.ints.ao2loc, self.loc2imp) 
 
         ao2molden = ao2imp
+        idx_unac = np.ones (self.norbs_imp, dtype=np.bool_)
+        norbs_inac = int (round (self.nelec_imp - self.nelec_as) // 2)
+        norbs_occ = norbs_inac + self.norbs_as
+        if self.norbs_as > 0: idx_unac[norbs_inac:norbs_occ] = False
+        idx_inac = idx_unac.copy ()
+        idx_virt = idx_unac.copy ()
+        idx_inac[norbs_occ:] = False
+        idx_virt[:norbs_inac] = False
+        idx_actv = ~idx_unac
+        imp2molden = np.eye (self.norbs_imp, dtype=self.loc2imp.dtype)
         if molorb:
             assert (not natorb)
             assert (not canonicalize)
-            ao2molden = np.dot (self.ints.ao2loc, self.loc2mo)
-            occ = np.einsum ('ip,ij,jp->p', self.imp2mo.conjugate (), oneRDM, self.imp2mo)
-            ene = np.einsum ('ip,ij,jp->p', self.imp2mo.conjugate (), FOCK, self.imp2mo)
-            if self.norbs_as > 0:
-                ene = cas_mo_energy_shift_4_jmol (ene, self.norbs_imp, self.nelec_imp, self.norbs_as, self.nelec_as)
-        if natorb:
-            assert (not canonicalize)
-            # Separate active and external (inactive + virtual) orbitals and pry their energies apart by +-1e4 Eh so Jmol sets them 
-            # in the proper order
-            if self.norbs_as > 0:
-                imp2xmo = get_complementary_states (self.imp2amo)
-                FOCK_amo = represent_operator_in_basis (FOCK, self.imp2amo)
-                FOCK_xmo = represent_operator_in_basis (FOCK, imp2xmo)
-                oneRDM_xmo = represent_operator_in_basis (oneRDM, imp2xmo)
-                oneRDM_amo = represent_operator_in_basis (oneRDM, self.imp2amo)
-                ene_xmo, xmo2molden = matrix_eigen_control_options (FOCK_xmo, sort_vecs=1, only_nonzero_vals=False)
-                occ_amo, amo2molden = matrix_eigen_control_options (oneRDM_amo, sort_vecs=-1, only_nonzero_vals=False)
-                occ_xmo = np.einsum ('ip,ij,jp->p', xmo2molden.conjugate (), oneRDM_xmo, xmo2molden)
-                ene_amo = np.einsum ('ip,ij,jp->p', amo2molden.conjugate (), FOCK_amo, amo2molden)
-                norbs_imo = (self.nelec_imp - self.nelec_as) // 2
-                occ = np.concatenate ((occ_xmo[:norbs_imo], occ_amo, occ_xmo[norbs_imo:]))
-                ene = np.concatenate ((ene_xmo[:norbs_imo], ene_amo, ene_xmo[norbs_imo:]))
-                ene = cas_mo_energy_shift_4_jmol (ene, self.norbs_imp, self.nelec_imp, self.norbs_as, self.nelec_as)
-                imp2molden = np.concatenate ((np.dot (imp2xmo, xmo2molden[:,:norbs_imo]),
-                                              np.dot (self.imp2amo, amo2molden),
-                                              np.dot (imp2xmo, xmo2molden[:,norbs_imo:])), axis=1)
-            else:
-                occ, imp2molden = matrix_eigen_control_options (oneRDM, sort_vecs=-1, only_nonzero_vals=False)
-                ene = np.einsum ('ip,ij,jp->p', imp2molden.conjugate (), FOCK, imp2molden)
-            ao2molden = np.dot (ao2imp, imp2molden)
-        elif canonicalize:
-            # Separate active and external (inactive + virtual) orbitals and pry their energies apart by +-1e4 Eh so Jmol sets them 
-            # in the proper order
-            if self.norbs_as > 0:
-                imp2xmo = get_complementary_states (self.imp2amo)
-                FOCK_amo = represent_operator_in_basis (FOCK, self.imp2amo)
-                FOCK_xmo = represent_operator_in_basis (FOCK, imp2xmo)
-                ene_xmo, xmo2molden = matrix_eigen_control_options (FOCK_xmo, sort_vecs=1, only_nonzero_vals=False)
-                ene_amo, amo1molden = matrix_eigen_control_options (FOCK_amo, sort_vecs=1, only_nonzero_vals=False)
-                norbs_imo = (self.nelec_imp - self.nelec_as) // 2
-                ene = np.concatenate ((ene_xmo[:norbs_imo], ene_amo, ene_xmo[norbs_imo:]))
-                ene = cas_mo_energy_shift_4_jmol (ene, self.norbs_imp, self.nelec_imp, self.norbs_as, self.nelec_as)
-                imp2molden = np.concatenate ((np.dot (imp2xmo, xmo2molden[:,:norbs_imo]),
-                                              np.dot (self.imp2amo, amo2molden),
-                                              np.dot (imp2xmo, xmo2molden[:,norbs_imo:])), axis=1)
-            else:
-                ene, imp2molden = matrix_eigen_control_options (FOCK, sort_vecs=-1, only_nonzero_vals=False)
-            occ = np.einsum ('ip,ij,jp->p', imp2molden.conjugate (), oneRDM, imp2molden)
-            ao2molden = np.dot (ao2imp, imp2molden)
+            imp2molden = self.imp2mo
+        elif natorb or canonicalize:
+            if self.norbs_as > 0: 
+                imp2molden[:,idx_unac] = get_complementary_states (self.imp2amo)
+                imp2molden[:,idx_actv] = self.imp2amo
+            if canonicalize or (natorb and any ([x in self.imp_solver_name for x in ('CASSCF', 'RHF')])):
+                umat = matrix_eigen_control_options (represent_operator_in_basis (FOCK, imp2molden[:,idx_unac]),
+                    sort_vecs=1, only_nonzero_vals=False)[1]
+                imp2molden[:,idx_unac] = imp2molden[:,idx_unac] @ umat
+                imp2molden[:,idx_inac] = self.align_imporbs_symm (imp2molden[:,idx_inac], sorting_metric=FOCK,
+                    symmetry_metric=FOCK, sort_vecs=1, orbital_type='inactive canonical/natural')[0]
+                imp2molden[:,idx_virt] = self.align_imporbs_symm (imp2molden[:,idx_virt], sorting_metric=FOCK,
+                    symmetry_metric=FOCK, sort_vecs=1, orbital_type='external canonical/natural')[0]
+                if self.norbs_as > 0:
+                    metric = FOCK if canonicalize else oneRDM
+                    order = 1 if canonicalize else -1
+                    orbtype = 'active canonical' if canonicalize else 'active natural'
+                    umat = matrix_eigen_control_options (represent_operator_in_basis (metric, self.imp2amo),
+                        sort_vecs=order, only_nonzero_vals=False)[1]
+                    imp2molden[:,idx_actv] = imp2molden[:,idx_actv] @ umat
+                    imp2molden[:,idx_actv] = self.align_imporbs_symm (imp2molden[:,idx_actv],
+                        symmetry_metric=metric, sorting_metric=metric, sort_vecs=order, orbital_type=orbtype)[0]
+            elif natorb:
+                imp2molden = matrix_eigen_control_options (oneRDM, sort_vecs=-1, only_nonzero_vals=False)[1]
+                imp2molden = self.align_imporbs_symm (imp2molden, sorting_metric=oneRDM, symmetry_metric=oneRDM,
+                    sort_vecs=-1, orbital_type='natural')[0]
+        occ = ((oneRDM @ imp2molden) * imp2molden).sum (0)        
+        ene = ((FOCK @ imp2molden) * imp2molden).sum (0)
+        ene[idx_actv] = 0
+        if self.norbs_as > 0: ene = cas_mo_energy_shift_4_jmol (ene, self.norbs_imp, self.nelec_imp, self.norbs_as, self.nelec_as)
+        ao2molden = self.ints.ao2loc @ self.loc2imp @ imp2molden
 
         molden.from_mo (mol, filename, ao2molden, ene=ene, occ=occ)
 

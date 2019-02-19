@@ -125,7 +125,7 @@ def wrap_my_veff (get_veff_ao, ao2basis ):
         
     return my_veff
 
-def solve_JK( OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks, get_veff_ao, get_jk_ao, verbose=logger.INFO, output=None):
+def solve_JK(CONST, OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks, get_veff_ao, get_jk_ao, verbose=logger.INFO, output=None):
 
     mol = gto.Mole()
     mol.atom.append(('C', (0, 0, 0)))
@@ -138,6 +138,7 @@ def solve_JK( OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks, get_
     mf = scf.RHF( mol )
     mf.get_hcore = lambda *args: OEI
     mf.get_ovlp = lambda *args: np.eye( L )
+    mf.energy_nuc = lambda *args: CONST
     mf._eri = None
     mf.get_jk   = wrap_my_jk   (get_jk_ao, ao2basis)
     #mf.get_veff = wrap_my_veff (get_veff_ao, ao2basis)

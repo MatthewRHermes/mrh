@@ -29,7 +29,6 @@ import sys, copy
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo, mcscf, fci, lib
 from pyscf.mcscf.addons import spin_square
-from pyscf.symm.addons import eigh as symm_eigh
 from pyscf.fci.addons import transform_ci_for_orbital_rotation
 from pyscf.tools import molden
 #np.set_printoptions(threshold=np.nan)
@@ -133,21 +132,26 @@ def solve (frag, guess_1RDM, chempot_imp):
         nelec_imp_guess = int (round (np.trace (frag.oneRDMas_loc)))
         norbs_cmo_guess = (frag.nelec_imp - nelec_imp_guess) // 2
         print ("Projecting stored amos (frag.loc2amo; spanning {} electrons) onto the impurity basis and filling the remainder with default guess".format (nelec_imp_guess))
-        imp2mo, my_occ = project_amo_manually (frag, frag.loc2imp, frag.loc2amo, fock_imp, norbs_cmo_guess, dm=frag.oneRDMas_loc)
+        imp2mo, my_occ = project_amo_manually (frag.loc2imp, frag.loc2amo, fock_imp, norbs_cmo_guess, dm=frag.oneRDMas_loc)
     elif frag.loc2amo_guess is not None:
         print ("Projecting stored amos (frag.loc2amo_guess) onto the impurity basis (no amo dm available)")
-        imp2mo, my_occ = project_amo_manually (frag, frag.loc2imp, frag.loc2amo_guess, fock_imp, norbs_cmo, dm=None)
+        imp2mo, my_occ = project_amo_manually (frag.loc2imp, frag.loc2amo_guess, fock_imp, norbs_cmo, dm=None)
         frag.loc2amo_guess = None
     else:
         dm_imp = np.asarray (mf.make_rdm1 ())
         while dm_imp.ndim > 2:
             dm_imp = dm_imp.sum (0)
-        fock_imp = mf.make_fock (dm=dm_imp)
-        imp2mo, mo_symm = frag.symmetrize_imp_mos (mc.mo_coeff)
+        fock_imp = mf.get_fock (dm=dm_imp)
         fock_mo = represent_operator_in_basis (fock_imp, imp2mo)
-        _, evecs = symm_eigh (fock_mo, mo_symm)
+        _, evecs = matrix_eigen_control_options (fock_mo, sort_vecs=1, only_nonzero_values=False)
+        imp2mo = imp2mo @ evecs
         my_occ = ((dm_imp @ imp2mo) * imp2mo).sum (0)
         print ("No stored amos; using mean-field canonical MOs as initial guess")
+
+    # Symmetry align if possible
+    imp2mo[:,:norbs_cmo]          = frag.align_imporbs_symm (imp2mo[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess inactive')[0]
+    imp2mo[:,norbs_cmo:norbs_occ] = frag.align_imporbs_symm (imp2mo[:,norbs_cmo:norbs_occ], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess active')[0]
+    imp2mo[:,norbs_occ:]          = frag.align_imporbs_symm (imp2mo[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess external')[0]
 
     # Guess orbital processing
     if callable (frag.cas_guess_callback):
@@ -219,6 +223,17 @@ def solve (frag, guess_1RDM, chempot_imp):
     
     # Get twoRDM + oneRDM. cs: MC-SCF core, as: MC-SCF active space
     # I'm going to need to keep some representation of the active-space orbitals
+
+    # Symmetry align if possible
+    oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
+    fock_imp = mc.get_fock ()
+    mc.mo_coeff[:,:norbs_cmo] = frag.align_imporbs_symm (mc.mo_coeff[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized inactive')[0]
+    mc.mo_coeff[:,norbs_occ:] = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized external')[0]
+    mc.mo_coeff[:,norbs_cmo:norbs_occ], umat = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_cmo:norbs_occ],
+        sorting_metric=oneRDM_amo, sort_vecs=-1, symmetry_metric=oneRDM_amo, orbital_type='optimized active')
+    mc.ci = transform_ci_for_orbital_rotation (mc.ci, CASorb, CASe, umat)
+
+    # Cache stuff
     imp2mo = mc.mo_coeff #mc.cas_natorb()[0]
     loc2mo = np.dot (frag.loc2imp, imp2mo)
     imp2amo = imp2mo[:,norbs_cmo:norbs_occ]
@@ -291,7 +306,7 @@ def get_fragcasscf (frag, mf, loc2mo):
     return oneRDM_amo, twoCDM_amo, loc2mo, loc2amo
     
 
-def project_amo_manually (frag, loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
+def project_amo_manually (loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
     norbs_amo = loc2gamo.shape[1]
     amo2imp = np.dot (loc2gamo.conjugate ().T, loc2imp)
     ovlp = np.dot (amo2imp, amo2imp.conjugate ().T)
@@ -306,9 +321,8 @@ def project_amo_manually (frag, loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
     evals, evecs = matrix_eigen_control_options (proj, sort_vecs=-1, only_nonzero_vals=False)
     imp2amo = np.copy (evecs[:,:norbs_amo])
     imp2imo = np.copy (evecs[:,norbs_amo:])
-    imp2imo, imo_symm = frag.symmetrize_imp_mos (imp2imo)
     fock_imo = represent_operator_in_basis (fock_mf, imp2imo)
-    _, evecs = symm_eigh (fock_imo, imo_symm)#matrix_eigen_control_options (represent_operator_in_basis (fock_mf, imp2imo), sort_vecs=1, only_nonzero_vals=False)
+    _, evecs = matrix_eigen_control_options (fock_imo, sort_vecs=1, only_nonzero_vals=False)
     imp2imo = np.dot (imp2imo, evecs)
     imp2cmo = imp2imo[:,:norbs_cmo]
     imp2vmo = imp2imo[:,norbs_cmo:]
@@ -355,11 +369,9 @@ def project_amo_manually (frag, loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
     my_occ = np.zeros (loc2imp.shape[1], dtype=np.float64)
     my_occ[:norbs_cmo] = 2
     my_occ[norbs_cmo:][:imp2amo.shape[1]] = 1
-    imp2amo, amo_symm = frag.symmetrize_imp_mos (imp2amo, sort_mat=fock_mf)
     if dm is not None:
         loc2amo = np.dot (loc2imp, imp2amo)
-        evals, evecs = symm_eigh (represent_operator_in_basis (-dm, loc2amo), amo_symm)
-        evals = -evals
+        evals, evecs = matrix_eigen_control_options (represent_operator_in_basis (dm, loc2amo), sort_vecs=-1, only_nonzero_vals=False)
         imp2amo = np.dot (imp2amo, evecs)
         print ("Guess density matrix eigenvalues for guess amo: {}".format (evals))
         my_occ[norbs_cmo:][:imp2amo.shape[1]] = evals
