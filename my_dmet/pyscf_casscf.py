@@ -162,6 +162,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     # Guess orbital printing
     if frag.mfmo_printed == False:
         ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
+        print ("Writing {} {} orbital molden".format (frag.frag_name, 'CAS guess'))
         molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=my_occ)
         frag.mfmo_printed = True
     elif len (frag.active_orb_list) > 0:
@@ -228,9 +229,9 @@ def solve (frag, guess_1RDM, chempot_imp):
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
     fock_imp = mc.get_fock ()
     mc.mo_coeff[:,:norbs_cmo] = frag.align_imporbs_symm (mc.mo_coeff[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized inactive')[0]
-    mc.mo_coeff[:,norbs_occ:] = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized external')[0]
     mc.mo_coeff[:,norbs_cmo:norbs_occ], umat = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_cmo:norbs_occ],
-        sorting_metric=oneRDM_amo, sort_vecs=-1, symmetry_metric=oneRDM_amo, orbital_type='optimized active')
+        sorting_metric=oneRDM_amo, sort_vecs=-1, orbital_type='optimized active')
+    mc.mo_coeff[:,norbs_occ:] = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized external')[0]
     mc.ci = transform_ci_for_orbital_rotation (mc.ci, CASorb, CASe, umat)
 
     # Cache stuff

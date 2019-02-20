@@ -358,7 +358,8 @@ def get_complementary_states (incomplete_basis, symm_blocks=None, already_comple
     if symm_blocks is not None:
         if not isinstance (symm_blocks[0], np.ndarray):
             raise RuntimeError ("You need to pass the actual symmetry basis, I can't just guess how many states are supposed to be in each irrep!")
-        c2p, labels = symmetrize_basis (orthonormal_basis, symm_blocks)
+        c2p = align_states (orthonormal_basis, symm_blocks)
+        labels = assign_blocks_weakly (c2p, symm_blocks)
         c2q = []
         for idx, c2s in enumerate (symm_blocks):
             if np.count_nonzero (labels==idx) == 0:
@@ -376,7 +377,7 @@ def get_complementary_states (incomplete_basis, symm_blocks=None, already_comple
             assert (linalg.norm (ovlp_PQ) / sum (ovlp_PQ.shape) < 1e-8)
             proj_PP = c2p @ c2p.conjugate ().T
             c2q -= proj_PP @ c2q
-            c2q = symmetrize_basis (c2q, symm_blocks)[0]
+            c2q = align_states (c2q, symm_blocks)
             assert (are_bases_orthogonal (c2p, c2q))
         return c2q
 
@@ -573,48 +574,64 @@ def cleanup_operator_symmetry (the_operator, the_blocks):
 def analyze_operator_blockbreaking (the_operator, the_blocks, block_labels=None):
     if block_labels is None: block_labels = np.arange (len (the_blocks))
     if isinstance (the_blocks[0], np.ndarray):
-        block_umat = np.concatenate (the_blocks, axis=1)
-        assert (is_basis_orthonormal_and_complete (block_umat)), "Symmetry block problem? Not a complete, orthonormal basis."
-        blocked_operator = represent_operator_in_basis (the_operator, block_umat)
+        c2s = np.concatenate (the_blocks, axis=1)
+        assert (is_basis_orthonormal_and_complete (c2s)), "Symmetry block problem? Not a complete, orthonormal basis."
+        blocked_operator = represent_operator_in_basis (the_operator, c2s)
         blocked_idx = np.concatenate ([[idx,] * blk.shape[1] for idx, blk in enumerate (the_blocks)])
-        s2l, op_svals, s2r = analyze_operator_blockbreaking (blocked_operator, blocked_idx, block_labels=block_labels)
-        c2l = copy.copy (s2l)
-        c2r = copy.copy (s2r)
-        for idx, c2s in enumerate (the_blocks):
-            c2l[idx] = c2s @ s2l[idx]
-            c2r[idx] = c2s @ s2r[idx]
+        c2l, op_svals, c2r = analyze_operator_blockbreaking (blocked_operator, blocked_idx, block_labels=block_labels)
+        c2l = [c2s @ s2l for s2l in c2l]
+        c2r = [c2s @ s2r for s2r in c2r]
         return c2l, op_svals, c2r
     elif np.asarray (the_blocks).dtype == np.asarray (block_labels).dtype:
-        the_indices = np.empty (len (the_blocks), dtype=np.int)
+        the_indices = np.empty (len (the_blocks), dtype=int)
         for idx, lbl in enumerate (block_labels):
             idx_indices = (the_blocks == lbl)
             the_indices[idx_indices] = idx
-        return analyze_operator_blockbreaking (the_operator, the_indices, block_labels)
+        the_blocks = the_indices
     c2l = []
     c2r = []
     op_svals = []
     norbs = the_operator.shape[0]
-    for idx1, idx2 in combinations (range (len (block_labels)), 2):
+    my_range = [idx for idx, bl in enumerate (block_labels) if idx in the_blocks]
+    for idx1, idx2 in combinations (my_range, 2):
+        blk1 = block_labels[idx1]
+        blk2 = block_labels[idx2]
         idx12 = np.ix_(the_blocks==idx1, the_blocks==idx2)
         lvecs = np.eye (norbs, dtype=the_operator.dtype)[:,the_blocks==idx1]
         rvecs = np.eye (norbs, dtype=the_operator.dtype)[:,the_blocks==idx2]
+        mat12 = the_operator[idx12]
+        if is_matrix_zero (mat12):
+            c2l.append (np.zeros ((norbs,0), dtype=the_operator.dtype))
+            c2r.append (np.zeros ((norbs,0), dtype=the_operator.dtype))
+            op_svals.append (np.zeros ((0), dtype=the_operator.dtype))
+            continue
         try:
-            vecs1, svals, vecs2 = matrix_svd_control_options (the_operator[idx12], sort_vecs=-1, only_nonzero_vals=True)
+            vecs1, svals, vecs2 = matrix_svd_control_options (mat12, sort_vecs=-1, only_nonzero_vals=False)
             lvecs = lvecs @ vecs1
             rvecs = rvecs @ vecs2
         except ValueError as e:
             if the_operator[idx12].size > 0: raise (e)
-            lvecs = np.zeros ((norbs,0), dtype=the_operator.dtype)
-            rvecs = np.zeros ((norbs,0), dtype=the_operator.dtype)
-            svals = np.zeros ((0), dtype=the_operator.dtype)
+            c2l.append (np.zeros ((norbs,0), dtype=the_operator.dtype))
+            c2r.append (np.zeros ((norbs,0), dtype=the_operator.dtype))
+            op_svals.append (np.zeros ((0), dtype=the_operator.dtype))
+            continue
         #print ("Coupling between {} and {}: {} svals, norm = {}".format (idx1, idx2, len (svals), linalg.norm (svals)))
         c2l.append (lvecs)
         c2r.append (rvecs)
         op_svals.append (svals)
     return c2l, op_svals, c2r
 
+def measure_operator_blockbreaking (the_operator, the_blocks, block_labels=None):
+    op_svals = np.concatenate (analyze_operator_blockbreaking (the_operator, the_blocks, block_labels=block_labels)[1])
+    if len (op_svals) == 0: return 0,0
+    return np.amax (np.abs (op_svals)), linalg.norm (op_svals)
+
 def analyze_subspace_blockbreaking (the_basis, the_blocks, block_labels=None):
     projector = the_basis @ the_basis.conjugate ().T
     return analyze_operator_blockbreaking (projector, the_blocks, block_labels=block_labels)
+
+def measure_subspace_blockbreaking (the_basis, the_blocks, block_labels=None):
+    projector = the_basis @ the_basis.conjugate ().T
+    return measure_operator_blockbreaking (projector, the_blocks, block_labels=block_labels)
 
 

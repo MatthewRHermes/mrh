@@ -521,13 +521,18 @@ class dmet:
 
         for frag in self.fragments:
             if not (frag.imp_solver_name == 'dummy RHF'):
+                fmt_str = "Writing {}".format (frag.frag_name) + " {} orbital molden"
+                print (fmt_str.format ('natural'))
                 frag.impurity_molden ('natorb', natorb=True)
+                print (fmt_str.format ('impurity'))
                 frag.impurity_molden ('imporb')
+                print (fmt_str.format ('molecular'))
                 frag.impurity_molden ('molorb', molorb=True)
         rdm = self.transform_ed_1rdm (get_od=True)
         no_occs, no_evecs = matrix_eigen_control_options (rdm, sort_vecs=-1, only_nonzero_vals=False)
         ao2no, no_ene, no_occ = self.get_las_nos (aobasis=True, oneRDM_loc=rdm, jmol_shift=True, try_symmetrize=True)
         print ("Whole-molecule natural orbital occupancies:\n{}".format (no_occ))
+        print ("Writing trial wave function natural orbital molden")
         molden.from_mo (self.ints.mol, self.calcname + '_natorb.molden', ao2no, occ=no_occ, ene=no_ene)
         
         return self.energy
@@ -613,11 +618,11 @@ class dmet:
     def doselfconsistent_orbs (self, iters):
 
         loc2wmas_old = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
-        if self.doLASSCF and self.ints.symmetry and not is_subspace_block_adapted (loc2wmas_old, self.ints.loc2symm_wvfn):
+        if self.doLASSCF and self.ints.symmetry and not is_subspace_block_adapted (loc2wmas_old, self.ints.loc2symm):
             print ("Active orbitals break symmetry :(")
             self.ints.symmetry = False
         try:
-            loc2wmcs_old = get_complementary_states (loc2wmas_old, symm_blocks=self.ints.loc2symm_wvfn)
+            loc2wmcs_old = get_complementary_states (loc2wmas_old, symm_blocks=self.ints.loc2symm)
         except linalg.LinAlgError as e:
             print (np.dot (loc2wmas_old.T, loc2wmas_old))
             raise (e)
@@ -721,7 +726,6 @@ class dmet:
         norbs_frag = [f.loc2frag.shape[1] for f in self.fragments]
         result = np.zeros( [sum (norbs_frag), sum (norbs_frag)], dtype = np.float64)
         loc2frag = np.concatenate ([f.loc2frag for f in self.fragments], axis=1)
-        assert (is_basis_orthonormal (loc2frag))
         assert (sum (norbs_frag) == loc2frag.shape[1])
         frag_ranges = [sum (norbs_frag[:i]) for i in range (len (norbs_frag) + 1)]
         for idx, f1 in enumerate (self.fragments):
@@ -805,9 +809,10 @@ class dmet:
 
         for loc2imo, loc2amo, frag in zip (loc2wmcs, loc2wmas, self.fragments):
             frag.set_new_fragment_basis (np.append (loc2imo, loc2amo, axis=1))
-            assert (is_basis_orthonormal (loc2imo))
-            assert (is_basis_orthonormal (loc2amo))
-            assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
+            if frag.imp_solver_name != 'dummy RHF':
+                assert (is_basis_orthonormal (loc2imo))
+                assert (is_basis_orthonormal (loc2amo))
+                assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
 
         return oneRDM_loc
 
@@ -994,8 +999,8 @@ class dmet:
 
         loc2amo_new = orthonormalize_a_basis (linalg.solve (self.ints.ao2loc, amo_new_coeff))
         if self.ints.symmetry:
-            if is_subspace_block_adapted (loc2amo_new, self.ints.loc2symm_wvfn):
-                loc2amo_new, labels = symmetrize_basis (loc2amo_new, self.ints.loc2symm_wvfn)[:2]
+            if is_subspace_block_adapted (loc2amo_new, self.ints.loc2symm):
+                loc2amo_new, labels = symmetrize_basis (loc2amo_new, self.ints.loc2symm)[:2]
                 print ("Guess active orbital irreps: {}".format (labels))
             else:
                 print ("NOTE: symmetric system but guess active orbital space is NOT symmetry-adapted!")
@@ -1175,7 +1180,7 @@ class dmet:
         ''' Check if the LAS wave function is (still) point-group-symmetry adapted and symmetrize the active orbitals if so '''
         symmetry, ir_names = self.examine_symmetry (verbose=False)
         if symmetry:
-            fake_mol = type ('', (), {'symm_orb': self.ints.loc2symm_wvfn}) ()
+            fake_mol = type ('', (), {'symm_orb': self.ints.loc2symm}) ()
             for f in self.fragments:
                 f.symmetry = symmetry
                 f.ir_names = ir_names
@@ -1186,10 +1191,6 @@ class dmet:
                 old2new = old2loc @ f.loc2amo
                 print (old2new)
                 f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, old2new)
-        else:
-            print ("If 'this system lost its symmetry' then I should be here")
-            for f in self.fragments: f.symmetry = False
-            self.ints.symmetry = False
 
     def examine_symmetry (self, verbose=True):
         if not self.ints.mol.symmetry:

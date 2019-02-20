@@ -33,9 +33,7 @@ import numpy as np
 import scipy
 from mrh.util.my_math import is_close_to_integer
 from mrh.util.rdm import get_1RDM_from_OEI
-from mrh.util.basis import represent_operator_in_basis, get_complementary_states, project_operator_into_subspace, orthonormalize_a_basis
-from mrh.util.basis import get_overlapping_states, is_subspace_block_adapted, symmetrize_basis, compute_nelec_in_subspace, is_operator_block_adapted
-from mrh.util.basis import is_basis_orthonormal_and_complete, cleanup_operator_symmetry, assign_blocks, eigen_weaksymm
+from mrh.util.basis import *
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options, is_matrix_eye
 from mrh.util import params
@@ -196,11 +194,6 @@ class localintegrals:
             molden.header( self.mol, thefile )
             molden.orbital_coeff( self.mol, thefile, self.ao2loc )
             
-    @property
-    def loc2symm_wvfn (self):
-        if self.symmetry: return self.loc2symm
-        return [np.eye (self.norbs_tot)]
-
     def loc_ortho( self ):
     
 #        ShouldBeI = np.dot( np.dot( self.ao2loc.T , self.mol.intor('cint1e_ovlp_sph') ) , self.ao2loc )
@@ -308,15 +301,7 @@ class localintegrals:
             return
 
         loc2corr = np.concatenate ([frag.loc2amo for frag in fragments], axis=1)
-        if self.symmetry and not is_subspace_block_adapted (loc2corr, self.loc2symm_wvfn):
-            self.symmetry = False
-            print ("The active orbitals have broken symmetry :(")
-        elif self.symmetry and not is_operator_block_adapted (self.oneRDMcorr_loc, self.loc2symm_wvfn):
-            self.symmetry = False
-            print ("The active-orbital density has broken symmetry :(")
-        elif self.symmetry and not is_operator_block_adapted (self.oneRDM_loc, self.loc2symm_wvfn):
-            self.symmetry = False
-            print ("The full density has broken symmetry but none of the active orbitals have, which is really weird.")
+        loc2corr = align_states (loc2corr, self.loc2symm, sorting_metric=oneRDMcorr_loc, sort_vecs=-1)
 
         # Calculate E2_cum            
         E2_cum = 0
@@ -328,10 +313,9 @@ class localintegrals:
                     frag.E2_cum = np.tensordot (V, L, axes=4) / 2
                 E2_cum += frag.E2_cum
             
-        loc2idem = get_complementary_states (loc2corr, symm_blocks=self.loc2symm_wvfn)
-        symm_labels = assign_blocks (loc2idem, self.loc2symm_wvfn)
-        evecs = matrix_eigen_control_options (represent_operator_in_basis (self.loc_oei (), loc2idem), symm_blocks=symm_labels, sort_vecs=1, only_nonzero_vals=False)[1]
-        loc2idem = np.dot (loc2idem, evecs)
+        loc2idem = matrix_eigen_control_options (self.loc_oei (), symmetry=self.loc2symm,
+            subspace=get_complementary_states (loc2corr, symm_blocks=self.loc2symm),
+            sort_vecs=1, only_nonzero_vals=False)[1]
 
         # I want to alter the outputs of self.loc_oei (), self.loc_rhf_fock (), and the get_wm_1RDM_etc () functions.
         # self.loc_oei ()      = P_idem * (activeOEI + JKcorr) * P_idem
@@ -385,6 +369,7 @@ class localintegrals:
 
         # Molden
         ao2molden, ene_no, occ_no = self.get_trial_nos (aobasis=True, loc2wmas=loc2corr, oneRDM_loc=oneRDM, fock=fock, jmol_shift=True, try_symmetrize=True)
+        print ("Writing trial wave function molden")
         molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=occ_no, ene=ene_no)
 
     def restore_wm_full_scf (self):
@@ -576,18 +561,21 @@ class localintegrals:
             fock = self.loc_rhf_fock_bis (oneRDM_loc)
         if loc2wmas is None: loc2wmas = np.zeros ((self.norbs_tot, 0), dtype=self.ao2loc.dtype)
 
-        loc2wmcs = get_complementary_states (loc2wmas, symm_blocks=self.loc2symm_wvfn)
+        loc2wmcs = get_complementary_states (loc2wmas, symm_blocks=self.loc2symm)
         norbs_wmas = loc2wmas.shape[1]
         norbs_wmcs = loc2wmcs.shape[1]
-        ene_wmcs, loc2wmcs, wmcs_symm = eigen_weaksymm (fock, self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False)
+        ene_wmcs, loc2wmcs, wmcs_symm = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False)
+        
         if self.mol.symmetry:
             wmcs_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmcs_symm==x) for x in np.unique (wmcs_symm)}
-            print ("get_trial_nos: unactive-orbital irreps (weakly assigned) = {}".format (wmcs_symm))
+            err = measure_subspace_blockbreaking (loc2wmcs, self.loc2symm)
+            print ("Trial wave function unactive-orbital irreps = {}, err = {}".format (wmcs_symm, err))
 
-        occ_wmas, loc2wmas, wmas_symm = eigen_weaksymm (oneRDM_loc, self.loc2symm, subspace=loc2wmas, sort_vecs=-1, only_nonzero_vals=False)
+        occ_wmas, loc2wmas, wmas_symm = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm, subspace=loc2wmas, sort_vecs=-1, only_nonzero_vals=False)
         if self.mol.symmetry:
             wmas_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmas_symm==x) for x in np.unique (wmas_symm)} 
-            print ("get_trial_nos: active-orbital irreps (weakly assigned) = {}".format (wmas_symm))
+            err = measure_subspace_blockbreaking (loc2wmas, self.loc2symm)
+            print ("Trial wave function active-orbital irreps = {}, err = {}".format (wmas_symm, err))
 
         nelec_wmas = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2wmas)))
         assert ((self.nelec_tot - nelec_wmas) % 2 == 0), 'Non-even number of unactive electrons {}'.format (self.nelec_tot - nelec_wmas)
