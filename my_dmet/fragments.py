@@ -308,7 +308,7 @@ class fragment_object:
     def nelec_as (self):
         result = np.trace (self.oneRDMas_loc)
         if is_close_to_integer (result, params.num_zero_atol) == False:
-            raise RuntimeError ("Somehow you got a non-integer number of electrons in your active space!")
+            raise RuntimeError ("Somehow you got a non-integer number of electrons in your active space! ({})".format (result))
         return int (round (result))
 
     @property
@@ -501,7 +501,7 @@ class fragment_object:
         ''' These orbitals have to be splittable into purely on the impurity/purely in the core for the same reason that nelec_imp has to
             be an integer, I think. '''
         loc2virtunaccore, loc2corevirtunac, svals = get_overlapping_states (loc2virtunac, self.loc2core)
-        assert (np.all (np.logical_or (np.isclose (svals, 0, atol=1e-6), np.isclose (svals, 1, atol=1e-6)))), svals
+        #assert (np.all (np.logical_or (np.isclose (svals, 0, atol=1e-6), np.isclose (svals, 1, atol=1e-6)))), svals
         idx_virtunaccore = np.isclose (svals, 1)
         loc2virtunaccore = loc2virtunaccore[:,idx_virtunaccore]
 

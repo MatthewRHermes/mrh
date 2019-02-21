@@ -4,7 +4,7 @@ import sys
 import numpy as np
 from scipy import linalg
 from mrh.util.io import prettyprint_ndarray
-from mrh.util.la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options
+from mrh.util.la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options, align_vecs
 from mrh.util import params
 from itertools import combinations
 from math import sqrt
@@ -498,41 +498,28 @@ def symmetrize_basis (the_basis, the_blocks, sorting_metric=None, sort_vecs=1, d
         symmetrized_basis = symmetrized_basis @ evecs
         return symmetrized_basis, labels, metric_evals
 
-def align_states (unaligned_states, the_blocks, sorting_metric=None, sort_vecs=1, do_eigh_metric=True, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
+def align_states (unaligned_states, the_blocks, sorting_metric=None, sort_vecs=1, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
     ''' Symmbreak-tolerant '''
     unaligned_states = orthonormalize_a_basis (unaligned_states)
     if the_blocks is None: the_blocks=[np.eye (unaligned_states.shape[0])]
-    assert (is_basis_orthonormal_and_complete (np.concatenate (the_blocks, axis=1))), 'Symmetry blocks must be orthonormal and complete, {}'.format (len (the_blocks))
+    block_umat = np.concatenate (the_blocks, axis=1)
+    assert (is_basis_orthonormal_and_complete (block_umat)), 'Symmetry blocks must be orthonormal and complete, {}'.format (len (the_blocks))
+
     if sorting_metric is None: sorting_metric=np.diag (np.arange (unaligned_states.shape[1]))
-    if sorting_metric.shape[0] == unaligned_states.shape[0]: sorting_metric=represent_operator_in_basis (sorting_metric, unaligned_states)
-    measure = [get_overlapping_states (blk, unaligned_states, only_nonzero_vals=True)[1:] for blk in the_blocks]
-    orig_states = unaligned_states.copy ()
-    # First pass: symmetry-adapted states
-    aligned_states = np.concatenate ([rvecs[:,np.isclose (svals, 1, rtol=rtol, atol=atol)] for rvecs, svals in measure], axis=1)
-    if aligned_states.shape[1] == orig_states.shape[1]:
-        assert (are_bases_equivalent (orig_states, aligned_states))
-        return aligned_states
-    umat = orig_states.conjugate ().T @ aligned_states
-    evecs = get_complementary_states (umat)
-    unaligned_states = orig_states @ evecs
-    unaligned_states = get_complementary_states (aligned_states)    
-    n_unaligned = unaligned_states.shape[1]
-    # Then: maximum svalues, one at a time
-    for i in range (n_unaligned):
-        assert (is_basis_orthonormal (aligned_states))
-        assert (is_basis_orthonormal (unaligned_states))
-        assert (are_bases_orthogonal (aligned_states, unaligned_states))
-        measure = [get_overlapping_states (blk, unaligned_states, only_nonzero_vals=True)[1:] for blk in the_blocks]
-        idx = np.argmax ([svals[0] if len (svals) > 0 else 0 for rvecs, svals in measure])
-        aligned_states = np.append (aligned_states, measure[idx][0][:,0:1], axis=1)
-        umat = orig_states.conjugate ().T @ aligned_states
-        evecs = get_complementary_states (umat)
-        unaligned_states = orig_states @ evecs
-    umat = orig_states.conjugate ().T @ aligned_states
-    ovlp = umat.conjugate ().T @ umat    
-    assert (are_bases_equivalent (orig_states, aligned_states)), linalg.norm (ovlp - np.eye (ovlp.shape[0]))
-    sortval = ((sorting_metric @ umat) * umat).sum (0)
+    if sorting_metric.shape[0] == unaligned_states.shape[1]: sorting_metric=represent_operator_in_basis (sorting_metric, unaligned_states.conjugate ().T)
+    block_idx = np.concatenate ([[idx,] * blk.shape[1] for idx, blk in enumerate (the_blocks)])
+
+    c2u = unaligned_states
+    c2s = block_umat
+    s2c = c2s.conjugate ().T
+    s2u = s2c @ c2u
+    s2a = align_vecs (s2u, block_idx)[0]
+    c2a = c2s @ s2a
+    aligned_states = c2a
+
+    sortval = ((sorting_metric @ aligned_states) * aligned_states).sum (0)
     aligned_states = aligned_states[:,np.argsort (sortval)[::sort_vecs]]
+    assert (are_bases_equivalent (unaligned_states, aligned_states)), linalg.norm (ovlp - np.eye (ovlp.shape[0]))
     return aligned_states
 
 def eigen_weaksymm (the_matrix, the_blocks, subspace=None, sort_vecs=1, only_nonzero_vals=False, atol=params.num_zero_atol, rtol=params.num_zero_rtol):

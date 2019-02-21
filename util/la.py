@@ -63,12 +63,89 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, sort_vecs=-1, o
     lvecs, svals_lr, rvecs = (np.asarray (output) for output in (p2l, svals_lr, q2r))
     return lvecs, svals_lr, rvecs
 
-def matrix_eigen_control_options (the_matrix, symmetry=None, strong_symm=False, 
-    subspace=None, sort_vecs=-1, only_nonzero_vals=False, round_zero_vals=False, b_matrix=None,
-    num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol, strong_symm_subtol=1e-3):
-    # Linear algebra is less numerically stable than indexing. Therefore, I should minimize the amount
-    # of linear algebra that happens and focus on transforming symmetry, subspace, and subspace_symmetry
-    # from basis blocks to indices
+def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, strong_symm=False, 
+    subspace=None, subs_symm=None, sort_vecs=-1, only_nonzero_vals=False, round_zero_vals=False, 
+    num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
+    ''' Diagonalize a matrix using scipy's driver and also a whole lot of pre-/post-processing,
+        most significantly sorting, throwing away numerical null spaces, 
+        subspace projections, and symmetry alignments.
+        
+        Args:
+            the_matrix: square np.ndarray with M rows
+
+        Kwargs:
+            b_matrix: square np.ndarray with M rows
+                The second matrix for the generalized eigenvalue problem
+            symmetry: list of block labels of length M
+            or list of non-square matrices of shape (M,P), sum_P = M
+            or None
+                Formal symmetry information. Neither the matrix nor the
+                subspace need to be symmetry adapted, and unless strong_symm=True,
+                symmetry is used only to define a gauge convention within
+                degenerate manifolds. Orthonormal linear combinations of degenerate
+                eigenvectors with the highest possible projections onto any symmetry
+                block are sequentially generated using repeated singular value decompositions
+                in successively smaller subspaces. Eigenvectors within degenerate
+                manifolds are therefore sorted from least to most symmetry-breaking;
+                ordering within quantitatively symmetry-adapted eigenvectors
+                (i.e. sum_{symm_u} <symm_u|u> == 1) is currently arbitrary.
+            strong_symm: logical
+                If true, the actual diagonalization is carried out symmetry-blockwise.
+                Requires symmetry. Eigenvectors will be symmetry-adapted but this does not
+                check that the whole matrix is actually diagonalized by them so user beware!
+                Extra risky if a subspace is used because the vectors of the subspace
+                are assigned to symmetry blocks in the same way as degenerate eigenvectors,
+                and the symmetry labels of the final eigenvectors are inherited from
+                the corresponding subspace symmetry block without double-checking.
+                (Subspace always outranks symmetry.)
+            subspace: index list for accessing Mprime elements array of shape (M,)
+            or ndarray of shape (M,Mprime)
+            or None
+                Defines a subspace in which the matrix is diagonalized. Note
+                that symmetry is applied to the matrix, not the subspace states.
+                Subspace always outranks symmetry, meaning that the eigenvectors are
+                guaranteed within round-off error to be contained within the
+                subspace, but using a subspace may decrease the reliability
+                of symmetry assignments, even if strong_symm==True.
+            subs_symm: list of block labels of length Mprime
+            or list of non-square matrices of shape (Mprime,P), sum_P = Mprime
+            or None
+                To be implemented: explicit symmetry information for the subspace
+            sort_vecs: integer
+                Defines overall sorting of non-degenerate eigenvalues. -1 means from largest
+                to smallest; +1 means from smallest to largest. Play with other values at
+                your peril
+            only_nonzero_vals: logical
+                If true, only the K <= M nonzero eigenvalues and corresponding eigenvectors
+                are returned
+            round_zero_vals: logical
+                If true, sets all eigenvalues of magnitude less than num_zero_atol to identically zero
+            num_zero_atol: float
+                Absolute tolerance for numpy's "isclose" function and its relatives.
+                Used in determining what counts as a degenerate manifold.
+            num_zero_rtol: float
+                Relative tolerance for numpy's "isclose" function and its relatives.
+                Used in determining what counts as a degenerate manifold.
+
+        Returns:
+            evals: ndarray of shape (K,); K<=M (see only_nonzero_vals kwarg)
+            evecs: ndarray of shape (M,K); K<=M (see only_nonzero_vals kwarg)
+                If a subspace is specified, the eigenvectors are transformed back into the original
+                basis before returning
+            labels: list of length K; K<=M
+                Only returned if symmetry is not None. Identifies symmetry block
+                with the highest possible projection onto each eigenvector unless
+                strong_symm==True, in which case the labels are derived
+                from labels of subspace vectors computed in this way.. Does not
+                guarantee that the eigenvector is symmetry-adapted.
+                
+            
+
+    '''
+
+    if subs_symm is not None:
+        raise NotImplementedError ("Explicit subspace symmetry information.")
+
     if the_matrix.shape == tuple((0,0)):
         return np.zeros ((0)), np.zeros ((0,0))
     subspace = None if subspace is None else np.asarray (subspace)
@@ -76,7 +153,8 @@ def matrix_eigen_control_options (the_matrix, symmetry=None, strong_symm=False,
 
     # Prevent wasting time. Matt, you should gradually remove these lines to test edge-case tolerance
     if symmetry is not None and len (symmetry) == 1: symmetry = False
-    if symmetry is False or symmetry is None: strong_symm = False
+    if (symmetry is None) and strong_symm: raise RuntimeError ("Needs symmetry information or strong_symm == False!")
+    if (symmetry is False): strong_symm = False
     if subspace is not None and subspace.shape[int (subspace_isvectorblock)] == the_matrix.shape[1]: subspace = None
     symm_isvectorblock = False if symmetry is False or symmetry is None else isinstance (symmetry[0], np.ndarray)
 
@@ -106,7 +184,7 @@ def matrix_eigen_control_options (the_matrix, symmetry=None, strong_symm=False,
         # Include an option to raise an error if the subspace isn't symmetry-adapted to within a tolerance: see align_vecs
         subs_symm_lbls = subspace
         if subspace is not None and subspace_isvectorblock:
-            subspace, subs_symm_lbls = align_vecs (subspace, symmetry, rtol=num_zero_rtol, atol=num_zero_atol, enforce_tol=strong_symm_subtol)
+            subspace, subs_symm_lbls = align_vecs (subspace, symmetry, rtol=num_zero_rtol, atol=num_zero_atol)
 
         # Recurse into diagonalization of individual symmetry blocks
         uniq_lbls = np.unique (symmetry)
@@ -212,7 +290,8 @@ def matrix_eigen_control_options (the_matrix, symmetry=None, strong_symm=False,
 def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zero_atol, assert_tol=0):
     col_labels = np.empty (vecs.shape[1], dtype=row_labels.dtype)
     uniq_labels = np.unique (row_labels)
-    for i in range (vecs.shape[1]):
+    i = 0
+    while i < vecs.shape[1]:
         svdout = [matrix_svd_control_options (vecs[row_labels==lbl,i:], sort_vecs=-1,
             only_nonzero_vals=False, full_matrices=True) for lbl in uniq_labels]
         # This argmax identifies the single best irrep assignment possible for all of vecs[:,i:]
@@ -220,11 +299,16 @@ def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zer
         # lvecs and svals are now useless but I write this out just to make sure that I
         # am remembering the return signature of svd correctly
         lvecs, svals, rvecs = svdout[symm_label_idx]
-        col_labels[i] = uniq_labels[symm_label_idx]
+        j = i + np.count_nonzero (np.isclose (svals, svals[0], atol=atol, rtol=rtol))
+        col_labels[i:j] = uniq_labels[symm_label_idx]
         if assert_tol and not np.all (np.isclose (svals, 0, atol=assert_tol, rtol=rtol) | np.isclose (svals, 1, atol=assert_tol, rtol=rtol)):
             raise RuntimeError ('Vectors not block-adapted in space {}; svals = {}'.format (col_labels[i], svals))
         # This puts the best-aligned vector at position i and causes all of vecs[:,i+1:] to be orthogonal to it
         vecs[:,i:] = vecs[:,i:] @ rvecs
+        assert (j > i)
+        i = j
+        # This is a trick to grab a whole bunch of degenerate vectors at once (i.e., numerically symmetry-adapted vectors with sval = 1)
+        # It may improve numerical stability
     return vecs, col_labels
 
 

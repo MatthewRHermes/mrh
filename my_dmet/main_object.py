@@ -976,9 +976,9 @@ class dmet:
             amo_coeff = mo_coeff[:,ncore_current:nocc_current]
             ovlp = wmas2ao_current @ self.ints.ao_ovlp @ amo_coeff
             ovlp = np.trace (ovlp.conjugate ().T @ ovlp) / norbs_wmas_current
-            assert (np.isclose (ovlp, 1)), 'unless replace=True, mo_coeff must contain current active orbitals at range {}:{} (err={})'.format (ncore_current,nocc_current)
+            assert (np.isclose (ovlp, 1)), 'unless replace=True, mo_coeff must contain current active orbitals at range {}:{} (err={})'.format (ncore_current,nocc_current, ovlp-1)
             if caslst is not None and len (caslst) > 0:
-                assert (np.all (np.isin (list(range(ncore_current+1,nocc_current+1)), caslst))), 'caslst must contain range {}:{}'.format (ncore_current, nocc_current)
+                assert (np.all (np.isin (list(range(ncore_current+1,nocc_current+1)), caslst))), 'caslst must contain range {}:{} inclusive ({})'.format (ncore_current+1, nocc_current, caslst)
 
         if caslst is not None and len (caslst) == 0: caslst = None
         if caslst is not None and cas_irrep_nocc is not None:
@@ -1172,7 +1172,7 @@ class dmet:
 
     def get_las_nos (self, **kwargs):
         ''' Save MOs in a form that can be loaded for a CAS calculation on a npy file '''
-
+        kwargs['aobasis'] = True
         kwargs['loc2wmas'] = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         return self.ints.get_trial_nos (**kwargs)
 
