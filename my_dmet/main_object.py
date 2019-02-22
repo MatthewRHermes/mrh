@@ -630,7 +630,7 @@ class dmet:
         if self.doLASSCF:
             print ("Entering setup_wm_core_scf")
             self.ints.setup_wm_core_scf (self.fragments, self.calcname)
-            self.align_symmetry ()
+            #self.align_symmetry ()
             self.save_checkpoint (self.calcname + '.chk.npy')
 
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
@@ -999,12 +999,14 @@ class dmet:
         amo_new_coeff = np.append (mo_coeff[:,ncore_target:ncore_current], mo_coeff[:,nocc_current:nocc_target], axis=1)
 
         loc2amo_new = orthonormalize_a_basis (linalg.solve (self.ints.ao2loc, amo_new_coeff))
+        '''
         if self.ints.symmetry:
             if is_subspace_block_adapted (loc2amo_new, self.ints.loc2symm):
                 loc2amo_new, labels = symmetrize_basis (loc2amo_new, self.ints.loc2symm)[:2]
                 print ("Guess active orbital irreps: {}".format (labels))
             else:
                 print ("NOTE: symmetric system but guess active orbital space is NOT symmetry-adapted!")
+        '''
         projamo = np.dot (loc2amo_new, loc2amo_new.conjugate ().T)
 
         for f in self.fragments:

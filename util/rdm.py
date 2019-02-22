@@ -22,7 +22,7 @@ def get_1RDM_from_OEI_in_subspace (one_electron_hamiltonian, subspace_basis, noc
     oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, w2l)
     return oneRDM_loc
     
-def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
+def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=params.num_zero_atol, num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
     norbs_tot = assert_matrix_square (the_1RDM)
     norbs_frag = loc2frag.shape[1]
     assert (norbs_tot >= norbs_frag and loc2frag.shape[0] == norbs_tot)
@@ -139,7 +139,7 @@ def idempotize_1RDM (oneRDM, thresh):
     new_oneRDM = represent_operator_in_basis (np.diag (new_evals), evecs.T)
     return new_oneRDM, nelec_diff
 
-def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bath_max, bath_tol=1e-5, idempotize_thresh=0, num_zero_atol=0):
+def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bath_max, bath_tol=params.num_zero_atol, idempotize_thresh=0, num_zero_atol=params.num_zero_atol):
     norbs_tot = loc2wfrag.shape[0]
     norbs_wfrag = loc2wfrag.shape[1]
     loc2wemb, norbs_wbath, nelec_wimp = Schmidt_decompose_1RDM (working_1RDM, loc2wfrag, norbs_bath_max, bath_tol=bath_tol)
