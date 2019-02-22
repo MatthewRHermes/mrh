@@ -85,6 +85,7 @@ class fragment_object:
         self.cas_guess_callback = None
         self.molden_missing_aos = False
         self.add_virtual_bath = False
+        self.virtual_bath_gradient_svd = False
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]
@@ -511,19 +512,23 @@ class fragment_object:
         print ("Are my `virtual bath' orbitals unoccupied and currently in the core? check_nocc = {}, check_bath = {}".format (check_nocc, check_bath))
         aos_in_virt_core = np.count_nonzero (np.logical_not (np.isclose (svals, 0))) 
         print (("For this Schmidt decomposition, the impurity basis loses {} of {} atomic orbitals, accounted for by"
-        " {} of {} virtual core orbitals").format (lost_aos, self.norbs_frag, aos_in_virt_core, loc2virtunaccore.shape[1]))
+        " {} of {} virtual core orbitals").format (lost_aos, self.norbs_frag, aos_in_virt_core, loc2virtbath.shape[1]))
         idx = np.argsort (svals)[::-1]
         loc2virtbath = loc2virtbath[:,idx]
         svals = svals[idx]
         virtbathGocc = self.gradient_for_virtbath (loc2virtbath, oneRDM_loc, loc2wmcs, fock=self.ints.activeFOCK)
-        #umat, svals_fock = matrix_svd_control_options (np.abs (virtbathGocc), sort_vecs=-1, only_nonzero_vals=False)[:2]
-        #print ("Maximum gradient singular value for virtual bath orbitals: {}".format (svals_fock[0]))
-        #loc2virtbath = loc2virtbath @ umat
-        #ovlp = ao2loc @ loc2virtbath
-        #my_occ = (ovlp*ovlp).sum (1)
+        my_ene = -svals * svals
+        my_occ = virtbathGocc.sum (1)
+        if self.virtual_bath_gradient_svd:
+            virtbathGocc = self.gradient_for_virtbath (loc2virtbath, oneRDM_loc, loc2wmcs, fock=self.ints.activeFOCK)
+            umat, svals_fock = matrix_svd_control_options (np.abs (virtbathGocc), sort_vecs=-1, only_nonzero_vals=False)[:2]
+            print ("Maximum gradient singular value for virtual bath orbitals: {}".format (svals_fock[0]))
+            loc2virtbath = loc2virtbath @ umat
+            my_occ = (loc2ao.conjugate ().T @ loc2virtbath).sum (0)
+            my_ene = -svals_fock
         if self.molden_missing_aos:
             ao2molden = np.dot (self.ints.ao2loc, loc2virtbath)
-            molden.from_mo (self.ints.mol, self.filehead + self.frag_name + '_missing_AOs.molden', ao2molden, ene=-svals*svals, occ=virtbathGocc.sum (1))
+            molden.from_mo (self.ints.mol, self.filehead + self.frag_name + '_missing_AOs.molden', ao2molden, ene=my_ene, occ=my_occ)
             self.molden_missing_aos = False
         return loc2virtbath
 
