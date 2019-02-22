@@ -723,7 +723,6 @@ class fragment_object:
             else:
                 V_iiif = self.ints.general_tei ([self.loc2frag, self.loc2imp, self.loc2imp, self.loc2imp])
                 E2 = 0.5 * np.tensordot (V_iiif, L_iiif, axes=4)
-
         if self.debug_energy:
             print ("get_E_frag {0} :: E2 = {1:.5f}".format (self.frag_name, float (E2)))
 
