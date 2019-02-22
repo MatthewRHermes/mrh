@@ -292,7 +292,7 @@ def measure_basis_olap (bra_basis, ket_basis):
     olap_mag = np.sum (svals * svals)
     return olap_mag, svals
 
-def orthonormalize_a_basis (overlapping_basis, symm_blocks=None, ovlp=1, num_zero_atol=params.num_zero_atol):
+def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_zero_atol):
     if (is_basis_orthonormal (overlapping_basis)):
         return overlapping_basis
 
@@ -346,40 +346,13 @@ def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol
     idx = np.isclose (evals, 1)
     return evecs[:,idx]
 
-def get_complementary_states (incomplete_basis, symm_blocks=None, already_complete_warning=True, atol=params.num_zero_atol):
+def get_complementary_states (incomplete_basis, already_complete_warning=True, atol=params.num_zero_atol):
     if incomplete_basis.shape[1] == 0:
         if symm_blocks is None:
             return np.eye (incomplete_basis.shape[0])
         else:
-            return symm_blocks
+            return np.concatenate (symm_blocks, axis=1)
     orthonormal_basis = orthonormalize_a_basis (incomplete_basis)
-
-    # Symmetry wrapper
-    if symm_blocks is not None:
-        if not isinstance (symm_blocks[0], np.ndarray):
-            raise RuntimeError ("You need to pass the actual symmetry basis, I can't just guess how many states are supposed to be in each irrep!")
-        c2p = align_states (orthonormal_basis, symm_blocks)
-        labels = assign_blocks_weakly (c2p, symm_blocks)
-        c2q = []
-        for idx, c2s in enumerate (symm_blocks):
-            if np.count_nonzero (labels==idx) == 0:
-                c2q.append (c2s)
-                continue
-            s2p = c2s.conjugate ().T @ c2p[:,labels==idx]
-            s2q = get_complementary_states (s2p, already_complete_warning=False)
-            c2q.append (c2s @ s2q)
-        # Yadda yadda linear algebra breaks orthogonality
-        c2q = np.concatenate (c2q, axis=1)
-        ovlp_PQ = c2p.conjugate ().T @ c2q
-        assert (are_states_block_adapted (c2q, symm_blocks))
-        assert (is_basis_orthonormal (c2q))
-        if not are_bases_orthogonal (c2p, c2q):
-            assert (linalg.norm (ovlp_PQ) / sum (ovlp_PQ.shape) < 1e-8)
-            proj_PP = c2p @ c2p.conjugate ().T
-            c2q -= proj_PP @ c2q
-            c2q = align_states (c2q, symm_blocks)
-            assert (are_bases_orthogonal (c2p, c2q))
-        return c2q
 
     # Kernel
     nbas = orthonormal_basis.shape[1]

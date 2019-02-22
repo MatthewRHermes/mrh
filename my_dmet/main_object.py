@@ -38,7 +38,7 @@ from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
 from mrh.util.basis import is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal, get_overlapping_states
-from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis
+from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis, are_bases_orthogonal
 from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
@@ -622,7 +622,7 @@ class dmet:
             print ("Active orbitals break symmetry :(")
             self.ints.symmetry = False
         try:
-            loc2wmcs_old = get_complementary_states (loc2wmas_old, symm_blocks=self.ints.loc2symm)
+            loc2wmcs_old = get_complementary_states (loc2wmas_old)
         except linalg.LinAlgError as e:
             print (np.dot (loc2wmas_old.T, loc2wmas_old))
             raise (e)
@@ -910,6 +910,7 @@ class dmet:
         for ix, f in enumerate (self.fragments):
             if f.imp_solver_name != 'dummy RHF':
                 continue
+            evals, loc2x = matrix_eigen_control_options (proj_gfrag[:,:,ix], subspace=loc2x, sort_vecs=-1, only_nonzero_vals=False)
             loc2wmcs[ix] = loc2x[:,:f.norbs_frag]
             loc2x = loc2x[:,f.norbs_frag:]
 

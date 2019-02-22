@@ -301,7 +301,6 @@ class localintegrals:
             return
 
         loc2corr = np.concatenate ([frag.loc2amo for frag in fragments], axis=1)
-        loc2corr = align_states (loc2corr, self.loc2symm, sorting_metric=oneRDMcorr_loc, sort_vecs=-1)
 
         # Calculate E2_cum            
         E2_cum = 0
@@ -313,9 +312,9 @@ class localintegrals:
                     frag.E2_cum = np.tensordot (V, L, axes=4) / 2
                 E2_cum += frag.E2_cum
             
-        loc2idem = matrix_eigen_control_options (self.loc_oei (), symmetry=self.loc2symm,
-            subspace=get_complementary_states (loc2corr, symm_blocks=self.loc2symm),
-            sort_vecs=1, only_nonzero_vals=False)[1]
+        loc2idem = get_complementary_states (loc2corr)
+        test, err = are_bases_orthogonal (loc2idem, loc2corr)
+        print ("Testing linear algebra: overlap of active and unactive orbitals = {}".format (linalg.norm (err)))
 
         # I want to alter the outputs of self.loc_oei (), self.loc_rhf_fock (), and the get_wm_1RDM_etc () functions.
         # self.loc_oei ()      = P_idem * (activeOEI + JKcorr) * P_idem
@@ -342,7 +341,7 @@ class localintegrals:
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
         print ("trace of oneRDMcorr_loc = {}".format (np.trace (oneRDMcorr_loc)))
         print ("trace of oneRDMidem_loc = {}".format (np.trace (oneRDMidem_loc)))
-        print ("trace of oneRDM_loc in corr basis = {}".format (np.trace (represent_operator_in_basis (oneRDMcorr_loc + oneRDMidem_loc, orthonormalize_a_basis (loc2corr)))))
+        print ("trace of oneRDM_loc in corr basis = {}".format (np.trace (represent_operator_in_basis (oneRDMcorr_loc + oneRDMidem_loc, loc2corr))))
         svals = get_overlapping_states (loc2idem, loc2corr)[2]
         print ("trace of <idem|corr|idem> = {}".format (np.sum (svals * svals)))
         print (loc2corr.shape)
@@ -561,7 +560,7 @@ class localintegrals:
             fock = self.loc_rhf_fock_bis (oneRDM_loc)
         if loc2wmas is None: loc2wmas = np.zeros ((self.norbs_tot, 0), dtype=self.ao2loc.dtype)
 
-        loc2wmcs = get_complementary_states (loc2wmas, symm_blocks=self.loc2symm)
+        loc2wmcs = get_complementary_states (loc2wmas)
         norbs_wmas = loc2wmas.shape[1]
         norbs_wmcs = loc2wmcs.shape[1]
         ene_wmcs, loc2wmcs, wmcs_symm = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False)

@@ -26,7 +26,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     norbs_tot = assert_matrix_square (the_1RDM)
     norbs_frag = loc2frag.shape[1]
     assert (norbs_tot >= norbs_frag and loc2frag.shape[0] == norbs_tot)
-    #assert (is_basis_orthonormal (loc2frag)), linalg.norm (np.dot (loc2frag.T, loc2frag) - np.eye (loc2frag.shape[1]))
+    assert (is_basis_orthonormal (loc2frag)), linalg.norm (np.dot (loc2frag.T, loc2frag) - np.eye (loc2frag.shape[1]))
     norbs_env = norbs_tot - norbs_frag
     nelec_tot = np.trace (the_1RDM)
     loc2frag_inp = loc2frag.copy ()
@@ -54,7 +54,7 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     idx_frag = np.isclose (pfrag, 1, atol=num_zero_atol, rtol=num_zero_rtol)
     idx_core = np.isclose (pfrag, 0, atol=num_zero_atol, rtol=num_zero_rtol)
     # Check that math works
-    #assert (np.all (np.logical_or (idx_frag, idx_core))), pfrag
+    assert (np.all (np.logical_or (idx_frag, idx_core))), pfrag
     loc2ufrag = loc2une[:,idx_frag]
     loc2core  = loc2une[:,idx_core]
     no_occs_frag, no_evecs_frag = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2ufrag))
@@ -66,13 +66,13 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=1e-5, n
     # Build embedding basis: frag (efrag then ufrag, check that this is complete!), bath, core. Check for zero frag-core entanglement
     loc2frag = np.append (loc2efrag, loc2ufrag, axis=1)
     err = linalg.norm (represent_operator_in_basis (Pfrag_loc, loc2frag) - np.eye (loc2frag.shape[1]))
-    #assert (are_bases_equivalent (loc2frag_inp, loc2frag)), err
+    assert (are_bases_equivalent (loc2frag_inp, loc2frag)), err
     errmat = represent_operator_in_basis (the_1RDM, loc2frag, loc2core)
-    #assert (loc2core.shape[1] == 0 or is_matrix_zero (errmat, atol=1e-3)), linalg.norm (errmat)
+    assert (loc2core.shape[1] == 0 or is_matrix_zero (errmat, atol=1e-3)), linalg.norm (errmat)
     loc2imp = np.append (loc2frag, loc2bath, axis=1)
-    #assert (is_basis_orthonormal (loc2imp))
+    assert (is_basis_orthonormal (loc2imp))
     loc2emb = np.append (loc2imp, loc2core, axis=1)
-    #assert (is_basis_orthonormal_and_complete (loc2emb))
+    assert (is_basis_orthonormal_and_complete (loc2emb))
 
     # Calculate the number of electrons in the would-be impurity model
     nelec_imp = compute_nelec_in_subspace (the_1RDM, loc2imp)
