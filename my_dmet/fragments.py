@@ -306,9 +306,10 @@ class fragment_object:
     @property
     def twoCDM_all (self):
         if self.imp_solver_name != 'RHF':
-            return [self.twoCDM_imp] + self.twoCDMfroz_tbc
-        else:
-            return self.twoCDMfroz_tbc
+            if self.norbs_as > 0:
+                return [self.twoCDMimp_amo] + self.twoCDMfroz_tbc
+             return [self.twoCDM_imp] + self.twoCDMfroz_tbc
+        return self.twoCDMfroz_tbc
 
     def get_loc2bath (self):
         ''' Don't use this too much... I don't know how it's gonna behave under ofc_emb'''
