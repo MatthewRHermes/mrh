@@ -90,14 +90,14 @@ def sort_states_by_diag_maxabs (the_basis):
     return the_basis
 
 def basis_olap (bra_basis, ket_basis, ovlp=1):
-    c2p = np.asmatrix (bra_basis)
-    c2q = np.asmatrix (ket_basis)
-    p2c = c2p.H
-    cOc = np.asmatrix (ovlp)
+    c2p = np.asarray (bra_basis)
+    c2q = np.asarray (ket_basis)
+    p2c = c2p.conjugate ().T
+    cOc = np.atleast_2d (ovlp)
     try:
-        return np.asarray (p2c * cOc * c2q)
+        return np.asarray (p2c @ cOc @ c2q)
     except ValueError:
-        return np.asarray (p2c * cOc[0,0] * c2q)
+        return np.asarray ((p2c * cOc[0,0]) @ c2q)
 
 def represent_operator_in_basis (braOket, bra1_basis = None, ket1_basis = None, bra2_basis = None, ket2_basis = None):
     # This CHANGES the basis that braOket is stored in
@@ -122,12 +122,12 @@ def represent_operator_in_basis (braOket, bra1_basis = None, ket1_basis = None, 
         raise ValueError ("Only one- and two-body operators (two- and four-index arrays) supported")
 
 def represent_operator_in_basis_1body (braOket, bra_basis, ket_basis):
-    lOr = np.asmatrix (braOket)
-    l2p = np.asmatrix (bra_basis)
-    r2q = np.asmatrix (ket_basis)
-    p2l = l2p.H
+    lOr = np.asarray (braOket)
+    l2p = np.asarray (bra_basis)
+    r2q = np.asarray (ket_basis)
+    p2l = l2p.conjugate ().T
     try:
-        return np.asarray (p2l * lOr * r2q)
+        return np.asarray (p2l @ lOr @ r2q)
     except ValueError as err:
         print (p2l.shape)
         print (lOr.shape)
@@ -177,24 +177,27 @@ def project_operator_into_subspace (braOket, ket1_basis = None, bra1_basis = Non
         raise ValueError ("Only one- and two-body operators (two- and four-index arrays) supported")
 
 def project_operator_into_subspace_1body (braOket, bra_basis, ket_basis):
-    lOr = np.asmatrix (braOket)
+    lOr = np.asarray (braOket)
 
-    l2p = np.asmatrix (bra_basis)
-    p2l = l2p.H
-    r2q = np.asmatrix (ket_basis)
-    q2r = r2q.H
+    l2p = np.asarray (bra_basis)
+    p2l = l2p.conjugate ().T
+    r2q = np.asarray (ket_basis)
+    q2r = r2q.conjugate ().T
 
-    lPl = l2p * p2l
-    rPr = r2q * q2r
-    return np.asarray (lPl * lOr * rPr)
+    lPl = l2p @ p2l
+    rPr = r2q @ q2r
+    return np.asarray (lPl @ lOr @ rPr)
 
 def project_operator_into_subspace_2body (braOket, bra1_basis, ket1_basis, bra2_basis, ket2_basis):
-    abcd = braOket
-
-    l2a = np.asmatrix (bra1_basis)
-    l2b = np.asmatrix (ket1_basis)
-    l2c = np.asmatrix (bra2_basis)
-    l2d = np.asmatrix (ket2_basis)
+    abcd_l = np.asarray (braOket)
+    l2a = np.asarray (bra1_basis)
+    l2b = np.asarray (ket1_basis)
+    l2c = np.asarray (bra2_basis)
+    l2d = np.asarray (ket2_basis)
+    a2l = l2a.conjugate ().T
+    b2l = l2b.conjugate ().T
+    c2l = l2c.conjugate ().T
+    d2l = l2d.conjugate ().T
 
     #abcd = np.einsum ('abcd,az->zbcd', abcd, np.asarray (l2a * l2a.H))
     #abcd = np.einsum ('abcd,bz->azcd', abcd, np.asarray (l2b * l2b.H))
@@ -202,10 +205,10 @@ def project_operator_into_subspace_2body (braOket, bra1_basis, ket1_basis, bra2_
     #abcd = np.einsum ('abcd,dz->abcz', abcd, np.asarray (l2d * l2d.H))
     # Order matters when doing this with tensordot! It puts the remaining
     # axes in the order that the tensors are supplied as arguments.
-    abcd = np.tensordot (np.asarray (l2b * l2b.H), abcd, axes=(0,1)) # xacd
-    abcd = np.tensordot (np.asarray (l2a * l2a.H), abcd, axes=(0,1)) # wxcd
-    abcd = np.tensordot (abcd, np.asarray (l2c * l2c.H), axes=(2,0)) # wxdy
-    abcd = np.tensordot (abcd, np.asarray (l2d * l2d.H), axes=(2,0)) # wxyz
+    abcd = np.tensordot (l2b, np.tensordot (b2l, abcd_l, axes=(1,1))) # xacd
+    abcd = np.tensordot (l2a, np.tensordot (a2l, abcd_l, axes=(1,1))) # wxcd
+    abcd = np.tensordot (np.tensordot (abcd_l, l2c, axes=(2,0)), c2l) # wxdy
+    abcd = np.tensordot (np.tensordot (abcd_l, l2d, axes=(2,0)), d2l) # wxyz
     return abcd
 
 
@@ -222,9 +225,9 @@ compute_nelec_in_subspace = compute_operator_trace_in_subset
 
 
 def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol, only_nonzero_vals=True):
-    c2p = np.asmatrix (bra_basis)
-    c2q = np.asmatrix (ket_basis)
-    cOc = 1 if across_operator is None else np.asmatrix (across_operator)
+    c2p = np.asarray (bra_basis)
+    c2q = np.asarray (ket_basis)
+    cOc = np.eye (bra_basis.shape[0]) if across_operator is None else np.asarray (across_operator)
     assert (c2p.shape[0] == c2q.shape[0]), "you need to give the two spaces in the same basis"
     assert (c2p.shape[1] <= c2p.shape[0]), "you need to give the first state in a complete basis (c2p). Did you accidentally transpose it?"
     assert (c2q.shape[1] <= c2q.shape[0]), "you need to give the second state in a complete basis (c2q). Did you accidentally transpose it?"
@@ -233,8 +236,8 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrve
     if np.any (across_operator):
         assert (c2p.shape[0] == cOc.shape[0] and c2p.shape[0] == cOc.shape[1]), "when specifying an across_operator, it's dimensions need to be the same as the external basis"
 
-    p2c = c2p.H
-    pOq = p2c * cOc * c2q
+    p2c = c2p.conjugate ().T
+    pOq = p2c @ c2q if across_operator is None else p2c @ cOc @ c2q
 
     try:
         p2l, svals, q2r = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
@@ -262,8 +265,8 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrve
     '''
 
     # Get the left- and right-vectors back in the external basis
-    c2l = c2p * p2l
-    c2r = c2q * q2r
+    c2l = c2p @ p2l
+    c2r = c2q @ q2r
 
     # Truncate the basis if requested
     max_nlvecs = max_nlvecs or len (svals)
@@ -296,21 +299,23 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
     if (is_basis_orthonormal (overlapping_basis)):
         return overlapping_basis
 
-    c2b = np.asmatrix (overlapping_basis)
-    b2c = c2b.H
+    c2b = np.asarray (overlapping_basis)
+    b2c = c2b.conjugate ().T
     cOc = ovlp
     if isinstance (ovlp, np.ndarray):
-        cOc = np.asmatrix (ovlp)
-    bOb = b2c * cOc * c2b
+        cOc = np.asarray (ovlp)
+        bOb = b2c @ cOc @ c2b
+    else:
+        cOc = (b2c * cOc) @ c2b
     assert (not is_matrix_zero (bOb)), "overlap matrix is zero! problem with basis?"
-    assert (np.allclose (bOb, bOb.H)), "overlap matrix not hermitian! problem with basis?"
+    assert (np.allclose (bOb, bOb.conjugate ().T)), "overlap matrix not hermitian! problem with basis?"
     assert (np.abs (np.trace (bOb)) > num_zero_atol), "overlap matrix zero or negative trace! problem with basis?"
      
     evals, evecs = matrix_eigen_control_options (bOb, sort_vecs=-1, only_nonzero_vals=True)
     if len (evals) == 0:
         return np.zeros ((c2b.shape[0], 0), dtype=c2b.dtype)
-    p2x = np.asmatrix (evecs)
-    c2x = c2b * p2x 
+    p2x = np.asarray (evecs)
+    c2x = c2b @ p2x 
     assert (not np.any (evals < 0)), "overlap matrix has negative eigenvalues! problem with basis?"
 
     # I want c2n = c2x * x2n
@@ -318,30 +323,30 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
     # n2x * x2c * c2x * x2n = n2x * evals_xx * x2n = I
     # therefore
     # x2n = evals_xx^{-1/2}
-    x2n = np.asmatrix (np.diag (np.reciprocal (np.sqrt (evals))))
-    c2n = c2x * x2n
-    n2c = c2n.H
-    nOn = n2c * cOc * c2n
+    x2n = np.asarray (np.diag (np.reciprocal (np.sqrt (evals))))
+    c2n = c2x @ x2n
+    n2c = c2n.conjugate ().T
+    nOn = n2c @ cOc @ c2n
     if not is_basis_orthonormal (c2n):
         # Assuming numerical problem due to massive degeneracy; remove constant from diagonal to improve solver?
         assert (np.all (np.isclose (np.diag (nOn), 1))), np.diag (nOn) - 1
         nOn[np.diag_indices_from (nOn)] -= 1
         evals, evecs = matrix_eigen_control_options (nOn, sort_vecs=-1, only_nonzero_vals=False)
-        n2x = np.asmatrix (evecs)
-        c2x = c2n * n2x
-        x2n = np.asmatrix (np.diag (np.reciprocal (np.sqrt (evals + 1))))
-        c2n = c2x * x2n
-        n2c = c2n.H
-        nOn = n2c * cOc * c2n
+        n2x = np.asarray (evecs)
+        c2x = c2n @ n2x
+        x2n = np.asarray (np.diag (np.reciprocal (np.sqrt (evals + 1))))
+        c2n = c2x @ x2n
+        n2c = c2n.conjugate ().T
+        nOn = n2c @ cOc @ c2n
         assert (is_basis_orthonormal (c2n)), "failed to orthonormalize basis even after two tries somehow\n" + str (
             prettyprint_ndarray (nOn)) + "\n" + str (np.linalg.norm (nOn - np.eye (c2n.shape[1]))) + "\n" + str (evals)
 
     return np.asarray (c2n)
 
 def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol):
-    proj_cc = np.asmatrix (the_projector)
-    assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (np.linalg.norm (proj_cc - proj_cc.H))
-    assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str (np.linalg.norm ((proj_cc * proj_cc) - proj_cc))
+    proj_cc = np.asarray (the_projector)
+    assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (np.linalg.norm (proj_cc - proj_cc.conjugate ().T))
+    assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str (np.linalg.norm ((proj_cc @ proj_cc) - proj_cc))
     evals, evecs = matrix_eigen_control_options (proj_cc, sort_vecs=-1, only_nonzero_vals=True)
     idx = np.isclose (evals, 1)
     return evecs[:,idx]
@@ -380,9 +385,9 @@ def get_complete_basis (incomplete_basis):
         return incomplete_basis
 
 def get_projector_from_states (the_states):
-    l2p = np.asmatrix (the_states)
-    p2l = l2p.H
-    return np.asarray (l2p * p2l)
+    l2p = np.asarray (the_states)
+    p2l = l2p.conjugate ().T
+    return l2p @ p2l
 
 
 
