@@ -707,7 +707,7 @@ class fragment_object:
                 V_fiii = with_df.ao2mo (mo_coeffs, compact=False).reshape (*norbs)
             else:
                 V_fiii = self.ints.general_tei ([self.loc2frag, self.loc2amo, self.loc2amo, self.loc2amo])
-             E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
+            E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
         elif isinstance (self.twoCDM_imp, np.ndarray):
             L_iiif = np.tensordot (self.twoCDM_imp, self.imp2frag, axes=1)
             if isinstance (self.impham_TEI, np.ndarray):
