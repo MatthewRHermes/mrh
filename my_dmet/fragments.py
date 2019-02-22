@@ -691,10 +691,39 @@ class fragment_object:
             print ("get_E_frag {0} :: E1 = {1:.5f}".format (self.frag_name, float (E1)))
 
         E2 = 0
-        if isinstance (self.twoCDM_imp, np.ndarray) and isinstance (self.impham_TEI, np.ndarray):
-            V_fiii = np.tensordot (self.frag2imp, self.impham_TEI, axes=1) # self.impham_TEI_fiii
-            L_fiii = np.tensordot (self.frag2imp, self.twoCDM_imp, axes=1)
-            E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
+        # Remember that non-overlapping fragments are now, by necessity, ~contained~ within the impurity!
+        if self.norbs_as > 0:
+            L_fiii = np.tensordot (self.frag2amo, self.twoCDMimp_amo, axes=1)
+            if isinstance (self.impham_TEI, np.ndarray):
+                mo_coeffs = [self.imp2frag, self.imp2amo, self.imp2amo, self.imp2amo]
+                norbs = [self.norbs_frag, self.norbs_as, self.norbs_as, self.norbs_as]
+                V_fiii = ao2mo.incore.general (self.impham_TEI, mo_coeffs, compact=False).reshape (*norbs)
+            elif isinstance (self.impham_CDERI, np.ndarray):
+                with_df = copy.copy (self.ints.with_df)
+                with_df._cderi = self.impham_CDERI
+                mo_coeffs = [self.imp2frag, self.imp2amo, self.imp2amo, self.imp2amo]
+                norbs = [self.norbs_frag, self.norbs_as, self.norbs_as, self.norbs_as]
+                V_fiii = with_df.ao2mo (mo_coeffs, compact=False).reshape (*norbs)
+            else:
+                V_fiii = self.ints.general_tei ([self.loc2frag, self.loc2amo, self.loc2amo, self.loc2amo])
+             E2 = 0.5 * np.tensordot (V_fiii, L_fiii, axes=4)
+        elif isinstance (self.twoCDM_imp, np.ndarray):
+            L_iiif = np.tensordot (self.twoCDM_imp, self.imp2frag, axes=1)
+            if isinstance (self.impham_TEI, np.ndarray):
+                V_iiif = ao2mo.restore (1, self.impham_TEI, self.norbs_imp)
+                V_iiif = np.tensordot (V_iiif, self.imp2frag, axes=1) 
+                E2 = 0.5 * np.tensordot (V_iiif, L_iiif, axes=4)
+            elif isinstance (self.impham_CDERI, np.ndarray):
+                raise NotImplementedError ("No opportunity to test this yet.")
+                # It'll be something like:
+                # (P|ii) * L_iiif -> R^P_if
+                # (P|ii) * u^i_f -> (P|if)
+                # (P|if) * R^P_if -> E2
+                # But factors of 2 abound especially with the orbital-pair compacting of CDERI
+            else:
+                V_iiif = self.ints.general_tei ([self.loc2frag, self.loc2imp, self.loc2imp, self.loc2imp])
+                E2 = 0.5 * np.tensordot (V_iiif, L_iiif, axes=4)
+
         if self.debug_energy:
             print ("get_E_frag {0} :: E2 = {1:.5f}".format (self.frag_name, float (E2)))
 
