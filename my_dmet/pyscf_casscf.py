@@ -233,7 +233,7 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # General impurity data
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
-    frag.twoCDM_imp = symmetrize_tensor (twoCDM_imp)
+    frag.twoCDM_imp = None # Experiment: this tensor is huge. Do I actually need to keep it? In principle, of course not.
     frag.E_imp      = E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
 
     # Active-space RDM data

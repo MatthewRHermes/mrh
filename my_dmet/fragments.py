@@ -737,7 +737,9 @@ class fragment_object:
 
         dm = self.get_oneRDM_imp ()
         exc_mat = dm - np.dot (dm, dm)/2
-        if isinstance (self.twoCDM_imp, np.ndarray):
+        if self.norbs_as > 0:
+            exc_mat -= represent_operator_in_basis (np.einsum ('prrq->pq', self.twoCDMimp_amo)/2, self.amo2imp)
+        elif isinstance (self.twoCDM_imp, np.ndarray):
             exc_mat -= np.einsum ('prrq->pq', self.twoCDM_imp)/2
         return np.einsum ('fp,pq,qf->', self.frag2imp, exc_mat, self.imp2frag) 
 
