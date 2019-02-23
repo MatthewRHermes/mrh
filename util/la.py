@@ -102,10 +102,10 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
     rspace_isvectorblock = False if rspace is None else rspace.ndim == 2
 
     # Zero matrix escape
-    M = the_matrix.shape[0] if lspace is None else lspace.shape[-1]
-    Mbasis = the_matrix.shape[0]
-    N = the_matrix.shape[1] if rspace is None else rspace.shape[-1]
-    Nbasis = the_matrix.shape[1]
+    M = lspace.shape[-1] if lspace is not None else the_matrix.shape[0] 
+    Mbasis = lspace.shape[0] if lspace_isvectorblock else the_matrix.shape[0]
+    N = rspace.shape[-1] if rspace is not None else the_matrix.shape[1] 
+    Nbasis = rspace.shape[0] if rspace_isvectorblock else the_matrix.shape[1]
     if 0 in (M, N):
         if full_matrices: return np.zeros ((Mbasis,M)), np.zeros ((0)), np.zeros ((Nbasis,N))
         return np.zeros ((Mbasis,0)), np.zeros ((K)), np.zeros ((Nbasis,0))
@@ -113,50 +113,56 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
     # If symmetry information is provided as a vector block, transform into a symmetry-adapted basis and recurse
     if lsymm_isvectorblock:
         lsymm_umat = np.concatenate (lsymm, axis=1)
-        assert (lsymm_umat.shape == tuple([the_matrix.shape[1],the_matrix.shape[1]])), "I can't guess how to map symmetry blocks to different bases! Matt fix this bug!"
+        assert (lsymm_umat.shape == tuple((Mbasis, Mbasis))), "I can't guess how to map symmetry blocks to different bases! Matt fix this bug!"
         lsymm_lbls = np.concatenate ([idx * np.ones (blk.shape[1], dtype=int) for idx, blk in enumerate (lsymm)])
-        lsymm_matr = lsymm_umat.conjugate ().T @ the_matrix 
+        lsymm_matr = lsymm_umat.conjugate ().T @ the_matrix if isinstance (the_matrix, np.ndarray) else lsymm_umat.conjugate ().T * the_matrix
         if lspace is not None:
             # Since symm_isidx == False, I have to turn the subspace into a vector block too! Dang!
             if lspace_isvectorblock: lsymm_subs = lsymm_umat.conjugate ().T @ lspace
             else: lsymm_subs = lsymm_umat.conjugate ().T [:,subspace]
         # Be 200% sure that this recursion can't trigger this conditional block again!
         assert (not (isinstance (lsymm_lbls[0], np.ndarray))), 'Infinite recursion detected! Fix this bug!'
-        lvecs, svals, rvecs = matrix_svd_control_options (lsymm_matr, only_nonzero_vals=only_nonzero_vals,
+        rets = matrix_svd_control_options (lsymm_matr, only_nonzero_vals=only_nonzero_vals,
             full_matrices=full_matrices, sort_vecs=sort_vecs,
             lspace=lsymm_subs, rspace=rspace,
             lsymm=lsymm_lbls, rsymm=rsymm, symmetry=None,
             num_zero_atol=num_zero_atol, num_zero_rtol=num_zero_rtol)
-        lvecs = lsymm_umat @ lvecs
-        return lvecs, svals, rvecs
+        rets[0] = lsymm_umat @ rets[0]
+        return rets
     if rsymm_isvectorblock:
         rsymm_umat = np.concatenate (rsymm, axis=1)
-        assert (rsymm_umat.shape == tuple([the_matrix.shape[1],the_matrix.shape[1]])), "I can't guess how to map symmetry blocks to different bases! Matt fix this bug!"
+        assert (rsymm_umat.shape == tuple((Nbasis, Nbasis))), "I can't guess how to map symmetry blocks to different bases! Matt fix this bug!"
         rsymm_lbls = np.concatenate ([idx * np.ones (blk.shape[1], dtype=int) for idx, blk in enumerate (rsymm)])
-        rsymm_matr = the_matrix @ rsymm_umat
+        rsymm_matr = the_matrix @ rsymm_umat if isinstance (the_matrix, np.ndarray) else the_matrix * rsymm_umat
         if rspace is not None:
             # Since symm_isidx == False, I have to turn the subspace into a vector block too! Dang!
             if rspace_isvectorblock: rsymm_subs = rsymm_umat.conjugate ().T @ lspace
             else: rsymm_subs = rsymm_umat.conjugate ().T [:,subspace]
         # Be 200% sure that this recursion can't trigger this conditional block again!
         assert (not (isinstance (rsymm_lbls[0], np.ndarray))), 'Infinite recursion detected! Fix this bug!'
-        lvecs, svals, rvecs = matrix_svd_control_options (rsymm_matr, only_nonzero_vals=only_nonzero_vals,
+        rets = matrix_svd_control_options (rsymm_matr, only_nonzero_vals=only_nonzero_vals,
             full_matrices=full_matrices, sort_vecs=sort_vecs,
             lspace=lspace, rspace=rsymm_subs,
             lsymm=lsymm, rsymm=rsymm_lbls, symmetry=None,
             num_zero_atol=num_zero_atol, num_zero_rtol=num_zero_rtol)
-        lvecs = rsymm_umat @ lvecs
-        return lvecs, svals, rvecs
+        rets[2] = rsymm_umat @ rets[2]
+        return rets
 
     # Wrap in subspaces
     if lspace_isvectorblock:
-        the_matrix = lspace.conjugate ().T @ the_matrix
-    elif lspace is not None:
-        the_matrix = the_matrix[lspace,:]
+        if isinstance (the_matrix, np.ndarray):
+            the_matrix = lspace.conjugate ().T @ the_matrix 
+        else:
+            the_matrix = lspace.conjugate ().T * the_matrix
     if rspace_isvectorblock:
-        the_matrix = the_matrix @ rspace
+        if isinstance (the_matrix, np.ndarray):
+            the_matrix = the_matrix @ rspace
+        else:
+            the_matrix = the_matrix * rspace
     elif rspace is not None:
         the_matrix = the_matrix[:,rspace]
+    if not lspace_isvectorblock and lspace is not None:
+        the_matrix = the_matrix[lspace,:]
 
     # Kernel
     lvecs, svals, r2q = scipy.linalg.svd (the_matrix, full_matrices=full_matrices)
@@ -183,19 +189,27 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
         lvecs = lspace @ lvecs
     elif lspace is not None:
         subs_lvecs = lvecs.copy ()
-        lvecs = np.zeros (Mbasis, lvecs.shape[1], dtype=lvecs.dtype)
+        lvecs = np.zeros ((Mbasis, lvecs.shape[1]), dtype=lvecs.dtype)
         lvecs[lspace,:] = subs_lvecs
     if rspace_isvectorblock:
         rvecs = rspace @ rvecs
     elif rspace is not None:
         subs_rvecs = rvecs.copy ()
-        rvecs = np.zeros (Nbasis, rvecs.shape[1], dtype=rvecs.dtype)
+        rvecs = np.zeros ((Nbasis, rvecs.shape[1]), dtype=rvecs.dtype)
         rvecs[rspace,:] = subs_rvecs
 
+    lvecs, rvecs, llabels, rlabels = align_degenerate_coupled_vecs (lvecs, svals, rvecs, lsymm, rsymm, rtol=num_zero_rtol, atol=num_zero_atol)
+
+    if return_llabels and return_rlabels:
+        return lvecs, svals, rvecs, llabels, rlabels
+    elif return_llabels:
+        return lvecs, svals, rvecs, llabels
+    elif return_rlabels:
+        return lvecs, svals, rvecs, rlabels
     return lvecs, svals, rvecs
 
 def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, strong_symm=False, 
-    subspace=None, subs_symm=None, sort_vecs=-1, only_nonzero_vals=False, round_zero_vals=False, 
+    subspace=None, subspace_symmetry=None, sort_vecs=-1, only_nonzero_vals=False, round_zero_vals=False, 
     num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
     ''' Diagonalize a matrix using scipy's driver and also a whole lot of pre-/post-processing,
         most significantly sorting, throwing away numerical null spaces, 
@@ -222,9 +236,11 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
                 with the blocks in a currently arbitrary order.
             strong_symm: logical
                 If true, the actual diagonalization is carried out symmetry-blockwise.
-                Requires symmetry. Eigenvectors will be symmetry-adapted but this does not
+                Requires symmetry or subspace_symmetry.
+                Eigenvectors will be symmetry-adapted but this does not
                 check that the whole matrix is actually diagonalized by them so user beware!
-                Extra risky if a subspace is used because the vectors of the subspace
+                Extra risky if a subspace is used without subspace_symmetry
+                because the vectors of the subspace
                 are assigned to symmetry blocks in the same way as degenerate eigenvectors,
                 and the symmetry labels of the final eigenvectors are inherited from
                 the corresponding subspace symmetry block without double-checking.
@@ -238,10 +254,11 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
                 guaranteed within round-off error to be contained within the
                 subspace, but using a subspace may decrease the reliability
                 of symmetry assignments, even if strong_symm==True.
-            subs_symm: list of block labels of length Mprime
+            subspace_symmetry: list of block labels of length Mprime
             or list of non-square matrices of shape (Mprime,P), sum_P = Mprime
             or None
-                To be implemented: explicit symmetry information for the subspace
+                Formal symmetry information of the subspace. If included,
+                "symmetry" is ignored.
             sort_vecs: integer
                 Defines overall sorting of non-degenerate eigenvalues. -1 means from largest
                 to smallest; +1 means from smallest to largest. Play with other values at
@@ -274,35 +291,48 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
 
     '''
 
-    # Interpret symmetry information
-    return_labels = not (symmetry is None)
-    symm_isvectorblock = False if symmetry is None else isinstance (symmetry[0], np.ndarray)
-    if symmetry is not None and symm_isvectorblock and len (symmetry) == 1: symmetry = None
-    if symmetry is not None and not symm_isvectorblock and len (np.unique (symmetry)) == 1: symmetry = None
-    if symmetry is None: symm_isvectorblock = False
-
     # Interpret subspace information
     subspace = None if subspace is None else np.asarray (subspace)
     subspace_isvectorblock = False if subspace is None else subspace.ndim == 2
 
     # Interpret subspace symmetry information
-    if subs_symm is not None:
-        raise NotImplementedError ("Explicit subspace symmetry information.")
+    return_labels = not (symmetry is None) or not (subspace_symmetry is None)
+    subs_symm_isvectorblock = False if subspace_symmetry is None else isinstance (subspace_symmetry[0], np.ndarray)
+    if subspace_symmetry is not None:
+        symmetry = None
+        if subs_symm_isvectorblock:
+            if len (subspace_symmetry) == 1: subspace_symmetry = None
+        elif len (np.unique (subspace_symmetry)) == 1: subspace_symmetry = None
+    if subspace_symmetry is None: subs_symm_isvectorblock = False
 
-    # Prevent wasting time. Matt, you should gradually remove these lines to test edge-case tolerance
-    nouter = the_matrix.shape[-1] if subspace is None else subspace.shape[-1]
-    ninner = the_matrix.shape[-1]
-    if not nouter:
-        if return_labels: return np.zeros ((0)), np.zeros ((ninner,0)), np.ones ((0))
-        return np.zeros ((0)), np.zeros ((ninner,0))
-    if (symmetry is None): strong_symm = False
+    # Interpret (full space) symmetry information (discarded if subspace symmetry is provided!)
+    symm_isvectorblock = False if symmetry is None else isinstance (symmetry[0], np.ndarray)
+    if symmetry is not None and symm_isvectorblock and len (symmetry) == 1: symmetry = None
+    if symmetry is not None and not symm_isvectorblock and len (np.unique (symmetry)) == 1: symmetry = None
+    if symmetry is None: symm_isvectorblock = False
+    if (symmetry is None) and (subspace_symmetry is None): strong_symm = False
+
+    # Zero matrix escape
+    M = subspace.shape[-1] if subspace is not None else the_matrix.shape[0]
+    Mbasis = subspace.shape[0] if subspace_isvectorblock else the_matrix.shape[0]
+    if not M:
+        if return_labels: return np.zeros ((0)), np.zeros ((Mbasis,0)), np.ones ((0))
+        return np.zeros ((0)), np.zeros ((Mbasis,0))
+
+    # If subspace symmetry is provided as a vector block, transform subspace into a symmetry-adapted form
+    # No recursion necessary because the eigenvectors are meant to be provided in the full basis :)
+    if subs_symm_isvectorblock:
+        subspace = subspace @ np.concatenate (subspace_symmetry, axis=1)
+        subspace_symmetry = np.concatenate ([idx * np.ones (blk.shape[1], dtype=int) for idx, blk in enumerate (subspace_symmetry)])
 
     # If symmetry information is provided as a vector block, transform into a symmetry-adapted basis and recurse
     if symm_isvectorblock:
         symm_umat = np.concatenate (symmetry, axis=1)
-        assert (symm_umat.shape == the_matrix.shape), "I can't guess how to map symmetry blocks to different bases! Matt fix this bug!"
         symm_lbls = np.concatenate ([idx * np.ones (blk.shape[1], dtype=int) for idx, blk in enumerate (symmetry)])
-        symm_matr = symm_umat.conjugate ().T @ the_matrix @ symm_umat
+        if isinstance (the_matrix, np.ndarray):
+            symm_matr = symm_umat.conjugate ().T @ the_matrix @ symm_umat
+        else:
+            symm_matr = (symm_umat.conjugate ().T * the_matrix) @ symm_umat
         symm_bmat = symm_umat.conjugate ().T @ b_matrix @ symm_umat if b_matrix is not None else None
         if subspace is not None:
             # Since symm_isidx == False, I have to turn the subspace into a vector block too! Dang!
@@ -319,32 +349,27 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
     # Recurse from strong symmetry enforcement to diagonalization over individual symmetry blocks
     if strong_symm:
 
-        # If a subspace is being diagonalized and it's provided as a vector block, align the subspace vectors with the symmetry
-        subs_symm_lbls = subspace
-        if subspace is not None and subspace_isvectorblock:
-            subspace, subs_symm_lbls = align_vecs (subspace, symmetry, rtol=num_zero_rtol, atol=num_zero_atol)
-
-        # Recurse into diagonalization of individual symmetry blocks
-        uniq_lbls = np.unique (symmetry)
+        # If a subspace is being diagonalized, recurse into symmetry blocks via the subspace
+        if subspace is None:
+            symm_lbls = symmetry
+            subspace = np.ones (the_matrix.shape[0], dtype=np.bool_)
+        elif subspace_symmetry is not None:
+            symm_lbls = subspace_symmetry
+        elif subspace_isvectorblock:
+            subspace, symm_lbls = align_vecs (subspace, symmetry, rtol=num_zero_rtol, atol=num_zero_atol)
+        else:
+            symm_lbls = symmetry[subspace]
+            
+        # Recurse into diagonalization of individual symmetry blocks via the "subspace" option!
+        uniq_lbls = np.unique (symm_lbls)
         evals = []
         evecs = []
         labels = []
         for lbl in uniq_lbls:
-            if subspace is not None and np.count_nonzero (subs_symm_lbls == lbl) == 0:
-                continue
-            idx_blk = np.ix_(symmetry == lbl, symmetry == lbl)
-            mat_blk = the_matrix[idx_blk]
-            b_blk = b_matrix[idx_blk] if b_matrix is not None else None
-            subs_blk = None
-            if sub_symm_lbls is not None:
-                subs_blk = (subs_symm_lbls==lbl)
-                if subspace_isvectorblock: subs_blk = subspace[:,subs_blk]
-            # Be 200% sure that this recursion can't trigger this conditional block again!
-            evals_blk, _evecs_blk = matrix_eigen_control_options (mat_blk, symmetry=None, strong_symm=False,
+            subs_blk = subspace[...,symm_lbls==lbl]
+            evals_blk, evecs_blk = matrix_eigen_control_options (the_matrix, symmetry=None, strong_symm=False,
                 sort_vecs=sort_vecs, only_nonzero_vals=only_nonzero_vals, round_zero_vals=round_zero_vals,
                 b_matrix=b_blk, num_zero_atol=num_zero_atol, subspace=subs_blk)
-            evecs_blk = np.zeros ((the_matrix.shape[0], _evecs_blk.shape[1]), dtype=_evecs_blk.dtype)
-            evecs_blk[symmetry == lbl,:] = _evecs_blk
             evals.append (evals_blk)
             evecs.append (evecs_blk)
             labels.extend ([lbl for ix in range (len (evals_blk))])
@@ -362,7 +387,10 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
     if subspace is not None:
         assert (not strong_symm)
         if subspace_isvectorblock:
-            the_matrix = subspace.conjugate ().T @ the_matrix @ subspace
+            if isinstance (the_matrix, np.ndarray):
+                the_matrix = subspace.conjugate ().T @ the_matrix @ subspace
+            else:
+                the_matrix = (subspace.conjugate ().T * the_matrix) @ subspace
             b_matrix   = subspace.conjugate ().T @ b_matrix @ subspace if b_matrix is not None else None
         else:
             idx = np.ix_(subspace,subspace)
@@ -395,6 +423,7 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
         evals[idx] = 0
     evals, evecs = (np.asarray (output) for output in (evals, evecs))
 
+    evecs, labels = align_degenerate_vecs (evals, evecs, subspace_symmetry, rtol=num_zero_rtol, atol=num_zero_atol)
     # Wrap out subspace projection. This should be triggered if and only if strong_symm==False!
     if subspace is not None:
         assert (not strong_symm)
@@ -404,45 +433,44 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
             subs_evecs = evecs.copy ()
             evecs = np.zeros ((ndim_full, subs_evecs.shape[1]), dtype=subs_evecs.dtype)
             evecs[subspace,:] = subs_evecs
-
-    # ~Weak~ symmetry sorting part
-    if symmetry is not None:
-        assert (not isinstance (symmetry[0], np.ndarray)), "Shouldn't have been able to get here with a vector-block format of symmetry data! Matt fix this bug!"
-        uniq_labels = np.unique (symmetry)
-        idx_unchk = np.ones (len (evals), dtype=np.bool_)
-        labels = np.empty (len (evals), dtype=uniq_labels.dtype)
-        while np.count_nonzero (idx_unchk > 0):
-            chk_1st_eval = evals[idx_unchk][0]
-            idx_degen = np.isclose (evals, chk_1st_eval, rtol=num_zero_rtol, atol=num_zero_atol)
-            if np.count_nonzero (idx_degen) > 1:
-                evecs[:,idx_degen], labels[idx_degen] = align_vecs (evecs[:,idx_degen], symmetry, atol=num_zero_atol, rtol=num_zero_rtol)
-            else:
-                symmweight = [np.square (evecs[symmetry==lbl,idx_degen]).sum () for lbl in uniq_labels]
-                labels[idx_degen] = uniq_labels[np.argmax (symmweight)]
-            idx_unchk[idx_degen] = False
-    else:
-        labels = np.zeros (len (evals))    
+    if labels is None: evecs, labels = align_degenerate_vecs (evals, evecs, symmetry, rtol=num_zero_rtol, atol=num_zero_atol)
+    if labels is None: labels = np.zeros (len (evals))
 
     if return_labels: return evals, evecs, labels
     return evals, evecs
+
+def align_degenerate_vecs (vals, vecs, symm, rtol=params.num_zero_rtol, atol=params.num_zero_atol, assert_tol=0):
+    if symm is None:
+        return vecs, None
+    uniq_labels = np.unique (symm)
+    idx_unchk = np.ones (len (vals), dtype=np.bool_)
+    labels = np.empty (len (vals), dtype=uniq_labels.dtype)
+    while np.count_nonzero (idx_unchk):
+        chk_1st_eval = vals[idx_unchk][0]
+        idx_degen = np.isclose (vals, chk_1st_eval, rtol=rtol, atol=atol)
+        if np.count_nonzero (idx_degen) > 1:
+            vecs[:,idx_degen], labels[idx_degen] = align_vecs (vecs[:,idx_degen], symm, atol=atol, rtol=rtol)
+        else:
+            symmweight = [np.square (vecs[symm==lbl,idx_degen]).sum () for lbl in uniq_labels]
+            labels[idx_degen] = uniq_labels[np.argmax (symmweight)]
+        idx_unchk[idx_degen] = False
+    return vecs, labels
 
 def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zero_atol, assert_tol=0):
     col_labels = np.empty (vecs.shape[1], dtype=row_labels.dtype)
     uniq_labels = np.unique (row_labels)
     i = 0
     while i < vecs.shape[1]:
-        svdout = [matrix_svd_control_options (vecs[row_labels==lbl,i:], sort_vecs=-1,
-            only_nonzero_vals=False, full_matrices=True) for lbl in uniq_labels]
+        svdout = [matrix_svd_control_options (vecs[:,i:], sort_vecs=-1, only_nonzero_vals=False,
+            full_matrices=True, lspace=row_labels==lbl) for lbl in uniq_labels]
         # This argmax identifies the single best irrep assignment possible for all of vecs[:,i:]
-        symm_label_idx = np.argmax ([sval[0] for lvec, sval, rvec in svdout])
-        # lvecs and svals are now useless but I write this out just to make sure that I
-        # am remembering the return signature of svd correctly
+        symm_label_idx = np.argmax ([svals[0] for lvecs, svals, rvecs in svdout])
         lvecs, svals, rvecs = svdout[symm_label_idx]
         j = i + np.count_nonzero (np.isclose (svals, svals[0], atol=atol, rtol=rtol))
         col_labels[i:j] = uniq_labels[symm_label_idx]
         if assert_tol and not np.all (np.isclose (svals, 0, atol=assert_tol, rtol=rtol) | np.isclose (svals, 1, atol=assert_tol, rtol=rtol)):
             raise RuntimeError ('Vectors not block-adapted in space {}; svals = {}'.format (col_labels[i], svals))
-        # This puts the best-aligned vector at position i and causes all of vecs[:,i+1:] to be orthogonal to it
+        # This puts the best-aligned vector at position i and causes all of vecs[:,j:] to be orthogonal to it
         vecs[:,i:] = vecs[:,i:] @ rvecs
         assert (j > i)
         i = j
@@ -450,19 +478,80 @@ def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zer
         # It may improve numerical stability
     return vecs, col_labels
 
-def align_coupled_vecs (lvecs, coupl, rvecs, lrow_labels, rrow_labels, rtol=params.num_zero_rtol, atol=params.num_zero_atol, assert_tol=0):
+def align_degenerate_coupled_vecs (lvecs, svals, rvecs, lsymm, rsymm, rtol=params.num_zero_rtol, atol=params.num_zero_atol, assert_tol=0):
+    nvals = len (svals)
+    if lsymm is None and rsymm is None:
+        return lvecs, rvecs, None, None
+    elif lsymm is None:
+        rvals = np.append (svals, np.zeros (rvecs.shape[1] - nvals))
+        rvecs, rlabels = align_degenerate_vecs (rvals, rvecs, rsymm, rtol=rtol, atol=atol, assert_tol=assert_tol)
+        return lvecs, rvecs, None, rlabels
+    elif rsymm is None:
+        lvals = np.append (svals, np.zeros (lvecs.shape[1] - nvals))
+        lvecs, llabels = align_degenerate_vecs (lvals, lvecs, lsymm, rtol=rtol, atol=atol, assert_tol=assert_tol)
+        return lvecs, rvecs, llabels, None
+    if lsymm is None: lsymm = []
+    if rsymm is None: rsymm = []
+    uniq_labels = np.unique (np.append (lsymm, rsymm))
+    idx_unchk = np.ones (len (svals), dtype=np.bool_)
+    llabels = np.empty (lvecs.shape[1], dtype=uniq_labels.dtype)
+    rlabels = np.empty (rvecs.shape[1], dtype=uniq_labels.dtype)
+    lv = lvecs[:,:nvals]
+    rv = rvecs[:,:nvals]
+    ll = llabels[:nvals]
+    while np.count_nonzero (idx_unchk):
+        chk_1st_sval = svals[idx_unchk][0]
+        idx = np.isclose (svals, chk_1st_sval, rtol=rtol, atol=atol)
+        if np.count_nonzero (idx) > 1:
+            lv[:,idx], rv[:,idx], ll[idx] = align_coupled_vecs (
+                lv[:,idx], rv[:,idx], lsymm, rsymm, rtol=rtol, atol=atol)
+        else:
+            proj = lv[:,idx] @ rv[:,idx].conjugate ().T
+            symmweight = []
+            for lbl in uniq_labels:
+                if len (lsymm) > 0: proj = proj[lsymm==lbl,:]
+                if len (rsymm) > 0: proj = proj[:,rsymm==lbl]
+                symmweight.append (linalg.norm (proj))
+            ll[idx] = uniq_labels[np.argmax (symmweight)]
+        idx_unchk[idx_degen] = False
+    rlabels = llabels
+    if lvecs.shape[1] > nvals and len (lsymm) > 0:
+        lvecs[:,nvals:], llabels[nvals:] = align_vecs (lvecs[:,nvals:], lsymm, rtol=rtol, atol=atol)
+    if rvecs.shape[1] > nvals and len (rsymm) > 0:
+        rvecs[:,nvals:], rlabels[nvals:] = align_vecs (rvecs[:,nvals:], rsymm, rtol=rtol, atol=atol)
+    if len (lsymm) == 0: llabels = 0
+    if len (rsymm) == 0: rlabels = 0
+    return lvecs, rvecs, llabels, rlabels
+
+def align_coupled_vecs (lvecs, rvecs, lrow_labels, rrow_labels, rtol=params.num_zero_rtol, atol=params.num_zero_atol, assert_tol=0):
     assert (lvecs.shape[1] == rvecs.shape[1])
     npairs = lvecs.shape[1]
     assert (coupl.shape == (npairs, npairs))
     col_labels = np.empty (npairs, dtype=rrow_labels.dtype)
+    if lrow_labels is None: lrow_labels = []
+    if rrow_labels is None: rrow_labels = []
     uniq_labels = np.unique (np.concatenate (lrow_labels, rrow_labels))
+    coupl = lvecs @ rvecs.conjugate ().T
     i = 0
-    metric = lvecs @ coupl @ rvecs.conjugate ().T
     while i < npairs:
-        svdout = [matrix_svd_control_options (metric, sort_vecs=-1, only_nonzero_vals=False, full_matrices=True,
-            lspace=lrow_labels==lbl, rspace=rrow_labels==lbl) for lbl in uniq_labels]
-        symm_label_idx = np.argmax ([sval[0] for lvec, sval, rvec in svdout])
-        
+        svdout = []
+        for lbl in uniq_labels:
+            metric = coupl.copy ()
+            if len (lrow_labels) > 0: metric[lrow_labels!=lbl,:] = 0
+            if len (rrow_labels) > 0: metric[:,rrow_labels!=lbl] = 0
+            svdout.append (matrix_svd_control_options (metric, sort_vecs=-1, only_nonzero_vals=False, full_matrices=True,
+                lspace=lvecs[:,i:], rspace=rvecs[:,i:]))
+        symm_label_idx = np.argmax ([svals[0] for lu, svals, ru in svdout])
+        lu, svals, ru = svdout[symm_label_idx]
+        j = i + np.count_nonzero (np.isclose, svals, svals[0], atol=atol, rtol=rtol)
+        col_labels[i:j] = uniq_labels[symm_label_idx]
+        if assert_tol and not np.all (np.isclose (svals, 0, atol=assert_tol, rtol=rtol) | np.isclose (svals, 1, atol=assert_tol, rtol=rtol)):
+            raise RuntimeError ('Vectors not block-adapted in space {}; svals = {}'.format (col_labels[i], svals))
+        lvecs[:,i:] = lu
+        rvecs[:,i:] = ru
+        assert (j > i)
+        i = j
+    return lvecs, rvecs, col_labels
 
 def assign_blocks_weakly (the_states, the_blocks):
     projectors = [blk @ blk.conjugate ().T for blk in the_blocks]

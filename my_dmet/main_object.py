@@ -888,7 +888,7 @@ class dmet:
                 if loc2x.shape[1] == 0 or Mxk_rem[ix_frag] == 0:
                     continue
                 print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
-                evals, evecs = matrix_eigen_control_options (proj_gfrag[:,:,ix_frag], subspace=loc2x, sort_vecs=-1, only_nonzero_vals=False)
+                evals, loc2evecs = matrix_eigen_control_options (proj_gfrag[:,:,ix_frag], subspace=loc2x, sort_vecs=-1, only_nonzero_vals=False)
                 ix_zero = np.abs (evals) < 1e-8
                 # Scale the eigenvalues to evaluate their comparison to the sum of projector expt vals of unfull fragments
                 # exptvals = np.einsum ('ip,ijk,k,jp->p', loc2evecs.conjugate (), proj_gfrag, ix_rem.astype (int), loc2evecs)

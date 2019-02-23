@@ -302,11 +302,7 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
     c2b = np.asarray (overlapping_basis)
     b2c = c2b.conjugate ().T
     cOc = ovlp
-    if isinstance (ovlp, np.ndarray):
-        cOc = np.asarray (ovlp)
-        bOb = b2c @ cOc @ c2b
-    else:
-        cOc = (b2c * cOc) @ c2b
+    bOb = b2c @ cOc @ c2b if isinstance (cOc, np.ndarray) else (b2c * cOc) @ c2b
     assert (not is_matrix_zero (bOb)), "overlap matrix is zero! problem with basis?"
     assert (np.allclose (bOb, bOb.conjugate ().T)), "overlap matrix not hermitian! problem with basis?"
     assert (np.abs (np.trace (bOb)) > num_zero_atol), "overlap matrix zero or negative trace! problem with basis?"
@@ -326,7 +322,7 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
     x2n = np.asarray (np.diag (np.reciprocal (np.sqrt (evals))))
     c2n = c2x @ x2n
     n2c = c2n.conjugate ().T
-    nOn = n2c @ cOc @ c2n
+    nOn = n2c @ cOc @ c2n if isinstance (cOc, np.ndarray) else (n2c * cOc) @ c2n
     if not is_basis_orthonormal (c2n):
         # Assuming numerical problem due to massive degeneracy; remove constant from diagonal to improve solver?
         assert (np.all (np.isclose (np.diag (nOn), 1))), np.diag (nOn) - 1
@@ -337,7 +333,7 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
         x2n = np.asarray (np.diag (np.reciprocal (np.sqrt (evals + 1))))
         c2n = c2x @ x2n
         n2c = c2n.conjugate ().T
-        nOn = n2c @ cOc @ c2n
+        nOn = n2c @ cOc @ c2n if isinstance (cOc, np.ndarray) else (n2c * cOc) @ c2n
         assert (is_basis_orthonormal (c2n)), "failed to orthonormalize basis even after two tries somehow\n" + str (
             prettyprint_ndarray (nOn)) + "\n" + str (np.linalg.norm (nOn - np.eye (c2n.shape[1]))) + "\n" + str (evals)
 
