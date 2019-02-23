@@ -936,9 +936,9 @@ class dmet:
                     proj_frag = represent_operator_in_basis (proj_frag, loc2amo)
                     evals, evecs = matrix_eigen_control_options (proj_frag, sort_vecs=-1, only_nonzero_vals=False)
                     loc2amo_guess = np.dot (loc2amo, evecs[:,:f.active_space[1]]) 
-            fock = represent_operator_in_basis (self.ints.activeFOCK, loc2amo_guess)
-            evals, evecs = matrix_eigen_control_options (fock, sort_vecs=1, only_nonzero_vals=False)
-            f.loc2amo_guess = np.dot (loc2amo_guess, evecs)
+                fock = represent_operator_in_basis (self.ints.activeFOCK, loc2amo_guess)
+                evals, evecs = matrix_eigen_control_options (fock, sort_vecs=1, only_nonzero_vals=False)
+                f.loc2amo_guess = np.dot (loc2amo_guess, evecs)
 
         if len (guess_somos) == len (self.fragments):
             # construct rohf-like density matrices and set loc2amo_guess -> loc2amo
