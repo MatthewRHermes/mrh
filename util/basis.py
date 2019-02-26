@@ -224,10 +224,10 @@ compute_nelec_in_subspace = compute_operator_trace_in_subset
 
 
 
-def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol, only_nonzero_vals=True):
+def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_symmetry=None, outer_symmetry=None, max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol, only_nonzero_vals=True):
     c2p = np.asarray (bra_basis)
     c2q = np.asarray (ket_basis)
-    cOc = np.eye (bra_basis.shape[0]) if across_operator is None else np.asarray (across_operator)
+    cOc = 1 if across_operator is None else np.asarray (across_operator)
     assert (c2p.shape[0] == c2q.shape[0]), "you need to give the two spaces in the same basis"
     assert (c2p.shape[1] <= c2p.shape[0]), "you need to give the first state in a complete basis (c2p). Did you accidentally transpose it?"
     assert (c2q.shape[1] <= c2q.shape[0]), "you need to give the second state in a complete basis (c2q). Did you accidentally transpose it?"
@@ -235,38 +235,12 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, max_nrve
     assert (max_nrvecs <= c2q.shape[1]), "you can't ask for more right states than are in your right space"
     if np.any (across_operator):
         assert (c2p.shape[0] == cOc.shape[0] and c2p.shape[0] == cOc.shape[1]), "when specifying an across_operator, it's dimensions need to be the same as the external basis"
+    symmetry = None if inner_symmetry is None else inner_symmetry
+    lspsm, rspsm = None, None if outer_symmetry is None else outer_symmetry
 
-    p2c = c2p.conjugate ().T
-    pOq = p2c @ c2q if across_operator is None else p2c @ cOc @ c2q
-
-    try:
-        p2l, svals, q2r = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
-    except ValueError as e:
-        if 0 in pOq.shape:
-            print ("get_overlapping_states: one of bra or ket basis is zero size; returning bra and ket basis unchanged")
-            return bra_basis, ket_basis, np.zeros (0)
-        else:
-            print (pOq.shape)
-            raise (e)
-            
-
-    '''
-    pQp = pOq * pOq.H
-    qPq = pOq.H * pOq
-    pevals, p2l = matrix_eigen_control_options (pQp, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, round_zero_vals=True, num_zero_atol=num_zero_atol)
-    qevals, q2r = matrix_eigen_control_options (qPq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, round_zero_vals=True, num_zero_atol=num_zero_atol)
-    nsvals = min (c2p.shape[1], c2q.shape[1])
-    pevals = pevals[:nsvals] # Has no effect if only_nonzero_vals==True, because len (pevals) couldn't possibly be > nsvals in that case
-    qevals = qevals[:nsvals] # ditto
-    try:
-        svals = np.sqrt (np.mean ([pevals, qevals], axis=0))
-    except ValueError: # If only_nonzero_vals==True, numerical noise might strip an eigenvalue on one side but not the other
-        p2l, svals, q2l = matrix_svd_control_options (pOq, sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, full_matrices=False)
-    '''
-
-    # Get the left- and right-vectors back in the external basis
-    c2l = c2p @ p2l
-    c2r = c2q @ q2r
+    c2l, svals, c2r = matrix_svd_control_options (cOc, lspace=c2p, rspace=c2q,
+        symmetry=symmetry, lspace_symmetry=lspsm, rspace_symmetry=rspsm,
+        sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
 
     # Truncate the basis if requested
     max_nlvecs = max_nlvecs or len (svals)
