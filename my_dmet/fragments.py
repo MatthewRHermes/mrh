@@ -242,6 +242,14 @@ class fragment_object:
         return np.dot (self.imp2loc, self.loc2mo)
 
     @property
+    def amo2frag (self):
+        return np.dot (self.amo2loc, self.loc2frag)
+
+    @property
+    def frag2amo (self):
+        return np.dot (self.frag2loc, self.loc2amo)
+
+    @property
     def is_frag_orb (self):
         r = np.zeros (self.norbs_tot, dtype=bool)
         r[self.frag_orb_list] = True
