@@ -224,7 +224,7 @@ compute_nelec_in_subspace = compute_operator_trace_in_subset
 
 
 
-def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_symmetry=None, outer_symmetry=None, max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol, only_nonzero_vals=True):
+def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_symmetry=None, outer_symmetry=None, max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol, only_nonzero_vals=True, full_matrices=False):
     c2p = np.asarray (bra_basis)
     c2q = np.asarray (ket_basis)
     cOc = 1 if across_operator is None else np.asarray (across_operator)
@@ -235,30 +235,28 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_sy
     assert (max_nrvecs <= c2q.shape[1]), "you can't ask for more right states than are in your right space"
     if np.any (across_operator):
         assert (c2p.shape[0] == cOc.shape[0] and c2p.shape[0] == cOc.shape[1]), "when specifying an across_operator, it's dimensions need to be the same as the external basis"
-    symmetry = None if inner_symmetry is None else inner_symmetry
+    get_labels = (not (inner_symmetry is None)) or (not (outer_symmetry is None))
     lspsm, rspsm = None, None if outer_symmetry is None else outer_symmetry
 
-    c2l, svals, c2r = matrix_svd_control_options (cOc, lspace=c2p, rspace=c2q,
-        symmetry=symmetry, lspace_symmetry=lspsm, rspace_symmetry=rspsm,
-        sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
+    rets = matrix_svd_control_options (cOc, lspace=c2p, rspace=c2q, full_matrices=full_matrices,
+        symmetry=inner_symmetry,
+        lspace_symmetry=lspsm, rspace_symmetry=rspsm,
+        sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)[:3]
+
+    c2l, svals, c2r = rets[:3]
+    if get_labels: llab, rlab = rets[3:]
 
     # Truncate the basis if requested
-    max_nlvecs = max_nlvecs or len (svals)
-    max_nrvecs = max_nrvecs or len (svals)
+    max_nlvecs = max_nlvecs or c2l.shape[1]
+    max_nrvecs = max_nrvecs or c2r.shape[1]
 
     # But you can't truncate it smaller than it already is
-    notes = (side for side in [(max_nlvecs, 'left'), (max_nrvecs, 'right')] if side[0] > len (svals))
-    for requested, side in notes:
-        head_str = "get_overlapping_states :: note : "
-        note_1 = "{0} states projected into overlap space requested on the {1} side, but only {2} such pairs found ; ".format (requested, side, len (svals))
-        note_2 = "returning only {0} states to caller".format (len (svals))
-        print (head_str + note_1 + note_2)
-    max_nlvecs = min (max_nrvecs, len (svals))
-    max_nrvecs = min (max_nlvecs, len (svals))
-    c2r = c2r[:,:max_nrvecs]
+    max_nlvecs = min (max_nlvecs, c2l.shape[1])
+    max_nrvecs = min (max_nrvecs, c2r.shape[1])
     c2l = c2l[:,:max_nlvecs]
+    c2r = c2r[:,:max_nrvecs]
 
-    c2l, c2r, svals = (np.asarray (output) for output in (c2l, c2r, svals))
+    if get_labels: return c2l, c2r, svals, llab, rlab
     return c2l, c2r, svals
     
 def measure_basis_olap (bra_basis, ket_basis):

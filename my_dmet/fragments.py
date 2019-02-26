@@ -444,8 +444,9 @@ class fragment_object:
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
         oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
         oneRDMa_loc = oneRDM_loc - oneRDMi_loc
-        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMi_loc, 
-            loc2wfrag, self.norbs_bath_max, bath_tol=self.bath_tol, idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
+        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMi_loc, loc2wfrag,
+            self.norbs_bath_max, symmetry=self.loc2symm, bath_tol=self.bath_tol,
+            idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_qfrag + norbs_bath
         self.Schmidt_done = True
         oneRDMacore_loc = project_operator_into_subspace (oneRDMa_loc, self.loc2core)
@@ -507,6 +508,7 @@ class fragment_object:
         loc2virtunaccore = loc2virtunaccore[:,idx_virtunaccore]
 
         loc2virtbath, svals = get_overlapping_states (loc2ao, loc2virtunaccore)[1:]
+        if loc2virtbath.shape[1] == 0: return loc2virtbath
         check_nocc = np.trace (represent_operator_in_basis (oneRDM_loc, loc2virtbath))
         check_bath = np.amax (np.abs (np.dot (self.imp2loc, loc2virtbath)))
         print ("Are my `virtual bath' orbitals unoccupied and currently in the core? check_nocc = {}, check_bath = {}".format (check_nocc, check_bath))

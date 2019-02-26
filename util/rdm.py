@@ -22,7 +22,9 @@ def get_1RDM_from_OEI_in_subspace (one_electron_hamiltonian, subspace_basis, noc
     oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, w2l)
     return oneRDM_loc
     
-def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=params.num_zero_atol, num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
+def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, frag_symm=None, bath_tol=params.num_zero_atol, num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
+    get_labels = (not (symmetry is None)) or (not (frag_symm is None))
+    env_symm=None
     norbs_tot = assert_matrix_square (the_1RDM)
     norbs_frag = loc2frag.shape[1]
     assert (norbs_tot >= norbs_frag and loc2frag.shape[0] == norbs_tot)
@@ -36,66 +38,26 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, bath_tol=params.
     # The fragment semi-natural orbitals are from the right-singular vectors of ~any~ singular value
     # Note that only ~entangled~ fragment orbitals are returned so don't overwrite loc2frag!
     loc2env = get_complementary_states (loc2frag)
-    loc2bath, loc2efrag, svals = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, only_nonzero_vals=False)
-
-    # If I specified that I want less than the maxiumum possible number of bath orbitals, I need to implement that here
-    norbs_bath = min (np.count_nonzero (np.abs (svals)>bath_tol), norbs_bath_max)
-    dropped_svals_norm = 0 if len (svals) == norbs_bath else linalg.norm (svals[norbs_bath:])
-    svals = svals[:norbs_bath]
-    loc2bath = loc2bath[:,:norbs_bath]
-    loc2ent = np.append (loc2efrag, loc2bath, axis=1)
-
-    # Get unentangled natural orbitals, separated into fragment and core. Unfortunately, it will be necessary to do ~3~ diagonalizations here, because of degeneracy leading to
-    # undetermined rotations.
-    Pfrag_loc = np.dot (loc2frag, loc2frag.conjugate ().T)
-    loc2une = get_complementary_states (loc2ent)
-    pfrag, pfrag_evecs = matrix_eigen_control_options (represent_operator_in_basis (Pfrag_loc, loc2une))
-    loc2une = np.dot (loc2une, pfrag_evecs)
-    idx_frag = np.isclose (pfrag, 1, atol=num_zero_atol, rtol=num_zero_rtol)
-    idx_core = np.isclose (pfrag, 0, atol=num_zero_atol, rtol=num_zero_rtol)
-    # Check that math works
-    assert (np.all (np.logical_or (idx_frag, idx_core))), pfrag
-    loc2ufrag = loc2une[:,idx_frag]
-    loc2core  = loc2une[:,idx_core]
-    no_occs_frag, no_evecs_frag = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2ufrag))
-    no_occs_core, no_evecs_core = matrix_eigen_control_options (represent_operator_in_basis (the_1RDM, loc2core))
-    loc2ufrag = np.dot (loc2ufrag, no_evecs_frag)
-    loc2core  = np.dot (loc2core, no_evecs_core)
-    print ("Found {} unentangled fragment orbitals and {} core orbitals".format (loc2ufrag.shape[1], loc2core.shape[1]))
-
-    # Build embedding basis: frag (efrag then ufrag, check that this is complete!), bath, core. Check for zero frag-core entanglement
-    loc2frag = np.append (loc2efrag, loc2ufrag, axis=1)
-    err = linalg.norm (represent_operator_in_basis (Pfrag_loc, loc2frag) - np.eye (loc2frag.shape[1]))
-    assert (are_bases_equivalent (loc2frag_inp, loc2frag)), err
-    errmat = represent_operator_in_basis (the_1RDM, loc2frag, loc2core)
-    assert (loc2core.shape[1] == 0 or is_matrix_zero (errmat, atol=1e-3)), linalg.norm (errmat)
-    loc2imp = np.append (loc2frag, loc2bath, axis=1)
-    assert (is_basis_orthonormal (loc2imp))
+    loc2env, loc2frag, svals = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, inner_symmetry=symmetry, only_nonzero_vals=True, full_matrices=True)
+    norbs_bath = len (svals) #np.count_nonzero (svals > bath_tol)
+    norbs_core = norbs_env - norbs_bath
+    norbs_ufrag = norbs_frag - norbs_bath
+    print ("{} of {} possible bath orbitals found, leaving {} unentangled fragment and {} core orbitals".format (
+        norbs_bath, norbs_frag, norbs_ufrag, norbs_core))
+    assert (loc2frag.shape == (norbs_tot, norbs_frag)), loc2frag.shape
+    assert (loc2env.shape == (norbs_tot, norbs_env)), loc2env.shape
+    loc2bath = loc2env[:,:norbs_bath]
+    loc2core = loc2env[:,norbs_bath:]
+    loc2efrag = loc2frag[:,:norbs_bath]
+    loc2ufrag = loc2frag[:,norbs_bath:]
+    if norbs_ufrag > 0:
+        loc2ufrag = matrix_eigen_control_options (the_1RDM, subspace=loc2ufrag, symmetry=symmetry, sort_vecs=-1, only_nonzero_vals=False)[1]
+    if norbs_core > 0:
+        loc2core = matrix_eigen_control_options (the_1RDM, subspace=loc2core, symmetry=symmetry, sort_vecs=-1, only_nonzero_vals=False)[1]
+    loc2imp = np.concatenate ([loc2ufrag, loc2efrag, loc2bath], axis=1)
+    nelec_imp = ((the_1RDM @ loc2imp) * loc2imp).sum ()
     loc2emb = np.append (loc2imp, loc2core, axis=1)
-    assert (is_basis_orthonormal_and_complete (loc2emb))
-
-    # Calculate the number of electrons in the would-be impurity model
-    nelec_imp = compute_nelec_in_subspace (the_1RDM, loc2imp)
-
-    # Check the fidelity of the diagonalizations
-    test = represent_operator_in_basis (the_1RDM, loc2emb)
-    test[np.diag_indices_from (test)] = 0
-    idx_rectdiag = np.diag_indices (norbs_bath)
-    test_fe = test[:norbs_frag,norbs_frag:]
-    svals_test = np.copy (test_fe[idx_rectdiag])
-    test_fe[idx_rectdiag] = 0
-    test_ef = test[norbs_frag:,:norbs_frag]
-    test_ef[idx_rectdiag] = 0
-    print ("Schmidt decomposition total diagonal error: {}".format (linalg.norm (test)))
-    sec = ('frag', 'bath', 'core')
-    lim = (0, norbs_frag, norbs_frag+norbs_bath, norbs_tot)
-    for i, j in itertools.product (range (3), repeat=2):
-        test_view = test[lim[i]:lim[i+1],lim[j]:lim[j+1]]
-        #print ("Schmidt decomposition {}-{} block diagonal error: {}".format (sec[i],sec[j],linalg.norm(test_view)))
-    print ("Schmidt decomposition svals error: {}".format (linalg.norm (svals - svals_test)))
-    print ("Schmidt decomposition smallest sval: {}".format (np.amin (np.insert (np.abs (svals), 0, 0))))
-    
-    return loc2emb, norbs_bath, nelec_imp
+    return loc2emb, norbs_bath, nelec_imp, labels
 
 def electronic_energy_orbital_decomposition (norbs_tot, OEI=None, oneRDM=None, TEI=None, twoRDM=None):
     E_bas = np.zeros (norbs_tot)
@@ -139,10 +101,10 @@ def idempotize_1RDM (oneRDM, thresh):
     new_oneRDM = represent_operator_in_basis (np.diag (new_evals), evecs.T)
     return new_oneRDM, nelec_diff
 
-def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bath_max, bath_tol=params.num_zero_atol, idempotize_thresh=0, num_zero_atol=params.num_zero_atol):
+def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bath_max, symmetry=None, frag_symm=None, bath_tol=params.num_zero_atol, idempotize_thresh=0, num_zero_atol=params.num_zero_atol):
     norbs_tot = loc2wfrag.shape[0]
     norbs_wfrag = loc2wfrag.shape[1]
-    loc2wemb, norbs_wbath, nelec_wimp = Schmidt_decompose_1RDM (working_1RDM, loc2wfrag, norbs_bath_max, bath_tol=bath_tol)
+    loc2wemb, norbs_wbath, nelec_wimp, labels = Schmidt_decompose_1RDM (working_1RDM, loc2wfrag, norbs_bath_max, bath_tol=bath_tol, symmetry=symmetry)
     norbs_wimp  = norbs_wfrag + norbs_wbath
     norbs_wcore = norbs_tot - norbs_wimp
     loc2wimp  = loc2wemb[:,:norbs_wimp]
@@ -159,7 +121,7 @@ def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bat
             + "{0}, {1} electrons were found in the impurity".format (idempotize_thresh, nelec_wimp))
     if not np.isclose (nelec_wimp / 2, round(nelec_wimp/2), atol=num_zero_atol, rtol=1e-5):
         raise RuntimeError ("Can't solve impurity problems without even-integer number of electrons! nelec_wimp={0}".format (nelec_wimp))
-    return loc2wemb, norbs_wbath, int (round (nelec_wimp)), working_1RDM_core
+    return loc2wemb, norbs_wbath, int (round (nelec_wimp)), working_1RDM_core, labels
 
 def get_2CDM_from_2RDM (twoRDM, oneRDMs):
     oneRDMs = np.asarray (oneRDMs)
