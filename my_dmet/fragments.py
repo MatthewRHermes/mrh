@@ -1,7 +1,7 @@
 import re, sys
 import numpy as np
 import scipy as sp 
-from pyscf import gto, scf
+from pyscf import gto, scf, ao2mo
 from pyscf.scf.hf import dot_eri_dm
 from pyscf.scf.addons import project_mo_nr2nr
 from pyscf.tools import molden
