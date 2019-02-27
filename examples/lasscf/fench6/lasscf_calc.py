@@ -52,7 +52,8 @@ def grab_3d_ls (mf):
     irrep_cmo['B3g'] -= 1
     mo_coeff = sort_mo_by_irrep (mc, mo_coeff, {'Ag': 2, 'B1g': 1, 'B2g': 1, 'B3g': 1}, cas_irrep_ncore = irrep_cmo)
     symms = symm.label_orb_symm (mol, mol.irrep_name, mol.symm_orb, mo_coeff)
-    return mo_coeff
+    mf.mo_coeff = mo_coeff
+    return mf
 
 def grab_3d_hs (mf):
     mol = mf.mol
@@ -79,7 +80,8 @@ def grab_3d_hs (mf):
     mo_coeff[:,idx_3d] = grab_ao (mol, mo_coeff[:,idx_3d], 'Fe 3d', sorting=1)
     mo_coeff = sort_mo_by_irrep (mc, mo_coeff, cas_irreps, cas_irrep_ncore = irrep_cmo)
     symms = symm.label_orb_symm (mol, mol.irrep_name, mol.symm_orb, mo_coeff)
-    return mo_coeff
+    mf.mo_coeff = mo_coeff
+    return mf
 
 # I/O
 # --------------------------------------------------------------------------------------------------------------------
