@@ -907,40 +907,109 @@ class dmet:
              
         return loc2wmcs
 
-    def generate_frag_cas_guess (self, mf, CASlist=None, confine_guess=True, guess_somos = []):
-
-        nelec_cas = sum ((f.active_space[0] for f in self.fragments if f.active_space is not None))
-        norbs_cas = sum ((f.active_space[1] for f in self.fragments if f.active_space is not None))
-        cas = mcscf.CASCI (mf, norbs_cas, nelec_cas)
-        ncore_cas = cas.ncore
-        fock = self.ints.activeOEI 
-    
-        if CASlist is None:
-            mo = cas.mo_coeff
-        else:
-            mo = cas.sort_mo (CASlist)
+    def generate_frag_cas_guess (self, mo_coeff=None, caslst=None, cas_irrep_nocc=None, cas_irrep_ncore=None, replace=False, force_imp=False, confine_guess=True, guess_somos = []):
+        ''' Generate initial active-orbital guesses for fragments from the whole-molecule MOs. Either add active orbitals
+        or replace them. '''
         
-        loc2amo = reduce (np.dot, (self.ints.ao2loc.conjugate ().T, self.ints.ao_ovlp, mo[:,ncore_cas:ncore_cas+norbs_cas]))
-        proj_amo = np.dot (loc2amo, loc2amo.conjugate ().T)
-        fock = self.ints.activeFOCK
+        if replace:
+            print ("Deleting existing amos...")
+            for f in self.fragments:
+                f.loc2amo = np.zeros ((self.ints.norbs_tot, 0), dtype=self.ints.ao2loc.dtype)
+                f.oneRDMas_loc = np.zeros_like (self.ints.oneRDM_loc)
+                f.twoCDMimp_amo = np.zeros ((0,0,0,0), dtype=self.ints.ao2loc.dtype)
+                f.ci_as = None
+        loc2wmas_current = np.concatenate ([f.loc2amo for f in self.fragments if f.active_space is not None], axis=1)
+        if mo_coeff is None:        
+            if self.doLASSCF:
+                mo_coeff = self.ints.get_trial_nos (ao_basis=True, loc2wmas=loc2wmas_current)[0]
+            else:
+                mo_coeff = self.ints.get_trial_nos (ao_basis=True, loc2wmas=None)[0]
+        
+        nelec_wmas_target = sum ([f.active_space[0] for f in self.fragments if f.active_space is not None])
+        norbs_wmas_target = sum ([f.active_space[1] for f in self.fragments if f.active_space is not None])
+        assert ((self.ints.nelec_tot - nelec_wmas_target) % 2 == 0), 'parity problem: {} of {} electrons active in target'.format (nelec_wmas_target, self.ints.nelec_tot)
+        ncore_target = (self.ints.nelec_tot - nelec_wmas_target) // 2
+        nocc_target = ncore_target + norbs_wmas_target
+        print ("ncore_target = {}; nocc_target = {}".format (ncore_target, nocc_target))
+
+        nelec_wmas_current = sum ([f.nelec_as for f in self.fragments if f.norbs_as > 0])
+        norbs_wmas_current = sum ([f.norbs_as for f in self.fragments if f.norbs_as > 0])
+        assert ((self.ints.nelec_tot - nelec_wmas_current) % 2 == 0), 'parity problem: {} of {} electrons active in currently'.format (nelec_wmas_target, self.ints.nelec_tot)
+        ncore_current = (self.ints.nelec_tot - nelec_wmas_current) // 2
+        nocc_current = ncore_current + norbs_wmas_current
+        print ("ncore_current = {}; nocc_current = {}".format (ncore_current, nocc_current))
+
+        if norbs_wmas_current > 0:
+            wmas2ao_current = (self.ints.ao2loc @ loc2wmas_current).conjugate ().T
+            amo_coeff = mo_coeff[:,ncore_current:nocc_current]
+            ovlp = wmas2ao_current @ self.ints.ao_ovlp @ amo_coeff
+            ovlp = np.trace (ovlp.conjugate ().T @ ovlp) / norbs_wmas_current
+            assert (np.isclose (ovlp, 1)), 'unless replace=True, mo_coeff must contain current active orbitals at range {}:{} (err={})'.format (ncore_current,nocc_current, ovlp-1)
+            if caslst is not None and len (caslst) > 0:
+                assert (np.all (np.isin (list(range(ncore_current+1,nocc_current+1)), caslst))), 'caslst must contain range {}:{} inclusive ({})'.format (ncore_current+1, nocc_current, caslst)
+
+        if caslst is not None and len (caslst) == 0: caslst = None
+        if caslst is not None and cas_irrep_nocc is not None:
+            print ("Warning: caslst overrides cas_irrep_nocc!")
+        if caslst is not None:
+            mf = scf.RHF (self.ints.mol)
+            mf.mo_coeff = mo_coeff
+            cas = mcscf.CASCI (mf, norbs_wmas_target, nelec_wmas_target)
+            mo_coeff = cas.sort_mo (caslst)
+        elif cas_irrep_nocc is not None:
+            mf = scf.RHF (self.ints.mol)
+            mf.mo_coeff = mo_coeff
+            cas = mcscf.CASCI (mf, norbs_wmas_target, nelec_wmas_target)
+            mo_coeff = cas.sort_mo_by_irrep (cas_irrep_nocc, cas_irrep_ncore=cas_irrep_ncore)
+            
+            
+        amo_new_coeff = np.append (mo_coeff[:,ncore_target:ncore_current], mo_coeff[:,nocc_current:nocc_target], axis=1)
+
+        loc2amo_new = orthonormalize_a_basis (linalg.solve (self.ints.ao2loc, amo_new_coeff))
+        projamo = np.dot (loc2amo_new, loc2amo_new.conjugate ().T)
 
         for f in self.fragments:
             if f.active_space is not None:
+                my_new_orbs = f.active_space[1] - f.norbs_as
                 if confine_guess:
                     p = represent_operator_in_basis (proj_amo, f.get_true_loc2frag ())
                     evals, evecs = matrix_eigen_control_options (p, sort_vecs=-1, only_nonzero_vals=False)
                     evals = evals[:f.active_space[1]]
-                    loc2amo_guess = np.dot (f.get_true_loc2frag (), evecs[:,:f.active_space[1]])
+                    loc2amo_guess = np.dot (f.get_true_loc2frag (), evecs[:,:my_new_orbs])
                 else:
                     proj_frag = np.dot (f.get_true_loc2frag (), f.get_true_loc2frag ().conjugate ().T)
-                    proj_frag = represent_operator_in_basis (proj_frag, loc2amo)
+                    proj_frag = represent_operator_in_basis (proj_frag, loc2amo_new)
                     evals, evecs = matrix_eigen_control_options (proj_frag, sort_vecs=-1, only_nonzero_vals=False)
-                    loc2amo_guess = np.dot (loc2amo, evecs[:,:f.active_space[1]]) 
+                    loc2amo_guess = np.dot (loc2amo_new, evecs[:,:my_new_orbs]) 
+                # Set up somo twoCDM for accurate initial guess energy
+                evals, evecs = matrix_eigen_control_options (represent_operator_in_basis (self.ints.oneRDM_loc, loc2amo_guess))
+                idx_somo = (evals > 0.8) & (evals < 1.2)
+                nsomo = np.count_nonzero (idx_somo)
+                if nsomo > 0:
+                    loc2somo = loc2amo_guess @ evecs[:,idx_somo]
+                    dma = np.eye (nsomo)
+                    dmb = np.zeros ((nsomo, nsomo), dtype=dma.dtype)
+                    twoCDM_somo = get_2CDM_from_2RDM (get_2RDM_from_2CDM (np.zeros ([nsomo,]*4, dtype=dma.dtype), [dma,dmb]), dma+dmb)
+                # Back to the guess orbitals
+                loc2amo_guess = np.append (f.loc2amo, loc2amo_guess, axis=1)
                 fock = represent_operator_in_basis (self.ints.activeFOCK, loc2amo_guess)
-                evals, evecs = matrix_eigen_control_options (fock, sort_vecs=1, only_nonzero_vals=False)
-                f.loc2amo_guess = np.dot (loc2amo_guess, evecs)
+                ovlp = loc2amo_guess.conjugate ().T @ loc2amo_guess
+                evals, evecs = linalg.eigh (fock, b=ovlp)
+                idx = np.argsort (evals)
+                f.loc2amo_guess = np.dot (loc2amo_guess, evecs[:,idx])
+                if force_imp:
+                    print ("force_imp!")
+                    old2new_amo = f.loc2amo.conjugate ().T @ f.loc2amo_guess
+                    f.loc2amo = f.loc2amo_guess.copy ()
+                    f.oneRDMas_loc = project_operator_into_subspace (self.ints.oneRDM_loc, f.loc2amo)
+                    f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, old2new_amo)
+                    if nsomo > 0:
+                        somo2amo = loc2somo.conjugate ().T @ f.loc2amo
+                        f.twoCDMimp_amo += represent_operator_in_basis (twoCDM_somo, somo2amo)
+                    f.ci_as = None
 
         if len (guess_somos) == len (self.fragments):
+            assert (not force_imp), "Don't force_imp and guess_somos at the same time"
             # construct rohf-like density matrices and set loc2amo_guess -> loc2amo
             for nsomo, f, in zip (guess_somos, self.fragments):
                 if f.active_space is None:
@@ -961,6 +1030,7 @@ class dmet:
                 f.loc2amo = f.loc2amo_guess.copy ()
                 f.twoCDMimp_amo = get_2CDM_from_2RDM (twoRDM, dm) 
                 f.oneRDMas_loc = represent_operator_in_basis (dm, f.loc2amo.conjugate ().T)
+                f.ci_as = None
             
     def save_checkpoint (self, fname):
         ''' Data array structure: nao_nr, chempot, 1RDM or umat, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
