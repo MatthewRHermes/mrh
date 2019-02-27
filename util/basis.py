@@ -224,7 +224,7 @@ compute_nelec_in_subspace = compute_operator_trace_in_subset
 
 
 
-def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_symmetry=None, outer_symmetry=None, max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol, only_nonzero_vals=True, full_matrices=False):
+def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_symmetry=None, outer_symmetry=(None, None), max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol, only_nonzero_vals=True, full_matrices=False):
     c2p = np.asarray (bra_basis)
     c2q = np.asarray (ket_basis)
     cOc = 1 if across_operator is None else np.asarray (across_operator)
@@ -235,13 +235,13 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_sy
     assert (max_nrvecs <= c2q.shape[1]), "you can't ask for more right states than are in your right space"
     if np.any (across_operator):
         assert (c2p.shape[0] == cOc.shape[0] and c2p.shape[0] == cOc.shape[1]), "when specifying an across_operator, it's dimensions need to be the same as the external basis"
-    get_labels = (not (inner_symmetry is None)) or (not (outer_symmetry is None))
-    lspsm, rspsm = None, None if outer_symmetry is None else outer_symmetry
+    get_labels = (not (inner_symmetry is None)) or (not (outer_symmetry[0] is None)) or (not (outer_symmetry[1] is None))
 
     rets = matrix_svd_control_options (cOc, lspace=c2p, rspace=c2q, full_matrices=full_matrices,
         symmetry=inner_symmetry,
-        lspace_symmetry=lspsm, rspace_symmetry=rspsm,
-        sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)[:3]
+        lspace_symmetry=outer_symmetry[0],
+        rspace_symmetry=outer_symmetry[1],
+        sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
 
     c2l, svals, c2r = rets[:3]
     if get_labels: llab, rlab = rets[3:]

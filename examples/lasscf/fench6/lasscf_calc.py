@@ -137,7 +137,7 @@ try:
 except OSError:
     dm0 = None
 mf.kernel (dm0)
-if do_save_eri: np.save (eri_name)
+if do_save_eri: np.save (eri_name, mf._eri)
 np.save (mfdmname, np.asarray (mf.make_rdm1 ()))
 if not mf.converged:
     mf = mf.newton ()

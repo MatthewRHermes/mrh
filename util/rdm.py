@@ -24,7 +24,7 @@ def get_1RDM_from_OEI_in_subspace (one_electron_hamiltonian, subspace_basis, noc
     
 def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, frag_symm=None, bath_tol=params.num_zero_atol, num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
     get_labels = (not (symmetry is None)) or (not (frag_symm is None))
-    env_symm=None
+    labels = env_symm = ufrag_labels = efrag_labels = bath_labels = core_labels = None
     norbs_tot = assert_matrix_square (the_1RDM)
     norbs_frag = loc2frag.shape[1]
     assert (norbs_tot >= norbs_frag and loc2frag.shape[0] == norbs_tot)
@@ -38,7 +38,9 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
     # The fragment semi-natural orbitals are from the right-singular vectors of ~any~ singular value
     # Note that only ~entangled~ fragment orbitals are returned so don't overwrite loc2frag!
     loc2env = get_complementary_states (loc2frag)
-    loc2env, loc2frag, svals = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, inner_symmetry=symmetry, only_nonzero_vals=True, full_matrices=True)
+    rets = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, inner_symmetry=symmetry, outer_symmetry=(frag_symm, env_symm), only_nonzero_vals=True, full_matrices=True)
+    loc2env, loc2frag, svals = rets[:3]
+    if get_labels: env_labels, frag_labels = rets[3:]
     norbs_bath = len (svals) #np.count_nonzero (svals > bath_tol)
     norbs_core = norbs_env - norbs_bath
     norbs_ufrag = norbs_frag - norbs_bath
@@ -50,13 +52,23 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
     loc2core = loc2env[:,norbs_bath:]
     loc2efrag = loc2frag[:,:norbs_bath]
     loc2ufrag = loc2frag[:,norbs_bath:]
+    if get_labels:
+        efrag_labels = frag_labels[:norbs_bath]
+        ufrag_labels = frag_labels[norbs_bath:]
+        bath_labels = env_labels[:norbs_bath]
+        core_labels = env_labels[norbs_bath:]
     if norbs_ufrag > 0:
-        loc2ufrag = matrix_eigen_control_options (the_1RDM, subspace=loc2ufrag, symmetry=symmetry, sort_vecs=-1, only_nonzero_vals=False)[1]
+        rets = matrix_eigen_control_options (the_1RDM, subspace=loc2ufrag, symmetry=symmetry, subspace_symmetry=ufrag_labels, sort_vecs=-1, only_nonzero_vals=False)
+        loc2ufrag = rets[1]
+        if get_labels: ufrag_labels = rets[2]
     if norbs_core > 0:
-        loc2core = matrix_eigen_control_options (the_1RDM, subspace=loc2core, symmetry=symmetry, sort_vecs=-1, only_nonzero_vals=False)[1]
+        rets = matrix_eigen_control_options (the_1RDM, subspace=loc2core, symmetry=symmetry, subspace_symmetry=core_labels, sort_vecs=-1, only_nonzero_vals=False)
+        loc2core = rets[1]
+        if get_labels: core_labels = rets[2]
     loc2imp = np.concatenate ([loc2ufrag, loc2efrag, loc2bath], axis=1)
     nelec_imp = ((the_1RDM @ loc2imp) * loc2imp).sum ()
     loc2emb = np.append (loc2imp, loc2core, axis=1)
+    if get_labels: labels = np.concatenate ((ufrag_labels, efrag_labels, bath_labels, core_labels))
     return loc2emb, norbs_bath, nelec_imp, labels
 
 def electronic_energy_orbital_decomposition (norbs_tot, OEI=None, oneRDM=None, TEI=None, twoRDM=None):

@@ -1,6 +1,7 @@
 import re, sys
 import numpy as np
 import scipy as sp 
+from math import floor, ceil
 from pyscf import gto, scf, ao2mo
 from pyscf.scf.hf import dot_eri_dm
 from pyscf.scf.addons import project_mo_nr2nr
@@ -398,8 +399,9 @@ class fragment_object:
             self.do_Schmidt_LASSCF (oneRDM_loc, all_frags, loc2wmcs)
         else:
             print ("DMET Schmidt decomposition of {0} fragment".format (self.frag_name))
-            self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc, 
-                self.loc2frag, self.norbs_bath_max, idempotize_thresh=self.idempotize_thresh, bath_tol=self.bath_tol, num_zero_atol=params.num_zero_atol)
+            self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc, emb_labels = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc,
+                self.loc2frag, self.norbs_bath_max, symmetry=self.loc2symm,
+                idempotize_thresh=self.idempotize_thresh, bath_tol=self.bath_tol, num_zero_atol=params.num_zero_atol)
             self.norbs_imp = self.norbs_frag + norbs_bath
             self.Schmidt_done = True
             self.impham_built = False
@@ -423,17 +425,36 @@ class fragment_object:
 
         # Now get them. (Make sure I don't add active-space orbitals by mistake!)
         if norbs_xtra:
+
             loc2qfrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())
             loc2qenv = get_complementary_states (loc2qfrag, already_complete_warning=False)
             loc2wmas = get_complementary_states (loc2wmcs, already_complete_warning=False)
             loc2p = orthonormalize_a_basis (np.concatenate ([self.loc2frag, loc2qenv, loc2wmas], axis=1))
             loc2qfrag = get_complementary_states (loc2p)
             norbs_qfrag = min (loc2qfrag.shape[1], norbs_xtra)
+            # Align the symmetry and make sure not to pick only part of a degenerate manifold because this will cause artificial symmetry breaking
+            loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2qfrag, self.get_true_loc2frag (), inner_symmetry=self.loc2symm,
+                full_matrices=True, only_nonzero_vals=False)
+            if (len (svals) > norbs_qfrag) and (norbs_qfrag > 0):
+                bottom_sval = svals[norbs_qfrag-1]
+                ndegen = np.count_nonzero (np.isclose (svals[norbs_qfrag:], bottom_sval))
+                if ndegen > 0:
+                    print ("Warning: adding {} instead of {} quasi-fragment orbitals in order to avoid artificial symmetry breaking by adding only part of a degenerate manifold".format (
+                        norbs_qfrag, norbs_qfrag+ndegen-1))
+                norbs_qfrag += ndegen-1
             if norbs_qfrag > 0:
                 print ("Add {} of {} possible quasi-fragment orbitals ".format (
                     norbs_qfrag, loc2qfrag.shape[1])
                     + "to compensate for {} active orbitals which cannot generate bath states".format (self.norbs_as))
-            loc2wfrag = orthonormalize_a_basis (np.append (self.loc2frag, loc2qfrag[:,:norbs_qfrag], axis=1))
+                loc2qfrag = loc2qfrag[:,:norbs_qfrag]
+                qfrag_labels = qfrag_labels[:norbs_qfrag]
+                qfrag_labels = {self.ir_names[lbl]: np.count_nonzero (qfrag_labels==lbl) for lbl in np.unique (qfrag_labels)}
+                err = measure_subspace_blockbreaking (loc2qfrag, self.loc2symm, self.ir_names)
+                print ("Quasi-fragment irreps = {}, err = {}".format (qfrag_labels, err))
+                loc2wfrag = orthonormalize_a_basis (np.append (self.loc2frag, loc2qfrag, axis=1))
+            else:
+                print ("No valid quasi-fragment orbitals found")
+                loc2wfrag = self.loc2frag
         else:
             norbs_qfrag = 0
             loc2wfrag = self.loc2frag
@@ -444,7 +465,7 @@ class fragment_object:
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
         oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
         oneRDMa_loc = oneRDM_loc - oneRDMi_loc
-        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc = Schmidt_decomposition_idempotent_wrapper (oneRDMi_loc, loc2wfrag,
+        self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc, emb_labels = Schmidt_decomposition_idempotent_wrapper (oneRDMi_loc, loc2wfrag,
             self.norbs_bath_max, symmetry=self.loc2symm, bath_tol=self.bath_tol,
             idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_qfrag + norbs_bath
@@ -456,26 +477,32 @@ class fragment_object:
         self.oneRDMfroz_loc += oneRDMacore_loc
         self.nelec_imp += int (round (nelec_impa))
 
-        loc2virtbath = self.analyze_ao_imp (oneRDM_loc, loc2wmcs)
-        norbs_virtbath = min (self.norbs_bath_max - norbs_bath, loc2virtbath.shape[1])
+        # I need to work symmetry handling into this as well
+        norbs_bath_xtra = self.norbs_bath_max - norbs_bath
+        loc2virtbath = self.analyze_ao_imp (oneRDM_loc, loc2wmcs, norbs_bath_xtra)
+        norbs_virtbath = min (norbs_bath_xtra, loc2virtbath.shape[1])
         if self.add_virtual_bath and norbs_virtbath:
             print ("Adding {} virtual bath orbitals".format (norbs_virtbath))
             self.loc2emb[:,self.norbs_imp:][:,:norbs_virtbath] = loc2virtbath[:,:norbs_virtbath]
             self.norbs_imp += norbs_virtbath
             self.loc2emb = get_complete_basis (self.loc2imp)
+            emb_labels = assign_blocks_weakly (self.loc2emb, self.loc2symm)
 
         # Weak symmetry alignment, for the sake of moldening. (Extended) fragment, then (extended) bath
         if self.symmetry:
-            loc2frag = self.loc2emb[:,:loc2wfrag.shape[1]]
-            loc2bath = self.loc2emb[:,loc2wfrag.shape[1]:self.norbs_imp]
-            evals, loc2frag[:,:], labels = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm,
-                subspace=loc2frag, sort_vecs=-1, only_nonzero_vals=False, strong_symm=False)
-            labeldict = {ir: np.count_nonzero (labels==idx) for idx, ir in enumerate (self.ir_names)}
+            norbs_frag = loc2wfrag.shape[1]
+            loc2frag = self.loc2emb[:,:norbs_frag]
+            loc2bath = self.loc2emb[:,norbs_frag:self.norbs_imp]
+            frag_labels = emb_labels[:norbs_frag].astype (int)
+            bath_labels = emb_labels[norbs_frag:self.norbs_imp].astype (int)
+            #evals, loc2frag[:,:], frag_labels = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm,
+            #    subspace=loc2frag, sort_vecs=-1, only_nonzero_vals=False, strong_symm=False)
+            labeldict = {self.ir_names[lbl]: np.count_nonzero (frag_labels==lbl) for lbl in np.unique (frag_labels)}
             err = measure_subspace_blockbreaking (loc2frag, self.loc2symm, self.ir_names)
             print ("Fragment-orbital irreps: {}, err = {}".format (labeldict, err))
-            evals, loc2bath[:,:], labels = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm,
-                subspace=loc2bath, sort_vecs=1, only_nonzero_vals=False, strong_symm=False)
-            labeldict = {ir: np.count_nonzero (labels==idx) for idx, ir in enumerate (self.ir_names)}
+            #evals, loc2bath[:,:], bath_labels = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm,
+            #    subspace=loc2bath, sort_vecs=1, only_nonzero_vals=False, strong_symm=False)
+            labeldict = {self.ir_names[lbl]: np.count_nonzero (bath_labels==lbl) for lbl in np.unique (bath_labels)}
             err = measure_subspace_blockbreaking (loc2bath, self.loc2symm, self.ir_names)
             print ("Bath-orbital irreps: {}, err = {}".format (labeldict, err))
 
@@ -488,7 +515,7 @@ class fragment_object:
         self.impham_built = False
         sys.stdout.flush ()
 
-    def analyze_ao_imp (self, oneRDM_loc, loc2wmcs):
+    def analyze_ao_imp (self, oneRDM_loc, loc2wmcs, norbs_bath_xtra):
         ''' See how much of the atomic-orbitals corresponding to the true fragment ended up in the impurity and how much ended 
             up in the virtual-core space '''
         loc2ao = orthonormalize_a_basis (self.ints.ao2loc[self.frag_orb_list,:].conjugate ().T)
@@ -503,11 +530,11 @@ class fragment_object:
         ''' These orbitals have to be splittable into purely on the impurity/purely in the core for the same reason that nelec_imp has to
             be an integer, I think. '''
         loc2virtunaccore, loc2corevirtunac, svals = get_overlapping_states (loc2virtunac, self.loc2core)
-        #assert (np.all (np.logical_or (np.isclose (svals, 0, atol=1e-6), np.isclose (svals, 1, atol=1e-6)))), svals
         idx_virtunaccore = np.isclose (svals, 1)
         loc2virtunaccore = loc2virtunaccore[:,idx_virtunaccore]
 
-        loc2virtbath, svals = get_overlapping_states (loc2ao, loc2virtunaccore)[1:]
+        loc2virtbath, svals, _, virtbath_labels = get_overlapping_states (loc2ao, loc2virtunaccore, inner_symmetry=self.loc2symm)[1:]
+        assert (len (svals) == loc2virtbath.shape[1])
         if loc2virtbath.shape[1] == 0: return loc2virtbath
         check_nocc = np.trace (represent_operator_in_basis (oneRDM_loc, loc2virtbath))
         check_bath = np.amax (np.abs (np.dot (self.imp2loc, loc2virtbath)))
@@ -515,15 +542,16 @@ class fragment_object:
         aos_in_virt_core = np.count_nonzero (np.logical_not (np.isclose (svals, 0))) 
         print (("For this Schmidt decomposition, the impurity basis loses {} of {} atomic orbitals, accounted for by"
         " {} of {} virtual core orbitals").format (lost_aos, self.norbs_frag, aos_in_virt_core, loc2virtbath.shape[1]))
-        idx = np.argsort (svals)[::-1]
-        loc2virtbath = loc2virtbath[:,idx]
-        svals = svals[idx]
-        virtbathGocc = self.gradient_for_virtbath (loc2virtbath, oneRDM_loc, loc2wmcs, fock=self.ints.activeFOCK)
+        norbs_xtra = min (loc2virtbath.shape[1], norbs_bath_xtra)
+        labels = virtbath_labels[:norbs_xtra]
+        labeldict = {self.ir_names[idx]: np.count_nonzero (labels==idx) for idx in np.unique (labels)}
+        print ("The first {} virtual bath orbitals account for approximately {} missing fragment orbitals and have irreps {}".format (
+            norbs_xtra, sum (svals[:norbs_xtra]), labeldict))
+        virtbathGocc, occ_labels = self.gradient_for_virtbath (loc2virtbath, oneRDM_loc, loc2wmcs, fock=self.ints.activeFOCK)
         my_ene = -svals * svals
         my_occ = virtbathGocc.sum (1)
         if self.virtual_bath_gradient_svd:
-            virtbathGocc = self.gradient_for_virtbath (loc2virtbath, oneRDM_loc, loc2wmcs, fock=self.ints.activeFOCK)
-            umat, svals_fock = matrix_svd_control_options (np.abs (virtbathGocc), sort_vecs=-1, only_nonzero_vals=False)[:2]
+            umat, svals_fock = matrix_svd_control_options (virtbathGocc, sort_vecs=-1, only_nonzero_vals=False, lsymm=virtbath_labels, rsymm=occ_labels)[:2]
             print ("Maximum gradient singular value for virtual bath orbitals: {}".format (svals_fock[0]))
             loc2virtbath = loc2virtbath @ umat
             my_occ = (loc2ao.conjugate ().T @ loc2virtbath).sum (0)
@@ -536,11 +564,12 @@ class fragment_object:
 
     def gradient_for_virtbath (self, loc2virtbath, oneRDM_loc, loc2wmcs, fock=None):
         oneRDMunac_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
-        oneRDMunac_imp = represent_operator_in_basis (oneRDMunac_loc, self.loc2imp)
-        evals, evecs = matrix_eigen_control_options (oneRDMunac_imp, sort_vecs=-1, only_nonzero_vals=False)
+        evals, loc2no_unac, no_labels = matrix_eigen_control_options (oneRDMunac_loc, subspace=self.loc2imp,
+            symmetry=self.loc2symm, sort_vecs=-1, only_nonzero_vals=False)
         npair_core = (self.nelec_imp - self.nelec_as) // 2
         # This becomes kind of approximate if there is more than one active space
-        loc2occ = orthonormalize_a_basis (np.append (self.loc2imp @ evecs[:,:npair_core], self.loc2amo, axis=1))
+        loc2occ = np.append (loc2no_unac, self.loc2amo, axis=1)
+        occ_labels = np.append (no_labels, assign_blocks_weakly (self.loc2amo, self.loc2symm))
         if fock is None:
             fock = self.ints.loc_rhf_fock_bis (oneRDM_loc)
         virtbath2loc = loc2virtbath.conjugate ().T
@@ -549,7 +578,7 @@ class fragment_object:
             eri = self.ints.general_tei ([loc2virtbath, self.loc2amo, self.loc2amo, self.loc2amo])
             lamb = np.tensordot (self.twoCDMimp_amo, (self.amo2loc @ loc2occ), axes=1)
             grad += np.tensordot (eri, lamb, axes=3)
-        return 2 * grad
+        return 2 * grad, occ_labels
             
 
 

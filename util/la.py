@@ -192,12 +192,6 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
 
     '''
 
-    had_symmetry = False
-    if symmetry is not None:
-        had_symmetry = True
-        old_symmetry = copy.deepcopy (symmetry)
-        #symmetry = None
-
     # Interpret subspace information
     lspace = None if lspace is None else np.asarray (lspace)
     lspace_isvectorblock = False if lspace is None else lspace.ndim == 2
@@ -234,9 +228,16 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
     if M is None: M = Mbasis
     if N is None: N = Nbasis
     K = min (M, N)
-    if 0 in (M, N):
-        if full_matrices: return np.zeros ((Mbasis,M)), np.zeros ((0)), np.zeros ((Nbasis,N))
-        return np.zeros ((Mbasis,0)), np.zeros ((K)), np.zeros ((Nbasis,0))
+    working_matrix = the_matrix if isinstance (the_matrix, np.ndarray) else np.eye (Mbasis)
+    if lspace_isvectorblock: working_matrix = lspace.conjugate ().T @ working_matrix
+    if lspace is not None and not lspace_isvectorblock: working_matrix = working_matrix[lspace,:]
+    if rspace_isvectorblock: working_matrix = working_matrix @ rspace
+    if rspace is not None and not rspace_isvectorblock: working_matrix = working_matrix[:,rspace]
+    zero_matrix = (np.amax (np.abs (working_matrix)) < num_zero_atol) or ((scipy.linalg.norm (working_matrix) / working_matrix.size) < num_zero_atol)
+    if 0 in (M, N) or zero_matrix:
+        K = 0 if only_nonzero_vals else K
+        if full_matrices: return np.zeros ((Mbasis,M)), np.zeros ((K)), np.zeros ((Nbasis,N))
+        return np.zeros ((Mbasis,K)), np.zeros ((K)), np.zeros ((Nbasis,K))
 
     # If subspace symmetry is provided as a vector block, transform subspace into a symmetry-adapted form
     # No recursion necessary because the eigenvectors are meant to be provided in the full basis :)
@@ -254,10 +255,6 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
             num_zero_atol=num_zero_atol, num_zero_rtol=num_zero_rtol)
         if lumat is not None: rets = [lumat @ x if idx == 0 else x for idx, x in enumerate (rets)]
         if rumat is not None: rets = [rumat @ x if idx == 2 else x for idx, x in enumerate (rets)]
-        lvecs, svals, rvecs = rets[:3]
-        nsvals = np.count_nonzero (~np.isclose (svals, 0))
-        vecs = np.append (rspace, lvecs[:,:nsvals], axis=1)
-        vecs = np.append (rvecs[:,:nsvals], lvecs[:,:nsvals], axis=1)
         return rets
 
     # Recurse from strong symmetry enforcement to SVD over individual symmetry blocks
@@ -311,7 +308,6 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
         return vecs[0], svals, vecs[1], labels[0], labels[1]
 
     # Wrap in subspaces (Have to do both vector-block forms first)
-    hold_matrix = np.asarray (the_matrix).copy ()
     if lspace_isvectorblock:
         if isinstance (the_matrix, np.ndarray):
             the_matrix = lspace.conjugate ().T @ the_matrix 
@@ -640,8 +636,21 @@ def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zer
     uniq_labels = np.unique (row_labels)
     i = 0
     while i < vecs.shape[1]:
-        svdout = [matrix_svd_control_options (1, lspace=(row_labels==lbl), rspace=vecs[:,i:],
-            sort_vecs=-1, only_nonzero_vals=False, full_matrices=True) for lbl in uniq_labels]
+        try:
+            svdout = [matrix_svd_control_options (1, lspace=(row_labels==lbl), rspace=vecs[:,i:],
+                sort_vecs=-1, only_nonzero_vals=False, full_matrices=True) for lbl in uniq_labels]
+        except np.linalg.linalg.LinAlgError as e:
+            # SVD may fail when the remaining vectors are extremely spread-out across the blocks. In that case it's time to give up
+            # and just assign the labels with a max statement because we are trying to be failure-tolerant here
+            wgts = np.vstack ([(vecs[row_labels==lbl,i:] * vecs[row_labels==lbl,i:]).sum (0) for lbl in uniq_labels])
+            col_labels[i:] = uniq_labels[np.argmax (wgts, axis=0)]
+            return vecs, col_labels            
+        except ValueError as e:
+            print ("Missing zero-matrix escape? number of remaining vectors = {}".format (vecs.shape[1]-i))
+            for lbl in uniq_labels:
+                mat = vecs[row_labels==lbl,i:]
+                print ("max, norm of {} = {}, {}".format (lbl, np.amax (np.abs (mat)), scipy.linalg.norm (mat) / mat.size))
+            raise (e)
         # This argmax identifies the single best irrep assignment possible for all of vecs[:,i:]
         symm_label_idx = np.argmax ([svals[0] for lvecs, svals, rvecs in svdout])
         lvecs, svals, rvecs = svdout[symm_label_idx]

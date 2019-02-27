@@ -38,7 +38,7 @@ from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
 from mrh.util.basis import is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal, get_overlapping_states
-from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis, are_bases_orthogonal
+from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis, are_bases_orthogonal, measure_subspace_blockbreaking
 from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
@@ -503,6 +503,7 @@ class dmet:
         iteration = 0
         u_diff = 1.0
         convergence_threshold = 1e-6
+        self.check_fragment_symmetry_breaking (verbose=False, do_break=True)
         rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
 
@@ -618,9 +619,11 @@ class dmet:
     def doselfconsistent_orbs (self, iters):
 
         loc2wmas_old = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+        '''
         if self.doLASSCF and self.ints.symmetry and not is_subspace_block_adapted (loc2wmas_old, self.ints.loc2symm):
             print ("Active orbitals break symmetry :(")
             self.ints.symmetry = False
+        '''
         try:
             loc2wmcs_old = get_complementary_states (loc2wmas_old)
         except linalg.LinAlgError as e:
@@ -630,7 +633,6 @@ class dmet:
         if self.doLASSCF:
             print ("Entering setup_wm_core_scf")
             self.ints.setup_wm_core_scf (self.fragments, self.calcname)
-            #self.align_symmetry ()
             self.save_checkpoint (self.calcname + '.chk.npy')
 
         oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
@@ -863,6 +865,7 @@ class dmet:
         proj_gfrag = np.stack ([np.dot (f.get_true_loc2frag (), f.get_true_loc2frag ().conjugate ().T) for f in self.fragments], axis=-1)
         loc2x = loc2wmcs.copy ()
         loc2wmcs = [np.zeros ((self.norbs_tot, 0), dtype=loc2x.dtype) for ix in range (len (self.fragments))]
+        wmcs_labels = [[] for ix in range (len (self.fragments))]
 
         # First pass: Only retain the highest Mfk - Mak eigenvalues, for which the eigenvalue is larger than 1/2.
         # Do dummy fragments last so that distributing orbitals to them doesn't fuck up symmetry
@@ -888,7 +891,7 @@ class dmet:
                 if loc2x.shape[1] == 0 or Mxk_rem[ix_frag] == 0:
                     continue
                 print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
-                evals, loc2evecs = matrix_eigen_control_options (proj_gfrag[:,:,ix_frag], subspace=loc2x, sort_vecs=-1, only_nonzero_vals=False)
+                evals, loc2evecs, labels = matrix_eigen_control_options (proj_gfrag[:,:,ix_frag], subspace=loc2x, symmetry=self.ints.loc2symm, sort_vecs=-1, only_nonzero_vals=False)
                 ix_zero = np.abs (evals) < 1e-8
                 # Scale the eigenvalues to evaluate their comparison to the sum of projector expt vals of unfull fragments
                 # exptvals = np.einsum ('ip,ijk,k,jp->p', loc2evecs.conjugate (), proj_gfrag, ix_rem.astype (int), loc2evecs)
@@ -901,8 +904,17 @@ class dmet:
                 print ("{} fragment, iteration {}: {} eigenvalues above 1/2 found of {} total sought:\n{}".format (
                     f.frag_name, it, np.count_nonzero (ix_loc), Mxk_rem[ix_frag], evals))
                 loc2wmcs[ix_frag] = np.append (loc2wmcs[ix_frag], loc2evecs[:,ix_loc], axis=1)
+                wmcs_labels[ix_frag] = np.append (wmcs_labels[ix_frag], labels[ix_loc]).astype (int)
                 loc2x = loc2evecs[:,~ix_loc]
             it += 1
+
+        if self.ints.mol.symmetry:
+            for loc2frag, frag_labels, frag in zip (loc2wmcs, wmcs_labels, self.fragments):
+                if frag.imp_solver_name == 'dummy RHF':
+                    continue
+                err = measure_subspace_blockbreaking (loc2frag, self.ints.loc2symm)
+                labeldict = {self.ints.mol.irrep_name[x]: np.count_nonzero (frag_labels==x) for x in np.unique (frag_labels)}
+                print ("New unactive {} fragment orbital irreps = {}, err = {}".format (frag.frag_name, labeldict, err))
 
         # Just assign (potentially symmetry-breaking!) orbitals to dummy fragments randomly because it cannot possibly matter
         for ix, f in enumerate (self.fragments):
@@ -911,7 +923,6 @@ class dmet:
             evals, loc2x = matrix_eigen_control_options (proj_gfrag[:,:,ix], subspace=loc2x, sort_vecs=-1, only_nonzero_vals=False)
             loc2wmcs[ix] = loc2x[:,:f.norbs_frag]
             loc2x = loc2x[:,f.norbs_frag:]
-
 
         for ix, loc2frag in enumerate (loc2wmcs):
             ovlp = loc2frag.conjugate ().T
@@ -1177,25 +1188,10 @@ class dmet:
         kwargs['loc2wmas'] = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         return self.ints.get_trial_nos (**kwargs)
 
-    def align_symmetry (self):
-        ''' Check if the LAS wave function is (still) point-group-symmetry adapted and symmetrize the active orbitals if so '''
-        symmetry, ir_names = self.examine_symmetry (verbose=False)
-        if symmetry:
-            fake_mol = type ('', (), {'symm_orb': self.ints.loc2symm}) ()
-            for f in self.fragments:
-                f.symmetry = symmetry
-                f.ir_names = ir_names
-                if not f.norbs_as:
-                    continue
-                old2loc = f.loc2amo.conjugate ().T.copy ()
-                f.loc2amo = symmetrize_space (fake_mol, f.loc2amo, s=np.eye (self.norbs_tot))
-                old2new = old2loc @ f.loc2amo
-                print (old2new)
-                f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, old2new)
 
-    def examine_symmetry (self, verbose=True):
+    def check_fragment_symmetry_breaking (self, verbose=True, do_break=False):
         if not self.ints.mol.symmetry:
-            return False, None, None
+            return False
         symmetry = self.ints.mol.groupname
         def symm_analysis (mo, mo_name, symmetry):
             if verbose: print ("Analyzing {} fragment orbitals:".format (mo_name))
@@ -1215,7 +1211,21 @@ class dmet:
         for idx, f in enumerate (self.fragments):
             if f.imp_solver_name == 'dummy RHF':
                 continue
-            symmetry, irrep_norbs[idx,:] = symm_analysis (f.loc2frag, f.frag_name, symmetry)
+            symmetry, irrep_norbs[idx,:] = symm_analysis (f.loc2frag, f.frag_name, symmetry)        
+
+        if (not symmetry) and do_break and np.any (f.symmetry for f in self.fragments):
+            print ("Fragmentation pattern of molecule broke point-group symmetry! Voiding symmetry...")
+            for f in self.fragments:
+                f.groupname = 'C1'
+                f.loc2symm = [np.eye (self.norbs_tot)]           
+                f.ir_names = ['A']
+        return symmetry
+
+    def examine_symmetry (self, verbose=True):
+        if not self.ints.mol.symmetry:
+            return False
+
+        symmetry = self.check_fragment_symmetry_breaking (verbose=verbose)
 
         nelec_symm = [np.trace (represent_operator_in_basis (self.ints.oneRDM_loc, loc2ir)) for loc2ir in self.ints.loc2symm]
         if verbose:
@@ -1228,16 +1238,15 @@ class dmet:
         for (ir1, loc2ir1), (ir2, loc2ir2) in combinations (zip (self.ints.mol.irrep_name, self.ints.loc2symm), 2):
             off = np.amax (np.abs (represent_operator_in_basis (self.ints.oneRDM_loc, loc2ir1, loc2ir2)))
             if verbose: print ("1RDM maximum element coupling {} to {}: {}".format (ir1, ir2, off))
-            if off > 1e-7: symmetry = False
+            if off > 1e-6: symmetry = False
 
         # In principle I should also check the twoCDM, but it ends up not mattering because the twoCDM only contributes
         # a constant to the energy!
 
-        if symmetry:
+        if symmetry and verbose:
             print ("This system retains {} symmetry!".format (symmetry))
-        else:
+        elif verbose:
             print ("This system loses its symmetry")
-        return symmetry, self.ints.mol.irrep_name
-
+        return symmetry
 
 
