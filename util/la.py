@@ -644,6 +644,7 @@ def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zer
             # and just assign the labels with a max statement because we are trying to be failure-tolerant here
             wgts = np.vstack ([(vecs[row_labels==lbl,i:] * vecs[row_labels==lbl,i:]).sum (0) for lbl in uniq_labels])
             col_labels[i:] = uniq_labels[np.argmax (wgts, axis=0)]
+            i = vecs.shape[1]
             return vecs, col_labels            
         except ValueError as e:
             print ("Missing zero-matrix escape? number of remaining vectors = {}".format (vecs.shape[1]-i))
@@ -660,7 +661,7 @@ def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zer
             raise RuntimeError ('Vectors not block-adapted in space {}; svals = {}'.format (col_labels[i], svals))
         # This puts the best-aligned vector at position i and causes all of vecs[:,j:] to be orthogonal to it
         vecs[:,i:] = rvecs
-        assert (j > i)
+        assert (j > i), "{}: {}->{}".format (svals[0], i, j)
         i = j
         # This is a trick to grab a whole bunch of degenerate vectors at once (i.e., numerically symmetry-adapted vectors with sval = 1)
         # It may improve numerical stability

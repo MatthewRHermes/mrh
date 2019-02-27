@@ -545,8 +545,9 @@ class fragment_object:
         norbs_xtra = min (loc2virtbath.shape[1], norbs_bath_xtra)
         labels = virtbath_labels[:norbs_xtra]
         labeldict = {self.ir_names[idx]: np.count_nonzero (labels==idx) for idx in np.unique (labels)}
-        print ("The first {} virtual bath orbitals account for approximately {} missing fragment orbitals and have irreps {}".format (
-            norbs_xtra, sum (svals[:norbs_xtra]), labeldict))
+        err = measure_subspace_blockbreaking (loc2virtbath[:,:norbs_xtra], self.loc2symm)
+        print (("The first {} virtual bath orbitals account for approximately {} missing fragment "
+                "orbitals\n and have irreps {}, err = {}").format (norbs_xtra, sum (svals[:norbs_xtra]), labeldict, err))
         virtbathGocc, occ_labels = self.gradient_for_virtbath (loc2virtbath, oneRDM_loc, loc2wmcs, fock=self.ints.activeFOCK)
         my_ene = -svals * svals
         my_occ = virtbathGocc.sum (1)
