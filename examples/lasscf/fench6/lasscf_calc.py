@@ -210,7 +210,6 @@ elif load_lasscf_sto3g_chk:
 else:
     fn = (grab_3d_ls, grab_3d_hs)[spinS//2]
     fench_dmet.generate_frag_cas_guess (fn (mf), force_imp=True, confine_guess=False)
-    fench_dmet.examine_symmetry ()
 
 # Calculation
 # --------------------------------------------------------------------------------------------------------------------
