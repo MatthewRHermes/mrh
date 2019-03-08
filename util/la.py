@@ -233,11 +233,18 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
     if lspace is not None and not lspace_isvectorblock: working_matrix = working_matrix[lspace,:]
     if rspace_isvectorblock: working_matrix = working_matrix @ rspace
     if rspace is not None and not rspace_isvectorblock: working_matrix = working_matrix[:,rspace]
-    zero_matrix = (np.amax (np.abs (working_matrix)) < num_zero_atol) or ((scipy.linalg.norm (working_matrix) / working_matrix.size) < num_zero_atol)
-    if 0 in (M, N) or zero_matrix:
+    zero_matrix = (0 in (M,N)) or (np.amax (np.abs (working_matrix)) < num_zero_atol)
+    zero_matrix = zero_matrix or ((scipy.linalg.norm (working_matrix) / working_matrix.size) < num_zero_atol)
+    if zero_matrix:
         K = 0 if only_nonzero_vals else K
-        if full_matrices: return np.zeros ((Mbasis,M)), np.zeros ((K)), np.zeros ((Nbasis,N))
-        return np.zeros ((Mbasis,K)), np.zeros ((K)), np.zeros ((Nbasis,K))
+        lvecs = np.eye (Mbasis)
+        rvecs = np.eye (Nbasis)
+        if lspace is not None: lvecs = lspace if lspace_isvectorblock else lvecs[:,lspace]
+        if rspace is not None: rvecs = rspace if rspace_isvectorblock else rvecs[:,rspace]
+        if not full_matrices:
+            lvecs = lvecs[:,:K]
+            rvecs = rvecs[:,:K]
+        return lvecs, np.zeros ((K)), rvecs
 
     # If subspace symmetry is provided as a vector block, transform subspace into a symmetry-adapted form
     # No recursion necessary because the eigenvectors are meant to be provided in the full basis :)
@@ -614,6 +621,19 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
     if return_labels: return evals, evecs, labels
     return evals, evecs
 
+def lazyassign_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zero_atol, assert_tol=0, assign_thresh=1.0, return_weights=False):
+    uniq_labels = np.unique (row_labels)
+    wgts = np.stack ([(vecs[lbl==row_labels,:].conjugate () * vecs[lbl==row_labels,:]).sum (0) for lbl in uniq_labels], axis=-1)
+    col_labels = uniq_labels[np.argmax (wgts, axis=-1)]
+    wgts = np.amax (wgts, axis=-1)
+    idx = np.argsort (wgts)[::-1]
+    vecs = vecs[:,idx]
+    wgts = wgts[idx]
+    col_labels = col_labels[idx]
+    nassign = np.count_nonzero ((assign_thresh-wgts) <= atol + rtol*assign_thresh)
+    if return_weights: return vecs, col_labels, nassign, wgts
+    return vecs, col_labels, nassign
+
 def align_degenerate_vecs (vals, vecs, symm, rtol=params.num_zero_rtol, atol=params.num_zero_atol, assert_tol=0):
     if symm is None:
         return vecs, None
@@ -632,25 +652,17 @@ def align_degenerate_vecs (vals, vecs, symm, rtol=params.num_zero_rtol, atol=par
     return vecs, labels
 
 def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zero_atol, assert_tol=0):
-    col_labels = np.empty (vecs.shape[1], dtype=row_labels.dtype)
     uniq_labels = np.unique (row_labels)
-    i = 0
+    vecs, col_labels, i = lazyassign_vecs (vecs, row_labels, rtol=rtol, atol=atol, assert_tol=assert_tol)
     while i < vecs.shape[1]:
         try:
             svdout = [matrix_svd_control_options (1, lspace=(row_labels==lbl), rspace=vecs[:,i:],
                 sort_vecs=-1, only_nonzero_vals=False, full_matrices=True) for lbl in uniq_labels]
-        except np.linalg.linalg.LinAlgError as e:
-            # SVD may fail when the remaining vectors are extremely spread-out across the blocks. In that case it's time to give up
-            # and just assign the labels with a max statement because we are trying to be failure-tolerant here
-            wgts = np.vstack ([(vecs[row_labels==lbl,i:] * vecs[row_labels==lbl,i:]).sum (0) for lbl in uniq_labels])
-            col_labels[i:] = uniq_labels[np.argmax (wgts, axis=0)]
-            i = vecs.shape[1]
-            return vecs, col_labels            
-        except ValueError as e:
+        except (ValueError, np.linalg.linalg.LinAlgError) as e:
             print ("Missing zero-matrix escape? number of remaining vectors = {}".format (vecs.shape[1]-i))
             for lbl in uniq_labels:
                 mat = vecs[row_labels==lbl,i:]
-                print ("max, norm of {} = {}, {}".format (lbl, np.amax (np.abs (mat)), scipy.linalg.norm (mat) / mat.size))
+                print ("max, norm of {} = {}, {}".format (lbl, np.amax (np.abs (mat)), scipy.linalg.norm (mat)))
             raise (e)
         # This argmax identifies the single best irrep assignment possible for all of vecs[:,i:]
         symm_label_idx = np.argmax ([svals[0] for lvecs, svals, rvecs in svdout])
@@ -663,7 +675,10 @@ def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zer
         vecs[:,i:] = rvecs
         assert (j > i), "{}: {}->{}".format (svals[0], i, j)
         i = j
-        # This is a trick to grab a whole bunch of degenerate vectors at once (i.e., numerically symmetry-adapted vectors with sval = 1)
+        vecs[:,i:], col_labels[i:], di = lazyassign_vecs (vecs[:,i:], row_labels, rtol=rtol, atol=atol,
+            assert_tol=assert_tol, assign_thresh=svals[0])
+        i = i + di
+        # This is a trick to grab a whole bunch of degenerate vectors at once (i.e., numerically symmetry-adapted vectors with the same sval)
         # It may improve numerical stability
     return vecs, col_labels
 
@@ -697,9 +712,9 @@ def align_degenerate_coupled_vecs (lvecs, svals, rvecs, lsymm, rsymm, rtol=param
         idx_unchk[idx] = False
     rlabels[:nvals] = llabels[:nvals]
     if lvecs.shape[1] > nvals and len (lsymm) > 0:
-        lvecs[:,nvals:], llabels[nvals:] = align_vecs (lvecs[:,nvals:], lsymm, rtol=rtol, atol=atol)
+        lvecs[:,nvals:], llabels[nvals:] = lazyassign_vecs (lvecs[:,nvals:], lsymm, rtol=rtol, atol=atol)[:2]
     if rvecs.shape[1] > nvals and len (rsymm) > 0:
-        rvecs[:,nvals:], rlabels[nvals:] = align_vecs (rvecs[:,nvals:], rsymm, rtol=rtol, atol=atol)
+        rvecs[:,nvals:], rlabels[nvals:] = lazyassign_vecs (rvecs[:,nvals:], rsymm, rtol=rtol, atol=atol)[:2]
     if len (lsymm) == 0: llabels = None
     if len (rsymm) == 0: rlabels = None
     return lvecs, rvecs, llabels, rlabels

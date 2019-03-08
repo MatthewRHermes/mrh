@@ -39,6 +39,18 @@ def assert_vector_stateis (test_vector, vecdim=None):
     cond_bool = np.all (np.logical_or (test_vector == 1, test_vector == 0))
     assert (cond_isvec and cond_len and cond_bool), err_str
 
+def measure_basis_nonorthonormality (the_basis, ovlp=1):
+    cOc = np.atleast_2d (ovlp) 
+    c2b = np.asarray (the_basis)
+    b2c = c2b.conjugate ().T
+    nbas = c2b.shape[1]
+    try:
+        test_matrix = b2c @ cOc @ c2b
+    except ValueError:
+        test_matrix = (b2c * cOc[0,0]) @ c2b
+    test_matrix -= np.eye (nbas)
+    return np.amax (np.abs (test_matrix)), linalg.norm (test_matrix)
+
 def is_basis_orthonormal (the_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
     cOc = np.atleast_2d (ovlp) 
     c2b = np.asarray (the_basis)
@@ -69,7 +81,6 @@ def are_bases_equivalent (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_rto
     atol *= sqrt (bra_basis.shape[1] * ket_basis.shape[1])
     return np.allclose (svals, 1, rtol=rtol, atol=atol)
     
-
 
 ################    simple manipulations and common calculations        ################
 

@@ -97,6 +97,7 @@ class dmet:
             frag.debug_energy             = debug_energy
             frag.num_mf_stab_checks       = num_mf_stab_checks
             frag.filehead                 = self.calcname + '_'
+            frag.groupname                = self.ints.symmetry
             frag.loc2symm                 = self.ints.loc2symm
             frag.ir_names                 = self.ints.mol.irrep_name   
         if self.doDET:
@@ -832,6 +833,10 @@ class dmet:
         evecs = orth.lowdin (ovlp_wmas)        
         #print ("Orthonormal active orbitals eigenvectors:\n{}".format (prettyprint (evecs)))
         loc2wmas = np.dot (loc2wmas, evecs)
+        wmas_labels = np.asarray (['A' for ix in range (loc2wmas.shape[1])])
+        if self.ints.mol.symmetry:
+            loc2wmas, wmas_labels = matrix_eigen_control_options (oneRDM_loc, subspace=loc2wmas, symmetry=self.ints.loc2symm, only_nonzero_vals=False, sort_vecs=-1)[1:]
+            wmas_labels = np.asarray (self.ints.mol.irrep_name)[wmas_labels]
 
         for f in self.fragments:
             if f.loc2amo.shape[1] == 0:
@@ -839,16 +844,26 @@ class dmet:
             proj = represent_operator_in_basis (np.dot (f.loc2amo, f.loc2amo.conjugate ().T), loc2wmas)
             #print ("Projector matrix of {} active orbitals in orthonormal active basis:\n{}".format (
             #    f.frag_name, prettyprint (proj, fmt='{:5.2f}')))
-        frag_weights = np.stack ([np.einsum ('ip,ij,jp->p', loc2wmas.conjugate (), np.dot (f.loc2amo, f.loc2amo.conjugate ().T), loc2wmas) for f in self.fragments], axis=-1)
+        #frag_weights = np.stack ([np.einsum ('ip,ij,jp->p', loc2wmas.conjugate (), np.dot (f.loc2amo, f.loc2amo.conjugate ().T), loc2wmas) for f in self.fragments], axis=-1)
+        frag_weights = [f.loc2amo @ f.loc2amo.conjugate ().T if f.norbs_as > 0 else np.zeros ((self.norbs_tot, self.norbs_tot)) for f in self.fragments]
+        frag_weights = np.stack ([((p @ loc2wmas) * loc2wmas.conjugate ()).sum (0) for p in frag_weights], axis=-1)
         #print ("Fragment weights of orthonormal amos:\n{}".format (prettyprint (frag_weights, fmt='{:5.2f}')))
         idx = np.argsort (frag_weights, axis=1)[:,-1]
 
-        loc2amo = [loc2wmas[:,(idx == i)] for i in range (len (self.fragments))]     
-        nelec_amo = [np.einsum ('ip,ij,jp->', l.conjugate (), oneRDM_loc, l) for l in loc2amo]
+        loc2amo = [loc2wmas[:,(idx == i)] for i in range (len (self.fragments))]
+        amo_labels = [wmas_labels[idx == i] for i in range (len (self.fragments))]
+        nelec_amo = [((oneRDM_loc @ l) * l.conjugate ()).sum () for l in loc2amo]
+        if self.ints.mol.symmetry:
+            print ("Approximate irreps of active orbitals in each fragment:")
+            for f, l, l2a in zip (self.fragments, amo_labels, loc2amo):
+                labeldict = dict (zip (*np.unique (l, return_counts=True)))
+                err = measure_subspace_blockbreaking (l2a, self.ints.loc2symm)
+                print ("{}: {}, err = {}".format (f.frag_name, labeldict, err))
         print ("Number of electrons in each fragment:")
         for f, n in zip (self.fragments, nelec_amo):
             print ("{}: {}".format (f.frag_name, n))
-        
+                
+
         print ("Entanglement norms:")
         for (idx1, f1), (idx2, f2) in combinations (enumerate (self.fragments), 2):
             print ("{}-{}: {}".format (f1.frag_name, f2.frag_name, np.linalg.norm (np.einsum ('ip,ij,iq->pq', loc2amo[idx1], oneRDM_loc, loc2amo[idx2]))))
@@ -1016,7 +1031,7 @@ class dmet:
             else:
                 print ("NOTE: symmetric system but guess active orbital space is NOT symmetry-adapted!")
         '''
-        projamo = np.dot (loc2amo_new, loc2amo_new.conjugate ().T)
+        proj_amo = np.dot (loc2amo_new, loc2amo_new.conjugate ().T)
 
         for f in self.fragments:
             if f.active_space is not None:
@@ -1219,6 +1234,12 @@ class dmet:
                 f.groupname = 'C1'
                 f.loc2symm = [np.eye (self.norbs_tot)]           
                 f.ir_names = ['A']
+        elif symmetry and do_break:
+            for f in self.fragments:
+                f.groupname = self.ints.mol.groupname
+                f.loc2symm = self.ints.loc2symm
+                f.ir_names = self.ints.mol.irrep_name
+
         return symmetry
 
     def examine_symmetry (self, verbose=True):

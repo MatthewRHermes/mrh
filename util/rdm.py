@@ -22,7 +22,7 @@ def get_1RDM_from_OEI_in_subspace (one_electron_hamiltonian, subspace_basis, noc
     oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, w2l)
     return oneRDM_loc
     
-def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, frag_symm=None, bath_tol=params.num_zero_atol, num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
+def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, frag_symm=None, fock_helper=None, bath_tol=params.num_zero_atol, num_zero_atol=params.num_zero_atol, num_zero_rtol=params.num_zero_rtol):
     get_labels = (not (symmetry is None)) or (not (frag_symm is None))
     labels = env_symm = ufrag_labels = efrag_labels = bath_labels = core_labels = None
     norbs_tot = assert_matrix_square (the_1RDM)
@@ -52,22 +52,33 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
     loc2core = loc2env[:,norbs_bath:]
     loc2efrag = loc2frag[:,:norbs_bath]
     loc2ufrag = loc2frag[:,norbs_bath:]
+    loc2core = orthonormalize_a_basis (loc2core)
+    loc2ufrag = orthonormalize_a_basis (loc2ufrag)
+    assert (is_basis_orthonormal (loc2core)), measure_basis_nonorthonormality (loc2core)
+    assert (is_basis_orthonormal (loc2ufrag)), measure_basis_nonorthonormality (loc2ufrag)
+    assert (is_basis_orthonormal (loc2efrag)), measure_basis_nonorthonormality (loc2efrag)
+    assert (is_basis_orthonormal (loc2bath)), measure_basis_nonorthonormality (loc2bath)
     if get_labels:
         efrag_labels = frag_labels[:norbs_bath]
         ufrag_labels = frag_labels[norbs_bath:]
         bath_labels = env_labels[:norbs_bath]
         core_labels = env_labels[norbs_bath:]
     if norbs_ufrag > 0:
-        rets = matrix_eigen_control_options (the_1RDM, subspace=loc2ufrag, symmetry=symmetry, subspace_symmetry=ufrag_labels, sort_vecs=-1, only_nonzero_vals=False)
+        mat = the_1RDM if fock_helper is None else fock_helper
+        rets = matrix_eigen_control_options (mat, subspace=loc2ufrag, symmetry=symmetry, subspace_symmetry=ufrag_labels, sort_vecs=-1, only_nonzero_vals=False)
         loc2ufrag = rets[1]
         if get_labels: ufrag_labels = rets[2]
     if norbs_core > 0:
-        rets = matrix_eigen_control_options (the_1RDM, subspace=loc2core, symmetry=symmetry, subspace_symmetry=core_labels, sort_vecs=-1, only_nonzero_vals=False)
+        mat = the_1RDM if fock_helper is None else fock_helper
+        rets = matrix_eigen_control_options (mat, subspace=loc2core, symmetry=symmetry, subspace_symmetry=core_labels, sort_vecs=-1, only_nonzero_vals=False)
         loc2core = rets[1]
         if get_labels: core_labels = rets[2]
     loc2imp = np.concatenate ([loc2ufrag, loc2efrag, loc2bath], axis=1)
     nelec_imp = ((the_1RDM @ loc2imp) * loc2imp).sum ()
     loc2emb = np.append (loc2imp, loc2core, axis=1)
+    assert (is_basis_orthonormal (loc2core)), measure_basis_nonorthonormality (loc2core)
+    assert (is_basis_orthonormal (loc2ufrag)), measure_basis_nonorthonormality (loc2ufrag)
+    assert (is_basis_orthonormal (loc2imp)), measure_basis_nonorthonormality (loc2imp)
     if get_labels: labels = np.concatenate ((ufrag_labels, efrag_labels, bath_labels, core_labels))
     return loc2emb, norbs_bath, nelec_imp, labels
 
@@ -113,10 +124,10 @@ def idempotize_1RDM (oneRDM, thresh):
     new_oneRDM = represent_operator_in_basis (np.diag (new_evals), evecs.T)
     return new_oneRDM, nelec_diff
 
-def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bath_max, symmetry=None, frag_symm=None, bath_tol=params.num_zero_atol, idempotize_thresh=0, num_zero_atol=params.num_zero_atol):
+def Schmidt_decomposition_idempotent_wrapper (working_1RDM, loc2wfrag, norbs_bath_max, symmetry=None, frag_symm=None, fock_helper=None, bath_tol=params.num_zero_atol, idempotize_thresh=0, num_zero_atol=params.num_zero_atol):
     norbs_tot = loc2wfrag.shape[0]
     norbs_wfrag = loc2wfrag.shape[1]
-    loc2wemb, norbs_wbath, nelec_wimp, labels = Schmidt_decompose_1RDM (working_1RDM, loc2wfrag, norbs_bath_max, bath_tol=bath_tol, symmetry=symmetry)
+    loc2wemb, norbs_wbath, nelec_wimp, labels = Schmidt_decompose_1RDM (working_1RDM, loc2wfrag, norbs_bath_max, fock_helper=fock_helper,  bath_tol=bath_tol, symmetry=symmetry)
     norbs_wimp  = norbs_wfrag + norbs_wbath
     norbs_wcore = norbs_tot - norbs_wimp
     loc2wimp  = loc2wemb[:,:norbs_wimp]
