@@ -34,16 +34,26 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
     nelec_tot = np.trace (the_1RDM)
     loc2frag_inp = loc2frag.copy ()
 
+    def _analyze_intermediates (loc2int, tag):
+        loc2int = align_states (loc2int, symmetry)
+        int_labels = assign_blocks_weakly (loc2int, symmetry)
+        err = measure_subspace_blockbreaking (loc2int, symmetry, np.arange (len (symmetry), dtype=int))
+        labeldict = dict (zip (*np.unique (int_labels, return_counts=True)))
+        print ("{} irreps: {}, err = {}".format (tag, labeldict, err))
+
     # We need to SVD the environment-fragment block of the 1RDM
     # The bath states are from the left-singular vectors corresponding to nonzero singular value
     # The fragment semi-natural orbitals are from the right-singular vectors of ~any~ singular value
     # Note that only ~entangled~ fragment orbitals are returned so don't overwrite loc2frag!
+    assert (loc2frag.shape == (norbs_tot, norbs_frag)), loc2frag.shape
     loc2env = get_complementary_states (loc2frag, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
     if enforce_symmetry:
         loc2frag = orthonormalize_a_basis (loc2frag, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
         frag_symm = assign_blocks_weakly (loc2frag, symmetry)
         env_symm = assign_blocks_weakly (loc2env, symmetry)
-    rets = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, inner_symmetry=symmetry, outer_symmetry=(frag_symm, env_symm), enforce_symmetry=enforce_symmetry,
+    assert (loc2frag.shape == (norbs_tot, norbs_frag)), loc2frag.shape
+    assert (loc2env.shape == (norbs_tot, norbs_env)), loc2env.shape
+    rets = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, inner_symmetry=symmetry, outer_symmetry=(env_symm, frag_symm), enforce_symmetry=enforce_symmetry,
         only_nonzero_vals=True, full_matrices=True)
     loc2env, loc2frag, svals = rets[:3]
     if get_labels: env_labels, frag_labels = rets[3:]
@@ -69,14 +79,15 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
         ufrag_labels = frag_labels[norbs_bath:]
         bath_labels = env_labels[:norbs_bath]
         core_labels = env_labels[norbs_bath:]
+    # Strong_symm must remain FALSE below in order to control floating-point error overlaps of symmetry orbitals
     if norbs_ufrag > 0:
         mat = the_1RDM if fock_helper is None else fock_helper
-        rets = matrix_eigen_control_options (mat, subspace=loc2ufrag, symmetry=symmetry, subspace_symmetry=ufrag_labels, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+        rets = matrix_eigen_control_options (mat, subspace=loc2ufrag, symmetry=symmetry, subspace_symmetry=ufrag_labels, strong_symm=False, sort_vecs=-1, only_nonzero_vals=False)
         loc2ufrag = rets[1]
         if get_labels: ufrag_labels = rets[2]
     if norbs_core > 0:
         mat = the_1RDM if fock_helper is None else fock_helper
-        rets = matrix_eigen_control_options (mat, subspace=loc2core, symmetry=symmetry, subspace_symmetry=core_labels, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+        rets = matrix_eigen_control_options (mat, subspace=loc2core, symmetry=symmetry, subspace_symmetry=core_labels, strong_symm=False, sort_vecs=-1, only_nonzero_vals=False)
         loc2core = rets[1]
         if get_labels: core_labels = rets[2]
     loc2imp = np.concatenate ([loc2ufrag, loc2efrag, loc2bath], axis=1)

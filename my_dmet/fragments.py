@@ -410,7 +410,7 @@ class fragment_object:
         else:
             print ("DMET Schmidt decomposition of {0} fragment".format (self.frag_name))
             self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc, emb_labels = Schmidt_decomposition_idempotent_wrapper (oneRDM_loc,
-                self.loc2frag, self.norbs_bath_max, symmetry=self.loc2symm, fock_helper=self.ints.activeFOCK,
+                self.loc2frag, self.norbs_bath_max, symmetry=self.loc2symm, fock_helper=self.ints.activeFOCK, enforce_symmetry=self.enforce_symmetry,
                 idempotize_thresh=self.idempotize_thresh, bath_tol=self.bath_tol, num_zero_atol=params.num_zero_atol)
             self.norbs_imp = self.norbs_frag + norbs_bath
             self.Schmidt_done = True
@@ -505,7 +505,7 @@ class fragment_object:
         oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
         oneRDMa_loc = oneRDM_loc - oneRDMi_loc
         self.loc2emb, norbs_bath, self.nelec_imp, self.oneRDMfroz_loc, emb_labels = Schmidt_decomposition_idempotent_wrapper (oneRDMi_loc, loc2wfrag,
-            self.norbs_bath_max, symmetry=self.loc2symm, bath_tol=self.bath_tol, fock_helper=self.ints.activeFOCK,
+            self.norbs_bath_max, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry, bath_tol=self.bath_tol, fock_helper=self.ints.activeFOCK,
             idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_qfrag + norbs_bath
         self.Schmidt_done = True

@@ -116,19 +116,6 @@ class localintegrals:
         self.ao_ovlp     = the_mf.get_ovlp ()
         assert (is_matrix_eye (np.dot (self.ao_ovlp, self.ao_ovlp_inv)))
 
-        # Symmetry information
-        try:
-            self.loc2symm = [orthonormalize_a_basis (scipy.linalg.solve (self.ao2loc, ao2ir)) for ao2ir in self.mol.symm_orb]
-            self.symmetry = self.mol.groupname
-        except (AttributeError, TypeError) as e:
-            if self.mol.symmetry: raise (e)
-            self.loc2symm = [np.eye (self.norbs_tot)]
-            self.symmetry = False
-        for loc2ir1, loc2ir2 in itertools.combinations (self.loc2symm, 2):
-            proj = loc2ir1 @ loc2ir1.conjugate ().T
-            loc2ir2[:,:] -= proj @ loc2ir2
-        for loc2ir in self.loc2symm:
-            loc2ir[:,:] = orthonormalize_a_basis (loc2ir)
 
         # Effective Hamiltonian due to frozen part
         self.frozenDMmo  = np.array( the_mf.mo_occ, copy=True )
@@ -187,7 +174,23 @@ class localintegrals:
         else:
             print ("Direct calculation")
         sys.stdout.flush ()
+
+        # Symmetry information
         self.enforce_symmetry = False
+        try:
+            self.loc2symm = [orthonormalize_a_basis (scipy.linalg.solve (self.ao2loc, ao2ir)) for ao2ir in self.mol.symm_orb]
+            self.symmetry = self.mol.groupname
+        except (AttributeError, TypeError) as e:
+            if self.mol.symmetry: raise (e)
+            self.loc2symm = [np.eye (self.norbs_tot)]
+            self.symmetry = False
+        print ("Initial loc2symm nonorthonormality: {}".format (measure_basis_nonorthonormality (np.concatenate (self.loc2symm, axis=1))))
+        for loc2ir1, loc2ir2 in itertools.combinations (self.loc2symm, 2):
+            proj = loc2ir1 @ loc2ir1.conjugate ().T
+            loc2ir2[:,:] -= proj @ loc2ir2
+        for loc2ir in self.loc2symm:
+            loc2ir[:,:] = orthonormalize_a_basis (loc2ir)
+        print ("Final loc2symm nonorthonormality: {}".format (measure_basis_nonorthonormality (np.concatenate (self.loc2symm, axis=1))))
 
     def molden( self, filename ):
     

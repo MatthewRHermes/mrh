@@ -39,6 +39,7 @@ from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
 from mrh.util.basis import is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal, get_overlapping_states
 from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis, are_bases_orthogonal, measure_subspace_blockbreaking
+from mrh.util.basis import assign_blocks, align_states
 from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
@@ -629,7 +630,7 @@ class dmet:
             self.ints.symmetry = False
         '''
         try:
-            loc2wmcs_old = get_complementary_states (loc2wmas_old)
+            loc2wmcs_old = get_complementary_states (loc2wmas_old, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
         except linalg.LinAlgError as e:
             print (np.dot (loc2wmas_old.T, loc2wmas_old))
             raise (e)
@@ -885,6 +886,12 @@ class dmet:
         loc2x = loc2wmcs.copy ()
         loc2wmcs = [np.zeros ((self.norbs_tot, 0), dtype=loc2x.dtype) for ix in range (len (self.fragments))]
         wmcs_labels = [[] for ix in range (len (self.fragments))]
+        # Can't be too careful when diagonalizing 1-body projection operators (massive degeneracy -> numerical problems)
+        # Best to label the symmetry of the unactive subspace vectors explicitly and exactly
+        x_labels = None
+        if self.enforce_symmetry:
+            loc2x = align_states (loc2x, self.ints.loc2symm)
+            x_labels = assign_blocks (loc2x, self.ints.loc2symm)
 
         # First pass: Only retain the highest Mfk - Mak eigenvalues, for which the eigenvalue is larger than 1/2.
         # Do dummy fragments last so that distributing orbitals to them doesn't fuck up symmetry
@@ -911,7 +918,7 @@ class dmet:
                     continue
                 print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
                 evals, loc2evecs, labels = matrix_eigen_control_options (proj_gfrag[:,:,ix_frag], subspace=loc2x, symmetry=self.ints.loc2symm,
-                    strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+                    strong_symm=self.enforce_symmetry, subspace_symmetry=x_labels, sort_vecs=-1, only_nonzero_vals=False)
                 ix_zero = np.abs (evals) < 1e-8
                 # Scale the eigenvalues to evaluate their comparison to the sum of projector expt vals of unfull fragments
                 # exptvals = np.einsum ('ip,ijk,k,jp->p', loc2evecs.conjugate (), proj_gfrag, ix_rem.astype (int), loc2evecs)
@@ -923,9 +930,10 @@ class dmet:
                 ix_loc[Mxk_rem[ix_frag]:] = False
                 print ("{} fragment, iteration {}: {} eigenvalues above 1/2 found of {} total sought:\n{}".format (
                     f.frag_name, it, np.count_nonzero (ix_loc), Mxk_rem[ix_frag], evals))
+                loc2x = loc2evecs[:,~ix_loc]
+                x_labels = labels[~ix_loc]
                 loc2wmcs[ix_frag] = np.append (loc2wmcs[ix_frag], loc2evecs[:,ix_loc], axis=1)
                 wmcs_labels[ix_frag] = np.append (wmcs_labels[ix_frag], labels[ix_loc]).astype (int)
-                loc2x = loc2evecs[:,~ix_loc]
             it += 1
 
         if self.ints.mol.symmetry:
@@ -1242,7 +1250,7 @@ class dmet:
                 f.ir_names = ['A']
         elif symmetry and do_break:
             for f in self.fragments:
-                f.enforce_symmetry = self.enforce_symmetry
+                f.enforce_symmetry = False if f.imp_solver_name == 'dummy RHF' else self.enforce_symmetry
                 f.groupname = self.ints.mol.groupname
                 f.loc2symm = self.ints.loc2symm
                 f.ir_names = self.ints.mol.irrep_name

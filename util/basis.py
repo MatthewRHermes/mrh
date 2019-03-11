@@ -435,20 +435,18 @@ def are_states_block_adapted (the_basis, the_blocks, atol=params.num_zero_atol, 
     for blk in the_blocks:
         projector = blk @ blk.conjugate ().T
         is_symm = ((projector @ the_basis) * the_basis).sum (0)
-        if not (np.all (np.logical_or (np.isclose (is_symm, 0, atol=atol, rtol=rtol),
+        if not (np.all (np.logical_or (is_symm < rtol, # Better alternative to np.isclose (is_symm, 0) b/c of the way the latter works
                                        np.isclose (is_symm, 1, atol=atol, rtol=rtol)))): return False
     return True
 
 # Should work with overlapping states!
 def assign_blocks (the_basis, the_blocks, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
     assert (is_subspace_block_adapted (the_basis, the_blocks, tol=atol)), 'Basis space must be block-adapted before assigning states'
-    atol *= the_basis.shape[0]
-    rtol *= the_basis.shape[0]
     labels = -np.ones (the_basis.shape[1], dtype=int)
     for idx, blk in enumerate (the_blocks):
         projector = blk @ blk.conjugate ().T
         is_symm = ((projector @ the_basis) * the_basis).sum (0)
-        check = np.all (np.logical_or (np.isclose (is_symm, 0, atol=atol, rtol=rtol), np.isclose (is_symm, 1, atol=atol, rtol=rtol)))
+        check = np.all (np.logical_or (is_symm < rtol, np.isclose (is_symm, 1, atol=atol, rtol=rtol)))
         assert (check), 'Basis states must be individually block-adapted before being assigned (is_symm = {} for label {})'.format (is_symm, idx)
         labels[np.isclose(is_symm, 1, atol=atol, rtol=rtol)] = idx
     assert (np.all (labels>=0)), 'Failed to assign states {}'.format (np.where (labels<0)[0])
