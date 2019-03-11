@@ -87,6 +87,7 @@ class fragment_object:
         self.molden_missing_aos = False
         self.add_virtual_bath = False
         self.virtual_bath_gradient_svd = False
+        self.enforce_symmetry = False
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]
@@ -442,24 +443,34 @@ class fragment_object:
         err = measure_basis_nonorthonormality (self.loc2frag)
         print ("Fragment orbital overlap error = {}".format (err))
 
+
+        def _analyze_intermediates (loc2int, tag):
+            loc2int = align_states (loc2int, self.loc2symm)
+            int_labels = assign_blocks_weakly (loc2int, self.loc2symm)
+            err = measure_subspace_blockbreaking (loc2int, self.loc2symm, self.ir_names)
+            labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[int_labels], return_counts=True)))
+            print ("{} irreps: {}, err = {}".format (tag, labeldict, err))
+
+
         # Now get them. (Make sure I don't add active-space orbitals by mistake!)
         if norbs_xtra:
 
-            loc2qfrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag ())
-            loc2qenv = get_complementary_states (loc2qfrag, already_complete_warning=False)
-            loc2wmas = get_complementary_states (loc2wmcs, already_complete_warning=False)
-            loc2p = orthonormalize_a_basis (np.concatenate ([self.loc2frag, loc2qenv, loc2wmas], axis=1))
-            loc2qfrag = get_complementary_states (loc2p)
+            loc2qfrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag (), inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[:3]
+            loc2qenv = get_complementary_states (loc2qfrag, already_complete_warning=False, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
+            loc2wmas = get_complementary_states (loc2wmcs, already_complete_warning=False, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
+            loc2p = orthonormalize_a_basis (np.concatenate ([self.loc2frag, loc2qenv, loc2wmas], axis=1), symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
+            loc2qfrag = get_complementary_states (loc2p, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
             norbs_qfrag = min (loc2qfrag.shape[1], norbs_xtra)
             # Align the symmetry and make sure not to pick only part of a degenerate manifold because this will cause artificial symmetry breaking
             loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2qfrag, self.get_true_loc2frag (), inner_symmetry=self.loc2symm,
-                full_matrices=True, only_nonzero_vals=False)
+                enforce_symmetry=self.enforce_symmetry, full_matrices=True, only_nonzero_vals=False)
             if (len (svals) > norbs_qfrag) and (norbs_qfrag > 0):
                 bottom_sval = svals[norbs_qfrag-1]
                 ndegen = np.count_nonzero (np.isclose (svals[norbs_qfrag:], bottom_sval))
                 if ndegen > 0:
                     print ("Warning: adding {} instead of {} quasi-fragment orbitals in order to avoid artificial symmetry breaking by adding only part of a degenerate manifold".format (
-                        norbs_qfrag, norbs_qfrag+ndegen-1))
+                        norbs_qfrag+ndegen, norbs_qfrag))
+                    print (svals)
                 norbs_qfrag += ndegen-1
             if norbs_qfrag > 0:
                 print ("Add {} of {} possible quasi-fragment orbitals ".format (
@@ -471,6 +482,13 @@ class fragment_object:
                 err = measure_subspace_blockbreaking (loc2qfrag, self.loc2symm, self.ir_names)
                 print ("Quasi-fragment irreps = {}, err = {}".format (qfrag_labels, err))
                 loc2wfrag = np.append (self.loc2frag, loc2qfrag, axis=1)
+                # This is to make sure it's really, completely orthonormalized. strong_symm has to be FALSE to get rid of ~1e-8 overlap in loc2symm
+                loc2wfrag, wfrag_labels = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2wfrag, symmetry=self.loc2symm,
+                    strong_symm=False, only_nonzero_vals=False, sort_vecs=1)[1:]
+                wfrag_labels = np.asarray (self.ir_names)[wfrag_labels]
+                wfrag_labels = dict (zip (*np.unique (wfrag_labels, return_counts=True)))
+                err = measure_subspace_blockbreaking (loc2wfrag, self.loc2symm, self.ir_names)
+                print ("Working fragment irreps = {}, err = {}".format (wfrag_labels, err))
                 err = measure_basis_nonorthonormality (loc2wfrag)
                 print ("Working fragment orbital overlap error = {}".format (err))
             else:
@@ -507,7 +525,7 @@ class fragment_object:
                 print ("Adding {} virtual bath orbitals".format (norbs_virtbath))
                 self.loc2emb[:,self.norbs_imp:][:,:norbs_virtbath] = loc2virtbath[:,:norbs_virtbath]
                 self.norbs_imp += norbs_virtbath
-                self.loc2emb = get_complete_basis (self.loc2imp)
+                self.loc2emb = get_complete_basis (self.loc2imp, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
                 emb_labels = assign_blocks_weakly (self.loc2emb, self.loc2symm)
         except np.linalg.linalg.LinAlgError as e:
             if self.imp_solver_name == 'dummy RHF':
@@ -558,17 +576,16 @@ class fragment_object:
         svals = get_overlapping_states (loc2ao, self.loc2core)[2]
         lost_aos = np.sum (svals)
 
-        oneRDM_wmcs = represent_operator_in_basis (oneRDM_loc, loc2wmcs)
-        mo_occ, mo_evec = matrix_eigen_control_options (oneRDM_wmcs, sort_vecs=1, only_nonzero_vals=False)
+        mo_occ, mo_evec = matrix_eigen_control_options (oneRDM_loc, sort_vecs=1, only_nonzero_vals=False, subspace=loc2wmcs, symmetry=self.loc2symm, strong_symm=self.enforce_symmetry)[:2]
         idx_virtunac = np.isclose (mo_occ, 0)
-        loc2virtunac = np.dot (loc2wmcs, mo_evec[:,idx_virtunac])
+        loc2virtunac = mo_evec[:,idx_virtunac]
         ''' These orbitals have to be splittable into purely on the impurity/purely in the core for the same reason that nelec_imp has to
             be an integer, I think. '''
-        loc2virtunaccore, loc2corevirtunac, svals = get_overlapping_states (loc2virtunac, self.loc2core)
+        loc2virtunaccore, loc2corevirtunac, svals = get_overlapping_states (loc2virtunac, self.loc2core, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[:3]
         idx_virtunaccore = np.isclose (svals, 1)
         loc2virtunaccore = loc2virtunaccore[:,idx_virtunaccore]
 
-        loc2virtbath, svals, _, virtbath_labels = get_overlapping_states (loc2ao, loc2virtunaccore, inner_symmetry=self.loc2symm)[1:]
+        loc2virtbath, svals, _, virtbath_labels = get_overlapping_states (loc2ao, loc2virtunaccore, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[1:]
         assert (len (svals) == loc2virtbath.shape[1])
         if loc2virtbath.shape[1] == 0: return loc2virtbath
         check_nocc = np.trace (represent_operator_in_basis (oneRDM_loc, loc2virtbath))
@@ -587,7 +604,7 @@ class fragment_object:
         my_ene = -svals * svals
         my_occ = virtbathGocc.sum (1)
         if self.virtual_bath_gradient_svd:
-            umat, svals_fock, vmat = matrix_svd_control_options (virtbathGocc, sort_vecs=-1, only_nonzero_vals=False, lsymm=virtbath_labels, rsymm=occ_labels, full_matrices=True)[:3]
+            umat, svals_fock, vmat = matrix_svd_control_options (virtbathGocc, sort_vecs=-1, only_nonzero_vals=False, lsymm=virtbath_labels, rsymm=occ_labels, full_matrices=True, strong_symm=self.enforce_symmetry)[:3]
             idx = np.argsort (np.abs (svals_fock))[::-1]
             umat[:,:len (svals_fock)] = umat[:,:len (svals_fock)][:,idx]
             vmat[:,:len (svals_fock)] = vmat[:,:len (svals_fock)][:,idx]
@@ -606,9 +623,9 @@ class fragment_object:
         return loc2virtbath
 
     def gradient_for_virtbath (self, loc2virtbath, oneRDM_loc, loc2wmcs, fock=None):
-        loc2imp_unac = get_overlapping_states (self.loc2imp, loc2wmcs, only_nonzero_vals=True)[0]
+        loc2imp_unac = get_overlapping_states (self.loc2imp, loc2wmcs, only_nonzero_vals=True, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[0]
         evals, loc2no_unac, no_labels = matrix_eigen_control_options (oneRDM_loc, subspace=loc2imp_unac,
-            symmetry=self.loc2symm, sort_vecs=-1, only_nonzero_vals=True)
+            symmetry=self.loc2symm, sort_vecs=-1, only_nonzero_vals=True, strong_symm=self.enforce_symmetry)
         npair_core = (self.nelec_imp - self.nelec_as) // 2
         # This becomes kind of approximate if there is more than one active space
         loc2occ = np.append (loc2no_unac, self.loc2amo, axis=1)

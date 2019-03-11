@@ -187,6 +187,7 @@ class localintegrals:
         else:
             print ("Direct calculation")
         sys.stdout.flush ()
+        self.enforce_symmetry = False
 
     def molden( self, filename ):
     

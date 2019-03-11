@@ -47,11 +47,12 @@ from itertools import combinations, product
 class dmet:
 
     def __init__( self, theInts, fragments, calcname='DMET', isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
-                    doDET=False, doDET_NO=False, do1SHOT=False, do0SHOT=False, doLASSCF=False, do1EMB=False,
+                    doDET=False, doDET_NO=False, do1SHOT=False, do0SHOT=False, doLASSCF=False, do1EMB=False, enforce_symmetry=False,
                     minFunc='FOCK_INIT', print_u=True,
                     print_rdm=True, debug_energy=False, debug_reloc=False,
                     nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
-                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0):
+                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0 ):
+
 
         if isTranslationInvariant:
             raise RuntimeError ("The translational invariance option doesn't work!  It needs to be completely rebuilt!")
@@ -92,6 +93,7 @@ class dmet:
         self.corrpot_mf_moldens       = corrpot_mf_moldens
         self.corrpot_mf_molden_cnt    = 0
         self.ints.num_mf_stab_checks  = num_mf_stab_checks
+        self.enforce_symmetry         = enforce_symmetry
 
         for frag in self.fragments:
             frag.debug_energy             = debug_energy
@@ -501,6 +503,7 @@ class dmet:
         #scfinit = tracemalloc.take_snapshot ()
         #scfinit.dump ('scfinit.snpsht')
         self.energy = self.ints.e_tot
+        self.ints.enforce_symmetry = self.enforce_symmetry
         iteration = 0
         u_diff = 1.0
         convergence_threshold = 1e-6
@@ -835,7 +838,8 @@ class dmet:
         loc2wmas = np.dot (loc2wmas, evecs)
         wmas_labels = np.asarray (['A' for ix in range (loc2wmas.shape[1])])
         if self.ints.mol.symmetry:
-            loc2wmas, wmas_labels = matrix_eigen_control_options (oneRDM_loc, subspace=loc2wmas, symmetry=self.ints.loc2symm, only_nonzero_vals=False, sort_vecs=-1)[1:]
+            loc2wmas, wmas_labels = matrix_eigen_control_options (oneRDM_loc, subspace=loc2wmas, symmetry=self.ints.loc2symm,
+                strong_symm=self.enforce_symmetry, only_nonzero_vals=False, sort_vecs=-1)[1:]
             wmas_labels = np.asarray (self.ints.mol.irrep_name)[wmas_labels]
 
         for f in self.fragments:
@@ -906,7 +910,8 @@ class dmet:
                 if loc2x.shape[1] == 0 or Mxk_rem[ix_frag] == 0:
                     continue
                 print ("it {}\nMxk = {}\nMxk_rem = {}\nix_rem = {}\nloc2x.shape = {}".format (it, Mxk, Mxk_rem, ix_rem, loc2x.shape))
-                evals, loc2evecs, labels = matrix_eigen_control_options (proj_gfrag[:,:,ix_frag], subspace=loc2x, symmetry=self.ints.loc2symm, sort_vecs=-1, only_nonzero_vals=False)
+                evals, loc2evecs, labels = matrix_eigen_control_options (proj_gfrag[:,:,ix_frag], subspace=loc2x, symmetry=self.ints.loc2symm,
+                    strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
                 ix_zero = np.abs (evals) < 1e-8
                 # Scale the eigenvalues to evaluate their comparison to the sum of projector expt vals of unfull fragments
                 # exptvals = np.einsum ('ip,ijk,k,jp->p', loc2evecs.conjugate (), proj_gfrag, ix_rem.astype (int), loc2evecs)
@@ -1229,6 +1234,7 @@ class dmet:
             symmetry, irrep_norbs[idx,:] = symm_analysis (f.loc2frag, f.frag_name, symmetry)        
 
         if (not symmetry) and do_break and np.any (f.symmetry for f in self.fragments):
+            if self.enforce_symmetry: raise RuntimeError ("Fragmentation pattern of molecule breaks symmetry!")
             print ("Fragmentation pattern of molecule broke point-group symmetry! Voiding symmetry...")
             for f in self.fragments:
                 f.groupname = 'C1'
@@ -1236,6 +1242,7 @@ class dmet:
                 f.ir_names = ['A']
         elif symmetry and do_break:
             for f in self.fragments:
+                f.enforce_symmetry = self.enforce_symmetry
                 f.groupname = self.ints.mol.groupname
                 f.loc2symm = self.ints.loc2symm
                 f.ir_names = self.ints.mol.irrep_name

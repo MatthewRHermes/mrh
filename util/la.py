@@ -57,14 +57,14 @@ def _symmadapt_subspace (space, symm):
         space = space @ np.concatenate (symm, axis=1)
     else:
         space = np.concatenate (symm, axis=1)[space,:]
-    symm = np.concatenate ([[idx,] * blk.shape[1] for idx, blk in enumerate (symm)])
+    symm = np.concatenate ([[idx,] * blk.shape[1] for idx, blk in enumerate (symm)]).astype (int)
     return space, symm
 
 def _symmadapt_recurse_setup (symm_isvectorblock, mat, symm, space, space_isvectorblock, axis, Pbasis):
     if not symm_isvectorblock: return space, symm, mat, None
     symm_umat = np.concatenate (symm, axis=1)
     assert (symm_umat.shape == tuple((Pbasis, Pbasis))), "I can't guess how to map symmetry blocks to different bases"
-    symm_lbls = np.concatenate ([idx * np.ones (blk.shape[1], dtype=int) for idx, blk in enumerate (symm)])
+    symm_lbls = np.concatenate ([idx * np.ones (blk.shape[1], dtype=int) for idx, blk in enumerate (symm)]).astype (int)
     if isinstance (mat, np.ndarray):
         symm_matr = mat @ symm_umat if axis else symm_umat.conjugate ().T @ mat
     else:
@@ -75,19 +75,19 @@ def _symmadapt_recurse_setup (symm_isvectorblock, mat, symm, space, space_isvect
         else: symm_subs = symm_umat.conjugate ().T [:,space]
     # Be 200% sure that this recursion can't trigger this conditional block again!
     assert (not (isinstance (symm_lbls[0], np.ndarray))), 'Infinite recursion detected! Fix this bug!'
-    return symm_subs, symm_lbls, symm_matr, symm_umat
+    return symm_subs, symm_lbls.astype (int), symm_matr, symm_umat
 
-def _unpack_space_symm (space, symm, space_symmetry):
+def _unpack_space_symm (space, symm, space_symmetry, space_isvectorblock, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
     if space is None:
         symm_lbls = symm
         space = np.ones (M, dtype=np.bool_)
     elif space_symmetry is not None:
         symm_lbls = space_symmetry
     elif space_isvectorblock:
-        space, symm_lbls = align_vecs (space, symm, rtol=num_zero_rtol, atol=num_zero_atol)
+        space, symm_lbls = align_vecs (space, symm, rtol=rtol, atol=atol)
     else:
         symm_lbls = symm[space]
-    return space, symm_lbls
+    return space, symm_lbls.astype (int)
 
 def _add_symm_null (vecs, labels, null_lbls, symm_lbls, space, space_isvectorblock, Pbasis): 
     for lbl in null_lbls:
@@ -97,7 +97,7 @@ def _add_symm_null (vecs, labels, null_lbls, symm_lbls, space, space_isvectorblo
         else:
             vecs_null = np.eye (Pbasis)[:,space][:,symm_lbls==lbl]
         vecs = np.append (vecs, vecs_null, axis=1)
-        labels = np.append (labels, [lbl for ix in range (nnull)])
+        labels = np.append (labels, [lbl for ix in range (nnull)]).astype (int)
     return vecs, labels
 
 def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_vals=False, sort_vecs=-1,
@@ -269,8 +269,8 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
 
 
         # If a subspace is being diagonalized, recurse into symmetry blocks via the subspaces
-        lspace, lsymm_lbls = _unpack_space_symm (lspace, lsymm, lspace_symmetry)
-        rspace, rsymm_lbls = _unpack_space_symm (rspace, rsymm, rspace_symmetry)
+        lspace, lsymm_lbls = _unpack_space_symm (lspace, lsymm, lspace_symmetry, lspace_isvectorblock, atol=num_zero_atol, rtol=num_zero_rtol)
+        rspace, rsymm_lbls = _unpack_space_symm (rspace, rsymm, rspace_symmetry, rspace_isvectorblock, atol=num_zero_atol, rtol=num_zero_rtol)
             
         uniq_common_lbls = np.unique (np.append (lsymm_lbls, rsymm_lbls))
         uniq_null_lbls = [np.setdiff1d (np.unique (x), uniq_common_lbls) for x in (lsymm_lbls, rsymm_lbls)]
@@ -299,15 +299,15 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
         vecs = [np.concatenate (x, axis=1) for x in vecs]
         labels = [np.asarray (x) for x in labels]
         vecs_null = [np.concatenate (x, axis=1) for x in vecs_null]
-        labels_null = [np.asarray (x) for x in labels_null]
+        labels_null = [np.asarray (x).astype (int) for x in labels_null]
         if sort_vecs:
             idx = svals.argsort ()[::sort_vecs]
             svals = svals[idx]
             vecs = [x[:,idx] for x in vecs]
             labels = [x[idx] for x in labels]
         if full_matrices:
-            vecs = [np.append (x, y) for x, y in zip (vecs, vecs_null)]
-            labels = [np.append (x, y) for x, y in zip (llabels, llabels_null)]
+            vecs = [np.append (x, y, axis=1) for x, y in zip (vecs, vecs_null)]
+            labels = [np.append (x, y) for x, y in zip (labels, labels_null)]
             vecs[0], labels[0] = _add_symm_null (vecs[0], labels[0], uniq_null_lbls[0],
                 lsymm_lbls, lspace, lspace_isvectorblock, Mbasis)
             vecs[1], labels[1] = _add_symm_null (vecs[1], labels[1], uniq_null_lbls[1],
@@ -543,7 +543,7 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
         labels = []
         for lbl in uniq_lbls:
             subs_blk = subspace[...,symm_lbls==lbl]
-            evals_blk, evecs_blk = matrix_eigen_control_options (the_matrix, b_matrix=b_blk, subspace=subs_blk,
+            evals_blk, evecs_blk = matrix_eigen_control_options (the_matrix, b_matrix=b_matrix, subspace=subs_blk,
                 symmetry=None, subspace_symmetry=None, strong_symm=False,
                 sort_vecs=sort_vecs, only_nonzero_vals=only_nonzero_vals, round_zero_vals=round_zero_vals,
                 num_zero_rtol=num_zero_rtol, num_zero_atol=num_zero_atol)
@@ -568,7 +568,7 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
                 the_matrix = subspace.conjugate ().T @ the_matrix @ subspace
             else:
                 the_matrix = (subspace.conjugate ().T * the_matrix) @ subspace
-            b_matrix   = subspace.conjugate ().T @ b_matrix @ subspace if b_matrix is not None else None
+            b_matrix   = subspace.conjugate ().T @ b_matrix @ subspace if b_matrix is not None else subspace.conjugate ().T @ subspace
         else:
             idx = np.ix_(subspace,subspace)
             ndim_full = the_matrix.shape[0]

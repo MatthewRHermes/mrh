@@ -235,7 +235,8 @@ compute_nelec_in_subspace = compute_operator_trace_in_subset
 
 
 
-def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_symmetry=None, outer_symmetry=(None, None), max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol, only_nonzero_vals=True, full_matrices=False):
+def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_symmetry=None, outer_symmetry=(None, None), enforce_symmetry=False,
+        max_nrvecs=0, max_nlvecs=0, num_zero_atol=params.num_zero_atol, only_nonzero_vals=True, full_matrices=False):
     c2p = np.asarray (bra_basis)
     c2q = np.asarray (ket_basis)
     cOc = 1 if across_operator is None else np.asarray (across_operator)
@@ -252,6 +253,7 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_sy
         symmetry=inner_symmetry,
         lspace_symmetry=outer_symmetry[0],
         rspace_symmetry=outer_symmetry[1],
+        strong_symm=enforce_symmetry,
         sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
 
     c2l, svals, c2r = rets[:3]
@@ -278,14 +280,34 @@ def measure_basis_olap (bra_basis, ket_basis):
     olap_mag = np.sum (svals * svals)
     return olap_mag, svals
 
-def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_zero_atol):
+def count_linind_states (the_states, ovlp=1, num_zero_atol=params.num_zero_atol):
+    c2b = np.asarray (the_states)
+    b2c = c2b.conjugate ().T
+    cOc = np.asarray (ovlp)
+    nbas = c2b.shape[0]
+    nstates = c2b.shape[1]
+    bOb = b2c @ cOc @ c2b if cOc.shape == ((nbas, nbas)) else b2c @ c2b
+    if is_matrix_zero (bOb) or np.abs (np.trace (bOb)) <= num_zero_atol: return 0
+    evals = matrix_eigen_control_options (bOb, only_nonzero_vals=True)[0]
+    return len (evals)
+
+def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_zero_atol, symmetry=None, enforce_symmetry=False):
     if (is_basis_orthonormal (overlapping_basis)):
         return overlapping_basis
-
     c2b = np.asarray (overlapping_basis)
+    cOc = np.asarray (ovlp)
+    if enforce_symmetry:
+        c2n = np.zeros ((overlapping_basis.shape[0], 0), dtype=overlapping_basis.dtype)
+        for c2s in symmetry:
+            s2c = c2s.conjugate ().T
+            s2b = s2c @ c2b
+            sOs = s2c @ cOc @ c2s if cOc.shape == ((c2b.shape[0], c2b.shape[0])) else (s2c * cOc) @ c2s
+            s2n = orthonormalize_a_basis (s2b, ovlp=sOs, num_zero_atol=num_zero_atol, symmetry=None, enforce_symmetry=False)
+            c2n = np.append (c2n, c2s @ s2n, axis=1)
+        return (c2n)
+
     b2c = c2b.conjugate ().T
-    cOc = ovlp
-    bOb = b2c @ cOc @ c2b if isinstance (cOc, np.ndarray) else (b2c * cOc) @ c2b
+    bOb = b2c @ cOc @ c2b if cOc.shape == ((c2b.shape[0], c2b.shape[0])) else (b2c * cOc) @ c2b
     assert (not is_matrix_zero (bOb)), "overlap matrix is zero! problem with basis?"
     assert (np.allclose (bOb, bOb.conjugate ().T)), "overlap matrix not hermitian! problem with basis?"
     assert (np.abs (np.trace (bOb)) > num_zero_atol), "overlap matrix zero or negative trace! problem with basis?"
@@ -305,7 +327,7 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
     x2n = np.asarray (np.diag (np.reciprocal (np.sqrt (evals))))
     c2n = c2x @ x2n
     n2c = c2n.conjugate ().T
-    nOn = n2c @ cOc @ c2n if isinstance (cOc, np.ndarray) else (n2c * cOc) @ c2n
+    nOn = n2c @ cOc @ c2n if cOc.shape == ((c2b.shape[0], c2b.shape[0])) else (n2c * cOc) @ c2n
     if not is_basis_orthonormal (c2n):
         # Assuming numerical problem due to massive degeneracy; remove constant from diagonal to improve solver?
         assert (np.all (np.isclose (np.diag (nOn), 1))), np.diag (nOn) - 1
@@ -316,7 +338,7 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
         x2n = np.asarray (np.diag (np.reciprocal (np.sqrt (evals + 1))))
         c2n = c2x @ x2n
         n2c = c2n.conjugate ().T
-        nOn = n2c @ cOc @ c2n if isinstance (cOc, np.ndarray) else (n2c * cOc) @ c2n
+        nOn = n2c @ cOc @ c2n if cOc.shape == ((c2b.shape[0], c2b.shape[0])) else (n2c * cOc) @ c2n
         assert (is_basis_orthonormal (c2n)), "failed to orthonormalize basis even after two tries somehow\n" + str (
             prettyprint_ndarray (nOn)) + "\n" + str (np.linalg.norm (nOn - np.eye (c2n.shape[1]))) + "\n" + str (evals)
 
@@ -330,20 +352,31 @@ def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol
     idx = np.isclose (evals, 1)
     return evecs[:,idx]
 
-def get_complementary_states (incomplete_basis, already_complete_warning=True, atol=params.num_zero_atol):
+def get_complementary_states (incomplete_basis, already_complete_warning=True, atol=params.num_zero_atol, symmetry=None, enforce_symmetry=False):
+    if symmetry is None: enforce_symmetry = False
     if incomplete_basis.shape[1] == 0:
         if symm_blocks is None:
             return np.eye (incomplete_basis.shape[0])
         else:
             return np.concatenate (symm_blocks, axis=1)
-    orthonormal_basis = orthonormalize_a_basis (incomplete_basis)
-
-    # Kernel
-    nbas = orthonormal_basis.shape[1]
+    orthonormal_basis = orthonormalize_a_basis (incomplete_basis, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
     if is_basis_orthonormal_and_complete (orthonormal_basis):
         if already_complete_warning:
             print ("warning: tried to construct a complement for a basis that was already complete")
         return np.zeros ((incomplete_basis.shape[0], 0))
+    if enforce_symmetry:
+        c2p = np.zeros ((orthonormal_basis.shape[0], 0), dtype=orthonormal_basis.dtype)
+        for c2s in symmetry:
+            s2b = c2s.conjugate ().T @ orthonormal_basis
+            if not count_linind_states (s2b):
+                c2p = np.append (c2p, c2s, axis=1)
+                continue
+            s2p = get_complementary_states (s2b, atol=atol, already_complete_warning=False, symmetry=None, enforce_symmetry=False)
+            c2p = np.append (c2p, c2s @ s2p, axis=1)
+        return (orthonormalize_a_basis (c2p, symmetry=symmetry, enforce_symmetry=True))
+
+    # Kernel
+    nbas = orthonormal_basis.shape[1]
     Q, R = linalg.qr (orthonormal_basis)
     assert (are_bases_equivalent (Q[:,:nbas], orthonormal_basis))
     assert (are_bases_orthogonal (Q[:,nbas:], orthonormal_basis))
@@ -356,8 +389,8 @@ def get_complementary_states (incomplete_basis, already_complete_warning=True, a
     return orthonormalize_a_basis (Q[:,nbas:])
 
 
-def get_complete_basis (incomplete_basis):
-    complementary_states = get_complementary_states (incomplete_basis, already_complete_warning = False)
+def get_complete_basis (incomplete_basis, symmetry=None, enforce_symmetry=False):
+    complementary_states = get_complementary_states (incomplete_basis, already_complete_warning = False, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
     if np.any (complementary_states):
         return np.append (incomplete_basis, complementary_states, axis=1)
     else:
