@@ -125,14 +125,27 @@ def wrap_my_veff (get_veff_ao, ao2basis ):
         
     return my_veff
 
-def solve_JK(CONST, OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks, get_veff_ao, get_jk_ao, verbose=logger.INFO, output=None):
+def solve_JK(CONST, OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks, get_veff_ao, get_jk_ao,
+    groupname=None, symm_orb=None, irrep_name=None, irrep_id=None, enforce_symmetry=False,
+    verbose=logger.INFO, output=None):
 
     mol = gto.Mole()
     mol.atom.append(('C', (0, 0, 0)))
     mol.nelectron = 2 * numPairs
     mol.verbose = 0 if output is None else verbose
+    if enforce_symmetry:
+        mol.groupname = groupname
+        mol.symm_orb = symm_orb
+        mol.irrep_name = irrep_name
+        mol.irrep_id = irrep_id
+        def my_intor (intor, comp=None, hermi=0, aosym='s1', out=None, shls_slice=None):
+            if intor == 'int1e_ovlp':
+                return np.eye (OEI.shape[0])
+            return gto.Mole.intor(mol, intor, comp=comp, hermi=hermi, aosym=aosym, out=out, shls_slice=shls_slice)
+        mol.intor = my_intor
     if output is not None: mol.output = output
     mol.build ()
+    if enforce_symmetry: mol.symmetry = True
 
     L = OEI.shape[0]
     mf = scf.RHF( mol )
@@ -160,6 +173,7 @@ def solve_JK(CONST, OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks
         mf = scf.RHF( mol )
         mf.get_hcore = lambda *args: OEI
         mf.get_ovlp = lambda *args: np.eye( L )
+        mf.energy_nuc = lambda *args: CONST
         mf._eri = None # ao2mo.restore(8, TEI, L)
         mf._eri = None
         mf.get_jk   = wrap_my_jk   (get_jk_ao, ao2basis)

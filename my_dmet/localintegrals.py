@@ -286,7 +286,12 @@ class localintegrals:
         if oneRDM_wrk is None:
             oneRDM_wrk = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
         ao2wrk     = np.dot (self.ao2loc, loc2wrk)
-        oneRDM_wrk = wm_rhf.solve_JK (working_const, OEI_wrk, ao2wrk, oneRDM_wrk, nocc, self.num_mf_stab_checks, self.get_veff_ao, self.get_jk_ao, output=output)
+        wrk2symm   = [loc2wrk.conjugate ().T @ get_overlapping_states (loc2wrk, loc2ir, only_nonzero_vals=True, num_zero_atol=1e-5)[1] for loc2ir in self.loc2symm]
+        oneRDM_wrk = wm_rhf.solve_JK (working_const, OEI_wrk, ao2wrk, oneRDM_wrk, nocc,
+            self.num_mf_stab_checks, self.get_veff_ao, self.get_jk_ao,
+            groupname=self.symmetry, symm_orb=wrk2symm, irrep_name=self.mol.irrep_name,
+            irrep_id=self.mol.irrep_id, enforce_symmetry=self.enforce_symmetry,
+            output=output)
         oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
         return oneRDM_loc + self.oneRDMcorr_loc
 
