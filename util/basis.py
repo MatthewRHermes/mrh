@@ -457,21 +457,9 @@ def symmetrize_basis (the_basis, the_blocks, sorting_metric=None, sort_vecs=1, d
     rtol_scl = rtol * the_basis.shape[0]
     if the_blocks is None: the_blocks=[np.eye (the_basis.shape[0])]
     assert (is_subspace_block_adapted (the_basis, the_blocks, tol=atol)), 'Basis space must be block-adapted before blockifying states'
-    if are_states_block_adapted (the_basis, the_blocks, atol=atol, rtol=rtol):
-        symmetrized_basis = the_basis
-        labels = assign_blocks (the_basis, the_blocks)
-    else:
-        orthonormal_basis = orthonormalize_a_basis (the_basis)
-        labels = []
-        symmetrized_basis = []
-        for idx, blk in enumerate (the_blocks):
-            c2s_blk, c2s_p, svals = get_overlapping_states (blk, orthonormal_basis, only_nonzero_vals=True, num_zero_atol=1e-3)
-            assert (np.all (np.isclose (svals, 1, atol=atol_scl, rtol=rtol_scl))), 'Failed to find block-adapted states in block {}; svals = {}'.format (idx, svals)
-            labels.append (idx * svals)
-            symmetrized_basis.append (c2s_blk)
-        labels = np.around (np.concatenate (labels)).astype (int)
-        symmetrized_basis = np.concatenate (symmetrized_basis, axis=1)
-        assert (is_basis_orthonormal (symmetrized_basis, atol=atol, rtol=rtol)), "? labels = {}".format (labels)
+    symmetrized_basis = align_states (the_basis, the_blocks)
+    labels = assign_blocks (symmetrized_basis, the_blocks)
+    assert (is_basis_orthonormal (symmetrized_basis, atol=atol, rtol=rtol)), "? labels = {}".format (labels)
 
     if sorting_metric is None:
         return symmetrized_basis, labels
@@ -547,7 +535,7 @@ def cleanup_operator_symmetry (the_operator, the_blocks):
     return the_operator
 
 def analyze_operator_blockbreaking (the_operator, the_blocks, block_labels=None):
-    if block_labels is None: block_labels = np.arange (len (the_blocks))
+    if block_labels is None: block_labels = np.arange (len (the_blocks), dtype=int)
     if isinstance (the_blocks[0], np.ndarray):
         c2s = np.concatenate (the_blocks, axis=1)
         assert (is_basis_orthonormal_and_complete (c2s)), "Symmetry block problem? Not a complete, orthonormal basis."
@@ -608,5 +596,21 @@ def analyze_subspace_blockbreaking (the_basis, the_blocks, block_labels=None):
 def measure_subspace_blockbreaking (the_basis, the_blocks, block_labels=None):
     projector = the_basis @ the_basis.conjugate ().T
     return measure_operator_blockbreaking (projector, the_blocks, block_labels=block_labels)
+
+def get_subspace_symmetry_blocks (the_subspace, the_blocks, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
+    c2p = np.asarray (the_subspace)
+    new_blocks = []
+    for idx, c2s in enumerate (the_blocks):
+        s2c = c2s.conjugate ().T
+        s2p = s2c @ c2p
+        svals, p2s = matrix_svd_control_options (s2p, only_nonzero_vals=True, num_zero_atol=rtol)[1:3]
+        assert (np.all (np.isclose (svals, 1, atol=atol, rtol=rtol))), 'Subspace may not be symmetry-adapted: svals for {}th block: {}'.format (idx, svals)
+        new_blocks.append (p2s)
+    p2s = np.concatenate (new_blocks, axis=1)
+    assert (is_basis_orthonormal_and_complete (p2s)), measure_basis_nonorthonormality (p2s)
+    return new_blocks
+
+
+
 
 

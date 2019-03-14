@@ -28,13 +28,14 @@ import os, time
 import sys, copy
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo, mcscf, fci, lib
+from pyscf.symm.addons import label_orb_symm
 from pyscf.mcscf.addons import spin_square
 from pyscf.fci.addons import transform_ci_for_orbital_rotation
 from pyscf.tools import molden
 #np.set_printoptions(threshold=np.nan)
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, orthonormalize_a_basis, get_complete_basis, get_complementary_states
-from mrh.util.basis import is_basis_orthonormal, get_overlapping_states, is_basis_orthonormal_and_complete, compute_nelec_in_subspace
+from mrh.util.basis import is_basis_orthonormal, get_overlapping_states, is_basis_orthonormal_and_complete, compute_nelec_in_subspace, get_subspace_symmetry_blocks
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2RDM_from_2CDM
 from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.tensors import symmetrize_tensor
@@ -59,7 +60,13 @@ def solve (frag, guess_1RDM, chempot_imp):
     mol.output = frag.mol_output
     mol.atom.append(('H', (0, 0, 0)))
     mol.nelectron = frag.nelec_imp
+    if frag.enforce_symmetry:
+        mol.groupname  = frag.symmetry
+        mol.symm_orb   = get_subspace_symmetry_blocks (frag.loc2imp, frag.loc2symm)
+        mol.irrep_name = frag.ir_names
+        mol.irrep_id   = frag.ir_ids
     mol.build ()
+    if frag.enforce_symmetry: mol.symmetry = True
     #mol.incore_anyway = True
     mf = scf.RHF(mol)
     mf.get_hcore = lambda *args: OEI
@@ -147,33 +154,12 @@ def solve (frag, guess_1RDM, chempot_imp):
         imp2mo = imp2mo @ evecs
         my_occ = ((dm_imp @ imp2mo) * imp2mo).sum (0)
         print ("No stored amos; using mean-field canonical MOs as initial guess")
-
-    # Symmetry align if possible
-    imp2mo[:,:norbs_cmo]          = frag.align_imporbs_symm (imp2mo[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess inactive')[0]
-    imp2mo[:,norbs_cmo:norbs_occ] = frag.align_imporbs_symm (imp2mo[:,norbs_cmo:norbs_occ], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess active')[0]
-    imp2mo[:,norbs_occ:]          = frag.align_imporbs_symm (imp2mo[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess external')[0]
-
     # Guess orbital processing
     if callable (frag.cas_guess_callback):
         mo = reduce (np.dot, (frag.ints.ao2loc, frag.loc2imp, imp2mo))
         mo = frag.cas_guess_callback (frag.ints.mol, mc, mo)
         imp2mo = reduce (np.dot, (frag.imp2loc, frag.ints.ao2loc.conjugate ().T, frag.ints.ao_ovlp, mo))
         frag.cas_guess_callback = None
-    # Guess orbital printing
-    if frag.mfmo_printed == False:
-        ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
-        print ("Writing {} {} orbital molden".format (frag.frag_name, 'CAS guess'))
-        molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=my_occ)
-        frag.mfmo_printed = True
-    elif len (frag.active_orb_list) > 0:
-        print('Applying caslst: {}'.format (frag.active_orb_list))
-        imp2mo = mc.sort_mo(frag.active_orb_list, mo_coeff=imp2mo)
-        frag.active_orb_list = []
-    if len (frag.frozen_orb_list) > 0:
-        mc.frozen = copy.copy (frag.frozen_orb_list)
-        print ("Applying frozen-orbital list (this macroiteration only): {}".format (frag.frozen_orb_list))
-        frag.frozen_orb_list = []
-
 
     # Guess CI vector
     if len (frag.imp_cache) != 2 and frag.ci_as is not None:
@@ -187,9 +173,34 @@ def solve (frag, guess_1RDM, chempot_imp):
         else:
             print ("Discarding stored ci guess because orbitals are too different (missing {} nonzero svals)".format (norbs_amo-svals.size))
 
+    # Symmetry align if possible
+    imp2mo[:,:norbs_cmo] = frag.align_imporbs_symm (imp2mo[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess inactive', mol=mol)[0]
+    imp2mo[:,norbs_cmo:norbs_occ], umat = frag.align_imporbs_symm (imp2mo[:,norbs_cmo:norbs_occ],
+                                                                          sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess active', mol=mol)
+    imp2mo[:,norbs_occ:] = frag.align_imporbs_symm (imp2mo[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess external', mol=mol)[0]
+    if ci0 is not None: ci0 = transform_ci_for_orbital_rotation (ci0, CASorb, CASe, umat)
+
+    # Guess orbital printing
+    if frag.mfmo_printed == False:
+        ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
+        print ("Writing {} {} orbital molden".format (frag.frag_name, 'CAS guess'))
+        molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=my_occ)
+        frag.mfmo_printed = True
+    elif len (frag.active_orb_list) > 0: # This is done AFTER everything else so that the _mfmorb.molden always has consistent ordering
+        print('Applying caslst: {}'.format (frag.active_orb_list))
+        imp2mo = mc.sort_mo(frag.active_orb_list, mo_coeff=imp2mo)
+        frag.active_orb_list = []
+    if len (frag.frozen_orb_list) > 0:
+        mc.frozen = copy.copy (frag.frozen_orb_list)
+        print ("Applying frozen-orbital list (this macroiteration only): {}".format (frag.frozen_orb_list))
+        frag.frozen_orb_list = []
+
+    if frag.enforce_symmetry: imp2mo = lib.tag_array (imp2mo, orbsym=label_orb_symm (mol, mol.irrep_id, mol.symm_orb, imp2mo, s=mf.get_ovlp (), check=False))
+
     t_start = time.time()
     smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
-    mc.fcisolver = csf_solver (mf.mol, smult)
+    mc.fcisolver = csf_solver (mf.mol, smult, symm=True)
+    if frag.enforce_symmetry: mc.fcisolver.wfnsym = frag.wfnsym
     mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
     mc.ah_start_tol = 1e-10
     mc.ah_conv_tol = 1e-10
@@ -228,10 +239,10 @@ def solve (frag, guess_1RDM, chempot_imp):
     # Symmetry align if possible
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
     fock_imp = mc.get_fock ()
-    mc.mo_coeff[:,:norbs_cmo] = frag.align_imporbs_symm (mc.mo_coeff[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized inactive')[0]
+    mc.mo_coeff[:,:norbs_cmo] = frag.align_imporbs_symm (mc.mo_coeff[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized inactive', mol=mol)[0]
     mc.mo_coeff[:,norbs_cmo:norbs_occ], umat = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_cmo:norbs_occ],
-        sorting_metric=oneRDM_amo, sort_vecs=-1, orbital_type='optimized active')
-    mc.mo_coeff[:,norbs_occ:] = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized external')[0]
+        sorting_metric=oneRDM_amo, sort_vecs=-1, orbital_type='optimized active', mol=mol)
+    mc.mo_coeff[:,norbs_occ:] = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized external', mol=mol)[0]
     mc.ci = transform_ci_for_orbital_rotation (mc.ci, CASorb, CASe, umat)
 
     # Cache stuff

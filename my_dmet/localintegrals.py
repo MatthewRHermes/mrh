@@ -180,10 +180,12 @@ class localintegrals:
         try:
             self.loc2symm = [orthonormalize_a_basis (scipy.linalg.solve (self.ao2loc, ao2ir)) for ao2ir in self.mol.symm_orb]
             self.symmetry = self.mol.groupname
+            self.wfnsym = the_mf.wfnsym
         except (AttributeError, TypeError) as e:
             if self.mol.symmetry: raise (e)
             self.loc2symm = [np.eye (self.norbs_tot)]
             self.symmetry = False
+            self.wfnsym = 'A'
         print ("Initial loc2symm nonorthonormality: {}".format (measure_basis_nonorthonormality (np.concatenate (self.loc2symm, axis=1))))
         for loc2ir1, loc2ir2 in itertools.combinations (self.loc2symm, 2):
             proj = loc2ir1 @ loc2ir1.conjugate ().T
@@ -268,10 +270,7 @@ class localintegrals:
         nelec   = nelec   or self.nelec_idem
         loc2wrk = loc2wrk if np.any (loc2wrk) else self.loc2idem
         nocc    = nelec // 2
-
-        OEI_wrk = represent_operator_in_basis (OEI, loc2wrk)
-        oneRDM_wrk = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
-        oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
+        oneRDM_loc = 2 * get_1RDM_from_OEI (OEI, nocc, subspace=loc2wrk)#, symmetry=self.loc2symm, strong_symm=self.enforce_symmetry)
         return oneRDM_loc + self.oneRDMcorr_loc
 
     def get_wm_1RDM_from_scf_on_OEI (self, OEI, nelec=None, loc2wrk=None, oneRDMguess_loc=None, output=None, working_const=0):
@@ -286,13 +285,17 @@ class localintegrals:
         if oneRDM_wrk is None:
             oneRDM_wrk = 2 * get_1RDM_from_OEI (OEI_wrk, nocc)
         ao2wrk     = np.dot (self.ao2loc, loc2wrk)
-        wrk2symm   = [loc2wrk.conjugate ().T @ get_overlapping_states (loc2wrk, loc2ir, only_nonzero_vals=True, num_zero_atol=1e-5)[1] for loc2ir in self.loc2symm]
+        wrk2symm   = get_subspace_symmetry_blocks (loc2wrk, self.loc2symm)
+        if self.enforce_symmetry: assert (is_operator_block_adapted (oneRDM_wrk, wrk2symm)), measure_operator_blockbreaking (oneRDM_wrk, wrk2symm)
+        if self.enforce_symmetry: assert (is_operator_block_adapted (OEI_wrk, wrk2symm)), measure_operator_blockbreaking (OEI_wrk, wrk2symm)
         oneRDM_wrk = wm_rhf.solve_JK (working_const, OEI_wrk, ao2wrk, oneRDM_wrk, nocc,
             self.num_mf_stab_checks, self.get_veff_ao, self.get_jk_ao,
             groupname=self.symmetry, symm_orb=wrk2symm, irrep_name=self.mol.irrep_name,
             irrep_id=self.mol.irrep_id, enforce_symmetry=self.enforce_symmetry,
             output=output)
+        if self.enforce_symmetry: assert (is_operator_block_adapted (oneRDM_wrk, wrk2symm)), measure_operator_blockbreaking (oneRDM_wrk, wrk2symm)
         oneRDM_loc = represent_operator_in_basis (oneRDM_wrk, loc2wrk.T)
+        if self.enforce_symmetry: assert (is_operator_block_adapted (oneRDM_loc, self.loc2symm)), measure_operator_blockbreaking (oneRDM_loc, self.loc2symm)
         return oneRDM_loc + self.oneRDMcorr_loc
 
     def setup_wm_core_scf (self, fragments, calcname):

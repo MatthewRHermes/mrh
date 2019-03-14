@@ -138,11 +138,6 @@ def solve_JK(CONST, OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks
         mol.symm_orb = symm_orb
         mol.irrep_name = irrep_name
         mol.irrep_id = irrep_id
-        def my_intor (intor, comp=None, hermi=0, aosym='s1', out=None, shls_slice=None):
-            if intor == 'int1e_ovlp':
-                return np.eye (OEI.shape[0])
-            return gto.Mole.intor(mol, intor, comp=comp, hermi=hermi, aosym=aosym, out=out, shls_slice=shls_slice)
-        mol.intor = my_intor
     if output is not None: mol.output = output
     mol.build ()
     if enforce_symmetry: mol.symmetry = True
@@ -162,6 +157,11 @@ def solve_JK(CONST, OEI, ao2basis, oneRDMguess_loc, numPairs, num_mf_stab_checks
     oneRDM_loc = mf.make_rdm1 ()
     if not mf.converged:
         mf = mf.newton ()
+        def my_intor (intor, comp=None, hermi=0, aosym='s1', out=None, shls_slice=None):
+            if intor == 'int1e_ovlp':
+                return np.eye (L)
+            return gto.Mole.intor(mol, intor, comp=comp, hermi=hermi, aosym=aosym, out=out, shls_slice=shls_slice)
+        mf.mol.intor = my_intor
         mf.kernel ( oneRDM_loc )
         oneRDM_loc = mf.make_rdm1 ()
     assert (mf.converged)

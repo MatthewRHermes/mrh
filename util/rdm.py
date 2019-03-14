@@ -8,11 +8,12 @@ from mrh.util.my_math import is_close_to_integer
 from mrh.util import params
 from mrh.util.io import warnings
 
-def get_1RDM_from_OEI (one_electron_hamiltonian, nocc):
-    evals, evecs = matrix_eigen_control_options (one_electron_hamiltonian, sort_vecs=1, only_nonzero_vals=False)
-    l2p = np.asmatrix (evecs[:,:nocc])
-    p2l = l2p.H
-    return np.asarray (l2p * p2l)
+def get_1RDM_from_OEI (one_electron_hamiltonian, nocc, subspace=None, symmetry=None, strong_symm=None):
+    evals, evecs = matrix_eigen_control_options (one_electron_hamiltonian, sort_vecs=1, subspace=subspace,
+        symmetry=symmetry, strong_symm=strong_symm, only_nonzero_vals=False)[:2]
+    l2p = evecs[:,:nocc]
+    p2l = l2p.conjugate ().T
+    return l2p @ p2l
 
 def get_1RDM_from_OEI_in_subspace (one_electron_hamiltonian, subspace_basis, nocc_subspace, num_zero_atol):
     l2w = np.asmatrix (subspace_basis)
@@ -79,15 +80,14 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
         ufrag_labels = frag_labels[norbs_bath:]
         bath_labels = env_labels[:norbs_bath]
         core_labels = env_labels[norbs_bath:]
-    # Strong_symm must remain FALSE below in order to control floating-point error overlaps of symmetry orbitals
     if norbs_ufrag > 0:
         mat = the_1RDM if fock_helper is None else fock_helper
-        rets = matrix_eigen_control_options (mat, subspace=loc2ufrag, symmetry=symmetry, subspace_symmetry=ufrag_labels, strong_symm=False, sort_vecs=-1, only_nonzero_vals=False)
+        rets = matrix_eigen_control_options (mat, subspace=loc2ufrag, subspace_symmetry=ufrag_labels, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
         loc2ufrag = rets[1]
         if get_labels: ufrag_labels = rets[2]
     if norbs_core > 0:
         mat = the_1RDM if fock_helper is None else fock_helper
-        rets = matrix_eigen_control_options (mat, subspace=loc2core, symmetry=symmetry, subspace_symmetry=core_labels, strong_symm=False, sort_vecs=-1, only_nonzero_vals=False)
+        rets = matrix_eigen_control_options (mat, subspace=loc2core, subspace_symmetry=core_labels, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
         loc2core = rets[1]
         if get_labels: core_labels = rets[2]
     loc2imp = np.concatenate ([loc2ufrag, loc2efrag, loc2bath], axis=1)

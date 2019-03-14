@@ -1248,13 +1248,16 @@ class dmet:
                 f.groupname = 'C1'
                 f.loc2symm = [np.eye (self.norbs_tot)]           
                 f.ir_names = ['A']
+                f.ir_ids   = [0]
+                f.wfnsym   = 'A'
         elif symmetry and do_break:
             for f in self.fragments:
                 f.enforce_symmetry = False if f.imp_solver_name == 'dummy RHF' else self.enforce_symmetry
                 f.groupname = self.ints.mol.groupname
                 f.loc2symm = self.ints.loc2symm
                 f.ir_names = self.ints.mol.irrep_name
-
+                f.ir_ids   = self.ints.mol.irrep_id
+                if f.wfnsym is None: f.wfnsym = self.ints.wfnsym
         return symmetry
 
     def examine_symmetry (self, verbose=True):

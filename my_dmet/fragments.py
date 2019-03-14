@@ -88,6 +88,7 @@ class fragment_object:
         self.add_virtual_bath = False
         self.virtual_bath_gradient_svd = False
         self.enforce_symmetry = False
+        self.wfnsym = None
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]
@@ -151,6 +152,7 @@ class fragment_object:
         self.groupname = 'C1'
         self.loc2symm  = [np.eye (self.norbs_tot)]
         self.ir_names  = ['A']
+        self.ir_ids    = [0]
 
         # Basic outputs of solving the impurity problem
         self.E_frag = 0.0
@@ -833,7 +835,7 @@ class fragment_object:
             return imp2mo, np.eye (imp2mo.shape[1])
         if oneRDM_loc is None: oneRDM_loc=self.oneRDM_loc        
         
-    def align_imporbs_symm (self, imp2mo, sort_vecs=1, sorting_metric=None, orbital_type=""):
+    def align_imporbs_symm (self, imp2mo, mol=None, sort_vecs=1, sorting_metric=None, orbital_type=""):
         if len (orbital_type) > 0: orbital_type += ' '
         mo2imp = imp2mo.conjugate ().T
         if not self.symmetry:
@@ -841,17 +843,21 @@ class fragment_object:
         if sorting_metric is None:
             sorting_metric = np.diag (np.arange (imp2mo.shape[1]))
         if sorting_metric.shape[0] == imp2mo.shape[1]:
-            sorting_metric = represent_operator_in_basis (sorting_metric, mo2imp @ self.imp2loc)
-        elif sorting_metric.shape[0] == imp2mo.shape[0]:
+            sorting_metric = represent_operator_in_basis (sorting_metric, mo2imp)
+        if self.enforce_symmetry and mol is not None:
+            evals, new_imp2mo, labels = matrix_eigen_control_options (sorting_metric, subspace=imp2mo, symmetry=mol.symm_orb,
+                sort_vecs=sort_vecs, only_nonzero_vals=False, strong_symm=False)
+            err = measure_subspace_blockbreaking (imp2mo, mol.symm_orb)
+        else:
             sorting_metric = represent_operator_in_basis (sorting_metric, self.imp2loc)
-        loc2mo = self.loc2imp @ imp2mo
-        evals, loc2mo, labels = matrix_eigen_control_options (sorting_metric, subspace=loc2mo, symmetry=self.loc2symm,
-            sort_vecs=sort_vecs, only_nonzero_vals=False, strong_symm=False)
+            loc2mo = self.loc2imp @ imp2mo
+            evals, loc2mo, labels = matrix_eigen_control_options (sorting_metric, subspace=loc2mo, symmetry=self.loc2symm,
+                sort_vecs=sort_vecs, only_nonzero_vals=False, strong_symm=False)
+            err = measure_subspace_blockbreaking (loc2mo, self.loc2symm)
+            new_imp2mo = self.imp2loc @ loc2mo
         labels_dict = {lbl: np.count_nonzero (labels==idx) for idx, lbl in enumerate (self.ir_names) if np.count_nonzero (labels==idx)>0}
-        err = measure_subspace_blockbreaking (loc2mo, self.loc2symm)
-        print ("Irreps of {}orbitals: {}, err = {}".format (orbital_type, labels_dict, err))
-        new_imp2mo = self.imp2loc @ loc2mo
         symm_umat = mo2imp @ new_imp2mo
+        print ("Irreps of {}orbitals: {}, err = {}".format (orbital_type, labels_dict, err))
         return new_imp2mo, symm_umat
 
 
