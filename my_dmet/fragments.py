@@ -17,6 +17,7 @@ from mrh.my_pyscf.tools.jmol import cas_mo_energy_shift_4_jmol
 from functools import reduce
 import traceback
 import sys
+import copy
 
 #def make_fragment_atom_list (ints, frag_atom_list, solver_name, active_orb_list = np.empty (0, dtype=int), name="NONE", norbs_bath_max=None, idempotize_thresh=0.0, mf_attr={}, corr_attr={}):
 def make_fragment_atom_list (ints, frag_atom_list, solver_name, **kwargs):

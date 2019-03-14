@@ -966,7 +966,7 @@ class dmet:
         amo_new_coeff = np.append (mo_coeff[:,ncore_target:ncore_current], mo_coeff[:,nocc_current:nocc_target], axis=1)
 
         loc2amo_new = orthonormalize_a_basis (linalg.solve (self.ints.ao2loc, amo_new_coeff))
-        projamo = np.dot (loc2amo_new, loc2amo_new.conjugate ().T)
+        proj_amo = np.dot (loc2amo_new, loc2amo_new.conjugate ().T)
 
         for f in self.fragments:
             if f.active_space is not None:
