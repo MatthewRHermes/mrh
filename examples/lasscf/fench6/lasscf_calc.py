@@ -1,5 +1,6 @@
 import sys, os
 import time
+sys.path.append('../../../../')
 from pyscf import gto, dft, scf, mcscf, df, symm
 from pyscf.tools import molden
 from pyscf.mcscf import avas
