@@ -36,6 +36,7 @@ from pyscf.tools import molden
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util.basis import represent_operator_in_basis, project_operator_into_subspace, orthonormalize_a_basis, get_complete_basis, get_complementary_states
 from mrh.util.basis import is_basis_orthonormal, get_overlapping_states, is_basis_orthonormal_and_complete, compute_nelec_in_subspace, get_subspace_symmetry_blocks
+from mrh.util.basis import measure_subspace_blockbreaking, measure_basis_nonorthonormality, cleanup_subspace_symmetry
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2RDM_from_2CDM
 from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.tensors import symmetrize_tensor
@@ -178,7 +179,14 @@ def solve (frag, guess_1RDM, chempot_imp):
     imp2mo[:,norbs_cmo:norbs_occ], umat = frag.align_imporbs_symm (imp2mo[:,norbs_cmo:norbs_occ],
                                                                           sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess active', mol=mol)
     imp2mo[:,norbs_occ:] = frag.align_imporbs_symm (imp2mo[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess external', mol=mol)[0]
+    if frag.enforce_symmetry:
+        imp2mo = cleanup_subspace_symmetry (imp2mo, mol.symm_orb)
+        err_symm = measure_subspace_blockbreaking (imp2mo, mol.symm_orb)
+        err_orth = measure_basis_nonorthonormality (imp2mo)
+        print ("Initial symmetry error after cleanup = {}".format (err_symm))
+        print ("Initial orthonormality error after cleanup = {}".format (err_orth))
     if ci0 is not None: ci0 = transform_ci_for_orbital_rotation (ci0, CASorb, CASe, umat)
+        
 
     # Guess orbital printing
     if frag.mfmo_printed == False:
@@ -243,6 +251,14 @@ def solve (frag, guess_1RDM, chempot_imp):
     mc.mo_coeff[:,norbs_cmo:norbs_occ], umat = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_cmo:norbs_occ],
         sorting_metric=oneRDM_amo, sort_vecs=-1, orbital_type='optimized active', mol=mol)
     mc.mo_coeff[:,norbs_occ:] = frag.align_imporbs_symm (mc.mo_coeff[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='optimized external', mol=mol)[0]
+    if frag.enforce_symmetry:
+        amo2imp = mc.mo_coeff[:,norbs_cmo:norbs_occ].conjugate ().T
+        mc.mo_coeff = cleanup_subspace_symmetry (mc.mo_coeff, mol.symm_orb)
+        umat = umat @ (amo2imp @ mc.mo_coeff[:,norbs_cmo:norbs_occ])
+        err_symm = measure_subspace_blockbreaking (mc.mo_coeff, mol.symm_orb)
+        err_orth = measure_basis_nonorthonormality (mc.mo_coeff)
+        print ("Final symmetry error after cleanup = {}".format (err_symm))
+        print ("Final orthonormality error after cleanup = {}".format (err_orth))
     mc.ci = transform_ci_for_orbital_rotation (mc.ci, CASorb, CASe, umat)
 
     # Cache stuff

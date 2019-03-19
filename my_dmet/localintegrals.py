@@ -287,7 +287,6 @@ class localintegrals:
         ao2wrk     = np.dot (self.ao2loc, loc2wrk)
         wrk2symm   = get_subspace_symmetry_blocks (loc2wrk, self.loc2symm)
         if self.enforce_symmetry: assert (is_operator_block_adapted (oneRDM_wrk, wrk2symm)), measure_operator_blockbreaking (oneRDM_wrk, wrk2symm)
-        if self.enforce_symmetry: assert (is_operator_block_adapted (OEI_wrk, wrk2symm)), measure_operator_blockbreaking (OEI_wrk, wrk2symm)
         oneRDM_wrk = wm_rhf.solve_JK (working_const, OEI_wrk, ao2wrk, oneRDM_wrk, nocc,
             self.num_mf_stab_checks, self.get_veff_ao, self.get_jk_ao,
             groupname=self.symmetry, symm_orb=wrk2symm, irrep_name=self.mol.irrep_name,
@@ -572,26 +571,30 @@ class localintegrals:
             fock = self.loc_rhf_fock_bis (oneRDM_loc)
         if loc2wmas is None: loc2wmas = np.zeros ((self.norbs_tot, 0), dtype=self.ao2loc.dtype)
 
-        loc2wmcs = get_complementary_states (loc2wmas)
+        loc2wmcs = get_complementary_states (loc2wmas, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         norbs_wmas = loc2wmas.shape[1]
         norbs_wmcs = loc2wmcs.shape[1]
-        ene_wmcs, loc2wmcs, wmcs_symm = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False)
-        
-        if self.mol.symmetry:
-            wmcs_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmcs_symm==x) for x in np.unique (wmcs_symm)}
-            err = measure_subspace_blockbreaking (loc2wmcs, self.loc2symm)
-            print ("Trial wave function unactive-orbital irreps = {}, err = {}".format (wmcs_symm, err))
-
-        occ_wmas, loc2wmas, wmas_symm = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm, subspace=loc2wmas, sort_vecs=-1, only_nonzero_vals=False)
-        if self.mol.symmetry:
-            wmas_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmas_symm==x) for x in np.unique (wmas_symm)} 
-            err = measure_subspace_blockbreaking (loc2wmas, self.loc2symm)
-            print ("Trial wave function active-orbital irreps = {}, err = {}".format (wmas_symm, err))
-
+        ene_wmcs, loc2wmcs, wmcs_symm = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+        occ_wmas, loc2wmas, wmas_symm = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm, subspace=loc2wmas, sort_vecs=-1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
         nelec_wmas = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2wmas)))
         assert ((self.nelec_tot - nelec_wmas) % 2 == 0), 'Non-even number of unactive electrons {}'.format (self.nelec_tot - nelec_wmas)
         norbs_core = (self.nelec_tot - nelec_wmas) // 2
         norbs_virt = norbs_wmcs - norbs_core
+        loc2wmis = loc2wmcs[:,:norbs_core]
+        wmis_symm = wmcs_symm[:norbs_core]
+        loc2wmxs = loc2wmcs[:,norbs_core:]
+        wmxs_symm = wmcs_symm[norbs_core:]
+        
+        if self.mol.symmetry:
+            wmis_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmis_symm==x) for x in np.unique (wmis_symm)}
+            err = measure_subspace_blockbreaking (loc2wmis, self.loc2symm)
+            print ("Trial wave function inactive-orbital irreps = {}, err = {}".format (wmis_symm, err))
+            wmas_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmas_symm==x) for x in np.unique (wmas_symm)} 
+            err = measure_subspace_blockbreaking (loc2wmas, self.loc2symm)
+            print ("Trial wave function active-orbital irreps = {}, err = {}".format (wmas_symm, err))
+            wmxs_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmxs_symm==x) for x in np.unique (wmxs_symm)}
+            err = measure_subspace_blockbreaking (loc2wmxs, self.loc2symm)
+            print ("Trial wave function external-orbital irreps = {}, err = {}".format (wmxs_symm, err))
 
         loc2no = np.concatenate ((loc2wmcs[:,:norbs_core], loc2wmas, loc2wmcs[:,norbs_core:]), axis=1)
         occ_no = np.concatenate ((2*np.ones (norbs_core), occ_wmas, np.zeros (norbs_virt)))

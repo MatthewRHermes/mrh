@@ -296,6 +296,7 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
                 labels[i].extend ([lbl for ix in range (nvals)])
                 labels_null[i].extend ([lbl for ix in range (nnull[i])])
         svals = np.concatenate (svals)
+        nvals = len (svals)
         vecs = [np.concatenate (x, axis=1) for x in vecs]
         labels = [np.asarray (x) for x in labels]
         vecs_null = [np.concatenate (x, axis=1) for x in vecs_null]
@@ -307,11 +308,13 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
             labels = [x[idx] for x in labels]
         if full_matrices:
             vecs = [np.append (x, y, axis=1) for x, y in zip (vecs, vecs_null)]
+        if full_matrices or not only_nonzero_vals:
             labels = [np.append (x, y) for x, y in zip (labels, labels_null)]
             vecs[0], labels[0] = _add_symm_null (vecs[0], labels[0], uniq_null_lbls[0],
                 lsymm_lbls, lspace, lspace_isvectorblock, Mbasis)
             vecs[1], labels[1] = _add_symm_null (vecs[1], labels[1], uniq_null_lbls[1],
                 rsymm_lbls, rspace, rspace_isvectorblock, Nbasis)
+        if not only_nonzero_vals and nvals < K: svals = np.append (svals, np.zeros (K - nvals))
         return vecs[0], svals, vecs[1], labels[0], labels[1]
 
     # Wrap in subspaces (Have to do both vector-block forms first)

@@ -514,10 +514,23 @@ def eigen_weaksymm (the_matrix, the_blocks, subspace=None, sort_vecs=1, only_non
         idx_unchk[idx_degen] = False
     return evals, evecs, assign_blocks_weakly (evecs, the_blocks)
 
+def get_block_weights (the_states, the_blocks):
+    s2p = np.asarray (the_states)
+    if isinstance (the_blocks[0], np.ndarray):
+        c2p = s2p
+        c2s = np.concatenate (the_blocks, axis=1)
+        s2c = c2s.conjugate ().T
+        s2p = s2c @ c2p
+        labels = np.concatenate ([[idx,] * blk.shape[1] for idx, blk in enumerate (the_blocks)]).astype (int)
+    else:
+        labels = np.asarray (the_blocks)
+    wgts = s2p.conjugate () * s2p
+    wgts = np.stack ([wgts[labels==lbl,:].sum (0) for lbl in np.unique (labels)], axis=-1)
+    return wgts
+
 def assign_blocks_weakly (the_states, the_blocks):
-    projectors = [blk @ blk.conjugate ().T for blk in the_blocks]
-    vals = np.stack ([((proj @ the_states) * the_states).sum (0) for proj in projectors], axis=-1)
-    return np.argmax (vals, axis=1)
+    wgts = get_block_weights (the_states, the_blocks)
+    return np.argmax (wgts, axis=1)
 
 def cleanup_operator_symmetry (the_operator, the_blocks):
     if the_blocks is None or len (the_blocks) == 1:
@@ -585,31 +598,81 @@ def analyze_operator_blockbreaking (the_operator, the_blocks, block_labels=None)
     return c2l, op_svals, c2r
 
 def measure_operator_blockbreaking (the_operator, the_blocks, block_labels=None):
-    op_svals = np.concatenate (analyze_operator_blockbreaking (the_operator, the_blocks, block_labels=block_labels)[1])
-    if len (op_svals) == 0: return 0,0
-    return np.amax (np.abs (op_svals)), linalg.norm (op_svals)
+    op_s = np.asarray (the_operator).copy ()
+    if isinstance (the_blocks[0], np.ndarray):
+        op_c = op_s
+        c2s = np.concatenate (the_blocks, axis=1)
+        s2c = c2s.conjugate ().T
+        op_s = s2c @ op_c @ c2s
+        labels = np.concatenate ([[idx,] * blk.shape[1] for idx, blk in enumerate (the_blocks)]).astype (int)
+    else:
+        labels = np.asarray (the_blocks)
+    for lbl in np.unique (labels):
+        idx = labels==lbl
+        idx = np.ix_(idx,idx)
+        op_s[idx] = 0
+    try:
+        return np.amax (np.abs (op_s)), linalg.norm (op_s)
+    except ValueError as e:
+        assert (op_s.size == 0), e
+        return 0.0, 0.0
 
 def analyze_subspace_blockbreaking (the_basis, the_blocks, block_labels=None):
     projector = the_basis @ the_basis.conjugate ().T
     return analyze_operator_blockbreaking (projector, the_blocks, block_labels=block_labels)
 
-def measure_subspace_blockbreaking (the_basis, the_blocks, block_labels=None):
-    projector = the_basis @ the_basis.conjugate ().T
-    return measure_operator_blockbreaking (projector, the_blocks, block_labels=block_labels)
+def measure_subspace_blockbreaking (the_subspace, the_blocks, block_labels=None):
+    ''' Returns 4 numbers. The first 2 are the largest and norm of the deviation of individual states from being symmetry-adapted.
+    The last 2 are the largest and norm of the subspace projector from being symmetry-adapted. If the third and fourth are close
+    to zero but the first and second aren't, the subspace can be described by symmetry-adapted states by rotating the individual states
+    among themselves to expose the underlying symmetry. '''
+    # This function MUST assume that symmetry labels apply to the complete basis on the first axis of the subspace
+    projector = the_subspace @ the_subspace.conjugate ().T
+    projmax, projnorm = measure_operator_blockbreaking (projector, the_blocks, block_labels=block_labels)
+    wgts = get_block_weights (the_subspace, the_blocks)
+    idx = wgts > 0.5
+    wgts[idx] = 1 - wgts[idx]
+    try:
+        return np.amax (np.abs (wgts)), linalg.norm (wgts), projmax, projnorm
+    except ValueError as e:
+        assert (wgts.size == 0), e
+        return 0.0, 0.0, 0.0, 0.0
 
 def get_subspace_symmetry_blocks (the_subspace, the_blocks, atol=params.num_zero_atol, rtol=params.num_zero_rtol):
     c2p = np.asarray (the_subspace)
     new_blocks = []
+    remaining_space=None
     for idx, c2s in enumerate (the_blocks):
         s2c = c2s.conjugate ().T
         s2p = s2c @ c2p
-        svals, p2s = matrix_svd_control_options (s2p, only_nonzero_vals=True, num_zero_atol=rtol)[1:3]
+        svals, p2s = matrix_svd_control_options (s2p, rspace=remaining_space, only_nonzero_vals=True, full_matrices=True, sort_vecs=-1, num_zero_atol=rtol)[1:3]
         assert (np.all (np.isclose (svals, 1, atol=atol, rtol=rtol))), 'Subspace may not be symmetry-adapted: svals for {}th block: {}'.format (idx, svals)
-        new_blocks.append (p2s)
-    p2s = np.concatenate (new_blocks, axis=1)
+        new_blocks.append (p2s[:,:len(svals)])
+        remaining_space = p2s[:,len(svals):]
+    p2s = np.concatenate (new_blocks, axis=1)    
     assert (is_basis_orthonormal_and_complete (p2s)), measure_basis_nonorthonormality (p2s)
     return new_blocks
 
+def cleanup_subspace_symmetry (the_subspace, the_blocks):
+    rlab = assign_blocks_weakly (the_subspace, the_blocks)
+    if isinstance (the_blocks[0], np.ndarray):
+        c2p = np.asarray (the_subspace)
+        c2s = np.concatenate (the_blocks, axis=1)
+        s2c = c2s.conjugate ().T
+        s2p = s2c @ c2p
+        llab = np.concatenate ([[idx,] * blk.shape[1] for idx, blk in enumerate (the_blocks)]).astype (int)
+    else:
+        s2p = np.asarray (the_subspace)
+        llab = np.asarray (the_blocks)
+    for lbl in np.unique (llab):
+        ir2p = linalg.qr (s2p[np.ix_(llab==lbl,rlab==lbl)])[0]
+        s2p[:,rlab==lbl] = 0
+        s2p[np.ix_(llab==lbl,rlab==lbl)] = ir2p
+    if isinstance (the_blocks[0], np.ndarray):
+        c2p = c2s @ s2p
+    else:
+        c2p = s2p
+    return c2p
 
 
 

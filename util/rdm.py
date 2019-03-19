@@ -41,6 +41,11 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
         err = measure_subspace_blockbreaking (loc2int, symmetry, np.arange (len (symmetry), dtype=int))
         labeldict = dict (zip (*np.unique (int_labels, return_counts=True)))
         print ("{} irreps: {}, err = {}".format (tag, labeldict, err))
+    def _analyze_orth_problem (l2p, lbl):
+        for ir in np.unique (lbl):
+            print (ir, measure_basis_nonorthonormality (l2p[:,lbl==ir]))
+        for ir1, ir2 in itertools.combinations (np.unique (lbl), 2):
+            print (ir1, ir2, measure_basis_nonorthonormality (l2p[:,np.logical_or (lbl==ir1,lbl==ir2)]))
 
     # We need to SVD the environment-fragment block of the 1RDM
     # The bath states are from the left-singular vectors corresponding to nonzero singular value
@@ -58,6 +63,11 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
         only_nonzero_vals=True, full_matrices=True)
     loc2env, loc2frag, svals = rets[:3]
     if get_labels: env_labels, frag_labels = rets[3:]
+    assert (is_basis_orthonormal (loc2frag)), measure_basis_nonorthonormality (loc2frag)
+    assert (is_basis_orthonormal (loc2env)), measure_basis_nonorthonormality (loc2env)
+    #if get_labels:
+    #    print ("Coming right out of SVD")
+    #    _analyze_orth_problem (np.append (loc2frag, loc2env, axis=1), np.append (frag_labels, env_labels))
     norbs_bath = len (svals) #np.count_nonzero (svals > bath_tol)
     norbs_core = norbs_env - norbs_bath
     norbs_ufrag = norbs_frag - norbs_bath
@@ -69,8 +79,6 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
     loc2core = loc2env[:,norbs_bath:]
     loc2efrag = loc2frag[:,:norbs_bath]
     loc2ufrag = loc2frag[:,norbs_bath:]
-    loc2core = orthonormalize_a_basis (loc2core, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
-    loc2ufrag = orthonormalize_a_basis (loc2ufrag, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
     assert (is_basis_orthonormal (loc2core)), measure_basis_nonorthonormality (loc2core)
     assert (is_basis_orthonormal (loc2ufrag)), measure_basis_nonorthonormality (loc2ufrag)
     assert (is_basis_orthonormal (loc2efrag)), measure_basis_nonorthonormality (loc2efrag)
@@ -81,22 +89,50 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
         bath_labels = env_labels[:norbs_bath]
         core_labels = env_labels[norbs_bath:]
     if norbs_ufrag > 0:
+        # Problem with strict symmetry enforcement: large possibility of rounding errors accidentally overlapping left null to right non-null or vice-versa
+        # Need to correct for this numerically
+        if enforce_symmetry:
+            loc2ent = np.append (loc2efrag, loc2bath, axis=1)
+            proj = loc2ent @ loc2ent.conjugate ().T
+            loc2ufrag -= proj @ loc2ufrag
         mat = the_1RDM if fock_helper is None else fock_helper
-        rets = matrix_eigen_control_options (mat, subspace=loc2ufrag, subspace_symmetry=ufrag_labels, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+        rets = matrix_eigen_control_options (mat, subspace=loc2ufrag, symmetry=symmetry, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
         loc2ufrag = rets[1]
         if get_labels: ufrag_labels = rets[2]
-    if norbs_core > 0:
-        mat = the_1RDM if fock_helper is None else fock_helper
-        rets = matrix_eigen_control_options (mat, subspace=loc2core, subspace_symmetry=core_labels, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
-        loc2core = rets[1]
-        if get_labels: core_labels = rets[2]
     loc2imp = np.concatenate ([loc2ufrag, loc2efrag, loc2bath], axis=1)
     nelec_imp = ((the_1RDM @ loc2imp) * loc2imp).sum ()
+    if norbs_core > 0:
+        # Problem with strict symmetry enforcement: large possibility of rounding errors accidentally overlapping left null to right non-null or vice-versa
+        # Need to correct for this numerically
+        if enforce_symmetry:
+            proj = loc2imp @ loc2imp.conjugate ().T
+            loc2core -= proj @ loc2core
+        mat = the_1RDM if fock_helper is None else fock_helper
+        rets = matrix_eigen_control_options (mat, subspace=loc2core, symmetry=symmetry, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+        loc2core = rets[1]
+        if get_labels: core_labels = rets[2]
     loc2emb = np.append (loc2imp, loc2core, axis=1)
-    assert (is_basis_orthonormal (loc2core)), measure_basis_nonorthonormality (loc2core)
-    assert (is_basis_orthonormal (loc2ufrag)), measure_basis_nonorthonormality (loc2ufrag)
-    assert (is_basis_orthonormal (loc2imp)), measure_basis_nonorthonormality (loc2imp)
     if get_labels: labels = np.concatenate ((ufrag_labels, efrag_labels, bath_labels, core_labels))
+    try:
+        assert (is_basis_orthonormal (loc2emb)), measure_basis_nonorthonormality (loc2emb)
+        assert (is_basis_orthonormal (loc2core)), measure_basis_nonorthonormality (loc2core)
+        assert (is_basis_orthonormal (loc2ufrag)), measure_basis_nonorthonormality (loc2ufrag)
+        assert (is_basis_orthonormal (loc2imp)), measure_basis_nonorthonormality (loc2imp)
+    except AssertionError as e:
+        norbs_imp = norbs_frag + norbs_bath
+        print ("Embedding basis")
+        _analyze_orth_problem (loc2emb, labels)
+        print ("Fragment orbitals")
+        _analyze_orth_problem (loc2emb[:,:norbs_frag], labels[:norbs_frag])
+        print ("Environment orbitals")
+        _analyze_orth_problem (loc2emb[:,norbs_frag:], labels[norbs_frag:])
+        print ("Impurity orbitals")
+        _analyze_orth_problem (loc2emb[:,:norbs_imp], labels[:norbs_imp])
+        print ("Core orbitals")
+        _analyze_orth_problem (loc2emb[:,norbs_imp:], labels[norbs_imp:])
+        print ("Entangled impurity orbitals")
+        _analyze_orth_problem (loc2emb[:,norbs_ufrag:norbs_imp], labels[norbs_ufrag:norbs_imp])
+        raise (e)
     return loc2emb, norbs_bath, nelec_imp, labels
 
 def electronic_energy_orbital_decomposition (norbs_tot, OEI=None, oneRDM=None, TEI=None, twoRDM=None):

@@ -39,7 +39,7 @@ from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
 from mrh.util.basis import is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal, get_overlapping_states
 from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis, are_bases_orthogonal, measure_subspace_blockbreaking
-from mrh.util.basis import assign_blocks, align_states
+from mrh.util.basis import assign_blocks, align_states, measure_subspace_blockbreaking
 from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
@@ -1035,7 +1035,7 @@ class dmet:
             
         amo_new_coeff = np.append (mo_coeff[:,ncore_target:ncore_current], mo_coeff[:,nocc_current:nocc_target], axis=1)
 
-        loc2amo_new = orthonormalize_a_basis (linalg.solve (self.ints.ao2loc, amo_new_coeff))
+        loc2amo_new = orthonormalize_a_basis (linalg.solve (self.ints.ao2loc, amo_new_coeff), )
         '''
         if self.ints.symmetry:
             if is_subspace_block_adapted (loc2amo_new, self.ints.loc2symm):
@@ -1070,11 +1070,8 @@ class dmet:
                     twoCDM_somo = get_2CDM_from_2RDM (get_2RDM_from_2CDM (np.zeros ([nsomo,]*4, dtype=dma.dtype), [dma,dmb]), dma+dmb)
                 # Back to the guess orbitals
                 loc2amo_guess = np.append (f.loc2amo, loc2amo_guess, axis=1)
-                fock = represent_operator_in_basis (self.ints.activeFOCK, loc2amo_guess)
-                ovlp = loc2amo_guess.conjugate ().T @ loc2amo_guess
-                evals, evecs = linalg.eigh (fock, b=ovlp)
-                idx = np.argsort (evals)
-                f.loc2amo_guess = np.dot (loc2amo_guess, evecs[:,idx])
+                f.loc2amo_guess = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2amo_guess, symmetry=self.ints.loc2symm,
+                    sort_vecs=1, strong_symm=self.enforce_symmetry)[1]
                 if force_imp:
                     print ("force_imp!")
                     old2new_amo = f.loc2amo.conjugate ().T @ f.loc2amo_guess

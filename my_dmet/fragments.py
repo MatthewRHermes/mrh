@@ -484,9 +484,8 @@ class fragment_object:
                 err = measure_subspace_blockbreaking (loc2qfrag, self.loc2symm, self.ir_names)
                 print ("Quasi-fragment irreps = {}, err = {}".format (qfrag_labels, err))
                 loc2wfrag = np.append (self.loc2frag, loc2qfrag, axis=1)
-                # This is to make sure it's really, completely orthonormalized. strong_symm has to be FALSE to get rid of ~1e-8 overlap in loc2symm
                 loc2wfrag, wfrag_labels = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2wfrag, symmetry=self.loc2symm,
-                    strong_symm=False, only_nonzero_vals=False, sort_vecs=1)[1:]
+                    strong_symm=self.enforce_symmetry, only_nonzero_vals=False, sort_vecs=1)[1:]
                 wfrag_labels = np.asarray (self.ir_names)[wfrag_labels]
                 wfrag_labels = dict (zip (*np.unique (wfrag_labels, return_counts=True)))
                 err = measure_subspace_blockbreaking (loc2wfrag, self.loc2symm, self.ir_names)
@@ -846,13 +845,15 @@ class fragment_object:
             sorting_metric = represent_operator_in_basis (sorting_metric, mo2imp)
         if self.enforce_symmetry and mol is not None:
             evals, new_imp2mo, labels = matrix_eigen_control_options (sorting_metric, subspace=imp2mo, symmetry=mol.symm_orb,
-                sort_vecs=sort_vecs, only_nonzero_vals=False, strong_symm=False)
-            err = measure_subspace_blockbreaking (imp2mo, mol.symm_orb)
+                sort_vecs=sort_vecs, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+            err = measure_subspace_blockbreaking (new_imp2mo, mol.symm_orb)
+            if self.enforce_symmetry:
+                assert (all ([e < params.num_zero_atol for e in err[2:]])), "Strong symmetry enforcement required, but subspace not symmetry aligned; err = {}".format (err)
         else:
             sorting_metric = represent_operator_in_basis (sorting_metric, self.imp2loc)
             loc2mo = self.loc2imp @ imp2mo
             evals, loc2mo, labels = matrix_eigen_control_options (sorting_metric, subspace=loc2mo, symmetry=self.loc2symm,
-                sort_vecs=sort_vecs, only_nonzero_vals=False, strong_symm=False)
+                sort_vecs=sort_vecs, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
             err = measure_subspace_blockbreaking (loc2mo, self.loc2symm)
             new_imp2mo = self.imp2loc @ loc2mo
         labels_dict = {lbl: np.count_nonzero (labels==idx) for idx, lbl in enumerate (self.ir_names) if np.count_nonzero (labels==idx)>0}
