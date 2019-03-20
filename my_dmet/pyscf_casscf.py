@@ -149,9 +149,10 @@ def solve (frag, guess_1RDM, chempot_imp):
         dm_imp = np.asarray (mf.make_rdm1 ())
         while dm_imp.ndim > 2:
             dm_imp = dm_imp.sum (0)
+        imp2mo = mf.mo_coeff
         fock_imp = mf.get_fock (dm=dm_imp)
         fock_mo = represent_operator_in_basis (fock_imp, imp2mo)
-        _, evecs = matrix_eigen_control_options (fock_mo, sort_vecs=1, only_nonzero_values=False)
+        _, evecs = matrix_eigen_control_options (fock_mo, sort_vecs=1)
         imp2mo = imp2mo @ evecs
         my_occ = ((dm_imp @ imp2mo) * imp2mo).sum (0)
         print ("No stored amos; using mean-field canonical MOs as initial guess")
@@ -277,6 +278,9 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # twoCDM
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
+    oneRDMs_amo = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
+    oneRSM_amo = oneRDMs_amo[0] - oneRDMs_amo[1]
+    print ("Norm of spin density: {}".format (linalg.norm (oneRSM_amo)))
     # Note that I do _not_ do the *real* cumulant decomposition; I do one assuming oneRDMs_amo_alpha = oneRDMs_amo_beta
     # This is fine as long as I keep it consistent, since it is only in the orbital gradients for this impurity that
     # the spin density matters. But it has to stay consistent!

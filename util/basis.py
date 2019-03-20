@@ -355,10 +355,10 @@ def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol
 def get_complementary_states (incomplete_basis, already_complete_warning=True, atol=params.num_zero_atol, symmetry=None, enforce_symmetry=False):
     if symmetry is None: enforce_symmetry = False
     if incomplete_basis.shape[1] == 0:
-        if symm_blocks is None:
+        if symmetry is None:
             return np.eye (incomplete_basis.shape[0])
         else:
-            return np.concatenate (symm_blocks, axis=1)
+            return np.concatenate (symmetry, axis=1)
     orthonormal_basis = orthonormalize_a_basis (incomplete_basis, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
     if is_basis_orthonormal_and_complete (orthonormal_basis):
         if already_complete_warning:
