@@ -1,5 +1,5 @@
 import sys
-sys.path.append ('../../..')
+sys.path.append ('../../../..')
 from pyscf import gto, dft, scf, mcscf
 from pyscf.tools import molden
 from mrh.my_dmet import localintegrals, dmet, fragments
