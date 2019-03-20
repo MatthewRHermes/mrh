@@ -487,7 +487,6 @@ class fragment_object:
                 loc2wfrag = np.append (self.loc2frag, loc2qfrag, axis=1)
                 loc2wfrag, wfrag_labels = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2wfrag, symmetry=self.loc2symm,
                     strong_symm=self.enforce_symmetry, only_nonzero_vals=False, sort_vecs=1)[1:]
-                print (wfrag_labels)
                 wfrag_labels = np.asarray (self.ir_names)[wfrag_labels]
                 wfrag_labels = dict (zip (*np.unique (wfrag_labels, return_counts=True)))
                 err = measure_subspace_blockbreaking (loc2wfrag, self.loc2symm, self.ir_names)
