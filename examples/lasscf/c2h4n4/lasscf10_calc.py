@@ -1,5 +1,5 @@
 import sys
-sys.path.append ('../../..')
+sys.path.append ('../../../..')
 from pyscf import gto, dft, scf, mcscf
 from pyscf.tools import molden
 from mrh.my_dmet import localintegrals, dmet, fragments
@@ -37,7 +37,7 @@ my_kwargs = {'calcname':           ('c2h4n4_lasscf10_dr' + ['{:02.0F}','{:03.0F}
              'doLASSCF':           True,
              'debug_energy':       False,
              'debug_reloc':        False,
-             'nelec_int_thresh':   1e-3,
+             'nelec_int_thresh':   1e-2,
              'num_mf_stab_checks': 0}
 load_casscf_guess = False
 dr_guess = None
@@ -101,7 +101,7 @@ elif dr_guess is not None:
     chkname = ('c2h4n4_lasscf10_dr' + ['{:02.0F}','{:03.0F}'][dr_guess < 0]).format (dr_guess*10)
     c2h4n4_dmet.load_checkpoint (chkname + '.chk.npy')
 else:
-    c2h4n4_dmet.generate_frag_cas_guess (mf, CASlist)
+    c2h4n4_dmet.generate_frag_cas_guess (mf.mo_coeff, CASlist)
 
 # Calculation
 # --------------------------------------------------------------------------------------------------------------------
