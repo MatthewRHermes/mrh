@@ -553,7 +553,7 @@ def get_csfvec_shape (norb, neleca, nelecb, smult):
 
     npair_dconf_size = np.asarray ([special.comb (norb, npair, exact=True) for npair in range (min_npair, nelecb+1)], dtype=np.int32)
     npair_sconf_size = np.asarray ([special.comb (nfreeorb, nspin, exact=True) for nfreeorb, nspin in zip (nfreeorbs, nspins)], dtype=np.int32)
-    npair_csf_size = np.asarray ([count_csfs (nspin, smult) for nspin in nspins]) 
+    npair_csf_size = np.asarray ([count_csfs (nspin, smult) for nspin in nspins]).astype (np.int32)
 
     npair_sizes = np.asarray ([0] + [i * j * k for i,j,k in zip (npair_dconf_size, npair_sconf_size, npair_csf_size)], dtype=np.int32)
     npair_offset = np.asarray ([np.sum (npair_sizes[:i+1]) for i in range (len (npair_sizes))], dtype=np.int32)
