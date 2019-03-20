@@ -56,7 +56,8 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Get the RHF solution
     mol = gto.Mole()
-    mol.spin = int (round (2 * frag.target_MS))
+    abs_MS = abs (frag.target_MS)
+    mol.spin = int (round (2 * abs_MS))
     mol.verbose = 0 if frag.mol_output is None else lib.logger.DEBUG
     mol.output = frag.mol_output
     mol.atom.append(('H', (0, 0, 0)))
@@ -114,10 +115,10 @@ def solve (frag, guess_1RDM, chempot_imp):
     if (checkCAS == False):
         CASe = frag.nelec_imp
         CASorb = frag.norbs_imp
-    if (frag.target_MS > frag.target_S):
+    if (abs_MS > frag.target_S):
         CASe = ((CASe//2) + frag.target_S, (CASe//2) - frag.target_S)
     else:
-        CASe = ((CASe//2) + frag.target_MS, (CASe//2) - frag.target_MS)
+        CASe = ((CASe//2) + abs_MS, (CASe//2) - abs_MS)
     if frag.impham_CDERI is not None:
         mc = mcscf.DFCASSCF(mf, CASorb, CASe)
     else:
@@ -279,7 +280,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     # twoCDM
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
     oneRDMs_amo = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
-    oneRSM_amo = oneRDMs_amo[0] - oneRDMs_amo[1]
+    oneRSM_amo = oneRDMs_amo[0] - oneRDMs_amo[1] if frag.target_MS >= 0 else oneRDMs_amo[1] - oneRDMs_amo[0]
     print ("Norm of spin density: {}".format (linalg.norm (oneRSM_amo)))
     # Note that I do _not_ do the *real* cumulant decomposition; I do one assuming oneRDMs_amo_alpha = oneRDMs_amo_beta
     # This is fine as long as I keep it consistent, since it is only in the orbital gradients for this impurity that
@@ -294,6 +295,7 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Active-space RDM data
     frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, loc2amo.conjugate ().T))
+    frag.oneRSMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRSM_amo, loc2amo.conjugate ().T))
     frag.twoCDMimp_amo = twoCDM_amo
     frag.loc2mo = loc2mo
     frag.loc2amo = loc2amo

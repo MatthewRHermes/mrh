@@ -99,7 +99,7 @@ elif dr_guess is not None:
     chkname = 'me2n2_casdmet_r{:2.0f}'.format (dr_guess*10)
     me2n2_dmet.load_checkpoint (chkname + '.chk.npy')
 else:
-    me2n2_dmet.generate_frag_cas_guess (mf, CASlist)
+    me2n2_dmet.generate_frag_cas_guess (mf.mo_coeff, caslst=CASlist)
 
 # Calculation
 # --------------------------------------------------------------------------------------------------------------------
