@@ -492,7 +492,7 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
     M = subspace.shape[-1] if subspace is not None else the_matrix.shape[0]
     Mbasis = subspace.shape[0] if subspace_isvectorblock else the_matrix.shape[0]
     if not M:
-        if return_labels: return np.zeros ((0)), np.zeros ((Mbasis,0)), np.ones ((0))
+        if return_labels: return np.zeros ((0)), np.zeros ((Mbasis,0)), np.zeros ((0), dtype=int)
         return np.zeros ((0)), np.zeros ((Mbasis,0))
 
     # If subspace symmetry is provided as a vector block, transform subspace into a symmetry-adapted form
@@ -619,7 +619,7 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
     if labels is None: evecs, labels = align_degenerate_vecs (evals, evecs, symmetry, rtol=num_zero_rtol, atol=num_zero_atol)
 
     # Dummy labels if no symmetry provided
-    if labels is None: labels = np.zeros (len (evals))
+    if labels is None: labels = np.zeros (len (evals), dtype=int)
 
     if return_labels: return evals, evecs, labels
     return evals, evecs

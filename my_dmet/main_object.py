@@ -102,7 +102,8 @@ class dmet:
             frag.filehead                 = self.calcname + '_'
             frag.groupname                = self.ints.symmetry
             frag.loc2symm                 = self.ints.loc2symm
-            frag.ir_names                 = self.ints.mol.irrep_name   
+            frag.ir_names                 = self.ints.ir_names
+            frag.ir_ids                   = self.ints.ir_ids
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
         self.examine_ifrag_olap = False
@@ -1252,8 +1253,8 @@ class dmet:
                 f.enforce_symmetry = False if f.imp_solver_name == 'dummy RHF' else self.enforce_symmetry
                 f.groupname = self.ints.mol.groupname
                 f.loc2symm = self.ints.loc2symm
-                f.ir_names = self.ints.mol.irrep_name
-                f.ir_ids   = self.ints.mol.irrep_id
+                f.ir_names = self.ints.ir_names
+                f.ir_ids   = self.ints.ir_ids
                 if f.wfnsym is None: f.wfnsym = self.ints.wfnsym
         return symmetry
 
