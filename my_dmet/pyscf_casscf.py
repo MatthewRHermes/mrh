@@ -207,7 +207,7 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     t_start = time.time()
     smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
-    mc.fcisolver = csf_solver (mf.mol, smult, symm=True)
+    mc.fcisolver = csf_solver (mf.mol, smult, symm=frag.enforce_symmetry)
     if frag.enforce_symmetry: mc.fcisolver.wfnsym = frag.wfnsym
     mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
     mc.ah_start_tol = 1e-10
