@@ -136,6 +136,7 @@ class fragment_object:
         # self.loc2emb is always defined to have the norbs_frag fragment states, the norbs_bath bath states, and the norbs_core core states in that order
         self.restore_default_embedding_basis ()
         self.oneRDMfroz_loc = None
+        self.oneRSMfroz_loc = None
         self.twoCDMfroz_tbc = []
         self.loc2tbc        = []
         self.E2froz_tbc     = []
@@ -145,6 +146,7 @@ class fragment_object:
         self.Ecore_frag   = 0.0  # In case this exists
         self.impham_CONST = None # Does not include nuclear potential
         self.impham_OEI   = None
+        self.impham_VKK   = None
         self.impham_TEI   = None
         self.impham_CDERI = None
 
@@ -567,6 +569,7 @@ class fragment_object:
         self.twoCDMfroz_tbc = [np.copy (frag.twoCDMimp_amo) for frag in active_frags]
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
         self.E2froz_tbc     = [frag.E2_cum for frag in active_frags]
+        self.oneRSMfroz_loc = sum ([frag.oneRSMas_loc for frag in all_frags if frag is not self])
 
         self.impham_built = False
         sys.stdout.flush ()
@@ -661,6 +664,7 @@ class fragment_object:
             self.imp_solved   = False
             return
         self.impham_OEI = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+        self.impham_VKK = self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneRSMfroz_loc)
         if self.imp_solver_name == "RHF" and self.quasidirect:
             ao2imp = np.dot (self.ints.ao2loc, self.loc2imp)
             def my_jk (mol, dm, hermi=1):
@@ -684,7 +688,7 @@ class fragment_object:
             self.impham_get_jk = None
 
         # Constant contribution to energy from core 2CDMs
-        self.impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+        self.impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc, self.oneRSMfroz_loc)
                              + self.ints.const () + xtra_CONST + sum (self.E2froz_tbc))
         self.E2_frag_core = 0
 

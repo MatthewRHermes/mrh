@@ -980,7 +980,7 @@ class dmet:
 
     def generate_frag_cas_guess (self, mo_coeff=None, caslst=None, cas_irrep_nocc=None, cas_irrep_ncore=None, replace=False, force_imp=False, confine_guess=True, guess_somos = []):
         ''' Generate initial active-orbital guesses for fragments from the whole-molecule MOs. Either add active orbitals
-        or replace them. '''
+        or replace them. If you are getting errors about integer electron numbers and you are performing a calculation from an ROHF initial guess, try setting confine_guess=False'''
         
         if replace:
             print ("Deleting existing amos...")
@@ -995,6 +995,7 @@ class dmet:
                 mo_coeff = self.ints.get_trial_nos (ao_basis=True, loc2wmas=loc2wmas_current)[0]
             else:
                 mo_coeff = self.ints.get_trial_nos (ao_basis=True, loc2wmas=None)[0]
+        if force_imp and confine_guess: raise RuntimeError ("force_imp==True and confine_guess==True are incompatible and will lead to broken integers")
         
         nelec_wmas_target = sum ([f.active_space[0] for f in self.fragments if f.active_space is not None])
         norbs_wmas_target = sum ([f.active_space[1] for f in self.fragments if f.active_space is not None])
@@ -1036,40 +1037,51 @@ class dmet:
             
         amo_new_coeff = np.append (mo_coeff[:,ncore_target:ncore_current], mo_coeff[:,nocc_current:nocc_target], axis=1)
 
-        loc2amo_new = orthonormalize_a_basis (linalg.solve (self.ints.ao2loc, amo_new_coeff), )
-        '''
-        if self.ints.symmetry:
-            if is_subspace_block_adapted (loc2amo_new, self.ints.loc2symm):
-                loc2amo_new, labels = symmetrize_basis (loc2amo_new, self.ints.loc2symm)[:2]
-                print ("Guess active orbital irreps: {}".format (labels))
-            else:
-                print ("NOTE: symmetric system but guess active orbital space is NOT symmetry-adapted!")
-        '''
-        proj_amo = np.dot (loc2amo_new, loc2amo_new.conjugate ().T)
+        loc2amo_new = orthonormalize_a_basis (linalg.solve (self.ints.ao2loc, amo_new_coeff))
+        occ_new, loc2amo_new = matrix_eigen_control_options (self.ints.oneRDM_loc, subspace=loc2amo_new, sort_vecs=-1,
+            symmetry=self.ints.loc2symm, strong_symm=self.enforce_symmetry)[:2]
+        assert (np.all (reduce (np.logical_or, (occ_new < params.num_zero_rtol, np.isclose (occ_new, 1), np.isclose (occ_new, 2))))), 'New amos not integer-occupied: {}'.format (occ_new)
+        occ_new = np.round (occ_new).astype (int)
 
         for f in self.fragments:
             if f.active_space is not None:
                 my_new_orbs = f.active_space[1] - f.norbs_as
                 if confine_guess:
-                    p = represent_operator_in_basis (proj_amo, f.get_true_loc2frag ())
-                    evals, evecs = matrix_eigen_control_options (p, sort_vecs=-1, only_nonzero_vals=False)
-                    evals = evals[:f.active_space[1]]
-                    loc2amo_guess = np.dot (f.get_true_loc2frag (), evecs[:,:my_new_orbs])
+                    proj_amo = np.dot (loc2amo_new, loc2amo_new.conjugate ().T)
+                    loc2amo_guess = matrix_eigen_control_options (proj_amo, subspace=f.get_true_loc2frag (), symmetry=self.ints.loc2symm,
+                        strong_symm=self.enforce_symmetry, sort_vecs=-1)[1]
+                    loc2amo_guess = loc2amo_guess[:,:my_new_orbs]
                 else:
                     proj_frag = np.dot (f.get_true_loc2frag (), f.get_true_loc2frag ().conjugate ().T)
-                    proj_frag = represent_operator_in_basis (proj_frag, loc2amo_new)
-                    evals, evecs = matrix_eigen_control_options (proj_frag, sort_vecs=-1, only_nonzero_vals=False)
-                    loc2amo_guess = np.dot (loc2amo_new, evecs[:,:my_new_orbs]) 
+                    wgts = np.zeros (len (occ_new))
+                    if self.doLASSCF and force_imp:
+                        # Prevent mixing singly-, doubly- and un-occupied guess orbitals with each other so guess has good integers
+                        loc2amo_guess = loc2amo_new.copy ()
+                        for myocc in range (3): 
+                            idx = occ_new==myocc
+                            evals, loc2amo_guess[:,idx] = matrix_eigen_control_options (proj_frag, subspace=loc2amo_new[:,idx],
+                                symmetry=self.ints.loc2symm, strong_symm=self.enforce_symmetry, sort_vecs=-1)[:2]
+                            wgts[idx] = evals
+                    else:
+                        # Doesn't matter if not LASSCF; bias instead towards well-localized guess
+                        wgts, loc2amo_guess = matrix_eigen_control_options (proj_frag, subspace=loc2amo_new,
+                            symmetry=self.ints.loc2symm, strong_symm=self.enforce_symmetry, sort_vecs=-1)[:2]
+                    idx_sort = np.argsort (wgts)[::-1]
+                    loc2amo_guess = loc2amo_guess[:,idx_sort]
+                    loc2amo_other = loc2amo_guess[:,my_new_orbs:]
+                    occ_other = occ_new[idx_sort][my_new_orbs:]
+                    loc2amo_guess = loc2amo_guess[:,:my_new_orbs]
                 # Set up somo twoCDM for accurate initial guess energy
-                evals, evecs = matrix_eigen_control_options (represent_operator_in_basis (self.ints.oneRDM_loc, loc2amo_guess))
+                evals, loc2amo_guess = matrix_eigen_control_options (self.ints.oneRDM_loc, subspace=loc2amo_guess, symmetry=self.ints.loc2symm,
+                    strong_symm=self.enforce_symmetry)[:2]
                 idx_somo = (evals > 0.8) & (evals < 1.2)
                 nsomo = np.count_nonzero (idx_somo)
+                print ("Found {} singly-occupied orbitals; assuming they are occupied by alpha-electrons.".format (nsomo))
                 if nsomo > 0:
-                    loc2somo = loc2amo_guess @ evecs[:,idx_somo]
+                    loc2somo = loc2amo_guess[:,idx_somo]
                     dma = np.eye (nsomo)
                     dmb = np.zeros ((nsomo, nsomo), dtype=dma.dtype)
                     twoCDM_somo = get_2CDM_from_2RDM (get_2RDM_from_2CDM (np.zeros ([nsomo,]*4, dtype=dma.dtype), [dma,dmb]), dma+dmb)
-                # Back to the guess orbitals
                 loc2amo_guess = np.append (f.loc2amo, loc2amo_guess, axis=1)
                 f.loc2amo_guess = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2amo_guess, symmetry=self.ints.loc2symm,
                     sort_vecs=1, strong_symm=self.enforce_symmetry)[1]
@@ -1079,10 +1091,15 @@ class dmet:
                     f.loc2amo = f.loc2amo_guess.copy ()
                     f.oneRDMas_loc = project_operator_into_subspace (self.ints.oneRDM_loc, f.loc2amo)
                     f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, old2new_amo)
+                    # Assume all singly-occupied orbitals are alpha-spin
                     if nsomo > 0:
+                        f.oneRSMas_loc = project_operator_into_subspace (f.oneRDMas_loc, loc2somo)
                         somo2amo = loc2somo.conjugate ().T @ f.loc2amo
                         f.twoCDMimp_amo += represent_operator_in_basis (twoCDM_somo, somo2amo)
                     f.ci_as = None
+                    # Take the just-added active orbitals out of consideration for the next fragment
+                    loc2amo_new = loc2amo_other
+                    occ_new = occ_other
 
         if len (guess_somos) == len (self.fragments):
             assert (not force_imp), "Don't force_imp and guess_somos at the same time"

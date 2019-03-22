@@ -56,6 +56,7 @@ class localintegrals:
         self.max_memory  = the_mf.max_memory
         self.get_jk_ao   = partial (the_mf.get_jk, self.mol)
         self.get_veff_ao = partial (the_mf.get_veff, self.mol)
+        self.get_k_ao    = partial (the_mf.get_k, self.mol)
         self.fullovlpao  = the_mf.get_ovlp
         self.fullEhf     = the_mf.e_tot
         self.fullDMao    = np.dot(np.dot( the_mf.mo_coeff, np.diag( the_mf.mo_occ )), the_mf.mo_coeff.T )
@@ -243,12 +244,8 @@ class localintegrals:
         return self.activeOEI + self.activeJKcorr + self.activeJKidem
         
     def loc_rhf_jk_bis( self, DMloc ):
-
         '''    
-        if self._eri is not None:
-            j, k = dot_eri_dm (self._eri, self._eri.loc2eri_op (DMloc), hermi=1)
-            JK_loc = self._eri.eri2loc_op (j - 0.5*k)
-        else:
+            DMloc must be the spin-summed density matrix
         '''
         DM_ao = represent_operator_in_basis (DMloc, self.ao2loc.T )
         JK_ao = self.get_veff_ao (DM_ao, 0, 0, 1) #Last 3 numbers: dm_last, vhf_last, hermi
@@ -261,6 +258,13 @@ class localintegrals:
    
         # I can't alter activeOEI because I don't want the meaning of this function to change 
         return self.activeOEI + self.loc_rhf_jk_bis (DMloc)
+
+    def loc_rhf_k_bis (self, DMloc):
+
+        DM_ao = represent_operator_in_basis (DMloc, self.ao2loc.T)
+        K_ao = self.get_k_ao (DM_ao, 1)
+        K_loc = represent_operator_in_basis (K_ao, self.ao2loc)
+        return K_loc
 
     def loc_tei( self ):
     
@@ -305,6 +309,7 @@ class localintegrals:
 
         self.restore_wm_full_scf ()
         oneRDMcorr_loc = sum ((frag.oneRDMas_loc for frag in fragments))
+        oneRSMcorr_loc = sum ((frag.oneRSMas_loc for frag in fragments))
         if np.all (np.isclose (oneRDMcorr_loc, 0)):
             print ("Null correlated 1-RDM; default settings for wm wvfn")
             self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
@@ -324,7 +329,9 @@ class localintegrals:
                 if frag.E2_cum == 0 and np.amax (np.abs (frag.twoCDMimp_amo)) > 0:
                     V  = self.dmet_tei (frag.loc2amo)
                     L  = frag.twoCDMimp_amo
-                    frag.E2_cum = np.tensordot (V, L, axes=4) / 2
+                    frag.E2_cum  = np.tensordot (V, L, axes=4) / 2
+                    K  = self.loc_rhf_k_bis (frag.oneRSMas_loc)
+                    frag.E2_cum += (K * frag.oneRSMas_loc).sum () / 4
                 E2_cum += frag.E2_cum
             
         loc2idem = get_complementary_states (loc2corr)
@@ -350,12 +357,14 @@ class localintegrals:
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
         oei            = self.activeOEI + JKcorr/2
-        working_const  = self.activeCONST + np.tensordot (oei, oneRDMcorr_loc, axes=2) + E2_cum
+        vk             = self.loc_rhf_k_bis (oneRSMcorr_loc)
+        working_const  = self.activeCONST + (oei * oneRDMcorr_loc).sum () - (vk * oneRSMcorr_loc).sum ()/4 + E2_cum
         oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, oneRDMguess_loc=oneRDMguess_loc,
             output = calcname + '_trial_wvfn.log', working_const=working_const)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
         print ("trace of oneRDMcorr_loc = {}".format (np.trace (oneRDMcorr_loc)))
         print ("trace of oneRDMidem_loc = {}".format (np.trace (oneRDMidem_loc)))
+        print ("trace of oneRSMcorr_loc = {}".format (np.trace (oneRSMcorr_loc)))
         print ("trace of oneRDM_loc in corr basis = {}".format (np.trace (represent_operator_in_basis (oneRDMcorr_loc + oneRDMidem_loc, loc2corr))))
         svals = get_overlapping_states (loc2idem, loc2corr)[2]
         print ("trace of <idem|corr|idem> = {}".format (np.sum (svals * svals)))
@@ -373,10 +382,12 @@ class localintegrals:
 
         # Analysis: 1RDM and total energy
         print ("Analyzing LASSCF trial wave function")
-        oei = self.activeOEI + (JKcorr + JKidem) / 2
-        fock = self.activeFOCK
         oneRDM = oneRDMidem_loc + oneRDMcorr_loc
-        E = self.activeCONST + np.tensordot (oei, oneRDM, axes=2) + E2_cum
+        oneRSM = oneRSMcorr_loc
+        oei = self.activeOEI + ((JKcorr + JKidem)/2)
+        vk = self.loc_rhf_k_bis (oneRSM)
+        fock = self.activeFOCK
+        E = self.activeCONST + (oei * oneRDM).sum () - (vk * oneRSM).sum ()/4 + E2_cum
         print ("LASSCF trial wave function total energy: {:.6f}".format (E))
         self.oneRDM_loc = oneRDM
         self.e_tot = E
@@ -404,6 +415,11 @@ class localintegrals:
         FOCKdmet  = np.dot( np.dot( loc2dmet[:,:numActive].T, self.loc_rhf_fock_bis( coreDMloc ) ), loc2dmet[:,:numActive] )
         return symmetrize_tensor (FOCKdmet)
         
+    def dmet_k (self, loc2imp, norbs_imp, DMloc):
+
+        k_imp = represent_operator_in_basis (self.loc_rhf_k_bis (DMloc), loc2imp[:,:norbs_imp])
+        return symmetrize_tensor (k_imp)
+
     def dmet_init_guess_rhf( self, loc2dmet, numActive, numPairs, norbs_frag, chempot_imp ):
     
         Fock_small = np.dot( np.dot( loc2dmet[:,:numActive].T, self.loc_rhf_fock ()), loc2dmet[:,:numActive] )
@@ -464,15 +480,19 @@ class localintegrals:
         TEI = symmetrize_tensor (self.general_tei ([loc2imp for i in range(4)], compact=True))
         return ao2mo.restore (symmetry, TEI, numAct)
 
-    def dmet_const (self, loc2dmet, norbs_imp, oneRDMfroz_loc):
+    def dmet_const (self, loc2dmet, norbs_imp, oneRDMfroz_loc, oneRSMfroz_loc):
         norbs_core = self.norbs_tot - norbs_imp
         if norbs_core == 0:
             return 0.0
         loc2core = loc2dmet[:,norbs_imp:]
         GAMMA = represent_operator_in_basis (oneRDMfroz_loc, loc2core)
-        OEI = self.dmet_oei (loc2core, norbs_core)
-        FOCK = self.dmet_fock (loc2core, norbs_core, oneRDMfroz_loc)
-        return 0.5 * np.einsum ('ij,ij->', GAMMA, OEI + FOCK)
+        OEI  = self.dmet_oei (loc2core, norbs_core)
+        OEI += self.dmet_fock (loc2core, norbs_core, oneRDMfroz_loc)
+        CONST  = (GAMMA * OEI).sum () / 2
+        M = represent_operator_in_basis (oneRSMfroz_loc, loc2core)
+        K = self.dmet_k (loc2core, norbs_core, oneRSMfroz_loc) 
+        CONST -= (M * K).sum () / 4
+        return CONST
 
     def general_tei (self, loc2bas_list, compact=False):
         norbs = [loc2bas.shape[1] for loc2bas in loc2bas_list]

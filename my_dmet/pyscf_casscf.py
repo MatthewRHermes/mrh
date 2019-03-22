@@ -56,8 +56,9 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Get the RHF solution
     mol = gto.Mole()
-    abs_MS = abs (frag.target_MS)
-    mol.spin = int (round (2 * abs_MS))
+    abs_2MS = int (round (2 * abs (frag.target_MS)))
+    abs_2S = int (round (2 * abs (frag.target_S)))
+    mol.spin = abs_2MS
     mol.verbose = 0 if frag.mol_output is None else lib.logger.DEBUG
     mol.output = frag.mol_output
     mol.atom.append(('H', (0, 0, 0)))
@@ -100,13 +101,17 @@ def solve (frag, guess_1RDM, chempot_imp):
             if not mf.converged:
                 mf = mf.newton ()
                 mf.kernel ()
-    
-    print ("CASSCF RHF-step energy: {}".format (mf.e_tot))
-    #print(mf.mo_occ)    
-    '''    
-    idx = mf.mo_energy.argsort()
-    mf.mo_energy = mf.mo_energy[idx]
-    mf.mo_coeff = mf.mo_coeff[:,idx]'''
+
+    # Correct for same-spin correlation
+    E_RHF = mf.e_tot
+    idx_somo = np.isclose (mf.mo_occ, 1)
+    if np.count_nonzero (idx_somo):
+        print ("Found {} singly-occupied molecular orbitals in CASSCF-RHF step".format (np.count_nonzero (idx_somo)))
+        imp2somo = mf.mo_coeff[:,idx_somo]
+        SSK = -np.trace (represent_operator_in_basis (frag.impham_VKK, imp2somo)) / 2
+        print ("Adding interfragment same-spin exchange energy ({}) to CASSCF-RHF energy ({})".format (SSK, E_RHF))
+        E_RHF += SSK
+    print ("CASSCF RHF-step energy: {}".format (E_RHF))
 
     # Get the CASSCF solution
     CASe = frag.active_space[0]
@@ -115,10 +120,10 @@ def solve (frag, guess_1RDM, chempot_imp):
     if (checkCAS == False):
         CASe = frag.nelec_imp
         CASorb = frag.norbs_imp
-    if (abs_MS > frag.target_S):
-        CASe = ((CASe//2) + frag.target_S, (CASe//2) - frag.target_S)
+    if (abs_2MS > abs_2S):
+        CASe = ((CASe + abs_2S) // 2, (CASe - abs_2S) // 2)
     else:
-        CASe = ((CASe//2) + abs_MS, (CASe//2) - abs_MS)
+        CASe = ((CASe + abs_2MS) // 2, (CASe - abs_2MS) // 2)
     if frag.impham_CDERI is not None:
         mc = mcscf.DFCASSCF(mf, CASorb, CASe)
     else:
@@ -208,7 +213,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     if frag.enforce_symmetry: imp2mo = lib.tag_array (imp2mo, orbsym=label_orb_symm (mol, mol.irrep_id, mol.symm_orb, imp2mo, s=mf.get_ovlp (), check=False))
 
     t_start = time.time()
-    smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
+    smult = abs_2S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
     mc.fcisolver = csf_solver (mf.mol, smult, symm=frag.enforce_symmetry)
     if frag.enforce_symmetry: mc.fcisolver.wfnsym = frag.wfnsym
     mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
@@ -224,7 +229,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         print ('Assuming ci vector is poisoned; discarding...')
         imp2mo = mc.mo_coeff.copy ()
         mc = mcscf.CASSCF(mf, CASorb, CASe)
-        smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
+        smult = abs_2S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
         mc.fcisolver = csf_solver (mf.mol, smult)
         E_CASSCF = mc.kernel(imp2mo)[0]
         if not mc.converged:
@@ -272,7 +277,6 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.ci_as = mc.ci
     frag.ci_as_orb = loc2amo.copy ()
     t_end = time.time()
-    print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (E_CASSCF, spin_square (mc)[1], t_end - t_start))
 
     # oneRDM
     oneRDM_imp = mc.make_rdm1 ()
@@ -281,12 +285,18 @@ def solve (frag, guess_1RDM, chempot_imp):
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
     oneRDMs_amo = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
     oneRSM_amo = oneRDMs_amo[0] - oneRDMs_amo[1] if frag.target_MS >= 0 else oneRDMs_amo[1] - oneRDMs_amo[0]
+    oneRSM_imp = represent_operator_in_basis (oneRSM_amo, imp2amo.conjugate ().T)
     print ("Norm of spin density: {}".format (linalg.norm (oneRSM_amo)))
     # Note that I do _not_ do the *real* cumulant decomposition; I do one assuming oneRDMs_amo_alpha = oneRDMs_amo_beta
     # This is fine as long as I keep it consistent, since it is only in the orbital gradients for this impurity that
     # the spin density matters. But it has to stay consistent!
     twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
     twoCDM_imp = represent_operator_in_basis (twoCDM_amo, imp2amo.conjugate ().T)
+
+    # De-average same-spin exchange from other fragments which had to be averaged to keep a/b orbitals the same energy (cf. ROHF method)
+    # Divide by 2, not 4, because the sum is inherently i < j
+    E_CASSCF -= (represent_operator_in_basis (frag.impham_VKK, imp2amo) * oneRSM_amo).sum () / 2
+    print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (E_CASSCF, spin_square (mc)[1], t_end - t_start))
 
     # General impurity data
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
@@ -299,7 +309,9 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.twoCDMimp_amo = twoCDM_amo
     frag.loc2mo = loc2mo
     frag.loc2amo = loc2amo
-    frag.E2_cum = 0.5 * np.tensordot (ao2mo.restore (1, mc.get_h2eff (), mc.ncas), twoCDM_amo, axes=4)
+    frag.E2_cum  = np.tensordot (ao2mo.restore (1, mc.get_h2eff (), mc.ncas), twoCDM_amo, axes=4) / 2
+    frag.E2_cum += (mf.get_k (dm=oneRSM_imp) * oneRSM_imp).sum () / 4
+    # The second line compensates for my incorrect cumulant decomposition. Anything to avoid changing the checkpoint files...
 
     return None
 
@@ -421,4 +433,7 @@ def make_guess_molden (frag, filename, imp2mo, norbs_cmo, norbs_amo):
     mo = reduce (np.dot, (frag.ints.ao2loc, frag.loc2imp, imp2mo))
     molden.from_mo (frag.ints.mol, filename, mo, occ=mo_occ)
     return
+
+    
+
 
