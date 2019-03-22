@@ -56,8 +56,9 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Get the RHF solution
     mol = gto.Mole()
-    abs_MS = abs (frag.target_MS)
-    mol.spin = int (round (2 * abs_MS))
+    abs_2MS = int (round (2 * abs (frag.target_MS)))
+    abs_2S = int (round (2 * abs (frag.target_S)))
+    mol.spin = abs_2MS
     mol.verbose = 0 if frag.mol_output is None else lib.logger.DEBUG
     mol.output = frag.mol_output
     mol.atom.append(('H', (0, 0, 0)))
@@ -115,10 +116,10 @@ def solve (frag, guess_1RDM, chempot_imp):
     if (checkCAS == False):
         CASe = frag.nelec_imp
         CASorb = frag.norbs_imp
-    if (abs_MS > frag.target_S):
-        CASe = ((CASe//2) + frag.target_S, (CASe//2) - frag.target_S)
+    if (abs_2MS > abs_2S):
+        CASe = ((CASe + abs_2S) // 2, (CASe - abs_2S) // 2)
     else:
-        CASe = ((CASe//2) + abs_MS, (CASe//2) - abs_MS)
+        CASe = ((CASe + abs_2MS) // 2, (CASe - abs_2MS) // 2)
     if frag.impham_CDERI is not None:
         mc = mcscf.DFCASSCF(mf, CASorb, CASe)
     else:
@@ -208,7 +209,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     if frag.enforce_symmetry: imp2mo = lib.tag_array (imp2mo, orbsym=label_orb_symm (mol, mol.irrep_id, mol.symm_orb, imp2mo, s=mf.get_ovlp (), check=False))
 
     t_start = time.time()
-    smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
+    smult = abs_2S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
     mc.fcisolver = csf_solver (mf.mol, smult, symm=frag.enforce_symmetry)
     if frag.enforce_symmetry: mc.fcisolver.wfnsym = frag.wfnsym
     mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
@@ -224,7 +225,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         print ('Assuming ci vector is poisoned; discarding...')
         imp2mo = mc.mo_coeff.copy ()
         mc = mcscf.CASSCF(mf, CASorb, CASe)
-        smult = 2*frag.target_S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
+        smult = abs_2S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
         mc.fcisolver = csf_solver (mf.mol, smult)
         E_CASSCF = mc.kernel(imp2mo)[0]
         if not mc.converged:
