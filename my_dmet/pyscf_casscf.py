@@ -43,7 +43,7 @@ from mrh.util.tensors import symmetrize_tensor
 from mrh.my_pyscf import mcscf as my_mcscf
 from mrh.my_pyscf.scf import hf_as
 from mrh.my_pyscf.fci import csf_solver
-from functools import reduce
+from functools import reduce, partial
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
 def solve (frag, guess_1RDM, chempot_imp):
@@ -81,6 +81,17 @@ def solve (frag, guess_1RDM, chempot_imp):
     else:
         mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
     mf.__dict__.update (frag.mf_attr)
+    if mol.spin != 0:
+        # Dress get_fock for inter-fragment exchange
+        def my_fock (my_mf, h1e=None, s1e=None, vhf=None, dm=None, cycle=-1, diis=None,
+            diis_start_cycle=None, level_shift_factor=None, damp_factor=None):
+            if vhf is None: vhf = my_mf.get_veff(my_mf.mol, dm)
+            vhf[0] -= frag.impham_VKK/2
+            vhf[1] += frag.impham_VKK/2
+            return mf.__class__.get_fock (my_mf, h1e=h1e, s1e=s1e, vhf=vhf, dm=dm, cycle=cycle,
+                diis=diis, diis_start_cycle=diis_start_cycle, level_shift_factor=level_shift_factor,
+                damp_factor=damp_factor)
+        mf.get_fock = partial (my_fock, mf)
     if guess_orbs_av: mf.max_cycle = 2
     mf.scf (guess_1RDM)
     if (not mf.converged) and (not guess_orbs_av):
@@ -115,7 +126,7 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Get the CASSCF solution
     CASe = frag.active_space[0]
-    CASorb = frag.active_space[1]    
+    CASorb = frag.active_space[1] 
     checkCAS =  (CASe <= frag.nelec_imp) and (CASorb <= frag.norbs_imp)
     if (checkCAS == False):
         CASe = frag.nelec_imp
@@ -283,7 +294,7 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # twoCDM
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
-    oneRDMs_amo = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
+    oneRDMs_amo = np.stack (mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas), axis=0)
     oneRSM_amo = oneRDMs_amo[0] - oneRDMs_amo[1] if frag.target_MS >= 0 else oneRDMs_amo[1] - oneRDMs_amo[0]
     oneRSM_imp = represent_operator_in_basis (oneRSM_amo, imp2amo.conjugate ().T)
     print ("Norm of spin density: {}".format (linalg.norm (oneRSM_amo)))

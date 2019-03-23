@@ -127,10 +127,12 @@ def represent_operator_in_basis (braOket, bra1_basis = None, ket1_basis = None, 
         return braOket
     if len (braOket.shape) == 2:
         return represent_operator_in_basis_1body (braOket, bra1_basis, ket1_basis)
+    elif len (braOket.shape) == 3 and braOket.shape[0] == 2:
+        return np.stack ([represent_operator_in_basis_1body (O, bra1_basis, ket1_basis) for O in braOket], axis=0)
     elif len (braOket.shape) == 4:
         return represent_operator_in_basis_2body (braOket, bra1_basis, ket1_basis, bra2_basis, ket2_basis)
     else:
-        raise ValueError ("Only one- and two-body operators (two- and four-index arrays) supported")
+        raise ValueError ("Only one- and two-body operators (two- and four-index arrays) or pairs of one-body operators supported")
 
 def represent_operator_in_basis_1body (braOket, bra_basis, ket_basis):
     lOr = np.asarray (braOket)
@@ -182,10 +184,12 @@ def project_operator_into_subspace (braOket, ket1_basis = None, bra1_basis = Non
         return braOket
     if len (braOket.shape) == 2:
         return project_operator_into_subspace_1body (braOket, bra1_basis, ket1_basis)
+    elif len (braOket.shape) == 3 and braOket.shape[0] == 2:
+        return np.stack ([project_operator_into_subspace_1body (O, bra1_basis, ket1_basis) for O in braOket], axis=0)
     elif len (braOket.shape) == 4:
         return project_operator_into_subspace_2body (braOket, bra1_basis, ket1_basis, bra2_basis, ket2_basis)
     else:
-        raise ValueError ("Only one- and two-body operators (two- and four-index arrays) supported")
+        raise ValueError ("Only one- and two-body operators (two- and four-index arrays) or pairs of one-body operators supported")
 
 def project_operator_into_subspace_1body (braOket, bra_basis, ket_basis):
     lOr = np.asarray (braOket)

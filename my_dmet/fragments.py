@@ -664,7 +664,7 @@ class fragment_object:
             self.imp_solved   = False
             return
         self.impham_OEI = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
-        self.impham_VKK = self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneRSMfroz_loc)
+        self.impham_VKK = self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneRSMfroz_loc) 
         if self.imp_solver_name == "RHF" and self.quasidirect:
             ao2imp = np.dot (self.ints.ao2loc, self.loc2imp)
             def my_jk (mol, dm, hermi=1):
@@ -704,8 +704,10 @@ class fragment_object:
     ###############################################################################################################################
     def get_guess_1RDM (self, chempot_imp):
         FOCK = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
-        return (get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) + self.target_MS)
-              + get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) - self.target_MS))
+        guess_1RDM = [get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) + self.target_MS),
+                      get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) - self.target_MS)]
+        if not self.target_MS: guess_1RDM = guess_1RDM[0] + guess_1RDM[1]
+        return guess_1RDM
 
     def solve_impurity_problem (self, chempot_frag):
         self.warn_check_impham ("solve_impurity_problem")

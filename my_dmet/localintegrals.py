@@ -26,6 +26,7 @@ from pyscf.lib.numpy_helper import tag_array
 from pyscf.symm.addons import symmetrize_space, label_orb_symm
 from pyscf.symm.addons import eigh as eigh_symm
 from pyscf.scf.hf import dot_eri_dm
+from pyscf.scf.rohf import get_roothaan_fock
 from pyscf import __config__
 from mrh.my_dmet import rhf as wm_rhf
 from mrh.my_dmet import iao_helper
@@ -357,8 +358,8 @@ class localintegrals:
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
         oei            = self.activeOEI + JKcorr/2
-        vk             = self.loc_rhf_k_bis (oneRSMcorr_loc)
-        working_const  = self.activeCONST + (oei * oneRDMcorr_loc).sum () - (vk * oneRSMcorr_loc).sum ()/4 + E2_cum
+        vk             = self.loc_rhf_k_bis (oneRSMcorr_loc)/2
+        working_const  = self.activeCONST + (oei * oneRDMcorr_loc).sum () - (vk * oneRSMcorr_loc).sum ()/2 + E2_cum
         oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, oneRDMguess_loc=oneRDMguess_loc,
             output = calcname + '_trial_wvfn.log', working_const=working_const)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
@@ -370,9 +371,13 @@ class localintegrals:
         print ("trace of <idem|corr|idem> = {}".format (np.sum (svals * svals)))
         print (loc2corr.shape)
         print (loc2idem.shape)
+        dma_dmb = oneRDMidem_loc + oneRDMcorr_loc
+        dma_dmb = [(dma_dmb + oneRSMcorr_loc)/2, (dma_dmb - oneRSMcorr_loc)/2]
+        focka_fockb = [JKcorr - vk, JKcorr + vk]
+        focka_fockb = [self.activeOEI + JKidem + JK for JK in focka_fockb]
 
         ########################################################################################################        
-        self.activeFOCK     = self.activeOEI + JKidem + JKcorr
+        self.activeFOCK     = get_roothaan_fock (focka_fockb, dma_dmb, np.eye (self.norbs_tot))
         self.activeJKidem   = JKidem
         self.activeJKcorr   = JKcorr
         self.oneRDMcorr_loc = oneRDMcorr_loc
