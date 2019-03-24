@@ -43,6 +43,7 @@ from mrh.util.tensors import symmetrize_tensor
 from mrh.my_pyscf import mcscf as my_mcscf
 from mrh.my_pyscf.scf import hf_as
 from mrh.my_pyscf.fci import csf_solver
+from mrh.my_pyscf.mcscf import fix_ci_response_csf
 from functools import reduce
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
@@ -124,6 +125,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         mc = mcscf.DFCASSCF(mf, CASorb, CASe)
     else:
         mc = mcscf.CASSCF(mf, CASorb, CASe)
+    mc = fix_ci_response_csf (mc)
     norbs_amo = mc.ncas
     norbs_cmo = mc.ncore
     norbs_imo = frag.norbs_imp - norbs_amo
