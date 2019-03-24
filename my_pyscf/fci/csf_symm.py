@@ -2,12 +2,23 @@ import numpy as np
 import scipy
 from pyscf import symm, __config__
 from pyscf.lib import logger, davidson1
-from pyscf.fci import direct_spin1_symm, cistring
+from pyscf.fci import direct_spin1_symm, cistring, direct_uhf
+from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.fci.direct_spin1_symm import _gen_strs_irrep, _id_wfnsym
 from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, pretty_ddaddrs
 from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det, transform_opmat_det2csf, count_all_csfs, make_econf_csf_mask
-from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf
+from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf, make_hdiag_det, unpack_h1e_cs
+'''
+    MRH 03/24/2019
+    IMPORTANT: this solver will interpret a two-component one-body Hamiltonian as [h1e_charge, h1e_spin] where
+    h1e_charge = h^p_q (a'_p,up a_q,up + a'_p,down a_q,down)
+    h1e_spin   = h^p_q (a'_p,up a_q,up - a'_p,down a_q,down)
+    This is to preserve interoperability with the members of direct_spin1_symm, since there is no direct_uhf_symm in pyscf yet.
+    Only with an explicitly CSF-based solver can such potentials be included in a calculation that retains S^2 symmetry.
+    Multicomponent two-body integrals are currently not available (so this feature is only for use with, e.g., ROHF-CASSCF with 
+    with some SOMOs outside of the active space or LASSCF with multiple nonsinglet fragments, not UHF-CASSCF).
+'''
 
 def make_confsym (norb, neleca, nelecb, econf_det_mask, orbsym):
     strsa = cistring.gen_strings4orblist(range(norb), neleca)
@@ -41,6 +52,21 @@ class FCISolver (direct_spin1_symm.FCISolver):
         self.confsym = None
         self.orbsym_cache = None
         super().__init__(mol)
+
+    make_hdiag = make_hdiag_det
+
+    def absorb_h1e (self, h1e, eri, norb, nelec, fac=1):
+        h2eff = super().absorb_h1e (h1e, eri, norb, nelec, fac)
+        h1e_c, h1e_s = unpack_h1e_cs (h1e)
+        if h1e_s is not None:
+            h2eff = tag_array (h2eff, h1e_s=h1e_s)
+        return h2eff
+
+    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
+        hc = super().contract_2e(eri, fcivec, norb, nelec, link_index, **kwargs)
+        if hasattr (eri, 'h1e_s'):
+           hc += direct_uhf.contract_1e ([h1e_s, -h1e_s], fcivec, norb, nelec, link_index)  
+        return hc
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
         self.check_mask_cache ()
