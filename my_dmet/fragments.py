@@ -145,8 +145,8 @@ class fragment_object:
         # Impurity Hamiltonian
         self.Ecore_frag   = 0.0  # In case this exists
         self.impham_CONST = None # Does not include nuclear potential
-        self.impham_OEI   = None
-        self.impham_VKK   = None
+        self.impham_OEI_C = None
+        self.impham_OEI_S = None
         self.impham_TEI   = None
         self.impham_CDERI = None
 
@@ -663,8 +663,8 @@ class fragment_object:
             self.impham_built = True
             self.imp_solved   = False
             return
-        self.impham_OEI = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
-        self.impham_VKK = self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneRSMfroz_loc) 
+        self.impham_OEI_C = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+        self.impham_OEI_S = -self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneRSMfroz_loc) / 2
         if self.imp_solver_name == "RHF" and self.quasidirect:
             ao2imp = np.dot (self.ints.ao2loc, self.loc2imp)
             def my_jk (mol, dm, hermi=1):
@@ -897,7 +897,7 @@ class fragment_object:
             G_fi = np.dot (self.frag2loc, self.oneRDM_loc)
         elif isinstance (self.impham_TEI, np.ndarray):
             vj, vk = dot_eri_dm (self.impham_TEI, self.get_oneRDM_imp (), hermi=1)
-            fock = (self.ints.dmet_oei (self.loc2emb, self.norbs_imp) + (self.impham_OEI + vj - vk/2))/2
+            fock = (self.ints.dmet_oei (self.loc2emb, self.norbs_imp) + (self.impham_OEI_C + vj - vk/2))/2
             F_fi = np.dot (self.frag2imp, fock)
             G_fi = np.dot (self.frag2imp, self.get_oneRDM_imp ())
         else:

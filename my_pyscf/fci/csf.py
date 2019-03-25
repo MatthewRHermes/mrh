@@ -506,8 +506,8 @@ class FCISolver (direct_spin1.FCISolver):
     make_hdiag = make_hdiag_det
 
     def absorb_h1e (self, h1e, eri, norb, nelec, fac=1):
-        h2eff = super().absorb_h1e (h1e, eri, norb, nelec, fac)
         h1e_c, h1e_s = unpack_h1e_cs (h1e)
+        h2eff = super().absorb_h1e (h1e_c, eri, norb, nelec, fac)
         if h1e_s is not None:
             h2eff = tag_array (h2eff, h1e_s=h1e_s)
         return h2eff
@@ -515,7 +515,7 @@ class FCISolver (direct_spin1.FCISolver):
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
         hc = super().contract_2e(eri, fcivec, norb, nelec, link_index, **kwargs)
         if hasattr (eri, 'h1e_s'):
-           hc += direct_uhf.contract_1e ([h1e_s, -h1e_s], fcivec, norb, nelec, link_index)  
+           hc += direct_uhf.contract_1e ([eri.h1e_s, -eri.h1e_s], fcivec, norb, nelec, link_index)  
         return hc
 
     '''
