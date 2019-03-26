@@ -493,28 +493,49 @@ def fix_my_CASSCF_for_nonsinglet_env (mc, h1e_s):
             nelecas = self.nelecas
             h1e_s_mo = np.zeros_like (self.h1e_s)
             sdm_mo = np.zeros_like (self.h1e_s)
-            h1e_s_mo= mo.conjugate ().T @ self.h1e_s @ mo
+            h1e_s_mo = mo.conjugate ().T @ self.h1e_s @ mo
             sdm_mo[ncore:nocc, ncore:nocc] = casdm1.sdm
+            sdm_mo = sdm_mo + sdm_mo.T
 
             gen_k = h1e_s_mo @ sdm_mo
-            g_orb += 2*(gen_k - gen_k.T)
+            g_orb += gen_k - gen_k.T
             g_orb = self.pack_uniq_var (g_orb)
             def my_gorb_update (u, fcivec):
                 g_orb_u  = self.unpack_uniq_var (gorb_update (u, fcivec)) # makes a lower-triangular matrix
                 g_orb_u -= g_orb_u.T
                 dma, dmb = self.fcisolver.make_rdm1s (fcivec, ncas, nelecas)
+                sdm      = dma - dmb
                 uH       = u.conjugate ().T
                 h1e_s_u  = uH @ h1e_s_mo @ u
-                gen_k_u  = h1e_s_u @ (dma - dmb)
-                g_orb_u += 2*(gen_k_u - gen_k_u.T)
+                sdm_u    = np.zeros_like (h1e_s_u)
+                sdm_u[ncore:nocc, ncore:nocc]  = sdm
+                sdm_u[ncore:nocc, ncore:nocc] += sdm.T
+                gen_k_u  = h1e_s_u @ sdm_u
+                g_orb_u += gen_k_u - gen_k_u.T
                 return self.pack_uniq_var (g_orb_u)
 
-            hdiag += 4 * np.outer (np.diag (h1e_s_mo), np.diag (sdm_mo))
-            hdiag -= 4 * h1e_s_mo * sdm_mo
-            hdiag -= 2 * np.diag (gen_k)[:,None]
-            hdiag -= 2 * np.diag (gen_k)[None,:]
+            sdm_t     = sdm_mo + sdm_mo.T
+            h_diag_s  = np.outer (np.diag (h1e_s_mo), np.diag (sdm_t))
+            h_diag_s -= h1e_s_mo * sdm_mo
+            h_diag_s -= np.diag (gen_k)[:,None]
+            h_diag += h_diag_s + h_diag_s.T
+            h_diag  = self.pack_uniq_var (h_diag)
 
-            return g_orb, my_gorb_update, h_op, h_diag
+            def my_h_op (x):
+                hx  = h_op (x)
+                hx  = self.unpack_uniq_var (hx)
+                x1  = self.unpack_uniq_var (x)
+                x1 -= x1.T
+
+                hx += h1e_s_mo @ x1 @ sdm_mo
+                hx += sdm_mo @ x1 @ h1e_s_mo
+
+                hx -= gen_k @ x1
+                hx -= x1 @ gen_k.T
+
+                return self.pack_uniq_var (hx - hx.T)
+
+            return g_orb, my_gorb_update, my_h_op, h_diag
 
     return fixed_CASSCF (mc, h1e_s)
 
