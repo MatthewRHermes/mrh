@@ -506,7 +506,7 @@ class fragment_object:
             print ("NO quasi-fragment orbitals constructed")
 
 
-        # This will RuntimeError on me if I don't have even integer.
+        # This will RuntimeError on me if I don't have integer.
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
         oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
         oneRDMa_loc = oneRDM_loc - oneRDMi_loc
