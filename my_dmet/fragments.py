@@ -135,8 +135,8 @@ class fragment_object:
         # Set up the main basis functions. Before any Schmidt decomposition all environment states are treated as "core"
         # self.loc2emb is always defined to have the norbs_frag fragment states, the norbs_bath bath states, and the norbs_core core states in that order
         self.restore_default_embedding_basis ()
-        self.oneRDMfroz_loc = None
-        self.oneRSMfroz_loc = None
+        self.oneRDMfroz_loc = np.zeros ((self.norbs_tot, self.norbs_tot))
+        self.oneRSMfroz_loc = np.zeros ((self.norbs_tot, self.norbs_tot))
         self.twoCDMfroz_tbc = []
         self.loc2tbc        = []
         self.E2froz_tbc     = []

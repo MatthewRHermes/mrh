@@ -406,7 +406,7 @@ def fix_my_CASSCF_for_nonsinglet_env (mc, h1e_s):
     of h1e_s - should be straightforward. '''
 
     mc = fix_ci_response_csf (mc)
-    if h1e_s is None: return mc
+    if h1e_s is None or np.all (np.abs (h1e_s) < 1e-8): return mc
     amo = mc.mo_coeff[:,mc.ncore:][:,:mc.ncas]
     amoH = amo.conjugate ().T
     # When setting the three outer-scope variables below, ALWAYS include indexes so that you 
