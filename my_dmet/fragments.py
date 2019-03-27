@@ -136,7 +136,7 @@ class fragment_object:
         # self.loc2emb is always defined to have the norbs_frag fragment states, the norbs_bath bath states, and the norbs_core core states in that order
         self.restore_default_embedding_basis ()
         self.oneRDMfroz_loc = np.zeros ((self.norbs_tot, self.norbs_tot))
-        self.oneRSMfroz_loc = np.zeros ((self.norbs_tot, self.norbs_tot))
+        self.oneSDMfroz_loc = np.zeros ((self.norbs_tot, self.norbs_tot))
         self.twoCDMfroz_tbc = []
         self.loc2tbc        = []
         self.E2froz_tbc     = []
@@ -170,7 +170,7 @@ class fragment_object:
         self.loc2amo       = np.zeros((self.norbs_tot,0))
         self.loc2amo_guess = None
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
-        self.oneRSMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
+        self.oneSDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.twoCDMimp_amo = np.zeros((0,0,0,0))
         self.ci_as         = None
         self.mfmo_printed  = False
@@ -569,7 +569,7 @@ class fragment_object:
         self.twoCDMfroz_tbc = [np.copy (frag.twoCDMimp_amo) for frag in active_frags]
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
         self.E2froz_tbc     = [frag.E2_cum for frag in active_frags]
-        self.oneRSMfroz_loc = sum ([frag.oneRSMas_loc for frag in all_frags if frag is not self])
+        self.oneSDMfroz_loc = sum ([frag.oneSDMas_loc for frag in all_frags if frag is not self])
 
         self.impham_built = False
         sys.stdout.flush ()
@@ -664,7 +664,7 @@ class fragment_object:
             self.imp_solved   = False
             return
         self.impham_OEI_C = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
-        self.impham_OEI_S = -self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneRSMfroz_loc) / 2
+        self.impham_OEI_S = -self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneSDMfroz_loc) / 2
         if self.imp_solver_name == "RHF" and self.quasidirect:
             ao2imp = np.dot (self.ints.ao2loc, self.loc2imp)
             def my_jk (mol, dm, hermi=1):
@@ -688,7 +688,7 @@ class fragment_object:
             self.impham_get_jk = None
 
         # Constant contribution to energy from core 2CDMs
-        self.impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc, self.oneRSMfroz_loc)
+        self.impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc, self.oneSDMfroz_loc)
                              + self.ints.const () + xtra_CONST + sum (self.E2froz_tbc))
         self.E2_frag_core = 0
 

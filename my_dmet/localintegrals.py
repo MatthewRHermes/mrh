@@ -310,7 +310,7 @@ class localintegrals:
 
         self.restore_wm_full_scf ()
         oneRDMcorr_loc = sum ((frag.oneRDMas_loc for frag in fragments))
-        oneRSMcorr_loc = sum ((frag.oneRSMas_loc for frag in fragments))
+        oneSDMcorr_loc = sum ((frag.oneSDMas_loc for frag in fragments))
         if np.all (np.isclose (oneRDMcorr_loc, 0)):
             print ("Null correlated 1-RDM; default settings for wm wvfn")
             self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
@@ -331,8 +331,8 @@ class localintegrals:
                     V  = self.dmet_tei (frag.loc2amo)
                     L  = frag.twoCDMimp_amo
                     frag.E2_cum  = np.tensordot (V, L, axes=4) / 2
-                    K  = self.loc_rhf_k_bis (frag.oneRSMas_loc)
-                    frag.E2_cum += (K * frag.oneRSMas_loc).sum () / 4
+                    K  = self.loc_rhf_k_bis (frag.oneSDMas_loc)
+                    frag.E2_cum += (K * frag.oneSDMas_loc).sum () / 4
                 E2_cum += frag.E2_cum
             
         loc2idem = get_complementary_states (loc2corr)
@@ -358,21 +358,21 @@ class localintegrals:
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
         oei            = self.activeOEI + JKcorr/2
-        vk             = self.loc_rhf_k_bis (oneRSMcorr_loc)/2
-        working_const  = self.activeCONST + (oei * oneRDMcorr_loc).sum () - (vk * oneRSMcorr_loc).sum ()/2 + E2_cum
+        vk             = self.loc_rhf_k_bis (oneSDMcorr_loc)/2
+        working_const  = self.activeCONST + (oei * oneRDMcorr_loc).sum () - (vk * oneSDMcorr_loc).sum ()/2 + E2_cum
         oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, oneRDMguess_loc=oneRDMguess_loc,
             output = calcname + '_trial_wvfn.log', working_const=working_const)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
         print ("trace of oneRDMcorr_loc = {}".format (np.trace (oneRDMcorr_loc)))
         print ("trace of oneRDMidem_loc = {}".format (np.trace (oneRDMidem_loc)))
-        print ("trace of oneRSMcorr_loc = {}".format (np.trace (oneRSMcorr_loc)))
+        print ("trace of oneSDMcorr_loc = {}".format (np.trace (oneSDMcorr_loc)))
         print ("trace of oneRDM_loc in corr basis = {}".format (np.trace (represent_operator_in_basis (oneRDMcorr_loc + oneRDMidem_loc, loc2corr))))
         svals = get_overlapping_states (loc2idem, loc2corr)[2]
         print ("trace of <idem|corr|idem> = {}".format (np.sum (svals * svals)))
         print (loc2corr.shape)
         print (loc2idem.shape)
         dma_dmb = oneRDMidem_loc + oneRDMcorr_loc
-        dma_dmb = [(dma_dmb + oneRSMcorr_loc)/2, (dma_dmb - oneRSMcorr_loc)/2]
+        dma_dmb = [(dma_dmb + oneSDMcorr_loc)/2, (dma_dmb - oneSDMcorr_loc)/2]
         focka_fockb = [JKcorr - vk, JKcorr + vk]
         focka_fockb = [self.activeOEI + JKidem + JK for JK in focka_fockb]
 
@@ -388,11 +388,11 @@ class localintegrals:
         # Analysis: 1RDM and total energy
         print ("Analyzing LASSCF trial wave function")
         oneRDM = oneRDMidem_loc + oneRDMcorr_loc
-        oneRSM = oneRSMcorr_loc
+        oneSDM = oneSDMcorr_loc
         oei = self.activeOEI + ((JKcorr + JKidem)/2)
-        vk = self.loc_rhf_k_bis (oneRSM)
+        vk = self.loc_rhf_k_bis (oneSDM)
         fock = self.activeFOCK
-        E = self.activeCONST + (oei * oneRDM).sum () - (vk * oneRSM).sum ()/4 + E2_cum
+        E = self.activeCONST + (oei * oneRDM).sum () - (vk * oneSDM).sum ()/4 + E2_cum
         print ("LASSCF trial wave function total energy: {:.6f}".format (E))
         self.oneRDM_loc = oneRDM
         self.e_tot = E
@@ -485,7 +485,7 @@ class localintegrals:
         TEI = symmetrize_tensor (self.general_tei ([loc2imp for i in range(4)], compact=True))
         return ao2mo.restore (symmetry, TEI, numAct)
 
-    def dmet_const (self, loc2dmet, norbs_imp, oneRDMfroz_loc, oneRSMfroz_loc):
+    def dmet_const (self, loc2dmet, norbs_imp, oneRDMfroz_loc, oneSDMfroz_loc):
         norbs_core = self.norbs_tot - norbs_imp
         if norbs_core == 0:
             return 0.0
@@ -494,8 +494,8 @@ class localintegrals:
         OEI  = self.dmet_oei (loc2core, norbs_core)
         OEI += self.dmet_fock (loc2core, norbs_core, oneRDMfroz_loc)
         CONST  = (GAMMA * OEI).sum () / 2
-        M = represent_operator_in_basis (oneRSMfroz_loc, loc2core)
-        K = self.dmet_k (loc2core, norbs_core, oneRSMfroz_loc) 
+        M = represent_operator_in_basis (oneSDMfroz_loc, loc2core)
+        K = self.dmet_k (loc2core, norbs_core, oneSDMfroz_loc) 
         CONST -= (M * K).sum () / 4
         return CONST
 
