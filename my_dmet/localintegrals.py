@@ -60,12 +60,17 @@ class localintegrals:
         self.get_k_ao    = partial (the_mf.get_k, self.mol)
         self.fullovlpao  = the_mf.get_ovlp
         self.fullEhf     = the_mf.e_tot
-        self.fullDMao    = np.dot(np.dot( the_mf.mo_coeff, np.diag( the_mf.mo_occ )), the_mf.mo_coeff.T )
-        self.fullJKao    = self.get_veff_ao (dm=self.fullDMao, dm_last=0, vhf_last=0, hermi=1) #Last 3 numbers: dm_last, vhf_last, hermi
-        if self.fullJKao.ndim == 3:
-            self.fullJKao = self.fullJKao[0] 
+        self.fullRDM_ao  = np.asarray (the_mf.make_rdm1 ())
+        if self.fullRDM_ao.ndim == 3:
+            self.fullSDM_ao = self.fullRDM_ao[0] - self.fullRDM_ao[1]
+            self.fullRDM_ao = self.fullRDM_ao[0] + self.fullRDM_ao[1]
+        else:
+            self.fullSDM_ao = np.zeros_like (self.fullRDM_ao)
+        self.fullJK_ao    = self.get_veff_ao (dm=self.fullRDM_ao, dm_last=0, vhf_last=0, hermi=1) #Last 3 numbers: dm_last, vhf_last, hermi
+        if self.fullJK_ao.ndim == 3:
+            self.fullJK_ao = self.fullJK_ao[0] 
             # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
-        self.fullFOCKao  = the_mf.get_hcore () + self.fullJKao
+        self.fullFOCK_ao  = the_mf.get_hcore () + self.fullJK_ao
         self.oneRDM_loc  = np.asarray (the_mf.make_rdm1 ())
         if self.oneRDM_loc.ndim > 2: self.oneRDM_loc = self.oneRDM_loc[0] + self.oneRDM_loc[1]
         self.e_tot       = the_mf.e_tot
@@ -120,22 +125,23 @@ class localintegrals:
 
 
         # Effective Hamiltonian due to frozen part
-        self.frozenDMmo  = np.array( the_mf.mo_occ, copy=True )
-        self.frozenDMmo[ self.active==1 ] = 0 # Only the frozen MO occupancies nonzero
-        self.frozenDMao  = np.dot(np.dot( the_mf.mo_coeff, np.diag( self.frozenDMmo )), the_mf.mo_coeff.T )
-        self.frozenJKao  = self.get_veff_ao (self.frozenDMao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
-        if self.frozenJKao.ndim == 3:
-            self.frozenJKao = self.frozenJKao[0]
+        self.frozenDM_mo  = np.array( the_mf.mo_occ, copy=True )
+        self.frozenDM_mo[ self.active==1 ] = 0 # Only the frozen MO occupancies nonzero
+        self.frozenDM_ao  = np.dot(np.dot( the_mf.mo_coeff, np.diag( self.frozenDM_mo )), the_mf.mo_coeff.T )
+        self.frozenJK_ao  = self.get_veff_ao (self.frozenDM_ao, 0, 0, 1 ) #Last 3 numbers: dm_last, vhf_last, hermi
+        if self.frozenJK_ao.ndim == 3:
+            self.frozenJK_ao = self.frozenJK_ao[0]
             # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
-        self.frozenOEIao = self.fullFOCKao - self.fullJKao + self.frozenJKao
+        self.frozenOEI_ao = self.fullFOCK_ao - self.fullJK_ao + self.frozenJK_ao
 
         # Localized OEI and ERI
-        self.activeCONST    = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEIao - 0.5*self.frozenJKao, self.frozenDMao )
-        self.activeOEI      = represent_operator_in_basis (self.frozenOEIao, self.ao2loc )
-        self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
+        self.activeCONST    = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEI_ao - 0.5*self.frozenJK_ao, self.frozenDM_ao )
+        self.activeOEI      = represent_operator_in_basis (self.frozenOEI_ao, self.ao2loc )
+        self.activeFOCK     = represent_operator_in_basis (self.fullFOCK_ao,  self.ao2loc )
         self.activeJKidem   = self.activeFOCK - self.activeOEI
         self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
-        self.oneRDM_loc     = self.ao2loc.conjugate ().T @ self.ao_ovlp @ self.fullDMao @ self.ao_ovlp @ self.ao2loc
+        self.oneRDM_loc     = self.ao2loc.conjugate ().T @ self.ao_ovlp @ self.fullRDM_ao @ self.ao_ovlp @ self.ao2loc
+        self.oneSDM_loc     = self.ao2loc.conjugate ().T @ self.ao_ovlp @ self.fullSDM_ao @ self.ao_ovlp @ self.ao2loc
         self.oneRDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
         self.loc2idem       = np.eye (self.norbs_tot, dtype=self.activeOEI.dtype)
         self.nelec_idem     = self.nelec_tot
@@ -313,7 +319,7 @@ class localintegrals:
         oneSDMcorr_loc = sum ((frag.oneSDMas_loc for frag in fragments))
         if np.all (np.isclose (oneRDMcorr_loc, 0)):
             print ("Null correlated 1-RDM; default settings for wm wvfn")
-            self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
+            self.activeFOCK     = represent_operator_in_basis (self.fullFOCK_ao,  self.ao2loc )
             self.activeJKidem   = self.activeFOCK - self.activeOEI
             self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot))
             self.oneRDMcorr_loc = oneRDMcorr_loc
@@ -403,7 +409,7 @@ class localintegrals:
         molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=occ_no, ene=ene_no)
 
     def restore_wm_full_scf (self):
-        self.activeFOCK     = represent_operator_in_basis (self.fullFOCKao,  self.ao2loc )
+        self.activeFOCK     = represent_operator_in_basis (self.fullFOCK_ao,  self.ao2loc )
         self.activeJKidem   = self.activeFOCK - self.activeOEI
         self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
         self.oneRDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)

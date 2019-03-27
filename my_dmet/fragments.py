@@ -160,6 +160,7 @@ class fragment_object:
         self.E_frag = 0.0
         self.E_imp  = 0.0
         self.oneRDM_loc = self.ints.oneRDM_loc
+        self.oneSDM_loc = self.ints.oneSDM_loc
         self.twoCDM_imp = None
         self.loc2mo     = np.zeros((self.norbs_tot,0))
         self.loc2fno    = np.zeros((self.norbs_tot,0))

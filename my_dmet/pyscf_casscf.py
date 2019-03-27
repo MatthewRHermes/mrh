@@ -290,27 +290,28 @@ def solve (frag, guess_1RDM, chempot_imp):
     oneSDM_amo = oneRDMs_amo[0] - oneRDMs_amo[1] if frag.target_MS >= 0 else oneRDMs_amo[1] - oneRDMs_amo[0]
     oneSDM_imp = represent_operator_in_basis (oneSDM_amo, imp2amo.conjugate ().T)
     print ("Norm of spin density: {}".format (linalg.norm (oneSDM_amo)))
-    # Note that I do _not_ do the *real* cumulant decomposition; I do one assuming oneRDMs_amo_alpha = oneRDMs_amo_beta
+    # Note that I do _not_ do the *real* cumulant decomposition; I do one assuming oneSDM_amo = 0.
     # This is fine as long as I keep it consistent, since it is only in the orbital gradients for this impurity that
     # the spin density matters. But it has to stay consistent!
     twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
     twoCDM_imp = represent_operator_in_basis (twoCDM_amo, imp2amo.conjugate ().T)
     print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (E_CASSCF, spin_square (mc)[1], t_end - t_start))
 
-    # General impurity data
-    frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
-    frag.twoCDM_imp = None # Experiment: this tensor is huge. Do I actually need to keep it? In principle, of course not.
-    frag.E_imp      = E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
-
     # Active-space RDM data
     frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, loc2amo.conjugate ().T))
     frag.oneSDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneSDM_amo, loc2amo.conjugate ().T))
     frag.twoCDMimp_amo = twoCDM_amo
-    frag.loc2mo = loc2mo
+    frag.loc2mo  = loc2mo
     frag.loc2amo = loc2amo
     frag.E2_cum  = np.tensordot (ao2mo.restore (1, mc.get_h2eff (), mc.ncas), twoCDM_amo, axes=4) / 2
     frag.E2_cum += (mf.get_k (dm=oneSDM_imp) * oneSDM_imp).sum () / 4
     # The second line compensates for my incorrect cumulant decomposition. Anything to avoid changing the checkpoint files...
+
+    # General impurity data
+    frag.oneRDM_loc = frag.oneRDMfroz_loc + symmetrize_tensor (represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
+    frag.oneSDM_loc = frag.oneSDMfroz_loc + frag.oneSDMas_loc
+    frag.twoCDM_imp = None # Experiment: this tensor is huge. Do I actually need to keep it? In principle, of course not.
+    frag.E_imp      = E_CASSCF + np.einsum ('ab,ab->', chempot_imp, oneRDM_imp)
 
     return None
 
