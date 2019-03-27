@@ -40,16 +40,18 @@ from mrh.util.basis import measure_subspace_blockbreaking, measure_basis_nonorth
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2RDM_from_2CDM
 from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.tensors import symmetrize_tensor
+from mrh.my_dmet.pyscf_rhf import fix_my_RHF_for_nonsinglet_env
 from mrh.my_pyscf import mcscf as my_mcscf
 from mrh.my_pyscf.scf import hf_as
 from mrh.my_pyscf.fci import csf_solver
-from functools import reduce
+from mrh.my_pyscf.mcscf import fix_ci_response_csf
+from functools import reduce, partial
 
 #def solve( CONST, OEI, FOCK, TEI, frag.norbs_imp, frag.nelec_imp, frag.norbs_frag, impCAS, frag.active_orb_list, guess_1RDM, energytype='CASCI', chempot_frag=0.0, printoutput=True ):
 def solve (frag, guess_1RDM, chempot_imp):
 
     # Augment OEI with the chemical potential
-    OEI = frag.impham_OEI - chempot_imp
+    OEI = frag.impham_OEI_C - chempot_imp
 
     # Do I need to get the full RHF solution?
     guess_orbs_av = len (frag.imp_cache) == 2 or frag.norbs_as > 0 
@@ -58,6 +60,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     mol = gto.Mole()
     abs_2MS = int (round (2 * abs (frag.target_MS)))
     abs_2S = int (round (2 * abs (frag.target_S)))
+    sign_MS = np.sign (frag.target_MS) or 1
     mol.spin = abs_2MS
     mol.verbose = 0 if frag.mol_output is None else lib.logger.DEBUG
     mol.output = frag.mol_output
@@ -80,10 +83,13 @@ def solve (frag, guess_1RDM, chempot_imp):
         mf.with_df._cderi = frag.impham_CDERI
     else:
         mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+    mf = fix_my_RHF_for_nonsinglet_env (mf, sign_MS * frag.impham_OEI_S)
     mf.__dict__.update (frag.mf_attr)
     if guess_orbs_av: mf.max_cycle = 2
     mf.scf (guess_1RDM)
     if (not mf.converged) and (not guess_orbs_av):
+        if np.any (np.abs (frag.impham_OEI_S) > 1e-8) and mol.spin != 0:
+            raise NotImplementedError('Gradient and Hessian fixes for nonsinglet environment of Newton-descent ROHF algorithm')
         print ("CASSCF RHF-step not converged on fixed-point iteration; initiating newton solver")
         mf = mf.newton ()
         mf.kernel ()
@@ -91,6 +97,8 @@ def solve (frag, guess_1RDM, chempot_imp):
     # Instability check and repeat
     if not guess_orbs_av:
         for i in range (frag.num_mf_stab_checks):
+            if np.any (np.abs (frag.impham_OEI_S) > 1e-8) and mol.spin != 0:
+                raise NotImplementedError('ROHF stability-check fixes for nonsinglet environment')
             mf.mo_coeff = mf.stability ()[0]
             guess_1RDM = mf.make_rdm1 ()
             mf = scf.RHF(mol)
@@ -101,17 +109,13 @@ def solve (frag, guess_1RDM, chempot_imp):
             if not mf.converged:
                 mf = mf.newton ()
                 mf.kernel ()
-    
-    print ("CASSCF RHF-step energy: {}".format (mf.e_tot))
-    #print(mf.mo_occ)    
-    '''    
-    idx = mf.mo_energy.argsort()
-    mf.mo_energy = mf.mo_energy[idx]
-    mf.mo_coeff = mf.mo_coeff[:,idx]'''
+
+    E_RHF = mf.e_tot
+    print ("CASSCF RHF-step energy: {}".format (E_RHF))
 
     # Get the CASSCF solution
     CASe = frag.active_space[0]
-    CASorb = frag.active_space[1]    
+    CASorb = frag.active_space[1] 
     checkCAS =  (CASe <= frag.nelec_imp) and (CASorb <= frag.norbs_imp)
     if (checkCAS == False):
         CASe = frag.nelec_imp
@@ -124,6 +128,15 @@ def solve (frag, guess_1RDM, chempot_imp):
         mc = mcscf.DFCASSCF(mf, CASorb, CASe)
     else:
         mc = mcscf.CASSCF(mf, CASorb, CASe)
+    smult = abs_2S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
+    mc.fcisolver = csf_solver (mf.mol, smult, symm=frag.enforce_symmetry)
+    if frag.enforce_symmetry: mc.fcisolver.wfnsym = frag.wfnsym
+    mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
+    mc.ah_start_tol =1e-10
+    mc.ah_conv_tol = 1e-10
+    mc.conv_tol = 1e-9
+    mc.__dict__.update (frag.corr_attr)
+    mc = fix_my_CASSCF_for_nonsinglet_env (mc, sign_MS * frag.impham_OEI_S)
     norbs_amo = mc.ncas
     norbs_cmo = mc.ncore
     norbs_imo = frag.norbs_imp - norbs_amo
@@ -209,16 +222,10 @@ def solve (frag, guess_1RDM, chempot_imp):
     if frag.enforce_symmetry: imp2mo = lib.tag_array (imp2mo, orbsym=label_orb_symm (mol, mol.irrep_id, mol.symm_orb, imp2mo, s=mf.get_ovlp (), check=False))
 
     t_start = time.time()
-    smult = abs_2S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
-    mc.fcisolver = csf_solver (mf.mol, smult, symm=frag.enforce_symmetry)
-    if frag.enforce_symmetry: mc.fcisolver.wfnsym = frag.wfnsym
-    mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
-    mc.ah_start_tol = 1e-10
-    mc.ah_conv_tol = 1e-10
-    mc.conv_tol = 1e-9
-    mc.__dict__.update (frag.corr_attr)
     E_CASSCF = mc.kernel(imp2mo, ci0)[0]
     if not mc.converged:
+        if np.any (np.abs (frag.impham_OEI_S) > 1e-8):
+            raise NotImplementedError('Gradient and Hessian fixes for nonsinglet environment of Newton-descent CASSCF algorithm')
         mc = mc.newton ()
         E_CASSCF = mc.kernel(mc.mo_coeff, mc.ci)[0]
     if not mc.converged:
@@ -273,21 +280,22 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.ci_as = mc.ci
     frag.ci_as_orb = loc2amo.copy ()
     t_end = time.time()
-    print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (E_CASSCF, spin_square (mc)[1], t_end - t_start))
 
     # oneRDM
     oneRDM_imp = mc.make_rdm1 ()
 
     # twoCDM
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
-    oneRDMs_amo = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
+    oneRDMs_amo = np.stack (mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas), axis=0)
     oneRSM_amo = oneRDMs_amo[0] - oneRDMs_amo[1] if frag.target_MS >= 0 else oneRDMs_amo[1] - oneRDMs_amo[0]
+    oneRSM_imp = represent_operator_in_basis (oneRSM_amo, imp2amo.conjugate ().T)
     print ("Norm of spin density: {}".format (linalg.norm (oneRSM_amo)))
     # Note that I do _not_ do the *real* cumulant decomposition; I do one assuming oneRDMs_amo_alpha = oneRDMs_amo_beta
     # This is fine as long as I keep it consistent, since it is only in the orbital gradients for this impurity that
     # the spin density matters. But it has to stay consistent!
     twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDM_amo)
     twoCDM_imp = represent_operator_in_basis (twoCDM_amo, imp2amo.conjugate ().T)
+    print('Impurity CASSCF energy (incl chempot): {}; spin multiplicity: {}; time to solve: {}'.format (E_CASSCF, spin_square (mc)[1], t_end - t_start))
 
     # General impurity data
     frag.oneRDM_loc = symmetrize_tensor (frag.oneRDMfroz_loc + represent_operator_in_basis (oneRDM_imp, frag.imp2loc))
@@ -300,46 +308,11 @@ def solve (frag, guess_1RDM, chempot_imp):
     frag.twoCDMimp_amo = twoCDM_amo
     frag.loc2mo = loc2mo
     frag.loc2amo = loc2amo
-    frag.E2_cum = 0.5 * np.tensordot (ao2mo.restore (1, mc.get_h2eff (), mc.ncas), twoCDM_amo, axes=4)
+    frag.E2_cum  = np.tensordot (ao2mo.restore (1, mc.get_h2eff (), mc.ncas), twoCDM_amo, axes=4) / 2
+    frag.E2_cum += (mf.get_k (dm=oneRSM_imp) * oneRSM_imp).sum () / 4
+    # The second line compensates for my incorrect cumulant decomposition. Anything to avoid changing the checkpoint files...
 
     return None
-
-def get_fragcasscf (frag, mf, loc2mo):
-    ''' Obsolete function, left here just for reference to how I use constrCASSCF object '''
-
-    norbs_amo = frag.active_space[1]
-    nelec_amo = frag.active_space[0]
-    mo = np.dot (frag.imp2loc, loc2mo)
-
-    mf2 = hf_as.RHF(mf.mol)
-    mf2.wo_coeff = np.eye (mf.get_ovlp ().shape[0])
-    mf2.get_hcore = lambda *args: mf.get_hcore ()
-    mf2.get_ovlp = lambda *args: mf.get_ovlp ()
-    mf2._eri = mf._eri
-    mf2.scf(mf.make_rdm1 ())
-
-    mc = my_mcscf.constrCASSCF (mf2, norbs_amo, nelec_amo, cas_ao=list(range(frag.norbs_frag)))
-    norbs_cmo = mc.ncore
-    norbs_occ = norbs_cmo + norbs_amo
-    t_start = time.time ()
-    E_fragCASSCF = mc.kernel (mo)[0]
-    E_fragCASSCF = mc.kernel ()[0]
-    t_end = time.time ()
-    assert (mc.converged)
-    print('Impurity fragCASSCF energy (incl chempot): {0}; time to solve: {1}'.format (frag.impham_CONST + E_fragCASSCF, t_end - t_start))
-
-    casci = mcscf.CASCI (mf2, norbs_amo, nelec_amo)
-    E_testfragCASSCF = casci.kernel (mc.mo_coeff)[0]
-    assert (abs (E_testfragCASSCF - E_fragCASSCF) < 1e-8), E_testfragCASSCF
-
-    loc2mo = np.dot (frag.loc2imp, mc.mo_coeff)
-    loc2amo = loc2mo[:,norbs_cmo:norbs_occ]
-
-    oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, norbs_amo, nelec_amo)
-    oneRDMs_amo = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
-    twoCDM_amo = get_2CDM_from_2RDM (twoRDM_amo, oneRDMs_amo)
-    return oneRDM_amo, twoCDM_amo, loc2mo, loc2amo
-    
 
 def project_amo_manually (loc2imp, loc2gamo, fock_mf, norbs_cmo, dm=None):
     norbs_amo = loc2gamo.shape[1]
@@ -422,4 +395,137 @@ def make_guess_molden (frag, filename, imp2mo, norbs_cmo, norbs_amo):
     mo = reduce (np.dot, (frag.ints.ao2loc, frag.loc2imp, imp2mo))
     molden.from_mo (frag.ints.mol, filename, mo, occ=mo_occ)
     return
+
+def fix_my_CASSCF_for_nonsinglet_env (mc, h1e_s):
+    ''' Strategy: cache the spin-breaking potential in the full basis in the mc object and in the
+    active subspace in the mc.fcisolver object. Update the latter at every call to mc.casci.
+    For the inner-cycle subspace ci response, hack it into mc.update_casdm and
+    mc.solve_approx_ci using the envs kwarg. Wrap mc.fcisolver.kernel with a CONDITIONAL inspection
+    of h1e (if and only if the h1e passed as an argument is one-component, add the second component).
+    Finally, wrap gen_g_hop for the orbital rotation by just adding the various derivatives
+    of h1e_s - should be straightforward. '''
+
+    mc = fix_ci_response_csf (mc)
+    if h1e_s is None: return mc
+    amo = mc.mo_coeff[:,mc.ncore:][:,:mc.ncas]
+    amoH = amo.conjugate ().T
+    # When setting the three outer-scope variables below, ALWAYS include indexes so that you 
+    # don't shadow the names
+    h1e_s_amo = amoH @ h1e_s @ amo
+    h1e_s_amou = h1e_s_amo.copy ()
+    last_cached_sdm = np.zeros_like (h1e_s_amo)
+
+    class fixed_FCI (mc.fcisolver.__class__):
+
+        def __init__(self, my_fci):
+            self.__dict__.update (my_fci.__dict__)
+
+        def kernel (self, h1e, eri, norb, nelec, ci0=None, **kwargs):
+            if np.asarray (h1e).ndim == 2:
+                h1e = [h1e, h1e_s_amo]
+            return super().kernel (h1e, eri, norb, nelec, ci0=ci0, **kwargs)
+
+        def make_rdm12 (self, ci, ncas, nelecas):
+            ''' I need to smuggle in the spin-density matrix for the sake of gen_g_hop down there. '''
+            dm1, dm2 = super().make_rdm12 (ci, ncas, nelecas)
+            dm1a, dm1b = self.make_rdm1s (ci, ncas, nelecas)
+            dm1 = lib.tag_array (dm1, sdm=dm1a-dm1b)
+            last_cached_sdm[:,:] = dm1.sdm[:,:]
+            return dm1, dm2
+            
+    class fixed_CASSCF (mc.__class__):
+
+        def __init__(self, my_mc):
+            self.__dict__.update (my_mc.__dict__)
+            self.fcisolver = fixed_FCI (my_mc.fcisolver)
+
+        def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
+            ''' path of least resistance: just cache h1e_s in the fcisolver '''
+            amo = mo_coeff[:,mc.ncore:][:,:mc.ncas]
+            amoH = amo.conjugate ().T
+            h1e_s_amo[:,:] = amoH @ h1e_s @ amo
+            return super().casci (mo_coeff, ci0=ci0, eris=eris, verbose=verbose, envs=envs)
+            
+        def update_casdm (self, mo, u, fcivec, e_cas, eris, envs={}):
+            ''' ~look-of-disapproval~ I need to use outer-scope variables because Qiming or whoever
+            didn't properly use a single function to generate h1e. I could also futz with envs but that
+            comes from a locals() call and honestly the outer-scope variable solution looks more elegant.
+            Every call to self.fcisolver methods downstream of this will goes through solve_approx_ci
+            and will be using an explicitly two-component h1, so don't mess with
+            self.fcisolver.h1e_s_cache here.'''
+            amou = mo @ u[:,self.ncore:][:,:self.ncas]
+            amouH = amou.conjugate ().T
+            h1e_s_amou[:,:] = amouH @ h1e_s @ amou
+            return super().update_casdm (mo, u, fcivec, e_cas, eris, envs=envs)
+
+        def solve_approx_ci (self, h1, h2, ci0, ecore, e_cas, envs):
+            ''' ~look-of-disapproval~ I shouldn't have to edit this at all; see update_casdm above. '''
+            h1 = np.stack ([h1, h1e_s_amou], axis=0)
+            return super().solve_approx_ci (h1, h2, ci0, ecore, e_cas, envs)
+
+        def gen_g_hop (self, mo, u, casdm1, casdm2, eris):
+            ''' I do not get why u is an argument of this function.  It doesn't appear to be
+            referenced within it. 
+
+            It'll be a trick and a half to test the Hessian. There's no straightforward
+            signature of having a wrong answer; the convergence will just get really bad.
+
+            Also, now that I think of it, the gradients might be wrong even if they do give 0 
+            for ROHF initial guess. Best just to follow mc1step.gen_g_hop as closely as possible,
+            with the substitutions h1e -> h1e_s and dm -> sdm.
+
+            After much anguish I figured out that if you unpack:
+                mat = self.unpack_uniq_var (uniq_mat)
+            and then repack:
+                uniq_mat = self.pack_uniq_var (mat - mat.T)
+            That multiplies it by 2, because unpack actually populates the upper-triangular corner.
+            So don't do that.'''
+            g_orb, gorb_update, h_op, h_diag = super ().gen_g_hop (mo, u, casdm1, casdm2, eris)
+            # Important: DON'T unpack anything except for the argument to h_op down there!
+            # When you repack you'll either double them (gradients) or make them zero (h_diag)!
+
+            ncore = self.ncore
+            ncas = self.ncas
+            nocc = ncore + ncas
+            h1e_s_mo = mo.conjugate ().T @ h1e_s @ mo
+            sdm_mo = np.zeros_like (h1e_s)
+            sdm_mo[ncore:nocc,ncore:nocc] = casdm1.sdm
+            sdm_u = np.copy (sdm_mo)
+            sdm_au = sdm_u[ncore:nocc,ncore:nocc]
+
+            # Return 1: the macrocycle gradient (odd matrix)
+            gen_k = h1e_s_mo @ sdm_mo  
+            g_orb += self.pack_uniq_var (gen_k - gen_k.T)
+
+            # Return 2: the microcycle gradient as a function of u and fcivec (odd matrix)
+            def my_gorb_update (u, fcivec):
+                g_orb_u     = gorb_update (u, fcivec) 
+                # 'last_cached_sdm' is only safe to use RIGHT HERE, DO NOT MOVE the gorb_update call
+                sdm_au[:,:] = last_cached_sdm
+                uH          = u.conjugate ().T
+                h1e_s_u     = uH @ h1e_s_mo @ u
+                gen_k_u     = h1e_s_u @ sdm_u
+                return g_orb_u + self.pack_uniq_var (gen_k_u - gen_k_u.T)
+
+            # Return 3: the diagonal elements of the Hessian (even matrix)
+            h_diag_s  = np.outer (np.diag (h1e_s_mo), np.diag (sdm_mo))
+            h_diag_s -= h1e_s_mo * sdm_mo
+            h_diag_s -= np.diag (gen_k)[:,None]
+            idx       = np.diag_indices_from (h_diag_s)
+            h_diag_s[idx] = 0
+            h_diag   += self.pack_uniq_var (h_diag_s + h_diag_s.T)
+
+            # Return 4: the Hessian as a function (odd matrix)
+            def my_h_op (x):
+                x1  = self.unpack_uniq_var (x)
+                hx  = h1e_s_mo @ x1 @ sdm_mo
+                hx -= (gen_k + gen_k.T) @ x1 / 2
+                return h_op (x) + self.pack_uniq_var (hx - hx.T)
+
+            return g_orb, my_gorb_update, my_h_op, h_diag
+
+    return fixed_CASSCF (mc)
+
+
+
 

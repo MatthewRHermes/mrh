@@ -136,6 +136,7 @@ class fragment_object:
         # self.loc2emb is always defined to have the norbs_frag fragment states, the norbs_bath bath states, and the norbs_core core states in that order
         self.restore_default_embedding_basis ()
         self.oneRDMfroz_loc = None
+        self.oneRSMfroz_loc = None
         self.twoCDMfroz_tbc = []
         self.loc2tbc        = []
         self.E2froz_tbc     = []
@@ -144,7 +145,8 @@ class fragment_object:
         # Impurity Hamiltonian
         self.Ecore_frag   = 0.0  # In case this exists
         self.impham_CONST = None # Does not include nuclear potential
-        self.impham_OEI   = None
+        self.impham_OEI_C = None
+        self.impham_OEI_S = None
         self.impham_TEI   = None
         self.impham_CDERI = None
 
@@ -567,6 +569,7 @@ class fragment_object:
         self.twoCDMfroz_tbc = [np.copy (frag.twoCDMimp_amo) for frag in active_frags]
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
         self.E2froz_tbc     = [frag.E2_cum for frag in active_frags]
+        self.oneRSMfroz_loc = sum ([frag.oneRSMas_loc for frag in all_frags if frag is not self])
 
         self.impham_built = False
         sys.stdout.flush ()
@@ -660,7 +663,8 @@ class fragment_object:
             self.impham_built = True
             self.imp_solved   = False
             return
-        self.impham_OEI = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+        self.impham_OEI_C = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+        self.impham_OEI_S = -self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneRSMfroz_loc) / 2
         if self.imp_solver_name == "RHF" and self.quasidirect:
             ao2imp = np.dot (self.ints.ao2loc, self.loc2imp)
             def my_jk (mol, dm, hermi=1):
@@ -684,7 +688,7 @@ class fragment_object:
             self.impham_get_jk = None
 
         # Constant contribution to energy from core 2CDMs
-        self.impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+        self.impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc, self.oneRSMfroz_loc)
                              + self.ints.const () + xtra_CONST + sum (self.E2froz_tbc))
         self.E2_frag_core = 0
 
@@ -700,8 +704,10 @@ class fragment_object:
     ###############################################################################################################################
     def get_guess_1RDM (self, chempot_imp):
         FOCK = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
-        return (get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) + self.target_MS)
-              + get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) - self.target_MS))
+        guess_1RDM = [get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) + self.target_MS),
+                      get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) - self.target_MS)]
+        if not self.target_MS: guess_1RDM = guess_1RDM[0] + guess_1RDM[1]
+        return guess_1RDM
 
     def solve_impurity_problem (self, chempot_frag):
         self.warn_check_impham ("solve_impurity_problem")
@@ -891,7 +897,7 @@ class fragment_object:
             G_fi = np.dot (self.frag2loc, self.oneRDM_loc)
         elif isinstance (self.impham_TEI, np.ndarray):
             vj, vk = dot_eri_dm (self.impham_TEI, self.get_oneRDM_imp (), hermi=1)
-            fock = (self.ints.dmet_oei (self.loc2emb, self.norbs_imp) + (self.impham_OEI + vj - vk/2))/2
+            fock = (self.ints.dmet_oei (self.loc2emb, self.norbs_imp) + (self.impham_OEI_C + vj - vk/2))/2
             F_fi = np.dot (self.frag2imp, fock)
             G_fi = np.dot (self.frag2imp, self.get_oneRDM_imp ())
         else:
