@@ -71,8 +71,6 @@ class localintegrals:
             self.fullJK_ao = self.fullJK_ao[0] 
             # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
         self.fullFOCK_ao  = the_mf.get_hcore () + self.fullJK_ao
-        self.oneRDM_loc  = np.asarray (the_mf.make_rdm1 ())
-        if self.oneRDM_loc.ndim > 2: self.oneRDM_loc = self.oneRDM_loc[0] + self.oneRDM_loc[1]
         self.e_tot       = the_mf.e_tot
 
         # Active space information
@@ -319,12 +317,8 @@ class localintegrals:
         oneSDMcorr_loc = sum ((frag.oneSDMas_loc for frag in fragments))
         if np.all (np.isclose (oneRDMcorr_loc, 0)):
             print ("Null correlated 1-RDM; default settings for wm wvfn")
-            self.activeFOCK     = represent_operator_in_basis (self.fullFOCK_ao,  self.ao2loc )
-            self.activeJKidem   = self.activeFOCK - self.activeOEI
-            self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot))
             self.oneRDMcorr_loc = oneRDMcorr_loc
-            self.loc2idem       = np.eye (self.norbs_tot)
-            self.nelec_idem     = self.nelec_tot
+            self.oneSDMcorr_loc = oneSDMcorr_loc
             return
 
         loc2corr = np.concatenate ([frag.loc2amo for frag in fragments], axis=1)
@@ -362,10 +356,11 @@ class localintegrals:
         if is_close_to_integer (nelec_corr, 100*params.num_zero_atol) == False:
             raise ValueError ("nelec_corr not an integer! {}".format (nelec_corr))
         nelec_idem     = int (round (self.nelec_tot - nelec_corr))
+        if nelec_idem % 2: raise NotImplementedError ("Odd % of unactive electrons")
         JKcorr         = self.loc_rhf_jk_bis (oneRDMcorr_loc)
         oei            = self.activeOEI + JKcorr/2
-        vk             = self.loc_rhf_k_bis (oneSDMcorr_loc)/2
-        working_const  = self.activeCONST + (oei * oneRDMcorr_loc).sum () - (vk * oneSDMcorr_loc).sum ()/2 + E2_cum
+        vk             = -self.loc_rhf_k_bis (oneSDMcorr_loc)/2
+        working_const  = self.activeCONST + (oei * oneRDMcorr_loc).sum () + (vk * oneSDMcorr_loc).sum ()/2 + E2_cum
         oneRDMidem_loc = self.get_wm_1RDM_from_scf_on_OEI (self.loc_oei () + JKcorr, nelec=nelec_idem, loc2wrk=loc2idem, oneRDMguess_loc=oneRDMguess_loc,
             output = calcname + '_trial_wvfn.log', working_const=working_const)
         JKidem         = self.loc_rhf_jk_bis (oneRDMidem_loc)
@@ -379,8 +374,10 @@ class localintegrals:
         print (loc2idem.shape)
         dma_dmb = oneRDMidem_loc + oneRDMcorr_loc
         dma_dmb = [(dma_dmb + oneSDMcorr_loc)/2, (dma_dmb - oneSDMcorr_loc)/2]
-        focka_fockb = [JKcorr - vk, JKcorr + vk]
+        focka_fockb = [JKcorr + vk, JKcorr - vk]
         focka_fockb = [self.activeOEI + JKidem + JK for JK in focka_fockb]
+        oneRDM_loc  = oneRDMidem_loc + oneRDMcorr_loc
+        oneSDM_loc  = oneSDMcorr_loc
 
         ########################################################################################################        
         self.activeFOCK     = get_roothaan_fock (focka_fockb, dma_dmb, np.eye (self.norbs_tot))
@@ -389,22 +386,21 @@ class localintegrals:
         self.oneRDMcorr_loc = oneRDMcorr_loc
         self.loc2idem       = loc2idem
         self.nelec_idem     = nelec_idem
+        self.oneRDM_loc     = oneRDM_loc
+        self.oneSDM_loc     = oneSDM_loc
         ########################################################################################################
 
         # Analysis: 1RDM and total energy
         print ("Analyzing LASSCF trial wave function")
-        oneRDM = oneRDMidem_loc + oneRDMcorr_loc
-        oneSDM = oneSDMcorr_loc
-        oei = self.activeOEI + ((JKcorr + JKidem)/2)
-        vk = self.loc_rhf_k_bis (oneSDM)
-        fock = self.activeFOCK
-        E = self.activeCONST + (oei * oneRDM).sum () - (vk * oneSDM).sum ()/4 + E2_cum
+        jk = np.stack ([JKcorr + JKidem, -self.loc_rhf_k_bis (oneSDM_loc)/2], axis=0)
+        dm = np.stack ([oneRDM_loc, oneSDM_loc], axis=0)
+        E = self.activeCONST + (self.activeOEI * oneRDM_loc).sum () + (jk * dm).sum ()/2 + E2_cum
         print ("LASSCF trial wave function total energy: {:.6f}".format (E))
-        self.oneRDM_loc = oneRDM
         self.e_tot = E
 
         # Molden
-        ao2molden, ene_no, occ_no = self.get_trial_nos (aobasis=True, loc2wmas=loc2corr, oneRDM_loc=oneRDM, fock=fock, jmol_shift=True, try_symmetrize=True)
+        ao2molden, ene_no, occ_no = self.get_trial_nos (aobasis=True, loc2wmas=loc2corr, oneRDM_loc=oneRDM_loc,
+            fock=self.activeFOCK, jmol_shift=True, try_symmetrize=True)
         print ("Writing trial wave function molden")
         molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=occ_no, ene=ene_no)
 
@@ -413,6 +409,9 @@ class localintegrals:
         self.activeJKidem   = self.activeFOCK - self.activeOEI
         self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
         self.oneRDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
+        self.oneSDMcorr_loc = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
+        self.oneRDM_loc     = self.ao2loc.conjugate ().T @ self.ao_ovlp @ self.fullRDM_ao @ self.ao_ovlp @ self.ao2loc
+        self.oneSDM_loc     = self.ao2loc.conjugate ().T @ self.ao_ovlp @ self.fullSDM_ao @ self.ao_ovlp @ self.ao2loc
         self.loc2idem       = np.eye (self.norbs_tot, dtype=self.activeOEI.dtype)
         self.nelec_idem     = self.nelec_tot
 
