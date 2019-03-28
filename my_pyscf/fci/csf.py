@@ -31,7 +31,9 @@ def unpack_h1e_cs (h1e):
     h = np.asarray (h1e)
     if h.ndim == 3 and h.shape[0] == 2:
         return h1e[0], h1e[1]
-    return h1e, None
+    return h1e, np.zeros_like (h1e)
+
+unpack_1RDM_cs = unpack_h1e_cs
 
 def unpack_h1e_ab (h1e):
     h1e_c, h1e_s = unpack_h1e_cs (h1e)
@@ -39,6 +41,10 @@ def unpack_h1e_ab (h1e):
     h1e_a = h1e_c + h1e_s
     h1e_b = h1e_c - h1e_s
     return h1e_a, h1e_b
+
+def unpack_1RDM_ab (dm):
+    dma, dmb = unpack_h1e_ab (dm)
+    return dma/2, dmb/2
 
 def unpack_sym_ci (ci, idx, vec_on_cols=False):
     if idx is None: return ci

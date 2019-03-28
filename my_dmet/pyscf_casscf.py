@@ -105,6 +105,7 @@ def solve (frag, guess_1RDM, chempot_imp):
             mf.get_hcore = lambda *args: OEI
             mf.get_ovlp = lambda *args: np.eye(frag.norbs_imp)
             mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+            mf = fix_my_RHF_for_nonsinglet_env (mf, sign_MS * frag.impham_OEI_S)
             mf.scf (guess_1RDM)
             if not mf.converged:
                 mf = mf.newton ()
