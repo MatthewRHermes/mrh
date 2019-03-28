@@ -1093,7 +1093,7 @@ class dmet:
                     f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, old2new_amo)
                     # Assume all singly-occupied orbitals are alpha-spin
                     if nsomo > 0:
-                        f.oneRSMas_loc = project_operator_into_subspace (f.oneRDMas_loc, loc2somo)
+                        f.oneSDMas_loc = project_operator_into_subspace (f.oneRDMas_loc, loc2somo)
                         somo2amo = loc2somo.conjugate ().T @ f.loc2amo
                         f.twoCDMimp_amo += represent_operator_in_basis (twoCDM_somo, somo2amo)
                     f.ci_as = None

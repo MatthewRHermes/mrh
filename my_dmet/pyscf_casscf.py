@@ -287,9 +287,9 @@ def solve (frag, guess_1RDM, chempot_imp):
     # twoCDM
     oneRDM_amo, twoRDM_amo = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
     oneRDMs_amo = np.stack (mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas), axis=0)
-    oneRSM_amo = oneRDMs_amo[0] - oneRDMs_amo[1] if frag.target_MS >= 0 else oneRDMs_amo[1] - oneRDMs_amo[0]
-    oneRSM_imp = represent_operator_in_basis (oneRSM_amo, imp2amo.conjugate ().T)
-    print ("Norm of spin density: {}".format (linalg.norm (oneRSM_amo)))
+    oneSDM_amo = oneRDMs_amo[0] - oneRDMs_amo[1] if frag.target_MS >= 0 else oneRDMs_amo[1] - oneRDMs_amo[0]
+    oneSDM_imp = represent_operator_in_basis (oneSDM_amo, imp2amo.conjugate ().T)
+    print ("Norm of spin density: {}".format (linalg.norm (oneSDM_amo)))
     # Note that I do _not_ do the *real* cumulant decomposition; I do one assuming oneRDMs_amo_alpha = oneRDMs_amo_beta
     # This is fine as long as I keep it consistent, since it is only in the orbital gradients for this impurity that
     # the spin density matters. But it has to stay consistent!
@@ -304,12 +304,12 @@ def solve (frag, guess_1RDM, chempot_imp):
 
     # Active-space RDM data
     frag.oneRDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRDM_amo, loc2amo.conjugate ().T))
-    frag.oneRSMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneRSM_amo, loc2amo.conjugate ().T))
+    frag.oneSDMas_loc  = symmetrize_tensor (represent_operator_in_basis (oneSDM_amo, loc2amo.conjugate ().T))
     frag.twoCDMimp_amo = twoCDM_amo
     frag.loc2mo = loc2mo
     frag.loc2amo = loc2amo
     frag.E2_cum  = np.tensordot (ao2mo.restore (1, mc.get_h2eff (), mc.ncas), twoCDM_amo, axes=4) / 2
-    frag.E2_cum += (mf.get_k (dm=oneRSM_imp) * oneRSM_imp).sum () / 4
+    frag.E2_cum += (mf.get_k (dm=oneSDM_imp) * oneSDM_imp).sum () / 4
     # The second line compensates for my incorrect cumulant decomposition. Anything to avoid changing the checkpoint files...
 
     return None
@@ -406,7 +406,7 @@ def fix_my_CASSCF_for_nonsinglet_env (mc, h1e_s):
     of h1e_s - should be straightforward. '''
 
     mc = fix_ci_response_csf (mc)
-    if h1e_s is None: return mc
+    if h1e_s is None or np.all (np.abs (h1e_s) < 1e-8): return mc
     amo = mc.mo_coeff[:,mc.ncore:][:,:mc.ncas]
     amoH = amo.conjugate ().T
     # When setting the three outer-scope variables below, ALWAYS include indexes so that you 

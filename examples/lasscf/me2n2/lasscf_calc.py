@@ -85,6 +85,9 @@ N2 = make_fragment_atom_list (myInts, list (range(2)), 'CASSCF(4,4)', name="N2")
 Me1 = make_fragment_atom_list (myInts, list (range(2,6)), 'RHF', name='Me1')
 Me2 = make_fragment_atom_list (myInts, list (range(6,10)), 'RHF', name='Me2')
 N2.bath_tol = Me1.bath_tol = Me2.bath_tol = bath_tol
+N2.mol_output = my_kwargs['calcname'] + '_N2.log'
+Me1.mol_output = my_kwargs['calcname'] + '_Me1.log'
+Me2.mol_output = my_kwargs['calcname'] + '_Me2.log'
 fraglist = [N2, Me1, Me2] 
 
 # Load or generate active orbital guess 
