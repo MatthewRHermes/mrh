@@ -156,22 +156,22 @@ def get_mcpdft_child_class (mc, ot):
                     self.otfnal = ftransfnal (ks)
                 else:
                     raise NotImplementedError (('On-top pair-density exchange-correlation functional names other than '
-                        '"translated" or "fully-translated." Nonstandard functionals can be specified by passing '
+                        '"translated" (t) or "fully-translated" (ft). Nonstandard functionals can be specified by passing '
                         'an object of class otfnal in place of a string.'))
             else:
                 self.otfnal = my_ot
-            keys = set (('otfnal', 'e_ot'))
+            keys = set (('otfnal', 'e_ot', 'e_mcscf'))
             self._keys = set ((self.__dict__.keys ()))
             
         def kernel (self, **kwargs):
-            self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (**kwargs)
+            self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (**kwargs)
             if isinstance (self.e_tot, (float, np.number)):
                 self.e_tot, self.e_ot = kernel (self, self.otfnal)
             else:
                 epdft = [kernel (self, self.otfnal, root=ix) for ix in range (len (self.e_tot))]
                 self.e_tot = [e_tot for e_tot, e_ot in epdft]
                 self.e_ot = [e_ot for e_tot, e_ot in epdft]
-            return self.e_tot, self.e_cas, self.e_ot, self.ci, self.mo_coeff, self.mo_energy
+            return self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
 
         def dump_flags (self, verbose=None):
             super().dump_flags (verbose=verbose)
