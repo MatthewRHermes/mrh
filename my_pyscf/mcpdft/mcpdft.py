@@ -144,7 +144,7 @@ def get_mcpdft_child_class (mc, ot):
 
     class PDFT (mc.__class__):
 
-        def __init__(self, my_mc, my_ot):
+        def __init__(self, my_mc, my_ot, **kwargs):
             self.__dict__.update (my_mc.__dict__)
             if isinstance (my_ot, (str, np.string_)):
                 ks = dft.RKS (self.mol)
@@ -160,8 +160,12 @@ def get_mcpdft_child_class (mc, ot):
                         'an object of class otfnal in place of a string.'))
             else:
                 self.otfnal = my_ot
-            keys = set (('otfnal', 'e_ot', 'e_mcscf'))
-            self._keys = set ((self.__dict__.keys ()))
+            self.grids = self.otfnal.grids
+            if "grids_level" in kwargs:
+                self.grids.level = kwargs['grids_level']
+                assert (self.grids.level == self.otfnal.grids.level)
+            keys = set (('e_ot', 'e_mcscf'))
+            self._keys = set ((self.__dict__.keys ())).union (keys)
             
         def kernel (self, **kwargs):
             self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (**kwargs)
