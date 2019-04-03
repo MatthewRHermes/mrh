@@ -140,7 +140,7 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
 
     return E_ot
     
-def get_mcpdft_child_class (mc, ot):
+def get_mcpdft_child_class (mc, ot, **kwargs):
 
     class PDFT (mc.__class__):
 
@@ -182,7 +182,7 @@ def get_mcpdft_child_class (mc, ot):
             log = logger.new_logger(self, verbose)
             log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal)
 
-    return PDFT (mc, ot)
+    return PDFT (mc, ot, **kwargs)
 
 
 
