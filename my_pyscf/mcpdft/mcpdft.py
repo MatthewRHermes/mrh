@@ -180,7 +180,7 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
         def dump_flags (self, verbose=None):
             super().dump_flags (verbose=verbose)
             log = logger.new_logger(self, verbose)
-            log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal)
+            log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal.otxc)
 
     return PDFT (mc, ot, **kwargs)
 
