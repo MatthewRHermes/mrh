@@ -4,6 +4,7 @@ from scipy import linalg
 from pyscf import dft, ao2mo, fci, mcscf
 from pyscf.lib import logger
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
+from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 
 def kernel (mc, ot, root=-1):
@@ -139,4 +140,47 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
 
     return E_ot
     
+def get_mcpdft_child_class (mc, ot):
+
+    class PDFT (mc.__class__):
+
+        def __init__(self, my_mc, my_ot):
+            self.__dict__.update (my_mc.__dict__)
+            if isinstance (my_ot, (str, np.string_)):
+                ks = dft.RKS (self.mol)
+                if my_ot[:1].upper () == 'T':
+                    ks.xc = my_ot[1:]
+                    self.otfnal = transfnal (ks)
+                elif my_ot[:2].upper () == 'FT':
+                    ks.xc = my_ot[2:]
+                    self.otfnal = ftransfnal (ks)
+                else:
+                    raise NotImplementedError (('On-top pair-density exchange-correlation functional names other than '
+                        '"translated" or "fully-translated." Nonstandard functionals can be specified by passing '
+                        'an object of class otfnal in place of a string.'))
+            else:
+                self.otfnal = my_ot
+            keys = set (('otfnal', 'e_ot'))
+            self._keys = set ((self.__dict__.keys ()))
+            
+        def kernel (self, **kwargs):
+            self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (**kwargs)
+            if isinstance (self.e_tot, (float, np.number)):
+                self.e_tot, self.e_ot = kernel (self, self.otfnal)
+            else:
+                epdft = [kernel (self, self.otfnal, root=ix) for ix in range (len (self.e_tot))]
+                self.e_tot = [e_tot for e_tot, e_ot in epdft]
+                self.e_ot = [e_ot for e_tot, e_ot in epdft]
+            return self.e_tot, self.e_cas, self.e_ot, self.ci, self.mo_coeff, self.mo_energy
+
+        def dump_flags (self, verbose=None):
+            super().dump_flags (verbose=verbose)
+            log = logger.new_logger(self, verbose)
+            log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal)
+
+    return PDFT (mc, ot)
+
+
+
+
 
