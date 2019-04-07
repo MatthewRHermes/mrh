@@ -88,12 +88,18 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
     jkcaa = numpy.empty((nocc,ncas))
     # part2, part3
     vhf_a = numpy.empty((nmo,nmo))
+    vhf_ar = numpy.empty((nroot,nmo,nmo))
     # part1 ~ (J + 2K)
     casdm1, casdm2 = casscf.fcisolver.make_rdm12(ci0, ncas, nelecas, link_index=linkstr) # MRH: this should make the state-averaged density matrices
+    casdm1r = np.zeros ((nroot, ncas, ncas), dtype=casdm1.dtype)
+    casdm2r = np.zeros ((nroot, ncas, ncas, ncas, ncas), dtype=casdm2.dtype)
+    for iroot in range (nroot):
+        casdm1r[iroot], casdm2r[iroot] = fci.direct_spin1.make_rdm12 (ci0[iroot], ncas, nelecas, link_index=linkstr)
     dm2tmp = casdm2.transpose(1,2,0,3) + casdm2.transpose(0,2,1,3)
     dm2tmp = dm2tmp.reshape(ncas**2,-1)
     hdm2 = numpy.empty((nmo,ncas,nmo,ncas))
     g_dm2 = numpy.empty((nmo,ncas))
+    g_dm2r = numpy.empty((nmo,nroot,ncas))
     eri_cas = numpy.empty((ncas,ncas,ncas,ncas))
     for i in range(nmo):
         jbuf = eris.ppaa[i]
@@ -102,22 +108,33 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
             jkcaa[i] = numpy.einsum('ik,ik->i', 6*kbuf[:,i]-2*jbuf[i], casdm1)
         vhf_a[i] =(numpy.einsum('quv,uv->q', jbuf, casdm1)
                  - numpy.einsum('uqv,uv->q', kbuf, casdm1) * .5)
+        vhf_ar[:,i,:] =(numpy.einsum('quv,ruv->rq', jbuf, casdm1r)
+                 - numpy.einsum('uqv,ruv->rq', kbuf, casdm1r) * .5)
         jtmp = lib.dot(jbuf.reshape(nmo,-1), casdm2.reshape(ncas*ncas,-1))
+        jtmpr = np.tensordot (jbuf.reshape(nmo,-1), casdm2r.reshape (nroot, ncas*ncas,-1), axes=(1,1))
         jtmp = jtmp.reshape(nmo,ncas,ncas)
+        jtmpr = jtmpr.reshape(nmo,nroot,ncas,ncas)
         ktmp = lib.dot(kbuf.transpose(1,0,2).reshape(nmo,-1), dm2tmp)
         hdm2[i] = (ktmp.reshape(nmo,ncas,ncas)+jtmp).transpose(1,0,2)
         g_dm2[i] = numpy.einsum('uuv->v', jtmp[ncore:nocc])
+        g_dm2r[i] = numpy.einsum('uruv->rv', jtmpr[ncore:nocc])
         if ncore <= i < nocc:
             eri_cas[i-ncore] = jbuf[ncore:nocc]
+    g_dm2r = g_dm2r.transpose (1, 0, 2)
     jbuf = kbuf = jtmp = ktmp = dm2tmp = casdm2 = None
     vhf_ca = eris.vhf_c + vhf_a
+    vhf_car = eris.vhf_c[None,:,:] + vhf_ar
     h1e_mo = reduce(numpy.dot, (mo.T, casscf.get_hcore(), mo))
 
     ################# gradient #################
     gpq = numpy.zeros_like(h1e_mo)
+    gpqr = np.stack ([gpq.copy () for iroot in range (nroot)], axis=0)
     gpq[:,:ncore] = (h1e_mo[:,:ncore] + vhf_ca[:,:ncore]) * 2
+    gpqr[:,:,:ncore] = (h1e_mo[None,:,:ncore] + vhf_car[:,:,:ncore]) * 2
     gpq[:,ncore:nocc] = numpy.dot(h1e_mo[:,ncore:nocc]+eris.vhf_c[:,ncore:nocc],casdm1)
+    gpqr[:,:,ncore:nocc] = np.tensordot (h1e_mo[:,ncore:nocc]+eris.vhf_c[:,ncore:nocc],casdm1r,axes=(1,1)).transpose (1, 0, 2)
     gpq[:,ncore:nocc] += g_dm2
+    gpqr[:,:,ncore:nocc] += g_dm2r
 
     h1cas_0 = h1e_mo[ncore:nocc,ncore:nocc] + eris.vhf_c[ncore:nocc,ncore:nocc]
     h2cas_0 = casscf.fcisolver.absorb_h1e(h1cas_0, eri_cas, ncas, nelecas, .5)
@@ -263,9 +280,9 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
         # hc0, ci0, eci0, and ci1 should all have the right shape by now. hci1 needs to be explicitly broadcasted
         # Wait a second, isn't (hc0 - ci0*eci0) just gci?
         hci1 = np.ravel ([casscf.fcisolver.contract_2e(h2cas_0, ci1_i, ncas, nelecas, link_index=linkstrl) for ci1_i in ci1]).reshape (nroot, -1)
-        hci1 -= (ci1 * eci0).sum (1)[:,None]
+        hci1 -= ci1 * eci0
         #hci1 -= ((hc0-ci0*eci0)*ci0.dot(ci1) + ci0*(hc0-ci0*eci0).dot(ci1)) * 2
-        hci1 -= (gci * (ci0 * ci1).sum (1)[:,None] + ci0 * (gci * ci1).sum (1)[:,None]) * 2
+        hci1 -= (gci * ((ci0 * ci1).sum (1)[:,None]) + ci0 * ((gci * ci1).sum (1)[:,None])) * 2
 
         # H_co
         # MRH: the trickiest part. I need transition density matrices for EACH state, NOT the average
@@ -303,7 +320,7 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
         h1aa = h1aa + h1aa.T + jk
         h1c0 = fci_matvec(ci0, h1aa, aaaa)
         hci1 += h1c0
-        hci1 -= (ci0 * h1c0).sum (1)[:,None] * ci0 * weights_2d
+        hci1 -= (ci0 * h1c0).sum (1)[:,None] * ci0
         # MRH: I'm multiplying three-dimensional objects by weights from here on out
         tdm1 *= weights_3d
         tdm1 = tdm1.sum (0)
@@ -341,11 +358,11 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
 
         # H_oc
         # MRH: Minimal broadcasting: I should have state-averaged all the relevant stuff up above except for s10
-        s10 = (ci1 * ci0 * weights_2d).sum ()
-        x2[:,:ncore] += ((h1e_mo[:,:ncore]+eris.vhf_c[:,:ncore]) * s10 + vhf_a) * 2
+        s10 = (ci1 * ci0).sum (1) * weights_1d
+        x2[:,:ncore] += ((h1e_mo[:,:ncore]+eris.vhf_c[:,:ncore]) * (s10.sum ()) + vhf_a) * 2
         x2[:,ncore:nocc] += numpy.dot(h1e_mo[:,ncore:nocc]+eris.vhf_c[:,ncore:nocc], tdm1)
         x2[:,ncore:nocc] += g_dm2
-        x2 -= s10 * gpq 
+        x2 -= (s10[:,None,None] * gpqr).sum (0)
 
         # (pr<->qs)
         x2 = x2 - x2.T
@@ -353,7 +370,7 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
             hci1 = csf.pack_sym_ci (transform_civec_det2csf (hci1, ncas, neleca, nelecb, smult,
                 csd_mask=mc_fci.csd_mask, do_normalize=False)[0], idx_sym)
 
-        return numpy.hstack((casscf.pack_uniq_var(x2)*2, hci1.ravel ()*2))
+        return numpy.hstack((casscf.pack_uniq_var(x2)*2, (hci1 * weights_2d).ravel ()*2))
 
     # MRH: this messes with h_op unless I change the name for the hstack below
     gci_csf = gci
