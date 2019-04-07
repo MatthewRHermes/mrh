@@ -167,8 +167,7 @@ class SymAdaptedSACASSCF (mcscf.mc1step_symm.CASSCF, SACASSCF):
     def __init__(self, my_mc, my_weights):
         self.__dict__.update (my_mc.__dict__)
         self.make_FakeCISolver (self.fcisolver, my_weights)
-        self.fcisolver.weights = my_weights
-        self.fcisolver = fcisolver
+        self._keys = set (self.__dict__.keys ())
 
     _finalize = SACASSCF._finalize
 

@@ -68,7 +68,7 @@ def solve_approx_ci_csf (mc, h1, h2, ci0, ecore, e_cas, envs):
         neleca, nelecb = _unpack_nelec (nelecas)
         norb = np.asarray (h1).shape[-1]
         if hasattr (fci, 'wfnsym') and hasattr (fci, 'confsym'):
-            idx_sym = fci.confsym[self.econf_csf_mask] == fci.wfnsym
+            idx_sym = fci.confsym[fci.econf_csf_mask] == fci.wfnsym
         else:
             idx_sym = None
         xs = [csf.pack_sym_ci (transform_civec_det2csf (ci0, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask, do_normalize=True)[0], idx_sym)]

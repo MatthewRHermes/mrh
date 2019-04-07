@@ -40,6 +40,9 @@ from pyscf import fci
 # MRH: I keep writing "np" so I'll just set it here so I don't have to worry about it in either direction
 np = numpy
 from mrh.my_pyscf.mcscf import sacasscf
+from mrh.my_pyscf.fci import csf, csf_symm
+from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det
+from pyscf.fci.direct_spin1 import _unpack_nelec
 
 # gradients, hessian operator and hessian diagonal
 def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
@@ -48,12 +51,23 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
     ncore = casscf.ncore
     nocc = ncas + ncore
     nelecas = casscf.nelecas
+    neleca, nelecb = _unpack_nelec (nelecas)
+    smult = 1
     nmo = mo.shape[1]
     nroot = len (ci0)
     ndet = ci0[0].size
     weights_1d = np.asarray (casscf.weights) # To facilitate broadcasting
     weights_2d = np.asarray (casscf.weights)[:,None] 
     weights_3d = np.asarray (casscf.weights)[:,None,None] 
+    # MRH: accomodation for csf solver
+    mc_fci = casscf.fcisolver
+    is_csf = isinstance (mc_fci, (csf.FCISolver, csf_symm.FCISolver,))
+    if is_csf:
+        if hasattr (mc_fci, 'wfnsym') and hasattr (mc_fci, 'confsym'):
+            idx_sym = mc_fci.confsym[mc_fci.econf_csf_mask] == mc_fci.wfnsym
+        else:
+            idx_sym = None
+        smult = mc_fci.smult
     # MRH: contiguous in memory but two-dimensional
     ci0 = np.ravel (np.asarray (ci0)).reshape (nroot, -1)
 
@@ -171,6 +185,9 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
         p1aa += paa1.transpose(0,1,3,2)
         g[:,ncore:nocc] += numpy.einsum('puwx,wxuv->pv', p1aa, casdm2)
         g_orb = casscf.pack_uniq_var(g-g.T)
+        if is_csf:
+            my_gci = csf.pack_sym_ci (transform_civec_det2csf (my_gci, ncas, neleca, nelecb, smult,
+                csd_mask=mc_fci.csd_mask, do_normalize=False)[0], idx_sym)
         return numpy.hstack((g_orb*2, (my_gci * weights_2d).ravel ()*2))
 
     ############## hessian, diagonal ###########
@@ -226,16 +243,21 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
     hci_diag = -gci * ci0 * 4
     hci_diag += casscf.fcisolver.make_hdiag(h1cas_0, eri_cas, ncas, nelecas)[None,:]
     hci_diag -= eci0
-    hdiag_all = numpy.hstack((h_diag*2, hci_diag.ravel ()*2))
+    if is_csf:
+        hci_diag = csf.pack_sym_ci (transform_civec_det2csf (hci_diag, ncas, neleca, nelecb, smult,
+            csd_mask=mc_fci.csd_mask, do_normalize=False)[0], idx_sym)
+    hdiag_all = numpy.hstack((h_diag*2, (hci_diag * weights_2d).ravel ()*2))
 
     g_orb = casscf.pack_uniq_var(gpq-gpq.T)
-    g_all = numpy.hstack((g_orb*2, (gci * weights_2d).ravel ()*2))
     ngorb = g_orb.size
 
     def h_op(x):
         x1 = casscf.unpack_uniq_var(x[:ngorb])
         # MRH: contiguous in memory but two-dimensional. Does this function see nroot? It must because it sees ngorb
         ci1 = x[ngorb:].reshape (nroot, -1)
+        if is_csf:
+            ci1 = transform_civec_csf2det (csf.unpack_sym_ci (ci1, idx_sym), ncas, neleca, nelecb, smult,
+                csd_mask=mc_fci.csd_mask, do_normalize=False)[0]
 
         # H_cc
         # hc0, ci0, eci0, and ci1 should all have the right shape by now. hci1 needs to be explicitly broadcasted
@@ -327,7 +349,18 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
 
         # (pr<->qs)
         x2 = x2 - x2.T
+        if is_csf:
+            hci1 = csf.pack_sym_ci (transform_civec_det2csf (hci1, ncas, neleca, nelecb, smult,
+                csd_mask=mc_fci.csd_mask, do_normalize=False)[0], idx_sym)
+
         return numpy.hstack((casscf.pack_uniq_var(x2)*2, hci1.ravel ()*2))
+
+    # MRH: this messes with h_op unless I change the name for the hstack below
+    gci_csf = gci
+    if is_csf:
+        gci_csf = csf.pack_sym_ci (transform_civec_det2csf (gci, ncas, neleca, nelecb, smult,
+            csd_mask=mc_fci.csd_mask, do_normalize=False)[0], idx_sym)
+    g_all = numpy.hstack((g_orb*2, (gci_csf * weights_2d).ravel ()*2))
 
     return g_all, g_update, h_op, hdiag_all
 
@@ -335,9 +368,23 @@ def extract_rotation(casscf, dr, u, ci0):
     # MRH: I'm just gonna try to keep ci0 a 2d array while knowing that at any given moment it might not be
     nroot = len (ci0)
     ci0 = np.ravel (ci0).reshape (nroot, -1)
-    ngorb = dr.size - ci0.size
+    ncas, ncore = casscf.ncas, casscf.ncore
+    norb = u.shape[-1]
+    nocc = ncore + ncas
+    ngorb = np.count_nonzero (casscf.uniq_var_indices (norb, ncore, ncas, casscf.frozen))
     u = numpy.dot(u, casscf.update_rotate_matrix(dr[:ngorb]))
-    ci1 = ci0 + dr[ngorb:].reshape (nroot, -1)
+    dci = dr[ngorb:].reshape (nroot, -1)
+    if isinstance (casscf.fcisolver, (csf.FCISolver, csf_symm.FCISolver,)):
+        mc_fci = casscf.fcisolver
+        if hasattr (mc_fci, 'wfnsym') and hasattr (mc_fci, 'confsym'):
+            idx_sym = mc_fci.confsym[mc_fci.econf_csf_mask] == mc_fci.wfnsym
+        else:
+            idx_sym = None
+        smult = mc_fci.smult
+        neleca, nelecb = _unpack_nelec (casscf.nelecas)
+        dci = transform_civec_csf2det (csf.unpack_sym_ci (dci, idx_sym), ncas, neleca, nelecb, smult,
+            csd_mask=mc_fci.csd_mask, do_normalize=False)[0]
+    ci1 = ci0 + dci
     ci1 *=1./numpy.linalg.norm(ci1, axis=1)[:,None]
     return u, ci1
 
@@ -362,7 +409,19 @@ def update_orb_ci(casscf, mo, ci0, eris, x0_guess=None,
         if callable(h_diag):
             x = h_diag(x, e-casscf.ah_level_shift)
         else:
-            hdiagd = h_diag-(e-casscf.ah_level_shift)
+            # MRH: instead of a single "e" for all states, 
+            # try a different e for each block of the super-CI problem
+            hx = h_op (x)
+            xhx = x.conj () * hx
+            xx = x.conj () * x
+            my_e = np.empty_like (x)
+            my_e[:ngorb] = xhx[:ngorb].sum () / xx[:ngorb].sum ()
+            xhx = xhx[ngorb:].reshape (nroot, -1)
+            xx = xx[ngorb:].reshape (nroot, -1)
+            e_ci = np.empty_like (xhx) # MRH: sum and then copy the sum to all columns
+            e_ci[:,:] = (xhx.sum (1) / xx.sum (1))[:,None] 
+            my_e[ngorb:] = e_ci.ravel ()
+            hdiagd = h_diag-my_e+casscf.ah_level_shift
             hdiagd[abs(hdiagd)<1e-8] = 1e-8
             x = x/hdiagd
         x *= 1/numpy.linalg.norm(x)
