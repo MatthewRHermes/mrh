@@ -29,7 +29,7 @@ import numpy
 import scipy.linalg
 from pyscf import lib
 from pyscf.lib import logger
-from pyscf.mcscf import casci, mc1step
+from pyscf.mcscf import casci, mc1step, newton_casscf
 from pyscf.mcscf.casci import get_fock, cas_natorb, canonicalize
 from pyscf.mcscf import chkfile
 from pyscf import ao2mo
@@ -46,20 +46,19 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 
 # gradients, hessian operator and hessian diagonal
 def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
-# MRH: weights need to be accessible to this function
+# MRH: I'm just going to pass this to the newton_casscf version and average/weight/change to and from CSF's post facto!
     ncas = casscf.ncas
     ncore = casscf.ncore
     nocc = ncas + ncore
     nelecas = casscf.nelecas
     neleca, nelecb = _unpack_nelec (nelecas)
-    smult = 1
     nmo = mo.shape[1]
     nroot = len (ci0)
     ndet = ci0[0].size
-    weights_1d = np.asarray (casscf.weights) # To facilitate broadcasting
+    norb = mo.shape[-1]
+    ngorb = np.count_nonzero (casscf.uniq_var_indices (norb, ncore, ncas, casscf.frozen))
     weights_2d = np.asarray (casscf.weights)[:,None] 
     weights_3d = np.asarray (casscf.weights)[:,None,None] 
-    # MRH: accomodation for csf solver
     mc_fci = casscf.fcisolver
     is_csf = isinstance (mc_fci, (csf.FCISolver, csf_symm.FCISolver,))
     if is_csf:
@@ -68,316 +67,34 @@ def gen_g_hop(casscf, mo, ci0, eris, verbose=None):
         else:
             idx_sym = None
         smult = mc_fci.smult
-    # MRH: contiguous in memory but two-dimensional
-    ci0 = np.ravel (np.asarray (ci0)).reshape (nroot, -1)
 
-    if getattr(casscf.fcisolver, 'gen_linkstr', None):
-        linkstrl = casscf.fcisolver.gen_linkstr(ncas, nelecas, True)
-        linkstr  = casscf.fcisolver.gen_linkstr(ncas, nelecas, False)
-    else:
-        linkstrl = linkstr  = None
-    def fci_matvec(civec, h1, h2):
-        if civec.ndim == 1: civec=civec[None,:] # Edge case
-        # MRH: contract all ci vectors
-        h2cas = casscf.fcisolver.absorb_h1e(h1, h2, ncas, nelecas, .5)
-        # MRH: contiguous in memory but two-dimensional
-        hc = np.ravel ([casscf.fcisolver.contract_2e(h2cas, ci_i, ncas, nelecas, link_index=linkstrl) for ci_i in civec]).reshape (civec.shape[0], -1)
-        return hc
+    fcasscf = mc1step.CASSCF (casscf._scf, ncas, nelecas)
+    fcasscf.fcisolver = casscf.ss_fcisolver
+    gh_roots = [newton_casscf.gen_g_hop (fcasscf, mo, ci0_i, eris, verbose=verbose) for ci0_i in ci0]
 
-    # part5
-    jkcaa = numpy.empty((nocc,ncas))
-    # part2, part3
-    vhf_a = numpy.empty((nmo,nmo))
-    vhf_ar = numpy.empty((nroot,nmo,nmo))
-    # part1 ~ (J + 2K)
-    casdm1, casdm2 = casscf.fcisolver.make_rdm12(ci0, ncas, nelecas, link_index=linkstr) # MRH: this should make the state-averaged density matrices
-    casdm1r = np.zeros ((nroot, ncas, ncas), dtype=casdm1.dtype)
-    casdm2r = np.zeros ((nroot, ncas, ncas, ncas, ncas), dtype=casdm2.dtype)
-    for iroot in range (nroot):
-        casdm1r[iroot], casdm2r[iroot] = fci.direct_spin1.make_rdm12 (ci0[iroot], ncas, nelecas, link_index=linkstr)
-    dm2tmp = casdm2.transpose(1,2,0,3) + casdm2.transpose(0,2,1,3)
-    dm2tmp = dm2tmp.reshape(ncas**2,-1)
-    hdm2 = numpy.empty((nmo,ncas,nmo,ncas))
-    g_dm2 = numpy.empty((nmo,ncas))
-    g_dm2r = numpy.empty((nmo,nroot,ncas))
-    eri_cas = numpy.empty((ncas,ncas,ncas,ncas))
-    for i in range(nmo):
-        jbuf = eris.ppaa[i]
-        kbuf = eris.papa[i]
-        if i < nocc:
-            jkcaa[i] = numpy.einsum('ik,ik->i', 6*kbuf[:,i]-2*jbuf[i], casdm1)
-        vhf_a[i] =(numpy.einsum('quv,uv->q', jbuf, casdm1)
-                 - numpy.einsum('uqv,uv->q', kbuf, casdm1) * .5)
-        vhf_ar[:,i,:] =(numpy.einsum('quv,ruv->rq', jbuf, casdm1r)
-                 - numpy.einsum('uqv,ruv->rq', kbuf, casdm1r) * .5)
-        jtmp = lib.dot(jbuf.reshape(nmo,-1), casdm2.reshape(ncas*ncas,-1))
-        jtmpr = np.tensordot (jbuf.reshape(nmo,-1), casdm2r.reshape (nroot, ncas*ncas,-1), axes=(1,1))
-        jtmp = jtmp.reshape(nmo,ncas,ncas)
-        jtmpr = jtmpr.reshape(nmo,nroot,ncas,ncas)
-        ktmp = lib.dot(kbuf.transpose(1,0,2).reshape(nmo,-1), dm2tmp)
-        hdm2[i] = (ktmp.reshape(nmo,ncas,ncas)+jtmp).transpose(1,0,2)
-        g_dm2[i] = numpy.einsum('uuv->v', jtmp[ncore:nocc])
-        g_dm2r[i] = numpy.einsum('uruv->rv', jtmpr[ncore:nocc])
-        if ncore <= i < nocc:
-            eri_cas[i-ncore] = jbuf[ncore:nocc]
-    g_dm2r = g_dm2r.transpose (1, 0, 2)
-    jbuf = kbuf = jtmp = ktmp = dm2tmp = casdm2 = None
-    vhf_ca = eris.vhf_c + vhf_a
-    vhf_car = eris.vhf_c[None,:,:] + vhf_ar
-    h1e_mo = reduce(numpy.dot, (mo.T, casscf.get_hcore(), mo))
-
-    ################# gradient #################
-    gpq = numpy.zeros_like(h1e_mo)
-    gpqr = np.stack ([gpq.copy () for iroot in range (nroot)], axis=0)
-    gpq[:,:ncore] = (h1e_mo[:,:ncore] + vhf_ca[:,:ncore]) * 2
-    gpqr[:,:,:ncore] = (h1e_mo[None,:,:ncore] + vhf_car[:,:,:ncore]) * 2
-    gpq[:,ncore:nocc] = numpy.dot(h1e_mo[:,ncore:nocc]+eris.vhf_c[:,ncore:nocc],casdm1)
-    gpqr[:,:,ncore:nocc] = np.tensordot (h1e_mo[:,ncore:nocc]+eris.vhf_c[:,ncore:nocc],casdm1r,axes=(1,1)).transpose (1, 0, 2)
-    gpq[:,ncore:nocc] += g_dm2
-    gpqr[:,:,ncore:nocc] += g_dm2r
-
-    h1cas_0 = h1e_mo[ncore:nocc,ncore:nocc] + eris.vhf_c[ncore:nocc,ncore:nocc]
-    h2cas_0 = casscf.fcisolver.absorb_h1e(h1cas_0, eri_cas, ncas, nelecas, .5)
-    hc0 = np.ravel ([casscf.fcisolver.contract_2e(h2cas_0,
-        ci0_i, ncas, nelecas, link_index=linkstrl) for ci0_i in ci0]).reshape (nroot, -1)
-    # MRH: equivalent to np.diagonal (np.dot (ci0.T, hc0)) but faster. Explicit broadcasting for the rare case where ndet = nroot
-    eci0 = (hc0 * ci0).sum (1)[:,None]
-    gci = hc0 - ci0 * eci0
-    def g_update(u, fcivec):
-        # MRH: fcivec should be for all roots
-        fcivec = np.ravel (fcivec).reshape (nroot, -1)
-        uc = u[:,:ncore].copy()
-        ua = u[:,ncore:nocc].copy()
-        rmat = u - numpy.eye(nmo)
-        ra = rmat[:,ncore:nocc].copy()
-        mo1 = numpy.dot(mo, u)
-        mo_c = numpy.dot(mo, uc)
-        mo_a = numpy.dot(mo, ua)
-        dm_c = numpy.dot(mo_c, mo_c.T) * 2
-
-        # MRH: I **think** this is how the axis kwarg works. Again I should explicitly broadcast it for the ndet = nroot edge case
-        fcivec *= 1./numpy.linalg.norm(fcivec, axis=1)[:,None]
-        casdm1, casdm2 = casscf.fcisolver.make_rdm12(fcivec, ncas, nelecas, link_index=linkstr) # MRH: state-averaged density matrices
-        #casscf.with_dep4 = False
-        #casscf.ci_response_space = 3
-        #casscf.ci_grad_trust_region = 3
-        #casdm1, casdm2, gci, fcivec = casscf.update_casdm(mo, u, fcivec, 0, eris, locals())
-        dm_a = reduce(numpy.dot, (mo_a, casdm1, mo_a.T))
-        vj, vk = casscf.get_jk(casscf.mol, (dm_c, dm_a))
-        vhf_c = reduce(numpy.dot, (mo1.T, vj[0]-vk[0]*.5, mo1[:,:nocc]))
-        vhf_a = reduce(numpy.dot, (mo1.T, vj[1]-vk[1]*.5, mo1[:,:nocc]))
-        h1e_mo1 = reduce(numpy.dot, (u.T, h1e_mo, u[:,:nocc]))
-        p1aa = numpy.empty((nmo,ncas,ncas*ncas))
-        paa1 = numpy.empty((nmo,ncas*ncas,ncas))
-        aaaa = numpy.empty([ncas]*4)
-        for i in range(nmo):
-            jbuf = eris.ppaa[i]
-            kbuf = eris.papa[i]
-            p1aa[i] = lib.dot(ua.T, jbuf.reshape(nmo,-1))
-            paa1[i] = lib.dot(kbuf.transpose(0,2,1).reshape(-1,nmo), ra)
-            if ncore <= i < nocc:
-                aaaa[i-ncore] = jbuf[ncore:nocc]
-
-# active space Hamiltonian up to 2nd order
-        aa11 = lib.dot(ua.T, p1aa.reshape(nmo,-1)).reshape([ncas]*4)
-        aa11 = aa11 + aa11.transpose(2,3,0,1) - aaaa
-        a11a = lib.dot(ra.T, paa1.reshape(nmo,-1)).reshape((ncas,)*4)
-        a11a = a11a + a11a.transpose(1,0,2,3)
-        a11a = a11a + a11a.transpose(0,1,3,2)
-        eri_cas_2 = aa11 + a11a
-        h1cas_2 = h1e_mo1[ncore:nocc,ncore:nocc] + vhf_c[ncore:nocc,ncore:nocc]
-        # MRH: contiguous in memory but two-dimensional
-        fcivec = np.ravel (fcivec).reshape (nroot, -1) 
-        hc0 = fci_matvec(fcivec, h1cas_2, eri_cas_2)
-        # MRH: see eci0 line above. Changing name from "gci" to "my_gci" just to head off any possibility of name-shadowing causing a problem
-        my_gci = hc0 - fcivec * (fcivec * hc0).sum (1)[:,None] 
-
-        g = numpy.zeros_like(h1e_mo)
-        g[:,:ncore] = (h1e_mo1[:,:ncore] + vhf_c[:,:ncore] + vhf_a[:,:ncore]) * 2
-        g[:,ncore:nocc] = numpy.dot(h1e_mo1[:,ncore:nocc]+vhf_c[:,ncore:nocc], casdm1)
-# 0000 + 1000 + 0100 + 0010 + 0001 + 1100 + 1010 + 1001  (missing 0110 + 0101 + 0011)
-        p1aa = lib.dot(u.T, p1aa.reshape(nmo,-1)).reshape(nmo,ncas,ncas,ncas)
-        paa1 = lib.dot(u.T, paa1.reshape(nmo,-1)).reshape(nmo,ncas,ncas,ncas)
-        p1aa += paa1
-        p1aa += paa1.transpose(0,1,3,2)
-        g[:,ncore:nocc] += numpy.einsum('puwx,wxuv->pv', p1aa, casdm2)
-        g_orb = casscf.pack_uniq_var(g-g.T)
+    def avg_orb_wgt_ci (x_roots):
+        x_orb = sum ([x_iroot[:ngorb] * w for x_iroot, w in zip (x_roots, casscf.weights)])
+        x_ci = np.stack ([x_iroot[ngorb:] * w for x_iroot, w in zip (x_roots, casscf.weights)], axis=0)
         if is_csf:
-            my_gci = csf.pack_sym_ci (transform_civec_det2csf (my_gci, ncas, neleca, nelecb, smult,
+            x_ci = csf.pack_sym_ci (transform_civec_det2csf (x_ci, ncas, neleca, nelecb, smult,
                 csd_mask=mc_fci.csd_mask, do_normalize=False)[0], idx_sym)
-        return numpy.hstack((g_orb*2, (my_gci * weights_2d).ravel ()*2))
+        x_all = np.append (x_orb, x_ci.ravel ()).ravel ()
+        return x_all
 
-    ############## hessian, diagonal ###########
+    g_all = avg_orb_wgt_ci ([gh_iroot[0] for gh_iroot in gh_roots])
+    hdiag_all = avg_orb_wgt_ci ([gh_iroot[3] for gh_iroot in gh_roots])
 
-    # part7
-    dm1 = numpy.zeros((nmo,nmo))
-    idx = numpy.arange(ncore)
-    dm1[idx,idx] = 2
-    dm1[ncore:nocc,ncore:nocc] = casdm1
-    h_diag = numpy.einsum('ii,jj->ij', h1e_mo, dm1) - h1e_mo * dm1
-    h_diag = h_diag + h_diag.T
+    def g_update (u, fcivec):
+        return avg_orb_wgt_ci ([gh_iroot[1] (u, ci) for gh_iroot, ci in zip (gh_roots, fcivec)])
 
-    # part8
-    g_diag = gpq.diagonal()
-    h_diag -= g_diag + g_diag.reshape(-1,1)
-    idx = numpy.arange(nmo)
-    h_diag[idx,idx] += g_diag * 2
-
-    # part2, part3
-    v_diag = vhf_ca.diagonal() # (pr|kl) * E(sq,lk)
-    h_diag[:,:ncore] += v_diag.reshape(-1,1) * 2
-    h_diag[:ncore] += v_diag * 2
-    idx = numpy.arange(ncore)
-    h_diag[idx,idx] -= v_diag[:ncore] * 4
-    # V_{pr} E_{sq}
-    tmp = numpy.einsum('ii,jj->ij', eris.vhf_c, casdm1)
-    h_diag[:,ncore:nocc] += tmp
-    h_diag[ncore:nocc,:] += tmp.T
-    tmp = -eris.vhf_c[ncore:nocc,ncore:nocc] * casdm1
-    h_diag[ncore:nocc,ncore:nocc] += tmp + tmp.T
-
-    # part4
-    # -2(pr|sq) + 4(pq|sr) + 4(pq|rs) - 2(ps|rq)
-    tmp = 6 * eris.k_pc - 2 * eris.j_pc
-    h_diag[ncore:,:ncore] += tmp[ncore:]
-    h_diag[:ncore,ncore:] += tmp[ncore:].T
-
-    # part5 and part6 diag
-    # -(qr|kp) E_s^k  p in core, sk in active
-    h_diag[:nocc,ncore:nocc] -= jkcaa
-    h_diag[ncore:nocc,:nocc] -= jkcaa.T
-
-    v_diag = numpy.einsum('ijij->ij', hdm2)
-    h_diag[ncore:nocc,:] += v_diag.T
-    h_diag[:,ncore:nocc] += v_diag
-
-# Does this term contribute to internal rotation?
-#    h_diag[ncore:nocc,ncore:nocc] -= v_diag[:,ncore:nocc]*2
-    h_diag = casscf.pack_uniq_var(h_diag)
-
-    # MRH: explicit broadcasting of hci_diag is the opposite of broadcasting of eci0
-    # Therefore I should start with the last term, which has the correct dimensionality
-    hci_diag = -gci * ci0 * 4
-    hci_diag += casscf.fcisolver.make_hdiag(h1cas_0, eri_cas, ncas, nelecas)[None,:]
-    hci_diag -= eci0
-    if is_csf:
-        hci_diag = csf.pack_sym_ci (transform_civec_det2csf (hci_diag, ncas, neleca, nelecb, smult,
-            csd_mask=mc_fci.csd_mask, do_normalize=False)[0], idx_sym)
-    hdiag_all = numpy.hstack((h_diag*2, (hci_diag * weights_2d).ravel ()*2))
-
-    g_orb = casscf.pack_uniq_var(gpq-gpq.T)
-    ngorb = g_orb.size
-
-    def h_op(x):
-        x1 = casscf.unpack_uniq_var(x[:ngorb])
-        # MRH: contiguous in memory but two-dimensional. Does this function see nroot? It must because it sees ngorb
-        ci1 = x[ngorb:].reshape (nroot, -1)
+    def h_op (x):
+        x_orb = x[:ngorb]
+        x_ci = x[ngorb:].reshape (nroot, -1)
         if is_csf:
-            ci1 = transform_civec_csf2det (csf.unpack_sym_ci (ci1, idx_sym), ncas, neleca, nelecb, smult,
-                csd_mask=mc_fci.csd_mask, do_normalize=False)[0]
-
-        # H_cc
-        # hc0, ci0, eci0, and ci1 should all have the right shape by now. hci1 needs to be explicitly broadcasted
-        # Wait a second, isn't (hc0 - ci0*eci0) just gci?
-        hci1 = np.ravel ([casscf.fcisolver.contract_2e(h2cas_0, ci1_i, ncas, nelecas, link_index=linkstrl) for ci1_i in ci1]).reshape (nroot, -1)
-        hci1 -= ci1 * eci0
-        #hci1 -= ((hc0-ci0*eci0)*ci0.dot(ci1) + ci0*(hc0-ci0*eci0).dot(ci1)) * 2
-        hci1 -= (gci * ((ci0 * ci1).sum (1)[:,None]) + ci0 * ((gci * ci1).sum (1)[:,None])) * 2
-
-        # H_co
-        # MRH: the trickiest part. I need transition density matrices for EACH state, NOT the average
-        # MRH: as ugly as it is, I think an explicit for loop is the safest bet for this.
-        # MRH: g_dm2 and vhf_a are used in other parts!  
-        rc = x1[:,:ncore]
-        ra = x1[:,ncore:nocc]
-        ddm_c = numpy.zeros((nmo,nmo))
-        ddm_c[:,:ncore] = rc[:,:ncore] * 2
-        ddm_c[:ncore,:]+= rc[:,:ncore].T * 2
-        vhf_a = numpy.empty((nroot, nmo,ncore))
-        g_dm2 = numpy.empty((nroot, nmo,ncas))
-        tdm1 = numpy.empty((nroot, ncas, ncas))
-        tdm2 = numpy.empty((nroot, ncas, ncas, ncas, ncas))
-        for iroot, (ci1_i, ci0_i) in enumerate (zip (ci1, ci0)):
-            tdm1[iroot], tdm2[iroot] = casscf.fcisolver.trans_rdm12(ci1_i, ci0_i, ncas, nelecas, link_index=linkstr)
-        tdm1 = tdm1 + tdm1.transpose(0,2,1)
-        tdm2 = tdm2 + tdm2.transpose(0,2,1,4,3)
-        tdm2 =(tdm2 + tdm2.transpose(0,3,4,1,2)) * .5
-        paaa = numpy.empty((nmo,ncas,ncas,ncas))
-        jk = 0
-        for i in range(nmo):
-            jbuf = eris.ppaa[i]
-            kbuf = eris.papa[i]
-            paaa[i] = jbuf[ncore:nocc]
-            vhf_a[:,i,...] = numpy.einsum('quv,ruv->rq', jbuf[:ncore], tdm1)
-            vhf_a[:,i,...]-= numpy.einsum('uqv,ruv->rq', kbuf[:,:ncore], tdm1) * .5
-            jk += numpy.einsum('quv,q->uv', jbuf, ddm_c[i])
-            jk -= numpy.einsum('uqv,q->uv', kbuf, ddm_c[i]) * .5
-        g_dm2 = numpy.einsum('puwx,rwxuv->rpv', paaa, tdm2)
-        aaaa = numpy.dot(ra.T, paaa.reshape(nmo,-1)).reshape([ncas]*4)
-        aaaa = aaaa + aaaa.transpose(1,0,2,3)
-        aaaa = aaaa + aaaa.transpose(2,3,0,1)
-        h1aa = numpy.dot(h1e_mo[ncore:nocc]+eris.vhf_c[ncore:nocc], ra)
-        h1aa = h1aa + h1aa.T + jk
-        h1c0 = fci_matvec(ci0, h1aa, aaaa)
-        hci1 += h1c0
-        hci1 -= (ci0 * h1c0).sum (1)[:,None] * ci0
-        # MRH: I'm multiplying three-dimensional objects by weights from here on out
-        tdm1 *= weights_3d
-        tdm1 = tdm1.sum (0)
-        g_dm2 *= weights_3d
-        g_dm2 = g_dm2.sum (0)
-        vhf_a *= weights_3d
-        vhf_a = vhf_a.sum (0)
-
-        # H_oo
-        # part7
-        # (-h_{sp} R_{rs} gamma_{rq} - h_{rq} R_{pq} gamma_{sp})/2 + (pr<->qs)
-        x2 = reduce(lib.dot, (h1e_mo, x1, dm1))
-        # part8
-        # (g_{ps}\delta_{qr}R_rs + g_{qr}\delta_{ps}) * R_pq)/2 + (pr<->qs)
-        x2 -= numpy.dot((gpq+gpq.T), x1) * .5
-        # part2
-        # (-2Vhf_{sp}\delta_{qr}R_pq - 2Vhf_{qr}\delta_{sp}R_rs)/2 + (pr<->qs)
-        x2[:ncore] += reduce(numpy.dot, (x1[:ncore,ncore:], vhf_ca[ncore:])) * 2
-        # part3
-        # (-Vhf_{sp}gamma_{qr}R_{pq} - Vhf_{qr}gamma_{sp}R_{rs})/2 + (pr<->qs)
-        x2[ncore:nocc] += reduce(numpy.dot, (casdm1, x1[ncore:nocc], eris.vhf_c))
-        # part1
-        x2[:,ncore:nocc] += numpy.einsum('purv,rv->pu', hdm2, x1[:,ncore:nocc])
-
-        if ncore > 0:
-            # part4, part5, part6
-# Due to x1_rs [4(pq|sr) + 4(pq|rs) - 2(pr|sq) - 2(ps|rq)] for r>s p>q,
-#    == -x1_sr [4(pq|sr) + 4(pq|rs) - 2(pr|sq) - 2(ps|rq)] for r>s p>q,
-# x2[:,:ncore] += H * x1[:,:ncore] => (becuase x1=-x1.T) =>
-# x2[:,:ncore] += -H' * x1[:ncore] => (becuase x2-x2.T) =>
-# x2[:ncore] += H' * x1[:ncore]
-            va, vc = casscf.update_jk_in_ah(mo, x1, casdm1, eris)
-            x2[ncore:nocc] += va
-            x2[:ncore,ncore:] += vc
-
-        # H_oc
-        # MRH: Minimal broadcasting: I should have state-averaged all the relevant stuff up above except for s10
-        s10 = (ci1 * ci0).sum (1) * weights_1d
-        x2[:,:ncore] += ((h1e_mo[:,:ncore]+eris.vhf_c[:,:ncore]) * (s10.sum ()) + vhf_a) * 2
-        x2[:,ncore:nocc] += numpy.dot(h1e_mo[:,ncore:nocc]+eris.vhf_c[:,ncore:nocc], tdm1)
-        x2[:,ncore:nocc] += g_dm2
-        x2 -= (s10[:,None,None] * gpqr).sum (0)
-
-        # (pr<->qs)
-        x2 = x2 - x2.T
-        if is_csf:
-            hci1 = csf.pack_sym_ci (transform_civec_det2csf (hci1, ncas, neleca, nelecb, smult,
-                csd_mask=mc_fci.csd_mask, do_normalize=False)[0], idx_sym)
-
-        return numpy.hstack((casscf.pack_uniq_var(x2)*2, (hci1 * weights_2d).ravel ()*2))
-
-    # MRH: this messes with h_op unless I change the name for the hstack below
-    gci_csf = gci
-    if is_csf:
-        gci_csf = csf.pack_sym_ci (transform_civec_det2csf (gci, ncas, neleca, nelecb, smult,
-            csd_mask=mc_fci.csd_mask, do_normalize=False)[0], idx_sym)
-    g_all = numpy.hstack((g_orb*2, (gci_csf * weights_2d).ravel ()*2))
+            x_ci = transform_civec_csf2det (csf.unpack_sym_ci (x_ci, idx_sym), ncas,
+                neleca, nelecb, smult, csd_mask=mc_fci.csd_mask, do_normalize=False)[0]
+        return avg_orb_wgt_ci ([gh_iroot[2] (np.append (x_orb, x_ci_iroot))
+            for gh_iroot, x_ci_iroot in zip (gh_roots, x_ci)])
 
     return g_all, g_update, h_op, hdiag_all
 
@@ -426,19 +143,7 @@ def update_orb_ci(casscf, mo, ci0, eris, x0_guess=None,
         if callable(h_diag):
             x = h_diag(x, e-casscf.ah_level_shift)
         else:
-            # MRH: instead of a single "e" for all states, 
-            # try a different e for each block of the super-CI problem
-            hx = h_op (x)
-            xhx = x.conj () * hx
-            xx = x.conj () * x
-            my_e = np.empty_like (x)
-            my_e[:ngorb] = xhx[:ngorb].sum () / xx[:ngorb].sum ()
-            xhx = xhx[ngorb:].reshape (nroot, -1)
-            xx = xx[ngorb:].reshape (nroot, -1)
-            e_ci = np.empty_like (xhx) # MRH: sum and then copy the sum to all columns
-            e_ci[:,:] = (xhx.sum (1) / xx.sum (1))[:,None] 
-            my_e[ngorb:] = e_ci.ravel ()
-            hdiagd = h_diag-my_e+casscf.ah_level_shift
+            hdiagd = h_diag-(e+casscf.ah_level_shift)
             hdiagd[abs(hdiagd)<1e-8] = 1e-8
             x = x/hdiagd
         x *= 1/numpy.linalg.norm(x)
