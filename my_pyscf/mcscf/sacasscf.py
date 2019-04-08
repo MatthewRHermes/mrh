@@ -63,6 +63,7 @@ class SACASSCF(mcscf.mc1step.CASSCF):
     def __init__(self, my_mc, my_weights):
         self.__dict__.update (my_mc.__dict__)
         self.make_FakeCISolver (self.fcisolver, my_weights)
+        self.grad_nuc_iroot = 0
         self._keys = set (self.__dict__.keys ())
 
     def make_FakeCISolver (self, realsolver, weights):
@@ -77,7 +78,6 @@ class SACASSCF(mcscf.mc1step.CASSCF):
                 my_self.e_states = [None]
                 my_self.fcibase_class = fcibase_class
                 my_self.has_spin_square = has_spin_square
-                my_self._keys = set (my_self.__dict__)
             def kernel(my_self, h1, h2, norb, nelec, ci0=None, **kwargs):
                 # pass self to fcibase_class.kernel function because orbsym argument is stored in self
                 # but undefined in fcibase object
