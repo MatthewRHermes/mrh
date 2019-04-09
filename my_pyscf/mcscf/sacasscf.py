@@ -64,7 +64,8 @@ class SACASSCF(mcscf.mc1step.CASSCF):
         self.__dict__.update (my_mc.__dict__)
         self.make_FakeCISolver (self.fcisolver, my_weights)
         self.grad_nuc_iroot = 0
-        self._keys = set (self.__dict__.keys ())
+        keys = set (('ss_fcisolver','grad_nuc_iroot','make_FakeCISolver','weights'))
+        self._keys = self._keys.union (keys)
 
     def make_FakeCISolver (self, realsolver, weights):
         fcibase_class = realsolver.__class__
@@ -78,6 +79,8 @@ class SACASSCF(mcscf.mc1step.CASSCF):
                 my_self.e_states = [None]
                 my_self.fcibase_class = fcibase_class
                 my_self.has_spin_square = has_spin_square
+                keys = set (('has_spin_square', 'fcibase_class', 'e_states', 'weights'))
+                my_self._keys = my_self._keys.union (keys)
             def kernel(my_self, h1, h2, norb, nelec, ci0=None, **kwargs):
                 # pass self to fcibase_class.kernel function because orbsym argument is stored in self
                 # but undefined in fcibase object
@@ -168,6 +171,9 @@ class SymAdaptedSACASSCF (mcscf.mc1step_symm.CASSCF, SACASSCF):
         self.__dict__.update (my_mc.__dict__)
         self.make_FakeCISolver (self.fcisolver, my_weights)
         self._keys = set (self.__dict__.keys ())
+        self.grad_nuc_iroot = 0
+        keys = set (('ss_fcisolver','grad_nuc_iroot','make_FakeCISolver','weights'))
+        self._keys = self._keys.union (keys)
 
     _finalize = SACASSCF._finalize
 

@@ -5,6 +5,16 @@ from pyscf.grad import casscf as casscf_grad
 import numpy as np
 import copy
 
+def Lorb_dot_dgorb_dx (Lorb, casscf, mo, casdm1, casdm2):
+    ''' Dot product of orb part of Lvec with dgorb/dx to give orb-rotation Lagrange
+        correction for SACASSCF nuclear gradients. dgorb/dx is mc1step.gen_g_hop,
+        but with *TOTAL* derivatives in place of eris.vhf_c, eris.ppaa, and 
+        eris.papa. Total derivatives means basis-set parts included. Dot product
+        with orb part of Lvec to give orb-rotation Lagrange correction for
+        SACASSCF nuclear gradients.
+    '''
+
+
 class Gradients (lagrange.Gradients):
 
     def __init__(self, mc):
@@ -96,15 +106,19 @@ class Gradients (lagrange.Gradients):
         Lci = Lvec[self.ngorb:].reshape (self.nroots, -1)
         ci = np.ravel (ci).reshape (self.nroots, -1)
 
-        # CI part
+        # CI part: nuclear gradient with a fake density matrix
         Lcasdm1 = np.zeros ((self.nroots, ncas, ncas))
         Lcasdm2 = np.zeros ((self.nroots, ncas, ncas, ncas, ncas))
         for ir in range (self.nroots):
             Lcasdm1[ir], Lcasdm2[ir] = self.base.fcisolver.trans_rdm12 (Lci[ir], ci[ir], ncas, nelecas, link_index=linkstr)
         Lcasdm1 = (Lcasdm1 * self.weights[:,None,None]).sum (0)
         Lcasdm2 = (Lcasdm2 * self.weights[:,None,None,None,None]).sum (0)
+        fcasscf = copy.copy (self.base)
+        fcasscf.fcisolver = fci.solver (self.mol)
+        fcasscf.make_rdm12 = lambda *args, **kwargs: Lcasdm1, Lcasdm2
+        de_Lci = casscf_grad.kernel (fcasscf, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
 
-        # Orb part
+        # Orb part: Lorb . dg_orb/dx
         casdm1, casdm2 = self.base.fcisolver.make_rdm12 (ci, ncas, nelecas, link_index=linkstr)
         Lcasdm1 += Lorb @ casdm1 - casdm1 @ Lorb
         Lcasdm2 += np.tensordot (Lorb, casdm2, axes=1) - np.tensordot (casdm2, Lorb, axes=1)
@@ -113,12 +127,8 @@ class Gradients (lagrange.Gradients):
         #Lcasdm2 -= np.einsum ('ipkl,pj->ijkl', casdm2, Lorb)
         Lcasdm2 -= np.tensordot (casdm2, Lorb, axes=(1,0)).transpose (0,3,1,2)
 
-        fcasscf = copy.copy (self.base)
-        fcasscf.fcisolver = fci.solver (self.mol)
-        fcasscf.make_rdm12 = lambda *args, **kwargs: Lcasdm1, Lcasdm2
 
-        return casscf_grad.kernel (fcasscf, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
-        
+        return casscf_grad.kernel         
     
 
 
