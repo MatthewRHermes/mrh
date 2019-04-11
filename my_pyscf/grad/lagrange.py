@@ -3,7 +3,8 @@ from pyscf import lib, __config__
 from pyscf.grad import rhf as rhf_grad
 from pyscf.soscf import ciah
 import numpy as np
-from scipy import linalg
+from scipy import linalg, optimize
+from scipy.sparse import linalg as sparse_linalg
 
 default_level_shift = getattr(__config__, 'mcscf_mc1step_CASSCF_ah_level_shift', 1e-8)
 default_conv_tol = getattr (__config__, 'mcscf_mc1step_CASSCF_ah_conv_tol', 1e-12)
@@ -60,14 +61,14 @@ class Gradients (lib.StreamObject):
         self.max_cycle = default_max_cycle
         self.lindep = default_lindep
 
-    def get_lagrange_precond (self, Ldiag, level_shift=None):
+    def get_lagrange_precond (self, rvec, Ldiag, Lop, level_shift=None):
         ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Ldiag-shift) '''
         if level_shift is None: level_shift = self.level_shift
-        def my_precond (x, e):
-            Ldiagd = Ldiag - (e * level_shift)
+        def my_precond (x):
+            e = (x * (rvec + Lop (x))).sum () 
+            Ldiagd = Ldiag - e + level_shift
             Ldiagd[abs(Ldiagd)<1e-8] = 1e-8
             x /= Ldiagd
-            x /= linalg.norm (x)
             return x
         return my_precond
 
@@ -76,26 +77,25 @@ class Gradients (lib.StreamObject):
     def solve_lagrange (self, Lvec_guess=None, **kwargs):
         rvec = self.get_wfn_response ()
         Lop, Ldiag = self.get_Lop_Ldiag ()
-        precond = self.get_lagrange_precond (Ldiag, level_shift=self.level_shift)
-        rvec_op = lambda *args: rvec
-        log = lib.logger.new_logger (self, self.verbose)
-        if Lvec_guess is None: Lvec_guess = rvec
-        for conv, ihop, eig, Lvec, _, residual, seig \
-                in ciah.davidson_cc(Lop, rvec_op, precond, Lvec_guess,
-                                tol=self.conv_tol, max_cycle=self.max_cycle,
-                                lindep=self.lindep, verbose=log):
-            norm_geff = linalg.norm (rvec + Lop (Lvec))
-            norm_Lvec = linalg.norm (Lvec)
-            log.debug('    iter %d  |rvec+LdotJ|=%3.2e |Lvec|=%3.2e eig=%2.1e seig=%2.1e',
-                      ihop, norm_geff, norm_Lvec, eig, seig)
-            if conv or ihop >= self.max_cycle:
-                break
-        if conv:
-            log.info ('Lagrange multipliers converged to %8.4e after %d iterations', self.conv_tol, ihop)
-        else:
-            log.info ('Lagrange multiplier determination failed to converge to %8.4e after '
-                '%d iterations (residual norm: %8.4e; Lvec norm: %8.4e)', self.conv_tol, ihop, norm_geff, norm_Lvec)
-        return conv, Lvec
+        precond = self.get_lagrange_precond (rvec, Ldiag, Lop, level_shift=self.level_shift)
+        it = np.asarray ([0])
+        lib.logger.debug (self, 'Lagrange multiplier determination intial gradient norm: {}'.format (linalg.norm (rvec)))
+        Lvec_last = np.zeros_like (rvec)
+        def my_geff (x):
+            return rvec + Lop (x)
+        def my_obj (x):
+            return (x.conj () * my_geff (x)).sum ()
+        def my_call (x):
+            it[0] += 1
+            lib.logger.debug (self, 'Lagrange optimization iteration {}, e = {}, |geff| = {}, |dLvec| = {}'.format (it[0],
+                my_obj (x), linalg.norm (my_geff (x)), linalg.norm (x - Lvec_last))) 
+            Lvec_last[:] = x[:]
+        OptRes = optimize.minimize (my_obj, precond (rvec), jac=my_geff, hessp=lambda x1, x2: Lop(x2), callback=my_call, method='Newton-CG')
+        Lvec = OptRes.x
+        conv = OptRes.success
+        lib.logger.info (self, 'Lagrange multiplier determination {} after {} iterations\n   obj = {}, |geff| = {}, |Lvec| = {}'.format (
+            ('not converged','converged')[conv], OptRes.it, OptRes.fun, linalg.norm (OptRes.jac), linalg.norm (OptRes.x))) 
+        return conv, OptRes.x
                     
     def kernel (self, **kwargs):
         cput0 = (time.clock(), time.time())
