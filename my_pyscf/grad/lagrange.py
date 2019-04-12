@@ -7,7 +7,7 @@ from scipy import linalg
 
 default_level_shift = getattr(__config__, 'mcscf_mc1step_CASSCF_ah_level_shift', 1e-8)
 default_conv_tol = getattr (__config__, 'mcscf_mc1step_CASSCF_ah_conv_tol', 1e-12)
-default_max_cycle = getattr (__config__, 'mcscf_mc1step_CASSCF_max_cycle', 50)
+default_max_cycle = getattr (__config__, 'mcscf_mc1step_CASSCF_max_cycle', 50) * 3
 default_lindep = getattr (__config__, 'mcscf_mc1step_CASSCF_lindep', 1e-14)
 
 class Gradients (lib.StreamObject):
@@ -60,42 +60,47 @@ class Gradients (lib.StreamObject):
         self.max_cycle = default_max_cycle
         self.lindep = default_lindep
 
-    def get_lagrange_precond (self, Ldiag, level_shift=None):
-        ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Ldiag-shift) '''
+    def get_lagrange_precond (self, rvec, Ldiag, Lop, geff_op, level_shift=None, **kwargs):
+        ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Ldiag-shift). Note
+        that Lagrange multipliers MUST NOT BE NORMALIZED! '''
         if level_shift is None: level_shift = self.level_shift
         def my_precond (x, e):
             Ldiagd = Ldiag - (e * level_shift)
             Ldiagd[abs(Ldiagd)<1e-8] = 1e-8
-            x /= Ldiagd
-            x /= linalg.norm (x)
-            return x
+            return x/Ldiag
         return my_precond
+
+    def debug_lagrange (self, Lvec, rvec, Lop, Ldiag, **kwargs):
+        lib.logger.debug (self, "{} gradient Lagrange factor debugging not enabled".format (self.base.__class__.__name__))
+        pass
 
     ################################## Child classes SHOULD NOT overwrite the methods below ###########################################
 
     def solve_lagrange (self, Lvec_guess=None, **kwargs):
-        rvec = self.get_wfn_response ()
-        Lop, Ldiag = self.get_Lop_Ldiag ()
-        precond = self.get_lagrange_precond (Ldiag, level_shift=self.level_shift)
-        rvec_op = lambda *args: rvec
+        rvec = self.get_wfn_response (**kwargs)
+        Lop, Ldiag = self.get_Lop_Ldiag (**kwargs)
+        geff = rvec.copy ()
+        geff_op = lambda *args: geff
+        precond = self.get_lagrange_precond (geff, Ldiag, Lop, geff_op, level_shift=self.level_shift, **kwargs)
         log = lib.logger.new_logger (self, self.verbose)
-        if Lvec_guess is None: Lvec_guess = rvec
-        for conv, ihop, eig, Lvec, _, residual, seig \
-                in ciah.davidson_cc(Lop, rvec_op, precond, Lvec_guess,
+        if Lvec_guess is None: Lvec_guess = geff
+        Lvec = 0
+        for conv, ihop, eig, dLvec, dgeff, residual, seig \
+                in ciah.davidson_cc(Lop, geff_op, precond, Lvec_guess,
                                 tol=self.conv_tol, max_cycle=self.max_cycle,
                                 lindep=self.lindep, verbose=log):
-            norm_geff = linalg.norm (rvec + Lop (Lvec))
-            norm_Lvec = linalg.norm (Lvec)
-            log.debug('    iter %d  |rvec+LdotJ|=%3.2e |Lvec|=%3.2e eig=%2.1e seig=%2.1e',
-                      ihop, norm_geff, norm_Lvec, eig, seig)
+            Lvec += dLvec
+            geff += dgeff
+            log.debug('    iter %d  |geff|=%3.2e |dLvec|=%3.2e eig=%2.1e seig=%2.1e',
+                      ihop, linalg.norm (geff), linalg.norm (dLvec), eig, seig)
             if conv or ihop >= self.max_cycle:
                 break
         if conv:
             log.info ('Lagrange multipliers converged to %8.4e after %d iterations', self.conv_tol, ihop)
         else:
             log.info ('Lagrange multiplier determination failed to converge to %8.4e after '
-                '%d iterations (residual norm: %8.4e; Lvec norm: %8.4e)', self.conv_tol, ihop, norm_geff, norm_Lvec)
-        return conv, Lvec
+                '%d iterations (residual norm: %8.4e; Lvec norm: %8.4e)', self.conv_tol, ihop, linalg.norm (geff), linalg.norm (Lvec))
+        return conv, Lvec, rvec, Lop, Ldiag
                     
     def kernel (self, **kwargs):
         cput0 = (time.clock(), time.time())
@@ -109,8 +114,8 @@ class Gradients (lib.StreamObject):
         if self.verbose >= lib.logger.INFO:
             self.dump_flags()
 
-        conv, Lvec = self.solve_lagrange (**kwargs)
-        self.debug_lagrange (Lvec)
+        conv, Lvec, rvec, Lop, Ldiag = self.solve_lagrange (**kwargs)
+        self.debug_lagrange (Lvec, rvec, Lop, Ldiag, **kwargs)
         assert (conv), 'Lagrange convergence failure'
 
         ham_response = self.get_ham_response (**kwargs)
@@ -148,6 +153,4 @@ class Gradients (lib.StreamObject):
             rhf_grad._write(self, self.mol, self.de, self.atmlst)
             lib.logger.note(self, '----------------------------------------------')
 
-    def debug_lagrange (self, Lvec):
-        lib.logger.debug (self, "{} gradient Lagrange factor debugging not enabled".format (self.base.__class__.__name__))
 
