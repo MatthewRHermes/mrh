@@ -129,8 +129,6 @@ class Gradients (lib.StreamObject):
         conv, Lvec, rvec, Lop, Ldiag = self.solve_lagrange (**kwargs)
         self.debug_lagrange (Lvec, rvec, Lop, Ldiag, **kwargs)
 
-        assert (conv), 'Lagrange convergence failure'
-
         ham_response = self.get_ham_response (**kwargs)
         lib.logger.info(self, '--------------- %s gradient Hamiltonian response ---------------',
                     self.base.__class__.__name__)
