@@ -20,20 +20,6 @@ from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf,
     with some SOMOs outside of the active space or LASSCF with multiple nonsinglet fragments, not UHF-CASSCF).
 '''
 
-def make_confsym (norb, neleca, nelecb, econf_det_mask, orbsym):
-    strsa = cistring.gen_strings4orblist(range(norb), neleca)
-    airreps = birreps = _gen_strs_irrep(strsa, orbsym)
-    if neleca != nelecb:
-        strsb = cistring.gen_strings4orblist(range(norb), nelecb)
-        birreps = _gen_strs_irrep(strsb, orbsym)
-    nconf, addr = np.unique (econf_det_mask, return_index=True)
-    nconf = nconf.size
-    # Note: econf_det_mask[addr] = np.arange (nconf)
-    # All determinants of the same configuration have the same point group
-    conf_addra = addr // len (birreps)
-    conf_addrb = addr % len (birreps)
-    confsym = airreps[conf_addra] ^ birreps[conf_addrb]
-    return confsym
 
 class FCISolver (direct_spin1_symm.FCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
