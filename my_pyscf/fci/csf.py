@@ -10,7 +10,7 @@ from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, get_n
 from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det
 from mrh.my_pyscf.fci.csfstring import transform_opmat_det2csf, transform_opmat_det2csf_pspace
 from mrh.my_pyscf.fci.csfstring import count_all_csfs, make_econf_csf_mask, get_spin_evecs
-from mrh.my_pyscf.fci.csfstring import get_csfvec_shape
+from mrh.my_pyscf.fci.csfstring import get_csfvec_shape, pack_sym_ci, unpack_sym_ci
 from mrh.lib.helper import load_library as mrh_load_library
 '''
     MRH 03/24/2019
@@ -46,57 +46,6 @@ def unpack_1RDM_ab (dm):
     dma, dmb = unpack_h1e_ab (dm)
     return dma/2, dmb/2
 
-def unpack_sym_ci (ci, idx, vec_on_cols=False):
-    if idx is None: return ci
-    tot_len = idx.size
-    sym_len = np.count_nonzero (idx)
-    if isinstance (ci, list) or isinstance (ci, tuple):
-        assert (ci[0].size == sym_len), '{} {}'.format (ci[0].size, sym_len)
-        dummy = np.zeros ((len (ci), tot_len), dtype=ci[0].dtype)
-        dummy[:,idx] = np.asarray (ci)[:,:]
-        if isinstance (ci, list):
-            ci = list (dummy)
-        else:
-            ci = tuple (dummy)
-        return ci
-    elif ci.ndim == 2:
-        if vec_on_cols:
-                ci = ci.T
-        assert (ci.shape[1] == sym_len), '{} {}'.format (ci.shape, sym_len)
-        dummy = np.zeros ((ci.shape[0], tot_len), dtype=ci.dtype)
-        dummy[:,idx] = ci
-        if vec_on_cols:
-            dummy = dummy.T
-        return dummy
-    else:
-        assert (ci.ndim == 1), ci.ndim
-        dummy = np.zeros (tot_len, dtype=ci.dtype)
-        dummy[idx] = ci
-        return dummy
-
-def pack_sym_ci (ci, idx, vec_on_cols=False):
-    if idx is None: return ci
-    tot_len = idx.size
-    sym_len = np.count_nonzero (idx)
-    if isinstance (ci, list) or isinstance (ci, tuple):
-        assert (ci[0].size == tot_len), '{} {}'.format (ci[0].size, tot_len)
-        dummy = np.asarray (ci)[:,idx]
-        if isinstance (ci, list):
-            ci = list (dummy)
-        else:
-            ci = tuple (dummy)
-        return ci
-    elif ci.ndim == 2:
-        if vec_on_cols:
-            ci = ci.T
-        assert (ci.shape[1] == tot_len), '{} {}'.format (ci.shape, tot_len)
-        dummy = ci[:,idx]
-        if vec_on_cols:
-            dummy = dummy.T
-        return dummy
-    else:
-        assert (ci.ndim == 1)
-        return ci[idx]
 
 def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=None, idx_sym=None):
     ''' The existing _get_init_guess function will work in the csf basis if I pass it with na, nb = ncsf, 1. This might change in future PySCF versions though. 
