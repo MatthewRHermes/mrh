@@ -65,7 +65,7 @@ class Gradients (lib.StreamObject):
         pass
 
     def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
-        def my_call (x):
+        def my_call (x, e):
             itvec[0] += 1
             lib.logger.debug (self, 'Lagrange optimization iteration {}, |geff| = {}, |dLvec| = {}'.format (itvec[0],
                 linalg.norm (geff_op (x)), linalg.norm (x - Lvec_last))) 
@@ -75,7 +75,7 @@ class Gradients (lib.StreamObject):
     def get_lagrange_precond (self, bvec, Adiag, Aop, Lvec_op=None, geff_op=None, level_shift=None):
         ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Adiag-shift) '''
         if level_shift is None: level_shift = self.level_shift
-        def my_precond (x):
+        def my_precond (x, e):
             e = (x * (bvec + Aop (x))).sum () 
             Adiagd = Adiag - e + level_shift
             Adiagd[abs(Adiagd)<1e-8] = 1e-8
@@ -89,12 +89,14 @@ class Gradients (lib.StreamObject):
     def solve_lagrange (self, Lvec_guess=None, **kwargs):
         bvec = self.get_wfn_response (**kwargs)
         Aop, Adiag = self.get_Aop_Adiag (**kwargs)
+        Lvec = np.zeros_like (bvec)
+        def Lvec_op ():
+            return Lvec
         geff = bvec.copy ()
         geff_op = lambda *args: geff
-        precond = self.get_lagrange_precond (geff, Adiag, Aop, geff_op, level_shift=self.level_shift, **kwargs)
+        precond = self.get_lagrange_precond (geff, Adiag, Aop, Lvec_op=Lvec_op, geff_op=geff_op, level_shift=self.level_shift, **kwargs)
         log = lib.logger.new_logger (self, self.verbose)
         if Lvec_guess is None: Lvec_guess = geff
-        Lvec = 0
         for conv, ihop, eig, dLvec, dgeff, residual, seig \
                 in ciah.davidson_cc(Aop, geff_op, precond, Lvec_guess,
                                 tol=self.conv_tol, max_cycle=self.max_cycle,

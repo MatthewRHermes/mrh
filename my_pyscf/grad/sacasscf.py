@@ -582,7 +582,7 @@ class Gradients (lagrange.Gradients):
         for iroot in range (self.nroots):
             Rci_fix[iroot] = Rci_cross[iroot] @ linalg.inv (Sci[iroot]) 
 
-        def my_precond (x):
+        def my_precond (x, e):
             # Orb part
             xorb = x[:self.ngorb]
             xorb = Rorb * xorb
