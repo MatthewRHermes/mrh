@@ -61,16 +61,6 @@ class Gradients (lib.StreamObject):
         self.max_cycle = default_max_cycle
         self.lindep = default_lindep
 
-    def get_lagrange_precond (self, bvec, Adiag, Aop, geff_op, level_shift=None, **kwargs):
-        ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Adiag-shift). Note
-        that Lagrange multipliers MUST NOT BE NORMALIZED! '''
-        if level_shift is None: level_shift = self.level_shift
-        def my_precond (x, e):
-            Adiagd = Adiag - (e * level_shift)
-            Adiagd[abs(Adiagd)<1e-8] = 1e-8
-            return x/Adiag
-        return my_precond
- 
     def debug_lagrange (self, Lvec, bvec, Aop, Adiag, **kwargs):
         lib.logger.debug (self, "{} gradient Lagrange factor debugging not enabled".format (self.base.__class__.__name__))
         pass
