@@ -1,8 +1,11 @@
 from mrh.my_pyscf.grad import lagrange
+from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from pyscf.grad.mp2 import _shell_prange
 from pyscf.mcscf import mc1step, mc1step_symm, newton_casscf
 from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import rhf as rhf_grad
+from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.fci.spin_op import spin_square0
 from pyscf import lib, ao2mo
 import numpy as np
 import copy
@@ -82,8 +85,8 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     dm_core = np.dot(mo_core, mo_core.T) * 2
     dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
     # MRH: new density matrix terms
-    dmL_core = np.dot(moL_core, mo_core.T)
-    dmL_cas = reduce(np.dot, (moL_cas, casdm1, mo_cas.T))/2
+    dmL_core = np.dot(moL_core, mo_core.T) * 2
+    dmL_cas = reduce(np.dot, (moL_cas, casdm1, mo_cas.T))
     dmL_core += dmL_core.T
     dmL_cas += dmL_cas.T
     dm1 = dm_core + dm_cas
@@ -91,11 +94,14 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     # MRH: end new density matrix terms
     # MRH: wrap the integral instead of the density matrix. I THINK the sign is the same!
     # mo sets 0 and 2 should be transposed, 1 and 3 should be not transposed; this will lead to correct sign
-    aapa  = ao2mo.kernel(mol, (moL_cas, mo_cas, mo_coeff, mo_cas), compact=False)
-    aapa += ao2mo.kernel(mol, (mo_cas, moL_cas, mo_coeff, mo_cas), compact=False)
-    aapa += ao2mo.kernel(mol, (mo_cas, mo_cas, moL_coeff, mo_cas), compact=False)
-    aapa += ao2mo.kernel(mol, (mo_cas, mo_cas, mo_coeff, moL_cas), compact=False)
-    aapa = aapa.reshape(ncas,ncas,nmo,ncas)
+    # Except I can't do this for the external index, because the external index is contracted to ovlp matrix,
+    # not the 2RDM
+    aapaL  = ao2mo.kernel(mol, (moL_cas, mo_cas, mo_coeff, mo_cas), compact=False)
+    aapaL += ao2mo.kernel(mol, (mo_cas, moL_cas, mo_coeff, mo_cas), compact=False) 
+    aapaL += ao2mo.kernel(mol, (mo_cas, mo_cas, mo_coeff, moL_cas), compact=False) 
+    aapaL  = aapaL.reshape(ncas,ncas,nmo,ncas) 
+    aapa = ao2mo.kernel(mol, (mo_cas, mo_cas, mo_coeff, mo_cas), compact=False) 
+    aapa = aapa.reshape(ncas,ncas,nmo,ncas) 
     # MRH: new vhf terms
     vj, vk   = mc._scf.get_jk(mol, (dm_core,  dm_cas))
     vjL, vkL = mc._scf.get_jk(mol, (dmL_core, dmL_cas))
@@ -110,7 +116,9 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     gfock += (vhfL_c + vhfL_a) @ dm_core # core-core and active-core, 1st 1RDM linked
     gfock += vhfL_c @ dm_cas # core-active, 1st 1RDM linked
     gfock += vhf_c @ dmL_cas # core-active, 2nd 1RDM linked
-    gfock += mo_coeff @ np.einsum('uviw,vuwt->it', aapa, casdm2) @ mo_cas.T # active-active
+    gfock += mo_coeff @ np.einsum('uviw,vuwt->it', aapaL, casdm2) @ mo_cas.T # active-active
+    # MRH: I have to contract this external 2RDM index explicitly on the 2RDM but fortunately I can do so here
+    gfock += mo_coeff @ np.einsum('uviw,vuwt->it', aapa, casdm2) @ moL_cas.T 
     dme0 = (gfock+gfock.T)*.5
     aapa = vj = vk = vhf_c = vhf_a = h1 = gfock = None
 
@@ -121,13 +129,13 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     diag_idx = np.arange(nao)
     diag_idx = diag_idx * (diag_idx+1) // 2 + diag_idx
     casdm2_cc = casdm2 + casdm2.transpose(0,1,3,2)
-    dm2buf = ao2mo._ao2mo.nr_e2(casdm2.reshape(ncas**2,ncas**2), mo_cas.T,
+    dm2buf = ao2mo._ao2mo.nr_e2(casdm2_cc.reshape(ncas**2,ncas**2), mo_cas.T,
                                 (0, nao, 0, nao)).reshape(ncas**2,nao,nao)
     # MRH: contract the final two indices of the active-active 2RDM with L as you change to AOs
     # note tensordot always puts indices in the order of the arguments.
     dm2Lbuf = np.zeros ((ncas**2,nmo,nmo))
-    dm2Lbuf[:,:,ncore:nocc] = np.tensordot (Lorb[:,ncore:nocc], casdm2_cc, axes=(1,2)).transpose (1,2,0,3).reshape (ncas**2,nmo,ncas)
-    dm2Lbuf[:,ncore:nocc,:] = -np.tensordot (casdm2_cc, Lorb[ncore:nocc,:], axes=1).reshape (ncas**2,ncas,nmo)
+    dm2Lbuf[:,:,ncore:nocc] = np.tensordot (Lorb[:,ncore:nocc], casdm2, axes=(1,2)).transpose (1,2,0,3).reshape (ncas**2,nmo,ncas)
+    dm2Lbuf += dm2Lbuf.transpose (0,2,1)
     dm2Lbuf = np.ascontiguousarray (dm2Lbuf)
     dm2Lbuf = ao2mo._ao2mo.nr_e2(dm2Lbuf.reshape (ncas**2,nmo**2), mo_coeff.T,
                                 (0, nao, 0, nao)).reshape(ncas**2,nao,nao)
@@ -142,6 +150,9 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     if atmlst is None:
         atmlst = list (range(mol.natm))
     aoslices = mol.aoslice_by_atom()
+    de_hcore = np.zeros((len(atmlst),3))
+    de_renorm = np.zeros((len(atmlst),3))
+    de_eri = np.zeros((len(atmlst),3))
     de = np.zeros((len(atmlst),3))
 
     max_memory = mc.max_memory - lib.current_memory()[0]
@@ -152,8 +163,8 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
         shl0, shl1, p0, p1 = aoslices[ia]
         h1ao = hcore_deriv(ia)
         # MRH: h1e and Feff terms
-        de[k] += np.einsum('xij,ij->x', h1ao, dm1L)
-        de[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
+        de_hcore[k] += np.einsum('xij,ij->x', h1ao, dm1L)
+        de_renorm[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
 
         q1 = 0
         for b0, b1, nf in _shell_prange(mol, 0, mol.nbas, blksize):
@@ -161,21 +172,26 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
             dm2_ao  = lib.einsum('ijw,pi,qj->pqw', dm2Lbuf, mo_cas[p0:p1], mo_cas[q0:q1])
             # MRH: now contract the first two indices of the active-active 2RDM with L as you go from MOs to AOs
             dm2_ao += lib.einsum('ijw,pi,qj->pqw', dm2buf, moL_cas[p0:p1], mo_cas[q0:q1])
-            dm2_ao += lib.einsum('ijw,pi,qj->pqw', dm2buf, mo_cas[p0:p1], moL_cas[q0:q1])
+            dm2_ao -= lib.einsum('ijw,pi,qj->pqw', dm2buf, mo_cas[p0:p1], moL_cas[q0:q1])
             shls_slice = (shl0,shl1,b0,b1,0,mol.nbas,0,mol.nbas)
             eri1 = mol.intor('int2e_ip1', comp=3, aosym='s2kl',
                              shls_slice=shls_slice).reshape(3,p1-p0,nf,nao_pair)
             # MRH: I still don't understand why there is a minus here!
-            de[k] -= np.einsum('xijw,ijw->x', eri1, dm2_ao) * 2
+            de_eri[k] -= np.einsum('xijw,ijw->x', eri1, dm2_ao) * 2
             eri1 = None
         # MRH: core-core and core-active 2RDM terms
-        de[k] += np.einsum('xij,ij->x', vhf1c[:,p0:p1], dm1L[p0:p1]) * 2
-        de[k] += np.einsum('xij,ij->x', vhf1cL[:,p0:p1], dm1[p0:p1]) * 2
+        de_eri[k] += np.einsum('xij,ij->x', vhf1c[:,p0:p1], dm1L[p0:p1]) * 2
+        de_eri[k] += np.einsum('xij,ij->x', vhf1cL[:,p0:p1], dm1[p0:p1]) * 2
         # MRH: active-core 2RDM terms
-        de[k] += np.einsum('xij,ij->x', vhf1a[:,p0:p1], dmL_core[p0:p1]) * 2
-        de[k] += np.einsum('xij,ij->x', vhf1aL[:,p0:p1], dm_core[p0:p1]) * 2
+        de_eri[k] += np.einsum('xij,ij->x', vhf1a[:,p0:p1], dmL_core[p0:p1]) * 2
+        de_eri[k] += np.einsum('xij,ij->x', vhf1aL[:,p0:p1], dm_core[p0:p1]) * 2
 
     # MRH: deleted the nuclear-nuclear part to avoid double-counting
+
+    print ("Orb lagrange hcore component:\n{}".format (de_hcore))
+    print ("Orb lagrange renorm component:\n{}".format (de_renorm))
+    print ("Orb lagrange eri component:\n{}".format (de_eri))
+    de = de_hcore + de_renorm + de_eri
 
     return de
 
@@ -185,8 +201,7 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     This involves removing all core-core and nuclear-nuclear terms and making the substitution
     sum_I w_I<L_I|p'q|I> + c.c. -> <0|p'q|0>
     sum_I w_I<L_I|p'r'sq|I> + c.c. -> <0|p'r'sq|0>
-    The active-core terms (sum_I w_I<L_I|x'iyi|I>, sum_I w_I <L_I|x'iiy|I>, c.c.) must be retained.
-    For simplicity the Lci should be weight-summed already on entry. '''
+    The active-core terms (sum_I w_I<L_I|x'iyi|I>, sum_I w_I <L_I|x'iiy|I>, c.c.) must be retained.'''
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
@@ -220,17 +235,19 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
 # gfock = Generalized Fock, Adv. Chem. Phys., 69, 63
     dm_core = np.dot(mo_core, mo_core.T) * 2
     dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
-    aapa = ao2mo.kernel(mol, (mo_cas, mo_cas, mo_occ, mo_cas), compact=False)
-    aapa = aapa.reshape(ncas,ncas,nocc,ncas)
+    aapa = ao2mo.kernel(mol, (mo_cas, mo_cas, mo_coeff, mo_cas), compact=False)
+    aapa = aapa.reshape(ncas,ncas,nmo,ncas)
     vj, vk = mc._scf.get_jk(mol, (dm_core, dm_cas))
     h1 = mc.get_hcore()
     vhf_c = vj[0] - vk[0] * .5
     vhf_a = vj[1] - vk[1] * .5
     # MRH: delete h1 + vhf_c from the first line below (core and core-core stuff)
-    gfock = reduce(np.dot, (mo_occ.T, vhf_a, mo_occ)) * 2
-    gfock[:,ncore:nocc] = reduce(np.dot, (mo_occ.T, h1 + vhf_c, mo_cas, casdm1))
-    gfock[:,ncore:nocc] += np.einsum('uviw,vuwt->it', aapa, casdm2)
-    dme0 = reduce(np.dot, (mo_occ, (gfock+gfock.T)*.5, mo_occ.T))
+    # Also extend gfock to span the whole space
+    gfock = np.zeros_like (dm_cas)
+    gfock[:nocc,:nocc]   = reduce(np.dot, (mo_occ.T, vhf_a, mo_occ)) * 2
+    gfock[:,ncore:nocc]  = reduce(np.dot, (mo_coeff.T, h1 + vhf_c, mo_cas, casdm1))
+    gfock[:,ncore:nocc] += np.einsum('uvpw,vuwt->pt', aapa, casdm2)
+    dme0 = reduce(np.dot, (mo_coeff, (gfock+gfock.T)*.5, mo_coeff.T))
     aapa = vj = vk = vhf_c = vhf_a = h1 = gfock = None
 
     vhf1c, vhf1a = mf_grad.get_veff(mol, (dm_core, dm_cas))
@@ -250,6 +267,9 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     if atmlst is None:
         atmlst = range(mol.natm)
     aoslices = mol.aoslice_by_atom()
+    de_hcore = np.zeros((len(atmlst),3))
+    de_renorm = np.zeros((len(atmlst),3))
+    de_eri = np.zeros((len(atmlst),3))
     de = np.zeros((len(atmlst),3))
 
     max_memory = mc.max_memory - lib.current_memory()[0]
@@ -260,8 +280,8 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
         shl0, shl1, p0, p1 = aoslices[ia]
         h1ao = hcore_deriv(ia)
         # MRH: dm1 -> dm_cas in the line below
-        de[k] += np.einsum('xij,ij->x', h1ao, dm_cas)
-        de[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
+        de_hcore[k] += np.einsum('xij,ij->x', h1ao, dm_cas)
+        de_renorm[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
 
         q1 = 0
         for b0, b1, nf in _shell_prange(mol, 0, mol.nbas, blksize):
@@ -270,12 +290,16 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
             shls_slice = (shl0,shl1,b0,b1,0,mol.nbas,0,mol.nbas)
             eri1 = mol.intor('int2e_ip1', comp=3, aosym='s2kl',
                              shls_slice=shls_slice).reshape(3,p1-p0,nf,nao_pair)
-            de[k] -= np.einsum('xijw,ijw->x', eri1, dm2_ao) * 2
+            de_eri[k] -= np.einsum('xijw,ijw->x', eri1, dm2_ao) * 2
             eri1 = None
-        # MRH: dm1 -> dm_cas in the line below
-        de[k] += np.einsum('xij,ij->x', vhf1c[:,p0:p1], dm_cas[p0:p1]) * 2
-        de[k] += np.einsum('xij,ij->x', vhf1a[:,p0:p1], dm_core[p0:p1]) * 2
+        # MRH: dm1 -> dm_cas in the line below. Also eliminate core-core terms
+        de_eri[k] += np.einsum('xij,ij->x', vhf1c[:,p0:p1], dm_cas[p0:p1]) * 2
+        de_eri[k] += np.einsum('xij,ij->x', vhf1a[:,p0:p1], dm_core[p0:p1]) * 2
 
+    print ("CI lagrange hcore component:\n{}".format (de_hcore))
+    print ("CI lagrange renorm component:\n{}".format (de_renorm))
+    print ("CI lagrange eri component:\n{}".format (de_eri))
+    de = de_hcore + de_renorm + de_eri
     return de
 
 
@@ -345,7 +369,7 @@ class Gradients (lagrange.Gradients):
         g_all[self.ngorb:][ndet*iroot:][:ndet] = g_all_iroot[self.ngorb:]
         return g_all
 
-    def get_Lop_Ldiag (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, eris=None, **kwargs):
+    def get_Aop_Adiag (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, eris=None, **kwargs):
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
@@ -354,20 +378,23 @@ class Gradients (lagrange.Gradients):
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
             eris = self.eris
-        Lop, Ldiag = newton_casscf.gen_g_hop (self.base, mo, ci, eris, verbose)[2:]
-        return Lop, Ldiag
+        Aop, Adiag = newton_casscf.gen_g_hop (self.base, mo, ci, eris, verbose)[2:]
+        return Aop, Adiag
 
     def get_ham_response (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
         if iroot is None: iroot = self.iroot
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci[iroot]
+        if ci is None: ci = self.base.ci
         if eris is None and self.eris is None:
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
             eris = self.eris
-        return casscf_grad.kernel (self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
+        fcasscf = self.make_fcasscf ()
+        fcasscf.mo_coeff = mo
+        fcasscf.ci = ci[iroot]
+        return casscf_grad.kernel (fcasscf, mo_coeff=mo, ci=ci[iroot], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
 
     def get_LdotJnuc (self, Lvec, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
         if iroot is None: iroot = self.iroot
@@ -408,7 +435,7 @@ class Gradients (lagrange.Gradients):
 
         return de_Lci + de_Lorb
     
-    def debug_lagrange (self, Lvec, rvec, Lop, Ldiag, iroot=None, mo=None, ci=None, **kwargs):
+    def debug_lagrange (self, Lvec, bvec, Aop, Adiag, iroot=None, mo=None, ci=None, **kwargs):
         if iroot is None: iroot = self.iroot
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
@@ -419,61 +446,129 @@ class Gradients (lagrange.Gradients):
         ndet = nci // nroots
         ncore = self.base.ncore
         ncas = self.base.ncas
+        nelecas = self.base.nelecas
         nocc = ncore + ncas
-        rorb = self.base.unpack_uniq_var (rvec[:ngorb])
+        nlag = self.nlag
+        ci = np.asarray (self.base.ci).reshape (nroots, -1)
+        err = Aop (Lvec) + bvec
+        eorb = self.base.unpack_uniq_var (err[:ngorb])
+        eci = err[ngorb:].reshape (nroots, -1)
+        borb = self.base.unpack_uniq_var (bvec[:ngorb])
+        bci = bvec[ngorb:].reshape (nroots, -1)
         Lorb = self.base.unpack_uniq_var (Lvec[:ngorb])
         Lci = Lvec[ngorb:].reshape (nroots, ndet)
-        Lci_ci_ovlp = np.asarray (ci).reshape (nroots,-1) @ Lci.conjugate ().T
-        Lci_Lci_ovlp = Lci @ Lci.conjugate ().T
+        Lci_ci_ovlp = np.asarray (ci).reshape (nroots,-1).conjugate () @ Lci.T
+        Lci_Lci_ovlp = Lci.conjugate () @ Lci.T
+        ci_ci_ovlp = ci.conjugate () @ ci.T
         lib.logger.debug (self, "{} gradient RHS, inactive-active orbital rotations:\n{}".format (
-            self.base.__class__.__name__, rorb[:ncore,ncore:nocc]))
+            self.base.__class__.__name__, borb[:ncore,ncore:nocc]))
         lib.logger.debug (self, "{} gradient RHS, inactive-external orbital rotations:\n{}".format (
-            self.base.__class__.__name__, rorb[:ncore,nocc:]))
+            self.base.__class__.__name__, borb[:ncore,nocc:]))
         lib.logger.debug (self, "{} gradient RHS, active-external orbital rotations:\n{}".format (
-            self.base.__class__.__name__, rorb[ncore:nocc,nocc:]))
+            self.base.__class__.__name__, borb[ncore:nocc,nocc:]))
+        lib.logger.debug (self, "{} gradient residual, inactive-active orbital rotations:\n{}".format (
+            self.base.__class__.__name__, eorb[:ncore,ncore:nocc]))
+        lib.logger.debug (self, "{} gradient residual, inactive-external orbital rotations:\n{}".format (
+            self.base.__class__.__name__, eorb[:ncore,nocc:]))
+        lib.logger.debug (self, "{} gradient residual, active-external orbital rotations:\n{}".format (
+            self.base.__class__.__name__, eorb[ncore:nocc,nocc:]))
         lib.logger.debug (self, "{} gradient Lagrange factor, inactive-active orbital rotations:\n{}".format (
             self.base.__class__.__name__, Lorb[:ncore,ncore:nocc]))
         lib.logger.debug (self, "{} gradient Lagrange factor, inactive-external orbital rotations:\n{}".format (
             self.base.__class__.__name__, Lorb[:ncore,nocc:]))
         lib.logger.debug (self, "{} gradient Lagrange factor, active-external orbital rotations:\n{}".format (
             self.base.__class__.__name__, Lorb[ncore:nocc,nocc:]))
+        '''
         lib.logger.debug (self, "{} gradient RHS, inactive-inactive orbital rotations (redundant!):\n{}".format (
-            self.base.__class__.__name__, rorb[:ncore,:ncore]))
+            self.base.__class__.__name__, borb[:ncore,:ncore]))
         lib.logger.debug (self, "{} gradient RHS, active-active orbital rotations (redundant!):\n{}".format (
-            self.base.__class__.__name__, rorb[ncore:nocc,ncore:nocc]))
+            self.base.__class__.__name__, borb[ncore:nocc,ncore:nocc]))
         lib.logger.debug (self, "{} gradient RHS, external-external orbital rotations (redundant!):\n{}".format (
-            self.base.__class__.__name__, rorb[nocc:,nocc:]))
+            self.base.__class__.__name__, borb[nocc:,nocc:]))
         lib.logger.debug (self, "{} gradient Lagrange factor, inactive-inactive orbital rotations (redundant!):\n{}".format (
             self.base.__class__.__name__, Lorb[:ncore,:ncore]))
         lib.logger.debug (self, "{} gradient Lagrange factor, active-active orbital rotations (redundant!):\n{}".format (
             self.base.__class__.__name__, Lorb[ncore:nocc,ncore:nocc]))
         lib.logger.debug (self, "{} gradient Lagrange factor, external-external orbital rotations (redundant!):\n{}".format (
             self.base.__class__.__name__, Lorb[nocc:,nocc:]))
+        '''
         lib.logger.debug (self, "{} gradient Lagrange factor, CI part overlap with true CI SA space:\n{}".format ( 
             self.base.__class__.__name__, Lci_ci_ovlp))
         lib.logger.debug (self, "{} gradient Lagrange factor, CI part self overlap matrix:\n{}".format ( 
             self.base.__class__.__name__, Lci_Lci_ovlp))
+        lib.logger.debug (self, "{} gradient Lagrange factor, CI vector self overlap matrix:\n{}".format ( 
+            self.base.__class__.__name__, ci_ci_ovlp))
+        neleca, nelecb = _unpack_nelec (nelecas)
+        spin = neleca - nelecb + 1
+        csf = CSFTransformer (ncas, neleca, nelecb, spin)
+        ecsf = csf.vec_det2csf (eci, normalize=False, order='C')
+        err_norm_det = linalg.norm (err)
+        err_norm_csf = linalg.norm (np.append (eorb, ecsf.ravel ()))
+        lib.logger.debug (self, "{} gradient: determinant residual = {}, CSF residual = {}".format (
+            self.base.__class__.__name__, err_norm_det, err_norm_csf))
+        bci_lbls, bci_csf = csf.printable_largest_csf (bci, 10, isdet=True, normalize=False, order='C')
+        eci_lbls, eci_csf = csf.printable_largest_csf (eci, 10, isdet=True, normalize=False, order='C')
+        Lci_lbls, Lci_csf = csf.printable_largest_csf (Lci, 10, isdet=True, normalize=False, order='C')
+        ncsf = bci_csf.shape[1]
+        for iroot in range (self.nroots):
+            lib.logger.debug (self, "{} gradient Lagrange factor, CI part root {} spin square: {}".format (
+                self.base.__class__.__name__, iroot, spin_square0 (Lci[iroot], ncas, nelecas)))
+            lib.logger.debug (self, "CI gradient:")
+            for icsf in range (ncsf):
+                lib.logger.debug (self, '{} {}'.format (bci_lbls[iroot,icsf], bci_csf[iroot,icsf]))
+            lib.logger.debug (self, "CI residual:")
+            for icsf in range (ncsf):
+                lib.logger.debug (self, '{} {}'.format (eci_lbls[iroot,icsf], eci_csf[iroot,icsf]))
+            lib.logger.debug (self, "CI Lagrange vector:")
+            for icsf in range (ncsf):
+                lib.logger.debug (self, '{} {}'.format (Lci_lbls[iroot,icsf], Lci_csf[iroot,icsf]))
+        Afull = np.zeros ((nlag, nlag))
+        dum = np.zeros ((nlag))
+        for ix in range (nlag):
+            dum[ix] = 1
+            Afull[ix,:] = Aop (dum)
+            dum[ix] = 0
+        Afull_orborb = Afull[:ngorb,:ngorb]
+        Afull_orbci = Afull[:ngorb,ngorb:].reshape (ngorb, nroots, ndet)
+        Afull_ciorb = Afull[ngorb:,:ngorb].reshape (nroots, ndet, ngorb)
+        Afull_cici = Afull[ngorb:,ngorb:].reshape (nroots, ndet, nroots, ndet).transpose (0, 2, 1, 3)
+        print ("Orb-orb Hessian:\n{}".format (Afull_orborb))
+        for iroot in range (nroots):
+            print ("Orb-ci Hessian root {}:\n{}".format (iroot, Afull_orbci[:,iroot,:]))
+            print ("Ci-orb Hessian root {}:\n{}".format (iroot, Afull_ciorb[iroot,:,:]))
+            for jroot in range (nroots):
+                print ("Ci-ci Hessian roots {},{}:\n{}".format (iroot, jroot, Afull_cici[iroot,jroot,:,:]))
 
 
-
-    def get_lagrange_precond (self, rvec, Ldiag, Lop, geff_op, level_shift=None, ci=None, **kwargs):
+    def get_lagrange_precond (self, bvec, Adiag, Aop, Lvec_op=None, geff_op=None, level_shift=None, ci=None, **kwargs):
         ''' The preconditioner needs to keep the various CI roots orthogonal to the whole SA space.
         If I understand correctly, for root I of the CI problem the preconditioner should be
         R_I * (1 - |J> S(I)_JK^-1 <K|R_I)
         where R_I = (Hdiag-E)^-1
         I,J, and K are true CI vectors (not the x Lagrange cofactor guesses)
-        and S(I)_JK = <J|R_I|K> which must be inverted. '''
+        and S(I)_JK = <J|R_I|K> which must be inverted. The x that gets passed is the 
+        change to the vector; I need to add the last-iteration guess in order to keep the
+        CI guesses orthogonal'''
         if level_shift is None: level_shift = self.level_shift
         if ci is None: ci = self.base.ci
         ci = np.asarray (ci).reshape (self.nroots, -1)
-        Lorb = Ldiag[:self.ngorb]
-        Lci = Ldiag[self.ngorb:].reshape (self.nroots, -1)
+        AorbD = Adiag[:self.ngorb]
+        AciD = Adiag[self.ngorb:].reshape (self.nroots, -1)
         eorb = self.e_avg
-        eci = self.e_states * self.weights
-        Rorb = Lorb - (eorb - level_shift)
+        eci = self.e_states 
+        '''
+        Aorb = np.zeros ((self.ngorb, self.ngorb))
+        fdum = np.zeros ((self.nlag))
+        for idum in range (self.ngorb):
+            fdum[idum] = 1
+            Aorb[idum,:] = Aop (fdum)[:self.ngorb]
+            fdum[idum] = 0
+        Aorb_inv = linalg.inv (Aorb)
+        '''
+        Rorb = AorbD.copy () 
         Rorb[abs(Rorb)<1e-8] = 1e-8
         Rorb = 1./Rorb
-        Rci = Lci - (eci - level_shift)[:,None]
+        Rci = AciD - ((eci - level_shift) * self.weights)[:,None]
         Rci[abs(Rci)<1e-8] = 1e-8
         Rci = 1./Rci
         # R_I|J> 
@@ -487,10 +582,10 @@ class Gradients (lagrange.Gradients):
         for iroot in range (self.nroots):
             Rci_fix[iroot] = Rci_cross[iroot] @ linalg.inv (Sci[iroot]) 
 
-        def my_precond (x, e):
+        def my_precond (x):
             # Orb part
             xorb = x[:self.ngorb]
-            xorb *= Rorb
+            xorb = Rorb * xorb
 
             # CI part
             xci = x[self.ngorb:].reshape (self.nroots, -1)
@@ -503,6 +598,34 @@ class Gradients (lagrange.Gradients):
             for iroot in range (self.nroots): 
                 Rx_sub[iroot] = np.dot (Rci_fix[iroot], from_right[:,iroot])
             xci = Rx - Rx_sub
+
+            # Make CI vectors orthogonal.  Need to refer to Lvec_last b/c x is just the change in Lvec
+            xci_tot = xci + Lvec_op ()[self.ngorb:].reshape (self.nroots, -1)
+            ovlp = xci_tot.conjugate () @ xci_tot.T
+            norms = np.diag (ovlp)
+            for iroot in range (1, self.nroots):
+                ov = ovlp[:iroot,iroot] / norms[:iroot]
+                xci_tot[iroot,:] -= (ov[:,None] * xci_tot[:iroot,:]).sum (0)
+                ovlp = xci_tot.conjugate () @ xci_tot.T
+                norms = np.diag (ovlp)
+            xci = xci_tot - Lvec_op ()[self.ngorb:].reshape (self.nroots, -1)
+
             return np.append (xorb, xci.ravel ())
         return my_precond
+
+    def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
+        def my_call (x):
+            itvec[0] += 1
+            geff = geff_op (x)
+            deltax = x - Lvec_last
+            gorb = geff[:self.ngorb]
+            gci = geff[self.ngorb:]
+            deltaorb = deltax[:self.ngorb]
+            deltaci = deltax[self.ngorb:]
+            lib.logger.debug (self, ('Lagrange optimization iteration {}, |gorb| = {}, |gci| = {}, '
+                '|dLorb| = {}, |dLci| = {}').format (itvec[0], linalg.norm (gorb), linalg.norm (gci),
+                linalg.norm (deltaorb), linalg.norm (deltaci))) 
+            Lvec_last[:] = x[:]
+        return my_call
+
 

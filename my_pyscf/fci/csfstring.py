@@ -12,24 +12,20 @@ from functools import reduce
 from mrh.lib.helper import load_library
 libcsf = load_library ('libcsf')
 
-class CSFTransformer (lib.StreamObject)
+class CSFTransformer (lib.StreamObject):
     def __init__(self, norb, neleca, nelecb, smult, orbsym=None, wfnsym=None):
-        self._norb = norb
-        self._neleca = neleca
-        self._nelecb = nelecb
-        self._smult = smult
-        self._update_spin_cache ()
-        self._orbsym = orbsym
+        self._norb = self._neleca = self._nelecb = self._smult = self._orbsym = None
         self.wfnsym = wfnsym
-        if self._orbsym is not None:
-            self._update_symm_cache ()
+        self._update_spin_cache (norb, neleca, nelecb, smult)
+        if orbsym is not None:
+            self._update_symm_cache (orbsym)
 
     def project_civec (self, detarr, order='C', normalize=True, return_norm=False):
         pass
 
     def vec_det2csf (self, civec, order='C', normalize=True, return_norm=False):
         vec_on_cols = (order.upper () == 'F')
-        civec, norm = self.pack_csf (transfrom_civec_det2csf (civec, self._norb, self._neleca, 
+        civec, norm = self.pack_csf (transform_civec_det2csf (civec, self._norb, self._neleca, 
             self._nelecb, self._smult, csd_mask=self.csd_mask, do_normalize=normalize,
             vec_on_cols=vec_on_cols))
         if return_norm: return civec, norm
@@ -37,7 +33,7 @@ class CSFTransformer (lib.StreamObject)
 
     def vec_csf2det (self, civec, order='C', normalize=True, return_norm=False):
         vec_on_cols = (order.upper () == 'F')
-        civec, norm = transfrom_civec_csf2det (self.unpack_csf (civec), self._norb, self._neleca, 
+        civec, norm = transform_civec_csf2det (self.unpack_csf (civec), self._norb, self._neleca, 
             self._nelecb, self._smult, csd_mask=self.csd_mask, do_normalize=normalize,
             vec_on_cols=vec_on_cols)
         if return_norm: return civec, norm
@@ -84,8 +80,8 @@ class CSFTransformer (lib.StreamObject)
 
     def _update_spin_cache (self, norb, neleca, nelecb, smult):
         if any ([self._norb != norb, self._neleca != neleca, self._nelecb != nelecb, self._smult != smult]):
-            self.csd_mask = make_csd_mask (norb, neleca, nelecb)
-            self.econf_det_mask = make_econf_det_mask (norb, neleca, nelecb, self.csd_mask)
+            self.csd_mask = csdstring.make_csd_mask (norb, neleca, nelecb)
+            self.econf_det_mask = csdstring.make_econf_det_mask (norb, neleca, nelecb, self.csd_mask)
             self.econf_csf_mask = make_econf_csf_mask (norb, neleca, nelecb, smult)
             self._norb = norb
             self._neleca = neleca
@@ -97,11 +93,36 @@ class CSFTransformer (lib.StreamObject)
             self.confsym = make_confsym (self.norb, self.neleca, self.nelecb, self.econf_det_mask, self.orbsym)
             self._orbsym = orbsym
 
+    def printable_largest_csf (self, csfvec, npr, order='C', isdet=False, normalize=True):
+        if isdet:
+            csfvec = self.vec_det2csf (csfvec, order=order, normalize=normalize)
+        nelec = self._neleca + self._nelecb
+        if csfvec.ndim == 1:
+            nvec = 1
+            ncsf = csfvec.size
+            csfvec_list = [csfvec]
+        elif order.upper () == 'C':
+            nvec, ncsf = csfvec.shape
+            csfvec_list = [csfvec[i,:] for i in range (nvec)]
+        elif order.upper () == 'F':
+            ncsf, nvec = csfvec.shape
+            csfvec_list = [csfvec[:,i] for i in range (nvec)]
+        else:
+            raise RuntimeError ('order must be "C" or "F"')
+        npr = min (ncsf, npr)
+        idx_sort = [np.argsort (-np.abs (ivec))[:npr] for ivec in csfvec_list]
+        csfvec_list = [ivec[idx] for ivec, idx in zip (csfvec_list, idx_sort)]
+        printable = [printable_csfstring (self._norb, self._neleca, self._nelecb, self._smult, idx) for idx in idx_sort]
+        csfvec_list = np.stack (csfvec_list, axis=(order.upper () == 'F'))
+        printable = np.stack (printable, axis=(order.upper () == 'F'))
+        return printable, csfvec_list
+
+
     # Setting the below properties triggers cache updating
     @property
     def norb (self):
         return self._norb
-    @norb.setter:
+    @norb.setter
     def norb (self, x):
         self._update_spin_cache (x, self._neleca, self._nelecb, self._smult)
         return self._norb        
@@ -109,7 +130,7 @@ class CSFTransformer (lib.StreamObject)
     @property
     def neleca (self):
         return self._neleca
-    @neleca.setter:
+    @neleca.setter
     def neleca (self, x):
         self._update_spin_cache (self._norb, x, self._nelecb, self._smult)
         return self._neleca        
@@ -117,7 +138,7 @@ class CSFTransformer (lib.StreamObject)
     @property
     def nelecb (self):
         return self._nelecb
-    @nelecb.setter:
+    @nelecb.setter
     def nelecb (self, x):
         self._update_spin_cache (self._norb, self._neleca, x, self._smult)
         return self._nelecb        
@@ -125,7 +146,7 @@ class CSFTransformer (lib.StreamObject)
     @property
     def smult (self):
         return self._smult
-    @smult.setter:
+    @smult.setter
     def smult (self, x):
         self._update_spin_cache (self._norb, self._neleca, self._nelecb, x)
         return self._smult        
@@ -872,6 +893,7 @@ def get_scstrs (nspin, smult):
     return np.ascontiguousarray (scstrs[mask], dtype=np.int64)
 
 
+# This is only for a given set of spins, not the full csf string
 def addrs2str (nspin, smult, addrs):
     addrs = np.ascontiguousarray (addrs, dtype=np.int32)
     nstr = len (addrs)
@@ -887,6 +909,7 @@ def addrs2str (nspin, smult, addrs):
 
     return strs
 
+# This is only for a given set of spins, not the full csf string
 def strs2addr (nspin, smult, strs):
     strs = np.ascontiguousarray (strs, dtype=np.int64)
     nstr = len (strs)
@@ -925,6 +948,8 @@ def check_umat_size (norb, neleca, nelecb, npair, smult):
     ndet = special.binom (nspin, na)
     ncsf = count_csfs (nspin, smult)
     return ndet * ncsf
+
+
 
 
 if __name__ == '__main__':
@@ -969,4 +994,63 @@ if __name__ == '__main__':
             print ("{} spins, {} projected spin overall: {}".format (nspin, ms, ("FAILED", "Passed")[isorthnorm and diagsS2]))
             sys.stdout.flush ()
     
-    
+
+def unpack_csfaddrs (norb, neleca, nelecb, smult, addrs):
+    min_npair, npair_csf_offset, npair_dconf_size, npair_sconf_size, npair_spincpl_size = get_csfvec_shape (norb, neleca, nelecb, smult)
+    npair = np.empty (len (addrs), dtype=np.int32)
+    domo_addrs = np.empty (len (addrs), dtype=np.int64)
+    somo_addrs = np.empty (len (addrs), dtype=np.int64)
+    spincpl_addrs = np.empty (len (addrs), dtype=np.int64)
+    for ix, iaddr in enumerate (addrs):
+        npair[ix] = np.where (npair_csf_offset <= iaddr)[0][-1]
+        sconf_size = npair_sconf_size[npair[ix]]
+        spincpl_size = npair_spincpl_size[npair[ix]]
+        iad = iaddr - npair_csf_offset[npair[ix]]
+        npair[ix] += min_npair
+        domo_addrs[ix] = iad // (sconf_size * spincpl_size)
+        iad = iad % (sconf_size * spincpl_size)
+        somo_addrs[ix] = iad // spincpl_size
+        spincpl_addrs[ix] = iad % spincpl_size
+    return npair, domo_addrs, somo_addrs, spincpl_addrs
+
+def csfaddrs2str (norb, neleca, nelecb, smult, addrs):
+    npair, domo_addrs, somo_addrs, spincpl_addrs = unpack_csfaddrs (norb, neleca, nelecb, smult, addrs)
+    domo_str = np.zeros (len (addrs), dtype=np.int64)
+    somo_str = np.zeros (len (addrs), dtype=np.int64)
+    spincpl_str = np.zeros (len (addrs), dtype=np.int64)
+    for uniq_npair in np.unique (npair):
+        idx_uniq = (npair == uniq_npair)
+        notdomo = norb - uniq_npair
+        nspin = neleca + nelecb - 2*uniq_npair
+        domo_str[idx_uniq] = cistring.addrs2str (norb, uniq_npair, domo_addrs[idx_uniq]) if uniq_npair > 0 else -1
+        somo_str[idx_uniq] = cistring.addrs2str (notdomo, nspin, somo_addrs[idx_uniq])
+        spincpl_str[idx_uniq] = addrs2str (nspin, smult, spincpl_addrs[idx_uniq])
+    return domo_str, somo_str, spincpl_str
+
+def printable_csfstring (norb, neleca, nelecb, smult, addrs):
+    domo_str, somo_str, spincpl_str = csfaddrs2str (norb, neleca, nelecb, smult, addrs)
+    return _printable_csfstring (norb, neleca, nelecb, smult, domo_str, somo_str, spincpl_str)
+
+def _printable_csfstring (norb, neleca, nelecb, smult, domo_str, somo_str, spincpl_str):
+    strs = []
+    nullpair = np.repeat (['0'], norb)
+    for d, s, p in zip (domo_str, somo_str, spincpl_str):
+        mystr = nullpair if d < 0 else np.asarray (list (bin (d)[2:].zfill (norb)))
+        idx_pair = (mystr == '1')
+        mystr[idx_pair] = '2'
+        count_notpair = np.count_nonzero (~idx_pair)
+        if count_notpair:
+            sstr = np.asarray (list (bin (s)[2:].zfill (count_notpair)))
+            mystr[~idx_pair] = sstr
+            idx_somo = mystr == '1'
+            nsomo = np.count_nonzero (idx_somo)
+            if nsomo:
+                cplstr = np.asarray (list (bin (p)[2:].zfill (nsomo)))
+                idx_up = np.where (idx_somo)[0][cplstr=='1']
+                idx_down = np.where (idx_somo)[0][cplstr=='0']
+                mystr[idx_up] = 'u'
+                mystr[idx_down] = 'd'
+        strs.append (''.join ([m for m in mystr]))
+    return strs
+
+ 

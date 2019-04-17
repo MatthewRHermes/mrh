@@ -372,3 +372,22 @@ def format_ddaddrs (norb, neleca, nelecb, ddaddrs):
     assert (new_ddaddrs.flags['C_CONTIGUOUS'])
     return new_ddaddrs 
 
+def unpack_confaddrs (norb, neleca, nelecb, addrs):
+    ''' Unpack an address for a configuration into npair, domo addrs, and somo addrs '''
+    min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size = get_csdaddrs_shape (norb, neleca, nelecb)
+    npair = np.zeros (len (addrs))
+    domo_addrs = np.zeros (len (addrs))
+    somo_addrs = np.zeros (len (addrs))
+    for ix, addr in enumerate (addrs):
+        npair[ix] = np.where (npair_offset <= addr)[0][-1]
+        domo_addrs[ix] = (addr - npair_offset[npair[ix]]) // npair_dconf_size
+        somo_addrs[ix] = (addr - npair_offset[npair[ix]]) % npair_dconf_size
+        npair[ix] += min_npair
+    return npair, domo_addrs, somo_addrs
+
+
+
+
+
+
+

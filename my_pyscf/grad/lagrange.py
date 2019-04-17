@@ -24,14 +24,14 @@ class Gradients (lib.StreamObject):
             Used to calculate the value of the Lagrange multipliers. '''
         return np.zeros (nlag)
 
-    def get_Lop_Ldiag (self, **kwargs):
+    def get_Aop_Adiag (self, **kwargs):
         ''' Return a function calculating Lvec . J_wfn, where J_wfn is the Jacobian of the Lagrange cofactors (e.g.,
             in state-averaged CASSCF, the Hessian of the state-averaged energy wrt wfn parameters) along with
             the diagonal of the Jacobian. '''
-        def Lop (Lvec):
+        def Aop (Lvec):
             return np.zeros (nlag)
-        Ldiag = np.zeros (nlag)
-        return Lop, Ldiag
+        Adiag = np.zeros (nlag)
+        return Aop, Adiag
     
     def get_ham_response (self, **kwargs):
         ''' Return expectation values <dH/dx> where x is nuclear displacement. I.E., the gradient if the method were variational. '''
@@ -60,33 +60,43 @@ class Gradients (lib.StreamObject):
         self.max_cycle = default_max_cycle
         self.lindep = default_lindep
 
-    def get_lagrange_precond (self, rvec, Ldiag, Lop, geff_op, level_shift=None, **kwargs):
-        ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Ldiag-shift). Note
-        that Lagrange multipliers MUST NOT BE NORMALIZED! '''
-        if level_shift is None: level_shift = self.level_shift
-        def my_precond (x, e):
-            Ldiagd = Ldiag - (e * level_shift)
-            Ldiagd[abs(Ldiagd)<1e-8] = 1e-8
-            return x/Ldiag
-        return my_precond
-
-    def debug_lagrange (self, Lvec, rvec, Lop, Ldiag, **kwargs):
+    def debug_lagrange (self, Lvec, bvec, Aop, Adiag, **kwargs):
         lib.logger.debug (self, "{} gradient Lagrange factor debugging not enabled".format (self.base.__class__.__name__))
         pass
+
+    def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
+        def my_call (x):
+            itvec[0] += 1
+            lib.logger.debug (self, 'Lagrange optimization iteration {}, |geff| = {}, |dLvec| = {}'.format (itvec[0],
+                linalg.norm (geff_op (x)), linalg.norm (x - Lvec_last))) 
+            Lvec_last[:] = x[:]
+        return my_call
+
+    def get_lagrange_precond (self, bvec, Adiag, Aop, Lvec_op=None, geff_op=None, level_shift=None):
+        ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Adiag-shift) '''
+        if level_shift is None: level_shift = self.level_shift
+        def my_precond (x):
+            e = (x * (bvec + Aop (x))).sum () 
+            Adiagd = Adiag - e + level_shift
+            Adiagd[abs(Adiagd)<1e-8] = 1e-8
+            x /= Adiagd
+            return x
+        return my_precond
+
 
     ################################## Child classes SHOULD NOT overwrite the methods below ###########################################
 
     def solve_lagrange (self, Lvec_guess=None, **kwargs):
-        rvec = self.get_wfn_response (**kwargs)
-        Lop, Ldiag = self.get_Lop_Ldiag (**kwargs)
-        geff = rvec.copy ()
+        bvec = self.get_wfn_response (**kwargs)
+        Aop, Adiag = self.get_Aop_Adiag (**kwargs)
+        geff = bvec.copy ()
         geff_op = lambda *args: geff
-        precond = self.get_lagrange_precond (geff, Ldiag, Lop, geff_op, level_shift=self.level_shift, **kwargs)
+        precond = self.get_lagrange_precond (geff, Adiag, Aop, geff_op, level_shift=self.level_shift, **kwargs)
         log = lib.logger.new_logger (self, self.verbose)
         if Lvec_guess is None: Lvec_guess = geff
         Lvec = 0
         for conv, ihop, eig, dLvec, dgeff, residual, seig \
-                in ciah.davidson_cc(Lop, geff_op, precond, Lvec_guess,
+                in ciah.davidson_cc(Aop, geff_op, precond, Lvec_guess,
                                 tol=self.conv_tol, max_cycle=self.max_cycle,
                                 lindep=self.lindep, verbose=log):
             Lvec += dLvec
@@ -100,7 +110,7 @@ class Gradients (lib.StreamObject):
         else:
             log.info ('Lagrange multiplier determination failed to converge to %8.4e after '
                 '%d iterations (residual norm: %8.4e; Lvec norm: %8.4e)', self.conv_tol, ihop, linalg.norm (geff), linalg.norm (Lvec))
-        return conv, Lvec, rvec, Lop, Ldiag
+        return conv, Lvec, bvec, Aop, Adiag
                     
     def kernel (self, **kwargs):
         cput0 = (time.clock(), time.time())
@@ -114,9 +124,8 @@ class Gradients (lib.StreamObject):
         if self.verbose >= lib.logger.INFO:
             self.dump_flags()
 
-        conv, Lvec, rvec, Lop, Ldiag = self.solve_lagrange (**kwargs)
-        self.debug_lagrange (Lvec, rvec, Lop, Ldiag, **kwargs)
-        assert (conv), 'Lagrange convergence failure'
+        conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (**kwargs)
+        self.debug_lagrange (Lvec, bvec, Aop, Adiag, **kwargs)
 
         ham_response = self.get_ham_response (**kwargs)
         lib.logger.info(self, '--------------- %s gradient Hamiltonian response ---------------',
