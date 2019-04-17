@@ -73,7 +73,7 @@ class Gradients (lib.StreamObject):
             Lvec_last[:] = x[:]
         return my_call
 
-    def get_lagrange_precond (self, bvec, Adiag, Aop, Lvec_op=None, geff_op=None, level_shift=None):
+    def get_lagrange_precond (self, Adiag, level_shift=None, **kwargs):
         ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Adiag-shift) '''
         if level_shift is None: level_shift = self.level_shift
         def my_precond (x):
@@ -86,7 +86,7 @@ class Gradients (lib.StreamObject):
 
     ################################## Child classes SHOULD NOT overwrite the methods below ###########################################
 
-    def solve_lagrange (self, Lvec_guess=None, **kwargs):
+    def solve_lagrange (self, Lvec_guess=None, level_shift=None, **kwargs):
         bvec = self.get_wfn_response ()
         Aop, Adiag = self.get_Aop_Adiag ()
         def my_geff (x):
@@ -94,7 +94,7 @@ class Gradients (lib.StreamObject):
         Lvec_last = np.zeros_like (bvec)
         def my_Lvec_last ():
             return Lvec_last
-        precond = self.get_lagrange_precond (bvec, Adiag, Aop, Lvec_op=my_Lvec_last, geff_op=my_geff, level_shift=self.level_shift)
+        precond = self.get_lagrange_precond (Adiag, level_shift=level_shift, **kwargs)
         it = np.asarray ([0])
         lib.logger.debug (self, 'Lagrange multiplier determination intial gradient norm: {}'.format (linalg.norm (bvec)))
         my_call = self.get_lagrange_callback (Lvec_last, it, my_geff)
@@ -106,7 +106,7 @@ class Gradients (lib.StreamObject):
         if info_int < 0: lib.logger.info (self, 'Lagrange multiplier determination error code {}'.format (info_int))
         return (info_int==0), Lvec, bvec, Aop, Adiag
                     
-    def kernel (self, **kwargs):
+    def kernel (self, level_shift=None, **kwargs):
         cput0 = (time.clock(), time.time())
         log = lib.logger.new_logger(self, self.verbose)
         if 'atmlst' in kwargs:
@@ -118,7 +118,7 @@ class Gradients (lib.StreamObject):
         if self.verbose >= lib.logger.INFO:
             self.dump_flags()
 
-        conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (**kwargs)
+        conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
         self.debug_lagrange (Lvec, bvec, Aop, Adiag, **kwargs)
 
         ham_response = self.get_ham_response (**kwargs)

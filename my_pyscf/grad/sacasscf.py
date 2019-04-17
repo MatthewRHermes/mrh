@@ -336,7 +336,7 @@ class Gradients (lagrange.Gradients):
         fcasscf.fcisolver.__dict__.update (fcisolver_attr)
         return fcasscf
 
-    def kernel (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, e_avg=None, **kwargs):
+    def kernel (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, e_avg=None, level_shift=None, **kwargs):
         if iroot is None: iroot = self.iroot
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
@@ -349,7 +349,8 @@ class Gradients (lagrange.Gradients):
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
         if e_states is None: e_states = self.e_states
         if e_avg is None: e_avg = self.e_avg
-        return super().kernel (iroot=iroot, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, e_avg=e_avg)
+        if level_shift is None: level_shift=self.level_shift
+        return super().kernel (iroot=iroot, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, e_avg=e_avg, level_shift=level_shift)
 
     def get_wfn_response (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, **kwargs):
         if iroot is None: iroot = self.iroot
@@ -369,7 +370,7 @@ class Gradients (lagrange.Gradients):
         g_all[self.ngorb:][ndet*iroot:][:ndet] = g_all_iroot[self.ngorb:]
         return g_all
 
-    def get_Aop_Adiag (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, eris=None, **kwargs):
+    def get_Aop_Adiag (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, eris=None, level_shift=None, **kwargs):
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
@@ -379,7 +380,17 @@ class Gradients (lagrange.Gradients):
         elif eris is None:
             eris = self.eris
         Aop, Adiag = newton_casscf.gen_g_hop (self.base, mo, ci, eris, verbose)[2:]
-        return Aop, Adiag
+        # Eliminate the component of Aop (x) which is parallel to the state-average space
+        # The Lagrange multiplier equations are not defined there
+        def my_Aop (x):
+            Ax = Aop (x)
+            Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
+            ci_arr = np.asarray (ci).reshape (self.nroots, -1)
+            ovlp = ci_arr.conjugate () @ Ax_ci.T
+            Ax_ci -= ovlp.T @ ci_arr
+            Ax[self.ngorb:] = Ax_ci.ravel ()
+            return Ax
+        return my_Aop, Adiag
 
     def get_ham_response (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
         if iroot is None: iroot = self.iroot
@@ -506,6 +517,7 @@ class Gradients (lagrange.Gradients):
         err_norm_csf = linalg.norm (np.append (eorb, ecsf.ravel ()))
         lib.logger.debug (self, "{} gradient: determinant residual = {}, CSF residual = {}".format (
             self.base.__class__.__name__, err_norm_det, err_norm_csf))
+        ci_lbls, ci_csf   = csf.printable_largest_csf (ci,  10, isdet=True, normalize=True,  order='C')
         bci_lbls, bci_csf = csf.printable_largest_csf (bci, 10, isdet=True, normalize=False, order='C')
         eci_lbls, eci_csf = csf.printable_largest_csf (eci, 10, isdet=True, normalize=False, order='C')
         Lci_lbls, Lci_csf = csf.printable_largest_csf (Lci, 10, isdet=True, normalize=False, order='C')
@@ -513,6 +525,9 @@ class Gradients (lagrange.Gradients):
         for iroot in range (self.nroots):
             lib.logger.debug (self, "{} gradient Lagrange factor, CI part root {} spin square: {}".format (
                 self.base.__class__.__name__, iroot, spin_square0 (Lci[iroot], ncas, nelecas)))
+            lib.logger.debug (self, "Base CI vector")
+            for icsf in range (ncsf):
+                lib.logger.debug (self, '{} {}'.format (ci_lbls[iroot,icsf], ci_csf[iroot,icsf]))
             lib.logger.debug (self, "CI gradient:")
             for icsf in range (ncsf):
                 lib.logger.debug (self, '{} {}'.format (bci_lbls[iroot,icsf], bci_csf[iroot,icsf]))
@@ -540,7 +555,7 @@ class Gradients (lagrange.Gradients):
                 print ("Ci-ci Hessian roots {},{}:\n{}".format (iroot, jroot, Afull_cici[iroot,jroot,:,:]))
 
 
-    def get_lagrange_precond (self, bvec, Adiag, Aop, Lvec_op=None, geff_op=None, level_shift=None, ci=None, **kwargs):
+    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, **kwargs):
         ''' The preconditioner needs to keep the various CI roots orthogonal to the whole SA space.
         If I understand correctly, for root I of the CI problem the preconditioner should be
         R_I * (1 - |J> S(I)_JK^-1 <K|R_I)
@@ -600,6 +615,7 @@ class Gradients (lagrange.Gradients):
             xci = Rx - Rx_sub
 
             # Make CI vectors orthogonal.  Need to refer to Lvec_last b/c x is just the change in Lvec
+            '''
             xci_tot = xci + Lvec_op ()[self.ngorb:].reshape (self.nroots, -1)
             ovlp = xci_tot.conjugate () @ xci_tot.T
             norms = np.diag (ovlp)
@@ -609,6 +625,7 @@ class Gradients (lagrange.Gradients):
                 ovlp = xci_tot.conjugate () @ xci_tot.T
                 norms = np.diag (ovlp)
             xci = xci_tot - Lvec_op ()[self.ngorb:].reshape (self.nroots, -1)
+            '''
 
             return np.append (xorb, xci.ravel ())
         return my_precond
