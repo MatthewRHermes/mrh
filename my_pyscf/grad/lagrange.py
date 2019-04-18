@@ -73,7 +73,7 @@ class Gradients (lib.StreamObject):
             Lvec_last[:] = x[:]
         return my_call
 
-    def get_lagrange_precond (self, Adiag, level_shift=None, **kwargs):
+    def get_lagrange_precond (self, Adiag, level_shift=None, Lvec_op=None, **kwargs):
         ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Adiag-shift) '''
         if level_shift is None: level_shift = self.level_shift
         def my_precond (x):
@@ -94,7 +94,7 @@ class Gradients (lib.StreamObject):
         Lvec_last = np.zeros_like (bvec)
         def my_Lvec_last ():
             return Lvec_last
-        precond = self.get_lagrange_precond (Adiag, level_shift=level_shift, **kwargs)
+        precond = self.get_lagrange_precond (Adiag, level_shift=level_shift, Lvec_op=my_Lvec_last, **kwargs)
         it = np.asarray ([0])
         lib.logger.debug (self, 'Lagrange multiplier determination intial gradient norm: {}'.format (linalg.norm (bvec)))
         my_call = self.get_lagrange_callback (Lvec_last, it, my_geff)

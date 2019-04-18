@@ -1,5 +1,6 @@
 from mrh.my_pyscf.grad import lagrange
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
+from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from pyscf.grad.mp2 import _shell_prange
 from pyscf.mcscf import mc1step, mc1step_symm, newton_casscf
 from pyscf.grad import casscf as casscf_grad
@@ -15,11 +16,11 @@ from scipy import linalg
 def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the orbital
     Lagrange term nuclear gradient (sum_pq Lorb_pq d2_Ecas/d_lambda d_kpq)
-    This involves making the substitution
+    This involves removing nuclear-nuclear terms and making the substitution
     (D_[p]q + D_p[q]) -> D_pq
     (d_[p]qrs + d_pq[r]s + d_p[q]rs + d_pqr[s]) -> d_pqrs
     Where [] around an index implies contraction with Lorb from the left, so that the external index
-    (regardless of whether the index on the rdm is bra or ket) is always the bra of Lorb. '''
+    (regardless of whether the index on the rdm is bra or ket) is always the first index of Lorb. '''
 
     # dmo = smoT.dao.smo
     # dao = mo.dmo.moT
@@ -43,20 +44,10 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     mo_cas = mo_coeff[:,ncore:nocc]
 
     # MRH: new 'effective' MO coefficients including contraction from the Lagrange multipliers
-    s0 = mc._scf.get_ovlp ()
     moL_coeff = mo_coeff @ Lorb
-    smo_coeff = s0 @ mo_coeff
     s0_inv = mo_coeff @ mo_coeff.T
-    smoL_coeff = smo_coeff @ Lorb
-    moL_occ = moL_coeff[:,:nocc]
     moL_core = moL_coeff[:,:ncore]
     moL_cas = moL_coeff[:,ncore:nocc]
-    smo_occ = smo_coeff[:,:nocc]
-    smo_core = smo_coeff[:,:ncore]
-    smo_cas = smo_coeff[:,ncore:nocc]
-    smoL_occ = smoL_coeff[:,:nocc]
-    smoL_core = smoL_coeff[:,:ncore]
-    smoL_cas = smoL_coeff[:,ncore:nocc]
 
     # MRH: these SHOULD be state-averaged! Use the actual sacasscf object!
     casdm1, casdm2 = mc.fcisolver.make_rdm12(ci, ncas, nelecas)
@@ -177,64 +168,10 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     # on the other hand, mf_grad.hcore_generator computes the actual derivative of
     # h1 for both indices and with the correct sign
 
-    print ("Orb lagrange hcore component:\n{}".format (de_hcore))
-    print ("Orb lagrange renorm component:\n{}".format (de_renorm))
-    print ("Orb lagrange eri component:\n{}".format (de_eri))
+    #print ("Orb lagrange hcore component:\n{}".format (de_hcore))
+    #print ("Orb lagrange renorm component:\n{}".format (de_renorm))
+    #print ("Orb lagrange eri component:\n{}".format (de_eri))
     de = de_hcore + de_renorm + de_eri
-
-    s1a = np.zeros ((len (atmlst), 3, s1.shape[1], s1.shape[2]))
-    all_h1eX = np.zeros_like (s1a)
-    all_eriX = np.zeros ((len (atmlst), 3, nmo, nmo, nmo, nmo))
-    for k, ia in enumerate (atmlst):
-        shl0, shl1, p0, p1 = aoslices[ia]
-        s1a[k,:,p0:p1,:] -= s1[:,p0:p1,:] 
-        s1a[k,:,:,p0:p1] -= s1[:,p0:p1,:].transpose (0,2,1) 
-        all_h1eX[k] = hcore_deriv(ia)
-        shls_slice = (shl0,shl1,0,mol.nbas,0,mol.nbas,0,mol.nbas)
-        eri1 = mol.intor ('int2e_ip1', comp=3, aosym='s1', shls_slice=shls_slice).reshape (3,p1-p0,nao,nao,nao)
-        all_eriX[k,:,p0:p1,:,:,:] -= eri1
-        all_eriX[k,:,:,p0:p1,:,:] -= eri1.transpose (0,2,1,4,3)
-        all_eriX[k,:,:,:,p0:p1,:] -= eri1.transpose (0,3,4,1,2)
-        all_eriX[k,:,:,:,:,p0:p1] -= eri1.transpose (0,4,3,2,1)
-        for alp in range (all_eriX.shape[1]):
-            all_h1eX[k,alp] = mo_coeff.T @ all_h1eX[k,alp] @ mo_coeff
-            all_eriX[k,alp] = ao2mo.incore.full (all_eriX[k,alp], mo_coeff, compact=False).reshape (nmo,nmo,nmo,nmo)
-
-    s1a /= 2
-
-    s1a_mo = mo_coeff.T @ s1a @ mo_coeff
-    h1e_mo = mo_coeff.T @ h1 @ mo_coeff
-    all_h1eS  = np.einsum ('abpx,xq->abpq', s1a_mo, h1e_mo)
-    all_h1eS += np.einsum ('abqx,px->abpq', s1a_mo, h1e_mo)
-    all_dm1 = smo_coeff.T @ dm1L @ smo_coeff
-    all_eri = ao2mo.kernel (mol, (mo_coeff, mo_coeff, mo_coeff, mo_coeff), compact=False).reshape (nmo,nmo,nmo,nmo)
-    all_eriS  = np.einsum ('abpx,xqrs->abpqrs', s1a_mo, all_eri)
-    all_eriS += np.einsum ('abqx,pxrs->abpqrs', s1a_mo, all_eri)
-    all_eriS += np.einsum ('abrx,pqxs->abpqrs', s1a_mo, all_eri)
-    all_eriS += np.einsum ('absx,pqrx->abpqrs', s1a_mo, all_eri)
-    all_dm2 = np.zeros_like (all_eri)
-    all_dm2[:,ncore:nocc,ncore:nocc,ncore:nocc] += np.einsum ('px,xqrs->pqrs',Lorb[:,ncore:nocc],casdm2) 
-    all_dm2[ncore:nocc,:,ncore:nocc,ncore:nocc] += np.einsum ('qx,pxrs->pqrs',Lorb[:,ncore:nocc],casdm2)
-    all_dm2[ncore:nocc,ncore:nocc,:,ncore:nocc] += np.einsum ('rx,pqxs->pqrs',Lorb[:,ncore:nocc],casdm2)
-    all_dm2[ncore:nocc,ncore:nocc,ncore:nocc,:] += np.einsum ('sx,pqrx->pqrs',Lorb[:,ncore:nocc],casdm2)
-    de_renorm1_debug = np.einsum ('abpq,pq->ab', all_h1eS, all_dm1) 
-    print ("Orb lagrange renorm component 1 DEBUG (h1es..dm1):\n{}".format (de_renorm1_debug))
-    gfock_mo  = h1e_mo @ all_dm1
-    gfock_mo += gfock_mo.T
-    gfock_ao = mo_coeff @ gfock_mo @ mo_coeff.T
-    de_renorm1_debug1 = np.einsum ('abpq,pq->ab', s1a_mo, gfock_mo)
-    print ("Orb lagrange renorm component 1 DEBUG (s1a..gfock, MO):\n{}".format (de_renorm1_debug1))
-    de_renorm1_debug2 = np.einsum ('abpq,pq->ab', s1a, gfock_ao)
-    print ("Orb lagrange renorm component 1 DEBUG (s1a..gfock, AO):\n{}".format (de_renorm1_debug2))
-    de_renorm2_debug = np.einsum ('abpqrs,pqrs->ab',all_eriS,all_dm2) / 2
-    print ("Orb lagrange renorm component 2 DEBUG:\n{}".format (de_renorm2_debug))
-    print ("Orb lagrange renorm component 1+2 DEBUG:\n{}".format (de_renorm1_debug+de_renorm2_debug))
-
-    de_hcore_debug = np.einsum ('abpq,pq->ab', all_h1eX, all_dm1) 
-    print ("Orb lagrange hcore component DEBUG:\n{}".format (de_hcore_debug))
-
-    de_eri_debug = np.einsum ('abpqrs,pqrs->ab',all_eriX,all_dm2) / 2
-    print ("Orb lagrange eri component DEBUG:\n{}".format (de_eri_debug))
 
     return de
 
@@ -339,11 +276,56 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
         de_eri[k] += np.einsum('xij,ij->x', vhf1c[:,p0:p1], dm_cas[p0:p1]) * 2
         de_eri[k] += np.einsum('xij,ij->x', vhf1a[:,p0:p1], dm_core[p0:p1]) * 2
 
-    print ("CI lagrange hcore component:\n{}".format (de_hcore))
-    print ("CI lagrange renorm component:\n{}".format (de_renorm))
-    print ("CI lagrange eri component:\n{}".format (de_eri))
+    #print ("CI lagrange hcore component:\n{}".format (de_hcore))
+    #print ("CI lagrange renorm component:\n{}".format (de_renorm))
+    #print ("CI lagrange eri component:\n{}".format (de_eri))
     de = de_hcore + de_renorm + de_eri
     return de
+
+def as_scanner(mcscf_grad):
+    '''Generating a nuclear gradients scanner/solver (for geometry optimizer).
+
+    The returned solver is a function. This function requires one argument
+    "mol" as input and returns energy and first order nuclear derivatives.
+
+    The solver will automatically use the results of last calculation as the
+    initial guess of the new calculation.  All parameters assigned in the
+    nuc-grad object and SCF object (DIIS, conv_tol, max_memory etc) are
+    automatically applied in the solver.
+
+    Note scanner has side effects.  It may change many underlying objects
+    (_scf, with_df, with_x2c, ...) during calculation.
+
+    Examples:
+
+    >>> from pyscf import gto, scf, mcscf
+    >>> mol = gto.M(atom='N 0 0 0; N 0 0 1.1', verbose=0)
+    >>> mc_grad_scanner = mcscf.CASSCF(scf.RHF(mol), 4, 4).nuc_grad_method().as_scanner()
+    >>> etot, grad = mc_grad_scanner(gto.M(atom='N 0 0 0; N 0 0 1.1'))
+    >>> etot, grad = mc_grad_scanner(gto.M(atom='N 0 0 0; N 0 0 1.5'))
+    '''
+    from pyscf import gto
+    if isinstance(mcscf_grad, lib.GradScanner):
+        return mcscf_grad
+
+    lib.logger.info(mcscf_grad, 'Create scanner for %s', mcscf_grad.__class__)
+
+    class CASSCF_GradScanner(mcscf_grad.__class__, lib.GradScanner):
+        def __init__(self, g):
+            lib.GradScanner.__init__(self, g)
+            self.iroot = g.iroot
+        def __call__(self, mol_or_geom, **kwargs):
+            if isinstance(mol_or_geom, gto.Mole):
+                mol = mol_or_geom
+            else:
+                mol = self.mol.set_geom_(mol_or_geom, inplace=False)
+
+            mc_scanner = self.base
+            e_tot = mc_scanner(mol)[self.iroot]
+            self.mol = mol
+            de = self.kernel(**kwargs)
+            return e_tot, de
+    return CASSCF_GradScanner(mcscf_grad)
 
 
 class Gradients (lagrange.Gradients):
@@ -385,13 +367,14 @@ class Gradients (lagrange.Gradients):
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        if eris is None and self.eris is None:
+        if eris is None:
             eris = self.eris = self.base.ao2mo (mo)
-        elif eris is None:
-            eris = self.eris
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
-        if e_states is None: e_states = self.e_states
-        if e_avg is None: e_avg = self.e_avg
+        if e_states is None: e_states = self.e_states = np.asarray (self.base.e_tot)
+        if e_avg is None:
+            if hasattr (self.base, 'weights'):
+                self.weights = np.asarray (self.base.weights)
+                e_avg = self.e_avg = (self.weights * self.e_states).sum ()
         if level_shift is None: level_shift=self.level_shift
         return super().kernel (iroot=iroot, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, e_avg=e_avg, level_shift=level_shift)
 
@@ -580,6 +563,7 @@ class Gradients (lagrange.Gradients):
             lib.logger.debug (self, "CI Lagrange vector:")
             for icsf in range (ncsf):
                 lib.logger.debug (self, '{} {}'.format (Lci_lbls[iroot,icsf], Lci_csf[iroot,icsf]))
+        '''
         Afull = np.zeros ((nlag, nlag))
         dum = np.zeros ((nlag))
         for ix in range (nlag):
@@ -590,15 +574,16 @@ class Gradients (lagrange.Gradients):
         Afull_orbci = Afull[:ngorb,ngorb:].reshape (ngorb, nroots, ndet)
         Afull_ciorb = Afull[ngorb:,:ngorb].reshape (nroots, ndet, ngorb)
         Afull_cici = Afull[ngorb:,ngorb:].reshape (nroots, ndet, nroots, ndet).transpose (0, 2, 1, 3)
-        print ("Orb-orb Hessian:\n{}".format (Afull_orborb))
+        lib.logger.debug (self, "Orb-orb Hessian:\n{}".format (Afull_orborb))
         for iroot in range (nroots):
-            print ("Orb-ci Hessian root {}:\n{}".format (iroot, Afull_orbci[:,iroot,:]))
-            print ("Ci-orb Hessian root {}:\n{}".format (iroot, Afull_ciorb[iroot,:,:]))
+            lib.logger.debug (self, "Orb-ci Hessian root {}:\n{}".format (iroot, Afull_orbci[:,iroot,:]))
+            lib.logger.debug (self, "Ci-orb Hessian root {}:\n{}".format (iroot, Afull_ciorb[iroot,:,:]))
             for jroot in range (nroots):
-                print ("Ci-ci Hessian roots {},{}:\n{}".format (iroot, jroot, Afull_cici[iroot,jroot,:,:]))
+                lib.logger.debug (self, "Ci-ci Hessian roots {},{}:\n{}".format (iroot, jroot, Afull_cici[iroot,jroot,:,:]))
+        '''
 
 
-    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, **kwargs):
+    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, Lvec_op=None, **kwargs):
         ''' The preconditioner needs to keep the various CI roots orthogonal to the whole SA space.
         If I understand correctly, for root I of the CI problem the preconditioner should be
         R_I * (1 - |J> S(I)_JK^-1 <K|R_I)
@@ -688,4 +673,5 @@ class Gradients (lagrange.Gradients):
             Lvec_last[:] = x[:]
         return my_call
 
+    as_scanner = as_scanner
 
