@@ -16,31 +16,10 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the orbital
     Lagrange term nuclear gradient (sum_pq Lorb_pq d2_Ecas/d_lambda d_kpq)
     This involves making the substitution
-    (D_[p]q - D_p[q])/2 -> D_pq
-    (d_[p]qrs + d_pq[r]s - d_p[q]rs - d_pqr[s])/2 -> d_pqrs
-    Where [] around an index implies contraction with Lorb from the left in the
-    case of a bra index (positive overall sign) and from the right in the case of a
-    ket index (negative overall sign).
-    Wrapping into a single effective set of mo coefficients 
-    we find that since L' = -L, the transformation from MOs to 
-    AOs should involve moL_coeff = mo_coeff @ L.
-    We can map from transforming the density matrices to transforming the matrix elements
-    by flipping the sign:
-    (h_p[q] - h_[p]q)/2 -> h_pq
-    (v_p[q]rs + v_pqr[s] - v_[p]qrs - v_pq[r]s)/2 -> v_pqrs
-    which implies that the transforming integrals from MOs to AOs should involve
-    -moL_coeff. But transforming integrals from AOs to MOs should involve
-    +moL_coeff, because antisymmetric matrix!
-    The CASSCF gradient here is already implemented as
-    dE/dlambda = h_{p}q D_pq + 2 v_{p}qrs d_pqrs
-    in the atomic orbital basis, where {p} is the total derivative
-    of the given matrix element wrt to lambda but only as applied to that index.
-
-    In other words, the permutation symmetry of indices is already fully exploited,
-    and I can't reduce the number of terms in my expression any further by permutation
-    symmetry of the rdm element indices. So I have to contract each and every index,
-    and I have to be sure that I do it exactly once for each term (in d_xyii = D_xy D_ii
-    and d_xiiy = - D_xy D_ii/2 terms, don't multiply a transformed D by a transformed D). '''
+    (D_[p]q + D_p[q]) -> D_pq
+    (d_[p]qrs + d_pq[r]s + d_p[q]rs + d_pqr[s]) -> d_pqrs
+    Where [] around an index implies contraction with Lorb from the left, so that the external index
+    (regardless of whether the index on the rdm is bra or ket) is always the bra of Lorb. '''
 
     # dmo = smoT.dao.smo
     # dao = mo.dmo.moT
@@ -64,6 +43,7 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     mo_cas = mo_coeff[:,ncore:nocc]
 
     # MRH: new 'effective' MO coefficients including contraction from the Lagrange multipliers
+    s0 = mc._scf.get_ovlp ()
     moL_coeff = mo_coeff @ Lorb
     smo_coeff = mc._scf.get_ovlp () @ mo_coeff
     smoL_coeff = smo_coeff @ Lorb
@@ -116,11 +96,13 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     gfock += (vhfL_c + vhfL_a) @ dm_core # core-core and active-core, 1st 1RDM linked
     gfock += vhfL_c @ dm_cas # core-active, 1st 1RDM linked
     gfock += vhf_c @ dmL_cas # core-active, 2nd 1RDM linked
-    gfock += mo_coeff @ np.einsum('uviw,vuwt->it', aapaL, casdm2) @ mo_cas.T # active-active
+    gfock[:] = 0
+    gfock += mo_coeff @ np.einsum('uviw,uvtw->it', aapaL, casdm2) @ mo_cas.T # active-active
     # MRH: I have to contract this external 2RDM index explicitly on the 2RDM but fortunately I can do so here
     gfock += mo_coeff @ np.einsum('uviw,vuwt->it', aapa, casdm2) @ moL_cas.T 
-    dme0 = (gfock+gfock.T)*.5
-    aapa = vj = vk = vhf_c = vhf_a = h1 = gfock = None
+    # MRH: As of 04/18/2019, the two-body part of this is including aapaL is definitely, unambiguously correct
+    dme0 = (gfock+gfock.T)*.5 # This transpose is for the overlap matrix later on
+    aapa = vj = vk = vhf_c = vhf_a = None
 
     vhf1c, vhf1a, vhf1cL, vhf1aL = mf_grad.get_veff(mol, (dm_core, dm_cas, dmL_core, dmL_cas))
     hcore_deriv = mf_grad.hcore_generator(mol)
@@ -134,8 +116,9 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     # MRH: contract the final two indices of the active-active 2RDM with L as you change to AOs
     # note tensordot always puts indices in the order of the arguments.
     dm2Lbuf = np.zeros ((ncas**2,nmo,nmo))
-    dm2Lbuf[:,:,ncore:nocc] = np.tensordot (Lorb[:,ncore:nocc], casdm2, axes=(1,2)).transpose (1,2,0,3).reshape (ncas**2,nmo,ncas)
-    dm2Lbuf += dm2Lbuf.transpose (0,2,1)
+    dm2Lbuf[:,:,ncore:nocc]  = np.tensordot (Lorb[:,ncore:nocc], casdm2, axes=(1,2)).transpose (1,2,0,3).reshape (ncas**2,nmo,ncas)
+    dm2Lbuf[:,ncore:nocc,:] += np.tensordot (Lorb[:,ncore:nocc], casdm2, axes=(1,3)).transpose (1,2,3,0).reshape (ncas**2,ncas,nmo) # This term transposes the L
+    dm2Lbuf += dm2Lbuf.transpose (0,2,1) # This term transposes the derivative later on
     dm2Lbuf = np.ascontiguousarray (dm2Lbuf)
     dm2Lbuf = ao2mo._ao2mo.nr_e2(dm2Lbuf.reshape (ncas**2,nmo**2), mo_coeff.T,
                                 (0, nao, 0, nao)).reshape(ncas**2,nao,nao)
@@ -145,7 +128,6 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     dm2Lbuf = lib.pack_tril(dm2Lbuf)
     dm2Lbuf[:,diag_idx] *= .5
     dm2Lbuf = dm2Lbuf.reshape(ncas,ncas,nao_pair)
-    casdm2 = casdm2_cc = None
 
     if atmlst is None:
         atmlst = list (range(mol.natm))
@@ -172,7 +154,7 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
             dm2_ao  = lib.einsum('ijw,pi,qj->pqw', dm2Lbuf, mo_cas[p0:p1], mo_cas[q0:q1])
             # MRH: now contract the first two indices of the active-active 2RDM with L as you go from MOs to AOs
             dm2_ao += lib.einsum('ijw,pi,qj->pqw', dm2buf, moL_cas[p0:p1], mo_cas[q0:q1])
-            dm2_ao -= lib.einsum('ijw,pi,qj->pqw', dm2buf, mo_cas[p0:p1], moL_cas[q0:q1])
+            dm2_ao += lib.einsum('ijw,pi,qj->pqw', dm2buf, mo_cas[p0:p1], moL_cas[q0:q1])
             shls_slice = (shl0,shl1,b0,b1,0,mol.nbas,0,mol.nbas)
             eri1 = mol.intor('int2e_ip1', comp=3, aosym='s2kl',
                              shls_slice=shls_slice).reshape(3,p1-p0,nf,nao_pair)
@@ -187,11 +169,67 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
         de_eri[k] += np.einsum('xij,ij->x', vhf1aL[:,p0:p1], dm_core[p0:p1]) * 2
 
     # MRH: deleted the nuclear-nuclear part to avoid double-counting
+    # lesson learned from debugging - mol.intor computes -1 * the derivative and only
+    # for one index
+    # on the other hand, mf_grad.hcore_generator computes the actual derivative of
+    # h1 for both indices and with the correct sign
 
     print ("Orb lagrange hcore component:\n{}".format (de_hcore))
     print ("Orb lagrange renorm component:\n{}".format (de_renorm))
     print ("Orb lagrange eri component:\n{}".format (de_eri))
     de = de_hcore + de_renorm + de_eri
+
+    s1a = np.zeros ((len (atmlst), 3, s1.shape[1], s1.shape[2]))
+    all_h1eX = np.zeros_like (s1a)
+    all_eriX = np.zeros ((len (atmlst), 3, nmo, nmo, nmo, nmo))
+    for k, ia in enumerate (atmlst):
+        shl0, shl1, p0, p1 = aoslices[ia]
+        s1a[k,:,p0:p1,:] -= s1[:,p0:p1,:] 
+        s1a[k,:,:,p0:p1] -= s1[:,p0:p1,:].transpose (0,2,1) 
+        all_h1eX[k] = hcore_deriv(ia)
+        shls_slice = (shl0,shl1,0,mol.nbas,0,mol.nbas,0,mol.nbas)
+        eri1 = mol.intor ('int2e_ip1', comp=3, aosym='s1', shls_slice=shls_slice).reshape (3,p1-p0,nao,nao,nao)
+        all_eriX[k,:,p0:p1,:,:,:] -= eri1
+        all_eriX[k,:,:,p0:p1,:,:] -= eri1.transpose (0,2,1,4,3)
+        all_eriX[k,:,:,:,p0:p1,:] -= eri1.transpose (0,3,4,1,2)
+        all_eriX[k,:,:,:,:,p0:p1] -= eri1.transpose (0,4,3,2,1)
+        for alp in range (all_eriX.shape[1]):
+            all_h1eX[k,alp] = mo_coeff.T @ all_h1eX[k,alp] @ mo_coeff
+            all_eriX[k,alp] = ao2mo.incore.full (all_eriX[k,alp], mo_coeff, compact=False).reshape (nmo,nmo,nmo,nmo)
+
+    s1a /= 2
+    test_gfock = np.einsum ('abpq,pq->ab',s1a,gfock+gfock.T)
+    print ("Orb lagrange renorm test gfock:\n{}".format (test_gfock))
+
+    s1a = mo_coeff.T @ s1a @ mo_coeff
+    h1e_mo = mo_coeff.T @ h1 @ mo_coeff
+    all_h1eS  = np.einsum ('abpx,xq->abpq', s1a, h1e_mo)
+    all_h1eS += np.einsum ('abqx,px->abpq', s1a, h1e_mo)
+    all_dm1 = np.zeros_like (dm1L)
+    all_dm1[:,ncore:nocc] += np.einsum ('px,xq->pq',Lorb[:,ncore:nocc],casdm1)
+    all_dm1[ncore:nocc,:] += np.einsum ('qx,px->pq',Lorb[:,ncore:nocc],casdm1)
+    all_eri = ao2mo.kernel (mol, (mo_coeff, mo_coeff, mo_coeff, mo_coeff), compact=False).reshape (nmo,nmo,nmo,nmo)
+    all_eriS  = np.einsum ('abpx,xqrs->abpqrs', s1a, all_eri)
+    all_eriS += np.einsum ('abqx,pxrs->abpqrs', s1a, all_eri)
+    all_eriS += np.einsum ('abrx,pqxs->abpqrs', s1a, all_eri)
+    all_eriS += np.einsum ('absx,pqrx->abpqrs', s1a, all_eri)
+    all_dm2 = np.zeros_like (all_eri)
+    all_dm2[:,ncore:nocc,ncore:nocc,ncore:nocc] += np.einsum ('px,xqrs->pqrs',Lorb[:,ncore:nocc],casdm2) 
+    all_dm2[ncore:nocc,:,ncore:nocc,ncore:nocc] += np.einsum ('qx,pxrs->pqrs',Lorb[:,ncore:nocc],casdm2)
+    all_dm2[ncore:nocc,ncore:nocc,:,ncore:nocc] += np.einsum ('rx,pqxs->pqrs',Lorb[:,ncore:nocc],casdm2)
+    all_dm2[ncore:nocc,ncore:nocc,ncore:nocc,:] += np.einsum ('sx,pqrx->pqrs',Lorb[:,ncore:nocc],casdm2)
+    de_renorm1_debug = np.einsum ('abpq,pq->ab', all_h1eS, all_dm1) 
+
+    print ("Orb lagrange renorm component 1 DEBUG:\n{}".format (de_renorm1_debug))
+    de_renorm2_debug = np.einsum ('abpqrs,pqrs->ab',all_eriS,all_dm2) / 2
+    print ("Orb lagrange renorm component 2 DEBUG:\n{}".format (de_renorm2_debug))
+    print ("Orb lagrange renorm component 1+2 DEBUG:\n{}".format (de_renorm1_debug+de_renorm2_debug))
+
+    de_hcore_debug = np.einsum ('abpq,pq->ab', all_h1eX, all_dm1) 
+    print ("Orb lagrange hcore component DEBUG:\n{}".format (de_hcore_debug))
+
+    de_eri_debug = np.einsum ('abpqrs,pqrs->ab',all_eriX,all_dm2) / 2
+    print ("Orb lagrange eri component DEBUG:\n{}".format (de_eri_debug))
 
     return de
 
@@ -244,7 +282,7 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     # MRH: delete h1 + vhf_c from the first line below (core and core-core stuff)
     # Also extend gfock to span the whole space
     gfock = np.zeros_like (dm_cas)
-    gfock[:nocc,:nocc]   = reduce(np.dot, (mo_occ.T, vhf_a, mo_occ)) * 2
+    gfock[:,:nocc]   = reduce(np.dot, (mo_coeff.T, vhf_a, mo_occ)) * 2
     gfock[:,ncore:nocc]  = reduce(np.dot, (mo_coeff.T, h1 + vhf_c, mo_cas, casdm1))
     gfock[:,ncore:nocc] += np.einsum('uvpw,vuwt->pt', aapa, casdm2)
     dme0 = reduce(np.dot, (mo_coeff, (gfock+gfock.T)*.5, mo_coeff.T))
