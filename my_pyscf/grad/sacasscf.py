@@ -45,7 +45,8 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     # MRH: new 'effective' MO coefficients including contraction from the Lagrange multipliers
     s0 = mc._scf.get_ovlp ()
     moL_coeff = mo_coeff @ Lorb
-    smo_coeff = mc._scf.get_ovlp () @ mo_coeff
+    smo_coeff = s0 @ mo_coeff
+    s0_inv = mo_coeff @ mo_coeff.T
     smoL_coeff = smo_coeff @ Lorb
     moL_occ = moL_coeff[:,:nocc]
     moL_core = moL_coeff[:,:ncore]
@@ -91,17 +92,17 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     vhfL_c = vjL[0] - vkL[0] * .5
     vhfL_a = vjL[1] - vkL[1] * .5
     # MRH: I rewrote this Feff calculation completely, double-check it
-    gfock  = h1 @ dm1L # h1e 
+    gfock  = h1 @ dm1L # h1e
     gfock += (vhf_c + vhf_a) @ dmL_core # core-core and active-core, 2nd 1RDM linked
     gfock += (vhfL_c + vhfL_a) @ dm_core # core-core and active-core, 1st 1RDM linked
     gfock += vhfL_c @ dm_cas # core-active, 1st 1RDM linked
     gfock += vhf_c @ dmL_cas # core-active, 2nd 1RDM linked
-    gfock[:] = 0
+    gfock = s0_inv @ gfock # Definition of quantity is in MO's; going (AO->MO->AO) incurs an inverse ovlp
     gfock += mo_coeff @ np.einsum('uviw,uvtw->it', aapaL, casdm2) @ mo_cas.T # active-active
     # MRH: I have to contract this external 2RDM index explicitly on the 2RDM but fortunately I can do so here
     gfock += mo_coeff @ np.einsum('uviw,vuwt->it', aapa, casdm2) @ moL_cas.T 
     # MRH: As of 04/18/2019, the two-body part of this is including aapaL is definitely, unambiguously correct
-    dme0 = (gfock+gfock.T)*.5 # This transpose is for the overlap matrix later on
+    dme0 = (gfock+gfock.T)/2 # This transpose is for the overlap matrix later on
     aapa = vj = vk = vhf_c = vhf_a = None
 
     vhf1c, vhf1a, vhf1cL, vhf1aL = mf_grad.get_veff(mol, (dm_core, dm_cas, dmL_core, dmL_cas))
@@ -116,9 +117,11 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     # MRH: contract the final two indices of the active-active 2RDM with L as you change to AOs
     # note tensordot always puts indices in the order of the arguments.
     dm2Lbuf = np.zeros ((ncas**2,nmo,nmo))
+    # MRH: The second line below transposes the L; the third line transposes the derivative later on
+    # Both the L and the derivative have to explore all indices
     dm2Lbuf[:,:,ncore:nocc]  = np.tensordot (Lorb[:,ncore:nocc], casdm2, axes=(1,2)).transpose (1,2,0,3).reshape (ncas**2,nmo,ncas)
-    dm2Lbuf[:,ncore:nocc,:] += np.tensordot (Lorb[:,ncore:nocc], casdm2, axes=(1,3)).transpose (1,2,3,0).reshape (ncas**2,ncas,nmo) # This term transposes the L
-    dm2Lbuf += dm2Lbuf.transpose (0,2,1) # This term transposes the derivative later on
+    dm2Lbuf[:,ncore:nocc,:] += np.tensordot (Lorb[:,ncore:nocc], casdm2, axes=(1,3)).transpose (1,2,3,0).reshape (ncas**2,ncas,nmo)
+    dm2Lbuf += dm2Lbuf.transpose (0,2,1)
     dm2Lbuf = np.ascontiguousarray (dm2Lbuf)
     dm2Lbuf = ao2mo._ao2mo.nr_e2(dm2Lbuf.reshape (ncas**2,nmo**2), mo_coeff.T,
                                 (0, nao, 0, nao)).reshape(ncas**2,nao,nao)
@@ -198,29 +201,31 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
             all_eriX[k,alp] = ao2mo.incore.full (all_eriX[k,alp], mo_coeff, compact=False).reshape (nmo,nmo,nmo,nmo)
 
     s1a /= 2
-    test_gfock = np.einsum ('abpq,pq->ab',s1a,gfock+gfock.T)
-    print ("Orb lagrange renorm test gfock:\n{}".format (test_gfock))
 
-    s1a = mo_coeff.T @ s1a @ mo_coeff
+    s1a_mo = mo_coeff.T @ s1a @ mo_coeff
     h1e_mo = mo_coeff.T @ h1 @ mo_coeff
-    all_h1eS  = np.einsum ('abpx,xq->abpq', s1a, h1e_mo)
-    all_h1eS += np.einsum ('abqx,px->abpq', s1a, h1e_mo)
-    all_dm1 = np.zeros_like (dm1L)
-    all_dm1[:,ncore:nocc] += np.einsum ('px,xq->pq',Lorb[:,ncore:nocc],casdm1)
-    all_dm1[ncore:nocc,:] += np.einsum ('qx,px->pq',Lorb[:,ncore:nocc],casdm1)
+    all_h1eS  = np.einsum ('abpx,xq->abpq', s1a_mo, h1e_mo)
+    all_h1eS += np.einsum ('abqx,px->abpq', s1a_mo, h1e_mo)
+    all_dm1 = smo_coeff.T @ dm1L @ smo_coeff
     all_eri = ao2mo.kernel (mol, (mo_coeff, mo_coeff, mo_coeff, mo_coeff), compact=False).reshape (nmo,nmo,nmo,nmo)
-    all_eriS  = np.einsum ('abpx,xqrs->abpqrs', s1a, all_eri)
-    all_eriS += np.einsum ('abqx,pxrs->abpqrs', s1a, all_eri)
-    all_eriS += np.einsum ('abrx,pqxs->abpqrs', s1a, all_eri)
-    all_eriS += np.einsum ('absx,pqrx->abpqrs', s1a, all_eri)
+    all_eriS  = np.einsum ('abpx,xqrs->abpqrs', s1a_mo, all_eri)
+    all_eriS += np.einsum ('abqx,pxrs->abpqrs', s1a_mo, all_eri)
+    all_eriS += np.einsum ('abrx,pqxs->abpqrs', s1a_mo, all_eri)
+    all_eriS += np.einsum ('absx,pqrx->abpqrs', s1a_mo, all_eri)
     all_dm2 = np.zeros_like (all_eri)
     all_dm2[:,ncore:nocc,ncore:nocc,ncore:nocc] += np.einsum ('px,xqrs->pqrs',Lorb[:,ncore:nocc],casdm2) 
     all_dm2[ncore:nocc,:,ncore:nocc,ncore:nocc] += np.einsum ('qx,pxrs->pqrs',Lorb[:,ncore:nocc],casdm2)
     all_dm2[ncore:nocc,ncore:nocc,:,ncore:nocc] += np.einsum ('rx,pqxs->pqrs',Lorb[:,ncore:nocc],casdm2)
     all_dm2[ncore:nocc,ncore:nocc,ncore:nocc,:] += np.einsum ('sx,pqrx->pqrs',Lorb[:,ncore:nocc],casdm2)
     de_renorm1_debug = np.einsum ('abpq,pq->ab', all_h1eS, all_dm1) 
-
-    print ("Orb lagrange renorm component 1 DEBUG:\n{}".format (de_renorm1_debug))
+    print ("Orb lagrange renorm component 1 DEBUG (h1es..dm1):\n{}".format (de_renorm1_debug))
+    gfock_mo  = h1e_mo @ all_dm1
+    gfock_mo += gfock_mo.T
+    gfock_ao = mo_coeff @ gfock_mo @ mo_coeff.T
+    de_renorm1_debug1 = np.einsum ('abpq,pq->ab', s1a_mo, gfock_mo)
+    print ("Orb lagrange renorm component 1 DEBUG (s1a..gfock, MO):\n{}".format (de_renorm1_debug1))
+    de_renorm1_debug2 = np.einsum ('abpq,pq->ab', s1a, gfock_ao)
+    print ("Orb lagrange renorm component 1 DEBUG (s1a..gfock, AO):\n{}".format (de_renorm1_debug2))
     de_renorm2_debug = np.einsum ('abpqrs,pqrs->ab',all_eriS,all_dm2) / 2
     print ("Orb lagrange renorm component 2 DEBUG:\n{}".format (de_renorm2_debug))
     print ("Orb lagrange renorm component 1+2 DEBUG:\n{}".format (de_renorm1_debug+de_renorm2_debug))
