@@ -4,6 +4,7 @@ from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
 from mrh.util import params
+from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs
 
 class otfnal:
     r''' Needs:
@@ -58,6 +59,43 @@ class otfnal:
         raise RuntimeError("on-top xc functional not defined")
         return 0
 
+    get_veff_1body = pdft_veff.get_veff_1body
+
+    def get_dEot_drho (self, rho, Pi, **kwargs):
+        r''' get the functional derivative dE_ot/drho
+
+        Args:
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+
+        Returns: ndarray of shape (2,*,ngrids)
+            The functional derivative of the on-top pair density exchange-correlation
+            energy wrt to spin density and its derivatives
+        '''
+
+        raise RuntimeError("on-top xc functional not defined")
+        return 0
+
+    get_veff_2body = pdft_veff.get_veff_2body
+
+    def get_dEot_dPi (self, rho, Pi, **kwargs):
+        r''' get the functional derivative dE_ot/dPi
+
+        Args:
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+
+        Returns: ndarray of shape (*,ngrids)
+            The functional derivative of the on-top pair density exchange-correlation
+            energy wrt to the on-top pair density and its derivatives
+        '''
+
+        raise RuntimeError("on-top xc functional not defined")
+        return 0
 
 class transfnal (otfnal):
     r''' "translated functional" of Li Manni et al., JCTC 10, 3669 (2014).
@@ -74,8 +112,6 @@ class transfnal (otfnal):
         self._numint.eval_xc = t_eval_xc.__get__(self._numint)
         self._numint._xc_type = t_xc_type.__get__(self._numint)
         self._init_info ()
-
-
 
     def get_E_ot (self, rho, Pi, weight):
         r''' E_ot[rho, Pi] = V_xc[rho_translated] 
@@ -198,6 +234,11 @@ class transfnal (otfnal):
 
     
         return rho_t
+
+    get_bare_vxc = tfnal_derivs.get_bare_vxc
+    get_dEot_drho = tfnal_derivs.get_dEot_drho
+    get_dEot_dPi = tfnal_derivs.get_dEot_dPi
+
 
 _FT_R0_DEFAULT=0.9
 _FT_R1_DEFAULT=1.15
