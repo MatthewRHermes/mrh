@@ -3,11 +3,12 @@ from pyscf import lib, __config__
 from pyscf.grad import rhf as rhf_grad
 from pyscf.soscf import ciah
 import numpy as np
-from scipy import linalg
+from scipy import linalg, optimize
+from scipy.sparse import linalg as sparse_linalg
 
 default_level_shift = getattr(__config__, 'mcscf_mc1step_CASSCF_ah_level_shift', 1e-8)
 default_conv_tol = getattr (__config__, 'mcscf_mc1step_CASSCF_ah_conv_tol', 1e-12)
-default_max_cycle = getattr (__config__, 'mcscf_mc1step_CASSCF_max_cycle', 50) * 3
+default_max_cycle = getattr (__config__, 'mcscf_mc1step_CASSCF_max_cycle', 50) 
 default_lindep = getattr (__config__, 'mcscf_mc1step_CASSCF_lindep', 1e-14)
 
 class Gradients (lib.StreamObject):
@@ -65,17 +66,17 @@ class Gradients (lib.StreamObject):
         pass
 
     def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
-        def my_call (x, e):
+        def my_call (x):
             itvec[0] += 1
             lib.logger.debug (self, 'Lagrange optimization iteration {}, |geff| = {}, |dLvec| = {}'.format (itvec[0],
                 linalg.norm (geff_op (x)), linalg.norm (x - Lvec_last))) 
             Lvec_last[:] = x[:]
         return my_call
 
-    def get_lagrange_precond (self, bvec, Adiag, Aop, Lvec_op=None, geff_op=None, level_shift=None):
+    def get_lagrange_precond (self, Adiag, level_shift=None, Lvec_op=None, **kwargs):
         ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Adiag-shift) '''
         if level_shift is None: level_shift = self.level_shift
-        def my_precond (x, e):
+        def my_precond (x):
             e = (x * (bvec + Aop (x))).sum () 
             Adiagd = Adiag - e + level_shift
             Adiagd[abs(Adiagd)<1e-8] = 1e-8
@@ -86,35 +87,27 @@ class Gradients (lib.StreamObject):
 
     ################################## Child classes SHOULD NOT overwrite the methods below ###########################################
 
-    def solve_lagrange (self, Lvec_guess=None, **kwargs):
-        bvec = self.get_wfn_response (**kwargs)
-        Aop, Adiag = self.get_Aop_Adiag (**kwargs)
-        Lvec = np.zeros_like (bvec)
-        def Lvec_op ():
-            return Lvec
-        geff = bvec.copy ()
-        geff_op = lambda *args: geff
-        precond = self.get_lagrange_precond (geff, Adiag, Aop, Lvec_op=Lvec_op, geff_op=geff_op, level_shift=self.level_shift, **kwargs)
-        log = lib.logger.new_logger (self, self.verbose)
-        if Lvec_guess is None: Lvec_guess = geff
-        for conv, ihop, eig, dLvec, dgeff, residual, seig \
-                in ciah.davidson_cc(Aop, geff_op, precond, Lvec_guess,
-                                tol=self.conv_tol, max_cycle=self.max_cycle,
-                                lindep=self.lindep, verbose=log):
-            Lvec += dLvec
-            geff += dgeff
-            log.debug('    iter %d  |geff|=%3.2e |dLvec|=%3.2e eig=%2.1e seig=%2.1e',
-                      ihop, linalg.norm (geff), linalg.norm (dLvec), eig, seig)
-            if conv or ihop >= self.max_cycle:
-                break
-        if conv:
-            log.info ('Lagrange multipliers converged to %8.4e after %d iterations', self.conv_tol, ihop)
-        else:
-            log.info ('Lagrange multiplier determination failed to converge to %8.4e after '
-                '%d iterations (residual norm: %8.4e; Lvec norm: %8.4e)', self.conv_tol, ihop, linalg.norm (geff), linalg.norm (Lvec))
-        return conv, Lvec, bvec, Aop, Adiag
+    def solve_lagrange (self, Lvec_guess=None, level_shift=None, **kwargs):
+        bvec = self.get_wfn_response ()
+        Aop, Adiag = self.get_Aop_Adiag ()
+        def my_geff (x):
+            return bvec + Aop (x)
+        Lvec_last = np.zeros_like (bvec)
+        def my_Lvec_last ():
+            return Lvec_last
+        precond = self.get_lagrange_precond (Adiag, level_shift=level_shift, Lvec_op=my_Lvec_last, **kwargs)
+        it = np.asarray ([0])
+        lib.logger.debug (self, 'Lagrange multiplier determination intial gradient norm: {}'.format (linalg.norm (bvec)))
+        my_call = self.get_lagrange_callback (Lvec_last, it, my_geff)
+        Aop_obj = sparse_linalg.LinearOperator ((self.nlag,self.nlag), matvec=Aop, dtype=bvec.dtype)
+        prec_obj = sparse_linalg.LinearOperator ((self.nlag,self.nlag), matvec=precond, dtype=bvec.dtype)
+        Lvec, info_int = sparse_linalg.cg (Aop_obj, -bvec, x0=-bvec, atol=self.conv_tol, maxiter=self.max_cycle, callback=my_call, M=prec_obj)
+        lib.logger.info (self, 'Lagrange multiplier determination {} after {} iterations\n   |geff| = {}, |Lvec| = {}'.format (
+            ('converged','not converged')[bool (info_int)], it[0], linalg.norm (my_geff (Lvec)), linalg.norm (Lvec))) 
+        if info_int < 0: lib.logger.info (self, 'Lagrange multiplier determination error code {}'.format (info_int))
+        return (info_int==0), Lvec, bvec, Aop, Adiag
                     
-    def kernel (self, **kwargs):
+    def kernel (self, level_shift=None, **kwargs):
         cput0 = (time.clock(), time.time())
         log = lib.logger.new_logger(self, self.verbose)
         if 'atmlst' in kwargs:
@@ -126,7 +119,7 @@ class Gradients (lib.StreamObject):
         if self.verbose >= lib.logger.INFO:
             self.dump_flags()
 
-        conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (**kwargs)
+        conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
         self.debug_lagrange (Lvec, bvec, Aop, Adiag, **kwargs)
 
         ham_response = self.get_ham_response (**kwargs)
