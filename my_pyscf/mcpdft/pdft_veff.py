@@ -19,7 +19,7 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, **kwargs):
     '''
 
     nderiv = Pi.shape[0]
-    kern = otfnal.get_dEot_drho (rho, Pi, **kwargs)
+    kern = otfnal.get_dEot_drho (rho, Pi, **kwargs) * weight[None,None,:]
     # Zeroth derivative
     veff = (kern[:,0,:,None,None] * ao[None,0,:,None] * ao[None,0,None,:]).sum (1)
     # First derivatives
@@ -51,7 +51,7 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, **kwargs):
     if isinstance (ao, np.ndarray) and ao.ndim == 3:
         ao = [ao,ao,ao,ao]
     nderiv = Pi.shape[0]
-    kern = otfnal.get_dEot_dPi (rho, Pi, **kwargs)
+    kern = otfnal.get_dEot_dPi (rho, Pi, **kwargs) * weight[None,:]
     # Zeroth derivative
     veff = (kern[0,:,None,None,None,None] * ao[0][0,:,:,None,None,None]
         * ao[1][0,:,None,:,None,None] * ao[2][0,:,None,None,:,None]
@@ -78,7 +78,7 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, **kwargs):
             * ao[1][0,     :,None,:,None,None]
             * ao[2][0,     :,None,None,:,None]
             * ao[3][ideriv,:,None,None,None,:]).sum (0)
-    return veff
+    return veff / 2
 
 
 
