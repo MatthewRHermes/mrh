@@ -148,7 +148,7 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
             dm2_ao  = lib.einsum('ijw,pi,qj->pqw', dm2Lbuf, mo_cas[p0:p1], mo_cas[q0:q1])
             # MRH: now contract the first two indices of the active-active 2RDM with L as you go from MOs to AOs
             dm2_ao += lib.einsum('ijw,pi,qj->pqw', dm2buf, moL_cas[p0:p1], mo_cas[q0:q1])
-            dm2_ao -= lib.einsum('ijw,pi,qj->pqw', dm2buf, mo_cas[p0:p1], moL_cas[q0:q1])
+            dm2_ao += lib.einsum('ijw,pi,qj->pqw', dm2buf, mo_cas[p0:p1], moL_cas[q0:q1])
             shls_slice = (shl0,shl1,b0,b1,0,mol.nbas,0,mol.nbas)
             eri1 = mol.intor('int2e_ip1', comp=3, aosym='s2kl',
                              shls_slice=shls_slice).reshape(3,p1-p0,nf,nao_pair)
@@ -171,11 +171,6 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     #print ("Orb lagrange hcore component:\n{}".format (de_hcore))
     #print ("Orb lagrange renorm component:\n{}".format (de_renorm))
     #print ("Orb lagrange eri component:\n{}".format (de_eri))
-    de = de_hcore + de_renorm + de_eri
-
-    print ("Orb lagrange hcore component:\n{}".format (de_hcore))
-    print ("Orb lagrange renorm component:\n{}".format (de_renorm))
-    print ("Orb lagrange eri component:\n{}".format (de_eri))
     de = de_hcore + de_renorm + de_eri
 
     return de
