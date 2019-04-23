@@ -68,7 +68,7 @@ class Gradients (lib.StreamObject):
     def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
         def my_call (x):
             itvec[0] += 1
-            lib.logger.debug (self, 'Lagrange optimization iteration {}, |geff| = {}, |dLvec| = {}'.format (itvec[0],
+            lib.logger.info (self, 'Lagrange optimization iteration {}, |geff| = {}, |dLvec| = {}'.format (itvec[0],
                 linalg.norm (geff_op (x)), linalg.norm (x - Lvec_last))) 
             Lvec_last[:] = x[:]
         return my_call
@@ -88,8 +88,8 @@ class Gradients (lib.StreamObject):
     ################################## Child classes SHOULD NOT overwrite the methods below ###########################################
 
     def solve_lagrange (self, Lvec_guess=None, level_shift=None, **kwargs):
-        bvec = self.get_wfn_response ()
-        Aop, Adiag = self.get_Aop_Adiag ()
+        bvec = self.get_wfn_response (**kwargs)
+        Aop, Adiag = self.get_Aop_Adiag (**kwargs)
         def my_geff (x):
             return bvec + Aop (x)
         Lvec_last = np.zeros_like (bvec)

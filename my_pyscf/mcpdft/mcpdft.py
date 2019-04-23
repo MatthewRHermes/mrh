@@ -2,7 +2,10 @@ import numpy as np
 import time
 from scipy import linalg
 from pyscf import dft, ao2mo, fci, mcscf
-from pyscf.lib import logger
+from pyscf.lib import logger, temporary_env
+from pyscf.mcscf import mc_ao2mo
+from pyscf.mcscf.addons import StateAverageMCSCFSolver
+from mrh.my_pyscf.mcpdft import pdft_veff
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
@@ -144,8 +147,13 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
 
     class PDFT (mc.__class__):
 
-        def __init__(self, my_mc, my_ot, **kwargs):
-            self.__dict__.update (my_mc.__dict__)
+        def __init__(self, scf, ncas, nelecas, my_ot=None, **kwargs):
+            # Keep the same initialization pattern for backwards-compatibility. Use a separate intializer for the ot functional
+            super().__init__(scf, ncas, nelecas)
+            keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff'))
+            self._keys = set ((self.__dict__.keys ())).union (keys)
+
+        def _init_ot_grids (self, my_ot, grids_level=None):
             if isinstance (my_ot, (str, np.string_)):
                 ks = dft.RKS (self.mol)
                 if my_ot[:1].upper () == 'T':
@@ -161,11 +169,9 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             else:
                 self.otfnal = my_ot
             self.grids = self.otfnal.grids
-            if "grids_level" in kwargs:
+            if grids_level is not None:
                 self.grids.level = kwargs['grids_level']
                 assert (self.grids.level == self.otfnal.grids.level)
-            keys = set (('e_ot', 'e_mcscf'))
-            self._keys = set ((self.__dict__.keys ())).union (keys)
             
         def kernel (self, **kwargs):
             self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (**kwargs)
@@ -182,7 +188,56 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             log = logger.new_logger(self, verbose)
             log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal.otxc)
 
-    return PDFT (mc, ot, **kwargs)
+        def get_pdft_veff (self, mo=None, ci=None, incl_coul=False):
+            ''' Get the 1- and 2-body MC-PDFT effective potentials for a set of mos and ci vectors
+
+                Kwargs:
+                    mo : ndarray of shape (nao,nmo)
+                        A full set of molecular orbital coefficients. Taken from self if not provided
+                    ci : list or ndarray
+                        CI vectors. Taken from self if not provided
+                    incl_coul : logical
+                        If true, includes the Coulomb repulsion energy in the 1-body effective potential.
+                        In practice they always appear together.
+
+                Returns:
+                    veff1 : ndarray of shape (nao, nao)
+                        1-body effective potential in the AO basis
+                        May include classical Coulomb potential term (see incl_coul kwarg)
+                    veff2 : pyscf.mcscf.mc_ao2mo._ERIS instance
+                        Relevant 2-body effective potential in the MO basis
+            ''' 
+
+            if mo is None: mo = self.mo_coeff
+            if ci is None: ci = self.ci
+            # If ci is not a list and mc is a state-average solver, use a different fcisolver for make_rdm
+            mc_1root = self
+            if isinstance (self, StateAverageMCSCFSolver) and not isinstance (ci, list):
+                mc_1root = mcscf.CASCI (self._scf, self.ncas, self.nelecas)
+                mc_1root.fcisolver = fci.solver (self._scf.mol, singlet = False, symm = False)
+                mc_1root.mo_coeff = mo
+                mc_1root.ci = ci
+                mc_1root.e_tot = self.e_tot
+            dm1s = np.asarray (mc_1root.make_rdm1s ())
+            adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, self.ncas, self.nelecas), axis=0)
+            adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (ci, self.ncas, self.nelecas)[1], adm1s)
+            mo_cas = mo[:,self.ncore:][:,:self.ncas]
+            pdft_veff1, _pdft_veff2 = pdft_veff.kernel (self.otfnal, dm1s, adm2, mo_cas)
+            old_eri = self._scf._eri
+            self._scf._eri = _pdft_veff2
+            with temporary_env (self.mol, incore_anyway=True):
+                pdft_veff2 = mc_ao2mo._ERIS (self, mo, method='incore')
+            self._scf._eri = old_eri
+            if incl_coul:
+                pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
+            return pdft_veff1, pdft_veff2
+
+    pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, **kwargs)
+    lvl = kwargs['grids_level'] if 'grids_level' in kwargs else None
+    pdft._init_ot_grids (ot, grids_level=lvl)
+    pdft.__dict__.update (mc.__dict__)
+    return pdft
+
 
 
 

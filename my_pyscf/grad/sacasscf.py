@@ -334,9 +334,9 @@ class Gradients (lagrange.Gradients):
         self.__dict__.update (mc.__dict__)
         nmo = mc.mo_coeff.shape[-1]
         self.ngorb = np.count_nonzero (mc.uniq_var_indices (nmo, mc.ncore, mc.ncas, mc.frozen))
-        self.nci = mc.fcisolver.nroots * mc.ci[0].size
         self.nroots = mc.fcisolver.nroots
-        self.iroot = mc.nuc_grad_iroot
+        self.nci = sum ([c.size for c in mc.ci]) # hack hack hack
+        self.iroot = mc.nuc_grad_iroot if hasattr (mc, 'nuc_grad_iroot') else 0
         self.eris = None
         self.weights = np.array ([1])
         self.e_avg = mc.e_tot
@@ -376,7 +376,7 @@ class Gradients (lagrange.Gradients):
                 self.weights = np.asarray (self.base.weights)
                 e_avg = self.e_avg = (self.weights * self.e_states).sum ()
         if level_shift is None: level_shift=self.level_shift
-        return super().kernel (iroot=iroot, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, e_avg=e_avg, level_shift=level_shift)
+        return super().kernel (iroot=iroot, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, e_avg=e_avg, level_shift=level_shift, **kwargs)
 
     def get_wfn_response (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, **kwargs):
         if iroot is None: iroot = self.iroot
@@ -405,6 +405,7 @@ class Gradients (lagrange.Gradients):
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
             eris = self.eris
+        if not isinstance (self.base, StateAverageMCSCFSolver) and isinstance (ci, list): ci = ci[0]
         Aop, Adiag = newton_casscf.gen_g_hop (self.base, mo, ci, eris, verbose)[2:]
         # Eliminate the component of Aop (x) which is parallel to the state-average space
         # The Lagrange multiplier equations are not defined there
@@ -667,7 +668,7 @@ class Gradients (lagrange.Gradients):
             gci = geff[self.ngorb:]
             deltaorb = deltax[:self.ngorb]
             deltaci = deltax[self.ngorb:]
-            lib.logger.debug (self, ('Lagrange optimization iteration {}, |gorb| = {}, |gci| = {}, '
+            lib.logger.info (self, ('Lagrange optimization iteration {}, |gorb| = {}, |gci| = {}, '
                 '|dLorb| = {}, |dLci| = {}').format (itvec[0], linalg.norm (gorb), linalg.norm (gci),
                 linalg.norm (deltaorb), linalg.norm (deltaci))) 
             Lvec_last[:] = x[:]
