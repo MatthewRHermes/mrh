@@ -147,11 +147,13 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
 
     class PDFT (mc.__class__):
 
-        def __init__(self, scf, ncas, nelecas, my_ot=None, **kwargs):
+        def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None, **kwargs):
             # Keep the same initialization pattern for backwards-compatibility. Use a separate intializer for the ot functional
             super().__init__(scf, ncas, nelecas)
             keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff'))
             self._keys = set ((self.__dict__.keys ())).union (keys)
+            if my_ot is not None:
+                self._init_ot_grids (my_ot, grids_level=grids_level)
 
         def _init_ot_grids (self, my_ot, grids_level=None):
             if isinstance (my_ot, (str, np.string_)):
@@ -232,9 +234,7 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
                 pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
             return pdft_veff1, pdft_veff2
 
-    pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, **kwargs)
-    lvl = kwargs['grids_level'] if 'grids_level' in kwargs else None
-    pdft._init_ot_grids (ot, grids_level=lvl)
+    pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     pdft.__dict__.update (mc.__dict__)
     return pdft
 

@@ -1,10 +1,14 @@
 from pyscf.mcscf import newton_casscf
+from pyscf.grad import rks as rks_grad
+from pyscf.dft import gen_grid
 from mrh.my_pyscf.grad import sacasscf
+from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
+from mrh.util.rdm import get_2CDM_from_2RDM
 from functools import reduce
 from scipy import linalg
 import numpy as np
 
-def mcpdft_HellmanFeynman_grad (mc, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None):
+def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the Hellman-Feynman gradient
         terms of MC-PDFT. From the differentiated Hamiltonian matrix elements, only the core and
         Coulomb energy parts remain. For the renormalization terms, the effective Fock matrix is as in
@@ -60,34 +64,103 @@ def mcpdft_HellmanFeynman_grad (mc, veff1, veff2, mo_coeff=None, ci=None, atmlst
     hcore_deriv = mf_grad.hcore_generator(mol)
     s1 = mf_grad.get_ovlp(mol)
 
-    # MRH: the whole 2RDM part doesn't matter!
-
     if atmlst is None:
         atmlst = range(mol.natm)
     aoslices = mol.aoslice_by_atom()
-    de_hcore = np.zeros((len(atmlst),3))
-    de_renorm = np.zeros((len(atmlst),3))
-    de_eri = np.zeros((len(atmlst),3))
-    de = np.zeros((len(atmlst),3))
+    de_hcore = np.zeros ((len(atmlst),3))
+    de_renorm = np.zeros ((len(atmlst),3))
+    de_coul = np.zeros ((len(atmlst),3))
+    de_xc = np.zeros ((len(atmlst),3))
+    de_grid = np.zeros ((len(atmlst),3))
+    de_wgt = np.zeros ((len(atmlst),3))
+    de = np.zeros ((len(atmlst),3))
+
+    # MRH: Now I have to compute the gradient of the exchange-correlation energy
+    # This involves derivatives of the orbitals that construct rho and Pi and therefore another
+    # set of potentials. It also involves the derivatives of quadrature grid points which
+    # propagate through the densities and therefore yet another set of potentials.
+    # The orbital-derivative part includes all the grid points and some of the orbitals (- sign);
+    # the grid-derivative part includes all of the orbitals and some of the grid points (+ sign).
+    # I'll do a loop over grid sections and make arrays of type (3,nao, nao) and (3,nao, ncas, ncas, ncas).
+    # I'll contract them within the grid loop for the grid derivatives and in the following
+    # orbital loop for the xc derivatives
+    dm1s = mc.make_rdm1s ()
+    casdm1s = np.stack (mc.fcisolver.make_rdm1s (ci, ncas, nelecas), axis=0)
+    twoCDM = get_2CDM_from_2RDM (casdm2, casdm1s)
+    casdm1s = None
+    make_rho = tuple (ot._numint._gen_rho_evaluator (mol, dm1s[i], 1) for i in range(2))
+    dv1 = np.zeros ((3,nao,nao)) # Term which should be contracted with the whole density matrix
+    dv1_a = np.zeros ((3,nao,nao)) # Term which should only be contracted with the core density matrix
+    dv2 = np.zeros ((3,nao,ncas,ncas,ncas))
+    idx = np.array ([[1,4,5,6],[2,5,7,8],[3,6,8,9]], dtype=np.int_) # For addressing particular ao derivatives
+    if ot.xctype == 'LDA': idx = idx[:,0] # For LDAs no second derivatives
+    diag_idx = np.arange(ncore, dtype=np.int_) * (ncore + 1) # for pqii
+    casdm2_puvx = np.tensordot (mo_cas, casdm2, axes=1)
+    full_atmlst = -np.ones (mol.natm, dtype=np.int_)
+    for k, ia in enumerate (atmlst):
+        full_atmlst[ia] = k
+    for ia, (coords, w0, w1) in enumerate (rks_grad.grids_response_cc (ot.grids)):
+        # For the xc potential derivative, I need every grid point in the entire molecule regardless of atmlist. (Because that's about orbitals.)
+        # For the grid and weight derivatives, I only need the gridpoints that are in atmlst
+        mask = gen_grid.make_mask (mol, coords)
+        ao = ot._numint.eval_ao (mol, coords, deriv=ot.dens_deriv+1, non0tab=mask) # Need 1st derivs for LDA, 2nd for GGA, etc.
+        if ot.xctype == 'LDA': # Might confuse the rho and Pi generators if I don't slice this down
+            aoval = ao[:1]
+        elif ot.xctype == 'GGA':
+            aoval = ao[:4]
+        rho = np.asarray ([m[0] (0, aoval, mask, ot.xctype) for m in make_rho])
+        Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
+        # Make sure that w1 only spans the atoms of interest
+
+        for comp in range (3):
+            # Weight response
+            for k, ja in enumerate (atmlst):
+                de_wgt[k,comp] += ot.get_E_ot (rho, Pi, w1[ja,comp])
+            dao = ao[idx[comp]]
+
+            # Vpq + Vpqii
+            k = full_atmlst[ia]
+            moval = np.tensordot (aoval, mo_core, axes=1)
+            tmp_dv = ot.get_veff_1body (rho, Pi, [dao, aoval], w0)
+            tmp_dv += ot.get_veff_2body (rho, Pi, [dao, aoval, moval, moval],
+                w0).reshape (nao,nao,ncore*ncore)[:,:,diag_idx].sum(2) 
+            if k >= 0: de_grid[k,comp] += 2 * (tmp_dv * dm1).sum () # All orbitals, only some grid points
+            dv1[comp] -= tmp_dv # d/dr = -d/dR
+
+            # Vpquv * Duv (contract with core dm only)
+            moval = np.tensordot (aoval, mo_cas, axes=1)
+            tmp_dv = ot.get_veff_2body (rho, Pi, [dao, aoval, moval, moval], w0)
+            tmp_dv = np.tensordot (tmp_dv, casdm1, axes=2) 
+            if k >= 0: de_grid[k,comp] += 2 * (tmp_dv * dm_core).sum () # All orbitals, only some grid points
+            dv1_a[comp] -= tmp_dv # d/dr = -d/dR
+
+            # Vpuvx
+            tmp_dv = ot.get_veff_2body (rho, Pi, [dao, moval, moval, moval], w0)
+            if k >= 0: de_grid[k,comp] += 2 * (tmp_dv * casdm2_puvx).sum () # All orbitals, only some grid points
+            dv2[comp] -= tmp_dv # d/dr = -d/dR
 
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
         h1ao = hcore_deriv(ia) # MRH: this should be the TRUE hcore
         de_hcore[k] += np.einsum('xij,ij->x', h1ao, dm1)
         de_renorm[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
-
-        # MRH: the whole eri part is just the Coulomb energy!
-        de_eri[k] += np.einsum('xij,ij->x', vj[:,p0:p1], dm1[p0:p1]) * 2
+        de_coul[k] += np.einsum('xij,ij->x', vj[:,p0:p1], dm1[p0:p1]) * 2
+        de_xc[k] += np.einsum ('xij,ij->x', dv1[:,p0:p1], dm1[p0:p1]) * 2 # Full quadrature, only some orbitals
+        de_xc[k] += np.einsum ('xij,ij->x', dv1_a[:,p0:p1], dm_core[p0:p1]) * 2 # Ditto
+        de_xc[k] += np.einsum ('xijkl,ijkl->x', dv2[:,p0:p1], casdm2_puvx[p0:p1]) * 2 # Ditto
 
     de_nuc = mf_grad.grad_nuc(mol, atmlst)
+
     print ("MC-PDFT Hellmann-Feynman nuclear :\n{}".format (de_nuc))
     print ("MC-PDFT Hellmann-Feynman hcore component:\n{}".format (de_hcore))
+    print ("MC-PDFT Hellmann-Feynman coulomb component:\n{}".format (de_coul))
+    print ("MC-PDFT Hellmann-Feynman xc component:\n{}".format (de_xc))
+    print ("MC-PDFT Hellmann-Feynman quadrature point component:\n{}".format (de_grid))
+    print ("MC-PDFT Hellmann-Feynman quadrature weight component:\n{}".format (de_wgt))
     print ("MC-PDFT Hellmann-Feynman renorm component:\n{}".format (de_renorm))
-    print ("MC-PDFT Hellmann-Feynman eri component:\n{}".format (de_eri))
 
-    de = de_nuc + de_hcore + de_eri + de_renorm
+    de = de_nuc + de_hcore + de_coul + de_renorm + de_xc + de_grid + de_wgt
     return de
-
 
 class Gradients (sacasscf.Gradients):
 
@@ -133,7 +206,7 @@ class Gradients (sacasscf.Gradients):
         fcasscf = self.make_fcasscf ()
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci[iroot]
-        return mcpdft_HellmanFeynman_grad (fcasscf, veff1, veff2, mo_coeff=mo, ci=ci[iroot], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
+        return mcpdft_HellmanFeynman_grad (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[iroot], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
 
     def kernel (self, **kwargs):
         ''' Cache the effective Hamiltonian terms so you don't have to calculate them twice '''

@@ -66,24 +66,33 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, **kwargs):
         exchange-correlation functional, in the atomic-orbital basis.
         In PDFT this functional is always spin-symmetric
     '''
+    if rho.ndim == 2:
+        rho = np.expand_dims (rho, 1)
+        Pi = np.expand_dims (Pi, 0)
 
     nderiv = rho.shape[1]
     w = weight[None,:]
-    ao1 = ao[:,:,None]
-    ao2 = ao[:,None,:]
+    if isinstance (ao, np.ndarray) and ao.ndim == 3:
+        ao = [ao, ao]
+    elif len (ao) != 2:
+        raise NotImplementedError ("uninterpretable aos!")
     kern = otfnal.get_dEot_drho (rho, Pi, **kwargs) * weight[None,:]
 
     # Broadcasting setup. First two indices in every case are deriv and grid
     kern = kern[:,:,None,None]
-    ao1 = ao[:,:,:,None]
-    ao2 = ao[:,:,None,:]
+    ao1 = ao[0][:,:,:,None]
+    ao2 = ao[1][:,:,None,:]
 
     # Zeroth derivative
     veff = (kern[0] * ao1[0] * ao2[0]).sum (0)
     # First derivatives. kern[ideriv] is a chain rule cofactor, not a product rule cofactor
     for ideriv in range (1,min(nderiv,4)):
-        veff_ideriv = (kern[ideriv] * ao1[ideriv] * ao2[0]).sum (0)
-        veff += veff_ideriv + veff_ideriv.T
+        veff += (kern[ideriv] * ao1[ideriv] * ao2[0]).sum (0)
+        veff += (kern[ideriv] * ao1[0] * ao2[ideriv]).sum (0)
+
+    rho = np.squeeze (rho)
+    Pi = np.squeeze (Pi)
+
     return veff
 
 def get_veff_2body (otfnal, rho, Pi, ao, weight, **kwargs):
@@ -105,11 +114,14 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, **kwargs):
         The two-body effective potential corresponding to this on-top pair density
         exchange-correlation functional or elements thereof, in the provided basis.
     '''
+    if rho.ndim == 2:
+        rho = np.expand_dims (rho, 1)
+        Pi = np.expand_dims (Pi, 0)
 
     if isinstance (ao, np.ndarray) and ao.ndim == 3:
         ao = [ao,ao,ao,ao]
-    else:
-        raise NotImplementedError ('orbital subsets and fast evaluation in get_veff_2body')
+    elif len (ao) != 4:
+        raise NotImplementedError ('fancy orbital subsets and fast evaluation in get_veff_2body')
     #elif isinstance (ao, np.ndarray) and ao.ndim == 4:
     #    ao = [a for a in ao]
 
@@ -120,11 +132,15 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, **kwargs):
     veff = np.einsum ('g,gp,gq,gr,gs->pqrs',kern[0],ao[0][0],ao[1][0],ao[2][0],ao[3][0])
 
     # First derivatives
-    veff_deriv = np.einsum ('dg,dgp,gq,gr,gs->pqrs',kern[1:4],ao[0][1:4],ao[1][0],ao[2][0],ao[3][0])
-    veff += veff_deriv
-    veff += veff_deriv.transpose (1,0,3,2)
-    veff += veff_deriv.transpose (2,3,0,1)
-    veff += veff_deriv.transpose (3,2,1,0)
+    if kern.shape[0] > 1:
+        veff_deriv = np.einsum ('dg,dgp,gq,gr,gs->pqrs',kern[1:4],ao[0][1:4],ao[1][0],ao[2][0],ao[3][0])
+        veff_deriv = np.einsum ('dg,gp,dgq,gr,gs->pqrs',kern[1:4],ao[0][0],ao[1][1:4],ao[2][0],ao[3][0])
+        veff_deriv = np.einsum ('dg,gp,gq,dgr,gs->pqrs',kern[1:4],ao[0][0],ao[1][0],ao[2][1:4],ao[3][0])
+        veff_deriv = np.einsum ('dg,gp,gq,gr,dgs->pqrs',kern[1:4],ao[0][0],ao[1][0],ao[2][0],ao[3][1:4])
+
+    rho = np.squeeze (rho)
+    Pi = np.squeeze (Pi)
+
     return veff 
 
 

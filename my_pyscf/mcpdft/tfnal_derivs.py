@@ -121,12 +121,11 @@ def get_dEot_dPi (otfnal, rho, Pi, Rmax=1, zeta_deriv=False):
     nderiv, ngrid = Pi.shape
     nderiv_zeta = nderiv if zeta_deriv else 1
     vxc = otfnal.get_bare_vxc (rho, Pi)
-    vot = np.zeros_like (Pi)
+    vot = np.zeros ((1,ngrid))
     rho_tot = rho.sum (0)
     R = otfnal.get_ratio (Pi[0:nderiv_zeta,:], rho_tot[0:nderiv_zeta,:]/2)
 
     # Vot has no term with zero zeta; its terms have a cofactor of vxc_b - vxc_a
-    vot = np.zeros_like (Pi)
     vdiff = vxc[1] - vxc[0]
 
     # Be careful with this indexing!!
