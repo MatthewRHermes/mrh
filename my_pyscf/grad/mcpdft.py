@@ -123,15 +123,15 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             moval = np.tensordot (aoval, mo_core, axes=1)
             tmp_dv = ot.get_veff_1body (rho, Pi, [dao, aoval], w0)
             tmp_dv += ot.get_veff_2body (rho, Pi, [dao, aoval, moval, moval],
-                w0).reshape (nao,nao,ncore*ncore)[:,:,diag_idx].sum(2) 
+                w0).reshape (nao,nao,ncore*ncore)[:,:,diag_idx].sum(2) # Note that this is implicitly dm_core / 2 
             if k >= 0: de_grid[k,comp] += 2 * (tmp_dv * dm1).sum () # All orbitals, only some grid points
             dv1[comp] -= tmp_dv # d/dr = -d/dR
 
             # Vpquv * Duv (contract with core dm only)
             moval = np.tensordot (aoval, mo_cas, axes=1)
             tmp_dv = ot.get_veff_2body (rho, Pi, [dao, aoval, moval, moval], w0)
-            tmp_dv = np.tensordot (tmp_dv, casdm1, axes=2) 
-            if k >= 0: de_grid[k,comp] += 2 * (tmp_dv * dm_core).sum () # All orbitals, only some grid points
+            tmp_dv = np.tensordot (tmp_dv, casdm1, axes=2) # Since this is explicitly casdm1, I now have a factor of 2 that needs to cancel.
+            if k >= 0: de_grid[k,comp] += (tmp_dv * dm_core).sum () # All orbitals, only some grid points
             dv1_a[comp] -= tmp_dv # d/dr = -d/dR
 
             # Vpuvx
@@ -146,7 +146,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         de_renorm[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
         de_coul[k] += np.einsum('xij,ij->x', vj[:,p0:p1], dm1[p0:p1]) * 2
         de_xc[k] += np.einsum ('xij,ij->x', dv1[:,p0:p1], dm1[p0:p1]) * 2 # Full quadrature, only some orbitals
-        de_xc[k] += np.einsum ('xij,ij->x', dv1_a[:,p0:p1], dm_core[p0:p1]) * 2 # Ditto
+        de_xc[k] += np.einsum ('xij,ij->x', dv1_a[:,p0:p1], dm_core[p0:p1]) # Ditto
         de_xc[k] += np.einsum ('xijkl,ijkl->x', dv2[:,p0:p1], casdm2_puvx[p0:p1]) * 2 # Ditto
 
     de_nuc = mf_grad.grad_nuc(mol, atmlst)

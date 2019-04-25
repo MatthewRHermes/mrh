@@ -230,6 +230,8 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             with temporary_env (self.mol, incore_anyway=True):
                 pdft_veff2 = mc_ao2mo._ERIS (self, mo, method='incore')
             self._scf._eri = old_eri
+            # _ERIS.vhf_c is not what it appears to be. It is calculated using the scf object, not the integrals.
+            # However setting self._scf._eri = _pdft_veff2 appears to solve this problem...
             if incl_coul:
                 pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
             return pdft_veff1, pdft_veff2
