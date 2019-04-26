@@ -151,6 +151,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
     de_nuc = mf_grad.grad_nuc(mol, atmlst)
 
+    '''
     print ("MC-PDFT Hellmann-Feynman nuclear :\n{}".format (de_nuc))
     print ("MC-PDFT Hellmann-Feynman hcore component:\n{}".format (de_hcore))
     print ("MC-PDFT Hellmann-Feynman coulomb component:\n{}".format (de_coul))
@@ -158,6 +159,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     print ("MC-PDFT Hellmann-Feynman quadrature point component:\n{}".format (de_grid))
     print ("MC-PDFT Hellmann-Feynman quadrature weight component:\n{}".format (de_wgt))
     print ("MC-PDFT Hellmann-Feynman renorm component:\n{}".format (de_renorm))
+    '''
 
     de = de_nuc + de_hcore + de_coul + de_renorm + de_xc + de_grid + de_wgt
     return de

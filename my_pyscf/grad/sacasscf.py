@@ -321,7 +321,8 @@ def as_scanner(mcscf_grad):
                 mol = self.mol.set_geom_(mol_or_geom, inplace=False)
 
             mc_scanner = self.base
-            e_tot = mc_scanner(mol)[self.iroot]
+            e_tot = mc_scanner(mol)
+            if isinstance (e_tot, (list, tuple, np.ndarray)): e_tot = e_tot[self.iroot]
             self.mol = mol
             de = self.kernel(**kwargs)
             return e_tot, de

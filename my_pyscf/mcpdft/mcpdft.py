@@ -5,6 +5,7 @@ from pyscf import dft, ao2mo, fci, mcscf
 from pyscf.lib import logger, temporary_env
 from pyscf.mcscf import mc_ao2mo
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
+from mrh.my_pyscf.grad.mcpdft import Gradients
 from mrh.my_pyscf.mcpdft import pdft_veff
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
@@ -175,8 +176,10 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
                 self.grids.level = kwargs['grids_level']
                 assert (self.grids.level == self.otfnal.grids.level)
             
-        def kernel (self, **kwargs):
-            self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (**kwargs)
+        def kernel (self, mo=None, ci=None, **kwargs):
+            # Hafta reset the grids so that geometry optimization works!
+            self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
+            self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)
             if isinstance (self.e_tot, (float, np.number)):
                 self.e_tot, self.e_ot = kernel (self, self.otfnal)
             else:
@@ -235,6 +238,9 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             if incl_coul:
                 pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
             return pdft_veff1, pdft_veff2
+
+        def nuc_grad_method (self):
+            return Gradients (self)
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     pdft.__dict__.update (mc.__dict__)
