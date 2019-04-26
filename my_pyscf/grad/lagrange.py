@@ -5,6 +5,7 @@ from pyscf.soscf import ciah
 import numpy as np
 from scipy import linalg, optimize
 from scipy.sparse import linalg as sparse_linalg
+import time
 
 default_level_shift = getattr(__config__, 'mcscf_mc1step_CASSCF_ah_level_shift', 1e-8)
 default_conv_tol = getattr (__config__, 'mcscf_mc1step_CASSCF_ah_conv_tol', 1e-12)
@@ -121,18 +122,21 @@ class Gradients (lib.StreamObject):
 
         conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
         self.debug_lagrange (Lvec, bvec, Aop, Adiag, **kwargs)
+        cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
 
         ham_response = self.get_ham_response (**kwargs)
         lib.logger.info(self, '--------------- %s gradient Hamiltonian response ---------------',
                     self.base.__class__.__name__)
         rhf_grad._write(self, self.mol, ham_response, self.atmlst)
         lib.logger.info(self, '----------------------------------------------')
+        cput1 = lib.logger.timer (self, 'Lagrange gradient Hellmann-Feynman determination', *cput1)
 
         LdotJnuc = self.get_LdotJnuc (Lvec, **kwargs)
         lib.logger.info(self, '--------------- %s gradient Lagrange response ---------------',
                     self.base.__class__.__name__)
         rhf_grad._write(self, self.mol, LdotJnuc, self.atmlst)
         lib.logger.info(self, '----------------------------------------------')
+        cput1 = lib.logger.timer (self, 'Lagrange gradient Jacobian', *cput1)
         
         self.de = ham_response + LdotJnuc
         log.timer('Lagrange gradients', *cput0)

@@ -212,7 +212,7 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
                     veff2 : pyscf.mcscf.mc_ao2mo._ERIS instance
                         Relevant 2-body effective potential in the MO basis
             ''' 
-
+            t0 = (time.clock (), time.time ())
             if mo is None: mo = self.mo_coeff
             if ci is None: ci = self.ci
             # If ci is not a list and mc is a state-average solver, use a different fcisolver for make_rdm
@@ -237,6 +237,7 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             # However setting self._scf._eri = _pdft_veff2 appears to solve this problem...
             if incl_coul:
                 pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
+            logger.timer (self, 'get_pdft_veff', *t0)
             return pdft_veff1, pdft_veff2
 
         def nuc_grad_method (self):

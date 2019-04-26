@@ -360,6 +360,7 @@ class Gradients (lagrange.Gradients):
             fcasscf.nroots = 1
         fcasscf.__dict__.update (casscf_attr)
         fcasscf.fcisolver.__dict__.update (fcisolver_attr)
+        fcasscf.verbose, fcasscf.stdout = self.verbose, self.stdout
         return fcasscf
 
     def kernel (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, e_avg=None, level_shift=None, **kwargs):

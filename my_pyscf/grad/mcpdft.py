@@ -1,12 +1,14 @@
 from pyscf.mcscf import newton_casscf
 from pyscf.grad import rks as rks_grad
 from pyscf.dft import gen_grid
+from pyscf.lib import logger
 from mrh.my_pyscf.grad import sacasscf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.util.rdm import get_2CDM_from_2RDM
 from functools import reduce
 from scipy import linalg
 import numpy as np
+import time
 
 def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the Hellman-Feynman gradient
@@ -18,6 +20,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
     if mc.frozen is not None:
         raise NotImplementedError
+    t0 = (time.clock (), time.time ())
 
     mol = mc.mol
     ncore = mc.ncore
@@ -58,6 +61,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     dme0 = reduce(np.dot, (mo_coeff, (gfock+gfock.T)*.5, mo_coeff.T))
     aapa = vhf_a = h1e_mo = gfock = None
 
+    t0 = logger.timer (mc, 'PDFT HlFn gfock', *t0)
     dm1 = dm_core + dm_cas
     # MRH: vhf1c and vhf1a should be the TRUE vj_c and vj_a (no vk!)
     vj = mf_grad.get_jk (dm=dm1)[0]
@@ -97,6 +101,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     diag_idx = np.arange(ncore, dtype=np.int_) * (ncore + 1) # for pqii
     casdm2_puvx = np.tensordot (mo_cas, casdm2, axes=1)
     full_atmlst = -np.ones (mol.natm, dtype=np.int_)
+    t0 = logger.timer (mc, 'PDFT HlFn quadrature setup', *t0)
     for k, ia in enumerate (atmlst):
         full_atmlst[ia] = k
     for ia, (coords, w0, w1) in enumerate (rks_grad.grids_response_cc (ot.grids)):
@@ -112,6 +117,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
         # Make sure that w1 only spans the atoms of interest
 
+        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t0)
         for comp in range (3):
             # Weight response
             for k, ja in enumerate (atmlst):
@@ -138,6 +144,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             tmp_dv = ot.get_veff_2body (rho, Pi, [dao, moval, moval, moval], w0)
             if k >= 0: de_grid[k,comp] += 2 * (tmp_dv * casdm2_puvx).sum () # All orbitals, only some grid points
             dv2[comp] -= tmp_dv # d/dr = -d/dR
+            t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} component {}'.format (ia, comp), *t0)
 
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
@@ -151,15 +158,13 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
     de_nuc = mf_grad.grad_nuc(mol, atmlst)
 
-    '''
-    print ("MC-PDFT Hellmann-Feynman nuclear :\n{}".format (de_nuc))
-    print ("MC-PDFT Hellmann-Feynman hcore component:\n{}".format (de_hcore))
-    print ("MC-PDFT Hellmann-Feynman coulomb component:\n{}".format (de_coul))
-    print ("MC-PDFT Hellmann-Feynman xc component:\n{}".format (de_xc))
-    print ("MC-PDFT Hellmann-Feynman quadrature point component:\n{}".format (de_grid))
-    print ("MC-PDFT Hellmann-Feynman quadrature weight component:\n{}".format (de_wgt))
-    print ("MC-PDFT Hellmann-Feynman renorm component:\n{}".format (de_renorm))
-    '''
+    logger.debug (mc, "MC-PDFT Hellmann-Feynman nuclear :\n{}".format (de_nuc))
+    logger.debug (mc, "MC-PDFT Hellmann-Feynman hcore component:\n{}".format (de_hcore))
+    logger.debug (mc, "MC-PDFT Hellmann-Feynman coulomb component:\n{}".format (de_coul))
+    logger.debug (mc, "MC-PDFT Hellmann-Feynman xc component:\n{}".format (de_xc))
+    logger.debug (mc, "MC-PDFT Hellmann-Feynman quadrature point component:\n{}".format (de_grid))
+    logger.debug (mc, "MC-PDFT Hellmann-Feynman quadrature weight component:\n{}".format (de_wgt))
+    logger.debug (mc, "MC-PDFT Hellmann-Feynman renorm component:\n{}".format (de_renorm))
 
     de = de_nuc + de_hcore + de_coul + de_renorm + de_xc + de_grid + de_wgt
     return de
