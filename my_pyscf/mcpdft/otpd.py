@@ -6,8 +6,6 @@ from mrh.util.rdm import get_2CDM_from_2RDM, get_2RDM_from_2CDM
 from mrh.util.basis import represent_operator_in_basis
 from itertools import product
 
-
-
 def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
     r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*g_ijkl / 2
                = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2

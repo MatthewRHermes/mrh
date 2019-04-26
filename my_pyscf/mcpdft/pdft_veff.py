@@ -129,14 +129,23 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, **kwargs):
     kern = otfnal.get_dEot_dPi (rho, Pi, **kwargs) * weight[None,:]
 
     # Zeroth derivative
-    veff = np.einsum ('g,gp,gq,gr,gs->pqrs',kern[0],ao[0][0],ao[1][0],ao[2][0],ao[3][0])
+    ao1 = ao[0][0,:,:,None] * ao[1][0,:,None,:]
+    ao2 = ao[2][0,:,:,None] * ao[3][0,:,None,:]
+    veff = np.tensordot (kern[0,:,None,None] * ao1, ao2, axes=(0,0))
+    #veff = np.einsum ('g,gp,gq,gr,gs->pqrs',kern[0],ao[0][0],ao[1][0],ao[2][0],ao[3][0])
 
     # First derivatives
     if kern.shape[0] > 1:
-        veff_deriv = np.einsum ('dg,dgp,gq,gr,gs->pqrs',kern[1:4],ao[0][1:4],ao[1][0],ao[2][0],ao[3][0])
-        veff_deriv = np.einsum ('dg,gp,dgq,gr,gs->pqrs',kern[1:4],ao[0][0],ao[1][1:4],ao[2][0],ao[3][0])
-        veff_deriv = np.einsum ('dg,gp,gq,dgr,gs->pqrs',kern[1:4],ao[0][0],ao[1][0],ao[2][1:4],ao[3][0])
-        veff_deriv = np.einsum ('dg,gp,gq,gr,dgs->pqrs',kern[1:4],ao[0][0],ao[1][0],ao[2][0],ao[3][1:4])
+        # Index 12    
+        ao_deriv  = ao[0][1:4,:,:,None] * ao[1][0][None,:,None,:]
+        ao_deriv += ao[0][0][None,:,:,None] * ao[1][1:4,:,None,:]
+        kern_deriv = (kern[1:4,:,None,None] * ao_deriv).sum (0)
+        veff += np.tensordot (kern_deriv, ao2, axes=(0,0))
+        # Index 34
+        ao_deriv  = ao[2][1:4,:,:,None] * ao[3][0][None,:,None,:]
+        ao_deriv += ao[2][0][None,:,:,None] * ao[3][1:4,:,None,:]
+        kern_deriv = (kern[1:4,:,None,None] * ao_deriv).sum (0)
+        veff += np.tensordot (ao1, kern_deriv, axes=(0,0))
 
     rho = np.squeeze (rho)
     Pi = np.squeeze (Pi)
