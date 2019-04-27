@@ -4,6 +4,7 @@ from pyscf.dft import gen_grid
 from pyscf.lib import logger
 from mrh.my_pyscf.grad import sacasscf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
+from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_rho
 from mrh.util.rdm import get_2CDM_from_2RDM
 from functools import reduce
 from scipy import linalg
@@ -93,6 +94,8 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     twoCDM = get_2CDM_from_2RDM (casdm2, casdm1s)
     casdm1s = None
     make_rho = tuple (ot._numint._gen_rho_evaluator (mol, dm1s[i], 1) for i in range(2))
+    make_rho_c = ot._numint._gen_rho_evaluator (mol, dm_core, 1) 
+    make_rho_a = ot._numint._gen_rho_evaluator (mol, dm_cas, 1) 
     dv1 = np.zeros ((3,nao,nao)) # Term which should be contracted with the whole density matrix
     dv1_a = np.zeros ((3,nao,nao)) # Term which should only be contracted with the core density matrix
     dv2 = np.zeros ((3,nao,ncas,ncas,ncas))
@@ -115,36 +118,45 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             aoval = ao[:4]
         rho = np.asarray ([m[0] (0, aoval, mask, ot.xctype) for m in make_rho])
         Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
-        # Make sure that w1 only spans the atoms of interest
 
         t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t0)
-        for comp in range (3):
-            # Weight response
-            for k, ja in enumerate (atmlst):
-                de_wgt[k,comp] += ot.get_E_ot (rho, Pi, w1[ja,comp])
-            dao = ao[idx[comp]]
+        moval_occ = np.tensordot (aoval, mo_occ, axes=1)
+        moval_core = moval_occ[...,:ncore]
+        moval_cas = moval_occ[...,ncore:]
+        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t0)
+        eot, vrho, vot = ot.eval_ot (rho, Pi, weights=w0)
+        
+        # Weight response
+        de_wgt += np.tensordot (eot, w1[atmlst], axes=(0,2))
+        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} weight response'.format (ia), *t0)
 
-            # Vpq + Vpqii
-            k = full_atmlst[ia]
-            moval = np.tensordot (aoval, mo_core, axes=1)
-            tmp_dv = ot.get_veff_1body (rho, Pi, [dao, aoval], w0)
-            tmp_dv += ot.get_veff_2body (rho, Pi, [dao, aoval, moval, moval],
-                w0).reshape (nao,nao,ncore*ncore)[:,:,diag_idx].sum(2) # Note that this is implicitly dm_core / 2 
-            if k >= 0: de_grid[k,comp] += 2 * (tmp_dv * dm1).sum () # All orbitals, only some grid points
-            dv1[comp] -= tmp_dv # d/dr = -d/dR
+        # Find the atoms that are a part of the atomlist - grid correction shouldn't be added if they aren't there
+        # The last stuff to vectorize is in get_veff_2body!
+        k = full_atmlst[ia]
 
-            # Vpquv * Duv (contract with core dm only)
-            moval = np.tensordot (aoval, mo_cas, axes=1)
-            tmp_dv = ot.get_veff_2body (rho, Pi, [dao, aoval, moval, moval], w0)
-            tmp_dv = np.tensordot (tmp_dv, casdm1, axes=2) # Since this is explicitly casdm1, I now have a factor of 2 that needs to cancel.
-            if k >= 0: de_grid[k,comp] += (tmp_dv * dm_core).sum () # All orbitals, only some grid points
-            dv1_a[comp] -= tmp_dv # d/dr = -d/dR
+        # Vpq + Vpqii
+        vrho = _contract_vot_rho (vot, make_rho_c [0] (0, aoval, mask, ot.xctype), add_vrho=vrho)
+        tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho) for ix in idx], axis=0)
+        if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm1.T, axes=2) # Grid response
+        dv1 -= tmp_dv # XC response
+        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqii'.format (ia), *t0)
 
-            # Vpuvx
-            tmp_dv = ot.get_veff_2body (rho, Pi, [dao, moval, moval, moval], w0)
-            if k >= 0: de_grid[k,comp] += 2 * (tmp_dv * casdm2_puvx).sum () # All orbitals, only some grid points
-            dv2[comp] -= tmp_dv # d/dr = -d/dR
-            t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} component {}'.format (ia, comp), *t0)
+        # Viiuv * Duv
+        vrho_a = _contract_vot_rho (vot, make_rho_a [0] (0, aoval, mask, ot.xctype))
+        tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho_a) for ix in idx], axis=0)
+        if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm_core.T, axes=2) # Grid response
+        dv1_a -= tmp_dv # XC response
+        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Viiuv'.format (ia), *t0)
+
+        # Vpuvx
+        tmp_dv = np.stack ([ot.get_veff_2body (rho, Pi, [ao[ix], moval_cas, moval_cas, moval_cas], w0, kern=vot) 
+            for ix in idx], axis=0)
+        # tmp_dv = ot.get_veff_2body (rho, Pi, [ao[idx], moval_cas, moval_cas, moval_cas], w0, kern=vot)
+        # Somehow that vectorization makes this LESS efficient
+        if k >= 0: de_grid[k] += 2 * np.einsum ('xijkl,ijkl->x', tmp_dv, casdm2_puvx)
+        dv2 -= tmp_dv # XC response
+        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx'.format (ia), *t0)
+
 
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
@@ -153,7 +165,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         de_renorm[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
         de_coul[k] += np.einsum('xij,ij->x', vj[:,p0:p1], dm1[p0:p1]) * 2
         de_xc[k] += np.einsum ('xij,ij->x', dv1[:,p0:p1], dm1[p0:p1]) * 2 # Full quadrature, only some orbitals
-        de_xc[k] += np.einsum ('xij,ij->x', dv1_a[:,p0:p1], dm_core[p0:p1]) # Ditto
+        de_xc[k] += np.einsum ('xij,ij->x', dv1_a[:,p0:p1], dm_core[p0:p1]) * 2 # Ditto
         de_xc[k] += np.einsum ('xijkl,ijkl->x', dv2[:,p0:p1], casdm2_puvx[p0:p1]) * 2 # Ditto
 
     de_nuc = mf_grad.grad_nuc(mol, atmlst)
