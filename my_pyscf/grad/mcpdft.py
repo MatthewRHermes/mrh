@@ -104,7 +104,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     diag_idx = np.arange(ncore, dtype=np.int_) * (ncore + 1) # for pqii
     casdm2_puvx = np.tensordot (mo_cas, casdm2, axes=1)
     full_atmlst = -np.ones (mol.natm, dtype=np.int_)
-    t0 = logger.timer (mc, 'PDFT HlFn quadrature setup', *t0)
+    t1 = logger.timer (mc, 'PDFT HlFn quadrature setup', *t0)
     for k, ia in enumerate (atmlst):
         full_atmlst[ia] = k
     for ia, (coords, w0, w1) in enumerate (rks_grad.grids_response_cc (ot.grids)):
@@ -119,16 +119,16 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         rho = np.asarray ([m[0] (0, aoval, mask, ot.xctype) for m in make_rho])
         Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
 
-        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t0)
+        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t1)
         moval_occ = np.tensordot (aoval, mo_occ, axes=1)
         moval_core = moval_occ[...,:ncore]
         moval_cas = moval_occ[...,ncore:]
-        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t0)
+        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t1)
         eot, vrho, vot = ot.eval_ot (rho, Pi, weights=w0)
         
         # Weight response
         de_wgt += np.tensordot (eot, w1[atmlst], axes=(0,2))
-        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} weight response'.format (ia), *t0)
+        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} weight response'.format (ia), *t1)
 
         # Find the atoms that are a part of the atomlist - grid correction shouldn't be added if they aren't there
         # The last stuff to vectorize is in get_veff_2body!
@@ -139,23 +139,20 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho) for ix in idx], axis=0)
         if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm1.T, axes=2) # Grid response
         dv1 -= tmp_dv # XC response
-        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqii'.format (ia), *t0)
+        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqii'.format (ia), *t1)
 
         # Viiuv * Duv
         vrho_a = _contract_vot_rho (vot, make_rho_a [0] (0, aoval, mask, ot.xctype))
         tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho_a) for ix in idx], axis=0)
         if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm_core.T, axes=2) # Grid response
         dv1_a -= tmp_dv # XC response
-        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Viiuv'.format (ia), *t0)
+        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Viiuv'.format (ia), *t1)
 
         # Vpuvx
-        tmp_dv = np.stack ([ot.get_veff_2body (rho, Pi, [ao[ix], moval_cas, moval_cas, moval_cas], w0, kern=vot) 
-            for ix in idx], axis=0)
-        # tmp_dv = ot.get_veff_2body (rho, Pi, [ao[idx], moval_cas, moval_cas, moval_cas], w0, kern=vot)
-        # Somehow that vectorization makes this LESS efficient
+        tmp_dv = ot.get_veff_2body (rho, Pi, [ao[idx], moval_cas, moval_cas, moval_cas], w0, kern=vot)
         if k >= 0: de_grid[k] += 2 * np.einsum ('xijkl,ijkl->x', tmp_dv, casdm2_puvx)
         dv2 -= tmp_dv # XC response
-        t0 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx'.format (ia), *t0)
+        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx'.format (ia), *t1)
 
 
     for k, ia in enumerate(atmlst):
@@ -179,6 +176,9 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     logger.debug (mc, "MC-PDFT Hellmann-Feynman renorm component:\n{}".format (de_renorm))
 
     de = de_nuc + de_hcore + de_coul + de_renorm + de_xc + de_grid + de_wgt
+
+    t1 = logger.timer (mc, 'PDFT HlFn total', *t0)
+
     return de
 
 class Gradients (sacasscf.Gradients):

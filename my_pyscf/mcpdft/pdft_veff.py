@@ -143,11 +143,14 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
 
     # Flatten deriv and grid so I can tensordot it all at once
     # Index symmetry can be built into _contract_ao1_ao2
-    vao2 = _contract_ao1_ao2 (ao[0], ao[1], nderiv, vot=kern)
-    vao2 = vao2.reshape (nderiv * ngrid, *vao2.shape[2:])
     ao2 = _contract_ao1_ao2 (ao[2], ao[3], nderiv)
     ao2 = ao2.reshape (nderiv * ngrid, *ao2.shape[2:])
-    veff = np.tensordot (vao2, ao2, axes=(0,0))
+    if ao[0].ndim == 3: ao[0] = np.expand_dims (ao[0], 0)
+    veff = np.empty ((ao[0].shape[0], ao[0].shape[-1], ao[1].shape[-1], ao[2].shape[-1], ao[3].shape[-1]), dtype=ao[0].dtype)
+    for ix, aoi in enumerate (ao[0]):
+        vao2 = _contract_ao1_ao2 (aoi, ao[1], nderiv, vot=kern)
+        vao2 = vao2.reshape (nderiv * ngrid, *vao2.shape[2:])
+        veff[ix] = np.tensordot (vao2, ao2, axes=(0,0))
 
     '''
     # Zeroth derivative
@@ -167,6 +170,7 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
     '''
     rho = np.squeeze (rho)
     Pi = np.squeeze (Pi)
+    veff = np.squeeze (veff)
 
     return veff 
 
