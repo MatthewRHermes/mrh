@@ -1,4 +1,5 @@
-from pyscf.lib import logger
+from pyscf import ao2mo
+from pyscf.lib import logger, pack_tril
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from scipy import linalg
 import numpy as np
@@ -32,6 +33,7 @@ def kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, veff2_mo
         raise NotImplementedError ('Molecular orbital slices for the two-body part')
     ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
     norbs_ao = ao2amo.shape[0]
+    npair = norbs_ao * (norbs_ao + 1) // 2
 
     veff1 = np.zeros_like (oneCDMs[0])
     veff2 = np.zeros ((norbs_ao, norbs_ao, norbs_ao, norbs_ao), dtype=veff1.dtype)
@@ -45,7 +47,7 @@ def kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, veff2_mo
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
         veff1 += ot.get_veff_1body (rho, Pi, ao, weight)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
-        veff2 += ot.get_veff_2body (rho, Pi, ao, weight)
+        veff2 += ot.get_veff_2body (rho, Pi, ao, weight, aosym='1')
         t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
     return veff1, veff2
 
@@ -99,8 +101,8 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
 
     return veff
 
-def get_veff_2body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
-    r''' get the derivatives dEot / dPpqrs
+def get_veff_2body (otfnal, rho, Pi, ao, weight, aosym='s4', kern=None, vao=None, **kwargs):
+    r''' get the derivatives dEot / dPijkl
 
     Args:
         rho : ndarray of shape (2,*,ngrids)
@@ -115,17 +117,21 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
             containing numerical integration weights
 
     Kwargs:
+        aosym : int or str
+            Index permutation symmetry of the desired integrals. Valid options are 
+            1 (or '1' or 's1'), 4 (or '4' or 's4'), '2ij' (or 's2ij'), and '2kl' (or 's2kl').
+            These have the same meaning as in PySCF's ao2mo module.
         kern : ndarray of shape (*,ngrids)
             the derivative of the on-top potential with respect to pair density (vot)
             If not provided, it is calculated.
+        vao : ndarray of shape (*,ngrids,nao,nao) or (*,ngrids,nao*(nao+1)//2)
+            An intermediate in which the kernel and the k,l orbital indices have been contracted
+            Overrides kl_symm if provided.
 
     Returns : eri-like ndarray
         The two-body effective potential corresponding to this on-top pair density
         exchange-correlation functional or elements thereof, in the provided basis.
     '''
-    if rho.ndim == 2:
-        rho = np.expand_dims (rho, 1)
-        Pi = np.expand_dims (Pi, 0)
 
     if isinstance (ao, np.ndarray) and ao.ndim == 3:
         ao = [ao,ao,ao,ao]
@@ -133,6 +139,47 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
         raise NotImplementedError ('fancy orbital subsets and fast evaluation in get_veff_2body')
     #elif isinstance (ao, np.ndarray) and ao.ndim == 4:
     #    ao = [a for a in ao]
+
+    if isinstance (aosym, int): aosym = str (aosym)
+    ij_symm = '4' in aosym or '2ij' in aosym
+    kl_symm = '4' in aosym or '2kl' in aosym
+
+    if vao is None: vao = get_veff_2body_kl (otfnal, rho, Pi, ao[2], ao[3], weight, symm=kl_symm, kern=kern)
+    nderiv = vao.shape[0]
+    ao2 = _contract_ao1_ao2 (ao[0], ao[1], nderiv, symm=ij_symm)
+    veff = np.tensordot (ao2, vao, axes=((0,1),(0,1)))
+
+    return veff 
+
+def get_veff_2body_kl (otfnal, rho, Pi, ao_k, ao_l, weight, symm=False, kern=None, **kwargs):
+    r''' get the two-index intermediate Mkl of dEot/dPijkl
+
+    Args:
+        rho : ndarray of shape (2,*,ngrids)
+            containing spin-density [and derivatives]
+        Pi : ndarray with shape (*,ngrids)
+            containing on-top pair density [and derivatives]
+        ao_k : ndarray of shape (*,ngrids,nao) OR list of ndarrays of shape (*,ngrids,*)
+            values and derivatives of atomic or molecular orbitals corresponding to index k
+        ao_l : ndarray of shape (*,ngrids,nao) OR list of ndarrays of shape (*,ngrids,*)
+            values and derivatives of atomic or molecular orbitals corresponding to index l
+        weight : ndarray of shape (ngrids)
+            containing numerical integration weights
+
+    Kwargs:
+        symm : logical
+            Index permutation symmetry of the desired integral wrt k,l
+        kern : ndarray of shape (*,ngrids)
+            the derivative of the on-top potential with respect to pair density (vot)
+            If not provided, it is calculated.
+
+    Returns : ndarray of shape (*,ngrids,nao,nao) or (*,ngrids,nao*(nao+1)//2)
+        An intermediate for calculating the two-body effective potential corresponding
+        to this on-top pair density exchange-correlation functional in the provided basis
+    '''
+    if rho.ndim == 2:
+        rho = np.expand_dims (rho, 1)
+        Pi = np.expand_dims (Pi, 0)
 
     if kern is None:
         kern = otfnal.get_dEot_dPi (rho, Pi, **kwargs) 
@@ -143,68 +190,66 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
 
     # Flatten deriv and grid so I can tensordot it all at once
     # Index symmetry can be built into _contract_ao1_ao2
-    ao2 = _contract_ao1_ao2 (ao[2], ao[3], nderiv)
-    ao2 = ao2.reshape (nderiv * ngrid, *ao2.shape[2:])
-    if ao[0].ndim == 3: ao[0] = np.expand_dims (ao[0], 0)
-    veff = np.empty ((ao[0].shape[0], ao[0].shape[-1], ao[1].shape[-1], ao[2].shape[-1], ao[3].shape[-1]), dtype=ao[0].dtype)
-    for ix, aoi in enumerate (ao[0]):
-        vao2 = _contract_ao1_ao2 (aoi, ao[1], nderiv, vot=kern)
-        vao2 = vao2.reshape (nderiv * ngrid, *vao2.shape[2:])
-        veff[ix] = np.tensordot (vao2, ao2, axes=(0,0))
+    vao = _contract_vot_ao (kern, ao_l)
+    vao = _contract_ao_vao (ao_k, vao, symm=symm)
+    return vao
 
-    '''
-    # Zeroth derivative
-    ao1 = ao[0][:nderiv,:,:,None] * ao[1][0][None,:,None,:]
-    ao2 = ao[2][:nderiv,:,:,None] * ao[3][0][None,:,None,:]
-    veff = np.tensordot (kern[0,:,None,None] * ao1[0], ao2[0], axes=(0,0))
-    #veff = np.einsum ('g,gp,gq,gr,gs->pqrs',kern[0],ao[0][0],ao[1][0],ao[2][0],ao[3][0])
-
-    # First derivatives
-    if nderiv > 1:
-        # Index 12
-        ao1[1:4] += ao[0][0][None,:,:,None] * ao[1][1:4,:,None,:]
-        veff += np.tensordot ((kern[1:4,:,None] * ao1[1:4]).sum (0), ao2[0], axes=(0,0))
-        # Index 34
-        ao2[1:4] += ao[2][0][None,:,:,None] * ao[3][1:4,:,None,:]
-        veff += np.tensordot (ao1[0], (kern[1:4,:,None] * ao2[1:4]).sum (0), axes=(0,0))
-    '''
-    rho = np.squeeze (rho)
-    Pi = np.squeeze (Pi)
-    veff = np.squeeze (veff)
-
-    return veff 
-
-def _contract_ao1_ao2 (ao1, ao2, nderiv, vot=None):
-    # The vectorization I have in ao1 here seems to make the calculation SLOWER???
-    # For the sake of vectorizing gradient calculations I am treating ao1 specially: it may
-    # have more than three dimensions
-    # AO1 dimensions: x, deriv, grid, p
-    # AO2 dimensions: deriv, grid, q
-    # Vot dimensions: deriv, grid
-    ao1 = np.expand_dims (ao1, -1)
-    ao2 = np.expand_dims (ao2, -2)
-    if ao1.ndim == 5:
-        ao1 = ao1.transpose (1,2,3,4,0)
-        ao2 = np.expand_dims (ao2, -1)
-    if vot is not None:
-        while vot.ndim < ao1.ndim: vot = np.expand_dims (vot, -1)
-    # Now the dimensions of everything are deriv, grid, p, q, x
+def _contract_ao1_ao2 (ao1, ao2, nderiv, vot=None, symm=False):
+    if symm:
+        ix_p, ix_q = np.tril_indices (ao1.shape[-1])
+        ao1 = ao1[:,:,ix_p]
+        ao2 = ao2[:,:,ix_q]
+    else:
+        ao1 = np.expand_dims (ao1, -1)
+        ao2 = np.expand_dims (ao2, -2)
     prod = ao1[:nderiv] * ao2[0]
     if nderiv > 1:
         prod[1:4] += ao1[0] * ao2[1:4] # Product rule
+    ao2 = None
     if vot is not None:
+        while vot.ndim < ao1.ndim: vot = np.expand_dims (vot, -1)
         ao1 = prod
-        ao2 = None
         prod = vot[:nderiv] * ao1[0] # Chain rule: still needs deriv
         if nderiv > 1:
             # Chain rule: deriv accounted for already
             prod[0] += (vot[1:4] * ao1[1:4]).sum (0)
-    # OK, now prod has dimensions deriv, grid, p, q, x, and x might not be there
-    # If x is there I want it to be before p and q but not before deriv and grid
-    # Maybe it makes more sense to fix this later but for now I'm doing it here
-    if prod.ndim == 5:
-        prod = prod.transpose (0,1,4,2,3)
+        ao1 = None
     return prod 
+
+def _contract_vot_ao (vot, ao):
+    nderiv = vot.shape[0]
+    vao = ao[0] * vot[:,:,None]
+    if nderiv > 1:
+        vao[0] += (ao[1:4] * vot[1:4,:,None]).sum (0)
+    return vao
+
+def _contract_ao_vao (ao, vao, symm=False):
+    r''' Outer-product of ao grid and vot * ao grid
+    Can be used with two-orb-dimensional vao if the last two dimensions are flattened into "nao"
+
+    Args:
+        ao : ndarray of shape (*,ngrids,nao1)
+        vao : ndarray of shape (nderiv,ngrids,nao2)
+
+    Kwargs:
+        symm : logical
+            If true, nao1 == nao2 must be true
+
+    Returns: ndarray of shape (nderiv,ngrids,nao1,nao2) or (nderiv,ngrids,nao1*(nao1+1)//2)
+    '''
+
+    nderiv = vao.shape[0]
+    if symm:
+        ix_p, ix_q = np.tril_indices (ao.shape[-1])
+        ao = ao[:,:,ix_p]
+        vao = vao[:,:,ix_q]
+    else:
+        ao = np.expand_dims (ao, -1)
+        vao = np.expand_dims (vao, -2)
+    prod = ao[0] * vao
+    if nderiv > 1:
+        prod[0] += (ao[1:4] * vao[1:4]).sum (0)
+    return prod
 
 def _contract_vot_rho (vot, rho, add_vrho=None):
     ''' Make a jk-like vrho from vot and a density. k = j so it's just vot * vrho / 2,

@@ -79,6 +79,7 @@ class otfnal:
         return 0
 
     get_veff_2body = pdft_veff.get_veff_2body
+    get_veff_2body_kl = pdft_veff.get_veff_2body_kl
 
     def get_dEot_dPi (self, rho, Pi, **kwargs):
         r''' get the functional derivative dE_ot/dPi
@@ -243,6 +244,7 @@ class transfnal (otfnal):
     get_bare_vxc = tfnal_derivs.get_bare_vxc
     get_dEot_drho = tfnal_derivs.get_dEot_drho
     get_dEot_dPi = tfnal_derivs.get_dEot_dPi
+
 
 
 _FT_R0_DEFAULT=0.9
