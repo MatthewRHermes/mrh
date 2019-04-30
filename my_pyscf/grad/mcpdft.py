@@ -98,15 +98,14 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     make_rho_a = ot._numint._gen_rho_evaluator (mol, dm_cas, 1) 
     dv1 = np.zeros ((3,nao,nao)) # Term which should be contracted with the whole density matrix
     dv1_a = np.zeros ((3,nao,nao)) # Term which should only be contracted with the core density matrix
-    dv2 = np.zeros ((3,nao,ncas,ncas*(ncas+1)//2))
+    dv2 = np.zeros ((3,nao))
     idx = np.array ([[1,4,5,6],[2,5,7,8],[3,6,8,9]], dtype=np.int_) # For addressing particular ao derivatives
     if ot.xctype == 'LDA': idx = idx[:,0] # For LDAs no second derivatives
     diag_idx = np.arange(ncas) # for puvx
     diag_idx = diag_idx * (diag_idx+1) // 2 + diag_idx
-    casdm2_puvx = (casdm2 + casdm2.transpose (0,1,3,2)).reshape (ncas**2, ncas, ncas)
-    casdm2_puvx = pack_tril (casdm2_puvx).reshape (ncas, ncas, -1)
-    casdm2_puvx[:,:,diag_idx] *= 0.5
-    casdm2_puvx = np.tensordot (mo_cas, casdm2_puvx, axes=1)
+    casdm2_pack = (casdm2 + casdm2.transpose (0,1,3,2)).reshape (ncas**2, ncas, ncas)
+    casdm2_pack = pack_tril (casdm2_pack).reshape (ncas, ncas, -1)
+    casdm2_pack[:,:,diag_idx] *= 0.5
     diag_idx = np.arange(ncore, dtype=np.int_) * (ncore + 1) # for pqii
     full_atmlst = -np.ones (mol.natm, dtype=np.int_)
     t1 = logger.timer (mc, 'PDFT HlFn quadrature setup', *t0)
@@ -156,9 +155,13 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
         # Vpuvx
         tmp_dv = ot.get_veff_2body_kl (rho, Pi, moval_cas, moval_cas, w0, symm=True, kern=vot) # ndpi,ngrids,ncas*(ncas+1)//2
-        tmp_dv = _contract_ao_vao (moval_cas, tmp_dv, symm=False) # ndpi, ngrids, ncas, ncas*(ncas+1)//2
-        tmp_dv = np.tensordot (ao[idx[:,:ndpi]], tmp_dv, axes=((1,2),(0,1))) # comp, nao, ncas, ncas*(ncas+1)//2
-        if k >= 0: de_grid[k] += 2 * np.einsum ('xpuv,puv->x', tmp_dv, casdm2_puvx) # Grid response
+        tmp_dv = np.tensordot (tmp_dv, casdm2_pack, axes=(-1,-1)) # ndpi, ngrids, ncas, ncas
+        tmp_dv[0] = (tmp_dv[:ndpi] * moval_cas[:ndpi,:,None,:]).sum (0) # Chain and product rule
+        tmp_dv[1:ndpi] *= moval_cas[0,:,None,:] # Chain and product rule
+        tmp_dv = tmp_dv.sum (-1) # ndpi, ngrids, ncas
+        tmp_dv = np.tensordot (ao[idx[:,:ndpi]], tmp_dv, axes=((1,2),(0,1))) # comp, nao (orb), ncas (dm2)
+        tmp_dv = np.einsum ('cpu,pu->cp', tmp_dv, mo_cas) # comp, ncas
+        if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1)
         dv2 -= tmp_dv # XC response
         t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx'.format (ia), *t1)
 
@@ -171,7 +174,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         de_coul[k] += np.einsum('xij,ij->x', vj[:,p0:p1], dm1[p0:p1]) * 2
         de_xc[k] += np.einsum ('xij,ij->x', dv1[:,p0:p1], dm1[p0:p1]) * 2 # Full quadrature, only some orbitals
         de_xc[k] += np.einsum ('xij,ij->x', dv1_a[:,p0:p1], dm_core[p0:p1]) * 2 # Ditto
-        de_xc[k] += np.einsum ('xpuv,puv->x', dv2[:,p0:p1], casdm2_puvx[p0:p1]) * 2 # Ditto
+        de_xc[k] += dv2[:,p0:p1].sum (1) * 2 # Ditto
 
     de_nuc = mf_grad.grad_nuc(mol, atmlst)
 
