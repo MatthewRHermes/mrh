@@ -1,11 +1,126 @@
 from pyscf import ao2mo
-from pyscf.lib import logger, pack_tril
+from pyscf.lib import logger, pack_tril, unpack_tril
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from scipy import linalg
 import numpy as np
 import time
 
-def kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, veff2_mo=None):
+class _ERIS(object):
+    def __init__(self, mo_coeff, ncore, ncas, method='incore'):
+        self.nao, self.nmo = mo_coeff.shape
+        self.ncore = ncore
+        self.ncas = ncas
+        self.vhf_c = np.zeros ((self.nmo, self.nmo), dtype=mo_coeff.dtype)
+        self.method = method
+        if method == 'incore':
+            npair = self.nmo * (self.nmo+1) // 2
+            #self._eri = np.zeros ((npair, npair))
+            npair_cas = ncas * (ncas+1) // 2
+            self.ppaa = np.zeros ((npair, npair_cas), dtype=mo_coeff.dtype)
+            #self.ppaa = np.zeros ((self.nmo, self.nmo, ncas, ncas), dtype=mo_coeff.dtype)
+            self.j_pc = np.zeros ((self.nmo, ncore), dtype=mo_coeff.dtype)
+        else:
+            raise NotImplementedError ("method={} for veff2".format (self.method))
+
+    def _accumulate (self, ot, rho, Pi, mo, weight, rho_c, vPi):
+        if self.method == 'incore':
+            self._accumulate_incore (ot, rho, Pi, mo, weight, rho_c, vPi) 
+        else:
+            raise NotImplementedError ("method={} for veff2".format (self.method))
+
+    def _accumulate_incore (self, ot, rho, Pi, mo, weight, rho_c, vPi):
+        #self._eri += ot.get_veff_2body (rho, Pi, mo, weight, aosym='s4', kern=vPi)
+        # vhf_c
+        vrho_c = _contract_vot_rho (vPi, rho_c)
+        self.vhf_c += ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_c)
+        # ppaa
+        ncore, ncas = self.ncore, self.ncas
+        mo_cas = mo[:,:,ncore:][:,:,:ncas]
+        self.ppaa += ot.get_veff_2body (rho, Pi, [mo, mo, mo_cas, mo_cas], weight, aosym='s4', kern=vPi)
+        # j_pc
+        mo = _square_ao (mo)
+        mo_core = mo[:,:,:ncore]
+        self.j_pc += ot.get_veff_1body (rho, Pi, [mo, mo_core], weight, kern=vPi)
+
+    def _finalize (self):
+        if self.method == 'incore':
+            nmo, ncore, ncas = self.nmo, self.ncore, self.ncas
+            nocc = ncore + ncas
+            '''
+            diag_idx = np.arange (nmo)
+            diag_idx = diag_idx * (diag_idx+1) // 2 + diag_idx
+            self.j_pc = np.ascontiguousarray (self._eri[np.ix_(diag_idx,diag_idx[:ncore])])
+            self.vhf_c = unpack_tril (self._eri[:,diag_idx[:ncore]].sum (-1))
+            self._eri = ao2mo.restore (1, self._eri, nmo)
+            self.ppaa = np.ascontiguousarray (self._eri[:,:,ncore:nocc,ncore:nocc])
+            self._eri = None
+            '''
+            self.ppaa = unpack_tril (self.ppaa, axis=0)
+            self.ppaa = unpack_tril (self.ppaa, axis=-1).reshape (nmo, nmo, ncas, ncas)
+            self.papa = np.ascontiguousarray (self.ppaa.transpose (0,2,1,3))
+            self.k_pc = self.j_pc.copy ()
+        else:
+            raise NotImplementedError ("method={} for veff2".format (self.method))
+        self.k_pc = self.j_pc.copy ()
+
+def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, hermi=1, veff2_mo=None):
+    ''' Get the 1- and 2-body effective potential from MC-PDFT. Eventually I'll be able to specify
+        mo slices for the 2-body part
+
+        Args:
+            ot : an instance of otfnal class
+            oneCDMs : ndarray of shape (2, nao, nao)
+                containing spin-separated one-body density matrices
+            twoCDM_amo : ndarray of shape (ncas, ncas, ncas, ncas)
+                containing spin-summed two-body cumulant density matrix in an active space
+            ao2amo : ndarray of shape (nao, ncas)
+                containing molecular orbital coefficients for active-space orbitals
+
+        Kwargs:
+            max_memory : int or float
+                maximum cache size in MB
+                default is 20000
+            hermi : int
+                1 if 1CDMs are assumed hermitian, 0 otherwise
+
+        Returns : float
+            The MC-PDFT on-top exchange-correlation energy
+
+    '''
+    if veff2_mo is not None:
+        raise NotImplementedError ('Molecular orbital slices for the two-body part')
+    ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
+    norbs_ao = mo_coeff.shape[0]
+    mo_core = mo_coeff[:,:ncore]
+    ao2amo = mo_coeff[:,ncore:][:,:ncas]
+    npair = norbs_ao * (norbs_ao + 1) // 2
+
+    veff1 = np.zeros_like (oneCDMs[0])
+    veff2 = _ERIS (mo_coeff, ncore, ncas)
+
+    t0 = (time.clock (), time.time ())
+    dm_core = mo_core @ mo_core.T * 2
+    make_rho_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)
+    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
+    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory):
+        rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
+        rho_c = make_rho_c [0] (0, ao, mask, xctype)
+        t0 = logger.timer (ot, 'untransformed densities (core and total)', *t0)
+        Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, dens_deriv)
+        t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
+        eot, vrho, vPi = ot.eval_ot (rho, Pi, weights=weight)
+        t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
+        veff1 += ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho)
+        t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
+        ao = np.tensordot (ao, mo_coeff, axes=1)
+        t0 = logger.timer (ot, 'ao2mo grid points', *t0)
+        veff2._accumulate (ot, rho, Pi, ao, weight, rho_c, vPi)
+        t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
+    veff2._finalize ()
+    t0 = logger.timer (ot, 'Finalizing 2-body effective potential calculation', *t0)
+    return veff1, veff2
+
+def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, veff2_mo=None):
     ''' Get the 1- and 2-body effective potential from MC-PDFT. Eventually I'll be able to specify
         mo slices for the 2-body part
 
@@ -36,7 +151,7 @@ def kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, veff2_mo
     npair = norbs_ao * (norbs_ao + 1) // 2
 
     veff1 = np.zeros_like (oneCDMs[0])
-    veff2 = np.zeros ((norbs_ao, norbs_ao, norbs_ao, norbs_ao), dtype=veff1.dtype)
+    veff2 = np.zeros ((npair, npair), dtype=veff1.dtype)
 
     t0 = (time.clock (), time.time ())
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
@@ -45,14 +160,18 @@ def kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, veff2_mo
         t0 = logger.timer (ot, 'untransformed density', *t0)
         Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, dens_deriv)
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
-        veff1 += ot.get_veff_1body (rho, Pi, ao, weight)
+        eot, vrho, vPi = ot.eval_ot (rho, Pi, weights=weight)
+        t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
+        veff1 += ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
-        veff2 += ot.get_veff_2body (rho, Pi, ao, weight, aosym='1')
+        veff2 += ot.get_veff_2body (rho, Pi, ao, weight, aosym='s4', kern=vPi)
         t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
     return veff1, veff2
 
 def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
     r''' get the derivatives dEot / dDpq
+    Can also be abused to get semidiagonal dEot / dPppqq if you pass the right kern and
+    squared aos/mos
 
     Args:
         rho : ndarray of shape (2,*,ngrids)
@@ -121,6 +240,8 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, aosym='s4', kern=None, vao=None
             Index permutation symmetry of the desired integrals. Valid options are 
             1 (or '1' or 's1'), 4 (or '4' or 's4'), '2ij' (or 's2ij'), and '2kl' (or 's2kl').
             These have the same meaning as in PySCF's ao2mo module.
+            Currently all symmetry exploitation is extremely slow and unparallelizable for some reason
+            so trying to use this is not recommended until I come up with a C routine
         kern : ndarray of shape (*,ngrids)
             the derivative of the on-top potential with respect to pair density (vot)
             If not provided, it is calculated.
@@ -194,26 +315,28 @@ def get_veff_2body_kl (otfnal, rho, Pi, ao_k, ao_l, weight, symm=False, kern=Non
     vao = _contract_ao_vao (ao_k, vao, symm=symm)
     return vao
 
-def _contract_ao1_ao2 (ao1, ao2, nderiv, vot=None, symm=False):
+def _square_ao (ao):
+    nderiv = ao.shape[0]
+    ao_sq = ao * ao[0]
+    if nderiv > 1:
+        ao_sq[1:4] *= 2
+    if nderiv > 4:
+        ao_sq[4:10] += ao[1:4]**2
+        ao_sq[4:10] *= 2
+    return ao_sq
+
+def _contract_ao1_ao2 (ao1, ao2, nderiv, symm=False):
     if symm:
         ix_p, ix_q = np.tril_indices (ao1.shape[-1])
-        ao1 = ao1[:,:,ix_p]
-        ao2 = ao2[:,:,ix_q]
+        ao1 = ao1[:nderiv,:,ix_p]
+        ao2 = ao2[:nderiv,:,ix_q]
     else:
-        ao1 = np.expand_dims (ao1, -1)
-        ao2 = np.expand_dims (ao2, -2)
+        ao1 = np.expand_dims (ao1, -1)[:nderiv]
+        ao2 = np.expand_dims (ao2, -2)[:nderiv]
     prod = ao1[:nderiv] * ao2[0]
     if nderiv > 1:
         prod[1:4] += ao1[0] * ao2[1:4] # Product rule
     ao2 = None
-    if vot is not None:
-        while vot.ndim < ao1.ndim: vot = np.expand_dims (vot, -1)
-        ao1 = prod
-        prod = vot[:nderiv] * ao1[0] # Chain rule: still needs deriv
-        if nderiv > 1:
-            # Chain rule: deriv accounted for already
-            prod[0] += (vot[1:4] * ao1[1:4]).sum (0)
-        ao1 = None
     return prod 
 
 def _contract_vot_ao (vot, ao):

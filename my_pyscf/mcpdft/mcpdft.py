@@ -227,14 +227,29 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, self.ncas, self.nelecas), axis=0)
             adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (ci, self.ncas, self.nelecas)[1], adm1s)
             mo_cas = mo[:,self.ncore:][:,:self.ncas]
-            pdft_veff1, _pdft_veff2 = pdft_veff.kernel (self.otfnal, dm1s, adm2, mo_cas)
-            old_eri = self._scf._eri
-            self._scf._eri = _pdft_veff2
-            with temporary_env (self.mol, incore_anyway=True):
-                pdft_veff2 = mc_ao2mo._ERIS (self, mo, method='incore')
-            self._scf._eri = old_eri
-            # _ERIS.vhf_c is not what it appears to be. It is calculated using the scf object, not the integrals.
-            # However setting self._scf._eri = _pdft_veff2 appears to solve this problem...
+            pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, dm1s, adm2, mo, self.ncore, self.ncas)
+            if self.verbose > logger.DEBUG:
+                logger.debug (self, 'Warning: memory-intensive lazy kernel for pdft_veff initiated for '
+                    'testing purposes; reduce verbosity to decrease memory footprint')
+                pdft_veff1_test, _pdft_veff2_test = pdft_veff.lazy_kernel (self.otfnal, dm1s, adm2, mo_cas)
+                old_eri = self._scf._eri
+                self._scf._eri = _pdft_veff2_test
+                with temporary_env (self.mol, incore_anyway=True):
+                    pdft_veff2_test = mc_ao2mo._ERIS (self, mo, method='incore')
+                self._scf._eri = old_eri
+                err = linalg.norm (pdft_veff1 - pdft_veff1_test)
+                logger.debug (self, 'veff1 error: {}'.format (err))
+                err = linalg.norm (pdft_veff2.vhf_c - pdft_veff2_test.vhf_c)
+                logger.debug (self, 'veff2.vhf_c error: {}'.format (err))
+                err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
+                logger.debug (self, 'veff2.ppaa error: {}'.format (err))
+                err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
+                logger.debug (self, 'veff2.papa error: {}'.format (err))
+                err = linalg.norm (pdft_veff2.j_pc - pdft_veff2_test.j_pc)
+                logger.debug (self, 'veff2.j_pc error: {}'.format (err))
+                err = linalg.norm (pdft_veff2.k_pc - pdft_veff2_test.k_pc)
+                logger.debug (self, 'veff2.k_pc error: {}'.format (err))
+            
             if incl_coul:
                 pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
             logger.timer (self, 'get_pdft_veff', *t0)

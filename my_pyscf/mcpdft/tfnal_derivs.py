@@ -12,8 +12,9 @@ def eval_ot (otfnal, rho, Pi, weights=None):
 
     Kwargs:
         weights : ndarray of shape (ngrids)
-            used only for debugging the total number of ``translated''
+            used ONLY for debugging the total number of ``translated''
             electrons in the calculation of rho_t
+            Not multiplied into anything!
 
     Returns: 
         eot : ndarray of shape (ngrids)
