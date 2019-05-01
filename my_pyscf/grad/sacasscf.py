@@ -168,9 +168,9 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     # on the other hand, mf_grad.hcore_generator computes the actual derivative of
     # h1 for both indices and with the correct sign
 
-    #print ("Orb lagrange hcore component:\n{}".format (de_hcore))
-    #print ("Orb lagrange renorm component:\n{}".format (de_renorm))
-    #print ("Orb lagrange eri component:\n{}".format (de_eri))
+    lib.logger.debug (mc, "Orb lagrange hcore component:\n{}".format (de_hcore))
+    lib.logger.debug (mc, "Orb lagrange renorm component:\n{}".format (de_renorm))
+    lib.logger.debug (mc, "Orb lagrange eri component:\n{}".format (de_eri))
     de = de_hcore + de_renorm + de_eri
 
     return de
@@ -276,9 +276,9 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
         de_eri[k] += np.einsum('xij,ij->x', vhf1c[:,p0:p1], dm_cas[p0:p1]) * 2
         de_eri[k] += np.einsum('xij,ij->x', vhf1a[:,p0:p1], dm_core[p0:p1]) * 2
 
-    #print ("CI lagrange hcore component:\n{}".format (de_hcore))
-    #print ("CI lagrange renorm component:\n{}".format (de_renorm))
-    #print ("CI lagrange eri component:\n{}".format (de_eri))
+    lib.logger.debug (mc, "CI lagrange hcore component:\n{}".format (de_hcore))
+    lib.logger.debug (mc, "CI lagrange renorm component:\n{}".format (de_renorm))
+    lib.logger.debug (mc, "CI lagrange eri component:\n{}".format (de_eri))
     de = de_hcore + de_renorm + de_eri
     return de
 
