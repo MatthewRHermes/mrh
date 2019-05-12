@@ -25,7 +25,6 @@ def get_rotational_coordinates (carts, masses):
     RXt = np.dot (carts, X.T)
     for iatm in range (natm):
         u[iatm] = np.stack ([np.cross (RXt[iatm], xyz) for xyz in X], axis=0)
-    u = u.transpose (0,2,1)
     u /= np.sqrt (masses)[:,None,None]
     # Remove norm = 0 modes (linear molecules)
     norm_u = (u * u).sum ((0,1))
