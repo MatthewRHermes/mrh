@@ -19,7 +19,7 @@ def get_rotational_coordinates (carts, masses):
     I = rad2[:,None,None] * np.stack ([np.eye (3) for iatm in range (natm)], axis=0)
     I -= np.stack ([np.outer (icart, icart) for icart in carts], axis=0)
     I = np.einsum ('m,mij->ij', masses, I)
-    X, mI = linalg.eigh (I)
+    mI, X = linalg.eigh (I)
     # Generate rotational coordinates: cross-product of X axes with radial displacement from X axes
     u = np.zeros ((natm, 3, 3))
     RXt = np.dot (carts, X.T)
@@ -29,22 +29,22 @@ def get_rotational_coordinates (carts, masses):
     # Remove norm = 0 modes (linear molecules)
     norm_u = (u * u).sum ((0,1))
     idx = norm_u > 1e-8
-    u = u[:,:,idx]
+    u = u[:,:,idx] / np.sqrt (norm_u[idx])[None,None,:]
     mI = mI[idx]
     return mI, u
 
 class InternalCoords (object):
     def __init__(self, mol):
         self.mol = mol
-        self.masses = mol.get_atom_masses ()
-        self.carts = mol.get_atom_coords ()
+        self.masses = mol.atom_mass_list ()
+        self.carts = mol.atom_coords ()
     def get_coords (self, carts=None, include_inertia=False):
         if carts is None: carts = self.carts
         utrans = get_translational_coordinates (carts, self.masses)
         mI, urot = get_rotational_coordinates (carts, self.masses)
         nextr = utrans.shape[-1] + urot.shape[-1]
         nintr = carts.size - nextr
-        uall = linalg.qr (np.append (utrans, urot, axis=-1).reshape (3*self.mol.natm,nextr))
+        uall = linalg.qr (np.append (utrans, urot, axis=-1).reshape (3*self.mol.natm,nextr))[0]
         uvib = uall[:,nextr:].reshape (self.mol.natm, 3, nintr)
         if include_inertia: return utrans, urot, uvib, mI
         return utrans, urot, uvib
