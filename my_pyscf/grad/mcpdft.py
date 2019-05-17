@@ -218,10 +218,14 @@ class Gradients (sacasscf.Gradients):
 
         g_all = np.zeros (self.nlag)
         g_all[:self.ngorb] = g_all_iroot[:self.ngorb]
-        # No need to reshape or anything, just use the magic of repeated slicing
-        g_all[self.ngorb:][ndet*iroot:][:ndet] = g_all_iroot[self.ngorb:]
-
         # Do I need to project away a component of the gradient here? Very much maybe.
+        gci = g_all_iroot[self.ngorb:]
+        ci_arr = np.asarray (ci).reshape (self.nroots, -1)
+        ovlp = np.dot (ci_arr, gci)
+        gci -= (ovlp[:,None] * ci_arr).sum (0) 
+        # No need to reshape or anything, just use the magic of repeated slicing
+        g_all[self.ngorb:][ndet*iroot:][:ndet] = gci[:]
+
         return g_all
 
     def get_ham_response (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, veff1=None, veff2=None, **kwargs):

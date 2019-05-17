@@ -1166,7 +1166,7 @@ class dmet:
         mat = represent_operator_in_basis (mat, aoSloc)
         if self.doLASSCF:
             self.ints.oneRDM_loc = mat.copy ()
-            if prev_mol is not None:
+            if prev_mol and not same_mol (prev_mol, self.ints.mol, cmp_basis = False):
                 assert (abs (np.trace (self.ints.oneRDM_loc) - self.ints.nelec_tot) < 1e-8), "checkpoint oneRDM trace = {}; nelec_tot = {}".format (
                     np.trace (self.ints.oneRDM_loc), self.ints.nelec_tot)
         else:
@@ -1184,14 +1184,16 @@ class dmet:
                 f.twoCDMimp_amo, chkdata = chkdata[:namo**4].reshape (namo, namo, namo, namo, order='C'), chkdata[namo**4:]
                 if prev_mol and same_mol (prev_mol, self.ints.mol, cmp_basis=False): f.loc2amo = project_mo_nr2nr (prev_mol, f.loc2amo, self.ints.mol)
                 f.loc2amo = np.dot (locSao, f.loc2amo)
+                # Normalize
+                amo_norm = (f.loc2amo * f.loc2amo).sum (0)
+                f.loc2amo /= np.sqrt (amo_norm)[None,:]
+                # orthogonalize and natorbify
                 ovlp = np.dot (f.loc2amo.conjugate ().T, f.loc2amo)
-                evecs = orth.lowdin (ovlp)
-                f.loc2amo = np.dot (f.loc2amo, evecs)
-                f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, evecs)
-                # natorbify
-                no_occ, no_evecs = matrix_eigen_control_options (f.oneRDMas_loc, sort_vecs=-1, only_nonzero_vals=False)
-                f.loc2amo = np.dot (f.loc2amo, no_evecs)
-                f.oneRDMas_loc = represent_operator_in_basis (np.diag (no_occ), f.loc2amo.conjugate ().T)
+                print ("{} fragment amo overlap matrix (trace = {}):\n{}".format (
+                    f.frag_name, np.trace (ovlp), prettyprint (ovlp, fmt='{:6.3f}')))
+                no_occ, no_evecs = matrix_eigen_control_options (f.oneRDMas_loc, b_matrix=ovlp, sort_vecs=-1)
+                f.loc2amo = f.loc2amo @ no_evecs
+                f.oneRDMas_loc = (no_occ[None,:] * f.loc2amo) @ f.loc2amo.conjugate ().T
                 f.twoCDMimp_amo = represent_operator_in_basis (f.twoCDMimp_amo, no_evecs)
                 print ("{} fragment oneRDM_amo (trace = {}):\n{}".format (
                     f.frag_name, np.trace (f.oneRDMas_loc), prettyprint (represent_operator_in_basis (f.oneRDMas_loc, f.loc2amo), fmt='{:6.3f}')))

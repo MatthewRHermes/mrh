@@ -7,6 +7,8 @@ def get_translational_coordinates (carts, masses):
     natm = carts.shape[0]
     u = np.stack ([np.eye (3) for iatm in range (natm)], axis=0)
     u *= np.sqrt (masses)[:,None,None]
+    norm_u = (u*u).sum ((0,1))
+    u /= np.sqrt (norm_u)[None,None,:]
     return u
 
 def get_rotational_coordinates (carts, masses):
@@ -25,7 +27,7 @@ def get_rotational_coordinates (carts, masses):
     RXt = np.dot (carts, X.T)
     for iatm in range (natm):
         u[iatm] = np.stack ([np.cross (RXt[iatm], xyz) for xyz in X], axis=0)
-    u /= np.sqrt (masses)[:,None,None]
+    u *= np.sqrt (masses)[:,None,None]
     # Remove norm = 0 modes (linear molecules)
     norm_u = (u * u).sum ((0,1))
     idx = norm_u > 1e-8
@@ -38,37 +40,41 @@ class InternalCoords (object):
         self.mol = mol
         self.masses = mol.atom_mass_list ()
         self.carts = mol.atom_coords ()
-    def get_coords (self, carts=None, include_inertia=False):
+    def get_coords (self, carts=None, include_inertia=False, mass_weighted=True, guess_uvib=None):
         if carts is None: carts = self.carts
         utrans = get_translational_coordinates (carts, self.masses)
         mI, urot = get_rotational_coordinates (carts, self.masses)
-        nextr = utrans.shape[-1] + urot.shape[-1]
-        nintr = carts.size - nextr
-        uall = linalg.qr (np.append (utrans, urot, axis=-1).reshape (3*self.mol.natm,nextr))[0]
-        uvib = uall[:,nextr:].reshape (self.mol.natm, 3, nintr)
+        nrot = urot.shape[-1]
+        ntrans = 3
+        nvib = 0
+        uall = np.append (urot, utrans, axis=-1)
+        if guess_uvib is not None:
+            uall = np.append (uall, guess_uvib, axis=-1)
+            nvib = guess_uvib.shape[-1]
+        uall = linalg.qr (uall.reshape (3*self.mol.natm,nrot+ntrans+nvib))[0]
+        uvib = uall[:,nrot+ntrans:].reshape (self.mol.natm, 3, -1)
+        if not mass_weighted:
+            utrans /= np.sqrt (self.masses)[:,None,None]
+            urot /= np.sqrt (self.masses)[:,None,None]
+            uvib /= np.sqrt (self.masses)[:,None,None]
         if include_inertia: return utrans, urot, uvib, mI
         return utrans, urot, uvib
-    def transform_1body (vec, carts=None):
-        utrans, urot, uvib = self.get_coords (carts=carts)
-        vec /= np.sqrt (self.masses)[:,None]
-        vec = vec.ravel ()
-        vec_t = np.dot (vec, utrans.reshape (3*mol.natm, -1))
-        vec_r = np.dot (vec, urot.reshape (3*mol.natm, -1))
-        vec_v = np.dot (vec, uvib.reshape (3*mol.natm, -1))
+    def transform_1body (self, vec, carts=None):
+        utrans, urot, uvib = self.get_coords (carts=carts, mass_weighted=False)
+        vec_t = np.tensordot (vec, utrans, axes=((0,1),(0,1)))
+        vec_r = np.tensordot (vec, urot,   axes=((0,1),(0,1)))
+        vec_v = np.tensordot (vec, uvib,   axes=((0,1),(0,1)))
         return vec_t, vec_r, vec_v
-    def _project_1body (vec, carts=None, idx=None):
-        uvib = self.get_coords (carts=carts)[idx].reshape (3*mol.natm, -1)
-        vec /= np.sqrt (self.masses)[:,None]
-        vec = vec.ravel ()
-        vec = np.dot (vec, uvib)
-        vec = np.dot (uvib.conjugate (), vec).reshape (3, mol.natm)
-        vec *= np.sqrt (self.masses)[:,None]
+    def _project_1body (self, vec, carts=None, idx=None):
+        uvib = self.get_coords (carts=carts)[idx]
+        vec = np.tensordot (vec, uvib, axes((0,1),(0,1)))
+        vec = np.dot (uvib.conjugate (), vec)
         return vec
-    def project_1body_trans (vec, carts=None):
+    def project_1body_trans (self, vec, carts=None):
         return self._project_1body (vec, carts=carts, idx=0)
-    def project_1body_rot (vec, carts=None):
+    def project_1body_rot (self, vec, carts=None):
         return self._project_1body (vec, carts=carts, idx=1)
-    def project_1body_vib (vec, carts=None):
+    def project_1body_vib (self, vec, carts=None):
         return self._project_1body (vec, carts=carts, idx=2)
 
 

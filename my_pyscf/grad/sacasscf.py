@@ -347,6 +347,7 @@ class Gradients (lagrange.Gradients):
             self.e_avg = (self.weights * self.e_states).sum ()
         assert (len (self.weights) == self.nroots), '{} {}'.format (self.weights, self.nroots)
         lagrange.Gradients.__init__(self, mc.mol, self.ngorb+self.nci, mc)
+        self.max_cycle = mc.max_cycle_macro
 
     def make_fcasscf (self, casscf_attr={}, fcisolver_attr={}):
         ''' Make a fake CASSCF object for ostensible single-state calculations '''
