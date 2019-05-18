@@ -7,7 +7,7 @@ from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.fci.direct_spin1_symm import _gen_strs_irrep, _id_wfnsym
 from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, pretty_ddaddrs
-from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det, transform_opmat_det2csf, count_all_csfs, make_econf_csf_mask
+from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det, transform_opmat_det2csf, count_all_csfs, make_econf_csf_mask, make_confsym
 from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf, make_hdiag_det, unpack_h1e_cs
 '''
     MRH 03/24/2019
@@ -51,7 +51,7 @@ class FCISolver (direct_spin1_symm.FCISolver):
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
         hc = super().contract_2e(eri, fcivec, norb, nelec, link_index, **kwargs)
         if hasattr (eri, 'h1e_s'):
-           hc += direct_uhf.contract_1e ([h1e_s, -h1e_s], fcivec, norb, nelec, link_index)  
+           hc += direct_uhf.contract_1e ([eri.h1e_s, -eri.h1e_s], fcivec, norb, nelec, link_index)  
         return hc
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):

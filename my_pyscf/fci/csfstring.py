@@ -10,6 +10,7 @@ from scipy import special, linalg
 from mrh.util.io import prettyprint_ndarray
 from functools import reduce
 from mrh.lib.helper import load_library
+from pyscf.fci.direct_spin1_symm import _gen_strs_irrep
 libcsf = load_library ('libcsf')
 
 class CSFTransformer (lib.StreamObject):
@@ -209,6 +210,8 @@ def pack_sym_ci (ci, idx, vec_on_cols=False):
         return dummy
     else:
         assert (ci.ndim == 1)
+        return ci[idx]
+        
 
 def make_confsym (norb, neleca, nelecb, econf_det_mask, orbsym):
     strsa = cistring.gen_strings4orblist(range(norb), neleca)
