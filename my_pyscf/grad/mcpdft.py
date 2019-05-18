@@ -219,10 +219,11 @@ class Gradients (sacasscf.Gradients):
         g_all = np.zeros (self.nlag)
         g_all[:self.ngorb] = g_all_iroot[:self.ngorb]
         # Do I need to project away a component of the gradient here? Very much maybe.
+        # But probably only the part parallel to iroot itself
         gci = g_all_iroot[self.ngorb:]
-        ci_arr = np.asarray (ci).reshape (self.nroots, -1)
+        ci_arr = np.asarray (ci).reshape (self.nroots, -1)[iroot]
         ovlp = np.dot (ci_arr, gci)
-        gci -= (ovlp[:,None] * ci_arr).sum (0) 
+        gci -= ovlp * ci_arr
         # No need to reshape or anything, just use the magic of repeated slicing
         g_all[self.ngorb:][ndet*iroot:][:ndet] = gci[:]
 
@@ -252,5 +253,37 @@ class Gradients (sacasscf.Gradients):
         kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True)
         return super().kernel (**kwargs)
 
+    def get_Rci_fix (self, Rci_cross, Sci):
+        ''' For a CI preconditioner of type RI - |K>D(I)_KJ<J|RI, get the matrices |K>D(I)_KJ, where I,J,K index roots of the CASCI problem.
+            Overwrite this in MC-PDFT child class to allow Lagrange multipliers to mix states in the SA
+            space but not redundantly span the root vector itself (i.e., make D_IJ diagonal).  In SA-CASSCF,
+            D_IJ = RI|K>(<K|RI|J>)^-1.'''
+        # Rci_cross has indices I, det, J
+        # Sci[I,J,K] = <J|R_I|K> 
+        # Sci has indices I, J, K
+        # Rci_fix has indices I, det, K
+        Rci_fix = np.zeros_like (Rci_cross)
+        Sci = np.einsum ("iii->i", Sci)
+        Rci_cross = np.einsum ("iji->ij", Rci_cross)
+        Rci_fix_diag = Rci_cross / Sci[:,None]
+        for iroot in range (self.nroots):
+            Rci_fix[iroot,:,iroot] = Rci_fix_diag[iroot,:]
+        return Rci_fix
+
+    def project_Aop (self, Aop, ci, iroot):
+        ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
+            changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
+        def my_Aop (x):
+            Ax = Aop (x)
+            x_ci = x[self.ngorb:].reshape (self.nroots, -1)
+            Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
+            ci_arr = np.asarray (ci).reshape (self.nroots, -1)
+            # Prevent states only from rotating into themselves
+            ovlp = (ci_arr.conjugate () * Ax_ci).sum (1)
+            Ax_ci -= ovlp[:,None] * ci_arr
+
+            Ax[self.ngorb:] = Ax_ci.ravel ()
+            return Ax
+        return my_Aop
 
 

@@ -400,6 +400,7 @@ class Gradients (lagrange.Gradients):
         return g_all
 
     def get_Aop_Adiag (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, eris=None, level_shift=None, **kwargs):
+        if iroot is None: iroot = self.iroot
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
@@ -412,15 +413,8 @@ class Gradients (lagrange.Gradients):
         Aop, Adiag = newton_casscf.gen_g_hop (self.base, mo, ci, eris, verbose)[2:]
         # Eliminate the component of Aop (x) which is parallel to the state-average space
         # The Lagrange multiplier equations are not defined there
-        def my_Aop (x):
-            Ax = Aop (x)
-            Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
-            ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-            ovlp = ci_arr.conjugate () @ Ax_ci.T
-            Ax_ci -= ovlp.T @ ci_arr
-            Ax[self.ngorb:] = Ax_ci.ravel ()
-            return Ax
-        return my_Aop, Adiag
+        return self.project_Aop (Aop, ci, iroot), Adiag
+
 
     def get_ham_response (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
         if iroot is None: iroot = self.iroot
@@ -625,9 +619,7 @@ class Gradients (lagrange.Gradients):
         Sci = np.tensordot (ci.conjugate (), Rci_cross, axes=(1,1)).transpose (1,0,2)
         # R_I|J> S(I)_JK^-1 (can only loop explicitly because of necessary call to linalg.inv)
         # Indices: I, det, K
-        Rci_fix = np.zeros_like (Rci_cross)
-        for iroot in range (self.nroots):
-            Rci_fix[iroot] = Rci_cross[iroot] @ linalg.inv (Sci[iroot]) 
+        Rci_fix = self.get_Rci_fix (Rci_cross, Sci)
 
         def my_precond (x):
             # Orb part
@@ -648,7 +640,7 @@ class Gradients (lagrange.Gradients):
 
             # Make CI vectors orthogonal.  Need to refer to Lvec_last b/c x is just the change in Lvec
             '''
-            xci_tot = xci + Lvec_op ()[self.ngorb:].reshape (self.nroots, -1)
+            xci_tot = xci + Lvec_op ()[self.ngorb:].reshape (self.nroots, -2)
             ovlp = xci_tot.conjugate () @ xci_tot.T
             norms = np.diag (ovlp)
             for iroot in range (1, self.nroots):
@@ -676,6 +668,29 @@ class Gradients (lagrange.Gradients):
                 linalg.norm (deltaorb), linalg.norm (deltaci))) 
             Lvec_last[:] = x[:]
         return my_call
+
+    def get_Rci_fix (self, Rci_cross, Sci):
+        ''' For a CI preconditioner of type RI - D_IJ<J|RI, get the matrix D_IJ, where I,J index roots of the CASCI problem.
+            Overwrite this in MC-PDFT child class to allow Lagrange multipliers to mix states in the SA
+            space but not redundantly span the root vector itself (i.e., make D_IJ diagonal).  In SA-CASSCF,
+            D_IJ = RI|K>(<K|RI|J>)^-1.'''
+        Rci_fix = np.zeros_like (Rci_cross)
+        for iroot in range (self.nroots):
+            Rci_fix[iroot] = Rci_cross[iroot] @ linalg.inv (Sci[iroot]) 
+        return Rci_fix
+
+    def project_Aop (self, Aop, ci, iroot):
+        ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
+            changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
+        def my_Aop (x):
+            Ax = Aop (x)
+            Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
+            ci_arr = np.asarray (ci).reshape (self.nroots, -1)
+            ovlp = ci_arr.conjugate () @ Ax_ci.T
+            Ax_ci -= ovlp.T @ ci_arr
+            Ax[self.ngorb:] = Ax_ci.ravel ()
+            return Ax
+        return my_Aop
 
     as_scanner = as_scanner
 
