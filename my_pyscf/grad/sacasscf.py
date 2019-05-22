@@ -492,6 +492,7 @@ class Gradients (lagrange.Gradients):
         bci = bvec[ngorb:].reshape (nroots, -1)
         Lorb = self.base.unpack_uniq_var (Lvec[:ngorb])
         Lci = Lvec[ngorb:].reshape (nroots, ndet)
+        Aci = Adiag[ngorb:].reshape (nroots, ndet)
         Lci_ci_ovlp = np.asarray (ci).reshape (nroots,-1).conjugate () @ Lci.T
         Lci_Lci_ovlp = Lci.conjugate () @ Lci.T
         ci_ci_ovlp = ci.conjugate () @ ci.T
@@ -545,6 +546,7 @@ class Gradients (lagrange.Gradients):
         bci_lbls, bci_csf = csf.printable_largest_csf (bci, 10, isdet=True, normalize=False, order='C')
         eci_lbls, eci_csf = csf.printable_largest_csf (eci, 10, isdet=True, normalize=False, order='C')
         Lci_lbls, Lci_csf = csf.printable_largest_csf (Lci, 10, isdet=True, normalize=False, order='C')
+        Aci_lbls, Aci_csf = csf.printable_largest_csf (Aci, 10, isdet=True, normalize=False, order='C')
         ncsf = bci_csf.shape[1]
         for iroot in range (self.nroots):
             lib.logger.debug (self, "{} gradient Lagrange factor, CI part root {} spin square: {}".format (
@@ -561,6 +563,9 @@ class Gradients (lagrange.Gradients):
             lib.logger.debug (self, "CI Lagrange vector:")
             for icsf in range (ncsf):
                 lib.logger.debug (self, '{} {}'.format (Lci_lbls[iroot,icsf], Lci_csf[iroot,icsf]))
+            lib.logger.debug (self, "Diagonal of Hessian matrix CI part:")
+            for icsf in range (ncsf):
+                lib.logger.debug (self, '{} {}'.format (Aci_lbls[iroot,icsf], Aci_csf[iroot,icsf]))
         '''
         Afull = np.zeros ((nlag, nlag))
         dum = np.zeros ((nlag))
