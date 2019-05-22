@@ -121,6 +121,7 @@ class Gradients (lib.StreamObject):
             self.dump_flags()
 
         conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
+        if not conv: raise RuntimeError ('Lagrange multiplier determination not converged!')
         self.debug_lagrange (Lvec, bvec, Aop, Adiag, **kwargs)
         cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
 

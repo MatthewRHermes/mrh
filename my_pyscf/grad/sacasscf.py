@@ -614,7 +614,7 @@ class Gradients (lagrange.Gradients):
         Rorb = AorbD.copy () 
         Rorb[abs(Rorb)<1e-8] = 1e-8
         Rorb = 1./Rorb
-        Rci = AciD - ((eci - level_shift) * self.weights)[:,None]
+        Rci = AciD #- ((eci - level_shift) * self.weights)[:,None]
         Rci[abs(Rci)<1e-8] = 1e-8
         Rci = 1./Rci
         # R_I|J> 
