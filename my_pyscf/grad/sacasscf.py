@@ -322,10 +322,12 @@ def as_scanner(mcscf_grad):
 
             mc_scanner = self.base
             e_tot = mc_scanner(mol)
+            if hasattr (mc_scanner, 'e_mcscf'): self.e_mcscf = mc_scanner.e_mcscf
             if isinstance (e_tot, (list, tuple, np.ndarray)): e_tot = e_tot[self.iroot]
             self.mol = mol
             de = self.kernel(**kwargs)
             return e_tot, de
+            
     return CASSCF_GradScanner(mcscf_grad)
 
 
@@ -359,9 +361,16 @@ class Gradients (lagrange.Gradients):
         if hasattr (self.base, 'weights'):
             fcasscf.fcisolver = self.base.fcisolver._base_class (self.base.mol)
             fcasscf.nroots = 1
+            fcasscf.fcisolver.__dict__.update (self.base.fcisolver.__dict__)
         fcasscf.__dict__.update (casscf_attr)
         fcasscf.fcisolver.__dict__.update (fcisolver_attr)
         fcasscf.verbose, fcasscf.stdout = self.verbose, self.stdout
+        return fcasscf
+
+    def make_fcasscf_sa (self, casscf_attr={}, fcisolver_attr={}):
+        ''' Make a fake SA-CASSCF object to get around weird inheritance conflicts '''
+        fcasscf = self.make_fcasscf (casscf_attr={}, fcisolver_attr={})
+        fcasscf.state_average_(self.base.weights)
         return fcasscf
 
     def kernel (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, e_avg=None, level_shift=None, **kwargs):
@@ -410,7 +419,8 @@ class Gradients (lagrange.Gradients):
         elif eris is None:
             eris = self.eris
         if not isinstance (self.base, StateAverageMCSCFSolver) and isinstance (ci, list): ci = ci[0]
-        Aop, Adiag = newton_casscf.gen_g_hop (self.base, mo, ci, eris, verbose)[2:]
+        fcasscf = self.make_fcasscf_sa ()
+        Aop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris, verbose)[2:]
         # Eliminate the component of Aop (x) which is parallel to the state-average space
         # The Lagrange multiplier equations are not defined there
         return self.project_Aop (Aop, ci, iroot), Adiag
