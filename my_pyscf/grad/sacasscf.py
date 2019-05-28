@@ -436,10 +436,10 @@ class Gradients (lagrange.Gradients):
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
             eris = self.eris
-        fcasscf = self.make_fcasscf ()
-        fcasscf.mo_coeff = mo
-        fcasscf.ci = ci[iroot]
-        return casscf_grad.kernel (fcasscf, mo_coeff=mo, ci=ci[iroot], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
+        fcasscf_grad = casscf_grad.Gradients (self.make_fcasscf ())
+        fcasscf_grad.mo_coeff = mo
+        fcasscf_grad.ci = ci[iroot]
+        return fcasscf_grad.kernel (mo_coeff=mo, ci=ci[iroot], atmlst=atmlst, verbose=verbose)
 
     def get_LdotJnuc (self, Lvec, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
         if iroot is None: iroot = self.iroot
