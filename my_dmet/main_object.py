@@ -1250,8 +1250,12 @@ class dmet:
             if not adapted: symmetry = False
             return symmetry, irrep_norbs
 
-        loc2dummy = np.concatenate ([f.loc2frag for f in self.fragments if f.imp_solver_name == 'dummy RHF'], axis=1)
-        symmetry = symm_analysis (loc2dummy, 'dummy', symmetry)[0]
+        try:
+            loc2dummy = np.concatenate ([f.loc2frag for f in self.fragments if f.imp_solver_name == 'dummy RHF'], axis=1)
+            symmetry = symm_analysis (loc2dummy, 'dummy', symmetry)[0]
+        except ValueError as e:
+            pass 
+            # This isn't important.
         irrep_norbs = np.zeros ((len (self.fragments), len (self.ints.mol.irrep_name)), dtype=np.int32)
         for idx, f in enumerate (self.fragments):
             if f.imp_solver_name == 'dummy RHF':

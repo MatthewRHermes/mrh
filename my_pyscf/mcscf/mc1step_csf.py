@@ -105,7 +105,7 @@ def fix_ci_response_csf (mc):
     class ci_response_fixed(mc.__class__):
         ''' MRH, 03/24/2019: Patching solve_approx_ci
      
-        ''' + mc.__class__.__doc__
+        ''' + str (mc.__class__.__doc__)
         def __init__(self, my_mc):
             self.__dict__.update (my_mc.__dict__)
     
