@@ -505,6 +505,8 @@ class Gradients (lagrange.Gradients):
         Aci = Adiag[ngorb:].reshape (nroots, ndet)
         Lci_ci_ovlp = np.asarray (ci).reshape (nroots,-1).conjugate () @ Lci.T
         Lci_Lci_ovlp = Lci.conjugate () @ Lci.T
+        eci_ci_ovlp = np.asarray (ci).reshape (nroots,-1).conjugate () @ eci.T
+        bci_ci_ovlp = np.asarray (ci).reshape (nroots,-1).conjugate () @ bci.T
         ci_ci_ovlp = ci.conjugate () @ ci.T
         lib.logger.debug (self, "{} gradient RHS, inactive-active orbital rotations:\n{}".format (
             self.base.__class__.__name__, borb[:ncore,ncore:nocc]))
@@ -544,6 +546,10 @@ class Gradients (lagrange.Gradients):
             self.base.__class__.__name__, Lci_Lci_ovlp))
         lib.logger.debug (self, "{} gradient Lagrange factor, CI vector self overlap matrix:\n{}".format ( 
             self.base.__class__.__name__, ci_ci_ovlp))
+        lib.logger.debug (self, "{} gradient Lagrange factor, CI part response overlap with SA space:\n{}".format ( 
+            self.base.__class__.__name__, bci_ci_ovlp))
+        lib.logger.debug (self, "{} gradient Lagrange factor, CI part residual overlap with SA space:\n{}".format ( 
+            self.base.__class__.__name__, eci_ci_ovlp))
         neleca, nelecb = _unpack_nelec (nelecas)
         spin = neleca - nelecb + 1
         csf = CSFTransformer (ncas, neleca, nelecb, spin)
@@ -596,78 +602,11 @@ class Gradients (lagrange.Gradients):
         '''
 
 
-    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, Lvec_op=None, **kwargs):
-        ''' The preconditioner needs to keep the various CI roots orthogonal to the whole SA space.
-        If I understand correctly, for root I of the CI problem the preconditioner should be
-        R_I * (1 - |J> S(I)_JK^-1 <K|R_I)
-        where R_I = (Hdiag-E)^-1
-        I,J, and K are true CI vectors (not the x Lagrange cofactor guesses)
-        and S(I)_JK = <J|R_I|K> which must be inverted. The x that gets passed is the 
-        change to the vector; I need to add the last-iteration guess in order to keep the
-        CI guesses orthogonal'''
+    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, **kwargs):
         if level_shift is None: level_shift = self.level_shift
         if ci is None: ci = self.base.ci
-        ci = np.asarray (ci).reshape (self.nroots, -1)
-        AorbD = Adiag[:self.ngorb]
-        AciD = Adiag[self.ngorb:].reshape (self.nroots, -1)
-        eorb = self.e_avg
-        eci = self.e_states 
-        '''
-        Aorb = np.zeros ((self.ngorb, self.ngorb))
-        fdum = np.zeros ((self.nlag))
-        for idum in range (self.ngorb):
-            fdum[idum] = 1
-            Aorb[idum,:] = Aop (fdum)[:self.ngorb]
-            fdum[idum] = 0
-        Aorb_inv = linalg.inv (Aorb)
-        '''
-        Rorb = AorbD.copy () 
-        Rorb[abs(Rorb)<1e-8] = 1e-8
-        Rorb = 1./Rorb
-        Rci = AciD #- ((eci - level_shift) * self.weights)[:,None]
-        Rci[abs(Rci)<1e-8] = 1e-8
-        Rci = 1./Rci
-        # R_I|J> 
-        # Indices: I, det, J
-        Rci_cross = Rci[:,:,None] * ci.T[None,:,:]
-        # S(I)_JK = <J|R_I|K> (first index of CI contract with middle index of R_I|J> and reshape to put I first)
-        Sci = np.tensordot (ci.conjugate (), Rci_cross, axes=(1,1)).transpose (1,0,2)
-        # R_I|J> S(I)_JK^-1 (can only loop explicitly because of necessary call to linalg.inv)
-        # Indices: I, det, K
-        Rci_fix = self.get_Rci_fix (Rci_cross, Sci)
-
-        def my_precond (x):
-            # Orb part
-            xorb = x[:self.ngorb]
-            xorb = Rorb * xorb
-
-            # CI part
-            xci = x[self.ngorb:].reshape (self.nroots, -1)
-            # R_I|H I> (indices: I, det)
-            Rx = Rci * xci
-            # <J|R_I|H I> (indices: J, I)
-            from_right = ci.conjugate () @ Rx.T 
-            # R_I|J> S(I)_JK^-1 <K|R_I|H I> (indices: I, det)
-            Rx_sub = np.zeros_like (Rx)
-            for iroot in range (self.nroots): 
-                Rx_sub[iroot] = np.dot (Rci_fix[iroot], from_right[:,iroot])
-            xci = Rx - Rx_sub
-
-            # Make CI vectors orthogonal.  Need to refer to Lvec_last b/c x is just the change in Lvec
-            '''
-            xci_tot = xci + Lvec_op ()[self.ngorb:].reshape (self.nroots, -2)
-            ovlp = xci_tot.conjugate () @ xci_tot.T
-            norms = np.diag (ovlp)
-            for iroot in range (1, self.nroots):
-                ov = ovlp[:iroot,iroot] / norms[:iroot]
-                xci_tot[iroot,:] -= (ov[:,None] * xci_tot[:iroot,:]).sum (0)
-                ovlp = xci_tot.conjugate () @ xci_tot.T
-                norms = np.diag (ovlp)
-            xci = xci_tot - Lvec_op ()[self.ngorb:].reshape (self.nroots, -1)
-            '''
-
-            return np.append (xorb, xci.ravel ())
-        return my_precond
+        return SACASLagPrec (nroots=self.nroots, nlag=self.nlag, ngorb=self.ngorb, Adiag=Adiag, 
+            level_shift=level_shift, ci=ci, **kwargs)
 
     def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
         def my_call (x):
@@ -682,17 +621,11 @@ class Gradients (lagrange.Gradients):
                 '|dLorb| = {}, |dLci| = {}').format (itvec[0], linalg.norm (gorb), linalg.norm (gci),
                 linalg.norm (deltaorb), linalg.norm (deltaci))) 
             Lvec_last[:] = x[:]
+            ci_arr = np.array (self.ci).reshape (self.nroots, -1)
+            deltaci_ovlp = ci_arr @ deltaci.reshape (self.nroots, -1).T
+            #print (deltaci_ovlp)
+            #print (linalg.norm (deltaci - (ci_arr.T @ deltaci_ovlp).ravel ()))
         return my_call
-
-    def get_Rci_fix (self, Rci_cross, Sci):
-        ''' For a CI preconditioner of type RI - D_IJ<J|RI, get the matrix D_IJ, where I,J index roots of the CASCI problem.
-            Overwrite this in MC-PDFT child class to allow Lagrange multipliers to mix states in the SA
-            space but not redundantly span the root vector itself (i.e., make D_IJ diagonal).  In SA-CASSCF,
-            D_IJ = RI|K>(<K|RI|J>)^-1.'''
-        Rci_fix = np.zeros_like (Rci_cross)
-        for iroot in range (self.nroots):
-            Rci_fix[iroot] = Rci_cross[iroot] @ linalg.inv (Sci[iroot]) 
-        return Rci_fix
 
     def project_Aop (self, Aop, ci, iroot):
         ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
@@ -708,4 +641,78 @@ class Gradients (lagrange.Gradients):
         return my_Aop
 
     as_scanner = as_scanner
+
+class SACASLagPrec (lagrange.LagPrec):
+    ''' A callable preconditioner for solving the Lagrange equations. Based on Mol. Phys. 99, 103 (2001).
+    Attributes:
+
+    nroots : integer
+        Number of roots in the SA space
+    nlag : integer
+        Number of Lagrange degrees of freedom
+    ngorb : integer
+        Number of Lagrange degrees of freedom which are orbital rotations
+    level_shift : float
+        numerical shift applied to CI rotation Hessian
+    ci : ndarray of shape (nroots, ndet or ncscf)
+        Ci vectors of the SA space
+    Rorb : ndarray of shape (ngorb)
+        Diagonal inverse Hessian matrix for orbital rotations
+    Rci : ndarray of shape (nroots, ndet or ncsf)
+        Diagonal inverse Hessian matrix for CI rotations including a level shift
+    Rci_sa : ndarray of shape (nroots (I), ndet or ncsf, nroots (K))
+        First two factors of the inverse diagonal CI Hessian projected into SA space:
+        Rci(I)|J> <J|Rci(I)|K>^{-1} <K|Rci(I)
+        note: right-hand bra and R_I factor not included due to storage considerations
+        Make the operand's matrix element with <K|Rci(I) before taking the dot product! 
+'''
+
+    def __init__(self, nroots=None, nlag=None, ngorb=None, Adiag=None, ci=None, level_shift=None, **kwargs):
+        self.level_shift = level_shift
+        self.nroots = nroots
+        self.nlag = nlag
+        self.ngorb = ngorb
+        self.ci = np.asarray (ci).reshape (self.nroots, -1)
+        self._init_orb (Adiag)
+        self._init_ci (Adiag)
+
+    def _init_orb (self, Adiag):
+        self.Rorb = Adiag[:self.ngorb]
+        self.Rorb[abs(self.Rorb)<1e-8] = 1e-8
+        self.Rorb = 1./self.Rorb
+
+    def _init_ci (self, Adiag):
+        self.Rci = Adiag[self.ngorb:].reshape (self.nroots, -1) + self.level_shift
+        self.Rci[abs(self.Rci)<1e-8] = 1e-8
+        self.Rci = 1./self.Rci
+        # R_I|J> 
+        # Indices: I, det, J
+        Rci_cross = self.Rci[:,:,None] * self.ci.T[None,:,:]
+        # S(I)_JK = <J|R_I|K> (first index of CI contract with middle index of R_I|J> and reshape to put I first)
+        Sci = np.tensordot (self.ci.conjugate (), Rci_cross, axes=(1,1)).transpose (1,0,2)
+        # R_I|J> S(I)_JK^-1 (can only loop explicitly because of necessary call to linalg.inv)
+        # Indices: I, det, K
+        self.Rci_sa = np.zeros_like (Rci_cross)
+        for iroot in range (self.nroots):
+            self.Rci_sa[iroot] = Rci_cross[iroot] @ linalg.inv (Sci[iroot]) 
+
+    def __call__(self, x):
+        xorb = self.orb_prec (x)
+        xci = self.ci_prec (x)
+        return np.append (xorb, xci.ravel ())
+
+    def orb_prec (self, x):
+        return self.Rorb * x[:self.ngorb]
+
+    def ci_prec (self, x):
+        xci = x[self.ngorb:].reshape (self.nroots, -1)
+        # R_I|H I> (indices: I, det)
+        Rx = self.Rci * xci
+        # <J|R_I|H I> (indices: J, I)
+        sa_ovlp = self.ci.conjugate () @ Rx.T 
+        # R_I|J> S(I)_JK^-1 <K|R_I|H I> (indices: I, det)
+        Rx_sub = np.zeros_like (Rx)
+        for iroot in range (self.nroots): 
+            Rx_sub[iroot] = np.dot (self.Rci_sa[iroot], sa_ovlp[:,iroot])
+        return Rx - Rx_sub
 

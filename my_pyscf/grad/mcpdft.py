@@ -218,14 +218,13 @@ class Gradients (sacasscf.Gradients):
 
         g_all = np.zeros (self.nlag)
         g_all[:self.ngorb] = g_all_iroot[:self.ngorb]
-        # Do I need to project away a component of the gradient here? Very much maybe.
-        # But probably only the part parallel to iroot itself
-        gci = g_all_iroot[self.ngorb:]
-        ci_arr = np.asarray (ci).reshape (self.nroots, -1)[iroot]
-        ovlp = np.dot (ci_arr, gci)
-        gci -= ovlp * ci_arr
-        # No need to reshape or anything, just use the magic of repeated slicing
-        g_all[self.ngorb:][ndet*iroot:][:ndet] = gci[:]
+        # z_JI = -z_IJ, so I need to populate the parts of the gradient that correspond to redundant coordinates
+        gci_iroot = g_all_iroot[self.ngorb:]
+        ci_arr = np.asarray (ci).reshape (self.nroots, -1)
+        gci_sa = np.dot (ci_arr, gci_iroot)
+        gci = g_all[self.ngorb:].reshape (self.nroots, -1)
+        np.outer (gci_sa, ci_arr[iroot], out=gci) 
+        gci[iroot] += gci_iroot # The <I|gI> part of this cancels the Ith row of the above (which is correct)
 
         return g_all
 
@@ -253,23 +252,6 @@ class Gradients (sacasscf.Gradients):
         kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True)
         return super().kernel (**kwargs)
 
-    def get_Rci_fix (self, Rci_cross, Sci):
-        ''' For a CI preconditioner of type RI - |K>D(I)_KJ<J|RI, get the matrices |K>D(I)_KJ, where I,J,K index roots of the CASCI problem.
-            Overwrite this in MC-PDFT child class to allow Lagrange multipliers to mix states in the SA
-            space but not redundantly span the root vector itself (i.e., make D_IJ diagonal).  In SA-CASSCF,
-            D_IJ = RI|K>(<K|RI|J>)^-1.'''
-        # Rci_cross has indices I, det, J
-        # Sci[I,J,K] = <J|R_I|K> 
-        # Sci has indices I, J, K
-        # Rci_fix has indices I, det, K
-        Rci_fix = np.zeros_like (Rci_cross)
-        Sci = np.einsum ("iii->i", Sci)
-        Rci_cross = np.einsum ("iji->ij", Rci_cross)
-        Rci_fix_diag = Rci_cross / Sci[:,None]
-        for iroot in range (self.nroots):
-            Rci_fix[iroot,:,iroot] = Rci_fix_diag[iroot,:]
-        return Rci_fix
-
     def project_Aop (self, Aop, ci, iroot):
         ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
             changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
@@ -278,12 +260,45 @@ class Gradients (sacasscf.Gradients):
             x_ci = x[self.ngorb:].reshape (self.nroots, -1)
             Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
             ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-            # Prevent states only from rotating into themselves
-            ovlp = (ci_arr.conjugate () * Ax_ci).sum (1)
-            Ax_ci -= ovlp[:,None] * ci_arr
-
+            ovlp = ci_arr.conjugate () @ Ax_ci.T
+            ovlp -= ovlp.T 
+            ovlp /= 2
+            # Here's the difference: Instead of preventing states from rotating into themselves, I change
+            # the error function so that it corresponds to constrained minimization
+            Ax_ci += ovlp @ ci_arr
             Ax[self.ngorb:] = Ax_ci.ravel ()
             return Ax
         return my_Aop
+
+    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, **kwargs):
+        if level_shift is None: level_shift = self.level_shift
+        if ci is None: ci = self.base.ci
+        return PDFTLagPrec (nroots=self.nroots, nlag=self.nlag, ngorb=self.ngorb, Adiag=Adiag, 
+            level_shift=level_shift, ci=ci, **kwargs)
+
+class PDFTLagPrec (sacasscf.SACASLagPrec):
+    ''' MC-PDFT Lagrange gradient preconditioner. Nearly the same as the SACAS preconditioner except that SA-SA rotations are allowed
+    but must be antisymmetric (z_JI = -z_IJ).  Therefore the CI part is slightly different. '''
+
+    def __init__(self, nroots=None, nlag=None, ngorb=None, Adiag=None, ci=None, level_shift=None, **kwargs):
+        super().__init__(nroots=nroots,nlag=nlag,ngorb=ngorb,Adiag=Adiag,ci=ci,level_shift=level_shift,**kwargs)
+
+    def ci_prec (self, x):
+        xci = x[self.ngorb:].reshape (self.nroots, -1)
+        # R_I|H I> (indices: I, det)
+        Rx = self.Rci * xci
+        # <J|R_I|H I> (indices: J, I)
+        # Here is the only difference from SA-CASSCF: instead of eliminating SA-SA rotations, I antisymmetrize them
+        sa_ovlp = self.ci.conjugate () @ Rx.T
+        sa_ovlp -= sa_ovlp.T 
+        sa_ovlp /= 2
+        # R_I|J> S(I)_JK^-1 <K|R_I|H I> (indices: I, det)
+        Rx_sub = np.zeros_like (Rx)
+        for iroot in range (self.nroots):
+            Rx_sub[iroot] = np.dot (self.Rci_sa[iroot], sa_ovlp[:,iroot])
+        return Rx - Rx_sub
+
+
+
 
 

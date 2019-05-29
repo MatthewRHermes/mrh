@@ -74,16 +74,9 @@ class Gradients (lib.StreamObject):
             Lvec_last[:] = x[:]
         return my_call
 
-    def get_lagrange_precond (self, Adiag, level_shift=None, Lvec_op=None, **kwargs):
-        ''' Default preconditioner for solving for the Lagrange multipliers: 1/(Adiag-shift) '''
+    def get_lagrange_precond (self, Adiag, level_shift=None, **kwargs):
         if level_shift is None: level_shift = self.level_shift
-        def my_precond (x):
-            e = (x * (bvec + Aop (x))).sum () 
-            Adiagd = Adiag - e + level_shift
-            Adiagd[abs(Adiagd)<1e-8] = 1e-8
-            x /= Adiagd
-            return x
-        return my_precond
+        return LagPrec (Adiag=Adiag, level_shift=level_shift, **kwargs)
 
 
     ################################## Child classes SHOULD NOT overwrite the methods below ###########################################
@@ -96,7 +89,7 @@ class Gradients (lib.StreamObject):
         Lvec_last = np.zeros_like (bvec)
         def my_Lvec_last ():
             return Lvec_last
-        precond = self.get_lagrange_precond (Adiag, level_shift=level_shift, Lvec_op=my_Lvec_last, **kwargs)
+        precond = self.get_lagrange_precond (Adiag, level_shift=level_shift, **kwargs)
         it = np.asarray ([0])
         lib.logger.debug (self, 'Lagrange multiplier determination intial gradient norm: {}'.format (linalg.norm (bvec)))
         my_call = self.get_lagrange_callback (Lvec_last, it, my_geff)
@@ -121,8 +114,8 @@ class Gradients (lib.StreamObject):
             self.dump_flags()
 
         conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
-        if not conv: raise RuntimeError ('Lagrange multiplier determination not converged!')
         self.debug_lagrange (Lvec, bvec, Aop, Adiag, **kwargs)
+        if not conv: raise RuntimeError ('Lagrange multiplier determination not converged!')
         cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
 
         ham_response = self.get_ham_response (**kwargs)
@@ -162,4 +155,16 @@ class Gradients (lib.StreamObject):
             rhf_grad._write(self, self.mol, self.de, self.atmlst)
             lib.logger.note(self, '----------------------------------------------')
 
+class LagPrec (object):
+    ''' A callable preconditioner for solving the Lagrange equations. Default is 1/(Adiagd+level_shift) '''
+
+    def __init__(self, Adiag=None, level_shift=None, **kwargs):
+        self.Adiag = Adiag
+        self.level_shift = level_shift
+
+    def __call__(self, x):
+        Adiagd = self.Adiag + self.level_shift
+        Adiagd[abs(Adiagd)<1e-8] = 1e-8
+        x /= Adiagd
+        return x
 
