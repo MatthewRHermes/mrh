@@ -218,13 +218,13 @@ class Gradients (sacasscf.Gradients):
 
         g_all = np.zeros (self.nlag)
         g_all[:self.ngorb] = g_all_iroot[:self.ngorb]
-        # z_JI = -z_IJ, so I need to populate the parts of the gradient that correspond to redundant coordinates
+        # Eliminate gradient of self-rotation
         gci_iroot = g_all_iroot[self.ngorb:]
         ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-        gci_sa = np.dot (ci_arr, gci_iroot)
+        gci_sa = np.dot (ci_arr[iroot], gci_iroot)
+        gci_iroot -= gci_sa * gci_iroot
         gci = g_all[self.ngorb:].reshape (self.nroots, -1)
-        np.outer (gci_sa, ci_arr[iroot], out=gci) 
-        gci[iroot] += gci_iroot # The <I|gI> part of this cancels the Ith row of the above (which is correct)
+        gci[iroot] += gci_iroot 
 
         return g_all
 
@@ -260,12 +260,9 @@ class Gradients (sacasscf.Gradients):
             x_ci = x[self.ngorb:].reshape (self.nroots, -1)
             Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
             ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-            ovlp = ci_arr.conjugate () @ Ax_ci.T
-            ovlp -= ovlp.T 
-            ovlp /= 2
-            # Here's the difference: Instead of preventing states from rotating into themselves, I change
-            # the error function so that it corresponds to constrained minimization
-            Ax_ci += ovlp @ ci_arr
+            ovlp = (ci_arr.conjugate () * Ax_ci).sum (1)
+            # exclude only self-rotations
+            Ax_ci -= ovlp[:,None] * ci_arr
             Ax[self.ngorb:] = Ax_ci.ravel ()
             return Ax
         return my_Aop
@@ -288,14 +285,11 @@ class PDFTLagPrec (sacasscf.SACASLagPrec):
         # R_I|H I> (indices: I, det)
         Rx = self.Rci * xci
         # <J|R_I|H I> (indices: J, I)
-        # Here is the only difference from SA-CASSCF: instead of eliminating SA-SA rotations, I antisymmetrize them
         sa_ovlp = self.ci.conjugate () @ Rx.T
-        sa_ovlp -= sa_ovlp.T 
-        sa_ovlp /= 2
         # R_I|J> S(I)_JK^-1 <K|R_I|H I> (indices: I, det)
         Rx_sub = np.zeros_like (Rx)
         for iroot in range (self.nroots):
-            Rx_sub[iroot] = np.dot (self.Rci_sa[iroot], sa_ovlp[:,iroot])
+            Rx_sub[iroot] = self.Rci_sa[iroot,:,iroot] * sa_ovlp[iroot,iroot]
         return Rx - Rx_sub
 
 

@@ -95,7 +95,7 @@ class Gradients (lib.StreamObject):
         my_call = self.get_lagrange_callback (Lvec_last, it, my_geff)
         Aop_obj = sparse_linalg.LinearOperator ((self.nlag,self.nlag), matvec=Aop, dtype=bvec.dtype)
         prec_obj = sparse_linalg.LinearOperator ((self.nlag,self.nlag), matvec=precond, dtype=bvec.dtype)
-        Lvec, info_int = sparse_linalg.cg (Aop_obj, -bvec, x0=-bvec, atol=self.conv_tol, maxiter=self.max_cycle, callback=my_call, M=prec_obj)
+        Lvec, info_int = sparse_linalg.cg (Aop_obj, -bvec, x0=precond(-bvec), atol=self.conv_tol, maxiter=self.max_cycle, callback=my_call, M=prec_obj)
         lib.logger.info (self, 'Lagrange multiplier determination {} after {} iterations\n   |geff| = {}, |Lvec| = {}'.format (
             ('converged','not converged')[bool (info_int)], it[0], linalg.norm (my_geff (Lvec)), linalg.norm (Lvec))) 
         if info_int < 0: lib.logger.info (self, 'Lagrange multiplier determination error code {}'.format (info_int))
@@ -115,7 +115,7 @@ class Gradients (lib.StreamObject):
 
         conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
         self.debug_lagrange (Lvec, bvec, Aop, Adiag, **kwargs)
-        if not conv: raise RuntimeError ('Lagrange multiplier determination not converged!')
+        #if not conv: raise RuntimeError ('Lagrange multiplier determination not converged!')
         cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
 
         ham_response = self.get_ham_response (**kwargs)

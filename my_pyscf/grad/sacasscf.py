@@ -503,10 +503,10 @@ class Gradients (lagrange.Gradients):
         Lorb = self.base.unpack_uniq_var (Lvec[:ngorb])
         Lci = Lvec[ngorb:].reshape (nroots, ndet)
         Aci = Adiag[ngorb:].reshape (nroots, ndet)
-        Lci_ci_ovlp = np.asarray (ci).reshape (nroots,-1).conjugate () @ Lci.T
-        Lci_Lci_ovlp = Lci.conjugate () @ Lci.T
-        eci_ci_ovlp = np.asarray (ci).reshape (nroots,-1).conjugate () @ eci.T
-        bci_ci_ovlp = np.asarray (ci).reshape (nroots,-1).conjugate () @ bci.T
+        Lci_ci_ovlp = (np.asarray (ci).reshape (nroots,-1).conjugate () @ Lci.T).T
+        Lci_Lci_ovlp = (Lci.conjugate () @ Lci.T).T
+        eci_ci_ovlp = (np.asarray (ci).reshape (nroots,-1).conjugate () @ eci.T).T
+        bci_ci_ovlp = (np.asarray (ci).reshape (nroots,-1).conjugate () @ bci.T).T
         ci_ci_ovlp = ci.conjugate () @ ci.T
         lib.logger.debug (self, "{} gradient RHS, inactive-active orbital rotations:\n{}".format (
             self.base.__class__.__name__, borb[:ncore,ncore:nocc]))
