@@ -255,14 +255,18 @@ class Gradients (sacasscf.Gradients):
     def project_Aop (self, Aop, ci, iroot):
         ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
             changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
+        triu = np.triu_indices (self.nroots)
+        ci_arr = np.asarray (ci).reshape (self.nroots, -1)
         def my_Aop (x):
-            Ax = Aop (x)
             x_ci = x[self.ngorb:].reshape (self.nroots, -1)
+            x_ovlp = ci_arr.conjugate () @ x_ci.T
+            my_x = np.concatenate ([x[:self.ngorb], (x_ci - x_ovlp @ ci_arr).ravel ()])
+            Ax = Aop (my_x)
             Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
-            ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-            ovlp = (ci_arr.conjugate () * Ax_ci).sum (1)
-            # exclude only self-rotations
-            Ax_ci -= ovlp[:,None] * ci_arr
+            ovlp = ci_arr.conjugate () @ Ax_ci.T
+            # exclude rotations to lower energies
+            ovlp[triu] = 0
+            Ax_ci -= ovlp @ ci_arr
             Ax[self.ngorb:] = Ax_ci.ravel ()
             return Ax
         return my_Aop
@@ -281,15 +285,19 @@ class PDFTLagPrec (sacasscf.SACASLagPrec):
         super().__init__(nroots=nroots,nlag=nlag,ngorb=ngorb,Adiag=Adiag,ci=ci,level_shift=level_shift,**kwargs)
 
     def ci_prec (self, x):
+        tril = np.tril_indices (self.nroots, k=-1)
         xci = x[self.ngorb:].reshape (self.nroots, -1)
         # R_I|H I> (indices: I, det)
         Rx = self.Rci * xci
         # <J|R_I|H I> (indices: J, I)
         sa_ovlp = self.ci.conjugate () @ Rx.T
+        # Eliminate I->J, EJ<EI
+        sa_ovlp[tril] = 0
         # R_I|J> S(I)_JK^-1 <K|R_I|H I> (indices: I, det)
         Rx_sub = np.zeros_like (Rx)
         for iroot in range (self.nroots):
-            Rx_sub[iroot] = self.Rci_sa[iroot,:,iroot] * sa_ovlp[iroot,iroot]
+            Rx_sub[iroot] = np.dot (self.Rci_sa[iroot], sa_ovlp[:,iroot])
+        sa_ovlp = self.ci.conjugate () @ (Rx - Rx_sub).T
         return Rx - Rx_sub
 
 

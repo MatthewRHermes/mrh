@@ -446,7 +446,7 @@ class Gradients (lagrange.Gradients):
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci[iroot]
+        if ci is None: ci = self.base.ci
         if eris is None and self.eris is None:
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
@@ -623,8 +623,10 @@ class Gradients (lagrange.Gradients):
             Lvec_last[:] = x[:]
             ci_arr = np.array (self.ci).reshape (self.nroots, -1)
             deltaci_ovlp = ci_arr @ deltaci.reshape (self.nroots, -1).T
-            #print (deltaci_ovlp)
-            #print (linalg.norm (deltaci - (ci_arr.T @ deltaci_ovlp).ravel ()))
+            gci_ovlp = ci_arr @ gci.reshape (self.nroots, -1).T
+            #print (deltaci_ovlp.T)
+            #print (gci_ovlp.T)
+            #print (linalg.norm (gci - (ci_arr.T @ gci_ovlp).ravel ()))
         return my_call
 
     def project_Aop (self, Aop, ci, iroot):

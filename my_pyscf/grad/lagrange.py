@@ -86,16 +86,16 @@ class Gradients (lib.StreamObject):
         Aop, Adiag = self.get_Aop_Adiag (**kwargs)
         def my_geff (x):
             return bvec + Aop (x)
-        Lvec_last = np.zeros_like (bvec)
+        precond = self.get_lagrange_precond (Adiag, level_shift=level_shift, **kwargs)
+        Lvec_last = precond (bvec)
         def my_Lvec_last ():
             return Lvec_last
-        precond = self.get_lagrange_precond (Adiag, level_shift=level_shift, **kwargs)
         it = np.asarray ([0])
         lib.logger.debug (self, 'Lagrange multiplier determination intial gradient norm: {}'.format (linalg.norm (bvec)))
         my_call = self.get_lagrange_callback (Lvec_last, it, my_geff)
         Aop_obj = sparse_linalg.LinearOperator ((self.nlag,self.nlag), matvec=Aop, dtype=bvec.dtype)
         prec_obj = sparse_linalg.LinearOperator ((self.nlag,self.nlag), matvec=precond, dtype=bvec.dtype)
-        Lvec, info_int = sparse_linalg.cg (Aop_obj, -bvec, x0=precond(-bvec), atol=self.conv_tol, maxiter=self.max_cycle, callback=my_call, M=prec_obj)
+        Lvec, info_int = sparse_linalg.cg (Aop_obj, -bvec, x0=precond(bvec), atol=self.conv_tol, maxiter=self.max_cycle, callback=my_call, M=prec_obj)
         lib.logger.info (self, 'Lagrange multiplier determination {} after {} iterations\n   |geff| = {}, |Lvec| = {}'.format (
             ('converged','not converged')[bool (info_int)], it[0], linalg.norm (my_geff (Lvec)), linalg.norm (Lvec))) 
         if info_int < 0: lib.logger.info (self, 'Lagrange multiplier determination error code {}'.format (info_int))
