@@ -221,10 +221,14 @@ class Gradients (sacasscf.Gradients):
         # Eliminate gradient of self-rotation
         gci_iroot = g_all_iroot[self.ngorb:]
         ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-        gci_sa = np.dot (ci_arr[iroot], gci_iroot)
-        gci_iroot -= gci_sa * gci_iroot
+        gci_sa = np.dot (ci_arr, gci_iroot)
+        # Eliminate gradient I->J; EJ<=EI
+        gci_iroot -= np.dot (gci_sa[:iroot+1], ci_arr[:iroot+1])
         gci = g_all[self.ngorb:].reshape (self.nroots, -1)
         gci[iroot] += gci_iroot 
+
+        # Transfer I->J; EJ<EI contributions to J->I representation
+        gci[:iroot] -= gci_sa[:iroot,None] * ci_arr[iroot]
 
         return g_all
 
