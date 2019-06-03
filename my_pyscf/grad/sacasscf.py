@@ -614,6 +614,7 @@ class Gradients (lagrange.Gradients):
             geff = geff_op (x)
             deltax = x - Lvec_last
             gorb = geff[:self.ngorb]
+            xci = x[self.ngorb:]
             gci = geff[self.ngorb:]
             deltaorb = deltax[:self.ngorb]
             deltaci = deltax[self.ngorb:]
@@ -621,10 +622,12 @@ class Gradients (lagrange.Gradients):
                 '|dLorb| = {}, |dLci| = {}').format (itvec[0], linalg.norm (gorb), linalg.norm (gci),
                 linalg.norm (deltaorb), linalg.norm (deltaci))) 
             Lvec_last[:] = x[:]
-            ci_arr = np.array (self.ci).reshape (self.nroots, -1)
-            deltaci_ovlp = ci_arr @ deltaci.reshape (self.nroots, -1).T
-            #print (deltaci_ovlp)
-            #print (linalg.norm (deltaci - (ci_arr.T @ deltaci_ovlp).ravel ()))
+            #ci_arr = np.array (self.ci).reshape (self.nroots, -1)
+            #deltaci_ovlp = ci_arr @ deltaci.reshape (self.nroots, -1).T
+            #gci_ovlp = ci_arr @ gci.reshape (self.nroots, -1).T
+            #xci_ovlp = ci_arr @ xci.reshape (self.nroots, -1).T
+            #print (xci_ovlp)
+            #print (linalg.norm (xci - (ci_arr.T @ xci_ovlp).ravel ()))
         return my_call
 
     def project_Aop (self, Aop, ci, iroot):

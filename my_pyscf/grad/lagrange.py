@@ -79,6 +79,10 @@ class Gradients (lib.StreamObject):
         return LagPrec (Adiag=Adiag, level_shift=level_shift, **kwargs)
 
 
+    def get_init_guess (self, bvec, Adiag, Aop, precond):
+        return precond (-bvec)
+
+
     ################################## Child classes SHOULD NOT overwrite the methods below ###########################################
 
     def solve_lagrange (self, Lvec_guess=None, level_shift=None, **kwargs):
@@ -95,7 +99,8 @@ class Gradients (lib.StreamObject):
         my_call = self.get_lagrange_callback (Lvec_last, it, my_geff)
         Aop_obj = sparse_linalg.LinearOperator ((self.nlag,self.nlag), matvec=Aop, dtype=bvec.dtype)
         prec_obj = sparse_linalg.LinearOperator ((self.nlag,self.nlag), matvec=precond, dtype=bvec.dtype)
-        Lvec, info_int = sparse_linalg.cg (Aop_obj, -bvec, x0=precond(-bvec), atol=self.conv_tol, maxiter=self.max_cycle, callback=my_call, M=prec_obj)
+        x0_guess = self.get_init_guess (bvec, Adiag, Aop, precond)
+        Lvec, info_int = sparse_linalg.cg (Aop_obj, -bvec, x0=x0_guess, atol=self.conv_tol, maxiter=self.max_cycle, callback=my_call, M=prec_obj)
         lib.logger.info (self, 'Lagrange multiplier determination {} after {} iterations\n   |geff| = {}, |Lvec| = {}'.format (
             ('converged','not converged')[bool (info_int)], it[0], linalg.norm (my_geff (Lvec)), linalg.norm (Lvec))) 
         if info_int < 0: lib.logger.info (self, 'Lagrange multiplier determination error code {}'.format (info_int))

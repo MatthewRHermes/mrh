@@ -196,6 +196,7 @@ class Gradients (sacasscf.Gradients):
 
     def __init__(self, pdft):
         super().__init__(pdft)
+        self.e_mcscf = self.base.e_mcscf
 
     def get_wfn_response (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, veff1=None, veff2=None, **kwargs):
         if iroot is None: iroot = self.iroot
@@ -242,6 +243,41 @@ class Gradients (sacasscf.Gradients):
         fcasscf.ci = ci[iroot]
         return mcpdft_HellmanFeynman_grad (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[iroot], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
 
+    def get_init_guess (self, bvec, Adiag, Aop, precond):
+        ''' Initial guess should solve the problem for SA-SA rotations '''
+        ci_arr = np.asarray (self.base.ci).reshape (self.nroots, -1)
+        ndet = ci_arr.shape[-1]
+        b_ci = bvec[self.ngorb:].reshape (self.nroots, ndet)
+        b_sa = np.dot (ci_arr.conjugate (), b_ci[self.iroot])
+        A_sa = 2 * self.weights[self.iroot] * (self.e_mcscf - self.e_mcscf[self.iroot])
+        A_sa[self.iroot] = 1
+        b_sa[self.iroot] = 0
+        x0_sa = -b_sa / A_sa # Hessian is diagonal so: easy
+        ovlp = ci_arr.conjugate () @ b_ci.T
+        logger.debug (self, 'Linear response SA-SA part:\n{}'.format (ovlp))
+        logger.debug (self, 'Linear response SA-CI norms:\n{}'.format (linalg.norm (
+            b_ci.T - ci_arr.T @ ovlp, axis=1)))
+        logger.debug (self, 'Linear response orbital norms:\n{}'.format (linalg.norm (bvec[:self.ngorb])))
+        logger.debug (self, 'SA-SA Lagrange multiplier for root {}:\n{}'.format (self.iroot, x0_sa))
+        x0 = np.zeros_like (bvec)
+        x0[self.ngorb:][ndet*self.iroot:][:ndet] = np.dot (x0_sa, ci_arr)
+        r0 = bvec + Aop (x0)
+        r0_ci = r0[self.ngorb:].reshape (self.nroots, ndet)
+        ovlp = ci_arr.conjugate () @ r0_ci.T
+        logger.debug (self, 'Lagrange residual SA-SA part after solving SA-SA part:\n{}'.format (ovlp))
+        logger.debug (self, 'Lagrange residual SA-CI norms after solving SA-SA part:\n{}'.format (linalg.norm (
+            r0_ci.T - ci_arr.T @ ovlp, axis=1)))
+        logger.debug (self, 'Lagrange residual orbital norms after solving SA-SA part:\n{}'.format (linalg.norm (r0[:self.ngorb])))
+        x0 += precond (-r0)
+        r1 = bvec + Aop (x0)
+        r1_ci = r1[self.ngorb:].reshape (self.nroots, ndet)
+        ovlp = ci_arr.conjugate () @ r1_ci.T
+        logger.debug (self, 'Lagrange residual SA-SA part after first precondition:\n{}'.format (ovlp))
+        logger.debug (self, 'Lagrange residual SA-CI norms after first precondition:\n{}'.format (linalg.norm (
+            r1_ci.T - ci_arr.T @ ovlp, axis=1)))
+        logger.debug (self, 'Lagrange residual orbital norms after first precondition:\n{}'.format (linalg.norm (r1[:self.ngorb])))
+        return x0
+
     def kernel (self, **kwargs):
         ''' Cache the effective Hamiltonian terms so you don't have to calculate them twice '''
         iroot = kwargs['iroot'] if 'iroot' in kwargs else self.iroot
@@ -255,18 +291,22 @@ class Gradients (sacasscf.Gradients):
     def project_Aop (self, Aop, ci, iroot):
         ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
             changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
+        A_sa = 2 * self.weights[iroot] * (self.e_mcscf - self.e_mcscf[iroot])
+        ci_arr = np.asarray (ci).reshape (self.nroots, -1)
         def my_Aop (x):
             Ax = Aop (x)
             x_ci = x[self.ngorb:].reshape (self.nroots, -1)
             Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
-            ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-            ovlp = (ci_arr.conjugate () * Ax_ci).sum (1)
-            # exclude only self-rotations
-            Ax_ci -= ovlp[:,None] * ci_arr
+            ovlp = ci_arr.conjugate () @ Ax_ci.T
+            Ax_ci -= np.dot (ovlp.T, ci_arr)
+            # Add back in the SA rotation part but from the true energy conditions
+            x_sa = np.dot (ci_arr.conjugate (), x_ci[iroot])
+            Ax_ci[iroot] += np.dot (x_sa * A_sa, ci_arr)
             Ax[self.ngorb:] = Ax_ci.ravel ()
             return Ax
         return my_Aop
 
+'''
     def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, **kwargs):
         if level_shift is None: level_shift = self.level_shift
         if ci is None: ci = self.base.ci
@@ -274,8 +314,8 @@ class Gradients (sacasscf.Gradients):
             level_shift=level_shift, ci=ci, **kwargs)
 
 class PDFTLagPrec (sacasscf.SACASLagPrec):
-    ''' MC-PDFT Lagrange gradient preconditioner. Nearly the same as the SACAS preconditioner except that SA-SA rotations are allowed
-    but must be antisymmetric (z_JI = -z_IJ).  Therefore the CI part is slightly different. '''
+     MC-PDFT Lagrange gradient preconditioner. Nearly the same as the SACAS preconditioner except that SA-SA rotations are allowed
+    but must be antisymmetric (z_JI = -z_IJ).  Therefore the CI part is slightly different. 
 
     def __init__(self, nroots=None, nlag=None, ngorb=None, Adiag=None, ci=None, level_shift=None, **kwargs):
         super().__init__(nroots=nroots,nlag=nlag,ngorb=ngorb,Adiag=Adiag,ci=ci,level_shift=level_shift,**kwargs)
@@ -291,7 +331,7 @@ class PDFTLagPrec (sacasscf.SACASLagPrec):
         for iroot in range (self.nroots):
             Rx_sub[iroot] = self.Rci_sa[iroot,:,iroot] * sa_ovlp[iroot,iroot]
         return Rx - Rx_sub
-
+'''
 
 
 
