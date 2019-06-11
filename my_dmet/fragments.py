@@ -461,7 +461,9 @@ class fragment_object:
 
         # Now get them. (Make sure I don't add active-space orbitals by mistake!)
         if norbs_xtra:
-            norbs_qfrag, loc2wfrag = self.get_quasifrag_ovlp (loc2wmcs, norbs_xtra)
+            norbs_qfrag1, loc2wfrag = self.get_quasifrag_ovlp (self.loc2frag, loc2wmcs, norbs_xtra)
+            norbs_qfrag2, loc2wfrag = self.get_quasifrag_gradient (loc2wfrag, loc2wmcs, oneRDM_loc, norbs_xtra)
+            norbs_qfrag = norbs_qfrag1 + norbs_qfrag2
         else:
             norbs_qfrag = 0
             loc2wfrag = self.loc2frag
@@ -537,13 +539,13 @@ class fragment_object:
         self.impham_built = False
         sys.stdout.flush ()
 
-    def get_quasifrag_ovlp (self, loc2wmcs, norbs_xtra):
+    def get_quasifrag_ovlp (self, loc2frag, loc2wmcs, norbs_xtra):
         ''' Add "quasi-fragment orbitals" (to compensate for active orbitals' inability to generate bath) to "fragment orbitals" and return "working fragment orbitals
         using overlap on "true fragment" criterion '''
         loc2qfrag, _, svals = get_overlapping_states (loc2wmcs, self.get_true_loc2frag (), inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[:3]
         loc2qenv = get_complementary_states (loc2qfrag, already_complete_warning=False, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         loc2wmas = get_complementary_states (loc2wmcs, already_complete_warning=False, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
-        loc2p = orthonormalize_a_basis (np.concatenate ([self.loc2frag, loc2qenv, loc2wmas], axis=1), symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
+        loc2p = orthonormalize_a_basis (np.concatenate ([loc2frag, loc2qenv, loc2wmas], axis=1), symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         loc2qfrag = get_complementary_states (loc2p, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         norbs_qfrag = min (loc2qfrag.shape[1], norbs_xtra)
         # Align the symmetry and make sure not to pick only part of a degenerate manifold because this will cause artificial symmetry breaking
@@ -566,7 +568,7 @@ class fragment_object:
             qfrag_labels = dict (zip (*np.unique (qfrag_labels, return_counts=True)))
             err = measure_subspace_blockbreaking (loc2qfrag, self.loc2symm, self.ir_names)
             print ("Quasi-fragment irreps = {}, err = {}".format (qfrag_labels, err))
-            loc2wfrag = np.append (self.loc2frag, loc2qfrag, axis=1)
+            loc2wfrag = np.append (loc2frag, loc2qfrag, axis=1)
             loc2wfrag, wfrag_labels = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2wfrag, symmetry=self.loc2symm,
                 strong_symm=self.enforce_symmetry, only_nonzero_vals=False, sort_vecs=1)[1:]
             wfrag_labels = np.asarray (self.ir_names)[wfrag_labels]
@@ -577,8 +579,64 @@ class fragment_object:
             print ("Working fragment orbital overlap error = {}".format (err))
         else:
             print ("No valid quasi-fragment orbitals found")
-            loc2wfrag = self.loc2frag
+            loc2wfrag = loc2frag
         return norbs_qfrag, loc2wfrag
+
+    def get_quasifrag_gradient (self, loc2frag, loc2wmcs, oneRDM_loc, norbs_xtra):
+        ''' Add "quasi-fragment orbitals" (to compensate for active orbitals' inability to generate bath) to "fragment orbitals" and return "working fragment orbitals"
+        using SVD of orbital rotation gradient '''
+        if self.norbs_as == 0:
+            return 0, loc2frag
+        fock_loc = self.ints.activeFOCK
+        loc2amo = self.loc2amo
+        loc2env = get_complementary_states (loc2frag, already_complete_warning=False, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
+        loc2cenv = get_overlapping_states (loc2wmcs, loc2env, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[0]
+        cenv2loc = loc2cenv.conjugate ().T
+        amo2loc = loc2amo.conjugate ().T
+        # 1-body part
+        grad = fock_loc @ oneRDM_loc
+        grad -= grad.T
+        # 2-body part
+        eri = self.ints.general_tei ([loc2cenv, self.loc2amo, self.loc2amo, self.loc2amo])
+        eri_grad = np.tensordot (eri, self.twoCDMimp_amo, axes=3)
+        grad += loc2cenv @ eri_grad @ amo2loc
+        # SVD
+        loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2cenv, loc2amo, inner_symmetry=self.loc2symm,
+            enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)
+        print ("The gradient norm (outside of the fragment space) of the {} fragment is {}".format (self.frag_name, linalg.norm (svals)))
+        print ("Gradient svals: {}".format (svals))
+        norbs_qfrag = len (svals)
+        if (len (svals) > norbs_qfrag) and (norbs_qfrag > 0):
+            bottom_sval = svals[norbs_qfrag-1]
+            ndegen = np.count_nonzero (np.isclose (svals[norbs_qfrag:], bottom_sval))
+            if ndegen > 0:
+                print ("Warning: adding {} instead of {} quasi-fragment orbitals in order to avoid artificial symmetry breaking by adding only part of a degenerate manifold".format (
+                    norbs_qfrag+ndegen, norbs_qfrag))
+                print (svals)
+            norbs_qfrag += ndegen-1
+        if norbs_qfrag > 0:
+            print ("Add {} of {} possible quasi-fragment orbitals ".format (
+                norbs_qfrag, loc2qfrag.shape[1])
+                + "to compensate for {} active orbitals which cannot generate bath states".format (self.norbs_as))
+            loc2qfrag = loc2qfrag[:,:norbs_qfrag]
+            qfrag_labels = np.asarray (self.ir_names)[qfrag_labels[:norbs_qfrag]]
+            qfrag_labels = dict (zip (*np.unique (qfrag_labels, return_counts=True)))
+            err = measure_subspace_blockbreaking (loc2qfrag, self.loc2symm, self.ir_names)
+            print ("Quasi-fragment irreps = {}, err = {}".format (qfrag_labels, err))
+            loc2wfrag = np.append (loc2frag, loc2qfrag, axis=1)
+            loc2wfrag, wfrag_labels = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2wfrag, symmetry=self.loc2symm,
+                strong_symm=self.enforce_symmetry, only_nonzero_vals=False, sort_vecs=1)[1:]
+            wfrag_labels = np.asarray (self.ir_names)[wfrag_labels]
+            wfrag_labels = dict (zip (*np.unique (wfrag_labels, return_counts=True)))
+            err = measure_subspace_blockbreaking (loc2wfrag, self.loc2symm, self.ir_names)
+            print ("Working fragment irreps = {}, err = {}".format (wfrag_labels, err))
+            err = measure_basis_nonorthonormality (loc2wfrag)
+            print ("Working fragment orbital overlap error = {}".format (err))
+        else:
+            print ("No valid quasi-fragment orbitals found")
+            loc2wfrag = loc2frag
+        return norbs_qfrag, loc2wfrag
+        
 
     def analyze_ao_imp (self, oneRDM_loc, loc2wmcs, norbs_bath_xtra):
         ''' See how much of the atomic-orbitals corresponding to the true fragment ended up in the impurity and how much ended 
