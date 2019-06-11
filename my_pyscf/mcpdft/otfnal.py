@@ -4,6 +4,7 @@ from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
 from mrh.util import params
+from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs
 
 class otfnal:
     r''' Needs:
@@ -58,6 +59,44 @@ class otfnal:
         raise RuntimeError("on-top xc functional not defined")
         return 0
 
+    get_veff_1body = pdft_veff.get_veff_1body
+
+    def get_dEot_drho (self, rho, Pi, **kwargs):
+        r''' get the functional derivative dE_ot/drho
+
+        Args:
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+
+        Returns: ndarray of shape (2,*,ngrids)
+            The functional derivative of the on-top pair density exchange-correlation
+            energy wrt to spin density and its derivatives
+        '''
+
+        raise RuntimeError("on-top xc functional not defined")
+        return 0
+
+    get_veff_2body = pdft_veff.get_veff_2body
+    get_veff_2body_kl = pdft_veff.get_veff_2body_kl
+
+    def get_dEot_dPi (self, rho, Pi, **kwargs):
+        r''' get the functional derivative dE_ot/dPi
+
+        Args:
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+
+        Returns: ndarray of shape (*,ngrids)
+            The functional derivative of the on-top pair density exchange-correlation
+            energy wrt to the on-top pair density and its derivatives
+        '''
+
+        raise RuntimeError("on-top xc functional not defined")
+        return 0
 
 class transfnal (otfnal):
     r''' "translated functional" of Li Manni et al., JCTC 10, 3669 (2014).
@@ -74,8 +113,6 @@ class transfnal (otfnal):
         self._numint.eval_xc = t_eval_xc.__get__(self._numint)
         self._numint._xc_type = t_xc_type.__get__(self._numint)
         self._init_info ()
-
-
 
     def get_E_ot (self, rho, Pi, weight):
         r''' E_ot[rho, Pi] = V_xc[rho_translated] 
@@ -98,19 +135,17 @@ class transfnal (otfnal):
             Pi = np.expand_dims (Pi, 0)
             
         rho_t = self.get_rho_translated (Pi, rho)
-        dexc_ddens = self._numint.eval_xc (self.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=0, verbose=self.verbose)[0]
-        dens = rho_t[0,0,:] + rho_t[1,0,:]
- 
         rho = np.squeeze (rho)
         Pi = np.squeeze (Pi)
 
         # E_ot[rho,Pi] = \int {dE_ot/ddens}(r) * dens(r) dr
         #              = \sum_i {dE_ot/ddens}_i * dens_i * weight_i
-        dens *= weight
-        E_ot = np.sum (dexc_ddens * dens)
-        logger.debug (self, 'Total number of electrons in (this chunk of) the translated density = %s', np.sum (dens))
+        dexc_ddens  = self._numint.eval_xc (self.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=0, verbose=self.verbose)[0]
+        rho_t = rho_t[:,0,:].sum (0)
+        rho_t *= weight
+        dexc_ddens *= rho_t
 
-        return E_ot
+        return dexc_ddens.sum ()
 
     def get_ratio (self, Pi, rho_avg):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
@@ -134,7 +169,7 @@ class transfnal (otfnal):
             R[ideriv,idx] -= 2 * rho_avg[ideriv,idx] * R[0,idx] / rho_avg[0,idx]
         return R
 
-    def get_rho_translated (self, Pi, rho, Rmax=1, zeta_deriv=False):
+    def get_rho_translated (self, Pi, rho, Rmax=1, zeta_deriv=False, weights=None):
         r''' original translation, Li Manni et al., JCTC 10, 3669 (2014).
         rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + zeta)
         rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - zeta) 
@@ -157,6 +192,9 @@ class transfnal (otfnal):
                     cutoff for value of ratio in computing zeta; not inclusive
                 zeta_deriv : logical
                     whether to include the derivative of zeta in the gradient of rho_t
+                weights : ndarray of shape (ngrids)
+                    weights for numerical quadrature. Used only to test the integral
+                    of rho_t for debugging purposes
     
             Returns: ndarray of shape (2,*,ngrids)
                 containing translated spin density (and derivatives)
@@ -196,8 +234,18 @@ class transfnal (otfnal):
             rho_t[0,ideriv,idx] += w
             rho_t[1,ideriv,idx] -= w
 
-    
+        if self.verbose > logger.DEBUG and weights is not None:
+            nelec = (np.sum (rho_t[:,0,:], axis=0) * weights).sum ()
+            lib.logger.debug1 (self, 'Total number of electrons in (this chunk of) the translated density = %s', nelec)
+
         return rho_t
+
+    eval_ot = tfnal_derivs.eval_ot
+    get_bare_vxc = tfnal_derivs.get_bare_vxc
+    get_dEot_drho = tfnal_derivs.get_dEot_drho
+    get_dEot_dPi = tfnal_derivs.get_dEot_dPi
+
+
 
 _FT_R0_DEFAULT=0.9
 _FT_R1_DEFAULT=1.15
@@ -226,7 +274,7 @@ class ftransfnal (transfnal):
         self._numint._xc_type = ft_xc_type.__get__(self._numint)
         self._init_info ()
 
-    def get_rho_translated (self, Pi, rho, Rmax=None, zeta_deriv=True):
+    def get_rho_translated (self, Pi, rho, Rmax=None, zeta_deriv=True, weights=None):
         r''' "full" translation, Carlson et al., JCTC 11, 4077 (2015)
         rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + zeta)
         rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - zeta)
@@ -244,6 +292,14 @@ class ftransfnal (transfnal):
                 rho : ndarray of shape (2, *, ngrids)
                     containing spin density [and derivatives]
     
+            Kwargs:
+                Rmax : float
+                    cutoff for value of ratio in computing zeta; not inclusive
+                zeta_deriv : logical
+                    whether to include the derivative of zeta in the gradient of rho_t
+                weights : ndarray of shape (ngrids)
+                    weights for numerical quadrature. Used only to test the integral
+
             Returns: ndarray of shape (2,*,ngrids)
                 containing fully-translated spin density (and derivatives)
     
@@ -276,6 +332,10 @@ class ftransfnal (transfnal):
             rho_ft[0,ideriv,idx] += rho_avg[0,idx] * zeta[ideriv]
             rho_ft[1,ideriv,idx] -= rho_avg[0,idx] * zeta[ideriv]
     
+        if self.verbose > logger.DEBUG and weights is not None:
+            nelec = (np.sum (rho_ft[:,0,:], axis=0) * weights).sum ()
+            lib.logger.debug1 (self, 'Total number of electrons in (this chunk of) the fully-translated density = %s', nelec)
+
         return np.squeeze (rho_ft)
 
 _CS_a_DEFAULT = 0.04918

@@ -83,6 +83,7 @@ myInts.molden( my_kwargs['calcname'] + '_locints.molden' )
 # --------------------------------------------------------------------------------------------------------------------
 N2 = make_fragment_atom_list (myInts, list (range(2)), 'CASSCF(4,4)', name="N2")
 N2.bath_tol = bath_tol
+N2.mol_output = my_kwargs['calcname'] + '_N2.log'
 fraglist = [N2] 
 
 # Load or generate active orbital guess

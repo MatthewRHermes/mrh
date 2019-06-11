@@ -3,69 +3,49 @@ import scipy
 import ctypes
 import time
 from pyscf import lib, ao2mo, __config__
-from pyscf.fci import direct_spin1, cistring
-from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1, make_hdiag
+from pyscf.fci import direct_spin1, cistring, direct_uhf
+from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1
+from pyscf.lib.numpy_helper import tag_array
 from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, get_nspin_dets, get_csdaddrs_shape, pretty_csdaddrs
 from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det
 from mrh.my_pyscf.fci.csfstring import transform_opmat_det2csf, transform_opmat_det2csf_pspace
 from mrh.my_pyscf.fci.csfstring import count_all_csfs, make_econf_csf_mask, get_spin_evecs
-from mrh.my_pyscf.fci.csfstring import get_csfvec_shape
+from mrh.my_pyscf.fci.csfstring import get_csfvec_shape, pack_sym_ci, unpack_sym_ci
 from mrh.lib.helper import load_library as mrh_load_library
+'''
+    MRH 03/24/2019
+    IMPORTANT: this solver will interpret a two-component one-body Hamiltonian as [h1e_charge, h1e_spin] where
+    h1e_charge = h^p_q (a'_p,up a_q,up + a'_p,down a_q,down)
+    h1e_spin   = h^p_q (a'_p,up a_q,up - a'_p,down a_q,down)
+    This is to preserve interoperability with the members of direct_spin1_symm, since there is no direct_uhf_symm in pyscf yet.
+    Only with an explicitly CSF-based solver can such potentials be included in a calculation that retains S^2 symmetry.
+    Multicomponent two-body integrals are currently not available (so this feature is only for use with, e.g., ROHF-CASSCF with 
+    with some SOMOs outside of the active space or LASSCF with multiple nonsinglet fragments, not UHF-CASSCF).
+'''
+
 
 libfci = lib.load_library('libfci')
 libcsf = mrh_load_library('libcsf')
 
-def unpack_sym_ci (ci, idx, vec_on_cols=False):
-    if idx is None: return ci
-    tot_len = idx.size
-    sym_len = np.count_nonzero (idx)
-    if isinstance (ci, list) or isinstance (ci, tuple):
-        assert (ci[0].size == sym_len), '{} {}'.format (ci[0].size, sym_len)
-        dummy = np.zeros ((len (ci), tot_len), dtype=ci[0].dtype)
-        dummy[:,idx] = np.asarray (ci)[:,:]
-        if isinstance (ci, list):
-            ci = list (dummy)
-        else:
-            ci = tuple (dummy)
-        return ci
-    elif ci.ndim == 2:
-        if vec_on_cols:
-                ci = ci.T
-        assert (ci.shape[1] == sym_len), '{} {}'.format (ci.shape, sym_len)
-        dummy = np.zeros ((ci.shape[0], tot_len), dtype=ci.dtype)
-        dummy[:,idx] = ci
-        if vec_on_cols:
-            dummy = dummy.T
-        return dummy
-    else:
-        assert (ci.ndim == 1), ci.ndim
-        dummy = np.zeros (tot_len, dtype=ci.dtype)
-        dummy[idx] = ci
-        return dummy
+def unpack_h1e_cs (h1e):
+    h = np.asarray (h1e)
+    if h.ndim == 3 and h.shape[0] == 2:
+        return h1e[0], h1e[1]
+    return h1e, np.zeros_like (h1e)
 
-def pack_sym_ci (ci, idx, vec_on_cols=False):
-    if idx is None: return ci
-    tot_len = idx.size
-    sym_len = np.count_nonzero (idx)
-    if isinstance (ci, list) or isinstance (ci, tuple):
-        assert (ci[0].size == tot_len), '{} {}'.format (ci[0].size, tot_len)
-        dummy = np.asarray (ci)[:,idx]
-        if isinstance (ci, list):
-            ci = list (dummy)
-        else:
-            ci = tuple (dummy)
-        return ci
-    elif ci.ndim == 2:
-        if vec_on_cols:
-            ci = ci.T
-        assert (ci.shape[1] == tot_len), '{} {}'.format (ci.shape, tot_len)
-        dummy = ci[:,idx]
-        if vec_on_cols:
-            dummy = dummy.T
-        return dummy
-    else:
-        assert (ci.ndim == 1)
-        return ci[idx]
+unpack_1RDM_cs = unpack_h1e_cs
+
+def unpack_h1e_ab (h1e):
+    h1e_c, h1e_s = unpack_h1e_cs (h1e)
+    if h1e_s is None: return h1e_c, h1e_c
+    h1e_a = h1e_c + h1e_s
+    h1e_b = h1e_c - h1e_s
+    return h1e_a, h1e_b
+
+def unpack_1RDM_ab (dm):
+    dma, dmb = unpack_h1e_ab (dm)
+    return dma/2, dmb/2
+
 
 def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=None, idx_sym=None):
     ''' The existing _get_init_guess function will work in the csf basis if I pass it with na, nb = ncsf, 1. This might change in future PySCF versions though. 
@@ -85,9 +65,13 @@ def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=N
     ci = transform_civec_csf2det (ci, norb, neleca, nelecb, smult, csd_mask=csd_mask)[0]
     return ci
 
+def make_hdiag_det (fci, h1e, eri, norb, nelec):
+    ''' Wrap to the uhf version in order to use two-component h1e '''
+    return direct_uhf.make_hdiag (unpack_h1e_ab (h1e), [eri, eri, eri], norb, nelec)
+
 def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
     if hdiag_det is None:
-        hdiag_det = make_hdiag (h1e, eri, norb, nelec)
+        hdiag_det = make_hdiag_det (h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
     tlib = wlib = 0
     neleca, nelecb = _unpack_nelec (nelec)
@@ -154,7 +138,7 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_de
     t0, w0 = time.clock (), time.time ()
     tstr = tlib = tloop = wstr = wlib = wloop = 0
     if hdiag_det is None:
-        hdiag_det = make_hdiag (h1e, eri, norb, nelec)
+        hdiag_det = make_hdiag_det (h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
     neleca, nelecb = _unpack_nelec (nelec)
     min_npair, npair_csd_offset, npair_dconf_size, npair_sconf_size, npair_sdet_size = get_csdaddrs_shape (norb, neleca, nelecb)
@@ -275,13 +259,21 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
     strb = cistring.addrs2str(norb, nelecb, addrb)
     npsp_det = len(det_addr)
     h0 = np.zeros((npsp_det,npsp_det))
+    h1e_ab = unpack_h1e_ab (h1e)
+    h1e_a = np.ascontiguousarray(h1e_ab[0])
+    h1e_b = np.ascontiguousarray(h1e_ab[1])
+    g2e_aa = ao2mo.restore(1, eri, norb)
+    g2e_ab = g2e_bb = g2e_aa
     t0 = lib.logger.timer (fci, "csf.pspace: index manipulation", *t0)
-    libfci.FCIpspace_h0tril(h0.ctypes.data_as(ctypes.c_void_p),
-                            h1e.ctypes.data_as(ctypes.c_void_p),
-                            eri.ctypes.data_as(ctypes.c_void_p),
-                            stra.ctypes.data_as(ctypes.c_void_p),
-                            strb.ctypes.data_as(ctypes.c_void_p),
-                            ctypes.c_int(norb), ctypes.c_int(npsp_det))
+    libfci.FCIpspace_h0tril_uhf(h0.ctypes.data_as(ctypes.c_void_p),
+                                h1e_a.ctypes.data_as(ctypes.c_void_p),
+                                h1e_b.ctypes.data_as(ctypes.c_void_p),
+                                g2e_aa.ctypes.data_as(ctypes.c_void_p),
+                                g2e_ab.ctypes.data_as(ctypes.c_void_p),
+                                g2e_bb.ctypes.data_as(ctypes.c_void_p),
+                                stra.ctypes.data_as(ctypes.c_void_p),
+                                strb.ctypes.data_as(ctypes.c_void_p),
+                                ctypes.c_int(norb), ctypes.c_int(npsp_det))
     t0 = lib.logger.timer (fci, "csf.pspace: pspace Hamiltonian in determinant basis", *t0)
 
     for i in range(npsp_det):
@@ -465,6 +457,21 @@ class FCISolver (direct_spin1.FCISolver):
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
         self.check_mask_cache ()
         return make_hdiag_csf (h1e, eri, norb, nelec, self.smult, csd_mask=self.csd_mask, hdiag_det=hdiag_det)
+
+    make_hdiag = make_hdiag_det
+
+    def absorb_h1e (self, h1e, eri, norb, nelec, fac=1):
+        h1e_c, h1e_s = unpack_h1e_cs (h1e)
+        h2eff = super().absorb_h1e (h1e_c, eri, norb, nelec, fac)
+        if h1e_s is not None:
+            h2eff = tag_array (h2eff, h1e_s=h1e_s)
+        return h2eff
+
+    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
+        hc = super().contract_2e(eri, fcivec, norb, nelec, link_index, **kwargs)
+        if hasattr (eri, 'h1e_s'):
+           hc += direct_uhf.contract_1e ([eri.h1e_s, -eri.h1e_s], fcivec, norb, nelec, link_index)  
+        return hc
 
     '''
     01/14/2019: Changing strategy; I'm now replacing the kernel and pspace functions instead of make_precond and eig

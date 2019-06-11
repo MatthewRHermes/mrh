@@ -6,8 +6,6 @@ from mrh.util.rdm import get_2CDM_from_2RDM, get_2RDM_from_2CDM
 from mrh.util.basis import represent_operator_in_basis
 from itertools import product
 
-
-
 def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
     r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*g_ijkl / 2
                = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2
@@ -46,6 +44,8 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
 
     # Debug code for ultra-slow, ultra-high-memory but very safe implementation
     if ot.verbose > logger.DEBUG:
+        logger.debug (ot, 'Warning: memory-intensive cacheing of full 2RDM for testing '
+            'purposes initiated; reduce verbosity to increase speed and memory efficiency')
         twoRDM = represent_operator_in_basis (twoCDM_amo, ao2amo.conjugate ().T)
         twoRDM = get_2RDM_from_2CDM (twoRDM, oneCDMs)
 
@@ -77,6 +77,8 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
     Pi[0] += (gridkern[0] * wrk0).sum ((1,2)) / 2                          # r_0aij, P_0aij -> P_0a
     t0 = logger.timer (ot, 'otpd second cumulant 0th derivative', *t0)
     if ot.verbose > logger.DEBUG:
+        logger.debug (ot, 'Warning: slow einsum-based testing calculation of Pi initiated; '
+            'reduce verbosity to increase speed and memory efficiency')
         test_Pi = np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM, ao[0], ao[0], ao[0], ao[0]) / 2
         logger.debug (ot, "Pi, |tensordot_formula - einsum_formula| = %s", linalg.norm (Pi[0] - test_Pi)) 
         t0 = logger.timer (ot, 'otpd 0th derivative debug'.format (ideriv), *t0)
@@ -87,6 +89,8 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
             Pi[ideriv] += (gridkern[ideriv] * wrk0).sum ((1,2)) * 2                            # r_1aij, P_0aij -> P_1a  
             t0 = logger.timer (ot, 'otpd second cumulant 1st derivative ({})'.format (ideriv), *t0)
             if ot.verbose > logger.DEBUG:
+                logger.debug (ot, 'Warning: slow einsum-based testing calculation of Pi\'s first derivatives initiated; '
+                    'reduce verbosity to increase speed and memory efficiency')
                 test_Pi  = np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM, ao[ideriv], ao[0], ao[0], ao[0]) / 2
                 test_Pi += np.einsum ('ijkl,aj,ai,ak,al->a', twoRDM, ao[ideriv], ao[0], ao[0], ao[0]) / 2
                 test_Pi += np.einsum ('ijkl,ak,ai,aj,al->a', twoRDM, ao[ideriv], ao[0], ao[0], ao[0]) / 2
@@ -106,6 +110,8 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
         Pi[4] -= ((gridkern[1:4] + gridkern[1:4].transpose (0, 1, 3, 2)) * wrk1).sum ((0,2,3)) / 2 # r_1aij, P_1aij -> P_2a
         t0 = logger.timer (ot, 'otpd second cumulant off-top Laplacian', *t0)
         if ot.verbose > logger.DEBUG:
+            logger.debug (ot, 'Warning: slow einsum-based testing calculation of Pi\'s second derivatives initiated; '
+                    'reduce verbosity to increase speed and memory efficiency')
             X, Y, Z = 1, 2, 3
             test_Pi  = np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM, ao[XX], ao[0], ao[0], ao[0]) / 2
             test_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM, ao[YY], ao[0], ao[0], ao[0]) / 2

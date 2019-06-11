@@ -27,7 +27,7 @@ from mrh.util.tensors import symmetrize_tensor
 def solve (frag, guess_1RDM, chempot_imp):
 
     # Augment OEI with the chemical potential
-    OEI = frag.impham_OEI - chempot_imp
+    OEI = frag.impham_OEI_C - chempot_imp
 
     # Get the RHF solution
     mol = gto.Mole()
