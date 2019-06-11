@@ -598,7 +598,7 @@ class fragment_object:
         grad -= grad.T
         # 2-body part
         eri = self.ints.general_tei ([loc2cenv, self.loc2amo, self.loc2amo, self.loc2amo])
-        eri_grad = np.tensordot (eri, self.twoCDMimp_amo, axes=3)
+        eri_grad = np.tensordot (eri, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
         grad += loc2cenv @ eri_grad @ amo2loc
         # SVD
         loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2cenv, loc2amo, inner_symmetry=self.loc2symm,
@@ -707,7 +707,7 @@ class fragment_object:
         if self.norbs_as > 0:
             eri = self.ints.general_tei ([loc2virtbath, self.loc2amo, self.loc2amo, self.loc2amo])
             lamb = np.tensordot (self.twoCDMimp_amo, (self.amo2loc @ loc2occ), axes=1)
-            grad += np.tensordot (eri, lamb, axes=3)
+            grad += np.tensordot (eri, lamb, axes=((1,2,3),(1,2,3))) # axes=3 is INCORRECT!
         return 2 * grad, occ_labels
             
 
