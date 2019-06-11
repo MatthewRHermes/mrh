@@ -89,6 +89,8 @@ class fragment_object:
         self.virtual_bath_gradient_svd = False
         self.enforce_symmetry = False
         self.wfnsym = None
+        self.quasifrag_ovlp = False
+        self.quasifrag_gradient = True
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]
@@ -461,9 +463,14 @@ class fragment_object:
 
         # Now get them. (Make sure I don't add active-space orbitals by mistake!)
         if norbs_xtra:
-            norbs_qfrag1, loc2wfrag = self.get_quasifrag_ovlp (self.loc2frag, loc2wmcs, norbs_xtra)
-            norbs_qfrag2, loc2wfrag = self.get_quasifrag_gradient (loc2wfrag, loc2wmcs, oneRDM_loc, norbs_xtra)
-            norbs_qfrag = norbs_qfrag1 + norbs_qfrag2
+            norbs_qfrag = 0
+            loc2wfrag = self.loc2frag
+            if self.quasifrag_ovlp:
+                nq, loc2wfrag = self.get_quasifrag_ovlp (loc2wfrag, loc2wmcs, norbs_xtra)
+                norbs_qfrag += nq
+            if self.quasifrag_gradient:
+                nq, loc2wfrag = self.get_quasifrag_gradient (loc2wfrag, loc2wmcs, oneRDM_loc, norbs_xtra)
+                norbs_qfrag += nq
         else:
             norbs_qfrag = 0
             loc2wfrag = self.loc2frag
@@ -706,7 +713,8 @@ class fragment_object:
         grad = virtbath2loc @ fock @ oneRDM_loc @ loc2occ
         if self.norbs_as > 0:
             eri = self.ints.general_tei ([loc2virtbath, self.loc2amo, self.loc2amo, self.loc2amo])
-            lamb = np.tensordot (self.twoCDMimp_amo, (self.amo2loc @ loc2occ), axes=1)
+            lamb = np.tensordot (self.amo2loc @ loc2occ, self.twoCDMimp_amo, axes=(0,0))
+            print (eri.shape, lamb.shape)
             grad += np.tensordot (eri, lamb, axes=((1,2,3),(1,2,3))) # axes=3 is INCORRECT!
         return 2 * grad, occ_labels
             
