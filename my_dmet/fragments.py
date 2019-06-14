@@ -599,14 +599,13 @@ class fragment_object:
         loc2env = get_complementary_states (loc2frag, already_complete_warning=False, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         loc2cenv = get_overlapping_states (loc2wmcs, loc2env, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[0]
         cenv2loc = loc2cenv.conjugate ().T
-        amo2loc = loc2amo.conjugate ().T
         # 1-body part
         grad = fock_loc @ oneRDM_loc
         grad -= grad.T
         # 2-body part
         eri = self.ints.general_tei ([loc2cenv, self.loc2amo, self.loc2amo, self.loc2amo])
         eri_grad = np.tensordot (eri, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
-        grad += loc2cenv @ eri_grad @ amo2loc
+        grad += loc2cenv @ eri_grad @ self.amo2loc
         # SVD
         loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2cenv, loc2amo, inner_symmetry=self.loc2symm,
             enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)
@@ -789,6 +788,7 @@ class fragment_object:
         guess_1RDM = self.get_guess_1RDM (chempot_imp)
 
         # Execute solver function
+        if self.imp_solver_name != 'dummy RHF': self.analyze_gradient ()
         self.imp_solver_function (guess_1RDM, chempot_imp)
         self.imp_solved = True
 
@@ -798,6 +798,7 @@ class fragment_object:
         self.S2_frag    = self.get_S2_frag ()
         print ("Impurity results for {0}: E_imp = {1}, E_frag = {2}, nelec_frag = {3}, S2_frag = {4}".format (self.frag_name,
             self.E_imp, self.E_frag, self.nelec_frag, self.S2_frag))
+        if self.imp_solver_name != 'dummy RHF': self.analyze_gradient (oneRDM_loc=self.oneRDM_loc, fock_loc=self.ints.loc_rhf_fock_bis (self.oneRDM_loc))
 
         # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals
         self.fno_evals, frag2fno = sp.linalg.eigh (self.get_oneRDM_frag ())
@@ -810,6 +811,58 @@ class fragment_object:
         print ("Number of electrons on {0} from the impurity model: {1}; from the core: {2}".format (
             self.frag_name, np.trace (oneRDMimp_loc[idx]), np.trace (self.oneRDMfroz_loc[idx])))
         '''
+
+    def analyze_gradient (self, oneRDM_loc=None, fock_loc=None):
+        ''' Orbitals may be messed up by symmetry enforcement! I think symmetry enforcement may accidentally siwtch some impurity external orbitals and core external orbitals? '''
+        if oneRDM_loc is None: oneRDM_loc = self.ints.oneRDM_loc
+        if fock_loc is None: fock_loc = self.ints.activeFOCK
+        print ("Is fock matrix symmetry-adapted? {}".format (measure_operator_blockbreaking (fock_loc, self.loc2symm)))
+        print ("Is 1RDM symmetry-adapted? {}".format (measure_operator_blockbreaking (oneRDM_loc, self.loc2symm)))
+        imp2unac = get_complementary_states (self.imp2amo) 
+        loc2iunac = self.loc2imp @ imp2unac
+        ino_occ, loc2ino = matrix_eigen_control_options (oneRDM_loc, subspace=loc2iunac, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)[:2]
+        norbs_iinac = (self.nelec_imp - self.nelec_as) // 2
+        loc2iinac = loc2ino[:,:norbs_iinac]
+        iext2loc = loc2ino[:,norbs_iinac:].conjugate ().T
+        occ_err = linalg.norm (ino_occ[:norbs_iinac]-2)
+        olap_err = measure_basis_olap (loc2iinac, self.loc2core)
+        print ("I think I have {} impurity inactive orbitals; occupancy error = {}, overlap error = {}".format (norbs_iinac, occ_err, olap_err))
+        occ_err = linalg.norm (ino_occ[norbs_iinac:])
+        olap_err = measure_basis_olap (iext2loc.conjugate ().T, self.loc2core)
+        print ("I think I have {} impurity external orbitals; occupancy error = {}, overlap error = {}".format (len (ino_occ) - norbs_iinac, occ_err, olap_err))
+        cno_occ, loc2cno = matrix_eigen_control_options (oneRDM_loc, subspace=self.loc2core, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)[:2]
+        norbs_cinac = (self.ints.nelec_tot - self.nelec_imp) // 2
+        loc2cinac = loc2cno[:,:norbs_cinac]
+        cext2loc = loc2cno[:,norbs_cinac:].conjugate ().T
+        iunac2loc = loc2iunac.conjugate ().T
+        occ_err = linalg.norm (cno_occ[:norbs_cinac]-2)
+        olap_err = measure_basis_olap (loc2cinac, self.loc2imp)
+        print ("I think I have {} core inactive orbitals; occupancy error = {}, overlap error = {}".format (norbs_cinac, occ_err, olap_err))
+        occ_err = linalg.norm (cno_occ[norbs_cinac:])
+        olap_err = measure_basis_olap (cext2loc.conjugate ().T, self.loc2imp)
+        print ("I think I have {} core external orbitals; occupancy error = {}, overlap error = {}".format (len (cno_occ) - norbs_cinac, occ_err, olap_err))
+        eri_iunac = self.ints.general_tei ([loc2iunac, self.loc2amo, self.loc2amo, self.loc2amo])
+        eri_core = self.ints.general_tei ([self.loc2core, self.loc2amo, self.loc2amo, self.loc2amo])
+        # Active orbital-impurity unac
+        grad = fock_loc @ oneRDM_loc
+        grad -= grad.T
+        grad = iunac2loc @ grad @ self.loc2amo
+        eri_grad = np.tensordot (eri_iunac, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
+        grad += eri_grad
+        print ("Active to imp-unac gradient norm: {}".format (linalg.norm (grad)))
+        # Active orbital-core
+        grad = fock_loc @ oneRDM_loc
+        grad -= grad.T
+        grad = self.core2loc @ grad @ self.loc2amo
+        eri_grad = np.tensordot (eri_core, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
+        grad += eri_grad
+        print ("Active to core gradient norm: {}".format (linalg.norm (grad)))
+        print ("Imp-inac to imp-extern gradient norm: {}".format (linalg.norm (iext2loc @ fock_loc @ loc2iinac * 2)))
+        print ("Core-inac to core-extern gradient norm: {}".format (linalg.norm (cext2loc @ fock_loc @ loc2cinac * 2)))
+        print ("Core-inac to imp-extern gradient norm: {}".format (linalg.norm (iext2loc @ fock_loc @ loc2cinac * 2)))
+        print ("Imp-inac to core-extern gradient norm: {}".format (linalg.norm (cext2loc @ fock_loc @ loc2iinac * 2)))
 
 
     def load_amo_guess_from_casscf_molden (self, moldenfile, norbs_cmo, norbs_amo):
