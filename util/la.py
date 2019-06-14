@@ -684,7 +684,12 @@ def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zer
             print ("Missing zero-matrix escape? number of remaining vectors = {}".format (vecs.shape[1]-i))
             for lbl in uniq_labels:
                 mat = vecs[row_labels==lbl,i:]
-                print ("max, norm of {} = {}, {}".format (lbl, np.amax (np.abs (mat)), scipy.linalg.norm (mat)))
+                try:
+                    print ("max, norm of {} = {}, {}".format (lbl, np.amax (np.abs (mat)), scipy.linalg.norm (mat)))
+                except:
+                    fname = 'DEBUG_{}.npy'.format (lbl)
+                    print ("Cannot calculate norm/max of vecs for {} for some reason; saving to {} instead".format (lbl, fname))
+                    np.save (fname, vecs)
             raise (e)
         # This argmax identifies the single best irrep assignment possible for all of vecs[:,i:]
         symm_label_idx = np.argmax ([svals[0] for lvecs, svals, rvecs in svdout])
