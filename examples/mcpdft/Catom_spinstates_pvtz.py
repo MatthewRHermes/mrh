@@ -37,9 +37,9 @@ ks.xc = 'pbe'
 ks.grids.level = 9
 ot = otfnal.transfnal (ks)
 
-els_vert = mcpdft.kernel (ls_vert, ot)
-els_rel = mcpdft.kernel (ls_rel, ot)
-ehs = mcpdft.kernel (hs, ot)
+els_vert = mcpdft.kernel (ls_vert, ot)[0]
+els_rel = mcpdft.kernel (ls_rel, ot)[0]
+ehs = mcpdft.kernel (hs, ot)[0]
 print ("MC-PDFT (tPBE) high-spin energy: {:.8f}".format (ehs))
 print ("MC-PDFT (tPBE) (vertical) low-spin energy: {:.8f}".format (els_vert))
 print ("MC-PDFT (tPBE) (relaxed) low-spin energy: {:.8f}".format (els_rel))
@@ -51,9 +51,9 @@ ks.xc = 'blyp'
 #ks.grids.level = 9
 ot = otfnal.transfnal (ks)
 
-els_vert = mcpdft.kernel (ls_vert, ot)
-els_rel = mcpdft.kernel (ls_rel, ot)
-ehs = mcpdft.kernel (hs, ot)
+els_vert = mcpdft.kernel (ls_vert, ot)[0]
+els_rel = mcpdft.kernel (ls_rel, ot)[0]
+ehs = mcpdft.kernel (hs, ot)[0]
 print ("MC-PDFT (tBLYP) high-spin energy: {:.8f}".format (ehs))
 print ("MC-PDFT (tBLYP) (vertical) low-spin energy: {:.8f}".format (els_vert))
 print ("MC-PDFT (tBLYP) (relaxed) low-spin energy: {:.8f}".format (els_rel))

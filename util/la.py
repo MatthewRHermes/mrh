@@ -219,6 +219,11 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
     lsymm_isvectorblock = False if lsymm is None else isinstance (lsymm[0], np.ndarray)
     rsymm_isvectorblock = False if rsymm is None else isinstance (rsymm[0], np.ndarray)
 
+    # If subspace symmetry is provided as a vector block, transform subspace into a symmetry-adapted form
+    # No recursion necessary because the eigenvectors are meant to be provided in the full basis :)
+    lspace, lspace_symmetry = _symmadapt_subspace (lspace, lspace_symmetry)
+    rspace, rspace_symmetry = _symmadapt_subspace (rspace, rspace_symmetry)
+
     # Shape construction and zero matrix escape
     Mbasis, M = _interpret_shape (the_matrix, lspace, 0)
     Nbasis, N = _interpret_shape (the_matrix, rspace, 1)
@@ -228,28 +233,6 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
     if M is None: M = Mbasis
     if N is None: N = Nbasis
     K = min (M, N)
-    working_matrix = the_matrix if isinstance (the_matrix, np.ndarray) else np.eye (Mbasis)
-    if lspace_isvectorblock: working_matrix = lspace.conjugate ().T @ working_matrix
-    if lspace is not None and not lspace_isvectorblock: working_matrix = working_matrix[lspace,:]
-    if rspace_isvectorblock: working_matrix = working_matrix @ rspace
-    if rspace is not None and not rspace_isvectorblock: working_matrix = working_matrix[:,rspace]
-    zero_matrix = (0 in (M,N)) or (np.amax (np.abs (working_matrix)) < num_zero_atol)
-    zero_matrix = zero_matrix or ((scipy.linalg.norm (working_matrix) / working_matrix.size) < num_zero_atol)
-    if zero_matrix:
-        K = 0 if only_nonzero_vals else K
-        lvecs = np.eye (Mbasis)
-        rvecs = np.eye (Nbasis)
-        if lspace is not None: lvecs = lspace if lspace_isvectorblock else lvecs[:,lspace]
-        if rspace is not None: rvecs = rspace if rspace_isvectorblock else rvecs[:,rspace]
-        if not full_matrices:
-            lvecs = lvecs[:,:K]
-            rvecs = rvecs[:,:K]
-        return lvecs, np.zeros ((K)), rvecs
-
-    # If subspace symmetry is provided as a vector block, transform subspace into a symmetry-adapted form
-    # No recursion necessary because the eigenvectors are meant to be provided in the full basis :)
-    lspace, lspace_symmetry = _symmadapt_subspace (lspace, lspace_symmetry)
-    rspace, rspace_symmetry = _symmadapt_subspace (rspace, rspace_symmetry)
 
     # If symmetry information is provided as a vector block, transform into a symmetry-adapted basis and recurse
     if lsymm_isvectorblock or rsymm_isvectorblock:
@@ -263,6 +246,42 @@ def matrix_svd_control_options (the_matrix, full_matrices=False, only_nonzero_va
         if lumat is not None: rets = [lumat @ x if idx == 0 else x for idx, x in enumerate (rets)]
         if rumat is not None: rets = [rumat @ x if idx == 2 else x for idx, x in enumerate (rets)]
         return rets
+
+    # Zero matrix escape
+    working_matrix = the_matrix if isinstance (the_matrix, np.ndarray) else np.eye (Mbasis)
+    if lspace_isvectorblock: working_matrix = lspace.conjugate ().T @ working_matrix
+    if lspace is not None and not lspace_isvectorblock: working_matrix = working_matrix[lspace,:]
+    if rspace_isvectorblock: working_matrix = working_matrix @ rspace
+    if rspace is not None and not rspace_isvectorblock: working_matrix = working_matrix[:,rspace]
+    zero_matrix = (0 in (M,N)) or (np.amax (np.abs (working_matrix)) < num_zero_atol)
+    zero_matrix = zero_matrix or ((scipy.linalg.norm (working_matrix) / working_matrix.size) < num_zero_atol)
+    if zero_matrix:
+        K = 0 if only_nonzero_vals else K
+        llabels = lsymm
+        lvecs = np.eye (Mbasis) 
+        if lspace is not None:
+            lvecs = lspace if lspace_isvectorblock else lvecs[:,lspace]
+            if llabels is not None and not lspace_isvectorblock: llabels=llabels[lspace]
+        if lspace_symmetry is not None: llabels = lspace_symmetry
+        rlabels = rsymm
+        rvecs = np.eye (Nbasis) 
+        if rspace is not None:
+            rvecs = rspace if rspace_isvectorblock else rvecs[:,rspace]
+            if rlabels is not None and not rspace_isvectorblock: rlabels=rlabels[rspace]
+        if rspace_symmetry is not None: rlabels = rspace_symmetry
+        if not full_matrices:
+            lvecs = lvecs[:,:K]
+            rvecs = rvecs[:,:K]
+            if return_llabels: llabels = llabels[:K]
+            if return_rlabels: rlabels = rlabels[:K]
+        if return_llabels and return_rlabels:
+            return lvecs, np.zeros ((K)), rvecs, llabels, rlabels
+        elif return_llabels:
+            return lvecs, np.zeros ((K)), rvecs, llabels
+        elif return_rlabels:
+            return lvecs, np.zeros ((K)), rvecs, rlabels
+        else:
+            return lvecs, np.zeros ((K)), rvecs
 
     # Recurse from strong symmetry enforcement to SVD over individual symmetry blocks
     if strong_symm:
@@ -665,7 +684,12 @@ def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zer
             print ("Missing zero-matrix escape? number of remaining vectors = {}".format (vecs.shape[1]-i))
             for lbl in uniq_labels:
                 mat = vecs[row_labels==lbl,i:]
-                print ("max, norm of {} = {}, {}".format (lbl, np.amax (np.abs (mat)), scipy.linalg.norm (mat)))
+                try:
+                    print ("max, norm of {} = {}, {}".format (lbl, np.amax (np.abs (mat)), scipy.linalg.norm (mat)))
+                except:
+                    fname = 'DEBUG_{}.npy'.format (lbl)
+                    print ("Cannot calculate norm/max of vecs for {} for some reason; saving to {} instead".format (lbl, fname))
+                    np.save (fname, vecs)
             raise (e)
         # This argmax identifies the single best irrep assignment possible for all of vecs[:,i:]
         symm_label_idx = np.argmax ([svals[0] for lvecs, svals, rvecs in svdout])
