@@ -248,19 +248,20 @@ class Gradients (sacasscf.Gradients):
         ci_arr = np.asarray (self.base.ci).reshape (self.nroots, -1)
         ndet = ci_arr.shape[-1]
         b_ci = bvec[self.ngorb:].reshape (self.nroots, ndet)
-        b_sa = np.dot (ci_arr.conjugate (), b_ci[self.iroot])
-        A_sa = 2 * self.weights[self.iroot] * (self.e_mcscf - self.e_mcscf[self.iroot])
-        A_sa[self.iroot] = 1
-        b_sa[self.iroot] = 0
-        x0_sa = -b_sa / A_sa # Hessian is diagonal so: easy
-        ovlp = ci_arr.conjugate () @ b_ci.T
-        logger.debug (self, 'Linear response SA-SA part:\n{}'.format (ovlp))
-        logger.debug (self, 'Linear response SA-CI norms:\n{}'.format (linalg.norm (
-            b_ci.T - ci_arr.T @ ovlp, axis=1)))
-        logger.debug (self, 'Linear response orbital norms:\n{}'.format (linalg.norm (bvec[:self.ngorb])))
-        logger.debug (self, 'SA-SA Lagrange multiplier for root {}:\n{}'.format (self.iroot, x0_sa))
         x0 = np.zeros_like (bvec)
-        x0[self.ngorb:][ndet*self.iroot:][:ndet] = np.dot (x0_sa, ci_arr)
+        if self.nroots > 1:
+            b_sa = np.dot (ci_arr.conjugate (), b_ci[self.iroot])
+            A_sa = 2 * self.weights[self.iroot] * (self.e_mcscf - self.e_mcscf[self.iroot])
+            A_sa[self.iroot] = 1
+            b_sa[self.iroot] = 0
+            x0_sa = -b_sa / A_sa # Hessian is diagonal so: easy
+            ovlp = ci_arr.conjugate () @ b_ci.T
+            logger.debug (self, 'Linear response SA-SA part:\n{}'.format (ovlp))
+            logger.debug (self, 'Linear response SA-CI norms:\n{}'.format (linalg.norm (
+                b_ci.T - ci_arr.T @ ovlp, axis=1)))
+            logger.debug (self, 'Linear response orbital norms:\n{}'.format (linalg.norm (bvec[:self.ngorb])))
+            logger.debug (self, 'SA-SA Lagrange multiplier for root {}:\n{}'.format (self.iroot, x0_sa))
+            x0[self.ngorb:][ndet*self.iroot:][:ndet] = np.dot (x0_sa, ci_arr)
         r0 = bvec + Aop (x0)
         r0_ci = r0[self.ngorb:].reshape (self.nroots, ndet)
         ovlp = ci_arr.conjugate () @ r0_ci.T
@@ -291,7 +292,11 @@ class Gradients (sacasscf.Gradients):
     def project_Aop (self, Aop, ci, iroot):
         ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
             changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
-        A_sa = 2 * self.weights[iroot] * (self.e_mcscf - self.e_mcscf[iroot])
+        try:
+            A_sa = 2 * self.weights[iroot] * (self.e_mcscf - self.e_mcscf[iroot])
+        except IndexError as e:
+            assert (self.nroots == 1), e
+            A_sa = 0
         ci_arr = np.asarray (ci).reshape (self.nroots, -1)
         def my_Aop (x):
             Ax = Aop (x)
