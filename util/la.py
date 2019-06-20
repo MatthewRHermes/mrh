@@ -689,7 +689,7 @@ def align_vecs (vecs, row_labels, rtol=params.num_zero_rtol, atol=params.num_zer
                 except:
                     fname = 'DEBUG_{}.npy'.format (lbl)
                     print ("Cannot calculate norm/max of vecs for {} for some reason; saving to {} instead".format (lbl, fname))
-                    np.save (fname, vecs)
+                    np.save (fname, mat)
             raise (e)
         # This argmax identifies the single best irrep assignment possible for all of vecs[:,i:]
         symm_label_idx = np.argmax ([svals[0] for lvecs, svals, rvecs in svdout])
