@@ -370,7 +370,8 @@ class Gradients (lagrange.Gradients):
     def make_fcasscf_sa (self, casscf_attr={}, fcisolver_attr={}):
         ''' Make a fake SA-CASSCF object to get around weird inheritance conflicts '''
         fcasscf = self.make_fcasscf (casscf_attr={}, fcisolver_attr={})
-        fcasscf.state_average_(self.base.weights)
+        if hasattr (self.base, 'weights'):
+            fcasscf.state_average_(self.base.weights)
         return fcasscf
 
     def kernel (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, e_avg=None, level_shift=None, **kwargs):

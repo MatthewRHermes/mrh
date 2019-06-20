@@ -427,10 +427,10 @@ def fix_my_CASSCF_for_nonsinglet_env (mc, h1e_s):
                 h1e = [h1e, h1e_s_amo]
             return super().kernel (h1e, eri, norb, nelec, ci0=ci0, **kwargs)
 
-        def make_rdm12 (self, ci, ncas, nelecas):
+        def make_rdm12 (self, ci, ncas, nelecas, link_index=None):
             ''' I need to smuggle in the spin-density matrix for the sake of gen_g_hop down there. '''
-            dm1, dm2 = super().make_rdm12 (ci, ncas, nelecas)
-            dm1a, dm1b = self.make_rdm1s (ci, ncas, nelecas)
+            dm1, dm2 = super().make_rdm12 (ci, ncas, nelecas, link_index=link_index)
+            dm1a, dm1b = self.make_rdm1s (ci, ncas, nelecas, link_index=link_index)
             dm1 = lib.tag_array (dm1, sdm=dm1a-dm1b)
             last_cached_sdm[:,:] = dm1.sdm[:,:]
             return dm1, dm2

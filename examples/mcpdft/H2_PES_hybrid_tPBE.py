@@ -25,13 +25,13 @@ def cas_22_pt (HHdist, xfnal, cfnal, hybs, basis='sto3g', output=None):
     #mc.fix_spin_(ss=0)
     e_cas = mc.kernel ()[0]
     assert (mc.converged)
-    e_pdft = mcpdft.kernel (mc, ot)
+    e_pdft = mcpdft.kernel (mc, ot)[0]
     e_hyb = []
     for hyb in hybs:
         ks.xc = '{0:.2f}*HF + {1:.2f}*{2:s}, {3:s}'.format (hyb, 1.0-hyb, xfnal, cfnal)
         e_hyb.append (ks.kernel ())
         ot.otxc = 't{0:.2f}*HF + {1:.2f}*{2:s}, {3:s}'.format (hyb, 1.0-hyb, xfnal, cfnal)
-        e_hyb.append (mcpdft.kernel (mc, ot))
+        e_hyb.append (mcpdft.kernel (mc, ot)[0])
     return [e_cas, e_pdft, e_rks] + [e for e in e_hyb]
 
 xfnal = 'XC_GGA_X_PBE'
