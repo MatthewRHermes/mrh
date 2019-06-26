@@ -89,8 +89,8 @@ class fragment_object:
         self.virtual_bath_gradient_svd = False
         self.enforce_symmetry = False
         self.wfnsym = None
-        self.quasifrag_ovlp = False
-        self.quasifrag_gradient = True
+        self.quasifrag_ovlp = True
+        self.quasifrag_gradient = False
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]
