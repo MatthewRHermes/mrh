@@ -1,7 +1,10 @@
 import numpy as np
 from pyscf import ao2mo
+from pyscf.mcscf.mc1step import gen_g_hop
 from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal
+from mrh.util.rdm import get_2CDM_from_2RDM
 from scipy import linalg
+from itertools import product
 
 class HessianCalculator (object):
     ''' Calculate elements of an orbital-rotation Hessian corresponding to particular orbital ranges in a CASSCF or
@@ -68,7 +71,51 @@ class HessianCalculator (object):
         self.fock = [moH @ f @ mo for f in self.fock]
         self.oneRDMs = [moH @ D @ mo for D in self.oneRDMs]
 
-    def __call__(self, p, q, r, s):
+    def __call__(self, *args):
+        if len (args) == 0:
+            ''' If no orbital ranges are passed, return the full mo-basis Hessian '''
+            return self._call_diag (self.mo, self.mo)
+        elif len (args) == 1:
+            ''' If one orbital range is passed, return the Hessian with all four indices in that range'''
+            return self._call_diag (args[0], args[0])
+        elif len (args) == 2:
+            ''' If two orbital ranges are passed, return the Hessian with the first range specifying rotation 1
+            and the second specifying rotation 2 (be careful when doing this; it's ^pq_pq, not ^pp_qq, because the
+            former is the configuration where you can use the permutation symmetry to speed up the thing '''
+            return self._call_diag (args[0], args[1])
+        elif len (args) == 3:
+            ''' First two orbital ranges specify rotation 1; third specifies rotation 2 '''
+            return self._call_semidiag (args[0], args[1], args[2])
+        elif len (args) == 4:
+            ''' If all four orbital ranges are passed, return the Hessian so specified. No permutation symmetry can be exploited. '''
+            return self._call_full (args[0], args[1], args[2], args[3])
+        else:
+            raise RuntimeError ("Orbital Hessian has 4 orbital indices; you passed {} orbital ranges".format (len (args)))
+
+    def _call_diag (self, p, q):
+        ''' The Hessian E2^pq_p'q' is F2^pq_p'q' - F2^p'q_pq' - F2^pq'_p'q + F2^p'q'_pq 
+        Use full permutation symmetry to accelerate it!'''
+        # Put the orbital ranges in the orthonormal basis for fun and profit
+        p = self.moHS @ p
+        q = self.moHS @ q
+        hess = self._get_Fock2 (p, p, q, q)
+        hess -= hess.transpose (1, 0, 2, 3)
+        hess -= hess.transpose (0, 1, 3, 2)
+        return hess / 4
+
+    def _call_semidiag (self, p, q, r)
+        ''' The Hessian E2^pr_qr' is F2^pr_qr' - F2^qr_pr' - F2^pr'_qr + F2^qr'_pr 
+        Use permutation symmetry on the second rotation'''
+        # Put the orbital ranges in the orthonormal basis for fun and profit
+        p = self.moHS @ p
+        q = self.moHS @ q
+        r = self.moHS @ r
+        hess  = self._get_Fock2 (p, q, r, r)
+        hess -= self._get_Fock2 (q, p, r, r).transpose (1,0,2,3)
+        hess -= hess.transpose (0,1,3,2)
+        return hess /= 4
+
+    def _call_full (self, p, q, r, s)
         ''' The Hessian E2^pr_qs is F2^pr_qs - F2^qr_ps - F2^ps_qr + F2^qs_pr. 
         Since the orbitals are segmented into separate ranges, you cannot necessarily just calculate
         one of these and transpose. '''
@@ -77,10 +124,10 @@ class HessianCalculator (object):
         q = self.moHS @ q
         r = self.moHS @ r
         s = self.moHS @ s
-        hess  = self._get (p, q, r, s)
-        hess -= self._get (q, p, r, s)
-        hess -= self._get (p, q, s, r)
-        hess += self._get (q, p, s, r)
+        hess  = self._get_Fock2 (p, q, r, s)
+        hess -= self._get_Fock2 (q, p, r, s).transpose (1,0,2,3)
+        hess -= self._get_Fock2 (p, q, s, r).transpose (0,1,3,2)
+        hess += self._get_Fock2 (q, p, s, r).transpose (1,0,3,2)
         return hess / 4
 
     def _get_eri (self, orbs_list, compact=False):
@@ -100,7 +147,7 @@ class HessianCalculator (object):
         if not compact: eri = eri.reshape (*norbs)
         return eri
 
-    def _get_1perm (self, p, q, r, s):
+    def _get_Fock2 (self, p, q, r, s):
         ''' This calculates one of the terms F2^pr_qs '''
 
         # Easiest term: 2 f^p_r D^q_s
@@ -112,7 +159,7 @@ class HessianCalculator (object):
         # Generalized Fock matrix terms: delta_qr (F^p_s + F^s_p)
         ovlp_qr = q.conjugate ().T @ r
         if np.amax (np.abs (ovlp_qr)) > 1e-8: # skip if there is no overlap between the q and r ranges
-            gf_ps = self._get_gfock (p, s)
+            gf_ps = self._get_Fock1 (p, s)
             gf_ps += gf_ps.T
             hess += np.multiply.outer (ovlp_qr, gf_ps).transpose (2,0,1,3) # 'qr,ps->pqrs'
 
@@ -138,7 +185,7 @@ class HessianCalculator (object):
 
         return hess
 
-    def _get_gfock (self, p, q):
+    def _get_Fock1 (self, p, q):
         ''' Calculate the "generalized fock matrix" for orbital ranges p and q '''
         gfock = sum ([f @ D for f, D in zip (self.fock, self.oneRDMs)])
         gfock = p.conjugate ().T @ gfock @ q
@@ -190,4 +237,74 @@ class HessianCalculator (object):
         idx = np.abs (sigma) > 1e-8
         return q @ lvec[:,idx]
 
+
+class CASSCFHessianTester (HessianCalculator):
+    ''' Use pyscf.mcscf.mc1step.gen_g_hop to test HessianCalculator.
+    There are 3 nonredundant orbital rotation sectors: ui, ai, and au
+    Therefore there are 6 nonredundant Hessian sectors: uiui, uiai,
+    uiau, aiai, aiau, and auau. Note that PySCF chooses to store the
+    lower-triangular (p>q) part. Sadly I can't use permutation symmetry
+    to accelerate any of these because any E2^pr_qr would necessarily
+    refer to a redundant rotation.'''
+
+    def __init__(self, mc):
+        oneRDMs = mc.make_rdm1s ()
+        casdm1s = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
+        casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
+        twoCDM = get_2CDM_from_2RDM (casdm2, casdm1s)
+        ao2amo = mc.mo_coeff[:,self.ncore:][:,:self.ncas]
+        super ().__init__(mc._scf, oneRDMs, twoCDM, ao2amo)
+        self.cas = mc
+        self.cas_mo = mc.mo_coeff
+        self.ncore, self.ncas, self.nelecas = mc.ncore, mc.ncas, mc.nelecas
+        self.nocc = self.ncore + self.ncas
+        self.nmo = self.cas_mo.shape[1]
+        self.hop, self.hdiag = gen_g_hop (mc, self.cas_mo, 1, casdm1, casdm2, mc.ao2mo (self.cas_mo))[2:]
+
+    def __call__(self, pq, rs):
+        ''' pq, rs = 0 (ui), 1 (ai), 2 (au) '''
+        p, q, prange, qrange, np, nq = self._parse_range (pq)
+        r, s, rrange, srange, nr, ns = self._parse_range (rs)
+
+        my_hess = super().__call__(p, q, r, s)
+        fmt_str = "{0:2d} {1:2d} {2:2d} {3:2d} {4:13.6e} {5:13.6e}"
+
+        for (ixp, pi), (ixq, qi) in product (enumerate (prange), enumerate (qrange)):
+            Py_hess = self._pyscf_hop_call (pi, qi, rrange, srange)
+            for (ixr, ri), (ixs, si) in product (enumerate (rrange), enumerate (srange)):
+                print (fmt_str.format (pi, qi, ri, si, my_hess[ixp,ixq,ixr,ixs], Py_hess[ixr,ixs]))
+
+    def _parse_range (self, pq):
+        if pq == 0: # ui
+            p = self.cas_mo[:,self.ncore:self.nocc]
+            q = self.cas_mo[:,:self.ncore]
+            prange = range (self.ncore,self.nocc)
+            qrange = range (self.ncore)
+            np = self.ncas
+            nq = self.ncore
+        elif pq == 1: # ai
+            p = self.cas_mo[:,self.nocc:]
+            q = self.cas_mo[:,:self.ncore]
+            prange = range (self.nocc, self.nmo)
+            qrange = range (self.ncore)
+            np = self.nmo - self.nocc
+            nq = self.ncore
+        elif pq == 2: # au
+            p = self.cas_mo[:,self.nocc:]
+            q = self.cas_mo[:,self.ncore:self.nocc]
+            prange = range (self.nocc, self.nmo)
+            qrange = range (self.ncore,self.nocc)
+            np = self.nmo - self.nocc
+            nq = self.ncas
+        else: 
+            raise RuntimeError ("Undefined range {}".format (pq))
+        return p, q, prange, qrange, np, nq
+
+    def _pyscf_hop_call (ip, iq, rrange, srange):
+        kappa = np.zeros (self.nmo, self.nmo)
+        kappa[ip,iq] = 1
+        kappa = self.cas.pack_uniq_var (kappa)
+        py_hess = self.hop (kappa)
+        py_hess = self.cas.unpack_uniq_var (py_hess)
+        return py_hess[rrange, srange]
 
