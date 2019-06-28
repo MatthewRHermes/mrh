@@ -32,9 +32,11 @@ class HessianCalculator (object):
             self.oneRDMs = np.asarray ([self.oneRDMs, self.oneRDMs])
 
         mo = self.scf.mo_coeff
+        Smo = self.scf.get_ovlp () @ mo
         moH = mo.conjugate ().T
         moHS = moH @ self.scf.get_ovlp ()
         self.mo = mo
+        self.Smo = Smo 
         self.moH = moH 
         self.moHS = moHS
         self.nao, self.nmo = mo.shape
@@ -54,8 +56,8 @@ class HessianCalculator (object):
             self.mo2amo = [l for l in ao2amo]
         else:
             self.mo2amo = [ao2amo]
-        self.mo2amo = [self.moHS @ ao2a for ao2a in mo2amo]
-        assert (len (self.mo2amo) == self.nas) "Same number of mo2amo's and twoCDM's required"
+        self.mo2amo = [self.moHS @ ao2a for ao2a in self.mo2amo]
+        assert (len (self.mo2amo) == self.nas), "Same number of mo2amo's and twoCDM's required"
 
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
             assert (t.shape == (n, n, n, n)), "twoCDM array size problem"
@@ -64,12 +66,12 @@ class HessianCalculator (object):
 
         # Precalculate the fock matrix 
         vj, vk = self.scf.get_jk (dm=self.oneRDMs)
-        fock = self.get_hcore + vj[0] + vj[1]
+        fock = self.scf.get_hcore () + vj[0] + vj[1]
         self.fock = [fock - vk[0], fock - vk[1]]
 
         # Put 1rdm and fock in the orthonormal basis
         self.fock = [moH @ f @ mo for f in self.fock]
-        self.oneRDMs = [moH @ D @ mo for D in self.oneRDMs]
+        self.oneRDMs = [moHS @ D @ Smo for D in self.oneRDMs]
 
     def __call__(self, *args):
         if len (args) == 0:
@@ -95,17 +97,21 @@ class HessianCalculator (object):
     def _call_diag (self, p, q):
         ''' The Hessian E2^pq_p'q' is F2^pq_p'q' - F2^p'q_pq' - F2^pq'_p'q + F2^p'q'_pq 
         Use full permutation symmetry to accelerate it!'''
+        norb = [p.shape[-1], p.shape[-1], q.shape[-1], q.shape[-1]]
+        if 0 in norb: return np.zeros (norb)
         # Put the orbital ranges in the orthonormal basis for fun and profit
         p = self.moHS @ p
         q = self.moHS @ q
         hess = self._get_Fock2 (p, p, q, q)
         hess -= hess.transpose (1, 0, 2, 3)
         hess -= hess.transpose (0, 1, 3, 2)
-        return hess / 4
+        return hess / 2
 
-    def _call_semidiag (self, p, q, r)
+    def _call_semidiag (self, p, q, r):
         ''' The Hessian E2^pr_qr' is F2^pr_qr' - F2^qr_pr' - F2^pr'_qr + F2^qr'_pr 
         Use permutation symmetry on the second rotation'''
+        norb = [p.shape[-1], q.shape[-1], r.shape[-1], r.shape[-1]]
+        if 0 in norb: return np.zeros (norb)
         # Put the orbital ranges in the orthonormal basis for fun and profit
         p = self.moHS @ p
         q = self.moHS @ q
@@ -113,12 +119,14 @@ class HessianCalculator (object):
         hess  = self._get_Fock2 (p, q, r, r)
         hess -= self._get_Fock2 (q, p, r, r).transpose (1,0,2,3)
         hess -= hess.transpose (0,1,3,2)
-        return hess /= 4
+        return hess / 2
 
-    def _call_full (self, p, q, r, s)
+    def _call_full (self, p, q, r, s):
         ''' The Hessian E2^pr_qs is F2^pr_qs - F2^qr_ps - F2^ps_qr + F2^qs_pr. 
         Since the orbitals are segmented into separate ranges, you cannot necessarily just calculate
         one of these and transpose. '''
+        norb = [p.shape[-1], q.shape[-1], r.shape[-1], s.shape[-1]]
+        if 0 in norb: return np.zeros (norb)
         # Put the orbital ranges in the orthonormal basis for fun and profit
         p = self.moHS @ p
         q = self.moHS @ q
@@ -128,7 +136,7 @@ class HessianCalculator (object):
         hess -= self._get_Fock2 (q, p, r, s).transpose (1,0,2,3)
         hess -= self._get_Fock2 (p, q, s, r).transpose (0,1,3,2)
         hess += self._get_Fock2 (q, p, s, r).transpose (1,0,3,2)
-        return hess / 4
+        return hess / 2
 
     def _get_eri (self, orbs_list, compact=False):
         ''' Get eris for the orbital ranges in orbs_list from (in order of preference) the stored _eri tensor on self.scf, the stored density-fitting object
@@ -159,8 +167,7 @@ class HessianCalculator (object):
         # Generalized Fock matrix terms: delta_qr (F^p_s + F^s_p)
         ovlp_qr = q.conjugate ().T @ r
         if np.amax (np.abs (ovlp_qr)) > 1e-8: # skip if there is no overlap between the q and r ranges
-            gf_ps = self._get_Fock1 (p, s)
-            gf_ps += gf_ps.T
+            gf_ps = self._get_Fock1 (p, s) + self._get_Fock1 (s, p).T
             hess += np.multiply.outer (ovlp_qr, gf_ps).transpose (2,0,1,3) # 'qr,ps->pqrs'
 
         # Explicit CDM contributions:  2 v^pu_rv l^qu_sv  +  2 v^pr_uv (l^qs_uv + l^qv_us)        
@@ -170,9 +177,9 @@ class HessianCalculator (object):
             # If either q or s has no weight on the current active space, skip
             if np.amax (np.abs (a2q)) < 1e-8 or np.amax (np.abs (a2s)) < 1e-8:
                 continue
-            eri = self._get_eri ([p, r, u, v])
+            eri = self._get_eri ([p, r, a, a])
             thess  = np.tensordot (eri, t, axes=((2,3),(2,3)))
-            eri = self._get_eri ([p, v, r, u])
+            eri = self._get_eri ([p, a, r, a])
             thess += np.tensordot (eri, t + t.transpose (0,1,3,2), axes=((1,3),(1,3)))
             thess = np.tensordot (thess, a2q, axes=(2,0)) # 'prab,aq->prbq' (tensordot always puts output indices in order of the arguments)
             thess = np.tensordot (thess, a2s, axes=(2,0)) # 'prbq,bs->prqs'
@@ -198,7 +205,7 @@ class HessianCalculator (object):
             gfock += np.tensordot (eri, t, axes=((1,2,3),(1,2,3))) @ a2q
         return gfock 
 
-    def _get_splitc (self, p, q, r, s, dm)
+    def _get_splitc (self, p, q, r, s, dm):
         ''' v^pr_uv D^q_u D^s_v
         It shows up because some of the cumulant decompositions put q and s on different 1rdm factors '''
         u = self._get_entangled (q, dm)
@@ -211,7 +218,7 @@ class HessianCalculator (object):
         hess = np.tensordot (hess, D_vs, axes=(2,0)) # 'prvq,vs->prqs'
         return hess.transpose (0,2,1,3) # 'prqs->pqrs'
 
-    def _get_splitx (self, p, q, r, s, dm)
+    def _get_splitx (self, p, q, r, s, dm):
         ''' (v^pv_ru + v^pr_vu) g^q_u g^s_v
         It shows up because some of the cumulant decompositions put q and s on different 1rdm factors 
         Pay VERY CLOSE ATTENTION to the order of the indices! Remember p-q, r-s are the degrees of freedom
@@ -228,17 +235,17 @@ class HessianCalculator (object):
         hess = np.tensordot (hess, D_vs, axes=(2,0)) # 'prvq,vs->prqs'
         return hess.transpose (0,2,1,3) # 'prqs->pqrs'
 
-    def _get_entangled (self, p, dm)
+    def _get_entangled (self, p, dm):
         ''' Do SVD of a 1-rdm to get a small number of orbitals that you need to actually pay attention to
         when computing splitc and splitx eris '''
         q = linalg.qr (p)[0]
         qH = q.conjugate ().T
-        lvec, sigma, rvec = linalg.svd (qH @ dm @ p)
+        lvec, sigma, rvec = linalg.svd (qH @ dm @ p, full_matrices=False)
         idx = np.abs (sigma) > 1e-8
         return q @ lvec[:,idx]
 
 
-class CASSCFHessianTester (HessianCalculator):
+class CASSCFHessianTester (object):
     ''' Use pyscf.mcscf.mc1step.gen_g_hop to test HessianCalculator.
     There are 3 nonredundant orbital rotation sectors: ui, ai, and au
     Therefore there are 6 nonredundant Hessian sectors: uiui, uiai,
@@ -252,8 +259,8 @@ class CASSCFHessianTester (HessianCalculator):
         casdm1s = mc.fcisolver.make_rdm1s (mc.ci, mc.ncas, mc.nelecas)
         casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
         twoCDM = get_2CDM_from_2RDM (casdm2, casdm1s)
-        ao2amo = mc.mo_coeff[:,self.ncore:][:,:self.ncas]
-        super ().__init__(mc._scf, oneRDMs, twoCDM, ao2amo)
+        ao2amo = mc.mo_coeff[:,mc.ncore:][:,:mc.ncas]
+        self.calculator = HessianCalculator (mc._scf, oneRDMs, twoCDM, ao2amo)
         self.cas = mc
         self.cas_mo = mc.mo_coeff
         self.ncore, self.ncas, self.nelecas = mc.ncore, mc.ncas, mc.nelecas
@@ -266,13 +273,16 @@ class CASSCFHessianTester (HessianCalculator):
         p, q, prange, qrange, np, nq = self._parse_range (pq)
         r, s, rrange, srange, nr, ns = self._parse_range (rs)
 
-        my_hess = super().__call__(p, q, r, s)
-        fmt_str = "{0:2d} {1:2d} {2:2d} {3:2d} {4:13.6e} {5:13.6e}"
+        my_hess = self.calculator (p, q, r, s)
+        print ("{:8s} {:13s} {:13s} {:13s} {:13}".format ('Idx', 'Mine', "PySCF's", 'Difference', 'Ratio'))
+        fmt_str = "{0:d},{1:d},{2:d},{3:d} {4:13.6e} {5:13.6e} {6:13.6e} {7:13.6e}"
 
         for (ixp, pi), (ixq, qi) in product (enumerate (prange), enumerate (qrange)):
             Py_hess = self._pyscf_hop_call (pi, qi, rrange, srange)
             for (ixr, ri), (ixs, si) in product (enumerate (rrange), enumerate (srange)):
-                print (fmt_str.format (pi, qi, ri, si, my_hess[ixp,ixq,ixr,ixs], Py_hess[ixr,ixs]))
+                diff = my_hess[ixp,ixq,ixr,ixs] - Py_hess[ixr,ixs]
+                rat = my_hess[ixp,ixq,ixr,ixs] / Py_hess[ixr,ixs]
+                print (fmt_str.format (pi, qi, ri, si, my_hess[ixp,ixq,ixr,ixs], Py_hess[ixr,ixs], diff, rat))
 
     def _parse_range (self, pq):
         if pq == 0: # ui
@@ -300,11 +310,11 @@ class CASSCFHessianTester (HessianCalculator):
             raise RuntimeError ("Undefined range {}".format (pq))
         return p, q, prange, qrange, np, nq
 
-    def _pyscf_hop_call (ip, iq, rrange, srange):
-        kappa = np.zeros (self.nmo, self.nmo)
+    def _pyscf_hop_call (self, ip, iq, rrange, srange):
+        kappa = np.zeros ([self.nmo, self.nmo])
         kappa[ip,iq] = 1
         kappa = self.cas.pack_uniq_var (kappa)
         py_hess = self.hop (kappa)
         py_hess = self.cas.unpack_uniq_var (py_hess)
-        return py_hess[rrange, srange]
+        return py_hess[rrange,:][:,srange]
 
