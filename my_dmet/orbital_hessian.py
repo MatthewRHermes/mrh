@@ -73,60 +73,68 @@ class HessianCalculator (object):
         self.fock = [moH @ f @ mo for f in self.fock]
         self.oneRDMs = [moHS @ D @ Smo for D in self.oneRDMs]
 
-    def __call__(self, *args):
+    def __call__(self, *args, **kwargs):
+        diagx1 = kwargs['diagx1'] if 'diagx1' in kwargs else False
+        diagx2 = kwargs['diagx2'] if 'diagx2' in kwargs else False
+        if 'diagx' in kwargs: diagx1 = diagx2 = kwargs['diagx']
         if len (args) == 0:
             ''' If no orbital ranges are passed, return the full mo-basis Hessian '''
-            return self._call_diag (self.mo, self.mo)
+            return self._call_fullrange (self.mo)
         elif len (args) == 1:
             ''' If one orbital range is passed, return the Hessian with all four indices in that range'''
-            return self._call_diag (args[0], args[0])
+            return self._call_fullrange (args[0])
         elif len (args) == 2:
-            ''' If two orbital ranges are passed, return the Hessian with the first range specifying rotation 1
-            and the second specifying rotation 2 (be careful when doing this; it's ^pq_pq, not ^pp_qq, because the
-            former is the configuration where you can use the permutation symmetry to speed up the thing '''
-            return self._call_diag (args[0], args[1])
+            ''' If two orbital ranges are passed, I assume that you are asking ONLY for the diagonal elements'''
+            return self._call_diag (args[0], args[1], diagx=diagx1)
         elif len (args) == 3:
-            ''' First two orbital ranges specify rotation 1; third specifies rotation 2 '''
-            return self._call_semidiag (args[0], args[1], args[2])
+            ''' No interpretation; raise an error '''
+            raise RuntimeError ("Can't interpret 3 orbital ranges; pass 0, 1, 2, or 4")
         elif len (args) == 4:
             ''' If all four orbital ranges are passed, return the Hessian so specified. No permutation symmetry can be exploited. '''
-            return self._call_full (args[0], args[1], args[2], args[3])
+            return self._call_general (args[0], args[1], args[2], args[3], diagx1=diagx1, diagx2=diagx2)
         else:
             raise RuntimeError ("Orbital Hessian has 4 orbital indices; you passed {} orbital ranges".format (len (args)))
 
-    def _call_diag (self, p, q):
-        ''' The Hessian E2^pq_p'q' is F2^pq_p'q' - F2^p'q_pq' - F2^pq'_p'q + F2^p'q'_pq 
-        Use full permutation symmetry to accelerate it!'''
-        norb = [p.shape[-1], p.shape[-1], q.shape[-1], q.shape[-1]]
+    def _call_fullrange (self, p):
+        '''Use full permutation symmetry to accelerate it!'''
+        norb = [p.shape[-1], p.shape[-1], p.shape[-1], p.shape[-1]]
         if 0 in norb: return np.zeros (norb)
         # Put the orbital ranges in the orthonormal basis for fun and profit
         p = self.moHS @ p
-        q = self.moHS @ q
-        hess = self._get_Fock2 (p, p, q, q)
+        hess = self._get_Fock2 (p, p, p, p)
         hess -= hess.transpose (1, 0, 2, 3)
         hess -= hess.transpose (0, 1, 3, 2)
         return hess / 2
 
-    def _call_semidiag (self, p, q, r):
-        ''' The Hessian E2^pr_qr' is F2^pr_qr' - F2^qr_pr' - F2^pr'_qr + F2^qr'_pr 
-        Use permutation symmetry on the second rotation'''
-        norb = [p.shape[-1], q.shape[-1], r.shape[-1], r.shape[-1]]
-        if 0 in norb: return np.zeros (norb)
-        # Put the orbital ranges in the orthonormal basis for fun and profit
-        p = self.moHS @ p
-        q = self.moHS @ q
-        r = self.moHS @ r
-        hess  = self._get_Fock2 (p, q, r, r)
-        hess -= self._get_Fock2 (q, p, r, r).transpose (1,0,2,3)
-        hess -= hess.transpose (0,1,3,2)
-        return hess / 2
+    def _call_diag (self, p, q, diagx=False):
+        hess = np.zeros ([p.shape[-1], q.shape[-1]])
+        if diagx: assert (p.shape[-1] == q.shape[-1]), 'diagx error: p and q ranges have different lengths'
+        for ix, iy in product (range (p.shape[-1]), range (q.shape[-1])):
+            if diagx and ix != iy: continue
+            hess[ix,iy] = self._call_general (p[:,ix:ix+1], q[:,iy:iy+1], p[:,ix:ix+1], q[:,iy:iy+1], diagx1=False, diagx2=False)[0,0,0,0]
+        if diagx: hess = np.diag (hess)
+        return hess
 
-    def _call_full (self, p, q, r, s):
+    def _call_general (self, p, q, r, s, diagx1=False, diagx2=False):
         ''' The Hessian E2^pr_qs is F2^pr_qs - F2^qr_ps - F2^ps_qr + F2^qs_pr. 
         Since the orbitals are segmented into separate ranges, you cannot necessarily just calculate
         one of these and transpose. '''
         norb = [p.shape[-1], q.shape[-1], r.shape[-1], s.shape[-1]]
         if 0 in norb: return np.zeros (norb)
+        # diagx1 recursion
+        if diagx1:
+            assert (p.shape[-1] == q.shape[-1]), 'diagx error: p and q ranges have different lengths'
+            hess = np.zeros ([p.shape[-1], r.shape[-1]]) if diagx2 else np.zeros ([p.shape[-1], r.shape[-1], s.shape[-1]]) 
+            for ix in range (p.shape[-1]):
+                hess[ix] = self._call_general (p[:,ix:ix+1], q[:,ix:ix+1], r, s, diagx1=False, diagx2=diagx2)[0,0]
+            return hess
+        # diagx2 recursion
+        if diagx2:
+            assert (r.shape[-1] == s.shape[-1]), 'diagx error: r and s ranges have different lengths'
+            hess = np.zeros ([p.shape[-1], q.shape[-1], r.shape[-1]]) 
+            for ix in range (p.shape[-1]):
+                hess[:,:,ix] = self._call_general (p, q, r[:,ix:ix+1], s[:,ix:ix+1], diagx1=False, diagx2=False)[:,:,0]
+            return hess
         # Put the orbital ranges in the orthonormal basis for fun and profit
         p = self.moHS @ p
         q = self.moHS @ q
@@ -268,8 +276,10 @@ class CASSCFHessianTester (object):
         self.nmo = self.cas_mo.shape[1]
         self.hop, self.hdiag = gen_g_hop (mc, self.cas_mo, 1, casdm1, casdm2, mc.ao2mo (self.cas_mo))[2:]
 
-    def __call__(self, pq, rs):
+    def __call__(self, pq, rs=None):
         ''' pq, rs = 0 (ui), 1 (ai), 2 (au) '''
+        if rs is None: return self._call_diag (pq)
+        
         p, q, prange, qrange, np, nq = self._parse_range (pq)
         r, s, rrange, srange, nr, ns = self._parse_range (rs)
 
@@ -283,6 +293,23 @@ class CASSCFHessianTester (object):
                 diff = my_hess[ixp,ixq,ixr,ixs] - Py_hess[ixr,ixs]
                 rat = my_hess[ixp,ixq,ixr,ixs] / Py_hess[ixr,ixs]
                 print (fmt_str.format (pi, qi, ri, si, my_hess[ixp,ixq,ixr,ixs], Py_hess[ixr,ixs], diff, rat))
+
+    def _call_diag (self, pq):
+        offs = ix = np = nq = 0
+        while ix < pq:
+            np, nq = self._parse_range (ix)[4:]
+            offs += np*nq
+            ix += 1
+        p, q, prange, qrange, np, nq = self._parse_range (pq)
+        Py_hdiag = self.hdiag[offs:][:np*nq].reshape (np, nq)
+        my_hdiag = self.calculator (p, q)
+
+        print ("{:8s} {:13s} {:13s} {:13s} {:13}".format ('Idx', 'Mine', "PySCF's", 'Difference', 'Ratio'))
+        fmt_str = "{0:d},{1:d},{0:d},{1:d} {2:13.6e} {3:13.6e} {4:13.6e} {5:13.6e}"
+        for (ixp, pi), (ixq, qi) in product (enumerate (prange), enumerate (qrange)):
+            diff = my_hdiag[ixp,ixq] - Py_hdiag[ixp,ixq]
+            rat = my_hdiag[ixp,ixq] / Py_hdiag[ixp,ixq]
+            print (fmt_str.format (pi, qi, my_hdiag[ixp,ixq], Py_hdiag[ixp,ixq], diff, rat))
 
     def _parse_range (self, pq):
         if pq == 0: # ui
@@ -318,3 +345,29 @@ class CASSCFHessianTester (object):
         py_hess = self.cas.unpack_uniq_var (py_hess)
         return py_hess[rrange,:][:,srange]
 
+class LASSCFHessianCalculator (HessianCalculator):
+
+    def __init__(self, ints, oneRDM_loc, all_frags):
+        self.ints = ints
+        active_frags = [f for f in all_frags if f.norbs_as]
+
+        # Global things
+        self.nmo = self.nao = ints.norbs_tot
+        self.mo = self.moH = self.Smo = self.moHS = np.eye (self.nmo)
+        oneSDM_loc = sum ([f.oneSDMas_loc for f in active_frags])
+        self.oneRDMs = [(oneRDM_loc + oneSDM_loc)/2, (oneRDM_loc - oneSDM_loc)/2]
+        fock_c = ints.loc_rhf_fock_bis (oneRDM_loc)
+        fock_s = -ints.loc_rhf_k_bis (oneSDM_loc) / 2  
+        self.fock = [fock_c + fock_s, fock_c - fock_s]
+
+        # Fragment things
+        self.mo2amo = [f.loc2amo for f in active_frags]
+        self.twoCDM = [f.twoCDMas_loc for f in active_frags]
+        self.ncas = [f.norbs_as for f in active_frags]
+
+    def _get_eri (self, orbs_list, compact=False):
+        return self.ints.general_tei (orbs_list, compact=compact)
+        
+
+
+    
