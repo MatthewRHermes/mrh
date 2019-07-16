@@ -604,6 +604,7 @@ class localintegrals:
         norbs_wmas = loc2wmas.shape[1]
         norbs_wmcs = loc2wmcs.shape[1]
         ene_wmcs, loc2wmcs, wmcs_symm = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+        print ('DEBUG:::',loc2wmas.shape)
         occ_wmas, loc2wmas, wmas_symm = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm, subspace=loc2wmas, sort_vecs=-1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
         nelec_wmas = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2wmas)))
         assert ((self.nelec_tot - nelec_wmas) % 2 == 0), 'Non-even number of unactive electrons {}'.format (self.nelec_tot - nelec_wmas)

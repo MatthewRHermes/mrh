@@ -587,6 +587,9 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
     evals = np.diagonal (pMq)
     evecs = np.asmatrix (np.eye (len (evals), dtype=evals.dtype))
     if not is_matrix_diagonal (pMq):
+        if qSr is not None:
+            print ('Debug_RP::1', pMq.shape)
+            print ('Debug_RP::2', qSr)
         evals, evecs = scipy.linalg.eigh (pMq, qSr) if is_matrix_hermitian (pMq) else scipy.linalg.eig (pMq, qSr)
     # Add the diagonal average to the eigenvalues when returning!
     evals = evals + np.diag (diag_avg)
