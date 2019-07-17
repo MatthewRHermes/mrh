@@ -391,9 +391,9 @@ class fragment_object:
         norbs_inac = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2unac_imp))) // 2
         norbs_occ = norbs_inac + self.norbs_as
         unac_ene, loc2unac_imp, unac_lbls = matrix_eigen_control_options (fock_loc, subspace=loc2unac_imp, symmetry=self.loc2symm,
-            enforce_symmetry=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)
+            strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)
         amo_occ, loc2amo_imp, amo_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=self.loc2amo, symmetry=self.loc2symm,
-            enforce_symmetry=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
         occ_canon = np.zeros (self.norbs_imp)
         occ_canon[:norbs_inac] = 2
         occ_canon[norbs_inac:][:self.norbs_as] = amo_occ[:]
@@ -556,7 +556,7 @@ class fragment_object:
         if norbs_virtbath and self.add_virtual_bath and self.imp_solver_name != 'dummy RHF' and self.norbs_as:
             loc2canon_core, _, _, norbs_inac_core, norbs_as = self.get_loc2canon_core (all_frags, oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
             norbs_occ_core = norbs_inac_core + norbs_as
-            norbs_virt_core = self.norbs_core - self.norbs_occ_core
+            norbs_virt_core = self.norbs_core - norbs_occ_core
             loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
             norbs_occ_imp = norbs_inac_imp + self.norbs_as
             print ("Searching for {} virtual bath orbitals among a set of {} virtuals accessible by {} occupied orbitals".format (norbs_virtbath, norbs_virt_core, norbs_occ_imp))
@@ -568,7 +568,7 @@ class fragment_object:
             loc2unac_imp = np.append (loc2canon_imp[:,:norbs_inac_imp], loc2canon_imp[:,norbs_occ_imp:], axis=1)
             # Get the conjugate gradient. Push into the loc basis so I can use the weak inner symmetry capability of the svd function
             grad = self.hesscalc.get_conjugate_gradient (loc2virt_core, loc2occ_imp, loc2unac_imp, self.loc2amo)
-            grad = loc2virt_core.conjugate ().T @ grad @ loc2occ_imp
+            grad = loc2virt_core @ grad @ loc2occ_imp.conjugate ().T
             # SVD and add to the bath
             self.loc2emb[:,self.norbs_imp:] = get_overlapping_states (self.loc2core, self.loc2amo, inner_symmetry=self.loc2symm,
                 enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)[0]

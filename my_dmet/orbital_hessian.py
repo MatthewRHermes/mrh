@@ -132,8 +132,8 @@ class HessianCalculator (object):
         if diagx2:
             assert (r.shape[-1] == s.shape[-1]), 'diagx error: r and s ranges have different lengths'
             hess = np.zeros ([p.shape[-1], q.shape[-1], r.shape[-1]]) 
-            for ix in range (p.shape[-1]):
-                hess[:,:,ix] = self._call_general (p, q, r[:,ix:ix+1], s[:,ix:ix+1], diagx1=False, diagx2=False)[:,:,0]
+            for ix in range (r.shape[-1]):
+                hess[:,:,ix] = self._call_general (p, q, r[:,ix:ix+1], s[:,ix:ix+1], diagx1=False, diagx2=False)[:,:,0,0]
             return hess
         # Put the orbital ranges in the orthonormal basis for fun and profit
         p = self.moHS @ p
@@ -275,7 +275,7 @@ class HessianCalculator (object):
         diagonal elements of the Hessian, x^p_q = -E1^p_q / E2^pp_qq '''
         # First, get the gradient and svd to obtain conjugate orbitals of p in q
         lvec, e1, rvec = linalg.svd (self.get_gradient (p, q), full_matrices=False)
-        idx = np.abs (sigma) > 1e-8
+        idx = np.abs (e1) > 1e-8
         p = p @ lvec[:,idx]
         q = q @ rvec[:,idx]
         e2 = self.__call__(p, q, diagx=True)
