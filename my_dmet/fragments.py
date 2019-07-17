@@ -398,8 +398,8 @@ class fragment_object:
         occ_canon[:norbs_inac] = 2
         occ_canon[norbs_inac:][:self.norbs_as] = amo_occ[:]
         ene_canon = np.zeros (self.norbs_imp)
-        ene_canon[:norbs_inac] = umac_ene[:norbs_inac]
-        ene_canon[norbs_occ:] = umac_ene[norbs_inac:]
+        ene_canon[:norbs_inac] = unac_ene[:norbs_inac]
+        ene_canon[norbs_occ:] = unac_ene[norbs_inac:]
         loc2canon_imp = np.concatenate ([loc2unac_imp[:,:norbs_inac], loc2amo_imp, loc2unac_imp[:,norbs_inac:]], axis=1)
         return loc2canon_imp, occ_canon, ene_canon, norbs_inac
 
@@ -424,8 +424,8 @@ class fragment_object:
         occ_canon[:norbs_inac] = 2
         occ_canon[norbs_inac:][:norbs_as] = amo_occ[:]
         ene_canon = np.zeros (self.norbs_core)
-        ene_canon[:norbs_inac] = umac_ene[:norbs_inac]
-        ene_canon[norbs_occ:] = umac_ene[norbs_inac:]
+        ene_canon[:norbs_inac] = unac_ene[:norbs_inac]
+        ene_canon[norbs_occ:] = unac_ene[norbs_inac:]
         loc2canon_core = np.concatenate ([loc2unac_core[:,:norbs_inac], loc2amo_core, loc2unac_core[:,norbs_inac:]], axis=1)
         return loc2canon_core, occ_canon, ene_canon, norbs_inac, norbs_as
 
@@ -867,8 +867,8 @@ class fragment_object:
     ###############################################################################################################################
     def get_guess_1RDM (self, chempot_imp):
         FOCK = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
-        guess_1RDM = [get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) + self.target_MS),
-                      get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) - self.target_MS)]
+        guess_1RDM = [get_1RDM_from_OEI (FOCK, int (round ((self.nelec_imp // 2) + self.target_MS))),
+                      get_1RDM_from_OEI (FOCK, int (round ((self.nelec_imp // 2) - self.target_MS)))]
         if not self.target_MS: guess_1RDM = guess_1RDM[0] + guess_1RDM[1]
         return guess_1RDM
 
