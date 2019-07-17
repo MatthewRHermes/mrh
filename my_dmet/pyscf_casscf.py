@@ -225,6 +225,14 @@ def solve (frag, guess_1RDM, chempot_imp):
     t_start = time.time()
     E_CASSCF = mc.kernel(imp2mo, ci0)[0]
     if not mc.converged:
+        print ('Restarting another first order mc solver...')  ##RP added another attempt at a 1st order solver with the same number of iterations before we go to the newton solver. 
+        imp2mo = mc.mo_coeff.copy ()
+        mc = mcscf.CASSCF(mf, CASorb, CASe)
+        smult = abs_2S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
+        mc.fcisolver = csf_solver (mf.mol, smult)
+        E_CASSCF = mc.kernel(imp2mo)[0]
+
+    if not mc.converged:
         if np.any (np.abs (frag.impham_OEI_S) > 1e-8):
             raise NotImplementedError('Gradient and Hessian fixes for nonsinglet environment of Newton-descent CASSCF algorithm')
         mc = mc.newton ()
