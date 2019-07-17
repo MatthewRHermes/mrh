@@ -17,7 +17,9 @@ from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1R
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.my_math import is_close_to_integer
 from mrh.my_pyscf.tools.jmol import cas_mo_energy_shift_4_jmol
+from mrh.my_dmet.orbital_hessian import LASSCFHessianCalculator
 from functools import reduce
+from itertools import product
 import traceback
 import sys
 import copy
@@ -444,6 +446,7 @@ class fragment_object:
             sys.stdout.flush ()
             return
         '''
+        self.hesscalc = LASSCFHessianCalculator (self.ints, oneRDM_loc, all_frags, self.ints.activeFOCK) 
         frag2wmcs = np.dot (self.frag2loc, loc2wmcs)
         proj = np.dot (frag2wmcs.conjugate ().T, frag2wmcs)
         norbs_wmcsf = np.trace (proj)
@@ -494,6 +497,37 @@ class fragment_object:
         self.nelec_imp += int (round (nelec_impa))
 
         # I need to work symmetry handling into this as well
+        norbs_virtbath = max (0, self.norbs_imp - 2*self.norbs_frag)
+        if norbs_virtbath and self.add_virtual_bath and self.imp_solver_name != 'dummy RHF' and self.norbs_as:
+            norbs_occ = self.norbs_as + (int (round (self.nelec_imp - self.nelec_as)) // 2)
+            norbs_virt = norbs_core - sum ([f.norbs_as for f in all_frags if f is not self]) - (int (round (self.ints.nelec_tot - self.nelec_imp - np.trace (oneRDMacore_loc))) // 2)
+            print ("Searching for {} virtual bath orbitals among a set of {} virtuals accessible by {} occupied orbitals".format (norbs_virtbath, norbs_virt, norbs_occ))
+            # Occupied orbitals in the impurity
+            _, loc2occ, occ_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=self.loc2imp, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry,
+                sort_vecs=-1, only_nonzero_vals=False)
+            loc2occ = loc2occ[:,:norbs_occ]
+            occ_lbls = loc2occ[:,:norbs_occ]
+            # Virtual orbitals in the core
+            loc2unac, _, svals = get_overlapping_states (loc2wmcs, self.loc2core, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[:3]
+            loc2unac = loc2unac[:,np.isclose(svals,1)]
+            _, loc2virt, virt_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=loc2unac, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry,
+                sort_vecs=1, only_nonzero_vals=False)
+            loc2virt = loc2virt[:,:norbs_virt]
+            virt_lbls = loc2virt[:,:norbs_virt]
+            # Unactive orbitals in the impurity
+            loc2unac, _, svals = get_overlapping_states (loc2wmcs, self.loc2imp, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[:3]
+            loc2unac = loc2unac[:,np.isclose(svals,1)]
+            # Get the conjugate gradient. Push into the loc basis so I can use the weak inner symmetry capability of the svd function
+            grad = self.hesscalc.get_conjugate_gradient (loc2occ, loc2virt, loc2unac, self.loc2amo)
+            grad = loc2unac @ grad @ self.loc2amo
+            # SVD and add to the bath
+            self.loc2emb[:,self.norbs_imp:] = get_overlapping_states (self.loc2core, self.loc2amo, inner_symmetry=self.loc2symm,
+                enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)[0]
+            self.norbs_imp += norbs_virtbath
+            
+
+        # This whole block below me is an old attempt at this that doesn't really work
+        '''
         try: 
             norbs_bath_xtra = self.norbs_bath_max - norbs_bath
             loc2virtbath = self.analyze_ao_imp (oneRDM_loc, loc2wmcs, norbs_bath_xtra)
@@ -510,6 +544,7 @@ class fragment_object:
                 print ("Ignoring error for now, because this is a dummy fragment")
             else:
                 raise (e)
+        '''
 
         # Weak symmetry alignment, for the sake of moldening. (Extended) fragment, then (extended) bath
         if self.symmetry:
@@ -606,6 +641,15 @@ class fragment_object:
         eri = self.ints.general_tei ([loc2cenv, self.loc2amo, self.loc2amo, self.loc2amo])
         eri_grad = np.tensordot (eri, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
         grad += loc2cenv @ eri_grad @ self.amo2loc
+        # Testing hessian calculator
+        print ("************************************* TEST ****************************************")
+        print ("In first iteration, active orbitals may overlap, which will cause this test to fail")
+        grad_test = self.hesscalc.get_gradient (loc2cenv, loc2amo)
+        grad_comp = cenv2loc @ grad @ loc2amo
+        for i, j in product (range (loc2cenv.shape[-1]), range (loc2amo.shape[-1])):
+            print ("{} {} {:.9e} {:.9e}".format (i, j, grad_test[i,j], grad_comp[i,j]))
+        print ("*********************************** END TEST **************************************")
+        #assert (False)
         # SVD
         loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2cenv, loc2amo, inner_symmetry=self.loc2symm,
             enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)
@@ -837,7 +881,7 @@ class fragment_object:
         loc2cinac = loc2cno[:,:norbs_cinac]
         cext2loc = loc2cno[:,norbs_cinac:].conjugate ().T
         iunac2loc = loc2iunac.conjugate ().T
-        occ_err = linalg.norm (cno_occ[:norbs_cinac]-2)
+        occ_err = linalg.norm (cno_occ[:norbs_cinac]-2) if norbs_cinac>0 else 0.0
         olap_err = measure_basis_olap (loc2cinac, self.loc2imp)
         print ("I think I have {} core inactive orbitals; occupancy error = {}, overlap error = {}".format (norbs_cinac, occ_err, olap_err))
         occ_err = linalg.norm (cno_occ[norbs_cinac:])

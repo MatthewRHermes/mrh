@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import ao2mo
 from pyscf.mcscf.mc1step import gen_g_hop
-from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal
+from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap
 from mrh.util.rdm import get_2CDM_from_2RDM
 from scipy import linalg
 from itertools import product
@@ -252,6 +252,43 @@ class HessianCalculator (object):
         idx = np.abs (sigma) > 1e-8
         return q @ lvec[:,idx]
 
+    def get_gradient (self, p, q):
+        ''' A routine to calculate the gradient because it's convenient to have it here '''
+        # Put the orbital ranges in the orthonormal basis for fun and profit
+        p = self.moHS @ p
+        q = self.moHS @ q
+        # One-body part
+        e1 = sum ([f @ g for f, g in zip (self.fock, self.oneRDMs)])
+        e1 = p.conjugate ().T @ (e1 - e1.T) @ q
+        # Two-body part
+        for idx, (t, a, n) in enumerate (zip (self.twoCDM, self.mo2amo, self.ncas)):
+            #print ("<a{}|p>: {}, {}".format (idx, *measure_basis_olap (p, a)))
+            #print ("<a{}|q>: {}, {}".format (idx, *measure_basis_olap (q, a)))
+            a2p = a.conjugate ().T @ p
+            a2q = a.conjugate ().T @ q
+            e1 +=  np.tensordot (self._get_eri ([p, a, a, a]), t, axes=((1,2,3),(1,2,3))) @ a2q
+            e1 -= (np.tensordot (self._get_eri ([q, a, a, a]), t, axes=((1,2,3),(1,2,3))) @ a2p).T
+        return e1
+
+    def get_diagonal_step (self, p, q):
+        ''' Obtain a gradient-descent approximation for the relaxation of orbitals p in range q using the gradient and
+        diagonal elements of the Hessian, x^p_q = -E1^p_q / E2^pp_qq '''
+        # First, get the gradient and svd to obtain conjugate orbitals of p in q
+        lvec, e1, rvec = linalg.svd (self.get_gradient (p, q), full_matrices=False)
+        idx = np.abs (sigma) > 1e-8
+        p = p @ lvec[:,idx]
+        q = q @ rvec[:,idx]
+        e2 = self.__call__(p, q, diagx=True)
+        return p, -e1 / e2, q
+
+    def get_conjugate_gradient (self, p, q, r, s):
+        ''' Obtain the gradient for ranges p->q after making an approximate gradient-descent step in r->s:
+        E1'^p_q = E1^p_q - E2^pr_qs * x^r_s = E1^p_q + E2^pr_qs * E1^r_s / E2^rr_ss '''
+        e1pq = self.get_gradient (p, q)
+        r, x_rs, s = self.get_diagonal_step (r, s)
+        e2 = self.__call__(p, q, r, s, diagx1=False, diagx2=True)
+        e1pq += np.tensordot (e2, x_rs, axes=1)
+        return e1pq
 
 class CASSCFHessianTester (object):
     ''' Use pyscf.mcscf.mc1step.gen_g_hop to test HessianCalculator.
@@ -347,7 +384,7 @@ class CASSCFHessianTester (object):
 
 class LASSCFHessianCalculator (HessianCalculator):
 
-    def __init__(self, ints, oneRDM_loc, all_frags):
+    def __init__(self, ints, oneRDM_loc, all_frags, fock_c):
         self.ints = ints
         active_frags = [f for f in all_frags if f.norbs_as]
 
@@ -356,18 +393,16 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.mo = self.moH = self.Smo = self.moHS = np.eye (self.nmo)
         oneSDM_loc = sum ([f.oneSDMas_loc for f in active_frags])
         self.oneRDMs = [(oneRDM_loc + oneSDM_loc)/2, (oneRDM_loc - oneSDM_loc)/2]
-        fock_c = ints.loc_rhf_fock_bis (oneRDM_loc)
-        fock_s = -ints.loc_rhf_k_bis (oneSDM_loc) / 2  
+        #fock_c = ints.loc_rhf_fock_bis (oneRDM_loc)
+        fock_s = -ints.loc_rhf_k_bis (oneSDM_loc) / 2 if isinstance (oneSDM_loc, np.ndarray) else 0
         self.fock = [fock_c + fock_s, fock_c - fock_s]
 
         # Fragment things
         self.mo2amo = [f.loc2amo for f in active_frags]
-        self.twoCDM = [f.twoCDMas_loc for f in active_frags]
+        self.twoCDM = [f.twoCDMimp_amo for f in active_frags]
         self.ncas = [f.norbs_as for f in active_frags]
 
     def _get_eri (self, orbs_list, compact=False):
         return self.ints.general_tei (orbs_list, compact=compact)
         
-
-
     
