@@ -31,7 +31,7 @@ class qcdmethelper:
     def __init__( self, theLocalIntegrals, list_H1, altcf, minFunc ):
     
         self.locints = theLocalIntegrals
-        assert( self.locints.nelec_tot % 2 == 0 )
+        #assert( self.locints.nelec_tot % 2 == 0 )
         self.numPairs = int (self.locints.nelec_tot / 2)
         self.altcf = altcf
         self.minFunc = None

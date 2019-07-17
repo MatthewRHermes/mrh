@@ -91,8 +91,8 @@ class fragment_object:
         self.virtual_bath_gradient_svd = False
         self.enforce_symmetry = False
         self.wfnsym = None
-        self.quasifrag_ovlp = False
-        self.quasifrag_gradient = True
+        self.quasifrag_ovlp = True
+        self.quasifrag_gradient = False
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]
@@ -867,8 +867,8 @@ class fragment_object:
     ###############################################################################################################################
     def get_guess_1RDM (self, chempot_imp):
         FOCK = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
-        guess_1RDM = [get_1RDM_from_OEI (FOCK, int (round ((self.nelec_imp // 2) + self.target_MS))),
-                      get_1RDM_from_OEI (FOCK, int (round ((self.nelec_imp // 2) - self.target_MS)))]
+        guess_1RDM = [get_1RDM_from_OEI (FOCK,int ( round ( (self.nelec_imp // 2) + self.target_MS))),
+                      get_1RDM_from_OEI (FOCK,int ( round ( (self.nelec_imp // 2) - self.target_MS)))]
         if not self.target_MS: guess_1RDM = guess_1RDM[0] + guess_1RDM[1]
         return guess_1RDM
 
