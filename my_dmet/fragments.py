@@ -262,6 +262,10 @@ class fragment_object:
         return np.dot (self.imp2loc, self.loc2amo)
 
     @property
+    def imp2unac (self):
+        return get_complementary_states (self.imp2amo, symmetry=self.imp2symm, enforce_symmetry=self.enforce_symmetry)
+
+    @property
     def mo2imp (self):
         return np.dot (self.mo2loc, self.loc2imp)
 
@@ -378,6 +382,55 @@ class fragment_object:
 
     def get_true_loc2frag (self):
         return np.eye (self.norbs_tot)[:,self.frag_orb_list]
+
+    def get_loc2canon_imp (self, oneRDM_loc=None, fock_loc=None):
+        ''' Be careful: if you don't provide oneRDM_loc and fock_loc both, they might not be consistent with each other '''
+        if oneRDM_loc is None: oneRDM_loc = self.oneRDM_loc.copy ()
+        if fock_loc is None: fock_loc = self.ints.activeFOCK
+        loc2unac_imp = self.loc2imp @ self.imp2unac
+        norbs_inac = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2unac_imp))) // 2
+        norbs_occ = norbs_inac + self.norbs_as
+        unac_ene, loc2unac_imp, unac_lbls = matrix_eigen_control_options (fock_loc, subspace=loc2unac_imp, symmetry=self.loc2symm,
+            enforce_symmetry=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)
+        amo_occ, loc2amo_imp, amo_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=self.loc2amo, symmetry=self.loc2symm,
+            enforce_symmetry=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+        occ_canon = np.zeros (self.norbs_imp)
+        occ_canon[:norbs_inac] = 2
+        occ_canon[norbs_inac:][:self.norbs_as] = amo_occ[:]
+        ene_canon = np.zeros (self.norbs_imp)
+        ene_canon[:norbs_inac] = umac_ene[:norbs_inac]
+        ene_canon[norbs_occ:] = umac_ene[norbs_inac:]
+        loc2canon_imp = np.concatenate ([loc2unac_imp[:,:norbs_inac], loc2amo_imp, loc2unac_imp[:,norbs_inac:]], axis=1)
+        return loc2canon_imp, occ_canon, ene_canon, norbs_inac
+
+    def get_loc2canon_core (self, all_frags, oneRDM_loc=None, fock_loc=None):
+        ''' Be careful: if you don't provide oneRDM_loc and fock_loc both, they might not be consistent with each other '''
+        if oneRDM_loc is None: oneRDM_loc = self.oneRDM_loc.copy ()
+        if fock_loc is None: fock_loc = self.ints.activeFOCK
+        active_frags = [f for f in all_frags if f.norbs_as]
+        active_frags = [f for f in all_frags if f is not self]
+        loc2amo_core = np.concatenate ([f.loc2amo for f in active_frags], axis=1)
+        core2amo = self.core2loc @ loc2amo_core
+        core2unac = get_complementary_states (core2amo)
+        loc2unac_core = self.loc2core @ core2unac
+        norbs_inac = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2unac_core))) // 2
+        norbs_as = loc2amo_core.shape[-1]
+        norbs_occ = norbs_inac + norbs_as
+        unac_ene, loc2unac_core, unac_lbls = matrix_eigen_control_options (fock_loc, subspace=loc2unac_core, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)
+        amo_occ, loc2amo_core, amo_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=loc2amo_core, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+        occ_canon = np.zeros (self.norbs_core)
+        occ_canon[:norbs_inac] = 2
+        occ_canon[norbs_inac:][:norbs_as] = amo_occ[:]
+        ene_canon = np.zeros (self.norbs_core)
+        ene_canon[:norbs_inac] = umac_ene[:norbs_inac]
+        ene_canon[norbs_occ:] = umac_ene[norbs_inac:]
+        loc2canon_core = np.concatenate ([loc2unac_core[:,:norbs_inac], loc2amo_core, loc2unac_core[:,norbs_inac:]], axis=1)
+        return loc2canon_core, occ_canon, ene_canon, norbs_inac, norbs_as
+
+
+
 
     ############################################################################################################################
 
@@ -497,34 +550,29 @@ class fragment_object:
         self.nelec_imp += int (round (nelec_impa))
 
         # I need to work symmetry handling into this as well
-        norbs_virtbath = max (0, self.norbs_imp - 2*self.norbs_frag)
+        norbs_virtbath = max (0, 2*self.norbs_frag + self.norbs_as - self.norbs_imp)
+        print ("Fragment {} basis set instability virtual orbital loss: 2 * {} + {} - {} = {} missing virtual bath orbitals".format (self.frag_name,
+            self.norbs_frag, self.norbs_as, self.norbs_imp, norbs_virtbath))
         if norbs_virtbath and self.add_virtual_bath and self.imp_solver_name != 'dummy RHF' and self.norbs_as:
-            norbs_occ = self.norbs_as + (int (round (self.nelec_imp - self.nelec_as)) // 2)
-            norbs_virt = norbs_core - sum ([f.norbs_as for f in all_frags if f is not self]) - (int (round (self.ints.nelec_tot - self.nelec_imp - np.trace (oneRDMacore_loc))) // 2)
-            print ("Searching for {} virtual bath orbitals among a set of {} virtuals accessible by {} occupied orbitals".format (norbs_virtbath, norbs_virt, norbs_occ))
+            loc2canon_core, _, _, norbs_inac_core, norbs_as = self.get_loc2canon_core (all_frags, oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
+            norbs_occ_core = norbs_inac_core + norbs_as
+            norbs_virt_core = self.norbs_core - self.norbs_occ_core
+            loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
+            norbs_occ_imp = norbs_inac_imp + self.norbs_as
+            print ("Searching for {} virtual bath orbitals among a set of {} virtuals accessible by {} occupied orbitals".format (norbs_virtbath, norbs_virt_core, norbs_occ_imp))
             # Occupied orbitals in the impurity
-            _, loc2occ, occ_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=self.loc2imp, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry,
-                sort_vecs=-1, only_nonzero_vals=False)
-            loc2occ = loc2occ[:,:norbs_occ]
-            occ_lbls = loc2occ[:,:norbs_occ]
+            loc2occ_imp = loc2canon_imp[:,:norbs_occ_imp]
             # Virtual orbitals in the core
-            loc2unac, _, svals = get_overlapping_states (loc2wmcs, self.loc2core, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[:3]
-            loc2unac = loc2unac[:,np.isclose(svals,1)]
-            _, loc2virt, virt_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=loc2unac, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry,
-                sort_vecs=1, only_nonzero_vals=False)
-            loc2virt = loc2virt[:,:norbs_virt]
-            virt_lbls = loc2virt[:,:norbs_virt]
+            loc2virt_core = loc2canon_core[:,:norbs_virt_core]
             # Unactive orbitals in the impurity
-            loc2unac, _, svals = get_overlapping_states (loc2wmcs, self.loc2imp, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[:3]
-            loc2unac = loc2unac[:,np.isclose(svals,1)]
+            loc2unac_imp = np.append (loc2canon_imp[:,:norbs_inac_imp], loc2canon_imp[:,norbs_occ_imp:], axis=1)
             # Get the conjugate gradient. Push into the loc basis so I can use the weak inner symmetry capability of the svd function
-            grad = self.hesscalc.get_conjugate_gradient (loc2occ, loc2virt, loc2unac, self.loc2amo)
-            grad = loc2unac @ grad @ self.loc2amo
+            grad = self.hesscalc.get_conjugate_gradient (loc2virt_core, loc2occ_imp, loc2unac_imp, self.loc2amo)
+            grad = loc2virt_core.conjugate ().T @ grad @ loc2occ_imp
             # SVD and add to the bath
             self.loc2emb[:,self.norbs_imp:] = get_overlapping_states (self.loc2core, self.loc2amo, inner_symmetry=self.loc2symm,
                 enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)[0]
             self.norbs_imp += norbs_virtbath
-            
 
         # This whole block below me is an old attempt at this that doesn't really work
         '''
