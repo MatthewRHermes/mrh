@@ -36,11 +36,14 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
     loc2frag_inp = loc2frag.copy ()
 
     def _analyze_intermediates (loc2int, tag):
-        loc2int = align_states (loc2int, symmetry)
-        int_labels = assign_blocks_weakly (loc2int, symmetry)
-        err = measure_subspace_blockbreaking (loc2int, symmetry, np.arange (len (symmetry), dtype=int))
-        labeldict = dict (zip (*np.unique (int_labels, return_counts=True)))
-        print ("{} irreps: {}, err = {}".format (tag, labeldict, err))
+        try:
+            loc2int = align_states (loc2int, symmetry)
+            int_labels = assign_blocks_weakly (loc2int, symmetry)
+            err = measure_subspace_blockbreaking (loc2int, symmetry, np.arange (len (symmetry), dtype=int))
+            labeldict = dict (zip (*np.unique (int_labels, return_counts=True)))
+            print ("{} irreps: {}, err = {}".format (tag, labeldict, err))
+        except:
+            print ("Analysis failed")
         return
     def _analyze_orth_problem (l2p, lbl):
         for ir in np.unique (lbl):
