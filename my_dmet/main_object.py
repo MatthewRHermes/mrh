@@ -1235,6 +1235,19 @@ class dmet:
         kwargs['loc2wmas'] = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         return self.ints.get_trial_nos (**kwargs)
 
+    def void_symmetry (self):
+        print ("Voiding symmetry")
+        for f in self.fragments:
+            f.groupname = 'C1'
+            f.loc2symm = [np.eye (self.norbs_tot)]           
+            f.ir_names = ['A']
+            f.ir_ids   = [0]
+            f.wfnsym   = 'A'
+        self.ints.loc2symm = [np.eye (self.norbs_tot)]
+        self.ints.symmetry = False
+        self.ints.wfnsym = 'A'
+        self.ints.ir_names = ['A']
+        self.ints.ir_ids = [0]
 
     def check_fragment_symmetry_breaking (self, verbose=True, do_break=False):
         if not self.ints.mol.symmetry:
@@ -1266,13 +1279,8 @@ class dmet:
 
         if (not symmetry) and do_break and np.any (f.symmetry for f in self.fragments):
             if self.enforce_symmetry: raise RuntimeError ("Fragmentation pattern of molecule breaks symmetry!")
-            print ("Fragmentation pattern of molecule broke point-group symmetry! Voiding symmetry...")
-            for f in self.fragments:
-                f.groupname = 'C1'
-                f.loc2symm = [np.eye (self.norbs_tot)]           
-                f.ir_names = ['A']
-                f.ir_ids   = [0]
-                f.wfnsym   = 'A'
+            print ("Fragmentation pattern of molecule broke point-group symmetry!")
+            self.void_symmetry ()
         elif symmetry and do_break:
             for f in self.fragments:
                 f.enforce_symmetry = False if f.imp_solver_name == 'dummy RHF' else self.enforce_symmetry

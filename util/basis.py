@@ -122,6 +122,7 @@ def represent_operator_in_basis (braOket, bra1_basis = None, ket1_basis = None, 
     the_bases = [bra1_basis, ket1_basis, bra2_basis, ket2_basis]
     if any ([i.shape[0] == 0 for i in the_bases]):
         newshape = tuple ([i.shape[1] for i in the_bases])
+        if len (braOket.shape) == 2: newshape = tuple (newshape[:2])
         return np.zeros (newshape, dtype=braOket.dtype)
     if all ([is_matrix_eye (i) for i in the_bases]):
         return braOket

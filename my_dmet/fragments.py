@@ -734,6 +734,7 @@ class fragment_object:
         eri_grad = np.tensordot (eri, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
         grad += loc2cenv @ eri_grad @ self.amo2loc
         # Testing hessian calculator
+        '''
         print ("************************************* TEST ****************************************")
         print ("In first iteration, active orbitals may overlap, which will cause this test to fail")
         grad_test = self.hesscalc.get_gradient (loc2cenv, loc2amo)
@@ -742,6 +743,7 @@ class fragment_object:
             print ("{} {} {:.9e} {:.9e}".format (i, j, grad_test[i,j], grad_comp[i,j]))
         print ("*********************************** END TEST **************************************")
         #assert (False)
+        '''
         # SVD
         loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2cenv, loc2amo, inner_symmetry=self.loc2symm,
             enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)
@@ -1116,8 +1118,8 @@ class fragment_object:
             evals, new_imp2mo, labels = matrix_eigen_control_options (sorting_metric, subspace=imp2mo, symmetry=mol.symm_orb,
                 sort_vecs=sort_vecs, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
             err = measure_subspace_blockbreaking (new_imp2mo, mol.symm_orb)
-            if self.enforce_symmetry:
-                assert (all ([e < params.num_zero_atol for e in err[2:]])), "Strong symmetry enforcement required, but subspace not symmetry aligned; err = {}".format (err)
+            #if self.enforce_symmetry:
+            #    assert (all ([e < params.num_zero_atol for e in err[2:]])), "Strong symmetry enforcement required, but subspace not symmetry aligned; err = {}".format (err)
         else:
             sorting_metric = represent_operator_in_basis (sorting_metric, self.imp2loc)
             loc2mo = self.loc2imp @ imp2mo
