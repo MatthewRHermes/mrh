@@ -274,11 +274,19 @@ class HessianCalculator (object):
         ''' Obtain a gradient-descent approximation for the relaxation of orbitals p in range q using the gradient and
         diagonal elements of the Hessian, x^p_q = -E1^p_q / E2^pp_qq '''
         # First, get the gradient and svd to obtain conjugate orbitals of p in q
-        lvec, e1, rvec = linalg.svd (self.get_gradient (p, q), full_matrices=False)
-        idx = np.abs (e1) > 1e-8
-        p = p @ lvec[:,idx]
-        q = q @ rvec[:,idx]
-        e2 = self.__call__(p, q, diagx=True)
+        lvec, e1, rvecH = linalg.svd (self.get_gradient (p, q), full_matrices=False)
+        rvec = rvecH.conjugate ().T
+        print ("compare this to the last print of the gradient", e1)
+        p = p @ lvec
+        q = q @ rvec
+        #e2 = self.__call__(p, q, diagx=True)
+        lp = p.shape[-1]
+        lq = q.shape[-1]
+        lpq = lp * lq
+        # Zero gradient escape
+        if not np.count_nonzero (np.abs (e1) > 1e-8): return p, np.zeros (lp), q
+        e2 = self.__call__(p, q, p, q)
+        e2 = np.diag (np.diag (e2.reshape (lpq, lpq)).reshape (lp, lq))
         return p, -e1 / e2, q
 
     def get_conjugate_gradient (self, p, q, r, s):
@@ -286,7 +294,16 @@ class HessianCalculator (object):
         E1'^p_q = E1^p_q - E2^pr_qs * x^r_s = E1^p_q + E2^pr_qs * E1^r_s / E2^rr_ss '''
         e1pq = self.get_gradient (p, q)
         r, x_rs, s = self.get_diagonal_step (r, s)
-        e2 = self.__call__(p, q, r, s, diagx1=False, diagx2=True)
+        #e2 = self.__call__(p, q, r, s, diagx1=False, diagx2=True)
+        # Zero step escape
+        if not np.count_nonzero (np.abs (x_rs) > 1e-8): return e1pq
+        lp = p.shape[-1]
+        lq = q.shape[-1]
+        lr = r.shape[-1]
+        ls = s.shape[-1]
+        diag_idx = np.arange (lr, dtype=int)
+        diag_idx = (diag_idx * lr) + diag_idx
+        e2 = self.__call__(p, q, r, s).reshape (lp, lq, lr*ls)[:,:,diag_idx]
         e1pq += np.tensordot (e2, x_rs, axes=1)
         return e1pq
 

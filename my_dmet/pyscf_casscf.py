@@ -192,10 +192,14 @@ def solve (frag, guess_1RDM, chempot_imp):
             print ("Discarding stored ci guess because orbitals are too different (missing {} nonzero svals)".format (norbs_amo-svals.size))
 
     # Symmetry align if possible
-    imp2mo[:,:norbs_cmo] = frag.align_imporbs_symm (imp2mo[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess inactive', mol=mol)[0]
-    imp2mo[:,norbs_cmo:norbs_occ], umat = frag.align_imporbs_symm (imp2mo[:,norbs_cmo:norbs_occ],
-                                                                          sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess active', mol=mol)
-    imp2mo[:,norbs_occ:] = frag.align_imporbs_symm (imp2mo[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess external', mol=mol)[0]
+    imp2unac = frag.align_imporbs_symm (np.append (imp2mo[:,:norbs_cmo], imp2mo[:,norbs_occ:], axis=1), sorting_metric=fock_imp,
+        sort_vecs=1, orbital_type='guess unactive', mol=mol)[0]
+    imp2mo[:,:norbs_cmo] = imp2unac[:,:norbs_cmo]
+    imp2mo[:,norbs_occ:] = imp2unac[:,norbs_cmo:]
+    #imp2mo[:,:norbs_cmo] = frag.align_imporbs_symm (imp2mo[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess inactive', mol=mol)[0]
+    imp2mo[:,norbs_cmo:norbs_occ], umat = frag.align_imporbs_symm (imp2mo[:,norbs_cmo:norbs_occ], sorting_metric=fock_imp,
+        sort_vecs=1, orbital_type='guess active', mol=mol)
+    #imp2mo[:,norbs_occ:] = frag.align_imporbs_symm (imp2mo[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess external', mol=mol)[0]
     if frag.enforce_symmetry:
         imp2mo = cleanup_subspace_symmetry (imp2mo, mol.symm_orb)
         err_symm = measure_subspace_blockbreaking (imp2mo, mol.symm_orb)

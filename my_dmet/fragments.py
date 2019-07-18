@@ -91,8 +91,8 @@ class fragment_object:
         self.virtual_bath_gradient_svd = False
         self.enforce_symmetry = False
         self.wfnsym = None
-        self.quasifrag_ovlp = True
-        self.quasifrag_gradient = False
+        self.quasifrag_ovlp = False
+        self.quasifrag_gradient = True
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]
@@ -418,15 +418,31 @@ class fragment_object:
         norbs_occ = norbs_inac + norbs_as
         unac_ene, loc2unac_core, unac_lbls = matrix_eigen_control_options (fock_loc, subspace=loc2unac_core, symmetry=self.loc2symm,
             strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)
+        err = measure_subspace_blockbreaking (loc2unac_core, self.loc2symm, self.ir_names)
+        labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[unac_lbls], return_counts=True)))
+        print ("Core unactive irreps: {}, err = {}".format (labeldict, err))
+        loc2inac_core = loc2unac_core[:,:norbs_inac]
+        inac_lbls = unac_lbls[:norbs_inac]
+        err = measure_subspace_blockbreaking (loc2inac_core, self.loc2symm, self.ir_names)
+        labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[inac_lbls], return_counts=True)))
+        print ("Core inactive irreps: {}, err = {}".format (labeldict, err))
+        loc2virt_core = loc2unac_core[:,norbs_inac:]
+        virt_lbls = unac_lbls[norbs_inac:]
+        err = measure_subspace_blockbreaking (loc2virt_core, self.loc2symm, self.ir_names)
+        labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[virt_lbls], return_counts=True)))
+        print ("Core virtual irreps: {}, err = {}".format (labeldict, err))
         amo_occ, loc2amo_core, amo_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=loc2amo_core, symmetry=self.loc2symm,
             strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+        err = measure_subspace_blockbreaking (loc2amo_core, self.loc2symm, self.ir_names)
+        labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[amo_lbls], return_counts=True)))
+        print ("Core active irreps: {}, err = {}".format (labeldict, err))
         occ_canon = np.zeros (self.norbs_core)
         occ_canon[:norbs_inac] = 2
         occ_canon[norbs_inac:][:norbs_as] = amo_occ[:]
         ene_canon = np.zeros (self.norbs_core)
         ene_canon[:norbs_inac] = unac_ene[:norbs_inac]
         ene_canon[norbs_occ:] = unac_ene[norbs_inac:]
-        loc2canon_core = np.concatenate ([loc2unac_core[:,:norbs_inac], loc2amo_core, loc2unac_core[:,norbs_inac:]], axis=1)
+        loc2canon_core = np.concatenate ([loc2inac_core, loc2amo_core, loc2virt_core], axis=1)
         return loc2canon_core, occ_canon, ene_canon, norbs_inac, norbs_as
 
 
@@ -549,6 +565,24 @@ class fragment_object:
         self.oneRDMfroz_loc += oneRDMacore_loc
         self.nelec_imp += int (round (nelec_impa))
 
+        # Weak symmetry alignment, for the sake of moldening. (Extended) fragment, then (extended) bath
+        if self.symmetry:
+            norbs_frag = loc2wfrag.shape[1]
+            loc2frag = self.loc2emb[:,:norbs_frag]
+            loc2bath = self.loc2emb[:,norbs_frag:self.norbs_imp]
+            frag_labels = emb_labels[:norbs_frag].astype (int)
+            bath_labels = emb_labels[norbs_frag:self.norbs_imp].astype (int)
+            #evals, loc2frag[:,:], frag_labels = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm,
+            #    subspace=loc2frag, sort_vecs=-1, only_nonzero_vals=False, strong_symm=False)
+            labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[frag_labels], return_counts=True)))
+            err = measure_subspace_blockbreaking (loc2frag, self.loc2symm, self.ir_names)
+            print ("Fragment-orbital irreps: {}, err = {}".format (labeldict, err))
+            #evals, loc2bath[:,:], bath_labels = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm,
+            #    subspace=loc2bath, sort_vecs=1, only_nonzero_vals=False, strong_symm=False)
+            labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[bath_labels], return_counts=True)))
+            err = measure_subspace_blockbreaking (loc2bath, self.loc2symm, self.ir_names)
+            print ("Bath-orbital irreps: {}, err = {}".format (labeldict, err))
+
         # I need to work symmetry handling into this as well
         norbs_virtbath = max (0, 2*self.norbs_frag + self.norbs_as - self.norbs_imp)
         print ("Fragment {} basis set instability virtual orbital loss: 2 * {} + {} - {} = {} missing virtual bath orbitals".format (self.frag_name,
@@ -563,16 +597,26 @@ class fragment_object:
             # Occupied orbitals in the impurity
             loc2occ_imp = loc2canon_imp[:,:norbs_occ_imp]
             # Virtual orbitals in the core
-            loc2virt_core = loc2canon_core[:,:norbs_virt_core]
+            loc2virt_core = loc2canon_core[:,norbs_occ_core:]
             # Unactive orbitals in the impurity
             loc2unac_imp = np.append (loc2canon_imp[:,:norbs_inac_imp], loc2canon_imp[:,norbs_occ_imp:], axis=1)
+            # Sort the core orbitals of loc2emb to get the occupied out of the way
+            self.loc2emb[:,self.norbs_imp:][:,:norbs_virt_core] = loc2virt_core[:,:]
+            self.loc2emb[:,self.norbs_imp:][:,norbs_virt_core:] = loc2canon_core[:,:norbs_occ_core]
             # Get the conjugate gradient. Push into the loc basis so I can use the weak inner symmetry capability of the svd function
             grad = self.hesscalc.get_conjugate_gradient (loc2virt_core, loc2occ_imp, loc2unac_imp, self.loc2amo)
-            grad = loc2virt_core @ grad @ loc2occ_imp.conjugate ().T
-            # SVD and add to the bath
-            self.loc2emb[:,self.norbs_imp:] = get_overlapping_states (self.loc2core, self.loc2amo, inner_symmetry=self.loc2symm,
-                enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)[0]
-            self.norbs_imp += norbs_virtbath
+            # Zero gradient escape
+            if np.count_nonzero (np.abs (grad) > 1e-8): 
+                grad = loc2virt_core @ grad @ loc2occ_imp.conjugate ().T
+                # SVD and add to the bath
+                self.loc2emb[:,self.norbs_imp:][:,:norbs_virt_core] = get_overlapping_states (loc2virt_core, self.loc2amo,
+                    inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry, across_operator=grad,
+                    full_matrices=True, only_nonzero_vals=False)[0]
+                self.norbs_imp += norbs_virtbath
+                nelec_err = self.nelec_imp - compute_nelec_in_subspace (oneRDM_loc, self.loc2imp)
+                print ("Impurity orbital nelec err after adding virtual baths = {}".format (nelec_err))
+            else:
+                print ("Gradient is zero; can't make virtbath using gradient")
 
         # This whole block below me is an old attempt at this that doesn't really work
         '''
