@@ -141,7 +141,10 @@ class HessianCalculator (object):
         q = self.moHS @ q
         r = self.moHS @ r
         s = self.moHS @ s
+        t0, w0 = time.clock (), time.time ()
         self._cache_eri_baaa (p, q, r, s)
+        self._cache_eri_pqrs (p, q, r, s)
+        print ("Time spent in preliminary cacheing: {:.6f} s clock, {:.6f} s wall".format (time.clock () - t0, time.time () - w0))
         hess  = self._get_Fock2 (p, q, r, s)
         hess -= self._get_Fock2 (q, p, r, s).transpose (1,0,2,3)
         hess -= self._get_Fock2 (p, q, s, r).transpose (0,1,3,2)
@@ -208,8 +211,8 @@ class HessianCalculator (object):
 
     def _cache_eri_bboo (self, p, q, r, s):
         self._cache_overlapping_inactive (self, p, q, r, s)
-        b1 = self.pq_b = self._get_collective_basis (p, q)
-        b2 = self.rs_b = self._get_collective_basis (r, s)
+        b1 = self.pq_b = self._get_collective_basis (p, q)[0]
+        b2 = self.rs_b = self._get_collective_basis (r, s)[0]
         ia_o = [self.pqrs_i] + self.mo2amo
         self.bboo = []
         self.bobo = []
@@ -234,6 +237,31 @@ class HessianCalculator (object):
         self.pvru = self._get_eri ([p, v, r, u])
         return
 
+    def _cache_eri_pqrs (self, p, q, r, s):
+        ''' Cache (pq|rs) and (ps|rq) including all orbitals entangled to p,q,r,s in those ranges via any 1-rdm
+            (charge, alpha, or beta) '''
+        pu, qu, ru, su = (self._append_entangled (x) for x in [p,q,r,s])
+        self.pqrs = self._get_eri ([pu,qu,ru,su])
+        self.psrq = self._get_eri ([pu,su,ru,qu])
+        self.prsq = self._get_eri ([pu,ru,su,qu])
+        self.pqrs_p = p
+        self.pqrs_r = r
+        self.pqrs_up = pu
+        self.pqrs_uq = qu
+        self.pqrs_ur = ru
+        self.pqrs_us = su
+        return
+
+    def _check_pq_perm (self, p, q):
+        olap_p = measure_basis_olap (p, self.pqrs_p)[0] / p.shape[1]
+        olap_q = measure_basis_olap (q, self.pqrs_p)[0] / q.shape[1]
+        return olap_q > olap_p
+
+    def _check_rs_perm (self, r, s):
+        olap_r = measure_basis_olap (r, self.pqrs_r)[0] / r.shape[1]
+        olap_s = measure_basis_olap (s, self.pqrs_r)[0] / s.shape[1]
+        return olap_s > olap_r
+
     def _get_Fock2 (self, p, q, r, s):
         ''' This calculates one of the terms F2^pr_qs '''
 
@@ -250,6 +278,7 @@ class HessianCalculator (object):
             hess += np.multiply.outer (ovlp_qr, gf_ps).transpose (2,0,1,3) # 'qr,ps->pqrs'
 
         # Explicit CDM contributions:  2 v^pu_rv l^qu_sv  +  2 v^pr_uv (l^qs_uv + l^qv_us)        
+        t0, w0 = time.clock (), time.time ()
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
             #for t, a, n, bbaa, baba in zip (self.twoCDM, self.mo2amo, self.ncas, self.bbaa, self.baba):
             a2q = a.conjugate ().T @ q
@@ -274,17 +303,18 @@ class HessianCalculator (object):
             thess = np.tensordot (thess, a2q, axes=(2,0)) # 'prab,aq->prbq' (tensordot always puts output indices in order of the arguments)
             thess = np.tensordot (thess, a2s, axes=(2,0)) # 'prbq,bs->prqs'
             hess += 2 * thess.transpose (0, 2, 1, 3) # 'prqs->pqrs'
+        print ("Time spent in 2-CDM terms: {:.6f} s clock, {:.6f} s wall".format (time.clock () - t0, time.time () - w0))
 
         # Weirdo split-coulomb and split-exchange terms
-        print ("Entering 'split' terms")
-        u, v = self._get_uv (q, s)
-        if u.shape[1] and v.shape[1]:
-            self._cache_eri_pruv (p, r, u, v)
-            hess += 4 * self._get_splitc (p, q, r, s, self.oneRDMs[0] + self.oneRDMs[1], u, v)
-            for dm in self.oneRDMs:
-                hess -= 2 * self._get_splitx (p, q, r, s, dm, u, v)
-        print ("Exiting 'split' terms")
-
+        # u,v are supersets of q,s 
+        perm_pq = self._check_pq_perm (p, q)
+        perm_rs = self._check_rs_perm (r, s)
+        u = self.pqrs_up if perm_pq else self.pqrs_uq
+        v = self.pqrs_ur if perm_rs else self.pqrs_us
+        #self._cache_eri_pruv (p, r, u, v)
+        hess += 4 * self._get_splitc (p, q, r, s, sum (self.oneRDMs), u, v, perm_pq, perm_rs)
+        for dm in self.oneRDMs:
+            hess -= 2 * self._get_splitx (p, q, r, s, dm, u, v, perm_pq, perm_rs)
         return hess
 
     def _get_Fock1 (self, p, q):
@@ -304,32 +334,50 @@ class HessianCalculator (object):
             gfock += np.tensordot (eri, t, axes=((1,2,3),(1,2,3))) @ a2q
         return gfock 
 
-    def _get_splitc (self, p, q, r, s, dm, u, v):
+    def _get_splitc (self, p, q, r, s, dm, u, v, perm_pq, perm_rs):
         ''' v^pr_uv D^q_u D^s_v
         It shows up because some of the cumulant decompositions put q and s on different 1rdm factors '''
-        #u = self._get_entangled (q, dm)
-        #v = self._get_entangled (s, dm)
         if u.shape[1] == 0 or v.shape[1] == 0: return 0
         D_uq = u.conjugate ().T @ dm @ q
         D_vs = v.conjugate ().T @ dm @ s
-        eri = self.purv #self._get_eri ([p,u,r,v])
-        hess = np.tensordot (eri,  D_uq, axes=(1,0)) # 'purv,uq->prvq'
+        lp, lr = p.shape[1], r.shape[1]
+        pqrs = self.pqrs
+        if perm_pq: pqrs = pqrs.transpose (1,0,2,3)
+        if perm_rs: pqrs = pqrs.transpose (0,1,3,2)
+        purv = pqrs[:lp,:,:,:][:,:,:lr,:]
+        hess = np.tensordot (purv, D_uq, axes=(1,0)) # 'purv,uq->prvq'
         hess = np.tensordot (hess, D_vs, axes=(2,0)) # 'prvq,vs->prqs'
         return hess.transpose (0,2,1,3) # 'prqs->pqrs'
 
-    def _get_splitx (self, p, q, r, s, dm, u, v):
-        ''' (v^pv_ru + v^pr_vu) g^q_u g^s_v
+    def _get_splitx (self, p, q, r, s, dm, u, v, perm_pq, perm_rs):
+        ''' (v^pv_ru + v^pr_vu) g^q_u g^s_v = v^pr_vu g^q_u g^s_v - v^pv_su g^q_u g^r_v
         It shows up because some of the cumulant decompositions put q and s on different 1rdm factors 
         Pay VERY CLOSE ATTENTION to the order of the indices! Remember p-q, r-s are the degrees of freedom
         and the contractions should resemble an exchange diagram from mp2! (I've exploited elsewhere
         the fact that v^pv_ru = v^pu_rv because that's just complex conjugation, but I wrote it as v^pv_ru here
         to make the point because you cannot swap u and v in the other one.)'''
-        #u = self._get_entangled (q, dm)
-        #v = self._get_entangled (s, dm)
         if u.shape[1] == 0 or v.shape[1] == 0: return 0
-        eri = self.prvu + self.pvru.transpose (0,2,1,3) #self._get_eri ([p,r,v,u]) + self._get_eri ([p,v,r,u]).transpose (0,2,1,3)
         D_uq = u.conjugate ().T @ dm @ q
         D_vs = v.conjugate ().T @ dm @ s
+        lp, lr = p.shape[1], r.shape[1]
+        perm_count = int (perm_pq) + int (perm_rs)
+        # (pr|vu) <- (pr|sq); (pv|ru) <- (ps|rq)
+        if perm_count == 2: # p is q and r is s
+            prsq = self.prsq.transpose (3,2,1,0)
+            psrq = self.psrq.transpose (3,2,1,0)
+        elif perm_pq: # p is q
+            prsq = self.psrq.transpose (3,2,1,0)
+            psrq = self.prsq.transpose (3,2,1,0)
+        elif perm_rs: # r is s
+            prsq = self.psrq
+            psrq = self.prsq
+        else:
+            prsq = self.prsq
+            psrq = self.psrq
+        prvu = prsq[:lp,:,:,:][:,:lr,:,:]
+        pvru = psrq[:lp,:,:,:][:,:,:lr,:]
+        eri = prvu + pvru.transpose (0,2,1,3)
+        #eri = self.prvu + self.pvru.transpose (0,2,1,3) #self._get_eri ([p,r,v,u]) + self._get_eri ([p,v,r,u]).transpose (0,2,1,3)
         hess = np.tensordot (eri,  D_uq, axes=(3,0)) # 'prvu,uq->prvq'
         hess = np.tensordot (hess, D_vs, axes=(2,0)) # 'prvq,vs->prqs'
         return hess.transpose (0,2,1,3) # 'prqs->pqrs'
@@ -343,19 +391,19 @@ class HessianCalculator (object):
         idx = np.abs (sigma) > 1e-8
         return q @ lvec[:,idx]
 
-    def _append_entangled (self, p, dms):
+    def _append_entangled (self, p):
         ''' Do SVD of 1-rdms to get a small number of orbitals that you need to actually pay attention to
         when computing splitc and splitx eris. Append these extras to the end of p '''
         q = get_complementary_states (p)
         qH = q.conjugate ().T
-        rvecs = []
-        for dm in dms:
+        lvecs = []
+        for dm in self.oneRDMs:
             lvec, sigma, rvec = linalg.svd (qH @ dm @ p, full_matrices=False)
             idx = np.abs (sigma) > 1e-8
-            if np.count_nonzero (idx): rvecs.append (lvecs[:,idx])
-        if len (rvecs):
-            rvec = self._get_collective_basis (*rvecs)
-            u = q @ rvec
+            if np.count_nonzero (idx): lvecs.append (lvec[:,idx])
+        if len (lvecs):
+            lvec = self._get_collective_basis (*lvecs)[0]
+            u = q @ lvec
             return np.append (p, u, axis=1)
         return p
 
