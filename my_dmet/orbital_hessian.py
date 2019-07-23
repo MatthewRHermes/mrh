@@ -260,9 +260,12 @@ class HessianCalculator (object):
             hess += 2 * thess.transpose (0, 2, 1, 3) # 'prqs->pqrs'
 
         # Weirdo split-coulomb and split-exchange terms
+        print ("Entering splitc")
         hess += 4 * self._get_splitc (p, q, r, s, self.oneRDMs[0] + self.oneRDMs[1])
+        print ("Entering splitx")
         for dm in self.oneRDMs:
             hess -= 2 * self._get_splitx (p, q, r, s, dm)
+        print ("Exiting 'split' terms")
 
         return hess
 
