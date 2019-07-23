@@ -1,7 +1,8 @@
+import time
 import numpy as np
 from pyscf import ao2mo
 from pyscf.mcscf.mc1step import gen_g_hop
-from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap
+from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap, orthonormalize_a_basis, get_complementary_states
 from mrh.util.rdm import get_2CDM_from_2RDM
 from scipy import linalg
 from itertools import product
@@ -140,6 +141,7 @@ class HessianCalculator (object):
         q = self.moHS @ q
         r = self.moHS @ r
         s = self.moHS @ s
+        self._cache_eri_baaa (p, q, r, s)
         hess  = self._get_Fock2 (p, q, r, s)
         hess -= self._get_Fock2 (q, p, r, s).transpose (1,0,2,3)
         hess -= self._get_Fock2 (p, q, s, r).transpose (0,1,3,2)
@@ -163,6 +165,59 @@ class HessianCalculator (object):
         if not compact: eri = eri.reshape (*norbs)
         return eri
 
+    def _get_collective_basis (self, *args):
+        p = np.concatenate (args, axis=1)
+        q = orthonormalize_a_basis (p)
+        '''
+        ovlp = p.conjugate ().T @ p
+        evals, evecs = 
+        p2q = linalg.qr (ovlp)[0]
+        q = p @ p2q
+        '''
+        qH = q.conjugate ().T
+        q2p = [qH @ arg for arg in args]
+        return q, q2p
+
+    def _cache_overlapping_inactive (self, *args):
+        b = self._get_collective_basis (*args)[0]
+        a = np.concatenate (self.mo2amo, axis=1)
+        b2a = b.conjugate ().T @ a
+        b2u = get_complementary_states (b2a, already_complete_warning=False)
+        u = b @ b2u
+        dm = sum (self.oneRDMs) # inactive, therefore spin-adapted
+        evals, u2i = linalg.eigh (u.conjugate ().T @ dm @ u)
+        idx = evals > 1e-8
+        self.pqrs_i = u @ u2i
+        return
+
+    def _cache_eri_baaa (self, *args):
+        b = self.pqrs_b = self._get_collective_basis (*args)[0]
+        self.baaa = []
+        for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
+            self.baaa.append (self._get_eri ([b, a, a, a]))
+        return
+
+    def _cache_eri_bboo (self, p, q, r, s):
+        self._cache_overlapping_inactive (self, p, q, r, s)
+        b1 = self.pq_b = self._get_collective_basis (p, q)
+        b2 = self.rs_b = self._get_collective_basis (r, s)
+        ia_o = [self.pqrs_i] + self.mo2amo
+        self.bboo = []
+        self.bobo = []
+        # It's important to understand why the combinatoric logic of the two below is different!
+        # bboo has an inherent transpose symmetry: pqij = pqji
+        # On the other hand, bobo does NOT
+        for o1, o2 in combinations_with_replacement (ia_o, 2):
+            self.bboo.append (self._get_eri ([b1, b2, o1, o2]))
+        for o1, o2 in product (ia_o, repeat=2):
+            self.bobo.append (self._get_eri ([b1, o1, b2, o2]))
+        # I should make an index to conveniently address the diagonal active-orbital parts only for the 2CDM terms
+        diag_idx = np.cumsum (np.arange (self.nas + 1, 1, -1, dtype=np.int))
+        self.bbaa = [self.bboo[idx] for idx in diag_idx]
+        diag_idx = (np.arange (self.nas + 1, dtype=np.int) * (nas + 2))[1:]
+        self.baba = [self.bobo[idx] for idx in diag_idx]
+        return
+
     def _get_Fock2 (self, p, q, r, s):
         ''' This calculates one of the terms F2^pr_qs '''
 
@@ -180,6 +235,7 @@ class HessianCalculator (object):
 
         # Explicit CDM contributions:  2 v^pu_rv l^qu_sv  +  2 v^pr_uv (l^qs_uv + l^qv_us)        
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
+            #for t, a, n, bbaa, baba in zip (self.twoCDM, self.mo2amo, self.ncas, self.bbaa, self.baba):
             a2q = a.conjugate ().T @ q
             a2s = a.conjugate ().T @ s
             # If either q or s has no weight on the current active space, skip
@@ -189,6 +245,16 @@ class HessianCalculator (object):
             thess  = np.tensordot (eri, t, axes=((2,3),(2,3)))
             eri = self._get_eri ([p, a, r, a])
             thess += np.tensordot (eri, t + t.transpose (0,1,3,2), axes=((1,3),(1,3)))
+            '''
+            p2b = p.conjugate ().T @ self.pq_b
+            r2b = r.conjugate ().T @ self.rs_b
+            braa = np.tensordot (r2b, bbaa, axes=((1),(1))).transpose (1,0,2,3)
+            praa = np.tensordot (p2b, braa, axes=1)
+            thess  = np.tensordot (praa, t, axes=((2,3),(2,3)))
+            bara = np.tensordot (r2b, baba, axes=((1),(2))).transpose (1,2,0,3)
+            para = np.tensordot (p2b, bara, axes=1)
+            thess += np.tensordot (para, t + t.transpose (0,1,3,2), axes=((1,3),(1,3)))
+            '''
             thess = np.tensordot (thess, a2q, axes=(2,0)) # 'prab,aq->prbq' (tensordot always puts output indices in order of the arguments)
             thess = np.tensordot (thess, a2s, axes=(2,0)) # 'prbq,bs->prqs'
             hess += 2 * thess.transpose (0, 2, 1, 3) # 'prqs->pqrs'
@@ -204,12 +270,16 @@ class HessianCalculator (object):
         ''' Calculate the "generalized fock matrix" for orbital ranges p and q '''
         gfock = sum ([f @ D for f, D in zip (self.fock, self.oneRDMs)])
         gfock = p.conjugate ().T @ gfock @ q
-        for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
+        p2b = p.conjugate ().T @ self.pqrs_b
+        # b must span all of p at least, or else there is a bug
+        b2p = p2b.conjugate ().T
+        pOp = p2b @ b2p
+        for t, a, n, baaa in zip (self.twoCDM, self.mo2amo, self.ncas, self.baaa):
             a2q = a.conjugate ().T @ q
             # If q has no weight on the current active space, skip
             if np.amax (np.abs (a2q)) < 1e-8:
                 continue
-            eri = self._get_eri ([p, a, a, a])
+            eri = np.tensordot (p2b, baaa, axes=1)
             gfock += np.tensordot (eri, t, axes=((1,2,3),(1,2,3))) @ a2q
         return gfock 
 
@@ -219,9 +289,9 @@ class HessianCalculator (object):
         u = self._get_entangled (q, dm)
         v = self._get_entangled (s, dm)
         if u.shape[1] == 0 or v.shape[1] == 0: return 0
-        eri = self._get_eri ([p,u,r,v])
         D_uq = u.conjugate ().T @ dm @ q
         D_vs = v.conjugate ().T @ dm @ s
+        eri = self._get_eri ([p,u,r,v])
         hess = np.tensordot (eri,  D_uq, axes=(1,0)) # 'purv,uq->prvq'
         hess = np.tensordot (hess, D_vs, axes=(2,0)) # 'prvq,vs->prqs'
         return hess.transpose (0,2,1,3) # 'prqs->pqrs'
@@ -257,17 +327,22 @@ class HessianCalculator (object):
         # Put the orbital ranges in the orthonormal basis for fun and profit
         p = self.moHS @ p
         q = self.moHS @ q
+        self._cache_eri_baaa (p, q)
         # One-body part
         e1 = sum ([f @ g for f, g in zip (self.fock, self.oneRDMs)])
         e1 = p.conjugate ().T @ (e1 - e1.T) @ q
         # Two-body part
-        for idx, (t, a, n) in enumerate (zip (self.twoCDM, self.mo2amo, self.ncas)):
+        for idx, (t, a, n, baaa) in enumerate (zip (self.twoCDM, self.mo2amo, self.ncas, self.baaa)):
             #print ("<a{}|p>: {}, {}".format (idx, *measure_basis_olap (p, a)))
             #print ("<a{}|q>: {}, {}".format (idx, *measure_basis_olap (q, a)))
             a2p = a.conjugate ().T @ p
             a2q = a.conjugate ().T @ q
-            e1 +=  np.tensordot (self._get_eri ([p, a, a, a]), t, axes=((1,2,3),(1,2,3))) @ a2q
-            e1 -= (np.tensordot (self._get_eri ([q, a, a, a]), t, axes=((1,2,3),(1,2,3))) @ a2p).T
+            p2b = p.conjugate ().T @ self.pqrs_b
+            q2b = q.conjugate ().T @ self.pqrs_b
+            paaa = np.tensordot (p2b, baaa, axes=1)
+            qaaa = np.tensordot (q2b, baaa, axes=1)
+            e1 +=  np.tensordot (paaa, t, axes=((1,2,3),(1,2,3))) @ a2q
+            e1 -= (np.tensordot (qaaa, t, axes=((1,2,3),(1,2,3))) @ a2p).T
         return e1
 
     def get_diagonal_step (self, p, q):
