@@ -166,7 +166,7 @@ class HessianCalculator (object):
         return eri
 
     def _get_collective_basis (self, *args):
-        p = np.concatenate (args, axis=1)
+        p = np.concatenate (args, axis=-1)
         q = orthonormalize_a_basis (p)
         '''
         ovlp = p.conjugate ().T @ p
@@ -177,6 +177,15 @@ class HessianCalculator (object):
         qH = q.conjugate ().T
         q2p = [qH @ arg for arg in args]
         return q, q2p
+
+    def _get_uv (self, q, s):
+        oneRDM = sum (self.oneRDMs)
+        dms = self.oneRDMs + [oneRDM]
+        u = [self._get_entangled (q, dm) for dm in dms]
+        u = self._get_collective_basis (*u)[0]
+        v = [self._get_entangled (s, dm) for dm in dms]
+        v = self._get_collective_basis (*v)[0]
+        return u, v
 
     def _cache_overlapping_inactive (self, *args):
         b = self._get_collective_basis (*args)[0]
@@ -216,6 +225,13 @@ class HessianCalculator (object):
         self.bbaa = [self.bboo[idx] for idx in diag_idx]
         diag_idx = (np.arange (self.nas + 1, dtype=np.int) * (nas + 2))[1:]
         self.baba = [self.bobo[idx] for idx in diag_idx]
+        return
+
+    def _cache_eri_pruv (self, p, r, u, v):
+        if v.shape[1] == 0 or u.shape[1] == 0: return
+        self.purv = self._get_eri ([p, u, r, v])
+        self.prvu = self._get_eri ([p, r, v, u])
+        self.pvru = self._get_eri ([p, v, r, u])
         return
 
     def _get_Fock2 (self, p, q, r, s):
@@ -260,11 +276,13 @@ class HessianCalculator (object):
             hess += 2 * thess.transpose (0, 2, 1, 3) # 'prqs->pqrs'
 
         # Weirdo split-coulomb and split-exchange terms
-        print ("Entering splitc")
-        hess += 4 * self._get_splitc (p, q, r, s, self.oneRDMs[0] + self.oneRDMs[1])
-        print ("Entering splitx")
-        for dm in self.oneRDMs:
-            hess -= 2 * self._get_splitx (p, q, r, s, dm)
+        print ("Entering 'split' terms")
+        u, v = self._get_uv (q, s)
+        if u.shape[1] and v.shape[1]:
+            self._cache_eri_pruv (p, r, u, v)
+            hess += 4 * self._get_splitc (p, q, r, s, self.oneRDMs[0] + self.oneRDMs[1], u, v)
+            for dm in self.oneRDMs:
+                hess -= 2 * self._get_splitx (p, q, r, s, dm, u, v)
         print ("Exiting 'split' terms")
 
         return hess
@@ -286,30 +304,30 @@ class HessianCalculator (object):
             gfock += np.tensordot (eri, t, axes=((1,2,3),(1,2,3))) @ a2q
         return gfock 
 
-    def _get_splitc (self, p, q, r, s, dm):
+    def _get_splitc (self, p, q, r, s, dm, u, v):
         ''' v^pr_uv D^q_u D^s_v
         It shows up because some of the cumulant decompositions put q and s on different 1rdm factors '''
-        u = self._get_entangled (q, dm)
-        v = self._get_entangled (s, dm)
+        #u = self._get_entangled (q, dm)
+        #v = self._get_entangled (s, dm)
         if u.shape[1] == 0 or v.shape[1] == 0: return 0
         D_uq = u.conjugate ().T @ dm @ q
         D_vs = v.conjugate ().T @ dm @ s
-        eri = self._get_eri ([p,u,r,v])
+        eri = self.purv #self._get_eri ([p,u,r,v])
         hess = np.tensordot (eri,  D_uq, axes=(1,0)) # 'purv,uq->prvq'
         hess = np.tensordot (hess, D_vs, axes=(2,0)) # 'prvq,vs->prqs'
         return hess.transpose (0,2,1,3) # 'prqs->pqrs'
 
-    def _get_splitx (self, p, q, r, s, dm):
+    def _get_splitx (self, p, q, r, s, dm, u, v):
         ''' (v^pv_ru + v^pr_vu) g^q_u g^s_v
         It shows up because some of the cumulant decompositions put q and s on different 1rdm factors 
         Pay VERY CLOSE ATTENTION to the order of the indices! Remember p-q, r-s are the degrees of freedom
         and the contractions should resemble an exchange diagram from mp2! (I've exploited elsewhere
         the fact that v^pv_ru = v^pu_rv because that's just complex conjugation, but I wrote it as v^pv_ru here
         to make the point because you cannot swap u and v in the other one.)'''
-        u = self._get_entangled (q, dm)
-        v = self._get_entangled (s, dm)
+        #u = self._get_entangled (q, dm)
+        #v = self._get_entangled (s, dm)
         if u.shape[1] == 0 or v.shape[1] == 0: return 0
-        eri = self._get_eri ([p,r,v,u]) + self._get_eri ([p,v,r,u]).transpose (0,2,1,3)
+        eri = self.prvu + self.pvru.transpose (0,2,1,3) #self._get_eri ([p,r,v,u]) + self._get_eri ([p,v,r,u]).transpose (0,2,1,3)
         D_uq = u.conjugate ().T @ dm @ q
         D_vs = v.conjugate ().T @ dm @ s
         hess = np.tensordot (eri,  D_uq, axes=(3,0)) # 'prvu,uq->prvq'
@@ -324,6 +342,22 @@ class HessianCalculator (object):
         lvec, sigma, rvec = linalg.svd (qH @ dm @ p, full_matrices=False)
         idx = np.abs (sigma) > 1e-8
         return q @ lvec[:,idx]
+
+    def _append_entangled (self, p, dms):
+        ''' Do SVD of 1-rdms to get a small number of orbitals that you need to actually pay attention to
+        when computing splitc and splitx eris. Append these extras to the end of p '''
+        q = get_complementary_states (p)
+        qH = q.conjugate ().T
+        rvecs = []
+        for dm in dms:
+            lvec, sigma, rvec = linalg.svd (qH @ dm @ p, full_matrices=False)
+            idx = np.abs (sigma) > 1e-8
+            if np.count_nonzero (idx): rvecs.append (lvecs[:,idx])
+        if len (rvecs):
+            rvec = self._get_collective_basis (*rvecs)
+            u = q @ rvec
+            return np.append (p, u, axis=1)
+        return p
 
     def get_gradient (self, p, q):
         ''' A routine to calculate the gradient because it's convenient to have it here '''
