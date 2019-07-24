@@ -61,10 +61,14 @@ class HessianCalculator (object):
         self.mo2amo = [self.moHS @ ao2a for ao2a in self.mo2amo]
         assert (len (self.mo2amo) == self.nas), "Same number of mo2amo's and twoCDM's required"
 
+        # Precalculate (full,a|a,a) for fast gradients
+        self.faaa = []
+        f = np.eye (self.nmo)
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
             assert (t.shape == (n, n, n, n)), "twoCDM array size problem"
             assert (a.shape == (self.nmo, n)), "mo2amo array size problem"
             assert (is_basis_orthonormal (a)), 'problem putting active orbitals in orthonormal basis'       
+            self.faaa.append (self._get_eri ([f,a,a,a]))
 
         # Precalculate the fock matrix 
         vj, vk = self.scf.get_jk (dm=self.oneRDMs)
@@ -106,9 +110,9 @@ class HessianCalculator (object):
         return hess / 2
 
     def _call_diag (self, p, q):
-        hess = np.zeros ([p.shape[-1], q.shape[-1]])
-        for ix, iy in product (range (p.shape[-1]), range (q.shape[-1])):
-            hess[ix,iy] = self._call_general (p[:,ix:ix+1], q[:,iy:iy+1], p[:,ix:ix+1], q[:,iy:iy+1])[0,0,0,0]
+        lp, lq = p.shape[-1], q.shape[-1]
+        hess = self._call_general (p, q, p, q).reshape (lp*lq, lp*lq)
+        hess = np.diag (hess).reshape (lp, lq)
         return hess
 
     def _call_general (self, p, q, r, s):
@@ -123,7 +127,6 @@ class HessianCalculator (object):
         r = self.moHS @ r
         s = self.moHS @ s
         t0, w0 = time.clock (), time.time ()
-        self._cache_eri_baaa (p, q, r, s)
         self._cache_eri_pqrs (p, q, r, s)
         print ("Time spent in preliminary cacheing: {:.6f} s clock, {:.6f} s wall".format (time.clock () - t0, time.time () - w0))
         hess  = self._get_Fock2 (p, q, r, s)
@@ -193,13 +196,6 @@ class HessianCalculator (object):
         evals, u2i = linalg.eigh (u.conjugate ().T @ dm @ u)
         idx = evals > 1e-8
         self.pqrs_i = u @ u2i
-        return
-
-    def _cache_eri_baaa (self, *args):
-        b = self.pqrs_b = self._get_collective_basis (*args)[0]
-        self.baaa = []
-        for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
-            self.baaa.append (self._get_eri ([b, a, a, a]))
         return
 
     def _cache_eri_pqrs (self, p, q, r, s):
@@ -275,16 +271,13 @@ class HessianCalculator (object):
         ''' Calculate the "generalized fock matrix" for orbital ranges p and q '''
         gfock = sum ([f @ D for f, D in zip (self.fock, self.oneRDMs)])
         gfock = p.conjugate ().T @ gfock @ q
-        p2b = p.conjugate ().T @ self.pqrs_b
-        # b must span all of p at least, or else there is a bug
-        b2p = p2b.conjugate ().T
-        pOp = p2b @ b2p
-        for t, a, n, baaa in zip (self.twoCDM, self.mo2amo, self.ncas, self.baaa):
+        pH = p.conjugate ().T
+        for t, a, n, faaa in zip (self.twoCDM, self.mo2amo, self.ncas, self.faaa):
             a2q = a.conjugate ().T @ q
             # If q has no weight on the current active space, skip
             if np.amax (np.abs (a2q)) < 1e-8:
                 continue
-            eri = np.tensordot (p2b, baaa, axes=1)
+            eri = np.tensordot (pH, faaa, axes=1)
             gfock += np.tensordot (eri, t, axes=((1,2,3),(1,2,3))) @ a2q
         return gfock 
 
@@ -361,34 +354,12 @@ class HessianCalculator (object):
             return np.append (p, u, axis=1)
         return p
 
-    def get_gradient (self, p, q):
-        ''' A routine to calculate the gradient because it's convenient to have it here '''
-        # Put the orbital ranges in the orthonormal basis for fun and profit
-        p = self.moHS @ p
-        q = self.moHS @ q
-        self._cache_eri_baaa (p, q)
-        # One-body part
-        e1 = sum ([f @ g for f, g in zip (self.fock, self.oneRDMs)])
-        e1 = p.conjugate ().T @ (e1 - e1.T) @ q
-        # Two-body part
-        for idx, (t, a, n, baaa) in enumerate (zip (self.twoCDM, self.mo2amo, self.ncas, self.baaa)):
-            #print ("<a{}|p>: {}, {}".format (idx, *measure_basis_olap (p, a)))
-            #print ("<a{}|q>: {}, {}".format (idx, *measure_basis_olap (q, a)))
-            a2p = a.conjugate ().T @ p
-            a2q = a.conjugate ().T @ q
-            p2b = p.conjugate ().T @ self.pqrs_b
-            q2b = q.conjugate ().T @ self.pqrs_b
-            paaa = np.tensordot (p2b, baaa, axes=1)
-            qaaa = np.tensordot (q2b, baaa, axes=1)
-            e1 +=  np.tensordot (paaa, t, axes=((1,2,3),(1,2,3))) @ a2q
-            e1 -= (np.tensordot (qaaa, t, axes=((1,2,3),(1,2,3))) @ a2p).T
-        return e1
-
     def get_diagonal_step (self, p, q):
         ''' Obtain a gradient-descent approximation for the relaxation of orbitals p in range q using the gradient and
         diagonal elements of the Hessian, x^p_q = -E1^p_q / E2^pp_qq '''
         # First, get the gradient and svd to obtain conjugate orbitals of p in q
-        lvec, e1, rvecH = linalg.svd (self.get_gradient (p, q), full_matrices=False)
+        grad = self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T
+        lvec, e1, rvecH = linalg.svd (grad, full_matrices=False)
         rvec = rvecH.conjugate ().T
         print ("compare this to the last print of the gradient", e1)
         p = p @ lvec
@@ -410,7 +381,7 @@ class HessianCalculator (object):
     def get_conjugate_gradient (self, p, q, r, s):
         ''' Obtain the gradient for ranges p->q after making an approximate gradient-descent step in r->s:
         E1'^p_q = E1^p_q - E2^pr_qs * x^r_s = E1^p_q + E2^pr_qs * E1^r_s / E2^rr_ss '''
-        e1pq = self.get_gradient (p, q)
+        e1pq = self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T
         r, x_rs, s = self.get_diagonal_step (r, s)
         # Zero step escape
         if not np.count_nonzero (np.abs (x_rs) > 1e-8): return e1pq
@@ -536,6 +507,7 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.mo2amo = [f.loc2amo for f in active_frags]
         self.twoCDM = [f.twoCDMimp_amo for f in active_frags]
         self.ncas = [f.norbs_as for f in active_frags]
+        self.faaa = [self._get_eri ([np.eye (self.nmo), f.loc2amo, f.loc2amo, f.loc2amo]) for f in active_frags]
 
     def _get_eri_external (self, orbs_list, compact=False):
         return self.ints.general_tei (orbs_list, compact=compact)
