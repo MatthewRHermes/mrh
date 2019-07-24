@@ -76,9 +76,6 @@ class HessianCalculator (object):
         self.oneRDMs = [moHS @ D @ Smo for D in self.oneRDMs]
 
     def __call__(self, *args, **kwargs):
-        diagx1 = kwargs['diagx1'] if 'diagx1' in kwargs else False
-        diagx2 = kwargs['diagx2'] if 'diagx2' in kwargs else False
-        if 'diagx' in kwargs: diagx1 = diagx2 = kwargs['diagx']
         if len (args) == 0:
             ''' If no orbital ranges are passed, return the full mo-basis Hessian '''
             return self._call_fullrange (self.mo)
@@ -87,13 +84,13 @@ class HessianCalculator (object):
             return self._call_fullrange (args[0])
         elif len (args) == 2:
             ''' If two orbital ranges are passed, I assume that you are asking ONLY for the diagonal elements'''
-            return self._call_diag (args[0], args[1], diagx=diagx1)
+            return self._call_diag (args[0], args[1])
         elif len (args) == 3:
             ''' No interpretation; raise an error '''
             raise RuntimeError ("Can't interpret 3 orbital ranges; pass 0, 1, 2, or 4")
         elif len (args) == 4:
             ''' If all four orbital ranges are passed, return the Hessian so specified. No permutation symmetry can be exploited. '''
-            return self._call_general (args[0], args[1], args[2], args[3], diagx1=diagx1, diagx2=diagx2)
+            return self._call_general (args[0], args[1], args[2], args[3])
         else:
             raise RuntimeError ("Orbital Hessian has 4 orbital indices; you passed {} orbital ranges".format (len (args)))
 
@@ -108,52 +105,18 @@ class HessianCalculator (object):
         hess -= hess.transpose (0, 1, 3, 2)
         return hess / 2
 
-    def _call_diag (self, p, q, diagx=False):
+    def _call_diag (self, p, q):
         hess = np.zeros ([p.shape[-1], q.shape[-1]])
-        if diagx: assert (p.shape[-1] == q.shape[-1]), 'diagx error: p and q ranges have different lengths'
         for ix, iy in product (range (p.shape[-1]), range (q.shape[-1])):
-            if diagx and ix != iy: continue
-            hess[ix,iy] = self._call_general (p[:,ix:ix+1], q[:,iy:iy+1], p[:,ix:ix+1], q[:,iy:iy+1], diagx1=False, diagx2=False)[0,0,0,0]
-        if diagx: hess = np.diag (hess)
+            hess[ix,iy] = self._call_general (p[:,ix:ix+1], q[:,iy:iy+1], p[:,ix:ix+1], q[:,iy:iy+1])[0,0,0,0]
         return hess
 
-    def _call_general (self, p, q, r, s, diagx1=False, diagx2=False):
+    def _call_general (self, p, q, r, s):
         ''' The Hessian E2^pr_qs is F2^pr_qs - F2^qr_ps - F2^ps_qr + F2^qs_pr. 
         Since the orbitals are segmented into separate ranges, you cannot necessarily just calculate
         one of these and transpose. '''
         norb = [p.shape[-1], q.shape[-1], r.shape[-1], s.shape[-1]]
         if 0 in norb: return np.zeros (norb)
-        # recurse so that the largest index is in the first electron
-        lmax1 = max (norb[0], norb[1])
-        lmax2 = max (norb[2], norb[3])
-        if lmax2 > lmax1:
-            hess = self._call_general (r, s, p, q, diagx1=diagx1, diagx2=diagx2)
-            return hess.transpose (2, 3, 0, 1)
-        # recurse so that the largest index is in the first bra
-        if norb[1] > norb[0]:
-            hess = self._call_general (q, p, r, s, diagx1=diagx1, diagx2=diagx2)
-            return -hess.transpose (1, 0, 2, 3)
-        # recurse so that the last ket contains the smaller of r,s
-        if norb[3] > norb[2]:
-            hess = self._call_general (p, q, s, r, diagx1=diagx1, diagx2=diagx2)
-            return -hess.transpose (0, 1, 3, 2)
-        # This all ensures that there are only two possibilities for the bases w,x,y,z: either
-        # s is repeated three times in xyz or q is.  This minimizes the amount of conditional logic I have to
-        # work through for the transformation of _eri_wxyz into smaller intermediates.
-        # diagx1 recursion
-        if diagx1:
-            assert (p.shape[-1] == q.shape[-1]), 'diagx error: p and q ranges have different lengths'
-            hess = np.zeros ([p.shape[-1], r.shape[-1]]) if diagx2 else np.zeros ([p.shape[-1], r.shape[-1], s.shape[-1]]) 
-            for ix in range (p.shape[-1]):
-                hess[ix] = self._call_general (p[:,ix:ix+1], q[:,ix:ix+1], r, s, diagx1=False, diagx2=diagx2)[0,0]
-            return hess
-        # diagx2 recursion
-        if diagx2:
-            assert (r.shape[-1] == s.shape[-1]), 'diagx error: r and s ranges have different lengths'
-            hess = np.zeros ([p.shape[-1], q.shape[-1], r.shape[-1]]) 
-            for ix in range (r.shape[-1]):
-                hess[:,:,ix] = self._call_general (p, q, r[:,ix:ix+1], s[:,ix:ix+1], diagx1=False, diagx2=False)[:,:,0,0]
-            return hess
         # Put the orbital ranges in the orthonormal basis for fun and profit
         p = self.moHS @ p
         q = self.moHS @ q
@@ -430,7 +393,6 @@ class HessianCalculator (object):
         print ("compare this to the last print of the gradient", e1)
         p = p @ lvec
         q = q @ rvec
-        #e2 = self.__call__(p, q, diagx=True)
         lp = p.shape[-1]
         lq = q.shape[-1]
         lpq = lp * lq
@@ -450,7 +412,6 @@ class HessianCalculator (object):
         E1'^p_q = E1^p_q - E2^pr_qs * x^r_s = E1^p_q + E2^pr_qs * E1^r_s / E2^rr_ss '''
         e1pq = self.get_gradient (p, q)
         r, x_rs, s = self.get_diagonal_step (r, s)
-        #e2 = self.__call__(p, q, r, s, diagx1=False, diagx2=True)
         # Zero step escape
         if not np.count_nonzero (np.abs (x_rs) > 1e-8): return e1pq
         lp = p.shape[-1]
