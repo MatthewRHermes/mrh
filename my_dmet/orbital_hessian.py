@@ -2,7 +2,7 @@ import time
 import numpy as np
 from pyscf import ao2mo
 from pyscf.mcscf.mc1step import gen_g_hop
-from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap, orthonormalize_a_basis, get_complementary_states
+from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap, orthonormalize_a_basis, get_complementary_states, get_overlapping_states
 from mrh.util.rdm import get_2CDM_from_2RDM
 from scipy import linalg
 from itertools import product
@@ -123,6 +123,23 @@ class HessianCalculator (object):
         one of these and transpose. '''
         norb = [p.shape[-1], q.shape[-1], r.shape[-1], s.shape[-1]]
         if 0 in norb: return np.zeros (norb)
+        # recurse so that the largest index is in the first electron
+        lmax1 = max (norb[0], norb[1])
+        lmax2 = max (norb[2], norb[3])
+        if lmax2 > lmax1:
+            hess = self._call_general (r, s, p, q, diagx1=diagx1, diagx2=diagx2)
+            return hess.transpose (2, 3, 0, 1)
+        # recurse so that the largest index is in the first bra
+        if norb[1] > norb[0]:
+            hess = self._call_general (q, p, r, s, diagx1=diagx1, diagx2=diagx2)
+            return -hess.transpose (1, 0, 2, 3)
+        # recurse so that the last ket contains the smaller of r,s
+        if norb[3] > norb[2]:
+            hess = self._call_general (p, q, s, r, diagx1=diagx1, diagx2=diagx2)
+            return -hess.transpose (0, 1, 3, 2)
+        # This all ensures that there are only two possibilities for the bases w,x,y,z: either
+        # s is repeated three times in xyz or q is.  This minimizes the amount of conditional logic I have to
+        # work through for the transformation of _eri_wxyz into smaller intermediates.
         # diagx1 recursion
         if diagx1:
             assert (p.shape[-1] == q.shape[-1]), 'diagx error: p and q ranges have different lengths'
@@ -222,34 +239,6 @@ class HessianCalculator (object):
             self.baaa.append (self._get_eri ([b, a, a, a]))
         return
 
-    def _cache_eri_bboo (self, p, q, r, s):
-        self._cache_overlapping_inactive (self, p, q, r, s)
-        b1 = self.pq_b = self._get_collective_basis (p, q)[0]
-        b2 = self.rs_b = self._get_collective_basis (r, s)[0]
-        ia_o = [self.pqrs_i] + self.mo2amo
-        self.bboo = []
-        self.bobo = []
-        # It's important to understand why the combinatoric logic of the two below is different!
-        # bboo has an inherent transpose symmetry: pqij = pqji
-        # On the other hand, bobo does NOT
-        for o1, o2 in combinations_with_replacement (ia_o, 2):
-            self.bboo.append (self._get_eri ([b1, b2, o1, o2]))
-        for o1, o2 in product (ia_o, repeat=2):
-            self.bobo.append (self._get_eri ([b1, o1, b2, o2]))
-        # I should make an index to conveniently address the diagonal active-orbital parts only for the 2CDM terms
-        diag_idx = np.cumsum (np.arange (self.nas + 1, 1, -1, dtype=np.int))
-        self.bbaa = [self.bboo[idx] for idx in diag_idx]
-        diag_idx = (np.arange (self.nas + 1, dtype=np.int) * (nas + 2))[1:]
-        self.baba = [self.bobo[idx] for idx in diag_idx]
-        return
-
-    def _cache_eri_pruv (self, p, r, u, v):
-        if v.shape[1] == 0 or u.shape[1] == 0: return
-        self.purv = self._get_eri ([p, u, r, v])
-        self.prvu = self._get_eri ([p, r, v, u])
-        self.pvru = self._get_eri ([p, v, r, u])
-        return
-
     def _cache_eri_pqrs (self, p, q, r, s):
         ''' Cache (pq|rs) and (ps|rq) including all orbitals entangled to p,q,r,s in those ranges via any 1-rdm
             (charge, alpha, or beta) '''
@@ -303,16 +292,6 @@ class HessianCalculator (object):
             thess  = np.tensordot (eri, t, axes=((2,3),(2,3)))
             eri = self._get_eri ([p, a, r, a])
             thess += np.tensordot (eri, t + t.transpose (0,1,3,2), axes=((1,3),(1,3)))
-            '''
-            p2b = p.conjugate ().T @ self.pq_b
-            r2b = r.conjugate ().T @ self.rs_b
-            braa = np.tensordot (r2b, bbaa, axes=((1),(1))).transpose (1,0,2,3)
-            praa = np.tensordot (p2b, braa, axes=1)
-            thess  = np.tensordot (praa, t, axes=((2,3),(2,3)))
-            bara = np.tensordot (r2b, baba, axes=((1),(2))).transpose (1,2,0,3)
-            para = np.tensordot (p2b, bara, axes=1)
-            thess += np.tensordot (para, t + t.transpose (0,1,3,2), axes=((1,3),(1,3)))
-            '''
             thess = np.tensordot (thess, a2q, axes=(2,0)) # 'prab,aq->prbq' (tensordot always puts output indices in order of the arguments)
             thess = np.tensordot (thess, a2s, axes=(2,0)) # 'prbq,bs->prqs'
             hess += 2 * thess.transpose (0, 2, 1, 3) # 'prqs->pqrs'
@@ -324,7 +303,6 @@ class HessianCalculator (object):
         perm_rs = self._check_rs_perm (r, s)
         u = self.pqrs_up if perm_pq else self.pqrs_uq
         v = self.pqrs_ur if perm_rs else self.pqrs_us
-        #self._cache_eri_pruv (p, r, u, v)
         hess += 4 * self._get_splitc (p, q, r, s, sum (self.oneRDMs), u, v, perm_pq, perm_rs)
         for dm in self.oneRDMs:
             hess -= 2 * self._get_splitx (p, q, r, s, dm, u, v, perm_pq, perm_rs)
@@ -601,4 +579,64 @@ class LASSCFHessianCalculator (HessianCalculator):
     def _get_eri_external (self, orbs_list, compact=False):
         return self.ints.general_tei (orbs_list, compact=compact)
         
-    
+
+class HessianERITransformer (object):
+
+    def __init__(self, parent): 
+        ''' (wx|yz)
+                w: a & p
+                x: a & s & r & q 
+                y: a & s & r
+                z: a & s & q
+            Based on the idea that p is the largest orbital range and s is the smallest,
+            so p appears only once and s appears three times. Given permutation symmetries
+            (wx|yz) = (yz|wx) = (xw|yz) = (wx|zy), I can generate all the eris I need for the Hessian
+            calculation from this cache. Since this calls _get_eri, it will also automatically take advantage
+            of _eri_kernel if it's available.
+        '''
+        M = np.asarray ([len (arg) for arg in args])
+        idx = np.argsort (M)[::-1]
+        p, q, r, s = (parent._append_entangled (args[ix]) for ix in idx)
+        a = np.concatenate (parent.mo2amo, axis=1)
+        self.w = w = orthonormalize_a_basis (np.concatenate ([a, p], axis=1))
+        self.x = x = orthonormalize_a_basis (np.concatenate ([a, s, r, q], axis=1)) 
+        self.y = y = orthonormalize_a_basis (np.concatenate ([a, s, r], axis=1))
+        self.z = z = orthonormalize_a_basis (np.concatenate ([a, s, q], axis=1))
+        self._eri = parent._get_eri ([w,x,y,z])
+        return
+
+    def __call__(self, p, q, r, s):
+        ''' Because of several necessary index permutations, I cannot know in advance which of w,x,y,z
+        encloses each of p, q, r, s, but I should have prepared it so that any call I make can be carried out.
+        w is the most restrictive index, and x is the most permissive. If any one orbital is not in x, then it
+        must be in w. On the other hand, if x spans all four ranges (which it might), then I still have to check whether
+        w contains p.'''
+        x_span = np.asarray ([self.p_in_c (self.x, t) for t in (p, q, r, s)])
+        assert (np.count_nonzero (x_span) >= 3), "x doesn't span at least three of the indices for the call you made!"
+        if  not  self.p_in_c (self.x, q): return self.__call__(q, p, r, s).transpose (1, 0, 2, 3)
+        elif not self.p_in_c (self.x, r): return self.__call__(r, s, p, q).transpose (2, 3, 0, 1)
+        elif not self.p_in_c (self.x, s): return self.__call__(s, r, p, q).transpose (3, 2, 0, 1)
+        elif not self.p_in_c (self.w, p): return self.__call__(q, p, r, s).transpose (1, 0, 2, 3)
+        ''' y and z between them now contain all pairs not involving p, but I may need to transpose them '''
+        if not self.p_in_c (self.y, r): return self.__call__(p, q, s, r).transpose (0, 1, 3, 2)
+        assert (self.p_in_c (self.w, p)), 'p not in w after permuting!'
+        assert (self.p_in_c (self.x, q)), 'q not in x after permuting!'
+        assert (self.p_in_c (self.y, r)), 'r not in y after permuting!'
+        assert (self.p_in_c (self.z, s)), 's not in z after permuting!'
+        p2w = p.conjugate ().T @ self.w
+        x2q = self.x.conjugate ().T @ q
+        y2r = self.x.conjugate ().T @ r
+        z2s = self.x.conjugate ().T @ s
+        pqrs = np.tensordot (p2w, self._eri, axes=1)
+        pqrs = np.tensordot (pqrs, x2q, axes=((1),(0)))
+        pqrs = np.tensordot (pqrs, y2r, axes=((1),(0)))
+        pqrs = np.tensordot (pqrs, z2s, axes=((1),(0)))
+        return pqrs
+
+    def p_in_c (self, c, p):
+        ''' Return c == complete basis for p '''
+        svals = linalg.svd (c.conjugate ().T @ p)[1]
+        return np.count_nonzero (np.isclose (svals, 1)) == p.shape[1]
+
+
+
