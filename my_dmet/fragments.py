@@ -607,7 +607,6 @@ class fragment_object:
             w0, t0 = time.time (), time.clock ()
             grad = self.hesscalc.get_conjugate_gradient (loc2virt_core, loc2occ_imp, loc2unac_imp, self.loc2amo)
             print ("Time in Hessian module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
-            assert (False)
             # Zero gradient escape
             if np.count_nonzero (np.abs (grad) > 1e-8): 
                 grad = loc2virt_core @ grad @ loc2occ_imp.conjugate ().T
