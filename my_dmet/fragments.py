@@ -729,24 +729,25 @@ class fragment_object:
         loc2env = get_complementary_states (loc2frag, already_complete_warning=False, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         loc2cenv = get_overlapping_states (loc2wmcs, loc2env, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[0]
         cenv2loc = loc2cenv.conjugate ().T
+        grad = self.hesscalc._get_Fock1 (loc2cenv, loc2amo) - self.hesscalc._get_Fock1 (loc2amo, loc2cenv).T
+        '''
         # 1-body part
-        grad = fock_loc @ oneRDM_loc
-        grad -= grad.T
+        grad_comp = fock_loc @ oneRDM_loc
+        grad_comp -= grad.T
         # 2-body part
         eri = self.ints.general_tei ([loc2cenv, self.loc2amo, self.loc2amo, self.loc2amo])
         eri_grad = np.tensordot (eri, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
-        grad += loc2cenv @ eri_grad @ self.amo2loc
+        grad_comp += loc2cenv @ eri_grad @ self.amo2loc
         # Testing hessian calculator
-        '''
         print ("************************************* TEST ****************************************")
         print ("In first iteration, active orbitals may overlap, which will cause this test to fail")
-        grad_test = self.hesscalc.get_gradient (loc2cenv, loc2amo)
         grad_comp = cenv2loc @ grad @ loc2amo
         for i, j in product (range (loc2cenv.shape[-1]), range (loc2amo.shape[-1])):
-            print ("{} {} {:.9e} {:.9e}".format (i, j, grad_test[i,j], grad_comp[i,j]))
+            print ("{} {} {:.9e} {:.9e}".format (i, j, grad[i,j], grad_comp[i,j]))
         print ("*********************************** END TEST **************************************")
         #assert (False)
         '''
+        grad = loc2cenv @ grad @ self.amo2loc
         # SVD
         loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2cenv, loc2amo, inner_symmetry=self.loc2symm,
             enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)

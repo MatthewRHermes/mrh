@@ -127,12 +127,12 @@ class HessianCalculator (object):
         r = self.moHS @ r
         s = self.moHS @ s
         t0, w0 = time.clock (), time.time ()
-        self._cache_eri_pqrs (p, q, r, s)
+        eris = HessianERITransformer (self, p, q, r, s)
         print ("Time spent in preliminary cacheing: {:.6f} s clock, {:.6f} s wall".format (time.clock () - t0, time.time () - w0))
-        hess  = self._get_Fock2 (p, q, r, s)
-        hess -= self._get_Fock2 (q, p, r, s).transpose (1,0,2,3)
-        hess -= self._get_Fock2 (p, q, s, r).transpose (0,1,3,2)
-        hess += self._get_Fock2 (q, p, s, r).transpose (1,0,3,2)
+        hess  = self._get_Fock2 (p, q, r, s, eris)
+        hess -= self._get_Fock2 (q, p, r, s, eris).transpose (1,0,2,3)
+        hess -= self._get_Fock2 (p, q, s, r, eris).transpose (0,1,3,2)
+        hess += self._get_Fock2 (q, p, s, r, eris).transpose (1,0,3,2)
         return hess / 2
 
     def _get_eri (self, orbs_list, compact=False):
@@ -223,7 +223,7 @@ class HessianCalculator (object):
         olap_s = measure_basis_olap (s, self.pqrs_r)[0] / s.shape[1]
         return olap_s > olap_r
 
-    def _get_Fock2 (self, p, q, r, s):
+    def _get_Fock2 (self, p, q, r, s, eris):
         ''' This calculates one of the terms F2^pr_qs '''
 
         # Easiest term: 2 f^p_r D^q_s
@@ -247,9 +247,9 @@ class HessianCalculator (object):
             # If either q or s has no weight on the current active space, skip
             if np.amax (np.abs (a2q)) < 1e-8 or np.amax (np.abs (a2s)) < 1e-8:
                 continue
-            eri = self._get_eri ([p, r, a, a])
+            eri = eris (p, r, a, a) #self._get_eri ([p, r, a, a])
             thess  = np.tensordot (eri, t, axes=((2,3),(2,3)))
-            eri = self._get_eri ([p, a, r, a])
+            eri = eris (p, a, r, a) #self._get_eri ([p, a, r, a])
             thess += np.tensordot (eri, t + t.transpose (0,1,3,2), axes=((1,3),(1,3)))
             thess = np.tensordot (thess, a2q, axes=(2,0)) # 'prab,aq->prbq' (tensordot always puts output indices in order of the arguments)
             thess = np.tensordot (thess, a2s, axes=(2,0)) # 'prbq,bs->prqs'
@@ -258,13 +258,15 @@ class HessianCalculator (object):
 
         # Weirdo split-coulomb and split-exchange terms
         # u,v are supersets of q,s 
+        '''
         perm_pq = self._check_pq_perm (p, q)
         perm_rs = self._check_rs_perm (r, s)
-        u = self.pqrs_up if perm_pq else self.pqrs_uq
-        v = self.pqrs_ur if perm_rs else self.pqrs_us
-        hess += 4 * self._get_splitc (p, q, r, s, sum (self.oneRDMs), u, v, perm_pq, perm_rs)
+        '''
+        u = self._append_entangled (q)
+        v = self._append_entangled (s)
+        hess += 4 * self._get_splitc (p, q, r, s, sum (self.oneRDMs), u, v, eris) #perm_pq, perm_rs)
         for dm in self.oneRDMs:
-            hess -= 2 * self._get_splitx (p, q, r, s, dm, u, v, perm_pq, perm_rs)
+            hess -= 2 * self._get_splitx (p, q, r, s, dm, u, v, eris) #perm_pq, perm_rs)
         return hess
 
     def _get_Fock1 (self, p, q):
@@ -281,22 +283,26 @@ class HessianCalculator (object):
             gfock += np.tensordot (eri, t, axes=((1,2,3),(1,2,3))) @ a2q
         return gfock 
 
-    def _get_splitc (self, p, q, r, s, dm, u, v, perm_pq, perm_rs):
+    def _get_splitc (self, p, q, r, s, dm, u, v, eris): #perm_pq, perm_rs):
         ''' v^pr_uv D^q_u D^s_v
         It shows up because some of the cumulant decompositions put q and s on different 1rdm factors '''
         if u.shape[1] == 0 or v.shape[1] == 0: return 0
         D_uq = u.conjugate ().T @ dm @ q
         D_vs = v.conjugate ().T @ dm @ s
+        if np.amax (np.abs (D_uq)) < 1e-8 or np.amax (np.abs (D_vs)) < 1e-8: return 0
+        '''
         lp, lr = p.shape[1], r.shape[1]
         pqrs = self.pqrs
         if perm_pq: pqrs = pqrs.transpose (1,0,2,3)
         if perm_rs: pqrs = pqrs.transpose (0,1,3,2)
         purv = pqrs[:lp,:,:,:][:,:,:lr,:]
-        hess = np.tensordot (purv, D_uq, axes=(1,0)) # 'purv,uq->prvq'
+        '''
+        hess = eris (p,u,r,v)
+        hess = np.tensordot (hess, D_uq, axes=(1,0)) # 'purv,uq->prvq'
         hess = np.tensordot (hess, D_vs, axes=(2,0)) # 'prvq,vs->prqs'
         return hess.transpose (0,2,1,3) # 'prqs->pqrs'
 
-    def _get_splitx (self, p, q, r, s, dm, u, v, perm_pq, perm_rs):
+    def _get_splitx (self, p, q, r, s, dm, u, v, eris): #perm_pq, perm_rs):
         ''' (v^pv_ru + v^pr_vu) g^q_u g^s_v = v^pr_vu g^q_u g^s_v - v^pv_su g^q_u g^r_v
         It shows up because some of the cumulant decompositions put q and s on different 1rdm factors 
         Pay VERY CLOSE ATTENTION to the order of the indices! Remember p-q, r-s are the degrees of freedom
@@ -306,6 +312,8 @@ class HessianCalculator (object):
         if u.shape[1] == 0 or v.shape[1] == 0: return 0
         D_uq = u.conjugate ().T @ dm @ q
         D_vs = v.conjugate ().T @ dm @ s
+        if np.amax (np.abs (D_uq)) < 1e-8 or np.amax (np.abs (D_vs)) < 1e-8: return 0
+        '''
         lp, lr = p.shape[1], r.shape[1]
         perm_count = int (perm_pq) + int (perm_rs)
         # (pr|vu) <- (pr|sq); (pv|ru) <- (ps|rq)
@@ -325,7 +333,9 @@ class HessianCalculator (object):
         pvru = psrq[:lp,:,:,:][:,:,:lr,:]
         eri = prvu + pvru.transpose (0,2,1,3)
         #eri = self.prvu + self.pvru.transpose (0,2,1,3) #self._get_eri ([p,r,v,u]) + self._get_eri ([p,v,r,u]).transpose (0,2,1,3)
-        hess = np.tensordot (eri,  D_uq, axes=(3,0)) # 'prvu,uq->prvq'
+        '''
+        hess = eris (p,r,v,u) + eris (p,v,r,u).transpose (0,2,1,3)
+        hess = np.tensordot (hess, D_uq, axes=(3,0)) # 'prvu,uq->prvq'
         hess = np.tensordot (hess, D_vs, axes=(2,0)) # 'prvq,vs->prqs'
         return hess.transpose (0,2,1,3) # 'prqs->pqrs'
 
@@ -344,7 +354,7 @@ class HessianCalculator (object):
         q = get_complementary_states (p)
         qH = q.conjugate ().T
         lvecs = []
-        for dm in self.oneRDMs:
+        for dm in self.oneRDMs + [sum (self.oneRDMs)]:
             lvec, sigma, rvec = linalg.svd (qH @ dm @ p, full_matrices=False)
             idx = np.abs (sigma) > 1e-8
             if np.count_nonzero (idx): lvecs.append (lvec[:,idx])
@@ -369,13 +379,13 @@ class HessianCalculator (object):
         lpq = lp * lq
         # Zero gradient escape
         if not np.count_nonzero (np.abs (e1) > 1e-8): return p, np.zeros (lp), q
-        pqu = self._append_entangled (np.append (p, q, axis=1))
-        self._eri_kernel = self._get_eri ([pqu, pqu, pqu, pqu]) 
-        self._eri_kernel_basis = pqu
+        #pqu = self._append_entangled (np.append (p, q, axis=1))
+        #self._eri_kernel = self._get_eri ([pqu, pqu, pqu, pqu]) 
+        #self._eri_kernel_basis = pqu
         # Because this ^ is faster than sectioning it and even with 20+20+20 active/inactive/external, it's still only 100 MB
         e2 = self.__call__(p, q, p, q)
         e2 = np.diag (np.diag (e2.reshape (lpq, lpq)).reshape (lp, lq))
-        self._eri_kernel = self._eri_kernel_basis = None
+        #self._eri_kernel = self._eri_kernel_basis = None
         return p, -e1 / e2, q
 
     def get_conjugate_gradient (self, p, q, r, s):
@@ -515,7 +525,7 @@ class LASSCFHessianCalculator (HessianCalculator):
 
 class HessianERITransformer (object):
 
-    def __init__(self, parent): 
+    def __init__(self, parent, p, q, r, s): 
         ''' (wx|yz)
                 w: a & p
                 x: a & s & r & q 
@@ -527,9 +537,9 @@ class HessianERITransformer (object):
             calculation from this cache. Since this calls _get_eri, it will also automatically take advantage
             of _eri_kernel if it's available.
         '''
-        M = np.asarray ([len (arg) for arg in args])
+        M = np.asarray ([len (z) for z in (p,q,r,s)])
         idx = np.argsort (M)[::-1]
-        p, q, r, s = (parent._append_entangled (args[ix]) for ix in idx)
+        p,q,r,s = (parent._append_entangled (z) for z in (p,q,r,s))
         a = np.concatenate (parent.mo2amo, axis=1)
         self.w = w = orthonormalize_a_basis (np.concatenate ([a, p], axis=1))
         self.x = x = orthonormalize_a_basis (np.concatenate ([a, s, r, q], axis=1)) 
@@ -541,25 +551,25 @@ class HessianERITransformer (object):
     def __call__(self, p, q, r, s):
         ''' Because of several necessary index permutations, I cannot know in advance which of w,x,y,z
         encloses each of p, q, r, s, but I should have prepared it so that any call I make can be carried out.
-        w is the most restrictive index, and x is the most permissive. If any one orbital is not in x, then it
-        must be in w. On the other hand, if x spans all four ranges (which it might), then I still have to check whether
-        w contains p.'''
-        x_span = np.asarray ([self.p_in_c (self.x, t) for t in (p, q, r, s)])
-        assert (np.count_nonzero (x_span) >= 3), "x doesn't span at least three of the indices for the call you made!"
-        if  not  self.p_in_c (self.x, q): return self.__call__(q, p, r, s).transpose (1, 0, 2, 3)
-        elif not self.p_in_c (self.x, r): return self.__call__(r, s, p, q).transpose (2, 3, 0, 1)
-        elif not self.p_in_c (self.x, s): return self.__call__(s, r, p, q).transpose (3, 2, 0, 1)
-        elif not self.p_in_c (self.w, p): return self.__call__(q, p, r, s).transpose (1, 0, 2, 3)
-        ''' y and z between them now contain all pairs not involving p, but I may need to transpose them '''
-        if not self.p_in_c (self.y, r): return self.__call__(p, q, s, r).transpose (0, 1, 3, 2)
+        w is the most restrictive index, and x is the most permissive. y and z between them have all pairs other than those involving w.'''
+        pair1_correct, pq_correct = self.pq_in_cd (self.w, self.x, p, q) 
+        pair2_correct, rs_correct = self.pq_in_cd (self.y, self.z, r, s) 
+        assert (pair1_correct or pair2_correct), "Can't match pairs for orbitals you gave in wxyz"
+        if not (pair1_correct and pair2_correct): return self.__call__(r, s, p, q).transpose (2, 3, 0, 1)
+        if pq_correct and rs_correct: return self._grind (p, q, r, s)
+        elif pq_correct: return self._grind (p, q, s, r).transpose (0, 1, 3, 2)
+        elif rs_correct: return self._grind (q, p, r, s).transpose (1, 0, 2, 3)
+        else: return self._grind (q, p, s, r).transpose (1, 0, 3, 2)
+
+    def _grind (self, p, q, r, s):
         assert (self.p_in_c (self.w, p)), 'p not in w after permuting!'
         assert (self.p_in_c (self.x, q)), 'q not in x after permuting!'
         assert (self.p_in_c (self.y, r)), 'r not in y after permuting!'
         assert (self.p_in_c (self.z, s)), 's not in z after permuting!'
         p2w = p.conjugate ().T @ self.w
         x2q = self.x.conjugate ().T @ q
-        y2r = self.x.conjugate ().T @ r
-        z2s = self.x.conjugate ().T @ s
+        y2r = self.y.conjugate ().T @ r
+        z2s = self.z.conjugate ().T @ s
         pqrs = np.tensordot (p2w, self._eri, axes=1)
         pqrs = np.tensordot (pqrs, x2q, axes=((1),(0)))
         pqrs = np.tensordot (pqrs, y2r, axes=((1),(0)))
@@ -571,5 +581,9 @@ class HessianERITransformer (object):
         svals = linalg.svd (c.conjugate ().T @ p)[1]
         return np.count_nonzero (np.isclose (svals, 1)) == p.shape[1]
 
-
+    def pq_in_cd (self, c, d, p, q):
+        testmat = np.asarray ([[self.p_in_c (e, r) for e in (c, d)] for r in (p, q)])
+        if testmat[0,0] and testmat[1,1]: return True, True # c contains d and p contains q
+        elif testmat[1,0] and testmat[0,1]: return True, False # c contains q and p contains d
+        else: return False, False # Wrong pair
 
