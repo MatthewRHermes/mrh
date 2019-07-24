@@ -31,6 +31,7 @@ class HessianCalculator (object):
         if self.oneRDMs.ndim == 2:
             self.oneRDMs /= 2
             self.oneRDMs = np.asarray ([self.oneRDMs, self.oneRDMs])
+        self._eri_kernel = self._eri_kernel_basis = None 
 
         mo = self.scf.mo_coeff
         Smo = self.scf.get_ovlp () @ mo
@@ -152,6 +153,18 @@ class HessianCalculator (object):
         return hess / 2
 
     def _get_eri (self, orbs_list, compact=False):
+        ''' First, see if I have a reduced-range array in an orthonormal basis available on this object.
+            Only if I don't will I leave this object to look for eris. '''
+        if self._eri_kernel is not None and self._eri_kernel_basis is not None:
+            b2c = self._eri_kernel_basis.conjugate ().T
+            new_orbs_list = [b2c @ c2p for c2p in orbs_list]
+            eri = ao2mo.incore.general (self._eri_kernel, new_orbs_list, compact=compact)
+            norbs = [o.shape[1] for o in orbs_list]
+            if not compact: eri = eri.reshape (*norbs)
+            return eri
+        return self._get_eri_external (orbs_list, compact=compact)
+
+    def _get_eri_external (self, orbs_list, compact=False):
         ''' Get eris for the orbital ranges in orbs_list from (in order of preference) the stored _eri tensor on self.scf, the stored density-fitting object
         on self.scf, or on-the-fly using PySCF's ao2mo module '''
         if isinstance (orbs_list, np.ndarray) and orbs_list.ndim == 2:
@@ -445,8 +458,13 @@ class HessianCalculator (object):
         lpq = lp * lq
         # Zero gradient escape
         if not np.count_nonzero (np.abs (e1) > 1e-8): return p, np.zeros (lp), q
+        pqu = self._append_entangled (np.append (p, q, axis=1))
+        self._eri_kernel = self._get_eri ([pqu, pqu, pqu, pqu]) 
+        self._eri_kernel_basis = pqu
+        # Because this ^ is faster than sectioning it and even with 20+20+20 active/inactive/external, it's still only 100 MB
         e2 = self.__call__(p, q, p, q)
         e2 = np.diag (np.diag (e2.reshape (lpq, lpq)).reshape (lp, lq))
+        self._eri_kernel = self._eri_kernel_basis = None
         return p, -e1 / e2, q
 
     def get_conjugate_gradient (self, p, q, r, s):
@@ -564,6 +582,7 @@ class LASSCFHessianCalculator (HessianCalculator):
     def __init__(self, ints, oneRDM_loc, all_frags, fock_c):
         self.ints = ints
         active_frags = [f for f in all_frags if f.norbs_as]
+        self._eri_kernel = self._eri_kernel_basis = None 
 
         # Global things
         self.nmo = self.nao = ints.norbs_tot
@@ -579,7 +598,7 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.twoCDM = [f.twoCDMimp_amo for f in active_frags]
         self.ncas = [f.norbs_as for f in active_frags]
 
-    def _get_eri (self, orbs_list, compact=False):
+    def _get_eri_external (self, orbs_list, compact=False):
         return self.ints.general_tei (orbs_list, compact=compact)
         
     
