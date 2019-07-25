@@ -746,6 +746,9 @@ class fragment_object:
         print ("*********************************** END TEST **************************************")
         #assert (False)
         '''
+        if np.all (np.abs (grad) < 1e-8):
+            print ("Gradient appears to be zero; defaulting to overlap criterion for quasifragment orbitals")
+            return self.get_quasifrag_ovlp (loc2frag, loc2wmcs, norbs_xtra)
         grad = loc2cenv @ grad @ self.amo2loc
         # SVD
         loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2cenv, loc2amo, inner_symmetry=self.loc2symm,
