@@ -127,7 +127,6 @@ class HessianCalculator (object):
         s = self.moHS @ s
         t0, w0 = time.clock (), time.time ()
         eris = HessianERITransformer (self, p, q, r, s)
-        print ("Time spent in preliminary cacheing: {:.6f} s clock, {:.6f} s wall".format (time.clock () - t0, time.time () - w0))
         hess  = self._get_Fock2 (p, q, r, s, eris)
         hess -= self._get_Fock2 (q, p, r, s, eris).transpose (1,0,2,3)
         hess -= self._get_Fock2 (p, q, s, r, eris).transpose (0,1,3,2)
@@ -184,7 +183,6 @@ class HessianCalculator (object):
             thess = np.tensordot (thess, a2q, axes=(2,0)) # 'prab,aq->prbq' (tensordot always puts output indices in order of the arguments)
             thess = np.tensordot (thess, a2s, axes=(2,0)) # 'prbq,bs->prqs'
             hess += 2 * thess.transpose (0, 2, 1, 3) # 'prqs->pqrs'
-        print ("Time spent in 2-CDM terms: {:.6f} s clock, {:.6f} s wall".format (time.clock () - t0, time.time () - w0))
 
         # Weirdo split-coulomb and split-exchange terms
         # u,v are supersets of q,s 
@@ -260,7 +258,6 @@ class HessianCalculator (object):
         grad = self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T
         lvec, e1, rvecH = linalg.svd (grad, full_matrices=False)
         rvec = rvecH.conjugate ().T
-        print ("compare this to the last print of the gradient", e1)
         p = p @ lvec
         q = q @ rvec
         lp = p.shape[-1]
