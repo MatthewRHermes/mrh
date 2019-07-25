@@ -270,22 +270,29 @@ class HessianCalculator (object):
         e2 = np.diag (np.diag (e2.reshape (lpq, lpq)).reshape (lp, lq))
         return p, -e1 / e2, q
 
-    def get_conjugate_gradient (self, p, q, r, s):
+    def get_conjugate_gradient (self, pq_pairs, r, s):
         ''' Obtain the gradient for ranges p->q after making an approximate gradient-descent step in r->s:
         E1'^p_q = E1^p_q - E2^pr_qs * x^r_s = E1^p_q + E2^pr_qs * E1^r_s / E2^rr_ss '''
-        e1pq = self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T
         r, x_rs, s = self.get_diagonal_step (r, s)
+        e1 = np.zeros ((self.nao,self.nao), dtype=np.float64)
+        for p, q in pq_pairs:
+            qH = q.conjugate ().T
+            e1pq = self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T
+            e1 += p @ e1pq @ qH
         # Zero step escape
-        if not np.count_nonzero (np.abs (x_rs) > 1e-8): return e1pq
-        lp = p.shape[-1]
-        lq = q.shape[-1]
+        if not np.count_nonzero (np.abs (x_rs) > 1e-8): return e1
         lr = r.shape[-1]
         ls = s.shape[-1]
         diag_idx = np.arange (lr, dtype=int)
         diag_idx = (diag_idx * lr) + diag_idx
-        e2 = self.__call__(p, q, r, s).reshape (lp, lq, lr*ls)[:,:,diag_idx]
-        e1pq += np.tensordot (e2, x_rs, axes=1)
-        return e1pq
+        for p, q in pq_pairs:
+            lp = p.shape[-1]
+            lq = q.shape[-1]
+            qH = q.conjugate ().T
+            e2 = self.__call__(p, q, r, s).reshape (lp, lq, lr*ls)[:,:,diag_idx]
+            e1pq = np.tensordot (e2, x_rs, axes=1)
+            e1 += p @ e1pq @ qH
+        return e1
 
 class CASSCFHessianTester (object):
     ''' Use pyscf.mcscf.mc1step.gen_g_hop to test HessianCalculator.
@@ -432,11 +439,14 @@ class HessianERITransformer (object):
     def __call__(self, p, q, r, s):
         ''' Because of several necessary index permutations, I cannot know in advance which of w,x,y,z
         encloses each of p, q, r, s, but I should have prepared it so that any call I make can be carried out.
-        w is the most restrictive index, and x is the most permissive. y and z between them have all pairs other than those involving w.'''
-        pair1_correct, pq_correct = self.pq_in_cd (self.w, self.x, p, q) 
-        pair2_correct, rs_correct = self.pq_in_cd (self.y, self.z, r, s) 
-        assert (pair1_correct or pair2_correct), "Can't match pairs for orbitals you gave in wxyz"
-        if not (pair1_correct and pair2_correct): return self.__call__(r, s, p, q).transpose (2, 3, 0, 1)
+        yz is the more restrictive pair in my cache, so first see if r, s is in yz and if not, flip pq<->rs.
+        wx contains all pairs that I should ever need so. ''' 
+        rs_yz, rs_correct = self.pq_in_cd (self.y, self.z, r, s)
+        if not (rs_yz): return self.__call__(r, s, p, q).transpose (2, 3, 0, 1)
+        pq_wx, pq_correct = self.pq_in_cd (self.w, self.x, p, q)
+        assert (pq_wx), 'pq or rs not found in wx (wx is supposed to span ~all~ possible orbital pairs you ever ask for)'
+        assert (rs_yz), 'pq not found in either wx or yz'
+        # Permute the order of the pairs individually
         if pq_correct and rs_correct: return self._grind (p, q, r, s)
         elif pq_correct: return self._grind (p, q, s, r).transpose (0, 1, 3, 2)
         elif rs_correct: return self._grind (q, p, r, s).transpose (1, 0, 2, 3)

@@ -515,7 +515,7 @@ class fragment_object:
             sys.stdout.flush ()
             return
         '''
-        self.hesscalc = LASSCFHessianCalculator (self.ints, oneRDM_loc, all_frags, self.ints.activeFOCK) 
+        if not ('dummy' in self.imp_solver_name): self.hesscalc = LASSCFHessianCalculator (self.ints, oneRDM_loc, all_frags, self.ints.activeFOCK) 
         frag2wmcs = np.dot (self.frag2loc, loc2wmcs)
         proj = np.dot (frag2wmcs.conjugate ().T, frag2wmcs)
         norbs_wmcsf = np.trace (proj)
@@ -584,41 +584,64 @@ class fragment_object:
             print ("Bath-orbital irreps: {}, err = {}".format (labeldict, err))
 
         # I need to work symmetry handling into this as well
-        norbs_virtbath = max (0, 2*self.norbs_frag + self.norbs_as - self.norbs_imp)
-        print ("Fragment {} basis set instability virtual orbital loss: 2 * {} + {} - {} = {} missing virtual bath orbitals".format (self.frag_name,
-            self.norbs_frag, self.norbs_as, self.norbs_imp, norbs_virtbath))
-        if norbs_virtbath and self.add_virtual_bath and self.imp_solver_name != 'dummy RHF' and self.norbs_as:
-            loc2canon_core, _, _, norbs_inac_core, norbs_as = self.get_loc2canon_core (all_frags, oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
-            norbs_occ_core = norbs_inac_core + norbs_as
+        norbs_hessbath = max (0, 2 * (self.norbs_frag+self.norbs_as) - self.norbs_imp)
+        print ("Fragment {} basis set instability virtual orbital loss: 2 * ({} + {}) - {} = {} missing bath orbitals".format (self.frag_name,
+            self.norbs_frag, self.norbs_as, self.norbs_imp, norbs_hessbath))
+        if norbs_hessbath and self.add_virtual_bath and self.imp_solver_name != 'dummy RHF' and self.norbs_as:
+            loc2canon_core, _, _, norbs_inac_core, norbs_as_core = self.get_loc2canon_core (all_frags, oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
+            norbs_occ_core = norbs_inac_core + norbs_as_core
             norbs_virt_core = self.norbs_core - norbs_occ_core
+            norbs_unac_core = norbs_inac_core + norbs_virt_core
             loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
             norbs_occ_imp = norbs_inac_imp + self.norbs_as
-            print ("Searching for {} virtual bath orbitals among a set of {} virtuals accessible by {} occupied orbitals".format (norbs_virtbath, norbs_virt_core, norbs_occ_imp))
+            norbs_ninac_imp = self.norbs_imp - norbs_inac_imp
+            print (("Searching for {} extra bath orbitals among a set of {}/{} virtuals/inactives "
+                " accessible by {}/{} occupied/noninactive orbitals").format (norbs_hessbath, norbs_virt_core, norbs_inac_core, norbs_occ_imp, norbs_ninac_imp))
             # Occupied orbitals in the impurity
             loc2occ_imp = loc2canon_imp[:,:norbs_occ_imp]
+            loc2ninac_imp = loc2canon_imp[:,norbs_inac_imp:]
             # Virtual orbitals in the core
+            loc2inac_core = loc2canon_core[:,:norbs_inac_core]
             loc2virt_core = loc2canon_core[:,norbs_occ_core:]
+            loc2amo_core = loc2canon_core[:,norbs_inac_core:][:,:norbs_as_core]
             # Unactive orbitals in the impurity
             loc2unac_imp = np.append (loc2canon_imp[:,:norbs_inac_imp], loc2canon_imp[:,norbs_occ_imp:], axis=1)
-            # Sort the core orbitals of loc2emb to get the occupied out of the way
-            self.loc2emb[:,self.norbs_imp:][:,:norbs_virt_core] = loc2virt_core[:,:]
-            self.loc2emb[:,self.norbs_imp:][:,norbs_virt_core:] = loc2canon_core[:,:norbs_occ_core]
+            # Sort the core orbitals of loc2emb to get the active orbitals out of the way
+            loc2sort_core = np.concatenate ([loc2virt_core, loc2inac_core, loc2amo_core], axis=1)
+            self.loc2emb[:,self.norbs_imp:] = loc2sort_core[:,:]
             # Get the conjugate gradient. Push into the loc basis so I can use the weak inner symmetry capability of the svd function
             w0, t0 = time.time (), time.clock ()
-            grad = self.hesscalc.get_conjugate_gradient (loc2virt_core, loc2occ_imp, loc2unac_imp, self.loc2amo)
+            pq_pairs = ((loc2virt_core, loc2occ_imp), (loc2inac_core, loc2ninac_imp))
+            grad = self.hesscalc.get_conjugate_gradient (pq_pairs, loc2unac_imp, self.loc2amo)
             print ("Time in Hessian module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
             # Zero gradient escape
             if np.count_nonzero (np.abs (grad) > 1e-8): 
-                grad = loc2virt_core @ grad @ loc2occ_imp.conjugate ().T
                 # SVD and add to the bath
-                self.loc2emb[:,self.norbs_imp:][:,:norbs_virt_core] = get_overlapping_states (loc2virt_core, self.loc2amo,
+                self.loc2emb[:,self.norbs_imp:][:,:norbs_virt_core], _, svals_vhb = get_overlapping_states (loc2virt_core, loc2occ_imp,
                     inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry, across_operator=grad,
-                    full_matrices=True, only_nonzero_vals=False)[0]
-                self.norbs_imp += norbs_virtbath
+                    full_matrices=True, only_nonzero_vals=False)[:3]
+                offs = self.norbs_imp+norbs_virt_core
+                self.loc2emb[:,offs:][:,:norbs_inac_core], _, svals_ohb = get_overlapping_states (loc2inac_core, loc2ninac_imp,
+                    inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry, across_operator=grad,
+                    full_matrices=True, only_nonzero_vals=False)[:3]
+                if norbs_virt_core - len (svals_vhb): svals_vhb = np.append (svals_vhb, np.zeros (norbs_virt_core - len (svals_vhb)))
+                if norbs_inac_core - len (svals_ohb): svals_ohb = np.append (svals_ohb, np.zeros (norbs_inac_core - len (svals_ohb)))
+                svals = np.append (svals_vhb, svals_ohb)
+                core_occ = np.zeros (len (svals))
+                core_occ[norbs_virt_core:] = 2
+                idx = np.argsort (np.abs (svals))
+                self.loc2emb[:,self.norbs_imp:][:,:norbs_unac_core] = self.loc2emb[:,self.norbs_imp:][:,:norbs_unac_core][:,idx]
+                core_occ = core_occ[idx]
+                self.oneRDMfroz_loc -= project_operator_into_subspace (oneRDM_loc, self.loc2emb[:,self.norbs_imp:][:,:norbs_hessbath])
+                print ("Adding {} virtual orbitals to bath from Hessian".format (np.count_nonzero (core_occ[:norbs_hessbath]==0)))
+                print ("Adding {} electrons to impurity from Hessian bath orbitals".format (np.sum (core_occ[:norbs_hessbath])))
+                self.nelec_imp += int (round (np.sum (core_occ[:norbs_hessbath])))
+                self.norbs_imp += norbs_hessbath
                 nelec_err = self.nelec_imp - compute_nelec_in_subspace (oneRDM_loc, self.loc2imp)
-                print ("Impurity orbital nelec err after adding virtual baths = {}".format (nelec_err))
+                print ("Impurity orbital nelec err after adding Hessian baths = {}".format (nelec_err))
+
             else:
-                print ("Gradient is zero; can't make virtbath using gradient")
+                print ("Gradient is zero; can't make hessbath using gradient")
 
         # This whole block below me is an old attempt at this that doesn't really work
         '''
@@ -987,8 +1010,9 @@ class fragment_object:
         occ_err = linalg.norm (cno_occ[norbs_cinac:])
         olap_err = measure_basis_olap (cext2loc.conjugate ().T, self.loc2imp)
         print ("I think I have {} core external orbitals; occupancy error = {}, overlap error = {}".format (len (cno_occ) - norbs_cinac, occ_err, olap_err))
-        eri_iunac = self.ints.general_tei ([loc2iunac, self.loc2amo, self.loc2amo, self.loc2amo])
-        eri_core = self.ints.general_tei ([self.loc2core, self.loc2amo, self.loc2amo, self.loc2amo])
+        eri_faaa = self.ints.general_tei ([np.eye (self.norbs_tot), self.loc2amo, self.loc2amo, self.loc2amo])
+        eri_iunac = np.tensordot (iunac2loc, eri_faaa, axes=1)
+        eri_core = np.tensordot (self.core2loc, eri_faaa, axes=1)
         # Active orbital-impurity unac
         grad = fock_loc @ oneRDM_loc
         grad -= grad.T
