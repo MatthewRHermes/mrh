@@ -201,7 +201,7 @@ class HessianCalculator (object):
         for t, a, n, faaa in zip (self.twoCDM, self.mo2amo, self.ncas, self.faaa):
             a2q = a.conjugate ().T @ q
             # If q has no weight on the current active space, skip
-            if np.amax (np.abs (a2q)) < 1e-8:
+            if (not a2q.size) or np.amax (np.abs (a2q)) < 1e-8:
                 continue
             eri = np.tensordot (pH, faaa, axes=1)
             gfock += np.tensordot (eri, t, axes=((1,2,3),(1,2,3))) @ a2q

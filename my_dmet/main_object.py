@@ -714,7 +714,7 @@ class dmet:
             
 
         return orb_diff, oneRDM_diff, Eimp_stdev, abs (Eiter)
-        
+
     def print_umat( self ):
     
         print ("The u-matrix =")
