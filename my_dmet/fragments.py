@@ -603,7 +603,7 @@ class fragment_object:
             # Virtual orbitals in the core
             loc2inac_core = loc2canon_core[:,:norbs_inac_core]
             loc2virt_core = loc2canon_core[:,norbs_occ_core:]
-            loc2amo_core = loc2canon_core[:,norbs_inac_core:][:,:norbs_as_core]
+            loc2amo_core = loc2canon_core[:,norbs_inac_core:norbs_occ_core]
             # Unactive orbitals in the impurity
             loc2unac_imp = np.append (loc2canon_imp[:,:norbs_inac_imp], loc2canon_imp[:,norbs_occ_imp:], axis=1)
             # Sort the core orbitals of loc2emb to get the active orbitals out of the way
@@ -629,11 +629,13 @@ class fragment_object:
                 svals = np.append (svals_vhb, svals_ohb)
                 core_occ = np.zeros (len (svals))
                 core_occ[norbs_virt_core:] = 2
-                idx = np.argsort (np.abs (svals))
+                idx = np.argsort (np.abs (svals))[::-1]
                 self.loc2emb[:,self.norbs_imp:][:,:norbs_unac_core] = self.loc2emb[:,self.norbs_imp:][:,:norbs_unac_core][:,idx]
+                svals = svals[idx]
                 core_occ = core_occ[idx]
                 self.oneRDMfroz_loc -= project_operator_into_subspace (oneRDM_loc, self.loc2emb[:,self.norbs_imp:][:,:norbs_hessbath])
                 print ("Adding {} virtual orbitals to bath from Hessian".format (np.count_nonzero (core_occ[:norbs_hessbath]==0)))
+                print ("Conjugate-gradient svals: {}".format (svals[:norbs_hessbath]))
                 print ("Adding {} electrons to impurity from Hessian bath orbitals".format (np.sum (core_occ[:norbs_hessbath])))
                 self.nelec_imp += int (round (np.sum (core_occ[:norbs_hessbath])))
                 self.norbs_imp += norbs_hessbath
