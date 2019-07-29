@@ -23,6 +23,7 @@
 '''
 
 from mrh.my_dmet import localintegrals, qcdmethelper
+import warnings
 import numpy as np
 from scipy import optimize, linalg
 import time, ctypes
@@ -1127,6 +1128,17 @@ class dmet:
                 f.oneRDMas_loc = represent_operator_in_basis (dm, f.loc2amo.conjugate ().T)
                 f.ci_as = None
             
+        # Linear dependency check
+        loc2amo = np.concatenate ([f.loc2amo_guess for f in self.fragments], axis=1)
+        evals = matrix_eigen_control_options (1, subspace=loc2amo, symmetry=self.ints.loc2symm, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)[0]
+        lindeps = np.count_nonzero (evals < 1e-6)
+        errstr = "{} linear dependencies found among {} active orbitals in guess construction".format (lindeps, loc2amo.shape[-1]))
+        if lindeps: 
+            if self.force_imp or len (guess_somos) == len (self.fragments):  RuntimeError (errstr)
+            else: warnings.warn (errstr, RuntimeWarning)
+
+        return
+
     def save_checkpoint (self, fname):
         ''' Data array structure: nao_nr, chempot, 1RDM or umat, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
         nao = self.ints.mol.nao_nr ()
@@ -1142,6 +1154,7 @@ class dmet:
             chkdata = np.append (chkdata, represent_operator_in_basis (f.oneRDM_loc, f.loc2amo).flatten (order='C'))
             chkdata = np.append (chkdata, f.twoCDMimp_amo.flatten (order='C'))
         np.save (fname, chkdata)
+        return
 
     def load_checkpoint (self, fname, prev_mol=None):
         nelec_amo = sum ((f.active_space[0] for f in self.fragments if f.active_space is not None))
