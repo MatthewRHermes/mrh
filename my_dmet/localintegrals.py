@@ -603,32 +603,43 @@ class localintegrals:
             fock = self.activeFOCK
         elif isinstance (fock, str) and fock == 'calculate':
             fock = self.loc_rhf_fock_bis (oneRDM_loc)
-        if loc2wmas is None: loc2wmas = np.zeros ((self.norbs_tot, 0), dtype=self.ao2loc.dtype)
+        if loc2wmas is None: loc2wmas = [np.zeros ((self.norbs_tot, 0), dtype=self.ao2loc.dtype)]
+        elif isinstance (loc2wmas, np.ndarray):
+            if loc2wmas.ndim == 2: loc2wmas = loc2wmas[None,:,:]
+            loc2wmas = [loc2amo for loc2amo in loc2wmas]
+        occ_wmas = [np.zeros (0) for ix in loc2wmas]
+        symm_wmas = [np.zeros (0) for ix in loc2wmas]
+        for ix, loc2amo in enumerate (loc2wmas):
+            occ_wmas[ix], loc2wmas[ix], symm_wmas[ix] = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm, subspace=loc2amo,
+                sort_vecs=-1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+        occ_wmas = np.concatenate (occ_wmas)
+        symm_wmas = np.concatenate (symm_wmas)
+        loc2wmas = np.concatenate (loc2wmas, axis=-1)
+        nelec_wmas = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2wmas)))
 
         loc2wmcs = get_complementary_states (loc2wmas, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         norbs_wmas = loc2wmas.shape[1]
         norbs_wmcs = loc2wmcs.shape[1]
-        ene_wmcs, loc2wmcs, wmcs_symm = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
-        occ_wmas, loc2wmas, wmas_symm = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm, subspace=loc2wmas, sort_vecs=-1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
-        nelec_wmas = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2wmas)))
+        ene_wmcs, loc2wmcs, symm_wmcs = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+            
         assert ((self.nelec_tot - nelec_wmas) % 2 == 0), 'Non-even number of unactive electrons {}'.format (self.nelec_tot - nelec_wmas)
         norbs_core = (self.nelec_tot - nelec_wmas) // 2
         norbs_virt = norbs_wmcs - norbs_core
         loc2wmis = loc2wmcs[:,:norbs_core]
-        wmis_symm = wmcs_symm[:norbs_core]
+        symm_wmis = symm_wmcs[:norbs_core]
         loc2wmxs = loc2wmcs[:,norbs_core:]
-        wmxs_symm = wmcs_symm[norbs_core:]
+        symm_wmxs = symm_wmcs[norbs_core:]
         
         if self.mol.symmetry:
-            wmis_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmis_symm==x) for x in np.unique (wmis_symm)}
+            symm_wmis = {self.mol.irrep_name[x]: np.count_nonzero (symm_wmis==x) for x in np.unique (symm_wmis)}
             err = measure_subspace_blockbreaking (loc2wmis, self.loc2symm)
-            print ("Trial wave function inactive-orbital irreps = {}, err = {}".format (wmis_symm, err))
-            wmas_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmas_symm==x) for x in np.unique (wmas_symm)} 
+            print ("Trial wave function inactive-orbital irreps = {}, err = {}".format (symm_wmis, err))
+            symm_wmas = {self.mol.irrep_name[x]: np.count_nonzero (symm_wmas==x) for x in np.unique (symm_wmas)} 
             err = measure_subspace_blockbreaking (loc2wmas, self.loc2symm)
-            print ("Trial wave function active-orbital irreps = {}, err = {}".format (wmas_symm, err))
-            wmxs_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmxs_symm==x) for x in np.unique (wmxs_symm)}
+            print ("Trial wave function active-orbital irreps = {}, err = {}".format (symm_wmas, err))
+            symm_wmxs = {self.mol.irrep_name[x]: np.count_nonzero (symm_wmxs==x) for x in np.unique (symm_wmxs)}
             err = measure_subspace_blockbreaking (loc2wmxs, self.loc2symm)
-            print ("Trial wave function external-orbital irreps = {}, err = {}".format (wmxs_symm, err))
+            print ("Trial wave function external-orbital irreps = {}, err = {}".format (symm_wmxs, err))
 
         loc2no = np.concatenate ((loc2wmcs[:,:norbs_core], loc2wmas, loc2wmcs[:,norbs_core:]), axis=1)
         occ_no = np.concatenate ((2*np.ones (norbs_core), occ_wmas, np.zeros (norbs_virt)))

@@ -1129,10 +1129,10 @@ class dmet:
                 f.ci_as = None
             
         # Linear dependency check
-        loc2amo = np.concatenate ([f.loc2amo_guess for f in self.fragments], axis=1)
+        loc2amo = np.concatenate ([f.loc2amo_guess for f in self.fragments if f.loc2amo_guess is not None], axis=1)
         evals = matrix_eigen_control_options (1, subspace=loc2amo, symmetry=self.ints.loc2symm, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)[0]
         lindeps = np.count_nonzero (evals < 1e-6)
-        errstr = "{} linear dependencies found among {} active orbitals in guess construction".format (lindeps, loc2amo.shape[-1]))
+        errstr = "{} linear dependencies found among {} active orbitals in guess construction".format (lindeps, loc2amo.shape[-1])
         if lindeps: 
             if self.force_imp or len (guess_somos) == len (self.fragments):  RuntimeError (errstr)
             else: warnings.warn (errstr, RuntimeWarning)
@@ -1241,11 +1241,10 @@ class dmet:
             frag.oneRDMas_loc = project_operator_into_subspace (self.ints.oneRDM_loc, frag.loc2amo) 
             frag.twoCDMimp_amo = represent_operator_in_basis (frag.twoCDMimp_amo, old2new_amo) 
 
-
     def get_las_nos (self, **kwargs):
         ''' Save MOs in a form that can be loaded for a CAS calculation on a npy file '''
         kwargs['aobasis'] = True
-        kwargs['loc2wmas'] = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+        kwargs['loc2wmas'] = [frag.loc2amo for frag in self.fragments]
         return self.ints.get_trial_nos (**kwargs)
 
     def void_symmetry (self):
