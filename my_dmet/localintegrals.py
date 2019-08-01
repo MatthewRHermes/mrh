@@ -397,7 +397,7 @@ class localintegrals:
         jk = np.stack ([JKcorr + JKidem, -self.loc_rhf_k_bis (oneSDM_loc)/2], axis=0)
         dm = np.stack ([oneRDM_loc, oneSDM_loc], axis=0)
         E = self.activeCONST + (self.activeOEI * oneRDM_loc).sum () + (jk * dm).sum ()/2 + E2_cum
-        print ("LASSCF trial wave function total energy: {:.6f}".format (E))
+        print ("LASSCF trial wave function total energy: {:.9f}".format (E))
         self.e_tot = E
 
         # Molden

@@ -1378,6 +1378,6 @@ class dmet:
         mf.mo_occ = no_occ
         las = lasci.LASCI (mf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub)
         e_tot, _, ci_sub = las.kernel (casdm0_sub = casdm0_sub)[:3]
-        print ("LASCI module energy: {:.6f}".format (e_tot))
+        print ("LASCI module energy: {:.9f}".format (e_tot))
         return e_tot, ci_sub
 
