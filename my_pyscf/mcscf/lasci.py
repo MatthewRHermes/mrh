@@ -127,6 +127,11 @@ def kernel (lasci, mo_coeff=None, ci0=None, casdm0_sub=None, verbose=lib.logger.
         max_memory = max(400, lasci.max_memory-lib.current_memory()[0])
         h1eff_c = (h1eff[0] + h1eff[1]) / 2
         h1eff_s = (h1eff[0] - h1eff[1]) / 2
+        nel = nelecas
+        # CI solver has enforced convention: na >= nb
+        if nelecas[0] < nelecas[1]:
+            nel = (nel[1], nel[0])
+            h1eff_s *= -1
         h1e = (h1eff_c, h1eff_s)
         wfnsym = orbsym = None
         if hasattr (lasci, 'wfnsym') and hasattr (mo_coeff, 'orbsym'):
@@ -136,7 +141,7 @@ def kernel (lasci, mo_coeff=None, ci0=None, casdm0_sub=None, verbose=lib.logger.
             orbsym = mo_coeff.orbsym[i:j]
             wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (lasci.mol.groupname, wfnsym)
             log.info ("LASCI subspace {} with irrep {}".format (isub, wfnsym_str))
-        e_sub, fcivec = lasci.fcisolver.kernel(h1e, eri_cas, ncas, nelecas,
+        e_sub, fcivec = lasci.fcisolver.kernel(h1e, eri_cas, ncas, nel,
                                                ci0=fcivec, verbose=log,
                                                max_memory=max_memory,
                                                ecore=0, smult=spin,
@@ -237,7 +242,10 @@ class LASCINoSymm (casci.CASCI):
         for idx, (ci_i, ncas, nelecas) in enumerate (zip (ci, ncas_sub, nelecas_sub)):
             mo = self.get_mo_slice (idx, mo_coeff=mo_coeff)
             moH = mo.conjugate ().T
+            # CI solver has enforced convention: na >= nb
+            nel = nelecas if nelecas[0] >= nelecas[1] else (nelecas[1], nelecas[0])
             dm1a, dm1b = self.fcisolver.make_rdm1s (ci_i, ncas, nelecas)
+            if nelecas[1] > nelecas[0]: dm1a, dm1b = dm1b, dm1a
             dm1s.append (np.stack ([mo @ dm @ moH for dm in (dm1a, dm1b)], axis=0))
         return np.stack (dm1s, axis=0)
 
@@ -277,8 +285,12 @@ class LASCINoSymm (casci.CASCI):
             j = ncas_cum[isub1+1]
             k = ncas_cum[isub2]
             l = ncas_cum[isub2+1]
-            dma1, dmb1 = self.fcisolver.make_rdm1s (self.mol, ci1, ncas1, nelecas1)
-            dma2, dmb2 = self.fcisolver.make_rdm1s (self.mol, ci2, ncas2, nelecas2)
+            nel1 = nelecas1 if nelecas1[0] >= nelecas1[1] else (nelecas1[1], nelecas1[0])
+            nel2 = nelecas2 if nelecas2[0] >= nelecas2[1] else (nelecas2[1], nelecas2[0])
+            dma1, dmb1 = self.fcisolver.make_rdm1s (self.mol, ci1, ncas1, nel1)
+            dma2, dmb2 = self.fcisolver.make_rdm1s (self.mol, ci2, ncas2, nel2)
+            if nelecas1[1] > nelecas1[0]: dma1, dmb1 = dmb1, dma1
+            if nelecas2[1] > nelecas2[0]: dma2, dmb2 = dmb2, dma2
             # Coulomb slice
             dm2_view = casdm2[i:j, i:j, k:l, k:l]
             dm2_view = np.multiply.outer (dma1+dmb1, dma2+dmb2)

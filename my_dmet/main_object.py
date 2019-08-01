@@ -1360,7 +1360,7 @@ class dmet:
             ncas_sub.append (f.norbs_as)
             nelecas_sub.append ((neleca, nelecb))
             casdm0_sub.append (np.stack ([dma, dmb], axis=0))
-            spin_sub.append ((2 * abs (f.target_S)) + 1)
+            spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
             wfnsym_sub.append (f.wfnsym)
         mol = self.ints.mol.copy ()
         mol.output = self.calcname + '_lasci.log'
