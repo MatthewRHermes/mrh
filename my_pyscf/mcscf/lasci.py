@@ -1,7 +1,6 @@
 from pyscf.mcscf import casci, casci_symm, df
-from pyscf.lib import logger
-from pyscf import symm, gto, scf
-from mrh.my_pyscf import csf_solver
+from pyscf import symm, gto, scf, ao2mo, lib
+from mrh.my_pyscf.fci import csf_solver
 from itertools import combinations
 import numpy as np
 import time
@@ -16,7 +15,7 @@ def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
         mf = mf_or_mol
     if mf.mol.symmetry: 
         las = LASCISymm (mf, ncas_sub, nelecas_sub, **kwargs)
-    else
+    else:
         las = LASCINoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     if getattr (mf, 'with_df', None):
         las = density_fit (las, with_df = mf.with_df) 
@@ -46,7 +45,7 @@ def density_fit (lasci, auxbasis=None, with_df=None):
             self._keys = self._keys.union(['with_df'])
     return DFLASCI (lasci)
 
-def h1e_for_cas (lasci, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None, casdm0_sub=None, ncas_sub=None, nelecas_sub=None, spin_sub=None)
+def h1e_for_cas (lasci, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None, casdm0_sub=None, ncas_sub=None, nelecas_sub=None, spin_sub=None):
     ''' Effective one-body Hamiltonians (plural) for a LASCI problem
 
     Args:
@@ -63,7 +62,7 @@ def h1e_for_cas (lasci, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=N
         ci: list of ndarrays of length (nsub)
             CI coefficients
             used to generate 1-RDMs in active subspaces; overrides casdm0_sub
-        casdm0_sub: list of ndarrays of length (nsub), each with shape (ncas,ncas)
+        casdm0_sub: list of ndarrays of length (nsub), each with shape (2,ncas,ncas)
             initial guess for the 1-RDMs in the active subspace bases
             overriden by ci coefficients
         ncas_sub: ndarray of shape (nsub)
@@ -86,14 +85,18 @@ def h1e_for_cas (lasci, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=N
     if ncore is None: ncore = lasci.ncore
     if ci is None: ci = lasci.ci
 
-    h1e_sum = lasci.get_hcore () + lasci.get_veff ()
-    h1e_sum = np.stack ([h1e_sum, h1e_sum], axis=0)    
-
+    h1e_sum = lasci.get_hcore ()[None,:,:] + lasci.get_veff ()
     dm1s_sub = casdm0_sub
     if ci is not None:
         dm1s_sub = lasci.make_rdm1s_sub (mo_coeff=mo_coeff, ci_sub=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
     if dm1s_sub is not None:
-        veff_sub = [np.stack (lasci.get_veff (dm1s=dm1s), axis=0) for dm1s in dm1s_sub]
+        veff_sub = []
+        for idx, dm1s in enumerate (dm1s_sub):
+            mo = lasci.get_mo_slice (idx, mo_coeff=mo_coeff)
+            moH = mo.conjugate ().T
+            dma = mo @ dm1s[0] @ moH
+            dmb = mo @ dm1s[1] @ moH
+            veff_sub.append (np.stack (lasci.get_veff (dm1s=(dma,dmb)), axis=0))
     else:
         veff_sub = [np.zeros (2,ncas,ncas) for ncas in ncas_sub]
     h1e_sum += sum (veff_sub) # Should only sum the list, not the arrays individually
@@ -101,12 +104,12 @@ def h1e_for_cas (lasci, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=N
     for isub, veff_self in enumerate (veff_sub):
         mo = lasci.get_mo_slice (isub, mo_coeff=mo_coeff)
         moH = mo.conjugate ().T
-        h1e.append (moH @ (h1e_sum - veff_self) @ mo)
+        h1e.append (np.stack ([moH @ (h - v) @ mo for h, v in zip (h1e_sum, veff_self)], axis=0))
     return h1e
 
-def kernel (lasci, mo_coeff=None, ci0=None, casdm0_sub=None, verbose=logger.NOTE):
+def kernel (lasci, mo_coeff=None, ci0=None, casdm0_sub=None, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = lasci.mo_coeff
-    log = logger.new_logger(lasci, verbose)
+    log = lib.logger.new_logger(lasci, verbose)
     t0 = (time.clock(), time.time())
     log.debug('Start LASCI')
 
@@ -117,18 +120,19 @@ def kernel (lasci, mo_coeff=None, ci0=None, casdm0_sub=None, verbose=logger.NOTE
 
     e_cas = []
     ci1 = []
+    ncas_cum = np.cumsum ([0] + lasci.ncas_sub.tolist ()) + lasci.ncore
     for isub, (ncas, nelecas, spin, h1eff) in enumerate (zip (lasci.ncas_sub, lasci.nelecas_sub, lasci.spin_sub, h1eff_sub)):
-        h2eff = self.get_h2eff_slice (h2eff_sub, isub)
+        eri_cas = lasci.get_h2eff_slice (h2eff_sub, isub)
         fcivec = ci0[isub] if ci0 is not None else None
-        max_memory = max(400, casci.max_memory-lib.current_memory()[0])
+        max_memory = max(400, lasci.max_memory-lib.current_memory()[0])
         h1eff_c = (h1eff[0] + h1eff[1]) / 2
         h1eff_s = (h1eff[0] - h1eff[1]) / 2
-        h1e = [h1eff_c, h1eff_s]
+        h1e = (h1eff_c, h1eff_s)
         wfnsym = orbsym = None
         if hasattr (lasci, 'wfnsym') and hasattr (mo_coeff, 'orbsym'):
             wfnsym = lasci.wfnsym_sub[isub]
-            i = lasci.ncore + np.cumsum (lasci.ncas_sub[:isub])
-            j = i + ncas
+            i = ncas_cum[isub]
+            j = ncas_cum[isub+1]
             orbsym = mo_coeff.orbsym[i:j]
             wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (lasci.mol.groupname, wfnsym)
             log.info ("LASCI subspace {} with irrep {}".format (isub, wfnsym_str))
@@ -140,12 +144,13 @@ def kernel (lasci, mo_coeff=None, ci0=None, casdm0_sub=None, verbose=logger.NOTE
         e_cas.append (e_sub)
         ci1.append (fcivec)
         t1 = log.timer ('FCI solver for subspace {}'.format (isub), *t1)
-    e_tot = lasci.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub)
+    e_tot = lasci.energy_nuc () + lasci.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub)
+    lib.logger.info (lasci, 'LASCI E = %.15g', e_tot)
     return e_tot, e_cas, ci1
 
 class LASCINoSymm (casci.CASCI):
 
-    def __init__(self, mf_or_mol, ncas, nelecas, ncore=None, spin_sub=None):
+    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, **kwargs):
         ncas_tot = sum (ncas)
         nel_tot = [0, 0]
         for nel in nelecas:
@@ -156,28 +161,28 @@ class LASCINoSymm (casci.CASCI):
                 na, nb = nel
             nel_tot[0] += na
             nel_tot[1] += nb
-        super().__init__(mf_or_mol, ncas=ncas_tot, nelecas=nel_tot, ncore=ncore)
+        super().__init__(mf, ncas=ncas_tot, nelecas=nel_tot, ncore=ncore)
         if spin_sub is None: spin_sub = [0 for sub in ncas]
         self.ncas_sub = np.asarray (ncas)
         self.nelecas_sub = np.asarray (nelecas)
         self.spin_sub = np.asarray (spin_sub)
         keys = set(('ncas_sub', 'nelecas_sub', 'spin_sub'))
         self._keys = set(self.__dict__.keys()).union(keys)
-        self.fcisolver = csf_solver (mf_or_mol, smult=0)
+        self.fcisolver = csf_solver (self.mol, smult=0)
 
     def get_mo_slice (self, idx, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         mo = mo_coeff[:,self.ncore:]
-        for offs in self.ncas[:idx]:
+        for offs in self.ncas_sub[:idx]:
             mo = mo[:,offs:]
-        mo = mo[:,:self.ncas[idx]]
+        mo = mo[:,:self.ncas_sub[idx]]
         return mo
 
     def get_h2eff_slice (self, h2eff, idx):
         ncas_cum = np.cumsum ([0] + self.ncas_sub.tolist ())
         i = ncas_cum[idx] 
         j = ncas_cum[idx+1]
-        return h2eff[i:j,i:j,i:j,i:j]
+        return ao2mo.restore (1, h2eff, self.ncas)[i:j,i:j,i:j,i:j]
 
     get_h1eff = get_h1cas = h1e_for_cas = h1e_for_cas
     def get_h2eff (self, mo_coeff=None):
@@ -194,22 +199,23 @@ class LASCINoSymm (casci.CASCI):
             self.mo_coeff = mo_coeff
         if ci0 is None:
             ci0 = self.ci
-        log = logger.new_logger(self, verbose)
+        log = lib.logger.new_logger(self, verbose)
 
-        if self.verbose >= logger.WARN:
+        if self.verbose >= lib.logger.WARN:
             self.check_sanity()
         self.dump_flags(log)
 
         self.e_tot, self.e_cas, self.ci = \
                 kernel(self, mo_coeff, ci0=ci0, verbose=log, casdm0_sub=casdm0_sub)
 
+        '''
         if self.canonicalization:
             self.canonicalize_(mo_coeff, self.ci,
                                sort=self.sorting_mo_energy,
                                cas_natorb=self.natorb, verbose=log)
 
         if getattr(self.fcisolver, 'converged', None) is not None:
-            self.converged = numpy.all(self.fcisolver.converged)
+            self.converged = np.all(self.fcisolver.converged)
             if self.converged:
                 log.info('CASCI converged')
             else:
@@ -217,6 +223,8 @@ class LASCINoSymm (casci.CASCI):
         else:
             self.converged = True
         self._finalize()
+        '''
+        self.converged = True
         return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
 
     def make_rdm1s_sub (self, mo_coeff=None, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
@@ -230,7 +238,7 @@ class LASCINoSymm (casci.CASCI):
             mo = self.get_mo_slice (idx, mo_coeff=mo_coeff)
             moH = mo.conjugate ().T
             dm1a, dm1b = self.fcisolver.make_rdm1s (ci_i, ncas, nelecas)
-            dm1s.append (np.stack ([moH @ dm @ mo for dm in (dm1a, dm1b)], axis=0))
+            dm1s.append (np.stack ([mo @ dm @ moH for dm in (dm1a, dm1b)], axis=0))
         return np.stack (dm1s, axis=0)
 
     def make_rdm1_sub (self, **kwargs):
@@ -286,12 +294,12 @@ class LASCINoSymm (casci.CASCI):
         if mol is None: mol = self.mol
         if dm1s is None:
             mocore = self.mo_coeff[:,:self.ncore]
-            dm1s = numpy.dot(mocore, mocore.T)
+            dm1s = np.dot(mocore, mocore.T)
             dm1s = np.stack ([dm1s, dm1s], axis=0)
         if isinstance (self, _DFLASCI):
-            vj, vk = self.with_df.get_jk(mol, dm, hermi=hermi)
+            vj, vk = self.with_df.get_jk(mol, dm1s, hermi=hermi)
         else:
-            vj, vk = self._scf.get_jk(mol, dm, hermi=hermi)
+            vj, vk = self._scf.get_jk(mol, dm1s, hermi=hermi)
         vj = vj[0] + vj[1]
         return vj - vk[0], vj - vk[1]
 
@@ -300,8 +308,8 @@ class LASCINoSymm (casci.CASCI):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ncore is None: ncore = self.ncore
         if ncas is None: ncas = self.ncas
-        if ncas_sub is None: ncas = self.ncas_sub
-        if nelecas_sub is None: nelecas = self.nelecas_sub
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         if ci is None: ci = self.ci
         if h2eff is None: h2eff = self.get_h2eff (mo_coeff)
 
@@ -311,9 +319,9 @@ class LASCINoSymm (casci.CASCI):
 
         # 2-body cumulant terms
         for isub, (norb, nel, ci_i) in enumerate (zip (ncas_sub, nelecas_sub, ci)):
-            dm1a, dm1b = self.fcisolver.make_rdm1s (self.mol, ci_i, norb, nel)
+            dm1a, dm1b = self.fcisolver.make_rdm1s (ci_i, norb, nel)
             dm1 = dm1a + dm1b
-            dm2 = self.fcisolver.make_rdm2 (self.mol, ci_i, norb, nel)
+            dm2 = self.fcisolver.make_rdm2 (ci_i, norb, nel)
             dm2 -= np.multiply.outer (dm1, dm1)
             dm2 += np.multiply.outer (dm1a, dm1a).transpose (0,3,2,1)
             dm2 += np.multiply.outer (dm1b, dm1b).transpose (0,3,2,1)
@@ -324,10 +332,12 @@ class LASCINoSymm (casci.CASCI):
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
-    def __init__(self, mf_or_mol, ncas, nelecas, ncore=None, spin_sub=None, wfnsym_sub=None):
-        LASCINoSymm.__init__(self, mf_or_mol, ncas, nelecas, ncore=ncore, spin_sub=spin_sub)
+    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, wfnsym_sub=None, **kwargs):
+        LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub)
         if wfnsym_sub is None: wfnsym_sub = [0 for icas in self.ncas_sub]
         self.wfnsym_sub = wfnsym_sub
+        keys = set(('wfnsym_sub'))
+        self._keys = set(self.__dict__.keys()).union(keys)
 
     make_rdm1s = LASCINoSymm.make_rdm1s
     make_rdm1 = LASCINoSymm.make_rdm1
@@ -351,7 +361,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
             ci0 = self.ci
 
         # Initialize/overwrite mo_coeff.orbsym. Don't pass ci0 because it's not the right shape
-        logger.info ("LASCI lazy hack note: lines below reflect the point-group symmetry of the whole molecule but not of the individual subspaces")
+        lib.logger.info (self, "LASCI lazy hack note: lines below reflect the point-group symmetry of the whole molecule but not of the individual subspaces")
         self.fcisolver.wfnsym = self.wfnsym
         mo_coeff = self.mo_coeff = casci_symm.label_symmetry_(self, mo_coeff, None)
         return LASCINoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0, casdm0_sub=casdm0_sub, verbose=verbose)

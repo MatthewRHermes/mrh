@@ -20,6 +20,7 @@
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo, tools, lo
 from pyscf.lo import nao, orth, boys
+from pyscf.x2c import x2c
 from pyscf.tools import molden
 from pyscf.lib import current_memory
 from pyscf.lib.numpy_helper import tag_array
@@ -70,8 +71,9 @@ class localintegrals:
         if self.fullJK_ao.ndim == 3:
             self.fullJK_ao = self.fullJK_ao[0] 
             # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
-        self.fullFOCK_ao  = the_mf.get_hcore () + self.fullJK_ao
+        self.fullFOCK_ao = the_mf.get_hcore () + self.fullJK_ao
         self.e_tot       = the_mf.e_tot
+        self.x2c         = isinstance (the_mf, x2c._X2C_SCF)
 
         # Active space information
         self._which    = localizationtype

@@ -42,8 +42,8 @@ class FCISolver (direct_spin1_symm.FCISolver):
     make_hdiag = make_hdiag_det
 
     def absorb_h1e (self, h1e, eri, norb, nelec, fac=1):
-        h2eff = super().absorb_h1e (h1e, eri, norb, nelec, fac)
         h1e_c, h1e_s = unpack_h1e_cs (h1e)
+        h2eff = super().absorb_h1e (h1e_c, eri, norb, nelec, fac)
         if h1e_s is not None:
             h2eff = tag_array (h2eff, h1e_s=h1e_s)
         return h2eff

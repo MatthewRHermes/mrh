@@ -23,6 +23,7 @@
 '''
 
 from mrh.my_dmet import localintegrals, qcdmethelper
+from mrh.my_pyscf.mcscf import lasci
 import warnings
 import numpy as np
 from scipy import optimize, linalg
@@ -823,6 +824,7 @@ class dmet:
                 assert (is_basis_orthonormal (loc2amo))
                 assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
 
+        self.lasci ()
         return oneRDM_loc
 
     def refrag_lowdin_active (self, loc2wmas, oneRDM_loc):
@@ -1331,4 +1333,51 @@ class dmet:
             print ("This system loses its symmetry")
         return symmetry
 
+    def lasci (self):
+        ao2no, no_ene, no_occ = self.get_las_nos ()
+        loc2ao = self.ints.ao2loc.conjugate ().T
+        loc2no = loc2ao @ self.ints.ao_ovlp @ ao2no
+        ncore = self.ints.nelec_idem // 2
+        loc2amo = loc2no[:,ncore:]
+        amo_occ = no_occ[ncore:]
+        active_frags = [f for f in self.fragments if f.norbs_as]
+        ncas_sub = []
+        nelecas_sub = []
+        casdm0_sub = []
+        spin_sub = []
+        wfnsym_sub = []
+        for f in active_frags:
+            amo = loc2amo[:,:f.norbs_as]
+            rdm = np.diag (amo_occ[:f.norbs_as])
+            sdm = amo.conjugate ().T @ self.ints.oneSDM_loc @ amo
+            loc2amo = loc2amo[:,f.norbs_as:]
+            amo_occ = amo_occ[f.norbs_as:]
+            dma = (rdm + sdm) / 2
+            dmb = (rdm - sdm) / 2
+            print ("MATT CHECK THIS: (neleca, nelecb) = ({:.3f}, {:.3f})".format (np.trace (dma), np.trace (dmb)))
+            neleca = int (round (np.trace (dma)))
+            nelecb = int (round (np.trace (dmb)))
+            ncas_sub.append (f.norbs_as)
+            nelecas_sub.append ((neleca, nelecb))
+            casdm0_sub.append (np.stack ([dma, dmb], axis=0))
+            spin_sub.append ((2 * abs (f.target_S)) + 1)
+            wfnsym_sub.append (f.wfnsym)
+        mol = self.ints.mol.copy ()
+        mol.output = self.calcname + '_lasci.log'
+        mol.build ()
+        mf = scf.RHF (mol)
+        if self.ints.x2c: mf = mf.sfx2c1e ()
+        mf.max_cycle = 1
+        mf._eri = self.ints._eri
+        if getattr (self.ints, 'with_df', None):
+            mf = mf.density_fit (auxbasis = self.ints.with_df.auxbasis, with_df = self.ints.with_df)
+        mf.max_cycle = 1
+        mf.kernel ()
+        mf.mo_coeff = ao2no
+        mf.mo_energy = no_ene
+        mf.mo_occ = no_occ
+        las = lasci.LASCI (mf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub)
+        e_tot, _, ci_sub = las.kernel (casdm0_sub = casdm0_sub)[:3]
+        print ("LASCI module energy: {:.6f}".format (e_tot))
+        return e_tot, ci_sub
 
