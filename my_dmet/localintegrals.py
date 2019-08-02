@@ -380,12 +380,38 @@ class localintegrals:
         focka_fockb = [self.activeOEI + JKidem + JK for JK in focka_fockb]
         oneRDM_loc  = oneRDMidem_loc + oneRDMcorr_loc
         oneSDM_loc  = oneSDMcorr_loc
+        E  = self.activeCONST + E2_cum 
+        E += ((self.activeOEI + (JKcorr + JKidem)/2) * oneRDM_loc).sum ()
+        E += (vk * oneSDM_loc).sum ()/2
+        self._cache_and_analyze_(calcname, E, focka_fockb, dma_dmb, JKidem, JKcorr, oneRDMcorr_loc, loc2idem, loc2corr, nelec_idem, oneRDM_loc, oneSDM_loc)
+
+    def update_from_lasci_(self, calcname, las, loc2mo, dma_dmb):
+        dma, dmb = dma_dmb # Not sure if this is OK with ndarray
+        loc2core = loc2mo[:,:las.ncore]
+        loc2corr = loc2mo[:,las.ncore:][:,:las.ncas]
+        oneRDMidem_loc = 2 * loc2core @ loc2core.conjugate ().T
+        oneRDMcorr_loc = dma + dmb
+        oneRDM_loc = oneRDMidem_loc + oneRDMcorr_loc
+        oneSDM_loc = dma - dmb
+        JKidem, JKcorr = (self.loc_rhf_jk_bis (dm) for dm in (oneRDMidem_loc, oneRDMcorr_loc))
+        vk = -self.loc_rhf_k_bis (oneSDM_loc) / 2
+        focka_fockb = self.activeOEI + JKidem + JKcorr
+        focka_fockb = [focka_fockb + vk, focka_fockb - vk] 
+        idx = np.zeros (loc2mo.shape[-1], dtype=np.bool_)
+        idx[:las.ncore] = True
+        idx[las.ncore+las.ncas:] = True
+        loc2idem = loc2mo[:,idx]
+        self._cache_and_analyze_(calcname, las.e_tot, focka_fockb, dma_dmb, JKidem, JKcorr, oneRDMcorr_loc, loc2idem, loc2corr, las.ncore*2, oneRDM_loc, oneSDM_loc)
+
+    def _cache_and_analyze_(self, calcname, E, focka_fockb, dma_dmb, JKidem, JKcorr, oneRDMcorr_loc, loc2idem, loc2corr, nelec_idem, oneRDM_loc, oneSDM_loc):
 
         ########################################################################################################        
+        self.e_tot          = E
         self.activeFOCK     = get_roothaan_fock (focka_fockb, dma_dmb, np.eye (self.norbs_tot))
         self.activeJKidem   = JKidem
         self.activeJKcorr   = JKcorr
         self.oneRDMcorr_loc = oneRDMcorr_loc
+        self.oneSDMcorr_loc = oneSDM_loc
         self.loc2idem       = loc2idem
         self.nelec_idem     = nelec_idem
         self.oneRDM_loc     = oneRDM_loc
@@ -393,14 +419,7 @@ class localintegrals:
         ########################################################################################################
 
         # Analysis: 1RDM and total energy
-        print ("Analyzing LASSCF trial wave function")
-        jk = np.stack ([JKcorr + JKidem, -self.loc_rhf_k_bis (oneSDM_loc)/2], axis=0)
-        dm = np.stack ([oneRDM_loc, oneSDM_loc], axis=0)
-        E = self.activeCONST + (self.activeOEI * oneRDM_loc).sum () + (jk * dm).sum ()/2 + E2_cum
         print ("LASSCF trial wave function total energy: {:.9f}".format (E))
-        self.e_tot = E
-
-        # Molden
         ao2molden, ene_no, occ_no = self.get_trial_nos (aobasis=True, loc2wmas=loc2corr, oneRDM_loc=oneRDM_loc,
             fock=self.activeFOCK, jmol_shift=True, try_symmetrize=True)
         print ("Writing trial wave function molden")

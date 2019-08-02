@@ -515,6 +515,10 @@ class dmet:
         rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
 
+        # Initial lasci cycle!
+        if self.doLASSCF and sum ([f.norbs_as for f in self.fragments]):
+            self.lasci_()
+
         while (u_diff > convergence_threshold):
             u_diff, rdm = self.doselfconsistent_corrpot (rdm, [('corrpot', iteration)])
             iteration += 1 
@@ -1106,8 +1110,18 @@ class dmet:
                     loc2amo_new = loc2amo_other
                     occ_new = occ_other
 
+        loc2amo = np.concatenate ([f.loc2amo_guess for f in self.fragments if f.loc2amo_guess is not None], axis=1)
         if len (guess_somos) == len (self.fragments):
             assert (not force_imp), "Don't force_imp and guess_somos at the same time"
+            loc2wmcs = get_complementary_states (loc2amo, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
+            ene_wmcs, loc2wmcs = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2wmcs, symmetry=self.ints.loc2symm,
+                strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)[:2]
+            ncore = (self.ints.nelec_tot - sum ([f.active_space[0] for f in self.fragments if f.active_space is not None])) // 2
+            oneRDMcore_loc = 2 * loc2wmcs[:,:ncore] @ loc2wmcs[:,:ncore].conjugate ().T
+            self.ints.oneRDM_loc = oneRDMcore_loc
+            self.ints.oneSDM_loc = np.zeros_like (oneRDMcore_loc)
+            self.ints.nelec_idem = ncore * 2
+            self.ints.loc2idem   = loc2wmcs
             # construct rohf-like density matrices and set loc2amo_guess -> loc2amo
             for nsomo, f, in zip (guess_somos, self.fragments):
                 if f.active_space is None:
@@ -1116,6 +1130,7 @@ class dmet:
                 assert (nsomo <= f.active_space[1])
                 neleca = (f.active_space[0] + nsomo) // 2
                 nelecb = (f.active_space[0] - nsomo) // 2
+                if f.target_MS < 0: neleca, nelecb = nelecb, neleca
                 occa = np.zeros (f.active_space[1], dtype=np.float64)
                 occb = np.zeros (f.active_space[1], dtype=np.float64)
                 occa[:neleca] += 1
@@ -1127,11 +1142,16 @@ class dmet:
                 dm = dma + dmb
                 f.loc2amo = f.loc2amo_guess.copy ()
                 f.twoCDMimp_amo = get_2CDM_from_2RDM (twoRDM, dm) 
-                f.oneRDMas_loc = represent_operator_in_basis (dm, f.loc2amo.conjugate ().T)
+                f.oneRDMas_loc = represent_operator_in_basis (dma + dmb, f.loc2amo.conjugate ().T)
+                f.oneSDMas_loc = represent_operator_in_basis (dma - dmb, f.loc2amo.conjugate ().T)
                 f.ci_as = None
-            
+                self.ints.oneRDM_loc += f.oneRDMas_loc
+                self.ints.oneSDM_loc += f.oneSDMas_loc
+            for f in self.fragments:
+                f.oneRDM_loc = self.ints.oneRDM_loc
+                f.oneSDM_loc = self.ints.oneSDM_loc
+
         # Linear dependency check
-        loc2amo = np.concatenate ([f.loc2amo_guess for f in self.fragments if f.loc2amo_guess is not None], axis=1)
         evals = matrix_eigen_control_options (1, subspace=loc2amo, symmetry=self.ints.loc2symm, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)[0]
         lindeps = np.count_nonzero (evals < 1e-6)
         errstr = "{} linear dependencies found among {} active orbitals in guess construction".format (lindeps, loc2amo.shape[-1])
@@ -1334,12 +1354,15 @@ class dmet:
         return symmetry
 
     def lasci (self):
+        # If I don't force_imp this won't work properly for the initialization, but then again it won't be called
         ao2no, no_ene, no_occ = self.get_las_nos ()
         loc2ao = self.ints.ao2loc.conjugate ().T
         loc2no = loc2ao @ self.ints.ao_ovlp @ ao2no
-        ncore = self.ints.nelec_idem // 2
+        nelec_amo = sum (f.nelec_as for f in self.fragments if f.norbs_as)
+        ncore = (self.ints.nelec_tot - nelec_amo) // 2
         loc2amo = loc2no[:,ncore:]
         amo_occ = no_occ[ncore:]
+        print (self.ints.nelec_tot, ' electrons total, ', ncore, ' core orbitals w/ occupancy = ',no_occ[:ncore])
         active_frags = [f for f in self.fragments if f.norbs_as]
         ncas_sub = []
         nelecas_sub = []
@@ -1348,15 +1371,16 @@ class dmet:
         wfnsym_sub = []
         for f in active_frags:
             amo = loc2amo[:,:f.norbs_as]
+            print ("Occupancy here: ",amo_occ[:f.norbs_as])
             rdm = np.diag (amo_occ[:f.norbs_as])
             sdm = amo.conjugate ().T @ self.ints.oneSDM_loc @ amo
             loc2amo = loc2amo[:,f.norbs_as:]
             amo_occ = amo_occ[f.norbs_as:]
             dma = (rdm + sdm) / 2
             dmb = (rdm - sdm) / 2
-            print ("MATT CHECK THIS: (neleca, nelecb) = ({:.3f}, {:.3f})".format (np.trace (dma), np.trace (dmb)))
-            neleca = int (round (np.trace (dma)))
-            nelecb = int (round (np.trace (dmb)))
+            neleca = int (round ((f.active_space[0]/2) + f.target_MS))
+            nelecb = int (round ((f.active_space[0]/2) - f.target_MS))
+            print ("MATT CHECK THIS: (neleca, nelecb) = ({:.3f}, {:.3f}) vs desired ({},{})".format (np.trace (dma), np.trace (dmb), neleca, nelecb))
             ncas_sub.append (f.norbs_as)
             nelecas_sub.append ((neleca, nelecb))
             casdm0_sub.append (np.stack ([dma, dmb], axis=0))
@@ -1379,5 +1403,33 @@ class dmet:
         las = lasci.LASCI (mf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub)
         e_tot, _, ci_sub = las.kernel (casdm0_sub = casdm0_sub)[:3]
         print ("LASCI module energy: {:.9f}".format (e_tot))
-        return e_tot, ci_sub
+        return las
+
+    def lasci_ (self):
+        ''' Do LASCI and then also update the fragment and ints object '''
+        las = self.lasci ()
+        aoSloc = self.ints.ao_ovlp @ self.ints.ao2loc
+        locSao = aoSloc.conjugate ().T
+        oneRDMs_loc_sub = np.tensordot (locSao, np.dot (las.make_rdm1s_sub (), aoSloc), axes=((1),(2))).transpose (1,2,0,3)
+        loc2mo = locSao @ las.mo_coeff
+        active_frags = [f for f in self.fragments if f.norbs_as]
+        self.ints.update_from_lasci_(self.calcname, las, loc2mo, oneRDMs_loc_sub.sum (0))
+        loc2amo_sub = [las.get_mo_slice (idx, mo_coeff=loc2mo) for idx in range (len (active_frags))]
+        for loc2amo, ci, oneRDMs_amo_loc, f in zip (loc2amo_sub, las.ci, oneRDMs_loc_sub, active_frags):
+            dma, dmb = oneRDMs_amo_loc
+            print ("MATT CHECK THIS AGAIN: (neleca, nelecb) = ({:.3f}, {:.3f})".format (np.trace (dma), np.trace (dmb)))
+            f.loc2amo = loc2amo.copy () # Definitely copy this because it is explicitly a slice
+            f.ci_as = ci
+            f.ci_as_orb = loc2amo
+            f.oneRDMas_loc = dma + dmb
+            f.oneSDMas_loc = dma - dmb
+            f.oneRDM_loc = self.ints.oneRDM_loc
+            f.oneSDM_loc = self.ints.oneSDM_loc
+            abs_2MS = abs (int (round (f.target_MS*2)))
+            neleca = (f.active_space[0] + abs_2MS) // 2
+            nelecb = (f.active_space[0] - abs_2MS) // 2
+            casdm2 = las.fcisolver.make_rdm2 (ci, f.norbs_as, (neleca, nelecb))
+            casdm1 = loc2amo.conjugate ().T @ f.oneRDM_loc @ loc2amo
+            f.twoCDMimp_amo = get_2CDM_from_2RDM (casdm2, casdm1)
+        return las.e_tot
 

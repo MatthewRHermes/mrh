@@ -236,8 +236,8 @@ class LASCINoSymm (casci.CASCI):
         ''' Spin-separated 1-RDMs in the AO basis for each subspace in sequence '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        if ncas_sub is None: ncas = self.ncas_sub
-        if nelecas_sub is None: nelecas = self.nelecas_sub
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         dm1s = []
         for idx, (ci_i, ncas, nelecas) in enumerate (zip (ci, ncas_sub, nelecas_sub)):
             mo = self.get_mo_slice (idx, mo_coeff=mo_coeff)
@@ -277,7 +277,7 @@ class LASCINoSymm (casci.CASCI):
             i = ncas_cum[isub]
             j = ncas_cum[isub+1]
             dm2_view = casdm2[i:j,i:j,i:j,i:j]
-            dm2_view = self.fcisolver.make_rdm2 (self.mol, fcivec, ncas, nelecas)
+            dm2_view = self.fcisolver.make_rdm2 (fcivec, ncas, nelecas)
         # Off-diagonal
         for (isub1, (ci1, ncas1, nelecas1)), (isub2, (ci2, ncas2, nelecas2)) in combinations (
           enumerate (zip (ci, ncas_sub, nelecas_sub)), 2):
@@ -287,8 +287,8 @@ class LASCINoSymm (casci.CASCI):
             l = ncas_cum[isub2+1]
             nel1 = nelecas1 if nelecas1[0] >= nelecas1[1] else (nelecas1[1], nelecas1[0])
             nel2 = nelecas2 if nelecas2[0] >= nelecas2[1] else (nelecas2[1], nelecas2[0])
-            dma1, dmb1 = self.fcisolver.make_rdm1s (self.mol, ci1, ncas1, nel1)
-            dma2, dmb2 = self.fcisolver.make_rdm1s (self.mol, ci2, ncas2, nel2)
+            dma1, dmb1 = self.fcisolver.make_rdm1s (ci1, ncas1, nel1)
+            dma2, dmb2 = self.fcisolver.make_rdm1s (ci2, ncas2, nel2)
             if nelecas1[1] > nelecas1[0]: dma1, dmb1 = dmb1, dma1
             if nelecas2[1] > nelecas2[0]: dma2, dmb2 = dmb2, dma2
             # Coulomb slice
