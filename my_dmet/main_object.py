@@ -828,7 +828,7 @@ class dmet:
                 assert (is_basis_orthonormal (loc2amo))
                 assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
 
-        self.lasci ()
+        #self.lasci ()
         return oneRDM_loc
 
     def refrag_lowdin_active (self, loc2wmas, oneRDM_loc):
