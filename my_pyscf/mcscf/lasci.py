@@ -79,32 +79,31 @@ def h1e_for_cas (lasci, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=N
     if mo_coeff is None: mo_coeff = lasci.mo_coeff
     if ncas is None: ncas = lasci.ncas
     if ncore is None: ncore = lasci.ncore
-    if ncas_sub is None: ncas = lasci.ncas_sub
-    if nelecas_sub is None: nelecas = lasci.nelecas_sub
-    if spin_sub is None: spin = lasci.spin_sub
+    if ncas_sub is None: ncas_sub = lasci.ncas_sub
+    if nelecas_sub is None: nelecas_sub = lasci.nelecas_sub
+    if spin_sub is None: spin_sub = lasci.spin_sub
     if ncore is None: ncore = lasci.ncore
     if ci is None: ci = lasci.ci
 
-    h1e_sum = lasci.get_hcore ()[None,:,:] + lasci.get_veff ()
+    mo_core = mo_coeff[:,:ncore]
+    mo_cas = [lasci.get_mo_slice (idx, mo_coeff) for idx in range (len (ncas_sub))]
+    moH_cas = [mo.conjugate ().T for mo in mo_cas]
     dm1s_sub = casdm0_sub
     if ci is not None:
         dm1s_sub = lasci.make_rdm1s_sub (mo_coeff=mo_coeff, ci_sub=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+    dm_core = mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conjugate ().T if ncore else np.zeros (mo_coeff.shape[0], mo_coeff.shape[0])
+    dm_core = np.stack ([dm_core, dm_core], axis=0)
     if dm1s_sub is not None:
-        veff_sub = []
-        for idx, dm1s in enumerate (dm1s_sub):
-            mo = lasci.get_mo_slice (idx, mo_coeff=mo_coeff)
-            moH = mo.conjugate ().T
-            dma = mo @ dm1s[0] @ moH
-            dmb = mo @ dm1s[1] @ moH
-            veff_sub.append (np.stack (lasci.get_veff (dm1s=(dma,dmb)), axis=0))
-    else:
-        veff_sub = [np.zeros (2,ncas,ncas) for ncas in ncas_sub]
-    h1e_sum += sum (veff_sub) # Should only sum the list, not the arrays individually
-    h1e = []
-    for isub, veff_self in enumerate (veff_sub):
-        mo = lasci.get_mo_slice (isub, mo_coeff=mo_coeff)
-        moH = mo.conjugate ().T
-        h1e.append (np.stack ([moH @ (h - v) @ mo for h, v in zip (h1e_sum, veff_self)], axis=0))
+        dm1s_sub = np.stack ([np.tensordot (mo, np.dot (dm, moH), axes=((1),(1))).transpose (1,0,2)
+            for mo, dm, moH in zip (mo_cas, dm1s_sub, moH_cas)], axis=0)
+        dm1s_sub = np.append (dm_core[None,:,:,:], dm1s_sub, axis=0)
+    else: dm1s_sub = dm_core
+    veff_sub = lasci.get_veff (dm1s=dm1s_sub)
+    h1e = lasci.get_hcore ()[None,:,:] + veff_sub.sum (0) # JK of inactive orbitals
+    veff_sub = veff_sub[1:] if veff_sub.shape[0] > 1 else [0 for isub in len (ncas_sub)] # JK of various active subspaces
+    # Has to be a list, not array, because different subspaces have different ncas
+    h1e = [np.tensordot (moH, np.dot (h1e - veff_self, mo), axes=((1),(1))).transpose (1,0,2)
+        for moH, veff_self, mo in zip (moH_cas, veff_sub, mo_cas)]
     return h1e
 
 def kernel (lasci, mo_coeff=None, ci0=None, casdm0_sub=None, verbose=lib.logger.NOTE):
@@ -122,7 +121,7 @@ def kernel (lasci, mo_coeff=None, ci0=None, casdm0_sub=None, verbose=lib.logger.
     ci1 = []
     ncas_cum = np.cumsum ([0] + lasci.ncas_sub.tolist ()) + lasci.ncore
     for isub, (ncas, nelecas, spin, h1eff) in enumerate (zip (lasci.ncas_sub, lasci.nelecas_sub, lasci.spin_sub, h1eff_sub)):
-        eri_cas = lasci.get_h2eff_slice (h2eff_sub, isub)
+        eri_cas = lasci.get_h2eff_slice (h2eff_sub, isub, compact=8)
         fcivec = ci0[isub] if ci0 is not None else None
         max_memory = max(400, lasci.max_memory-lib.current_memory()[0])
         h1eff_c = (h1eff[0] + h1eff[1]) / 2
@@ -183,11 +182,13 @@ class LASCINoSymm (casci.CASCI):
         mo = mo[:,:self.ncas_sub[idx]]
         return mo
 
-    def get_h2eff_slice (self, h2eff, idx):
+    def get_h2eff_slice (self, h2eff, idx, compact=None):
         ncas_cum = np.cumsum ([0] + self.ncas_sub.tolist ())
         i = ncas_cum[idx] 
         j = ncas_cum[idx+1]
-        return ao2mo.restore (1, h2eff, self.ncas)[i:j,i:j,i:j,i:j]
+        eri = ao2mo.restore (1, h2eff, self.ncas)[i:j,i:j,i:j,i:j]
+        if compact: eri = ao2mo.restore (compact, eri, j-i)
+        return eri
 
     get_h1eff = get_h1cas = h1e_for_cas = h1e_for_cas
     def get_h2eff (self, mo_coeff=None):
@@ -242,10 +243,7 @@ class LASCINoSymm (casci.CASCI):
         for idx, (ci_i, ncas, nelecas) in enumerate (zip (ci, ncas_sub, nelecas_sub)):
             mo = self.get_mo_slice (idx, mo_coeff=mo_coeff)
             moH = mo.conjugate ().T
-            # CI solver has enforced convention: na >= nb
-            nel = nelecas if nelecas[0] >= nelecas[1] else (nelecas[1], nelecas[0])
             dm1a, dm1b = self.fcisolver.make_rdm1s (ci_i, ncas, nelecas)
-            if nelecas[1] > nelecas[0]: dm1a, dm1b = dm1b, dm1a
             dm1s.append (np.stack ([mo @ dm @ moH for dm in (dm1a, dm1b)], axis=0))
         return np.stack (dm1s, axis=0)
 
@@ -304,16 +302,28 @@ class LASCINoSymm (casci.CASCI):
     def get_veff(self, mol=None, dm1s=None, hermi=1):
         ''' Returns a spin-separated veff! If dm1s isn't provided, assumes you want the core '''
         if mol is None: mol = self.mol
+        nao = self.mol.nao_nr ()
         if dm1s is None:
             mocore = self.mo_coeff[:,:self.ncore]
             dm1s = np.dot(mocore, mocore.T)
             dm1s = np.stack ([dm1s, dm1s], axis=0)
+            ndm1s = 1
+        else:
+            dm1s = np.asarray (dm1s)
+            if dm1s.ndim == 4:
+                dm1s = dm1s.reshape (dm1s.shape[0]*2, nao, nao)
+            assert (dm1s.ndim == 3 and dm1s.shape[0] % 2 == 0), 'Requires an even number of density matrices (a1,b1,a2,b2,...)!'
+            ndm1s = dm1s.shape[0] // 2
         if isinstance (self, _DFLASCI):
             vj, vk = self.with_df.get_jk(mol, dm1s, hermi=hermi)
         else:
             vj, vk = self._scf.get_jk(mol, dm1s, hermi=hermi)
+        vj = vj.reshape (ndm1s,2,nao,nao).transpose (1,0,2,3)
+        vk = vk.reshape (ndm1s,2,nao,nao).transpose (1,0,2,3)
         vj = vj[0] + vj[1]
-        return vj - vk[0], vj - vk[1]
+        veffa = vj - vk[0]
+        veffb = vj - vk[1]
+        return np.stack ([veffa, veffb], axis=1)
 
     def energy_elec (self, mo_coeff=None, ncore=None, ncas=None, ncas_sub=None, nelecas_sub=None, ci=None, h2eff=None, **kwargs):
         ''' Since the LASCI energy cannot be calculated as simply as ecas + ecore, I need this function '''
@@ -326,7 +336,7 @@ class LASCINoSymm (casci.CASCI):
         if h2eff is None: h2eff = self.get_h2eff (mo_coeff)
 
         dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ncore=ncore, ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
-        h1e = self.get_hcore ()[None,:,:] + np.stack (self.get_veff (dm1s=dm1s), axis=0)/2
+        h1e = self.get_hcore ()[None,:,:] + np.squeeze (self.get_veff (dm1s=dm1s))/2
         energy_elec = (h1e * dm1s).sum ()
 
         # 2-body cumulant terms
