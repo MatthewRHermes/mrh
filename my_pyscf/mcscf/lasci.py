@@ -243,7 +243,9 @@ class LASCINoSymm (casci.CASCI):
         for idx, (ci_i, ncas, nelecas) in enumerate (zip (ci, ncas_sub, nelecas_sub)):
             mo = self.get_mo_slice (idx, mo_coeff=mo_coeff)
             moH = mo.conjugate ().T
-            dm1a, dm1b = self.fcisolver.make_rdm1s (ci_i, ncas, nelecas)
+            nel = (nelecas[1], nelecas[0]) if nelecas[1] > nelecas[0] else nelecas
+            dm1a, dm1b = self.fcisolver.make_rdm1s (ci_i, ncas, nel)
+            if nelecas[1] > nelecas[0]: dm1a, dm1b = dm1b, dm1a
             dm1s.append (np.stack ([mo @ dm @ moH for dm in (dm1a, dm1b)], axis=0))
         return np.stack (dm1s, axis=0)
 
