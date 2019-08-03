@@ -317,7 +317,7 @@ class LASCINoSymm (casci.CASCI):
             assert (dm1s.ndim == 3 and dm1s.shape[0] % 2 == 0), 'Requires an even number of density matrices (a1,b1,a2,b2,...)!'
             ndm1s = dm1s.shape[0] // 2
         if isinstance (self, _DFLASCI):
-            vj, vk = self.with_df.get_jk(mol, dm1s, hermi=hermi)
+            vj, vk = self.with_df.get_jk(dm1s, hermi=hermi)
         else:
             vj, vk = self._scf.get_jk(mol, dm1s, hermi=hermi)
         vj = vj.reshape (ndm1s,2,nao,nao).transpose (1,0,2,3)
