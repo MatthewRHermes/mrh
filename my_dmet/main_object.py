@@ -31,6 +31,7 @@ import time, ctypes
 #import tracemalloc
 from pyscf import scf, mcscf
 from pyscf.lo import orth, nao
+from pyscf.lib import logger as pyscf_logger
 from pyscf.gto import mole, same_mol
 from pyscf.tools import molden
 from pyscf.symm.addons import symmetrize_space
@@ -828,7 +829,7 @@ class dmet:
                 assert (is_basis_orthonormal (loc2amo))
                 assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
 
-        #self.lasci ()
+        self.lasci ()
         return oneRDM_loc
 
     def refrag_lowdin_active (self, loc2wmas, oneRDM_loc):
@@ -1388,6 +1389,7 @@ class dmet:
             wfnsym_sub.append (f.wfnsym)
         mol = self.ints.mol.copy ()
         mol.output = self.calcname + '_lasci.log'
+        mol.verbose = pyscf_logger.DEBUG
         mol.build ()
         mf = scf.RHF (mol)
         if self.ints.x2c: mf = mf.sfx2c1e ()
