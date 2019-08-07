@@ -1309,8 +1309,14 @@ class fragment_object:
             assert (not canonicalize)
         elif natorb or canonicalize:
             if self.norbs_as > 0: 
-                loc2molden[:,idx_unac] = self.loc2imp @ get_complementary_states (self.imp2amo)
-                loc2molden[:,idx_actv] = self.loc2amo
+                try:
+                    loc2molden[:,idx_unac] = self.loc2imp @ get_complementary_states (self.imp2amo)
+                    loc2molden[:,idx_actv] = self.loc2amo
+                except Exception as e:
+                    print (idx_unac)
+                    print (idx_actv)
+                    print (self.norbs_imp, self.nelec_imp, self.nelec_as, loc2molden.shape, self.loc2imp.shape, get_complementary_states (self.imp2amo).shape, self.loc2amo.shape)
+                    raise (e) 
             if canonicalize or (natorb and any ([x in self.imp_solver_name for x in ('CASSCF', 'RHF')])):
                 loc2molden[:,idx_unac] = matrix_eigen_control_options (FOCK, strong_symm=False,
                     subspace=loc2molden[:,idx_unac], symmetry=self.loc2symm, sort_vecs=1,

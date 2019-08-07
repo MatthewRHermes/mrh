@@ -43,7 +43,7 @@ from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, 
 from mrh.util.basis import is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal, get_overlapping_states
 from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis, are_bases_orthogonal, measure_subspace_blockbreaking
 from mrh.util.basis import assign_blocks, align_states, measure_subspace_blockbreaking
-from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM
+from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM, get_1RDM_from_OEI
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
 from itertools import combinations, product
@@ -518,8 +518,10 @@ class dmet:
 
         # Initial lasci cycle!
         if self.doLASSCF and sum ([f.norbs_as for f in self.fragments]):
-            self.lasci_()
-
+            loc2wmas = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+            loc2wmcs = get_complementary_states (loc2wmas, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
+            self.refragmentation (loc2wmas, loc2wmcs, self.ints.oneRDM_loc)
+            self.save_checkpoint (self.calcname + '.chk.npy')
         while (u_diff > convergence_threshold):
             u_diff, rdm = self.doselfconsistent_corrpot (rdm, [('corrpot', iteration)])
             iteration += 1 
@@ -535,6 +537,7 @@ class dmet:
 
         for frag in self.fragments:
             if not (frag.imp_solver_name == 'dummy RHF'):
+                if self.doLASSCF: frag.do_Schmidt (self.ints.oneRDM_loc, self.fragments, self.ints.loc2idem, True)
                 fmt_str = "Writing {}".format (frag.frag_name) + " {} orbital molden"
                 print (fmt_str.format ('natural'))
                 frag.impurity_molden ('natorb', natorb=True)
@@ -644,17 +647,13 @@ class dmet:
             raise (e)
 
         if self.doLASSCF:
-            print ("Entering setup_wm_core_scf")
-            self.ints.setup_wm_core_scf (self.fragments, self.calcname)
-            self.save_checkpoint (self.calcname + '.chk.npy')
-
-        oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
-        if self.doLASSCF:
-            print ("Entering refragmentation")
-            oneRDM_loc = self.refragmentation (loc2wmas_old, loc2wmcs_old, oneRDM_loc)
+            #print ("Entering setup_wm_core_scf")
+            #self.ints.setup_wm_core_scf (self.fragments, self.calcname)
+            oneRDM_loc = self.ints.oneRDM_loc
         else:
             for frag in self.fragments:
                 frag.restore_default_embedding_basis ()
+            oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
 
         old_energy = self.energy
         self.energy = 0.0
@@ -687,8 +686,15 @@ class dmet:
             #frag.impurity_molden ('natorb', natorb=True)
             #frag.impurity_molden ('imporb')
             #frag.impurity_molden ('molorb', molorb=True)
-        
+
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+        loc2wmcs_new = get_complementary_states (loc2wmas_new, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
+        if self.doLASSCF:
+            print ("Entering refragmentation")
+            oneRDM_loc = sum ([f.oneRDMas_loc for f in self.fragments if f.norbs_as])
+            oneRDM_loc += 2 * get_1RDM_from_OEI (self.ints.activeFOCK, self.ints.nelec_idem//2, subspace=loc2wmcs_new)
+            self.refragmentation (loc2wmas_new, loc2wmcs_new, oneRDM_loc)
+            self.save_checkpoint (self.calcname + '.chk.npy')
         try:
             orb_diff = measure_basis_olap (loc2wmas_new, loc2wmcs_old)[0] / max (1,loc2wmas_new.shape[1])
         except:
@@ -829,8 +835,8 @@ class dmet:
                 assert (is_basis_orthonormal (loc2amo))
                 assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
 
-        self.lasci ()
-        return oneRDM_loc
+        self.lasci_()
+        return self.ints.oneRDM_loc # delete self.ints. if you take away the self.lasci_() above
 
     def refrag_lowdin_active (self, loc2wmas, oneRDM_loc):
         
@@ -1425,8 +1431,8 @@ class dmet:
             f.ci_as_orb = loc2amo
             f.oneRDMas_loc = dma + dmb
             f.oneSDMas_loc = dma - dmb
-            f.oneRDM_loc = self.ints.oneRDM_loc
-            f.oneSDM_loc = self.ints.oneSDM_loc
+            f.oneRDM_loc = self.ints.oneRDM_loc.copy ()
+            f.oneSDM_loc = self.ints.oneSDM_loc.copy ()
             abs_2MS = abs (int (round (f.target_MS*2)))
             neleca = (f.active_space[0] + abs_2MS) // 2
             nelecb = (f.active_space[0] - abs_2MS) // 2
