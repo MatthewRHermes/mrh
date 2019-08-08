@@ -7,6 +7,21 @@ from functools import reduce
 from pyscf.scf.hf import energy_elec
 from pyscf.lib import logger
 
+def metaclass (mf):
+    class HFmetaclass (mf.__class__):
+        def __init__(self, my_mf):
+            self.__dict__.update (my_mf.__dict__)
+        eig = RHFas.eig
+        get_occ = RHFas.get_occ
+        get_fock = RHFas.get_fock
+        get_grad = RHFas.get_grad
+        energy_tot = RHFas.energy_tot   
+        build_frozen_from_mo = RHFas.build_frozen_from_mo
+        set_frozdm = RHFas.set_frozdm
+        get_fo_coeff = RHFas.get_fo_coeff
+        get_ufo_coeff = RHFas.get_ufo_coeff
+    return HFmetaclass (mf)
+
 def update_rdm12 (u, dm1, dm2):
     '''
     PySCF convention: density matrix indices are backwards?
@@ -69,9 +84,9 @@ def get_occ_activespace(mf, mo_energy=None, mo_coeff=None):
                         e_sort[nocc-1], e_sort[nocc])
 
     if mf.verbose >= logger.DEBUG:
-        numpy.set_printoptions(threshold=nmo)
+        np.set_printoptions(threshold=nmo)
         logger.debug(mf, '  mo_energy =\n%s', mo_energy)
-        numpy.set_printoptions(threshold=1000)
+        np.set_printoptions(threshold=1000)
     return mo_occ
 
 def energy_tot_activespace (mf, dm=None, h1e=None, vhf=None):
@@ -86,7 +101,7 @@ def energy_tot_activespace (mf, dm=None, h1e=None, vhf=None):
     else:
         return hf.energy_tot (mf, dm, h1e, vhf)
 
-class RHF(hf.RHF):
+class RHFas(hf.RHF):
     '''
     MRH: A class to do HF in a subspace with some frozen density matrices that have an arbitrary density matrix
 
@@ -116,7 +131,7 @@ class RHF(hf.RHF):
         self._e2_froz = None
         hf.RHF.__init__(self, mol)
 
-    def build_frozen_from_mo (self, mo_coeff, ncore, nfroz, frozdm1=None, frozdm2=None):
+    def build_frozen_from_mo (self, mo_coeff, ncore, nfroz, frozdm1=None, frozdm2=None, eri_fo=None):
 
         # get natural fo's
         wo_coeff = np.copy (mo_coeff)
@@ -127,7 +142,7 @@ class RHF(hf.RHF):
         self._e1_froz = None
         self._e2_froz = None
         if frozdm1 is not None or frozdm2 is not None:
-            self.set_frozdm (frozdm1, frozdm2)
+            self.set_frozdm (frozdm1, frozdm2, eri_fo)
 
     def get_fo_coeff (self):
         return self.wo_coeff[:,self.ncore:self.ncore+self.nfroz]
@@ -138,7 +153,7 @@ class RHF(hf.RHF):
         idx[self.ncore+self.nfroz:] = True
         return self.wo_coeff[:,idx]
 
-    def set_frozdm (self, frozdm1=None, frozdm2=None):
+    def set_frozdm (self, frozdm1=None, frozdm2=None, eri_fo=None):
         self.frozdm1 = frozdm1
         self.frozdm2 = frozdm2
         ncore = self.ncore
@@ -154,7 +169,10 @@ class RHF(hf.RHF):
             dm1 = reduce (np.dot, [fo_coeff, frozdm1, fo_coeff.conjugate ().T])
             self._e1_froz = energy_elec (self, dm1)[1]
         if frozdm2 is not None:
-            eri_fo = ao2mo.full(self.mol, fo_coeff, compact=False).reshape (nfroz, nfroz, nfroz, nfroz)
+            if eri_fo is None:
+                eri_fo = ao2mo.full(self.mol, fo_coeff, compact=False).reshape (nfroz, nfroz, nfroz, nfroz)
+            else:
+                eri_fo = ao2mo.restore (1, eri_fo, nfroz)
             self._e2_froz = 0.5 * np.tensordot (eri_fo, frozdm2, axes=4)
 
     def eig (self, h, s):

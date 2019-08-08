@@ -1,6 +1,7 @@
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf import symm, gto, scf, ao2mo, lib
 from mrh.my_pyscf.fci import csf_solver
+from mrh.my_pyscf.scf import hf_as
 from itertools import combinations
 from scipy import linalg
 import numpy as np
@@ -182,8 +183,18 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
     converged = False
     ci1 = ci0
     for it in range (las.max_cycle):
-        mo_energy, mo_coeff, e_cas, ci1 = eigall (las, mo_coeff, ci1, veff_sub, h2eff_sub, log)
-        t1 = log.timer ('LASCI eigall', *t1)
+        e_cas, ci1 = ci_cycle (las, mo_coeff, ci1, veff_sub, h2eff_sub, log)
+        t1 = log.timer ('LASCI ci_cycle', *t1)
+
+        veff_old_sub = veff_sub.copy ()
+        veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
+        t1 = log.timer ('LASCI get_veff', *t1)
+
+        e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff_sub=veff_sub)
+        print ("LASCI energy after ci step only: {:.15g}".format (e_tot))
+
+        mo_energy, mo_coeff = inac_scf_cycle (las, mo_coeff, ci1, veff_sub, h2eff_sub, log)
+        t1 = log.timer ('LASCI hf_as cycle', *t1)
 
         veff_old_sub = veff_sub.copy ()
         veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
@@ -203,12 +214,12 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         
     return converged, e_tot, mo_energy, mo_coeff, e_cas, ci1
 
-def eigall (las, mo, ci0, veff_sub, h2eff_sub, log):
+def ci_cycle (las, mo, ci0, veff_sub, h2eff_sub, log):
     if ci0 is None: ci0 = [None for idx in range (len (las.ncas_sub))]
     # CI problems
+    t1 = (time.clock(), time.time())
     h1eff_sub = las.get_h1eff (mo, veff_sub=veff_sub)
     ncas_cum = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
-    t1 = (time.clock(), time.time())
     e_cas = []
     ci1 = []
     for isub, (ncas, nelecas, spin, h1eff, fcivec) in enumerate (zip (las.ncas_sub, las.nelecas_sub, las.spin_sub, h1eff_sub, ci0)):
@@ -238,6 +249,24 @@ def eigall (las, mo, ci0, veff_sub, h2eff_sub, log):
         e_cas.append (e_sub)
         ci1.append (fcivec)
         t1 = log.timer ('FCI solver for subspace {}'.format (isub), *t1)
+    return e_cas, ci1
+
+def inac_scf_cycle (las, mo, ci0, veff_sub, h2eff_sub, log):
+    casdm1 = las.make_casdm1 (ci=ci0)
+    casdm2 = las.make_casdm2 (ci=ci0)
+    ncas = las.ncas
+    nocc = las.ncore + ncas
+    eri_cas = h2eff_sub[las.ncore:nocc].reshape (ncas*ncas, -1)
+    ix_i, ix_j = np.tril_indices (ncas)
+    eri_cas = eri_cas[(ix_i*ncas)+ix_j,:]
+    mf = hf_as.metaclass (las._scf)
+    mf.max_cycle = 50
+    mf.build_frozen_from_mo (mo, las.ncore, ncas, frozdm1=casdm1, frozdm2=casdm2, eri_fo=eri_cas)
+    mf.mo_coeff = mo
+    mf.kernel ()
+    assert (mf.converged), 'inac scf cycle not converged'
+    return mf.mo_energy, mf.mo_coeff
+    '''
     # unactive MOs
     idx_unac = np.zeros (mo.shape[-1], dtype=np.bool_)
     idx_unac[:las.ncore] = True
@@ -260,15 +289,14 @@ def eigall (las, mo, ci0, veff_sub, h2eff_sub, log):
     mo1[:,:ncore] = mo_unac @ u[:,:ncore]
     mo1[:,nocc:] = mo_unac @ u[:,ncore:]
     if hasattr (las, 'wfnsym') and hasattr (mo, 'orbsym'):
-        '''
         orbsym = mo.orbsym
         orbsym[:las.ncore] = orbsym_unac[:las.ncore]
         orbsym[las.ncore+las.ncas:] = orbsym_unac[las.ncore:]
         mo1 = lib.tag_array (mo1, orbsym=orbsym)
-        '''
-        mo1 = casci_symm.label_symmetry_(las, mo1, None)
+        #mo1 = casci_symm.label_symmetry_(las, mo1, None)
     t1 = log.timer ('Unactive orbital Fock diagonalization', *t1)
     return mo_energy, mo1, e_cas, ci1
+    '''
 
 def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None, veff_sub=None):
     ''' f_pq = h_pq + (g_pqrs - g_psrq/2) D_rs, AO basis
