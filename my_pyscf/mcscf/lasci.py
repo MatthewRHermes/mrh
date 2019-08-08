@@ -67,7 +67,25 @@ def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=
         ci0 = ci0.ravel ()
         eci0 = ci0.dot(hc0)
         gci.append ((hc0 - ci0 * eci0).ravel ())
-    return gorb.ravel (), np.concatenate (gci)
+
+    # The external part. Semi-cumulant decomposition works between active/inactive but not among active subspaces
+    dm1 = las.make_casdm1 (ci=ci)
+    mo_cas = mo_coeff[:,ncore:nocc]
+    moH = mo_coeff.conjugate ().T
+    gx = moH @ fock @ mo_cas @ dm1
+    dm2 = las.make_casdm2 (ci = ci)
+    dm1_outer = np.multiply.outer (dm1, dm1)
+    dm1_outer -= dm1_outer.transpose (0,3,2,1) / 2 
+    dm2 -= dm1_outer
+    dm2 = (dm2 + dm2.transpose (0,1,3,2)).reshape (las.ncas, las.ncas, -1)
+    ix_i, ix_j = np.tril_indices (las.ncas)
+    dm2 = dm2[:,:,(ix_i*las.ncas)+ix_j].reshape (las.ncas, -1).T
+    gx += h2eff_sub @ dm2
+    moH_inac = mo_inac.conjugate ().T
+    gx[:ncore,:] -= 2 * moH_inac @ fock @ mo_cas
+    gx = np.append (gx[:ncore,:], gx[nocc:,:], axis=0)
+
+    return gorb.ravel (), np.concatenate (gci), gx.ravel ()
 
 def density_fit (las, auxbasis=None, with_df=None):
     ''' Here I ONLY need to attach the tag and the df object because I put conditionals in LASCINoSymm to make my life easier '''
@@ -172,13 +190,14 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         t1 = log.timer ('LASCI get_veff', *t1)
 
         e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff_sub=veff_sub)
-        gorb, gci = las.get_grad (mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff_sub=veff_sub)
+        gorb, gci, gx = las.get_grad (mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff_sub=veff_sub)
         norm_gorb = linalg.norm (gorb) if gorb.size else 0.0
         norm_gci = linalg.norm (gci) if gci.size else 0.0
-        lib.logger.info (las, 'LASCI %d E = %.15g ; |orb gradient| = %.15g ; |ci gradient| = %.15g', it+1, e_tot, norm_gorb, norm_gci)
+        norm_gx = linalg.norm (gx) if gx.size else 0.0
+        lib.logger.info (las, 'LASCI %d E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', it+1, e_tot, norm_gorb, norm_gci, norm_gx)
         t1 = log.timer ('LASCI post-cycle energy & gradient', *t1)
         
-        if norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad**2:
+        if (norm_gorb < conv_tol_grad or norm_gorb*10 < norm_gx) and norm_gci < conv_tol_grad:
             converged = True
             break
         
@@ -211,7 +230,6 @@ def eigall (las, mo, ci0, veff_sub, h2eff_sub, log):
             orbsym = mo.orbsym[i:j]
             wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (las.mol.groupname, wfnsym)
             log.info ("LASCI subspace {} with irrep {}".format (isub, wfnsym_str))
-        print (wfnsym, orbsym)
         e_sub, fcivec = las.fcisolver.kernel(h1e, eri_cas, ncas, nel,
                                                ci0=fcivec, verbose=log,
                                                max_memory=max_memory,
@@ -310,21 +328,42 @@ class LASCINoSymm (casci.CASCI):
         mo = mo[:,:self.ncas_sub[idx]]
         return mo
 
+    def ao2mo (self, mo_coeff=None):
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        mo_cas = mo_coeff[:,self.ncore:self.ncore+self.ncas]
+        mo = [mo_coeff, mo_cas, mo_cas, mo_cas]
+        if getattr (self, 'with_df', None) is not None:
+            eri = self.with_df.ao2mo (mo, compact=True)
+        elif getattr (self._scf, '_eri', None) is not None:
+            eri = ao2mo.incore.general (self._scf._eri, mo, compact=True)
+        else:
+            eri = ao2mo.outcore.general_iofree (self.mol, mo, compact=True)
+        eri = eri.reshape (mo_coeff.shape[1], -1)
+        return eri
+
     def get_h2eff_slice (self, h2eff, idx, compact=None):
         ncas_cum = np.cumsum ([0] + self.ncas_sub.tolist ())
         i = ncas_cum[idx] 
         j = ncas_cum[idx+1]
-        eri = ao2mo.restore (1, h2eff, self.ncas)[i:j,i:j,i:j,i:j]
+        ncore = self.ncore
+        nocc = ncore + self.ncas
+        eri = h2eff[ncore:nocc,:].reshape (self.ncas*self.ncas, -1)
+        ix_i, ix_j = np.tril_indices (self.ncas)
+        eri = eri[(ix_i*self.ncas)+ix_j,:]
+        eri = ao2mo.restore (1, eri, self.ncas)[i:j,i:j,i:j,i:j]
         if compact: eri = ao2mo.restore (compact, eri, j-i)
         return eri
 
     get_h1eff = get_h1cas = h1e_for_cas = h1e_for_cas
+    get_h2eff = ao2mo
+    '''
     def get_h2eff (self, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if isinstance (self, _DFLASCI):
             mo_cas = mo_coeff[:,self.ncore:][:,:self.ncas]
             return self.with_df.ao2mo (mo_cas)
         return self.ao2mo (mo_coeff)
+    '''
 
     get_fock = get_fock
     get_grad = get_grad
@@ -454,7 +493,7 @@ class LASCINoSymm (casci.CASCI):
             casdm2[i:j, i:j, i:j, i:j] = dm2
         # Off-diagonal
         casdm1s_sub = self.make_casdm1s_sub (ci=ci)
-        for (isub1, dm1s1), (isub2, dm1s2) in combinations (enumerate (casdm1s_sub, 2)):
+        for (isub1, dm1s1), (isub2, dm1s2) in combinations (enumerate (casdm1s_sub), 2):
             i = ncas_cum[isub1]
             j = ncas_cum[isub1+1]
             k = ncas_cum[isub2]

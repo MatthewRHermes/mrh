@@ -1410,6 +1410,8 @@ class dmet:
         mf.mo_occ = no_occ
         las = lasci.LASCI (mf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub)
         e_tot, _, ci_sub = las.kernel (casdm0_sub = casdm0_sub)[:3]
+        if not las.converged:
+            raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))
         return las
 
