@@ -11,6 +11,7 @@ def metaclass (mf):
     class HFmetaclass (mf.__class__):
         def __init__(self, my_mf):
             self.__dict__.update (my_mf.__dict__)
+            self.mo_coeff = my_mf.mo_coeff.copy ()
         eig = RHFas.eig
         get_occ = RHFas.get_occ
         get_fock = RHFas.get_fock
@@ -196,7 +197,6 @@ class RHFas(hf.RHF):
 
         mo_energy = np.concatenate ([mo_energy[:ncore], fo_energy, mo_energy[ncore:]])
         mo_coeff = np.concatenate ([mo_coeff_ov[:,:ncore], fo_coeff, mo_coeff_ov[:,ncore:]], axis=1)
-
         return mo_energy, mo_coeff
 
     get_occ = get_occ_activespace
@@ -206,13 +206,14 @@ class RHFas(hf.RHF):
         ncore = self.ncore
         nocc = ncore + self.nfroz
         nmo = mo_occ.size
-        if fock is None:
-            dm1 = self.make_rdm1 (mo_coeff, mo_occ)
-            fock = self.get_hcore (self.mol) + self.get_veff (self.mol, dm1)
+        #if fock is None: 
+        dm1 = self.make_rdm1 (mo_coeff, mo_occ)
+        fock = self.get_fock (dm=dm1)
+            #fock = self.get_hcore (self.mol) + self.get_veff (self.mol, dm1)
         idx = np.zeros (nmo, dtype=np.bool_)
         idx[:ncore] = True
         idx[nocc:] = True
-        mo_occ_reduced = mo_occ[idx]
+        mo_occ_reduced = np.around (mo_occ[idx]).astype (np.int32)
         mo_coeff_reduced = mo_coeff[:,idx]
         return hf.get_grad (mo_coeff_reduced, mo_occ_reduced, fock)
 

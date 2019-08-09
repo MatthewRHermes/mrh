@@ -1,4 +1,6 @@
+from pyscf.scf.rohf import get_roothaan_fock
 from pyscf.mcscf import casci, casci_symm, df
+from pyscf.tools import molden
 from pyscf import symm, gto, scf, ao2mo, lib
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.scf import hf_as
@@ -26,13 +28,13 @@ def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
 class _DFLASCI: # Tag
     pass
 
-def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=None, veff_sub=None):
+def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=None, veff_sub=None, dm1s=None):
     ''' Return energy gradient for 1) inactive-external orbital rotation and 2) CI relaxation.
     Eventually to include 3) intersubspace orbital rotation. '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
     if veff_sub is None: veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci)
-    if fock is None: fock = las.get_fock (veff_sub=veff_sub)
+    if fock is None: fock = las.get_fock (veff_sub=veff_sub, dm1s=dm1s)
     if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, veff_sub=veff_sub)
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     nao, nmo = mo_coeff.shape
@@ -169,6 +171,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
     # In the first cycle, I may pass casdm0_sub instead of ci0. Therefore, I need to work out this get_veff call separately.
     if ci0 is not None:
         veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci0)
+        dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci0, include_core=True)
     elif casdm0_sub is not None:
         dm1_core = mo_coeff[:,:las.ncore] @ mo_coeff[:,:las.ncore].conjugate ().T
         dm1s_sub = [np.stack ([dm1_core, dm1_core], axis=0)]
@@ -177,31 +180,34 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
             moH = mo.conjugate ().T
             dm1s_sub.append (np.tensordot (mo, np.dot (casdm1s, moH), axes=((1),(1))).transpose (1,0,2))
         dm1s_sub = np.stack (dm1s_sub, axis=0)
-        veff_sub = las.get_veff (dm1s=dm1s_sub)
+    dm1s = dm1s_sub.sum (0)
+    veff_sub = las.get_veff (dm1s=dm1s_sub)
     t1 = log.timer('LASCI initial get_veff', *t1)
 
     converged = False
     ci1 = ci0
     for it in range (las.max_cycle):
-        e_cas, ci1 = ci_cycle (las, mo_coeff, ci1, veff_sub, h2eff_sub, log)
+        e_cas, ci1 = ci_cycle (las, mo_coeff, ci1, veff_sub, h2eff_sub, dm1s_sub, log)
+        log.info ('LASCI subspace CI energies: {}'.format (e_cas))
         t1 = log.timer ('LASCI ci_cycle', *t1)
 
         veff_old_sub = veff_sub.copy ()
+        dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci1, include_core=True)
         veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
         t1 = log.timer ('LASCI get_veff', *t1)
 
-        e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff_sub=veff_sub)
-        print ("LASCI energy after ci step only: {:.15g}".format (e_tot))
-
-        mo_energy, mo_coeff = inac_scf_cycle (las, mo_coeff, ci1, veff_sub, h2eff_sub, log)
+        mo_energy, mo1 = inac_scf_cycle (las, mo_coeff, ci1, veff_sub, h2eff_sub, dm1s_sub, log)
+        mo_coeff = mo1
         t1 = log.timer ('LASCI hf_as cycle', *t1)
+        h2eff_sub = las.get_h2eff (mo_coeff)
 
         veff_old_sub = veff_sub.copy ()
+        dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci1, include_core=True)
         veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
         t1 = log.timer ('LASCI get_veff', *t1)
 
         e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff_sub=veff_sub)
-        gorb, gci, gx = las.get_grad (mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff_sub=veff_sub)
+        gorb, gci, gx = las.get_grad (mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff_sub=veff_sub, dm1s=dm1s_sub.sum (0))
         norm_gorb = linalg.norm (gorb) if gorb.size else 0.0
         norm_gci = linalg.norm (gci) if gci.size else 0.0
         norm_gx = linalg.norm (gx) if gx.size else 0.0
@@ -211,10 +217,10 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         if (norm_gorb < conv_tol_grad or norm_gorb*10 < norm_gx) and norm_gci < conv_tol_grad:
             converged = True
             break
-        
+    
     return converged, e_tot, mo_energy, mo_coeff, e_cas, ci1
 
-def ci_cycle (las, mo, ci0, veff_sub, h2eff_sub, log):
+def ci_cycle (las, mo, ci0, veff_sub, h2eff_sub, dm1s_sub, log):
     if ci0 is None: ci0 = [None for idx in range (len (las.ncas_sub))]
     # CI problems
     t1 = (time.clock(), time.time())
@@ -222,6 +228,7 @@ def ci_cycle (las, mo, ci0, veff_sub, h2eff_sub, log):
     ncas_cum = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
     e_cas = []
     ci1 = []
+    e0 = las.energy_nuc () + ((las.get_hcore ()[None,:,:] + veff_sub[0]/2) * dm1s_sub[0]).sum ()
     for isub, (ncas, nelecas, spin, h1eff, fcivec) in enumerate (zip (las.ncas_sub, las.nelecas_sub, las.spin_sub, h1eff_sub, ci0)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
@@ -244,27 +251,31 @@ def ci_cycle (las, mo, ci0, veff_sub, h2eff_sub, log):
         e_sub, fcivec = las.fcisolver.kernel(h1e, eri_cas, ncas, nel,
                                                ci0=fcivec, verbose=log,
                                                max_memory=max_memory,
-                                               ecore=0, smult=spin,
+                                               ecore=e0, smult=spin,
                                                wfnsym=wfnsym, orbsym=orbsym)
         e_cas.append (e_sub)
         ci1.append (fcivec)
         t1 = log.timer ('FCI solver for subspace {}'.format (isub), *t1)
     return e_cas, ci1
 
-def inac_scf_cycle (las, mo, ci0, veff_sub, h2eff_sub, log):
+def inac_scf_cycle (las, mo, ci0, veff_sub, h2eff_sub, dm1s_sub, log):
     casdm1 = las.make_casdm1 (ci=ci0)
     casdm2 = las.make_casdm2 (ci=ci0)
+    ncore = las.ncore
     ncas = las.ncas
-    nocc = las.ncore + ncas
-    eri_cas = h2eff_sub[las.ncore:nocc].reshape (ncas*ncas, -1)
+    nocc = ncore + ncas
+    # hf_as unavoidably scrambles the active/frozen orbitals, but that's OK, I can just hold them back and fix it later
+    hold_mo = mo[:,ncore:nocc].copy ()
+    eri_cas = h2eff_sub[ncore:nocc].reshape (ncas*ncas, -1)
     ix_i, ix_j = np.tril_indices (ncas)
     eri_cas = eri_cas[(ix_i*ncas)+ix_j,:]
     mf = hf_as.metaclass (las._scf)
     mf.max_cycle = 50
-    mf.build_frozen_from_mo (mo, las.ncore, ncas, frozdm1=casdm1, frozdm2=casdm2, eri_fo=eri_cas)
-    mf.mo_coeff = mo
-    mf.kernel ()
-    assert (mf.converged), 'inac scf cycle not converged'
+    mf.build_frozen_from_mo (mo, ncore, ncas, frozdm1=casdm1, frozdm2=casdm2)
+    mf.mo_coeff = mo.copy ()
+    mf.kernel (dm1s_sub.sum ((0,1)))
+    #assert (mf.converged), 'inac scf cycle not converged'
+    mf.mo_coeff[:,ncore:nocc] = hold_mo
     return mf.mo_energy, mf.mo_coeff
     '''
     # unactive MOs
@@ -298,7 +309,7 @@ def inac_scf_cycle (las, mo, ci0, veff_sub, h2eff_sub, log):
     return mo_energy, mo1, e_cas, ci1
     '''
 
-def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None, veff_sub=None):
+def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None, veff_sub=None, dm1s=None):
     ''' f_pq = h_pq + (g_pqrs - g_psrq/2) D_rs, AO basis
     Note the difference between this and h1e_for_cas: h1e_for_cas only has
     JK terms from electrons outside the "current" active subspace; get_fock
@@ -308,7 +319,9 @@ def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None,
     The "eris" kwarg does not do anything and is retained only for backwards
     compatibility (also why I don't just call las.make_rdm1) '''
     if veff_sub is not None:
-        return las.get_hcore () + veff_sub.sum ((0,1))/2 # spin-adapted component
+        #return las.get_hcore () + veff_sub.sum ((0,1))/2 # spin-adapted component
+        fock = las.get_hcore()[None,:,:] + veff_sub.sum (0)
+        return get_roothaan_fock (fock, dm1s, las._scf.get_ovlp ())
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
     if casdm1 is None: casdm1 = las.make_casdm1 (ci=ci)
@@ -477,7 +490,8 @@ class LASCINoSymm (casci.CASCI):
             moH_core = mo_core.conjugate ().T
             dm_core = mo_core @ moH_core
             rdm1s = [np.stack ([dm_core, dm_core], axis=0)] + rdm1s
-        return np.stack (rdm1s, axis=0)
+        rdm1s = np.stack (rdm1s, axis=0)
+        return rdm1s
 
     def make_rdm1_sub (self, **kwargs):
         return self.make_rdm1s_sub (**kwargs).sum (1)
