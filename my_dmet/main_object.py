@@ -836,7 +836,7 @@ class dmet:
                 assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
 
         #self.ints.setup_wm_core_scf (self.fragments, self.calcname)
-        self.lasci_(oneRDM_loc)
+        self.lasci_(oneRDM_loc, loc2wmas=loc2wmas)
         return self.ints.oneRDM_loc # delete self.ints. if you take away the self.lasci_() above
 
     def refrag_lowdin_active (self, loc2wmas, oneRDM_loc):
@@ -1274,7 +1274,8 @@ class dmet:
     def get_las_nos (self, **kwargs):
         ''' Save MOs in a form that can be loaded for a CAS calculation on a npy file '''
         kwargs['aobasis'] = True
-        kwargs['loc2wmas'] = [frag.loc2amo for frag in self.fragments]
+        if not 'loc2wmas' in kwargs or kwargs['loc2wmas'] is None:
+            kwargs['loc2wmas'] = [frag.loc2amo for frag in self.fragments]
         return self.ints.get_trial_nos (**kwargs)
 
     def void_symmetry (self):
@@ -1361,9 +1362,9 @@ class dmet:
             print ("This system loses its symmetry")
         return symmetry
 
-    def lasci (self, dm0=None):
+    def lasci (self, dm0=None, loc2wmas=None):
         # If I don't force_imp this won't work properly for the initialization, but then again it won't be called
-        ao2no, no_ene, no_occ = self.get_las_nos (oneRDM_loc=dm0)
+        ao2no, no_ene, no_occ = self.get_las_nos (oneRDM_loc=dm0, loc2wmas=loc2wmas)
         molden.from_mo (self.ints.mol, self.calcname + '_feed.molden', ao2no, occ=no_occ, ene=no_ene)
         loc2ao = self.ints.ao2loc.conjugate ().T
         loc2no = loc2ao @ self.ints.ao_ovlp @ ao2no
@@ -1415,9 +1416,9 @@ class dmet:
         print ("LASCI module energy: {:.9f}".format (e_tot))
         return las
 
-    def lasci_ (self, dm0=None):
+    def lasci_ (self, dm0=None, loc2wmas=None):
         ''' Do LASCI and then also update the fragment and ints object '''
-        las = self.lasci (dm0=dm0)
+        las = self.lasci (dm0=dm0, loc2wmas=loc2wmas)
         aoSloc = self.ints.ao_ovlp @ self.ints.ao2loc
         locSao = aoSloc.conjugate ().T
         oneRDMs_loc_sub = np.tensordot (locSao, np.dot (las.make_rdm1s_sub (), aoSloc), axes=((1),(2))).transpose (1,2,0,3)

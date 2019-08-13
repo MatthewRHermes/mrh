@@ -214,7 +214,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         lib.logger.info (las, 'LASCI %d E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', it+1, e_tot, norm_gorb, norm_gci, norm_gx)
         t1 = log.timer ('LASCI post-cycle energy & gradient', *t1)
         
-        if (norm_gorb < conv_tol_grad or norm_gorb*10 < norm_gx) and norm_gci < conv_tol_grad:
+        if norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad:
             converged = True
             break
     
@@ -269,12 +269,88 @@ def inac_scf_cycle (las, mo, ci0, veff_sub, h2eff_sub, dm1s_sub, log):
     eri_cas = h2eff_sub[ncore:nocc].reshape (ncas*ncas, -1)
     ix_i, ix_j = np.tril_indices (ncas)
     eri_cas = eri_cas[(ix_i*ncas)+ix_j,:]
-    mf = hf_as.metaclass (las._scf)
+    mf = hf_as.metaclass (las._scf.newton ())
     mf.max_cycle = 50
     mf.build_frozen_from_mo (mo, ncore, ncas, frozdm1=casdm1, frozdm2=casdm2)
-    mf.mo_coeff = mo.copy ()
-    mf.kernel (dm1s_sub.sum ((0,1)))
-    #assert (mf.converged), 'inac scf cycle not converged'
+    mo_occ = np.zeros (mo.shape[1])
+    mo_occ[:ncore] = 2.0
+    mo_occ[ncore:nocc] = mf._fo_occ
+    my_mo = mo.copy ()
+    my_mo[:,ncore:nocc] = mf.get_fo_coeff ()
+    mf.kernel (my_mo, mo_occ)#dm1s_sub.sum ((0,1))
+    smo = las._scf.get_ovlp () @ mf.mo_coeff
+    moH = mf.mo_coeff.conjugate ().T
+    ovlp_err = linalg.norm ((moH @ smo) - np.eye (smo.shape[1]))
+    log.debug ('Are MOs orthonormal? {}'.format (ovlp_err))
+    smo_core = smo[:,:ncore]
+    smo_cas = smo[:,ncore:nocc]
+    smo_virt = smo[:,nocc:]
+    moH_core = moH[:ncore,:]
+    moH_cas = moH[ncore:nocc,:]
+    moH_virt = moH[nocc:,:]
+    ovlp_err_cc = linalg.norm ((moH_core @ smo_core) - np.eye (smo_core.shape[1]))
+    ovlp_err_aa = linalg.norm ((moH_cas @ smo_cas) - np.eye (smo_cas.shape[1]))
+    ovlp_err_vv = linalg.norm ((moH_virt @ smo_virt) - np.eye (smo_virt.shape[1]))
+    ovlp_err_ca = linalg.norm (moH_core @ smo_cas)
+    ovlp_err_cv = linalg.norm (moH_core @ smo_virt)
+    ovlp_err_av = linalg.norm (moH_cas @ smo_virt)
+    log.debug ('MO orthonormality error by sector: cc = {} ; ca = {} ; cv = {} ; aa = {} ; av = {} ; vv = {}'.format (
+        ovlp_err_cc, ovlp_err_ca, ovlp_err_cv, ovlp_err_aa, ovlp_err_av, ovlp_err_vv))
+    dm_comp = mf.mo_coeff[:,ncore:nocc] @ np.diag (mf._fo_occ) @ mf.mo_coeff[:,ncore:nocc].conjugate ().T + 2 * mf.mo_coeff[:,:ncore] @ moH[:ncore,:]
+    dm_test = mf.make_rdm1 ()
+    log.debug ('Density matrix error? {}'.format (linalg.norm (dm_test - dm_comp)))
+    smoH = smo.conjugate ().T
+    smoH_core = smoH[:ncore,:]
+    smoH_cas = smoH[ncore:nocc,:]
+    smoH_virt = smoH[nocc:,:]
+    dmat_err_cc = linalg.norm (smoH_core @ (dm_test - dm_comp) @ smo_core)
+    dmat_err_aa = linalg.norm (smoH_cas @ (dm_test - dm_comp) @ smo_cas)
+    dmat_err_vv = linalg.norm (smoH_virt @ (dm_test - dm_comp) @ smo_virt)
+    dmat_err_ca = linalg.norm (smoH_core @ (dm_test - dm_comp) @ smo_cas)
+    dmat_err_cv = linalg.norm (smoH_core @ (dm_test - dm_comp) @ smo_virt)
+    dmat_err_av = linalg.norm (smoH_cas @ (dm_test - dm_comp) @ smo_virt)
+    log.debug ('Density matrix error by sector: cc = {} ; ca = {} ; cv = {} ; aa = {} ; av = {} ; vv = {}'.format (
+        dmat_err_cc, dmat_err_ca, dmat_err_cv, dmat_err_aa, dmat_err_av, dmat_err_vv))
+    dm_as = smoH_cas @ dm_test @ smo_cas
+    log.debug ('Density matrix symmetrical? {}'.format (linalg.norm (dm_test - dm_test.T)))
+    reorg_amo = mf.mo_coeff.copy ()
+    reorg_amo[:,ncore:nocc] = hold_mo
+    fock_las = las.get_fock (mo_coeff=reorg_amo, ci=ci0)
+    fock_mf = mf.get_fock (dm=dm_test)
+    log.debug ('Fock matrix disagreement? {}'.format (linalg.norm (fock_las - fock_mf)))
+    log.debug ('Fock matrix symmetrical? {}'.format (linalg.norm (fock_mf - fock_mf.T)))
+    fock_mf_mo = mf.mo_coeff.conjugate ().T @ fock_mf @ mf.mo_coeff
+    log.debug ('Fock matrix diagonal error? {}'.format (linalg.norm (np.diag (fock_mf_mo) - mf.mo_energy)))
+    log.debug ('Fock matrix diagonal error core? {}'.format (linalg.norm (np.diag (fock_mf_mo)[:ncore] - mf.mo_energy[:ncore])))
+    log.debug ('Fock matrix diagonal error cas? {}'.format (linalg.norm (np.diag (fock_mf_mo)[ncore:nocc] - mf.mo_energy[ncore:nocc])))
+    log.debug ('Fock matrix diagonal error virt? {}'.format (linalg.norm (np.diag (fock_mf_mo)[nocc:] - mf.mo_energy[nocc:])))
+    log.debug ('Fock matrix ltri norm? {}'.format (linalg.norm (fock_mf_mo[:ncore,nocc:])))
+    log.debug ('Fock matrix utri norm? {}'.format (linalg.norm (fock_mf_mo[nocc:,:ncore])))
+    uocc_h, s, uvirt = linalg.svd (fock_mf_mo[:ncore,nocc:])
+    uocc = uocc_h.conjugate ().T
+    uvirt_h = uvirt.conjugate ().T
+    log.debug ('Off-diagonal fock matrix singular values: {}'.format (s))
+    mo_diag = reorg_amo.copy ()
+    mo_diag[:,:ncore] = mo_diag[:,:ncore] @ uocc_h
+    mo_diag[:,nocc:] = mo_diag[:,nocc:] @ uvirt_h
+    svals = np.zeros (mo_diag.shape[1])
+    svals[:len(s)] = s[:]
+    svals[nocc:nocc+len(s)] = s[:]
+    molden.from_mo (mf.mol, 'diagnostic.molden', mo_diag, occ=svals)
+    hcore = mf.get_hcore ()
+    veff_sub = las.get_veff (mo_coeff=mo_diag, ci=ci0)
+    fock_veff = hcore + veff_sub.sum ((0,1))/2
+    log.debug ('veff_sub error? {}'.format (linalg.norm (fock_mf - fock_veff)))
+    fock_mf_mo1 = mo_diag.conjugate ().T @ fock_mf @ mo_diag
+    log.debug ('did I svd right? {}'.format (linalg.norm (np.diag (fock_mf_mo1[:ncore,nocc:])[:len(s)] - s)))
+    hcore_od = np.diag (mo_diag[:,:ncore].conjugate ().T @ hcore @ mo_diag[:,nocc:])
+    vhf_od = np.diag (mo_diag[:,:ncore].conjugate ().T @ (veff_sub[0].sum (0)/2) @ mo_diag[:,nocc:])
+    vci_od = np.diag (mo_diag[:,:ncore].conjugate ().T @ (veff_sub[1].sum (0)/2) @ mo_diag[:,nocc:])
+    if len (s) < len (hcore_od): s = np.append (s, np.zeros (len (s)-len(hcore_od)))
+    analysis = np.stack ([s, hcore_od, vhf_od, vci_od], axis=-1)
+    log.debug ('Decomposition of off-diagonal Fock svals:')
+    for idx, row in enumerate (analysis):
+        log.debug ('{} {:.5e} {:.5e} {:.5e} {:.5e}'.format (idx, *row))
     mf.mo_coeff[:,ncore:nocc] = hold_mo
     return mf.mo_energy, mf.mo_coeff
     '''
