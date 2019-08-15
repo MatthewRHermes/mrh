@@ -398,7 +398,8 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.ints = ints
         active_frags = [f for f in all_frags if f.norbs_as]
 
-        # Global things
+        # Global things. fock_s is zero because of the semi-cumulant decomposition; this only works because I
+        # don't call this constructer for intersubspace ranges!
         self.nmo = self.nao = ints.norbs_tot
         self.mo = self.moH = self.Smo = self.moHS = np.eye (self.nmo)
         oneSDM_loc = 0 #sum ([f.oneSDMas_loc for f in active_frags])
