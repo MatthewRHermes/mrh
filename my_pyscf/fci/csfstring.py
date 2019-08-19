@@ -160,6 +160,23 @@ class CSFTransformer (lib.StreamObject):
         self._update_symm_cache ()
         return self._orbsym
 
+    @property
+    def ndeta (self):
+        return special.comb (self._norb, self._neleca, exact=True)
+
+    @property
+    def ndetb (self):
+        return special.comb (self._norb, self._nelecb, exact=True)
+
+    @property
+    def ndet (self):
+        return self.ndeta * self.ndetb
+
+    @property
+    def ncsf (self):
+        if self.wfnsym is None or self._orbsym is None: return self.econf_csf_mask.size
+        return (self.confsym[self.econf_csf_mask] == self.wfnsym)
+
 def unpack_sym_ci (ci, idx, vec_on_cols=False):
     if idx is None: return ci
     tot_len = idx.size
