@@ -6,6 +6,7 @@ from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.scf import hf_as
 from itertools import combinations
+from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg
 import numpy as np
 import time
@@ -166,7 +167,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
     t0 = (time.clock(), time.time())
     log.debug('Start LASCI')
 
-    h2eff_sub = las.get_h2eff (mo_coeff)
+    h1eff_sub = las.get_h2eff (mo_coeff)
     t1 = log.timer('integral transformation to LAS space', *t0)
 
     # In the first cycle, I may pass casdm0_sub instead of ci0. Therefore, I need to work out this get_veff call separately.
@@ -746,12 +747,10 @@ class LASCI_UnitaryGroupGenerators (object):
                 l = sub_slice[ix2+1]
                 idx[i:j,k:l] = True
         self.uniq_orb_idx = idx
-        self.nvar_orb = np.count_nonzero (idx)
 
     def _init_ci (self, las, mo_coeff, ci):
         self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult)
             for norb, nelec, smult in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub)]
-        self.ncsf_sub = [transformer.ncsf for transformer in self.ci_transformers]
 
     def pack (self, kappa, ci_sub):
         x_orb = kappa[self.uniq_orb_idx]
@@ -771,6 +770,18 @@ class LASCI_UnitaryGroupGenerators (object):
             y = y[ncsf:]
 
         return kappa, ci_sub
+
+    @property
+    def nvar_orb (self):
+        return np.count_nonzero (self.uniq_orb_idx)
+
+    @property
+    def ncsf_sub (self):
+        return [transformer.ncsf for transformer in self.ci_transformers]
+
+    @property
+    def nvar_tot (self):
+        return self.nvar_orb + sum (self.ncsf_sub)
 
 class LASCISymm_UnitaryGroupGenerators (Lasci_UnitaryGroupGenerators):
     def __init__(self, las, mo_coeff, ci, orbsym=None, wfnsym_sub=None):
@@ -792,16 +803,155 @@ class LASCISymm_UnitaryGroupGenerators (Lasci_UnitaryGroupGenerators):
         self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult, orbsym=orbsym_i, wfnsym=wfnsym)
             for norb, nelec, smult, orbsym_i, wfnsym in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub,
             orbsym_sub, wfnsym_sub)]
-        self.ncsf_sub = [transformer.ncsf for transformer in self.ci_transformers]
+        
+class LASCI_HessianOperator (sparse_linalg.LinearOperator):
+
+    def __init__(self, las, ugg, mo_coeff=None, ci=None, ncore=None, ncas_sub=None, nelecas_sub=None, eri_cas=None):
+        if mo_coeff is None: mo_coeff = las.mo_coeff
+        if ci is None: ci = las.ci
+        if ncore is None: ncore = las.ncore
+        if ncas_sub is None: ncas_sub = las.ncas_sub
+        if nelecas_sub is None: nelecas_sub = las.nelecas_sub
+        self.las = las
+        self.ugg = ugg
+        self.mo_coeff = mo_coeff
+        self.ci = ci
+        self.ncore = ncore
+        self.ncas_sub = ncas_sub
+        self.nelecas_sub = nelecas_sub
+        self.ncas = ncas = sum (ncas_sub)
+        self.nmo = nmo = mo_coeff.shape[-1]
+        self.nocc = nocc = ncore + ncas
+        self.fcisolver = las.fcisolver
+
+        # Fixed veff-related things 
+        # h1e_ab is for gradient response and spans all MOs
+        # h1e_ab_sub is for ci response and spans the active superspace
+        dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci, include_core=True)
+        veff_sub = las.get_veff (dm1s=dm1s_sub)
+        self.fock = las.get_fock (veff_sub=veff_sub)
+        mo_cas = mo_coeff[:,ncore:nocc]
+        moH_cas = mo_cas.conjugate ().T
+        moH_coeff = mo_coeff.conjugate ().T
+        h1e_ab = las.get_hcore ()[None,:,:] * veff_sub.sum (0))
+        h1e_ab_sub = h1e_ab[None,:,:,:] - veff_sub
+        h1e_ab = np.dot (h1e_ab, mo_coeff).transpose (1,0,2)
+        self.h1e_ab = np.dot (moH_coeff, h1e_ab).transpose (1,0,2)
+        h1e_ab_sub = np.dot (h1e_ab_sub, mo_cas).transpose (2,3,0,1)
+        self.h1e_ab_sub = np.dot (moH_cas, h1e_ab_sub).transpose (2,3,0,1)
+
+        # ERI in active superspace
+        if eri_cas is None: eri_cas = las.get_h2eff (mo_coeff)
+        if eri_cas.size != self.ncas**4:
+            eri_cas = eri_cas.reshape (nmo, ncas, ncas*(ncas+1)//2)[ncore:nocc,...]
+            ix_i, ix_j = np.tril_indices (ncas)
+            eri_cas = eri_cas.reshape (ncas**2, ncas*(ncas+1)//2)[(ix_i*ncas)+ix_j,:] 
+        self.eri_cas = ao2mo.restore (1, eri_cas, ncas)
+
+        # Density matrices
+        self.casdm1s_sub = las.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        casdm1a = linalg.block_diag ([dm[0] for dm in self.casdm1s_sub])
+        casdm1b = linalg.block_diag ([dm[1] for dm in self.casdm1s_sub])
+        casdm1 = casdm1a + casdm1b
+        self.casdm2 = las.make_casdm2 (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        self.casdm2c = self.casdm2 - np.multiply.outer (casdm1, casdm1)
+        self.casdm2c += np.multiply.outer (casdm1a, casdm1a).transpose (0,3,2,1)
+        self.casdm2c += np.multiply.outer (casdm1b, casdm1b).transpose (0,3,2,1)
+        self.dm1s = np.stack ([np.eye (self.nmo, dtype=self.dtype), np.eye (self.nmo, dtype=self.dtype)], axis=0)
+        self.dm1s[0,ncore:nocc,ncore:nocc] = casdm1a
+        self.dm1s[1,ncore:nocc,ncore:nocc] = casdm1b
+        self.dm1s[:,nocc:,nocc:] = 0
+
+        # CI stuff
+        if getattr(self.fcisolver, 'gen_linkstr', None):
+            self.linkstrl = [self.fcisolver.gen_linkstr(no, ne, True) for no, ne in zip (ncas_sub, nelecas_sub)]
+            self.linkstr  = [self.fcisolver.gen_linkstr(no, ne, False) for no, ne in zip (ncas_sub, nelecas_sub)]
+        else:
+            self.linkstrl = self.linkstr  = None
+        self.hci0 = self.Hci_all (0.0, self.h1e_ab_sub, self.eri_cas, ci)
+        self.e0 = [hc.dot (c) for hc, c in zip (self.hci, ci)]
+        self.hci0 = [hc - c*e for hc, c, e in zip (self.hci, ci, self.e0)]
+
+        # That should be everything!
+
+    @property
+    def dtype (self):
+        return self.mo_coeff.dtype
+
+    @property
+    def shape (self):
+        return ((self.ugg.nvar_tot, self.ugg.nvar_tot))
+
+    def Hci (self, no, ne, h0e, h1e_ab, h2e, ci, linkstrl=None):
+        h1e_cs = ((h1e_ab[0] + h1e_ab[1])/2,
+                  (h1e_ab[0] - h1e_ab[1])/2)
+        h = self.fcisolver.absorb_h1e (h1e_cs, h2e, no, ne, 0.5)
+        hc = self.fcisolver.contract_2e (h, ci, no, ne, link_index=linkstrl).ravel ()
+        return hc
+
+    def Hci_all (self, h0e_sub, h1e_ab_sub, h2e, ci_sub):
+        hc = []
+        for isub, (h0e, h1e_ab, ci) in enumerate (zip (h0e_sub, h1e_ab_sub, ci_sub)):
+            if self.linkstrl is not None: linkstrl = self.linkstrl[isub]
+            ncas = self.ncas_sub[isub]
+            nelecas = self.nelecas_sub[isub]
+            i = self.ncore + sum (self.ncas_sub[:isub])
+            j = i + ncas
+            h2e_i = h2e[i:j,i:j,i:j,i:j]
+            hc.append (self.Hci (ncas, nelecas, h0e, h1e_ab, h2e_i, ci))
+        return hc
+
+    def make_edm1s_sub (self, kappa, ci1):
+        edm1s_sub = np.zeros ((len (ci1), 2, self.nmo, self.nmo), dtype=self.dtype)
+        edm1s_sub[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
+        for isub, (ncas, nelecas, c1, c0, casdm1s) in enumerate (
+          zip (self.ncas_sub, self.nelecas_sub, ci1, self.ci, self.casdm1s_sub)):
+            linkstr = None if self.linkstr is None else self.linkstr[isub]
+            i = self.ncore + sum (self.ncas_sub[:isub])
+            j = self.ncore + ncas
+            edm1s_sub[isub+1,:,i:j,i:j] = self.fcisolver.trans_rdm1s (c1, c0, ncas, nelecas, link_index=linkstr) 
+            edm1s_sub[isub+1,:,i:j,:] -= np.dot (casdm1s, kappa[i:j,:])
+        # overall transposition takes care of symmetric ci part and antisymmetric kappa part
+        edm1s_sub += edm1s_sub.transpose (0,1,3,2) 
+        return edm1s_sub    
+
+    def make_edm2c (self, kappa, ci1):
+        kappa_cas = kappa[:
+        # Does lambda work the way I want it to?
+
+    def get_veff (self, edm1s_sub):
+        ''' Returns both the veff for the orbital part and the h1e shift for the CI part.
+        Uses the cached eris for the latter in the hope that this is faster than calling get_jk with many dms.
+        Each element of edm1s_sub must be in the !full! MO basis because of orbrots'''
+        dm1s_mo = edm1s_sub.sum (0)
+        mo = self.mo_coeff
+        moH = mo.conjugate ().T
+        dm1s_ao = np.dot (moH, np.dot (dm1s_mo, mo).transpose (1,0,2)).transpose (1,0,2)
+        veff = las.get_veff (dm1s=dm1s_ao)
+        edm1s_las = edm1s_sub[1:][self.ncore:self.nocc,self.ncore:self.nocc]
+        edm1_las = edm1s_las.sum (1)
+        h1e_ab_sub = veff[None,:,:,:] + np.tensordot (edm1s_las, self.eri_cas, axes=((2,3),(2,1)))
+        h1e_ab_sub -= np.tensordot (edm1_las, self.eri_cas, axes=((1,2),(2,3)))[:,None,:,:]
+        return veff, h1e_ab_sub
+
+    def _matvec (self, x):
+        kappa, ci1 = self.ugg.unpack (x)
+
+        # Effective density matrices and veffs from linear response
+        edm1s_sub = self.make_edm1s_sub (kappa, ci1)
+        edm2c_sub = self.make_edm2c (kappa, ci1)
+        veff_prime, h1e_ab_prime = self.get_veff (edm1s_sub)
+
+        # 2-body Hamiltonian response
+        kappa_cas = kappa[self.ncore:self.nocc, self.ncore:self.nocc]
+        eri_kappa  = np.einsum ('tpvx,pu->tuvx', self.eri_cas, kappa_cas)
+        eri_kappa -= np.einsum ('tp,puvx->tuvx', self.eri_cas, kappa_cas)
+        eri_kappa -= np.einsum ('vp,tupx->tuvx', self.eri_cas, kappa_cas)
+        eri_kappa += np.einsum ('tuvp,px->tuvx', self.eri_cas, kappa_cas)
         
 
 
-
-
-
-
-
-
+    _rmatvec = _matvec # Hessian is Hermitian in this context!
 
 
 
