@@ -14,6 +14,85 @@ import time
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to handle spin-breaking potentials while retaining spin constraint
 # There's a lot that will have to be checked in the future with spin-breaking stuff, especially if I still have the convention ms < 0, na <-> nb and h1e_s *= -1 
 
+class LASCI_UnitaryGroupGenerators (object):
+    ''' Object for packing (for root-finding algorithms) and unpacking (for direct manipulation)
+    the nonredundant variables ('unitary group generators') of a LASCI problem. Selects nonredundant
+    lower-triangular part ('x') of a skew-symmetric orbital rotation matrix ('kappa') and transforms
+    CI transfer vectors between the determinant and configuration state function bases. Subclass me
+    to apply point-group symmetry. '''
+
+    def __init__(self, las, mo_coeff, ci):
+        self.nmo = mo_coeff.shape[-1]
+        self._init_orb (las, mo_coeff, ci)
+        self._init_ci (las, mo_coeff, ci)
+
+    def _init_orb (self, las, mo_coeff, ci):
+        idx = np.zeros ((self.nmo, self.nmo), dtype=np.bool)
+        sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
+        idx[sub_slice[-1]:,:sub_slice[0]] = True
+        for ix1, i in enumerate (sub_slice[:-1]):
+            j = sub_slice[ix1+1]
+            for ix2, k in enumerate (sub_slice[:ix1]):
+                l = sub_slice[ix2+1]
+                idx[i:j,k:l] = True
+        self.uniq_orb_idx = idx
+
+    def _init_ci (self, las, mo_coeff, ci):
+        self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult)
+            for norb, nelec, smult in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub)]
+
+    def pack (self, kappa, ci_sub):
+        x_orb = kappa[self.uniq_orb_idx]
+        x_ci = np.concatenate ([transformer.vec_det2csf (ci, normalize=False)
+            for transformer, ci in zip (self.ci_transformers, ci_sub)])
+        return np.append (x_orb.ravel (), x_ci.ravel ())
+
+    def unpack (self, x):
+        kappa = np.zeros ((self.nmo, self.nmo), dtype=x.dtype)
+        kappa[self.uniq_orb_idx] = x[:self.nvar_orb]
+        kappa = kappa - kappa.T
+
+        y = x[self.nvar_orb:]
+        ci_sub = []
+        for ncsf, transformer in zip (self.ncsf_sub, self.ci_transformers):
+            ci_sub.append (transformer.vec_csf2det (y[:ncsf], normalize=False))
+            y = y[ncsf:]
+
+        return kappa, ci_sub
+
+    @property
+    def nvar_orb (self):
+        return np.count_nonzero (self.uniq_orb_idx)
+
+    @property
+    def ncsf_sub (self):
+        return [transformer.ncsf for transformer in self.ci_transformers]
+
+    @property
+    def nvar_tot (self):
+        return self.nvar_orb + sum (self.ncsf_sub)
+
+class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
+    def __init__(self, las, mo_coeff, ci, orbsym=None, wfnsym_sub=None):
+        self.nmo = mo_coeff.shape[-1]
+        if orbsym is None: orbsym = mo_coeff.orbsym
+        if wfnsym_sub is None: wfnsym_sub = las.wfnsym_sub
+        self._init_orb (las, mo_coeff, ci, orbsym, wfnsym_sub)
+        self._init_ci (las, mo_coeff, ci, orbsym, wfnsym_sub)
+    
+    def _init_orb (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
+        super()._init_orb (las, mo_coeff, ci)
+        orbsym = mo_coeff.orbsym
+        symm_allowed = ~(orbsym[:,None] ^ orbsym[None,:])
+        self.uniq_orb_idx = self.uniq_orb_idx & symm_allowed
+
+    def _init_ci (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
+        sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
+        orbsym_sub = [orbsym[i:sub_slice[isub+1]] for isub, i in enumerate (sub_slice[:-1])]
+        self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult, orbsym=orbsym_i, wfnsym=wfnsym)
+            for norb, nelec, smult, orbsym_i, wfnsym in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub,
+            orbsym_sub, wfnsym_sub)]
+
 def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
@@ -167,7 +246,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
     t0 = (time.clock(), time.time())
     log.debug('Start LASCI')
 
-    h1eff_sub = las.get_h2eff (mo_coeff)
+    h2eff_sub = las.get_h2eff (mo_coeff)
     t1 = log.timer('integral transformation to LAS space', *t0)
 
     # In the first cycle, I may pass casdm0_sub instead of ci0. Therefore, I need to work out this get_veff call separately.
@@ -194,7 +273,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         t1 = log.timer ('LASCI ci_cycle', *t1)
 
         ugg = las.get_ugg (las, mo_coeff, ci1)
-        H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, eri_cas=h2eff_sub):
+        H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, eri_cas=h2eff_sub)
         g_vec = H_op.get_grad ()
         prec_op = H_op.get_prec ()
         microit = 0
@@ -393,7 +472,7 @@ def inac_scf_cycle (las, mo, ci0, veff_sub, h2eff_sub, dm1s_sub, log):
     return mo_energy, mo1, e_cas, ci1
     '''
 
-def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None, veff_sub=None, dm1s=None):
+def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None, veff_sub=None, dm1s=None):
     ''' f_pq = h_pq + (g_pqrs - g_psrq/2) D_rs, AO basis
     Note the difference between this and h1e_for_cas: h1e_for_cas only has
     JK terms from electrons outside the "current" active subspace; get_fock
@@ -402,18 +481,20 @@ def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1=None, verbose=None,
     semi-cumulant decomposition).
     The "eris" kwarg does not do anything and is retained only for backwards
     compatibility (also why I don't just call las.make_rdm1) '''
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    if ci is None: ci = las.ci
+    if casdm1s is None: casdm1s = las.make_casdm1s (ci=ci)
+    if dm1s is None:
+        mo_cas = mo_coeff[:,las.ncore:][:,:las.ncas]
+        moH_cas = mo_cas.conjugate ().T
+        mo_core = mo_coeff[:,:las.ncore]
+        moH_core = mo_core.conjugate ().T
+        dm1s = [(mo_core @ moH_core) + (mo_cas @ d @ moH_cas) for d in list(casdm1s)]
     if veff_sub is not None:
         #return las.get_hcore () + veff_sub.sum ((0,1))/2 # spin-adapted component
         fock = las.get_hcore()[None,:,:] + veff_sub.sum (0)
         return get_roothaan_fock (fock, dm1s, las._scf.get_ovlp ())
-    if mo_coeff is None: mo_coeff = las.mo_coeff
-    if ci is None: ci = las.ci
-    if casdm1 is None: casdm1 = las.make_casdm1 (ci=ci)
-    mo_cas = mo_coeff[:,las.ncore:][:,:las.ncas]
-    moH_cas = mo_cas.conjugate ().T
-    mo_core = mo_coeff[:,:las.ncore]
-    moH_core = mo_core.conjugate ().T
-    dm1 = (2 * mo_core @ moH_core) + (mo_cas @ casdm1 @ moH_cas)
+    dm1 = dm1s[0] + dm1s[1]
     if isinstance (las, _DFLASCI):
         vj, vk = las.with_df.get_jk(dm1, hermi=1)
     else:
@@ -733,84 +814,6 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
     get_ugg = LASCISymm_UnitaryGroupGenerators
 
-class LASCI_UnitaryGroupGenerators (object):
-    ''' Object for packing (for root-finding algorithms) and unpacking (for direct manipulation)
-    the nonredundant variables ('unitary group generators') of a LASCI problem. Selects nonredundant
-    lower-triangular part ('x') of a skew-symmetric orbital rotation matrix ('kappa') and transforms
-    CI transfer vectors between the determinant and configuration state function bases. Subclass me
-    to apply point-group symmetry. '''
-
-    def __init__(self, las, mo_coeff, ci):
-        self.nmo = mo_coeff.shape[-1]
-        self._init_orb (las, mo_coeff, ci)
-        self._init_ci (las, mo_coeff, ci)
-
-    def _init_orb (self, las, mo_coeff, ci):
-        idx = np.zeros ((self.nmo, self.nmo), dtype=np.bool)
-        sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
-        idx[sub_slice[-1]:,:sub_slice[0]] = True
-        for ix1, i in enumerate (sub_slice[:-1]):
-            j = sub_slice[ix1+1]
-            for ix2, k in enumerate (sub_slice[:ix1]):
-                l = sub_slice[ix2+1]
-                idx[i:j,k:l] = True
-        self.uniq_orb_idx = idx
-
-    def _init_ci (self, las, mo_coeff, ci):
-        self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult)
-            for norb, nelec, smult in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub)]
-
-    def pack (self, kappa, ci_sub):
-        x_orb = kappa[self.uniq_orb_idx]
-        x_ci = np.concatenate ([transformer.vec_det2csf (ci, normalize=False)
-            for transformer, ci in zip (self.ci_transformers, ci_sub)])
-        return np.append (x_orb.ravel (), x_ci.ravel ())
-
-    def unpack (self, x):
-        kappa = np.zeros ((self.nmo, self.nmo), dtype=x.dtype)
-        kappa[self.uniq_orb_idx] = x[:self.nvar_orb]
-        kappa = kappa - kappa.T
-
-        y = x[self.nvar_orb:]
-        ci_sub = []
-        for ncsf, transformer in zip (self.ncsf_sub, self.ci_transformers):
-            ci_sub.append (transformer.vec_csf2det (y[:ncsf], normalize=False))
-            y = y[ncsf:]
-
-        return kappa, ci_sub
-
-    @property
-    def nvar_orb (self):
-        return np.count_nonzero (self.uniq_orb_idx)
-
-    @property
-    def ncsf_sub (self):
-        return [transformer.ncsf for transformer in self.ci_transformers]
-
-    @property
-    def nvar_tot (self):
-        return self.nvar_orb + sum (self.ncsf_sub)
-
-class LASCISymm_UnitaryGroupGenerators (Lasci_UnitaryGroupGenerators):
-    def __init__(self, las, mo_coeff, ci, orbsym=None, wfnsym_sub=None):
-        self.nmo = mo_coeff.shape[-1]
-        if orbsym is None: orbsym = mo_coeff.orbsym
-        if wfnsym_sub is None: wfnsym_sub = las.wfnsym_sub
-        self._init_orb (las, mo_coeff, ci, orbsym, wfnsym_sub)
-        self._init_ci (las, mo_coeff, ci, orbsym, wfnsym_sub)
-    
-    def _init_orb (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
-        super()._init_orb (las, mo_coeff, ci)
-        orbsym = mo_coeff.orbsym
-        symm_allowed = ~(orbsym[:,None] ^ orbsym[None,:])
-        self.uniq_orb_idx = self.uniq_orb_idx & symm_allowed
-
-    def _init_ci (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
-        sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
-        orbsym_sub = [orbsym[i:sub_slice[isub+1]] for isub, i in enumerate (sub_slice[:-1])]
-        self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult, orbsym=orbsym_i, wfnsym=wfnsym)
-            for norb, nelec, smult, orbsym_i, wfnsym in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub,
-            orbsym_sub, wfnsym_sub)]
         
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
@@ -842,11 +845,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         mo_cas = mo_coeff[:,ncore:nocc]
         moH_cas = mo_cas.conjugate ().T
         moH_coeff = mo_coeff.conjugate ().T
-        h1e_ab = las.get_hcore ()[None,:,:] * veff_sub.sum (0))
+        h1e_ab = las.get_hcore ()[None,:,:] * veff_sub.sum (0)
         h1e_ab_sub = h1e_ab[None,:,:,:] - veff_sub
-        h1e_ab = np.dot (h1e_ab, mo_coeff).transpose (1,0,2)
+        h1e_ab = np.dot (h1e_ab, mo_coeff)
         self.h1e_ab = np.dot (moH_coeff, h1e_ab).transpose (1,0,2)
-        h1e_ab_sub = np.dot (h1e_ab_sub, mo_coeff).transpose (2,3,0,1)
+        h1e_ab_sub = np.dot (h1e_ab_sub, mo_coeff)
         self.h1e_ab_sub = np.dot (moH_coeff, h1e_ab_sub).transpose (2,3,0,1)
 
         # ERI in active superspace
