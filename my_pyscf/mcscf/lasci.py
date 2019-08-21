@@ -813,6 +813,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         if ncas_sub is None: ncas_sub = las.ncas_sub
         if nelecas_sub is None: nelecas_sub = las.nelecas_sub
         self.las = las
+        self.ah_level_shift = las.ah_level_shift
         self.ugg = ugg
         self.mo_coeff = mo_coeff
         self.ci = ci
@@ -863,8 +864,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.dm1s[:,nocc:,nocc:] = 0
 
         # Fock1 matrix (for gradient and subtrahend terms in Hx)
-        fock = moH_coeff @ las.get_fock (veff_sub=veff_sub) @ mo_coeff
-        self.fock1 = fock @ self.dm1s
+        fock = [moH_coeff @ f @ mo_coeff for f in list (self.h1e_ab)]
+        self.fock1 = sum ([f @ d for f,d in zip (fock, list (self.dm1s))])
         self.fock1 += np.tensordot (self.eri_cas, self.casdm2c, axes=((1,2,3),(1,2,3)))
 
         # CI stuff
@@ -1043,6 +1044,39 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ci2 = [x-(y*z) for x,y,z in zip (ci2, self.Hci0, s01)]
         return [x*2 for x in ci2]
 
+    def get_prec (self):
+        fock = np.stack ([np.diag (h) for h in list (self.h1e_ab)], axis=0)
+        num = np.stack ([np.diag (d) for d in list (self.dm1s)], axis=0)
+        Horb_diag = sum ([np.multiply.outer (f,n) for f,n in zip (fock, num)])
+        Horb_diag -= np.add.outer (np.diag (self.fock1), np.diag (self.fock1))
+        Horb_diag += Horb_diag.T
+        # This is where I stop unless I want to add the split-c and split-x terms
+        # Split-c and split-x, for inactive-external rotations, requires I calculate a bunch
+        # of extra eris (g^aa_ii, g^ai_ai)
+        Hci_diag = []
+        for ix, (norb, nelec, smult, h1e_full, csf) in enumerate (zip (self.ncas_sub,
+         self.nelecas_sub, self.spin_sub, self.h1e_ab_sub, self.ugg.ci_transformers)):
+            i = sum (self.ncas_sub[:ix])
+            j = i + norb
+            h2e = self.eri_cas[i:j,i:j,i:j,i:j]
+            i += self.ncore
+            j += self.ncore
+            h1e = ((h1e_full[0,i:j,i:j] + h1e_ab[1,i:j,i:j])/2,
+                   (h1e_full[0,i:j,i:j] - h1e_ab[1,i:j,i:j])/2)
+            self.fcisolver.norb = norb
+            self.fcisolver.nelec = nelec
+            self.fcisolver.smult = smult
+            Hci_diag.append (csf.pack_csf (self.fcisolver.make_hdiag_csf (h1e, h2e, norb, nelec)))
+        Hdiag = np.concatenate ([Horb_diag[ugg.uniq_var_idx]] + Hci_diag)
+        Hdiag += self.ah_level_shift
+        Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
+        return sparse_linalg.LinearOperator (self.shape, matvec=(lambda x:x/Hdiag), dtype=self.dtype)
 
-        
+    def update_mo_ci (self, x):
+        kappa, dci = self.ugg.unpack (x)
+        mo1 = self.mo_coeff @ linalg.expm (kappa)
+        ci1 = [c + dc for c,dc in zip (self.ci, dci)]
+        norm_ci = np.sqrt (np.asarray (c.dot (c) for c in ci1))
+        ci1 = [c/n for c,n in zip (ci1, norm_ci)]
+        return mo1, ci1
 
