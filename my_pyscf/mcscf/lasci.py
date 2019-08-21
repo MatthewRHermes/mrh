@@ -824,9 +824,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.nocc = nocc = ncore + ncas
         self.fcisolver = las.fcisolver
 
-        # Fixed veff-related things 
-        # h1e_ab is for gradient response and spans all MOs
-        # h1e_ab_sub is for ci response and spans the active superspace
+        # Fixed (unchanging within macrocycle) veff-related things 
+        # h1e_ab is for gradient response
+        # h1e_ab_sub is for ci response
         dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci, include_core=True)
         veff_sub = las.get_veff (dm1s=dm1s_sub)
         self.fock = las.get_fock (veff_sub=veff_sub)
@@ -837,8 +837,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         h1e_ab_sub = h1e_ab[None,:,:,:] - veff_sub
         h1e_ab = np.dot (h1e_ab, mo_coeff).transpose (1,0,2)
         self.h1e_ab = np.dot (moH_coeff, h1e_ab).transpose (1,0,2)
-        h1e_ab_sub = np.dot (h1e_ab_sub, mo_cas).transpose (2,3,0,1)
-        self.h1e_ab_sub = np.dot (moH_cas, h1e_ab_sub).transpose (2,3,0,1)
+        h1e_ab_sub = np.dot (h1e_ab_sub, mo_coeff).transpose (2,3,0,1)
+        self.h1e_ab_sub = np.dot (moH_coeff, h1e_ab_sub).transpose (2,3,0,1)
 
         # ERI in active superspace
         if eri_cas is None: eri_cas = las.get_h2eff (mo_coeff)
@@ -861,6 +861,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.dm1s[0,ncore:nocc,ncore:nocc] = casdm1a
         self.dm1s[1,ncore:nocc,ncore:nocc] = casdm1b
         self.dm1s[:,nocc:,nocc:] = 0
+
+        # Fock1 matrix (for gradient and subtrahend terms in Hx)
+        fock = moH_coeff @ las.get_fock (veff_sub=veff_sub) @ mo_coeff
+        self.fock1 = fock @ self.dm1s
+        self.fock1 += np.tensordot (self.eri_cas, self.casdm2c, axes=((1,2,3),(1,2,3)))
 
         # CI stuff
         if getattr(self.fcisolver, 'gen_linkstr', None):
@@ -890,75 +895,153 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return hc
 
     def Hci_all (self, h0e_sub, h1e_ab_sub, h2e, ci_sub):
+        ''' Assumes h2e is in the active superspace MO basis and h1e_ab_sub is in the full MO basis '''
         hc = []
         for isub, (h0e, h1e_ab, ci) in enumerate (zip (h0e_sub, h1e_ab_sub, ci_sub)):
             if self.linkstrl is not None: linkstrl = self.linkstrl[isub]
             ncas = self.ncas_sub[isub]
             nelecas = self.nelecas_sub[isub]
-            i = self.ncore + sum (self.ncas_sub[:isub])
+            i = sum (self.ncas_sub[:isub])
             j = i + ncas
             h2e_i = h2e[i:j,i:j,i:j,i:j]
-            hc.append (self.Hci (ncas, nelecas, h0e, h1e_ab, h2e_i, ci))
+            i += self.ncore
+            j += self.ncore
+            h1e_i = h1e_ab[i:j,i:j]
+            hc.append (self.Hci (ncas, nelecas, h0e, h1e_i, h2e_i, ci))
         return hc
 
-    def make_edm1s_sub (self, kappa, ci1):
-        edm1s_sub = np.zeros ((len (ci1), 2, self.nmo, self.nmo), dtype=self.dtype)
-        edm1s_sub[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
-        for isub, (ncas, nelecas, c1, c0, casdm1s) in enumerate (
-          zip (self.ncas_sub, self.nelecas_sub, ci1, self.ci, self.casdm1s_sub)):
-            linkstr = None if self.linkstr is None else self.linkstr[isub]
+    def make_odm1s2c_sub (self, kappa):
+        odm1s_sub = np.zeros ((len (ci1)+1, 2, self.nmo, self.nmo), dtype=self.dtype)
+        odm2c_sub = np.zeros ([len (ci1)] + [self.ncas,]*4, dtype=self.dtype)
+        odm1s_sub[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
+        for isub, (ncas, casdm1s) in enumerate (zip (self.ncas_sub, self.casdm1s_sub)):
             i = self.ncore + sum (self.ncas_sub[:isub])
             j = self.ncore + ncas
-            edm1s_sub[isub+1,:,i:j,i:j] = self.fcisolver.trans_rdm1s (c1, c0, ncas, nelecas, link_index=linkstr) 
-            edm1s_sub[isub+1,:,i:j,:] -= np.dot (casdm1s, kappa[i:j,:])
-        # overall transposition takes care of symmetric ci part and antisymmetric kappa part
-        edm1s_sub += edm1s_sub.transpose (0,1,3,2) 
-        return edm1s_sub    
+            odm1s_sub[isub+1,:,i:j,:] -= np.dot (casdm1s, kappa[i:j,:])
+            k = i - self.ncore
+            l = j - self.ncore
+            casdm2c = self.casdm2c[k:l,k:l,k:l,k:l]
+            odm2c_sub[isub,k:l,k:l,k:l,:] -= np.dot (casdm2c, kappa[i:j,self.ncore:self.nocc])
+        odm1s_sub += odm1s_sub.transpose (0,1,3,2) 
+        odm2c_sub += odm2c_sub.transpose (0,2,1,4,3)        
+        odm2c_sub += odm2c_sub.transpose (0,3,4,1,2)        
 
-    def make_edm2c (self, kappa, ci1):
-        kappa_cas = kappa[:
-        # Does lambda work the way I want it to?
+        return odm1s_sub, odm2c_sub    
 
-    def get_veff (self, edm1s_sub):
-        ''' Returns both the veff for the orbital part and the h1e shift for the CI part.
-        Uses the cached eris for the latter in the hope that this is faster than calling get_jk with many dms.
-        Each element of edm1s_sub must be in the !full! MO basis because of orbrots'''
-        dm1s_mo = edm1s_sub.sum (0)
+    def make_tdm1s2c_sub (self, ci1):
+        tdm1s_sub = np.zeros ((len (ci1), 2, self.ncas, self.ncas), dtype=self.dtype)
+        tdm2c_sub = np.zeros ([len (ci1)] + [self.ncas,]*4, dtype=self.dtype)
+        for isub, (ncas, nelecas, c1, c0, casdm1s) in enumerate (
+          zip (self.ncas_sub, self.nelecas_sub, ci1, self.ci, self.casdm1s_sub)):
+            i = sum (self.ncas_sub[:isub])
+            j = i + ncas
+            casdm2 = self.casdm2[i:j,i:j,i:j,i:j]
+            linkstr = None if self.linkstr is None else self.linkstr[isub]
+            tdm1s, tdm2c = self.fcisolver.trans_rdm12s (c1, c0, ncas, nelecas, link_index=linkstr)
+            # Subtrahend: super important, otherwise the veff part of CI response is even more of a nightmare
+            # With this in place, I don't have to worry about subtracting an overlap times a gradient
+            tdm1s -= casdm1s
+            tdm2c = (sum (tdm2c) - casdm2) / 2 
+            # Cumulant decomposition so I only have to do one jk call for orbrot response
+            # The only rules are 1) the sectors that you think are zero must really be zero, and
+            #                    2) you subtract here what you add later
+            tdm2c -= np.multiply.outer (tdm1s[0] + tdm1s[1], casdm1s[0] + casdm1s[1])
+            tdm2c += np.multiply.outer (tdm1s[0], casdm1s[0]).transpose (0,3,2,1)
+            tdm2c += np.multiply.outer (tdm1s[1], casdm1s[1]).transpose (0,3,2,1)
+            tdm1s_sub[isub,:,i:j,i:j] = tdm1s
+            tdm2c_sub[isub,i:j,i:j,i:j,i:j] = tdm2c
+
+        # Two transposes 
+        tdm1s_sub += tdm1s_sub.transpose (0,1,3,2) 
+        tdm2c_sub += tdm2c_sub.transpose (0,2,1,4,3)        
+        tdm2c_sub += tdm2c_sub.transpose (0,3,4,1,2)        
+
+        return tdm1s_sub, tdm2c_sub    
+
+
+    def get_veff_Heff (self, odm1s_sub, tdm1s_sub):
+        ''' Returns the veff for the orbital part and the h1e shifts for the CI part arising from the contraction
+        of shifted or 'effective' 1-rdms in the two sectors with the Hamiltonian. Return values do not include
+        veffs with the external indices rotated (i.e., in the CI part). Uses the cached eris for the latter in the hope that
+        this is faster than calling get_jk with many dms. '''
+
+        dm1s_mo = odm1s_sub.copy ().sum (0)
+        dm1s_mo[:,self.ncore:self.nocc,self.ncore:self.nocc] += tdm1s_sub.sum (0)
         mo = self.mo_coeff
         moH = mo.conjugate ().T
-        dm1s_ao = np.dot (moH, np.dot (dm1s_mo, mo).transpose (1,0,2)).transpose (1,0,2)
-        veff = las.get_veff (dm1s=dm1s_ao)
-        edm1s_las = edm1s_sub[1:][self.ncore:self.nocc,self.ncore:self.nocc]
-        edm1_las = edm1s_las.sum (1)
-        h1e_ab_sub = veff[None,:,:,:] + np.tensordot (edm1s_las, self.eri_cas, axes=((2,3),(2,1)))
-        h1e_ab_sub -= np.tensordot (edm1_las, self.eri_cas, axes=((1,2),(2,3)))[:,None,:,:]
-        return veff, h1e_ab_sub
+
+        # Overall veff for gradient: the one and only jk call per microcycle that I will allow.
+        dm1s_ao = np.dot (mo, np.dot (dm1s_mo, moH).transpose (1,0,2)).transpose (1,0,2)
+        veff_ao = las.get_veff (dm1s=dm1s_ao)
+        veff_mo = np.dot (moH, np.dot (veff_ao, mo).transpose (1,0,2)).transpose (1,0,2)
+        
+        # SO, individual CI problems!
+        # 1) There is NO constant term. Constant terms immediately drop out via the unitary group generator definition!
+        # 2) veff_mo has the effect I want for the orbrots, so long as I choose not to explicitly add h.c. at the end
+        # 3) If I don't add h.c., then the (non-self) mean-field effect of the 1-tdms needs to be twice as strong
+        # 4) Of course, self-interaction (from both 1-odms and 1-tdms) needs to be completely eliminated
+        h1e_ab_sub = np.stack ([veff_mo.copy (),]*odm1s_sub.shape[0], axis=0)
+        for isub, (tdm1s, odm1s) in enumerate (zip (tdm1s_sub, odm1s_sub[1:])):
+            err_dm1s = (2*tdm1s) - tdm1s_sub.sum (0)
+            err_dm1s += odm1s[:,self.ncore:self.nocc,self.ncore:self.nocc]
+            err_veff = np.tensordot (err_dm1s, self.eri_cas, axes=((1,2),(2,3)))
+            err_veff += err_veff[::-1] # ja + jb
+            err_veff -= np.tensordot (err_dm1s, self.eri_cas, axes=((1,2),(2,1))) 
+            h1e_ab_sub[isub,:,self.ncore:self.nocc,self.ncore:self.nocc] -= err_veff
+
+        return veff_mo, h1e_ab_sub
 
     def _matvec (self, x):
-        kappa, ci1 = self.ugg.unpack (x)
+        kappa1, ci1 = self.ugg.unpack (x)
 
-        # Effective density matrices and veffs from linear response
-        edm1s_sub = self.make_edm1s_sub (kappa, ci1)
-        edm2c_sub = self.make_edm2c (kappa, ci1)
-        veff_prime, h1e_ab_prime = self.get_veff (edm1s_sub)
+        # Effective density matrices, veffs, and overlaps from linear response
+        odm1s_sub, odm2c_sub = self.make_odm1s2c_sub (kappa1)
+        tdm1s_sub, tdm2c_sub = self.make_tdm1s2c_sub (ci1)
+        veff_prime, h1e_ab_prime = self.get_veff (odm1s_sub, tdm1s_sub)
 
-        # 2-body Hamiltonian response
-        kappa_cas = kappa[self.ncore:self.nocc, self.ncore:self.nocc]
-        eri_kappa  = np.einsum ('tpvx,pu->tuvx', self.eri_cas, kappa_cas)
-        eri_kappa -= np.einsum ('tp,puvx->tuvx', self.eri_cas, kappa_cas)
-        eri_kappa -= np.einsum ('vp,tupx->tuvx', self.eri_cas, kappa_cas)
-        eri_kappa += np.einsum ('tuvp,px->tuvx', self.eri_cas, kappa_cas)
-        
+        # Responses!
+        kappa2 = self.orbital_response (odm1s_sub, odm2c_sub, tdm1s_sub, tdm2c_sub, veff_prime)
+        ci2 = self.ci_response_offdiag (kappa1, h0e_prime, h1e_ab_prime)
+        ci2 = [x+y for x,y in zip (ci2, self.ci_response_diag (ci1))]
 
+        return self.ugg.pack (kappa2, ci2)
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
 
+    def orbital_response (self, odm1s_sub, odm2c_sub, tdm1s_sub, tdm2c_sub, veff_prime):
+        ''' Formally, orbital response if F'_pq - F'_qp, F'_pq = h_pq D'_pq + g_prst d'_qrst.
+        Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
+        edm1s = odm1s_sub.sum (0)
+        edm1s[:,self.ncore:self.nocc,self.ncore:self.nocc] += tdm1s_sub.sum (0)
+        edm2c = odm2c_sub.sum (0) + tdm2c_sub.sum (0)
+        fock1  = self.h1e_ab[0] @ edm1s[0] + self.h1e_ab[1] @ edm1s[1]
+        fock1 += veff_prime[0] @ self.dm1s[0] + veff_prime[1] @ self.dm1s[1]
+        fock1 += np.tensordot (self.eri_cas, edm2c, axes=((1,2,3),(1,2,3)))
+        return fock1 - fock1.T
 
+    def ci_response_offdiag (self, kappa1, h1e_ab_prime):
+        ''' Rotate external indices with kappa1; add contributions from rotated internal indices
+        and mean-field intersubspace response in h1e_ab_prime. I have set it up so that
+        I do NOT add h.c. (multiply by 2) at the end. '''
+        h1e_ab = np.dot (self.h1e_ab_sub, kappa1)
+        h1e_ab += h1e_ab.transpose (0,2,1)
+        kappa1_cas = kappa1[self.ncore:self.nocc, self.ncore:self.nocc]
+        h2e = np.dot (self.eri_cas, kappa1_cas)
+        h2e += h2e.transpose (2,3,0,1)
+        h2e += h2e.transpose (1,0,3,2)
+        h1e_ab += h1e_ab_prime
+        Kci0 = self.Hci_all (0.0, h1e_ab, h2e, self.ci)
+        Kci0 = [Kc - c*(c.dot (Kc)) for Kc, c in zip (Kci0, self.ci)]
+        # ^ The definition of the unitary group generator compels you to do this always!!!
+        return Kci0
 
-
-
-
-
+    def ci_response_diag (self, ci1):
+        ci1HmEci0 = [c.dot (Hci) for c, Hci in zip (ci1, self.Hci0)]
+        s01 = [c1.dot (c0) for c1,c0 in zip (ci1, self.ci)]
+        ci2 = self.Hci_all ([-e for e in self.e0], self.h1e_ab, self.eri_cas, ci1)
+        ci2 = [x-(y*z) for x,y,z in zip (ci2, self.ci, ci1HmEci0)]
+        ci2 = [x-(y*z) for x,y,z in zip (ci2, self.Hci0, s01)]
+        return [x*2 for x in ci2]
 
 
         
