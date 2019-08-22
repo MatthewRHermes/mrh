@@ -23,6 +23,7 @@ class LASCI_UnitaryGroupGenerators (object):
 
     def __init__(self, las, mo_coeff, ci):
         self.nmo = mo_coeff.shape[-1]
+        self.spin_sub = las.spin_sub
         self._init_orb (las, mo_coeff, ci)
         self._init_ci (las, mo_coeff, ci)
 
@@ -75,6 +76,7 @@ class LASCI_UnitaryGroupGenerators (object):
 class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
     def __init__(self, las, mo_coeff, ci, orbsym=None, wfnsym_sub=None):
         self.nmo = mo_coeff.shape[-1]
+        self.spin_sub = las.spin_sub
         if orbsym is None: orbsym = mo_coeff.orbsym
         if wfnsym_sub is None: wfnsym_sub = las.wfnsym_sub
         self._init_orb (las, mo_coeff, ci, orbsym, wfnsym_sub)
@@ -850,7 +852,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         h1e_ab = np.dot (h1e_ab, mo_coeff)
         self.h1e_ab = np.dot (moH_coeff, h1e_ab).transpose (1,0,2)
         h1e_ab_sub = np.dot (h1e_ab_sub, mo_coeff)
-        self.h1e_ab_sub = np.dot (moH_coeff, h1e_ab_sub).transpose (2,3,0,1)
+        self.h1e_ab_sub = np.dot (moH_coeff, h1e_ab_sub).transpose (1,2,0,3)
 
         # ERI in active superspace
         if eri_cas is None: eri_cas = las.get_h2eff (mo_coeff)
@@ -862,8 +864,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # Density matrices
         self.casdm1s_sub = las.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
-        casdm1a = linalg.block_diag ([dm[0] for dm in self.casdm1s_sub])
-        casdm1b = linalg.block_diag ([dm[1] for dm in self.casdm1s_sub])
+        casdm1a = linalg.block_diag (*[dm[0] for dm in self.casdm1s_sub])
+        casdm1b = linalg.block_diag (*[dm[1] for dm in self.casdm1s_sub])
         casdm1 = casdm1a + casdm1b
         self.casdm2 = las.make_casdm2 (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
         self.casdm2c = self.casdm2 - np.multiply.outer (casdm1, casdm1)
@@ -877,7 +879,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Fock1 matrix (for gradient and subtrahend terms in Hx)
         fock = [moH_coeff @ f @ mo_coeff for f in list (self.h1e_ab)]
         self.fock1 = sum ([f @ d for f,d in zip (fock, list (self.dm1s))])
-        self.fock1 += np.tensordot (self.eri_cas, self.casdm2c, axes=((1,2,3),(1,2,3)))
+        self.fock1[ncore:nocc,ncore:nocc] += np.tensordot (self.eri_cas, self.casdm2c, axes=((1,2,3),(1,2,3)))
 
         # CI stuff
         if getattr(self.fcisolver, 'gen_linkstr', None):
@@ -885,9 +887,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             self.linkstr  = [self.fcisolver.gen_linkstr(no, ne, False) for no, ne in zip (ncas_sub, nelecas_sub)]
         else:
             self.linkstrl = self.linkstr  = None
-        self.hci0 = self.Hci_all (0.0, self.h1e_ab_sub, self.eri_cas, ci)
-        self.e0 = [hc.dot (c) for hc, c in zip (self.hci, ci)]
-        self.hci0 = [hc - c*e for hc, c, e in zip (self.hci, ci, self.e0)]
+        self.hci0 = self.Hci_all ([0.0,] * len (ci), self.h1e_ab_sub, self.eri_cas, ci)
+        self.e0 = [hc.dot (c.ravel ()) for hc, c in zip (self.hci0, ci)]
+        self.hci0 = [hc - c.ravel ()*e for hc, c, e in zip (self.hci0, ci, self.e0)]
 
         # That should be everything!
 
@@ -922,7 +924,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             h2e_i = h2e[i:j,i:j,i:j,i:j]
             i += self.ncore
             j += self.ncore
-            h1e_i = h1e_ab[i:j,i:j]
+            h1e_i = h1e_ab[:,i:j,i:j]
+            print (h1e_ab_sub.shape, h1e_ab.shape, h1e_i.shape, h2e_i.shape)
             hc.append (self.Hci (ncas, nelecas, h0e, h1e_i, h2e_i, ci))
         return hc
 
@@ -1046,7 +1049,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         h2e += h2e.transpose (2,3,0,1)
         h2e += h2e.transpose (1,0,3,2)
         h1e_ab += h1e_ab_prime
-        Kci0 = self.Hci_all (0.0, h1e_ab, h2e, self.ci)
+        Kci0 = self.Hci_all ([0.0,] * len (self.ci), h1e_ab, h2e, self.ci)
         Kci0 = [Kc - c*(c.dot (Kc)) for Kc, c in zip (Kci0, self.ci)]
         # ^ The definition of the unitary group generator compels you to do this always!!!
         return Kci0
@@ -1070,14 +1073,14 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # of extra eris (g^aa_ii, g^ai_ai)
         Hci_diag = []
         for ix, (norb, nelec, smult, h1e_full, csf) in enumerate (zip (self.ncas_sub,
-         self.nelecas_sub, self.spin_sub, self.h1e_ab_sub, self.ugg.ci_transformers)):
+         self.nelecas_sub, self.ugg.spin_sub, self.h1e_ab_sub, self.ugg.ci_transformers)):
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2e = self.eri_cas[i:j,i:j,i:j,i:j]
             i += self.ncore
             j += self.ncore
-            h1e = ((h1e_full[0,i:j,i:j] + h1e_ab[1,i:j,i:j])/2,
-                   (h1e_full[0,i:j,i:j] - h1e_ab[1,i:j,i:j])/2)
+            h1e = ((h1e_full[0,i:j,i:j] + h1e_full[1,i:j,i:j])/2,
+                   (h1e_full[0,i:j,i:j] - h1e_full[1,i:j,i:j])/2)
             # CI solver has enforced convention neleca >= nelecb
             ne = nelec
             if nelec[1] > nelec[0]:
