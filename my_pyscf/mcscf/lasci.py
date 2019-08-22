@@ -278,14 +278,14 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, eri_cas=h2eff_sub)
         g_vec = H_op.get_grad ()
         prec_op = H_op.get_prec ()
-        microit = 0
+        microit = [0]
         def my_callback (x):
-            microit += 1
+            microit[0] += 1
             resid = g_vec + H_op (x)
             norm_gorb = linalg.norm (resid[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
             resid = resid[ugg.nvar_orb:]
             norm_gci = linalg.norm (resid) if resid.size else 0.0
-            log.info ('LASCI micro %d : |g_orb| = %.15g ; |g_ci| = %.15g', microit, norm_gorb, norm_gci)
+            log.info ('LASCI micro %d : |g_orb| = %.15g ; |g_ci| = %.15g', microit[0], norm_gorb, norm_gci)
         x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=prec_op (-g_vec), atol=conv_tol_grad, maxiter=las.max_cycle_micro,
          callback=my_callback, M=prec_op)
         mo_coeff, ci1 = H_op.update_mo_ci (x)
@@ -829,7 +829,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.ah_level_shift = las.ah_level_shift
         self.ugg = ugg
         self.mo_coeff = mo_coeff
-        self.ci = ci
+        self.ci = ci = [c.ravel () for c in ci]
         self.ncore = ncore
         self.ncas_sub = ncas_sub
         self.nelecas_sub = nelecas_sub
@@ -888,8 +888,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         else:
             self.linkstrl = self.linkstr  = None
         self.hci0 = self.Hci_all ([0.0,] * len (ci), self.h1e_ab_sub, self.eri_cas, ci)
-        self.e0 = [hc.dot (c.ravel ()) for hc, c in zip (self.hci0, ci)]
-        self.hci0 = [hc - c.ravel ()*e for hc, c, e in zip (self.hci0, ci, self.e0)]
+        self.e0 = [hc.dot (c) for hc, c in zip (self.hci0, ci)]
+        self.hci0 = [hc - c*e for hc, c, e in zip (self.hci0, ci, self.e0)]
 
         # That should be everything!
 
@@ -925,13 +925,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i += self.ncore
             j += self.ncore
             h1e_i = h1e_ab[:,i:j,i:j]
-            print (h1e_ab_sub.shape, h1e_ab.shape, h1e_i.shape, h2e_i.shape)
             hc.append (self.Hci (ncas, nelecas, h0e, h1e_i, h2e_i, ci))
         return hc
 
     def make_odm1s2c_sub (self, kappa):
-        odm1s_sub = np.zeros ((len (ci1)+1, 2, self.nmo, self.nmo), dtype=self.dtype)
-        odm2c_sub = np.zeros ([len (ci1)] + [self.ncas,]*4, dtype=self.dtype)
+        odm1s_sub = np.zeros ((len (self.ci)+1, 2, self.nmo, self.nmo), dtype=self.dtype)
+        odm2c_sub = np.zeros ([len (self.ci)] + [self.ncas,]*4, dtype=self.dtype)
         odm1s_sub[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
         for isub, (ncas, casdm1s) in enumerate (zip (self.ncas_sub, self.casdm1s_sub)):
             i = self.ncore + sum (self.ncas_sub[:isub])
@@ -990,9 +989,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         moH = mo.conjugate ().T
 
         # Overall veff for gradient: the one and only jk call per microcycle that I will allow.
-        dm1s_ao = np.dot (mo, np.dot (dm1s_mo, moH).transpose (1,0,2)).transpose (1,0,2)
-        veff_ao = las.get_veff (dm1s=dm1s_ao)
-        veff_mo = np.dot (moH, np.dot (veff_ao, mo).transpose (1,0,2)).transpose (1,0,2)
+        dm1s_ao = np.dot (mo, np.dot (dm1s_mo, moH)).transpose (1,0,2)
+        veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1s_ao))
+        veff_mo = np.dot (moH, np.dot (veff_ao, mo)).transpose (1,0,2)
         
         # SO, individual CI problems!
         # 1) There is NO constant term. Constant terms immediately drop out via the unitary group generator definition!
@@ -1016,11 +1015,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Effective density matrices, veffs, and overlaps from linear response
         odm1s_sub, odm2c_sub = self.make_odm1s2c_sub (kappa1)
         tdm1s_sub, tdm2c_sub = self.make_tdm1s2c_sub (ci1)
-        veff_prime, h1e_ab_prime = self.get_veff (odm1s_sub, tdm1s_sub)
+        veff_prime, h1e_ab_prime = self.get_veff_Heff (odm1s_sub, tdm1s_sub)
 
         # Responses!
         kappa2 = self.orbital_response (odm1s_sub, odm2c_sub, tdm1s_sub, tdm2c_sub, veff_prime)
-        ci2 = self.ci_response_offdiag (kappa1, h0e_prime, h1e_ab_prime)
+        ci2 = self.ci_response_offdiag (kappa1, h1e_ab_prime)
         ci2 = [x+y for x,y in zip (ci2, self.ci_response_diag (ci1))]
 
         return self.ugg.pack (kappa2, ci2)
@@ -1030,21 +1029,23 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def orbital_response (self, odm1s_sub, odm2c_sub, tdm1s_sub, tdm2c_sub, veff_prime):
         ''' Formally, orbital response if F'_pq - F'_qp, F'_pq = h_pq D'_pq + g_prst d'_qrst.
         Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
+        ncore, nocc = self.ncore, self.nocc
         edm1s = odm1s_sub.sum (0)
-        edm1s[:,self.ncore:self.nocc,self.ncore:self.nocc] += tdm1s_sub.sum (0)
+        edm1s[:,ncore:nocc,ncore:nocc] += tdm1s_sub.sum (0)
         edm2c = odm2c_sub.sum (0) + tdm2c_sub.sum (0)
         fock1  = self.h1e_ab[0] @ edm1s[0] + self.h1e_ab[1] @ edm1s[1]
         fock1 += veff_prime[0] @ self.dm1s[0] + veff_prime[1] @ self.dm1s[1]
-        fock1 += np.tensordot (self.eri_cas, edm2c, axes=((1,2,3),(1,2,3)))
+        fock1[ncore:nocc,ncore:nocc] += np.tensordot (self.eri_cas, edm2c, axes=((1,2,3),(1,2,3)))
         return fock1 - fock1.T
 
     def ci_response_offdiag (self, kappa1, h1e_ab_prime):
         ''' Rotate external indices with kappa1; add contributions from rotated internal indices
         and mean-field intersubspace response in h1e_ab_prime. I have set it up so that
         I do NOT add h.c. (multiply by 2) at the end. '''
+        ncore, nocc = self.ncore, self.nocc
         h1e_ab = np.dot (self.h1e_ab_sub, kappa1)
-        h1e_ab += h1e_ab.transpose (0,2,1)
-        kappa1_cas = kappa1[self.ncore:self.nocc, self.ncore:self.nocc]
+        h1e_ab += h1e_ab.transpose (0,1,3,2)
+        kappa1_cas = kappa1[ncore:nocc, ncore:nocc]
         h2e = np.dot (self.eri_cas, kappa1_cas)
         h2e += h2e.transpose (2,3,0,1)
         h2e += h2e.transpose (1,0,3,2)
@@ -1055,11 +1056,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return Kci0
 
     def ci_response_diag (self, ci1):
-        ci1HmEci0 = [c.dot (Hci) for c, Hci in zip (ci1, self.Hci0)]
+        ci1HmEci0 = [c.dot (Hci) for c, Hci in zip (ci1, self.hci0)]
         s01 = [c1.dot (c0) for c1,c0 in zip (ci1, self.ci)]
-        ci2 = self.Hci_all ([-e for e in self.e0], self.h1e_ab, self.eri_cas, ci1)
+        ci2 = self.Hci_all ([-e for e in self.e0], self.h1e_ab_sub, self.eri_cas, ci1)
         ci2 = [x-(y*z) for x,y,z in zip (ci2, self.ci, ci1HmEci0)]
-        ci2 = [x-(y*z) for x,y,z in zip (ci2, self.Hci0, s01)]
+        ci2 = [x-(y*z) for x,y,z in zip (ci2, self.hci0, s01)]
         return [x*2 for x in ci2]
 
     def get_prec (self):
@@ -1090,7 +1091,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             self.fcisolver.nelec = ne
             self.fcisolver.smult = smult
             Hci_diag.append (csf.pack_csf (self.fcisolver.make_hdiag_csf (h1e, h2e, norb, nelec)))
-        Hdiag = np.concatenate ([Horb_diag[ugg.uniq_var_idx]] + Hci_diag)
+        Hdiag = np.concatenate ([Horb_diag[self.ugg.uniq_orb_idx]] + Hci_diag)
         Hdiag += self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
         return sparse_linalg.LinearOperator (self.shape, matvec=(lambda x:x/Hdiag), dtype=self.dtype)
@@ -1099,7 +1100,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         kappa, dci = self.ugg.unpack (x)
         mo1 = self.mo_coeff @ linalg.expm (kappa)
         ci1 = [c + dc for c,dc in zip (self.ci, dci)]
-        norm_ci = np.sqrt (np.asarray (c.dot (c) for c in ci1))
+        norm_ci = [np.sqrt (c.dot (c)) for c in ci1]
         ci1 = [c/n for c,n in zip (ci1, norm_ci)]
         if hasattr (self.mo_coeff, 'orbsym'):
             mo1 = lib.tag_array (mo1, orbsym=self.mo_coeff.orbsym)

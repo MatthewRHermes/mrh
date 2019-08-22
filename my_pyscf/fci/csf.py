@@ -71,7 +71,7 @@ def make_hdiag_det (fci, h1e, eri, norb, nelec):
 
 def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
     if hdiag_det is None:
-        hdiag_det = make_hdiag_det (h1e, eri, norb, nelec)
+        hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
     tlib = wlib = 0
     neleca, nelecb = _unpack_nelec (nelec)
@@ -138,7 +138,7 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_de
     t0, w0 = time.clock (), time.time ()
     tstr = tlib = tloop = wstr = wlib = wloop = 0
     if hdiag_det is None:
-        hdiag_det = make_hdiag_det (h1e, eri, norb, nelec)
+        hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
     neleca, nelecb = _unpack_nelec (nelec)
     min_npair, npair_csd_offset, npair_dconf_size, npair_sconf_size, npair_sdet_size = get_csdaddrs_shape (norb, neleca, nelecb)
