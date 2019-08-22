@@ -39,7 +39,7 @@ class LASCI_UnitaryGroupGenerators (object):
         self.uniq_orb_idx = idx
 
     def _init_ci (self, las, mo_coeff, ci):
-        self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult)
+        self.ci_transformers = [CSFTransformer (norb, max (*nelec), min (*nelec), smult)
             for norb, nelec, smult in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub)]
 
     def pack (self, kappa, ci_sub):
@@ -1013,7 +1013,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         odm1s_sub[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
         for isub, (ncas, casdm1s) in enumerate (zip (self.ncas_sub, self.casdm1s_sub)):
             i = self.ncore + sum (self.ncas_sub[:isub])
-            j = self.ncore + ncas
+            j = i + ncas
             odm1s_sub[isub+1,:,i:j,:] -= np.dot (casdm1s, kappa[i:j,:])
             k = i - self.ncore
             l = j - self.ncore
