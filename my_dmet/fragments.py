@@ -635,7 +635,7 @@ class fragment_object:
                 core_occ = core_occ[idx]
                 self.oneRDMfroz_loc -= project_operator_into_subspace (oneRDM_loc, self.loc2emb[:,self.norbs_imp:][:,:norbs_hessbath])
                 print ("Adding {} virtual orbitals to bath from Hessian".format (np.count_nonzero (core_occ[:norbs_hessbath]==0)))
-                print ("Conjugate-gradient svals: {}".format (svals[:norbs_hessbath]))
+                print ("Conjugate-gradient svals: " + " ".join (["{:9.2e}".format (sval) for sval in svals[:norbs_hessbath]]))
                 print ("Adding {} electrons to impurity from Hessian bath orbitals".format (np.sum (core_occ[:norbs_hessbath])))
                 self.nelec_imp += int (round (np.sum (core_occ[:norbs_hessbath])))
                 self.norbs_imp += norbs_hessbath

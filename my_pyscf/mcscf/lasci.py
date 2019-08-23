@@ -155,16 +155,13 @@ def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=
     idx[nocc:,ncore:nocc] = True
     gx = gorb[idx]
     idx[:] = False
-    idx[np.tril_indices_from (idx)] = True
-    idx[:ncore,:ncore] = False
-    for ncas in las.ncas_sub:
+    idx[nocc:,:ncore] = True
+    idx[ncore:nocc,ncore:nocc][np.tril_indices (ncas)] = True 
+    for isub, ncas in enumerate (las.ncas_sub):
+        i = ncore + sum (las.ncas_sub[:isub])
         j = i + ncas
         idx[i:j,i:j] = False
-        i = j
-    idx[nocc:,nocc:] = False
-    idx[nocc:,ncore:nocc] = False
     gorb = gorb[idx]
-
 
     # The CI part
     gci = []
