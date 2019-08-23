@@ -7,6 +7,11 @@ from mrh.util.rdm import get_2CDM_from_2RDM
 from scipy import linalg
 from itertools import product
 
+''' Always remember: ~spin-restricted orbitals~ means the unitary group generator is spin-symmetric regardless of the wave function!
+    This means you NEVER handle an alpha fock matrix and a beta fock matrix separately and you must do the "fake" semi-cumulant decomposition
+    d^pr_qs = l^pr_qs + D^p_q D^r_s - D^p_s D^r_q / 2 without the spin-density terms! For now fix this by setting dm1s = [dm1/2, dm1/2] and 
+    focka = fockb = fock. '''
+
 class HessianCalculator (object):
     ''' Calculate elements of an orbital-rotation Hessian corresponding to particular orbital ranges in a CASSCF or
     LASSCF wave function. This is not designed to be efficient in orbital optimization; it is designed to collect
@@ -28,9 +33,10 @@ class HessianCalculator (object):
         '''
         self.scf = mf
         self.oneRDMs = np.asarray (oneRDMs)
-        if self.oneRDMs.ndim == 2:
+        if self.oneRDMs.ndim == 3: #== 2:
+            dm = sum (self.oneRDMs) / 2
             self.oneRDMs /= 2
-            self.oneRDMs = np.asarray ([self.oneRDMs, self.oneRDMs])
+            self.oneRDMs = np.asarray ([dm, dm])#self.oneRDMs, self.oneRDMs])
 
         mo = self.scf.mo_coeff
         Smo = self.scf.get_ovlp () @ mo
@@ -395,10 +401,10 @@ class LASSCFHessianCalculator (HessianCalculator):
         # Global things
         self.nmo = self.nao = ints.norbs_tot
         self.mo = self.moH = self.Smo = self.moHS = np.eye (self.nmo)
-        oneSDM_loc = sum ([f.oneSDMas_loc for f in active_frags])
+        oneSDM_loc = 0 #sum ([f.oneSDMas_loc for f in active_frags])
         self.oneRDMs = [(oneRDM_loc + oneSDM_loc)/2, (oneRDM_loc - oneSDM_loc)/2]
-        #fock_c = ints.loc_rhf_fock_bis (oneRDM_loc)
-        fock_s = -ints.loc_rhf_k_bis (oneSDM_loc) / 2 if isinstance (oneSDM_loc, np.ndarray) else 0
+        fock_c = ints.loc_rhf_fock_bis (oneRDM_loc)
+        fock_s = 0 #-ints.loc_rhf_k_bis (oneSDM_loc) / 2 if isinstance (oneSDM_loc, np.ndarray) else 0
         self.fock = [fock_c + fock_s, fock_c - fock_s]
 
         # Fragment things
