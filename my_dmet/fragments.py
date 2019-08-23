@@ -79,6 +79,7 @@ class fragment_object:
         self.target_S = 0
         self.target_MS = 0
         self.mol_output = None
+        self.mol_stdout = None
         self.debug_energy = False
         self.imp_maxiter = None # Currently only does anything for casscf solver
         self.quasidirect = True # Currently only does anything for rhf (in development)

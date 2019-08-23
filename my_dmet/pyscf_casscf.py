@@ -63,7 +63,8 @@ def solve (frag, guess_1RDM, chempot_imp):
     sign_MS = np.sign (frag.target_MS) or 1
     mol.spin = abs_2MS
     mol.verbose = 0 if frag.mol_output is None else lib.logger.DEBUG
-    mol.output = frag.mol_output
+    if frag.mol_stdout is None:
+        mol.output = frag.mol_output
     mol.atom.append(('H', (0, 0, 0)))
     mol.nelectron = frag.nelec_imp
     if frag.enforce_symmetry:
@@ -72,6 +73,10 @@ def solve (frag, guess_1RDM, chempot_imp):
         mol.irrep_name = frag.ir_names
         mol.irrep_id   = frag.ir_ids
     mol.build ()
+    if frag.mol_stdout is None:
+        frag.mol_stdout = mol.stdout
+    else:
+        mol.stdout = frag.mol_stdout
     if frag.enforce_symmetry: mol.symmetry = True
     #mol.incore_anyway = True
     mf = scf.RHF(mol)

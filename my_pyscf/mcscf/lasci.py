@@ -137,9 +137,9 @@ def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=
     for isub, (ncas, casdm2) in enumerate (zip (las.ncas_sub, casdm2_sub)):
         i = ncore + sum (las.ncas_sub[:isub])
         j = i + ncas
-        mo = las._scf.get_ovlp () @ mo_coeff[:,i:j]
-        moH = mo.conjugate ().T
-        casdm1s = [moH @ d @ mo for d in dm1s]
+        smo = las._scf.get_ovlp () @ mo_coeff[:,i:j]
+        smoH = smo.conjugate ().T
+        casdm1s = [smoH @ d @ smo for d in dm1s]
         casdm1 = casdm1s[0] + casdm1s[1]
         dm1_outer = np.multiply.outer (casdm1, casdm1)
         dm1_outer -= sum ([np.multiply.outer (d,d).transpose (0,3,2,1) for d in casdm1s])

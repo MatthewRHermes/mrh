@@ -98,6 +98,7 @@ class dmet:
         self.corrpot_mf_molden_cnt    = 0
         self.ints.num_mf_stab_checks  = num_mf_stab_checks
         self.enforce_symmetry         = enforce_symmetry
+        self.lasci_log                = None
 
         for frag in self.fragments:
             frag.debug_energy             = debug_energy
@@ -1400,9 +1401,13 @@ class dmet:
             spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
             wfnsym_sub.append (f.wfnsym)
         mol = self.ints.mol.copy ()
-        mol.output = self.calcname + '_lasci.log'
+        if self.lasci_log is None: mol.output = self.calcname + '_lasci.log'
         mol.verbose = pyscf_logger.DEBUG
         mol.build ()
+        if self.lasci_log is None: 
+            self.lasci_log = mol.stdout
+        else:
+            mol.stdout = self.lasci_log
         mf = scf.RHF (mol)
         if self.ints.x2c: mf = mf.sfx2c1e ()
         mf._eri = self.ints._eri
