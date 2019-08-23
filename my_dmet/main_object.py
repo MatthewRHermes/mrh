@@ -725,7 +725,6 @@ class dmet:
             print ("Energies all converged to 100 nanoEh threshold; punking out of 1-RDM and orbital convergence")
             orb_diff = oneRDM_diff = 0
             
-
         return orb_diff, oneRDM_diff, Eimp_stdev, abs (Eiter)
 
     def print_umat( self ):
@@ -837,6 +836,10 @@ class dmet:
 
         #self.ints.setup_wm_core_scf (self.fragments, self.calcname)
         self.lasci_(oneRDM_loc, loc2wmas=loc2wmas)
+        for loc2imo, frag in zip (loc2wmcs, self.fragments):
+            frag.set_new_fragment_basis (np.append (loc2imo, frag.loc2amo, axis=1))
+            assert (is_basis_orthonormal (frag.loc2amo))
+            assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ frag.loc2amo)
         return self.ints.oneRDM_loc # delete self.ints. if you take away the self.lasci_() above
 
     def refrag_lowdin_active (self, loc2wmas, oneRDM_loc):
@@ -1421,7 +1424,7 @@ class dmet:
         las = self.lasci (dm0=dm0, loc2wmas=loc2wmas)
         aoSloc = self.ints.ao_ovlp @ self.ints.ao2loc
         locSao = aoSloc.conjugate ().T
-        oneRDMs_loc_sub = np.tensordot (locSao, np.dot (las.make_rdm1s_sub (), aoSloc), axes=((1),(2))).transpose (1,2,0,3)
+        oneRDMs_loc_sub = np.dot (locSao, np.dot (las.make_rdm1s_sub (), aoSloc)).transpose (1,2,0,3)
         loc2mo = locSao @ las.mo_coeff
         active_frags = [f for f in self.fragments if f.norbs_as]
         self.ints.update_from_lasci_(self.calcname, las, loc2mo, oneRDMs_loc_sub.sum (0))
@@ -1430,8 +1433,8 @@ class dmet:
             dma, dmb = oneRDMs_amo_loc
             print ("MATT CHECK THIS AGAIN: (neleca, nelecb) = ({:.3f}, {:.3f})".format (np.trace (dma), np.trace (dmb)))
             f.loc2amo = loc2amo.copy () # Definitely copy this because it is explicitly a slice
-            f.ci_as = ci
-            f.ci_as_orb = loc2amo
+            f.ci_as = ci.copy ()
+            f.ci_as_orb = loc2amo.copy ()
             f.oneRDMas_loc = dma + dmb
             f.oneSDMas_loc = dma - dmb
             f.oneRDM_loc = self.ints.oneRDM_loc.copy ()
@@ -1442,5 +1445,9 @@ class dmet:
             casdm2 = las.fcisolver.make_rdm2 (ci, f.norbs_as, (neleca, nelecb))
             casdm1 = loc2amo.conjugate ().T @ f.oneRDM_loc @ loc2amo
             f.twoCDMimp_amo = get_2CDM_from_2RDM (casdm2, casdm1)
+            casdm1s = np.stack ([loc2amo.conjugate ().T @ dm @ loc2amo for dm in oneRDMs_amo_loc], axis=0)
+            casdm2c = get_2CDM_from_2RDM (casdm2, casdm1s)
+            eri = self.ints.dmet_tei (f.loc2amo)
+            f.E2_cum = (casdm2c * eri).sum () / 2
         return las.e_tot
 

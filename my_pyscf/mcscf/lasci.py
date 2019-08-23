@@ -5,7 +5,7 @@ from pyscf import symm, gto, scf, ao2mo, lib
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.scf import hf_as
-from itertools import combinations
+from itertools import combinations, product
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg
 import numpy as np
@@ -116,19 +116,55 @@ def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=
     Eventually to include 3) intersubspace orbital rotation. '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
+    if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
     if veff_sub is None: veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci)
     if fock is None: fock = las.get_fock (veff_sub=veff_sub, dm1s=dm1s)
     if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, veff_sub=veff_sub)
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     nao, nmo = mo_coeff.shape
     ncore = las.ncore
+    ncas = las.ncas
     nocc = las.ncore + las.ncas
     nvirt = nmo - nocc
 
-    # Inactive-external orbital rotation
-    mo_inac = mo_coeff[:,:ncore]
-    moH_virt = mo_coeff[:,nocc:].conjugate ().T
-    gorb = 2 * moH_virt @ fock @ mo_inac
+    # The orbrot part
+    h1s = las.get_hcore ()[None,:,:] + veff_sub.sum (0)
+    f1 = h1s[0] @ dm1s[0] + h1s[1] @ dm1s[1]
+    f1 = mo_coeff.conjugate ().T @ f1 @ las._scf.get_ovlp () @ mo_coeff # <- I need the ovlp there to get dm1s back into its correct basis
+    casdm2_sub = las.make_casdm2_sub (ci=ci)
+    eri = h2eff_sub.reshape (nmo, ncas, ncas*(ncas+1)//2)
+    eri = lib.numpy_helper.unpack_tril (eri).reshape (nmo, ncas, ncas, ncas)
+    for isub, (ncas, casdm2) in enumerate (zip (las.ncas_sub, casdm2_sub)):
+        i = ncore + sum (las.ncas_sub[:isub])
+        j = i + ncas
+        mo = las._scf.get_ovlp () @ mo_coeff[:,i:j]
+        moH = mo.conjugate ().T
+        casdm1s = [moH @ d @ mo for d in dm1s]
+        casdm1 = casdm1s[0] + casdm1s[1]
+        dm1_outer = np.multiply.outer (casdm1, casdm1)
+        dm1_outer -= sum ([np.multiply.outer (d,d).transpose (0,3,2,1) for d in casdm1s])
+        casdm2 -= dm1_outer
+        k = i - ncore
+        l = j - ncore
+        f1[:,i:j] += np.tensordot (eri[:,k:l,k:l,k:l], casdm2, axes=((1,2,3),(1,2,3)))
+    gorb = f1 - f1.T
+
+    # Split into internal and external parts
+    idx = np.zeros (gorb.shape, dtype=np.bool_)
+    idx[ncore:nocc,:ncore] = True
+    idx[nocc:,ncore:nocc] = True
+    gx = gorb[idx]
+    idx[:] = False
+    idx[np.tril_indices_from (idx)] = True
+    idx[:ncore,:ncore] = False
+    for ncas in las.ncas_sub:
+        j = i + ncas
+        idx[i:j,i:j] = False
+        i = j
+    idx[nocc:,nocc:] = False
+    idx[nocc:,ncore:nocc] = False
+    gorb = gorb[idx]
+
 
     # The CI part
     gci = []
@@ -153,23 +189,6 @@ def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=
         ci0 = ci0.ravel ()
         eci0 = ci0.dot(hc0)
         gci.append ((hc0 - ci0 * eci0).ravel ())
-
-    # The external part. Semi-cumulant decomposition works between active/inactive but not among active subspaces
-    dm1 = las.make_casdm1 (ci=ci)
-    mo_cas = mo_coeff[:,ncore:nocc]
-    moH = mo_coeff.conjugate ().T
-    gx = moH @ fock @ mo_cas @ dm1
-    dm2 = las.make_casdm2 (ci = ci)
-    dm1_outer = np.multiply.outer (dm1, dm1)
-    dm1_outer -= dm1_outer.transpose (0,3,2,1) / 2 
-    dm2 -= dm1_outer
-    dm2 = (dm2 + dm2.transpose (0,1,3,2)).reshape (las.ncas, las.ncas, -1)
-    ix_i, ix_j = np.tril_indices (las.ncas)
-    dm2 = dm2[:,:,(ix_i*las.ncas)+ix_j].reshape (las.ncas, -1).T
-    gx += h2eff_sub @ dm2
-    moH_inac = mo_inac.conjugate ().T
-    gx[:ncore,:] -= 2 * moH_inac @ fock @ mo_cas
-    gx = np.append (gx[:ncore,:], gx[nocc:,:], axis=0)
 
     return gorb.ravel (), np.concatenate (gci), gx.ravel ()
 
@@ -283,7 +302,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         x0 = prec_op._matvec (-g_vec)
         norm_xorb = linalg.norm (x0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_xci = linalg.norm (x0[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
-        log.info ('LASCI micro init : |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g ; |x0_ci| = %.15g', norm_gorb, norm_gci, norm_xorb, norm_xci)
+        log.info ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g ; |x0_ci| = %.15g',
+            H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
         '''
         r0 = H_op._matvec (x0) + g_vec
         norm_rorb = linalg.norm (r0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
@@ -296,12 +316,14 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         microit = [0]
         def my_callback (x):
             microit[0] += 1
-            resid = g_vec + H_op._matvec (x)
+            Hx = H_op._matvec (x)
+            resid = g_vec + Hx
             norm_gorb = linalg.norm (resid[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
             norm_gci = linalg.norm (resid[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
             norm_xorb = linalg.norm (x[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
             norm_xci = linalg.norm (x[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
-            log.info ('LASCI micro %d : |g_orb| = %.15g ; |g_ci| = %.15g ; |x_orb| = %.15g ; |x_ci| = %.15g', microit[0], norm_gorb, norm_gci, norm_xorb, norm_xci)
+            Ecall = H_op.e_tot + x.dot (g_vec + (Hx/2))
+            log.info ('LASCI micro %d : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x_orb| = %.15g ; |x_ci| = %.15g', microit[0], Ecall, norm_gorb, norm_gci, norm_xorb, norm_xci)
         x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=conv_tol_grad, maxiter=las.max_cycle_micro,
          callback=my_callback, M=prec_op)
         mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
@@ -793,13 +815,11 @@ class LASCINoSymm (casci.CASCI):
             dma1, dmb1 = dm1s1[0], dm1s1[1]
             dma2, dmb2 = dm1s2[0], dm1s2[1]
             # Coulomb slice
-            dm2_view = casdm2[i:j, i:j, k:l, k:l]
-            dm2_view = np.multiply.outer (dma1+dmb1, dma2+dmb2)
-            casdm2[k:l, k:l, i:j, i:j] = dm2_view.transpose (2,3,0,1)
+            casdm2[i:j, i:j, k:l, k:l] = np.multiply.outer (dma1+dmb1, dma2+dmb2)
+            casdm2[k:l, k:l, i:j, i:j] = casdm2[i:j, i:j, k:l, k:l].transpose (2,3,0,1)
             # Exchange slice
-            dm2_view = casdm2[i:j, k:l, k:l, i:j]
-            dm2_view = -(np.multiply.outer (dma1, dma2) + np.multiply.outer (dmb1, dmb2)).transpose (0,2,3,1)
-            casdm2[k:l, i:j, i:j, k:l] = dm2_view.transpose (2,3,0,1)
+            casdm2[i:j, k:l, k:l, i:j] = -(np.multiply.outer (dma1, dma2) + np.multiply.outer (dmb1, dmb2)).transpose (0,3,2,1)
+            casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
         return casdm2 
 
     def get_veff(self, mol=None, dm1s=None, hermi=1, **kwargs):
@@ -959,6 +979,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Fock1 matrix (for gradient and subtrahend terms in Hx)
         self.fock1 = sum ([f @ d for f,d in zip (list (self.h1e_ab), list (self.dm1s))])
         self.fock1[ncore:nocc,ncore:nocc] += np.tensordot (self.eri_cas, self.casdm2c, axes=((1,2,3),(1,2,3)))
+
+        # Total energy (for callback)
+        h1 = (self.h1e_ab + (moH_coeff @ las.get_hcore () @ mo_coeff)[None,:,:]) / 2
+        self.e_tot = las.energy_nuc () + (h1 * self.dm1s).sum () + (self.eri_cas * self.casdm2c).sum () / 2
 
         # CI stuff
         if getattr(self.fcisolver, 'gen_linkstr', None):
