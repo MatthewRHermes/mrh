@@ -85,8 +85,8 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
     def _init_orb (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
         super()._init_orb (las, mo_coeff, ci)
         orbsym = mo_coeff.orbsym
-        symm_allowed = ~(orbsym[:,None] ^ orbsym[None,:])
-        self.uniq_orb_idx = self.uniq_orb_idx & symm_allowed
+        self.symm_forbid = (orbsym[:,None] ^ orbsym[None,:]).astype (np.bool_)
+        self.uniq_orb_idx[self.symm_forbid] = False
 
     def _init_ci (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
         sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
@@ -111,7 +111,7 @@ def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
 class _DFLASCI: # Tag
     pass
 
-def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=None, veff_sub=None, dm1s=None):
+def get_grad (las, ugg, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=None, veff_sub=None, dm1s=None):
     ''' Return energy gradient for 1) inactive-external orbital rotation and 2) CI relaxation.
     Eventually to include 3) intersubspace orbital rotation. '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
@@ -153,15 +153,9 @@ def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=
     idx = np.zeros (gorb.shape, dtype=np.bool_)
     idx[ncore:nocc,:ncore] = True
     idx[nocc:,ncore:nocc] = True
+    if isinstance (ugg, LASCISymm_UnitaryGroupGenerators):
+        idx[ugg.symm_forbid] = False
     gx = gorb[idx]
-    idx[:] = False
-    idx[nocc:,:ncore] = True
-    idx[ncore:nocc,ncore:nocc][np.tril_indices (ncas)] = True 
-    for isub, ncas in enumerate (las.ncas_sub):
-        i = ncore + sum (las.ncas_sub[:isub])
-        j = i + ncas
-        idx[i:j,i:j] = False
-    gorb = gorb[idx]
 
     # The CI part
     gci = []
@@ -187,7 +181,10 @@ def get_grad (las, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=
         eci0 = ci0.dot(hc0)
         gci.append ((hc0 - ci0 * eci0).ravel ())
 
-    return gorb.ravel (), np.concatenate (gci), gx.ravel ()
+    gint = ugg.pack (gorb, gci)
+    gorb = gint[:ugg.nvar_orb]
+    gci = gint[ugg.nvar_orb:]
+    return gorb, gci, gx.ravel ()
 
 def density_fit (las, auxbasis=None, with_df=None):
     ''' Here I ONLY need to attach the tag and the df object because I put conditionals in LASCINoSymm to make my life easier '''
@@ -285,11 +282,11 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
 
     # Initial CI cycle
     e_cas, ci1 = ci_cycle (las, mo_coeff, ci0, veff_sub, h2eff_sub, dm1s_sub, log)
+    ugg = las.get_ugg (las, mo_coeff, ci1)
     log.info ('LASCI subspace CI energies: {}'.format (e_cas))
     t1 = log.timer ('LASCI ci_cycle', *t1)
     converged = False
     for it in range (las.max_cycle_macro):
-        ugg = las.get_ugg (las, mo_coeff, ci1)
         H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, eri_cas=h2eff_sub)
         g_vec = H_op.get_grad ()
         prec_op = H_op.get_prec ()
@@ -335,7 +332,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         t1 = log.timer ('LASCI ci_cycle', *t1)
 
         e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff_sub=veff_sub)
-        gorb, gci, gx = las.get_grad (mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff_sub=veff_sub, dm1s=dm1s_sub.sum (0))
+        gorb, gci, gx = las.get_grad (ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff_sub=veff_sub, dm1s=dm1s_sub.sum (0))
         norm_gorb = linalg.norm (gorb) if gorb.size else 0.0
         norm_gci = linalg.norm (gci) if gci.size else 0.0
         norm_gx = linalg.norm (gx) if gx.size else 0.0
@@ -554,7 +551,12 @@ def canonicalize (las, mo_coeff=None, ci=None):
     nelecas_sub = las.nelecas_sub
     orbsym = None
     if isinstance (las, LASCISymm):
-        orbsym = casci_symm.label_symmetry_(las, mo_coeff, None)
+        print ("This is the first call to label_orb_symm inside of canonicalize")
+        orbsym = symm.label_orb_symm (las.mol, las.mol.irrep_id,
+                                      las.mol.symm_orb, mo_coeff,
+                                      s=las._scf.get_ovlp ())
+        #mo_coeff = casci_symm.label_symmetry_(las, mo_coeff, None)
+        #orbsym = mo_coeff.orbsym
     casdm1s_sub = las.make_casdm1s_sub (ci=ci)
     umat = np.zeros_like (mo_coeff)
     dm1s = np.stack ([np.eye (nmo), np.eye (nmo)], axis=0)
@@ -598,7 +600,11 @@ def canonicalize (las, mo_coeff=None, ci=None):
     mo_ene = umat.conjugate ().T @ fock @ umat
     mo_coeff = mo_coeff @ umat
     if orbsym is not None:
-        orbsym = casci_symm.label_symmetry_(las, mo_coeff, None)
+        print ("This is the second call to label_orb_symm inside of canonicalize")
+        orbsym = symm.label_orb_symm (las.mol, las.mol.irrep_id,
+                                      las.mol.symm_orb, mo_coeff,
+                                      s=las._scf.get_ovlp ())
+        #mo_coeff = casci_symm.label_symmetry_(las, mo_coeff, None)
         mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym)
     return mo_coeff, mo_ene, mo_occ, ci
 
@@ -909,6 +915,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         # Initialize/overwrite mo_coeff.orbsym. Don't pass ci0 because it's not the right shape
         lib.logger.info (self, "LASCI lazy hack note: lines below reflect the point-group symmetry of the whole molecule but not of the individual subspaces")
         self.fcisolver.wfnsym = self.wfnsym
+        print ("This is the pre-calculation call to label_symmetry_")
         mo_coeff = self.mo_coeff = casci_symm.label_symmetry_(self, mo_coeff, None)
         return LASCINoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0, casdm0_sub=casdm0_sub, verbose=verbose)
 
