@@ -343,7 +343,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
             converged = True
             break
    
-    mo_coeff, mo_energy, mo_occ, ci = canonicalize (las, mo_coeff, ci1)
+    mo_coeff, mo_energy, mo_occ, ci = las.canonicalize (mo_coeff, ci1)
     return converged, e_tot, mo_energy, mo_coeff, e_cas, ci1
 
 def ci_cycle (las, mo, ci0, veff_sub, h2eff_sub, dm1s_sub, log):
@@ -541,7 +541,7 @@ def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None
     fock = las.get_hcore () + vj - (vk/2)
     return fock
 
-def canonicalize (las, mo_coeff=None, ci=None):
+def canonicalize (las, mo_coeff=None, ci=None, orbsym=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
     nao, nmo = mo_coeff.shape
@@ -549,6 +549,7 @@ def canonicalize (las, mo_coeff=None, ci=None):
     nocc = ncore + las.ncas
     ncas_sub = las.ncas_sub
     nelecas_sub = las.nelecas_sub
+    '''
     orbsym = None
     if isinstance (las, LASCISymm):
         print ("This is the first call to label_orb_symm inside of canonicalize")
@@ -557,6 +558,7 @@ def canonicalize (las, mo_coeff=None, ci=None):
                                       s=las._scf.get_ovlp ())
         #mo_coeff = casci_symm.label_symmetry_(las, mo_coeff, None)
         #orbsym = mo_coeff.orbsym
+    '''
     casdm1s_sub = las.make_casdm1s_sub (ci=ci)
     umat = np.zeros_like (mo_coeff)
     dm1s = np.stack ([np.eye (nmo), np.eye (nmo)], axis=0)
@@ -600,11 +602,13 @@ def canonicalize (las, mo_coeff=None, ci=None):
     mo_ene = umat.conjugate ().T @ fock @ umat
     mo_coeff = mo_coeff @ umat
     if orbsym is not None:
-        print ("This is the second call to label_orb_symm inside of canonicalize")
+        '''
+        print ("This is the second call to label_orb_symm inside of canonicalize") 
         orbsym = symm.label_orb_symm (las.mol, las.mol.irrep_id,
                                       las.mol.symm_orb, mo_coeff,
                                       s=las._scf.get_ovlp ())
-        #mo_coeff = casci_symm.label_symmetry_(las, mo_coeff, None)
+        #mo_coeff = las.label_symmetry_(mo_coeff)
+        '''
         mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym)
     return mo_coeff, mo_ene, mo_occ, ci
 
@@ -682,6 +686,7 @@ class LASCINoSymm (casci.CASCI):
 
     get_fock = get_fock
     get_grad = get_grad
+    canonicalize = canonicalize
 
     def kernel(self, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=None, verbose=None):
         if mo_coeff is None:
@@ -895,6 +900,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     make_rdm1 = LASCINoSymm.make_rdm1
     get_veff = LASCINoSymm.get_veff
     get_h1eff = get_h1cas = h1e_for_cas 
+    get_ugg = LASCISymm_UnitaryGroupGenerators
 
     @property
     def wfnsym (self):
@@ -915,11 +921,38 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         # Initialize/overwrite mo_coeff.orbsym. Don't pass ci0 because it's not the right shape
         lib.logger.info (self, "LASCI lazy hack note: lines below reflect the point-group symmetry of the whole molecule but not of the individual subspaces")
         self.fcisolver.wfnsym = self.wfnsym
-        print ("This is the pre-calculation call to label_symmetry_")
-        mo_coeff = self.mo_coeff = casci_symm.label_symmetry_(self, mo_coeff, None)
+        '''
+        print ("This is the pre-calculation call to label_orb_symm")
+        orbsym = symm.label_orb_symm (self.mol, self.mol.irrep_id,
+                                      self.mol.symm_orb, mo_coeff,
+                                      s=self._scf.get_ovlp ())
+        '''
+        mo_coeff = self.mo_coeff = self.label_symmetry_(mo_coeff)
+        #mo_coeff = self.mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym) #casci_symm.label_symmetry_(self, mo_coeff, None)
         return LASCINoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0, casdm0_sub=casdm0_sub, verbose=verbose)
 
-    get_ugg = LASCISymm_UnitaryGroupGenerators
+    def canonicalize (self, mo_coeff=None, ci=None):
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        mo_coeff = self.label_symmetry_(mo_coeff)
+        return canonicalize (self, mo_coeff=mo_coeff, ci=ci, orbsym=mo_coeff.orbsym)
+
+    def label_symmetry_(self, mo_coeff=None):
+        if mo_coeff is None: mo_coeff=self.mo_coeff
+        ncore = self.ncore
+        ncas_sub = self.ncas_sub
+        nocc = ncore + sum (ncas_sub)
+        mo_coeff[:,:ncore] = symm.symmetrize_space (self.mol, mo_coeff[:,:ncore])
+        for isub, ncas in enumerate (ncas_sub):
+            i = ncore + sum (ncas_sub[:isub])
+            j = i + ncas
+            mo_coeff[:,i:j] = symm.symmetrize_space (self.mol, mo_coeff[:,i:j])
+        mo_coeff[:,nocc:] = symm.symmetrize_space (self.mol, mo_coeff[:,nocc:])
+        orbsym = symm.label_orb_symm (self.mol, self.mol.irrep_id,
+                                      self.mol.symm_orb, mo_coeff,
+                                      s=self._scf.get_ovlp ())
+        mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym)
+        return mo_coeff
+        
 
         
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
@@ -1202,6 +1235,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             self.fcisolver.norb = norb
             self.fcisolver.nelec = ne
             self.fcisolver.smult = smult
+            self.fcisolver.orbsym = csf.orbsym
+            self.fcisolver.wfnsym = csf.wfnsym
             Hci_diag.append (csf.pack_csf (self.fcisolver.make_hdiag_csf (h1e, h2e, norb, ne)))
         Hdiag = np.concatenate ([Horb_diag[self.ugg.uniq_orb_idx]] + Hci_diag)
         Hdiag += self.ah_level_shift
