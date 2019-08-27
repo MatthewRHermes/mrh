@@ -15,3 +15,6 @@ GPL research code of Matthew R. Hermes
 - PySCF
 - Python 3
 
+### ACKNOWLEDGMENTS:
+- This work is supported by the U.S. Department of Energy, Office of Basic Energy Sciences, Division of Chemical Sciences, Geosciences and Biosciences through the Nanoporous Materials Genome Center under award DE-FG02-17ER16362.
+
