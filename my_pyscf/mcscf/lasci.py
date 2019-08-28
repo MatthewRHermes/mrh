@@ -23,6 +23,7 @@ class LASCI_UnitaryGroupGenerators (object):
 
     def __init__(self, las, mo_coeff, ci):
         self.nmo = mo_coeff.shape[-1]
+        self.frozen = las.frozen
         self.spin_sub = las.spin_sub
         self._init_orb (las, mo_coeff, ci)
         self._init_ci (las, mo_coeff, ci)
@@ -36,6 +37,8 @@ class LASCI_UnitaryGroupGenerators (object):
             for ix2, k in enumerate (sub_slice[:ix1]):
                 l = sub_slice[ix2+1]
                 idx[i:j,k:l] = True
+        if self.frozen is not None:
+            idx[self.frozen,:] = idx[:,self.frozen] = False
         self.uniq_orb_idx = idx
 
     def _init_ci (self, las, mo_coeff, ci):
@@ -76,6 +79,7 @@ class LASCI_UnitaryGroupGenerators (object):
 class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
     def __init__(self, las, mo_coeff, ci, orbsym=None, wfnsym_sub=None):
         self.nmo = mo_coeff.shape[-1]
+        self.frozen = las.frozen
         self.spin_sub = las.spin_sub
         if orbsym is None: orbsym = mo_coeff.orbsym
         if wfnsym_sub is None: wfnsym_sub = las.wfnsym_sub
@@ -111,11 +115,12 @@ def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
 class _DFLASCI: # Tag
     pass
 
-def get_grad (las, ugg, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=None, veff_sub=None, dm1s=None):
+def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=None, veff_sub=None, dm1s=None):
     ''' Return energy gradient for 1) inactive-external orbital rotation and 2) CI relaxation.
     Eventually to include 3) intersubspace orbital rotation. '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
+    if ugg is None: ugg = las.get_ugg (las, mo_coeff, ci)
     if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
     if veff_sub is None: veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci)
     if fock is None: fock = las.get_fock (veff_sub=veff_sub, dm1s=dm1s)
@@ -332,7 +337,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         t1 = log.timer ('LASCI ci_cycle', *t1)
 
         e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff_sub=veff_sub)
-        gorb, gci, gx = las.get_grad (ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff_sub=veff_sub, dm1s=dm1s_sub.sum (0))
+        gorb, gci, gx = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff_sub=veff_sub, dm1s=dm1s_sub.sum (0))
         norm_gorb = linalg.norm (gorb) if gorb.size else 0.0
         norm_gci = linalg.norm (gci) if gci.size else 0.0
         norm_gx = linalg.norm (gx) if gx.size else 0.0
@@ -615,7 +620,7 @@ def canonicalize (las, mo_coeff=None, ci=None, orbsym=None):
 
 class LASCINoSymm (casci.CASCI):
 
-    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, **kwargs):
+    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, **kwargs):
         ncas_tot = sum (ncas)
         nel_tot = [0, 0]
         for nel in nelecas:
@@ -631,6 +636,7 @@ class LASCINoSymm (casci.CASCI):
         self.ncas_sub = np.asarray (ncas)
         self.nelecas_sub = np.asarray (nelecas)
         self.spin_sub = np.asarray (spin_sub)
+        self.frozen = frozen
         self.conv_tol_grad = 1e-4
         self.ah_level_shift = 1e-8
         self.max_cycle_macro = 50
@@ -889,8 +895,8 @@ class LASCINoSymm (casci.CASCI):
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
-    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, wfnsym_sub=None, **kwargs):
-        LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub)
+    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, wfnsym_sub=None, frozen=None, **kwargs):
+        LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub, frozen=frozen, **kwargs)
         if wfnsym_sub is None: wfnsym_sub = [0 for icas in self.ncas_sub]
         self.wfnsym_sub = wfnsym_sub
         keys = set(('wfnsym_sub'))

@@ -51,9 +51,9 @@ from itertools import combinations, product
 class dmet:
 
     def __init__( self, theInts, fragments, calcname='DMET', isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
-                    doDET=False, doDET_NO=False, do1SHOT=False, do0SHOT=False, doLASSCF=False, do1EMB=False, enforce_symmetry=False,
+                    doDET=False, doDET_NO=False, do1SHOT=False, do0SHOT=False, doLASSCF=False, do1EMB=False, enforce_symmetry=True,
                     minFunc='FOCK_INIT', print_u=True,
-                    print_rdm=True, debug_energy=False, debug_reloc=False,
+                    print_rdm=True, debug_energy=False, debug_reloc=False, oldLASSCF=False,
                     nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
                     corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0 ):
 
@@ -97,8 +97,10 @@ class dmet:
         self.corrpot_mf_moldens       = corrpot_mf_moldens
         self.corrpot_mf_molden_cnt    = 0
         self.ints.num_mf_stab_checks  = num_mf_stab_checks
+        if not self.ints.symmetry: enforce_symmetry = False
         self.enforce_symmetry         = enforce_symmetry
         self.lasci_log                = None
+        self.oldLASSCF                = oldLASSCF
 
         for frag in self.fragments:
             frag.debug_energy             = debug_energy
@@ -108,6 +110,10 @@ class dmet:
             frag.loc2symm                 = self.ints.loc2symm
             frag.ir_names                 = self.ints.ir_names
             frag.ir_ids                   = self.ints.ir_ids
+            if self.oldLASSCF:
+                self.quasifrag_gradient = False
+                self.add_virtual_bath = False
+                self.quasifrag_ovlp = True
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
         self.examine_ifrag_olap = False
@@ -562,7 +568,7 @@ class dmet:
         myiter = iters[-1][-1]
         nextiter = 0
         orb_diff = 1.0
-        convergence_threshold = 1e-5
+        convergence_threshold = 1e-5 if self.oldLASSCF else 1e-4
         while (np.any (np.asarray (orb_diff) > convergence_threshold)):
             lower_iters = iters + [('orbs', nextiter)]
             orb_diff = self.doselfconsistent_orbs (lower_iters)
@@ -694,7 +700,7 @@ class dmet:
             print ("Entering refragmentation")
             oneRDM_loc = sum ([f.oneRDMas_loc for f in self.fragments if f.norbs_as])
             oneRDM_loc += 2 * get_1RDM_from_OEI (self.ints.activeFOCK, self.ints.nelec_idem//2, subspace=loc2wmcs_new)
-            self.refragmentation (loc2wmas_new, loc2wmcs_new, oneRDM_loc)
+            e_tot, grads = self.refragmentation (loc2wmas_new, loc2wmcs_new, oneRDM_loc)
             self.save_checkpoint (self.calcname + '.chk.npy')
         try:
             orb_diff = measure_basis_olap (loc2wmas_new, loc2wmcs_old)[0] / max (1,loc2wmas_new.shape[1])
@@ -717,16 +723,22 @@ class dmet:
         if self.doLASSCF == False:
             orb_diff = oneRDM_diff = Eimp_stdev = Eiter = 0 # Do only 1 iteration
         else:
-            self.energy = np.average (energies)
+            self.energy = e_tot
             Eiter = self.energy - old_energy
+            norm_gorb = linalg.norm (np.concatenate ([grads[0], grads[2]]))
+            norm_gci = linalg.norm (grads[1])
+            print ("Whole-molecule orbital gradient norm = {}".format (norm_gorb))
+            print ("Whole-molecule CI gradient norm = {}".format (norm_gci))
+
         print ("Whole-molecule energy difference = {}".format (Eiter))
 
         # Safety until I figure out how to deal with this degenerate-orbital thing
         if abs (Eiter) < 1e-7 and np.all (np.abs (energies - self.energy) < 1e-7):
             print ("Energies all converged to 100 nanoEh threshold; punking out of 1-RDM and orbital convergence")
             orb_diff = oneRDM_diff = 0
-            
-        return orb_diff, oneRDM_diff, Eimp_stdev, abs (Eiter)
+        
+        if self.oldLASSCF: return orb_diff, oneRDM_diff, Eimp_stdev, abs (Eiter)
+        else: return norm_gorb, norm_gci
 
     def print_umat( self ):
     
@@ -836,12 +848,12 @@ class dmet:
                 assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
 
         #self.ints.setup_wm_core_scf (self.fragments, self.calcname)
-        self.lasci_(oneRDM_loc, loc2wmas=loc2wmas)
+        e_tot, grads = self.lasci_(oneRDM_loc, loc2wmas=loc2wmas)
         for loc2imo, frag in zip (loc2wmcs, self.fragments):
             frag.set_new_fragment_basis (np.append (loc2imo, frag.loc2amo, axis=1))
             assert (is_basis_orthonormal (frag.loc2amo))
             assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ frag.loc2amo)
-        return self.ints.oneRDM_loc # delete self.ints. if you take away the self.lasci_() above
+        return e_tot, grads # delete self.ints. if you take away the self.lasci_() above
 
     def refrag_lowdin_active (self, loc2wmas, oneRDM_loc):
         
@@ -1413,11 +1425,13 @@ class dmet:
         mf._eri = self.ints._eri
         if getattr (self.ints, 'with_df', None):
             mf = mf.density_fit (auxbasis = self.ints.with_df.auxbasis, with_df = self.ints.with_df)
+        mf.max_cycle = 1 
         mf.kernel ()
         mf.mo_coeff = ao2no
         mf.mo_energy = no_ene
         mf.mo_occ = no_occ
-        las = lasci.LASCI (mf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub)
+        frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
+        las = lasci.LASCI (mf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
         e_tot, _, ci_sub = las.kernel (casdm0_sub = casdm0_sub)[:3]
         if not las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
@@ -1454,5 +1468,5 @@ class dmet:
             casdm2c = get_2CDM_from_2RDM (casdm2, casdm1s)
             eri = self.ints.dmet_tei (f.loc2amo)
             f.E2_cum = (casdm2c * eri).sum () / 2
-        return las.e_tot
+        return las.e_tot, las.get_grad ()
 

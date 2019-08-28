@@ -88,7 +88,7 @@ class fragment_object:
         self.corr_attr = {}
         self.cas_guess_callback = None
         self.molden_missing_aos = False
-        self.add_virtual_bath = False
+        self.add_virtual_bath = True
         self.virtual_bath_gradient_svd = False
         self.enforce_symmetry = False
         self.wfnsym = None
@@ -958,7 +958,7 @@ class fragment_object:
         guess_1RDM = self.get_guess_1RDM (chempot_imp)
 
         # Execute solver function
-        if self.imp_solver_name != 'dummy RHF': self.analyze_gradient ()
+        #if self.imp_solver_name != 'dummy RHF': self.analyze_gradient ()
         self.imp_solver_function (guess_1RDM, chempot_imp)
         self.imp_solved = True
 
@@ -968,7 +968,7 @@ class fragment_object:
         self.S2_frag    = self.get_S2_frag ()
         print ("Impurity results for {0}: E_imp = {1}, E_frag = {2}, nelec_frag = {3}, S2_frag = {4}".format (self.frag_name,
             self.E_imp, self.E_frag, self.nelec_frag, self.S2_frag))
-        if self.imp_solver_name != 'dummy RHF': self.analyze_gradient (oneRDM_loc=self.oneRDM_loc, fock_loc=self.ints.loc_rhf_fock_bis (self.oneRDM_loc))
+        #if self.imp_solver_name != 'dummy RHF': self.analyze_gradient (oneRDM_loc=self.oneRDM_loc, fock_loc=self.ints.loc_rhf_fock_bis (self.oneRDM_loc))
 
         # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals
         self.fno_evals, frag2fno = sp.linalg.eigh (self.get_oneRDM_frag ())
