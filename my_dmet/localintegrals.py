@@ -205,14 +205,6 @@ class localintegrals:
         for loc2ir in self.loc2symm:
             loc2ir[:,:] = orthonormalize_a_basis (loc2ir)
         print ("Final loc2symm nonorthonormality: {}".format (measure_basis_nonorthonormality (np.concatenate (self.loc2symm, axis=1))))
-        for loc2ir, u_ir, ir_name in zip (self.loc2symm, self.mol.symm_orb, self.ir_names):
-            umat = orth.lowdin (u_ir.conjugate ().T @ self.ao_ovlp @ u_ir)
-            ao2ir = u_ir @ umat
-            ir2aos = ao2ir.conjugate ().T @ self.ao_ovlp
-            ovlp = (ir2aos @ ao2ir) - np.eye (ao2ir.shape[1])
-            print ("Irrep {} ao_err {}".format (ir_name, linalg.norm (ovlp)))
-            svals = linalg.svd (ir2aos @ self.ao2loc @ loc2ir)[1] - np.ones (loc2ir.shape[1])
-            print ("Irrep {} loc err: {}".format (ir_name, linalg.norm (svals)))
 
     def molden( self, filename ):
     
