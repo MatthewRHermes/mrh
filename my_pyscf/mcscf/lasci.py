@@ -291,8 +291,9 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
     log.info ('LASCI subspace CI energies: {}'.format (e_cas))
     t1 = log.timer ('LASCI ci_cycle', *t1)
     converged = False
+    veff_sub = None
     for it in range (las.max_cycle_macro):
-        H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, eri_cas=h2eff_sub)
+        H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, eri_cas=h2eff_sub, veff_sub=veff_sub)
         g_vec = H_op.get_grad ()
         prec_op = H_op.get_prec ()
         prec = prec_op (np.ones_like (g_vec)) # Check for divergences
@@ -330,11 +331,15 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
 
         dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci1, include_core=True)
         veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-        t1 = log.timer ('LASCI get_veff', *t1)
+        t1 = log.timer ('LASCI get_veff after secondorder', *t1)
 
         e_cas, ci1 = ci_cycle (las, mo_coeff, ci1, veff_sub, h2eff_sub, dm1s_sub, log)
         log.info ('LASCI subspace CI energies: {}'.format (e_cas))
         t1 = log.timer ('LASCI ci_cycle', *t1)
+
+        dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci1, include_core=True)
+        veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
+        t1 = log.timer ('LASCI get_veff after ci', *t1)
 
         e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff_sub=veff_sub)
         gorb, gci, gx = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff_sub=veff_sub, dm1s=dm1s_sub.sum (0))
@@ -640,7 +645,7 @@ class LASCINoSymm (casci.CASCI):
         self.conv_tol_grad = 1e-4
         self.ah_level_shift = 1e-8
         self.max_cycle_macro = 50
-        self.max_cycle_micro = 50
+        self.max_cycle_micro = 5
         keys = set(('ncas_sub', 'nelecas_sub', 'spin_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fcisolver = csf_solver (self.mol, smult=0)
@@ -836,7 +841,7 @@ class LASCINoSymm (casci.CASCI):
             casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
         return casdm2 
 
-    def get_veff(self, mol=None, dm1s=None, hermi=1, **kwargs):
+    def get_veff (self, mol=None, dm1s=None, hermi=1, **kwargs):
         ''' Returns a spin-separated veff! If dm1s isn't provided, builds from self.mo_coeff, self.ci etc. '''
         if mol is None: mol = self.mol
         nao = mol.nao_nr ()
@@ -963,7 +968,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
-    def __init__(self, las, ugg, mo_coeff=None, ci=None, ncore=None, ncas_sub=None, nelecas_sub=None, eri_cas=None):
+    def __init__(self, las, ugg, mo_coeff=None, ci=None, ncore=None, ncas_sub=None, nelecas_sub=None, eri_cas=None, veff_sub=None):
         if mo_coeff is None: mo_coeff = las.mo_coeff
         if ci is None: ci = las.ci
         if ncore is None: ncore = las.ncore
@@ -987,7 +992,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # h1e_ab_sub is for ci response
         moH_coeff = mo_coeff.conjugate ().T
         dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci, include_core=True)
-        veff_sub = las.get_veff (dm1s=dm1s_sub)
+        if veff_sub is None: veff_sub = las.get_veff (dm1s=dm1s_sub)
         fock_ao = las.get_fock (dm1s=dm1s_sub.sum (0), veff_sub=veff_sub)
         self.fock = moH_coeff @ fock_ao @ mo_coeff
         h1e_ab = las.get_hcore ()[None,:,:] + veff_sub.sum (0)

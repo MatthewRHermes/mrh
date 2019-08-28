@@ -111,9 +111,9 @@ class dmet:
             frag.ir_names                 = self.ints.ir_names
             frag.ir_ids                   = self.ints.ir_ids
             if self.oldLASSCF:
-                self.quasifrag_gradient = False
-                self.add_virtual_bath = False
-                self.quasifrag_ovlp = True
+                frag.quasifrag_gradient = False
+                frag.add_virtual_bath = False
+                frag.quasifrag_ovlp = True
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
         self.examine_ifrag_olap = False
