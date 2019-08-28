@@ -353,7 +353,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
             converged = True
             break
    
-    mo_coeff, mo_energy, mo_occ, ci = las.canonicalize (mo_coeff, ci1)
+    mo_coeff, mo_energy, mo_occ, ci1 = las.canonicalize (mo_coeff, ci1)
     return converged, e_tot, mo_energy, mo_coeff, e_cas, ci1
 
 def ci_cycle (las, mo, ci0, veff_sub, h2eff_sub, dm1s_sub, log):
