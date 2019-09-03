@@ -408,6 +408,7 @@ class localintegrals:
 
         ########################################################################################################        
         self.e_tot          = E
+        self.activeVSPIN    = (focka_fockb[0] - focka_fockb[1]) / 2
         self.activeFOCK     = get_roothaan_fock (focka_fockb, dma_dmb, np.eye (self.norbs_tot))
         self.activeJKidem   = JKidem
         self.activeJKcorr   = JKcorr
@@ -425,6 +426,24 @@ class localintegrals:
             fock=self.activeFOCK, jmol_shift=True, try_symmetrize=True)
         print ("Writing trial wave function molden")
         molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=occ_no, ene=ene_no)
+
+    def test_total_energy (self, fragments):
+        jk_c = self.activeJKidem + self.activeJKcorr
+        jk_s = self.activeVSPIN
+        Ecore = np.tensordot (self.activeOEI, self.oneRDM_loc)
+        EJK = (np.tensordot (jk_c, self.oneRDM_loc) + np.tensordot (jk_s, self.oneSDM_loc)) / 2
+        Ecorr = 0.0
+        active_frags = [f for f in fragments if f.norbs_as]
+        for f in active_frags:
+            jk_s_f = self.dmet_k (f.loc2amo, f.norbs_as, f.oneSDMas_loc) / 4
+            sdm = represent_operator_in_basis (f.oneSDMas_loc, f.loc2amo)
+            Ecorr += f.E2_cum
+            Ecorr += np.tensordot (jk_s_f, sdm)
+        print ("LASSCF energy decomposition: nuc = {:.9f}".format (self.activeCONST))
+        print ("LASSCF energy decomposition: core = {:.9f}".format (Ecore))
+        print ("LASSCF energy decomposition: jk = {:.9f}".format (EJK))
+        print ("LASSCF energy decomposition: corr = {:.9f}".format (Ecorr))
+        print ("LASSCF energy total error = {:.6e}".format (self.e_tot - (self.activeCONST + Ecore + EJK + Ecorr)))
 
     def restore_wm_full_scf (self):
         self.activeFOCK     = represent_operator_in_basis (self.fullFOCK_ao,  self.ao2loc )

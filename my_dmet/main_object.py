@@ -1412,6 +1412,7 @@ class dmet:
             casdm0_sub.append (np.stack ([dma, dmb], axis=0))
             spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
             wfnsym_sub.append (f.wfnsym)
+        w0, t0 = time.time (), time.clock ()
         mol = self.ints.mol.copy ()
         if self.lasci_log is None: mol.output = self.calcname + '_lasci.log'
         mol.verbose = pyscf_logger.DEBUG
@@ -1436,6 +1437,7 @@ class dmet:
         if not las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))
+        print ("Time in LASCI module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         return las
 
     def lasci_ (self, dm0=None, loc2wmas=None):
@@ -1468,5 +1470,6 @@ class dmet:
             casdm2c = get_2CDM_from_2RDM (casdm2, casdm1s)
             eri = self.ints.dmet_tei (f.loc2amo)
             f.E2_cum = (casdm2c * eri).sum () / 2
+        self.ints.test_total_energy (self.fragments)
         return las.e_tot, las.get_grad ()
 

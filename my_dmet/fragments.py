@@ -516,7 +516,10 @@ class fragment_object:
             sys.stdout.flush ()
             return
         '''
-        if not ('dummy' in self.imp_solver_name): self.hesscalc = LASSCFHessianCalculator (self.ints, oneRDM_loc, all_frags, self.ints.activeFOCK) 
+        if not ('dummy' in self.imp_solver_name):
+            w0, t0 = time.time (), time.clock ()
+            self.hesscalc = LASSCFHessianCalculator (self.ints, oneRDM_loc, all_frags, self.ints.activeFOCK) 
+            print ("Time in building Hessian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         frag2wmcs = np.dot (self.frag2loc, loc2wmcs)
         proj = np.dot (frag2wmcs.conjugate ().T, frag2wmcs)
         norbs_wmcsf = np.trace (proj)
@@ -548,7 +551,6 @@ class fragment_object:
             norbs_qfrag = 0
             loc2wfrag = self.loc2frag
             print ("NO quasi-fragment orbitals constructed")
-
 
         # This will RuntimeError on me if I don't have integer.
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
@@ -898,6 +900,7 @@ class fragment_object:
     # Impurity Hamiltonian
     ###############################################################################################################################
     def construct_impurity_hamiltonian (self, xtra_CONST=0.0):
+        w0, t0 = time.time (), time.clock () 
         self.warn_check_Schmidt ("construct_impurity_hamiltonian")
         if self.imp_solver_name == "dummy RHF":
             self.E2_frag_core = 0
@@ -935,6 +938,7 @@ class fragment_object:
 
         self.impham_built = True
         self.imp_solved   = False
+        print ("Time in impurity Hamiltonian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         sys.stdout.flush ()
     ###############################################################################################################################
 
@@ -959,7 +963,9 @@ class fragment_object:
 
         # Execute solver function
         #if self.imp_solver_name != 'dummy RHF': self.analyze_gradient ()
+        w0, t0 = time.time (), time.clock ()
         self.imp_solver_function (guess_1RDM, chempot_imp)
+        print ("Time in solver function: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         self.imp_solved = True
 
         # Main results: oneRDM in local basis and nelec_frag

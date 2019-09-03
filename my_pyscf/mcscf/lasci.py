@@ -364,7 +364,7 @@ def ci_cycle (las, mo, ci0, veff_sub, h2eff_sub, dm1s_sub, log):
     ncas_cum = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
     e_cas = []
     ci1 = []
-    e0 = las.energy_nuc () + ((las.get_hcore ()[None,:,:] + veff_sub[0]/2) * dm1s_sub[0]).sum ()
+    e0 = 0.0 #las.energy_nuc () + ((las.get_hcore ()[None,:,:] + veff_sub[0]/2) * dm1s_sub[0]).sum ()
     for isub, (ncas, nelecas, spin, h1eff, fcivec) in enumerate (zip (las.ncas_sub, las.nelecas_sub, las.spin_sub, h1eff_sub, ci0)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
