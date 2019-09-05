@@ -20,6 +20,7 @@
 #import qcdmet_paths
 from pyscf import gto, scf, ao2mo, tools, lo
 from pyscf.lo import nao, orth, boys
+from pyscf.x2c import x2c
 from pyscf.tools import molden
 from pyscf.lib import current_memory
 from pyscf.lib.numpy_helper import tag_array
@@ -70,8 +71,9 @@ class localintegrals:
         if self.fullJK_ao.ndim == 3:
             self.fullJK_ao = self.fullJK_ao[0] 
             # Because I gave it a spin-summed 1-RDM, the two spins for JK will necessarily be identical
-        self.fullFOCK_ao  = the_mf.get_hcore () + self.fullJK_ao
+        self.fullFOCK_ao = the_mf.get_hcore () + self.fullJK_ao
         self.e_tot       = the_mf.e_tot
+        self.x2c         = isinstance (the_mf, x2c._X2C_SCF)
 
         # Active space information
         self._which    = localizationtype
@@ -378,12 +380,40 @@ class localintegrals:
         focka_fockb = [self.activeOEI + JKidem + JK for JK in focka_fockb]
         oneRDM_loc  = oneRDMidem_loc + oneRDMcorr_loc
         oneSDM_loc  = oneSDMcorr_loc
+        E  = self.activeCONST + E2_cum 
+        E += ((self.activeOEI + (JKcorr + JKidem)/2) * oneRDM_loc).sum ()
+        E += (vk * oneSDM_loc).sum ()/2
+        self._cache_and_analyze_(calcname, E, focka_fockb, dma_dmb, JKidem, JKcorr, oneRDMcorr_loc, loc2idem, loc2corr, nelec_idem, oneRDM_loc, oneSDM_loc)
+
+    def update_from_lasci_(self, calcname, las, loc2mo, dma_dmb):
+        dma, dmb = dma_dmb # Not sure if this is OK with ndarray
+        loc2core = loc2mo[:,:las.ncore]
+        loc2corr = loc2mo[:,las.ncore:][:,:las.ncas]
+        oneRDMidem_loc = 2 * loc2core @ loc2core.conjugate ().T
+        oneRDMcorr_loc = dma + dmb
+        oneRDM_loc = oneRDMidem_loc + oneRDMcorr_loc
+        oneSDM_loc = dma - dmb
+        JKidem, JKcorr = (self.loc_rhf_jk_bis (dm) for dm in (oneRDMidem_loc, oneRDMcorr_loc))
+        vk = -self.loc_rhf_k_bis (oneSDM_loc) / 2
+        focka_fockb = self.activeOEI + JKidem + JKcorr
+        focka_fockb = [focka_fockb + vk, focka_fockb - vk] 
+        idx = np.zeros (loc2mo.shape[-1], dtype=np.bool_)
+        idx[:las.ncore] = True
+        idx[las.ncore+las.ncas:] = True
+        loc2idem = loc2mo[:,idx]
+        dma_dmb += (oneRDMidem_loc/2)[None,:,:]
+        self._cache_and_analyze_(calcname, las.e_tot, focka_fockb, dma_dmb, JKidem, JKcorr, oneRDMcorr_loc, loc2idem, loc2corr, las.ncore*2, oneRDM_loc, oneSDM_loc)
+
+    def _cache_and_analyze_(self, calcname, E, focka_fockb, dma_dmb, JKidem, JKcorr, oneRDMcorr_loc, loc2idem, loc2corr, nelec_idem, oneRDM_loc, oneSDM_loc):
 
         ########################################################################################################        
+        self.e_tot          = E
+        self.activeVSPIN    = (focka_fockb[0] - focka_fockb[1]) / 2
         self.activeFOCK     = get_roothaan_fock (focka_fockb, dma_dmb, np.eye (self.norbs_tot))
         self.activeJKidem   = JKidem
         self.activeJKcorr   = JKcorr
         self.oneRDMcorr_loc = oneRDMcorr_loc
+        self.oneSDMcorr_loc = oneSDM_loc
         self.loc2idem       = loc2idem
         self.nelec_idem     = nelec_idem
         self.oneRDM_loc     = oneRDM_loc
@@ -391,18 +421,29 @@ class localintegrals:
         ########################################################################################################
 
         # Analysis: 1RDM and total energy
-        print ("Analyzing LASSCF trial wave function")
-        jk = np.stack ([JKcorr + JKidem, -self.loc_rhf_k_bis (oneSDM_loc)/2], axis=0)
-        dm = np.stack ([oneRDM_loc, oneSDM_loc], axis=0)
-        E = self.activeCONST + (self.activeOEI * oneRDM_loc).sum () + (jk * dm).sum ()/2 + E2_cum
-        print ("LASSCF trial wave function total energy: {:.6f}".format (E))
-        self.e_tot = E
-
-        # Molden
+        print ("LASSCF trial wave function total energy: {:.9f}".format (E))
         ao2molden, ene_no, occ_no = self.get_trial_nos (aobasis=True, loc2wmas=loc2corr, oneRDM_loc=oneRDM_loc,
             fock=self.activeFOCK, jmol_shift=True, try_symmetrize=True)
         print ("Writing trial wave function molden")
         molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=occ_no, ene=ene_no)
+
+    def test_total_energy (self, fragments):
+        jk_c = self.activeJKidem + self.activeJKcorr
+        jk_s = self.activeVSPIN
+        Ecore = np.tensordot (self.activeOEI, self.oneRDM_loc)
+        EJK = (np.tensordot (jk_c, self.oneRDM_loc) + np.tensordot (jk_s, self.oneSDM_loc)) / 2
+        Ecorr = 0.0
+        active_frags = [f for f in fragments if f.norbs_as]
+        for f in active_frags:
+            #jk_s_f = self.dmet_k (f.loc2amo, f.norbs_as, f.oneSDMas_loc) / 4
+            #sdm = represent_operator_in_basis (f.oneSDMas_loc, f.loc2amo)
+            Ecorr += f.E2_cum
+            #Ecorr += np.tensordot (jk_s_f, sdm)
+        print ("LASSCF energy decomposition: nuc = {:.9f}".format (self.activeCONST))
+        print ("LASSCF energy decomposition: core = {:.9f}".format (Ecore))
+        print ("LASSCF energy decomposition: jk = {:.9f}".format (EJK))
+        print ("LASSCF energy decomposition: corr = {:.9f}".format (Ecorr))
+        print ("LASSCF energy total error = {:.6e}".format (self.e_tot - (self.activeCONST + Ecore + EJK + Ecorr)))
 
     def restore_wm_full_scf (self):
         self.activeFOCK     = represent_operator_in_basis (self.fullFOCK_ao,  self.ao2loc )
@@ -603,32 +644,43 @@ class localintegrals:
             fock = self.activeFOCK
         elif isinstance (fock, str) and fock == 'calculate':
             fock = self.loc_rhf_fock_bis (oneRDM_loc)
-        if loc2wmas is None: loc2wmas = np.zeros ((self.norbs_tot, 0), dtype=self.ao2loc.dtype)
+        if loc2wmas is None: loc2wmas = [np.zeros ((self.norbs_tot, 0), dtype=self.ao2loc.dtype)]
+        elif isinstance (loc2wmas, np.ndarray):
+            if loc2wmas.ndim == 2: loc2wmas = loc2wmas[None,:,:]
+            loc2wmas = [loc2amo for loc2amo in loc2wmas]
+        occ_wmas = [np.zeros (0) for ix in loc2wmas]
+        symm_wmas = [np.zeros (0) for ix in loc2wmas]
+        for ix, loc2amo in enumerate (loc2wmas):
+            occ_wmas[ix], loc2wmas[ix], symm_wmas[ix] = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm, subspace=loc2amo,
+                sort_vecs=-1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+        occ_wmas = np.concatenate (occ_wmas)
+        symm_wmas = np.concatenate (symm_wmas)
+        loc2wmas = np.concatenate (loc2wmas, axis=-1)
+        nelec_wmas = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2wmas)))
 
         loc2wmcs = get_complementary_states (loc2wmas, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         norbs_wmas = loc2wmas.shape[1]
         norbs_wmcs = loc2wmcs.shape[1]
-        ene_wmcs, loc2wmcs, wmcs_symm = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
-        occ_wmas, loc2wmas, wmas_symm = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm, subspace=loc2wmas, sort_vecs=-1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
-        nelec_wmas = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2wmas)))
+        ene_wmcs, loc2wmcs, symm_wmcs = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+            
         assert ((self.nelec_tot - nelec_wmas) % 2 == 0), 'Non-even number of unactive electrons {}'.format (self.nelec_tot - nelec_wmas)
         norbs_core = (self.nelec_tot - nelec_wmas) // 2
         norbs_virt = norbs_wmcs - norbs_core
         loc2wmis = loc2wmcs[:,:norbs_core]
-        wmis_symm = wmcs_symm[:norbs_core]
+        symm_wmis = symm_wmcs[:norbs_core]
         loc2wmxs = loc2wmcs[:,norbs_core:]
-        wmxs_symm = wmcs_symm[norbs_core:]
+        symm_wmxs = symm_wmcs[norbs_core:]
         
         if self.mol.symmetry:
-            wmis_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmis_symm==x) for x in np.unique (wmis_symm)}
+            symm_wmis = {self.mol.irrep_name[x]: np.count_nonzero (symm_wmis==x) for x in np.unique (symm_wmis)}
             err = measure_subspace_blockbreaking (loc2wmis, self.loc2symm)
-            print ("Trial wave function inactive-orbital irreps = {}, err = {}".format (wmis_symm, err))
-            wmas_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmas_symm==x) for x in np.unique (wmas_symm)} 
+            print ("Trial wave function inactive-orbital irreps = {}, err = {}".format (symm_wmis, err))
+            symm_wmas = {self.mol.irrep_name[x]: np.count_nonzero (symm_wmas==x) for x in np.unique (symm_wmas)} 
             err = measure_subspace_blockbreaking (loc2wmas, self.loc2symm)
-            print ("Trial wave function active-orbital irreps = {}, err = {}".format (wmas_symm, err))
-            wmxs_symm = {self.mol.irrep_name[x]: np.count_nonzero (wmxs_symm==x) for x in np.unique (wmxs_symm)}
+            print ("Trial wave function active-orbital irreps = {}, err = {}".format (symm_wmas, err))
+            symm_wmxs = {self.mol.irrep_name[x]: np.count_nonzero (symm_wmxs==x) for x in np.unique (symm_wmxs)}
             err = measure_subspace_blockbreaking (loc2wmxs, self.loc2symm)
-            print ("Trial wave function external-orbital irreps = {}, err = {}".format (wmxs_symm, err))
+            print ("Trial wave function external-orbital irreps = {}, err = {}".format (symm_wmxs, err))
 
         loc2no = np.concatenate ((loc2wmcs[:,:norbs_core], loc2wmas, loc2wmcs[:,norbs_core:]), axis=1)
         occ_no = np.concatenate ((2*np.ones (norbs_core), occ_wmas, np.zeros (norbs_virt)))

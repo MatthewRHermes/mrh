@@ -18,17 +18,17 @@ class CSFTransformer (lib.StreamObject):
         self._norb = self._neleca = self._nelecb = self._smult = self._orbsym = None
         self.wfnsym = wfnsym
         self._update_spin_cache (norb, neleca, nelecb, smult)
-        if orbsym is not None:
-            self._update_symm_cache (orbsym)
+        self.orbsym = orbsym
 
     def project_civec (self, detarr, order='C', normalize=True, return_norm=False):
         pass
 
     def vec_det2csf (self, civec, order='C', normalize=True, return_norm=False):
         vec_on_cols = (order.upper () == 'F')
-        civec, norm = self.pack_csf (transform_civec_det2csf (civec, self._norb, self._neleca, 
+        civec, norm = transform_civec_det2csf (civec, self._norb, self._neleca, 
             self._nelecb, self._smult, csd_mask=self.csd_mask, do_normalize=normalize,
-            vec_on_cols=vec_on_cols))
+            vec_on_cols=vec_on_cols)
+        civec = self.pack_csf (civec, order=order)
         if return_norm: return civec, norm
         return civec
 
@@ -90,9 +90,9 @@ class CSFTransformer (lib.StreamObject):
             self._smult = smult
 
     def _update_symm_cache (self, orbsym):
-        if self._orbsym is None or np.any (orbsym != self._orbsym):
-            self.confsym = make_confsym (self.norb, self.neleca, self.nelecb, self.econf_det_mask, self.orbsym)
-            self._orbsym = orbsym
+        if (orbsym is not None) and (self._orbsym is None or np.any (orbsym != self._orbsym)):
+            self.confsym = make_confsym (self.norb, self.neleca, self.nelecb, self.econf_det_mask, orbsym)
+        self._orbsym = orbsym
 
     def printable_largest_csf (self, csfvec, npr, order='C', isdet=False, normalize=True):
         if isdet:
@@ -157,8 +157,25 @@ class CSFTransformer (lib.StreamObject):
         return self._orbsym
     @orbsym.setter
     def orbsym (self, x):
-        self._update_symm_cache ()
+        self._update_symm_cache (x)
         return self._orbsym
+
+    @property
+    def ndeta (self):
+        return special.comb (self._norb, self._neleca, exact=True)
+
+    @property
+    def ndetb (self):
+        return special.comb (self._norb, self._nelecb, exact=True)
+
+    @property
+    def ndet (self):
+        return self.ndeta * self.ndetb
+
+    @property
+    def ncsf (self):
+        if self.wfnsym is None or self._orbsym is None: return self.econf_csf_mask.size
+        return (np.count_nonzero (self.confsym[self.econf_csf_mask] == self.wfnsym))
 
 def unpack_sym_ci (ci, idx, vec_on_cols=False):
     if idx is None: return ci

@@ -398,13 +398,14 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.ints = ints
         active_frags = [f for f in all_frags if f.norbs_as]
 
-        # Global things
+        # Global things. fock_s is zero because of the semi-cumulant decomposition; this only works because I
+        # don't call this constructer for intersubspace ranges!
         self.nmo = self.nao = ints.norbs_tot
         self.mo = self.moH = self.Smo = self.moHS = np.eye (self.nmo)
-        oneSDM_loc = 0 #sum ([f.oneSDMas_loc for f in active_frags])
+        oneSDM_loc = sum ([f.oneSDMas_loc for f in active_frags])
         self.oneRDMs = [(oneRDM_loc + oneSDM_loc)/2, (oneRDM_loc - oneSDM_loc)/2]
         fock_c = ints.loc_rhf_fock_bis (oneRDM_loc)
-        fock_s = 0 #-ints.loc_rhf_k_bis (oneSDM_loc) / 2 if isinstance (oneSDM_loc, np.ndarray) else 0
+        fock_s = -ints.loc_rhf_k_bis (oneSDM_loc) / 2 if isinstance (oneSDM_loc, np.ndarray) else 0
         self.fock = [fock_c + fock_s, fock_c - fock_s]
 
         # Fragment things
@@ -412,6 +413,16 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.twoCDM = [f.twoCDMimp_amo for f in active_frags]
         self.ncas = [f.norbs_as for f in active_frags]
         self.faaa = [self._get_eri ([np.eye (self.nmo), f.loc2amo, f.loc2amo, f.loc2amo]) for f in active_frags]
+
+        # Fix cumulant decomposition
+        for ix, (mo, dm2, ncas) in enumerate (zip (self.mo2amo, self.twoCDM, self.ncas)):
+            moH = mo.conjugate ().T
+            dm1s = [moH @ dm @ mo for dm in self.oneRDMs]
+            dm1 = dm1s[0] + dm1s[1]
+            correction = sum ([np.multiply.outer (dm, dm) for dm in dm1s])
+            correction -= np.multiply.outer (dm1, dm1) / 2
+            dm2 = dm2 + correction.transpose (0,3,2,1)
+            self.twoCDM[ix] = dm2
 
     def _get_eri (self, orbs_list, compact=False):
         return self.ints.general_tei (orbs_list, compact=compact)
@@ -450,7 +461,16 @@ class HessianERITransformer (object):
         rs_yz, rs_correct = self.pq_in_cd (self.y, self.z, r, s)
         if not (rs_yz): return self.__call__(r, s, p, q).transpose (2, 3, 0, 1)
         pq_wx, pq_correct = self.pq_in_cd (self.w, self.x, p, q)
-        assert (pq_wx), 'pq or rs not found in wx (wx is supposed to span ~all~ possible orbital pairs you ever ask for)'
+        try:
+            assert (pq_wx), 'pq or rs not found in wx (wx is supposed to span ~all~ possible orbital pairs you ever ask for)'
+        except AssertionError as e:
+            print (p.shape, q.shape, r.shape, s.shape)
+            print (self.w.shape, self.x.shape, self.y.shape, self.z.shape)
+            print (linalg.svd(self.w.conjugate ().T @ p)[1])
+            print (linalg.svd(self.x.conjugate ().T @ q)[1])
+            print (linalg.svd(self.x.conjugate ().T @ p)[1])
+            print (linalg.svd(self.w.conjugate ().T @ q)[1])
+            raise (e)
         assert (rs_yz), 'pq not found in either wx or yz'
         # Permute the order of the pairs individually
         if pq_correct and rs_correct: return self._grind (p, q, r, s)
