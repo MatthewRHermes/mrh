@@ -1470,6 +1470,5 @@ class dmet:
             casdm2c = get_2CDM_from_2RDM (casdm2, casdm1s)
             eri = self.ints.dmet_tei (f.loc2amo)
             f.E2_cum = (casdm2c * eri).sum () / 2
-        self.ints.test_total_energy (self.fragments)
         return las.e_tot, las.get_grad ()
 

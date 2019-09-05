@@ -713,9 +713,8 @@ class fragment_object:
 
         self.impham_built = False
         sys.stdout.flush ()
-        dm = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
-        if not ('dummy' in self.imp_solver_name): print ("CHECK ME: final projection error = {:.5e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
-        if not ('dummy' in self.imp_solver_name): self.test_Schmidt_basis_energy ()
+        #dm = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: final projection error = {:.5e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
 
     def get_quasifrag_ovlp (self, loc2frag, loc2wmcs, norbs_xtra):
         ''' Add "quasi-fragment orbitals" (to compensate for active orbitals' inability to generate bath) to "fragment orbitals" and return "working fragment orbitals
@@ -924,7 +923,7 @@ class fragment_object:
         _test (dma_p, dmb_p, 'projected rdm')
         dma_s = p @ dma @ p + self.oneRDMfroz_loc/2
         dmb_s = p @ dmb @ p + self.oneRDMfroz_loc/2
-        _test (dma_s, dmb_s, 'stored rdm')
+        _test (dma_s, dmb_s, 'stored rdm (VALID FOR SINGLET ENVIRONMENT ONLY)')
         print ("CHECK ME: norm of spin density matrix in this case: {}".format (linalg.norm (self.oneSDM_loc)))
         print ("CHECK ME: diff between self.ints.oneRDM_loc and self.oneRDM_loc: {}".format (linalg.norm (self.oneRDM_loc - self.ints.oneRDM_loc)))
         print ("CHECK ME: diff between self.ints.oneSDM_loc and self.oneSDM_loc: {}".format (linalg.norm (self.oneSDM_loc - self.ints.oneSDM_loc)))
@@ -980,7 +979,6 @@ class fragment_object:
         self.imp_solved   = False
         print ("Time in impurity Hamiltonian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         sys.stdout.flush ()
-        self.test_impurity_hamiltonian_energy ()
 
     def test_impurity_hamiltonian_energy (self):
         h = self.impham_OEI_C.copy ()
@@ -1002,7 +1000,7 @@ class fragment_object:
             v = np.dot (self.amo2imp, np.dot (cderi, self.imp2amo))
             v = np.tensordot (v, v, axes=((1),(1)))
         e_tot = self.impham_CONST + (h*dm).sum () + (v*self.twoCDMimp_amo).sum () / 2
-        print ("LASSCF energy total error in fragments.py (using stored density-matrix data only): {:.6e}".format (e_tot - self.ints.e_tot))
+        print ("LASSCF energy total error in fragments.py (using stored density-matrix data, VALID FOR SINGLET ENVIRONMENT ONLY): {:.6e}".format (e_tot - self.ints.e_tot))
         print ("CHECK ME: diff between stored E2_cum and recomputed E2_cum in this case: {}".format (self.E2_cum + sum (self.E2froz_tbc) - (v*self.twoCDMimp_amo).sum () / 2))
 
         if self.ci_as is not None:
@@ -1043,7 +1041,7 @@ class fragment_object:
             e_cas = (ha * casdm1a).sum () + (hb * casdm1b).sum () + (v * casdm2).sum () / 2
             print ("Testing e_core = {:.9f}".format (e_core))
             print ("Testing e_cas = {:.9f}".format (e_cas))
-            print ("LASSCF energy total error using ci vectors in fragments.py: {:.6e}".format (e_core + e_cas - self.ints.e_tot))
+            print ("LASSCF energy total error using ci vectors in fragments.py (VALID FOR SINGLET ENVIRONMENT ONLY): {:.6e}".format (e_core + e_cas - self.ints.e_tot))
 
     ###############################################################################################################################
 

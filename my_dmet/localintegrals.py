@@ -435,10 +435,10 @@ class localintegrals:
         Ecorr = 0.0
         active_frags = [f for f in fragments if f.norbs_as]
         for f in active_frags:
-            jk_s_f = self.dmet_k (f.loc2amo, f.norbs_as, f.oneSDMas_loc) / 4
-            sdm = represent_operator_in_basis (f.oneSDMas_loc, f.loc2amo)
+            #jk_s_f = self.dmet_k (f.loc2amo, f.norbs_as, f.oneSDMas_loc) / 4
+            #sdm = represent_operator_in_basis (f.oneSDMas_loc, f.loc2amo)
             Ecorr += f.E2_cum
-            Ecorr += np.tensordot (jk_s_f, sdm)
+            #Ecorr += np.tensordot (jk_s_f, sdm)
         print ("LASSCF energy decomposition: nuc = {:.9f}".format (self.activeCONST))
         print ("LASSCF energy decomposition: core = {:.9f}".format (Ecore))
         print ("LASSCF energy decomposition: jk = {:.9f}".format (EJK))
