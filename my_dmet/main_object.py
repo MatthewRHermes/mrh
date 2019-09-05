@@ -36,6 +36,7 @@ from pyscf.gto import mole, same_mol
 from pyscf.tools import molden
 from pyscf.symm.addons import symmetrize_space
 from pyscf.scf.addons import project_mo_nr2nr, project_dm_nr2nr
+from pyscf.lib.numpy_helper import unpack_tril
 from mrh.util import params
 from mrh.util.io import prettyprint_ndarray as prettyprint
 from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
@@ -1433,16 +1434,16 @@ class dmet:
         mf.mo_occ = no_occ
         frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
         las = lasci.LASCI (mf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
-        e_tot, _, ci_sub = las.kernel (casdm0_sub = casdm0_sub)[:3]
+        e_tot, _, ci_sub, _, _, h2eff_sub, veff_sub = las.kernel (casdm0_sub = casdm0_sub)
         if not las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))
         print ("Time in LASCI module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
-        return las
+        return las, h2eff_sub, veff_sub
 
     def lasci_ (self, dm0=None, loc2wmas=None):
         ''' Do LASCI and then also update the fragment and ints object '''
-        las = self.lasci (dm0=dm0, loc2wmas=loc2wmas)
+        las, h2eff_sub, veff_sub = self.lasci (dm0=dm0, loc2wmas=loc2wmas)
         aoSloc = self.ints.ao_ovlp @ self.ints.ao2loc
         locSao = aoSloc.conjugate ().T
         oneRDMs_loc_sub = np.dot (locSao, np.dot (las.make_rdm1s_sub (), aoSloc)).transpose (1,2,0,3)
@@ -1450,7 +1451,10 @@ class dmet:
         active_frags = [f for f in self.fragments if f.norbs_as]
         self.ints.update_from_lasci_(self.calcname, las, loc2mo, oneRDMs_loc_sub.sum (0))
         loc2amo_sub = [las.get_mo_slice (idx, mo_coeff=loc2mo) for idx in range (len (active_frags))]
-        for loc2amo, ci, oneRDMs_amo_loc, f in zip (loc2amo_sub, las.ci, oneRDMs_loc_sub, active_frags):
+        eri_gradient = unpack_tril (h2eff_sub.reshape ((las.mo_coeff.shape[-1]*las.ncas, -1)))
+        eri_gradient = eri_gradient.reshape ((las.mo_coeff.shape[-1], las.ncas, las.ncas, las.ncas))
+        eri_gradient = np.tensordot (loc2mo, eri_gradient, axes=1)
+        for ix, (loc2amo, ci, oneRDMs_amo_loc, f) in enumerate (zip (loc2amo_sub, las.ci, oneRDMs_loc_sub, active_frags)):
             dma, dmb = oneRDMs_amo_loc
             print ("MATT CHECK THIS AGAIN: (neleca, nelecb) = ({:.3f}, {:.3f})".format (np.trace (dma), np.trace (dmb)))
             f.loc2amo = loc2amo.copy () # Definitely copy this because it is explicitly a slice
@@ -1470,5 +1474,9 @@ class dmet:
             casdm2c = get_2CDM_from_2RDM (casdm2, casdm1s)
             eri = self.ints.dmet_tei (f.loc2amo)
             f.E2_cum = (casdm2c * eri).sum () / 2
-        return las.e_tot, las.get_grad ()
+            # Cache gradient-related eri...
+            i = sum (las.ncas_sub[:ix])
+            j = i + las.ncas_sub[ix]
+            f.eri_gradient = eri_gradient[:,i:j,i:j,i:j]
+        return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff_sub=veff_sub)
 

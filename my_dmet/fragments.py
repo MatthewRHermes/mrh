@@ -179,6 +179,7 @@ class fragment_object:
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.oneSDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.twoCDMimp_amo = np.zeros((0,0,0,0))
+        self.eri_gradient  = np.zeros((self.norbs_tot,0,0,0))
         self.ci_as         = None
         self.ci_as_orb     = None
         self.mfmo_printed  = False

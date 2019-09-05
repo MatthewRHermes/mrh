@@ -412,7 +412,13 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.mo2amo = [f.loc2amo for f in active_frags]
         self.twoCDM = [f.twoCDMimp_amo for f in active_frags]
         self.ncas = [f.norbs_as for f in active_frags]
-        self.faaa = [self._get_eri ([np.eye (self.nmo), f.loc2amo, f.loc2amo, f.loc2amo]) for f in active_frags]
+        self.faaa = [f.eri_gradient for f in active_frags]
+        '''
+        self.faaa_check = [self._get_eri ([np.eye (self.nmo), f.loc2amo, f.loc2amo, f.loc2amo]) for f in active_frags]
+        for f1, f2 in zip (self.faaa, self.faaa_check):
+            print ("faaa error: {:.6e}".format (linalg.norm (f1-f2)))
+        assert (False)
+        '''
 
         # Fix cumulant decomposition
         for ix, (mo, dm2, ncas) in enumerate (zip (self.mo2amo, self.twoCDM, self.ncas)):

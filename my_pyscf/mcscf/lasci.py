@@ -296,6 +296,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, eri_cas=h2eff_sub, veff_sub=veff_sub)
         g_vec = H_op.get_grad ()
         prec_op = H_op.get_prec ()
+        t1 = log.timer ('LASCI Hessian constructor', *t1)
         prec = prec_op (np.ones_like (g_vec)) # Check for divergences
         norm_gorb = linalg.norm (g_vec[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_gci = linalg.norm (g_vec[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
@@ -326,8 +327,9 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
             log.info ('LASCI micro %d : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x_orb| = %.15g ; |x_ci| = %.15g', microit[0], Ecall, norm_gorb, norm_gci, norm_xorb, norm_xci)
         x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=conv_tol_grad, maxiter=las.max_cycle_micro,
          callback=my_callback, M=prec_op)
+        t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
         mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
-        t1 = log.timer ('LASCI {} microcycles'.format (microit), *t1)
+        t1 = log.timer ('LASCI Hessian update', *t1)
 
         dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci1, include_core=True)
         veff_sub = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
@@ -353,8 +355,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
             converged = True
             break
    
-    mo_coeff, mo_energy, mo_occ, ci1 = las.canonicalize (mo_coeff, ci1)
-    return converged, e_tot, mo_energy, mo_coeff, e_cas, ci1
+    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, h2eff_sub)
+    return converged, e_tot, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff_sub
 
 def ci_cycle (las, mo, ci0, veff_sub, h2eff_sub, dm1s_sub, log):
     if ci0 is None: ci0 = [None for idx in range (len (las.ncas_sub))]
@@ -551,7 +553,7 @@ def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None
     fock = las.get_hcore () + vj - (vk/2)
     return fock
 
-def canonicalize (las, mo_coeff=None, ci=None, orbsym=None):
+def canonicalize (las, mo_coeff=None, ci=None, h2eff_sub=None, orbsym=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
     nao, nmo = mo_coeff.shape
@@ -620,7 +622,14 @@ def canonicalize (las, mo_coeff=None, ci=None, orbsym=None):
         #mo_coeff = las.label_symmetry_(mo_coeff)
         '''
         mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym)
-    return mo_coeff, mo_ene, mo_occ, ci
+    if h2eff_sub is not None:
+        h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*las.ncas, -1)).reshape (nmo, las.ncas, las.ncas, las.ncas)
+        h2eff_sub = np.tensordot (umat, h2eff_sub, axes=((0),(0)))
+        h2eff_sub = np.tensordot (ucas, h2eff_sub, axes=((0),(1))).transpose (1,0,2,3)
+        h2eff_sub = np.tensordot (ucas, h2eff_sub, axes=((0),(2))).transpose (1,2,0,3)
+        h2eff_sub = np.tensordot (ucas, h2eff_sub, axes=((0),(3))).transpose (1,2,3,0)
+        h2eff_sub = lib.numpy_helper.pack_tril (h2eff_sub.reshape (nmo*las.ncas, las.ncas, las.ncas)).reshape (nmo, -1)
+    return mo_coeff, mo_ene, mo_occ, ci, h2eff_sub
 
 
 class LASCINoSymm (casci.CASCI):
@@ -713,7 +722,7 @@ class LASCINoSymm (casci.CASCI):
             self.check_sanity()
         self.dump_flags(log)
 
-        self.converged, self.e_tot, self.mo_energy, self.mo_coeff, self.e_cas, self.ci = \
+        self.converged, self.e_tot, self.mo_energy, self.mo_coeff, self.e_cas, self.ci, h2eff_sub, veff_sub = \
                 kernel(self, mo_coeff, ci0=ci0, verbose=verbose, casdm0_sub=casdm0_sub, conv_tol_grad=conv_tol_grad)
 
         '''
@@ -732,7 +741,7 @@ class LASCINoSymm (casci.CASCI):
             self.converged = True
         self._finalize()
         '''
-        return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
+        return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy, h2eff_sub, veff_sub
 
     def make_casdm1s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
         ''' Spin-separated 1-RDMs in the MO basis for each subspace in sequence '''
@@ -876,7 +885,7 @@ class LASCINoSymm (casci.CASCI):
         # 1-body veff terms
         h1e = self.get_hcore ()[None,:,:] + veff_sub.sum (0)/2
         dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ncore=ncore, ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
-        energy_elec = e1 = (h1e * dm1s).sum ()
+        energy_elec = e1 = np.dot (h1e.ravel (), dm1s.ravel ())
 
         # 2-body cumulant terms
         casdm1s_sub = self.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
@@ -942,10 +951,10 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         #mo_coeff = self.mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym) #casci_symm.label_symmetry_(self, mo_coeff, None)
         return LASCINoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0, casdm0_sub=casdm0_sub, verbose=verbose)
 
-    def canonicalize (self, mo_coeff=None, ci=None):
+    def canonicalize (self, mo_coeff=None, ci=None, h2eff_sub=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         mo_coeff = self.label_symmetry_(mo_coeff)
-        return canonicalize (self, mo_coeff=mo_coeff, ci=ci, orbsym=mo_coeff.orbsym)
+        return canonicalize (self, mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub, orbsym=mo_coeff.orbsym)
 
     def label_symmetry_(self, mo_coeff=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
@@ -993,8 +1002,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         moH_coeff = mo_coeff.conjugate ().T
         dm1s_sub = las.make_rdm1s_sub (mo_coeff=mo_coeff, ci=ci, include_core=True)
         if veff_sub is None: veff_sub = las.get_veff (dm1s=dm1s_sub)
-        fock_ao = las.get_fock (dm1s=dm1s_sub.sum (0), veff_sub=veff_sub)
-        self.fock = moH_coeff @ fock_ao @ mo_coeff
         h1e_ab = las.get_hcore ()[None,:,:] + veff_sub.sum (0)
         h1e_ab_sub = h1e_ab[None,:,:,:] - veff_sub[1:,:,:,:]
         h1e_ab = np.dot (h1e_ab, mo_coeff)
@@ -1030,7 +1037,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # Total energy (for callback)
         h1 = (self.h1e_ab + (moH_coeff @ las.get_hcore () @ mo_coeff)[None,:,:]) / 2
-        self.e_tot = las.energy_nuc () + (h1 * self.dm1s).sum () + (self.eri_cas * self.casdm2c).sum () / 2
+        self.e_tot = las.energy_nuc () + np.dot (h1.ravel (), self.dm1s.ravel ()) + np.tensordot (self.eri_cas, self.casdm2c, axes=4) / 2
 
         # CI stuff
         if getattr(self.fcisolver, 'gen_linkstr', None):
@@ -1076,7 +1083,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i += self.ncore
             j += self.ncore
             h1e_i = h1e_ab[:,i:j,i:j]
-            hc.append (self.Hci (ncas, nelecas, h0e, h1e_i, h2e_i, ci))
+            hc.append (self.Hci (ncas, nelecas, h0e, h1e_i, h2e_i, ci, linkstrl=linkstrl))
         return hc
 
     def make_odm1s2c_sub (self, kappa):
