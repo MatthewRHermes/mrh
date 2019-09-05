@@ -2,12 +2,13 @@ import re, sys, time
 import numpy as np
 import scipy as sp 
 from math import floor, ceil
-from pyscf import gto, scf, ao2mo
+from pyscf import gto, scf, ao2mo, fci
 from pyscf.scf.hf import dot_eri_dm
 from pyscf.scf.addons import project_mo_nr2nr
 from pyscf.symm.addons import symmetrize_space, label_orb_symm
 from pyscf.lib import logger
 from pyscf.tools import molden
+from pyscf.lib.numpy_helper import unpack_tril
 from mrh.my_dmet import pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper, pyscf_fci #, chemps2
 from mrh.util import params
 from mrh.util.basis import *
@@ -179,6 +180,7 @@ class fragment_object:
         self.oneSDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.twoCDMimp_amo = np.zeros((0,0,0,0))
         self.ci_as         = None
+        self.ci_as_orb     = None
         self.mfmo_printed  = False
         self.impo_printed  = False
 
@@ -560,6 +562,11 @@ class fragment_object:
             self.norbs_bath_max, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry, bath_tol=self.bath_tol, fock_helper=self.ints.activeFOCK,
             idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_qfrag + norbs_bath
+        dm = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: initial projection error = {:.6e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
+        q = self.loc2core @ self.core2loc
+        dm = q @ self.oneRDM_loc @ q
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: initial projection error again = {:.6e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
         self.Schmidt_done = True
         oneRDMacore_loc = project_operator_into_subspace (oneRDMa_loc, self.loc2core)
         nelec_impa = compute_nelec_in_subspace (oneRDMa_loc, self.loc2imp)
@@ -567,6 +574,7 @@ class fragment_object:
         print ("Adding {} active-space electrons to impurity and {} active-space electrons to core".format (nelec_impa, np.trace (oneRDMacore_loc)))
         self.oneRDMfroz_loc += oneRDMacore_loc
         self.nelec_imp += int (round (nelec_impa))
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: projection error after adding 'oneRDMacore_loc' = {:.6e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
 
         # Weak symmetry alignment, for the sake of moldening. (Extended) fragment, then (extended) bath
         if self.symmetry:
@@ -636,7 +644,6 @@ class fragment_object:
                 self.loc2emb[:,self.norbs_imp:][:,:norbs_unac_core] = self.loc2emb[:,self.norbs_imp:][:,:norbs_unac_core][:,idx]
                 svals = svals[idx]
                 core_occ = core_occ[idx]
-                self.oneRDMfroz_loc -= project_operator_into_subspace (oneRDM_loc, self.loc2emb[:,self.norbs_imp:][:,:norbs_hessbath])
                 print ("Adding {} virtual orbitals to bath from Hessian".format (np.count_nonzero (core_occ[:norbs_hessbath]==0)))
                 print ("Conjugate-gradient svals: " + " ".join (["{:9.2e}".format (sval) for sval in svals[:norbs_hessbath]]))
                 print ("Adding {} electrons to impurity from Hessian bath orbitals".format (np.sum (core_occ[:norbs_hessbath])))
@@ -647,6 +654,10 @@ class fragment_object:
 
             else:
                 print ("Gradient is zero; can't make hessbath using gradient")
+        self.oneRDMfroz_loc = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
+        #self.oneRDMfroz_loc -= project_operator_into_subspace (self.oneRDMfroz_loc, self.loc2imp)
+        #dm = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: projection error after hessbath = {:.6e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
 
         # This whole block below me is an old attempt at this that doesn't really work
         '''
@@ -702,6 +713,9 @@ class fragment_object:
 
         self.impham_built = False
         sys.stdout.flush ()
+        dm = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
+        if not ('dummy' in self.imp_solver_name): print ("CHECK ME: final projection error = {:.5e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
+        if not ('dummy' in self.imp_solver_name): self.test_Schmidt_basis_energy ()
 
     def get_quasifrag_ovlp (self, loc2frag, loc2wmcs, norbs_xtra):
         ''' Add "quasi-fragment orbitals" (to compensate for active orbitals' inability to generate bath) to "fragment orbitals" and return "working fragment orbitals
@@ -889,7 +903,33 @@ class fragment_object:
             grad += np.tensordot (eri, lamb, axes=((1,2,3),(1,2,3))) # axes=3 is INCORRECT!
         return 2 * grad, occ_labels
             
-
+    def test_Schmidt_basis_energy (self):
+        def _test (dma, dmb, label):
+            dma_ao, dmb_ao = (represent_operator_in_basis (dm, self.ints.ao2loc.conjugate ().T) for dm in (dma, dmb))
+            vj, vk = self.ints.get_jk_ao ([dma_ao, dmb_ao])
+            va = vj[0] + vj[1] - vk[0]
+            vb = vj[0] + vj[1] - vk[1]
+            va, vb = (represent_operator_in_basis (v, self.ints.ao2loc) for v in (va, vb))
+            etot = self.ints.activeCONST + (self.ints.activeOEI * (dma + dmb)).sum ()
+            etot += (va * dma).sum () / 2
+            etot += (vb * dmb).sum () / 2
+            etot += self.E2_cum + sum (self.E2froz_tbc)
+            print ("LASSCF energy total error in Schmidt basis using {}: {:.6e}".format (label, etot - self.ints.e_tot))
+        dma, dmb = (self.oneRDM_loc + self.oneSDM_loc)/2, (self.oneRDM_loc - self.oneSDM_loc)/2
+        _test (dma, dmb, 'full rdm')
+        p = self.loc2imp @ self.imp2loc
+        q = self.loc2core @ self.core2loc
+        dma_p = p @ dma @ p + q @ dma @ q
+        dmb_p = p @ dmb @ p + q @ dmb @ q
+        _test (dma_p, dmb_p, 'projected rdm')
+        dma_s = p @ dma @ p + self.oneRDMfroz_loc/2
+        dmb_s = p @ dmb @ p + self.oneRDMfroz_loc/2
+        _test (dma_s, dmb_s, 'stored rdm')
+        print ("CHECK ME: norm of spin density matrix in this case: {}".format (linalg.norm (self.oneSDM_loc)))
+        print ("CHECK ME: diff between self.ints.oneRDM_loc and self.oneRDM_loc: {}".format (linalg.norm (self.oneRDM_loc - self.ints.oneRDM_loc)))
+        print ("CHECK ME: diff between self.ints.oneSDM_loc and self.oneSDM_loc: {}".format (linalg.norm (self.oneSDM_loc - self.ints.oneSDM_loc)))
+        print ("CHECK ME: diff between projected rdm and self.oneRDMfroz_loc: {}".format (linalg.norm (q @ (dma + dmb) @ q - self.oneRDMfroz_loc)))
+        
 
     ##############################################################################################################################
 
@@ -940,6 +980,71 @@ class fragment_object:
         self.imp_solved   = False
         print ("Time in impurity Hamiltonian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         sys.stdout.flush ()
+        self.test_impurity_hamiltonian_energy ()
+
+    def test_impurity_hamiltonian_energy (self):
+        h = self.impham_OEI_C.copy ()
+        dm = represent_operator_in_basis (self.oneRDM_loc, self.loc2imp)
+        if self.impham_TEI is not None:
+            eri = ao2mo.restore (1, self.impham_TEI, self.norbs_imp).reshape ([self.norbs_imp,]*4)
+            h += np.tensordot (eri, dm) / 2
+            h -= np.tensordot (eri, dm, axes=((2,1),(0,1))) / 4
+            v = represent_operator_in_basis (eri, self.imp2amo)
+        elif self.impham_get_jk is not None:
+            vj, vk = self.impham_get_jk (self.ints.mol, dm)
+            h += (vj - vk/2) / 2
+            v = 0.0
+        elif self.impham_CDERI is not None:
+            print ("Warning: am not sure about this (veff through CDERI)!")
+            cderi = unpack_tril (self.impham_CDERI)
+            h += np.dot (np.tensordot (cderi, dm), cderi) / 2
+            h -= np.tensordot (cderi, np.dot (cderi, dm), axes=((0,1),(0,2))) / 4
+            v = np.dot (self.amo2imp, np.dot (cderi, self.imp2amo))
+            v = np.tensordot (v, v, axes=((1),(1)))
+        e_tot = self.impham_CONST + (h*dm).sum () + (v*self.twoCDMimp_amo).sum () / 2
+        print ("LASSCF energy total error in fragments.py (using stored density-matrix data only): {:.6e}".format (e_tot - self.ints.e_tot))
+        print ("CHECK ME: diff between stored E2_cum and recomputed E2_cum in this case: {}".format (self.E2_cum + sum (self.E2froz_tbc) - (v*self.twoCDMimp_amo).sum () / 2))
+
+        if self.ci_as is not None:
+            h = self.impham_OEI_C.copy ()
+            ci = self.ci_as.copy ()
+            ci_orb = self.ci_as_orb.copy ()
+            ha, hb = h + self.impham_OEI_S, h - self.impham_OEI_S
+            loc2can, _, _, ncore = self.get_loc2canon_imp ()
+            ncas = self.norbs_as
+            nocc = ncore + ncas
+            imp2can = self.imp2loc @ loc2can
+            dm_core = imp2can[:,:ncore] @ imp2can[:,:ncore].conjugate ().T * 2
+            imp2cas = imp2can[:,ncore:nocc]
+            fcisolver = fci.solver (self.ints.mol, singlet=False, symm=None)
+            abs_2MS = int (round (2 * abs (self.target_MS)))
+            nelecas = ((self.nelec_as + abs_2MS) // 2, (self.nelec_as - abs_2MS) // 2)
+            casdm1a, casdm1b = fcisolver.make_rdm1s (ci, ncas, nelecas)
+            casdm2 = fcisolver.make_rdm2 (ci, ncas, nelecas)
+            umat = ci_orb.conjugate ().T @ loc2can[:,ncore:nocc]
+            casdm1a = represent_operator_in_basis (casdm1a, umat)
+            casdm1b = represent_operator_in_basis (casdm1b, umat)
+            casdm2 = represent_operator_in_basis (casdm2, umat)
+            if self.impham_TEI is not None:
+                eri = ao2mo.restore (1, self.impham_TEI, self.norbs_imp).reshape ([self.norbs_imp,]*4)
+                vj = np.tensordot (eri, dm_core)
+                vk = np.tensordot (eri, dm_core, axes=((2,1),(0,1))) 
+                v = represent_operator_in_basis (eri, imp2cas)
+            elif self.impham_CDERI is not None:
+                print ("Warning: am not sure about this (veff through CDERI)!")
+                cderi = unpack_tril (self.impham_CDERI)
+                vj = np.dot (np.tensordot (cderi, dm_core), cderi) 
+                vk = np.tensordot (cderi, np.dot (cderi, dm_core), axes=((0,1),(0,2))) 
+                v = np.dot (imp2cas.conjugate ().T, np.dot (cderi, imp2cas))
+                v = np.tensordot (v, v, axes=((1),(1)))
+            e_core = self.impham_CONST + ((h + vj/2 - vk/4) * dm_core).sum ()
+            ha = represent_operator_in_basis (ha + vj - vk/2, imp2cas)
+            hb = represent_operator_in_basis (hb + vj - vk/2, imp2cas)
+            e_cas = (ha * casdm1a).sum () + (hb * casdm1b).sum () + (v * casdm2).sum () / 2
+            print ("Testing e_core = {:.9f}".format (e_core))
+            print ("Testing e_cas = {:.9f}".format (e_cas))
+            print ("LASSCF energy total error using ci vectors in fragments.py: {:.6e}".format (e_core + e_cas - self.ints.e_tot))
+
     ###############################################################################################################################
 
 
