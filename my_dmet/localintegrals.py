@@ -41,7 +41,7 @@ from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
 from mrh.util import params
 from math import sqrt
 import itertools
-import time, sys
+import time, sys, gc
 from functools import reduce, partial
 
 LINEAR_DEP_THR = getattr(__config__, 'df_df_DF_lindep', 1e-12)
@@ -562,6 +562,7 @@ class localintegrals:
             TEI  = ao2mo.outcore.general_iofree(self.mol, a2b_list, compact=compact)
 
         if not compact: TEI = TEI.reshape (*norbs)
+        gc.collect () # I guess the ao2mo module is messy because until I put this here I was randomly losing up to 3 GB for big stretches of a calculation
 
         return TEI
 

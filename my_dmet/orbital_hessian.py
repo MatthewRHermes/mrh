@@ -1,6 +1,7 @@
 import time
 import numpy as np
 from pyscf import ao2mo
+from pyscf.lib import current_memory
 from pyscf.mcscf.mc1step import gen_g_hop
 from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap, orthonormalize_a_basis, get_complementary_states, get_overlapping_states
 from mrh.util.rdm import get_2CDM_from_2RDM
@@ -131,7 +132,6 @@ class HessianCalculator (object):
         q = self.moHS @ q
         r = self.moHS @ r
         s = self.moHS @ s
-        t0, w0 = time.clock (), time.time ()
         eris = HessianERITransformer (self, p, q, r, s)
         hess  = self._get_Fock2 (p, q, r, s, eris)
         hess -= self._get_Fock2 (q, p, r, s, eris).transpose (1,0,2,3)
@@ -279,7 +279,9 @@ class HessianCalculator (object):
     def get_conjugate_gradient (self, pq_pairs, r, s):
         ''' Obtain the gradient for ranges p->q after making an approximate gradient-descent step in r->s:
         E1'^p_q = E1^p_q - E2^pr_qs * x^r_s = E1^p_q + E2^pr_qs * E1^r_s / E2^rr_ss '''
+        t0, w0 = time.clock (), time.time ()
         r, x_rs, s = self.get_diagonal_step (r, s)
+        print ("Time to get diagonal step: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
         e1 = np.zeros ((self.nao,self.nao), dtype=np.float64)
         for p, q in pq_pairs:
             qH = q.conjugate ().T
@@ -295,9 +297,12 @@ class HessianCalculator (object):
             lp = p.shape[-1]
             lq = q.shape[-1]
             qH = q.conjugate ().T
+            t0, w0 = time.clock (), time.time ()
             e2 = self.__call__(p, q, r, s).reshape (lp, lq, lr*ls)[:,:,diag_idx]
-            e1pq = np.tensordot (e2, x_rs, axes=1)
-            e1 += p @ e1pq @ qH
+            print ("Time to get Hessian for this block: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
+            e2 = np.tensordot (e2, x_rs, axes=1)
+            e1 += p @ e2 @ qH
+            e2 = None
         return e1
 
 class CASSCFHessianTester (object):
@@ -413,12 +418,6 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.twoCDM = [f.twoCDMimp_amo for f in active_frags]
         self.ncas = [f.norbs_as for f in active_frags]
         self.faaa = [f.eri_gradient for f in active_frags]
-        '''
-        self.faaa_check = [self._get_eri ([np.eye (self.nmo), f.loc2amo, f.loc2amo, f.loc2amo]) for f in active_frags]
-        for f1, f2 in zip (self.faaa, self.faaa_check):
-            print ("faaa error: {:.6e}".format (linalg.norm (f1-f2)))
-        assert (False)
-        '''
 
         # Fix cumulant decomposition
         for ix, (mo, dm2, ncas) in enumerate (zip (self.mo2amo, self.twoCDM, self.ncas)):
