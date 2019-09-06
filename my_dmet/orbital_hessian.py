@@ -305,6 +305,26 @@ class HessianCalculator (object):
             e2 = None
         return e1
 
+    def get_veff (self, dm1s):
+        if dm1s.ndim == 4:
+            ndmat = dm1s.shape[0]
+            dm1s = dm1s.reshape (dm1s.shape[0]*dm1s.shape[1], dm1s.shape[2], dm1s.shape[3])
+        else:
+            assert (dm1s.ndim == 3 and dm1s.shape[0] % 2 == 0), 'must provide an even number of density matrices (a1, b1, a2, b2, ...)'
+            ndmat = dm1s.shape[0] // 2
+        vj, vk = self.get_jk (dm1s)
+        vj = vj.reshape (ndmat, 2, dm1s.shape[-2], dm1s.shape[-1])
+        vk = vk.reshape (ndmat, 2, dm1s.shape[-2], dm1s.shape[-1])
+        return vj.sum (1)[:,None,:,:] - vk
+
+    def get_jk (self, dm1s):
+        if dm1s.ndim == 2: dm1s = dm1s[None,:,:]
+        dm1s = np.dot (self.mo, np.dot (dm1s, self.moH)).transpose (1,0,2)
+        vj, vk = self.scf.get_jk (dm=dm1s)
+        vj = np.dot (self.moH, np.dot (vj, self.mo)).transpose (1,0,2)
+        vk = np.dot (self.moH, np.dot (vk, self.mo)).transpose (1,0,2)
+        return vj, vk
+
 class CASSCFHessianTester (object):
     ''' Use pyscf.mcscf.mc1step.gen_g_hop to test HessianCalculator.
     There are 3 nonredundant orbital rotation sectors: ui, ai, and au
@@ -432,6 +452,15 @@ class LASSCFHessianCalculator (HessianCalculator):
     def _get_eri (self, orbs_list, compact=False):
         return self.ints.general_tei (orbs_list, compact=compact)
         
+    def get_jk (self, dm1s):
+        if dm1s.ndim == 2: dm1s = dm1s[None,:,:]
+        mo = self.ints.ao2loc
+        moH = mo.conjugate ().T
+        dm1s = np.dot (mo, np.dot (dm1s, moH)).transpose (1,0,2)
+        vj, vk = self.ints.get_jk_ao (dm=dm1s)
+        vj = np.dot (moH, np.dot (vj, mo)).transpose (1,0,2)
+        vk = np.dot (moH, np.dot (vk, mo)).transpose (1,0,2)
+        return vj, vk
 
 class HessianERITransformer (object):
 
