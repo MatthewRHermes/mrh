@@ -1,7 +1,7 @@
 import time
 import numpy as np
 from pyscf import ao2mo
-from pyscf.lib import current_memory
+from pyscf.lib import current_memory, numpy_helper
 from pyscf.mcscf.mc1step import gen_g_hop
 from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap, orthonormalize_a_basis, get_complementary_states, get_overlapping_states
 from mrh.util.rdm import get_2CDM_from_2RDM
@@ -17,6 +17,9 @@ class HessianCalculator (object):
     ''' Calculate elements of an orbital-rotation Hessian corresponding to particular orbital ranges in a CASSCF or
     LASSCF wave function. This is not designed to be efficient in orbital optimization; it is designed to collect
     slices of the Hessian stored explicitly for some kind of spectral analysis. '''
+
+    def get_operator (self, r, s):
+        return HessianOperator (self, r, s)
 
     def __init__(self, mf, oneRDMs, twoCDM, ao2amo):
         ''' Args:
@@ -245,6 +248,7 @@ class HessianCalculator (object):
         ''' Do SVD of 1-rdms to get a small number of orbitals that you need to actually pay attention to
         when computing splitc and splitx eris. Append these extras to the end of p '''
         q = get_complementary_states (p)
+        if 0 in q.shape: return p
         qH = q.conjugate ().T
         lvecs = []
         for dm in self.oneRDMs + [sum (self.oneRDMs)]:
@@ -293,14 +297,21 @@ class HessianCalculator (object):
         ls = s.shape[-1]
         diag_idx = np.arange (lr, dtype=int)
         diag_idx = (diag_idx * lr) + diag_idx
+        #t0, w0 = time.clock (), time.time ()
+        Hop = self.get_operator (r, s)
+        #print ("Time to make Hop: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
         for p, q in pq_pairs:
-            lp = p.shape[-1]
-            lq = q.shape[-1]
+            #lp = p.shape[-1]
+            #lq = q.shape[-1]
             qH = q.conjugate ().T
-            t0, w0 = time.clock (), time.time ()
-            e2 = self.__call__(p, q, r, s).reshape (lp, lq, lr*ls)[:,:,diag_idx]
-            print ("Time to get Hessian for this block: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
-            e2 = np.tensordot (e2, x_rs, axes=1)
+            #t0, w0 = time.clock (), time.time ()
+            #e2t = self.__call__(p, q, r, s).reshape (lp, lq, lr*ls)[:,:,diag_idx]
+            #print ("Time to get Hessian for this block: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
+            #e2t = np.tensordot (e2t, x_rs, axes=1)
+            #t0, w0 = time.clock (), time.time ()
+            e2 = Hop (p, q, x_rs)
+            #print ("Time to call Hop for this block: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
+            #print ("Error of Hop: {:.6e} ({:.6e})".format (linalg.norm (e2t-e2)/e2.size, linalg.norm (e2)/e2.size))
             e1 += p @ e2 @ qH
             e2 = None
         return e1
@@ -419,6 +430,9 @@ class CASSCFHessianTester (object):
 
 class LASSCFHessianCalculator (HessianCalculator):
 
+    def get_operator (self, r, s):
+        return LASSCFHessianOperator (self, r, s)
+
     def __init__(self, ints, oneRDM_loc, all_frags, fock_c):
         self.ints = ints
         active_frags = [f for f in all_frags if f.norbs_as]
@@ -476,8 +490,6 @@ class HessianERITransformer (object):
             calculation from this cache. Since this calls _get_eri, it will also automatically take advantage
             of _eri_kernel if it's available.
         '''
-        M = np.asarray ([len (z) for z in (p,q,r,s)])
-        idx = np.argsort (M)[::-1]
         p,q,r,s = (parent._append_entangled (z) for z in (p,q,r,s))
         a = np.concatenate (parent.mo2amo, axis=1)
         self.w = w = orthonormalize_a_basis (np.concatenate ([a, p], axis=1))
@@ -537,4 +549,78 @@ class HessianERITransformer (object):
         if testmat[0,0] and testmat[1,1]: return True, True # c contains d and p contains q
         elif testmat[1,0] and testmat[0,1]: return True, False # c contains q and p contains d
         else: return False, False # Wrong pair
+
+class HessianOperator (HessianCalculator):
+
+    def __init__(self, calculator, r, s):
+        self.__dict__.update (calculator.__dict__)
+        self.r = r
+        self.s = s
+        rH = self.r.conjugate ().T
+        sH = self.s.conjugate ().T
+        a = np.concatenate (self.mo2amo, axis=-1)
+        do_r = sum (abs (linalg.svd (sH @ a)[1])) > 1e-8
+        do_s = sum (abs (linalg.svd (rH @ a)[1])) > 1e-8
+        if do_r and do_s: self.k = k = self._get_collective_basis (self.r, self.s)
+        elif do_r: self.k = k = r
+        elif do_s: self.k = k = s
+        i = np.eye (self.nmo)
+        self.eris = HessianERITransformer (self, i, k, a, a) if (do_r or do_s) else None
+
+    def _unpack_x (self, x_rs, diag=False):
+        if diag: # Unpack diagonal elements only
+            kappa = np.diag (x_rs)
+        else:
+            kappa = x_rs.reshape (self.r.shape[-1], self.s.shape[-1])
+        sH = self.s.conjugate ().T
+        kappa = self.r @ kappa @ sH
+        kappa = kappa - kappa.T
+        return kappa
+
+    def _get_tFock1_1b (self, kappa):
+        tdm1s = np.stack ([kappa @ dm - dm @ kappa for dm in self.oneRDMs], axis=0)
+        tFock1 = np.tensordot (self.fock, tdm1s, axes=((0,1),(0,2)))
+        veff = np.squeeze (self.get_veff (tdm1s))
+        dm1s = np.stack (self.oneRDMs, axis=0)
+        tFock1 += np.tensordot (veff, dm1s, axes=((0,1),(0,2)))
+        return tFock1
+
+    def _get_tFock1_2b (self, p, q, kappa):
+        k, kH = self.k, self.k.conjugate ().T
+        pH = p.conjugate ().T
+        qH = q.conjugate ().T
+        tFock1 = np.zeros ((p.shape[-1], q.shape[-1]))
+        for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
+            # The term is always positive as long as the "a" index is the ~second~ index of kappa
+            qKa = qH @ kappa @ a
+            if linalg.norm (qKa) > 1e-8:
+                g_paaa = self.eris (p, a, a, a)
+                l_qaaa = np.tensordot (qKa, t, axes=1) # contraction on the first index
+                tFock1 += np.tensordot (g_paaa, l_qaaa, axes=((1,2,3),(1,2,3)))
+            q2a = qH @ a
+            kap_ka = kH @ kappa @ a
+            if linalg.norm (q2a) > 1e-8 and linalg.norm (kap_ka) > 1e-8:
+                l_qaaa = np.tensordot (q2a, t, axes=1)
+                g_pkaa = np.tensordot (self.eris (p, k, a, a), kap_ka, axes=((1),(0))).transpose (0,3,1,2) # contraction on the second index
+                g_paka = np.tensordot (self.eris (p, a, a, k), kap_ka, axes=1) # contraction on the fourth index
+                g_paka += g_paka.transpose (0, 1, 3, 2) # contraction on the third index
+                tFock1 += np.tensordot (g_pkaa, l_qaaa, axes=((1,2,3),(1,2,3)))
+                tFock1 += np.tensordot (g_paka, l_qaaa, axes=((1,2,3),(1,2,3)))
+        return tFock1
+
+    def __call__(self, p, q, x_rs):
+        if 0 in p.shape or 0 in q.shape: return np.zeros ((p.shape[-1], q.shape[-1]))
+        is_diag = (x_rs.size == self.r.shape[-1]) and (x_rs.size == self.s.shape[-1])
+        kappa = self._unpack_x (x_rs, diag=is_diag)
+        pH = p.conjugate ().T
+        tFock1 = self._get_tFock1_1b (kappa)
+        cgrad = pH @ (tFock1 - tFock1.T) @ q
+        cgrad += self._get_tFock1_2b (p, q, kappa) 
+        cgrad -= self._get_tFock1_2b (q, p, kappa).T
+        return cgrad
+
+class LASSCFHessianOperator (LASSCFHessianCalculator, HessianOperator):
+    __init__ = HessianOperator.__init__
+    __call__ = HessianOperator.__call__
+
 
