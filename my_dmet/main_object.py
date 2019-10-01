@@ -1433,16 +1433,16 @@ class dmet:
         las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
         las.stdout = self.lasci_log
         las.verbose = pyscf_logger.DEBUG
-        e_tot, _, ci_sub, _, _, h2eff_sub, veff_sub = las.kernel (mo_coeff = ao2no, casdm0_sub = casdm0_sub)
+        e_tot, _, ci_sub, _, _, h2eff_sub, veff = las.kernel (mo_coeff = ao2no, casdm0_sub = casdm0_sub)
         if not las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))
         print ("Time in LASCI module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
-        return las, h2eff_sub, veff_sub
+        return las, h2eff_sub, veff
 
     def lasci_ (self, dm0=None, loc2wmas=None):
         ''' Do LASCI and then also update the fragment and ints object '''
-        las, h2eff_sub, veff_sub = self.lasci (dm0=dm0, loc2wmas=loc2wmas)
+        las, h2eff_sub, veff = self.lasci (dm0=dm0, loc2wmas=loc2wmas)
         aoSloc = self.ints.ao_ovlp @ self.ints.ao2loc
         locSao = aoSloc.conjugate ().T
         oneRDMs_loc_sub = np.dot (locSao, np.dot (las.make_rdm1s_sub (), aoSloc)).transpose (1,2,0,3)
@@ -1477,5 +1477,5 @@ class dmet:
             i = sum (las.ncas_sub[:ix])
             j = i + las.ncas_sub[ix]
             f.eri_gradient = eri_gradient[:,i:j,i:j,i:j]
-        return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff_sub=veff_sub)
+        return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff)
 
