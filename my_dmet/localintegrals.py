@@ -55,6 +55,7 @@ class localintegrals:
         
         # Information on the full HF problem
         self.mol         = the_mf.mol
+        self._scf        = the_mf
         self.max_memory  = the_mf.max_memory
         self.get_jk_ao   = partial (the_mf.get_jk, self.mol)
         self.get_veff_ao = partial (the_mf.get_veff, self.mol)

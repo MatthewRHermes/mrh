@@ -1414,27 +1414,26 @@ class dmet:
             spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
             wfnsym_sub.append (f.wfnsym)
         w0, t0 = time.time (), time.clock ()
-        mol = self.ints.mol.copy ()
-        if self.lasci_log is None: mol.output = self.calcname + '_lasci.log'
-        mol.verbose = pyscf_logger.DEBUG
-        mol.build ()
         if self.lasci_log is None: 
+            mol = self.ints.mol.copy ()
+            mol.output = self.calcname + '_lasci.log'
+            mol.build ()
             self.lasci_log = mol.stdout
-        else:
-            mol.stdout = self.lasci_log
-        mf = scf.RHF (mol)
-        if self.ints.x2c: mf = mf.sfx2c1e ()
-        mf._eri = self.ints._eri
-        if getattr (self.ints, 'with_df', None):
-            mf = mf.density_fit (auxbasis = self.ints.with_df.auxbasis, with_df = self.ints.with_df)
-        mf.max_cycle = 1 
-        mf.kernel ()
-        mf.mo_coeff = ao2no
-        mf.mo_energy = no_ene
-        mf.mo_occ = no_occ
+        #mf = scf.RHF (mol)
+        #if self.ints.x2c: mf = mf.sfx2c1e ()
+        #mf._eri = self.ints._eri
+        #if getattr (self.ints, 'with_df', None):
+        #    mf = mf.density_fit (auxbasis = self.ints.with_df.auxbasis, with_df = self.ints.with_df)
+        #mf.max_cycle = 1 
+        #mf.kernel ()
+        #mf.mo_coeff = ao2no
+        #mf.mo_energy = no_ene
+        #mf.mo_occ = no_occ
         frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
-        las = lasci.LASCI (mf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
-        e_tot, _, ci_sub, _, _, h2eff_sub, veff_sub = las.kernel (casdm0_sub = casdm0_sub)
+        las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
+        las.stdout = self.lasci_log
+        las.verbose = pyscf_logger.DEBUG
+        e_tot, _, ci_sub, _, _, h2eff_sub, veff_sub = las.kernel (mo_coeff = ao2no, casdm0_sub = casdm0_sub)
         if not las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))
