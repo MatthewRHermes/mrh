@@ -276,8 +276,9 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
 
     # In the first cycle, I may pass casdm0_sub instead of ci0. Therefore, I need to work out this get_veff call separately.
     if ci0 is not None:
-        veff = las.get_veff (mo_coeff=mo_coeff, ci=ci0)
+        veff = las.get_veff (dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci0))
         casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci0, casdm1s_sub=casdm1s_sub)
     elif casdm0_sub is not None:
         dm1_core = mo_coeff[:,:las.ncore] @ mo_coeff[:,:las.ncore].conjugate ().T
         dm1s_sub = [np.stack ([dm1_core, dm1_core], axis=0)]
@@ -288,6 +289,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         dm1s_sub = np.stack (dm1s_sub, axis=0)
         dm1s = dm1s_sub.sum (0)
         veff = las.get_veff (dm1s=dm1s)
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm0_sub)
         casdm1s_sub = casdm0_sub
     t1 = log.timer('LASCI initial get_veff', *t1)
 
@@ -339,6 +341,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
 
         #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
         veff = las.get_veff (dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci1))
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
         t1 = log.timer ('LASCI get_veff after secondorder', *t1)
 
         casdm1s_sub = las.make_casdm1s_sub (ci=ci1)
@@ -348,6 +351,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
 
         #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
         veff = las.get_veff (dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci1))
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
         t1 = log.timer ('LASCI get_veff after ci', *t1)
 
         e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff=veff)
@@ -751,6 +755,48 @@ class LASCINoSymm (casci.CASCI):
         veff = np.stack ([veffa, veffb], axis=1)
         return np.squeeze (veff)
 
+    def split_veff (self, veff, h2eff_sub, mo_coeff=None, ci=None, casdm1s_sub=None):
+        ''' Split a spin-summed veff into alpha and beta terms using the h2eff eri array.
+        Note that this will omit v(up_active - down_active)^virtual_inactive by necessity; 
+        this won't affect anything because the inactive density matrix has no spin component.
+        On the other hand, it ~is~ necessary to correctly do v(up_active - down_active)^unactive_active
+        in order to calculate the external orbital gradient at the end of the calculation.
+        This means that I need h2eff_sub spanning both at least two active subspaces
+        ~and~ the full orbital range. '''
+        veff_c_ref = (veff[0] + veff[1]) / 2
+        veff_s_ref = (veff[0] - veff[1]) / 2
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if ci is None: ci = self.ci
+        if casdm1s_sub is None: casdm1s_sub = self.make_casdm1s_sub (ci = ci)
+        ncore = self.ncore
+        ncas = self.ncas
+        nocc = ncore + ncas
+        nao, nmo = mo_coeff.shape
+        moH_coeff = mo_coeff.conjugate ().T
+        smo_coeff = self._scf.get_ovlp () @ mo_coeff
+        smoH_coeff = smo_coeff.conjugate ().T
+        veff_s = np.zeros_like (veff_c_ref)
+        veff_s_ref = moH_coeff @ veff_s_ref @ mo_coeff
+        veff_s_ref[:ncore,:ncore] = veff_s_ref[:ncore,nocc:] = veff_s_ref[nocc:,:ncore] = veff_s_ref[nocc:,nocc:] = 0
+        for ix, (ncas_i, casdm1s) in enumerate (zip (self.ncas_sub, casdm1s_sub)):
+            i = sum (self.ncas_sub[:ix])
+            j = i + ncas_i
+            eri_k = h2eff_sub.reshape (nmo, ncas, -1)[:,i:j,...].reshape (nmo*ncas_i, -1)
+            eri_k = lib.numpy_helper.unpack_tril (eri_k)[:,i:j,:].reshape (nmo, ncas_i, ncas_i, ncas)
+            sdm = casdm1s[0] - casdm1s[1]
+            vk_pa = -np.tensordot (eri_k, sdm, axes=((1,2),(0,1))) / 2
+            veff_s[:,ncore:nocc] += vk_pa
+            veff_s[ncore:nocc,:] += vk_pa.T
+            veff_s[ncore:nocc,ncore:nocc] -= vk_pa[ncore:nocc,:] / 2
+            veff_s[ncore:nocc,ncore:nocc] -= vk_pa[ncore:nocc,:].T / 2
+        err = veff_s_ref - veff_s
+        lib.logger.debug (self, '||veff_s error|| = {}'.format (linalg.norm (err)))
+        veff_s = smo_coeff @ veff_s @ smoH_coeff
+        veffa = veff_c_ref + veff_s
+        veffb = veff_c_ref - veff_s
+        return np.stack ([veffa, veffb], axis=0)
+         
+
     def energy_elec (self, mo_coeff=None, ncore=None, ncas=None, ncas_sub=None, nelecas_sub=None, ci=None, h2eff=None, veff=None, **kwargs):
         ''' Since the LASCI energy cannot be calculated as simply as ecas + ecore, I need this function '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
@@ -892,6 +938,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # ERI in active superspace
         if eri_cas is None: eri_cas = las.get_h2eff (mo_coeff)
+        self.h2eff_sub = eri_cas
         if eri_cas.size != self.ncas**4:
             eri_cas = eri_cas.reshape (nmo, ncas, ncas*(ncas+1)//2)[ncore:nocc,...]
             ix_i, ix_j = np.tril_indices (ncas)
@@ -1037,7 +1084,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Overall veff for gradient: the one and only jk call per microcycle that I will allow.
         dm1s_ao = np.dot (mo, np.dot (dm1s_mo, moH)).transpose (1,0,2)
         veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1s_ao))
-        veff_mo = np.dot (moH, np.dot (veff_ao, mo)).transpose (1,0,2)
+        veff_mo = self.split_veff (np.dot (moH, np.dot (veff_ao, mo)).transpose (1,0,2), dm1s_mo)
         
         # SO, individual CI problems!
         # 1) There is NO constant term. Constant terms immediately drop out via the unitary group generator definition!
@@ -1054,6 +1101,22 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             h1e_ab_sub[isub,:,:,:] -= err_veff
 
         return veff_mo, h1e_ab_sub
+
+    def split_veff (self, veff_mo, dm1s_mo):
+        veff_c = (veff_mo[0] + veff_mo[1]) / 2
+        veff_s = (veff_mo[0] - veff_mo[1]) / 2
+        ncore = self.ncore
+        nocc = self.nocc
+        dm1s_cas = dm1s_mo[:,ncore:nocc,ncore:nocc]
+        sdm = dm1s_cas[0] - dm1s_cas[1]
+        vk_aa = -np.tensordot (self.eri_cas, sdm, axes=((1,2),(0,1))) / 2
+        err = veff_s[ncore:nocc, ncore:nocc] - vk_aa
+        lib.logger.debug (self.las, '||veff_s err|| = {}'.format (linalg.norm (err)))
+        veff_s[:,:] = 0
+        veff_s[ncore:nocc, ncore:nocc] = vk_aa
+        veffa = veff_c + veff_s
+        veffb = veff_c - veff_s
+        return np.stack ([veffa, veffb], axis=0)
 
     def _matvec (self, x):
         kappa1, ci1 = self.ugg.unpack (x)
