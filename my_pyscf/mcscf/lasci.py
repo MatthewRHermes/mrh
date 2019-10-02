@@ -315,8 +315,12 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         x0 = prec_op._matvec (-g_vec)
         norm_xorb = linalg.norm (x0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_xci = linalg.norm (x0[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
-        log.info ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g ; |x0_ci| = %.15g',
-            H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
+        lib.logger.info (las, 'LASCI macro %d : E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g', it, H_op.e_tot, norm_gorb, norm_gci)
+        #log.info ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g ; |x0_ci| = %.15g',
+        #    H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
+        if norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad:
+            converged = True
+            break
         '''
         r0 = H_op._matvec (x0) + g_vec
         norm_rorb = linalg.norm (r0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
@@ -358,18 +362,15 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
         t1 = log.timer ('LASCI get_veff after ci', *t1)
 
-        e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff=veff)
-        gorb, gci, gx = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
-        norm_gorb = linalg.norm (gorb) if gorb.size else 0.0
-        norm_gci = linalg.norm (gci) if gci.size else 0.0
-        norm_gx = linalg.norm (gx) if gx.size else 0.0
-        lib.logger.info (las, 'LASCI macro %d : E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', it+1, e_tot, norm_gorb, norm_gci, norm_gx)
-        t1 = log.timer ('LASCI post-cycle energy & gradient', *t1)
+    e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff=veff)
+    gorb, gci, gx = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
+    norm_gorb = linalg.norm (gorb) if gorb.size else 0.0
+    norm_gci = linalg.norm (gci) if gci.size else 0.0
+    norm_gx = linalg.norm (gx) if gx.size else 0.0
+    lib.logger.info (las, 'LASCI %s after %d cycles', ('not converged', 'converged')[converged], it+1)
+    lib.logger.info (las, 'LASCI E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', e_tot, norm_gorb, norm_gci, norm_gx)
+    t1 = log.timer ('LASCI wrap-up', *t1)
         
-        if norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad:
-            converged = True
-            break
-   
     mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, h2eff_sub)
     return converged, e_tot, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
 
