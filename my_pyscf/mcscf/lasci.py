@@ -122,8 +122,10 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
     if ci is None: ci = las.ci
     if ugg is None: ugg = las.get_ugg (las, mo_coeff, ci)
     if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
-    if veff is None: veff = las.get_veff (dm1s = dm1s)
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
+    if veff is None:
+        veff = las.get_veff (dm1s = dm1s.sum (0))
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci)
     if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, ci=ci, veff=veff, h2eff_sub=h2eff_sub)
     nao, nmo = mo_coeff.shape
     ncore = las.ncore
@@ -251,7 +253,9 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
     if ci is None: ci = las.ci
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     if casdm1s_sub is None: casdm1s_sub = las.make_casdm1s_sub (ci=ci)
-    if veff is None: veff = las.get_veff (mo_coeff=mo_coeff, ci=ci)
+    if veff is None:
+        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci))
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=casdm1s_sub)
     
     mo_cas = [las.get_mo_slice (idx, mo_coeff) for idx in range (len (ncas_sub))]
     moH_cas = [mo.conjugate ().T for mo in mo_cas]
@@ -276,7 +280,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
 
     # In the first cycle, I may pass casdm0_sub instead of ci0. Therefore, I need to work out this get_veff call separately.
     if ci0 is not None:
-        veff = las.get_veff (dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci0))
+        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
         casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci0, casdm1s_sub=casdm1s_sub)
     elif casdm0_sub is not None:
@@ -288,7 +292,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
             dm1s_sub.append (np.tensordot (mo, np.dot (casdm1s, moH), axes=((1),(1))).transpose (1,0,2))
         dm1s_sub = np.stack (dm1s_sub, axis=0)
         dm1s = dm1s_sub.sum (0)
-        veff = las.get_veff (dm1s=dm1s)
+        veff = las.get_veff (dm1s=dm1s.sum (0))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm0_sub)
         casdm1s_sub = casdm0_sub
     t1 = log.timer('LASCI initial get_veff', *t1)
@@ -340,7 +344,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         t1 = log.timer ('LASCI Hessian update', *t1)
 
         #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-        veff = las.get_veff (dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci1))
+        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
         t1 = log.timer ('LASCI get_veff after secondorder', *t1)
 
@@ -350,7 +354,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         t1 = log.timer ('LASCI ci_cycle', *t1)
 
         #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-        veff = las.get_veff (dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci1))
+        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
         t1 = log.timer ('LASCI get_veff after ci', *t1)
 
@@ -734,25 +738,17 @@ class LASCINoSymm (casci.CASCI):
         return casdm2 
 
     def get_veff (self, mol=None, dm1s=None, hermi=1, **kwargs):
-        ''' Returns a spin-separated veff! If dm1s isn't provided, builds from self.mo_coeff, self.ci etc. '''
+        ''' Returns a spin-summed veff! If dm1s isn't provided, builds from self.mo_coeff, self.ci etc. '''
         if mol is None: mol = self.mol
         nao = mol.nao_nr ()
-        if dm1s is None: dm1s = self.make_rdm1s (include_core=True, **kwargs).reshape (2, nao, nao)
-        else:
-            dm1s = np.asarray (dm1s)
-            if dm1s.ndim == 4:
-                dm1s = dm1s.reshape (dm1s.shape[0]*2, nao, nao)
-            assert (dm1s.ndim == 3 and dm1s.shape[0] % 2 == 0), 'Requires an even number of density matrices (a1,b1,a2,b2,...)!'
+        if dm1s is None: dm1s = self.make_rdm1 (include_core=True, **kwargs).reshape (nao, nao)
+        dm1s = np.asarray (dm1s)
+        if dm1s.ndim == 2: dm1s = dm1s[None,:,:]
         if isinstance (self, _DFLASCI):
             vj, vk = self.with_df.get_jk(dm1s, hermi=hermi)
         else:
             vj, vk = self._scf.get_jk(mol, dm1s, hermi=hermi)
-        vj = vj.reshape (-1,2,nao,nao).transpose (1,0,2,3)
-        vk = vk.reshape (-1,2,nao,nao).transpose (1,0,2,3)
-        vj = vj[0] + vj[1]
-        veffa = vj - vk[0]
-        veffb = vj - vk[1]
-        veff = np.stack ([veffa, veffb], axis=1)
+        veff = np.stack ([j - k/2 for j, k in zip (vj, vk)], axis=0)
         return np.squeeze (veff)
 
     def split_veff (self, veff, h2eff_sub, mo_coeff=None, ci=None, casdm1s_sub=None):
@@ -763,8 +759,7 @@ class LASCINoSymm (casci.CASCI):
         in order to calculate the external orbital gradient at the end of the calculation.
         This means that I need h2eff_sub spanning both at least two active subspaces
         ~and~ the full orbital range. '''
-        veff_c_ref = (veff[0] + veff[1]) / 2
-        veff_s_ref = (veff[0] - veff[1]) / 2
+        veff_c = veff.copy ()
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
         if casdm1s_sub is None: casdm1s_sub = self.make_casdm1s_sub (ci = ci)
@@ -775,9 +770,7 @@ class LASCINoSymm (casci.CASCI):
         moH_coeff = mo_coeff.conjugate ().T
         smo_coeff = self._scf.get_ovlp () @ mo_coeff
         smoH_coeff = smo_coeff.conjugate ().T
-        veff_s = np.zeros_like (veff_c_ref)
-        veff_s_ref = moH_coeff @ veff_s_ref @ mo_coeff
-        veff_s_ref[:ncore,:ncore] = veff_s_ref[:ncore,nocc:] = veff_s_ref[nocc:,:ncore] = veff_s_ref[nocc:,nocc:] = 0
+        veff_s = np.zeros_like (veff_c)
         for ix, (ncas_i, casdm1s) in enumerate (zip (self.ncas_sub, casdm1s_sub)):
             i = sum (self.ncas_sub[:ix])
             j = i + ncas_i
@@ -789,11 +782,9 @@ class LASCINoSymm (casci.CASCI):
             veff_s[ncore:nocc,:] += vk_pa.T
             veff_s[ncore:nocc,ncore:nocc] -= vk_pa[ncore:nocc,:] / 2
             veff_s[ncore:nocc,ncore:nocc] -= vk_pa[ncore:nocc,:].T / 2
-        err = veff_s_ref - veff_s
-        lib.logger.debug (self, '||veff_s error|| = {}'.format (linalg.norm (err)))
         veff_s = smo_coeff @ veff_s @ smoH_coeff
-        veffa = veff_c_ref + veff_s
-        veffb = veff_c_ref - veff_s
+        veffa = veff_c + veff_s
+        veffb = veff_c - veff_s
         return np.stack ([veffa, veffb], axis=0)
          
 
@@ -805,8 +796,11 @@ class LASCINoSymm (casci.CASCI):
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         if ci is None: ci = self.ci
-        if veff is None: veff = self.get_veff (mo_coeff=mo_coeff, ci=ci)
         if h2eff is None: h2eff = self.get_h2eff (mo_coeff)
+        casdm1s_sub = self.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        if veff is None:
+            veff = self.get_veff (dm1s = self.make_rdm1 (mo_coeff=mo_coeff, ci=ci))
+            veff = self.split_veff (veff, h2eff, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=casdm1s_sub)
 
         # 1-body veff terms
         h1e = self.get_hcore ()[None,:,:] + veff/2
@@ -814,7 +808,6 @@ class LASCINoSymm (casci.CASCI):
         energy_elec = e1 = np.dot (h1e.ravel (), dm1s.ravel ())
 
         # 2-body cumulant terms
-        casdm1s_sub = self.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
         casdm2_sub = self.make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
         e2 = 0
         for isub, (dm1s, dm2) in enumerate (zip (casdm1s_sub, casdm2_sub)):
@@ -949,7 +942,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # h1e_ab is for gradient response
         # h1e_ab_sub is for ci response
         moH_coeff = mo_coeff.conjugate ().T
-        if veff is None: veff = las.get_veff (dm1s = np.dot (mo_coeff, np.dot (self.dm1s, moH_coeff)).transpose (1,0,2))
+        if veff is None: 
+            veff = las.get_veff (dm1s = np.dot (mo_coeff, np.dot (self.dm1s.sum (0), moH_coeff)))
+            veff = las.split_veff (veff, self.h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=self.casdm1s_sub)
         h1e_ab = las.get_hcore ()[None,:,:] + veff
         h1e_ab = np.dot (h1e_ab, mo_coeff)
         self.h1e_ab = np.dot (moH_coeff, h1e_ab).transpose (1,0,2)
@@ -1083,8 +1078,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # Overall veff for gradient: the one and only jk call per microcycle that I will allow.
         dm1s_ao = np.dot (mo, np.dot (dm1s_mo, moH)).transpose (1,0,2)
-        veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1s_ao))
-        veff_mo = self.split_veff (np.dot (moH, np.dot (veff_ao, mo)).transpose (1,0,2), dm1s_mo)
+        veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1s_ao.sum (0)))
+        veff_mo = self.split_veff (np.dot (moH, np.dot (veff_ao, mo)), dm1s_mo)
         
         # SO, individual CI problems!
         # 1) There is NO constant term. Constant terms immediately drop out via the unitary group generator definition!
@@ -1103,16 +1098,13 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return veff_mo, h1e_ab_sub
 
     def split_veff (self, veff_mo, dm1s_mo):
-        veff_c = (veff_mo[0] + veff_mo[1]) / 2
-        veff_s = (veff_mo[0] - veff_mo[1]) / 2
+        veff_c = veff_mo.copy ()
         ncore = self.ncore
         nocc = self.nocc
         dm1s_cas = dm1s_mo[:,ncore:nocc,ncore:nocc]
         sdm = dm1s_cas[0] - dm1s_cas[1]
         vk_aa = -np.tensordot (self.eri_cas, sdm, axes=((1,2),(0,1))) / 2
-        err = veff_s[ncore:nocc, ncore:nocc] - vk_aa
-        lib.logger.debug (self.las, '||veff_s err|| = {}'.format (linalg.norm (err)))
-        veff_s[:,:] = 0
+        veff_s = np.zeros_like (veff_c)
         veff_s[ncore:nocc, ncore:nocc] = vk_aa
         veffa = veff_c + veff_s
         veffb = veff_c - veff_s
