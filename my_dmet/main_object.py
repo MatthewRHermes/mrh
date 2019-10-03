@@ -36,6 +36,7 @@ from pyscf.gto import mole, same_mol
 from pyscf.tools import molden
 from pyscf.symm.addons import symmetrize_space
 from pyscf.scf.addons import project_mo_nr2nr, project_dm_nr2nr
+from pyscf.fci.addons import transform_ci_for_orbital_rotation
 from pyscf.lib.numpy_helper import unpack_tril
 from mrh.util import params
 from mrh.util.io import prettyprint_ndarray as prettyprint
@@ -1396,6 +1397,7 @@ class dmet:
         casdm0_sub = []
         spin_sub = []
         wfnsym_sub = []
+        ci0 = []
         for f in active_frags:
             amo = loc2amo[:,:f.norbs_as]
             print ("Occupancy here: ",amo_occ[:f.norbs_as])
@@ -1413,27 +1415,24 @@ class dmet:
             casdm0_sub.append (np.stack ([dma, dmb], axis=0))
             spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
             wfnsym_sub.append (f.wfnsym)
+            if f.ci_as is not None:
+                umat = f.ci_as_orb.conjugate ().T @ amo
+                ci0.append (transform_ci_for_orbital_rotation (f.ci_as, f.norbs_as, (neleca,nelecb), umat))
         w0, t0 = time.time (), time.clock ()
         if self.lasci_log is None: 
             mol = self.ints.mol.copy ()
             mol.output = self.calcname + '_lasci.log'
             mol.build ()
             self.lasci_log = mol.stdout
-        #mf = scf.RHF (mol)
-        #if self.ints.x2c: mf = mf.sfx2c1e ()
-        #mf._eri = self.ints._eri
-        #if getattr (self.ints, 'with_df', None):
-        #    mf = mf.density_fit (auxbasis = self.ints.with_df.auxbasis, with_df = self.ints.with_df)
-        #mf.max_cycle = 1 
-        #mf.kernel ()
-        #mf.mo_coeff = ao2no
-        #mf.mo_energy = no_ene
-        #mf.mo_occ = no_occ
         frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
         las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
         las.stdout = self.lasci_log
         las.verbose = pyscf_logger.DEBUG
-        e_tot, _, ci_sub, _, _, h2eff_sub, veff = las.kernel (mo_coeff = ao2no, casdm0_sub = casdm0_sub)
+        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_sub):
+            casdm0_sub = None
+        else:
+            ci0 = None
+        e_tot, _, ci_sub, _, _, h2eff_sub, veff = las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_sub = casdm0_sub)
         if not las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))

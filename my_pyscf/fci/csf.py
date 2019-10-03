@@ -280,7 +280,17 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
         h0[i,i] = hdiag_det[det_addr[i]]
     h0 = lib.hermi_triu(h0)
 
-    if fci.verbose >= lib.logger.DEBUG: evals_before = scipy.linalg.eigh (h0)[0]
+    try:
+        if fci.verbose >= lib.logger.DEBUG: evals_before = scipy.linalg.eigh (h0)[0]
+    except ValueError as e:
+        lib.logger.debug (fci, ("ERROR: h0 has {} infs, {} nans; h1e_a has {} infs, {} nans; "
+            "h1e_b has {} infs, {} nans; g2e has {} infs, {} nans, norb = {}, npsp_det = {}").format (
+            np.count_nonzero (np.isinf (h0)), np.count_nonzero (np.isnan (h0)),
+            np.count_nonzero (np.isinf (h1e_a)), np.count_nonzero (np.isnan (h1e_a)),
+            np.count_nonzero (np.isinf (h1e_b)), np.count_nonzero (np.isnan (h1e_b)),
+            np.count_nonzero (np.isinf (g2e)), np.count_nonzero (np.isnan (g2e)),
+            norb, npsp_det))
+        evals_before = np.zeros (npsp_det)
 
     h0, csf_addr = transform_opmat_det2csf_pspace (h0, econf_addr, norb, neleca, nelecb, smult,
         csd_mask, econf_det_mask, econf_csf_mask) 
