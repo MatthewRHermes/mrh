@@ -277,3 +277,157 @@ void SDFKmatR (double * sparse_cderi, double * dense_dm, double * dense_vk, doub
     SDFKmatR2 (sparse_cderi, large_int, dense_vk, nonzero_pair, tril_iao, tril_jao, npair, nao, naux);
 
 }
+
+void SINT_SDCDERI_DDMAT (double * dense_cderi, double * dense_A, double * dense_prod, double * cderi_wrk, double * A_wrk, 
+    int * iao_sort, int * iao_nent, int * iao_entlist, int nao, int naux, int nmo, int nent_max)
+{
+    /*
+    Matrix-multiply a CDERI array using sparsity information from the CDERIs, but not the other multiplicand.
+
+    Input:
+        dense_cderi : array of shape (naux, nao*(nao+1)/2); contains CDERIs (dense, lower-triangular storage with auxiliary basis index first)
+        dense_A : array of shape (nao, nmo); contains the multiplicand
+        iao_sort : array of shape (nao); sorts the AOs according to iao_nent (for benefit of parallel scaling)
+        iao_nent : array of shape (nao); lists how many nonvanishing pairs exist for each orbital
+        iao_entlist : array of shape (nao, nent_max); lists the other orbital in nonvanishing pairs involving each orbital
+
+    Input/output:
+        cderi_wrk : array of shape (nthreads, nent_max, naux); contains 0s on input and garbage on output
+        A_wrk : array of shape (nthreads, nent_max, nmo); contains 0s on input and garbage on output
+        
+    Output:
+        dense_prod : array of shape (nao, nmo, naux); contains result of multiplication (with auxbasis index placed last) 
+        Transpose me BEFORE calling SINT_SDCDERI_VK!
+    */
+
+    
+    const unsigned int i_one = 1;
+    const unsigned int npair = nao * (nao + 1) / 2;
+    const double d_one = 1.0;
+    const char transCDERI = 'T';
+    const char transA = 'N';
+
+    
+#pragma omp parallel default(shared)
+{
+
+    unsigned int nthreads = omp_get_num_threads ();
+    unsigned int ithread = omp_get_thread_num ();
+    unsigned int iao_ix, iao, jao_ix, jao; // AO indices
+    unsigned int my_nent;
+    const char trans = 'T';
+    // Array pointers for lapack
+    double * my_cderi; // put nent on the faster-moving index: (naux, nent_max)
+    double * my_A; // put nent on the faster-moving index: (nmo, nent_max) in C
+    double * my_prod;
+    double * my_cderi_wrk;
+    double * my_A_wrk;
+    int * my_entlist;
+    my_cderi_wrk = cderi_wrk + (ithread * nent_max * naux);
+    my_A_wrk = A_wrk + (ithread * nent_max * nmo);
+
+#pragma omp for schedule(static) 
+
+    for (iao_ix = 0; iao_ix < nao; iao_ix++){
+        iao = iao_sort[iao_ix];
+        my_nent = iao_nent[iao];
+        my_entlist = iao_entlist + (iao*nent_max);
+        my_prod = dense_prod + (iao * nmo * naux);
+        for (jao_ix = 0; jao_ix < my_nent; jao_ix++){
+            jao = my_entlist[jao_ix];
+            if (iao > jao){ 
+                my_cderi = dense_cderi + ((iao * (iao + 1) / 2) + jao);
+            } else {
+                my_cderi = dense_cderi + ((jao * (jao + 1) / 2) + iao);
+            }
+            my_A = dense_A + (jao * nmo);
+            dcopy_(&naux, my_cderi, &npair, my_cderi_wrk + jao_ix, &my_nent);
+            dcopy_(&nmo, my_A, &i_one, my_A_wrk + jao_ix, &my_nent);
+        }
+        dgemm_(&transCDERI, &transA, &naux, &nmo, &my_nent,
+            &d_one, my_cderi_wrk, &my_nent, my_A_wrk, &my_nent,
+            &d_one, my_prod, &naux);
+        /* Remember, dgemm_ is Fortran and reads array indices backwards. So when I say
+        I am transposing my_CDERI but not transposing my_A, it's actually the opposite. */
+    }
+
+}
+}
+
+void SINT_SDCDERI_VK (double * dense_cderi, double * dense_int, double * dense_vk, double * cderi_wrk, double * int_wrk, 
+    int * iao_sort, int * iao_nent, int * iao_entlist, int nao, int naux, int nent_max)
+{
+
+    /* SDFKmatR2 is much faster than this, I guess because of the dcopy_'s
+    Compute the exchange matrix: k(m,n) = sum(p,r,s) CDERI(p,m,r) [CDERI(p,n,s) DM(r,s)]
+
+    Input:
+        dense_cderi : array of shape (naux, nao*(nao+1)/2); contains CDERIs (dense, lower-triangular storage with auxiliary basis index first)
+        dense_int : array of shape (nao, nao, naux); contains the intermediate I(r,n,p) = sum(s) CDERI(p,n,s) DM(r,s)
+        iao_sort : array of shape (nao); sorts the AOs according to iao_nent (for benefit of parallel scaling)
+        iao_nent : array of shape (nao); lists how many nonvanishing pairs exist for each orbital
+        iao_entlist : array of shape (nao, nent_max); lists the other orbital in nonvanishing pairs involving each orbital
+
+    Input/output:
+        cderi_wrk : array of shape (nthreads, nent_max, naux); contains 0s on input and garbage on output
+        int_wrk : array of shape (nthreads, nent_max, naux, nao); contains 0s on input and garbage on output
+            This may be a serious memory-consumption problem!
+        
+    Output:
+        dense_vk : array of shape (nao, nao); contains exchange matrix 
+    */
+
+    const unsigned int i_one = 1;
+    const unsigned int npair = nao * (nao + 1) / 2;
+    const unsigned int nao_naux = nao * naux;
+    const double d_one = 1.0;
+    const char transINT = 'T';
+
+#pragma omp parallel default(shared)
+{
+
+    unsigned int nthreads = omp_get_num_threads ();
+    unsigned int ithread = omp_get_thread_num ();
+    unsigned int iao_ix, iao, jao_ix, jao; // AO indices
+    unsigned int my_nent;
+    const char trans = 'T';
+    // Array pointers for lapack
+    double * my_cderi; 
+    double * my_int; 
+    double * my_vk;
+    double * my_cderi_wrk;
+    double * my_int_wrk;
+    int * my_entlist;
+    int nent_naux;
+    my_cderi_wrk = cderi_wrk + (ithread * nent_max * naux);
+    my_int_wrk = int_wrk + (ithread * nent_max * naux * nao);
+
+#pragma omp for schedule(static) 
+
+    for (iao_ix = 0; iao_ix < nao; iao_ix++){
+        iao = iao_sort[iao_ix];
+        my_nent = iao_nent[iao];
+        my_entlist = iao_entlist + (iao*nent_max);
+        my_vk = dense_vk + (iao * nao);
+        nent_naux = my_nent * naux;
+        for (jao_ix = 0; jao_ix < my_nent; jao_ix++){
+            jao = my_entlist[jao_ix];
+            if (iao > jao){ 
+                my_cderi = dense_cderi + ((iao * (iao + 1) / 2) + jao);
+            } else {
+                my_cderi = dense_cderi + ((jao * (jao + 1) / 2) + iao);
+            }
+            my_int = dense_int + (jao * nao * naux); 
+            dcopy_(&naux, my_cderi, &npair, my_cderi_wrk + jao_ix, &my_nent); 
+            dcopy_(&nao_naux, my_int, &i_one, my_int_wrk + jao_ix, &my_nent);   
+        }
+        dgemv_(&transINT, &nent_naux, &nao, &d_one, my_int_wrk, &nent_naux, my_cderi_wrk, &i_one, &d_one, my_vk, &i_one);
+    }
+}
+}
+
+
+
+
+
+
