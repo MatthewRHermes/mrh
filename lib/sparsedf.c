@@ -362,7 +362,7 @@ void SINT_SDCDERI_VK (double * dense_cderi, double * dense_int, double * dense_v
     Compute the exchange matrix: k(m,n) = sum(p,r,s) CDERI(p,m,r) [CDERI(p,n,s) DM(r,s)]
 
     Input:
-        dense_cderi : array of shape (naux, nao*(nao+1)/2); contains CDERIs (dense, lower-triangular storage with auxiliary basis index first)
+        dense_cderi : array of shape (nao*(nao+1)/2, naux); contains CDERIs (dense, lower-triangular storage with auxiliary basis index fast)
         dense_int : array of shape (nao, nao, naux); contains the intermediate I(r,n,p) = sum(s) CDERI(p,n,s) DM(r,s)
         iao_sort : array of shape (nao); sorts the AOs according to iao_nent (for benefit of parallel scaling)
         iao_nent : array of shape (nao); lists how many nonvanishing pairs exist for each orbital
@@ -413,15 +413,17 @@ void SINT_SDCDERI_VK (double * dense_cderi, double * dense_int, double * dense_v
         for (jao_ix = 0; jao_ix < my_nent; jao_ix++){
             jao = my_entlist[jao_ix];
             if (iao > jao){ 
-                my_cderi = dense_cderi + ((iao * (iao + 1) / 2) + jao);
+                my_cderi = dense_cderi + ((iao * (iao + 1) / 2) + jao) * naux;
             } else {
-                my_cderi = dense_cderi + ((jao * (jao + 1) / 2) + iao);
+                my_cderi = dense_cderi + ((jao * (jao + 1) / 2) + iao) * naux;
             }
-            my_int = dense_int + (jao * nao * naux); 
-            dcopy_(&naux, my_cderi, &npair, my_cderi_wrk + jao_ix, &my_nent); 
-            dcopy_(&nao_naux, my_int, &i_one, my_int_wrk + jao_ix, &my_nent);   
+            my_int = dense_int + (jao * nao * naux);
+            jao = iao + 1; // Fill lower-triangular part only 
+            dgemv_(&transINT, &naux, &jao, &d_one, my_int, &naux, my_cderi, &i_one, &d_one, my_vk, &i_one);
+            //dcopy_(&naux, my_cderi, &npair, my_cderi_wrk + jao_ix, &my_nent); 
+            //dcopy_(&nao_naux, my_int, &i_one, my_int_wrk + jao_ix, &my_nent);   
         }
-        dgemv_(&transINT, &nent_naux, &nao, &d_one, my_int_wrk, &nent_naux, my_cderi_wrk, &i_one, &d_one, my_vk, &i_one);
+        //dgemv_(&transINT, &nent_naux, &nao, &d_one, my_int_wrk, &nent_naux, my_cderi_wrk, &i_one, &d_one, my_vk, &i_one);
     }
 }
 }
