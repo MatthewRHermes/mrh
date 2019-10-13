@@ -8,6 +8,12 @@
 #include <omp.h>
 #include "fblas.h"
 
+#ifndef MINMAX
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+#define MINMAX
+#endif
+
 void SINTKmatpermR (double eri, double * dense_vk, double * dense_dm, unsigned int iao, unsigned int jao, unsigned int kao, unsigned int lao, unsigned int nao)
 {
     dense_vk[(iao*nao) + kao] += eri * dense_dm[(jao*nao) + lao];
@@ -428,8 +434,118 @@ void SINT_SDCDERI_VK (double * dense_cderi, double * dense_int, double * dense_v
 }
 }
 
+void SINT_SDCDERI_MO_LVEC (double * dense_cderi, double * mo_coeff, double * cderi_out, double * mo_out,
+    double * wrk, double sv_thresh, int * iao_sort, int * iao_nent, int * iao_entlist, int * imo_nent,
+    int nao, int naux, int nmo, int nent_max)
+{
+    /*
+    Perform the sparsest possible basis transformation of a sigle index of a CDERI array using repeated SVDs of
+    an MO coefficient matrix. For each AO index, linear combinations of MOs which span the nent CDERI-coupled AOs are generated
+    as left- and right-singular vectors of the coefficient array. CDERI rows transformed by the left-singular vectors are returned
+    in cderi_out and the right-singular vectors times the singular values are returned in mo_out.
 
+    Input:
+        dense_cderi : array of shape (naux, nao*(nao+1)/2); contains CDERIs (dense, lower-triangular storage with auxiliary basis index first)
+        mo_coeff : array of shape (nao, nmo); contains the MO coefficients
+        iao_sort : array of shape (nao); sorts the AOs according to iao_nent (for benefit of parallel scaling)
+        iao_nent : array of shape (nao); lists how many nonvanishing pairs exist for each orbital
+        iao_entlist : array of shape (nao, nent_max); lists the other orbital in nonvanishing pairs involving each orbital
+        sv_thresh : threshold at which to discard singular values
 
+    Input/output:
+        wrk : array of shape (nthreads*(lwork+nent_max*nmo+global_K[1+nent_max]+nent_max*naux); used to store intermediates
+            where lwork and global_K are defined below
 
+    Output:
+        cderi_out : array of shape (nao, naux, global_K); contains the CDERI array with one AO index transformed
+        mo_out : array of shape (nao, nent_max, nmo): contains the right-singular vectors multiplied by singular values
+    */
+    const char svdjob = 'S';
+    const char trans = 'T';
+    const char notrans = 'N';
+    const double d_one = 1.0;
+    const unsigned int global_K = MIN(nent_max,nmo);
+    const unsigned int lwork = (4*global_K*global_K) + (7*global_K);
+    const unsigned int npair = nao * (nao + 1) / 2;
+    const unsigned int i_one = 1;
+    const unsigned int lfullwrk = lwork + global_K * (1+nent_max) + nent_max * (naux+nmo);
+
+#pragma omp parallel default(shared)
+{
+
+    unsigned int nthreads = omp_get_num_threads ();
+    unsigned int ithread = omp_get_thread_num ();
+    unsigned int iao_ix, iao, jao_ix, jao; // AO indices
+    unsigned int nsv_p, nsv_n, nsv_nn, nsv;
+    unsigned int my_k;
+    unsigned int my_info;
+    unsigned int uint_wrk;
+    unsigned int my_nent;
+    double * ptr_wrk;
+    double * my_vt;
+    int * my_entlist;
+    // Partition out the wrk array
+    double * my_svdwork = wrk + ithread*lfullwrk;
+    double * my_mo = my_svdwork + lwork;
+    double * my_singval = my_mo + nent_max*nmo;
+    double * my_u = my_singval + global_K;
+    double * my_cderi = my_u + global_K*nent_max;
+    // Integer array allocation
+    int * iwork = malloc (8 * global_K * sizeof(int));
+
+#pragma omp for schedule(static) 
+
+    for (iao_ix = 0; iao_ix < nao; iao_ix++){
+        iao = iao_sort[iao_ix];
+        my_nent = iao_nent[iao];
+        my_entlist = iao_entlist + (iao*nent_max);
+        my_vt = mo_out + (iao * nent_max * nmo);
+        for (jao_ix = 0; jao_ix < my_nent; jao_ix++){
+            jao = my_entlist[jao_ix];
+            dcopy_(&nmo, &mo_coeff[jao], &i_one, &my_mo[jao_ix], &my_nent);
+            // The source has AO index slower-moving; the dest has AO index faster-moving! Row- to col-major order, but it's the same shape!
+            if (iao > jao){ 
+                ptr_wrk = dense_cderi + ((iao * (iao + 1) / 2) + jao);
+            } else {
+                ptr_wrk = dense_cderi + ((jao * (jao + 1) / 2) + iao);
+            }
+            dcopy_(&naux, ptr_wrk, &npair, &my_cderi[jao_ix], &my_nent);
+        }
+        my_k = MIN (my_nent, nmo);
+        dgesdd_(&svdjob, &my_nent, &nmo, my_mo, &my_nent, my_singval, my_u, &my_nent, my_vt, &my_k,
+            my_svdwork, &lwork, iwork, &my_info);
+        if (my_info != 0){ printf ("SVD return value = %d", my_info); }
+        assert (my_info == 0);
+        // Compress away zero singular values.  Singvals can be negative unfortunately because of mo gauge invariance
+        nsv_p = 0; nsv_n = my_k;
+        for (jao_ix = 0; jao_ix < my_k; jao_ix++){
+            if (my_singval[jao_ix] < -sv_thresh){ break; }
+            else { nsv_n--; }
+            if (my_singval[jao_ix] > sv_thresh){ nsv_p++; }
+        }
+        nsv_nn = my_k - nsv_n;
+        dcopy_(&nsv_n, &my_singval[nsv_nn], &i_one, &my_singval[nsv_p], &i_one);
+        uint_wrk = my_nent * nsv_n;
+        dcopy_(&uint_wrk, &my_u[nsv_nn*my_nent], &i_one, &my_u[nsv_p*my_nent], &i_one);
+        ptr_wrk = my_vt + nsv_p;
+        for (jao_ix = 0; jao_ix < my_k; jao_ix++){ // This one's tricky because I'm compressing away the faster-moving index
+            uint_wrk = nsv_n + nsv_p;
+            dcopy_(&uint_wrk, &my_vt[(jao_ix*my_k)+nsv_nn], &i_one, ptr_wrk, &i_one);
+            ptr_wrk += uint_wrk;
+        }
+        // Scale by singular value! Do it on the right because the right has singvec index faster-moving!
+        imo_nent[iao] = nsv_nn;
+        for (jao_ix = 0; jao_ix < nsv_nn; jao_ix++){
+            dscal_(&nmo, &my_singval[jao_ix], &my_vt[jao_ix*nmo], &i_one);
+        }
+        // Finally, matrix-multiply
+        dgemm_(&trans, &notrans, imo_nent + iao, &naux, &my_nent,
+            &d_one, my_u, &my_nent, my_cderi, &my_nent,
+            &d_one, &cderi_out[iao*global_K*naux], &i_one);
+    }
+    free (iwork);
+
+}
+}
 
 
