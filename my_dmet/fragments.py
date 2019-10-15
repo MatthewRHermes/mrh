@@ -328,8 +328,8 @@ class fragment_object:
     @property
     def nelec_as (self):
         result = np.trace (self.oneRDMas_loc)
-        if is_close_to_integer (result, params.num_zero_atol) == False:
-            raise RuntimeError ("Somehow you got a non-integer number of electrons in your active space! ({})".format (result))
+        #if is_close_to_integer (result, params.num_zero_atol) == False:
+        #    raise RuntimeError ("Somehow you got a non-integer number of electrons in your active space! ({})".format (result))
         return int (round (result))
 
     @property
@@ -596,7 +596,7 @@ class fragment_object:
             print ("Bath-orbital irreps: {}, err = {}".format (labeldict, err))
 
         # I need to work symmetry handling into this as well
-        norbs_hessbath = max (0, 2 * (self.norbs_frag+self.norbs_as) - self.norbs_imp)
+        norbs_hessbath = max (0, min (2 * (self.norbs_frag+self.norbs_as), self.norbs_tot) - self.norbs_imp)
         print ("Fragment {} basis set instability virtual orbital loss: 2 * ({} + {}) - {} = {} missing bath orbitals".format (self.frag_name,
             self.norbs_frag, self.norbs_as, self.norbs_imp, norbs_hessbath))
         if norbs_hessbath and self.add_virtual_bath and self.imp_solver_name != 'dummy RHF' and self.norbs_as:
@@ -700,7 +700,7 @@ class fragment_object:
 
         err = measure_basis_nonorthonormality (self.loc2imp)
         print ("Impurity orbital overlap error = {}".format (err))
-        err = measure_basis_nonorthonormality (self.loc2core)
+        err = measure_basis_nonorthonormality (self.loc2core) if self.loc2core.size else 0.0
         print ("Core orbital overlap error = {}".format (err))
         err = measure_basis_nonorthonormality (self.loc2emb)
         print ("Whole embedding basis overlap error = {}".format (err))

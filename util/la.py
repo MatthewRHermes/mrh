@@ -10,11 +10,11 @@ def is_matrix_zero (test_matrix, rtol=params.num_zero_rtol, atol=params.num_zero
     test_zero = np.zeros (test_matrix.shape, dtype=test_matrix.dtype)
     return np.allclose (test_matrix, test_zero, rtol=rtol, atol=atol)
 
-def is_matrix_eye (test_matrix, matdim=None, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+def is_matrix_eye (test_matrix, matdim=None, rtol=params.num_zero_rtol, atol=params.num_zero_rtol):
     if (test_matrix.shape[0] != test_matrix.shape[1]):
         return False
     test_eye = np.eye (test_matrix.shape[0], dtype=test_matrix.dtype)
-    return np.allclose (test_matrix, test_eye, atol=atol, rtol=rtol)
+    return np.allclose (test_matrix, test_eye, atol=rtol, rtol=rtol)
 
 def is_matrix_idempotent (test_matrix, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
     if (test_matrix.shape[0] != test_matrix.shape[1]):

@@ -814,7 +814,8 @@ class dmet:
             #assert (interr < self.nelec_int_thresh), "Fragment with non-integer number of electrons appears"
             interr = np.eye (loc2amo.shape[1]) * interr / loc2amo.shape[1]
             oneRDM_loc -= reduce (np.dot, [loc2amo, interr, loc2amo.conjugate ().T])
-        assert (all ((i < self.nelec_int_thresh for i in interrs))), "Fragment with non-integer number of electrons appears"
+        if ((not self.doLASSCF) or self.oldLASSCF):
+            assert (all ((i < self.nelec_int_thresh for i in interrs))), "Fragment with non-integer number of electrons appears"
     
         # Evaluate the entanglement of the active subspaces
         for (o1, f1), (o2, f2) in combinations (zip (loc2wmas, self.fragments), 2):

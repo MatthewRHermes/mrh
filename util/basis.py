@@ -51,7 +51,7 @@ def measure_basis_nonorthonormality (the_basis, ovlp=1):
     test_matrix -= np.eye (nbas)
     return np.amax (np.abs (test_matrix)), linalg.norm (test_matrix)
 
-def is_basis_orthonormal (the_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+def is_basis_orthonormal (the_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_rtol):
     cOc = np.atleast_2d (ovlp) 
     c2b = np.asarray (the_basis)
     b2c = c2b.conjugate ().T
@@ -63,7 +63,7 @@ def is_basis_orthonormal (the_basis, ovlp=1, rtol=params.num_zero_rtol, atol=par
     atol *= test_matrix.shape[0]
     return is_matrix_eye (test_matrix, rtol=rtol, atol=atol)
 
-def is_basis_orthonormal_and_complete (the_basis, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+def is_basis_orthonormal_and_complete (the_basis, rtol=params.num_zero_rtol, atol=params.num_zero_rtol):
     return (is_basis_orthonormal (the_basis, rtol=rtol, atol=atol) and (the_basis.shape[1] == the_basis.shape[0]))
 
 def are_bases_orthogonal (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
