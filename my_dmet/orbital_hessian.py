@@ -3,7 +3,7 @@ import numpy as np
 from pyscf import ao2mo
 from pyscf.lib import current_memory, numpy_helper
 from pyscf.mcscf.mc1step import gen_g_hop
-from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap, orthonormalize_a_basis, get_complementary_states, get_overlapping_states
+from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap, orthonormalize_a_basis, get_complementary_states, get_overlapping_states, is_basis_orthonormal_and_complete
 from mrh.util.rdm import get_2CDM_from_2RDM
 from scipy import linalg
 from itertools import product
@@ -159,7 +159,13 @@ class HessianCalculator (object):
 
     def _get_collective_basis (self, *args):
         p = np.concatenate (args, axis=-1)
-        q = orthonormalize_a_basis (p)
+        try: # Linear algebra problem sometimes if one of the arguments is a complete basis? Can I exception-handle my way out of this?
+            q = orthonormalize_a_basis (p)
+        except np.linalg.LinAlgError as e:
+            q = None
+            for r in args:
+                if is_basis_orthonormal_and_complete (r): q = r
+            if q is None: raise (e)
         qH = q.conjugate ().T
         q2p = [qH @ arg for arg in args]
         return q, q2p
@@ -492,10 +498,10 @@ class HessianERITransformer (object):
         '''
         p,q,r,s = (parent._append_entangled (z) for z in (p,q,r,s))
         a = np.concatenate (parent.mo2amo, axis=1)
-        self.w = w = orthonormalize_a_basis (np.concatenate ([a, p], axis=1))
-        self.x = x = orthonormalize_a_basis (np.concatenate ([a, s, r, q], axis=1)) 
-        self.y = y = orthonormalize_a_basis (np.concatenate ([a, s, r], axis=1))
-        self.z = z = orthonormalize_a_basis (np.concatenate ([a, s, q], axis=1))
+        self.w = w = parent._get_collective_basis (a, p)[0]
+        self.x = x = parent._get_collective_basis (a, s, r, q)[0] 
+        self.y = y = parent._get_collective_basis (a, s, r)[0]
+        self.z = z = parent._get_collective_basis (a, s, q)[0]
         self._eri = parent._get_eri ([w,x,y,z])
         return
 
@@ -561,7 +567,7 @@ class HessianOperator (HessianCalculator):
         a = np.concatenate (self.mo2amo, axis=-1)
         do_r = sum (abs (linalg.svd (sH @ a)[1])) > 1e-8
         do_s = sum (abs (linalg.svd (rH @ a)[1])) > 1e-8
-        if do_r and do_s: self.k = k = self._get_collective_basis (self.r, self.s)
+        if do_r and do_s: self.k = k = self._get_collective_basis (self.r, self.s)[0]
         elif do_r: self.k = k = r
         elif do_s: self.k = k = s
         i = np.eye (self.nmo)
