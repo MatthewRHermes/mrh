@@ -2,7 +2,7 @@ from pyscf import lib
 import numpy as np
 from scipy import linalg
 from mrh.lib.helper import load_library
-import ctypes
+import ctypes, time
 libsint = load_library ('libsint')
 
 class sparsedf_array (np.ndarray):
@@ -59,7 +59,7 @@ class sparsedf_array (np.ndarray):
         metric = linalg.norm (self, axis=0)
         if metric.ndim == 1: metric = lib.unpack_tril (metric)
         metric = metric > thresh
-        self.iao_nent = np.count_nonzero (metric, axis=0).astype (np.int32)
+        self.iao_nent = np.count_nonzero (metric, axis=1).astype (np.int32)
         self.nent_max = np.amax (self.iao_nent)
         self.iao_entlist = -np.ones ((self.nmo[0], self.nent_max), dtype=np.int32)
         for irow, nent in enumerate (self.iao_nent):
@@ -92,6 +92,7 @@ class sparsedf_array (np.ndarray):
         return prod
 
     def contract2 (self, wrk1):
+        ''' Make vk matrix using cderi sparsity on both terms but no mo sparsity '''
         if self.ndim == 3: return self.pack_mo ()
         if not self.flags['F_CONTIGUOUS']: self = self.naux_fast ()
         if self.nent_max is None: self.get_sparsity_ ()
@@ -112,6 +113,49 @@ class sparsedf_array (np.ndarray):
         wrk2 = wrk3 = None
         vk = lib.hermi_sum (vk, inplace=True)
         vk[np.diag_indices (nao)] /= 2
+        return vk
+
+    def vk_svd (self, mo_coeff, mo_occ, thresh=1e-8):
+        t0, w0 = time.clock (), time.time ()
+        if self.ndim == 3: return self.pack_mo ()
+        if not self.flags['C_CONTIGUOUS']: self = self.naux_slow ()
+        nao = self.nmo[0]
+        idx = np.abs (mo_occ) > 1e-8
+        nmo = np.count_nonzero (idx)
+        global_K = min (self.nent_max, nmo)
+        mo = mo_coeff[:,idx] * np.sqrt (mo_occ[idx])[None,:]
+        cderi_lvec = np.zeros ((nao, self.naux, global_K), dtype=self.dtype)
+        mo_lvec = np.zeros ((nao, self.nent_max, nmo), dtype=self.dtype)
+        imo_nent = np.zeros_like (self.iao_nent)
+        lwrk = (4*global_K*global_K) + (8*global_K) + self.nent_max * (global_K + self.naux + nmo)
+        lwrk = max (lwrk, self.nent_max * (self.nent_max + nmo))
+        lwrk *= lib.num_threads ()
+        wrk = np.zeros (lwrk, dtype=self.dtype)
+        libsint.SINT_SDCDERI_MO_LVEC (self.ctypes.data_as (ctypes.c_void_p),
+            mo.ctypes.data_as (ctypes.c_void_p),
+            cderi_lvec.ctypes.data_as (ctypes.c_void_p),
+            mo_lvec.ctypes.data_as (ctypes.c_void_p),
+            wrk.ctypes.data_as (ctypes.c_void_p),
+            ctypes.c_double (thresh),
+            self.iao_sort.ctypes.data_as (ctypes.c_void_p),
+            self.iao_nent.ctypes.data_as (ctypes.c_void_p),
+            self.iao_entlist.ctypes.data_as (ctypes.c_void_p),
+            imo_nent.ctypes.data_as (ctypes.c_void_p),
+            ctypes.c_int (nao), ctypes.c_int (self.naux),
+            ctypes.c_int (nmo), ctypes.c_int (self.nent_max))
+        print ("First C function time: {} clock ; {} wall".format (time.clock () - t0, time.time () - w0))
+        t0, w0 = time.clock (), time.time ()
+        wrk[:self.nent_max*(self.nent_max+nmo)] = 0.0
+        vk = np.zeros ((nao, nao), dtype=mo_coeff.dtype)
+        libsint.SINT_SDCDERI_DDMAT_MOSVD (cderi_lvec.ctypes.data_as (ctypes.c_void_p),
+            mo_lvec.ctypes.data_as (ctypes.c_void_p),
+            vk.ctypes.data_as (ctypes.c_void_p),
+            wrk.ctypes.data_as (ctypes.c_void_p),
+            imo_nent.ctypes.data_as (ctypes.c_void_p),
+            ctypes.c_int (nao), ctypes.c_int (nmo),
+            ctypes.c_int (self.naux), ctypes.c_int (self.nent_max),
+            ctypes.c_int (global_K))
+        print ("Second C function time: {} clock ; {} wall".format (time.clock () - t0, time.time () - w0))
         return vk
 
 

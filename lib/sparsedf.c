@@ -537,12 +537,12 @@ void SINT_SDCDERI_MO_LVEC (double * dense_cderi, double * mo_coeff, double * cde
         // Scale by singular value! Do it on the right because the right has singvec index faster-moving!
         imo_nent[iao] = nsv_nn;
         for (jao_ix = 0; jao_ix < nsv_nn; jao_ix++){
-            dscal_(&nmo, &my_singval[jao_ix], &my_vt[jao_ix*nmo], &i_one);
+            dscal_(&nmo, &my_singval[jao_ix], &my_vt[jao_ix], &nmo);
         }
         // Finally, matrix-multiply
         dgemm_(&trans, &notrans, imo_nent + iao, &naux, &my_nent,
             &d_one, my_u, &my_nent, my_cderi, &my_nent,
-            &d_one, &cderi_out[iao*global_K*naux], &i_one);
+            &d_one, &cderi_out[iao*global_K*naux], &global_K);
     }
     free (iwork);
 
@@ -550,18 +550,18 @@ void SINT_SDCDERI_MO_LVEC (double * dense_cderi, double * mo_coeff, double * cde
 }
 
 void SINT_SDCDERI_DDMAT_MOSVD (double * cderi_mo, double * mo_rvecs, double * vk, double * wrk,
-    int * imo_nent, int nao, int nmo, int naux, int nent_max)
+    int * imo_nent, int nao, int nmo, int naux, int nent_max, int global_K)
 {
     /*
     Calculate the vk matrix using the output of SINT_SDCDERI_MO_LVEC above.
 
     Input:
-        cderi_mo : array of shape (nao, naux, nent_max); contains cderi_out from SINT_SDCDERI_MO_LVEC
+        cderi_mo : array of shape (nao, naux, global_K); contains cderi_out from SINT_SDCDERI_MO_LVEC
         mo_rvecs : array of shape (nao, nent_max, nmo); contains mo_out from SINT_SDCDERI_MO_LVEC
         imo_nent : array of shape (nao); contains imo_nent from SINT_SDCDERI_MO_LVEC
 
     Input/Output:
-        wrk : array of shape (nthreads*nent_max*[nent_max+naux]); used for intermediates
+        wrk : array of shape (nthreads*global_K*[global_K+naux]); used for intermediates
 
     Output:
         vk : array of shape (nao, nao); contains exchange matrix
@@ -571,8 +571,8 @@ void SINT_SDCDERI_DDMAT_MOSVD (double * cderi_mo, double * mo_rvecs, double * vk
     const double d_one = 1.0;
     const unsigned int i_one = 1;
     const unsigned int npair = nao * (nao + 1) / 2;
-    const unsigned int lfullwork = nent_max*(nent_max+naux);
-    const unsigned int nent_max_naux = nent_max * naux;
+    const unsigned int lfullwork = global_K*(global_K+naux);
+    const unsigned int global_K_naux = global_K * naux;
     const unsigned int nent_max_nmo = nent_max * nmo;
 
 #pragma omp parallel default(shared)
@@ -592,7 +592,7 @@ void SINT_SDCDERI_DDMAT_MOSVD (double * cderi_mo, double * mo_rvecs, double * vk
     double * lao_cderi;
     // Partition out the wrk array
     double * dm = wrk + ithread*lfullwork;
-    double * vdm = dm + nent_max*nent_max;
+    double * vdm = dm + global_K*global_K;
 
 #pragma omp for schedule(dynamic) 
 
@@ -600,7 +600,7 @@ void SINT_SDCDERI_DDMAT_MOSVD (double * cderi_mo, double * mo_rvecs, double * vk
         uint_wrk = 0;
         iao = 0;
         jao = 0;
-        while (uint_wrk + iao + 1 < npair){
+        while (uint_wrk + iao + 1 < ipair){
             iao++;
             uint_wrk += iao;
         }
@@ -617,16 +617,16 @@ void SINT_SDCDERI_DDMAT_MOSVD (double * cderi_mo, double * mo_rvecs, double * vk
         }
         kao_rvecs = mo_rvecs + (kao * nent_max_nmo);
         lao_rvecs = mo_rvecs + (lao * nent_max_nmo);
-        kao_cderi = cderi_mo + (kao * nent_max_naux);
-        lao_cderi = cderi_mo + (lao * nent_max_naux);
+        kao_cderi = cderi_mo + (kao * global_K_naux);
+        lao_cderi = cderi_mo + (lao * global_K_naux);
         // Make density matrix
         dgemm_(&trans, &notrans, &kao_nent, &lao_nent, &nmo,
-            &d_one, kao_rvecs, &nent_max, lao_rvecs, &nent_max,
+            &d_one, kao_rvecs, &nmo, lao_rvecs, &nmo,
             &d_one, dm, &kao_nent);
         // Contract density matrix with first CDERI factor
-        dgemm_(&notrans, &trans, &lao_nent, &naux, &kao_nent,
-            &d_one, dm, &kao_nent, kao_cderi, &nent_max,
-            &d_one, vdm, &lao_nent);
+        dgemm_(&trans, &notrans, &naux, &lao_nent, &kao_nent,
+            &d_one, kao_cderi, &kao_nent, dm, &kao_nent,
+            &d_one, vdm, &naux);
         // Final contraction
         uint_wrk = lao_nent * naux;
         vk[(iao*nao)+jao] = ddot_(&uint_wrk, vdm, &i_one, lao_cderi, &i_one);
