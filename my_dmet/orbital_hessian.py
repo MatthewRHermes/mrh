@@ -439,7 +439,7 @@ class LASSCFHessianCalculator (HessianCalculator):
     def get_operator (self, r, s):
         return LASSCFHessianOperator (self, r, s)
 
-    def __init__(self, ints, oneRDM_loc, all_frags, fock_c):
+    def __init__(self, ints, oneRDM_loc, all_frags, fock_c_check, fock_s_check):
         self.ints = ints
         active_frags = [f for f in all_frags if f.norbs_as]
 
@@ -451,6 +451,7 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.oneRDMs = [(oneRDM_loc + oneSDM_loc)/2, (oneRDM_loc - oneSDM_loc)/2]
         fock_c = ints.loc_rhf_fock_bis (oneRDM_loc)
         fock_s = -ints.loc_rhf_k_bis (oneSDM_loc) / 2 if isinstance (oneSDM_loc, np.ndarray) else 0
+        print ("Error: {} charge; {} spin".format (linalg.norm (fock_c - fock_c_check), linalg.norm (fock_s - fock_s_check)))
         self.fock = [fock_c + fock_s, fock_c - fock_s]
 
         # Fragment things

@@ -139,6 +139,7 @@ class localintegrals:
         self.activeCONST    = self.mol.energy_nuc() + np.einsum( 'ij,ij->', self.frozenOEI_ao - 0.5*self.frozenJK_ao, self.frozenDM_ao )
         self.activeOEI      = represent_operator_in_basis (self.frozenOEI_ao, self.ao2loc )
         self.activeFOCK     = represent_operator_in_basis (self.fullFOCK_ao,  self.ao2loc )
+        self.activeVSPIN    = np.zeros_like (self.activeFOCK) # FIXME: correct behavior for ROHF init!
         self.activeJKidem   = self.activeFOCK - self.activeOEI
         self.activeJKcorr   = np.zeros ((self.norbs_tot, self.norbs_tot), dtype=self.activeOEI.dtype)
         self.oneRDM_loc     = self.ao2loc.conjugate ().T @ self.ao_ovlp @ self.fullRDM_ao @ self.ao_ovlp @ self.ao2loc
@@ -411,7 +412,8 @@ class localintegrals:
         ########################################################################################################        
         self.e_tot          = E
         self.activeVSPIN    = (focka_fockb[0] - focka_fockb[1]) / 2
-        self.activeFOCK     = get_roothaan_fock (focka_fockb, dma_dmb, np.eye (self.norbs_tot))
+        #self.activeFOCK     = get_roothaan_fock (focka_fockb, dma_dmb, np.eye (self.norbs_tot))
+        self.activeFOCK     = (focka_fockb[0] + focka_fockb[1]) / 2
         self.activeJKidem   = JKidem
         self.activeJKcorr   = JKcorr
         self.oneRDMcorr_loc = oneRDMcorr_loc
