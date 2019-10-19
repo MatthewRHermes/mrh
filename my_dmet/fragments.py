@@ -8,7 +8,7 @@ from pyscf.scf.addons import project_mo_nr2nr
 from pyscf.symm.addons import symmetrize_space, label_orb_symm
 from pyscf.lib import logger
 from pyscf.tools import molden
-from pyscf.lib.numpy_helper import unpack_tril
+from pyscf.lib.numpy_helper import unpack_tril, pack_tril
 from mrh.my_dmet import pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper, pyscf_fci #, chemps2
 from mrh.util import params
 from mrh.util.basis import *
@@ -947,8 +947,6 @@ class fragment_object:
             self.impham_built = True
             self.imp_solved   = False
             return
-        self.impham_OEI_C = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
-        self.impham_OEI_S = -self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneSDMfroz_loc) / 2
         if self.imp_solver_name == "RHF" and self.quasidirect:
             ao2imp = np.dot (self.ints.ao2loc, self.loc2imp)
             def my_jk (mol, dm, hermi=1):
@@ -960,20 +958,68 @@ class fragment_object:
             self.impham_TEI = None 
             #self.impham_TEI_fiii = None # np.empty ([self.norbs_frag] + [self.norbs_imp for i in range (3)], dtype=np.float64)
             self.impham_get_jk = my_jk
+            vj, vk_c = self.impham_get_jk (self.ints.mol, self.get_oneRDM_imp ())
+            vk_s = self.impham_get_jk (self.ints.mol, self.get_oneSDM_imp ())[1]
+            sie = self.E2_cum
+            sie += np.tensordot (vj, cdm) / 2
+            sie -= np.tensordot (vk_c, cdm) / 4
+            sie -= np.tensordot (vk_s, sdm) / 4
         elif self.project_cderi:
             self.impham_TEI = None
             self.impham_get_jk = None
             self.impham_CDERI = self.ints.dmet_cderi (self.loc2emb, self.norbs_imp)
+            cdm = self.get_oneRDM_imp ()
+            sdm = self.get_oneSDM_imp ()
+            cdm_pack[np.diag_indices (self.norbs_imp)] /= 2
+            cdm_pack = pack_tril (cdm + cdm.T)
+            rho = np.dot (self.impham_CDERI, cdm_pack)
+            vj = unpack_tril (np.dot (rho, self.impham_CDERI))
+            cderi = unpack_tril (self.impham_CDERI)
+            vk_c = np.dot (cderi, cdm)
+            vk_c = np.tensordot (cderi, vk_c, axes=((0,2),(0,2)))
+            vk_s = np.dot (cderi, sdm)
+            vk_s = np.tensordot (cderi, vk_c, axes=((0,2),(0,2)))
+            cderi = np.dot (cderi, self.imp2amo)
+            cderi = np.tensordot (cderi, self.imp2amo, axes=((1),(0)))
+            sie = self.E2_cum
+            sie += np.tensordot (vj, cdm) / 2
+            sie -= np.tensordot (vk_c, cdm) / 4
+            sie -= np.tensordot (vk_s, sdm) / 4
+            cderi = rho = cdm_pack = cdm = sdm = None
         else:
             f = self.loc2frag
             i = self.loc2imp
             self.impham_TEI = self.ints.dmet_tei (self.loc2emb, self.norbs_imp, symmetry=8) 
             #self.impham_TEI_fiii = self.ints.general_tei ([f, i, i, i])
             self.impham_get_jk = None
+            cdm = self.get_oneRDM_imp ()
+            sdm = self.get_oneSDM_imp ()
+            eri = ao2mo.restore (1, self.impham_TEI, self.norbs_imp)
+            vj = np.tensordot (eri, cdm, axes=2)
+            vk_c = np.tensordot (eri, cdm, axes=((1,2),(0,1)))
+            vk_s = np.tensordot (eri, sdm, axes=((1,2),(0,1)))
+            sie = self.E2_cum
+            sie += np.tensordot (vj, cdm) / 2
+            sie -= np.tensordot (vk_c, cdm) / 4
+            sie -= np.tensordot (vk_s, sdm) / 4
+            eri = cdm = sdm = None
+
+        #OEI_C = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+        #OEI_S = -self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneSDMfroz_loc) / 2
+        self.impham_OEI_C = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - (vj - vk_c/2)
+        self.impham_OEI_S = represent_operator_in_basis (self.ints.activeVSPIN, self.loc2imp) + vk_s/2
+        #print ("Error in OEI_C: {}".format (linalg.norm (OEI_C - self.impham_OEI_C)))
+        #print ("Error in OEI_S: {}".format (linalg.norm (OEI_S - self.impham_OEI_S)))
 
         # Constant contribution to energy from core 2CDMs
-        self.impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc, self.oneSDMfroz_loc)
+        cdm, sdm = self.get_oneRDM_imp (), self.get_oneSDM_imp ()
+        sie += np.tensordot (self.impham_OEI_C, cdm, axes=2)
+        sie += np.tensordot (self.impham_OEI_S, sdm, axes=2)
+        self.impham_CONST = self.ints.e_tot - sie 
+        #impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc, self.oneSDMfroz_loc)
                              + self.ints.const () + xtra_CONST + sum (self.E2froz_tbc))
+        #print ("Error in impham_CONST: {}".format (self.impham_CONST - impham_CONST))
+
         self.E2_frag_core = 0
 
         self.impham_built = True
@@ -1394,6 +1440,10 @@ class fragment_object:
     def get_oneRDM_imp (self):
         self.warn_check_Schmidt ("oneRDM_imp")
         return represent_operator_in_basis (self.oneRDM_loc, self.loc2imp)
+
+    def get_oneSDM_imp (self):
+        self.warn_check_Schmidt ("oneSDM_imp")
+        return represent_operator_in_basis (self.oneSDM_loc, self.loc2imp)
 
     def impurity_molden (self, tag=None, canonicalize=False, natorb=False, molorb=False, ene=None, occ=None):
         tag = '.' if tag == None else '_' + str (tag) + '.'
