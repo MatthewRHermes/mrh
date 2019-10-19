@@ -84,4 +84,14 @@ set_target_properties (clib_mrh_csf PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "csf")
 
+# Build the sparse density matrix stuff
+set (SINT_SOURCE_FILES "sparsedf.c")
+add_library (clib_mrh_sint SHARED ${SINT_SOURCE_FILES})
+target_link_libraries (clib_mrh_sint ${LAPACK_LIBRARIES})
+set_target_properties (clib_mrh_sint PROPERTIES
+    LINKER_LANGUAGE C
+    CLEAN_DIRECT_OUTPUT 1
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_NAME "sint")
+
 
