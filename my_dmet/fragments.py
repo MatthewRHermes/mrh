@@ -1017,7 +1017,7 @@ class fragment_object:
         sie += np.tensordot (self.impham_OEI_S, sdm, axes=2)
         self.impham_CONST = self.ints.e_tot - sie 
         #impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc, self.oneSDMfroz_loc)
-                             + self.ints.const () + xtra_CONST + sum (self.E2froz_tbc))
+        #                     + self.ints.const () + xtra_CONST + sum (self.E2froz_tbc))
         #print ("Error in impham_CONST: {}".format (self.impham_CONST - impham_CONST))
 
         self.E2_frag_core = 0

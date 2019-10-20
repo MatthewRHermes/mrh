@@ -312,20 +312,19 @@ class HessianCalculator (object):
         #t0, w0 = time.clock (), time.time ()
         Hop = self.get_operator (r, s)
         #print ("Time to make Hop: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
+        p = self._get_collective_basis (pq_pairs[0][0], pq_pairs[1][0])[0]
+        q = self._get_collective_basis (pq_pairs[0][1], pq_pairs[1][1])[0]
+        qH = q.conjugate ().T
+        e1_comp = p @ (self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T + Hop (p, q, x_rs)) @ qH
         for p, q in pq_pairs:
-            #lp = p.shape[-1]
-            #lq = q.shape[-1]
             qH = q.conjugate ().T
-            #t0, w0 = time.clock (), time.time ()
-            #e2t = self.__call__(p, q, r, s).reshape (lp, lq, lr*ls)[:,:,diag_idx]
-            #print ("Time to get Hessian for this block: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
-            #e2t = np.tensordot (e2t, x_rs, axes=1)
-            #t0, w0 = time.clock (), time.time ()
             e2 = Hop (p, q, x_rs)
-            #print ("Time to call Hop for this block: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
-            #print ("Error of Hop: {:.6e} ({:.6e})".format (linalg.norm (e2t-e2)/e2.size, linalg.norm (e2)/e2.size))
             e1 += p @ e2 @ qH
             e2 = None
+        for p, q in pq_pairs:
+            pH = p.conjugate ().T
+            errmat = pH @ (e1_comp - e1) @ q
+            print ("Error in jointly-calculated gradient: {}".format (linalg.norm (errmat)))
         return e1
 
     def get_veff (self, dm1s):
