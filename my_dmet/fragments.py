@@ -624,7 +624,12 @@ class fragment_object:
             # Get the conjugate gradient. Push into the loc basis so I can use the weak inner symmetry capability of the svd function
             w0, t0 = time.time (), time.clock ()
             pq_pairs = ((loc2virt_core, loc2occ_imp), (loc2inac_core, loc2ninac_imp))
-            grad = self.hesscalc.get_conjugate_gradient (pq_pairs, loc2unac_imp, self.loc2amo)
+            #grad = self.hesscalc.get_conjugate_gradient (pq_pairs, loc2unac_imp, self.loc2amo)
+            #grad_test = self.hesscalc.get_impurity_conjugate_gradient (loc2canon_imp, loc2canon_core, self.loc2amo)
+            #grad_test = ((loc2virt_core @ grad_test[norbs_occ_core:,:norbs_occ_imp] @ loc2occ_imp.conjugate ().T)
+            #            + loc2inac_core @ grad_test[:norbs_inac_core,norbs_inac_imp:] @ loc2ninac_imp.conjugate ().T)
+            #print ("Error in grad_test: {}".format (linalg.norm (grad_test-grad)))
+            grad = self.hesscalc.get_impurity_conjugate_gradient (loc2canon_imp, loc2canon_core, self.loc2amo)
             print ("Time in Hessian module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
             # Zero gradient escape
             if np.count_nonzero (np.abs (grad) > 1e-8): 

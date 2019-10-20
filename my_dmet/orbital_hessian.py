@@ -290,9 +290,11 @@ class HessianCalculator (object):
     def get_impurity_conjugate_gradient (self, i, c, a):
         g, x_ga, a = self.get_diagonal_step (i, a)
         Hop = self.get_operator (g, a)
-        return self._get_Fock1 (c, i) - self.get_Fock1 (i, c).T + Hop (c, i, x_ga)
+        iH = i.conjugate ().T
+        return c @ (self._get_Fock1 (c, i) - self._get_Fock1 (i, c).T + Hop (c, i, x_ga)) @ iH
 
     def get_conjugate_gradient (self, pq_pairs, r, s):
+        ''' OLD CODE, NOT USED '''
         ''' Obtain the gradient for ranges p->q after making an approximate gradient-descent step in r->s:
         E1'^p_q = E1^p_q - E2^pr_qs * x^r_s = E1^p_q + E2^pr_qs * E1^r_s / E2^rr_ss '''
         t0, w0 = time.clock (), time.time ()
@@ -312,19 +314,19 @@ class HessianCalculator (object):
         #t0, w0 = time.clock (), time.time ()
         Hop = self.get_operator (r, s)
         #print ("Time to make Hop: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
-        p = self._get_collective_basis (pq_pairs[0][0], pq_pairs[1][0])[0]
-        q = self._get_collective_basis (pq_pairs[0][1], pq_pairs[1][1])[0]
-        qH = q.conjugate ().T
-        e1_comp = p @ (self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T + Hop (p, q, x_rs)) @ qH
+        #p = self._get_collective_basis (pq_pairs[0][0], pq_pairs[1][0])[0]
+        #q = self._get_collective_basis (pq_pairs[0][1], pq_pairs[1][1])[0]
+        #qH = q.conjugate ().T
+        #e1_comp = p @ (self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T + Hop (p, q, x_rs)) @ qH
         for p, q in pq_pairs:
             qH = q.conjugate ().T
             e2 = Hop (p, q, x_rs)
             e1 += p @ e2 @ qH
             e2 = None
-        for p, q in pq_pairs:
-            pH = p.conjugate ().T
-            errmat = pH @ (e1_comp - e1) @ q
-            print ("Error in jointly-calculated gradient: {}".format (linalg.norm (errmat)))
+        #for p, q in pq_pairs:
+        #    pH = p.conjugate ().T
+        #    errmat = pH @ (e1_comp - e1) @ q
+        #    print ("Error in jointly-calculated gradient: {}".format (linalg.norm (errmat)))
         return e1
 
     def get_veff (self, dm1s):
