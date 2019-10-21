@@ -289,9 +289,12 @@ class HessianCalculator (object):
 
     def get_impurity_conjugate_gradient (self, i, c, a):
         g, x_ga, a = self.get_diagonal_step (i, a)
-        Hop = self.get_operator (g, a)
+        Hop, Hop_test = self.get_operator (g, a)
         iH = i.conjugate ().T
-        return c @ (self._get_Fock1 (c, i) - self._get_Fock1 (i, c).T + Hop (c, i, x_ga)) @ iH
+        e2 = Hop (c, i, x_ga)
+        e2_test = Hop_test (c, i, x_ga)
+        print ("Error in Hop: {}".format (linalg.norm (e2_test - e2)))
+        return c @ (self._get_Fock1 (c, i) - self._get_Fock1 (i, c).T + e2) @ iH
 
     def get_conjugate_gradient (self, pq_pairs, r, s):
         ''' OLD CODE, NOT USED '''
@@ -444,7 +447,7 @@ class CASSCFHessianTester (object):
 class LASSCFHessianCalculator (HessianCalculator):
 
     def get_operator (self, r, s):
-        return LASSCFHessianOperator (self, r, s)
+        return LASSCFHessianOperator (self, r, s), DFLASSCFHessianOperator (self, r, s)
 
     def __init__(self, ints, oneRDM_loc, all_frags, fock_c, fock_s):
         self.ints = ints
@@ -659,11 +662,11 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         rs2q = rsH @ q
         svals_rinq = linalg.svd (rs2q)[1].sum ()
         rs2p = rsH @ p
-        svals_rinq = linalg.svd (rs2p)[1].sum ()
+        svals_rinp = linalg.svd (rs2p)[1].sum ()
         rinq = abs (svals_rinq - self.rs.shape[-1]) < 1e-8
         rinp = abs (svals_rinp - self.rs.shape[-1]) < 1e-8
         if rinp:
-            return np.zeros (p.shape[-1], q.shape[-1]) # Hack to keep both F_pq and F_qp in the rinq case
+            return np.zeros ((p.shape[-1], q.shape[-1])) # Hack to keep both F_pq and F_qp in the rinq case
         elif not rinq:
             raise RuntimeError ("Totally off-diagonal Hessian elements not supported")
         tdm1s = np.stack ([kappa @ dm - dm @ kappa for dm in self.oneRDMs], axis=0)
@@ -678,27 +681,27 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         b_rrP = np.tensordot (rs2q, b_qrP, axes=((1),(0)))
         # Coulomb
         rho = np.tensordot (tdm1s.sum (0), b_rrP, axes=2)
-        vj_pq = p2m @ np.dot (rho, b_Pmn) @ m2q
+        vj_pq = p2m @ numpy_helper.unpack_tril (np.dot (rho, b_Pmn)) @ m2q
         rho = b_Pmn = None
         # Exchange
         v_rqP = np.dot (tdm1s, b_qrP) 
         vk_pq = np.dot (np.tensordot (v_rqP, b_mrP, axes=((1,3),(1,2))), m2p).transpose (0,2,1) # v_rqP has spin axis first
         v_rqP = b_qrP = None
         # Veff 
-        veff_pq = vj[None,:,:] - vk
+        veff_pq = vj_pq[None,:,:] - vk_pq
         pH = p.conjugate ().T
         qH = q.conjugate ().T
         dm_pp = np.dot (pH, np.dot (self.oneRDMs, p)).transpose (1,0,2)
         dm_qq = np.dot (qH, np.dot (self.oneRDMs, q)).transpose (1,0,2)
         tFock1 = np.tensordot (veff_pq, dm_qq, axes=((0,2),(0,1))) - np.tensordot (dm_pp, veff_pq, axes=((0,1),(0,1)))
         # Cumulant
-        g_mrrr = np.tensordot (b_mrP, b_rrP, axes=((3),(3)))
+        g_mrrr = np.tensordot (b_mrP, b_rrP, axes=((2),(2)))
         b_mrP = b_rrP = None
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
             rs2a = rsH @ a
             if linalg.norm (rs2a) < 1e-8: continue
-            l_rrrr = np.tensordot (t,      rs2a, axes=((1),(1))) # (ar|aa) (idx's 0 and 1 are now switched)
-            l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((1),(1))) # (rr|aa) (calling idx 1 gets idx 0)
+            l_rrrr = np.tensordot (rs2a, t,      axes=((1),(1))) # (ar|aa) (idx's 0 and 1 are now switched)
+            l_rrrr = np.tensordot (rs2a, l_rrrr, axes=((1),(1))) # (rr|aa) (calling idx 1 gets idx 0)
             l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|ra) (idx's 2 and 3 are now switched)
             l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|rr) (calling idx 2 gets idx 3)
             rKr= rsH @ kappa @ self.rs
