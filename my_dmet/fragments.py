@@ -616,6 +616,7 @@ class fragment_object:
             loc2inac_core = loc2canon_core[:,:norbs_inac_core]
             loc2virt_core = loc2canon_core[:,norbs_occ_core:]
             loc2amo_core = loc2canon_core[:,norbs_inac_core:norbs_occ_core]
+            loc2unac_core = np.append (loc2inac_core, loc2virt_core, axis=1)
             # Unactive orbitals in the impurity
             loc2unac_imp = np.append (loc2canon_imp[:,:norbs_inac_imp], loc2canon_imp[:,norbs_occ_imp:], axis=1)
             # Sort the core orbitals of loc2emb to get the active orbitals out of the way
@@ -629,7 +630,8 @@ class fragment_object:
             #grad_test = ((loc2virt_core @ grad_test[norbs_occ_core:,:norbs_occ_imp] @ loc2occ_imp.conjugate ().T)
             #            + loc2inac_core @ grad_test[:norbs_inac_core,norbs_inac_imp:] @ loc2ninac_imp.conjugate ().T)
             #print ("Error in grad_test: {}".format (linalg.norm (grad_test-grad)))
-            grad = self.hesscalc.get_impurity_conjugate_gradient (loc2canon_imp, loc2canon_core, self.loc2amo)
+            print (norbs_inac_imp, " inactive in impurity; ", norbs_inac_core, " inactive in core")
+            grad = self.hesscalc.get_impurity_conjugate_gradient (loc2canon_imp, loc2unac_core, self.loc2amo)
             print ("Time in Hessian module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
             # Zero gradient escape
             if np.count_nonzero (np.abs (grad) > 1e-8): 

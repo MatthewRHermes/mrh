@@ -489,6 +489,17 @@ class LASSCFHessianCalculator (HessianCalculator):
         moH = mo.conjugate ().T
         dm1s = np.dot (mo, np.dot (dm1s, moH)).transpose (1,0,2)
         vj, vk = self.ints.get_jk_ao (dm=dm1s)
+        # Note: the below _works_!
+        #dm = dm1s.sum (0)
+        #dm += dm.T
+        #dm[np.diag_indices_from (dm)] /= 2
+        #dm = numpy_helper.pack_tril (dm)
+        #vj_test = np.zeros_like (vj.sum (0))
+        #for eri1 in self.ints.with_df.loop ():
+        #    rho = np.dot (eri1, dm)
+        #    vj_test += numpy_helper.unpack_tril (np.dot (rho, eri1))
+        #    print (vj_test)
+        #print ("Comparing vj to manual vj recalculation using cderi: {}".format (vj.sum (0) - vj_test))
         vj = np.dot (moH, np.dot (vj, mo)).transpose (1,0,2)
         vk = np.dot (moH, np.dot (vk, mo)).transpose (1,0,2)
         return vj, vk
@@ -646,7 +657,7 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         self.r = r
         self.s = s
         self.rs = self._get_collective_basis (r, s)[0]
-        self.m2rs = self.mo @ self.rs
+        self.m2rs = self.ints.ao2loc @ self.rs
 
     def _get_tFock1_1b (self, kappa):
         # Do only strictly 1-body part; no veff here
@@ -654,10 +665,15 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         return np.tensordot (self.fock, tdm1s, axes=((0,1),(0,2)))
         
     def _get_tFock1_2b (self, p, q, kappa):
-        ''' This assumes that p and q are unentangled subspaces, that p has no active orbitals, and that
-        r,s contains only full active subspaces! '''
+        ''' This assumes that p and q are unentangled subspaces, that p has no active orbitals, that
+        r,s contains only full active subspaces, and that r,s are contained entirely in exactly one of p,q!'''
         # Include veff terms here by reusing intermediates
         # Include both F_pq and F_qp!
+        m2p = self.ints.ao2loc @ p
+        m2q = self.ints.ao2loc @ q
+        p2m = m2p.conjugate ().T
+        q2m = m2q.conjugate ().T
+        qH = q.conjugate ().T
         rsH = self.rs.conjugate ().T
         rs2q = rsH @ q
         svals_rinq = linalg.svd (rs2q)[1].sum ()
@@ -670,23 +686,18 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         elif not rinq:
             raise RuntimeError ("Totally off-diagonal Hessian elements not supported")
         tdm1s = np.stack ([kappa @ dm - dm @ kappa for dm in self.oneRDMs], axis=0)
-        tdm1s = np.dot (rsH, np.dot (tdm1s, self.rs)).transpose (1,0,2) # Put in rs basis
-        m2p = self.mo @ p
-        m2q = self.mo @ q
-        p2m = m2p.conjugate ().T
-        q2m = m2q.conjugate ().T
+        tdm1s = np.dot (qH, np.dot (tdm1s, q)).transpose (1,0,2) # Put in q (impurity) basis
         b_Pmn = sparsedf_array (self.ints.with_df._cderi)
-        b_mrP = b_Pmn.contract1 (self.m2rs)
-        b_qrP = np.tensordot (m2q, b_mrP, axes=((0),(0)))
-        b_rrP = np.tensordot (rs2q, b_qrP, axes=((1),(0)))
+        b_mqP = b_Pmn.contract1 (m2q)
+        b_qqP = np.tensordot (m2q, b_mqP, axes=((0),(0)))
         # Coulomb
-        rho = np.tensordot (tdm1s.sum (0), b_rrP, axes=2)
+        rho = np.tensordot (tdm1s.sum (0), b_qqP, axes=2)
         vj_pq = p2m @ numpy_helper.unpack_tril (np.dot (rho, b_Pmn)) @ m2q
         rho = b_Pmn = None
         # Exchange
-        v_rqP = np.dot (tdm1s, b_qrP) 
-        vk_pq = np.dot (np.tensordot (v_rqP, b_mrP, axes=((1,3),(1,2))), m2p).transpose (0,2,1) # v_rqP has spin axis first
-        v_rqP = b_qrP = None
+        v_qqP = np.dot (tdm1s, b_qqP) 
+        vk_pq = np.dot (np.tensordot (v_qqP, b_mqP, axes=((1,3),(1,2))), m2p).transpose (0,2,1) # v_rqP has spin axis first
+        v_qqP = None
         # Veff 
         veff_pq = vj_pq[None,:,:] - vk_pq
         pH = p.conjugate ().T
@@ -695,7 +706,9 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         dm_qq = np.dot (qH, np.dot (self.oneRDMs, q)).transpose (1,0,2)
         tFock1 = np.tensordot (veff_pq, dm_qq, axes=((0,2),(0,1))) - np.tensordot (dm_pp, veff_pq, axes=((0,1),(0,1)))
         # Cumulant
-        g_mrrr = np.tensordot (b_mrP, b_rrP, axes=((2),(2)))
+        b_rmP = np.dot (rs2q, b_mqP)
+        b_rrP = np.dot (self.m2rs.conjugate ().T, b_rmP)
+        g_mrrr = np.tensordot (b_rmP, b_rrP, axes=((2),(2))).transpose (1,0,2,3)
         b_mrP = b_rrP = None
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
             rs2a = rsH @ a
@@ -704,7 +717,7 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
             l_rrrr = np.tensordot (rs2a, l_rrrr, axes=((1),(1))) # (rr|aa) (calling idx 1 gets idx 0)
             l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|ra) (idx's 2 and 3 are now switched)
             l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|rr) (calling idx 2 gets idx 3)
-            rKr= rsH @ kappa @ self.rs
+            rKr = rsH @ kappa @ self.rs
             # This is a sum, so I can't do the index-order switching thing I did above
             # It's always positive as long as I always contract the ~second~ axis of rKr
             lk_rrrr  = np.tensordot (rKr, l_rrrr, axes=((1),(0))) 
