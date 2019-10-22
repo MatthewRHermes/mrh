@@ -571,7 +571,7 @@ class HessianERITransformer (object):
     def p_in_c (self, c, p):
         ''' Return c == complete basis for p '''
         svals = linalg.svd (c.conjugate ().T @ p)[1]
-        return np.count_nonzero (np.isclose (svals, 1)) == p.shape[1]
+        return np.count_nonzero (np.isclose (svals, 1, rtol=1e-4)) == p.shape[1]
 
     def pq_in_cd (self, c, d, p, q):
         testmat = np.asarray ([[self.p_in_c (e, r) for e in (c, d)] for r in (p, q)])
