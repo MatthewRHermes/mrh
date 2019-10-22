@@ -305,20 +305,22 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
     converged = False
     veff = None
     for it in range (las.max_cycle_macro):
-        H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, eri_cas=h2eff_sub, veff=veff)
+        H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
         g_vec = H_op.get_grad ()
+        gx = H_op.get_gx ()
         prec_op = H_op.get_prec ()
         t1 = log.timer ('LASCI Hessian constructor', *t1)
         prec = prec_op (np.ones_like (g_vec)) # Check for divergences
         norm_gorb = linalg.norm (g_vec[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_gci = linalg.norm (g_vec[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
+        norm_gx = linalg.norm (gx) if gx.size else 0.0
         x0 = prec_op._matvec (-g_vec)
         norm_xorb = linalg.norm (x0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_xci = linalg.norm (x0[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
         lib.logger.info (las, 'LASCI macro %d : E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g', it, H_op.e_tot, norm_gorb, norm_gci)
         #log.info ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g ; |x0_ci| = %.15g',
         #    H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
-        if norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad:
+        if (norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad) or ((norm_gorb + norm_gci) < norm_gx/10):
             converged = True
             break
         '''
@@ -341,7 +343,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
             norm_xci = linalg.norm (x[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
             Ecall = H_op.e_tot + x.dot (g_vec + (Hx/2))
             log.info ('LASCI micro %d : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x_orb| = %.15g ; |x_ci| = %.15g', microit[0], Ecall, norm_gorb, norm_gci, norm_xorb, norm_xci)
-        x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=conv_tol_grad, maxiter=las.max_cycle_micro,
+        my_tol = max (conv_tol_grad, norm_gx/10)
+        x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol, maxiter=las.max_cycle_micro,
          callback=my_callback, M=prec_op)
         t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
         mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
@@ -363,10 +366,11 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         t1 = log.timer ('LASCI get_veff after ci', *t1)
 
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff=veff)
-    gorb, gci, gx = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
-    norm_gorb = linalg.norm (gorb) if gorb.size else 0.0
-    norm_gci = linalg.norm (gci) if gci.size else 0.0
-    norm_gx = linalg.norm (gx) if gx.size else 0.0
+    #gorb, gci, gx = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
+    #lib.logger.info (las, 'get_gx test: {}'.format (linalg.norm (gx - gx_test)))
+    #norm_gorb = linalg.norm (gorb) if gorb.size else 0.0
+    #norm_gci = linalg.norm (gci) if gci.size else 0.0
+    #norm_gx = linalg.norm (gx) if gx.size else 0.0
     lib.logger.info (las, 'LASCI %s after %d cycles', ('not converged', 'converged')[converged], it+1)
     lib.logger.info (las, 'LASCI E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', e_tot, norm_gorb, norm_gci, norm_gx)
     t1 = log.timer ('LASCI wrap-up', *t1)
@@ -897,7 +901,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
-    def __init__(self, las, ugg, mo_coeff=None, ci=None, ncore=None, ncas_sub=None, nelecas_sub=None, eri_cas=None, veff=None):
+    def __init__(self, las, ugg, mo_coeff=None, ci=None, ncore=None, ncas_sub=None, nelecas_sub=None, h2eff_sub=None, veff=None):
         if mo_coeff is None: mo_coeff = las.mo_coeff
         if ci is None: ci = las.ci
         if ncore is None: ncore = las.ncore
@@ -930,22 +934,16 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.dm1s[1,ncore:nocc,ncore:nocc] = casdm1b
         self.dm1s[:,nocc:,nocc:] = 0
 
-        # ERI in active superspace
-        if eri_cas is None: eri_cas = las.get_h2eff (mo_coeff)
-        self.h2eff_sub = eri_cas
-        if eri_cas.size != self.ncas**4:
-            eri_cas = eri_cas.reshape (nmo, ncas, ncas*(ncas+1)//2)[ncore:nocc,...]
-            ix_i, ix_j = np.tril_indices (ncas)
-            eri_cas = eri_cas.reshape (ncas**2, ncas*(ncas+1)//2)[(ix_i*ncas)+ix_j,:] 
-        self.eri_cas = ao2mo.restore (1, eri_cas, ncas)
-
-        # Fixed (unchanging within macrocycle) veff-related things 
+        # ERI in active superspace and fixed (within macrocycle) veff-related things
         # h1e_ab is for gradient response
         # h1e_ab_sub is for ci response
+        if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
         moH_coeff = mo_coeff.conjugate ().T
         if veff is None: 
             veff = las.get_veff (dm1s = np.dot (mo_coeff, np.dot (self.dm1s.sum (0), moH_coeff)))
-            veff = las.split_veff (veff, self.h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=self.casdm1s_sub)
+            veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=self.casdm1s_sub)
+        h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)
+        self.eri_cas = h2eff_sub[ncore:nocc,:,:,:]
         h1e_ab = las.get_hcore ()[None,:,:] + veff
         h1e_ab = np.dot (h1e_ab, mo_coeff)
         self.h1e_ab = np.dot (moH_coeff, h1e_ab).transpose (1,0,2)
@@ -961,7 +959,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # Fock1 matrix (for gradient and subtrahend terms in Hx)
         self.fock1 = sum ([f @ d for f,d in zip (list (self.h1e_ab), list (self.dm1s))])
-        self.fock1[ncore:nocc,ncore:nocc] += np.tensordot (self.eri_cas, self.casdm2c, axes=((1,2,3),(1,2,3)))
+        self.fock1[:,ncore:nocc] += np.tensordot (h2eff_sub, self.casdm2c, axes=((1,2,3),(1,2,3)))
 
         # Total energy (for callback)
         h1 = (self.h1e_ab + (moH_coeff @ las.get_hcore () @ mo_coeff)[None,:,:]) / 2
@@ -1226,4 +1224,15 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         gorb = self.fock1 - self.fock1.T
         gci = [2*hci0 for hci0 in self.hci0]
         return self.ugg.pack (gorb, gci)
+
+    def get_gx (self):
+        gorb = self.fock1 - self.fock1.T
+        idx = np.zeros (gorb.shape, dtype=np.bool_)
+        ncore, nocc = self.ncore, self.nocc
+        idx[ncore:nocc,:ncore] = True
+        idx[nocc:,ncore:nocc] = True
+        if isinstance (self.ugg, LASCISymm_UnitaryGroupGenerators):
+            idx[self.ugg.symm_forbid] = False
+        gx = gorb[idx]
+        return gx
 
