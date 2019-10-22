@@ -289,11 +289,9 @@ class HessianCalculator (object):
 
     def get_impurity_conjugate_gradient (self, i, c, a):
         g, x_ga, a = self.get_diagonal_step (i, a)
-        Hop, Hop_test = self.get_operator (g, a)
+        Hop = self.get_operator (g, a)
         iH = i.conjugate ().T
         e2 = Hop (c, i, x_ga)
-        e2_test = Hop_test (c, i, x_ga)
-        print ("Error in Hop: {}".format (linalg.norm (e2_test - e2)))
         return c @ (self._get_Fock1 (c, i) - self._get_Fock1 (i, c).T + e2) @ iH
 
     def get_conjugate_gradient (self, pq_pairs, r, s):
@@ -447,7 +445,10 @@ class CASSCFHessianTester (object):
 class LASSCFHessianCalculator (HessianCalculator):
 
     def get_operator (self, r, s):
-        return LASSCFHessianOperator (self, r, s), DFLASSCFHessianOperator (self, r, s)
+        if getattr (self.ints, 'with_df', None):
+            return DFLASSCFHessianOperator (self, r, s)
+        else:
+            return LASSCFHessianOperator (self, r, s)
 
     def __init__(self, ints, oneRDM_loc, all_frags, fock_c, fock_s):
         self.ints = ints

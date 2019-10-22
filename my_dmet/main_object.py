@@ -57,7 +57,7 @@ class dmet:
                     minFunc='FOCK_INIT', print_u=True,
                     print_rdm=True, debug_energy=False, debug_reloc=False, oldLASSCF=False,
                     nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
-                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0 ):
+                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0, do_conv_molden=False ):
 
 
         if isTranslationInvariant:
@@ -103,6 +103,7 @@ class dmet:
         self.enforce_symmetry         = enforce_symmetry
         self.lasci_log                = None
         self.oldLASSCF                = oldLASSCF
+        self.do_conv_molden           = do_conv_molden
 
         for frag in self.fragments:
             frag.debug_energy             = debug_energy
@@ -544,16 +545,17 @@ class dmet:
         if self.debug_energy:
             debug_Etot (self)
 
-        for frag in self.fragments:
-            if not (frag.imp_solver_name == 'dummy RHF'):
-                if self.doLASSCF: frag.do_Schmidt (self.ints.oneRDM_loc, self.fragments, self.ints.loc2idem, True)
-                fmt_str = "Writing {}".format (frag.frag_name) + " {} orbital molden"
-                print (fmt_str.format ('natural'))
-                frag.impurity_molden ('natorb', natorb=True)
-                print (fmt_str.format ('impurity'))
-                frag.impurity_molden ('imporb')
-                print (fmt_str.format ('molecular'))
-                frag.impurity_molden ('molorb', molorb=True)
+        if self.do_conv_molden:
+            for frag in self.fragments:
+                if not (frag.imp_solver_name == 'dummy RHF'):
+                    if self.doLASSCF: frag.do_Schmidt (self.ints.oneRDM_loc, self.fragments, self.ints.loc2idem, True)
+                    fmt_str = "Writing {}".format (frag.frag_name) + " {} orbital molden"
+                    print (fmt_str.format ('natural'))
+                    frag.impurity_molden ('natorb', natorb=True)
+                    print (fmt_str.format ('impurity'))
+                    frag.impurity_molden ('imporb')
+                    print (fmt_str.format ('molecular'))
+                    frag.impurity_molden ('molorb', molorb=True)
         rdm = self.transform_ed_1rdm (get_od=True)
         no_occs, no_evecs = matrix_eigen_control_options (rdm, sort_vecs=-1, only_nonzero_vals=False)
         ao2no, no_ene, no_occ = self.get_las_nos (aobasis=True, oneRDM_loc=rdm, jmol_shift=True, try_symmetrize=True)
