@@ -70,47 +70,60 @@ class sparsedf_array (np.ndarray):
         self.entpair = np.where (metric)[0]
 
     def contract1 (self, cmat):
+        ''' Contract 1 AO index with a dense matrix using sparse arithmetic on dense memory storage
+
+        Args:
+            cmat : np.ndarray of shape (nao, nmo)
+
+        Returns:
+            vPuv : np.ndarray of shape (nao, nmo, naux) stored in row-major order
+        '''
         if self.ndim == 3: return self.pack_mo ()
         if not self.flags['C_CONTIGUOUS']: self = self.naux_slow ()
         nao = self.nmo[0]
         nmo = cmat.shape[1]
         if self.nent_max is None: self.get_sparsity_ ()
-        prod = np.zeros ((nao, nmo, self.naux), dtype=self.dtype).view (sparsedf_array)
-        wrk1 = np.zeros ((lib.num_threads (), self.nent_max, self.naux), dtype = self.dtype).view (sparsedf_array)
-        wrk2 = np.zeros ((lib.num_threads (), self.nent_max, nmo), dtype = self.dtype).view (sparsedf_array)
+        vPuv = np.zeros ((nao, nmo, self.naux), dtype=self.dtype).view (sparsedf_array)
+        wrk = np.zeros ((lib.num_threads (), self.nent_max, (self.naux+nmo)), dtype = self.dtype).view (sparsedf_array)
         libsint.SINT_SDCDERI_DDMAT (self.ctypes.data_as (ctypes.c_void_p),
             cmat.ctypes.data_as (ctypes.c_void_p),
-            prod.ctypes.data_as (ctypes.c_void_p),
-            wrk1.ctypes.data_as (ctypes.c_void_p),
-            wrk2.ctypes.data_as (ctypes.c_void_p), 
+            vPuv.ctypes.data_as (ctypes.c_void_p),
+            wrk.ctypes.data_as (ctypes.c_void_p),
             self.iao_sort.ctypes.data_as (ctypes.c_void_p),
             self.iao_nent.ctypes.data_as (ctypes.c_void_p),
             self.iao_entlist.ctypes.data_as (ctypes.c_void_p),
             ctypes.c_int (nao), ctypes.c_int (self.naux),
             ctypes.c_int (nmo), ctypes.c_int (self.nent_max))
-        wrk1 = wrk2 = None
-        return prod
+        wrk = None
+        return vPuv
 
-    def contract2 (self, wrk1):
-        ''' Make vk matrix using cderi sparsity on both terms but no mo sparsity '''
+    def contract2 (self, vPuv):
+        ''' Contract the auxbasis and one AO basis indices with multiplicand vPuv, as when computing the exchange matrix of Hartree--Fock.
+        
+        Args:
+            vPuv : np.ndarray of shape (nao, nao, naux) stored in row-major order. The FIRST index is contracted
+                with self ; the output of contract1 must be TRANSPOSED ON THE FIRST 2 INDICES in order to generate
+                the vk matrix
+
+        Returns:
+            vk : np.ndarray of shape (nao, nao)
+        '''
         if self.ndim == 3: return self.pack_mo ()
         if not self.flags['F_CONTIGUOUS']: self = self.naux_fast ()
         if self.nent_max is None: self.get_sparsity_ ()
         nao = self.nmo[0]
         vk = np.zeros ((nao, nao), dtype=self.dtype)
-        wrk2 = np.zeros ((lib.num_threads (), self.nent_max, self.naux), dtype=self.dtype)
-        wrk3 = np.zeros ((lib.num_threads (), self.nent_max, self.naux, nao), dtype=self.dtype)
+        wrk = np.zeros ((lib.num_threads (), self.nent_max, self.naux), dtype=self.dtype)
         libsint.SINT_SDCDERI_VK (self.ctypes.data_as (ctypes.c_void_p),
-            wrk1.ctypes.data_as (ctypes.c_void_p),
+            vPuv.ctypes.data_as (ctypes.c_void_p),
             vk.ctypes.data_as (ctypes.c_void_p),
-            wrk2.ctypes.data_as (ctypes.c_void_p),
-            wrk3.ctypes.data_as (ctypes.c_void_p),
+            wrk.ctypes.data_as (ctypes.c_void_p),
             self.iao_sort.ctypes.data_as (ctypes.c_void_p),
             self.iao_nent.ctypes.data_as (ctypes.c_void_p),
             self.iao_entlist.ctypes.data_as (ctypes.c_void_p),
             ctypes.c_int (nao), ctypes.c_int (self.naux),
             ctypes.c_int (self.nent_max))
-        wrk2 = wrk3 = None
+        wrk = None
         vk = lib.hermi_sum (vk, inplace=True)
         vk[np.diag_indices (nao)] /= 2
         return vk

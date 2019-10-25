@@ -284,7 +284,7 @@ void SDFKmatR (double * sparse_cderi, double * dense_dm, double * dense_vk, doub
 
 }
 
-void SINT_SDCDERI_DDMAT (double * dense_cderi, double * dense_A, double * dense_prod, double * cderi_wrk, double * A_wrk, 
+void SINT_SDCDERI_DDMAT (double * dense_cderi, double * dense_A, double * dense_prod, double * wrk,  
     int * iao_sort, int * iao_nent, int * iao_entlist, int nao, int naux, int nmo, int nent_max)
 {
     /*
@@ -298,8 +298,7 @@ void SINT_SDCDERI_DDMAT (double * dense_cderi, double * dense_A, double * dense_
         iao_entlist : array of shape (nao, nent_max); lists the other orbital in nonvanishing pairs involving each orbital
 
     Input/output:
-        cderi_wrk : array of shape (nthreads, nent_max, naux); contains 0s on input and garbage on output
-        A_wrk : array of shape (nthreads, nent_max, nmo); contains 0s on input and garbage on output
+        wrk : array of length nthreads * nent_max * (naux + nmo); contains 0s on input and garbage on output
         
     Output:
         dense_prod : array of shape (nao, nmo, naux); contains result of multiplication (with auxbasis index placed last) 
@@ -329,8 +328,8 @@ void SINT_SDCDERI_DDMAT (double * dense_cderi, double * dense_A, double * dense_
     double * my_cderi_wrk;
     double * my_A_wrk;
     int * my_entlist;
-    my_cderi_wrk = cderi_wrk + (ithread * nent_max * naux);
-    my_A_wrk = A_wrk + (ithread * nent_max * nmo);
+    my_cderi_wrk = wrk + (ithread * nent_max * (naux + nmo));
+    my_A_wrk = my_cderi_wrk + (nent_max * naux);
 
 #pragma omp for schedule(static) 
 
@@ -360,12 +359,11 @@ void SINT_SDCDERI_DDMAT (double * dense_cderi, double * dense_A, double * dense_
 }
 }
 
-void SINT_SDCDERI_VK (double * dense_cderi, double * dense_int, double * dense_vk, double * cderi_wrk, double * int_wrk, 
+void SINT_SDCDERI_VK (double * dense_cderi, double * dense_int, double * dense_vk, double * wrk,  
     int * iao_sort, int * iao_nent, int * iao_entlist, int nao, int naux, int nent_max)
 {
 
-    /* SDFKmatR2 is much faster than this, I guess because of the dcopy_'s
-    Compute the exchange matrix: k(m,n) = sum(p,r,s) CDERI(p,m,r) [CDERI(p,n,s) DM(r,s)]
+    /* Compute the exchange matrix: k(m,n) = sum(p,r,s) CDERI(p,m,r) [CDERI(p,n,s) DM(r,s)]
 
     Input:
         dense_cderi : array of shape (nao*(nao+1)/2, naux); contains CDERIs (dense, lower-triangular storage with auxiliary basis index fast)
@@ -375,9 +373,7 @@ void SINT_SDCDERI_VK (double * dense_cderi, double * dense_int, double * dense_v
         iao_entlist : array of shape (nao, nent_max); lists the other orbital in nonvanishing pairs involving each orbital
 
     Input/output:
-        cderi_wrk : array of shape (nthreads, nent_max, naux); contains 0s on input and garbage on output
-        int_wrk : array of shape (nthreads, nent_max, naux, nao); contains 0s on input and garbage on output
-            This may be a serious memory-consumption problem!
+        wrk : array of length (nthreads * nent_max * naux); contains 0s on input and garbage on output
         
     Output:
         dense_vk : array of shape (nao, nao); contains exchange matrix 
@@ -402,11 +398,9 @@ void SINT_SDCDERI_VK (double * dense_cderi, double * dense_int, double * dense_v
     double * my_int; 
     double * my_vk;
     double * my_cderi_wrk;
-    double * my_int_wrk;
     int * my_entlist;
     int nent_naux;
-    my_cderi_wrk = cderi_wrk + (ithread * nent_max * naux);
-    my_int_wrk = int_wrk + (ithread * nent_max * naux * nao);
+    my_cderi_wrk = wrk + (ithread * nent_max * naux);
 
 #pragma omp for schedule(static) 
 
