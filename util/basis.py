@@ -407,11 +407,9 @@ def get_projector_from_states (the_states):
     return l2p @ p2l
 
 def get_rotation_matrix (c2p, c2q, ovlp=1, ranges_p=None, ranges_q=None, symmetry=None):
-    ''' Calculate kappa s.t. expm(kappa) = p2c @ ovlp @ c2q
-    Use ranges and symmetry to eliminate redundant/definitely-zero
-    degrees of freedom and reduce the chances of
-    getting a complex-number matrix. By using full_matrices=False with the svd I can apply
-    this to the case of one space being smaller than the other. '''
+    ''' Solve expm(kappa) = p2c @ ovlp @ c2q for kappa, using ranges and symmetry
+    to eliminate as many degrees of freedom as possible and minimize the chances of getting
+    complex numbers. Ranges also let you use c2p and c2q of different sizes. '''
     nao, nmo = c2p.shape
     nmo = min (nmo, c2q.shape[-1])
     cOc = np.atleast_2d (ovlp)

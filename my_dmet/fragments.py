@@ -169,6 +169,7 @@ class fragment_object:
         self.oneSDM_loc = self.ints.oneSDM_loc
         self.twoCDM_imp = None
         self.loc2mo     = np.zeros((self.norbs_tot,0))
+        self.loc2mo_old = np.zeros((self.norbs_tot,0))
         self.loc2fno    = np.zeros((self.norbs_tot,0))
         self.fno_evals  = None
         self.E2_cum     = 0
@@ -599,12 +600,14 @@ class fragment_object:
         norbs_hessbath = max (0, min (2 * (self.norbs_frag+self.norbs_as), self.norbs_tot) - self.norbs_imp)
         print ("Fragment {} basis set instability virtual orbital loss: 2 * ({} + {}) - {} = {} missing bath orbitals".format (self.frag_name,
             self.norbs_frag, self.norbs_as, self.norbs_imp, norbs_hessbath))
+        loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
+        # Always do this call so I can cache loc2canon_imp
         if norbs_hessbath and self.add_virtual_bath and self.imp_solver_name != 'dummy RHF' and self.norbs_as:
             loc2canon_core, _, _, norbs_inac_core, norbs_as_core = self.get_loc2canon_core (all_frags, oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
             norbs_occ_core = norbs_inac_core + norbs_as_core
             norbs_virt_core = self.norbs_core - norbs_occ_core
             norbs_unac_core = norbs_inac_core + norbs_virt_core
-            loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
+            #loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
             norbs_occ_imp = norbs_inac_imp + self.norbs_as
             norbs_ninac_imp = self.norbs_imp - norbs_inac_imp
             print (("Searching for {} extra bath orbitals among a set of {}/{} virtuals/inactives "
@@ -718,6 +721,7 @@ class fragment_object:
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
         self.E2froz_tbc     = [frag.E2_cum for frag in active_frags]
         self.oneSDMfroz_loc = sum ([frag.oneSDMas_loc for frag in all_frags if frag is not self])
+        self.loc2mo_old     = loc2canon_imp
 
         self.impham_built = False
         sys.stdout.flush ()
@@ -1506,7 +1510,34 @@ class fragment_object:
 
         molden.from_mo (mol, filename, ao2molden, ene=ene, occ=occ)
 
-
+    def get_kappa_loc (self, average=False):
+        ''' Get the orbital rotation ('kappa') matrix between the orbitals stored in loc2mo and those stored in loc2mo_old.
+        Call me after solving the impurity problem but before performing the next iteration's Schmidt decomposition. 
+        average = True causes me to do a linear projection:
+        pfrag @ kappa + kappa @ pfrag -> kappa
+        with
+        sum_space (pspace @ pfrag @ pspace) -> pfrag
+        where pfrag initially projects onto fragment orbitals and pspace projects into occupied, active, or external orbitals
+        (this prevents the projected kappa from incorrectly developing redundant degrees of freedom).
+        This is used to average the kappas from various fragments together!
+        (If I ever get around to eliminating the pestilential virtual fragment orbitals and replacing them entirely
+        with gradient/Hessian-selected virtuals, I should probably then refrain from averaging through the virtual
+        sector, which means not including it in pspace.)'''
+        ncore = (self.nelec_imp - self.nelec_as) // 2
+        nocc = ncore + self.norbs_amo
+        ranges = [0, ncore, nocc, self.norbs_imp]
+        symmetry = self.loc2symm if (self.enforce_symmetry and not (self.imp_solver_name == 'dummy RHF')) else None
+        mold2loc = self.loc2mo_old.conjugate ().T
+        kappa_mo_old = get_rotation_matrix (self.loc2mo_old, self.loc2mo, ranges_p=ranges, ranges_q=ranges,
+            symmetry=symmetry)
+        if average:
+            frag2mold = self.frag2loc @ self.loc2mo_old
+            mold2frag = frag2mold.conjugate ().T
+            pfrag = mold2frag @ frag2mold
+            pfrag[:ncore,ncore:] = pfrag[ncore:nocc,nocc:] = 0.0
+            kappa_imp = pfrag @ kappa_imp + kappa_imp @ pfrag
+        kappa_loc = self.loc2mo_old @ kappa_mo_old @ mold2loc
+        return kappa_loc
     ###############################################################################################################################
 
 
