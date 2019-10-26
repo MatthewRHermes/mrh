@@ -406,6 +406,50 @@ def get_projector_from_states (the_states):
     p2l = l2p.conjugate ().T
     return l2p @ p2l
 
+def get_rotation_matrix (c2p, c2q, ovlp=1, ranges_p=None, ranges_q=None, symmetry=None):
+    ''' Calculate kappa s.t. expm(kappa) = p2c @ ovlp @ c2q
+    Use ranges and symmetry to eliminate redundant/definitely-zero
+    degrees of freedom and reduce the chances of
+    getting a complex-number matrix. By using full_matrices=False with the svd I can apply
+    this to the case of one space being smaller than the other. '''
+    nao, nmo = c2p.shape
+    nmo = min (nmo, c2q.shape[-1])
+    cOc = np.atleast_2d (ovlp)
+    c2r = np.zeros ((nao, nmo), dtype=c2p.dtype)
+    c2s = np.zeros ((nao, nmo), dtype=c2p.dtype)
+    p2c = c2p.conjugate ().T
+    q2c = c2q.conjugate ().T
+    rlab = []
+    slab = []
+    if ranges_p is None: ranges_p = [0,nmo]
+    if ranges_q is None: ranges_q = [0,nmo]
+    assert (len (ranges_p) == len (ranges_q)), 'I need the same number of ranges in p and q'
+    for ix in range (len (ranges)-1):
+        i, j = ranges_p[ix:ix+1]
+        k, l = ranges_q[ix:ix+1]
+        rets = matrix_svd_control_options (ovlp, lspace=c2p[:,i:j], rspace=c2q[:,k:l], 
+            symmetry=symmetry, full_matrices=False, only_nonzero_vals=False)[:3]
+        c2r[:,i:j], sigma, c2s[:,k:l] = rets[:3]
+        if len (rets) > 3:
+            rlab.append (rets[3])
+            slab.append (rets[4])
+    if len (rlab) > 0:
+        rlab = np.concatenate (rlab)
+        slab = np.concatenate (slab)
+    else:
+        rlab = slab = np.zeros (nmo)
+    r2c = c2r.conjugate ().T
+    s2c = c2s.conjugate ().T
+    p2r = p2c @ cOc @ c2r
+    s2q = s2c @ cOc @ c2q
+    rOs = r2c @ cOc @ c2s
+    rKs = np.zeros_like (c2r)
+    for ir in np.unique (rlab):
+        idx_r = rlab == ir
+        idx_s = slab == ir
+        idx = np.ix_(idx_r,idx_s)
+        rKs[idx] = linalg.logm (rOs[idx])
+    return p2r @ rKs @ s2q
 
 
 
