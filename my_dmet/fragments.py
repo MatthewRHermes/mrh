@@ -600,14 +600,12 @@ class fragment_object:
         norbs_hessbath = max (0, min (2 * (self.norbs_frag+self.norbs_as), self.norbs_tot) - self.norbs_imp)
         print ("Fragment {} basis set instability virtual orbital loss: 2 * ({} + {}) - {} = {} missing bath orbitals".format (self.frag_name,
             self.norbs_frag, self.norbs_as, self.norbs_imp, norbs_hessbath))
-        loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
-        # Always do this call so I can cache loc2canon_imp
         if norbs_hessbath and self.add_virtual_bath and self.imp_solver_name != 'dummy RHF' and self.norbs_as:
             loc2canon_core, _, _, norbs_inac_core, norbs_as_core = self.get_loc2canon_core (all_frags, oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
             norbs_occ_core = norbs_inac_core + norbs_as_core
             norbs_virt_core = self.norbs_core - norbs_occ_core
             norbs_unac_core = norbs_inac_core + norbs_virt_core
-            #loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
+            loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
             norbs_occ_imp = norbs_inac_imp + self.norbs_as
             norbs_ninac_imp = self.norbs_imp - norbs_inac_imp
             print (("Searching for {} extra bath orbitals among a set of {}/{} virtuals/inactives "
@@ -721,7 +719,27 @@ class fragment_object:
         self.loc2tbc        = [np.copy (frag.loc2amo) for frag in active_frags]
         self.E2froz_tbc     = [frag.E2_cum for frag in active_frags]
         self.oneSDMfroz_loc = sum ([frag.oneSDMas_loc for frag in all_frags if frag is not self])
-        self.loc2mo_old     = loc2canon_imp
+
+        # Cache initial canonical orbitals
+        self.loc2mo_old, _, _, ncore = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
+        nocc = ncore + self.norbs_as
+        loc2inac = self.loc2mo_old[:,:ncore]
+        loc2amo = self.loc2mo_old[:,ncore:nocc]
+        loc2virt = self.loc2mo_old[:,nocc:]
+        pops_imp = self.get_imp_atom_pops (loc2imp=self.loc2mo_old)
+        pops_frag = self.get_imp_atom_pops (loc2imp=self.loc2frag)
+        pops_inac = self.get_imp_atom_pops (loc2imp=loc2inac)
+        pops_amo = self.get_imp_atom_pops (loc2imp=loc2amo)
+        pops_virt = self.get_imp_atom_pops (loc2imp=loc2virt)
+        print ("Impurity basis population analysis")
+        print ("Atom Elem Impurity Fragment Inactive   Active External")
+        fmt_str = '{:4d} {:>4s} ' + ' '.join (['{:8.2f}' for col in range (5)])
+        for ix, (pop_imp, pop_frag, pop_inac, pop_amo, pop_virt) in enumerate (zip (
+          pops_imp, pops_frag, pops_inac, pops_amo, pops_virt)):
+            el = self.ints.mol.atom_symbol (ix)
+            print (fmt_str.format (ix, el, pop_imp, pop_frag, pop_inac, pop_amo, pop_virt))
+
+        print ("The atom populations of the impurity basis for {} is:\n{}".format (self.frag_name, self.get_imp_atom_pops ()))
 
         self.impham_built = False
         sys.stdout.flush ()
@@ -1510,19 +1528,18 @@ class fragment_object:
 
         molden.from_mo (mol, filename, ao2molden, ene=ene, occ=occ)
 
-    def get_kappa_loc (self, average=False):
+    def get_kappa_loc (self, average=False, activerot=False):
         ''' Get the orbital rotation ('kappa') matrix between the orbitals stored in loc2mo and those stored in loc2mo_old.
         Call me after solving the impurity problem but before performing the next iteration's Schmidt decomposition. 
-        average = True causes me to do a linear projection:
-        pfrag @ kappa + kappa @ pfrag -> kappa
-        with
-        sum_space (pspace @ pfrag @ pspace) -> pfrag
-        where pfrag initially projects onto fragment orbitals and pspace projects into occupied, active, or external orbitals
-        (this prevents the projected kappa from incorrectly developing redundant degrees of freedom).
+        average = True causes me to do a linear projection on the inactive-external part
+        0.5 * (pfrag @ kappa_ia + kappa_ia @ pfrag) + (kappa_iu + kappa_ua) - <transpose> -> kappa
+        where pfrag weights the inactive or external orbitals (in loc2mo_old) by their populations on loc2frag.
         This is used to average the kappas from various fragments together!
         (If I ever get around to eliminating the pestilential virtual fragment orbitals and replacing them entirely
-        with gradient/Hessian-selected virtuals, I should probably then refrain from averaging through the virtual
-        sector, which means not including it in pspace.)'''
+        with gradient/Hessian-selected virtuals, I should probably then refrain from averaging through the virtual sector.)
+        activerot = True causes me also to return, separately, the component corresponding to the active-orbital
+        relaxation, unaltered but in the loc basis. This is to facilitate generating rotated fragment-orbital bases
+        enclosing the relaxed active orbitals!'''
         ncore = (self.nelec_imp - self.nelec_as) // 2
         nocc = ncore + self.norbs_amo
         ranges = [0, ncore, nocc, self.norbs_imp]
@@ -1532,12 +1549,35 @@ class fragment_object:
             symmetry=symmetry)
         if average:
             frag2mold = self.frag2loc @ self.loc2mo_old
-            mold2frag = frag2mold.conjugate ().T
-            pfrag = mold2frag @ frag2mold
-            pfrag[:ncore,ncore:] = pfrag[ncore:nocc,nocc:] = 0.0
-            kappa_imp = pfrag @ kappa_imp + kappa_imp @ pfrag
+            mold_weights = np.power (frag2mold, 2).sum (0)
+            wi = mold_weights[:ncore]
+            wa = mold_weights[nocc:]
+            kappa_mo_old[:ncore,nocc:] = 0.5 * (wi[:,None] * kappa_mo_old[:ncore,nocc:]
+                                              + kappa_mo_old[:ncore,nocc:] * wa[None,:])
+            kappa_mo_old[nocc:,:ncore] = -kappa_mo_old[:ncore,nocc:].T
         kappa_loc = self.loc2mo_old @ kappa_mo_old @ mold2loc
-        return kappa_loc
+        if not activerot: return kappa_loc
+        kappa_mo_old[:ncore,nocc:] = kappa_mo_old[nocc:,:ncore] = 0.0
+        kappa_act_loc = self.loc2mo_old @ kappa_mo_old @ mold2loc
+        return kappa_loc, kappa_act_loc
+
+    def get_imp_atom_pops (self, loc2imp=None, fractional=True):
+        ''' Get the list of atomic populations of the impurity basis. '''
+        if loc2imp is None: loc2imp = self.loc2imp
+        ao_offset = self.ints.mol.offset_ao_by_atom ()
+        pops = np.zeros (self.ints.mol.natm, dtype=self.ints.ao2loc.dtype)
+        for iatm in range (self.ints.mol.natm):
+            i = ao_offset[iatm,2]
+            j = ao_offset[iatm,3]
+            ovlp = self.ints.ao_ovlp[i:j,i:j]
+            ao2imp = (self.ints.ao2loc @ loc2imp)[i:j]
+            imp2ao = ao2imp.conjugate ().T
+            pops[iatm] = (ovlp * (ao2imp @ imp2ao)).sum ()
+        if fractional:
+            npops = linalg.norm (pops)
+            if npops > 0: pops /= npops
+        return pops
+
     ###############################################################################################################################
 
 
