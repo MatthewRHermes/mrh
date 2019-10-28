@@ -191,8 +191,12 @@ lib.logger.info (mf, "error_J = {}; avg_J = {}".format (err_j, avg_j))
 lib.logger.info (mf, "error_K = {}; avg_K = {}".format (err_k, avg_k))
 
 fock = mf.get_hcore () + vj - vk/2
-mo_occ, mo_coeff = linalg.eigh (fock, b=mf.get_ovlp ())
-dm_new = (mo_coeff * mo_occ[None,:]) @ mo_coeff.T
+mo_ene, mo_coeff = linalg.eigh (fock, b=mf.get_ovlp ())
+ncore = mol.nelectron // 2
+idx = np.argsort (mo_ene)
+mo_ene = mo_ene[idx]
+mo_coeff = mo_coeff[:,idx]
+dm_new = 2 * mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].T
 ddm = dm_new - dm
 vj_ref, vk_ref = mf.with_df.get_jk (dm=ddm)
 vj, vk = sparse_jk (mf, mol, mf.with_df._cderi, atom_clusters, ddm, mf.with_df.auxmol, j3c, j2c)
