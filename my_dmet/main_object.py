@@ -47,6 +47,7 @@ from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize
 from mrh.util.basis import assign_blocks, align_states, measure_subspace_blockbreaking
 from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM, get_1RDM_from_OEI
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
+from mrh.my_dmet.orbital_hessian import LASSCFHessianCalculator
 from functools import reduce
 from itertools import combinations, product
 
@@ -701,6 +702,7 @@ class dmet:
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         loc2wmcs_new = get_complementary_states (loc2wmas_new, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
         if self.doLASSCF:
+            self.average_kappa (loc2wmcs_old, loc2wmas_old, loc2wmas_new)
             print ("Entering refragmentation")
             oneRDM_loc = sum ([f.oneRDMas_loc for f in self.fragments if f.norbs_as])
             oneRDM_loc += 2 * get_1RDM_from_OEI (self.ints.activeFOCK, self.ints.nelec_idem//2, subspace=loc2wmcs_new)
@@ -1480,4 +1482,27 @@ class dmet:
             j = i + las.ncas_sub[ix]
             f.eri_gradient = eri_gradient[:,i:j,i:j,i:j]
         return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff)
+
+    def average_kappa (self, loc2wmcs_old, loc2wmas_old, loc2wmas_new):
+        # Use self.ints.oneRDM_loc, not self.ints.activeFOCK, so as not to accidentally do a Hartree--Fock cycle
+        if not loc2wmas_old.shape[-1]: return
+        mo_occ, loc2mo = matrix_eigen_control_options (self.ints.oneRDM_loc, subspace=loc2wmcs_old, symmetry=self.ints.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)[:2]
+        ncore = (self.ints.nelec_tot - sum ([f.nelec_as for f in self.fragments])) // 2
+        nocc = ncore + loc2wmas_old.shape[-1]
+        # Now make them canonical.  Maybe I don't need to do this?
+        mo_ene, loc2mo[:,:ncore] = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2mo[:,:ncore], symmetry=self.ints.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)[:2]
+        mo_ene, loc2mo[:,ncore:] = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2mo[:,ncore:], symmetry=self.ints.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)[:2]
+        loc2mo = np.concatenate ([loc2mo[:,:ncore], loc2wmas_old, loc2mo[:,ncore:]], axis=1)
+        loc2frags = np.concatenate ([f.loc2frag for f in self.fragments], axis=1)
+        kappa_full = np.zeros_like (loc2mo)
+        for f in self.fragments:
+            kf, kc = f.get_kappa_loc (pfrag=True)
+            kappa_full += kf + kc
+        kappa_full = represent_operator_in_basis (kappa_full, loc2mo)
+        umat_full = linalg.expm (kappa_full - kappa_full.T)
+        loc2mo_new = loc2mo @ umat_full
+        #print ("DEBUG: the new and umat active orbitals need to span nearly the same space (exactly at convergence): {}".format (measure_basis_olap (loc2wmas_new, loc2mo_new[:,ncore:nocc])))
 

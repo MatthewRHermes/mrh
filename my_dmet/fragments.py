@@ -1528,44 +1528,33 @@ class fragment_object:
 
         molden.from_mo (mol, filename, ao2molden, ene=ene, occ=occ)
 
-    def get_kappa_loc (self, average=False, activerot=False):
+    def get_kappa_loc (self, pfrag=False):
         ''' Get the orbital rotation ('kappa') matrix between the orbitals stored in loc2mo and those stored in loc2mo_old.
         Call me after solving the impurity problem but before performing the next iteration's Schmidt decomposition. 
-        average = True causes me to do a linear projection on the inactive-external part
-        0.5 * (pfrag @ kappa_ia + kappa_ia @ pfrag) + (kappa_iu + kappa_ua) - <transpose> -> kappa
-        where pfrag weights the inactive or external orbitals (in loc2mo_old) by their populations on loc2frag.
-        This is used to average the kappas from various fragments together!
-        (If I ever get around to eliminating the pestilential virtual fragment orbitals and replacing them entirely
-        with gradient/Hessian-selected virtuals, I should probably then refrain from averaging through the virtual sector.)
-        activerot = True causes me also to return, separately, the component corresponding to the active-orbital
-        relaxation, unaltered but in the loc basis. This is to facilitate generating rotated fragment-orbital bases
-        enclosing the relaxed active orbitals!'''
+        First return is K^a_i (lower-triangular part); second return is K^i_u & K^a_u, where i, u, a -> inactive, active, external.
+        Returned in the loc basis.
+        pfrag=True makes me return K^a_i |fragorb><fragorb| and K^p_u '''
         ncore = (self.nelec_imp - self.nelec_as) // 2
-        nocc = ncore + self.norbs_amo
+        nocc = ncore + self.norbs_as
         ranges = [0, ncore, nocc, self.norbs_imp]
         symmetry = self.loc2symm if (self.enforce_symmetry and not (self.imp_solver_name == 'dummy RHF')) else None
         mold2loc = self.loc2mo_old.conjugate ().T
         kappa_mo_old = get_rotation_matrix (self.loc2mo_old, self.loc2mo, ranges_p=ranges, ranges_q=ranges,
             symmetry=symmetry)
-        if average:
-            frag2mold = self.frag2loc @ self.loc2mo_old
-            mold_weights = np.power (frag2mold, 2).sum (0)
-            wi = mold_weights[:ncore]
-            wa = mold_weights[nocc:]
-            kappa_mo_old[:ncore,nocc:] = 0.5 * (wi[:,None] * kappa_mo_old[:ncore,nocc:]
-                                              + kappa_mo_old[:ncore,nocc:] * wa[None,:])
-            kappa_mo_old[nocc:,:ncore] = -kappa_mo_old[:ncore,nocc:].T
-        kappa_loc = self.loc2mo_old @ kappa_mo_old @ mold2loc
-        if not activerot: return kappa_loc
-        kappa_mo_old[:ncore,nocc:] = kappa_mo_old[nocc:,:ncore] = 0.0
-        kappa_act_loc = self.loc2mo_old @ kappa_mo_old @ mold2loc
-        return kappa_loc, kappa_act_loc
+        kappa_ai_loc = self.loc2mo_old[:,nocc:] @ kappa_mo_old[nocc:,:ncore] @ mold2loc[:ncore,:]
+        kappa_pu_loc = self.loc2mo_old @ kappa_mo_old[:,ncore:nocc] @ mold2loc[ncore:nocc,:]
+        kappa_pu_loc[ncore:nocc,:] = 0.0 # Redundant part; may be nonzero b/c of imperfect matrix logarithm
+        if pfrag:
+            kappa_ai_loc = kappa_ai_loc @ self.loc2frag @ self.frag2loc
+        return kappa_ai_loc, kappa_pu_loc
 
     def get_imp_atom_pops (self, loc2imp=None, fractional=True):
         ''' Get the list of atomic populations of the impurity basis. '''
         if loc2imp is None: loc2imp = self.loc2imp
         ao_offset = self.ints.mol.offset_ao_by_atom ()
         pops = np.zeros (self.ints.mol.natm, dtype=self.ints.ao2loc.dtype)
+        pops_max = np.zeros_like (pops)
+        ovlp_inv = self.ints.ao2loc @ self.ints.ao2loc.conjugate ().T
         for iatm in range (self.ints.mol.natm):
             i = ao_offset[iatm,2]
             j = ao_offset[iatm,3]
@@ -1573,9 +1562,11 @@ class fragment_object:
             ao2imp = (self.ints.ao2loc @ loc2imp)[i:j]
             imp2ao = ao2imp.conjugate ().T
             pops[iatm] = (ovlp * (ao2imp @ imp2ao)).sum ()
+            pops_max[iatm] = (ovlp * ovlp_inv[i:j,i:j]).sum ()
         if fractional:
-            npops = linalg.norm (pops)
-            if npops > 0: pops /= npops
+            pops /= pops_max
+            #npops = linalg.norm (pops)
+            #if npops > 0: pops /= npops
         return pops
 
     ###############################################################################################################################

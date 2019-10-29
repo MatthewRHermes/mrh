@@ -6,7 +6,7 @@ from scipy import linalg
 from mrh.util.io import prettyprint_ndarray
 from mrh.util.la import is_matrix_zero, is_matrix_eye, is_matrix_idempotent, matrix_eigen_control_options, matrix_svd_control_options, align_vecs
 from mrh.util import params
-from itertools import combinations
+from itertools import combinations, combinations_with_replacement
 from math import sqrt
 import copy
 
@@ -406,7 +406,7 @@ def get_projector_from_states (the_states):
     p2l = l2p.conjugate ().T
     return l2p @ p2l
 
-def get_rotation_matrix (c2p, c2q, ovlp=1, ranges_p=None, ranges_q=None, symmetry=None):
+def get_rotation_matrix (c2p, c2q, ovlp=1, ranges_p=None, ranges_q=None, symmetry=None, test=False):
     ''' Solve expm(kappa) = p2c @ ovlp @ c2q for kappa, using ranges and symmetry
     to eliminate as many degrees of freedom as possible and minimize the chances of getting
     complex numbers. Ranges also let you use c2p and c2q of different sizes. '''
@@ -419,15 +419,16 @@ def get_rotation_matrix (c2p, c2q, ovlp=1, ranges_p=None, ranges_q=None, symmetr
     q2c = c2q.conjugate ().T
     rlab = []
     slab = []
+    sigma = [np.zeros (0) for r in ranges_p]
     if ranges_p is None: ranges_p = [0,nmo]
     if ranges_q is None: ranges_q = [0,nmo]
     assert (len (ranges_p) == len (ranges_q)), 'I need the same number of ranges in p and q'
-    for ix in range (len (ranges)-1):
-        i, j = ranges_p[ix:ix+1]
-        k, l = ranges_q[ix:ix+1]
+    for ix in range (len (ranges_p)-1):
+        i, j = ranges_p[ix], ranges_p[ix+1]
+        k, l = ranges_q[ix], ranges_q[ix+1]
         rets = matrix_svd_control_options (ovlp, lspace=c2p[:,i:j], rspace=c2q[:,k:l], 
             symmetry=symmetry, full_matrices=False, only_nonzero_vals=False)[:3]
-        c2r[:,i:j], sigma, c2s[:,k:l] = rets[:3]
+        c2r[:,i:j], sigma[ix], c2s[:,k:l] = rets[:3]
         if len (rets) > 3:
             rlab.append (rets[3])
             slab.append (rets[4])
@@ -435,19 +436,39 @@ def get_rotation_matrix (c2p, c2q, ovlp=1, ranges_p=None, ranges_q=None, symmetr
         rlab = np.concatenate (rlab)
         slab = np.concatenate (slab)
     else:
-        rlab = slab = np.zeros (nmo)
+        rlab = slab = np.zeros (nmo, dtype=np.int32)
     r2c = c2r.conjugate ().T
     s2c = c2s.conjugate ().T
-    p2r = p2c @ cOc @ c2r
-    s2q = s2c @ cOc @ c2q
-    rOs = r2c @ cOc @ c2s
-    rKs = np.zeros_like (c2r)
+    try:
+        p2r = p2c @ cOc @ c2r
+        s2q = s2c @ cOc @ c2q
+        rOs = r2c @ cOc @ c2s
+    except ValueError as e:
+        if cOc.size > 1: raise (e)
+        p2r = (p2c * cOc[0,0]) @ c2r
+        s2q = (s2c * cOc[0,0]) @ c2q
+        rOs = (r2c * cOc[0,0]) @ c2s
+    r2p = p2r.conjugate ().T
+    Ks_r = np.zeros ((nmo, nmo), dtype=c2r.dtype)
+    rOs[np.abs (rOs) < 1e-8] = 0.0
     for ir in np.unique (rlab):
         idx_r = rlab == ir
         idx_s = slab == ir
         idx = np.ix_(idx_r,idx_s)
-        rKs[idx] = linalg.logm (rOs[idx])
-    return p2r @ rKs @ s2q
+        Ks_r[idx] = linalg.logm (rOs[idx])
+    Ks_p = p2r @ Ks_r @ r2p
+    if test:
+        p2q_test = linalg.expm (Ks_p)
+        c2q_test = c2p @ p2q_test
+        for ix in range (len (ranges_p)-1):
+            i, j = ranges_p[ix], ranges_p[ix+1]
+            print ("DEBUG: basis overlap of c2q and c2q_test block {}: {}".format (ix, measure_basis_olap (c2q[:,i:j], c2q_test[:,i:j])))
+        print ("DEBUG: norm of diagonal blocks should be >> norm of off-diagonal blocks")
+        for ix1, ix2 in combinations_with_replacement (range (len(ranges_p)-1), 2):
+            i, j = ranges_p[ix1], ranges_p[ix1+1]
+            k, l = ranges_p[ix2], ranges_p[ix2+1]
+            print ("DEBUG: norm of block {},{}: {}".format (ix1, ix2, linalg.norm (Ks_p[i:j,k:l]))) 
+    return Ks_p
 
 
 
