@@ -666,15 +666,25 @@ class localintegrals:
         loc2wmcs = get_complementary_states (loc2wmas, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         norbs_wmas = loc2wmas.shape[1]
         norbs_wmcs = loc2wmcs.shape[1]
-        ene_wmcs, loc2wmcs, symm_wmcs = matrix_eigen_control_options (fock, symmetry=self.loc2symm, subspace=loc2wmcs, sort_vecs=1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+
+        occ_wmcs, loc2wmcs = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm, subspace=loc2wmcs,
+            sort_vecs=-1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)[:2]
             
         assert ((self.nelec_tot - nelec_wmas) % 2 == 0), 'Non-even number of unactive electrons {}'.format (self.nelec_tot - nelec_wmas)
         norbs_core = (self.nelec_tot - nelec_wmas) // 2
         norbs_virt = norbs_wmcs - norbs_core
         loc2wmis = loc2wmcs[:,:norbs_core]
-        symm_wmis = symm_wmcs[:norbs_core]
+        #symm_wmis = symm_wmcs[:norbs_core]
         loc2wmxs = loc2wmcs[:,norbs_core:]
-        symm_wmxs = symm_wmcs[norbs_core:]
+        #symm_wmxs = symm_wmcs[norbs_core:]
+        ene_wmcs = np.zeros_like (occ_wmcs)
+
+        # Make these canonical, but only AFTER making them natural. Otherwise you're doing a messed-up SCF cycle!
+        ene_wmcs[:norbs_core], loc2wmcs[:,:norbs_core], symm_wmis = matrix_eigen_control_options (fock, symmetry=self.loc2symm,
+            subspace=loc2wmis, sort_vecs=1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+        ene_wmcs[norbs_core:], loc2wmcs[:,norbs_core:], symm_wmxs = matrix_eigen_control_options (fock, symmetry=self.loc2symm,
+            subspace=loc2wmxs, sort_vecs=1, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
+
         
         if self.mol.symmetry:
             symm_wmis = {self.mol.irrep_name[x]: np.count_nonzero (symm_wmis==x) for x in np.unique (symm_wmis)}

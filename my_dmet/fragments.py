@@ -1536,7 +1536,7 @@ class fragment_object:
         pfrag=True makes me return K^a_i |fragorb><fragorb| and K^p_u '''
         ncore = (self.nelec_imp - self.nelec_as) // 2
         nocc = ncore + self.norbs_as
-        ranges = [0, ncore, nocc, self.norbs_imp]
+        ranges = [0, ncore, nocc, self.norbs_imp] if self.norbs_as else [0, ncore, self.norbs_imp]
         symmetry = self.loc2symm if (self.enforce_symmetry and not (self.imp_solver_name == 'dummy RHF')) else None
         mold2loc = self.loc2mo_old.conjugate ().T
         kappa_mo_old = get_rotation_matrix (self.loc2mo_old, self.loc2mo, ranges_p=ranges, ranges_q=ranges,
