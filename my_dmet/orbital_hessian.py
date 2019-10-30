@@ -528,25 +528,31 @@ class HessianERITransformer (object):
         self._eri = parent._get_eri ([w,x,y,z])
         return
 
-    def __call__(self, p, q, r, s):
+    def __call__(self, p, q, r, s, _first_call=True):
         ''' Because of several necessary index permutations, I cannot know in advance which of w,x,y,z
         encloses each of p, q, r, s, but I should have prepared it so that any call I make can be carried out.
         yz is the more restrictive pair in my cache, so first see if r, s is in yz and if not, flip pq<->rs.
         wx contains all pairs that I should ever need so. ''' 
         rs_yz, rs_correct = self.pq_in_cd (self.y, self.z, r, s)
-        if not (rs_yz): return self.__call__(r, s, p, q).transpose (2, 3, 0, 1)
         pq_wx, pq_correct = self.pq_in_cd (self.w, self.x, p, q)
+        if _first_call and (not (pq_wx and rs_yz)): return self.__call__(r, s, p, q, _first_call=False).transpose (2, 3, 0, 1)
         try:
-            assert (pq_wx), 'pq or rs not found in wx (wx is supposed to span ~all~ possible orbital pairs you ever ask for)'
+            assert (pq_wx and rs_yz), "Can't place orbital sets in this eri array"
         except AssertionError as e:
             print (p.shape, q.shape, r.shape, s.shape)
             print (self.w.shape, self.x.shape, self.y.shape, self.z.shape)
-            print (linalg.svd(self.w.conjugate ().T @ p)[1])
-            print (linalg.svd(self.x.conjugate ().T @ q)[1])
-            print (linalg.svd(self.x.conjugate ().T @ p)[1])
-            print (linalg.svd(self.w.conjugate ().T @ q)[1])
+            for name1, arr1 in zip (('w','x','y','z'), (self.w, self.x, self.y, self.z)):
+                for name2, arr2 in zip (('p','q','r','s'), (p, q, r, s)):
+                    print ("Is {} in {}? {}".format (name2, name1, self.p_in_c (arr1, arr2)))
+            print ("Is p orthonormal? {}".format (linalg.eigh (p.conjugate ().T @ p)[0]))
+            print ("Is q orthonormal? {}".format (linalg.eigh (q.conjugate ().T @ q)[0]))
+            print ("Is r orthonormal? {}".format (linalg.eigh (r.conjugate ().T @ r)[0]))
+            print ("Is s orthonormal? {}".format (linalg.eigh (s.conjugate ().T @ s)[0]))
+            print ("Is w orthonormal? {}".format (linalg.eigh (self.w.conjugate ().T @ self.w)[0]))
+            print ("Is x orthonormal? {}".format (linalg.eigh (self.x.conjugate ().T @ self.x)[0]))
+            print ("Is y orthonormal? {}".format (linalg.eigh (self.y.conjugate ().T @ self.y)[0]))
+            print ("Is z orthonormal? {}".format (linalg.eigh (self.z.conjugate ().T @ self.z)[0]))
             raise (e)
-        assert (rs_yz), 'pq not found in either wx or yz'
         # Permute the order of the pairs individually
         if pq_correct and rs_correct: return self._grind (p, q, r, s)
         elif pq_correct: return self._grind (p, q, s, r).transpose (0, 1, 3, 2)
@@ -680,12 +686,12 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         svals_rinq = linalg.svd (rs2q)[1].sum ()
         rs2p = rsH @ p
         svals_rinp = linalg.svd (rs2p)[1].sum ()
-        rinq = abs (svals_rinq - self.rs.shape[-1]) < 1e-8
-        rinp = abs (svals_rinp - self.rs.shape[-1]) < 1e-8
+        rinq = abs (svals_rinq - self.rs.shape[-1]) < 1e-5
+        rinp = abs (svals_rinp - self.rs.shape[-1]) < 1e-5
         if rinp:
             return np.zeros ((p.shape[-1], q.shape[-1])) # Hack to keep both F_pq and F_qp in the rinq case
         elif not rinq:
-            raise RuntimeError ("Totally off-diagonal Hessian elements not supported")
+            raise RuntimeError ("Totally off-diagonal Hessian elements not supported ({} {} {})".format (svals_rinq, svals_rinp, self.rs.shape[-1]))
         tdm1s = np.stack ([kappa @ dm - dm @ kappa for dm in self.oneRDMs], axis=0)
         tdm1s = np.dot (qH, np.dot (tdm1s, q)).transpose (1,0,2) # Put in q (impurity) basis
         b_Pmn = sparsedf_array (self.ints.with_df._cderi)
