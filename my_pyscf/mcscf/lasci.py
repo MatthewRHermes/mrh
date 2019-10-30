@@ -1231,6 +1231,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ncore, nocc = self.ncore, self.nocc
         idx[ncore:nocc,:ncore] = True
         idx[nocc:,ncore:nocc] = True
+        # If ALL inactive orbitals are frozen, then I'm probably trying
+        # to optimize them somewhere else, so they're "external"
+        if np.count_nonzero (self.ugg.uniq_orb_idx) == 0:
+            idx[:ncore,nocc:] = True
         if isinstance (self.ugg, LASCISymm_UnitaryGroupGenerators):
             idx[self.ugg.symm_forbid] = False
         gx = gorb[idx]

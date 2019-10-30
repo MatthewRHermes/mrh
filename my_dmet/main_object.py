@@ -702,7 +702,7 @@ class dmet:
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
         loc2wmcs_new = get_complementary_states (loc2wmas_new, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
         if self.doLASSCF:
-            loc2wmas_new, loc2wmcs_new, oneRDM_loc = self.average_kappa (loc2wmcs_old, loc2wmas_old, loc2wmcs_new, loc2wmas_new)
+            oneRDM_loc = self.average_inactive (loc2wmcs_new)
             print ("Entering refragmentation")
             #oneRDM_loc = sum ([f.oneRDMas_loc for f in self.fragments if f.norbs_as])
             #oneRDM_loc += 2 * get_1RDM_from_OEI (self.ints.activeFOCK, self.ints.nelec_idem//2, subspace=loc2wmcs_new)
@@ -1484,55 +1484,17 @@ class dmet:
             f.eri_gradient = eri_gradient[:,i:j,i:j,i:j]
         return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff)
 
-    def average_kappa (self, loc2wmcs_old, loc2wmas_old, loc2wmcs_new, loc2wmas_new):
+    def average_inactive (self, loc2wmcs_new):
         # Use self.ints.oneRDM_loc, not self.ints.activeFOCK, so as not to accidentally do a Hartree--Fock cycle
-        if True: #not loc2wmas_old.shape[-1]:
-            oneRDM_loc = np.zeros_like (self.ints.oneRDM_loc)
-            for f in self.fragments:
-                oneRDM_loc += f.loc2frag @ f.frag2loc @ f.oneRDM_loc
-            oneRDM_loc += oneRDM_loc.T
-            oneRDM_loc /= 2
-            loc2wmcs = loc2wmcs_new
-            loc2wmas = loc2wmas_new
-        else:
-            oneRDM_loc = self.ints.oneRDM_loc    
-            loc2wmcs = loc2wmcs_old
-            loc2wmas = loc2wmas_old
-        mo_occ, loc2mo = matrix_eigen_control_options (oneRDM_loc, subspace=loc2wmcs, symmetry=self.ints.loc2symm,
-            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)[:2]
+        oneRDMinac_loc = np.zeros_like (self.ints.oneRDM_loc)
+        oneRDMamo_loc = np.zeros_like (self.ints.oneRDM_loc)
+        for f in self.fragments:
+            oneRDMinac_loc += f.loc2frag @ f.frag2loc @ (f.oneRDM_loc - f.oneRDMas_loc)
+            oneRDMamo_loc += f.oneRDMas_loc
+        oneRDMinac_loc += oneRDMinac_loc.T
+        oneRDMinac_loc /= 2
+        evals, evecs = matrix_eigen_control_options (oneRDMinac_loc, subspace=loc2wmcs_new,
+            symmetry=self.ints.loc2symm, strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)[:2]
         ncore = (self.ints.nelec_tot - sum ([f.nelec_as for f in self.fragments])) // 2
-        nocc = ncore + loc2wmas.shape[-1]
-        # Now make them canonical.  Maybe I don't need to do this?
-        mo_ene, loc2mo[:,:ncore] = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2mo[:,:ncore], symmetry=self.ints.loc2symm,
-            strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)[:2]
-        mo_ene, loc2mo[:,ncore:] = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2mo[:,ncore:], symmetry=self.ints.loc2symm,
-            strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)[:2]
-        loc2mo = np.concatenate ([loc2mo[:,:ncore], loc2wmas, loc2mo[:,ncore:]], axis=1)
-        if False: #loc2wmas_old.shape[-1]:
-            kappa_full = np.zeros_like (loc2mo)
-            for f in self.fragments:
-                kf, kc = f.get_kappa_loc (pfrag=True)
-                kappa_full += kf + kc
-            kappa_full = represent_operator_in_basis (kappa_full, loc2mo)
-            umat_full = linalg.expm (kappa_full - kappa_full.T)
-            loc2mo_new = loc2mo @ umat_full
-        else:
-            loc2mo_new = loc2mo
-        loc2wmcs_new = np.concatenate ([loc2mo_new[:,:ncore], loc2mo_new[:,nocc:]], axis=1)
-        print ("DEBUG: the new and umat active orbitals need to span nearly the same space (exactly at convergence): {}".format (measure_basis_olap (loc2wmas_new, loc2mo_new[:,ncore:nocc])))
-        loc2wmas_new = loc2mo_new[:,ncore:nocc]
-        active_frags = [f for f in self.fragments if f.norbs_as]
-        oneRDM_loc = loc2mo_new[:,:ncore] @ loc2mo_new[:,:ncore].T * 2
-        i = ncore
-        for f in active_frags:
-            if False:
-                j = i + f.norbs_as
-                ovlp = f.amo2loc @ loc2mo[:,i:j]
-                dm0 = represent_operator_in_basis (f.oneRDMas_loc, f.loc2amo)
-                u, sigma, vh = linalg.svd (ovlp)
-                oneRDM_loc += represent_operator_in_basis (dm0, u @ vh @ loc2mo[:,i:j].conjugate ().T)
-                i = j
-            else:
-                oneRDM_loc += f.oneRDMas_loc
-        return loc2wmas_new, loc2wmcs_new, oneRDM_loc
+        return (2 * evecs[:,:ncore] @ evecs.T[:ncore,:]) + oneRDMamo_loc
 
