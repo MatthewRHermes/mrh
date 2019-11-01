@@ -5,6 +5,7 @@ from pyscf import symm, gto, scf, ao2mo, lib
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.scf import hf_as
+from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from itertools import combinations, product
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg
@@ -831,6 +832,23 @@ class LASCINoSymm (casci.CASCI):
 
     get_ugg = LASCI_UnitaryGroupGenerators
 
+    def cderi_ao2mo (self, mo_i, mo_j, compact=False):
+        assert (isinstance (self, _DFLASCI))
+        nmo_i, nmo_j = mo_i.shape[-1], mo_j.shape[-1]
+        if compact:
+            assert (nmo_i == nmo_j)
+            bPij = np.empty ((self.with_df.get_naoaux (), nmo_i*(nmo_i+1)//2), dtype=mo_i.dtype)
+        else:
+            bPij = np.empty ((self.with_df.get_naoaux (), nmo_i, nmo_j), dtype=mo_i.dtype)
+        ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (mo_i, mo_j, compact=compact)
+        b0 = 0
+        for eri1 in self.with_df.loop ():
+            b1 = b0 + eri1.shape[0]
+            eri2 = bPij[b0:b1]
+            eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym, out=eri2)
+            b0 = b1
+        return bPij
+
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, wfnsym_sub=None, frozen=None, **kwargs):
@@ -916,6 +934,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.ncas_sub = ncas_sub
         self.nelecas_sub = nelecas_sub
         self.ncas = ncas = sum (ncas_sub)
+        self.nao = nao = mo_coeff.shape[0]
         self.nmo = nmo = mo_coeff.shape[-1]
         self.nocc = nocc = ncore + ncas
         self.fcisolver = las.fcisolver
@@ -934,13 +953,42 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.dm1s[1,ncore:nocc,ncore:nocc] = casdm1b
         self.dm1s[:,nocc:,nocc:] = 0
 
+        # Precompute cderi intermediates since only veff^a_i is needed
+        if isinstance (las, _DFLASCI):
+            self.with_df = las.with_df
+            self.bPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo_coeff, mo_coeff[:,:nocc], compact=False))
+        else:
+            self.bPpj = None
+
         # ERI in active superspace and fixed (within macrocycle) veff-related things
         # h1e_ab is for gradient response
         # h1e_ab_sub is for ci response
         if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
         moH_coeff = mo_coeff.conjugate ().T
         if veff is None: 
-            veff = las.get_veff (dm1s = np.dot (mo_coeff, np.dot (self.dm1s.sum (0), moH_coeff)))
+            if isinstance (las, _DFLASCI):
+                # Can't use this module's get_veff because here I need to have f_aa and f_ii correctly
+                # On the other hand, I know that dm1s spans only the occupied orbitals
+                rho = np.tensordot (self.bPpj[:,:nocc,:], self.dm1s[:,:nocc,:nocc].sum (0))
+                vj_ao = np.zeros (nao*(nao+1)//2, dtype=rho.dtype)
+                b0 = 0
+                for eri1 in self.with_df.loop ():
+                    b1 = b0 + eri1.shape[0]
+                    vj_ao += np.dot (rho[b0:b1], eri1)
+                    b0 = b1
+                vj_mo = moH_coeff @ lib.unpack_tril (vj_ao) @ mo_coeff
+                vPpi = self.bPpj[:,:,:ncore] * np.sqrt (2.0)
+                no_occ, no_coeff = linalg.eigh (casdm1)
+                no_occ[no_occ<0] = 0.0
+                no_coeff *= np.sqrt (no_occ)[None,:]
+                vPpu = np.dot (self.bPpj[:,:,ncore:nocc], no_coeff)
+                vPpj = np.append (vPpi, vPpu, axis=2)
+                vk_mo = np.tensordot (vPpj, vPpj, axes=((0,2),(0,2)))
+                smo = las._scf.get_ovlp () @ mo_coeff
+                smoH = smo.conjugate ().T
+                veff = smo @ (vj_mo - vk_mo/2) @ smoH
+            else:
+                veff = las.get_veff (dm1s = np.dot (mo_coeff, np.dot (self.dm1s.sum (0), moH_coeff)))
             veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=self.casdm1s_sub)
         h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)
         self.eri_cas = h2eff_sub[ncore:nocc,:,:,:]
@@ -974,6 +1022,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.hci0 = self.Hci_all ([0.0,] * len (ci), self.h1e_ab_sub, self.eri_cas, ci)
         self.e0 = [hc.dot (c) for hc, c in zip (self.hci0, ci)]
         self.hci0 = [hc - c*e for hc, c, e in zip (self.hci0, ci, self.e0)]
+
 
         # That should be everything!
 
@@ -1063,7 +1112,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         return tdm1s_sub, tdm2c_sub    
 
-
     def get_veff_Heff (self, odm1s_sub, tdm1s_sub):
         ''' Returns the veff for the orbital part and the h1e shifts for the CI part arising from the contraction
         of shifted or 'effective' 1-rdms in the two sectors with the Hamiltonian. Return values do not include
@@ -1076,9 +1124,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         moH = mo.conjugate ().T
 
         # Overall veff for gradient: the one and only jk call per microcycle that I will allow.
-        dm1s_ao = np.dot (mo, np.dot (dm1s_mo, moH)).transpose (1,0,2)
-        veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1s_ao.sum (0)))
-        veff_mo = self.split_veff (np.dot (moH, np.dot (veff_ao, mo)), dm1s_mo)
+        veff_mo = self.get_veff (dm1s_mo=dm1s_mo)
+        veff_mo = self.split_veff (veff_mo, dm1s_mo)
         
         # SO, individual CI problems!
         # 1) There is NO constant term. Constant terms immediately drop out via the unitary group generator definition!
@@ -1095,6 +1142,50 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             h1e_ab_sub[isub,:,:,:] -= err_veff
 
         return veff_mo, h1e_ab_sub
+
+    def get_veff (self, dm1s_mo=None):
+        mo = self.mo_coeff
+        moH = mo.conjugate ().T
+        nmo = mo.shape[-1]
+        dm1_mo = dm1s_mo.sum (0)
+        if getattr (self, 'bPpj', None) is None:
+            dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
+            veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
+            return np.dot (moH, np.dot (veff_ao, mo)) 
+        ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
+        # vj
+        t0 = (time.clock (), time.time ())
+        veff_mo = np.zeros_like (dm1_mo)
+        dm1_rect = dm1_mo + dm1_mo.T
+        dm1_rect[ncore:nocc,ncore:nocc] /= 2
+        dm1_rect = dm1_rect[:,:nocc]
+        rho = np.tensordot (self.bPpj, dm1_rect, axes=2)
+        vj_pj = np.tensordot (rho, self.bPpj, axes=((0),(0)))
+        t1 = lib.logger.timer (self.las, 'vj_mo in microcycle', *t0)
+        dm_bj = dm1_mo[ncore:,:nocc]
+        vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:] @ dm_bj, compact=False))
+        # Don't ask my why this is faster than doing the two degrees of freedom separately...
+        t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
+        # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
+        vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
+        vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
+        t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
+        # vk (ai|ai), (ui|av)
+        dm_ai = dm1_mo[nocc:,:ncore]
+        vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
+        # I think this works only because there is no dm_ui in this case, so I've eliminated all the dm_uv by choosing this range
+        bPbi = self.bPpj[:,ncore:,:ncore]
+        vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
+        t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+        # veff
+        vj_bj = vj_pj[ncore:,:]
+        vj_ai = vj_bj[ncas:,:ncore]
+        vk_ai = vk_bj[ncas:,:ncore]
+        veff_mo[ncore:,:nocc] = vj_bj
+        veff_mo[:ncore,nocc:] = vj_ai.T
+        veff_mo[ncore:,:nocc] -= vk_bj/2
+        veff_mo[:ncore,nocc:] -= vk_ai.T/2
+        return veff_mo
 
     def split_veff (self, veff_mo, dm1s_mo):
         veff_c = veff_mo.copy ()
