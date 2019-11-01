@@ -361,9 +361,14 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         log.info ('LASCI subspace CI energies: {}'.format (e_cas))
         t1 = log.timer ('LASCI ci_cycle', *t1)
 
-        #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
-        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
+        if isinstance (las, _DFLASCI):
+            casdm1s_new = las.make_casdm1s_sub (ci=ci1)
+            dcasdm1s = [dm_new - dm_old for dm_new, dm_old in zip (casdm1s_new, casdm1s_sub)]
+            veff += las.fast_veffa (dcasdm1s, mo_coeff=mo_coeff, ci=ci1) 
+        else:
+            #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
+            veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
+            veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
         t1 = log.timer ('LASCI get_veff after ci', *t1)
 
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff=veff)
@@ -848,6 +853,38 @@ class LASCINoSymm (casci.CASCI):
             eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym, out=eri2)
             b0 = b1
         return bPij
+
+    def fast_veffa (self, casdm1s_sub, mo_coeff=None, ci=None):
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if ci is None: ci = self.ci
+        assert (isinstance (self, _DFLASCI))
+        ncore = self.ncore
+        ncas_sub = self.ncas_sub
+        ncas = sum (ncas_sub)
+        nocc = ncore + ncas
+        nao, nmo = mo_coeff.shape
+
+        mo_cas = mo_coeff[:,ncore:nocc]
+        moH_cas = mo_cas.conjugate ().T
+        moH_coeff = mo_coeff.conjugate ().T
+        casdm1a = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
+        casdm1b = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
+        casdm1s = np.stack ([casdm1a, casdm1b], axis=0)
+        dm1s = np.dot (mo_cas, np.dot (casdm1s, moH_cas)).transpose (1,0,2)
+        bPmn = sparsedf_array (self.with_df._cderi)
+
+        # vj
+        dm_tril = dm1s.sum (0)
+        dm_tril += dm_tril.T - np.diag (np.diag (dm_tril))
+        rho = np.dot (bPmn, lib.pack_tril (dm_tril))
+        vj = lib.unpack_tril (np.dot (rho, bPmn))
+
+        # vk
+        bmuP = bPmn.contract1 (np.ascontiguousarray (mo_cas))
+        vsumP = np.tensordot (casdm1s, bmuP, axes=((2),(1)))
+        vk = np.tensordot (vsumP, bmuP, axes=((1,3),(1,2)))
+
+        return vj[None,:,:] - vk
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
