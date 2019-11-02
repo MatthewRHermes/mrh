@@ -1429,8 +1429,9 @@ class dmet:
             self.lasci_log = mol.stdout
         frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
         las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
+        print ("Time preparing LASCI object: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+        w0, t0 = time.time (), time.clock ()
         las.stdout = self.lasci_log
-        las.verbose = pyscf_logger.DEBUG
         if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_sub):
             casdm0_sub = None
         else:
@@ -1473,11 +1474,11 @@ class dmet:
             f.twoCDMimp_amo = get_2CDM_from_2RDM (casdm2, casdm1)
             casdm1s = np.stack ([loc2amo.conjugate ().T @ dm @ loc2amo for dm in oneRDMs_amo_loc], axis=0)
             casdm2c = get_2CDM_from_2RDM (casdm2, casdm1s)
-            eri = self.ints.dmet_tei (f.loc2amo)
-            f.E2_cum = (casdm2c * eri).sum () / 2
             # Cache gradient-related eri...
             i = sum (las.ncas_sub[:ix])
             j = i + las.ncas_sub[ix]
             f.eri_gradient = eri_gradient[:,i:j,i:j,i:j]
+            eri = f.eri_gradient[las.ncore+i:las.ncore+j]
+            f.E2_cum = (casdm2c * eri).sum () / 2
         return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff)
 

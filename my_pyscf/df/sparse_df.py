@@ -80,6 +80,7 @@ class sparsedf_array (np.ndarray):
         '''
         if self.ndim == 3: return self.pack_mo ()
         if not self.flags['C_CONTIGUOUS']: self = self.naux_slow ()
+        cmat = np.ascontiguousarray (cmat)
         nao = self.nmo[0]
         nmo = cmat.shape[1]
         if self.nent_max is None: self.get_sparsity_ ()
