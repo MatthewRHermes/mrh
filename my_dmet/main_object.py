@@ -737,9 +737,9 @@ class dmet:
         print ("Whole-molecule energy difference = {}".format (Eiter))
 
         # Safety until I figure out how to deal with this degenerate-orbital thing
-        if abs (Eiter) < 1e-7 and np.all (np.abs (energies - self.energy) < 1e-7):
-            print ("Energies all converged to 100 nanoEh threshold; punking out of 1-RDM and orbital convergence")
-            orb_diff = oneRDM_diff = 0
+        # if abs (Eiter) < 1e-7 and np.all (np.abs (energies - self.energy) < 1e-7):
+        #    print ("Energies all converged to 100 nanoEh threshold; punking out of 1-RDM and orbital convergence")
+        #    orb_diff = oneRDM_diff = 0
         
         if self.oldLASSCF: return orb_diff, oneRDM_diff, Eimp_stdev, abs (Eiter)
         else: return norm_gorb, norm_gci
