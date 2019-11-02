@@ -678,11 +678,14 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         # Include both F_pq and F_qp!
         m2p = self.ints.ao2loc @ p
         m2q = self.ints.ao2loc @ q
+        m2r = self.m2rs
         p2m = m2p.conjugate ().T
         q2m = m2q.conjugate ().T
+        r2m = m2r.conjugate ().T
         qH = q.conjugate ().T
         rsH = self.rs.conjugate ().T
-        rs2q = rsH @ q
+        rs2q = r2q = rsH @ q
+        q2rs = q2r = rs2q.conjugate ().T
         svals_rinq = linalg.svd (rs2q)[1].sum ()
         rs2p = rsH @ p
         svals_rinp = linalg.svd (rs2p)[1].sum ()
@@ -694,29 +697,23 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
             raise RuntimeError ("Totally off-diagonal Hessian elements not supported ({} {} {})".format (svals_rinq, svals_rinp, self.rs.shape[-1]))
         tdm1s = np.stack ([kappa @ dm - dm @ kappa for dm in self.oneRDMs], axis=0)
         tdm1s = np.dot (qH, np.dot (tdm1s, q)).transpose (1,0,2) # Put in q (impurity) basis
-        b_Pmn = sparsedf_array (self.ints.with_df._cderi)
-        b_mqP = b_Pmn.contract1 (m2q)
-        b_qqP = np.tensordot (m2q, b_mqP, axes=((0),(0)))
-        # Coulomb
-        rho = np.tensordot (tdm1s.sum (0), b_qqP, axes=2)
-        vj_pq = p2m @ numpy_helper.unpack_tril (np.dot (rho, b_Pmn)) @ m2q
-        rho = b_Pmn = None
-        # Exchange
-        v_qqP = np.dot (tdm1s, b_qqP) 
-        vk_pq = np.dot (np.tensordot (v_qqP, b_mqP, axes=((1,3),(1,2))), m2p).transpose (0,2,1) # v_rqP has spin axis first
-        v_qqP = None
-        # Veff 
-        veff_pq = vj_pq[None,:,:] - vk_pq
+        b_mqP = sparsedf_array (self.ints.with_df._cderi).contract1 (m2q)
+        b_rqP = np.tensordot (m2r, b_mqP, axes=((0),(0)))
+        g_mqrq = np.tensordot (b_mqP, b_rqP, axes=((2),(2)))
         pH = p.conjugate ().T
         qH = q.conjugate ().T
         dm_pp = np.dot (pH, np.dot (self.oneRDMs, p)).transpose (1,0,2)
         dm_qq = np.dot (qH, np.dot (self.oneRDMs, q)).transpose (1,0,2)
+        tdm_qr = np.dot (tdm1s, r2q.conjugate ().T)
+        # Coulomb
+        vj_pq = p2m @ (np.tensordot (g_mqrq, tdm_qr.sum (0).T, axes=2))
+        # Exchange
+        vk_pq = np.dot (p2m, np.tensordot (tdm_qr, g_mqrq, axes=((1,2),(1,2)))).transpose (1,0,2)
+        # Veff 
+        veff_pq = vj_pq[None,:,:] - vk_pq
         tFock1 = np.tensordot (veff_pq, dm_qq, axes=((0,2),(0,1))) - np.tensordot (dm_pp, veff_pq, axes=((0,1),(0,1)))
         # Cumulant
-        b_rmP = np.dot (rs2q, b_mqP)
-        b_rrP = np.dot (self.m2rs.conjugate ().T, b_rmP)
-        g_mrrr = np.tensordot (b_rmP, b_rrP, axes=((2),(2))).transpose (1,0,2,3)
-        b_mrP = b_rrP = None
+        g_mrrr = np.tensordot (r2q, np.dot (g_mqrq, q2r), axes=((1),(1))).transpose (1,0,2,3)
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
             rs2a = rsH @ a
             if linalg.norm (rs2a) < 1e-8: continue
