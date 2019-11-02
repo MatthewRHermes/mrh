@@ -388,7 +388,7 @@ class localintegrals:
         E += (vk * oneSDM_loc).sum ()/2
         self._cache_and_analyze_(calcname, E, focka_fockb, dma_dmb, JKidem, JKcorr, oneRDMcorr_loc, loc2idem, loc2corr, nelec_idem, oneRDM_loc, oneSDM_loc)
 
-    def update_from_lasci_(self, calcname, las, loc2mo, dma_dmb):
+    def update_from_lasci_(self, calcname, las, loc2mo, dma_dmb, veff):
         dma, dmb = dma_dmb # Not sure if this is OK with ndarray
         loc2core = loc2mo[:,:las.ncore]
         loc2corr = loc2mo[:,las.ncore:][:,:las.ncas]
@@ -396,8 +396,13 @@ class localintegrals:
         oneRDMcorr_loc = dma + dmb
         oneRDM_loc = oneRDMidem_loc + oneRDMcorr_loc
         oneSDM_loc = dma - dmb
-        JKidem, JKcorr = (self.loc_rhf_jk_bis (dm) for dm in (oneRDMidem_loc, oneRDMcorr_loc))
-        vk = -self.loc_rhf_k_bis (oneSDM_loc) / 2
+        #JKidem, JKcorr = (self.loc_rhf_jk_bis (dm) for dm in (oneRDMidem_loc, oneRDMcorr_loc))
+        #vk = -self.loc_rhf_k_bis (oneSDM_loc) / 2
+        ao2loc = self.ao2loc
+        loc2ao = ao2loc.conjugate ().T
+        JKidem = loc2ao @ veff.veff_c @ ao2loc
+        JKcorr = (loc2ao @ (veff.sum (0)/2) @ ao2loc) - JKidem
+        vk = loc2ao @ ((veff[0] - veff[1])/2) @ ao2loc
         focka_fockb = self.activeOEI + JKidem + JKcorr
         focka_fockb = [focka_fockb + vk, focka_fockb - vk] 
         idx = np.zeros (loc2mo.shape[-1], dtype=np.bool_)

@@ -307,18 +307,19 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         t1 = log.timer ('LASCI ci_cycle', *t1)
 
         veff = veff.sum (0)/2
+        casdm1s_new = las.make_casdm1s_sub (ci=ci1)
         if not isinstance (las, _DFLASCI) or las.verbose > lib.logger.DEBUG:
             #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
             veff_new = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
             if not isinstance (las, _DFLASCI): veff = veff_new
         if isinstance (las, _DFLASCI):
-            casdm1s_new = las.make_casdm1s_sub (ci=ci1)
             dcasdm1s = [dm_new - dm_old for dm_new, dm_old in zip (casdm1s_new, casdm1s_sub)]
             veff += las.fast_veffa (dcasdm1s, h2eff_sub, mo_coeff=mo_coeff, ci=ci1) 
             if las.verbose > lib.logger.DEBUG:
                 errmat = veff - veff_new
                 lib.logger.debug (las, 'fast_veffa error: {}'.format (linalg.norm (errmat)))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
+        casdm1s_sub = casdm1s_new
 
         t1 = log.timer ('LASCI get_veff after ci', *t1)
         H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
@@ -340,15 +341,6 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
             break
         H_op._init_df () # Take this part out of the true initialization b/c if I'm already converged I don't want to waste the cycles
         t1 = log.timer ('LASCI Hessian constructor', *t1)
-        '''
-        r0 = H_op._matvec (x0) + g_vec
-        norm_rorb = linalg.norm (r0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-        norm_rci = linalg.norm (r0[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
-        x1 = prec_op._matvec (-r0)
-        norm_xorb = linalg.norm (x1[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-        norm_xci = linalg.norm (x1[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
-        log.info ('One manual iteration : |g_orb| = %.15g ; |g_ci| = %.15g ; |x1_orb| = %.15g ; |x1_ci| = %.15g', norm_rorb, norm_rci, norm_xorb, norm_xci0)]
-        '''
         microit = [0]
         def my_callback (x):
             microit[0] += 1
@@ -379,17 +371,19 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
 
 
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff=veff)
-    #gorb, gci, gx = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
-    #lib.logger.info (las, 'get_gx test: {}'.format (linalg.norm (gx - gx_test)))
-    #norm_gorb = linalg.norm (gorb) if gorb.size else 0.0
-    #norm_gci = linalg.norm (gci) if gci.size else 0.0
-    #norm_gx = linalg.norm (gx) if gx.size else 0.0
+    # I need the true veff, with f^a_a and f^i_i spin-separated, in order to use the Hessian properly later on
+    # Better to do it here with bmPu than in localintegrals
+    veff_a = las.fast_veffa (casdm1s_sub, h2eff_sub, mo_coeff=mo_coeff, ci=ci1, _full=True)
+    veff_c = (veff.sum (0) - veff_a.sum (0))/2 # veff's spin-summed component should be correct because I called get_veff with spin-summed rdm
+    veff = veff_c[None,:,:] + veff_a 
+
     lib.logger.info (las, 'LASCI %s after %d cycles', ('not converged', 'converged')[converged], it+1)
     lib.logger.info (las, 'LASCI E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', e_tot, norm_gorb, norm_gci, norm_gx)
     t1 = log.timer ('LASCI wrap-up', *t1)
         
     mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, veff, h2eff_sub)
     t1 = log.timer ('LASCI canonicalization', *t1)
+    veff = lib.tag_array (veff, veff_c=veff_c)
     return converged, e_tot, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
 
 def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_sub, log, veff_sub_test=None):
@@ -873,10 +867,10 @@ class LASCINoSymm (casci.CASCI):
             b0 = b1
         return bPij
 
-    def fast_veffa (self, casdm1s_sub, h2eff_sub, mo_coeff=None, ci=None):
+    def fast_veffa (self, casdm1s_sub, h2eff_sub, mo_coeff=None, ci=None, _full=False):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        assert (isinstance (self, _DFLASCI))
+        assert (isinstance (self, _DFLASCI) or _full)
         ncore = self.ncore
         ncas_sub = self.ncas_sub
         ncas = sum (ncas_sub)
@@ -886,7 +880,13 @@ class LASCINoSymm (casci.CASCI):
         mo_cas = mo_coeff[:,ncore:nocc]
         moH_cas = mo_cas.conjugate ().T
         moH_coeff = mo_coeff.conjugate ().T
-        casdm1 = linalg.block_diag (*[dm.sum (0) for dm in casdm1s_sub])
+        dma = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
+        dmb = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
+        casdm1s = np.stack ([dma, dmb], axis=0)
+        if not (isinstance (self, _DFLASCI)):
+            dm1s = np.dot (mo_cas, np.dot (casdm1s, moH_cas)).transpose (1,0,2)
+            return self.get_veff (dm1s = dm1s)
+        casdm1 = casdm1s.sum (0)
         dm1 = np.dot (mo_cas, np.dot (casdm1, moH_cas))
         bPmn = sparsedf_array (self.with_df._cderi)
 
@@ -897,10 +897,14 @@ class LASCINoSymm (casci.CASCI):
 
         # vk
         bmPu = h2eff_sub.bmPu
-        vmPu = np.dot (bmPu, casdm1)
-        vk = np.tensordot (vmPu, bmPu, axes=((1,2),(1,2)))
-
-        return vj - vk/2
+        if _full:
+            vmPsu = np.dot (bmPu, casdm1s)
+            vk = np.tensordot (vmPsu, bmPu, axes=((1,3),(1,2))).transpose (1,0,2)
+            return vj[None,:,:] - vk
+        else:
+            vmPu = np.dot (bmPu, casdm1)
+            vk = np.tensordot (vmPu, bmPu, axes=((1,2),(1,2)))
+            return vj - vk/2
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 

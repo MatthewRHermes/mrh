@@ -1451,7 +1451,7 @@ class dmet:
         oneRDMs_loc_sub = np.dot (locSao, np.dot (las.make_rdm1s_sub (), aoSloc)).transpose (1,2,0,3)
         loc2mo = locSao @ las.mo_coeff
         active_frags = [f for f in self.fragments if f.norbs_as]
-        self.ints.update_from_lasci_(self.calcname, las, loc2mo, oneRDMs_loc_sub.sum (0))
+        self.ints.update_from_lasci_(self.calcname, las, loc2mo, oneRDMs_loc_sub.sum (0), veff)
         loc2amo_sub = [las.get_mo_slice (idx, mo_coeff=loc2mo) for idx in range (len (active_frags))]
         eri_gradient = unpack_tril (h2eff_sub.reshape ((las.mo_coeff.shape[-1]*las.ncas, -1)))
         eri_gradient = eri_gradient.reshape ((las.mo_coeff.shape[-1], las.ncas, las.ncas, las.ncas))
