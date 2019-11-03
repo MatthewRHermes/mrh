@@ -453,12 +453,16 @@ class LASSCFHessianCalculator (HessianCalculator):
 
     def get_operator (self, r, s):
         if getattr (self.ints, 'with_df', None):
-            return DFLASSCFHessianOperator (self, r, s)
+            if self.Hop_noxc:
+                return DFLASSCFHessianOperator_noxc (self, r, s)
+            else:
+                return DFLASSCFHessianOperator (self, r, s)
         else:
             return LASSCFHessianOperator (self, r, s)
 
-    def __init__(self, ints, oneRDM_loc, all_frags, fock_c, fock_s):
+    def __init__(self, ints, oneRDM_loc, all_frags, fock_c, fock_s, Hop_noxc=False):
         self.ints = ints
+        self.Hop_noxc = Hop_noxc
         active_frags = [f for f in all_frags if f.norbs_as]
 
         # Global things. fock_s is zero because of the semi-cumulant decomposition; this only works because I
@@ -710,45 +714,70 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         qH = q.conjugate ().T
         dm_pp = np.dot (pH, np.dot (self.oneRDMs, p)).transpose (1,0,2)
         dm_qq = np.dot (qH, np.dot (self.oneRDMs, q)).transpose (1,0,2)
-        # TEST: approximate!
-        tdm_tril = m2q @ tdm1s.sum (0) @ q2m
-        tdm_tril += tdm_tril.T - np.diag (np.diag (tdm_tril))
-        tdm_tril = numpy_helper.pack_tril (tdm_tril)
-        vj_pq = np.zeros ((p.shape[-1], q.shape[-1]), dtype=tdm1s.dtype)
-        for cderi in self.ints.with_df.loop ():
-            rho = np.dot (cderi, tdm_tril)
-            vj_pq += p2m @ numpy_helper.unpack_tril (np.dot (rho, cderi)) @ m2q
-        # End APPROXIMATE Hessian
-        #b_mqP = sparsedf_array (self.ints.with_df._cderi).contract1 (m2q)
-        #b_rqP = np.tensordot (m2r, b_mqP, axes=((0),(0)))
-        #g_mqrq = np.tensordot (b_mqP, b_rqP, axes=((2),(2)))
-        #tdm_qr = np.dot (tdm1s, r2q.conjugate ().T)
-        ## Coulomb
-        #vj_pq = p2m @ (np.tensordot (g_mqrq, tdm_qr.sum (0).T, axes=2))
-        ## Exchange
-        #vk_pq = np.dot (p2m, np.tensordot (tdm_qr, g_mqrq, axes=((1,2),(1,2)))).transpose (1,0,2)
-        ## Veff 
-        veff_pq = np.stack ([vj_pq, vj_pq], axis=0) #- vk_pq
+        b_mqP = sparsedf_array (self.ints.with_df._cderi).contract1 (m2q)
+        b_rqP = np.tensordot (m2r, b_mqP, axes=((0),(0)))
+        g_mqrq = np.tensordot (b_mqP, b_rqP, axes=((2),(2)))
+        tdm_qr = np.dot (tdm1s, r2q.conjugate ().T)
+        # Coulomb
+        vj_pq = p2m @ (np.tensordot (g_mqrq, tdm_qr.sum (0).T, axes=2))
+        # Exchange
+        vk_pq = np.dot (p2m, np.tensordot (tdm_qr, g_mqrq, axes=((1,2),(1,2)))).transpose (1,0,2)
+        # Veff 
+        veff_pq = vj_pq[None,:,:] - vk_pq
         tFock1 = np.tensordot (veff_pq, dm_qq, axes=((0,2),(0,1))) - np.tensordot (dm_pp, veff_pq, axes=((0,1),(0,1)))
         # Cumulant
-        #g_mrrr = np.tensordot (r2q, np.dot (g_mqrq, q2r), axes=((1),(1))).transpose (1,0,2,3)
-        #for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
-        #    rs2a = rsH @ a
-        #    if linalg.norm (rs2a) < 1e-8: continue
-        #    l_rrrr = np.tensordot (rs2a, t,      axes=((1),(1))) # (ar|aa) (idx's 0 and 1 are now switched)
-        #    l_rrrr = np.tensordot (rs2a, l_rrrr, axes=((1),(1))) # (rr|aa) (calling idx 1 gets idx 0)
-        #    l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|ra) (idx's 2 and 3 are now switched)
-        #    l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|rr) (calling idx 2 gets idx 3)
-        #    rKr = rsH @ kappa @ self.rs
-        #    # This is a sum, so I can't do the index-order switching thing I did above
-        #    # It's always positive as long as I always contract the ~second~ axis of rKr
-        #    lk_rrrr  = np.tensordot (rKr, l_rrrr, axes=((1),(0))) 
-        #    lk_rrrr += np.tensordot (rKr, l_rrrr, axes=((1),(1))).transpose (1,0,2,3) 
-        #    lk_rrrr += np.tensordot (l_rrrr, rKr, axes=((3),(1))) 
-        #    lk_rrrr += np.tensordot (l_rrrr, rKr, axes=((2),(1))).transpose (0,1,3,2)
-        #    tF_mr = np.tensordot (g_mrrr, lk_rrrr, axes=((1,2,3),(1,2,3)))
-        #    tFock1 += (p2m @ tF_mr @ rs2q) - (q2m @ tF_mr @ rs2p).T
+        g_mrrr = np.tensordot (r2q, np.dot (g_mqrq, q2r), axes=((1),(1))).transpose (1,0,2,3)
+        for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
+            rs2a = rsH @ a
+            if linalg.norm (rs2a) < 1e-8: continue
+            l_rrrr = np.tensordot (rs2a, t,      axes=((1),(1))) # (ar|aa) (idx's 0 and 1 are now switched)
+            l_rrrr = np.tensordot (rs2a, l_rrrr, axes=((1),(1))) # (rr|aa) (calling idx 1 gets idx 0)
+            l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|ra) (idx's 2 and 3 are now switched)
+            l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|rr) (calling idx 2 gets idx 3)
+            rKr = rsH @ kappa @ self.rs
+            # This is a sum, so I can't do the index-order switching thing I did above
+            # It's always positive as long as I always contract the ~second~ axis of rKr
+            lk_rrrr  = np.tensordot (rKr, l_rrrr, axes=((1),(0))) 
+            lk_rrrr += np.tensordot (rKr, l_rrrr, axes=((1),(1))).transpose (1,0,2,3) 
+            lk_rrrr += np.tensordot (l_rrrr, rKr, axes=((3),(1))) 
+            lk_rrrr += np.tensordot (l_rrrr, rKr, axes=((2),(1))).transpose (0,1,3,2)
+            tF_mr = np.tensordot (g_mrrr, lk_rrrr, axes=((1,2,3),(1,2,3)))
+            tFock1 += (p2m @ tF_mr @ rs2q) - (q2m @ tF_mr @ rs2p).T
         return tFock1
         
+class DFLASSCFHessianOperator_noxc (DFLASSCFHessianOperator):
+    ''' Approximate the Hessian by omitting the response of the exchange potential and correlation part of the gradient, leaving only
+    the one-body density and Coulomb responses. '''
 
+    def _get_tFock1_2b (self, p, q, kappa):
+        rsH = self.rs.conjugate ().T
+        rs2q = r2q = rsH @ q
+        q2rs = q2r = rs2q.conjugate ().T
+        svals_rinq = linalg.svd (rs2q)[1].sum ()
+        rs2p = rsH @ p
+        svals_rinp = linalg.svd (rs2p)[1].sum ()
+        rinq = abs (svals_rinq - self.rs.shape[-1]) < 1e-5
+        rinp = abs (svals_rinp - self.rs.shape[-1]) < 1e-5
+        if rinp:
+            return np.zeros ((p.shape[-1], q.shape[-1])) # Hack to keep both F_pq and F_qp in the rinq case
+        elif not rinq:
+            raise RuntimeError ("Totally off-diagonal Hessian elements not supported ({} {} {})".format (svals_rinq, svals_rinp, self.rs.shape[-1]))
+        m2p = self.ints.ao2loc @ p
+        m2q = self.ints.ao2loc @ q
+        p2m = m2p.conjugate ().T
+        ao2loc = self.ints.ao2loc
+        loc2ao = ao2loc.conjugate ().T
+        dm1 = self.oneRDMs[0] + self.oneRDMs[1]
+        tdm1 = ao2loc @ (kappa @ dm1 - dm1 @ kappa) @ loc2ao
+        tdm1 = numpy_helper.pack_tril (tdm1 + tdm1.T - np.diag (np.diag (tdm1)))      
+        vj_pq = np.zeros ((p.shape[-1], q.shape[-1]), dtype=tdm1.dtype)
+        for cderi in self.ints.with_df.loop ():
+            rho = np.dot (cderi, tdm1)
+            vj_pq += p2m @ numpy_helper.unpack_tril (np.dot (rho, cderi)) @ m2q
+        pH = p.conjugate ().T
+        qH = q.conjugate ().T
+        dm1_pp = pH @ dm1 @ p
+        dm1_qq = qH @ dm1 @ q
+        tFock1 = vj_pq @ dm1_qq - dm1_pp @ vj_pq
+        return tFock1
 

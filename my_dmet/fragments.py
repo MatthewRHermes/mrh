@@ -95,6 +95,7 @@ class fragment_object:
         self.wfnsym = None
         self.quasifrag_ovlp = False
         self.quasifrag_gradient = True
+        self.approx_hessbath = True
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]
@@ -521,7 +522,8 @@ class fragment_object:
         '''
         if not ('dummy' in self.imp_solver_name):
             w0, t0 = time.time (), time.clock ()
-            self.hesscalc = LASSCFHessianCalculator (self.ints, oneRDM_loc, all_frags, self.ints.activeFOCK, self.ints.activeVSPIN) 
+            self.hesscalc = LASSCFHessianCalculator (self.ints, oneRDM_loc, all_frags, self.ints.activeFOCK,
+                self.ints.activeVSPIN, Hop_noxc=self.approx_hessbath) 
             print ("Time in building Hessian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         frag2wmcs = np.dot (self.frag2loc, loc2wmcs)
         proj = np.dot (frag2wmcs.conjugate ().T, frag2wmcs)
