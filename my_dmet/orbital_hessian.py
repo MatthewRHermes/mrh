@@ -706,39 +706,48 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
             raise RuntimeError ("Totally off-diagonal Hessian elements not supported ({} {} {})".format (svals_rinq, svals_rinp, self.rs.shape[-1]))
         tdm1s = np.stack ([kappa @ dm - dm @ kappa for dm in self.oneRDMs], axis=0)
         tdm1s = np.dot (qH, np.dot (tdm1s, q)).transpose (1,0,2) # Put in q (impurity) basis
-        b_mqP = sparsedf_array (self.ints.with_df._cderi).contract1 (m2q)
-        b_rqP = np.tensordot (m2r, b_mqP, axes=((0),(0)))
-        g_mqrq = np.tensordot (b_mqP, b_rqP, axes=((2),(2)))
         pH = p.conjugate ().T
         qH = q.conjugate ().T
         dm_pp = np.dot (pH, np.dot (self.oneRDMs, p)).transpose (1,0,2)
         dm_qq = np.dot (qH, np.dot (self.oneRDMs, q)).transpose (1,0,2)
-        tdm_qr = np.dot (tdm1s, r2q.conjugate ().T)
-        # Coulomb
-        vj_pq = p2m @ (np.tensordot (g_mqrq, tdm_qr.sum (0).T, axes=2))
-        # Exchange
-        vk_pq = np.dot (p2m, np.tensordot (tdm_qr, g_mqrq, axes=((1,2),(1,2)))).transpose (1,0,2)
-        # Veff 
-        veff_pq = vj_pq[None,:,:] - vk_pq
+        # TEST: approximate!
+        tdm_tril = m2q @ tdm1s.sum (0) @ q2m
+        tdm_tril += tdm_tril.T - np.diag (np.diag (tdm_tril))
+        tdm_tril = numpy_helper.pack_tril (tdm_tril)
+        vj_pq = np.zeros ((p.shape[-1], q.shape[-1]), dtype=tdm1s.dtype)
+        for cderi in self.ints.with_df.loop ():
+            rho = np.dot (cderi, tdm_tril)
+            vj_pq += p2m @ numpy_helper.unpack_tril (np.dot (rho, cderi)) @ m2q
+        # End APPROXIMATE Hessian
+        #b_mqP = sparsedf_array (self.ints.with_df._cderi).contract1 (m2q)
+        #b_rqP = np.tensordot (m2r, b_mqP, axes=((0),(0)))
+        #g_mqrq = np.tensordot (b_mqP, b_rqP, axes=((2),(2)))
+        #tdm_qr = np.dot (tdm1s, r2q.conjugate ().T)
+        ## Coulomb
+        #vj_pq = p2m @ (np.tensordot (g_mqrq, tdm_qr.sum (0).T, axes=2))
+        ## Exchange
+        #vk_pq = np.dot (p2m, np.tensordot (tdm_qr, g_mqrq, axes=((1,2),(1,2)))).transpose (1,0,2)
+        ## Veff 
+        veff_pq = np.stack ([vj_pq, vj_pq], axis=0) #- vk_pq
         tFock1 = np.tensordot (veff_pq, dm_qq, axes=((0,2),(0,1))) - np.tensordot (dm_pp, veff_pq, axes=((0,1),(0,1)))
         # Cumulant
-        g_mrrr = np.tensordot (r2q, np.dot (g_mqrq, q2r), axes=((1),(1))).transpose (1,0,2,3)
-        for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
-            rs2a = rsH @ a
-            if linalg.norm (rs2a) < 1e-8: continue
-            l_rrrr = np.tensordot (rs2a, t,      axes=((1),(1))) # (ar|aa) (idx's 0 and 1 are now switched)
-            l_rrrr = np.tensordot (rs2a, l_rrrr, axes=((1),(1))) # (rr|aa) (calling idx 1 gets idx 0)
-            l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|ra) (idx's 2 and 3 are now switched)
-            l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|rr) (calling idx 2 gets idx 3)
-            rKr = rsH @ kappa @ self.rs
-            # This is a sum, so I can't do the index-order switching thing I did above
-            # It's always positive as long as I always contract the ~second~ axis of rKr
-            lk_rrrr  = np.tensordot (rKr, l_rrrr, axes=((1),(0))) 
-            lk_rrrr += np.tensordot (rKr, l_rrrr, axes=((1),(1))).transpose (1,0,2,3) 
-            lk_rrrr += np.tensordot (l_rrrr, rKr, axes=((3),(1))) 
-            lk_rrrr += np.tensordot (l_rrrr, rKr, axes=((2),(1))).transpose (0,1,3,2)
-            tF_mr = np.tensordot (g_mrrr, lk_rrrr, axes=((1,2,3),(1,2,3)))
-            tFock1 += (p2m @ tF_mr @ rs2q) - (q2m @ tF_mr @ rs2p).T
+        #g_mrrr = np.tensordot (r2q, np.dot (g_mqrq, q2r), axes=((1),(1))).transpose (1,0,2,3)
+        #for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
+        #    rs2a = rsH @ a
+        #    if linalg.norm (rs2a) < 1e-8: continue
+        #    l_rrrr = np.tensordot (rs2a, t,      axes=((1),(1))) # (ar|aa) (idx's 0 and 1 are now switched)
+        #    l_rrrr = np.tensordot (rs2a, l_rrrr, axes=((1),(1))) # (rr|aa) (calling idx 1 gets idx 0)
+        #    l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|ra) (idx's 2 and 3 are now switched)
+        #    l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|rr) (calling idx 2 gets idx 3)
+        #    rKr = rsH @ kappa @ self.rs
+        #    # This is a sum, so I can't do the index-order switching thing I did above
+        #    # It's always positive as long as I always contract the ~second~ axis of rKr
+        #    lk_rrrr  = np.tensordot (rKr, l_rrrr, axes=((1),(0))) 
+        #    lk_rrrr += np.tensordot (rKr, l_rrrr, axes=((1),(1))).transpose (1,0,2,3) 
+        #    lk_rrrr += np.tensordot (l_rrrr, rKr, axes=((3),(1))) 
+        #    lk_rrrr += np.tensordot (l_rrrr, rKr, axes=((2),(1))).transpose (0,1,3,2)
+        #    tF_mr = np.tensordot (g_mrrr, lk_rrrr, axes=((1,2,3),(1,2,3)))
+        #    tFock1 += (p2m @ tF_mr @ rs2q) - (q2m @ tF_mr @ rs2p).T
         return tFock1
         
 
