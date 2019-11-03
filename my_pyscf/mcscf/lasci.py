@@ -761,7 +761,7 @@ class LASCINoSymm (casci.CASCI):
             casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
         return casdm2 
 
-    def get_veff (self, mol=None, dm1s=None, hermi=1, **kwargs):
+    def get_veff (self, mol=None, dm1s=None, hermi=1, spin_sep=False, **kwargs):
         ''' Returns a spin-summed veff! If dm1s isn't provided, builds from self.mo_coeff, self.ci etc. '''
         if mol is None: mol = self.mol
         nao = mol.nao_nr ()
@@ -772,8 +772,12 @@ class LASCINoSymm (casci.CASCI):
             vj, vk = self.with_df.get_jk(dm1s, hermi=hermi)
         else:
             vj, vk = self._scf.get_jk(mol, dm1s, hermi=hermi)
-        veff = np.stack ([j - k/2 for j, k in zip (vj, vk)], axis=0)
-        return np.squeeze (veff)
+        if spin_sep:
+            assert (dm1s.shape[0] == 2)
+            return vj.sum (0)[None,:,:] - vk
+        else:
+            veff = np.stack ([j - k/2 for j, k in zip (vj, vk)], axis=0)
+            return np.squeeze (veff)
 
     def split_veff (self, veff, h2eff_sub, mo_coeff=None, ci=None, casdm1s_sub=None):
         ''' Split a spin-summed veff into alpha and beta terms using the h2eff eri array.
@@ -885,7 +889,7 @@ class LASCINoSymm (casci.CASCI):
         casdm1s = np.stack ([dma, dmb], axis=0)
         if not (isinstance (self, _DFLASCI)):
             dm1s = np.dot (mo_cas, np.dot (casdm1s, moH_cas)).transpose (1,0,2)
-            return self.get_veff (dm1s = dm1s)
+            return self.get_veff (dm1s = dm1s, spin_sep=True)
         casdm1 = casdm1s.sum (0)
         dm1 = np.dot (mo_cas, np.dot (casdm1, moH_cas))
         bPmn = sparsedf_array (self.with_df._cderi)
