@@ -550,7 +550,7 @@ class HessianERITransformer (object):
             print (self.w.shape, self.x.shape, self.y.shape, self.z.shape)
             for name1, arr1 in zip (('w','x','y','z'), (self.w, self.x, self.y, self.z)):
                 for name2, arr2 in zip (('p','q','r','s'), (p, q, r, s)):
-                    print ("Is {} in {}? {}".format (name2, name1, self.p_in_c (arr1, arr2)))
+                    print ("Is {} in {}? {}".format (name2, name1, self.p_in_c (arr1, arr2, _return_numbers=True)))
             print ("Is p orthonormal? {}".format (linalg.eigh (p.conjugate ().T @ p)[0]))
             print ("Is q orthonormal? {}".format (linalg.eigh (q.conjugate ().T @ q)[0]))
             print ("Is r orthonormal? {}".format (linalg.eigh (r.conjugate ().T @ r)[0]))
@@ -581,10 +581,12 @@ class HessianERITransformer (object):
         pqrs = np.tensordot (pqrs, z2s, axes=((1),(0)))
         return pqrs
 
-    def p_in_c (self, c, p):
+    def p_in_c (self, c, p, _return_numbers=False):
         ''' Return c == complete basis for p '''
         svals = linalg.svd (c.conjugate ().T @ p)[1]
-        return np.count_nonzero (np.isclose (svals, 1, rtol=1e-4)) == p.shape[1]
+        val = np.count_nonzero (np.isclose (svals, 1, rtol=1e-3)) == p.shape[1]
+        if _return_numbers: return val, svals-1, p.shape[1]
+        else: return val
 
     def pq_in_cd (self, c, d, p, q):
         testmat = np.asarray ([[self.p_in_c (e, r) for e in (c, d)] for r in (p, q)])

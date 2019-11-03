@@ -70,6 +70,9 @@ class CSFTransformer (lib.StreamObject):
             return detvec
         vec_on_cols = (order.upper () == 'F')
         idx_sym = (self.confsym[self.econf_det_mask] == self.wfnsym)
+        detvec = np.asarray (detvec)
+        if detvec.shape[-2:] == (self.ndeta, self.ndetb):
+            detvec = np.squeeze (detvec.reshape (-1, self.ndet))
         return pack_sym_ci (detvec, idx_sym, vec_on_cols=vec_on_cols)
 
     def unpack_det (self, detvec, order='C'):
