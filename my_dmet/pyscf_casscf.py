@@ -418,7 +418,7 @@ def fix_my_CASSCF_for_nonsinglet_env (mc, h1e_s):
     Finally, wrap gen_g_hop for the orbital rotation by just adding the various derivatives
     of h1e_s - should be straightforward. '''
 
-    mc = fix_ci_response_csf (mc)
+    #mc = fix_ci_response_csf (mc)
     if h1e_s is None or np.all (np.abs (h1e_s) < 1e-8): return mc
     amo = mc.mo_coeff[:,mc.ncore:][:,:mc.ncas]
     amoH = amo.conjugate ().T
