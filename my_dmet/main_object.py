@@ -1478,7 +1478,7 @@ class dmet:
             i = sum (las.ncas_sub[:ix])
             j = i + las.ncas_sub[ix]
             f.eri_gradient = eri_gradient[:,i:j,i:j,i:j]
-            eri = f.eri_gradient[las.ncore+i:las.ncore+j]
+            eri = np.tensordot (loc2amo.conjugate (), f.eri_gradient, axes=((0),(0)))
             f.E2_cum = (casdm2c * eri).sum () / 2
         return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff)
 
