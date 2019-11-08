@@ -516,6 +516,34 @@ class LASSCFHessianCalculator (HessianCalculator):
         vk = np.dot (moH, np.dot (vk, mo)).transpose (1,0,2)
         return vj, vk
 
+    def get_diagonal_step (self, p, q):
+        ''' Obtain a gradient-descent approximation for the relaxation of orbitals p in range q using the gradient and
+        diagonal elements of the Hessian, x^p_q = -E1^p_q / E2^pp_qq '''
+        # First, get the gradient and svd to obtain conjugate orbitals of p in q
+        grad = self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T
+        lvec, e1, rvecH = linalg.svd (grad, full_matrices=False)
+        rvec = rvecH.conjugate ().T
+        p = p @ lvec
+        q = q @ rvec
+        lp = p.shape[-1]
+        lq = q.shape[-1]
+        lpq = lp * lq
+        # Zero gradient escape
+        if not np.count_nonzero (np.abs (e1) > 1e-8): return p, np.zeros (lp), q
+        # Because this ^ is faster than sectioning it and even with 20+20+20 active/inactive/external, it's still only 100 MB
+        if self.Hop_noxc:
+            f_pp = np.stack ([((f @ p) * p).sum (0) for f in self.fock], 0)
+            f_qq = np.stack ([((f @ q) * q).sum (0) for f in self.fock], 0)
+            f_pq = np.stack ([((f @ p) * q).sum (0) for f in self.fock], 0)
+            d_pp = np.stack ([((d @ p) * p).sum (0) for d in self.oneRDMs], 0)
+            d_qq = np.stack ([((d @ q) * q).sum (0) for d in self.oneRDMs], 0)
+            d_pq = np.stack ([((d @ p) * q).sum (0) for d in self.oneRDMs], 0)
+            e2 = ((f_pp * d_qq) + (f_qq * d_pp) - 2 * (f_pq * d_pq)).sum (0)
+        else:
+            e2 = self.__call__(p, q, p, q)
+            e2 = np.diag (np.diag (e2.reshape (lpq, lpq)).reshape (lp, lq))
+        return p, -e1 / e2, q
+
 class HessianERITransformer (object):
 
     def __init__(self, parent, p, q, r, s): 
