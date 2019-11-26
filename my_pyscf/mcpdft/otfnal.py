@@ -27,6 +27,8 @@ class otfnal:
         self.verbose = mol.verbose
         self.stdout = mol.stdout    
 
+    Pi_deriv = 0
+
     def _init_info (self):
         logger.info (self, 'Building %s functional', self.otxc)
         omega, alpha, hyb = self._numint.rsh_and_hybrid_coeff(self.otxc, spin=self.mol.spin)
@@ -273,6 +275,8 @@ class ftransfnal (transfnal):
         self._numint.eval_xc = ft_eval_xc.__get__(self._numint)
         self._numint._xc_type = ft_xc_type.__get__(self._numint)
         self._init_info ()
+
+    Pi_deriv = 1
 
     def get_rho_translated (self, Pi, rho, Rmax=None, zeta_deriv=True, weights=None):
         r''' "full" translation, Carlson et al., JCTC 11, 4077 (2015)

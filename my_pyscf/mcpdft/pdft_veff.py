@@ -1,9 +1,10 @@
 from pyscf import ao2mo
-from pyscf.lib import logger, pack_tril, unpack_tril
+from pyscf.lib import logger, pack_tril, unpack_tril, current_memory
+from pyscf.dft.gen_grid import BLKSIZE
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from scipy import linalg
 import numpy as np
-import time
+import time, gc
 
 class _ERIS(object):
     def __init__(self, mo_coeff, ncore, ncas, method='incore'):
@@ -13,11 +14,12 @@ class _ERIS(object):
         self.vhf_c = np.zeros ((self.nmo, self.nmo), dtype=mo_coeff.dtype)
         self.method = method
         if method == 'incore':
-            npair = self.nmo * (self.nmo+1) // 2
+            #npair = self.nmo * (self.nmo+1) // 2
             #self._eri = np.zeros ((npair, npair))
-            npair_cas = ncas * (ncas+1) // 2
-            self.ppaa = np.zeros ((npair, npair_cas), dtype=mo_coeff.dtype)
+            #npair_cas = ncas * (ncas+1) // 2
+            #self.ppaa = np.zeros ((npair, npair_cas), dtype=mo_coeff.dtype)
             #self.ppaa = np.zeros ((self.nmo, self.nmo, ncas, ncas), dtype=mo_coeff.dtype)
+            self.papa = np.zeros ((self.nmo, ncas, self.nmo, ncas), dtype=mo_coeff.dtype)
             self.j_pc = np.zeros ((self.nmo, ncore), dtype=mo_coeff.dtype)
         else:
             raise NotImplementedError ("method={} for veff2".format (self.method))
@@ -36,7 +38,7 @@ class _ERIS(object):
         # ppaa
         ncore, ncas = self.ncore, self.ncas
         mo_cas = mo[:,:,ncore:][:,:,:ncas]
-        self.ppaa += ot.get_veff_2body (rho, Pi, [mo, mo, mo_cas, mo_cas], weight, aosym='s4', kern=vPi)
+        self.papa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)
         # j_pc
         mo = _square_ao (mo)
         mo_core = mo[:,:,:ncore]
@@ -55,9 +57,12 @@ class _ERIS(object):
             self.ppaa = np.ascontiguousarray (self._eri[:,:,ncore:nocc,ncore:nocc])
             self._eri = None
             '''
+            '''
             self.ppaa = unpack_tril (self.ppaa, axis=0)
             self.ppaa = unpack_tril (self.ppaa, axis=-1).reshape (nmo, nmo, ncas, ncas)
             self.papa = np.ascontiguousarray (self.ppaa.transpose (0,2,1,3))
+            '''
+            self.ppaa = np.ascontiguousarray (self.papa.transpose (0,2,1,3))
             self.k_pc = self.j_pc.copy ()
         else:
             raise NotImplementedError ("method={} for veff2".format (self.method))
@@ -102,7 +107,19 @@ def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, he
     dm_core = mo_core @ mo_core.T * 2
     make_rho_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
-    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory):
+    gc.collect ()
+    remaining_floats = (max_memory - current_memory ()[0]) * 1e6 / 8
+    nderiv_rho = (1,4,10)[dens_deriv] # ?? for meta-GGA
+    nderiv_Pi = (1,4)[ot.Pi_deriv]
+    ncols = 1 + nderiv_rho * (5 + norbs_ao*2) + nderiv_Pi * (1 + (2 * norbs_ao * ncas)) 
+    pdft_blksize = int (remaining_floats / (ncols * BLKSIZE)) * BLKSIZE # something something indexing
+    if ot.grids.coords is None:
+        ot.grids.build(with_non0tab=True)
+    ngrids = ot.grids.coords.shape[0]
+    pdft_blksize = max(BLKSIZE, min(pdft_blksize, ngrids, BLKSIZE*1200))
+    logger.debug (ot, '{} MB used of {} available; block size of {} chosen for grid with {} points'.format (
+        current_memory ()[0], max_memory, pdft_blksize, ngrids))
+    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory, blksize=pdft_blksize):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
         rho_c = make_rho_c [0] (0, ao, mask, xctype)
         t0 = logger.timer (ot, 'untransformed densities (core and total)', *t0)
@@ -112,7 +129,7 @@ def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, he
         t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
         veff1 += ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
-        ao = np.tensordot (ao, mo_coeff, axes=1)
+        ao[:,:,:] = np.tensordot (ao, mo_coeff, axes=1)
         t0 = logger.timer (ot, 'ao2mo grid points', *t0)
         veff2._accumulate (ot, rho, Pi, ao, weight, rho_c, vPi)
         t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
