@@ -13,7 +13,7 @@ import copy
 from functools import reduce
 from scipy import linalg
 
-def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None):
+def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, eris=None, verbose=None):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the orbital
     Lagrange term nuclear gradient (sum_pq Lorb_pq d2_Ecas/d_lambda d_kpq)
     This involves removing nuclear-nuclear terms and making the substitution
@@ -68,12 +68,15 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     # mo sets 0 and 2 should be transposed, 1 and 3 should be not transposed; this will lead to correct sign
     # Except I can't do this for the external index, because the external index is contracted to ovlp matrix,
     # not the 2RDM
-    aapaL  = ao2mo.kernel(mol, (moL_cas, mo_cas, mo_coeff, mo_cas), compact=False)
-    aapaL += ao2mo.kernel(mol, (mo_cas, moL_cas, mo_coeff, mo_cas), compact=False) 
-    aapaL += ao2mo.kernel(mol, (mo_cas, mo_cas, mo_coeff, moL_cas), compact=False) 
-    aapaL  = aapaL.reshape(ncas,ncas,nmo,ncas) 
-    aapa = ao2mo.kernel(mol, (mo_cas, mo_cas, mo_coeff, mo_cas), compact=False) 
-    aapa = aapa.reshape(ncas,ncas,nmo,ncas) 
+    aapa = np.zeros ((ncas, ncas, nmo, ncas), dtype=dm_cas.dtype)
+    aapaL = np.zeros ((ncas, ncas, nmo, ncas), dtype=dm_cas.dtype)
+    for i in range (nmo):
+        jbuf = eris.ppaa[i]
+        kbuf = eris.papa[i]
+        aapa[:,:,i,:] = jbuf[ncore:nocc,:,:].transpose (1,2,0)
+        aapaL[:,:,i,:] += np.tensordot (jbuf, Lorb[:,ncore:nocc], axes=((0),(0)))
+        kbuf = np.tensordot (kbuf, Lorb[:,ncore:nocc], axes=((1),(0))).transpose (1,2,0)
+        aapaL[:,:,i,:] += kbuf + kbuf.transpose (1,0,2)
     # MRH: new vhf terms
     vj, vk   = mc._scf.get_jk(mol, (dm_core,  dm_cas))
     vjL, vkL = mc._scf.get_jk(mol, (dmL_core, dmL_cas))
@@ -175,7 +178,7 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
 
     return de
 
-def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None):
+def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, eris=None, verbose=None):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the CI
     Lagrange term nuclear gradient (sum_IJ Lci_IJ d2_Ecas/d_lambda d_PIJ)
     This involves removing all core-core and nuclear-nuclear terms and making the substitution
@@ -215,8 +218,9 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
 # gfock = Generalized Fock, Adv. Chem. Phys., 69, 63
     dm_core = np.dot(mo_core, mo_core.T) * 2
     dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
-    aapa = ao2mo.kernel(mol, (mo_cas, mo_cas, mo_coeff, mo_cas), compact=False)
-    aapa = aapa.reshape(ncas,ncas,nmo,ncas)
+    aapa = np.zeros ((ncas, ncas, nmo, ncas), dtype=dm_cas.dtype)
+    for i in range (nmo):
+        aapa[:,:,i,:] = eris.ppaa[i][ncore:nocc,:,:].transpose (1,2,0)
     vj, vk = mc._scf.get_jk(mol, (dm_core, dm_cas))
     h1 = mc.get_hcore()
     vhf_c = vj[0] - vk[0] * .5
@@ -466,14 +470,14 @@ class Gradients (lagrange.Gradients):
         ci = np.ravel (ci).reshape (self.nroots, -1)
 
         # CI part
-        de_Lci = Lci_dot_dgci_dx (Lci, self.weights, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
+        de_Lci = Lci_dot_dgci_dx (Lci, self.weights, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, eris=eris, verbose=verbose)
         lib.logger.info(self, '--------------- %s gradient Lagrange CI response ---------------',
                     self.base.__class__.__name__)
         if verbose >= lib.logger.INFO: rhf_grad._write(self, self.mol, de_Lci, atmlst)
         lib.logger.info(self, '----------------------------------------------------------------')
 
         # Orb part
-        de_Lorb = Lorb_dot_dgorb_dx (Lorb, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
+        de_Lorb = Lorb_dot_dgorb_dx (Lorb, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, eris=eris, verbose=verbose)
         lib.logger.info(self, '--------------- %s gradient Lagrange orbital response ---------------',
                     self.base.__class__.__name__)
         if verbose >= lib.logger.INFO: rhf_grad._write(self, self.mol, de_Lorb, atmlst)
