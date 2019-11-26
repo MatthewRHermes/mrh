@@ -206,7 +206,7 @@ class Gradients (sacasscf.Gradients):
         if ci is None: ci = self.base.ci
         if (veff1 is None) or (veff2 is None):
             assert (False), kwargs
-            veff1, veff2 = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True)
+            veff1, veff2 = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True, paaa_only=True)
         ndet = ci[iroot].size
         fcasscf = self.make_fcasscf ()
         fcasscf.mo_coeff = mo
@@ -237,7 +237,7 @@ class Gradients (sacasscf.Gradients):
         if ci is None: ci = self.base.ci
         if (veff1 is None) or (veff2 is None):
             assert (False), kwargs
-            veff1, veff2 = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True)
+            veff1, veff2 = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True, paaa_only=True)
         fcasscf = self.make_fcasscf ()
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci[iroot]

@@ -7,12 +7,13 @@ import numpy as np
 import time, gc
 
 class _ERIS(object):
-    def __init__(self, mo_coeff, ncore, ncas, method='incore'):
+    def __init__(self, mo_coeff, ncore, ncas, method='incore', paaa_only=False):
         self.nao, self.nmo = mo_coeff.shape
         self.ncore = ncore
         self.ncas = ncas
         self.vhf_c = np.zeros ((self.nmo, self.nmo), dtype=mo_coeff.dtype)
         self.method = method
+        self.paaa_only = paaa_only
         if method == 'incore':
             #npair = self.nmo * (self.nmo+1) // 2
             #self._eri = np.zeros ((npair, npair))
@@ -37,8 +38,15 @@ class _ERIS(object):
         self.vhf_c += ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_c)
         # ppaa
         ncore, ncas = self.ncore, self.ncas
-        mo_cas = mo[:,:,ncore:][:,:,:ncas]
-        self.papa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)
+        nocc = ncore + ncas
+        mo_cas = mo[:,:,ncore:nocc]
+        if self.paaa_only:
+            paaa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo_cas, mo_cas], weight, aosym='s2kl', kern=vPi)
+            paaa = lib.unpack_tril (paaa.reshape (-1, ncas * (ncas + 1) // 2)).reshape (-1, ncas, ncas, ncas)
+            self.papa[:,:,ncore:nocc,:] += paaa
+            self.papa[ncore:nocc,:,:,:] += paaa.transpose (2,3,0,1)
+        else:
+            self.papa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)
         # j_pc
         mo = _square_ao (mo)
         mo_core = mo[:,:,:ncore]
@@ -68,7 +76,7 @@ class _ERIS(object):
             raise NotImplementedError ("method={} for veff2".format (self.method))
         self.k_pc = self.j_pc.copy ()
 
-def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, hermi=1, veff2_mo=None):
+def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, hermi=1, veff2_mo=None, paaa_only=False):
     ''' Get the 1- and 2-body effective potential from MC-PDFT. Eventually I'll be able to specify
         mo slices for the 2-body part
 
@@ -101,7 +109,7 @@ def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, he
     npair = norbs_ao * (norbs_ao + 1) // 2
 
     veff1 = np.zeros_like (oneCDMs[0])
-    veff2 = _ERIS (mo_coeff, ncore, ncas)
+    veff2 = _ERIS (mo_coeff, ncore, ncas, paaa_only=paaa_only)
 
     t0 = (time.clock (), time.time ())
     dm_core = mo_core @ mo_core.T * 2
@@ -111,7 +119,8 @@ def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, he
     remaining_floats = (max_memory - current_memory ()[0]) * 1e6 / 8
     nderiv_rho = (1,4,10)[dens_deriv] # ?? for meta-GGA
     nderiv_Pi = (1,4)[ot.Pi_deriv]
-    ncols = 1 + nderiv_rho * (5 + norbs_ao*2) + nderiv_Pi * (1 + (2 * norbs_ao * ncas)) 
+    ncols_v2 = norbs_ao*ncas + ncas**2 if paaa_only else 2*norbs_ao*ncas
+    ncols = 1 + nderiv_rho * (5 + norbs_ao*2) + nderiv_Pi * (1 + ncols_v2) 
     pdft_blksize = int (remaining_floats / (ncols * BLKSIZE)) * BLKSIZE # something something indexing
     if ot.grids.coords is None:
         ot.grids.build(with_non0tab=True)
