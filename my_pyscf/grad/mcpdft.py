@@ -1,7 +1,7 @@
 from pyscf.mcscf import newton_casscf
 from pyscf.grad import rks as rks_grad
 from pyscf.dft import gen_grid
-from pyscf.lib import logger, pack_tril
+from pyscf.lib import logger, pack_tril, current_memory
 from mrh.my_pyscf.grad import sacasscf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_rho, _contract_ao_vao
@@ -9,9 +9,9 @@ from mrh.util.rdm import get_2CDM_from_2RDM
 from functools import reduce
 from scipy import linalg
 import numpy as np
-import time
+import time, gc
 
-def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None):
+def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None, max_memory=None):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the Hellman-Feynman gradient
         terms of MC-PDFT. From the differentiated Hamiltonian matrix elements, only the core and
         Coulomb energy parts remain. For the renormalization terms, the effective Fock matrix is as in
@@ -21,6 +21,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
     if mc.frozen is not None:
         raise NotImplementedError
+    if max_memory is None: max_memory = mc.max_memory
     t0 = (time.clock (), time.time ())
 
     mol = mc.mol
@@ -112,9 +113,17 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     for k, ia in enumerate (atmlst):
         full_atmlst[ia] = k
     for ia, (coords, w0, w1) in enumerate (rks_grad.grids_response_cc (ot.grids)):
+        mask = gen_grid.make_mask (mol, coords)
         # For the xc potential derivative, I need every grid point in the entire molecule regardless of atmlist. (Because that's about orbitals.)
         # For the grid and weight derivatives, I only need the gridpoints that are in atmlst
-        mask = gen_grid.make_mask (mol, coords)
+        gc.collect ()
+        ngrids = coords.shape[0]
+        ndao = (1,4,10,19)[ot.dens_deriv+1]
+        ndrho = (1,4,10,19)[ot.dens_deriv]
+        ndpi = (1,4)[ot.Pi_deriv]
+        ao_mem = nao * ngrids * ndao * 8 / 1e6
+        remaining_mem = max_memory - current_memory ()[0]
+        logger.info (mc, 'PDFT gradient memory note: atom {} has {} grid points; estimated ao usage = {:.1f} of {:.1f} remaining MB'.format (ia, ngrids, ao_mem, remaining_mem))
         ao = ot._numint.eval_ao (mol, coords, deriv=ot.dens_deriv+1, non0tab=mask) # Need 1st derivs for LDA, 2nd for GGA, etc.
         if ot.xctype == 'LDA': # Might confuse the rho and Pi generators if I don't slice this down
             aoval = ao[:1]
@@ -129,7 +138,10 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         moval_cas = moval_occ[...,ncore:]
         t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t1)
         eot, vrho, vot = ot.eval_ot (rho, Pi, weights=w0)
-        ndpi = vot.shape[0]        
+        ndpi, ngrids = vot.shape 
+        puvx_mem = 2 * ndpi * ngrids * ncas * ncas * 8 / 1e6
+        remaining_mem = max_memory - current_memory ()[0]
+        logger.info (mc, 'PDFT gradient memory note: atom {} has {} grid points; estimated puvx usage = {:.1f} of {:.1f} remaining MB'.format (ia, ngrids, puvx_mem, remaining_mem))
 
         # Weight response
         de_wgt += np.tensordot (eot, w1[atmlst], axes=(0,2))
@@ -144,6 +156,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho) for ix in idx], axis=0)
         if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm1.T, axes=2) # Grid response
         dv1 -= tmp_dv # XC response
+        vrho = tmp_dv = None
         t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqii'.format (ia), *t1)
 
         # Viiuv * Duv
@@ -151,6 +164,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho_a) for ix in idx], axis=0)
         if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm_core.T, axes=2) # Grid response
         dv1_a -= tmp_dv # XC response
+        vrho_a = tmp_dv = None
         t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Viiuv'.format (ia), *t1)
 
         # Vpuvx
@@ -160,11 +174,13 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         tmp_dv[1:ndpi] *= moval_cas[0,:,None,:] # Chain and product rule
         tmp_dv = tmp_dv.sum (-1) # ndpi, ngrids, ncas
         tmp_dv = np.tensordot (ao[idx[:,:ndpi]], tmp_dv, axes=((1,2),(0,1))) # comp, nao (orb), ncas (dm2)
-        tmp_dv = np.einsum ('cpu,pu->cp', tmp_dv, mo_cas) # comp, ncas
+        tmp_dv = np.einsum ('cpu,pu->cp', tmp_dv, mo_cas) # comp, ncas (it's ok to not vectorize this b/c the quadrature grid is gone)
         if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1)
         dv2 -= tmp_dv # XC response
+        tmp_dv = None
         t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx'.format (ia), *t1)
 
+        coords = mask = rho = Pi = eot = vot = ao = aoval = moval_occ = moval_core = moval_cas = None
 
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
