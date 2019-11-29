@@ -11,6 +11,8 @@ from scipy import linalg
 import numpy as np
 import time, gc
 
+BLKSIZE = gen_grid.BLKSIZE
+
 def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None, max_memory=None):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the Hellman-Feynman gradient
         terms of MC-PDFT. From the differentiated Hamiltonian matrix elements, only the core and
@@ -116,71 +118,76 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         mask = gen_grid.make_mask (mol, coords)
         # For the xc potential derivative, I need every grid point in the entire molecule regardless of atmlist. (Because that's about orbitals.)
         # For the grid and weight derivatives, I only need the gridpoints that are in atmlst
+        # Estimated memory footprint: [2*ndao*(nao+nocc) + 3*ndpi*ncas^2 + O(ncas^0,nao^0,nocc^0)]*ngrids
         gc.collect ()
         ngrids = coords.shape[0]
         ndao = (1,4,10,19)[ot.dens_deriv+1]
         ndrho = (1,4,10,19)[ot.dens_deriv]
         ndpi = (1,4)[ot.Pi_deriv]
-        ao_mem = nao * ngrids * ndao * 8 / 1e6
-        remaining_mem = max_memory - current_memory ()[0]
-        logger.info (mc, 'PDFT gradient memory note: atom {} has {} grid points; estimated ao usage = {:.1f} of {:.1f} remaining MB'.format (ia, ngrids, ao_mem, remaining_mem))
-        ao = ot._numint.eval_ao (mol, coords, deriv=ot.dens_deriv+1, non0tab=mask) # Need 1st derivs for LDA, 2nd for GGA, etc.
-        if ot.xctype == 'LDA': # Might confuse the rho and Pi generators if I don't slice this down
-            aoval = ao[:1]
-        elif ot.xctype == 'GGA':
-            aoval = ao[:4]
-        rho = np.asarray ([m[0] (0, aoval, mask, ot.xctype) for m in make_rho])
-        Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
+        ncols = 1.05 * (ndao*(nao+nocc) + max(ndao*nao,3*ndpi*ncas*ncas))
+        remaining_floats = (max_memory - current_memory ()[0]) * 1e6 / 8
+        blksize = int (remaining_floats / (ncols*BLKSIZE)) * BLKSIZE
+        blksize = max (BLKSIZE, min (blksize, ngrids, BLKSIZE*1200))
+        for ip0 in range (0, ngrids, blksize):
+            ip1 = min (ngrids, ip0+blksize)
+            logger.info (mc, 'PDFT gradient atom {} slice {}-{} of {} total'.format (ia, ip0, ip1, ngrids))
+            ao = ot._numint.eval_ao (mol, coords[ip0:ip1], deriv=ot.dens_deriv+1, non0tab=mask) # Need 1st derivs for LDA, 2nd for GGA, etc.
+            if ot.xctype == 'LDA': # Might confuse the rho and Pi generators if I don't slice this down
+                aoval = ao[:1]
+            elif ot.xctype == 'GGA':
+                aoval = ao[:4]
+            rho = np.asarray ([m[0] (0, aoval, mask, ot.xctype) for m in make_rho])
+            Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
 
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t1)
-        moval_occ = np.tensordot (aoval, mo_occ, axes=1)
-        moval_core = moval_occ[...,:ncore]
-        moval_cas = moval_occ[...,ncore:]
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t1)
-        eot, vrho, vot = ot.eval_ot (rho, Pi, weights=w0)
-        ndpi, ngrids = vot.shape 
-        puvx_mem = 2 * ndpi * ngrids * ncas * ncas * 8 / 1e6
-        remaining_mem = max_memory - current_memory ()[0]
-        logger.info (mc, 'PDFT gradient memory note: atom {} has {} grid points; estimated puvx usage = {:.1f} of {:.1f} remaining MB'.format (ia, ngrids, puvx_mem, remaining_mem))
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t1)
+            moval_occ = np.tensordot (aoval, mo_occ, axes=1)
+            moval_core = moval_occ[...,:ncore]
+            moval_cas = moval_occ[...,ncore:]
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t1)
+            eot, vrho, vot = ot.eval_ot (rho, Pi, weights=w0[ip0:ip1])
+            puvx_mem = 2 * ndpi * (ip1-ip0) * ncas * ncas * 8 / 1e6
+            remaining_mem = max_memory - current_memory ()[0]
+            logger.info (mc, 'PDFT gradient memory note: working on {} grid points; estimated puvx usage = {:.1f} of {:.1f} remaining MB'.format ((ip1-ip0), puvx_mem, remaining_mem))
 
-        # Weight response
-        de_wgt += np.tensordot (eot, w1[atmlst], axes=(0,2))
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} weight response'.format (ia), *t1)
+            # Weight response
+            de_wgt += np.tensordot (eot, w1[atmlst,...,ip0:ip1], axes=(0,2))
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} weight response'.format (ia), *t1)
 
-        # Find the atoms that are a part of the atomlist - grid correction shouldn't be added if they aren't there
-        # The last stuff to vectorize is in get_veff_2body!
-        k = full_atmlst[ia]
+            # Find the atoms that are a part of the atomlist - grid correction shouldn't be added if they aren't there
+            # The last stuff to vectorize is in get_veff_2body!
+            k = full_atmlst[ia]
 
-        # Vpq + Vpqii
-        vrho = _contract_vot_rho (vot, make_rho_c [0] (0, aoval, mask, ot.xctype), add_vrho=vrho)
-        tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho) for ix in idx], axis=0)
-        if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm1.T, axes=2) # Grid response
-        dv1 -= tmp_dv # XC response
-        vrho = tmp_dv = None
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqii'.format (ia), *t1)
+            # Vpq + Vpqii
+            vrho = _contract_vot_rho (vot, make_rho_c [0] (0, aoval, mask, ot.xctype), add_vrho=vrho)
+            tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0[ip0:ip1], kern=vrho) for ix in idx], axis=0)
+            if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm1.T, axes=2) # Grid response
+            dv1 -= tmp_dv # XC response
+            vrho = tmp_dv = None
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqii'.format (ia), *t1)
 
-        # Viiuv * Duv
-        vrho_a = _contract_vot_rho (vot, make_rho_a [0] (0, aoval, mask, ot.xctype))
-        tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho_a) for ix in idx], axis=0)
-        if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm_core.T, axes=2) # Grid response
-        dv1_a -= tmp_dv # XC response
-        vrho_a = tmp_dv = None
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Viiuv'.format (ia), *t1)
+            # Viiuv * Duv
+            vrho_a = _contract_vot_rho (vot, make_rho_a [0] (0, aoval, mask, ot.xctype))
+            tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0[ip0:ip1], kern=vrho_a) for ix in idx], axis=0)
+            if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm_core.T, axes=2) # Grid response
+            dv1_a -= tmp_dv # XC response
+            vrho_a = tmp_dv = None
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Viiuv'.format (ia), *t1)
 
-        # Vpuvx
-        tmp_dv = ot.get_veff_2body_kl (rho, Pi, moval_cas, moval_cas, w0, symm=True, kern=vot) # ndpi,ngrids,ncas*(ncas+1)//2
-        tmp_dv = np.tensordot (tmp_dv, casdm2_pack, axes=(-1,-1)) # ndpi, ngrids, ncas, ncas
-        tmp_dv[0] = (tmp_dv[:ndpi] * moval_cas[:ndpi,:,None,:]).sum (0) # Chain and product rule
-        tmp_dv[1:ndpi] *= moval_cas[0,:,None,:] # Chain and product rule
-        tmp_dv = tmp_dv.sum (-1) # ndpi, ngrids, ncas
-        tmp_dv = np.tensordot (ao[idx[:,:ndpi]], tmp_dv, axes=((1,2),(0,1))) # comp, nao (orb), ncas (dm2)
-        tmp_dv = np.einsum ('cpu,pu->cp', tmp_dv, mo_cas) # comp, ncas (it's ok to not vectorize this b/c the quadrature grid is gone)
-        if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1)
-        dv2 -= tmp_dv # XC response
-        tmp_dv = None
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx'.format (ia), *t1)
+            # Vpuvx
+            tmp_dv = ot.get_veff_2body_kl (rho, Pi, moval_cas, moval_cas, w0[ip0:ip1], symm=True, kern=vot) # ndpi,ngrids,ncas*(ncas+1)//2
+            tmp_dv = np.tensordot (tmp_dv, casdm2_pack, axes=(-1,-1)) # ndpi, ngrids, ncas, ncas
+            tmp_dv[0] = (tmp_dv[:ndpi] * moval_cas[:ndpi,:,None,:]).sum (0) # Chain and product rule
+            tmp_dv[1:ndpi] *= moval_cas[0,:,None,:] # Chain and product rule
+            tmp_dv = tmp_dv.sum (-1) # ndpi, ngrids, ncas
+            tmp_dv = np.tensordot (ao[idx[:,:ndpi]], tmp_dv, axes=((1,2),(0,1))) # comp, nao (orb), ncas (dm2)
+            tmp_dv = np.einsum ('cpu,pu->cp', tmp_dv, mo_cas) # comp, ncas (it's ok to not vectorize this b/c the quadrature grid is gone)
+            if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1)
+            dv2 -= tmp_dv # XC response
+            tmp_dv = None
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx'.format (ia), *t1)
 
-        coords = mask = rho = Pi = eot = vot = ao = aoval = moval_occ = moval_core = moval_cas = None
+            rho = Pi = eot = vot = ao = aoval = moval_occ = moval_core = moval_cas = None
+            gc.collect ()
 
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]

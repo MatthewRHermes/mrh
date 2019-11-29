@@ -71,6 +71,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
     # Therefore I abandon the use of np.einsum
     # ijkl, ai, aj, ak, al -> a
     grid2amo = np.tensordot (ao, ao2amo, axes=1) #np.einsum ('ijk,kl->ijl', ao, ao2amo)
+    t0 = logger.timer (ot, 'otpd ao2mo', *t0)
     gridkern = np.zeros (grid2amo.shape + (grid2amo.shape[2],), dtype=grid2amo.dtype)
     gridkern[0] = grid2amo[0,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]  # r_0ai,  r_0aj  -> r_0aij
     wrk0 = np.tensordot (gridkern[0], twoCDM_amo, axes=2)                  # r_0aij, P_ijkl -> P_0akl

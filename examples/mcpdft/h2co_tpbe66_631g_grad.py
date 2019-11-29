@@ -7,6 +7,8 @@ from scipy import linalg
 import numpy as np
 import math
 
+logger.TIMER_LEVEL = logger.INFO
+
 # Energy calculation
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
 O -0.676110  0.000000  0.000000

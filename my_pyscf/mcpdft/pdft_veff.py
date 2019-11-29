@@ -295,6 +295,8 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, aosym='s4', kern=None, vao=None
     nderiv = vao.shape[0]
     ao2 = _contract_ao1_ao2 (ao[0], ao[1], nderiv, symm=ij_symm)
     veff = np.tensordot (ao2, vao, axes=((0,1),(0,1)))
+    # ^ This last operation is super duper rate-limiting
+    # On my workstation, it won't go parallel for some reason even if I turn it into a np.dot call!
 
     return veff 
 
