@@ -26,13 +26,13 @@ class _ERIS(object):
         else:
             raise NotImplementedError ("method={} for veff2".format (self.method))
 
-    def _accumulate (self, ot, rho, Pi, mo, weight, rho_c, vPi):
+    def _accumulate (self, ot, rho, Pi, mo, weight, rho_c, rho_a, vPi):
         if self.method == 'incore':
-            self._accumulate_incore (ot, rho, Pi, mo, weight, rho_c, vPi) 
+            self._accumulate_incore (ot, rho, Pi, mo, weight, rho_c, rho_a, vPi) 
         else:
             raise NotImplementedError ("method={} for veff2".format (self.method))
 
-    def _accumulate_incore (self, ot, rho, Pi, mo, weight, rho_c, vPi):
+    def _accumulate_incore (self, ot, rho, Pi, mo, weight, rho_c, rho_a, vPi):
         #self._eri += ot.get_veff_2body (rho, Pi, mo, weight, aosym='s4', kern=vPi)
         ncore, ncas = self.ncore, self.ncas
         nocc = ncore + ncas
@@ -42,8 +42,7 @@ class _ERIS(object):
         self.vhf_c += ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_c)
         if self.paaa_only:
             # 1/2 v_aiuv D_uv -> F_ai, F_ia needs to be in here since it would otherwise be calculated using ppaa and papa
-            rho_a = rho.sum (0) - rho_c
-            vrho_a = _contract_vot_rho (vPi, rho_a)
+            vrho_a = _contract_vot_rho (vPi, rho_a.sum (0))
             vhf_a = ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_a) 
             vhf_a[ncore:nocc,:] = vhf_a[:,ncore:nocc] = 0.0
             self.vhf_c += vhf_a
@@ -123,7 +122,10 @@ def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, he
 
     t0 = (time.clock (), time.time ())
     dm_core = mo_core @ mo_core.T * 2
+    casdm1a = oneCDMs[0] - dm_core/2
+    casdm1b = oneCDMs[1] - dm_core/2
     make_rho_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)
+    make_rho_a = tuple (ni._gen_rho_evaluator (ot.mol, dm, hermi) for dm in (casdm1a, casdm1b))
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
     gc.collect ()
     remaining_floats = (max_memory - current_memory ()[0]) * 1e6 / 8
@@ -140,6 +142,7 @@ def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, he
         current_memory ()[0], max_memory, pdft_blksize, ngrids))
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory, blksize=pdft_blksize):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
+        rho_a = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho_a])
         rho_c = make_rho_c [0] (0, ao, mask, xctype)
         t0 = logger.timer (ot, 'untransformed densities (core and total)', *t0)
         Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, dens_deriv)
@@ -150,7 +153,7 @@ def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, he
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
         ao[:,:,:] = np.tensordot (ao, mo_coeff, axes=1)
         t0 = logger.timer (ot, 'ao2mo grid points', *t0)
-        veff2._accumulate (ot, rho, Pi, ao, weight, rho_c, vPi)
+        veff2._accumulate (ot, rho, Pi, ao, weight, rho_c, rho_a, vPi)
         t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
     veff2._finalize ()
     t0 = logger.timer (ot, 'Finalizing 2-body effective potential calculation', *t0)
