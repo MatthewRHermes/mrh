@@ -70,11 +70,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
 
     # Second cumulant and derivatives (chain rule! product rule!)
     # dot, tensordot, and sum are hugely faster than np.einsum 
-    # but they're not actually multithreaded most of the time
-    # The very first line below multithreads for mysterious reasons but almost nothing else does
-    #if not path.isfile ('ao_doesthread.npy'):
-    #    np.save ('ao_doesthread', ao)
-    #    np.save ('ao2mo_doesthread', ao2amo)
+    # but whether or when they actually multithread is unclear
     grid2amo = np.tensordot (ao, ao2amo, axes=1) #np.einsum ('ijk,kl->ijl', ao, ao2amo)
     t0 = logger.timer (ot, 'otpd ao2mo', *t0)
     gridkern = np.zeros (grid2amo.shape + (grid2amo.shape[2],), dtype=grid2amo.dtype)

@@ -4,6 +4,7 @@ from pyscf.lib import einsum as einsum_threads
 from pyscf.dft.gen_grid import BLKSIZE
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from scipy import linalg
+from os import path
 import numpy as np
 import time, gc
 
@@ -41,16 +42,15 @@ class _ERIS(object):
         vrho_c = _contract_vot_rho (vPi, rho_c)
         self.vhf_c += ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_c)
         if self.paaa_only:
-            # 1/2 v_aiuv D_uv -> F_ai, F_ia needs to be in here since it would otherwise be calculated using ppaa and papa
+            # 1/2 v_aiuv D_ii D_uv = v^ai_uv D_uv -> F_ai, F_ia needs to be in here since it would otherwise be calculated using ppaa and papa
             vrho_a = _contract_vot_rho (vPi, rho_a.sum (0))
             vhf_a = ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_a) 
             vhf_a[ncore:nocc,:] = vhf_a[:,ncore:nocc] = 0.0
             self.vhf_c += vhf_a
         # ppaa
         if self.paaa_only:
-            paaa = ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo_cas, mo_cas], weight, aosym='s2kl', kern=vPi)
-            paaa = unpack_tril (paaa.reshape (-1, ncas * (ncas + 1) // 2)).reshape (-1, ncas, ncas, ncas)
-            paaa_test = ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)[:,:,ncore:nocc,:]
+            paaa = ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo_cas, mo_cas], weight, aosym='s1', kern=vPi)
+            #paaa = unpack_tril (paaa.reshape (-1, ncas * (ncas + 1) // 2)).reshape (-1, ncas, ncas, ncas)
             self.papa[:,:,ncore:nocc,:] += paaa
             self.papa[ncore:nocc,:,:,:] += paaa.transpose (2,3,0,1)
             self.papa[ncore:nocc,:,ncore:nocc,:] -= paaa[ncore:nocc,:,:,:]
@@ -307,11 +307,13 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, aosym='s4', kern=None, vao=None
     if vao is None: vao = get_veff_2body_kl (otfnal, rho, Pi, ao[2], ao[3], weight, symm=kl_symm, kern=kern)
     nderiv = vao.shape[0]
     ao2 = _contract_ao1_ao2 (ao[0], ao[1], nderiv, symm=ij_symm)
-    #np.save ('ao2_doesntthread', ao2)
-    #np.save ('vao_doesntthread', vao)
     veff = np.tensordot (ao2, vao, axes=((0,1),(0,1)))
     #veff = einsum_threads ('dgij,dgkl->ijkl', ao2, vao)
-    # ^ using numpy_helper.einsum instead of tensordot enables multithreading at a serial cost
+    # ^ When I save these arrays to disk and load them, np.tensordot appears to multi-thread successfully
+    # However, it appears not to multithread here, in this context
+    # numpy_helper.einsum is definitely always multithreaded but has a serial overhead
+    # Even when I was doing papa it was reporting 15 seconds clock and 15 seconds wall with np.tensordot
+    # So it's hard for me to believe that this is a clock bug
 
     return veff 
 
