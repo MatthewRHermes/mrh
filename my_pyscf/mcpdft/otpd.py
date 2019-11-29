@@ -1,10 +1,12 @@
 import numpy as np
 import time
 from scipy import linalg
-from pyscf.lib import logger, numpy_helper
+from pyscf.lib import logger
+from pyscf.lib import einsum as einsum_threads
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2RDM_from_2CDM
 from mrh.util.basis import represent_operator_in_basis
 from itertools import product
+from os import path
 
 def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
     r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*g_ijkl / 2
@@ -67,9 +69,12 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
     t0 = logger.timer (ot, 'otpd first cumulant', *t0)
 
     # Second cumulant and derivatives (chain rule! product rule!)
-    # np.multiply, np.sum, and np.tensordot are linked against compiled libraries with multithreading, but np.einsum is not
-    # Therefore I abandon the use of np.einsum
-    # ijkl, ai, aj, ak, al -> a
+    # dot, tensordot, and sum are hugely faster than np.einsum 
+    # but they're not actually multithreaded most of the time
+    # The very first line below multithreads for mysterious reasons but almost nothing else does
+    #if not path.isfile ('ao_doesthread.npy'):
+    #    np.save ('ao_doesthread', ao)
+    #    np.save ('ao2mo_doesthread', ao2amo)
     grid2amo = np.tensordot (ao, ao2amo, axes=1) #np.einsum ('ijk,kl->ijl', ao, ao2amo)
     t0 = logger.timer (ot, 'otpd ao2mo', *t0)
     gridkern = np.zeros (grid2amo.shape + (grid2amo.shape[2],), dtype=grid2amo.dtype)

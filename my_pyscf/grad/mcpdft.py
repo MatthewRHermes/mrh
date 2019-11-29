@@ -309,7 +309,7 @@ class Gradients (sacasscf.Gradients):
         ci = kwargs['ci'] if 'ci' in kwargs else self.base.ci
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
         kwargs['ci'] = ci
-        kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True)
+        kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True, paaa_only=True)
         return super().kernel (**kwargs)
 
     def project_Aop (self, Aop, ci, iroot):

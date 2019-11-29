@@ -1,5 +1,6 @@
 from pyscf import ao2mo
 from pyscf.lib import logger, pack_tril, unpack_tril, current_memory
+from pyscf.lib import einsum as einsum_threads
 from pyscf.dft.gen_grid import BLKSIZE
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from scipy import linalg
@@ -33,18 +34,27 @@ class _ERIS(object):
 
     def _accumulate_incore (self, ot, rho, Pi, mo, weight, rho_c, vPi):
         #self._eri += ot.get_veff_2body (rho, Pi, mo, weight, aosym='s4', kern=vPi)
-        # vhf_c
-        vrho_c = _contract_vot_rho (vPi, rho_c)
-        self.vhf_c += ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_c)
-        # ppaa
         ncore, ncas = self.ncore, self.ncas
         nocc = ncore + ncas
         mo_cas = mo[:,:,ncore:nocc]
+        # vhf_c
+        vrho_c = _contract_vot_rho (vPi, rho_c)
+        self.vhf_c += ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_c)
         if self.paaa_only:
-            paaa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo_cas, mo_cas], weight, aosym='s2kl', kern=vPi)
-            paaa = lib.unpack_tril (paaa.reshape (-1, ncas * (ncas + 1) // 2)).reshape (-1, ncas, ncas, ncas)
+            # 1/2 v_aiuv D_uv -> F_ai, F_ia needs to be in here since it would otherwise be calculated using ppaa and papa
+            rho_a = rho.sum (0) - rho_c
+            vrho_a = _contract_vot_rho (vPi, rho_a)
+            vhf_a = ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_a) 
+            vhf_a[ncore:nocc,:] = vhf_a[:,ncore:nocc] = 0.0
+            self.vhf_c += vhf_a
+        # ppaa
+        if self.paaa_only:
+            paaa = ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo_cas, mo_cas], weight, aosym='s2kl', kern=vPi)
+            paaa = unpack_tril (paaa.reshape (-1, ncas * (ncas + 1) // 2)).reshape (-1, ncas, ncas, ncas)
+            paaa_test = ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)[:,:,ncore:nocc,:]
             self.papa[:,:,ncore:nocc,:] += paaa
             self.papa[ncore:nocc,:,:,:] += paaa.transpose (2,3,0,1)
+            self.papa[ncore:nocc,:,ncore:nocc,:] -= paaa[ncore:nocc,:,:,:]
         else:
             self.papa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)
         # j_pc
@@ -294,9 +304,11 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, aosym='s4', kern=None, vao=None
     if vao is None: vao = get_veff_2body_kl (otfnal, rho, Pi, ao[2], ao[3], weight, symm=kl_symm, kern=kern)
     nderiv = vao.shape[0]
     ao2 = _contract_ao1_ao2 (ao[0], ao[1], nderiv, symm=ij_symm)
+    #np.save ('ao2_doesntthread', ao2)
+    #np.save ('vao_doesntthread', vao)
     veff = np.tensordot (ao2, vao, axes=((0,1),(0,1)))
-    # ^ This last operation is super duper rate-limiting
-    # On my workstation, it won't go parallel for some reason even if I turn it into a np.dot call!
+    #veff = einsum_threads ('dgij,dgkl->ijkl', ao2, vao)
+    # ^ using numpy_helper.einsum instead of tensordot enables multithreading at a serial cost
 
     return veff 
 
