@@ -9,7 +9,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import spin_square0
 from pyscf import lib, ao2mo
 import numpy as np
-import copy
+import copy, time, gc
 from functools import reduce
 from scipy import linalg
 
@@ -24,6 +24,7 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
 
     # dmo = smoT.dao.smo
     # dao = mo.dmo.moT
+    t0 = (time.clock (), time.time ())
 
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
@@ -135,8 +136,11 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     de = np.zeros((len(atmlst),3))
 
     max_memory = mc.max_memory - lib.current_memory()[0]
-    blksize = int(max_memory*.9e6/8 / ((aoslices[:,3]-aoslices[:,2]).max()*nao_pair))
+    blksize = int(max_memory*.9e6/8 / (4*(aoslices[:,3]-aoslices[:,2]).max()*nao_pair))
+    # MRH: 3 components of eri array and 1 density matrix array: FOUR arrays of this size are required!
     blksize = min(nao, max(2, blksize))
+    lib.logger.info (mc, 'SA-CASSCF Lorb_dot_dgorb memory remaining for eri manipulation: {} MB; using blocksize = {}'.format (max_memory, blksize)) 
+    t0 = lib.logger.timer (mc, 'SA-CASSCF Lorb_dot_dgorb 1-electron part', *t0)
 
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
@@ -153,11 +157,14 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
             dm2_ao += lib.einsum('ijw,pi,qj->pqw', dm2buf, moL_cas[p0:p1], mo_cas[q0:q1])
             dm2_ao += lib.einsum('ijw,pi,qj->pqw', dm2buf, mo_cas[p0:p1], moL_cas[q0:q1])
             shls_slice = (shl0,shl1,b0,b1,0,mol.nbas,0,mol.nbas)
+            gc.collect ()
             eri1 = mol.intor('int2e_ip1', comp=3, aosym='s2kl',
                              shls_slice=shls_slice).reshape(3,p1-p0,nf,nao_pair)
             # MRH: I still don't understand why there is a minus here!
             de_eri[k] -= np.einsum('xijw,ijw->x', eri1, dm2_ao) * 2
-            eri1 = None
+            eri1 = dm2_ao = None
+            gc.collect ()
+            t0 = lib.logger.timer (mc, 'SA-CASSCF Lorb_dot_dgorb atom {} ({},{}|{})'.format (ia, p1-p0, nf, nao_pair), *t0)
         # MRH: core-core and core-active 2RDM terms
         de_eri[k] += np.einsum('xij,ij->x', vhf1c[:,p0:p1], dm1L[p0:p1]) * 2
         de_eri[k] += np.einsum('xij,ij->x', vhf1cL[:,p0:p1], dm1[p0:p1]) * 2
@@ -191,6 +198,7 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     if mc.frozen is not None:
         raise NotImplementedError
 
+    t0 = (time.clock (), time.time ())
     mol = mc.mol
     ncore = mc.ncore
     ncas = mc.ncas
@@ -257,8 +265,11 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     de = np.zeros((len(atmlst),3))
 
     max_memory = mc.max_memory - lib.current_memory()[0]
-    blksize = int(max_memory*.9e6/8 / ((aoslices[:,3]-aoslices[:,2]).max()*nao_pair))
+    blksize = int(max_memory*.9e6/8 / (4*(aoslices[:,3]-aoslices[:,2]).max()*nao_pair))
+    # MRH: 3 components of eri array and 1 density matrix array: FOUR arrays of this size are required!
     blksize = min(nao, max(2, blksize))
+    lib.logger.info (mc, 'SA-CASSCF Lci_dot_dgci memory remaining for eri manipulation: {} MB; using blocksize = {}'.format (max_memory, blksize)) 
+    t0 = lib.logger.timer (mc, 'SA-CASSCF Lci_dot_dgci 1-electron part', *t0)
 
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
@@ -272,10 +283,13 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
             q0, q1 = q1, q1 + nf
             dm2_ao = lib.einsum('ijw,pi,qj->pqw', dm2buf, mo_cas[p0:p1], mo_cas[q0:q1])
             shls_slice = (shl0,shl1,b0,b1,0,mol.nbas,0,mol.nbas)
+            gc.collect ()
             eri1 = mol.intor('int2e_ip1', comp=3, aosym='s2kl',
                              shls_slice=shls_slice).reshape(3,p1-p0,nf,nao_pair)
             de_eri[k] -= np.einsum('xijw,ijw->x', eri1, dm2_ao) * 2
-            eri1 = None
+            eri1 = dm2_ao = None
+            gc.collect ()
+            t0 = lib.logger.timer (mc, 'SA-CASSCF Lci_dot_dgci atom {} ({},{}|{})'.format (ia, p1-p0, nf, nao_pair), *t0)
         # MRH: dm1 -> dm_cas in the line below. Also eliminate core-core terms
         de_eri[k] += np.einsum('xij,ij->x', vhf1c[:,p0:p1], dm_cas[p0:p1]) * 2
         de_eri[k] += np.einsum('xij,ij->x', vhf1a[:,p0:p1], dm_core[p0:p1]) * 2
@@ -470,18 +484,21 @@ class Gradients (lagrange.Gradients):
         ci = np.ravel (ci).reshape (self.nroots, -1)
 
         # CI part
+        t0 = (time.clock (), time.time ())
         de_Lci = Lci_dot_dgci_dx (Lci, self.weights, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, eris=eris, verbose=verbose)
-        lib.logger.info(self, '--------------- %s gradient Lagrange CI response ---------------',
+        lib.logger.info (self, '--------------- %s gradient Lagrange CI response ---------------',
                     self.base.__class__.__name__)
         if verbose >= lib.logger.INFO: rhf_grad._write(self, self.mol, de_Lci, atmlst)
-        lib.logger.info(self, '----------------------------------------------------------------')
+        lib.logger.info (self, '----------------------------------------------------------------')
+        t0 = lib.logger.timer (self, '{} gradient Lagrange CI response'.format (self.base.__class__.__name__), *t0)
 
         # Orb part
         de_Lorb = Lorb_dot_dgorb_dx (Lorb, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, eris=eris, verbose=verbose)
-        lib.logger.info(self, '--------------- %s gradient Lagrange orbital response ---------------',
+        lib.logger.info (self, '--------------- %s gradient Lagrange orbital response ---------------',
                     self.base.__class__.__name__)
         if verbose >= lib.logger.INFO: rhf_grad._write(self, self.mol, de_Lorb, atmlst)
-        lib.logger.info(self, '----------------------------------------------------------------------')
+        lib.logger.info (self, '----------------------------------------------------------------------')
+        t0 = lib.logger.timer (self, '{} gradient Lagrange orbital response'.format (self.base.__class__.__name__), *t0)
 
         return de_Lci + de_Lorb
     
