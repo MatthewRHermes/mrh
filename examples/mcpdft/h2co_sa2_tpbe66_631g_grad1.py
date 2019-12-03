@@ -19,9 +19,12 @@ mc.fcisolver = csf_solver (mol, smult = 1)
 mc.state_average_([0.5,0.5])
 mc.kernel ()
 
+# mc.nuc_grad_method for MC-PDFT objects already points to a state-specific solver
+# Just select which root!
+mc.nuc_grad_iroot = 1
+
 # Gradient calculation
 mc_grad = mc.nuc_grad_method ()
-mc_grad.iroot = 1
 dE = mc_grad.kernel ()
 print ("SA(2) tPBE(6,6)/6-31g second root gradient of formaldehyde at the CASSCF(6,6)/6-31g geometry:")
 for ix, row in enumerate (dE):

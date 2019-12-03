@@ -21,6 +21,14 @@ def bond_angle (carts, i, j, k):
     rkj = carts[k] - carts[j]
     res = max (min (1.0, np.dot (rij, rkj) / linalg.norm (rij) / linalg.norm (rkj)), -1.0)
     return math.acos (res) * 180 / math.pi
+def out_of_plane_angle (carts, i, j, k, l):
+    eji = carts[j] - carts[i]
+    eki = carts[k] - carts[i]
+    eli = carts[l] - carts[i]
+    eji /= linalg.norm (eji)
+    eki /= linalg.norm (eki)
+    eli /= linalg.norm (eli)
+    return -math.asin (np.dot (eji, (np.cross (eki, eli) / math.sin (bond_angle (carts, j, i, k) * math.pi / 180)))) * 180 / math.pi
 def h2co_geom_analysis (carts):
     print ("rCO = {:.4f} Angstrom".format (bond_length (carts, 1, 0)))
     print ("rCH1 = {:.4f} Angstrom".format (bond_length (carts, 2, 0)))
@@ -28,6 +36,7 @@ def h2co_geom_analysis (carts):
     print ("tOCH1 = {:.2f} degrees".format (bond_angle (carts, 1, 0, 2)))
     print ("tOCH2 = {:.2f} degrees".format (bond_angle (carts, 1, 0, 3)))
     print ("tHCH = {:.2f} degrees".format (bond_angle (carts, 3, 0, 2)))
+    print ("eta = {:.2f} degrees".format (out_of_plane_angle (carts, 0, 2, 3, 1)))
 
 # Energy calculation at initial geometry
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000

@@ -30,7 +30,7 @@ dE = mc_grad.kernel ()
 print ("SA(2) CASSCF(6,6)/6-31g second root gradient of formaldehyde at the CASSCF(6,6)/6-31g geometry:")
 for ix, row in enumerate (dE):
     print ("{:1s} {:11.8f} {:11.8f} {:11.8f}".format (mol.atom_pure_symbol (ix), *row))
-print ("OpenMolcas's opinions (note that there is no way to use the same grid in PySCF and OpenMolcas)")
+print ("OpenMolcas's opinions")
 print (("Analytical implementation:\n"
 "C -0.25595802 -0.00000000 -0.00000000\n"
 "O  0.23667902  0.00000000  0.00000000\n"

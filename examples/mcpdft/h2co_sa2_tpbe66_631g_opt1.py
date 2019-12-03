@@ -21,6 +21,14 @@ def bond_angle (carts, i, j, k):
     rkj = carts[k] - carts[j]
     res = max (min (1.0, np.dot (rij, rkj) / linalg.norm (rij) / linalg.norm (rkj)), -1.0)
     return math.acos (res) * 180 / math.pi
+def out_of_plane_angle (carts, i, j, k, l):
+    eji = carts[j] - carts[i]
+    eki = carts[k] - carts[i]
+    eli = carts[l] - carts[i]
+    eji /= linalg.norm (eji)
+    eki /= linalg.norm (eki)
+    eli /= linalg.norm (eli)
+    return -math.asin (np.dot (eji, (np.cross (eki, eli) / math.sin (bond_angle (carts, j, i, k) * math.pi / 180)))) * 180 / math.pi
 def h2co_geom_analysis (carts):
     print ("rCO = {:.4f} Angstrom".format (bond_length (carts, 1, 0)))
     print ("rCH1 = {:.4f} Angstrom".format (bond_length (carts, 2, 0)))
@@ -28,6 +36,7 @@ def h2co_geom_analysis (carts):
     print ("tOCH1 = {:.2f} degrees".format (bond_angle (carts, 1, 0, 2)))
     print ("tOCH2 = {:.2f} degrees".format (bond_angle (carts, 1, 0, 3)))
     print ("tHCH = {:.2f} degrees".format (bond_angle (carts, 3, 0, 2)))
+    print ("eta = {:.2f} degrees".format (out_of_plane_angle (carts, 0, 2, 3, 1)))
 
 # Energy calculation at initial geometry
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
@@ -41,20 +50,23 @@ mc.fcisolver = csf_solver (mol, smult = 1)
 mc.state_average_([0.5,0.5])
 mc.kernel ()
 
+# mc.nuc_grad_method for MC-PDFT objects already points to a state-specific solver
+# Just select which root!
+mc.nuc_grad_iroot = 1
+
 # Geometry optimization (my_call is optional; it just prints the geometry in internal coordinates every iteration)
 print ("Initial geometry: ")
 h2co_geom_analysis (mol.atom_coords () * BOHR)
 print ("Initial energy: {:.8e}".format (mc.e_tot[1]))
-mc.nuc_grad_iroot = 1
 def my_call (env):
     carts = env['mol'].atom_coords () * BOHR
     h2co_geom_analysis (carts)
 conv_params = {
     'convergence_energy': 1e-6,  # Eh
-    'convergence_grms': 3e-5,    # Eh/Bohr
-    'convergence_gmax': 4.5e-5,  # Eh/Bohr
-    'convergence_drms': 1.2e-5,  # Angstrom
-    'convergence_dmax': 1.8e-5,  # Angstrom
+    'convergence_grms': 5.0e-5,  # Eh/Bohr
+    'convergence_gmax': 7.5e-5,  # Eh/Bohr
+    'convergence_drms': 1.0e-4,  # Angstrom
+    'convergence_dmax': 1.5e-4,  # Angstrom
 }
 conv, mol_eq = optimize (mc, callback=my_call, **conv_params)
 molcas_geom = np.asarray ([[-0.000000, 0.000000,-0.054704],
