@@ -969,6 +969,8 @@ class fragment_object:
             self.impham_get_jk = my_jk
             vj, vk_c = self.impham_get_jk (self.ints.mol, self.get_oneRDM_imp ())
             vk_s = self.impham_get_jk (self.ints.mol, self.get_oneSDM_imp ())[1]
+            cdm = self.get_oneRDM_imp ()
+            sdm = self.get_oneSDM_imp ()
             sie = self.E2_cum
             sie += np.tensordot (vj, cdm) / 2
             sie -= np.tensordot (vk_c, cdm) / 4
