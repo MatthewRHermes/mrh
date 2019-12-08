@@ -3,7 +3,8 @@ from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from pyscf.grad.mp2 import _shell_prange
 from pyscf.mcscf import mc1step, mc1step_symm, newton_casscf
-from pyscf.grad import casscf as casscf_grad
+#from pyscf.grad import casscf as casscf_grad
+from mrh.my_pyscf.grad import casscf as casscf_grad
 from pyscf.grad import rhf as rhf_grad
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import spin_square0
