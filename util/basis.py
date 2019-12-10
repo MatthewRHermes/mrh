@@ -254,15 +254,36 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_sy
         assert (c2p.shape[0] == cOc.shape[0] and c2p.shape[0] == cOc.shape[1]), "when specifying an across_operator, it's dimensions need to be the same as the external basis"
     get_labels = (not (inner_symmetry is None)) or (not (outer_symmetry[0] is None)) or (not (outer_symmetry[1] is None))
 
-    rets = matrix_svd_control_options (cOc, lspace=c2p, rspace=c2q, full_matrices=full_matrices,
-        symmetry=inner_symmetry,
-        lspace_symmetry=outer_symmetry[0],
-        rspace_symmetry=outer_symmetry[1],
-        strong_symm=enforce_symmetry,
-        sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
-
-    c2l, svals, c2r = rets[:3]
-    if get_labels: llab, rlab = rets[3:]
+    try:
+        rets = matrix_svd_control_options (cOc, lspace=c2p, rspace=c2q, full_matrices=full_matrices,
+            symmetry=inner_symmetry,
+            lspace_symmetry=outer_symmetry[0],
+            rspace_symmetry=outer_symmetry[1],
+            strong_symm=enforce_symmetry,
+            sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
+        c2l, svals, c2r = rets[:3]
+        if get_labels: llab, rlab = rets[3:]
+    except linalg.LinAlgError as e:
+        print ("Warning: LinAlgError in get_overlapping_states; attempting eigenvalue decomposition kludge!")
+        proj_l = c2p @ c2p.conjugate ().T
+        proj_l = proj_l @ cOc @ proj_l
+        r_symmetry = symmetry if outer_symmetry[1] is None else outer_symmetry[1]
+        rets = matrix_eigen_control_options (proj_l, subspace=c2q, symmetry=r_symmetry, strong_symm=enforce_symmetry, sort_vecs=-1,
+            only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
+        evals_r, c2r = rets[:2]
+        if get_labels: rlab = rets[2]
+        proj_r = c2q @ c2q.conjugate ().T
+        proj_r = proj_r @ cOc @ proj_r
+        l_symmetry = symmetry if outer_symmetry[0] is None else outer_symmetry[i]
+        rets = matrix_eigen_control_options (proj_l, subspace=c2p, symmetry=l_symmetry, strong_symm=enforce_symmetry, sort_vecs=-1,
+            only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
+        evals_l, c2l = rets[:2]
+        if get_labels: llab = rets[2]
+        print ("These pairs of eigenvalues should be equal and all positive:")
+        for el, er in zip (evals_l, evals_r):
+            print (el, er)
+        svals = np.sqrt ((evals_l + evals_r)/2)
+        assert (np.isrealobj (svals)), e
 
     # Truncate the basis if requested
     max_nlvecs = max_nlvecs or c2l.shape[1]
