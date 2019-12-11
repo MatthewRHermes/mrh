@@ -268,7 +268,7 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_sy
         proj_l = c2p @ c2p.conjugate ().T
         if isinstance (cOc, np.ndarray):
             proj_l = proj_l @ cOc @ proj_l
-        r_symmetry = symmetry if outer_symmetry[1] is None else outer_symmetry[1]
+        r_symmetry = inner_symmetry if outer_symmetry[1] is None else outer_symmetry[1]
         rets = matrix_eigen_control_options (proj_l, subspace=c2q, symmetry=r_symmetry, strong_symm=enforce_symmetry, sort_vecs=-1,
             only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
         evals_r, c2r = rets[:2]
@@ -276,15 +276,18 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_sy
         proj_r = c2q @ c2q.conjugate ().T
         if isinstance (cOc, np.ndarray):
             proj_r = proj_r @ cOc @ proj_r
-        l_symmetry = symmetry if outer_symmetry[0] is None else outer_symmetry[i]
-        rets = matrix_eigen_control_options (proj_l, subspace=c2p, symmetry=l_symmetry, strong_symm=enforce_symmetry, sort_vecs=-1,
+        l_symmetry = inner_symmetry if outer_symmetry[0] is None else outer_symmetry[0]
+        rets = matrix_eigen_control_options (proj_r, subspace=c2p, symmetry=l_symmetry, strong_symm=enforce_symmetry, sort_vecs=-1,
             only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
         evals_l, c2l = rets[:2]
         if get_labels: llab = rets[2]
         print ("These pairs of eigenvalues should be equal and all positive:")
         for el, er in zip (evals_l, evals_r):
             print (el, er)
-        svals = np.sqrt ((evals_l + evals_r)/2)
+        print ("Warning: setting negative eigenvalues to zero!")
+        svals = (evals_l + evals_r)/2
+        svals[svals<0] = 0
+        svals = np.sqrt (svals)
         assert (np.isrealobj (svals)), e
 
     # Truncate the basis if requested
