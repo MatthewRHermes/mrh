@@ -263,32 +263,45 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_sy
             sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
         c2l, svals, c2r = rets[:3]
         if get_labels: llab, rlab = rets[3:]
+        raise (linalg.LinAlgError)
     except linalg.LinAlgError as e:
-        print ("Warning: LinAlgError in get_overlapping_states; attempting eigenvalue decomposition kludge!")
+        print ("LinAlgError in SVD! Analyzing...")
+        if isinstance (cOc, np.ndarray):
+            print ("Shape of across_operator: {}".format (cOc.shape))
+            print ("Any NANs in across_operator? {}".format (np.count_nonzero (np.isnan (cOc))))
+            print ("Any INFs in across_operator? {}".format (np.count_nonzero (np.isinf (cOc))))
+            print ("min/max across_operator: {}/{}".format (np.amin (cOc), np.amax (cOc)))
+        print ("Shape of bra_basis: {}".format (c2p.shape))
+        print ("Any NANs in bra_basis? {}".format (np.count_nonzero (np.isnan (c2p))))
+        print ("Any INFs in bra_basis? {}".format (np.count_nonzero (np.isinf (c2p))))
+        print ("min/max bra_basis: {}/{}".format (np.amin (c2p), np.amax (c2p)))
+        print ("Shape of ket_basis: {}".format (c2p.shape))
+        print ("Any NANs in ket_basis? {}".format (np.count_nonzero (np.isnan (c2p))))
+        print ("Any INFs in ket_basis? {}".format (np.count_nonzero (np.isinf (c2p))))
+        print ("min/max ket_basis: {}/{}".format (np.amin (c2p), np.amax (c2p)))
         proj_l = c2p @ c2p.conjugate ().T
         if isinstance (cOc, np.ndarray):
-            proj_l = proj_l @ cOc @ proj_l
+            proj_l = cOc @ proj_l @ cOc
         r_symmetry = inner_symmetry if outer_symmetry[1] is None else outer_symmetry[1]
         rets = matrix_eigen_control_options (proj_l, subspace=c2q, symmetry=r_symmetry, strong_symm=enforce_symmetry, sort_vecs=-1,
-            only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
+            only_nonzero_vals=False, num_zero_atol=num_zero_atol)
         evals_r, c2r = rets[:2]
         if get_labels: rlab = rets[2]
         proj_r = c2q @ c2q.conjugate ().T
         if isinstance (cOc, np.ndarray):
-            proj_r = proj_r @ cOc @ proj_r
+            proj_r = cOc @ proj_r @ cOc 
         l_symmetry = inner_symmetry if outer_symmetry[0] is None else outer_symmetry[0]
         rets = matrix_eigen_control_options (proj_r, subspace=c2p, symmetry=l_symmetry, strong_symm=enforce_symmetry, sort_vecs=-1,
-            only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
+            only_nonzero_vals=False, num_zero_atol=num_zero_atol)
         evals_l, c2l = rets[:2]
         if get_labels: llab = rets[2]
         print ("These pairs of eigenvalues should be equal and all positive:")
         for el, er in zip (evals_l, evals_r):
             print (el, er)
-        print ("Warning: setting negative eigenvalues to zero!")
-        svals = (evals_l + evals_r)/2
-        svals[svals<0] = 0
-        svals = np.sqrt (svals)
-        assert (np.isrealobj (svals)), e
+        mlen = min (len (evals_l), len (evals_r))
+        if len (evals_l) > mlen: print ("More left-hand eigenvalues: {}".format (evals_l[mlen:]))
+        if len (evals_r) > mlen: print ("More left-hand eigenvalues: {}".format (evals_r[mlen:]))
+        raise (e)
 
     # Truncate the basis if requested
     max_nlvecs = max_nlvecs or c2l.shape[1]
