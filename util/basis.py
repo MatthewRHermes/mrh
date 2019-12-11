@@ -263,7 +263,6 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_sy
             sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
         c2l, svals, c2r = rets[:3]
         if get_labels: llab, rlab = rets[3:]
-        raise (linalg.LinAlgError)
     except linalg.LinAlgError as e:
         print ("LinAlgError in SVD! Analyzing...")
         if isinstance (cOc, np.ndarray):
