@@ -363,7 +363,10 @@ class Gradients (lagrange.Gradients):
         self.eris = None
         self.weights = np.array ([1])
         self.e_avg = mc.e_tot
-        self.e_states = np.asarray (mc.e_states)
+        try:
+            self.e_states = np.asarray (mc.e_states)
+        except AttributeError as e:
+            self.e_states = np.asarray (mc.e_tot)
         if hasattr (mc, 'weights'):
             self.weights = np.asarray (mc.weights)
             self.e_avg = (self.weights * self.e_states).sum ()
@@ -403,7 +406,11 @@ class Gradients (lagrange.Gradients):
         if eris is None:
             eris = self.eris = self.base.ao2mo (mo)
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
-        if e_states is None: e_states = self.e_states = np.asarray (self.base.e_states)
+        if e_states is None:
+            try:
+                e_states = self.e_states = np.asarray (self.base.e_states)
+            except AttributeError as e:
+                e_states = self.e_states = np.asarray (self.base.e_tot)
         if e_avg is None:
             if hasattr (self.base, 'weights'):
                 self.weights = np.asarray (self.base.weights)

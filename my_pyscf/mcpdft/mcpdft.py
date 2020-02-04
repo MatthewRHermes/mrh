@@ -182,11 +182,10 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)
             if isinstance (self, StateAverageMCSCFSolver):
                 epdft = [kernel (self, self.otfnal, root=ix) for ix in range (len (self.e_states))]
-                self.e_mcscf_states = self.e_states
+                self.e_mcscf = self.e_states
                 self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
-                self.e_ot_states = [e_ot for e_tot, e_ot in epdft]
+                self.e_ot = [e_ot for e_tot, e_ot in epdft]
                 self.e_tot = np.dot (self.e_states, self.weights)
-                self.e_ot = np.dot (self.e_ot_states, self.weights)
             else:
                 self.e_tot, self.e_ot = kernel (self, self.otfnal)
             return self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
