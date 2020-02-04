@@ -58,7 +58,7 @@ mc.nuc_grad_iroot = 0
 # Geometry optimization (my_call is optional; it just prints the geometry in internal coordinates every iteration)
 print ("Initial geometry: ")
 h2co_geom_analysis (mol.atom_coords () * BOHR)
-print ("Initial energy: {:.8e}".format (mc.e_tot[0]))
+print ("Initial energy: {:.8e}".format (mc.e_states[0]))
 def my_call (env):
     carts = env['mol'].atom_coords () * BOHR
     h2co_geom_analysis (carts)

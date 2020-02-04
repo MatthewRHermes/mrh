@@ -342,7 +342,8 @@ def as_scanner(mcscf_grad):
             mc_scanner = self.base
             e_tot = mc_scanner(mol)
             if hasattr (mc_scanner, 'e_mcscf'): self.e_mcscf = mc_scanner.e_mcscf
-            if isinstance (e_tot, (list, tuple, np.ndarray)): e_tot = e_tot[self.iroot]
+            #if isinstance (e_tot, (list, tuple, np.ndarray)): e_tot = e_tot[self.iroot]
+            if hasattr (mc_scanner, 'e_states'): e_tot = mc_scanner.e_states[self.iroot]
             self.mol = mol
             de = self.kernel(**kwargs)
             return e_tot, de
@@ -362,7 +363,7 @@ class Gradients (lagrange.Gradients):
         self.eris = None
         self.weights = np.array ([1])
         self.e_avg = mc.e_tot
-        self.e_states = np.asarray (mc.e_tot)
+        self.e_states = np.asarray (mc.e_states)
         if hasattr (mc, 'weights'):
             self.weights = np.asarray (mc.weights)
             self.e_avg = (self.weights * self.e_states).sum ()
@@ -402,7 +403,7 @@ class Gradients (lagrange.Gradients):
         if eris is None:
             eris = self.eris = self.base.ao2mo (mo)
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
-        if e_states is None: e_states = self.e_states = np.asarray (self.base.e_tot)
+        if e_states is None: e_states = self.e_states = np.asarray (self.base.e_states)
         if e_avg is None:
             if hasattr (self.base, 'weights'):
                 self.weights = np.asarray (self.base.weights)
