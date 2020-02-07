@@ -262,8 +262,8 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
     h1e_ab = unpack_h1e_ab (h1e)
     h1e_a = np.ascontiguousarray(h1e_ab[0])
     h1e_b = np.ascontiguousarray(h1e_ab[1])
-    g2e_aa = ao2mo.restore(1, eri, norb)
-    g2e_ab = g2e_bb = g2e_aa
+    g2e = ao2mo.restore(1, eri, norb)
+    g2e_ab = g2e_bb = g2e_aa = g2e
     t0 = lib.logger.timer (fci, "csf.pspace: index manipulation", *t0)
     libfci.FCIpspace_h0tril_uhf(h0.ctypes.data_as(ctypes.c_void_p),
                                 h1e_a.ctypes.data_as(ctypes.c_void_p),
