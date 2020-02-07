@@ -189,11 +189,11 @@ def solve (frag, guess_1RDM, chempot_imp):
     # Guess CI vector
     if len (frag.imp_cache) != 2 and frag.ci_as is not None:
         loc2amo_guess = np.dot (frag.loc2imp, imp2mo[:,norbs_cmo:norbs_occ])
-        gOc = np.dot (loc2amo_guess.conjugate ().T, frag.ci_as_orb)
-        umat_g, svals, umat_c = matrix_svd_control_options (gOc, sort_vecs=-1, only_nonzero_vals=True)
+        metric = np.arange (CASorb) + 1
+        gOc = np.dot (loc2amo_guess.conjugate ().T, (frag.ci_as_orb * metric[None,:]))
+        umat_g, svals, umat_c = matrix_svd_control_options (gOc, sort_vecs=1, only_nonzero_vals=True)
         if (svals.size == norbs_amo):
-            print ("Loading ci guess despite shifted impurity orbitals; singular value sum: {}".format (np.sum (svals)))
-            print ("Svals: {}".format (svals)) 
+            print ("Loading ci guess despite shifted impurity orbitals; singular value error sum: {}".format (np.sum (svals - metric)))
             imp2mo[:,norbs_cmo:norbs_occ] = np.dot (imp2mo[:,norbs_cmo:norbs_occ], umat_g)
             ci0 = transform_ci_for_orbital_rotation (frag.ci_as, CASorb, CASe, umat_c)
         else:
@@ -214,7 +214,6 @@ def solve (frag, guess_1RDM, chempot_imp):
         err_orth = measure_basis_nonorthonormality (imp2mo)
         print ("Initial symmetry error after cleanup = {}".format (err_symm))
         print ("Initial orthonormality error after cleanup = {}".format (err_orth))
-    print ("Did I come out with a nontrivial umat?\n{}".format (umat))
     if ci0 is not None: ci0 = transform_ci_for_orbital_rotation (ci0, CASorb, CASe, umat)
         
 
