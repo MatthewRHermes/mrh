@@ -90,6 +90,19 @@ def solve (frag, guess_1RDM, chempot_imp):
         mf.with_df._cderi = frag.impham_CDERI
     else:
         mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
+        eri_nnan = np.count_nonzero (np.isnan (mf._eri))
+        eri_ninf = np.count_nonzero (np.isinf (mf._eri))
+        try: # debug stuff
+            assert ((eri_nnan == 0) and (eri_ninf == 0))
+        except AssertionError as e:
+            lib.logger.note (mf, 'mf._eri has {} infs and {} nans (norb = {}; shape = {})'.format (eri_ninf, eri_nnan, frag.norbs_imp, mf._eri.shape))
+            lib.logger.note (mf, 'type (frag.impham_TEI) = {}'.format (type (frag.impham_TEI)))
+            lib.logger.note (mf, 'frag.impham_TEI.shape = {}'.format (frag.impham_TEI.shape))
+            lib.logger.note (mf, 'frag.impham_TEI.dtype = {}'.format (frag.impham_TEI.dtype))
+            tei_nnan = np.count_nonzero (np.isnan (frag.impham_TEI))
+            tei_ninf = np.count_nonzero (np.isinf (frag.impham_TEI))
+            lib.logger.note (mf, 'mf._eri has {} infs and {} nans'.format (tei_ninf, tei_nnan))
+            raise (e)
     mf = fix_my_RHF_for_nonsinglet_env (mf, sign_MS * frag.impham_OEI_S)
     mf.__dict__.update (frag.mf_attr)
     if guess_orbs_av: mf.max_cycle = 2
