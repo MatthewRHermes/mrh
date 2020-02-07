@@ -218,6 +218,21 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_de
     #print ("    Cistring: {}, {}".format (tstr, wstr))
     return hdiag_csf
 
+# Exploring g2e nan bug; remove later?
+def _debug_g2e (fci, g2e, eri, norb):
+    g2e_ninf = np.count_nonzero (np.isinf (g2e))
+    g2e_nnan = np.count_nonzero (np.isnan (g2e))
+    if (g2e_ninf == 0) and (g2e_nnan == 0): return
+    lib.logger.note (fci, 'ERROR: g2e has {} infs and {} nans (norb = {}; shape = {})'.format (g2e_ninf, g2e_nnan, norb, g2e.shape))
+    lib.logger.note (fci, 'type (eri) = {}'.format (type (eri)))
+    lib.logger.note (fci, 'eri.shape = {}'.format (eri.shape))
+    lib.logger.note (fci, 'eri.dtype = {}'.format (eri.dtype))
+    eri_ninf = np.count_nonzero (np.isinf (eri))
+    eri_nnan = np.count_nonzero (np.isnan (eri))
+    lib.logger.note (fci, 'eri has {} infs and {} nans'.format (eri_ninf, eri_nnan))
+    raise ValueError ('g2e has {} infs and {} nans (norb = {}; shape = {})'.format (g2e_ninf, g2e_nnan, norb, g2e.shape))
+    return
+
 def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdiag_csf=None, csd_mask=None,
     econf_det_mask=None, econf_csf_mask=None, npsp=200):
     ''' Note that getting pspace for npsp CSFs is substantially more costly than getting it for npsp determinants,
@@ -264,6 +279,7 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
     h1e_b = np.ascontiguousarray(h1e_ab[1])
     g2e = ao2mo.restore(1, eri, norb)
     g2e_ab = g2e_bb = g2e_aa = g2e
+    _debug_g2e (fci, g2e, eri, norb) # Exploring g2e nan bug; remove later?
     t0 = lib.logger.timer (fci, "csf.pspace: index manipulation", *t0)
     libfci.FCIpspace_h0tril_uhf(h0.ctypes.data_as(ctypes.c_void_p),
                                 h1e_a.ctypes.data_as(ctypes.c_void_p),
