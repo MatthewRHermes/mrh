@@ -90,19 +90,6 @@ def solve (frag, guess_1RDM, chempot_imp):
         mf.with_df._cderi = frag.impham_CDERI
     else:
         mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
-        eri_nnan = np.count_nonzero (np.isnan (mf._eri))
-        eri_ninf = np.count_nonzero (np.isinf (mf._eri))
-        try: # debug nans
-            assert ((eri_nnan == 0) and (eri_ninf == 0))
-        except AssertionError as e:
-            lib.logger.note (mf, 'mf._eri has {} infs and {} nans (norb = {}; shape = {})'.format (eri_ninf, eri_nnan, frag.norbs_imp, mf._eri.shape))
-            lib.logger.note (mf, 'type (frag.impham_TEI) = {}'.format (type (frag.impham_TEI)))
-            lib.logger.note (mf, 'frag.impham_TEI.shape = {}'.format (frag.impham_TEI.shape))
-            lib.logger.note (mf, 'frag.impham_TEI.dtype = {}'.format (frag.impham_TEI.dtype))
-            tei_nnan = np.count_nonzero (np.isnan (frag.impham_TEI))
-            tei_ninf = np.count_nonzero (np.isinf (frag.impham_TEI))
-            lib.logger.note (mf, 'mf._eri has {} infs and {} nans'.format (tei_ninf, tei_nnan))
-            raise (e)
     mf = fix_my_RHF_for_nonsinglet_env (mf, sign_MS * frag.impham_OEI_S)
     mf.__dict__.update (frag.mf_attr)
     if guess_orbs_av: mf.max_cycle = 2
@@ -171,7 +158,6 @@ def solve (frag, guess_1RDM, chempot_imp):
     fock_imp = mf.get_fock (dm=dm_imp)
     if len (frag.imp_cache) == 2:
         imp2mo, ci0 = frag.imp_cache
-        assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
         print ("Taking molecular orbitals and ci vector from cache")
     elif frag.norbs_as > 0:
         nelec_imp_guess = int (round (np.trace (frag.oneRDMas_loc)))
@@ -181,19 +167,16 @@ def solve (frag, guess_1RDM, chempot_imp):
     elif frag.loc2amo_guess is not None:
         print ("Projecting stored amos (frag.loc2amo_guess) onto the impurity basis (no amo dm available)")
         imp2mo, my_occ = project_amo_manually (frag.loc2imp, frag.loc2amo_guess, fock_imp, norbs_cmo, dm=None)
-        assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
         frag.loc2amo_guess = None
     else:
         dm_imp = np.asarray (mf.make_rdm1 ())
         while dm_imp.ndim > 2:
             dm_imp = dm_imp.sum (0)
         imp2mo = mf.mo_coeff
-        assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
         fock_imp = mf.get_fock (dm=dm_imp)
         fock_mo = represent_operator_in_basis (fock_imp, imp2mo)
         _, evecs = matrix_eigen_control_options (fock_mo, sort_vecs=1)
         imp2mo = imp2mo @ evecs
-        assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
         my_occ = ((dm_imp @ imp2mo) * imp2mo).sum (0)
         print ("No stored amos; using mean-field canonical MOs as initial guess")
     # Guess orbital processing
@@ -201,7 +184,6 @@ def solve (frag, guess_1RDM, chempot_imp):
         mo = reduce (np.dot, (frag.ints.ao2loc, frag.loc2imp, imp2mo))
         mo = frag.cas_guess_callback (frag.ints.mol, mc, mo)
         imp2mo = reduce (np.dot, (frag.imp2loc, frag.ints.ao2loc.conjugate ().T, frag.ints.ao_ovlp, mo))
-        assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
         frag.cas_guess_callback = None
 
     # Guess CI vector
@@ -211,8 +193,8 @@ def solve (frag, guess_1RDM, chempot_imp):
         umat_g, svals, umat_c = matrix_svd_control_options (gOc, sort_vecs=-1, only_nonzero_vals=True)
         if (svals.size == norbs_amo):
             print ("Loading ci guess despite shifted impurity orbitals; singular value sum: {}".format (np.sum (svals)))
+            print ("Svals: {}".format (svals)) 
             imp2mo[:,norbs_cmo:norbs_occ] = np.dot (imp2mo[:,norbs_cmo:norbs_occ], umat_g)
-            assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
             ci0 = transform_ci_for_orbital_rotation (frag.ci_as, CASorb, CASe, umat_c)
         else:
             print ("Discarding stored ci guess because orbitals are too different (missing {} nonzero svals)".format (norbs_amo-svals.size))
@@ -220,15 +202,11 @@ def solve (frag, guess_1RDM, chempot_imp):
     # Symmetry align if possible
     imp2unac = frag.align_imporbs_symm (np.append (imp2mo[:,:norbs_cmo], imp2mo[:,norbs_occ:], axis=1), sorting_metric=fock_imp,
         sort_vecs=1, orbital_type='guess unactive', mol=mol)[0]
-    assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
     imp2mo[:,:norbs_cmo] = imp2unac[:,:norbs_cmo]
-    assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
     imp2mo[:,norbs_occ:] = imp2unac[:,norbs_cmo:]
-    assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
     #imp2mo[:,:norbs_cmo] = frag.align_imporbs_symm (imp2mo[:,:norbs_cmo], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess inactive', mol=mol)[0]
     imp2mo[:,norbs_cmo:norbs_occ], umat = frag.align_imporbs_symm (imp2mo[:,norbs_cmo:norbs_occ], sorting_metric=fock_imp,
         sort_vecs=1, orbital_type='guess active', mol=mol)
-    assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
     #imp2mo[:,norbs_occ:] = frag.align_imporbs_symm (imp2mo[:,norbs_occ:], sorting_metric=fock_imp, sort_vecs=1, orbital_type='guess external', mol=mol)[0]
     if frag.enforce_symmetry:
         imp2mo = cleanup_subspace_symmetry (imp2mo, mol.symm_orb)
@@ -236,6 +214,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         err_orth = measure_basis_nonorthonormality (imp2mo)
         print ("Initial symmetry error after cleanup = {}".format (err_symm))
         print ("Initial orthonormality error after cleanup = {}".format (err_orth))
+    print ("Did I come out with a nontrivial umat?\n{}".format (umat))
     if ci0 is not None: ci0 = transform_ci_for_orbital_rotation (ci0, CASorb, CASe, umat)
         
 
@@ -255,10 +234,8 @@ def solve (frag, guess_1RDM, chempot_imp):
         frag.frozen_orb_list = []
 
     if frag.enforce_symmetry: imp2mo = lib.tag_array (imp2mo, orbsym=label_orb_symm (mol, mol.irrep_id, mol.symm_orb, imp2mo, s=mf.get_ovlp (), check=False))
-    assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
 
     t_start = time.time()
-    assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
     E_CASSCF = mc.kernel(imp2mo, ci0)[0]
     if (not mc.converged) and np.all (np.abs (frag.impham_OEI_S) < 1e-8):
         mc = mc.newton ()
@@ -266,7 +243,6 @@ def solve (frag, guess_1RDM, chempot_imp):
     if not mc.converged:
         print ('Assuming ci vector is poisoned; discarding...')
         imp2mo = mc.mo_coeff.copy ()
-        assert (np.count_nonzero (np.isnan (imp2mo)) == 0), np.count_nonzero (np.isnan (imp2mo))
         mc = mcscf.CASSCF(mf, CASorb, CASe)
         smult = abs_2S + 1 if frag.target_S is not None else (frag.nelec_imp % 2) + 1
         mc.fcisolver = csf_solver (mf.mol, smult)
