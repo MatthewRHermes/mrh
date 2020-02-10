@@ -73,6 +73,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         mol.symm_orb   = get_subspace_symmetry_blocks (frag.loc2imp, frag.loc2symm)
         mol.irrep_name = frag.ir_names
         mol.irrep_id   = frag.ir_ids
+    mol.max_memory = frag.ints.max_memory
     mol.build ()
     if frag.mol_stdout is None:
         frag.mol_stdout = mol.stdout
