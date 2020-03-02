@@ -42,14 +42,15 @@ def kernel (mc, ot, root=-1):
     dm1s = np.asarray (mc_1root.make_rdm1s ())
     adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (mc_1root.ci, mc.ncas, mc.nelecas), axis=0)
     adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
-    if ot.verbose >= logger.DEBUG:
+    spin = abs(mc.nelecas[0] - mc.nelecas[1])
+    spin = abs(mc.nelecas[0] - mc.nelecas[1])
+    omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
+    if ot.verbose >= logger.DEBUG or abs (hyb) > 1e-10:
         adm2s = get_2CDMs_from_2RDMs (mc_1root.fcisolver.make_rdm12s (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
         adm2s_ss = adm2s[0] + adm2s[2]
         adm2s_os = adm2s[1]
-    spin = abs(mc.nelecas[0] - mc.nelecas[1])
     t0 = logger.timer (ot, 'rdms', *t0)
 
-    omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
     Vnn = mc._scf.energy_nuc ()
     h = mc._scf.get_hcore ()
     dm1 = dm1s[0] + dm1s[1]
@@ -71,7 +72,8 @@ def kernel (mc, ot, root=-1):
     logger.debug (ot, 'Te + Vne = %s', Te_Vne)
     logger.debug (ot, 'E_j = %s', E_j)
     logger.debug (ot, 'E_x = %s', E_x)
-    if ot.verbose >= logger.DEBUG:
+    E_c = 0
+    if ot.verbose >= logger.DEBUG or abs (hyb) > 1e-10:
         # g_pqrs * l_pqrs / 2
         #if ot.verbose >= logger.DEBUG:
         aeri = ao2mo.restore (1, mc.get_h2eff (mc.mo_coeff), mc.ncas)
@@ -87,12 +89,12 @@ def kernel (mc, ot, root=-1):
             e_err = mc_1root.e_tot - (Vnn + Te_Vne + E_j + E_x + E_c)
             assert (abs (e_err) < 1e-8), e_err
     if abs (hyb) > 1e-10:
-        logger.debug (ot, 'Adding %s * %s CAS exchange to E_ot', hyb, E_x)
+        logger.debug (ot, 'Adding %s * %s CAS exchange-correlation to E_ot', hyb, (E_x + E_c))
     t0 = logger.timer (ot, 'Vnn, Te, Vne, E_j, E_x', *t0)
 
     E_ot = get_E_ot (ot, dm1s, adm2, amo)
     t0 = logger.timer (ot, 'E_ot', *t0)
-    e_tot = Vnn + Te_Vne + E_j + (hyb * E_x) + E_ot
+    e_tot = Vnn + Te_Vne + E_j + (hyb * (E_x+E_c)) + E_ot
     logger.info (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
 
     return e_tot, E_ot
