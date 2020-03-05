@@ -413,7 +413,7 @@ def hybrid_2c_coeff (ni, xc_code, spin=0):
     ''' Wrapper to the xc_code hybrid coefficient parser to return the exchange and correlation components of the hybrid coefficent separately '''
 
     # For all prebuilt and exchange-only functionals, hyb_c = 0
-    if not re.search (',', xc_code): return [_NumInt.hybrid_coeff(ni, xc_code[1:], spin=0), 0]
+    if not re.search (',', xc_code): return [_NumInt.hybrid_coeff(ni, xc_code, spin=0), 0]
 
     # All factors of 'HF' are summed by default. Therefore just run the same code for the exchange and correlation parts of the string separately
     x_code, c_code = xc_code.split (',')
