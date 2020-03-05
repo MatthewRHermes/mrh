@@ -45,7 +45,8 @@ def kernel (mc, ot, root=-1):
     spin = abs(mc.nelecas[0] - mc.nelecas[1])
     spin = abs(mc.nelecas[0] - mc.nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
-    if ot.verbose >= logger.DEBUG or abs (hyb) > 1e-10:
+    hyb_x, hyb_c = hyb
+    if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
         adm2s = get_2CDMs_from_2RDMs (mc_1root.fcisolver.make_rdm12s (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
         adm2s_ss = adm2s[0] + adm2s[2]
         adm2s_os = adm2s[1]
@@ -54,7 +55,7 @@ def kernel (mc, ot, root=-1):
     Vnn = mc._scf.energy_nuc ()
     h = mc._scf.get_hcore ()
     dm1 = dm1s[0] + dm1s[1]
-    if ot.verbose >= logger.DEBUG or abs (hyb) > 1e-10:
+    if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10:
         vj, vk = mc._scf.get_jk (dm=dm1s)
         vj = vj[0] + vj[1]
     else:
@@ -63,7 +64,7 @@ def kernel (mc, ot, root=-1):
     # (vj_a + vj_b) * (dm_a + dm_b)
     E_j = np.tensordot (vj, dm1) / 2  
     # (vk_a * dm_a) + (vk_b * dm_b) Mind the difference!
-    if ot.verbose >= logger.DEBUG or abs (hyb) > 1e-10:
+    if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10:
         E_x = -(np.tensordot (vk[0], dm1s[0]) + np.tensordot (vk[1], dm1s[1])) / 2
     else:
         E_x = 0
@@ -73,7 +74,7 @@ def kernel (mc, ot, root=-1):
     logger.debug (ot, 'E_j = %s', E_j)
     logger.debug (ot, 'E_x = %s', E_x)
     E_c = 0
-    if ot.verbose >= logger.DEBUG or abs (hyb) > 1e-10:
+    if ot.verbose >= logger.DEBUG or abs (hyb_c) > 1e-10:
         # g_pqrs * l_pqrs / 2
         #if ot.verbose >= logger.DEBUG:
         aeri = ao2mo.restore (1, mc.get_h2eff (mc.mo_coeff), mc.ncas)
@@ -88,13 +89,13 @@ def kernel (mc, ot, root=-1):
         if isinstance (mc_1root.e_tot, float):
             e_err = mc_1root.e_tot - (Vnn + Te_Vne + E_j + E_x + E_c)
             assert (abs (e_err) < 1e-8), e_err
-    if abs (hyb) > 1e-10:
-        logger.debug (ot, 'Adding %s * %s CAS exchange-correlation to E_ot', hyb, (E_x + E_c))
+    if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
+        logger.debug (ot, 'Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
     t0 = logger.timer (ot, 'Vnn, Te, Vne, E_j, E_x', *t0)
 
     E_ot = get_E_ot (ot, dm1s, adm2, amo)
     t0 = logger.timer (ot, 'E_ot', *t0)
-    e_tot = Vnn + Te_Vne + E_j + (hyb * (E_x+E_c)) + E_ot
+    e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) + E_ot
     logger.info (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
 
     return e_tot, E_ot
