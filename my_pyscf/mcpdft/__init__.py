@@ -1,5 +1,6 @@
 # Lahh dee dah
 from mrh.my_pyscf.mcpdft.mcpdft import get_mcpdft_child_class
+from mrh.my_pyscf.mcpdft.otfnal import make_hybrid_fnal as hyb
 from pyscf import mcscf
 
 def CASSCFPDFT (mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None, **kwargs):

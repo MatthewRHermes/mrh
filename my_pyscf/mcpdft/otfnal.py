@@ -422,7 +422,7 @@ def hybrid_2c_coeff (ni, xc_code, spin=0):
     hyb_c = _NumInt.hybrid_coeff(ni, c_code, spin=0) if len (c_code) else 0
     return [hyb_x, hyb_c]
 
-def make_hybrid_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None, fnal_c = None):
+def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None, fnal_c = None):
     ''' Convenience function to write the xc_code corresponding to a functional of the type
 
         Exc = hyb_x*E_x[Psi] + fnal_x*E_x[rho] + hyb_c*E_c[Psi] + fnal_c*E_c[rho]
@@ -473,6 +473,44 @@ def make_hybrid_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None, fnal_c = Non
         c_code = c_code + ' + {:.2f}*HF'.format (hyb_c)
 
     return x_code + ',' + c_code
+
+def make_hybrid_fnal (xc_code, hyb, hyb_type = 0):
+    ''' Convenience function to write "hybrid" xc functional in terms of only one parameter
+
+        Args:
+            xc_code : string
+                As used in pyscf.dft.libxc. If it contains no comma, it is assumed to be a predefined functional
+                with separately-defined exchange and correlation parts: 'xc_code' -> 'xc_code,xc_code'. 
+                Currently cannot parse mixed functionals.
+            hyb : float
+                A single parameter defining the "hybridization" which is handled in various ways according to hyb_type
+
+        Kwargs:
+            hyb_type : int or string
+                The type of hybrid functionals to construct. Current options are:
+                - 0 or 'translation': Hybrid fnal is 'hyb*HF + (1-hyb)*x_code, hyb*HF + c_code'.
+                    Based on the idea that 'exact exchange' of the translated functional
+                    corresponds to exchange plus correlation energy of the underlying wave function.
+                - 1 or 'average': Hybrid fnal is 'hyb*HF + (1-hyb)*x_code, hyb*HF + (1-hyb)*c_code'.
+                    Based on the idea that hyb = 1 recovers the wave function energy itself.
+                - 2 or 'diagram': Hybrid fnal is 'hyb*HF + (1-hyb)*x_code, c_code'.
+                    Based on the idea that the exchange energy of the wave function somehow can
+                    be meaningfully separated from the correlation energy.
+    '''
+
+    HYB_TYPE_CODE = {'translation': 0,
+                     'average':     1,
+                     'diagram':     2}
+    if isinstance (hyb_type, str): hyb_type = HYB_TYPE_CODE[hyb_type]
+
+    if hyb_type == 0:
+        return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=hyb, fnal_x=(1-hyb), fnal_c=1)
+    elif hyb_type == 1:
+        return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=hyb, fnal_x=(1-hyb), fnal_c=(1-hyb))
+    elif hyb_type == 2:
+        return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=0, fnal_x=(1-hyb), fnal_c=1)
+    else:
+        raise RuntimeError ('hybrid type undefined')
 
 __t_doc__ = "For 'translated' functionals, otxc string = 't' + xc string\n"
 __ft_doc__ = "For 'fully translated' functionals, otxc string = 'ft' + xc string\n"

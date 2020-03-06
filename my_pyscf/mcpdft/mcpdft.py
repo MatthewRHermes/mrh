@@ -1,7 +1,7 @@
 import numpy as np
 import time
 from scipy import linalg
-from pyscf import dft, ao2mo, fci, mcscf
+from pyscf import gto, dft, ao2mo, fci, mcscf, lib
 from pyscf.lib import logger, temporary_env
 from pyscf.mcscf import mc_ao2mo
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
@@ -96,7 +96,7 @@ def kernel (mc, ot, root=-1):
     E_ot = get_E_ot (ot, dm1s, adm2, amo)
     t0 = logger.timer (ot, 'E_ot', *t0)
     e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) + E_ot
-    logger.info (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
+    logger.note (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
 
     return e_tot, E_ot
 
@@ -146,7 +146,8 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
         t0 = logger.timer (ot, 'on-top exchange-correlation energy calculation', *t0) 
 
     return E_ot
-    
+
+
 def get_mcpdft_child_class (mc, ot, **kwargs):
 
     class PDFT (mc.__class__):
@@ -176,8 +177,11 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
                 self.otfnal = my_ot
             self.grids = self.otfnal.grids
             if grids_level is not None:
-                self.grids.level = kwargs['grids_level']
+                self.grids.level = grids_level
                 assert (self.grids.level == self.otfnal.grids.level)
+            # Make sure verbose and stdout don't accidentally change (i.e., in scanner mode)
+            self.otfnal.verbose = self.verbose
+            self.otfnal.stdout = self.stdout
             
         def kernel (self, mo=None, ci=None, **kwargs):
             # Hafta reset the grids so that geometry optimization works!
@@ -264,7 +268,6 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
 
         def nuc_grad_method (self):
             return Gradients (self)
-
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     pdft.__dict__.update (mc.__dict__)
