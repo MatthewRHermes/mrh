@@ -496,11 +496,13 @@ def make_hybrid_fnal (xc_code, hyb, hyb_type = 0):
                 - 2 or 'diagram': Hybrid fnal is 'hyb*HF + (1-hyb)*x_code, c_code'.
                     Based on the idea that the exchange energy of the wave function somehow can
                     be meaningfully separated from the correlation energy.
+                - 3 or 'lambda': as in arXiv:1911.11162v1. Based on existing 'double-hybrid' functionals.
     '''
 
     HYB_TYPE_CODE = {'translation': 0,
                      'average':     1,
-                     'diagram':     2}
+                     'diagram':     2,
+                     'lambda':      3}
     if isinstance (hyb_type, str): hyb_type = HYB_TYPE_CODE[hyb_type]
 
     if hyb_type == 0:
@@ -509,6 +511,8 @@ def make_hybrid_fnal (xc_code, hyb, hyb_type = 0):
         return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=hyb, fnal_x=(1-hyb), fnal_c=(1-hyb))
     elif hyb_type == 2:
         return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=0, fnal_x=(1-hyb), fnal_c=1)
+    elif hyb_type == 3:
+        return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=hyb, fnal_x=(1-hyb), fnal_c=(1-(hyb*hyb)))
     else:
         raise RuntimeError ('hybrid type undefined')
 
