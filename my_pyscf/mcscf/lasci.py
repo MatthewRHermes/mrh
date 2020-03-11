@@ -493,7 +493,7 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
         occ, umat[i:j,i:j] = las._eig (lasdm1, 0, 0, orbsym_i)
         idx = np.argsort (occ)[::-1]
         umat[i:j,i:j] = umat[i:j,i:j][:,idx]
-        if orbsym_i is not None: orbsym[ncore:][i:j] = orbsym[ncore:][i:j][idx]
+        if orbsym_i is not None: orbsym[i:j] = orbsym[i:j][idx]
         # CI solver enforced convention na >= nb
         nel = nelecas
         if nelecas[1] > nelecas[0]:

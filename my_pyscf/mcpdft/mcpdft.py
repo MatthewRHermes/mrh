@@ -269,6 +269,14 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
         def nuc_grad_method (self):
             return Gradients (self)
 
+        @property
+        def otxc (self):
+            return self.otfnal.otxc
+
+        @otxc.setter
+        def otxc (self, x):
+            self._init_ot_grids (x, grids_level=self.otfnal.grids.level)
+
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     pdft.__dict__.update (mc.__dict__)
     return pdft
