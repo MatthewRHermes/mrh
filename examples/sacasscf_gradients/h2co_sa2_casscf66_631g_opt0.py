@@ -50,11 +50,6 @@ mc.fcisolver = csf_solver (mol, smult = 1)
 mc.state_average_([0.5,0.5])
 mc.kernel ()
 
-# Replace PySCF's default gradient calculator, which can only consider the state-average energy, with mrh's state-specific one
-# Pick the state (0-indexing!)
-mc.nuc_grad_method = lambda *args: sacasscf.Gradients (mc)
-mc.nuc_grad_iroot = 0
-
 # Geometry optimization (my_call is optional; it just prints the geometry in internal coordinates every iteration)
 print ("Initial geometry: ")
 h2co_geom_analysis (mol.atom_coords () * BOHR)
@@ -69,7 +64,9 @@ conv_params = {
     'convergence_drms': 1.0e-4,  # Angstrom
     'convergence_dmax': 1.5e-4,  # Angstrom
 }
-conv, mol_eq = optimize (mc, callback=my_call, **conv_params)
+mc_opt = sacasscf.Gradients (mc).as_scanner (state = 0).optimizer ()
+mc_opt.callback = my_call
+mol_eq = mc_opt.kernel (params = conv_params)
 molcas_geom = np.asarray ([[ 0.54965420,0.00000000, 0.00000000],
 [-0.71017341,0.00000000, 0.00000000],
 [ 1.11163660,0.00000000, 0.92144690],

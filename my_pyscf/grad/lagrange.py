@@ -12,7 +12,7 @@ default_conv_tol = getattr (__config__, 'mcscf_mc1step_CASSCF_ah_conv_tol', 1e-1
 default_max_cycle = getattr (__config__, 'mcscf_mc1step_CASSCF_max_cycle', 50) 
 default_lindep = getattr (__config__, 'mcscf_mc1step_CASSCF_lindep', 1e-14)
 
-class Gradients (lib.StreamObject):
+class Gradients (rhf_grad.GradientsBasics):
     ''' Dummy parent class for calculating analytical nuclear gradients using the technique of Lagrange multipliers:
     L = E + \sum_i z_i L_i
     dE/dx = \partial L/\partial x iff all L_i = 0 for the given wave function
@@ -46,21 +46,22 @@ class Gradients (lib.StreamObject):
 
     ################################## Child classes SHOULD overwrite the methods below ##############################################
 
-    def __init__(self, mol, nlag, method):
-        self.mol = mol
-        self.base = method
-        self.verbose = mol.verbose
-        self.stdout = mol.stdout
+    def __init__(self, method, nlag):
+        #self.mol = mol
+        #self.base = method
+        #self.verbose = mol.verbose
+        #self.stdout = mol.stdout
         self.nlag = nlag
-        self.natm = mol.natm
-        self.atmlst = list (range (self.natm))
-        self.de = None
-        self._keys = set (self.__dict__.keys ())
+        #self.natm = mol.natm
+        #self.atmlst = list (range (self.natm))
+        #self.de = None
+        #self._keys = set (self.__dict__.keys ())
         #--------------------------------------#
         self.level_shift = default_level_shift
         self.conv_tol = default_conv_tol
         self.max_cycle = default_max_cycle
         self.lindep = default_lindep
+        super().__init__(method)
 
     def debug_lagrange (self, Lvec, bvec, Aop, Adiag, **kwargs):
         lib.logger.debug (self, "{} gradient Lagrange factor debugging not enabled".format (self.base.__class__.__name__))
@@ -111,7 +112,7 @@ class Gradients (lib.StreamObject):
         log = lib.logger.new_logger(self, self.verbose)
         if 'atmlst' in kwargs:
             self.atmlst = kwargs['atmlst']
-        self.natm = len (self.atmlst)
+        #self.natm = len (self.atmlst)
 
         if self.verbose >= lib.logger.WARN:
             self.check_sanity()
@@ -142,23 +143,23 @@ class Gradients (lib.StreamObject):
         self._finalize()
         return self.de
 
-    def dump_flags(self):
-        log = lib.logger.Logger(self.stdout, self.verbose)
-        log.info('\n')
-        if not self.base.converged:
-            log.warn('Ground state method not converged')
-        log.info('******** %s for %s ********',
-                 self.__class__, self.base.__class__)
-        log.info('max_memory %d MB (current use %d MB)',
-                 self.max_memory, lib.current_memory()[0])
-        return self
+    #def dump_flags(self):
+    #    log = lib.logger.Logger(self.stdout, self.verbose)
+    #    log.info('\n')
+    #    if not self.base.converged:
+    #        log.warn('Ground state method not converged')
+    #    log.info('******** %s for %s ********',
+    #             self.__class__, self.base.__class__)
+    #    log.info('max_memory %d MB (current use %d MB)',
+    #             self.max_memory, lib.current_memory()[0])
+    #    return self
 
-    def _finalize (self):
-        if self.verbose >= lib.logger.NOTE:
-            lib.logger.note(self, '--------------- %s gradients ---------------',
-                        self.base.__class__.__name__)
-            rhf_grad._write(self, self.mol, self.de, self.atmlst)
-            lib.logger.note(self, '----------------------------------------------')
+    #def _finalize (self):
+    #    if self.verbose >= lib.logger.NOTE:
+    #        lib.logger.note(self, '--------------- %s gradients ---------------',
+    #                    self.base.__class__.__name__)
+    #        rhf_grad._write(self, self.mol, self.de, self.atmlst)
+    #        lib.logger.note(self, '----------------------------------------------')
 
 class LagPrec (object):
     ''' A callable preconditioner for solving the Lagrange equations. Default is 1/(Adiagd+level_shift) '''

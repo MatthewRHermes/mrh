@@ -301,7 +301,7 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     de = de_hcore + de_renorm + de_eri
     return de
 
-def as_scanner(mcscf_grad):
+def as_scanner(mcscf_grad, state=None):
     '''Generating a nuclear gradients scanner/solver (for geometry optimizer).
 
     The returned solver is a function. This function requires one argument
@@ -332,7 +332,10 @@ def as_scanner(mcscf_grad):
     class CASSCF_GradScanner(mcscf_grad.__class__, lib.GradScanner):
         def __init__(self, g):
             lib.GradScanner.__init__(self, g)
-            self.iroot = g.iroot
+            if state is None:
+                self.iroot = g.iroot
+            else:
+                self.iroot = state
         def __call__(self, mol_or_geom, **kwargs):
             if isinstance(mol_or_geom, gto.Mole):
                 mol = mol_or_geom
@@ -345,6 +348,8 @@ def as_scanner(mcscf_grad):
             #if isinstance (e_tot, (list, tuple, np.ndarray)): e_tot = e_tot[self.iroot]
             if hasattr (mc_scanner, 'e_states'): e_tot = mc_scanner.e_states[self.iroot]
             self.mol = mol
+            if not ('iroot' in kwargs):
+                kwargs['iroot'] = self.iroot
             de = self.kernel(**kwargs)
             return e_tot, de
             
@@ -371,7 +376,7 @@ class Gradients (lagrange.Gradients):
             self.weights = np.asarray (mc.weights)
             self.e_avg = (self.weights * self.e_states).sum ()
         assert (len (self.weights) == self.nroots), '{} {}'.format (self.weights, self.nroots)
-        lagrange.Gradients.__init__(self, mc.mol, self.ngorb+self.nci, mc)
+        lagrange.Gradients.__init__(self, mc, self.ngorb+self.nci)
         self.max_cycle = mc.max_cycle_macro
 
     def make_fcasscf (self, casscf_attr={}, fcisolver_attr={}):

@@ -50,10 +50,6 @@ mc.fcisolver = csf_solver (mol, smult = 1)
 mc.state_average_([0.5,0.5])
 mc.kernel ()
 
-# mc.nuc_grad_method for MC-PDFT objects already points to a state-specific solver
-# Just select which root!
-mc.nuc_grad_iroot = 0
-
 # Geometry optimization (my_call is optional; it just prints the geometry in internal coordinates every iteration)
 print ("Initial geometry: ")
 h2co_geom_analysis (mol.atom_coords () * BOHR)
@@ -68,7 +64,9 @@ conv_params = {
     'convergence_drms': 1.0e-4,  # Angstrom
     'convergence_dmax': 1.5e-4,  # Angstrom
 }
-conv, mol_eq = optimize (mc, callback=my_call, **conv_params)
+mc_opt = mc.nuc_grad_method ().as_scanner (state = 0).optimizer ()
+mc_opt.callback = my_call
+mol_eq = mc_opt.kernel (params = conv_params)
 
 molcas_geom = np.asarray ([[ 0.550219,-0.000000,-0.000000],
 [-0.690238,-0.000000,-0.000000],

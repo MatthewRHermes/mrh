@@ -19,14 +19,9 @@ mc.fcisolver = csf_solver (mol, smult = 1)
 mc.state_average_([0.5,0.5])
 mc.kernel ()
 
-# Replace PySCF's default gradient calculator, which can only consider the state-average energy, with mrh's state-specific one
-# Pick the state (0-indexing!)
-mc.nuc_grad_method = lambda *args: sacasscf.Gradients (mc)
-mc.nuc_grad_iroot = 0
-
 # Gradient calculation
-mc_grad = mc.nuc_grad_method ()
-dE = mc_grad.kernel ()
+mc_grad = sacasscf.Gradients (mc)
+dE = mc_grad.kernel (iroot = 0)
 print ("SA(2) CASSCF(6,6)/6-31g first root gradient of formaldehyde at the CASSCF(6,6)/6-31g geometry:")
 for ix, row in enumerate (dE):
     print ("{:1s} {:11.8f} {:11.8f} {:11.8f}".format (mol.atom_pure_symbol (ix), *row))
