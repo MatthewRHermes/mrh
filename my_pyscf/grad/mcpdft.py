@@ -221,50 +221,50 @@ class Gradients (sacasscf.Gradients):
         super().__init__(pdft)
         self.e_mcscf = self.base.e_mcscf
 
-    def get_wfn_response (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, veff1=None, veff2=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, veff1=None, veff2=None, **kwargs):
+        if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if (veff1 is None) or (veff2 is None):
             assert (False), kwargs
-            veff1, veff2 = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True, paaa_only=True)
-        ndet = ci[iroot].size
+            veff1, veff2 = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
+        ndet = ci[state].size
         fcasscf = self.make_fcasscf ()
         fcasscf.mo_coeff = mo
-        fcasscf.ci = ci[iroot]
+        fcasscf.ci = ci[state]
         def my_hcore ():
             return self.base.get_hcore () + veff1
         fcasscf.get_hcore = my_hcore
 
-        g_all_iroot = newton_casscf.gen_g_hop (fcasscf, mo, ci[iroot], veff2, verbose)[0]
+        g_all_state = newton_casscf.gen_g_hop (fcasscf, mo, ci[state], veff2, verbose)[0]
 
         g_all = np.zeros (self.nlag)
-        g_all[:self.ngorb] = g_all_iroot[:self.ngorb]
+        g_all[:self.ngorb] = g_all_state[:self.ngorb]
         # Eliminate gradient of self-rotation
-        gci_iroot = g_all_iroot[self.ngorb:]
+        gci_state = g_all_state[self.ngorb:]
         ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-        gci_sa = np.dot (ci_arr[iroot], gci_iroot)
-        gci_iroot -= gci_sa * gci_iroot
+        gci_sa = np.dot (ci_arr[state], gci_state)
+        gci_state -= gci_sa * gci_state
         gci = g_all[self.ngorb:].reshape (self.nroots, -1)
-        gci[iroot] += gci_iroot 
+        gci[state] += gci_state 
 
         return g_all
 
-    def get_ham_response (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, veff1=None, veff2=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, veff1=None, veff2=None, **kwargs):
+        if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if (veff1 is None) or (veff2 is None):
             assert (False), kwargs
-            veff1, veff2 = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True, paaa_only=True)
+            veff1, veff2 = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
         fcasscf = self.make_fcasscf ()
         fcasscf.mo_coeff = mo
-        fcasscf.ci = ci[iroot]
-        return mcpdft_HellmanFeynman_grad (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[iroot], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
+        fcasscf.ci = ci[state]
+        return mcpdft_HellmanFeynman_grad (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[state], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
 
     def get_init_guess (self, bvec, Adiag, Aop, precond):
         ''' Initial guess should solve the problem for SA-SA rotations '''
@@ -273,18 +273,18 @@ class Gradients (sacasscf.Gradients):
         b_ci = bvec[self.ngorb:].reshape (self.nroots, ndet)
         x0 = np.zeros_like (bvec)
         if self.nroots > 1:
-            b_sa = np.dot (ci_arr.conjugate (), b_ci[self.iroot])
-            A_sa = 2 * self.weights[self.iroot] * (self.e_mcscf - self.e_mcscf[self.iroot])
-            A_sa[self.iroot] = 1
-            b_sa[self.iroot] = 0
+            b_sa = np.dot (ci_arr.conjugate (), b_ci[self.state])
+            A_sa = 2 * self.weights[self.state] * (self.e_mcscf - self.e_mcscf[self.state])
+            A_sa[self.state] = 1
+            b_sa[self.state] = 0
             x0_sa = -b_sa / A_sa # Hessian is diagonal so: easy
             ovlp = ci_arr.conjugate () @ b_ci.T
             logger.debug (self, 'Linear response SA-SA part:\n{}'.format (ovlp))
             logger.debug (self, 'Linear response SA-CI norms:\n{}'.format (linalg.norm (
                 b_ci.T - ci_arr.T @ ovlp, axis=1)))
             logger.debug (self, 'Linear response orbital norms:\n{}'.format (linalg.norm (bvec[:self.ngorb])))
-            logger.debug (self, 'SA-SA Lagrange multiplier for root {}:\n{}'.format (self.iroot, x0_sa))
-            x0[self.ngorb:][ndet*self.iroot:][:ndet] = np.dot (x0_sa, ci_arr)
+            logger.debug (self, 'SA-SA Lagrange multiplier for root {}:\n{}'.format (self.state, x0_sa))
+            x0[self.ngorb:][ndet*self.state:][:ndet] = np.dot (x0_sa, ci_arr)
         r0 = bvec + Aop (x0)
         r0_ci = r0[self.ngorb:].reshape (self.nroots, ndet)
         ovlp = ci_arr.conjugate () @ r0_ci.T
@@ -304,19 +304,19 @@ class Gradients (sacasscf.Gradients):
 
     def kernel (self, **kwargs):
         ''' Cache the effective Hamiltonian terms so you don't have to calculate them twice '''
-        iroot = kwargs['iroot'] if 'iroot' in kwargs else self.iroot
+        state = kwargs['state'] if 'state' in kwargs else self.state
         mo = kwargs['mo'] if 'mo' in kwargs else self.base.mo_coeff
         ci = kwargs['ci'] if 'ci' in kwargs else self.base.ci
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
         kwargs['ci'] = ci
-        kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True, paaa_only=True)
+        kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
         return super().kernel (**kwargs)
 
-    def project_Aop (self, Aop, ci, iroot):
+    def project_Aop (self, Aop, ci, state):
         ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
             changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
         try:
-            A_sa = 2 * self.weights[iroot] * (self.e_mcscf - self.e_mcscf[iroot])
+            A_sa = 2 * self.weights[state] * (self.e_mcscf - self.e_mcscf[state])
         except IndexError as e:
             assert (self.nroots == 1), e
             A_sa = 0
@@ -328,38 +328,12 @@ class Gradients (sacasscf.Gradients):
             ovlp = ci_arr.conjugate () @ Ax_ci.T
             Ax_ci -= np.dot (ovlp.T, ci_arr)
             # Add back in the SA rotation part but from the true energy conditions
-            x_sa = np.dot (ci_arr.conjugate (), x_ci[iroot])
-            Ax_ci[iroot] += np.dot (x_sa * A_sa, ci_arr)
+            x_sa = np.dot (ci_arr.conjugate (), x_ci[state])
+            Ax_ci[state] += np.dot (x_sa * A_sa, ci_arr)
             Ax[self.ngorb:] = Ax_ci.ravel ()
             return Ax
         return my_Aop
 
-'''
-    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, **kwargs):
-        if level_shift is None: level_shift = self.level_shift
-        if ci is None: ci = self.base.ci
-        return PDFTLagPrec (nroots=self.nroots, nlag=self.nlag, ngorb=self.ngorb, Adiag=Adiag, 
-            level_shift=level_shift, ci=ci, **kwargs)
-
-class PDFTLagPrec (sacasscf.SACASLagPrec):
-     MC-PDFT Lagrange gradient preconditioner. Nearly the same as the SACAS preconditioner except that SA-SA rotations are allowed
-    but must be antisymmetric (z_JI = -z_IJ).  Therefore the CI part is slightly different. 
-
-    def __init__(self, nroots=None, nlag=None, ngorb=None, Adiag=None, ci=None, level_shift=None, **kwargs):
-        super().__init__(nroots=nroots,nlag=nlag,ngorb=ngorb,Adiag=Adiag,ci=ci,level_shift=level_shift,**kwargs)
-
-    def ci_prec (self, x):
-        xci = x[self.ngorb:].reshape (self.nroots, -1)
-        # R_I|H I> (indices: I, det)
-        Rx = self.Rci * xci
-        # <J|R_I|H I> (indices: J, I)
-        sa_ovlp = self.ci.conjugate () @ Rx.T
-        # R_I|J> S(I)_JK^-1 <K|R_I|H I> (indices: I, det)
-        Rx_sub = np.zeros_like (Rx)
-        for iroot in range (self.nroots):
-            Rx_sub[iroot] = self.Rci_sa[iroot,:,iroot] * sa_ovlp[iroot,iroot]
-        return Rx - Rx_sub
-'''
 
 
 

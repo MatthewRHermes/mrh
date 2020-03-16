@@ -54,7 +54,6 @@ mc.kernel ()
 print ("Initial geometry: ")
 h2co_geom_analysis (mol.atom_coords () * BOHR)
 print ("Initial energy: {:.8e}".format (mc.e_states[1]))
-mc.nuc_grad_method = lambda *args: sacasscf.Gradients (mc)
 def my_call (env):
     carts = env['mol'].atom_coords () * BOHR
     h2co_geom_analysis (carts)

@@ -333,9 +333,9 @@ def as_scanner(mcscf_grad, state=None):
         def __init__(self, g):
             lib.GradScanner.__init__(self, g)
             if state is None:
-                self.iroot = g.iroot
+                self.state = g.state
             else:
-                self.iroot = state
+                self.state = state
         def __call__(self, mol_or_geom, **kwargs):
             if isinstance(mol_or_geom, gto.Mole):
                 mol = mol_or_geom
@@ -345,11 +345,11 @@ def as_scanner(mcscf_grad, state=None):
             mc_scanner = self.base
             e_tot = mc_scanner(mol)
             if hasattr (mc_scanner, 'e_mcscf'): self.e_mcscf = mc_scanner.e_mcscf
-            #if isinstance (e_tot, (list, tuple, np.ndarray)): e_tot = e_tot[self.iroot]
-            if hasattr (mc_scanner, 'e_states'): e_tot = mc_scanner.e_states[self.iroot]
+            #if isinstance (e_tot, (list, tuple, np.ndarray)): e_tot = e_tot[self.state]
+            if hasattr (mc_scanner, 'e_states'): e_tot = mc_scanner.e_states[self.state]
             self.mol = mol
-            if not ('iroot' in kwargs):
-                kwargs['iroot'] = self.iroot
+            if not ('state' in kwargs):
+                kwargs['state'] = self.state
             de = self.kernel(**kwargs)
             return e_tot, de
             
@@ -364,7 +364,7 @@ class Gradients (lagrange.Gradients):
         self.ngorb = np.count_nonzero (mc.uniq_var_indices (nmo, mc.ncore, mc.ncas, mc.frozen))
         self.nroots = mc.fcisolver.nroots
         self.nci = sum ([c.size for c in mc.ci]) # hack hack hack
-        self.iroot = mc.nuc_grad_iroot if hasattr (mc, 'nuc_grad_iroot') else 0
+        self.state = mc.nuc_grad_state if hasattr (mc, 'nuc_grad_state') else 0
         self.eris = None
         self.weights = np.array ([1])
         self.e_avg = mc.e_tot
@@ -402,8 +402,8 @@ class Gradients (lagrange.Gradients):
             fcasscf.state_average_(self.base.weights)
         return fcasscf
 
-    def kernel (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, e_avg=None, level_shift=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def kernel (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, e_avg=None, level_shift=None, **kwargs):
+        if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
@@ -421,28 +421,28 @@ class Gradients (lagrange.Gradients):
                 self.weights = np.asarray (self.base.weights)
                 e_avg = self.e_avg = (self.weights * self.e_states).sum ()
         if level_shift is None: level_shift=self.level_shift
-        return super().kernel (iroot=iroot, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, e_avg=e_avg, level_shift=level_shift, **kwargs)
+        return super().kernel (state=state, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, e_avg=e_avg, level_shift=level_shift, **kwargs)
 
-    def get_wfn_response (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, **kwargs):
+        if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        ndet = ci[iroot].size
+        ndet = ci[state].size
         fcasscf = self.make_fcasscf ()
         fcasscf.mo_coeff = mo
-        fcasscf.ci = ci[iroot]
+        fcasscf.ci = ci[state]
         eris = fcasscf.ao2mo (mo)
-        g_all_iroot = newton_casscf.gen_g_hop (fcasscf, mo, ci[iroot], eris, verbose)[0]
+        g_all_state = newton_casscf.gen_g_hop (fcasscf, mo, ci[state], eris, verbose)[0]
         g_all = np.zeros (self.nlag)
-        g_all[:self.ngorb] = g_all_iroot[:self.ngorb]
+        g_all[:self.ngorb] = g_all_state[:self.ngorb]
         # No need to reshape or anything, just use the magic of repeated slicing
-        g_all[self.ngorb:][ndet*iroot:][:ndet] = g_all_iroot[self.ngorb:]
+        g_all[self.ngorb:][ndet*state:][:ndet] = g_all_state[self.ngorb:]
         return g_all
 
-    def get_Aop_Adiag (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, eris=None, level_shift=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def get_Aop_Adiag (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, eris=None, level_shift=None, **kwargs):
+        if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
@@ -456,11 +456,11 @@ class Gradients (lagrange.Gradients):
         Aop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris, verbose)[2:]
         # Eliminate the component of Aop (x) which is parallel to the state-average space
         # The Lagrange multiplier equations are not defined there
-        return self.project_Aop (Aop, ci, iroot), Adiag
+        return self.project_Aop (Aop, ci, state), Adiag
 
 
-    def get_ham_response (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
+        if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
@@ -471,15 +471,15 @@ class Gradients (lagrange.Gradients):
             eris = self.eris
         fcasscf_grad = casscf_grad.Gradients (self.make_fcasscf ())
         fcasscf_grad.mo_coeff = mo
-        fcasscf_grad.ci = ci[iroot]
-        return fcasscf_grad.kernel (mo_coeff=mo, ci=ci[iroot], atmlst=atmlst, verbose=verbose)
+        fcasscf_grad.ci = ci[state]
+        return fcasscf_grad.kernel (mo_coeff=mo, ci=ci[state], atmlst=atmlst, verbose=verbose)
 
-    def get_LdotJnuc (self, Lvec, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def get_LdotJnuc (self, Lvec, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
+        if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci[iroot]
+        if ci is None: ci = self.base.ci[state]
         if eris is None and self.eris is None:
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
@@ -516,11 +516,11 @@ class Gradients (lagrange.Gradients):
 
         return de_Lci + de_Lorb
     
-    def debug_lagrange (self, Lvec, bvec, Aop, Adiag, iroot=None, mo=None, ci=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def debug_lagrange (self, Lvec, bvec, Aop, Adiag, state=None, mo=None, ci=None, **kwargs):
+        if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        lib.logger.info (self, '{} gradient: iroot = {}'.format (self.base.__class__.__name__, iroot))
+        lib.logger.info (self, '{} gradient: state = {}'.format (self.base.__class__.__name__, state))
         ngorb = self.ngorb
         nci = self.nci
         nroots = self.nroots
@@ -666,7 +666,7 @@ class Gradients (lagrange.Gradients):
             #print (linalg.norm (xci - (ci_arr.T @ xci_ovlp).ravel ()))
         return my_call
 
-    def project_Aop (self, Aop, ci, iroot):
+    def project_Aop (self, Aop, ci, state):
         ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
             changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
         def my_Aop (x):

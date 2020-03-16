@@ -24,7 +24,7 @@ mc.kernel ()
 
 # Gradient calculation
 mc_grad = mc.nuc_grad_method ()
-dE = mc_grad.kernel (iroot = 0)
+dE = mc_grad.kernel (state = 0)
 print ("SA(2) tPBE(6,6)/6-31g first root gradient of formaldehyde at the CASSCF(6,6)/6-31g geometry:")
 for ix, row in enumerate (dE):
     print ("{:1s} {:11.8f} {:11.8f} {:11.8f}".format (mol.atom_pure_symbol (ix), *row))
