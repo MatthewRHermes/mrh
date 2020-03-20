@@ -358,13 +358,18 @@ def as_scanner(mcscf_grad, state=None):
 
 class Gradients (lagrange.Gradients):
 
-    def __init__(self, mc):
+    def __init__(self, mc, state=None):
         self.__dict__.update (mc.__dict__)
         nmo = mc.mo_coeff.shape[-1]
         self.ngorb = np.count_nonzero (mc.uniq_var_indices (nmo, mc.ncore, mc.ncas, mc.frozen))
         self.nroots = mc.fcisolver.nroots
         self.nci = sum ([c.size for c in mc.ci]) # hack hack hack
-        self.state = mc.nuc_grad_state if hasattr (mc, 'nuc_grad_state') else 0
+        if state is not None:
+            self.state = state
+        elif hasattr (mc, 'nuc_grad_state'):
+            self.state = mc.nuc_grad_state
+        else:
+            self.state = 0
         self.eris = None
         self.weights = np.array ([1])
         self.e_avg = mc.e_tot

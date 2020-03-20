@@ -1,7 +1,8 @@
-from pyscf import gto, scf, mcscf
+from pyscf import gto, scf
 from pyscf.lib import logger
 from pyscf.data.nist import BOHR
 from pyscf.geomopt.geometric_solver import kernel as optimize
+from mrh.my_pyscf import mcscf
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.grad import sacasscf
 from scipy import linalg
@@ -64,7 +65,7 @@ conv_params = {
     'convergence_drms': 1.0e-4,  # Angstrom
     'convergence_dmax': 1.5e-4,  # Angstrom
 }
-mc_opt = sacasscf.Gradients (mc).as_scanner (state = 1).optimizer ()
+mc_opt = mc.nuc_grad_method ().as_scanner (state = 1).optimizer ()
 mc_opt.callback = my_call
 mol_eq = mc_opt.kernel (params=conv_params)
 molcas_geom = np.asarray ([[ 0.63410957,0.00000000, 0.00000000],
