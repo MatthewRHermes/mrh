@@ -8,6 +8,7 @@ from mrh.my_pyscf.grad import casscf as casscf_grad
 from pyscf.grad import rhf as rhf_grad
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import spin_square0
+from pyscf.fci import cistring
 from pyscf import lib, ao2mo
 import numpy as np
 import copy, time, gc
@@ -327,6 +328,9 @@ def as_scanner(mcscf_grad, state=None):
     if isinstance(mcscf_grad, lib.GradScanner):
         return mcscf_grad
 
+    if state is None and (not hasattr (mcscf_grad, 'state') or (mcscf_grad.state is None)):
+        return casscf_grad.as_scanner (mcscf_grad)
+
     lib.logger.info(mcscf_grad, 'Create scanner for %s', mcscf_grad.__class__)
 
     class CASSCF_GradScanner(mcscf_grad.__class__, lib.GradScanner):
@@ -363,24 +367,25 @@ class Gradients (lagrange.Gradients):
         nmo = mc.mo_coeff.shape[-1]
         self.ngorb = np.count_nonzero (mc.uniq_var_indices (nmo, mc.ncore, mc.ncas, mc.frozen))
         self.nroots = mc.fcisolver.nroots
-        self.nci = sum ([c.size for c in mc.ci]) # hack hack hack
+        if hasattr (mc.fcisolver, 'fcisolvers'):
+            self.nroots = sum ([s.nroots for s in mc.fcisolver.fcisolvers])
+        neleca, nelecb = _unpack_nelec (mc.nelecas)
+        self.nci = cistring.num_strings (mc.ncas, neleca) * cistring.num_strings (mc.ncas, nelecb) * self.nroots
         if state is not None:
             self.state = state
         elif hasattr (mc, 'nuc_grad_state'):
             self.state = mc.nuc_grad_state
         else:
-            self.state = 0
+            self.state = None
         self.eris = None
         self.weights = np.array ([1])
-        self.e_avg = mc.e_tot
         try:
             self.e_states = np.asarray (mc.e_states)
         except AttributeError as e:
             self.e_states = np.asarray (mc.e_tot)
         if hasattr (mc, 'weights'):
             self.weights = np.asarray (mc.weights)
-            self.e_avg = (self.weights * self.e_states).sum ()
-        assert (len (self.weights) == self.nroots), '{} {}'.format (self.weights, self.nroots)
+        assert (len (self.weights) == self.nroots), '{} {} {}'.format (mc.fcisolver.__class__, self.weights, self.nroots)
         lagrange.Gradients.__init__(self, mc, self.ngorb+self.nci)
         self.max_cycle = mc.max_cycle_macro
 
@@ -391,6 +396,7 @@ class Gradients (lagrange.Gradients):
         else:
             fcasscf = mc1step.CASSCF (self.base._scf, self.base.ncas, self.base.nelecas)
         fcasscf.__dict__.update (self.base.__dict__)
+        # Fix me for state_average_mix!
         if hasattr (self.base, 'weights'):
             fcasscf.fcisolver = self.base.fcisolver._base_class (self.base.mol)
             fcasscf.nroots = 1
@@ -398,16 +404,18 @@ class Gradients (lagrange.Gradients):
         fcasscf.__dict__.update (casscf_attr)
         fcasscf.fcisolver.__dict__.update (fcisolver_attr)
         fcasscf.verbose, fcasscf.stdout = self.verbose, self.stdout
+        fcasscf._tag_gfock_ov_nonzero = True
         return fcasscf
 
     def make_fcasscf_sa (self, casscf_attr={}, fcisolver_attr={}):
         ''' Make a fake SA-CASSCF object to get around weird inheritance conflicts '''
+        # Fix me for state_average_mix!
         fcasscf = self.make_fcasscf (casscf_attr={}, fcisolver_attr={})
         if hasattr (self.base, 'weights'):
             fcasscf.state_average_(self.base.weights)
         return fcasscf
 
-    def kernel (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, e_avg=None, level_shift=None, **kwargs):
+    def kernel (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, level_shift=None, **kwargs):
         if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
@@ -416,17 +424,15 @@ class Gradients (lagrange.Gradients):
         if eris is None:
             eris = self.eris = self.base.ao2mo (mo)
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
+        if state is None:
+            return casscf_grad.Gradients (self.base).kernel (mo_coeff=mo, ci=ci, atmlst=atmlst, verbose=verbose)
         if e_states is None:
             try:
                 e_states = self.e_states = np.asarray (self.base.e_states)
             except AttributeError as e:
                 e_states = self.e_states = np.asarray (self.base.e_tot)
-        if e_avg is None:
-            if hasattr (self.base, 'weights'):
-                self.weights = np.asarray (self.base.weights)
-                e_avg = self.e_avg = (self.weights * self.e_states).sum ()
         if level_shift is None: level_shift=self.level_shift
-        return super().kernel (state=state, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, e_avg=e_avg, level_shift=level_shift, **kwargs)
+        return super().kernel (state=state, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, level_shift=level_shift, **kwargs)
 
     def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, **kwargs):
         if state is None: state = self.state

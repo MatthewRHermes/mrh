@@ -215,11 +215,13 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
     return de
 
+# FIXME: enable gradient of state-average energy
 class Gradients (sacasscf.Gradients):
 
     def __init__(self, pdft):
         super().__init__(pdft)
         self.e_mcscf = self.base.e_mcscf
+        if self.state is None: self.state = 0
 
     def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, veff1=None, veff2=None, **kwargs):
         if state is None: state = self.state
@@ -308,6 +310,7 @@ class Gradients (sacasscf.Gradients):
         mo = kwargs['mo'] if 'mo' in kwargs else self.base.mo_coeff
         ci = kwargs['ci'] if 'ci' in kwargs else self.base.ci
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
+        if state is None: state = 0 # hack hack hack...
         kwargs['ci'] = ci
         kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
         return super().kernel (**kwargs)
