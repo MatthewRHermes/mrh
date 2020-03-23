@@ -9,6 +9,7 @@ convergence issue in geometry optimizer.
 
 from pyscf import gto
 from pyscf import scf, mcscf
+from mrh.my_pyscf import mcscf as my_mcscf
 
 mol = gto.Mole()
 mol.atom="N; N 1, 1.1"
@@ -33,7 +34,7 @@ excited_grad = mc.nuc_grad_method().as_scanner(state=2)
 mol1 = excited_grad.optimizer().kernel()
 
 # CASSCF for one excited state
-mc = mcscf.CASSCF(mf, 4,4)
+mc = my_mcscf.CASSCF(mf, 4,4)
 mc.state_specific_(2)
 excited_grad = mc.nuc_grad_method().as_scanner()
 mol1 = excited_grad.optimizer().kernel()
@@ -47,7 +48,7 @@ mc.state_average_([0.25, 0.25, 0.25, 0.25])
 excited_grad = mc.nuc_grad_method().as_scanner()
 mol1 = excited_grad.optimizer().kernel()
 
-mc = mcscf.CASSCF(mf, 4,4)
+mc = my_mcscf.CASSCF(mf, 4,4)
 mc.state_average_([0.25, 0.25, 0.25, 0.25])
 excited_grad = mc.nuc_grad_method().as_scanner()
 mol1 = excited_grad.optimizer().kernel()
@@ -57,7 +58,7 @@ mol1 = excited_grad.optimizer().kernel()
 # Note the state-averaged gradients are optimized.
 #
 import copy
-mc = mcscf.CASSCF(mf, 4,4)
+mc = my_mcscf.CASSCF(mf, 4,4)
 solver1 = mc.fcisolver
 solver2 = copy.copy(mc.fcisolver)
 solver2.spin = 2
