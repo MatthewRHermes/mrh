@@ -66,3 +66,24 @@ mc = mcscf.addons.state_average_mix_(mc, [solver1, solver2], (.5, .5))
 excited_grad = mc.nuc_grad_method().as_scanner()
 mol1 = excited_grad.optimizer().kernel()
 
+#
+# 4. Geometry optimization of the 3rd of 4 states
+#
+mc = my_mcscf.CASSCF(mf, 4,4)
+mc.state_average_([0.25, 0.25, 0.25, 0.25])
+excited_grad = mc.nuc_grad_method().as_scanner(state=2)
+mol1 = excited_grad.optimizer().kernel()
+
+#
+# 5. Geometry optimization of 1st of 2 states w/ mixed FCI solvers.
+# Note the state-averaged gradients are optimized.
+#
+import copy
+mc = my_mcscf.CASSCF(mf, 4,4)
+solver1 = mc.fcisolver
+solver2 = copy.copy(mc.fcisolver)
+solver2.spin = 2
+mc = mcscf.addons.state_average_mix_(mc, [solver1, solver2], (.5, .5))
+excited_grad = mc.nuc_grad_method().as_scanner(state = 0)
+mol1 = excited_grad.optimizer().kernel()
+
