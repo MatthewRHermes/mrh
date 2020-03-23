@@ -155,6 +155,36 @@ class KnownValues(unittest.TestCase):
         e2 = mcs.e_average
         self.assertAlmostEqual(de[1,2], (e1-e2)/0.002*lib.param.BOHR, 4)
 
+    def test_state_average_scanner_state_0(self):
+        mc = my_mcscf.CASSCF(mf, 4, 4)
+        gs = mc.state_average_([0.5, 0.5]).nuc_grad_method().as_scanner(state = 0)
+        e, de = gs(mol)
+        self.assertAlmostEqual(e, -108.390266507288, 9)
+        self.assertAlmostEqual(lib.finger(de), -0.06399052846441904, 7)
+
+        mcs = gs.base
+        pmol = mol.copy()
+        mcs(pmol.set_geom_('N 0 0 0; N 0 0 1.201; H 1 1 0; H 1 1 1.2'))
+        e1 = mcs.e_states[0]
+        mcs(pmol.set_geom_('N 0 0 0; N 0 0 1.199; H 1 1 0; H 1 1 1.2'))
+        e2 = mcs.e_states[0]
+        self.assertAlmostEqual(de[1,2], (e1-e2)/0.002*lib.param.BOHR, 3)
+
+    def test_state_average_scanner_state_1(self):
+        mc = my_mcscf.CASSCF(mf, 4, 4)
+        gs = mc.state_average_([0.5, 0.5]).nuc_grad_method().as_scanner(state = 1)
+        e, de = gs(mol)
+        self.assertAlmostEqual(e, -108.3774259206, 9)
+        self.assertAlmostEqual(lib.finger(de), -0.14288784557614947, 7)
+
+        mcs = gs.base
+        pmol = mol.copy()
+        mcs(pmol.set_geom_('N 0 0 0; N 0 0 1.201; H 1 1 0; H 1 1 1.2'))
+        e1 = mcs.e_states[1]
+        mcs(pmol.set_geom_('N 0 0 0; N 0 0 1.199; H 1 1 0; H 1 1 1.2'))
+        e2 = mcs.e_states[1]
+        self.assertAlmostEqual(de[1,2], (e1-e2)/0.002*lib.param.BOHR, 3)
+
     def test_state_average_mix_scanner(self):
         mc = my_mcscf.CASSCF(mf, 4, 4)
         mc = mcscf.addons.state_average_mix_(mc, [mc.fcisolver, mc.fcisolver], (.5, .5))
