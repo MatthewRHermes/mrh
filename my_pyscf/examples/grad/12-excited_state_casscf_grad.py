@@ -10,6 +10,7 @@ Analytical nuclear gradients of CASCI excited state.
 from pyscf import gto
 from pyscf import scf
 from mrh.my_pyscf import mcscf
+import inspect
 
 mol = gto.M(
     atom = [
@@ -22,14 +23,18 @@ mf = scf.RHF(mol).run()
 
 mc = mcscf.CASSCF(mf, 4, 4).state_average ([0.25, 0.25, 0.25, 0.25])
 mc.run()
+print (inspect.getmro (mc.Gradients ().__class__))
 
 # PySCF-1.6.1 and newer supports the .Gradients method to create a grad
 # object after grad module was imported. It is equivalent to call the
 # .nuc_grad_method method.
-#from pyscf import grad
-#g = mc.Gradients().kernel(state=3)
-#print('Gradients of the 3rd excited state')
-#print(g)
+from mrh.my_pyscf import grad
+mc = mcscf.CASSCF(mf, 4, 4).state_average ([0.25, 0.25, 0.25, 0.25]).run ()
+print (inspect.getmro (mc.__class__))
+print (inspect.getmro (mc.Gradients ().__class__))
+g = mc.Gradients().kernel(state=3)
+print('Gradients of the 3rd excited state')
+print(g)
 
 # An equivalent way to specify the exicited state is to directly input the
 # excited state wavefunction

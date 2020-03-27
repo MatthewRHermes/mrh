@@ -528,6 +528,7 @@ class Gradients (lagrange.Gradients):
         return de_Lci + de_Lorb
     
     def debug_lagrange (self, Lvec, bvec, Aop, Adiag, state=None, mo=None, ci=None, **kwargs):
+        # This needs to be rewritten substantially to work properly with state_average_mix
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
@@ -765,4 +766,10 @@ class SACASLagPrec (lagrange.LagPrec):
         for iroot in range (self.nroots): 
             Rx_sub[iroot] = np.dot (self.Rci_sa[iroot], sa_ovlp[:,iroot])
         return Rx - Rx_sub
+
+from pyscf import mcscf
+StateAverageMCSCFSolver.Gradients = lib.class_as_method(Gradients)
+mcscf.StateAverageMCSCFSolver.Gradients = lib.class_as_method(Gradients)
+mcscf.addons.StateAverageMCSCFSolver.Gradients = lib.class_as_method(Gradients)
+
 
