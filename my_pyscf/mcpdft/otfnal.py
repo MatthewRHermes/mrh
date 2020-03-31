@@ -474,7 +474,7 @@ def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None, fnal_c = Non
 
     return x_code + ',' + c_code
 
-def make_hybrid_fnal (xc_code, hyb, hyb_type = 0):
+def make_hybrid_fnal (xc_code, hyb, hyb_type = 4):
     ''' Convenience function to write "hybrid" xc functional in terms of only one parameter
 
         Args:
@@ -483,7 +483,7 @@ def make_hybrid_fnal (xc_code, hyb, hyb_type = 0):
                 with separately-defined exchange and correlation parts: 'xc_code' -> 'xc_code,xc_code'. 
                 Currently cannot parse mixed functionals.
             hyb : float
-                A single parameter defining the "hybridization" which is handled in various ways according to hyb_type
+                Parameter(s) defining the "hybridization" which is handled in various ways according to hyb_type
 
         Kwargs:
             hyb_type : int or string
@@ -491,28 +491,52 @@ def make_hybrid_fnal (xc_code, hyb, hyb_type = 0):
                 - 0 or 'translation': Hybrid fnal is 'hyb*HF + (1-hyb)*x_code, hyb*HF + c_code'.
                     Based on the idea that 'exact exchange' of the translated functional
                     corresponds to exchange plus correlation energy of the underlying wave function.
+                    Requires len (hyb) == 1.
                 - 1 or 'average': Hybrid fnal is 'hyb*HF + (1-hyb)*x_code, hyb*HF + (1-hyb)*c_code'.
                     Based on the idea that hyb = 1 recovers the wave function energy itself.
+                    Requires len (hyb) == 1.
                 - 2 or 'diagram': Hybrid fnal is 'hyb*HF + (1-hyb)*x_code, c_code'.
                     Based on the idea that the exchange energy of the wave function somehow can
                     be meaningfully separated from the correlation energy.
+                    Requires len (hyb) == 1.
                 - 3 or 'lambda': as in arXiv:1911.11162v1. Based on existing 'double-hybrid' functionals.
+                    Requires len (hyb) == 1.
+                - 4 or 'scaling': Hybrid fnal is 'a*HF + (1-a)*x_code, a*HF + (1-a**b)*c_code'
+                    where a = hyb[0] and b = 1 + hyb[1]. Based on the scaling inequalities proven by 
+                    Levy and Perdew in PRA 32, 2010 (1985):
+                    E_c[rho_a] < a*E_c[rho] if a < 1 and
+                    E_c[rho_a] > a*E_c[rho] if a > 1; 
+                    BUT 
+                    E_c[rho_a] ~/~ a^2 E_c[rho], implying that
+                    E_c[rho_a] ~ a^b E_c[rho] with b > 1 unknown.
+                    Requires len (hyb) == 2.
     '''
 
+    if not hasattr (hyb, '__len__'): hyb = [hyb]
     HYB_TYPE_CODE = {'translation': 0,
                      'average':     1,
                      'diagram':     2,
-                     'lambda':      3}
+                     'lambda':      3,
+                     'scaling':     4}
     if isinstance (hyb_type, str): hyb_type = HYB_TYPE_CODE[hyb_type]
 
     if hyb_type == 0:
-        return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=hyb, fnal_x=(1-hyb), fnal_c=1)
+        assert (len (hyb) == 1)
+        return make_scaled_fnal (xc_code, hyb_x=hyb[0], hyb_c=hyb[0], fnal_x=(1-hyb[0]), fnal_c=1)
     elif hyb_type == 1:
-        return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=hyb, fnal_x=(1-hyb), fnal_c=(1-hyb))
+        assert (len (hyb) == 1)
+        return make_scaled_fnal (xc_code, hyb_x=hyb[0], hyb_c=hyb[0], fnal_x=(1-hyb[0]), fnal_c=(1-hyb[0]))
     elif hyb_type == 2:
-        return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=0, fnal_x=(1-hyb), fnal_c=1)
+        assert (len (hyb) == 1)
+        return make_scaled_fnal (xc_code, hyb_x=hyb[0], hyb_c=0, fnal_x=(1-hyb[0]), fnal_c=1)
     elif hyb_type == 3:
-        return make_scaled_fnal (xc_code, hyb_x=hyb, hyb_c=hyb, fnal_x=(1-hyb), fnal_c=(1-(hyb*hyb)))
+        assert (len (hyb) == 1)
+        return make_scaled_fnal (xc_code, hyb_x=hyb[0], hyb_c=hyb[0], fnal_x=(1-hyb[0]), fnal_c=(1-(hyb[0]*hyb[0])))
+    elif hyb_type == 4:
+        assert (len (hyb) == 2)
+        a = hyb[0]
+        b = hyb[0]**(1+hyb[1])
+        return make_scaled_fnal (xc_code, hyb_x=a, hyb_c=a, fnal_x=(1-a), fnal_c=(1-b))
     else:
         raise RuntimeError ('hybrid type undefined')
 
