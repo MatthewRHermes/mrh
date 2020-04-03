@@ -243,6 +243,28 @@ class transfnal (otfnal):
 
         return rho_t
 
+    def split_x_c (self):
+        ''' Get one translated functional for just the exchange and one for just the correlation part of the energy. '''
+        if not re.search (',', self.otxc):
+            x_code = c_code = self.otxc
+        else:
+            x_code, c_code = ','.split (self.otxc)
+            c_code = 't' + c_code
+        xfnal = copy.copy (self)
+        xfnal._numint = copy.copy (self._numint)
+        xfnal.grids = copy.copy (self.grids)
+        xfnal.verbose = self.verbose
+        xfnal.stdout = self.stdout
+        xfnal.otxc = x_code
+        cfnal = copy.copy (self)
+        cfnal._numint = copy.copy (self._numint)
+        cfnal.grids = copy.copy (self.grids)
+        cfnal.verbose = self.verbose
+        cfnal.stdout = self.stdout
+        cfnal.otxc = c_code
+
+    return xfnal, cfnal
+
     eval_ot = tfnal_derivs.eval_ot
     get_bare_vxc = tfnal_derivs.get_bare_vxc
     get_dEot_drho = tfnal_derivs.get_dEot_drho
@@ -342,6 +364,13 @@ class ftransfnal (transfnal):
             lib.logger.debug1 (self, 'Total number of electrons in (this chunk of) the fully-translated density = %s', nelec)
 
         return np.squeeze (rho_ft)
+
+    def split_x_c (self):
+        xfnal, cfnal = super().split_x_c ()
+        xfnal.otxc = 'f' + xfnal.otxc
+        cfnal.otxc = 'f' + cfnal.otxc
+        return xfnal, cfnal
+
 
 _CS_a_DEFAULT = 0.04918
 _CS_b_DEFAULT = 0.132

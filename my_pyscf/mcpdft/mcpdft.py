@@ -147,6 +147,51 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
 
     return E_ot
 
+def get_energy_decomposition (mc, ot, mo_coeff=None, ci=None):
+    ''' Compute a decomposition of the MC-PDFT energy into nuclear potential, core, Coulomb, exchange,
+    and correlation terms. The exchange-correlation energy at the MC-SCF level is also returned.
+    This is not meant to work with MC-PDFT methods that are already hybrids. Most return arguments
+    are lists if mc is a state average instance. '''
+    e_tot, e_ot, e_mcscf, e_cas, ci, mo_coeff = mc.kernel (mo=mo_coeff, ci=ci)[:6]
+    if isinstance (mc, StateAverageMCSCFSolver):
+        e_tot = mc.e_states
+    e_nuc = mc._scf.energy_nuc ()
+    h = mc.get_hcore ()
+    xfnal, cfnal = ot.split_x_c ()
+    if isinstance (mc, StateAverageMCSCFSolver):
+        e_core = []
+        e_coul = []
+        e_otx = []
+        e_otc = []
+        e_wfnxc = []
+        for ci_i, ei_mcscf in zip (ci, e_mcscf):
+            row = _get_e_decomp (mc, ot, mo_coeff, ci_i, ei_mcscf, e_nuc, xfnal, cfnal)
+            e_core.append  (row[0])
+            e_coul.append  (row[1])
+            e_otx.append   (row[2])
+            e_otc.append   (row[3])
+            e_wfnxc.append (row[4])
+    else:
+        e_core, e_coul, e_otx, e_otc, e_wfnxc = _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, xfnal, cfnal)
+    return e_nuc, e_core, e_coul, e_otx, e_otc, e_wfnxc
+
+def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, xfnal, cfnal):
+    mc_1root = mcscf.CASCI (mc._scf, mc.ncas, mc.nelecas)
+    mc_1root.fcisolver = fci.solver (mc._scf.mol, singlet = False, symm = False)
+    mc_1root.mo_coeff = mo_coeff
+    mc_1root.ci = ci
+    dm1s = mc_1root.make_rdm1s ()
+    dm1s = dm1s[0] + dm1s[1]
+    j = mc_1root._scf.get_j (dm=dm1)
+    e_core = np.tensordot (h, dm1, axes=2)
+    e_coul = np.tensordot (j, dm1, axes=2)
+    adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, self.ncas, self.nelecas), axis=0)
+    adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
+    mo_cas = mo_coeff[:,mc.ncore:][:,:mc.ncas]
+    e_otx = get_E_ot (xfnal, dm1s, adm2, mo_cas)
+    e_otc = get_E_ot (cfnal, dm1s, adm2, mo_cas)
+    e_wfnxc = e_mcscf - e_nuc - e_core - e_coul
+    return e_core, e_coul, e_otx, e_otc, e_wfnxc
 
 def get_mcpdft_child_class (mc, ot, **kwargs):
 
