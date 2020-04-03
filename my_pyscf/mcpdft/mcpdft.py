@@ -314,6 +314,11 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
         def nuc_grad_method (self):
             return Gradients (self)
 
+        def get_energy_decomposition (self, mo_coeff=None, ci=None):
+            if mo_coeff is None: mo_coeff = self.mo_coeff
+            if ci is None: ci = self.ci
+            return get_energy_decomposition (self, self.otfnal, mo_coeff=mo_coeff, ci=ci)
+
         @property
         def otxc (self):
             return self.otfnal.otxc
