@@ -247,9 +247,11 @@ class transfnal (otfnal):
         ''' Get one translated functional for just the exchange and one for just the correlation part of the energy. '''
         if not re.search (',', self.otxc):
             x_code = c_code = self.otxc
+            c_code = c_code[1:]
         else:
             x_code, c_code = ','.split (self.otxc)
-            c_code = 't' + c_code
+        x_code = x_code + ','
+        c_code = 't,' + c_code
         xfnal = copy.copy (self)
         xfnal._numint = copy.copy (self._numint)
         xfnal.grids = copy.copy (self.grids)
@@ -262,8 +264,7 @@ class transfnal (otfnal):
         cfnal.verbose = self.verbose
         cfnal.stdout = self.stdout
         cfnal.otxc = c_code
-
-    return xfnal, cfnal
+        return xfnal, cfnal
 
     eval_ot = tfnal_derivs.eval_ot
     get_bare_vxc = tfnal_derivs.get_bare_vxc
@@ -492,14 +493,14 @@ def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None, fnal_c = Non
     # TODO: actually parse the xc_code so that custom functionals are compatible with this
 
     if fnal_x != 1:
-        x_code = '{:.2f}*{:s}'.format (fnal_x, x_code)
+        x_code = '{:.16f}*{:s}'.format (fnal_x, x_code)
     if hyb_x != 0:
-        x_code = x_code + ' + {:.2f}*HF'.format (hyb_x)
+        x_code = x_code + ' + {:.16f}*HF'.format (hyb_x)
 
     if fnal_c != 1:
-        c_code = '{:.2f}*{:s}'.format (fnal_c, c_code)
+        c_code = '{:.16f}*{:s}'.format (fnal_c, c_code)
     if hyb_c != 0:
-        c_code = c_code + ' + {:.2f}*HF'.format (hyb_c)
+        c_code = c_code + ' + {:.16f}*HF'.format (hyb_c)
 
     return x_code + ',' + c_code
 
