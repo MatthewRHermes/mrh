@@ -121,6 +121,10 @@ class CSFTransformer (lib.StreamObject):
         printable = np.stack (printable, axis=(order.upper () == 'F'))
         return printable, csfvec_list
 
+    def printable_csfstring (self, idx):
+        if getattr (idx, '__len__', None) is None:
+            idx = [idx]
+        return printable_csfstring (self._norb, self._neleca, self._nelecb, self._smult, idx)
 
     # Setting the below properties triggers cache updating
     @property
