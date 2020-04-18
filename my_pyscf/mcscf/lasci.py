@@ -8,7 +8,7 @@ from mrh.my_pyscf.scf import hf_as
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from itertools import combinations, product
 from scipy.sparse import linalg as sparse_linalg
-from scipy import linalg
+from scipy import linalg, special
 import numpy as np
 import time
 
@@ -178,12 +178,12 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
             h1eff_s *= -1
         h1e = (h1eff_c, h1eff_s)
         if getattr(las.fcisolver, 'gen_linkstr', None):
-            linkstrl = las.fcisolver.gen_linkstr(ncas, nelecas, True)
-            linkstr  = las.fcisolver.gen_linkstr(ncas, nelecas, False)
+            linkstrl = las.fcisolver.gen_linkstr(ncas, nel, True)
+            linkstr  = las.fcisolver.gen_linkstr(ncas, nel, False)
         else:
             linkstrl = linkstr  = None
-        h2eff = las.fcisolver.absorb_h1e(h1e, eri_cas, ncas, nelecas, .5)
-        hc0 = las.fcisolver.contract_2e(h2eff, ci0, ncas, nelecas, link_index=linkstrl).ravel()
+        h2eff = las.fcisolver.absorb_h1e(h1e, eri_cas, ncas, nel, .5)
+        hc0 = las.fcisolver.contract_2e(h2eff, ci0, ncas, nel, link_index=linkstrl).ravel()
         ci0 = ci0.ravel ()
         eci0 = ci0.dot(hc0)
         gci.append ((hc0 - ci0 * eci0).ravel ())
@@ -300,8 +300,9 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
 
     ugg = None
     converged = False
+    ci1 = ci0
     for it in range (las.max_cycle_macro):
-        e_cas, ci1 = ci_cycle (las, mo_coeff, ci0, veff, h2eff_sub, casdm1s_sub, log)
+        e_cas, ci1 = ci_cycle (las, mo_coeff, ci1, veff, h2eff_sub, casdm1s_sub, log)
         if ugg is None: ugg = las.get_ugg (las, mo_coeff, ci1)
         log.info ('LASCI subspace CI energies: {}'.format (e_cas))
         t1 = log.timer ('LASCI ci_cycle', *t1)
@@ -322,8 +323,19 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         casdm1s_sub = casdm1s_new
 
         t1 = log.timer ('LASCI get_veff after ci', *t1)
-        H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
+        H_op = LASCI_HessianOperator (las, ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff, it=it)
         g_vec = H_op.get_grad ()
+        if las.verbose > lib.logger.INFO:
+            g_orb_test, g_ci_test = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)[:2]
+            if ugg.nvar_orb:
+                log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_orb| = %.15g', linalg.norm (g_orb_test - g_vec[:ugg.nvar_orb]))
+            for isub in range (len (ci1)):
+                i = sum (ugg.ncsf_sub[:isub])
+                j = i + ugg.ncsf_sub[isub]
+                k = i + ugg.nvar_orb
+                l = j + ugg.nvar_orb
+                log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_ci({})| = %.15g'.format (isub), linalg.norm (g_ci_test[i:j] - g_vec[k:l]))
+                log.debug ('GRADIENT IMPLEMENTATION TEST: |g_ci({})| = %.15g'.format (isub), linalg.norm (g_ci_test[i:j]))
         gx = H_op.get_gx ()
         prec_op = H_op.get_prec ()
         prec = prec_op (np.ones_like (g_vec)) # Check for divergences
@@ -368,7 +380,6 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
         t1 = log.timer ('LASCI get_veff after secondorder', *t1)
-
 
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff=veff)
     # I need the true veff, with f^a_a and f^i_i spin-separated, in order to use the Hessian properly later on
@@ -498,7 +509,9 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
         nel = nelecas
         if nelecas[1] > nelecas[0]:
             nel = (nelecas[1], nelecas[0])
-        ci[isub] = las.fcisolver.transform_ci_for_orbital_rotation (ci_i, ncas, nel, umat[i:j,i:j])
+        na = special.comb (ncas, nel[0], exact=True)
+        nb = special.comb (ncas, nel[1], exact=True)
+        ci[isub] = las.fcisolver.transform_ci_for_orbital_rotation (ci_i.reshape (na, nb), ncas, nel, umat[i:j,i:j])
     # External-external
     orbsym_i = None if orbsym is None else orbsym[nocc:]
     fock_i = fock[nocc:,nocc:]
@@ -511,7 +524,8 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
     mo_occ[:ncore] = 2
     ucas = umat[ncore:nocc,ncore:nocc]
     mo_occ[ncore:nocc] = ((casdm1s.sum (0) @ ucas) * ucas).sum (0)
-    mo_ene = umat.conjugate ().T @ fock @ umat
+    mo_ene = ((fock @ umat) * umat.conjugate ()).sum (0)
+    mo_ene[ncore:][:sum (ncas_sub)] = 0.0
     mo_coeff = mo_coeff @ umat
     if orbsym is not None:
         '''
@@ -632,6 +646,10 @@ class LASCINoSymm (casci.CASCI):
         if self.verbose >= lib.logger.WARN:
             self.check_sanity()
         self.dump_flags(log)
+
+        # MRH: the below two lines are not the ideal solution to my problem...
+        self.fcisolver.verbose = self.verbose
+        self.fcisolver.stdout = self.stdout
 
         self.converged, self.e_tot, self.mo_energy, self.mo_coeff, self.e_cas, self.ci, h2eff_sub, veff = \
                 kernel(self, mo_coeff, ci0=ci0, verbose=verbose, casdm0_sub=casdm0_sub, conv_tol_grad=conv_tol_grad)
@@ -1072,8 +1090,14 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # CI stuff
         if getattr(self.fcisolver, 'gen_linkstr', None):
-            self.linkstrl = [self.fcisolver.gen_linkstr(no, ne, True) for no, ne in zip (ncas_sub, nelecas_sub)]
-            self.linkstr  = [self.fcisolver.gen_linkstr(no, ne, False) for no, ne in zip (ncas_sub, nelecas_sub)]
+            self.linkstrl = []
+            self.linkstr = []
+            for no, ne in zip (ncas_sub, nelecas_sub):
+                nel = ne
+                if ne[1] > ne[0]:
+                    nel = (ne[1], ne[0])
+                self.linkstrl.append (self.fcisolver.gen_linkstr(no, nel, True))
+                self.linkstr.append (self.fcisolver.gen_linkstr(no, nel, False))
         else:
             self.linkstrl = self.linkstr  = None
         self.hci0 = self.Hci_all ([0.0,] * len (ci), self.h1e_ab_sub, self.eri_cas, ci)
