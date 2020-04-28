@@ -148,7 +148,7 @@ class transfnal (otfnal):
         rho_t *= weight
         dexc_ddens *= rho_t
 
-        if logger.verbose >= logger.DEBUG:
+        if self.verbose >= logger.DEBUG:
             nelec = rho_t.sum ()
             logger.debug (self, 'Total number of electrons in (this chunk of) the translated density = %s', nelec)
 
