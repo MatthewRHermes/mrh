@@ -2,7 +2,8 @@ from pyscf.mcscf import newton_casscf
 from pyscf.grad import rks as rks_grad
 from pyscf.dft import gen_grid
 from pyscf.lib import logger, pack_tril, current_memory
-from mrh.my_pyscf.grad import sacasscf
+#from mrh.my_pyscf.grad import sacasscf
+from pyscf.grad import sacasscf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_rho, _contract_ao_vao
 from mrh.util.rdm import get_2CDM_from_2RDM
@@ -219,6 +220,9 @@ class Gradients (sacasscf.Gradients):
 
     def __init__(self, pdft):
         super().__init__(pdft)
+        # TODO: gradient of PDFT state-average energy (i.e., state = 0 & nroots > 1 case)
+        if self.state is None and self.nroots == 1:
+            self.state = 0
         self.e_mcscf = self.base.e_mcscf
 
     def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, veff1=None, veff2=None, **kwargs):
@@ -305,6 +309,9 @@ class Gradients (sacasscf.Gradients):
     def kernel (self, **kwargs):
         ''' Cache the effective Hamiltonian terms so you don't have to calculate them twice '''
         state = kwargs['state'] if 'state' in kwargs else self.state
+        if state is None:
+            raise NotImplementedError ('Gradient of PDFT state-average energy')
+        self.state = state # Not the best code hygiene maybe
         mo = kwargs['mo'] if 'mo' in kwargs else self.base.mo_coeff
         ci = kwargs['ci'] if 'ci' in kwargs else self.base.ci
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...

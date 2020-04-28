@@ -193,6 +193,18 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal):
     e_wfnxc = e_mcscf - e_nuc - e_core - e_coul
     return e_core, e_coul, e_otx, e_otc, e_wfnxc
 
+# This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
+class StateAverageMCPDFTSolver:
+    pass
+def sapdft_grad_monkeypatch_(mc):
+    if isinstance (mc, StateAverageMCPDFTSolver):
+        return mc
+    class StateAverageMCPDFT (mc.__class__, StateAverageMCPDFTSolver):
+        def nuc_grad_method (self):
+            return Gradients (self)
+    mc.__class__ = StateAverageMCPDFT
+    return mc
+
 def get_mcpdft_child_class (mc, ot, **kwargs):
 
     class PDFT (mc.__class__):
@@ -319,6 +331,15 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             if ci is None: ci = self.ci
             return get_energy_decomposition (self, self.otfnal, mo_coeff=mo_coeff, ci=ci)
 
+        def state_average (self, weights=(0.5,0.5)):
+            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
+            return sapdft_grad_monkeypatch_(super ().state_average (weights=weights))
+
+        def state_average_(self, weights=(0.5,0.5)):
+            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
+            sapdft_grad_monkeypatch_(super ().state_average_(weights=weights))
+            return self
+
         @property
         def otxc (self):
             return self.otfnal.otxc
@@ -332,7 +353,7 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
     return pdft
 
 
-
+    
 
 
 

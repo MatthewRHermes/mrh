@@ -16,4 +16,8 @@ Makefile
 *.molden
 *.npy
 *.log
+*.dat
+*.out
+*.err
+*.swp
 
