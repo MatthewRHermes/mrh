@@ -148,6 +148,10 @@ class transfnal (otfnal):
         rho_t *= weight
         dexc_ddens *= rho_t
 
+        if logger.verbose >= logger.DEBUG:
+            nelec = rho_t.sum ()
+            logger.debug (self, 'Total number of electrons in (this chunk of) the translated density = %s', nelec)
+
         return dexc_ddens.sum ()
 
     def get_ratio (self, Pi, rho_avg):
@@ -237,9 +241,6 @@ class transfnal (otfnal):
             rho_t[0,ideriv,idx] += w
             rho_t[1,ideriv,idx] -= w
 
-        if self.verbose > logger.DEBUG and weights is not None:
-            nelec = (np.sum (rho_t[:,0,:], axis=0) * weights).sum ()
-            lib.logger.debug1 (self, 'Total number of electrons in (this chunk of) the translated density = %s', nelec)
 
         return rho_t
 
