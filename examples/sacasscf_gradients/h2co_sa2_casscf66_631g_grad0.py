@@ -2,7 +2,7 @@ from pyscf import gto, scf, mcscf
 from pyscf.lib import logger
 from pyscf.data.nist import BOHR
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.grad import sacasscf
+#from mrh.my_pyscf.grad import sacasscf
 from scipy import linalg
 import numpy as np
 import math
@@ -19,8 +19,9 @@ mc.fcisolver = csf_solver (mol, smult = 1)
 mc.state_average_([0.5,0.5])
 mc.kernel ()
 
-# Gradient calculation
-mc_grad = sacasscf.Gradients (mc)
+# Gradient calculation (PySCF update: PySCF can now do this natively)
+#mc_grad = sacasscf.Gradients (mc)
+mc_grad = mc.nuc_grad_method ()
 dE = mc_grad.kernel (state = 0)
 print ("SA(2) CASSCF(6,6)/6-31g first root gradient of formaldehyde at the CASSCF(6,6)/6-31g geometry:")
 for ix, row in enumerate (dE):
