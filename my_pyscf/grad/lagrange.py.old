@@ -1,3 +1,8 @@
+###############################################################################################################################
+# As of 04/28/2020, this file has been accepted into the PySCF repository and mrh has been modified to use the PySCF version. #
+# This version is kept only for archival purposes.                                                                            #
+###############################################################################################################################
+
 import time
 from pyscf import lib, __config__
 from pyscf.grad import rhf as rhf_grad

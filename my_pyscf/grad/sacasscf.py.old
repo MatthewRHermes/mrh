@@ -1,3 +1,8 @@
+###############################################################################################################################
+# As of 04/28/2020, this file has been accepted into the PySCF repository and mrh has been modified to use the PySCF version. #
+# This version is kept only for archival purposes.                                                                            #
+###############################################################################################################################
+
 from mrh.my_pyscf.grad import lagrange
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
