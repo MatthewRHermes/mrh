@@ -47,13 +47,12 @@ def get_int3c_mo (mol, auxmol, mo_coeff, compact=False, max_memory=None):
     get_int3c = _int3c_wrapper(mol, auxmol, 'int3c2e', 's2ij')
     int3c = np.zeros ((naux, nmo_pair), dtype=mo0.dtype)
     max_memory -= lib.current_memory()[0]    
-    blksize = int (min (max (max_memory * 1e6 / 8 / ((npair**2)*2), 20), 240))
+    blksize = int (min (max (max_memory * 1e6 / 8 / (npair*2), 20), 240))
     aux_loc = auxmol.ao_loc
     aux_ranges = balance_partition(aux_loc, blksize)
     for shl0, shl1, nL in aux_ranges:
         int3c_ao = get_int3c ((0, nbas, 0, nbas, shl0, shl1))  # (uv|P)
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
-        buf = np.zeros ((p1-p0, npair), dtype=int3c_ao.dtype)
         int3c_ao = int3c_ao.T # is apparently stored f-contiguous but in the actual memory order I need, so just transpose
         int3c[p0:p1] = _ao2mo.nr_e2(int3c_ao, mo_conc, mo_slice, aosym='s2', mosym=mosym, out=int3c[p0:p1])
         int3c_ao = None
@@ -230,58 +229,7 @@ def energy_elec_dferi (mc, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None):
 
     return energy
 
-def get_int3c_ip1_mo (mol, auxmol, mo_coeff, compact=False, max_memory=None):
-    ''' Evaluate (P|u'v) c_ui c_vj -> (P|i'j)
-
-    Args:
-        mol: gto.Mole
-        auxmol: gto.Mole, contains auxbasis
-        mo_coeff: ndarray, list, or tuple containing MO coefficients
-            if two ndarrays mo_coeff = (mo0, mo1) are provided, mo0 and mo1 are
-            used for the two AO dimensions
-
-    Kwargs:
-        compact: bool
-            If true, will return only unique ERIs along the two MO dimensions.
-            Does nothing if mo_coeff contains two different sets of orbitals.
-        max_memory: int
-            Maximum memory consumption in MB
-
-    Returns:
-        int3c: ndarray of shape (naux, nmo0, nmo1) or (naux, nmo*(nmo+1)//2) '''
-
-    nao, naux, nbas, nauxbas = mol.nao, auxmol.nao, mol.nbas, auxmol.nbas
-    npair = nao * (nao + 1) // 2
-    if max_memory is None: max_memory = mol.max_memory
-
-    # Separate mo_coeff
-    if isinstance (mo_coeff, np.ndarray) and mo_coeff.ndim == 2:
-        mo0 = mo1 = mo_coeff
-    else:
-        mo0, mo1 = mo_coeff[0], mo_coeff[1]
-    nmo0, nmo1 = mo0.shape[-1], mo1.shape[-1]
-    mosym, nmo_pair, mo_conc, mo_slice = _conc_mos(mo0, mo1, compact=False)
-
-    # (P|uv) -> (P|ij)
-    get_int3c = _int3c_wrapper(mol, auxmol, 'int3c2e_ip1', 's1')
-    int3c = np.zeros ((naux, nmo_pair), dtype=mo0.dtype)
-    max_memory -= lib.current_memory()[0]    
-    blksize = int (min (max (max_memory * 1e6 / 8 / ((npair**2)*2), 20), 240))
-    aux_loc = auxmol.ao_loc
-    aux_ranges = balance_partition(aux_loc, blksize)
-    for shl0, shl1, nL in aux_ranges:
-        int3c_ao = get_int3c ((0, nbas, 0, nbas, shl0, shl1))  # (uv|P)
-        p0, p1 = aux_loc[shl0], aux_loc[shl1]
-        buf = np.zeros ((p1-p0, npair), dtype=int3c_ao.dtype)
-        int3c_ao = int3c_ao.T # is apparently stored f-contiguous but in the actual memory order I need, so just transpose
-        int3c[p0:p1] = _ao2mo.nr_e2(int3c_ao, mo_conc, mo_slice, aosym='s2', mosym=mosym, out=int3c[p0:p1])
-        int3c_ao = None
-
-    # Shape and return
-    if 's1' in mosym: int3c = int3c.reshape (naux, nmo0, nmo1)
-    return int3c
-
-def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, atmlst=None, dferi=None):
+def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, atmlst=None, max_memory=None, dferi=None, incl_2c=True):
     ''' Evaluate the [(P'|ij) + (P'|Q) g_Qij] d_Pij contribution to the electronic gradient, where d_Pij is
     the DF-2RDM obtained by solve_df_rdm2 and g_Qij solves (P|Q) g_Qij = (P|ij). The caller must symmetrize
     if necessary (i.e., (P|Q) d_Qij = (P|kl) d_ijkl <-> (P|Q) d_Qkl = (P|ij) d_ijkl in order to get at Q').
@@ -304,7 +252,11 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
         atmlst: list of integers
             List of nonfrozen atoms, as in grad_elec functions.
             Defaults to list (range (mol.natm))
+        max_memory: int
+            Maximum memory usage in MB
         dferi: ndarray containing g_Pij for optional precalculation
+        incl_2c: bool
+            If False, omit the terms depending on (P'|Q)
 
     Returns:
         dE: list of ndarray of shape (len (atmlst), 3) '''
@@ -314,6 +266,7 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     ncore, ncas, nao, naux = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao
     nocc = ncore + ncas
     if mo_cas is None: mo_cas = mc_grad.mo_coeff[:,ncore:nocc]
+    if max_memory is None: max_memory = mc_grad.max_memory
     if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
         mo_cas = (mo_cas,)*4
     elif len (mo_cas) == 2:
@@ -325,18 +278,42 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     nmo = [mo.shape[1] for mo in mo_cas]
     if atmlist is None: atmlst = list (range (mol.natm))
     if ci is None: ci = mc.ci
-    if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2)
-    if dferi is None: dferi = solve_df_eri (mc, mo_cas=mo_cas[:2])
+    if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2) # d_Pij
+    if (dferi is None) and incl_2c: dferi = solve_df_eri (mc, mo_cas=mo_cas[:2]) # g_Pij
     nset = len (dfcasdm2)
-    dE = np.zeros ((nset, len (atmlst), 3))
+    dE = np.zeros ((nset, naux, 3))
+    dfcasdm2 = np.asarray (dfcasdm2)
 
-    # Iterate over atoms for aux basis
-    aoslices = auxmol.aoslice_by_atom()
-    for k, ia in enumerate(atmlst):
-        shl0, shl1, p0, p1 = aoslices[ia]
+    # Set up (P'|ij) calculation
+    get_int3c = _int3c_wrapper(mol, auxmol, 'int3c2e_ip2', 's2ij')
+    if incl_2c: int2c = auxmol.intor('int2c2e_ip1')
+    max_memory -= lib.current_memory()[0]  
+    blklen = 6*npair
+    blksize = int (min (max (max_memory * 1e6 / 8 / blklen, 20), 240))
+    aux_loc = auxmol.ao_loc
+    aux_ranges = balance_partition(aux_loc, blksize)
+    mosym, nmo_pair, mo_conc, mo_slice = _conc_mos(mo_cas[0], mo_cas[1], compact=True)
+    dfcasdm2 = dfcasdm2.reshape (nset, naux, nmo_pair)
+    if incl_2c: dferi = dferi.reshape (naux, nmo_pair) # convenience: collapse last two dimensions if present
+
+    # Iterate over auxbasis range
+    for shl0, shl1, nL in aux_ranges:
+        p0, p1 = aux_loc[shl0], aux_loc[shl1]
+        int3c = get_int3c ((0, nbas, 0, nbas, shl0, shl1))  # (uv|P'); shape = (3,npair,p1-p0)
+        int3c = np.ascontiguousarray (int3c.transpose (1,0,2))
+        int3c = _ao2mo.nr_e2(int3c_ao, mo_conc, mo_slice, aosym='s2', mosym=mosym) # leading elements are now 3*npair
+        int3c = int3c.reshape (3,p1-p0,nmo_pair)
+        int3c = np.ascontiguousarray (int3c)
+        if incl_2c: int3c -= np.dot (int2c, dferi)
+        dE[:,p0:p1,:] -= lib.einsum ('npi,xpi->npx', dfcasdm2[:,p0:p1,:], int3c)
+
+    # Ravel to atoms
+    auxslices = auxmol.aoslice_by_atom ()
+    dE = np.array ([dE[:,p0:p1].sum (axis=1) for p0, p1 in auxslices[:,2:]]).transpose (1,0,2)
+    return np.ascontiguousarray (dE)
     
 
-def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, atmlst=None):
+def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, atmlst=None, max_memory=None):
     ''' Evaluate the (P|i'j) d_Pij contribution to the electronic gradient, where d_Pij is the
     DF-2RDM obtained by solve_df_rdm2. The caller must symmetrize (i.e., [(P|i'j) + (P|ij')] d_Pij / 2)
     if necessary. 
@@ -360,15 +337,18 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
         atmlst: list of integers
             List of nonfrozen atoms, as in grad_elec functions.
             Defaults to list (range (mol.natm))
+        max_memory: int
+            Maximum memory usage in MB
 
     Returns:
-        dE: list of ndarray of shape (len (atmlst), 3) '''
+        dE: ndarray of shape (len (dfcasdm2), len (atmlst), 3) '''
 
     mol = mc_grad.mol
     auxmol = mc_grad.base.with_df.auxmol
     ncore, ncas, nao, naux = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao
     nocc = ncore + ncas
     if mo_cas is None: mo_cas = mc_grad.mo_coeff[:,ncore:nocc]
+    if max_memory is None: max_memory = mc_grad.max_memory
     if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
         mo_cas = (mo_cas,)*4
     elif len (mo_cas) == 2:
@@ -380,16 +360,31 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
     nmo = [mo.shape[1] for mo in mo_cas]
     if atmlist is None: atmlst = list (range (mol.natm))
     if ci is None: ci = mc.ci
-    if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[:2], ci=ci, casdm2=casdm2)
+    if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2) # d_Pij
     nset = len (dfcasdm2)
-    dE = np.zeros ((nset, len (atmlst), 3))
+    dE = np.zeros ((nset, nao, 3))
+    dfcasdm2 = np.asarray (dfcasdm2)
+
+    # Set up (P|u'v) calculation
     get_int3c = _int3c_wrapper(mol, auxmol, 'int3c2e_ip1', 's1')
+    max_memory -= lib.current_memory()[0]  
+    blklen = nao*((3*nao) + (3*nmo[1]) + (nset*nmo[1]))
+    blksize = int (min (max (max_memory * 1e6 / 8 / blklen, 20), 240))
+    aux_loc = auxmol.ao_loc
+    aux_ranges = balance_partition(aux_loc, blksize)
+    aoslices = mol.aoslice_by_atom ()
 
-    # Iterate over atoms for AO basis
-    aoslices = mol.aoslice_by_atom()
-    for k, ia in enumerate(atmlst):
-        shl0, shl1, p0, p1 = aoslices[ia]
+    # Iterate over auxbasis range
+    for shl0, shl1, nL in aux_ranges:
+        p0, p1 = aux_loc[shl0], aux_loc[shl1]
+        int3c = get_int3c ((0, nbas, 0, nbas, shl0, shl1))  # (u'v|P); shape = (3,nao,nao,p1-p0)
+        int3c = lib.einsum ('xuvp,vj->xupj', int3c, mo_cas[1])
+        dm2buf = lib.einsum ('ui,npij->unpj', mo_cas[0], dfcasdm2[:,p0:p1,:,:])
+        dE -= lib.einsum ('unpj,xupj->unx', dm2buf, int3c)
 
+    aoslices = mol.aoslice_by_atom ()
+    dE = np.array ([dE[p0:p1].sum (axis=0) for p0, p1 in aoslices[:,2:]]).transpose (1,0,2)
+    return np.ascontiguousarray (dE)
 
 if __name__ == '__main__':
     from pyscf.tools import molden
