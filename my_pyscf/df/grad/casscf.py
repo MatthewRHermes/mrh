@@ -49,20 +49,12 @@ def get_int3c_mo (mol, auxmol, mo_coeff, compact=False, max_memory=None):
     max_memory -= lib.current_memory()[0]    
     blksize = int (min (max (max_memory * 1e6 / 8 / ((npair**2)*2), 20), 240))
     aux_loc = auxmol.ao_loc
-    ao_ranges = balance_partition(aux_loc, blksize)
-    for shl0, shl1, nL in ao_ranges:
+    aux_ranges = balance_partition(aux_loc, blksize)
+    for shl0, shl1, nL in aux_ranges:
         int3c_ao = get_int3c ((0, nbas, 0, nbas, shl0, shl1))  # (uv|P)
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
         buf = np.zeros ((p1-p0, npair), dtype=int3c_ao.dtype)
         int3c_ao = int3c_ao.T # is apparently stored f-contiguous but in the actual memory order I need, so just transpose
-        #assert (int3c_ao.shape == (npair, p1-p0)), 'npair = {}, p1-p0 = {}, shape = {}'.format (npair, p1-p0, int3c_ao.shape)
-        assert (int3c_ao.flags.c_contiguous)
-        #if ((int3c_ao.shape == (npair, p1-p0) and int3c_ao.flags.c_contiguous) or
-        #    (int3c_ao.shape == (p1-p0, npair) and int3c_ao.flags.f_contiguous)):
-        #    # I'm pretty sure I have to transpose for _ao2mo.nr_e2 to work
-        #    if int3c_ao.flags.f_contiguous: int3c_ao = int3c_ao.T
-        #    assert (int3c_ao.flags.c_contiguous)
-        #    int3c_ao = lib.transpose (int3c_ao, out=buf)
         int3c[p0:p1] = _ao2mo.nr_e2(int3c_ao, mo_conc, mo_slice, aosym='s2', mosym=mosym, out=int3c[p0:p1])
         int3c_ao = None
 
@@ -101,8 +93,7 @@ def solve_df_rdm2 (mc_or_mc_grad, mo_cas=None, ci=None, casdm2=None):
     auxmol = mc.with_df.auxmol
     if auxmol is None:
         auxmol = df.addons.make_auxmol(mc.with_df.mol, mc.with_df.auxbasis)
-    nao, naux, nbas, nauxbas = mol.nao, auxmol.nao, mol.nbas, auxmol.nbas
-    npair = nao * (nao + 1) // 2
+    naux = auxmol.nao
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
     nocc = ncore + ncas
 
@@ -141,9 +132,46 @@ def solve_df_rdm2 (mc_or_mc_grad, mo_cas=None, ci=None, casdm2=None):
 
     return dfcasdm2
 
+def solve_df_eri (mc_or_mc_grad, mo_cas=None, compact=True):
+    ''' Solve (P|Q) g_Qij = (P|ij) for g_Qij using MOs i,j. I mean this should be a basic function but whatever. '''
+
+    # Initialize mol and auxmol
+    mol = mc_or_mc_grad.mol
+    if isinstance (mc_or_mc_grad, GradientsBasics):
+        mc = mc_or_mc_grad.base
+    else:
+        mc = mc_or_mc_grad
+    auxmol = mc.with_df.auxmol
+    if auxmol is None:
+        auxmol = df.addons.make_auxmol(mc.with_df.mol, mc.with_df.auxbasis)
+    nao, naux, nbas, nauxbas = mol.nao, auxmol.nao, mol.nbas, auxmol.nbas
+    npair = nao * (nao + 1) // 2
+    ncore, ncas = mc.ncore, mc.ncas 
+    nocc = ncore + ncas
+    if mo_cas is None: mo_cas = mc_or_mc_grad.mo_coeff[:,ncore:nocc]
+    if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
+        nmo = (mo_cas.shape[1], mo_cas.shape[1])
+    else:
+        nmo = (mo_cas[0].shape[1], mo_cas[1].shape[1])
+
+    # (P|Q) and (P|ij)
+    int2c = linalg.cho_factor(auxmol.intor('int2c2e', aosym='s1'))
+    int3c = get_int3c_mo (mol, auxmol, mo_cas, compact=compact, max_memory=mc_or_mc_grad.max_memory)
+
+    # Solve (P|Q) g_Qij = (P|ij)
+    dferi = linalg.cho_solve (int2c, int3c)
+    if int3c.ndim == 2:
+        dferi = dferi.reshape (naux, -1)
+    else:
+        dferi = dferi.reshape (naux, nmo[0], nmo[1])
+    return dferi
+
+
 def energy_elec_dferi (mc, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None):
-    ''' Evaluate E2 = (P|qr)d_Pqr/2, where d_Pqr is the DF-2rdm obtained by solve_df_rdm2.
-    For testing purposes. 
+    ''' Evaluate E2 = (P|ij) d_Pij / 2, where d_Pij is the DF-2rdm obtained by solve_df_rdm2.
+    For testing purposes. Note that the only index permutation this function understands
+    is (P|ij) = (P|ji) if i and j span the same range of MOs. The caller has to handle everything
+    else, including, for instance, multiplication by 2 if a nonsymmetric slice of the 2RDM is used.
 
     Args:
         mc: MC-SCF energy method object
@@ -154,27 +182,30 @@ def energy_elec_dferi (mc, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None):
             the internally-contracted and externally-contracted indices of the DF-2rdm:
             (P|Q)d_Qij = (P|kl)d_ijkl -> (P|Q)d_Qij = (P|ij)d_ijij
             If a tuple of length 4, the 4 MO sets are applied to ijkl above in that order
-            (first two external, last two internal)
+            (first two external, last two internal).
         ci: ndarray, tuple, or list containing CI coefficients in mo_cas basis.
             Not used if dfcasdm2 is provided.
         dfcasdm2: ndarray, tuple, or list containing DF-2rdm in mo_cas basis.
             Computed by solve_df_rdm2 if omitted.
         casdm2: ndarray, tuple, or list containing rdm2 in mo_cas basis.
             Computed by mc_or_mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
+
+    Returns:
+        energy: list
+            List of energies corresponding to the dfcasdm2s,
+            E = (P|ij) d_Pij / 2 = (P|ij) (P|Q)^-1 (Q|kl) d_ijkl / 2
     '''
     if isinstance (mc, GradientsBasics): mc = mc.base
     if mo_cas is None:
         ncore = mc.ncore
         nocc = ncore + mc.ncas
         mo_cas = mc.mo_coeff[:,ncore:nocc]
-    fac = 0.5
     if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
         mo_cas = (mo_cas,)*4
     elif len (mo_cas) == 2:
         mo_cas = (mo_cas[0], mo_cas[1], mo_cas[0], mo_cas[1])
     elif len (mo_cas) == 4:
         mo_cas = tuple (mo_cas)
-        fac = 1.0
     else:
         raise RuntimeError ('Invalid shape of np.asarray (mo_cas): {}'.format (mo_cas.shape))
     nmo = [mo.shape[1] for mo in mo_cas]
@@ -195,42 +226,169 @@ def energy_elec_dferi (mc, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None):
             dm2[:,diag_idx] *= 0.5
         else:
             nmo_pair = nmo[0] * nmo[1]
-        energy.append (np.dot (int3c, dm2.ravel ()) * fac)
+        energy.append (np.dot (int3c, dm2.ravel ()) / 2)
 
     return energy
 
-def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, atmlst=None):
-    ''' Evaluate the electronic gradient using the DF-2rdm obtained by solve_df_rdm2.
+def get_int3c_ip1_mo (mol, auxmol, mo_coeff, compact=False, max_memory=None):
+    ''' Evaluate (P|u'v) c_ui c_vj -> (P|i'j)
 
+    Args:
+        mol: gto.Mole
+        auxmol: gto.Mole, contains auxbasis
+        mo_coeff: ndarray, list, or tuple containing MO coefficients
+            if two ndarrays mo_coeff = (mo0, mo1) are provided, mo0 and mo1 are
+            used for the two AO dimensions
+
+    Kwargs:
+        compact: bool
+            If true, will return only unique ERIs along the two MO dimensions.
+            Does nothing if mo_coeff contains two different sets of orbitals.
+        max_memory: int
+            Maximum memory consumption in MB
+
+    Returns:
+        int3c: ndarray of shape (naux, nmo0, nmo1) or (naux, nmo*(nmo+1)//2) '''
+
+    nao, naux, nbas, nauxbas = mol.nao, auxmol.nao, mol.nbas, auxmol.nbas
+    npair = nao * (nao + 1) // 2
+    if max_memory is None: max_memory = mol.max_memory
+
+    # Separate mo_coeff
+    if isinstance (mo_coeff, np.ndarray) and mo_coeff.ndim == 2:
+        mo0 = mo1 = mo_coeff
+    else:
+        mo0, mo1 = mo_coeff[0], mo_coeff[1]
+    nmo0, nmo1 = mo0.shape[-1], mo1.shape[-1]
+    mosym, nmo_pair, mo_conc, mo_slice = _conc_mos(mo0, mo1, compact=False)
+
+    # (P|uv) -> (P|ij)
+    get_int3c = _int3c_wrapper(mol, auxmol, 'int3c2e_ip1', 's1')
+    int3c = np.zeros ((naux, nmo_pair), dtype=mo0.dtype)
+    max_memory -= lib.current_memory()[0]    
+    blksize = int (min (max (max_memory * 1e6 / 8 / ((npair**2)*2), 20), 240))
+    aux_loc = auxmol.ao_loc
+    aux_ranges = balance_partition(aux_loc, blksize)
+    for shl0, shl1, nL in aux_ranges:
+        int3c_ao = get_int3c ((0, nbas, 0, nbas, shl0, shl1))  # (uv|P)
+        p0, p1 = aux_loc[shl0], aux_loc[shl1]
+        buf = np.zeros ((p1-p0, npair), dtype=int3c_ao.dtype)
+        int3c_ao = int3c_ao.T # is apparently stored f-contiguous but in the actual memory order I need, so just transpose
+        int3c[p0:p1] = _ao2mo.nr_e2(int3c_ao, mo_conc, mo_slice, aosym='s2', mosym=mosym, out=int3c[p0:p1])
+        int3c_ao = None
+
+    # Shape and return
+    if 's1' in mosym: int3c = int3c.reshape (naux, nmo0, nmo1)
+    return int3c
+
+def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, atmlst=None, dferi=None):
+    ''' Evaluate the [(P'|ij) + (P'|Q) g_Qij] d_Pij contribution to the electronic gradient, where d_Pij is
+    the DF-2RDM obtained by solve_df_rdm2 and g_Qij solves (P|Q) g_Qij = (P|ij). The caller must symmetrize
+    if necessary (i.e., (P|Q) d_Qij = (P|kl) d_ijkl <-> (P|Q) d_Qkl = (P|ij) d_ijkl in order to get at Q').
     Args:
         mc_grad: MC-SCF gradients method object
 
     Kwargs:
         mc_cas: ndarray, list, or tuple containing active-space MO coefficients
-            if two ndarrays mo_cas = (mo0, mo1) are provided, mo0 and mo1 are
-            assumed to correspond to dfcasdm2's two MO dimensions in that order,
-            regardless of len (ci) or len (dfcasdm2).
-            (This will facilitate SA-CASSCF gradients at some point. Note
-            the difference from solve_df_rdm2!)
+            If a tuple of length 2, the same pair of MO sets are assumed to apply to
+            the internally-contracted and externally-contracted indices of the DF-2rdm:
+            (P|Q)d_Qij = (P|kl)d_ijkl -> (P|Q)d_Qij = (P|ij)d_ijij
+            If a tuple of length 4, the 4 MO sets are applied to ijkl above in that order
+            (first two external, last two internal).
         ci: ndarray, tuple, or list containing CI coefficients in mo_cas basis.
             Not used if dfcasdm2 is provided.
         dfcasdm2: ndarray, tuple, or list containing DF-2rdm in mo_cas basis.
             Computed by solve_df_rdm2 if omitted.
+        casdm2: ndarray, tuple, or list containing rdm2 in mo_cas basis.
+            Computed by mc_or_mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
         atmlst: list of integers
             List of nonfrozen atoms, as in grad_elec functions.
             Defaults to list (range (mol.natm))
+        dferi: ndarray containing g_Pij for optional precalculation
 
     Returns:
-        gradient: ndarray of shape (len (atmlst), 3) '''
+        dE: list of ndarray of shape (len (atmlst), 3) '''
 
     mol = mc_grad.mol
     auxmol = mc_grad.base.with_df.auxmol
     ncore, ncas, nao, naux = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao
     nocc = ncore + ncas
     if mo_cas is None: mo_cas = mc_grad.mo_coeff[:,ncore:nocc]
+    if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
+        mo_cas = (mo_cas,)*4
+    elif len (mo_cas) == 2:
+        mo_cas = (mo_cas[0], mo_cas[1], mo_cas[0], mo_cas[1])
+    elif len (mo_cas) == 4:
+        mo_cas = tuple (mo_cas)
+    else:
+        raise RuntimeError ('Invalid shape of np.asarray (mo_cas): {}'.format (mo_cas.shape))
+    nmo = [mo.shape[1] for mo in mo_cas]
+    if atmlist is None: atmlst = list (range (mol.natm))
     if ci is None: ci = mc.ci
-    if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas, ci=ci)
+    if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2)
+    if dferi is None: dferi = solve_df_eri (mc, mo_cas=mo_cas[:2])
+    nset = len (dfcasdm2)
+    dE = np.zeros ((nset, len (atmlst), 3))
 
+    # Iterate over atoms for aux basis
+    aoslices = auxmol.aoslice_by_atom()
+    for k, ia in enumerate(atmlst):
+        shl0, shl1, p0, p1 = aoslices[ia]
+    
+
+def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, atmlst=None):
+    ''' Evaluate the (P|i'j) d_Pij contribution to the electronic gradient, where d_Pij is the
+    DF-2RDM obtained by solve_df_rdm2. The caller must symmetrize (i.e., [(P|i'j) + (P|ij')] d_Pij / 2)
+    if necessary. 
+
+    Args:
+        mc_grad: MC-SCF gradients method object
+
+    Kwargs:
+        mc_cas: ndarray, list, or tuple containing active-space MO coefficients
+            If a tuple of length 2, the same pair of MO sets are assumed to apply to
+            the internally-contracted and externally-contracted indices of the DF-2rdm:
+            (P|Q)d_Qij = (P|kl)d_ijkl -> (P|Q)d_Qij = (P|ij)d_ijij
+            If a tuple of length 4, the 4 MO sets are applied to ijkl above in that order
+            (first two external, last two internal).
+        ci: ndarray, tuple, or list containing CI coefficients in mo_cas basis.
+            Not used if dfcasdm2 is provided.
+        dfcasdm2: ndarray, tuple, or list containing DF-2rdm in mo_cas basis.
+            Computed by solve_df_rdm2 if omitted.
+        casdm2: ndarray, tuple, or list containing rdm2 in mo_cas basis.
+            Computed by mc_or_mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
+        atmlst: list of integers
+            List of nonfrozen atoms, as in grad_elec functions.
+            Defaults to list (range (mol.natm))
+
+    Returns:
+        dE: list of ndarray of shape (len (atmlst), 3) '''
+
+    mol = mc_grad.mol
+    auxmol = mc_grad.base.with_df.auxmol
+    ncore, ncas, nao, naux = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao
+    nocc = ncore + ncas
+    if mo_cas is None: mo_cas = mc_grad.mo_coeff[:,ncore:nocc]
+    if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
+        mo_cas = (mo_cas,)*4
+    elif len (mo_cas) == 2:
+        mo_cas = (mo_cas[0], mo_cas[1], mo_cas[0], mo_cas[1])
+    elif len (mo_cas) == 4:
+        mo_cas = tuple (mo_cas)
+    else:
+        raise RuntimeError ('Invalid shape of np.asarray (mo_cas): {}'.format (mo_cas.shape))
+    nmo = [mo.shape[1] for mo in mo_cas]
+    if atmlist is None: atmlst = list (range (mol.natm))
+    if ci is None: ci = mc.ci
+    if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[:2], ci=ci, casdm2=casdm2)
+    nset = len (dfcasdm2)
+    dE = np.zeros ((nset, len (atmlst), 3))
+    get_int3c = _int3c_wrapper(mol, auxmol, 'int3c2e_ip1', 's1')
+
+    # Iterate over atoms for AO basis
+    aoslices = mol.aoslice_by_atom()
+    for k, ia in enumerate(atmlst):
+        shl0, shl1, p0, p1 = aoslices[ia]
 
 
 if __name__ == '__main__':
@@ -262,7 +420,7 @@ if __name__ == '__main__':
     casdm2_sl = casdm2[0:2,1:3,0:4,1:6]
     mo_cas_sl = (mo_cas[:,0:2], mo_cas[:,1:3], mo_cas[:,0:4], mo_cas[:,1:6]) 
     e2_ref = np.dot (casdm2_sl.ravel (), eri_cas_sl.ravel ())
-    e2_test = energy_elec_dferi (mc, mo_cas=mo_cas_sl, casdm2=casdm2_sl)[0]
+    e2_test = energy_elec_dferi (mc, mo_cas=mo_cas_sl, casdm2=casdm2_sl)[0] * 2
     e2_err = e2_test - e2_ref
     print ("Testing slice calculation: e2_test - e2_ref = {:13.6e} - {:13.6e} = {:13.6e}".format (e2_test, e2_ref, e2_err))
 
@@ -273,7 +431,7 @@ if __name__ == '__main__':
     e2_test = np.dot (casdm2_sl.ravel (), eri_cas_sl.ravel ())
     e2_err = e2_test - e2_ref
     print ("Testing slice c.c. ERI: e2_test - e2_ref = {:13.6e} - {:13.6e} = {:13.6e}".format (e2_test, e2_ref, e2_err))
-    e2_test = energy_elec_dferi (mc, mo_cas=mo_cas_sl, casdm2=casdm2_sl)[0]
+    e2_test = energy_elec_dferi (mc, mo_cas=mo_cas_sl, casdm2=casdm2_sl)[0] * 2
     print ("Testing slice c.c. DFERI: e2_test - e2_ref = {:13.6e} - {:13.6e} = {:13.6e}".format (e2_test, e2_ref, e2_err))
     
     # 2-RDM slice electron interchange
@@ -283,7 +441,7 @@ if __name__ == '__main__':
     e2_test = np.dot (casdm2_sl.ravel (), eri_cas_sl.ravel ())
     e2_err = e2_test - e2_ref
     print ("Testing slice 1<->2 ERI: e2_test - e2_ref = {:13.6e} - {:13.6e} = {:13.6e}".format (e2_test, e2_ref, e2_err))
-    e2_test = energy_elec_dferi (mc, mo_cas=mo_cas_sl, casdm2=casdm2_sl)[0]
+    e2_test = energy_elec_dferi (mc, mo_cas=mo_cas_sl, casdm2=casdm2_sl)[0] * 2
     print ("Testing slice 1<->2 DFERI: e2_test - e2_ref = {:13.6e} - {:13.6e} = {:13.6e}".format (e2_test, e2_ref, e2_err))
 
 
