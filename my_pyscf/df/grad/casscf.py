@@ -10,8 +10,9 @@ from pyscf.grad.rhf import GradientsBasics
 from pyscf.df.grad.rhf import _int3c_wrapper
 from pyscf.ao2mo.outcore import balance_partition
 from pyscf.ao2mo.incore import _conc_mos
+from pyscf import __config__
 
-def get_int3c_mo (mol, auxmol, mo_coeff, compact=False, max_memory=None):
+def get_int3c_mo (mol, auxmol, mo_coeff, compact=getattr(__config__, 'df_df_DF_ao2mo_compact', True), max_memory=None):
     ''' Evaluate (P|uv) c_ui c_vj -> (P|ij)
 
     Args:
@@ -78,6 +79,8 @@ def solve_df_rdm2 (mc_or_mc_grad, mo_cas=None, ci=None, casdm2=None):
             Not used if casdm2 is provided.
         casdm2: ndarray, tuple, or list containing rdm2 in mo_cas basis.
             Computed by mc_or_mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
+        compact: bool
+            If true, tries to return d_Pqr in lower-triangular form if possible
         
     Returns:
         dfcasdm2: ndarray or list containing 3-center 2RDM, d_Pqr, where P is
@@ -262,9 +265,11 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
         dE: list of ndarray of shape (len (atmlst), 3) '''
 
     mol = mc_grad.mol
-    auxmol = mc_grad.base.with_df.auxmol
-    ncore, ncas, nao, naux = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao
+    #auxmol = mc_grad.base.with_df.auxmol
+    auxmol = mc_grad.with_df.auxmol
+    ncore, ncas, nao, naux, nbas = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao, mol.nbas
     nocc = ncore + ncas
+    npair = nao * (nao + 1) // 2
     if mo_cas is None: mo_cas = mc_grad.mo_coeff[:,ncore:nocc]
     if max_memory is None: max_memory = mc_grad.max_memory
     if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
@@ -276,7 +281,7 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     else:
         raise RuntimeError ('Invalid shape of np.asarray (mo_cas): {}'.format (mo_cas.shape))
     nmo = [mo.shape[1] for mo in mo_cas]
-    if atmlist is None: atmlst = list (range (mol.natm))
+    if atmlst is None: atmlst = list (range (mol.natm))
     if ci is None: ci = mc.ci
     if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2) # d_Pij
     if (dferi is None) and incl_2c: dferi = solve_df_eri (mc, mo_cas=mo_cas[:2]) # g_Pij
@@ -293,6 +298,13 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     aux_loc = auxmol.ao_loc
     aux_ranges = balance_partition(aux_loc, blksize)
     mosym, nmo_pair, mo_conc, mo_slice = _conc_mos(mo_cas[0], mo_cas[1], compact=True)
+    if 's2' in mosym:
+        assert (nmo[0] == nmo[1]), 'How did I get {} with nmo[0] = {} and nmo[1] = {}'.format (mosym, nmo[0], nmo[1])
+        dfcasdm2 = dfcasdm2.reshape (nset*naux, nmo[0], nmo[1])
+        diag_idx = np.arange(nmo[0])
+        diag_idx = diag_idx * (diag_idx+1) // 2 + diag_idx
+        dfcasdm2 = lib.pack_tril (np.ascontiguousarray (dfcasdm2))
+        dfcasdm2[:,diag_idx] *= 0.5
     dfcasdm2 = dfcasdm2.reshape (nset, naux, nmo_pair)
     if incl_2c: dferi = dferi.reshape (naux, nmo_pair) # convenience: collapse last two dimensions if present
 
@@ -300,8 +312,8 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     for shl0, shl1, nL in aux_ranges:
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
         int3c = get_int3c ((0, nbas, 0, nbas, shl0, shl1))  # (uv|P'); shape = (3,npair,p1-p0)
-        int3c = np.ascontiguousarray (int3c.transpose (1,0,2))
-        int3c = _ao2mo.nr_e2(int3c_ao, mo_conc, mo_slice, aosym='s2', mosym=mosym) # leading elements are now 3*npair
+        int3c = np.ascontiguousarray (int3c.transpose (0,2,1).reshape (3*(p1-p0), npair))
+        int3c = _ao2mo.nr_e2(int3c, mo_conc, mo_slice, aosym='s2', mosym=mosym)
         int3c = int3c.reshape (3,p1-p0,nmo_pair)
         int3c = np.ascontiguousarray (int3c)
         if incl_2c: int3c -= np.dot (int2c, dferi)
@@ -344,8 +356,9 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
         dE: ndarray of shape (len (dfcasdm2), len (atmlst), 3) '''
 
     mol = mc_grad.mol
-    auxmol = mc_grad.base.with_df.auxmol
-    ncore, ncas, nao, naux = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao
+    #auxmol = mc_grad.base.with_df.auxmol
+    auxmol = mc_grad.with_df.auxmol
+    ncore, ncas, nao, naux, nbas = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao, mol.nbas
     nocc = ncore + ncas
     if mo_cas is None: mo_cas = mc_grad.mo_coeff[:,ncore:nocc]
     if max_memory is None: max_memory = mc_grad.max_memory
@@ -358,7 +371,7 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
     else:
         raise RuntimeError ('Invalid shape of np.asarray (mo_cas): {}'.format (mo_cas.shape))
     nmo = [mo.shape[1] for mo in mo_cas]
-    if atmlist is None: atmlst = list (range (mol.natm))
+    if atmlst is None: atmlst = list (range (mol.natm))
     if ci is None: ci = mc.ci
     if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2) # d_Pij
     nset = len (dfcasdm2)
@@ -379,11 +392,11 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
         int3c = get_int3c ((0, nbas, 0, nbas, shl0, shl1))  # (u'v|P); shape = (3,nao,nao,p1-p0)
         int3c = lib.einsum ('xuvp,vj->xupj', int3c, mo_cas[1])
-        dm2buf = lib.einsum ('ui,npij->unpj', mo_cas[0], dfcasdm2[:,p0:p1,:,:])
-        dE -= lib.einsum ('unpj,xupj->unx', dm2buf, int3c)
+        dm2buf = lib.einsum ('ui,npij->nupj', mo_cas[0], dfcasdm2[:,p0:p1,:,:])
+        dE -= np.einsum ('nupj,xupj->nux', dm2buf, int3c)
 
     aoslices = mol.aoslice_by_atom ()
-    dE = np.array ([dE[p0:p1].sum (axis=0) for p0, p1 in aoslices[:,2:]]).transpose (1,0,2)
+    dE = np.array ([dE[:,p0:p1].sum (axis=1) for p0, p1 in aoslices[:,2:]]).transpose (1,0,2)
     return np.ascontiguousarray (dE)
 
 if __name__ == '__main__':
@@ -438,5 +451,10 @@ if __name__ == '__main__':
     print ("Testing slice 1<->2 ERI: e2_test - e2_ref = {:13.6e} - {:13.6e} = {:13.6e}".format (e2_test, e2_ref, e2_err))
     e2_test = energy_elec_dferi (mc, mo_cas=mo_cas_sl, casdm2=casdm2_sl)[0] * 2
     print ("Testing slice 1<->2 DFERI: e2_test - e2_ref = {:13.6e} - {:13.6e} = {:13.6e}".format (e2_test, e2_ref, e2_err))
+
+    dE = grad_elec_dferi (mc, mo_cas=mo_cas, casdm2=casdm2)
+    print (dE)
+    dE_aux = grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, casdm2=casdm2)
+    print (dE_aux)
 
 
