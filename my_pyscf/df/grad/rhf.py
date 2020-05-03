@@ -34,6 +34,7 @@ from pyscf.gto.moleintor import getints, make_cintopt
 from pyscf.lib import logger
 from pyscf.grad import rhf as rhf_grad
 from functools import reduce
+from itertools import product
 
 # MRH 05/03/2020 
 # There are three problems with get_jk from the perspective of generalizing
@@ -125,19 +126,23 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
 
         if mf_grad.auxbasis_response:
             # (i,j|d/dX P)
-            vjaux = numpy.empty((3,naux))
+            vjaux = numpy.empty((nset,nset,3,naux))
             for shl0, shl1, nL in ao_ranges:
                 int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
                 p0, p1 = aux_loc[shl0], aux_loc[shl1]
-                vjaux[:,p0:p1] = numpy.einsum('xwp,mw,np->xp',
+                vjaux[:,p0:p1] = numpy.einsum('xwp,mw,np->mnxp',
                                               int3c, dm_tril, rhoj[:,p0:p1])
                 int3c = None
 
             # (d/dX P|Q)
             int2c_e1 = auxmol.intor('int2c2e_ip1', aosym='s1')
-            vjaux -= numpy.einsum('xpq,mp,nq->xp', int2c_e1, rhoj, rhoj)
+            vjaux -= numpy.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
 
-            vjaux = [-vjaux[:,p0:p1].sum(axis=1) for p0, p1 in auxslices[:,2:]]
+            vjaux = numpy.array ([-vjaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
+            if ishf:
+                vjaux = vjaux.sum ((1,2))
+            else:
+                vjaux = numpy.ascontiguousarray (vjaux.transpose (1,2,0,3))
             vj = lib.tag_array(-vj.reshape(out_shape), aux=numpy.array(vjaux))
         else:
             vj = -vj.reshape(out_shape)
@@ -228,25 +233,30 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             tmp = rhok = None
         int3c = None
 
-    max_memory = mf_grad.max_memory - lib.current_memory()[0]
-    blksize = int(min(max(max_memory * .5e6/8 / (nao*nocc), 20), naux))
-    rhok_oo = []
-    for i in range(nset):
-        nocc = orbor[i].shape[1]
-        tmp = numpy.empty((naux,nocc,nocc))
-        for p0, p1 in lib.prange(0, naux, blksize):
-            rhok = load(i, p0, p1)
-            # MRH 05/03/2020: I need to remember that the third index
-            # of rhok_oo is contracted with orbor and the fourth with
-            # orbol. They should be transposed when it's dotted with
-            # itself below.
-            tmp[p0:p1] = lib.einsum('pok,kr->por', rhok, orbol[i])
-        rhok_oo.append(tmp)
-        rhok = tmp = None
-
+    # MRH 05/03/2020: moved the rhok_oo stuff inside of the mf_grad.auxbasis_response 
+    # conditional because it's never used outside of that
     if mf_grad.auxbasis_response:
-        vjaux = numpy.zeros((3,naux))
-        vkaux = numpy.zeros((3,naux))
+        # Cache (P|uv) D_ui c_vj. Must be include both upper and lower triangles
+        # over nset.
+        max_memory = mf_grad.max_memory - lib.current_memory()[0]
+        blksize = int(min(max(max_memory * .5e6/8 / (nao*nocc), 20), naux))
+        rhok_oo = []
+        for i, j in product (range (nset), repeat=2):
+            nocc_i = orbor[i].shape[1]
+            nocc_j = orbol[j].shape[1]
+            tmp = numpy.empty ((naux,nocc_i,nocc_j))
+            for p0, p1 in lib.prange(0, naux, blksize):
+                rhok = load(i, p0, p1)
+                # MRH 05/03/2020: I need to remember that the third index
+                # of rhok_oo is contracted with orbor and the fourth with
+                # orbol. They should be transposed when it's dotted with
+                # itself below.
+                tmp[p0:p1] = lib.einsum('pok,kr->por', rhok, orbol[j])
+            rhok_oo.append(tmp)
+            rhok = tmp = None
+
+        vjaux = numpy.zeros((nset,nset,3,naux))
+        vkaux = numpy.zeros((nset,nset,3,naux))
         # (i,j|d/dX P)
         for shl0, shl1, nL in ao_ranges:
             int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
@@ -254,28 +264,38 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             int3c = int3c.transpose(0,2,1).reshape(3*(p1-p0),-1)
             int3c = lib.unpack_tril(int3c)
             int3c = int3c.reshape(3,p1-p0,nao,nao)
-            vjaux[:,p0:p1] = numpy.einsum('xpij,mji,np->xp',
+            vjaux[:,p0:p1] = numpy.einsum('xpij,mji,np->mnxp',
                                           int3c, dms, rhoj[:,p0:p1])
-            for i in range(nset):
-                tmp = rhok_oo[i][p0:p1]
+            for i, j in product (range (nset), repeat=2):
+                k = (i*nset) + j
+                tmp = rhok_oo[k][p0:p1]
                 # MRH 05/03/2020: Leave only one factor of a density
                 # matrix on both indices!
-                tmp = lib.einsum('por,ir->pio', tmp, orbor[i])
+                tmp = lib.einsum('por,ir->pio', tmp, orbor[j])
                 tmp = lib.einsum('pio,jo->pij', tmp, orbol[i])
-                vkaux[:,p0:p1] += lib.einsum('xpij,pij->xp', int3c, tmp)
+                vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c, tmp)
         int3c = tmp = None
 
         # (d/dX P|Q)
         int2c_e1 = auxmol.intor('int2c2e_ip1')
-        vjaux -= numpy.einsum('xpq,mp,nq->xp', int2c_e1, rhoj, rhoj)
-        for i in range(nset):
+        vjaux -= numpy.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
+        for i, j in product (range (nset), repeat=2):
             # MRH 05/03/2020: Transpose so as to leave only one factor
             # of a density matrix on both indices!
-            tmp = lib.einsum('pij,qji->pq', rhok_oo[i], rhok_oo[i])
-            vkaux -= numpy.einsum('xpq,pq->xp', int2c_e1, tmp)
+            k = (i*nset) + j
+            l = (j*nset) + i
+            tmp = lib.einsum('pij,qji->pq', rhok_oo[k], rhok_oo[l])
+            vkaux[i,j] -= numpy.einsum('xpq,pq->xp', int2c_e1, tmp)
 
-        vjaux = [-vjaux[:,p0:p1].sum(axis=1) for p0, p1 in auxslices[:,2:]]
-        vkaux = [-vkaux[:,p0:p1].sum(axis=1) for p0, p1 in auxslices[:,2:]]
+        vjaux = numpy.array ([-vjaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
+        vkaux = numpy.array ([-vkaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
+        if ishf:
+            vjaux = vjaux.sum ((1,2))
+            idx_diag = numpy.array (list (range (nset))) * (nset + 1)
+            vkaux = vkaux.reshape ((nset**2,3,mol.natm))[idx_diag,:,:].sum (0)
+        else:
+            vjaux = numpy.ascontiguousarray (vjaux.transpose (1,2,0,3))
+            vkaux = numpy.ascontiguousarray (vkaux.transpose (1,2,0,3))
         vj = lib.tag_array(-vj.reshape(out_shape), aux=numpy.array(vjaux))
         vk = lib.tag_array(-vk.reshape(out_shape), aux=numpy.array(vkaux))
     else:
