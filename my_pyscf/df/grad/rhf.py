@@ -34,8 +34,30 @@ from pyscf.gto.moleintor import getints, make_cintopt
 from pyscf.lib import logger
 from pyscf.grad import rhf as rhf_grad
 
+# MRH 05/03/2020 
+# There are two problems with get_jk from the perspective of generalizing
+# for usage in DF-CASSCF and its children's analytical gradients:
+#   1. orbo = c.n^1/2 doesn't work with non-positive-semidefinite density
+#      matrices, which appear in DF-SA-CASSCF and DF-PDFT analytical gradients.
+#      The solution to this is simple, though: split it into orbor = c.n^1 and
+#      orbol = c[:,|n|>0]. The extra memory cost is trivial compared to the
+#      size of the ERIs. This does require care around the rhok_oo lines, but
+#      it should work so long as I remember to transpose where necessary. 
+#   2. For the auxbasis response, the actual contribution to the gradient
+#      is returned instead of vj' and vk'. This is understandable, since
+#      the auxbasis response parts have size = 3*natm*nao^2, a factor of natm
+#      larger than the size of the AO basis response parts. However, CASSCF
+#      and its children have asymmetric Coulomb and exchange contributions to
+#      the energy; i.e., E += vk2.D1 = g.(D1xD2)^T with D1 =/= D2. Even the cumulant
+#      decomposition doesn't save you from this because once you get to SA-CASSCF,
+#      you have the orbrot lagrange multipliers which contract to exactly one 
+#      orbital index on the 2RDM. The solution to this is to change the logic.
+#      The new kwarg ishf4aux defaults to the original behavior, but if
+#      switched to False, it causes vj.aux and vk.aux to return as arrays of shape
+#      (nset*(nset+1)/2,3,nao,nao) containing terms involving all pairs of dms.
+#      The caller can figure things out from there.
 
-def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True):
+def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4aux=True):
     print ("If you see me monkeypatching works!")
     if mol is None: mol = mf_grad.mol
     #if dm is None: dm = mf_grad.base.make_rdm1()
