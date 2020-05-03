@@ -283,20 +283,12 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     nmo = [mo.shape[1] for mo in mo_cas]
     if atmlst is None: atmlst = list (range (mol.natm))
     if ci is None: ci = mc.ci
-    if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2) # d_Pij
-    if (dferi is None) and incl_2c: dferi = solve_df_eri (mc, mo_cas=mo_cas[:2]) # g_Pij
+    if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2) # d_Pij = (P|Q)^{-1} (Q|kl) d_ijkl
     nset = len (dfcasdm2)
     dE = np.zeros ((nset, naux, 3))
     dfcasdm2 = np.asarray (dfcasdm2)
 
-    # Set up (P'|ij) calculation
-    get_int3c = _int3c_wrapper(mol, auxmol, 'int3c2e_ip2', 's2ij')
-    if incl_2c: int2c = auxmol.intor('int2c2e_ip1')
-    max_memory -= lib.current_memory()[0]  
-    blklen = 6*npair
-    blksize = int (min (max (max_memory * 1e6 / 8 / blklen, 20), 240))
-    aux_loc = auxmol.ao_loc
-    aux_ranges = balance_partition(aux_loc, blksize)
+    # Shape dfcasdm2
     mosym, nmo_pair, mo_conc, mo_slice = _conc_mos(mo_cas[0], mo_cas[1], compact=True)
     if 's2' in mosym:
         assert (nmo[0] == nmo[1]), 'How did I get {} with nmo[0] = {} and nmo[1] = {}'.format (mosym, nmo[0], nmo[1])
@@ -306,9 +298,24 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
         dfcasdm2 = lib.pack_tril (np.ascontiguousarray (dfcasdm2))
         dfcasdm2[:,diag_idx] *= 0.5
     dfcasdm2 = dfcasdm2.reshape (nset, naux, nmo_pair)
-    if incl_2c: dferi = dferi.reshape (naux, nmo_pair) # convenience: collapse last two dimensions if present
 
-    # Iterate over auxbasis range
+    # Do 2c part. Assume memory is no object
+    if incl_2c: 
+        int2c = auxmol.intor('int2c2e_ip1')
+        if (dferi is None): dferi = solve_df_eri (mc, mo_cas=mo_cas[:2]).reshape (naux, nmo_pair) # g_Pij = (P|Q)^{-1} (Q|ij)
+        int3c = np.dot (int2c, dferi) # (P'|Q) g_Qij
+        dE += lib.einsum ('npi,xpi->npx', dfcasdm2, int3c) # d_Pij (P'|Q) g_Qij
+        int2c = int3c = dferi = None
+
+    # Set up 3c part
+    get_int3c = _int3c_wrapper(mol, auxmol, 'int3c2e_ip2', 's2ij')
+    max_memory -= lib.current_memory()[0]  
+    blklen = 6*npair
+    blksize = int (min (max (max_memory * 1e6 / 8 / blklen, 20), 240))
+    aux_loc = auxmol.ao_loc
+    aux_ranges = balance_partition(aux_loc, blksize)
+
+    # Iterate over auxbasis range and do 3c part
     for shl0, shl1, nL in aux_ranges:
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
         int3c = get_int3c ((0, nbas, 0, nbas, shl0, shl1))  # (uv|P'); shape = (3,npair,p1-p0)
@@ -316,7 +323,6 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
         int3c = _ao2mo.nr_e2(int3c, mo_conc, mo_slice, aosym='s2', mosym=mosym)
         int3c = int3c.reshape (3,p1-p0,nmo_pair)
         int3c = np.ascontiguousarray (int3c)
-        if incl_2c: int3c -= np.dot (int2c, dferi)
         dE[:,p0:p1,:] -= lib.einsum ('npi,xpi->npx', dfcasdm2[:,p0:p1,:], int3c)
 
     # Ravel to atoms
@@ -401,14 +407,14 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
 
 if __name__ == '__main__':
     from pyscf.tools import molden
-    from pyscf.lib import logger
+    from pyscf.lib import logger, param
     h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
     O -0.676110  0.000000  0.000000
     H  1.102430  0.000000  0.920125
     H  1.102430  0.000000 -0.920125'''
     mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = logger.INFO, output = 'h2co_casscf66_631g_grad.log')
     mf = scf.RHF (mol).density_fit (auxbasis = df.aug_etb (mol)).run ()
-    mc = mcscf.CASSCF (mf, 6, 6)
+    mc = mcscf.CASSCF (mf, 11, 16)
     mc.kernel ()
 
     ncore, ncas = mc.ncore, mc.ncas
@@ -452,9 +458,33 @@ if __name__ == '__main__':
     e2_test = energy_elec_dferi (mc, mo_cas=mo_cas_sl, casdm2=casdm2_sl)[0] * 2
     print ("Testing slice 1<->2 DFERI: e2_test - e2_ref = {:13.6e} - {:13.6e} = {:13.6e}".format (e2_test, e2_ref, e2_err))
 
-    dE = grad_elec_dferi (mc, mo_cas=mo_cas, casdm2=casdm2)
-    print (dE)
+    mc_grad_conv = mcscf.CASSCF (scf.RHF (mol).run (), 11, 16).run ().nuc_grad_method ()
+    dm1 = mc.make_rdm1 ().ravel ()
+    hcore_deriv = mc_grad_conv.hcore_generator (mol)
+    dE_conv = mc_grad_conv.kernel ()
+    def _make_mol (coords):
+        els = ('C', 'O', 'H', 'H')
+        return [[els[i], coords[i,:]] for i in range (4)]
+    def _numgrad_1df (my_mc, iatm, icoord, delta=0.001):
+        my_scan = my_mc.as_scanner ()
+        coords = mol.atom_coords ()*param.BOHR
+        coords[iatm,icoord] += delta
+        ep = my_scan (_make_mol (coords))
+        coords[iatm,icoord] -= 2*delta
+        em = my_scan (_make_mol (coords))
+        return ((ep-em) / (2*delta)*param.BOHR)
+    dE_num = np.zeros_like (dE_conv)
+    for iatm in range (4):
+        for icrd in range (3):
+            dE_num[iatm,icrd] = _numgrad_1df (mc, iatm, icrd)
+    ###
+    dE_nuc = mc_grad_conv.grad_nuc (atmlst=list (range (mol.natm)))
+    dE_hcore = np.stack ([np.dot (hcore_deriv (iatm).reshape (3,-1), dm1) for iatm in range (mol.natm)], axis=0)
+    dE_ao = grad_elec_dferi (mc, mo_cas=mo_cas, casdm2=casdm2)
     dE_aux = grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, casdm2=casdm2)
-    print (dE_aux)
-
+    dE = dE_ao + dE_aux + dE_nuc + dE_hcore
+    ###
+    print ('Putative analytical DF-CASSCF gradient:\n', dE)
+    print ('Numerical DF-CASSCF gradient:\n', dE_num)
+    print ('Analytical CASSCF gradient:\n', dE_conv)
 
