@@ -35,7 +35,7 @@ from pyscf.lib import logger
 from pyscf.grad import rhf as rhf_grad
 
 # MRH 05/03/2020 
-# There are two problems with get_jk from the perspective of generalizing
+# There are three problems with get_jk from the perspective of generalizing
 # for usage in DF-CASSCF and its children's analytical gradients:
 #   1. orbo = c.n^1/2 doesn't work with non-positive-semidefinite density
 #      matrices, which appear in DF-SA-CASSCF and DF-PDFT analytical gradients.
@@ -52,12 +52,15 @@ from pyscf.grad import rhf as rhf_grad
 #      decomposition doesn't save you from this because once you get to SA-CASSCF,
 #      you have the orbrot lagrange multipliers which contract to exactly one 
 #      orbital index on the 2RDM. The solution to this is to change the logic.
-#      The new kwarg ishf4aux defaults to the original behavior, but if
+#      The new kwarg ishf defaults to the original behavior, but if
 #      switched to False, it causes vj.aux and vk.aux to return as arrays of shape
-#      (nset*(nset+1)/2,3,nao,nao) containing terms involving all pairs of dms.
+#      (nset,nset,3,nao,nao) containing terms involving all pairs of dms.
 #      The caller can figure things out from there.
+#   3. It just assumes that mf_grad.base.mo_coeff and mf_grad.base.mo_occ are
+#      the eigendecomposition! I have to make it actually do the eigendecomposition
+#      for me!
 
-def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4aux=True):
+def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=True):
     print ("If you see me monkeypatching works!")
     if mol is None: mol = mf_grad.mol
     #if dm is None: dm = mf_grad.base.make_rdm1()
@@ -139,8 +142,21 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4a
             vj = -vj.reshape(out_shape)
         return vj, None
 
-    mo_coeff = mf_grad.base.mo_coeff
-    mo_occ = mf_grad.base.mo_occ
+    # MRH 05/03/2020: uh-oh, we can't have this! I guess I have to use an ishf
+    # kwarg here too!
+    if ishf:
+        mo_coeff = mf_grad.base.mo_coeff
+        mo_occ = mf_grad.base.mo_occ
+    else:
+        s0 = mf_grad.get_ovlp ()
+        mo_occ = []
+        mo_coeff = []
+        for dm in dms:
+            sdms = reduce (numpy.dot, (s0, dm, s0))
+            n, c = scipy.linalg (sdms, b=s0)
+            mo_occ.append (n)
+            mo_coeff.append (c)
+        mo_occ = numpy.stack (mo_occ, axis=0)
     nmo = mo_occ.shape[-1]
     if isinstance(mf_grad.base, scf.rohf.ROHF):
         mo_coeff = numpy.vstack((mo_coeff,mo_coeff))
@@ -153,12 +169,19 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4a
     mo_occ   = numpy.asarray(mo_occ).reshape(-1,nmo)
     rhoj = numpy.zeros((nset,naux))
     f_rhok = lib.H5TmpFile()
-    orbo = []
+    orbor = []
+    orbol = []
+    # MRH 05/03/2020: how do I deal with nocc? It looks like the only time
+    # this is referenced is when computing blksize below. I think I can
+    # replace it with the maximum nocc for all nset dms.
+    nocc = 0
     for i in range(nset):
-        c = numpy.einsum('pi,i->pi', mo_coeff[i][:,mo_occ[i]>0],
-                         numpy.sqrt(mo_occ[i][mo_occ[i]>0]))
-        nocc = c.shape[1]
-        orbo.append(c)
+        idx = numpy.abs (mo_occ[i])>1
+        nocc = max (numpy.count_nonzero (idx), nocc)
+        c = mo_coeff[i][:,idx]
+        orbol.append (c)
+        cn = numpy.einsum('pi,i->pi', c, mo_occ[i][idx])
+        orbor.append (cn)
 
     # (P|Q)
     int2c = scipy.linalg.cho_factor(auxmol.intor('int2c2e', aosym='s1'))
@@ -172,7 +195,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4a
         p0, p1 = ao_loc[shl0], ao_loc[shl1]
         rhoj += numpy.einsum('nlk,klp->np', dms[:,p0:p1], int3c)
         for i in range(nset):
-            v = lib.einsum('ko,klp->plo', orbo[i], int3c)
+            v = lib.einsum('ko,klp->plo', orbor[i], int3c)
             v = scipy.linalg.cho_solve(int2c, v.reshape(naux,-1))
             f_rhok['%s/%s'%(i,istep)] = v.reshape(naux,p1-p0,-1)
         int3c = v = None
@@ -181,7 +204,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4a
     int2c = None
 
     def load(set_id, p0, p1):
-        nocc = orbo[set_id].shape[1]
+        nocc = orbor[set_id].shape[1]
         buf = numpy.empty((p1-p0,nocc,nao))
         col1 = 0
         for istep in range(nsteps):
@@ -198,7 +221,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4a
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
         vj += numpy.einsum('xijp,np->nxij', int3c, rhoj[:,p0:p1])
         for i in range(nset):
-            tmp = lib.einsum('xijp,jo->xipo', int3c, orbo[i])
+            tmp = lib.einsum('xijp,jo->xipo', int3c, orbol[i])
             rhok = load(i, p0, p1)
             vk[i] += lib.einsum('xipo,pok->xik', tmp, rhok)
             tmp = rhok = None
@@ -208,11 +231,15 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4a
     blksize = int(min(max(max_memory * .5e6/8 / (nao*nocc), 20), naux))
     rhok_oo = []
     for i in range(nset):
-        nocc = orbo[i].shape[1]
+        nocc = orbor[i].shape[1]
         tmp = numpy.empty((naux,nocc,nocc))
         for p0, p1 in lib.prange(0, naux, blksize):
             rhok = load(i, p0, p1)
-            tmp[p0:p1] = lib.einsum('pok,kr->por', rhok, orbo[i])
+            # MRH 05/03/2020: I need to remember that the third index
+            # of rhok_oo is contracted with orbor and the fourth with
+            # orbol. They should be transposed when it's dotted with
+            # itself below.
+            tmp[p0:p1] = lib.einsum('pok,kr->por', rhok, orbol[i])
         rhok_oo.append(tmp)
         rhok = tmp = None
 
@@ -230,8 +257,10 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4a
                                           int3c, dms, rhoj[:,p0:p1])
             for i in range(nset):
                 tmp = rhok_oo[i][p0:p1]
-                tmp = lib.einsum('por,ir->pio', tmp, orbo[i])
-                tmp = lib.einsum('pio,jo->pij', tmp, orbo[i])
+                # MRH 05/03/2020: Leave only one factor of a density
+                # matrix on both indices!
+                tmp = lib.einsum('por,ir->pio', tmp, orbor[i])
+                tmp = lib.einsum('pio,jo->pij', tmp, orbol[i])
                 vkaux[:,p0:p1] += lib.einsum('xpij,pij->xp', int3c, tmp)
         int3c = tmp = None
 
@@ -239,7 +268,9 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf4a
         int2c_e1 = auxmol.intor('int2c2e_ip1')
         vjaux -= numpy.einsum('xpq,mp,nq->xp', int2c_e1, rhoj, rhoj)
         for i in range(nset):
-            tmp = lib.einsum('pij,qij->pq', rhok_oo[i], rhok_oo[i])
+            # MRH 05/03/2020: Transpose so as to leave only one factor
+            # of a density matrix on both indices!
+            tmp = lib.einsum('pij,qji->pq', rhok_oo[i], rhok_oo[i])
             vkaux -= numpy.einsum('xpq,pq->xp', int2c_e1, tmp)
 
         vjaux = [-vjaux[:,p0:p1].sum(axis=1) for p0, p1 in auxslices[:,2:]]
