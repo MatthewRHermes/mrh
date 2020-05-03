@@ -33,6 +33,7 @@ from pyscf.ao2mo.outcore import balance_partition
 from pyscf.gto.moleintor import getints, make_cintopt
 from pyscf.lib import logger
 from pyscf.grad import rhf as rhf_grad
+from functools import reduce
 
 # MRH 05/03/2020 
 # There are three problems with get_jk from the perspective of generalizing
@@ -148,12 +149,12 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         mo_coeff = mf_grad.base.mo_coeff
         mo_occ = mf_grad.base.mo_occ
     else:
-        s0 = mf_grad.get_ovlp ()
+        s0 = mf_grad.base.get_ovlp ()
         mo_occ = []
         mo_coeff = []
         for dm in dms:
             sdms = reduce (numpy.dot, (s0, dm, s0))
-            n, c = scipy.linalg (sdms, b=s0)
+            n, c = scipy.linalg.eigh (sdms, b=s0)
             mo_occ.append (n)
             mo_coeff.append (c)
         mo_occ = numpy.stack (mo_occ, axis=0)
