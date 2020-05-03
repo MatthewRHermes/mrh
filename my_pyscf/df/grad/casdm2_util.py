@@ -551,13 +551,14 @@ if __name__ == '__main__':
         em = my_scan (_make_mol (coords))
         return ((ep-em) / (2*delta)*param.BOHR)
     dE_num = np.zeros_like (dE_conv)
+    my_del = 0.001
     for iatm in range (4):
         for icrd in range (3):
-            dE_num[iatm,icrd] = _numgrad_1df (mc, iatm, icrd)
+            dE_num[iatm,icrd] = _numgrad_1df (mc, iatm, icrd, delta=my_del)
     print ('Putative analytical DF-CASSCF gradient:\n', dE)
     print ('Numerical DF-CASSCF gradient:\n', dE_num)
     print ('Analytical CASSCF gradient:\n', dE_conv)
-    print ('DF-CASSCF analytical-numerical disagreement:\n', dE-dE_num)
+    print ('DF-CASSCF analytical-numerical disagreement (stepsize = {}):\n'.format (my_del), dE-dE_num)
     print ('Analytical DF-CASSCF - CASSCF disagreement:\n', dE-dE_conv)
 
 
