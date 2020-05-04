@@ -544,6 +544,11 @@ if __name__ == '__main__':
     dE_renorm = -2*np.array ([dE_renorm[:,p0:p1].sum (axis=1) for p0, p1 in aoslices[:,2:]])
     dE = dE_ao + dE_aux + dE_nuc + dE_hcore + dE_renorm
     ###
+    from mrh.my_pyscf.grad.numeric import Gradients as NumGrad
+    mc_numgrad = NumGrad (mc)
+    dE_test = mc_numgrad.kernel ()
+    dE_elec_test = mc_numgrad.grad_elec ()
+    print (dE_elec_test)
     def _make_mol (coords):
         els = ('C', 'O', 'H', 'H')
         return [[els[i], coords[i,:]] for i in range (4)]
@@ -562,8 +567,10 @@ if __name__ == '__main__':
             dE_num[iatm,icrd] = _numgrad_1df (mc, iatm, icrd, delta=my_del)
     print ('Putative analytical DF-CASSCF gradient:\n', dE)
     print ('Numerical DF-CASSCF gradient:\n', dE_num)
+    print ('Numerical DF-CASSCF gradient (test class):\n', dE_test)
     print ('Analytical CASSCF gradient:\n', dE_conv)
     print ('DF-CASSCF analytical-numerical disagreement (stepsize = {}):\n'.format (my_del), dE-dE_num)
+    print ('DF-CASSCF analytical-numerical disagreement (stepsize = {}) (test class):\n'.format (my_del), dE-dE_test)
     print ('Analytical DF-CASSCF - CASSCF disagreement:\n', dE-dE_conv)
 
 
