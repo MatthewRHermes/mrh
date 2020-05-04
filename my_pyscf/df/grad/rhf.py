@@ -65,10 +65,10 @@ from itertools import product
 def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=True):
     print ("If you see me monkeypatching works!")
     if mol is None: mol = mf_grad.mol
-    #if dm is None: dm = mf_grad.base.make_rdm1()
+    if dm is None: dm = mf_grad.base.make_rdm1()
     #TODO: dm has to be the SCF density matrix in this version.  dm should be
     # extended to any 1-particle density matrix
-    dm = mf_grad.base.make_rdm1()
+    #dm = mf_grad.base.make_rdm1()
 
     with_df = mf_grad.base.with_df
     auxmol = with_df.auxmol
@@ -154,7 +154,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         mo_coeff = mf_grad.base.mo_coeff
         mo_occ = mf_grad.base.mo_occ
     else:
-        s0 = mf_grad.base.get_ovlp ()
+        s0 = mol.intor ('int1e_ovlp')
         mo_occ = []
         mo_coeff = []
         for dm in dms:
@@ -291,8 +291,8 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         vkaux = numpy.array ([-vkaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
         if ishf:
             vjaux = vjaux.sum ((1,2))
-            idx_diag = numpy.array (list (range (nset))) * (nset + 1)
-            vkaux = vkaux.reshape ((nset**2,3,mol.natm))[idx_diag,:,:].sum (0)
+            idx = numpy.array (list (range (nset))) * (nset + 1)
+            vkaux = vkaux.reshape ((nset**2,3,mol.natm))[idx,:,:].sum (0)
         else:
             vjaux = numpy.ascontiguousarray (vjaux.transpose (1,2,0,3))
             vkaux = numpy.ascontiguousarray (vkaux.transpose (1,2,0,3))

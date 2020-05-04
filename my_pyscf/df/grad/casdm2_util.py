@@ -101,8 +101,8 @@ def solve_df_rdm2 (mc_or_mc_grad, mo_cas=None, ci=None, casdm2=None):
     nocc = ncore + ncas
 
     # Initialize casdm2, mo_cas, and nset
-    if mo_cas is None: mo_cas = mc_or_mc_grad.mo_coeff[:,ncore:nocc]
-    if ci is None: ci = mc_or_mc_grad.ci
+    if mo_cas is None: mo_cas = mc.mo_coeff[:,ncore:nocc]
+    if ci is None: ci = mc.ci
     if casdm2 is None: casdm2 = mc.fcisolver.make_rdm12 (ci, ncas, nelecas)
     if np.asarray (casdm2).ndim == 4: casdm2 = [casdm2]
     nset = len (casdm2)
@@ -151,7 +151,7 @@ def solve_df_eri (mc_or_mc_grad, mo_cas=None, compact=True):
     npair = nao * (nao + 1) // 2
     ncore, ncas = mc.ncore, mc.ncas 
     nocc = ncore + ncas
-    if mo_cas is None: mo_cas = mc_or_mc_grad.mo_coeff[:,ncore:nocc]
+    if mo_cas is None: mo_cas = mc.mo_coeff[:,ncore:nocc]
     if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
         nmo = (mo_cas.shape[1], mo_cas.shape[1])
     else:
@@ -252,7 +252,7 @@ def gfock_dferi (mc, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, max_memor
         dfcasdm2: ndarray, tuple, or list containing DF-2rdm in mo_cas basis.
             Computed by solve_df_rdm2 if omitted.
         casdm2: ndarray, tuple, or list containing rdm2 in mo_cas basis.
-            Computed by mc_or_mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
+            Computed by mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
         max_memory: int
             Maximum memory usage in MB
         ao_basis: bool
@@ -304,7 +304,7 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
         dfcasdm2: ndarray, tuple, or list containing DF-2rdm in mo_cas basis.
             Computed by solve_df_rdm2 if omitted.
         casdm2: ndarray, tuple, or list containing rdm2 in mo_cas basis.
-            Computed by mc_or_mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
+            Computed by mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
         atmlst: list of integers
             List of nonfrozen atoms, as in grad_elec functions.
             Defaults to list (range (mol.natm))
@@ -317,14 +317,17 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     Returns:
         dE: list of ndarray of shape (len (atmlst), 3) '''
 
+    if isinstance (mc_grad, GradientsBasics):
+        mc = mc_grad.base
+    else:
+        mc = mc_grad
     mol = mc_grad.mol
-    #auxmol = mc_grad.base.with_df.auxmol
-    auxmol = mc_grad.with_df.auxmol
-    ncore, ncas, nao, naux, nbas = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao, mol.nbas
+    auxmol = mc.with_df.auxmol
+    ncore, ncas, nao, naux, nbas = mc.ncore, mc.ncas, mol.nao, auxmol.nao, mol.nbas
     nocc = ncore + ncas
     npair = nao * (nao + 1) // 2
-    if mo_cas is None: mo_cas = mc_grad.mo_coeff[:,ncore:nocc]
-    if max_memory is None: max_memory = mc_grad.max_memory
+    if mo_cas is None: mo_cas = mc.mo_coeff[:,ncore:nocc]
+    if max_memory is None: max_memory = mc.max_memory
     if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
         mo_cas = (mo_cas,)*4
     elif len (mo_cas) == 2:
@@ -339,7 +342,7 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2) # d_Pij = (P|Q)^{-1} (Q|kl) d_ijkl
     nset = len (dfcasdm2)
     dE = np.zeros ((nset, naux, 3))
-    dfcasdm2 = np.asarray (dfcasdm2)
+    dfcasdm2 = np.array (dfcasdm2)
 
     # Shape dfcasdm2
     mosym, nmo_pair, mo_conc, mo_slice = _conc_mos(mo_cas[0], mo_cas[1], compact=True)
@@ -404,7 +407,7 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
         dfcasdm2: ndarray, tuple, or list containing DF-2rdm in mo_cas basis.
             Computed by solve_df_rdm2 if omitted.
         casdm2: ndarray, tuple, or list containing rdm2 in mo_cas basis.
-            Computed by mc_or_mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
+            Computed by mc_grad.fcisolver.make_rdm12 (ci,...) if omitted.
         atmlst: list of integers
             List of nonfrozen atoms, as in grad_elec functions.
             Defaults to list (range (mol.natm))
@@ -413,13 +416,15 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
 
     Returns:
         dE: ndarray of shape (len (dfcasdm2), len (atmlst), 3) '''
-
+    if isinstance (mc_grad, GradientsBasics):
+        mc = mc_grad.base
+    else:
+        mc = mc_grad
     mol = mc_grad.mol
-    #auxmol = mc_grad.base.with_df.auxmol
-    auxmol = mc_grad.with_df.auxmol
-    ncore, ncas, nao, naux, nbas = mc_grad.ncore, mc_grad.ncas, mol.nao, auxmol.nao, mol.nbas
+    auxmol = mc.with_df.auxmol
+    ncore, ncas, nao, naux, nbas = mc.ncore, mc.ncas, mol.nao, auxmol.nao, mol.nbas
     nocc = ncore + ncas
-    if mo_cas is None: mo_cas = mc_grad.mo_coeff[:,ncore:nocc]
+    if mo_cas is None: mo_cas = mc.mo_coeff[:,ncore:nocc]
     if max_memory is None: max_memory = mc_grad.max_memory
     if isinstance (mo_cas, np.ndarray) and mo_cas.ndim == 2:
         mo_cas = (mo_cas,)*4
@@ -435,7 +440,7 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
     if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2) # d_Pij
     nset = len (dfcasdm2)
     dE = np.zeros ((nset, nao, 3))
-    dfcasdm2 = np.asarray (dfcasdm2)
+    dfcasdm2 = np.array (dfcasdm2)
 
     # Set up (P|u'v) calculation
     get_int3c = _int3c_wrapper(mol, auxmol, 'int3c2e_ip1', 's1')
