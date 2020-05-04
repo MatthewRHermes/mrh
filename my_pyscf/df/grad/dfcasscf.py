@@ -178,9 +178,9 @@ class Gradients(casci_grad.Gradients):
     '''Non-relativistic restricted Hartree-Fock gradients'''
 
     def __init__(self, mc):
-        casci_grad.Gradients.__init__(self, mc)
         self.with_df = mc.with_df
         self.auxbasis_response = True
+        casci_grad.Gradients.__init__(self, mc)
 
     grad_elec = grad_elec
 
