@@ -182,7 +182,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     # replace it with the maximum nocc for all nset dms.
     nocc = 0
     for i in range(nset):
-        idx = numpy.abs (mo_occ[i])>1
+        idx = numpy.abs (mo_occ[i])>1e-8
         nocc = max (numpy.count_nonzero (idx), nocc)
         c = mo_coeff[i][:,idx]
         orbol.append (c)
