@@ -231,6 +231,7 @@ if __name__ == '__main__':
     from pyscf import scf
     from pyscf import mcscf
     from pyscf import df
+    from mrh.my_pyscf.grad import numeric
 
     mol = gto.Mole()
     mol.atom = 'N 0 0 0; N 0 0 1.2; H 1 1 0; H 1 1 1.2'
@@ -239,8 +240,11 @@ if __name__ == '__main__':
     aux = df.aug_etb (mol)
     mf = scf.RHF(mol).density_fit (auxbasis=aux).run()
     mc = mcscf.CASSCF(mf, 4, 4).run()
+    mc.conv_tol = 1e-10
     de = Gradients (mc).kernel()
-    print(lib.finger(de) - 0.019602220578635747)
+    de_num = numeric.Gradients (mc).kernel ()
+    #print(lib.finger(de) - 0.019602220578635747)
+    print(lib.finger(de) - lib.finger (de_num))
 
     mol = gto.Mole()
     mol.verbose = 0

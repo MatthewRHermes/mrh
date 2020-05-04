@@ -3,6 +3,7 @@ from pyscf.grad import rhf as rhf_grad
 from pyscf.lib import param, logger
 
 STEPSIZE_DEFAULT=0.001
+SCANNER_VERBOSE_DEFAULT=0
 
 # MRH 05/04/2020: I don't know why I have to present the molecule instead
 # of just the coordinates, but somehow I can't get the units right any other
@@ -22,9 +23,13 @@ def _numgrad_1df (mol, scanner, coords, iatm, icoord, delta=0.001):
 
 class Gradients (rhf_grad.GradientsBasics):
 
-    def __init__(self, method, stepsize=STEPSIZE_DEFAULT):
+    def __init__(self, method, stepsize=STEPSIZE_DEFAULT, scanner_verbose=SCANNER_VERBOSE_DEFAULT):
         self.stepsize = stepsize
         self.scanner = method.as_scanner ()
+        self.scanner.verbose = scanner_verbose
+        # MRH 05/04/2020: there must be a better way to do this
+        if hasattr (self.scanner, '_scf'):
+            self.scanner._scf.verbose = scanner_verbose
         rhf_grad.GradientsBasics.__init__(self, method)
 
     def _numgrad_1df (self, iatm, icoord):
