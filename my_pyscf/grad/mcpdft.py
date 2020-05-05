@@ -14,7 +14,7 @@ import time, gc
 
 BLKSIZE = gen_grid.BLKSIZE
 
-def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None, max_memory=None):
+def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None, max_memory=None, auxbasis_response=False):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the Hellman-Feynman gradient
         terms of MC-PDFT. From the differentiated Hamiltonian matrix elements, only the core and
         Coulomb energy parts remain. For the renormalization terms, the effective Fock matrix is as in
@@ -66,13 +66,6 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     dme0 = reduce(np.dot, (mo_coeff, (gfock+gfock.T)*.5, mo_coeff.T))
     aapa = vhf_a = h1e_mo = gfock = None
 
-    t0 = logger.timer (mc, 'PDFT HlFn gfock', *t0)
-    dm1 = dm_core + dm_cas
-    # MRH: vhf1c and vhf1a should be the TRUE vj_c and vj_a (no vk!)
-    vj = mf_grad.get_jk (dm=dm1)[0]
-    hcore_deriv = mf_grad.hcore_generator(mol)
-    s1 = mf_grad.get_ovlp(mol)
-
     if atmlst is None:
         atmlst = range(mol.natm)
     aoslices = mol.aoslice_by_atom()
@@ -82,7 +75,17 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     de_xc = np.zeros ((len(atmlst),3))
     de_grid = np.zeros ((len(atmlst),3))
     de_wgt = np.zeros ((len(atmlst),3))
+    de_aux = np.zeros ((len(atmlst),3))
     de = np.zeros ((len(atmlst),3))
+
+    t0 = logger.timer (mc, 'PDFT HlFn gfock', *t0)
+    dm1 = dm_core + dm_cas
+    # MRH: vhf1c and vhf1a should be the TRUE vj_c and vj_a (no vk!)
+    vj = mf_grad.get_jk (dm=dm1)[0]
+    hcore_deriv = mf_grad.hcore_generator(mol)
+    s1 = mf_grad.get_ovlp(mol)
+    if auxbasis_response:
+        de_aux += vj.aux
 
     # MRH: Now I have to compute the gradient of the exchange-correlation energy
     # This involves derivatives of the orbitals that construct rho and Pi and therefore another
@@ -212,6 +215,10 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
     de = de_nuc + de_hcore + de_coul + de_renorm + de_xc + de_grid + de_wgt
 
+    if auxbasis_response:
+        de += de_aux
+        logger.debug (mc, "MC-PDFT Hellmann-Feynman auxbasis component:\n{}".format (de_aux))
+
     t1 = logger.timer (mc, 'PDFT HlFn total', *t0)
 
     return de
@@ -340,8 +347,6 @@ class Gradients (sacasscf.Gradients):
             Ax[self.ngorb:] = Ax_ci.ravel ()
             return Ax
         return my_Aop
-
-
 
 
 
