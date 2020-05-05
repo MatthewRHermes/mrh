@@ -11,12 +11,12 @@ H  1.102430  0.000000  0.920125
 H  1.102430  0.000000 -0.920125'''
 mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = lib.logger.INFO, output = 'h2co_casscf66_631g_grad.log')
 mf_conv = scf.RHF (mol).run ()
-mc_conv = mcscf.CASSCF (mf_conv, 11, 16)
+mc_conv = mcscf.CASSCF (mf_conv, 6, 6)
 mc_conv.conv_tol = 1e-10
 mc_conv.kernel ()
 
 mf = scf.RHF (mol).density_fit (auxbasis = df.aug_etb (mol)).run ()
-mc = mcscf.CASSCF (mf, 11, 16)
+mc = mcscf.CASSCF (mf, 6, 6)
 mc.conv_tol = 1e-10
 mc.kernel ()
 

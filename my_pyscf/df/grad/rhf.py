@@ -63,7 +63,7 @@ from itertools import product
 #      for me!
 
 def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=True):
-    print ("If you see me monkeypatching works!")
+    print ("If you don't see this line you aren't using the right get_jk!")
     if mol is None: mol = mf_grad.mol
     if dm is None: dm = mf_grad.base.make_rdm1()
     #TODO: dm has to be the SCF density matrix in this version.  dm should be

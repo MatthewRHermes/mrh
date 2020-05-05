@@ -16,13 +16,14 @@
 # Author: Qiming Sun <osirpt.sun@gmail.com>
 #
 
+from pyscf import mcscf
 from pyscf.grad import lagrange
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from pyscf.grad.mp2 import _shell_prange
 from pyscf.mcscf import mc1step, mc1step_symm, newton_casscf
 #from pyscf.grad import casscf as casscf_grad
 from mrh.my_pyscf.df.grad import dfcasscf as dfcasscf_grad
-#from pyscf.grad import rhf as rhf_grad
+from pyscf.grad import rhf as rhf_grad
 from mrh.my_pyscf.df.grad import rhf as dfrhf_grad
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import spin_square0
@@ -32,8 +33,9 @@ import numpy as np
 import copy, time, gc
 from functools import reduce
 from scipy import linalg
+from mrh.my_pyscf.df.grad.casdm2_util import solve_df_rdm2, grad_elec_dferi, grad_elec_auxresponse_dferi
 
-def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, eris=None, verbose=None):
+def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, eris=None, verbose=None, auxbasis_response=True):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the orbital
     Lagrange term nuclear gradient (sum_pq Lorb_pq d2_Ecas/d_lambda d_kpq)
     This involves removing nuclear-nuclear terms and making the substitution
@@ -130,14 +132,14 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     de = np.zeros((len(atmlst),3))
 
     #vhf1c, vhf1a, vhf1cL, vhf1aL = mf_grad.get_veff(mol, (dm_core, dm_cas, dmL_core, dmL_cas))
-    vj, vk = mf_grad.get_jk (mol, (dm_core, dm_cas, dmL_core, dmL_cas))
+    vj, vk = mf_grad.get_jk (mol, (dm_core, dm_cas, dmL_core, dmL_cas), ishf=False)
     vhf1c, vhf1a, vhf1cL, vhf1aL = list (vj - vk * 0.5)
-    if mc.auxbasis_response:
+    if auxbasis_response:
         de_aux = vj.aux - 0.5 * vk.aux
                 #      D.T     +    T.D
         de_aux = ((de_aux[0,2] + de_aux[2,0]) # core-core
                 + (de_aux[0,3] + de_aux[2,1]) # core-active
-                + (de_aux[1,2] + de_aux[3,0]) # active-core
+                + (de_aux[1,2] + de_aux[3,0])) # active-core
     vj = vk = None
     hcore_deriv = mf_grad.hcore_generator(mol)
     s1 = mf_grad.get_ovlp(mol)
@@ -150,13 +152,13 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     # The bare 3-center eris and the auxbasis derivatives are always symmetric wrt AOs
     # grad_elec_dferi is explicitly symmetrized wrt AOs.
     # If this fails I can always debug it by kludging ncore, ncas -> 0, nmo
-    dfcasdm2  = solve_df_rdm2 (mc, mo_cas=(mo_cas, moL_cas), casdm2=casdm2)[0]
+    dfcasdm2  = solve_df_rdm2 (mc, mo_cas=(mo_cas, moL_cas), casdm2=casdm2)
     de_eri += grad_elec_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
-    if mc.auxbasis_response:
+    if auxbasis_response:
         de_aux += grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
     dfcasdm2  = solve_df_rdm2 (mc, mo_cas=mo_cas, casdm2=casdm2) 
     de_eri += grad_elec_dferi (mc, mo_cas=(mo_cas, moL_cas), dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
-    if mc.auxbasis_response:
+    if auxbasis_response:
         de_aux += grad_elec_auxresponse_dferi (mc, mo_cas=(mo_cas, moL_cas), dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
     dfcasdm2 = casdm2 = None
 
@@ -187,7 +189,7 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
 
     return de
 
-def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, eris=None, verbose=None):
+def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, eris=None, verbose=None, auxbasis_response=True):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the CI
     Lagrange term nuclear gradient (sum_IJ Lci_IJ d2_Ecas/d_lambda d_PIJ)
     This involves removing all core-core and nuclear-nuclear terms and making the substitution
@@ -254,8 +256,8 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     de = np.zeros((len(atmlst),3))
 
     #vhf1c, vhf1a = mf_grad.get_veff(mol, (dm_core, dm_cas))
-    vj, vk = mf_grad.get_jk (mol, (dm_core, dm_cas))
-    if mc.auxbasis_response:
+    vj, vk = mf_grad.get_jk (mol, (dm_core, dm_cas), ishf=False)
+    if auxbasis_response:
         de_aux = vj.aux - 0.5 * vk.aux
         de_aux = de_aux[0,1] + de_aux[1,0]
         # ^ de_aux[0,0] not included b/c this is CAS lagrange multipliers
@@ -264,12 +266,12 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     hcore_deriv = mf_grad.hcore_generator(mol)
     s1 = mf_grad.get_ovlp(mol)
 
-    dfcasdm2 = casdm2 = solve_df_rdm2 (mc_grad, mo_cas=mo_cas, casdm2=casdm2)
-    de = grad_elec_dferi (mc_grad, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst,
-        max_memory=mc_grad.max_memory)[0]
-    if mc_grad.auxbasis_response:
-        de_aux += grad_elec_auxresponse_dferi (mc_grad, mo_cas=mo_cas, dfcasdm2=dfcasdm2,
-            atmlst=atmlst, max_memory=mc_grad.max_memory)[0]
+    dfcasdm2 = casdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas, casdm2=casdm2)
+    de_eri = grad_elec_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst,
+        max_memory=mc.max_memory)[0]
+    if auxbasis_response:
+        de_aux += grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2,
+            atmlst=atmlst, max_memory=mc.max_memory)[0]
     dfcasdm2 = casdm2 = None
 
     t0 = lib.logger.timer (mc, 'SA-CASSCF Lci_dot_dgci 1-electron part', *t0)
@@ -381,11 +383,13 @@ class Gradients (lagrange.Gradients):
 
     def make_fcasscf (self, casscf_attr={}, fcisolver_attr={}):
         ''' Make a fake CASSCF object for ostensible single-state calculations '''
-        if isinstance (self.base, mc1step_symm.CASSCF):
-            fcasscf = mc1step_symm.CASSCF (self.base._scf, self.base.ncas, self.base.nelecas)
-        else:
-            fcasscf = mc1step.CASSCF (self.base._scf, self.base.ncas, self.base.nelecas)
+        #if isinstance (self.base, mc1step_symm.CASSCF):
+        #    fcasscf = mc1step_symm.CASSCF (self.base._scf, self.base.ncas, self.base.nelecas)
+        #else:
+        #    fcasscf = mc1step.CASSCF (self.base._scf, self.base.ncas, self.base.nelecas)
+        fcasscf = mcscf.CASSCF (self.base._scf, self.base.ncas, self.base.nelecas)
         fcasscf.__dict__.update (self.base.__dict__)
+
         # Fix me for state_average_mix!
         if hasattr (self.base, 'weights'):
             fcasscf.fcisolver = self.base.fcisolver._base_class (self.base.mol)
@@ -403,7 +407,14 @@ class Gradients (lagrange.Gradients):
         fcasscf = self.make_fcasscf (casscf_attr={}, fcisolver_attr={})
         if hasattr (self.base, 'weights'):
             fcasscf.state_average_(self.base.weights)
-        return fcasscf
+        class fcasscf_monkeypatch (fcasscf.__class__):
+            def __init__(self, my_fcas):
+                self.__dict__.update (fcasscf.__dict__)
+            def _base_class (self, my_scf, my_ncas, my_nelecas, **kwargs):
+                return fcasscf.__class__.__bases__[0] ()
+        return fcasscf_monkeypatch (fcasscf)
+        # Matt: do NOT let THIS ^^ godawful bullshit remain in your code by the time you make a pull request!!!
+        # Fix the problem in pyscf.mcscf.newton_casscf or pyscf.mcscf.df instead!
 
     def kernel (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, level_shift=None, **kwargs):
         if state is None: state = self.state
@@ -505,7 +516,7 @@ class Gradients (lagrange.Gradients):
         de_Lci = Lci_dot_dgci_dx (Lci, self.weights, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, eris=eris, verbose=verbose)
         lib.logger.info (self, '--------------- %s gradient Lagrange CI response ---------------',
                     self.base.__class__.__name__)
-        if verbose >= lib.logger.INFO: dfrhf_grad._write(self, self.mol, de_Lci, atmlst)
+        if verbose >= lib.logger.INFO: rhf_grad._write(self, self.mol, de_Lci, atmlst)
         lib.logger.info (self, '----------------------------------------------------------------')
         t0 = lib.logger.timer (self, '{} gradient Lagrange CI response'.format (self.base.__class__.__name__), *t0)
 
@@ -513,7 +524,7 @@ class Gradients (lagrange.Gradients):
         de_Lorb = Lorb_dot_dgorb_dx (Lorb, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, eris=eris, verbose=verbose)
         lib.logger.info (self, '--------------- %s gradient Lagrange orbital response ---------------',
                     self.base.__class__.__name__)
-        if verbose >= lib.logger.INFO: dfrhf_grad._write(self, self.mol, de_Lorb, atmlst)
+        if verbose >= lib.logger.INFO: rhf_grad._write(self, self.mol, de_Lorb, atmlst)
         lib.logger.info (self, '----------------------------------------------------------------------')
         t0 = lib.logger.timer (self, '{} gradient Lagrange orbital response'.format (self.base.__class__.__name__), *t0)
 
