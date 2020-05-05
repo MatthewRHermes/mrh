@@ -130,7 +130,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             for shl0, shl1, nL in ao_ranges:
                 int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
                 p0, p1 = aux_loc[shl0], aux_loc[shl1]
-                vjaux[:,p0:p1] = numpy.einsum('xwp,mw,np->mnxp',
+                vjaux[:,:,:,p0:p1] = numpy.einsum('xwp,mw,np->mnxp',
                                               int3c, dm_tril, rhoj[:,p0:p1])
                 int3c = None
 
@@ -164,7 +164,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             mo_coeff.append (c)
         mo_occ = numpy.stack (mo_occ, axis=0)
     nmo = mo_occ.shape[-1]
-    if isinstance(mf_grad.base, scf.rohf.ROHF):
+    if isinstance(mf_grad.base, scf.rohf.ROHF) and ishf:
         mo_coeff = numpy.vstack((mo_coeff,mo_coeff))
         mo_occa = numpy.array(mo_occ> 0, dtype=numpy.double)
         mo_occb = numpy.array(mo_occ==2, dtype=numpy.double)
@@ -264,7 +264,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             int3c = int3c.transpose(0,2,1).reshape(3*(p1-p0),-1)
             int3c = lib.unpack_tril(int3c)
             int3c = int3c.reshape(3,p1-p0,nao,nao)
-            vjaux[:,p0:p1] = numpy.einsum('xpij,mji,np->mnxp',
+            vjaux[:,:,:,p0:p1] = numpy.einsum('xpij,mji,np->mnxp',
                                           int3c, dms, rhoj[:,p0:p1])
             for i, j in product (range (nset), repeat=2):
                 k = (i*nset) + j
