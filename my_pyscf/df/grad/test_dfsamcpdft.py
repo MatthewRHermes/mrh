@@ -3,7 +3,8 @@
 import numpy as np
 from scipy import linalg
 from pyscf import scf, gto, lib, mcscf, df
-from mrh.my_pyscf.df.grad import dfsacasscf as casscf_grad
+from mrh.my_pyscf import mcpdft
+from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
 from mrh.my_pyscf.grad import numeric as numeric_grad
 from mrh.my_pyscf.fci import csf_solver
 
@@ -11,20 +12,20 @@ h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
 O -0.676110  0.000000  0.000000
 H  1.102430  0.000000  0.920125
 H  1.102430  0.000000 -0.920125'''
-mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = lib.logger.INFO, output = 'h2co_sa2_casscf66_631g_grad.log')
+mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = lib.logger.DEBUG, output = 'h2co_sa2_tpbe66_631g_grad_debug.log')
 mf_conv = scf.RHF (mol).run ()
-mc_conv = mcscf.CASSCF (mf_conv, 6, 6)
+mc_conv = mcpdft.CASSCF (mf_conv, 'tPBE', 6, 6, grids_level=6)
 mc_conv.fcisolver = csf_solver (mol, smult=1)
 mc_conv = mc_conv.state_average_([0.5,0.5])
 mc_conv.conv_tol = 1e-10
 mc_conv.kernel ()
 
-mf = scf.RHF (mol).density_fit (auxbasis = df.aug_etb (mol)).run ()
-mc = mcscf.CASSCF (mf, 6, 6)
+mf = scf.RHF (mol).density_fit (auxbasis = df.aug_etb (mol)).run (mf_conv.make_rdm1 ())
+mc = mcpdft.CASSCF (mf, 'tPBE', 6, 6, grids_level=6)
 mc.fcisolver = csf_solver (mol, smult=1)
 mc = mc.state_average_([0.5,0.5])
 mc.conv_tol = 1e-10
-mc.kernel ()
+mc.kernel (mc_conv.mo_coeff, mc_conv.ci)
 
 
 numgrad_conv = numeric_grad.Gradients (mc_conv).run ()
@@ -39,7 +40,7 @@ de_conv_num = numgrad_conv.de_states[0]
 print ("Conventional ERI numeric:\n", de_conv_num)
 print ("Conventional ERI a-n:\n", de_conv-de_conv_num)
 print ("Error norm =", linalg.norm (de_conv-de_conv_num))
-de_df = casscf_grad.Gradients (mc).kernel (state=0)
+de_df = mcpdft_grad.Gradients (mc).kernel (state=0)
 print ("DF-ERI analytic:\n", de_df)
 numgrad_df = numeric_grad.Gradients (mc).run ()
 de_df_num = numgrad_df.de_states[0]
@@ -64,7 +65,7 @@ de_conv_num = numgrad_conv.de_states[1]
 print ("Conventional ERI numeric:\n", de_conv_num)
 print ("Conventional ERI a-n:\n", de_conv-de_conv_num)
 print ("Error norm =", linalg.norm (de_conv-de_conv_num))
-de_df = casscf_grad.Gradients (mc).kernel (state=1)
+de_df = mcpdft_grad.Gradients (mc).kernel (state=1)
 print ("DF-ERI analytic:\n", de_df)
 de_df_num = numgrad_df.de_states[1]
 #de_df_num = np.array ([[-1.90633745e-01, -1.89581634e-04,  4.03479068e-06],

@@ -1,8 +1,9 @@
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
 from mrh.my_pyscf.df.grad import dfsacasscf as dfsacasscf_grad
+from mrh.my_pyscf.df.grad import rhf as dfrhf_grad
 
 # I need to resolve the __init__ and get_ham_response members. Otherwise everything should be fine! 
-class Gradients (mcpdft_grad.Gradients, dfsacasscf_grad.Gradients):
+class Gradients (dfsacasscf_grad.Gradients, mcpdft_grad.Gradients):
     
     def __init__(self, pdft):
         self.auxbasis_response = True
@@ -20,6 +21,14 @@ class Gradients (mcpdft_grad.Gradients, dfsacasscf_grad.Gradients):
         fcasscf = self.make_fcasscf ()
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci[state]
-        return mcpdft_HellmanFeynman_grad (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[state], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose, auxbasis_response=self.auxbasis_response)
+        return mcpdft_grad.mcpdft_HellmanFeynman_grad (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[state], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose, auxbasis_response=self.auxbasis_response)
 
+    def kernel (self, **kwargs):
+        if not ('mf_grad' in kwargs):
+            kwargs['mf_grad'] = dfrhf_grad.Gradients (self.base._scf)
+        return mcpdft_grad.Gradients.kernel (self, **kwargs)
+
+    get_wfn_response = mcpdft_grad.Gradients.get_wfn_response
+    get_init_guess = mcpdft_grad.Gradients.get_init_guess
+    project_Aop = mcpdft_grad.Gradients.project_Aop
 

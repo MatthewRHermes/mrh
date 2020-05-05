@@ -15,10 +15,10 @@ def _make_mol (mol, coords):
 def _numgrad_1df (mol, scanner, coords, iatm, icoord, delta=0.002):
     coords[iatm,icoord] += delta
     ep = scanner (_make_mol (mol, coords))
-    ep_states = getattr (scanner, 'e_states', np.asarray ([ep])).copy ()
+    ep_states = np.array (getattr (scanner, 'e_states', [ep]))
     coords[iatm,icoord] -= 2*delta
     em = scanner (_make_mol (mol, coords))
-    em_states = getattr (scanner, 'e_states', np.asarray ([em])).copy ()
+    em_states = np.array (getattr (scanner, 'e_states', [em]))
     coords[iatm,icoord] += delta
     de_states = (ep_states - em_states) / (2*delta)*param.BOHR
     return (ep-em) / (2*delta)*param.BOHR, de_states

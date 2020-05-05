@@ -211,7 +211,11 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
 
         def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None, **kwargs):
             # Keep the same initialization pattern for backwards-compatibility. Use a separate intializer for the ot functional
-            super().__init__(scf, ncas, nelecas)
+            try:
+                super().__init__(scf, ncas, nelecas)
+            except TypeError as e:
+                # I think this is the same DFCASSCF problem as with the DF-SACASSCF gradients earlier
+                super().__init__()
             keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states'))
             self._keys = set ((self.__dict__.keys ())).union (keys)
             if my_ot is not None:

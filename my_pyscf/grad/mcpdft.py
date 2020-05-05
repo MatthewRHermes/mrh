@@ -217,7 +217,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
     if auxbasis_response:
         de += de_aux
-        logger.debug (mc, "MC-PDFT Hellmann-Feynman auxbasis component:\n{}".format (de_aux))
+        logger.debug (mc, "MC-PDFT Hellmann-Feynman aux component:\n{}".format (de_aux))
 
     t1 = logger.timer (mc, 'PDFT HlFn total', *t0)
 
