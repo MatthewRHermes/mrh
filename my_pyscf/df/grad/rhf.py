@@ -127,6 +127,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         if mf_grad.auxbasis_response:
             # (i,j|d/dX P)
             vjaux = numpy.empty((nset,nset,3,naux))
+            vjaux_2c = numpy.empty((nset,nset,3,naux))
             for shl0, shl1, nL in ao_ranges:
                 int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
                 p0, p1 = aux_loc[shl0], aux_loc[shl1]
@@ -136,14 +137,17 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
 
             # (d/dX P|Q)
             int2c_e1 = auxmol.intor('int2c2e_ip1', aosym='s1')
-            vjaux -= numpy.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
+            vjaux_2c -= numpy.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
 
             vjaux = numpy.array ([-vjaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
+            vjaux_2c = numpy.array ([-vjaux_2c[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
             if ishf:
                 vjaux = vjaux.sum ((1,2))
+                vjaux_2c = vjaux_2c.sum ((1,2))
             else:
                 vjaux = numpy.ascontiguousarray (vjaux.transpose (1,2,0,3))
-            vj = lib.tag_array(-vj.reshape(out_shape), aux=numpy.array(vjaux))
+                vjaux_2c = numpy.ascontiguousarray (vjaux_2c.transpose (1,2,0,3))
+            vj = lib.tag_array(-vj.reshape(out_shape), aux=numpy.array(vjaux), aux_2c=numpy.array(vjaux_2c))
         else:
             vj = -vj.reshape(out_shape)
         return vj, None
@@ -257,6 +261,8 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
 
         vjaux = numpy.zeros((nset,nset,3,naux))
         vkaux = numpy.zeros((nset,nset,3,naux))
+        vjaux_2c = numpy.zeros((nset,nset,3,naux))
+        vkaux_2c = numpy.zeros((nset,nset,3,naux))
         # (i,j|d/dX P)
         for shl0, shl1, nL in ao_ranges:
             int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
@@ -278,26 +284,32 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
 
         # (d/dX P|Q)
         int2c_e1 = auxmol.intor('int2c2e_ip1')
-        vjaux -= numpy.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
+        vjaux_2c -= numpy.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
         for i, j in product (range (nset), repeat=2):
             # MRH 05/03/2020: Transpose so as to leave only one factor
             # of a density matrix on both indices!
             k = (i*nset) + j
             l = (j*nset) + i
             tmp = lib.einsum('pij,qji->pq', rhok_oo[k], rhok_oo[l])
-            vkaux[i,j] -= numpy.einsum('xpq,pq->xp', int2c_e1, tmp)
+            vkaux_2c[i,j] -= numpy.einsum('xpq,pq->xp', int2c_e1, tmp)
 
         vjaux = numpy.array ([-vjaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
         vkaux = numpy.array ([-vkaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
+        vjaux_2c = numpy.array ([-vjaux_2c[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
+        vkaux_2c = numpy.array ([-vkaux_2c[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
         if ishf:
             vjaux = vjaux.sum ((1,2))
+            vjaux_2c = vjaux_2c.sum ((1,2))
             idx = numpy.array (list (range (nset))) * (nset + 1)
             vkaux = vkaux.reshape ((nset**2,3,mol.natm))[idx,:,:].sum (0)
+            vkaux_2c = vkaux_2c.reshape ((nset**2,3,mol.natm))[idx,:,:].sum (0)
         else:
             vjaux = numpy.ascontiguousarray (vjaux.transpose (1,2,0,3))
+            vjaux_2c = numpy.ascontiguousarray (vjaux_2c.transpose (1,2,0,3))
             vkaux = numpy.ascontiguousarray (vkaux.transpose (1,2,0,3))
-        vj = lib.tag_array(-vj.reshape(out_shape), aux=numpy.array(vjaux))
-        vk = lib.tag_array(-vk.reshape(out_shape), aux=numpy.array(vkaux))
+            vkaux_2c = numpy.ascontiguousarray (vkaux_2c.transpose (1,2,0,3))
+        vj = lib.tag_array(-vj.reshape(out_shape), aux=numpy.array(vjaux), aux_2c=numpy.array(vjaux_2c))
+        vk = lib.tag_array(-vk.reshape(out_shape), aux=numpy.array(vkaux), aux_2c=numpy.array(vkaux_2c))
     else:
         vj = -vj.reshape(out_shape)
         vk = -vk.reshape(out_shape)

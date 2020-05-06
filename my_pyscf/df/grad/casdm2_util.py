@@ -342,6 +342,7 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     if dfcasdm2 is None: dfcasdm2 = solve_df_rdm2 (mc, mo_cas=mo_cas[2:], ci=ci, casdm2=casdm2) # d_Pij = (P|Q)^{-1} (Q|kl) d_ijkl
     nset = len (dfcasdm2)
     dE = np.zeros ((nset, naux, 3))
+    dE_2c = np.zeros ((nset, naux, 3))
     dfcasdm2 = np.array (dfcasdm2)
 
     # Shape dfcasdm2
@@ -361,7 +362,7 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
         int2c = auxmol.intor('int2c2e_ip1')
         if (dferi is None): dferi = solve_df_eri (mc, mo_cas=mo_cas[:2]).reshape (naux, nmo_pair) # g_Pij = (P|Q)^{-1} (Q|ij)
         int3c = np.dot (int2c, dferi) # (P'|Q) g_Qij
-        dE += lib.einsum ('npi,xpi->npx', dfcasdm2, int3c) # d_Pij (P'|Q) g_Qij
+        dE_2c += lib.einsum ('npi,xpi->npx', dfcasdm2, int3c) # d_Pij (P'|Q) g_Qij
         int2c = int3c = dferi = None
 
     # Set up 3c part
@@ -385,7 +386,8 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     # Ravel to atoms
     auxslices = auxmol.aoslice_by_atom ()
     dE = np.array ([dE[:,p0:p1].sum (axis=1) for p0, p1 in auxslices[:,2:]]).transpose (1,0,2)
-    return np.ascontiguousarray (dE)
+    dE_2c = np.array ([dE_2c[:,p0:p1].sum (axis=1) for p0, p1 in auxslices[:,2:]]).transpose (1,0,2)
+    return np.ascontiguousarray (dE), np.ascontiguousarray (dE_2c)
     
 def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, atmlst=None, max_memory=None):
     ''' Evaluate the (P|i'j) d_Pij contribution to the electronic gradient, where d_Pij is the

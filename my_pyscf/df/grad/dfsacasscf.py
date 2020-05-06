@@ -129,6 +129,7 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     de_renorm = np.zeros((len(atmlst),3))
     de_eri = np.zeros((len(atmlst),3))
     de_aux = np.zeros((len(atmlst),3))
+    de_2c = np.zeros((len(atmlst),3))
     de = np.zeros((len(atmlst),3))
 
     #vhf1c, vhf1a, vhf1cL, vhf1aL = mf_grad.get_veff(mol, (dm_core, dm_cas, dmL_core, dmL_cas))
@@ -140,6 +141,11 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
         de_aux = ((de_aux[0,2] + de_aux[2,0]) # core-core
                 + (de_aux[0,3] + de_aux[2,1]) # core-active
                 + (de_aux[1,2] + de_aux[3,0])) # active-core
+        de_2c = vj.aux_2c - 0.5 * vk.aux_2c
+                #      D.T     +    T.D
+        de_2c = ((de_2c[0,2] + de_2c[2,0]) # core-core
+               + (de_2c[0,3] + de_2c[2,1]) # core-active
+               + (de_2c[1,2] + de_2c[3,0])) # active-core
     vj = vk = None
     hcore_deriv = mf_grad.hcore_generator(mol)
     s1 = mf_grad.get_ovlp(mol)
@@ -155,11 +161,17 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     dfcasdm2  = solve_df_rdm2 (mc, mo_cas=(mo_cas, moL_cas), casdm2=casdm2)
     de_eri += grad_elec_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
     if auxbasis_response:
-        de_aux += grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
+        #de_aux += grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
+        tmp = grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)
+        de_aux += tmp[0][0]
+        de_2c += tmp[1][0]
     dfcasdm2  = solve_df_rdm2 (mc, mo_cas=mo_cas, casdm2=casdm2) 
     de_eri += grad_elec_dferi (mc, mo_cas=(mo_cas, moL_cas), dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
     if auxbasis_response:
-        de_aux += grad_elec_auxresponse_dferi (mc, mo_cas=(mo_cas, moL_cas), dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
+        #de_aux += grad_elec_auxresponse_dferi (mc, mo_cas=(mo_cas, moL_cas), dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)[0]
+        tmp = grad_elec_auxresponse_dferi (mc, mo_cas=(mo_cas, moL_cas), dfcasdm2=dfcasdm2, atmlst=atmlst, max_memory=mc.max_memory)
+        de_aux += tmp[0][0]
+        de_2c += tmp[1][0]
     dfcasdm2 = casdm2 = None
 
     for k, ia in enumerate(atmlst):
@@ -185,7 +197,8 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
     lib.logger.debug (mc, "Orb lagrange renorm component:\n{}".format (de_renorm))
     lib.logger.debug (mc, "Orb lagrange eri component:\n{}".format (de_eri))
     lib.logger.debug (mc, "Orb lagrange aux component:\n{}".format (de_aux))
-    de = de_hcore + de_renorm + de_eri + de_aux
+    lib.logger.debug (mc, "Orb lagrange 2c component:\n{}".format (de_2c))
+    de = de_hcore + de_renorm + de_eri + de_aux + de_2c
 
     return de
 
@@ -253,6 +266,7 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     de_renorm = np.zeros((len(atmlst),3))
     de_eri = np.zeros((len(atmlst),3))
     de_aux = np.zeros((len(atmlst),3))
+    de_2c = np.zeros((len(atmlst),3))
     de = np.zeros((len(atmlst),3))
 
     #vhf1c, vhf1a = mf_grad.get_veff(mol, (dm_core, dm_cas))
@@ -260,6 +274,8 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     if auxbasis_response:
         de_aux = vj.aux - 0.5 * vk.aux
         de_aux = de_aux[0,1] + de_aux[1,0]
+        de_2c = vj.aux_2c - 0.5 * vk.aux_2c
+        de_2c = de_2c[0,1] + de_2c[1,0]
         # ^ de_aux[0,0] not included b/c this is CAS lagrange multipliers
     vhf1c, vhf1a = list (vj - vk * 0.5)
     vj = vk = None
@@ -270,8 +286,12 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     de_eri = grad_elec_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst,
         max_memory=mc.max_memory)[0]
     if auxbasis_response:
-        de_aux += grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2,
-            atmlst=atmlst, max_memory=mc.max_memory)[0]
+        #de_aux += grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2,
+        #    atmlst=atmlst, max_memory=mc.max_memory)[0]
+        tmp = grad_elec_auxresponse_dferi (mc, mo_cas=mo_cas, dfcasdm2=dfcasdm2,
+            atmlst=atmlst, max_memory=mc.max_memory)
+        de_aux += tmp[0][0]
+        de_2c += tmp[1][0]
     dfcasdm2 = casdm2 = None
 
     t0 = lib.logger.timer (mc, 'SA-CASSCF Lci_dot_dgci 1-electron part', *t0)
@@ -290,7 +310,8 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     lib.logger.debug (mc, "CI lagrange renorm component:\n{}".format (de_renorm))
     lib.logger.debug (mc, "CI lagrange eri component:\n{}".format (de_eri))
     lib.logger.debug (mc, "CI lagrange aux component:\n{}".format (de_aux))
-    de = de_hcore + de_renorm + de_eri + de_aux
+    lib.logger.debug (mc, "CI lagrange 2c component:\n{}".format (de_2c))
+    de = de_hcore + de_renorm + de_eri + de_aux + de_2c
     return de
 
 def as_scanner(mcscf_grad, state=None):

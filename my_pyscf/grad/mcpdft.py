@@ -76,6 +76,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     de_grid = np.zeros ((len(atmlst),3))
     de_wgt = np.zeros ((len(atmlst),3))
     de_aux = np.zeros ((len(atmlst),3))
+    de_2c = np.zeros ((len(atmlst),3))
     de = np.zeros ((len(atmlst),3))
 
     t0 = logger.timer (mc, 'PDFT HlFn gfock', *t0)
@@ -86,6 +87,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     s1 = mf_grad.get_ovlp(mol)
     if auxbasis_response:
         de_aux += vj.aux
+        de_2c += vj.aux_2c
 
     # MRH: Now I have to compute the gradient of the exchange-correlation energy
     # This involves derivatives of the orbitals that construct rho and Pi and therefore another
@@ -213,11 +215,12 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     logger.debug (mc, "MC-PDFT Hellmann-Feynman quadrature weight component:\n{}".format (de_wgt))
     logger.debug (mc, "MC-PDFT Hellmann-Feynman renorm component:\n{}".format (de_renorm))
 
-    de = de_nuc + de_hcore + de_coul + de_renorm + de_xc + de_grid + de_wgt
+    de = de_nuc + de_hcore + de_coul + de_renorm + de_xc + de_grid + de_wgt 
 
     if auxbasis_response:
-        de += de_aux
+        de += de_aux + de_2c
         logger.debug (mc, "MC-PDFT Hellmann-Feynman aux component:\n{}".format (de_aux))
+        logger.debug (mc, "MC-PDFT Hellmann-Feynman 2c component:\n{}".format (de_2c))
 
     t1 = logger.timer (mc, 'PDFT HlFn total', *t0)
 

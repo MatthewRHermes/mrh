@@ -107,11 +107,14 @@ def grad_elec(mc_grad, mo_coeff=None, ci=None, atmlst=None, verbose=None):
     de = grad_elec_dferi (mc_grad, mo_cas=mo_cas, dfcasdm2=dfcasdm2, atmlst=atmlst, 
         max_memory=mc_grad.max_memory)[0]
     if mc_grad.auxbasis_response:
-        de_aux = vj.aux - vk.aux * .5
+        de_aux = vj.aux + vj.aux_2c - (vk.aux + vk.aux_2c) * .5
         de_aux = de_aux.sum ((0,1)) - de_aux[1,1]
-        de_aux += grad_elec_auxresponse_dferi (mc_grad, mo_cas=mo_cas, dfcasdm2=dfcasdm2,
-            atmlst=atmlst, max_memory=mc_grad.max_memory)[0]
-        de += de_aux
+        #de_aux += grad_elec_auxresponse_dferi (mc_grad, mo_cas=mo_cas, dfcasdm2=dfcasdm2,
+        #    atmlst=atmlst, max_memory=mc_grad.max_memory)[0]
+        tmp = grad_elec_auxresponse_dferi (mc_grad, mo_cas=mo_cas, dfcasdm2=dfcasdm2,
+            atmlst=atmlst, max_memory=mc_grad.max_memory)
+        de_aux += tmp[0][0] + tmp[1][0]
+        de += de_aux 
     dfcasdm2 = casdm2 = None
 
     for k, ia in enumerate(atmlst):
