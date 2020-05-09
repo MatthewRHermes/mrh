@@ -299,7 +299,7 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, self.ncas, self.nelecas), axis=0)
             adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (ci, self.ncas, self.nelecas)[1], adm1s)
             mo_cas = mo[:,self.ncore:][:,:self.ncas]
-            pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, dm1s, adm2, mo, self.ncore, self.ncas, max_memory=self.max_memory, paaa_only=paaa_only)
+            pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, adm2, mo, self.ncore, self.ncas, max_memory=self.max_memory, paaa_only=paaa_only)
             if self.verbose > logger.DEBUG:
                 logger.debug (self, 'Warning: memory-intensive lazy kernel for pdft_veff initiated for '
                     'testing purposes; reduce verbosity to decrease memory footprint')

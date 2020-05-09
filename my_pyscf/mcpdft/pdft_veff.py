@@ -1,5 +1,5 @@
 from pyscf import ao2mo
-from pyscf.lib import logger, pack_tril, unpack_tril, current_memory
+from pyscf.lib import logger, pack_tril, unpack_tril, current_memory, tag_array
 from pyscf.lib import einsum as einsum_threads
 from pyscf.dft.gen_grid import BLKSIZE
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
@@ -9,13 +9,15 @@ import numpy as np
 import time, gc
 
 class _ERIS(object):
-    def __init__(self, mo_coeff, ncore, ncas, method='incore', paaa_only=False):
+    def __init__(self, mo_coeff, ncore, ncas, method='incore', paaa_only=False, verbose=0, stdout=None):
         self.nao, self.nmo = mo_coeff.shape
         self.ncore = ncore
         self.ncas = ncas
         self.vhf_c = np.zeros ((self.nmo, self.nmo), dtype=mo_coeff.dtype)
         self.method = method
         self.paaa_only = paaa_only
+        self.verbose = verbose
+        self.stdout = stdout
         if method == 'incore':
             #npair = self.nmo * (self.nmo+1) // 2
             #self._eri = np.zeros ((npair, npair))
@@ -57,9 +59,11 @@ class _ERIS(object):
         else:
             self.papa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)
         # j_pc
-        mo = _square_ao (mo)
-        mo_core = mo[:,:,:ncore]
-        self.j_pc += ot.get_veff_1body (rho, Pi, [mo, mo_core], weight, kern=vPi)
+        if self.verbose > logger.DEBUG 
+            raise NotImplementedError ('TODO: fix the three lines below for the new signature of _accumulate_incore')
+            mo = _square_ao (mo)
+            mo_core = mo[:,:,:ncore]
+            self.j_pc += ot.get_veff_1body (rho, Pi, [mo, mo_core], weight, kern=vPi)
 
     def _finalize (self):
         if self.method == 'incore':
@@ -85,13 +89,13 @@ class _ERIS(object):
             raise NotImplementedError ("method={} for veff2".format (self.method))
         self.k_pc = self.j_pc.copy ()
 
-def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, hermi=1, veff2_mo=None, paaa_only=False):
+def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, hermi=1, veff2_mo=None, paaa_only=False):
     ''' Get the 1- and 2-body effective potential from MC-PDFT. Eventually I'll be able to specify
         mo slices for the 2-body part
 
         Args:
             ot : an instance of otfnal class
-            oneCDMs : ndarray of shape (2, nao, nao)
+            oneCDMs_amo : ndarray of shape (2, ncas, ncas)
                 containing spin-separated one-body density matrices
             twoCDM_amo : ndarray of shape (ncas, ncas, ncas, ncas)
                 containing spin-summed two-body cumulant density matrix in an active space
@@ -117,16 +121,17 @@ def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, he
     ao2amo = mo_coeff[:,ncore:][:,:ncas]
     npair = norbs_ao * (norbs_ao + 1) // 2
 
-    veff1 = np.zeros_like (oneCDMs[0])
-    veff2 = _ERIS (mo_coeff, ncore, ncas, paaa_only=paaa_only)
+    veff1 = np.zeros ((norbs_ao, norbs_ao), dtype=oneCDMs_ao.dtype)
+    veff2 = _ERIS (mo_coeff, ncore, ncas, paaa_only=paaa_only, verbose=ot.verbose, stdout=ot.stdout)
 
     t0 = (time.clock (), time.time ())
     dm_core = mo_core @ mo_core.T * 2
-    casdm1a = oneCDMs[0] - dm_core/2
-    casdm1b = oneCDMs[1] - dm_core/2
-    make_rho_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)
-    make_rho_a = tuple (ni._gen_rho_evaluator (ot.mol, dm, hermi) for dm in (casdm1a, casdm1b))
-    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
+    dm_cas = np.dot (ao2amo, np.dot (oneCDMs_amo, ao2amo.T)).transpose (1,0,2)
+    dm1s = dm_cas + dm_core[None,:,:] // 2
+    # Can't trust that NOs are the same for alpha and beta. Have to do this explicitly here
+    make_rho_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)[0]
+    make_rho_a = ni._gen_rho_evaluator (ot.mol, dm_cas, hermi)[0]
+    make_rho = ni._gen_rho_evaluator (ot.mol, dm1s, hermi)[0]
     gc.collect ()
     remaining_floats = (max_memory - current_memory ()[0]) * 1e6 / 8
     nderiv_rho = (1,4,10)[dens_deriv] # ?? for meta-GGA
@@ -141,11 +146,11 @@ def kernel (ot, oneCDMs, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, he
     logger.debug (ot, '{} MB used of {} available; block size of {} chosen for grid with {} points'.format (
         current_memory ()[0], max_memory, pdft_blksize, ngrids))
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory, blksize=pdft_blksize):
-        rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
-        rho_a = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho_a])
-        rho_c = make_rho_c [0] (0, ao, mask, xctype)
+        rho = np.asarray ([make_rho (i, ao, mask, xctype) for i in range(2)])
+        rho_a = np.asarray ([make_rho_a (i, ao, mask, xctype) for i in range(2)])
+        rho_c = make_rho_c (0, ao, mask, xctype)
         t0 = logger.timer (ot, 'untransformed densities (core and total)', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, dens_deriv)
+        Pi = get_ontop_pair_density (ot, rho, ao, dm1s, twoCDM_amo, ao2amo, dens_deriv)
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
         eot, vrho, vPi = ot.eval_ot (rho, Pi, weights=weight)
         t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
