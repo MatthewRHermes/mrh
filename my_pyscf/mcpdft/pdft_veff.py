@@ -59,7 +59,7 @@ class _ERIS(object):
         else:
             self.papa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)
         # j_pc
-        if self.verbose > logger.DEBUG 
+        if self.verbose > logger.DEBUG:
             raise NotImplementedError ('TODO: fix the three lines below for the new signature of _accumulate_incore')
             mo = _square_ao (mo)
             mo_core = mo[:,:,:ncore]
@@ -121,17 +121,18 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
     ao2amo = mo_coeff[:,ncore:][:,:ncas]
     npair = norbs_ao * (norbs_ao + 1) // 2
 
-    veff1 = np.zeros ((norbs_ao, norbs_ao), dtype=oneCDMs_ao.dtype)
+    veff1 = np.zeros ((norbs_ao, norbs_ao), dtype=oneCDMs_amo.dtype)
     veff2 = _ERIS (mo_coeff, ncore, ncas, paaa_only=paaa_only, verbose=ot.verbose, stdout=ot.stdout)
 
     t0 = (time.clock (), time.time ())
-    dm_core = mo_core @ mo_core.T * 2
+    dm_core = mo_core @ mo_core.T 
     dm_cas = np.dot (ao2amo, np.dot (oneCDMs_amo, ao2amo.T)).transpose (1,0,2)
-    dm1s = dm_cas + dm_core[None,:,:] // 2
+    dm1s = dm_cas + dm_core[None,:,:] 
+    dm_core *= 2
     # Can't trust that NOs are the same for alpha and beta. Have to do this explicitly here
-    make_rho_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)[0]
-    make_rho_a = ni._gen_rho_evaluator (ot.mol, dm_cas, hermi)[0]
-    make_rho = ni._gen_rho_evaluator (ot.mol, dm1s, hermi)[0]
+    make_rho_c, nset_c, nao_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)
+    make_rho_a, nset_a, nao_a = ni._gen_rho_evaluator (ot.mol, dm_cas, hermi)
+    make_rho, nset, nao = ni._gen_rho_evaluator (ot.mol, dm1s, hermi)
     gc.collect ()
     remaining_floats = (max_memory - current_memory ()[0]) * 1e6 / 8
     nderiv_rho = (1,4,10)[dens_deriv] # ?? for meta-GGA
