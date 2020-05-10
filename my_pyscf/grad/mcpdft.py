@@ -1,7 +1,7 @@
 from pyscf.mcscf import newton_casscf
 from pyscf.grad import rks as rks_grad
 from pyscf.dft import gen_grid
-from pyscf.lib import logger, pack_tril, current_memory
+from pyscf.lib import logger, pack_tril, current_memory, tag_array
 #from mrh.my_pyscf.grad import sacasscf
 from pyscf.grad import sacasscf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
@@ -99,10 +99,21 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     dm1s = mc.make_rdm1s ()
     casdm1s = np.stack (mc.fcisolver.make_rdm1s (ci, ncas, nelecas), axis=0)
     twoCDM = get_2CDM_from_2RDM (casdm2, casdm1s)
+    # Tag rdms start
+    tag_coeff = np.stack ((mo_occ.copy (), mo_occ.copy ()), axis=0)
+    tag_occ = np.ones ((2, nocc), dtype=tag_coeff.dtype)
+    for i, dm in enumerate (casdm1s):
+        tag_occ[i,ncore:nocc], ua = linalg.eigh (dm)
+        tag_coeff[i,:,ncore:nocc] = tag_coeff[i,:,ncore:nocc] @ ua
+    dm1s = tag_array (dm1s, mo_coeff=tag_coeff, mo_occ=tag_occ)
+    dm_core = tag_array (dm_core, mo_coeff=mo_core, mo_occ=tag_occ[:,:ncore].sum (0))
+    tag_occ, ua = linalg.eigh (casdm1)
+    dm_cas = tag_array (dm_cas, mo_coeff=(mo_cas @ ua), mo_occ=tag_occ)
+    # End tag block
     casdm1s = None
-    make_rho = tuple (ot._numint._gen_rho_evaluator (mol, dm1s[i], 1) for i in range(2))
-    make_rho_c = ot._numint._gen_rho_evaluator (mol, dm_core, 1) 
-    make_rho_a = ot._numint._gen_rho_evaluator (mol, dm_cas, 1) 
+    make_rho = ot._numint._gen_rho_evaluator (mol, dm1s, 1)[0]
+    make_rho_c = ot._numint._gen_rho_evaluator (mol, dm_core, 1)[0]
+    make_rho_a = ot._numint._gen_rho_evaluator (mol, dm_cas, 1)[0]
     dv1 = np.zeros ((3,nao,nao)) # Term which should be contracted with the whole density matrix
     dv1_a = np.zeros ((3,nao,nao)) # Term which should only be contracted with the core density matrix
     dv2 = np.zeros ((3,nao))
@@ -140,7 +151,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
                 aoval = ao[:1]
             elif ot.xctype == 'GGA':
                 aoval = ao[:4]
-            rho = np.asarray ([m[0] (0, aoval, mask, ot.xctype) for m in make_rho])
+            rho = np.asarray ([make_rho (i, aoval, mask, ot.xctype) for i in range (2)])
             Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
 
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t1)
@@ -162,7 +173,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             k = full_atmlst[ia]
 
             # Vpq + Vpqii
-            vrho = _contract_vot_rho (vot, make_rho_c [0] (0, aoval, mask, ot.xctype), add_vrho=vrho)
+            vrho = _contract_vot_rho (vot, make_rho_c (0, aoval, mask, ot.xctype), add_vrho=vrho)
             tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0[ip0:ip1], kern=vrho) for ix in idx], axis=0)
             if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm1.T, axes=2) # Grid response
             dv1 -= tmp_dv # XC response
@@ -170,7 +181,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqii'.format (ia), *t1)
 
             # Viiuv * Duv
-            vrho_a = _contract_vot_rho (vot, make_rho_a [0] (0, aoval, mask, ot.xctype))
+            vrho_a = _contract_vot_rho (vot, make_rho_a (0, aoval, mask, ot.xctype))
             tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0[ip0:ip1], kern=vrho_a) for ix in idx], axis=0)
             if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm_core.T, axes=2) # Grid response
             dv1_a -= tmp_dv # XC response
