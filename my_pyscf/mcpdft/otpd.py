@@ -66,7 +66,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
         Pi[4] = -(rho[:,1:4].sum (0).conjugate () * rho[:,1:4].sum (0)).sum (0) / 4
         Pi[4] += rho[0,0]*(rho[1,4]/4 + rho[0,5]*2) 
         Pi[4] += rho[1,0]*(rho[0,4]/4 + rho[1,5]*2)
-    t0 = logger.timer (ot, 'otpd first cumulant', *t0)
+    t0 = logger.timer_debug1 (ot, 'otpd first cumulant', *t0)
 
     # Second cumulant and derivatives (chain rule! product rule!)
     # dot, tensordot, and sum are hugely faster than np.einsum 
@@ -77,7 +77,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
     gridkern[0] = grid2amo[0,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]  # r_0ai,  r_0aj  -> r_0aij
     wrk0 = np.tensordot (gridkern[0], twoCDM_amo, axes=2)                  # r_0aij, P_ijkl -> P_0akl
     Pi[0] += (gridkern[0] * wrk0).sum ((1,2)) / 2                          # r_0aij, P_0aij -> P_0a
-    t0 = logger.timer (ot, 'otpd second cumulant 0th derivative', *t0)
+    t0 = logger.timer_debug1 (ot, 'otpd second cumulant 0th derivative', *t0)
     if ot.verbose > logger.DEBUG:
         logger.debug (ot, 'Warning: slow einsum-based testing calculation of Pi initiated; '
             'reduce verbosity to increase speed and memory efficiency')
@@ -89,7 +89,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
             # Fourfold tensor symmetry ijkl = klij = jilk = lkji & product rule -> factor of 4
             gridkern[ideriv] = grid2amo[ideriv,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]    # r_1ai,  r_0aj  -> r_1aij
             Pi[ideriv] += (gridkern[ideriv] * wrk0).sum ((1,2)) * 2                            # r_1aij, P_0aij -> P_1a  
-            t0 = logger.timer (ot, 'otpd second cumulant 1st derivative ({})'.format (ideriv), *t0)
+            t0 = logger.timer_debug1 (ot, 'otpd second cumulant 1st derivative ({})'.format (ideriv), *t0)
             if ot.verbose > logger.DEBUG:
                 logger.debug (ot, 'Warning: slow einsum-based testing calculation of Pi\'s first derivatives initiated; '
                     'reduce verbosity to increase speed and memory efficiency')
