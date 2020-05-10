@@ -10,6 +10,7 @@ import time, gc
 
 class _ERIS(object):
     def __init__(self, mo_coeff, ncore, ncas, method='incore', paaa_only=False, verbose=0, stdout=None):
+        self.mo_coeff = mo_coeff
         self.nao, self.nmo = mo_coeff.shape
         self.ncore = ncore
         self.ncas = ncas
@@ -35,29 +36,35 @@ class _ERIS(object):
         else:
             raise NotImplementedError ("method={} for veff2".format (self.method))
 
-    def _accumulate_incore (self, ot, rho, Pi, mo, weight, rho_c, rho_a, vPi):
+    def _accumulate_incore (self, ot, rho, Pi, ao, weight, rho_c, rho_a, vPi):
         #self._eri += ot.get_veff_2body (rho, Pi, mo, weight, aosym='s4', kern=vPi)
+        mo_coeff = self.mo_coeff
         ncore, ncas = self.ncore, self.ncas
         nocc = ncore + ncas
-        mo_cas = mo[:,:,ncore:nocc]
+        mo_cas = np.dot (ao, mo_coeff[:,ncore:nocc])
         # vhf_c
         vrho_c = _contract_vot_rho (vPi, rho_c)
-        self.vhf_c += ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_c)
+        self.vhf_c += mo_coeff.conjugate ().T @ ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho_c) @ mo_coeff
         if self.paaa_only:
             # 1/2 v_aiuv D_ii D_uv = v^ai_uv D_uv -> F_ai, F_ia needs to be in here since it would otherwise be calculated using ppaa and papa
             vrho_a = _contract_vot_rho (vPi, rho_a.sum (0))
-            vhf_a = ot.get_veff_1body (rho, Pi, mo, weight, kern=vrho_a) 
+            vhf_a = ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho_a) 
+            vhf_a = mo_coeff.conjugate ().T @ vhf_a @ mo_coeff
             vhf_a[ncore:nocc,:] = vhf_a[:,ncore:nocc] = 0.0
             self.vhf_c += vhf_a
         # ppaa
         if self.paaa_only:
-            paaa = ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo_cas, mo_cas], weight, aosym='s1', kern=vPi)
+            paaa = ot.get_veff_2body (rho, Pi, [ao, mo_cas, mo_cas, mo_cas], weight, aosym='s1', kern=vPi)
+            paaa = np.tensordot (mo_coeff.T, paaa, axes=1)
             #paaa = unpack_tril (paaa.reshape (-1, ncas * (ncas + 1) // 2)).reshape (-1, ncas, ncas, ncas)
             self.papa[:,:,ncore:nocc,:] += paaa
             self.papa[ncore:nocc,:,:,:] += paaa.transpose (2,3,0,1)
             self.papa[ncore:nocc,:,ncore:nocc,:] -= paaa[ncore:nocc,:,:,:]
         else:
-            self.papa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)
+            #self.papa += ot.get_veff_2body (rho, Pi, [mo, mo_cas, mo, mo_cas], weight, aosym='s1', kern=vPi)
+            papa = ot.get_veff_2body (rho, Pi, [ao, mo_cas, ao, mo_cas], weight, aosym='s1', kern=vPi)
+            papa = np.tensordot (mo_coeff.T, papa, axes=1)
+            self.papa += np.tensordot (mo_coeff.T, papa, axes=((1),(2))).transpose (1,2,0,3)
         # j_pc
         if self.verbose > logger.DEBUG:
             raise NotImplementedError ('TODO: fix the three lines below for the new signature of _accumulate_incore')
@@ -115,10 +122,11 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
     '''
     if veff2_mo is not None:
         raise NotImplementedError ('Molecular orbital slices for the two-body part')
+    nocc = ncore + ncas
     ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
     norbs_ao = mo_coeff.shape[0]
     mo_core = mo_coeff[:,:ncore]
-    ao2amo = mo_coeff[:,ncore:][:,:ncas]
+    ao2amo = mo_coeff[:,ncore:nocc]
     npair = norbs_ao * (norbs_ao + 1) // 2
 
     veff1 = np.zeros ((norbs_ao, norbs_ao), dtype=oneCDMs_amo.dtype)
@@ -130,6 +138,24 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
     dm1s = dm_cas + dm_core[None,:,:] 
     dm_core *= 2
     # Can't trust that NOs are the same for alpha and beta. Have to do this explicitly here
+    # Begin tag block: dm_core
+    imo_occ = np.ones (ncore, dtype=dm_core.dtype) * 2.0
+    dm_core = tag_array (dm_core, mo_coeff=mo_core, mo_occ=imo_occ)
+    # Begin tag block: dm_cas
+    amo_occ = np.zeros ((2,ncas), dtype=dm_cas.dtype)
+    amo_coeff = np.stack ([ao2amo.copy (), ao2amo.copy ()], axis=0)
+    for i in range (2):
+        amo_occ[i], ua = linalg.eigh (oneCDMs_amo[i])
+        amo_coeff[i] = amo_coeff[i] @ ua
+    dm_cas = tag_array (dm_cas, mo_coeff=amo_coeff, mo_occ=amo_occ)
+    # Begin tag block: dm1s
+    mo_occ = np.zeros ((2, nocc), dtype=dm1s.dtype)
+    mo_occ[:,:ncore] = 1.0
+    mo_occ[:,ncore:nocc] = amo_occ
+    tag_coeff = np.stack ((mo_coeff[:,:nocc].copy (), mo_coeff[:,:nocc].copy ()), axis=0)
+    tag_coeff[:,:,ncore:nocc] = amo_coeff 
+    dm1s = tag_array (dm1s, mo_coeff=tag_coeff, mo_occ=mo_occ)
+    # End tag block
     make_rho_c, nset_c, nao_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)
     make_rho_a, nset_a, nao_a = ni._gen_rho_evaluator (ot.mol, dm_cas, hermi)
     make_rho, nset, nao = ni._gen_rho_evaluator (ot.mol, dm1s, hermi)
@@ -157,8 +183,8 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
         t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
         veff1 += ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
-        ao[:,:,:] = np.tensordot (ao, mo_coeff, axes=1)
-        t0 = logger.timer (ot, 'ao2mo grid points', *t0)
+        #ao[:,:,:] = np.tensordot (ao, mo_coeff, axes=1)
+        #t0 = logger.timer (ot, 'ao2mo grid points', *t0)
         veff2._accumulate (ot, rho, Pi, ao, weight, rho_c, rho_a, vPi)
         t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
     veff2._finalize ()
