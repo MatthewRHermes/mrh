@@ -273,6 +273,9 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
         ao = [ao, ao]
     elif len (ao) != 2:
         raise NotImplementedError ("uninterpretable aos!")
+    elif ao[0].size < ao[1].size:
+        # Life pro-tip: do more operations with smaller arrays and fewer operations with bigger arrays
+        ao = [ao[1], ao[0]]
     if kern is None: 
         kern = otfnal.get_dEot_drho (rho, Pi, **kwargs) 
     else:
@@ -281,10 +284,15 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
     kern *= weight[None,:]
 
     # Zeroth and first derivatives
-    veff = np.tensordot (kern[0,:,None] * ao[0][0], ao[1][0], axes=(0,0))
-    if nderiv > 1:
-        veff += np.tensordot ((kern[1:4,:,None] * ao[0][1:4]).sum (0), ao[1][0], axes=(0,0))
-        veff += np.tensordot (ao[0][0], (kern[1:4,:,None] * ao[1][1:4]).sum (0), axes=(0,0))
+    vao = _contract_vot_ao (kern, ao[1])
+    nterm = vao.shape[0]
+    veff = np.tensordot (ao[0][0:nterm], vao, axes=((0,1),(0,1)))
+        # The indexing in _contract_ao_vao makes it very slow if I have symm=True
+        # Eventually this will be fixed but for now just leave it
+    #veff = np.tensordot (kern[0,:,None] * ao[0][0], ao[1][0], axes=(0,0))
+    #if nderiv > 1:
+    #    veff += np.tensordot ((kern[1:4,:,None] * ao[0][1:4]).sum (0), ao[1][0], axes=(0,0))
+    #    veff += np.tensordot (ao[0][0], (kern[1:4,:,None] * ao[1][1:4]).sum (0), axes=(0,0))
 
     rho = np.squeeze (rho)
     Pi = np.squeeze (Pi)
