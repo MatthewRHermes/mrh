@@ -96,32 +96,25 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     # I'll do a loop over grid sections and make arrays of type (3,nao, nao) and (3,nao, ncas, ncas, ncas).
     # I'll contract them within the grid loop for the grid derivatives and in the following
     # orbital loop for the xc derivatives
-    dm1s = mc.make_rdm1s ()
-    casdm1s = np.stack (mc.fcisolver.make_rdm1s (ci, ncas, nelecas), axis=0)
-    twoCDM = get_2CDM_from_2RDM (casdm2, casdm1s)
-    # Tag rdms start
-    tag_coeff = np.stack ((mo_occ.copy (), mo_occ.copy ()), axis=0)
-    tag_occ = np.ones ((2, nocc), dtype=tag_coeff.dtype)
-    for i, dm in enumerate (casdm1s):
-        tag_occ[i,ncore:nocc], ua = linalg.eigh (dm)
-        tag_coeff[i,:,ncore:nocc] = tag_coeff[i,:,ncore:nocc] @ ua
-    dm1s = tag_array (dm1s, mo_coeff=tag_coeff, mo_occ=tag_occ)
-    dm_core = tag_array (dm_core, mo_coeff=mo_core, mo_occ=tag_occ[:,:ncore].sum (0))
-    tag_occ, ua = linalg.eigh (casdm1)
-    dm_cas = tag_array (dm_cas, mo_coeff=(mo_cas @ ua), mo_occ=tag_occ)
-    # End tag block
-    casdm1s = None
-    make_rho = ot._numint._gen_rho_evaluator (mol, dm1s, 1)[0]
-    make_rho_c = ot._numint._gen_rho_evaluator (mol, dm_core, 1)[0]
-    make_rho_a = ot._numint._gen_rho_evaluator (mol, dm_cas, 1)[0]
+    # MRH, 05/09/2020: This just in - the actual spin density doesn't matter at all in PDFT!
+    # I could probably save a fair amount of time by not screwing around with the actual spin density!
+    # Also, the cumulant decomposition can always be defined without the spin-density matrices and
+    # it's still valid! But one thing at a time.
+    twoCDM = get_2CDM_from_2RDM (casdm2, casdm1)
+    dm1s = np.stack ((dm1/2.0,)*2, axis=0)
+    tag_coeff = mo_occ.copy ()
+    tag_occ = 2 * np.ones (nocc, dtype=tag_coeff.dtype)
+    tag_occ[ncore:nocc], ua = linalg.eigh (casdm1)
+    tag_coeff[:,ncore:nocc] = tag_coeff[:,ncore:nocc] @ ua
+    dm1 = tag_array (dm1, mo_coeff=tag_coeff, mo_occ=tag_occ)
+    make_rho = ot._numint._gen_rho_evaluator (mol, dm1, 1)[0]
     dv1 = np.zeros ((3,nao,nao)) # Term which should be contracted with the whole density matrix
-    dv1_a = np.zeros ((3,nao,nao)) # Term which should only be contracted with the core density matrix
     dv2 = np.zeros ((3,nao))
     idx = np.array ([[1,4,5,6],[2,5,7,8],[3,6,8,9]], dtype=np.int_) # For addressing particular ao derivatives
     if ot.xctype == 'LDA': idx = idx[:,0] # For LDAs no second derivatives
     diag_idx = np.arange(ncas) # for puvx
     diag_idx = diag_idx * (diag_idx+1) // 2 + diag_idx
-    casdm2_pack = (casdm2 + casdm2.transpose (0,1,3,2)).reshape (ncas**2, ncas, ncas)
+    casdm2_pack = (twoCDM + twoCDM.transpose (0,1,3,2)).reshape (ncas**2, ncas, ncas)
     casdm2_pack = pack_tril (casdm2_pack).reshape (ncas, ncas, -1)
     casdm2_pack[:,:,diag_idx] *= 0.5
     diag_idx = np.arange(ncore, dtype=np.int_) * (ncore + 1) # for pqii
@@ -151,7 +144,8 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
                 aoval = ao[:1]
             elif ot.xctype == 'GGA':
                 aoval = ao[:4]
-            rho = np.asarray ([make_rho (i, aoval, mask, ot.xctype) for i in range (2)])
+            rho = make_rho (0, aoval, mask, ot.xctype) / 2.0
+            rho = np.stack ((rho,)*2, axis=0)
             Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
 
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t1)
@@ -172,23 +166,15 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             # The last stuff to vectorize is in get_veff_2body!
             k = full_atmlst[ia]
 
-            # Vpq + Vpqii
-            vrho = _contract_vot_rho (vot, make_rho_c (0, aoval, mask, ot.xctype), add_vrho=vrho)
+            # Vpq + Vpqrs * Drs
+            vrho = _contract_vot_rho (vot, make_rho (0, aoval, mask, ot.xctype), add_vrho=vrho)
             tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0[ip0:ip1], kern=vrho) for ix in idx], axis=0)
             if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm1.T, axes=2) # Grid response
             dv1 -= tmp_dv # XC response
             vrho = tmp_dv = None
-            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqii'.format (ia), *t1)
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqrs * Drs'.format (ia), *t1)
 
-            # Viiuv * Duv
-            vrho_a = _contract_vot_rho (vot, make_rho_a (0, aoval, mask, ot.xctype))
-            tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0[ip0:ip1], kern=vrho_a) for ix in idx], axis=0)
-            if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm_core.T, axes=2) # Grid response
-            dv1_a -= tmp_dv # XC response
-            vrho_a = tmp_dv = None
-            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Viiuv'.format (ia), *t1)
-
-            # Vpuvx
+            # Vpuvx * Lpuvx
             tmp_dv = ot.get_veff_2body_kl (rho, Pi, moval_cas, moval_cas, w0[ip0:ip1], symm=True, kern=vot) # ndpi,ngrids,ncas*(ncas+1)//2
             tmp_dv = np.tensordot (tmp_dv, casdm2_pack, axes=(-1,-1)) # ndpi, ngrids, ncas, ncas
             tmp_dv[0] = (tmp_dv[:ndpi] * moval_cas[:ndpi,:,None,:]).sum (0) # Chain and product rule
@@ -199,7 +185,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1)
             dv2 -= tmp_dv # XC response
             tmp_dv = None
-            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx'.format (ia), *t1)
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx * Lpuvx'.format (ia), *t1)
 
             rho = Pi = eot = vot = ao = aoval = moval_occ = moval_core = moval_cas = None
             gc.collect ()
@@ -211,7 +197,6 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         de_renorm[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
         de_coul[k] += np.einsum('xij,ij->x', vj[:,p0:p1], dm1[p0:p1]) * 2
         de_xc[k] += np.einsum ('xij,ij->x', dv1[:,p0:p1], dm1[p0:p1]) * 2 # Full quadrature, only some orbitals
-        de_xc[k] += np.einsum ('xij,ij->x', dv1_a[:,p0:p1], dm_core[p0:p1]) * 2 # Ditto
         de_xc[k] += dv2[:,p0:p1].sum (1) * 2 # Ditto
 
     de_nuc = mf_grad.grad_nuc(mol, atmlst)
