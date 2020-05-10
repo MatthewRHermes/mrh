@@ -4,6 +4,7 @@ from pyscf.dft import gen_grid
 from pyscf.lib import logger, pack_tril, current_memory, tag_array
 #from mrh.my_pyscf.grad import sacasscf
 from pyscf.grad import sacasscf
+from pyscf.mcscf.casci import cas_natorb
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_rho, _contract_ao_vao
 from mrh.util.rdm import get_2CDM_from_2RDM
@@ -100,16 +101,17 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     # I could probably save a fair amount of time by not screwing around with the actual spin density!
     # Also, the cumulant decomposition can always be defined without the spin-density matrices and
     # it's still valid! But one thing at a time.
+    mo_coeff, ci, mo_occup = cas_natorb (mc, mo_coeff=mo_coeff, ci=ci)
+    mo_occ = mo_coeff[:,:nocc]
+    mo_core = mo_coeff[:,:ncore]
+    mo_cas = mo_coeff[:,ncore:nocc]
+    mo_n = mo_occ * mo_occup[None,:nocc]
+    casdm1, casdm2 = mc.fcisolver.make_rdm12(ci, ncas, nelecas)
     twoCDM = get_2CDM_from_2RDM (casdm2, casdm1)
     dm1s = np.stack ((dm1/2.0,)*2, axis=0)
-    tag_coeff = mo_occ.copy ()
-    tag_occ = 2 * np.ones (nocc, dtype=tag_coeff.dtype)
-    tag_occ[ncore:nocc], ua = linalg.eigh (casdm1)
-    tag_coeff[:,ncore:nocc] = tag_coeff[:,ncore:nocc] @ ua
-    dm1 = tag_array (dm1, mo_coeff=tag_coeff, mo_occ=tag_occ)
+    dm1 = tag_array (dm1, mo_coeff=mo_occ, mo_occ=mo_occup[:nocc])
     make_rho = ot._numint._gen_rho_evaluator (mol, dm1, 1)[0]
-    dv1 = np.zeros ((3,nao,nao)) # Term which should be contracted with the whole density matrix
-    dv2 = np.zeros ((3,nao))
+    dvxc = np.zeros ((3,nao))
     idx = np.array ([[1,4,5,6],[2,5,7,8],[3,6,8,9]], dtype=np.int_) # For addressing particular ao derivatives
     if ot.xctype == 'LDA': idx = idx[:,0] # For LDAs no second derivatives
     diag_idx = np.arange(ncas) # for puvx
@@ -127,6 +129,8 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         # For the xc potential derivative, I need every grid point in the entire molecule regardless of atmlist. (Because that's about orbitals.)
         # For the grid and weight derivatives, I only need the gridpoints that are in atmlst
         # Estimated memory footprint: [2*ndao*(nao+nocc) + 3*ndpi*ncas^2 + O(ncas^0,nao^0,nocc^0)]*ngrids
+        # It is conceivable that I can make this more efficient by only doing cross-combinations of grids and AOs, but I don't know how "mask"
+        # works yet or how else I could do this.
         gc.collect ()
         ngrids = coords.shape[0]
         ndao = (1,4,10,19)[ot.dens_deriv+1]
@@ -168,9 +172,10 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
             # Vpq + Vpqrs * Drs
             vrho = _contract_vot_rho (vot, make_rho (0, aoval, mask, ot.xctype), add_vrho=vrho)
-            tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0[ip0:ip1], kern=vrho) for ix in idx], axis=0)
-            if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm1.T, axes=2) # Grid response
-            dv1 -= tmp_dv # XC response
+            tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], moval_occ], w0[ip0:ip1], kern=vrho) for ix in idx], axis=0)
+            tmp_dv = (tmp_dv * mo_occ[None,:,:] * mo_occup[None,None,:nocc]).sum (2)
+            if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1) # Grid response
+            dvxc -= tmp_dv # XC response
             vrho = tmp_dv = None
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqrs * Drs'.format (ia), *t1)
 
@@ -182,8 +187,8 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             tmp_dv = tmp_dv.sum (-1) # ndpi, ngrids, ncas
             tmp_dv = np.tensordot (ao[idx[:,:ndpi]], tmp_dv, axes=((1,2),(0,1))) # comp, nao (orb), ncas (dm2)
             tmp_dv = np.einsum ('cpu,pu->cp', tmp_dv, mo_cas) # comp, ncas (it's ok to not vectorize this b/c the quadrature grid is gone)
-            if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1)
-            dv2 -= tmp_dv # XC response
+            if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1) # Grid response
+            dvxc -= tmp_dv # XC response
             tmp_dv = None
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx * Lpuvx'.format (ia), *t1)
 
@@ -196,8 +201,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         de_hcore[k] += np.einsum('xij,ij->x', h1ao, dm1)
         de_renorm[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
         de_coul[k] += np.einsum('xij,ij->x', vj[:,p0:p1], dm1[p0:p1]) * 2
-        de_xc[k] += np.einsum ('xij,ij->x', dv1[:,p0:p1], dm1[p0:p1]) * 2 # Full quadrature, only some orbitals
-        de_xc[k] += dv2[:,p0:p1].sum (1) * 2 # Ditto
+        de_xc[k] += dvxc[:,p0:p1].sum (1) * 2 # Full quadrature, only some orbitals
 
     de_nuc = mf_grad.grad_nuc(mol, atmlst)
 
