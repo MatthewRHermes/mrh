@@ -22,7 +22,7 @@
 # # Author: Qiming Sun <osirpt.sun@gmail.com>
 # #
 
-
+import time
 import numpy
 import scipy.linalg
 from pyscf import gto
@@ -63,6 +63,7 @@ from itertools import product
 #      for me!
 
 def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=True):
+    t0 = (time.clock (), time.time ())
     if mol is None: mol = mf_grad.mol
     if dm is None: dm = mf_grad.base.make_rdm1()
     #TODO: dm has to be the SCF density matrix in this version.  dm should be
@@ -145,6 +146,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             vj = lib.tag_array(-vj.reshape(out_shape), aux=numpy.array(vjaux))
         else:
             vj = -vj.reshape(out_shape)
+        logger.timer(mf_grad, 'df vj', *t0)
         return vj, None
 
     # MRH 05/03/2020: uh-oh, we can't have this! I guess I have to use an ishf
@@ -300,6 +302,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     else:
         vj = -vj.reshape(out_shape)
         vk = -vk.reshape(out_shape)
+    logger.timer(mf_grad, 'df vj and vk', *t0)
     return vj, vk
 
 def _int3c_wrapper(mol, auxmol, intor, aosym):
