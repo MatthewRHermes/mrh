@@ -108,7 +108,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         for shl0, shl1, nL in ao_ranges:
             int3c = get_int3c_s2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
             p0, p1 = aux_loc[shl0], aux_loc[shl1]
-            rhoj[:,p0:p1] = numpy.einsum('wp,nw->np', int3c, dm_tril)
+            rhoj[:,p0:p1] = lib.einsum('wp,nw->np', int3c, dm_tril)
             int3c = None
 
         # (P|Q)
@@ -121,7 +121,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         for shl0, shl1, nL in ao_ranges:
             int3c = get_int3c_ip1((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
             p0, p1 = aux_loc[shl0], aux_loc[shl1]
-            vj += numpy.einsum('xijp,np->nxij', int3c, rhoj[:,p0:p1])
+            vj += lib.einsum('xijp,np->nxij', int3c, rhoj[:,p0:p1])
             int3c = None
 
         if mf_grad.auxbasis_response:
@@ -130,13 +130,13 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             for shl0, shl1, nL in ao_ranges:
                 int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
                 p0, p1 = aux_loc[shl0], aux_loc[shl1]
-                vjaux[:,:,:,p0:p1] = numpy.einsum('xwp,mw,np->mnxp',
+                vjaux[:,:,:,p0:p1] = lib.einsum('xwp,mw,np->mnxp',
                                               int3c, dm_tril, rhoj[:,p0:p1])
                 int3c = None
 
             # (d/dX P|Q)
             int2c_e1 = auxmol.intor('int2c2e_ip1', aosym='s1')
-            vjaux -= numpy.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
+            vjaux -= lib.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
 
             vjaux = numpy.array ([-vjaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
             if ishf:
@@ -187,7 +187,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         nocc = max (numpy.count_nonzero (idx), nocc)
         c = mo_coeff[i][:,idx]
         orbol.append (c)
-        cn = numpy.einsum('pi,i->pi', c, mo_occ[i][idx])
+        cn = lib.einsum('pi,i->pi', c, mo_occ[i][idx])
         orbor.append (cn)
 
     # (P|Q)
@@ -200,7 +200,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     for istep, (shl0, shl1, nd) in enumerate(mol_ao_ranges):
         int3c = get_int3c_s1((0, nbas, shl0, shl1, 0, nauxbas))
         p0, p1 = ao_loc[shl0], ao_loc[shl1]
-        rhoj += numpy.einsum('nlk,klp->np', dms[:,p0:p1], int3c)
+        rhoj += lib.einsum('nlk,klp->np', dms[:,p0:p1], int3c)
         for i in range(nset):
             v = lib.einsum('ko,klp->plo', orbor[i], int3c)
             v = scipy.linalg.cho_solve(int2c, v.reshape(naux,-1))
@@ -225,8 +225,9 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     # (d/dX i,j|P)
     for shl0, shl1, nL in ao_ranges:
         int3c = get_int3c_ip1((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
+        # ^ This appears to be stored as x,P,j,i in C-style ordering
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
-        vj += numpy.einsum('xijp,np->nxij', int3c, rhoj[:,p0:p1])
+        vj += lib.einsum('xijp,np->nxij', int3c, rhoj[:,p0:p1])
         for i in range(nset):
             tmp = lib.einsum('xijp,jo->xipo', int3c, orbol[i])
             rhok = load(i, p0, p1)
@@ -265,7 +266,8 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             int3c = int3c.transpose(0,2,1).reshape(3*(p1-p0),-1)
             int3c = lib.unpack_tril(int3c)
             int3c = int3c.reshape(3,p1-p0,nao,nao)
-            vjaux[:,:,:,p0:p1] = numpy.einsum('xpij,mji,np->mnxp',
+            print ('xpij,mji,np->mnxp', int3c.shape, dms.shape, rhoj[:,p0:p1].shape, vjaux[:,:,:,p0:p1].shape)
+            vjaux[:,:,:,p0:p1] = lib.einsum('xpij,mji,np->mnxp',
                                           int3c, dms, rhoj[:,p0:p1])
             for i, j in product (range (nset), repeat=2):
                 k = (i*nset) + j
@@ -279,14 +281,16 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
 
         # (d/dX P|Q)
         int2c_e1 = auxmol.intor('int2c2e_ip1')
-        vjaux -= numpy.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
+        print ('xpq,mp,nq->mnxp', int2c_e1.shape, rhoj.shape, rhoj.shape, vjaux.shape)
+        vjaux -= lib.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
         for i, j in product (range (nset), repeat=2):
             # MRH 05/03/2020: Transpose so as to leave only one factor
             # of a density matrix on both indices!
             k = (i*nset) + j
             l = (j*nset) + i
             tmp = lib.einsum('pij,qji->pq', rhok_oo[k], rhok_oo[l])
-            vkaux[i,j] -= numpy.einsum('xpq,pq->xp', int2c_e1, tmp)
+            print ('xpq,pq->xp', int2c_e1.shape, tmp.shape, vkaux[i,j].shape)
+            vkaux[i,j] -= lib.einsum('xpq,pq->xp', int2c_e1, tmp)
 
         vjaux = numpy.array ([-vjaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
         vkaux = numpy.array ([-vkaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
@@ -302,7 +306,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     else:
         vj = -vj.reshape(out_shape)
         vk = -vk.reshape(out_shape)
-    logger.timer(mf_grad, 'df vj and vk', *t0)
+    logger.timer(mf_grad, 'df grad vj and vk', *t0)
     return vj, vk
 
 def _int3c_wrapper(mol, auxmol, intor, aosym):
