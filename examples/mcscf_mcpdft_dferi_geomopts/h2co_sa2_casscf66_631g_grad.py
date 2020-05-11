@@ -46,7 +46,7 @@ h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
 O -0.676110  0.000000  0.000000
 H  1.102430  0.000000  0.920125
 H  1.102430  0.000000 -0.920125'''
-mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = lib.logger.INFO, output = 'h2co_sa2_casscf66_631g_opt.log')
+mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = lib.logger.INFO, output = 'h2co_sa2_casscf66_631g_grad.log')
 mf_conv = scf.RHF (mol).run ()
 mc_conv = mcscf.CASSCF (mf_conv, 6, 6)
 mc_conv.fcisolver = csf_solver (mol, smult=1)
