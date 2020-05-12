@@ -290,13 +290,10 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
     # Zeroth and first derivatives
     vao = _contract_vot_ao (kern, ao[1])
     nterm = vao.shape[0]
-    veff = np.tensordot (ao[0][0:nterm], vao, axes=((0,1),(0,1)))
-        # The indexing in _contract_ao_vao makes it very slow if I have symm=True
-        # Eventually this will be fixed but for now just leave it
-    #veff = np.tensordot (kern[0,:,None] * ao[0][0], ao[1][0], axes=(0,0))
-    #if nderiv > 1:
-    #    veff += np.tensordot ((kern[1:4,:,None] * ao[0][1:4]).sum (0), ao[1][0], axes=(0,0))
-    #    veff += np.tensordot (ao[0][0], (kern[1:4,:,None] * ao[1][1:4]).sum (0), axes=(0,0))
+    veff = sum ([np.dot (a.T, v) for a, v in zip (ao[0][0:nterm], vao)])
+    # ^ Crazy as it sounds, this sum over list comprehension is by far the fastest
+    # implementation of this step that I've managed to pull off so far!
+    # It's probably because the operation in the list is so well-vectorized.
 
     rho = np.squeeze (rho)
     Pi = np.squeeze (Pi)
@@ -428,21 +425,23 @@ def _contract_ao1_ao2 (ao1, ao2, nderiv, symm=False):
     ao2 = None
     return prod 
 
-def _contract_vot_ao (vot, ao):
+def _contract_vot_ao (vot, ao, out=None):
     ''' REQUIRES array in shape = (nderiv,nao,ngrids) and data layout = (nderiv,ngrids,nao)/row-major '''
     nderiv = vot.shape[0]
-    #ao = np.ascontiguousarray (ao.transpose (0,2,1))
-    vao = ao[0] * vot[:,:,None]
+    ao = np.ascontiguousarray (ao.transpose (0,2,1))
+    #vao = (ao[0][None,:,:] * vot[:,None,:]).transpose (0,2,1)
     #ao = ao.transpose (0,2,1)
-    if nderiv > 1:
-        vao[0] += (ao[1:4] * vot[1:4,:,None]).sum (0)
+    #if nderiv > 1:
+        #vao[0] += (ao[1:4] * vot[1:4,:,None]).sum (0)
         #vao[0] += numint._scale_ao (ao[1:4], vot[1:4])
+    nao, ngrids = ao.shape[1:]
+    vao = np.ndarray ((nderiv, nao, ngrids), dtype=ao.dtype, buffer=out).transpose (0,2,1)
+    ao = ao.transpose (0,2,1)
+    vao[0] = numint._scale_ao (ao[:nderiv], vot, out=vao[0])
+    if nderiv > 1: 
+        for i in range (1,4):
+            vao[i] = numint._scale_ao (ao[0:1,:,:], vot[i:i+1,:], out=vao[i])
     return vao
-    #ngrids, nao = ao.shape[1:]
-    #vao = np.ndarray ((nderiv, nao, ngrids), dtype=ao.dtype, buffer=out).transpose (0,2,1)
-    #vao[0] = numint._scale_ao (ao[:nderiv], vot, out=vao[0])
-    #if vot.shape[0] > 1: vao[1:] += ao[0][None,:,:] * vot[1:,:,None]
-    #return vao
 
 def _contract_ao_vao (ao, vao, symm=False):
     r''' Outer-product of ao grid and vot * ao grid
