@@ -266,7 +266,6 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             int3c = int3c.transpose(0,2,1).reshape(3*(p1-p0),-1)
             int3c = lib.unpack_tril(int3c)
             int3c = int3c.reshape(3,p1-p0,nao,nao)
-            print ('xpij,mji,np->mnxp', int3c.shape, dms.shape, rhoj[:,p0:p1].shape, vjaux[:,:,:,p0:p1].shape)
             vjaux[:,:,:,p0:p1] = lib.einsum('xpij,mji,np->mnxp',
                                           int3c, dms, rhoj[:,p0:p1])
             for i, j in product (range (nset), repeat=2):
@@ -281,7 +280,6 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
 
         # (d/dX P|Q)
         int2c_e1 = auxmol.intor('int2c2e_ip1')
-        print ('xpq,mp,nq->mnxp', int2c_e1.shape, rhoj.shape, rhoj.shape, vjaux.shape)
         vjaux -= lib.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
         for i, j in product (range (nset), repeat=2):
             # MRH 05/03/2020: Transpose so as to leave only one factor
@@ -289,7 +287,6 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             k = (i*nset) + j
             l = (j*nset) + i
             tmp = lib.einsum('pij,qji->pq', rhok_oo[k], rhok_oo[l])
-            print ('xpq,pq->xp', int2c_e1.shape, tmp.shape, vkaux[i,j].shape)
             vkaux[i,j] -= lib.einsum('xpq,pq->xp', int2c_e1, tmp)
 
         vjaux = numpy.array ([-vjaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
