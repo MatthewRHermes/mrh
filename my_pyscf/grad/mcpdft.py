@@ -5,7 +5,7 @@ from pyscf.lib import logger, pack_tril, current_memory, tag_array
 #from mrh.my_pyscf.grad import sacasscf
 from pyscf.grad import sacasscf
 from pyscf.mcscf.casci import cas_natorb
-from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
+from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
 from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_rho, _contract_ao_vao
 from mrh.util.rdm import get_2CDM_from_2RDM
 from functools import reduce
@@ -153,7 +153,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv, mask)
 
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t1)
-            moval_occ = np.tensordot (aoval, mo_occ, axes=1)
+            moval_occ = _grid_ao2mo (mol, aoval, mo_occ, mask)
             moval_core = moval_occ[...,:ncore]
             moval_cas = moval_occ[...,ncore:]
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t1)

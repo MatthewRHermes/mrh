@@ -1,6 +1,7 @@
 from pyscf import ao2mo
 from pyscf.lib import logger, pack_tril, unpack_tril, current_memory, tag_array
 from pyscf.lib import einsum as einsum_threads
+from pyscf.dft import numint
 from pyscf.dft.gen_grid import BLKSIZE
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
 from scipy import linalg
@@ -428,11 +429,20 @@ def _contract_ao1_ao2 (ao1, ao2, nderiv, symm=False):
     return prod 
 
 def _contract_vot_ao (vot, ao):
+    ''' REQUIRES array in shape = (nderiv,nao,ngrids) and data layout = (nderiv,ngrids,nao)/row-major '''
     nderiv = vot.shape[0]
+    #ao = np.ascontiguousarray (ao.transpose (0,2,1))
     vao = ao[0] * vot[:,:,None]
+    #ao = ao.transpose (0,2,1)
     if nderiv > 1:
         vao[0] += (ao[1:4] * vot[1:4,:,None]).sum (0)
+        #vao[0] += numint._scale_ao (ao[1:4], vot[1:4])
     return vao
+    #ngrids, nao = ao.shape[1:]
+    #vao = np.ndarray ((nderiv, nao, ngrids), dtype=ao.dtype, buffer=out).transpose (0,2,1)
+    #vao[0] = numint._scale_ao (ao[:nderiv], vot, out=vao[0])
+    #if vot.shape[0] > 1: vao[1:] += ao[0][None,:,:] * vot[1:,:,None]
+    #return vao
 
 def _contract_ao_vao (ao, vao, symm=False):
     r''' Outer-product of ao grid and vot * ao grid
