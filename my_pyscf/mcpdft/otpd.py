@@ -3,12 +3,28 @@ import time
 from scipy import linalg
 from pyscf.lib import logger
 from pyscf.lib import einsum as einsum_threads
+from pyscf.dft.numint import _dot_ao_dm
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2RDM_from_2CDM
 from mrh.util.basis import represent_operator_in_basis
 from itertools import product
 from os import path
 
-def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
+def _grid_ao2mo (mol, ao, mo_coeff, non0tab=None, shls_slice=None, ao_loc=None):
+    ''' ao[deriv,grid,AO].mo_coeff[AO,MO]->mo[deriv,grid,MO]
+    ASSUMES that ao is in data layout (deriv,AO,grid) in row-major order!
+    mo is returned in data layout (deriv,MO,grid) in row-major order '''
+    nderiv, ngrid, nao = ao.shape
+    nmo = mo_coeff.shape[-1]
+    mo = np.empty ((nderiv,nmo,ngrid), dtype=mo_coeff.dtype, order='C').transpose (0,2,1)
+    if shls_slice is None: shls_slice = (0, mol.nbas)
+    if ao_loc is None: ao_loc = mol.ao_loc_nr ()
+    for ideriv in range (nderiv):
+        ao_i = ao[ideriv,:,:]
+        mo[ideriv] = _dot_ao_dm (mol, ao_i, mo_coeff, non0tab, shls_slice, ao_loc, out=mo[ideriv])
+    return mo 
+
+
+def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0, non0tab=None):
     r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*g_ijkl / 2
                = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2
 
@@ -28,6 +44,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
         Kwargs:
             deriv : derivative order through which to calculate. Default is 0. 
                 deriv > 1 not implemented
+            non0tab : as in pyscf.dft.gen_grid and pyscf.dft.numint
 
         Returns : ndarray of shape (*,ngrids)
             The on-top pair density and its derivatives if requested
@@ -71,7 +88,10 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0):
     # Second cumulant and derivatives (chain rule! product rule!)
     # dot, tensordot, and sum are hugely faster than np.einsum 
     # but whether or when they actually multithread is unclear
-    grid2amo = np.tensordot (ao, ao2amo, axes=1) #np.einsum ('ijk,kl->ijl', ao, ao2amo)
+    # Update 05/11/2020: ao is actually stored in row-major order
+    # = (deriv,AOs,grids).
+    #grid2amo_ref = np.tensordot (ao, ao2amo, axes=1) #np.einsum ('ijk,kl->ijl', ao, ao2amo)
+    grid2amo = _grid_ao2mo (ot.mol, ao, ao2amo, non0tab=non0tab)
     t0 = logger.timer (ot, 'otpd ao2mo', *t0)
     gridkern = np.zeros (grid2amo.shape + (grid2amo.shape[2],), dtype=grid2amo.dtype)
     gridkern[0] = grid2amo[0,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]  # r_0ai,  r_0aj  -> r_0aij

@@ -150,7 +150,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
                 aoval = ao[:4]
             rho = make_rho (0, aoval, mask, ot.xctype) / 2.0
             rho = np.stack ((rho,)*2, axis=0)
-            Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
+            Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv, mask)
 
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t1)
             moval_occ = np.tensordot (aoval, mo_occ, axes=1)

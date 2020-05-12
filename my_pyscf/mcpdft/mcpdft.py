@@ -140,7 +140,7 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
                 rho_test += np.einsum ('ijk,ak,aj->ia', oneCDMs, ao[ideriv], ao[0])
                 logger.debug (ot, "Spin-density derivatives, |PySCF-einsum| = %s", linalg.norm (rho[:,ideriv,:]-rho_test))
         t0 = logger.timer (ot, 'untransformed density', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, dens_deriv) 
+        Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, dens_deriv, mask) 
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0) 
         E_ot += ot.get_E_ot (rho, Pi, weight)
         t0 = logger.timer (ot, 'on-top exchange-correlation energy calculation', *t0) 
