@@ -59,3 +59,5 @@ class unpxcfnal (otfnal.otfnal)
         return mol.intor_symmetric('int1e_ovlp')
 
     get_E_xc = _get_E_xc
+    kernel = kernel
+
