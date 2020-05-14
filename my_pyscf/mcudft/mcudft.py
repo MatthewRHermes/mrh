@@ -1,6 +1,7 @@
 import numpy as np
 from pyscf import fci
 from pyscf.lib import logger
+from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from mrh.my_pyscf.mcudft import unpxcfnal
 
 def kernel (mc, fnal, e_mcscf, ci, ncas, nelecas):
@@ -77,5 +78,10 @@ def get_mcudft_child_class (mc, xc, **kwargs):
 
         def state_average_(self, weights=(0.5,0.5)):
             raise NotImplementedError ('State average extension of MC-UDFT')
+
+
+    udft = UDFT (mc._scf, mc.ncas, mc.nelecas, my_xc=xc, **kwargs)
+    udft.__dict__.update (mc.__dict__)
+    return udft
 
   

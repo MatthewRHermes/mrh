@@ -1,3 +1,6 @@
+import time
+import numpy as np
+from pyscf.lib import logger
 from pyscf.dft.rks import _dft_common_init_
 from mrh.my_pyscf.mcpdft import otfnal
 
@@ -12,10 +15,10 @@ def kernel (fnal, dm, max_memory=None, hermi=1):
     ni, xctype, dens_deriv = fnal._numint, fnal.xctype, fnal.dens_deriv
 
     Exc = 0.0
-    make_rho = ni._gen_rho_evaluator (fnal.mol, dms, hermi)
+    make_rho, ndms, nao = ni._gen_rho_evaluator (fnal.mol, dms, hermi)
     t0 = (time.clock (), time.time ())
-    for ao, mask, weight, coords in ni.block_loop (fnal.mol, fnal.grids, norbs_ao, dens_deriv, max_memory):
-        rho_eff = np.stack ((make_rho (spin, ao, mask, xctype) for spin in range (2)), axis=0)
+    for ao, mask, weight, coords in ni.block_loop (fnal.mol, fnal.grids, nao, dens_deriv, max_memory):
+        rho_eff = np.stack ((make_rho (spin, ao, mask, xctype) for spin in range (ndms)), axis=0)
         t0 = logger.timer (fnal, 'effective densities', *t0)
         Exc += fnal.get_E_xc (rho_eff, weight)
         t0 = logger.timer (fnal, 'exchange-correlation energy', *t0)
@@ -33,13 +36,14 @@ def _get_E_xc (fnal, rho_eff, weight):
 
     return dexc_ddens.sum ()
 
-class unpxcfnal (otfnal.otfnal)
+class unpxcfnal (otfnal.otfnal):
 
     def __init__(self, mol, xc='LDA,WVN', grids_level=None):
         self.mol = mol
         self.verbose = mol.verbose
         self.stdout = mol.stdout
         self.max_memory = mol.max_memory
+        self._keys = set (())
         _dft_common_init_(self, xc=xc)
         if grids_level is not None: self.grids.level = grids_level
 
