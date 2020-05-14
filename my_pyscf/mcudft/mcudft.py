@@ -1,15 +1,21 @@
 import numpy as np
+from scipy import linalg
 from pyscf import fci
-from pyscf.lib import logger
+from pyscf.lib import logger, tag_array
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from mrh.my_pyscf.mcudft import unpxcfnal
 
 def kernel (mc, fnal, e_mcscf, ci, ncas, nelecas):
-    mo_core = mc.mo_coeff[:,:mc.ncore]
-    mo_cas = mc.mo_coeff[:,mc.ncore:mc.ncore+ncas]
-    dm_core = 2 * np.dot (mo_core, mo_core.T)
+    mo_coeff = mc.mo_coeff[:,:mc.ncore+mc.ncas].copy ()
+    mo_occ = np.zeros (mo_coeff.shape[-1], dtype=mo_coeff.dtype)
+    mo_occ[:mc.ncore] = 2.0
     dm_cas = fci.solver (mc._scf.mol, singlet=False, symm=False).make_rdm12 (ci, ncas, nelecas)[0]
-    dm1 = dm_core + dm_cas
+    no_occ, no_umat = linalg.eigh (dm_cas)
+    mo_coeff[:,mc.ncore:] = mo_coeff[:,mc.ncore:] @ no_umat
+    mo_occ[mc.ncore:] = no_occ
+    dm1 = (mo_coeff * mo_occ[None,:]) @ mo_coeff.T
+    dm1 = tag_array (dm1, mo_coeff=mo_coeff, mo_occ=mo_occ)
+    
     hcore = mc._scf.get_hcore ()
     vj = mc._scf.get_j (dm=dm1)
 
