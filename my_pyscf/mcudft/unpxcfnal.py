@@ -1,24 +1,32 @@
 import time
 import numpy as np
-from pyscf.lib import logger
+from scipy import linalg
+from pyscf.lib import logger, tag_array
 from pyscf.dft.rks import _dft_common_init_
 from mrh.my_pyscf.mcpdft import otfnal
 
 def kernel (fnal, dm, max_memory=None, hermi=1):
     if max_memory is None: max_memory = fnal.max_memory
     s0 = fnal.get_ovlp ()
-    dm_dot_dm = 0.5 * dm @ s0 @ dm
-    dma = 1.5 * dm - dm_dot_dm
-    dmb = dm_dot_dm - 0.5 * dm
-    dms = np.stack ((dma,dmb), axis=0)
-    # TODO: tag dms with MO information for speedup
+    dmc = dm.copy ()
+    dms = (2 * dm) - (dm @ s0 @ dm)
+    dm1 = np.stack ((dmc,dms), axis=0)
+    if getattr (dm, 'mo_coeff', None) is not None and getattr (dm, 'mo_occ', None) is not None:
+        mo_coeff, mo_occ = dm.mo_coeff, dm.mo_occ
+        mo_coeff = np.stack ((mo_coeff, mo_coeff), axis=0)
+        mo_occ = np.stack ((mo_occ, mo_occ * (2 - mo_occ)), axis=0)
+        dm1 = tag_array (dm1, mo_coeff=mo_coeff, mo_occ=mo_occ)
     ni, xctype, dens_deriv = fnal._numint, fnal.xctype, fnal.dens_deriv
 
     Exc = 0.0
-    make_rho, ndms, nao = ni._gen_rho_evaluator (fnal.mol, dms, hermi)
+    make_rho, ndms, nao = ni._gen_rho_evaluator (fnal.mol, dm1, hermi)
     t0 = (time.clock (), time.time ())
     for ao, mask, weight, coords in ni.block_loop (fnal.mol, fnal.grids, nao, dens_deriv, max_memory):
         rho_eff = np.stack ((make_rho (spin, ao, mask, xctype) for spin in range (ndms)), axis=0)
+        rho_eff = 0.5 * np.stack ((rho_eff.sum (0), rho_eff[0] - rho_eff[1]), axis=0)
+        # I do it this way, rather than just passing (dma_eff,dmb_eff) to make_rho, in order to exploit
+        # NO-based calculation of densities, which is faster than AO-based calculation but requires
+        # positive-definite matrices (dmb_eff is non-positive-definite).
         t0 = logger.timer (fnal, 'effective densities', *t0)
         Exc += fnal.get_E_xc (rho_eff, weight)
         t0 = logger.timer (fnal, 'exchange-correlation energy', *t0)
