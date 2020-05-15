@@ -16,13 +16,18 @@ def kernel (fnal, dm, max_memory=None, hermi=1):
         mo_coeff = np.stack ((mo_coeff, mo_coeff), axis=0)
         mo_occ = np.stack ((mo_occ, mo_occ * (2 - mo_occ)), axis=0)
         dm1 = tag_array (dm1, mo_coeff=mo_coeff, mo_occ=mo_occ)
+        if fnal.verbose >= logger.DEBUG:
+            smo = s0 @ mo_coeff[1]
+            mo_occ_test = ((dms @ smo) * smo.conjugate ()).sum (0)
+            assert (linalg.norm (mo_occ[1] - mo_occ_test) < 1e-10), '{} disagrees with {}'.format (mo_occ[1], mo_occ_test)
+            logger.debug (fnal, 'tr[dm_unpaired] = %s', mo_occ[1].sum ())
     ni, xctype, dens_deriv = fnal._numint, fnal.xctype, fnal.dens_deriv
 
     Exc = 0.0
     make_rho, ndms, nao = ni._gen_rho_evaluator (fnal.mol, dm1, hermi)
     t0 = (time.clock (), time.time ())
     for ao, mask, weight, coords in ni.block_loop (fnal.mol, fnal.grids, nao, dens_deriv, max_memory):
-        rho_eff = np.stack ((make_rho (spin, ao, mask, xctype) for spin in range (ndms)), axis=0)
+        rho_eff = np.stack ([make_rho (spin, ao, mask, xctype) for spin in range (ndms)], axis=0)
         rho_eff = 0.5 * np.stack ((rho_eff.sum (0), rho_eff[0] - rho_eff[1]), axis=0)
         # I do it this way, rather than just passing (dma_eff,dmb_eff) to make_rho, in order to exploit
         # NO-based calculation of densities, which is faster than AO-based calculation but requires
