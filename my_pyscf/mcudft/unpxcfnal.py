@@ -39,14 +39,15 @@ def kernel (fnal, dm, max_memory=None, hermi=1):
 
 def _get_E_xc (fnal, rho_eff, weight):
     dexc_ddens  = fnal._numint.eval_xc (fnal.xc, (rho_eff[0,:,:], rho_eff[1,:,:]), spin=1, relativity=0, deriv=0, verbose=fnal.verbose)[0]
-    rho_eff = rho_eff[:,0,:].sum (0)
-    rho_eff *= weight
-    dexc_ddens *= rho_eff
+    rho = rho_eff[:,0,:].sum (0)
+    rho *= weight
+    dexc_ddens *= rho
 
     if fnal.verbose >= logger.DEBUG:
-        nelec = rho_eff.sum ()
-        logger.debug (fnal, 'Total number of electrons in (this chunk of) the translated density = %s', nelec)
-
+        nelec = rho.sum ()
+        logger.debug (fnal, 'MC-UDFT: Total number of electrons in (this chunk of) the total density = %s', nelec)
+        ms = np.dot (rho_eff[0,0,:] - rho_eff[1,0,:], weight) / 2.0
+        logger.debug (fnal, 'MC-UDFT: Total ms = (neleca - nelecb) / 2 in (this chunk of) the unpaired density = %s', ms)
     return dexc_ddens.sum ()
 
 class unpxcfnal (otfnal.otfnal):

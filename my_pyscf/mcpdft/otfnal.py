@@ -144,13 +144,15 @@ class transfnal (otfnal):
         # E_ot[rho,Pi] = \int {dE_ot/ddens}(r) * dens(r) dr
         #              = \sum_i {dE_ot/ddens}_i * dens_i * weight_i
         dexc_ddens  = self._numint.eval_xc (self.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=0, verbose=self.verbose)[0]
-        rho_t = rho_t[:,0,:].sum (0)
-        rho_t *= weight
-        dexc_ddens *= rho_t
+        rho = rho_t[:,0,:].sum (0)
+        rho *= weight
+        dexc_ddens *= rho
 
         if self.verbose >= logger.DEBUG:
-            nelec = rho_t.sum ()
-            logger.debug (self, 'Total number of electrons in (this chunk of) the translated density = %s', nelec)
+            nelec = rho.sum ()
+            logger.debug (self, 'MC-PDFT: Total number of electrons in (this chunk of) the total density = %s', nelec)
+            ms = np.dot (rho_t[0,0,:] - rho_t[1,0,:], weight) / 2.0
+            logger.debug (self, 'MC-PDFT: Total ms = (neleca - nelecb) / 2 in (this chunk of) the translated density = %s', ms)
 
         return dexc_ddens.sum ()
 
