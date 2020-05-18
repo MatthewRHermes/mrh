@@ -101,7 +101,7 @@ set_target_properties (clib_mrh_sint PROPERTIES
 # Build the PDFT library
 set (PDFT_SOURCE_FILES "nr_numint.c")
 add_library (clib_mrh_pdft SHARED ${PDFT_SOURCE_FILES})
-target_link_libraries (clib_mrh_pdft ${LAPACK_LIBRARIES})
+target_link_libraries (clib_mrh_pdft ${LAPACK_LIBRARIES} ${PYSCFLIB}/libdft.so)
 set_target_properties (clib_mrh_pdft PROPERTIES
     LINKER_LANGUAGE C
     CLEAN_DIRECT_OUTPUT 1

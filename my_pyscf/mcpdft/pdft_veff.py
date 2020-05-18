@@ -1,13 +1,17 @@
-from pyscf import ao2mo
+from pyscf import ao2mo, __config__, lib
 from pyscf.lib import logger, pack_tril, unpack_tril, current_memory, tag_array
 from pyscf.lib import einsum as einsum_threads
 from pyscf.dft import numint
 from pyscf.dft.gen_grid import BLKSIZE
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
+from mrh.lib.helper import load_library
 from scipy import linalg
 from os import path
 import numpy as np
-import time, gc
+import time, gc, ctypes
+
+SWITCH_SIZE = getattr(__config__, 'dft_numint_SWITCH_SIZE', 800)
+libpdft = load_library('libpdft')
 
 class _ERIS(object):
     def __init__(self, mol, mo_coeff, ncore, ncas, method='incore', paaa_only=False, verbose=0, stdout=None):
@@ -32,13 +36,13 @@ class _ERIS(object):
         else:
             raise NotImplementedError ("method={} for veff2".format (self.method))
 
-    def _accumulate (self, ot, rho, Pi, mo, weight, rho_c, rho_a, vPi, non0tab=None):
+    def _accumulate (self, ot, rho, Pi, mo, weight, rho_c, rho_a, vPi, non0tab=None, shls_slice=None, ao_loc=None):
         if self.method == 'incore':
-            self._accumulate_incore (ot, rho, Pi, mo, weight, rho_c, rho_a, vPi, non0tab) 
+            self._accumulate_incore (ot, rho, Pi, mo, weight, rho_c, rho_a, vPi, non0tab, shls_slice, ao_loc) 
         else:
             raise NotImplementedError ("method={} for veff2".format (self.method))
 
-    def _accumulate_incore (self, ot, rho, Pi, ao, weight, rho_c, rho_a, vPi, non0tab):
+    def _accumulate_incore (self, ot, rho, Pi, ao, weight, rho_c, rho_a, vPi, non0tab, shls_slice, ao_loc):
         #self._eri += ot.get_veff_2body (rho, Pi, mo, weight, aosym='s4', kern=vPi)
         # ao is here stored in row-major order = deriv,AOs,grids regardless of what
         # the ndarray object thinks
@@ -48,11 +52,11 @@ class _ERIS(object):
         mo_cas = _grid_ao2mo (self.mol, ao, mo_coeff[:,ncore:nocc], non0tab)
         # vhf_c
         vrho_c = _contract_vot_rho (vPi, rho_c)
-        self.vhf_c += mo_coeff.conjugate ().T @ ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho_c) @ mo_coeff
+        self.vhf_c += mo_coeff.conjugate ().T @ ot.get_veff_1body (rho, Pi, ao, weight, non0tab=non0tab, shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho_c) @ mo_coeff
         if self.paaa_only:
             # 1/2 v_aiuv D_ii D_uv = v^ai_uv D_uv -> F_ai, F_ia needs to be in here since it would otherwise be calculated using ppaa and papa
             vrho_a = _contract_vot_rho (vPi, rho_a.sum (0))
-            vhf_a = ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho_a) 
+            vhf_a = ot.get_veff_1body (rho, Pi, ao, weight, non0tab=non0tab, shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho_a) 
             vhf_a = mo_coeff.conjugate ().T @ vhf_a @ mo_coeff
             vhf_a[ncore:nocc,:] = vhf_a[:,ncore:nocc] = 0.0
             self.vhf_c += vhf_a
@@ -176,6 +180,8 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
     pdft_blksize = max(BLKSIZE, min(pdft_blksize, ngrids, BLKSIZE*1200))
     logger.debug (ot, '{} MB used of {} available; block size of {} chosen for grid with {} points'.format (
         current_memory ()[0], max_memory, pdft_blksize, ngrids))
+    shls_slice = (0, ot.mol.nbas)
+    ao_loc = ot.mol.ao_loc_nr()
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory, blksize=pdft_blksize):
         rho = np.asarray ([make_rho (i, ao, mask, xctype) for i in range(2)])
         rho_a = np.asarray ([make_rho_a (i, ao, mask, xctype) for i in range(2)])
@@ -185,11 +191,11 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
         eot, vrho, vPi = ot.eval_ot (rho, Pi, weights=weight)
         t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
-        veff1 += ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho)
+        veff1 += ot.get_veff_1body (rho, Pi, ao, weight, non0tab=mask, shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
         #ao[:,:,:] = np.tensordot (ao, mo_coeff, axes=1)
         #t0 = logger.timer (ot, 'ao2mo grid points', *t0)
-        veff2._accumulate (ot, rho, Pi, ao, weight, rho_c, rho_a, vPi, mask)
+        veff2._accumulate (ot, rho, Pi, ao, weight, rho_c, rho_a, vPi, mask, shls_slice, ao_loc)
         t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
     veff2._finalize ()
     t0 = logger.timer (ot, 'Finalizing 2-body effective potential calculation', *t0)
@@ -243,7 +249,7 @@ def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, vef
         t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
     return veff1, veff2
 
-def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
+def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, non0tab=None, shls_slice=None, ao_loc=None, hermi=0, **kwargs):
     r''' get the derivatives dEot / dDpq
     Can also be abused to get semidiagonal dEot / dPppqq if you pass the right kern and
     squared aos/mos
@@ -290,7 +296,9 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, **kwargs):
     # Zeroth and first derivatives
     vao = _contract_vot_ao (kern, ao[1])
     nterm = vao.shape[0]
-    veff = sum ([np.dot (a.T, v) for a, v in zip (ao[0][0:nterm], vao)])
+    veff = sum ([_dot_ao_mo (otfnal.mol, a, v, non0tab=non0tab, shls_slice=shls_slice, ao_loc=ao_loc, hermi=hermi)
+        for a, v in zip (ao[0][0:nterm], vao)])
+    # veff = sum ([np.dot (a.T, v) for a, v in zip (ao[0][0:nterm], vao)])
     # ^ Crazy as it sounds, this sum over list comprehension is by far the fastest
     # implementation of this step that I've managed to pull off so far!
     # It's probably because the operation in the list is so well-vectorized.
@@ -348,13 +356,14 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, aosym='s4', kern=None, vao=None
     if vao is None: vao = get_veff_2body_kl (otfnal, rho, Pi, ao[2], ao[3], weight, symm=kl_symm, kern=kern)
     nderiv = vao.shape[0]
     ao2 = _contract_ao1_ao2 (ao[0], ao[1], nderiv, symm=ij_symm)
-    veff = np.tensordot (ao2, vao, axes=((0,1),(0,1)))
-    #veff = einsum_threads ('dgij,dgkl->ijkl', ao2, vao)
-    # ^ When I save these arrays to disk and load them, np.tensordot appears to multi-thread successfully
-    # However, it appears not to multithread here, in this context
-    # numpy_helper.einsum is definitely always multithreaded but has a serial overhead
-    # Even when I was doing papa it was reporting 15 seconds clock and 15 seconds wall with np.tensordot
-    # So it's hard for me to believe that this is a clock bug
+    # ijkl <-> jilk (Column-major order of a, v for a, v in zip (ao2, vao))
+    ao2 = ao2.transpose (0,1,3,2)
+    vao = vao.transpose (0,1,3,2)
+    jilk_shape = list (ao2.shape[2:]) + list (vao.shape[2:])
+    ao2 = ao2.reshape (*ao2.shape[:2], -1)
+    vao = vao.reshape (*vao.shape[:2], -1)
+    veff = sum ([_dot_ao_mo (otfnal.mol, a, v) for a, v in zip (ao2, vao)])
+    veff = veff.reshape (*jilk_shape).transpose (1,0,3,2) # jilk <-> ijkl
 
     return veff 
 
@@ -486,5 +495,42 @@ def _contract_vot_rho (vot, rho, add_vrho=None):
         vrho = add_vrho
     return vrho
 
+def _dot_ao_mo (mol, ao, mo, non0tab=None, shls_slice=None, ao_loc=None, hermi=0):
+    if hermi:
+        #print ("_dot_ao_mo punting to numint._dot_ao_ao")
+        return numint._dot_ao_ao (mol, ao, mo, non0tab=non0tab, shls_slice=shls_slice, ao_loc=ao_loc, hermi=hermi)
+    ngrids, nao = ao.shape
+    nmo = mo.shape[-1]
 
+    if nao < SWITCH_SIZE:
+        #print ("_dot_ao_mo punting to lib.dot")
+        return lib.dot(ao.T.conj(), mo)
 
+    #print ("_dot_ao_mo doing my own thing")
+
+    if not ao.flags.f_contiguous:
+        ao = lib.transpose(ao)
+    if not mo.flags.f_contiguous:
+        mo = lib.transpose(mo)
+    if ao.dtype == mo.dtype == np.double:
+        fn = libpdft.VOTdot_ao_mo
+    else:
+        raise NotImplementedError ("Complex-orbital PDFT")
+
+    if non0tab is None or shls_slice is None or ao_loc is None:
+        pnon0tab = pshls_slice = pao_loc = lib.c_null_ptr()
+    else:
+        pnon0tab    = non0tab.ctypes.data_as(ctypes.c_void_p)
+        pshls_slice = (ctypes.c_int*2)(*shls_slice)
+        pao_loc     = ao_loc.ctypes.data_as(ctypes.c_void_p)
+
+    vv = np.empty((nao,nmo), dtype=ao.dtype)
+    fn(vv.ctypes.data_as(ctypes.c_void_p),
+       ao.ctypes.data_as(ctypes.c_void_p),
+       mo.ctypes.data_as(ctypes.c_void_p),
+       ctypes.c_int(nao), ctypes.c_int (nmo),
+       ctypes.c_int(ngrids), ctypes.c_int(mol.nbas),
+       pnon0tab, pshls_slice, pao_loc)
+    return vv
+
+    
