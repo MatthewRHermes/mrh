@@ -66,13 +66,13 @@ def is_basis_orthonormal (the_basis, ovlp=1, rtol=params.num_zero_rtol, atol=par
 def is_basis_orthonormal_and_complete (the_basis, rtol=params.num_zero_rtol, atol=params.num_zero_rtol):
     return (is_basis_orthonormal (the_basis, rtol=rtol, atol=atol) and (the_basis.shape[1] == the_basis.shape[0]))
 
-def are_bases_orthogonal (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+def are_bases_orthogonal (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_ltol, atol=params.num_zero_ltol):
     test_matrix = basis_olap (bra_basis, ket_basis, ovlp)
     rtol *= sqrt (bra_basis.shape[1] * ket_basis.shape[1])
     atol *= sqrt (bra_basis.shape[1] * ket_basis.shape[1])
     return is_matrix_zero (test_matrix, rtol=rtol, atol=atol), test_matrix
 
-def are_bases_equivalent (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+def are_bases_equivalent (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_ltol, atol=params.num_zero_ltol):
     bra_basis = orthonormalize_a_basis (bra_basis)
     ket_basis = orthonormalize_a_basis (ket_basis)
     if bra_basis.shape[1] != ket_basis.shape[1]: return False
@@ -421,8 +421,8 @@ def get_complementary_states (incomplete_basis, already_complete_warning=True, a
     # Kernel
     nbas = orthonormal_basis.shape[1]
     Q, R = linalg.qr (orthonormal_basis)
-    assert (are_bases_equivalent (Q[:,:nbas], orthonormal_basis))
-    assert (are_bases_orthogonal (Q[:,nbas:], orthonormal_basis))
+    assert (are_bases_equivalent (Q[:,:nbas], orthonormal_basis)), 'basis overlap = {}'.format (measure_basis_olap (Q[:,:nbas], orthonormal_basis))
+    assert (are_bases_orthogonal (Q[:,nbas:], orthonormal_basis)), 'basis overlap = {}'.format (measure_basis_olap (Q[:,nbas:], orthonormal_basis))
     '''
     err = linalg.norm (ovlp[:nbas,:].T @ ovlp[:nbas,:]) - np.eye (nbas)) / nbas
     assert (abs (err) < 1e-8), err
