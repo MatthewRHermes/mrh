@@ -10,6 +10,14 @@ from os import path
 import numpy as np
 import time, gc, ctypes
 
+# MRH 05/18/2020: An annoying convention in pyscf.dft.numint that I have to comply with is that the
+# AO grid-value arrays and all their derivatives are in NEITHER column-major NOR row-major order;
+# they all have ndim = 3 and strides of (8*ngrids*nao, 8, 8*ngrids). Here, for my ndim > 3 objects,
+# I choose to generalize this so that a cyclic transpose to the left, ao.transpose (1,2,3,...,0),
+# places the array in column-major (FORTRAN-style) order. I have to comply with this awkward convention
+# in order to take full advantage of the code in pyscf.dft.numint and libdft.so. The ngrids dimension,
+# which is by far the largest, almost always benefits from having the smallest stride.
+
 SWITCH_SIZE = getattr(__config__, 'dft_numint_SWITCH_SIZE', 800)
 libpdft = load_library('libpdft')
 
@@ -375,14 +383,14 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, aosym='s4', kern=None, vao=None
     if vao is None: vao = get_veff_2body_kl (otfnal, rho, Pi, ao[2], ao[3], weight, symm=kl_symm, kern=kern)
     nderiv = vao.shape[0]
     ao2 = _contract_ao1_ao2 (ao[0], ao[1], nderiv, symm=ij_symm)
-    # ijkl <-> jilk (Column-major order of a, v for a, v in zip (ao2, vao))
-    ao2 = ao2.transpose (0,1,3,2)
-    vao = vao.transpose (0,1,3,2)
-    jilk_shape = list (ao2.shape[2:]) + list (vao.shape[2:])
-    ao2 = ao2.reshape (*ao2.shape[:2], -1)
-    vao = vao.reshape (*vao.shape[:2], -1)
+    # Put in column-major order so reshape doesn't make a copy and screw everything up
+    ao2 = ao2.transpose (0,3,2,1)
+    vao = vao.transpose (0,3,2,1)
+    ijkl_shape = list (ao2.shape[1:-1]) + list (vao.shape[1:-1])
+    ao2 = ao2.reshape (ao2.shape[0], -1, ao2.shape[-1]).transpose (0,2,1)
+    vao = vao.reshape (vao.shape[0], -1, vao.shape[-1]).transpose (0,2,1)
     veff = sum ([_dot_ao_mo (otfnal.mol, a, v) for a, v in zip (ao2, vao)])
-    veff = veff.reshape (*jilk_shape).transpose (1,0,3,2) # jilk <-> ijkl
+    veff = veff.reshape (*ijkl_shape) 
 
     return veff 
 
@@ -440,17 +448,25 @@ def _square_ao (ao):
     return ao_sq
 
 def _contract_ao1_ao2 (ao1, ao2, nderiv, symm=False):
+    ao1 = ao1.transpose (0,2,1)
+    ao2 = ao2.transpose (0,2,1)
+    assert (ao1.flags.c_contiguous), 'shape = {} ; strides = {}'.format (ao1.shape, ao1.strides)
+    assert (ao2.flags.c_contiguous), 'shape = {} ; strides = {}'.format (ao2.shape, ao2.strides)
     if symm:
-        ix_p, ix_q = np.tril_indices (ao1.shape[-1])
-        ao1 = ao1[:nderiv,:,ix_p]
-        ao2 = ao2[:nderiv,:,ix_q]
+        ix_p, ix_q = np.tril_indices (ao1.shape[1])
+        ao1 = ao1[:nderiv,ix_p]
+        ao2 = ao2[:nderiv,ix_q]
     else:
-        ao1 = np.expand_dims (ao1, -1)[:nderiv]
-        ao2 = np.expand_dims (ao2, -2)[:nderiv]
+        ao1 = np.expand_dims (ao1, -2)[:nderiv]
+        ao2 = np.expand_dims (ao2, -3)[:nderiv]
     prod = ao1[:nderiv] * ao2[0]
     if nderiv > 1:
         prod[1:4] += ao1[0] * ao2[1:4] # Product rule
     ao2 = None
+    if symm:
+        prod = prod.transpose (0,2,1)
+    else:
+        prod = prod.transpose (0,3,2,1)
     return prod 
 
 def _contract_vot_ao (vot, ao, out=None):
@@ -485,18 +501,26 @@ def _contract_ao_vao (ao, vao, symm=False):
 
     Returns: ndarray of shape (nderiv,ngrids,nao1,nao2) or (nderiv,ngrids,nao1*(nao1+1)//2)
     '''
+    ao = ao.transpose (0,2,1)
+    vao = vao.transpose (0,2,1)
+    assert (ao.flags.c_contiguous), 'shape = {} ; strides = {}'.format (ao.shape, ao.strides)
+    assert (vao.flags.c_contiguous), 'shape = {} ; strides = {}'.format (vao.shape, vao.strides)
 
     nderiv = vao.shape[0]
     if symm:
-        ix_p, ix_q = np.tril_indices (ao.shape[-1])
-        ao = ao[:,:,ix_p]
-        vao = vao[:,:,ix_q]
+        ix_p, ix_q = np.tril_indices (ao.shape[1])
+        ao = ao[:,ix_p]
+        vao = vao[:,ix_q]
     else:
-        ao = np.expand_dims (ao, -1)
-        vao = np.expand_dims (vao, -2)
+        ao = np.expand_dims (ao, -2)
+        vao = np.expand_dims (vao, -3)
     prod = ao[0] * vao
     if nderiv > 1:
         prod[0] += (ao[1:4] * vao[1:4]).sum (0)
+    if symm:
+        prod = prod.transpose (0,2,1)
+    else:
+        prod = prod.transpose (0,3,2,1)
     return prod
 
 def _contract_vot_rho (vot, rho, add_vrho=None):
