@@ -202,6 +202,16 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         p0, p1 = ao_loc[shl0], ao_loc[shl1]
         rhoj += lib.einsum('nlk,klp->np', dms[:,p0:p1], int3c)
         for i in range(nset):
+            # MRH 05/19/2020: Obstacles to using fdrv=_ao2mo.libao2mo.AO2MOnr_e2_drv
+            # instead of lib.einsum below:
+            #   1. fdrv needs int3c in row-major aux[p0:p1],AO2_packed order;
+            #      this currently has col-major AO,AO[p0:p1],aux order.
+            #      It's not trivial to slice over aux instead of AOs because 
+            #      of the cho_solve step.
+            #   2. fdrv outputs indices in row-major aux,MO,AO order;
+            #      f_rhok needs row-major aux,AO,MO order. 
+            # Both orbor[i] and int3c are in col-major order in lib.einsum
+            # below so it is the fastest indices that are dotted together.
             v = lib.einsum('ko,klp->plo', orbor[i], int3c)
             v = scipy.linalg.cho_solve(int2c, v.reshape(naux,-1))
             f_rhok['%s/%s'%(i,istep)] = v.reshape(naux,p1-p0,-1)
@@ -229,8 +239,33 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
         vj += lib.einsum('xijp,np->nxij', int3c, rhoj[:,p0:p1])
         for i in range(nset):
+            # MRH 05/19/2020: Obstacles to using fdrv=_ao2mo.libao2mo.AO2MOnr_e2_drv
+            # instead of lib.einsum below:
+            #   1. The extra dimension, but it's the slowest-moving and
+            #      has fixed size = 3 so it shouldn't incur too much penalty
+            #      to loop around it explicitly in Python. int3c is in col-major
+            #      order except for that first index.
+            #   2. fdrv again needs int3c in row-major aux[p0:p1],AO2_packed order,
+            #      and now my two AO indices aren't even equivalent and I don't
+            #      think transpose-sum and tril_packing would even be correct (MO
+            #      *only* contracts with the non-differentiated index). Maybe I can
+            #      find a different fdrv which is still fast? On the bright side,
+            #      we are slicing over aux indices here so the only trick will be
+            #      finding or writing a driver which contracts the second AO index,
+            #      unpacked, while still using sparsity.
+            # I do not understand how this happens, but lib.einsum's output's data
+            # is in row-major comp,aux,MO,AO order, which makes tmp.transpose (0,2,3,1)
+            # C-contiguous. Except for the comp dimension (which, again, I can just
+            # unroll) this is the output structure of _ao2mo.libao2mo.AO2MOnr_e2_drv
+            # which is used in df.df_jk. In the einsum, the fastest index of orbol[i]
+            # is being dotted with the second-fastest of int3c; this is unavoidable
+            # because the indices are inequivalent.
             tmp = lib.einsum('xijp,jo->xipo', int3c, orbol[i])
             rhok = load(i, p0, p1)
+            # The einsum below is a mess: rhok comes out in row-major aux,MO,AO order
+            # and the aux,MO indices are being contracted with something in row-major
+            # comp,aux,MO,AO order. One should usually arrange it so that the FASTEST
+            # indices are contracted together.
             vk[i] += lib.einsum('xipo,pok->xik', tmp, rhok)
             tmp = rhok = None
         int3c = None
@@ -253,6 +288,9 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                 # of rhok_oo is contracted with orbor and the fourth with
                 # orbol. They should be transposed when it's dotted with
                 # itself below.
+                # MRH 05/19/2020: The einsum below is fastest index to 
+                # fastest index contraction with C-contiguous output.
+                # It may live.
                 tmp[p0:p1] = lib.einsum('pok,kr->por', rhok, orbol[j])
             rhok_oo.append(tmp)
             rhok = tmp = None
@@ -261,11 +299,16 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         vkaux = numpy.zeros((nset,nset,3,naux))
         # (i,j|d/dX P)
         for shl0, shl1, nL in ao_ranges:
+            # MRH 05/19/2020: The best way to speed this part up may be to 
+            # leave int3c tril packed and use _ao2mo.libao2mo.AO2MOnr_e2_drv
+            # on it for the exchange part, instead of going MO->AO on
+            # rhok_oo in the loop nset product loop below.
             int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
             p0, p1 = aux_loc[shl0], aux_loc[shl1]
             int3c = int3c.transpose(0,2,1).reshape(3*(p1-p0),-1)
             int3c = lib.unpack_tril(int3c)
             int3c = int3c.reshape(3,p1-p0,nao,nao)
+            # int3c is C-contiguous
             vjaux[:,:,:,p0:p1] = lib.einsum('xpij,mji,np->mnxp',
                                           int3c, dms, rhoj[:,p0:p1])
             for i, j in product (range (nset), repeat=2):
@@ -286,6 +329,9 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             # of a density matrix on both indices!
             k = (i*nset) + j
             l = (j*nset) + i
+            # MRH 05/19/2020: rhok_oo is C-contiguous but you have to
+            # transpose its two fastest indices on one factor. Probably
+            # nothing can be done about it.
             tmp = lib.einsum('pij,qji->pq', rhok_oo[k], rhok_oo[l])
             vkaux[i,j] -= lib.einsum('xpq,pq->xp', int2c_e1, tmp)
 
