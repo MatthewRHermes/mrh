@@ -259,8 +259,9 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, non0tab=None, shls_s
             containing spin-density [and derivatives]
         Pi : ndarray with shape (*,ngrids)
             containing on-top pair density [and derivatives]
-        ao : ndarray of shape (*,ngrids,nao)
-            contains values and derivatives of nao
+        ao : ndarray or 2 ndarrays of shape (*,ngrids,nao)
+            contains values and derivatives of nao.
+            2 different ndarrays can have different nao but not different ngrids
         weight : ndarray of shape (ngrids)
             containing numerical integration weights
 
@@ -268,8 +269,26 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, non0tab=None, shls_s
         kern : ndarray of shape (*,ngrids)
             the derivative of the on-top potential with respect to density (vrho)
             If not provided, it is calculated.
+        non0tab : ndarray of shape (nblk, nbas)
+            Identifies blocks of grid points which are nonzero on
+            each AO shell so as to exploit sparsity.
+            If you want the "ao" array to be in the MO basis, just
+            leave this as None. If hermi == 0, it only applies
+            to the bra index ao array, even if the ket index ao
+            array is the same (so probably always pass hermi = 1
+            in that case)
+        shls_slice : sequence of integers of len 2
+            Identifies starting and stopping indices of AO shells
+        ao_loc : ndarray of length nbas
+            Offset to first AO of each shell
+        hermi : integer or logical
+            Toggle whether veff is supposed to be a Hermitian matrix
+            You can still pass two different ao arrays for the bra and the 
+            ket indices, for instance if one of them is supposed to be
+            a higher derivative. They just have to have the same nao
+            in that case.
 
-    Returns : ndarray of shape (nao,nao)
+    Returns : ndarray of shape (nao[0],nao[1])
         The 1-body effective potential corresponding to this on-top pair density
         exchange-correlation functional, in the atomic-orbital basis.
         In PDFT this functional is always spin-symmetric
