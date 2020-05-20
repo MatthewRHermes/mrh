@@ -193,6 +193,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     # (P|Q)
     int2c = scipy.linalg.cho_factor(auxmol.intor('int2c2e', aosym='s1'))
 
+    t1 = (time.clock (), time.time ())
     max_memory = mf_grad.max_memory - lib.current_memory()[0]
     blksize = max_memory * .5e6/8 / (naux*nao)
     mol_ao_ranges = balance_partition(ao_loc, blksize)
@@ -219,6 +220,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
 
     rhoj = scipy.linalg.cho_solve(int2c, rhoj.T).T
     int2c = None
+    t1 = logger.timer (mf_grad, 'df grad vj and vk AO (P|Q) D_Q = (P|ij) D_ij solve', *t1)
 
     def load(set_id, p0, p1):
         nocc = orbor[set_id].shape[1]
@@ -269,6 +271,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             vk[i] += lib.einsum('xipo,pok->xik', tmp, rhok)
             tmp = rhok = None
         int3c = None
+    t1 = logger.timer (mf_grad, 'df grad vj and vk AO (P|ij) D_P eval', *t1)
 
     # MRH 05/03/2020: moved the rhok_oo stuff inside of the mf_grad.auxbasis_response 
     # conditional because it's never used outside of that
@@ -294,6 +297,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                 tmp[p0:p1] = lib.einsum('pok,kr->por', rhok, orbol[j])
             rhok_oo.append(tmp)
             rhok = tmp = None
+        t1 = logger.timer (mf_grad, 'df grad vj and vk aux (P|Q) d_Qij = (P|kl) D_ki D_lj solve', *t1)
 
         vjaux = numpy.zeros((nset,nset,3,naux))
         vkaux = numpy.zeros((nset,nset,3,naux))
@@ -320,6 +324,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                 tmp = lib.einsum('pio,jo->pij', tmp, orbol[i])
                 vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c, tmp)
         int3c = tmp = None
+        t1 = logger.timer (mf_grad, "df grad vj and vk aux (P'|ij) eval", *t1)
 
         # (d/dX P|Q)
         int2c_e1 = auxmol.intor('int2c2e_ip1')
@@ -334,6 +339,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             # nothing can be done about it.
             tmp = lib.einsum('pij,qji->pq', rhok_oo[k], rhok_oo[l])
             vkaux[i,j] -= lib.einsum('xpq,pq->xp', int2c_e1, tmp)
+        t1 = logger.timer (mf_grad, "df grad vj and vk aux (P'|Q) eval", *t1)
 
         vjaux = numpy.array ([-vjaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
         vkaux = numpy.array ([-vkaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
