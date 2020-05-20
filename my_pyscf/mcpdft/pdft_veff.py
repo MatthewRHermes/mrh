@@ -18,6 +18,12 @@ import time, gc, ctypes
 # in order to take full advantage of the code in pyscf.dft.numint and libdft.so. The ngrids dimension,
 # which is by far the largest, almost always benefits from having the smallest stride.
 
+# MRH 05/19/2020: Actually, I really should just turn the deriv component part of all of these arrays into
+# lists and keep everything in col-major order otherwise, because ndarrays have to have regular strides,
+# but lists can just be references and less copying is involved. The copying is more expensive and less
+# transparently parallel-scalable than the actual math! (The parallel-scaling part of that is stupid but it
+# is what it is.
+
 SWITCH_SIZE = getattr(__config__, 'dft_numint_SWITCH_SIZE', 800)
 libpdft = load_library('libpdft')
 
