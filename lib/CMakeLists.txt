@@ -23,6 +23,7 @@ if (MKL)
     set ( ENV{BLA_VENDOR} "Intel10_64lp" )
 endif (MKL)
 link_directories ($ENV{LD_LIBRARY_PATH})
+
 find_package (LAPACK REQUIRED)
 
 # OpenMP
@@ -62,6 +63,9 @@ execute_process(
     print (os.path.dirname (lib.__file__))"
   OUTPUT_VARIABLE PYSCFLIB
   OUTPUT_STRIP_TRAILING_WHITESPACE)
+include_directories(${PYSCFLIB})
+include_directories(${PYSCFLIB}/deps/include)
+link_directories(${PYSCFLIB})
 
 # Build the QC-DMET shared library
 set (BUILD_SHARED_LIBS ON)
@@ -94,4 +98,13 @@ set_target_properties (clib_mrh_sint PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "sint")
 
+# Build the PDFT library
+set (PDFT_SOURCE_FILES "nr_numint.c")
+add_library (clib_mrh_pdft SHARED ${PDFT_SOURCE_FILES})
+target_link_libraries (clib_mrh_pdft ${LAPACK_LIBRARIES} ${PYSCFLIB}/libdft.so)
+set_target_properties (clib_mrh_pdft PROPERTIES
+    LINKER_LANGUAGE C
+    CLEAN_DIRECT_OUTPUT 1
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_NAME "pdft")
 
