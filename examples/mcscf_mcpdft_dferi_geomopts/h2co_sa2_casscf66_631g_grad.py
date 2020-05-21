@@ -67,8 +67,13 @@ de_df_0 = casscf_grad.Gradients (mc_df).kernel (state = 0)
 de_conv_1 = mc_conv.nuc_grad_method ().kernel (state = 1)
 de_df_1 = casscf_grad.Gradients (mc_df).kernel (state = 1)
 
-print ("Gradient of state 0 with conventional ERIs:\n", de_conv_0)
-print ("Gradient of state 0 with DF ERIs:\n", de_df_0)
-print ("Gradient of state 1 with conventional ERIs:\n", de_conv_1)
-print ("Gradient of state 1 with DF ERIs:\n", de_df_1)
+def printable_grad (arr):
+    arr[np.abs (arr)<1e-10] = 0.0
+    line_fmt = ' '.join (('{:13.9f}',)*3)
+    return '\n'.join ((line_fmt.format (*row) for row in arr))
+
+print ("Gradient of state 0 with conventional ERIs:\n", printable_grad (de_conv_0)[1:])
+print ("Gradient of state 0 with DF ERIs:\n", printable_grad (de_df_0)[1:])
+print ("Gradient of state 1 with conventional ERIs:\n", printable_grad (de_conv_1)[1:])
+print ("Gradient of state 1 with DF ERIs:\n", printable_grad (de_df_1)[1:])
 

@@ -326,9 +326,9 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         vkaux = numpy.zeros((nset,nset,3,naux))
         # (i,j|d/dX P)
         t2 = t1
-        fmmm = _ao2mo.libao2mo.AO2MOmmm_bra_nr_s2 
-        fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv 
-        ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2 
+        fmmm = _ao2mo.libao2mo.AO2MOmmm_bra_nr_s2 # MO output index slower than AO output index; input AOs are symmetric
+        fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv # comp and aux indices are slower
+        ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2 # input is tril_packed
         null = lib.c_null_ptr() 
         for shl0, shl1, nL in ao_ranges:
             # MRH 05/19/2020: The best way to speed this part up may be to 
@@ -341,24 +341,24 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             p0, p1 = aux_loc[shl0], aux_loc[shl1]
             vjaux[:,:,:,p0:p1] = lib.einsum ('xpm,np->mnxp', drhoj, rhoj[:,p0:p1])
             t2 = logger.timer (mf_grad, "df grad einsum (P'|ij) D_ij rho_P", *t2)
-            tmp = numpy.empty ((3, p1-p0, sum (nocc), nao), dtype=orbor_stack.dtype)
+            tmp = [numpy.empty ((3, p1-p0, nocc_i, nao), dtype=orbor_stack.dtype) for nocc_i in nocc]
             assert (orbor_stack.flags.f_contiguous), '{} {}'.format (orbor_stack.shape, orbor_stack.strides)
-            fdrv(ftrans, fmmm, # gPmn u_ni -> gPim
-                 tmp.ctypes.data_as(ctypes.c_void_p),
-                 int3c.ctypes.data_as(ctypes.c_void_p),
-                 orbol_stack.ctypes.data_as(ctypes.c_void_p),
-                 ctypes.c_int (3*(p1-p0)), ctypes.c_int (nao),
-                 (ctypes.c_int*4)(0, sum (nocc), 0, nao),
-                 null, ctypes.c_int(0))
-            int3c = numpy.dot (tmp, orbor_stack) # gPim u_mj Nj -> vPij
+            for orb, buf, nocc_i in zip (orbol, tmp, nocc):
+                fdrv(ftrans, fmmm, # gPmn u_ni -> gPim
+                     buf.ctypes.data_as(ctypes.c_void_p),
+                     int3c.ctypes.data_as(ctypes.c_void_p),
+                     orb.ctypes.data_as(ctypes.c_void_p),
+                     ctypes.c_int (3*(p1-p0)), ctypes.c_int (nao),
+                     (ctypes.c_int*4)(0, nocc_i, 0, nao),
+                     null, ctypes.c_int(0))
+            int3c = None
+            int3c = [[numpy.dot (buf, orb) for orb in orbor] for buf in tmp] # gPim u_mj Nj -> vPij
+            tmp = None
             t2 = logger.timer (mf_grad, "df grad einsum D_Pij u_im u_in = D_Pmn", *t2)
             # int3c is C-contiguous
             for i, j in product (range (nset), repeat=2):
                 k = (i*nset) + j
-                tmp = rhok_oo[k][p0:p1]
-                i0, j0 = sum (nocc[:i]), sum(nocc[:j])
-                i1, j1 = i0 + nocc[i], j0 + nocc[j]
-                vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c[:,:,i0:i1,j0:j1], tmp)
+                vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c[i][j], rhok_oo[k][p0:p1])
                 t2 = logger.timer (mf_grad, "df grad einsum (P'|mn) D_Pmn = v", *t2)
         int3c = tmp = None
         t1 = logger.timer (mf_grad, "df grad vj and vk aux (P'|ij) eval", *t1)
