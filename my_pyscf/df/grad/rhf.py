@@ -163,7 +163,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         mo_occ = []
         mo_coeff = []
         for dm in dms:
-            sdms = reduce (numpy.dot, (s0, dm, s0))
+            sdms = reduce (lib.dot, (s0, dm, s0))
             n, c = scipy.linalg.eigh (sdms, b=s0)
             mo_occ.append (n)
             mo_coeff.append (c)
@@ -316,8 +316,9 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         for shl0, shl1, nL in ao_ranges:
             int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
             t2 = logger.timer (mf_grad, "df grad intor (P'|ij)", *t2)
-            drhoj = numpy.dot (int3c.transpose (0,2,1), dm_tril.T) # xpij,mij->xpm
             p0, p1 = aux_loc[shl0], aux_loc[shl1]
+            drhoj = lib.dot (int3c.transpose (0,2,1).reshape (3*(p1-p0), -1),
+                dm_tril.T).reshape (3, p1-p0, -1) # xpij,mij->xpm
             vjaux[:,:,:,p0:p1] = lib.einsum ('xpm,np->mnxp', drhoj, rhoj[:,p0:p1])
             t2 = logger.timer (mf_grad, "df grad einsum (P'|ij) D_ij rho_P", *t2)
             tmp = [numpy.empty ((3, p1-p0, nocc_i, nao), dtype=orbor_stack.dtype) for nocc_i in nocc]
@@ -330,13 +331,13 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                      ctypes.c_int (3*(p1-p0)), ctypes.c_int (nao),
                      (ctypes.c_int*4)(0, nocc_i, 0, nao),
                      null, ctypes.c_int(0))
-            int3c = None
-            int3c = [[numpy.dot (buf, orb) for orb in orbor] for buf in tmp] # pim,mj,j -> pij
-            tmp = None
+            int3c = [[lib.dot (buf.reshape (-1, nao), orb).reshape (3, p1-p0, -1, norb)
+                for orb, norb in zip (orbor, nocc)] for buf in tmp] # pim,mj,j -> pij
             t2 = logger.timer (mf_grad, "df grad einsum D_Pij u_im u_in = D_Pmn", *t2)
             for i, j in product (range (nset), repeat=2):
                 k = (i*nset) + j
-                vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c[i][j], rhok_oo[k][p0:p1])
+                tmp = rhok_oo[k][p0:p1]
+                vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c[i][j], tmp)
                 t2 = logger.timer (mf_grad, "df grad einsum (P'|mn) D_Pmn = v", *t2)
         int3c = tmp = None
         t1 = logger.timer (mf_grad, "df grad vj and vk aux (P'|ij) eval", *t1)
