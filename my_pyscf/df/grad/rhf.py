@@ -213,20 +213,11 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         int3c = get_int3c_s1((0, nbas, shl0, shl1, 0, nauxbas))
         t2 = logger.timer (mf_grad, 'df grad intor (P|ij)', *t2)
         p0, p1 = ao_loc[shl0], ao_loc[shl1]
-        rhoj += lib.einsum('nlk,klp->np', dms[:,p0:p1], int3c)
-        t2 = logger.timer (mf_grad, 'df grad einsum (P|ij) D_ij = rho_P', *t2)
         for i in range(nset):
-            # MRH 05/19/2020: Obstacles to using fdrv=_ao2mo.libao2mo.AO2MOnr_e2_drv
-            # instead of lib.einsum below:
-            #   1. fdrv needs int3c in row-major aux[p0:p1],AO2_packed order;
-            #      this currently has col-major AO,AO[p0:p1],aux order.
-            #      It's not trivial to slice over aux instead of AOs because 
-            #      of the cho_solve step.
-            #   2. fdrv outputs indices in row-major aux,MO,AO order;
-            #      f_rhok needs row-major aux,AO,MO order. 
-            # Both orbor[i] and int3c are in col-major order in lib.einsum
-            # below so it is the fastest indices that are dotted together.
-            v = lib.einsum('ko,klp->plo', orbor[i], int3c)
+            # MRH 05/21/2020: De-vectorize this because array contiguity -> parallel scaling
+            rhoj[i] += numpy.dot (int3c.reshape (nao*(p1-p0), naux, order='F').T, dms[i,p0:p1].ravel ())
+            t2 = logger.timer (mf_grad, 'df grad einsum (P|ij) D_ij = rho_P', *t2)
+            v = lib.dot(int3c.reshape (nao, -1, order='F').T, orbor[i])
             t2 = logger.timer (mf_grad, 'df grad einsum (P|ik) D_jk', *t2)
             v = scipy.linalg.cho_solve(int2c, v.reshape(naux,-1))
             t2 = logger.timer (mf_grad, 'df grad cho_solve (P|Q) D_Qij = (P|ik) D_jk', *t2)
@@ -252,46 +243,35 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     vj = numpy.zeros((nset,3,nao,nao))
     vk = numpy.zeros((nset,3,nao,nao))
     # (d/dX i,j|P)
+    fmmm = _ao2mo.libao2mo.AO2MOmmm_bra_nr_s1 # MO output index slower than AO output index; input AOs are asymmetric
+    fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv # comp and aux indices are slower
+    ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s1 # input is not tril_packed
+    null = lib.c_null_ptr() 
     t2 = t1
     for shl0, shl1, nL in ao_ranges:
         int3c = get_int3c_ip1((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
         t2 = logger.timer (mf_grad, "df grad intor (P|i'j)", *t2)
-        # ^ This appears to be stored as x,P,j,i in C-style ordering
+        # ^ This appears to be stored xPji in row-major order
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
         vj += lib.einsum('xijp,np->nxij', int3c, rhoj[:,p0:p1])
         t2 = logger.timer (mf_grad, "df grad einsum (P|i'j) rho_P", *t2)
         for i in range(nset):
-            # MRH 05/19/2020: Obstacles to using fdrv=_ao2mo.libao2mo.AO2MOnr_e2_drv
-            # instead of lib.einsum below:
-            #   1. The extra dimension, but it's the slowest-moving and
-            #      has fixed size = 3 so it shouldn't incur too much penalty
-            #      to loop around it explicitly in Python. int3c is in col-major
-            #      order except for that first index.
-            #   2. fdrv again needs int3c in row-major aux[p0:p1],AO2_packed order,
-            #      and now my two AO indices aren't even equivalent and I don't
-            #      think transpose-sum and tril_packing would even be correct (MO
-            #      *only* contracts with the non-differentiated index). Maybe I can
-            #      find a different fdrv which is still fast? On the bright side,
-            #      we are slicing over aux indices here so the only trick will be
-            #      finding or writing a driver which contracts the second AO index,
-            #      unpacked, while still using sparsity.
-            # I do not understand how this happens, but lib.einsum's output's data
-            # is in row-major comp,aux,MO,AO order, which makes tmp.transpose (0,2,3,1)
-            # C-contiguous. Except for the comp dimension (which, again, I can just
-            # unroll) this is the output structure of _ao2mo.libao2mo.AO2MOnr_e2_drv
-            # which is used in df.df_jk. In the einsum, the fastest index of orbol[i]
-            # is being dotted with the second-fastest of int3c; this is unavoidable
-            # because the indices are inequivalent.
-            tmp = lib.einsum('xijp,jo->xipo', int3c, orbol[i])
+            tmp = numpy.empty ((3,p1-p0,nocc[i],nao), dtype=orbol_stack.dtype) 
+            fdrv(ftrans, fmmm, # xPmn u_mi -> xPin
+                 tmp.ctypes.data_as(ctypes.c_void_p),
+                 int3c.ctypes.data_as(ctypes.c_void_p),
+                 orbol[i].ctypes.data_as(ctypes.c_void_p),
+                 ctypes.c_int (3*(p1-p0)), ctypes.c_int (nao),
+                 (ctypes.c_int*4)(0, nocc[i], 0, nao),
+                 null, ctypes.c_int(0))
             t2 = logger.timer (mf_grad, "df grad einsum (P|i'k) D_jk = v_Pij", *t2)
             rhok = load(i, p0, p1)
-            # The einsum below is a mess: rhok comes out in row-major aux,MO,AO order
-            # and the aux,MO indices are being contracted with something in row-major
-            # comp,aux,MO,AO order. One should usually arrange it so that the FASTEST
-            # indices are contracted together.
-            vk[i] += lib.einsum('xipo,pok->xik', tmp, rhok)
+            vk[i] += lib.einsum('xpoi,pok->xik', tmp, rhok)
+            # MRH 05/21/2020: TODO: double-check the parallel scalability of this einsum.
+            # It was somehow pretty good when the einsum string read 'xipo,pok->xik', even
+            # though that's not remotely what the data layout was supposed to be.
             t2 = logger.timer (mf_grad, "df grad einsum D_Pik v_Pjk = v_ij", *t2)
-            tmp = rhok = None
+            rhok = tmp = None
         int3c = None
     t1 = logger.timer (mf_grad, 'df grad vj and vk AO (P|ij) D_P eval', *t1)
     # MRH 05/20/2020: Per tests, this block has bad parallel scaling and accounts
@@ -331,10 +311,6 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2 # input is tril_packed
         null = lib.c_null_ptr() 
         for shl0, shl1, nL in ao_ranges:
-            # MRH 05/19/2020: The best way to speed this part up may be to 
-            # leave int3c tril packed and use _ao2mo.libao2mo.AO2MOnr_e2_drv
-            # on it for the exchange part, instead of going MO->AO on
-            # rhok_oo in the loop nset product loop below.
             int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
             t2 = logger.timer (mf_grad, "df grad intor (P'|ij)", *t2)
             drhoj = numpy.dot (int3c.transpose (0,2,1), dm_tril.T) # xpij,mij->xpm
@@ -352,18 +328,15 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                      (ctypes.c_int*4)(0, nocc_i, 0, nao),
                      null, ctypes.c_int(0))
             int3c = None
-            int3c = [[numpy.dot (buf, orb) for orb in orbor] for buf in tmp] # gPim u_mj Nj -> vPij
+            int3c = [[numpy.dot (buf, orb) for orb in orbor] for buf in tmp] # pim,mj,j -> pij
             tmp = None
             t2 = logger.timer (mf_grad, "df grad einsum D_Pij u_im u_in = D_Pmn", *t2)
-            # int3c is C-contiguous
             for i, j in product (range (nset), repeat=2):
                 k = (i*nset) + j
                 vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c[i][j], rhok_oo[k][p0:p1])
                 t2 = logger.timer (mf_grad, "df grad einsum (P'|mn) D_Pmn = v", *t2)
         int3c = tmp = None
         t1 = logger.timer (mf_grad, "df grad vj and vk aux (P'|ij) eval", *t1)
-        # MRH 05/20/2020: Per tests, this block has bad parallel scaling and accounts
-        # for almost as much wall time as the third block
 
         # (d/dX P|Q)
         int2c_e1 = auxmol.intor('int2c2e_ip1')
