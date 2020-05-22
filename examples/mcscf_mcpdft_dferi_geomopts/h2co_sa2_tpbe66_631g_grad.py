@@ -4,7 +4,8 @@ import math
 import numpy as np
 from scipy import linalg
 from pyscf import scf, gto, lib, mcscf, df
-from mrh.my_pyscf.df.grad import dfsacasscf as casscf_grad
+from mrh.my_pyscf import mcpdft
+from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
 from mrh.my_pyscf.grad import numeric as numeric_grad
 from mrh.my_pyscf.fci import csf_solver
 
@@ -47,35 +48,35 @@ h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
 O -0.676110  0.000000  0.000000
 H  1.102430  0.000000  0.920125
 H  1.102430  0.000000 -0.920125'''
-mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = lib.logger.INFO, output = 'h2co_sa2_casscf66_631g_grad.log')
+mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = lib.logger.INFO, output = 'h2co_sa2_tpbe66_631g_grad.log')
 mf_conv = scf.RHF (mol).run ()
-mc_conv = mcscf.CASSCF (mf_conv, 6, 6)
+mc_conv = mcpdft.CASSCF (mf_conv, 'tPBE', 6, 6, grids_level=6)
 mc_conv.fcisolver = csf_solver (mol, smult=1)
 mc_conv = mc_conv.state_average_([0.5,0.5])
 mc_conv.conv_tol = 1e-10
 mc_conv.kernel ()
 
 mf = scf.RHF (mol).density_fit (auxbasis = df.aug_etb (mol)).run ()
-mc_df = mcscf.CASSCF (mf, 6, 6)
+mc_df = mcpdft.CASSCF (mf, 'tPBE', 6, 6, grids_level=6)
 mc_df.fcisolver = csf_solver (mol, smult=1)
 mc_df = mc_df.state_average_([0.5,0.5])
 mc_df.conv_tol = 1e-10
 mc_df.kernel ()
 
 try:
-    de_num = np.load ('h2co_sa2_casscf66_631g_grad_num.npy')
+    de_num = np.load ('h2co_sa2_tpbe66_631g_grad_num.npy')
     de_conv_0_num, de_conv_1_num, de_df_0_num, de_df_1_num = list (de_num)
 except OSError as e:
     conv_num = numeric_grad.Gradients (mc_conv).run ()
     de_conv_0_num, de_conv_1_num = list (conv_num.de_states)
     df_num = numeric_grad.Gradients (mc_df).run ()
     de_df_0_num, de_df_1_num = list (df_num.de_states)
-    np.save ('h2co_sa2_casscf66_631g_grad_num.npy', np.append (conv_num.de_states, df_num.de_states, axis=0))
+    np.save ('h2co_sa2_tpbe66_631g_grad_num.npy', np.append (conv_num.de_states, df_num.de_states, axis=0))
 
 de_conv_0 = mc_conv.nuc_grad_method ().kernel (state = 0)
-de_df_0 = casscf_grad.Gradients (mc_df).kernel (state = 0)
+de_df_0 = mcpdft_grad.Gradients (mc_df).kernel (state = 0)
 de_conv_1 = mc_conv.nuc_grad_method ().kernel (state = 1)
-de_df_1 = casscf_grad.Gradients (mc_df).kernel (state = 1)
+de_df_1 = mcpdft_grad.Gradients (mc_df).kernel (state = 1)
 
 def printable_grad (arr):
     arr[np.abs (arr)<1e-10] = 0.0
@@ -98,4 +99,3 @@ print ("Numeric gradient of state 1 with DF ERIs:\n", printable_grad (de_df_1_nu
 print ("Gradient error of state 1 with DF ERIs = {:.6e}".format (linalg.norm (de_df_1 - de_df_1_num)))
 print ("Gradient disagreements of state 1: Analytic = {:.6e} ; Numeric = {:.6e}".format (
     linalg.norm (de_df_1 - de_conv_1), linalg.norm (de_df_1_num - de_conv_1_num)))
-

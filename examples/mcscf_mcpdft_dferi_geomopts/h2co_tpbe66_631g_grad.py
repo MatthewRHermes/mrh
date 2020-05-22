@@ -4,7 +4,8 @@ import math
 import numpy as np
 from scipy import linalg
 from pyscf import scf, gto, lib, mcscf, df
-from mrh.my_pyscf.df.grad import dfcasscf as casscf_grad
+from mrh.my_pyscf import mcpdft
+from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
 from mrh.my_pyscf.grad import numeric as numeric_grad
 
 # Convenience functions to get the internal coordinates for human inspection
@@ -37,25 +38,25 @@ h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
 O -0.676110  0.000000  0.000000
 H  1.102430  0.000000  0.920125
 H  1.102430  0.000000 -0.920125'''
-mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = lib.logger.INFO, output = 'h2co_casscf66_631g_grad.log')
+mol = gto.M (atom = h2co_casscf66_631g_xyz, basis = '6-31g', symmetry = False, verbose = lib.logger.INFO, output = 'h2co_tpbe66_631g_grad.log')
 mf_conv = scf.RHF (mol).run ()
-mc_conv = mcscf.CASSCF (mf_conv, 6, 6)
+mc_conv = mcpdft.CASSCF (mf_conv, 'tPBE', 6, 6, grids_level=6)
 mc_conv.conv_tol = 1e-10
 mc_conv.kernel ()
 
 
 mf = scf.RHF (mol).density_fit (auxbasis = df.aug_etb (mol)).run ()
-mc_df = mcscf.CASSCF (mf, 6, 6)
+mc_df = mcpdft.CASSCF (mf, 'tPBE', 6, 6, grids_level=6)
 mc_df.conv_tol = 1e-10
 mc_df.kernel ()
 
 try:
-    de_num = np.load ('h2co_casscf66_631g_grad_num.npy')
+    de_num = np.load ('h2co_tpbe66_631g_grad_num.npy')
     de_conv_num, de_df_num = list (de_num)
 except OSError as e:
     de_conv_num = numeric_grad.Gradients (mc_conv).kernel ()
     de_df_num = numeric_grad.Gradients (mc_df).kernel ()
-    np.save ('h2co_casscf66_631g_grad_num.npy', np.stack ((de_conv_num, de_df_num), axis=0))
+    np.save ('h2co_tpbe66_631g_grad_num.npy', np.stack ((de_conv_num, de_df_num), axis=0))
 def my_call (env):
     carts = env['mol'].atom_coords () * lib.param.BOHR
     h2co_geom_analysis (carts)
@@ -69,7 +70,7 @@ conv_params = {
 }
 
 de_conv = mc_conv.nuc_grad_method ().kernel ()
-de_df = casscf_grad.Gradients (mc_df).kernel ()
+de_df = mcpdft_grad.Gradients (mc_df).kernel ()
 
 def printable_grad (arr):
     arr[np.abs (arr)<1e-10] = 0.0

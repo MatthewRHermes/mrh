@@ -68,9 +68,6 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     t0 = (time.clock (), time.time ())
     if mol is None: mol = mf_grad.mol
     if dm is None: dm = mf_grad.base.make_rdm1()
-    #TODO: dm has to be the SCF density matrix in this version.  dm should be
-    # extended to any 1-particle density matrix
-    #dm = mf_grad.base.make_rdm1()
 
     with_df = mf_grad.base.with_df
     auxmol = with_df.auxmol
@@ -150,11 +147,9 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             vj = lib.tag_array(-vj.reshape(out_shape), aux=numpy.array(vjaux))
         else:
             vj = -vj.reshape(out_shape)
-        logger.timer(mf_grad, 'df vj', *t0)
+        logger.timer (mf_grad, 'df vj', *t0)
         return vj, None
 
-    # MRH 05/03/2020: uh-oh, we can't have this! I guess I have to use an ishf
-    # kwarg here too!
     if ishf:
         mo_coeff = mf_grad.base.mo_coeff
         mo_occ = mf_grad.base.mo_occ
@@ -185,9 +180,6 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     nocc = []
     orbor_stack = numpy.zeros ((nao,0), dtype=mo_coeff.dtype, order='F')
     orbol_stack = numpy.zeros ((nao,0), dtype=mo_coeff.dtype, order='F')
-    # MRH 05/03/2020: how do I deal with nocc? It looks like the only time
-    # this is referenced is when computing blksize below. I think I can
-    # replace it with the maximum nocc for all nset dms.
     offs = 0
     for i in range(nset):
         idx = numpy.abs (mo_occ[i])>1e-8
@@ -211,25 +203,23 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     t2 = t1
     for istep, (shl0, shl1, nd) in enumerate(mol_ao_ranges):
         int3c = get_int3c_s1((0, nbas, shl0, shl1, 0, nauxbas))
-        t2 = logger.timer (mf_grad, 'df grad intor (P|ij)', *t2)
+        t2 = logger.timer_debug1 (mf_grad, 'df grad intor (P|mn)', *t2)
         p0, p1 = ao_loc[shl0], ao_loc[shl1]
         for i in range(nset):
             # MRH 05/21/2020: De-vectorize this because array contiguity -> parallel scaling
             v = lib.dot(int3c.reshape (nao, -1, order='F').T, orbor[i]).reshape (naux, -1)
-            t2 = logger.timer (mf_grad, 'df grad einsum (P|ik) D_jk', *t2)
+            t2 = logger.timer_debug1 (mf_grad, 'df grad einsum (P|mn) u_ni N_i = v_Pmi', *t2)
             rhoj[i] += numpy.dot (v, orbol[i][p0:p1].ravel ())
-            t2 = logger.timer (mf_grad, 'df grad einsum (P|ij) D_ij = rho_P', *t2)
+            t2 = logger.timer_debug1 (mf_grad, 'df grad einsum v_Pmi u_mi = rho_P', *t2)
             v = scipy.linalg.cho_solve(int2c, v)
-            t2 = logger.timer (mf_grad, 'df grad cho_solve (P|Q) D_Qij = (P|ik) D_jk', *t2)
+            t2 = logger.timer_debug1 (mf_grad, 'df grad cho_solve (P|Q) D_Qmi = v_Pmi', *t2)
             f_rhok['%s/%s'%(i,istep)] = v.reshape(naux,p1-p0,-1)
-            t2 = logger.timer (mf_grad, 'df grad cache D_Qij', *t2)
+            t2 = logger.timer_debug1 (mf_grad, 'df grad cache D_Pmi (m <-> i transpose upon retrieval)', *t2)
         int3c = v = None
 
     rhoj = scipy.linalg.cho_solve(int2c, rhoj.T).T
     int2c = None
-    t1 = logger.timer (mf_grad, 'df grad vj and vk AO (P|Q) D_Q = (P|ij) D_ij solve', *t1)
-    # MRH 05/20/2020: Per tests, this block has the worst parallel scaling in the function
-    # and accounts for the largest portion of its wall time
+    t1 = logger.timer_debug1 (mf_grad, 'df grad vj and vk AO (P|Q) D_Q = (P|mn) D_mn solve', *t1)
 
     def load(set_id, p0, p1):
         buf = numpy.empty((p1-p0,nocc[set_id],nao))
@@ -249,16 +239,15 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     null = lib.c_null_ptr() 
     t2 = t1
     for shl0, shl1, nL in ao_ranges:
-        int3c = get_int3c_ip1((0, nbas, 0, nbas, shl0, shl1)).transpose (0,3,2,1)  # (P|ij'), row-major order
-        t2 = logger.timer (mf_grad, "df grad intor (P|i'j)", *t2)
+        int3c = get_int3c_ip1((0, nbas, 0, nbas, shl0, shl1)).transpose (0,3,2,1)  # (P|mn'), row-major order
+        t2 = logger.timer_debug1 (mf_grad, "df grad intor (P|mn')", *t2)
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
-        #vj += lib.einsum('xpji,np->nxij', int3c, rhoj[:,p0:p1])
         for i in range(nset):
             # MRH 05/21/2020: De-vectorize this because array contiguity -> parallel scaling
             vj[i,0] += numpy.dot (rhoj[i,p0:p1], int3c[0].reshape (p1-p0, -1)).reshape (nao, nao).T
             vj[i,1] += numpy.dot (rhoj[i,p0:p1], int3c[1].reshape (p1-p0, -1)).reshape (nao, nao).T
             vj[i,2] += numpy.dot (rhoj[i,p0:p1], int3c[2].reshape (p1-p0, -1)).reshape (nao, nao).T
-            t2 = logger.timer (mf_grad, "df grad einsum (P|i'j) rho_P", *t2)
+            t2 = logger.timer_debug1 (mf_grad, "df grad einsum rho_P (P|mn') rho_P", *t2)
             tmp = numpy.empty ((3,p1-p0,nocc[i],nao), dtype=orbol_stack.dtype) 
             fdrv(ftrans, fmmm, # xPmn u_mi -> xPin
                  tmp.ctypes.data_as(ctypes.c_void_p),
@@ -267,21 +256,14 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                  ctypes.c_int (3*(p1-p0)), ctypes.c_int (nao),
                  (ctypes.c_int*4)(0, nocc[i], 0, nao),
                  null, ctypes.c_int(0))
-            t2 = logger.timer (mf_grad, "df grad einsum (P|i'k) D_jk = v_Pij", *t2)
+            t2 = logger.timer_debug1 (mf_grad, "df grad einsum (P|mn') u_mi = dg_Pin", *t2)
             rhok = load(i, p0, p1)
             vk[i] += lib.einsum('xpoi,pok->xik', tmp, rhok)
-            # MRH 05/21/2020: TODO: double-check the parallel scalability of this einsum.
-            # It was somehow pretty good when the einsum string read 'xipo,pok->xik', even
-            # though that's not remotely what the data layout was supposed to be.
-            t2 = logger.timer (mf_grad, "df grad einsum D_Pik v_Pjk = v_ij", *t2)
+            t2 = logger.timer_debug1 (mf_grad, "df grad einsum D_Pim dg_Pin = v_ij", *t2)
             rhok = tmp = None
         int3c = None
-    t1 = logger.timer (mf_grad, 'df grad vj and vk AO (P|ij) D_P eval', *t1)
-    # MRH 05/20/2020: Per tests, this block has bad parallel scaling and accounts
-    # for the third-largest portion of its wall time
+    t1 = logger.timer_debug1 (mf_grad, 'df grad vj and vk AO (P|mn) D_P eval', *t1)
 
-    # MRH 05/03/2020: moved the rhok_oo stuff inside of the mf_grad.auxbasis_response 
-    # conditional because it's never used outside of that
     if mf_grad.auxbasis_response:
         # Cache (P|uv) D_ui c_vj. Must be include both upper and lower triangles
         # over nset.
@@ -295,8 +277,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                 tmp[p0:p1] = lib.dot (rhok, orbol[j]).reshape (p1-p0, nocc[i], nocc[j])
             rhok_oo.append(tmp)
             rhok = tmp = None
-        t1 = logger.timer (mf_grad, 'df grad vj and vk aux (P|Q) d_Qij = (P|kl) D_ki D_lj solve', *t1)
-        # MRH 05/20/2020: Per tests, this block has very good parallel scaling
+        t1 = logger.timer_debug1 (mf_grad, 'df grad vj and vk aux d_Pim u_mj = d_Pij eval', *t1)
 
         vjaux = numpy.zeros((nset,nset,3,naux))
         vkaux = numpy.zeros((nset,nset,3,naux))
@@ -308,12 +289,12 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         null = lib.c_null_ptr() 
         for shl0, shl1, nL in ao_ranges:
             int3c = get_int3c_ip2((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
-            t2 = logger.timer (mf_grad, "df grad intor (P'|ij)", *t2)
+            t2 = logger.timer_debug1 (mf_grad, "df grad intor (P'|mn)", *t2)
             p0, p1 = aux_loc[shl0], aux_loc[shl1]
             drhoj = lib.dot (int3c.transpose (0,2,1).reshape (3*(p1-p0), -1),
                 dm_tril.T).reshape (3, p1-p0, -1) # xpij,mij->xpm
             vjaux[:,:,:,p0:p1] = lib.einsum ('xpm,np->mnxp', drhoj, rhoj[:,p0:p1])
-            t2 = logger.timer (mf_grad, "df grad einsum (P'|ij) D_ij rho_P", *t2)
+            t2 = logger.timer_debug1 (mf_grad, "df grad einsum rho_P (P'|mn) D_mn = v_P", *t2)
             tmp = [numpy.empty ((3, p1-p0, nocc_i, nao), dtype=orbor_stack.dtype) for nocc_i in nocc]
             assert (orbor_stack.flags.f_contiguous), '{} {}'.format (orbor_stack.shape, orbor_stack.strides)
             for orb, buf, nocc_i in zip (orbol, tmp, nocc):
@@ -326,30 +307,24 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                      null, ctypes.c_int(0))
             int3c = [[lib.dot (buf.reshape (-1, nao), orb).reshape (3, p1-p0, -1, norb)
                 for orb, norb in zip (orbor, nocc)] for buf in tmp] # pim,mj,j -> pij
-            t2 = logger.timer (mf_grad, "df grad einsum D_Pij u_im u_in = D_Pmn", *t2)
+            t2 = logger.timer_debug1 (mf_grad, "df grad einsum (P'|mn) u_mi u_nj N_j = v_Pmn", *t2)
             for i, j in product (range (nset), repeat=2):
                 k = (i*nset) + j
                 tmp = rhok_oo[k][p0:p1]
                 vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c[i][j], tmp)
-                t2 = logger.timer (mf_grad, "df grad einsum (P'|mn) D_Pmn = v", *t2)
+                t2 = logger.timer_debug1 (mf_grad, "df grad einsum d_Pij v_Pij = v_P", *t2)
         int3c = tmp = None
-        t1 = logger.timer (mf_grad, "df grad vj and vk aux (P'|ij) eval", *t1)
+        t1 = logger.timer_debug1 (mf_grad, "df grad vj and vk aux (P'|mn) eval", *t1)
 
         # (d/dX P|Q)
         int2c_e1 = auxmol.intor('int2c2e_ip1')
         vjaux -= lib.einsum('xpq,mp,nq->mnxp', int2c_e1, rhoj, rhoj)
         for i, j in product (range (nset), repeat=2):
-            # MRH 05/03/2020: Transpose so as to leave only one factor
-            # of a density matrix on both indices!
             k = (i*nset) + j
             l = (j*nset) + i
-            # MRH 05/19/2020: rhok_oo is C-contiguous but you have to
-            # transpose its two fastest indices on one factor. Probably
-            # nothing can be done about it.
             tmp = lib.einsum('pij,qji->pq', rhok_oo[k], rhok_oo[l])
             vkaux[i,j] -= lib.einsum('xpq,pq->xp', int2c_e1, tmp)
-        t1 = logger.timer (mf_grad, "df grad vj and vk aux (P'|Q) eval", *t1)
-        # MRH 05/20/2020: Per tests, this block has very good parallel scaling
+        t1 = logger.timer_debug1 (mf_grad, "df grad vj and vk aux (P'|Q) eval", *t1)
 
         vjaux = numpy.array ([-vjaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
         vkaux = numpy.array ([-vkaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
@@ -365,7 +340,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     else:
         vj = -vj.reshape(out_shape)
         vk = -vk.reshape(out_shape)
-    logger.timer(mf_grad, 'df grad vj and vk', *t0)
+    logger.timer (mf_grad, 'df grad vj and vk', *t0)
     return vj, vk
 
 def _int3c_wrapper(mol, auxmol, intor, aosym):
