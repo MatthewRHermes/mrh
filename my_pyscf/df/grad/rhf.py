@@ -291,15 +291,8 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         for i, j in product (range (nset), repeat=2):
             tmp = numpy.empty ((naux,nocc[i],nocc[j]))
             for p0, p1 in lib.prange(0, naux, blksize):
-                rhok = load(i, p0, p1)
-                # MRH 05/03/2020: I need to remember that the third index
-                # of rhok_oo is contracted with orbor and the fourth with
-                # orbol. They should be transposed when it's dotted with
-                # itself below.
-                # MRH 05/19/2020: The einsum below is fastest index to 
-                # fastest index contraction with C-contiguous output.
-                # It may live.
-                tmp[p0:p1] = lib.einsum('pok,kr->por', rhok, orbol[j])
+                rhok = load(i, p0, p1).reshape ((p1-p0)*nocc[i], nao)
+                tmp[p0:p1] = lib.dot (rhok, orbol[j]).reshape (p1-p0, nocc[i], nocc[j])
             rhok_oo.append(tmp)
             rhok = tmp = None
         t1 = logger.timer (mf_grad, 'df grad vj and vk aux (P|Q) d_Qij = (P|kl) D_ki D_lj solve', *t1)
