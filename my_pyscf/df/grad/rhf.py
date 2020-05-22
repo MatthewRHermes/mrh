@@ -215,11 +215,11 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         p0, p1 = ao_loc[shl0], ao_loc[shl1]
         for i in range(nset):
             # MRH 05/21/2020: De-vectorize this because array contiguity -> parallel scaling
-            rhoj[i] += numpy.dot (int3c.reshape (nao*(p1-p0), naux, order='F').T, dms[i,p0:p1].ravel ())
-            t2 = logger.timer (mf_grad, 'df grad einsum (P|ij) D_ij = rho_P', *t2)
-            v = lib.dot(int3c.reshape (nao, -1, order='F').T, orbor[i])
+            v = lib.dot(int3c.reshape (nao, -1, order='F').T, orbor[i]).reshape (naux, -1)
             t2 = logger.timer (mf_grad, 'df grad einsum (P|ik) D_jk', *t2)
-            v = scipy.linalg.cho_solve(int2c, v.reshape(naux,-1))
+            rhoj[i] += numpy.dot (v, orbol[i][p0:p1].ravel ())
+            t2 = logger.timer (mf_grad, 'df grad einsum (P|ij) D_ij = rho_P', *t2)
+            v = scipy.linalg.cho_solve(int2c, v)
             t2 = logger.timer (mf_grad, 'df grad cho_solve (P|Q) D_Qij = (P|ik) D_jk', *t2)
             f_rhok['%s/%s'%(i,istep)] = v.reshape(naux,p1-p0,-1)
             t2 = logger.timer (mf_grad, 'df grad cache D_Qij', *t2)
@@ -249,13 +249,16 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     null = lib.c_null_ptr() 
     t2 = t1
     for shl0, shl1, nL in ao_ranges:
-        int3c = get_int3c_ip1((0, nbas, 0, nbas, shl0, shl1))  # (i,j|P)
+        int3c = get_int3c_ip1((0, nbas, 0, nbas, shl0, shl1)).transpose (0,3,2,1)  # (P|ij'), row-major order
         t2 = logger.timer (mf_grad, "df grad intor (P|i'j)", *t2)
-        # ^ This appears to be stored xPji in row-major order
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
-        vj += lib.einsum('xijp,np->nxij', int3c, rhoj[:,p0:p1])
-        t2 = logger.timer (mf_grad, "df grad einsum (P|i'j) rho_P", *t2)
+        #vj += lib.einsum('xpji,np->nxij', int3c, rhoj[:,p0:p1])
         for i in range(nset):
+            # MRH 05/21/2020: De-vectorize this because array contiguity -> parallel scaling
+            vj[i,0] += numpy.dot (rhoj[i,p0:p1], int3c[0].reshape (p1-p0, -1)).reshape (nao, nao).T
+            vj[i,1] += numpy.dot (rhoj[i,p0:p1], int3c[1].reshape (p1-p0, -1)).reshape (nao, nao).T
+            vj[i,2] += numpy.dot (rhoj[i,p0:p1], int3c[2].reshape (p1-p0, -1)).reshape (nao, nao).T
+            t2 = logger.timer (mf_grad, "df grad einsum (P|i'j) rho_P", *t2)
             tmp = numpy.empty ((3,p1-p0,nocc[i],nao), dtype=orbol_stack.dtype) 
             fdrv(ftrans, fmmm, # xPmn u_mi -> xPin
                  tmp.ctypes.data_as(ctypes.c_void_p),
