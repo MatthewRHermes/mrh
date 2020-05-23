@@ -80,7 +80,12 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     de = np.zeros ((len(atmlst),3))
 
     t0 = logger.timer (mc, 'PDFT HlFn gfock', *t0)
+    mo_coeff, ci, mo_occup = cas_natorb (mc, mo_coeff=mo_coeff, ci=ci)
+    mo_occ = mo_coeff[:,:nocc]
+    mo_core = mo_coeff[:,:ncore]
+    mo_cas = mo_coeff[:,ncore:nocc]
     dm1 = dm_core + dm_cas
+    dm1 = tag_array (dm1, mo_coeff=mo_coeff, mo_occ=mo_occup)
     # MRH: vhf1c and vhf1a should be the TRUE vj_c and vj_a (no vk!)
     vj = mf_grad.get_jk (dm=dm1)[0]
     hcore_deriv = mf_grad.hcore_generator(mol)
@@ -101,10 +106,6 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     # I could probably save a fair amount of time by not screwing around with the actual spin density!
     # Also, the cumulant decomposition can always be defined without the spin-density matrices and
     # it's still valid! But one thing at a time.
-    mo_coeff, ci, mo_occup = cas_natorb (mc, mo_coeff=mo_coeff, ci=ci)
-    mo_occ = mo_coeff[:,:nocc]
-    mo_core = mo_coeff[:,:ncore]
-    mo_cas = mo_coeff[:,ncore:nocc]
     mo_n = mo_occ * mo_occup[None,:nocc]
     casdm1, casdm2 = mc.fcisolver.make_rdm12(ci, ncas, nelecas)
     twoCDM = get_2CDM_from_2RDM (casdm2, casdm1)

@@ -150,9 +150,18 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         logger.timer (mf_grad, 'df vj', *t0)
         return vj, None
 
-    if ishf:
+    if hasattr (dm, 'mo_coeff') and hasattr (dm, 'mo_occ'):
+        mo_coeff = dm.mo_coeff
+        mo_occ = dm.mo_occ
+    elif ishf:
         mo_coeff = mf_grad.base.mo_coeff
         mo_occ = mf_grad.base.mo_occ
+        if isinstance (mf_grad.base, scf.rohf.ROHF): 
+            mo_coeff = numpy.vstack((mo_coeff,mo_coeff))
+            mo_occa = numpy.array(mo_occ> 0, dtype=numpy.double)
+            mo_occb = numpy.array(mo_occ==2, dtype=numpy.double)
+            assert(mo_occa.sum() + mo_occb.sum() == mo_occ.sum())
+            mo_occ = numpy.vstack((mo_occa, mo_occb))
     else:
         s0 = mol.intor ('int1e_ovlp')
         mo_occ = []
@@ -164,12 +173,6 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             mo_coeff.append (c)
         mo_occ = numpy.stack (mo_occ, axis=0)
     nmo = mo_occ.shape[-1]
-    if isinstance(mf_grad.base, scf.rohf.ROHF) and ishf:
-        mo_coeff = numpy.vstack((mo_coeff,mo_coeff))
-        mo_occa = numpy.array(mo_occ> 0, dtype=numpy.double)
-        mo_occb = numpy.array(mo_occ==2, dtype=numpy.double)
-        assert(mo_occa.sum() + mo_occb.sum() == mo_occ.sum())
-        mo_occ = numpy.vstack((mo_occa, mo_occb))
 
     mo_coeff = numpy.asarray(mo_coeff).reshape(-1,nao,nmo)
     mo_occ   = numpy.asarray(mo_occ).reshape(-1,nmo)
@@ -207,7 +210,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         p0, p1 = ao_loc[shl0], ao_loc[shl1]
         for i in range(nset):
             # MRH 05/21/2020: De-vectorize this because array contiguity -> parallel scaling
-            v = lib.dot(int3c.reshape (nao, -1, order='F').T, orbor[i]).reshape (naux, -1)
+            v = lib.dot(int3c.reshape (nao, -1, order='F').T, orbor[i]).reshape (naux, (p1-p0)*nocc[i])
             t2 = logger.timer_debug1 (mf_grad, 'df grad einsum (P|mn) u_ni N_i = v_Pmi', *t2)
             rhoj[i] += numpy.dot (v, orbol[i][p0:p1].ravel ())
             t2 = logger.timer_debug1 (mf_grad, 'df grad einsum v_Pmi u_mi = rho_P', *t2)
