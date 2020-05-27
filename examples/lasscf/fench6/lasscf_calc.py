@@ -98,7 +98,6 @@ my_kwargs = {'calcname':           'fench_{}_lasscf65_anodz'.format (('ls','hs')
 load_casscf_guess = False
 load_lasscf_chk = False
 load_lasscf_sto3g_chk = False
-add_virtual_bath = False
 bath_tol = 1e-8
 active_orb_lists = [[31,32,33,37,38],[26,35,36,34,37]]
 eri_name = my_kwargs['calcname'][:8] + my_kwargs['calcname'][-6:] + '_eri.npy'
@@ -116,8 +115,6 @@ for iargv in sys.argv[2:]:
         load_lasscf_chk = True
     elif iargv[:22] == 'load_lasscf_sto3g_chk':
         load_lasscf_sto3g_chk = True
-    elif iargv == 'add_virtual_bath':
-        add_virtual_bath = True
     else: 
         CASlist = np.array ([int (i) for i in ints.findall (iargv)])
         print ("CASlist (note 1-indexing): {}".format (CASlist))
@@ -127,6 +124,7 @@ for iargv in sys.argv[2:]:
 mol = contract_ano_basis (gto.M (atom = carts, basis = 'ano', symmetry = True, charge = 2, spin = 2*spinS, verbose = 4, output = my_kwargs['calcname'] + '_hf.log', max_memory=MAX_MEMORY), 'VDZP')
 mol_sto3g = gto.M (atom = carts, basis = 'sto-3g', symmetry = True, charge = 2, spin = 2*spinS, verbose = 0, max_memory=MAX_MEMORY)
 mf = scf.RHF (mol).sfx2c1e ()
+if spinS > 0: mf.irrep_nelec = {'Ag': (20,18), 'B2g': (3,2), 'B3g': (3,2)}
 do_save_eri = False
 try:
     mf._eri = np.load (eri_name)
@@ -174,7 +172,7 @@ myInts = localintegrals.localintegrals(mf, range(mol.nao_nr ()), 'meta_lowdin')
 
 # Build fragments from atom list
 # --------------------------------------------------------------------------------------------------------------------
-Fe = make_fragment_atom_list (myInts, [0], 'CASSCF(6,5)', name="Fe", add_virtual_bath=add_virtual_bath)
+Fe = make_fragment_atom_list (myInts, [0], 'CASSCF(6,5)', name="Fe")
 NCHa = make_fragment_atom_list (myInts, [1, 7,   8], 'dummy RHF', name='NCHa')
 NCHb = make_fragment_atom_list (myInts, [2, 13, 14], 'dummy RHF', name='NCHb')
 NCHc = make_fragment_atom_list (myInts, [3, 9,  10], 'dummy RHF', name='NCHc')
