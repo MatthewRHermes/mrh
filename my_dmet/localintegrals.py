@@ -519,18 +519,6 @@ class localintegrals:
                 "cderi array into {3:.0f}-MP impurity cderi array").format (
                 t1 - t0, w1 - w0, full_cderi_size, imp_cderi_size))
 
-        # Compression step 1: remove zero rows
-        idx_nonzero = np.amax (np.abs (CDERI), axis=1) > sqrt(LINEAR_DEP_THR)
-        print ("From {} auxiliary functions, {} have nonzero rows of the 3-center integral".format (norbs_aux, np.count_nonzero (idx_nonzero)))
-        CDERI = CDERI[idx_nonzero]
-
-        # Compression step 2: svd
-        sigma, vmat = matrix_svd_control_options (CDERI, sort_vecs=-1, only_nonzero_vals=True, full_matrices=False, num_zero_atol=sqrt(LINEAR_DEP_THR))[1:]
-        imp_cderi_size = vmat.size * vmat.itemsize / 1e6
-        print ("From {} nonzero aux-function rows, {} nonzero singular values found".format (np.count_nonzero (idx_nonzero), len (sigma)))
-        print ("With SVD: {0:.0f}-MB CDERI array, compared to {1:.0f}-MB eri; ({2}, {3}) seconds".format (
-            imp_cderi_size, imp_eri_size, time.clock () - t1, time.time () - w1))
-        CDERI = np.ascontiguousarray ((vmat * sigma).T)
         return CDERI
 
     def dmet_tei (self, loc2dmet, numAct=None, symmetry=1):

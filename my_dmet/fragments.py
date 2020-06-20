@@ -981,17 +981,16 @@ class fragment_object:
             self.impham_CDERI = self.ints.dmet_cderi (self.loc2emb, self.norbs_imp)
             cdm = self.get_oneRDM_imp ()
             sdm = self.get_oneSDM_imp ()
+            cdm_pack = cdm + cdm.T
             cdm_pack[np.diag_indices (self.norbs_imp)] /= 2
-            cdm_pack = pack_tril (cdm + cdm.T)
+            cdm_pack = pack_tril (cdm_pack)
             rho = np.dot (self.impham_CDERI, cdm_pack)
             vj = unpack_tril (np.dot (rho, self.impham_CDERI))
             cderi = unpack_tril (self.impham_CDERI)
             vk_c = np.dot (cderi, cdm)
             vk_c = np.tensordot (cderi, vk_c, axes=((0,2),(0,2)))
             vk_s = np.dot (cderi, sdm)
-            vk_s = np.tensordot (cderi, vk_c, axes=((0,2),(0,2)))
-            cderi = np.dot (cderi, self.imp2amo)
-            cderi = np.tensordot (cderi, self.imp2amo, axes=((1),(0)))
+            vk_s = np.tensordot (cderi, vk_s, axes=((0,2),(0,2)))
             sie = self.E2_cum
             sie += np.tensordot (vj, cdm) / 2
             sie -= np.tensordot (vk_c, cdm) / 4
