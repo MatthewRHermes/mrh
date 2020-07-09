@@ -16,20 +16,19 @@
 # Author: Qiming Sun <osirpt.sun@gmail.com>
 #
 
-from pyscf import mcscf
+from pyscf import mcscf, lib, ao2mo
 from pyscf.grad import lagrange
 from pyscf.grad import rhf as rhf_grad
-from pyscf.grad import sacasscf as sacasscf_conv_grad
+from pyscf.grad import sacasscf as sacasscf_grad
+from pyscf.grad import casscf as casscf_grad
 from pyscf.grad.mp2 import _shell_prange
-from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from pyscf.mcscf import mc1step, mc1step_symm, newton_casscf
-#from pyscf.grad import casscf as casscf_grad
+from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from mrh.my_pyscf.df.grad import dfcasscf as dfcasscf_grad
 from mrh.my_pyscf.df.grad import rhf as dfrhf_grad
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import spin_square0
 from pyscf.fci import cistring
-from pyscf import lib, ao2mo
 import numpy as np
 import copy, time, gc
 from functools import reduce
@@ -211,7 +210,7 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     nelecas = mc.nelecas
     nao, nmo = mo_coeff.shape
     nao_pair = nao * (nao+1) // 2
-    nroots = ci.shape[0]
+    nroots = len (ci)
 
     mo_occ = mo_coeff[:,:nocc]
     mo_core = mo_coeff[:,:ncore]
@@ -346,16 +345,16 @@ def as_scanner(mcscf_grad, state=None):
     return CASSCF_GradScanner(mcscf_grad)
 
 
-class Gradients (sacasscf_conv_grad.Gradients):
+class Gradients (sacasscf_grad.Gradients):
 
     def __init__(self, mc, state=None):
         self.auxbasis_response = True
-        sacasscf_conv_grad.Gradients.__init__(self, mc, state=state)
+        sacasscf_grad.Gradients.__init__(self, mc, state=state)
 
     def make_fcasscf_sa (self, casscf_attr={}, fcisolver_attr={}):
         ''' Make a fake SA-CASSCF object to get around weird inheritance conflicts '''
         # Fix me for state_average_mix!
-        fcasscf = sacasscf_conv_grad.Gradients.make_fcasscf_sa (self, casscf_attr=casscf_attr, fcisolver_attr=fcisolver_attr)
+        fcasscf = sacasscf_grad.Gradients.make_fcasscf_sa (self, casscf_attr=casscf_attr, fcisolver_attr=fcisolver_attr)
         class fcasscf_monkeypatch (fcasscf.__class__):
             def __init__(self, my_fcas):
                 self.__dict__.update (fcasscf.__dict__)
@@ -365,362 +364,17 @@ class Gradients (sacasscf_conv_grad.Gradients):
         # Matt: do NOT let THIS ^^ godawful bullshit remain in your code by the time you make a pull request!!!
         # Fix the problem in pyscf.mcscf.newton_casscf or pyscf.mcscf.df instead!
 
-    def kernel (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, e_states=None, level_shift=None, **kwargs):
-        if state is None: state = self.state
-        if atmlst is None: atmlst = self.atmlst
-        if verbose is None: verbose = self.verbose
-        if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci
-        if eris is None:
-            eris = self.eris = self.base.ao2mo (mo)
-        if mf_grad is None: mf_grad = dfrhf_grad.Gradients (self.base._scf)
-        if state is None:
-            return dfcasscf_grad.Gradients (self.base).kernel (mo_coeff=mo, ci=ci, atmlst=atmlst, verbose=verbose)
-        elif hasattr (self.base.fcisolver, 'fcisolvers'):
-            raise NotImplementedError ('State-average mix single state gradients')
-        if e_states is None:
-            try:
-                e_states = self.e_states = np.asarray (self.base.e_states)
-            except AttributeError as e:
-                e_states = self.e_states = np.asarray (self.base.e_tot)
-        if level_shift is None: level_shift=self.level_shift
-        return lagrange.Gradients.kernel (self, state=state, atmlst=atmlst, verbose=verbose, mo=mo, ci=ci, eris=eris, mf_grad=mf_grad, e_states=e_states, level_shift=level_shift, **kwargs)
+    def kernel (self, **kwargs):
+        mf_grad = kwargs['mf_grad'] if 'mf_grad' in kwargs else None
+        if mf_grad is None: kwargs['mf_grad'] = dfrhf_grad.Gradients (self.base._scf)
+        # The below only works because dfcasscf_grad is NOT a child of casscf_grad
+        # For instance, I can't monkeypatch rhf_grad this way b/c dfrhf_grad refers to rhf_grad
+        # Maybe it should be, in which case I will have to change this
+        # But on the other hand maybe it can be even simpler?
+        with lib.temporary_env (casscf_grad, Gradients=dfcasscf_grad.Gradients):
+            return sacasscf_grad.Gradients.kernel (self, **kwargs)
 
-    def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, **kwargs):
-        if state is None: state = self.state
-        if atmlst is None: atmlst = self.atmlst
-        if verbose is None: verbose = self.verbose
-        if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci
-        ndet = ci[state].size
-        fcasscf = self.make_fcasscf ()
-        fcasscf.mo_coeff = mo
-        fcasscf.ci = ci[state]
-        eris = fcasscf.ao2mo (mo)
-        g_all_state = newton_casscf.gen_g_hop (fcasscf, mo, ci[state], eris, verbose)[0]
-        g_all = np.zeros (self.nlag)
-        g_all[:self.ngorb] = g_all_state[:self.ngorb]
-        # No need to reshape or anything, just use the magic of repeated slicing
-        g_all[self.ngorb:][ndet*state:][:ndet] = g_all_state[self.ngorb:]
-        return g_all
-
-    def get_Aop_Adiag (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, eris=None, level_shift=None, **kwargs):
-        if state is None: state = self.state
-        if atmlst is None: atmlst = self.atmlst
-        if verbose is None: verbose = self.verbose
-        if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci
-        if eris is None and self.eris is None:
-            eris = self.eris = self.base.ao2mo (mo)
-        elif eris is None:
-            eris = self.eris
-        if not isinstance (self.base, StateAverageMCSCFSolver) and isinstance (ci, list): ci = ci[0]
-        fcasscf = self.make_fcasscf_sa ()
-        Aop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris, verbose)[2:]
-        # Eliminate the component of Aop (x) which is parallel to the state-average space
-        # The Lagrange multiplier equations are not defined there
-        return self.project_Aop (Aop, ci, state), Adiag
-
-
-    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
-        if state is None: state = self.state
-        if atmlst is None: atmlst = self.atmlst
-        if verbose is None: verbose = self.verbose
-        if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci
-        if eris is None and self.eris is None:
-            eris = self.eris = self.base.ao2mo (mo)
-        elif eris is None:
-            eris = self.eris
-        fcasscf_grad = dfcasscf_grad.Gradients (self.make_fcasscf ())
-        fcasscf_grad.mo_coeff = mo
-        fcasscf_grad.ci = ci[state]
-        return fcasscf_grad.kernel (mo_coeff=mo, ci=ci[state], atmlst=atmlst, verbose=verbose)
-
-    def get_LdotJnuc (self, Lvec, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
-        if state is None: state = self.state
-        if atmlst is None: atmlst = self.atmlst
-        if verbose is None: verbose = self.verbose
-        if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci[state]
-        if eris is None and self.eris is None:
-            eris = self.eris = self.base.ao2mo (mo)
-        elif eris is None:
-            eris = self.eris
-        ncas = self.base.ncas
-        nelecas = self.base.nelecas
-        if getattr(self.base.fcisolver, 'gen_linkstr', None):
-            linkstr  = self.base.fcisolver.gen_linkstr(ncas, nelecas, False)
-        else:
-            linkstr  = None
-
-        # Just sum the weights now... Lorb can be implicitly summed
-        # Lci may be in the csf basis
-        Lorb = self.base.unpack_uniq_var (Lvec[:self.ngorb])
-        Lci = Lvec[self.ngorb:].reshape (self.nroots, -1)
-        ci = np.ravel (ci).reshape (self.nroots, -1)
-
-        # CI part
-        t0 = (time.clock (), time.time ())
-        de_Lci = Lci_dot_dgci_dx (Lci, self.weights, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, eris=eris, verbose=verbose)
-        lib.logger.info (self, '--------------- %s gradient Lagrange CI response ---------------',
-                    self.base.__class__.__name__)
-        if verbose >= lib.logger.INFO: rhf_grad._write(self, self.mol, de_Lci, atmlst)
-        lib.logger.info (self, '----------------------------------------------------------------')
-        t0 = lib.logger.timer (self, '{} gradient Lagrange CI response'.format (self.base.__class__.__name__), *t0)
-
-        # Orb part
-        de_Lorb = Lorb_dot_dgorb_dx (Lorb, self.base, mo_coeff=mo, ci=ci, atmlst=atmlst, mf_grad=mf_grad, eris=eris, verbose=verbose)
-        lib.logger.info (self, '--------------- %s gradient Lagrange orbital response ---------------',
-                    self.base.__class__.__name__)
-        if verbose >= lib.logger.INFO: rhf_grad._write(self, self.mol, de_Lorb, atmlst)
-        lib.logger.info (self, '----------------------------------------------------------------------')
-        t0 = lib.logger.timer (self, '{} gradient Lagrange orbital response'.format (self.base.__class__.__name__), *t0)
-
-        return de_Lci + de_Lorb
-    
-    def debug_lagrange (self, Lvec, bvec, Aop, Adiag, state=None, mo=None, ci=None, **kwargs):
-        return
-        # This needs to be rewritten substantially to work properly with state_average_mix
-        #if state is None: state = self.state
-        #if mo is None: mo = self.base.mo_coeff
-        #if ci is None: ci = self.base.ci
-        #lib.logger.info (self, '{} gradient: state = {}'.format (self.base.__class__.__name__, state))
-        #ngorb = self.ngorb
-        #nci = self.nci
-        #nroots = self.nroots
-        #ndet = nci // nroots
-        #ncore = self.base.ncore
-        #ncas = self.base.ncas
-        #nelecas = self.base.nelecas
-        #nocc = ncore + ncas
-        #nlag = self.nlag
-        #ci = np.asarray (self.base.ci).reshape (nroots, -1)
-        #err = Aop (Lvec) + bvec
-        #eorb = self.base.unpack_uniq_var (err[:ngorb])
-        #eci = err[ngorb:].reshape (nroots, -1)
-        #borb = self.base.unpack_uniq_var (bvec[:ngorb])
-        #bci = bvec[ngorb:].reshape (nroots, -1)
-        #Lorb = self.base.unpack_uniq_var (Lvec[:ngorb])
-        #Lci = Lvec[ngorb:].reshape (nroots, ndet)
-        #Aci = Adiag[ngorb:].reshape (nroots, ndet)
-        #Lci_ci_ovlp = (np.asarray (ci).reshape (nroots,-1).conjugate () @ Lci.T).T
-        #Lci_Lci_ovlp = (Lci.conjugate () @ Lci.T).T
-        #eci_ci_ovlp = (np.asarray (ci).reshape (nroots,-1).conjugate () @ eci.T).T
-        #bci_ci_ovlp = (np.asarray (ci).reshape (nroots,-1).conjugate () @ bci.T).T
-        #ci_ci_ovlp = ci.conjugate () @ ci.T
-        #lib.logger.debug (self, "{} gradient RHS, inactive-active orbital rotations:\n{}".format (
-        #    self.base.__class__.__name__, borb[:ncore,ncore:nocc]))
-        #lib.logger.debug (self, "{} gradient RHS, inactive-external orbital rotations:\n{}".format (
-        #    self.base.__class__.__name__, borb[:ncore,nocc:]))
-        #lib.logger.debug (self, "{} gradient RHS, active-external orbital rotations:\n{}".format (
-        #    self.base.__class__.__name__, borb[ncore:nocc,nocc:]))
-        #lib.logger.debug (self, "{} gradient residual, inactive-active orbital rotations:\n{}".format (
-        #    self.base.__class__.__name__, eorb[:ncore,ncore:nocc]))
-        #lib.logger.debug (self, "{} gradient residual, inactive-external orbital rotations:\n{}".format (
-        #    self.base.__class__.__name__, eorb[:ncore,nocc:]))
-        #lib.logger.debug (self, "{} gradient residual, active-external orbital rotations:\n{}".format (
-        #    self.base.__class__.__name__, eorb[ncore:nocc,nocc:]))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, inactive-active orbital rotations:\n{}".format (
-        #    self.base.__class__.__name__, Lorb[:ncore,ncore:nocc]))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, inactive-external orbital rotations:\n{}".format (
-        #    self.base.__class__.__name__, Lorb[:ncore,nocc:]))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, active-external orbital rotations:\n{}".format (
-        #    self.base.__class__.__name__, Lorb[ncore:nocc,nocc:]))
-        #'''
-        #lib.logger.debug (self, "{} gradient RHS, inactive-inactive orbital rotations (redundant!):\n{}".format (
-        #    self.base.__class__.__name__, borb[:ncore,:ncore]))
-        #lib.logger.debug (self, "{} gradient RHS, active-active orbital rotations (redundant!):\n{}".format (
-        #    self.base.__class__.__name__, borb[ncore:nocc,ncore:nocc]))
-        #lib.logger.debug (self, "{} gradient RHS, external-external orbital rotations (redundant!):\n{}".format (
-        #    self.base.__class__.__name__, borb[nocc:,nocc:]))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, inactive-inactive orbital rotations (redundant!):\n{}".format (
-        #    self.base.__class__.__name__, Lorb[:ncore,:ncore]))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, active-active orbital rotations (redundant!):\n{}".format (
-        #    self.base.__class__.__name__, Lorb[ncore:nocc,ncore:nocc]))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, external-external orbital rotations (redundant!):\n{}".format (
-        #    self.base.__class__.__name__, Lorb[nocc:,nocc:]))
-        #'''
-        #lib.logger.debug (self, "{} gradient Lagrange factor, CI part overlap with true CI SA space:\n{}".format ( 
-        #    self.base.__class__.__name__, Lci_ci_ovlp))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, CI part self overlap matrix:\n{}".format ( 
-        #    self.base.__class__.__name__, Lci_Lci_ovlp))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, CI vector self overlap matrix:\n{}".format ( 
-        #    self.base.__class__.__name__, ci_ci_ovlp))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, CI part response overlap with SA space:\n{}".format ( 
-        #    self.base.__class__.__name__, bci_ci_ovlp))
-        #lib.logger.debug (self, "{} gradient Lagrange factor, CI part residual overlap with SA space:\n{}".format ( 
-        #    self.base.__class__.__name__, eci_ci_ovlp))
-        #neleca, nelecb = _unpack_nelec (nelecas)
-        #spin = neleca - nelecb + 1
-        #csf = CSFTransformer (ncas, neleca, nelecb, spin)
-        #ecsf = csf.vec_det2csf (eci, normalize=False, order='C')
-        #err_norm_det = linalg.norm (err)
-        #err_norm_csf = linalg.norm (np.append (eorb, ecsf.ravel ()))
-        #lib.logger.debug (self, "{} gradient: determinant residual = {}, CSF residual = {}".format (
-        #    self.base.__class__.__name__, err_norm_det, err_norm_csf))
-        #ci_lbls, ci_csf   = csf.printable_largest_csf (ci,  10, isdet=True, normalize=True,  order='C')
-        #bci_lbls, bci_csf = csf.printable_largest_csf (bci, 10, isdet=True, normalize=False, order='C')
-        #eci_lbls, eci_csf = csf.printable_largest_csf (eci, 10, isdet=True, normalize=False, order='C')
-        #Lci_lbls, Lci_csf = csf.printable_largest_csf (Lci, 10, isdet=True, normalize=False, order='C')
-        #Aci_lbls, Aci_csf = csf.printable_largest_csf (Aci, 10, isdet=True, normalize=False, order='C')
-        #ncsf = bci_csf.shape[1]
-        #for iroot in range (self.nroots):
-        #    lib.logger.debug (self, "{} gradient Lagrange factor, CI part root {} spin square: {}".format (
-        #        self.base.__class__.__name__, iroot, spin_square0 (Lci[iroot], ncas, nelecas)))
-        #    lib.logger.debug (self, "Base CI vector")
-        #    for icsf in range (ncsf):
-        #        lib.logger.debug (self, '{} {}'.format (ci_lbls[iroot,icsf], ci_csf[iroot,icsf]))
-        #    lib.logger.debug (self, "CI gradient:")
-        #    for icsf in range (ncsf):
-        #        lib.logger.debug (self, '{} {}'.format (bci_lbls[iroot,icsf], bci_csf[iroot,icsf]))
-        #    lib.logger.debug (self, "CI residual:")
-        #    for icsf in range (ncsf):
-        #        lib.logger.debug (self, '{} {}'.format (eci_lbls[iroot,icsf], eci_csf[iroot,icsf]))
-        #    lib.logger.debug (self, "CI Lagrange vector:")
-        #    for icsf in range (ncsf):
-        #        lib.logger.debug (self, '{} {}'.format (Lci_lbls[iroot,icsf], Lci_csf[iroot,icsf]))
-        #    lib.logger.debug (self, "Diagonal of Hessian matrix CI part:")
-        #    for icsf in range (ncsf):
-        #        lib.logger.debug (self, '{} {}'.format (Aci_lbls[iroot,icsf], Aci_csf[iroot,icsf]))
-        #'''
-        #Afull = np.zeros ((nlag, nlag))
-        #dum = np.zeros ((nlag))
-        #for ix in range (nlag):
-        #    dum[ix] = 1
-        #    Afull[ix,:] = Aop (dum)
-        #    dum[ix] = 0
-        #Afull_orborb = Afull[:ngorb,:ngorb]
-        #Afull_orbci = Afull[:ngorb,ngorb:].reshape (ngorb, nroots, ndet)
-        #Afull_ciorb = Afull[ngorb:,:ngorb].reshape (nroots, ndet, ngorb)
-        #Afull_cici = Afull[ngorb:,ngorb:].reshape (nroots, ndet, nroots, ndet).transpose (0, 2, 1, 3)
-        #lib.logger.debug (self, "Orb-orb Hessian:\n{}".format (Afull_orborb))
-        #for iroot in range (nroots):
-        #    lib.logger.debug (self, "Orb-ci Hessian root {}:\n{}".format (iroot, Afull_orbci[:,iroot,:]))
-        #    lib.logger.debug (self, "Ci-orb Hessian root {}:\n{}".format (iroot, Afull_ciorb[iroot,:,:]))
-        #    for jroot in range (nroots):
-        #        lib.logger.debug (self, "Ci-ci Hessian roots {},{}:\n{}".format (iroot, jroot, Afull_cici[iroot,jroot,:,:]))
-        #'''
-
-
-    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, **kwargs):
-        if level_shift is None: level_shift = self.level_shift
-        if ci is None: ci = self.base.ci
-        return SACASLagPrec (nroots=self.nroots, nlag=self.nlag, ngorb=self.ngorb, Adiag=Adiag, 
-            level_shift=level_shift, ci=ci, **kwargs)
-
-    def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
-        def my_call (x):
-            itvec[0] += 1
-            geff = geff_op (x)
-            deltax = x - Lvec_last
-            gorb = geff[:self.ngorb]
-            xci = x[self.ngorb:]
-            gci = geff[self.ngorb:]
-            deltaorb = deltax[:self.ngorb]
-            deltaci = deltax[self.ngorb:]
-            lib.logger.info (self, ('Lagrange optimization iteration {}, |gorb| = {}, |gci| = {}, '
-                '|dLorb| = {}, |dLci| = {}').format (itvec[0], linalg.norm (gorb), linalg.norm (gci),
-                linalg.norm (deltaorb), linalg.norm (deltaci))) 
-            Lvec_last[:] = x[:]
-            #ci_arr = np.array (self.ci).reshape (self.nroots, -1)
-            #deltaci_ovlp = ci_arr @ deltaci.reshape (self.nroots, -1).T
-            #gci_ovlp = ci_arr @ gci.reshape (self.nroots, -1).T
-            #xci_ovlp = ci_arr @ xci.reshape (self.nroots, -1).T
-            #print (xci_ovlp)
-            #print (linalg.norm (xci - (ci_arr.T @ xci_ovlp).ravel ()))
-        return my_call
-
-    def project_Aop (self, Aop, ci, state):
-        ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
-            changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
-        def my_Aop (x):
-            Ax = Aop (x)
-            Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
-            ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-            ovlp = np.dot (ci_arr.conjugate (), Ax_ci.T)
-            Ax_ci -= np.dot (ovlp.T, ci_arr)
-            Ax[self.ngorb:] = Ax_ci.ravel ()
-            return Ax
-        return my_Aop
-
-    as_scanner = as_scanner
-
-class SACASLagPrec (lagrange.LagPrec):
-    ''' A callable preconditioner for solving the Lagrange equations. Based on Mol. Phys. 99, 103 (2001).
-    Attributes:
-
-    nroots : integer
-        Number of roots in the SA space
-    nlag : integer
-        Number of Lagrange degrees of freedom
-    ngorb : integer
-        Number of Lagrange degrees of freedom which are orbital rotations
-    level_shift : float
-        numerical shift applied to CI rotation Hessian
-    ci : ndarray of shape (nroots, ndet or ncscf)
-        Ci vectors of the SA space
-    Rorb : ndarray of shape (ngorb)
-        Diagonal inverse Hessian matrix for orbital rotations
-    Rci : ndarray of shape (nroots, ndet or ncsf)
-        Diagonal inverse Hessian matrix for CI rotations including a level shift
-    Rci_sa : ndarray of shape (nroots (I), ndet or ncsf, nroots (K))
-        First two factors of the inverse diagonal CI Hessian projected into SA space:
-        Rci(I)|J> <J|Rci(I)|K>^{-1} <K|Rci(I)
-        note: right-hand bra and R_I factor not included due to storage considerations
-        Make the operand's matrix element with <K|Rci(I) before taking the dot product! 
-'''
-
-    def __init__(self, nroots=None, nlag=None, ngorb=None, Adiag=None, ci=None, level_shift=None, **kwargs):
-        self.level_shift = level_shift
-        self.nroots = nroots
-        self.nlag = nlag
-        self.ngorb = ngorb
-        self.ci = np.asarray (ci).reshape (self.nroots, -1)
-        self._init_orb (Adiag)
-        self._init_ci (Adiag)
-
-    def _init_orb (self, Adiag):
-        self.Rorb = Adiag[:self.ngorb]
-        self.Rorb[abs(self.Rorb)<1e-8] = 1e-8
-        self.Rorb = 1./self.Rorb
-
-    def _init_ci (self, Adiag):
-        self.Rci = Adiag[self.ngorb:].reshape (self.nroots, -1) + self.level_shift
-        self.Rci[abs(self.Rci)<1e-8] = 1e-8
-        self.Rci = 1./self.Rci
-        # R_I|J> 
-        # Indices: I, det, J
-        Rci_cross = self.Rci[:,:,None] * self.ci.T[None,:,:]
-        # S(I)_JK = <J|R_I|K> (first index of CI contract with middle index of R_I|J> and reshape to put I first)
-        Sci = np.tensordot (self.ci.conjugate (), Rci_cross, axes=(1,1)).transpose (1,0,2)
-        # R_I|J> S(I)_JK^-1 (can only loop explicitly because of necessary call to linalg.inv)
-        # Indices: I, det, K
-        self.Rci_sa = np.zeros_like (Rci_cross)
-        for iroot in range (self.nroots):
-            self.Rci_sa[iroot] = np.dot (Rci_cross[iroot], linalg.inv (Sci[iroot]))
-
-    def __call__(self, x):
-        xorb = self.orb_prec (x)
-        xci = self.ci_prec (x)
-        return np.append (xorb, xci.ravel ())
-
-    def orb_prec (self, x):
-        return self.Rorb * x[:self.ngorb]
-
-    def ci_prec (self, x):
-        xci = x[self.ngorb:].reshape (self.nroots, -1)
-        # R_I|H I> (indices: I, det)
-        Rx = self.Rci * xci
-        # <J|R_I|H I> (indices: J, I)
-        sa_ovlp = np.dot (self.ci.conjugate (), Rx.T) 
-        # R_I|J> S(I)_JK^-1 <K|R_I|H I> (indices: I, det)
-        Rx_sub = np.zeros_like (Rx)
-        for iroot in range (self.nroots): 
-            Rx_sub[iroot] = np.dot (self.Rci_sa[iroot], sa_ovlp[:,iroot])
-        return Rx - Rx_sub
-
-from pyscf import mcscf
-mcscf.addons.StateAverageMCSCFSolver.Gradients = lib.class_as_method(Gradients)
-
+    def get_LdotJnuc (self, Lvec, **kwargs):
+        with lib.temporary_env (sacasscf_grad, Lci_dot_dgci_dx=Lci_dot_dgci_dx, Lorb_dot_dgorb_dx=Lorb_dot_dgorb_dx):
+            return sacasscf_grad.Gradients.get_LdotJnuc (self, Lvec, **kwargs)
 
