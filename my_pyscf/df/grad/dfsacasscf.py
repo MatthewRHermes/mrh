@@ -18,12 +18,13 @@
 
 from pyscf import mcscf
 from pyscf.grad import lagrange
-from pyscf.mcscf.addons import StateAverageMCSCFSolver
+from pyscf.grad import rhf as rhf_grad
+from pyscf.grad import sacasscf as sacasscf_conv_grad
 from pyscf.grad.mp2 import _shell_prange
+from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from pyscf.mcscf import mc1step, mc1step_symm, newton_casscf
 #from pyscf.grad import casscf as casscf_grad
 from mrh.my_pyscf.df.grad import dfcasscf as dfcasscf_grad
-from pyscf.grad import rhf as rhf_grad
 from mrh.my_pyscf.df.grad import rhf as dfrhf_grad
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import spin_square0
@@ -216,14 +217,8 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     mo_core = mo_coeff[:,:ncore]
     mo_cas = mo_coeff[:,ncore:nocc]
 
-    # MRH: TDMs + c.c. instead of RDMs
-    casdm1 = np.zeros ((nroots, ncas, ncas))
-    casdm2 = np.zeros ((nroots, ncas, ncas, ncas, ncas))
-    for iroot in range (nroots):
-        #print ("norm of Lci, ci for root {}: {} {}".format (iroot, linalg.norm (Lci[iroot]), linalg.norm (ci[iroot])))
-        casdm1[iroot], casdm2[iroot] = mc.fcisolver.trans_rdm12 (Lci[iroot], ci[iroot], ncas, nelecas)
-    casdm1 = (casdm1 * weights[:,None,None]).sum (0)
-    casdm2 = (casdm2 * weights[:,None,None,None,None]).sum (0)
+    # MRH: TDMs + c.c. instead of RDMs; 06/30/2020: new interface in mcscf.addons makes this much more transparent
+    casdm1, casdm2 = mc.fcisolver.trans_rdm12 (Lci, ci, ncas, nelecas)
     casdm1 += casdm1.transpose (1,0)
     casdm2 += casdm2.transpose (1,0,3,2)
 
@@ -351,62 +346,16 @@ def as_scanner(mcscf_grad, state=None):
     return CASSCF_GradScanner(mcscf_grad)
 
 
-class Gradients (lagrange.Gradients):
+class Gradients (sacasscf_conv_grad.Gradients):
 
     def __init__(self, mc, state=None):
-        self.__dict__.update (mc.__dict__)
         self.auxbasis_response = True
-        nmo = mc.mo_coeff.shape[-1]
-        self.ngorb = np.count_nonzero (mc.uniq_var_indices (nmo, mc.ncore, mc.ncas, mc.frozen))
-        self.nroots = mc.fcisolver.nroots
-        if hasattr (mc.fcisolver, 'fcisolvers'):
-            self.nroots = sum ([s.nroots for s in mc.fcisolver.fcisolvers])
-        neleca, nelecb = _unpack_nelec (mc.nelecas)
-        self.nci = cistring.num_strings (mc.ncas, neleca) * cistring.num_strings (mc.ncas, nelecb) * self.nroots
-        if state is not None:
-            self.state = state
-        elif hasattr (mc, 'nuc_grad_state'):
-            self.state = mc.nuc_grad_state
-        else:
-            self.state = None
-        self.eris = None
-        self.weights = np.array ([1])
-        try:
-            self.e_states = np.asarray (mc.e_states)
-        except AttributeError as e:
-            self.e_states = np.asarray (mc.e_tot)
-        if hasattr (mc, 'weights'):
-            self.weights = np.asarray (mc.weights)
-        assert (len (self.weights) == self.nroots), '{} {} {}'.format (mc.fcisolver.__class__, self.weights, self.nroots)
-        lagrange.Gradients.__init__(self, mc, self.ngorb+self.nci)
-        self.max_cycle = mc.max_cycle_macro
-
-    def make_fcasscf (self, casscf_attr={}, fcisolver_attr={}):
-        ''' Make a fake CASSCF object for ostensible single-state calculations '''
-        #if isinstance (self.base, mc1step_symm.CASSCF):
-        #    fcasscf = mc1step_symm.CASSCF (self.base._scf, self.base.ncas, self.base.nelecas)
-        #else:
-        #    fcasscf = mc1step.CASSCF (self.base._scf, self.base.ncas, self.base.nelecas)
-        fcasscf = mcscf.CASSCF (self.base._scf, self.base.ncas, self.base.nelecas)
-        fcasscf.__dict__.update (self.base.__dict__)
-
-        # Fix me for state_average_mix!
-        if hasattr (self.base, 'weights'):
-            fcasscf.fcisolver = self.base.fcisolver._base_class (self.base.mol)
-            fcasscf.nroots = 1
-            fcasscf.fcisolver.__dict__.update (self.base.fcisolver.__dict__)
-        fcasscf.__dict__.update (casscf_attr)
-        fcasscf.fcisolver.__dict__.update (fcisolver_attr)
-        fcasscf.verbose, fcasscf.stdout = self.verbose, self.stdout
-        fcasscf._tag_gfock_ov_nonzero = True
-        return fcasscf
+        sacasscf_conv_grad.Gradients.__init__(self, mc, state=state)
 
     def make_fcasscf_sa (self, casscf_attr={}, fcisolver_attr={}):
         ''' Make a fake SA-CASSCF object to get around weird inheritance conflicts '''
         # Fix me for state_average_mix!
-        fcasscf = self.make_fcasscf (casscf_attr={}, fcisolver_attr={})
-        if hasattr (self.base, 'weights'):
-            fcasscf.state_average_(self.base.weights)
+        fcasscf = sacasscf_conv_grad.Gradients.make_fcasscf_sa (self, casscf_attr=casscf_attr, fcisolver_attr=fcisolver_attr)
         class fcasscf_monkeypatch (fcasscf.__class__):
             def __init__(self, my_fcas):
                 self.__dict__.update (fcasscf.__dict__)
