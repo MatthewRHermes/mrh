@@ -4,7 +4,7 @@ from scipy import linalg
 from pyscf import gto, dft, ao2mo, fci, mcscf, lib
 from pyscf.lib import logger, temporary_env
 from pyscf.mcscf import mc_ao2mo
-from pyscf.mcscf.addons import StateAverageMCSCFSolver
+from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
 from mrh.my_pyscf.grad.mcpdft import Gradients
 from mrh.my_pyscf.mcpdft import pdft_veff
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
@@ -342,6 +342,15 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
         def state_average_(self, weights=(0.5,0.5)):
             # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
             sapdft_grad_monkeypatch_(super ().state_average_(weights=weights))
+            return self
+
+        def state_average_mix (self, fcisolvers=None, weights=(0.5,0.5)):
+            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
+            return sapdft_grad_monkeypatch_(state_average_mix (self, fcisolvers, weights))
+
+        def state_average_mix_(self, fcisolvers=None, weights=(0.5,0.5)):
+            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
+            sapdft_grad_monkeypatch_(state_average_mix_(self, fcisolvers, weights))
             return self
 
         @property

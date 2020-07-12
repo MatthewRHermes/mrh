@@ -18,7 +18,7 @@ class Gradients (dfsacasscf_grad.Gradients, mcpdft_grad.Gradients):
         if (veff1 is None) or (veff2 is None):
             assert (False), kwargs
             veff1, veff2 = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
-        fcasscf = self.make_fcasscf ()
+        fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci[state]
         return mcpdft_grad.mcpdft_HellmanFeynman_grad (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[state], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose, auxbasis_response=self.auxbasis_response)
