@@ -54,7 +54,7 @@ class dmet:
 
     def __init__( self, theInts, fragments, calcname='DMET', isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
                     doDET=False, doDET_NO=False, do1SHOT=False, do0SHOT=False, doLASSCF=False, do1EMB=False, enforce_symmetry=True,
-                    minFunc='FOCK_INIT', print_u=True,
+                    minFunc='FOCK_INIT', print_u=False,
                     print_rdm=True, debug_energy=False, debug_reloc=False, oldLASSCF=False,
                     nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
                     corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0, do_conv_molden=False ):
@@ -105,6 +105,7 @@ class dmet:
         self.oldLASSCF                = oldLASSCF
         self.do_conv_molden           = do_conv_molden
 
+        self.verbose = self.ints.mol.verbose
         for frag in self.fragments:
             frag.debug_energy             = debug_energy
             frag.num_mf_stab_checks       = num_mf_stab_checks
@@ -531,7 +532,7 @@ class dmet:
             loc2wmas = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
             loc2wmcs = get_complementary_states (loc2wmas, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
             self.refragmentation (loc2wmas, loc2wmcs, self.ints.oneRDM_loc)
-            self.save_checkpoint (self.calcname + '.chk.npy')
+            if self.verbose: self.save_checkpoint (self.calcname + '.chk.npy')
         while (u_diff > convergence_threshold):
             u_diff, rdm = self.doselfconsistent_corrpot (rdm, [('corrpot', iteration)])
             iteration += 1 
@@ -560,8 +561,9 @@ class dmet:
         no_occs, no_evecs = matrix_eigen_control_options (rdm, sort_vecs=-1, only_nonzero_vals=False)
         ao2no, no_ene, no_occ = self.get_las_nos (aobasis=True, oneRDM_loc=rdm, jmol_shift=True, try_symmetrize=True)
         print ("Whole-molecule natural orbital occupancies:\n{}".format (no_occ))
-        print ("Writing trial wave function natural orbital molden")
-        molden.from_mo (self.ints.mol, self.calcname + '_natorb.molden', ao2no, occ=no_occ, ene=no_ene)
+        if self.verbose:
+            print ("Writing trial wave function natural orbital molden")
+            molden.from_mo (self.ints.mol, self.calcname + '_natorb.molden', ao2no, occ=no_occ, ene=no_ene)
         
         return self.energy
 
@@ -639,7 +641,8 @@ class dmet:
         #itersnap = tracemalloc.take_snapshot ()
         #itersnap.dump ('iter{}end.snpsht'.format (myiter))
 
-        if not self.doLASSCF: self.save_checkpoint (self.calcname + '.chk.npy')
+        if not self.doLASSCF:
+            if self.verbose: self.save_checkpoint (self.calcname + '.chk.npy')
 
         return u_diff, rdm_new
 
@@ -705,7 +708,7 @@ class dmet:
             oneRDM_loc = sum ([f.oneRDMas_loc for f in self.fragments if f.norbs_as])
             oneRDM_loc += 2 * get_1RDM_from_OEI (self.ints.activeFOCK, self.ints.nelec_idem//2, subspace=loc2wmcs_new)
             e_tot, grads = self.refragmentation (loc2wmas_new, loc2wmcs_new, oneRDM_loc)
-            self.save_checkpoint (self.calcname + '.chk.npy')
+            if self.verbose: self.save_checkpoint (self.calcname + '.chk.npy')
         try:
             orb_diff = measure_basis_olap (loc2wmas_new, loc2wmcs_old)[0] / max (1,loc2wmas_new.shape[1])
         except:
@@ -1386,7 +1389,7 @@ class dmet:
     def lasci (self, dm0=None, loc2wmas=None):
         # If I don't force_imp this won't work properly for the initialization, but then again it won't be called
         ao2no, no_ene, no_occ = self.get_las_nos (oneRDM_loc=dm0, loc2wmas=loc2wmas)
-        molden.from_mo (self.ints.mol, self.calcname + '_feed.molden', ao2no, occ=no_occ, ene=no_ene)
+        if self.verbose: molden.from_mo (self.ints.mol, self.calcname + '_feed.molden', ao2no, occ=no_occ, ene=no_ene)
         loc2ao = self.ints.ao2loc.conjugate ().T
         loc2no = loc2ao @ self.ints.ao_ovlp @ ao2no
         nelec_amo = sum (f.nelec_as for f in self.fragments if f.norbs_as)

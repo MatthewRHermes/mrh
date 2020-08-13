@@ -53,7 +53,6 @@ def run (r_nn, do_df=False, **kwargs):
     # Set up the localized AO basis
     # --------------------------------------------------------------------------------------------------------------------
     myInts = localintegrals.localintegrals(mf, range(mol.nao_nr ()), 'meta_lowdin')
-    myInts.molden( my_kwargs['calcname'] + '_locints.molden' )
     
     # Build fragments from atom list
     # --------------------------------------------------------------------------------------------------------------------

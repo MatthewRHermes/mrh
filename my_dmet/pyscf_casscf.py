@@ -219,7 +219,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         
 
     # Guess orbital printing
-    if frag.mfmo_printed == False:
+    if frag.mfmo_printed == False and frag.ints.mol.verbose:
         ao2mfmo = reduce (np.dot, [frag.ints.ao2loc, frag.loc2imp, imp2mo])
         print ("Writing {} {} orbital molden".format (frag.frag_name, 'CAS guess'))
         molden.from_mo (frag.ints.mol, frag.filehead + frag.frag_name + '_mfmorb.molden', ao2mfmo, occ=my_occ)

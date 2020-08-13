@@ -433,8 +433,9 @@ class localintegrals:
         print ("LASSCF trial wave function total energy: {:.9f}".format (E))
         ao2molden, ene_no, occ_no = self.get_trial_nos (aobasis=True, loc2wmas=loc2corr, oneRDM_loc=oneRDM_loc,
             fock=self.activeFOCK, jmol_shift=True, try_symmetrize=True)
-        print ("Writing trial wave function molden")
-        molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=occ_no, ene=ene_no)
+        if self.mol.verbose:
+            print ("Writing trial wave function molden")
+            molden.from_mo (self.mol, calcname + '_trial_wvfn.molden', ao2molden, occ=occ_no, ene=ene_no)
 
     def test_total_energy (self, fragments):
         jk_c = self.activeJKidem + self.activeJKcorr
