@@ -22,25 +22,36 @@ import me2n2_driver as driver
 
 r_nn = 3.0
 mol = struct (3.0, '6-31g')
+mol.verbose = 0
 mf = scf.RHF (mol).run ()
 mc = mcscf.CASSCF (mf, 4, 4).run ()
 mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()
 mc_df = mcscf.CASSCF (mf_df, 4, 4).run ()
+mol_hs = mol.copy ()
+mol_hs.spin = 4
+mol_hs.build ()
+mf_hs = scf.RHF (mol_hs).run ()
+mf_hs_df = mf_hs.density_fit (auxbasis = df.aug_etb (mol_hs)).run ()
 
 def tearDownModule():
-    global mol, mf, mf_df, mc, mc_df
-    mol.stdout.close()
-    del mol, mf, mf_df, mc, mc_df
+    global mol, mf, mf_df, mc, mc_df, mol_hs, mf_hs, mf_hs_df
+    mol.stdout.close ()
+    mol_hs.stdout.close ()
+    del mol, mf, mf_df, mc, mc_df, mol_hs, mf_hs, mf_hs_df
 
 
 class KnownValues(unittest.TestCase):
     def test_lasscf (self):
-        elas = driver.run (3.0, do_df=False)
-        self.assertAlmostEqual (elas, mc.e_tot, 7)
+        self.assertAlmostEqual (driver.run (mf), mc.e_tot, 7)
 
     def test_lasscf_df (self):
-        elas = driver.run (3.0, do_df=True)
-        self.assertAlmostEqual (elas, mc_df.e_tot, 7)
+        self.assertAlmostEqual (driver.run (mf_df), mc_df.e_tot, 7)
+
+    def test_lasscf_hs (self):
+        self.assertAlmostEqual (driver.run (mf_hs), mf_hs.e_tot, 7)
+
+    def test_lasscf_hs_df (self):
+        self.assertAlmostEqual (driver.run (mf_hs_df), mf_hs_df.e_tot, 7)
 
 if __name__ == "__main__":
     print("Full Tests for LASSCF me2n2")
