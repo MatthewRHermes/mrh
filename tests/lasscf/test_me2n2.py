@@ -78,16 +78,16 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
     def test_lasscf (self):
-        self.assertAlmostEqual (run (mf), mc.e_tot, 7)
+        self.assertAlmostEqual (run (mf), mc.e_tot, 8)
 
     def test_lasscf_df (self):
-        self.assertAlmostEqual (run (mf_df), mc_df.e_tot, 7)
+        self.assertAlmostEqual (run (mf_df), mc_df.e_tot, 8)
 
     def test_lasscf_hs (self):
-        self.assertAlmostEqual (run (mf_hs), mf_hs.e_tot, 7)
+        self.assertAlmostEqual (run (mf_hs), mf_hs.e_tot, 8)
 
     def test_lasscf_hs_df (self):
-        self.assertAlmostEqual (run (mf_hs_df), mf_hs_df.e_tot, 7)
+        self.assertAlmostEqual (run (mf_hs_df), mf_hs_df.e_tot, 8)
 
 if __name__ == "__main__":
     print("Full Tests for LASSCF me2n2")
