@@ -1426,7 +1426,7 @@ class dmet:
         w0, t0 = time.time (), time.clock ()
         if self.lasci_log is None: 
             mol = self.ints.mol.copy ()
-            mol.output = self.calcname + '_lasci.log'
+            if mol.verbose: mol.output = self.calcname + '_lasci.log'
             mol.build ()
             self.lasci_log = mol.stdout
         frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
