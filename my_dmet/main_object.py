@@ -40,7 +40,7 @@ from pyscf.fci.addons import transform_ci_for_orbital_rotation
 from pyscf.lib.numpy_helper import unpack_tril
 from mrh.util import params
 from mrh.util.io import prettyprint_ndarray as prettyprint
-from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
+from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options, assign_blocks_weakly
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
 from mrh.util.basis import is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal, get_overlapping_states
 from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis, are_bases_orthogonal, measure_subspace_blockbreaking
@@ -879,8 +879,7 @@ class dmet:
         loc2wmas = np.dot (loc2wmas, evecs)
         wmas_labels = np.asarray (['A' for ix in range (loc2wmas.shape[1])])
         if self.ints.mol.symmetry:
-            loc2wmas, wmas_labels = matrix_eigen_control_options (oneRDM_loc, subspace=loc2wmas, symmetry=self.ints.loc2symm,
-                strong_symm=self.enforce_symmetry, only_nonzero_vals=False, sort_vecs=-1)[1:]
+            wmas_labels = assign_blocks_weakly (loc2wmas, self.ints.loc2symm)
             wmas_labels = np.asarray (self.ints.mol.irrep_name)[wmas_labels]
 
         for f in self.fragments:
@@ -944,6 +943,7 @@ class dmet:
         max_eval = np.ones (len (self.fragments))
         # Do NOT attempt to enforce symmetry here YET. It may be necessary in future, but for now hold off!
         while np.any (Mxk_rem): #loc2x.shape[1] > 0:
+            assert (it < 20)
             if np.all (max_eval < assign_thresh):
                 print (("Warning: external orbital assignment threshold lowered from {} to {}"
                     " after failing to assign any orbitals in iteration {}").format (assign_thresh, np.max (max_eval)*0.99, it-1))

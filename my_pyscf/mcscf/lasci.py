@@ -425,6 +425,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_sub, log, veff_sub_test=Non
             orbsym = mo.orbsym[i:j]
             wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (las.mol.groupname, wfnsym)
             log.info ("LASCI subspace {} with irrep {}".format (isub, wfnsym_str))
+            log.info ("LASCI subspace {} with orbsyms {}".format (isub, orbsym))
         e_sub, fcivec = las.fcisolver.kernel(h1e, eri_cas, ncas, nel,
                                                ci0=fcivec, verbose=log,
                                                max_memory=max_memory,
@@ -1092,12 +1093,13 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         if getattr(self.fcisolver, 'gen_linkstr', None):
             self.linkstrl = []
             self.linkstr = []
-            for no, ne in zip (ncas_sub, nelecas_sub):
+            for no, ne, csf in zip (ncas_sub, nelecas_sub, self.ugg.ci_transformers):
                 nel = ne
                 if ne[1] > ne[0]:
                     nel = (ne[1], ne[0])
-                self.linkstrl.append (self.fcisolver.gen_linkstr(no, nel, True))
-                self.linkstr.append (self.fcisolver.gen_linkstr(no, nel, False))
+                with lib.temporary_env (self.fcisolver, wfnsym=csf.wfnsym, orbsym=csf.orbsym):
+                    self.linkstrl.append (self.fcisolver.gen_linkstr(no, nel, True))
+                    self.linkstr.append (self.fcisolver.gen_linkstr(no, nel, False))
         else:
             self.linkstrl = self.linkstr  = None
         self.hci0 = self.Hci_all ([0.0,] * len (ci), self.h1e_ab_sub, self.eri_cas, ci)
@@ -1367,9 +1369,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             self.fcisolver.norb = norb
             self.fcisolver.nelec = ne
             self.fcisolver.smult = smult
-            self.fcisolver.orbsym = csf.orbsym
-            self.fcisolver.wfnsym = csf.wfnsym
-            Hci_diag.append (csf.pack_csf (self.fcisolver.make_hdiag_csf (h1e, h2e, norb, ne)))
+            with lib.temporary_env (self.fcisolver, wfnsym=csf.wfnsym, orbsym=csf.orbsym):
+                Hci_diag.append (csf.pack_csf (self.fcisolver.make_hdiag_csf (h1e, h2e, norb, ne)))
         Hdiag = np.concatenate ([Horb_diag[self.ugg.uniq_orb_idx]] + Hci_diag)
         Hdiag += self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8

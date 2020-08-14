@@ -334,7 +334,7 @@ def count_linind_states (the_states, ovlp=1, num_zero_atol=params.num_zero_atol)
     evals = matrix_eigen_control_options (bOb, only_nonzero_vals=True)[0]
     return len (evals)
 
-def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_zero_atol, symmetry=None, enforce_symmetry=False):
+def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_zero_ltol, symmetry=None, enforce_symmetry=False):
     if (is_basis_orthonormal (overlapping_basis)):
         return overlapping_basis
     c2b = np.asarray (overlapping_basis)
@@ -355,7 +355,7 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
     assert (np.allclose (bOb, bOb.conjugate ().T)), "overlap matrix not hermitian! problem with basis?"
     assert (np.abs (np.trace (bOb)) > num_zero_atol), "overlap matrix zero or negative trace! problem with basis?"
      
-    evals, evecs = matrix_eigen_control_options (bOb, sort_vecs=-1, only_nonzero_vals=True)
+    evals, evecs = matrix_eigen_control_options (bOb, sort_vecs=-1, only_nonzero_vals=True, num_zero_atol=num_zero_atol)
     if len (evals) == 0:
         return np.zeros ((c2b.shape[0], 0), dtype=c2b.dtype)
     p2x = np.asarray (evecs)
@@ -391,7 +391,7 @@ def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol
     proj_cc = np.asarray (the_projector)
     assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (np.linalg.norm (proj_cc - proj_cc.conjugate ().T))
     assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str (np.linalg.norm ((proj_cc @ proj_cc) - proj_cc))
-    evals, evecs = matrix_eigen_control_options (proj_cc, sort_vecs=-1, only_nonzero_vals=True)
+    evals, evecs = matrix_eigen_control_options (proj_cc, sort_vecs=-1, only_nonzero_vals=True, num_zero_atol=num_zero_atol)
     idx = np.isclose (evals, 1)
     return evecs[:,idx]
 
@@ -403,6 +403,7 @@ def get_complementary_states (incomplete_basis, already_complete_warning=True, a
         else:
             return np.concatenate (symmetry, axis=1)
     orthonormal_basis = orthonormalize_a_basis (incomplete_basis, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
+    print ("did I gain an active orbital? {}, {}".format (incomplete_basis.shape[1], orthonormal_basis.shape[1]))
     if is_basis_orthonormal_and_complete (orthonormal_basis):
         if already_complete_warning:
             print ("warning: tried to construct a complement for a basis that was already complete")
@@ -686,10 +687,11 @@ def get_subspace_symmetry_blocks (the_subspace, the_blocks, atol=params.num_zero
     new_blocks = []
     remaining_space=None
     for idx, c2s in enumerate (the_blocks):
-        s2c = c2s.conjugate ().T
-        s2p = s2c @ c2p
+        s2c = c2s.conjugate ().T 
+        s2p = s2c @ c2p * (1 + np.arange (c2p.shape[-1]))[None,:] # Prevent degeneracy in the svals
         svals, p2s = matrix_svd_control_options (s2p, rspace=remaining_space, only_nonzero_vals=True, full_matrices=True, sort_vecs=-1, num_zero_atol=rtol)[1:3]
-        assert (np.all (np.isclose (svals, 1, atol=atol, rtol=rtol))), 'Subspace may not be symmetry-adapted: svals for {}th block: {}'.format (idx, svals)
+        wgts = (p2s * p2s).sum (0)[:len(svals)]
+        assert (np.all (np.isclose (wgts, 1, atol=atol, rtol=rtol))), 'Subspace may not be symmetry-adapted: svals for {}th block: {}'.format (idx, wgts)
         new_blocks.append (p2s[:,:len(svals)])
         remaining_space = p2s[:,len(svals):]
     p2s = np.concatenate (new_blocks, axis=1)    
