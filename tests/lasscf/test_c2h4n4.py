@@ -47,10 +47,8 @@ def run (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcnam
     N2Ha.bath_tol = C2H2.bath_tol = N2Hb.bath_tol = bath_tol
     N2Ha.target_S = abs (m1)
     N2Ha.target_MS = m1
-    N2Ha.mol_output = calcname + '_N2Ha.log'
     N2Hb.target_S = abs (m2)
     N2Hb.target_MS = m2
-    N2Hb.mol_output = calcname + '_N2Hb.log'
     if mol.symmetry:
         N2Ha.wfnsym = ir1
         N2Hb.wfnsym = ir2
@@ -67,7 +65,8 @@ def run (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcnam
 
 dr_nn = 3.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-mol.verbose = 4
+mol.verbose = 0
+mol.output = '/dev/null'
 mf = scf.RHF (mol).run ()
 mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()
 
@@ -97,22 +96,20 @@ class KnownValues(unittest.TestCase):
     def test_dia_df (self):
         self.assertAlmostEqual (run (mf_df, 0, 0, calcname='dia_df'), -295.44716017803967, 8)
 
-    #def test_ferro (self):
-    #    self.assertAlmostEqual (run (mf_hs, 2, 2, active_first=True, calcname='ferro'), mf_hs.e_tot, 8)
+    def test_ferro (self):
+        self.assertAlmostEqual (run (mf_hs, 2, 2, active_first=True, calcname='ferro'), mf_hs.e_tot, 8)
 
-    #def test_ferro_df (self):
-    #    self.assertAlmostEqual (run (mf_hs_df, 2, 2, active_first=True, calcname='ferro_df'), mf_hs_df.e_tot, 8)
+    def test_ferro_df (self):
+        self.assertAlmostEqual (run (mf_hs_df, 2, 2, active_first=True, calcname='ferro_df'), mf_hs_df.e_tot, 8)
 
-    #def test_af (self):
-    #    self.assertAlmostEqual (run (mf_hs, 2, -2, active_first=True, calcname='af'), -295.44724798042466, 8)
+    def test_af (self):
+        self.assertAlmostEqual (run (mf_hs, 2, -2, active_first=True, calcname='af'), -295.44724798042466, 8)
 
-    #def test_af_df (self):
-    #    self.assertAlmostEqual (run (mf_hs_df, 2, -2, active_first=True, calcname='af_df'), -295.4466638852035, 8)
+    def test_af_df (self):
+        self.assertAlmostEqual (run (mf_hs_df, 2, -2, active_first=True, calcname='af_df'), -295.4466638852035, 8)
 
-    # Something is wrong with point-group symmetry in LASCI!
     def test_symm (self):
         self.assertAlmostEqual (run (mf_symm, calcname='symm'), -295.44779578419946, 7)
-        #self.assertAlmostEqual (run (mf_symm, ir1=1, ir2=0, calcname='symm_exc'), -295.44779578419946, 7)
 
     def test_symm_df (self):
         self.assertAlmostEqual (run (mf_symm_df, calcname='symm_df'), -295.44716017803967, 7)
