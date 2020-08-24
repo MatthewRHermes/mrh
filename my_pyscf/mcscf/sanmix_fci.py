@@ -6,7 +6,7 @@ class StateAverageNMixFciSolver (StateAverageMixFCISolver):
 
 def get_sanmix_fcisolver (samix_fcisolver):
 
-    def FCISolver (samix_fcisolver.__class__, StateAverageNMixFciSolver):
+    class FCISolver (samix_fcisolver.__class__, StateAverageNMixFciSolver):
 
         def _get_nelec (self, solver, nelec):
             m = solver.spin if solver.spin is not None else 0
@@ -17,11 +17,11 @@ def get_sanmix_fcisolver (samix_fcisolver):
             return nelec
 
     sanmix_fcisolver = FCISolver (samix_fcisolver.mol)
-    sanmix_fcisolver.__dict__.update (samix_fcisolver)
+    sanmix_fcisolver.__dict__.update (samix_fcisolver.__dict__)
     return sanmix_fcisolver
 
 def state_average_n_mix (casscf, fcisolvers, weights=(0.5,0.5)):
-    sacasscf = state_average_mix (casscf, fcisolvers, weights=(0.5,0.5)):
+    sacasscf = state_average_mix (casscf, fcisolvers, weights=weights)
     sacasscf.fcisolver = get_sanmix_fcisolver (sacasscf.fcisolver)
     return sacasscf
 
