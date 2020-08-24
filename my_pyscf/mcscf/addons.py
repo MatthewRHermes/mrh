@@ -51,6 +51,8 @@ def get_h1e_zipped_fcisolver (fcisolver):
     if isinstance (fcisolver, H1EZipFCISolver):
         return fcisolver
 
+    assert isinstance (StateAverageMixFCISolver), 'requires StateAverageMixFCISolver'
+
     class FCISolver (fcisolver.__class__, H1EZipFCISolver):
 
         def kernel(self, h1, h2, norb, nelec, ci0=None, verbose=0, **kwargs):
@@ -71,7 +73,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
                     cs.extend(c)
             self.e_states = es
             self.converged = np.all(getattr(sol, 'converged', True)
-                                       for sol in fcisolvers)
+                                       for sol in self.fcisolvers)
 
             if log.verbose >= logger.DEBUG:
                 if has_spin_square:
@@ -131,4 +133,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
         contract_2e = states_contract_2e
         make_hdiag = states_make_hdiag
 
+    h1ezipped_fcisolver = FCISolver (fcisolver.mol)
+    h1ezipped_fcisolver.__dict__.update (fcisolver.__dict__)
+    return h1ezipped_fcisolver
 
