@@ -1,12 +1,15 @@
 import numpy as np
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, StateAverageMixFCISolver, state_average_mix
 
-class StateAverageNMixFciSolver (StateAverageMixFCISolver):
+class StateAverageNMixFCISolver (StateAverageMixFCISolver):
     pass
 
 def get_sanmix_fcisolver (samix_fcisolver):
 
-    class FCISolver (samix_fcisolver.__class__, StateAverageNMixFciSolver):
+    if isinstance (samix_fcisolver, StateAverageNMixFCISolver):
+        return samix_fcisolver
+
+    class FCISolver (samix_fcisolver.__class__, StateAverageNMixFCISolver):
 
         def _get_nelec (self, solver, nelec):
             m = solver.spin if solver.spin is not None else 0
