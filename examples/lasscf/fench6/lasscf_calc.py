@@ -9,6 +9,7 @@ from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM
 from pyscf.mcscf.addons import project_init_guess, spin_square, sort_mo_by_irrep
 from pyscf.lib.parameters import BOHR
 from functools import reduce
+import pyscf.__config__
 import numpy as np
 import re
 import tracemalloc
@@ -98,7 +99,9 @@ my_kwargs = {'calcname':           'fench_{}_lasscf65_anodz'.format (('ls','hs')
 load_casscf_guess = False
 load_lasscf_chk = False
 load_lasscf_sto3g_chk = False
-add_virtual_bath = False
+density_fitting = False
+etb_beta = getattr(pyscf.__config__, 'df_addons_aug_dfbasis', 2.0)
+project_cderi = False
 bath_tol = 1e-8
 active_orb_lists = [[31,32,33,37,38],[26,35,36,34,37]]
 eri_name = my_kwargs['calcname'][:8] + my_kwargs['calcname'][-6:] + '_eri.npy'
@@ -110,14 +113,18 @@ for iargv in sys.argv[2:]:
         my_kwargs[key] = type (my_kwargs[key]) (val)
     elif iargv == 'load_CASSCF_guess':
         load_casscf_guess = True
+    elif iargv == 'project_cderi':
+        project_cderi = True
+    elif iargv[:15] == 'density_fitting':
+        density_fitting = True
+        if len (iargv) > 16:
+            etb_beta = float (iargv[16:])
     elif iargv[:9] == 'bath_tol=':
         bath_tol = float (iargv[9:])
     elif iargv[:16] == 'load_lasscf_chk':
         load_lasscf_chk = True
     elif iargv[:22] == 'load_lasscf_sto3g_chk':
         load_lasscf_sto3g_chk = True
-    elif iargv == 'add_virtual_bath':
-        add_virtual_bath = True
     else: 
         CASlist = np.array ([int (i) for i in ints.findall (iargv)])
         print ("CASlist (note 1-indexing): {}".format (CASlist))
@@ -128,10 +135,14 @@ mol = contract_ano_basis (gto.M (atom = carts, basis = 'ano', symmetry = True, c
 mol_sto3g = gto.M (atom = carts, basis = 'sto-3g', symmetry = True, charge = 2, spin = 2*spinS, verbose = 0, max_memory=MAX_MEMORY)
 mf = scf.RHF (mol).sfx2c1e ()
 do_save_eri = False
-try:
-    mf._eri = np.load (eri_name)
-except OSError:
-    do_save_eri = True
+if density_fitting:
+    mf = mf.density_fit (auxbasis = df.aug_etb (mol, beta=etb_beta))
+else:
+    try:
+        mf._eri = np.load (eri_name)
+    except OSError:
+        do_save_eri = True
+if spinS > 0: mf.irrep_nelec = {'Ag': (20,18), 'B2g': (3,2), 'B3g': (3,2)}
 try:
     dm0 = np.load (mfdmname)
 except OSError:
@@ -174,7 +185,7 @@ myInts = localintegrals.localintegrals(mf, range(mol.nao_nr ()), 'meta_lowdin')
 
 # Build fragments from atom list
 # --------------------------------------------------------------------------------------------------------------------
-Fe = make_fragment_atom_list (myInts, [0], 'CASSCF(6,5)', name="Fe", add_virtual_bath=add_virtual_bath)
+Fe = make_fragment_atom_list (myInts, [0], 'CASSCF(6,5)', name="Fe", project_cderi=project_cderi)
 NCHa = make_fragment_atom_list (myInts, [1, 7,   8], 'dummy RHF', name='NCHa')
 NCHb = make_fragment_atom_list (myInts, [2, 13, 14], 'dummy RHF', name='NCHb')
 NCHc = make_fragment_atom_list (myInts, [3, 9,  10], 'dummy RHF', name='NCHc')

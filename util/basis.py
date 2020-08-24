@@ -51,7 +51,7 @@ def measure_basis_nonorthonormality (the_basis, ovlp=1):
     test_matrix -= np.eye (nbas)
     return np.amax (np.abs (test_matrix)), linalg.norm (test_matrix)
 
-def is_basis_orthonormal (the_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+def is_basis_orthonormal (the_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_rtol):
     cOc = np.atleast_2d (ovlp) 
     c2b = np.asarray (the_basis)
     b2c = c2b.conjugate ().T
@@ -63,16 +63,16 @@ def is_basis_orthonormal (the_basis, ovlp=1, rtol=params.num_zero_rtol, atol=par
     atol *= test_matrix.shape[0]
     return is_matrix_eye (test_matrix, rtol=rtol, atol=atol)
 
-def is_basis_orthonormal_and_complete (the_basis, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+def is_basis_orthonormal_and_complete (the_basis, rtol=params.num_zero_rtol, atol=params.num_zero_rtol):
     return (is_basis_orthonormal (the_basis, rtol=rtol, atol=atol) and (the_basis.shape[1] == the_basis.shape[0]))
 
-def are_bases_orthogonal (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+def are_bases_orthogonal (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_ltol, atol=params.num_zero_ltol):
     test_matrix = basis_olap (bra_basis, ket_basis, ovlp)
     rtol *= sqrt (bra_basis.shape[1] * ket_basis.shape[1])
     atol *= sqrt (bra_basis.shape[1] * ket_basis.shape[1])
     return is_matrix_zero (test_matrix, rtol=rtol, atol=atol), test_matrix
 
-def are_bases_equivalent (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_rtol, atol=params.num_zero_atol):
+def are_bases_equivalent (bra_basis, ket_basis, ovlp=1, rtol=params.num_zero_ltol, atol=params.num_zero_ltol):
     bra_basis = orthonormalize_a_basis (bra_basis)
     ket_basis = orthonormalize_a_basis (ket_basis)
     if bra_basis.shape[1] != ket_basis.shape[1]: return False
@@ -122,6 +122,7 @@ def represent_operator_in_basis (braOket, bra1_basis = None, ket1_basis = None, 
     the_bases = [bra1_basis, ket1_basis, bra2_basis, ket2_basis]
     if any ([i.shape[0] == 0 for i in the_bases]):
         newshape = tuple ([i.shape[1] for i in the_bases])
+        if len (braOket.shape) == 2: newshape = tuple (newshape[:2])
         return np.zeros (newshape, dtype=braOket.dtype)
     if all ([is_matrix_eye (i) for i in the_bases]):
         return braOket
@@ -253,15 +254,53 @@ def get_overlapping_states (bra_basis, ket_basis, across_operator=None, inner_sy
         assert (c2p.shape[0] == cOc.shape[0] and c2p.shape[0] == cOc.shape[1]), "when specifying an across_operator, it's dimensions need to be the same as the external basis"
     get_labels = (not (inner_symmetry is None)) or (not (outer_symmetry[0] is None)) or (not (outer_symmetry[1] is None))
 
-    rets = matrix_svd_control_options (cOc, lspace=c2p, rspace=c2q, full_matrices=full_matrices,
-        symmetry=inner_symmetry,
-        lspace_symmetry=outer_symmetry[0],
-        rspace_symmetry=outer_symmetry[1],
-        strong_symm=enforce_symmetry,
-        sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
-
-    c2l, svals, c2r = rets[:3]
-    if get_labels: llab, rlab = rets[3:]
+    try:
+        rets = matrix_svd_control_options (cOc, lspace=c2p, rspace=c2q, full_matrices=full_matrices,
+            symmetry=inner_symmetry,
+            lspace_symmetry=outer_symmetry[0],
+            rspace_symmetry=outer_symmetry[1],
+            strong_symm=enforce_symmetry,
+            sort_vecs=-1, only_nonzero_vals=only_nonzero_vals, num_zero_atol=num_zero_atol)
+        c2l, svals, c2r = rets[:3]
+        if get_labels: llab, rlab = rets[3:]
+    except linalg.LinAlgError as e:
+        print ("LinAlgError in SVD! Analyzing...")
+        if isinstance (cOc, np.ndarray):
+            print ("Shape of across_operator: {}".format (cOc.shape))
+            print ("Any NANs in across_operator? {}".format (np.count_nonzero (np.isnan (cOc))))
+            print ("Any INFs in across_operator? {}".format (np.count_nonzero (np.isinf (cOc))))
+            print ("min/max across_operator: {}/{}".format (np.amin (cOc), np.amax (cOc)))
+        print ("Shape of bra_basis: {}".format (c2p.shape))
+        print ("Any NANs in bra_basis? {}".format (np.count_nonzero (np.isnan (c2p))))
+        print ("Any INFs in bra_basis? {}".format (np.count_nonzero (np.isinf (c2p))))
+        print ("min/max bra_basis: {}/{}".format (np.amin (c2p), np.amax (c2p)))
+        print ("Shape of ket_basis: {}".format (c2p.shape))
+        print ("Any NANs in ket_basis? {}".format (np.count_nonzero (np.isnan (c2p))))
+        print ("Any INFs in ket_basis? {}".format (np.count_nonzero (np.isinf (c2p))))
+        print ("min/max ket_basis: {}/{}".format (np.amin (c2p), np.amax (c2p)))
+        proj_l = c2p @ c2p.conjugate ().T
+        if isinstance (cOc, np.ndarray):
+            proj_l = cOc @ proj_l @ cOc
+        r_symmetry = inner_symmetry if outer_symmetry[1] is None else outer_symmetry[1]
+        rets = matrix_eigen_control_options (proj_l, subspace=c2q, symmetry=r_symmetry, strong_symm=enforce_symmetry, sort_vecs=-1,
+            only_nonzero_vals=False, num_zero_atol=num_zero_atol)
+        evals_r, c2r = rets[:2]
+        if get_labels: rlab = rets[2]
+        proj_r = c2q @ c2q.conjugate ().T
+        if isinstance (cOc, np.ndarray):
+            proj_r = cOc @ proj_r @ cOc 
+        l_symmetry = inner_symmetry if outer_symmetry[0] is None else outer_symmetry[0]
+        rets = matrix_eigen_control_options (proj_r, subspace=c2p, symmetry=l_symmetry, strong_symm=enforce_symmetry, sort_vecs=-1,
+            only_nonzero_vals=False, num_zero_atol=num_zero_atol)
+        evals_l, c2l = rets[:2]
+        if get_labels: llab = rets[2]
+        print ("These pairs of eigenvalues should be equal and all positive:")
+        for el, er in zip (evals_l, evals_r):
+            print (el, er)
+        mlen = min (len (evals_l), len (evals_r))
+        if len (evals_l) > mlen: print ("More left-hand eigenvalues: {}".format (evals_l[mlen:]))
+        if len (evals_r) > mlen: print ("More left-hand eigenvalues: {}".format (evals_r[mlen:]))
+        raise (e)
 
     # Truncate the basis if requested
     max_nlvecs = max_nlvecs or c2l.shape[1]
@@ -295,7 +334,7 @@ def count_linind_states (the_states, ovlp=1, num_zero_atol=params.num_zero_atol)
     evals = matrix_eigen_control_options (bOb, only_nonzero_vals=True)[0]
     return len (evals)
 
-def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_zero_atol, symmetry=None, enforce_symmetry=False):
+def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_zero_ltol, symmetry=None, enforce_symmetry=False):
     if (is_basis_orthonormal (overlapping_basis)):
         return overlapping_basis
     c2b = np.asarray (overlapping_basis)
@@ -316,7 +355,7 @@ def orthonormalize_a_basis (overlapping_basis, ovlp=1, num_zero_atol=params.num_
     assert (np.allclose (bOb, bOb.conjugate ().T)), "overlap matrix not hermitian! problem with basis?"
     assert (np.abs (np.trace (bOb)) > num_zero_atol), "overlap matrix zero or negative trace! problem with basis?"
      
-    evals, evecs = matrix_eigen_control_options (bOb, sort_vecs=-1, only_nonzero_vals=True)
+    evals, evecs = matrix_eigen_control_options (bOb, sort_vecs=-1, only_nonzero_vals=True, num_zero_atol=num_zero_atol)
     if len (evals) == 0:
         return np.zeros ((c2b.shape[0], 0), dtype=c2b.dtype)
     p2x = np.asarray (evecs)
@@ -352,7 +391,7 @@ def get_states_from_projector (the_projector, num_zero_atol=params.num_zero_atol
     proj_cc = np.asarray (the_projector)
     assert (np.allclose (proj_cc, proj_cc.H)), "projector must be hermitian\n" + str (np.linalg.norm (proj_cc - proj_cc.conjugate ().T))
     assert (is_matrix_idempotent (proj_cc)), "projector must be idempotent\n" + str (np.linalg.norm ((proj_cc @ proj_cc) - proj_cc))
-    evals, evecs = matrix_eigen_control_options (proj_cc, sort_vecs=-1, only_nonzero_vals=True)
+    evals, evecs = matrix_eigen_control_options (proj_cc, sort_vecs=-1, only_nonzero_vals=True, num_zero_atol=num_zero_atol)
     idx = np.isclose (evals, 1)
     return evecs[:,idx]
 
@@ -364,6 +403,7 @@ def get_complementary_states (incomplete_basis, already_complete_warning=True, a
         else:
             return np.concatenate (symmetry, axis=1)
     orthonormal_basis = orthonormalize_a_basis (incomplete_basis, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
+    print ("did I gain an active orbital? {}, {}".format (incomplete_basis.shape[1], orthonormal_basis.shape[1]))
     if is_basis_orthonormal_and_complete (orthonormal_basis):
         if already_complete_warning:
             print ("warning: tried to construct a complement for a basis that was already complete")
@@ -382,8 +422,8 @@ def get_complementary_states (incomplete_basis, already_complete_warning=True, a
     # Kernel
     nbas = orthonormal_basis.shape[1]
     Q, R = linalg.qr (orthonormal_basis)
-    assert (are_bases_equivalent (Q[:,:nbas], orthonormal_basis))
-    assert (are_bases_orthogonal (Q[:,nbas:], orthonormal_basis))
+    assert (are_bases_equivalent (Q[:,:nbas], orthonormal_basis)), 'basis overlap = {}'.format (measure_basis_olap (Q[:,:nbas], orthonormal_basis))
+    assert (are_bases_orthogonal (Q[:,nbas:], orthonormal_basis)), 'basis overlap = {}'.format (measure_basis_olap (Q[:,nbas:], orthonormal_basis))
     '''
     err = linalg.norm (ovlp[:nbas,:].T @ ovlp[:nbas,:]) - np.eye (nbas)) / nbas
     assert (abs (err) < 1e-8), err
@@ -647,10 +687,11 @@ def get_subspace_symmetry_blocks (the_subspace, the_blocks, atol=params.num_zero
     new_blocks = []
     remaining_space=None
     for idx, c2s in enumerate (the_blocks):
-        s2c = c2s.conjugate ().T
-        s2p = s2c @ c2p
+        s2c = c2s.conjugate ().T 
+        s2p = s2c @ c2p * (1 + np.arange (c2p.shape[-1]))[None,:] # Prevent degeneracy in the svals
         svals, p2s = matrix_svd_control_options (s2p, rspace=remaining_space, only_nonzero_vals=True, full_matrices=True, sort_vecs=-1, num_zero_atol=rtol)[1:3]
-        assert (np.all (np.isclose (svals, 1, atol=atol, rtol=rtol))), 'Subspace may not be symmetry-adapted: svals for {}th block: {}'.format (idx, svals)
+        wgts = (p2s * p2s).sum (0)[:len(svals)]
+        assert (np.all (np.isclose (wgts, 1, atol=atol, rtol=rtol))), 'Subspace may not be symmetry-adapted: svals for {}th block: {}'.format (idx, wgts)
         new_blocks.append (p2s[:,:len(svals)])
         remaining_space = p2s[:,len(svals):]
     p2s = np.concatenate (new_blocks, axis=1)    

@@ -45,11 +45,16 @@ void dger_(const int *m, const int *n,
            const double *alpha, const double *x,
            const int *incx, const double *y, const int *incy,
            double *a, const int *lda);
+void dgesdd_(const char * jobz, const int * m, const int * n,
+             const double * a, const int * lda, const double * s,
+             const double * u, const int * ldu,
+             const double * vt, const int * ldvt,
+             const double * work, const int * lwork, const int * iwork,
+             const int * info);
 void dsymm_(const char*, const char*, const int*, const int*,
             const double*, const double*, const int*,
             const double*, const int*,
             const double*, double*, const int*);
-
 void dsyr_(const char *uplo, const int *n, const double *alpha,
            const double *x, const int *incx, double *a, const int *lda);
 void dsyr2_(const char *uplo, const int *n, const double *alpha,

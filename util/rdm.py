@@ -36,38 +36,49 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
     loc2frag_inp = loc2frag.copy ()
 
     def _analyze_intermediates (loc2int, tag):
-        loc2int = align_states (loc2int, symmetry)
-        int_labels = assign_blocks_weakly (loc2int, symmetry)
-        err = measure_subspace_blockbreaking (loc2int, symmetry, np.arange (len (symmetry), dtype=int))
-        labeldict = dict (zip (*np.unique (int_labels, return_counts=True)))
-        print ("{} irreps: {}, err = {}".format (tag, labeldict, err))
+        try:
+            loc2int = align_states (loc2int, symmetry)
+            int_labels = assign_blocks_weakly (loc2int, symmetry)
+            err = measure_subspace_blockbreaking (loc2int, symmetry, np.arange (len (symmetry), dtype=int))
+            labeldict = dict (zip (*np.unique (int_labels, return_counts=True)))
+            print ("{} irreps: {}, err = {}".format (tag, labeldict, err))
+        except:
+            print ("Analysis failed")
+        return
     def _analyze_orth_problem (l2p, lbl):
         for ir in np.unique (lbl):
             print (ir, measure_basis_nonorthonormality (l2p[:,lbl==ir]))
         for ir1, ir2 in itertools.combinations (np.unique (lbl), 2):
             print (ir1, ir2, measure_basis_nonorthonormality (l2p[:,np.logical_or (lbl==ir1,lbl==ir2)]))
+        return
 
     # We need to SVD the environment-fragment block of the 1RDM
     # The bath states are from the left-singular vectors corresponding to nonzero singular value
     # The fragment semi-natural orbitals are from the right-singular vectors of ~any~ singular value
     # Note that only ~entangled~ fragment orbitals are returned so don't overwrite loc2frag!
+    print ("Entry to Schmidt_decompose_1RDM")
+    _analyze_intermediates (loc2frag, 'Fragment')
     assert (loc2frag.shape == (norbs_tot, norbs_frag)), loc2frag.shape
     loc2env = get_complementary_states (loc2frag, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
+    print ("After get_complementary_states")
+    _analyze_intermediates (loc2env, 'Environment')
     if enforce_symmetry:
         loc2frag = orthonormalize_a_basis (loc2frag, symmetry=symmetry, enforce_symmetry=enforce_symmetry)
         frag_symm = assign_blocks_weakly (loc2frag, symmetry)
         env_symm = assign_blocks_weakly (loc2env, symmetry)
+    print ("After orthonormalize_a_basis")
+    _analyze_intermediates (loc2frag, 'Fragment')
     assert (loc2frag.shape == (norbs_tot, norbs_frag)), loc2frag.shape
     assert (loc2env.shape == (norbs_tot, norbs_env)), loc2env.shape
     rets = get_overlapping_states (loc2env, loc2frag, across_operator=the_1RDM, inner_symmetry=symmetry, outer_symmetry=(env_symm, frag_symm), enforce_symmetry=enforce_symmetry,
         only_nonzero_vals=True, full_matrices=True)
     loc2env, loc2frag, svals = rets[:3]
     if get_labels: env_labels, frag_labels = rets[3:]
+    print ("Coming right out of SVD")
+    _analyze_intermediates (loc2frag, 'Fragment')
+    _analyze_intermediates (loc2env, 'Environment')
     assert (is_basis_orthonormal (loc2frag)), measure_basis_nonorthonormality (loc2frag)
     assert (is_basis_orthonormal (loc2env)), measure_basis_nonorthonormality (loc2env)
-    #if get_labels:
-    #    print ("Coming right out of SVD")
-    #    _analyze_orth_problem (np.append (loc2frag, loc2env, axis=1), np.append (frag_labels, env_labels))
     norbs_bath = len (svals) #np.count_nonzero (svals > bath_tol)
     norbs_core = norbs_env - norbs_bath
     norbs_ufrag = norbs_frag - norbs_bath
@@ -99,6 +110,9 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
         rets = matrix_eigen_control_options (mat, subspace=loc2ufrag, symmetry=symmetry, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
         loc2ufrag = rets[1]
         if get_labels: ufrag_labels = rets[2]
+    print ("After separating fragment to entangled and unentangled sectors")
+    _analyze_intermediates (loc2efrag, 'Entangled fragment')
+    _analyze_intermediates (loc2ufrag, 'Unentangled fragment')
     loc2imp = np.concatenate ([loc2ufrag, loc2efrag, loc2bath], axis=1)
     nelec_imp = ((the_1RDM @ loc2imp) * loc2imp).sum ()
     if norbs_core > 0:
@@ -111,6 +125,8 @@ def Schmidt_decompose_1RDM (the_1RDM, loc2frag, norbs_bath_max, symmetry=None, f
         rets = matrix_eigen_control_options (mat, subspace=loc2core, symmetry=symmetry, strong_symm=enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
         loc2core = rets[1]
         if get_labels: core_labels = rets[2]
+    print ("After making canonical or natural core orbitals")
+    _analyze_intermediates (loc2core, 'Core')
     loc2emb = np.append (loc2imp, loc2core, axis=1)
     if get_labels: labels = np.concatenate ((ufrag_labels, efrag_labels, bath_labels, core_labels))
     try:

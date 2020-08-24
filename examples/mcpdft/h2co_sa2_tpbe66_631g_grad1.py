@@ -8,6 +8,7 @@ import numpy as np
 import math
 
 # Energy calculation
+logger.TIMER_LEVEL = logger.INFO
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
 O -0.676110  0.000000  0.000000
 H  1.102430  0.000000  0.920125
@@ -19,10 +20,12 @@ mc.fcisolver = csf_solver (mol, smult = 1)
 mc.state_average_([0.5,0.5])
 mc.kernel ()
 
+# mc.nuc_grad_method for MC-PDFT objects already points to a state-specific solver
+# Just select which root!
+
 # Gradient calculation
 mc_grad = mc.nuc_grad_method ()
-mc_grad.iroot = 1
-dE = mc_grad.kernel ()
+dE = mc_grad.kernel (state = 1)
 print ("SA(2) tPBE(6,6)/6-31g second root gradient of formaldehyde at the CASSCF(6,6)/6-31g geometry:")
 for ix, row in enumerate (dE):
     print ("{:1s} {:11.8f} {:11.8f} {:11.8f}".format (mol.atom_pure_symbol (ix), *row))

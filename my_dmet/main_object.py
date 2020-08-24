@@ -23,24 +23,29 @@
 '''
 
 from mrh.my_dmet import localintegrals, qcdmethelper
+from mrh.my_pyscf.mcscf import lasci
+import warnings
 import numpy as np
 from scipy import optimize, linalg
 import time, ctypes
 #import tracemalloc
 from pyscf import scf, mcscf
 from pyscf.lo import orth, nao
+from pyscf.lib import logger as pyscf_logger
 from pyscf.gto import mole, same_mol
 from pyscf.tools import molden
 from pyscf.symm.addons import symmetrize_space
 from pyscf.scf.addons import project_mo_nr2nr, project_dm_nr2nr
+from pyscf.fci.addons import transform_ci_for_orbital_rotation
+from pyscf.lib.numpy_helper import unpack_tril
 from mrh.util import params
 from mrh.util.io import prettyprint_ndarray as prettyprint
-from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options
+from mrh.util.la import matrix_eigen_control_options, matrix_svd_control_options, assign_blocks_weakly
 from mrh.util.basis import represent_operator_in_basis, orthonormalize_a_basis, get_complementary_states, project_operator_into_subspace
 from mrh.util.basis import is_matrix_eye, measure_basis_olap, is_basis_orthonormal_and_complete, is_basis_orthonormal, get_overlapping_states
 from mrh.util.basis import is_matrix_zero, is_subspace_block_adapted, symmetrize_basis, are_bases_orthogonal, measure_subspace_blockbreaking
 from mrh.util.basis import assign_blocks, align_states, measure_subspace_blockbreaking
-from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM
+from mrh.util.rdm import get_2RDM_from_2CDM, get_2CDM_from_2RDM, get_1RDM_from_OEI
 from mrh.my_dmet.debug import debug_ofc_oneRDM, debug_Etot, examine_ifrag_olap, examine_wmcs
 from functools import reduce
 from itertools import combinations, product
@@ -48,11 +53,11 @@ from itertools import combinations, product
 class dmet:
 
     def __init__( self, theInts, fragments, calcname='DMET', isTranslationInvariant=False, SCmethod='BFGS', incl_bath_errvec=True, use_constrained_opt=False, 
-                    doDET=False, doDET_NO=False, do1SHOT=False, do0SHOT=False, doLASSCF=False, do1EMB=False, enforce_symmetry=False,
-                    minFunc='FOCK_INIT', print_u=True,
-                    print_rdm=True, debug_energy=False, debug_reloc=False,
+                    doDET=False, doDET_NO=False, do1SHOT=False, do0SHOT=False, doLASSCF=False, do1EMB=False, enforce_symmetry=True,
+                    minFunc='FOCK_INIT', print_u=False,
+                    print_rdm=True, debug_energy=False, debug_reloc=False, oldLASSCF=False,
                     nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
-                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0 ):
+                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0, do_conv_molden=False ):
 
 
         if isTranslationInvariant:
@@ -94,8 +99,13 @@ class dmet:
         self.corrpot_mf_moldens       = corrpot_mf_moldens
         self.corrpot_mf_molden_cnt    = 0
         self.ints.num_mf_stab_checks  = num_mf_stab_checks
+        if not self.ints.symmetry: enforce_symmetry = False
         self.enforce_symmetry         = enforce_symmetry
+        self.lasci_log                = None
+        self.oldLASSCF                = oldLASSCF
+        self.do_conv_molden           = do_conv_molden
 
+        self.verbose = self.ints.mol.verbose
         for frag in self.fragments:
             frag.debug_energy             = debug_energy
             frag.num_mf_stab_checks       = num_mf_stab_checks
@@ -104,6 +114,10 @@ class dmet:
             frag.loc2symm                 = self.ints.loc2symm
             frag.ir_names                 = self.ints.ir_names
             frag.ir_ids                   = self.ints.ir_ids
+            if self.oldLASSCF:
+                frag.quasifrag_gradient = False
+                frag.add_virtual_bath = False
+                frag.quasifrag_ovlp = True
         if self.doDET:
             print ("Note: doing DET overrides settings for SCmethod, incl_bath_errvec, and altcostfunc, all of which have only one value compatible with DET")
         self.examine_ifrag_olap = False
@@ -513,6 +527,12 @@ class dmet:
         rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
 
+        # Initial lasci cycle!
+        if self.doLASSCF and sum ([f.norbs_as for f in self.fragments]):
+            loc2wmas = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+            loc2wmcs = get_complementary_states (loc2wmas, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
+            self.refragmentation (loc2wmas, loc2wmcs, self.ints.oneRDM_loc)
+            if self.verbose: self.save_checkpoint (self.calcname + '.chk.npy')
         while (u_diff > convergence_threshold):
             u_diff, rdm = self.doselfconsistent_corrpot (rdm, [('corrpot', iteration)])
             iteration += 1 
@@ -526,21 +546,24 @@ class dmet:
         if self.debug_energy:
             debug_Etot (self)
 
-        for frag in self.fragments:
-            if not (frag.imp_solver_name == 'dummy RHF'):
-                fmt_str = "Writing {}".format (frag.frag_name) + " {} orbital molden"
-                print (fmt_str.format ('natural'))
-                frag.impurity_molden ('natorb', natorb=True)
-                print (fmt_str.format ('impurity'))
-                frag.impurity_molden ('imporb')
-                print (fmt_str.format ('molecular'))
-                frag.impurity_molden ('molorb', molorb=True)
+        if self.do_conv_molden:
+            for frag in self.fragments:
+                if not (frag.imp_solver_name == 'dummy RHF'):
+                    if self.doLASSCF: frag.do_Schmidt (self.ints.oneRDM_loc, self.fragments, self.ints.loc2idem, True)
+                    fmt_str = "Writing {}".format (frag.frag_name) + " {} orbital molden"
+                    print (fmt_str.format ('natural'))
+                    frag.impurity_molden ('natorb', natorb=True)
+                    print (fmt_str.format ('impurity'))
+                    frag.impurity_molden ('imporb')
+                    print (fmt_str.format ('molecular'))
+                    frag.impurity_molden ('molorb', molorb=True)
         rdm = self.transform_ed_1rdm (get_od=True)
         no_occs, no_evecs = matrix_eigen_control_options (rdm, sort_vecs=-1, only_nonzero_vals=False)
         ao2no, no_ene, no_occ = self.get_las_nos (aobasis=True, oneRDM_loc=rdm, jmol_shift=True, try_symmetrize=True)
         print ("Whole-molecule natural orbital occupancies:\n{}".format (no_occ))
-        print ("Writing trial wave function natural orbital molden")
-        molden.from_mo (self.ints.mol, self.calcname + '_natorb.molden', ao2no, occ=no_occ, ene=no_ene)
+        if self.verbose:
+            print ("Writing trial wave function natural orbital molden")
+            molden.from_mo (self.ints.mol, self.calcname + '_natorb.molden', ao2no, occ=no_occ, ene=no_ene)
         
         return self.energy
 
@@ -551,7 +574,7 @@ class dmet:
         myiter = iters[-1][-1]
         nextiter = 0
         orb_diff = 1.0
-        convergence_threshold = 1e-5
+        convergence_threshold = 1e-5 if self.oldLASSCF else 1e-4
         while (np.any (np.asarray (orb_diff) > convergence_threshold)):
             lower_iters = iters + [('orbs', nextiter)]
             orb_diff = self.doselfconsistent_orbs (lower_iters)
@@ -618,7 +641,8 @@ class dmet:
         #itersnap = tracemalloc.take_snapshot ()
         #itersnap.dump ('iter{}end.snpsht'.format (myiter))
 
-        if not self.doLASSCF: self.save_checkpoint (self.calcname + '.chk.npy')
+        if not self.doLASSCF:
+            if self.verbose: self.save_checkpoint (self.calcname + '.chk.npy')
 
         return u_diff, rdm_new
 
@@ -637,17 +661,13 @@ class dmet:
             raise (e)
 
         if self.doLASSCF:
-            print ("Entering setup_wm_core_scf")
-            self.ints.setup_wm_core_scf (self.fragments, self.calcname)
-            self.save_checkpoint (self.calcname + '.chk.npy')
-
-        oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
-        if self.doLASSCF:
-            print ("Entering refragmentation")
-            oneRDM_loc = self.refragmentation (loc2wmas_old, loc2wmcs_old, oneRDM_loc)
+            #print ("Entering setup_wm_core_scf")
+            #self.ints.setup_wm_core_scf (self.fragments, self.calcname)
+            oneRDM_loc = self.ints.oneRDM_loc
         else:
             for frag in self.fragments:
                 frag.restore_default_embedding_basis ()
+            oneRDM_loc = self.helper.construct1RDM_loc( self.doSCF, self.umat )
 
         old_energy = self.energy
         self.energy = 0.0
@@ -680,8 +700,15 @@ class dmet:
             #frag.impurity_molden ('natorb', natorb=True)
             #frag.impurity_molden ('imporb')
             #frag.impurity_molden ('molorb', molorb=True)
-        
+
         loc2wmas_new = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+        loc2wmcs_new = get_complementary_states (loc2wmas_new, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
+        if self.doLASSCF:
+            print ("Entering refragmentation")
+            oneRDM_loc = sum ([f.oneRDMas_loc for f in self.fragments if f.norbs_as])
+            oneRDM_loc += 2 * get_1RDM_from_OEI (self.ints.activeFOCK, self.ints.nelec_idem//2, subspace=loc2wmcs_new)
+            e_tot, grads = self.refragmentation (loc2wmas_new, loc2wmcs_new, oneRDM_loc)
+            if self.verbose: self.save_checkpoint (self.calcname + '.chk.npy')
         try:
             orb_diff = measure_basis_olap (loc2wmas_new, loc2wmcs_old)[0] / max (1,loc2wmas_new.shape[1])
         except:
@@ -703,18 +730,23 @@ class dmet:
         if self.doLASSCF == False:
             orb_diff = oneRDM_diff = Eimp_stdev = Eiter = 0 # Do only 1 iteration
         else:
-            self.energy = np.average (energies)
+            self.energy = e_tot
             Eiter = self.energy - old_energy
+            norm_gorb = linalg.norm (np.concatenate ([grads[0], grads[2]]))
+            norm_gci = linalg.norm (grads[1])
+            print ("Whole-molecule orbital gradient norm = {}".format (norm_gorb))
+            print ("Whole-molecule CI gradient norm = {}".format (norm_gci))
+
         print ("Whole-molecule energy difference = {}".format (Eiter))
 
         # Safety until I figure out how to deal with this degenerate-orbital thing
-        if abs (Eiter) < 1e-7 and np.all (np.abs (energies - self.energy) < 1e-7):
-            print ("Energies all converged to 100 nanoEh threshold; punking out of 1-RDM and orbital convergence")
-            orb_diff = oneRDM_diff = 0
-            
-
-        return orb_diff, oneRDM_diff, Eimp_stdev, abs (Eiter)
+        # if abs (Eiter) < 1e-7 and np.all (np.abs (energies - self.energy) < 1e-7):
+        #    print ("Energies all converged to 100 nanoEh threshold; punking out of 1-RDM and orbital convergence")
+        #    orb_diff = oneRDM_diff = 0
         
+        if self.oldLASSCF: return orb_diff, oneRDM_diff, Eimp_stdev, abs (Eiter)
+        else: return norm_gorb, norm_gci
+
     def print_umat( self ):
     
         print ("The u-matrix =")
@@ -787,8 +819,9 @@ class dmet:
             #assert (interr < self.nelec_int_thresh), "Fragment with non-integer number of electrons appears"
             interr = np.eye (loc2amo.shape[1]) * interr / loc2amo.shape[1]
             oneRDM_loc -= reduce (np.dot, [loc2amo, interr, loc2amo.conjugate ().T])
-        assert (all ((i < self.nelec_int_thresh for i in interrs))), "Fragment with non-integer number of electrons appears"
-            
+        if ((not self.doLASSCF) or self.oldLASSCF):
+            assert (all ((i < self.nelec_int_thresh for i in interrs))), "Fragment with non-integer number of electrons appears"
+    
         # Evaluate the entanglement of the active subspaces
         for (o1, f1), (o2, f2) in combinations (zip (loc2wmas, self.fragments), 2):
             if o1.shape[1] > 0 and o2.shape[1] > 0:
@@ -822,7 +855,13 @@ class dmet:
                 assert (is_basis_orthonormal (loc2amo))
                 assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ loc2amo)
 
-        return oneRDM_loc
+        #self.ints.setup_wm_core_scf (self.fragments, self.calcname)
+        e_tot, grads = self.lasci_(oneRDM_loc, loc2wmas=loc2wmas)
+        for loc2imo, frag in zip (loc2wmcs, self.fragments):
+            frag.set_new_fragment_basis (np.append (loc2imo, frag.loc2amo, axis=1))
+            assert (is_basis_orthonormal (frag.loc2amo))
+            assert (is_basis_orthonormal (frag.loc2frag)), linalg.norm (loc2imo.conjugate ().T @ frag.loc2amo)
+        return e_tot, grads # delete self.ints. if you take away the self.lasci_() above
 
     def refrag_lowdin_active (self, loc2wmas, oneRDM_loc):
         
@@ -840,8 +879,7 @@ class dmet:
         loc2wmas = np.dot (loc2wmas, evecs)
         wmas_labels = np.asarray (['A' for ix in range (loc2wmas.shape[1])])
         if self.ints.mol.symmetry:
-            loc2wmas, wmas_labels = matrix_eigen_control_options (oneRDM_loc, subspace=loc2wmas, symmetry=self.ints.loc2symm,
-                strong_symm=self.enforce_symmetry, only_nonzero_vals=False, sort_vecs=-1)[1:]
+            wmas_labels = assign_blocks_weakly (loc2wmas, self.ints.loc2symm)
             wmas_labels = np.asarray (self.ints.mol.irrep_name)[wmas_labels]
 
         for f in self.fragments:
@@ -905,6 +943,7 @@ class dmet:
         max_eval = np.ones (len (self.fragments))
         # Do NOT attempt to enforce symmetry here YET. It may be necessary in future, but for now hold off!
         while np.any (Mxk_rem): #loc2x.shape[1] > 0:
+            assert (it < 20)
             if np.all (max_eval < assign_thresh):
                 print (("Warning: external orbital assignment threshold lowered from {} to {}"
                     " after failing to assign any orbitals in iteration {}").format (assign_thresh, np.max (max_eval)*0.99, it-1))
@@ -1006,12 +1045,11 @@ class dmet:
 
         nelec_wmas_current = sum ([f.nelec_as for f in self.fragments if f.norbs_as > 0])
         norbs_wmas_current = sum ([f.norbs_as for f in self.fragments if f.norbs_as > 0])
-        assert ((self.ints.nelec_tot - nelec_wmas_current) % 2 == 0), 'parity problem: {} of {} electrons active in currently'.format (nelec_wmas_target, self.ints.nelec_tot)
-        ncore_current = (self.ints.nelec_tot - nelec_wmas_current) // 2
-        nocc_current = ncore_current + norbs_wmas_current
-        print ("ncore_current = {}; nocc_current = {}".format (ncore_current, nocc_current))
-
         if norbs_wmas_current > 0:
+            assert ((self.ints.nelec_tot - nelec_wmas_current) % 2 == 0), 'parity problem: {} of {} electrons active in currently'.format (nelec_wmas_current, self.ints.nelec_tot)
+            ncore_current = (self.ints.nelec_tot - nelec_wmas_current) // 2
+            nocc_current = ncore_current + norbs_wmas_current
+            print ("ncore_current = {}; nocc_current = {}".format (ncore_current, nocc_current))
             wmas2ao_current = (self.ints.ao2loc @ loc2wmas_current).conjugate ().T
             amo_coeff = mo_coeff[:,ncore_current:nocc_current]
             ovlp = wmas2ao_current @ self.ints.ao_ovlp @ amo_coeff
@@ -1019,6 +1057,9 @@ class dmet:
             assert (np.isclose (ovlp, 1)), 'unless replace=True, mo_coeff must contain current active orbitals at range {}:{} (err={})'.format (ncore_current,nocc_current, ovlp-1)
             if caslst is not None and len (caslst) > 0:
                 assert (np.all (np.isin (list(range(ncore_current+1,nocc_current+1)), caslst))), 'caslst must contain range {}:{} inclusive ({})'.format (ncore_current+1, nocc_current, caslst)
+        else:
+            ncore_current = nocc_current =(self.ints.nelec_tot+1)//2
+
 
         if caslst is not None and len (caslst) == 0: caslst = None
         if caslst is not None and cas_irrep_nocc is not None:
@@ -1101,8 +1142,18 @@ class dmet:
                     loc2amo_new = loc2amo_other
                     occ_new = occ_other
 
+        loc2amo = np.concatenate ([f.loc2amo_guess for f in self.fragments if f.loc2amo_guess is not None], axis=1)
         if len (guess_somos) == len (self.fragments):
             assert (not force_imp), "Don't force_imp and guess_somos at the same time"
+            loc2wmcs = get_complementary_states (loc2amo, symmetry=self.ints.loc2symm, enforce_symmetry=self.enforce_symmetry)
+            ene_wmcs, loc2wmcs = matrix_eigen_control_options (self.ints.activeFOCK, subspace=loc2wmcs, symmetry=self.ints.loc2symm,
+                strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)[:2]
+            ncore = (self.ints.nelec_tot - sum ([f.active_space[0] for f in self.fragments if f.active_space is not None])) // 2
+            oneRDMcore_loc = 2 * loc2wmcs[:,:ncore] @ loc2wmcs[:,:ncore].conjugate ().T
+            self.ints.oneRDM_loc = oneRDMcore_loc
+            self.ints.oneSDM_loc = np.zeros_like (oneRDMcore_loc)
+            self.ints.nelec_idem = ncore * 2
+            self.ints.loc2idem   = loc2wmcs
             # construct rohf-like density matrices and set loc2amo_guess -> loc2amo
             for nsomo, f, in zip (guess_somos, self.fragments):
                 if f.active_space is None:
@@ -1111,6 +1162,7 @@ class dmet:
                 assert (nsomo <= f.active_space[1])
                 neleca = (f.active_space[0] + nsomo) // 2
                 nelecb = (f.active_space[0] - nsomo) // 2
+                if f.target_MS < 0: neleca, nelecb = nelecb, neleca
                 occa = np.zeros (f.active_space[1], dtype=np.float64)
                 occb = np.zeros (f.active_space[1], dtype=np.float64)
                 occa[:neleca] += 1
@@ -1122,9 +1174,25 @@ class dmet:
                 dm = dma + dmb
                 f.loc2amo = f.loc2amo_guess.copy ()
                 f.twoCDMimp_amo = get_2CDM_from_2RDM (twoRDM, dm) 
-                f.oneRDMas_loc = represent_operator_in_basis (dm, f.loc2amo.conjugate ().T)
+                f.oneRDMas_loc = represent_operator_in_basis (dma + dmb, f.loc2amo.conjugate ().T)
+                f.oneSDMas_loc = represent_operator_in_basis (dma - dmb, f.loc2amo.conjugate ().T)
                 f.ci_as = None
-            
+                self.ints.oneRDM_loc += f.oneRDMas_loc
+                self.ints.oneSDM_loc += f.oneSDMas_loc
+            for f in self.fragments:
+                f.oneRDM_loc = self.ints.oneRDM_loc
+                f.oneSDM_loc = self.ints.oneSDM_loc
+
+        # Linear dependency check
+        evals = matrix_eigen_control_options (1, subspace=loc2amo, symmetry=self.ints.loc2symm, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)[0]
+        lindeps = np.count_nonzero (evals < 1e-6)
+        errstr = "{} linear dependencies found among {} active orbitals in guess construction".format (lindeps, loc2amo.shape[-1])
+        if lindeps: 
+            if self.force_imp or len (guess_somos) == len (self.fragments):  RuntimeError (errstr)
+            else: warnings.warn (errstr, RuntimeWarning)
+
+        return
+
     def save_checkpoint (self, fname):
         ''' Data array structure: nao_nr, chempot, 1RDM or umat, norbs_amo in frag 1, loc2amo of frag 1, oneRDM_amo of frag 1, twoCDMimp_amo of frag 1, norbs_amo of frag 2, ... '''
         nao = self.ints.mol.nao_nr ()
@@ -1140,6 +1208,7 @@ class dmet:
             chkdata = np.append (chkdata, represent_operator_in_basis (f.oneRDM_loc, f.loc2amo).flatten (order='C'))
             chkdata = np.append (chkdata, f.twoCDMimp_amo.flatten (order='C'))
         np.save (fname, chkdata)
+        return
 
     def load_checkpoint (self, fname, prev_mol=None):
         nelec_amo = sum ((f.active_space[0] for f in self.fragments if f.active_space is not None))
@@ -1226,13 +1295,26 @@ class dmet:
             frag.oneRDMas_loc = project_operator_into_subspace (self.ints.oneRDM_loc, frag.loc2amo) 
             frag.twoCDMimp_amo = represent_operator_in_basis (frag.twoCDMimp_amo, old2new_amo) 
 
-
     def get_las_nos (self, **kwargs):
         ''' Save MOs in a form that can be loaded for a CAS calculation on a npy file '''
         kwargs['aobasis'] = True
-        kwargs['loc2wmas'] = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
+        if not 'loc2wmas' in kwargs or kwargs['loc2wmas'] is None:
+            kwargs['loc2wmas'] = [frag.loc2amo for frag in self.fragments]
         return self.ints.get_trial_nos (**kwargs)
 
+    def void_symmetry (self):
+        print ("Voiding symmetry")
+        for f in self.fragments:
+            f.groupname = 'C1'
+            f.loc2symm = [np.eye (self.norbs_tot)]           
+            f.ir_names = ['A']
+            f.ir_ids   = [0]
+            f.wfnsym   = 'A'
+        self.ints.loc2symm = [np.eye (self.norbs_tot)]
+        self.ints.symmetry = False
+        self.ints.wfnsym = 'A'
+        self.ints.ir_names = ['A']
+        self.ints.ir_ids = [0]
 
     def check_fragment_symmetry_breaking (self, verbose=True, do_break=False):
         if not self.ints.mol.symmetry:
@@ -1264,13 +1346,8 @@ class dmet:
 
         if (not symmetry) and do_break and np.any (f.symmetry for f in self.fragments):
             if self.enforce_symmetry: raise RuntimeError ("Fragmentation pattern of molecule breaks symmetry!")
-            print ("Fragmentation pattern of molecule broke point-group symmetry! Voiding symmetry...")
-            for f in self.fragments:
-                f.groupname = 'C1'
-                f.loc2symm = [np.eye (self.norbs_tot)]           
-                f.ir_names = ['A']
-                f.ir_ids   = [0]
-                f.wfnsym   = 'A'
+            print ("Fragmentation pattern of molecule broke point-group symmetry!")
+            self.void_symmetry ()
         elif symmetry and do_break:
             for f in self.fragments:
                 f.enforce_symmetry = False if f.imp_solver_name == 'dummy RHF' else self.enforce_symmetry
@@ -1309,4 +1386,104 @@ class dmet:
             print ("This system loses its symmetry")
         return symmetry
 
+    def lasci (self, dm0=None, loc2wmas=None):
+        # If I don't force_imp this won't work properly for the initialization, but then again it won't be called
+        ao2no, no_ene, no_occ = self.get_las_nos (oneRDM_loc=dm0, loc2wmas=loc2wmas)
+        if self.verbose: molden.from_mo (self.ints.mol, self.calcname + '_feed.molden', ao2no, occ=no_occ, ene=no_ene)
+        loc2ao = self.ints.ao2loc.conjugate ().T
+        loc2no = loc2ao @ self.ints.ao_ovlp @ ao2no
+        nelec_amo = sum (f.nelec_as for f in self.fragments if f.norbs_as)
+        ncore = (self.ints.nelec_tot - nelec_amo) // 2
+        loc2amo = loc2no[:,ncore:]
+        amo_occ = no_occ[ncore:]
+        print (self.ints.nelec_tot, ' electrons total, ', ncore, ' core orbitals w/ occupancy = ',no_occ[:ncore])
+        active_frags = [f for f in self.fragments if f.norbs_as]
+        ncas_sub = []
+        nelecas_sub = []
+        casdm0_sub = []
+        spin_sub = []
+        wfnsym_sub = []
+        ci0 = []
+        for f in active_frags:
+            amo = loc2amo[:,:f.norbs_as]
+            print ("Occupancy here: ",amo_occ[:f.norbs_as])
+            rdm = np.diag (amo_occ[:f.norbs_as])
+            sdm = amo.conjugate ().T @ self.ints.oneSDM_loc @ amo
+            loc2amo = loc2amo[:,f.norbs_as:]
+            amo_occ = amo_occ[f.norbs_as:]
+            dma = (rdm + sdm) / 2
+            dmb = (rdm - sdm) / 2
+            neleca = int (round ((f.active_space[0]/2) + f.target_MS))
+            nelecb = int (round ((f.active_space[0]/2) - f.target_MS))
+            print ("MATT CHECK THIS: (neleca, nelecb) = ({:.3f}, {:.3f}) vs desired ({},{})".format (np.trace (dma), np.trace (dmb), neleca, nelecb))
+            ncas_sub.append (f.norbs_as)
+            nelecas_sub.append ((neleca, nelecb))
+            casdm0_sub.append (np.stack ([dma, dmb], axis=0))
+            spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
+            wfnsym_sub.append (f.wfnsym)
+            if f.ci_as is not None:
+                umat = f.ci_as_orb.conjugate ().T @ amo
+                nel = (neleca, nelecb)
+                if nelecb > neleca: nel = (nelecb, neleca)
+                ci0.append (transform_ci_for_orbital_rotation (f.ci_as, f.norbs_as, nel, umat))
+        w0, t0 = time.time (), time.clock ()
+        if self.lasci_log is None: 
+            mol = self.ints.mol.copy ()
+            if mol.verbose: mol.output = self.calcname + '_lasci.log'
+            mol.build ()
+            self.lasci_log = mol.stdout
+        frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
+        las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
+        print ("Time preparing LASCI object: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+        w0, t0 = time.time (), time.clock ()
+        las.stdout = self.lasci_log
+        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_sub):
+            casdm0_sub = None
+        else:
+            ci0 = None
+        e_tot, _, ci_sub, _, _, h2eff_sub, veff = las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_sub = casdm0_sub)
+        if not las.converged:
+            raise RuntimeError ("LASCI SCF cycle not converged")
+        print ("LASCI module energy: {:.9f}".format (e_tot))
+        print ("Time in LASCI module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+        return las, h2eff_sub, veff
+
+    def lasci_ (self, dm0=None, loc2wmas=None):
+        ''' Do LASCI and then also update the fragment and ints object '''
+        las, h2eff_sub, veff = self.lasci (dm0=dm0, loc2wmas=loc2wmas)
+        aoSloc = self.ints.ao_ovlp @ self.ints.ao2loc
+        locSao = aoSloc.conjugate ().T
+        oneRDMs_loc_sub = np.dot (locSao, np.dot (las.make_rdm1s_sub (), aoSloc)).transpose (1,2,0,3)
+        loc2mo = locSao @ las.mo_coeff
+        active_frags = [f for f in self.fragments if f.norbs_as]
+        self.ints.update_from_lasci_(self.calcname, las, loc2mo, oneRDMs_loc_sub.sum (0), veff)
+        loc2amo_sub = [las.get_mo_slice (idx, mo_coeff=loc2mo) for idx in range (len (active_frags))]
+        eri_gradient = unpack_tril (h2eff_sub.reshape ((las.mo_coeff.shape[-1]*las.ncas, -1)))
+        eri_gradient = eri_gradient.reshape ((las.mo_coeff.shape[-1], las.ncas, las.ncas, las.ncas))
+        eri_gradient = np.tensordot (loc2mo, eri_gradient, axes=1)
+        for ix, (loc2amo, ci, oneRDMs_amo_loc, f) in enumerate (zip (loc2amo_sub, las.ci, oneRDMs_loc_sub, active_frags)):
+            dma, dmb = oneRDMs_amo_loc
+            print ("MATT CHECK THIS AGAIN: (neleca, nelecb) = ({:.3f}, {:.3f})".format (np.trace (dma), np.trace (dmb)))
+            f.loc2amo = loc2amo.copy () # Definitely copy this because it is explicitly a slice
+            f.ci_as = ci.copy ()
+            f.ci_as_orb = loc2amo.copy ()
+            f.oneRDMas_loc = dma + dmb
+            f.oneSDMas_loc = dma - dmb
+            f.oneRDM_loc = self.ints.oneRDM_loc.copy ()
+            f.oneSDM_loc = self.ints.oneSDM_loc.copy ()
+            abs_2MS = abs (int (round (f.target_MS*2)))
+            neleca = (f.active_space[0] + abs_2MS) // 2
+            nelecb = (f.active_space[0] - abs_2MS) // 2
+            casdm2 = las.fcisolver.make_rdm2 (ci, f.norbs_as, (neleca, nelecb))
+            casdm1 = loc2amo.conjugate ().T @ f.oneRDM_loc @ loc2amo
+            f.twoCDMimp_amo = get_2CDM_from_2RDM (casdm2, casdm1)
+            casdm1s = np.stack ([loc2amo.conjugate ().T @ dm @ loc2amo for dm in oneRDMs_amo_loc], axis=0)
+            casdm2c = get_2CDM_from_2RDM (casdm2, casdm1s)
+            # Cache gradient-related eri...
+            i = sum (las.ncas_sub[:ix])
+            j = i + las.ncas_sub[ix]
+            f.eri_gradient = eri_gradient[:,i:j,i:j,i:j]
+            eri = np.tensordot (loc2amo.conjugate (), f.eri_gradient, axes=((0),(0)))
+            f.E2_cum = (casdm2c * eri).sum () / 2
+        return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff)
 

@@ -71,7 +71,7 @@ def make_hdiag_det (fci, h1e, eri, norb, nelec):
 
 def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
     if hdiag_det is None:
-        hdiag_det = make_hdiag_det (h1e, eri, norb, nelec)
+        hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
     tlib = wlib = 0
     neleca, nelecb = _unpack_nelec (nelec)
@@ -138,7 +138,7 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_de
     t0, w0 = time.clock (), time.time ()
     tstr = tlib = tloop = wstr = wlib = wloop = 0
     if hdiag_det is None:
-        hdiag_det = make_hdiag_det (h1e, eri, norb, nelec)
+        hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
     neleca, nelecb = _unpack_nelec (nelec)
     min_npair, npair_csd_offset, npair_dconf_size, npair_sconf_size, npair_sdet_size = get_csdaddrs_shape (norb, neleca, nelecb)
@@ -218,6 +218,21 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_de
     #print ("    Cistring: {}, {}".format (tstr, wstr))
     return hdiag_csf
 
+# Exploring g2e nan bug; remove later?
+def _debug_g2e (fci, g2e, eri, norb):
+    g2e_ninf = np.count_nonzero (np.isinf (g2e))
+    g2e_nnan = np.count_nonzero (np.isnan (g2e))
+    if (g2e_ninf == 0) and (g2e_nnan == 0): return
+    lib.logger.note (fci, 'ERROR: g2e has {} infs and {} nans (norb = {}; shape = {})'.format (g2e_ninf, g2e_nnan, norb, g2e.shape))
+    lib.logger.note (fci, 'type (eri) = {}'.format (type (eri)))
+    lib.logger.note (fci, 'eri.shape = {}'.format (eri.shape))
+    lib.logger.note (fci, 'eri.dtype = {}'.format (eri.dtype))
+    eri_ninf = np.count_nonzero (np.isinf (eri))
+    eri_nnan = np.count_nonzero (np.isnan (eri))
+    lib.logger.note (fci, 'eri has {} infs and {} nans'.format (eri_ninf, eri_nnan))
+    raise ValueError ('g2e has {} infs and {} nans (norb = {}; shape = {})'.format (g2e_ninf, g2e_nnan, norb, g2e.shape))
+    return
+
 def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdiag_csf=None, csd_mask=None,
     econf_det_mask=None, econf_csf_mask=None, npsp=200):
     ''' Note that getting pspace for npsp CSFs is substantially more costly than getting it for npsp determinants,
@@ -262,8 +277,9 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
     h1e_ab = unpack_h1e_ab (h1e)
     h1e_a = np.ascontiguousarray(h1e_ab[0])
     h1e_b = np.ascontiguousarray(h1e_ab[1])
-    g2e_aa = ao2mo.restore(1, eri, norb)
-    g2e_ab = g2e_bb = g2e_aa
+    g2e = ao2mo.restore(1, eri, norb)
+    g2e_ab = g2e_bb = g2e_aa = g2e
+    _debug_g2e (fci, g2e, eri, norb) # Exploring g2e nan bug; remove later?
     t0 = lib.logger.timer (fci, "csf.pspace: index manipulation", *t0)
     libfci.FCIpspace_h0tril_uhf(h0.ctypes.data_as(ctypes.c_void_p),
                                 h1e_a.ctypes.data_as(ctypes.c_void_p),
@@ -280,7 +296,17 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
         h0[i,i] = hdiag_det[det_addr[i]]
     h0 = lib.hermi_triu(h0)
 
-    if fci.verbose >= lib.logger.DEBUG: evals_before = scipy.linalg.eigh (h0)[0]
+    try:
+        if fci.verbose >= lib.logger.DEBUG: evals_before = scipy.linalg.eigh (h0)[0]
+    except ValueError as e:
+        lib.logger.debug (fci, ("ERROR: h0 has {} infs, {} nans; h1e_a has {} infs, {} nans; "
+            "h1e_b has {} infs, {} nans; g2e has {} infs, {} nans, norb = {}, npsp_det = {}").format (
+            np.count_nonzero (np.isinf (h0)), np.count_nonzero (np.isnan (h0)),
+            np.count_nonzero (np.isinf (h1e_a)), np.count_nonzero (np.isnan (h1e_a)),
+            np.count_nonzero (np.isinf (h1e_b)), np.count_nonzero (np.isnan (h1e_b)),
+            np.count_nonzero (np.isinf (g2e)), np.count_nonzero (np.isnan (g2e)),
+            norb, npsp_det))
+        evals_before = np.zeros (npsp_det)
 
     h0, csf_addr = transform_opmat_det2csf_pspace (h0, econf_addr, norb, neleca, nelecb, smult,
         csd_mask, econf_det_mask, econf_csf_mask) 

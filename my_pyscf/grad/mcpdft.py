@@ -1,17 +1,21 @@
 from pyscf.mcscf import newton_casscf
 from pyscf.grad import rks as rks_grad
 from pyscf.dft import gen_grid
-from pyscf.lib import logger, pack_tril
-from mrh.my_pyscf.grad import sacasscf
-from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
+from pyscf.lib import logger, pack_tril, current_memory, tag_array
+#from mrh.my_pyscf.grad import sacasscf
+from pyscf.grad import sacasscf
+from pyscf.mcscf.casci import cas_natorb
+from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
 from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_rho, _contract_ao_vao
 from mrh.util.rdm import get_2CDM_from_2RDM
 from functools import reduce
 from scipy import linalg
 import numpy as np
-import time
+import time, gc
 
-def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None):
+BLKSIZE = gen_grid.BLKSIZE
+
+def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None, max_memory=None, auxbasis_response=False):
     ''' Modification of pyscf.grad.casscf.kernel to compute instead the Hellman-Feynman gradient
         terms of MC-PDFT. From the differentiated Hamiltonian matrix elements, only the core and
         Coulomb energy parts remain. For the renormalization terms, the effective Fock matrix is as in
@@ -21,6 +25,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
     if mc.frozen is not None:
         raise NotImplementedError
+    if max_memory is None: max_memory = mc.max_memory
     t0 = (time.clock (), time.time ())
 
     mol = mc.mol
@@ -62,13 +67,6 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     dme0 = reduce(np.dot, (mo_coeff, (gfock+gfock.T)*.5, mo_coeff.T))
     aapa = vhf_a = h1e_mo = gfock = None
 
-    t0 = logger.timer (mc, 'PDFT HlFn gfock', *t0)
-    dm1 = dm_core + dm_cas
-    # MRH: vhf1c and vhf1a should be the TRUE vj_c and vj_a (no vk!)
-    vj = mf_grad.get_jk (dm=dm1)[0]
-    hcore_deriv = mf_grad.hcore_generator(mol)
-    s1 = mf_grad.get_ovlp(mol)
-
     if atmlst is None:
         atmlst = range(mol.natm)
     aoslices = mol.aoslice_by_atom()
@@ -78,7 +76,22 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     de_xc = np.zeros ((len(atmlst),3))
     de_grid = np.zeros ((len(atmlst),3))
     de_wgt = np.zeros ((len(atmlst),3))
+    de_aux = np.zeros ((len(atmlst),3))
     de = np.zeros ((len(atmlst),3))
+
+    t0 = logger.timer (mc, 'PDFT HlFn gfock', *t0)
+    mo_coeff, ci, mo_occup = cas_natorb (mc, mo_coeff=mo_coeff, ci=ci)
+    mo_occ = mo_coeff[:,:nocc]
+    mo_core = mo_coeff[:,:ncore]
+    mo_cas = mo_coeff[:,ncore:nocc]
+    dm1 = dm_core + dm_cas
+    dm1 = tag_array (dm1, mo_coeff=mo_coeff, mo_occ=mo_occup)
+    # MRH: vhf1c and vhf1a should be the TRUE vj_c and vj_a (no vk!)
+    vj = mf_grad.get_jk (dm=dm1)[0]
+    hcore_deriv = mf_grad.hcore_generator(mol)
+    s1 = mf_grad.get_ovlp(mol)
+    if auxbasis_response:
+        de_aux += vj.aux
 
     # MRH: Now I have to compute the gradient of the exchange-correlation energy
     # This involves derivatives of the orbitals that construct rho and Pi and therefore another
@@ -89,21 +102,22 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     # I'll do a loop over grid sections and make arrays of type (3,nao, nao) and (3,nao, ncas, ncas, ncas).
     # I'll contract them within the grid loop for the grid derivatives and in the following
     # orbital loop for the xc derivatives
-    dm1s = mc.make_rdm1s ()
-    casdm1s = np.stack (mc.fcisolver.make_rdm1s (ci, ncas, nelecas), axis=0)
-    twoCDM = get_2CDM_from_2RDM (casdm2, casdm1s)
-    casdm1s = None
-    make_rho = tuple (ot._numint._gen_rho_evaluator (mol, dm1s[i], 1) for i in range(2))
-    make_rho_c = ot._numint._gen_rho_evaluator (mol, dm_core, 1) 
-    make_rho_a = ot._numint._gen_rho_evaluator (mol, dm_cas, 1) 
-    dv1 = np.zeros ((3,nao,nao)) # Term which should be contracted with the whole density matrix
-    dv1_a = np.zeros ((3,nao,nao)) # Term which should only be contracted with the core density matrix
-    dv2 = np.zeros ((3,nao))
+    # MRH, 05/09/2020: This just in - the actual spin density doesn't matter at all in PDFT!
+    # I could probably save a fair amount of time by not screwing around with the actual spin density!
+    # Also, the cumulant decomposition can always be defined without the spin-density matrices and
+    # it's still valid! But one thing at a time.
+    mo_n = mo_occ * mo_occup[None,:nocc]
+    casdm1, casdm2 = mc.fcisolver.make_rdm12(ci, ncas, nelecas)
+    twoCDM = get_2CDM_from_2RDM (casdm2, casdm1)
+    dm1s = np.stack ((dm1/2.0,)*2, axis=0)
+    dm1 = tag_array (dm1, mo_coeff=mo_occ, mo_occ=mo_occup[:nocc])
+    make_rho = ot._numint._gen_rho_evaluator (mol, dm1, 1)[0]
+    dvxc = np.zeros ((3,nao))
     idx = np.array ([[1,4,5,6],[2,5,7,8],[3,6,8,9]], dtype=np.int_) # For addressing particular ao derivatives
     if ot.xctype == 'LDA': idx = idx[:,0] # For LDAs no second derivatives
     diag_idx = np.arange(ncas) # for puvx
     diag_idx = diag_idx * (diag_idx+1) // 2 + diag_idx
-    casdm2_pack = (casdm2 + casdm2.transpose (0,1,3,2)).reshape (ncas**2, ncas, ncas)
+    casdm2_pack = (twoCDM + twoCDM.transpose (0,1,3,2)).reshape (ncas**2, ncas, ncas)
     casdm2_pack = pack_tril (casdm2_pack).reshape (ncas, ncas, -1)
     casdm2_pack[:,:,diag_idx] *= 0.5
     diag_idx = np.arange(ncore, dtype=np.int_) * (ncore + 1) # for pqii
@@ -112,59 +126,79 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     for k, ia in enumerate (atmlst):
         full_atmlst[ia] = k
     for ia, (coords, w0, w1) in enumerate (rks_grad.grids_response_cc (ot.grids)):
+        mask = gen_grid.make_mask (mol, coords)
         # For the xc potential derivative, I need every grid point in the entire molecule regardless of atmlist. (Because that's about orbitals.)
         # For the grid and weight derivatives, I only need the gridpoints that are in atmlst
-        mask = gen_grid.make_mask (mol, coords)
-        ao = ot._numint.eval_ao (mol, coords, deriv=ot.dens_deriv+1, non0tab=mask) # Need 1st derivs for LDA, 2nd for GGA, etc.
-        if ot.xctype == 'LDA': # Might confuse the rho and Pi generators if I don't slice this down
-            aoval = ao[:1]
-        elif ot.xctype == 'GGA':
-            aoval = ao[:4]
-        rho = np.asarray ([m[0] (0, aoval, mask, ot.xctype) for m in make_rho])
-        Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv)
+        # It is conceivable that I can make this more efficient by only doing cross-combinations of grids and AOs, but I don't know how "mask"
+        # works yet or how else I could do this.
+        gc.collect ()
+        ngrids = coords.shape[0]
+        ndao = (1,4)[ot.dens_deriv]
+        ndpi = (1,4)[ot.Pi_deriv]
+        ncols = 1.05 * 3 * (ndao*(nao+nocc) + max(ndao*nao,ndpi*ncas*ncas))
+        remaining_floats = (max_memory - current_memory ()[0]) * 1e6 / 8
+        blksize = int (remaining_floats / (ncols*BLKSIZE)) * BLKSIZE
+        blksize = max (BLKSIZE, min (blksize, ngrids, BLKSIZE*1200))
+        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} mask and memory setup'.format (ia), *t1)
+        for ip0 in range (0, ngrids, blksize):
+            ip1 = min (ngrids, ip0+blksize)
+            logger.info (mc, 'PDFT gradient atom {} slice {}-{} of {} total'.format (ia, ip0, ip1, ngrids))
+            ao = ot._numint.eval_ao (mol, coords[ip0:ip1], deriv=ot.dens_deriv+1, non0tab=mask) # Need 1st derivs for LDA, 2nd for GGA, etc.
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao grids'.format (ia), *t1)
+            if ot.xctype == 'LDA': # Might confuse the rho and Pi generators if I don't slice this down
+                aoval = ao[:1]
+            elif ot.xctype == 'GGA':
+                aoval = ao[:4]
+            rho = make_rho (0, aoval, mask, ot.xctype) / 2.0
+            rho = np.stack ((rho,)*2, axis=0)
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho calc'.format (ia), *t1)
+            Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv, mask)
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Pi calc'.format (ia), *t1)
 
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} rho/Pi calc'.format (ia), *t1)
-        moval_occ = np.tensordot (aoval, mo_occ, axes=1)
-        moval_core = moval_occ[...,:ncore]
-        moval_cas = moval_occ[...,ncore:]
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t1)
-        eot, vrho, vot = ot.eval_ot (rho, Pi, weights=w0)
-        ndpi = vot.shape[0]        
+            moval_occ = _grid_ao2mo (mol, aoval, mo_occ, mask)
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t1)
+            aoval = np.ascontiguousarray ([ao[ix].transpose (0,2,1) for ix in idx[:,:ndao]]).transpose (0,1,3,2)
+            ao = None
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao grid reshape'.format (ia), *t1)
+            eot, vrho, vot = ot.eval_ot (rho, Pi, weights=w0[ip0:ip1])
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} eval_ot'.format (ia), *t1)
+            puvx_mem = 2 * ndpi * (ip1-ip0) * ncas * ncas * 8 / 1e6
+            remaining_mem = max_memory - current_memory ()[0]
+            logger.info (mc, 'PDFT gradient memory note: working on {} grid points; estimated puvx usage = {:.1f} of {:.1f} remaining MB'.format ((ip1-ip0), puvx_mem, remaining_mem))
 
-        # Weight response
-        de_wgt += np.tensordot (eot, w1[atmlst], axes=(0,2))
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} weight response'.format (ia), *t1)
+            # Weight response
+            de_wgt += np.tensordot (eot, w1[atmlst,...,ip0:ip1], axes=(0,2))
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} weight response'.format (ia), *t1)
 
-        # Find the atoms that are a part of the atomlist - grid correction shouldn't be added if they aren't there
-        # The last stuff to vectorize is in get_veff_2body!
-        k = full_atmlst[ia]
+            # Find the atoms that are a part of the atomlist - grid correction shouldn't be added if they aren't there
+            # The last stuff to vectorize is in get_veff_2body!
+            k = full_atmlst[ia]
 
-        # Vpq + Vpqii
-        vrho = _contract_vot_rho (vot, make_rho_c [0] (0, aoval, mask, ot.xctype), add_vrho=vrho)
-        tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho) for ix in idx], axis=0)
-        if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm1.T, axes=2) # Grid response
-        dv1 -= tmp_dv # XC response
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqii'.format (ia), *t1)
+            # Vpq + Vpqrs * Drs ; I'm not sure why the list comprehension down there doesn't break ao's stride order but I'm not complaining
+            vrho = _contract_vot_rho (vot, rho.sum (0), add_vrho=vrho)
+            tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao_i, moval_occ], w0[ip0:ip1], kern=vrho) for ao_i in aoval], axis=0)
+            tmp_dv = (tmp_dv * mo_occ[None,:,:] * mo_occup[None,None,:nocc]).sum (2)
+            if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1) # Grid response
+            dvxc -= tmp_dv # XC response
+            vrho = tmp_dv = None
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpq + Vpqrs * Drs'.format (ia), *t1)
 
-        # Viiuv * Duv
-        vrho_a = _contract_vot_rho (vot, make_rho_a [0] (0, aoval, mask, ot.xctype))
-        tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao[ix], aoval], w0, kern=vrho_a) for ix in idx], axis=0)
-        if k >= 0: de_grid[k] += 2 * np.tensordot (tmp_dv, dm_core.T, axes=2) # Grid response
-        dv1_a -= tmp_dv # XC response
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Viiuv'.format (ia), *t1)
+            # Vpuvx * Lpuvx ; remember the stupid slowest->fastest->medium stride order of the ao grid arrays
+            moval_cas = moval_occ = np.ascontiguousarray (moval_occ[...,ncore:].transpose (0,2,1)).transpose (0,2,1)
+            tmp_dv = ot.get_veff_2body_kl (rho, Pi, moval_cas, moval_cas, w0[ip0:ip1], symm=True, kern=vot) # ndpi,ngrids,ncas*(ncas+1)//2
+            tmp_dv = np.tensordot (tmp_dv, casdm2_pack, axes=(-1,-1)) # ndpi, ngrids, ncas, ncas
+            tmp_dv[0] = (tmp_dv[:ndpi] * moval_cas[:ndpi,:,None,:]).sum (0) # Chain and product rule
+            tmp_dv[1:ndpi] *= moval_cas[0,:,None,:] # Chain and product rule
+            tmp_dv = tmp_dv.sum (-1) # ndpi, ngrids, ncas
+            tmp_dv = np.tensordot (aoval[:,:ndpi], tmp_dv, axes=((1,2),(0,1))) # comp, nao (orb), ncas (dm2)
+            tmp_dv = np.einsum ('cpu,pu->cp', tmp_dv, mo_cas) # comp, ncas (it's ok to not vectorize this b/c the quadrature grid is gone)
+            if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1) # Grid response
+            dvxc -= tmp_dv # XC response
+            tmp_dv = None
+            t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx * Lpuvx'.format (ia), *t1)
 
-        # Vpuvx
-        tmp_dv = ot.get_veff_2body_kl (rho, Pi, moval_cas, moval_cas, w0, symm=True, kern=vot) # ndpi,ngrids,ncas*(ncas+1)//2
-        tmp_dv = np.tensordot (tmp_dv, casdm2_pack, axes=(-1,-1)) # ndpi, ngrids, ncas, ncas
-        tmp_dv[0] = (tmp_dv[:ndpi] * moval_cas[:ndpi,:,None,:]).sum (0) # Chain and product rule
-        tmp_dv[1:ndpi] *= moval_cas[0,:,None,:] # Chain and product rule
-        tmp_dv = tmp_dv.sum (-1) # ndpi, ngrids, ncas
-        tmp_dv = np.tensordot (ao[idx[:,:ndpi]], tmp_dv, axes=((1,2),(0,1))) # comp, nao (orb), ncas (dm2)
-        tmp_dv = np.einsum ('cpu,pu->cp', tmp_dv, mo_cas) # comp, ncas
-        if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1)
-        dv2 -= tmp_dv # XC response
-        t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx'.format (ia), *t1)
-
+            rho = Pi = eot = vot = aoval = moval_occ = moval_cas = None
+            gc.collect ()
 
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
@@ -172,9 +206,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         de_hcore[k] += np.einsum('xij,ij->x', h1ao, dm1)
         de_renorm[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
         de_coul[k] += np.einsum('xij,ij->x', vj[:,p0:p1], dm1[p0:p1]) * 2
-        de_xc[k] += np.einsum ('xij,ij->x', dv1[:,p0:p1], dm1[p0:p1]) * 2 # Full quadrature, only some orbitals
-        de_xc[k] += np.einsum ('xij,ij->x', dv1_a[:,p0:p1], dm_core[p0:p1]) * 2 # Ditto
-        de_xc[k] += dv2[:,p0:p1].sum (1) * 2 # Ditto
+        de_xc[k] += dvxc[:,p0:p1].sum (1) * 2 # Full quadrature, only some orbitals
 
     de_nuc = mf_grad.grad_nuc(mol, atmlst)
 
@@ -188,6 +220,10 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
     de = de_nuc + de_hcore + de_coul + de_renorm + de_xc + de_grid + de_wgt
 
+    if auxbasis_response:
+        de += de_aux
+        logger.debug (mc, "MC-PDFT Hellmann-Feynman aux component:\n{}".format (de_aux))
+
     t1 = logger.timer (mc, 'PDFT HlFn total', *t0)
 
     return de
@@ -196,52 +232,55 @@ class Gradients (sacasscf.Gradients):
 
     def __init__(self, pdft):
         super().__init__(pdft)
+        # TODO: gradient of PDFT state-average energy (i.e., state = 0 & nroots > 1 case)
+        if self.state is None and self.nroots == 1:
+            self.state = 0
         self.e_mcscf = self.base.e_mcscf
 
-    def get_wfn_response (self, atmlst=None, iroot=None, verbose=None, mo=None, ci=None, veff1=None, veff2=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, veff1=None, veff2=None, **kwargs):
+        if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if (veff1 is None) or (veff2 is None):
             assert (False), kwargs
-            veff1, veff2 = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True)
-        ndet = ci[iroot].size
-        fcasscf = self.make_fcasscf ()
+            veff1, veff2 = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
+        ndet = ci[state].size
+        fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
-        fcasscf.ci = ci[iroot]
+        fcasscf.ci = ci[state]
         def my_hcore ():
             return self.base.get_hcore () + veff1
         fcasscf.get_hcore = my_hcore
 
-        g_all_iroot = newton_casscf.gen_g_hop (fcasscf, mo, ci[iroot], veff2, verbose)[0]
+        g_all_state = newton_casscf.gen_g_hop (fcasscf, mo, ci[state], veff2, verbose)[0]
 
         g_all = np.zeros (self.nlag)
-        g_all[:self.ngorb] = g_all_iroot[:self.ngorb]
+        g_all[:self.ngorb] = g_all_state[:self.ngorb]
         # Eliminate gradient of self-rotation
-        gci_iroot = g_all_iroot[self.ngorb:]
+        gci_state = g_all_state[self.ngorb:]
         ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-        gci_sa = np.dot (ci_arr[iroot], gci_iroot)
-        gci_iroot -= gci_sa * gci_iroot
+        gci_sa = np.dot (ci_arr[state], gci_state)
+        gci_state -= gci_sa * gci_state
         gci = g_all[self.ngorb:].reshape (self.nroots, -1)
-        gci[iroot] += gci_iroot 
+        gci[state] += gci_state 
 
         return g_all
 
-    def get_ham_response (self, iroot=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, veff1=None, veff2=None, **kwargs):
-        if iroot is None: iroot = self.iroot
+    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, veff1=None, veff2=None, **kwargs):
+        if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if (veff1 is None) or (veff2 is None):
             assert (False), kwargs
-            veff1, veff2 = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True)
-        fcasscf = self.make_fcasscf ()
+            veff1, veff2 = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
+        fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
-        fcasscf.ci = ci[iroot]
-        return mcpdft_HellmanFeynman_grad (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[iroot], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
+        fcasscf.ci = ci[state]
+        return mcpdft_HellmanFeynman_grad (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[state], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
 
     def get_init_guess (self, bvec, Adiag, Aop, precond):
         ''' Initial guess should solve the problem for SA-SA rotations '''
@@ -250,18 +289,18 @@ class Gradients (sacasscf.Gradients):
         b_ci = bvec[self.ngorb:].reshape (self.nroots, ndet)
         x0 = np.zeros_like (bvec)
         if self.nroots > 1:
-            b_sa = np.dot (ci_arr.conjugate (), b_ci[self.iroot])
-            A_sa = 2 * self.weights[self.iroot] * (self.e_mcscf - self.e_mcscf[self.iroot])
-            A_sa[self.iroot] = 1
-            b_sa[self.iroot] = 0
+            b_sa = np.dot (ci_arr.conjugate (), b_ci[self.state])
+            A_sa = 2 * self.weights[self.state] * (self.e_mcscf - self.e_mcscf[self.state])
+            A_sa[self.state] = 1
+            b_sa[self.state] = 0
             x0_sa = -b_sa / A_sa # Hessian is diagonal so: easy
             ovlp = ci_arr.conjugate () @ b_ci.T
             logger.debug (self, 'Linear response SA-SA part:\n{}'.format (ovlp))
             logger.debug (self, 'Linear response SA-CI norms:\n{}'.format (linalg.norm (
                 b_ci.T - ci_arr.T @ ovlp, axis=1)))
             logger.debug (self, 'Linear response orbital norms:\n{}'.format (linalg.norm (bvec[:self.ngorb])))
-            logger.debug (self, 'SA-SA Lagrange multiplier for root {}:\n{}'.format (self.iroot, x0_sa))
-            x0[self.ngorb:][ndet*self.iroot:][:ndet] = np.dot (x0_sa, ci_arr)
+            logger.debug (self, 'SA-SA Lagrange multiplier for root {}:\n{}'.format (self.state, x0_sa))
+            x0[self.ngorb:][ndet*self.state:][:ndet] = np.dot (x0_sa, ci_arr)
         r0 = bvec + Aop (x0)
         r0_ci = r0[self.ngorb:].reshape (self.nroots, ndet)
         ovlp = ci_arr.conjugate () @ r0_ci.T
@@ -281,19 +320,22 @@ class Gradients (sacasscf.Gradients):
 
     def kernel (self, **kwargs):
         ''' Cache the effective Hamiltonian terms so you don't have to calculate them twice '''
-        iroot = kwargs['iroot'] if 'iroot' in kwargs else self.iroot
+        state = kwargs['state'] if 'state' in kwargs else self.state
+        if state is None:
+            raise NotImplementedError ('Gradient of PDFT state-average energy')
+        self.state = state # Not the best code hygiene maybe
         mo = kwargs['mo'] if 'mo' in kwargs else self.base.mo_coeff
         ci = kwargs['ci'] if 'ci' in kwargs else self.base.ci
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
         kwargs['ci'] = ci
-        kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[iroot], incl_coul=True)
+        kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
         return super().kernel (**kwargs)
 
-    def project_Aop (self, Aop, ci, iroot):
+    def project_Aop (self, Aop, ci, state):
         ''' Wrap the Aop function to project out redundant degrees of freedom for the CI part.  What's redundant
             changes between SA-CASSCF and MC-PDFT so modify this part in child classes. '''
         try:
-            A_sa = 2 * self.weights[iroot] * (self.e_mcscf - self.e_mcscf[iroot])
+            A_sa = 2 * self.weights[state] * (self.e_mcscf - self.e_mcscf[state])
         except IndexError as e:
             assert (self.nroots == 1), e
             A_sa = 0
@@ -305,39 +347,11 @@ class Gradients (sacasscf.Gradients):
             ovlp = ci_arr.conjugate () @ Ax_ci.T
             Ax_ci -= np.dot (ovlp.T, ci_arr)
             # Add back in the SA rotation part but from the true energy conditions
-            x_sa = np.dot (ci_arr.conjugate (), x_ci[iroot])
-            Ax_ci[iroot] += np.dot (x_sa * A_sa, ci_arr)
+            x_sa = np.dot (ci_arr.conjugate (), x_ci[state])
+            Ax_ci[state] += np.dot (x_sa * A_sa, ci_arr)
             Ax[self.ngorb:] = Ax_ci.ravel ()
             return Ax
         return my_Aop
-
-'''
-    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, **kwargs):
-        if level_shift is None: level_shift = self.level_shift
-        if ci is None: ci = self.base.ci
-        return PDFTLagPrec (nroots=self.nroots, nlag=self.nlag, ngorb=self.ngorb, Adiag=Adiag, 
-            level_shift=level_shift, ci=ci, **kwargs)
-
-class PDFTLagPrec (sacasscf.SACASLagPrec):
-     MC-PDFT Lagrange gradient preconditioner. Nearly the same as the SACAS preconditioner except that SA-SA rotations are allowed
-    but must be antisymmetric (z_JI = -z_IJ).  Therefore the CI part is slightly different. 
-
-    def __init__(self, nroots=None, nlag=None, ngorb=None, Adiag=None, ci=None, level_shift=None, **kwargs):
-        super().__init__(nroots=nroots,nlag=nlag,ngorb=ngorb,Adiag=Adiag,ci=ci,level_shift=level_shift,**kwargs)
-
-    def ci_prec (self, x):
-        xci = x[self.ngorb:].reshape (self.nroots, -1)
-        # R_I|H I> (indices: I, det)
-        Rx = self.Rci * xci
-        # <J|R_I|H I> (indices: J, I)
-        sa_ovlp = self.ci.conjugate () @ Rx.T
-        # R_I|J> S(I)_JK^-1 <K|R_I|H I> (indices: I, det)
-        Rx_sub = np.zeros_like (Rx)
-        for iroot in range (self.nroots):
-            Rx_sub[iroot] = self.Rci_sa[iroot,:,iroot] * sa_ovlp[iroot,iroot]
-        return Rx - Rx_sub
-'''
-
 
 
 

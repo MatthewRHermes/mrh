@@ -1,13 +1,14 @@
-import re, sys
+import re, sys, time
 import numpy as np
 import scipy as sp 
 from math import floor, ceil
-from pyscf import gto, scf, ao2mo
+from pyscf import gto, scf, ao2mo, fci
 from pyscf.scf.hf import dot_eri_dm
 from pyscf.scf.addons import project_mo_nr2nr
 from pyscf.symm.addons import symmetrize_space, label_orb_symm
 from pyscf.lib import logger
 from pyscf.tools import molden
+from pyscf.lib.numpy_helper import unpack_tril, pack_tril
 from mrh.my_dmet import pyscf_rhf, pyscf_mp2, pyscf_cc, pyscf_casscf, qcdmethelper, pyscf_fci #, chemps2
 from mrh.util import params
 from mrh.util.basis import *
@@ -17,7 +18,9 @@ from mrh.util.rdm import Schmidt_decomposition_idempotent_wrapper, idempotize_1R
 from mrh.util.tensors import symmetrize_tensor
 from mrh.util.my_math import is_close_to_integer
 from mrh.my_pyscf.tools.jmol import cas_mo_energy_shift_4_jmol
+from mrh.my_dmet.orbital_hessian import LASSCFHessianCalculator
 from functools import reduce
+from itertools import product
 import traceback
 import sys
 import copy
@@ -77,6 +80,7 @@ class fragment_object:
         self.target_S = 0
         self.target_MS = 0
         self.mol_output = None
+        self.mol_stdout = None
         self.debug_energy = False
         self.imp_maxiter = None # Currently only does anything for casscf solver
         self.quasidirect = True # Currently only does anything for rhf (in development)
@@ -85,12 +89,13 @@ class fragment_object:
         self.corr_attr = {}
         self.cas_guess_callback = None
         self.molden_missing_aos = False
-        self.add_virtual_bath = False
+        self.add_virtual_bath = True
         self.virtual_bath_gradient_svd = False
         self.enforce_symmetry = False
         self.wfnsym = None
-        self.quasifrag_ovlp = True
-        self.quasifrag_gradient = False
+        self.quasifrag_ovlp = False
+        self.quasifrag_gradient = True
+        self.approx_hessbath = True
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]
@@ -175,7 +180,9 @@ class fragment_object:
         self.oneRDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.oneSDMas_loc  = np.zeros((self.norbs_tot,self.norbs_tot))
         self.twoCDMimp_amo = np.zeros((0,0,0,0))
+        self.eri_gradient  = np.zeros((self.norbs_tot,0,0,0))
         self.ci_as         = None
+        self.ci_as_orb     = None
         self.mfmo_printed  = False
         self.impo_printed  = False
 
@@ -260,6 +267,10 @@ class fragment_object:
         return np.dot (self.imp2loc, self.loc2amo)
 
     @property
+    def imp2unac (self):
+        return get_complementary_states (self.imp2amo, symmetry=self.imp2symm, enforce_symmetry=self.enforce_symmetry)
+
+    @property
     def mo2imp (self):
         return np.dot (self.mo2loc, self.loc2imp)
 
@@ -318,8 +329,8 @@ class fragment_object:
     @property
     def nelec_as (self):
         result = np.trace (self.oneRDMas_loc)
-        if is_close_to_integer (result, params.num_zero_atol) == False:
-            raise RuntimeError ("Somehow you got a non-integer number of electrons in your active space! ({})".format (result))
+        #if is_close_to_integer (result, params.num_zero_atol) == False:
+        #    raise RuntimeError ("Somehow you got a non-integer number of electrons in your active space! ({})".format (result))
         return int (round (result))
 
     @property
@@ -376,6 +387,71 @@ class fragment_object:
 
     def get_true_loc2frag (self):
         return np.eye (self.norbs_tot)[:,self.frag_orb_list]
+
+    def get_loc2canon_imp (self, oneRDM_loc=None, fock_loc=None):
+        ''' Be careful: if you don't provide oneRDM_loc and fock_loc both, they might not be consistent with each other '''
+        if oneRDM_loc is None: oneRDM_loc = self.oneRDM_loc.copy ()
+        if fock_loc is None: fock_loc = self.ints.activeFOCK
+        loc2unac_imp = self.loc2imp @ self.imp2unac
+        norbs_inac = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2unac_imp))) // 2
+        norbs_occ = norbs_inac + self.norbs_as
+        unac_ene, loc2unac_imp, unac_lbls = matrix_eigen_control_options (fock_loc, subspace=loc2unac_imp, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)
+        amo_occ, loc2amo_imp, amo_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=self.loc2amo, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+        occ_canon = np.zeros (self.norbs_imp)
+        occ_canon[:norbs_inac] = 2
+        occ_canon[norbs_inac:][:self.norbs_as] = amo_occ[:]
+        ene_canon = np.zeros (self.norbs_imp)
+        ene_canon[:norbs_inac] = unac_ene[:norbs_inac]
+        ene_canon[norbs_occ:] = unac_ene[norbs_inac:]
+        loc2canon_imp = np.concatenate ([loc2unac_imp[:,:norbs_inac], loc2amo_imp, loc2unac_imp[:,norbs_inac:]], axis=1)
+        return loc2canon_imp, occ_canon, ene_canon, norbs_inac
+
+    def get_loc2canon_core (self, all_frags, oneRDM_loc=None, fock_loc=None):
+        ''' Be careful: if you don't provide oneRDM_loc and fock_loc both, they might not be consistent with each other '''
+        if oneRDM_loc is None: oneRDM_loc = self.oneRDM_loc.copy ()
+        if fock_loc is None: fock_loc = self.ints.activeFOCK
+        active_frags = [f for f in all_frags if f.norbs_as]
+        active_frags = [f for f in all_frags if f is not self]
+        loc2amo_core = np.concatenate ([f.loc2amo for f in active_frags], axis=1)
+        core2amo = self.core2loc @ loc2amo_core
+        core2unac = get_complementary_states (core2amo)
+        loc2unac_core = self.loc2core @ core2unac
+        norbs_inac = int (round (compute_nelec_in_subspace (oneRDM_loc, loc2unac_core))) // 2
+        norbs_as = loc2amo_core.shape[-1]
+        norbs_occ = norbs_inac + norbs_as
+        unac_ene, loc2unac_core, unac_lbls = matrix_eigen_control_options (fock_loc, subspace=loc2unac_core, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=1, only_nonzero_vals=False)
+        err = measure_subspace_blockbreaking (loc2unac_core, self.loc2symm, self.ir_names)
+        labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[unac_lbls], return_counts=True)))
+        print ("Core unactive irreps: {}, err = {}".format (labeldict, err))
+        loc2inac_core = loc2unac_core[:,:norbs_inac]
+        inac_lbls = unac_lbls[:norbs_inac]
+        err = measure_subspace_blockbreaking (loc2inac_core, self.loc2symm, self.ir_names)
+        labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[inac_lbls], return_counts=True)))
+        print ("Core inactive irreps: {}, err = {}".format (labeldict, err))
+        loc2virt_core = loc2unac_core[:,norbs_inac:]
+        virt_lbls = unac_lbls[norbs_inac:]
+        err = measure_subspace_blockbreaking (loc2virt_core, self.loc2symm, self.ir_names)
+        labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[virt_lbls], return_counts=True)))
+        print ("Core virtual irreps: {}, err = {}".format (labeldict, err))
+        amo_occ, loc2amo_core, amo_lbls = matrix_eigen_control_options (oneRDM_loc, subspace=loc2amo_core, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)
+        err = measure_subspace_blockbreaking (loc2amo_core, self.loc2symm, self.ir_names)
+        labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[amo_lbls], return_counts=True)))
+        print ("Core active irreps: {}, err = {}".format (labeldict, err))
+        occ_canon = np.zeros (self.norbs_core)
+        occ_canon[:norbs_inac] = 2
+        occ_canon[norbs_inac:][:norbs_as] = amo_occ[:]
+        ene_canon = np.zeros (self.norbs_core)
+        ene_canon[:norbs_inac] = unac_ene[:norbs_inac]
+        ene_canon[norbs_occ:] = unac_ene[norbs_inac:]
+        loc2canon_core = np.concatenate ([loc2inac_core, loc2amo_core, loc2virt_core], axis=1)
+        return loc2canon_core, occ_canon, ene_canon, norbs_inac, norbs_as
+
+
+
 
     ############################################################################################################################
 
@@ -444,6 +520,11 @@ class fragment_object:
             sys.stdout.flush ()
             return
         '''
+        if not ('dummy' in self.imp_solver_name):
+            w0, t0 = time.time (), time.clock ()
+            self.hesscalc = LASSCFHessianCalculator (self.ints, oneRDM_loc, all_frags, self.ints.activeFOCK,
+                self.ints.activeVSPIN, Hop_noxc=self.approx_hessbath) 
+            print ("Time in building Hessian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         frag2wmcs = np.dot (self.frag2loc, loc2wmcs)
         proj = np.dot (frag2wmcs.conjugate ().T, frag2wmcs)
         norbs_wmcsf = np.trace (proj)
@@ -476,7 +557,6 @@ class fragment_object:
             loc2wfrag = self.loc2frag
             print ("NO quasi-fragment orbitals constructed")
 
-
         # This will RuntimeError on me if I don't have integer.
         # For safety's sake, I'll project into wmcs subspace and add wmas part back to self.oneRDMfroz_loc afterwards.
         oneRDMi_loc = project_operator_into_subspace (oneRDM_loc, loc2wmcs)
@@ -485,6 +565,11 @@ class fragment_object:
             self.norbs_bath_max, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry, bath_tol=self.bath_tol, fock_helper=self.ints.activeFOCK,
             idempotize_thresh=self.idempotize_thresh, num_zero_atol=params.num_zero_atol)
         self.norbs_imp = self.norbs_frag + norbs_qfrag + norbs_bath
+        dm = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: initial projection error = {:.6e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
+        q = self.loc2core @ self.core2loc
+        dm = q @ self.oneRDM_loc @ q
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: initial projection error again = {:.6e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
         self.Schmidt_done = True
         oneRDMacore_loc = project_operator_into_subspace (oneRDMa_loc, self.loc2core)
         nelec_impa = compute_nelec_in_subspace (oneRDMa_loc, self.loc2imp)
@@ -492,8 +577,100 @@ class fragment_object:
         print ("Adding {} active-space electrons to impurity and {} active-space electrons to core".format (nelec_impa, np.trace (oneRDMacore_loc)))
         self.oneRDMfroz_loc += oneRDMacore_loc
         self.nelec_imp += int (round (nelec_impa))
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: projection error after adding 'oneRDMacore_loc' = {:.6e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
+
+        # Weak symmetry alignment, for the sake of moldening. (Extended) fragment, then (extended) bath
+        if self.symmetry:
+            norbs_frag = loc2wfrag.shape[1]
+            loc2frag = self.loc2emb[:,:norbs_frag]
+            loc2bath = self.loc2emb[:,norbs_frag:self.norbs_imp]
+            frag_labels = emb_labels[:norbs_frag].astype (int)
+            bath_labels = emb_labels[norbs_frag:self.norbs_imp].astype (int)
+            #evals, loc2frag[:,:], frag_labels = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm,
+            #    subspace=loc2frag, sort_vecs=-1, only_nonzero_vals=False, strong_symm=False)
+            labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[frag_labels], return_counts=True)))
+            err = measure_subspace_blockbreaking (loc2frag, self.loc2symm, self.ir_names)
+            print ("Fragment-orbital irreps: {}, err = {}".format (labeldict, err))
+            #evals, loc2bath[:,:], bath_labels = matrix_eigen_control_options (oneRDM_loc, symmetry=self.loc2symm,
+            #    subspace=loc2bath, sort_vecs=1, only_nonzero_vals=False, strong_symm=False)
+            labeldict = dict (zip (*np.unique (np.asarray (self.ir_names)[bath_labels], return_counts=True)))
+            err = measure_subspace_blockbreaking (loc2bath, self.loc2symm, self.ir_names)
+            print ("Bath-orbital irreps: {}, err = {}".format (labeldict, err))
 
         # I need to work symmetry handling into this as well
+        norbs_hessbath = max (0, min (2 * (self.norbs_frag+self.norbs_as), self.norbs_tot) - self.norbs_imp)
+        print ("Fragment {} basis set instability virtual orbital loss: 2 * ({} + {}) - {} = {} missing bath orbitals".format (self.frag_name,
+            self.norbs_frag, self.norbs_as, self.norbs_imp, norbs_hessbath))
+        if norbs_hessbath and self.add_virtual_bath and self.imp_solver_name != 'dummy RHF' and self.norbs_as:
+            loc2canon_core, _, _, norbs_inac_core, norbs_as_core = self.get_loc2canon_core (all_frags, oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
+            norbs_occ_core = norbs_inac_core + norbs_as_core
+            norbs_virt_core = self.norbs_core - norbs_occ_core
+            norbs_unac_core = norbs_inac_core + norbs_virt_core
+            loc2canon_imp, _, _, norbs_inac_imp = self.get_loc2canon_imp (oneRDM_loc=oneRDM_loc, fock_loc=self.ints.activeFOCK)
+            norbs_occ_imp = norbs_inac_imp + self.norbs_as
+            norbs_ninac_imp = self.norbs_imp - norbs_inac_imp
+            print (("Searching for {} extra bath orbitals among a set of {}/{} virtuals/inactives "
+                " accessible by {}/{} occupied/noninactive orbitals").format (norbs_hessbath, norbs_virt_core, norbs_inac_core, norbs_occ_imp, norbs_ninac_imp))
+            # Occupied orbitals in the impurity
+            loc2occ_imp = loc2canon_imp[:,:norbs_occ_imp]
+            loc2ninac_imp = loc2canon_imp[:,norbs_inac_imp:]
+            # Virtual orbitals in the core
+            loc2inac_core = loc2canon_core[:,:norbs_inac_core]
+            loc2virt_core = loc2canon_core[:,norbs_occ_core:]
+            loc2amo_core = loc2canon_core[:,norbs_inac_core:norbs_occ_core]
+            loc2unac_core = np.append (loc2inac_core, loc2virt_core, axis=1)
+            # Unactive orbitals in the impurity
+            loc2unac_imp = np.append (loc2canon_imp[:,:norbs_inac_imp], loc2canon_imp[:,norbs_occ_imp:], axis=1)
+            # Sort the core orbitals of loc2emb to get the active orbitals out of the way
+            loc2sort_core = np.concatenate ([loc2virt_core, loc2inac_core, loc2amo_core], axis=1)
+            self.loc2emb[:,self.norbs_imp:] = loc2sort_core[:,:]
+            # Get the conjugate gradient. Push into the loc basis so I can use the weak inner symmetry capability of the svd function
+            w0, t0 = time.time (), time.clock ()
+            pq_pairs = ((loc2virt_core, loc2occ_imp), (loc2inac_core, loc2ninac_imp))
+            #grad = self.hesscalc.get_conjugate_gradient (pq_pairs, loc2unac_imp, self.loc2amo)
+            #grad_test = self.hesscalc.get_impurity_conjugate_gradient (loc2canon_imp, loc2canon_core, self.loc2amo)
+            #grad_test = ((loc2virt_core @ grad_test[norbs_occ_core:,:norbs_occ_imp] @ loc2occ_imp.conjugate ().T)
+            #            + loc2inac_core @ grad_test[:norbs_inac_core,norbs_inac_imp:] @ loc2ninac_imp.conjugate ().T)
+            #print ("Error in grad_test: {}".format (linalg.norm (grad_test-grad)))
+            print (norbs_inac_imp, " inactive in impurity; ", norbs_inac_core, " inactive in core")
+            grad = self.hesscalc.get_impurity_conjugate_gradient (loc2canon_imp, loc2unac_core, self.loc2amo)
+            print ("Time in Hessian module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+            # Zero gradient escape
+            if np.count_nonzero (np.abs (grad) > 1e-8): 
+                # SVD and add to the bath
+                self.loc2emb[:,self.norbs_imp:][:,:norbs_virt_core], _, svals_vhb = get_overlapping_states (loc2virt_core, loc2occ_imp,
+                    inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry, across_operator=grad,
+                    full_matrices=True, only_nonzero_vals=False)[:3]
+                offs = self.norbs_imp+norbs_virt_core
+                self.loc2emb[:,offs:][:,:norbs_inac_core], _, svals_ohb = get_overlapping_states (loc2inac_core, loc2ninac_imp,
+                    inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry, across_operator=grad,
+                    full_matrices=True, only_nonzero_vals=False)[:3]
+                if norbs_virt_core - len (svals_vhb): svals_vhb = np.append (svals_vhb, np.zeros (norbs_virt_core - len (svals_vhb)))
+                if norbs_inac_core - len (svals_ohb): svals_ohb = np.append (svals_ohb, np.zeros (norbs_inac_core - len (svals_ohb)))
+                svals = np.append (svals_vhb, svals_ohb)
+                core_occ = np.zeros (len (svals))
+                core_occ[norbs_virt_core:] = 2
+                idx = np.argsort (np.abs (svals))[::-1]
+                self.loc2emb[:,self.norbs_imp:][:,:norbs_unac_core] = self.loc2emb[:,self.norbs_imp:][:,:norbs_unac_core][:,idx]
+                svals = svals[idx]
+                core_occ = core_occ[idx]
+                print ("Adding {} virtual orbitals to bath from Hessian".format (np.count_nonzero (core_occ[:norbs_hessbath]==0)))
+                print ("Conjugate-gradient svals: " + " ".join (["{:9.2e}".format (sval) for sval in svals[:norbs_hessbath]]))
+                print ("Adding {} electrons to impurity from Hessian bath orbitals".format (np.sum (core_occ[:norbs_hessbath])))
+                self.nelec_imp += int (round (np.sum (core_occ[:norbs_hessbath])))
+                self.norbs_imp += norbs_hessbath
+                nelec_err = self.nelec_imp - compute_nelec_in_subspace (oneRDM_loc, self.loc2imp)
+                print ("Impurity orbital nelec err after adding Hessian baths = {}".format (nelec_err))
+
+            else:
+                print ("Gradient is zero; can't make hessbath using gradient")
+        self.oneRDMfroz_loc = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
+        #self.oneRDMfroz_loc -= project_operator_into_subspace (self.oneRDMfroz_loc, self.loc2imp)
+        #dm = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: projection error after hessbath = {:.6e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
+
+        # This whole block below me is an old attempt at this that doesn't really work
+        '''
         try: 
             norbs_bath_xtra = self.norbs_bath_max - norbs_bath
             loc2virtbath = self.analyze_ao_imp (oneRDM_loc, loc2wmcs, norbs_bath_xtra)
@@ -510,6 +687,7 @@ class fragment_object:
                 print ("Ignoring error for now, because this is a dummy fragment")
             else:
                 raise (e)
+        '''
 
         # Weak symmetry alignment, for the sake of moldening. (Extended) fragment, then (extended) bath
         if self.symmetry:
@@ -531,7 +709,7 @@ class fragment_object:
 
         err = measure_basis_nonorthonormality (self.loc2imp)
         print ("Impurity orbital overlap error = {}".format (err))
-        err = measure_basis_nonorthonormality (self.loc2core)
+        err = measure_basis_nonorthonormality (self.loc2core) if self.loc2core.size else 0.0
         print ("Core orbital overlap error = {}".format (err))
         err = measure_basis_nonorthonormality (self.loc2emb)
         print ("Whole embedding basis overlap error = {}".format (err))
@@ -545,6 +723,8 @@ class fragment_object:
 
         self.impham_built = False
         sys.stdout.flush ()
+        #dm = project_operator_into_subspace (self.oneRDM_loc, self.loc2core)
+        #if not ('dummy' in self.imp_solver_name): print ("CHECK ME: final projection error = {:.5e}".format (linalg.norm (dm - self.oneRDMfroz_loc)))
 
     def get_quasifrag_ovlp (self, loc2frag, loc2wmcs, norbs_xtra):
         ''' Add "quasi-fragment orbitals" (to compensate for active orbitals' inability to generate bath) to "fragment orbitals" and return "working fragment orbitals
@@ -599,14 +779,28 @@ class fragment_object:
         loc2env = get_complementary_states (loc2frag, already_complete_warning=False, symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)
         loc2cenv = get_overlapping_states (loc2wmcs, loc2env, inner_symmetry=self.loc2symm, enforce_symmetry=self.enforce_symmetry)[0]
         cenv2loc = loc2cenv.conjugate ().T
-        amo2loc = loc2amo.conjugate ().T
+        grad = self.hesscalc._get_Fock1 (loc2cenv, loc2amo) - self.hesscalc._get_Fock1 (loc2amo, loc2cenv).T
+        '''
         # 1-body part
-        grad = fock_loc @ oneRDM_loc
-        grad -= grad.T
+        grad_comp = fock_loc @ oneRDM_loc
+        grad_comp -= grad.T
         # 2-body part
         eri = self.ints.general_tei ([loc2cenv, self.loc2amo, self.loc2amo, self.loc2amo])
         eri_grad = np.tensordot (eri, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
-        grad += loc2cenv @ eri_grad @ amo2loc
+        grad_comp += loc2cenv @ eri_grad @ self.amo2loc
+        # Testing hessian calculator
+        print ("************************************* TEST ****************************************")
+        print ("In first iteration, active orbitals may overlap, which will cause this test to fail")
+        grad_comp = cenv2loc @ grad @ loc2amo
+        for i, j in product (range (loc2cenv.shape[-1]), range (loc2amo.shape[-1])):
+            print ("{} {} {:.9e} {:.9e}".format (i, j, grad[i,j], grad_comp[i,j]))
+        print ("*********************************** END TEST **************************************")
+        #assert (False)
+        '''
+        if np.all (np.abs (grad) < 1e-8):
+            print ("Gradient appears to be zero; defaulting to overlap criterion for quasifragment orbitals")
+            return self.get_quasifrag_ovlp (loc2frag, loc2wmcs, norbs_xtra)
+        grad = loc2cenv @ grad @ self.amo2loc
         # SVD
         loc2qfrag, _, svals, qfrag_labels, _ = get_overlapping_states (loc2cenv, loc2amo, inner_symmetry=self.loc2symm,
             enforce_symmetry=self.enforce_symmetry, across_operator=grad, full_matrices=True, only_nonzero_vals=False)
@@ -718,7 +912,33 @@ class fragment_object:
             grad += np.tensordot (eri, lamb, axes=((1,2,3),(1,2,3))) # axes=3 is INCORRECT!
         return 2 * grad, occ_labels
             
-
+    def test_Schmidt_basis_energy (self):
+        def _test (dma, dmb, label):
+            dma_ao, dmb_ao = (represent_operator_in_basis (dm, self.ints.ao2loc.conjugate ().T) for dm in (dma, dmb))
+            vj, vk = self.ints.get_jk_ao ([dma_ao, dmb_ao])
+            va = vj[0] + vj[1] - vk[0]
+            vb = vj[0] + vj[1] - vk[1]
+            va, vb = (represent_operator_in_basis (v, self.ints.ao2loc) for v in (va, vb))
+            etot = self.ints.activeCONST + (self.ints.activeOEI * (dma + dmb)).sum ()
+            etot += (va * dma).sum () / 2
+            etot += (vb * dmb).sum () / 2
+            etot += self.E2_cum + sum (self.E2froz_tbc)
+            print ("LASSCF energy total error in Schmidt basis using {}: {:.6e}".format (label, etot - self.ints.e_tot))
+        dma, dmb = (self.oneRDM_loc + self.oneSDM_loc)/2, (self.oneRDM_loc - self.oneSDM_loc)/2
+        _test (dma, dmb, 'full rdm')
+        p = self.loc2imp @ self.imp2loc
+        q = self.loc2core @ self.core2loc
+        dma_p = p @ dma @ p + q @ dma @ q
+        dmb_p = p @ dmb @ p + q @ dmb @ q
+        _test (dma_p, dmb_p, 'projected rdm')
+        dma_s = p @ dma @ p + self.oneRDMfroz_loc/2
+        dmb_s = p @ dmb @ p + self.oneRDMfroz_loc/2
+        _test (dma_s, dmb_s, 'stored rdm (VALID FOR SINGLET ENVIRONMENT ONLY)')
+        print ("CHECK ME: norm of spin density matrix in this case: {}".format (linalg.norm (self.oneSDM_loc)))
+        print ("CHECK ME: diff between self.ints.oneRDM_loc and self.oneRDM_loc: {}".format (linalg.norm (self.oneRDM_loc - self.ints.oneRDM_loc)))
+        print ("CHECK ME: diff between self.ints.oneSDM_loc and self.oneSDM_loc: {}".format (linalg.norm (self.oneSDM_loc - self.ints.oneSDM_loc)))
+        print ("CHECK ME: diff between projected rdm and self.oneRDMfroz_loc: {}".format (linalg.norm (q @ (dma + dmb) @ q - self.oneRDMfroz_loc)))
+        
 
     ##############################################################################################################################
 
@@ -729,14 +949,13 @@ class fragment_object:
     # Impurity Hamiltonian
     ###############################################################################################################################
     def construct_impurity_hamiltonian (self, xtra_CONST=0.0):
+        w0, t0 = time.time (), time.clock () 
         self.warn_check_Schmidt ("construct_impurity_hamiltonian")
         if self.imp_solver_name == "dummy RHF":
             self.E2_frag_core = 0
             self.impham_built = True
             self.imp_solved   = False
             return
-        self.impham_OEI_C = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
-        self.impham_OEI_S = -self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneSDMfroz_loc) / 2
         if self.imp_solver_name == "RHF" and self.quasidirect:
             ao2imp = np.dot (self.ints.ao2loc, self.loc2imp)
             def my_jk (mol, dm, hermi=1):
@@ -748,25 +967,139 @@ class fragment_object:
             self.impham_TEI = None 
             #self.impham_TEI_fiii = None # np.empty ([self.norbs_frag] + [self.norbs_imp for i in range (3)], dtype=np.float64)
             self.impham_get_jk = my_jk
+            vj, vk_c = self.impham_get_jk (self.ints.mol, self.get_oneRDM_imp ())
+            vk_s = self.impham_get_jk (self.ints.mol, self.get_oneSDM_imp ())[1]
+            cdm = self.get_oneRDM_imp ()
+            sdm = self.get_oneSDM_imp ()
+            sie = self.E2_cum
+            sie += np.tensordot (vj, cdm) / 2
+            sie -= np.tensordot (vk_c, cdm) / 4
+            sie -= np.tensordot (vk_s, sdm) / 4
         elif self.project_cderi:
             self.impham_TEI = None
             self.impham_get_jk = None
             self.impham_CDERI = self.ints.dmet_cderi (self.loc2emb, self.norbs_imp)
+            cdm = self.get_oneRDM_imp ()
+            sdm = self.get_oneSDM_imp ()
+            cdm_pack = cdm + cdm.T
+            cdm_pack[np.diag_indices (self.norbs_imp)] /= 2
+            cdm_pack = pack_tril (cdm_pack)
+            rho = np.dot (self.impham_CDERI, cdm_pack)
+            vj = unpack_tril (np.dot (rho, self.impham_CDERI))
+            cderi = unpack_tril (self.impham_CDERI)
+            vk_c = np.dot (cderi, cdm)
+            vk_c = np.tensordot (cderi, vk_c, axes=((0,2),(0,2)))
+            vk_s = np.dot (cderi, sdm)
+            vk_s = np.tensordot (cderi, vk_s, axes=((0,2),(0,2)))
+            sie = self.E2_cum
+            sie += np.tensordot (vj, cdm) / 2
+            sie -= np.tensordot (vk_c, cdm) / 4
+            sie -= np.tensordot (vk_s, sdm) / 4
+            cderi = rho = cdm_pack = cdm = sdm = None
         else:
             f = self.loc2frag
             i = self.loc2imp
             self.impham_TEI = self.ints.dmet_tei (self.loc2emb, self.norbs_imp, symmetry=8) 
             #self.impham_TEI_fiii = self.ints.general_tei ([f, i, i, i])
             self.impham_get_jk = None
+            cdm = self.get_oneRDM_imp ()
+            sdm = self.get_oneSDM_imp ()
+            eri = ao2mo.restore (1, self.impham_TEI, self.norbs_imp)
+            vj = np.tensordot (eri, cdm, axes=2)
+            vk_c = np.tensordot (eri, cdm, axes=((1,2),(0,1)))
+            vk_s = np.tensordot (eri, sdm, axes=((1,2),(0,1)))
+            sie = self.E2_cum
+            sie += np.tensordot (vj, cdm) / 2
+            sie -= np.tensordot (vk_c, cdm) / 4
+            sie -= np.tensordot (vk_s, sdm) / 4
+            eri = cdm = sdm = None
+
+        #OEI_C = self.ints.dmet_fock (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc)
+        #OEI_S = -self.ints.dmet_k (self.loc2emb, self.norbs_imp, self.oneSDMfroz_loc) / 2
+        self.impham_OEI_C = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - (vj - vk_c/2)
+        self.impham_OEI_S = represent_operator_in_basis (self.ints.activeVSPIN, self.loc2imp) + vk_s/2
+        #print ("Error in OEI_C: {}".format (linalg.norm (OEI_C - self.impham_OEI_C)))
+        #print ("Error in OEI_S: {}".format (linalg.norm (OEI_S - self.impham_OEI_S)))
 
         # Constant contribution to energy from core 2CDMs
-        self.impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc, self.oneSDMfroz_loc)
-                             + self.ints.const () + xtra_CONST + sum (self.E2froz_tbc))
+        cdm, sdm = self.get_oneRDM_imp (), self.get_oneSDM_imp ()
+        sie += np.tensordot (self.impham_OEI_C, cdm, axes=2)
+        sie += np.tensordot (self.impham_OEI_S, sdm, axes=2)
+        self.impham_CONST = self.ints.e_tot - sie 
+        #impham_CONST = (self.ints.dmet_const (self.loc2emb, self.norbs_imp, self.oneRDMfroz_loc, self.oneSDMfroz_loc)
+        #                     + self.ints.const () + xtra_CONST + sum (self.E2froz_tbc))
+        #print ("Error in impham_CONST: {}".format (self.impham_CONST - impham_CONST))
+
         self.E2_frag_core = 0
 
         self.impham_built = True
         self.imp_solved   = False
+        print ("Time in impurity Hamiltonian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         sys.stdout.flush ()
+
+    def test_impurity_hamiltonian_energy (self):
+        h = self.impham_OEI_C.copy ()
+        dm = represent_operator_in_basis (self.oneRDM_loc, self.loc2imp)
+        if self.impham_TEI is not None:
+            eri = ao2mo.restore (1, self.impham_TEI, self.norbs_imp).reshape ([self.norbs_imp,]*4)
+            h += np.tensordot (eri, dm) / 2
+            h -= np.tensordot (eri, dm, axes=((2,1),(0,1))) / 4
+            v = represent_operator_in_basis (eri, self.imp2amo)
+        elif self.impham_get_jk is not None:
+            vj, vk = self.impham_get_jk (self.ints.mol, dm)
+            h += (vj - vk/2) / 2
+            v = 0.0
+        elif self.impham_CDERI is not None:
+            print ("Warning: am not sure about this (veff through CDERI)!")
+            cderi = unpack_tril (self.impham_CDERI)
+            h += np.dot (np.tensordot (cderi, dm), cderi) / 2
+            h -= np.tensordot (cderi, np.dot (cderi, dm), axes=((0,1),(0,2))) / 4
+            v = np.dot (self.amo2imp, np.dot (cderi, self.imp2amo))
+            v = np.tensordot (v, v, axes=((1),(1)))
+        e_tot = self.impham_CONST + (h*dm).sum () + (v*self.twoCDMimp_amo).sum () / 2
+        print ("LASSCF energy total error in fragments.py (using stored density-matrix data, VALID FOR SINGLET ENVIRONMENT ONLY): {:.6e}".format (e_tot - self.ints.e_tot))
+        print ("CHECK ME: diff between stored E2_cum and recomputed E2_cum in this case: {}".format (self.E2_cum + sum (self.E2froz_tbc) - (v*self.twoCDMimp_amo).sum () / 2))
+
+        if self.ci_as is not None:
+            h = self.impham_OEI_C.copy ()
+            ci = self.ci_as.copy ()
+            ci_orb = self.ci_as_orb.copy ()
+            ha, hb = h + self.impham_OEI_S, h - self.impham_OEI_S
+            loc2can, _, _, ncore = self.get_loc2canon_imp ()
+            ncas = self.norbs_as
+            nocc = ncore + ncas
+            imp2can = self.imp2loc @ loc2can
+            dm_core = imp2can[:,:ncore] @ imp2can[:,:ncore].conjugate ().T * 2
+            imp2cas = imp2can[:,ncore:nocc]
+            fcisolver = fci.solver (self.ints.mol, singlet=False, symm=None)
+            abs_2MS = int (round (2 * abs (self.target_MS)))
+            nelecas = ((self.nelec_as + abs_2MS) // 2, (self.nelec_as - abs_2MS) // 2)
+            casdm1a, casdm1b = fcisolver.make_rdm1s (ci, ncas, nelecas)
+            casdm2 = fcisolver.make_rdm2 (ci, ncas, nelecas)
+            umat = ci_orb.conjugate ().T @ loc2can[:,ncore:nocc]
+            casdm1a = represent_operator_in_basis (casdm1a, umat)
+            casdm1b = represent_operator_in_basis (casdm1b, umat)
+            casdm2 = represent_operator_in_basis (casdm2, umat)
+            if self.impham_TEI is not None:
+                eri = ao2mo.restore (1, self.impham_TEI, self.norbs_imp).reshape ([self.norbs_imp,]*4)
+                vj = np.tensordot (eri, dm_core)
+                vk = np.tensordot (eri, dm_core, axes=((2,1),(0,1))) 
+                v = represent_operator_in_basis (eri, imp2cas)
+            elif self.impham_CDERI is not None:
+                print ("Warning: am not sure about this (veff through CDERI)!")
+                cderi = unpack_tril (self.impham_CDERI)
+                vj = np.dot (np.tensordot (cderi, dm_core), cderi) 
+                vk = np.tensordot (cderi, np.dot (cderi, dm_core), axes=((0,1),(0,2))) 
+                v = np.dot (imp2cas.conjugate ().T, np.dot (cderi, imp2cas))
+                v = np.tensordot (v, v, axes=((1),(1)))
+            e_core = self.impham_CONST + ((h + vj/2 - vk/4) * dm_core).sum ()
+            ha = represent_operator_in_basis (ha + vj - vk/2, imp2cas)
+            hb = represent_operator_in_basis (hb + vj - vk/2, imp2cas)
+            e_cas = (ha * casdm1a).sum () + (hb * casdm1b).sum () + (v * casdm2).sum () / 2
+            print ("Testing e_core = {:.9f}".format (e_core))
+            print ("Testing e_cas = {:.9f}".format (e_cas))
+            print ("LASSCF energy total error using ci vectors in fragments.py (VALID FOR SINGLET ENVIRONMENT ONLY): {:.6e}".format (e_core + e_cas - self.ints.e_tot))
+
     ###############################################################################################################################
 
 
@@ -776,8 +1109,8 @@ class fragment_object:
     ###############################################################################################################################
     def get_guess_1RDM (self, chempot_imp):
         FOCK = represent_operator_in_basis (self.ints.activeFOCK, self.loc2imp) - chempot_imp
-        guess_1RDM = [get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) + self.target_MS),
-                      get_1RDM_from_OEI (FOCK, (self.nelec_imp // 2) - self.target_MS)]
+        guess_1RDM = [get_1RDM_from_OEI (FOCK,int ( round ( (self.nelec_imp // 2) + self.target_MS))),
+                      get_1RDM_from_OEI (FOCK,int ( round ( (self.nelec_imp // 2) - self.target_MS)))]
         if not self.target_MS: guess_1RDM = guess_1RDM[0] + guess_1RDM[1]
         return guess_1RDM
 
@@ -789,7 +1122,10 @@ class fragment_object:
         guess_1RDM = self.get_guess_1RDM (chempot_imp)
 
         # Execute solver function
+        #if self.imp_solver_name != 'dummy RHF': self.analyze_gradient ()
+        w0, t0 = time.time (), time.clock ()
         self.imp_solver_function (guess_1RDM, chempot_imp)
+        print ("Time in solver function: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
         self.imp_solved = True
 
         # Main results: oneRDM in local basis and nelec_frag
@@ -798,6 +1134,7 @@ class fragment_object:
         self.S2_frag    = self.get_S2_frag ()
         print ("Impurity results for {0}: E_imp = {1}, E_frag = {2}, nelec_frag = {3}, S2_frag = {4}".format (self.frag_name,
             self.E_imp, self.E_frag, self.nelec_frag, self.S2_frag))
+        #if self.imp_solver_name != 'dummy RHF': self.analyze_gradient (oneRDM_loc=self.oneRDM_loc, fock_loc=self.ints.loc_rhf_fock_bis (self.oneRDM_loc))
 
         # In order to comply with ``NOvecs'' bs, let's get some pseudonatural orbitals
         self.fno_evals, frag2fno = sp.linalg.eigh (self.get_oneRDM_frag ())
@@ -810,6 +1147,59 @@ class fragment_object:
         print ("Number of electrons on {0} from the impurity model: {1}; from the core: {2}".format (
             self.frag_name, np.trace (oneRDMimp_loc[idx]), np.trace (self.oneRDMfroz_loc[idx])))
         '''
+
+    def analyze_gradient (self, oneRDM_loc=None, fock_loc=None):
+        ''' Orbitals may be messed up by symmetry enforcement! I think symmetry enforcement may accidentally siwtch some impurity external orbitals and core external orbitals? '''
+        if oneRDM_loc is None: oneRDM_loc = self.ints.oneRDM_loc
+        if fock_loc is None: fock_loc = self.ints.activeFOCK
+        print ("Is fock matrix symmetry-adapted? {}".format (measure_operator_blockbreaking (fock_loc, self.loc2symm)))
+        print ("Is 1RDM symmetry-adapted? {}".format (measure_operator_blockbreaking (oneRDM_loc, self.loc2symm)))
+        imp2unac = get_complementary_states (self.imp2amo) 
+        loc2iunac = self.loc2imp @ imp2unac
+        ino_occ, loc2ino = matrix_eigen_control_options (oneRDM_loc, subspace=loc2iunac, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)[:2]
+        norbs_iinac = (self.nelec_imp - self.nelec_as) // 2
+        loc2iinac = loc2ino[:,:norbs_iinac]
+        iext2loc = loc2ino[:,norbs_iinac:].conjugate ().T
+        occ_err = linalg.norm (ino_occ[:norbs_iinac]-2)
+        olap_err = measure_basis_olap (loc2iinac, self.loc2core)
+        print ("I think I have {} impurity inactive orbitals; occupancy error = {}, overlap error = {}".format (norbs_iinac, occ_err, olap_err))
+        occ_err = linalg.norm (ino_occ[norbs_iinac:])
+        olap_err = measure_basis_olap (iext2loc.conjugate ().T, self.loc2core)
+        print ("I think I have {} impurity external orbitals; occupancy error = {}, overlap error = {}".format (len (ino_occ) - norbs_iinac, occ_err, olap_err))
+        cno_occ, loc2cno = matrix_eigen_control_options (oneRDM_loc, subspace=self.loc2core, symmetry=self.loc2symm,
+            strong_symm=self.enforce_symmetry, sort_vecs=-1, only_nonzero_vals=False)[:2]
+        norbs_cinac = (self.ints.nelec_tot - self.nelec_imp) // 2
+        loc2cinac = loc2cno[:,:norbs_cinac]
+        cext2loc = loc2cno[:,norbs_cinac:].conjugate ().T
+        iunac2loc = loc2iunac.conjugate ().T
+        occ_err = linalg.norm (cno_occ[:norbs_cinac]-2) if norbs_cinac>0 else 0.0
+        olap_err = measure_basis_olap (loc2cinac, self.loc2imp)
+        print ("I think I have {} core inactive orbitals; occupancy error = {}, overlap error = {}".format (norbs_cinac, occ_err, olap_err))
+        occ_err = linalg.norm (cno_occ[norbs_cinac:])
+        olap_err = measure_basis_olap (cext2loc.conjugate ().T, self.loc2imp)
+        print ("I think I have {} core external orbitals; occupancy error = {}, overlap error = {}".format (len (cno_occ) - norbs_cinac, occ_err, olap_err))
+        eri_faaa = self.ints.general_tei ([np.eye (self.norbs_tot), self.loc2amo, self.loc2amo, self.loc2amo])
+        eri_iunac = np.tensordot (iunac2loc, eri_faaa, axes=1)
+        eri_core = np.tensordot (self.core2loc, eri_faaa, axes=1)
+        # Active orbital-impurity unac
+        grad = fock_loc @ oneRDM_loc
+        grad -= grad.T
+        grad = iunac2loc @ grad @ self.loc2amo
+        eri_grad = np.tensordot (eri_iunac, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
+        grad += eri_grad
+        print ("Active to imp-unac gradient norm: {}".format (linalg.norm (grad)))
+        # Active orbital-core
+        grad = fock_loc @ oneRDM_loc
+        grad -= grad.T
+        grad = self.core2loc @ grad @ self.loc2amo
+        eri_grad = np.tensordot (eri_core, self.twoCDMimp_amo, axes=((1,2,3),(1,2,3))) # NOTE: just saying axes=3 gives an INCORRECT result
+        grad += eri_grad
+        print ("Active to core gradient norm: {}".format (linalg.norm (grad)))
+        print ("Imp-inac to imp-extern gradient norm: {}".format (linalg.norm (iext2loc @ fock_loc @ loc2iinac * 2)))
+        print ("Core-inac to core-extern gradient norm: {}".format (linalg.norm (cext2loc @ fock_loc @ loc2cinac * 2)))
+        print ("Core-inac to imp-extern gradient norm: {}".format (linalg.norm (iext2loc @ fock_loc @ loc2cinac * 2)))
+        print ("Imp-inac to core-extern gradient norm: {}".format (linalg.norm (cext2loc @ fock_loc @ loc2iinac * 2)))
 
 
     def load_amo_guess_from_casscf_molden (self, moldenfile, norbs_cmo, norbs_amo):
@@ -927,8 +1317,8 @@ class fragment_object:
             evals, new_imp2mo, labels = matrix_eigen_control_options (sorting_metric, subspace=imp2mo, symmetry=mol.symm_orb,
                 sort_vecs=sort_vecs, only_nonzero_vals=False, strong_symm=self.enforce_symmetry)
             err = measure_subspace_blockbreaking (new_imp2mo, mol.symm_orb)
-            if self.enforce_symmetry:
-                assert (all ([e < params.num_zero_atol for e in err[2:]])), "Strong symmetry enforcement required, but subspace not symmetry aligned; err = {}".format (err)
+            #if self.enforce_symmetry:
+            #    assert (all ([e < params.num_zero_atol for e in err[2:]])), "Strong symmetry enforcement required, but subspace not symmetry aligned; err = {}".format (err)
         else:
             sorting_metric = represent_operator_in_basis (sorting_metric, self.imp2loc)
             loc2mo = self.loc2imp @ imp2mo
@@ -1061,6 +1451,10 @@ class fragment_object:
         self.warn_check_Schmidt ("oneRDM_imp")
         return represent_operator_in_basis (self.oneRDM_loc, self.loc2imp)
 
+    def get_oneSDM_imp (self):
+        self.warn_check_Schmidt ("oneSDM_imp")
+        return represent_operator_in_basis (self.oneSDM_loc, self.loc2imp)
+
     def impurity_molden (self, tag=None, canonicalize=False, natorb=False, molorb=False, ene=None, occ=None):
         tag = '.' if tag == None else '_' + str (tag) + '.'
         filename = self.filehead + self.frag_name + tag + 'molden'
@@ -1086,8 +1480,14 @@ class fragment_object:
             assert (not canonicalize)
         elif natorb or canonicalize:
             if self.norbs_as > 0: 
-                loc2molden[:,idx_unac] = self.loc2imp @ get_complementary_states (self.imp2amo)
-                loc2molden[:,idx_actv] = self.loc2amo
+                try:
+                    loc2molden[:,idx_unac] = self.loc2imp @ get_complementary_states (self.imp2amo)
+                    loc2molden[:,idx_actv] = self.loc2amo
+                except Exception as e:
+                    print (idx_unac)
+                    print (idx_actv)
+                    print (self.norbs_imp, self.nelec_imp, self.nelec_as, loc2molden.shape, self.loc2imp.shape, get_complementary_states (self.imp2amo).shape, self.loc2amo.shape)
+                    raise (e) 
             if canonicalize or (natorb and any ([x in self.imp_solver_name for x in ('CASSCF', 'RHF')])):
                 loc2molden[:,idx_unac] = matrix_eigen_control_options (FOCK, strong_symm=False,
                     subspace=loc2molden[:,idx_unac], symmetry=self.loc2symm, sort_vecs=1,
