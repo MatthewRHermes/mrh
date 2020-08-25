@@ -527,6 +527,34 @@ class dmet:
         rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
 
+        if self.doLASSCF:
+            w0, t0 = time.time (), time.clock ()
+            active_frags = [f for f in self.fragments if f.active_space]
+            nelec_amo = sum (f.active_space[0] for f in active_frags)
+            ncore = (self.ints.nelec_tot - nelec_amo) // 2
+            ncas_sub = []
+            nelecas_sub = []
+            casdm0_sub = []
+            spin_sub = []
+            wfnsym_sub = []
+            ci0 = []
+            for f in active_frags:
+                neleca = int (round ((f.active_space[0]/2) + f.target_MS))
+                nelecb = int (round ((f.active_space[0]/2) - f.target_MS))
+                ncas_sub.append (f.active_space[1])
+                nelecas_sub.append ((neleca, nelecb))
+                spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
+                wfnsym_sub.append (f.wfnsym)
+            if self.lasci_log is None:
+                mol = self.ints.mol.copy ()
+                if mol.verbose: mol.output = self.calcname + '_lasci.log'
+                mol.build ()
+                self.lasci_log = mol.stdout
+            frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
+            self.las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
+            print ("Time preparing LASCI object: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+
+
         # Initial lasci cycle!
         if self.doLASSCF and sum ([f.norbs_as for f in self.fragments]):
             loc2wmas = np.concatenate ([frag.loc2amo for frag in self.fragments], axis=1)
@@ -1398,11 +1426,7 @@ class dmet:
         amo_occ = no_occ[ncore:]
         print (self.ints.nelec_tot, ' electrons total, ', ncore, ' core orbitals w/ occupancy = ',no_occ[:ncore])
         active_frags = [f for f in self.fragments if f.norbs_as]
-        ncas_sub = []
-        nelecas_sub = []
         casdm0_sub = []
-        spin_sub = []
-        wfnsym_sub = []
         ci0 = []
         for f in active_frags:
             amo = loc2amo[:,:f.norbs_as]
@@ -1416,37 +1440,24 @@ class dmet:
             neleca = int (round ((f.active_space[0]/2) + f.target_MS))
             nelecb = int (round ((f.active_space[0]/2) - f.target_MS))
             print ("MATT CHECK THIS: (neleca, nelecb) = ({:.3f}, {:.3f}) vs desired ({},{})".format (np.trace (dma), np.trace (dmb), neleca, nelecb))
-            ncas_sub.append (f.norbs_as)
-            nelecas_sub.append ((neleca, nelecb))
             casdm0_sub.append (np.stack ([dma, dmb], axis=0))
-            spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
-            wfnsym_sub.append (f.wfnsym)
             if f.ci_as is not None:
                 umat = f.ci_as_orb.conjugate ().T @ amo
                 nel = (neleca, nelecb)
                 if nelecb > neleca: nel = (nelecb, neleca)
                 ci0.append (transform_ci_for_orbital_rotation (f.ci_as, f.norbs_as, nel, umat))
-        w0, t0 = time.time (), time.clock ()
-        if self.lasci_log is None: 
-            mol = self.ints.mol.copy ()
-            if mol.verbose: mol.output = self.calcname + '_lasci.log'
-            mol.build ()
-            self.lasci_log = mol.stdout
-        frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
-        las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
-        print ("Time preparing LASCI object: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
-        w0, t0 = time.time (), time.clock ()
-        las.stdout = self.lasci_log
+        self.las.stdout = self.lasci_log
         if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_sub):
             casdm0_sub = None
         else:
             ci0 = None
-        e_tot, _, ci_sub, _, _, h2eff_sub, veff = las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_sub = casdm0_sub)
-        if not las.converged:
+        w0, t0 = time.time (), time.clock ()
+        e_tot, _, ci_sub, _, _, h2eff_sub, veff = self.las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_sub = casdm0_sub)
+        if not self.las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))
         print ("Time in LASCI module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
-        return las, h2eff_sub, veff
+        return self.las, h2eff_sub, veff
 
     def lasci_ (self, dm0=None, loc2wmas=None):
         ''' Do LASCI and then also update the fragment and ints object '''
