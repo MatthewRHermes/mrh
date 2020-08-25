@@ -170,14 +170,13 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
     for isub, (h1eff, ci0, ncas, nelecas) in enumerate (zip (h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
-        h1eff_c = (h1eff[0] + h1eff[1]) / 2
-        h1eff_s = (h1eff[0] - h1eff[1]) / 2
-        nel = nelecas
         # CI solver has enforced convention: na >= nb
         if nelecas[0] < nelecas[1]:
-            nel = (nel[1], nel[0])
-            h1eff_s *= -1
-        h1e = (h1eff_c, h1eff_s)
+            nel = (nelecas[1], nelecas[0])
+            h1e = (h1eff[1], h1eff[0])
+        else:
+            nel = nelecas
+            h1e = (h1eff[0], h1eff[1])
         if getattr(las.fcisolver, 'gen_linkstr', None):
             linkstrl = las.fcisolver.gen_linkstr(ncas, nel, True)
             linkstr  = las.fcisolver.gen_linkstr(ncas, nel, False)
@@ -410,14 +409,13 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_sub, log, veff_sub_test=Non
     for isub, (ncas, nelecas, spin, h1eff, fcivec) in enumerate (zip (las.ncas_sub, las.nelecas_sub, las.spin_sub, h1eff_sub, ci0)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
-        h1eff_c = (h1eff[0] + h1eff[1]) / 2
-        h1eff_s = (h1eff[0] - h1eff[1]) / 2
-        nel = nelecas
         # CI solver has enforced convention: na >= nb
         if nelecas[0] < nelecas[1]:
-            nel = (nel[1], nel[0])
-            h1eff_s *= -1
-        h1e = (h1eff_c, h1eff_s)
+            nel = (nelecas[1], nelecas[0])
+            h1e = (h1eff[1], h1eff[0])
+        else:
+            nel = nelecas
+            h1e = (h1eff[0], h1eff[1])
         wfnsym = orbsym = None
         if hasattr (las, 'wfnsym_sub') and hasattr (mo, 'orbsym'):
             wfnsym = las.wfnsym_sub[isub]
@@ -1135,13 +1133,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return ((self.ugg.nvar_tot, self.ugg.nvar_tot))
 
     def Hci (self, no, ne, h0e, h1e_ab, h2e, ci, linkstrl=None):
-        h1e_cs = ((h1e_ab[0] + h1e_ab[1])/2,
-                  (h1e_ab[0] - h1e_ab[1])/2)
         # CI solver has enforced convention na >= nb
         if ne[1] > ne[0]:
-            h1e_cs = (h1e_cs[0], -h1e_cs[1])
+            h1e_ab = (h1e_ab[1], h1e_ab[0])
             ne = (ne[1], ne[0])
-        h = self.fcisolver.absorb_h1e (h1e_cs, h2e, no, ne, 0.5)
+        h = self.fcisolver.absorb_h1e (h1e_ab, h2e, no, ne, 0.5)
         hc = self.fcisolver.contract_2e (h, ci, no, ne, link_index=linkstrl).ravel ()
         return hc
 
@@ -1369,12 +1365,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2e = self.eri_cas[i:j,i:j,i:j,i:j]
-            h1e = ((h1e_full[0,i:j,i:j] + h1e_full[1,i:j,i:j])/2,
-                   (h1e_full[0,i:j,i:j] - h1e_full[1,i:j,i:j])/2)
+            h1e = (h1e_full[0,i:j,i:j],h1e_full[1,i:j,i:j])
             # CI solver has enforced convention neleca >= nelecb
             ne = nelec
             if nelec[1] > nelec[0]:
-                h1e = (h1e[0], -h1e[1])
+                h1e = (h1e[1], h1e[0])
                 ne = (nelec[1], nelec[0])
             self.fcisolver.norb = norb
             self.fcisolver.nelec = ne

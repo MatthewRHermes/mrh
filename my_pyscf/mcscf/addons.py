@@ -109,14 +109,14 @@ def get_h1e_zipped_fcisolver (fcisolver):
                     cs.extend(c)
             return np.einsum('i,i->', es, weights), cs
 
-        def states_absorb_h1e (h1, h2, norb, nelec, fac):
+        def states_absorb_h1e (self, h1, h2, norb, nelec, fac):
             op = []
             for ix, (solver, my_args, my_kwargs) in enumerate (self._loop_solver (_state_arg (h1))):
                 h1e = my_args[0]
                 op.append (solver.absorb_h1e (h1e, h2, norb, self._get_nelec (solver, nelec), fac) if h1 is not None else h2)
             return op
 
-        def states_contract_2e (h2, ci, norb, nelec, link_index=None):
+        def states_contract_2e (self, h2, ci, norb, nelec, link_index=None):
             hc = []
             for ix, (solver, my_args, my_kwargs) in enumerate (self._loop_solver (_state_arg (ci), _state_arg (h2), _solver_arg (link_index))):
                 c0 = my_args[0]
@@ -125,12 +125,18 @@ def get_h1e_zipped_fcisolver (fcisolver):
                 hc.append (solver.contract_2e (h2e, c0, norb, self._get_nelec (solver, nelec), link_index=linkstr))
             return hc
 
-        def states_make_hdiag (h1, h2, norb, nelec):
+        def states_make_hdiag (self, h1, h2, norb, nelec):
             hdiag = []
             for ix, (solver, my_args, my_kwargs) in enumerate (self._loop_solver (_state_arg (h1))):
                 h1e = my_args[0]
                 hdiag.append (solver.make_hdiag (h1e, h2, norb, self._get_nelec (solver, nelec)))
             return hdiag
+
+        def states_gen_linkstr (self, norb, nelec, tril=True):
+            return [solver.gen_linkstr (norb, self._get_nelec (solver, nelec), tril=tril)
+                if getattr (solver, 'gen_linkstr', None) else None
+                for solver in self.fcisolvers]
+                    
 
         # DANGER! DANGER WILL ROBINSON! I KNOW THAT THE BELOW MAY MAKE SOME THINGS CONVENIENT BUT THERE COULD BE MANY UNFORSEEN PROBLEMS!
         absorb_h1e = states_absorb_h1e

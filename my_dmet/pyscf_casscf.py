@@ -437,7 +437,7 @@ def fix_my_CASSCF_for_nonsinglet_env (mc, h1e_s):
 
         def kernel (self, h1e, eri, norb, nelec, ci0=None, **kwargs):
             if np.asarray (h1e).ndim == 2:
-                h1e = [h1e, h1e_s_amo]
+                h1e = [h1e + h1e_s_amo, h1e - h1e_s_amo]
             return super().kernel (h1e, eri, norb, nelec, ci0=ci0, **kwargs)
 
         def make_rdm12 (self, ci, ncas, nelecas, link_index=None):

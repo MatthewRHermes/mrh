@@ -27,24 +27,27 @@ from mrh.lib.helper import load_library as mrh_load_library
 libfci = lib.load_library('libfci')
 libcsf = mrh_load_library('libcsf')
 
-def unpack_h1e_cs (h1e):
+def unpack_h1e_ab (h1e):
     h = np.asarray (h1e)
     if h.ndim == 3 and h.shape[0] == 2:
         return h1e[0], h1e[1]
-    return h1e, np.zeros_like (h1e)
+    return h1e, h1e
 
-unpack_1RDM_cs = unpack_h1e_cs
+def unpack_1RDM_ab (dm1):
+    dm1 = np.asarray (dm1)
+    if dm1.ndim == 3 and dm1.shape[0] == 2:
+        return dm1[0], dm1[1]
+    return dm1/2, dm1/2
 
-def unpack_h1e_ab (h1e):
-    h1e_c, h1e_s = unpack_h1e_cs (h1e)
-    if h1e_s is None: return h1e_c, h1e_c
-    h1e_a = h1e_c + h1e_s
-    h1e_b = h1e_c - h1e_s
-    return h1e_a, h1e_b
+def unpack_h1e_cs (h1e):
+    h1e_a, h1e_b = unpack_h1e_ab (h1e)
+    h1e_c = (h1e_a + h1e_b) / 2.0
+    h1e_s = (h1e_a - h1e_b) / 2.0
+    return h1e_c, h1e_s
 
-def unpack_1RDM_ab (dm):
-    dma, dmb = unpack_h1e_ab (dm)
-    return dma/2, dmb/2
+def unpack_1RDM_cs (dm):
+    dma, dmb = unpack_1RDM_ab (dm)
+    return dma + dmb, dma - dmb
 
 
 def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=None, idx_sym=None):
