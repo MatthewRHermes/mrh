@@ -1,4 +1,5 @@
 import numpy as np
+from pyscf.lib import logger
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, StateAverageMixFCISolver, state_average_mix
 from pyscf.mcscf.addons import StateAverageMixFCISolver_state_args as _state_arg
 from pyscf.mcscf.addons import StateAverageMixFCISolver_solver_args as _solver_arg
@@ -51,20 +52,23 @@ def get_h1e_zipped_fcisolver (fcisolver):
     if isinstance (fcisolver, H1EZipFCISolver):
         return fcisolver
 
-    assert isinstance (StateAverageMixFCISolver), 'requires StateAverageMixFCISolver'
+    assert isinstance (fcisolver, StateAverageMixFCISolver), 'requires StateAverageMixFCISolver'
 
     class FCISolver (fcisolver.__class__, H1EZipFCISolver):
 
-        def kernel(self, h1, h2, norb, nelec, ci0=None, verbose=0, **kwargs):
+        def kernel(self, h1, h2, norb, nelec, ci0=None, verbose=0, ecore=0, **kwargs):
             # Note self.orbsym is initialized lazily in mc1step_symm.kernel function
             log = logger.new_logger(self, verbose)
             es = []
             cs = []
-            for solver, my_args, my_kwargs in self._loop_solver(_state_arg (ci0), _state_arg (h1)):
+            if isinstance (ecore, (np.integer, np.floating)):
+                ecore = [ecore,] * len (h1)
+            for solver, my_args, my_kwargs in self._loop_solver(_state_arg (ci0), _state_arg (h1), _state_arg (ecore)):
                 c0 = my_args[0]
                 h1e = my_args[1]
+                e0 = my_args[2]
                 e, c = solver.kernel(h1e, h2, norb, self._get_nelec(solver, nelec), c0,
-                                     orbsym=self.orbsym, verbose=log, **kwargs)
+                                     orbsym=self.orbsym, verbose=log, ecore=e0, **kwargs)
                 if solver.nroots == 1:
                     es.append(e)
                     cs.append(c)
@@ -83,7 +87,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
                 else:
                     for i, ei in enumerate(es):
                         log.debug('state %d  E = %.15g', i, ei)
-            return np.einsum('i,i', np.array(es), weights), cs
+            return np.einsum('i,i', np.array(es), self.weights), cs
 
         def approx_kernel(self, h1, h2, norb, nelec, ci0=None, **kwargs):
             es = []
