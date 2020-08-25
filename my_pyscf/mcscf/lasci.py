@@ -2,6 +2,7 @@ from pyscf.scf.rohf import get_roothaan_fock
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf.tools import molden
 from pyscf import symm, gto, scf, ao2mo, lib
+from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.scf import hf_as
@@ -573,6 +574,10 @@ class LASCINoSymm (casci.CASCI):
         keys = set(('ncas_sub', 'nelecas_sub', 'spin_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fcisolver = csf_solver (self.mol, smult=0)
+        self.fcisolvers = []
+        for smult in self.spin_sub:
+            s = csf_solver (self.mol, smult=smult)
+            self.fcisolvers.append (get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)) 
 
     def get_mo_slice (self, idx, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
@@ -935,6 +940,11 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub, frozen=frozen, **kwargs)
         if wfnsym_sub is None: wfnsym_sub = [0 for icas in self.ncas_sub]
         self.wfnsym_sub = wfnsym_sub
+        ix = 0
+        for frag in self.fcisolvers:
+            for state in frag.fcisolvers:
+                state.wfnsym = wfnsym_sub[ix]
+                ix += 1
         keys = set(('wfnsym_sub'))
         self._keys = set(self.__dict__.keys()).union(keys)
 
