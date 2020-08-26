@@ -141,9 +141,9 @@ def solve (frag, guess_1RDM, chempot_imp):
     mc.fcisolver = csf_solver (mf.mol, smult, symm=frag.enforce_symmetry)
     if frag.enforce_symmetry: mc.fcisolver.wfnsym = frag.wfnsym
     mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
-    mc.ah_start_tol =1e-10
-    mc.ah_conv_tol = 1e-10
-    mc.conv_tol = 1e-9
+    mc.conv_tol = min (1e-9, frag.conv_tol_grad**2)  
+    mc.ah_start_tol = mc.conv_tol / 10
+    mc.ah_conv_tol = mc.conv_tol / 10
     mc.__dict__.update (frag.corr_attr)
     mc = fix_my_CASSCF_for_nonsinglet_env (mc, sign_MS * frag.impham_OEI_S)
     norbs_amo = mc.ncas

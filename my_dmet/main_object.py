@@ -57,7 +57,8 @@ class dmet:
                     minFunc='FOCK_INIT', print_u=False,
                     print_rdm=True, debug_energy=False, debug_reloc=False, oldLASSCF=False,
                     nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
-                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0, do_conv_molden=False ):
+                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0, do_conv_molden=False,
+                    conv_tol_grad=1e-4 ):
 
 
         if isTranslationInvariant:
@@ -104,6 +105,7 @@ class dmet:
         self.lasci_log                = None
         self.oldLASSCF                = oldLASSCF
         self.do_conv_molden           = do_conv_molden
+        self.conv_tol_grad            = conv_tol_grad
 
         self.verbose = self.ints.mol.verbose
         for frag in self.fragments:
@@ -526,6 +528,8 @@ class dmet:
         self.check_fragment_symmetry_breaking (verbose=False, do_break=True)
         rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
+        for f in self.fragments:
+            f.conv_tol_grad = self.conv_tol_grad
 
         if self.doLASSCF:
             w0, t0 = time.time (), time.clock ()
@@ -552,6 +556,7 @@ class dmet:
                 self.lasci_log = mol.stdout
             frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
             self.las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
+            self.las.conv_tol_grad = self.conv_tol_grad
             print ("Time preparing LASCI object: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
 
 
@@ -601,8 +606,8 @@ class dmet:
         # Find the chemical potential for the correlated impurity problem
         myiter = iters[-1][-1]
         nextiter = 0
-        orb_diff = 1.0
-        convergence_threshold = 1e-5 if self.oldLASSCF else 1e-4
+        orb_diff = [1.0e-3]
+        convergence_threshold = 1e-5 if self.oldLASSCF else self.conv_tol_grad
         while (np.any (np.asarray (orb_diff) > convergence_threshold)):
             lower_iters = iters + [('orbs', nextiter)]
             orb_diff = self.doselfconsistent_orbs (lower_iters)
