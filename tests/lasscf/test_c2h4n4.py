@@ -31,7 +31,7 @@ def run (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcnam
                  'debug_reloc':        False,
                  'nelec_int_thresh':   1e-3,
                  'num_mf_stab_checks': 0,
-                 'do_conv_molden':     True}
+                 'do_conv_molden':     False}
     bath_tol = 1e-8
     my_kwargs.update (kwargs)
     
