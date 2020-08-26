@@ -91,11 +91,13 @@ dmet.las.ci[0] = np.loadtxt ('test_lasci_ci0.dat')
 dmet.las.ci[1] = np.loadtxt ('test_lasci_ci1.dat')
 ugg = LASCI_UnitaryGroupGenerators (dmet.las, dmet.las.mo_coeff, dmet.las.ci)
 h_op = LASCI_HessianOperator (dmet.las, ugg)
+np.random.seed (0)
+x = np.random.rand (ugg.nvar_tot)
 
 def tearDownModule():
-    global mol, mf, dmet, ugg, h_op
+    global mol, mf, dmet, ugg, h_op, x
     mol.stdout.close ()
-    del mol, mf, dmet, ugg, h_op
+    del mol, mf, dmet, ugg, h_op, x
 
 
 class KnownValues(unittest.TestCase):
@@ -108,6 +110,15 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (lib.fp (grad1), 0.0116625439865621, 9)
         self.assertAlmostEqual (lib.fp (gx0), -0.0005604501808183955, 9)
         self.assertAlmostEqual (lib.fp (gx1), -0.0005604501808183955, 9)
+
+    def test_hessian (self):
+        hx = h_op._matvec (x)
+        self.assertAlmostEqual (lib.fp (hx), 183.02256769792797, 9)
+
+    def test_prec (self):
+        M_op = h_op.get_prec ()
+        Mx = M_op._matvec (x)
+        self.assertAlmostEqual (lib.fp (Mx), 916.0713341862406, 9)
 
 if __name__ == "__main__":
     print("Full Tests for LASSCF me2n2")
