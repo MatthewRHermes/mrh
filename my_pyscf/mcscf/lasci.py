@@ -186,7 +186,7 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
         hc0 = las.fcisolver.contract_2e(h2eff, ci0, ncas, nel, link_index=linkstrl).ravel()
         ci0 = ci0.ravel ()
         eci0 = ci0.dot(hc0)
-        gci.append ((hc0 - ci0 * eci0).ravel ())
+        gci.append (2.0 * (hc0 - ci0 * eci0).ravel ())
 
     gint = ugg.pack (gorb, gci)
     gorb = gint[:ugg.nvar_orb]

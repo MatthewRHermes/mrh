@@ -104,9 +104,10 @@ class KnownValues(unittest.TestCase):
         grad0 = np.append (gorb0, gci0)
         grad1 = h_op.get_grad ()
         gx1 = h_op.get_gx ()
-        print (lib.fp (grad0), lib.fp (grad1), lib.fp (gx0), lib.fp (gx1))
-        print (linalg.norm (grad0 - grad1), linalg.norm (gx0 - gx1))
-        print 
+        self.assertAlmostEqual (lib.fp (grad0), 0.0116625439865621, 9)
+        self.assertAlmostEqual (lib.fp (grad1), 0.0116625439865621, 9)
+        self.assertAlmostEqual (lib.fp (gx0), -0.0005604501808183955, 9)
+        self.assertAlmostEqual (lib.fp (gx1), -0.0005604501808183955, 9)
 
 if __name__ == "__main__":
     print("Full Tests for LASSCF me2n2")
