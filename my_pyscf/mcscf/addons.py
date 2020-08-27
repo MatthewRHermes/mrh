@@ -56,19 +56,20 @@ def get_h1e_zipped_fcisolver (fcisolver):
 
     class FCISolver (fcisolver.__class__, H1EZipFCISolver):
 
-        def kernel(self, h1, h2, norb, nelec, ci0=None, verbose=0, ecore=0, **kwargs):
+        def kernel(self, h1, h2, norb, nelec, ci0=None, verbose=0, ecore=0, orbsym=None, **kwargs):
             # Note self.orbsym is initialized lazily in mc1step_symm.kernel function
             log = logger.new_logger(self, verbose)
             es = []
             cs = []
-            if isinstance (ecore, (np.integer, np.floating)):
+            if isinstance (ecore, (int, float, np.integer, np.floating)):
                 ecore = [ecore,] * len (h1)
+            if orbsym is None: orbsym=self.orbsym
             for solver, my_args, my_kwargs in self._loop_solver(_state_arg (ci0), _state_arg (h1), _state_arg (ecore)):
                 c0 = my_args[0]
                 h1e = my_args[1]
                 e0 = my_args[2]
                 e, c = solver.kernel(h1e, h2, norb, self._get_nelec(solver, nelec), c0,
-                                     orbsym=self.orbsym, verbose=log, ecore=e0, **kwargs)
+                                     orbsym=orbsym, verbose=log, ecore=e0, **kwargs)
                 if solver.nroots == 1:
                     es.append(e)
                     cs.append(c)
@@ -89,18 +90,19 @@ def get_h1e_zipped_fcisolver (fcisolver):
                         log.debug('state %d  E = %.15g', i, ei)
             return np.einsum('i,i', np.array(es), self.weights), cs
 
-        def approx_kernel(self, h1, h2, norb, nelec, ci0=None, **kwargs):
+        def approx_kernel(self, h1, h2, norb, nelec, ci0=None, orbsym=None, **kwargs):
             es = []
             cs = []
+            if orbsym is None: orbsym=self.orbsym
             for ix, (solver, my_args, my_kwargs) in enumerate (self._loop_solver (_state_arg (ci0), _state_arg (h1))):
                 c0 = my_args[0]
                 h1e = my_args[1]
                 try:
                     e, c = solver.approx_kernel(h1e, h2, norb, self._get_nelec(solver, nelec), c0,
-                                                orbsym=self.orbsym, **kwargs)
+                                                orbsym=orbsym, **kwargs)
                 except AttributeError:
                     e, c = solver.kernel(h1e, h2, norb, self._get_nelec(solver, nelec), c0,
-                                         orbsym=self.orbsym, **kwargs)
+                                         orbsym=orbsym, **kwargs)
                 if solver.nroots == 1:
                     es.append(e)
                     cs.append(c)

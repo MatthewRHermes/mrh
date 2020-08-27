@@ -167,7 +167,7 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
 
     # The CI part
     gci = []
-    for isub, (h1eff, ci0, ncas, nelecas) in enumerate (zip (h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
+    for isub, (fcibox, h1eff, ci0, ncas, nelecas) in enumerate (zip (las.fciboxes, h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
         # CI solver has enforced convention: na >= nb
@@ -177,16 +177,15 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
         else:
             nel = nelecas
             h1e = (h1eff[0], h1eff[1])
-        if getattr(las.fcisolver, 'gen_linkstr', None):
-            linkstrl = las.fcisolver.gen_linkstr(ncas, nel, True)
-            linkstr  = las.fcisolver.gen_linkstr(ncas, nel, False)
-        else:
-            linkstrl = linkstr  = None
-        h2eff = las.fcisolver.absorb_h1e(h1e, eri_cas, ncas, nel, .5)
-        hc0 = las.fcisolver.contract_2e(h2eff, ci0, ncas, nel, link_index=linkstrl).ravel()
-        ci0 = ci0.ravel ()
-        eci0 = ci0.dot(hc0)
-        gci.append (2.0 * (hc0 - ci0 * eci0).ravel ())
+        h1e = [h1e] # TODO: fix las.get_h1eff to automatically make this extra dimension
+        ci0 = [ci0] # TODO: fix las.ci or whatever to automatically have this extra dimension
+        linkstrl = fcibox.states_gen_linkstr (ncas, nel, True)
+        linkstr  = fcibox.states_gen_linkstr (ncas, nel, False)
+        h2eff = fcibox.states_absorb_h1e(h1e, eri_cas, ncas, nel, .5)
+        hc0 = fcibox.states_contract_2e(h2eff, ci0, ncas, nel, link_index=linkstrl)
+        hc0 = [hc.ravel () for hc in hc0]
+        ci0 = [c.ravel () for c in ci0]
+        gci.append (2.0 * np.concatenate ([hc - c * (c.dot (hc)) for c, hc in zip (ci0, hc0)]))
 
     gint = ugg.pack (gorb, gci)
     gorb = gint[:ugg.nvar_orb]
@@ -406,7 +405,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_sub, log, veff_sub_test=Non
     e_cas = []
     ci1 = []
     e0 = 0.0 
-    for isub, (ncas, nelecas, spin, h1eff, fcivec) in enumerate (zip (las.ncas_sub, las.nelecas_sub, las.spin_sub, h1eff_sub, ci0)):
+    for isub, (fcibox, ncas, nelecas, spin, h1eff, fcivec) in enumerate (zip (las.fciboxes, las.ncas_sub, las.nelecas_sub, las.spin_sub, h1eff_sub, ci0)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
         # CI solver has enforced convention: na >= nb
@@ -416,23 +415,29 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_sub, log, veff_sub_test=Non
         else:
             nel = nelecas
             h1e = (h1eff[0], h1eff[1])
-        wfnsym = orbsym = None
-        if hasattr (las, 'wfnsym_sub') and hasattr (mo, 'orbsym'):
-            wfnsym = las.wfnsym_sub[isub]
+        h1e = [h1e]
+        fcivec = [fcivec]
+        # TODO: edit get_h1eff and las.ci to already have this extra dimension
+        orbsym = getattr (mo, 'orbsym', None)
+        if orbsym is not None:
             i = ncas_cum[isub]
             j = ncas_cum[isub+1]
-            orbsym = mo.orbsym[i:j]
-            wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (las.mol.groupname, wfnsym)
-            log.info ("LASCI subspace {} with irrep {}".format (isub, wfnsym_str))
+            orbsym = orbsym[i:j]
             log.info ("LASCI subspace {} with orbsyms {}".format (isub, orbsym))
-        e_sub, fcivec = las.fcisolver.kernel(h1e, eri_cas, ncas, nel,
-                                               ci0=fcivec, verbose=log,
-                                               max_memory=max_memory,
-                                               ecore=e0, smult=spin,
-                                               wfnsym=wfnsym, orbsym=orbsym)
-        e_cas.append (e_sub)
-        ci1.append (fcivec)
-        t1 = log.timer ('FCI solver for subspace {}'.format (isub), *t1)
+        for state, solver in enumerate (fcibox.fcisolvers):
+            wfnsym = getattr (solver, 'wfnsym', None)
+            if wfnsym:
+                wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (las.mol.groupname, wfnsym)
+                log.info ("LASCI subspace {} state {} with wfnsym {}".format (isub, state, wfnsym_str))
+        e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nel,
+                                      ci0=fcivec, verbose=log,
+                                      max_memory=max_memory,
+                                      ecore=e0, orbsym=orbsym)
+        for e, c in zip (fcibox.e_states, fcivec):
+            # TODO: remove this unroll loop once we're ready to put the extra dimension in
+            e_cas.append (e)
+            ci1.append (c)
+        t1 = log.timer ('FCI box for subspace {}'.format (isub), *t1)
     return e_cas, ci1
 
 def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None, veff=None, dm1s=None):
@@ -572,10 +577,10 @@ class LASCINoSymm (casci.CASCI):
         keys = set(('ncas_sub', 'nelecas_sub', 'spin_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fcisolver = csf_solver (self.mol, smult=0)
-        self.fcisolvers = []
+        self.fciboxes = []
         for smult in self.spin_sub:
             s = csf_solver (self.mol, smult=smult)
-            self.fcisolvers.append (get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)) 
+            self.fciboxes.append (get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)) 
 
     def get_mo_slice (self, idx, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
@@ -939,7 +944,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         if wfnsym_sub is None: wfnsym_sub = [0 for icas in self.ncas_sub]
         self.wfnsym_sub = wfnsym_sub
         ix = 0
-        for frag in self.fcisolvers:
+        for frag in self.fciboxes:
             for state in frag.fcisolvers:
                 state.wfnsym = wfnsym_sub[ix]
                 ix += 1
@@ -1006,6 +1011,11 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
         
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
+    # TODO: generalize to SA-LASSCF
+    # Might be a good idea to start with a "lazy" implementation that just does a big outer loop around states
+    # Problems with that implementation: 1) repetitious JK calcs, 2) generalization to ASD (meaning, orbital optimization for just one eigenvalue)
+    # Of course, generalization to ASD requires MORE VARIABLES and TRANSITION DENSITY MATRICES FOR THE ORBROTS so that's a whole thing.
+    # Maybe ASD itself can be turned into a child of SA-LASSCF?
 
     def __init__(self, las, ugg, mo_coeff=None, ci=None, ncore=None, ncas_sub=None, nelecas_sub=None, h2eff_sub=None, veff=None):
         if mo_coeff is None: mo_coeff = las.mo_coeff
@@ -1156,6 +1166,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return hc
 
     def make_odm1s2c_sub (self, kappa):
+        # TODO: generalize for SA-LASSCF
+        # Lift three index restrictions on casdm2c down there
+        # I also need to keep the odm1s_sub separate for each state for the orb-ci sector 
         odm1s_sub = np.zeros ((len (self.ci)+1, 2, self.nmo, self.nmo), dtype=self.dtype)
         odm2c_sub = np.zeros ([len (self.ci)] + [self.ncas,]*4, dtype=self.dtype)
         odm1s_sub[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
@@ -1174,6 +1187,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return odm1s_sub, odm2c_sub    
 
     def make_tdm1s2c_sub (self, ci1):
+        # TODO: generalize for SA-LASSCF
+        # Both subtrahend and cumulant decomposition are implicated here
         tdm1s_sub = np.zeros ((len (ci1), 2, self.ncas, self.ncas), dtype=self.dtype)
         tdm2c_sub = np.zeros ([len (ci1)] + [self.ncas,]*4, dtype=self.dtype)
         for isub, (ncas, nelecas, c1, c0, casdm1s) in enumerate (
@@ -1213,6 +1228,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         of shifted or 'effective' 1-rdms in the two sectors with the Hamiltonian. Return values do not include
         veffs with the external indices rotated (i.e., in the CI part). Uses the cached eris for the latter in the hope that
         this is faster than calling get_jk with many dms. '''
+        # TODO: generalize for SA-LASSCF
+        # The problem here is the "individual CI problems" block. Each state should have a different effective potential 
+        # in each fragment, so h1e_ab_sub, odm1s_sub, and tdm1s_sub all need extra dimensions
 
         dm1s_mo = odm1s_sub.copy ().sum (0)
         dm1s_mo[:,self.ncore:self.nocc,self.ncore:self.nocc] += tdm1s_sub.sum (0)
