@@ -121,6 +121,6 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (lib.fp (Mx), 916.0713341862406, 9)
 
 if __name__ == "__main__":
-    print("Full Tests for LASSCF me2n2")
+    print("Full Tests for LASCI me2n2")
     unittest.main()
 

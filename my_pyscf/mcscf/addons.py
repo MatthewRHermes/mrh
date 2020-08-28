@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import linalg, special
 from pyscf.lib import logger
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, StateAverageMixFCISolver, state_average_mix
 from pyscf.mcscf.addons import StateAverageMixFCISolver_state_args as _state_arg
@@ -94,7 +95,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
             es = []
             cs = []
             if orbsym is None: orbsym=self.orbsym
-            for ix, (solver, my_args, my_kwargs) in enumerate (self._loop_solver (_state_arg (ci0), _state_arg (h1))):
+            for solver, my_args, _ in self._loop_solver (_state_arg (ci0), _state_arg (h1)):
                 c0 = my_args[0]
                 h1e = my_args[1]
                 try:
@@ -113,14 +114,14 @@ def get_h1e_zipped_fcisolver (fcisolver):
 
         def states_absorb_h1e (self, h1, h2, norb, nelec, fac):
             op = []
-            for ix, (solver, my_args, my_kwargs) in enumerate (self._loop_solver (_state_arg (h1))):
+            for solver, my_args, _ in self._loop_solver (_state_arg (h1)):
                 h1e = my_args[0]
                 op.append (solver.absorb_h1e (h1e, h2, norb, self._get_nelec (solver, nelec), fac) if h1 is not None else h2)
             return op
 
         def states_contract_2e (self, h2, ci, norb, nelec, link_index=None):
             hc = []
-            for ix, (solver, my_args, my_kwargs) in enumerate (self._loop_solver (_state_arg (ci), _state_arg (h2), _solver_arg (link_index))):
+            for solver, my_args, _ in self._loop_solver (_state_arg (ci), _state_arg (h2), _solver_arg (link_index)):
                 c0 = my_args[0]
                 h2e = my_args[1]
                 linkstr = my_args[2]
@@ -129,7 +130,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
 
         def states_make_hdiag (self, h1, h2, norb, nelec):
             hdiag = []
-            for ix, (solver, my_args, my_kwargs) in enumerate (self._loop_solver (_state_arg (h1))):
+            for solver, my_args, _ in self._loop_solver (_state_arg (h1)):
                 h1e = my_args[0]
                 hdiag.append (solver.make_hdiag (h1e, h2, norb, self._get_nelec (solver, nelec)))
             return hdiag
@@ -139,6 +140,14 @@ def get_h1e_zipped_fcisolver (fcisolver):
                 if getattr (solver, 'gen_linkstr', None) else None
                 for solver in self.fcisolvers]
                     
+        def states_transform_ci_for_orbital_rotation (self, ci0, norb, nelec, umat):
+            ci1 = []
+            for solver, my_args, _ in self._loop_solver (_state_arg (ci0)):
+                ne = self._get_nelec (solver, nelec)
+                ci0_i = my_args[0].reshape ([special.comb (norb, n, exact=True) for n in ne])
+                ci1.append (solver.transform_ci_for_orbital_rotation (ci0_i, norb, ne, umat))
+            return ci1
+
 
         # DANGER! DANGER WILL ROBINSON! I KNOW THAT THE BELOW MAY MAKE SOME THINGS CONVENIENT BUT THERE COULD BE MANY UNFORSEEN PROBLEMS!
         absorb_h1e = states_absorb_h1e

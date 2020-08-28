@@ -172,17 +172,15 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
         # CI solver has enforced convention: na >= nb
         if nelecas[0] < nelecas[1]:
-            nel = (nelecas[1], nelecas[0])
             h1e = (h1eff[1], h1eff[0])
         else:
-            nel = nelecas
             h1e = (h1eff[0], h1eff[1])
         h1e = [h1e] # TODO: fix las.get_h1eff to automatically make this extra dimension
         ci0 = [ci0] # TODO: fix las.ci or whatever to automatically have this extra dimension
-        linkstrl = fcibox.states_gen_linkstr (ncas, nel, True)
-        linkstr  = fcibox.states_gen_linkstr (ncas, nel, False)
-        h2eff = fcibox.states_absorb_h1e(h1e, eri_cas, ncas, nel, .5)
-        hc0 = fcibox.states_contract_2e(h2eff, ci0, ncas, nel, link_index=linkstrl)
+        linkstrl = fcibox.states_gen_linkstr (ncas, nelecas, True)
+        linkstr  = fcibox.states_gen_linkstr (ncas, nelecas, False)
+        h2eff = fcibox.states_absorb_h1e(h1e, eri_cas, ncas, nelecas, .5)
+        hc0 = fcibox.states_contract_2e(h2eff, ci0, ncas, nelecas, link_index=linkstrl)
         hc0 = [hc.ravel () for hc in hc0]
         ci0 = [c.ravel () for c in ci0]
         gci.append (2.0 * np.concatenate ([hc - c * (c.dot (hc)) for c, hc in zip (ci0, hc0)]))
@@ -410,10 +408,8 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_sub, log, veff_sub_test=Non
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
         # CI solver has enforced convention: na >= nb
         if nelecas[0] < nelecas[1]:
-            nel = (nelecas[1], nelecas[0])
             h1e = (h1eff[1], h1eff[0])
         else:
-            nel = nelecas
             h1e = (h1eff[0], h1eff[1])
         h1e = [h1e]
         fcivec = [fcivec]
@@ -429,7 +425,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_sub, log, veff_sub_test=Non
             if wfnsym:
                 wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (las.mol.groupname, wfnsym)
                 log.info ("LASCI subspace {} state {} with wfnsym {}".format (isub, state, wfnsym_str))
-        e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nel,
+        e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
                                       ci0=fcivec, verbose=log,
                                       max_memory=max_memory,
                                       ecore=e0, orbsym=orbsym)
@@ -502,7 +498,8 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
     umat[:ncore,:ncore] = umat[:ncore,:ncore][:,idx]
     if orbsym_i is not None: orbsym[:ncore] = orbsym[:ncore][idx]
     # Active-active
-    for isub, (lasdm1, ncas, nelecas, ci_i) in enumerate (zip (casdm1_sub, ncas_sub, nelecas_sub, ci)):
+    for isub, (fcibox, lasdm1, ncas, nelecas, ci_i) in enumerate (zip (las.fciboxes, casdm1_sub, ncas_sub, nelecas_sub, ci)):
+        ci_i = [ci_i] # TODO: increase the depth of las.ci and eliminate this line
         i = sum (ncas_sub[:isub]) + ncore
         j = i + ncas
         orbsym_i = None if orbsym is None else orbsym[i:j]
@@ -510,13 +507,7 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
         idx = np.argsort (occ)[::-1]
         umat[i:j,i:j] = umat[i:j,i:j][:,idx]
         if orbsym_i is not None: orbsym[i:j] = orbsym[i:j][idx]
-        # CI solver enforced convention na >= nb
-        nel = nelecas
-        if nelecas[1] > nelecas[0]:
-            nel = (nelecas[1], nelecas[0])
-        na = special.comb (ncas, nel[0], exact=True)
-        nb = special.comb (ncas, nel[1], exact=True)
-        ci[isub] = las.fcisolver.transform_ci_for_orbital_rotation (ci_i.reshape (na, nb), ncas, nel, umat[i:j,i:j])
+        ci[isub] = fcibox.states_transform_ci_for_orbital_rotation (ci_i, ncas, nelecas, umat[i:j,i:j])[0]
     # External-external
     orbsym_i = None if orbsym is None else orbsym[nocc:]
     fock_i = fock[nocc:,nocc:]
@@ -578,8 +569,9 @@ class LASCINoSymm (casci.CASCI):
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fcisolver = csf_solver (self.mol, smult=0)
         self.fciboxes = []
-        for smult in self.spin_sub:
+        for smult, nel in zip (self.spin_sub, self.nelecas_sub):
             s = csf_solver (self.mol, smult=smult)
+            s.spin = abs (nel[0] - nel[1]) # TODO: when you get around to making csf_solver naturally able to deal with na < nb, remove this abs
             self.fciboxes.append (get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)) 
 
     def get_mo_slice (self, idx, mo_coeff=None):
@@ -659,6 +651,9 @@ class LASCINoSymm (casci.CASCI):
         # MRH: the below two lines are not the ideal solution to my problem...
         self.fcisolver.verbose = self.verbose
         self.fcisolver.stdout = self.stdout
+        for fcibox in self.fciboxes:
+            fcibox.verbose = self.verbose
+            fcibox.stdout = self.stdout
 
         self.converged, self.e_tot, self.mo_energy, self.mo_coeff, self.e_cas, self.ci, h2eff_sub, veff = \
                 kernel(self, mo_coeff, ci0=ci0, verbose=verbose, casdm0_sub=casdm0_sub, conv_tol_grad=conv_tol_grad)
@@ -681,35 +676,43 @@ class LASCINoSymm (casci.CASCI):
         '''
         return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy, h2eff_sub, veff
 
-    def make_casdm1s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
+    def states_make_casdm1s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
         ''' Spin-separated 1-RDMs in the MO basis for each subspace in sequence '''
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         if ci is None:
-            return [np.zeros ((2,ncas,ncas)) for ncas in ncas_sub]
+            return [np.zeros ((1, 2,ncas,ncas)) for ncas in ncas_sub] # TODO: generalize leading dimension to number of states
         casdm1s = []
-        for idx, (ci_i, ncas, nelecas) in enumerate (zip (ci, ncas_sub, nelecas_sub)):
+        for fcibox, ci_i, ncas, nelecas in zip (self.fciboxes, ci, ncas_sub, nelecas_sub):
             if ci_i is None:
                 dm1a = dm1b = np.zeros ((ncas, ncas))
             else: 
+                ci_i = [ci_i] # TODO: increas las.ci dimension by 1 and delete this line
+                dm1a, dm1b = fcibox.states_make_rdm1s (ci_i, ncas, nelecas)
                 # CI solver enforced convention na >= nb 
-                nel = (nelecas[1], nelecas[0]) if nelecas[1] > nelecas[0] else nelecas
-                dm1a, dm1b = self.fcisolver.make_rdm1s (ci_i, ncas, nel)
                 if nelecas[1] > nelecas[0]: dm1a, dm1b = dm1b, dm1a
-            casdm1s.append (np.stack ([dm1a, dm1b], axis=0))
+            casdm1s.append (np.stack ([dm1a, dm1b], axis=1))
         return casdm1s
 
-    def make_casdm2_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
+    def make_casdm1s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
+        casdm1s_sub_states = self.states_make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        return [np.einsum ('rspq,r->spq', dm1, box.weights) for dm1, box in zip (casdm1s_sub_states, self.fciboxes)]
+
+    def states_make_casdm2_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
         ''' Spin-separated 1-RDMs in the MO basis for each subspace in sequence '''
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         casdm2 = []
-        for idx, (ci_i, ncas, nelecas) in enumerate (zip (ci, ncas_sub, nelecas_sub)):
-            nel = (nelecas[1], nelecas[0]) if nelecas[1] > nelecas[0] else nelecas
-            casdm2.append (self.fcisolver.make_rdm2 (ci_i, ncas, nel))
+        for fcibox, ci_i, ncas, nel in zip (self.fciboxes, ci, ncas_sub, nelecas_sub):
+            ci_i = [ci_i] # TODO: increas las.ci dimension by 1 and delete this line
+            casdm2.append (fcibox.states_make_rdm12 (ci_i, ncas, nel)[-1])
         return casdm2
+
+    def make_casdm2_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
+        casdm2_sub_states = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        return [np.einsum ('rijkl,r->ijkl', dm2, box.weights) for dm2, box in zip (casdm2_sub_states, self.fciboxes)]
 
     def make_rdm1s_sub (self, mo_coeff=None, ci=None, ncas_sub=None, nelecas_sub=None, include_core=False, **kwargs):
         if mo_coeff is None: mo_coeff = self.mo_coeff
