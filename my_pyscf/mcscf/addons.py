@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import linalg, special
-from pyscf.lib import logger
+from pyscf.lib import logger, temporary_env
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, StateAverageMixFCISolver, state_average_mix
 from pyscf.mcscf.addons import StateAverageMixFCISolver_state_args as _state_arg
 from pyscf.mcscf.addons import StateAverageMixFCISolver_solver_args as _solver_arg
@@ -135,10 +135,23 @@ def get_h1e_zipped_fcisolver (fcisolver):
                 hdiag.append (solver.make_hdiag (h1e, h2, norb, self._get_nelec (solver, nelec)))
             return hdiag
 
+        def states_make_hdiag_csf (self, h1, h2, norb, nelec):
+            hdiag = []
+            for solver, my_args, _ in self._loop_solver (_state_arg (h1)):
+                h1e = my_args[0]
+                with temporary_env (solver, orbsym=self.orbsym):
+                    hdiag.append (solver.make_hdiag_csf (h1e, h2, norb, self._get_nelec (solver, nelec)))
+            return hdiag
+
+        # The below can conceivably be added to pyscf.mcscf.addons.StateAverageMixFCISolver in future
+
         def states_gen_linkstr (self, norb, nelec, tril=True):
-            return [solver.gen_linkstr (norb, self._get_nelec (solver, nelec), tril=tril)
-                if getattr (solver, 'gen_linkstr', None) else None
-                for solver in self.fcisolvers]
+            linkstr = []
+            for solver in self.fcisolvers:
+                with temporary_env (solver, orbsym=self.orbsym):
+                    linkstr.append (solver.gen_linkstr (norb, self._get_nelec (solver, nelec), tril=tril)
+                        if getattr (solver, 'gen_linkstr', None) else None)
+            return linkstr
                     
         def states_transform_ci_for_orbital_rotation (self, ci0, norb, nelec, umat):
             ci1 = []
@@ -148,6 +161,17 @@ def get_h1e_zipped_fcisolver (fcisolver):
                 ci1.append (solver.transform_ci_for_orbital_rotation (ci0_i, norb, ne, umat))
             return ci1
 
+        def states_trans_rdm12s (self, ci1, ci0, norb, nelec, link_index=None, **kwargs):
+            ci1 = _state_arg (ci1)
+            ci0 = _state_arg (ci0)
+            link_index = _solver_arg (link_index)
+            nelec = _solver_arg ([self._get_nelec (solver, nelec) for solver in self.fcisolvers])
+            tdm1 = []
+            tdm2 = []
+            for dm1, dm2 in self._collect ('trans_rdm12s', ci1, ci0, norb, nelec, link_index=link_index, **kwargs):
+                tdm1.append (dm1)
+                tdm2.append (dm2)
+            return tdm1, tdm2
 
         # DANGER! DANGER WILL ROBINSON! I KNOW THAT THE BELOW MAY MAKE SOME THINGS CONVENIENT BUT THERE COULD BE MANY UNFORSEEN PROBLEMS!
         absorb_h1e = states_absorb_h1e

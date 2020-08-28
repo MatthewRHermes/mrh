@@ -567,7 +567,6 @@ class LASCINoSymm (casci.CASCI):
         self.max_cycle_micro = 5
         keys = set(('ncas_sub', 'nelecas_sub', 'spin_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
         self._keys = set(self.__dict__.keys()).union(keys)
-        self.fcisolver = csf_solver (self.mol, smult=0)
         self.fciboxes = []
         for smult, nel in zip (self.spin_sub, self.nelecas_sub):
             s = csf_solver (self.mol, smult=smult)
@@ -649,8 +648,6 @@ class LASCINoSymm (casci.CASCI):
         self.dump_flags(log)
 
         # MRH: the below two lines are not the ideal solution to my problem...
-        self.fcisolver.verbose = self.verbose
-        self.fcisolver.stdout = self.stdout
         for fcibox in self.fciboxes:
             fcibox.verbose = self.verbose
             fcibox.stdout = self.stdout
@@ -658,22 +655,6 @@ class LASCINoSymm (casci.CASCI):
         self.converged, self.e_tot, self.mo_energy, self.mo_coeff, self.e_cas, self.ci, h2eff_sub, veff = \
                 kernel(self, mo_coeff, ci0=ci0, verbose=verbose, casdm0_sub=casdm0_sub, conv_tol_grad=conv_tol_grad)
 
-        '''
-        if self.canonicalization:
-            self.canonicalize_(mo_coeff, self.ci,
-                               sort=self.sorting_mo_energy,
-                               cas_natorb=self.natorb, verbose=log)
-
-        if getattr(self.fcisolver, 'converged', None) is not None:
-            self.converged = np.all(self.fcisolver.converged)
-            if self.converged:
-                log.info('CASCI converged')
-            else:
-                log.info('CASCI not converged')
-        else:
-            self.converged = True
-        self._finalize()
-        '''
         return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy, h2eff_sub, veff
 
     def states_make_casdm1s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
@@ -978,15 +959,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
         # Initialize/overwrite mo_coeff.orbsym. Don't pass ci0 because it's not the right shape
         lib.logger.info (self, "LASCI lazy hack note: lines below reflect the point-group symmetry of the whole molecule but not of the individual subspaces")
-        self.fcisolver.wfnsym = self.wfnsym
-        '''
-        print ("This is the pre-calculation call to label_orb_symm")
-        orbsym = symm.label_orb_symm (self.mol, self.mol.irrep_id,
-                                      self.mol.symm_orb, mo_coeff,
-                                      s=self._scf.get_ovlp ())
-        '''
         mo_coeff = self.mo_coeff = self.label_symmetry_(mo_coeff)
-        #mo_coeff = self.mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym) #casci_symm.label_symmetry_(self, mo_coeff, None)
         return LASCINoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0, casdm0_sub=casdm0_sub, verbose=verbose)
 
     def canonicalize (self, mo_coeff=None, ci=None, veff=None, h2eff_sub=None):
@@ -1038,7 +1011,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.nao = nao = mo_coeff.shape[0]
         self.nmo = nmo = mo_coeff.shape[-1]
         self.nocc = nocc = ncore + ncas
-        self.fcisolver = las.fcisolver
+        self.fciboxes = las.fciboxes
         self.bPpj = None
 
         # Density matrices
@@ -1111,18 +1084,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.e_tot = las.energy_nuc () + np.dot (h1.ravel (), self.dm1s.ravel ()) + np.tensordot (self.eri_cas, self.casdm2c, axes=4) / 2
 
         # CI stuff
-        if getattr(self.fcisolver, 'gen_linkstr', None):
-            self.linkstrl = []
-            self.linkstr = []
-            for no, ne, csf in zip (ncas_sub, nelecas_sub, self.ugg.ci_transformers):
-                nel = ne
-                if ne[1] > ne[0]:
-                    nel = (ne[1], ne[0])
-                with lib.temporary_env (self.fcisolver, wfnsym=csf.wfnsym, orbsym=csf.orbsym):
-                    self.linkstrl.append (self.fcisolver.gen_linkstr(no, nel, True))
-                    self.linkstr.append (self.fcisolver.gen_linkstr(no, nel, False))
-        else:
-            self.linkstrl = self.linkstr  = None
+        self.linkstrl = []
+        self.linkstr = []
+        for fcibox, no, ne, csf in zip (self.fciboxes, ncas_sub, nelecas_sub, self.ugg.ci_transformers):
+            fcibox.orbsym = csf.orbsym
+            self.linkstrl.append (fcibox.states_gen_linkstr (no, ne, True)[0]) # TODO: remove this specifier and let linkstr have the extra dimension
+            self.linkstr.append (fcibox.states_gen_linkstr (no, ne, False)[0])
         self.hci0 = self.Hci_all ([0.0,] * len (ci), self.h1e_ab_sub, self.eri_cas, ci)
         self.e0 = [hc.dot (c) for hc, c in zip (self.hci0, ci)]
         self.hci0 = [hc - c*e for hc, c, e in zip (self.hci0, ci, self.e0)]
@@ -1145,27 +1112,29 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def shape (self):
         return ((self.ugg.nvar_tot, self.ugg.nvar_tot))
 
-    def Hci (self, no, ne, h0e, h1e_ab, h2e, ci, linkstrl=None):
+    def Hci (self, fcibox, no, ne, h0e, h1e_ab, h2e, ci, linkstrl=None):
         # CI solver has enforced convention na >= nb
         if ne[1] > ne[0]:
             h1e_ab = (h1e_ab[1], h1e_ab[0])
             ne = (ne[1], ne[0])
-        h = self.fcisolver.absorb_h1e (h1e_ab, h2e, no, ne, 0.5)
-        hc = self.fcisolver.contract_2e (h, ci, no, ne, link_index=linkstrl).ravel ()
+        ci = [ci] # TODO: extra dimension (here and in hc below)
+        h1e_ab = [h1e_ab]
+        h = fcibox.states_absorb_h1e (h1e_ab, h2e, no, ne, 0.5)
+        hc = fcibox.states_contract_2e (h, ci, no, ne, link_index=linkstrl)[0].ravel ()
         return hc
 
     def Hci_all (self, h0e_sub, h1e_ab_sub, h2e, ci_sub):
         ''' Assumes h2e is in the active superspace MO basis and h1e_ab_sub is in the full MO basis '''
         hc = []
-        for isub, (h0e, h1e_ab, ci) in enumerate (zip (h0e_sub, h1e_ab_sub, ci_sub)):
-            if self.linkstrl is not None: linkstrl = self.linkstrl[isub]
+        for isub, (fcibox, h0e, h1e_ab, ci) in enumerate (zip (self.fciboxes, h0e_sub, h1e_ab_sub, ci_sub)):
+            if self.linkstrl is not None: linkstrl = [self.linkstrl[isub]] # TODO: extra dimension
             ncas = self.ncas_sub[isub]
             nelecas = self.nelecas_sub[isub]
             i = sum (self.ncas_sub[:isub])
             j = i + ncas
             h2e_i = h2e[i:j,i:j,i:j,i:j]
             h1e_i = h1e_ab[:,i:j,i:j]
-            hc.append (self.Hci (ncas, nelecas, h0e, h1e_i, h2e_i, ci, linkstrl=linkstrl))
+            hc.append (self.Hci (fcibox, ncas, nelecas, h0e, h1e_i, h2e_i, ci, linkstrl=linkstrl))
         return hc
 
     def make_odm1s2c_sub (self, kappa):
@@ -1194,16 +1163,18 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Both subtrahend and cumulant decomposition are implicated here
         tdm1s_sub = np.zeros ((len (ci1), 2, self.ncas, self.ncas), dtype=self.dtype)
         tdm2c_sub = np.zeros ([len (ci1)] + [self.ncas,]*4, dtype=self.dtype)
-        for isub, (ncas, nelecas, c1, c0, casdm1s) in enumerate (
-          zip (self.ncas_sub, self.nelecas_sub, ci1, self.ci, self.casdm1s_sub)):
+        for isub, (fcibox, ncas, nelecas, c1, c0, casdm1s) in enumerate (
+          zip (self.fciboxes, self.ncas_sub, self.nelecas_sub, ci1, self.ci, self.casdm1s_sub)):
             s01 = c1.dot (c0)
             i = sum (self.ncas_sub[:isub])
             j = i + ncas
             casdm2 = self.casdm2[i:j,i:j,i:j,i:j]
             linkstr = None if self.linkstr is None else self.linkstr[isub]
+            # TODO: extra dimension
+            tdm1s, tdm2c = fcibox.states_trans_rdm12s ([c1], [c0], ncas, nelecas, link_index=[linkstr])
+            tdm1s = tdm1s[0] # TODO: extra dimension < ^
+            tdm2c = tdm2c[0] # TODO: extra dimension <
             # CI solver enforced convention na >= nb
-            nel = (nelecas[1], nelecas[0]) if nelecas[1] >= nelecas[0] else nelecas
-            tdm1s, tdm2c = self.fcisolver.trans_rdm12s (c1, c0, ncas, nel, link_index=linkstr)
             if nelecas[1] > nelecas[0]: tdm1s = (tdm1s[1], tdm1s[0])
             # Subtrahend: super important, otherwise the veff part of CI response is even more of a nightmare
             # With this in place, I don't have to worry about subtracting an overlap times a gradient
@@ -1381,22 +1352,17 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Split-c and split-x, for inactive-external rotations, requires I calculate a bunch
         # of extra eris (g^aa_ii, g^ai_ai)
         Hci_diag = []
-        for ix, (norb, nelec, smult, h1e_full, csf) in enumerate (zip (self.ncas_sub,
-         self.nelecas_sub, self.ugg.spin_sub, self.h1e_ab_sub, self.ugg.ci_transformers)):
+        for ix, (fcibox, norb, nelec, h1e_full, csf) in enumerate (zip (self.fciboxes, 
+         self.ncas_sub, self.nelecas_sub, self.h1e_ab_sub, self.ugg.ci_transformers)):
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2e = self.eri_cas[i:j,i:j,i:j,i:j]
             h1e = (h1e_full[0,i:j,i:j],h1e_full[1,i:j,i:j])
             # CI solver has enforced convention neleca >= nelecb
-            ne = nelec
             if nelec[1] > nelec[0]:
                 h1e = (h1e[1], h1e[0])
-                ne = (nelec[1], nelec[0])
-            self.fcisolver.norb = norb
-            self.fcisolver.nelec = ne
-            self.fcisolver.smult = smult
-            with lib.temporary_env (self.fcisolver, wfnsym=csf.wfnsym, orbsym=csf.orbsym):
-                Hci_diag.append (csf.pack_csf (self.fcisolver.make_hdiag_csf (h1e, h2e, norb, ne)))
+            h1e = [h1e] # TODO: extra dimension
+            Hci_diag.append (csf.pack_csf (fcibox.states_make_hdiag_csf (h1e, h2e, norb, nelec)[0]))
         Hdiag = np.concatenate ([Horb_diag[self.ugg.uniq_orb_idx]] + Hci_diag)
         Hdiag += self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
