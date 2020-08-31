@@ -81,7 +81,7 @@ def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None)
     min_npair, npair_csd_offset, npair_dconf_size, npair_sconf_size, npair_sdet_size = get_csdaddrs_shape (norb, neleca, nelecb)
     _, npair_csf_offset, _, _, npair_csf_size = get_csfvec_shape (norb, neleca, nelecb, smult)
     npair_econf_size = npair_dconf_size * npair_sconf_size
-    max_npair = nelecb
+    max_npair = min (neleca, nelecb)
     ncsf_all = count_all_csfs (norb, neleca, nelecb, smult)
     ndeta_all = cistring.num_strings(norb, neleca)
     ndetb_all = cistring.num_strings(norb, nelecb)

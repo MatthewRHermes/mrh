@@ -527,7 +527,7 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
     # Initialization is necessary because not all determinants have a csf for all spin states
 
     #max_npair = min (nelecb, (neleca + nelecb - int (round (2*s))) // 2)
-    max_npair = nelecb
+    max_npair = min (neleca, nelecb)
     for npair in range (min_npair, max_npair+1):
         ipair = npair - min_npair
         ncsf = npair_csf_size[ipair]
@@ -648,7 +648,7 @@ def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd
     min_npair, npair_csd_offset, npair_dconf_size, npair_sconf_size, npair_sdet_size = csdstring.get_csdaddrs_shape (norb, neleca, nelecb)
     _, npair_csf_offset, _, _, npair_csf_size = get_csfvec_shape (norb, neleca, nelecb, smult)
     npair_econf_size = npair_dconf_size * npair_sconf_size
-    max_npair = nelecb
+    max_npair = min (neleca, nelecb)
     csf_idx = np.zeros (ncsf_all, dtype=np.bool)
     def ax_b (mat):
         nrow = mat.shape[0]
@@ -700,7 +700,7 @@ def make_econf_csf_mask (norb, neleca, nelecb, smult):
     npair_conf_size = npair_dconf_size * npair_sconf_size
     npair_size = npair_conf_size * npair_csf_size
     iconf = 0
-    for npair in range (min_npair, nelecb+1):
+    for npair in range (min_npair, min (neleca, nelecb)+1):
         ipair = npair - min_npair
         irange = np.arange (iconf, iconf+npair_conf_size[ipair], dtype=np.uint32)
         iconf += npair_conf_size[ipair]
@@ -779,16 +779,17 @@ def get_csfvec_shape (norb, neleca, nelecb, smult):
     '''
     s = (smult - 1) / 2
     ms = (neleca - nelecb) / 2
-    assert (neleca >= nelecb)
-    assert (neleca - nelecb <= smult - 1), "Impossible quantum numbers: s = {}; ms = {}".format (s, ms)
+    #assert (neleca >= nelecb)
+    nless = min (neleca, nelecb)
+    assert (abs (neleca - nelecb) <= smult - 1), "Impossible quantum numbers: s = {}; ms = {}".format (s, ms)
     min_npair = max (0, neleca + nelecb - norb)
-    nspins = [neleca + nelecb - 2*npair for npair in range (min_npair, nelecb+1)]
-    nfreeorbs = [norb - npair for npair in range (min_npair, nelecb+1)]
-    nas = [(nspin + neleca - nelecb) // 2 for nspin in nspins]
+    nspins = [neleca + nelecb - 2*npair for npair in range (min_npair, nless+1)]
+    nfreeorbs = [norb - npair for npair in range (min_npair, nless+1)]
+    nas = [(nspin + abs (neleca - nelecb)) // 2 for nspin in nspins]
     for nspin in nspins:
-        assert ((nspin + neleca - nelecb) % 2 == 0)
+        assert ((nspin + abs (neleca - nelecb)) % 2 == 0)
 
-    npair_dconf_size = np.asarray ([special.comb (norb, npair, exact=True) for npair in range (min_npair, nelecb+1)], dtype=np.int32)
+    npair_dconf_size = np.asarray ([special.comb (norb, npair, exact=True) for npair in range (min_npair, nless+1)], dtype=np.int32)
     npair_sconf_size = np.asarray ([special.comb (nfreeorb, nspin, exact=True) for nfreeorb, nspin in zip (nfreeorbs, nspins)], dtype=np.int32)
     npair_csf_size = np.asarray ([count_csfs (nspin, smult) for nspin in nspins]).astype (np.int32)
 
@@ -802,13 +803,13 @@ def get_csfvec_shape (norb, neleca, nelecb, smult):
 def get_spin_evecs (nspin, neleca, nelecb, smult):
     ms = (neleca - nelecb) / 2
     s = (smult - 1) / 2
-    assert (neleca >= nelecb)
-    assert (neleca - nelecb <= smult - 1)
-    assert (neleca - nelecb <= nspin)
-    assert ((neleca - nelecb) % 2 == (smult-1) % 2)
-    assert ((neleca - nelecb) % 2 == nspin % 2)
+    #assert (neleca >= nelecb)
+    assert (abs (neleca - nelecb) <= smult - 1)
+    assert (abs (neleca - nelecb) <= nspin)
+    assert (abs (neleca - nelecb) % 2 == (smult-1) % 2)
+    assert (abs (neleca - nelecb) % 2 == nspin % 2)
 
-    na = (nspin + neleca - nelecb) // 2
+    na = (nspin + abs (neleca - nelecb)) // 2
     ndet = special.comb (nspin, na, exact=True)
     ncsf = count_csfs (nspin, smult)
 
@@ -960,7 +961,7 @@ def check_tot_umat_size (norb, neleca, nelecb, smult):
     ''' Calculate the number of elements of the unitary matrix between all possible determinants
     and CSFs of a given spin state for (neleca, nelecb) electrons in norb orbitals '''
     min_npair = max (0, neleca + nelecb - norb)
-    return sum ([check_umat_size (norb, neleca, nelecb, npair, smult) for npair in range (min_npair, nelecb+1)])
+    return sum ([check_umat_size (norb, neleca, nelecb, npair, smult) for npair in range (min_npair, min (neleca, nelecb)+1)])
 
 def check_umat_size (norb, neleca, nelecb, npair, smult):
     ''' Calculate the number of elements of the unitary matrix between determinants with npair electron pairs
