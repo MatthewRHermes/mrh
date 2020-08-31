@@ -91,7 +91,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         mf.with_df._cderi = frag.impham_CDERI
     else:
         mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
-    mf = fix_my_RHF_for_nonsinglet_env (mf, sign_MS * frag.impham_OEI_S)
+    mf = fix_my_RHF_for_nonsinglet_env (mf, frag.impham_OEI_S)
     mf.__dict__.update (frag.mf_attr)
     if guess_orbs_av: mf.max_cycle = 2
     mf.scf (guess_1RDM)
@@ -113,7 +113,7 @@ def solve (frag, guess_1RDM, chempot_imp):
             mf.get_hcore = lambda *args: OEI
             mf.get_ovlp = lambda *args: np.eye(frag.norbs_imp)
             mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
-            mf = fix_my_RHF_for_nonsinglet_env (mf, sign_MS * frag.impham_OEI_S)
+            mf = fix_my_RHF_for_nonsinglet_env (mf, frag.impham_OEI_S)
             mf.scf (guess_1RDM)
             if not mf.converged:
                 mf = mf.newton ()
@@ -130,9 +130,9 @@ def solve (frag, guess_1RDM, chempot_imp):
         CASe = frag.nelec_imp
         CASorb = frag.norbs_imp
     if (abs_2MS > abs_2S):
-        CASe = ((CASe + abs_2S) // 2, (CASe - abs_2S) // 2)
+        CASe = ((CASe + sign_MS * abs_2S) // 2, (CASe - sign_MS * abs_2S) // 2)
     else:
-        CASe = ((CASe + abs_2MS) // 2, (CASe - abs_2MS) // 2)
+        CASe = ((CASe + sign_MS * abs_2MS) // 2, (CASe - sign_MS * abs_2MS) // 2)
     if frag.impham_CDERI is not None:
         mc = mcscf.DFCASSCF(mf, CASorb, CASe)
     else:
@@ -145,7 +145,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     mc.ah_start_tol = mc.conv_tol / 10
     mc.ah_conv_tol = mc.conv_tol / 10
     mc.__dict__.update (frag.corr_attr)
-    mc = fix_my_CASSCF_for_nonsinglet_env (mc, sign_MS * frag.impham_OEI_S)
+    mc = fix_my_CASSCF_for_nonsinglet_env (mc, frag.impham_OEI_S)
     norbs_amo = mc.ncas
     norbs_cmo = mc.ncore
     norbs_imo = frag.norbs_imp - norbs_amo
