@@ -141,7 +141,7 @@ def csdstrs2csdaddrs (norb, neleca, nelecb, csdstrs):
     assert (len (csdstrs[0]) == len (csdstrs[3]))
     min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size = get_csdaddrs_shape (norb, neleca, nelecb)
     csdaddrs = np.empty (len (csdstrs[0]), dtype=np.int32)
-    for npair, offset, dconf_size, sconf_size, spins_size in zip (range (min_npair, nelecb+1), 
+    for npair, offset, dconf_size, sconf_size, spins_size in zip (range (min_npair, min (neleca, nelecb)+1), 
             npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size):
         nspins = neleca + nelecb - 2*npair
         nup = (nspins + neleca - nelecb) // 2
@@ -165,7 +165,7 @@ def csdaddrs2csdstrs (norb, neleca, nelecb, csdaddrs):
     t_start = time.time ()
     min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size = get_csdaddrs_shape (norb, neleca, nelecb)
     csdstrs = np.empty ((4, len (csdaddrs)), dtype=np.int64)
-    for npair, offset, dconf_size, sconf_size, spins_size in zip (range (min_npair, nelecb+1), 
+    for npair, offset, dconf_size, sconf_size, spins_size in zip (range (min_npair, min (neleca, nelecb)+1), 
             npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size):
         nspins = neleca + nelecb - 2*npair
         nup = (nspins + neleca - nelecb) // 2
@@ -247,9 +247,9 @@ def get_csdaddrs_shape (norb, neleca, nelecb):
     min_npair = max (0, neleca + nelecb - norb)
     nspins = [neleca + nelecb - 2*npair for npair in range (min_npair, nless+1)]
     nfreeorbs = [norb - npair for npair in range (min_npair, nless+1)]
-    nas = [(nspin + abs (neleca - nelecb)) // 2 for nspin in nspins]
+    nas = [(nspin + neleca - nelecb) // 2 for nspin in nspins]
     for nspin in nspins:
-        assert ((nspin + abs (neleca - nelecb)) % 2 == 0)
+        assert ((nspin + neleca - nelecb) % 2 == 0)
 
     npair_dconf_size = np.asarray ([int (round (special.binom (norb, npair))) for npair in range (min_npair, nless+1)], dtype=np.int32)
     npair_sconf_size = np.asarray ([int (round (special.binom (nfreeorb, nspin))) for nfreeorb, nspin in zip (nfreeorbs, nspins)], dtype=np.int32)

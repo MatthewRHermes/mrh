@@ -785,9 +785,9 @@ def get_csfvec_shape (norb, neleca, nelecb, smult):
     min_npair = max (0, neleca + nelecb - norb)
     nspins = [neleca + nelecb - 2*npair for npair in range (min_npair, nless+1)]
     nfreeorbs = [norb - npair for npair in range (min_npair, nless+1)]
-    nas = [(nspin + abs (neleca - nelecb)) // 2 for nspin in nspins]
+    nas = [(nspin + neleca - nelecb) // 2 for nspin in nspins]
     for nspin in nspins:
-        assert ((nspin + abs (neleca - nelecb)) % 2 == 0)
+        assert ((nspin + neleca - nelecb) % 2 == 0)
 
     npair_dconf_size = np.asarray ([special.comb (norb, npair, exact=True) for npair in range (min_npair, nless+1)], dtype=np.int32)
     npair_sconf_size = np.asarray ([special.comb (nfreeorb, nspin, exact=True) for nfreeorb, nspin in zip (nfreeorbs, nspins)], dtype=np.int32)
@@ -809,7 +809,7 @@ def get_spin_evecs (nspin, neleca, nelecb, smult):
     assert (abs (neleca - nelecb) % 2 == (smult-1) % 2)
     assert (abs (neleca - nelecb) % 2 == nspin % 2)
 
-    na = (nspin + abs (neleca - nelecb)) // 2
+    na = (nspin + neleca - nelecb) // 2
     ndet = special.comb (nspin, na, exact=True)
     ncsf = count_csfs (nspin, smult)
 
@@ -979,11 +979,12 @@ def check_umat_size (norb, neleca, nelecb, npair, smult):
 if __name__ == '__main__':
     for nspin in range (21):
         for s in np.arange ((nspin%2)/2, (nspin/2)+0.1, 1):
-            ncsf = count_csfs (nspin, s)
-            print ("Supposedly {} csfs of {} spins with overall s = {}".format (ncsf, nspin, s));
+            smult = int (round (2*s+1))
+            ncsf = count_csfs (nspin, smult)
+            print ("Supposedly {} csfs of {} spins with overall smult = {}".format (ncsf, nspin, smult));
             rand_addrs = np.random.randint (0, high=ncsf, size=min (ncsf, 5), dtype=np.int32)
-            rand_strs = addrs2str (nspin, s, rand_addrs)
-            rand_addrs_2 = strs2addr (nspin, s, rand_strs)
+            rand_strs = addrs2str (nspin, smult, rand_addrs)
+            rand_addrs_2 = strs2addr (nspin, smult, rand_strs)
             assert (np.all (rand_addrs == rand_addrs_2))
     
     for nspin in range (15):
@@ -992,7 +993,10 @@ if __name__ == '__main__':
             evecs = []
             S2mat = None
             for s in np.arange (abs (ms), (nspin/2)+0.1, 1):
-                umat, S2mat = test_spin_evecs (nspin, ms, s, S2mat=S2mat)
+                smult = int (round (2*s+1))
+                neleca = int (round (nspin/2 + ms))
+                nelecb = int (round (nspin/2 - ms))
+                umat, S2mat = test_spin_evecs (nspin, neleca, nelecb, smult, S2mat=S2mat)
                 evecs.append (umat)
                 evals.append (s*(s+1)*np.ones (umat.shape[1]))
             print ("COLLECTIVE RESULTS:")
