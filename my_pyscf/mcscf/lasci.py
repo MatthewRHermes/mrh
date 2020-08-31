@@ -14,7 +14,6 @@ import numpy as np
 import time
 
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to handle spin-breaking potentials while retaining spin constraint
-# There's a lot that will have to be checked in the future with spin-breaking stuff, especially if I still have the convention ms < 0, na <-> nb and h1e_s *= -1 
 
 class LASCI_UnitaryGroupGenerators (object):
     ''' Object for packing (for root-finding algorithms) and unpacking (for direct manipulation)
@@ -44,7 +43,7 @@ class LASCI_UnitaryGroupGenerators (object):
         self.uniq_orb_idx = idx
 
     def _init_ci (self, las, mo_coeff, ci):
-        self.ci_transformers = [CSFTransformer (norb, max (*nelec), min (*nelec), smult)
+        self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult)
             for norb, nelec, smult in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub)]
 
     def pack (self, kappa, ci_sub):
@@ -170,12 +169,7 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
     for isub, (fcibox, h1eff, ci0, ncas, nelecas) in enumerate (zip (las.fciboxes, h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
-        # CI solver has enforced convention: na >= nb
-        if nelecas[0] < nelecas[1]:
-            h1e = (h1eff[1], h1eff[0])
-        else:
-            h1e = (h1eff[0], h1eff[1])
-        h1e = [h1e] # TODO: fix las.get_h1eff to automatically make this extra dimension
+        h1e = [h1eff] # TODO: fix las.get_h1eff to automatically make this extra dimension
         ci0 = [ci0] # TODO: fix las.ci or whatever to automatically have this extra dimension
         linkstrl = fcibox.states_gen_linkstr (ncas, nelecas, True)
         linkstr  = fcibox.states_gen_linkstr (ncas, nelecas, False)
@@ -406,12 +400,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_sub, log, veff_sub_test=Non
     for isub, (fcibox, ncas, nelecas, spin, h1eff, fcivec) in enumerate (zip (las.fciboxes, las.ncas_sub, las.nelecas_sub, las.spin_sub, h1eff_sub, ci0)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
-        # CI solver has enforced convention: na >= nb
-        if nelecas[0] < nelecas[1]:
-            h1e = (h1eff[1], h1eff[0])
-        else:
-            h1e = (h1eff[0], h1eff[1])
-        h1e = [h1e]
+        h1e = [h1eff]
         fcivec = [fcivec]
         # TODO: edit get_h1eff and las.ci to already have this extra dimension
         orbsym = getattr (mo, 'orbsym', None)
@@ -570,7 +559,7 @@ class LASCINoSymm (casci.CASCI):
         self.fciboxes = []
         for smult, nel in zip (self.spin_sub, self.nelecas_sub):
             s = csf_solver (self.mol, smult=smult)
-            s.spin = abs (nel[0] - nel[1]) # TODO: when you get around to making csf_solver naturally able to deal with na < nb, remove this abs
+            s.spin = nel[0] - nel[1] 
             self.fciboxes.append (get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)) 
 
     def get_mo_slice (self, idx, mo_coeff=None):
@@ -671,8 +660,6 @@ class LASCINoSymm (casci.CASCI):
             else: 
                 ci_i = [ci_i] # TODO: increas las.ci dimension by 1 and delete this line
                 dm1a, dm1b = fcibox.states_make_rdm1s (ci_i, ncas, nelecas)
-                # CI solver enforced convention na >= nb 
-                if nelecas[1] > nelecas[0]: dm1a, dm1b = dm1b, dm1a
             casdm1s.append (np.stack ([dm1a, dm1b], axis=1))
         return casdm1s
 
@@ -1113,10 +1100,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return ((self.ugg.nvar_tot, self.ugg.nvar_tot))
 
     def Hci (self, fcibox, no, ne, h0e, h1e_ab, h2e, ci, linkstrl=None):
-        # CI solver has enforced convention na >= nb
-        if ne[1] > ne[0]:
-            h1e_ab = (h1e_ab[1], h1e_ab[0])
-            ne = (ne[1], ne[0])
         ci = [ci] # TODO: extra dimension (here and in hc below)
         h1e_ab = [h1e_ab]
         h = fcibox.states_absorb_h1e (h1e_ab, h2e, no, ne, 0.5)
@@ -1174,8 +1157,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             tdm1s, tdm2c = fcibox.states_trans_rdm12s ([c1], [c0], ncas, nelecas, link_index=[linkstr])
             tdm1s = tdm1s[0] # TODO: extra dimension < ^
             tdm2c = tdm2c[0] # TODO: extra dimension <
-            # CI solver enforced convention na >= nb
-            if nelecas[1] > nelecas[0]: tdm1s = (tdm1s[1], tdm1s[0])
             # Subtrahend: super important, otherwise the veff part of CI response is even more of a nightmare
             # With this in place, I don't have to worry about subtracting an overlap times a gradient
             tdm1s = np.stack (tdm1s, axis=0)
@@ -1358,9 +1339,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             j = i + norb
             h2e = self.eri_cas[i:j,i:j,i:j,i:j]
             h1e = (h1e_full[0,i:j,i:j],h1e_full[1,i:j,i:j])
-            # CI solver has enforced convention neleca >= nelecb
-            if nelec[1] > nelec[0]:
-                h1e = (h1e[1], h1e[0])
             h1e = [h1e] # TODO: extra dimension
             Hci_diag.append (csf.pack_csf (fcibox.states_make_hdiag_csf (h1e, h2e, norb, nelec)[0]))
         Hdiag = np.concatenate ([Horb_diag[self.ugg.uniq_orb_idx]] + Hci_diag)
