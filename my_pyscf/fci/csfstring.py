@@ -988,7 +988,7 @@ if __name__ == '__main__':
             assert (np.all (rand_addrs == rand_addrs_2))
     
     for nspin in range (15):
-        for ms in np.arange ((nspin%2)/2, (nspin/2)+0.1, 1):
+        for ms in np.arange (-(nspin/2), (nspin/2)+0.1, 1):
             evals = []
             evecs = []
             S2mat = None
