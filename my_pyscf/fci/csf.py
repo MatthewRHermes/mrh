@@ -6,9 +6,9 @@ from pyscf import lib, ao2mo, __config__
 from pyscf.fci import direct_spin1, cistring, direct_uhf
 from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.lib.numpy_helper import tag_array
-from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, get_nspin_dets, get_csdaddrs_shape 
-from mrh.my_pyscf.fci.csfstring import count_all_csfs, make_econf_csf_mask, get_spin_evecs
-from mrh.my_pyscf.fci.csfstring import get_csfvec_shape, pack_sym_ci, unpack_sym_ci
+from mrh.my_pyscf.fci.csdstring import get_csdaddrs_shape 
+from mrh.my_pyscf.fci.csfstring import count_all_csfs, get_spin_evecs
+from mrh.my_pyscf.fci.csfstring import get_csfvec_shape
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.lib.helper import load_library as mrh_load_library
 '''
@@ -461,16 +461,16 @@ class FCISolver (direct_spin1.FCISolver):
 
     def __init__(self, mol=None, smult=None):
         self.smult = smult
-        self.csd_mask = self.econf_det_mask = self.econf_csf_mask = None
+        self.transformer = None
         self.mask_cache = [0, 0, 0, 0]
         super().__init__(mol)
 
     def get_init_guess(self, norb, nelec, nroots, hdiag_csf):
-        self.check_mask_cache ()
+        self.check_transformer_cache ()
         return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
-        self.check_mask_cache ()
+        self.check_transformer_cache ()
         return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
 
     make_hdiag = make_hdiag_det
@@ -493,7 +493,7 @@ class FCISolver (direct_spin1.FCISolver):
     '''
 
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
-        self.check_mask_cache ()
+        self.check_transformer_cache ()
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
             hdiag_csf=hdiag_csf, npsp=npsp)
         
@@ -503,19 +503,17 @@ class FCISolver (direct_spin1.FCISolver):
         if 'smult' in kwargs:
             self.smult = kwargs['smult']
             kwargs.pop ('smult')
-        self.check_mask_cache ()
+        self.check_transformer_cache ()
         e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult,
-            idx_sym=None, ci0=ci0, **kwargs)
+            idx_sym=None, ci0=ci0, transformer=self.transformer, **kwargs)
         self.eci, self.ci = e, c
         return e, c
 
-    def check_mask_cache (self):
+    def check_transformer_cache (self):
         assert (isinstance (self.smult, (int, np.number)))
         neleca, nelecb = _unpack_nelec (self.nelec)
-        if self.mask_cache != [self.norb, neleca, nelecb, self.smult] or self.csd_mask is None:
-            self.csd_mask = make_csd_mask (self.norb, neleca, nelecb)
-            self.econf_det_mask = make_econf_det_mask (self.norb, neleca, nelecb, self.csd_mask)
-            self.econf_csf_mask = make_econf_csf_mask (self.norb, neleca, nelecb, self.smult)
-            self.mask_cache = [self.norb, neleca, nelecb, self.smult]
+        if self.transformer is None:
             self.transformer = CSFTransformer (self.norb, neleca, nelecb, self.smult)
+        else:
+            self.transformer._update_spin_cache (self.norb, neleca, nelecb, self.smult)
 
