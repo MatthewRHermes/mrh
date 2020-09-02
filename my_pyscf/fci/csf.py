@@ -7,8 +7,6 @@ from pyscf.fci import direct_spin1, cistring, direct_uhf
 from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.lib.numpy_helper import tag_array
 from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, get_nspin_dets, get_csdaddrs_shape 
-from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det
-from mrh.my_pyscf.fci.csfstring import transform_opmat_det2csf, transform_opmat_det2csf_pspace
 from mrh.my_pyscf.fci.csfstring import count_all_csfs, make_econf_csf_mask, get_spin_evecs
 from mrh.my_pyscf.fci.csfstring import get_csfvec_shape, pack_sym_ci, unpack_sym_ci
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
@@ -68,7 +66,7 @@ def make_hdiag_det (fci, h1e, eri, norb, nelec):
     return direct_uhf.make_hdiag (unpack_h1e_ab (h1e), [eri, eri, eri], norb, nelec)
 
 def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None):
-    smult, csd_mask = transformer.smult, transformer.csd_mask # "Bridging code"
+    smult = transformer.smult
     if hdiag_det is None:
         hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
@@ -95,10 +93,7 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None):
         csd_offset = npair_csd_offset[ipair]
         csf_offset = npair_csf_offset[ipair]
         hdiag_conf = np.ascontiguousarray (np.zeros ((nconf, ndet, ndet), dtype=np.float64))
-        if csd_mask is None:
-            det_addr = get_nspin_dets (norb, neleca, nelecb, nspin).ravel (order = 'C')
-        else:
-            det_addr = csd_mask[csd_offset:][:nconf*ndet]
+        det_addr = transformer.csd_mask[csd_offset:][:nconf*ndet]
         if ndet == 1:
             # Closed-shell singlets
             assert (ncsf == 1)
@@ -134,7 +129,7 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None):
 def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None):
     ''' This is tricky because I need the diagonal blocks for each configuration in order to get
     the correct csf hdiag values, not just the diagonal elements for each determinant. '''
-    smult, csd_mask = transformer.smult, transformer.csd_mask # "Bridging code"
+    smult = transformer.smult
     t0, w0 = time.clock (), time.time ()
     tstr = tlib = tloop = wstr = wlib = wloop = 0
     if hdiag_det is None:
@@ -162,10 +157,7 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None):
         csd_offset = npair_csd_offset[ipair]
         csf_offset = npair_csf_offset[ipair]
         hdiag_conf = np.ascontiguousarray (np.zeros ((nconf, ndet, ndet), dtype=np.float64))
-        if csd_mask is None:
-            det_addr = get_nspin_dets (norb, neleca, nelecb, nspin).ravel (order = 'C')
-        else:
-            det_addr = csd_mask[csd_offset:][:nconf*ndet]
+        det_addr = transformer.csd_mask[csd_offset:][:nconf*ndet]
         if ndet == 1:
             # Closed-shell singlets
             assert (ncsf == 1)
@@ -243,13 +235,6 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
 
     t0 = (time.clock (), time.time ())
     neleca, nelecb = _unpack_nelec(nelec)
-    ### Begin "bridging" code
-    smult = transformer.smult
-    idx_sym = (transformer.confsym[transformer.econf_csf_mask] == transformer.wfnsym) if transformer.wfnsym is not None else None
-    csd_mask = transformer.csd_mask
-    econf_det_mask = transformer.econf_det_mask
-    econf_csf_mask = transformer.econf_csf_mask
-    ### End "bridging" code
     h1e = np.ascontiguousarray(h1e)
     eri = ao2mo.restore(1, eri, norb)
     nb = cistring.num_strings(norb, nelecb)
@@ -258,9 +243,10 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     if hdiag_csf is None:
         hdiag_csf = fci.make_hdiag_csf(h1e, eri, norb, nelec, hdiag_det=hdiag_det)
     csf_addr = np.arange (hdiag_csf.size, dtype=np.int)
-    if idx_sym is None:
+    if transformer.wfnsym is None:
         ncsf_sym = hdiag_csf.size
     else:
+        idx_sym = transformer.confsym[transformer.econf_csf_mask] == transformer.wfnsym
         ncsf_sym = np.count_nonzero (idx_sym)
         csf_addr = csf_addr[idx_sym]
     if ncsf_sym > npsp:
@@ -270,8 +256,9 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
             csf_addr = csf_addr[np.argsort(hdiag_csf[csf_addr])[:npsp]]
 
     # To build 
-    econf_addr = np.unique (econf_csf_mask[csf_addr])
-    det_addr = np.concatenate ([np.nonzero (econf_det_mask == conf)[0] for conf in econf_addr])
+    econf_addr = np.unique (transformer.econf_csf_mask[csf_addr])
+    det_addr = np.concatenate ([np.nonzero (transformer.econf_det_mask == conf)[0]
+        for conf in econf_addr])
     lib.logger.debug (fci, ("csf.pspace: Lowest-energy %s CSFs correspond to %s configurations"
         " which are spanned by %s determinants"), npsp, econf_addr.size, det_addr.size)
 
@@ -314,8 +301,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
             norb, npsp_det))
         evals_before = np.zeros (npsp_det)
 
-    h0, csf_addr = transform_opmat_det2csf_pspace (h0, econf_addr, norb, neleca, nelecb, smult,
-        csd_mask, econf_det_mask, econf_csf_mask) 
+    h0, csf_addr = transformer.mat_det2csf_confspace (h0, econf_addr)
     t0 = lib.logger.timer (fci, "csf.pspace: transform pspace Hamiltonian into CSF basis", *t0)
 
     if fci.verbose >= lib.logger.DEBUG:
