@@ -131,12 +131,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.bPpj = None
 
         # Density matrices
-        self.states_casdm1s_sub = las.states_make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
-        self.casdm1s_sub = las.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
-        casdm1a = linalg.block_diag (*[dm[0] for dm in self.casdm1s_sub])
-        casdm1b = linalg.block_diag (*[dm[1] for dm in self.casdm1s_sub])
+        self.casdm1frs = las.states_make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        self.casdm1fs = las.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        casdm1a = linalg.block_diag (*[dm[0] for dm in self.casdm1fs])
+        casdm1b = linalg.block_diag (*[dm[1] for dm in self.casdm1fs])
         casdm1 = casdm1a + casdm1b
-        self.states_casdm2 = las.states_make_casdm2 (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        self.casdm2r = las.states_make_casdm2 (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
         self.casdm2 = las.make_casdm2 (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
         self.casdm2c = self.casdm2 - np.multiply.outer (casdm1, casdm1)
         self.casdm2c += np.multiply.outer (casdm1a, casdm1a).transpose (0,3,2,1)
@@ -148,8 +148,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
 
         # ERI in active superspace and fixed (within macrocycle) veff-related things
-        # h1e_ab is for gradient response
-        # h1e_ab_sub is for ci response
+        # h1s is for gradient response
+        # h1frs is for ci response
         if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
         moH_coeff = mo_coeff.conjugate ().T
         if veff is None: 
@@ -177,28 +177,28 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 veff = smo @ (vj_mo - vk_mo/2) @ smoH
             else:
                 veff = las.get_veff (dm1s = np.dot (mo_coeff, np.dot (self.dm1s.sum (0), moH_coeff)))
-            veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=self.casdm1s_sub)
+            veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=self.casdm1fs)
         h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)
         self.eri_cas = h2eff_sub[ncore:nocc,:,:,:]
-        h1e_ab = las.get_hcore ()[None,:,:] + veff
-        h1e_ab = np.dot (h1e_ab, mo_coeff)
-        self.h1e_ab = np.dot (moH_coeff, h1e_ab).transpose (1,0,2)
-        self.h1e_ab_sub = np.stack ([self.h1e_ab[:,ncore:nocc,ncore:nocc].copy (),] * len (self.casdm1s_sub), axis=0)
-        for ix, casdm1s in enumerate (self.casdm1s_sub):
+        h1s = las.get_hcore ()[None,:,:] + veff
+        h1s = np.dot (h1s, mo_coeff)
+        self.h1s = np.dot (moH_coeff, h1s).transpose (1,0,2)
+        self.h1frs = np.stack ([self.h1s[:,ncore:nocc,ncore:nocc].copy (),] * len (self.casdm1fs), axis=0)
+        for ix, casdm1s in enumerate (self.casdm1fs):
             i = sum (ncas_sub[:ix])
             j = i + ncas_sub[ix]
             casdm1 = casdm1s[0] + casdm1s[1]
-            self.h1e_ab_sub[ix,:,:,:] -= np.tensordot (casdm1,
+            self.h1frs[ix,:,:,:] -= np.tensordot (casdm1,
                 self.eri_cas[i:j,i:j,:,:], axes=2)[None,:,:] # double-counting: J
-            self.h1e_ab_sub[ix,:,:,:] += np.tensordot (casdm1s,
+            self.h1frs[ix,:,:,:] += np.tensordot (casdm1s,
                 self.eri_cas[:,i:j,i:j,:], axes=((1,2),(2,1))) # double-counting: K
 
         # Fock1 matrix (for gradient and subtrahend terms in Hx)
-        self.fock1 = sum ([f @ d for f,d in zip (list (self.h1e_ab), list (self.dm1s))])
+        self.fock1 = sum ([f @ d for f,d in zip (list (self.h1s), list (self.dm1s))])
         self.fock1[:,ncore:nocc] += np.tensordot (h2eff_sub, self.casdm2c, axes=((1,2,3),(1,2,3)))
 
         # Total energy (for callback)
-        h1 = (self.h1e_ab + (moH_coeff @ las.get_hcore () @ mo_coeff)[None,:,:]) / 2
+        h1 = (self.h1s + (moH_coeff @ las.get_hcore () @ mo_coeff)[None,:,:]) / 2
         self.e_tot = las.energy_nuc () + np.dot (h1.ravel (), self.dm1s.ravel ()) + np.tensordot (self.eri_cas, self.casdm2c, axes=4) / 2
 
         # CI stuff
@@ -208,7 +208,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             fcibox.orbsym = csf.orbsym
             self.linkstrl.append (fcibox.states_gen_linkstr (no, ne, True)) 
             self.linkstr.append (fcibox.states_gen_linkstr (no, ne, False))
-        self.hci0 = self.Hci_all ([0.0,] * len (ci), self.h1e_ab_sub, self.eri_cas, ci)
+        self.hci0 = self.Hci_all ([0.0,] * len (ci), self.h1frs, self.eri_cas, ci)
         self.e0 = [hc.dot (c) for hc, c in zip (self.hci0, ci)]
         self.hci0 = [hc - c*e for hc, c, e in zip (self.hci0, ci, self.e0)]
 
@@ -230,31 +230,31 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def shape (self):
         return ((self.ugg.nvar_tot, self.ugg.nvar_tot))
 
-    def Hci (self, fcibox, no, ne, h0e, h1e_ab, h2e, ci, linkstrl=None):
+    def Hci (self, fcibox, no, ne, h0e, h1s, h2e, ci, linkstrl=None):
         ci = [ci] # TODO: extra dimension (here and in hc below)
-        h1e_ab = [h1e_ab]
-        h = fcibox.states_absorb_h1e (h1e_ab, h2e, no, ne, 0.5)
+        h1s = [h1s]
+        h = fcibox.states_absorb_h1e (h1s, h2e, no, ne, 0.5)
         hc = fcibox.states_contract_2e (h, ci, no, ne, link_index=linkstrl)[0].ravel ()
         return hc
 
-    def Hci_all (self, h0e_sub, h1e_ab_sub, h2e, ci_sub):
-        ''' Assumes h2e is in the active superspace MO basis and h1e_ab_sub is in the full MO basis '''
+    def Hci_all (self, h0e_sub, h1frs, h2e, ci_sub):
+        ''' Assumes h2e is in the active superspace MO basis and h1frs is in the full MO basis '''
         hc = []
-        for isub, (fcibox, h0e, h1e_ab, ci) in enumerate (zip (self.fciboxes, h0e_sub, h1e_ab_sub, ci_sub)):
+        for isub, (fcibox, h0e, h1s, ci) in enumerate (zip (self.fciboxes, h0e_sub, h1frs, ci_sub)):
             if self.linkstrl is not None: linkstrl = self.linkstrl[isub] 
             ncas = self.ncas_sub[isub]
             nelecas = self.nelecas_sub[isub]
             i = sum (self.ncas_sub[:isub])
             j = i + ncas
             h2e_i = h2e[i:j,i:j,i:j,i:j]
-            h1e_i = h1e_ab[:,i:j,i:j]
+            h1e_i = h1s[:,i:j,i:j]
             hc.append (self.Hci (fcibox, ncas, nelecas, h0e, h1e_i, h2e_i, ci, linkstrl=linkstrl))
         return hc
 
     def make_odm1s2c_sub (self, kappa):
         odm1s_sub = np.zeros ((len (self.ci)+1, 2, self.nmo, self.nmo), dtype=self.dtype)
         odm1s_sub[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
-        for isub, (ncas, casdm1s) in enumerate (zip (self.ncas_sub, self.casdm1s_sub)):
+        for isub, (ncas, casdm1s) in enumerate (zip (self.ncas_sub, self.casdm1fs)):
             i = self.ncore + sum (self.ncas_sub[:isub])
             j = i + ncas
             odm1s_sub[isub+1,:,i:j,:] -= np.dot (casdm1s, kappa[i:j,:])
@@ -268,23 +268,23 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return odm1s_sub, odm2c 
 
     def make_tdm1s2c_sub (self, ci1):
-        tdm1s_sub = np.zeros ((len (self.fciboxes), self.nroots, 2, self.ncas, self.ncas), dtype=self.dtype)
+        tdm1frs = np.zeros ((len (self.fciboxes), self.nroots, 2, self.ncas, self.ncas), dtype=self.dtype)
         tdm2c = np.zeros ([self.ncas,]*4, dtype=self.dtype)
-        for isub, (fcibox, ncas, nelecas, c1, c0, states_casdm1s, casdm1s) in enumerate (
+        for isub, (fcibox, ncas, nelecas, c1, c0, casdm1rs, casdm1s) in enumerate (
           zip (self.fciboxes, self.ncas_sub, self.nelecas_sub, ci1, self.ci,
-          self.states_casdm1s_sub, self.casdm1s_sub)):
+          self.casdm1frs, self.casdm1fs)):
             c0 = [c0] # TODO: extra dimension
             c1 = [c1] # TODO: extra dimension
             s01 = [c1i.dot (c0i) for c1i, c0i in zip (c1, c0)]
             i = sum (self.ncas_sub[:isub])
             j = i + ncas
-            casdm2 = self.states_casdm2[:,i:j,i:j,i:j,i:j]
+            casdm2 = self.casdm2r[:,i:j,i:j,i:j,i:j]
             linkstr = None if self.linkstr is None else self.linkstr[isub]
-            tdm1s, dm2 = fcibox.states_trans_rdm12s (c1, c0, ncas, nelecas, link_index=linkstr)
+            tdm1rs, dm2 = fcibox.states_trans_rdm12s (c1, c0, ncas, nelecas, link_index=linkstr)
             # Subtrahend: super important, otherwise the veff part of CI response is even more of a nightmare
             # With this in place, I don't have to worry about subtracting an overlap times a gradient
-            states_tdm1s = np.stack ([np.stack (t, axis=0) - c * s for t, c, s in zip (tdm1s, states_casdm1s, s01)], axis=0)
-            tdm1s = np.einsum ('rspq,r->spq', states_tdm1s, fcibox.weights)
+            tdm1rs = np.stack ([np.stack (t, axis=0) - c * s for t, c, s in zip (tdm1rs, casdm1rs, s01)], axis=0)
+            tdm1s = np.einsum ('rspq,r->spq', tdm1rs, fcibox.weights)
             dm2 = np.stack ([(sum (t) - (c*s)) / 2 for t, c, s, in zip (dm2, casdm2, s01)], axis=0)
             dm2 = np.einsum ('rijkl,r->ijkl', dm2, fcibox.weights)
             # Cumulant decomposition so I only have to do one jk call for orbrot response
@@ -293,17 +293,17 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             dm2 -= np.multiply.outer (tdm1s[0] + tdm1s[1], casdm1s[0] + casdm1s[1])
             dm2 += np.multiply.outer (tdm1s[0], casdm1s[0]).transpose (0,3,2,1)
             dm2 += np.multiply.outer (tdm1s[1], casdm1s[1]).transpose (0,3,2,1)
-            tdm1s_sub[isub,:,:,i:j,i:j] = tdm1s 
+            tdm1frs[isub,:,:,i:j,i:j] = tdm1rs 
             tdm2c[i:j,i:j,i:j,i:j] = dm2
 
         # Two transposes 
-        tdm1s_sub += tdm1s_sub.transpose (0,1,2,4,3) 
+        tdm1frs += tdm1frs.transpose (0,1,2,4,3) 
         tdm2c += tdm2c.transpose (1,0,3,2)        
         tdm2c += tdm2c.transpose (2,3,0,1)        
 
-        tdm1s_sub = tdm1s_sub[:,0] # TODO: extra dimension
+        tdm1frs = tdm1frs[:,0] # TODO: extra dimension
 
-        return tdm1s_sub, tdm2c    
+        return tdm1frs, tdm2c    
 
     def get_veff_Heff (self, odm1s_sub, tdm1s_sub):
         ''' Returns the veff for the orbital part and the h1e shifts for the CI part arising from the contraction
@@ -312,7 +312,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         this is faster than calling get_jk with many dms. '''
         # TODO: generalize for SA-LASSCF
         # The problem here is the "individual CI problems" block. Each state should have a different effective potential 
-        # in each fragment, so h1e_ab_sub, odm1s_sub, and tdm1s_sub all need extra dimensions
+        # in each fragment, so h1frs, odm1s_sub, and tdm1s_sub all need extra dimensions
 
         dm1s_mo = odm1s_sub.copy ().sum (0)
         dm1s_mo[:,self.ncore:self.nocc,self.ncore:self.nocc] += tdm1s_sub.sum (0)
@@ -328,16 +328,16 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # 2) veff_mo has the effect I want for the orbrots, so long as I choose not to explicitly add h.c. at the end
         # 3) If I don't add h.c., then the (non-self) mean-field effect of the 1-tdms needs to be twice as strong
         # 4) Of course, self-interaction (from both 1-odms and 1-tdms) needs to be completely eliminated
-        h1e_ab_sub = np.stack ([veff_mo[:,self.ncore:self.nocc,self.ncore:self.nocc].copy (),]*tdm1s_sub.shape[0], axis=0)
+        h1frs = np.stack ([veff_mo[:,self.ncore:self.nocc,self.ncore:self.nocc].copy (),]*tdm1s_sub.shape[0], axis=0)
         for isub, (tdm1s, odm1s) in enumerate (zip (tdm1s_sub, odm1s_sub[1:])):
             err_dm1s = (2*tdm1s) - tdm1s_sub.sum (0)
             err_dm1s += odm1s[:,self.ncore:self.nocc,self.ncore:self.nocc]
             err_veff = np.tensordot (err_dm1s, self.eri_cas, axes=((1,2),(2,3)))
             err_veff += err_veff[::-1] # ja + jb
             err_veff -= np.tensordot (err_dm1s, self.eri_cas, axes=((1,2),(2,1))) 
-            h1e_ab_sub[isub,:,:,:] -= err_veff
+            h1frs[isub,:,:,:] -= err_veff
 
-        return veff_mo, h1e_ab_sub
+        return veff_mo, h1frs
 
     def get_veff (self, dm1s_mo=None):
         mo = self.mo_coeff
@@ -402,11 +402,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Effective density matrices, veffs, and overlaps from linear response
         odm1s_sub, odm2c = self.make_odm1s2c_sub (kappa1)
         tdm1s_sub, tdm2c = self.make_tdm1s2c_sub (ci1)
-        veff_prime, h1e_ab_prime = self.get_veff_Heff (odm1s_sub, tdm1s_sub)
+        veff_prime, h1s_prime = self.get_veff_Heff (odm1s_sub, tdm1s_sub)
 
         # Responses!
         kappa2 = self.orbital_response (odm1s_sub, odm2c, tdm1s_sub, tdm2c, veff_prime)
-        ci2 = self.ci_response_offdiag (kappa1, h1e_ab_prime)
+        ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         ci2 = [x+y for x,y in zip (ci2, self.ci_response_diag (ci1))]
 
         return self.ugg.pack (kappa2, ci2)
@@ -420,24 +420,24 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         edm1s = odm1s_sub.sum (0)
         edm1s[:,ncore:nocc,ncore:nocc] += tdm1s_sub.sum (0)
         edm2c = odm2c + tdm2c
-        fock1  = self.h1e_ab[0] @ edm1s[0] + self.h1e_ab[1] @ edm1s[1]
+        fock1  = self.h1s[0] @ edm1s[0] + self.h1s[1] @ edm1s[1]
         fock1 += veff_prime[0] @ self.dm1s[0] + veff_prime[1] @ self.dm1s[1]
         fock1[ncore:nocc,ncore:nocc] += np.tensordot (self.eri_cas, edm2c, axes=((1,2,3),(1,2,3)))
         return fock1 - fock1.T
 
-    def ci_response_offdiag (self, kappa1, h1e_ab_prime):
+    def ci_response_offdiag (self, kappa1, h1s_prime):
         ''' Rotate external indices with kappa1; add contributions from rotated internal indices
-        and mean-field intersubspace response in h1e_ab_prime. I have set it up so that
+        and mean-field intersubspace response in h1s_prime. I have set it up so that
         I do NOT add h.c. (multiply by 2) at the end. '''
         ncore, nocc = self.ncore, self.nocc
         kappa1_cas = kappa1[ncore:nocc, ncore:nocc]
-        h1e_ab = np.dot (self.h1e_ab_sub, kappa1_cas)
-        h1e_ab += h1e_ab.transpose (0,1,3,2)
+        h1s = np.dot (self.h1frs, kappa1_cas)
+        h1s += h1s.transpose (0,1,3,2)
         h2e = np.dot (self.eri_cas, kappa1_cas)
         h2e += h2e.transpose (2,3,0,1)
         h2e += h2e.transpose (1,0,3,2)
-        h1e_ab += h1e_ab_prime
-        Kci0 = self.Hci_all ([0.0,] * len (self.ci), h1e_ab, h2e, self.ci)
+        h1s += h1s_prime
+        Kci0 = self.Hci_all ([0.0,] * len (self.ci), h1s, h2e, self.ci)
         Kci0 = [Kc - c*(c.dot (Kc)) for Kc, c in zip (Kci0, self.ci)]
         # ^ The definition of the unitary group generator compels you to do this always!!!
         return Kci0
@@ -445,13 +445,13 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def ci_response_diag (self, ci1):
         ci1HmEci0 = [c.dot (Hci) for c, Hci in zip (ci1, self.hci0)]
         s01 = [c1.dot (c0) for c1,c0 in zip (ci1, self.ci)]
-        ci2 = self.Hci_all ([-e for e in self.e0], self.h1e_ab_sub, self.eri_cas, ci1)
+        ci2 = self.Hci_all ([-e for e in self.e0], self.h1frs, self.eri_cas, ci1)
         ci2 = [x-(y*z) for x,y,z in zip (ci2, self.ci, ci1HmEci0)]
         ci2 = [x-(y*z) for x,y,z in zip (ci2, self.hci0, s01)]
         return [x*2 for x in ci2]
 
     def get_prec (self):
-        fock = np.stack ([np.diag (h) for h in list (self.h1e_ab)], axis=0)
+        fock = np.stack ([np.diag (h) for h in list (self.h1s)], axis=0)
         num = np.stack ([np.diag (d) for d in list (self.dm1s)], axis=0)
         Horb_diag = sum ([np.multiply.outer (f,n) for f,n in zip (fock, num)])
         Horb_diag -= np.diag (self.fock1)[None,:]
@@ -461,7 +461,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # of extra eris (g^aa_ii, g^ai_ai)
         Hci_diag = []
         for ix, (fcibox, norb, nelec, h1e_full, csf) in enumerate (zip (self.fciboxes, 
-         self.ncas_sub, self.nelecas_sub, self.h1e_ab_sub, self.ugg.ci_transformers)):
+         self.ncas_sub, self.nelecas_sub, self.h1frs, self.ugg.ci_transformers)):
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2e = self.eri_cas[i:j,i:j,i:j,i:j]
@@ -1087,8 +1087,8 @@ class LASCINoSymm (casci.CASCI):
         return casdm1s
 
     def make_casdm1s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
-        casdm1s_sub_states = self.states_make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
-        return [np.einsum ('rspq,r->spq', dm1, box.weights) for dm1, box in zip (casdm1s_sub_states, self.fciboxes)]
+        casdm1frs = self.states_make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        return [np.einsum ('rspq,r->spq', dm1, box.weights) for dm1, box in zip (casdm1frs, self.fciboxes)]
 
     def states_make_casdm2_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
         ''' Spin-separated 1-RDMs in the MO basis for each subspace in sequence '''
@@ -1102,8 +1102,8 @@ class LASCINoSymm (casci.CASCI):
         return casdm2
 
     def make_casdm2_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
-        casdm2_sub_states = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
-        return [np.einsum ('rijkl,r->ijkl', dm2, box.weights) for dm2, box in zip (casdm2_sub_states, self.fciboxes)]
+        casdm2_fr = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        return [np.einsum ('rijkl,r->ijkl', dm2, box.weights) for dm2, box in zip (casdm2_fr, self.fciboxes)]
 
     def make_rdm1s_sub (self, mo_coeff=None, ci=None, ncas_sub=None, nelecas_sub=None, include_core=False, **kwargs):
         if mo_coeff is None: mo_coeff = self.mo_coeff
@@ -1158,21 +1158,21 @@ class LASCINoSymm (casci.CASCI):
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         ncas = sum (ncas_sub)
         ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
-        states_casdm2s_sub = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
-        states_casdm2 = np.zeros ((self.nroots,ncas,ncas,ncas,ncas))
+        casdm2fr = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        casdm2r = np.zeros ((self.nroots,ncas,ncas,ncas,ncas))
         # Diagonal 
-        for isub, dm2 in enumerate (states_casdm2s_sub):
+        for isub, dm2 in enumerate (casdm2fr):
             i = ncas_cum[isub]
             j = ncas_cum[isub+1]
-            states_casdm2[:, i:j, i:j, i:j, i:j] = dm2
+            casdm2r[:, i:j, i:j, i:j, i:j] = dm2
         # Off-diagonal
-        states_casdm1s_sub = self.states_make_casdm1s_sub (ci=ci)
-        for (isub1, states_dm1s1), (isub2, states_dm1s2) in combinations (enumerate (states_casdm1s_sub), 2):
+        casdm1frs = self.states_make_casdm1s_sub (ci=ci)
+        for (isub1, dm1s1_r), (isub2, dm1s2_r) in combinations (enumerate (casdm1frs), 2):
             i = ncas_cum[isub1]
             j = ncas_cum[isub1+1]
             k = ncas_cum[isub2]
             l = ncas_cum[isub2+1]
-            for dm1s1, dm1s2, casdm2 in zip (states_dm1s1, states_dm1s2, states_casdm2):
+            for dm1s1, dm1s2, casdm2 in zip (dm1s1_r, dm1s2_r, casdm2r):
                 dma1, dmb1 = dm1s1[0], dm1s1[1]
                 dma2, dmb2 = dm1s2[0], dm1s2[1]
                 # Coulomb slice
@@ -1181,7 +1181,7 @@ class LASCINoSymm (casci.CASCI):
                 # Exchange slice
                 casdm2[i:j, k:l, k:l, i:j] = -(np.multiply.outer (dma1, dma2) + np.multiply.outer (dmb1, dmb2)).transpose (0,3,2,1)
                 casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
-        return states_casdm2 
+        return casdm2r 
 
     def make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
         ''' Make the full-dimensional casdm2 spanning the collective active space '''
