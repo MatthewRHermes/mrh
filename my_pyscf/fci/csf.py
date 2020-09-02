@@ -6,11 +6,12 @@ from pyscf import lib, ao2mo, __config__
 from pyscf.fci import direct_spin1, cistring, direct_uhf
 from pyscf.fci.direct_spin1 import _unpack, _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.lib.numpy_helper import tag_array
-from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, get_nspin_dets, get_csdaddrs_shape, pretty_csdaddrs
+from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, get_nspin_dets, get_csdaddrs_shape 
 from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det
 from mrh.my_pyscf.fci.csfstring import transform_opmat_det2csf, transform_opmat_det2csf_pspace
 from mrh.my_pyscf.fci.csfstring import count_all_csfs, make_econf_csf_mask, get_spin_evecs
 from mrh.my_pyscf.fci.csfstring import get_csfvec_shape, pack_sym_ci, unpack_sym_ci
+from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.lib.helper import load_library as mrh_load_library
 '''
     MRH 03/24/2019
@@ -341,7 +342,7 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
 def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
            tol=None, lindep=None, max_cycle=None, max_space=None,
            nroots=None, davidson_only=None, pspace_size=None, max_memory=None,
-           orbsym=None, wfnsym=None, ecore=0, **kwargs):
+           orbsym=None, wfnsym=None, ecore=0, transformer=None, **kwargs):
     t0 = (time.clock (), time.time ())
     if 'verbose' in kwargs:
         verbose = kwargs['verbose']
@@ -352,6 +353,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     if nroots is None: nroots = fci.nroots
     if pspace_size is None: pspace_size = fci.pspace_size
     if davidson_only is None: davidson_only = fci.davidson_only
+    if transformer is None: transformer = fci.transformer
     nelec = _unpack_nelec(nelec, fci.spin)
     neleca, nelecb = nelec
     t0 = lib.logger.timer (fci, "csf.kernel: throat-clearing", *t0)
@@ -382,18 +384,17 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
 
     if pspace_size >= ncsf_sym and not davidson_only:
         if ncsf_sym == 1:
-            civec = unpack_sym_ci (pv[:,0].reshape (1,1), idx_sym)
-            civec = transform_civec_csf2det (civec, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
+            civec = transformer.vec_csf2det (pv[:,0].reshape (1,1))
             return pw[0]+ecore, civec
         elif nroots > 1:
             civec = np.empty((nroots,ncsf_all))
             civec[:,addr] = pv[:,:nroots].T
-            civec = transform_civec_csf2det (civec, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
+            civec = transformer.vec_csf2det (civec)
             return pw[:nroots]+ecore, [c.reshape(na,nb) for c in civec]
         elif abs(pw[0]-pw[1]) > 1e-12:
             civec = np.empty((ncsf_all))
             civec[addr] = pv[:,0]
-            civec = transform_civec_csf2det (civec, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
+            civec = transformer.vec_csf2det (civec)
             return pw[0]+ecore, civec.reshape(na,nb)
 
     t0 = lib.logger.timer (fci, "csf.kernel: throat-clearing", *t0)
@@ -413,18 +414,16 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     h2e = fci.absorb_h1e(h1e, eri, norb, nelec, .5)
     t0 = lib.logger.timer (fci, "csf.kernel: h2e", *t0)
     def hop(x):
-        x_det = transform_civec_csf2det (unpack_sym_ci (x, idx_sym), norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
+        x_det = transformer.vec_csf2det (x)
         hx = fci.contract_2e(h2e, x_det, norb, nelec, (link_indexa,link_indexb))
-        hx = transform_civec_det2csf (hx, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask, do_normalize=False)[0]
-        return pack_sym_ci (hx, idx_sym).ravel()
+        return transformer.vec_det2csf (hx, normalize=False).ravel ()
 
     t0 = lib.logger.timer (fci, "csf.kernel: make hop", *t0)
     if ci0 is None:
         if hasattr(fci, 'get_init_guess'):
             def ci0 ():
-                x0 = transform_civec_det2csf (fci.get_init_guess(norb, nelec, nroots, hdiag_csf), 
-                    norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]
-                return pack_sym_ci (x0, idx_sym)
+                return transformer.vec_det2csf (fci.get_init_guess(norb, nelec, nroots, hdiag_csf))
+                
                     
         else:
             def ci0():  # lazy initialization to reduce memory footprint
@@ -436,12 +435,12 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
                 return x0
     else:
         if isinstance(ci0, np.ndarray) and ci0.size == na*nb:
-            ci0 = pack_sym_ci ([transform_civec_det2csf (ci0.ravel (), norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0]], idx_sym)
+            ci0 = [transformer.vec_det2csf (ci0.ravel ())]
         else:
             nrow = len (ci0)
             ci0 = np.asarray (ci0).reshape (nrow, -1, order='C')
             ci0 = np.ascontiguousarray (ci0)
-            ci0 = pack_sym_ci (transform_civec_det2csf (ci0, norb, neleca, nelecb, smult, csd_mask=fci.csd_mask)[0], idx_sym)
+            ci0 = transformer.vec_det2csf (ci0.ravel ())
     t0 = lib.logger.timer (fci, "csf.kernel: ci0 handling", *t0)
 
     if tol is None: tol = fci.conv_tol
@@ -458,7 +457,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
                        max_memory=max_memory, verbose=verbose, follow_state=True,
                        tol_residual=tol_residual, **kwargs)
     t0 = lib.logger.timer (fci, "csf.kernel: running fci.eig", *t0)
-    c = transform_civec_csf2det (unpack_sym_ci (c, idx_sym), norb, neleca, nelecb, smult, csd_mask=fci.csd_mask, vec_on_cols=False)[0]
+    c = transformer.vec_csf2det (c, order='C')
     t0 = lib.logger.timer (fci, "csf.kernel: transforming final ci vector", *t0)
     if nroots > 1:
         return e+ecore, [ci.reshape(na,nb) for ci in c]
@@ -532,3 +531,5 @@ class FCISolver (direct_spin1.FCISolver):
             self.econf_det_mask = make_econf_det_mask (self.norb, neleca, nelecb, self.csd_mask)
             self.econf_csf_mask = make_econf_csf_mask (self.norb, neleca, nelecb, self.smult)
             self.mask_cache = [self.norb, neleca, nelecb, self.smult]
+            self.transformer = CSFTransformer (self.norb, neleca, nelecb, self.smult)
+
