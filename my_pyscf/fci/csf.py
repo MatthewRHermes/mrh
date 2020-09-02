@@ -67,7 +67,8 @@ def make_hdiag_det (fci, h1e, eri, norb, nelec):
     ''' Wrap to the uhf version in order to use two-component h1e '''
     return direct_uhf.make_hdiag (unpack_h1e_ab (h1e), [eri, eri, eri], norb, nelec)
 
-def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
+def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None):
+    smult, csd_mask = transformer.smult, transformer.csd_mask # "Bridging code"
     if hdiag_det is None:
         hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
     eri = ao2mo.restore(1, eri, norb)
@@ -130,9 +131,10 @@ def make_hdiag_csf (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None)
     return hdiag_csf
 
 
-def make_hdiag_csf_slower (h1e, eri, norb, nelec, smult, csd_mask=None, hdiag_det=None):
+def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None):
     ''' This is tricky because I need the diagonal blocks for each configuration in order to get
     the correct csf hdiag values, not just the diagonal elements for each determinant. '''
+    smult, csd_mask = transformer.smult, transformer.csd_mask # "Bridging code"
     t0, w0 = time.clock (), time.time ()
     tstr = tlib = tloop = wstr = wlib = wloop = 0
     if hdiag_det is None:
@@ -231,8 +233,7 @@ def _debug_g2e (fci, g2e, eri, norb):
     raise ValueError ('g2e has {} infs and {} nans (norb = {}; shape = {})'.format (g2e_ninf, g2e_nnan, norb, g2e.shape))
     return
 
-def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdiag_csf=None, csd_mask=None,
-    econf_det_mask=None, econf_csf_mask=None, npsp=200):
+def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=None, npsp=200):
     ''' Note that getting pspace for npsp CSFs is substantially more costly than getting it for npsp determinants,
     until I write code than can evaluate Hamiltonian matrix elements of CSFs directly. On the other hand
     a pspace of determinants contains many redundant degrees of freedom for the same reason. Therefore I have
@@ -242,6 +243,13 @@ def pspace (fci, h1e, eri, norb, nelec, smult, idx_sym=None, hdiag_det=None, hdi
 
     t0 = (time.clock (), time.time ())
     neleca, nelecb = _unpack_nelec(nelec)
+    ### Begin "bridging" code
+    smult = transformer.smult
+    idx_sym = (transformer.confsym[transformer.econf_csf_mask] == transformer.wfnsym) if transformer.wfnsym is not None else None
+    csd_mask = transformer.csd_mask
+    econf_det_mask = transformer.econf_det_mask
+    econf_csf_mask = transformer.econf_csf_mask
+    ### End "bridging" code
     h1e = np.ascontiguousarray(h1e)
     eri = ao2mo.restore(1, eri, norb)
     nb = cistring.num_strings(norb, nelecb)
@@ -477,7 +485,7 @@ class FCISolver (direct_spin1.FCISolver):
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
         self.check_mask_cache ()
-        return make_hdiag_csf (h1e, eri, norb, nelec, self.smult, csd_mask=self.csd_mask, hdiag_det=hdiag_det)
+        return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
 
     make_hdiag = make_hdiag_det
 
@@ -500,9 +508,8 @@ class FCISolver (direct_spin1.FCISolver):
 
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
         self.check_mask_cache ()
-        return pspace (self, h1e, eri, norb, nelec, self.smult, hdiag_det=hdiag_det,
-            hdiag_csf=hdiag_csf, npsp=npsp, csd_mask=self.csd_mask, idx_sym=None,
-            econf_det_mask=self.econf_det_mask, econf_csf_mask=self.econf_csf_mask)
+        return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
+            hdiag_csf=hdiag_csf, npsp=npsp)
         
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         self.norb = norb

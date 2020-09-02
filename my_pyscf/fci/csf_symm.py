@@ -7,7 +7,7 @@ from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.fci.direct_spin1_symm import _gen_strs_irrep, _id_wfnsym
 from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, pretty_ddaddrs
-from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det, transform_opmat_det2csf, count_all_csfs, make_econf_csf_mask, make_confsym
+from mrh.my_pyscf.fci.csfstring import count_all_csfs, make_econf_csf_mask, make_confsym
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf, make_hdiag_det, unpack_h1e_cs
 '''
@@ -58,7 +58,7 @@ class FCISolver (direct_spin1_symm.FCISolver):
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
         self.check_mask_cache ()
-        return make_hdiag_csf (h1e, eri, norb, nelec, self.smult, csd_mask=self.csd_mask, hdiag_det=hdiag_det)
+        return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
 
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
         self.check_mask_cache ()
@@ -66,9 +66,8 @@ class FCISolver (direct_spin1_symm.FCISolver):
             idx_sym = self.confsym[self.econf_csf_mask] == kwargs['wfnsym']
         else:
             idx_sym = self.confsym[self.econf_csf_mask] == self.wfnsym
-        return pspace (self, h1e, eri, norb, nelec, self.smult, hdiag_det=hdiag_det,
-            hdiag_csf=hdiag_csf, npsp=npsp, csd_mask=self.csd_mask, idx_sym=idx_sym,
-            econf_det_mask=self.econf_det_mask, econf_csf_mask=self.econf_csf_mask)
+        return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
+            hdiag_csf=hdiag_csf, npsp=npsp)
 
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         ''' Over the top of the existing kernel, I just need to set the parameters and cache values related to spin.
