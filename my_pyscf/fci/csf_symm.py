@@ -60,18 +60,6 @@ class FCISolver (direct_spin1_symm.FCISolver):
         self.check_mask_cache ()
         return make_hdiag_csf (h1e, eri, norb, nelec, self.smult, csd_mask=self.csd_mask, hdiag_det=hdiag_det)
 
-    def get_init_guess(self, norb, nelec, nroots, hdiag_csf):
-        ''' The existing _get_init_guess function will work in the csf basis if I pass it with na, nb = ncsf, 1. This might change in future PySCF versions though. 
-
-        ...For point-group symmetry, I pass the direct_spin1.py version of _get_init_guess with na, nb = ncsf_sym, 1 and hdiag_csf including only csfs of the right point-group symmetry.
-        This should clean up the symmetry-breaking "noise" in direct_spin0_symm.py! '''
-        wfnsym = _id_wfnsym(self, norb, nelec, self.orbsym, self.wfnsym)
-        wfnsym_str = symm.irrep_id2name (self.mol.groupname, wfnsym)
-        self.check_mask_cache ()
-        idx_sym = self.confsym[self.econf_csf_mask] == wfnsym
-        return get_init_guess (norb, nelec, nroots, hdiag_csf, smult=self.smult, csd_mask=self.csd_mask,
-            wfnsym_str=wfnsym_str, idx_sym=idx_sym)
-
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
         self.check_mask_cache ()
         if 'wfnsym' in kwargs:

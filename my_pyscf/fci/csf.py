@@ -51,23 +51,17 @@ def unpack_1RDM_cs (dm):
     return dma + dmb, dma - dmb
 
 
-def get_init_guess(norb, nelec, nroots, hdiag_csf, smult, csd_mask, wfnsym_str=None, idx_sym=None):
+def get_init_guess(norb, nelec, nroots, hdiag_csf, transformer):
     ''' The existing _get_init_guess function will work in the csf basis if I pass it with na, nb = ncsf, 1. This might change in future PySCF versions though. 
 
     ...For point-group symmetry, I pass the direct_spin1.py version of _get_init_guess with na, nb = ncsf_sym, 1 and hdiag_csf including only csfs of the right point-group symmetry.
     This should clean up the symmetry-breaking "noise" in direct_spin1_symm.py! '''
     neleca, nelecb = _unpack_nelec (nelec)
-    ncsf_tot = count_all_csfs (norb, neleca, nelecb, smult)
-    if idx_sym is None:
-        ncsf_sym = ncsf_tot
-        ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf)
-    else:
-        ncsf_sym = np.count_nonzero (idx_sym)
-        assert (ncsf_sym >= nroots), "Can't find {} roots among only {} CSFs of symmetry {}".format (nroots, ncsf_sym, wfnsym_str)
-        ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf[idx_sym])
-    ci = unpack_sym_ci (ci, idx_sym)
-    ci = transform_civec_csf2det (ci, norb, neleca, nelecb, smult, csd_mask=csd_mask)[0]
-    return ci
+    ncsf_sym = transformer.ncsf
+    assert (ncsf_sym >= nroots), "Can't find {} roots among only {} CSFs of symmetry {}".format (nroots, ncsf_sym, wfnsym_str)
+    hdiag_csf = transformer.pack_csf (hdiag_csf)
+    ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf)
+    return transformer.vec_csf2det (ci)
 
 def make_hdiag_det (fci, h1e, eri, norb, nelec):
     ''' Wrap to the uhf version in order to use two-component h1e '''
@@ -479,8 +473,7 @@ class FCISolver (direct_spin1.FCISolver):
 
     def get_init_guess(self, norb, nelec, nroots, hdiag_csf):
         self.check_mask_cache ()
-        return get_init_guess (norb, nelec, nroots, hdiag_csf, smult=self.smult, csd_mask=self.csd_mask,
-            wfnsym_str=None, idx_sym=None)
+        return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
         self.check_mask_cache ()
