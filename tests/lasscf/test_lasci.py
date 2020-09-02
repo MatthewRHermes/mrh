@@ -115,10 +115,41 @@ class KnownValues(unittest.TestCase):
         hx = h_op._matvec (x)
         self.assertAlmostEqual (lib.fp (hx), 179.62614015869386, 9)
 
+    def test_hc2 (self):
+        xp = x.copy ()
+        xp[:-16] = 0.0
+        hx = h_op._matvec (xp)[-16:]
+        self.assertAlmostEqual (lib.fp (hx), -0.15501937126181198, 9)
+
+    def test_hcc (self):
+        xp = x.copy ()
+        xp[:-16] = 0.0
+        hx = h_op._matvec (xp)[-32:-16]
+        self.assertAlmostEqual (lib.fp (hx), -0.0012479602465573338, 9)
+
+    def test_hco (self):
+        xp = x.copy ()
+        xp[-32:] = 0.0
+        hx = h_op._matvec (xp)[-32:]
+        self.assertAlmostEqual (lib.fp (hx), 0.24146683733262314, 9)
+
+    def test_hoc (self):
+        xp = x.copy ()
+        xp[:-32] = 0.0
+        hx = h_op._matvec (xp)[:-32]
+        self.assertAlmostEqual (lib.fp (hx), 0.004043162158208144, 9)
+
+    def test_hoo (self):
+        xp = x.copy ()
+        xp[-32:] = 0.0
+        hx = h_op._matvec (xp)[:-32]
+        self.assertAlmostEqual (lib.fp (hx), 182.07818960529735, 9)
+
     def test_prec (self):
         M_op = h_op.get_prec ()
         Mx = M_op._matvec (x)
         self.assertAlmostEqual (lib.fp (Mx), 916.0713341862406, 8)
+
 
 if __name__ == "__main__":
     print("Full Tests for LASCI me2n2")
