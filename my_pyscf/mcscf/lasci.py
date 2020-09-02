@@ -138,9 +138,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         casdm1 = casdm1a + casdm1b
         self.casdm2r = las.states_make_casdm2 (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
         self.casdm2 = las.make_casdm2 (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
-        self.casdm2c = self.casdm2 - np.multiply.outer (casdm1, casdm1)
-        self.casdm2c += np.multiply.outer (casdm1a, casdm1a).transpose (0,3,2,1)
-        self.casdm2c += np.multiply.outer (casdm1b, casdm1b).transpose (0,3,2,1)
+        self.cascm2 = self.casdm2 - np.multiply.outer (casdm1, casdm1)
+        self.cascm2 += np.multiply.outer (casdm1a, casdm1a).transpose (0,3,2,1)
+        self.cascm2 += np.multiply.outer (casdm1b, casdm1b).transpose (0,3,2,1)
         self.dm1s = np.stack ([np.eye (self.nmo, dtype=self.dtype), np.eye (self.nmo, dtype=self.dtype)], axis=0)
         self.dm1s[0,ncore:nocc,ncore:nocc] = casdm1a
         self.dm1s[1,ncore:nocc,ncore:nocc] = casdm1b
@@ -197,11 +197,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # Fock1 matrix (for gradient and subtrahend terms in Hx)
         self.fock1 = sum ([f @ d for f,d in zip (list (self.h1s), list (self.dm1s))])
-        self.fock1[:,ncore:nocc] += np.tensordot (h2eff_sub, self.casdm2c, axes=((1,2,3),(1,2,3)))
+        self.fock1[:,ncore:nocc] += np.tensordot (h2eff_sub, self.cascm2, axes=((1,2,3),(1,2,3)))
 
         # Total energy (for callback)
         h1 = (self.h1s + (moH_coeff @ las.get_hcore () @ mo_coeff)[None,:,:]) / 2
-        self.e_tot = las.energy_nuc () + np.dot (h1.ravel (), self.dm1s.ravel ()) + np.tensordot (self.eri_cas, self.casdm2c, axes=4) / 2
+        self.e_tot = las.energy_nuc () + np.dot (h1.ravel (), self.dm1s.ravel ()) + np.tensordot (self.eri_cas, self.cascm2, axes=4) / 2
 
         # CI stuff TODO: SA-LASSCF generalization work
         self.linkstrl = []
@@ -210,7 +210,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             fcibox.orbsym = csf.orbsym
             self.linkstrl.append (fcibox.states_gen_linkstr (no, ne, True)) 
             self.linkstr.append (fcibox.states_gen_linkstr (no, ne, False))
-        self.hci0 = self.Hci_all ([0.0,] * len (ci), self.h1frs[:,0], self.eri_cas, ci)
+        self.hci0 = self.Hci_all (None, self.h1frs[:,0], self.eri_cas, ci)
         self.e0 = [hc.dot (c) for hc, c in zip (self.hci0, ci)]
         self.hci0 = [hc - c*e for hc, c, e in zip (self.hci0, ci, self.e0)]
 
@@ -243,6 +243,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def Hci_all (self, h0fr, h1frs, h2, ci_sub):
         ''' Assumes h2 is in the active superspace MO basis and h1frs is in the full MO basis '''
+        if h0fr is None: h0fr = [0.0 for h1rs in h1frs]
         hc = []
         for isub, (fcibox, h0, h1s, ci) in enumerate (zip (self.fciboxes, h0fr, h1frs, ci_sub)):
             if self.linkstrl is not None: linkstrl = self.linkstrl[isub] 
@@ -256,24 +257,24 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return hc
 
     def make_odm1s2c_sub (self, kappa):
-        odm1s_sub = np.zeros ((len (self.ci)+1, 2, self.nmo, self.nmo), dtype=self.dtype)
-        odm1s_sub[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
+        odm1fs = np.zeros ((len (self.ci)+1, 2, self.nmo, self.nmo), dtype=self.dtype)
+        odm1fs[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
         for isub, (ncas, casdm1s) in enumerate (zip (self.ncas_sub, self.casdm1fs)):
             i = self.ncore + sum (self.ncas_sub[:isub])
             j = i + ncas
-            odm1s_sub[isub+1,:,i:j,:] -= np.dot (casdm1s, kappa[i:j,:])
+            odm1fs[isub+1,:,i:j,:] -= np.dot (casdm1s, kappa[i:j,:])
             k = i - self.ncore
             l = j - self.ncore
-        odm1s_sub += odm1s_sub.transpose (0,1,3,2) 
-        odm2c = -np.dot (self.casdm2c, kappa[self.ncore:self.nocc,self.ncore:self.nocc])
-        odm2c += odm2c.transpose (1,0,3,2)        
-        odm2c += odm2c.transpose (2,3,0,1)        
+        odm1fs += odm1fs.transpose (0,1,3,2) 
+        ocm2 = -np.dot (self.cascm2, kappa[self.ncore:self.nocc,self.ncore:self.nocc])
+        ocm2 += ocm2.transpose (1,0,3,2)        
+        ocm2 += ocm2.transpose (2,3,0,1)        
 
-        return odm1s_sub, odm2c 
+        return odm1fs, ocm2 
 
     def make_tdm1s2c_sub (self, ci1):
         tdm1frs = np.zeros ((len (self.fciboxes), self.nroots, 2, self.ncas, self.ncas), dtype=self.dtype)
-        tdm2c = np.zeros ([self.ncas,]*4, dtype=self.dtype)
+        tcm2 = np.zeros ([self.ncas,]*4, dtype=self.dtype)
         for isub, (fcibox, ncas, nelecas, c1, c0, casdm1rs, casdm1s) in enumerate (
           zip (self.fciboxes, self.ncas_sub, self.nelecas_sub, ci1, self.ci,
           self.casdm1frs, self.casdm1fs)):
@@ -298,28 +299,28 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             dm2 += np.multiply.outer (tdm1s[0], casdm1s[0]).transpose (0,3,2,1)
             dm2 += np.multiply.outer (tdm1s[1], casdm1s[1]).transpose (0,3,2,1)
             tdm1frs[isub,:,:,i:j,i:j] = tdm1rs 
-            tdm2c[i:j,i:j,i:j,i:j] = dm2
+            tcm2[i:j,i:j,i:j,i:j] = dm2
 
         # Two transposes 
         tdm1frs += tdm1frs.transpose (0,1,2,4,3) 
-        tdm2c += tdm2c.transpose (1,0,3,2)        
-        tdm2c += tdm2c.transpose (2,3,0,1)        
+        tcm2 += tcm2.transpose (1,0,3,2)        
+        tcm2 += tcm2.transpose (2,3,0,1)        
 
         tdm1frs = tdm1frs[:,0] # TODO: extra dimension
 
-        return tdm1frs, tdm2c    
+        return tdm1frs, tcm2    
 
-    def get_veff_Heff (self, odm1s_sub, tdm1s_sub):
+    def get_veff_Heff (self, odm1fs, tdm1frs):
         ''' Returns the veff for the orbital part and the h1s shifts for the CI part arising from the contraction
         of shifted or 'effective' 1-rdms in the two sectors with the Hamiltonian. Return values do not include
         veffs with the external indices rotated (i.e., in the CI part). Uses the cached eris for the latter in the hope that
         this is faster than calling get_jk with many dms. '''
         # TODO: generalize for SA-LASSCF
         # The problem here is the "individual CI problems" block. Each state should have a different effective potential 
-        # in each fragment, so h1frs, odm1s_sub, and tdm1s_sub all need extra dimensions
+        # in each fragment, so h1frs, odm1fs, and tdm1frs all need extra dimensions
 
-        dm1s_mo = odm1s_sub.copy ().sum (0)
-        dm1s_mo[:,self.ncore:self.nocc,self.ncore:self.nocc] += tdm1s_sub.sum (0)
+        dm1s_mo = odm1fs.copy ().sum (0)
+        dm1s_mo[:,self.ncore:self.nocc,self.ncore:self.nocc] += tdm1frs.sum (0)
         mo = self.mo_coeff
         moH = mo.conjugate ().T
 
@@ -332,9 +333,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # 2) veff_mo has the effect I want for the orbrots, so long as I choose not to explicitly add h.c. at the end
         # 3) If I don't add h.c., then the (non-self) mean-field effect of the 1-tdms needs to be twice as strong
         # 4) Of course, self-interaction (from both 1-odms and 1-tdms) needs to be completely eliminated
-        h1frs = np.stack ([veff_mo[:,self.ncore:self.nocc,self.ncore:self.nocc].copy (),]*tdm1s_sub.shape[0], axis=0)
-        for isub, (tdm1s, odm1s) in enumerate (zip (tdm1s_sub, odm1s_sub[1:])):
-            err_dm1s = (2*tdm1s) - tdm1s_sub.sum (0)
+        h1frs = np.stack ([veff_mo[:,self.ncore:self.nocc,self.ncore:self.nocc].copy (),]*tdm1frs.shape[0], axis=0)
+        for isub, (tdm1s, odm1s) in enumerate (zip (tdm1frs, odm1fs[1:])):
+            err_dm1s = (2*tdm1s) - tdm1frs.sum (0)
             err_dm1s += odm1s[:,self.ncore:self.nocc,self.ncore:self.nocc]
             err_veff = np.tensordot (err_dm1s, self.eri_cas, axes=((1,2),(2,3)))
             err_veff += err_veff[::-1] # ja + jb
@@ -404,12 +405,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         kappa1, ci1 = self.ugg.unpack (x)
 
         # Effective density matrices, veffs, and overlaps from linear response
-        odm1s_sub, odm2c = self.make_odm1s2c_sub (kappa1)
-        tdm1s_sub, tdm2c = self.make_tdm1s2c_sub (ci1)
-        veff_prime, h1s_prime = self.get_veff_Heff (odm1s_sub, tdm1s_sub)
+        odm1fs, ocm2 = self.make_odm1s2c_sub (kappa1)
+        tdm1frs, tcm2 = self.make_tdm1s2c_sub (ci1)
+        veff_prime, h1s_prime = self.get_veff_Heff (odm1fs, tdm1frs)
 
         # Responses!
-        kappa2 = self.orbital_response (odm1s_sub, odm2c, tdm1s_sub, tdm2c, veff_prime)
+        kappa2 = self.orbital_response (odm1fs, ocm2, tdm1frs, tcm2, veff_prime)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         ci2 = [x+y for x,y in zip (ci2, self.ci_response_diag (ci1))]
 
@@ -417,16 +418,16 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
 
-    def orbital_response (self, odm1s_sub, odm2c, tdm1s_sub, tdm2c, veff_prime):
+    def orbital_response (self, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Formally, orbital response if F'_pq - F'_qp, F'_pq = h_pq D'_pq + g_prst d'_qrst.
         Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
         ncore, nocc = self.ncore, self.nocc
-        edm1s = odm1s_sub.sum (0)
-        edm1s[:,ncore:nocc,ncore:nocc] += tdm1s_sub.sum (0)
-        edm2c = odm2c + tdm2c
+        edm1s = odm1fs.sum (0)
+        edm1s[:,ncore:nocc,ncore:nocc] += tdm1frs.sum (0)
+        ecm2 = ocm2 + tcm2
         fock1  = self.h1s[0] @ edm1s[0] + self.h1s[1] @ edm1s[1]
         fock1 += veff_prime[0] @ self.dm1s[0] + veff_prime[1] @ self.dm1s[1]
-        fock1[ncore:nocc,ncore:nocc] += np.tensordot (self.eri_cas, edm2c, axes=((1,2,3),(1,2,3)))
+        fock1[ncore:nocc,ncore:nocc] += np.tensordot (self.eri_cas, ecm2, axes=((1,2,3),(1,2,3)))
         return fock1 - fock1.T
 
     def ci_response_offdiag (self, kappa1, h1s_prime):
@@ -441,7 +442,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         h2 += h2.transpose (2,3,0,1)
         h2 += h2.transpose (1,0,3,2)
         h1s += h1s_prime
-        Kci0 = self.Hci_all ([0.0,] * len (self.ci), h1s, h2, self.ci)
+        Kci0 = self.Hci_all (None, h1s, h2, self.ci)
         Kci0 = [Kc - c*(c.dot (Kc)) for Kc, c in zip (Kci0, self.ci)]
         # ^ The definition of the unitary group generator compels you to do this always!!!
         return Kci0
