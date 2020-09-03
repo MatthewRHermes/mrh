@@ -26,6 +26,8 @@ class LASCI_UnitaryGroupGenerators (object):
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
         self.spin_sub = las.spin_sub
+        # TODO: generalize las object to SA and delete the line below
+        ci = [[c] for c in ci]
         self._init_orb (las, mo_coeff, ci)
         self._init_ci (las, mo_coeff, ci)
 
@@ -43,14 +45,15 @@ class LASCI_UnitaryGroupGenerators (object):
         self.uniq_orb_idx = idx
 
     def _init_ci (self, las, mo_coeff, ci):
-        self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult)
-            for norb, nelec, smult in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub)]
+        self.ci_transformers = [[solver.transformer for solver in box.fcisolvers] for box in las.fciboxes]
 
     def pack (self, kappa, ci_sub):
-        x_orb = kappa[self.uniq_orb_idx]
-        x_ci = np.concatenate ([transformer.vec_det2csf (ci, normalize=False)
-            for transformer, ci in zip (self.ci_transformers, ci_sub)])
-        return np.append (x_orb.ravel (), x_ci.ravel ())
+        x = kappa[self.uniq_orb_idx]
+        for trans_frag, ci_frag in zip (self.ci_transformers, ci_sub):
+            for transformer, ci in zip (trans_frag, ci_frag):
+                x = np.append (x, transformer.vec_det2csf (ci, normalize=False))
+        assert (x.shape[0] == self.nvar_tot)
+        return x
 
     def unpack (self, x):
         kappa = np.zeros ((self.nmo, self.nmo), dtype=x.dtype)
@@ -59,9 +62,13 @@ class LASCI_UnitaryGroupGenerators (object):
 
         y = x[self.nvar_orb:]
         ci_sub = []
-        for ncsf, transformer in zip (self.ncsf_sub, self.ci_transformers):
-            ci_sub.append (transformer.vec_csf2det (y[:ncsf], normalize=False))
-            y = y[ncsf:]
+        for trans_frag in self.ci_transformers:
+            ci_frag = []
+            for transformer in trans_frag:
+                ncsf = transformer.ncsf
+                ci_frag.append (transformer.vec_csf2det (y[:ncsf], normalize=False))
+                y = y[ncsf:]
+            ci_sub.append (ci_frag)
 
         return kappa, ci_sub
 
@@ -71,11 +78,11 @@ class LASCI_UnitaryGroupGenerators (object):
 
     @property
     def ncsf_sub (self):
-        return [transformer.ncsf for transformer in self.ci_transformers]
+        return np.asarray ([[transformer.ncsf for transformer in trans_frag] for trans_frag in self.ci_transformers])
 
     @property
     def nvar_tot (self):
-        return self.nvar_orb + sum (self.ncsf_sub)
+        return self.nvar_orb + self.ncsf_sub.sum ()
 
 class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
     def __init__(self, las, mo_coeff, ci, orbsym=None, wfnsym_sub=None):
@@ -84,6 +91,8 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
         self.spin_sub = las.spin_sub
         if orbsym is None: orbsym = mo_coeff.orbsym
         if wfnsym_sub is None: wfnsym_sub = las.wfnsym_sub
+        # TODO: generalize LASSCF to SA and delete the line below
+        ci = [[c] for c in ci]
         self._init_orb (las, mo_coeff, ci, orbsym, wfnsym_sub)
         self._init_ci (las, mo_coeff, ci, orbsym, wfnsym_sub)
     
@@ -94,11 +103,14 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
         self.uniq_orb_idx[self.symm_forbid] = False
 
     def _init_ci (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
+        # wfnsym should be unchanged, but set the orbsym in case orbitals changed order
         sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
         orbsym_sub = [orbsym[i:sub_slice[isub+1]] for isub, i in enumerate (sub_slice[:-1])]
-        self.ci_transformers = [CSFTransformer (norb, nelec[0], nelec[1], smult, orbsym=orbsym_i, wfnsym=wfnsym)
-            for norb, nelec, smult, orbsym_i, wfnsym in zip (las.ncas_sub, las.nelecas_sub, las.spin_sub,
-            orbsym_sub, wfnsym_sub)]
+        for fcibox, orbsym in zip (las.fciboxes, orbsym_sub):
+            fcibox.orbsym = orbsym
+            for solver in fcibox.fcisolvers:
+                solver.transformer.orbsym = solver.orbsym = orbsym
+        LASCI_UnitaryGroupGenerators._init_ci (self, las, mo_coeff, ci)
 
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
@@ -203,8 +215,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # CI stuff
         self.linkstrl = []
         self.linkstr = []
-        for fcibox, no, ne, csf in zip (self.fciboxes, ncas_sub, nelecas_sub, self.ugg.ci_transformers):
-            fcibox.orbsym = csf.orbsym
+        for fcibox, no, ne in zip (self.fciboxes, ncas_sub, nelecas_sub):
             self.linkstrl.append (fcibox.states_gen_linkstr (no, ne, True)) 
             self.linkstr.append (fcibox.states_gen_linkstr (no, ne, False))
         self.hci0 = self.Hci_all (None, self.h1frs, self.eri_cas, ci)
@@ -392,9 +403,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def _matvec (self, x):
         kappa1, ci1 = self.ugg.unpack (x)
 
-        # TODO: generalize ugg to SA-LASSCF and delete this
-        ci1 = [[c] for c in ci1]
-
         # Effective density matrices, veffs, and overlaps from linear response
         odm1fs, ocm2 = self.make_odm1s2c_sub (kappa1)
         tdm1frs, tcm2 = self.make_tdm1s2c_sub (ci1)
@@ -404,9 +412,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         kappa2 = self.orbital_response (odm1fs, ocm2, tdm1frs, tcm2, veff_prime)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, self.ci_response_diag (ci1))]
-
-        # TODO: generalize ugg to SA-LASSCF and delete this
-        ci2 = [c[0] for c in ci2]
 
         return self.ugg.pack (kappa2, ci2)
 
@@ -459,13 +464,15 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Split-c and split-x, for inactive-external rotations, requires I calculate a bunch
         # of extra eris (g^aa_ii, g^ai_ai)
         Hci_diag = []
-        for ix, (fcibox, norb, nelec, h1rs, csf) in enumerate (zip (self.fciboxes, 
+        for ix, (fcibox, norb, nelec, h1rs, csf_list) in enumerate (zip (self.fciboxes, 
          self.ncas_sub, self.nelecas_sub, self.h1frs, self.ugg.ci_transformers)):
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2 = self.eri_cas[i:j,i:j,i:j,i:j]
             h1rs = h1rs[:,:,i:j,i:j]
-            Hci_diag.append (csf.pack_csf (fcibox.states_make_hdiag_csf (h1rs, h2, norb, nelec)[0]))
+            hdiag_csf_list = fcibox.states_make_hdiag_csf (h1rs, h2, norb, nelec)
+            for csf, hdiag_csf in zip (csf_list, hdiag_csf_list):
+                Hci_diag.append (csf.pack_csf (hdiag_csf))
         Hdiag = np.concatenate ([Horb_diag[self.ugg.uniq_orb_idx]] + Hci_diag)
         Hdiag += self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
@@ -474,8 +481,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def update_mo_ci_eri (self, x, h2eff_sub):
         nmo, ncore, ncas, nocc = self.nmo, self.ncore, self.ncas, self.nocc
         kappa, dci = self.ugg.unpack (x)
-        # TODO: generalize ugg to SA-LASSCF and delete the below
-        dci = [[v] for v in dci]
         umat = linalg.expm (kappa)
         mo1 = self.mo_coeff @ umat
         ci1 = [[c + dc for c,dc in zip (cr,dcr)] for cr, dcr in zip (self.ci, dci)]
@@ -597,7 +602,7 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
         hc0 = fcibox.states_contract_2e(h2eff, ci0, ncas, nelecas, link_index=linkstrl)
         hc0 = [hc.ravel () for hc in hc0]
         ci0 = [c.ravel () for c in ci0]
-        gci.append (2.0 * np.concatenate ([hc - c * (c.dot (hc)) for c, hc in zip (ci0, hc0)]))
+        gci.append ([2.0 * (hc - c * (c.dot (hc))) for c, hc in zip (ci0, hc0)])
 
     gint = ugg.pack (gorb, gci)
     gorb = gint[:ugg.nvar_orb]
@@ -740,9 +745,9 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
             g_orb_test, g_ci_test = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)[:2]
             if ugg.nvar_orb:
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_orb| = %.15g', linalg.norm (g_orb_test - g_vec[:ugg.nvar_orb]))
-            for isub in range (len (ci1)):
-                i = sum (ugg.ncsf_sub[:isub])
-                j = i + ugg.ncsf_sub[isub]
+            for isub in range (len (ci1)): # TODO: double-check that this code works in SA-LASSCF
+                i = ugg.ncsf_sub[:isub].sum ()
+                j = i + ugg.ncsf_sub[isub].sum ()
                 k = i + ugg.nvar_orb
                 l = j + ugg.nvar_orb
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_ci({})| = %.15g'.format (isub), linalg.norm (g_ci_test[i:j] - g_vec[k:l]))
@@ -751,11 +756,11 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         prec_op = H_op.get_prec ()
         prec = prec_op (np.ones_like (g_vec)) # Check for divergences
         norm_gorb = linalg.norm (g_vec[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-        norm_gci = linalg.norm (g_vec[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
+        norm_gci = linalg.norm (g_vec[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
         norm_gx = linalg.norm (gx) if gx.size else 0.0
         x0 = prec_op._matvec (-g_vec)
         norm_xorb = linalg.norm (x0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-        norm_xci = linalg.norm (x0[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
+        norm_xci = linalg.norm (x0[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
         lib.logger.info (las, 'LASCI macro %d : E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g', it, H_op.e_tot, norm_gorb, norm_gci)
         #log.info ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g ; |x0_ci| = %.15g',
         #    H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
@@ -768,12 +773,12 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_sub=None, conv_tol_grad=1e-4, v
         def my_callback (x):
             microit[0] += 1
             norm_xorb = linalg.norm (x[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-            norm_xci = linalg.norm (x[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
+            norm_xci = linalg.norm (x[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
             if las.verbose > lib.logger.INFO:
                 Hx = H_op._matvec (x) # This doubles the price of each iteration!!
                 resid = g_vec + Hx
                 norm_gorb = linalg.norm (resid[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-                norm_gci = linalg.norm (resid[ugg.nvar_orb:]) if sum (ugg.ncsf_sub) else 0.0
+                norm_gci = linalg.norm (resid[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
                 Ecall = H_op.e_tot + x.dot (g_vec + (Hx/2))
                 log.info ('LASCI micro %d : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x_orb| = %.15g ; |x_ci| = %.15g', microit[0], Ecall, norm_gorb, norm_gci, norm_xorb, norm_xci)
             else:

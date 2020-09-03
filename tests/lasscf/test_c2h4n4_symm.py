@@ -86,6 +86,6 @@ class KnownValues(unittest.TestCase):
         
 
 if __name__ == "__main__":
-    print("Full Tests for LASSCF c2h4n4 symmetry")
+    print("Full Tests for LASSCF c2h4n4 with symmetry")
     unittest.main()
 

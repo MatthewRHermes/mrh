@@ -112,6 +112,6 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (linalg.norm (dm1_test - f.get_oneRDM_imp ()), 0, 8)
 
 if __name__ == "__main__":
-    print("Full Tests for LASSCF me2n2")
+    print("Full Tests for LASSCF module agreement")
     unittest.main()
 
