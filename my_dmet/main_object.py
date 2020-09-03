@@ -538,7 +538,6 @@ class dmet:
             ncore = (self.ints.nelec_tot - nelec_amo) // 2
             ncas_sub = []
             nelecas_sub = []
-            casdm0_sub = []
             spin_sub = []
             wfnsym_sub = []
             ci0 = []
@@ -1431,7 +1430,7 @@ class dmet:
         amo_occ = no_occ[ncore:]
         print (self.ints.nelec_tot, ' electrons total, ', ncore, ' core orbitals w/ occupancy = ',no_occ[:ncore])
         active_frags = [f for f in self.fragments if f.norbs_as]
-        casdm0_sub = []
+        casdm0_fr = []
         ci0 = []
         for f in active_frags:
             amo = loc2amo[:,:f.norbs_as]
@@ -1445,19 +1444,19 @@ class dmet:
             neleca = int (round ((f.active_space[0]/2) + f.target_MS))
             nelecb = int (round ((f.active_space[0]/2) - f.target_MS))
             print ("MATT CHECK THIS: (neleca, nelecb) = ({:.3f}, {:.3f}) vs desired ({},{})".format (np.trace (dma), np.trace (dmb), neleca, nelecb))
-            casdm0_sub.append (np.stack ([dma, dmb], axis=0))
+            casdm0_fr.append (np.stack ([dma, dmb], axis=0)[None,:,:,:]) # TODO: generalize for SA-LASSCF
             if f.ci_as is not None:
                 umat = f.ci_as_orb.conjugate ().T @ amo
                 nel = (neleca, nelecb)
                 if nelecb > neleca: nel = (nelecb, neleca)
-                ci0.append (transform_ci_for_orbital_rotation (f.ci_as, f.norbs_as, nel, umat))
+                ci0.append ([transform_ci_for_orbital_rotation (f.ci_as, f.norbs_as, nel, umat)]) # TODO: generalize for SA-LASSCF
         self.las.stdout = self.lasci_log
-        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_sub):
-            casdm0_sub = None
+        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_fr):
+            casdm0_fr = None
         else:
             ci0 = None
         w0, t0 = time.time (), time.clock ()
-        e_tot, _, ci_sub, _, _, h2eff_sub, veff = self.las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_sub = casdm0_sub)
+        e_tot, _, ci_sub, _, _, h2eff_sub, veff = self.las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_fr = casdm0_fr)
         if not self.las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))
@@ -1478,6 +1477,7 @@ class dmet:
         eri_gradient = eri_gradient.reshape ((las.mo_coeff.shape[-1], las.ncas, las.ncas, las.ncas))
         eri_gradient = np.tensordot (loc2mo, eri_gradient, axes=1)
         for ix, (loc2amo, ci, oneRDMs_amo_loc, f) in enumerate (zip (loc2amo_sub, las.ci, oneRDMs_loc_sub, active_frags)):
+            ci = ci[0] # TODO: generalize for SA-LASSCF
             dma, dmb = oneRDMs_amo_loc
             print ("MATT CHECK THIS AGAIN: (neleca, nelecb) = ({:.3f}, {:.3f})".format (np.trace (dma), np.trace (dmb)))
             f.loc2amo = loc2amo.copy () # Definitely copy this because it is explicitly a slice
@@ -1501,5 +1501,5 @@ class dmet:
             f.eri_gradient = eri_gradient[:,i:j,i:j,i:j]
             eri = np.tensordot (loc2amo.conjugate (), f.eri_gradient, axes=((0),(0)))
             f.E2_cum = (casdm2c * eri).sum () / 2
-        return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff)
+        return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff.sa)
 

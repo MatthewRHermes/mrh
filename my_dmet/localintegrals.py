@@ -400,9 +400,9 @@ class localintegrals:
         #vk = -self.loc_rhf_k_bis (oneSDM_loc) / 2
         ao2loc = self.ao2loc
         loc2ao = ao2loc.conjugate ().T
-        JKidem = loc2ao @ veff.veff_c @ ao2loc
-        JKcorr = (loc2ao @ (veff.sum (0)/2) @ ao2loc) - JKidem
-        vk = loc2ao @ ((veff[0] - veff[1])/2) @ ao2loc
+        JKidem = loc2ao @ veff.c @ ao2loc
+        JKcorr = (loc2ao @ (veff.sa.sum (0)/2) @ ao2loc) - JKidem
+        vk = loc2ao @ ((veff.sa[0] - veff.sa[1])/2) @ ao2loc
         focka_fockb = self.activeOEI + JKidem + JKcorr
         focka_fockb = [focka_fockb + vk, focka_fockb - vk] 
         idx = np.zeros (loc2mo.shape[-1], dtype=np.bool_)
