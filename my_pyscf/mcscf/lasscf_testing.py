@@ -25,15 +25,16 @@ class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
     # the correct parent class
 
 class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
-    # Required modifications for Hx: 
-    #   1) cache CASSCF-type eris - init_df
+    # Required modifications for Hx: [I forgot about 3) at first]
+    #   1) cache CASSCF-type eris and paaa - init_df
     #   2) increase range of ocm2 - make_odm1s2c_sub
-    #   3) dot the above two together - orbital_response
+    #   3) extend veff_s to active-unactive sector - split_veff
+    #   4) dot the above three together - orbital_response
     # Required modifications for API:
-    #   4) broader ERI rotation - update_mo_ci_eri
+    #   5) broader ERI rotation - update_mo_ci_eri
     # Possible modifications:
-    #   5) current prec may not be "good enough" - get_prec
-    #   6) define "gx" in this context - get_gx 
+    #   6) current prec may not be "good enough" - get_prec
+    #   7) define "gx" in this context - get_gx 
 
     def _init_df (self):
         lasci.LASCI_HessianOperator._init_df (self)
@@ -41,6 +42,10 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             method='incore', level=2) # level=2 -> ppaa, papa only
             # level=1 computes more stuff; it's only useful if I
             # want the honest hdiag in get_prec ()
+        self.paaa = np.zeros ((self.nmo, self.ncas, self.ncas, self.ncas), dtype=self.dtype)
+        for a in range (self.ncas):
+            self.paaa[:,a,:,:] = self.cas_type_eris.ppaa[self.ncore+a].transpose (0,2,1)
+
 
     def make_odm1s2c_sub (self, kappa):
         # This is tricky, because in the parent I transposed ocm2 to make it 
@@ -65,6 +70,22 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         ocm2 = np.asfortranarray (ocm2) # Make largest index slowest-moving
         return odm1fs, ocm2
 
+    def split_veff (self, veff_mo, dm1s_mo):
+        veff_c = veff_mo.copy ()
+        ncore = self.ncore
+        nocc = self.nocc
+        dm1s_cas = dm1s_mo[:,ncore:nocc,ncore:nocc]
+        sdm = dm1s_cas[0] - dm1s_cas[1]
+        vk_pa = -np.tensordot (self.paaa, sdm, axes=((1,2),(0,1))) / 2
+        veff_s = np.zeros_like (veff_c)
+        vk_aa = vk_pa[ncore:nocc]
+        assert (np.allclose (vk_aa, vk_aa.T)), vk_aa-vk_aa.T
+        veff_s[:,ncore:nocc] = vk_pa
+        veff_s[ncore:nocc,:] = vk_pa.T
+        veffa = veff_c + veff_s
+        veffb = veff_c - veff_s
+        return np.stack ([veffa, veffb], axis=0)
+
     def orbital_response (self, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         ocm2_cas = ocm2[:,:,:,ncore:nocc] 
@@ -74,7 +95,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         for p, f1 in enumerate (f1_prime):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
-            paaa = praa[ncore:nocc]
+            paaa = self.paaa[p]
             # g_pabc d_qabc + g_prab d_qrab + g_parb d_qarb + g_pabr d_qabr (Formal)
             #        d_cbaq          d_abqr          d_aqbr          d_qabr (Symmetry of ocm2)
             # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)
@@ -113,7 +134,7 @@ if __name__ == '__main__':
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
     mol.verbose = lib.logger.DEBUG
     mol.output = 'lasscf_testing.log'
-    mol.spin = 0
+    mol.spin = 8 
     mol.build ()
     mf = scf.RHF (mol).run ()
     mc = LASSCFNoSymm (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
