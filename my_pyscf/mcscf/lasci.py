@@ -715,12 +715,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
     t1 = log.timer('integral transformation to LAS space', *t0)
 
     # In the first cycle, I may pass casdm0_fr instead of ci0. Therefore, I need to work out this get_veff call separately.
-    if ci0 is not None:
-        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
-        casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
-        casdm1s_fr = las.states_make_casdm1s_sub (ci=ci0)
-        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci0, casdm1s_sub=casdm1s_sub)
-    elif casdm0_fr is not None:
+    if ci0 is None and casdm0_fr is not None:
         casdm0_sub = [np.einsum ('rsij,r->sij', dm, las.weights) for dm in casdm0_fr]
         dm1_core = mo_coeff[:,:las.ncore] @ mo_coeff[:,:las.ncore].conjugate ().T
         dm1s_sub = [np.stack ([dm1_core, dm1_core], axis=0)]
@@ -734,6 +729,13 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm0_sub)
         casdm1s_sub = casdm0_sub
         casdm1s_fr = casdm0_fr
+    else:
+        if ci0 is None:
+            ci0 = get_init_guess_ci (las, mo_coeff, h2eff_sub)
+        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
+        casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
+        casdm1s_fr = las.states_make_casdm1s_sub (ci=ci0)
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci0, casdm1s_sub=casdm1s_sub)
     t1 = log.timer('LASCI initial get_veff', *t1)
 
     ugg = None
@@ -974,6 +976,37 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
         h2eff_sub = lib.numpy_helper.pack_tril (h2eff_sub.reshape (nmo*las.ncas, las.ncas, las.ncas)).reshape (nmo, -1)
     return mo_coeff, mo_ene, mo_occ, ci, h2eff_sub
 
+def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None):
+    nmo = mo_coeff.shape[-1]
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    ci0 = []
+    h1e_cas = las._scf.get_fock ()[ncore:nocc,ncore:nocc]
+    dm1s_cas = las._scf.make_rdm1 ()
+    if dm1s_cas.ndim == 2: dm1s_cas = [dm1s_cas*0.5, dm1s_cas*0.5]
+    s0 = las._scf.get_ovlp ()
+    eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)
+    eri_cas = eri_cas[ncore:nocc]
+    for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes, las.ncas_sub, las.nelecas_sub)):
+        i = sum (las.ncas_sub[:ix])
+        j = i + norb
+        smo = np.dot (s0, mo_coeff[:,i:j])
+        smoH = smo.conj ().T
+        h1e = [h1e_cas[i:j,i:j], h1e_cas[i:j,i:j]]
+        eri = eri_cas[i:j,i:j,i:j,i:j]
+        dm1s = [smoH @ d @ smo for d in dm1s_cas]
+        dm1 = dm1s[0] + dm1s[1]
+        vj = np.tensordot (eri, dm1, axes=2)
+        vk = [np.tensordot (eri, d, axes=((1,2),(0,1))) for d in dm1s]
+        h1e[0] -= (vj - vk[0]/2)
+        h1e[1] -= (vj - vk[1]/2)
+        ci0_i = []
+        for solver in fcibox.fcisolvers:
+            nelec = fcibox._get_nelec (solver, nelecas)
+            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec)
+            ci0_i.append (solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf))
+        ci0.append (ci0_i)
+    return ci0
 
 class LASCINoSymm (casci.CASCI):
 

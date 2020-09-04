@@ -54,6 +54,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
         return fcisolver
 
     assert isinstance (fcisolver, StateAverageMixFCISolver), 'requires StateAverageMixFCISolver'
+    has_spin_square = getattr(fcisolver, 'states_spin_square', None)
 
     class FCISolver (fcisolver.__class__, H1EZipFCISolver):
 

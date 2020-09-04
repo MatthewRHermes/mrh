@@ -466,10 +466,14 @@ class FCISolver (direct_spin1.FCISolver):
         super().__init__(mol)
 
     def get_init_guess(self, norb, nelec, nroots, hdiag_csf):
+        self.norb = norb
+        self.nelec = nelec
         self.check_transformer_cache ()
         return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
+        self.norb = norb
+        self.nelec = nelec
         self.check_transformer_cache ()
         return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
 
@@ -493,6 +497,8 @@ class FCISolver (direct_spin1.FCISolver):
     '''
 
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
+        self.norb = norb
+        self.nelec = nelec
         self.check_transformer_cache ()
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
             hdiag_csf=hdiag_csf, npsp=npsp)
