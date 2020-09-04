@@ -28,13 +28,14 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
     # Required modifications for Hx: [I forgot about 3) at first]
     #   1) cache CASSCF-type eris and paaa - init_df
     #   2) increase range of ocm2 - make_odm1s2c_sub
-    #   3) extend veff_s to active-unactive sector - split_veff
+    #   3) extend veff to active-unactive sector - split_veff
     #   4) dot the above three together - orbital_response
+    #   5) TODO: get_veff using DF needs to be extended as well
     # Required modifications for API:
-    #   5) broader ERI rotation - update_mo_ci_eri
+    #   6) broader ERI rotation - update_mo_ci_eri
     # Possible modifications:
-    #   6) current prec may not be "good enough" - get_prec
-    #   7) define "gx" in this context - get_gx 
+    #   7) current prec may not be "good enough" - get_prec
+    #   8) define "gx" in this context - get_gx 
 
     def _init_df (self):
         lasci.LASCI_HessianOperator._init_df (self)
