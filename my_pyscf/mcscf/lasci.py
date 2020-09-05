@@ -395,6 +395,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def _matvec (self, x):
         kappa1, ci1 = self.ugg.unpack (x)
+        print ("vector:", linalg.norm (kappa1[self.ncore:self.nocc,self.ncore:self.nocc]))
 
         # Effective density matrices, veffs, and overlaps from linear response
         odm1fs, ocm2 = self.make_odm1s2c_sub (kappa1)
@@ -405,7 +406,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         kappa2 = self.orbital_response (odm1fs, ocm2, tdm1frs, tcm2, veff_prime)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, self.ci_response_diag (ci1))]
-
+        print ("response:", linalg.norm (kappa2[self.ncore:self.nocc,self.ncore:self.nocc]))
+        assert (False)
         return self.ugg.pack (kappa2, ci2)
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
@@ -416,6 +418,14 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ncore, nocc = self.ncore, self.nocc
         edm1s = odm1fs.sum (0)
         edm1s[:,ncore:nocc,ncore:nocc] += np.einsum ('frspq,r->spq', tdm1frs, self.weights)
+        print ("fock1a_ext:", linalg.norm (((self.h1s[0] @ edm1s[0]) - (self.h1s[0] @ edm1s[0]).T)[ncore:nocc,ncore:nocc]))
+        print ("fock1a_int:", linalg.norm (((veff_prime[0] @ self.dm1s[0]) - (veff_prime[0] @ self.dm1s[0]).T)[ncore:nocc,ncore:nocc]))
+        broken_term = self.h1s[0] @ edm1s[0] - (self.h1s[0] @ edm1s[0]).T
+        working_term = veff_prime[0] @ self.dm1s[0] - (veff_prime[0] @ self.dm1s[0]).T
+        print ("broken_term uv:", broken_term[ncore:ncore+4,ncore+4:nocc])
+        print ("working_term uv:", working_term[ncore:ncore+4,ncore+4:nocc])
+        print ("edm1s[0] transpose test:", linalg.norm (edm1s[0] - edm1s[0].T))
+        print ("h1s[0] transpose test:", linalg.norm (self.h1s[0] - self.h1s[0].T))
         ecm2 = ocm2 + tcm2
         fock1  = self.h1s[0] @ edm1s[0] + self.h1s[1] @ edm1s[1]
         fock1 += veff_prime[0] @ self.dm1s[0] + veff_prime[1] @ self.dm1s[1]
@@ -466,6 +476,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             hdiag_csf_list = fcibox.states_make_hdiag_csf (h1rs, h2, norb, nelec)
             for csf, hdiag_csf in zip (csf_list, hdiag_csf_list):
                 Hci_diag.append (csf.pack_csf (hdiag_csf))
+        print ("prec:", linalg.norm (Horb_diag[self.ncore:self.nocc,self.ncore:self.nocc]))
         Hdiag = np.concatenate ([Horb_diag[self.ugg.uniq_orb_idx]] + Hci_diag)
         Hdiag += self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
@@ -502,6 +513,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def get_grad (self):
         gorb = self.fock1 - self.fock1.T
+        print ("grad:", linalg.norm (gorb[self.ncore:self.nocc,self.ncore:self.nocc]))
         gci = [[2*hci0 for hci0 in hci0r] for hci0r in self.hci0]
         return self.ugg.pack (gorb, gci)
 

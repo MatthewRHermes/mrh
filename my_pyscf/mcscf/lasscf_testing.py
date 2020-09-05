@@ -43,9 +43,6 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             method='incore', level=2) # level=2 -> ppaa, papa only
             # level=1 computes more stuff; it's only useful if I
             # want the honest hdiag in get_prec ()
-        self.paaa = np.zeros ((self.nmo, self.ncas, self.ncas, self.ncas), dtype=self.dtype)
-        for a in range (self.ncas):
-            self.paaa[:,a,:,:] = self.cas_type_eris.ppaa[self.ncore+a].transpose (0,2,1)
 
 
     def make_odm1s2c_sub (self, kappa):
@@ -75,14 +72,22 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         veff_c = veff_mo.copy ()
         ncore = self.ncore
         nocc = self.nocc
-        dm1s_cas = dm1s_mo[:,ncore:nocc,ncore:nocc]
-        sdm = dm1s_cas[0] - dm1s_cas[1]
-        vk_pa = -np.tensordot (self.paaa, sdm, axes=((1,2),(0,1))) / 2
+        sdm = dm1s_mo[0] - dm1s_mo[1]
+        sdm_ra = sdm[:,ncore:nocc]
+        sdm_ar = sdm[ncore:nocc,:].copy ()
+        sdm_ar[:,ncore:nocc] = 0.0
         veff_s = np.zeros_like (veff_c)
+        vk_pa = veff_s[:,ncore:nocc]
+        for p, v1 in enumerate (vk_pa):
+            praa = self.cas_type_eris.ppaa[p]
+            para = self.cas_type_eris.papa[p]
+            paaa = praa[ncore:nocc]
+            v1[:]  = np.tensordot (sdm_ra, praa, axes=2)
+            v1[:] += np.tensordot (sdm_ar, para, axes=2)
+        veff_s[:,:] *= -0.5
         vk_aa = vk_pa[ncore:nocc]
-        assert (np.allclose (vk_aa, vk_aa.T)), vk_aa-vk_aa.T
-        veff_s[:,ncore:nocc] = vk_pa
         veff_s[ncore:nocc,:] = vk_pa.T
+        assert (np.allclose (veff_s, veff_s.T)), vk_aa-vk_aa.T
         veffa = veff_c + veff_s
         veffb = veff_c - veff_s
         return np.stack ([veffa, veffb], axis=0)
@@ -96,7 +101,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         for p, f1 in enumerate (f1_prime):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
-            paaa = self.paaa[p]
+            paaa = praa[ncore:nocc]
             # g_pabc d_qabc + g_prab d_qrab + g_parb d_qarb + g_pabr d_qabr (Formal)
             #        d_cbaq          d_abqr          d_aqbr          d_qabr (Symmetry of ocm2)
             # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)
@@ -104,6 +109,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbrc d_qbcr (Final)
             for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
                 ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
+                assert (linalg.norm (cm) == 0.0)
                 f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
@@ -119,10 +125,33 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
 class LASSCFNoSymm (lasci.LASCINoSymm):
     get_ugg = LASSCF_UnitaryGroupGenerators
     get_hop = LASSCF_HessianOperator
+    def split_veff (self, veff, h2eff_sub, mo_coeff=None, ci=None, casdm1s_sub=None): 
+        # This needs to actually do the veff, otherwise the preconditioner is broken
+        # Eventually I can remove this, once I've implemented Schmidt decomposition etc. etc.
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if ci is None: ci = self.ci
+        if casdm1s_sub is None: casdm1s_sub = self.make_casdm1s_sub (ci = ci)
+        mo_cas = mo_coeff[:,self.ncore:][:,:self.ncas]
+        dm1s_cas = linalg.block_diag (*[dm[0] - dm[1] for dm in casdm1s_sub])
+        dm1s = mo_cas @ dm1s_cas @ mo_cas.conj ().T
+        veff_c = veff.copy ()
+        veff_s = -self._scf.get_k (self.mol, dm1s, hermi=1)/2
+        veff_a = veff_c + veff_s
+        veff_b = veff_c - veff_s
+        veff = np.stack ([veff_a, veff_b], axis=0)
+        dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
+        vj, vk = self._scf.get_jk (self.mol, dm1s, hermi=1)
+        veff_a = vj[0] + vj[1] - vk[0]
+        veff_b = vj[0] + vj[1] - vk[1]
+        veff_test = np.stack ([veff_a, veff_b], axis=0)
+        assert (np.allclose (veff, veff_test))
+        return veff
 
+        
 class LASSCFSymm (lasci.LASCISymm):
     get_ugg = LASSCFSymm_UnitaryGroupGenerators    
     get_hop = LASSCF_HessianOperator
+    split_veff = LASSCFNoSymm.split_veff
 
 if __name__ == '__main__':
     from pyscf import scf, lib
@@ -138,7 +167,7 @@ if __name__ == '__main__':
     mol.spin = 8 
     mol.build ()
     mf = scf.RHF (mol).run ()
-    mc = LASSCFNoSymm (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
+    mc = LASSCFNoSymm (mf, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
     mc.kernel (mo0, ci0)
 
 
