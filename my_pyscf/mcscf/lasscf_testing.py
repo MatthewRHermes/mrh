@@ -92,10 +92,10 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         veffb = veff_c - veff_s
         return np.stack ([veffa, veffb], axis=0)
 
-    def orbital_response (self, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
+    def orbital_response (self, kappa, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         ocm2_cas = ocm2[:,:,:,ncore:nocc] 
-        gorb = lasci.LASCI_HessianOperator.orbital_response (self, odm1fs,
+        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
             ocm2_cas, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         for p, f1 in enumerate (f1_prime):

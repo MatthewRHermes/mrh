@@ -402,14 +402,14 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         veff_prime, h1s_prime = self.get_veff_Heff (odm1fs, tdm1frs)
 
         # Responses!
-        kappa2 = self.orbital_response (odm1fs, ocm2, tdm1frs, tcm2, veff_prime)
+        kappa2 = self.orbital_response (kappa1, odm1fs, ocm2, tdm1frs, tcm2, veff_prime)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, self.ci_response_diag (ci1))]
         return self.ugg.pack (kappa2, ci2)
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
 
-    def orbital_response (self, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
+    def orbital_response (self, kappa, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Formally, orbital response if F'_pq - F'_qp, F'_pq = h_pq D'_pq + g_prst d'_qrst.
         Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
         ncore, nocc = self.ncore, self.nocc
@@ -419,6 +419,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         fock1  = self.h1s[0] @ edm1s[0] + self.h1s[1] @ edm1s[1]
         fock1 += veff_prime[0] @ self.dm1s[0] + veff_prime[1] @ self.dm1s[1]
         fock1[ncore:nocc,ncore:nocc] += np.tensordot (self.eri_cas, ecm2, axes=((1,2,3),(1,2,3)))
+        fock1 += (np.dot (self.fock1, kappa) - np.dot (kappa, self.fock1)) / 2
         return fock1 - fock1.T
 
     def ci_response_offdiag (self, kappa1, h1frs_prime):
