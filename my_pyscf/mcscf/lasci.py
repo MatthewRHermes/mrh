@@ -439,6 +439,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return Kci0
 
     def ci_response_diag (self, ci1):
+        # IMPORTANT: this disagrees with PySCF, but I still think it's right and PySCF is wrong
         ci1HmEci0 = [[c.dot (Hci) for c, Hci in zip (cr, Hcir)] for cr, Hcir in zip (ci1, self.hci0)]
         s01 = [[c1.dot (c0) for c1,c0 in zip (c1r, c0r)] for c1r, c0r in zip (ci1, self.ci)]
         ci2 = self.Hci_all ([[-e for e in er] for er in self.e0], self.h1frs, self.eri_cas, ci1)

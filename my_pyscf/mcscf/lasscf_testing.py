@@ -109,7 +109,6 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbrc d_qbcr (Final)
             for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
                 ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
-                assert (linalg.norm (cm) == 0.0)
                 f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
@@ -154,20 +153,130 @@ class LASSCFSymm (lasci.LASCISymm):
     split_veff = LASSCFNoSymm.split_veff
 
 if __name__ == '__main__':
-    from pyscf import scf, lib
-    from mrh.tests.lasscf.c2h4n4_struct import structure as struct
-    mo0 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_mo.dat')
-    ci00 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci0.dat')
-    ci01 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci1.dat')
-    ci0 = None #[[ci00], [-ci01.T]]
-    dr_nn = 2.0
-    mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-    mol.verbose = lib.logger.DEBUG
+    from pyscf import scf, lib, tools, mcscf
+    import os
+    class cd:
+        """Context manager for changing the current working directory"""
+        def __init__(self, newPath):
+            self.newPath = os.path.expanduser(newPath)
+
+        def __enter__(self):
+            self.savedPath = os.getcwd()
+            os.chdir(self.newPath)
+
+        def __exit__(self, etype, value, traceback):
+            os.chdir(self.savedPath)
+    from mrh.tests.lasscf.me2n2_struct import structure as struct
+    from mrh.my_pyscf.fci import csf_solver
+    with cd ("/home/herme068/gits/mrh/tests/lasscf"):
+        mol = struct (2.0, '6-31g')
     mol.output = 'lasscf_testing.log'
-    mol.spin = 8 
+    mol.verbose = lib.logger.DEBUG
     mol.build ()
     mf = scf.RHF (mol).run ()
-    mc = LASSCFNoSymm (mf, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
-    mc.kernel (mo0, ci0)
+    mo_coeff = mf.mo_coeff.copy ()
+    mc = mcscf.CASSCF (mf, 4, 4)
+    mc.fcisolver = csf_solver (mol, smult=1)
+    mc.kernel ()
+    #mo_coeff = mc.mo_coeff.copy ()
+    print (mc.converged, mc.e_tot)
+    las = LASSCFNoSymm (mf, (4,), ((2,2),), spin_sub=(1,))
+    las.max_cycle_macro = 1
+    las.kernel (mo_coeff)
+
+    mc.mo_coeff = mo_coeff.copy ()
+    las.mo_coeff = mo_coeff.copy ()
+    las.ci = [[mc.ci.copy ()]]
+
+    nao, nmo = mo_coeff.shape
+    ncore, ncas = mc.ncore, mc.ncas
+    nocc = ncore + ncas
+    eris = mc.ao2mo ()
+    from pyscf.mcscf.newton_casscf import gen_g_hop, _pack_ci_get_H
+    g_all_cas, g_update_cas, h_op_cas, hdiag_all_cas = gen_g_hop (mc, mo_coeff, mc.ci, eris)
+    _pack_ci, _unpack_ci = _pack_ci_get_H (mc, mo_coeff, mc.ci)[-2:]
+    nvar_orb_cas = np.count_nonzero (mc.uniq_var_indices (nmo, mc.ncore, mc.ncas, mc.frozen))
+    nvar_tot_cas = g_all_cas.size
+    def pack_cas (kappa, ci1):
+        return np.append (mc.pack_uniq_var (kappa), _pack_ci (ci1))
+    def unpack_cas (x):
+        return mc.unpack_uniq_var (x[:nvar_orb_cas]), _unpack_ci (x[nvar_orb_cas:])
+
+    ugg = las.get_ugg (las, las.mo_coeff, las.ci)
+    h_op_las = las.get_hop (las, ugg)
+
+    print ("Total # variables: {} CAS ; {} LAS".format (nvar_tot_cas, ugg.nvar_tot))
+    print ("# orbital variables: {} CAS ; {} LAS".format (nvar_orb_cas, ugg.nvar_orb))
+
+    gorb_cas, gci_cas = unpack_cas (g_all_cas)
+    gorb_las, gci_las = ugg.unpack (h_op_las.get_grad ())
+
+    # For orb degrees of freedom, gcas = 2 glas and therefore 2 xcas = xlas
+    print (" ")
+    print ("Orbital gradient norms: {} CAS ; {} LAS".format (linalg.norm (gorb_cas), linalg.norm (gorb_las)))
+    print ("Orbital gradient disagreement:", linalg.norm (gorb_cas-gorb_las))
+    print ("CI gradient norms: {} CAS ; {} LAS".format (linalg.norm (gci_cas), linalg.norm (gci_las)))
+    print ("CI gradient disagreement:", linalg.norm (gci_cas[0]-gci_las[0][0]))
+                
+
+    np.random.seed (0)
+    x = np.random.rand (ugg.nvar_tot)
+    xorb, xci = ugg.unpack (x)
+    def examine_sector (sector, xorb_inp, xci_inp):
+        xorb = np.zeros_like (xorb_inp)
+        xci = [[np.zeros_like (xci_inp[0][0])]]
+        ij = {'core': (0,ncore),
+              'active': (ncore,nocc),
+              'virtual': (nocc,nmo)}
+        if sector.upper () == 'CI':
+            xci[0][0] = xci_inp[0][0].copy ()
+        else:
+            bra, ket = sector.split ('-')
+            i, j = ij[bra]
+            k, l = ij[ket]
+            xorb[i:j,k:l] = xorb_inp[i:j,k:l]
+            xorb[k:l,i:j] = xorb_inp[k:l,i:j]
+        
+        x_las = ugg.pack (xorb, xci)
+        x_cas = pack_cas (xorb/2, xci[0]) 
+        hx_orb_las, hx_ci_las = ugg.unpack (h_op_las._matvec (x_las))
+        hx_orb_cas, hx_ci_cas = unpack_cas (h_op_cas (x_cas))
+
+        hx_ci_cas_csf = ugg.ci_transformers[0][0].vec_det2csf (hx_ci_cas[0], normalize=False)
+        hx_ci_cas[0] = ugg.ci_transformers[0][0].vec_csf2det (hx_ci_cas_csf, normalize=False)
+        ci_norm = np.dot (hx_ci_cas[0].ravel (), hx_ci_cas[0].ravel ())
+
+        print (" ")
+        for osect in ('core-virtual', 'active-virtual', 'core-active'):
+            bra, ket = osect.split ('-')
+            i, j = ij[bra]
+            k, l = ij[ket]
+            print ("{} - {} Hessian sector".format (osect, sector))
+            print ("Hx norms: {} CAS ; {} LAS".format (linalg.norm (hx_orb_cas[i:j,k:l]), linalg.norm (hx_orb_las[i:j,k:l])))
+            print ("Hx disagreement:".format (osect, sector),
+                linalg.norm (hx_orb_cas[i:j,k:l]-hx_orb_las[i:j,k:l]))
+        print ("CI - {} Hessian sector".format (sector))
+        print ("Hx norms: {} CAS ; {} LAS".format (linalg.norm (hx_ci_las), linalg.norm (hx_ci_cas)))
+        print ("Hx disagreement:", linalg.norm (hx_ci_las[0][0]-hx_ci_cas[0]), np.dot (hx_ci_las[0][0].ravel (), hx_ci_cas[0].ravel ()) / ci_norm)
+
+    examine_sector ('core-virtual', xorb, xci)
+    examine_sector ('active-virtual', xorb, xci)
+    examine_sector ('core-active', xorb, xci)
+    examine_sector ('CI', xorb, xci)
+
+    #from mrh.tests.lasscf.c2h4n4_struct import structure as struct
+    #mo0 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_mo.dat')
+    #ci00 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci0.dat')
+    #ci01 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci1.dat')
+    #ci0 = None #[[ci00], [-ci01.T]]
+    #dr_nn = 2.0
+    #mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
+    #mol.verbose = lib.logger.DEBUG
+    #mol.output = 'lasscf_testing.log'
+    #mol.spin = 8 
+    #mol.build ()
+    #mf = scf.RHF (mol).run ()
+    #mc = LASSCFNoSymm (mf, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
+    #mc.kernel (mo0, ci0)
 
 
