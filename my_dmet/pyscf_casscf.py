@@ -60,7 +60,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     mol = gto.Mole()
     abs_2MS = int (round (2 * abs (frag.target_MS)))
     abs_2S = int (round (2 * abs (frag.target_S)))
-    sign_MS = np.sign (frag.target_MS) or 1
+    sign_MS = int (np.sign (frag.target_MS)) or 1
     mol.spin = abs_2MS
     mol.verbose = 0 
     if frag.mol_stdout is None:
