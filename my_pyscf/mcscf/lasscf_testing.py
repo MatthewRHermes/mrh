@@ -262,13 +262,14 @@ if __name__ == '__main__':
         hx_orb_las, hx_ci_las = ugg.unpack (h_op_las._matvec (x_las))
         hx_orb_cas, hx_ci_cas = unpack_cas (h_op_cas (x_cas))
 
-        hx_orb_cas /= 2.0 # Newton-CASSCF multiplies orb-grad terms by 2 so as to exponentiate kappa instead of kappa/2
+        hx_orb_cas /= 2.0
         if sector.upper () != 'CI':
-            hx_ci_las[0][0] *= 2.0
-            # I may be wrong. Looking back at it I can't justify to myself why you don't add h.c. to h_co x_o. 
-            # But when I add it back in my calculation stops converging. It may be that my division by 2 of this
-            # term suppresses the developing ci gradient (since CI gradient at the start of each macrocycle must
-            # be zero) and so compensates for a very inadequate preconditioner.
+            hx_ci_cas[0] /= 2.0 
+            # g_orb (PySCF) = 2 * g_orb (LASSCF) ; hx_orb (PySCF) = 2 * hx_orb (LASSCF)
+            # This means that x_orb (PySCF) = 0.5 * x_orb (LASSCF), which must have been worked into the
+            # derivation of the (h_co x_o) sector of hx. Passing the same numbers into the newton_casscf
+            # hx calculator will involve orbital distortions which are twice as intense as my hx 
+            # hx calculator, and the newton_casscf CI sector of the hx will be twice as large
 
         hx_ci_cas_csf = ugg.ci_transformers[0][0].vec_det2csf (hx_ci_cas[0], normalize=False)
         hx_ci_cas[0] = ugg.ci_transformers[0][0].vec_csf2det (hx_ci_cas_csf, normalize=False)
@@ -293,10 +294,8 @@ if __name__ == '__main__':
     examine_sector ('CI', xorb, xci)
     print ("\nNotes:")
     print ("1) Newton_casscf.py multiplies all orb grad terms by 2 and exponentiates by kappa as opposed to kappa/2. This is accounted for in the above.")
-    print ("2) Newton_casscf.py has twice my function's value for H_co x_o, which I've accounted for in the above printout.")
-    print ("    Newton_casscf.py may actually be more correct, but my calculation doesn't converge if I do the same thing.")
-    print ("    Speculation: lower x_c in my function may compensate for an inadequate preconditioner.")
-    print ("3) There is a known difference between my and newton_casscf's expression for H_cc x_c. I do not yet know which one is correct.")
+    print ("2) There is a known difference between my and newton_casscf's expression for H_cc x_c. I strongly believe MY version is the correct one.")
+    print ("3) My preconditioner is obviously wrong, but in such a way that it suppresses CI vector evolution, which means stuff still converges if the CI vector isn't super sensitive to the orbital rotations.")
 
     #from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     #mo0 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_mo.dat')
