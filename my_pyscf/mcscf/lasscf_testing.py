@@ -2,6 +2,7 @@ import numpy as np
 from scipy import linalg
 from mrh.my_pyscf.mcscf import lasci
 from pyscf.mcscf import mc_ao2mo
+from pyscf.lo import orth
 
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than
@@ -166,7 +167,65 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         assert (np.allclose (veff, veff_test))
         return veff
 
-        
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None):
+        ''' Here spin = 2s = number of singly-occupied orbitals '''
+        if mo_coeff is None:
+            mo_coeff = self.mo_coeff
+        if lo_coeff is None:
+            lo_coeff = orth.orth_ao (self.mol, 'meta_lowdin')
+        if spin is None:
+            spin = self.nelecas[0] - self.nelecas[1]
+        assert (spin % 2 == sum (self.nelecas) % 2)
+        assert (len (frags_atoms) == len (self.ncas_sub))
+        ncore, ncas, nelecas, ncas_sub = self.ncore, self.ncas, self.nelecas, self.ncas_sub
+        nocc = ncore + ncas
+        mo_coeff = mo_coeff.copy ()
+        nfrags = len (frags_atoms)
+        nao, nmo = mo_coeff.shape
+        ao_offset = self.mol.offset_ao_by_atom ()
+        frags_orbs = [[orb for atom in frag_atoms for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))] for frag_atoms in frags_atoms]
+        mo_core = mo_coeff[:,:ncore].copy ()
+        mo_cas = mo_coeff[:,ncore:nocc].copy ()
+        loc2mo = lo_coeff.conj ().T @ self._scf.get_ovlp () @ mo_cas
+        cas_occ = np.zeros (ncas)
+        neleca = (sum (nelecas) + spin) // 2
+        nelecb = (sum (nelecas) - spin) // 2
+        cas_occ[:neleca] += 1
+        cas_occ[:nelecb] += 1
+        null_coeff = []
+        for ix, frag_orbs in enumerate (frags_orbs):
+            u_frag, s, vh = linalg.svd (loc2mo[frag_orbs,:])
+            u_all = np.zeros ((nao, u_frag.shape[-1]), dtype=u_frag.dtype)
+            u_all[frag_orbs,:] = u_frag
+            i = ncore + sum (ncas_sub[:ix])
+            j = i + ncas_sub[ix]
+            mo_coeff[:,i:j] = lo_coeff @ u_all[:,:ncas_sub[ix]]
+            null_coeff.append (lo_coeff @ u_all[:,ncas_sub[ix]:])
+        # Inactive/virtual
+        null_coeff = np.concatenate (null_coeff, axis=1)
+        unused_aos = np.ones (nao, dtype=np.bool_)
+        for frag_orbs in frags_orbs: unused_aos[frag_orbs] = False
+        assert (np.count_nonzero (unused_aos) + null_coeff.shape[-1] + ncas == nmo)
+        null_coeff = np.append (null_coeff, lo_coeff[:,unused_aos], axis=1)
+        ovlp = null_coeff.conj ().T @ self._scf.get_ovlp () @ mo_core
+        u, s, vh = linalg.svd (ovlp)
+        mo_coeff[:,:ncore] = null_coeff @ u[:,:ncore]
+        mo_coeff[:,nocc:] = null_coeff @ u[:,ncore:]
+        # Semi-canonicalize
+        if fock is None: fock = self._scf.get_fock ()
+        ranges = [(0,ncore),(nocc,nmo)]
+        for ix, di in enumerate (ncas_sub):
+            i = sum (ncas_sub[:ix])
+            ranges.append ((i,i+di))
+        for i, j in ranges:
+            if (j == i): continue
+            mo = mo_coeff[:,i:j]
+            f = mo.conj ().T @ fock @ mo
+            e, c = linalg.eigh (f)
+            idx = np.argsort (e)
+            mo_coeff[:,i:j] = mo @ c[:,idx]
+        return mo_coeff
+ 
 class LASSCFSymm (lasci.LASCISymm):
     get_ugg = LASSCFSymm_UnitaryGroupGenerators    
     get_hop = LASSCF_HessianOperator
@@ -309,24 +368,10 @@ if __name__ == '__main__':
     mol.spin = 0 
     mol.build ()
     mf = scf.RHF (mol).run ()
-    mo0 = tools.molden.load ('incorrect_nonet.molden')[2]
-    mo1 = mo0.copy ()
-    mo1[:,17] = (mo0[:,18] + mo0[:,22]) / np.sqrt (2.0)
-    mo1[:,18] = (mo0[:,17] - mo0[:,26]) / np.sqrt (2.0)
-    mo1[:,19] = mo0[:,19].copy ()
-    mo1[:,20] = mo0[:,21].copy ()
-    mo1[:,21] = mo0[:,24].copy ()
-    mo1[:,22] = (mo0[:,17] + mo0[:,26]) / np.sqrt (2.0)
-    mo1[:,23] = mo0[:,20].copy ()
-    mo1[:,24] = mo0[:,23].copy ()
-    mo1[:,25] = mo0[:,25].copy ()
-    mo1[:,26] = (mo0[:,18] - mo0[:,22]) / np.sqrt (2.0)
     mc = LASSCFNoSymm (mf, (4,4), ((2,2),(2,2)), spin_sub=(1,1))
-    my_occ = np.zeros (mf.mo_coeff.shape[-1])
-    my_occ[:mc.ncore] = 2.0
-    my_occ[mc.ncore:mc.ncore+mc.ncas] = 1.0
-    tools.molden.from_mo (mol, 'fixed_antiquintet.molden', mo1, occ=my_occ)
-    mc.kernel (mo1)
-    tools.molden.from_mo (mol, 'opt_antiquintet.molden', mc.mo_coeff, occ=my_occ)
+    mo = mc.localize_init_guess ((list(range(3)),list(range(7,10))))
+    tools.molden.from_mo (mol, 'localize_init_guess.molden', mo)
+    mc.kernel (mo)
+    tools.molden.from_mo (mol, 'c2h4n4_opt.molden', mc.mo_coeff)
 
 
