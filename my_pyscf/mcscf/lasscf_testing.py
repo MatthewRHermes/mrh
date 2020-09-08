@@ -132,7 +132,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
                 f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
-                f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
+                f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(2,3,1))) # first index external
         return gorb + (f1_prime - f1_prime.T)
 
     def update_mo_ci_eri (self, x, h2eff_sub):
@@ -297,19 +297,36 @@ if __name__ == '__main__':
     print ("2) There is a known difference between my and newton_casscf's expression for H_cc x_c. I strongly believe MY version is the correct one.")
     print ("3) My preconditioner is obviously wrong, but in such a way that it suppresses CI vector evolution, which means stuff still converges if the CI vector isn't super sensitive to the orbital rotations.")
 
-    #from mrh.tests.lasscf.c2h4n4_struct import structure as struct
-    #mo0 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_mo.dat')
-    #ci00 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci0.dat')
-    #ci01 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci1.dat')
-    #ci0 = None #[[ci00], [-ci01.T]]
-    #dr_nn = 2.0
-    #mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-    #mol.verbose = lib.logger.DEBUG
-    #mol.output = 'lasscf_testing.log'
-    #mol.spin = 8 
-    #mol.build ()
-    #mf = scf.RHF (mol).run ()
-    #mc = LASSCFNoSymm (mf, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
-    #mc.kernel (mo0, ci0)
+    from mrh.tests.lasscf.c2h4n4_struct import structure as struct
+    mo0 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_mo.dat')
+    ci00 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci0.dat')
+    ci01 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci1.dat')
+    ci0 = None #[[ci00], [-ci01.T]]
+    dr_nn = 2.0
+    mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
+    mol.verbose = lib.logger.DEBUG
+    mol.output = 'lasscf_testing_c2n4h4.log'
+    mol.spin = 0 
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    mo0 = tools.molden.load ('incorrect_nonet.molden')[2]
+    mo1 = mo0.copy ()
+    mo1[:,17] = (mo0[:,18] + mo0[:,22]) / np.sqrt (2.0)
+    mo1[:,18] = (mo0[:,17] - mo0[:,26]) / np.sqrt (2.0)
+    mo1[:,19] = mo0[:,19].copy ()
+    mo1[:,20] = mo0[:,21].copy ()
+    mo1[:,21] = mo0[:,24].copy ()
+    mo1[:,22] = (mo0[:,17] + mo0[:,26]) / np.sqrt (2.0)
+    mo1[:,23] = mo0[:,20].copy ()
+    mo1[:,24] = mo0[:,23].copy ()
+    mo1[:,25] = mo0[:,25].copy ()
+    mo1[:,26] = (mo0[:,18] - mo0[:,22]) / np.sqrt (2.0)
+    mc = LASSCFNoSymm (mf, (4,4), ((2,2),(2,2)), spin_sub=(1,1))
+    my_occ = np.zeros (mf.mo_coeff.shape[-1])
+    my_occ[:mc.ncore] = 2.0
+    my_occ[mc.ncore:mc.ncore+mc.ncas] = 1.0
+    tools.molden.from_mo (mol, 'fixed_antiquintet.molden', mo1, occ=my_occ)
+    mc.kernel (mo1)
+    tools.molden.from_mo (mol, 'opt_antiquintet.molden', mc.mo_coeff, occ=my_occ)
 
 
