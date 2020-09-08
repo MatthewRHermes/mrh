@@ -43,7 +43,8 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             method='incore', level=2) # level=2 -> ppaa, papa only
             # level=1 computes more stuff; it's only useful if I
             # want the honest hdiag in get_prec ()
-
+        ncore, ncas = self.ncore, self.ncas
+        nocc = ncore + ncas
 
     def make_odm1s2c_sub (self, kappa):
         # This is tricky, because in the parent I transposed ocm2 to make it 
@@ -67,6 +68,22 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         ocm2[:,:,:,ncore:nocc] += ocm2_cas
         ocm2 = np.asfortranarray (ocm2) # Make largest index slowest-moving
         return odm1fs, ocm2
+
+    def get_veff_Heff (self, odm1fs, tdm1frs):
+        ncore, ncas, nmo = self.ncore, self.ncas, self.nmo
+        nocc = ncore + ncas
+        veff_mo, h1frs = lasci.LASCI_HessianOperator.get_veff_Heff (self, odm1fs, tdm1frs)
+        # Additional error to subtract from h1frs
+        for isub, odm1s in enumerate (odm1fs[1:]):
+            err_dm1rs = odm1s[None,:,:,ncore:nocc].copy ()
+            err_dm1rs[:,:,ncore:nocc,:] = 0.0
+            err_h1rs = np.tensordot (err_dm1rs, self.h2eff_sub, axes=2)
+            err_h1rs += err_h1rs[:,::-1] # ja + jb
+            err_h1rs -= np.tensordot (err_dm1rs, self.h2eff_sub, axes=((2,3),(0,3)))
+            err_h1rs += err_h1rs.transpose (0,1,3,2)
+            h1frs[isub,:,:,:,:] -= err_h1rs
+        return veff_mo, h1frs
+
 
     def split_veff (self, veff_mo, dm1s_mo):
         veff_c = veff_mo.copy ()
@@ -98,6 +115,9 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
             ocm2_cas, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
+        ecm2 = ocm2_cas + tcm2
+        f1_prime[:ncore,ncore:nocc] = np.tensordot (self.h2eff_sub[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
+        f1_prime[nocc:,ncore:nocc] = np.tensordot (self.h2eff_sub[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
         for p, f1 in enumerate (f1_prime):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
@@ -213,8 +233,8 @@ if __name__ == '__main__':
 
     # For orb degrees of freedom, gcas = 2 glas and therefore 2 xcas = xlas
     print (" ")
-    print ("Orbital gradient norms: {} CAS ; {} LAS".format (linalg.norm (gorb_cas), linalg.norm (gorb_las)))
-    print ("Orbital gradient disagreement:", linalg.norm (gorb_cas-gorb_las))
+    print ("Orbital gradient norms: {} CAS ; {} LAS".format (linalg.norm (gorb_cas)/2, linalg.norm (gorb_las)))
+    print ("Orbital gradient disagreement:", linalg.norm (gorb_cas/2-gorb_las))
     print ("CI gradient norms: {} CAS ; {} LAS".format (linalg.norm (gci_cas), linalg.norm (gci_las)))
     print ("CI gradient disagreement:", linalg.norm (gci_cas[0]-gci_las[0][0]))
                 
@@ -236,15 +256,20 @@ if __name__ == '__main__':
             k, l = ij[ket]
             xorb[i:j,k:l] = xorb_inp[i:j,k:l]
             xorb[k:l,i:j] = xorb_inp[k:l,i:j]
-        
+       
         x_las = ugg.pack (xorb, xci)
-        x_cas = pack_cas (xorb/2, xci[0]) 
+        x_cas = pack_cas (xorb, xci[0]) 
         hx_orb_las, hx_ci_las = ugg.unpack (h_op_las._matvec (x_las))
         hx_orb_cas, hx_ci_cas = unpack_cas (h_op_cas (x_cas))
 
         hx_ci_cas_csf = ugg.ci_transformers[0][0].vec_det2csf (hx_ci_cas[0], normalize=False)
         hx_ci_cas[0] = ugg.ci_transformers[0][0].vec_csf2det (hx_ci_cas_csf, normalize=False)
         ci_norm = np.dot (hx_ci_cas[0].ravel (), hx_ci_cas[0].ravel ())
+
+        # I definitely have to be able to make sense of this conventional difference!!!
+        hx_orb_las *= 2.0
+        if not sector.upper () == 'CI':
+            hx_ci_las[0][0] *= 2.0
 
         print (" ")
         for osect in ('core-virtual', 'active-virtual', 'core-active'):

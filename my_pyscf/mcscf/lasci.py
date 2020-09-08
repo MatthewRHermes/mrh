@@ -180,22 +180,23 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             else:
                 veff = las.get_veff (dm1s = np.dot (mo_coeff, np.dot (self.dm1s.sum (0), moH_coeff)))
             veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=self.casdm1fs)
-        h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)
+        self.h2eff_sub = h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)
         self.eri_cas = h2eff_sub[ncore:nocc,:,:,:]
         h1s = las.get_hcore ()[None,:,:] + veff
         h1s = np.dot (h1s, mo_coeff)
         self.h1s = np.dot (moH_coeff, h1s).transpose (1,0,2)
-        self.h1frs = np.zeros ((len (self.casdm1frs), self.nroots, 2, ncas, ncas), dtype=self.dtype)
-        self.h1frs[:,:,:,:,:] = self.h1s[None,None,:,ncore:nocc,ncore:nocc].copy ()
+        self.h1frs = np.zeros ((len (self.casdm1frs), self.nroots, 2, nmo, ncas), dtype=self.dtype)
+        self.h1frs[:,:,:,:,:] = self.h1s[None,None,:,:,ncore:nocc].copy ()
         for ix, casdm1rs in enumerate (self.casdm1frs):
             i = sum (ncas_sub[:ix])
             j = i + ncas_sub[ix]
             for jx, casdm1s in enumerate (casdm1rs):
                 casdm1 = casdm1s[0] + casdm1s[1]
                 self.h1frs[ix,jx,:,:,:] -= np.tensordot (casdm1,
-                    self.eri_cas[i:j,i:j,:,:], axes=2)[None,:,:] # double-counting: J
+                    self.h2eff_sub[:,:,i:j,i:j], axes=((0,1),(2,3)))[None,:,:] # double-counting: J
                 self.h1frs[ix,jx,:,:,:] += np.tensordot (casdm1s,
-                    self.eri_cas[:,i:j,i:j,:], axes=((1,2),(2,1))) # double-counting: K
+                    self.h2eff_sub[:,i:j,i:j,:], axes=((1,2),(2,1))) # double-counting: K
+        self.h1frs_aa = self.h1frs[:,:,:,ncore:nocc,:]
 
         # Fock1 matrix (for gradient and subtrahend terms in Hx)
         self.fock1 = sum ([f @ d for f,d in zip (list (self.h1s), list (self.dm1s))])
@@ -211,7 +212,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         for fcibox, no, ne in zip (self.fciboxes, ncas_sub, nelecas_sub):
             self.linkstrl.append (fcibox.states_gen_linkstr (no, ne, True)) 
             self.linkstr.append (fcibox.states_gen_linkstr (no, ne, False))
-        self.hci0 = self.Hci_all (None, self.h1frs, self.eri_cas, ci)
+        self.hci0 = self.Hci_all (None, self.h1frs_aa, self.eri_cas, ci)
         self.e0 = [[hc.dot (c) for hc, c in zip (hcr, cr)] for hcr, cr in zip (self.hci0, ci)]
         self.hci0 = [[hc - c*e for hc, c, e in zip (hcr, cr, er)] for hcr, cr, er in zip (self.hci0, ci, self.e0)]
 
@@ -427,10 +428,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         and mean-field intersubspace response in h1s_prime. I have set it up so that
         I do NOT add h.c. (multiply by 2) at the end. '''
         ncore, nocc = self.ncore, self.nocc
-        kappa1_cas = kappa1[ncore:nocc, ncore:nocc]
-        h1frs = np.dot (self.h1frs, kappa1_cas) 
+        kappa1_cas = kappa1[ncore:nocc,:]
+        h1frs = -np.tensordot (kappa1_cas, self.h1frs, axes=((1),(3))).transpose (1,2,3,0,4)
         h1frs += h1frs.transpose (0,1,2,4,3)
-        h2 = np.dot (self.eri_cas, kappa1_cas)
+        h2 = -np.tensordot (kappa1_cas, self.h2eff_sub, axes=1)
         h2 += h2.transpose (2,3,0,1)
         h2 += h2.transpose (1,0,3,2)
         h1frs += h1frs_prime
@@ -443,7 +444,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # IMPORTANT: this disagrees with PySCF, but I still think it's right and PySCF is wrong
         ci1HmEci0 = [[c.dot (Hci) for c, Hci in zip (cr, Hcir)] for cr, Hcir in zip (ci1, self.hci0)]
         s01 = [[c1.dot (c0) for c1,c0 in zip (c1r, c0r)] for c1r, c0r in zip (ci1, self.ci)]
-        ci2 = self.Hci_all ([[-e for e in er] for er in self.e0], self.h1frs, self.eri_cas, ci1)
+        ci2 = self.Hci_all ([[-e for e in er] for er in self.e0], self.h1frs_aa, self.eri_cas, ci1)
         ci2 = [[x-(y*z) for x,y,z in zip (xr,yr,zr)] for xr,yr,zr in zip (ci2, self.ci, ci1HmEci0)]
         ci2 = [[x-(y*z) for x,y,z in zip (xr,yr,zr)] for xr,yr,zr in zip (ci2, self.hci0, s01)]
         return [[x*2 for x in xr] for xr in ci2]
@@ -459,7 +460,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # of extra eris (g^aa_ii, g^ai_ai)
         Hci_diag = []
         for ix, (fcibox, norb, nelec, h1rs, csf_list) in enumerate (zip (self.fciboxes, 
-         self.ncas_sub, self.nelecas_sub, self.h1frs, self.ugg.ci_transformers)):
+         self.ncas_sub, self.nelecas_sub, self.h1frs_aa, self.ugg.ci_transformers)):
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2 = self.eri_cas[i:j,i:j,i:j,i:j]
