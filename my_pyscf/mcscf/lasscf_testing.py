@@ -229,11 +229,12 @@ if __name__ == '__main__':
 
     gorb_cas, gci_cas = unpack_cas (g_all_cas)
     gorb_las, gci_las = ugg.unpack (h_op_las.get_grad ())
+    gorb_cas /= 2.0 # Newton-CASSCF multiplies orb-grad terms by 2 so as to exponentiate kappa instead of kappa/2
 
     # For orb degrees of freedom, gcas = 2 glas and therefore 2 xcas = xlas
     print (" ")
-    print ("Orbital gradient norms: {} CAS ; {} LAS".format (linalg.norm (gorb_cas)/2, linalg.norm (gorb_las)))
-    print ("Orbital gradient disagreement:", linalg.norm (gorb_cas/2-gorb_las))
+    print ("Orbital gradient norms: {} CAS ; {} LAS".format (linalg.norm (gorb_cas), linalg.norm (gorb_las)))
+    print ("Orbital gradient disagreement:", linalg.norm (gorb_cas-gorb_las))
     print ("CI gradient norms: {} CAS ; {} LAS".format (linalg.norm (gci_cas), linalg.norm (gci_las)))
     print ("CI gradient disagreement:", linalg.norm (gci_cas[0]-gci_las[0][0]))
                 
@@ -261,14 +262,17 @@ if __name__ == '__main__':
         hx_orb_las, hx_ci_las = ugg.unpack (h_op_las._matvec (x_las))
         hx_orb_cas, hx_ci_cas = unpack_cas (h_op_cas (x_cas))
 
+        hx_orb_cas /= 2.0 # Newton-CASSCF multiplies orb-grad terms by 2 so as to exponentiate kappa instead of kappa/2
+        if sector.upper () != 'CI':
+            hx_ci_las[0][0] *= 2.0
+            # I may be wrong. Looking back at it I can't justify to myself why you don't add h.c. to h_co x_o. 
+            # But when I add it back in my calculation stops converging. It may be that my division by 2 of this
+            # term suppresses the developing ci gradient (since CI gradient at the start of each macrocycle must
+            # be zero) and so compensates for a very inadequate preconditioner.
+
         hx_ci_cas_csf = ugg.ci_transformers[0][0].vec_det2csf (hx_ci_cas[0], normalize=False)
         hx_ci_cas[0] = ugg.ci_transformers[0][0].vec_csf2det (hx_ci_cas_csf, normalize=False)
         ci_norm = np.dot (hx_ci_cas[0].ravel (), hx_ci_cas[0].ravel ())
-
-        # I definitely have to be able to make sense of this conventional difference!!!
-        hx_orb_las *= 2.0
-        if not sector.upper () == 'CI':
-            hx_ci_las[0][0] *= 2.0
 
         print (" ")
         for osect in ('core-virtual', 'active-virtual', 'core-active'):
@@ -280,13 +284,19 @@ if __name__ == '__main__':
             print ("Hx disagreement:".format (osect, sector),
                 linalg.norm (hx_orb_cas[i:j,k:l]-hx_orb_las[i:j,k:l]))
         print ("CI - {} Hessian sector".format (sector))
-        print ("Hx norms: {} CAS ; {} LAS".format (linalg.norm (hx_ci_las), linalg.norm (hx_ci_cas)))
+        print ("Hx norms: {} CAS ; {} LAS".format (linalg.norm (hx_ci_cas), linalg.norm (hx_ci_las)))
         print ("Hx disagreement:", linalg.norm (hx_ci_las[0][0]-hx_ci_cas[0]), np.dot (hx_ci_las[0][0].ravel (), hx_ci_cas[0].ravel ()) / ci_norm)
 
     examine_sector ('core-virtual', xorb, xci)
     examine_sector ('active-virtual', xorb, xci)
     examine_sector ('core-active', xorb, xci)
     examine_sector ('CI', xorb, xci)
+    print ("\nNotes:")
+    print ("1) Newton_casscf.py multiplies all orb grad terms by 2 and exponentiates by kappa as opposed to kappa/2. This is accounted for in the above.")
+    print ("2) Newton_casscf.py has twice my function's value for H_co x_o, which I've accounted for in the above printout.")
+    print ("    Newton_casscf.py may actually be more correct, but my calculation doesn't converge if I do the same thing.")
+    print ("    Speculation: lower x_c in my function may compensate for an inadequate preconditioner.")
+    print ("3) There is a known difference between my and newton_casscf's expression for H_cc x_c. I do not yet know which one is correct.")
 
     #from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     #mo0 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_mo.dat')
