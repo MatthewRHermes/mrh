@@ -256,7 +256,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def make_odm1s2c_sub (self, kappa):
         odm1fs = np.zeros ((len (self.ci)+1, 2, self.nmo, self.nmo), dtype=self.dtype)
-        odm1fs[0,:,self.nocc:,:self.ncore] = kappa[self.nocc:,:self.ncore]
+        odm1fs[0,:,self.ncore:,:self.ncore] = kappa[self.ncore:,:self.ncore]
         for isub, (ncas, casdm1s) in enumerate (zip (self.ncas_sub, self.casdm1fs)):
             i = self.ncore + sum (self.ncas_sub[:isub])
             j = i + ncas
@@ -476,7 +476,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def update_mo_ci_eri (self, x, h2eff_sub):
         nmo, ncore, ncas, nocc = self.nmo, self.ncore, self.ncas, self.nocc
         kappa, dci = self.ugg.unpack (x)
-        umat = linalg.expm (kappa)
+        umat = linalg.expm (kappa/2)
         mo1 = self.mo_coeff @ umat
         ci1 = [[c + dc for c,dc in zip (cr,dcr)] for cr, dcr in zip (self.ci, dci)]
         norm_ci = [[np.sqrt (c.dot (c)) for c in cr] for cr in ci1]

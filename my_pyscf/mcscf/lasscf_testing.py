@@ -201,7 +201,6 @@ if __name__ == '__main__':
     #mo_coeff = mc.mo_coeff.copy ()
     print (mc.converged, mc.e_tot)
     las = LASSCFNoSymm (mf, (4,), ((2,2),), spin_sub=(1,))
-    las.max_cycle_macro = 1
     las.kernel (mo_coeff)
 
     mc.mo_coeff = mo_coeff.copy ()
