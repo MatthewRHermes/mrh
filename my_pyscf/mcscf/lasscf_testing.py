@@ -198,7 +198,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
                 f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
-                f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(2,3,1))) # first index external
+                f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
         return gorb + (f1_prime - f1_prime.T)
 
     def update_mo_ci_eri (self, x, h2eff_sub):
@@ -375,6 +375,11 @@ if __name__ == '__main__':
         hx_orb_las, hx_ci_las = ugg.unpack (h_op_las._matvec (x_las))
         hx_orb_cas, hx_ci_cas = unpack_cas (h_op_cas (x_cas))
 
+        # Subtract the level shift that I put in there on purpose
+        dhx_orb_las, dhx_ci_las = ugg.unpack (las.ah_level_shift * np.abs (x_las))
+        hx_orb_las -= dhx_orb_las
+        hx_ci_las[0][0] -= dhx_ci_las[0][0]
+
         hx_orb_cas /= 2.0
         if sector.upper () != 'CI':
             hx_ci_cas[0] /= 2.0 
@@ -424,6 +429,7 @@ if __name__ == '__main__':
     mol.build ()
     mf = scf.RHF (mol).run ()
     mc = LASSCFNoSymm (mf, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
+    mc.ah_level_shift = 1e-4
     mo = mc.localize_init_guess ((list(range(3)),list(range(7,10))))
     tools.molden.from_mo (mol, 'localize_init_guess.molden', mo)
     mc.kernel (mo)

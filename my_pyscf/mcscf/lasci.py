@@ -405,6 +405,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         kappa2 = self.orbital_response (kappa1, odm1fs, ocm2, tdm1frs, tcm2, veff_prime)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, self.ci_response_diag (ci1))]
+
+        # LEVEL SHIFT!!
+        kappa3, ci3 = self.ugg.unpack (self.ah_level_shift * np.abs (x))
+        kappa2 += kappa3
+        ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, ci3)]
         return self.ugg.pack (kappa2, ci2)
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
