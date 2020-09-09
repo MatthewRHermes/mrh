@@ -39,7 +39,7 @@ def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovl
         if has_orbsym: mo_orbsym[i:j] = mo_proj.orbsym[:nlas]
         null_coeff = np.hstack ([null_coeff, mo_proj[:,nlas:]])
 
-    # SVD to pick inactive orbitals
+    # SVD of null space to pick inactive orbitals
     assert (null_coeff.shape[-1] + ncas == nmo)
     mo_core = tag_array (mo_coeff[:,:ncore], orbsym=mo_orbsym[:ncore])
     mo_proj, sval, mo_core = las._svd (null_coeff, mo_core, s=ao_ovlp)
@@ -49,7 +49,7 @@ def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovl
         mo_orbsym[nocc:] = mo_proj.orbsym[ncore:]
     mo_coeff = tag_array (mo_coeff, orbsym=mo_orbsym)
 
-    # Canonicalize for visualization
+    # Canonicalize for good init CI guess and visualization
     ranges = [(0,ncore),(nocc,nmo)]
     for ix, di in enumerate (ncas_sub):
         i = sum (ncas_sub[:ix])
