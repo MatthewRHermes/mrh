@@ -1020,14 +1020,17 @@ class LASCINoSymm (casci.CASCI):
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, **kwargs):
         ncas_tot = sum (ncas)
         nel_tot = [0, 0]
-        for nel in nelecas:
+        new_nelecas = []
+        for ix, nel in enumerate (nelecas):
             if isinstance (nel, (int, np.integer)):
                 nb = nel // 2
                 na = nb + (nel % 2)
             else:
                 na, nb = nel
+            new_nelecas.append ((na, nb))
             nel_tot[0] += na
             nel_tot[1] += nb
+        nelecas = new_nelecas
         super().__init__(mf, ncas=ncas_tot, nelecas=nel_tot, ncore=ncore)
         if spin_sub is None: spin_sub = [0 for sub in ncas]
         self.ncas_sub = np.asarray (ncas)

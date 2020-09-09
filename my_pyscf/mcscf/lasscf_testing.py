@@ -415,7 +415,7 @@ if __name__ == '__main__':
     ci00 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci0.dat')
     ci01 = np.loadtxt ('/home/herme068/gits/mrh/tests/lasscf/test_lasci_ci1.dat')
     ci0 = None #[[ci00], [-ci01.T]]
-    dr_nn = 2.0
+    dr_nn = 3.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
     mol.verbose = lib.logger.DEBUG
     mol.output = 'lasscf_testing_c2n4h4.log'
@@ -423,7 +423,7 @@ if __name__ == '__main__':
     #mol.symmetry = 'Cs'
     mol.build ()
     mf = scf.RHF (mol).run ()
-    mc = LASSCFNoSymm (mf, (4,4), ((2,2),(2,2)), spin_sub=(1,1))
+    mc = LASSCFNoSymm (mf, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
     mo = mc.localize_init_guess ((list(range(3)),list(range(7,10))))
     tools.molden.from_mo (mol, 'localize_init_guess.molden', mo)
     mc.kernel (mo)
