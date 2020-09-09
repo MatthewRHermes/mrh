@@ -732,8 +732,8 @@ def align_degenerate_coupled_vecs (lvecs, svals, rvecs, lsymm, rsymm, rtol=param
             proj = lv[:,idx] @ rv[:,idx].conjugate ().T
             symmweight = []
             for lbl in uniq_labels:
-                row_idx = lsymm==lbl if len (lsymm) > 0 else np.ones (p.shape[0], dtype=bool)
-                col_idx = rsymm==lbl if len (rsymm) > 0 else np.ones (p.shape[1], dtype=bool)
+                row_idx = lsymm==lbl if len (lsymm) > 0 else np.ones (proj.shape[0], dtype=bool)
+                col_idx = rsymm==lbl if len (rsymm) > 0 else np.ones (proj.shape[1], dtype=bool)
                 symmweight.append (scipy.linalg.norm (proj[np.ix_(row_idx,col_idx)]))
             ll[idx] = uniq_labels[np.argmax (symmweight)]
         idx_unchk[idx] = False
