@@ -51,10 +51,12 @@ class FCISolver (direct_spin1_symm.FCISolver):
         return hc
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
+        self.norb, self.nelec = norb, nelec
         self.check_transformer_cache ()
         return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
 
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
+        self.norb, self.nelec = norb, nelec
         self.check_transformer_cache ()
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
             hdiag_csf=hdiag_csf, npsp=npsp)
@@ -105,5 +107,5 @@ class FCISolver (direct_spin1_symm.FCISolver):
         else:
             self.transformer._update_spin_cache (self.norb, neleca, nelecb, self.smult)
             self.transformer._update_symm_cache (self.orbsym)
-            self.transformer.wfnsym = wfnsym
+            self.transformer.wfnsym = self.wfnsym
 

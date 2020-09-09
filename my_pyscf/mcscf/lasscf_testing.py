@@ -3,10 +3,70 @@ from scipy import linalg
 from mrh.my_pyscf.mcscf import lasci
 from pyscf.mcscf import mc_ao2mo
 from pyscf.lo import orth
+from pyscf.lib import tag_array
 
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than
 # CASSCF. Eventually to be modified into a true all-PySCF implementation of vLASSCF
+
+def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp):
+    ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
+    and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
+    space. '''
+    assert (hasattr (mo_coeff, 'orbsym') == hasattr (lo_coeff, 'orbsym'))
+    ncore, ncas, ncas_sub = las.ncore, las.ncas, las.ncas_sub
+    nocc = ncore + ncas
+    nfrags = len (frags_orbs)
+    nao, nmo = mo_coeff.shape
+    loc2mo = lo_coeff.conj ().T @ ao_ovlp @ mo_coeff[:,ncore:nocc]
+    null_coeff = []
+    lorbsym = getattr (lo_coeff, 'orbsym', np.zeros (nao))
+    rorbsym = getattr (mo_coeff, 'orbsym', np.zeros (nmo))[ncore:nocc]
+    null_coeff_orbsym = []
+    for ix, frag_orbs in enumerate (frags_orbs):
+        u_frag, s, vh = las._svd (loc2mo[frag_orbs,:],
+            lorbsym=lorbsym[frag_orbs], rorbsym=rorbsym)
+        u_all = np.zeros ((nao, u_frag.shape[-1]), dtype=u_frag.dtype)
+        u_all[frag_orbs,:] = u_frag
+        i = ncore + sum (ncas_sub[:ix])
+        di = ncas_sub[ix]
+        j = i + di
+        mo_coeff[:,i:j] = lo_coeff @ u_all[:,:di]
+        null_coeff.append (lo_coeff @ u_all[:,di:])
+        if hasattr (mo_coeff, 'orbsym'):
+            mo_coeff.orbsym[i:j] = s.orbsym[:di]
+            null_coeff_orbsym.append (s.orbsym[di:])
+    # Inactive/virtual
+    null_coeff = np.concatenate (null_coeff, axis=1)
+    unused_aos = np.ones (nao, dtype=np.bool_)
+    for frag_orbs in frags_orbs: unused_aos[frag_orbs] = False
+    assert (np.count_nonzero (unused_aos) + null_coeff.shape[-1] + ncas == nmo)
+    null_coeff = np.append (null_coeff, lo_coeff[:,unused_aos], axis=1)
+    ovlp = null_coeff.conj ().T @ ao_ovlp @ mo_coeff[:,:ncore]
+    if hasattr (mo_coeff, 'orbsym'):
+        null_coeff_orbsym.append (lo_coeff.orbsym[unused_aos])
+        null_coeff_orbsym = np.concatenate (null_coeff_orbsym)
+        ovlp = tag_array (ovlp, lorbsym=null_coeff_orbsym, 
+            rorbsym=mo_coeff.orbsym[:ncore])
+    u, s, vh = las._svd (ovlp)
+    mo_coeff[:,:ncore] = null_coeff @ u[:,:ncore]
+    mo_coeff[:,nocc:] = null_coeff @ u[:,ncore:]
+    if hasattr (mo_coeff, 'orbsym'):
+        mo_coeff.orbsym[:ncore] = s.orbsym[:ncore]
+        mo_coeff.orbsym[nocc:] = s.orbsym[ncore:]
+    # Semi-canonicalize
+    ranges = [(0,ncore),(nocc,nmo)]
+    for ix, di in enumerate (ncas_sub):
+        i = sum (ncas_sub[:ix])
+        ranges.append ((i,i+di))
+    fock = mo_coeff.conj ().T @ fock @ mo_coeff
+    for i, j in ranges:
+        if (j == i): continue
+        e, c = las._eig (fock[i:j,i:j], i, j)
+        idx = np.argsort (e)
+        mo_coeff[:,i:j] = mo_coeff[:,i:j] @ c[:,idx]
+    return mo_coeff
+
 
 class LASSCF_UnitaryGroupGenerators (lasci.LASCI_UnitaryGroupGenerators):
 
@@ -21,7 +81,14 @@ class LASSCF_UnitaryGroupGenerators (lasci.LASCI_UnitaryGroupGenerators):
             idx[self.frozen,:] = idx[:,self.frozen] = False
 
 class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
+    __init__ = lasci.LASCISymm_UnitaryGroupGenerators.__init__
     _init_orb = lasci.LASCISymm_UnitaryGroupGenerators._init_orb
+    _init_ci = lasci.LASCISymm_UnitaryGroupGenerators._init_ci
+    def _init_orb (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
+        LASSCF_UnitaryGroupGenerators._init_orb (self, las, mo_coeff, ci)
+        self.symm_forbid = (orbsym[:,None] ^ orbsym[None,:]).astype (np.bool_)
+        self.uniq_orb_idx[self.symm_forbid] = False
+
     # TODO: test that the "super()" command in the above points to
     # the correct parent class
 
@@ -171,65 +238,96 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         ''' Here spin = 2s = number of singly-occupied orbitals '''
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
+        mo_coeff = mo_coeff.copy ()
         if lo_coeff is None:
             lo_coeff = orth.orth_ao (self.mol, 'meta_lowdin')
         if spin is None:
             spin = self.nelecas[0] - self.nelecas[1]
         assert (spin % 2 == sum (self.nelecas) % 2)
         assert (len (frags_atoms) == len (self.ncas_sub))
-        ncore, ncas, nelecas, ncas_sub = self.ncore, self.ncas, self.nelecas, self.ncas_sub
-        nocc = ncore + ncas
-        mo_coeff = mo_coeff.copy ()
-        nfrags = len (frags_atoms)
-        nao, nmo = mo_coeff.shape
         ao_offset = self.mol.offset_ao_by_atom ()
         frags_orbs = [[orb for atom in frag_atoms for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))] for frag_atoms in frags_atoms]
-        mo_core = mo_coeff[:,:ncore].copy ()
-        mo_cas = mo_coeff[:,ncore:nocc].copy ()
-        loc2mo = lo_coeff.conj ().T @ self._scf.get_ovlp () @ mo_cas
-        cas_occ = np.zeros (ncas)
-        neleca = (sum (nelecas) + spin) // 2
-        nelecb = (sum (nelecas) - spin) // 2
-        cas_occ[:neleca] += 1
-        cas_occ[:nelecb] += 1
-        null_coeff = []
-        for ix, frag_orbs in enumerate (frags_orbs):
-            u_frag, s, vh = linalg.svd (loc2mo[frag_orbs,:])
-            u_all = np.zeros ((nao, u_frag.shape[-1]), dtype=u_frag.dtype)
-            u_all[frag_orbs,:] = u_frag
-            i = ncore + sum (ncas_sub[:ix])
-            j = i + ncas_sub[ix]
-            mo_coeff[:,i:j] = lo_coeff @ u_all[:,:ncas_sub[ix]]
-            null_coeff.append (lo_coeff @ u_all[:,ncas_sub[ix]:])
-        # Inactive/virtual
-        null_coeff = np.concatenate (null_coeff, axis=1)
-        unused_aos = np.ones (nao, dtype=np.bool_)
-        for frag_orbs in frags_orbs: unused_aos[frag_orbs] = False
-        assert (np.count_nonzero (unused_aos) + null_coeff.shape[-1] + ncas == nmo)
-        null_coeff = np.append (null_coeff, lo_coeff[:,unused_aos], axis=1)
-        ovlp = null_coeff.conj ().T @ self._scf.get_ovlp () @ mo_core
-        u, s, vh = linalg.svd (ovlp)
-        mo_coeff[:,:ncore] = null_coeff @ u[:,:ncore]
-        mo_coeff[:,nocc:] = null_coeff @ u[:,ncore:]
-        # Semi-canonicalize
         if fock is None: fock = self._scf.get_fock ()
-        ranges = [(0,ncore),(nocc,nmo)]
-        for ix, di in enumerate (ncas_sub):
-            i = sum (ncas_sub[:ix])
-            ranges.append ((i,i+di))
-        for i, j in ranges:
-            if (j == i): continue
-            mo = mo_coeff[:,i:j]
-            f = mo.conj ().T @ fock @ mo
-            e, c = linalg.eigh (f)
-            idx = np.argsort (e)
-            mo_coeff[:,i:j] = mo @ c[:,idx]
-        return mo_coeff
+        ao_ovlp = self._scf.get_ovlp ()
+        return localize_init_guess (self, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp)
+
+    def _svd (self, mat, **kwargs):
+        return linalg.svd (mat)
  
 class LASSCFSymm (lasci.LASCISymm):
     get_ugg = LASSCFSymm_UnitaryGroupGenerators    
     get_hop = LASSCF_HessianOperator
     split_veff = LASSCFNoSymm.split_veff
+
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None):
+        s = self._scf.get_ovlp ()
+        if mo_coeff is None:
+            mo_coeff = self.mo_coeff
+        orbsym = scf.hf_symm.get_orbsym (self._scf.mol, mo_coeff, s, True)
+        mo_coeff = tag_array (mo_coeff.copy (), orbsym=orbsym)
+        if lo_coeff is None:
+            lo_coeff = orth.orth_ao (self.mol, 'meta_lowdin')
+        orbsym = scf.hf_symm.get_orbsym (self._scf.mol, lo_coeff, s, True)
+        lo_coeff = tag_array (lo_coeff, orbsym=orbsym)
+        if spin is None:
+            spin = self.nelecas[0] - self.nelecas[1]
+        assert (spin % 2 == sum (self.nelecas) % 2)
+        assert (len (frags_atoms) == len (self.ncas_sub))
+        ao_offset = self.mol.offset_ao_by_atom ()
+        frags_orbs = [[orb for atom in frag_atoms for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))] for frag_atoms in frags_atoms]
+        if fock is None: fock = self._scf.get_fock ()
+        ao_ovlp = self._scf.get_ovlp ()
+        return localize_init_guess (self, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp)
+
+    def _svd (self, mat, lorbsym=None, rorbsym=None):
+        if lorbsym is None: lorbsym=mat.lorbsym
+        if rorbsym is None: rorbsym=mat.rorbsym
+        torbsym = set (np.append (lorbsym, rorbsym))
+        m, n = mat.shape
+        k = min (m, n)
+        u_all = []
+        vh_all = []
+        s_all = []
+        s_all = []
+        sorbsym = []
+        u_null = []
+        vh_null = []
+        norbsym = []
+        for ir in torbsym:
+            lidx = lorbsym==ir
+            ridx = rorbsym==ir
+            m0 = np.count_nonzero (lidx)
+            n0 = np.count_nonzero (ridx)
+            if m0 == 0:
+                vh_null.append (np.eye (n)[ridx,:])
+                norbsym.extend ([ir,] * m0)
+            elif n0 == 0:
+                u_null.append (np.eye (m)[:,lidx])
+                norbsym.extend ([ir,] * n0)
+            else:
+                u0, s, vh0 = linalg.svd (mat[lidx,:][:,ridx])
+                k0 = min (m0, n0)
+                l0 = max (m0, n0) - k0
+                u = np.zeros ((m, u0.shape[1]), dtype=u0.dtype)
+                u[lidx,:] = u0[:,:]
+                vh = np.zeros ((vh0.shape[1], n), dtype=vh0.dtype)
+                vh[:,ridx] = vh0[:,:]
+                u_all.append (u[:,:k0])
+                vh_all.append (vh[:k0,:])
+                s_all.append (s)
+                sorbsym.extend ([ir,]*k0)
+                u_null.append (u[:,k0:])
+                vh_null.append (vh[k0:,:])
+                norbsym.extend ([ir,]*l0)
+        u = np.concatenate (u_all, axis=1)
+        vh = np.concatenate (vh_all, axis=0)
+        s = np.concatenate (s_all)
+        idx = np.argsort (-s)
+        u, s, sorbsym, vh = u[:,idx], s[idx], [sorbsym[i] for i in idx], vh[idx,:]
+        u = np.append (u, np.concatenate (u_null, axis=1), axis=1)
+        vh = np.append (vh, np.concatenate (vh_null, axis=0), axis=0)
+        s = tag_array (s, orbsym=np.array (sorbsym + norbsym))
+        return u, s, vh
 
 if __name__ == '__main__':
     from pyscf import scf, lib, tools, mcscf
@@ -366,6 +464,7 @@ if __name__ == '__main__':
     mol.verbose = lib.logger.DEBUG
     mol.output = 'lasscf_testing_c2n4h4.log'
     mol.spin = 0 
+    #mol.symmetry = 'Cs'
     mol.build ()
     mf = scf.RHF (mol).run ()
     mc = LASSCFNoSymm (mf, (4,4), ((2,2),(2,2)), spin_sub=(1,1))

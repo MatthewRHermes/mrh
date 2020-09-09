@@ -93,8 +93,7 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
         self._init_ci (las, mo_coeff, ci, orbsym, wfnsym_sub)
     
     def _init_orb (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
-        super()._init_orb (las, mo_coeff, ci)
-        orbsym = mo_coeff.orbsym
+        LASCI_UnitaryGroupGenerators._init_orb (self, las, mo_coeff, ci)
         self.symm_forbid = (orbsym[:,None] ^ orbsym[None,:]).astype (np.bool_)
         self.uniq_orb_idx[self.symm_forbid] = False
 
@@ -996,7 +995,7 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None):
     for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes, las.ncas_sub, las.nelecas_sub)):
         i = sum (las.ncas_sub[:ix])
         j = i + norb
-        smo = np.dot (s0, mo_coeff[:,i:j])
+        smo = np.dot (s0, mo_coeff[:,ncore+i:ncore+j])
         smoH = smo.conj ().T
         h1e = [h1e_cas[i:j,i:j], h1e_cas[i:j,i:j]]
         eri = eri_cas[i:j,i:j,i:j,i:j]
@@ -1009,6 +1008,8 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None):
         ci0_i = []
         for solver in fcibox.fcisolvers:
             nelec = fcibox._get_nelec (solver, nelecas)
+            if hasattr (mo_coeff, 'orbsym'):
+                solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
             hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec)
             ci0_i.append (solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf))
         ci0.append (ci0_i)
