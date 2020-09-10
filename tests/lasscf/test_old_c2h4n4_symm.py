@@ -64,46 +64,28 @@ def run (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcnam
     return c2h4n4_dmet.doselfconsistent ()
 
 dr_nn = 3.0
-mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
+mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
 mol.verbose = 0
 mol.output = '/dev/null'
 mf = scf.RHF (mol).run ()
 mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()
 
-mol_hs = mol.copy ()
-mol_hs.spin = 8
-mol_hs.build ()
-mf_hs = scf.RHF (mol_hs).run ()
-mf_hs_df = mf_hs.density_fit (auxbasis = df.aug_etb (mol_hs)).run ()
-
 def tearDownModule():
-    global mol, mf, mf_df, mol_hs, mf_hs, mf_hs_df
+    global mol, mf, mf_df
     mol.stdout.close ()
-    mol_hs.stdout.close ()
-    del mol, mf, mf_df, mol_hs, mf_hs, mf_hs_df
+    del mol, mf, mf_df 
 
 
 class KnownValues(unittest.TestCase):
-    def test_dia (self):
-        self.assertAlmostEqual (run (mf, 0, 0, calcname='dia'), -295.44779578419946, 8)
 
-    def test_dia_df (self):
-        self.assertAlmostEqual (run (mf_df, 0, 0, calcname='dia_df'), -295.44716017803967, 8)
+    def test_symm (self):
+        self.assertAlmostEqual (run (mf, calcname='symm'), -295.44779578419946, 7)
 
-    def test_ferro (self):
-        self.assertAlmostEqual (run (mf_hs, 2, 2, active_first=True, calcname='ferro'), mf_hs.e_tot, 8)
-
-    def test_ferro_df (self):
-        self.assertAlmostEqual (run (mf_hs_df, 2, 2, active_first=True, calcname='ferro_df'), mf_hs_df.e_tot, 8)
-
-    def test_af (self):
-        self.assertAlmostEqual (run (mf_hs, 2, -2, active_first=True, calcname='af'), -295.44724798042466, 8)
-
-    def test_af_df (self):
-        self.assertAlmostEqual (run (mf_hs_df, 2, -2, active_first=True, calcname='af_df'), -295.4466638852035, 8)
-
+    def test_symm_df (self):
+        self.assertAlmostEqual (run (mf_df, calcname='symm_df'), -295.44716017803967, 7)
+        
 
 if __name__ == "__main__":
-    print("Full Tests for (old) LASSCF c2h4n4")
+    print("Full Tests for (old) LASSCF c2h4n4 with symmetry")
     unittest.main()
 
