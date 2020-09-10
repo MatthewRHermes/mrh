@@ -380,9 +380,13 @@ if __name__ == '__main__':
             k, l = ij[ket]
             xorb[i:j,k:l] = xorb_inp[i:j,k:l]
             xorb[k:l,i:j] = xorb_inp[k:l,i:j]
+
+        # Compensate for PySCF's failure to intermediate-normalize
+        cx = mc.ci.ravel ().dot (xci[0][0].ravel ())
+        xci_cas = [xci[0][0] - (cx * mc.ci.ravel ())]
        
         x_las = ugg.pack (xorb, xci)
-        x_cas = pack_cas (xorb, xci[0]) 
+        x_cas = pack_cas (xorb, xci_cas) 
         hx_orb_las, hx_ci_las = ugg.unpack (h_op_las._matvec (x_las))
         hx_orb_cas, hx_ci_cas = unpack_cas (h_op_cas (x_cas))
 
@@ -400,9 +404,10 @@ if __name__ == '__main__':
             # hx calculator will involve orbital distortions which are twice as intense as my hx 
             # hx calculator, and the newton_casscf CI sector of the hx will be twice as large
 
-        hx_ci_cas_csf = ugg.ci_transformers[0][0].vec_det2csf (hx_ci_cas[0], normalize=False)
-        hx_ci_cas[0] = ugg.ci_transformers[0][0].vec_csf2det (hx_ci_cas_csf, normalize=False)
-        ci_norm = np.dot (hx_ci_cas[0].ravel (), hx_ci_cas[0].ravel ())
+        # More intermediate normalization
+        ci_norm = np.dot (hx_ci_las[0][0].ravel (), hx_ci_las[0][0].ravel ())
+        chx_cas = mc.ci.ravel ().dot (hx_ci_cas[0].ravel ())
+        hx_ci_cas[0] -= chx_cas * mc.ci.ravel ()
 
         print (" ")
         for osect in ('core-virtual', 'active-virtual', 'core-active'):
@@ -416,6 +421,10 @@ if __name__ == '__main__':
         print ("CI - {} Hessian sector".format (sector))
         print ("Hx norms: {} CAS ; {} LAS".format (linalg.norm (hx_ci_cas), linalg.norm (hx_ci_las)))
         print ("Hx disagreement:", linalg.norm (hx_ci_las[0][0]-hx_ci_cas[0]), np.dot (hx_ci_las[0][0].ravel (), hx_ci_cas[0].ravel ()) / ci_norm)
+        chx_cas = mc.ci.ravel ().dot (hx_ci_cas[0].ravel ())
+        chx_las = mc.ci.ravel ().dot (hx_ci_las[0][0].ravel ())
+        print ("CI intermediate normalization check: {} CAS ; {} LAS".format (chx_cas, chx_las))
+
 
     examine_sector ('core-virtual', xorb, xci)
     examine_sector ('active-virtual', xorb, xci)
@@ -423,7 +432,7 @@ if __name__ == '__main__':
     examine_sector ('CI', xorb, xci)
     print ("\nNotes:")
     print ("1) Newton_casscf.py multiplies all orb grad terms by 2 and exponentiates by kappa as opposed to kappa/2. This is accounted for in the above.")
-    print ("2) There is a known difference between my and newton_casscf's expression for H_cc x_c. I strongly believe MY version is the correct one.")
+    print ("2) Newton_casscf.py has a bug in the H_cc component that breaks intermediate normalization, which almost never matters but which I've compensated for above anyway.")
     print ("3) My preconditioner is obviously wrong, but in such a way that it suppresses CI vector evolution, which means stuff still converges if the CI vector isn't super sensitive to the orbital rotations.")
 
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
