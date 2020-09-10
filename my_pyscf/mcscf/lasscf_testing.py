@@ -305,6 +305,20 @@ class LASSCFSymm (lasci.LASCISymm):
         mo_rvecs = tag_array (mo_rvecs, orbsym=rsymm)
         return mo_lvecs, svals, mo_rvecs
 
+def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    if isinstance(mf_or_mol, gto.Mole):
+        mf = scf.RHF(mf_or_mol)
+    else:
+        mf = mf_or_mol
+    if mf.mol.symmetry: 
+        las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    else:
+        las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    if getattr (mf, 'with_df', None):
+        las = lasci.density_fit (las, with_df = mf.with_df) 
+    return las
+
+
 if __name__ == '__main__':
     from pyscf import scf, lib, tools, mcscf
     import os
@@ -463,18 +477,4 @@ if __name__ == '__main__':
     tools.molden.from_mo (mol, 'localize_init_guess.molden', mo)
     mc.kernel (mo)
     tools.molden.from_mo (mol, 'c2h4n4_opt.molden', mc.mo_coeff)
-
-def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
-    if isinstance(mf_or_mol, gto.Mole):
-        mf = scf.RHF(mf_or_mol)
-    else:
-        mf = mf_or_mol
-    if mf.mol.symmetry: 
-        las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
-    else:
-        las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
-    if getattr (mf, 'with_df', None):
-        las = lasci.density_fit (las, with_df = mf.with_df) 
-    return las
-
 

@@ -18,50 +18,7 @@ import unittest
 import numpy as np
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from c2h4n4_struct import structure as struct
-from mrh.my_dmet import localintegrals, dmet, fragments
-from mrh.my_dmet.fragments import make_fragment_atom_list, make_fragment_orb_list
-
-def run (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcname='c2h4n4', **kwargs):
-    # I/O
-    # --------------------------------------------------------------------------------------------------------------------
-    mol = mf.mol
-    my_kwargs = {'calcname':           calcname,
-                 'doLASSCF':           True,
-                 'debug_energy':       False,
-                 'debug_reloc':        False,
-                 'nelec_int_thresh':   1e-3,
-                 'num_mf_stab_checks': 0,
-                 'do_conv_molden':     False}
-    bath_tol = 1e-8
-    my_kwargs.update (kwargs)
-    
-    # Set up the localized AO basis
-    # --------------------------------------------------------------------------------------------------------------------
-    myInts = localintegrals.localintegrals(mf, range(mol.nao_nr ()), 'meta_lowdin')
-    
-    # Build fragments from atom list
-    # --------------------------------------------------------------------------------------------------------------------
-    N2Ha = make_fragment_atom_list (myInts, list (range(3)), 'CASSCF(4,4)', name='N2Ha')#, active_orb_list = CASlist)
-    C2H2 = make_fragment_atom_list (myInts, list (range(3,7)), 'RHF', name='C2H2')
-    N2Hb = make_fragment_atom_list (myInts, list (range(7,10)), 'CASSCF(4,4)', name='N2Hb')#, active_orb_list = CASlist)
-    N2Ha.bath_tol = C2H2.bath_tol = N2Hb.bath_tol = bath_tol
-    N2Ha.target_S = abs (m1)
-    N2Ha.target_MS = m1
-    N2Hb.target_S = abs (m2)
-    N2Hb.target_MS = m2
-    if mol.symmetry:
-        N2Ha.wfnsym = ir1
-        N2Hb.wfnsym = ir2
-    fraglist = [N2Ha, C2H2, N2Hb]
-    
-    # Load or generate active orbital guess 
-    # --------------------------------------------------------------------------------------------------------------------
-    c2h4n4_dmet = dmet (myInts, fraglist, **my_kwargs)
-    c2h4n4_dmet.generate_frag_cas_guess (mf.mo_coeff, caslst=CASlist, force_imp=active_first, confine_guess=(not active_first))
-    
-    # Calculation
-    # --------------------------------------------------------------------------------------------------------------------
-    return c2h4n4_dmet.doselfconsistent ()
+from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
 
 dr_nn = 3.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
@@ -76,6 +33,8 @@ mol_hs.build ()
 mf_hs = scf.RHF (mol_hs).run ()
 mf_hs_df = mf_hs.density_fit (auxbasis = df.aug_etb (mol_hs)).run ()
 
+frags = (list (range (3)), list (range (7,10)))
+
 def tearDownModule():
     global mol, mf, mf_df, mol_hs, mf_hs, mf_hs_df
     mol.stdout.close ()
@@ -85,22 +44,40 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
     def test_dia (self):
-        self.assertAlmostEqual (run (mf, 0, 0, calcname='dia'), -295.44779578419946, 8)
+        las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
+        mo_coeff = las.localize_init_guess (frags)
+        las.kernel (mo_coeff)
+        self.assertAlmostEqual (las.e_tot, -295.44779578419946, 7)
 
     def test_dia_df (self):
-        self.assertAlmostEqual (run (mf_df, 0, 0, calcname='dia_df'), -295.44716017803967, 8)
+        las = LASSCF (mf_df, (4,4), (4,4), spin_sub=(1,1))
+        mo_coeff = las.localize_init_guess (frags)
+        las.kernel (mo_coeff)
+        self.assertAlmostEqual (las.e_tot, -295.44716017803967, 7)
 
     def test_ferro (self):
-        self.assertAlmostEqual (run (mf_hs, 2, 2, active_first=True, calcname='ferro'), mf_hs.e_tot, 8)
+        las = LASSCF (mf_hs, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
+        mo_coeff = las.localize_init_guess (frags)
+        las.kernel (mo_coeff)
+        self.assertAlmostEqual (las.e_tot, mf_hs.e_tot, 7)
 
     def test_ferro_df (self):
-        self.assertAlmostEqual (run (mf_hs_df, 2, 2, active_first=True, calcname='ferro_df'), mf_hs_df.e_tot, 8)
+        las = LASSCF (mf_hs_df, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
+        mo_coeff = las.localize_init_guess (frags)
+        las.kernel (mo_coeff)
+        self.assertAlmostEqual (las.e_tot, mf_hs_df.e_tot, 7)
 
     def test_af (self):
-        self.assertAlmostEqual (run (mf_hs, 2, -2, active_first=True, calcname='af'), -295.44724798042466, 8)
+        las = LASSCF (mf_hs, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
+        mo_coeff = las.localize_init_guess (frags)
+        las.kernel (mo_coeff)
+        self.assertAlmostEqual (las.e_tot, -295.44724798042466, 7)
 
     def test_af_df (self):
-        self.assertAlmostEqual (run (mf_hs_df, 2, -2, active_first=True, calcname='af_df'), -295.4466638852035, 8)
+        las = LASSCF (mf_hs_df, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
+        mo_coeff = las.localize_init_guess (frags)
+        las.kernel (mo_coeff)
+        self.assertAlmostEqual (las.e_tot, -295.4466638852035, 7)
 
 
 if __name__ == "__main__":
