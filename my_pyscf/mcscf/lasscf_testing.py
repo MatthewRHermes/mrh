@@ -107,7 +107,6 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
 
     def _init_df (self):
         lasci.LASCI_HessianOperator._init_df (self)
-        _ERIS = mc_df._ERIS if isinstance (self.las, lasci._DFLASCI) else mc_ao2mo._ERIS
         if isinstance (self.las, lasci._DFLASCI):
             self.cas_type_eris = mc_df._ERIS (self.las, self.mo_coeff, self.with_df)
         else:
@@ -140,6 +139,15 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         ocm2[:,:,:,ncore:nocc] += ocm2_cas
         ocm2 = np.asfortranarray (ocm2) # Make largest index slowest-moving
         return odm1fs, ocm2
+
+    def get_veff (self, dm1s_mo=None):
+        mo = self.mo_coeff
+        moH = mo.conjugate ().T
+        nmo = mo.shape[-1]
+        dm1_mo = dm1s_mo.sum (0)
+        dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
+        veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
+        return np.dot (moH, np.dot (veff_ao, mo))
 
     def get_veff_Heff (self, odm1fs, tdm1frs):
         ncore, ncas, nmo = self.ncore, self.ncas, self.nmo
@@ -194,6 +202,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
             paaa = praa[ncore:nocc]
+            assert (np.allclose (paaa, self.h2eff_sub[p]))
             # g_pabc d_qabc + g_prab d_qrab + g_parb d_qarb + g_pabr d_qabr (Formal)
             #        d_cbaq          d_abqr          d_aqbr          d_qabr (Symmetry of ocm2)
             # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)

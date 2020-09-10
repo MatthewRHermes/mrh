@@ -90,6 +90,6 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (run (mf_hs_df), mf_hs_df.e_tot, 8)
 
 if __name__ == "__main__":
-    print("Full Tests for LASSCF me2n2")
+    print("Full Tests for (old) LASSCF me2n2")
     unittest.main()
 
