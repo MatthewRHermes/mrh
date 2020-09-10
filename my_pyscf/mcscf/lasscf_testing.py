@@ -2,10 +2,12 @@ import numpy as np
 from scipy import linalg
 from mrh.util.la import matrix_svd_control_options
 from mrh.my_pyscf.mcscf import lasci
-from pyscf import scf, symm
+from pyscf import gto, scf, symm
 from pyscf.mcscf import mc_ao2mo, casci_symm
+from pyscf.mcscf import df as mc_df
 from pyscf.lo import orth
 from pyscf.lib import tag_array
+from functools import partial
 
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than
@@ -105,10 +107,14 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
 
     def _init_df (self):
         lasci.LASCI_HessianOperator._init_df (self)
-        self.cas_type_eris = mc_ao2mo._ERIS (self.las, self.mo_coeff,
-            method='incore', level=2) # level=2 -> ppaa, papa only
-            # level=1 computes more stuff; it's only useful if I
-            # want the honest hdiag in get_prec ()
+        _ERIS = mc_df._ERIS if isinstance (self.las, lasci._DFLASCI) else mc_ao2mo._ERIS
+        if isinstance (self.las, lasci._DFLASCI):
+            self.cas_type_eris = mc_df._ERIS (self.las, self.mo_coeff, self.with_df)
+        else:
+            self.cas_type_eris = mc_ao2mo._ERIS (self.las, self.mo_coeff,
+                method='incore', level=2) # level=2 -> ppaa, papa only
+                # level=1 computes more stuff; it's only useful if I
+                # want the honest hdiag in get_prec ()
         ncore, ncas = self.ncore, self.ncas
         nocc = ncore + ncas
 
@@ -216,16 +222,21 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
         if casdm1s_sub is None: casdm1s_sub = self.make_casdm1s_sub (ci = ci)
+        if isinstance (self, lasci._DFLASCI):
+            get_jk = self.with_df.get_jk
+        else:
+            get_jk = partial (self._scf.get_jk, self.mol)
+        ints = self.with_df if isinstance (self, lasci._DFLASCI) else self._scf
         mo_cas = mo_coeff[:,self.ncore:][:,:self.ncas]
         dm1s_cas = linalg.block_diag (*[dm[0] - dm[1] for dm in casdm1s_sub])
         dm1s = mo_cas @ dm1s_cas @ mo_cas.conj ().T
         veff_c = veff.copy ()
-        veff_s = -self._scf.get_k (self.mol, dm1s, hermi=1)/2
+        veff_s = -get_jk (dm1s, hermi=1)[1]/2
         veff_a = veff_c + veff_s
         veff_b = veff_c - veff_s
         veff = np.stack ([veff_a, veff_b], axis=0)
         dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
-        vj, vk = self._scf.get_jk (self.mol, dm1s, hermi=1)
+        vj, vk = get_jk (dm1s, hermi=1)
         veff_a = vj[0] + vj[1] - vk[0]
         veff_b = vj[0] + vj[1] - vk[1]
         veff_test = np.stack ([veff_a, veff_b], axis=0)
@@ -434,5 +445,18 @@ if __name__ == '__main__':
     tools.molden.from_mo (mol, 'localize_init_guess.molden', mo)
     mc.kernel (mo)
     tools.molden.from_mo (mol, 'c2h4n4_opt.molden', mc.mo_coeff)
+
+def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    if isinstance(mf_or_mol, gto.Mole):
+        mf = scf.RHF(mf_or_mol)
+    else:
+        mf = mf_or_mol
+    if mf.mol.symmetry: 
+        las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    else:
+        las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    if getattr (mf, 'with_df', None):
+        las = lasci.density_fit (las, with_df = mf.with_df) 
+    return las
 
 
