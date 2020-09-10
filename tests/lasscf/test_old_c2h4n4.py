@@ -100,7 +100,7 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (run (mf_hs, 2, -2, active_first=True, calcname='af'), -295.44724798042466, 8)
 
     def test_af_df (self):
-        self.assertAlmostEqual (run (mf_hs_df, 2, -2, active_first=True, calcname='af_df'), -295.4466638852035, 8)
+        self.assertAlmostEqual (run (mf_hs_df, 2, -2, active_first=True, calcname='af_df'), -295.4466638852035, 7)
 
 
 if __name__ == "__main__":

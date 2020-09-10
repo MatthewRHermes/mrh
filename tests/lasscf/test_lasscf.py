@@ -18,100 +18,85 @@ import unittest
 import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
+from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
-from mrh.my_dmet import localintegrals, dmet, fragments
-from mrh.my_dmet.fragments import make_fragment_atom_list, make_fragment_orb_list
+from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
 
-def build (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcname='c2h4n4', **kwargs):
-    # I/O
-    # --------------------------------------------------------------------------------------------------------------------
-    mol = mf.mol
-    my_kwargs = {'calcname':           calcname,
-                 'doLASSCF':           True,
-                 'debug_energy':       False,
-                 'debug_reloc':        False,
-                 'nelec_int_thresh':   1e-3,
-                 'num_mf_stab_checks': 0,
-                 'do_conv_molden':     False}
-    bath_tol = 1e-8
-    my_kwargs.update (kwargs)
-    
-    # Set up the localized AO basis
-    # --------------------------------------------------------------------------------------------------------------------
-    myInts = localintegrals.localintegrals(mf, range(mol.nao_nr ()), 'meta_lowdin')
-    
-    # Build fragments from atom list
-    # --------------------------------------------------------------------------------------------------------------------
-    N2Ha = make_fragment_atom_list (myInts, list (range(3)), 'CASSCF(4,4)', name='N2Ha')#, active_orb_list = CASlist)
-    C2H2 = make_fragment_atom_list (myInts, list (range(3,7)), 'RHF', name='C2H2')
-    N2Hb = make_fragment_atom_list (myInts, list (range(7,10)), 'CASSCF(4,4)', name='N2Hb')#, active_orb_list = CASlist)
-    N2Ha.bath_tol = C2H2.bath_tol = N2Hb.bath_tol = bath_tol
-    N2Ha.target_S = abs (m1)
-    N2Ha.target_MS = m1
-    #N2Ha.mol_output = calcname + '_N2Ha.log'
-    N2Hb.target_S = abs (m2)
-    N2Hb.target_MS = m2
-    #N2Hb.mol_output = calcname + '_N2Hb.log'
-    if mol.symmetry:
-        N2Ha.wfnsym = ir1
-        N2Hb.wfnsym = ir2
-    fraglist = [N2Ha, C2H2, N2Hb]
-    
-    # Load or generate active orbital guess 
-    # --------------------------------------------------------------------------------------------------------------------
-    c2h4n4_dmet = dmet (myInts, fraglist, **my_kwargs)
-    c2h4n4_dmet.generate_frag_cas_guess (mf.mo_coeff, caslst=CASlist, force_imp=active_first, confine_guess=(not active_first))
-    
-    # Calculation
-    # --------------------------------------------------------------------------------------------------------------------
-    return c2h4n4_dmet
-
-dr_nn = 3.0
+dr_nn = 2.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
 mol.verbose = 0 
 mol.output = '/dev/null'
-mol.spin = 8
+mol.spin = 0 
 mol.build ()
 mf = scf.RHF (mol).run ()
-dmet = build (mf, 1, -1, active_first=True)
-dmet.conv_tol_grad = 1e-6
-e_tot = dmet.doselfconsistent ()
+las = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3))
+las.max_cycle_macro = 1
+las.kernel ()
+las.mo_coeff = np.loadtxt ('test_lasci_mo.dat')
+las.ci = [[np.loadtxt ('test_lasci_ci0.dat')], [-np.loadtxt ('test_lasci_ci1.dat').T]]
+ugg = las.get_ugg (las, las.mo_coeff, las.ci)
+h_op = las.get_hop (las, ugg)
+np.random.seed (0)
+x = np.random.rand (ugg.nvar_tot)
 
 def tearDownModule():
-    global mol, mf, dmet
+    global mol, mf, las, ugg, h_op, x
     mol.stdout.close ()
-    del mol, mf, dmet
+    del mol, mf, las, ugg, h_op, x
 
 
 class KnownValues(unittest.TestCase):
-    def test_energies (self):
-        self.assertAlmostEqual (e_tot, -295.44765266564866, 9)
-        self.assertAlmostEqual (dmet.las.e_tot, e_tot, 9)
-        self.assertAlmostEqual (dmet.fragments[0].E_imp, e_tot, 8)
-        self.assertAlmostEqual (dmet.fragments[1].E_imp, e_tot, 8)
-        self.assertAlmostEqual (dmet.fragments[2].E_imp, e_tot, 8)
+    def test_grad (self):
+        gorb0, gci0, gx0 = las.get_grad (ugg=ugg)
+        grad0 = np.append (gorb0, gci0)
+        grad1 = h_op.get_grad ()
+        gx1 = h_op.get_gx ()
+        self.assertAlmostEqual (lib.fp (grad0), -0.1547273632764783, 9)
+        self.assertAlmostEqual (lib.fp (grad1), -0.1547273632764783, 9)
+        self.assertAlmostEqual (lib.fp (gx0), -0.0005604501808183955, 9)
+        self.assertAlmostEqual (lib.fp (gx1), -0.0005604501808183955, 9)
 
-    def test_active_orbitals (self):
-        ncore, ncas = dmet.las.ncore, dmet.las.ncas
-        mo_las = dmet.las.mo_coeff[:,ncore:][:,:ncas]
-        mo_frag = np.append (dmet.fragments[0].loc2amo, dmet.fragments[2].loc2amo, axis=1)
-        ovlp = mo_las.conj ().T @ dmet.ints.ao_ovlp @ dmet.ints.ao2loc @ mo_frag
-        self.assertAlmostEqual (linalg.norm (ovlp - np.eye (8)), 0, 8)
+    def test_hessian (self):
+        hx = h_op._matvec (x)
+        self.assertAlmostEqual (lib.fp (hx), 178.92725229582146, 9)
 
-    def test_ci (self):
-        ci0 = dmet.las.ci
-        ci1 = [dmet.fragments[0].ci_as, dmet.fragments[2].ci_as]
-        for c0, c1 in zip (ci0, ci1):
-            self.assertAlmostEqual (linalg.norm (c0-c1), 0, 8)
+    def test_hc2 (self):
+        xp = x.copy ()
+        xp[:-16] = 0.0
+        hx = h_op._matvec (xp)[-16:]
+        self.assertAlmostEqual (lib.fp (hx), -0.5385952489125434, 9)
 
-    def test_1rdm (self):
-        sloc = dmet.ints.ao_ovlp @ dmet.ints.ao2loc
-        dm1 = sloc.conj ().T @ dmet.las.make_rdm1 () @ sloc
-        for f in (dmet.fragments[0], dmet.fragments[2]):
-            dm1_test = f.imp2loc @ dm1 @ f.loc2imp
-            self.assertAlmostEqual (linalg.norm (dm1_test - f.get_oneRDM_imp ()), 0, 8)
+    def test_hcc (self):
+        xp = x.copy ()
+        xp[:-16] = 0.0
+        hx = h_op._matvec (xp)[-32:-16]
+        self.assertAlmostEqual (lib.fp (hx), -0.001474000383931805, 9)
+
+    def test_hco (self):
+        xp = x.copy ()
+        xp[-32:] = 0.0
+        hx = h_op._matvec (xp)[-32:]
+        self.assertAlmostEqual (lib.fp (hx), 0.2698490298969052, 9)
+
+    def test_hoc (self):
+        xp = x.copy ()
+        xp[:-32] = 0.0
+        hx = h_op._matvec (xp)[:-32]
+        self.assertAlmostEqual (lib.fp (hx), -0.029477903804816963, 9)
+
+    def test_hoo (self):
+        xp = x.copy ()
+        xp[-32:] = 0.0
+        hx = h_op._matvec (xp)[:-32]
+        self.assertAlmostEqual (lib.fp (hx), 178.29669908809024, 9)
+
+    def test_prec (self):
+        M_op = h_op.get_prec ()
+        Mx = M_op._matvec (x)
+        self.assertAlmostEqual (lib.fp (Mx), 8358.536413578968, 7)
+
 
 if __name__ == "__main__":
-    print("Full Tests for LASSCF module agreement")
+    print("Full Tests for LASCI module functions")
     unittest.main()
 
