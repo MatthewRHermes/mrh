@@ -97,6 +97,6 @@ class KnownValues(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    print("Full Tests for LASCI module functions")
+    print("Full Tests for LASSCF Newton-CG module functions")
     unittest.main()
 

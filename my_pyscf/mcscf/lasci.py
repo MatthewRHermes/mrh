@@ -1046,7 +1046,7 @@ class LASCINoSymm (casci.CASCI):
         self.ah_level_shift = 1e-8
         self.max_cycle_macro = 50
         self.max_cycle_micro = 5
-        keys = set(('ncas_sub', 'nelecas_sub', 'spin_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
+        keys = set(('fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub', 'spin_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
         for smult, nel in zip (self.spin_sub, self.nelecas_sub):

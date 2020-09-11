@@ -3,7 +3,7 @@ from scipy import linalg
 from mrh.util.la import matrix_svd_control_options
 from mrh.my_pyscf.mcscf import lasci
 from pyscf import gto, scf, symm
-from pyscf.mcscf import mc_ao2mo, casci_symm
+from pyscf.mcscf import mc_ao2mo, casci_symm, mc1step
 from pyscf.mcscf import df as mc_df
 from pyscf.lo import orth
 from pyscf.lib import tag_array
@@ -225,6 +225,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
 class LASSCFNoSymm (lasci.LASCINoSymm):
     get_ugg = LASSCF_UnitaryGroupGenerators
     get_hop = LASSCF_HessianOperator
+    as_scanner = mc1step.as_scanner
     def split_veff (self, veff, h2eff_sub, mo_coeff=None, ci=None, casdm1s_sub=None): 
         # This needs to actually do the veff, otherwise the preconditioner is broken
         # Eventually I can remove this, once I've implemented Schmidt decomposition etc. etc.
@@ -276,6 +277,7 @@ class LASSCFSymm (lasci.LASCISymm):
     get_ugg = LASSCFSymm_UnitaryGroupGenerators    
     get_hop = LASSCF_HessianOperator
     split_veff = LASSCFNoSymm.split_veff
+    as_scanner = mc1step.as_scanner
 
     def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None):
         if mo_coeff is None:
