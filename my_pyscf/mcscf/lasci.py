@@ -267,8 +267,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i = self.ncore + sum (self.ncas_sub[:isub])
             j = i + ncas
             odm1fs[isub+1,:,i:j,:] -= np.dot (casdm1s, kappa[i:j,:])
-            k = i - self.ncore
-            l = j - self.ncore
         odm1fs += odm1fs.transpose (0,1,3,2) 
         ocm2 = -np.dot (self.cascm2, kappa[self.ncore:self.nocc,self.ncore:self.nocc])
         ocm2 += ocm2.transpose (1,0,3,2)        
@@ -291,17 +289,19 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             # Subtrahend: super important, otherwise the veff part of CI response is even more of a nightmare
             # With this in place, I don't have to worry about subtracting an overlap times a gradient
             tdm1rs = np.stack ([np.stack (t, axis=0) - c * s for t, c, s in zip (tdm1rs, casdm1rs, s01)], axis=0)
-            tdm1s = np.einsum ('rspq,r->spq', tdm1rs, fcibox.weights)
             dm2 = np.stack ([(sum (t) - (c*s)) / 2 for t, c, s, in zip (dm2, casdm2, s01)], axis=0)
             dm2 = np.einsum ('rijkl,r->ijkl', dm2, fcibox.weights)
-            # Cumulant decomposition so I only have to do one jk call for orbrot response
-            # The only rules are 1) the sectors that you think are zero must really be zero, and
-            #                    2) you subtract here what you add later
-            dm2 -= np.multiply.outer (tdm1s[0] + tdm1s[1], casdm1s[0] + casdm1s[1])
-            dm2 += np.multiply.outer (tdm1s[0], casdm1s[0]).transpose (0,3,2,1)
-            dm2 += np.multiply.outer (tdm1s[1], casdm1s[1]).transpose (0,3,2,1)
             tdm1frs[isub,:,:,i:j,i:j] = tdm1rs 
             tcm2[i:j,i:j,i:j,i:j] = dm2
+
+        # Cumulant decomposition so I only have to do one jk call for orbrot response
+        # The only rules are 1) the sectors that you think are zero must really be zero, and
+        #                    2) you subtract here what you add later
+        tdm1s = np.einsum ('r,frspq->spq', self.weights, tdm1frs)
+        cdm1s = np.einsum ('r,rsqp->spq', self.weights, self.casdm1rs)
+        tcm2 -= np.multiply.outer (tdm1s[0] + tdm1s[1], cdm1s[0] + cdm1s[1])
+        tcm2 += np.multiply.outer (tdm1s[0], cdm1s[0]).transpose (0,3,2,1)
+        tcm2 += np.multiply.outer (tdm1s[1], cdm1s[1]).transpose (0,3,2,1)
 
         # Two transposes 
         tdm1frs += tdm1frs.transpose (0,1,2,4,3) 
