@@ -87,9 +87,9 @@ class KnownValues(unittest.TestCase):
     def test_energies (self):
         self.assertAlmostEqual (e_tot, -295.44765266564866, 9)
         self.assertAlmostEqual (dmet.las.e_tot, e_tot, 9)
-        self.assertAlmostEqual (dmet.fragments[0].E_imp, e_tot, 8)
-        self.assertAlmostEqual (dmet.fragments[1].E_imp, e_tot, 8)
-        self.assertAlmostEqual (dmet.fragments[2].E_imp, e_tot, 8)
+        self.assertAlmostEqual (dmet.fragments[0].E_imp, e_tot, 7)
+        self.assertAlmostEqual (dmet.fragments[1].E_imp, e_tot, 7)
+        self.assertAlmostEqual (dmet.fragments[2].E_imp, e_tot, 7)
 
     def test_active_orbitals (self):
         ncore, ncas = dmet.las.ncore, dmet.las.ncas
