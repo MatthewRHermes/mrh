@@ -132,13 +132,13 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         # Obviously 3) is the cleanest. But 2) lets me be more "pythonic" and
         #   I'll go with that for now 
         ncore, nocc = self.ncore, self.nocc
-        odm1fs, ocm2_cas = lasci.LASCI_HessianOperator.make_odm1s2c_sub (self, kappa)
+        odm1rs, ocm2_cas = lasci.LASCI_HessianOperator.make_odm1s2c_sub (self, kappa)
         kappa_ext = kappa[ncore:nocc,:].copy ()
         kappa_ext[:,ncore:nocc] = 0.0
         ocm2 = -np.dot (self.cascm2, kappa_ext) 
         ocm2[:,:,:,ncore:nocc] += ocm2_cas
         ocm2 = np.asfortranarray (ocm2) # Make largest index slowest-moving
-        return odm1fs, ocm2
+        return odm1rs, ocm2
 
     def get_veff (self, dm1s_mo=None):
         mo = self.mo_coeff
@@ -148,22 +148,6 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
         veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
         return np.dot (moH, np.dot (veff_ao, mo))
-
-    def get_veff_Heff (self, odm1fs, tdm1frs):
-        ncore, ncas, nmo = self.ncore, self.ncas, self.nmo
-        nocc = ncore + ncas
-        veff_mo, h1frs = lasci.LASCI_HessianOperator.get_veff_Heff (self, odm1fs, tdm1frs)
-        # Additional error to subtract from h1frs
-        for isub, odm1s in enumerate (odm1fs[1:]):
-            err_dm1rs = odm1s[None,:,:,ncore:nocc].copy ()
-            err_dm1rs[:,:,ncore:nocc,:] = 0.0
-            err_h1rs = np.tensordot (err_dm1rs, self.h2eff_sub, axes=2)
-            err_h1rs += err_h1rs[:,::-1] # ja + jb
-            err_h1rs -= np.tensordot (err_dm1rs, self.h2eff_sub, axes=((2,3),(0,3)))
-            err_h1rs += err_h1rs.transpose (0,1,3,2)
-            h1frs[isub,:,:,:,:] -= err_h1rs
-        return veff_mo, h1frs
-
 
     def split_veff (self, veff_mo, dm1s_mo):
         veff_c = veff_mo.copy ()
