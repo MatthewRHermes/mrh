@@ -4,6 +4,7 @@ from scipy import linalg
 from pyscf.fci import cistring
 from pyscf import fci
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.fci.spin_op import contract_ss
 
 def addr_outer_product (norb_f, nelec_f):
     norb = sum (norb_f)
@@ -48,9 +49,11 @@ def slow_ham (mol, h1, h2, ci_fr, norb_f, nelec_fr):
     norb = sum (norb_f)
     h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
     ham_ci = [solver.contract_2e (h2eff, c, norb, nelec) for c in ci]
+    s2_ci = [contract_ss (c, norb, nelec) for c in ci]
     ham_eff = np.array ([[c.ravel ().dot (hc.ravel ()) for hc in ham_ci] for c in ci])
+    s2_eff = np.array ([[c.ravel ().dot (s2c.ravel ()) for s2c in s2_ci] for c in ci])
     ovlp_eff = np.array ([[bra.ravel ().dot (ket.ravel ()) for ket in ci] for bra in ci])
-    return ham_eff, ovlp_eff
+    return ham_eff, s2_eff, ovlp_eff
 
 if __name__ == '__main__':
     from pyscf import scf, lib
