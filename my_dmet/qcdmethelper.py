@@ -116,7 +116,7 @@ class qcdmethelper:
     def constructbath( self, OneDM, impurityOrbs, numBathOrbs, threshold=1e-13 ):
     
         embeddingOrbs = 1 - impurityOrbs
-        embeddingOrbs = np.matrix( embeddingOrbs )
+        embeddingOrbs = np.atleast_2d( embeddingOrbs )
         if (embeddingOrbs.shape[0] > 1):
             embeddingOrbs = embeddingOrbs.T # Now certainly row-like matrix (shape = 1 x len(vector))
         isEmbedding = np.dot( embeddingOrbs.T , embeddingOrbs ) == 1

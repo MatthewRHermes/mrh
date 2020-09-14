@@ -117,29 +117,6 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         ncore, ncas = self.ncore, self.ncas
         nocc = ncore + ncas
 
-    def make_odm1s2c_sub (self, kappa):
-        # This is tricky, because in the parent I transposed ocm2 to make it 
-        # symmetric upon index permutation, but if I do the same thing here then
-        # I have an array of shape [nmo,]*4 (too big).
-        # My options are 
-        #   -1) Ignore it and just hope the optimization converges without this
-        #       term (lol it won't)
-        #   0) Just make an extremely limited implementation for small molecules
-        #       only like the laziest motherfucker in existence
-        #   1) Tag with kappa and mar the whole design of the class
-        #   2) Extend one index and distinguish btwn cas-cas and other blocks
-        #   3) Rewrite the whole thing to not transpose in the first place
-        # Obviously 3) is the cleanest. But 2) lets me be more "pythonic" and
-        #   I'll go with that for now 
-        ncore, nocc = self.ncore, self.nocc
-        odm1rs, ocm2_cas = lasci.LASCI_HessianOperator.make_odm1s2c_sub (self, kappa)
-        kappa_ext = kappa[ncore:nocc,:].copy ()
-        kappa_ext[:,ncore:nocc] = 0.0
-        ocm2 = -np.dot (self.cascm2, kappa_ext) 
-        ocm2[:,:,:,ncore:nocc] += ocm2_cas
-        ocm2 = np.asfortranarray (ocm2) # Make largest index slowest-moving
-        return odm1rs, ocm2
-
     def get_veff (self, dm1s_mo=None):
         mo = self.mo_coeff
         moH = mo.conjugate ().T
@@ -175,13 +152,9 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
 
     def orbital_response (self, kappa, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
-        ocm2_cas = ocm2[:,:,:,ncore:nocc] 
         gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
-            ocm2_cas, tdm1frs, tcm2, veff_prime)
+            ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
-        ecm2 = ocm2_cas + tcm2
-        f1_prime[:ncore,ncore:nocc] = np.tensordot (self.h2eff_sub[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
-        f1_prime[nocc:,ncore:nocc] = np.tensordot (self.h2eff_sub[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
         for p, f1 in enumerate (f1_prime):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
@@ -198,6 +171,12 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
+        # Clumsy repetition...
+        ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
+        ocm2 += ocm2.transpose (2,3,0,1)
+        ecm2 = ocm2 + tcm2
+        f1_prime[:ncore,ncore:nocc] += np.tensordot (self.h2eff_sub[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
+        f1_prime[nocc:,ncore:nocc] += np.tensordot (self.h2eff_sub[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
         return gorb + (f1_prime - f1_prime.T)
 
     def update_mo_ci_eri (self, x, h2eff_sub):

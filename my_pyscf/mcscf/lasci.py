@@ -257,18 +257,17 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return hcfr
 
     def make_odm1s2c_sub (self, kappa):
-        # the 1rdm part still needs a + h.c.
-        # I'm not doing it here because it lets me identify sectors by fragment w/out
-        # adding a whole extra dimension to the array
+        # the various + transposes are omitted because dropping them lets me identify
+        # sectors by fragment without adding a whole extra dimension to the arrays
+        # ocm2 doesn't have a "root" index because it only affects the orbital rotation,
+        # which is always state-averaged. However further development may alter this...
         odm1rs = np.zeros ((self.nroots, 2, self.nmo, self.nmo), dtype=self.dtype)
         odm1rs[:,:,:self.ncore,self.ncore:] = -kappa[:self.ncore,self.ncore:]
         for isub, (ncas, casdm1rs) in enumerate (zip (self.ncas_sub, self.casdm1frs)):
             i = self.ncore + sum (self.ncas_sub[:isub])
             j = i + ncas
             odm1rs[:,:,i:j,:] -= np.dot (casdm1rs, kappa[i:j,:])
-        ocm2 = -np.dot (self.cascm2, kappa[self.ncore:self.nocc,self.ncore:self.nocc])
-        ocm2 += ocm2.transpose (1,0,3,2)        
-        ocm2 += ocm2.transpose (2,3,0,1)        
+        ocm2 = -np.dot (self.cascm2, kappa[self.ncore:self.nocc,:])
 
         return odm1rs, ocm2 
 
@@ -442,11 +441,16 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
         ncore, nocc = self.ncore, self.nocc
         # Always state averaged
-        edm1s = np.einsum ('r,rspq->spq', self.weights, odm1rs)
+        odm1s = np.einsum ('r,rspq->spq', self.weights, odm1rs)
         # I put off + h.c. until now in order to make other things more natural
-        edm1s += edm1s.transpose (0,2,1)
+        odm1s += odm1s.transpose (0,2,1)
+        ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
+        ocm2 += ocm2.transpose (2,3,0,1)
+        # Effective density matrices
+        edm1s = odm1s
         edm1s[:,ncore:nocc,ncore:nocc] += np.einsum ('frspq,r->spq', tdm1frs, self.weights)
         ecm2 = ocm2 + tcm2
+        # Evaluate hx = (F2..x) - (F2..x).T + (F1.x) - (F1.x).T
         fock1  = self.h1s[0] @ edm1s[0] + self.h1s[1] @ edm1s[1]
         fock1 += veff_prime[0] @ self.dm1s[0] + veff_prime[1] @ self.dm1s[1]
         fock1[ncore:nocc,ncore:nocc] += np.tensordot (self.eri_cas, ecm2, axes=((1,2,3),(1,2,3)))
