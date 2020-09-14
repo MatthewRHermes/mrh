@@ -198,10 +198,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 dm1 = dm1s[0] + dm1s[1]
                 h1s_sub[:,:,:] += np.tensordot (dm1, self.h2eff_sub, axes=((0,1),(2,3)))[None,:,:]
                 h1s_sub[:,:,:] -= np.tensordot (dm1s, self.h2eff_sub, axes=((1,2),(2,1)))
-                #self.h1frs[ix,jx,:,:,:] -= np.tensordot (casdm1,
-                #    self.h2eff_sub[:,:,i:j,i:j], axes=((0,1),(2,3)))[None,:,:] # double-counting: J
-                #self.h1frs[ix,jx,:,:,:] += np.tensordot (casdm1s,
-                #    self.h2eff_sub[:,i:j,i:j,:], axes=((1,2),(2,1))) # double-counting: K
         self.h1frs_aa = self.h1frs[:,:,:,ncore:nocc,:]
 
         # Fock1 matrix (for gradient and subtrahend terms in Hx)
@@ -270,7 +266,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i = self.ncore + sum (self.ncas_sub[:isub])
             j = i + ncas
             odm1rs[:,:,i:j,:] -= np.dot (casdm1rs, kappa[i:j,:])
-        #odm1fs += odm1fs.transpose (0,1,3,2) 
         ocm2 = -np.dot (self.cascm2, kappa[self.ncore:self.nocc,self.ncore:self.nocc])
         ocm2 += ocm2.transpose (1,0,3,2)        
         ocm2 += ocm2.transpose (2,3,0,1)        
@@ -341,25 +336,23 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         for isub, (tdm1rs, nlas) in enumerate (zip (tdm1frs, self.ncas_sub)):
             i = ncore + sum (self.ncas_sub[:isub])
             j = i + nlas
-            # orb: no double-counting
+            # orb: no double-counting; subtract state-average
             err_dm1rs = odm1rs.copy ()
             err_dm1rs[:,:,i:j,:] = 0.0
-            # orb: subtract state-average
             err_dm1rs -= odm1s_sa[None,:,:,:]
             # orb: I put off + h.c. until now in order to make subtraction of double-counting more natural
             err_dm1rs += err_dm1rs.transpose (0,1,3,2)
-            # CI: no double-counting
+            # CI: no double-counting; subtract state-average
             err_dm1rs[:,:,ncore:nocc,ncore:nocc] += 2 * (tdm1frs.sum (0) - tdm1rs)
-            # CI: subtract state-average 
             err_dm1rs[:,:,ncore:nocc,ncore:nocc] -= tdm1s_sa
-            # Deal with nonsymmetric eri
+            # Deal with nonsymmetric eri: Coulomb part
             err_dm1rs = err_dm1rs[:,:,:,ncore:nocc] * 2.0
             err_dm1rs[:,:,ncore:nocc,:] /= 2.0 
             # veff contraction
             err_h1rs = np.tensordot (err_dm1rs, self.h2eff_sub, axes=2)
             err_h1rs += err_h1rs[:,::-1] # ja + jb
             err_h1rs -= np.tensordot (err_dm1rs, self.h2eff_sub, axes=((2,3),(0,3)))
-            # I'm rather mystified about the below tbh, but it objectively is necessary it seems?
+            # Deal with nonsymmetric eri: exchange part
             err_h1rs += err_h1rs.transpose (0,1,3,2)
             err_h1rs /= 2.0
             h1frs[isub,:,:,:,:] += err_h1rs
