@@ -30,7 +30,6 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
     ci = np.zeros ((cistring.num_strings (sum (norb_f), sum (neleca_f)), cistring.num_strings (sum (norb_f), sum (nelecb_f))),
         dtype=ci_dp.dtype)
     ci[np.ix_(addrs_a,addrs_b)] = ci_dp[:,:]
-    print (linalg.norm (ci))
     return ci
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):
@@ -43,14 +42,15 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
              sum ([ne[1] for ne in nelec_f]))
     return ci_r, nelec
 
-def slow_ham (h1, h2, ci_fr, norb_f, nelec_fr):
+def slow_ham (mol, h1, h2, ci_fr, norb_f, nelec_fr):
     ci, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
-    solver = fci.solver (las.mol)
+    solver = fci.solver (mol)
     norb = sum (norb_f)
     h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
     ham_ci = [solver.contract_2e (h2eff, c, norb, nelec) for c in ci]
     ham_eff = np.array ([[c.ravel ().dot (hc.ravel ()) for hc in ham_ci] for c in ci])
-    return ham_eff
+    ovlp_eff = np.array ([[bra.ravel ().dot (ket.ravel ()) for ket in ci] for bra in ci])
+    return ham_eff, ovlp_eff
 
 if __name__ == '__main__':
     from pyscf import scf, lib
@@ -93,7 +93,7 @@ if __name__ == '__main__':
     for fcibox, nelec in zip (las.fciboxes, las.nelecas_sub):
         ne = sum (nelec)
         nelec_fr.append ([_unpack_nelec (fcibox._get_nelec (solver, ne)) for solver in fcibox.fcisolvers])
-    ham_eff = slow_ham (h1, h2, las.ci, las.ncas_sub, nelec_fr)
+    ham_eff = slow_ham (las.mol, h1, h2, las.ci, las.ncas_sub, nelec_fr)[0]
     print (las.converged, e_states - (e0 + np.diag (ham_eff)))
 
 

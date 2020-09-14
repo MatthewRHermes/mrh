@@ -7,6 +7,7 @@ from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.scf import hf_as
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
+from mrh.my_pyscf.mcscf.lassi import lassi
 from itertools import combinations, product
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg, special
@@ -1565,6 +1566,7 @@ class LASCINoSymm (casci.CASCI):
 
     state_average = state_average
     state_average_ = state_average_
+    lassi = lassi
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
