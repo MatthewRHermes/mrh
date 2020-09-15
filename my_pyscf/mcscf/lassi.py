@@ -69,7 +69,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None):
             si[np.ix_(idx,idx)] = 1.0
             continue
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
-        nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx)] for fcibox, nelecas in zip (las.fciboxes, las.nelecas)]
+        nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx)] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
         ham_blk, s2_blk, ovlp_blk = slow_ham (las.mol, h1, h2, ci_blk, las.ncas_sub, nelec_blk)
         lib.logger.debug (las, 'Block Hamiltonian - ecore:')
         lib.logger.debug (las, '{}'.format (ham_blk))
