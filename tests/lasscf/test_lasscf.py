@@ -24,7 +24,7 @@ from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
 
 dr_nn = 2.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-mol.verbose = 0 
+mol.verbose = lib.logger.DEBUG 
 mol.output = '/dev/null'
 mol.spin = 0 
 mol.build ()

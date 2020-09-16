@@ -20,6 +20,8 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from c2h4n4_struct import structure as struct
 from mrh.my_dmet import localintegrals, dmet, fragments
 from mrh.my_dmet.fragments import make_fragment_atom_list, make_fragment_orb_list
+import tracemalloc
+tracemalloc.start ()
 
 def run (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcname='c2h4n4', **kwargs):
     # I/O
@@ -61,12 +63,15 @@ def run (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcnam
     
     # Calculation
     # --------------------------------------------------------------------------------------------------------------------
-    return c2h4n4_dmet.doselfconsistent ()
+    e = c2h4n4_dmet.doselfconsistent ()
+    c2h4n4_dmet.lasci_log.close ()
+    return e
 
 dr_nn = 3.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
-mol.verbose = 0
+mol.verbose = lib.logger.DEBUG
 mol.output = '/dev/null'
+mol.build ()
 mf = scf.RHF (mol).run ()
 mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()
 

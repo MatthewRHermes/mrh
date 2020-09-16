@@ -54,11 +54,15 @@ def run (mf, CASlist=None, **kwargs):
     
     # Calculation
     # --------------------------------------------------------------------------------------------------------------------
-    return me2n2_dmet.doselfconsistent ()
+    e = me2n2_dmet.doselfconsistent ()
+    me2n2_dmet.lasci_log.close ()
+    return e
 
 r_nn = 3.0
 mol = struct (3.0, '6-31g')
-mol.verbose = 0
+mol.verbose = lib.logger.DEBUG
+mol.output = '/dev/null'
+mol.build ()
 mf = scf.RHF (mol).run ()
 mc = mcscf.CASSCF (mf, 4, 4).run ()
 mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()

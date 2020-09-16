@@ -590,27 +590,22 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
     ncas = las.ncas
     nocc = las.ncore + las.ncas
     nvirt = nmo - nocc
+    smo_cas = las._scf.get_ovlp () @ mo_coeff[:,ncore:nocc]
+    smoH_cas = smo_cas.conj ().T
 
     # The orbrot part
     h1s = las.get_hcore ()[None,:,:] + veff
     f1 = h1s[0] @ dm1s[0] + h1s[1] @ dm1s[1]
     f1 = mo_coeff.conjugate ().T @ f1 @ las._scf.get_ovlp () @ mo_coeff # <- I need the ovlp there to get dm1s back into its correct basis
-    casdm2_sub = las.make_casdm2_sub (ci=ci)
+    casdm2 = las.make_casdm2 (ci=ci)
+    casdm1s = np.stack ([smoH_cas @ d @ smo_cas for d in dm1s], axis=0)
+    casdm1 = casdm1s.sum (0)
+    casdm2 -= np.multiply.outer (casdm1, casdm1)
+    casdm2 += np.multiply.outer (casdm1s[0], casdm1s[0]).transpose (0,3,2,1)
+    casdm2 += np.multiply.outer (casdm1s[1], casdm1s[1]).transpose (0,3,2,1)
     eri = h2eff_sub.reshape (nmo, ncas, ncas*(ncas+1)//2)
     eri = lib.numpy_helper.unpack_tril (eri).reshape (nmo, ncas, ncas, ncas)
-    for isub, (ncas, casdm2) in enumerate (zip (las.ncas_sub, casdm2_sub)):
-        i = ncore + sum (las.ncas_sub[:isub])
-        j = i + ncas
-        smo = las._scf.get_ovlp () @ mo_coeff[:,i:j]
-        smoH = smo.conjugate ().T
-        casdm1s = [smoH @ d @ smo for d in dm1s]
-        casdm1 = casdm1s[0] + casdm1s[1]
-        dm1_outer = np.multiply.outer (casdm1, casdm1)
-        dm1_outer -= sum ([np.multiply.outer (d,d).transpose (0,3,2,1) for d in casdm1s])
-        casdm2 -= dm1_outer
-        k = i - ncore
-        l = j - ncore
-        f1[:,i:j] += np.tensordot (eri[:,k:l,k:l,k:l], casdm2, axes=((1,2,3),(1,2,3)))
+    f1[:,ncore:nocc] += np.tensordot (eri, casdm2, axes=((1,2,3),(1,2,3)))
     gorb = f1 - f1.T
 
     # Split into internal and external parts
@@ -810,7 +805,9 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         if las.verbose > lib.logger.INFO:
             g_orb_test, g_ci_test = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)[:2]
             if ugg.nvar_orb:
-                log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_orb| = %.15g', linalg.norm (g_orb_test - g_vec[:ugg.nvar_orb]))
+                err = linalg.norm (g_orb_test - g_vec[:ugg.nvar_orb])
+                log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_orb| = %.15g', err)
+                assert (err < 1e-5), '{}'.format (err)
             for isub in range (len (ci1)): # TODO: double-check that this code works in SA-LASSCF
                 i = ugg.ncsf_sub[:isub].sum ()
                 j = i + ugg.ncsf_sub[isub].sum ()
@@ -818,6 +815,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
                 l = j + ugg.nvar_orb
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_ci({})| = %.15g'.format (isub), linalg.norm (g_ci_test[i:j] - g_vec[k:l]))
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |g_ci({})| = %.15g'.format (isub), linalg.norm (g_ci_test[i:j]))
+            err = linalg.norm (g_ci_test - g_vec[ugg.nvar_orb:])
+            assert (err < 1e-5), '{}'.format (err)
         gx = H_op.get_gx ()
         prec_op = H_op.get_prec ()
         prec = prec_op (np.ones_like (g_vec)) # Check for divergences
@@ -1118,7 +1117,7 @@ class LASCINoSymm (casci.CASCI):
         self.ah_level_shift = 1e-8
         self.max_cycle_macro = 50
         self.max_cycle_micro = 5
-        keys = set(('fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub', 'spin_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
+        keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub', 'spin_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
         for smult, nel in zip (self.spin_sub, self.nelecas_sub):

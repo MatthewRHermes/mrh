@@ -24,7 +24,7 @@ from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
 r_nn = 3.0
 mol = struct (3.0, '6-31g')
 mol.output = 'test_me2n2.log'
-mol.verbose = lib.logger.INFO
+mol.verbose = lib.logger.DEBUG
 mol.build ()
 mf = scf.RHF (mol).run ()
 mc = mcscf.CASSCF (mf, 4, 4).run ()

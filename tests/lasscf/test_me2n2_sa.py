@@ -26,7 +26,7 @@ from mrh.my_pyscf.fci import csf_solver
 r_nn = 3.0
 mol = struct (3.0, '6-31g')
 mol.output = 'test_me2n2_sa.log'
-mol.verbose = lib.logger.INFO
+mol.verbose = lib.logger.DEBUG
 mol.build ()
 mf = scf.RHF (mol).run ()
 mc = state_average_mix (mcscf.CASSCF (mf, 4, 4),

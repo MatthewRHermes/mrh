@@ -68,7 +68,7 @@ def build (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcn
 
 dr_nn = 3.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-mol.verbose = 0 
+mol.verbose = lib.logger.DEBUG 
 mol.output = '/dev/null'
 mol.spin = 8
 mol.build ()
@@ -80,6 +80,7 @@ e_tot = dmet.doselfconsistent ()
 def tearDownModule():
     global mol, mf, dmet
     mol.stdout.close ()
+    dmet.lasci_log.close ()
     del mol, mf, dmet
 
 
