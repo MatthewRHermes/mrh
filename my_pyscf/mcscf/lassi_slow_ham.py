@@ -10,13 +10,14 @@ def addr_outer_product (norb_f, nelec_f):
     norb = sum (norb_f)
     nelec = sum (nelec_f)
     # Must skip over cases where there are no electrons of a specific spin in a particular subspace
-    norb_f = [norb_f[i] for i, ne in enumerate (nelec_f) if ne > 0]
-    nelec_f = [ne for ne in nelec_f if ne > 0]
     norbrange = np.cumsum (norb_f)
-    addrs = cistring.sub_addrs (norb, nelec, range (0,norbrange[0]), nelec_f[0])
-    for i in range (1, len (norbrange)):
-        addrs = np.intersect1d (addrs, cistring.sub_addrs (norb, nelec,
-            range (norbrange[i-1], norbrange[i]), nelec_f[i]))
+    addrs = []
+    for i in range (0, len (norbrange)):
+        new_addrs = cistring.sub_addrs (norb, nelec, range (norbrange[i]-norb_f[i], norbrange[i]), nelec_f[i]) if nelec_f[i] else []
+        if len (addrs) == 0:
+            addrs = new_addrs
+        elif len (new_addrs) > 0:
+            addrs = np.intersect1d (addrs, new_addrs)
     return addrs
 
 def _ci_outer_product (ci_f, norb_f, nelec_f):
