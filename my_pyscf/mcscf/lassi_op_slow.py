@@ -47,9 +47,9 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
              sum ([ne[1] for ne in nelec_f]))
     return ci_r, nelec
 
-def slow_ham (mol, h1, h2, ci_fr, norb_f, nelec_fr):
+def slow_ham (mol, h1, h2, ci_fr, norb_f, nelec_fr, orbsym=None):
     ci, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
-    solver = fci.solver (mol)
+    solver = fci.solver (mol).set (orbsym=orbsym)
     norb = sum (norb_f)
     h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
     ham_ci = [solver.contract_2e (h2eff, c, norb, nelec) for c in ci]

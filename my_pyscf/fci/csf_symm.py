@@ -102,10 +102,14 @@ class FCISolver (direct_spin1_symm.FCISolver):
     def check_transformer_cache (self):
         assert (isinstance (self.smult, (int, np.number)))
         neleca, nelecb = _unpack_nelec (self.nelec)
+        if isinstance (self.wfnsym, str):
+            wfnsym = symm.irrep_name2id (self.mol.groupname, self.wfnsym)
+        else:
+            wfnsym = self.wfnsym
         if self.transformer is None:
-            self.transformer = CSFTransformer (self.norb, neleca, nelecb, self.smult, orbsym=self.orbsym, wfnsym=self.wfnsym)
+            self.transformer = CSFTransformer (self.norb, neleca, nelecb, self.smult, orbsym=self.orbsym, wfnsym=wfnsym)
         else:
             self.transformer._update_spin_cache (self.norb, neleca, nelecb, self.smult)
             self.transformer._update_symm_cache (self.orbsym)
-            self.transformer.wfnsym = self.wfnsym
+            self.transformer.wfnsym = wfnsym
 

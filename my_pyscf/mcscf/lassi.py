@@ -1,14 +1,16 @@
 import numpy as np
 from scipy import linalg
-from mrh.my_pyscf.mcscf.lassi_slow_ham import slow_ham
+from mrh.my_pyscf.mcscf.lassi_op_slow import slow_ham
 from pyscf import lib, symm
+from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations
 
-def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None):
+def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None):
     ''' Diagonalize the state-interaction matrix of LASSCF '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
+    if orbsym is None: orbsym = getattr (mo_coeff, 'orbsym', None)
 
     # Construct second-quantization Hamiltonian
     ncore, ncas, nocc = las.ncore, las.ncas, las.ncore + las.ncas
@@ -70,7 +72,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None):
             continue
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
         nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx)] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-        ham_blk, s2_blk, ovlp_blk = slow_ham (las.mol, h1, h2, ci_blk, las.ncas_sub, nelec_blk)
+        ham_blk, s2_blk, ovlp_blk = slow_ham (las.mol, h1, h2, ci_blk, las.ncas_sub, nelec_blk, orbsym=orbsym)
         lib.logger.debug (las, 'Block Hamiltonian - ecore:')
         lib.logger.debug (las, '{}'.format (ham_blk))
         lib.logger.debug (las, 'Block S**2:')
@@ -78,7 +80,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None):
         lib.logger.debug (las, 'Block overlap matrix:')
         lib.logger.debug (las, '{}'.format (ovlp_blk))
         diag_test = np.diag (ham_blk)
-        diag_ref = las.e_states - e0
+        diag_ref = las.e_states[idx] - e0
         lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference', 'Error'))
         for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
             lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
@@ -94,7 +96,10 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None):
     rootsym = np.array (statesym)[idx]
     e_roots = e_roots[idx] + e0
     s2_roots = s2_roots[idx]
+    nelec_roots = [statesym[ix][0:2] for ix in idx]
+    wfnsym_roots = [statesym[ix][2] for ix in idx]
     si = si[:,idx]
+    si = tag_array (si, s2=s2_roots, nelec=nelec_roots, wfnsym=wfnsym_roots)
     lib.logger.info (las, 'LASSI eigenvalues:')
     lib.logger.info (las, ' {:2s}  {:>16s}  {:6s}  {:6s}  {:6s}  {:6s}'.format ('ix', 'Energy', 'Neleca', 'Nelecb', '<S**2>', 'Wfnsym'))
     for ix, (er, s2r, rsym) in enumerate (zip (e_roots, s2_roots, rootsym)):
