@@ -778,6 +778,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
     converged = False
     ci1 = ci0
     t2 = (t1[0], t1[1])
+    it = 0
     for it in range (las.max_cycle_macro):
         e_cas, ci1 = ci_cycle (las, mo_coeff, ci1, veff, h2eff_sub, casdm1s_fr, log)
         if ugg is None: ugg = las.get_ugg (las, mo_coeff, ci1)

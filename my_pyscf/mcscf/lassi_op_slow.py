@@ -34,7 +34,7 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
     addrs_b = addr_outer_product (norb_f, nelecb_f)
     ci = np.zeros ((cistring.num_strings (sum (norb_f), sum (neleca_f)), cistring.num_strings (sum (norb_f), sum (nelecb_f))),
         dtype=ci_dp.dtype)
-    ci[np.ix_(addrs_a,addrs_b)] = ci_dp[:,:]
+    ci[np.ix_(addrs_a,addrs_b)] = ci_dp[:,:] / linalg.norm (ci_dp)
     return ci
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):

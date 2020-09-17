@@ -78,7 +78,7 @@ class LASSCF_UnitaryGroupGenerators (lasci.LASCI_UnitaryGroupGenerators):
         self.uniq_orb_idx[ncore:nocc,:ncore] = True
         self.uniq_orb_idx[nocc:,ncore:nocc] = True
         if self.frozen is not None:
-            idx[self.frozen,:] = idx[:,self.frozen] = False
+            self.uniq_orb_idx[self.frozen,:] = self.uniq_orb_idx[:,self.frozen] = False
 
 class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
     __init__ = lasci.LASCISymm_UnitaryGroupGenerators.__init__
