@@ -26,7 +26,6 @@ class LASCI_UnitaryGroupGenerators (object):
     def __init__(self, las, mo_coeff, ci):
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
-        self.spin_sub = las.spin_sub
         self._init_orb (las, mo_coeff, ci)
         self._init_ci (las, mo_coeff, ci)
 
@@ -87,7 +86,6 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
     def __init__(self, las, mo_coeff, ci): 
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
-        self.spin_sub = las.spin_sub
         if getattr (mo_coeff, 'orbsym', None) is None:
             mo_coeff = las.label_symmetry_(mo_coeff)
         orbsym = mo_coeff.orbsym
@@ -655,7 +653,7 @@ def density_fit (las, auxbasis=None, with_df=None):
             self._keys = self._keys.union(['with_df'])
     return DFLASCI (las)
 
-def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None, ncas_sub=None, nelecas_sub=None, spin_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None, casdm1s_fr=None, veff_sub_test=None):
+def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None, ncas_sub=None, nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None, casdm1s_fr=None, veff_sub_test=None):
     ''' Effective one-body Hamiltonians (plural) for a LASCI problem
 
     Args:
@@ -676,8 +674,6 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
             Number of active orbitals in each subspace
         nelecas_sub: ndarray of shape (nsub,2)
             na, nb in each subspace
-        spin_sub: ndarray of shape (nsub)
-            Total spin quantum numbers in each subspace
         veff: ndarray of shape (2, nao, nao)
             If you precalculated this, pass it to save on calls to get_jk
 
@@ -690,7 +686,6 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
     if ncore is None: ncore = las.ncore
     if ncas_sub is None: ncas_sub = las.ncas_sub
     if nelecas_sub is None: nelecas_sub = las.nelecas_sub
-    if spin_sub is None: spin_sub = las.spin_sub
     if ncore is None: ncore = las.ncore
     if ci is None: ci = las.ci
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
@@ -899,7 +894,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_fr, log, veff_sub_test=None
     e_cas = []
     ci1 = []
     e0 = 0.0 
-    for isub, (fcibox, ncas, nelecas, spin, h1e, fcivec) in enumerate (zip (las.fciboxes, las.ncas_sub, las.nelecas_sub, las.spin_sub, h1eff_sub, ci0)):
+    for isub, (fcibox, ncas, nelecas, h1e, fcivec) in enumerate (zip (las.fciboxes, las.ncas_sub, las.nelecas_sub, h1eff_sub, ci0)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
         max_memory = max(400, las.max_memory-lib.current_memory()[0])
         orbsym = getattr (mo, 'orbsym', None)
@@ -1112,16 +1107,15 @@ class LASCINoSymm (casci.CASCI):
         if spin_sub is None: spin_sub = [1 for sub in ncas]
         self.ncas_sub = np.asarray (ncas)
         self.nelecas_sub = np.asarray (nelecas)
-        self.spin_sub = np.asarray (spin_sub)
         self.frozen = frozen
         self.conv_tol_grad = 1e-4
         self.ah_level_shift = 1e-8
         self.max_cycle_macro = 50
         self.max_cycle_micro = 5
-        keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub', 'spin_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
+        keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
-        for smult, nel in zip (self.spin_sub, self.nelecas_sub):
+        for smult, nel in zip (spin_sub, self.nelecas_sub):
             s = csf_solver (self.mol, smult=smult)
             s.spin = nel[0] - nel[1] 
             self.fciboxes.append (get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)) 
