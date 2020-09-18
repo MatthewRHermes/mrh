@@ -84,22 +84,22 @@ class LASCI_UnitaryGroupGenerators (object):
         return self.nvar_orb + self.ncsf_sub.sum ()
 
 class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
-    def __init__(self, las, mo_coeff, ci, orbsym=None, wfnsym_sub=None):
+    def __init__(self, las, mo_coeff, ci): 
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
         self.spin_sub = las.spin_sub
-        if orbsym is None: orbsym = mo_coeff.orbsym
-        if wfnsym_sub is None: wfnsym_sub = las.wfnsym_sub
-        self._init_orb (las, mo_coeff, ci, orbsym, wfnsym_sub)
-        self._init_ci (las, mo_coeff, ci, orbsym, wfnsym_sub)
+        if getattr (mo_coeff, 'orbsym', None) is None:
+            mo_coeff = las.label_symmetry_(mo_coeff)
+        orbsym = mo_coeff.orbsym
+        self._init_orb (las, mo_coeff, ci, orbsym)
+        self._init_ci (las, mo_coeff, ci, orbsym)
     
-    def _init_orb (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
+    def _init_orb (self, las, mo_coeff, ci, orbsym):
         LASCI_UnitaryGroupGenerators._init_orb (self, las, mo_coeff, ci)
         self.symm_forbid = (orbsym[:,None] ^ orbsym[None,:]).astype (np.bool_)
         self.uniq_orb_idx[self.symm_forbid] = False
 
-    def _init_ci (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
-        # wfnsym should be unchanged, but set the orbsym in case orbitals changed order
+    def _init_ci (self, las, mo_coeff, ci, orbsym):
         sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
         orbsym_sub = [orbsym[i:sub_slice[isub+1]] for isub, i in enumerate (sub_slice[:-1])]
         for fcibox, orbsym in zip (las.fciboxes, orbsym_sub):
@@ -1573,14 +1573,8 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, wfnsym_sub=None, frozen=None, **kwargs):
         LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub, frozen=frozen, **kwargs)
         if wfnsym_sub is None: wfnsym_sub = [0 for icas in self.ncas_sub]
-        self.wfnsym_sub = wfnsym_sub
-        ix = 0
-        for frag in self.fciboxes:
-            for state in frag.fcisolvers:
-                state.wfnsym = wfnsym_sub[ix]
-                ix += 1
-        keys = set(('wfnsym_sub'))
-        self._keys = set(self.__dict__.keys()).union(keys)
+        for wfnsym, frag in zip (wfnsym_sub, self.fciboxes):
+            frag.fcisolvers[0].wfnsym = wfnsym
 
     make_rdm1s = LASCINoSymm.make_rdm1s
     make_rdm1 = LASCINoSymm.make_rdm1
@@ -1591,12 +1585,15 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     @property
     def wfnsym (self):
         ''' This now returns the product of the irreps of the subspaces '''
-        wfnsym = 0
-        for ir in self.wfnsym_sub: wfnsym ^= ir
+        wfnsym = [0,]*self.nroots
+        for frag in self.fciboxes:
+            for state, solver in enumerate (frag.fcisolvers):
+                wfnsym[state] ^= solver.wfnsym
+        if self.nroots == 1: wfnsym = wfnsym[0]
         return wfnsym
     @wfnsym.setter
     def wfnsym (self, ir):
-        raise RuntimeError ("Cannot assign the whole-system symmetry of a LASCI wave function. Address the individual subspaces at lasci.wfnsym_sub instead.")
+        raise RuntimeError ("Cannot assign the whole-system symmetry of a LASCI wave function. Address fciboxes[ifrag].fcisolvers[istate].wfnsym instead.")
 
     def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, verbose=None):
         if mo_coeff is None:

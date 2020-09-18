@@ -84,13 +84,10 @@ class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
     __init__ = lasci.LASCISymm_UnitaryGroupGenerators.__init__
     _init_orb = lasci.LASCISymm_UnitaryGroupGenerators._init_orb
     _init_ci = lasci.LASCISymm_UnitaryGroupGenerators._init_ci
-    def _init_orb (self, las, mo_coeff, ci, orbsym, wfnsym_sub):
+    def _init_orb (self, las, mo_coeff, ci, orbsym):
         LASSCF_UnitaryGroupGenerators._init_orb (self, las, mo_coeff, ci)
         self.symm_forbid = (orbsym[:,None] ^ orbsym[None,:]).astype (np.bool_)
         self.uniq_orb_idx[self.symm_forbid] = False
-
-    # TODO: test that the "super()" command in the above points to
-    # the correct parent class
 
 class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
     # Required modifications for Hx: [I forgot about 3) at first]
