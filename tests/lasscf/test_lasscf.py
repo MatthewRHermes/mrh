@@ -34,7 +34,7 @@ las.max_cycle_macro = 1
 las.kernel ()
 las.mo_coeff = np.loadtxt ('test_lasci_mo.dat')
 las.ci = [[np.loadtxt ('test_lasci_ci0.dat')], [-np.loadtxt ('test_lasci_ci1.dat').T]]
-ugg = las.get_ugg (las, las.mo_coeff, las.ci)
+ugg = las.get_ugg ()
 h_op = las.get_hop (las, ugg)
 np.random.seed (0)
 x = np.random.rand (ugg.nvar_tot)

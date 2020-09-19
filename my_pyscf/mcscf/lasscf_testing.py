@@ -183,7 +183,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
 
 
 class LASSCFNoSymm (lasci.LASCINoSymm):
-    get_ugg = LASSCF_UnitaryGroupGenerators
+    _ugg = LASSCF_UnitaryGroupGenerators
     get_hop = LASSCF_HessianOperator
     as_scanner = mc1step.as_scanner
     def split_veff (self, veff, h2eff_sub, mo_coeff=None, ci=None, casdm1s_sub=None): 
@@ -234,7 +234,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         return matrix_svd_control_options (s, lspace=mo_lspace, rspace=mo_rspace, full_matrices=True)[:3]
  
 class LASSCFSymm (lasci.LASCISymm):
-    get_ugg = LASSCFSymm_UnitaryGroupGenerators    
+    _ugg = LASSCFSymm_UnitaryGroupGenerators    
     get_hop = LASSCF_HessianOperator
     split_veff = LASSCFNoSymm.split_veff
     as_scanner = mc1step.as_scanner
@@ -330,7 +330,7 @@ if __name__ == '__main__':
     def unpack_cas (x):
         return mc.unpack_uniq_var (x[:nvar_orb_cas]), _unpack_ci (x[nvar_orb_cas:])
 
-    ugg = las.get_ugg (las, las.mo_coeff, las.ci)
+    ugg = las.get_ugg (las.mo_coeff, las.ci)
     h_op_las = las.get_hop (las, ugg)
 
     print ("Total # variables: {} CAS ; {} LAS".format (nvar_tot_cas, ugg.nvar_tot))

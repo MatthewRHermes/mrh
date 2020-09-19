@@ -43,7 +43,15 @@ class LASCI_UnitaryGroupGenerators (object):
         self.uniq_orb_idx = idx
 
     def _init_ci (self, las, mo_coeff, ci):
-        self.ci_transformers = [[solver.transformer for solver in box.fcisolvers] for box in las.fciboxes]
+        self.ci_transformers = []
+        for norb, nelec, fcibox in zip (las.ncas_sub, las.nelecas_sub, las.fciboxes):
+            tf_list = []
+            for solver in fcibox.fcisolvers:
+                solver.norb = norb
+                solver.nelec = fcibox._get_nelec (solver, nelec)
+                solver.check_transformer_cache ()
+                tf_list.append (solver.transformer)
+            self.ci_transformers.append (tf_list)
 
     def pack (self, kappa, ci_sub):
         x = kappa[self.uniq_orb_idx]
@@ -100,11 +108,16 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
     def _init_ci (self, las, mo_coeff, ci, orbsym):
         sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
         orbsym_sub = [orbsym[i:sub_slice[isub+1]] for isub, i in enumerate (sub_slice[:-1])]
-        for fcibox, orbsym in zip (las.fciboxes, orbsym_sub):
-            fcibox.orbsym = orbsym
+        self.ci_transformers = []
+        for norb, nelec, orbsym, fcibox in zip (las.ncas_sub, las.nelecas_sub, orbsym_sub, las.fciboxes):
+            tf_list = []
             for solver in fcibox.fcisolvers:
-                solver.transformer.orbsym = solver.orbsym = orbsym
-        LASCI_UnitaryGroupGenerators._init_ci (self, las, mo_coeff, ci)
+                solver.norb = norb
+                solver.nelec = fcibox._get_nelec (solver, nelec)
+                solver.orbsym = orbsym
+                solver.check_transformer_cache ()
+                tf_list.append (solver.transformer)
+            self.ci_transformers.append (tf_list)
 
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
@@ -576,7 +589,7 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
     Eventually to include 3) intersubspace orbital rotation. '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
-    if ugg is None: ugg = las.get_ugg (las, mo_coeff, ci)
+    if ugg is None: ugg = las.get_ugg (mo_coeff, ci)
     if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     if veff is None:
@@ -776,7 +789,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
     it = 0
     for it in range (las.max_cycle_macro):
         e_cas, ci1 = ci_cycle (las, mo_coeff, ci1, veff, h2eff_sub, casdm1s_fr, log)
-        if ugg is None: ugg = las.get_ugg (las, mo_coeff, ci1)
+        if ugg is None: ugg = las.get_ugg (mo_coeff, ci1)
         log.info ('LASCI subspace CI energies: {}'.format (e_cas))
         t1 = log.timer ('LASCI ci_cycle', *t1)
 
@@ -1500,7 +1513,11 @@ class LASCINoSymm (casci.CASCI):
         e0 = self.energy_nuc ()
         return e1 + e2
 
-    get_ugg = LASCI_UnitaryGroupGenerators
+    _ugg = LASCI_UnitaryGroupGenerators
+    def get_ugg (self, mo_coeff=None, ci=None):
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if ci is None: ci = self.ci
+        return self._ugg (self, mo_coeff, ci)
 
     def cderi_ao2mo (self, mo_i, mo_j, compact=False):
         assert (isinstance (self, _DFLASCI))
@@ -1574,7 +1591,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     make_rdm1 = LASCINoSymm.make_rdm1
     get_veff = LASCINoSymm.get_veff
     get_h1eff = get_h1cas = h1e_for_cas 
-    get_ugg = LASCISymm_UnitaryGroupGenerators
+    _ugg = LASCISymm_UnitaryGroupGenerators
 
     @property
     def wfnsym (self):

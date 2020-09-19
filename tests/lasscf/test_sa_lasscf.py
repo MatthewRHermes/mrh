@@ -22,28 +22,27 @@ las.state_average_(weights=[0.5,0.5], spins=[[0,0],[2,-2]])
 las.set (max_cycle_macro=1, max_cycle_micro=1, ah_level_shift=0).kernel ()
 
 np.random.seed (1)
-ugg_sa = las.get_ugg (las, mo_loc, las.ci)
-ci0 = [np.random.rand (ncsf) for ncsf in ugg_sa.ncsf_sub.ravel ()]
+ugg = las.get_ugg ()
+ci0 = [np.random.rand (ncsf) for ncsf in ugg.ncsf_sub.ravel ()]
 ci0 = [c / linalg.norm (c) for c in ci0]
-x0 = np.concatenate ([np.zeros (ugg_sa.nvar_orb),] + ci0)
-_, ci0_sa = ugg_sa.unpack (x0)
+x0 = np.concatenate ([np.zeros (ugg.nvar_orb),] + ci0)
+_, ci0_sa = ugg.unpack (x0)
 las.mo_coeff = mo_loc
 las.ci = ci0_sa
-ugg = las.get_ugg (las, mo_loc, ci0_sa)
 hop = las.get_hop (las, ugg)
 
 ci0_sing = [[ci0_sa[0][0]], [ci0_sa[1][0]]]
 las_sing = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1)).set (mo_coeff=mo_loc, ci=ci0_sing)
 las_sing = las_sing.set (ah_level_shift=0, max_cycle_macro=1, max_cycle_micro=1).run ()
 las_sing = las_sing.set (mo_coeff=mo_loc, ci=ci0_sing)
-ugg_sing = las_sing.get_ugg (las_sing, mo_loc, ci0_sing)
+ugg_sing = las_sing.get_ugg ()
 hop_sing = las_sing.get_hop (las_sing, ugg_sing)
 
 ci0_quin = [[ci0_sa[0][1]], [ci0_sa[1][1]]]
 las_quin = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3)).set (mo_coeff=mo_loc, ci=ci0_quin)
 las_quin = las_quin.set (ah_level_shift=0, max_cycle_macro=1, max_cycle_micro=1).run ()
 las_quin = las_quin.set (mo_coeff=mo_loc, ci=ci0_quin)
-ugg_quin = las_quin.get_ugg (las_quin, mo_loc, ci0_quin)
+ugg_quin = las_quin.get_ugg ()
 hop_quin = las_quin.get_hop (las_quin, ugg_quin)
 
 def sa_2_ss_x (x_sa):

@@ -64,7 +64,7 @@ class KnownValues(unittest.TestCase):
     def test_derivatives (self):
         np.random.seed(1)
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (max_cycle_macro=1, ah_level_shift=0).run ()
-        ugg = las.get_ugg (las, mf.mo_coeff, las.ci)
+        ugg = las.get_ugg ()
         ci0_csf = np.random.rand (ugg.ncsf_sub[0][0])
         ci0_csf /= np.linalg.norm (ci0_csf)
         ci0 = ugg.ci_transformers[0][0].vec_csf2det (ci0_csf)
@@ -114,7 +114,7 @@ class KnownValues(unittest.TestCase):
     def test_derivatives_df (self):
         np.random.seed(1)
         las = LASSCF (mf_df, (4,), (4,), spin_sub=(1,)).set (max_cycle_macro=1, ah_level_shift=0).run ()
-        ugg = las.get_ugg (las, mf_df.mo_coeff, las.ci)
+        ugg = las.get_ugg ()
         ci0_csf = np.random.rand (ugg.ncsf_sub[0][0])
         ci0_csf /= np.linalg.norm (ci0_csf)
         ci0 = ugg.ci_transformers[0][0].vec_csf2det (ci0_csf)
