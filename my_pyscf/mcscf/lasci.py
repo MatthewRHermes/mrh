@@ -809,7 +809,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         casdm1s_sub = casdm1s_new
 
         t1 = log.timer ('LASCI get_veff after ci', *t1)
-        H_op = las.get_hop (las, ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
+        H_op = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
         g_vec = H_op.get_grad ()
         if las.verbose > lib.logger.INFO:
             g_orb_test, g_ci_test = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)[:2]
@@ -875,7 +875,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
     t2 = log.timer ('LASCI {} macrocycles'.format (it), *t2)
 
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff=veff)
-    e_tot_test = las.get_hop (las, ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff).e_tot
+    e_tot_test = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff).e_tot
     veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1s_fr], h2eff_sub, mo_coeff=mo_coeff, ci=ci1, _full=True)
         for state in range (las.nroots)], axis=0)
     veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, las.weights))/2 # veff's spin-summed component should be correct because I called get_veff with spin-summed rdm
@@ -1193,7 +1193,12 @@ class LASCINoSymm (casci.CASCI):
 
     get_fock = get_fock
     get_grad = get_grad
-    get_hop = LASCI_HessianOperator
+    _hop = LASCI_HessianOperator
+    def get_hop (self, mo_coeff=None, ci=None, ugg=None, **kwargs):
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if ci is None: ci = self.ci
+        if ugg is None: ugg = self.get_ugg ()
+        return self._hop (self, ugg, mo_coeff=mo_coeff, ci=ci, **kwargs)
     canonicalize = canonicalize
 
     def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=None, verbose=None):

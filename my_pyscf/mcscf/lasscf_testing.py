@@ -184,7 +184,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
 
 class LASSCFNoSymm (lasci.LASCINoSymm):
     _ugg = LASSCF_UnitaryGroupGenerators
-    get_hop = LASSCF_HessianOperator
+    _hop = LASSCF_HessianOperator
     as_scanner = mc1step.as_scanner
     def split_veff (self, veff, h2eff_sub, mo_coeff=None, ci=None, casdm1s_sub=None): 
         # This needs to actually do the veff, otherwise the preconditioner is broken
@@ -235,7 +235,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
  
 class LASSCFSymm (lasci.LASCISymm):
     _ugg = LASSCFSymm_UnitaryGroupGenerators    
-    get_hop = LASSCF_HessianOperator
+    _hop = LASSCF_HessianOperator
     split_veff = LASSCFNoSymm.split_veff
     as_scanner = mc1step.as_scanner
 
@@ -331,7 +331,7 @@ if __name__ == '__main__':
         return mc.unpack_uniq_var (x[:nvar_orb_cas]), _unpack_ci (x[nvar_orb_cas:])
 
     ugg = las.get_ugg (las.mo_coeff, las.ci)
-    h_op_las = las.get_hop (las, ugg)
+    h_op_las = las.get_hop (ugg=ugg)
 
     print ("Total # variables: {} CAS ; {} LAS".format (nvar_tot_cas, ugg.nvar_tot))
     print ("# orbital variables: {} CAS ; {} LAS".format (nvar_orb_cas, ugg.nvar_orb))

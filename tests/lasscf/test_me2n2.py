@@ -70,7 +70,7 @@ class KnownValues(unittest.TestCase):
         ci0 = ugg.ci_transformers[0][0].vec_csf2det (ci0_csf)
         las_gorb, las_gci = las.get_grad (mo_coeff=mf.mo_coeff, ci=[[ci0]])[:2]
         las_grad = np.append (las_gorb, las_gci)
-        las_hess = las.get_hop (las, ugg, mo_coeff=mf.mo_coeff, ci=[[ci0]])
+        las_hess = las.get_hop (ugg=ugg, mo_coeff=mf.mo_coeff, ci=[[ci0]])
         self.assertAlmostEqual (lib.fp (las_grad), lib.fp (las_hess.get_grad ()), 8)
         cas_grad, _, cas_hess, _ = newton_casscf.gen_g_hop (mc, mf.mo_coeff, ci0, mc.ao2mo (mf.mo_coeff))
         _pack_ci, _unpack_ci = newton_casscf._pack_ci_get_H (mc, mf.mo_coeff, ci0)[-2:]
@@ -120,7 +120,7 @@ class KnownValues(unittest.TestCase):
         ci0 = ugg.ci_transformers[0][0].vec_csf2det (ci0_csf)
         las_gorb, las_gci = las.get_grad (mo_coeff=mf_df.mo_coeff, ci=[[ci0]])[:2]
         las_grad = np.append (las_gorb, las_gci)
-        las_hess = las.get_hop (las, ugg, mo_coeff=mf_df.mo_coeff, ci=[[ci0]])
+        las_hess = las.get_hop (ugg=ugg, mo_coeff=mf_df.mo_coeff, ci=[[ci0]])
         self.assertAlmostEqual (lib.fp (las_grad), lib.fp (las_hess.get_grad ()), 8)
         cas_grad, _, cas_hess, _ = newton_casscf.gen_g_hop (mc_df, mf_df.mo_coeff, ci0, mc_df.ao2mo (mf_df.mo_coeff))
         _pack_ci, _unpack_ci = newton_casscf._pack_ci_get_H (mc_df, mf_df.mo_coeff, ci0)[-2:]
