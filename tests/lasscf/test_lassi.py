@@ -31,14 +31,15 @@ mol.symmetry = 'Cs'
 mol.build ()
 mf = scf.RHF (mol).run ()
 las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
-mo_loc = las.localize_init_guess ((list(range(3)),list(range(7,10))), mo_coeff=mf.mo_coeff)
 las.state_average_(weights=[1.0/7.0,]*7,
     spins=[[0,0],[0,0],[2,-2],[-2,2],[0,0],[0,0],[2,2]],
     smults=[[1,1],[3,3],[3,3],[3,3],[1,1],[1,1],[3,3]],
     wfnsyms=[['A\'','A\''],]*4+[['A"','A\''],['A\'','A"'],['A\'','A\'']])
-mo_loc = np.loadtxt ('test_lassi_mo.dat')
-las.frozen = list (range (mo_loc.shape[-1]))
-las.set (conv_tol_grad=1e-6).kernel (mo_loc)
+las.frozen = list (range (las.mo_coeff.shape[-1]))
+ugg = las.get_ugg ()
+las.mo_coeff = las.label_symmetry_(np.loadtxt ('test_lassi_mo.dat'))
+las.ci = ugg.unpack (np.loadtxt ('test_lassi_ci.dat'))[1]
+las.e_states = las.energy_nuc () + las.states_energy_elec ()
 e_roots, si = las.lassi ()
 
 def tearDownModule():
@@ -52,8 +53,9 @@ class KnownValues(unittest.TestCase):
 
     def test_si (self):
         # Arbitrary signage in both the SI and CI vector, sadly
+        # Actually this test seems really inconsistent overall...
         dms = [np.dot (si[:,i:i+1], si[:,i:i+1].conj ().T) for i in range (7)]
-        self.assertAlmostEqual (lib.fp (np.abs (dms)), 3.645523608610042, 7)
+        self.assertAlmostEqual (lib.fp (np.abs (dms)), 3.638767536384406, 7)
 
     def test_nelec (self):
         self.assertEqual (si.nelec[0], (6,2))

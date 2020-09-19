@@ -22,14 +22,15 @@ def addr_outer_product (norb_f, nelec_f):
 
 def _ci_outer_product (ci_f, norb_f, nelec_f):
     # There may be an ambiguous factor of -1, but it should apply to the entire product CI vector so maybe it doesn't matter?
-    ci_dp = ci_f[-1].copy ()
-    for ci_r in ci_f[-2::-1]:
-        ndeta_1, ndetb_1 = ci_dp.shape
-        ndeta_2, ndetb_2 = ci_r.shape
-        ci_dp = np.multiply.outer (ci_dp, ci_r)
-        ci_dp = ci_dp.transpose (0,2,1,3).reshape (ndeta_1*ndeta_2, ndetb_1*ndetb_2)
     neleca_f = [ne[0] for ne in nelec_f]
     nelecb_f = [ne[1] for ne in nelec_f]
+    ndet_f = [(cistring.num_strings (norb, neleca), cistring.num_strings (norb, nelecb)) for norb, neleca, nelecb
+        in zip (norb_f, neleca_f, nelecb_f)]
+    ci_dp = ci_f[-1].copy ().reshape (ndet_f[-1])
+    for ci_r, ndet in zip (ci_f[-2::-1], ndet_f[-2::-1]):
+        ndeta, ndetb = ci_dp.shape
+        ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (ndet))
+        ci_dp = ci_dp.transpose (0,2,1,3).reshape (ndeta*ndet[0], ndetb*ndet[1])
     addrs_a = addr_outer_product (norb_f, neleca_f)
     addrs_b = addr_outer_product (norb_f, nelecb_f)
     ci = np.zeros ((cistring.num_strings (sum (norb_f), sum (neleca_f)), cistring.num_strings (sum (norb_f), sum (nelecb_f))),

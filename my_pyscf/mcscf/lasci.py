@@ -111,6 +111,7 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
         self.ci_transformers = []
         for norb, nelec, orbsym, fcibox in zip (las.ncas_sub, las.nelecas_sub, orbsym_sub, las.fciboxes):
             tf_list = []
+            fcibox.orbsym = orbsym
             for solver in fcibox.fcisolvers:
                 solver.norb = norb
                 solver.nelec = fcibox._get_nelec (solver, nelec)
