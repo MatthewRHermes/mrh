@@ -24,6 +24,7 @@ dr_nn = 3.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
 mol.verbose = lib.logger.DEBUG
 mol.output = '/dev/null'
+mol.build ()
 mf = scf.RHF (mol).run ()
 mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()
 

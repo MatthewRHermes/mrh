@@ -50,11 +50,11 @@ class KnownValues(unittest.TestCase):
         gorb0, gci0, gx0 = las.get_grad (ugg=ugg)
         grad0 = np.append (gorb0, gci0)
         grad1 = h_op.get_grad ()
-        gx1 = h_op.get_gx ()
+        gx1 = h_op.get_gx () # "gx" is not even defined in this context
         self.assertAlmostEqual (lib.fp (grad0), -0.1547273632764783, 9)
         self.assertAlmostEqual (lib.fp (grad1), -0.1547273632764783, 9)
         self.assertAlmostEqual (lib.fp (gx0), -0.0005604501808183955, 9)
-        self.assertAlmostEqual (lib.fp (gx1), -0.0005604501808183955, 9)
+        self.assertAlmostEqual (lib.fp (gx1), 0.0, 9) 
 
     def test_hessian (self):
         hx = h_op._matvec (x)

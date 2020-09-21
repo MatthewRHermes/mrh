@@ -181,6 +181,9 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         mo1, ci1 = lasci.LASCI_HessianOperator.update_mo_ci_eri (self, x, h2eff_sub)[:2]
         return mo1, ci1, self.las.ao2mo (mo1)
 
+    def get_gx (self):
+        # This is a hack to prevent false convergence. I really should just clean up the LASCI module and the interface to the old LASSCF.
+        return np.array ([0.0])
 
 class LASSCFNoSymm (lasci.LASCINoSymm):
     _ugg = LASSCF_UnitaryGroupGenerators
