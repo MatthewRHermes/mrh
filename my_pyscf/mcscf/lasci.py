@@ -16,6 +16,21 @@ import time
 
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to handle spin-breaking potentials while retaining spin constraint
 
+def all_nonredundant_idx (nmo, ncore, ncas_sub):
+    nocc = ncore + sum (ncas_sub)
+    idx = np.zeros ((nmo, nmo), dtype=np.bool)
+    idx[ncore:,:ncore] = True # inactive -> everything
+    idx[nocc:,ncore:nocc] = True # active -> virtual
+    sub_slice = np.cumsum ([0] + ncas_sub.tolist ()) + ncore
+    idx[sub_slice[-1]:,:sub_slice[0]] = True
+    for ix1, i in enumerate (sub_slice[:-1]):
+        j = sub_slice[ix1+1]
+        for ix2, k in enumerate (sub_slice[:ix1]):
+            l = sub_slice[ix2+1]
+            idx[i:j,k:l] = True
+    # active -> active
+    return idx
+
 class LASCI_UnitaryGroupGenerators (object):
     ''' Object for packing (for root-finding algorithms) and unpacking (for direct manipulation)
     the nonredundant variables ('unitary group generators') of a LASCI problem. Selects nonredundant
@@ -29,18 +44,24 @@ class LASCI_UnitaryGroupGenerators (object):
         self._init_orb (las, mo_coeff, ci)
         self._init_ci (las, mo_coeff, ci)
 
-    def _init_orb (self, las, mo_coeff, ci):
-        idx = np.zeros ((self.nmo, self.nmo), dtype=np.bool)
-        sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
-        idx[sub_slice[-1]:,:sub_slice[0]] = True
-        for ix1, i in enumerate (sub_slice[:-1]):
-            j = sub_slice[ix1+1]
-            for ix2, k in enumerate (sub_slice[:ix1]):
-                l = sub_slice[ix2+1]
-                idx[i:j,k:l] = True
+    def _init_nonfrozen_orb (self, las):
+        nmo, ncore, ncas_sub = self.nmo, las.ncore, las.ncas_sub
+        idx = all_nonredundant_idx (nmo, ncore, ncas_sub)
         if self.frozen is not None:
             idx[self.frozen,:] = idx[:,self.frozen] = False
+        self.nfrz_orb_idx = idx
+
+    def _init_orb (self, las, mo_coeff, ci):
+        self._init_nonfrozen_orb (las)
+        ncore, nocc = las.ncore, las.ncore + las.ncas
+        idx = self.nfrz_orb_idx.copy ()
+        idx[ncore:nocc,:ncore] = False # no inactive -> active
+        idx[nocc:,ncore:nocc] = False # no active -> virtual
+        # No external rotations of active orbitals
         self.uniq_orb_idx = idx
+
+    def get_gx_idx (self):
+        return np.logical_and (self.nfrz_orb_idx, np.logical_not (self.uniq_orb_idx))
 
     def _init_ci (self, las, mo_coeff, ci):
         self.ci_transformers = []
@@ -104,6 +125,7 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
         LASCI_UnitaryGroupGenerators._init_orb (self, las, mo_coeff, ci)
         self.symm_forbid = (orbsym[:,None] ^ orbsym[None,:]).astype (np.bool_)
         self.uniq_orb_idx[self.symm_forbid] = False
+        self.nfrz_orb_idx[self.symm_forbid] = False
 
     def _init_ci (self, las, mo_coeff, ci, orbsym):
         sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
@@ -560,13 +582,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def get_gx (self):
         gorb = self.fock1 - self.fock1.T
-        idx = np.zeros (gorb.shape, dtype=np.bool_)
-        ncore, nocc = self.ncore, self.nocc
-        idx[ncore:nocc,:ncore] = True
-        idx[nocc:,ncore:nocc] = True
-        if isinstance (self.ugg, LASCISymm_UnitaryGroupGenerators):
-            idx[self.ugg.symm_forbid] = False
-        gx = gorb[idx]
+        gx = gorb[self.ugg.get_gx_idx ()]
         return gx
 
 def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
@@ -621,11 +637,7 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
     gorb = f1 - f1.T
 
     # Split into internal and external parts
-    idx = np.zeros (gorb.shape, dtype=np.bool_)
-    idx[ncore:nocc,:ncore] = True
-    idx[nocc:,ncore:nocc] = True
-    if isinstance (ugg, LASCISymm_UnitaryGroupGenerators):
-        idx[ugg.symm_forbid] = False
+    idx = ugg.get_gx_idx ()
     gx = gorb[idx]
 
     # The CI part

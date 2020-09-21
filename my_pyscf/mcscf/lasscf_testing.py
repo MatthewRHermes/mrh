@@ -71,23 +71,19 @@ def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovl
 class LASSCF_UnitaryGroupGenerators (lasci.LASCI_UnitaryGroupGenerators):
 
     def _init_orb (self, las, mo_coeff, ci):
-        lasci.LASCI_UnitaryGroupGenerators._init_orb (self, las, mo_coeff, ci)
-        ncore, ncas = las.ncore, las.ncas
-        nmo = mo_coeff.shape[-1]
-        nocc = ncore + ncas
-        self.uniq_orb_idx[ncore:nocc,:ncore] = True
-        self.uniq_orb_idx[nocc:,ncore:nocc] = True
-        if self.frozen is not None:
-            self.uniq_orb_idx[self.frozen,:] = self.uniq_orb_idx[:,self.frozen] = False
+        lasci.LASCI_UnitaryGroupGenerators._init_nonfrozen_orb (self, las)
+        self.uniq_orb_idx = self.nfrz_orb_idx.copy ()
+        # The distinction between "uniq_orb_idx" and "nfrz_orb_idx" is an
+        # artifact of backwards-compatibility with the old LASSCF implementation
 
 class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
     __init__ = lasci.LASCISymm_UnitaryGroupGenerators.__init__
-    _init_orb = lasci.LASCISymm_UnitaryGroupGenerators._init_orb
     _init_ci = lasci.LASCISymm_UnitaryGroupGenerators._init_ci
     def _init_orb (self, las, mo_coeff, ci, orbsym):
         LASSCF_UnitaryGroupGenerators._init_orb (self, las, mo_coeff, ci)
         self.symm_forbid = (orbsym[:,None] ^ orbsym[None,:]).astype (np.bool_)
         self.uniq_orb_idx[self.symm_forbid] = False
+        self.nfrz_orb_idx[self.symm_forbid] = False
 
 class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
     # Required modifications for Hx: [I forgot about 3) at first]
@@ -180,10 +176,6 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         # mo and ci are fine, but h2eff sub simply has to be replaced
         mo1, ci1 = lasci.LASCI_HessianOperator.update_mo_ci_eri (self, x, h2eff_sub)[:2]
         return mo1, ci1, self.las.ao2mo (mo1)
-
-    def get_gx (self):
-        # This is a hack to prevent false convergence. I really should just clean up the LASCI module and the interface to the old LASSCF.
-        return np.array ([0.0])
 
 class LASSCFNoSymm (lasci.LASCINoSymm):
     _ugg = LASSCF_UnitaryGroupGenerators
