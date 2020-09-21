@@ -529,7 +529,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # this to k^p_q E^p_q when evaluating derivatives, but not when exponentiating,
         # because the operator part has to be anti-hermitian.
         mo1 = self.mo_coeff @ umat
-        ci1 = [[c + dc/w for c,dc,w in zip (cr,dcr,self.weights)] for cr, dcr in zip (self.ci, dci)]
+        ci1 = [[c + dc for c,dc in zip (cr,dcr)] for cr, dcr in zip (self.ci, dci)]
         norm_ci = [[np.sqrt (c.dot (c)) for c in cr] for cr in ci1]
         ci1 = [[c/n for c,n in zip (cr, nr)] for cr, nr in zip (ci1, norm_ci)]
         if hasattr (self.mo_coeff, 'orbsym'):
@@ -836,7 +836,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         x0 = prec_op._matvec (-g_vec)
         norm_xorb = linalg.norm (x0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
         norm_xci = linalg.norm (x0[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
-        lib.logger.info (las, 'LASCI macro %d : E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g', it, H_op.e_tot, norm_gorb, norm_gci)
+        lib.logger.info (las, 'LASCI macro %d : E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_x| = %.15g', it, H_op.e_tot, norm_gorb, norm_gci, norm_gx)
         #log.info ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g ; |x0_ci| = %.15g',
         #    H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
         if (norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad) or ((norm_gorb + norm_gci) < norm_gx/10):
