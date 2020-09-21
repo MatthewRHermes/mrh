@@ -525,9 +525,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         kappa, dci = self.ugg.unpack (x)
         umat = linalg.expm (kappa/2)
         # The 1/2 here is because my actual variables are just the lower-triangular
-        # part of kappa. The operator is 1/2 k^p_q (E^p_q - E^q_p); I can simplify
+        # part of kappa, or equivalently 1/2 k^p_q (E^p_q - E^q_p). I can simplify
         # this to k^p_q E^p_q when evaluating derivatives, but not when exponentiating,
-        # because the operator part has to be anti-hermitian
+        # because the operator part has to be anti-hermitian.
         mo1 = self.mo_coeff @ umat
         ci1 = [[c + dc/w for c,dc,w in zip (cr,dcr,self.weights)] for cr, dcr in zip (self.ci, dci)]
         norm_ci = [[np.sqrt (c.dot (c)) for c in cr] for cr in ci1]
