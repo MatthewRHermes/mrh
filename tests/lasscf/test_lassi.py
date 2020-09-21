@@ -39,6 +39,7 @@ las.frozen = list (range (las.mo_coeff.shape[-1]))
 ugg = las.get_ugg ()
 las.mo_coeff = las.label_symmetry_(np.loadtxt ('test_lassi_mo.dat'))
 las.ci = ugg.unpack (np.loadtxt ('test_lassi_ci.dat'))[1]
+#las.set (conv_tol_grad=1e-8).run ()
 las.e_states = las.energy_nuc () + las.states_energy_elec ()
 e_roots, si = las.lassi ()
 

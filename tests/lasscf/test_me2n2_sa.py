@@ -78,7 +78,7 @@ class KnownValues(unittest.TestCase):
             return mc.unpack_uniq_var (x[:ugg.nvar_orb]), _unpack_ci (x[ugg.nvar_orb:])
         def cas2las (y, mode='hx'):
             yorb, yci = unpack_cas (y)
-            yci = [yc - c * c.ravel ().dot (yc.ravel ()) for c, yc in zip (ci0, yci)]
+            yci = [2 * (yc - c * c.ravel ().dot (yc.ravel ())) for c, yc in zip (ci0, yci)]
             yorb *= (0.5 if mode=='hx' else 1)
             return ugg.pack (yorb, [yci])
         def las2cas (y, mode='x'):
@@ -127,7 +127,7 @@ class KnownValues(unittest.TestCase):
             return mc_df.unpack_uniq_var (x[:ugg.nvar_orb]), _unpack_ci (x[ugg.nvar_orb:])
         def cas2las (y, mode='hx'):
             yorb, yci = unpack_cas (y)
-            yci = [yc - c * c.ravel ().dot (yc.ravel ()) for c, yc in zip (ci0, yci)]
+            yci = [2 * (yc - c * c.ravel ().dot (yc.ravel ())) for c, yc in zip (ci0, yci)]
             yorb *= (0.5 if mode=='hx' else 1)
             return ugg.pack (yorb, [yci])
         def las2cas (y, mode='x'):

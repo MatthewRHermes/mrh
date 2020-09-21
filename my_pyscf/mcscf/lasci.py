@@ -444,7 +444,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # LEVEL SHIFT!!
         kappa3, ci3 = self.ugg.unpack (self.ah_level_shift * np.abs (x))
         kappa2 += kappa3
-        ci2 = [[w*(x+y) for w,x,y in zip (self.weights, xr, yr)] for xr, yr in zip (ci2, ci3)]
+        ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, ci3)]
         return self.ugg.pack (kappa2, ci2)
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
@@ -513,8 +513,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             h2 = self.eri_cas[i:j,i:j,i:j,i:j]
             h1rs = h1rs[:,:,i:j,i:j]
             hdiag_csf_list = fcibox.states_make_hdiag_csf (h1rs, h2, norb, nelec)
-            for w, csf, hdiag_csf in zip (self.weights, csf_list, hdiag_csf_list):
-                Hci_diag.append (w * csf.pack_csf (hdiag_csf))
+            for csf, hdiag_csf in zip (csf_list, hdiag_csf_list):
+                Hci_diag.append (csf.pack_csf (hdiag_csf))
         Hdiag = np.concatenate ([Horb_diag[self.ugg.uniq_orb_idx]] + Hci_diag)
         Hdiag += self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
@@ -555,7 +555,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def get_grad (self):
         gorb = self.fock1 - self.fock1.T
-        gci = [[2*w*hci0 for w, hci0 in zip (self.weights, hci0r)] for hci0r in self.hci0]
+        gci = [[2*hci0 for hci0 in hci0r] for hci0r in self.hci0]
         return self.ugg.pack (gorb, gci)
 
     def get_gx (self):
@@ -639,7 +639,7 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
         hc0 = fcibox.states_contract_2e(h2eff, ci0, ncas, nelecas, link_index=linkstrl)
         hc0 = [hc.ravel () for hc in hc0]
         ci0 = [c.ravel () for c in ci0]
-        gci.append ([w * 2.0 * (hc - c * (c.dot (hc))) for w, c, hc in zip (las.weights, ci0, hc0)])
+        gci.append ([2.0 * (hc - c * (c.dot (hc))) for c, hc in zip (ci0, hc0)])
 
     gint = ugg.pack (gorb, gci)
     gorb = gint[:ugg.nvar_orb]

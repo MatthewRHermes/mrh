@@ -57,7 +57,7 @@ def ss_2_sa_hx (hx_sing, hx_quin):
     hxorb_sing, hxci_sing = ugg_sing.unpack (hx_sing)
     hxorb_quin, hxci_quin = ugg_quin.unpack (hx_quin)
     hxorb_sa = (hxorb_sing + hxorb_quin) / 2
-    hxci_sa = [[hxci_sing[0][0]/2, hxci_quin[0][0]/2], [hxci_sing[1][0]/2, hxci_quin[1][0]/2]]
+    hxci_sa = [[hxci_sing[0][0], hxci_quin[0][0]], [hxci_sing[1][0], hxci_quin[1][0]]]
     return ugg.pack (hxorb_sa, hxci_sa)
 
 g_test = hop.get_grad ()
