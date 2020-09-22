@@ -1,17 +1,12 @@
 import numpy as np
 from scipy import linalg
-from mrh.my_pyscf.mcscf.lassi_op_slow import slow_ham
+from mrh.my_pyscf.mcscf import lassi_op_slow as op
 from pyscf import lib, symm
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations
 
-def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None):
-    ''' Diagonalize the state-interaction matrix of LASSCF '''
-    if mo_coeff is None: mo_coeff = las.mo_coeff
-    if ci is None: ci = las.ci
-    if orbsym is None: orbsym = getattr (mo_coeff, 'orbsym', None)
-
+def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
     # Construct second-quantization Hamiltonian
     ncore, ncas, nocc = las.ncore, las.ncas, las.ncore + las.ncas
     mo_core = mo_coeff[:,:ncore]
@@ -26,7 +21,9 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     h1 = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
     h2 = h2eff_sub[ncore:nocc].reshape (ncas*ncas, ncas * (ncas+1) // 2)
     h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
+    return e0, h1, h2
 
+def las_symm_tuple (las):
     # Symmetry tuple: neleca, nelecb, irrep
     statesym = []
     s2_states = []
@@ -58,6 +55,20 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         wfnsym = symm.irrep_id2name (las.mol.groupname, wfnsym)
         lib.logger.info (las, ' {:2d}  {:16.10f}  {:6d}  {:6d}  {:6.3f}  {:>6s}'.format (ix, e, neleca, nelecb, s2, wfnsym))
 
+    return statesym, s2_states
+
+def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None):
+    ''' Diagonalize the state-interaction matrix of LASSCF '''
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    if ci is None: ci = las.ci
+    if orbsym is None: orbsym = getattr (mo_coeff, 'orbsym', None)[las.ncore:las.ncore+las.ncas]
+
+    # Construct second-quantization Hamiltonian
+    e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None)
+
+    # Symmetry tuple: neleca, nelecb, irrep
+    statesym, s2_states = las_symm_tuple (las)
+
     # Loop over symmetry blocks
     e_roots = np.zeros (las.nroots, dtype=np.float64)
     s2_roots = np.zeros (las.nroots, dtype=np.float64)
@@ -67,12 +78,13 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         lib.logger.debug (las, 'Diagonalizing LAS state symmetry block (neleca, nelecb, irrep) = {}'.format (rootsym))
         if np.count_nonzero (idx) == 1:
             lib.logger.debug (las, 'Only one state in this symmetry block')
-            e_roots[idx] = las.e_states[idx]
+            e_roots[idx] = las.e_states[idx] - e0
             si[np.ix_(idx,idx)] = 1.0
             continue
+        wfnsym = rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
-        nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx)] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-        ham_blk, s2_blk, ovlp_blk = slow_ham (las.mol, h1, h2, ci_blk, las.ncas_sub, nelec_blk, orbsym=orbsym)
+        nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+        ham_blk, s2_blk, ovlp_blk = op.ham (las.mol, h1, h2, ci_blk, las.ncas_sub, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
         lib.logger.debug (las, 'Block Hamiltonian - ecore:')
         lib.logger.debug (las, '{}'.format (ham_blk))
         lib.logger.debug (las, 'Block S**2:')
@@ -107,6 +119,62 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         wfnsym = symm.irrep_id2name (las.mol.groupname, wfnsym)
         lib.logger.info (las, ' {:2d}  {:16.10f}  {:6d}  {:6d}  {:6.3f}  {:>6s}'.format (ix, er, neleca, nelecb, s2r, wfnsym))
     return e_roots, si
+
+def make_stdm12s (las, ci=None, orbsym=None):
+    if ci is None: ci = las.ci
+    if orbsym is None: 
+        orbsym = getattr (las.mo_coeff, 'orbsym',
+            las.label_symmetry_(las.mo_coeff).orbsym)[las.ncore:las.ncore+las.ncas]
+
+    norb = las.ncas
+    statesym = las_symm_tuple (las)[0]
+    stdm1s = np.zeros ((las.nroots, las.nroots, 2, norb, norb),
+        dtype=ci[0][0].dtype).reshape (0,2,3,4,1)
+    stdm2s = np.zeros ((las.nroots, las.nroots, 2, norb, norb, 2, norb, norb),
+        dtype=ci[0][0].dtype).reshape (0,2,3,4,5,6,7,1)
+
+    for rootsym in set (statesym):
+        idx = np.all (np.array (statesym) == rootsym, axis=1)
+        wfnsym = rootsym[-1]
+        ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
+        nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+        d1s, d2s = op.make_stdm12s (las.mol, ci_blk, las.ncas_sub, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
+        idx_int = np.where (idx)
+        for (i,a), (j,b) in combinations (enumerate (idx_int), 2):
+            stdm1s[a,...,b] = d1s[i,...,j]
+            stdm2s[a,...,b] = d2s[i,...,j]
+    return stdm1s, stdm2s
+
+def roots_make_rdm12s (las, ci, si, orbsym=None):
+    if orbsym is None: 
+        orbsym = getattr (las.mo_coeff, 'orbsym',
+            las.label_symmetry_(las.mo_coeff).orbsym)[las.ncore:las.ncore+las.ncas]
+
+    # Symmetry tuple: neleca, nelecb, irrep
+    norb = las.ncas
+    statesym = las_symm_tuple (las)[0]
+    rdm1s = np.zeros ((las.nroots, 2, norb, norb),
+        dtype=ci[0][0].dtype)
+    rdm2s = np.zeros ((las.nroots, 2, norb, norb, 2, norb, norb),
+        dtype=ci[0][0].dtype)
+    rootsym = [(ne[0], ne[1], wfnsym) for ne, wfnsym in zip (si.nelec, si.wfnsym)]
+
+    for sym in set (statesym):
+        idx_ci = np.all (np.array (statesym) == sym, axis=1)
+        idx_si = np.all (np.array (rootsym)  == sym, axis=1)
+        wfnsym = sym[-1]
+        ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
+        nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_ci) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+        si_blk = si[np.ix_(idx_ci,idx_si)]
+        d1s, d2s = op.roots_make_rdm12s (las.mol, ci_blk, si_blk, las.ncas_sub, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
+        idx_int = np.where (idx_si)[0]
+        for (i,a) in enumerate (idx_int):
+            rdm1s[a] = d1s[i]
+            rdm2s[a] = d2s[i]
+    return rdm1s, rdm2s
+
+
+
 
 
 

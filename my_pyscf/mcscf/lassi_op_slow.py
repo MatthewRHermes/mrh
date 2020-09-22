@@ -5,6 +5,7 @@ from pyscf.fci import cistring
 from pyscf import fci
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import contract_ss
+from itertools import combinations
 
 def addr_outer_product (norb_f, nelec_f):
     norb = sum (norb_f)
@@ -48,9 +49,9 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
              sum ([ne[1] for ne in nelec_f]))
     return ci_r, nelec
 
-def slow_ham (mol, h1, h2, ci_fr, norb_f, nelec_fr, orbsym=None):
+def ham (mol, h1, h2, ci_fr, norb_f, nelec_fr, orbsym=None, wfnsym=None):
     ci, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
-    solver = fci.solver (mol).set (orbsym=orbsym)
+    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     norb = sum (norb_f)
     h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
     ham_ci = [solver.contract_2e (h2eff, c, norb, nelec) for c in ci]
@@ -59,6 +60,54 @@ def slow_ham (mol, h1, h2, ci_fr, norb_f, nelec_fr, orbsym=None):
     s2_eff = np.array ([[c.ravel ().dot (s2c.ravel ()) for s2c in s2_ci] for c in ci])
     ovlp_eff = np.array ([[bra.ravel ().dot (ket.ravel ()) for ket in ci] for bra in ci])
     return ham_eff, s2_eff, ovlp_eff
+
+def make_stdm12s (mol, ci_fr, norb_f, nelec_fr, orbsym=None, wfnsym=None):
+    ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
+    norb = sum (norb_f) 
+    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+    nroots = len (ci_r)
+    stdm1s = np.zeros ((nroots, nroots, 2, norb, norb),
+        dtype=ci_r[0].dtype).reshape (0,2,3,4,1)
+    stdm2s = np.zeros ((nroots, nroots, 2, norb, norb, 2, norb, norb),
+        dtype=ci_r[0].dtype).reshape (0,2,3,4,5,6,7,1)
+    for i, ci in enumerate (ci_r):
+        rdm1s, rdm2s = solver.make_rdm12s (ci, norb, nelec)
+        stdm1s[i,0,:,:,i] = rdm1s[0]
+        stdm1s[i,1,:,:,i] = rdm1s[1]
+        stdm2s[i,0,:,:,0,:,:,i] = rdm2s[0]
+        srdm2s[i,0,:,:,1,:,:,i] = rdm2s[1]
+        srdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
+        srdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
+    for (i, ci_bra), (j, ci_ket) in combinations (enumerate (ci_r), 2):
+        tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, nelec)
+        stdm1s[i,0,:,:,j] = tdm1s[0]
+        stdm1s[i,1,:,:,j] = tdm1s[1]
+        stdm1s[j,0,:,:,i] = tdm1s[0].T
+        stdm1s[j,1,:,:,i] = tdm1s[1].T
+        for spin, tdm2 in enumerate (tdm2s):
+            p = spin // 2
+            q = spin % 2
+            stdm2s[i,p,:,:,q,:,:,j] = tdm2
+            stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
+    return stdm1s, stdm2s 
+
+def roots_make_rdm12s (mol, ci_fr, si, norb_f, nelec_fr, orbsym=None, wfnsym=None):
+    ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
+    norb = sum (norb_f)
+    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+    nroots = len (ci_r)
+    ci_r = np.tensordot (si.conj ().T, np.stack (ci_r, axis=0), axes=1)
+    rdm1s = np.zeros ((nroots, 2, norb, norb), dtype=ci_r.dtype)
+    rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb), dtype=ci_r.dtype)
+    for ix, ci in enumerate (ci_r):
+        d1s, d2s = solver.make_rdm12s (ci, norb, nelec)
+        rdm1s[ix,0,:,:] = d1s[0]
+        rdm1s[ix,1,:,:] = d1s[1]
+        rdm2s[ix,0,:,:,0,:,:] = d2s[0]
+        rdm2s[ix,0,:,:,1,:,:] = d2s[1]
+        rdm2s[ix,1,:,:,0,:,:] = d2s[1].transpose (2,3,0,1)
+        rdm2s[ix,1,:,:,1,:,:] = d2s[2]
+    return rdm1s, rdm2s
 
 if __name__ == '__main__':
     from pyscf import scf, lib

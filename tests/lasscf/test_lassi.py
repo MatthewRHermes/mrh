@@ -21,6 +21,7 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
+from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 
 dr_nn = 2.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
@@ -42,6 +43,8 @@ las.ci = ugg.unpack (np.loadtxt ('test_lassi_ci.dat'))[1]
 #las.set (conv_tol_grad=1e-8).run ()
 las.e_states = las.energy_nuc () + las.states_energy_elec ()
 e_roots, si = las.lassi ()
+rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
+print (type (rdm2s), rdm2s.dtype)
 
 def tearDownModule():
     global mol, mf, las
@@ -50,18 +53,20 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
-        self.assertAlmostEqual (lib.fp (e_roots), -499.9894024534505, 6)
+        self.assertAlmostEqual (lib.fp (e_roots), -213.84185089228347, 6)
 
     def test_si (self):
         # Arbitrary signage in both the SI and CI vector, sadly
         # Actually this test seems really inconsistent overall...
         dms = [np.dot (si[:,i:i+1], si[:,i:i+1].conj ().T) for i in range (7)]
-        self.assertAlmostEqual (lib.fp (np.abs (dms)), 3.638767536384406, 7)
+        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.5895141912171784, 7)
 
     def test_nelec (self):
-        self.assertEqual (si.nelec[0], (6,2))
-        for ne in si.nelec[1:]:
-            self.assertEqual (ne, (4,4))
+        for ix, ne in enumerate (si.nelec):
+            if ix == 1:
+                self.assertEqual (ne, (6,2))
+            else:
+                self.assertEqual (ne, (4,4))
 
     def test_s2 (self):
         s2_array = np.zeros (7)
@@ -71,6 +76,22 @@ class KnownValues(unittest.TestCase):
 
     def test_wfnsym (self):
         self.assertEqual (si.wfnsym, [0,]*5 + [1,]*2)
+
+    #def test_tdms (self):
+            
+
+    def test_rdms (self):    
+        h0, h1, h2 = ham_2q (las, las.mo_coeff)
+        d1_r = rdm1s.sum (1)
+        d2_r = rdm2s.sum ((1, 4))
+        nelec = float (sum (las.nelecas))
+        for ix, (d1, d2) in enumerate (zip (d1_r, d2_r)):
+            with self.subTest (root=ix):
+                self.assertAlmostEqual (np.trace (d1), nelec,  9)
+                self.assertAlmostEqual (np.einsum ('ppqq->',d2), nelec*(nelec-1), 9)
+        e_roots_test = h0 + np.tensordot (d1_r, h1, axes=2) + np.tensordot (d2_r, h2, axes=4) / 2
+        for e1, e0 in zip (e_roots_test, e_roots):
+            self.assertAlmostEqual (e1, e0, 8)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI")
