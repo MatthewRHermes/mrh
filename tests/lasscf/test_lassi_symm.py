@@ -24,23 +24,23 @@ from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
 from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 
 dr_nn = 2.0
-mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
+mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
 mol.verbose = lib.logger.DEBUG 
-mol.output = 'test_lassi.log'
+mol.output = 'test_lassi_symm.log'
 mol.spin = 0 
+mol.symmetry = 'Cs'
 mol.build ()
 mf = scf.RHF (mol).run ()
 las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
-las.state_average_(weights=[1.0/5.0,]*5,
-    spins=[[0,0],[0,0],[2,-2],[-2,2],[2,2]],
-    smults=[[1,1],[3,3],[3,3],[3,3],[3,3]])
+las.state_average_(weights=[1.0/7.0,]*7,
+    spins=[[0,0],[0,0],[2,-2],[-2,2],[0,0],[0,0],[2,2]],
+    smults=[[1,1],[3,3],[3,3],[3,3],[1,1],[1,1],[3,3]],
+    wfnsyms=[['A\'','A\''],]*4+[['A"','A\''],['A\'','A"'],['A\'','A\'']])
 las.frozen = list (range (las.mo_coeff.shape[-1]))
 ugg = las.get_ugg ()
-las.mo_coeff = np.loadtxt ('test_lassi_mo.dat')
-las.ci = ugg.unpack (np.loadtxt ('test_lassi_ci.dat'))[1]
+las.mo_coeff = las.label_symmetry_(np.loadtxt ('test_lassi_symm_mo.dat'))
+las.ci = ugg.unpack (np.loadtxt ('test_lassi_symm_ci.dat'))[1]
 #las.set (conv_tol_grad=1e-8).run ()
-#np.savetxt ('test_lassi_mo.dat', las.mo_coeff)
-#np.savetxt ('test_lassi_ci.dat', ugg.pack (las.mo_coeff, las.ci))
 las.e_states = las.energy_nuc () + las.states_energy_elec ()
 e_roots, si = las.lassi ()
 rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
@@ -52,13 +52,13 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
-        self.assertAlmostEqual (lib.fp (e_roots), 153.47664766268417, 6)
+        self.assertAlmostEqual (lib.fp (e_roots), -213.84185089228347, 6)
 
     def test_si (self):
         # Arbitrary signage in both the SI and CI vector, sadly
         # Actually this test seems really inconsistent overall...
         dms = [np.dot (si[:,i:i+1], si[:,i:i+1].conj ().T) for i in range (7)]
-        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.371964339437981, 7)
+        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.5895141912171784, 7)
 
     def test_nelec (self):
         for ix, ne in enumerate (si.nelec):
@@ -73,6 +73,9 @@ class KnownValues(unittest.TestCase):
         s2_array[2] = 6
         s2_array[3] = 2
         self.assertAlmostEqual (lib.fp (si.s2), lib.fp (s2_array), 3)
+
+    def test_wfnsym (self):
+        self.assertEqual (si.wfnsym, [0,]*5 + [1,]*2)
 
     def test_tdms (self):
         stdm1s, stdm2s = make_stdm12s (las)
@@ -102,6 +105,6 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (e1, e0, 8)
 
 if __name__ == "__main__":
-    print("Full Tests for SA-LASSI")
+    print("Full Tests for SA-LASSI with pointgroup symmetry")
     unittest.main()
 
