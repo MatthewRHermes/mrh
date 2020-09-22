@@ -67,17 +67,17 @@ def make_stdm12s (mol, ci_fr, norb_f, nelec_fr, orbsym=None, wfnsym=None):
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     nroots = len (ci_r)
     stdm1s = np.zeros ((nroots, nroots, 2, norb, norb),
-        dtype=ci_r[0].dtype).reshape (0,2,3,4,1)
+        dtype=ci_r[0].dtype).transpose (0,2,3,4,1)
     stdm2s = np.zeros ((nroots, nroots, 2, norb, norb, 2, norb, norb),
-        dtype=ci_r[0].dtype).reshape (0,2,3,4,5,6,7,1)
+        dtype=ci_r[0].dtype).transpose (0,2,3,4,5,6,7,1)
     for i, ci in enumerate (ci_r):
         rdm1s, rdm2s = solver.make_rdm12s (ci, norb, nelec)
         stdm1s[i,0,:,:,i] = rdm1s[0]
         stdm1s[i,1,:,:,i] = rdm1s[1]
         stdm2s[i,0,:,:,0,:,:,i] = rdm2s[0]
-        srdm2s[i,0,:,:,1,:,:,i] = rdm2s[1]
-        srdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
-        srdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
+        stdm2s[i,0,:,:,1,:,:,i] = rdm2s[1]
+        stdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
+        stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
     for (i, ci_bra), (j, ci_ket) in combinations (enumerate (ci_r), 2):
         tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, nelec)
         stdm1s[i,0,:,:,j] = tdm1s[0]

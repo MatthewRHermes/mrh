@@ -77,8 +77,19 @@ class KnownValues(unittest.TestCase):
     def test_wfnsym (self):
         self.assertEqual (si.wfnsym, [0,]*5 + [1,]*2)
 
-    #def test_tdms (self):
-            
+    def test_tdms (self):
+        stdm1s, stdm2s = make_stdm12s (las)
+        nelec = float (sum (las.nelecas))
+        for ix in range (stdm1s.shape[0]):
+            d1 = stdm1s[ix,...,ix].sum (0)
+            d2 = stdm2s[ix,...,ix].sum ((0,3))
+            with self.subTest (root=ix):
+                self.assertAlmostEqual (np.trace (d1), nelec,  9)
+                self.assertAlmostEqual (np.einsum ('ppqq->',d2), nelec*(nelec-1), 9)
+        rdm1s_test = np.einsum ('ar,asijb,br->rsij', si.conj (), stdm1s, si) 
+        rdm2s_test = np.einsum ('ar,asijtklb,br->rsijtkl', si.conj (), stdm2s, si) 
+        self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s), 9)
+        self.assertAlmostEqual (lib.fp (rdm2s_test), lib.fp (rdm2s), 9)
 
     def test_rdms (self):    
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
