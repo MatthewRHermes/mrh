@@ -70,6 +70,7 @@ class KnownValues(unittest.TestCase):
 
     def test_s2 (self):
         s2_array = np.zeros (7)
+        s2_array[1] = 6
         s2_array[2] = 6
         s2_array[3] = 2
         self.assertAlmostEqual (lib.fp (si.s2), lib.fp (s2_array), 3)

@@ -44,6 +44,7 @@ def las_symm_tuple (las):
             fragsym = getattr (solver, 'wfnsym', 0)
             if isinstance (fragsym, str):
                 fragsym = symm.irrep_name2id (las.mol.groupname, fragsym)
+            if fragsym is None: fragsym = 0
             wfnsym ^= fragsym
         s += sum ([2*m1*m2 for m1, m2 in combinations (m, 2)])
         s2_states.append (s)
@@ -55,13 +56,18 @@ def las_symm_tuple (las):
         wfnsym = symm.irrep_id2name (las.mol.groupname, wfnsym)
         lib.logger.info (las, ' {:2d}  {:16.10f}  {:6d}  {:6d}  {:6.3f}  {:>6s}'.format (ix, e, neleca, nelecb, s2, wfnsym))
 
-    return statesym, s2_states
+    return statesym, np.asarray (s2_states)
 
 def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None):
     ''' Diagonalize the state-interaction matrix of LASSCF '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
-    if orbsym is None: orbsym = getattr (mo_coeff, 'orbsym', None)[las.ncore:las.ncore+las.ncas]
+    if orbsym is None: 
+        orbsym = getattr (las.mo_coeff, 'orbsym', None)
+        if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
+            orbsym = las.label_symmetry_(las.mo_coeff).orbsym
+        if orbsym is not None:
+            orbsym = orbsym[las.ncore:las.ncore+las.ncas]
 
     # Construct second-quantization Hamiltonian
     e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None)
@@ -80,6 +86,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             lib.logger.debug (las, 'Only one state in this symmetry block')
             e_roots[idx] = las.e_states[idx] - e0
             si[np.ix_(idx,idx)] = 1.0
+            s2_roots[idx] = s2_states[idx]
             continue
         wfnsym = rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
@@ -123,8 +130,11 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
 def make_stdm12s (las, ci=None, orbsym=None):
     if ci is None: ci = las.ci
     if orbsym is None: 
-        orbsym = getattr (las.mo_coeff, 'orbsym',
-            las.label_symmetry_(las.mo_coeff).orbsym)[las.ncore:las.ncore+las.ncas]
+        orbsym = getattr (las.mo_coeff, 'orbsym', None)
+        if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
+            orbsym = las.label_symmetry_(las.mo_coeff).orbsym
+        if orbsym is not None:
+            orbsym = orbsym[las.ncore:las.ncore+las.ncas]
 
     norb = las.ncas
     statesym = las_symm_tuple (las)[0]
@@ -147,8 +157,11 @@ def make_stdm12s (las, ci=None, orbsym=None):
 
 def roots_make_rdm12s (las, ci, si, orbsym=None):
     if orbsym is None: 
-        orbsym = getattr (las.mo_coeff, 'orbsym',
-            las.label_symmetry_(las.mo_coeff).orbsym)[las.ncore:las.ncore+las.ncas]
+        orbsym = getattr (las.mo_coeff, 'orbsym', None)
+        if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
+            orbsym = las.label_symmetry_(las.mo_coeff).orbsym
+        if orbsym is not None:
+            orbsym = orbsym[las.ncore:las.ncore+las.ncas]
 
     # Symmetry tuple: neleca, nelecb, irrep
     norb = las.ncas
