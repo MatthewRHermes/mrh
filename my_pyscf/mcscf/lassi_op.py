@@ -1,4 +1,5 @@
 import numpy as np
+from pyscf import lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from itertools import product, combinations
@@ -218,23 +219,134 @@ class LSTDMint (object):
         
         return t0
 
-def make_stdm12s (mol, fciboxes, ci, nlas, nelelas_frs, idx_root, orbsym=None, wfnsym=None):
+def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
+    fciboxes = las.fciboxes
+    nlas = las.ncas_sub
+    nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
+    ncas = las.ncas
     nfrags = len (fciboxes)
     nroots = np.count_nonzero (idx_root)
     idx_root = np.where (idx_root)[0]
     nelelas_rs = [(sum (nefrag[i][0] for nefrag in nelelas_frs), sum (nefrag[i][1] for nefrag in nelelas_frs)) for i in range (nroots)]
+    tdm1s = np.zeros ((nroots, nroots, 2, ncas, ncas), dtype=ci[0][0].dtype) 
+    tdm2s = np.zeros ((nroots, nroots, 4, ncas, ncas, ncas, ncas), dtype=ci[0][0].dtype) 
 
     # First pass: single-fragment intermediates
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
+    tril_index = np.zeros_like (zerop_index)
+    tril_index[np.tril_indices (nroots)] = True
     ints = []
     for ifrag in range (nfrags);
-        tdmint = 
+        tdmint = LSTDMint (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root)
+        t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
+        lib.logger.timer (las, 'LAS-state TDM12s intermediate crunching', *t0)        
+        ints.append (tdmint)
+    zerop_index = zerop_index & tril_index
+    onep_index = onep_index & tril_index
 
-    # Second pass: do outer products
+    # Second pass: null-hopping interactions (incl. diag elements)
+    for bra, ket in np.stack (np.where (zerop_index), axis=0):
+        d1 = tdm1s[bra,ket]
+        d2 = tdm2s[bra,ket]
+        for i, inti in enumerate (ints):
+            p = sum (nlas[:i])
+            q = p + nlas[i]
+            d1_ii = inti.get_dm1 (bra, ket)
+            d1[:,p:q,p:q] = d1_ii
+            d2[:,p:q,p:q,p:q,p:q] = inti.get_dm2 (bra, ket)
+            for j, intj in enumerate (ints[:i]):
+                assert (i>j)
+                r = sum (nlas[:j])
+                s = r + nlas[j]
+                d1_jj = intj.get_dm2 (bra, ket)
+                d2_iijj = np.multiply.outer (d1_ii[0], d1_jj[0])
+                d2[0,p:q,p:q,r:s,r:s] = d2_iijj
+                d2[0,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
+                d2[0,p:q,r:s,p:q,r:s] = d2_iijj.transpose (0,3,1,2)
+                d2[0,r:s,p:q,r:s,p:q] = d2_ijij.transpose (3,0,2,1)
+                d2_iijj = np.multiply.outer (d1_ii[0], d1_jj[1])
+                d2[1,p:q,p:q,r:s,r:s] = d2_iijj
+                d2[2,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
+                d2_iijj = np.multiply.outer (d1_ii[1], d1_jj[0])
+                d2[2,p:q,p:q,r:s,r:s] = d2_iijj
+                d2[1,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
+                d2_iijj = np.multiply.outer (d1_ii[1], d1_jj[1])
+                d2[3,p:q,p:q,r:s,r:s] = d2_iijj
+                d2[3,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
+                d2[3,p:q,r:s,p:q,r:s] = d2_iijj.transpose (0,3,1,2)
+                d2[3,r:s,p:q,r:s,p:q] = d2_ijij.transpose (3,0,2,1)
+                
+    # Third pass: one-electron-hopping interactions
+    for bra, ket in np.stack (np.where (onep_index), axis=0):
+        d1 = tdm1s[bra,ket]
+        d2 = tdm1s[bra,ket]
+        frag_hop_list = hopping_index[:,bra,ket]
+        assert (np.count_nonzero (frag_hop_list) == 2)
+        assert (frag_hop_list.sum () == 0)
+        assert (np.amax (frag_hop_list) == 1)
+        i = np.where (frag_hop_list == 1)[0][0]
+        j = np.where (frag_hop_list == -1)[0][0]
+        spect_frags = np.where (frag_hop_list == 0)[0]
+        inti, intj = ints[i], ints[j]
+        p, r = sum (nlas[:i]), sum (nlas[:j])
+        q, s = p + nlas[i], r + nlas[j]
+        d1[0,:,:] = np.multiply.outer (ints[i].get_p (bra, ket, 0), ints[j].get_h (bra, ket, 0))
+        d1[1,:,:] = np.multiply.outer (ints[i].get_p (bra, ket, 1), ints[j].get_h (bra, ket, 1))
+        d2_s_iiij = np.stack ([np.multiply.outer (ints[i].get_pph (bra, ket, s), ints[j].get_h (bra, ket, s))
+            for s in (0,1)], axis=0).reshape (4, q-p, q-p, q-p, s-r)
+        d2[:,p:q,p:q,p:q,r:s] = d2_s_iiij
+        d2[:,p:q,r:s,p:q,p:q] = d2_s_iiij.transpose (0,3,4,1,2)
+        d2_s_ijjj = np.stack ([np.multiply.outer (ints[i].get_p (bra, ket, s), ints[j].get_phh (bra, ket, s)).transpose (0,2,1,3,4,5)
+            for s in (0,1)], axis=0).reshape (4, q-p, s-r, s-r, s-r)
+        d2[:,p:q,r:s,r:s,r:s] = d2_s_ijjj
+        d2[:,r:s,r:s,p:q,r:s] = d2_s_ijjj.transpose (0,3,4,1,2)
+        for k in np.where (frag_hop_list == 0)[0]: # spectator fragment mean-field
+            t = sum (nlas[:k])
+            u = t + nlas[k]
+            d1_skk = ints[k].get_dm1 (bra, ket)
+            d2_s_ijkk = np.multiply.outer (d1, ints[k].get_dm1 (bra, ket)).transpose (0,3,1,2,4,5)
+            d2_s_ijkk = d1_s_ijkk.reshape (4, q-p, s-r, u-t, u-t)
+            d2[:,p:q,r:s,t:u,t:u] = d2_s_ijkk
+            d2[:,t:u,t:u,p:q,r:s] = d2_s_ijkk.transpose (0,3,4,1,2)
+            d2_s_ikkj = d2_s_ijkk[(0,3),...].transpose (0,1,3,4,2)
+            d2[(0,3),p:q,t:u,t:u,r:s] = d2_s_ikkj
+            d2[(0,3),t:u,r:s,p:q,t:u] = d2_s_ikkj.transpose (0,3,4,1,2)
 
+    # Fourth pass: spin-hopping interactions 
+    twop_index = (np.abs (hopping_index).sum ((0,1)) == 4) 
+    twof_index = twop_index & (np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) == 2) & tril_index
+    spin_index = twof_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 0)
+    for bra, ket in np.stack (np.where (spin_index), axis=0):
+        d2 = tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
+        i = np.where (np.all (hopping_index[:,:,bra,ket] == [1,-1]))[0][0]
+        j = np.where (np.all (hopping_index[:,:,bra,ket] == [-1,1]))[0][0]
+        p, r = sum (nlas[:i]), sum (nlas[:j])
+        q, s = p + nlas[i], r + nlas[j]
+        d2_ab_ijji = -np.multiply.outer (ints[i].get_sp (bra, ket), ints[j].get_sm (bra, ket)).transpose (0,3,2,1)
+        d2[1,p:q,r:s,r:s,p:q] = d2_ab_ijji
+        d2[2,r:s,p:q,p:q,r:s] = d2_ab_ijji.transpose (2,3,0,1)
 
+    # Fifth pass: pair-hopping interactions
+    pair_index = twof_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 2) 
+    for bra, ket in np.stack (np.where (spin_index), axis=0):
+        d2 = tdm2s[bra, ket]
+        i = np.where (hopping_index.sum (1)[:,bra,ket] ==  2)[0][0]
+        j = np.where (hopping_index.sum (1)[:,bra,ket] == -2)[0][0]
+        p, r = sum (nlas[:i]), sum (nlas[:j])
+        q, s = p + nlas[i], r + nlas[j]
+        pass
 
-
-
+    # Sixth pass: pair-splitting interactions (split only, instead of lower-tril; three fragments involved)
+    threef_index = twop_index & (np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) == 3)
+    split_index = threef_index & (np.argmin (hopping_index.sum (1), axis=0) == -2)
+    for bra, ket in np.stack (np.where (split_index), axis=0):
+        d2 = tdm2s[bra, ket]
+        pass
+    
+    # Seventh pass: two-electron coherent hopping
+    fourf_index = twop_index & (np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) == 4) & tril_index
+    for bra, ket in np.stack (np.where (fourf_index), axis=0):
+        d2 = tdm2s[bra, ket]
+        pass
 
 
