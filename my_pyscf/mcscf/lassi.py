@@ -24,6 +24,7 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
     return e0, h1, h2
 
 def las_symm_tuple (las):
+    # This really should be much more modular
     # Symmetry tuple: neleca, nelecb, irrep
     statesym = []
     s2_states = []
@@ -41,10 +42,10 @@ def las_symm_tuple (las):
             s_frag = (solver.smult - 1) // 2
             s += s_frag * (s_frag + 1)
             m.append ((na-nb)//2)
-            fragsym = getattr (solver, 'wfnsym', 0)
+            fragsym = getattr (solver, 'wfnsym', 0) or 0 # in case getattr returns "None"
             if isinstance (fragsym, str):
-                fragsym = symm.irrep_name2id (las.mol.groupname, fragsym)
-            if fragsym is None: fragsym = 0
+                fragsym = symm.irrep_name2id (solver.mol.groupname, fragsym)
+            assert isinstance (fragsym, (int, np.integer)), '{} {}'.format (type (fragsym), fragsym)
             wfnsym ^= fragsym
         s += sum ([2*m1*m2 for m1, m2 in combinations (m, 2)])
         s2_states.append (s)
