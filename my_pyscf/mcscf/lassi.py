@@ -149,7 +149,7 @@ def make_stdm12s (las, ci=None, orbsym=None):
         wfnsym = rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
         nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-        d1s, d2s = op.make_stdm12s (las.mol, las.fciboxes, ci_blk, las.ncas_sub, nelec_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
+        d1s, d2s = op.make_stdm12s (las.mol, ci_blk, las.ncas_sub, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
         idx_int = np.where (idx)[0]
         for (i,a), (j,b) in product (enumerate (idx_int), repeat=2):
             stdm1s[a,...,b] = d1s[i,...,j]
