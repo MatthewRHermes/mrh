@@ -233,19 +233,21 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
 
     # First pass: single-fragment intermediates
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
-    tril_index = np.zeros_like (zerop_index)
-    tril_index[np.tril_indices (nroots)] = True
     ints = []
     for ifrag in range (nfrags);
         tdmint = LSTDMint (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root)
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
         lib.logger.timer (las, 'LAS-state TDM12s intermediate crunching', *t0)        
         ints.append (tdmint)
-    zerop_index = zerop_index & tril_index
-    onep_index = onep_index & tril_index
 
-    # Second pass: null-hopping interactions (incl. diag elements)
-    for bra, ket in np.stack (np.where (zerop_index), axis=0):
+    # Process connectivity data to quickly distinguish interactions
+    conserv_index = np.all (hopping_index.sum (1) == 0, axis=0)
+    nop_index = np.abs (hopping_index).sum ((0,1)) # 0, 2, 4
+    nfrag_index = np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) # 0-4
+    ncharge_index = np.count_nonzero (hopping_index).sum (1), axis=0 # = 0 for spin modes
+
+    # Cruncher functions
+    def _crunch_null (bra, ket):
         d1 = tdm1s[bra,ket]
         d2 = tdm2s[bra,ket]
         for i, inti in enumerate (ints):
@@ -263,7 +265,7 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
                 d2[0,p:q,p:q,r:s,r:s] = d2_iijj
                 d2[0,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
                 d2[0,p:q,r:s,p:q,r:s] = d2_iijj.transpose (0,3,1,2)
-                d2[0,r:s,p:q,r:s,p:q] = d2_ijij.transpose (3,0,2,1)
+                d2[0,r:s,p:q,r:s,p:q] = d2_iijj.transpose (3,0,2,1)
                 d2_iijj = np.multiply.outer (d1_ii[0], d1_jj[1])
                 d2[1,p:q,p:q,r:s,r:s] = d2_iijj
                 d2[2,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
@@ -274,10 +276,9 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
                 d2[3,p:q,p:q,r:s,r:s] = d2_iijj
                 d2[3,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
                 d2[3,p:q,r:s,p:q,r:s] = d2_iijj.transpose (0,3,1,2)
-                d2[3,r:s,p:q,r:s,p:q] = d2_ijij.transpose (3,0,2,1)
+                d2[3,r:s,p:q,r:s,p:q] = d2_iijj.transpose (3,0,2,1)
                 
-    # Third pass: one-electron-hopping interactions
-    for bra, ket in np.stack (np.where (onep_index), axis=0):
+    def _crunch_1e (bra, ket)
         d1 = tdm1s[bra,ket]
         d2 = tdm1s[bra,ket]
         frag_hop_list = hopping_index[:,bra,ket]
@@ -312,11 +313,7 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
             d2[(0,3),p:q,t:u,t:u,r:s] = d2_s_ikkj
             d2[(0,3),t:u,r:s,p:q,t:u] = d2_s_ikkj.transpose (0,3,4,1,2)
 
-    # Fourth pass: spin-hopping interactions 
-    twop_index = (np.abs (hopping_index).sum ((0,1)) == 4) 
-    twof_index = twop_index & (np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) == 2) & tril_index
-    spin_index = twof_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 0)
-    for bra, ket in np.stack (np.where (spin_index), axis=0):
+    def _crunch_spin_hop (bra, ket):
         d2 = tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
         i = np.where (np.all (hopping_index[:,:,bra,ket] == [1,-1]))[0][0]
         j = np.where (np.all (hopping_index[:,:,bra,ket] == [-1,1]))[0][0]
@@ -326,27 +323,51 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
         d2[1,p:q,r:s,r:s,p:q] = d2_ab_ijji
         d2[2,r:s,p:q,p:q,r:s] = d2_ab_ijji.transpose (2,3,0,1)
 
-    # Fifth pass: pair-hopping interactions
-    pair_index = twof_index & (np.count_nonzero (hopping_index.sum (1), axis=0) == 2) 
-    for bra, ket in np.stack (np.where (spin_index), axis=0):
+    def _crunch_pair_hop (bra, ket):
         d2 = tdm2s[bra, ket]
         i = np.where (hopping_index.sum (1)[:,bra,ket] ==  2)[0][0]
         j = np.where (hopping_index.sum (1)[:,bra,ket] == -2)[0][0]
         p, r = sum (nlas[:i]), sum (nlas[:j])
         q, s = p + nlas[i], r + nlas[j]
+        d2_ab_ijij = -np.stack ([np.multiply.outer (ints[i].get_pp (bra, ket, s), ints[j].get_hh (bra, ket, s)).transpose (0,2,1,3) for s in (0,1,2)])
+        d2_ab_ijij = d2_ab_ijij.reshape (4, q-p, s-r, q-p, s-r)
+        d2[:,
         pass
 
-    # Sixth pass: pair-splitting interactions (split only, instead of lower-tril; three fragments involved)
-    threef_index = twop_index & (np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) == 3)
-    split_index = threef_index & (np.argmin (hopping_index.sum (1), axis=0) == -2)
-    for bra, ket in np.stack (np.where (split_index), axis=0):
+    def _crunch_pair_split (bra, ket):
         d2 = tdm2s[bra, ket]
         pass
     
-    # Seventh pass: two-electron coherent hopping
-    fourf_index = twop_index & (np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) == 4) & tril_index
-    for bra, ket in np.stack (np.where (fourf_index), axis=0):
+    def _crunch_2e (bra, ket):
         d2 = tdm2s[bra, ket]
         pass
 
+    # Second pass: upper-triangle
+    for bra, ket in combinations (range (nroots), 2):
+        if not conserv_index[bra,ket]:
+            continue
+        elif nop_index[bra,ket] == 0:
+            _crunch_null (bra,ket)
+        elif nop_index[bra,ket] == 2:
+            _crunch_1e (bra, ket)
+        elif nop_idnex[bra,ket] == 4:
+            if ncharge_index[bra,ket] == 0:
+                _crunch_spin_hop (bra, ket)
+            elif nfrag_index[bra,ket] == 2:
+                _crunch_pair_hop (bra, ket)
+            elif nfrag_index[bra,ket] == 3:
+                if np.amin (hopping_index.sum (1)[:,bra,ket]) == -2:
+                    _crunch_pair_split (bra, ket)
+                else:
+                    _crunch_pair_split (ket, bra)
+            elif nfrag_index[bra,ket] == 4:
+                _crunch_2e (bra, ket)
+
+    # Third pass: + adjoint and diagonal
+    tdm1s += tdm1s.conj ().transpose (1,0,2,4,3)
+    tdm2s += tdm1s.conj ().transpose (1,0,2,4,3,6,5)
+    for ket in range (nroots):
+        _crunch_null (ket, ket)
+
+    return tdm1s, tdm2s
 
