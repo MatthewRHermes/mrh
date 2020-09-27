@@ -242,9 +242,16 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
 
     # Process connectivity data to quickly distinguish interactions
     conserv_index = np.all (hopping_index.sum (1) == 0, axis=0)
-    nop_index = np.abs (hopping_index).sum ((0,1)) # 0, 2, 4
+    nsop_index = np.abs (hopping_index).sum (0) # 0,0 , 2,0 , 0,2 , 2,2 , 4,0 , 0,4
+    nop_index = nsop_index.sum (0) # 0, 2, 4
     nfrag_index = np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) # 0-4
     ncharge_index = np.count_nonzero (hopping_index).sum (1), axis=0 # = 0 for spin modes
+    nspin_index = nsop_index[1,:,:] // 2 
+    # This last ^ is somewhat magical, but notice that it corresponds to the mapping
+    #   2,0 ; 4,0 -> 0 -> a or aa
+    #   0,2 ; 2,2 -> 1 -> b or ab
+    #   0,4       -> 2 -> bb
+    # Provided one only looks at symmetry-allowed interactions of order 1 or 2
 
     # Cruncher functions
     def _crunch_null (bra, ket):
@@ -253,32 +260,22 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
         for i, inti in enumerate (ints):
             p = sum (nlas[:i])
             q = p + nlas[i]
-            d1_ii = inti.get_dm1 (bra, ket)
-            d1[:,p:q,p:q] = d1_ii
+            d1_s_ii = inti.get_dm1 (bra, ket)
+            d1[:,p:q,p:q] = d1_s_ii
             d2[:,p:q,p:q,p:q,p:q] = inti.get_dm2 (bra, ket)
             for j, intj in enumerate (ints[:i]):
                 assert (i>j)
                 r = sum (nlas[:j])
                 s = r + nlas[j]
-                d1_jj = intj.get_dm2 (bra, ket)
-                d2_iijj = np.multiply.outer (d1_ii[0], d1_jj[0])
-                d2[0,p:q,p:q,r:s,r:s] = d2_iijj
-                d2[0,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
-                d2[0,p:q,r:s,p:q,r:s] = d2_iijj.transpose (0,3,1,2)
-                d2[0,r:s,p:q,r:s,p:q] = d2_iijj.transpose (3,0,2,1)
-                d2_iijj = np.multiply.outer (d1_ii[0], d1_jj[1])
-                d2[1,p:q,p:q,r:s,r:s] = d2_iijj
-                d2[2,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
-                d2_iijj = np.multiply.outer (d1_ii[1], d1_jj[0])
-                d2[2,p:q,p:q,r:s,r:s] = d2_iijj
-                d2[1,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
-                d2_iijj = np.multiply.outer (d1_ii[1], d1_jj[1])
-                d2[3,p:q,p:q,r:s,r:s] = d2_iijj
-                d2[3,r:s,r:s,p:q,p:q] = d2_iijj.transpose (2,3,0,1)
-                d2[3,p:q,r:s,p:q,r:s] = d2_iijj.transpose (0,3,1,2)
-                d2[3,r:s,p:q,r:s,p:q] = d2_iijj.transpose (3,0,2,1)
-                
-    def _crunch_1e (bra, ket)
+                d1_s_jj = intj.get_dm1 (bra, ket)
+                d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,1,2,4,5)
+                d2_s_iijj = d2_s_iijj.reshape (4, q-p, q-p, s-r, s-r)
+                d2[:,p:q,p:q,r:s,r:s] = d2_s_iijj
+                d2[:,r:s,r:s,p:q,p:q] = d2_s_iijj.transpose (0,3,4,1,2)
+                d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
+                d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
+
+    def _crunch_1e (bra, ket, s1)
         d1 = tdm1s[bra,ket]
         d2 = tdm1s[bra,ket]
         frag_hop_list = hopping_index[:,bra,ket]
@@ -291,27 +288,28 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
         inti, intj = ints[i], ints[j]
         p, r = sum (nlas[:i]), sum (nlas[:j])
         q, s = p + nlas[i], r + nlas[j]
-        d1[0,:,:] = np.multiply.outer (ints[i].get_p (bra, ket, 0), ints[j].get_h (bra, ket, 0))
-        d1[1,:,:] = np.multiply.outer (ints[i].get_p (bra, ket, 1), ints[j].get_h (bra, ket, 1))
-        d2_s_iiij = np.stack ([np.multiply.outer (ints[i].get_pph (bra, ket, s), ints[j].get_h (bra, ket, s))
-            for s in (0,1)], axis=0).reshape (4, q-p, q-p, q-p, s-r)
-        d2[:,p:q,p:q,p:q,r:s] = d2_s_iiij
-        d2[:,p:q,r:s,p:q,p:q] = d2_s_iiij.transpose (0,3,4,1,2)
-        d2_s_ijjj = np.stack ([np.multiply.outer (ints[i].get_p (bra, ket, s), ints[j].get_phh (bra, ket, s)).transpose (0,2,1,3,4,5)
-            for s in (0,1)], axis=0).reshape (4, q-p, s-r, s-r, s-r)
-        d2[:,p:q,r:s,r:s,r:s] = d2_s_ijjj
-        d2[:,r:s,r:s,p:q,r:s] = d2_s_ijjj.transpose (0,3,4,1,2)
-        for k in np.where (frag_hop_list == 0)[0]: # spectator fragment mean-field
+        d1[s1,:,:] = np.multiply.outer (ints[i].get_p (bra, ket, s1), ints[j].get_h (bra, ket, s1))
+        s1a = s1 * 2  # aa: 0, ba: 2
+        s1b = s1a + 2 # ab: 1, bb: 3 (range specifier: I want [s1a, s1a + 1], which requires s1a:s1a+2 because of how Python ranges work)
+        s1s1 = s1 * 3 # aa: 0, bb: 3
+        def _crunch_1e_tdm2 (d2_ijkk, i0, i1, j0, j1, k0, k1):
+            d2[s1a:s1b, i0:i1, j0:j1, k0:k1, k0:k1] = d2_ijkk
+            d2[s1a:s1b ,k0:k1, k0:k1, i0:i1, j0:j1] = d2_ijkk.transpose (0,3,4,1,2)
+            d2[s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_ijkk[s1,...].transpose (0,3,2,1)
+            d2[s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_ijkk[s1,...].transpose (2,1,0,3)
+        # pph (transpose is from Dirac order to Mulliken order)
+        d2_ijii = np.multiply.outer (ints[i].get_pph (bra, ket, s1), ints[j].get_h (bra, ket, s1)).transpose (0,1,4,2,3)
+        _crunch_1e_tdm2 (d2_ijii, p, q, r, s, p, q)
+        # phh (transpose is to bring spin onto the outside and then from Dirac order to Mulliken order)
+        d2_ijjj = np.multiply.outer (ints[i].get_p (bra, ket, s1), ints[j].get_phh (bra, ket, s1)).transpose (1,0,4,2,3)
+        _crunch_1e_tdm2 (d2_ijjj, p, q, r, s, r, s)
+        # spectator fragment mean-field (should automatically be in Mulliken order)
+        for k in np.where (frag_hop_list == 0)[0]:
             t = sum (nlas[:k])
             u = t + nlas[k]
             d1_skk = ints[k].get_dm1 (bra, ket)
-            d2_s_ijkk = np.multiply.outer (d1, ints[k].get_dm1 (bra, ket)).transpose (0,3,1,2,4,5)
-            d2_s_ijkk = d1_s_ijkk.reshape (4, q-p, s-r, u-t, u-t)
-            d2[:,p:q,r:s,t:u,t:u] = d2_s_ijkk
-            d2[:,t:u,t:u,p:q,r:s] = d2_s_ijkk.transpose (0,3,4,1,2)
-            d2_s_ikkj = d2_s_ijkk[(0,3),...].transpose (0,1,3,4,2)
-            d2[(0,3),p:q,t:u,t:u,r:s] = d2_s_ikkj
-            d2[(0,3),t:u,r:s,p:q,t:u] = d2_s_ikkj.transpose (0,3,4,1,2)
+            d2_ijkk = np.multiply.outer (d1, ints[k].get_dm1 (bra, ket)).transpose (2,0,1,3,4)
+            _crunch_1e_tdm2 (d2_ijkk, p, q, r, s, t, u)
 
     def _crunch_spin_hop (bra, ket):
         d2 = tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
@@ -319,55 +317,114 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
         j = np.where (np.all (hopping_index[:,:,bra,ket] == [-1,1]))[0][0]
         p, r = sum (nlas[:i]), sum (nlas[:j])
         q, s = p + nlas[i], r + nlas[j]
-        d2_ab_ijji = -np.multiply.outer (ints[i].get_sp (bra, ket), ints[j].get_sm (bra, ket)).transpose (0,3,2,1)
-        d2[1,p:q,r:s,r:s,p:q] = d2_ab_ijji
-        d2[2,r:s,p:q,p:q,r:s] = d2_ab_ijji.transpose (2,3,0,1)
+        d2_spsm = np.multiply.outer (ints[i].get_sp (bra, ket), ints[j].get_sm (bra, ket))
+        d2[1,p:q,r:s,r:s,p:q] = -d2_spsm.transpose (0,3,2,1)
+        d2[2,r:s,p:q,p:q,r:s] = -d2_spsm.transpose (2,1,0,3)
 
-    def _crunch_pair_hop (bra, ket):
+    def _crunch_pair_hop (bra, ket, s2lt):
+        # s2lt: 0, 1, 2 -> aa, ab, bb
+        # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
+        s2 = (0, 1, 3)[s2lt]
         d2 = tdm2s[bra, ket]
         i = np.where (hopping_index.sum (1)[:,bra,ket] ==  2)[0][0]
         j = np.where (hopping_index.sum (1)[:,bra,ket] == -2)[0][0]
         p, r = sum (nlas[:i]), sum (nlas[:j])
         q, s = p + nlas[i], r + nlas[j]
-        d2_ab_ijij = -np.stack ([np.multiply.outer (ints[i].get_pp (bra, ket, s), ints[j].get_hh (bra, ket, s)).transpose (0,2,1,3) for s in (0,1,2)])
-        d2_ab_ijij = d2_ab_ijij.reshape (4, q-p, s-r, q-p, s-r)
-        d2[:,
-        pass
+        pp = ints[i].get_pp (bra, ket, s2lt)
+        if s2lt == 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (np.amax (np.abs (pp + pp.T)))
+        hh = ints[j].get_hh (bra, ket, s2lt)
+        if s2lt == 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
+        d2_ijij = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken order
+        d2[s2,p:q,r:s,p:q,r:s] = d2_ijij
+        if s2lt == 1: # ab -> ba
+            d2[2,p:q,r:s,p:q,r:s] = d2_ijij.transpose (2,3,0,1)
+        # Electron 1 and electron 2 have the same ranges -> e- perm redundant for aa, bb
+        # "Exchange" should be built into the same-spin pp and hh intermediates (see asserts above)
 
-    def _crunch_pair_split (bra, ket):
+    def _crunch_pair_split (bra, ket, s2lt):
+        # s2lt: 0, 1, 2 -> aa, ab, bb
+        # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
+        s2  = (0, 1, 3)[s2lt] # aa, ab, bb
+        s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
         d2 = tdm2s[bra, ket]
-        pass
-    
-    def _crunch_2e (bra, ket):
+        if s2lt == 1:
+            s1i, s1j = 0, 1
+            i = np.where (hopping_index[:,0,bra,ket] == 1)[0][0]
+            j = np.where (hopping_index[:,1,bra,ket] == 1)[0][0]
+        else:
+            i, j = np.where (hopping_index.sum (1)[:,bra,ket] == 1)[0]
+            s1i = s1j = s2lt // 2
+        k = np.where (hopping_index.sum (1)[:,bra,ket] == -2)[0][0]
+        pp = np.multiply.outer (ints[i].get_p (bra, ket, s1i), ints[j].get_p (bra, ket, s1j))
+        hh = ints[k].get_hh (bra, ket, s2lt)
+        if s2lt == 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
+        d2_ikjk = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
+        p, r, t = sum (nlas[:i]), sum (nlas[:j]), sum (nlas[:k])
+        q, s, u = p + nlas[i], r + nlas[j], t + nlas[k]
+        d2[s2, p:q,t:u,r:s,t:u] = d2_ikjk
+        d2[s2T,r:s,t:u,p:q,t:u] = d2_ikjk.transpose (2,3,0,1)
+        if s2 == s2T: # same-spin only: exchange happens, but should be built into hh
+            test = d2[s2,p:q,t:u,r:s,t:u] + d2[s2,r:s,t:u,p:q,t:u].transpose (2,3,0,1)
+            assert (np.all (np.abs (test)) < 1e-8), '{}'.format (np.amax (np.abs (test)))
+
+    def _crunch_2e (bra, ket, s2lt):
+        # s2lt: 0, 1, 2 -> aa, ab, bb
+        # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
+        s2  = (0, 1, 3)[s2lt] # aa, ab, bb
+        s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
         d2 = tdm2s[bra, ket]
-        pass
+        if s2lt == 1:
+            s11, s12 = 0, 1
+            i = np.where (hopping_index[:,0,bra,ket] ==  1)[0][0]
+            k = np.where (hopping_index[:,1,bra,ket] ==  1)[0][0]
+            j = np.where (hopping_index[:,0,bra,ket] == -1)[0][0]
+            l = np.where (hopping_index[:,1,bra,ket] == -1)[0][0]
+        else:
+            s11 = s12 = s2lt // 2
+            i, k = np.where (hopping_index.sum (1)[:,bra,ket] ==  1)[0]
+            j, l = np.where (hopping_index.sum (1)[:,bra,ket] == -1)[0]
+        pp = np.multiply.outer (ints[i].get_p (bra, ket, s11), ints[k].get_p (bra, ket, s12))
+        hh = np.multiply.outer (ints[l].get_h (bra, ket, s11), ints[j].get_p (bra, ket, s12))
+        d2_ijkl = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
+        p, r, t, v = sum (nlas[:i]), sum (nlas[:j]), sum (nlas[:k]), sum (nlas[:l])
+        q, s, u, w = p + nlas[i], r + nlas[j], t + nlas[k], v + nlas[l]
+        d2[s2, p:q,r:s,t:u,v:w] = d2_ijkl
+        d2[s2T,r:s,t:u,p:q,t:u] = d2_ikjk.transpose (2,3,0,1)
+        if s2 == s2T: # same-spin only: exchange happens
+            d2[s2,p:q,v:w,t:u,r:s] = -d2_ijkl.transpose (0,3,2,1)
+            d2[s2,t:u,r:s,p:q,v:w] = -d2_ijkl.transpose (2,1,0,3)
 
     # Second pass: upper-triangle
+    t0 = (time.clock (), time.time ())
     for bra, ket in combinations (range (nroots), 2):
+        spin = nspin_index[bra,ket]
         if not conserv_index[bra,ket]:
             continue
         elif nop_index[bra,ket] == 0:
-            _crunch_null (bra,ket)
+            _crunch_null (bra, ket)
         elif nop_index[bra,ket] == 2:
-            _crunch_1e (bra, ket)
+            _crunch_1e (bra, ket, spin)
         elif nop_idnex[bra,ket] == 4:
             if ncharge_index[bra,ket] == 0:
+                assert (spin == 1)
                 _crunch_spin_hop (bra, ket)
             elif nfrag_index[bra,ket] == 2:
-                _crunch_pair_hop (bra, ket)
+                _crunch_pair_hop (bra, ket, spin)
             elif nfrag_index[bra,ket] == 3:
                 if np.amin (hopping_index.sum (1)[:,bra,ket]) == -2:
-                    _crunch_pair_split (bra, ket)
+                    _crunch_pair_split (bra, ket, spin)
                 else:
-                    _crunch_pair_split (ket, bra)
+                    _crunch_pair_split (ket, bra, spin)
             elif nfrag_index[bra,ket] == 4:
-                _crunch_2e (bra, ket)
+                _crunch_2e (bra, ket, spin)
+    t0 = lib.logger.timer (las, 'LAS-state TDM12s upper-triangle outer-producting', *t0)
 
     # Third pass: + adjoint and diagonal
     tdm1s += tdm1s.conj ().transpose (1,0,2,4,3)
     tdm2s += tdm1s.conj ().transpose (1,0,2,4,3,6,5)
     for ket in range (nroots):
         _crunch_null (ket, ket)
+    t0 = lib.logger.timer (las, 'LAS-state TDM12s + adjoint and diagonal outer-producting', *t0)
 
     return tdm1s, tdm2s
 
