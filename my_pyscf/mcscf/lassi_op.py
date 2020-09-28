@@ -41,7 +41,7 @@ def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
     onep_index = symm_index & (np.abs (hopping_index).sum ((0,1)) == 2)
     return hopping_index, zerop_index, onep_index
 
-class LSTDMint (object):
+class LSTDMint1 (object):
     ''' Sparse-memory storage for LAS-state transition density matrix 
         single-fragment intermediates. '''
 
@@ -166,13 +166,15 @@ class LSTDMint (object):
             for bra in np.where (hopping_index[0,:,ket] < 0)[0]:
                 bravec = self.ci[bra].ravel ()
                 self.set_h (bra, ket, 0, bravec.dot (apket.reshape (norb,-1).T))
-                # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i>
+                # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how do I tell if I have a consistent sign rule...?
                 if np.all (hopping_index[:,bra,ket] == [-1,0]) and onep_index[bra,ket]:
                     solver = self.fcisolvers[bra]
                     linkstr = self.linkstr[bra]
-                    self.set_phh (bra, ket, 0, np.stack ([solver.trans_rdm12s
-                        (self.ci[bra], ketmat, norb, self.nelec_r[bra], link_index=linkstr)[0]
-                        for ketmat in apket], axis=-1))
+                    phh = np.stack ([solver.trans_rdm12s (self.ci[bra], ketmat, norb,
+                        self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
+                    err = np.abs (phh[0] + phh[0].transpose (0,2,1))
+                    assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
+                    self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
                     aqbra = bpvec_list[bra].reshape (norb, -1).conj ()
@@ -185,7 +187,7 @@ class LSTDMint (object):
                 # <j|a_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-2,0]):
                     hh_triu = [bravec.dot (des_a (apket[p], norb, nelec, q).ravel ())
-                        for q, p in combinations (range (norb), 2)]
+                        for q, p in combinations (range (norb), 2)] 
                     hh = np.zeros ((norb, norb), dtype = apket.dtype)
                     hh[np.triu_indices (norb, k=1)] = hh_triu
                     hh -= hh.T
@@ -201,13 +203,15 @@ class LSTDMint (object):
             for bra in np.where (hopping_index[1,:,ket] < 0)[0]:
                 bravec = self.ci[bra].ravel ()
                 self.set_h (bra, ket, 1, bravec.dot (bpvec.reshape (norb,-1).T))
-                # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i>
+                # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how do I tell if I have a consistent sign rule...?
                 if np.all (hopping_index[:,bra,ket] == [0,-1]) and onep_index[bra,ket]:
                     solver = self.fcisolvers[bra]
                     linkstr = self.linkstr[bra]
-                    self.set_phh (bra, ket, 1, np.stack ([solver.trans_rdm12s
-                        (self.ci[bra], ketmat, norb, self.nelec_r[bra], link_index=linkstr)[0]
-                        for ketmat in bpvec], axis=-1))
+                    phh = np.stack ([solver.trans_rdm12s (self.ci[bra], ketmat, norb,
+                        self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
+                    err = np.abs (phh[1] + phh[1].transpose (0,2,1))
+                    assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
+                    self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
                     hh_triu = [bravec.dot (des_b (bpvec[p], norb, nelec, q).ravel ())
@@ -219,51 +223,67 @@ class LSTDMint (object):
         
         return t0
 
-def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
-    fciboxes = las.fciboxes
-    nlas = las.ncas_sub
-    nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
-    ncas = las.ncas
-    nfrags = len (fciboxes)
-    nroots = np.count_nonzero (idx_root)
-    idx_root = np.where (idx_root)[0]
-    nelelas_rs = [(sum (nefrag[i][0] for nefrag in nelelas_frs), sum (nefrag[i][1] for nefrag in nelelas_frs)) for i in range (nroots)]
-    tdm1s = np.zeros ((nroots, nroots, 2, ncas, ncas), dtype=ci[0][0].dtype) 
-    tdm2s = np.zeros ((nroots, nroots, 4, ncas, ncas, ncas, ncas), dtype=ci[0][0].dtype) 
+class LSTDMint2 (object):
+    ''' Intermediate-storage convenience object for second pass of LAS-state tdm12s calculations '''
+    def __init__(self, ints, nlas, hopping_index, dtype=np.float64):
+        t0 = (time.clock (), time.time ())
+        self.ints = ints
+        self.nlas = nlas
+        self.norb = sum (nlas)
+        self.hopping_index = hopping_index
+        self.nfrags, _, self.nroots, _ = hopping_index.shape
+        self.dtype = dtype
+        self.tdm1s = self.tdm2s = None
+        # Process connectivity data to quickly distinguish interactions
+        conserv_index = np.all (hopping_index.sum (1) == 0, axis=0)
+        nsop_index = np.abs (hopping_index).sum (0) # 0,0 , 2,0 , 0,2 , 2,2 , 4,0 , 0,4
+        nop_index = nsop_index.sum (0) # 0, 2, 4
+        nfrag_index = np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) # 0-4
+        ncharge_index = np.count_nonzero ((hopping_index).sum (1), axis=0) # = 0 for spin modes
+        nspin_index = nsop_index[1,:,:] // 2
+        # This last ^ is somewhat magical, but notice that it corresponds to the mapping
+        #   2,0 ; 4,0 -> 0 -> a or aa
+        #   0,2 ; 2,2 -> 1 -> b or ab
+        #   0,4       -> 2 -> bb
+        # Provided one only looks at symmetry-allowed interactions of order 1 or 2
+        findf = np.argsort ((2*hopping_index[:,0]) + hopping_index[:,1], axis=0, kind='stable')
+        # The above puts the source of either charge or spin at the bottom and the destination at the top
+        # The 'stable' sort keeps relative order -> sign convention!
+        # Adding 2 to the first column sorts by up-spin FIRST and down-spin SECOND
+        tril_index = np.zeros_like (conserv_index)
+        tril_index[np.tril_indices (self.nroots,k=-1)] = True
+        self.exc_null = np.hstack (np.where (conserv_index & tril_index & (nsop_index == 0)))
+        idx = conserv_index & (nop_index == 2) & tril_index
+        self.exc_1e = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], nspin_index[idx]])
+        idx_2e = conserv_index & (nop_index == 4)
+        # Do splits first since splits (as opposed to coalescence) might be in triu corner
+        idx = idx_2e & (ncharge_index == 3) & (np.amin (hopping_index.sum (1), axis=0) == -2)
+        self.exc_split = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[-2][idx], findf[0][idx], nspin_index[idx]])
+        idx_2e = idx_2e & tril_index
+        idx = idx_2e & (ncharge_index == 0) & (nspin_index == 1)
+        self.exc_spin = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]) 
+        idx = idx_2e & (ncharge_index == 2)
+        self.exc_pair = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], nspin_index[idx]])
+        idx = idx_2e & (ncharge_index == 4)
+        self.exc_2e = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], nspin_index[idx]])
+        return self, t0
 
-    # First pass: single-fragment intermediates
-    hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
-    ints = []
-    for ifrag in range (nfrags);
-        tdmint = LSTDMint (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root)
-        t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
-        lib.logger.timer (las, 'LAS-state TDM12s intermediate crunching', *t0)        
-        ints.append (tdmint)
-
-    # Process connectivity data to quickly distinguish interactions
-    conserv_index = np.all (hopping_index.sum (1) == 0, axis=0)
-    nsop_index = np.abs (hopping_index).sum (0) # 0,0 , 2,0 , 0,2 , 2,2 , 4,0 , 0,4
-    nop_index = nsop_index.sum (0) # 0, 2, 4
-    nfrag_index = np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) # 0-4
-    ncharge_index = np.count_nonzero (hopping_index).sum (1), axis=0 # = 0 for spin modes
-    nspin_index = nsop_index[1,:,:] // 2 
-    # This last ^ is somewhat magical, but notice that it corresponds to the mapping
-    #   2,0 ; 4,0 -> 0 -> a or aa
-    #   0,2 ; 2,2 -> 1 -> b or ab
-    #   0,4       -> 2 -> bb
-    # Provided one only looks at symmetry-allowed interactions of order 1 or 2
+    def get_range (self, i):
+        p = sum (self.nlas[:i])
+        q = p + self.nlas[i]
+        return p, q
 
     # Cruncher functions
-    def _crunch_null (bra, ket):
-        d1 = tdm1s[bra,ket]
-        d2 = tdm2s[bra,ket]
-        for i, inti in enumerate (ints):
+    def _crunch_null_(self, bra, ket):
+        d1 = self.tdm1s[bra,ket]
+        d2 = self.tdm2s[bra,ket]
+        for i, inti in enumerate (self.ints):
             p = sum (nlas[:i])
             q = p + nlas[i]
             d1_s_ii = inti.get_dm1 (bra, ket)
             d1[:,p:q,p:q] = d1_s_ii
             d2[:,p:q,p:q,p:q,p:q] = inti.get_dm2 (bra, ket)
-            for j, intj in enumerate (ints[:i]):
+            for j, intj in enumerate (self.ints[:i]):
                 assert (i>j)
                 r = sum (nlas[:j])
                 s = r + nlas[j]
@@ -275,20 +295,13 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
                 d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
                 d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
 
-    def _crunch_1e (bra, ket, s1)
-        d1 = tdm1s[bra,ket]
-        d2 = tdm1s[bra,ket]
-        frag_hop_list = hopping_index[:,bra,ket]
-        assert (np.count_nonzero (frag_hop_list) == 2)
-        assert (frag_hop_list.sum () == 0)
-        assert (np.amax (frag_hop_list) == 1)
-        i = np.where (frag_hop_list == 1)[0][0]
-        j = np.where (frag_hop_list == -1)[0][0]
-        spect_frags = np.where (frag_hop_list == 0)[0]
-        inti, intj = ints[i], ints[j]
-        p, r = sum (nlas[:i]), sum (nlas[:j])
-        q, s = p + nlas[i], r + nlas[j]
-        d1[s1,:,:] = np.multiply.outer (ints[i].get_p (bra, ket, s1), ints[j].get_h (bra, ket, s1))
+    def _crunch_1e_(self, bra, ket, i, j, s1)
+        d1 = self.tdm1s[bra,ket]
+        d2 = self.tdm2s[bra,ket]
+        inti, intj = self.ints[i], self.ints[j]
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        d1[s1,:,:] = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_h (bra, ket, s1))
         s1a = s1 * 2  # aa: 0, ba: 2
         s1b = s1a + 2 # ab: 1, bb: 3 (range specifier: I want [s1a, s1a + 1], which requires s1a:s1a+2 because of how Python ranges work)
         s1s1 = s1 * 3 # aa: 0, bb: 3
@@ -298,41 +311,37 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
             d2[s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_ijkk[s1,...].transpose (0,3,2,1)
             d2[s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_ijkk[s1,...].transpose (2,1,0,3)
         # pph (transpose is from Dirac order to Mulliken order)
-        d2_ijii = np.multiply.outer (ints[i].get_pph (bra, ket, s1), ints[j].get_h (bra, ket, s1)).transpose (0,1,4,2,3)
+        d2_ijii = np.multiply.outer (self.ints[i].get_pph (bra, ket, s1), self.ints[j].get_h (bra, ket, s1)).transpose (0,1,4,2,3)
         _crunch_1e_tdm2 (d2_ijii, p, q, r, s, p, q)
         # phh (transpose is to bring spin onto the outside and then from Dirac order to Mulliken order)
-        d2_ijjj = np.multiply.outer (ints[i].get_p (bra, ket, s1), ints[j].get_phh (bra, ket, s1)).transpose (1,0,4,2,3)
+        d2_ijjj = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_phh (bra, ket, s1)).transpose (1,0,4,2,3)
         _crunch_1e_tdm2 (d2_ijjj, p, q, r, s, r, s)
         # spectator fragment mean-field (should automatically be in Mulliken order)
-        for k in np.where (frag_hop_list == 0)[0]:
-            t = sum (nlas[:k])
-            u = t + nlas[k]
-            d1_skk = ints[k].get_dm1 (bra, ket)
-            d2_ijkk = np.multiply.outer (d1, ints[k].get_dm1 (bra, ket)).transpose (2,0,1,3,4)
+        for k in range (self.nroots):
+            if k in (i, j): continue
+            t, u = self.get_range (k)
+            d1_skk = self.ints[k].get_dm1 (bra, ket)
+            d2_ijkk = np.multiply.outer (d1, d1_skk).transpose (2,0,1,3,4)
             _crunch_1e_tdm2 (d2_ijkk, p, q, r, s, t, u)
 
-    def _crunch_spin_hop (bra, ket):
-        d2 = tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
-        i = np.where (np.all (hopping_index[:,:,bra,ket] == [1,-1]))[0][0]
-        j = np.where (np.all (hopping_index[:,:,bra,ket] == [-1,1]))[0][0]
-        p, r = sum (nlas[:i]), sum (nlas[:j])
-        q, s = p + nlas[i], r + nlas[j]
-        d2_spsm = np.multiply.outer (ints[i].get_sp (bra, ket), ints[j].get_sm (bra, ket))
+    def _crunch_spin_hop_(self, bra, ket, i, j):
+        d2 = self.tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        d2_spsm = np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
         d2[1,p:q,r:s,r:s,p:q] = -d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = -d2_spsm.transpose (2,1,0,3)
 
-    def _crunch_pair_hop (bra, ket, s2lt):
+    def _crunch_pair_hop_(self, bra, ket, i, j, s2lt):
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
         s2 = (0, 1, 3)[s2lt]
-        d2 = tdm2s[bra, ket]
-        i = np.where (hopping_index.sum (1)[:,bra,ket] ==  2)[0][0]
-        j = np.where (hopping_index.sum (1)[:,bra,ket] == -2)[0][0]
-        p, r = sum (nlas[:i]), sum (nlas[:j])
-        q, s = p + nlas[i], r + nlas[j]
-        pp = ints[i].get_pp (bra, ket, s2lt)
+        d2 = self.tdm2s[bra, ket]
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        pp = self.ints[i].get_pp (bra, ket, s2lt)
         if s2lt == 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (np.amax (np.abs (pp + pp.T)))
-        hh = ints[j].get_hh (bra, ket, s2lt)
+        hh = self.ints[j].get_hh (bra, ket, s2lt)
         if s2lt == 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
         d2_ijij = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken order
         d2[s2,p:q,r:s,p:q,r:s] = d2_ijij
@@ -341,90 +350,82 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
         # Electron 1 and electron 2 have the same ranges -> e- perm redundant for aa, bb
         # "Exchange" should be built into the same-spin pp and hh intermediates (see asserts above)
 
-    def _crunch_pair_split (bra, ket, s2lt):
+    def _crunch_pair_split_(self, bra, ket, i, j, k, s2lt):
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
         s2  = (0, 1, 3)[s2lt] # aa, ab, bb
         s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
-        d2 = tdm2s[bra, ket]
-        if s2lt == 1:
-            s1i, s1j = 0, 1
-            i = np.where (hopping_index[:,0,bra,ket] == 1)[0][0]
-            j = np.where (hopping_index[:,1,bra,ket] == 1)[0][0]
-        else:
-            i, j = np.where (hopping_index.sum (1)[:,bra,ket] == 1)[0]
-            s1i = s1j = s2lt // 2
-        k = np.where (hopping_index.sum (1)[:,bra,ket] == -2)[0][0]
-        pp = np.multiply.outer (ints[i].get_p (bra, ket, s1i), ints[j].get_p (bra, ket, s1j))
-        hh = ints[k].get_hh (bra, ket, s2lt)
+        d2 = self.tdm2s[bra, ket]
+        pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s1i), self.ints[j].get_p (bra, ket, s1j))
+        hh = self.ints[k].get_hh (bra, ket, s2lt)
         if s2lt == 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
         d2_ikjk = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
-        p, r, t = sum (nlas[:i]), sum (nlas[:j]), sum (nlas[:k])
-        q, s, u = p + nlas[i], r + nlas[j], t + nlas[k]
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        t, u = self.get_range (k) 
         d2[s2, p:q,t:u,r:s,t:u] = d2_ikjk
         d2[s2T,r:s,t:u,p:q,t:u] = d2_ikjk.transpose (2,3,0,1)
         if s2 == s2T: # same-spin only: exchange happens, but should be built into hh
             test = d2[s2,p:q,t:u,r:s,t:u] + d2[s2,r:s,t:u,p:q,t:u].transpose (2,3,0,1)
             assert (np.all (np.abs (test)) < 1e-8), '{}'.format (np.amax (np.abs (test)))
 
-    def _crunch_2e (bra, ket, s2lt):
+    def _crunch_2e_(self, bra, ket, i, j, k, l, s2lt):
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
         s2  = (0, 1, 3)[s2lt] # aa, ab, bb
         s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
-        d2 = tdm2s[bra, ket]
-        if s2lt == 1:
-            s11, s12 = 0, 1
-            i = np.where (hopping_index[:,0,bra,ket] ==  1)[0][0]
-            k = np.where (hopping_index[:,1,bra,ket] ==  1)[0][0]
-            j = np.where (hopping_index[:,0,bra,ket] == -1)[0][0]
-            l = np.where (hopping_index[:,1,bra,ket] == -1)[0][0]
-        else:
-            s11 = s12 = s2lt // 2
-            i, k = np.where (hopping_index.sum (1)[:,bra,ket] ==  1)[0]
-            j, l = np.where (hopping_index.sum (1)[:,bra,ket] == -1)[0]
-        pp = np.multiply.outer (ints[i].get_p (bra, ket, s11), ints[k].get_p (bra, ket, s12))
-        hh = np.multiply.outer (ints[l].get_h (bra, ket, s11), ints[j].get_p (bra, ket, s12))
+        d2 = self.tdm2s[bra, ket]
+        pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11), self.ints[k].get_p (bra, ket, s12))
+        hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s11), self.ints[j].get_p (bra, ket, s12))
         d2_ijkl = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
-        p, r, t, v = sum (nlas[:i]), sum (nlas[:j]), sum (nlas[:k]), sum (nlas[:l])
-        q, s, u, w = p + nlas[i], r + nlas[j], t + nlas[k], v + nlas[l]
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        t, u = self.get_range (k) 
+        v, w = self.get_range (l)
         d2[s2, p:q,r:s,t:u,v:w] = d2_ijkl
-        d2[s2T,r:s,t:u,p:q,t:u] = d2_ikjk.transpose (2,3,0,1)
+        d2[s2T,r:s,t:u,p:q,t:u] = d2_ijkl.transpose (2,3,0,1)
         if s2 == s2T: # same-spin only: exchange happens
             d2[s2,p:q,v:w,t:u,r:s] = -d2_ijkl.transpose (0,3,2,1)
             d2[s2,t:u,r:s,p:q,v:w] = -d2_ijkl.transpose (2,1,0,3)
 
-    # Second pass: upper-triangle
-    t0 = (time.clock (), time.time ())
-    for bra, ket in combinations (range (nroots), 2):
-        spin = nspin_index[bra,ket]
-        if not conserv_index[bra,ket]:
-            continue
-        elif nop_index[bra,ket] == 0:
-            _crunch_null (bra, ket)
-        elif nop_index[bra,ket] == 2:
-            _crunch_1e (bra, ket, spin)
-        elif nop_idnex[bra,ket] == 4:
-            if ncharge_index[bra,ket] == 0:
-                assert (spin == 1)
-                _crunch_spin_hop (bra, ket)
-            elif nfrag_index[bra,ket] == 2:
-                _crunch_pair_hop (bra, ket, spin)
-            elif nfrag_index[bra,ket] == 3:
-                if np.amin (hopping_index.sum (1)[:,bra,ket]) == -2:
-                    _crunch_pair_split (bra, ket, spin)
-                else:
-                    _crunch_pair_split (ket, bra, spin)
-            elif nfrag_index[bra,ket] == 4:
-                _crunch_2e (bra, ket, spin)
-    t0 = lib.logger.timer (las, 'LAS-state TDM12s upper-triangle outer-producting', *t0)
+    def kernel (self):
+        t0 = (time.clock (), time.time ())
+        for row in self.exc_null: self._crunch_null_(*row)
+        for row in self.exc_1e: self._crunch_1e_(*row)
+        for row in self.exc_spin: self._crunch_spin_(*row)
+        for row in self.exc_pair: self._crunch_pair_(*row)
+        for row in self.exc_split: self._crunch_pair_split_(*row)
+        for row in self.exc_2e: self._crunch_2e_(*row)
+        self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
+        self.tdm2s += self.tdm1s.conj ().transpose (1,0,2,4,3,6,5)
+        for state in range (self.nroots): self._crunch_null (state, state)
+        return self.tdm1s, self.tdm2s, t0
 
-    # Third pass: + adjoint and diagonal
-    tdm1s += tdm1s.conj ().transpose (1,0,2,4,3)
-    tdm2s += tdm1s.conj ().transpose (1,0,2,4,3,6,5)
-    for ket in range (nroots):
-        _crunch_null (ket, ket)
-    t0 = lib.logger.timer (las, 'LAS-state TDM12s + adjoint and diagonal outer-producting', *t0)
+def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
+    fciboxes = las.fciboxes
+    nlas = las.ncas_sub
+    nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
+    ncas = las.ncas
+    nfrags = len (fciboxes)
+    nroots = np.count_nonzero (idx_root)
+    idx_root = np.where (idx_root)[0]
+    nelelas_rs = [(sum (nefrag[i][0] for nefrag in nelelas_frs), sum (nefrag[i][1] for nefrag in nelelas_frs)) for i in range (nroots)]
+
+    # First pass: single-fragment intermediates
+    hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
+    ints = []
+    for ifrag in range (nfrags);
+        tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root)
+        t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
+        lib.logger.timer (las, 'LAS-state TDM12s intermediate crunching', *t0)        
+        ints.append (tdmint)
+
+
+    # Second pass: upper-triangle
+    outerprod, t0 = LSTDMint2 (ints, nlas, hopping_index, dtype=ci[0][0].dtype)
+    lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)        
+    tdm1s, tdm2s, t0 = outerprod.kernel ()
+    lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
 
     return tdm1s, tdm2s
 
