@@ -466,7 +466,7 @@ class FCISolver (direct_spin1.FCISolver):
         self.mask_cache = [0, 0, 0, 0]
         super().__init__(mol)
 
-    def get_init_guess(self, norb, nelec, nroots, hdiag_csf):
+    def get_init_guess(self, norb, nelec, nroots, hdiag_csf, **kwargs):
         self.norb = norb
         self.nelec = nelec
         self.check_transformer_cache ()

@@ -99,6 +99,18 @@ class FCISolver (direct_spin1_symm.FCISolver):
         self.wfnsym = wfnsym_back
         return e, c
 
+    def get_init_guess (self, norb, nelec, nroots, hdiag_csf, **kwargs):
+        orbsym = kwargs['orbsym'] if 'orbsym' in kwargs else self.orbsym
+        wfnsym = kwargs['wfnsym'] if 'wfnsym' in kwargs else self.wfnsym
+        self.orbsym = orbsym
+        self.wfnsym = wfnsym
+        assert ((self.orbsym is not None) and (self.wfnsym is not None))
+        self.norb = norb
+        self.nelec = nelec
+        self.check_transformer_cache ()
+        return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
+           
+
     def check_transformer_cache (self):
         assert (isinstance (self.smult, (int, np.number)))
         neleca, nelecb = _unpack_nelec (self.nelec)
@@ -112,4 +124,9 @@ class FCISolver (direct_spin1_symm.FCISolver):
             self.transformer._update_spin_cache (self.norb, neleca, nelecb, self.smult)
             self.transformer._update_symm_cache (self.orbsym)
             self.transformer.wfnsym = wfnsym
+
+
+
+
+
 

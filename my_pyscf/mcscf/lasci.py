@@ -929,9 +929,11 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_fr, log, veff_sub_test=None
             j = ncas_cum[isub+1]
             orbsym = orbsym[i:j]
             log.info ("LASCI subspace {} with orbsyms {}".format (isub, orbsym))
+        else:
+            log.info ("LASCI subspace {} with no orbsym information".format (isub))
         for state, solver in enumerate (fcibox.fcisolvers):
             wfnsym = getattr (solver, 'wfnsym', None)
-            if wfnsym:
+            if (wfnsym is not None) and (orbsym is not None):
                 wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (las.mol.groupname, wfnsym)
                 log.info ("LASCI subspace {} state {} with wfnsym {}".format (isub, state, wfnsym_str))
         e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
@@ -1048,36 +1050,32 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
     return mo_coeff, mo_ene, mo_occ, ci, h2eff_sub
 
 def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None):
+    # TODO: come up with a better algorithm? This might be working better than what I had before but it omits inter-active
+    # coulomb and exchange interactions altogether. Is there a non-outer-product algorithm for finding the lowest-energy single
+    # product of CSFs?
     nmo = mo_coeff.shape[-1]
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     ci0 = []
-    h1e_cas = las._scf.get_fock ()[ncore:nocc,ncore:nocc]
-    dm1s_cas = las._scf.make_rdm1 ()
-    if dm1s_cas.ndim == 2: dm1s_cas = [dm1s_cas*0.5, dm1s_cas*0.5]
-    s0 = las._scf.get_ovlp ()
+    dm1_core= 2 * mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
+    h1e_ao = las._scf.get_fock (dm=dm1_core)
     eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)
     eri_cas = eri_cas[ncore:nocc]
     for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes, las.ncas_sub, las.nelecas_sub)):
         i = sum (las.ncas_sub[:ix])
         j = i + norb
-        smo = np.dot (s0, mo_coeff[:,ncore+i:ncore+j])
-        smoH = smo.conj ().T
-        h1e = [h1e_cas[i:j,i:j], h1e_cas[i:j,i:j]]
+        mo = mo_coeff[:,ncore+i:ncore+j]
+        moH = mo.conj ().T
+        h1e = moH @ h1e_ao @ mo
+        h1e = [h1e, h1e]
         eri = eri_cas[i:j,i:j,i:j,i:j]
-        dm1s = [smoH @ d @ smo for d in dm1s_cas]
-        dm1 = dm1s[0] + dm1s[1]
-        vj = np.tensordot (eri, dm1, axes=2)
-        vk = [np.tensordot (eri, d, axes=((1,2),(0,1))) for d in dm1s]
-        h1e[0] -= (vj - vk[0]/2)
-        h1e[1] -= (vj - vk[1]/2)
         ci0_i = []
         for solver in fcibox.fcisolvers:
             nelec = fcibox._get_nelec (solver, nelecas)
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
             hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec)
-            ci0_i.append (solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf))
+            ci0_i.append (solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0])
         ci0.append (ci0_i)
     return ci0
 
