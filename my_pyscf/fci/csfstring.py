@@ -100,6 +100,7 @@ class CSFTransformer (lib.StreamObject):
     def printable_largest_csf (self, csfvec, npr, order='C', isdet=False, normalize=True):
         if isdet:
             csfvec = self.vec_det2csf (csfvec, order=order, normalize=normalize)
+        csfvec = self.unpack_csf (csfvec, order=order) # Don't let symmetry scramble CSF indexing
         nelec = self._neleca + self._nelecb
         if csfvec.ndim == 1:
             nvec = 1
