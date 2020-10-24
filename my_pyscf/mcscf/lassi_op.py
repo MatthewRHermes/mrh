@@ -254,18 +254,21 @@ class LSTDMint2 (object):
         tril_index[np.tril_indices (self.nroots,k=-1)] = True
         self.exc_null = np.hstack (np.where (conserv_index & tril_index & (nsop_index == 0)))
         idx = conserv_index & (nop_index == 2) & tril_index
-        self.exc_1e = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], nspin_index[idx]])
+        self.exc_1c = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], nspin_index[idx]])
         idx_2e = conserv_index & (nop_index == 4)
         # Do splits first since splits (as opposed to coalescence) might be in triu corner
         idx = idx_2e & (ncharge_index == 3) & (np.amin (hopping_index.sum (1), axis=0) == -2)
-        self.exc_split = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[-2][idx], findf[0][idx], nspin_index[idx]])
+        exc_split = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[0][idx], nspin_index[idx]])
+        # Now restrict to tril corner
         idx_2e = idx_2e & tril_index
         idx = idx_2e & (ncharge_index == 0) & (nspin_index == 1)
-        self.exc_spin = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]) 
+        self.exc_1s = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]) 
         idx = idx_2e & (ncharge_index == 2)
-        self.exc_pair = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], nspin_index[idx]])
+        exc_pair = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[0][idx], nspin_index[idx]])
         idx = idx_2e & (ncharge_index == 4)
-        self.exc_2e = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], nspin_index[idx]])
+        exc_scatter = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], nspin_index[idx]])
+        # combine all two-charge interactions
+        self.exc_2c = np.vstack ((exc_pair, exc_split, exc_scatter))
         return self, t0
 
     def get_range (self, i):
@@ -295,7 +298,7 @@ class LSTDMint2 (object):
                 d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
                 d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
 
-    def _crunch_1e_(self, bra, ket, i, j, s1)
+    def _crunch_1c_(self, bra, ket, i, j, s1)
         d1 = self.tdm1s[bra,ket]
         d2 = self.tdm2s[bra,ket]
         inti, intj = self.ints[i], self.ints[j]
@@ -305,26 +308,26 @@ class LSTDMint2 (object):
         s1a = s1 * 2  # aa: 0, ba: 2
         s1b = s1a + 2 # ab: 1, bb: 3 (range specifier: I want [s1a, s1a + 1], which requires s1a:s1a+2 because of how Python ranges work)
         s1s1 = s1 * 3 # aa: 0, bb: 3
-        def _crunch_1e_tdm2 (d2_ijkk, i0, i1, j0, j1, k0, k1):
+        def _crunch_1c_tdm2 (d2_ijkk, i0, i1, j0, j1, k0, k1):
             d2[s1a:s1b, i0:i1, j0:j1, k0:k1, k0:k1] = d2_ijkk
             d2[s1a:s1b ,k0:k1, k0:k1, i0:i1, j0:j1] = d2_ijkk.transpose (0,3,4,1,2)
             d2[s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_ijkk[s1,...].transpose (0,3,2,1)
             d2[s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_ijkk[s1,...].transpose (2,1,0,3)
         # pph (transpose is from Dirac order to Mulliken order)
         d2_ijii = np.multiply.outer (self.ints[i].get_pph (bra, ket, s1), self.ints[j].get_h (bra, ket, s1)).transpose (0,1,4,2,3)
-        _crunch_1e_tdm2 (d2_ijii, p, q, r, s, p, q)
+        _crunch_1c_tdm2 (d2_ijii, p, q, r, s, p, q)
         # phh (transpose is to bring spin onto the outside and then from Dirac order to Mulliken order)
         d2_ijjj = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_phh (bra, ket, s1)).transpose (1,0,4,2,3)
-        _crunch_1e_tdm2 (d2_ijjj, p, q, r, s, r, s)
+        _crunch_1c_tdm2 (d2_ijjj, p, q, r, s, r, s)
         # spectator fragment mean-field (should automatically be in Mulliken order)
         for k in range (self.nroots):
             if k in (i, j): continue
             t, u = self.get_range (k)
             d1_skk = self.ints[k].get_dm1 (bra, ket)
             d2_ijkk = np.multiply.outer (d1, d1_skk).transpose (2,0,1,3,4)
-            _crunch_1e_tdm2 (d2_ijkk, p, q, r, s, t, u)
+            _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
 
-    def _crunch_spin_hop_(self, bra, ket, i, j):
+    def _crunch_1s_(self, bra, ket, i, j):
         d2 = self.tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -332,58 +335,31 @@ class LSTDMint2 (object):
         d2[1,p:q,r:s,r:s,p:q] = -d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = -d2_spsm.transpose (2,1,0,3)
 
-    def _crunch_pair_hop_(self, bra, ket, i, j, s2lt):
-        # s2lt: 0, 1, 2 -> aa, ab, bb
-        # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
-        s2 = (0, 1, 3)[s2lt]
-        d2 = self.tdm2s[bra, ket]
-        p, q = self.get_range (i)
-        r, s = self.get_range (j)
-        pp = self.ints[i].get_pp (bra, ket, s2lt)
-        if s2lt == 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (np.amax (np.abs (pp + pp.T)))
-        hh = self.ints[j].get_hh (bra, ket, s2lt)
-        if s2lt == 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
-        d2_ijij = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken order
-        d2[s2,p:q,r:s,p:q,r:s] = d2_ijij
-        if s2lt == 1: # ab -> ba
-            d2[2,p:q,r:s,p:q,r:s] = d2_ijij.transpose (2,3,0,1)
-        # Electron 1 and electron 2 have the same ranges -> e- perm redundant for aa, bb
-        # "Exchange" should be built into the same-spin pp and hh intermediates (see asserts above)
-
-    def _crunch_pair_split_(self, bra, ket, i, j, k, s2lt):
+    def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
         s2  = (0, 1, 3)[s2lt] # aa, ab, bb
         s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
+        s11 = s2 // 2
+        s12 = s2 % 2
         d2 = self.tdm2s[bra, ket]
-        pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s1i), self.ints[j].get_p (bra, ket, s1j))
-        hh = self.ints[k].get_hh (bra, ket, s2lt)
-        if s2lt == 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
-        d2_ikjk = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
-        p, q = self.get_range (i)
-        r, s = self.get_range (j)
-        t, u = self.get_range (k) 
-        d2[s2, p:q,t:u,r:s,t:u] = d2_ikjk
-        d2[s2T,r:s,t:u,p:q,t:u] = d2_ikjk.transpose (2,3,0,1)
-        if s2 == s2T: # same-spin only: exchange happens, but should be built into hh
-            test = d2[s2,p:q,t:u,r:s,t:u] + d2[s2,r:s,t:u,p:q,t:u].transpose (2,3,0,1)
-            assert (np.all (np.abs (test)) < 1e-8), '{}'.format (np.amax (np.abs (test)))
-
-    def _crunch_2e_(self, bra, ket, i, j, k, l, s2lt):
-        # s2lt: 0, 1, 2 -> aa, ab, bb
-        # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
-        s2  = (0, 1, 3)[s2lt] # aa, ab, bb
-        s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
-        d2 = self.tdm2s[bra, ket]
-        pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11), self.ints[k].get_p (bra, ket, s12))
-        hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s11), self.ints[j].get_p (bra, ket, s12))
+        if i == k:
+            pp = self.ints[i].get_pp (bra, ket, s2lt)
+            if s2lt == 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (np.amax (np.abs (pp + pp.T)))
+        else:
+            pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11), self.ints[k].get_p (bra, ket, s12))
+        if j == l:
+            hh = self.ints[j].get_hh (bra, ket, s2lt)
+            if s2lt == 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
+        else:
+            hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12), self.ints[j].get_p (bra, ket, s11))
         d2_ijkl = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         t, u = self.get_range (k) 
         v, w = self.get_range (l)
         d2[s2, p:q,r:s,t:u,v:w] = d2_ijkl
-        d2[s2T,r:s,t:u,p:q,t:u] = d2_ijkl.transpose (2,3,0,1)
+        d2[s2T,t:u,v:w,p:q,r:s] = d2_ijkl.transpose (2,3,0,1)
         if s2 == s2T: # same-spin only: exchange happens
             d2[s2,p:q,v:w,t:u,r:s] = -d2_ijkl.transpose (0,3,2,1)
             d2[s2,t:u,r:s,p:q,v:w] = -d2_ijkl.transpose (2,1,0,3)
@@ -391,11 +367,9 @@ class LSTDMint2 (object):
     def kernel (self):
         t0 = (time.clock (), time.time ())
         for row in self.exc_null: self._crunch_null_(*row)
-        for row in self.exc_1e: self._crunch_1e_(*row)
-        for row in self.exc_spin: self._crunch_spin_(*row)
-        for row in self.exc_pair: self._crunch_pair_(*row)
-        for row in self.exc_split: self._crunch_pair_split_(*row)
-        for row in self.exc_2e: self._crunch_2e_(*row)
+        for row in self.exc_1c: self._crunch_1c_(*row)
+        for row in self.exc_1s: self._crunch_1s_(*row)
+        for row in self.exc_2c: self._crunch_2c_(*row)
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
         self.tdm2s += self.tdm1s.conj ().transpose (1,0,2,4,3,6,5)
         for state in range (self.nroots): self._crunch_null (state, state)
