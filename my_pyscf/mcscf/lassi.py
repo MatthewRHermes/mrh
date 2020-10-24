@@ -1,6 +1,8 @@
 import numpy as np
+import time
 from scipy import linalg
 from mrh.my_pyscf.mcscf import lassi_op_slow as op
+from mrh.my_pyscf.mcscf import lassi_op as op_expt
 from pyscf import lib, symm
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
@@ -148,8 +150,13 @@ def make_stdm12s (las, ci=None, orbsym=None):
         idx = np.all (np.array (statesym) == rootsym, axis=1)
         wfnsym = rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
-        nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-        d1s, d2s = op.make_stdm12s (las.mol, ci_blk, las.ncas_sub, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
+        t0 = (time.clock (), time.time ())
+        d1s, d2s = op.make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
+        t0 = lib.logger.timer (las, 'LASSI make_stdm12s CI algorithm', *t0)
+        #d1s_test, d2s_test = op_expt.make_stdm12s (las, ci_blk, idx)
+        #t0 = lib.logger.timer (las, 'LASSI make_stdm12s TDM algorithm', *t0)
+        #lib.logger.debug (las, 'LASSI make_stdm12s: D1 smart algorithm error = {}'.format (linalg.norm (d1s_test - d1s))) 
+        #lib.logger.debug (las, 'LASSI make_stdm12s: D2 smart algorithm error = {}'.format (linalg.norm (d2s_test - d2s))) 
         idx_int = np.where (idx)[0]
         for (i,a), (j,b) in product (enumerate (idx_int), repeat=2):
             stdm1s[a,...,b] = d1s[i,...,j]

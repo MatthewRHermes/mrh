@@ -61,7 +61,10 @@ def ham (mol, h1, h2, ci_fr, norb_f, nelec_fr, orbsym=None, wfnsym=None):
     ovlp_eff = np.array ([[bra.ravel ().dot (ket.ravel ()) for ket in ci] for bra in ci])
     return ham_eff, s2_eff, ovlp_eff
 
-def make_stdm12s (mol, ci_fr, norb_f, nelec_fr, orbsym=None, wfnsym=None):
+def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
+    mol = las.mol
+    norb_f = las.ncas_sub
+    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
     norb = sum (norb_f) 
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)

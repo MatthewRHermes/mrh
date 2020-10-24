@@ -298,7 +298,7 @@ class LSTDMint2 (object):
                 d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
                 d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
 
-    def _crunch_1c_(self, bra, ket, i, j, s1)
+    def _crunch_1c_(self, bra, ket, i, j, s1):
         d1 = self.tdm1s[bra,ket]
         d2 = self.tdm2s[bra,ket]
         inti, intj = self.ints[i], self.ints[j]
@@ -375,7 +375,7 @@ class LSTDMint2 (object):
         for state in range (self.nroots): self._crunch_null (state, state)
         return self.tdm1s, self.tdm2s, t0
 
-def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
+def make_stdm12s (las, ci, idx_root, **kwargs):
     fciboxes = las.fciboxes
     nlas = las.ncas_sub
     nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
@@ -388,7 +388,7 @@ def make_stdm12s (las, ci, _0, _1, idx_root, **kwargs):
     # First pass: single-fragment intermediates
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
     ints = []
-    for ifrag in range (nfrags);
+    for ifrag in range (nfrags):
         tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root)
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
         lib.logger.timer (las, 'LAS-state TDM12s intermediate crunching', *t0)        
