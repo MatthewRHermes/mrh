@@ -47,19 +47,21 @@ class LSTDMint1 (object):
 
     def __init__(self, fcibox, norb, nelec, nroots, idx_root):
         # I'm not sure I need linkstrl
-        self.fcisolvers = [fcibox.fcisolvers[ix] for ix in idx_root]
         self.linkstrl = fcibox.states_gen_linkstr (norb, nelec, tril=True)
         self.linkstr = fcibox.states_gen_linkstr (norb, nelec, tril=False)
+        self.fcisolvers = [fcibox.fcisolvers[ix] for ix in idx_root]
+        self.linkstrl = [self.linkstrl[ix] for ix in idx_root]
+        self.linkstr = [self.linkstr[ix] for ix in idx_root]
         self.norb = norb
         self.nelec = nelec
         self.nroots = nroots
-        self.nelec_r = [fcibox._get_nelec (solver, nelec) for solver in self.fcisolvers]
-        self._h = [[[None for i in nroots] for j in nroots] for s in (0,1)]
-        self._hh = [[[None for i in nroots] for j in nroots] for s in (-1,0,1)] 
-        self._phh = [[[None for i in nroots] for j in nroots] for s in (0,1)]
-        self._sm = [[None for i in nroots] for j in nroots]
-        self.dm1 = [[None for i in nroots] for j in nroots]
-        self.dm2 = [[None for i in nroots] for j in nroots]
+        self.nelec_r = [_unpack_nelec (fcibox._get_nelec (solver, nelec)) for solver in self.fcisolvers]
+        self._h = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
+        self._hh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (-1,0,1)] 
+        self._phh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
+        self._sm = [[None for i in range (nroots)] for j in range (nroots)]
+        self.dm1 = [[None for i in range (nroots)] for j in range (nroots)]
+        self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
 
     # 1-particle 1-operator intermediate
 
@@ -140,7 +142,7 @@ class LSTDMint1 (object):
         # Spectator fragment contribution
         spectator_index = np.all (hopping_index == 0, axis=0)
         spectator_index[np.triu_indices (self.nroots, k=1)] = False
-        spectator_index = np.stack (np.where (spectator_index), axis=0)
+        spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
             solver = self.fcisolvers[i]
             linkstr = self.linkstr[i]
@@ -154,27 +156,28 @@ class LSTDMint1 (object):
         hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
         bpvec_list = [None for ket in range (nroots)]
         for ket in hidx_ket_b:
-            if np.any (np.all (hopping_index[:,:,ket] == [1,-1]), axis=1):
-                bpvec_list[ket] = np.stack ([des_b (self.ci[ket], norb, self.nelec_r[ket], p) for p in range (norb)], axis=0)
+            if np.any (np.all (hopping_index[:,:,ket] == np.array ([1,-1])[:,None], axis=0)):
+                bpvec_list[ket] = np.stack ([des_b (ci[ket], norb, self.nelec_r[ket], p) for p in range (norb)], axis=0)
 
         # a_p|i>
         for ket in hidx_ket_a:
             nelec = self.nelec_r[ket]
-            apket = np.stack ([des_a (self.ci[ket], norb, nelec, p) for p in range (norb)], axis=0)
+            apket = np.stack ([des_a (ci[ket], norb, nelec, p) for p in range (norb)], axis=0)
             nelec = (nelec[0]-1, nelec[1])
-            # <j|a_p|i>
             for bra in np.where (hopping_index[0,:,ket] < 0)[0]:
-                bravec = self.ci[bra].ravel ()
-                self.set_h (bra, ket, 0, bravec.dot (apket.reshape (norb,-1).T))
-                # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how do I tell if I have a consistent sign rule...?
-                if np.all (hopping_index[:,bra,ket] == [-1,0]) and onep_index[bra,ket]:
-                    solver = self.fcisolvers[bra]
-                    linkstr = self.linkstr[bra]
-                    phh = np.stack ([solver.trans_rdm12s (self.ci[bra], ketmat, norb,
-                        self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
-                    err = np.abs (phh[0] + phh[0].transpose (0,2,1))
-                    assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
-                    self.set_phh (bra, ket, 0, phh)
+                bravec = ci[bra].ravel ()
+                # <j|a_p|i>
+                if np.all (hopping_index[:,bra,ket] == [-1,0]):
+                    self.set_h (bra, ket, 0, bravec.dot (apket.reshape (norb,-1).T))
+                    # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how do I tell if I have a consistent sign rule...?
+                    if onep_index[bra,ket]:
+                        solver = self.fcisolvers[bra]
+                        linkstr = self.linkstr[bra]
+                        phh = np.stack ([solver.trans_rdm12s (ci[bra], ketmat, norb,
+                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
+                        err = np.abs (phh[0] + phh[0].transpose (0,2,1))
+                        assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
+                        self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
                     aqbra = bpvec_list[bra].reshape (norb, -1).conj ()
@@ -196,22 +199,23 @@ class LSTDMint1 (object):
         # b_p|i>
         for ket in hidx_ket_b:
             nelec = self.nelec_r[ket]
-            bpvec = np.stack ([des_b (self.ci[ket], norb, nelec, p)
+            bpvec = np.stack ([des_b (ci[ket], norb, nelec, p)
                 for p in range (norb)], axis=0) if bpvec_list[ket] is None else bpvec_list[ket]
             nelec = (nelec[0], nelec[1]-1)
-            # <j|b_p|i>
             for bra in np.where (hopping_index[1,:,ket] < 0)[0]:
-                bravec = self.ci[bra].ravel ()
-                self.set_h (bra, ket, 1, bravec.dot (bpvec.reshape (norb,-1).T))
-                # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how do I tell if I have a consistent sign rule...?
-                if np.all (hopping_index[:,bra,ket] == [0,-1]) and onep_index[bra,ket]:
-                    solver = self.fcisolvers[bra]
-                    linkstr = self.linkstr[bra]
-                    phh = np.stack ([solver.trans_rdm12s (self.ci[bra], ketmat, norb,
-                        self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
-                    err = np.abs (phh[1] + phh[1].transpose (0,2,1))
-                    assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
-                    self.set_phh (bra, ket, 1, phh)
+                bravec = ci[bra].ravel ()
+                # <j|b_p|i>
+                if np.all (hopping_index[:,bra,ket] == [0,-1]):
+                    self.set_h (bra, ket, 1, bravec.dot (bpvec.reshape (norb,-1).T))
+                    # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how do I tell if I have a consistent sign rule...?
+                    if onep_index[bra,ket]:
+                        solver = self.fcisolvers[bra]
+                        linkstr = self.linkstr[bra]
+                        phh = np.stack ([solver.trans_rdm12s (ci[bra], ketmat, norb,
+                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
+                        err = np.abs (phh[1] + phh[1].transpose (0,2,1))
+                        assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
+                        self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
                     hh_triu = [bravec.dot (des_b (bpvec[p], norb, nelec, q).ravel ())
@@ -226,7 +230,6 @@ class LSTDMint1 (object):
 class LSTDMint2 (object):
     ''' Intermediate-storage convenience object for second pass of LAS-state tdm12s calculations '''
     def __init__(self, ints, nlas, hopping_index, dtype=np.float64):
-        t0 = (time.clock (), time.time ())
         self.ints = ints
         self.nlas = nlas
         self.norb = sum (nlas)
@@ -251,25 +254,25 @@ class LSTDMint2 (object):
         # The 'stable' sort keeps relative order -> sign convention!
         # Adding 2 to the first column sorts by up-spin FIRST and down-spin SECOND
         tril_index = np.zeros_like (conserv_index)
-        tril_index[np.tril_indices (self.nroots,k=-1)] = True
-        self.exc_null = np.hstack (np.where (conserv_index & tril_index & (nsop_index == 0)))
+        tril_index[np.tril_indices (self.nroots,k=0)] = True
+        idx = conserv_index & tril_index & (nop_index == 0)
+        self.exc_null = np.vstack (list (np.where (idx))).T
         idx = conserv_index & (nop_index == 2) & tril_index
-        self.exc_1c = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], nspin_index[idx]])
+        self.exc_1c = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], nspin_index[idx]]).T
         idx_2e = conserv_index & (nop_index == 4)
         # Do splits first since splits (as opposed to coalescence) might be in triu corner
         idx = idx_2e & (ncharge_index == 3) & (np.amin (hopping_index.sum (1), axis=0) == -2)
-        exc_split = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[0][idx], nspin_index[idx]])
+        exc_split = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[0][idx], nspin_index[idx]]).T
         # Now restrict to tril corner
         idx_2e = idx_2e & tril_index
         idx = idx_2e & (ncharge_index == 0) & (nspin_index == 1)
-        self.exc_1s = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]) 
+        self.exc_1s = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]).T
         idx = idx_2e & (ncharge_index == 2)
-        exc_pair = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[0][idx], nspin_index[idx]])
+        exc_pair = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[0][idx], nspin_index[idx]]).T
         idx = idx_2e & (ncharge_index == 4)
-        exc_scatter = np.hstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], nspin_index[idx]])
+        exc_scatter = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], nspin_index[idx]]).T
         # combine all two-charge interactions
         self.exc_2c = np.vstack ((exc_pair, exc_split, exc_scatter))
-        return self, t0
 
     def get_range (self, i):
         p = sum (self.nlas[:i])
@@ -280,6 +283,7 @@ class LSTDMint2 (object):
     def _crunch_null_(self, bra, ket):
         d1 = self.tdm1s[bra,ket]
         d2 = self.tdm2s[bra,ket]
+        nlas = self.nlas
         for i, inti in enumerate (self.ints):
             p = sum (nlas[:i])
             q = p + nlas[i]
@@ -366,13 +370,14 @@ class LSTDMint2 (object):
 
     def kernel (self):
         t0 = (time.clock (), time.time ())
+        self.tdm1s = np.zeros ([self.nroots,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
+        self.tdm2s = np.zeros ([self.nroots,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
         for row in self.exc_null: self._crunch_null_(*row)
         for row in self.exc_1c: self._crunch_1c_(*row)
         for row in self.exc_1s: self._crunch_1s_(*row)
         for row in self.exc_2c: self._crunch_2c_(*row)
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
-        self.tdm2s += self.tdm1s.conj ().transpose (1,0,2,4,3,6,5)
-        for state in range (self.nroots): self._crunch_null (state, state)
+        self.tdm2s += self.tdm2s.conj ().transpose (1,0,2,4,3,6,5)
         return self.tdm1s, self.tdm2s, t0
 
 def make_stdm12s (las, ci, idx_root, **kwargs):
@@ -382,8 +387,9 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
     ncas = las.ncas
     nfrags = len (fciboxes)
     nroots = np.count_nonzero (idx_root)
+    nelelas_frs = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     idx_root = np.where (idx_root)[0]
-    nelelas_rs = [(sum (nefrag[i][0] for nefrag in nelelas_frs), sum (nefrag[i][1] for nefrag in nelelas_frs)) for i in range (nroots)]
+    nelelas_rs = [(sum ([nefrag[i][0] for nefrag in nelelas_frs]), sum ([nefrag[i][1] for nefrag in nelelas_frs])) for i in range (nroots)]
 
     # First pass: single-fragment intermediates
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
@@ -396,10 +402,11 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
 
 
     # Second pass: upper-triangle
-    outerprod, t0 = LSTDMint2 (ints, nlas, hopping_index, dtype=ci[0][0].dtype)
+    t0 = (time.clock (), time.time ())
+    outerprod = LSTDMint2 (ints, nlas, hopping_index, dtype=ci[0][0].dtype)
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)        
     tdm1s, tdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
 
-    return tdm1s, tdm2s
+    return tdm1s.transpose (0,2,3,4,1), tdm2s.reshape (nroots, nroots, 2, 2, ncas, ncas, ncas, ncas).transpose (0,2,4,5,3,6,7,1)
 
