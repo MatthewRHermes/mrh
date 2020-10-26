@@ -208,28 +208,28 @@ class LSTDMint1 (object):
         # b_p|i>
         for ket in hidx_ket_b:
             nelec = self.nelec_r[ket]
-            bpvec = np.stack ([des_b (ci[ket], norb, nelec, p)
+            bpket = np.stack ([des_b (ci[ket], norb, nelec, p)
                 for p in range (norb)], axis=0) if bpvec_list[ket] is None else bpvec_list[ket]
             nelec = (nelec[0], nelec[1]-1)
             for bra in np.where (hopping_index[1,:,ket] < 0)[0]:
                 bravec = ci[bra].ravel ()
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
-                    self.set_h (bra, ket, 1, bravec.dot (bpvec.reshape (norb,-1).T))
+                    self.set_h (bra, ket, 1, bravec.dot (bpket.reshape (norb,-1).T))
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how do I tell if I have a consistent sign rule...?
                     if onep_index[bra,ket]:
                         solver = self.fcisolvers[bra]
                         linkstr = self.linkstr[bra]
                         phh = np.stack ([solver.trans_rdm12s (ci[bra], ketmat, norb,
-                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
+                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in bpket], axis=-1)
                         err = np.abs (phh[1] + phh[1].transpose (0,2,1))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
                         self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
-                    hh_triu = [bravec.dot (des_b (bpvec[p], norb, nelec, q).ravel ())
+                    hh_triu = [bravec.dot (des_b (bpket[p], norb, nelec, q).ravel ())
                         for q, p in combinations (range (norb), 2)]
-                    hh = np.zeros ((norb, norb), dtype = bpvec.dtype)
+                    hh = np.zeros ((norb, norb), dtype = bpket.dtype)
                     hh[np.triu_indices (norb, k=1)] = hh_triu
                     hh -= hh.T
                     self.set_hh (bra, ket, 2, hh)                
@@ -295,6 +295,7 @@ class LSTDMint2 (object):
         idx[list (inv)] = False
         return np.prod (self.ovlp[bra,ket,idx])
 
+
     # Cruncher functions
     def _crunch_null_(self, bra, ket):
         d1 = self.tdm1s[bra,ket]
@@ -356,8 +357,17 @@ class LSTDMint2 (object):
         d2 = self.tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
-        fac = self.get_ovlp_fac (bra, ket, i, j)
-        d2_spsm = -fac * np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
+        y, z = min (i, j), max (i, j)
+        # TODO: generalize this. It probably applies to -all- >1-fragment TDM elements!
+        #################################################################################
+        nea_y_bra = self.ints[y].nelec_r[bra][0]
+        nea_y_ket = self.ints[y].nelec_r[ket][0]
+        neb_z_bra = self.ints[z].nelec_r[bra][1]
+        neb_z_ket = self.ints[z].nelec_r[ket][1]
+        sgn = 1 - 2 * ((1 + (nea_y_bra*neb_z_bra) + (nea_y_ket*neb_z_ket)) % 2)
+        #################################################################################
+        fac = sgn * self.get_ovlp_fac (bra, ket, i, j)
+        d2_spsm = fac * np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
 
