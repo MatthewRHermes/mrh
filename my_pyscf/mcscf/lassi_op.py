@@ -1,5 +1,5 @@
 import numpy as np
-from pyscf import lib
+from pyscf import lib, fci
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from itertools import product, combinations
@@ -45,7 +45,7 @@ class LSTDMint1 (object):
     ''' Sparse-memory storage for LAS-state transition density matrix 
         single-fragment intermediates. '''
 
-    def __init__(self, fcibox, norb, nelec, nroots, idx_root):
+    def __init__(self, fcibox, norb, nelec, nroots, idx_root, dtype=np.float64):
         # I'm not sure I need linkstrl
         self.linkstrl = fcibox.states_gen_linkstr (norb, nelec, tril=True)
         self.linkstr = fcibox.states_gen_linkstr (norb, nelec, tril=False)
@@ -55,6 +55,7 @@ class LSTDMint1 (object):
         self.norb = norb
         self.nelec = nelec
         self.nroots = nroots
+        self.ovlp = np.zeros ((nroots, nroots), dtype=dtype)
         self.nelec_r = [_unpack_nelec (fcibox._get_nelec (solver, nelec)) for solver in self.fcisolvers]
         self._h = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
         self._hh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (-1,0,1)] 
@@ -109,7 +110,7 @@ class LSTDMint1 (object):
         return x
 
     def get_sp (self, i, j):
-        return self._sm[j][i].conj ()
+        return self._sm[j][i].conj ().T
 
     # 1-density intermediate
 
@@ -139,14 +140,22 @@ class LSTDMint1 (object):
         nroots, norb = self.nroots, self.norb
         t0 = (time.clock (), time.time ())
 
+        # Overlap matrix
+        for i, j in combinations (range (self.nroots), 2):
+            if self.nelec_r[i] == self.nelec_r[j]:
+                self.ovlp[i,j] = ci[i].conj ().ravel ().dot (ci[j].ravel ())
+        self.ovlp += self.ovlp.T
+        for i in range (self.nroots):
+            self.ovlp[i,i] = ci[i].conj ().ravel ().dot (ci[i].ravel ())
+
         # Spectator fragment contribution
         spectator_index = np.all (hopping_index == 0, axis=0)
         spectator_index[np.triu_indices (self.nroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
-            solver = self.fcisolvers[i]
-            linkstr = self.linkstr[i]
-            nelec = self.nelec_r[i]
+            solver = self.fcisolvers[j]
+            linkstr = self.linkstr[j]
+            nelec = self.nelec_r[j]
             dm1s, dm2s = solver.trans_rdm12s (ci[i], ci[j], norb, nelec, link_index=linkstr) 
             self.set_dm1 (i, j, dm1s)
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
@@ -180,8 +189,8 @@ class LSTDMint1 (object):
                         self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
-                    aqbra = bpvec_list[bra].reshape (norb, -1).conj ()
-                    self.set_sm (bra, ket, np.dot (aqbra, apket.reshape (norb, -1).T))
+                    bqbra = bpvec_list[bra].reshape (norb, -1).conj ()
+                    self.set_sm (bra, ket, np.dot (bqbra, apket.reshape (norb, -1).T))
                 # <j|b_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,-1]):
                     hh = np.array ([[np.dot (bravec, des_b (pket, norb, nelec, q).ravel ())
@@ -254,7 +263,7 @@ class LSTDMint2 (object):
         # The 'stable' sort keeps relative order -> sign convention!
         # Adding 2 to the first column sorts by up-spin FIRST and down-spin SECOND
         tril_index = np.zeros_like (conserv_index)
-        tril_index[np.tril_indices (self.nroots,k=0)] = True
+        tril_index[np.tril_indices (self.nroots,k=-1)] = True
         idx = conserv_index & tril_index & (nop_index == 0)
         self.exc_null = np.vstack (list (np.where (idx))).T
         idx = conserv_index & (nop_index == 2) & tril_index
@@ -273,11 +282,18 @@ class LSTDMint2 (object):
         exc_scatter = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], nspin_index[idx]]).T
         # combine all two-charge interactions
         self.exc_2c = np.vstack ((exc_pair, exc_split, exc_scatter))
+        # overlap tensor
+        self.ovlp = np.stack ([i.ovlp for i in ints], axis=-1)
 
     def get_range (self, i):
         p = sum (self.nlas[:i])
         q = p + self.nlas[i]
         return p, q
+
+    def get_ovlp_fac (self, bra, ket, *inv):
+        idx = np.ones (self.nfrags, dtype=np.bool_)
+        idx[list (inv)] = False
+        return np.prod (self.ovlp[bra,ket,idx])
 
     # Cruncher functions
     def _crunch_null_(self, bra, ket):
@@ -288,8 +304,9 @@ class LSTDMint2 (object):
             p = sum (nlas[:i])
             q = p + nlas[i]
             d1_s_ii = inti.get_dm1 (bra, ket)
-            d1[:,p:q,p:q] = d1_s_ii
-            d2[:,p:q,p:q,p:q,p:q] = inti.get_dm2 (bra, ket)
+            fac = self.get_ovlp_fac (bra, ket, i)
+            d1[:,p:q,p:q] = fac * np.asarray (d1_s_ii)
+            d2[:,p:q,p:q,p:q,p:q] = fac * np.asarray (inti.get_dm2 (bra, ket))
             for j, intj in enumerate (self.ints[:i]):
                 assert (i>j)
                 r = sum (nlas[:j])
@@ -297,6 +314,7 @@ class LSTDMint2 (object):
                 d1_s_jj = intj.get_dm1 (bra, ket)
                 d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,1,2,4,5)
                 d2_s_iijj = d2_s_iijj.reshape (4, q-p, q-p, s-r, s-r)
+                d2_s_iijj *= self.get_ovlp_fac (bra, ket, i, j)
                 d2[:,p:q,p:q,r:s,r:s] = d2_s_iijj
                 d2[:,r:s,r:s,p:q,p:q] = d2_s_iijj.transpose (0,3,4,1,2)
                 d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
@@ -308,7 +326,9 @@ class LSTDMint2 (object):
         inti, intj = self.ints[i], self.ints[j]
         p, q = self.get_range (i)
         r, s = self.get_range (j)
-        d1[s1,:,:] = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_h (bra, ket, s1))
+        fac = self.get_ovlp_fac (bra, ket, i, j)
+        d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_h (bra, ket, s1))
+        d1[s1,:,:] = fac * d1_ij
         s1a = s1 * 2  # aa: 0, ba: 2
         s1b = s1a + 2 # ab: 1, bb: 3 (range specifier: I want [s1a, s1a + 1], which requires s1a:s1a+2 because of how Python ranges work)
         s1s1 = s1 * 3 # aa: 0, bb: 3
@@ -318,26 +338,28 @@ class LSTDMint2 (object):
             d2[s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_ijkk[s1,...].transpose (0,3,2,1)
             d2[s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_ijkk[s1,...].transpose (2,1,0,3)
         # pph (transpose is from Dirac order to Mulliken order)
-        d2_ijii = np.multiply.outer (self.ints[i].get_pph (bra, ket, s1), self.ints[j].get_h (bra, ket, s1)).transpose (0,1,4,2,3)
+        d2_ijii = fac * np.multiply.outer (self.ints[i].get_pph (bra, ket, s1), self.ints[j].get_h (bra, ket, s1)).transpose (0,1,4,2,3)
         _crunch_1c_tdm2 (d2_ijii, p, q, r, s, p, q)
         # phh (transpose is to bring spin onto the outside and then from Dirac order to Mulliken order)
-        d2_ijjj = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_phh (bra, ket, s1)).transpose (1,0,4,2,3)
+        d2_ijjj = fac * np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_phh (bra, ket, s1)).transpose (1,0,4,2,3)
         _crunch_1c_tdm2 (d2_ijjj, p, q, r, s, r, s)
         # spectator fragment mean-field (should automatically be in Mulliken order)
         for k in range (self.nroots):
             if k in (i, j): continue
+            fac = self.get_ovlp_fac (bra, ket, i, j, k)
             t, u = self.get_range (k)
             d1_skk = self.ints[k].get_dm1 (bra, ket)
-            d2_ijkk = np.multiply.outer (d1, d1_skk).transpose (2,0,1,3,4)
+            d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
             _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
 
     def _crunch_1s_(self, bra, ket, i, j):
         d2 = self.tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
-        d2_spsm = np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
-        d2[1,p:q,r:s,r:s,p:q] = -d2_spsm.transpose (0,3,2,1)
-        d2[2,r:s,p:q,p:q,r:s] = -d2_spsm.transpose (2,1,0,3)
+        fac = self.get_ovlp_fac (bra, ket, i, j)
+        d2_spsm = -fac * np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
+        d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
+        d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         # s2lt: 0, 1, 2 -> aa, ab, bb
@@ -357,7 +379,8 @@ class LSTDMint2 (object):
             if s2lt == 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
         else:
             hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12), self.ints[j].get_p (bra, ket, s11))
-        d2_ijkl = np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
+        fac = self.get_ovlp_fac (bra, ket, i, j, k, l)
+        d2_ijkl = fac * np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         t, u = self.get_range (k) 
@@ -378,6 +401,7 @@ class LSTDMint2 (object):
         for row in self.exc_2c: self._crunch_2c_(*row)
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
         self.tdm2s += self.tdm2s.conj ().transpose (1,0,2,4,3,6,5)
+        for state in range (self.nroots): self._crunch_null_(state, state)
         return self.tdm1s, self.tdm2s, t0
 
 def make_stdm12s (las, ci, idx_root, **kwargs):

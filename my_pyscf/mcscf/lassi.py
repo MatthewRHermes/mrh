@@ -157,6 +157,8 @@ def make_stdm12s (las, ci=None, orbsym=None):
         t0 = lib.logger.timer (las, 'LASSI make_stdm12s TDM algorithm', *t0)
         lib.logger.debug (las, 'LASSI make_stdm12s: D1 smart algorithm error = {}'.format (linalg.norm (d1s_test - d1s))) 
         lib.logger.debug (las, 'LASSI make_stdm12s: D2 smart algorithm error = {}'.format (linalg.norm (d2s_test - d2s))) 
+        #for i, j in product (range (d2s.shape[0]), repeat=2):
+            #print ("<{}|pqrs|{}> error: {} ; val = {}".format (i, j, linalg.norm (d2s_test[i,...,j] - d2s[i,...,j]), linalg.norm (d2s[i,...,j])))
         idx_int = np.where (idx)[0]
         for (i,a), (j,b) in product (enumerate (idx_int), repeat=2):
             stdm1s[a,...,b] = d1s[i,...,j]
