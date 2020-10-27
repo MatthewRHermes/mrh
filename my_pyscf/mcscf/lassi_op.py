@@ -5,6 +5,71 @@ from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from itertools import product, combinations
 import time
 
+def fermion_spin_shuffle (na_list, nb_list):
+    ''' Compute the sign factor corresponding to the convention
+        difference between
+
+        ... a2' a1' a0' ... b2' b1' b0' |vac>
+
+        and
+
+        ... a2' b2' a1' b1' a0' b0' |vac>
+
+        where subspaces 0, 1, 2, etc. have arbitrary numbers of spin-up
+        and spin-down electrons 
+
+        Args:
+            na: list of up-spin electrons for each subspace
+            nb: list of down-spin electrons for each subspace
+
+        Returns:
+            sgn: +-1
+    '''
+    assert (len (na) == len (nb))
+    nperms = 0
+    for ix, nb in enumerate (nb_list[1:]):
+        na = sum(na_list[:ix+1])
+        nperms += na * nb
+    return (1,-1)[nperms%2]
+
+def fermion_frag_shuffle (nelec_f, frag_list):
+    ''' Compute the sign factor associated with the isolation of
+        particular fragments in a product of fermion field operators;
+        i.e., the difference between
+
+        ... c2' ... c1' ... c0' ... |vac>
+
+        and
+
+        ... c2' c1' c0' ... |vac>  
+
+        Args:
+            nelec_f: list of electron numbers per fragment for the
+                whole state
+            frag_list: list of fragments to coalesce
+
+        Returns:
+            sgn: +- 1
+    '''
+
+    frag_list = list (set (frag_list))
+    nperms = 0
+    nbtwn = 0
+    for ix, frag in enumerate (frag[1:]):
+        lfrag = frag_list[ix]
+        if (frag - lfrag) > 1:
+            nbtwn += sum ([nelec_f[jx] for jx in range (lfrag+1,frag)])
+        if nbtwn:
+            nperms += nelec_f[frag] * nbtwn
+    return (1,-1)[nperms%2]
+
+def fermion_des_shuffle (nelec_f, ifrag, jfrag=None):
+    ''' Compute the sign factor associated with anticommuting destruction
+        operators past creation operators of unrelated fragments, i.e.,
+        
+    '''
+    
+
 def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
     ''' Build the LAS state transition hopping index
 
