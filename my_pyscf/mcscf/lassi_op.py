@@ -226,7 +226,7 @@ class LSTDMint1 (object):
             solver = self.fcisolvers[j]
             linkstr = self.linkstr[j]
             nelec = self.nelec_r[j]
-            dm1s, dm2s = solver.trans_rdm12s (ci[i], ci[j], norb, nelec, link_index=linkstr) 
+            dm1s, dm2s = solver.trans_rdm12s (ci[j], ci[i], norb, nelec, link_index=linkstr) 
             self.set_dm1 (i, j, dm1s)
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
 
@@ -252,7 +252,7 @@ class LSTDMint1 (object):
                     if onep_index[bra,ket]:
                         solver = self.fcisolvers[bra]
                         linkstr = self.linkstr[bra]
-                        phh = np.stack ([solver.trans_rdm12s (ci[bra], ketmat, norb,
+                        phh = np.stack ([solver.trans_rdm12s (ketmat, ci[bra], norb,
                             self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
                         err = np.abs (phh[0] + phh[0].transpose (0,2,1))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
@@ -290,7 +290,7 @@ class LSTDMint1 (object):
                     if onep_index[bra,ket]:
                         solver = self.fcisolvers[bra]
                         linkstr = self.linkstr[bra]
-                        phh = np.stack ([solver.trans_rdm12s (ci[bra], ketmat, norb,
+                        phh = np.stack ([solver.trans_rdm12s (ketmat, ci[bra], norb,
                             self.nelec_r[bra], link_index=linkstr)[0] for ketmat in bpket], axis=-1)
                         err = np.abs (phh[1] + phh[1].transpose (0,2,1))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
@@ -392,8 +392,8 @@ class LSTDMint2 (object):
                 r = sum (nlas[:j])
                 s = r + nlas[j]
                 d1_s_jj = intj.get_dm1 (bra, ket)
-                d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,2,1,5,4)
-                # TODO: figure out WHY I need to transpose the cr/an ops when doing this outer product!!!
+                d2_test = np.einsum ('sij,tkl->stijkl', d1_s_ii, d1_s_jj)
+                d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,1,2,4,5)
                 d2_s_iijj = d2_s_iijj.reshape (4, q-p, q-p, s-r, s-r)
                 d2_s_iijj *= self.get_ovlp_fac (bra, ket, i, j)
                 d2[:,p:q,p:q,r:s,r:s] = d2_s_iijj
