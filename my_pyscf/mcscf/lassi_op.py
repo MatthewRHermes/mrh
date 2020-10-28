@@ -255,7 +255,7 @@ class LSTDMint1 (object):
                         phh = np.stack ([solver.trans_rdm12s (ketmat, ci[bra], norb,
                             self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
                         err = np.abs (phh[0] + phh[0].transpose (0,2,1))
-                        assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
+                        assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
                         self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
