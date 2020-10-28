@@ -25,7 +25,7 @@ def fermion_spin_shuffle (na_list, nb_list):
         Returns:
             sgn: +-1
     '''
-    assert (len (na) == len (nb))
+    assert (len (na_list) == len (nb_list))
     nperms = 0
     for ix, nb in enumerate (nb_list[1:]):
         na = sum(na_list[:ix+1])
@@ -55,7 +55,7 @@ def fermion_frag_shuffle (nelec_f, frag_list):
     frag_list = list (set (frag_list))
     nperms = 0
     nbtwn = 0
-    for ix, frag in enumerate (frag[1:]):
+    for ix, frag in enumerate (frag_list[1:]):
         lfrag = frag_list[ix]
         if (frag - lfrag) > 1:
             nbtwn += sum ([nelec_f[jx] for jx in range (lfrag+1,frag)])
@@ -63,12 +63,16 @@ def fermion_frag_shuffle (nelec_f, frag_list):
             nperms += nelec_f[frag] * nbtwn
     return (1,-1)[nperms%2]
 
-def fermion_des_shuffle (nelec_f, ifrag, jfrag=None):
+def fermion_des_shuffle (nelec_f, nelec_idx, i, j=None):
     ''' Compute the sign factor associated with anticommuting destruction
-        operators past creation operators of unrelated fragments, i.e.,
+        operators past creation operators of unrelated fragments, i.e.,    
+        
+        cj ci ... ck' ci' cl' cj' .. |vac> -> ... ck' ci ci' cl' cj cj' ... |vac>
+
         
     '''
     
+
 
 def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
     ''' Build the LAS state transition hopping index
@@ -163,7 +167,7 @@ class LSTDMint1 (object):
         return x
 
     def get_pph (self, i, j, s):
-        return self._phh[s][j][i].conj ().transpose (0,2,1)
+        return self._phh[s][j][i].conj ().transpose (0,3,2,1)
 
     # spin-hop intermediate
 
@@ -180,8 +184,9 @@ class LSTDMint1 (object):
     # 1-density intermediate
 
     def get_dm1 (self, i, j):
-        k, l = max (i, j), min (i, j)
-        return self.dm1[k][l]
+        if j > i:
+            return self.dm1[j][i].conj ().transpose (0, 2, 1)
+        return self.dm1[i][j]
 
     def set_dm1 (self, i, j, x):
         if j > i:
@@ -312,7 +317,7 @@ class LSTDMint2 (object):
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
         # Process connectivity data to quickly distinguish interactions
-        conserv_index = np.all (hopping_index.sum (1) == 0, axis=0)
+        conserv_index = np.all (hopping_index.sum (0) == 0, axis=0)
         nsop_index = np.abs (hopping_index).sum (0) # 0,0 , 2,0 , 0,2 , 2,2 , 4,0 , 0,4
         nop_index = nsop_index.sum (0) # 0, 2, 4
         nfrag_index = np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) # 0-4
@@ -349,6 +354,9 @@ class LSTDMint2 (object):
         self.exc_2c = np.vstack ((exc_pair, exc_split, exc_scatter))
         # overlap tensor
         self.ovlp = np.stack ([i.ovlp for i in ints], axis=-1)
+        # spin-shuffle sign vector
+        self.spin_shuffle = [fermion_spin_shuffle ([i.nelec_r[ket][0] for i in ints],
+            [i.nelec_r[ket][1] for i in ints]) for ket in range (self.nroots)]
 
     def get_range (self, i):
         p = sum (self.nlas[:i])
@@ -358,8 +366,14 @@ class LSTDMint2 (object):
     def get_ovlp_fac (self, bra, ket, *inv):
         idx = np.ones (self.nfrags, dtype=np.bool_)
         idx[list (inv)] = False
-        return np.prod (self.ovlp[bra,ket,idx])
-
+        wgt = np.prod (self.ovlp[bra,ket,idx])
+        nelec_f_bra = [sum (i.nelec_r[bra]) for i in self.ints]
+        nelec_f_ket = [sum (i.nelec_r[ket]) for i in self.ints]
+        uniq_frags = list (set (inv))
+        wgt *= self.spin_shuffle[bra] * self.spin_shuffle[ket]
+        wgt *= fermion_frag_shuffle (nelec_f_bra, uniq_frags)
+        wgt *= fermion_frag_shuffle (nelec_f_ket, uniq_frags)
+        return wgt
 
     # Cruncher functions
     def _crunch_null_(self, bra, ket):
@@ -378,11 +392,13 @@ class LSTDMint2 (object):
                 r = sum (nlas[:j])
                 s = r + nlas[j]
                 d1_s_jj = intj.get_dm1 (bra, ket)
-                d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,1,2,4,5)
+                d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,2,1,5,4)
+                # TODO: figure out WHY I need to transpose the cr/an ops when doing this outer product!!!
                 d2_s_iijj = d2_s_iijj.reshape (4, q-p, q-p, s-r, s-r)
                 d2_s_iijj *= self.get_ovlp_fac (bra, ket, i, j)
                 d2[:,p:q,p:q,r:s,r:s] = d2_s_iijj
-                d2[:,r:s,r:s,p:q,p:q] = d2_s_iijj.transpose (0,3,4,1,2)
+                d2[(0,3),r:s,r:s,p:q,p:q] = d2_s_iijj[(0,3),...].transpose (0,3,4,1,2)
+                d2[(1,2),r:s,r:s,p:q,p:q] = d2_s_iijj[(2,1),...].transpose (0,3,4,1,2)
                 d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
                 d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
 
@@ -394,7 +410,7 @@ class LSTDMint2 (object):
         r, s = self.get_range (j)
         fac = self.get_ovlp_fac (bra, ket, i, j)
         d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_h (bra, ket, s1))
-        d1[s1,:,:] = fac * d1_ij
+        d1[s1,p:q,r:s] = fac * d1_ij
         s1a = s1 * 2  # aa: 0, ba: 2
         s1b = s1a + 2 # ab: 1, bb: 3 (range specifier: I want [s1a, s1a + 1], which requires s1a:s1a+2 because of how Python ranges work)
         s1s1 = s1 * 3 # aa: 0, bb: 3
@@ -410,7 +426,7 @@ class LSTDMint2 (object):
         d2_ijjj = fac * np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_phh (bra, ket, s1)).transpose (1,0,4,2,3)
         _crunch_1c_tdm2 (d2_ijjj, p, q, r, s, r, s)
         # spectator fragment mean-field (should automatically be in Mulliken order)
-        for k in range (self.nroots):
+        for k in range (self.nfrags):
             if k in (i, j): continue
             fac = self.get_ovlp_fac (bra, ket, i, j, k)
             t, u = self.get_range (k)
@@ -423,16 +439,8 @@ class LSTDMint2 (object):
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         y, z = min (i, j), max (i, j)
-        # TODO: generalize this. It probably applies to -all- >1-fragment TDM elements!
-        #################################################################################
-        nea_y_bra = self.ints[y].nelec_r[bra][0]
-        nea_y_ket = self.ints[y].nelec_r[ket][0]
-        neb_z_bra = self.ints[z].nelec_r[bra][1]
-        neb_z_ket = self.ints[z].nelec_r[ket][1]
-        sgn = 1 - 2 * ((1 + (nea_y_bra*neb_z_bra) + (nea_y_ket*neb_z_ket)) % 2)
-        #################################################################################
-        fac = sgn * self.get_ovlp_fac (bra, ket, i, j)
-        d2_spsm = fac * np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
+        fac = self.get_ovlp_fac (bra, ket, i, j)
+        d2_spsm = -fac * np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
 
@@ -446,12 +454,12 @@ class LSTDMint2 (object):
         d2 = self.tdm2s[bra, ket]
         if i == k:
             pp = self.ints[i].get_pp (bra, ket, s2lt)
-            if s2lt == 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (np.amax (np.abs (pp + pp.T)))
+            if s2lt != 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (np.amax (np.abs (pp + pp.T)))
         else:
             pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11), self.ints[k].get_p (bra, ket, s12))
         if j == l:
             hh = self.ints[j].get_hh (bra, ket, s2lt)
-            if s2lt == 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
+            if s2lt != 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
         else:
             hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12), self.ints[j].get_p (bra, ket, s11))
         fac = self.get_ovlp_fac (bra, ket, i, j, k, l)
