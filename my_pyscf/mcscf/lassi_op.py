@@ -63,16 +63,22 @@ def fermion_frag_shuffle (nelec_f, frag_list):
             nperms += nelec_f[frag] * nbtwn
     return (1,-1)[nperms%2]
 
-def fermion_des_shuffle (nelec_f, nelec_idx, i, j=None):
-    ''' Compute the sign factor associated with anticommuting destruction
-        operators past creation operators of unrelated fragments, i.e.,    
+def fermion_des_shuffle (nelec_f, nfrag_idx, i):
+    ''' Compute the sign factor associated with anticommuting a destruction
+        operator past creation operators of unrelated fragments, i.e.,    
         
-        cj ci ... ck' ci' cl' cj' .. |vac> -> ... ck' ci ci' cl' cj cj' ... |vac>
-
+        ci ... cj' ci' ch' .. |vac> -> ... cj' ci ci' ch' ... |vac>
         
     '''
-    
-
+    assert (i in nfrag_idx)
+    # Assuming that low orbital indices touch the vacuum first,
+    # the destruction operator commutes past the high-index field
+    # operators first
+    nfrag_idx = list (set (nfrag_idx))[::-1]
+    nelec_rel = [nelec_f[ix] for ix in nfrag_idx]
+    i_rel = nfrag_idx.index (i)
+    nperms = sum (nelec_rel[:i_rel]) if i_rel else 0
+    return (1,-1)[nperms%2]
 
 def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
     ''' Build the LAS state transition hopping index
@@ -226,8 +232,8 @@ class LSTDMint1 (object):
             solver = self.fcisolvers[j]
             linkstr = self.linkstr[j]
             nelec = self.nelec_r[j]
-            dm1s, dm2s = solver.trans_rdm12s (ci[j], ci[i], norb, nelec, link_index=linkstr) 
-            self.set_dm1 (i, j, dm1s)
+            dm1s, dm2s = solver.trans_rdm12s (ci[i], ci[j], norb, nelec, link_index=linkstr) 
+            self.set_dm1 (i, j, np.stack (dm1s, axis=0).transpose (0,2,1)) # Based on docstring of direct_spin1.trans_rdm12s
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
 
         # Cache some b_p|i> beforehand for the sake of the spin-flip intermediate 
@@ -253,9 +259,12 @@ class LSTDMint1 (object):
                         solver = self.fcisolvers[bra]
                         linkstr = self.linkstr[bra]
                         phh = np.stack ([solver.trans_rdm12s (ketmat, ci[bra], norb,
-                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket], axis=-1)
+                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket],
+                            axis=-1)# Arg order switched based on docstring of direct_spin1.trans_rdm12s
                         err = np.abs (phh[0] + phh[0].transpose (0,2,1))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
+                        # ^ Passing this assert proves that I have the correct index
+                        # and argument ordering for the call and return of trans_rdm12s
                         self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
@@ -291,9 +300,12 @@ class LSTDMint1 (object):
                         solver = self.fcisolvers[bra]
                         linkstr = self.linkstr[bra]
                         phh = np.stack ([solver.trans_rdm12s (ketmat, ci[bra], norb,
-                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in bpket], axis=-1)
+                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in bpket],
+                            axis=-1) # Arg order switched based on docstring of direct_spin1.trans_rdm12s
                         err = np.abs (phh[1] + phh[1].transpose (0,2,1))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
+                        # ^ Passing this assert proves that I have the correct index
+                        # and argument ordering for the call and return of trans_rdm12s
                         self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
@@ -355,8 +367,9 @@ class LSTDMint2 (object):
         # overlap tensor
         self.ovlp = np.stack ([i.ovlp for i in ints], axis=-1)
         # spin-shuffle sign vector
-        self.spin_shuffle = [fermion_spin_shuffle ([i.nelec_r[ket][0] for i in ints],
-            [i.nelec_r[ket][1] for i in ints]) for ket in range (self.nroots)]
+        self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints] for ket in range (self.nroots)]).transpose (0,2,1)
+        self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1]) for nelec_sf in self.nelec_rf]
+        self.nelec_rf = self.nelec_rf.sum (1)
 
     def get_range (self, i):
         p = sum (self.nlas[:i])
@@ -367,12 +380,10 @@ class LSTDMint2 (object):
         idx = np.ones (self.nfrags, dtype=np.bool_)
         idx[list (inv)] = False
         wgt = np.prod (self.ovlp[bra,ket,idx])
-        nelec_f_bra = [sum (i.nelec_r[bra]) for i in self.ints]
-        nelec_f_ket = [sum (i.nelec_r[ket]) for i in self.ints]
         uniq_frags = list (set (inv))
         wgt *= self.spin_shuffle[bra] * self.spin_shuffle[ket]
-        wgt *= fermion_frag_shuffle (nelec_f_bra, uniq_frags)
-        wgt *= fermion_frag_shuffle (nelec_f_ket, uniq_frags)
+        wgt *= fermion_frag_shuffle (self.nelec_rf[bra], uniq_frags)
+        wgt *= fermion_frag_shuffle (self.nelec_rf[ket], uniq_frags)
         return wgt
 
     # Cruncher functions
@@ -408,15 +419,20 @@ class LSTDMint2 (object):
         inti, intj = self.ints[i], self.ints[j]
         p, q = self.get_range (i)
         r, s = self.get_range (j)
+        fac = 1
         fac = self.get_ovlp_fac (bra, ket, i, j)
+        fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j), i)
+        fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j), j)
         d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_h (bra, ket, s1))
-        d1[s1,p:q,r:s] = fac * d1_ij
-        s1a = s1 * 2  # aa: 0, ba: 2
-        s1b = s1a + 2 # ab: 1, bb: 3 (range specifier: I want [s1a, s1a + 1], which requires s1a:s1a+2 because of how Python ranges work)
-        s1s1 = s1 * 3 # aa: 0, bb: 3
+        d1[s1,r:s,p:q] = fac * d1_ij.T # trans_rdm12s are always d1_pq = <bra|q'p|ket> for no good reason
+        s12l = s1 * 2   # aa: 0 OR ba: 2
+        s12h = s12l + 1 # ab: 1 OR bb: 3 
+        s21l = s1       # aa: 0 OR ab: 1
+        s21h = s21l + 2 # ba: 2 OR bb: 3
+        s1s1 = s1 * 3   # aa: 0 OR bb: 3
         def _crunch_1c_tdm2 (d2_ijkk, i0, i1, j0, j1, k0, k1):
-            d2[s1a:s1b, i0:i1, j0:j1, k0:k1, k0:k1] = d2_ijkk
-            d2[s1a:s1b ,k0:k1, k0:k1, i0:i1, j0:j1] = d2_ijkk.transpose (0,3,4,1,2)
+            d2[(s12l,s12h), i0:i1, j0:j1, k0:k1, k0:k1] = d2_ijkk
+            d2[(s21l,s21h), k0:k1, k0:k1, i0:i1, j0:j1] = d2_ijkk.transpose (0,3,4,1,2)
             d2[s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_ijkk[s1,...].transpose (0,3,2,1)
             d2[s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_ijkk[s1,...].transpose (2,1,0,3)
         # pph (transpose is from Dirac order to Mulliken order)
@@ -452,17 +468,23 @@ class LSTDMint2 (object):
         s11 = s2 // 2
         s12 = s2 % 2
         d2 = self.tdm2s[bra, ket]
+        fac = self.get_ovlp_fac (bra, ket, i, j, k, l)
         if i == k:
             pp = self.ints[i].get_pp (bra, ket, s2lt)
             if s2lt != 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (np.amax (np.abs (pp + pp.T)))
         else:
             pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11), self.ints[k].get_p (bra, ket, s12))
+            fac *= (1,-1)[i>k]
+            fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k, l), i)
+            fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k, l), k)
         if j == l:
             hh = self.ints[j].get_hh (bra, ket, s2lt)
             if s2lt != 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
         else:
             hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12), self.ints[j].get_p (bra, ket, s11))
-        fac = self.get_ovlp_fac (bra, ket, i, j, k, l)
+            fac *= (1,-1)[j>l]
+            fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), j)
+            fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), l)
         d2_ijkl = fac * np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
         p, q = self.get_range (i)
         r, s = self.get_range (j)
