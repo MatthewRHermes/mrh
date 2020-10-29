@@ -329,39 +329,54 @@ class LSTDMint2 (object):
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
         # Process connectivity data to quickly distinguish interactions
+
+        # Should probably be all == true anyway if I call this by symmetry blocks
         conserv_index = np.all (hopping_index.sum (0) == 0, axis=0)
-        nsop_index = np.abs (hopping_index).sum (0) # 0,0 , 2,0 , 0,2 , 2,2 , 4,0 , 0,4
-        nop_index = nsop_index.sum (0) # 0, 2, 4
-        nfrag_index = np.count_nonzero (np.abs (hopping_index).sum (1), axis=0) # 0-4
-        ncharge_index = np.count_nonzero ((hopping_index).sum (1), axis=0) # = 0 for spin modes
-        nspin_index = nsop_index[1,:,:] // 2
+
+        # Number of field operators involved in a given interaction
+        nsop = np.abs (hopping_index).sum (0) # 0,0 , 2,0 , 0,2 , 2,2 , 4,0 , 0,4
+        nop = nsop.sum (0) # 0, 2, 4
+        ispin = nsop[1,:,:] // 2
         # This last ^ is somewhat magical, but notice that it corresponds to the mapping
         #   2,0 ; 4,0 -> 0 -> a or aa
         #   0,2 ; 2,2 -> 1 -> b or ab
         #   0,4       -> 2 -> bb
+
+        # For each interaction, the change to each fragment of
+        charge_index = hopping_index.sum (1) # charge
+        spin_index = hopping_index[:,0] - hopping_index[:,1] # spin (*2)
+
+        # Upon a given interaction, count the number of fragments which:
+        ncharge_index = np.count_nonzero (charge_index, axis=0) # change in charge
+        nspin_index = np.count_nonzero (spin_index, axis=0) # change in spin
+
         # Provided one only looks at symmetry-allowed interactions of order 1 or 2
-        findf = np.argsort ((2*hopping_index[:,0]) + hopping_index[:,1], axis=0, kind='stable')
+        findf = np.argsort ((3*hopping_index[:,0]) + hopping_index[:,1], axis=0, kind='stable')
         # The above puts the source of either charge or spin at the bottom and the destination at the top
+        # Because at most 2 des/creation ops are involved, the factor of 3 sets up the order
+        # a'b'ba without creating confusion between spin and charge degrees of freedom
         # The 'stable' sort keeps relative order -> sign convention!
-        # Adding 2 to the first column sorts by up-spin FIRST and down-spin SECOND
         tril_index = np.zeros_like (conserv_index)
         tril_index[np.tril_indices (self.nroots,k=-1)] = True
-        idx = conserv_index & tril_index & (nop_index == 0)
+        idx = conserv_index & tril_index & (nop == 0)
         self.exc_null = np.vstack (list (np.where (idx))).T
-        idx = conserv_index & (nop_index == 2) & tril_index
-        self.exc_1c = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], nspin_index[idx]]).T
-        idx_2e = conserv_index & (nop_index == 4)
+        idx = conserv_index & (nop == 2) & tril_index
+        self.exc_1c = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], ispin[idx]]).T
+        idx_2e = conserv_index & (nop == 4)
         # Do splits first since splits (as opposed to coalescence) might be in triu corner
-        idx = idx_2e & (ncharge_index == 3) & (np.amin (hopping_index.sum (1), axis=0) == -2)
-        exc_split = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[0][idx], nspin_index[idx]]).T
+        idx = idx_2e & (ncharge_index == 3) & (np.amin (charge_index, axis=0) == -2)
+        exc_split = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[0][idx], ispin[idx]]).T
+        # Also do conga-line (b: j->k ; a: k->i) in full space so that we can always use <sm> as opposed to <sp>
+        idx = idx_2e & (nspin_index == 3) & (ncharge_index == 2) & (np.amin (spin_index, axis=0) == -2)
+        self.exc_1s1c = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]).T
         # Now restrict to tril corner
         idx_2e = idx_2e & tril_index
-        idx = idx_2e & (ncharge_index == 0) & (nspin_index == 1)
+        idx = idx_2e & (ncharge_index == 0) & (nspin_index == 2)
         self.exc_1s = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]).T
-        idx = idx_2e & (ncharge_index == 2)
-        exc_pair = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[0][idx], nspin_index[idx]]).T
+        idx = idx_2e & (ncharge_index == 2) & (nspin_index < 3)
+        exc_pair = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[0][idx], ispin[idx]]).T
         idx = idx_2e & (ncharge_index == 4)
-        exc_scatter = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], nspin_index[idx]]).T
+        exc_scatter = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], ispin[idx]]).T
         # combine all two-charge interactions
         self.exc_2c = np.vstack ((exc_pair, exc_split, exc_scatter))
         # overlap tensor
@@ -403,7 +418,6 @@ class LSTDMint2 (object):
                 r = sum (nlas[:j])
                 s = r + nlas[j]
                 d1_s_jj = intj.get_dm1 (bra, ket)
-                d2_test = np.einsum ('sij,tkl->stijkl', d1_s_ii, d1_s_jj)
                 d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,1,2,4,5)
                 d2_s_iijj = d2_s_iijj.reshape (4, q-p, q-p, s-r, s-r)
                 d2_s_iijj *= self.get_ovlp_fac (bra, ket, i, j)
@@ -445,6 +459,8 @@ class LSTDMint2 (object):
         for k in range (self.nfrags):
             if k in (i, j): continue
             fac = self.get_ovlp_fac (bra, ket, i, j, k)
+            fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k), i)
+            fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k), j)
             t, u = self.get_range (k)
             d1_skk = self.ints[k].get_dm1 (bra, ket)
             d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
@@ -455,10 +471,24 @@ class LSTDMint2 (object):
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         y, z = min (i, j), max (i, j)
-        fac = self.get_ovlp_fac (bra, ket, i, j)
-        d2_spsm = -fac * np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
+        fac = -1 * self.get_ovlp_fac (bra, ket, i, j)
+        d2_spsm = fac * np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
+
+    def _crunch_1s1c_(self, bra, ket, i, j, k):
+        d2 = self.tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        t, u = self.get_range (k)
+        fac = -1 * self.get_ovlp_fac (bra, ket, i, j, k) # a'bb'a -> a'ab'b sign
+        fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k), i)
+        fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k), j)
+        sp = np.multiply.outer (self.ints[i].get_p (bra, ket, 0), self.ints[j].get_h (bra, ket, 1))
+        sm = self.ints[k].get_sm (bra, ket)
+        d2_ikkj = fac * np.multiply.outer (sp, sm).transpose (0,3,2,1) # a'bb'a -> a'ab'b transpose
+        d2[1,p:q,t:u,t:u,r:s] = d2_ikkj
+        d2[2,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         # s2lt: 0, 1, 2 -> aa, ab, bb
@@ -503,6 +533,7 @@ class LSTDMint2 (object):
         for row in self.exc_null: self._crunch_null_(*row)
         for row in self.exc_1c: self._crunch_1c_(*row)
         for row in self.exc_1s: self._crunch_1s_(*row)
+        for row in self.exc_1s1c: self._crunch_1s1c_(*row)
         for row in self.exc_2c: self._crunch_2c_(*row)
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
         self.tdm2s += self.tdm2s.conj ().transpose (1,0,2,4,3,6,5)
@@ -526,7 +557,7 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
     for ifrag in range (nfrags):
         tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root)
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
-        lib.logger.timer (las, 'LAS-state TDM12s intermediate crunching', *t0)        
+        lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (ifrag), *t0)        
         ints.append (tdmint)
 
 
