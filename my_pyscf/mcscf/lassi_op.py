@@ -411,7 +411,7 @@ class LSTDMint2 (object):
             q = p + nlas[i]
             d1_s_ii = inti.get_dm1 (bra, ket)
             fac = self.get_ovlp_fac (bra, ket, i)
-            d1[:,p:q,p:q] = fac * np.asarray (d1_s_ii)
+            d1[:,p:q,p:q] = fac * np.asarray (d1_s_ii).transpose (0,2,1) # stupid, stupid PySCF convention
             d2[:,p:q,p:q,p:q,p:q] = fac * np.asarray (inti.get_dm2 (bra, ket))
             for j, intj in enumerate (self.ints[:i]):
                 assert (i>j)
