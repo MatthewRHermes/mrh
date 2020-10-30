@@ -504,7 +504,7 @@ class LSTDMint2 (object):
             if s2lt != 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (np.amax (np.abs (pp + pp.T)))
         else:
             pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11), self.ints[k].get_p (bra, ket, s12))
-            fac *= (1,-1)[i>k]
+            fac *= (1,-1)[int (i>k)]
             fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k, l), i)
             fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k, l), k)
         if j == l:
@@ -512,7 +512,7 @@ class LSTDMint2 (object):
             if s2lt != 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
         else:
             hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12), self.ints[j].get_p (bra, ket, s11))
-            fac *= (1,-1)[j>l]
+            fac *= (1,-1)[int (j>l)]
             fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), j)
             fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), l)
         d2_ijkl = fac * np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
