@@ -2,10 +2,23 @@ import sys
 import numpy as np
 from scipy import linalg
 from pyscf.fci import cistring
-from pyscf import fci
+from pyscf import fci, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import contract_ss
 from itertools import combinations
+
+def memcheck (las, ci):
+    nfrags = len (ci)
+    nroots = len (ci[0])
+    assert (all ([len (c) == nroots for c in ci]))
+    mem = sum ([np.prod ([c[iroot].size for c in ci]) 
+        * np.amax ([c[iroot].dtype.itemsize for c in ci]) 
+        for iroot in range (nroots)]) / 1e6
+    max_memory = las.max_memory - lib.current_memory ()[0]
+    lib.logger.debug (las, 
+        "LASSI op_o0 memory check: {} MB needed of {} MB available ({} MB max)".format (mem,\
+        max_memory, las.max_memory))
+    return mem < max_memory
 
 def addr_outer_product (norb_f, nelec_f):
     norb = sum (norb_f)
