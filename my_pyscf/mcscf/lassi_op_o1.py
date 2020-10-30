@@ -401,10 +401,22 @@ class LSTDMint2 (object):
         wgt *= fermion_frag_shuffle (self.nelec_rf[ket], uniq_frags)
         return wgt
 
+    def _get_D1_(self, bra, ket):
+        return self.tdm1s[bra,ket]
+
+    def _put_D1_(self, bra, ket, D1):
+        pass
+
+    def _get_D2_(self, bra, ket):
+        return self.tdm2s[bra,ket]
+
+    def _put_D2_(self, bra, ket, D2):
+        pass
+
     # Cruncher functions
     def _crunch_null_(self, bra, ket):
-        d1 = self.tdm1s[bra,ket]
-        d2 = self.tdm2s[bra,ket]
+        d1 = self._get_D1_(bra, ket)
+        d2 = self._get_D2_(bra, ket)
         nlas = self.nlas
         for i, inti in enumerate (self.ints):
             p = sum (nlas[:i])
@@ -426,10 +438,12 @@ class LSTDMint2 (object):
                 d2[(1,2),r:s,r:s,p:q,p:q] = d2_s_iijj[(2,1),...].transpose (0,3,4,1,2)
                 d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
                 d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
+        self._put_D1_(bra, ket, d1)
+        self._put_D2_(bra, ket, d2)
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
-        d1 = self.tdm1s[bra,ket]
-        d2 = self.tdm2s[bra,ket]
+        d1 = self._get_D1_(bra, ket)
+        d2 = self._get_D2_(bra, ket)
         inti, intj = self.ints[i], self.ints[j]
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -465,9 +479,11 @@ class LSTDMint2 (object):
             d1_skk = self.ints[k].get_dm1 (bra, ket)
             d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
             _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
+        self._put_D1_(bra, ket, d1)
+        self._put_D2_(bra, ket, d2)
 
     def _crunch_1s_(self, bra, ket, i, j):
-        d2 = self.tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
+        d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         y, z = min (i, j), max (i, j)
@@ -475,9 +491,10 @@ class LSTDMint2 (object):
         d2_spsm = fac * np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
+        self._put_D2_(bra, ket, d2)
 
     def _crunch_1s1c_(self, bra, ket, i, j, k):
-        d2 = self.tdm2s[bra, ket] # aa, ab, ba, bb -> 0, 1, 2, 3
+        d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         t, u = self.get_range (k)
@@ -489,6 +506,7 @@ class LSTDMint2 (object):
         d2_ikkj = fac * np.multiply.outer (sp, sm).transpose (0,3,2,1) # a'bb'a -> a'ab'b transpose
         d2[1,p:q,t:u,t:u,r:s] = d2_ikkj
         d2[2,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
+        self._put_D2_(bra, ket, d2)
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         # s2lt: 0, 1, 2 -> aa, ab, bb
@@ -497,7 +515,7 @@ class LSTDMint2 (object):
         s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
         s11 = s2 // 2
         s12 = s2 % 2
-        d2 = self.tdm2s[bra, ket]
+        d2 = self._get_D2_(bra, ket)
         fac = self.get_ovlp_fac (bra, ket, i, j, k, l)
         if i == k:
             pp = self.ints[i].get_pp (bra, ket, s2lt)
@@ -525,33 +543,76 @@ class LSTDMint2 (object):
         if s2 == s2T: # same-spin only: exchange happens
             d2[s2,p:q,v:w,t:u,r:s] = -d2_ijkl.transpose (0,3,2,1)
             d2[s2,t:u,r:s,p:q,v:w] = -d2_ijkl.transpose (2,1,0,3)
+        self._put_D2_(bra, ket, d2)
 
-    def kernel (self):
-        t0 = (time.clock (), time.time ())
-        self.tdm1s = np.zeros ([self.nroots,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
-        self.tdm2s = np.zeros ([self.nroots,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
+    def _crunch_all_(self):
         for row in self.exc_null: self._crunch_null_(*row)
         for row in self.exc_1c: self._crunch_1c_(*row)
         for row in self.exc_1s: self._crunch_1s_(*row)
         for row in self.exc_1s1c: self._crunch_1s1c_(*row)
         for row in self.exc_2c: self._crunch_2c_(*row)
+        self._add_transpose_()
+        for state in range (self.nroots): self._crunch_null_(state, state)
+
+    def _add_transpose_(self):
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
         self.tdm2s += self.tdm2s.conj ().transpose (1,0,2,4,3,6,5)
-        for state in range (self.nroots): self._crunch_null_(state, state)
+
+    def kernel (self):
+        t0 = (time.clock (), time.time ())
+        self.tdm1s = np.zeros ([self.nroots,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
+        self.tdm2s = np.zeros ([self.nroots,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
+        self._crunch_all_()
         return self.tdm1s, self.tdm2s, t0
 
-def make_stdm12s (las, ci, idx_root, **kwargs):
+class HamS2ovlpint (LSTDMint2):
+    ''' For computing the Hamiltonian, S^2, and overlap matrices without storing
+        the entire stdm12s arrays '''
+
+    def __init__(self, ints, nlas, hopping_index, h1, h2, dtype=np.float64):
+        LSTDMint2.__init__(self, ints, nlas, hopping_index, dtype=dtype)
+        self.h1 = h1.ravel ()
+        self.h2 = h2.ravel ()
+
+    def _get_D1_(self, bra, ket):
+        self.d1[:] = 0.0
+        return self.d1
+
+    def _get_D2_(self, bra, ket):
+        self.d2[:] = 0.0
+        return self.d2
+
+    def _put_D1_(self, bra, ket, D1):
+        M1 = D1[0] - D1[1]
+        D1 = D1.sum (0)
+        self.ham[bra,ket] += np.dot (self.h1, D1.ravel ())
+        self.s2[bra,ket] += (np.trace (M1)/2)**2 + np.trace (D1)/2
+
+    def _put_D2_(self, bra, ket, D2):
+        self.ham[bra,ket] += np.dot (self.h2, D2.sum (0).ravel ()) / 2
+        self.s2[bra,ket] -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
+
+    def _add_transpose_(self):
+        self.ham += self.ham.T
+        self.s2 += self.s2.T
+
+    def kernel (self):
+        t0 = (time.clock (), time.time ())
+        self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
+        self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
+        self.ham = np.zeros ([self.nroots,]*2, dtype=self.dtype)
+        self.s2 = np.zeros ([self.nroots,]*2, dtype=self.dtype)
+        self._crunch_all_()
+        ovlp = np.prod (self.ovlp, axis=-1)
+        ovlp *= np.multiply.outer (self.spin_shuffle, self.spin_shuffle)
+        return self.ham, self.s2, ovlp, t0
+
+def make_ints (las, ci, idx_root):
     fciboxes = las.fciboxes
+    nfrags = len (fciboxes)
+    nroots = idx_root.size
     nlas = las.ncas_sub
     nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
-    ncas = las.ncas
-    nfrags = len (fciboxes)
-    nroots = np.count_nonzero (idx_root)
-    nelelas_frs = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    idx_root = np.where (idx_root)[0]
-    nelelas_rs = [(sum ([nefrag[i][0] for nefrag in nelelas_frs]), sum ([nefrag[i][1] for nefrag in nelelas_frs])) for i in range (nroots)]
-
-    # First pass: single-fragment intermediates
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
     ints = []
     for ifrag in range (nfrags):
@@ -559,7 +620,16 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (ifrag), *t0)        
         ints.append (tdmint)
+    return hopping_index, ints
 
+def make_stdm12s (las, ci, idx_root, **kwargs):
+    nlas = las.ncas_sub
+    ncas = las.ncas
+    nroots = np.count_nonzero (idx_root)
+    idx_root = np.where (idx_root)[0]
+
+    # First pass: single-fragment intermediates
+    hopping_index, ints = make_ints (las, ci, idx_root)
 
     # Second pass: upper-triangle
     t0 = (time.clock (), time.time ())
@@ -569,4 +639,20 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
 
     return tdm1s.transpose (0,2,3,4,1), tdm2s.reshape (nroots, nroots, 2, 2, ncas, ncas, ncas, ncas).transpose (0,2,4,5,3,6,7,1)
+
+def ham (las, h1, h2, ci, idx_root, **kwargs):
+    nlas = las.ncas_sub
+    idx_root = np.where (idx_root)[0]
+
+    # First pass: single-fragment intermediates
+    hopping_index, ints = make_ints (las, ci, idx_root)
+
+    # Second pass: upper-triangle
+    t0 = (time.clock (), time.time ())
+    outerprod = HamS2ovlpint (ints, nlas, hopping_index, h1, h2, dtype=ci[0][0].dtype)
+    lib.logger.timer (las, 'LAS-state Hamiltonian second intermediate indexing setup', *t0)        
+    ham, s2, ovlp, t0 = outerprod.kernel ()
+    lib.logger.timer (las, 'LAS-state Hamiltonian second intermediate crunching', *t0)        
+    return ham, s2, ovlp
+
 

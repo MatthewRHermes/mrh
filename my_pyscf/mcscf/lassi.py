@@ -96,7 +96,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         wfnsym = rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
         nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-        ham_blk, s2_blk, ovlp_blk = op_o0.ham (las.mol, h1, h2, ci_blk, las.ncas_sub, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
+        ham_blk, s2_blk, ovlp_blk = op_o0.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
         lib.logger.debug (las, 'Block Hamiltonian - ecore:')
         lib.logger.debug (las, '{}'.format (ham_blk))
         lib.logger.debug (las, 'Block S**2:')
@@ -132,7 +132,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         lib.logger.info (las, ' {:2d}  {:16.10f}  {:6d}  {:6d}  {:6.3f}  {:>6s}'.format (ix, er, neleca, nelecb, s2r, wfnsym))
     return e_roots, si
 
-def make_stdm12s (las, ci=None, orbsym=None, o=0):
+def make_stdm12s (las, ci=None, orbsym=None, opt=0):
     ''' Evaluate <I|p'q|J> and <I|p'r'sq|J> where |I>, |J> are LAS states.
 
         Args:
@@ -141,7 +141,7 @@ def make_stdm12s (las, ci=None, orbsym=None, o=0):
         Kwargs:
             ci: list of list of ci vectors
             orbsym: None or list of orbital symmetries spanning the whole orbital space
-            o: Optimization level: take outer product of
+            opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
 
@@ -157,7 +157,7 @@ def make_stdm12s (las, ci=None, orbsym=None, o=0):
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
     o0_memcheck = op_o0.memcheck (las, ci)
-    if o == 0 and o0_memcheck == False:
+    if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     norb = las.ncas
@@ -184,7 +184,7 @@ def make_stdm12s (las, ci=None, orbsym=None, o=0):
                 d2s = d2s_test
         else:
             if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
-            d1s, d2s = op[o].make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
+            d1s, d2s = op[opt].make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (rootsym), *t0)
         idx_int = np.where (idx)[0]
         for (i,a), (j,b) in product (enumerate (idx_int), repeat=2):

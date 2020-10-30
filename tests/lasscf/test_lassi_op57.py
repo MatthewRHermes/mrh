@@ -25,6 +25,8 @@ from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
 from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.mcscf.lasci import get_init_guess_ci
+from mrh.my_pyscf.mcscf import lassi_op_o0 as op_o0
+from mrh.my_pyscf.mcscf import lassi_op_o1 as op_o1
 
 # Build crazy state list
 states  = {'charges': [[0,0,0],],
@@ -66,7 +68,7 @@ nroots = 57
 dr_nn = 2.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
 mol.verbose = lib.logger.INFO 
-mol.output = 'test_lassi_op57.log'
+mol.output = 'test_lassi_op.log'
 mol.spin = 0 
 mol.build ()
 mf = scf.RHF (mol).run ()
@@ -81,6 +83,13 @@ for c in las.ci:
     for iroot in range (len (c)):
         c[iroot] = np.random.rand (*c[iroot].shape)
         c[iroot] /= linalg.norm (c[iroot])
+orbsym = getattr (las.mo_coeff, 'orbsym', None)
+if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
+    orbsym = las.label_symmetry_(las.mo_coeff).orbsym
+if orbsym is not None:
+    orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+wfnsym = 0
+idx_all = np.ones (nroots, dtype=np.bool_)
 
 def tearDownModule():
     global mol, mf, las
@@ -89,13 +98,23 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):
-        d12_o0 = make_stdm12s (las, o=0)
-        d12_o1 = make_stdm12s (las, o=1)
+        d12_o0 = make_stdm12s (las, opt=0)
+        d12_o1 = make_stdm12s (las, opt=1)
         for r in range (2):
             for i, j in product (range (nroots), repeat=2):
                 with self.subTest (rank=r+1, bra=i, ket=j):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
                         lib.fp (d12_o1[r][i,...,j]), 9)
+
+    def test_ham_s2_ovlp (self):
+        h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
+        lbls = ('ham','s2','ovlp')
+        mats_o0 = op_o0.ham (las, h1, h2, las.ci, idx_all, orbsym=orbsym, wfnsym=wfnsym)
+        fps_o0 = [lib.fp (mat) for mat in mats_o0]
+        mats_o1 = op_o1.ham (las, h1, h2, las.ci, idx_all, orbsym=orbsym, wfnsym=wfnsym)
+        for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
+            with self.subTest(matrix=lbl):
+                self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-state manifold")

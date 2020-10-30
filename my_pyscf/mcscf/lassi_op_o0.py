@@ -62,7 +62,10 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
              sum ([ne[1] for ne in nelec_f]))
     return ci_r, nelec
 
-def ham (mol, h1, h2, ci_fr, norb_f, nelec_fr, orbsym=None, wfnsym=None):
+def ham (las, h1, h2, ci_fr, idx_root, orbsym=None, wfnsym=None):
+    mol = las.mol
+    norb_f = las.ncas_sub
+    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     norb = sum (norb_f)
