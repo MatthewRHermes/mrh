@@ -411,7 +411,7 @@ class LSTDMint2 (object):
             q = p + nlas[i]
             d1_s_ii = inti.get_dm1 (bra, ket)
             fac = self.get_ovlp_fac (bra, ket, i)
-            d1[:,p:q,p:q] = fac * np.asarray (d1_s_ii).transpose (0,2,1) # stupid, stupid PySCF convention
+            d1[:,p:q,p:q] = fac * np.asarray (d1_s_ii)
             d2[:,p:q,p:q,p:q,p:q] = fac * np.asarray (inti.get_dm2 (bra, ket))
             for j, intj in enumerate (self.ints[:i]):
                 assert (i>j)
@@ -438,7 +438,7 @@ class LSTDMint2 (object):
         fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j), i)
         fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j), j)
         d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_h (bra, ket, s1))
-        d1[s1,r:s,p:q] = fac * d1_ij.T # trans_rdm12s are always d1_pq = <bra|q'p|ket> for no good reason
+        d1[s1,p:q,r:s] = fac * d1_ij
         s12l = s1 * 2   # aa: 0 OR ba: 2
         s12h = s12l + 1 # ab: 1 OR bb: 3 
         s21l = s1       # aa: 0 OR ab: 1

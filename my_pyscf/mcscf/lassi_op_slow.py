@@ -83,10 +83,11 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
         stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
     for (i, ci_bra), (j, ci_ket) in combinations (enumerate (ci_r), 2):
         tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, nelec)
-        stdm1s[i,0,:,:,j] = tdm1s[0]
-        stdm1s[i,1,:,:,j] = tdm1s[1]
-        stdm1s[j,0,:,:,i] = tdm1s[0].T
-        stdm1s[j,1,:,:,i] = tdm1s[1].T
+        # Transpose for 1TDM is backwards because of stupid PySCF convention
+        stdm1s[i,0,:,:,j] = tdm1s[0].T
+        stdm1s[i,1,:,:,j] = tdm1s[1].T
+        stdm1s[j,0,:,:,i] = tdm1s[0]
+        stdm1s[j,1,:,:,i] = tdm1s[1]
         for spin, tdm2 in enumerate (tdm2s):
             p = spin // 2
             q = spin % 2
