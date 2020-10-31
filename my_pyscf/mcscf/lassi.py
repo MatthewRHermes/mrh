@@ -86,7 +86,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     # Loop over symmetry blocks
     e_roots = np.zeros (las.nroots, dtype=np.float64)
     s2_roots = np.zeros (las.nroots, dtype=np.float64)
-    si = np.zeros ((las.nroots, las.nroots), dtype=np.float64)    
+    si = np.zeros ((las.nroots, las.nroots), dtype=np.float64)
+    s2_mat = np.zeros ((las.nroots, las.nroots), dtype=np.float64)
     for rootsym in set (statesym):
         idx = np.all (np.array (statesym) == rootsym, axis=1)
         lib.logger.debug (las, 'Diagonalizing LAS state symmetry block (neleca, nelecb, irrep) = {}'.format (rootsym))
@@ -127,6 +128,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         lib.logger.debug (las, '{}'.format (s2_blk))
         lib.logger.debug (las, 'Block overlap matrix:')
         lib.logger.debug (las, '{}'.format (ovlp_blk))
+        s2_mat[np.ix_(idx,idx)] = s2_blk
         diag_test = np.diag (ham_blk)
         diag_ref = las.e_states[idx] - e0
         lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference', 'Error'))
@@ -147,7 +149,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     nelec_roots = [statesym[ix][0:2] for ix in idx]
     wfnsym_roots = [statesym[ix][2] for ix in idx]
     si = si[:,idx]
-    si = tag_array (si, s2=s2_roots, nelec=nelec_roots, wfnsym=wfnsym_roots)
+    si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots)
     lib.logger.info (las, 'LASSI eigenvalues:')
     lib.logger.info (las, ' {:2s}  {:>16s}  {:6s}  {:6s}  {:6s}  {:6s}'.format ('ix', 'Energy', 'Neleca', 'Nelecb', '<S**2>', 'Wfnsym'))
     for ix, (er, s2r, rsym) in enumerate (zip (e_roots, s2_roots, rootsym)):

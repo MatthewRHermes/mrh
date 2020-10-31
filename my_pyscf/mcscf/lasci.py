@@ -904,7 +904,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
     lib.logger.info (las, 'LASCI E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', e_tot, norm_gorb, norm_gci, norm_gx)
     t1 = log.timer ('LASCI wrap-up', *t1)
         
-    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, veff.sa, h2eff_sub)
+    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, veff=veff.sa, h2eff_sub=h2eff_sub)
     t1 = log.timer ('LASCI canonicalization', *t1)
 
     t0 = log.timer ('LASCI kernel function', *t0)
@@ -974,7 +974,7 @@ def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None
     fock = las.get_hcore () + vj - (vk/2)
     return fock
 
-def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym=None):
+def canonicalize (las, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2eff_sub=None, orbsym=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
     nao, nmo = mo_coeff.shape
@@ -982,23 +982,16 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
     nocc = ncore + las.ncas
     ncas_sub = las.ncas_sub
     nelecas_sub = las.nelecas_sub
-    '''
-    orbsym = None
-    if isinstance (las, LASCISymm):
-        print ("This is the first call to label_orb_symm inside of canonicalize")
-        orbsym = symm.label_orb_symm (las.mol, las.mol.irrep_id,
-                                      las.mol.symm_orb, mo_coeff,
-                                      s=las._scf.get_ovlp ())
-        #mo_coeff = casci_symm.label_symmetry_(las, mo_coeff, None)
-        #orbsym = mo_coeff.orbsym
-    '''
+
+    # Passing casdm1 or lasdm1 only affects the canonicalization of the active orbitals
     casdm1s_sub = las.make_casdm1s_sub (ci=ci)
     umat = np.zeros_like (mo_coeff)
-    dm1s = np.stack ([np.eye (nmo), np.eye (nmo)], axis=0)
     casdm1s = np.stack ([linalg.block_diag (*[dm[0] for dm in casdm1s_sub]),
                          linalg.block_diag (*[dm[1] for dm in casdm1s_sub])], axis=0)
     fock = mo_coeff.conjugate ().T @ las.get_fock (mo_coeff=mo_coeff, casdm1s=casdm1s, veff=veff) @ mo_coeff
-    casdm1_sub = [dm[0] + dm[1] for dm in casdm1s_sub]
+    if natorb_casdm1 is None: # State-average natural orbitals by default
+        natorb_casdm1 = casdm1s.sum (0)
+
     # Inactive-inactive
     orbsym_i = None if orbsym is None else orbsym[:ncore]
     fock_i = fock[:ncore,:ncore]
@@ -1007,15 +1000,32 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
     umat[:ncore,:ncore] = umat[:ncore,:ncore][:,idx]
     if orbsym_i is not None: orbsym[:ncore] = orbsym[:ncore][idx]
     # Active-active
-    for isub, (fcibox, lasdm1, ncas, nelecas, ci_i) in enumerate (zip (las.fciboxes, casdm1_sub, ncas_sub, nelecas_sub, ci)):
-        i = sum (ncas_sub[:isub]) + ncore
+    check_diag = natorb_casdm1.copy ()
+    for ix, ncas in enumerate (ncas_sub):
+        i = sum (ncas_sub[:ix])
         j = i + ncas
-        orbsym_i = None if orbsym is None else orbsym[i:j]
-        occ, umat[i:j,i:j] = las._eig (lasdm1, 0, 0, orbsym_i)
+        check_diag[i:j,i:j] = 0.0
+    if np.amax (np.abs (check_diag)) < 1e-8:
+        # No off-diagonal RDM elements -> extra effort to prevent diagonalizer from breaking frags
+        for isub, (fcibox, ncas, nelecas, ci_i) in enumerate (zip (las.fciboxes, ncas_sub, nelecas_sub, ci)):
+            i = sum (ncas_sub[:isub])
+            j = i + ncas
+            dm1 = natorb_casdm1[i:j,i:j]
+            i += ncore
+            j += ncore
+            orbsym_i = None if orbsym is None else orbsym[i:j]
+            occ, umat[i:j,i:j] = las._eig (dm1, 0, 0, orbsym_i)
+            idx = np.argsort (occ)[::-1]
+            umat[i:j,i:j] = umat[i:j,i:j][:,idx]
+            if orbsym_i is not None: orbsym[i:j] = orbsym[i:j][idx]
+            ci[isub] = fcibox.states_transform_ci_for_orbital_rotation (ci_i, ncas, nelecas, umat[i:j,i:j])
+    else: # You can't get proper LAS-type CI vectors w/out active space fragmentation
+        ci = None 
+        orbsym_cas = None if orbsym is None else orbsym[ncore:nocc]
+        occ, umat[ncore:nocc,ncore:nocc] = las._eig (natorb_casdm1, 0, 0, orbsym_cas)
         idx = np.argsort (occ)[::-1]
-        umat[i:j,i:j] = umat[i:j,i:j][:,idx]
-        if orbsym_i is not None: orbsym[i:j] = orbsym[i:j][idx]
-        ci[isub] = fcibox.states_transform_ci_for_orbital_rotation (ci_i, ncas, nelecas, umat[i:j,i:j])
+        umat[ncore:nocc,ncore:nocc] = umat[ncore:nocc,ncore:nocc][:,idx]
+        if orbsym_cas is not None: orbsym[ncore:nocc] = orbsym[ncore:nocc][idx]
     # External-external
     orbsym_i = None if orbsym is None else orbsym[nocc:]
     fock_i = fock[nocc:,nocc:]
@@ -1023,11 +1033,12 @@ def canonicalize (las, mo_coeff=None, ci=None, veff=None, h2eff_sub=None, orbsym
     idx = np.argsort (ene)
     umat[nocc:,nocc:] = umat[nocc:,nocc:][:,idx]
     if orbsym_i is not None: orbsym[nocc:] = orbsym[nocc:][idx]
+
     # Final
     mo_occ = np.zeros (nmo, dtype=ene.dtype)
     mo_occ[:ncore] = 2
     ucas = umat[ncore:nocc,ncore:nocc]
-    mo_occ[ncore:nocc] = ((casdm1s.sum (0) @ ucas) * ucas).sum (0)
+    mo_occ[ncore:nocc] = ((natorb_casdm1 @ ucas) * ucas).sum (0)
     mo_ene = ((fock @ umat) * umat.conjugate ()).sum (0)
     mo_ene[ncore:][:sum (ncas_sub)] = 0.0
     mo_coeff = mo_coeff @ umat
@@ -1635,10 +1646,10 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         mo_coeff = self.mo_coeff = self.label_symmetry_(mo_coeff)
         return LASCINoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0, casdm0_fr=casdm0_fr, verbose=verbose)
 
-    def canonicalize (self, mo_coeff=None, ci=None, veff=None, h2eff_sub=None):
+    def canonicalize (self, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2eff_sub=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         mo_coeff = self.label_symmetry_(mo_coeff)
-        return canonicalize (self, mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub, orbsym=mo_coeff.orbsym)
+        return canonicalize (self, mo_coeff=mo_coeff, ci=ci, natorb_casdm1=natorb_casdm1, h2eff_sub=h2eff_sub, orbsym=mo_coeff.orbsym)
 
     def label_symmetry_(self, mo_coeff=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff

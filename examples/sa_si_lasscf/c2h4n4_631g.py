@@ -21,6 +21,7 @@ mf = scf.RHF (mol).run ()
 # "Smults" is the desired local spin quantum *MULTIPLICITY* (2s+1)
 # "Wfnsyms" can also be the names of the irreps but I got lazy
 # "Charges" should be self-explanatory
+# If your molecule doesn't have point-group symmetry turned on then don't pass "wfnsyms"
 las = LASSCF (mf, (5,5), ((3,2),(2,3)))
 las = las.state_average ([0.5,0.5,0.0,0.0],
     spins=[[1,-1],[-1,1],[0,0],[0,0]],
@@ -29,8 +30,8 @@ las = las.state_average ([0.5,0.5,0.0,0.0],
     wfnsyms=[[1,1],[1,1],[0,0],[0,0]])   
 mo_loc = las.localize_init_guess ((list (range (5)), list (range (5,10))), mf.mo_coeff)
 las.kernel (mo_loc)
-print ("\n---SA-LASSCF energies---")
-print (las.e_states)
+print ("\n---SA-LASSCF---")
+print ("Energy:", las.e_states)
 
 # For now, the LASSI diagonalizer is just a post-hoc function call
 # It returns eigenvalues (energies) in the first position and
@@ -38,16 +39,22 @@ print (las.e_states)
 e_roots, si = las.lassi ()
 
 # Symmetry information about the LASSI solutions is "tagged" on the si array
+# Additionally, since spin contamination sometimes happens, the S**2 operator
+# in the LAS-state "diabatic" basis is also available
+print ("S**2 operator:\n", si.s2_mat)
 print ("\n---LASSI solutions---")
 print ("Energy:", e_roots)
 print ("<S**2>:",si.s2)
 print ("(neleca, nelecb):", si.nelec)
 print ("Symmetry:", si.wfnsym)
 
-# The triplet eigenvector in this space is determined by symmetry to within a
-# phase factor. The singlet eigenvectors depend on the Hamiltonian because
-# the singlet states can interact with each other.
-print ("\n---LASSI eigenvectors---")
+print (("\nIn this example, the triplet eigenvector is determined by symmetry\n"
+          "to within phase factors because I only have 1 triplet in this\n"
+          "space. This also means that the triplet natural orbitals are still\n"
+          "localized and the interfragment entanglement is second-order, only\n"
+          "appearing in the 2RDM. On the other hand, the singlets do interact\n"
+          "leading to first-order entanglement which is visible in the NOs:\n"))
+print ("---LASSI eigenvectors---")
 print (si)
 
 # You can get the 1-RDMs of the SA-LASSCF states like this
@@ -55,6 +62,21 @@ states_casdm1s = las.states_make_casdm1s ()
 
 # You can get the 1- and 2-RDMs of the LASSI solutions like this
 roots_casdm1s, roots_casdm2s = lassi.roots_make_rdm12s (las, las.ci, si)
+
+# No super-convenient molden API yet
+# By default orbitals are state-averaged natural-orbitals at the end
+# of the SA-LASSCF calculation
+# But you can recanonicalize
+print ("\nlasscf_state_0-3.molden: single LAS state NOs, (strictly) unentangled")
+for iroot, dm1 in enumerate (states_casdm1s.sum (1)): # spin sum
+    no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=dm1)[:3]
+    molden.from_mo (las.mol, 'lasscf_state_{}.molden'.format (iroot),
+        no_coeff, occ=no_occ, ene=no_ene)
+print ("lassi_root_0-3.molden: LASSI eigenstate NOs, (generally) entangled")
+for iroot, dm1 in enumerate (roots_casdm1s.sum (1)): # spin sum
+    no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=dm1)[:3]
+    molden.from_mo (las.mol, 'lassi_root_{}.molden'.format (iroot),
+        no_coeff, occ=no_occ, ene=no_ene)
 
 # Beware! Don't do ~~~anything~~ to the si array before you pass it to the
 # function above or grab the important data from its attachments!
@@ -72,22 +94,6 @@ except AttributeError as e:
     print ("AttributeError:", str (e))
 print ("(Yes, dear user, I will have to make this less stupid in future)")
 
-# No super-convenient molden API yet
-# By default orbitals are state-averaged natural-orbitals at the end
-# of the SA-LASSCF calculation
-# But you can manipulate them using the RDMs if you have patience
-# Example: making moldens to compare the four roots
-occ = np.zeros (las.mo_coeff.shape[1])
-ncore, nocc = las.ncore, las.ncore+las.ncas
-occ[:ncore] = 2
-for iroot, dm1 in enumerate (roots_casdm1s.sum (1)):
-    occ[ncore:nocc], umat = linalg.eigh (-dm1)
-    occ[ncore:nocc] *= -1 # Just a sorting trick
-    no_coeff = las.mo_coeff.copy ()
-    no_coeff[:,ncore:nocc] = np.dot (no_coeff[:,ncore:nocc], umat)
-    molden.from_mo (las.mol, 'lassi_root_{}.molden'.format (iroot),
-        no_coeff, occ=occ)
-
 # Remember that LASSI is a post-hoc diagonalization step if you want to do a
 # potential energy scan
 las = las.as_scanner ()
@@ -97,9 +103,10 @@ new_mol.build ()
 print ("\n\nPotential energy scan to dr = 2.9 Angs")
 e = las (new_mol)
 print (e, "<- this is just the state-average energy!")
-print ("(Which happens to be identical to the first two LAS state energies because I chose a bad example, but shhhh)")
+print (("(Which happens to be identical to the first two LAS state energies\n"
+        "because I chose a bad example, but shhhh)"))
 print ("You need to interrogate the LAS object to get the interesting parts!")
-print ("New state energies:", las.e_states)
+print ("New E_LASSCF:", las.e_states)
 e_roots, si = las.lassi ()
-print ("New LASSI root energies:", e_roots)
+print ("New E_LASSI:", e_roots)
 
