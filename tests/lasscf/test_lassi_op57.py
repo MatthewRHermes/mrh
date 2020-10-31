@@ -90,6 +90,9 @@ if orbsym is not None:
     orbsym = orbsym[las.ncore:las.ncore+las.ncas]
 wfnsym = 0
 idx_all = np.ones (nroots, dtype=np.bool_)
+rand_mat = np.random.rand (57,57)
+rand_mat += rand_mat.T
+e, si = linalg.eigh (rand_mat)
 
 def tearDownModule():
     global mol, mf, las
@@ -115,6 +118,15 @@ class KnownValues(unittest.TestCase):
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
             with self.subTest(matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
+
+    def test_rdm12s (self):
+        d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, idx_all, si, orbsym=orbsym, wfnsym=wfnsym)
+        d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, idx_all, si, orbsym=orbsym, wfnsym=wfnsym)
+        for r in range (2):
+            for i in range (nroots):
+                with self.subTest (rank=r+1, root=i):
+                    self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
+                        lib.fp (d12_o1[r][i]), 9)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-state manifold")

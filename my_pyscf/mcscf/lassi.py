@@ -63,7 +63,7 @@ def las_symm_tuple (las):
 
     return statesym, np.asarray (s2_states)
 
-def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None):
+def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, opt=1):
     ''' Diagonalize the state-interaction matrix of LASSCF '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
@@ -73,6 +73,9 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+    o0_memcheck = op_o0.memcheck (las, ci)
+    if opt == 0 and o0_memcheck == False:
+        raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     # Construct second-quantization Hamiltonian
     e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None)
@@ -95,8 +98,29 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             continue
         wfnsym = rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
-        nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-        ham_blk, s2_blk, ovlp_blk = op_o0.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
+        t0 = (time.clock (), time.time ())
+        if (las.verbose > lib.logger.INFO) and (o0_memcheck):
+            ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (rootsym), *t0)
+            ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (rootsym), *t0)
+            lib.logger.debug (las, 'LASSI diagonalizer rootsym {}: ham o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (ham_blk - ham_ref))) 
+            lib.logger.debug (las, 'LASSI diagonalizer rootsym {}: S2 o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (s2_blk - s2_ref))) 
+            lib.logger.debug (las, 'LASSI diagonalizer rootsym {}: ovlp o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (ovlp_blk - ovlp_ref))) 
+            errvec = np.concatenate ([(ham_blk-ham_ref).ravel (), (s2_blk-s2_ref).ravel (), (ovlp_blk-ovlp_ref).ravel ()])
+            if np.amax (np.abs (errvec)) > 1e-8:
+                raise RuntimeError (("Congratulations, you have found a bug in either lassi_op_o0 (I really hope not)"
+                    " or lassi_op_o1 (much more likely)!\nPlease inspect the last few printed lines of logger output"
+                    " for more information.\nError in lassi, max abs: {}; norm: {}").format (np.amax (np.abs (errvec)),
+                    linalg.norm (errvec)))
+            if opt == 0:
+                ham_blk = ham_ref
+                s2_blk = s2_ref
+                ovlp_blk = ovlp_ref
+        else:
+            if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
+            ham_blk, s2_blk, ovlp_blk = op_o0.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {}'.format (rootsym), *t0)
         lib.logger.debug (las, 'Block Hamiltonian - ecore:')
         lib.logger.debug (las, '{}'.format (ham_blk))
         lib.logger.debug (las, 'Block S**2:')
@@ -132,7 +156,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         lib.logger.info (las, ' {:2d}  {:16.10f}  {:6d}  {:6d}  {:6.3f}  {:>6s}'.format (ix, er, neleca, nelecb, s2r, wfnsym))
     return e_roots, si
 
-def make_stdm12s (las, ci=None, orbsym=None, opt=0):
+def make_stdm12s (las, ci=None, orbsym=None, opt=1):
     ''' Evaluate <I|p'q|J> and <I|p'r'sq|J> where |I>, |J> are LAS states.
 
         Args:
@@ -177,9 +201,15 @@ def make_stdm12s (las, ci=None, orbsym=None, opt=0):
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (rootsym), *t0)
             d1s_test, d2s_test = op_o1.make_stdm12s (las, ci_blk, idx)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} TDM algorithm'.format (rootsym), *t0)
-            lib.logger.debug (las, 'LASSI make_stdm12s rootsym {}: D1 smart algorithm error = {}'.format (rootsym, linalg.norm (d1s_test - d1s))) 
-            lib.logger.debug (las, 'LASSI make_stdm12s rootsym {}: D2 smart algorithm error = {}'.format (rootsym, linalg.norm (d2s_test - d2s))) 
-            if o == 0:
+            lib.logger.debug (las, 'LASSI make_stdm12s rootsym {}: D1 o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (d1s_test - d1s))) 
+            lib.logger.debug (las, 'LASSI make_stdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (d2s_test - d2s))) 
+            errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
+            if np.amax (np.abs (errvec)) > 1e-8:
+                raise RuntimeError (("Congratulations, you have found a bug in either lassi_op_o0 (I really hope not)"
+                    " or lassi_op_o1 (much more likely)!\nPlease inspect the last few printed lines of logger output"
+                    " for more information.\nError in make_stdm12s, max abs: {}; norm: {}").format (np.amax (np.abs (errvec)),
+                    linalg.norm (errvec)))
+            if opt == 0:
                 d1s = d1s_test
                 d2s = d2s_test
         else:
@@ -192,13 +222,16 @@ def make_stdm12s (las, ci=None, orbsym=None, opt=0):
             stdm2s[a,...,b] = d2s[i,...,j]
     return stdm1s, stdm2s
 
-def roots_make_rdm12s (las, ci, si, orbsym=None):
+def roots_make_rdm12s (las, ci, si, orbsym=None, opt=1):
     if orbsym is None: 
         orbsym = getattr (las.mo_coeff, 'orbsym', None)
         if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+    o0_memcheck = op_o0.memcheck (las, ci)
+    if opt == 0 and o0_memcheck == False:
+        raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     # Symmetry tuple: neleca, nelecb, irrep
     norb = las.ncas
@@ -214,9 +247,29 @@ def roots_make_rdm12s (las, ci, si, orbsym=None):
         idx_si = np.all (np.array (rootsym)  == sym, axis=1)
         wfnsym = sym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
-        nelec_blk = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_ci) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
         si_blk = si[np.ix_(idx_ci,idx_si)]
-        d1s, d2s = op_o0.roots_make_rdm12s (las.mol, ci_blk, si_blk, las.ncas_sub, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
+        d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
+        t0 = (time.clock (), time.time ())
+        if (las.verbose > lib.logger.INFO) and (o0_memcheck):
+            d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym), *t0)
+            d1s_test, d2s_test = op_o1.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk)
+            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} TDM algorithm'.format (sym), *t0)
+            lib.logger.debug (las, 'LASSI make_rdm12s rootsym {}: D1 o0-o1 algorithm disagreement = {}'.format (sym, linalg.norm (d1s_test - d1s))) 
+            lib.logger.debug (las, 'LASSI make_rdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (sym, linalg.norm (d2s_test - d2s))) 
+            errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
+            if np.amax (np.abs (errvec)) > 1e-8:
+                raise RuntimeError (("Congratulations, you have found a bug in either lassi_op_o0 (I really hope not)"
+                    " or lassi_op_o1 (much more likely)!\nPlease inspect the last few printed lines of logger output"
+                    " for more information.\nError in make_stdm12s, max abs: {}; norm: {}").format (np.amax (np.abs (errvec)),
+                    linalg.norm (errvec)))
+            if opt == 0:
+                d1s = d1s_test
+                d2s = d2s_test
+        else:
+            if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
+            d1s, d2s = op[opt].make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {}'.format (sym), *t0)
         idx_int = np.where (idx_si)[0]
         for (i,a) in enumerate (idx_int):
             rdm1s[a] = d1s[i]

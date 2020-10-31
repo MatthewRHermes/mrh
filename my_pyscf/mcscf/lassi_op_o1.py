@@ -607,6 +607,43 @@ class HamS2ovlpint (LSTDMint2):
         ovlp *= np.multiply.outer (self.spin_shuffle, self.spin_shuffle)
         return self.ham, self.s2, ovlp, t0
 
+class LRRDMint (LSTDMint2):
+    ''' For computing RDMs of LASSI roots without cacheing the whole damn STDM12s array '''
+
+    def __init__(self, ints, nlas, hopping_index, si, dtype=np.float64):
+        LSTDMint2.__init__(self, ints, nlas, hopping_index, dtype=dtype)
+        self.nroots_si = si.shape[-1]
+        self.si_dm = np.stack ([np.dot (si[:,i:i+1],si[:,i:i+1].conj ().T)
+            for i in range (self.nroots_si)], axis=-1)
+
+    def _get_D1_(self, bra, ket):
+        self.d1[:] = 0.0
+        return self.d1
+
+    def _get_D2_(self, bra, ket):
+        self.d2[:] = 0.0
+        return self.d2
+
+    def _put_D1_(self, bra, ket, D1):
+        self.rdm1s[:] += np.multiply.outer (self.si_dm[bra,ket,:], D1)
+
+    def _put_D2_(self, bra, ket, D2):
+        self.rdm2s[:] += np.multiply.outer (self.si_dm[bra,ket,:], D2)
+
+    def _add_transpose_(self):
+        self.rdm1s += self.rdm1s.transpose (0,1,3,2)
+        self.rdm2s += self.rdm2s.transpose (0,1,3,2,5,4)
+
+    def kernel (self):
+        t0 = (time.clock (), time.time ())
+        self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
+        self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
+        self.rdm1s = np.zeros ([self.nroots_si,] + list (self.d1.shape), dtype=self.dtype)
+        self.rdm2s = np.zeros ([self.nroots_si,] + list (self.d2.shape), dtype=self.dtype)
+        self._crunch_all_()
+        return self.rdm1s, self.rdm2s, t0
+
+
 def make_ints (las, ci, idx_root):
     fciboxes = las.fciboxes
     nfrags = len (fciboxes)
@@ -650,9 +687,26 @@ def ham (las, h1, h2, ci, idx_root, **kwargs):
     # Second pass: upper-triangle
     t0 = (time.clock (), time.time ())
     outerprod = HamS2ovlpint (ints, nlas, hopping_index, h1, h2, dtype=ci[0][0].dtype)
-    lib.logger.timer (las, 'LAS-state Hamiltonian second intermediate indexing setup', *t0)        
+    lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)        
     ham, s2, ovlp, t0 = outerprod.kernel ()
-    lib.logger.timer (las, 'LAS-state Hamiltonian second intermediate crunching', *t0)        
+    lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)        
     return ham, s2, ovlp
 
+
+def roots_make_rdm12s (las, ci, idx_root, si, **kwargs):
+    nlas = las.ncas_sub
+    ncas = las.ncas
+    nroots_si = si.shape[-1]
+    idx_root = np.where (idx_root)[0]
+
+    # First pass: single-fragment intermediates
+    hopping_index, ints = make_ints (las, ci, idx_root)
+
+    # Second pass: upper-triangle
+    t0 = (time.clock (), time.time ())
+    outerprod = LRRDMint (ints, nlas, hopping_index, si, dtype=ci[0][0].dtype)
+    lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
+    rdm1s, rdm2s, t0 = outerprod.kernel ()
+    lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)        
+    return rdm1s, rdm2s.reshape (nroots_si, 2, 2, ncas, ncas, ncas, ncas).transpose (0,1,3,4,2,5,6)
 

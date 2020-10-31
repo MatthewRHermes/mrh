@@ -111,7 +111,10 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
             stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
     return stdm1s, stdm2s 
 
-def roots_make_rdm12s (mol, ci_fr, si, norb_f, nelec_fr, orbsym=None, wfnsym=None):
+def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
+    mol = las.mol
+    norb_f = las.ncas_sub
+    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
     norb = sum (norb_f)
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
