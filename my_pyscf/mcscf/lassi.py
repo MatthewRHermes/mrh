@@ -119,7 +119,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
                 ovlp_blk = ovlp_ref
         else:
             if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
-            ham_blk, s2_blk, ovlp_blk = op_o0.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
+            ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {}'.format (rootsym), *t0)
         lib.logger.debug (las, 'Block Hamiltonian - ecore:')
         lib.logger.debug (las, '{}'.format (ham_blk))
@@ -248,7 +248,6 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, opt=1):
         wfnsym = sym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
         si_blk = si[np.ix_(idx_ci,idx_si)]
-        d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
         t0 = (time.clock (), time.time ())
         if (las.verbose > lib.logger.INFO) and (o0_memcheck):
             d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
@@ -268,7 +267,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, opt=1):
                 d2s = d2s_test
         else:
             if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
-            d1s, d2s = op[opt].make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
+            d1s, d2s = op[opt].roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {}'.format (sym), *t0)
         idx_int = np.where (idx_si)[0]
         for (i,a) in enumerate (idx_int):
