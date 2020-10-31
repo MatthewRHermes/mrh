@@ -63,21 +63,31 @@ def fermion_frag_shuffle (nelec_f, frag_list):
             nperms += nelec_f[frag] * nbtwn
     return (1,-1)[nperms%2]
 
-def fermion_des_shuffle (nelec_f, nfrag_idx, i):
+def fermion_des_shuffle (nelec_f, frag_list, i):
     ''' Compute the sign factor associated with anticommuting a destruction
         operator past creation operators of unrelated fragments, i.e.,    
         
         ci ... cj' ci' ch' .. |vac> -> ... cj' ci ci' ch' ... |vac>
+
+        Args:
+            nelec_f: list of electron numbers per fragment for the whole state
+            frag_list: list of fragment numbers actually involved in a given
+                transfer; i.e., the argument 'frag_list' of a recent call to
+                fermion_frag_shuffle
+            i: fragment of the destruction operator to commute foward
+
+        Returns:
+            sgn: +- 1
         
     '''
-    assert (i in nfrag_idx)
+    assert (i in frag_list)
     # Assuming that low orbital indices touch the vacuum first,
     # the destruction operator commutes past the high-index field
-    # operators first
-    nfrag_idx = list (set (nfrag_idx))[::-1]
-    nelec_rel = [nelec_f[ix] for ix in nfrag_idx]
-    i_rel = nfrag_idx.index (i)
-    nperms = sum (nelec_rel[:i_rel]) if i_rel else 0
+    # operators first -> reverse the order of frag_list
+    frag_list = list (set (frag_list))[::-1]
+    nelec_f = [nelec_f[ix] for ix in frag_list]
+    i = frag_list.index (i)
+    nperms = sum (nelec_f[:i]) if i else 0
     return (1,-1)[nperms%2]
 
 def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
@@ -117,7 +127,7 @@ def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
     return hopping_index, zerop_index, onep_index
 
 class LSTDMint1 (object):
-    ''' Sparse-memory storage for LAS-state transition density matrix 
+    ''' Quasi-sparse-memory storage for LAS-state transition density matrix 
         single-fragment intermediates. '''
 
     def __init__(self, fcibox, norb, nelec, nroots, idx_root, dtype=np.float64):
@@ -319,7 +329,12 @@ class LSTDMint1 (object):
         return t0
 
 class LSTDMint2 (object):
-    ''' Intermediate-storage convenience object for second pass of LAS-state tdm12s calculations '''
+    ''' Intermediate-storage convenience object for second pass of LAS-state tdm12s calculations
+        Subclass the __init__, __??t_D?_, __add_transpose__, and kernel methods to do various
+        different things which rely on LAS-state tdm12s as intermediates without cacheing the whole
+        things (i.e. operators or DMs in different basis)'''
+    # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
+
     def __init__(self, ints, nlas, hopping_index, dtype=np.float64):
         self.ints = ints
         self.nlas = nlas
@@ -609,6 +624,7 @@ class HamS2ovlpint (LSTDMint2):
 
 class LRRDMint (LSTDMint2):
     ''' For computing RDMs of LASSI roots without cacheing the whole damn STDM12s array '''
+    # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
     def __init__(self, ints, nlas, hopping_index, si, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, dtype=dtype)
@@ -631,8 +647,8 @@ class LRRDMint (LSTDMint2):
         self.rdm2s[:] += np.multiply.outer (self.si_dm[bra,ket,:], D2)
 
     def _add_transpose_(self):
-        self.rdm1s += self.rdm1s.transpose (0,1,3,2)
-        self.rdm2s += self.rdm2s.transpose (0,1,3,2,5,4)
+        self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
+        self.rdm2s += self.rdm2s.conj ().transpose (0,1,3,2,5,4)
 
     def kernel (self):
         t0 = (time.clock (), time.time ())

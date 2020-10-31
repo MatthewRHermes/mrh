@@ -1102,6 +1102,7 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None
         [csf_solver (las.mol, smult=s2p1).set (charge=c, spin=m2, wfnsym=ir)
         for c, m2, s2p1, ir in zip (c_r, m2_r, s2p1_r, ir_r)],
         weights).fcisolver) for c_r, m2_r, s2p1_r, ir_r in zip (charges.T, spins.T, smults.T, wfnsyms.T)]
+    las.e_states = np.zeros (las.nroots)
     return las
 
 def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None, wfnsyms=None):
@@ -1145,6 +1146,7 @@ class LASCINoSymm (casci.CASCI):
             self.fciboxes.append (get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)) 
         self.nroots = 1
         self.weights = [1.0]
+        self.e_states = [0.0]
 
     def get_mo_slice (self, idx, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff

@@ -77,7 +77,6 @@ las.state_average_(weights=weights, **states)
 las.mo_coeff = las.localize_init_guess ((list (range (3)),
     list (range (3,7)), list (range (7,10))), mf.mo_coeff)
 las.ci = get_init_guess_ci (las, las.mo_coeff, las.get_h2eff (las.mo_coeff))
-las.e_states = np.zeros (57)
 np.random.seed (1)
 for c in las.ci:
     for iroot in range (len (c)):
