@@ -551,9 +551,19 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # this to k^p_q E^p_q when evaluating derivatives, but not when exponentiating,
         # because the operator part has to be anti-hermitian.
         mo1 = self.mo_coeff @ umat
-        ci1 = [[c + dc for c,dc in zip (cr,dcr)] for cr, dcr in zip (self.ci, dci)]
-        norm_ci = [[np.sqrt (c.dot (c)) for c in cr] for cr in ci1]
-        ci1 = [[c/n for c,n in zip (cr, nr)] for cr, nr in zip (ci1, norm_ci)]
+        ci1 = []
+        for c_r, dc_r in zip (self.ci, dci):
+            ci1_r = []
+            for c, dc in zip (c_r, dc_r):
+                dc[:] -= c * c.dot (dc)
+                phi = linalg.norm (dc)
+                cosp = np.cos (phi)
+                if np.abs (phi) > 1e-8: sinp = np.sin (phi) / phi
+                else: sinp = 1 # as precise as it can be w/ 64 bits
+                c1 = cosp*c + sinp*dc
+                assert (np.isclose (linalg.norm (c1), 1))
+                ci1_r.append (c1)
+            ci1.append (ci1_r)
         if hasattr (self.mo_coeff, 'orbsym'):
             mo1 = lib.tag_array (mo1, orbsym=self.mo_coeff.orbsym)
         ucas = umat[ncore:nocc, ncore:nocc]
