@@ -94,7 +94,7 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (np.trace (dm1_states[2]), 7.0, 9)
 
 if __name__ == "__main__":
-    print("Full Tests for state-average mix with different charges")
+    print("Full Tests for h1ezip")
     unittest.main()
 
 
