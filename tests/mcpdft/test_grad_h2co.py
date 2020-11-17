@@ -17,14 +17,11 @@ def get_mc_ref (mol, ri=False, sa2=False):
     if ri: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
     mc = mcpdft.CASSCF (mf.run (), 'tPBE', 6, 6, grids_level=6)
     if sa2:
+        fcisolvers = [csf_solver (mol, smult=((2*i)+1)) for i in (0,1)]
         if mol.symmetry:
-            fcisolvers = [csf_solver (mol, smult=1) for i in (0,1)]
             fcisolvers[0].wfnsym = 'A1'
             fcisolvers[1].wfnsym = 'A2'
-            mc = mc.state_average_mix_(fcisolvers, [0.5,0.5])
-        else:
-            mc.fcisolver = csf_solver (mol, smult=1)
-            mc = mc.state_average_([0.5,0.5])
+        mc = mc.state_average_mix_(fcisolvers, [0.5,0.5])
         ref = np.load ('h2co_sa2_tpbe66_631g_grad_num.npy').reshape (2,2,4,3)[int(ri)]
     else:
         ref = np.load ('h2co_tpbe66_631g_grad_num.npy')[int(ri)]
