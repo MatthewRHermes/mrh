@@ -69,6 +69,11 @@ mc_df.kernel ()
 
 try:
     de_num = np.load ('h2co_sa2_tpbe66_631g_grad_num.npy')
+    de_num[:,:,1] = de_num[:,0:2,2] = 0.0
+    de_num[:,2,0] = np.mean (de_num[:,2:3,0], axis=1)
+    de_num[:,3,0] = np.mean (de_num[:,2:3,0], axis=1)
+    de_num[:,2,2] = -np.mean (np.abs (de_num[:,2:3,2]), axis=1)
+    de_num[:,3,2] =  np.mean (np.abs (de_num[:,2:3,2]), axis=1)
     de_conv_0_num, de_conv_1_num, de_df_0_num, de_df_1_num = list (de_num)
 except OSError as e:
     conv_num = numeric_grad.Gradients (mc_conv).run ()
@@ -89,17 +94,17 @@ def printable_grad (arr):
 
 print ("Analytic gradient of state 0 with conventional ERIs:\n", printable_grad (de_conv_0)[1:])
 print ("Numeric gradient of state 0 with conventional ERIs:\n", printable_grad (de_conv_0_num)[1:])
-print ("Gradient error of state 0 with conventional ERIs = {:.6e}".format (linalg.norm (de_conv_0 - de_conv_0_num)))
+print ("Gradient error of state 0 with conventional ERIs = {:.6e}".format (linalg.norm (de_conv_0 - de_conv_0_num)), lib.fp (de_conv_0), lib.fp (de_conv_0_num))
 print ("Analytic gradient of state 0 with DF ERIs:\n", printable_grad (de_df_0)[1:])
 print ("Numeric gradient of state 0 with DF ERIs:\n", printable_grad (de_df_0_num)[1:])
-print ("Gradient error of state 0 with DF ERIs = {:.6e}".format (linalg.norm (de_df_0 - de_df_0_num)))
+print ("Gradient error of state 0 with DF ERIs = {:.6e}".format (linalg.norm (de_df_0 - de_df_0_num)), lib.fp (de_df_0), lib.fp (de_df_0_num))
 print ("Gradient disagreements of state 0: Analytic = {:.6e} ; Numeric = {:.6e}".format (
     linalg.norm (de_df_0 - de_conv_0), linalg.norm (de_df_0_num - de_conv_0_num)))
 print ("Analytic gradient of state 1 with conventional ERIs:\n", printable_grad (de_conv_1)[1:])
 print ("Numeric gradient of state 1 with conventional ERIs:\n", printable_grad (de_conv_1_num)[1:])
-print ("Gradient error of state 1 with conventional ERIs = {:.6e}".format (linalg.norm (de_conv_1 - de_conv_1_num)))
+print ("Gradient error of state 1 with conventional ERIs = {:.6e}".format (linalg.norm (de_conv_1 - de_conv_1_num)), lib.fp (de_conv_1), lib.fp (de_conv_1_num))
 print ("Analytic gradient of state 1 with DF ERIs:\n", printable_grad (de_df_1)[1:])
 print ("Numeric gradient of state 1 with DF ERIs:\n", printable_grad (de_df_1_num)[1:])
-print ("Gradient error of state 1 with DF ERIs = {:.6e}".format (linalg.norm (de_df_1 - de_df_1_num)))
+print ("Gradient error of state 1 with DF ERIs = {:.6e}".format (linalg.norm (de_df_1 - de_df_1_num)), lib.fp (de_df_1), lib.fp (de_df_1_num))
 print ("Gradient disagreements of state 1: Analytic = {:.6e} ; Numeric = {:.6e}".format (
     linalg.norm (de_df_1 - de_conv_1), linalg.norm (de_df_1_num - de_conv_1_num)))
