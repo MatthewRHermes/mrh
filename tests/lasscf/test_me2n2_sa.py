@@ -18,59 +18,57 @@ import unittest
 import numpy as np
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.mcscf import newton_casscf
+from pyscf.mcscf.addons import state_average_mix
 from me2n2_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
+from mrh.my_pyscf.fci import csf_solver
 
 r_nn = 3.0
 mol = struct (3.0, '6-31g')
-mol.output = 'test_me2n2.log'
+mol.output = 'test_me2n2_sa.log'
 mol.verbose = lib.logger.DEBUG
 mol.build ()
 mf = scf.RHF (mol).run ()
-mc = mcscf.CASSCF (mf, 4, 4).run ()
+mc = state_average_mix (mcscf.CASSCF (mf, 4, 4),
+    [csf_solver (mol, smult=m2+1).set (spin=m2) for m2 in (0,2)],
+    [0.5, 0.5]).run ()
 mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()
-mc_df = mcscf.CASSCF (mf_df, 4, 4).run ()
-
-mol_hs = mol.copy ()
-mol_hs.spin = 4
-mol_hs.build ()
-mf_hs = scf.RHF (mol_hs).run ()
-mf_hs_df = mf_hs.density_fit (auxbasis = df.aug_etb (mol_hs)).run ()
+mc_df = state_average_mix (mcscf.CASSCF (mf_df, 4, 4),
+    [csf_solver (mol, smult=m2+1).set (spin=m2) for m2 in (0,2)],
+    [0.5, 0.5]).run ()
 
 def tearDownModule():
-    global mol, mf, mf_df, mc, mc_df, mol_hs, mf_hs, mf_hs_df
+    global mol, mf, mf_df, mc, mc_df 
     mol.stdout.close ()
-    mol_hs.stdout.close ()
-    del mol, mf, mf_df, mc, mc_df, mol_hs, mf_hs, mf_hs_df
+    del mol, mf, mf_df, mc, mc_df
 
 
 class KnownValues(unittest.TestCase):
     def test_energy (self):
-        las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
+        las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5)
+        las.state_average_(weights=[0.5,0.5], spins=[0,2]).run ()
         self.assertAlmostEqual (las.e_tot, mc.e_tot, 8)
+        self.assertAlmostEqual (las.e_states[0], mc.e_states[0], 7)
+        self.assertAlmostEqual (las.e_states[1], mc.e_states[1], 7)
 
     def test_energy_df (self):
-        las = LASSCF (mf_df, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
+        las = LASSCF (mf_df, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5)
+        las.state_average_(weights=[0.5,0.5], charges=[0,0], spins=[0,2], smults=[1,3]).run ()
         self.assertAlmostEqual (las.e_tot, mc_df.e_tot, 8)
-
-    def test_energy_hs (self):
-        las = LASSCF (mf_hs, (4,), ((4,0),), spin_sub=(5,)).set (conv_tol_grad=1e-5).run ()
-        self.assertAlmostEqual (las.e_tot, mf_hs.e_tot, 8)
-
-    def test_energy_hs_df (self):
-        las = LASSCF (mf_hs_df, (4,), ((4,0),), spin_sub=(5,)).set (conv_tol_grad=1e-5).run ()
-        self.assertAlmostEqual (las.e_tot, mf_hs_df.e_tot, 8)
+        self.assertAlmostEqual (las.e_states[0], mc_df.e_states[0], 7)
+        self.assertAlmostEqual (las.e_states[1], mc_df.e_states[1], 7)
 
     def test_derivatives (self):
         np.random.seed(1)
-        las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (max_cycle_macro=1, ah_level_shift=0).run ()
+        las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (max_cycle_macro=1, ah_level_shift=0)
+        las.state_average_(weights=[0.5,0.5], charges=[0,0], spins=[0,2], smults=[1,3]).run ()
         ugg = las.get_ugg ()
-        ci0_csf = np.random.rand (ugg.ncsf_sub[0][0])
-        ci0_csf /= np.linalg.norm (ci0_csf)
-        ci0 = ugg.ci_transformers[0][0].vec_csf2det (ci0_csf)
-        las_gorb, las_gci = las.get_grad (mo_coeff=mf.mo_coeff, ci=[[ci0]])[:2]
+        ci0_csf = [np.random.rand (ncsf) for ncsf in ugg.ncsf_sub[0]]
+        ci0_csf = [c / np.linalg.norm (c) for c in ci0_csf]
+        ci0 = [t.vec_csf2det (c) for t, c in zip (ugg.ci_transformers[0], ci0_csf)]
+        las_gorb, las_gci = las.get_grad (mo_coeff=mf.mo_coeff, ci=[ci0])[:2]
         las_grad = np.append (las_gorb, las_gci)
-        las_hess = las.get_hop (ugg=ugg, mo_coeff=mf.mo_coeff, ci=[[ci0]])
+        las_hess = las.get_hop (ugg=ugg, mo_coeff=mf.mo_coeff, ci=[ci0])
         self.assertAlmostEqual (lib.fp (las_grad), lib.fp (las_hess.get_grad ()), 8)
         cas_grad, _, cas_hess, _ = newton_casscf.gen_g_hop (mc, mf.mo_coeff, ci0, mc.ao2mo (mf.mo_coeff))
         _pack_ci, _unpack_ci = newton_casscf._pack_ci_get_H (mc, mf.mo_coeff, ci0)[-2:]
@@ -80,16 +78,14 @@ class KnownValues(unittest.TestCase):
             return mc.unpack_uniq_var (x[:ugg.nvar_orb]), _unpack_ci (x[ugg.nvar_orb:])
         def cas2las (y, mode='hx'):
             yorb, yci = unpack_cas (y)
-            yc = yci[0].ravel ().dot (ci0.ravel ())
-            yci[0] -= yc * ci0
+            yci = [2 * (yc - c * c.ravel ().dot (yc.ravel ())) for c, yc in zip (ci0, yci)]
             yorb *= (0.5 if mode=='hx' else 1)
             return ugg.pack (yorb, [yci])
         def las2cas (y, mode='x'):
             yorb, yci = ugg.unpack (y)
-            yc = yci[0][0].ravel ().dot (ci0.ravel ())
-            yci[0][0] -= yc * ci0
+            yci = [yc - c * c.ravel ().dot (yc.ravel ()) for c, yc in zip (ci0, yci[0])]
             yorb *= (0.5 if mode=='x' else 1)
-            return pack_cas (yorb, yci[0])
+            return pack_cas (yorb, yci)
         cas_grad = cas2las (cas_grad)
         self.assertAlmostEqual (lib.fp (las_grad), lib.fp (cas_grad), 8)
         x = np.random.rand (ugg.nvar_tot)
@@ -113,14 +109,15 @@ class KnownValues(unittest.TestCase):
 
     def test_derivatives_df (self):
         np.random.seed(1)
-        las = LASSCF (mf_df, (4,), (4,), spin_sub=(1,)).set (max_cycle_macro=1, ah_level_shift=0).run ()
+        las = LASSCF (mf_df, (4,), (4,), spin_sub=(1,)).set (max_cycle_macro=1, ah_level_shift=0)
+        las.state_average_(weights=[0.5,0.5], charges=[0,0], spins=[0,2], smults=[1,3]).run ()
         ugg = las.get_ugg ()
-        ci0_csf = np.random.rand (ugg.ncsf_sub[0][0])
-        ci0_csf /= np.linalg.norm (ci0_csf)
-        ci0 = ugg.ci_transformers[0][0].vec_csf2det (ci0_csf)
-        las_gorb, las_gci = las.get_grad (mo_coeff=mf_df.mo_coeff, ci=[[ci0]])[:2]
+        ci0_csf = [np.random.rand (ncsf) for ncsf in ugg.ncsf_sub[0]]
+        ci0_csf = [c / np.linalg.norm (c) for c in ci0_csf]
+        ci0 = [t.vec_csf2det (c) for t, c in zip (ugg.ci_transformers[0], ci0_csf)]
+        las_gorb, las_gci = las.get_grad (mo_coeff=mf_df.mo_coeff, ci=[ci0])[:2]
         las_grad = np.append (las_gorb, las_gci)
-        las_hess = las.get_hop (ugg=ugg, mo_coeff=mf_df.mo_coeff, ci=[[ci0]])
+        las_hess = las.get_hop (ugg=ugg, mo_coeff=mf_df.mo_coeff, ci=[ci0])
         self.assertAlmostEqual (lib.fp (las_grad), lib.fp (las_hess.get_grad ()), 8)
         cas_grad, _, cas_hess, _ = newton_casscf.gen_g_hop (mc_df, mf_df.mo_coeff, ci0, mc_df.ao2mo (mf_df.mo_coeff))
         _pack_ci, _unpack_ci = newton_casscf._pack_ci_get_H (mc_df, mf_df.mo_coeff, ci0)[-2:]
@@ -130,16 +127,14 @@ class KnownValues(unittest.TestCase):
             return mc_df.unpack_uniq_var (x[:ugg.nvar_orb]), _unpack_ci (x[ugg.nvar_orb:])
         def cas2las (y, mode='hx'):
             yorb, yci = unpack_cas (y)
-            yc = yci[0].ravel ().dot (ci0.ravel ())
-            yci[0] -= yc * ci0
+            yci = [2 * (yc - c * c.ravel ().dot (yc.ravel ())) for c, yc in zip (ci0, yci)]
             yorb *= (0.5 if mode=='hx' else 1)
             return ugg.pack (yorb, [yci])
         def las2cas (y, mode='x'):
             yorb, yci = ugg.unpack (y)
-            yc = yci[0][0].ravel ().dot (ci0.ravel ())
-            yci[0][0] -= yc * ci0
+            yci = [yc - c * c.ravel ().dot (yc.ravel ()) for c, yc in zip (ci0, yci[0])]
             yorb *= (0.5 if mode=='x' else 1)
-            return pack_cas (yorb, yci[0])
+            return pack_cas (yorb, yci)
         cas_grad = cas2las (cas_grad)
         self.assertAlmostEqual (lib.fp (las_grad), lib.fp (cas_grad), 8)
         x = np.random.rand (ugg.nvar_tot)
@@ -149,21 +144,19 @@ class KnownValues(unittest.TestCase):
         x_cas = las2cas (x_las, mode='x')
         hx_las = las_hess._matvec (x_las)
         hx_cas = cas2las (cas_hess (x_cas), mode='x')
-        self.assertAlmostEqual (lib.fp (hx_las[:ugg.nvar_orb]), lib.fp (hx_cas[:ugg.nvar_orb]), 8)
-        self.assertAlmostEqual (lib.fp (hx_las[ugg.nvar_orb:]), lib.fp (hx_cas[ugg.nvar_orb:]), 8)
+        self.assertAlmostEqual (lib.fp (hx_las), lib.fp (hx_cas), 8)
         # CI on input
         x_las = x.copy ()
         x_las[:ugg.nvar_orb] = 0.0
         x_cas = las2cas (x_las, mode='hx')
         hx_las = las_hess._matvec (x_las)
         hx_cas = cas2las (cas_hess (x_cas), mode='hx')
-        self.assertAlmostEqual (lib.fp (hx_las[:ugg.nvar_orb]), lib.fp (hx_cas[:ugg.nvar_orb]), 8)
-        self.assertAlmostEqual (lib.fp (hx_las[ugg.nvar_orb:]), lib.fp (hx_cas[ugg.nvar_orb:]), 8)
+        self.assertAlmostEqual (lib.fp (hx_las), lib.fp (hx_cas), 8)
         # I have to do these separately because there is no straightforward way
         # for H_co, H_oc, and H_cc to all be simultaneously correct given the
         # convention difference 
 
 if __name__ == "__main__":
-    print("Full Tests for LASSCF me2n2")
+    print("Full Tests for SA-LASSCF me2n2")
     unittest.main()
 

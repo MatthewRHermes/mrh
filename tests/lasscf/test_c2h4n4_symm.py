@@ -21,67 +21,37 @@ from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
 
 dr_nn = 3.0
-mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
+mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
 mol.verbose = lib.logger.DEBUG
 mol.output = '/dev/null'
 mol.build ()
 mf = scf.RHF (mol).run ()
 mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()
 
-mol_hs = mol.copy ()
-mol_hs.spin = 8
-mol_hs.build ()
-mf_hs = scf.RHF (mol_hs).run ()
-mf_hs_df = mf_hs.density_fit (auxbasis = df.aug_etb (mol_hs)).run ()
-
 frags = (list (range (3)), list (range (7,10)))
 
 def tearDownModule():
-    global mol, mf, mf_df, mol_hs, mf_hs, mf_hs_df
+    global mol, mf, mf_df
     mol.stdout.close ()
-    mol_hs.stdout.close ()
-    del mol, mf, mf_df, mol_hs, mf_hs, mf_hs_df
+    del mol, mf, mf_df 
 
 
 class KnownValues(unittest.TestCase):
-    def test_dia (self):
+
+    def test_symm (self):
         las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
         mo_coeff = las.localize_init_guess (frags)
         las.kernel (mo_coeff)
         self.assertAlmostEqual (las.e_tot, -295.44779578419946, 7)
 
-    def test_dia_df (self):
+    def test_symm_df (self):
         las = LASSCF (mf_df, (4,4), (4,4), spin_sub=(1,1))
         mo_coeff = las.localize_init_guess (frags)
         las.kernel (mo_coeff)
         self.assertAlmostEqual (las.e_tot, -295.44716017803967, 7)
-
-    def test_ferro (self):
-        las = LASSCF (mf_hs, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
-        mo_coeff = las.localize_init_guess (frags)
-        las.kernel (mo_coeff)
-        self.assertAlmostEqual (las.e_tot, mf_hs.e_tot, 7)
-
-    def test_ferro_df (self):
-        las = LASSCF (mf_hs_df, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
-        mo_coeff = las.localize_init_guess (frags)
-        las.kernel (mo_coeff)
-        self.assertAlmostEqual (las.e_tot, mf_hs_df.e_tot, 7)
-
-    def test_af (self):
-        las = LASSCF (mf_hs, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
-        mo_coeff = las.localize_init_guess (frags)
-        las.kernel (mo_coeff)
-        self.assertAlmostEqual (las.e_tot, -295.44724798042466, 7)
-
-    def test_af_df (self):
-        las = LASSCF (mf_hs_df, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
-        mo_coeff = las.localize_init_guess (frags)
-        las.kernel (mo_coeff)
-        self.assertAlmostEqual (las.e_tot, -295.4466638852035, 7)
-
+        
 
 if __name__ == "__main__":
-    print("Full Tests for LASSCF c2h4n4")
+    print("Full Tests for LASSCF c2h4n4 with symmetry")
     unittest.main()
 

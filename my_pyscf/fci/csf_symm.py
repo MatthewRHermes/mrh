@@ -6,8 +6,7 @@ from pyscf.fci import direct_spin1_symm, cistring, direct_uhf
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.fci.direct_spin1_symm import _gen_strs_irrep, _id_wfnsym
-from mrh.my_pyscf.fci.csdstring import make_csd_mask, make_econf_det_mask, pretty_ddaddrs
-from mrh.my_pyscf.fci.csfstring import transform_civec_det2csf, transform_civec_csf2det, transform_opmat_det2csf, count_all_csfs, make_econf_csf_mask, make_confsym
+from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf, make_hdiag_det, unpack_h1e_cs
 '''
     MRH 03/24/2019
@@ -33,10 +32,7 @@ class FCISolver (direct_spin1_symm.FCISolver):
 
     def __init__(self, mol=None, smult=None):
         self.smult = smult
-        self.csd_mask = self.econf_det_mask = self.econf_csf_mask = None
-        self.mask_cache = [0, 0, 0, 0]
-        self.confsym = None
-        self.orbsym_cache = None
+        self.transformer = None
         super().__init__(mol)
 
     make_hdiag = make_hdiag_det
@@ -55,30 +51,15 @@ class FCISolver (direct_spin1_symm.FCISolver):
         return hc
 
     def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
-        self.check_mask_cache ()
-        return make_hdiag_csf (h1e, eri, norb, nelec, self.smult, csd_mask=self.csd_mask, hdiag_det=hdiag_det)
-
-    def get_init_guess(self, norb, nelec, nroots, hdiag_csf):
-        ''' The existing _get_init_guess function will work in the csf basis if I pass it with na, nb = ncsf, 1. This might change in future PySCF versions though. 
-
-        ...For point-group symmetry, I pass the direct_spin1.py version of _get_init_guess with na, nb = ncsf_sym, 1 and hdiag_csf including only csfs of the right point-group symmetry.
-        This should clean up the symmetry-breaking "noise" in direct_spin0_symm.py! '''
-        wfnsym = _id_wfnsym(self, norb, nelec, self.orbsym, self.wfnsym)
-        wfnsym_str = symm.irrep_id2name (self.mol.groupname, wfnsym)
-        self.check_mask_cache ()
-        idx_sym = self.confsym[self.econf_csf_mask] == wfnsym
-        return get_init_guess (norb, nelec, nroots, hdiag_csf, smult=self.smult, csd_mask=self.csd_mask,
-            wfnsym_str=wfnsym_str, idx_sym=idx_sym)
+        self.norb, self.nelec = norb, nelec
+        self.check_transformer_cache ()
+        return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
 
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
-        self.check_mask_cache ()
-        if 'wfnsym' in kwargs:
-            idx_sym = self.confsym[self.econf_csf_mask] == kwargs['wfnsym']
-        else:
-            idx_sym = self.confsym[self.econf_csf_mask] == self.wfnsym
-        return pspace (self, h1e, eri, norb, nelec, self.smult, hdiag_det=hdiag_det,
-            hdiag_csf=hdiag_csf, npsp=npsp, csd_mask=self.csd_mask, idx_sym=idx_sym,
-            econf_det_mask=self.econf_det_mask, econf_csf_mask=self.econf_csf_mask)
+        self.norb, self.nelec = norb, nelec
+        self.check_transformer_cache ()
+        return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
+            hdiag_csf=hdiag_csf, npsp=npsp)
 
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         ''' Over the top of the existing kernel, I just need to set the parameters and cache values related to spin.
@@ -108,25 +89,44 @@ class FCISolver (direct_spin1_symm.FCISolver):
         wfnsym = self.guess_wfnsym(norb, nelec, ci0, **kwargs)
         self.wfnsym = wfnsym
         kwargs['wfnsym'] = wfnsym
-        self.check_mask_cache ()
+        self.check_transformer_cache ()
 
-        idx_sym = self.confsym[self.econf_csf_mask] == wfnsym
-        e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult, idx_sym=idx_sym, ci0=ci0, **kwargs)
+        idx_sym = self.transformer.confsym[self.transformer.econf_csf_mask] == wfnsym
+        e, c = kernel (self, h1e, eri, norb, nelec, smult=self.smult, idx_sym=idx_sym, ci0=ci0, transformer=self.transformer, **kwargs)
         self.eci, self.ci = e, c
 
         self.orbsym = orbsym_back
         self.wfnsym = wfnsym_back
         return e, c
 
-    def check_mask_cache (self):
+    def get_init_guess (self, norb, nelec, nroots, hdiag_csf, **kwargs):
+        orbsym = kwargs['orbsym'] if 'orbsym' in kwargs else self.orbsym
+        wfnsym = kwargs['wfnsym'] if 'wfnsym' in kwargs else self.wfnsym
+        self.orbsym = orbsym
+        self.wfnsym = wfnsym
+        assert ((self.orbsym is not None) and (self.wfnsym is not None))
+        self.norb = norb
+        self.nelec = nelec
+        self.check_transformer_cache ()
+        return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
+           
+
+    def check_transformer_cache (self):
         assert (isinstance (self.smult, (int, np.number)))
         neleca, nelecb = _unpack_nelec (self.nelec)
-        if self.mask_cache != [self.norb, neleca, nelecb, self.smult] or self.csd_mask is None:
-            self.csd_mask = make_csd_mask (self.norb, neleca, nelecb)
-            self.econf_det_mask = make_econf_det_mask (self.norb, neleca, nelecb, self.csd_mask)
-            self.econf_csf_mask = make_econf_csf_mask (self.norb, neleca, nelecb, self.smult)
-            self.mask_cache = [self.norb, neleca, nelecb, self.smult]
-        if self.orbsym_cache is None or (not np.all (self.orbsym == self.orbsym_cache)):
-            self.confsym = make_confsym (self.norb, neleca, nelecb, self.econf_det_mask, self.orbsym)
-            self.orbsym_cache = np.array (self.orbsym, copy=True)
+        if isinstance (self.wfnsym, str):
+            wfnsym = symm.irrep_name2id (self.mol.groupname, self.wfnsym)
+        else:
+            wfnsym = self.wfnsym
+        if self.transformer is None:
+            self.transformer = CSFTransformer (self.norb, neleca, nelecb, self.smult, orbsym=self.orbsym, wfnsym=wfnsym)
+        else:
+            self.transformer._update_spin_cache (self.norb, neleca, nelecb, self.smult)
+            self.transformer._update_symm_cache (self.orbsym)
+            self.transformer.wfnsym = wfnsym
+
+
+
+
+
 

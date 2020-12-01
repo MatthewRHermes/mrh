@@ -96,6 +96,7 @@ class fragment_object:
         self.quasifrag_ovlp = False
         self.quasifrag_gradient = True
         self.approx_hessbath = True
+        self.conv_tol_grad = 1e-4
         for key in kwargs:
             if key in self.__dict__:
                 self.__dict__[key] = kwargs[key]

@@ -2,7 +2,7 @@ import numpy as np
 import unittest
 from pyscf import gto, scf, mcscf, lib
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.mcscf.sanmix_fci import state_average_n_mix
+from mrh.my_pyscf.mcscf.addons import state_average_n_mix
 
 mol = gto.M (atom = 'O 0 0 0; H 1.145 0 0', basis='6-31g', symmetry=True, charge=-1, spin=0, verbose=0, output='/dev/null')
 mf = scf.RHF (mol).set (conv_tol=1e-10).run ()

@@ -147,7 +147,7 @@ void FCICSFmakecsf (double * umat, uint64_t * detstr, uint64_t * coupstr, int ns
 void FCICSFmakeS2mat (double * S2mat, uint64_t * detstr, int ndet, int nspin, int twoS, int twoMS)
 {
 
-    int nflip, iflip, idet, jdet;
+    int nflip, iflip, idet, jdet, osgn, sgn;
     uint64_t flipdet;
     double sz2 = (double) twoMS * twoMS / 4;
     double diag = sz2 + (double) nspin / 2;
@@ -159,12 +159,17 @@ void FCICSFmakeS2mat (double * S2mat, uint64_t * detstr, int ndet, int nspin, in
             S2mat[idet*ndet + jdet] = diag;
             continue;
         }
+        osgn = -1;
+        sgn = 1;
         for (iflip = 0; iflip < nspin; iflip++){
+            osgn *= -1;
+            if ((1ULL << iflip) & detstr[idet]){ sgn *= osgn; }
+            if ((1ULL << iflip) & detstr[jdet]){ sgn *= osgn; }
             if ((1ULL << iflip) & flipdet){ nflip++; }
             if (nflip > 2){ break; }
         }
         if (nflip == 2){
-            S2mat[idet*ndet + jdet] = 1.0;
+            S2mat[idet*ndet + jdet] = sgn * 1.0;
         }
     }}
 

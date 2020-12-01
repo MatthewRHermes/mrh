@@ -60,7 +60,7 @@ def solve (frag, guess_1RDM, chempot_imp):
     mol = gto.Mole()
     abs_2MS = int (round (2 * abs (frag.target_MS)))
     abs_2S = int (round (2 * abs (frag.target_S)))
-    sign_MS = np.sign (frag.target_MS) or 1
+    sign_MS = int (np.sign (frag.target_MS)) or 1
     mol.spin = abs_2MS
     mol.verbose = 0 
     if frag.mol_stdout is None:
@@ -91,7 +91,7 @@ def solve (frag, guess_1RDM, chempot_imp):
         mf.with_df._cderi = frag.impham_CDERI
     else:
         mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
-    mf = fix_my_RHF_for_nonsinglet_env (mf, sign_MS * frag.impham_OEI_S)
+    mf = fix_my_RHF_for_nonsinglet_env (mf, frag.impham_OEI_S)
     mf.__dict__.update (frag.mf_attr)
     if guess_orbs_av: mf.max_cycle = 2
     mf.scf (guess_1RDM)
@@ -113,7 +113,7 @@ def solve (frag, guess_1RDM, chempot_imp):
             mf.get_hcore = lambda *args: OEI
             mf.get_ovlp = lambda *args: np.eye(frag.norbs_imp)
             mf._eri = ao2mo.restore(8, frag.impham_TEI, frag.norbs_imp)
-            mf = fix_my_RHF_for_nonsinglet_env (mf, sign_MS * frag.impham_OEI_S)
+            mf = fix_my_RHF_for_nonsinglet_env (mf, frag.impham_OEI_S)
             mf.scf (guess_1RDM)
             if not mf.converged:
                 mf = mf.newton ()
@@ -130,9 +130,9 @@ def solve (frag, guess_1RDM, chempot_imp):
         CASe = frag.nelec_imp
         CASorb = frag.norbs_imp
     if (abs_2MS > abs_2S):
-        CASe = ((CASe + abs_2S) // 2, (CASe - abs_2S) // 2)
+        CASe = ((CASe + sign_MS * abs_2S) // 2, (CASe - sign_MS * abs_2S) // 2)
     else:
-        CASe = ((CASe + abs_2MS) // 2, (CASe - abs_2MS) // 2)
+        CASe = ((CASe + sign_MS * abs_2MS) // 2, (CASe - sign_MS * abs_2MS) // 2)
     if frag.impham_CDERI is not None:
         mc = mcscf.DFCASSCF(mf, CASorb, CASe)
     else:
@@ -141,11 +141,11 @@ def solve (frag, guess_1RDM, chempot_imp):
     mc.fcisolver = csf_solver (mf.mol, smult, symm=frag.enforce_symmetry)
     if frag.enforce_symmetry: mc.fcisolver.wfnsym = frag.wfnsym
     mc.max_cycle_macro = 50 if frag.imp_maxiter is None else frag.imp_maxiter
-    mc.ah_start_tol =1e-10
-    mc.ah_conv_tol = 1e-10
-    mc.conv_tol = 1e-9
+    mc.conv_tol = min (1e-9, frag.conv_tol_grad**2)  
+    mc.ah_start_tol = mc.conv_tol / 10
+    mc.ah_conv_tol = mc.conv_tol / 10
     mc.__dict__.update (frag.corr_attr)
-    mc = fix_my_CASSCF_for_nonsinglet_env (mc, sign_MS * frag.impham_OEI_S)
+    mc = fix_my_CASSCF_for_nonsinglet_env (mc, frag.impham_OEI_S)
     norbs_amo = mc.ncas
     norbs_cmo = mc.ncore
     norbs_imo = frag.norbs_imp - norbs_amo
@@ -437,7 +437,7 @@ def fix_my_CASSCF_for_nonsinglet_env (mc, h1e_s):
 
         def kernel (self, h1e, eri, norb, nelec, ci0=None, **kwargs):
             if np.asarray (h1e).ndim == 2:
-                h1e = [h1e, h1e_s_amo]
+                h1e = [h1e + h1e_s_amo, h1e - h1e_s_amo]
             return super().kernel (h1e, eri, norb, nelec, ci0=ci0, **kwargs)
 
         def make_rdm12 (self, ci, ncas, nelecas, link_index=None):

@@ -35,7 +35,7 @@ def make_csd_mask (norb, neleca, nelecb):
     mask = np.empty (ndeta*ndetb, dtype=np.uint32)
     min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size = get_csdaddrs_shape (norb, neleca, nelecb)
     pair_size = npair_dconf_size * npair_sconf_size * npair_spins_size
-    for npair in range (min_npair, nelecb+1):
+    for npair in range (min_npair, min (neleca, nelecb)+1):
         ipair = npair - min_npair
         nspin = neleca + nelecb - 2*npair
         mask[npair_offset[ipair]:][:pair_size[ipair]] = get_nspin_dets (norb, neleca, nelecb, nspin).flat
@@ -52,7 +52,7 @@ def make_econf_det_mask (norb, neleca, nelecb, csd_mask):
     npair_conf_size = npair_dconf_size * npair_sconf_size
     npair_det_size = npair_conf_size * npair_spins_size
     iconf = 0
-    for npair in range (min_npair, nelecb+1):
+    for npair in range (min_npair, min (neleca, nelecb)+1):
         ipair = npair - min_npair
         irange = np.arange (iconf, iconf+npair_conf_size[ipair], dtype=np.uint32)
         iconf += npair_conf_size[ipair]
@@ -141,7 +141,7 @@ def csdstrs2csdaddrs (norb, neleca, nelecb, csdstrs):
     assert (len (csdstrs[0]) == len (csdstrs[3]))
     min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size = get_csdaddrs_shape (norb, neleca, nelecb)
     csdaddrs = np.empty (len (csdstrs[0]), dtype=np.int32)
-    for npair, offset, dconf_size, sconf_size, spins_size in zip (range (min_npair, nelecb+1), 
+    for npair, offset, dconf_size, sconf_size, spins_size in zip (range (min_npair, min (neleca, nelecb)+1), 
             npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size):
         nspins = neleca + nelecb - 2*npair
         nup = (nspins + neleca - nelecb) // 2
@@ -165,7 +165,7 @@ def csdaddrs2csdstrs (norb, neleca, nelecb, csdaddrs):
     t_start = time.time ()
     min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size = get_csdaddrs_shape (norb, neleca, nelecb)
     csdstrs = np.empty ((4, len (csdaddrs)), dtype=np.int64)
-    for npair, offset, dconf_size, sconf_size, spins_size in zip (range (min_npair, nelecb+1), 
+    for npair, offset, dconf_size, sconf_size, spins_size in zip (range (min_npair, min (neleca, nelecb)+1), 
             npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size):
         nspins = neleca + nelecb - 2*npair
         nup = (nspins + neleca - nelecb) // 2
@@ -242,15 +242,16 @@ def get_csdaddrs_shape (norb, neleca, nelecb):
         npair_spins_size, 1d ndarray of integers
             npair_spins_size[i] = number of states of neleca+nelecb - 2*npair spins with MS = (neleca - nelecb) / 2
     '''
-    assert (neleca >= nelecb)
+    #assert (neleca >= nelecb)
+    nless = min (neleca, nelecb)
     min_npair = max (0, neleca + nelecb - norb)
-    nspins = [neleca + nelecb - 2*npair for npair in range (min_npair, nelecb+1)]
-    nfreeorbs = [norb - npair for npair in range (min_npair, nelecb+1)]
+    nspins = [neleca + nelecb - 2*npair for npair in range (min_npair, nless+1)]
+    nfreeorbs = [norb - npair for npair in range (min_npair, nless+1)]
     nas = [(nspin + neleca - nelecb) // 2 for nspin in nspins]
     for nspin in nspins:
         assert ((nspin + neleca - nelecb) % 2 == 0)
 
-    npair_dconf_size = np.asarray ([int (round (special.binom (norb, npair))) for npair in range (min_npair, nelecb+1)], dtype=np.int32)
+    npair_dconf_size = np.asarray ([int (round (special.binom (norb, npair))) for npair in range (min_npair, nless+1)], dtype=np.int32)
     npair_sconf_size = np.asarray ([int (round (special.binom (nfreeorb, nspin))) for nfreeorb, nspin in zip (nfreeorbs, nspins)], dtype=np.int32)
     npair_spins_size = np.asarray ([int (round (special.binom (nspin, na))) for nspin, na in zip (nspins, nas)], dtype=np.int32)
 

@@ -57,7 +57,8 @@ class dmet:
                     minFunc='FOCK_INIT', print_u=False,
                     print_rdm=True, debug_energy=False, debug_reloc=False, oldLASSCF=False,
                     nelec_int_thresh=1e-6, chempot_init=0.0, num_mf_stab_checks=0,
-                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0, do_conv_molden=False ):
+                    corrpot_maxiter=50, orb_maxiter=50, chempot_tol=1e-6, corrpot_mf_moldens=0, do_conv_molden=False,
+                    conv_tol_grad=1e-4 ):
 
 
         if isTranslationInvariant:
@@ -104,6 +105,7 @@ class dmet:
         self.lasci_log                = None
         self.oldLASSCF                = oldLASSCF
         self.do_conv_molden           = do_conv_molden
+        self.conv_tol_grad            = conv_tol_grad
 
         self.verbose = self.ints.mol.verbose
         for frag in self.fragments:
@@ -526,6 +528,36 @@ class dmet:
         self.check_fragment_symmetry_breaking (verbose=False, do_break=True)
         rdm = np.zeros ((self.norbs_tot, self.norbs_tot))
         print ("RHF energy =", self.ints.fullEhf)
+        for f in self.fragments:
+            f.conv_tol_grad = self.conv_tol_grad
+
+        if self.doLASSCF:
+            w0, t0 = time.time (), time.clock ()
+            active_frags = [f for f in self.fragments if f.active_space]
+            nelec_amo = sum (f.active_space[0] for f in active_frags)
+            ncore = (self.ints.nelec_tot - nelec_amo) // 2
+            ncas_sub = []
+            nelecas_sub = []
+            spin_sub = []
+            wfnsym_sub = []
+            ci0 = []
+            for f in active_frags:
+                neleca = int (round ((f.active_space[0]/2) + f.target_MS))
+                nelecb = int (round ((f.active_space[0]/2) - f.target_MS))
+                ncas_sub.append (f.active_space[1])
+                nelecas_sub.append ((neleca, nelecb))
+                spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
+                wfnsym_sub.append (f.wfnsym)
+            if self.lasci_log is None:
+                mol = self.ints.mol.copy ()
+                if mol.verbose: mol.output = self.calcname + '_lasci.log'
+                mol.build ()
+                self.lasci_log = mol.stdout
+            frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
+            self.las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
+            self.las.conv_tol_grad = self.conv_tol_grad
+            print ("Time preparing LASCI object: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+
 
         # Initial lasci cycle!
         if self.doLASSCF and sum ([f.norbs_as for f in self.fragments]):
@@ -573,8 +605,8 @@ class dmet:
         # Find the chemical potential for the correlated impurity problem
         myiter = iters[-1][-1]
         nextiter = 0
-        orb_diff = 1.0
-        convergence_threshold = 1e-5 if self.oldLASSCF else 1e-4
+        orb_diff = [1.0e-3]
+        convergence_threshold = 1e-5 if self.oldLASSCF else self.conv_tol_grad
         while (np.any (np.asarray (orb_diff) > convergence_threshold)):
             lower_iters = iters + [('orbs', nextiter)]
             orb_diff = self.doselfconsistent_orbs (lower_iters)
@@ -1398,11 +1430,7 @@ class dmet:
         amo_occ = no_occ[ncore:]
         print (self.ints.nelec_tot, ' electrons total, ', ncore, ' core orbitals w/ occupancy = ',no_occ[:ncore])
         active_frags = [f for f in self.fragments if f.norbs_as]
-        ncas_sub = []
-        nelecas_sub = []
-        casdm0_sub = []
-        spin_sub = []
-        wfnsym_sub = []
+        casdm0_fr = []
         ci0 = []
         for f in active_frags:
             amo = loc2amo[:,:f.norbs_as]
@@ -1416,37 +1444,24 @@ class dmet:
             neleca = int (round ((f.active_space[0]/2) + f.target_MS))
             nelecb = int (round ((f.active_space[0]/2) - f.target_MS))
             print ("MATT CHECK THIS: (neleca, nelecb) = ({:.3f}, {:.3f}) vs desired ({},{})".format (np.trace (dma), np.trace (dmb), neleca, nelecb))
-            ncas_sub.append (f.norbs_as)
-            nelecas_sub.append ((neleca, nelecb))
-            casdm0_sub.append (np.stack ([dma, dmb], axis=0))
-            spin_sub.append (int (round ((2 * abs (f.target_S)) + 1)))
-            wfnsym_sub.append (f.wfnsym)
+            casdm0_fr.append (np.stack ([dma, dmb], axis=0)[None,:,:,:]) # TODO: generalize for SA-LASSCF
             if f.ci_as is not None:
                 umat = f.ci_as_orb.conjugate ().T @ amo
                 nel = (neleca, nelecb)
                 if nelecb > neleca: nel = (nelecb, neleca)
-                ci0.append (transform_ci_for_orbital_rotation (f.ci_as, f.norbs_as, nel, umat))
-        w0, t0 = time.time (), time.clock ()
-        if self.lasci_log is None: 
-            mol = self.ints.mol.copy ()
-            if mol.verbose: mol.output = self.calcname + '_lasci.log'
-            mol.build ()
-            self.lasci_log = mol.stdout
-        frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
-        las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
-        print ("Time preparing LASCI object: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
-        w0, t0 = time.time (), time.clock ()
-        las.stdout = self.lasci_log
-        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_sub):
-            casdm0_sub = None
+                ci0.append ([transform_ci_for_orbital_rotation (f.ci_as, f.norbs_as, nel, umat)]) # TODO: generalize for SA-LASSCF
+        self.las.stdout = self.lasci_log
+        if all ([x is not None] for x in ci0) and len (ci0) == len (casdm0_fr):
+            casdm0_fr = None
         else:
             ci0 = None
-        e_tot, _, ci_sub, _, _, h2eff_sub, veff = las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_sub = casdm0_sub)
-        if not las.converged:
+        w0, t0 = time.time (), time.clock ()
+        e_tot, _, ci_sub, _, _, h2eff_sub, veff = self.las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_fr = casdm0_fr)
+        if not self.las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))
         print ("Time in LASCI module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
-        return las, h2eff_sub, veff
+        return self.las, h2eff_sub, veff
 
     def lasci_ (self, dm0=None, loc2wmas=None):
         ''' Do LASCI and then also update the fragment and ints object '''
@@ -1462,6 +1477,7 @@ class dmet:
         eri_gradient = eri_gradient.reshape ((las.mo_coeff.shape[-1], las.ncas, las.ncas, las.ncas))
         eri_gradient = np.tensordot (loc2mo, eri_gradient, axes=1)
         for ix, (loc2amo, ci, oneRDMs_amo_loc, f) in enumerate (zip (loc2amo_sub, las.ci, oneRDMs_loc_sub, active_frags)):
+            ci = ci[0] # TODO: generalize for SA-LASSCF
             dma, dmb = oneRDMs_amo_loc
             print ("MATT CHECK THIS AGAIN: (neleca, nelecb) = ({:.3f}, {:.3f})".format (np.trace (dma), np.trace (dmb)))
             f.loc2amo = loc2amo.copy () # Definitely copy this because it is explicitly a slice
@@ -1485,5 +1501,5 @@ class dmet:
             f.eri_gradient = eri_gradient[:,i:j,i:j,i:j]
             eri = np.tensordot (loc2amo.conjugate (), f.eri_gradient, axes=((0),(0)))
             f.E2_cum = (casdm2c * eri).sum () / 2
-        return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff)
+        return las.e_tot, las.get_grad (h2eff_sub=h2eff_sub, veff=veff.sa)
 

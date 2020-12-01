@@ -600,11 +600,11 @@ def matrix_eigen_control_options (the_matrix, b_matrix=None, symmetry=None, stro
     # Now for the actual damn kernel            
     # Subtract a diagonal average from the matrix to fight rounding error
     diag_avg = np.eye (the_matrix.shape[0]) * np.mean (np.diag (the_matrix))
-    pMq = np.asmatrix (the_matrix - diag_avg)
-    qSr = None if b_matrix is None else np.asmatrix (b_matrix)
+    pMq = the_matrix - diag_avg
+    qSr = None if b_matrix is None else b_matrix
     # Use hermitian diagonalizer if possible and don't do anything if the matrix is already diagonal
     evals = np.diagonal (pMq)
-    evecs = np.asmatrix (np.eye (len (evals), dtype=evals.dtype))
+    evecs = np.eye (len (evals), dtype=evals.dtype)
     if not is_matrix_diagonal (pMq):
         evals, evecs = scipy.linalg.eigh (pMq, qSr) if is_matrix_hermitian (pMq) else scipy.linalg.eig (pMq, qSr)
     # Add the diagonal average to the eigenvalues when returning!
@@ -732,8 +732,8 @@ def align_degenerate_coupled_vecs (lvecs, svals, rvecs, lsymm, rsymm, rtol=param
             proj = lv[:,idx] @ rv[:,idx].conjugate ().T
             symmweight = []
             for lbl in uniq_labels:
-                row_idx = lsymm==lbl if len (lsymm) > 0 else np.ones (p.shape[0], dtype=bool)
-                col_idx = rsymm==lbl if len (rsymm) > 0 else np.ones (p.shape[1], dtype=bool)
+                row_idx = lsymm==lbl if len (lsymm) > 0 else np.ones (proj.shape[0], dtype=bool)
+                col_idx = rsymm==lbl if len (rsymm) > 0 else np.ones (proj.shape[1], dtype=bool)
                 symmweight.append (scipy.linalg.norm (proj[np.ix_(row_idx,col_idx)]))
             ll[idx] = uniq_labels[np.argmax (symmweight)]
         idx_unchk[idx] = False
