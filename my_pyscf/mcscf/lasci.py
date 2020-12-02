@@ -1005,10 +1005,11 @@ def canonicalize (las, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2
     # Inactive-inactive
     orbsym_i = None if orbsym is None else orbsym[:ncore]
     fock_i = fock[:ncore,:ncore]
-    ene, umat[:ncore,:ncore] = las._eig (fock_i, 0, 0, orbsym_i)
-    idx = np.argsort (ene)
-    umat[:ncore,:ncore] = umat[:ncore,:ncore][:,idx]
-    if orbsym_i is not None: orbsym[:ncore] = orbsym[:ncore][idx]
+    if ncore:
+        ene, umat[:ncore,:ncore] = las._eig (fock_i, 0, 0, orbsym_i)
+        idx = np.argsort (ene)
+        umat[:ncore,:ncore] = umat[:ncore,:ncore][:,idx]
+        if orbsym_i is not None: orbsym[:ncore] = orbsym[:ncore][idx]
     # Active-active
     check_diag = natorb_casdm1.copy ()
     for ix, ncas in enumerate (ncas_sub):
@@ -1037,16 +1038,17 @@ def canonicalize (las, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2
         umat[ncore:nocc,ncore:nocc] = umat[ncore:nocc,ncore:nocc][:,idx]
         if orbsym_cas is not None: orbsym[ncore:nocc] = orbsym[ncore:nocc][idx]
     # External-external
-    orbsym_i = None if orbsym is None else orbsym[nocc:]
-    fock_i = fock[nocc:,nocc:]
-    ene, umat[nocc:,nocc:] = las._eig (fock_i, 0, 0, orbsym_i)
-    idx = np.argsort (ene)
-    umat[nocc:,nocc:] = umat[nocc:,nocc:][:,idx]
-    if orbsym_i is not None: orbsym[nocc:] = orbsym[nocc:][idx]
+    if nmo-nocc:
+        orbsym_i = None if orbsym is None else orbsym[nocc:]
+        fock_i = fock[nocc:,nocc:]
+        ene, umat[nocc:,nocc:] = las._eig (fock_i, 0, 0, orbsym_i)
+        idx = np.argsort (ene)
+        umat[nocc:,nocc:] = umat[nocc:,nocc:][:,idx]
+        if orbsym_i is not None: orbsym[nocc:] = orbsym[nocc:][idx]
 
     # Final
-    mo_occ = np.zeros (nmo, dtype=ene.dtype)
-    mo_occ[:ncore] = 2
+    mo_occ = np.zeros (nmo, dtype=natorb_casdm1.dtype)
+    if ncore: mo_occ[:ncore] = 2
     ucas = umat[ncore:nocc,ncore:nocc]
     mo_occ[ncore:nocc] = ((natorb_casdm1 @ ucas) * ucas).sum (0)
     mo_ene = ((fock @ umat) * umat.conjugate ()).sum (0)
@@ -1196,9 +1198,15 @@ class LASCINoSymm (casci.CASCI):
                 eri_comp = self.with_df.ao2mo (mo, compact=True)
                 lib.logger.debug (self, "CDERI two-step error: {}".format (linalg.norm (eri-eri_comp)))
         elif getattr (self._scf, '_eri', None) is not None:
-            eri = ao2mo.incore.general (self._scf._eri, mo, compact=True).reshape (nmo, -1)
+            eri = ao2mo.incore.general (self._scf._eri, mo, compact=True)
         else:
-            eri = ao2mo.outcore.general_iofree (self.mol, mo, compact=True).reshape (nmo, -1)
+            eri = ao2mo.outcore.general_iofree (self.mol, mo, compact=True)
+        if eri.shape != (nmo,ncas*ncas*(ncas+1)//2):
+            try:
+                eri = eri.reshape (nmo, ncas*ncas*(ncas+1)//2)
+            except ValueError as e:
+                assert (nmo == ncas), str (e)
+                eri = ao2mo.restore ('2kl', eri, nmo).reshape (nmo, ncas*ncas*(ncas+1)//2)
         return eri
 
     def get_h2eff_slice (self, h2eff, idx, compact=None):
