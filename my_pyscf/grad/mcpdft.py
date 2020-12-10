@@ -160,7 +160,8 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             aoval = np.ascontiguousarray ([ao[ix].transpose (0,2,1) for ix in idx[:,:ndao]]).transpose (0,1,3,2)
             ao = None
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao grid reshape'.format (ia), *t1)
-            eot, vrho, vot = ot.eval_ot (rho, Pi, weights=w0[ip0:ip1])
+            eot, vot = ot.eval_ot (rho, Pi, weights=w0[ip0:ip1])[:2]
+            vrho, vPi = vot
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} eval_ot'.format (ia), *t1)
             puvx_mem = 2 * ndpi * (ip1-ip0) * ncas * ncas * 8 / 1e6
             remaining_mem = max_memory - current_memory ()[0]
@@ -175,7 +176,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             k = full_atmlst[ia]
 
             # Vpq + Vpqrs * Drs ; I'm not sure why the list comprehension down there doesn't break ao's stride order but I'm not complaining
-            vrho = _contract_vot_rho (vot, rho.sum (0), add_vrho=vrho)
+            vrho = _contract_vot_rho (vPi, rho.sum (0), add_vrho=vrho)
             tmp_dv = np.stack ([ot.get_veff_1body (rho, Pi, [ao_i, moval_occ], w0[ip0:ip1], kern=vrho) for ao_i in aoval], axis=0)
             tmp_dv = (tmp_dv * mo_occ[None,:,:] * mo_occup[None,None,:nocc]).sum (2)
             if k >= 0: de_grid[k] += 2 * tmp_dv.sum (1) # Grid response
@@ -185,7 +186,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
             # Vpuvx * Lpuvx ; remember the stupid slowest->fastest->medium stride order of the ao grid arrays
             moval_cas = moval_occ = np.ascontiguousarray (moval_occ[...,ncore:].transpose (0,2,1)).transpose (0,2,1)
-            tmp_dv = ot.get_veff_2body_kl (rho, Pi, moval_cas, moval_cas, w0[ip0:ip1], symm=True, kern=vot) # ndpi,ngrids,ncas*(ncas+1)//2
+            tmp_dv = ot.get_veff_2body_kl (rho, Pi, moval_cas, moval_cas, w0[ip0:ip1], symm=True, kern=vPi) # ndpi,ngrids,ncas*(ncas+1)//2
             tmp_dv = np.tensordot (tmp_dv, casdm2_pack, axes=(-1,-1)) # ndpi, ngrids, ncas, ncas
             tmp_dv[0] = (tmp_dv[:ndpi] * moval_cas[:ndpi,:,None,:]).sum (0) # Chain and product rule
             tmp_dv[1:ndpi] *= moval_cas[0,:,None,:] # Chain and product rule
@@ -197,7 +198,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             tmp_dv = None
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Vpuvx * Lpuvx'.format (ia), *t1)
 
-            rho = Pi = eot = vot = aoval = moval_occ = moval_cas = None
+            rho = Pi = eot = vot = vPi = aoval = moval_occ = moval_cas = None
             gc.collect ()
 
     for k, ia in enumerate(atmlst):

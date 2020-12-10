@@ -19,10 +19,8 @@ def eval_ot (otfnal, rho, Pi, weights=None):
     Returns: 
         eot : ndarray of shape (ngrids)
             integrand of the on-top exchange-correlation energy
-        vot1 : ndarray of shape (*,ngrids)
-            functional derivative of Eot wrt density and its derivatives
-        vot2 : ndarray of shape (*,ngrids)
-            functional derivative of Eot wrt pair density and its derivatives
+        vot : len=2 tuple of ndarray of shape (*,ngrids)
+            first functional derivative of Eot wrt (density, pair density) and their derivatives
     '''
     nderiv = rho.shape[1]
     rho_t = otfnal.get_rho_translated (Pi, rho, weights=weights)
@@ -50,7 +48,7 @@ def eval_ot (otfnal, rho, Pi, weights=None):
     eot *= rho_t[:,0,:].sum (0)
     vrho = otfnal.get_dEot_drho (rho, Pi, vxc=vxc)
     vot = otfnal.get_dEot_dPi (rho, Pi, vxc=vxc)
-    return eot, vrho, vot
+    return eot, (vrho, vot)
 
 def get_bare_vxc (otfnal, rho, Pi, weights=None):
     r''' get the functional derivatives dE_ot/drho_t.

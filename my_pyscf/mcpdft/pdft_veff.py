@@ -203,7 +203,8 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
         t0 = logger.timer (ot, 'untransformed densities (core and total)', *t0)
         Pi = get_ontop_pair_density (ot, rho, ao, dm1s, twoCDM_amo, ao2amo, dens_deriv, mask)
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
-        eot, vrho, vPi = ot.eval_ot (rho, Pi, weights=weight)
+        eot, vot = ot.eval_ot (rho, Pi, weights=weight)[:2]
+        vrho, vPi = vot
         t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
         veff1 += ot.get_veff_1body (rho, Pi, ao, weight, non0tab=mask, shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
@@ -255,7 +256,8 @@ def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, vef
         t0 = logger.timer (ot, 'untransformed density', *t0)
         Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, dens_deriv, mask)
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
-        eot, vrho, vPi = ot.eval_ot (rho, Pi, weights=weight)
+        eot, vot = ot.eval_ot (rho, Pi, weights=weight)[:2]
+        vrho, vPi = vot
         t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
         veff1 += ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
