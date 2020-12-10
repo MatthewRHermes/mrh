@@ -30,12 +30,22 @@ def eval_ot (otfnal, rho, Pi, weights=None):
     vrho, vsigma = vdens[0], vdens[1]
     vxc = np.zeros_like (rho)
     vxc[:,0,:] = vrho.T
-    # I'm guessing about the factors below based on the idea that only one of the two product-rule terms 
+    # For GGAs, libxc differentiates with respect to
+    #   sigma[0] = nabla^2 rhoa
+    #   sigma[1] = nabla rhoa . nabla rhob
+    #   sigma[2] = nabla^2 rhob
+    # So we have to multiply the Jacobian to obtain the requested derivatives:
+    #   J[0,nabla rhoa] = 2 * nabla rhoa
+    #   J[0,nabla rhob] = 0
+    #   J[1,nabla rhoa] = nabla rhob
+    #   J[1,nabla rhob] = nabla rhoa
+    #   J[2,nabla rhoa] = 0
+    #   J[2,nabla rhob] = 2 * nabla rhob
     if nderiv > 1:
-        vxc[0,1:4,:]  = rho_t[0,1:4] * vsigma[:,0] * 2 # sigma_uu; I'm guessing about the factor based on pyscf.dft.numint._uks_gga_wv0!
-        vxc[0,1:4,:] += rho_t[1,1:4] * vsigma[:,1]     # sigma_ud
-        vxc[1,1:4,:]  = rho_t[0,1:4] * vsigma[:,1]     # sigma_ud
-        vxc[1,1:4,:] += rho_t[1,1:4] * vsigma[:,2] * 2 # sigma_dd
+        vxc[0,1:4,:]  = rho_t[0,1:4] * vsigma[:,0] * 2 
+        vxc[0,1:4,:] += rho_t[1,1:4] * vsigma[:,1]     
+        vxc[1,1:4,:]  = rho_t[0,1:4] * vsigma[:,1]     
+        vxc[1,1:4,:] += rho_t[1,1:4] * vsigma[:,2] * 2 
 
     eot *= rho_t[:,0,:].sum (0)
     vrho = otfnal.get_dEot_drho (rho, Pi, vxc=vxc)
