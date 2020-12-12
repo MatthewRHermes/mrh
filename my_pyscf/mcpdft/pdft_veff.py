@@ -322,7 +322,7 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, non0tab=None, shls_s
         # Life pro-tip: do more operations with smaller arrays and fewer operations with bigger arrays
         ao = [ao[1], ao[0]]
     if kern is None: 
-        kern = otfnal.get_dEot_drho (rho, Pi, **kwargs) 
+        kern = otfnal.eval_ot (rho, Pi, dderiv=1, **kwargs)[1][1]
     else:
         kern = kern.copy () 
     nderiv = kern.shape[0]
@@ -433,7 +433,7 @@ def get_veff_2body_kl (otfnal, rho, Pi, ao_k, ao_l, weight, symm=False, kern=Non
         Pi = np.expand_dims (Pi, 0)
 
     if kern is None:
-        kern = otfnal.get_dEot_dPi (rho, Pi, **kwargs) 
+        kern = otfnal.eval_ot (rho, Pi, dderiv=1, **kwargs)[1][2]
     else:
         kern = kern.copy ()
     kern *= weight[None,:]

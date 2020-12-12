@@ -61,8 +61,8 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
             vxc[0,1:4,:] += rho_t[1,1:4] * vsigma[:,1]     
             vxc[1,1:4,:]  = rho_t[0,1:4] * vsigma[:,1]     
             vxc[1,1:4,:] += rho_t[1,1:4] * vsigma[:,2] * 2 
-        vrho = otfnal.get_dEot_drho (rho, Pi, vxc=vxc)
-        vPi = otfnal.get_dEot_dPi (rho, Pi, vxc=vxc)
+        vrho = otfnal.get_dEot_drho (rho, Pi, vxc)
+        vPi = otfnal.get_dEot_dPi (rho, Pi, vxc)
         vot = (vrho, vPi)
     if dderiv > 1:
         raise NotImplementedError ("Translation of density derivatives of higher order than 1")
@@ -73,42 +73,7 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
 
     return eot, vot, fot
 
-# This function only exists for the sake of allowing vxc to be optional in get_dEot_d functions.
-# In turn this allows kern to be optional in get_veff_1body and get_veff_2body.
-def get_bare_vxc (otfnal, rho, Pi, weights=None):
-    r''' get the functional derivatives dE_ot/drho_t.
-    Wrapper to the existing PySCF routines with a little bit of extra math
-
-    Args:
-        rho : ndarray of shape (2,*,ngrids)
-            containing spin-density [and derivatives]
-        Pi : ndarray with shape (*,ngrids)
-            containing on-top pair density [and derivatives]
-
-    Kwargs:
-        weights : ndarray of shape (ngrids)
-            used only for debugging the total number of ``translated''
-            electrons in the calculation of rho_t
-
-    Returns: ndarray of shape (2,*,ngrids)
-        The bare vxc
-    '''
-    nderiv = rho.shape[1]
-    rho_t = otfnal.get_rho_translated (Pi, rho, weights=weights)
-    vrho, vsigma = otfnal._numint.eval_xc (otfnal.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=1, verbose=otfnal.verbose)[1][:2]
-    vxc = np.zeros_like (rho)
-    vxc[:,0,:] = vrho.T
-    # I'm guessing about the factors below based on the idea that only one of the two product-rule terms 
-    if nderiv > 1:
-        vxc[0,1:4,:]  = rho_t[0,1:4] * vsigma[:,0] * 2 # sigma_uu; I'm guessing about the factor based on pyscf.dft.numint._uks_gga_wv0!
-        vxc[0,1:4,:] += rho_t[1,1:4] * vsigma[:,1]     # sigma_ud
-        vxc[1,1:4,:]  = rho_t[0,1:4] * vsigma[:,1]     # sigma_ud
-        vxc[1,1:4,:] += rho_t[1,1:4] * vsigma[:,2] * 2 # sigma_dd
-
-    return vxc
-
-
-def get_dEot_drho (otfnal, rho, Pi, Rmax=1, zeta_deriv=False, vxc=None):
+def get_dEot_drho (otfnal, rho, Pi, vxc, Rmax=1, zeta_deriv=False):
     r''' get the functional derivative dE_ot/drho
     For translated functionals, this is based on the chain rule:
     dEot/drho_t * drho_t/drho.
@@ -125,6 +90,8 @@ def get_dEot_drho (otfnal, rho, Pi, Rmax=1, zeta_deriv=False, vxc=None):
             containing spin-density [and derivatives]
         Pi : ndarray with shape (*,ngrids)
             containing on-top pair density [and derivatives]
+        vxc : ndarray of shape (2,*,ngrids)
+            functional derivative of the on-top xc energy wrt translated densities
 
     Kwargs:
         Rmax : float
@@ -133,8 +100,6 @@ def get_dEot_drho (otfnal, rho, Pi, Rmax=1, zeta_deriv=False, vxc=None):
         zeta_deriv : logical
             If true, propagate derivatives through the zeta intermediate as in
             ``fully-translated'' PDFT
-        vxc : ndarray of shape (2,*,ngrids)
-            functional derivative of the on-top xc energy wrt translated densities
 
     Returns: ndarray of shape (*,ngrids)
         The functional derivative of the on-top pair density exchange-correlation
@@ -143,8 +108,6 @@ def get_dEot_drho (otfnal, rho, Pi, Rmax=1, zeta_deriv=False, vxc=None):
     '''
     nderiv, ngrid = rho.shape[1:]
     nderiv_zeta = nderiv if zeta_deriv else 1
-    if vxc is None:
-        vxc = otfnal.get_bare_vxc (rho, Pi)
     rho_tot = rho.sum (0)
     R = otfnal.get_ratio (Pi[0:nderiv_zeta,:], rho_tot[0:nderiv_zeta,:]/2)
 
@@ -169,7 +132,7 @@ def get_dEot_drho (otfnal, rho, Pi, Rmax=1, zeta_deriv=False, vxc=None):
     return vot
 
         
-def get_dEot_dPi (otfnal, rho, Pi, Rmax=1, zeta_deriv=False, vxc=None):
+def get_dEot_dPi (otfnal, rho, Pi, vxc, Rmax=1, zeta_deriv=False):
     r''' get the functional derivative dE_ot/dPi
 
     For translated functionals, this is based on the chain rule:
@@ -186,6 +149,8 @@ def get_dEot_dPi (otfnal, rho, Pi, Rmax=1, zeta_deriv=False, vxc=None):
             containing spin-density [and derivatives]
         Pi : ndarray with shape (*,ngrids)
             containing on-top pair density [and derivatives]
+        vxc : ndarray of shape (2,*,ngrids)
+            functional derivative of the on-top xc energy wrt translated densities
 
     Kwargs:
         Rmax : float
@@ -194,8 +159,6 @@ def get_dEot_dPi (otfnal, rho, Pi, Rmax=1, zeta_deriv=False, vxc=None):
         zeta_deriv : logical
             If true, propagate derivatives through the zeta intermediate as in
             ``fully-translated'' PDFT
-        vxc : ndarray of shape (2,*,ngrids)
-            functional derivative of the on-top xc energy wrt translated densities
 
     Returns: ndarray of shape (*,ngrids)
         The functional derivative of the on-top pair density exchange-correlation
@@ -203,8 +166,6 @@ def get_dEot_dPi (otfnal, rho, Pi, Rmax=1, zeta_deriv=False, vxc=None):
     '''
     nderiv, ngrid = Pi.shape
     nderiv_zeta = nderiv if zeta_deriv else 1
-    if vxc is None:
-        vxc = otfnal.get_bare_vxc (rho, Pi)
     vot = np.zeros ((1,ngrid))
     rho_tot = rho.sum (0)
     R = otfnal.get_ratio (Pi[0:nderiv_zeta,:], rho_tot[0:nderiv_zeta,:]/2)
