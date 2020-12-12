@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import linalg
+from pyscf.lib import logger
 
 def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
     r''' get the integrand of the on-top xc energy and its functional derivatives wrt rho and Pi 
@@ -40,6 +41,11 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
     xc_grid = otfnal._numint.eval_xc (otfnal.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, 
         relativity=0, deriv=dderiv, verbose=otfnal.verbose)[:dderiv+1]
     eot = xc_grid[0] * rho_t[:,0,:].sum (0)
+    if (weights is not None) and otfnal.verbose >= logger.DEBUG:
+        nelec = rho_t[0,0].dot (weight) + rho_t[1,0].dot (weight)
+        logger.debug (self, 'MC-PDFT: Total number of electrons in (this chunk of) the total density = %s', nelec)
+        ms = (rho_t[0,0].dot (weight) - rho_t[1,0].dot (weight)) / 2.0
+        logger.debug (self, 'MC-PDFT: Total ms = (neleca - nelecb) / 2 in (this chunk of) the translated density = %s', ms)
     vot = fot = None
     if dderiv > 0:
         vrho, vsigma = xc_grid[1][:2]

@@ -11,7 +11,7 @@ class otfnal:
     r''' Needs:
         mol: object of class pyscf.gto.mole
         grids: object of class pyscf.dft.gen_grid.Grids
-        get_E_ot: function with calling signature shown below
+        eval_ot: function with calling signature shown below
         _numint: object of class pyscf.dft.NumInt
             member functions "hybrid_coeff", "nlc_coeff, "rsh_coeff", and "_xc_type" (at least)
             must be overloaded; see below
@@ -44,62 +44,50 @@ class otfnal:
     def dens_deriv (self):
         return ['LDA', 'GGA', 'MGGA'].index (self.xctype)
 
-    def get_E_ot (self, rho, Pi, weight):
-        r''' get the on-top energy
+    def eval_ot (self, rho, Pi, dderiv=0, **kwargs):
+        r''' Evaluate the on-dop energy and its functional derivatives on a grid
 
         Args:
             rho : ndarray of shape (2,*,ngrids)
                 containing spin-density [and derivatives]
             Pi : ndarray with shape (*,ngrids)
                 containing on-top pair density [and derivatives]
-            weight : ndarray of shape (ngrids)
-                containing numerical integration weights
 
-        Returns : float
-            The on-top exchange-correlation energy for the given on-top xc functional
+        Kwargs:
+            dderiv : integer
+                Order of derivatives to return
+
+        Returns: 
+            eot : ndarray of shape (ngrids)
+                integrand of the on-top exchange-correlation energy
+            vot : (array_like (rho), array_like (Pi)) or None
+                first functional derivative of Eot wrt (density, pair density)
+                and their derivatives
+            fot : ndarray of shape (*,ngrids) or None
+                second functional derivative of Eot wrt density, pair density,
+                and derivatives; first dimension is lower-triangular matrix elements
+                corresponding to the basis (rho, Pi, |drho|^2, drho'.dPi, |dPi|)
+                stopping at Pi (3 elements) for t-LDA and |drho|^2 (6 elements)
+                for t-GGA.
         '''
 
         raise RuntimeError("on-top xc functional not defined")
         return 0
+
+    def get_E_ot (self, rho, Pi, weights):
+        r''' Being phased out as redundant with eval_ot
+        Left in place for backwards-compatibility'''
+
+        assert (rho.shape[1:] == Pi.shape[:]), "rho.shape={0}, Pi.shape={1}".format (rho.shape, Pi.shape)
+        if rho.ndim == 2:
+            rho = np.expand_dims (rho, 1)
+            Pi = np.expand_dims (Pi, 0)
+        
+        return self.eval_ot (rho, Pi, dderiv=0, weights=weights)[0].dot (weights)
 
     get_veff_1body = pdft_veff.get_veff_1body
-
-    def get_dEot_drho (self, rho, Pi, vxc, **kwargs):
-        r''' get the functional derivative dE_ot/drho
-
-        Args:
-            rho : ndarray of shape (2,*,ngrids)
-                containing spin-density [and derivatives]
-            Pi : ndarray with shape (*,ngrids)
-                containing on-top pair density [and derivatives]
-
-        Returns: ndarray of shape (2,*,ngrids)
-            The functional derivative of the on-top pair density exchange-correlation
-            energy wrt to spin density and its derivatives
-        '''
-
-        raise RuntimeError("on-top xc functional not defined")
-        return 0
-
     get_veff_2body = pdft_veff.get_veff_2body
     get_veff_2body_kl = pdft_veff.get_veff_2body_kl
-
-    def get_dEot_dPi (self, rho, Pi, vxc, **kwargs):
-        r''' get the functional derivative dE_ot/dPi
-
-        Args:
-            rho : ndarray of shape (2,*,ngrids)
-                containing spin-density [and derivatives]
-            Pi : ndarray with shape (*,ngrids)
-                containing on-top pair density [and derivatives]
-
-        Returns: ndarray of shape (*,ngrids)
-            The functional derivative of the on-top pair density exchange-correlation
-            energy wrt to the on-top pair density and its derivatives
-        '''
-
-        raise RuntimeError("on-top xc functional not defined")
-        return 0
 
 class transfnal (otfnal):
     r''' "translated functional" of Li Manni et al., JCTC 10, 3669 (2014).
@@ -116,45 +104,6 @@ class transfnal (otfnal):
         self._numint.eval_xc = t_eval_xc.__get__(self._numint)
         self._numint._xc_type = t_xc_type.__get__(self._numint)
         self._init_info ()
-
-    def get_E_ot (self, rho, Pi, weight):
-        r''' E_ot[rho, Pi] = V_xc[rho_translated] 
-    
-            Args:
-                rho : ndarray of shape (2,*,ngrids)
-                    containing spin-density [and derivatives]
-                Pi : ndarray with shape (*,ngrids)
-                    containing on-top pair density [and derivatives]
-                weight : ndarray of shape (ngrids)
-                    containing numerical integration weights
-    
-            Returns : float
-                The on-top exchange-correlation energy, for an on-top xc functional
-                which uses a translated density with an otherwise standard xc functional
-        '''
-        assert (rho.shape[1:] == Pi.shape[:]), "rho.shape={0}, Pi.shape={1}".format (rho.shape, Pi.shape)
-        if rho.ndim == 2:
-            rho = np.expand_dims (rho, 1)
-            Pi = np.expand_dims (Pi, 0)
-            
-        rho_t = self.get_rho_translated (Pi, rho)
-        rho = np.squeeze (rho)
-        Pi = np.squeeze (Pi)
-
-        # E_ot[rho,Pi] = \int {dE_ot/ddens}(r) * dens(r) dr
-        #              = \sum_i {dE_ot/ddens}_i * dens_i * weight_i
-        dexc_ddens  = self._numint.eval_xc (self.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=0, verbose=self.verbose)[0]
-        rho = rho_t[:,0,:].sum (0)
-        rho *= weight
-        dexc_ddens *= rho
-
-        if self.verbose >= logger.DEBUG:
-            nelec = rho.sum ()
-            logger.debug (self, 'MC-PDFT: Total number of electrons in (this chunk of) the total density = %s', nelec)
-            ms = np.dot (rho_t[0,0,:] - rho_t[1,0,:], weight) / 2.0
-            logger.debug (self, 'MC-PDFT: Total ms = (neleca - nelecb) / 2 in (this chunk of) the translated density = %s', ms)
-
-        return dexc_ddens.sum ()
 
     def get_ratio (self, Pi, rho_avg):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
