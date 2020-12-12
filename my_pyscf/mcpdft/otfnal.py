@@ -105,6 +105,7 @@ class transfnal (otfnal):
         self._numint._xc_type = t_xc_type.__get__(self._numint)
         self._init_info ()
 
+    eval_ot = tfnal_derivs.eval_ot
     def get_ratio (self, Pi, rho_avg):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
             An intermediate quantity when computing the translated spin densities
@@ -192,7 +193,6 @@ class transfnal (otfnal):
             rho_t[0,ideriv,idx] += w
             rho_t[1,ideriv,idx] -= w
 
-
         return rho_t
 
     def split_x_c (self):
@@ -218,10 +218,38 @@ class transfnal (otfnal):
         cfnal.otxc = c_code
         return xfnal, cfnal
 
-    eval_ot = tfnal_derivs.eval_ot
-    get_dEot_drho = tfnal_derivs.get_dEot_drho
-    get_dEot_dPi = tfnal_derivs.get_dEot_dPi
+    def jTx_op (self, rho, Pi, x, Rmax=1, zeta_deriv=False):
+        r''' Evaluate jTx = (x.j)T where j is the Jacobian of the translated densities
+        in terms of the untranslated density and pair density
 
+        Args:
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+            x : ndarray of shape (2,*,ngrids)
+                Usually, a functional derivative of the on-top xc energy wrt
+                translated densities
+
+        Kwargs:
+            Rmax : float
+                For ratios above this value, rho is not translated and therefore
+                the effective potential kernel is the same as in standard KS-DFT
+            zeta_deriv : logical
+                If true, propagate derivatives through the zeta intermediate as in
+                ``fully-translated'' PDFT
+
+        Returns: ndarray of shape (*,ngrids)
+            Usually, a functional derivative of the on-top pair density exchange-correlation
+            energy wrt to total density and its derivatives
+            The potential must be spin-symmetric in pair-density functional theory
+        '''
+
+        xrho = tfnal_derivs.get_dEot_drho (self, rho, Pi, x,
+            Rmax=Rmax, zeta_deriv=zeta_deriv)
+        xPi = tfnal_derivs.get_dEot_dPi (self, rho, Pi, x,
+            Rmax=Rmax, zeta_deriv=zeta_deriv)
+        return (xrho, xPi)
 
 
 _FT_R0_DEFAULT=0.9
@@ -252,6 +280,11 @@ class ftransfnal (transfnal):
         self._init_info ()
 
     Pi_deriv = 1
+
+    def eval_ot (self, rho, Pi, dderiv=0, weights=None):
+        if dderiv>0:
+            raise NotImplementedError ("density derivatives for fully-translated functionals")
+        return transfnal.eval_ot (self, rho, Pi, dderiv=dderiv, weights=weights)
 
     def get_rho_translated (self, Pi, rho, Rmax=None, zeta_deriv=True, weights=None):
         r''' "full" translation, Carlson et al., JCTC 11, 4077 (2015)

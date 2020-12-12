@@ -67,9 +67,7 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
             vxc[0,1:4,:] += rho_t[1,1:4] * vsigma[:,1]     
             vxc[1,1:4,:]  = rho_t[0,1:4] * vsigma[:,1]     
             vxc[1,1:4,:] += rho_t[1,1:4] * vsigma[:,2] * 2 
-        vrho = otfnal.get_dEot_drho (rho, Pi, vxc)
-        vPi = otfnal.get_dEot_dPi (rho, Pi, vxc)
-        vot = (vrho, vPi)
+        vot = otfnal.jTx_op (rho, Pi, vxc)
     if dderiv > 1:
         raise NotImplementedError ("Translation of density derivatives of higher order than 1")
         # I should implement this entirely in terms of the gradient norm, since that reduces the
