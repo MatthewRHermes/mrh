@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import linalg
 
-def eval_ot (otfnal, rho, Pi, weights=None):
+def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
     r''' get the integrand of the on-top xc energy and its functional derivatives wrt rho and Pi 
 
     Args:
@@ -11,6 +11,8 @@ def eval_ot (otfnal, rho, Pi, weights=None):
             containing on-top pair density [and derivatives]
 
     Kwargs:
+        dderiv : integer
+            Order of derivatives to return
         weights : ndarray of shape (ngrids)
             used ONLY for debugging the total number of ``translated''
             electrons in the calculation of rho_t
@@ -19,37 +21,60 @@ def eval_ot (otfnal, rho, Pi, weights=None):
     Returns: 
         eot : ndarray of shape (ngrids)
             integrand of the on-top exchange-correlation energy
-        vot : len=2 tuple of ndarray of shape (*,ngrids)
-            first functional derivative of Eot wrt (density, pair density) and their derivatives
+        vot : (array_like (rho), array_like (Pi)) or None
+            first functional derivative of Eot wrt (density, pair density)
+            and their derivatives
+        fot : ndarray of shape (*,ngrids) or None
+            second functional derivative of Eot wrt density, pair density,
+            and derivatives; first dimension is lower-triangular matrix elements
+            corresponding to the basis (rho, Pi, |drho|^2, drho'.dPi, |dPi|)
+            stopping at Pi (3 elements) for t-LDA and |drho|^2 (6 elements)
+            for t-GGA.
     '''
+    if dderiv > 2:
+        raise NotImplementedError ("Translation of density derivatives of higher order than 2")
     nderiv = rho.shape[1]
+    if nderiv > 4:
+        raise NotImplementedError ("Translation of meta-GGA functionals")
     rho_t = otfnal.get_rho_translated (Pi, rho, weights=weights)
-    eot, vdens = otfnal._numint.eval_xc (otfnal.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, relativity=0, deriv=1, verbose=otfnal.verbose)[:2]
-    vrho, vsigma = vdens[0], vdens[1]
-    vxc = np.zeros_like (rho)
-    vxc[:,0,:] = vrho.T
-    # For GGAs, libxc differentiates with respect to
-    #   sigma[0] = nabla^2 rhoa
-    #   sigma[1] = nabla rhoa . nabla rhob
-    #   sigma[2] = nabla^2 rhob
-    # So we have to multiply the Jacobian to obtain the requested derivatives:
-    #   J[0,nabla rhoa] = 2 * nabla rhoa
-    #   J[0,nabla rhob] = 0
-    #   J[1,nabla rhoa] = nabla rhob
-    #   J[1,nabla rhob] = nabla rhoa
-    #   J[2,nabla rhoa] = 0
-    #   J[2,nabla rhob] = 2 * nabla rhob
-    if nderiv > 1:
-        vxc[0,1:4,:]  = rho_t[0,1:4] * vsigma[:,0] * 2 
-        vxc[0,1:4,:] += rho_t[1,1:4] * vsigma[:,1]     
-        vxc[1,1:4,:]  = rho_t[0,1:4] * vsigma[:,1]     
-        vxc[1,1:4,:] += rho_t[1,1:4] * vsigma[:,2] * 2 
+    xc_grid = otfnal._numint.eval_xc (otfnal.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, 
+        relativity=0, deriv=dderiv, verbose=otfnal.verbose)[:dderiv+1]
+    eot = xc_grid[0] * rho_t[:,0,:].sum (0)
+    vot = fot = None
+    if dderiv > 0:
+        vrho, vsigma = xc_grid[1][:2]
+        vxc = np.zeros_like (rho)
+        vxc[:,0,:] = vrho.T
+        # For GGAs, libxc differentiates with respect to
+        #   sigma[0] = nabla^2 rhoa
+        #   sigma[1] = nabla rhoa . nabla rhob
+        #   sigma[2] = nabla^2 rhob
+        # So we have to multiply the Jacobian to obtain the requested derivatives:
+        #   J[0,nabla rhoa] = 2 * nabla rhoa
+        #   J[0,nabla rhob] = 0
+        #   J[1,nabla rhoa] = nabla rhob
+        #   J[1,nabla rhob] = nabla rhoa
+        #   J[2,nabla rhoa] = 0
+        #   J[2,nabla rhob] = 2 * nabla rhob
+        if nderiv > 1:
+            vxc[0,1:4,:]  = rho_t[0,1:4] * vsigma[:,0] * 2 
+            vxc[0,1:4,:] += rho_t[1,1:4] * vsigma[:,1]     
+            vxc[1,1:4,:]  = rho_t[0,1:4] * vsigma[:,1]     
+            vxc[1,1:4,:] += rho_t[1,1:4] * vsigma[:,2] * 2 
+        vrho = otfnal.get_dEot_drho (rho, Pi, vxc=vxc)
+        vPi = otfnal.get_dEot_dPi (rho, Pi, vxc=vxc)
+        vot = (vrho, vPi)
+    if dderiv > 1:
+        raise NotImplementedError ("Translation of density derivatives of higher order than 1")
+        # I should implement this entirely in terms of the gradient norm, since that reduces the
+        # number of grid columns from 25 to 9 for t-GGA and from 64 to 25 for ft-GGA (and steps
+        # around the need to "unpack" fsigma and frhosigma entirely).
+        frho, frhosigma, fsigma = xc_grid[2]
 
-    eot *= rho_t[:,0,:].sum (0)
-    vrho = otfnal.get_dEot_drho (rho, Pi, vxc=vxc)
-    vot = otfnal.get_dEot_dPi (rho, Pi, vxc=vxc)
-    return eot, (vrho, vot)
+    return eot, vot, fot
 
+# This function only exists for the sake of allowing vxc to be optional in get_dEot_d functions.
+# In turn this allows kern to be optional in get_veff_1body and get_veff_2body.
 def get_bare_vxc (otfnal, rho, Pi, weights=None):
     r''' get the functional derivatives dE_ot/drho_t.
     Wrapper to the existing PySCF routines with a little bit of extra math
