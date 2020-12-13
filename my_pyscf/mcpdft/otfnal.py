@@ -244,12 +244,8 @@ class transfnal (otfnal):
             energy wrt to total density and its derivatives
             The potential must be spin-symmetric in pair-density functional theory
         '''
-
-        xrho = tfnal_derivs.get_dEot_drho (self, rho, Pi, x,
+        return tfnal_derivs.jTx_op_transl (self, rho, Pi, x,
             Rmax=Rmax, zeta_deriv=zeta_deriv)
-        xPi = tfnal_derivs.get_dEot_dPi (self, rho, Pi, x,
-            Rmax=Rmax, zeta_deriv=zeta_deriv)
-        return (xrho, xPi)
 
 
 _FT_R0_DEFAULT=0.9

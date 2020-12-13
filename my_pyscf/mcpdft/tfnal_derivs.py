@@ -54,33 +54,9 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
     vot = fot = None
     if dderiv > 0:
         vrho, vsigma = xc_grid[1][:2]
-        vxc = np.zeros_like (rho)
-        vxc[:,0,:] = vrho.T
-        if nderiv > 1:
-            vxc[0,1:4,:]  = rho_t[0,1:4] * vsigma[:,0] * 2 
-            vxc[0,1:4,:] += rho_t[1,1:4] * vsigma[:,1]     
-            vxc[1,1:4,:]  = rho_t[0,1:4] * vsigma[:,1]     
-            vxc[1,1:4,:] += rho_t[1,1:4] * vsigma[:,2] * 2
-        vxc_test = np.stack (_unpack_sigma_vector (list (vrho.T) + list (vsigma.T), deriv1=rho_t[0,1:4], deriv2=rho_t[1,1:4]), axis=0)
-        print ("unpack test vxc shape:", vxc.shape, vxc_test.shape)
-        print ("unpack test alpha val:", linalg.norm (vxc[0,0,:]-vxc_test[0,0,:]))
-        print ("unpack test beta val:", linalg.norm (vxc[1,0,:]-vxc_test[1,0,:]))
-        print ("unpack test alpha d/dx:", linalg.norm (vxc[0,1,:]-vxc_test[0,1,:]))
-        print ("unpack test alpha d/dy:", linalg.norm (vxc[0,2,:]-vxc_test[0,2,:]))
-        print ("unpack test alpha d/dz:", linalg.norm (vxc[0,3,:]-vxc_test[0,3,:]))
-        print ("unpack test beta d/dx:", linalg.norm (vxc[1,1,:]-vxc_test[1,1,:]))
-        print ("unpack test beta d/dy:", linalg.norm (vxc[1,2,:]-vxc_test[1,2,:]))
-        print ("unpack test beta d/dz:", linalg.norm (vxc[1,3,:]-vxc_test[1,3,:]))
+        vxc = list (vrho.T) + list (vsigma.T)
         vot = otfnal.jTx_op (rho, Pi, vxc)
-        x = [vrho[:,0], vrho[:,1], vsigma[:,0], vsigma[:,1], vsigma[:,2]] 
-        vot_test = _unpack_sigma_vector (jTx_op_transl (otfnal, rho, Pi, x),
-            deriv1=rho_deriv, deriv2=Pi_deriv)
-        print ("vot rho test:", linalg.norm (vot_test[0][0]-vot[0][0]))
-        print ("vot Pi test:", linalg.norm (vot_test[1]-vot[1]))
-        if nderiv > 1:
-            print ("vot drho/dx test:", linalg.norm (vot_test[0][1] - vot[0][1]))
-            print ("vot drho/dy test:", linalg.norm (vot_test[0][2] - vot[0][2]))
-            print ("vot drho/dz test:", linalg.norm (vot_test[0][3] - vot[0][3]))
+        vot = _unpack_sigma_vector (vot, deriv1=rho_deriv, deriv2=Pi_deriv)
     if dderiv > 1:
         raise NotImplementedError ("Translation of density derivatives of higher order than 1")
         # I should implement this entirely in terms of the gradient norm, since that reduces the
@@ -165,120 +141,120 @@ def jTx_op_transl (otfnal, rho, Pi, x, Rmax=1, zeta_deriv=False):
 
     return jTx
 
-def get_dEot_drho (otfnal, rho, Pi, vxc, Rmax=1, zeta_deriv=False):
-    r''' get the functional derivative dE_ot/drho
-    For translated functionals, this is based on the chain rule:
-    dEot/drho_t * drho_t/drho.
-    dEot_drho_t comes from PySCF's existing codes
-    rho_t = 1/2 * rho_tot * (1 - zeta)
-    zeta = (1-R)**(1/2)
-    R = 4*Pi/(rho_tot**2)
-    
-    drho_t[0,0]/drho[0,0] = drho_t[0,0]/drho[1,0] = 1/2 (1 + zeta + R/zeta)
-    drho_t[1,0]/drho[0,0] = drho_t[1,0]/drho[1,0] = 1/2 (1 - zeta - R/zeta)
-
-    Args:
-        rho : ndarray of shape (2,*,ngrids)
-            containing spin-density [and derivatives]
-        Pi : ndarray with shape (*,ngrids)
-            containing on-top pair density [and derivatives]
-        vxc : ndarray of shape (2,*,ngrids)
-            functional derivative of the on-top xc energy wrt translated densities
-
-    Kwargs:
-        Rmax : float
-            For ratios above this value, rho is not translated and therefore
-            the effective potential kernel is the same as in standard KS-DFT
-        zeta_deriv : logical
-            If true, propagate derivatives through the zeta intermediate as in
-            ``fully-translated'' PDFT
-
-    Returns: ndarray of shape (*,ngrids)
-        The functional derivative of the on-top pair density exchange-correlation
-        energy wrt to total density and its derivatives
-        The potential must be spin-symmetric in pair-density functional theory
-    '''
-    nderiv, ngrid = rho.shape[1:]
-    nderiv_zeta = nderiv if zeta_deriv else 1
-    rho_tot = rho.sum (0)
-    R = otfnal.get_ratio (Pi[0:nderiv_zeta,:], rho_tot[0:nderiv_zeta,:]/2)
-
-    # The first term is just the average of the two spin components of vxc; other terms involve the difference
-    vot = vxc.sum (0) / 2
-    vdiff = (vxc[0] - vxc[1]) / 2
-
-    # Be careful with this indexing!!
-    idx = (rho_tot[0] >= 1e-15) & (Pi[0] >= 1e-15) & (Rmax > R[0])
-    zeta = np.empty_like (R[:,idx])
-    zeta[0] = np.sqrt (1.0 - R[0,idx])
-
-    # Zeroth and first derivatives both have a term of vdiff * zeta
-    vot[:,idx] += vdiff[:,idx] * zeta[None,0,:]    
-
-    # Zeroth derivative has a couple additional terms
-    RoZ = R[0,idx] / zeta[0]
-    vot[0,idx] += vdiff[0,idx] * RoZ
-    if nderiv > 1:
-        vot[0,idx] += (vdiff[1:4,idx] * rho_tot[1:4,idx]).sum (0) * RoZ / rho_tot[0,idx]
-
-    return vot
-
-        
-def get_dEot_dPi (otfnal, rho, Pi, vxc, Rmax=1, zeta_deriv=False):
-    r''' get the functional derivative dE_ot/dPi
-
-    For translated functionals, this is based on the chain rule:
-    dEot/drho_t * drho_t/drho.
-    dEot_drho_t comes from PySCF's existing codes
-    rho_t = 1/2 * rho_tot * (1 - zeta)
-    zeta = (1-R)**(1/2)
-    R = 4*Pi/(rho_tot**2)
-
-    The derivative of Pi doesn't contribute until we do the fully-translated functional
-
-    Args:
-        rho : ndarray of shape (2,*,ngrids)
-            containing spin-density [and derivatives]
-        Pi : ndarray with shape (*,ngrids)
-            containing on-top pair density [and derivatives]
-        vxc : ndarray of shape (2,*,ngrids)
-            functional derivative of the on-top xc energy wrt translated densities
-
-    Kwargs:
-        Rmax : float
-            For ratios above this value, rho is not translated and therefore
-            the effective potential kernel is zero
-        zeta_deriv : logical
-            If true, propagate derivatives through the zeta intermediate as in
-            ``fully-translated'' PDFT
-
-    Returns: ndarray of shape (*,ngrids)
-        The functional derivative of the on-top pair density exchange-correlation
-        energy wrt to the on-top pair density and its derivatives
-    '''
-    nderiv, ngrid = Pi.shape
-    nderiv_zeta = nderiv if zeta_deriv else 1
-    vot = np.zeros ((1,ngrid))
-    rho_tot = rho.sum (0)
-    R = otfnal.get_ratio (Pi[0:nderiv_zeta,:], rho_tot[0:nderiv_zeta,:]/2)
-
-    # Vot has no term with zero zeta; its terms have a cofactor of vxc_b - vxc_a
-    vdiff = vxc[1] - vxc[0]
-
-    # Be careful with this indexing!!
-    idx = (rho_tot[0] >= 1e-15) & (Pi[0] >= 1e-15) & (Rmax > R[0])
-    zeta = np.empty_like (R[:,idx])
-    zeta[0] = np.sqrt (1.0 - R[0,idx])
-
-    # Zeroth derivative of rho
-    rhoZinv = np.reciprocal (rho_tot[0,idx] * zeta[0])
-    vot[0,idx] += vdiff[0,idx] * rhoZinv
-
-    # First derivative of rho
-    if nderiv > 1:
-        vot[0,idx] += (vdiff[1:4,idx] * rho_tot[1:4,idx]).sum (0) * rhoZinv / rho_tot[0,idx]
-
-    return vot
+#def get_dEot_drho (otfnal, rho, Pi, vxc, Rmax=1, zeta_deriv=False):
+#    r''' get the functional derivative dE_ot/drho
+#    For translated functionals, this is based on the chain rule:
+#    dEot/drho_t * drho_t/drho.
+#    dEot_drho_t comes from PySCF's existing codes
+#    rho_t = 1/2 * rho_tot * (1 - zeta)
+#    zeta = (1-R)**(1/2)
+#    R = 4*Pi/(rho_tot**2)
+#    
+#    drho_t[0,0]/drho[0,0] = drho_t[0,0]/drho[1,0] = 1/2 (1 + zeta + R/zeta)
+#    drho_t[1,0]/drho[0,0] = drho_t[1,0]/drho[1,0] = 1/2 (1 - zeta - R/zeta)
+#
+#    Args:
+#        rho : ndarray of shape (2,*,ngrids)
+#            containing spin-density [and derivatives]
+#        Pi : ndarray with shape (*,ngrids)
+#            containing on-top pair density [and derivatives]
+#        vxc : ndarray of shape (2,*,ngrids)
+#            functional derivative of the on-top xc energy wrt translated densities
+#
+#    Kwargs:
+#        Rmax : float
+#            For ratios above this value, rho is not translated and therefore
+#            the effective potential kernel is the same as in standard KS-DFT
+#        zeta_deriv : logical
+#            If true, propagate derivatives through the zeta intermediate as in
+#            ``fully-translated'' PDFT
+#
+#    Returns: ndarray of shape (*,ngrids)
+#        The functional derivative of the on-top pair density exchange-correlation
+#        energy wrt to total density and its derivatives
+#        The potential must be spin-symmetric in pair-density functional theory
+#    '''
+#    nderiv, ngrid = rho.shape[1:]
+#    nderiv_zeta = nderiv if zeta_deriv else 1
+#    rho_tot = rho.sum (0)
+#    R = otfnal.get_ratio (Pi[0:nderiv_zeta,:], rho_tot[0:nderiv_zeta,:]/2)
+#
+#    # The first term is just the average of the two spin components of vxc; other terms involve the difference
+#    vot = vxc.sum (0) / 2
+#    vdiff = (vxc[0] - vxc[1]) / 2
+#
+#    # Be careful with this indexing!!
+#    idx = (rho_tot[0] >= 1e-15) & (Pi[0] >= 1e-15) & (Rmax > R[0])
+#    zeta = np.empty_like (R[:,idx])
+#    zeta[0] = np.sqrt (1.0 - R[0,idx])
+#
+#    # Zeroth and first derivatives both have a term of vdiff * zeta
+#    vot[:,idx] += vdiff[:,idx] * zeta[None,0,:]    
+#
+#    # Zeroth derivative has a couple additional terms
+#    RoZ = R[0,idx] / zeta[0]
+#    vot[0,idx] += vdiff[0,idx] * RoZ
+#    if nderiv > 1:
+#        vot[0,idx] += (vdiff[1:4,idx] * rho_tot[1:4,idx]).sum (0) * RoZ / rho_tot[0,idx]
+#
+#    return vot
+#
+#        
+#def get_dEot_dPi (otfnal, rho, Pi, vxc, Rmax=1, zeta_deriv=False):
+#    r''' get the functional derivative dE_ot/dPi
+#
+#    For translated functionals, this is based on the chain rule:
+#    dEot/drho_t * drho_t/drho.
+#    dEot_drho_t comes from PySCF's existing codes
+#    rho_t = 1/2 * rho_tot * (1 - zeta)
+#    zeta = (1-R)**(1/2)
+#    R = 4*Pi/(rho_tot**2)
+#
+#    The derivative of Pi doesn't contribute until we do the fully-translated functional
+#
+#    Args:
+#        rho : ndarray of shape (2,*,ngrids)
+#            containing spin-density [and derivatives]
+#        Pi : ndarray with shape (*,ngrids)
+#            containing on-top pair density [and derivatives]
+#        vxc : ndarray of shape (2,*,ngrids)
+#            functional derivative of the on-top xc energy wrt translated densities
+#
+#    Kwargs:
+#        Rmax : float
+#            For ratios above this value, rho is not translated and therefore
+#            the effective potential kernel is zero
+#        zeta_deriv : logical
+#            If true, propagate derivatives through the zeta intermediate as in
+#            ``fully-translated'' PDFT
+#
+#    Returns: ndarray of shape (*,ngrids)
+#        The functional derivative of the on-top pair density exchange-correlation
+#        energy wrt to the on-top pair density and its derivatives
+#    '''
+#    nderiv, ngrid = Pi.shape
+#    nderiv_zeta = nderiv if zeta_deriv else 1
+#    vot = np.zeros ((1,ngrid))
+#    rho_tot = rho.sum (0)
+#    R = otfnal.get_ratio (Pi[0:nderiv_zeta,:], rho_tot[0:nderiv_zeta,:]/2)
+#
+#    # Vot has no term with zero zeta; its terms have a cofactor of vxc_b - vxc_a
+#    vdiff = vxc[1] - vxc[0]
+#
+#    # Be careful with this indexing!!
+#    idx = (rho_tot[0] >= 1e-15) & (Pi[0] >= 1e-15) & (Rmax > R[0])
+#    zeta = np.empty_like (R[:,idx])
+#    zeta[0] = np.sqrt (1.0 - R[0,idx])
+#
+#    # Zeroth derivative of rho
+#    rhoZinv = np.reciprocal (rho_tot[0,idx] * zeta[0])
+#    vot[0,idx] += vdiff[0,idx] * rhoZinv
+#
+#    # First derivative of rho
+#    if nderiv > 1:
+#        vot[0,idx] += (vdiff[1:4,idx] * rho_tot[1:4,idx]).sum (0) * rhoZinv / rho_tot[0,idx]
+#
+#    return vot
 
 
 
