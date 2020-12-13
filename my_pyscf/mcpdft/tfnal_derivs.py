@@ -73,13 +73,14 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
         print ("unpack test beta d/dz:", linalg.norm (vxc[1,3,:]-vxc_test[1,3,:]))
         vot = otfnal.jTx_op (rho, Pi, vxc)
         x = [vrho[:,0], vrho[:,1], vsigma[:,0], vsigma[:,1], vsigma[:,2]] 
-        vot_test = jTx_op_transl (otfnal, rho, Pi, x)
-        print ("vot rho test:", linalg.norm (vot_test[0]-vot[0][0]))
+        vot_test = _unpack_sigma_vector (jTx_op_transl (otfnal, rho, Pi, x),
+            deriv1=rho_deriv, deriv2=Pi_deriv)
+        print ("vot rho test:", linalg.norm (vot_test[0][0]-vot[0][0]))
         print ("vot Pi test:", linalg.norm (vot_test[1]-vot[1]))
         if nderiv > 1:
-            print ("vot drho/dx test:", linalg.norm (2*vot_test[2]*rho_tot[1] - vot[0][1]))
-            print ("vot drho/dy test:", linalg.norm (2*vot_test[2]*rho_tot[2] - vot[0][2]))
-            print ("vot drho/dz test:", linalg.norm (2*vot_test[2]*rho_tot[3] - vot[0][3]))
+            print ("vot drho/dx test:", linalg.norm (vot_test[0][1] - vot[0][1]))
+            print ("vot drho/dy test:", linalg.norm (vot_test[0][2] - vot[0][2]))
+            print ("vot drho/dz test:", linalg.norm (vot_test[0][3] - vot[0][3]))
     if dderiv > 1:
         raise NotImplementedError ("Translation of density derivatives of higher order than 1")
         # I should implement this entirely in terms of the gradient norm, since that reduces the
@@ -102,16 +103,16 @@ def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
     #   J[1,nabla rhob] = nabla rhoa
     #   J[2,nabla rhoa] = 0
     #   J[2,nabla rhob] = 2 * nabla rhob
-    ncol1 = 1 + 3 * int (deriv1 is not None)
-    ncol2 = 1 + 3 * int (deriv2 is not None)
+    ncol1 = 1 + 3 * int ((deriv1 is not None) and len (packed) > 2)
+    ncol2 = 1 + 3 * int ((deriv2 is not None) and len (packed) > 3)
     ngrid = packed[0].shape[-1] # Don't assume it's an ndarray
     unp1 = np.empty ((ncol1, ngrid), dtype=packed[0].dtype)
     unp2 = np.empty ((ncol2, ngrid), dtype=packed[0].dtype)
     unp1[0] = packed[0]
     unp2[0] = packed[1]
-    if deriv1 is not None:
+    if ncol1 > 1:
         unp1[1:4] = 2 * deriv1 * packed[2]
-        if deriv2 is not None:
+        if ncol2 > 1:
             unp1[1:4] += deriv2 * packed[3]
             unp2[1:4] = (2 * deriv2 * packed[4]) + (deriv1 * packed[3])
     return unp1, unp2
