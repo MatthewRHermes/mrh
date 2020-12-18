@@ -47,10 +47,10 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
         relativity=0, deriv=dderiv, verbose=otfnal.verbose)[:dderiv+1]
     eot = xc_grid[0] * rho_t[:,0,:].sum (0)
     if (weights is not None) and otfnal.verbose >= logger.DEBUG:
-        nelec = rho_t[0,0].dot (weight) + rho_t[1,0].dot (weight)
-        logger.debug (self, 'MC-PDFT: Total number of electrons in (this chunk of) the total density = %s', nelec)
-        ms = (rho_t[0,0].dot (weight) - rho_t[1,0].dot (weight)) / 2.0
-        logger.debug (self, 'MC-PDFT: Total ms = (neleca - nelecb) / 2 in (this chunk of) the translated density = %s', ms)
+        nelec = rho_t[0,0].dot (weights) + rho_t[1,0].dot (weights)
+        logger.debug (otfnal, 'MC-PDFT: Total number of electrons in (this chunk of) the total density = %s', nelec)
+        ms = (rho_t[0,0].dot (weights) - rho_t[1,0].dot (weights)) / 2.0
+        logger.debug (otfnal, 'MC-PDFT: Total ms = (neleca - nelecb) / 2 in (this chunk of) the translated density = %s', ms)
     vot = fot = None
     if dderiv > 0:
         vrho, vsigma = xc_grid[1][:2]

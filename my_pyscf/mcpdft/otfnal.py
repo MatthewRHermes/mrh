@@ -106,6 +106,7 @@ class transfnal (otfnal):
         self._init_info ()
 
     eval_ot = tfnal_derivs.eval_ot
+
     def get_ratio (self, Pi, rho_avg):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
             An intermediate quantity when computing the translated spin densities
@@ -128,72 +129,89 @@ class transfnal (otfnal):
             R[ideriv,idx] -= 2 * rho_avg[ideriv,idx] * R[0,idx] / rho_avg[0,idx]
         return R
 
-    def get_rho_translated (self, Pi, rho, Rmax=1, zeta_deriv=False, weights=None):
-        r''' original translation, Li Manni et al., JCTC 10, 3669 (2014).
-        rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + zeta)
-        rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - zeta) 
+    def get_rho_translated (self, Pi, rho, _fn_deriv=0, **kwargs):
+        r''' Compute the "translated" alpha and beta densities:
+
+        rho_t^a = (rho/2) * (1 + zeta)
+        rho_t^b = (rho/2) * (1 - zeta)
+        rho'_t^a = (rho'/2) * (1 + zeta)
+        rho'_t^b = (rho'/2) * (1 - zeta)
+
+        See "get_zeta" for the meaning of "zeta" 
     
-        where
+        Args:
+            Pi : ndarray of shape (*, ngrids)
+                containing on-top pair density [and derivatives]
+            rho : ndarray of shape (2, *, ngrids)
+                containing spin density [and derivatives]
     
-        zeta = (1-ratio)^(1/2) ; ratio < 1
-             = 0               ; otherwise
-        with
-        ratio = Pi / [{(rho[0] + rho[1]) / 2}^2]
+        Kwargs:
+            _fn_deriv : integer
+                Order of functional derivatives of zeta to compute.
+                In "translated" functionals, no functional derivatives
+                of zeta are used. This kwarg is used for convenience
+                when calling from children classes. It changes the return
+                signature and should not normally be touched by users.
     
-            Args:
-                Pi : ndarray of shape (*, ngrids)
-                    containing on-top pair density [and derivatives]
-                rho : ndarray of shape (2, *, ngrids)
-                    containing spin density [and derivatives]
-    
-            Kwargs:
-                Rmax : float
-                    cutoff for value of ratio in computing zeta; not inclusive
-                zeta_deriv : logical
-                    whether to include the derivative of zeta in the gradient of rho_t
-                weights : ndarray of shape (ngrids)
-                    weights for numerical quadrature. Used only to test the integral
-                    of rho_t for debugging purposes
-    
-            Returns: ndarray of shape (2,*,ngrids)
-                containing translated spin density (and derivatives)
+        Returns: 
+            rho_t : ndarray of shape (2,*,ngrids)
+                Translated spin density (and derivatives)
         '''
-        assert (Rmax <= 1), "Don't set Rmax above 1.0!"
-        nderiv = rho.shape[1]
-        nderiv_zeta = nderiv if zeta_deriv else 1
     
+        # For nonzero charge & pair density, set alpha dens = beta dens = 1/2 charge dens
         rho_avg = (rho[0,:,:] + rho[1,:,:]) / 2
         rho_t = rho.copy ()
-
-        R = self.get_ratio (Pi[0:nderiv_zeta,:], rho_avg[0:nderiv_zeta,:])
-
-        # For nonzero charge & pair density, set alpha dens = beta dens = 1/2 charge dens
-        idx = (rho_avg[0] >= (1e-15 / 2)) & (Pi[0] >= 1e-15) 
-        rho_t[0][:,idx] = rho_t[1][:,idx] = rho_avg[:,idx]
+        rho_t[0] = rho_t[1] = rho_avg
 
         # For 0 <= ratio < 1 and 0 <= rho, correct spin density using on-top density
-        idx &= (Rmax > R[0])
-        assert (np.all (R[0,idx] >= 0)), np.amin (R[0,idx])
-        assert (np.all (R[0,idx] <= Rmax)), np.amax (R[0,idx])
-        zeta = np.empty_like (R[:,idx])
-        zeta[0] = np.sqrt (1.0 - R[0,idx])
-
-        # Chain rule!
-        for ideriv in range (1, nderiv_zeta):
-            zeta[ideriv] = -R[ideriv,idx] / zeta[0] / 2
+        nderiv_R = Pi.shape[0] if _fn_deriv else 1
+        R = self.get_ratio (Pi[0:nderiv_R,:], rho_avg[0:nderiv_R,:])
+        zeta = self.get_zeta (R, fn_deriv=_fn_deriv)
     
         # Chain rule!
-        for ideriv in range (nderiv):
-            w = rho_avg[ideriv,idx] * zeta[0]
-            rho_t[0,ideriv,idx] += w
-            rho_t[1,ideriv,idx] -= w
-        # Product rule!
-        for ideriv in range (1,nderiv_zeta):
-            w = rho_avg[0,idx] * zeta[ideriv]
-            rho_t[0,ideriv,idx] += w
-            rho_t[1,ideriv,idx] -= w
+        w = rho_avg * zeta[0:1]
+        rho_t[0] += w
+        rho_t[1] -= w
 
+        if _fn_deriv > 0: return rho_t, R, zeta
         return rho_t
+
+    def get_zeta (self, R, fn_deriv=0, _Rmax=1):
+        r''' Compute the intermediate zeta used to compute the translated spin
+        densities and its functional derivatives 
+
+        From the original translation [Li Manni et al., JCTC 10, 3669 (2014)]:
+        zeta = (1-ratio)^(1/2) ; ratio < 1
+             = 0               ; otherwise
+
+        Args:
+            R : ndarray of shape (*,ngrids)
+                Ratio (4Pi/rho^2) and possibly its spatial derivatives
+                Only the first row is used in this function
+
+        Kwargs:
+            fn_deriv : integer
+                order of functional derivative (d^n z / dR^n) to return
+                along with the value of zeta
+            _Rmax : float
+                maximum value of R for which to compute zeta or its 
+                derivatives; columns of zeta with R[0]>_Rmax are zero.
+                This is a hook for the ``fully-translated'' child class
+                and should not be touched normally.
+
+        Returns:
+            zeta : ndarray of shape (fn_deriv+1, ngrids)
+        '''
+        ngrids = R.shape[1]
+        zeta = np.zeros ((fn_deriv+1, ngrids), dtype=R.dtype)
+        idx = R[0] < _Rmax
+        zeta[0,idx] = np.sqrt (1.0 - R[0,idx])
+        if fn_deriv:
+            zeta[1,idx] = -1 / zeta[0,idx] / 2
+        if fn_deriv > 1: fac = 1 / (1.0-R[0,idx]) / 2
+        for n in range (1,fn_deriv):
+            zeta[n+1,idx] = zeta[n,idx] * (2*n-1) * fac
+        return zeta
 
     def split_x_c (self):
         ''' Get one translated functional for just the exchange and one for just the correlation part of the energy. '''
@@ -282,69 +300,81 @@ class ftransfnal (transfnal):
             raise NotImplementedError ("density derivatives for fully-translated functionals")
         return transfnal.eval_ot (self, rho, Pi, dderiv=dderiv, weights=weights)
 
-    def get_rho_translated (self, Pi, rho, Rmax=None, zeta_deriv=True, weights=None):
-        r''' "full" translation, Carlson et al., JCTC 11, 4077 (2015)
-        rho_t[0] = {(rho[0] + rho[1]) / 2} * (1 + zeta)
-        rho_t[1] = {(rho[0] + rho[1]) / 2} * (1 - zeta)
-    
-        where
-        zeta = (1-ratio)^(1/2)                                  ; ratio < R0
-           = A*(ratio-R1)^5 + B*(ratio-R1)^4 + C*(ratio-R1)^3 ; R0 <= ratio <= R1
-           = 0                                                ; otherwise
-    
-        Propagate derivatives thru zeta
-    
-            Args:
-                Pi : ndarray of shape (*, ngrids)
-                    containing on-top pair density [and derivatives]
-                rho : ndarray of shape (2, *, ngrids)
-                    containing spin density [and derivatives]
-    
-            Kwargs:
-                Rmax : float
-                    cutoff for value of ratio in computing zeta; not inclusive
-                zeta_deriv : logical
-                    whether to include the derivative of zeta in the gradient of rho_t
-                weights : ndarray of shape (ngrids)
-                    weights for numerical quadrature. Used only to test the integral
+    def get_rho_translated (self, Pi, rho, **kwargs):
+        r''' Compute the "fully-translated" alpha and beta densities
+        and their derivatives. This is the same as "translated" except
 
-            Returns: ndarray of shape (2,*,ngrids)
-                containing fully-translated spin density (and derivatives)
+        rho'_t^a += zeta' * rho / 2
+        rho'_t^b -= zeta' * rho / 2
+
+        And the functional form of "zeta" is changed (see "get_zeta")
     
+        Args:
+            Pi : ndarray of shape (*, ngrids)
+                containing on-top pair density [and derivatives]
+            rho : ndarray of shape (2, *, ngrids)
+                containing spin density [and derivatives]
+    
+        Returns: 
+            rho_ft : ndarray of shape (2,*,ngrids)
+                Fully-translated spin density (and derivatives)
         '''
-        Rmax = Rmax or self.R1
-        nderiv = rho.shape[1]
-        if nderiv > 4:
-            raise NotImplementedError("derivatives above order 1")
-        R0, R1, A, B, C = self.R0, self.R1, self.A, self.B, self.C
-    
-        rho_ft = super().get_rho_translated (Pi, rho, Rmax=R0, zeta_deriv=True)
-        rho_avg = (rho[0] + rho[1]) / 2
-        R = self.get_ratio (Pi, rho_avg)
-    
-        idx = np.where (np.logical_and (R[0] >= R0, R[0] <= R1))[0]
-        R_m_R1 = np.stack ([np.power (R[0,idx] - R1, n) for n in range (2,6)], axis=0)
-        zeta = np.empty_like (R[:,idx])
-        zeta[0] = (A*R_m_R1[5-2] + B*R_m_R1[4-2] + C*R_m_R1[3-2])
-        # Chain rule!
-        for ideriv in range (1, nderiv):
-            zeta[ideriv] = R[ideriv,idx] * (5*A*R_m_R1[4-2] + 4*B*R_m_R1[3-2] + 3*C*R_m_R1[2-2])
-    
+        nderiv_R = max (rho.shape[1], Pi.shape[0])
+        if nderiv_R == 1: return transfnal.get_rho_translated (self, Pi, rho)
 
-        # Chain rule!
-        for ideriv in range (nderiv):
-            rho_ft[0,ideriv,idx] *= (1 + zeta[0])
-            rho_ft[1,ideriv,idx] *= (1 - zeta[0])
-        # Product rule!
-        for ideriv in range (1,nderiv):
-            rho_ft[0,ideriv,idx] += rho_avg[0,idx] * zeta[ideriv]
-            rho_ft[1,ideriv,idx] -= rho_avg[0,idx] * zeta[ideriv]
-    
-        if self.verbose > logger.DEBUG and weights is not None:
-            nelec = (np.sum (rho_ft[:,0,:], axis=0) * weights).sum ()
-            lib.logger.debug1 (self, 'Total number of electrons in (this chunk of) the fully-translated density = %s', nelec)
+        # Spin density and first term of spin gradient in common with transfnal    
+        rho_avg = (rho[0,:,:] + rho[1,:,:]) / 2
+        rho_ft, R, zeta = transfnal.get_rho_translated (self, Pi, rho, _fn_deriv=1)
+
+        # Add propagation of chain rule through zeta
+        w = (rho_avg[0] * zeta[1])[None,:] * R[1:4]
+        rho_ft[0][1:4] += w
+        rho_ft[1][1:4] -= w
 
         return np.squeeze (rho_ft)
+
+    def get_zeta (self, R, fn_deriv=1, **kwargs):
+        r''' Compute the intermediate zeta used to compute the translated spin
+        densities and its functional derivatives 
+
+        From the "full" translation [Carlson et al., JCTC 11, 4077 (2015)]:
+        zeta = (1-R)^(1/2)                          ; R < R0
+             = A*(R-R1)^5 + B*(R-R1)^4 + C*(R-R1)^3 ; R0 <= R < R1
+             = 0                                    ; otherwise
+
+        Args:
+            R : ndarray of shape (*,ngrids)
+                Ratio (4Pi/rho^2) and possibly its spatial derivatives
+                Only the first row is used in this function
+
+        Kwargs:
+            fn_deriv : integer
+                order of functional derivative (d^n z / dR^n) to return
+                along with the value of zeta
+
+        Returns:
+            zeta : ndarray of shape (fn_deriv+1, ngrids)
+        '''
+        # Rmax unused here. It only needs to be passed in the transfnal version
+        R0, R1, A, B, C = self.R0, self.R1, self.A, self.B, self.C
+        zeta = transfnal.get_zeta (self, R, fn_deriv=fn_deriv, _Rmax=R0)
+        idx = (R[0] >= R0) & (R[0] < R1)
+        if not np.count_nonzero (idx): return zeta
+        zeta[:,idx] = 0.0
+        dR = np.stack ([np.power (R[0,idx] - R1, n)
+            for n in range (1,6)], axis=0)
+        def _derivs ():
+            yield     A*dR[4] +    B*dR[3] +   C*dR[2]
+            yield   5*A*dR[3] +  4*B*dR[2] + 3*C*dR[1]
+            yield  20*A*dR[2] + 12*B*dR[1] + 6*C*dR[0]
+            yield  60*A*dR[1] + 24*B*dR[0] + 6*C
+            yield 120*A*dR[0] + 24*B
+            yield 120*A
+        for n, row in enumerate (_derivs ()):
+            zeta[n,idx] = row
+            if n == fn_deriv: break
+
+        return zeta
 
     def split_x_c (self):
         xfnal, cfnal = super().split_x_c ()
