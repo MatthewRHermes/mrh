@@ -145,3 +145,69 @@ def tGGA_jT_op (otfnal, rho, Pi, x):
 
     return jTx
 
+def ftGGA_jT_op (otfnal, rho, Pi, x):
+    ngrid = rho.shape[-1]
+    jTx = np.zeros ((5, ngrid), dtype=x[0].dtype)
+
+    # All of these jacobians have an inherently lower-triangular character
+    # This means that copying shouldn't be necessary so long as I go from top row
+    # to bottom row
+
+    # ab -> cs step
+    jTx[2] = (x[2] + x[4] + x[3]) / 4.0
+    jTx[3] = (x[2] - x[4]) / 2.0
+    jTx[4] = (x[2] + x[4] - x[3]) / 4.0
+    x = jTx
+
+    # Intermediates
+    rho = rho.sum (0)
+    R = otfnal.get_ratio (Pi[0:4,:], rho[0:4,:]/2)
+    zeta = otfnal.get_zeta (R[0], fn_deriv=2)
+    srr = (rho[1:4,:]*rho[1:4,:]).sum (0)
+    srP = (rho[1:4,:]*R[1:4,:]).sum (0)
+    sPP = (R[1:4,:]*R[1:4,:]).sum (0)
+
+    # cs -> rho,zeta step
+    jTx[0] = ((x[3] + 2*x[4]*zeta[0])*srP*zeta[1]
+              + 2*rho[0]*x[4]*sPP*zeta[1]*zeta[1])
+    jTx[1] = 2*x[3]*rho[0]*srp*zeta[1]
+    jTx[3] = (x[3] + 2*x[4]*zeta[0])*rho[0]
+    jTx[4] = x[4]*rho[0]*rho[0]
+    x = jTx
+
+    # rho,zeta -> rho,R step
+    jTx[1] = (x[1]*zeta[1] * x[3]*srP*zeta[2] +
+              2*x[4]*sPP*zeta[1]*zeta[2])
+    jTx[3] = x[3]*zeta[1]
+    jTx[4] = x[4]*zeta[1]*zeta[1]
+    x = jTx
+
+    # Intermediates and indexing for final step
+    zeta = None
+    ri = np.empty_like (jTx)
+    ri[0,:] = 1.0
+    idx = rho[0]>1e-15
+    ri[0,idx] /= rho[0,idx]
+    for i in range (4):
+        ri[i+1] = ri[i]*ri[0]
+    srP = (rho[1:4,:]*Pi[1:4,:]).sum (0)
+    sPP = (Pi[1:4,:]*Pi[1:4,:]).sum (0)
+    rho = rho[0]
+    Pi = Pi[0]
+    R = R[0]
+
+    # rho,R -> rho,Pi step
+    # First column is addition because result needs to include
+    # what happened in the cs -> rho, zeta step
+    jTx[0] += (-2*R*x[1]*ri[0]
+               + x[3]*(6*R*ri[1]*srr - 8*sPP*ri[2])
+               + x[4]*(-24*R*R*ri[2]*srr + 80*R*ri[3]*srP 
+                        - 64*ri[4]*sPP))
+    jTx[1] = (4*x[1]*ri[1] - 8*x[3]*ri[2]*srr
+              + x[4]*(32*R*ri[3]*srr - 64*ri[4]*srP))
+    jTx[2] = -2*x[3]*ri[0] + 4*x[4]*R*R*ri[1]
+    jTx[3] = 4*x[3]*ri[1] - 16*R*ri[2]
+    jTx[4] = 16*ri[3]
+
+    return jTx
+

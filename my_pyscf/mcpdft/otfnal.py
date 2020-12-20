@@ -381,6 +381,28 @@ class ftransfnal (transfnal):
         cfnal.otxc = 'f' + cfnal.otxc
         return xfnal, cfnal
 
+    def jT_op (self, rho, Pi, x, **kwargs):
+        r''' Evaluate jTx = (x.j)T where j is the Jacobian of the translated densities
+        in terms of the untranslated density and pair density
+
+        Args:
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+            x : ndarray of shape (2,*,ngrids)
+                Usually, a functional derivative of the on-top xc energy wrt
+                translated densities
+
+        Returns: ndarray of shape (*,ngrids)
+            Usually, a functional derivative of the on-top pair density exchange-correlation
+            energy wrt to total density and its derivatives
+            The potential must be spin-symmetric in pair-density functional theory
+        '''
+        jTx = transfnal.jT_op (self, rho, Pi, x, **kwargs)
+        if self.dens_deriv > 0:
+            jTx[:] += tfnal_derivs.ftGGA_jT_op (self, rho, Pi, x)
+        return jTx
 
 _CS_a_DEFAULT = 0.04918
 _CS_b_DEFAULT = 0.132
