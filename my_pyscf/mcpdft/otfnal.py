@@ -202,13 +202,14 @@ class transfnal (otfnal):
         Returns:
             zeta : ndarray of shape (fn_deriv+1, ngrids)
         '''
-        ngrids = R.shape[1]
+        if R.ndim == 2: R = R[0]
+        ngrids = R.size
         zeta = np.zeros ((fn_deriv+1, ngrids), dtype=R.dtype)
-        idx = R[0] < _Rmax
-        zeta[0,idx] = np.sqrt (1.0 - R[0,idx])
+        idx = R < _Rmax
+        zeta[0,idx] = np.sqrt (1.0 - R[idx])
         if fn_deriv:
             zeta[1,idx] = -1 / zeta[0,idx] / 2
-        if fn_deriv > 1: fac = 1 / (1.0-R[0,idx]) / 2
+        if fn_deriv > 1: fac = 1 / (1.0-R[idx]) / 2
         for n in range (1,fn_deriv):
             zeta[n+1,idx] = zeta[n,idx] * (2*n-1) * fac
         return zeta
@@ -236,7 +237,7 @@ class transfnal (otfnal):
         cfnal.otxc = c_code
         return xfnal, cfnal
 
-    def jTx_op (self, rho, Pi, x, Rmax=1, zeta_deriv=False):
+    def jT_op (self, rho, Pi, x, **kwargs):
         r''' Evaluate jTx = (x.j)T where j is the Jacobian of the translated densities
         in terms of the untranslated density and pair density
 
@@ -249,21 +250,18 @@ class transfnal (otfnal):
                 Usually, a functional derivative of the on-top xc energy wrt
                 translated densities
 
-        Kwargs:
-            Rmax : float
-                For ratios above this value, rho is not translated and therefore
-                the effective potential kernel is the same as in standard KS-DFT
-            zeta_deriv : logical
-                If true, propagate derivatives through the zeta intermediate as in
-                ``fully-translated'' PDFT
-
         Returns: ndarray of shape (*,ngrids)
             Usually, a functional derivative of the on-top pair density exchange-correlation
             energy wrt to total density and its derivatives
             The potential must be spin-symmetric in pair-density functional theory
         '''
-        return tfnal_derivs.jTx_op_transl (self, rho, Pi, x,
-            Rmax=Rmax, zeta_deriv=zeta_deriv)
+        ncol = 2 + int(self.dens_deriv>0)
+        ngrid = rho.shape[-1]
+        jTx = np.zeros ((ncol,ngrid), dtype=x[0].dtype)
+        jTx[:2] = tfnal_derivs.gentLDA_jT_op (self, rho, Pi, x)
+        if self.dens_deriv > 0:
+            jTx[:] += tfnal_derivs.tGGA_jT_op (self, rho, Pi, x)
+        return jTx
 
 
 _FT_R0_DEFAULT=0.9
@@ -356,12 +354,13 @@ class ftransfnal (transfnal):
             zeta : ndarray of shape (fn_deriv+1, ngrids)
         '''
         # Rmax unused here. It only needs to be passed in the transfnal version
+        if R.ndim == 2: R = R[0]
         R0, R1, A, B, C = self.R0, self.R1, self.A, self.B, self.C
         zeta = transfnal.get_zeta (self, R, fn_deriv=fn_deriv, _Rmax=R0)
-        idx = (R[0] >= R0) & (R[0] < R1)
+        idx = (R >= R0) & (R < R1)
         if not np.count_nonzero (idx): return zeta
         zeta[:,idx] = 0.0
-        dR = np.stack ([np.power (R[0,idx] - R1, n)
+        dR = np.stack ([np.power (R[idx] - R1, n)
             for n in range (1,6)], axis=0)
         def _derivs ():
             yield     A*dR[4] +    B*dR[3] +   C*dR[2]
