@@ -327,11 +327,6 @@ class ftransfnal (transfnal):
 
     Pi_deriv = 1
 
-    def eval_ot (self, rho, Pi, dderiv=0, weights=None):
-        if dderiv>0:
-            raise NotImplementedError ("density derivatives for fully-translated functionals")
-        return transfnal.eval_ot (self, rho, Pi, dderiv=dderiv, weights=weights)
-
     def get_rho_translated (self, Pi, rho, **kwargs):
         r''' Compute the "fully-translated" alpha and beta densities
         and their derivatives. This is the same as "translated" except
@@ -415,25 +410,29 @@ class ftransfnal (transfnal):
         cfnal.otxc = 'f' + cfnal.otxc
         return xfnal, cfnal
 
-    def jT_op (self, rho, Pi, x, **kwargs):
+    def jT_op (self, x, rho, Pi, **kwargs):
         r''' Evaluate jTx = (x.j)T where j is the Jacobian of the translated densities
         in terms of the untranslated density and pair density
 
         Args:
+            x : ndarray of shape (2,*,ngrids)
+                Usually, a functional derivative of the on-top xc energy wrt
+                translated densities
             rho : ndarray of shape (2,*,ngrids)
                 containing spin-density [and derivatives]
             Pi : ndarray with shape (*,ngrids)
                 containing on-top pair density [and derivatives]
-            x : ndarray of shape (2,*,ngrids)
-                Usually, a functional derivative of the on-top xc energy wrt
-                translated densities
 
         Returns: ndarray of shape (*,ngrids)
             Usually, a functional derivative of the on-top pair density exchange-correlation
             energy wrt to total density and its derivatives
             The potential must be spin-symmetric in pair-density functional theory
         '''
-        jTx = transfnal.jT_op (self, rho, Pi, x, **kwargs)
+        ntc = 2 + int(self.dens_deriv>0)
+        ncol = 2 + 3*int(self.dens_deriv>0)
+        ngrid = rho.shape[-1]
+        jTx = np.zeros ((ncol,ngrid), dtype=x[0].dtype)
+        jTx[:ntc,:] = transfnal.jT_op (self, x, rho, Pi, **kwargs)
         rho = rho.sum (0)
         R = self.get_ratio (Pi[0:4,:], rho[0:4,:]/2)
         zeta = self.get_zeta (R[0], fn_deriv=2)

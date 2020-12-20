@@ -114,7 +114,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     make_rho = ot._numint._gen_rho_evaluator (mol, dm1, 1)[0]
     dvxc = np.zeros ((3,nao))
     idx = np.array ([[1,4,5,6],[2,5,7,8],[3,6,8,9]], dtype=np.int_) # For addressing particular ao derivatives
-    if ot.xctype == 'LDA': idx = idx[:,0] # For LDAs no second derivatives
+    if ot.xctype == 'LDA': idx = idx[:,0:1] # For LDAs no second derivatives
     diag_idx = np.arange(ncas) # for puvx
     diag_idx = diag_idx * (diag_idx+1) // 2 + diag_idx
     casdm2_pack = (twoCDM + twoCDM.transpose (0,1,3,2)).reshape (ncas**2, ncas, ncas)
@@ -146,8 +146,8 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             ao = ot._numint.eval_ao (mol, coords[ip0:ip1], deriv=ot.dens_deriv+1, non0tab=mask) # Need 1st derivs for LDA, 2nd for GGA, etc.
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao grids'.format (ia), *t1)
             if ot.xctype == 'LDA': # Might confuse the rho and Pi generators if I don't slice this down
-                aoval = ao[:1]
-            elif ot.xctype == 'GGA':
+                aoval = ao[0]
+            if ot.xctype == 'GGA':
                 aoval = ao[:4]
             rho = make_rho (0, aoval, mask, ot.xctype) / 2.0
             rho = np.stack ((rho,)*2, axis=0)
@@ -155,6 +155,8 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv, mask)
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Pi calc'.format (ia), *t1)
 
+            if ot.xctype == 'LDA':
+                aoval = ao[:1]
             moval_occ = _grid_ao2mo (mol, aoval, mo_occ, mask)
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t1)
             aoval = np.ascontiguousarray ([ao[ix].transpose (0,2,1) for ix in idx[:,:ndao]]).transpose (0,1,3,2)

@@ -7,7 +7,7 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
     r''' get the integrand of the on-top xc energy and its functional derivatives wrt rho and Pi 
 
     Args:
-        rho : ndarray of shape (2,*ngrids)
+        rho : ndarray of shape (2,*,ngrids)
             containing spin-density [and derivatives]
         Pi : ndarray with shape (*,ngrids)
             containing on-top pair density [and derivatives]
@@ -35,6 +35,9 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
     '''
     if dderiv > 2:
         raise NotImplementedError ("Translation of density derivatives of higher order than 2")
+    if rho.ndim == 2: rho = rho[:,None,:]
+    if Pi.ndim == 1: Pi = Pi[None,:]
+    assert (rho.shape[0] == 2)
     nderiv = rho.shape[1]
     nderiv_Pi = Pi.shape[1]
     if nderiv > 4:
@@ -54,7 +57,8 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
     vot = fot = None
     if dderiv > 0:
         vrho, vsigma = xc_grid[1][:2]
-        vxc = list (vrho.T) + list (vsigma.T)
+        vxc = list (vrho.T)
+        if otfnal.dens_deriv: vxc = vxc + list (vsigma.T)
         vot = otfnal.jT_op (vxc, rho, Pi)
         vot = _unpack_sigma_vector (vot, deriv1=rho_deriv, deriv2=Pi_deriv)
     if dderiv > 1:
@@ -184,7 +188,7 @@ def _ftGGA_jT_op_m2z (x, rho, zeta, srP, sPP):
     jTx = np.empty_like (x)
     jTx[0] = ((x[3] + 2*x[4]*zeta[0])*srP*zeta[1]
               + 2*rho*x[4]*sPP*zeta[1]*zeta[1])
-    jTx[1] = 2*x[3]*rho*srp*zeta[1]
+    jTx[1] = 2*x[3]*rho*srP*zeta[1]
     jTx[2] = 0
     jTx[3] = (x[3] + 2*x[4]*zeta[0])*rho
     jTx[4] = x[4]*rho*rho
@@ -203,14 +207,14 @@ def _ftGGA_jT_op_z2R (x, zeta, srP, sPP):
 def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
     if rho.ndim > 1: rho = rho[0]
     if R.ndim > 1: R = R[0]
-    ri = np.empty_like (jTx)
+    jTx = np.empty_like (x)
+    ri = np.empty_like (x)
     ri[0,:] = 1.0
     idx = rho>1e-15
     ri[0,idx] /= rho[idx]
     for i in range (4):
         ri[i+1] = ri[i]*ri[0]
 
-    jTx = np.empty_like (x)
     jTx[0] = (-2*R*x[1]*ri[0]
                + x[3]*(6*R*ri[1]*srr - 8*sPP*ri[2])
                + x[4]*(-24*R*R*ri[2]*srr + 80*R*ri[3]*srP 

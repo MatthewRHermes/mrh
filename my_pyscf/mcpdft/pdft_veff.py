@@ -60,6 +60,7 @@ class _ERIS(object):
         #self._eri += ot.get_veff_2body (rho, Pi, mo, weight, aosym='s4', kern=vPi)
         # ao is here stored in row-major order = deriv,AOs,grids regardless of what
         # the ndarray object thinks
+        if ao.ndim == 2: ao = ao[None,:,:]
         mo_coeff = self.mo_coeff
         ncore, ncas = self.ncore, self.ncas
         nocc = ncore + ncas
@@ -316,6 +317,9 @@ def get_veff_1body (otfnal, rho, Pi, ao, weight, kern=None, non0tab=None, shls_s
     w = weight[None,:]
     if isinstance (ao, np.ndarray) and ao.ndim == 3:
         ao = [ao, ao]
+    elif isinstance (ao, np.ndarray) and ao.ndim == 2:
+        if ao.shape[0] == 2: raise NotImplementedError ("uninterpretable aos! (nao=2 or are you providing two rows?)")
+        ao = [ao[None,:,:], ao[None,:,:]]
     elif len (ao) != 2:
         raise NotImplementedError ("uninterpretable aos!")
     elif ao[0].size < ao[1].size:
