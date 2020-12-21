@@ -209,9 +209,9 @@ def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
     if R.ndim > 1: R = R[0]
     jTx = np.empty_like (x)
     ri = np.empty_like (x)
-    ri[0,:] = 1.0
+    ri[0,:] = 0.0
     idx = rho>1e-15
-    ri[0,idx] /= rho[idx]
+    ri[0,idx] = 1.0/rho[idx]
     for i in range (4):
         ri[i+1] = ri[i]*ri[0]
 
@@ -222,8 +222,8 @@ def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
     jTx[1] = (4*x[1]*ri[1] - 8*x[3]*ri[2]*srr
               + x[4]*(32*R*ri[3]*srr - 64*ri[4]*srP))
     jTx[2] = -2*x[3]*ri[0] + 4*x[4]*R*R*ri[1]
-    jTx[3] = 4*x[3]*ri[1] - 16*R*ri[2]
-    jTx[4] = 16*ri[3]
+    jTx[3] = 4*x[3]*ri[1] - 16*x[4]*R*ri[2]
+    jTx[4] = 16*x[4]*ri[3]
     return jTx
 
 def ftGGA_jT_op (x, rho, Pi, R, zeta):
