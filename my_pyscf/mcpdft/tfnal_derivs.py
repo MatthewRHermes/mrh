@@ -221,7 +221,7 @@ def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
                         - 64*ri[4]*sPP))
     jTx[1] = (4*x[1]*ri[1] - 8*x[3]*ri[2]*srr
               + x[4]*(32*R*ri[3]*srr - 64*ri[4]*srP))
-    jTx[2] = -2*x[3]*ri[0] + 4*x[4]*R*R*ri[1]
+    jTx[2] = -2*R*x[3]*ri[0] + 4*x[4]*R*R*ri[1]
     jTx[3] = 4*x[3]*ri[1] - 16*x[4]*R*ri[2]
     jTx[4] = 16*x[4]*ri[3]
     return jTx
