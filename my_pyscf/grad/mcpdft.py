@@ -155,7 +155,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
             Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas, ot.dens_deriv, mask)
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} Pi calc'.format (ia), *t1)
 
-            if ot.xctype == 'LDA':
+            if ot.xctype == 'LDA': # TODO: consistent format requirements for shape of ao grid
                 aoval = ao[:1]
             moval_occ = _grid_ao2mo (mol, aoval, mo_occ, mask)
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao2mo grid'.format (ia), *t1)

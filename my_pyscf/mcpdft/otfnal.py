@@ -1,6 +1,7 @@
 import numpy as np
 import copy
 import re
+from pyscf import lib
 from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
