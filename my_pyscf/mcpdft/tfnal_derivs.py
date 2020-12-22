@@ -147,14 +147,14 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
     nr = int (round (np.sqrt (1 + 8*nel) - 1)) // 2
     ngrids = fot[0].shape[-1]
 
-    vrho1[0] = 2*fot[0]*rho1[0] + fot[1]*Pi1[0]
-    vPi1[0] = 2*fot[2]*Pi1[0] + fot[1]*rho1[0]
+    vrho1[0] = fot[0]*rho1[0] + fot[1]*Pi1[0]
+    vPi1[0] = fot[2]*Pi1[0] + fot[1]*rho1[0]
 
     if len (fot) > 3:
         srr = 2*(rho0[1:4,:]*rho1[1:4,:]).sum (0)
         vrho1[0] += fot[3]*srr
         vPi1[0]  += fot[4]*srr
-        vrr = fot[3]*rho1[0] + fot[4]*Pi1[0] + 2*fot[5]*srr
+        vrr = fot[3]*rho1[0] + fot[4]*Pi1[0] + fot[5]*srr
     if len (fot) > 6:
         srP = ((rho0[1:4,:]*Pi1[1:4,:]).sum (0)
              + (rho1[1:4,:]*Pi0[1:4,:]).sum (0))
@@ -162,10 +162,10 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
         vrho1[0] += fot[6]*srP + fot[10]*sPP
         vPi1[0]  += fot[7]*srP + fot[11]*sPP
         vrr      += fot[8]*srP + fot[12]*sPP
-        vrP = (fot[6]*rho1[0] + fot[7]*Pi1[0]
-             + fot[8]*srr + 2*fot[9]*srP +    fot[13]*sPP)
+        vrP = (fot[6]*rho1[0]  + fot[7]*Pi1[0]
+             + fot[8]*srr  +  fot[9]*srP  + fot[13]*sPP)
         vPP = (fot[10]*rho1[0] + fot[11]*Pi1[0]
-             + fot[12]*srr +  fot[13]*srP + 2*fot[14]*sPP)
+             + fot[12]*srr +  fot[13]*srP + fot[14]*sPP)
 
     if len (fot) > 3:
         vrho1[1:4]  = 2*vrr*rho0[1:4]
@@ -193,7 +193,6 @@ def jT_f_j (frr, jT_op, *args):
     # first pass
     fcr = np.stack ([jT_op ([frr[i] for i in ix_row], *args)
            for ix_row in idx_arr], axis=1)
-    
     # second pass
     nc = fcr.shape[0]
     fcc = np.empty ((nc*(nc+1)//2, ngrids), dtype=fcr.dtype)
@@ -349,7 +348,6 @@ def gentLDA_d_jT_op (x, rho, Pi, R, zeta):
     # Intermediates
     #R = otfnal.get_ratio (Pi, rho/2)
     #zeta = otfnal.get_zeta (R, fn_deriv=2)[1:]
-    #print (np.amax (np.abs (R)), np.amax (np.abs (zeta[0])), np.amax (np.abs (zeta[1])))
     zeta *= 2*xm[None,:]/rho[None,:] # sloppy notation...
 
     # without further ceremony

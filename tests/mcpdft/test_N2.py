@@ -86,7 +86,7 @@ def test_densgrad (otxc):
         dE_num = np.dot (eotD, weight)
         dE_lin = np.dot (eotD_lin, weight)
         eotD_quad = (vot1[0]*rhoT.sum (0)).sum (0) + (vot1[1][:nPi]*PiT[:nPi]).sum (0)
-        dE_quad = np.dot (eotD_quad, weight)
+        dE_quad = np.dot (eotD_quad, weight) / 2 # Taylor series!!!
         return dE_num, dE_lin, dE_quad
 
     rhoT, PiT = np.zeros_like (rhoD), np.zeros_like (PiD)
