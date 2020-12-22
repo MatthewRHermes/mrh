@@ -85,7 +85,7 @@ def test_densgrad (otxc):
         E = np.dot (eot0, weight)
         dE_num = np.dot (eotD, weight)
         dE_lin = np.dot (eotD_lin, weight)
-        eotD_quad = eotD_lin + (vot1[0]*rhoT.sum (0)).sum (0) + (vot1[1][:nPi]*PiT[:nPi]).sum (0)
+        eotD_quad = (vot1[0]*rhoT.sum (0)).sum (0) + (vot1[1][:nPi]*PiT[:nPi]).sum (0)
         dE_quad = np.dot (eotD_quad, weight)
         return dE_num, dE_lin, dE_quad
 

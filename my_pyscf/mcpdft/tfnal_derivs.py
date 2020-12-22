@@ -330,10 +330,10 @@ def ftGGA_jT_op (x, rho, Pi, R, zeta):
 def gentLDA_d_jT_op (x, rho, Pi, R, zeta):
     rho = rho[0]
     Pi = Pi[0]
+    R = R[0]
     ngrid = rho.shape[-1]
     f = np.zeros ((3,ngrid), dtype=x[0].dtype)
     zeta = zeta[1:]
-    if R.ndim > 1: R = R[0]
 
     # ab -> cs
     xm = (x[0] - x[1]) / 2.0
@@ -349,13 +349,13 @@ def gentLDA_d_jT_op (x, rho, Pi, R, zeta):
     # Intermediates
     #R = otfnal.get_ratio (Pi, rho/2)
     #zeta = otfnal.get_zeta (R, fn_deriv=2)[1:]
-    zeta[0] += 2*R*zeta[1] # sloppy notation...
-    zeta = 4*zeta*xm[None,:]/rho[None,:] # sloppy notation...
+    #print (np.amax (np.abs (R)), np.amax (np.abs (zeta[0])), np.amax (np.abs (zeta[1])))
+    zeta *= 2*xm[None,:]/rho[None,:] # sloppy notation...
 
     # without further ceremony
-    f[0,idx] = R*zeta[0]
-    f[1,idx] = -zeta[0]/rho
-    f[2,idx] = 4*zeta[1]/rho/rho
+    f[0,idx] = R*(zeta[0]+2*R*zeta[1])
+    f[1,idx] = -4*(zeta[0]+R*zeta[1])/rho
+    f[2,idx] = 8*zeta[1]/rho/rho
 
     return f
 
