@@ -62,21 +62,22 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
         vot = otfnal.jT_op (vxc, rho, Pi)
         vot = _unpack_sigma_vector (vot, deriv1=rho_deriv, deriv2=Pi_deriv)
     if dderiv > 1:
-        raise NotImplementedError ("Translation of density derivatives of higher order than 1")
         # I should implement this entirely in terms of the gradient norm, since that reduces the
         # number of grid columns from 25 to 9 for t-GGA and from 64 to 25 for ft-GGA (and steps
         # around the need to "unpack" fsigma and frhosigma entirely).
-        frho, frhosigma, fsigma = xc_grid[2]
+        frho, frhosigma, fsigma = xc_grid[2][:3]
+        frho = frho.T
         fxc  = [frho[0],]
         fxc += [frho[1],      frho[2],]
         if otfnal.dens_deriv:
+            frhosigma, fsigma = frhosigma.T, fsigma.T
             fxc += [frhosigma[0], frhosigma[3], fsigma[0],]
             fxc += [frhosigma[1], frhosigma[4], fsigma[1], fsigma[3],]
             fxc += [frhosigma[2], frhosigma[5], fsigma[2], fsigma[4], fsigma[5]]
         # First pass: fxc
         fot = jT_f_j (fxc, otfnal.jT_op, rho, Pi)
         # Second pass: translation derivatives
-        fot += otfnal.d_jT_op (vxc, rho, Pi)
+        fot[:5] += otfnal.d_jT_op (vxc, rho, Pi)
     return eot, vot, fot
 
 def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
@@ -135,40 +136,40 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
     if rho0.ndim == 2: rho0 = rho0[:,None,:]
     if Pi0.ndim == 1: Pi0 = Pi0[None,:]
     assert (rho0.shape[0] == 2)
-    rho0.sum (0)
+    rho0 = rho0.sum (0)
     if rho1.ndim == 2: rho1 = rho1[:,None,:]
     if Pi1.ndim == 1: Pi1 = Pi1[None,:]
     assert (rho1.shape[0] == 2)
-    rho1.sum (0)
+    rho1 = rho1.sum (0)
 
     vrho1, vPi1 = np.zeros_like (rho1), np.zeros_like (Pi1)
-    nel = len (f)
+    nel = len (fot)
     nr = int (round (np.sqrt (1 + 8*nel) - 1)) // 2
     ngrids = fot[0].shape[-1]
 
     vrho1[0] = 2*fot[0]*rho1[0] + fot[1]*Pi1[0]
-    vPi[0] = 2*fot[2]*Pi1[0] + fot[1]*rho1[0]
+    vPi1[0] = 2*fot[2]*Pi1[0] + fot[1]*rho1[0]
 
-    if len (f) > 3:
+    if len (fot) > 3:
         srr = 2*(rho0[1:4,:]*rho1[1:4,:]).sum (0)
         vrho1[0] += fot[3]*srr
         vPi1[0]  += fot[4]*srr
         vrr = fot[3]*rho1[0] + fot[4]*Pi1[0] + 2*fot[5]*srr
-    if len (f) > 6:
+    if len (fot) > 6:
         srP = ((rho0[1:4,:]*Pi1[1:4,:]).sum (0)
              + (rho1[1:4,:]*Pi0[1:4,:]).sum (0))
         sPP = 2*(Pi0[1:4,:]*Pi1[1:4,:]).sum (0)
         vrho1[0] += fot[6]*srP + fot[10]*sPP
         vPi1[0]  += fot[7]*srP + fot[11]*sPP
-        vrr      += fot[8]*srp + fot[12]*sPP
+        vrr      += fot[8]*srP + fot[12]*sPP
         vrP = (fot[6]*rho1[0] + fot[7]*Pi1[0]
              + fot[8]*srr + 2*fot[9]*srP +    fot[13]*sPP)
         vPP = (fot[10]*rho1[0] + fot[11]*Pi1[0]
              + fot[12]*srr +  fot[13]*srP + 2*fot[14]*sPP)
 
-    if len (f) > 3:
+    if len (fot) > 3:
         vrho1[1:4]  = 2*vrr*rho0[1:4]
-    if len (f) > 6:
+    if len (fot) > 6:
         vrho1[1:4] += vrP*Pi0[1:4]
         vPi1[1:4] = 2*vPP*Pi0[1:4] + vrP*rho0[1:4]
 
@@ -177,7 +178,7 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
 def jT_f_j (frr, jT_op, *args):
     r''' Apply a jacobian function taking *args to the lower-triangular
     second-derivative array frr'''
-    nel = len (f)
+    nel = len (frr)
     nr = int (round (np.sqrt (1 + 8*nel) - 1)) // 2
     ngrids = frr[0].shape[-1]
 
@@ -190,7 +191,7 @@ def jT_f_j (frr, jT_op, *args):
     idx_arr[diag_ix] = idx_arr[diag_ix] // 2
     
     # first pass
-    fcr = np.stack ([jT_op ([f[i] for i in ix_row], *args)
+    fcr = np.stack ([jT_op ([frr[i] for i in ix_row], *args)
            for ix_row in idx_arr], axis=1)
     
     # second pass
@@ -327,6 +328,8 @@ def ftGGA_jT_op (x, rho, Pi, R, zeta):
     return jTx
 
 def gentLDA_d_jT_op (x, rho, Pi, R, zeta):
+    rho = rho[0]
+    Pi = Pi[0]
     ngrid = rho.shape[-1]
     f = np.zeros ((3,ngrid), dtype=x[0].dtype)
     zeta = zeta[1:]
@@ -337,9 +340,11 @@ def gentLDA_d_jT_op (x, rho, Pi, R, zeta):
 
     # Indexing
     idx = rho > 1e-15
-    rho = rho[0:1,idx]
-    Pi = Pi[0:1,idx]
+    rho = rho[idx]
+    Pi = Pi[idx]
     xm = xm[idx]
+    R = R[idx]
+    zeta = zeta[:,idx]
 
     # Intermediates
     #R = otfnal.get_ratio (Pi, rho/2)
@@ -348,9 +353,9 @@ def gentLDA_d_jT_op (x, rho, Pi, R, zeta):
     zeta = 4*zeta*xm[None,:]/rho[None,:] # sloppy notation...
 
     # without further ceremony
-    f[0] = R*zeta[0]
-    f[1] = -zeta[0]/rho
-    f[2] = 4*zeta[1]/rho/rho
+    f[0,idx] = R*zeta[0]
+    f[1,idx] = -zeta[0]/rho
+    f[2,idx] = 4*zeta[1]/rho/rho
 
     return f
 
@@ -361,10 +366,12 @@ def tGGA_d_jT_op (x, rho, Pi, R, zeta):
     f = np.zeros ((5,ngrid), dtype=x[0].dtype)
 
     # Indexing
-    idx = rho > 1e-15
+    idx = rho[0] > 1e-15
     rho = rho[0:4,idx]
     Pi = Pi[0:1,idx]
-    x = x[:,idx]
+    x = [xi[idx] for xi in x]
+    R = R[0,idx]
+    zeta = zeta[:,idx]
 
     # ab -> cs
     xcm = (x[2] - x[4]) / 2.0
@@ -375,27 +382,26 @@ def tGGA_d_jT_op (x, rho, Pi, R, zeta):
     #zeta = otfnal.get_zeta (R, fn_deriv=2)
     sigma = (rho[1:4]*rho[1:4]).sum (0)
     rho = rho[0]
-    R = R[0,:]
     rho2 = rho*rho
     rho3 = rho2*rho
     rho4 = rho3*rho
 
     # coefficient of dsigma dz
     xcm += 2*zeta[0]*xmm
-    f[3] = -4*xcm*R*zeta[1]/rho
-    f[4] = 8*xcm*zeta[1]/rho2
+    f[3,idx] = -4*xcm*R*zeta[1]/rho
+    f[4,idx] = 8*xcm*zeta[1]/rho2
     
     # coefficient of d^2 z
     xcm *= sigma
-    f[0] = 2*xcm*R*(3*zeta[1] + 2*R*zeta[2])/rho2
-    f[1] = -8*xcm*(zeta[1] - 4*R*zeta[2])/rho3
-    f[2] = 16*xcm*zeta[2]/rho4
+    f[0,idx] = 2*xcm*R*(3*zeta[1] + 2*R*zeta[2])/rho2
+    f[1,idx] = -8*xcm*(zeta[1] - 4*R*zeta[2])/rho3
+    f[2,idx] = 16*xcm*zeta[2]/rho4
 
     # coefficient of dz dz
     xmm *= 8*sigma*zeta[1]*zeta[1]/rho2
-    f[0] += xmm*R*R
-    f[1] -= 2*xmm*R/rho
-    f[2] += 4*xmm/rho2
+    f[0,idx] += xmm*R*R
+    f[1,idx] -= 2*xmm*R/rho
+    f[2,idx] += 4*xmm/rho2
     
     return f
 

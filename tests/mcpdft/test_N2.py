@@ -3,6 +3,7 @@ from scipy import linalg
 from pyscf import gto, scf, mcscf, lib
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
+from mrh.my_pyscf.mcpdft.tfnal_derivs import contract_fot
 
 def N2_xyz (r=1.6):
     return 'N -{0:.6f} 0 0 ; N {0:.6f} 0 0'.format (abs (r)/2)
@@ -54,7 +55,7 @@ def test_densgrad (otxc):
     dm2 += np.multiply.outer (dm1s[1], dm1s[1]).transpose (0,3,2,1)
     dm1s = [(mo_core @ mo_core.T) + (mo_cas @ d @ mo_cas.T) for d in dm1s]
     rho0, Pi0, weight = get_dens (dm1s, dm2)
-    eot0, vot0, fot0 = ot.eval_ot (rho0, Pi0, weights=weight)
+    eot0, vot0, fot0 = ot.eval_ot (rho0, Pi0, dderiv=2, weights=weight)
     vrho0, vPi0 = vot0
 
     # Perturbed densities
@@ -70,14 +71,17 @@ def test_densgrad (otxc):
         # Evaluate energy and potential at dens0 + densD = dens1
         rho1 = rho0 + rhoT
         Pi1 = Pi0 + PiT
-        eot1, vot1 = ot.eval_ot (rho1, Pi1, weights=weight)[:2]
+        eot1 = ot.eval_ot (rho1, Pi1, weights=weight)[0]
         eotD = eot1 - eot0
-        votD = np.asarray (vot1) - np.asarray (vot0)
 
-        # Compare to a linear expansion
+        vot1 = contract_fot (ot, fot0, rho0, Pi0, rhoT, PiT)
+
+        # Polynomial expansion
         if PiT.ndim == 1: PiT = PiT[None,:]
         nPi = min (PiT.shape[0], vPi0.shape[0])
-        eotD_lin = (vrho0*rhoT.sum (0)).sum (0) + (vPi0[:nPi]*PiT[:nPi]).sum (0)
+        vrho = vrho0 + vot1[0]
+        vPi = vPi0 + vot1[1]
+        eotD_lin = (vrho*rhoT.sum (0)).sum (0) + (vPi[:nPi]*PiT[:nPi]).sum (0)
         E = np.dot (eot0, weight)
         dE_num = np.dot (eotD, weight)
         dE_lin = np.dot (eotD_lin, weight)
@@ -114,7 +118,6 @@ def test_densgrad (otxc):
         Pip_rat = (lin-num)/num
     else:
         Pip_rat = 0.0
-
 
     print ("{:>7s} {:7.4f} {:7.4f} {:7.4f} {:7.4f}".format (otxc, rho_rat, Pi_rat, rhop_rat, Pip_rat))
 

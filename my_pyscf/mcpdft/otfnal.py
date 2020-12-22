@@ -289,10 +289,10 @@ class transfnal (otfnal):
         f = np.zeros ((nrow, x[0].shape[-1]), dtype=x[0].dtype)
 
         rho = rho.sum (0)
-        R = otfnal.get_ratio (Pi, rho/2)
-        zeta = otfnal.get_zeta (R, fn_deriv=2)
+        R = self.get_ratio (Pi, rho/2)
+        zeta = self.get_zeta (R, fn_deriv=2)
 
-        f[:2] = tfnal_derivs.gentLDA_d_jT_op (x, rho, Pi, R, zeta)
+        f[:3] = tfnal_derivs.gentLDA_d_jT_op (x, rho, Pi, R, zeta)
         if self.dens_deriv:
             f[:] += tfnal_derivs.tGGA_d_jT_op (x, rho, Pi, R, zeta)
 
