@@ -23,7 +23,7 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
     Returns: 
         eot : ndarray of shape (ngrids)
             integrand of the on-top exchange-correlation energy
-        vot : (array_like (rho), array_like (Pi)) or None
+        vot : (ndarray of shape (*,ngrids), ndarray of shape (*,ngrids)) or None
             first functional derivative of Eot wrt (density, pair density)
             and their derivatives
         fot : ndarray of shape (*,ngrids) or None
@@ -104,6 +104,75 @@ def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
             unp1[1:4] += deriv2 * packed[3]
             unp2[1:4] = (2 * deriv2 * packed[4]) + (deriv1 * packed[3])
     return unp1, unp2
+
+def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
+    r''' Evaluate the product of a packed lower-triangular matrix
+    with perturbed density, pair density, and derivatives.
+
+    Args:
+        fot : ndarray of shape (*,ngrids)
+            Lower-triangular matrix elements corresponding to the basis
+            (rho, Pi, |drho|^2, drho'.dPi, |dPi|) stopping at Pi (3 elements)
+            for t-LDA or ft-LDA and |drho|^2 (6 elements) for t-GGA.
+        rho0 : ndarray of shape (2,*,ngrids)
+            containing spin-density [and derivatives]
+            the density at which fot was evaluated
+        Pi0 : ndarray with shape (*,ngrids)
+            containing on-top pair density [and derivatives]
+            the density at which fot was evaluated
+        rho1 : ndarray of shape (2,*,ngrids)
+            containing spin-density [and derivatives]
+            the density contracted with fot
+        Pi1 : ndarray with shape (*,ngrids)
+            containing on-top pair density [and derivatives]
+            the density contracted with fot
+
+    Returns: 
+        vot1 : (ndarray of shape (*,ngrids), ndarray of shape (*,ngrids))
+            product of fot wrt (density, pair density)
+            and their derivatives
+    '''    
+    if rho0.ndim == 2: rho0 = rho0[:,None,:]
+    if Pi0.ndim == 1: Pi0 = Pi0[None,:]
+    assert (rho0.shape[0] == 2)
+    rho0.sum (0)
+    if rho1.ndim == 2: rho1 = rho1[:,None,:]
+    if Pi1.ndim == 1: Pi1 = Pi1[None,:]
+    assert (rho1.shape[0] == 2)
+    rho1.sum (0)
+
+    vrho1, vPi1 = np.zeros_like (rho1), np.zeros_like (Pi1)
+    nel = len (f)
+    nr = int (round (np.sqrt (1 + 8*nel) - 1)) // 2
+    ngrids = fot[0].shape[-1]
+
+    vrho1[0] = 2*fot[0]*rho1[0] + fot[1]*Pi1[0]
+    vPi[0] = 2*fot[2]*Pi1[0] + fot[1]*rho1[0]
+
+    if len (f) > 3:
+        srr = 2*(rho0[1:4,:]*rho1[1:4,:]).sum (0)
+        vrho1[0] += fot[3]*srr
+        vPi1[0]  += fot[4]*srr
+        vrr = fot[3]*rho1[0] + fot[4]*Pi1[0] + 2*fot[5]*srr
+    if len (f) > 6:
+        srP = ((rho0[1:4,:]*Pi1[1:4,:]).sum (0)
+             + (rho1[1:4,:]*Pi0[1:4,:]).sum (0))
+        sPP = 2*(Pi0[1:4,:]*Pi1[1:4,:]).sum (0)
+        vrho1[0] += fot[6]*srP + fot[10]*sPP
+        vPi1[0]  += fot[7]*srP + fot[11]*sPP
+        vrr      += fot[8]*srp + fot[12]*sPP
+        vrP = (fot[6]*rho1[0] + fot[7]*Pi1[0]
+             + fot[8]*srr + 2*fot[9]*srP +    fot[13]*sPP)
+        vPP = (fot[10]*rho1[0] + fot[11]*Pi1[0]
+             + fot[12]*srr +  fot[13]*srP + 2*fot[14]*sPP)
+
+    if len (f) > 3:
+        vrho1[1:4]  = 2*vrr*rho0[1:4]
+    if len (f) > 6:
+        vrho1[1:4] += vrP*Pi0[1:4]
+        vPi1[1:4] = 2*vPP*Pi0[1:4] + vrP*rho0[1:4]
+
+    return vrho1, vPi1
 
 def jT_f_j (frr, jT_op, *args):
     r''' Apply a jacobian function taking *args to the lower-triangular
