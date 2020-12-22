@@ -79,50 +79,56 @@ def test_densgrad (otxc):
         # Polynomial expansion
         if PiT.ndim == 1: PiT = PiT[None,:]
         nPi = min (PiT.shape[0], vPi0.shape[0])
-        vrho = vrho0 + vot1[0]
-        vPi = vPi0 + vot1[1]
+        vrho = vrho0# + vot1[0]
+        vPi = vPi0# + vot1[1]
         eotD_lin = (vrho*rhoT.sum (0)).sum (0) + (vPi[:nPi]*PiT[:nPi]).sum (0)
         E = np.dot (eot0, weight)
         dE_num = np.dot (eotD, weight)
         dE_lin = np.dot (eotD_lin, weight)
-        return dE_num, dE_lin
+        eotD_quad = eotD_lin + (vot1[0]*rhoT.sum (0)).sum (0) + (vot1[1][:nPi]*PiT[:nPi]).sum (0)
+        dE_quad = np.dot (eotD_quad, weight)
+        return dE_num, dE_lin, dE_quad
 
     rhoT, PiT = np.zeros_like (rhoD), np.zeros_like (PiD)
     if rhoT.ndim > 2:
         rhoT[:,0,:] = rhoD[:,0,:]
     else:
         rhoT[:] = rhoD[:]
-    num, lin = sector (rhoT, PiT)
+    num, lin, quad = sector (rhoT, PiT)
     rho_rat = (lin-num)/num
+    rho2_rat = (lin+quad-num)/num
 
     rhoT[:] = PiT[:] = 0.0
     if PiT.ndim > 1:
         PiT[0,:] = PiD[0,:]
     else:
         PiT[:] = PiD[:]
-    num, lin = sector (rhoT, PiT)
+    num, lin, quad = sector (rhoT, PiT)
     Pi_rat = (lin-num)/num
+    Pi2_rat = (lin+quad-num)/num
 
     rhoT[:] = PiT[:] = 0.0
     if rhoT.ndim > 2:
         rhoT[:,1:4,:] = rhoD[:,1:4,:] 
-        num, lin = sector (rhoT, PiT)
+        num, lin, quad = sector (rhoT, PiT)
         rhop_rat = (lin-num)/num
+        rhop2_rat = (lin+quad-num)/num
     else:
-        rhop_rat = 0.0
+        rhop_rat = rhop2_rat = 0.0
 
     rhoT[:] = PiT[:] = 0.0
     if PiT.ndim > 1 and vPi0.shape[0] > 1:
         PiT[1:4,:] = PiD[1:4,:] 
-        num, lin = sector (rhoT, PiT)
+        num, lin, quad = sector (rhoT, PiT)
         Pip_rat = (lin-num)/num
+        Pip2_rat = (lin+quad-num)/num
     else:
-        Pip_rat = 0.0
+        Pip_rat = Pip2_rat = 0.0
 
-    print ("{:>7s} {:7.4f} {:7.4f} {:7.4f} {:7.4f}".format (otxc, rho_rat, Pi_rat, rhop_rat, Pip_rat))
+    print (("{:>8s} " + ' '.join (['{:8.5f}',]*8)).format (otxc, rho_rat, rho2_rat, Pi_rat, Pi2_rat, rhop_rat, rhop2_rat, Pip_rat, Pip2_rat))
 
 print ("Breakdown of on-top functional derivative error by sector and on-top functional type")
-print ((' '.join (['{:>7s}',]*5)).format ('err','rho','Pi','rhop','Pip'))
+print ((' '.join (['{:>8s}',]*9)).format ('err','rho','rho2','Pi','Pi2','rhop','rhop2','Pip','Pip2'))
 #test_molgrad ('tLDA')
 test_densgrad ('tLDA')
 #test_molgrad ('ftLDA')

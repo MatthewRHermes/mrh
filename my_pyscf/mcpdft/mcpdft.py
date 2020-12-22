@@ -216,7 +216,7 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             except TypeError as e:
                 # I think this is the same DFCASSCF problem as with the DF-SACASSCF gradients earlier
                 super().__init__()
-            keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states'))
+            keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states', 'otfnal', 'grids'))
             self._keys = set ((self.__dict__.keys ())).union (keys)
             if my_ot is not None:
                 self._init_ot_grids (my_ot, grids_level=grids_level)
@@ -362,7 +362,9 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             self._init_ot_grids (x, grids_level=self.otfnal.grids.level)
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
+    _keys = pdft._keys.copy ()
     pdft.__dict__.update (mc.__dict__)
+    pdft._keys = pdft._keys.union (_keys)
     return pdft
 
 
