@@ -78,6 +78,40 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
         fot = jT_f_j (fxc, otfnal.jT_op, rho, Pi)
         # Second pass: translation derivatives
         fot[:5] += otfnal.d_jT_op (vxc, rho, Pi)
+    if (weights is not None) and otfnal.verbose >= logger.DEBUG and dderiv > 1:
+        drho = rho_tot * 0.0001
+        dPi = Pi * 0.0001
+        Hx_rho = fot[0]*drho[0], fot[1]*drho[0]
+        Hx_Pi = fot[1]*dPi[0], fot[2]*dPi[0]
+        rho_t_1 = otfnal.get_rho_translated (Pi+dPi, rho+(drho/2)[None,:,:], weights=weights)
+        e1, vxc1 = otfnal._numint.eval_xc (otfnal.otxc, (rho_t_1[0], rho_t_1[1]), spin=1,
+            relativity=0, deriv=1, verbose=otfnal.verbose)[:2]
+        de = np.dot (weights, (e1*rho_t_1.sum (0))[0] - eot)
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion test, e1-e0 = %e', de)
+        vr = np.dot (vot[0][0] * drho[0], weights)
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion test, vrho.drho = %e', vr)
+        vP = np.dot (vot[1][0] * dPi[0], weights)
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion test, vPi.dPi = %e', vP)
+        frr = np.dot (Hx_rho[0] * drho[0], weights) / 2
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion test, drho.frho2.drho / 2 = %e', frr)
+        fPr = np.dot (Hx_rho[1] * dPi[0], weights) / 2
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion test, dPi.frho2.drho / 2 = %e', fPr)
+        frP = np.dot (Hx_Pi[0] * drho[0], weights) / 2
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion test, drho.frho2.dPi / 2 = %e', frP)
+        fPP = np.dot (Hx_Pi[1] * dPi[0], weights) / 2
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion test, dPi.frho2.dPi / 2 = %e', fPP)
+        vx = vr + vP
+        fxx = frr + frP + fPr + fPP
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion energy test terms = %e , %e', vx, fxx)
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion energy test, linear expansion error = %e', de-vx)
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion energy test, quadratic expansion error = %e', de-vx-fxx)
+        vxc2 = list (vxc1[0].T)
+        if otfnal.dens_deriv: vxc2 = vxc2 + list (vxc1[1].T)
+        vot1 = otfnal.jT_op (vxc2, rho+(drho/2)[None,:,:], Pi+dPi)
+        dvot1_rho = linalg.norm (weights * (Hx_rho[0]+Hx_Pi[0] - vot1[0]))
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion gradient test |v1_rho-(h.x)_rho| = %e', dvot1_rho)
+        dvot1_Pi = linalg.norm (weights * (Hx_rho[1]+Hx_Pi[1] - vot1[1]))
+        lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion gradient test |v1_Pi-(h.x)_Pi| = %e', dvot1_Pi)
     return eot, vot, fot
 
 def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
