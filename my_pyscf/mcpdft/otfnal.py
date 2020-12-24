@@ -1,6 +1,7 @@
 import numpy as np
 import copy
 import re
+from scipy import linalg
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
@@ -209,8 +210,8 @@ class transfnal (otfnal):
         idx = R < _Rmax
         zeta[0,idx] = np.sqrt (1.0 - R[idx])
         if fn_deriv:
-            zeta[1,idx] = -1 / zeta[0,idx] / 2
-        if fn_deriv > 1: fac = 1 / (1.0-R[idx]) / 2
+            zeta[1,idx] = -0.5 / zeta[0,idx] 
+        if fn_deriv > 1: fac = 0.5 / (1.0-R[idx]) 
         for n in range (1,fn_deriv):
             zeta[n+1,idx] = zeta[n,idx] * (2*n-1) * fac
         return zeta
@@ -295,6 +296,14 @@ class transfnal (otfnal):
         f[:3] = tfnal_derivs.gentLDA_d_jT_op (x, rho, Pi, R, zeta)
         if self.dens_deriv:
             f[:] += tfnal_derivs.tGGA_d_jT_op (x, rho, Pi, R, zeta)
+
+        if self.verbose >= logger.DEBUG:
+            idx = zeta[0] == 0
+            logger.debug (self, 'MC-PDFT fot zeta check: %d zeta=0 columns', np.count_nonzero (idx))
+            if np.count_nonzero (idx):
+                for ix, frow in enumerate (f):
+                    logger.debug (self, 'MC-PDFT fot zeta check: f[%d] norm over zeta=0 columns: %e', ix, 
+                        linalg.norm (frow[idx]))
 
         return f
 
