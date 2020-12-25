@@ -319,12 +319,11 @@ class transfnal (otfnal):
         nst = 2 + int(rho_tot.shape[0]>1) + int(vot[1].shape[0]>1)
         r, P = drho.copy (), dPi.copy ()
         drho[:] = dPi[:] = 0.0
-        ndf = 2# + int(nvr>1) + int(nvP>1)
-        drho[:,0::ndf] = r[:,0::ndf]
-        dPi[:,1::ndf]  = P[:,1::ndf]
-        #if nvP > dPi.shape[0]: dPi[nvP:,:] = 0.0
-        #if drho.shape[0] > 1: drho[1:4,2::2] = r[1:4,2::2]
-        #if dPi.shape[0]  > 1:  dPi[1:4,3::2] = P[1:4,3::2]
+        ndf = 2 + int(nvr>1) + int(nvP>1)
+        drho[0,0::ndf] = r[0,0::ndf]
+        dPi[0,1::ndf]  = P[0,1::ndf]
+        if ndf > 2: drho[1:4,2::ndf] = r[1:4,2::ndf]
+        if ndf > 3:  dPi[1:4,3::ndf] = P[1:4,3::ndf]
         rho1 = rho+(drho/2)
         Pi1 = Pi + dPi
         # ~~~ ignore numerical instability of unfully-translated fnals ~~~
@@ -337,8 +336,8 @@ class transfnal (otfnal):
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         eot1, vot1, fot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
             dderiv=dderiv-1, weights=weights, _unpack_vot=False)
-        d1 = rho_tot[1:4] if len (rho_tot) > 1 else None
-        d2 = Pi[1:4] if len (Pi) > 1 else None
+        d1 = rho_tot[1:4] if nvr > 1 else None
+        d2 = Pi[1:4] if nvP > 1 else None
         vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)
         de = (eot1-eot) * weights
         vx = np.zeros_like (de)
