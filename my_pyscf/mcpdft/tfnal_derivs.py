@@ -101,11 +101,9 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
         zeta1 = otfnal.get_zeta (R1, fn_deriv=0)[0]
         idx = (zeta1 == 0) & (zeta != 0)
         drho[:,idx] = dPi[:,idx] = 0.0
+        # ~~ omit effect of tLDA/tGGA numerical instability @ R=1 end ~~~
         rho1 = rho + (drho/2)[None,:,:]
         Pi1 = Pi+dPi
-        # ~~ omit effect of tLDA/tGGA numerical instability @ R=1 end ~~~
-        rho1_deriv = rho1.sum (0)[1:4,:] if nderiv > 1 else None
-        Pi1_deriv = Pi1[1:4,:] if nderiv_Pi > 1 else None
         rho_t_1 = otfnal.get_rho_translated (Pi1, rho1, weights=weights)
         e1, vxc1 = otfnal._numint.eval_xc (otfnal.otxc, (rho_t_1[0], rho_t_1[1]), spin=1,
             relativity=0, deriv=dderiv, verbose=otfnal.verbose)[:2]
