@@ -310,18 +310,19 @@ class transfnal (otfnal):
         if (self.verbose < logger.DEBUG) or (dderiv<2) or (weights is None): return eot, vot, fot
         if rho.ndim == 2: rho = rho[:,None,:]
         if Pi.ndim == 1: Pi = Pi[None,:]
-        if len (vot[1]) > len (Pi): Pi = Pi[:len (vot[1])]
         rho_tot = rho.sum (0)
+        nvr = rho_tot.shape[0]
+        nvP = vot[1].shape[0]
         ngrids = rho_tot.shape[-1]
         drho = rho_tot * (2*np.random.rand (ngrids)-1) / 10**3
         dPi = Pi * (2*np.random.rand (ngrids)-1) / 10**3
         nst = 2 + int(rho_tot.shape[0]>1) + int(vot[1].shape[0]>1)
         r, P = drho.copy (), dPi.copy ()
         drho[:] = dPi[:] = 0.0
-        drho[:,0::2] = r[:,0::2]
-        dPi[:,1::2]  = P[:,1::2]
-        nvp = vot[1].shape[0]
-        #if nvp > dPi.shape[0]: dPi[nvp:,:] = 0.0
+        ndf = 2# + int(nvr>1) + int(nvP>1)
+        drho[:,0::ndf] = r[:,0::ndf]
+        dPi[:,1::ndf]  = P[:,1::ndf]
+        #if nvP > dPi.shape[0]: dPi[nvP:,:] = 0.0
         #if drho.shape[0] > 1: drho[1:4,2::2] = r[1:4,2::2]
         #if dPi.shape[0]  > 1:  dPi[1:4,3::2] = P[1:4,3::2]
         rho1 = rho+(drho/2)
@@ -341,17 +342,16 @@ class transfnal (otfnal):
         vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)
         de = (eot1-eot) * weights
         vx = np.zeros_like (de)
-        vx = ((vot[0]*drho).sum (0) + (vot[1]*dPi[:nvp]).sum (0)) * weights
+        vx = ((vot[0]*drho).sum (0) + (vot[1]*dPi[:nvP]).sum (0)) * weights
         de_err = de - vx
         xf = tfnal_derivs.contract_fot (otfnal, fot, rho_tot, Pi, drho, dPi)
-        xfx = ((xf[0]*drho).sum (0) + (xf[1]*dPi[:nvp]).sum (0)) * weights / 2
+        xfx = ((xf[0]*drho).sum (0) + (xf[1]*dPi[:nvP]).sum (0)) * weights / 2
         de_err -= xfx
-        lib.logger.debug (self, "eval_ot gradient debug rho: %e - %e - %e -> %e",
-            np.sum  (de[0::2]), np.sum (vx[0::2]),
-            np.sum (xfx[0::2]), np.sum (de_err[0::2]))
-        lib.logger.debug (self, "eval_ot gradient debug Pi: %e - %e - %e -> %e",
-            np.sum  (de[1::2]), np.sum (vx[1::2]),
-            np.sum (xfx[1::2]), np.sum (de_err[1::2]))
+        df_lbl = ('rho', 'Pi', "rho'", "Pi'")[:ndf]
+        for ix, lbl in enumerate (df_lbl):
+            lib.logger.debug (self, "eval_ot gradient debug %s: %e - %e - %e -> %e",
+                lbl, np.sum  (de[ix::ndf]), np.sum (vx[ix::ndf]),
+                np.sum (xfx[ix::ndf]), np.sum (de_err[ix::ndf]))
         lib.logger.debug (self, "eval_ot dE - v.x - x.f.x: %e - %e - %e = %e",
             de.sum (), vx.sum (), xfx.sum (), de_err.sum ())
 
