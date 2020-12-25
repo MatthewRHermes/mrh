@@ -129,12 +129,13 @@ def test_densgrad (otxc):
 
 print ("Breakdown of on-top functional derivative error by sector and on-top functional type")
 print ((' '.join (['{:>8s}',]*9)).format ('err','rho','rho2','Pi','Pi2','rhop','rhop2','Pip','Pip2'))
-#test_molgrad ('tLDA')
 test_densgrad ('tLDA')
-#test_molgrad ('ftLDA')
 test_densgrad ('ftLDA')
-#test_molgrad ('tPBE')
 test_densgrad ('tPBE')
-#test_molgrad ('ftPBE')
 test_densgrad ('ftPBE')
+
+test_molgrad ('tLDA')
+test_molgrad ('ftLDA')
+test_molgrad ('tPBE')
+test_molgrad ('ftPBE')
 

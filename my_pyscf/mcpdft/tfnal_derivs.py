@@ -118,13 +118,17 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
         Hx_sg0 = 0, 0, 0
         vx = vr + vP
         if otfnal.dens_deriv:
-            vs = np.dot ((vot[0][1:4] * drho[1:4]).sum (0), weights)
-            lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion test, vsg0.dsg0 = %e', vs)
-            vx += vs
+            vrp = np.dot ((vot[0][1:4] * drho[1:4]).sum (0), weights)
+            lib.logger.debug (otfnal, "MC-PDFT quadratic expansion test, vrho'.drho' = %e", vrp)
+            vx += vrp
             dsg0   = 2*(rho_tot[1:4]*drho[1:4]).sum (0)
-            Hx_rho = Hx_rho[0],   Hx_rho[1],   fot[3]*drho[0]
-            Hx_Pi  = Hx_Pi[0],    Hx_Pi[1],    fot[4]*dPi[0]
+            Hx_rho = tuple (list (Hx_rho) + [fot[3]*drho[0]])
+            Hx_Pi  = tuple (list (Hx_Pi)  + [fot[4]*dPi[0]])
             Hx_sg0 = fot[3]*dsg0, fot[4]*dsg0, fot[5]*dsg0
+            if len (vot[1]) > 1:
+                vPp = np.dot ((vot[1][1:4] * dPi[1:4]).sum (0), weights)
+                lib.logger.debug (otfnal, "MC-PDFT quadratic expansion test, vPi'.dPi' = %e", vPp)
+                vx += vPp
         frr = np.dot (Hx_rho[0] * drho[0], weights) / 2
         lib.logger.debug (otfnal, 'MC-PDFT quadratic expansion test, drho.frho2.drho / 2 = %e', frr)
         fPr = np.dot (Hx_rho[1] * dPi[0], weights) / 2
@@ -188,10 +192,10 @@ def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
     unp1[0] = packed[0]
     unp2[0] = packed[1]
     if ncol1 > 1:
-        unp1[1:4] = 2 * deriv1 * packed[2]
+        unp1[1:4] = 2*deriv1*packed[2]
         if ncol2 > 1:
-            unp1[1:4] += deriv2 * packed[3]
-            unp2[1:4] = (2 * deriv2 * packed[4]) + (deriv1 * packed[3])
+            unp1[1:4] += deriv2*packed[3]
+            unp2[1:4] = (2*deriv2*packed[4]) + (deriv1*packed[3])
     return unp1, unp2
 
 def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
@@ -357,10 +361,11 @@ def tGGA_jT_op (x, rho, Pi, R, zeta):
     return jTx
 
 def _ftGGA_jT_op_m2z (x, rho, zeta, srP, sPP):
+    srz = srP * zeta[1]
+    szz = sPP * zeta[1] * zeta[1]
     jTx = np.empty_like (x)
-    jTx[0] = ((x[3] + 2*x[4]*zeta[0])*srP*zeta[1]
-              + 2*rho*x[4]*sPP*zeta[1]*zeta[1])
-    jTx[1] = 2*x[3]*rho*srP*zeta[1]
+    jTx[0] = 2*x[4]*(zeta[0]*srz+rho*szz) + x[3]*srz
+    jTx[1] = 2*x[4]*rho*srz
     jTx[2] = 0
     jTx[3] = (x[3] + 2*x[4]*zeta[0])*rho
     jTx[4] = x[4]*rho*rho
@@ -382,13 +387,13 @@ def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
     jTx = np.empty_like (x)
     ri = np.empty_like (x)
     ri[0,:] = 0.0
-    idx = rho>1e-15
+    idx = rho > 1e-15
     ri[0,idx] = 1.0/rho[idx]
     for i in range (4):
         ri[i+1] = ri[i]*ri[0]
 
     jTx[0] = (-2*R*x[1]*ri[0]
-               + x[3]*(6*R*ri[1]*srr - 8*sPP*ri[2])
+               + x[3]*(6*R*ri[1]*srr - 8*srP*ri[2])
                + x[4]*(-24*R*R*ri[2]*srr + 80*R*ri[3]*srP 
                         - 64*ri[4]*sPP))
     jTx[1] = (4*x[1]*ri[1] - 8*x[3]*ri[2]*srr
@@ -422,7 +427,6 @@ def ftGGA_jT_op (x, rho, Pi, R, zeta):
     x = _ftGGA_jT_op_z2R (x, zeta, srP, sPP)
 
     # rho,R -> rho,Pi step
-    zeta = None
     srP = (rho[1:4,:]*Pi[1:4,:]).sum (0)
     sPP = (Pi[1:4,:]*Pi[1:4,:]).sum (0)
     jTx += _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP)
