@@ -74,7 +74,7 @@ def test_densgrad (otxc):
         eot1 = ot.eval_ot (rho1, Pi1, weights=weight)[0]
         eotD = eot1 - eot0
 
-        vot1 = contract_fot (ot, fot0, rho0, Pi0, rhoT, PiT)
+        vot1 = contract_fot (ot, fot0, rho0.sum (0), Pi0, rhoT.sum (0), PiT)
 
         # Polynomial expansion
         if PiT.ndim == 1: PiT = PiT[None,:]
@@ -134,8 +134,8 @@ test_densgrad ('ftLDA')
 test_densgrad ('tPBE')
 test_densgrad ('ftPBE')
 
-test_molgrad ('tLDA')
-test_molgrad ('ftLDA')
-test_molgrad ('tPBE')
-test_molgrad ('ftPBE')
+#test_molgrad ('tLDA')
+#test_molgrad ('ftLDA')
+#test_molgrad ('tPBE')
+#test_molgrad ('ftPBE')
 

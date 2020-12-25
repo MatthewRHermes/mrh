@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import lib
 from pyscf.lib import logger
 
-def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
+def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     r''' get the integrand of the on-top xc energy and its functional derivatives wrt rho and Pi 
 
     Args:
@@ -19,19 +19,28 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
             used ONLY for debugging the total number of ``translated''
             electrons in the calculation of rho_t
             Not multiplied into anything!
+        _unpack_vot : logical
+            If True, derivatives with respect to density gradients are
+            reported as de/drho' and de/dPi'; otherwise, they are reported
+            as de/d|rho'|^2, de/d(rho'.Pi'), and de/d|Pi'|^2
 
     Returns: 
         eot : ndarray of shape (ngrids)
             integrand of the on-top exchange-correlation energy
-        vot : (ndarray of shape (*,ngrids), ndarray of shape (*,ngrids)) or None
+        vot : ndarrays of shape (*,ngrids) or None
             first functional derivative of Eot wrt (density, pair density)
-            and their derivatives
+            and their derivatives. If _unpack_vot = True, shape and format is
+            ([a, ngrids], [b, ngrids]) : (vrho, vPi); otherwise,
+            [c, ngrids] : [rho,Pi,|rho'|^2,rho'.Pi',|Pi'|^2]
+            ftGGA: a=4, b=4, c=5
+            tGGA: a=4, b=1, c=3 (drop Pi')
+            *tLDA: a=1, b=1, c=2 (drop rho')
         fot : ndarray of shape (*,ngrids) or None
             second functional derivative of Eot wrt density, pair density,
             and derivatives; first dimension is lower-triangular matrix elements
-            corresponding to the basis (rho, Pi, |drho|^2, drho'.dPi, |dPi|)
-            stopping at Pi (3 elements) for t-LDA and |drho|^2 (6 elements)
-            for t-GGA.
+            corresponding to the basis (rho, Pi, |rho'|^2, rho'.Pi', |Pi'|^2)
+            stopping at Pi (3 elements) for *tLDA and |rho'|^2 (6 elements)
+            for tGGA.
     '''
     if dderiv > 2:
         raise NotImplementedError ("Translation of density derivatives of higher order than 2")
@@ -60,7 +69,8 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None):
         vxc = list (vrho.T)
         if otfnal.dens_deriv: vxc = vxc + list (vsigma.T)
         vot = otfnal.jT_op (vxc, rho, Pi)
-        vot = _unpack_sigma_vector (vot, deriv1=rho_deriv, deriv2=Pi_deriv)
+        if _unpack_vot: vot = _unpack_sigma_vector (vot,
+            deriv1=rho_deriv, deriv2=Pi_deriv)
     if dderiv > 1:
         # I should implement this entirely in terms of the gradient norm, since that reduces the
         # number of grid columns from 25 to 9 for t-GGA and from 64 to 25 for ft-GGA (and steps
@@ -208,13 +218,13 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
             (rho, Pi, |drho|^2, drho'.dPi, |dPi|) stopping at Pi (3 elements)
             for t-LDA or ft-LDA and |drho|^2 (6 elements) for t-GGA.
         rho0 : ndarray of shape (2,*,ngrids)
-            containing spin-density [and derivatives]
+            containing density [and derivatives]
             the density at which fot was evaluated
         Pi0 : ndarray with shape (*,ngrids)
             containing on-top pair density [and derivatives]
             the density at which fot was evaluated
         rho1 : ndarray of shape (2,*,ngrids)
-            containing spin-density [and derivatives]
+            containing density [and derivatives]
             the density contracted with fot
         Pi1 : ndarray with shape (*,ngrids)
             containing on-top pair density [and derivatives]
@@ -224,46 +234,49 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
         vot1 : (ndarray of shape (*,ngrids), ndarray of shape (*,ngrids))
             product of fot wrt (density, pair density)
             and their derivatives
-    '''    
-    if rho0.ndim == 2: rho0 = rho0[:,None,:]
+    ''' 
+    if rho0.shape[0] == 2: rho0 = rho0.sum (0) # No version of this has one derivative
+    if rho0.ndim == 1: rho0 = rho0[None,:]
     if Pi0.ndim == 1: Pi0 = Pi0[None,:]
-    assert (rho0.shape[0] == 2)
-    rho0 = rho0.sum (0)
-    if rho1.ndim == 2: rho1 = rho1[:,None,:]
+    if rho1.shape[0] == 2: rho1 = rho1.sum (0) # No version of this has one derivative
+    if rho1.ndim == 1: rho1 = rho1[None,:]
     if Pi1.ndim == 1: Pi1 = Pi1[None,:]
-    assert (rho1.shape[0] == 2)
-    rho1 = rho1.sum (0)
 
-    vrho1, vPi1 = np.zeros_like (rho1), np.zeros_like (Pi1)
     nel = len (fot)
     nr = int (round (np.sqrt (1 + 8*nel) - 1)) // 2
     ngrids = fot[0].shape[-1]
+    vrho1 = np.zeros (ngrids, fot[0].dtype)
+    vPi1 = np.zeros (ngrids, fot[2].dtype)
+    vrho1, vPi1 = np.zeros_like (rho1), np.zeros_like (Pi1)
 
-    vrho1[0] = fot[0]*rho1[0] + fot[1]*Pi1[0]
-    vPi1[0] = fot[2]*Pi1[0] + fot[1]*rho1[0]
+    # TODO: dspmv implementation
+    vrho1 = fot[0]*rho1[0] + fot[1]*Pi1[0]
+    vPi1 = fot[2]*Pi1[0] + fot[1]*rho1[0]
 
+    rhop = Pip = None
+    v1 = [vrho1, vPi1]
     if len (fot) > 3:
         srr = 2*(rho0[1:4,:]*rho1[1:4,:]).sum (0)
-        vrho1[0] += fot[3]*srr
-        vPi1[0]  += fot[4]*srr
+        vrho1 += fot[3]*srr
+        vPi1  += fot[4]*srr
         vrr = fot[3]*rho1[0] + fot[4]*Pi1[0] + fot[5]*srr
+        rhop = rho0[1:4]
+        v1 = [vrho1, vPi1, vrr]
     if len (fot) > 6:
         srP = ((rho0[1:4,:]*Pi1[1:4,:]).sum (0)
              + (rho1[1:4,:]*Pi0[1:4,:]).sum (0))
         sPP = 2*(Pi0[1:4,:]*Pi1[1:4,:]).sum (0)
-        vrho1[0] += fot[6]*srP + fot[10]*sPP
-        vPi1[0]  += fot[7]*srP + fot[11]*sPP
-        vrr      += fot[8]*srP + fot[12]*sPP
+        vrho1 += fot[6]*srP + fot[10]*sPP
+        vPi1  += fot[7]*srP + fot[11]*sPP
+        vrr   += fot[8]*srP + fot[12]*sPP
         vrP = (fot[6]*rho1[0]  + fot[7]*Pi1[0]
              + fot[8]*srr  +  fot[9]*srP  + fot[13]*sPP)
         vPP = (fot[10]*rho1[0] + fot[11]*Pi1[0]
              + fot[12]*srr +  fot[13]*srP + fot[14]*sPP)
+        Pip = Pi0[1:4]
+        v1 = [vrho1, vPi1, vrr, vrP, vPP]
 
-    if len (fot) > 3:
-        vrho1[1:4]  = 2*vrr*rho0[1:4]
-    if len (fot) > 6:
-        vrho1[1:4] += vrP*Pi0[1:4]
-        vPi1[1:4] = 2*vPP*Pi0[1:4] + vrP*rho0[1:4]
+    vrho1, vPi1 = _unpack_sigma_vector (v1, rhop, Pip)
 
     return vrho1, vPi1
 

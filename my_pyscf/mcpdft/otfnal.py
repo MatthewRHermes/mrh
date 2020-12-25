@@ -107,8 +107,6 @@ class transfnal (otfnal):
         self._numint._xc_type = t_xc_type.__get__(self._numint)
         self._init_info ()
 
-    eval_ot = tfnal_derivs.eval_ot
-
     def get_ratio (self, Pi, rho_avg):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
             An intermediate quantity when computing the translated spin densities
@@ -306,6 +304,60 @@ class transfnal (otfnal):
                         linalg.norm (frow[idx]))
 
         return f
+
+    def eval_ot (self, rho, Pi, dderiv=1, weights=None):
+        eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv, weights=weights)
+        if (self.verbose < logger.DEBUG) or (dderiv<2) or (weights is None): return eot, vot, fot
+        if rho.ndim == 2: rho = rho[:,None,:]
+        if Pi.ndim == 1: Pi = Pi[None,:]
+        if len (vot[1]) > len (Pi): Pi = Pi[:len (vot[1])]
+        rho_tot = rho.sum (0)
+        ngrids = rho_tot.shape[-1]
+        drho = rho_tot * (2*np.random.rand (ngrids)-1) / 10**3
+        dPi = Pi * (2*np.random.rand (ngrids)-1) / 10**3
+        nst = 2 + int(rho_tot.shape[0]>1) + int(vot[1].shape[0]>1)
+        r, P = drho.copy (), dPi.copy ()
+        drho[:] = dPi[:] = 0.0
+        drho[:,0::2] = r[:,0::2]
+        dPi[:,1::2]  = P[:,1::2]
+        nvp = vot[1].shape[0]
+        #if nvp > dPi.shape[0]: dPi[nvp:,:] = 0.0
+        #if drho.shape[0] > 1: drho[1:4,2::2] = r[1:4,2::2]
+        #if dPi.shape[0]  > 1:  dPi[1:4,3::2] = P[1:4,3::2]
+        rho1 = rho+(drho/2)
+        Pi1 = Pi + dPi
+        # ~~~ ignore numerical instability of unfully-translated fnals ~~~
+        z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0], fn_deriv=0)[0]
+        z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0], fn_deriv=0)[0]
+        idx = (z0==0)|(z1==0)
+        drho[:,idx] = dPi[:,idx] = 0
+        rho1[:,:,idx] = rho[:,:,idx]
+        Pi1[:,idx] = Pi[:,idx]
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        eot1, vot1, fot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
+            dderiv=dderiv-1, weights=weights, _unpack_vot=False)
+        d1 = rho_tot[1:4] if len (rho_tot) > 1 else None
+        d2 = Pi[1:4] if len (Pi) > 1 else None
+        vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)
+        de = (eot1-eot) * weights
+        vx = np.zeros_like (de)
+        vx = ((vot[0]*drho).sum (0) + (vot[1]*dPi[:nvp]).sum (0)) * weights
+        de_err = de - vx
+        xf = tfnal_derivs.contract_fot (otfnal, fot, rho_tot, Pi, drho, dPi)
+        xfx = ((xf[0]*drho).sum (0) + (xf[1]*dPi[:nvp]).sum (0)) * weights / 2
+        de_err -= xfx
+        lib.logger.debug (self, "eval_ot gradient debug rho: %e - %e - %e -> %e",
+            np.sum  (de[0::2]), np.sum (vx[0::2]),
+            np.sum (xfx[0::2]), np.sum (de_err[0::2]))
+        lib.logger.debug (self, "eval_ot gradient debug Pi: %e - %e - %e -> %e",
+            np.sum  (de[1::2]), np.sum (vx[1::2]),
+            np.sum (xfx[1::2]), np.sum (de_err[1::2]))
+        lib.logger.debug (self, "eval_ot dE - v.x - x.f.x: %e - %e - %e = %e",
+            de.sum (), vx.sum (), xfx.sum (), de_err.sum ())
+
+        return eot, vot, fot
+
+
 
 
 _FT_R0_DEFAULT=0.9
