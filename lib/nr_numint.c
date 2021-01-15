@@ -23,14 +23,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#include "build/config.h"
-#include "gto/grid_ao_drv.h"
-#include "np_helper/np_helper.h"
-#include "vhf/fblas.h"
+/* #include "build/config.h" */
+/* #include "gto/grid_ao_drv.h" */
+/* #include "np_helper/np_helper.h" */
+/* #include "vhf/fblas.h" */
+#include "fblas.h"
 
 #define BOXSIZE         56
-//#define MIN(X, Y)       ((X) < (Y) ? (X) : (Y))
-//#define BLKSIZE         128
+#define MIN(X, Y)       ((X) < (Y) ? (X) : (Y))
+#define BLKSIZE         128
 
 /* MRH 05/18/2020: I should link this to libdft if possible */
 int VXCao_empty_blocks(char *empty, unsigned char *non0table, int *shls_slice,
