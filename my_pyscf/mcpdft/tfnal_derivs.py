@@ -281,9 +281,7 @@ def tGGA_jT_op (x, rho, Pi, R, zeta):
 
     return jTx
 
-def _ftGGA_jT_op_m2z (x, rho, zeta, srP, sPP):
-    srz = srP * zeta[1]
-    szz = sPP * zeta[1] * zeta[1]
+def _ftGGA_jT_op_m2z (x, rho, zeta, srz, szz):
     jTx = np.empty_like (x)
     jTx[0] = 2*x[4]*(zeta[0]*srz+rho*szz) + x[3]*srz
     jTx[1] = 2*x[4]*rho*srz
@@ -338,9 +336,11 @@ def ftGGA_jT_op (x, rho, Pi, R, zeta):
     srr = (rho[1:4,:]*rho[1:4,:]).sum (0)
     srP = (rho[1:4,:]*R[1:4,:]).sum (0)
     sPP = (R[1:4,:]*R[1:4,:]).sum (0)
+    srz = srP * zeta[1]
+    szz = sPP * zeta[1] * zeta[1]
 
     # cs -> rho,zeta step
-    x = _ftGGA_jT_op_m2z (x, rho[0], zeta, srP, sPP)
+    x = _ftGGA_jT_op_m2z (x, rho[0], zeta, srz, szz)
     jTx[0]  = x[0]
     jTx[1:] = 0.0
 
