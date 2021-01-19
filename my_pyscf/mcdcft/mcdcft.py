@@ -7,7 +7,6 @@ from pyscf import gto, dft, ao2mo, fci, mcscf, lib
 from pyscf.lib import logger, temporary_env
 from pyscf.mcscf import mc_ao2mo
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
-#  from mrh.my_pyscf.grad.mcpdft import Gradients
 from mrh.my_pyscf.mcpdft import pdft_veff
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 from mrh.my_pyscf.mcdcft.convfnal import convfnal
@@ -81,7 +80,6 @@ def kernel(mc, ot, root=-1):
     adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (mc_1root.ci, mc.ncas, mc.nelecas), axis=0)
     adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
     spin = abs(mc.nelecas[0] - mc.nelecas[1])
-    #  spin = abs(mc.nelecas[0] - mc.nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
     hyb_x, hyb_c = hyb
     if True:
@@ -147,7 +145,7 @@ def kernel(mc, ot, root=-1):
 
 
 def _recalculate_with_xc(ot, chkdata):
-    ''' Recalculate MC-DCFT total energy based on intermediate quantities from a previous MC-DMFT calculation
+    ''' Recalculate MC-DCFT total energy based on intermediate quantities from a previous MC-DCFT calculation
 
         Args:
             ot : str or an instance of on-top density functional class - see otfnal.py
@@ -196,7 +194,6 @@ def _recalculate_with_xc(ot, chkdata):
 
 
 def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
-#  def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=0.00001, hermi=1):
     ''' Borrowed from MCPDFT code. Only E_ot is modified
         E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi] 
         or, in other terms, 
@@ -284,7 +281,7 @@ def get_mcdcft_child_class (mc, ot, **kwargs):
             self.chkdata = lib.chkfile.load(chkfile, 'mcdcft')
 
         def recalculate_with_xc(self, ot, ot_name=None, scaleD=None, chkdata=None, load_chk=None, dump_chk=None, grids_level=None, **kwargs):
-            ''' Recalculate MC-DCFT total energy based on intermediate quantities from a previous MC-DMFT calculation
+            ''' Recalculate MC-DCFT total energy based on intermediate quantities from a previous MC-DCFT calculation
 
                 Args:
                     ot : str of on-top density matrix functional class. It should follow the convention in the ks module,
@@ -318,7 +315,6 @@ def get_mcdcft_child_class (mc, ot, **kwargs):
                 self.e_tot = np.dot(self.e_states, weights)
             else:
                 self.e_tot, self.e_ot = _recalculate_with_xc(self.otfnal, chkdata)
-            #  self.chkdata['e_tot'] = {self.otfnal.otxc: self.e_tot}
             if dump_chk is not None:
                 lib.chkfile.dump(dump_chk, 'mcdcft/e_tot/' + self.otfnal.ot_name, self.e_tot)
                 lib.chkfile.dump(dump_chk, 'mcdcft/e_ot/' + self.otfnal.ot_name, self.e_ot)
