@@ -439,8 +439,6 @@ class ElectricDipole (Gradients):
 
 
         mol_dip = ham_response + LdotJnuc
-     #   print ("CASSCF electric dipole moment Debye \n {:8.5f} {:8.5f} {:8.5f}".format (*ham_response*nist.AU2DEBYE))
-     #   print ("MC-PDFT electric dipole moment Debye \n {:8.5f} {:8.5f} {:8.5f}".format (*mol_dip*nist.AU2DEBYE))
 
         if unit.upper() == 'DEBYE':
             ham_response *= nist.AU2DEBYE
@@ -450,9 +448,7 @@ class ElectricDipole (Gradients):
         else:
             log.note('CASSCF  Dipole moment(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *ham_response)
             log.note('MC-PDFT Dipole moment(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *mol_dip)
-
         return mol_dip
-
 
     def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, veff1=None, veff2=None, **kwargs):
         if state is None: state = self.state
@@ -467,8 +463,6 @@ class ElectricDipole (Gradients):
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci[state]
         return mcpdft_HellmanFeynman_dipole (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[state], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
-
-#    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, veff1=None, veff2=None, unit='Debye', **kwargs):
 
     def get_LdotJnuc (self, Lvec, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, **kwargs):
         if state is None: state = self.state
@@ -499,11 +493,6 @@ class ElectricDipole (Gradients):
 
         mo_coeff = mc.mo_coeff
         ci = mc.ci
-     #   if mo_coeff is None: mo_coeff = mc.mo_coeff
-     #   if ci is None: ci = mc.ci
-     #   if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
-     #   if mc.frozen is not None:
-     #       raise NotImplementedError
     
         mol = mc.mol
         ncore = mc.ncore
