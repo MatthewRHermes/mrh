@@ -12,7 +12,6 @@ def run(chkfile):
     mol = lib.chkfile.load_mol(chkfile)
     mol.verbose = 3
     mf = scf.RHF(mol)
-    mf.kernel()
     mc = mcdcft.CASSCF(mf, None, 2, 2, grids_level=6)
     mc.load_mcdcft_chk(chkfile)
     mc.recalculate_with_xc('0.92 * B88 , 1.59 * LYP', 

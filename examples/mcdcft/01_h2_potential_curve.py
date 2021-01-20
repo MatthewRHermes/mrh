@@ -12,14 +12,14 @@ coherence functional without reparameterization).
 def run(r, chkfile=None, mo_coeff=None):
     r /= 2
     mol = gto.M(atom=f'H  0 0 {r}; H 0 0 -{r}', basis='cc-pvtz', 
-          symmetry=False, verbose=4, unit='angstrom')
+          symmetry=False, verbose=3, unit='angstrom')
     mf = scf.RHF(mol)
     mf.kernel()
     mc = mcdcft.CASSCF(mf, 'BLYP', 2, 2, ot_name='cBLYP', 
                        grids_level=6)
     mc.fcisolver = csf_solver(mol, smult=1)
     if mo_coeff is not None:
-        mo_coeff = mcscf.addons.project_init_guess_old(mc, mo_coeff)
+        mo_coeff = mcscf.addons.project_init_guess(mc, mo_coeff, priority=[[0,1]])
     if chkfile is not None:
         mc.chkfile = chkfile
     mc.kernel(mo_coeff=mo_coeff)
