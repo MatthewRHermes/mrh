@@ -4,11 +4,10 @@ import numpy as np
 import time
 from scipy import linalg
 from pyscf import gto, dft, ao2mo, fci, mcscf, lib
-from pyscf.lib import logger, temporary_env
+from pyscf.lib import logger
 from pyscf.mcscf import mc_ao2mo
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
-from mrh.my_pyscf.mcpdft import pdft_veff
-from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
+from mrh.my_pyscf.mcpdft.mcpdft import StateAverageMCPDFTSolver, sapdft_grad_monkeypatch_
 from mrh.my_pyscf.mcdcft.convfnal import convfnal
 
 def get_unpaired_density(natorb, occ, ao):
@@ -45,16 +44,13 @@ def get_unpaired_density(natorb, occ, ao):
         return D
 
 
-# The following code is adapted from MRH's MC-PDFT code
-from mrh.my_pyscf.mcpdft.mcpdft import StateAverageMCPDFTSolver, sapdft_grad_monkeypatch_
-
 def kernel(mc, ot, root=-1):
     ''' Calculate MC-DCFT total energy
 
         Args:
             mc : an instance of CASSCF or CASCI class
                 Note: this function does not currently run the CASSCF or CASCI calculation itself
-                prior to calculating the MC-PDFT energy. Call mc.kernel () before passing to this function!
+                prior to calculating the MC-DCFT energy. Call mc.kernel () before passing to this function!
             ot : an instance of on-top density functional class - see otfnal.py
 
         Kwargs:
@@ -66,8 +62,6 @@ def kernel(mc, ot, root=-1):
             Total MC-DCFT energy including nuclear repulsion energy.
     '''
     t0 = (time.clock (), time.time ())
-    amo = mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
-    # make_rdm12s returns (a, b), (aa, ab, bb)
 
     mc_1root = mc
     if isinstance (mc, StateAverageMCSCFSolver) and root >= 0:
@@ -78,68 +72,34 @@ def kernel(mc, ot, root=-1):
         mc_1root.e_tot = mc.e_states[root]
     dm1s = np.asarray (mc_1root.make_rdm1s ())
     adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (mc_1root.ci, mc.ncas, mc.nelecas), axis=0)
-    adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
     spin = abs(mc.nelecas[0] - mc.nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
     hyb_x, hyb_c = hyb
-    if True:
-    #  if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
-        adm2s = get_2CDMs_from_2RDMs (mc_1root.fcisolver.make_rdm12s (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
-        adm2s_ss = adm2s[0] + adm2s[2]
-        adm2s_os = adm2s[1]
     t0 = logger.timer (ot, 'rdms', *t0)
 
     Vnn = mc._scf.energy_nuc ()
     h = mc._scf.get_hcore ()
     dm1 = dm1s[0] + dm1s[1]
-    if True:
-    #  if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10:
-        vj, vk = mc._scf.get_jk (dm=dm1s)
-        vj = vj[0] + vj[1]
-    else:
-        vj = mc._scf.get_j (dm=dm1)
+    vj, vk = mc._scf.get_jk (dm=dm1s)
+    vj = vj[0] + vj[1]
     Te_Vne = np.tensordot (h, dm1)
     # (vj_a + vj_b) * (dm_a + dm_b)
     E_j = np.tensordot (vj, dm1) / 2  
     # (vk_a * dm_a) + (vk_b * dm_b) Mind the difference!
-    if True:
-    #  if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10:
-        E_x = -(np.tensordot (vk[0], dm1s[0]) + np.tensordot (vk[1], dm1s[1])) / 2
-    else:
-        E_x = 0
+    E_x = -(np.tensordot (vk[0], dm1s[0]) + np.tensordot (vk[1], dm1s[1])) / 2
     logger.debug (ot, 'CAS energy decomposition:')
     logger.debug (ot, 'Vnn = %s', Vnn)
     logger.debug (ot, 'Te + Vne = %s', Te_Vne)
     logger.debug (ot, 'E_j = %s', E_j)
     logger.debug (ot, 'E_x = %s', E_x)
-    E_c = 0
-    if True:
-    #  if ot.verbose >= logger.DEBUG or abs (hyb_c) > 1e-10:
-        # g_pqrs * l_pqrs / 2
-        #if ot.verbose >= logger.DEBUG:
-        aeri = ao2mo.restore (1, mc.get_h2eff (mc.mo_coeff), mc.ncas)
-        E_c = np.tensordot (aeri, adm2, axes=4) / 2
-        E_c_ss = np.tensordot (aeri, adm2s_ss, axes=4) / 2
-        E_c_os = np.tensordot (aeri, adm2s_os, axes=4) # ab + ba -> factor of 2
-        logger.info (ot, 'E_c = %s', E_c)
-        logger.info (ot, 'E_c (SS) = %s', E_c_ss)
-        logger.info (ot, 'E_c (OS) = %s', E_c_os)
-        e_err = E_c_ss + E_c_os - E_c
-        assert (abs (e_err) < 1e-8), e_err
-        #  if isinstance (mc_1root.e_tot, float):
-            #  e_err = mc_1root.e_tot - (Vnn + Te_Vne + E_j + E_x + E_c)
-            #  assert (abs (e_err) < 1e-8), e_err
-    if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
-        logger.debug (ot, 'Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
     t0 = logger.timer (ot, 'Vnn, Te, Vne, E_j, E_x', *t0)
 
-    E_ot = get_E_ot (ot, dm1s, adm2, amo)
+    E_ot = get_E_ot (ot, dm1s)
     t0 = logger.timer (ot, 'E_ot', *t0)
-    e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) + E_ot
+    e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + E_ot
     logger.note (ot, 'MC-DCFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
 
-    chkdata = {'Vnn':Vnn, 'Te_Vne':Te_Vne, 'E_j':E_j, 'E_x':E_x, 'E_c':E_c, 'dm1s':dm1s, 'adm2':adm2, 'spin':spin,
-            'amo':amo}
+    chkdata = {'Vnn':Vnn, 'Te_Vne':Te_Vne, 'E_j':E_j, 'E_x':E_x, 'dm1s':dm1s, 'spin':spin}
 
     return e_tot, E_ot, chkdata
 
@@ -162,51 +122,37 @@ def _recalculate_with_xc(ot, chkdata):
     Te_Vne = chkdata['Te_Vne']
     E_j = chkdata['E_j']
     E_x = chkdata['E_x']
-    E_c = chkdata['E_c']
     dm1s = chkdata['dm1s']
-    adm2 = chkdata['adm2']
-    amo = chkdata['amo']
 
     logger.debug(ot, 'CAS energy decomposition (restored from previous calculation):')
     logger.debug(ot, 'Vnn = %s', Vnn)
     logger.debug(ot, 'Te + Vne = %s', Te_Vne)
     logger.debug(ot, 'E_j = %s', E_j)
     logger.debug(ot, 'E_x = %s', E_x)
-    logger.debug(ot, 'E_c = %s', E_c)
     if abs(hyb_x) > 1e-10 or abs(hyb_c) > 1e-10:
-        logger.debug(ot, 'Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
+        logger.debug(ot, 'Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c)
         if E_x == 0:
             logger.warn(ot, 'E_x == 0. Hybrid functionals might give wrong results!')
     t0 = logger.timer(ot, 'Vnn, Te, Vne, E_j, E_x', *t0)
 
-    E_ot = get_E_ot(ot, dm1s, adm2, amo)
-    #  ot_x, ot_c = ot.split_x_c()
-    #  E_ot_x = get_E_ot(ot_x, dm1s, adm2, amo)
-    #  E_ot_c = get_E_ot(ot_c, dm1s, adm2, amo)
-    #  E_ot = E_ot_x + E_ot_c
+    E_ot = get_E_ot(ot, dm1s)
 
     t0 = logger.timer (ot, 'E_ot', *t0)
-    e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) + E_ot
+    e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + E_ot
     logger.note(ot, 'MC-DCFT E = %s, Eot(%s) = %s', e_tot, ot.ot_name, E_ot)
-    #  logger.note(ot, 'MC-DCFT E = %s, Eot(%s) = %s, Eotx = %s, Eotc = %s', e_tot, ot.ot_name, E_ot, E_ot_x, E_ot_c)
 
     return e_tot, E_ot
 
 
-def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
-    ''' Borrowed from MCPDFT code. Only E_ot is modified
-        E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi] 
+def get_E_ot (ot, oneCDMs, max_memory=20000, hermi=1):
+    ''' E_MCDCFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[D] 
         or, in other terms, 
-        E_MCPDFT = T_KS[rho] + E_ext[rho] + E_coul[rho] + E_ot[rho, Pi]
-                 = E_DFT[1rdm] - E_xc[rho] + E_ot[rho, Pi] 
+        E_MCDCFT = T_KS[rho] + E_ext[rho] + E_coul[rho] + E_ot[D]
+                 = E_DFT[1rdm] - E_xc[rho] + E_ot[D] 
         Args:
             ot : an instance of otfnal class
             oneCDMs : ndarray of shape (2, nao, nao)
                 containing spin-separated one-body density matrices
-            twoCDM_amo : ndarray of shape (ncas, ncas, ncas, ncas)
-                containing spin-summed two-body cumulant density matrix in an active space
-            ao2amo : ndarray of shape (nao, ncas)
-                containing molecular orbital coefficients for active-space orbitals
 
         Kwargs:
             max_memory : int or float
@@ -216,11 +162,11 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
                 1 if 1CDMs are assumed hermitian, 0 otherwise
 
         Returns : float
-            The MC-PDFT on-top exchange-correlation energy
+            The MC-DCFT on-top exchange-correlation energy
 
     '''
     ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
-    norbs_ao = ao2amo.shape[0]
+    norbs_ao = oneCDMs.shape[1]
 
     E_ot = 0.0
     ot.ms = 0.0
@@ -254,7 +200,7 @@ def get_mcdcft_child_class (mc, ot, **kwargs):
             except TypeError as e:
                 # I think this is the same DFCASSCF problem as with the DF-SACASSCF gradients earlier
                 super().__init__()
-            keys = set(('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states'))
+            keys = set(('e_ot', 'e_mcscf', 'e_states'))
             self._keys = set ((self.__dict__.keys())).union(keys)
             self.grids_level = grids_level
             if my_ot is not None:
@@ -360,78 +306,9 @@ def get_mcdcft_child_class (mc, ot, **kwargs):
             log = logger.new_logger(self, verbose)
             log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal.otxc)
 
-        def get_pdft_veff (self, mo=None, ci=None, incl_coul=False, paaa_only=False):
-            ''' Get the 1- and 2-body MC-PDFT effective potentials for a set of mos and ci vectors
-
-                Kwargs:
-                    mo : ndarray of shape (nao,nmo)
-                        A full set of molecular orbital coefficients. Taken from self if not provided
-                    ci : list or ndarray
-                        CI vectors. Taken from self if not provided
-                    incl_coul : logical
-                        If true, includes the Coulomb repulsion energy in the 1-body effective potential.
-                        In practice they always appear together.
-                    paaa_only : logical
-                        If true, only the paaa 2-body effective potential elements are evaluated; the rest of ppaa are filled with zeros.
-
-                Returns:
-                    veff1 : ndarray of shape (nao, nao)
-                        1-body effective potential in the AO basis
-                        May include classical Coulomb potential term (see incl_coul kwarg)
-                    veff2 : pyscf.mcscf.mc_ao2mo._ERIS instance
-                        Relevant 2-body effective potential in the MO basis
-            ''' 
-            t0 = (time.clock (), time.time ())
-            if mo is None: mo = self.mo_coeff
-            if ci is None: ci = self.ci
-            # If ci is not a list and mc is a state-average solver, use a different fcisolver for make_rdm
-            mc_1root = self
-            if isinstance (self, StateAverageMCSCFSolver) and not isinstance (ci, list):
-                mc_1root = mcscf.CASCI (self._scf, self.ncas, self.nelecas)
-                mc_1root.fcisolver = fci.solver (self._scf.mol, singlet = False, symm = False)
-                mc_1root.mo_coeff = mo
-                mc_1root.ci = ci
-                mc_1root.e_tot = self.e_tot
-            dm1s = np.asarray (mc_1root.make_rdm1s ())
-            adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, self.ncas, self.nelecas), axis=0)
-            adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (ci, self.ncas, self.nelecas)[1], adm1s)
-            mo_cas = mo[:,self.ncore:][:,:self.ncas]
-            pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, adm2, mo, self.ncore, self.ncas, max_memory=self.max_memory, paaa_only=paaa_only)
-            if self.verbose > logger.DEBUG:
-                logger.debug (self, 'Warning: memory-intensive lazy kernel for pdft_veff initiated for '
-                    'testing purposes; reduce verbosity to decrease memory footprint')
-                pdft_veff1_test, _pdft_veff2_test = pdft_veff.lazy_kernel (self.otfnal, dm1s, adm2, mo_cas)
-                old_eri = self._scf._eri
-                self._scf._eri = _pdft_veff2_test
-                with temporary_env (self.mol, incore_anyway=True):
-                    pdft_veff2_test = mc_ao2mo._ERIS (self, mo, method='incore')
-                self._scf._eri = old_eri
-                err = linalg.norm (pdft_veff1 - pdft_veff1_test)
-                logger.debug (self, 'veff1 error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.vhf_c - pdft_veff2_test.vhf_c)
-                logger.debug (self, 'veff2.vhf_c error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
-                logger.debug (self, 'veff2.ppaa error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
-                logger.debug (self, 'veff2.papa error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.j_pc - pdft_veff2_test.j_pc)
-                logger.debug (self, 'veff2.j_pc error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.k_pc - pdft_veff2_test.k_pc)
-                logger.debug (self, 'veff2.k_pc error: {}'.format (err))
-            
-            if incl_coul:
-                pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
-            logger.timer (self, 'get_pdft_veff', *t0)
-            return pdft_veff1, pdft_veff2
-
         # TODO: gradient has not been implemented
         def nuc_grad_method (self):
             return Gradients (self)
-
-        def get_energy_decomposition (self, mo_coeff=None, ci=None):
-            if mo_coeff is None: mo_coeff = self.mo_coeff
-            if ci is None: ci = self.ci
-            return get_energy_decomposition (self, self.otfnal, mo_coeff=mo_coeff, ci=ci)
 
         def state_average (self, weights=(0.5,0.5)):
             # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
@@ -455,18 +332,12 @@ def get_mcdcft_child_class (mc, ot, **kwargs):
         def otxc (self):
             return self.otfnal.otxc
 
-        #  @otxc.setter
-        #  def otxc (self, x):
-            #  self._init_ot_grids (x, grids_level=self.otfnal.grids.level)
-
     pdft = DCFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     pdft.__dict__.update (mc.__dict__)
     return pdft
 
 def CASSCFDCFT (mf_or_mol, ot, ncas, nelecas, chkfile=None, ncore=None, frozen=None, **kwargs):
     mc = mcscf.CASSCF(mf_or_mol, ncas, nelecas, ncore=ncore, frozen=frozen)
-    #  mc.natorb = True
-    #  mc.canonicalization = False
     if chkfile is not None:
         mc.__dict__.update(lib.chkfile.load(chkfile, 'mcscf'))
     return get_mcdcft_child_class(mc, ot, **kwargs)
