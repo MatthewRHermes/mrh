@@ -316,7 +316,7 @@ class dmet:
                 mf_  = scf.RHF(mol_)
 
                 xorb = np.dot(mf_.get_ovlp(), self.ints.ao2loc)
-                hc  = -chempot_imp * np.dot(xorb[:,self.is_allcore_orb], xorb[:,self.is_allcore_orb].T)
+                hc  = -self.chempot * np.dot(xorb[:,self.is_allcore_orb], xorb[:,self.is_allcore_orb].T)
                 dm0 = np.dot(self.ints.ao2loc, np.dot(oneRDM, self.ints.ao2loc.T))
 
                 def mf_hcore (self, mol=None):
