@@ -11,8 +11,12 @@ GPL research code of Matthew R. Hermes
     * "export PYTHONPATH=/path/to:$PYTHONPATH" in the shell
     * "ln -s /path/to/mrh /path/to/python/site-packages/mrh" in the shell
 
+### Notes
+- If you are using Intel MKL as the BLAS library, you may need to enable the corresponding cmake option:
+`cmake -DBLA_VENDOR=Intel10_64lp_seq ..`
+
 ### DEPENDENCIES:
-- PySCF
+- PySCF (use the *dev* branch)
 - Python 3
 
 ### ACKNOWLEDGMENTS:
