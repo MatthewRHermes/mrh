@@ -9,7 +9,7 @@ def N2_xyz (r=1.6):
     return 'N -{0:.6f} 0 0 ; N {0:.6f} 0 0'.format (abs (r)/2)
 
 mol = gto.M (atom = N2_xyz(), basis='sto-3g', symmetry=False,
-    output='test_N2.log', verbose=lib.logger.DEBUG)
+    output='debug_N2.log', verbose=lib.logger.DEBUG)
 mf = scf.RHF (mol).run ()
 
 # tLDA: 0.1841335132506145
