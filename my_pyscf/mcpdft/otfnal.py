@@ -360,11 +360,6 @@ class transfnal (otfnal):
         if ndf > 3:  dPi[1:4,3::ndf] = P[1:4,3::ndf]
         rho1 = rho+(drho/2)
         Pi1 = Pi + dPi
-        # ~~~ eval_xc reference ~~~
-        #rho_t = self.get_rho_translated (Pi, rho, weights=weights)
-        #exc, vxc, fxc = otfnal._numint.eval_xc (otfnal.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1,
-        #    relativity=0, deriv=2, verbose=otfnal.verbose)[:dderiv+1]
-        #rho_t = self.get_rho_translated (Pi1, rho1, weights=weights)
         # ~~~ ignore numerical instability of unfully-translated fnals ~~~
         z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0], fn_deriv=0)[0]
         z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0], fn_deriv=0)[0]
@@ -372,9 +367,22 @@ class transfnal (otfnal):
         drho[:,idx] = dPi[:,idx] = 0
         rho1[:,:,idx] = rho[:,:,idx]
         Pi1[:,idx] = Pi[:,idx]
+        # ~~~ eval_xc reference ~~~
+        rho_t0 = self.get_rho_translated (Pi, rho, weights=weights)
+        exc, vxc, fxc = self._numint.eval_xc (self.otxc, (rho_t0[0,:,:], rho_t0[1,:,:]), spin=1,
+            relativity=0, deriv=2, verbose=self.verbose)[:3]
+        vxc = tfnal_derivs._unpack_vxc_sigma (vxc, rho_t0, self.dens_deriv)
+        fxc = tfnal_derivs._pack_fxc_ltri (fxc, self.dens_deriv)
+        rho_t1 = self.get_rho_translated (Pi1, rho1, weights=weights)
+        exc1, vxc1 = self._numint.eval_xc (self.otxc, (rho_t1[0,:,:], rho_t1[1,:,:]), spin=1,
+            relativity=0, deriv=2, verbose=self.verbose)[:2]
+        vxc1 = tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t0, self.dens_deriv)
+        drho_t = rho_t1 - rho_t0
+        df_lbl = ('rhoa', 'rhob', "rhoa'", "rhob'")[:2*(1+int(nvr>1))]
+        v_err_report (self, 'eval_xc', df_lbl, rho_t0[0], rho_t0[1], exc, vxc, fxc, exc1, vxc1, drho_t, weights)
         # ~~~ eval_ot shifted ~~~
-        eot1, vot1, fot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
-            dderiv=dderiv-1, weights=weights, _unpack_vot=False)
+        eot1, vot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
+            dderiv=dderiv-1, weights=weights, _unpack_vot=False)[:2]
         d1 = rho_tot[1:4] if nvr > 1 else None
         d2 = Pi[1:4] if nvP > 1 else None
         vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)

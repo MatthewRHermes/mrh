@@ -3,6 +3,28 @@ from scipy import linalg
 from pyscf import lib
 from pyscf.lib import logger
 
+def _unpack_vxc_sigma (vxc, rho, dens_deriv):
+    vrho, vsigma = vxc[:2]
+    vxc = list (vrho.T)
+    if dens_deriv:
+        vxc = vxc + list (vsigma.T)
+        vxc = _unpack_sigma_vector (vxc, rho[0][1:4], rho[1][1:4])
+    else:
+        vxc = [vxc[0][None,:], vxc[1][None,:]]
+    return vxc
+
+def _pack_fxc_ltri (fxc, dens_deriv):
+    frho, frhosigma, fsigma = fxc[:3]
+    frho = frho.T
+    fxc  = [frho[0],]
+    fxc += [frho[1],      frho[2],]
+    if dens_deriv:
+        frhosigma, fsigma = frhosigma.T, fsigma.T
+        fxc += [frhosigma[0], frhosigma[3], fsigma[0],]
+        fxc += [frhosigma[1], frhosigma[4], fsigma[1], fsigma[3],]
+        fxc += [frhosigma[2], frhosigma[5], fsigma[2], fsigma[4], fsigma[5]]
+    return fxc
+
 def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     r''' get the integrand of the on-top xc energy and its functional derivatives wrt rho and Pi 
 
@@ -75,15 +97,7 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
         # I should implement this entirely in terms of the gradient norm, since that reduces the
         # number of grid columns from 25 to 9 for t-GGA and from 64 to 25 for ft-GGA (and steps
         # around the need to "unpack" fsigma and frhosigma entirely).
-        frho, frhosigma, fsigma = xc_grid[2][:3]
-        frho = frho.T
-        fxc  = [frho[0],]
-        fxc += [frho[1],      frho[2],]
-        if otfnal.dens_deriv:
-            frhosigma, fsigma = frhosigma.T, fsigma.T
-            fxc += [frhosigma[0], frhosigma[3], fsigma[0],]
-            fxc += [frhosigma[1], frhosigma[4], fsigma[1], fsigma[3],]
-            fxc += [frhosigma[2], frhosigma[5], fsigma[2], fsigma[4], fsigma[5]]
+        fxc = _pack_fxc_ltri (xc_grid[2], otfnal.dens_deriv)
         # First pass: fxc
         fot = jT_f_j (otfnal, fxc, otfnal.jT_op, rho, Pi)
         # Second pass: translation derivatives
