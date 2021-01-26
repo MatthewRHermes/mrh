@@ -9,6 +9,39 @@ from pyscf.dft.numint import _NumInt, NumInt
 from mrh.util import params
 from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs
 
+def v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
+    ndf = len (lbls)
+    nvP = v0[1].shape[0]
+    de = (e1-e0) * w
+    vx = ((v0[0]*x[0]).sum (0) + (v0[1]*x[1][:nvP]).sum (0)) * w
+    xf = tfnal_derivs.contract_fot (otfnal, f, rho_tot, Pi, x[0], x[1])
+    for row in xf: row[:] *= w
+    xfx = ((xf[0]*x[0]).sum (0) + (xf[1]*x[1][:nvP]).sum (0)) / 2
+    xf_df = [xf[0][0], xf[1][0]]
+    dv_df = [(v1[0][0]-v0[0][0])*w, (v1[1][0]-v0[1][0])*w]
+    if ndf > 2: 
+        xf_df += [xf[0][1:4],]
+        dv_df += [(v1[0][1:4]-v0[0][1:4])*w,]
+    if ndf > 3: 
+        xf_df += [xf[1][1:4],]
+        dv_df += [(v1[1][1:4]-v0[1][1:4])*w,]
+    de_err1 = de - vx
+    de_err2 = de_err1 - xfx
+    for ix, lbl in enumerate (lbls):
+        lib.logger.debug (otfnal, "%s gradient debug %s: %e - %e (- %e) -> %e (%e)",
+            tag, lbl, np.sum  (de[ix::ndf]), np.sum (vx[ix::ndf]),
+            np.sum (xfx[ix::ndf]), np.sum (de_err1[ix::ndf]), np.sum (de_err2[ix::ndf]))
+    for lbl_row, xf_row, dv_row in zip (lbls, xf_df, dv_df):
+        err_row = dv_row-xf_row
+        for ix_col, lbl_col in enumerate (lbls):
+            lib.logger.debug (otfnal, ("%s Hessian debug (H.x_%s)_%s: "
+                "%e - %e -> %e"), tag, lbl_col, lbl_row, 
+                linalg.norm (dv_row[ix_col::ndf]),
+                linalg.norm (xf_row[ix_col::ndf]),
+                linalg.norm (err_row[ix_col::ndf]))
+    lib.logger.debug (otfnal, "%s dE - v.x - x.f.x: %e - %e - %e = %e",
+        tag, de.sum (), vx.sum (), xfx.sum (), de_err2.sum ())
+
 class otfnal:
     r''' Needs:
         mol: object of class pyscf.gto.mole
@@ -310,6 +343,7 @@ class transfnal (otfnal):
         if (self.verbose < logger.DEBUG) or (dderiv<2) or (weights is None): return eot, vot, fot
         if rho.ndim == 2: rho = rho[:,None,:]
         if Pi.ndim == 1: Pi = Pi[None,:]
+
         rho_tot = rho.sum (0)
         nvr = rho_tot.shape[0]
         nvP = vot[1].shape[0]
@@ -326,6 +360,11 @@ class transfnal (otfnal):
         if ndf > 3:  dPi[1:4,3::ndf] = P[1:4,3::ndf]
         rho1 = rho+(drho/2)
         Pi1 = Pi + dPi
+        # ~~~ eval_xc reference ~~~
+        #rho_t = self.get_rho_translated (Pi, rho, weights=weights)
+        #exc, vxc, fxc = otfnal._numint.eval_xc (otfnal.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1,
+        #    relativity=0, deriv=2, verbose=otfnal.verbose)[:dderiv+1]
+        #rho_t = self.get_rho_translated (Pi1, rho1, weights=weights)
         # ~~~ ignore numerical instability of unfully-translated fnals ~~~
         z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0], fn_deriv=0)[0]
         z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0], fn_deriv=0)[0]
@@ -333,43 +372,14 @@ class transfnal (otfnal):
         drho[:,idx] = dPi[:,idx] = 0
         rho1[:,:,idx] = rho[:,:,idx]
         Pi1[:,idx] = Pi[:,idx]
-        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # ~~~ eval_ot shifted ~~~
         eot1, vot1, fot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
             dderiv=dderiv-1, weights=weights, _unpack_vot=False)
         d1 = rho_tot[1:4] if nvr > 1 else None
         d2 = Pi[1:4] if nvP > 1 else None
         vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)
-        de = (eot1-eot) * weights
-        vx = np.zeros_like (de)
-        vx = ((vot[0]*drho).sum (0) + (vot[1]*dPi[:nvP]).sum (0)) * weights
-        de_err = de - vx
-        xf = tfnal_derivs.contract_fot (otfnal, fot, rho_tot, Pi, drho, dPi)
-        for x in xf: x[:] *= weights
-        xfx = ((xf[0]*drho).sum (0) + (xf[1]*dPi[:nvP]).sum (0)) / 2
-        de_err -= xfx
         df_lbl = ('rho', 'Pi', "rho'", "Pi'")[:ndf]
-        for ix, lbl in enumerate (df_lbl):
-            lib.logger.debug (self, "eval_ot gradient debug %s: %e - %e - %e -> %e",
-                lbl, np.sum  (de[ix::ndf]), np.sum (vx[ix::ndf]),
-                np.sum (xfx[ix::ndf]), np.sum (de_err[ix::ndf]))
-        xf_df = [xf[0][0], xf[1][0]]
-        dv_df = [(vot1[0][0]-vot[0][0])*weights, (vot1[1][0]-vot[1][0])*weights]
-        if ndf > 2: 
-            xf_df += [xf[0][1:4],]
-            dv_df += [(vot1[0][1:4]-vot[0][1:4])*weights,]
-        if ndf > 3: 
-            xf_df += [xf[1][1:4],]
-            dv_df += [(vot1[1][1:4]-vot[1][1:4])*weights,]
-        for lbl_row, xf_row, dv_row in zip (df_lbl, xf_df, dv_df):
-            err_row = dv_row-xf_row
-            for ix_col, lbl_col in enumerate (df_lbl):
-                lib.logger.debug (self, ("eval_ot Hessian debug (H.x_%s)_%s: "
-                    "%e - %e -> %e"), lbl_col, lbl_row, 
-                    linalg.norm (dv_row[ix_col::ndf]),
-                    linalg.norm (xf_row[ix_col::ndf]),
-                    linalg.norm (err_row[ix_col::ndf]))
-        lib.logger.debug (self, "eval_ot dE - v.x - x.f.x: %e - %e - %e = %e",
-            de.sum (), vx.sum (), xfx.sum (), de_err.sum ())
+        v_err_report (self, 'eval_ot', df_lbl, rho_tot, Pi, eot, vot, fot, eot1, vot1, (drho, dPi), weights)
 
         return eot, vot, fot
 
