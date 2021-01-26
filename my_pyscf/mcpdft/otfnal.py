@@ -371,12 +371,14 @@ class transfnal (otfnal):
         rho_t0 = self.get_rho_translated (Pi, rho, weights=weights)
         exc, vxc, fxc = self._numint.eval_xc (self.otxc, (rho_t0[0,:,:], rho_t0[1,:,:]), spin=1,
             relativity=0, deriv=2, verbose=self.verbose)[:3]
-        vxc = tfnal_derivs._unpack_vxc_sigma (vxc, rho_t0, self.dens_deriv)
-        fxc = tfnal_derivs._pack_fxc_ltri (fxc, self.dens_deriv)
+        exc *= rho_t0[:,0,:].sum (0)
+        vxc =  tfnal_derivs._unpack_vxc_sigma (vxc, rho_t0, self.dens_deriv)
+        fxc =  tfnal_derivs._pack_fxc_ltri (fxc, self.dens_deriv)
         rho_t1 = self.get_rho_translated (Pi1, rho1, weights=weights)
         exc1, vxc1 = self._numint.eval_xc (self.otxc, (rho_t1[0,:,:], rho_t1[1,:,:]), spin=1,
             relativity=0, deriv=2, verbose=self.verbose)[:2]
-        vxc1 = tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t0, self.dens_deriv)
+        exc1 *= rho_t1[:,0,:].sum (0)
+        vxc1 =  tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t0, self.dens_deriv)
         drho_t = rho_t1 - rho_t0
         df_lbl = ('rhoa', 'rhob', "rhoa'", "rhob'")[:2*(1+int(nvr>1))]
         v_err_report (self, 'eval_xc', df_lbl, rho_t0[0], rho_t0[1], exc, vxc, fxc, exc1, vxc1, drho_t, weights)
