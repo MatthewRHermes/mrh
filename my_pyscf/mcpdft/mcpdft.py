@@ -205,161 +205,166 @@ def sapdft_grad_monkeypatch_(mc):
     mc.__class__ = StateAverageMCPDFT
     return mc
 
+class _PDFT ():
+    # Metaclass parent; unusable on its own
+
+    def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None, **kwargs):
+        # Keep the same initialization pattern for backwards-compatibility. Use a separate intializer for the ot functional
+        try:
+            super().__init__(scf, ncas, nelecas)
+        except TypeError as e:
+            # I think this is the same DFCASSCF problem as with the DF-SACASSCF gradients earlier
+            super().__init__()
+        keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states', 'otfnal', 'grids'))
+        self._keys = set ((self.__dict__.keys ())).union (keys)
+        if my_ot is not None:
+            self._init_ot_grids (my_ot, grids_level=grids_level)
+
+    def _init_ot_grids (self, my_ot, grids_level=None):
+        if isinstance (my_ot, (str, np.string_)):
+            ks = dft.RKS (self.mol)
+            if my_ot[:1].upper () == 'T':
+                ks.xc = my_ot[1:]
+                self.otfnal = transfnal (ks)
+            elif my_ot[:2].upper () == 'FT':
+                ks.xc = my_ot[2:]
+                self.otfnal = ftransfnal (ks)
+            else:
+                raise NotImplementedError (('On-top pair-density exchange-correlation functional names other than '
+                    '"translated" (t) or "fully-translated" (ft). Nonstandard functionals can be specified by passing '
+                    'an object of class otfnal in place of a string.'))
+        else:
+            self.otfnal = my_ot
+        self.grids = self.otfnal.grids
+        if grids_level is not None:
+            self.grids.level = grids_level
+            assert (self.grids.level == self.otfnal.grids.level)
+        # Make sure verbose and stdout don't accidentally change (i.e., in scanner mode)
+        self.otfnal.verbose = self.verbose
+        self.otfnal.stdout = self.stdout
+        
+    def kernel (self, mo=None, ci=None, **kwargs):
+        # Hafta reset the grids so that geometry optimization works!
+        self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
+        self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)
+        if isinstance (self, StateAverageMCSCFSolver):
+            epdft = [kernel (self, self.otfnal, root=ix) for ix in range (len (self.e_states))]
+            self.e_mcscf = self.e_states
+            self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
+            self.e_ot = [e_ot for e_tot, e_ot in epdft]
+            self.e_tot = np.dot (self.e_states, self.weights)
+        else:
+            self.e_tot, self.e_ot = kernel (self, self.otfnal)
+        return self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
+
+    def dump_flags (self, verbose=None):
+        super().dump_flags (verbose=verbose)
+        log = logger.new_logger(self, verbose)
+        log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal.otxc)
+
+    def get_pdft_veff (self, mo=None, ci=None, incl_coul=False, paaa_only=False):
+        ''' Get the 1- and 2-body MC-PDFT effective potentials for a set of mos and ci vectors
+
+            Kwargs:
+                mo : ndarray of shape (nao,nmo)
+                    A full set of molecular orbital coefficients. Taken from self if not provided
+                ci : list or ndarray
+                    CI vectors. Taken from self if not provided
+                incl_coul : logical
+                    If true, includes the Coulomb repulsion energy in the 1-body effective potential.
+                    In practice they always appear together.
+                paaa_only : logical
+                    If true, only the paaa 2-body effective potential elements are evaluated; the rest of ppaa are filled with zeros.
+
+            Returns:
+                veff1 : ndarray of shape (nao, nao)
+                    1-body effective potential in the AO basis
+                    May include classical Coulomb potential term (see incl_coul kwarg)
+                veff2 : pyscf.mcscf.mc_ao2mo._ERIS instance
+                    Relevant 2-body effective potential in the MO basis
+        ''' 
+        t0 = (time.clock (), time.time ())
+        if mo is None: mo = self.mo_coeff
+        if ci is None: ci = self.ci
+        # If ci is not a list and mc is a state-average solver, use a different fcisolver for make_rdm
+        mc_1root = self
+        if isinstance (self, StateAverageMCSCFSolver) and not isinstance (ci, list):
+            mc_1root = mcscf.CASCI (self._scf, self.ncas, self.nelecas)
+            mc_1root.fcisolver = fci.solver (self._scf.mol, singlet = False, symm = False)
+            mc_1root.mo_coeff = mo
+            mc_1root.ci = ci
+            mc_1root.e_tot = self.e_tot
+        dm1s = np.asarray (mc_1root.make_rdm1s ())
+        adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, self.ncas, self.nelecas), axis=0)
+        adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (ci, self.ncas, self.nelecas)[1], adm1s)
+        mo_cas = mo[:,self.ncore:][:,:self.ncas]
+        pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, adm2, mo, self.ncore, self.ncas, max_memory=self.max_memory, paaa_only=paaa_only)
+        if self.verbose > logger.DEBUG:
+            logger.debug (self, 'Warning: memory-intensive lazy kernel for pdft_veff initiated for '
+                'testing purposes; reduce verbosity to decrease memory footprint')
+            pdft_veff1_test, _pdft_veff2_test = pdft_veff.lazy_kernel (self.otfnal, dm1s, adm2, mo_cas)
+            old_eri = self._scf._eri
+            self._scf._eri = _pdft_veff2_test
+            with temporary_env (self.mol, incore_anyway=True):
+                pdft_veff2_test = mc_ao2mo._ERIS (self, mo, method='incore')
+            self._scf._eri = old_eri
+            err = linalg.norm (pdft_veff1 - pdft_veff1_test)
+            logger.debug (self, 'veff1 error: {}'.format (err))
+            err = linalg.norm (pdft_veff2.vhf_c - pdft_veff2_test.vhf_c)
+            logger.debug (self, 'veff2.vhf_c error: {}'.format (err))
+            err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
+            logger.debug (self, 'veff2.ppaa error: {}'.format (err))
+            err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
+            logger.debug (self, 'veff2.papa error: {}'.format (err))
+            err = linalg.norm (pdft_veff2.j_pc - pdft_veff2_test.j_pc)
+            logger.debug (self, 'veff2.j_pc error: {}'.format (err))
+            err = linalg.norm (pdft_veff2.k_pc - pdft_veff2_test.k_pc)
+            logger.debug (self, 'veff2.k_pc error: {}'.format (err))
+        
+        if incl_coul:
+            pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
+        logger.timer (self, 'get_pdft_veff', *t0)
+        return pdft_veff1, pdft_veff2
+
+    def nuc_grad_method (self):
+        return Gradients (self)
+
+    def get_energy_decomposition (self, mo_coeff=None, ci=None):
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if ci is None: ci = self.ci
+        return get_energy_decomposition (self, self.otfnal, mo_coeff=mo_coeff, ci=ci)
+
+    def state_average (self, weights=(0.5,0.5)):
+        # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
+        return sapdft_grad_monkeypatch_(super ().state_average (weights=weights))
+
+    def state_average_(self, weights=(0.5,0.5)):
+        # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
+        sapdft_grad_monkeypatch_(super ().state_average_(weights=weights))
+        return self
+
+    def state_average_mix (self, fcisolvers=None, weights=(0.5,0.5)):
+        # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
+        return sapdft_grad_monkeypatch_(state_average_mix (self, fcisolvers, weights))
+
+    def state_average_mix_(self, fcisolvers=None, weights=(0.5,0.5)):
+        # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
+        sapdft_grad_monkeypatch_(state_average_mix_(self, fcisolvers, weights))
+        return self
+
+    @property
+    def otxc (self):
+        return self.otfnal.otxc
+
+    @otxc.setter
+    def otxc (self, x):
+        self._init_ot_grids (x, grids_level=self.otfnal.grids.level)
+
 def get_mcpdft_child_class (mc, ot, **kwargs):
 
-    class PDFT (mc.__class__):
-
-        def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None, **kwargs):
-            # Keep the same initialization pattern for backwards-compatibility. Use a separate intializer for the ot functional
-            try:
-                super().__init__(scf, ncas, nelecas)
-            except TypeError as e:
-                # I think this is the same DFCASSCF problem as with the DF-SACASSCF gradients earlier
-                super().__init__()
-            keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states', 'otfnal', 'grids'))
-            self._keys = set ((self.__dict__.keys ())).union (keys)
-            if my_ot is not None:
-                self._init_ot_grids (my_ot, grids_level=grids_level)
-
-        def _init_ot_grids (self, my_ot, grids_level=None):
-            if isinstance (my_ot, (str, np.string_)):
-                ks = dft.RKS (self.mol)
-                if my_ot[:1].upper () == 'T':
-                    ks.xc = my_ot[1:]
-                    self.otfnal = transfnal (ks)
-                elif my_ot[:2].upper () == 'FT':
-                    ks.xc = my_ot[2:]
-                    self.otfnal = ftransfnal (ks)
-                else:
-                    raise NotImplementedError (('On-top pair-density exchange-correlation functional names other than '
-                        '"translated" (t) or "fully-translated" (ft). Nonstandard functionals can be specified by passing '
-                        'an object of class otfnal in place of a string.'))
-            else:
-                self.otfnal = my_ot
-            self.grids = self.otfnal.grids
-            if grids_level is not None:
-                self.grids.level = grids_level
-                assert (self.grids.level == self.otfnal.grids.level)
-            # Make sure verbose and stdout don't accidentally change (i.e., in scanner mode)
-            self.otfnal.verbose = self.verbose
-            self.otfnal.stdout = self.stdout
-            
-        def kernel (self, mo=None, ci=None, **kwargs):
-            # Hafta reset the grids so that geometry optimization works!
-            self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
-            self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)
-            if isinstance (self, StateAverageMCSCFSolver):
-                epdft = [kernel (self, self.otfnal, root=ix) for ix in range (len (self.e_states))]
-                self.e_mcscf = self.e_states
-                self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
-                self.e_ot = [e_ot for e_tot, e_ot in epdft]
-                self.e_tot = np.dot (self.e_states, self.weights)
-            else:
-                self.e_tot, self.e_ot = kernel (self, self.otfnal)
-            return self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
-
-        def dump_flags (self, verbose=None):
-            super().dump_flags (verbose=verbose)
-            log = logger.new_logger(self, verbose)
-            log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal.otxc)
-
-        def get_pdft_veff (self, mo=None, ci=None, incl_coul=False, paaa_only=False):
-            ''' Get the 1- and 2-body MC-PDFT effective potentials for a set of mos and ci vectors
-
-                Kwargs:
-                    mo : ndarray of shape (nao,nmo)
-                        A full set of molecular orbital coefficients. Taken from self if not provided
-                    ci : list or ndarray
-                        CI vectors. Taken from self if not provided
-                    incl_coul : logical
-                        If true, includes the Coulomb repulsion energy in the 1-body effective potential.
-                        In practice they always appear together.
-                    paaa_only : logical
-                        If true, only the paaa 2-body effective potential elements are evaluated; the rest of ppaa are filled with zeros.
-
-                Returns:
-                    veff1 : ndarray of shape (nao, nao)
-                        1-body effective potential in the AO basis
-                        May include classical Coulomb potential term (see incl_coul kwarg)
-                    veff2 : pyscf.mcscf.mc_ao2mo._ERIS instance
-                        Relevant 2-body effective potential in the MO basis
-            ''' 
-            t0 = (time.clock (), time.time ())
-            if mo is None: mo = self.mo_coeff
-            if ci is None: ci = self.ci
-            # If ci is not a list and mc is a state-average solver, use a different fcisolver for make_rdm
-            mc_1root = self
-            if isinstance (self, StateAverageMCSCFSolver) and not isinstance (ci, list):
-                mc_1root = mcscf.CASCI (self._scf, self.ncas, self.nelecas)
-                mc_1root.fcisolver = fci.solver (self._scf.mol, singlet = False, symm = False)
-                mc_1root.mo_coeff = mo
-                mc_1root.ci = ci
-                mc_1root.e_tot = self.e_tot
-            dm1s = np.asarray (mc_1root.make_rdm1s ())
-            adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, self.ncas, self.nelecas), axis=0)
-            adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (ci, self.ncas, self.nelecas)[1], adm1s)
-            mo_cas = mo[:,self.ncore:][:,:self.ncas]
-            pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, adm2, mo, self.ncore, self.ncas, max_memory=self.max_memory, paaa_only=paaa_only)
-            if self.verbose > logger.DEBUG:
-                logger.debug (self, 'Warning: memory-intensive lazy kernel for pdft_veff initiated for '
-                    'testing purposes; reduce verbosity to decrease memory footprint')
-                pdft_veff1_test, _pdft_veff2_test = pdft_veff.lazy_kernel (self.otfnal, dm1s, adm2, mo_cas)
-                old_eri = self._scf._eri
-                self._scf._eri = _pdft_veff2_test
-                with temporary_env (self.mol, incore_anyway=True):
-                    pdft_veff2_test = mc_ao2mo._ERIS (self, mo, method='incore')
-                self._scf._eri = old_eri
-                err = linalg.norm (pdft_veff1 - pdft_veff1_test)
-                logger.debug (self, 'veff1 error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.vhf_c - pdft_veff2_test.vhf_c)
-                logger.debug (self, 'veff2.vhf_c error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
-                logger.debug (self, 'veff2.ppaa error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
-                logger.debug (self, 'veff2.papa error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.j_pc - pdft_veff2_test.j_pc)
-                logger.debug (self, 'veff2.j_pc error: {}'.format (err))
-                err = linalg.norm (pdft_veff2.k_pc - pdft_veff2_test.k_pc)
-                logger.debug (self, 'veff2.k_pc error: {}'.format (err))
-            
-            if incl_coul:
-                pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
-            logger.timer (self, 'get_pdft_veff', *t0)
-            return pdft_veff1, pdft_veff2
-
-        def nuc_grad_method (self):
-            return Gradients (self)
-
-        def get_energy_decomposition (self, mo_coeff=None, ci=None):
-            if mo_coeff is None: mo_coeff = self.mo_coeff
-            if ci is None: ci = self.ci
-            return get_energy_decomposition (self, self.otfnal, mo_coeff=mo_coeff, ci=ci)
-
-        def state_average (self, weights=(0.5,0.5)):
-            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
-            return sapdft_grad_monkeypatch_(super ().state_average (weights=weights))
-
-        def state_average_(self, weights=(0.5,0.5)):
-            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
-            sapdft_grad_monkeypatch_(super ().state_average_(weights=weights))
-            return self
-
-        def state_average_mix (self, fcisolvers=None, weights=(0.5,0.5)):
-            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
-            return sapdft_grad_monkeypatch_(state_average_mix (self, fcisolvers, weights))
-
-        def state_average_mix_(self, fcisolvers=None, weights=(0.5,0.5)):
-            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
-            sapdft_grad_monkeypatch_(state_average_mix_(self, fcisolvers, weights))
-            return self
-
-        @property
-        def otxc (self):
-            return self.otfnal.otxc
-
-        @otxc.setter
-        def otxc (self, x):
-            self._init_ot_grids (x, grids_level=self.otfnal.grids.level)
+    # Inheritance magic
+    class PDFT (_PDFT, mc.__class__):
+        pass
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy ()
