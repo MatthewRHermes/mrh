@@ -1,11 +1,46 @@
 import numpy as np
 import copy
 import re
+from scipy import linalg
+from pyscf import lib
 from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
 from mrh.util import params
 from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs
+
+def v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
+    ndf = len (lbls)
+    nvP = v0[1].shape[0]
+    de = (e1-e0) * w
+    vx = ((v0[0]*x[0]).sum (0) + (v0[1]*x[1][:nvP]).sum (0)) * w
+    xf = tfnal_derivs.contract_fot (otfnal, f, rho_tot, Pi, x[0], x[1])
+    for row in xf: row[:] *= w
+    xfx = ((xf[0]*x[0]).sum (0) + (xf[1]*x[1][:nvP]).sum (0)) / 2
+    xf_df = [xf[0][0], xf[1][0]]
+    dv_df = [(v1[0][0]-v0[0][0])*w, (v1[1][0]-v0[1][0])*w]
+    if ndf > 2: 
+        xf_df += [xf[0][1:4],]
+        dv_df += [(v1[0][1:4]-v0[0][1:4])*w,]
+    if ndf > 3: 
+        xf_df += [xf[1][1:4],]
+        dv_df += [(v1[1][1:4]-v0[1][1:4])*w,]
+    de_err1 = de - vx
+    de_err2 = de_err1 - xfx
+    for ix, lbl in enumerate (lbls):
+        lib.logger.debug (otfnal, "%s gradient debug %s: %e - %e (- %e) -> %e (%e)",
+            tag, lbl, np.sum  (de[ix::ndf]), np.sum (vx[ix::ndf]),
+            np.sum (xfx[ix::ndf]), np.sum (de_err1[ix::ndf]), np.sum (de_err2[ix::ndf]))
+    for lbl_row, xf_row, dv_row in zip (lbls, xf_df, dv_df):
+        err_row = dv_row-xf_row
+        for ix_col, lbl_col in enumerate (lbls):
+            lib.logger.debug (otfnal, ("%s Hessian debug (H.x_%s)_%s: "
+                "%e - %e -> %e"), tag, lbl_col, lbl_row, 
+                linalg.norm (dv_row[ix_col::ndf]),
+                linalg.norm (xf_row[ix_col::ndf]),
+                linalg.norm (err_row[ix_col::ndf]))
+    lib.logger.debug (otfnal, "%s dE - v.x - x.f.x: %e - %e - %e = %e",
+        tag, de.sum (), vx.sum (), xfx.sum (), de_err2.sum ())
 
 class otfnal:
     r''' Needs:
@@ -105,8 +140,6 @@ class transfnal (otfnal):
         self._numint._xc_type = t_xc_type.__get__(self._numint)
         self._init_info ()
 
-    eval_ot = tfnal_derivs.eval_ot
-
     def get_ratio (self, Pi, rho_avg):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
             An intermediate quantity when computing the translated spin densities
@@ -202,13 +235,14 @@ class transfnal (otfnal):
         Returns:
             zeta : ndarray of shape (fn_deriv+1, ngrids)
         '''
-        ngrids = R.shape[1]
+        if R.ndim == 2: R = R[0]
+        ngrids = R.size
         zeta = np.zeros ((fn_deriv+1, ngrids), dtype=R.dtype)
-        idx = R[0] < _Rmax
-        zeta[0,idx] = np.sqrt (1.0 - R[0,idx])
+        idx = R < _Rmax
+        zeta[0,idx] = np.sqrt (1.0 - R[idx])
         if fn_deriv:
-            zeta[1,idx] = -1 / zeta[0,idx] / 2
-        if fn_deriv > 1: fac = 1 / (1.0-R[0,idx]) / 2
+            zeta[1,idx] = -0.5 / zeta[0,idx] 
+        if fn_deriv > 1: fac = 0.5 / (1.0-R[idx]) 
         for n in range (1,fn_deriv):
             zeta[n+1,idx] = zeta[n,idx] * (2*n-1) * fac
         return zeta
@@ -236,34 +270,130 @@ class transfnal (otfnal):
         cfnal.otxc = c_code
         return xfnal, cfnal
 
-    def jTx_op (self, rho, Pi, x, Rmax=1, zeta_deriv=False):
+    def jT_op (self, x, rho, Pi, **kwargs):
         r''' Evaluate jTx = (x.j)T where j is the Jacobian of the translated densities
         in terms of the untranslated density and pair density
 
         Args:
+            x : ndarray of shape (2,*,ngrids)
+                Usually, a functional derivative of the on-top xc energy wrt
+                translated densities
             rho : ndarray of shape (2,*,ngrids)
                 containing spin-density [and derivatives]
             Pi : ndarray with shape (*,ngrids)
                 containing on-top pair density [and derivatives]
-            x : ndarray of shape (2,*,ngrids)
-                Usually, a functional derivative of the on-top xc energy wrt
-                translated densities
-
-        Kwargs:
-            Rmax : float
-                For ratios above this value, rho is not translated and therefore
-                the effective potential kernel is the same as in standard KS-DFT
-            zeta_deriv : logical
-                If true, propagate derivatives through the zeta intermediate as in
-                ``fully-translated'' PDFT
 
         Returns: ndarray of shape (*,ngrids)
             Usually, a functional derivative of the on-top pair density exchange-correlation
             energy wrt to total density and its derivatives
             The potential must be spin-symmetric in pair-density functional theory
+            2 rows for tLDA and 3 rows for tGGA
         '''
-        return tfnal_derivs.jTx_op_transl (self, rho, Pi, x,
-            Rmax=Rmax, zeta_deriv=zeta_deriv)
+        ncol = 2 + int(self.dens_deriv>0)
+        ngrid = rho.shape[-1]
+        jTx = np.zeros ((ncol,ngrid), dtype=x[0].dtype)
+        rho = rho.sum (0)
+        R = self.get_ratio (Pi, rho/2)
+        zeta = self.get_zeta (R, fn_deriv=1)
+        jTx[:2] = tfnal_derivs.gentLDA_jT_op (x, rho, Pi, R, zeta)
+        if self.dens_deriv > 0:
+            jTx[:] += tfnal_derivs.tGGA_jT_op (x, rho, Pi, R, zeta)
+        return jTx
+
+    def d_jT_op (self, x, rho, Pi, **kwargs):
+        r''' Evaluate the x.(nabla j) contribution to the second density derivatives
+        of the on-top energy in terms of the untranslated density and pair density
+
+        Args:
+            x : ndarray of shape (2,*,ngrids)
+                Usually, a functional derivative of the on-top xc energy wrt
+                translated densities
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+
+        Returns: ndarray of shape (*,ngrids)
+            second derivative of the translation dotted with x
+            3 rows for tLDA and 5 rows for tGGA
+        '''
+        nrow = 3 + 2*int(self.dens_deriv>0)
+        f = np.zeros ((nrow, x[0].shape[-1]), dtype=x[0].dtype)
+
+        rho = rho.sum (0)
+        R = self.get_ratio (Pi, rho/2)
+        zeta = self.get_zeta (R, fn_deriv=2)
+
+        f[:3] = tfnal_derivs.gentLDA_d_jT_op (x, rho, Pi, R, zeta)
+        if self.dens_deriv:
+            f[:] += tfnal_derivs.tGGA_d_jT_op (x, rho, Pi, R, zeta)
+
+        if self.verbose >= logger.DEBUG:
+            idx = zeta[0] == 0
+            logger.debug (self, 'MC-PDFT fot zeta check: %d zeta=0 columns', np.count_nonzero (idx))
+            if np.count_nonzero (idx):
+                for ix, frow in enumerate (f):
+                    logger.debug (self, 'MC-PDFT fot zeta check: f[%d] norm over zeta=0 columns: %e', ix, 
+                        linalg.norm (frow[idx]))
+
+        return f
+
+    def eval_ot (self, rho, Pi, dderiv=1, weights=None):
+        eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv, weights=weights)
+        if (self.verbose < logger.DEBUG) or (dderiv<2) or (weights is None): return eot, vot, fot
+        if rho.ndim == 2: rho = rho[:,None,:]
+        if Pi.ndim == 1: Pi = Pi[None,:]
+
+        rho_tot = rho.sum (0)
+        nvr = rho_tot.shape[0]
+        nvP = vot[1].shape[0]
+        ngrids = rho_tot.shape[-1]
+        drho = rho_tot * (2*np.random.rand (ngrids)-1) / 10**3
+        dPi = Pi * (2*np.random.rand (ngrids)-1) / 10**3
+        nst = 2 + int(rho_tot.shape[0]>1) + int(vot[1].shape[0]>1)
+        r, P = drho.copy (), dPi.copy ()
+        drho[:] = dPi[:] = 0.0
+        ndf = 2 + int(nvr>1) + int(nvP>1)
+        drho[0,0::ndf] = r[0,0::ndf]
+        dPi[0,1::ndf]  = P[0,1::ndf]
+        if ndf > 2: drho[1:4,2::ndf] = r[1:4,2::ndf]
+        if ndf > 3:  dPi[1:4,3::ndf] = P[1:4,3::ndf]
+        rho1 = rho+(drho/2)
+        Pi1 = Pi + dPi
+        # ~~~ ignore numerical instability of unfully-translated fnals ~~~
+        z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0], fn_deriv=0)[0]
+        z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0], fn_deriv=0)[0]
+        idx = (z0==0)|(z1==0)
+        drho[:,idx] = dPi[:,idx] = 0
+        rho1[:,:,idx] = rho[:,:,idx]
+        Pi1[:,idx] = Pi[:,idx]
+        # ~~~ eval_xc reference ~~~
+        rho_t0 = self.get_rho_translated (Pi, rho, weights=weights)
+        exc, vxc, fxc = self._numint.eval_xc (self.otxc, (rho_t0[0,:,:], rho_t0[1,:,:]), spin=1,
+            relativity=0, deriv=2, verbose=self.verbose)[:3]
+        exc *= rho_t0[:,0,:].sum (0)
+        vxc =  tfnal_derivs._unpack_vxc_sigma (vxc, rho_t0, self.dens_deriv)
+        fxc =  tfnal_derivs._pack_fxc_ltri (fxc, self.dens_deriv)
+        rho_t1 = self.get_rho_translated (Pi1, rho1, weights=weights)
+        exc1, vxc1 = self._numint.eval_xc (self.otxc, (rho_t1[0,:,:], rho_t1[1,:,:]), spin=1,
+            relativity=0, deriv=2, verbose=self.verbose)[:2]
+        exc1 *= rho_t1[:,0,:].sum (0)
+        vxc1 =  tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t0, self.dens_deriv)
+        drho_t = rho_t1 - rho_t0
+        df_lbl = ('rhoa', 'rhob', "rhoa'", "rhob'")[:2*(1+int(nvr>1))]
+        v_err_report (self, 'eval_xc', df_lbl, rho_t0[0], rho_t0[1], exc, vxc, fxc, exc1, vxc1, drho_t, weights)
+        # ~~~ eval_ot shifted ~~~
+        eot1, vot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
+            dderiv=dderiv-1, weights=weights, _unpack_vot=False)[:2]
+        d1 = rho_tot[1:4] if nvr > 1 else None
+        d2 = Pi[1:4] if nvP > 1 else None
+        vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)
+        df_lbl = ('rho', 'Pi', "rho'", "Pi'")[:ndf]
+        v_err_report (self, 'eval_ot', df_lbl, rho_tot, Pi, eot, vot, fot, eot1, vot1, (drho, dPi), weights)
+
+        return eot, vot, fot
+
+
 
 
 _FT_R0_DEFAULT=0.9
@@ -294,11 +424,6 @@ class ftransfnal (transfnal):
         self._init_info ()
 
     Pi_deriv = 1
-
-    def eval_ot (self, rho, Pi, dderiv=0, weights=None):
-        if dderiv>0:
-            raise NotImplementedError ("density derivatives for fully-translated functionals")
-        return transfnal.eval_ot (self, rho, Pi, dderiv=dderiv, weights=weights)
 
     def get_rho_translated (self, Pi, rho, **kwargs):
         r''' Compute the "fully-translated" alpha and beta densities
@@ -356,12 +481,13 @@ class ftransfnal (transfnal):
             zeta : ndarray of shape (fn_deriv+1, ngrids)
         '''
         # Rmax unused here. It only needs to be passed in the transfnal version
+        if R.ndim == 2: R = R[0]
         R0, R1, A, B, C = self.R0, self.R1, self.A, self.B, self.C
         zeta = transfnal.get_zeta (self, R, fn_deriv=fn_deriv, _Rmax=R0)
-        idx = (R[0] >= R0) & (R[0] < R1)
+        idx = (R >= R0) & (R < R1)
         if not np.count_nonzero (idx): return zeta
         zeta[:,idx] = 0.0
-        dR = np.stack ([np.power (R[0,idx] - R1, n)
+        dR = np.stack ([np.power (R[idx] - R1, n)
             for n in range (1,6)], axis=0)
         def _derivs ():
             yield     A*dR[4] +    B*dR[3] +   C*dR[2]
@@ -382,6 +508,35 @@ class ftransfnal (transfnal):
         cfnal.otxc = 'f' + cfnal.otxc
         return xfnal, cfnal
 
+    def jT_op (self, x, rho, Pi, **kwargs):
+        r''' Evaluate jTx = (x.j)T where j is the Jacobian of the translated densities
+        in terms of the untranslated density and pair density
+
+        Args:
+            x : ndarray of shape (2,*,ngrids)
+                Usually, a functional derivative of the on-top xc energy wrt
+                translated densities
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+
+        Returns: ndarray of shape (*,ngrids)
+            Usually, a functional derivative of the on-top pair density exchange-correlation
+            energy wrt to total density and its derivatives
+            The potential must be spin-symmetric in pair-density functional theory
+        '''
+        ntc = 2 + int(self.dens_deriv>0)
+        ncol = 2 + 3*int(self.dens_deriv>0)
+        ngrid = rho.shape[-1]
+        jTx = np.zeros ((ncol,ngrid), dtype=x[0].dtype)
+        jTx[:ntc,:] = transfnal.jT_op (self, x, rho, Pi, **kwargs)
+        rho = rho.sum (0)
+        R = self.get_ratio (Pi[0:4,:], rho[0:4,:]/2)
+        zeta = self.get_zeta (R[0], fn_deriv=2)
+        if self.dens_deriv > 0:
+            jTx[:] += tfnal_derivs.ftGGA_jT_op (x, rho, Pi, R, zeta)
+        return jTx
 
 _CS_a_DEFAULT = 0.04918
 _CS_b_DEFAULT = 0.132

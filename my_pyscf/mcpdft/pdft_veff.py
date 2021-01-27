@@ -205,6 +205,7 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
         eot, vot = ot.eval_ot (rho, Pi, weights=weight)[:2]
         vrho, vPi = vot
+        if ao.ndim == 2: ao = ao[None,:,:] # TODO: consistent format req's ao LDA case
         t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
         veff1 += ot.get_veff_1body (rho, Pi, ao, weight, non0tab=mask, shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
@@ -534,6 +535,7 @@ def _contract_ao_vao (ao, vao, symm=False):
 def _contract_vot_rho (vot, rho, add_vrho=None):
     ''' Make a jk-like vrho from vot and a density. k = j so it's just vot * vrho / 2,
         but the product rule needs to be followed '''
+    if rho.ndim == 1: rho = rho[None,:]
     nderiv = vot.shape[0]
     vrho = vot * rho[0]
     if nderiv > 1:
