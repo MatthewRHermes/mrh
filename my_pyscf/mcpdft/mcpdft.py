@@ -6,7 +6,7 @@ from pyscf.lib import logger, temporary_env
 from pyscf.mcscf import mc_ao2mo
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
 from mrh.my_pyscf.grad.mcpdft import Gradients
-from mrh.my_pyscf.grad.mcpdft import ElectricDipole
+from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
 from mrh.my_pyscf.mcpdft import pdft_veff
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
