@@ -223,6 +223,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
 
     de = de_nuc + de_hcore + de_coul + de_renorm + de_xc + de_grid + de_wgt
 
+
     if auxbasis_response:
         de += de_aux
         logger.debug (mc, "MC-PDFT Hellmann-Feynman aux component:\n{}".format (de_aux))
@@ -355,6 +356,3 @@ class Gradients (sacasscf.Gradients):
             Ax[self.ngorb:] = Ax_ci.ravel ()
             return Ax
         return my_Aop
-
-
-
