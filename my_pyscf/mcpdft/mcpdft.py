@@ -6,6 +6,7 @@ from pyscf.lib import logger, temporary_env
 from pyscf.mcscf import mc_ao2mo
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
 from mrh.my_pyscf.grad.mcpdft import Gradients
+from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
 from mrh.my_pyscf.mcpdft import pdft_veff, scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
@@ -334,6 +335,11 @@ class _PDFT ():
 
     def nuc_grad_method (self):
         return Gradients (self)
+
+    def dip_moment (self, unit='Debye'):
+        dip_obj =  ElectricDipole(self) 
+        mol_dipole = dip_obj.kernel ()
+        return mol_dipole
 
     def get_energy_decomposition (self, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
