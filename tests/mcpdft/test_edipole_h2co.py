@@ -25,7 +25,8 @@ def get_mc_ref (mol, ri=False, sa2=False):
 #        ref = np.load ('h2co_sa2_tpbe66_631g_grad_num.npy').reshape (2,2,4,3)[int(ri)]
 #    else:
 #        ref = np.load ('h2co_tpbe66_631g_grad_num.npy')[int(ri)]
- #this refernce is taken from numerical differentiation in GAMESS
+ #this refernce is obtained by mcpdft numerical differentiation in pyscf 
+ #using central differences with a second order accuracy and step size of 1e-4 
     ref = np.load ('h2co_tpbe66_631g_edipole_num.npy')[int(ri)]
     return mc.run (), ref
 
