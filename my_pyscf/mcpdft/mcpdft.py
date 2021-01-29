@@ -1,12 +1,12 @@
 import numpy as np
 import time
 from scipy import linalg
-from pyscf import gto, dft, ao2mo, fci, mcscf, lib
+from pyscf import gto, dft, ao2mo, fci, mcscf, lib, __config__
 from pyscf.lib import logger, temporary_env
 from pyscf.mcscf import mc_ao2mo
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
 from mrh.my_pyscf.grad.mcpdft import Gradients
-from mrh.my_pyscf.mcpdft import pdft_veff
+from mrh.my_pyscf.mcpdft import pdft_veff, scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
@@ -215,7 +215,9 @@ class _PDFT ():
         except TypeError as e:
             # I think this is the same DFCASSCF problem as with the DF-SACASSCF gradients earlier
             super().__init__()
-        keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states', 'otfnal', 'grids'))
+        keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states', 'otfnal', 'grids', 'max_cycle_fp', 'conv_tol_ci_fp'))
+        self.max_cycle_fp = getattr (__config__, 'mcscf_mcpdft_max_cycle_fp', 50)
+        self.conv_tol_ci_fp = getattr (__config__, 'mcscf_mcpdft_conv_tol_ci_fp', 1e-8)
         self._keys = set ((self.__dict__.keys ())).union (keys)
         if my_ot is not None:
             self._init_ot_grids (my_ot, grids_level=grids_level)
@@ -360,11 +362,12 @@ class _PDFT ():
     def otxc (self, x):
         self._init_ot_grids (x, grids_level=self.otfnal.grids.level)
 
-def get_mcpdft_child_class (mc, ot, **kwargs):
+def get_mcpdft_child_class (mc, ot, ci_min='ecas', **kwargs):
 
     # Inheritance magic
     class PDFT (_PDFT, mc.__class__):
-        pass
+        if ci_min.lower () == 'epdft':
+            casci=scf.casci
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy ()
