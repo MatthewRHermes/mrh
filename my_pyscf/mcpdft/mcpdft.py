@@ -11,7 +11,7 @@ from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 
-def kernel (mc, ot, root=-1):
+def kernel (mc, ot, root=-1, verbose=None):
     ''' Calculate MC-PDFT total energy
 
         Args:
@@ -24,10 +24,14 @@ def kernel (mc, ot, root=-1):
             root : int
                 If mc describes a state-averaged calculation, select the root (0-indexed)
                 Negative number requests state-averaged MC-PDFT results (i.e., using state-averaged density matrices)
+            verbose : int
+                Verbosity of logger output; defaults to mc.verbose
 
         Returns:
             Total MC-PDFT energy including nuclear repulsion energy.
     '''
+    if verbose is None: verbose = mc.verbose
+    log = lib.logger.new_logger (mc, verbose)
     t0 = (time.clock (), time.time ())
     amo = mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
     # make_rdm12s returns (a, b), (aa, ab, bb)
@@ -46,16 +50,16 @@ def kernel (mc, ot, root=-1):
     spin = abs(mc.nelecas[0] - mc.nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
     hyb_x, hyb_c = hyb
-    if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
+    if log.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
         adm2s = get_2CDMs_from_2RDMs (mc_1root.fcisolver.make_rdm12s (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
         adm2s_ss = adm2s[0] + adm2s[2]
         adm2s_os = adm2s[1]
-    t0 = logger.timer (ot, 'rdms', *t0)
+    t0 = logger.timer (log, 'rdms', *t0)
 
     Vnn = mc._scf.energy_nuc ()
     h = mc._scf.get_hcore ()
     dm1 = dm1s[0] + dm1s[1]
-    if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10:
+    if log.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10:
         vj, vk = mc._scf.get_jk (dm=dm1s)
         vj = vj[0] + vj[1]
     else:
@@ -64,39 +68,39 @@ def kernel (mc, ot, root=-1):
     # (vj_a + vj_b) * (dm_a + dm_b)
     E_j = np.tensordot (vj, dm1) / 2  
     # (vk_a * dm_a) + (vk_b * dm_b) Mind the difference!
-    if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10:
+    if log.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10:
         E_x = -(np.tensordot (vk[0], dm1s[0]) + np.tensordot (vk[1], dm1s[1])) / 2
     else:
         E_x = 0
-    logger.debug (ot, 'CAS energy decomposition:')
-    logger.debug (ot, 'Vnn = %s', Vnn)
-    logger.debug (ot, 'Te + Vne = %s', Te_Vne)
-    logger.debug (ot, 'E_j = %s', E_j)
-    logger.debug (ot, 'E_x = %s', E_x)
+    logger.debug (log, 'CAS energy decomposition:')
+    logger.debug (log, 'Vnn = %s', Vnn)
+    logger.debug (log, 'Te + Vne = %s', Te_Vne)
+    logger.debug (log, 'E_j = %s', E_j)
+    logger.debug (log, 'E_x = %s', E_x)
     E_c = 0
-    if ot.verbose >= logger.DEBUG or abs (hyb_c) > 1e-10:
+    if log.verbose >= logger.DEBUG or abs (hyb_c) > 1e-10:
         # g_pqrs * l_pqrs / 2
-        #if ot.verbose >= logger.DEBUG:
+        #if log.verbose >= logger.DEBUG:
         aeri = ao2mo.restore (1, mc.get_h2eff (mc.mo_coeff), mc.ncas)
         E_c = np.tensordot (aeri, adm2, axes=4) / 2
         E_c_ss = np.tensordot (aeri, adm2s_ss, axes=4) / 2
         E_c_os = np.tensordot (aeri, adm2s_os, axes=4) # ab + ba -> factor of 2
-        logger.info (ot, 'E_c = %s', E_c)
-        logger.info (ot, 'E_c (SS) = %s', E_c_ss)
-        logger.info (ot, 'E_c (OS) = %s', E_c_os)
+        logger.info (log, 'E_c = %s', E_c)
+        logger.info (log, 'E_c (SS) = %s', E_c_ss)
+        logger.info (log, 'E_c (OS) = %s', E_c_os)
         e_err = E_c_ss + E_c_os - E_c
         assert (abs (e_err) < 1e-8), e_err
         if isinstance (mc_1root.e_tot, float):
             e_err = mc_1root.e_tot - (Vnn + Te_Vne + E_j + E_x + E_c)
             assert (abs (e_err) < 1e-8), e_err
     if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
-        logger.debug (ot, 'Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
-    t0 = logger.timer (ot, 'Vnn, Te, Vne, E_j, E_x', *t0)
+        logger.debug (log, 'Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
+    t0 = logger.timer (log, 'Vnn, Te, Vne, E_j, E_x', *t0)
 
     E_ot = get_E_ot (ot, dm1s, adm2, amo)
-    t0 = logger.timer (ot, 'E_ot', *t0)
+    t0 = logger.timer (log, 'E_ot', *t0)
     e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) + E_ot
-    logger.note (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
+    logger.note (log, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
 
     return e_tot, E_ot
 

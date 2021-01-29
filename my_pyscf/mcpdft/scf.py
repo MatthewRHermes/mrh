@@ -12,10 +12,11 @@ def get_heff_cas (mc, mo_coeff, ci):
     veff1, veff2 = mc.get_pdft_veff (mo=mo_coeff, ci=ci, incl_coul=False, paaa_only=True)
     dm_core = 2 * mo_core @ mo_core.conj ().T
     vj_core = mc._scf.get_j (dm=dm_core)
-    h1 = mo_cas @ (mc.get_hcore () + veff1 + vj_core) @ mo_cas.conj ().T
+    h1 = mo_cas.conj ().T @ (mc.get_hcore () + veff1 + vj_core) @ mo_cas
     h1 += veff2.vhf_c[ncore:nocc,ncore:nocc]
     h2 = np.zeros ([ncas,]*4)
-    for i in range (ncore, nocc): h2[i] = veff2.ppaa[i].copy ()
+    for i in range (ncore, nocc): 
+        h2[i-ncore] = veff2.ppaa[i][ncore:nocc].copy ()
     return 0.0, h1, h2
 
 def casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
@@ -45,7 +46,7 @@ def casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
         chc = ci1.conj ().ravel ().dot (hc)
         ci_grad = hc - (chc * ci1.ravel ())
         ci_grad_norm = ci_grad.dot (ci_grad)
-        lib.logger.info (mc, 'MC-PDFT CI fp iter |grad| = %e, d<K> = %e', ci_grad_norm, chc)
+        lib.logger.info (mc, 'MC-PDFT CI fp iter |grad| = %e, <c.K.c> = %e', ci_grad_norm, chc)
         if ci_grad_norm < mc.conv_tol_ci_fp: break
        
         e_cas, ci1 = mc.fcisolver.kernel (h1, h2, ncas, nelecas,
@@ -56,7 +57,7 @@ def casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
     lib.logger.timer (mc, 'MC-PDFT CI fp iteration', *t0)
 
     with lib.temporary_env (mc, ci=ci1):
-        e_tot, e_ot = mcpdft.kernel (mc, mc.otfnal)
+        e_tot, e_ot = mcpdft.kernel (mc, mc.otfnal, verbose=0)
 
     return e_tot, e_cas, ci1
 
