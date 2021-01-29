@@ -21,8 +21,7 @@ mc.fcisolver = csf_solver (mol, smult = 1)
 mc.kernel ()
 
 # Electric Dipole calculation
-mc_dip = mc.electric_dipole()
-mol_dip = mc_dip.kernel ()
-print ("MC-PDFT electric dipole moment Debye \n {:8.5f} {:8.5f} {:8.5f}".format (*mol_dip))
+dipole = mc.dip_moment(unit='Debye')
+print ("MC-PDFT electric dipole moment Debye \n {:8.5f} {:8.5f} {:8.5f}".format (*dipole))
 print ("Numerical MC-PDFT electric dipole moment from GAMESS [Debye] \n 2.09361 0.00000 0.00000 ")
 

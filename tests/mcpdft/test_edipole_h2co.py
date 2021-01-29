@@ -41,12 +41,12 @@ class KnownValues(unittest.TestCase):
     def test_ss (self):
         for mol in (mol_nosymm, mol_symm):
             mc_conv, ref_conv = get_mc_ref (mol, ri=False, sa2=False)
-            mc_conv_dip = mc_conv.electric_dipole ()
+            mc_conv_dip = mc_conv.dip_moment (unit='Debye')
 #            mc_df, ref_df = get_mc_ref (mol, ri=True, sa2=False)
 #            mc_df_grad = mcpdft_grad.Gradients (mc_df)
             lbl, mc_dip, ref = 'conv', mc_conv_dip, ref_conv
             with self.subTest (symm=mol.symmetry, eri=lbl):
-                test = mc_dip.kernel ()
+                test = mc_dip
                 self.assertLessEqual (linalg.norm (test-ref), 1e-3)
 #            for lbl, mc_grad, ref in (('conv', mc_conv_grad, ref_conv), ('DF', mc_df_grad, ref_df)):
 #                with self.subTest (symm=mol.symmetry, eri=lbl):

@@ -331,8 +331,10 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
         def nuc_grad_method (self):
             return Gradients (self)
 
-        def electric_dipole (self, unit='Debye'):
-            return ElectricDipole (self)
+        def dip_moment (self, unit='Debye'):
+            dip_obj =  ElectricDipole(self) 
+            mol_dipole = dip_obj.kernel ()
+            return mol_dipole
 
         def get_energy_decomposition (self, mo_coeff=None, ci=None):
             if mo_coeff is None: mo_coeff = self.mo_coeff
