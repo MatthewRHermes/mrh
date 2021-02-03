@@ -90,7 +90,7 @@ def _ci_min_epdft_fp (mc, mo_coeff, ci0, hcas=None, verbose=None):
             log.info ('MC-PDFT CI fp iter %d ECAS = %e, EPDFT = %e, |grad| = %e, dEPDFT = %e, d<c.Hpdft.c> = %e', it, ecas, epdft, ci_grad_norm, depdft, dchc)
          
 
-        if ci_grad_norm < mc.conv_tol_ci_fp and np.abs (dchc) < 1e-8: break
+        if ci_grad_norm < mc.conv_tol_ci_fp and np.abs (dchc) < mc.conv_tol_ci_fp: break
        
         chc_last, ci1 = mc.fcisolver.kernel (h1_pdft, h2_pdft, ncas, nelecas,
                                                ci0=ci1, verbose=log,
