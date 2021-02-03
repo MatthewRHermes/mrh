@@ -1,6 +1,7 @@
 import numpy as np
 import scipy, time
 from pyscf import lib, mcscf
+from pyscf.mcscf.mc1step import _fake_h_for_fast_casci
 from mrh.my_pyscf.mcpdft import mcpdft
 
 def get_heff_cas (mc, mo_coeff, ci):
@@ -29,35 +30,76 @@ def casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
     linkstr  = mc.fcisolver.gen_linkstr(ncas, nelecas, False)
     log = lib.logger.new_logger (mc, mc.verbose)
     max_memory = max(400, mc.max_memory-lib.current_memory()[0])
-   
+    if eris is None:
+        h0_cas, h1_cas = mcscf.casci.h1e_for_cas (mc, mo_coeff, mc.ncas, mc.ncore)
+        h2_cas = mcscf.casci.CASCI.ao2mo (mc, mo_coeff)
+    else:
+        fcasci = _fake_h_for_fast_casci (mc, mo_coeff, eris)
+        h1_cas, h0_cas = fcasci.get_h1eff ()
+        h2_cas = fcasci.get_h2eff ()
+
     if ci0 is None: 
         # Use real Hamiltonian? Or use HF?
-        h0, h1 = mcscf.casci.h1e_for_cas (mc, mo_coeff, mc.ncas, mc.ncore)
-        h2 = mcscf.casci.CASCI.ao2mo (mc, mo_coeff)
-        hdiag = mc.fcisolver.make_hdiag (h1, h2, mc.ncas, mc.nelecas)
+        hdiag = mc.fcisolver.make_hdiag (h1_cas, h2_cas, mc.ncas, mc.nelecas)
         ci0 = mc.fcisolver.get_init_guess (ncas, nelecas, 1, hdiag)[0]
 
     ci1 = ci0.copy ()
     for it in range (mc.max_cycle_fp):
-        mc.ci = ci1 # TODO: remove; fix calls
-        h0, h1, h2 = get_heff_cas (mc, mo_coeff, ci1)
-        h2eff = mc.fcisolver.absorb_h1e (h1, h2, ncas, nelecas, 0.5)
-        hc = mc.fcisolver.contract_2e (h2eff, ci1, ncas, nelecas, link_index=linkstrl).ravel ()
-        chc = ci1.conj ().ravel ().dot (hc)
-        ci_grad = hc - (chc * ci1.ravel ())
-        ci_grad_norm = ci_grad.dot (ci_grad)
-        lib.logger.info (mc, 'MC-PDFT CI fp iter |grad| = %e, <c.K.c> = %e', ci_grad_norm, chc)
-        if ci_grad_norm < mc.conv_tol_ci_fp: break
+        with lib.temporary_env (mc, ci=ci1): # TODO: remove; fix calls
+            h0_pdft, h1_pdft, h2_pdft = get_heff_cas (mc, mo_coeff, ci1)
+            h2eff = mc.fcisolver.absorb_h1e (h1_cas, h2_cas, ncas, nelecas, 0.5)
+            hc = mc.fcisolver.contract_2e (h2eff, ci1, ncas, nelecas, link_index=linkstrl).ravel ()
+            ecas = ci1.conj ().ravel ().dot (hc) + h0_cas
+            h2eff = mc.fcisolver.absorb_h1e (h1_pdft, h2_pdft, ncas, nelecas, 0.5)
+            kc = mc.fcisolver.contract_2e (h2eff, ci1, ncas, nelecas, link_index=linkstrl).ravel ()
+            ckc = ci1.conj ().ravel ().dot (kc)
+            ci_grad = hc - (ckc * ci1.ravel ())
+            ci_grad_norm = ci_grad.dot (ci_grad)
+            epdft = mcpdft.kernel (mc, mc.otfnal, verbose=0)[0]
+            lib.logger.info (mc, 'MC-PDFT CI fp iter %d ECAS = %e, EPDFT = %e, |grad| = %e, <c.K.c> = %e', it, ecas, epdft, ci_grad_norm, ckc)
+            if ci_grad_norm < mc.conv_tol_ci_fp: break
        
-        e_cas, ci1 = mc.fcisolver.kernel (h1, h2, ncas, nelecas,
-                                          ci0=ci1, verbose=log,
-                                          max_memory=max_memory,
-                                          ecore=0)
+            e_cas, ci1 = mc.fcisolver.kernel (h1_pdft, h2_pdft, ncas, nelecas,
+                                              ci0=ci1, verbose=log,
+                                              max_memory=max_memory,
+                                              ecore=0)
 
     lib.logger.timer (mc, 'MC-PDFT CI fp iteration', *t0)
+    if envs is not None and log.verbose >= lib.logger.INFO:
+        log.debug('CAS space CI energy = %.15g', e_cas)
 
-    with lib.temporary_env (mc, ci=ci1):
-        e_tot, e_ot = mcpdft.kernel (mc, mc.otfnal, verbose=0)
+        if getattr(mc.fcisolver, 'spin_square', None):
+            ss = mc.fcisolver.spin_square(ci1, mc.ncas, mc.nelecas)
+        else:
+            ss = None
 
-    return e_tot, e_cas, ci1
+        if 'imicro' in envs:  # Within CASSCF iteration
+            if ss is None:
+                log.info('macro iter %d (%d JK  %d micro), '
+                         'MC-PDFT E = %.15g  dE = %.8g  CASCI E = %.15g',
+                         envs['imacro'], envs['njk'], envs['imicro'],
+                         epdft, epdft-envs['elast'], ecas)
+            else:
+                log.info('macro iter %d (%d JK  %d micro), '
+                         'MC-PDFT E = %.15g  dE = %.8g  S^2 = %.7f  CASCI E = %.15g',
+                         envs['imacro'], envs['njk'], envs['imicro'],
+                         epdft, epdft-envs['elast'], ss[0], ecas)
+            if 'norm_gci' in envs:
+                log.info('               |grad[o]|=%5.3g  '
+                         '|grad[c]|= %s  |ddm|=%5.3g',
+                         envs['norm_gorb0'],
+                         envs['norm_gci'], envs['norm_ddm'])
+            else:
+                log.info('               |grad[o]|=%5.3g  |ddm|=%5.3g',
+                         envs['norm_gorb0'], envs['norm_ddm'])
+        else:  # Initialization step
+            if ss is None:
+                log.info('MC-PDFT E = %.15g  CASCI E = %.15g', epdft, ecas)
+            else:
+                log.info('MC-PDFT E = %.15g  S^2 = %.7f  CASCI E = %.15g', epdft, ss[0], ecas)
+
+    return epdft, ecas, ci1
+
+def update_casdm(mc, mo, u, fcivec, e_cas, eris, envs={}):
+
 
