@@ -70,6 +70,8 @@ class _ERIS(object):
         if self.paaa_only:
             # 1/2 v_aiuv D_ii D_uv = v^ai_uv D_uv -> F_ai, F_ia needs to be in here since it would otherwise be calculated using ppaa and papa
             # This is harmless to the CI problem because the elements in the active space are voided out below.
+            # First, though, stash the 'actual' vhf_c somewhere
+            self._vhf_c = self.vhf_c.copy ()
             vrho_a = _contract_vot_rho (vPi, rho_a.sum (0))
             vhf_a = ot.get_veff_1body (rho, Pi, ao, weight, non0tab=non0tab, shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho_a) 
             vhf_a = mo_coeff.conjugate ().T @ vhf_a @ mo_coeff

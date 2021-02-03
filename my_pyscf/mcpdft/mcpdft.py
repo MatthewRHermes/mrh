@@ -301,7 +301,7 @@ class _PDFT ():
             mc_1root.mo_coeff = mo
             mc_1root.ci = ci
             mc_1root.e_tot = self.e_tot
-        dm1s = np.asarray (mc_1root.make_rdm1s ())
+        dm1s = np.asarray (mc_1root.make_rdm1s (mo_coeff=mo, ci=ci))
         adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, self.ncas, self.nelecas), axis=0)
         adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (ci, self.ncas, self.nelecas)[1], adm1s)
         mo_cas = mo[:,self.ncore:][:,:self.ncas]
@@ -377,7 +377,7 @@ def get_mcpdft_child_class (mc, ot, ci_min='ecas', **kwargs):
     # Inheritance magic
     class PDFT (_PDFT, mc.__class__):
         if ci_min.lower () == 'epdft':
-            casci=scf.casci
+            casci=scf.mc1step_casci
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy ()
