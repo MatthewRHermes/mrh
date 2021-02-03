@@ -7,8 +7,8 @@ def CASSCFPDFT (mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None, ci_min='e
     mc = mcscf.CASSCF (mf_or_mol, ncas, nelecas, ncore=ncore, frozen=frozen)
     return get_mcpdft_child_class (mc, ot, ci_min=ci_min, **kwargs)
 
-def CASCIPDFT (mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None, ci_min='ecas', **kwargs):
-    mc = mcscf.CASCI (mf_or_mol, ncas, nelecas, ncore=ncore, frozen=frozen)
+def CASCIPDFT (mf_or_mol, ot, ncas, nelecas, ncore=None, ci_min='ecas', **kwargs):
+    mc = mcscf.CASCI (mf_or_mol, ncas, nelecas, ncore=ncore)
     return get_mcpdft_child_class (mc, ot, ci_min=ci_min, **kwargs)
 
 CASSCF=CASSCFPDFT
