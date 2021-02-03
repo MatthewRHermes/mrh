@@ -100,6 +100,7 @@ def casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
 
     return epdft, ecas, ci1
 
-def update_casdm(mc, mo, u, fcivec, e_cas, eris, envs={}):
+#def update_casdm(mc, mo, u, fcivec, e_cas, eris, envs={}):
+
 
 
