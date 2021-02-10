@@ -121,7 +121,7 @@ class _ERIS(object):
             raise NotImplementedError ("method={} for veff2".format (self.method))
         self.k_pc = self.j_pc.copy ()
 
-def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000, hermi=1, veff2_mo=None, paaa_only=False):
+def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=2000, hermi=1, veff2_mo=None, paaa_only=False):
     ''' Get the 1- and 2-body effective potential from MC-PDFT. Eventually I'll be able to specify
         mo slices for the 2-body part
 
@@ -137,7 +137,7 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
         Kwargs:
             max_memory : int or float
                 maximum cache size in MB
-                default is 20000
+                default is 2000
             hermi : int
                 1 if 1CDMs are assumed hermitian, 0 otherwise
 
@@ -220,7 +220,7 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=20000
     t0 = logger.timer (ot, 'Finalizing 2-body effective potential calculation', *t0)
     return veff1, veff2
 
-def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, veff2_mo=None):
+def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1, veff2_mo=None):
     ''' Get the 1- and 2-body effective potential from MC-PDFT. Eventually I'll be able to specify
         mo slices for the 2-body part
 
@@ -236,7 +236,7 @@ def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1, vef
         Kwargs:
             max_memory : int or float
                 maximum cache size in MB
-                default is 20000
+                default is 2000
             hermi : int
                 1 if 1CDMs are assumed hermitian, 0 otherwise
 

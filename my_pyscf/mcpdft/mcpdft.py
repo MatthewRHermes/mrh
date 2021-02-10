@@ -98,14 +98,14 @@ def kernel (mc, ot, root=-1, verbose=None):
         logger.debug (log, 'Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
     t0 = logger.timer (log, 'Vnn, Te, Vne, E_j, E_x', *t0)
 
-    E_ot = get_E_ot (ot, dm1s, adm2, amo)
+    E_ot = get_E_ot (ot, dm1s, adm2, amo, max_memory=mc.max_memory)
     t0 = logger.timer (log, 'E_ot', *t0)
     e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) + E_ot
     logger.note (log, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
 
     return e_tot, E_ot
 
-def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
+def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
     ''' E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi] 
         or, in other terms, 
         E_MCPDFT = T_KS[rho] + E_ext[rho] + E_coul[rho] + E_ot[rho, Pi]
@@ -122,7 +122,7 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=20000, hermi=1):
         Kwargs:
             max_memory : int or float
                 maximum cache size in MB
-                default is 20000
+                default is 2000
             hermi : int
                 1 if 1CDMs are assumed hermitian, 0 otherwise
 
@@ -193,8 +193,8 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal):
     adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, mc.ncas, mc.nelecas), axis=0)
     adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
     mo_cas = mo_coeff[:,mc.ncore:][:,:mc.ncas]
-    e_otx = get_E_ot (xfnal, dm1s, adm2, mo_cas)
-    e_otc = get_E_ot (cfnal, dm1s, adm2, mo_cas)
+    e_otx = get_E_ot (xfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
+    e_otc = get_E_ot (cfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
     e_wfnxc = e_mcscf - e_nuc - e_core - e_coul
     return e_core, e_coul, e_otx, e_otc, e_wfnxc
 
