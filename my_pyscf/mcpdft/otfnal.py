@@ -561,7 +561,7 @@ class colle_salvetti_corr (otfnal):
         self.CS_d =_CS_d_DEFAULT 
         self._init_info ()
 
-    def get_E_ot (self, rho, Pi, weight):
+    def get_E_ot (self, rho, Pi, weights):
         r''' Colle & Salvetti, Theor. Chim. Acta 37, 329 (1975)
         see also Lee, Yang, Parr, Phys. Rev. B 37, 785 (1988) [Eq. (3)]'''
 
@@ -581,7 +581,7 @@ class colle_salvetti_corr (otfnal):
         num /= denom
         num *= Pi[0,idx]
         num /= rho_tot[idx]
-        num *= weight[idx]
+        num *= weights[idx]
 
         E_ot  = np.sum (num)
         E_ot *= -4 * a
