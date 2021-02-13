@@ -13,7 +13,7 @@ from functools import partial
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than
 # CASSCF. Eventually to be modified into a true all-PySCF implementation of vLASSCF
 
-def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp):
+def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=False):
     ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
     and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
     space. '''
@@ -33,13 +33,26 @@ def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovl
 
     # SVD to pick active orbitals
     mo_cas = tag_array (mo_coeff[:,ncore:nocc], orbsym=mo_orbsym[ncore:nocc])
-    null_coeff = lo_coeff[:,unused_aos]
+    if freeze_cas_spaces:
+        null_coeff = np.hstack ([mo_coeff[:,:ncore], mo_coeff[:,nocc:]])
+    else:
+        null_coeff = lo_coeff[:,unused_aos]
     for ix, (nlas, frag_orbs) in enumerate (zip (las.ncas_sub, frags_orbs)):
-        mo_proj, sval, mo_cas = las._svd (lo_coeff[:,frag_orbs], mo_cas, s=ao_ovlp)
+        try:
+            mo_proj, sval, mo_cas = las._svd (lo_coeff[:,frag_orbs], mo_cas, s=ao_ovlp)
+        except ValueError as e:
+            print (ix, mo_proj.shape, ao_ovlp.shape, mo_cas.shape)
+            raise (e)
         i, j = ncore + sum (las.ncas_sub[:ix]), ncore + sum (las.ncas_sub[:ix]) + nlas
-        mo_coeff[:,i:j] = mo_proj[:,:nlas]
-        if has_orbsym: mo_orbsym[i:j] = mo_proj.orbsym[:nlas]
-        null_coeff = np.hstack ([null_coeff, mo_proj[:,nlas:]])
+        mo_las = mo_cas if freeze_cas_spaces else mo_proj
+        mo_coeff[:,i:j] = mo_las[:,:nlas]
+        if has_orbsym: mo_orbsym[i:j] = mo_las.orbsym[:nlas]
+        if freeze_cas_spaces:
+            if has_orbsym: orbsym = mo_cas.orbsym[nlas:]
+            mo_cas = mo_cas[:,nlas:]
+            if has_orbsym: mo_cas = tag_array (mo_cas, orbsym=orbsym)
+        else:
+            null_coeff = np.hstack ([null_coeff, mo_proj[:,nlas:]])
 
     # SVD of null space to pick inactive orbitals
     assert (null_coeff.shape[-1] + ncas == nmo)
@@ -208,7 +221,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         assert (np.allclose (veff, veff_test))
         return veff
 
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None):
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None, freeze_cas_spaces=False):
         ''' Here spin = 2s = number of singly-occupied orbitals '''
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
@@ -222,7 +235,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         frags_orbs = [[orb for atom in frag_atoms for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))] for frag_atoms in frags_atoms]
         if fock is None: fock = self._scf.get_fock ()
         ao_ovlp = self._scf.get_ovlp ()
-        return localize_init_guess (self, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp)
+        return localize_init_guess (self, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=freeze_cas_spaces)
 
     def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
         if s is None: s = self._scf.get_ovlp ()
@@ -234,12 +247,12 @@ class LASSCFSymm (lasci.LASCISymm):
     split_veff = LASSCFNoSymm.split_veff
     as_scanner = mc1step.as_scanner
 
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None):
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None, freeze_cas_spaces=False):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         mo_coeff = casci_symm.label_symmetry_(self, mo_coeff)
         return LASSCFNoSymm.localize_init_guess (self, frags_atoms, mo_coeff=mo_coeff, spin=spin,
-            lo_coeff=lo_coeff, fock=fock)
+            lo_coeff=lo_coeff, fock=fock, freeze_cas_spaces=freeze_cas_spaces)
 
     def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
         if s is None: s = self._scf.get_ovlp ()
