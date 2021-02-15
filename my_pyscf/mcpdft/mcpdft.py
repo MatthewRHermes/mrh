@@ -3,7 +3,7 @@ import time
 from scipy import linalg
 from pyscf import gto, dft, ao2mo, fci, mcscf, lib, __config__
 from pyscf.lib import logger, temporary_env
-from pyscf.mcscf import mc_ao2mo
+from pyscf.mcscf import mc_ao2mo, mc1step
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
 from mrh.my_pyscf.grad.mcpdft import Gradients
 from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
@@ -377,7 +377,11 @@ def get_mcpdft_child_class (mc, ot, ci_min='ecas', **kwargs):
     # Inheritance magic
     class PDFT (_PDFT, mc.__class__):
         if ci_min.lower () == 'epdft':
-            casci=scf.mc1step_casci
+            if isinstance (mc, mc1step.CASSCF):
+                casci=scf.mc1step_casci # CASSCF CI step
+            else:
+                kernel=scf.casci_kernel # CASCI
+                _finalize=scf.casci_finalize # I/O clarity
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy ()

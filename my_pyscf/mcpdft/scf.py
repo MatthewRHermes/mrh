@@ -1,6 +1,7 @@
 import numpy as np
 import scipy, time
 from pyscf import fci, lib, mcscf
+from pyscf.mcscf import casci
 from pyscf.mcscf.mc1step import _fake_h_for_fast_casci
 from mrh.my_pyscf.mcpdft import mcpdft
 logger = lib.logger
@@ -121,7 +122,7 @@ def mc1step_casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
 
     if ci0 is None: 
         # Use real Hamiltonian? Or use HF?
-        hdiag = mc.fcisolver.make_hdiag (h1_cas, h2_cas, mc.ncas, mc.nelecas)
+        hdiag = mc.fcisolver.make_hdiag (h1_cas, h2_cas, ncas, nelecas)
         ci0 = mc.fcisolver.get_init_guess (ncas, nelecas, 1, hdiag)[0]
 
     epdft, h0_pdft, ci1, ecas = _ci_min_epdft_fp (mc, mo_coeff, ci0, 
@@ -165,5 +166,101 @@ def mc1step_casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
 
 #def update_casdm(mc, mo, u, fcivec, e_cas, eris, envs={}):
 
+def casci_kernel(mc, mo_coeff=None, ci0=None, verbose=None):
+    ''' Wrapper for _ci_min_epdft_fp to mcscf.casci.kernel (and mcscf.casci.CASCI.kernel) function '''
+
+    # casci.CASCI.kernel throatclearing
+
+    if mo_coeff is None:
+        mo_coeff = mc.mo_coeff
+    else:
+        mc.mo_coeff = mo_coeff
+    if ci0 is None:
+        ci0 = mc.ci
+    log = logger.new_logger(mc, verbose)
+
+    if mc.verbose >= logger.WARN:
+        mc.check_sanity()
+    mc.dump_flags(log)
+
+    # enter casci.kernel part
+
+    t0 = (time.clock(), time.time())
+    log.debug('Start CASCI')
+
+    ncas = mc.ncas
+    nelecas = mc.nelecas
+
+    # 2e
+    eri_cas = mc.get_h2eff(mo_coeff)
+    t1 = log.timer('integral transformation to CAS space', *t0)
+
+    # 1e
+    h1eff, energy_core = mc.get_h1eff(mo_coeff)
+    log.debug('core energy = %.15g', energy_core)
+    t1 = log.timer('effective h1e in CAS space', *t1)
+
+    if h1eff.shape[0] != ncas:
+        raise RuntimeError('Active space size error. nmo=%d ncore=%d ncas=%d' %
+                           (mo_coeff.shape[1], mc.ncore, ncas))
+
+    # ci0 can't be none in PDFT-SCF
+    if ci0 is None:
+        hdiag = mc.fcisolver.make_hdiag (h1eff, eri_cas, ncas, nelecas)
+        ci0 = mc.fcisolver.get_init_guess (ncas, nelecas, 1, hdiag)[0]
+
+    # the actually important part
+    mc.e_tot, h0_pdft, mc.ci, mc.e_cas = _ci_min_epdft_fp (mc, mo_coeff, ci0,
+        hcas=(energy_core,h1eff,eri_cas), verbose=verbose)
+    e_ci = mc.e_tot - energy_core
+
+    # exit back to casci.CASCI.kernel throatclearing
+
+    if mc.canonicalization:
+        mc.canonicalize_(mo_coeff, mc.ci,
+                           sort=mc.sorting_mo_energy,
+                           cas_natorb=mc.natorb, verbose=log)
+    elif mc.natorb:
+        # FIXME (pyscf-2.0): Whether to transform natural orbitals in
+        # active space when this flag is enabled?
+        log.warn('The attribute .natorb of mcscf object affects only the '
+                 'orbital canonicalization.\n'
+                 'If you would like to get natural orbitals in active space '
+                 'without touching core and external orbitals, an explicit '
+                 'call to mc.cas_natorb_() is required')
+
+    if getattr(mc.fcisolver, 'converged', None) is not None:
+        mc.converged = np.all(mc.fcisolver.converged)
+        if mc.converged:
+            log.info('CASCI converged')
+        else:
+            log.info('CASCI not converged')
+    else:
+        mc.converged = True
+    mc._finalize()
+    return mc.e_tot, mc.e_cas, mc.ci, mc.mo_coeff, mc.mo_energy
+
+def casci_finalize(mc):
+    log = logger.Logger(mc.stdout, mc.verbose)
+    if log.verbose >= logger.NOTE and getattr(mc.fcisolver, 'spin_square', None):
+        if isinstance(mc.e_cas, (float, np.number)):
+            ss = mc.fcisolver.spin_square(mc.ci, mc.ncas, mc.nelecas)
+            log.note('MC-PDFT E = %.15g  E(CASCI) = %.15g  S^2 = %.7f',
+                     mc.e_tot, mc.e_cas, ss[0])
+        else:
+            for i, e in enumerate(mc.e_cas):
+                ss = mc.fcisolver.spin_square(mc.ci[i], mc.ncas, mc.nelecas)
+                log.note('MC-PDFT state %d  E = %.15g  E(CASCI) = %.15g  S^2 = %.7f',
+                         i, mc.e_tot[i], e, ss[0])
+    else:
+        if isinstance(mc.e_cas, (float, np.number)):
+            log.note('MC-PDFT E = %.15g  E(CASCI) = %.15g', mc.e_tot, mc.e_cas)
+        else:
+            for i, e in enumerate(mc.e_cas):
+                log.note('MC-PDFT state %d  E = %.15g  E(CASCI) = %.15g',
+                         i, mc.e_tot[i], e)
+    return mc
+
+    
 
 
