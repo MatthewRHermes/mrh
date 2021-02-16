@@ -379,6 +379,7 @@ def get_mcpdft_child_class (mc, ot, ci_min='ecas', **kwargs):
         if ci_min.lower () == 'epdft':
             if isinstance (mc, mc1step.CASSCF):
                 casci=scf.mc1step_casci # CASSCF CI step
+                update_casdm=scf.mc1step_update_casdm # inner cycle CI update
             else:
                 kernel=scf.casci_kernel # CASCI
                 _finalize=scf.casci_finalize # I/O clarity

@@ -164,7 +164,29 @@ def mc1step_casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
 
     return epdft, ecas, ci1
 
-#def update_casdm(mc, mo, u, fcivec, e_cas, eris, envs={}):
+def mc1step_update_casdm(mc, mo, u, fcivec, e_cas, eris, envs={}):
+    ''' Wrapper for mc1step.update_casdm to use the PDFT effective Hamiltonian,
+        rather than the physical Hamiltonian, for approximate micro-step CI
+        vector updates. '''
+    mo1 = np.dot (mo, u)
+    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
+
+    h0_pdft, h1_pdft, h2_pdft = get_heff_cas (mc, mo1, fcivec)
+    h2eff = mc.fcisolver.absorb_h1e (h1_pdft, h2_pdft, ncas, nelecas, 0.5)
+    hc = mc.fcisolver.contract_2e (h2eff, fcivec, ncas, nelecas).ravel ()
+    chc = fcivec.conj ().ravel ().dot (hc) + h0_pdft
+    ci1, g = mc.solve_approx_ci(h1_pdft, h2_pdft, fcivec, h0_pdft, chc, envs)
+    if g is not None:  # So state average CI, DMRG etc will not be applied
+        ovlp = np.dot(fcivec.ravel(), ci1.ravel())
+        norm_g = np.linalg.norm(g)
+        if 1-abs(ovlp) > norm_g * mc.ci_grad_trust_region:
+            logger.debug(mc, '<ci1|ci0>=%5.3g |g|=%5.3g, ci1 out of trust region',
+                         ovlp, norm_g)
+            ci1 = fcivec.ravel() + g
+            ci1 *= 1/np.linalg.norm(ci1)
+    casdm1, casdm2 = mc.fcisolver.make_rdm12(ci1, mc.ncas, mc.nelecas)
+
+    return casdm1, casdm2, g, ci1
 
 def casci_kernel(mc, mo_coeff=None, ci0=None, verbose=None):
     ''' Wrapper for _ci_min_epdft_fp to mcscf.casci.kernel (and mcscf.casci.CASCI.kernel) function '''
