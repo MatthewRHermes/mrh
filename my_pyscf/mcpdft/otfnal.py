@@ -24,16 +24,18 @@ def v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
     # appear to be for R just under 1.0!
     #if 'LDA' in otfnal.otxc:
     #    print ("bigtab", otfnal.otxc, (np.sum (vx) - np.sum (de)) / np.sum (de))
-    #    tab = np.empty ((xf[0][0].size, 4), dtype=xf[0].dtype)
-    #    tab[:,0] = otfnal.get_ratio (Pi, rho_tot/2)[0]
-    #    tab[:,1] = vx
-    #    tab[:,2] = tab[:,1] - de
-    #    tab[:,3] = tab[:,2] / de
+    #    tab = np.empty ((xf[0][0].size, 6), dtype=xf[0].dtype)
+    #    tab[:,0] = otfnal.get_ratio (Pi, rho_tot/2)[0] - 1.0
+    #    tab[:,1] = rho_tot
+    #    tab[:,2] = Pi
+    #    tab[:,3] = vx
+    #    tab[:,4] = tab[:,3] - de
+    #    tab[:,5] = tab[:,4] / de
     #    tab[(de==0)&(vx==0),3] = 0.0
     #    tab[(de==0)&(vx!=0),3] = 1.0
-    #    tab = tab[np.argsort (-np.abs (tab[:,3])),:]
+    #    tab = tab[np.argsort (-np.abs (tab[:,4])),:]
     #    for row in tab:
-    #        print ("{:8.2e} {:9.2e} {:9.2e} {:9.2e} {:s}".format (*row, ('smaller','larger')[int(row[0]>1.0)]))
+    #        print ("{:20.12e} {:9.2e} {:9.2e} {:9.2e} {:9.2e} {:9.2e}".format (*row))
     if ndf > 2: 
         xf_df += [xf[0][1:4],]
         dv_df += [(v1[0][1:4]-v0[0][1:4])*w,]
@@ -404,12 +406,13 @@ class transfnal (otfnal):
         rho1 = rho+(drho/2) # /2 because rho has one more dimension of size = 2 that gets summed later
         Pi1 = Pi + dPi
         # ~~~ ignore numerical instability of unfully-translated fnals ~~~
-        z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0], fn_deriv=0)[0]
-        z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0], fn_deriv=0)[0]
-        idx = (z0==0)|(z1==0)
-        drho[:,idx] = dPi[:,idx] = 0
-        rho1[:,:,idx] = rho[:,:,idx]
-        Pi1[:,idx] = Pi[:,idx]
+        if self.otxc[0].lower () == 't':
+            z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0], fn_deriv=0)[0]
+            z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0], fn_deriv=0)[0]
+            idx = (z0==0)|(z1==0)
+            drho[:,idx] = dPi[:,idx] = 0
+            rho1[:,:,idx] = rho[:,:,idx]
+            Pi1[:,idx] = Pi[:,idx]
         # ~~~ eval_ot @ rho1 = rho + drho ~~~
         eot1, vot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
             dderiv=dderiv-1, weights=weights, _unpack_vot=False)[:2]
