@@ -56,7 +56,7 @@ def get_init_guess(norb, nelec, nroots, hdiag_csf, transformer):
     This should clean up the symmetry-breaking "noise" in direct_spin1_symm.py! '''
     neleca, nelecb = _unpack_nelec (nelec)
     ncsf_sym = transformer.ncsf
-    assert (ncsf_sym >= nroots), "Can't find {} roots among only {} CSFs of symmetry {}".format (nroots, ncsf_sym, wfnsym_str)
+    assert (ncsf_sym >= nroots), "Can't find {} roots among only {} CSFs of symmetry {}".format (nroots, ncsf_sym, transformer.wfnsym)
     hdiag_csf = transformer.pack_csf (hdiag_csf)
     ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf)
     return transformer.vec_csf2det (ci)
