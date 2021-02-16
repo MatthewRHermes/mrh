@@ -384,7 +384,7 @@ class transfnal (otfnal):
         dPi[0,1::ndf]  = P[0,1::ndf]
         if ndf > 2: drho[1:4,2::ndf] = r[1:4,2::ndf]
         if ndf > 3:  dPi[1:4,3::ndf] = P[1:4,3::ndf]
-        rho1 = rho+(drho/2)
+        rho1 = rho+(drho/2) # /2 because rho has one more dimension of size = 2 that gets summed later
         Pi1 = Pi + dPi
         # ~~~ ignore numerical instability of unfully-translated fnals ~~~
         z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0], fn_deriv=0)[0]
