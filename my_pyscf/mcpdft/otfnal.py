@@ -39,6 +39,8 @@ def v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
                 linalg.norm (dv_row[ix_col::ndf]),
                 linalg.norm (xf_row[ix_col::ndf]),
                 linalg.norm (err_row[ix_col::ndf]))
+            # I am not doing rho'.rho'->sigma right for x.f.x/2
+            # However I am somehow doing it right for f.x vs. delta v?
     lib.logger.debug (otfnal, "%s dE - v.x - x.f.x: %e - %e - %e = %e",
         tag, de.sum (), vx.sum (), xfx.sum (), de_err2.sum ())
 
