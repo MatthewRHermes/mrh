@@ -243,7 +243,6 @@ def jT_f_j (log, frr, jT_op, *args):
                     linalg.norm ((fcc[i,j]-fcc[j,i])/scale))
         ltri_ix = np.tril_indices (nc)
         fcc = fcc[ltri_ix]
-    print (fcc.shape)
 
     return fcc
     
