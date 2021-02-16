@@ -19,6 +19,21 @@ def v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
     xfx = ((xf[0]*x[0]).sum (0) + (xf[1]*x[1][:nvP]).sum (0)) / 2
     xf_df = [xf[0][0], xf[1][0]]
     dv_df = [(v1[0][0]-v0[0][0])*w, (v1[1][0]-v0[1][0])*w]
+    # The lesson of the debug experience provided by the commented-out block below is:
+    # the largest errors (fractional or absolute) in the ftLDA functional gradient
+    # appear to be for R just under 1.0!
+    #if 'LDA' in otfnal.otxc:
+    #    print ("bigtab", otfnal.otxc, (np.sum (vx) - np.sum (de)) / np.sum (de))
+    #    tab = np.empty ((xf[0][0].size, 4), dtype=xf[0].dtype)
+    #    tab[:,0] = otfnal.get_ratio (Pi, rho_tot/2)[0]
+    #    tab[:,1] = vx
+    #    tab[:,2] = tab[:,1] - de
+    #    tab[:,3] = tab[:,2] / de
+    #    tab[(de==0)&(vx==0),3] = 0.0
+    #    tab[(de==0)&(vx!=0),3] = 1.0
+    #    tab = tab[np.argsort (-np.abs (tab[:,3])),:]
+    #    for row in tab:
+    #        print ("{:8.2e} {:9.2e} {:9.2e} {:9.2e} {:s}".format (*row, ('smaller','larger')[int(row[0]>1.0)]))
     if ndf > 2: 
         xf_df += [xf[0][1:4],]
         dv_df += [(v1[0][1:4]-v0[0][1:4])*w,]

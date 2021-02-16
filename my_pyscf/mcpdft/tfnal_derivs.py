@@ -256,7 +256,9 @@ def gentLDA_jT_op (x, rho, Pi, R, zeta):
     xc = (x[0] + x[1]) / 2.0
     xm = (x[0] - x[1]) / 2.0
 
-    # Charge sector has no explicit rho denominator and so does not require indexing
+    # Charge sector has no explicit rho denominator
+    # and so does not require indexing to avoid
+    # division by zero
     jTx = np.zeros ((2, ngrid), dtype=x[0].dtype)
     jTx[0] = xc + xm*(zeta[0]-(2*R*zeta[1]))
 
