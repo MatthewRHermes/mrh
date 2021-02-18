@@ -22,8 +22,8 @@ mf = scf.RHF (mol).run ()
 # "Wfnsyms" can also be the names of the irreps but I got lazy
 # "Charges" modifies the number of electrons in ncas_sub (third argument of LASSCF constructor)
 #   For fragment i in state j:
-#       neleca = (sum(las.ncas_sub[i]) + charges[j][i] + spins[j][i]) / 2
-#       nelecb = (sum(las.ncas_sub[i]) + charges[j][i] - spins[j][i]) / 2
+#       neleca = (sum(las.ncas_sub[i]) - charges[j][i] + spins[j][i]) / 2
+#       nelecb = (sum(las.ncas_sub[i]) - charges[j][i] - spins[j][i]) / 2
 # If your molecule doesn't have point-group symmetry turned on then don't pass "wfnsyms"
 las = LASSCF (mf, (5,5), ((3,2),(2,3)))
 las = las.state_average ([0.5,0.5,0.0,0.0],
