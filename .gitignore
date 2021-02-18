@@ -20,4 +20,5 @@ Makefile
 *.out
 *.err
 *.swp
+*.chk
 
