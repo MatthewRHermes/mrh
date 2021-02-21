@@ -16,7 +16,41 @@ from functools import partial
 def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=False):
     ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
     and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
-    space. '''
+    space. Beware that unless freeze_cas_spaces=True, frozen orbitals will not be preserved.
+
+    Args:
+        las: LASSCF or LASCI object
+        frags_orbs: list of length nfrags
+            Contains list of AO indices formally defining the fragments
+            into which the active orbitals are to be localized
+
+    Kwargs: (some of these are args here but kwargs in the actual caller)
+        mo_coeff: ndarray of shape (nao, nmo)
+            Molecular orbital coefficients containing active orbitals
+            on columns ncore:ncore+ncas
+        spin: integer
+            Unused; retained for backwards compatibility I guess
+        lo_coeff: ndarray of shape (nao, nao)
+            Linear combinations of AOs that are localized and orthonormal
+        fock: ndarray of shape (nmo, nmo)
+            Effective 1-electron Hamiltonian matrix for recanonicalizing
+            the inactive and external sectors after the latter are
+            possibly distorted by the projection of the active orbitals
+        ao_ovlp: ndarray of shape (nao, nao)
+            Overlap matrix of the underlying AO basis
+        freeze_cas_spaces: logical
+            If true, then active orbitals are mixed only among themselves
+            when localizing, which leaves the inactive and external sectors
+            unchanged (to within numerical precision). Otherwise, active
+            orbitals are projected into the localized-orbital space and
+            the inactive and external orbitals are reconstructed as closely
+            as possible using SVD.
+
+    Returns:
+        mo_coeff: ndarray of shape (nao,nmo)
+            Orbital coefficients after localization of the active space;
+            columns in the order (inactive,las1,las2,...,lasn,external)
+    '''
     # For reasons that pass my understanding, mo_coeff sometimes can't be assigned symmetry
     # by PySCF's own code. Therefore, I'm going to keep the symmetry tags on mo_coeff
     # and make sure the SVD engine sees them and doesn't try to figure it out itself.
