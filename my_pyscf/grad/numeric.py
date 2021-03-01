@@ -24,7 +24,7 @@ def _numgrad_1df (mol, scanner, coords, iatm, icoord, delta=0.002):
     return (ep-em) / (2*delta)*param.BOHR, de_states
 
 
-class Gradients (rhf_grad.GradientsBasics):
+class Gradients (rhf_grad.GradientsMixin):
 
     def __init__(self, method, stepsize=STEPSIZE_DEFAULT, scanner_verbose=SCANNER_VERBOSE_DEFAULT):
         self.stepsize = stepsize
@@ -32,7 +32,7 @@ class Gradients (rhf_grad.GradientsBasics):
         # MRH 05/04/2020: there must be a better way to do this
         if hasattr (self.scanner, '_scf'):
             self.scanner._scf.verbose = scanner_verbose
-        rhf_grad.GradientsBasics.__init__(self, method)
+        rhf_grad.GradientsMixin.__init__(self, method)
         self.scanner = self.base.as_scanner ()
         self.scanner.verbose = scanner_verbose
 
