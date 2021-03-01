@@ -17,7 +17,7 @@ default_conv_tol = getattr (__config__, 'mcscf_mc1step_CASSCF_ah_conv_tol', 1e-1
 default_max_cycle = getattr (__config__, 'mcscf_mc1step_CASSCF_max_cycle', 50) 
 default_lindep = getattr (__config__, 'mcscf_mc1step_CASSCF_lindep', 1e-14)
 
-class Gradients (rhf_grad.GradientsBasics):
+class Gradients (rhf_grad.GradientsMixin):
     ''' Dummy parent class for calculating analytical nuclear gradients using the technique of Lagrange multipliers:
     L = E + \sum_i z_i L_i
     dE/dx = \partial L/\partial x iff all L_i = 0 for the given wave function
