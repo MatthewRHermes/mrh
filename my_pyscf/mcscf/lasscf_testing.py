@@ -191,10 +191,13 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         return np.stack ([veffa, veffb], axis=0)
 
     def orbital_response (self, kappa, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
+        ''' Parent class does everything except va/ac degrees of freedom
+        (c: closed; a: active; v: virtual; p: any) '''
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
+        # (H.x_va)_pp, (H.x_ac)_pp sector
         for p, f1 in enumerate (f1_prime):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
@@ -208,10 +211,12 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
                 ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
                 f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
+                # The following three lines are the only part of the calculation that requires
+                # ppaa, papa ERIs
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
-        # Clumsy repetition...
+        # (H.x_aa)_va, (H.x_aa)_ac
         ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
         ocm2 += ocm2.transpose (2,3,0,1)
         ecm2 = ocm2 + tcm2
