@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from pyscf.tools import molden
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf import lassi
 from c2h4n4_struct import structure as struct
 

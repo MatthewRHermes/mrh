@@ -190,7 +190,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
         moH_coeff = mo_coeff.conjugate ().T
         if veff is None: 
-            self._init_df ()
+            self._init_eri ()
             if isinstance (las, _DFLASCI):
                 # Can't use this module's get_veff because here I need to have f_aa and f_ii correctly
                 # On the other hand, I know that dm1s spans only the occupied orbitals
@@ -255,7 +255,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # That should be everything!
 
-    def _init_df (self):
+    def _init_eri (self):
         if isinstance (self.las, _DFLASCI):
             self.with_df = self.las.with_df
             if self.bPpj is None: self.bPpj = np.ascontiguousarray (
@@ -864,7 +864,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         if (norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad) or ((norm_gorb + norm_gci) < norm_gx/10):
             converged = True
             break
-        H_op._init_df () # Take this part out of the true initialization b/c if I'm already converged I don't want to waste the cycles
+        H_op._init_eri () # Take this part out of the true initialization b/c if I'm already converged I don't want to waste the cycles
         t1 = log.timer ('LASCI Hessian constructor', *t1)
         microit = [0]
         def my_callback (x):

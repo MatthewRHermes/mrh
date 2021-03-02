@@ -3,7 +3,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import scf, lib, tools, mcscf
 from pyscf.mcscf.addons import state_average_mix
-from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from pyscf.mcscf.newton_casscf import gen_g_hop, _pack_ci_get_H
 from c2h6n4_struct import structure as struct
 from mrh.my_pyscf.fci import csf_solver
@@ -11,7 +11,7 @@ from itertools import product
 import os
 
 mol = struct (2.0, 2.0, '6-31g', symmetry=False)
-mol.output = 'sa_lasscf_testing.log'
+mol.output = 'sa_lasscf_o0.log'
 mol.verbose = lib.logger.DEBUG
 mol.build ()
 mf = scf.RHF (mol).run ()

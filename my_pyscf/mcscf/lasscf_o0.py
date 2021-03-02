@@ -134,7 +134,7 @@ class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
 
 class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
     # Required modifications for Hx: [I forgot about 3) at first]
-    #   1) cache CASSCF-type eris and paaa - init_df
+    #   1) cache CASSCF-type eris and paaa - init_eri
     #   2) increase range of ocm2 - make_odm1s2c_sub
     #   3) extend veff to active-unactive sector - split_veff
     #   4) dot the above three together - orbital_response
@@ -145,8 +145,8 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
     #   7) current prec may not be "good enough" - get_prec
     #   8) define "gx" in this context - get_gx 
 
-    def _init_df (self):
-        lasci.LASCI_HessianOperator._init_df (self)
+    def _init_eri (self):
+        lasci.LASCI_HessianOperator._init_eri (self)
         if isinstance (self.las, lasci._DFLASCI):
             self.cas_type_eris = mc_df._ERIS (self.las, self.mo_coeff, self.with_df)
         else:
@@ -346,7 +346,7 @@ if __name__ == '__main__':
     from mrh.my_pyscf.fci import csf_solver
     with cd ("/home/herme068/gits/mrh/tests/lasscf"):
         mol = struct (2.0, '6-31g')
-    mol.output = 'lasscf_testing.log'
+    mol.output = 'lasscf_o0.log'
     mol.verbose = lib.logger.DEBUG
     mol.build ()
     mf = scf.RHF (mol).run ()
@@ -475,7 +475,7 @@ if __name__ == '__main__':
     dr_nn = 3.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
     mol.verbose = lib.logger.DEBUG
-    mol.output = 'lasscf_testing_c2n4h4.log'
+    mol.output = 'lasscf_o0_c2n4h4.log'
     mol.spin = 0 
     #mol.symmetry = 'Cs'
     mol.build ()
