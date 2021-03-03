@@ -146,7 +146,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
     #   8) define "gx" in this context - get_gx 
 
     def _init_eri (self):
-        lasci.LASCI_HessianOperator._init_eri (self)
+        lasci._init_df_(self)
         if isinstance (self.las, lasci._DFLASCI):
             self.cas_type_eris = mc_df._ERIS (self.las, self.mo_coeff, self.with_df)
         else:
@@ -211,8 +211,6 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
                 ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
                 f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
-                # The following three lines are the only part of the calculation that requires
-                # ppaa, papa ERIs
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external

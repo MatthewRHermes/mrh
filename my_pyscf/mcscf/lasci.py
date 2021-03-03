@@ -142,6 +142,13 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
                 tf_list.append (solver.transformer)
             self.ci_transformers.append (tf_list)
 
+def _init_df_(h_op):
+    if isinstance (h_op.las, _DFLASCI):
+        h_op.with_df = h_op.las.with_df
+        if h_op.bPpj is None: h_op.bPpj = np.ascontiguousarray (
+            h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
+            compact=False))
+
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def __init__(self, las, ugg, mo_coeff=None, ci=None, ncore=None, ncas_sub=None, nelecas_sub=None, h2eff_sub=None, veff=None):
@@ -190,8 +197,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
         moH_coeff = mo_coeff.conjugate ().T
         if veff is None: 
-            self._init_eri ()
             if isinstance (las, _DFLASCI):
+                _init_df_(self)
                 # Can't use this module's get_veff because here I need to have f_aa and f_ii correctly
                 # On the other hand, I know that dm1s spans only the occupied orbitals
                 rho = np.tensordot (self.bPpj[:,:nocc,:], self.dm1s[:,:nocc,:nocc].sum (0))
@@ -253,14 +260,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.e0 = [[hc.dot (c) for hc, c in zip (hcr, cr)] for hcr, cr in zip (self.hci0, ci)]
         self.hci0 = [[hc - c*e for hc, c, e in zip (hcr, cr, er)] for hcr, cr, er in zip (self.hci0, ci, self.e0)]
 
-        # That should be everything!
+        # end
 
-    def _init_eri (self):
-        if isinstance (self.las, _DFLASCI):
-            self.with_df = self.las.with_df
-            if self.bPpj is None: self.bPpj = np.ascontiguousarray (
-                self.las.cderi_ao2mo (self.mo_coeff, self.mo_coeff[:,:self.nocc],
-                compact=False))
+    _init_eri = _init_df_
 
     @property
     def dtype (self):
