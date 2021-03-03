@@ -1,6 +1,8 @@
 import numpy as np
 from scipy import linalg
-from pyscf import lib
+from pyscf import lib, ao2mo
+from mrh.my_pyscf.mcscf import lasci, lasscf_o0
+from functools import partial
 
 # Let's finally implement, in the more pure LASSCF rewrite, the ERI-
 # related cost savings that I made such a big deal about in JCTC 2020,
@@ -15,7 +17,7 @@ def make_schmidt_spaces (h_op):
         h_op: LASSCF Hessian operator instance
 
     Returns:
-        uschmidt : list of ndarrays of shape (nmo, *)
+        uschmidt : nfrag ndarrays of shape (nmo, *)
             The number of subspaces built is equal to the
             product of the number of irreps in the molecule
             and the number of fragments, minus the number
@@ -95,12 +97,86 @@ def make_schmidt_spaces (h_op):
         i = sum (las.ncas_sub[:ix]) + ncore
         j = i + las.ncas_sub[ix]
         irreps, idx_irrep = np.unique (orbsym[i:j], return_inverse=True)
+        ulist = []
         for ix in range (len (irreps)):
             idx = np.squeeze (idx_irrep==ix) + i
             idx_mask = np.zeros (nmo, dtype=np.bool_)
             idx_mask[idx] = True
-            uschmidt.append (_make_single_space (idx_mask))
+            ulist.append (_make_single_space (idx_mask))
+        uschmidt.append (np.concatenate (ulist, axis=1))
 
     return uschmidt
 
+class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
+
+    make_schmidt_spaces = make_schmidt_spaces
+
+    def _init_eri (self):
+        lasci._init_df_(self)
+        self.uschmidt = uschmidt = self.make_schmidt_spaces ()
+        if isinstance (self.las, lasci._DFLASCI):
+            eri = self.las.with_df.ao2mo
+        elif getattr (self.las._scf, '_eri', None) is not None:
+            eri = partial (ao2mo.full, self.las._scf._eri)
+        else:
+            eri = partial (ao2mo.full, self.las.mol)
+        self.eri_imp = []
+        for umat in uschmidt:
+            nimp = umat.shape[1]
+            mo = self.mo_coeff @ umat
+            self.eri_imp.append (ao2mo.restore (1, eri (mo), nimp))
+        # eri_cas is taken from h2eff_sub
+
+    def split_veff (self, veff_mo, dm1s_mo):
+        veff_c = veff_mo.copy ()
+        ncore = self.ncore
+        nocc = self.nocc
+        sdm = dm1s_mo[0] - dm1s_mo[1]
+        veff_s = np.zeros_like (veff_c)
+        # (H.x_pa)_aa
+        veff_s[ncore:nocc,ncore:nocc] = np.tensordot (self.h2eff_sub,
+            sdm[:,ncore:nocc], axes=((0,3),(0,1)))
+        # (H.x_ua)_ua
+        for uimp, eri in zip (self.uschmidt, self.eri_imp):
+            s = uimp.conj ().T @ sdm @ uimp
+            v = np.tensordot (eri, s, axes=((1,2),(0,1)))
+            veff_s += uimp @ v @ uimp.conj ().T
+        veff_s[:,:] *= -0.5
+        veffa = veff_c + veff_s
+        veffb = veff_c - veff_s
+        return np.stack ([veffa, veffb], axis=0)
+
+    def orbital_response (self, kappa, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
+        ''' Parent class does everything except va/ac degrees of freedom
+        (c: closed; a: active; v: virtual; p: any) '''
+        ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
+        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
+            ocm2, tdm1frs, tcm2, veff_prime)
+        f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
+        # (H.x_ua)_ua, (H.x_ua)_vc
+        for uimp, eri in zip (self.uschmidt, self.eri_imp):
+            uimp_cas = uimp[ncore:nocc,:]
+            cm2 = np.tensordot (ocm2, uimp_cas, axes=((2),(0))) # pqrs -> pqsr
+            cm2 = np.tensordot (cm2, uimp, axes=((2),(0))) # pqsr -> pqrs
+            cm2 = np.tensordot (uimp.conj (), cm2, axes=((0),(1))) # pqrs -> qprs
+            cm2 = np.tensordot (uimp.conj (), cm2, axes=((0),(1))) # qprs -> pqrs
+            cm2 += cm2.transpose (1,0,3,2)
+            cm2 += cm2.transpose (2,3,0,1)
+            f1 = np.tensordot (eri, cm2, axes=((1,2,3),(1,2,3)))
+            f1_prime += uimp @ f1 @ uimp.conj ().T
+        # (H.x_aa)_ua
+        ecm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
+        ecm2 += ecm2.transpose (2,3,0,1) + tcm2
+        f1_prime[:ncore,ncore:nocc] += np.tensordot (self.h2eff_sub[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
+        f1_prime[nocc:,ncore:nocc] += np.tensordot (self.h2eff_sub[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
+        # (H.x_ua)_aa
+        ecm2 = ocm2.copy ()
+        f1_aa = f1_prime[ncore:nocc,ncore:nocc]
+        f1_aa[:,:] += (np.tensordot (self.h2eff_sub[:ncore], ocm2[:,:,:,:ncore], axes=((0,2,3),(3,0,1)))
+                     + np.tensordot (self.h2eff_sub[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,2,3),(3,0,1))))
+        f1_aa[:,:] += (np.tensordot (self.h2eff_sub[:ncore], ocm2[:,:,:,:ncore], axes=((0,1,3),(3,2,1)))
+                     + np.tensordot (self.h2eff_sub[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,1,3),(3,2,1))))
+        f1_aa[:,:] += (np.tensordot (self.h2eff_sub[:ncore], ocm2[:,:,:,:ncore], axes=((0,1,2),(3,2,0)))
+                     + np.tensordot (self.h2eff_sub[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,1,2),(3,2,0))))
+        return gorb + (f1_prime - f1_prime.T)
 
