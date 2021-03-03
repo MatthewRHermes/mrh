@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import linalg
-from pyscf import lib, ao2mo
+from pyscf import gto, lib, ao2mo
 from mrh.my_pyscf.mcscf import lasci, lasscf_o0
 from functools import partial
 
@@ -50,7 +50,7 @@ def make_schmidt_spaces (h_op):
     def _check (tag, umat_p, umat_q):
         np, nq = umat_p.shape[1], umat_q.shape[1]
         k = min (np, nq)
-        lib.logger.debug (h_op, '%s size of pspace = %d, qspace = %d', tag, np, nq)
+        lib.logger.debug (las, '%s size of pspace = %d, qspace = %d', tag, np, nq)
         return k
 
     def _grad_svd (tag, geff, umat_p, umat_q, ncoup=0):
@@ -66,7 +66,7 @@ def make_schmidt_spaces (h_op):
         umat_p = np.append (umat_p, umat_q[:,:ncoup], axis=1)
         umat_q = umat_q[:,ncoup:]
         dm_pp = umat_p.conj ().T @ dm1 @ umat_p
-        lib.logger.debug (h_op, 'number of electrons in p-space after %s Schmidt = %e', tag, np.trace (dm_pp))
+        lib.logger.debug (las, 'number of electrons in p-space after %s Schmidt = %e', tag, np.trace (dm_pp))
         k = _check ('after {} Schmidt'.format (tag), umat_p, umat_q)
         return umat_p, umat_q, k
 
@@ -78,7 +78,7 @@ def make_schmidt_spaces (h_op):
         nlas = np.count_nonzero (mask)
         umat_p = np.diag (mask.astype (mo_coeff.dtype))[:,mask]
         umat_q = np.eye (nmo)
-        umat_q = np.append (umat_q[:,:ncore], umat_q[:,nocc:])
+        umat_q = np.append (umat_q[:,:ncore], umat_q[:,nocc:], axis=1)
         # At any of these steps we might run out of orbitals...
         k = _check ('initial', umat_p, umat_q)
         if k == 0: return umat_p
@@ -94,12 +94,12 @@ def make_schmidt_spaces (h_op):
     orbsym = getattr (mo_coeff, 'orbsym', np.zeros (nmo))
     uschmidt = []
     for ilas in range (len (las.ncas_sub)):
-        i = sum (las.ncas_sub[:ix]) + ncore
-        j = i + las.ncas_sub[ix]
+        i = sum (las.ncas_sub[:ilas]) + ncore
+        j = i + las.ncas_sub[ilas]
         irreps, idx_irrep = np.unique (orbsym[i:j], return_inverse=True)
         ulist = []
         for ix in range (len (irreps)):
-            idx = np.squeeze (idx_irrep==ix) + i
+            idx = np.squeeze (np.where (idx_irrep==ix)) + i
             idx_mask = np.zeros (nmo, dtype=np.bool_)
             idx_mask[idx] = True
             ulist.append (_make_single_space (idx_mask))
@@ -107,7 +107,7 @@ def make_schmidt_spaces (h_op):
 
     return uschmidt
 
-class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
+class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
 
     make_schmidt_spaces = make_schmidt_spaces
 
@@ -158,8 +158,8 @@ class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
             uimp_cas = uimp[ncore:nocc,:]
             cm2 = np.tensordot (ocm2, uimp_cas, axes=((2),(0))) # pqrs -> pqsr
             cm2 = np.tensordot (cm2, uimp, axes=((2),(0))) # pqsr -> pqrs
-            cm2 = np.tensordot (uimp.conj (), cm2, axes=((0),(1))) # pqrs -> qprs
-            cm2 = np.tensordot (uimp.conj (), cm2, axes=((0),(1))) # qprs -> pqrs
+            cm2 = np.tensordot (uimp_cas.conj (), cm2, axes=((0),(1))) # pqrs -> qprs
+            cm2 = np.tensordot (uimp_cas.conj (), cm2, axes=((0),(1))) # qprs -> pqrs
             cm2 += cm2.transpose (1,0,3,2)
             cm2 += cm2.transpose (2,3,0,1)
             f1 = np.tensordot (eri, cm2, axes=((1,2,3),(1,2,3)))
@@ -179,4 +179,25 @@ class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
         f1_aa[:,:] += (np.tensordot (self.h2eff_sub[:ncore], ocm2[:,:,:,:ncore], axes=((0,1,2),(3,2,0)))
                      + np.tensordot (self.h2eff_sub[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,1,2),(3,2,0))))
         return gorb + (f1_prime - f1_prime.T)
+
+class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
+    _hop = LASSCF_HessianOperator
+
+class LASSCFSymm (lasscf_o0.LASSCFSymm):
+    _hop = LASSCF_HessianOperator
+
+def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    if isinstance(mf_or_mol, gto.Mole):
+        mf = scf.RHF(mf_or_mol)
+    else:
+        mf = mf_or_mol
+    if mf.mol.symmetry: 
+        las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    else:
+        las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    if getattr (mf, 'with_df', None):
+        las = lasci.density_fit (las, with_df = mf.with_df) 
+    return las
+
+        
 
