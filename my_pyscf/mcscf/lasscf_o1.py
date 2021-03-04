@@ -54,10 +54,11 @@ def make_schmidt_spaces (h_op):
         return k
 
     def _grad_svd (tag, geff, umat_p, umat_q, ncoup=0):
-        umat_q = _svd (geff, umat_q, umat_p)[0]
+        umat_q, svals = _svd (geff, umat_q, umat_p)
         umat_p = np.append (umat_p, umat_q[:,:ncoup], axis=1)
         umat_q = umat_q[:,ncoup:]
         k = _check ('after {} SVD'.format (tag), umat_p, umat_q)
+        lib.logger.debug (las, '%s SVD lowest eigenvalue = %e', tag, svals[ncoup-1])
         return umat_p, umat_q, k
 
     def _schmidt (tag, umat_p, umat_q, thresh=1e-8):
