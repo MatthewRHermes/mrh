@@ -30,7 +30,6 @@ _, ci0_sa = ugg.unpack (x0)
 las.mo_coeff = mo_loc
 las.ci = ci0_sa
 hop = las.get_hop (ugg=ugg)
-hop._init_eri ()
 
 ci0_sing = [[ci0_sa[0][0]], [ci0_sa[1][0]]]
 las_sing = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1)).set (mo_coeff=mo_loc, ci=ci0_sing)
@@ -38,7 +37,6 @@ las_sing = las_sing.set (ah_level_shift=0, max_cycle_macro=1, max_cycle_micro=1)
 las_sing = las_sing.set (mo_coeff=mo_loc, ci=ci0_sing)
 ugg_sing = las_sing.get_ugg ()
 hop_sing = las_sing.get_hop (ugg=ugg_sing)
-hop_sing._init_eri ()
 
 ci0_quin = [[ci0_sa[0][1]], [ci0_sa[1][1]]]
 las_quin = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3)).set (mo_coeff=mo_loc, ci=ci0_quin)
@@ -46,7 +44,6 @@ las_quin = las_quin.set (ah_level_shift=0, max_cycle_macro=1, max_cycle_micro=1)
 las_quin = las_quin.set (mo_coeff=mo_loc, ci=ci0_quin)
 ugg_quin = las_quin.get_ugg ()
 hop_quin = las_quin.get_hop (ugg=ugg_quin)
-hop_quin._init_eri ()
 
 def sa_2_ss_x (x_sa):
     xorb, xci_sa = ugg.unpack (x_sa)
