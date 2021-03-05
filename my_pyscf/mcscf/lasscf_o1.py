@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from scipy import linalg
 from pyscf import gto, lib, ao2mo
@@ -81,13 +82,14 @@ def make_schmidt_spaces (h_op):
         umat_q = np.eye (nmo)
         umat_q = np.append (umat_q[:,:ncore], umat_q[:,nocc:], axis=1)
         # At any of these steps we might run out of orbitals...
+        # The Schmidt steps might turn out to be completely unnecessary
         k = _check ('initial', umat_p, umat_q)
         if k == 0: return umat_p
         umat_p, umat_q, k = _grad_svd ('g', gorb1, umat_p, umat_q, ncoup=k)
         if k == 0: return umat_p
-        umat_p, umat_q, k = _schmidt ('first', umat_p, umat_q)
+        umat_p, umat_q, k = _schmidt ('first', umat_p, umat_q) 
         if k == 0: return umat_p
-        umat_p, umat_q, k = _grad_svd ('g+hx', gorb2, umat_p, umat_q, ncoup=min(k,3*nlas))
+        umat_p, umat_q, k = _grad_svd ('g+hx', gorb2, umat_p, umat_q, ncoup=min(k,2*nlas))
         if k == 0: return umat_p
         umat_p, umat_q, k = _schmidt ('second', umat_p, umat_q)
         return umat_p
@@ -114,7 +116,9 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
 
     def _init_eri (self):
         lasci._init_df_(self)
+        t0 = (time.clock (), time.time ())
         self.uschmidt = uschmidt = self.make_schmidt_spaces ()
+        t1 = lib.logger.timer (self.las, 'build schmidt spaces', *t0)
         if isinstance (self.las, lasci._DFLASCI):
             eri = self.las.with_df.ao2mo
         elif getattr (self.las._scf, '_eri', None) is not None:
@@ -122,11 +126,13 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         else:
             eri = partial (ao2mo.full, self.las.mol)
         self.eri_imp = []
-        for umat in uschmidt:
+        for ix, umat in enumerate (uschmidt):
             nimp = umat.shape[1]
             mo = self.mo_coeff @ umat
             self.eri_imp.append (ao2mo.restore (1, eri (mo), nimp))
+            t1 = lib.logger.timer (self.las, 'schmidt-space {} eri array'.format (ix), *t1)
         # eri_cas is taken from h2eff_sub
+        lib.logger.timer (self.las, '_init_eri', *t0)
 
     def split_veff (self, veff_mo, dm1s_mo):
         veff_c = veff_mo.copy ()

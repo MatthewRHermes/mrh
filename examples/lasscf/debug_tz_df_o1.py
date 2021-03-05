@@ -5,7 +5,7 @@ from mrh.my_pyscf.mcscf.lasscf_o1 import LASSCF
 lib.logger.TIMER_LEVEL = lib.logger.INFO
 mol = struct (3.0, 3.0, 'cc-pvtz', symmetry=False)
 mol.verbose = lib.logger.INFO
-mol.output = 'debug_tz_df_o0.log'
+mol.output = 'debug_tz_df_o1.log'
 mol.build ()
 my_aux = df.aug_etb (mol)
 mf = scf.RHF (mol).density_fit (auxbasis = my_aux).run ()
