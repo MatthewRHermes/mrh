@@ -72,26 +72,21 @@ def make_schmidt_spaces (h_op):
         k = _check ('after {} Schmidt'.format (tag), umat_p, umat_q)
         return umat_p, umat_q, k
 
-    def _make_single_space (mask):
-        # Active orbitals other than the current should be in
-        # neither the p-space nor the q-space
-        # This is because I am still assuming we have all 
-        # eris of type aaaa
-        nlas = np.count_nonzero (mask)
-        umat_p = np.diag (mask.astype (mo_coeff.dtype))[:,mask]
-        umat_q = np.eye (nmo)
-        umat_q = np.append (umat_q[:,:ncore], umat_q[:,nocc:], axis=1)
+    def _make_single_space (p_mask, q_mask):
+        nlas = np.count_nonzero (p_mask)
+        umat_p = np.diag (p_mask.astype (mo_coeff.dtype))[:,p_mask]
+        umat_q = np.diag (q_mask.astype (mo_coeff.dtype))[:,q_mask]
         # At any of these steps we might run out of orbitals...
         # The Schmidt steps might turn out to be completely unnecessary
         k = _check ('initial', umat_p, umat_q)
         if k == 0: return umat_p
         umat_p, umat_q, k = _grad_svd ('g', gorb1, umat_p, umat_q, ncoup=k)
-        if k == 0: return umat_p
-        umat_p, umat_q, k = _schmidt ('first', umat_p, umat_q) 
+        #if k == 0: return umat_p
+        #umat_p, umat_q, k = _schmidt ('first', umat_p, umat_q) 
         if k == 0: return umat_p
         umat_p, umat_q, k = _grad_svd ('g+hx', gorb2, umat_p, umat_q, ncoup=min(k,2*nlas))
-        if k == 0: return umat_p
-        umat_p, umat_q, k = _schmidt ('second', umat_p, umat_q)
+        #if k == 0: return umat_p
+        #umat_p, umat_q, k = _schmidt ('second', umat_p, umat_q)
         return umat_p
 
     orbsym = getattr (mo_coeff, 'orbsym', np.zeros (nmo))
@@ -103,9 +98,13 @@ def make_schmidt_spaces (h_op):
         ulist = []
         for ix in range (len (irreps)):
             idx = np.squeeze (np.where (idx_irrep==ix)) + i
-            idx_mask = np.zeros (nmo, dtype=np.bool_)
-            idx_mask[idx] = True
-            ulist.append (_make_single_space (idx_mask))
+            p_mask = np.zeros (nmo, dtype=np.bool_)
+            p_mask[idx] = True
+            q_mask = ~p_mask
+            # I am assuming that we still have paaa eris elsewhere
+            # So I don't want to do the ua_aa this way
+            q_mask[ncore:nocc] = False 
+            ulist.append (_make_single_space (p_mask, q_mask))
         uschmidt.append (np.concatenate (ulist, axis=1))
 
     return uschmidt
@@ -134,15 +133,56 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         # eri_cas is taken from h2eff_sub
         lib.logger.timer (self.las, '_init_eri', *t0)
 
+    def get_veff (self, dm1s_mo=None):
+        # I can't do better than O(N^4), but maybe I can do better than O(M^4)
+        # Neither dm1_vv nor veff_vv elements are needed here
+        # Nothing in this function should distinguish between core and active orbitals!
+        t0 = (time.clock (), time.time ())
+        if not isinstance (self.las, lasci._DFLASCI):
+            return lasscf_o0.LASSCF_HessianOperator.get_veff (self, dm1s_mo=dm1s_mo)
+        nocc, mo, bPpj = self.nocc, self.mo_coeff, self.bPpj
+        moH = mo.conj ().T
+        dm1_mo = dm1s_mo.sum (0)
+        # vj
+        # [(P|qj) + (P|jq)] * D_qj = 2 * (P|qj) * D_qj
+        # D_jj elements within D_qj multiplied by 1/2 to cancel double-counting
+        # Avoid the other double-counting explicitly: (pi|**) -> (ia|**)
+        dm1_rect = dm1_mo[:,:nocc].copy ()
+        dm1_rect[:nocc,:nocc] *= 0.5 # subtract (P|jj) D_jj
+        rho = np.tensordot (bPpj, dm1_rect, axes=2) * 2 # add transpose
+        vj_pj = np.tensordot (rho, bPpj, axes=1)
+        vj_pp = np.zeros_like (dm1_mo)
+        vj_pp[:,:nocc] = vj_pj
+        vj_pp[:nocc,nocc:] = vj_pj[nocc:,:nocc].T
+        # vk
+        # (pq|ji), (iq|ja), (pj|qi), (ij|qa) * D_qj 
+        # D_jj elements within D_qj multiplied by 1/2 to cancel double-counting
+        # Avoid the other double-counting explicitly: (p*|*i) -> (i*|*a)
+        vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo @ dm1_rect, compact=False))
+        vPij, bPij, bPaj = vPpj[:,:nocc,:], bPpj[:,:nocc,:], bPpj[:,nocc:,:]
+        vk_pp = np.zeros_like (dm1_mo)
+        vk_pp[:,:nocc]     = np.tensordot (vPpj, bPij, axes=((0,2),(0,2))) # (pq|ji) x D_qj
+        vk_pp[:nocc,nocc:] = np.tensordot (vPij, bPaj, axes=((0,2),(0,2))) # (iq|ja) x D_qj
+        vk_pp += vk_pp.T # Index transpose -> (pj|qi), (ij|qa) x D_bj
+        t1 = lib.logger.timer (self.las, 'h_op.get_veff', *t0)
+        return vj_pp - 0.5 * vk_pp 
+
     def split_veff (self, veff_mo, dm1s_mo):
         veff_c = veff_mo.copy ()
         ncore = self.ncore
         nocc = self.nocc
         sdm = dm1s_mo[0] - dm1s_mo[1]
         veff_s = np.zeros_like (veff_c)
-        # (H.x_pa)_aa
-        veff_s[ncore:nocc,ncore:nocc] = np.tensordot (self.h2eff_sub,
-            sdm[:,ncore:nocc], axes=((0,3),(0,1)))
+        sdm_cas = sdm[ncore:nocc,ncore:nocc]
+        sdm_ua = sdm.copy ()
+        sdm_ua[ncore:nocc,ncore:nocc] = 0
+        # (H.x_aa)_pa
+        veff_s[:,ncore:nocc] = np.tensordot (self.h2eff_sub, sdm_cas, axes=((1,2),(0,1)))
+        veff_s[ncore:nocc,:] = veff_s[:,ncore:nocc].T
+        # (H.x_ua)_aa
+        sdm[ncore:nocc,ncore:nocc] = 0
+        v_aa = np.tensordot (self.h2eff_sub, sdm[:,ncore:nocc], axes=((0,3),(0,1)))
+        veff_s[ncore:nocc,ncore:nocc] = v_aa + v_aa.T
         # (H.x_ua)_ua
         for uimp, eri in zip (self.uschmidt, self.eri_imp):
             s = uimp.conj ().T @ sdm @ uimp

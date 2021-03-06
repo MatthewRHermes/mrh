@@ -432,12 +432,14 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
         # veff
         vj_bj = vj_pj[ncore:,:]
-        vj_ai = vj_bj[ncas:,:ncore]
-        vk_ai = vk_bj[ncas:,:ncore]
-        veff_mo[ncore:,:nocc] = vj_bj
-        veff_mo[:ncore,nocc:] = vj_ai.T
-        veff_mo[ncore:,:nocc] -= vk_bj/2
-        veff_mo[:ncore,nocc:] -= vk_ai.T/2
+        veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
+        veff_mo[:nocc,ncore:] = veff_mo[ncore:,:nocc].T
+        #vj_ai = vj_bj[ncas:,:ncore]
+        #vk_ai = vk_bj[ncas:,:ncore]
+        #veff_mo[ncore:,:nocc] = vj_bj
+        #veff_mo[:ncore,nocc:] = vj_ai.T
+        #veff_mo[ncore:,:nocc] -= vk_bj/2
+        #veff_mo[:ncore,nocc:] -= vk_ai.T/2
         return veff_mo
 
     def split_veff (self, veff_mo, dm1s_mo):
