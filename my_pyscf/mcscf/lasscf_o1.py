@@ -187,7 +187,9 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         for uimp, eri in zip (self.uschmidt, self.eri_imp):
             s = uimp.conj ().T @ sdm_ua @ uimp
             v = np.tensordot (eri, s, axes=((1,2),(0,1)))
-            veff_s += uimp @ v @ uimp.conj ().T
+            v = uimp @ v @ uimp.conj ().T
+            v[ncore:nocc,ncore:nocc] = 0.0
+            veff_s += v
         veff_s[:,:] *= -0.5
         veffa = veff_c + veff_s
         veffb = veff_c - veff_s
@@ -200,10 +202,12 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
+        ocm2_ua = ocm2.copy ()
+        ocm2_ua[:,:,:,ncore:nocc] = 0.0
         # (H.x_ua)_ua, (H.x_ua)_vc
         for uimp, eri in zip (self.uschmidt, self.eri_imp):
             uimp_cas = uimp[ncore:nocc,:]
-            cm2 = np.tensordot (ocm2, uimp_cas, axes=((2),(0))) # pqrs -> pqsr
+            cm2 = np.tensordot (ocm2_ua, uimp_cas, axes=((2),(0))) # pqrs -> pqsr
             cm2 = np.tensordot (cm2, uimp, axes=((2),(0))) # pqsr -> pqrs
             cm2 = np.tensordot (uimp_cas.conj (), cm2, axes=((0),(1))) # pqrs -> qprs
             cm2 = np.tensordot (uimp_cas.conj (), cm2, axes=((0),(1))) # qprs -> pqrs
@@ -211,6 +215,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
             cm2 += cm2.transpose (2,3,0,1)
             f1 = np.tensordot (eri, cm2, axes=((1,2,3),(1,2,3)))
             f1_prime += uimp @ f1 @ uimp.conj ().T
+        f1_prime[ncore:nocc,ncore:nocc] = 0.0
         # (H.x_aa)_ua
         ecm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
         ecm2 += ecm2.transpose (2,3,0,1) + tcm2
