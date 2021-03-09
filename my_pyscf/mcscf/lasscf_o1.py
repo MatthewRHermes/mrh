@@ -40,12 +40,13 @@ def make_schmidt_spaces (h_op):
 
     def _svd (metric, q, p):
         m, n = q.shape[1], p.shape[1]
-        k = min (m, n)
+        k, l = min (m, n), max (m, n)
+        svals = np.zeros (l)
         qh = q.conj ().T
-        u, svals, vh = linalg.svd (qh @ metric @ p)
+        u, svals[:k], vh = linalg.svd (qh @ metric @ p)
         idx_sort = np.argsort (-np.abs (svals))
         svals = svals[idx_sort]
-        u[:,:k] = u[:,idx_sort]
+        u[:,:k] = u[:,idx_sort[:k]]
         return q @ u, svals
 
     def _check (tag, umat_p, umat_q):
