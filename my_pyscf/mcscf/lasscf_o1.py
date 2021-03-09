@@ -181,12 +181,11 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         veff_s[:,ncore:nocc] = np.tensordot (self.h2eff_sub, sdm_cas, axes=((1,2),(0,1)))
         veff_s[ncore:nocc,:] = veff_s[:,ncore:nocc].T
         # (H.x_ua)_aa
-        sdm[ncore:nocc,ncore:nocc] = 0
-        v_aa = np.tensordot (self.h2eff_sub, sdm[:,ncore:nocc], axes=((0,3),(0,1)))
-        veff_s[ncore:nocc,ncore:nocc] = v_aa + v_aa.T
+        v_aa = np.tensordot (self.h2eff_sub, sdm_ua[:,ncore:nocc], axes=((0,3),(0,1)))
+        veff_s[ncore:nocc,ncore:nocc] += v_aa + v_aa.T
         # (H.x_ua)_ua
         for uimp, eri in zip (self.uschmidt, self.eri_imp):
-            s = uimp.conj ().T @ sdm @ uimp
+            s = uimp.conj ().T @ sdm_ua @ uimp
             v = np.tensordot (eri, s, axes=((1,2),(0,1)))
             veff_s += uimp @ v @ uimp.conj ().T
         veff_s[:,:] *= -0.5
