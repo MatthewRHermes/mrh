@@ -36,16 +36,28 @@ las.mo_coeff = np.loadtxt ('test_lasci_mo.dat')
 las.ci = [[np.loadtxt ('test_lasci_ci0.dat')], [-np.loadtxt ('test_lasci_ci1.dat').T]]
 ugg = las.get_ugg ()
 h_op = las.get_hop (ugg=ugg)
+nmo, ncore, nocc = h_op.nmo, h_op.ncore, h_op.nocc
 np.random.seed (0)
 x = np.random.rand (ugg.nvar_tot)
 offs_ci1 = ugg.nvar_orb
 offs_ci2 = offs_ci1 + np.squeeze (ugg.ncsf_sub)[0]
+xorb, xci = ugg.unpack (x)
+xci0 = [[np.zeros (16),], [np.zeros (16),]]
+
 
 def tearDownModule():
     global mol, mf, las, ugg, h_op, x
     mol.stdout.close ()
     del mol, mf, las, ugg, h_op, x
 
+sectors = ["ac","aa","vc","va","ci1","ci2"]
+def itsec (vorb, vci):
+    yield vorb[ncore:nocc,:ncore]
+    yield vorb[ncore:nocc,ncore:nocc]
+    yield vorb[nocc:,:ncore]
+    yield vorb[nocc:,ncore:nocc]
+    yield vci[0][0]
+    yield vci[1][0]
 
 class KnownValues(unittest.TestCase):
     def test_grad (self):
@@ -91,6 +103,37 @@ class KnownValues(unittest.TestCase):
         xp[offs_ci1:] = 0.0
         hx = h_op._matvec (xp)[:offs_ci1]
         self.assertAlmostEqual (lib.fp (hx), 178.41916344898377, 9)
+
+    def test_h_xcv (self):
+        xorb0 = xorb.copy ()
+        xorb0[ncore:nocc,:] = xorb0[:,ncore:nocc] = 0.0
+        xp = ugg.pack (xorb0, xci0)
+        hxorb, hxci = ugg.unpack (h_op._matvec (xp))
+        refs = [-0.06544076804895266,0.20492877852377767,-76.54148711825971,0.001430987773399131,-0.023324408608589215,0.011004024379865151]
+        for sec, test, ref in zip (sectors, itsec (hxorb,hxci), refs):
+            with self.subTest (sector=sec):
+                self.assertAlmostEqual (lib.fp (test), ref, 9)
+
+    def test_h_xaa (self):
+        xorb0 = np.zeros_like (xorb)
+        xorb0[ncore:nocc,ncore:nocc] = xorb[ncore:nocc,ncore:nocc] 
+        xp = ugg.pack (xorb0, xci0)
+        hxorb, hxci = ugg.unpack (h_op._matvec (xp))
+        refs = [0.23685465500076336,1.036052308111469,0.13584422544065847,0.09072092665879812,0.0015574081837203407,-0.0028940907410843902]
+        for sec, test, ref in zip (sectors, itsec (hxorb,hxci), refs):
+            with self.subTest (sector=sec):
+                self.assertAlmostEqual (lib.fp (test), ref, 9)
+
+    def test_h_xua (self):
+        xorb0 = np.zeros_like (xorb)
+        xorb0[ncore:nocc,:] = xorb[ncore:nocc,:] 
+        xorb0[:,ncore:nocc] = xorb[:,ncore:nocc] 
+        xp = ugg.pack (xorb0, xci0)
+        hxorb, hxci = ugg.unpack (h_op._matvec (xp))
+        refs = [32.59486557852766,0.8505552949164717,-1.5790308710536478,-2.7650296786870276,-0.09445253579668796,0.12861532657269764]
+        for sec, test, ref in zip (sectors, itsec (hxorb,hxci), refs):
+            with self.subTest (sector=sec):
+                self.assertAlmostEqual (lib.fp (test), ref, 9)
 
     def test_prec (self):
         M_op = h_op.get_prec ()
