@@ -128,6 +128,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         lasscf_o0.LASSCF_HessianOperator.__init__(self, las, ugg, **kwargs)
 
     make_schmidt_spaces = make_schmidt_spaces
+    #def make_schmidt_spaces (self): return [np.eye (self.nmo)]
 
     def _init_eri (self):
         lasci._init_df_(self)
@@ -148,6 +149,36 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
             t1 = lib.logger.timer (self.las, 'schmidt-space {} eri array'.format (ix), *t1)
         # eri_cas is taken from h2eff_sub
         lib.logger.timer (self.las, '_init_eri', *t0)
+
+    def get_veff_Heff (self, odm1rs, tdm1frs):
+        # Separating out ua degrees of freedom and treating them differently for reasons
+        ncore, nocc = self.ncore, self.nocc
+        odm1rs_frz = odm1rs.copy ()
+        odm1rs_frz[:,:,ncore:nocc,:ncore] = 0.0
+        odm1rs_frz[:,:,ncore:nocc,nocc:]  = 0.0
+        veff_mo, h1frs = lasscf_o0.LASSCF_HessianOperator.get_veff_Heff (self, odm1rs_frz, tdm1frs)
+
+        # Now I need to specifically add back the (H.x_ua)_aa degrees of freedom to both of these
+        odm1rs_ua = odm1rs[:,:,ncore:nocc,:].copy ()
+        odm1rs_ua[:,:,:,ncore:nocc] = 0.0
+        odm1s_ua = np.einsum ('r,rsap->sap', self.weights, odm1rs_ua)
+        veff_aa = np.tensordot (odm1s_ua, self.h2eff_sub, axes=((2,1),(0,1)))
+        veff_aa += veff_aa[::-1] # vj(a) + vj(b)
+        veff_aa -= np.tensordot (odm1s_ua, self.h2eff_sub, axes=((2,1),(0,3)))
+        veff_aa += veff_aa.transpose (0,2,1)
+        veff_mo[:,ncore:nocc,ncore:nocc] += veff_aa
+        for isub, h1rs in enumerate (h1frs):
+            i = sum (self.ncas_sub[:isub])
+            j = i + self.ncas_sub[isub]
+            dm1rs = odm1rs_ua.copy ()
+            dm1rs[:,:,i:j,:] = 0.0
+            v  = np.tensordot (dm1rs, self.h2eff_sub, axes=((3,2),(0,1)))
+            v += v[:,::-1,:,:]
+            v -= np.tensordot (dm1rs, self.h2eff_sub, axes=((3,2),(0,3)))
+            v += v.transpose (0,1,3,2)
+            h1rs[:,:,:,:] += v
+
+        return veff_mo, h1rs
 
     def get_veff (self, dm1s_mo=None):
         # I can't do better than O(N^4), but maybe I can do better than O(M^4)
@@ -190,21 +221,8 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         sdm = dm1s_mo[0] - dm1s_mo[1]
         veff_s = np.zeros_like (veff_c)
         sdm_cas = sdm[ncore:nocc,ncore:nocc]
-        sdm_ua = sdm.copy ()
-        sdm_ua[ncore:nocc,ncore:nocc] = 0
-        # (H.x_aa)_pa
         veff_s[:,ncore:nocc] = np.tensordot (self.h2eff_sub, sdm_cas, axes=((1,2),(0,1)))
         veff_s[ncore:nocc,:] = veff_s[:,ncore:nocc].T
-        # (H.x_ua)_aa
-        v_aa = np.tensordot (self.h2eff_sub, sdm_ua[:,ncore:nocc], axes=((0,3),(0,1)))
-        veff_s[ncore:nocc,ncore:nocc] += v_aa + v_aa.T
-        # (H.x_ua)_ua
-        for uimp, eri in zip (self.uschmidt, self.eri_imp):
-            s = uimp.conj ().T @ sdm_ua @ uimp
-            v = np.tensordot (eri, s, axes=((1,2),(0,1)))
-            v = uimp @ v @ uimp.conj ().T
-            v[ncore:nocc,ncore:nocc] = 0.0
-            veff_s += v
         veff_s[:,:] *= -0.5
         veffa = veff_c + veff_s
         veffb = veff_c - veff_s
@@ -214,9 +232,18 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         ''' Parent class does everything except va/ac degrees of freedom
         (c: closed; a: active; v: virtual; p: any) '''
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
-        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs,
+        # Separate out active-unactive degrees of freedom
+        odm1rs_frz = odm1rs.copy ()
+        odm1rs_frz[:,:,ncore:nocc,:ncore] = 0.0
+        odm1rs_frz[:,:,ncore:nocc,nocc:]  = 0.0
+        odm1rs_ua = odm1rs - odm1rs_frz
+        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs_frz,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
+        # Add back terms omitted for (H.x_ua)_aa
+        odm1s_ua = np.einsum ('r,rspq->spq', self.weights, odm1rs_ua)
+        odm1s_ua += odm1s_ua.transpose (0,2,1)
+        f1_prime[ncore:nocc,ncore:nocc] = sum ([h @ d for h, d in zip (self.h1s, odm1s_ua)])[ncore:nocc,ncore:nocc]
         ocm2_ua = ocm2.copy ()
         ocm2_ua[:,:,:,ncore:nocc] = 0.0
         # (H.x_ua)_ua, (H.x_ua)_vc
@@ -226,15 +253,22 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         # will require having f1 be done root-by-root. What to do?
         for uimp, eri in zip (self.uschmidt, self.eri_imp):
             uimp_cas = uimp[ncore:nocc,:]
+            edm1s = np.dot (uimp.conj ().T, np.dot (odm1s_ua, uimp)).transpose (1,0,2)
+            edm1 = edm1s.sum (0)
+            dm1s = np.dot (uimp.conj ().T, np.dot (self.dm1s, uimp)).transpose (1,0,2)
+            dm1 = dm1s.sum (0)
             cm2 = np.tensordot (ocm2_ua, uimp_cas, axes=((2),(0))) # pqrs -> pqsr
             cm2 = np.tensordot (cm2, uimp, axes=((2),(0))) # pqsr -> pqrs
             cm2 = np.tensordot (uimp_cas.conj (), cm2, axes=((0),(1))) # pqrs -> qprs
             cm2 = np.tensordot (uimp_cas.conj (), cm2, axes=((0),(1))) # qprs -> pqrs
             cm2 += cm2.transpose (1,0,3,2)
-            cm2 += cm2.transpose (2,3,0,1)
-            f1 = np.tensordot (eri, cm2, axes=((1,2,3),(1,2,3)))
-            f1_prime += uimp @ f1 @ uimp.conj ().T
-        f1_prime[ncore:nocc,ncore:nocc] = 0.0
+            dm2 = cm2 + np.multiply.outer (edm1, dm1)
+            dm2 -= sum ([np.multiply.outer (e, d).transpose (0,3,2,1) for e, d in zip (edm1s, dm1s)])
+            dm2 += dm2.transpose (2,3,0,1)
+            f1 = np.tensordot (eri, dm2, axes=((1,2,3),(1,2,3)))
+            f1 = uimp @ f1 @ uimp.conj ().T
+            f1[ncore:nocc,ncore:nocc] = 0.0
+            f1_prime += f1
         # (H.x_aa)_ua
         ecm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
         ecm2 += ecm2.transpose (2,3,0,1) + tcm2
