@@ -31,6 +31,8 @@ def make_schmidt_spaces (h_op):
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
+    pmin = h_op.min_lasorb_pspace 
+    if pmin < 0: pmin = nmo - las.ncas
     dm1 = h_op.dm1s.sum (0)
     g_vec = h_op.get_grad ()
     prec_op = h_op.get_prec ()
@@ -74,9 +76,16 @@ def make_schmidt_spaces (h_op):
         return umat_p, umat_q, k
 
     def _make_single_space (p_mask, q_mask):
+        # The pmin stuff below probably isn't as useful as I'd like. Because of
+        # the way svd works there is no sorting among the null space that
+        # makes any sense. It's really only useful for testing the limit
+        # against implementations without SVD pspace selection.
+        # I also badly need to rename this because 'Schmidt decompositon'
+        # stopped being a useful way to think about this a long time ago.
         nlas = np.count_nonzero (p_mask)
         umat_p = np.diag (p_mask.astype (mo_coeff.dtype))[:,p_mask]
         umat_q = np.diag (q_mask.astype (mo_coeff.dtype))[:,q_mask]
+        pmin_i = min (pmin, umat_q.shape[1])
         # At any of these steps we might run out of orbitals...
         # The Schmidt steps might turn out to be completely unnecessary
         k = _check ('initial', umat_p, umat_q)
@@ -85,7 +94,9 @@ def make_schmidt_spaces (h_op):
         #if k == 0: return umat_p
         #umat_p, umat_q, k = _schmidt ('first', umat_p, umat_q) 
         if k == 0: return umat_p
-        umat_p, umat_q, k = _grad_svd ('g+hx', gorb2, umat_p, umat_q, ncoup=min(k,2*nlas))
+        pcurr = umat_p.shape[1] - nlas
+        ncoup = max (pmin_i-pcurr, min (k, 2*nlas))
+        umat_p, umat_q, k = _grad_svd ('g+hx', gorb2, umat_p, umat_q, ncoup=ncoup)
         #if k == 0: return umat_p
         #umat_p, umat_q, k = _schmidt ('second', umat_p, umat_q)
         return umat_p
@@ -111,6 +122,10 @@ def make_schmidt_spaces (h_op):
     return uschmidt
 
 class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
+
+    def __init__(self, las, ugg, **kwargs):
+        self.min_lasorb_pspace = kwargs.pop ('min_lasorb_pspace', getattr (las, 'min_lasorb_pspace', 0))
+        lasscf_o0.LASSCF_HessianOperator.__init__(self, las, ugg, **kwargs)
 
     make_schmidt_spaces = make_schmidt_spaces
 
@@ -195,16 +210,20 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         veffb = veff_c - veff_s
         return np.stack ([veffa, veffb], axis=0)
 
-    def orbital_response (self, kappa, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
+    def orbital_response (self, kappa, odm1rs, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Parent class does everything except va/ac degrees of freedom
         (c: closed; a: active; v: virtual; p: any) '''
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
-        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
+        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         ocm2_ua = ocm2.copy ()
         ocm2_ua[:,:,:,ncore:nocc] = 0.0
         # (H.x_ua)_ua, (H.x_ua)_vc
+        # This doesn't currently work correctly for state-average, because the cumulant
+        # decomposition of the state-average density matrices doesn't work the same way.
+        # Straightforward fix is to do the cumulant decomposition root-by-root, but that 
+        # will require having f1 be done root-by-root. What to do?
         for uimp, eri in zip (self.uschmidt, self.eri_imp):
             uimp_cas = uimp[ncore:nocc,:]
             cm2 = np.tensordot (ocm2_ua, uimp_cas, axes=((2),(0))) # pqrs -> pqsr
@@ -234,9 +253,15 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
 
 class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
     _hop = LASSCF_HessianOperator
+    def __init__(self, *args, **kwargs):
+        self.min_lasorb_pspace = kwargs.pop ('min_lasorb_pspace', 0)
+        lasscf_o0.LASSCFNoSymm.__init__(self, *args, **kwargs)
 
 class LASSCFSymm (lasscf_o0.LASSCFSymm):
     _hop = LASSCF_HessianOperator
+    def __init__(self, *args, **kwargs):
+        self.min_lasorb_pspace = kwargs.pop ('min_lasorb_pspace', 0)
+        lasscf_o0.LASSCFSymm.__init__(self, *args, **kwargs)
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):

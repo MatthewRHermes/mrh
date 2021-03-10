@@ -766,17 +766,6 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
 
     return h1e_fr
 
-    #mo_cas = [las.get_mo_slice (idx, mo_coeff) for idx in range (len (ncas_sub))]
-    #moH_cas = [mo.conjugate ().T for mo in mo_cas]
-    ## Subtract double-counting
-    #h2e_sub = [las.get_h2eff_slice (h2eff_sub, ix) for ix, ncas in enumerate (ncas_sub)]
-    #j_sub = [np.tensordot (casdm1s, h2e, axes=((1,2),(2,3))) for casdm1s, h2e in zip (casdm1s_sub, h2e_sub)]
-    #k_sub = [np.tensordot (casdm1s, h2e, axes=((1,2),(2,1))) for casdm1s, h2e in zip (casdm1s_sub, h2e_sub)]
-    #veff_sub = [j[0][None,:,:] + j[1][None,:,:] - k for j, k in zip (j_sub, k_sub)]
-    #h1e_sub = [np.tensordot (moH, np.dot (h1e, mo), axes=((1),(1))).transpose (1,0,2) - v
-    #    for moH, mo, v in zip (moH_cas, mo_cas, veff_sub)]
-    #return h1e_sub
-
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     log = lib.logger.new_logger(las, verbose)
@@ -1215,6 +1204,15 @@ class LASCINoSymm (casci.CASCI):
         self.nroots = 1
         self.weights = [1.0]
         self.e_states = [0.0]
+
+    def get_las_idx (self, idx, incl_core=True):
+        i = (self.ncore * int(incl_core)) + sum (self.ncas_sub[:idx])
+        j = i + self.ncas_sub[idx]
+        return i, j
+
+    def loop_las_idx (self, incl_core=True):
+        for idx in range (len (self.ncas_sub)):
+            yield self.get_las_idx (idx, incl_core=incl_core)
 
     def get_mo_slice (self, idx, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff

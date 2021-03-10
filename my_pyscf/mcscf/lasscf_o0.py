@@ -190,11 +190,11 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         veffb = veff_c - veff_s
         return np.stack ([veffa, veffb], axis=0)
 
-    def orbital_response (self, kappa, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
+    def orbital_response (self, kappa, odm1rs, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Parent class does everything except va/ac degrees of freedom
         (c: closed; a: active; v: virtual; p: any) '''
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
-        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
+        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         # (H.x_va)_pp, (H.x_ac)_pp sector
