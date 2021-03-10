@@ -38,6 +38,8 @@ ugg = las.get_ugg ()
 h_op = las.get_hop (ugg=ugg)
 np.random.seed (0)
 x = np.random.rand (ugg.nvar_tot)
+offs_ci1 = ugg.nvar_orb
+offs_ci2 = offs_ci1 + np.squeeze (ugg.ncsf_sub)[0]
 
 def tearDownModule():
     global mol, mf, las, ugg, h_op, x
@@ -62,33 +64,33 @@ class KnownValues(unittest.TestCase):
 
     def test_hc2 (self):
         xp = x.copy ()
-        xp[:-16] = 0.0
-        hx = h_op._matvec (xp)[-16:]
-        self.assertAlmostEqual (lib.fp (hx), -0.5385952489125434, 9)
+        xp[:offs_ci2] = 0.0
+        hx = h_op._matvec (xp)[offs_ci2:]
+        self.assertAlmostEqual (lib.fp (hx), 1.0607759066755826, 9)
 
     def test_hcc (self):
         xp = x.copy ()
-        xp[:-16] = 0.0
-        hx = h_op._matvec (xp)[-32:-16]
-        self.assertAlmostEqual (lib.fp (hx), -0.0011224059211792671, 9)
+        xp[:offs_ci2] = 0.0
+        hx = h_op._matvec (xp)[offs_ci1:offs_ci2]
+        self.assertAlmostEqual (lib.fp (hx), 0.00014830104777428284, 9)
 
     def test_hco (self):
         xp = x.copy ()
-        xp[-32:] = 0.0
-        hx = h_op._matvec (xp)[-32:]
-        self.assertAlmostEqual (lib.fp (hx), 0.2698490298969052, 9)
+        xp[offs_ci1:] = 0.0
+        hx = h_op._matvec (xp)[offs_ci1:]
+        self.assertAlmostEqual (lib.fp (hx), -0.6543458685319448, 9)
 
     def test_hoc (self):
         xp = x.copy ()
-        xp[:-32] = 0.0
-        hx = h_op._matvec (xp)[:-32]
-        self.assertAlmostEqual (lib.fp (hx), 0.16008947107591176, 9)
+        xp[:offs_ci1] = 0.0
+        hx = h_op._matvec (xp)[:offs_ci1]
+        self.assertAlmostEqual (lib.fp (hx), 0.21204376122818072, 9)
 
     def test_hoo (self):
         xp = x.copy ()
-        xp[-32:] = 0.0
-        hx = h_op._matvec (xp)[:-32]
-        self.assertAlmostEqual (lib.fp (hx), 178.29669908809024, 9)
+        xp[offs_ci1:] = 0.0
+        hx = h_op._matvec (xp)[:offs_ci1]
+        self.assertAlmostEqual (lib.fp (hx), 178.41916344898377, 9)
 
     def test_prec (self):
         M_op = h_op.get_prec ()
