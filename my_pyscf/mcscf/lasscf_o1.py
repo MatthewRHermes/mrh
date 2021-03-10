@@ -178,7 +178,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
             v += v.transpose (0,1,3,2)
             h1rs[:,:,:,:] += v
 
-        return veff_mo, h1rs
+        return veff_mo, h1frs
 
     def get_veff (self, dm1s_mo=None):
         # I can't do better than O(N^4), but maybe I can do better than O(M^4)
