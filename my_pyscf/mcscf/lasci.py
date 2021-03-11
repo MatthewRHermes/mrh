@@ -2,7 +2,7 @@ from pyscf.scf.rohf import get_roothaan_fock
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf.tools import molden
 from pyscf import symm, gto, scf, ao2mo, lib
-from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver
+from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.scf import hf_as
@@ -1665,6 +1665,7 @@ class LASCINoSymm (casci.CASCI):
     state_average = state_average
     state_average_ = state_average_
     lassi = lassi
+    las2cas_civec = las2cas_civec
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
