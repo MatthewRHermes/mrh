@@ -30,7 +30,8 @@ mol.spin = 0
 mol.build ()
 mf = scf.RHF (mol).run ()
 las = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3))
-las.min_lasorb_pspace = -1
+las._debug_full_pspace = True
+las._debug_o0 = False
 las.max_cycle_macro = 1
 las.kernel ()
 las.mo_coeff = np.loadtxt ('test_lasci_mo.dat')

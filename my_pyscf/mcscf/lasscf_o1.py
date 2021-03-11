@@ -31,8 +31,6 @@ def make_schmidt_spaces (h_op):
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
-    pmin = h_op.min_lasorb_pspace 
-    if pmin < 0: pmin = nmo - las.ncas
     dm1 = h_op.dm1s.sum (0)
     g_vec = h_op.get_grad ()
     prec_op = h_op.get_prec ()
@@ -85,7 +83,7 @@ def make_schmidt_spaces (h_op):
         nlas = np.count_nonzero (p_mask)
         umat_p = np.diag (p_mask.astype (mo_coeff.dtype))[:,p_mask]
         umat_q = np.diag (q_mask.astype (mo_coeff.dtype))[:,q_mask]
-        pmin_i = min (pmin, umat_q.shape[1])
+        if h_op._debug_full_pspace: return np.append (umat_p, umat_q, axis=1)
         # At any of these steps we might run out of orbitals...
         # The Schmidt steps might turn out to be completely unnecessary
         k = _check ('initial', umat_p, umat_q)
@@ -95,7 +93,7 @@ def make_schmidt_spaces (h_op):
         #umat_p, umat_q, k = _schmidt ('first', umat_p, umat_q) 
         if k == 0: return umat_p
         pcurr = umat_p.shape[1] - nlas
-        ncoup = max (pmin_i-pcurr, min (k, 2*nlas))
+        ncoup = min (k, 2*nlas)
         umat_p, umat_q, k = _grad_svd ('g+hx', gorb2, umat_p, umat_q, ncoup=ncoup)
         #if k == 0: return umat_p
         #umat_p, umat_q, k = _schmidt ('second', umat_p, umat_q)
@@ -124,12 +122,15 @@ def make_schmidt_spaces (h_op):
 class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
 
     def __init__(self, las, ugg, **kwargs):
-        self.min_lasorb_pspace = kwargs.pop ('min_lasorb_pspace', getattr (las, 'min_lasorb_pspace', 0))
+        self._debug_full_pspace = kwargs.pop ('_debug_full_pspace', getattr (las, '_debug_full_pspace', False))
+        self._debug_o0 = kwargs.pop ('_debug_o0', getattr (las, '_debug_o0', False))
         lasscf_o0.LASSCF_HessianOperator.__init__(self, las, ugg, **kwargs)
         self.h1_bare = self.mo_coeff.conj ().T @ self.las.get_hcore () @ self.mo_coeff
 
-    make_schmidt_spaces = make_schmidt_spaces
-    #def make_schmidt_spaces (self): return [np.eye (self.nmo)]
+    def make_schmidt_spaces (self):
+        if self._debug_o0:
+            return [np.eye (self.nmo)]
+        return make_schmidt_spaces (self)
 
     def _init_eri (self):
         lasci._init_df_(self)
@@ -289,13 +290,15 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
 class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
     _hop = LASSCF_HessianOperator
     def __init__(self, *args, **kwargs):
-        self.min_lasorb_pspace = kwargs.pop ('min_lasorb_pspace', 0)
+        self._debug_full_pspace = kwargs.pop ('_debug_full_pspace', False)
+        self._debug_o0 = kwargs.pop ('_debug_o0', False)
         lasscf_o0.LASSCFNoSymm.__init__(self, *args, **kwargs)
 
 class LASSCFSymm (lasscf_o0.LASSCFSymm):
     _hop = LASSCF_HessianOperator
     def __init__(self, *args, **kwargs):
-        self.min_lasorb_pspace = kwargs.pop ('min_lasorb_pspace', 0)
+        self._debug_full_pspace = kwargs.pop ('_debug_full_pspace', False)
+        self._debug_o0 = kwargs.pop ('_debug_o0', False)
         lasscf_o0.LASSCFSymm.__init__(self, *args, **kwargs)
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):

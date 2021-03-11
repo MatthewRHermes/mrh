@@ -10,6 +10,9 @@ from mrh.my_pyscf.fci import csf_solver
 from itertools import product
 import os
 
+_debug_full_pspace = True
+_debug_o0 = False
+
 mol = struct (2.0, 2.0, '6-31g', symmetry=False)
 mol.output = 'sa_lasscf_o0.log'
 mol.verbose = lib.logger.DEBUG
@@ -17,7 +20,8 @@ mol.build ()
 mf = scf.RHF (mol).run ()
 mo_coeff = mf.mo_coeff.copy ()
 las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
-las.min_lasorb_pspace = -1
+las._debug_full_pspace = _debug_full_pspace
+las._debug_o0 = _debug_o0
 mo_loc = las.localize_init_guess ((list(range(3)),list(range(9,12))), mo_coeff=mo_coeff)
 las.state_average_(weights=[0.5,0.5], spins=[[0,0],[2,-2]])
 las.set (max_cycle_macro=1, max_cycle_micro=1, ah_level_shift=0).kernel ()
@@ -35,6 +39,8 @@ hop = las.get_hop (ugg=ugg)
 ci0_sing = [[ci0_sa[0][0]], [ci0_sa[1][0]]]
 las_sing = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1)).set (mo_coeff=mo_loc, ci=ci0_sing)
 las_sing.min_lasorb_pspace = -1
+las_sing._debug_full_pspace = _debug_full_pspace
+las_sing._debug_o0 = _debug_o0
 las_sing = las_sing.set (ah_level_shift=0, max_cycle_macro=1, max_cycle_micro=1).run ()
 las_sing = las_sing.set (mo_coeff=mo_loc, ci=ci0_sing)
 ugg_sing = las_sing.get_ugg ()
@@ -42,7 +48,8 @@ hop_sing = las_sing.get_hop (ugg=ugg_sing)
 
 ci0_quin = [[ci0_sa[0][1]], [ci0_sa[1][1]]]
 las_quin = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3)).set (mo_coeff=mo_loc, ci=ci0_quin)
-las_quin.min_lasorb_pspace = -1
+las_quin._debug_full_pspace = _debug_full_pspace
+las_quin._debug_o0 = _debug_o0
 las_quin = las_quin.set (ah_level_shift=0, max_cycle_macro=1, max_cycle_micro=1).run ()
 las_quin = las_quin.set (mo_coeff=mo_loc, ci=ci0_quin)
 ugg_quin = las_quin.get_ugg ()
