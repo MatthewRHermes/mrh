@@ -13,10 +13,44 @@ from functools import partial
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than
 # CASSCF. Eventually to be modified into a true all-PySCF implementation of vLASSCF
 
-def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp):
+def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=False):
     ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
     and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
-    space. '''
+    space. Beware that unless freeze_cas_spaces=True, frozen orbitals will not be preserved.
+
+    Args:
+        las: LASSCF or LASCI object
+        frags_orbs: list of length nfrags
+            Contains list of AO indices formally defining the fragments
+            into which the active orbitals are to be localized
+
+    Kwargs: (some of these are args here but kwargs in the actual caller)
+        mo_coeff: ndarray of shape (nao, nmo)
+            Molecular orbital coefficients containing active orbitals
+            on columns ncore:ncore+ncas
+        spin: integer
+            Unused; retained for backwards compatibility I guess
+        lo_coeff: ndarray of shape (nao, nao)
+            Linear combinations of AOs that are localized and orthonormal
+        fock: ndarray of shape (nmo, nmo)
+            Effective 1-electron Hamiltonian matrix for recanonicalizing
+            the inactive and external sectors after the latter are
+            possibly distorted by the projection of the active orbitals
+        ao_ovlp: ndarray of shape (nao, nao)
+            Overlap matrix of the underlying AO basis
+        freeze_cas_spaces: logical
+            If true, then active orbitals are mixed only among themselves
+            when localizing, which leaves the inactive and external sectors
+            unchanged (to within numerical precision). Otherwise, active
+            orbitals are projected into the localized-orbital space and
+            the inactive and external orbitals are reconstructed as closely
+            as possible using SVD.
+
+    Returns:
+        mo_coeff: ndarray of shape (nao,nmo)
+            Orbital coefficients after localization of the active space;
+            columns in the order (inactive,las1,las2,...,lasn,external)
+    '''
     # For reasons that pass my understanding, mo_coeff sometimes can't be assigned symmetry
     # by PySCF's own code. Therefore, I'm going to keep the symmetry tags on mo_coeff
     # and make sure the SVD engine sees them and doesn't try to figure it out itself.
@@ -33,13 +67,26 @@ def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovl
 
     # SVD to pick active orbitals
     mo_cas = tag_array (mo_coeff[:,ncore:nocc], orbsym=mo_orbsym[ncore:nocc])
-    null_coeff = lo_coeff[:,unused_aos]
+    if freeze_cas_spaces:
+        null_coeff = np.hstack ([mo_coeff[:,:ncore], mo_coeff[:,nocc:]])
+    else:
+        null_coeff = lo_coeff[:,unused_aos]
     for ix, (nlas, frag_orbs) in enumerate (zip (las.ncas_sub, frags_orbs)):
-        mo_proj, sval, mo_cas = las._svd (lo_coeff[:,frag_orbs], mo_cas, s=ao_ovlp)
+        try:
+            mo_proj, sval, mo_cas = las._svd (lo_coeff[:,frag_orbs], mo_cas, s=ao_ovlp)
+        except ValueError as e:
+            print (ix, mo_proj.shape, ao_ovlp.shape, mo_cas.shape)
+            raise (e)
         i, j = ncore + sum (las.ncas_sub[:ix]), ncore + sum (las.ncas_sub[:ix]) + nlas
-        mo_coeff[:,i:j] = mo_proj[:,:nlas]
-        if has_orbsym: mo_orbsym[i:j] = mo_proj.orbsym[:nlas]
-        null_coeff = np.hstack ([null_coeff, mo_proj[:,nlas:]])
+        mo_las = mo_cas if freeze_cas_spaces else mo_proj
+        mo_coeff[:,i:j] = mo_las[:,:nlas]
+        if has_orbsym: mo_orbsym[i:j] = mo_las.orbsym[:nlas]
+        if freeze_cas_spaces:
+            if has_orbsym: orbsym = mo_cas.orbsym[nlas:]
+            mo_cas = mo_cas[:,nlas:]
+            if has_orbsym: mo_cas = tag_array (mo_cas, orbsym=orbsym)
+        else:
+            null_coeff = np.hstack ([null_coeff, mo_proj[:,nlas:]])
 
     # SVD of null space to pick inactive orbitals
     assert (null_coeff.shape[-1] + ncas == nmo)
@@ -144,10 +191,13 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         return np.stack ([veffa, veffb], axis=0)
 
     def orbital_response (self, kappa, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
+        ''' Parent class does everything except va/ac degrees of freedom
+        (c: closed; a: active; v: virtual; p: any) '''
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
+        # (H.x_va)_pp, (H.x_ac)_pp sector
         for p, f1 in enumerate (f1_prime):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
@@ -161,10 +211,12 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
                 ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
                 f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
+                # The following three lines are the only part of the calculation that requires
+                # ppaa, papa ERIs
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
-        # Clumsy repetition...
+        # (H.x_aa)_va, (H.x_aa)_ac
         ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
         ocm2 += ocm2.transpose (2,3,0,1)
         ecm2 = ocm2 + tcm2
@@ -208,7 +260,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         assert (np.allclose (veff, veff_test))
         return veff
 
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None):
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None, freeze_cas_spaces=False):
         ''' Here spin = 2s = number of singly-occupied orbitals '''
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
@@ -222,7 +274,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         frags_orbs = [[orb for atom in frag_atoms for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))] for frag_atoms in frags_atoms]
         if fock is None: fock = self._scf.get_fock ()
         ao_ovlp = self._scf.get_ovlp ()
-        return localize_init_guess (self, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp)
+        return localize_init_guess (self, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=freeze_cas_spaces)
 
     def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
         if s is None: s = self._scf.get_ovlp ()
@@ -234,12 +286,12 @@ class LASSCFSymm (lasci.LASCISymm):
     split_veff = LASSCFNoSymm.split_veff
     as_scanner = mc1step.as_scanner
 
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None):
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None, freeze_cas_spaces=False):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         mo_coeff = casci_symm.label_symmetry_(self, mo_coeff)
         return LASSCFNoSymm.localize_init_guess (self, frags_atoms, mo_coeff=mo_coeff, spin=spin,
-            lo_coeff=lo_coeff, fock=fock)
+            lo_coeff=lo_coeff, fock=fock, freeze_cas_spaces=freeze_cas_spaces)
 
     def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
         if s is None: s = self._scf.get_ovlp ()

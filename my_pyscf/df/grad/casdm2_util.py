@@ -6,7 +6,7 @@ from pyscf import scf
 from pyscf import df
 from pyscf import mcscf
 from pyscf.ao2mo import _ao2mo
-from pyscf.grad.rhf import GradientsBasics
+from pyscf.grad.rhf import GradientsMixin
 from pyscf.df.grad.rhf import _int3c_wrapper
 from pyscf.ao2mo.outcore import balance_partition
 from pyscf.ao2mo.incore import _conc_mos
@@ -89,7 +89,7 @@ def solve_df_rdm2 (mc_or_mc_grad, mo_cas=None, ci=None, casdm2=None):
 
     # Initialize mol and auxmol
     mol = mc_or_mc_grad.mol
-    if isinstance (mc_or_mc_grad, GradientsBasics):
+    if isinstance (mc_or_mc_grad, GradientsMixin):
         mc = mc_or_mc_grad.base
     else:
         mc = mc_or_mc_grad
@@ -140,7 +140,7 @@ def solve_df_eri (mc_or_mc_grad, mo_cas=None, compact=True):
 
     # Initialize mol and auxmol
     mol = mc_or_mc_grad.mol
-    if isinstance (mc_or_mc_grad, GradientsBasics):
+    if isinstance (mc_or_mc_grad, GradientsMixin):
         mc = mc_or_mc_grad.base
     else:
         mc = mc_or_mc_grad
@@ -198,7 +198,7 @@ def energy_elec_dferi (mc, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None):
             List of energies corresponding to the dfcasdm2s,
             E = (P|ij) d_Pij / 2 = (P|ij) (P|Q)^-1 (Q|kl) d_ijkl / 2
     '''
-    if isinstance (mc, GradientsBasics): mc = mc.base
+    if isinstance (mc, GradientsMixin): mc = mc.base
     if mo_cas is None:
         ncore = mc.ncore
         nocc = ncore + mc.ncas
@@ -262,7 +262,7 @@ def gfock_dferi (mc, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, max_memor
         gfock: ndarray of shape (nset, nmo[0], nmo[1]) or (nset, nao, nao)
 
     '''
-    if isinstance (mc, GradientsBasics): mc = mc.base
+    if isinstance (mc, GradientsMixin): mc = mc.base
     if mo_cas is None:
         ncore = mc.ncore
         nocc = ncore + mc.ncas
@@ -317,7 +317,7 @@ def grad_elec_auxresponse_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, c
     Returns:
         dE: list of ndarray of shape (len (atmlst), 3) '''
 
-    if isinstance (mc_grad, GradientsBasics):
+    if isinstance (mc_grad, GradientsMixin):
         mc = mc_grad.base
     else:
         mc = mc_grad
@@ -416,7 +416,7 @@ def grad_elec_dferi (mc_grad, mo_cas=None, ci=None, dfcasdm2=None, casdm2=None, 
 
     Returns:
         dE: ndarray of shape (len (dfcasdm2), len (atmlst), 3) '''
-    if isinstance (mc_grad, GradientsBasics):
+    if isinstance (mc_grad, GradientsMixin):
         mc = mc_grad.base
     else:
         mc = mc_grad
