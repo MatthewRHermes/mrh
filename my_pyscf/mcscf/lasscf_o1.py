@@ -126,6 +126,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
     def __init__(self, las, ugg, **kwargs):
         self.min_lasorb_pspace = kwargs.pop ('min_lasorb_pspace', getattr (las, 'min_lasorb_pspace', 0))
         lasscf_o0.LASSCF_HessianOperator.__init__(self, las, ugg, **kwargs)
+        self.h1_bare = self.mo_coeff.conj ().T @ self.las.get_hcore () @ self.mo_coeff
 
     make_schmidt_spaces = make_schmidt_spaces
     #def make_schmidt_spaces (self): return [np.eye (self.nmo)]
@@ -239,10 +240,10 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         odm1rs_ua = odm1rs - odm1rs_frz
         gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs_frz,
             ocm2, tdm1frs, tcm2, veff_prime)
-        f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         # Add back terms omitted for (H.x_ua)_aa
         odm1s_ua = np.einsum ('r,rspq->spq', self.weights, odm1rs_ua)
         odm1s_ua += odm1s_ua.transpose (0,2,1)
+        f1_prime = self.h1_bare @ odm1s_ua.sum (0)
         f1_prime[ncore:nocc,ncore:nocc] = sum ([h @ d for h, d in zip (self.h1s, odm1s_ua)])[ncore:nocc,ncore:nocc]
         ocm2_ua = ocm2.copy ()
         ocm2_ua[:,:,:,ncore:nocc] = 0.0
