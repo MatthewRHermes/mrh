@@ -11,7 +11,7 @@ from pyscf.fci.direct_nosym import FCISolver
 
 def contract_sd (mol, t1, t2, ci, norb, nelec, hermi=-1, unit_tol=1e-8, tci_tol=1e-12, maxiter=171):
     ''' (Attempt to) evaluate |uci> = exp(t1+t2-t1'-t2')|ci>
-    TODO: link_index support
+    TODO: link_index support?
 
     Args:
         mol : PySCF mole object
