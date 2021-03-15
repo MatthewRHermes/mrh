@@ -46,11 +46,10 @@ def fermion_spin_shuffle (norb, norb_f):
 
     ... a2' b2' a1' b1' a0' b0' |vac>
 
-    in the context of a Fock-space FCI vector, where each fragment
-    additionally has arbitrary numbers of spin-up and spin-down
-    electrons. These factors must by multiplied into a direct-
-    product wave function if the individual factors span different
-    particle-number sectors.
+    in the context of a Fock-space FCI vector where 0,1,2,etc.
+    denote clusters of spatial orbitals ("fragments"). These factors
+    must by multiplied into a direct-product wave function if the
+    individual factors span different particle-number sectors.
     Compare my_pyscf.mcscf.lassi_op_o1.fermion_spin_shuffle
 
     Args:
