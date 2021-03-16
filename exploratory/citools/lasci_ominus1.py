@@ -30,15 +30,18 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
     if isinstance (verbose, lib.logger.Logger):
         log = verbose
         verbose = log.verbose
+    else:
+        log = lib.logger.new_logger (fci, verbose)
 
-    las = fci.get_obj (h1, h2, ci0_f, norb, nlas, nelec, ecore=ecore)
+    las = fci.get_obj (h1, h2, ci0_f, norb, nlas, nelec, ecore=ecore, log=log)
     las_options = {'ftol':     tol,
                    'gtol':     gtol,
                    'maxfun':   max_cycle,
                    'maxiter':  max_cycle,
                    'iprint':   verbose_lbjfgs[verbose]}
     res = optimize.minimize (las.energy_tot, las.get_init_guess (),
-        method='L-BFGS-B', jac=las.jac, options=las_options)
+        method='L-BFGS-B', jac=las.jac, callback=las.solver_callback,
+        options=las_options)
 
     e_tot = las.energy_tot (res.x)
     ci1 = las.get_fcivec (res.x)
@@ -85,7 +88,7 @@ class LASCI_ObjectiveFunction (object):
     ''' Evaluate the energy and Jacobian of a LASSCF trial function parameterized in terms
         of unitary CC singles amplitudes and CI transfer operators. '''
 
-    def __init__(self, fcisolver, h1, h2, ci0_f, norb, nlas, nelec, ecore=0):
+    def __init__(self, fcisolver, h1, h2, ci0_f, norb, nlas, nelec, ecore=0, log=None):
         self.fcisolver = fcisolver
         self.ecore = ecore
         self.h = (ecore, h1, h2)
@@ -97,6 +100,8 @@ class LASCI_ObjectiveFunction (object):
         assert (sum (nlas) == norb)
         self.uniq_orb_idx = all_nonredundant_idx (norb, 0, nlas)
         self.nconstr = 1 # Total charge only
+        self.log = log
+        self.it_cnt = 0
         assert (self.check_ci0_constr ())
 
     def fermion_spin_shuffle (self, c, norb=None, nlas=None):
@@ -281,7 +286,17 @@ class LASCI_ObjectiveFunction (object):
         return jacci_f
 
     def solver_callback (self, x):
-        pass
+        it, log = self.it_cnt, self.log
+        g = self.jac (x)
+        log.info ('iteration %d, |x| = %e, |g| = %e', it, linalg.norm (x), linalg.norm (g))
+        if log.verbose >= lib.logger.DEBUG:
+            norb, nelec = self.norb, self.nelec
+            ci1 = self.get_fcivec (x)
+            cc = ci1.conj ().ravel ().dot (ci1.ravel ())
+            ss = self.fcisolver.spin_square (ci1, norb, nelec)[0]
+            n = np.trace (self.fcisolver.make_rdm12 (ci1, norb, 0)[0])
+            log.debug ('<Psi|[1,S**2,N]|Psi> = %e, %e, %e', cc, ss, n)
+        self.it_cnt += 1
 
     def get_init_guess (self):
         return np.zeros (self.nvar_tot)

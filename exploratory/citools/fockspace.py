@@ -124,7 +124,7 @@ def fermion_frag_shuffle (norb, i, j):
     if j==norb: return 1 # trivial result
     sgn = np.zeros (ndet, dtype=np.int8)
     # Lower orbital indices change faster than higher ones
-    addrs_p = np.arange (ndet, dtype=np.uint64) // i
+    addrs_p = np.arange (ndet, dtype=np.uint64) // (2**i)
     addrs_q, addrs_p = np.divmod (addrs_p, 2**(j-i))
     nperms = ADDRS_NELEC[addrs_p] * ADDRS_NELEC[addrs_q]
     sgn = np.array ([1,-1], dtype=np.int8)[nperms%2]
