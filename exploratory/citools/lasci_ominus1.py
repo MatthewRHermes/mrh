@@ -24,21 +24,23 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
             tol=1e-8, gtol=1e-4, max_cycle=15000, 
             orbsym=None, wfnsym=None, ecore=0, **kwargs):
 
-    if nlas is None: nlas = getattr (fci, 'nlas', norb)
+    if nlas is None: nlas = getattr (fci, 'nlas', [norb])
     if ci0_f is None: ci0_f = fci.get_init_guess (norb, nelec, nlas, h1, h2)
-    verbose = kwargs.get ('verbose', getattr (las, 'verbose', 0))
+    verbose = kwargs.get ('verbose', getattr (fci, 'verbose', 0))
+    if isinstance (verbose, lib.logger.Logger):
+        log = verbose
+        verbose = log.verbose
 
-    las = fci.get_obj (fci, h1, h2, ci0_f, norb, nlas, ecore=ecore)
+    las = fci.get_obj (h1, h2, ci0_f, norb, nlas, nelec, ecore=ecore)
     las_options = {'ftol':     tol,
                    'gtol':     gtol,
                    'maxfun':   max_cycle,
                    'maxiter':  max_cycle,
-                   'iprint':   verbose_lbjfgs[verbose],
-                   'callback': las.callback}
-    res = optimize.minimize (las.e_tot, las.get_init_guess (),
-        method='L-BFGS-B', jac=las.jac, options=options)
+                   'iprint':   verbose_lbjfgs[verbose]}
+    res = optimize.minimize (las.energy_tot, las.get_init_guess (),
+        method='L-BFGS-B', jac=las.jac, options=las_options)
 
-    e_tot = las.e_tot (res.x)
+    e_tot = las.energy_tot (res.x)
     ci1 = las.get_fcivec (res.x)
     return e_tot, ci1
 
@@ -47,18 +49,19 @@ def make_rdm12 (fci, fcivec, norb, nelec, **kwargs):
     dm2 = np.zeros ((norb,norb,norb,norb))
     for nelec in product (range (norb+1), repeat=2):
         ci = fockspace.fock2hilbert (fcivec, norb, nelec)
-        d1, d2 = direct_spin1.make_rdm12 (fci, ci, norb, nelec, **kwargs)
+        d1, d2 = direct_spin1.make_rdm12 (ci, norb, nelec, **kwargs)
         dm1 += d1
         dm2 += d2
     return dm1, dm2
 
 def get_init_guess (fci, norb, nelec, nlas, h1, h2):
-    hdiag = fci.make_hdiag (h1, h2, norb, nelec)
-    addr_dp = np.argmin (hdiag)
     nelec = direct_spin1._unpack_nelec (nelec)
+    hdiag = fci.make_hdiag (h1, h2, norb, nelec)
+    ndeta = cistring.num_strings (norb, nelec[0])
+    addr_dp = np.divmod (np.argmin (hdiag), ndeta)
     str_dp = [cistring.addr2str (norb, n, c) for n,c in zip (nelec, addr_dp)]
     ci0_f = []
-    for n in range (nlas)
+    for n in nlas:
         ndet = 2**n
         c = np.zeros ((ndet, ndet))
         s = [str_dp[0] % ndet, str_dp[1] % ndet]
@@ -67,7 +70,10 @@ def get_init_guess (fci, norb, nelec, nlas, h1, h2):
         ci0_f.append (c)
     return ci0_f
 
-def LASCI_ObjectiveFunction (object):
+def spin_square (fci, fcivec, norb, nelec):
+    pass
+
+class LASCI_ObjectiveFunction (object):
     ''' Evaluate the energy and Jacobian of a LASSCF trial function parameterized in terms
         of unitary CC singles amplitudes and CI transfer operators. '''
 
@@ -77,7 +83,7 @@ def LASCI_ObjectiveFunction (object):
         self.h = (ecore, h1, h2)
         self.ci0_f = [ci.copy () for ci in ci0_f]
         self.norb = norb
-        self.nlas = nlas
+        self.nlas = nlas = np.asarray (nlas)
         self.nelec = sum (direct_spin1._unpack_nelec (nelec))
         self.nfrags = len (nlas)
         assert (sum (nlas) == norb)
@@ -100,7 +106,8 @@ def LASCI_ObjectiveFunction (object):
         for xci, ci0 in zip (xci_f, ci0_f):
             cHx = ci0.conj ().ravel ().dot (xci.ravel ())
             x.append ((xci - (ci0*cHx)).ravel ())
-        return np.concatenate (x)
+        x = np.concatenate (x)
+        return x
 
     def unpack (self, x):
         xconstr, x = x[:self.nconstr], x[self.nconstr:]
@@ -113,7 +120,7 @@ def LASCI_ObjectiveFunction (object):
         xci = []
         for n in self.nlas:
             xci.append (x[:2**(2*n)].reshape (2**n, 2**n))
-            x = y[2**(2*n):]
+            x = x[2**(2*n):]
 
         return xconstr, xorb, xci
 
@@ -123,19 +130,19 @@ def LASCI_ObjectiveFunction (object):
 
     @property
     def nvar_tot (self):
-        return self.nvar_orb + sum ([c.size for c in self.ci0_f])
+        return self.nconstr + self.nvar_orb + sum ([c.size for c in self.ci0_f])
 
     def energy_tot (self, x):
         uc, huc = self.hc_x (x)[:2]
-        cu = uc.conj ().ravel ()
-        hc = hc.ravel ()
-        cuuc = lib.dot (cu, uc)
-        cuhuc = lib.dot (cu, huc)
+        uc, huc = uc.ravel (), huc.ravel ()
+        cu = uc.conj ()
+        cuuc = cu.dot (uc)
+        cuhuc = cu.dot (huc)
         return cuhuc/cuuc
 
     def jac (self, x):
         uc, huc, ints = self.hc_x (x)
-        h, uc_f = ints[0]
+        h, uc_f = ints
         # Revisit the first line below if t ever breaks
         # number symmetry
         jacconstr = self.get_jac_constr (uc)
@@ -158,9 +165,9 @@ def LASCI_ObjectiveFunction (object):
         for neleca, nelecb in product (range (norb+1), repeat=2):
             nelec = (neleca, nelecb)
             h2eff = self.fcisolver.absorb_h1e (h[1], h[2], norb, nelec, 0.5)
-            ci_h = fockspace.fock2hilbert (ci, norb, nelec)
+            ci_h = np.squeeze (fockspace.fock2hilbert (ci, norb, nelec))
             hc = direct_spin1.contract_2e (h2eff, ci_h, norb, nelec)
-            hci += fockspace.hilbert2fock (hc, norb, nelec)
+            hci += np.squeeze (fockspace.hilbert2fock (hc, norb, nelec))
         return hci
             
     def dp_ci (self, ci_f):
@@ -192,23 +199,23 @@ def LASCI_ObjectiveFunction (object):
     def rotate_ci0 (self, xci_f):
         ci0, norb = self.ci0_f, self.norb
         ci1 = []
-        for dc, c in zip (xci, ci0):
-            phi = linalg.norm (x)
+        for dc, c in zip (xci_f, ci0):
+            phi = linalg.norm (dc)
             cosp = np.cos (phi)
             if np.abs (phi) > 1e-8: sinp = np.sin (phi) / phi
             else: sinp = 1 # as precise as it can be w/ 64 bits
             ci1.append (cosp*c + sinp*dc)
-        if t1 is not None:
         return ci1
 
     def rotate_ci_t1 (self, ci1, t1):
+        norb = self.norb
         umat = linalg.expm (t1/2) 
         ci2 = np.zeros_like (ci1)
         for neleca, nelecb in product (range (norb+1), repeat=2):
             nelec = (neleca, nelecb)
-            c = fockspace.fock2hilbert (ci1, norb, nelec)
-            c = self.fci.transform_ci_for_orbital_rotation (c, norb, nelec, umat)
-            ci2 += fockspace.hilbert2fock (ci1, norb, nelec)
+            c = np.squeeze (fockspace.fock2hilbert (ci1, norb, nelec))
+            c = self.fcisolver.transform_ci_for_orbital_rotation (c, norb, nelec, umat)
+            ci2 += np.squeeze (fockspace.hilbert2fock (c, norb, nelec))
         return ci2
 
     def get_jac_constr (self, ci):
@@ -239,7 +246,7 @@ def LASCI_ObjectiveFunction (object):
             # However, we have to skip the ith fragment itself
             norb0, ndet0 = norb, 2**norb
             norb2, ndet2 = 0, 1
-            for jfrag, (uci, norb1) in enumerate (uci_f, nlas):
+            for jfrag, (uci, norb1) in enumerate (zip (uci_f, nlas)):
                 norb0 -= norb1
                 if (jfrag==ifrag):
                     norb2 = norb1
@@ -262,17 +269,17 @@ def LASCI_ObjectiveFunction (object):
             cH = ci0.conj ().ravel ()
             chuc = cH.dot (huci_i.ravel ())
             huci_i -= ci0 * chuc
-            jacci_f.append (hci)
+            jacci_f.append (huci_i)
         return jacci_f
 
-    def callback (self, x):
+    def solver_callback (self, x):
         pass
 
     def get_init_guess (self):
         return np.zeros (self.nvar_tot)
 
     def get_fcivec (self, x):
-        xorb, xci_f = self.unpack (x)
+        xconstr, xorb, xci_f = self.unpack (x)
         uc_f = self.rotate_ci0 (xci_f)
         uc = self.dp_ci (uc_f)
         uc = self.rotate_ci_t1 (uc, -xorb) # I hope the negative sign accomplishes the transpose...
@@ -295,7 +302,8 @@ class FCISolver (direct_spin1.FCISolver):
     approx_kernel = kernel
     make_rdm12 = make_rdm12
     get_init_guess = get_init_guess
-    get_obj = LASCI_ObjectiveFunction
+    def get_obj (self, *args, **kwargs):
+        return LASCI_ObjectiveFunction (self, *args, **kwargs)
 
 
 
