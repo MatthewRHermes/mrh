@@ -12,7 +12,7 @@
 import numpy as np
 from scipy import linalg, optimize
 from pyscf import lib
-from pyscf.fci import direct_spin1
+from pyscf.fci import direct_spin1, cistring
 from itertools import product
 from mrh.exploratory.citools import fockspace
 from mrh.my_pyscf.mcscf.lasci import all_nonredundant_idx
@@ -21,11 +21,13 @@ from itertools import product
 verbose_lbjfgs = [-1,-1,-1,0,50,99,100,101,101,101]
 
 def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
-            tol=1e-10, gtol=1e-4, max_cycle=15000, 
+            tol=1e-8, gtol=1e-4, max_cycle=15000, 
             orbsym=None, wfnsym=None, ecore=0, **kwargs):
 
     if nlas is None: nlas = getattr (fci, 'nlas', norb)
+    if ci0_f is None: ci0_f = fci.get_init_guess (norb, nelec, nlas, h1, h2)
     verbose = kwargs.get ('verbose', getattr (las, 'verbose', 0))
+
     las = fci.get_obj (fci, h1, h2, ci0_f, norb, nlas, ecore=ecore)
     las_options = {'ftol':     tol,
                    'gtol':     gtol,
@@ -35,6 +37,7 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
                    'callback': las.callback}
     res = optimize.minimize (las.e_tot, las.get_init_guess (),
         method='L-BFGS-B', jac=las.jac, options=options)
+
     e_tot = las.e_tot (res.x)
     ci1 = las.get_fcivec (res.x)
     return e_tot, ci1
@@ -49,23 +52,38 @@ def make_rdm12 (fci, fcivec, norb, nelec, **kwargs):
         dm2 += d2
     return dm1, dm2
 
+def get_init_guess (fci, norb, nelec, nlas, h1, h2):
+    hdiag = fci.make_hdiag (h1, h2, norb, nelec)
+    addr_dp = np.argmin (hdiag)
+    nelec = direct_spin1._unpack_nelec (nelec)
+    str_dp = [cistring.addr2str (norb, n, c) for n,c in zip (nelec, addr_dp)]
+    ci0_f = []
+    for n in range (nlas)
+        ndet = 2**n
+        c = np.zeros ((ndet, ndet))
+        s = [str_dp[0] % ndet, str_dp[1] % ndet]
+        c[s[0],s[1]] = 1.0
+        str_dp = [str_dp[0] // ndet, str_dp[1] // ndet]
+        ci0_f.append (c)
+    return ci0_f
 
 def LASCI_ObjectiveFunction (object):
     ''' Evaluate the energy and Jacobian of a LASSCF trial function parameterized in terms
         of unitary CC singles amplitudes and CI transfer operators. '''
 
-    def __init__(self, fcisolver, h1, h2, ci0_f, norb, nlas, ecore=0):
+    def __init__(self, fcisolver, h1, h2, ci0_f, norb, nlas, nelec, ecore=0):
         self.fcisolver = fcisolver
         self.ecore = ecore
         self.h = (ecore, h1, h2)
         self.ci0_f = [ci.copy () for ci in ci0_f]
         self.norb = norb
         self.nlas = nlas
+        self.nelec = sum (direct_spin1._unpack_nelec (nelec))
         self.nfrags = len (nlas)
         assert (sum (nlas) == norb)
         self.uniq_orb_idx = all_nonredundant_idx (norb, 0, nlas)
-        offs = np.cumsum (nlas)
-        offs = np.stack ([offs-np.array (nlas), offs], axis=1)
+        self.nconstr = 1 # Total charge only
+        assert (self.check_ci0_constr ())
 
     def fermion_spin_shuffle (self, c, norb=None, nlas=None):
         if norb is None: norb = self.norb
@@ -76,8 +94,8 @@ def LASCI_ObjectiveFunction (object):
         if norb is None: norb=self.norb
         return c * fockspace.fermion_frag_shuffle (norb, i, j)
 
-    def pack (self, xorb, xci_f):
-        x = [xorb[self.uniq_orb_idx],]
+    def pack (self, xconstr, xorb, xci_f):
+        x = [xconstr, xorb[self.uniq_orb_idx],]
         ci0_f = self.ci0_f
         for xci, ci0 in zip (xci_f, ci0_f):
             cHx = ci0.conj ().ravel ().dot (xci.ravel ())
@@ -85,17 +103,19 @@ def LASCI_ObjectiveFunction (object):
         return np.concatenate (x)
 
     def unpack (self, x):
+        xconstr, x = x[:self.nconstr], x[self.nconstr:]
+
         xorb = np.zeros ((self.norb, self.norb), dtype=x.dtype)
         xorb[self.uniq_orb_idx] = x[:self.nvar_orb]
         xorb = xorb - xorb.T
+        x = x[self.nvar_orb:]
 
-        y = x[self.nvar_orb:]
         xci = []
         for n in self.nlas:
-            xci.append (y[:2**(2*n)].reshape (2**n, 2**n))
-            y = y[2**(2*n):]
+            xci.append (x[:2**(2*n)].reshape (2**n, 2**n))
+            x = y[2**(2*n):]
 
-        return xorb, xci
+        return xconstr, xorb, xci
 
     @property
     def nvar_orb (self):
@@ -116,13 +136,17 @@ def LASCI_ObjectiveFunction (object):
     def jac (self, x):
         uc, huc, ints = self.hc_x (x)
         h, uc_f = ints[0]
+        # Revisit the first line below if t ever breaks
+        # number symmetry
+        jacconstr = self.get_jac_constr (uc)
         jact1 = self.get_jac_t1 (h, uc)
         jacci_f = self.get_jac_ci (uc_f, huc)
-        return self.pack (jact1, jacci_f)
+        return self.pack (jacconstr, jact1, jacci_f)
 
     def hc_x (self, x):
-        xorb, xci = self.unpack (x)
-        h = self.rotate_orb (self.h, xorb)
+        xconstr, xorb, xci = self.unpack (x)
+        h = self.constr_h (xconstr)
+        h = self.rotate_h (h, xorb)
         uc_f = self.rotate_ci0 (xci)
         uc = self.dp_ci (uc_f)
         huc = self.contract_h2 (h, uc)
@@ -148,7 +172,13 @@ def LASCI_ObjectiveFunction (object):
         ci = self.fermion_spin_shuffle (ci, norb=norb, nlas=nlas)
         return ci
 
-    def rotate_orb (self, h, xorb):
+    def constr_h (self, xconstr):
+        x = xconstr[0]
+        h, norb, nelec = self.h, self.norb, self.nelec
+        h = [h[0] - (x*nelec), h[1] + (x*np.eye (self.norb)), h[2]]
+        return h 
+
+    def rotate_h (self, h, xorb):
         umat = linalg.expm (xorb/2)
         h = [h[0], h[1].copy (), h[2].copy ()]
         h[1] = umat.conj ().T @ h[1] @ umat
@@ -157,6 +187,7 @@ def LASCI_ObjectiveFunction (object):
         h[2] = np.tensordot (h[2], umat.conj (), axes=((0),(0))) # rsij -> sijk
         h[2] = np.tensordot (h[2], umat,         axes=((0),(0))) # sijk -> ijkl
         return h
+
 
     def rotate_ci0 (self, xci_f):
         ci0, norb = self.ci0_f, self.norb
@@ -179,6 +210,10 @@ def LASCI_ObjectiveFunction (object):
             c = self.fci.transform_ci_for_orbital_rotation (c, norb, nelec, umat)
             ci2 += fockspace.hilbert2fock (ci1, norb, nelec)
         return ci2
+
+    def get_jac_constr (self, ci):
+        dm1 = self.fcisolver.make_rdm12 (ci, self.norb, 0)[0]
+        return np.array ([np.trace (dm1) - self.nelec])
 
     def get_jac_t1 (self, h, ci):
         norb = self.norb
@@ -243,8 +278,24 @@ def LASCI_ObjectiveFunction (object):
         uc = self.rotate_ci_t1 (uc, -xorb) # I hope the negative sign accomplishes the transpose...
         return uc / linalg.norm (uc)
 
+    def check_ci0_constr (self):
+        norb, nelec = self.norb, self.nelec
+        ci0 = self.dp_ci (self.ci0_f)
+        neleca_min = max (0, nelec-norb)
+        neleca_max = min (norb, nelec)
+        w = 0.0
+        for neleca in range (neleca_min, neleca_max+1):
+            nelecb = nelec - neleca
+            c = fockspace.fock2hilbert (ci0, norb, (neleca,nelecb)).ravel ()
+            w += c.conj ().dot (c)
+        return w>1e-8
+
 class FCISolver (direct_spin1.FCISolver):
     kernel = kernel
     approx_kernel = kernel
     make_rdm12 = make_rdm12
+    get_init_guess = get_init_guess
     get_obj = LASCI_ObjectiveFunction
+
+
+
