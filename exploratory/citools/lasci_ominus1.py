@@ -90,7 +90,6 @@ class LASCI_ObjectiveFunction (object):
 
     def __init__(self, fcisolver, h1, h2, ci0_f, norb, nlas, nelec, ecore=0, log=None):
         self.fcisolver = fcisolver
-        self.ecore = ecore
         self.h = (ecore, h1, h2)
         self.ci0_f = [ci.copy () for ci in ci0_f]
         self.norb = norb
@@ -287,8 +286,10 @@ class LASCI_ObjectiveFunction (object):
 
     def solver_callback (self, x):
         it, log = self.it_cnt, self.log
-        g = self.jac (x)
-        log.info ('iteration %d, |x| = %e, |g| = %e', it, linalg.norm (x), linalg.norm (g))
+        norm_x = linalg.norm (x)
+        norm_g = linalg.norm (self.jac (x))
+        e = self.energy_tot (x)
+        log.info ('iteration %d, E = %f, |x| = %e, |g| = %e', it, e, norm_x, norm_g)
         if log.verbose >= lib.logger.DEBUG:
             norb, nelec = self.norb, self.nelec
             ci1 = self.get_fcivec (x)
