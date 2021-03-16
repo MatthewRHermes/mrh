@@ -12,7 +12,7 @@
 import numpy as np
 from scipy import linalg, optimize
 from pyscf import lib
-from pyscf.fci import direct_spin1, cistring
+from pyscf.fci import direct_spin1, cistring, spin_op
 from itertools import product
 from mrh.exploratory.citools import fockspace
 from mrh.my_pyscf.mcscf.lasci import all_nonredundant_idx
@@ -71,7 +71,15 @@ def get_init_guess (fci, norb, nelec, nlas, h1, h2):
     return ci0_f
 
 def spin_square (fci, fcivec, norb, nelec):
-    pass
+    ss = 0.0
+    for ne in product (range (norb+1), repeat=2):
+        c = fockspace.fock2hilbert (fcivec, norb, ne)
+        ssc = spin_op.contract_ss (c, norb, ne)
+        ss += c.conj ().ravel ().dot (ssc.ravel ())
+    s = np.sqrt(ss+.25) - .5
+    multip = s*2+1
+    return ss, multip
+
 
 class LASCI_ObjectiveFunction (object):
     ''' Evaluate the energy and Jacobian of a LASSCF trial function parameterized in terms
@@ -302,6 +310,7 @@ class FCISolver (direct_spin1.FCISolver):
     approx_kernel = kernel
     make_rdm12 = make_rdm12
     get_init_guess = get_init_guess
+    spin_square = spin_square
     def get_obj (self, *args, **kwargs):
         return LASCI_ObjectiveFunction (self, *args, **kwargs)
 
