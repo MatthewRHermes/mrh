@@ -1076,6 +1076,8 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None):
     # TODO: come up with a better algorithm? This might be working better than what I had before but it omits inter-active
     # coulomb and exchange interactions altogether. Is there a non-outer-product algorithm for finding the lowest-energy single
     # product of CSFs?
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     nmo = mo_coeff.shape[-1]
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
