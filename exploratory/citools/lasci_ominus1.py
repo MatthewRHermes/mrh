@@ -262,6 +262,14 @@ class LASCI_ObjectiveFunction (object):
         return f1 - f1.T
 
     def get_jac_ci (self, uci_f, huci):
+        ''' Given three orthonormal basis states |0>, |p>, and |q>,
+        with U = exp [xp (|p><0| - |0><p|) + xq (|q><0| - |0><q|)],
+        we have @ xq = 0, xp != 0:
+        U|0>      = cos (xp) |0> + sin (xp) |p>
+        dU|0>/dxp = cos (xp) |p> - sin (xp) |0>
+        dU|0>/dxq = sin (xp) |q> / xp     
+        '''
+
         # "uci": U|ci0>
         # "huci": e^-T1 H e^T1 U|ci0>
         # "jacci": Jacobian elements for the CI degrees of freedom
