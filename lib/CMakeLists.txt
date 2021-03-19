@@ -108,3 +108,14 @@ set_target_properties (clib_mrh_pdft PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "pdft")
 
+# Build the FSUCC library
+set (FSUCC_SOURCE_FILES "fsucc.c")
+add_library (clib_mrh_fsucc SHARED ${FSUCC_SOURCE_FILES})
+target_link_libraries (clib_mrh_fsucc ${LAPACK_LIBRARIES})
+set_target_properties (clib_mrh_fsucc PROPERTIES
+    LINKER_LANGUAGE C
+    CLEAN_DIRECT_OUTPUT 1
+    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_NAME "fsucc")
+
+
