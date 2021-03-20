@@ -2,6 +2,7 @@ import numpy as np
 import time, ctypes, math
 from scipy import linalg
 from mrh.lib.helper import load_library
+from itertools import combinations
 
 libfsucc = load_library ('libfsucc')
 
@@ -63,6 +64,48 @@ def _op (norb, a_idxs, i_idxs, tamps, psi, inplace=True, transpose=False, derivs
             ctypes.c_uint (len (i_idxs[igen])))
     return upsi
 
+def _op1_(norb, aidx, iidx, amp, psi, transpose=False, deriv=0):
+    ''' Evaluates U|Psi> = e^(amp * [a0'a1'...i1'i0' - h.c.])|Psi>
+
+        Args:
+            norb : integer
+                number of orbitals in the fock space
+            aidx : list of len (na)
+                lists +cr,-an operators
+            iidx : list of len (ni)
+                lists +an,-cr operators
+            amp : float
+                amplitude for generator
+            psi : ndarray of len (2**norb)
+                spinless fock-space CI array; modified in-place
+
+        Kwargs:
+            transpose : logical
+                Setting to True multiplies the amp by -1
+            deriv: int
+                Order of differentiation wrt the amp
+
+        Returns:
+            upsi : ndarray of len (2**norb)
+                new spinless fock-space CI array
+    '''
+    assert (psi.flags['C_CONTIGUOUS'])
+    sgn = 1 - (2*int (transpose))
+    my_amp = sgn * (amp + (deriv * math.pi / 2))
+    aidx = np.ascontiguousarray (aidx, dtype=np.uint8)
+    iidx = np.ascontiguousarray (iidx, dtype=np.uint8)
+    na, ni = aidx.size, iidx.size
+    aidx_ptr = aidx.ctypes.data_as (ctypes.c_void_p)
+    iidx_ptr = iidx.ctypes.data_as (ctypes.c_void_p)
+    libfsucc.FSUCCcontract1 (aidx_ptr, iidx_ptr,
+        ctypes.c_double (my_amp),
+        psi.ctypes.data_as (ctypes.c_void_p),
+        ctypes.c_uint (norb),
+        ctypes.c_uint (na),
+        ctypes.c_uint (ni))
+    return psi
+
+
 class FSUCCOperator (object):
 
     def __init__(self, norb, a_idxs, i_idxs):
@@ -73,6 +116,25 @@ class FSUCCOperator (object):
         assert (len (self.i_idxs) == ngen)
         self.amps = np.zeros (ngen)
         self.assert_sanity (nodupes=True)
+
+    def gen_fac (self, reverse=False):
+        ''' Iterate over unitary factors/generators. '''
+        ngen = self.ngen
+        intr = int (reverse)
+        start = 0 + (intr * (ngen-1))
+        stop = ngen - (intr * (ngen+1))
+        step = 1 - (2*intr)
+        for igen in range (start, stop, step):
+            yield igen, self.a_idxs[igen], self.i_idxs[igen], self.amps[igen]
+
+    def gen_deriv1 (self, psi, transpose=False):
+        ''' Iterate over first derivatives of U|Psi> wrt to generator amplitudes '''
+        for igend in range (self.ngen):
+            dupsi = psi.copy ()
+            for ix, aidx, iidx, amp in self.gen_fac (reverse=transpose):
+                _op1_(self.norb, aidx, iidx, amp, dupsi,
+                    transpose=transpose, deriv=(ix==igend))
+            yield dupsi
 
     def assert_sanity (self, nodupes=True):
         ''' check for nilpotent generators, too many cr/an ops, or orbital
@@ -100,9 +162,43 @@ class FSUCCOperator (object):
             errstr = 'duplicate generators detected'
             assert (len (pq_sorted) == ngen), errstr
 
-    def __call__(self, ket, transpose=False, inplace=False):
-        return _op(self.norb, self.a_idxs, self.i_idxs, self.amps, ket,
-            inplace=inplace, transpose=transpose)
+    def __call__(self, psi, transpose=False, inplace=False):
+        upsi = psi.view () if inplace else psi.copy ()
+        for ix, aidx, iidx, amp in self.gen_fac (reverse=transpose):
+            _op1_(self.norb, aidx, iidx, amp, upsi, transpose=transpose, deriv=0)
+        return upsi
+
+def get_uccs_op (norb, t1=None):
+    # Preserves particle number...
+    a, i = np.tril_indices (norb, k=-1)
+    uop = FSUCCOperator (norb, a, i) 
+    if t1 is not None:
+        uop.amps[:] = t1[(a,i)] 
+    return uop
+
+def get_uccsd_op (norb, t1=None, t2=None):
+    # Preserves particle number...
+    uop_s = get_uccs_op (norb, t1=t1)
+    init_offs = uop_s.ngen
+    ab_idxs = uop_s.a_idxs
+    ij_idxs = uop_s.i_idxs
+    pq = [(p, q) for p, q in zip (*np.tril_indices (norb,k=-1))]
+    a = []
+    b = []
+    i = []
+    j = []
+    for ab, ij in combinations (pq, 2):
+        ab_idxs.append (ab)
+        ij_idxs.append (ij)
+        a.append (ab[0])
+        b.append (ab[1])
+        i.append (ij[0])
+        j.append (ij[1])
+    uop = FSUCCOperator (norb, ab_idxs, ij_idxs)
+    uop.amps[:init_offs] = uop_s.amps[:]
+    if t2 is not None:
+        uop.amps[init_offs:] = t2[(a,i,b,j)]
+    return uop
 
 if __name__ == '__main__':
     norb = 4
@@ -113,22 +209,43 @@ if __name__ == '__main__':
         return s
     psi = np.zeros (2**norb)
     psi[3] = 1.0
-    a = [np.array ([2], dtype=np.uint8), np.array ([0,2], dtype=np.uint8), np.array ([2,0], dtype=np.uint8)]
-    i = [np.array ([1], dtype=np.uint8), np.array ([3,1], dtype=np.uint8), np.array ([3,2], dtype=np.uint8)]
-    tamps = [math.pi/4, 0.33, 0.5]
-    upsi = _op (norb, a, i, tamps, psi, inplace=False)
+
+    #a, i = np.tril_indices (norb, k=-1)
+    #uop = FSUCCOperator (norb, a, i)
+    #uop.amps = (1 - 2*np.random.rand (uop.ngen))*math.pi
+    t1_rand = np.random.rand (norb,norb)
+    t2_rand = np.random.rand (norb,norb,norb,norb)
+    uop_s = get_uccs_op (norb, t1=t1_rand)
+    upsi = uop_s (psi)
+    uTupsi = uop_s (upsi, transpose=True)
     for ix in range (2**norb):
-        print (pbin (ix), psi[ix], upsi[ix])
-    print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
-    upsi = _op (norb, a, i, tamps, upsi, transpose=True)
-    for ix in range (2**norb):
-        print (pbin (ix), psi[ix], upsi[ix])
+        print (pbin (ix), psi[ix], upsi[ix], uTupsi[ix])
     print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
 
-    a, i = np.tril_indices (norb, k=-1)
-    uop = FSUCCOperator (norb, a, i)
-    uop.amps = (1 - 2*np.random.rand (uop.ngen))*math.pi
-    upsi = uop (psi)
+    uop_sd = get_uccsd_op (norb, t1=t1_rand, t2=t2_rand)
+    upsi = uop_sd (psi)
+    uTupsi = uop_sd (upsi, transpose=True)
     for ix in range (2**norb):
-        print (pbin (ix), psi[ix], upsi[ix])
+        print (pbin (ix), psi[ix], upsi[ix], uTupsi[ix])
     print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
+
+    def obj_fun (x):
+        uop_sd.amps[:] = x
+        upsi = uop_sd (psi)
+        err = upsi.dot (upsi) - (upsi[5]**2)
+        jac = np.zeros_like (x)
+        for ix, dupsi in enumerate (uop_sd.gen_deriv1 (psi)):
+            jac[ix] += 2*(upsi.dot (dupsi) - dupsi[5]*upsi[5])
+        return err, jac
+
+    from scipy import optimize
+    res = optimize.minimize (obj_fun, uop_sd.amps, method='BFGS', jac=True)
+    print (res.success)
+
+    uop_sd.amps[:] = res.x
+    upsi = uop_sd (psi)
+    uTupsi = uop_sd (upsi, transpose=True)
+    for ix in range (2**norb):
+        print (pbin (ix), psi[ix], upsi[ix], uTupsi[ix])
+    print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
+
