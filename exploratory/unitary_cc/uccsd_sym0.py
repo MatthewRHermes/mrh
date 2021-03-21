@@ -88,7 +88,7 @@ def _op1h_spinsym (norb, herm, psi):
     fac = 1.0
     for ix, hterm in enumerate (herm[1:]):
         nelec = ix+1
-        fac /= ix+1
+        fac /= nelec
         hterm = np.ascontiguousarray (fac * hterm, dtype=np.float64)
         hterm_ptr = hterm.ctypes.data_as (ctypes.c_void_p)
         libfsucc.FSUCCfullhop (hterm_ptr, psi_ptr, hpsi_ptr,
@@ -308,7 +308,7 @@ class UCCS (lib.StreamObject):
     def get_obj_fun (self, mo_coeff=None, uop=None, hop=None, psi0=None, x0=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if uop is None: uop = self.get_uop ()
-        if hop is None: mo_coeff, hop = self.get_hop (mo_coeff=mo_coeff, ham=ham)
+        if hop is None: mo_coeff, hop = self.get_hop (mo_coeff=mo_coeff)
         if psi0 is None: psi0 = self.get_psi0 ()
         if x0 is None: x0 = uop.get_uniq_amps ()
         def obj_fun (x):
@@ -324,12 +324,25 @@ class UCCS (lib.StreamObject):
 
     def kernel (self, mo_coeff=None, psi0=None, x0=None):
         self.mo_coeff, obj_fun, x0 = self.get_obj_fun (mo_coeff=mo_coeff, psi0=psi0)
-        res = optimize.minimize (obf_fun, x0, method='BFGS', jac=True)
+        res = optimize.minimize (obj_fun, x0, method='BFGS', jac=True)
         lib.logger.info (self, 'UCCS BFGS {}'.format (
             ('not converged','converged')[int (res.success)]))
+        self.conv = res.success
         self.x = res.x
         self.e_tot = res.fun
-        return self.mo_coeff, self.x, self.e_tot
+        return self.e_tot, self.mo_coeff, self.x, self.conv
+
+    def rotate_mo (self, mo_coeff=None, x=None):
+        if mo_coeff is None: mo_coeff=self.mo_coeff
+        if x is None: x=self.x
+        norb = self.norb
+        t1 = np.zeros ((2*self.norb, 2*self.norb), dtype=x.dtype)
+        t1[np.tril_indices (2*self.norb, k=-1)] = x[:]
+        t1 -= t1.T
+        umat = linalg.expm (t1/2)
+        mspo_coeff = np.zeros ((2*norb,2*norb), dtype=mo_coeff.dtype)
+        mspo_coeff[:norb,:norb] = mspo_coeff[norb:,norb:] = mo_coeff[:,:]
+        return mspo_coeff @ umat
 
 if __name__ == '__main__':
     norb = 4
@@ -391,4 +404,26 @@ if __name__ == '__main__':
     for ix in range (2**norb):
         print (pbin (ix), psi[ix], upsi[ix], uTupsi[ix])
     print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
+
+    from pyscf import gto, scf
+    mol = gto.M (atom = 'H 0 0 0; H 0.8 0 0', basis='6-31g', verbose=lib.logger.DEBUG, output='uccsd_sym0.log')
+    uhf = scf.UHF (mol).run ()
+    uccs = UCCS (mol).run ()
+    print (uccs.e_tot-uhf.e_tot, linalg.norm (uccs.x))
+    nmo = mol.nao_nr ()
+    hf_mo = np.zeros ((2*nmo,2*nmo), dtype=uhf.mo_coeff.dtype)
+    hf_mo[:nmo,:nmo] = uhf.mo_coeff[0]
+    hf_mo[nmo:,nmo:] = uhf.mo_coeff[1]
+    uccs_mo0 = np.zeros_like (hf_mo)
+    uccs_mo0[:nmo,:nmo] = uccs_mo0[nmo:,nmo:] = uccs.mo_coeff[:,:]
+    uccs_mo1 = uccs.rotate_mo ()
+    s0 = mol.intor_symmetric ('int1e_ovlp')
+    s1 = np.zeros_like (hf_mo)
+    s1[:nmo,:nmo] = s1[nmo:,nmo:] = s0[:,:]
+    print ("hf MOs vs UCCS frame:\n", np.diag (hf_mo.T @ s1 @ uccs_mo0))
+    print ("hf MOs vs UCCS opt:\n", np.diag (hf_mo.T @ s1 @ uccs_mo1))
+    print ("is sz breaking?",linalg.norm (uccs_mo1[:nmo,nmo:]), linalg.norm (uccs_mo1[nmo:,:nmo]))
+    uhf.mo_coeff[0,:,:] = uccs_mo1[:nmo,:nmo]
+    uhf.mo_coeff[1,:,:] = uccs_mo1[nmo:,nmo:]
+    print (uhf.energy_tot (), uccs.e_tot)
 
