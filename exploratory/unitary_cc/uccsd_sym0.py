@@ -395,18 +395,48 @@ if __name__ == '__main__':
         return err, jac
 
     from scipy import optimize
-    res = optimize.minimize (obj_fun, uop_sd.amps, method='BFGS', jac=True)
+    #res = optimize.minimize (obj_fun, uop_sd.amps, method='BFGS', jac=True)
 
-    print (res.success)
-    uop_sd.amps[:] = res.x
-    upsi = uop_sd (psi)
-    uTupsi = uop_sd (upsi, transpose=True)
-    for ix in range (2**norb):
-        print (pbin (ix), psi[ix], upsi[ix], uTupsi[ix])
-    print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
+    #print (res.success)
+    #uop_sd.amps[:] = res.x
+    #upsi = uop_sd (psi)
+    #uTupsi = uop_sd (upsi, transpose=True)
+    #for ix in range (2**norb):
+    #    print (pbin (ix), psi[ix], upsi[ix], uTupsi[ix])
+    #print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
 
-    from pyscf import gto, scf
-    mol = gto.M (atom = 'H 0 0 0; H 0.8 0 0', basis='6-31g', verbose=lib.logger.DEBUG, output='uccsd_sym0.log')
+    from pyscf import gto, scf, fci
+    from mrh.exploratory.citools import fockspace
+    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis='6-31g', verbose=lib.logger.DEBUG, output='uccsd_sym0.log')
+    rhf = scf.RHF (mol).run ()
+    fullci = fci.solver (rhf.mol)
+    mo = rhf.mo_coeff
+    nmo = mo.shape[-1]
+    h0 = 0.0 #mol.energy_nuc ()
+    h1 = mo.T @ rhf.mo_coeff @ mo
+    h1[:] = 0.0
+    h1_tril = h1[np.tril_indices (nmo)]
+    h2 = ao2mo.restore (4, ao2mo.full (mol, mo), nmo)
+    h2 = np.diag (np.diag (h2))
+    h2eff = fullci.absorb_h1e (h1, h2, nmo, (1,1), 0.5)
+
+    np.random.seed (0)    
+    ci = np.random.rand (nmo*nmo)
+    ci /= linalg.norm (ci)
+    ci_h = ci.reshape (nmo, nmo)
+    ci_f = fockspace.hilbert2fock (ci_h, nmo, (1,1)).ravel ()
+ 
+    hci_h = (h0*ci_h) + fullci.contract_2e (h2eff, ci_h, nmo, (1,1))
+    hci_f = _op1h_spinsym (nmo, [h0,h1_tril,h2], ci_f)
+
+    n_h = ci_h.ravel ().dot (ci_h.ravel ())
+    e_h = ci_h.ravel ().dot (hci_h.ravel ())
+    n_f = ci_f.dot (ci_f)
+    e_f = ci_f.dot (hci_f)
+    s_fh = fockspace.fock2hilbert (ci_f, nmo, (1,1)).ravel ().dot (ci_h.ravel ()) 
+
+    print ("<h|h> =",n_h,"<h|H|h> =",e_h,"<f|f> =",n_f,"<f|H|f> =",e_f,"<h|f> =",s_fh)
+
     uhf = scf.UHF (mol).run ()
     uccs = UCCS (mol).run ()
     print (uccs.e_tot-uhf.e_tot, linalg.norm (uccs.x))

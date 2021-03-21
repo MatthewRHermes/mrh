@@ -260,6 +260,12 @@ void _fullhop_(double * hop, double * psi, double * hpsi,
             if (ielec+1<nelec){ // recurse to next-minor dimension
                 _fullhop_(hop+(pq*opstep), psi, hpsi, pidx, qidx, norb,
                     nelec, ielec+1);
+                if (p!=q){
+                pidx[ielec] = q+(spin*norb);
+                qidx[ielec] = p+(spin*norb); // (ij|kl) <-> (ij|lk) symm
+                _fullhop_(hop+(pq*opstep), psi, hpsi, pidx, qidx, norb,
+                    nelec, ielec+1);
+                }
             } else { // execute
                 FSUCCcontract1h (pidx, qidx, hop[pq], psi, hpsi, 2*norb,
                     nelec, nelec);
