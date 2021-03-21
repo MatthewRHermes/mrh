@@ -31,33 +31,69 @@
    nPmH in general
 */
 
-void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double tamp,
-    double * psi, unsigned int norb, unsigned int na, unsigned int ni)
+typedef void (*FSUCCmixer) (int, double, double*, double*, uint64_t, uint64_t);
+
+void FSUCCmixdetu (int sgn, double amp, double * psi, double * upsi,
+    uint64_t det_ia, uint64_t det_ai)
 {
-    /* Evaluate U|Psi> = e^(t a0'a1'...i1i0 - i0'i1'...a1a0) |Psi> 
-       Pro tip: add pi/2 to the amplitude to evaluate dU/dt |Psi>
+    /* Unitary determinant mixer */
+    double ct = sgn * cos (amp);
+    double st = sgn * sin (amp);
+    double psi_ia = psi[det_ia];
+    double psi_ai = psi[det_ai];
+    upsi[det_ia] = (ct*psi_ia) - (st*psi_ai);
+    upsi[det_ai] = (st*psi_ia) + (ct*psi_ai);
+
+}
+
+void FSUCCmixdeth (int sgn, double amp, double * psi, double * hpsi,
+    uint64_t det_ia, uint64_t det_ai)
+{
+    /* Hermitian determinant mixer */
+    hpsi[det_ia] += sgn * amp * psi[det_ai]; 
+    if (det_ia^det_ai){ // careful!!
+    hpsi[det_ai] += sgn * amp * psi[det_ia];
+    }
+}
+
+void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double amp,
+    double * psi, double * opsi, FSUCCmixer mixer, 
+    unsigned int norb, unsigned int na, unsigned int ni)
+{
+    /* Evaluate O|Psi> = mixer (amp, a0'a1'...i1i0, i0'i1'...a1a0) |Psi> 
 
        Input:
-            aidx : array of shape (na); identifies +cr,-an ops
-            iidx : array of shape (ni); identifies +an,-cr ops
+            aidx : array of shape (na); identifies cr,an ops
+            iidx : array of shape (ni); identifies an,cr ops
                 Note: creation operators are applied left < right;
                 annihilation operators are applied right < left
-            tamp : the amplitude or angle
+            amp : the amplitude or angle
+            psi : array of shape (2**norb); input wfn
+            mixer : function pointer; corresponds to type of operator
+                The two valid "types" at the moment are unitary
+                and hermitian.
 
-       Input/Output:
-            psi : array of shape (2**norb); contains wfn
-                Modified in place. Make a copy in the caller
-                if you don't want to modify the input
+       Output:
+            opsi : array of shape (2**norb); output wfn
+                Careful about whether or not you're modifying psi
+                in-place! You generally ~should~ modify in-place with
+                a unitary mixer but ~should not~ with a hermitian mixer 
     */
 
     const int int_one = 1;
-    const double ct = cos (tamp); // (ct -st) (ia) -> (ia)
-    const double st = sin (tamp); // (st  ct) (ai) -> (ai)
+    // const double ct = cos (tamp); // (ct -st) (ia) -> (ia)
+    // const double st = sin (tamp); // (st  ct) (ai) -> (ai)
     int r;
     uint64_t det_i = 0; // i is occupied
-    for (r = 0; r < ni; r++){ det_i |= (1<<iidx[r]); }
+    for (r = 0; r < ni; r++){ 
+        if (det_i & (1<<iidx[r])){ return; } // nilpotent escape
+        det_i |= (1<<iidx[r]); 
+    }
     uint64_t det_a = 0; // a is occupied
-    for (r = 0; r < na; r++){ det_a |= (1<<aidx[r]); }
+    for (r = 0; r < na; r++){ 
+        if (det_a & (1<<aidx[r])){ return; } // nilpotent escape
+        det_a |= (1<<aidx[r]);
+    }
     // all other spinorbitals in det_i, det_a unoccupied
     uint64_t ndet = (1<<norb); // 2**norb
     for (r = 0; r < norb; r++){ if ((det_i|det_a) & (1<<r)){
@@ -113,14 +149,58 @@ void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double tamp,
         }
         sgn = int_one - 2*((int) sgnbit);
         // The rest of the math is trivial
-        cia = sgn * psi[det_ia];
-        cai = sgn * psi[det_ai];
-        psi[det_ia] = (ct*cia) - (st*cai);
-        psi[det_ai] = (st*cia) + (ct*cai);
+        // cia = sgn * psi[det_ia];
+        // cai = sgn * psi[det_ai];
+        // psi[det_ia] = (ct*cia) - (st*cai);
+        // psi[det_ai] = (st*cia) + (ct*cai);
+        mixer (sgn, amp, psi, opsi, det_ia, det_ai);
     }
 
 }
 
+}
+
+void FSUCCcontract1u (uint8_t * aidx, uint8_t * iidx, double tamp,
+    double * psi, unsigned int norb, unsigned int na, unsigned int ni)
+{
+    /* Evaluate U|Psi> = e^(t [a0'a1'...i1i0 - i0'i1'...a1a0]) |Psi> 
+       Pro tip: add pi/2 to the amplitude to evaluate dU/dt |Psi>
+
+       Input:
+            aidx : array of shape (na); identifies +cr,-an ops
+            iidx : array of shape (ni); identifies +an,-cr ops
+                Note: creation operators are applied left < right;
+                annihilation operators are applied right < left
+            tamp : the amplitude or angle
+
+       Input/Output:
+            psi : array of shape (2**norb); contains wfn
+                Modified in place. Make a copy in the caller
+                if you don't want to modify the input
+    */
+    FSUCCmixer mixer = &FSUCCmixdetu;
+    FSUCCcontract1 (aidx, iidx, tamp, psi, psi, mixer, norb, na, ni);
+}
+
+void FSUCCcontract1h (uint8_t * aidx, uint8_t * iidx, double hamp,
+    double * psi, double * hpsi, unsigned int norb,
+    unsigned int na, unsigned int ni)
+{
+    /* Evaluate H|Psi> = h (a0'a1'...i1i0 + i0'i1'...a1a0) |Psi> 
+
+       Input:
+            aidx : array of shape (na); identifies +cr,-an ops
+            iidx : array of shape (ni); identifies +an,-cr ops
+                Note: creation operators are applied left < right;
+                annihilation operators are applied right < left
+            amp : the amplitude
+            psi : array of shape (2**norb); input wfn
+
+       Input/Output:
+            hpsi : array of shape (2**norb); output wfn
+    */
+    FSUCCmixer mixer = &FSUCCmixdeth;
+    FSUCCcontract1 (aidx, iidx, hamp, psi, hpsi, mixer, norb, na, ni);
 }
 
 void FSUCCprojai (uint8_t * aidx, uint8_t * iidx, double * psi, 
@@ -138,7 +218,7 @@ void FSUCCprojai (uint8_t * aidx, uint8_t * iidx, double * psi,
                 Modified in place. Make a copy in the caller
                 if you don't want to modify the input
     */
-    const int ndet = (1<<norb); // 2**norb
+    const uint64_t ndet = (1<<norb); // 2**norb
     int r;
     uint64_t det_i = 0; // i is occupied
     for (r = 0; r < ni; r++){ det_i |= (1<<iidx[r]); }
@@ -159,6 +239,56 @@ void FSUCCprojai (uint8_t * aidx, uint8_t * iidx, double * psi,
         psi[det] = 0.0;
     }
 }
+}
+
+void _fullhop_(double * hop, double * psi, double * hpsi,
+    uint8_t * pidx, uint8_t * qidx, unsigned int norb,
+    unsigned int nelec, unsigned int ielec)
+{
+
+    const unsigned int npair = norb*(norb+1)/2;
+    const unsigned int opstep = pow (npair, nelec-(ielec+1));
+    unsigned int pq, p, q;
+    unsigned int spin;
+
+    for (pq = 0; pq < npair; pq++){
+        // unpack lower-triangular index 
+        p = 0; q = pq; while (p<q){ p++; q-=p; }
+        for (spin = 0; spin < 2; spin++){
+            pidx[ielec] = p+(spin*norb);
+            qidx[ielec] = q+(spin*norb);
+            if (ielec+1<nelec){ // recurse to next-minor dimension
+                _fullhop_(hop+(pq*opstep), psi, hpsi, pidx, qidx, norb,
+                    nelec, ielec+1);
+            } else { // execute
+                FSUCCcontract1h (pidx, qidx, hop[pq], psi, hpsi, 2*norb,
+                    nelec, nelec);
+            }
+        }
+    }
+
+}
+
+void FSUCCfullhop (double * hop, double * psi, double * hpsi,
+    unsigned int norb, unsigned int nelec)
+{
+    /* Evaluate H|Psi>, where H is an nelec-body spin-symmetric Hermitian
+       operator and |Psi> is a Fock-space FCI vector with no symmetry
+       compactification.
+
+       Input:
+            hop : array of shape [norb*(norb+1)/2]*nelec
+                Contains operator amplitudes
+            psi : array of shape 2**(2*norb); input wfn
+            
+       Output:
+            hpsi : array of shape 2**(2*norb); output wfn
+    */
+    uint8_t * pidx = malloc (nelec * sizeof (uint8_t));
+    uint8_t * qidx = malloc (nelec * sizeof (uint8_t));
+    _fullhop_(hop, psi, hpsi, pidx, qidx, norb, nelec, 0);
+    free (pidx);
+    free (qidx);
 }
 
 

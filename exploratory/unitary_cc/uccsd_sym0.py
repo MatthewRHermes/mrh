@@ -3,6 +3,7 @@ import time, ctypes, math
 from scipy import linalg
 from mrh.lib.helper import load_library
 from itertools import combinations
+from pyscf import lib, ao2mo
 
 libfsucc = load_library ('libfsucc')
 
@@ -19,52 +20,7 @@ libfsucc = load_library ('libfsucc')
        pnon0tab, pshls_slice, pao_loc)
 '''
 
-def _op (norb, a_idxs, i_idxs, tamps, psi, inplace=True, transpose=False, derivs=[]):
-    ''' Evaluate U|Psi> = ... e^t2 e^t1 e^t0 |Psi>, where tn are single
-        generators
-
-        Args:
-            a_idxs : list of len (ngen)
-                ndarrays listing +cr,-an operators
-            i_idxs : list of len (ngen)
-                ndarrays listing +an,-cr operators
-            tamps : ndarray of shape (ngen)
-                amplitudes/angles
-            psi : ndarray of len (2**norb)
-                spinless fock-space CI array
-
-        Kwargs:
-            inplace : logical
-                Setting to False creates a copy
-            transpose : logical
-                If true, generators are applied in reverse order with
-                amplitudes * -1
-            derivs : list or ndarray
-                List of amplitudes by which to differentiate (by adding pi/2)
-                This function returns a ~single~ value or derivative vector
-                of order len (derivs)
-
-        Returns:
-            upsi : ndarray of len (2**norb)
-                new spinless fock-space CI array
-    '''
-    upsi = psi.view () if inplace else psi.copy ()
-    sgn = 1 - (2*int (transpose))
-    my_tamps = tamps * sgn
-    for ideriv in derivs: my_tamps[ideriv] += math.pi * 0.5
-    ngen = len (a_idxs)
-    gen_range = range (ngen-1, -1, -1) if transpose else range (ngen)
-    for igen in gen_range:
-        libfsucc.FSUCCcontract1 (a_idxs[igen].ctypes.data_as (ctypes.c_void_p),
-            i_idxs[igen].ctypes.data_as (ctypes.c_void_p),
-            ctypes.c_double (sgn*tamps[igen]),
-            upsi.ctypes.data_as (ctypes.c_void_p),
-            ctypes.c_uint (norb),
-            ctypes.c_uint (len (a_idxs[igen])),
-            ctypes.c_uint (len (i_idxs[igen])))
-    return upsi
-
-def _op1_(norb, aidx, iidx, amp, psi, transpose=False, deriv=0):
+def _op1u_(norb, aidx, iidx, amp, psi, transpose=False, deriv=0):
     ''' Evaluates U|Psi> = e^(amp * [a0'a1'...i1'i0' - h.c.])|Psi>
 
         Args:
@@ -89,21 +45,55 @@ def _op1_(norb, aidx, iidx, amp, psi, transpose=False, deriv=0):
             psi : ndarray of len (2**norb)
                 arg "psi" after operation
     '''
-    assert (psi.flags['C_CONTIGUOUS'])
-    sgn = 1 - (2*int (transpose))
-    my_amp = sgn * (amp + (deriv * math.pi / 2))
     aidx = np.ascontiguousarray (aidx, dtype=np.uint8)
     iidx = np.ascontiguousarray (iidx, dtype=np.uint8)
+    psi = np.ascontiguousarray (psi, dtype=np.float64)
+    sgn = 1 - (2*int (transpose))
+    my_amp = sgn * (amp + (deriv * math.pi / 2))
     na, ni = aidx.size, iidx.size
     aidx_ptr = aidx.ctypes.data_as (ctypes.c_void_p)
     iidx_ptr = iidx.ctypes.data_as (ctypes.c_void_p)
     psi_ptr = psi.ctypes.data_as (ctypes.c_void_p)
-    libfsucc.FSUCCcontract1 (aidx_ptr, iidx_ptr,
+    libfsucc.FSUCCcontract1u (aidx_ptr, iidx_ptr,
         ctypes.c_double (my_amp), psi_ptr,
         ctypes.c_uint (norb),
         ctypes.c_uint (na),
         ctypes.c_uint (ni))
     return psi
+
+def _op1h_spinsym (norb, herm, psi):
+    ''' Evaluate H|Psi>, where H is a general spin-symmetric Hermitian
+        operator. I'm too lazy to put this function in its own file.
+
+        Args:
+            norb : integer
+                number of SPATIAL orbitals
+            herm : list or tuple
+                contains operator terms in order of increasing electron
+                count. herm[0] is the constant term, herm[1] is the
+                1-electron term, etc. the (n-1)th term consists
+                of an ndarray of shape [norb*(norb+1)//2,]*n
+            psi : ndarray of shape 2**(2*norb)
+                Fock-space CI vector with no symmetry compacting;
+                contains input wfn
+
+        Returns:
+            hpsi : ndarray of shape 2**(2*norb)
+                output wfn
+    '''
+    psi = np.ascontiguousarray (psi, dtype=np.float64)
+    psi_ptr = psi.ctypes.data_as (ctypes.c_void_p)
+    hpsi = herm[0] * psi
+    hpsi_ptr = hpsi.ctypes.data_as (ctypes.c_void_p)
+    fac = 1.0
+    for ix, hterm in enumerate (herm[1:]):
+        nelec = ix+1
+        fac /= ix+1
+        hterm = np.ascontiguousarray (fac * hterm, dtype=np.float64)
+        hterm_ptr = hterm.ctypes.data_as (ctypes.c_void_p)
+        libfsucc.FSUCCfullhop (hterm_ptr, psi_ptr, hpsi_ptr,
+            ctypes.c_uint (norb), ctypes.c_uint (nelec))
+    return hpsi
 
 def _projai_(norb, aidx, iidx, psi):
     ''' Project |Psi> into the space that interacts with the operators
@@ -125,6 +115,7 @@ def _projai_(norb, aidx, iidx, psi):
     '''
     aidx = np.ascontiguousarray (aidx, dtype=np.uint8)
     iidx = np.ascontiguousarray (iidx, dtype=np.uint8)
+    psi = np.ascontiguousarray (psi, dtype=np.float64)
     na, ni = aidx.size, iidx.size
     aidx_ptr = aidx.ctypes.data_as (ctypes.c_void_p)
     iidx_ptr = iidx.ctypes.data_as (ctypes.c_void_p)
@@ -162,7 +153,7 @@ class FSUCCOperator (object):
             dupsi = psi.copy ()
             for ix, aidx, iidx, amp in self.gen_fac (reverse=transpose):
                 if ix==igend: _projai_(self.norb, aidx, iidx, dupsi)
-                _op1_(self.norb, aidx, iidx, amp, dupsi,
+                _op1u_(self.norb, aidx, iidx, amp, dupsi,
                     transpose=transpose, deriv=(ix==igend))
             yield dupsi
 
@@ -195,8 +186,22 @@ class FSUCCOperator (object):
     def __call__(self, psi, transpose=False, inplace=False):
         upsi = psi.view () if inplace else psi.copy ()
         for ix, aidx, iidx, amp in self.gen_fac (reverse=transpose):
-            _op1_(self.norb, aidx, iidx, amp, upsi, transpose=transpose, deriv=0)
+            _op1u_(self.norb, aidx, iidx, amp, upsi, transpose=transpose, deriv=0)
         return upsi
+
+    def get_uniq_amps (self):
+        ''' subclass me to apply s**2 or irrep symmetries '''
+        return self.amps.copy ()
+
+    def set_uniq_amps_(self, x):
+        ''' subclass me to apply s**2 or irrep symmetries '''
+        self.amps[:] = np.asarray (x)
+        return self
+    
+    @property
+    def nuniq (self):
+        ''' subclass me to apply s**2 or irrep symmetries '''
+        return self.ngen
 
 def get_uccs_op (norb, tp=None, tph=None):
     # This is incomplete
@@ -247,7 +252,85 @@ def get_uccs_op_numsym (norb, t1=None):
 def get_uccsd_op_numsym (norb, t1=None, t2=None):
     uop_s = get_uccs_op_numsym (norb, t1=t1)
     return get_uccsd_op (norb, t2=t2, uop_s=uop_s)
-    
+
+
+class UCCS (lib.StreamObject):
+    ''' This is just a super janky way of implementing Hartree-Fock.
+        Its only value is testing the operators.
+        Do not, repeat, do not, waste time trying to make it "fit"
+        anywhere or adding "useful" features. '''
+
+    def __init__(self, mol):
+        self.mol = mol
+        self.norb = mol.nao_nr ()
+        self.mo_coeff = None # One needs at least an orthonormal basis
+        self.verbose = mol.verbose
+        self.stdout = mol.stdout
+        self.x = None
+        self.e_tot = None
+
+    def get_uop (self):
+        return get_uccs_op_numsym (2*self.norb)
+
+    def get_ham (self, mo_coeff=None):
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        h0  = self.mol.energy_nuc ()
+        h1  = mol.intor_symmetric ('int1e_kin') 
+        h1 += mol.intor_symmetric ('int1e_nuc')
+        # Gotta at least make an orthonormal basis
+        if mo_coeff is None:
+            s0 = mol.intor_symmetric ('int1e_ovlp')
+            e1, mo_coeff = linalg.eigh (h1, b=s0)
+        h1 = mo_coeff.T @ h1 @ mo_coeff
+        h1 = h1[np.tril_indices (self.norb)]
+        h2 = ao2mo.restore (4, ao2mo.full (mol, mo_coeff), self.norb)
+        return mo_coeff, h0, h1, h2
+
+    def get_hop (self, mo_coeff=None, ham=None):
+        if ham is None:
+            mo_coeff, h0, h1, h2 = self.get_ham (mo_coeff=mo_coeff)
+            ham = [h0, h1, h2]
+        norb = self.norb
+        def hop (psi): return _op1h_spinsym (norb, ham, psi)
+        return mo_coeff, hop
+
+    def get_psi0 (self):
+        ''' just aufbau for now '''
+        neleca = (self.mol.nelectron + self.mol.spin) // 2
+        nelecb = (self.mol.nelectron - self.mol.spin) // 2
+        n0a, n0b = 0, 0
+        for ielec in range (neleca): n0a |= (1<<ielec)
+        for ielec in range (nelecb): n0b |= (1<<ielec)
+        psi0 = np.zeros (2**(2*self.norb), dtype=np.float64)
+        psi0[(n0a<<self.norb)|n0b] = 1.0
+        return psi0
+
+    def get_obj_fun (self, mo_coeff=None, uop=None, hop=None, psi0=None, x0=None):
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if uop is None: uop = self.get_uop ()
+        if hop is None: mo_coeff, hop = self.get_hop (mo_coeff=mo_coeff, ham=ham)
+        if psi0 is None: psi0 = self.get_psi0 ()
+        if x0 is None: x0 = uop.get_uniq_amps ()
+        def obj_fun (x):
+            uop.set_uniq_amps_(x)
+            upsi = uop (psi0) 
+            hupsi = hop (upsi)
+            e_tot = upsi.conj ().dot (hupsi)
+            jac = []
+            for ix, dupsi in enumerate (uop.gen_deriv1 (psi0)):
+                jac.append (2*dupsi.conj ().dot (hupsi)) 
+            return e_tot, np.asarray (jac)
+        return mo_coeff, obj_fun, x0
+
+    def kernel (self, mo_coeff=None, psi0=None, x0=None):
+        self.mo_coeff, obj_fun, x0 = self.get_obj_fun (mo_coeff=mo_coeff, psi0=psi0)
+        res = optimize.minimize (obf_fun, x0, method='BFGS', jac=True)
+        lib.logger.info (self, 'UCCS BFGS {}'.format (
+            ('not converged','converged')[int (res.success)]))
+        self.x = res.x
+        self.e_tot = res.fun
+        return self.mo_coeff, self.x, self.e_tot
+
 if __name__ == '__main__':
     norb = 4
     def pbin (n):
@@ -256,7 +339,7 @@ if __name__ == '__main__':
         if m: s = ''.join (['0',]*m) + s
         return s
     psi = np.zeros (2**norb)
-    psi[3] = 1.0
+    psi[5] = 1.0
 
     #a, i = np.tril_indices (norb, k=-1)
     #uop = FSUCCOperator (norb, a, i)
@@ -277,6 +360,17 @@ if __name__ == '__main__':
     for ix in range (2**norb):
         print (pbin (ix), psi[ix], upsi[ix], uTupsi[ix])
     print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
+
+    h0 = 1.0
+    npair = (norb//2)*((norb//2)+1)//2
+    h1 = np.random.rand (npair)
+    h2 = np.random.rand (npair, npair)
+    h2 += h2.T
+    h2 /= 2
+    hpsi = _op1h_spinsym (norb//2, [h0,h1,h2], psi)
+    for ix in range (2**norb):
+        print (pbin (ix), psi[ix], hpsi[ix])
+    print ("<psi|H|psi> =",psi.dot (hpsi))
 
     def obj_fun (x):
         uop_sd.amps[:] = x
