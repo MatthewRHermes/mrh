@@ -46,14 +46,11 @@ void FSUCCmixdetu (int sgn, double amp, double * psi, double * upsi,
 
 }
 
-void FSUCCmixdeth (int sgn, double amp, double * psi, double * hpsi,
+void FSUCCmixdetg (int sgn, double amp, double * psi, double * hpsi,
     uint64_t det_ia, uint64_t det_ai)
 {
-    /* Hermitian determinant mixer */
-    hpsi[det_ia] += sgn * amp * psi[det_ai]; 
-    if (det_ia^det_ai){ // careful!!
-    hpsi[det_ai] += sgn * amp * psi[det_ia];
-    }
+    /* General determinant mixer */
+    hpsi[det_ai] += sgn * amp * psi[det_ia]; 
 }
 
 void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double amp,
@@ -148,11 +145,6 @@ void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double amp,
             det_00 ^= (1<<aidx[p]); // pop ap
         }
         sgn = int_one - 2*((int) sgnbit);
-        // The rest of the math is trivial
-        // cia = sgn * psi[det_ia];
-        // cai = sgn * psi[det_ai];
-        // psi[det_ia] = (ct*cia) - (st*cai);
-        // psi[det_ai] = (st*cia) + (ct*cai);
         mixer (sgn, amp, psi, opsi, det_ia, det_ai);
     }
 
@@ -182,11 +174,11 @@ void FSUCCcontract1u (uint8_t * aidx, uint8_t * iidx, double tamp,
     FSUCCcontract1 (aidx, iidx, tamp, psi, psi, mixer, norb, na, ni);
 }
 
-void FSUCCcontract1h (uint8_t * aidx, uint8_t * iidx, double hamp,
+void FSUCCcontract1g (uint8_t * aidx, uint8_t * iidx, double hamp,
     double * psi, double * hpsi, unsigned int norb,
     unsigned int na, unsigned int ni)
 {
-    /* Evaluate H|Psi> = h (a0'a1'...i1i0 + i0'i1'...a1a0) |Psi> 
+    /* Evaluate G|Psi> = g a0'a1'...i1i0 |Psi> 
 
        Input:
             aidx : array of shape (na); identifies +cr,-an ops
@@ -199,7 +191,7 @@ void FSUCCcontract1h (uint8_t * aidx, uint8_t * iidx, double hamp,
        Input/Output:
             hpsi : array of shape (2**norb); output wfn
     */
-    FSUCCmixer mixer = &FSUCCmixdeth;
+    FSUCCmixer mixer = &FSUCCmixdetg;
     FSUCCcontract1 (aidx, iidx, hamp, psi, hpsi, mixer, norb, na, ni);
 }
 
@@ -248,27 +240,27 @@ void _fullhop_(double * hop, double * psi, double * hpsi,
 
     const unsigned int npair = norb*(norb+1)/2;
     const unsigned int opstep = pow (npair, nelec-(ielec+1));
-    unsigned int pq, p, q;
-    unsigned int spin;
+    unsigned int pq_idx, p, q, nperm, iperm, spin;
+    unsigned int pq[2];
 
-    for (pq = 0; pq < npair; pq++){
+    for (pq_idx = 0; pq_idx < npair; pq_idx++){
         // unpack lower-triangular index 
-        p = 0; q = pq; while (p<q){ p++; q-=p; }
-        for (spin = 0; spin < 2; spin++){
-            pidx[ielec] = p+(spin*norb);
-            qidx[ielec] = q+(spin*norb);
-            if (ielec+1<nelec){ // recurse to next-minor dimension
-                _fullhop_(hop+(pq*opstep), psi, hpsi, pidx, qidx, norb,
-                    nelec, ielec+1);
-                if (p!=q){
-                pidx[ielec] = q+(spin*norb);
-                qidx[ielec] = p+(spin*norb); // (ij|kl) <-> (ij|lk) symm
-                _fullhop_(hop+(pq*opstep), psi, hpsi, pidx, qidx, norb,
-                    nelec, ielec+1);
+        p = 0; q = pq_idx; while (p<q){ p++; q-=p; }
+        nperm = 2 - ((int) (p==q));
+        pq[0] = p;
+        pq[1] = q;
+        for (iperm = 0; iperm < nperm; iperm++){ // (**|ij) <-> (**|ji) symmetry
+                                                 // includes overall transpose
+            for (spin = 0; spin < 2; spin++){
+                pidx[ielec] = pq[0+iperm] + (spin*norb);
+                qidx[ielec] = pq[1-iperm] + (spin*norb);
+                if (ielec+1<nelec){ // recurse to next-minor dimension
+                    _fullhop_(hop+(pq_idx*opstep), psi, hpsi, pidx, qidx, norb,
+                        nelec, ielec+1);
+                } else { // execute
+                    FSUCCcontract1g (pidx, qidx, hop[pq_idx], psi, hpsi, 2*norb,
+                        nelec, nelec);
                 }
-            } else { // execute
-                FSUCCcontract1h (pidx, qidx, hop[pq], psi, hpsi, 2*norb,
-                    nelec, nelec);
             }
         }
     }

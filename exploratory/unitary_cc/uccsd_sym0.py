@@ -339,16 +339,16 @@ class UCCS (lib.StreamObject):
         t1 = np.zeros ((2*self.norb, 2*self.norb), dtype=x.dtype)
         t1[np.tril_indices (2*self.norb, k=-1)] = x[:]
         t1 -= t1.T
-        umat = linalg.expm (t1/2)
+        umat = linalg.expm (t1)
         mspo_coeff = np.zeros ((2*norb,2*norb), dtype=mo_coeff.dtype)
         mspo_coeff[:norb,:norb] = mspo_coeff[norb:,norb:] = mo_coeff[:,:]
         return mspo_coeff @ umat
 
 if __name__ == '__main__':
     norb = 4
-    def pbin (n):
+    def pbin (n, k=norb):
         s = bin (n)[2:]
-        m = norb - len (s)
+        m = k - len (s)
         if m: s = ''.join (['0',]*m) + s
         return s
     psi = np.zeros (2**norb)
@@ -412,12 +412,11 @@ if __name__ == '__main__':
     fullci = fci.solver (rhf.mol)
     mo = rhf.mo_coeff
     nmo = mo.shape[-1]
-    h0 = 0.0 #mol.energy_nuc ()
+    h0 = mol.energy_nuc ()
     h1 = mo.T @ rhf.mo_coeff @ mo
-    h1[:] = 0.0
     h1_tril = h1[np.tril_indices (nmo)]
     h2 = ao2mo.restore (4, ao2mo.full (mol, mo), nmo)
-    h2 = np.diag (np.diag (h2))
+         
     h2eff = fullci.absorb_h1e (h1, h2, nmo, (1,1), 0.5)
 
     np.random.seed (0)    
@@ -433,13 +432,12 @@ if __name__ == '__main__':
     e_h = ci_h.ravel ().dot (hci_h.ravel ())
     n_f = ci_f.dot (ci_f)
     e_f = ci_f.dot (hci_f)
-    s_fh = fockspace.fock2hilbert (ci_f, nmo, (1,1)).ravel ().dot (ci_h.ravel ()) 
 
-    print ("<h|h> =",n_h,"<h|H|h> =",e_h,"<f|f> =",n_f,"<f|H|f> =",e_f,"<h|f> =",s_fh)
+    print ("<h|H|h> =",e_h,"<f|H|f> =",e_f,)
 
     uhf = scf.UHF (mol).run ()
     uccs = UCCS (mol).run ()
-    print (uccs.e_tot-uhf.e_tot, linalg.norm (uccs.x))
+    print ("The actual test result is:", uccs.e_tot-uhf.e_tot, linalg.norm (uccs.x))
     nmo = mol.nao_nr ()
     hf_mo = np.zeros ((2*nmo,2*nmo), dtype=uhf.mo_coeff.dtype)
     hf_mo[:nmo,:nmo] = uhf.mo_coeff[0]
