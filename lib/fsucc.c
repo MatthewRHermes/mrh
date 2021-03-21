@@ -123,3 +123,42 @@ void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double tamp,
 
 }
 
+void FSUCCprojai (uint8_t * aidx, uint8_t * iidx, double * psi, 
+    unsigned int norb, unsigned int na, unsigned int ni)
+{
+    /* Project |Psi> into the space that interacts with the operators
+       a1'a2'...i1i0 and i1'i2'...a1a0.
+
+       Input:
+            aidx : array of shape (na); identifies +cr,-an ops
+            iidx : array of shape (ni); identifies +an,-cr ops
+
+       Input/Output:
+            psi : array of shape (2**norb); contains wfn
+                Modified in place. Make a copy in the caller
+                if you don't want to modify the input
+    */
+    const int ndet = (1<<norb); // 2**norb
+    int r;
+    uint64_t det_i = 0; // i is occupied
+    for (r = 0; r < ni; r++){ det_i |= (1<<iidx[r]); }
+    uint64_t det_a = 0; // a is occupied
+    for (r = 0; r < na; r++){ det_a |= (1<<aidx[r]); }
+    const uint64_t det_ia = det_i|det_a; // active orbitals (so to speak)
+
+// Should I even bother? I guess 2**n is so bad I should even though this
+// should be super fast...        
+#pragma omp parallel default(shared)
+{
+    uint64_t det, det_proj;
+#pragma omp for schedule(static)
+    for (det = 0; det < ndet; det++){
+        det_proj = det & det_ia;
+        if (det_proj == det_i){ continue; }
+        if (det_proj == det_a){ continue; }
+        psi[det] = 0.0;
+    }
+}
+}
+
+
