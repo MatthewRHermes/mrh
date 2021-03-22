@@ -91,7 +91,7 @@ def kernel (mc,nroots):
 
 ##########################################
     dm1_old = dm1
-    maxiter = 5
+    maxiter = 50
     ci_old = ci_array
     thrs = 1.0e-06
     for it in range(maxiter):
@@ -118,19 +118,19 @@ def kernel (mc,nroots):
 #        print("diff",np.linalg.norm(ci_rot-ci_old))
 #        for r in range (nroots):
         print("U",U.shape)
-#i        print("ci rot", ci_old.shape)
-        ci_old = np.dot(ci_old,mo_cas.T)
-        ci_old = np.dot(mo_cas,ci_old).transpose(1,0,2)
-        ind1,ind2 = np.tril_indices(nao-1,k=0)
-        ci_vec = np.zeros((nroots,len(ind1)))
-        print("ci_vec", ci_vec.shape)
-        for p in range(nroots):
-            for x in range (len(ind1)):
-                for m in range(nao):
-                    if ind1[x]==m:
-                        for k in range(nao):
-                            if ind2[x]==k:
-                                ci_vec[p,x]=ci_old[p,ind1[x],ind2[x]]
+#        print("ci rot", ci_old.shape)
+#        ci_old = np.dot(ci_old,mo_cas.T)
+#        ci_old = np.dot(mo_cas,ci_old).transpose(1,0,2)
+#        ind1,ind2 = np.tril_indices(nao-1,k=0)
+#        ci_vec = np.zeros((nroots,len(ind1)))
+#        print("ci_vec", ci_vec.shape)
+#        for p in range(nroots):
+#            for x in range (len(ind1)):
+#                for m in range(nao):
+#                    if ind1[x]==m:
+#                        for k in range(nao):
+#                            if ind2[x]==k:
+#                                ci_vec[p,x]=ci_old[p,ind1[x],ind2[x]]
 #        print("civec",ci_vec)
 #        print("civec", ci_old)       
         ci_rot = np.tensordot(U,ci_old,1)      
@@ -140,8 +140,9 @@ def kernel (mc,nroots):
 #        print("ci_rot",ci_rot)
         print("ci diff",np.linalg.norm( ci_rot-ci_old))
 # CHANGE BACK TO MO BASIS
-        ci_rot= ao2mo.kernel(ci_rot,mo_cas)
- 
+#        ci_rot= np.dot(ci_rot,mo_cas).transpose(2,0,1)
+#        ci_rot=np.dot(mo_cas,ci_rot)
+#        print("ci_rot",ci_rot.shape)
         
 #Dm1s
         casdm1_rot = mc.fcisolver.states_make_rdm1 (ci_rot,mc_1root.ncas,mc_1root.nelecas)
@@ -161,7 +162,7 @@ def kernel (mc,nroots):
 
         j = mc_1root._scf.get_j (dm=dm1_cirot)
         e_coul2 = (j*dm1_cirot).sum((1,2)) / 2
-        print("iter", it, "e coul", e_coul2)
+        print("iter", it, "e coul",e_coul2.sum(), e_coul2)
         print("sum diff", (e_coul-e_coul2).sum(0)) 
         grad1 = np.zeros((nroots,pairs))
 #Gradient
@@ -206,20 +207,21 @@ def kernel (mc,nroots):
 
         print ("hess",linalg.norm(hess))    
 #        g = np.zeros((nroots,nroots))
-        inv_hess = np.linalg.inv(hess)
-        print("inv_hess",linalg.norm(inv_hess))
+#        inv_hess = np.linalg.inv(hess)
+#        print("inv_hess",linalg.norm(inv_hess))
 #        g[np.tril_indices(g.shape[0], k = -1)] = grad
 #        g = g + g.T
 #        print("g", g)
-        t_add = np.tensordot(inv_hess,grad,1)
+#        t_add = np.tensordot(inv_hess,grad,1)
 #        print("tadd1", t_add)
 #        print( "tadd2", np.matmul(grad1,inv_hess))
-
+        t_add = linalg.solve(hess,-grad)        
+        t[:] = 0
         t[np.tril_indices(t.shape[0], k = -1)] = t_add
        
-        t = t + t.T
+        t = t - t.T
         t = t + t_old
-        t_old = t
+        t_old = t.copy()
 #        t = t + t_add
         print("t", t)        
 #        t = t+ t_add
