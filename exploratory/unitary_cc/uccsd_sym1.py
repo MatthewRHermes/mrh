@@ -44,7 +44,7 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
             assert (not (np.all (a == i))), errstr
             if len (a) == 1: # Only case where I know the proper symmetry
                              # relation between amps to ensure S**2
-                symrow = [len (self.symtab), len (self.symtab)+1]
+                symrow = [len (self.a_idxs), len (self.i_idxs)+1]
                 self.a_idxs.extend ([a, a+norb])
                 self.i_idxs.extend ([i, i+norb])
                 self.symtab.append (symrow)
@@ -156,6 +156,17 @@ class UCCS (uccsd_sym0.UCCS):
     def get_uop (self):
         return get_uccs_op (self.norb)
 
+    def rotate_mo (self, mo_coeff=None, x=None):
+        if mo_coeff is None: mo_coeff=self.mo_coeff
+        if x is None: x=self.x
+        norb = self.norb
+        t1 = np.zeros ((norb, norb), dtype=x.dtype)
+        t1[np.tril_indices (norb, k=-1)] = x[:]
+        t1 -= t1.T
+        umat = linalg.expm (t1)
+        return mo_coeff @ umat
+
+
 if __name__ == '__main__':
     norb = 4
     nelec = 4
@@ -196,8 +207,6 @@ if __name__ == '__main__':
     print ("<psi|S**2|psi> =",spin_square (psi, norb)[0],
            "<psi|U'S**2U|psi> =",spin_square (upsi, norb)[0], spin_op.spin_square (upsi_h, norb, nelec)[0])
 
-    uop_sd.print_tab ()
-
     ndet = cistring.num_strings (norb, nelec//2)
     np.random.seed (0)
     tpsi = 1-(2*np.random.rand (ndet))
@@ -230,13 +239,28 @@ if __name__ == '__main__':
         print ("<psi|S**2|psi> =",spin_square (psi, norb)[0],
                "<psi|U'S**2U|psi> =",spin_square (upsi, norb)[0])
 
-    #uop_s.set_uniq_amps_(np.zeros (uop_s.ngen_uniq))
-    #print ("Testing singles...")
-    #obj_test (uop_s)
-    #print ('Testing singles and doubles...')
-    #x = np.zeros (uop_sd.ngen_uniq)
+    uop_s.set_uniq_amps_(np.zeros (uop_s.ngen_uniq))
+    print ("Testing singles...")
+    obj_test (uop_s)
+    print ('Testing singles and doubles...')
+    x = np.zeros (uop_sd.ngen_uniq)
     #x[:uop_s.ngen_uniq] = uop_s.get_uniq_amps ()
-    ##uop_sd.set_uniq_amps_(x)
-    #obj_test (uop_sd)
+    uop_sd.set_uniq_amps_(x)
+    obj_test (uop_sd)
+
+    from pyscf import gto, scf, lib
+    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis='6-31g', verbose=lib.logger.DEBUG, output='uccsd_sym0.log')
+    rhf = scf.RHF (mol).run ()
+    uccs = UCCS (mol).run ()
+    print ("The actual test result is:", uccs.e_tot-rhf.e_tot, linalg.norm (uccs.x))
+    nmo = mol.nao_nr ()
+    hf_mo = rhf.mo_coeff
+    uccs_mo0 = uccs.mo_coeff
+    uccs_mo1 = uccs.rotate_mo ()
+    s0 = mol.intor_symmetric ('int1e_ovlp')
+    print ("hf MOs vs UCCS frame:\n", np.diag (hf_mo.T @ s0 @ uccs_mo0))
+    print ("hf MOs vs UCCS opt:\n", np.diag (hf_mo.T @ s0 @ uccs_mo1))
+    rhf.mo_coeff[:,:] = uccs_mo1[:,:]
+    print (rhf.energy_tot (), uccs.e_tot)
 
 

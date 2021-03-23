@@ -1,6 +1,6 @@
 import numpy as np
 import time, ctypes, math
-from scipy import linalg
+from scipy import linalg, optimize
 from mrh.lib.helper import load_library
 from itertools import combinations
 from pyscf import lib, ao2mo
@@ -279,15 +279,15 @@ class UCCS (lib.StreamObject):
     def get_ham (self, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         h0  = self.mol.energy_nuc ()
-        h1  = mol.intor_symmetric ('int1e_kin') 
-        h1 += mol.intor_symmetric ('int1e_nuc')
+        h1  = self.mol.intor_symmetric ('int1e_kin') 
+        h1 += self.mol.intor_symmetric ('int1e_nuc')
         # Gotta at least make an orthonormal basis
         if mo_coeff is None:
-            s0 = mol.intor_symmetric ('int1e_ovlp')
+            s0 = self.mol.intor_symmetric ('int1e_ovlp')
             e1, mo_coeff = linalg.eigh (h1, b=s0)
         h1 = mo_coeff.T @ h1 @ mo_coeff
         h1 = h1[np.tril_indices (self.norb)]
-        h2 = ao2mo.restore (4, ao2mo.full (mol, mo_coeff), self.norb)
+        h2 = ao2mo.restore (4, ao2mo.full (self.mol, mo_coeff), self.norb)
         return mo_coeff, h0, h1, h2
 
     def get_hop (self, mo_coeff=None, ham=None):
@@ -398,7 +398,6 @@ if __name__ == '__main__':
             jac[ix] += 2*(upsi.dot (dupsi) - dupsi[7]*upsi[7])
         return err, jac
 
-    from scipy import optimize
     #res = optimize.minimize (obj_fun, uop_sd.amps, method='BFGS', jac=True)
 
     #print (res.success)
