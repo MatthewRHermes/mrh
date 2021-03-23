@@ -292,3 +292,43 @@ void _fullhop_(double * hop, double * psi, double * hpsi,
     }
 }
 
+void FSUCCcontractS2 (double * psi, double * s2psi, unsigned int norb)
+{
+    /* Evaluate S^2|Psi> */
+    uint8_t p, q;
+    uint8_t pqqp[4];
+    uint64_t ndet = (1<<(2*norb)); // 2**(2*norb)
+
+#pragma omp parallel default(shared)
+{
+
+    uint64_t idet;
+    int8_t iorb, na, nb;
+    double sz;
+
+#pragma omp for schedule(static)
+    for (idet = 0; idet < ndet; idet++){
+        na = 0; nb = 0; 
+        for (iorb = 0; iorb < norb; iorb++){
+            na += (idet & (1<<iorb))>>iorb;
+        }
+        for (iorb = norb; iorb < 2*norb; iorb++){
+            nb += (idet & (1<<iorb))>>iorb;
+        }
+        sz = (na-nb) * 0.5; 
+        s2psi[idet] = ((sz*sz) + 0.5*(na+nb)) * psi[idet];
+    }
+}    
+
+    for (p = 0; p < norb; p++){ for (q = 0; q < norb; q++){
+        pqqp[0] = p + norb; // spin-up cr
+        pqqp[1] = q;        // spin-down cr
+        pqqp[2] = q + norb; // spin-up an
+        pqqp[3] = p;        // spin-down an
+        FSUCCcontract1g (pqqp, pqqp+2, -1.0, psi, s2psi, 2*norb, 2, 2);
+    }}
+    
+}
+
+
+
