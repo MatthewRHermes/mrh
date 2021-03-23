@@ -33,11 +33,12 @@
 
 typedef void (*FSUCCmixer) (int, double, double*, double*, uint64_t, uint64_t);
 
+
 void FSUCCmixdetu (int sgn, double amp, double * psi, double * upsi,
     uint64_t det_ia, uint64_t det_ai)
 {
     /* Unitary determinant mixer */
-    double ct = sgn * cos (amp);
+    double ct = cos (amp); // A product of number operators never flips sign!
     double st = sgn * sin (amp);
     double psi_ia = psi[det_ia];
     double psi_ai = psi[det_ai];
@@ -135,14 +136,14 @@ void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double amp,
             for (q = iidx[p]+1; q < norb; q++){
                 sgnbit ^= (det_00 & (1<<q))>>q; // c1'c2' = -c2'c1' sign toggle
             }
-            det_00 ^= (1<<iidx[p]); // pop ip
+            det_00 ^= (1<<iidx[p]); // pop i[p]
         }
         det_00 = det_ai;
         for (p = 0; p < na; p++){
             for (q = aidx[p]+1; q < norb; q++){
-                sgnbit ^= (det_00 & (1<<q))>>q; // c1'c2' = c2'c1' sign toggle
+                sgnbit ^= (det_00 & (1<<q))>>q; // c1'c2' = -c2'c1' sign toggle
             }
-            det_00 ^= (1<<aidx[p]); // pop ap
+            det_00 ^= (1<<aidx[p]); // pop a[p]
         }
         sgn = int_one - 2*((int) sgnbit);
         mixer (sgn, amp, psi, opsi, det_ia, det_ai);
@@ -174,7 +175,7 @@ void FSUCCcontract1u (uint8_t * aidx, uint8_t * iidx, double tamp,
     FSUCCcontract1 (aidx, iidx, tamp, psi, psi, mixer, norb, na, ni);
 }
 
-void FSUCCcontract1g (uint8_t * aidx, uint8_t * iidx, double hamp,
+void FSUCCcontract1g (uint8_t * aidx, uint8_t * iidx, double gamp,
     double * psi, double * hpsi, unsigned int norb,
     unsigned int na, unsigned int ni)
 {
@@ -188,11 +189,11 @@ void FSUCCcontract1g (uint8_t * aidx, uint8_t * iidx, double hamp,
             amp : the amplitude
             psi : array of shape (2**norb); input wfn
 
-       Input/Output:
+       Output:
             hpsi : array of shape (2**norb); output wfn
     */
     FSUCCmixer mixer = &FSUCCmixdetg;
-    FSUCCcontract1 (aidx, iidx, hamp, psi, hpsi, mixer, norb, na, ni);
+    FSUCCcontract1 (aidx, iidx, gamp, psi, hpsi, mixer, norb, na, ni);
 }
 
 void FSUCCprojai (uint8_t * aidx, uint8_t * iidx, double * psi, 
@@ -233,6 +234,31 @@ void FSUCCprojai (uint8_t * aidx, uint8_t * iidx, double * psi,
 }
 }
 
+// Declare a recursive driver for FSUCCfullhop
+void _fullhop_(double*, double*, double*, uint8_t*, uint8_t*,
+    unsigned int, unsigned int, unsigned int);
+void FSUCCfullhop (double * hop, double * psi, double * hpsi,
+    unsigned int norb, unsigned int nelec)
+{
+    /* Evaluate H|Psi>, where H is an nelec-body spin-symmetric Hermitian
+       operator and |Psi> is a Fock-space FCI vector with no symmetry
+       compactification.
+
+       Input:
+            hop : array of shape [norb*(norb+1)/2]*nelec
+                Contains operator amplitudes
+            psi : array of shape 2**(2*norb); input wfn
+            
+       Output:
+            hpsi : array of shape 2**(2*norb); output wfn
+    */
+    uint8_t * pidx = malloc (nelec * sizeof (uint8_t));
+    uint8_t * qidx = malloc (nelec * sizeof (uint8_t));
+    // Enter recursion over dimensions/electrons
+    _fullhop_(hop, psi, hpsi, pidx, qidx, norb, nelec, 0);
+    free (pidx);
+    free (qidx);
+}
 void _fullhop_(double * hop, double * psi, double * hpsi,
     uint8_t * pidx, uint8_t * qidx, unsigned int norb,
     unsigned int nelec, unsigned int ielec)
@@ -264,29 +290,5 @@ void _fullhop_(double * hop, double * psi, double * hpsi,
             }
         }
     }
-
 }
-
-void FSUCCfullhop (double * hop, double * psi, double * hpsi,
-    unsigned int norb, unsigned int nelec)
-{
-    /* Evaluate H|Psi>, where H is an nelec-body spin-symmetric Hermitian
-       operator and |Psi> is a Fock-space FCI vector with no symmetry
-       compactification.
-
-       Input:
-            hop : array of shape [norb*(norb+1)/2]*nelec
-                Contains operator amplitudes
-            psi : array of shape 2**(2*norb); input wfn
-            
-       Output:
-            hpsi : array of shape 2**(2*norb); output wfn
-    */
-    uint8_t * pidx = malloc (nelec * sizeof (uint8_t));
-    uint8_t * qidx = malloc (nelec * sizeof (uint8_t));
-    _fullhop_(hop, psi, hpsi, pidx, qidx, norb, nelec, 0);
-    free (pidx);
-    free (qidx);
-}
-
 

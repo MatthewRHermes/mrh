@@ -147,15 +147,19 @@ class FSUCCOperator (object):
         for igen in range (start, stop, step):
             yield igen, self.a_idxs[igen], self.i_idxs[igen], self.amps[igen]
 
+    def get_deriv1 (self, psi, igend, transpose=False):
+        ''' Get the derivative of U|Psi> wrt a particular generator amplitude '''
+        dupsi = psi.copy ()
+        for ix, aidx, iidx, amp in self.gen_fac (reverse=transpose):
+            if ix==igend: _projai_(self.norb, aidx, iidx, dupsi)
+            _op1u_(self.norb, aidx, iidx, amp, dupsi,
+                transpose=transpose, deriv=(ix==igend))
+        return dupsi
+
     def gen_deriv1 (self, psi, transpose=False):
         ''' Iterate over first derivatives of U|Psi> wrt to generator amplitudes '''
         for igend in range (self.ngen):
-            dupsi = psi.copy ()
-            for ix, aidx, iidx, amp in self.gen_fac (reverse=transpose):
-                if ix==igend: _projai_(self.norb, aidx, iidx, dupsi)
-                _op1u_(self.norb, aidx, iidx, amp, dupsi,
-                    transpose=transpose, deriv=(ix==igend))
-            yield dupsi
+            yield self.get_deriv1 (psi, igend, transpose=transpose)
 
     def assert_sanity (self, nodupes=True):
         ''' check for nilpotent generators, too many cr/an ops, or orbital
