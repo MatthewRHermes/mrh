@@ -137,29 +137,80 @@ class FSUCCOperator (object):
         self.amps = np.zeros (ngen)
         self.assert_sanity (nodupes=True)
 
-    def gen_fac (self, reverse=False):
+    def gen_fac (self, reverse=False, ustart=None):
         ''' Iterate over unitary factors/generators. '''
         ngen = self.ngen
         intr = int (reverse)
-        start = 0 + (intr * (ngen-1))
-        stop = ngen - (intr * (ngen+1))
         step = 1 - (2*intr)
-        for igen in range (start, stop, step):
+        if ustart is None: ustart = 0 + (intr * (ngen-1))
+        stop = ngen - (intr * (ngen+1))
+        for igen in range (ustart, stop, step):
             yield igen, self.a_idxs[igen], self.i_idxs[igen], self.amps[igen]
 
-    def get_deriv1 (self, psi, igend, transpose=False):
-        ''' Get the derivative of U|Psi> wrt a particular generator amplitude '''
-        dupsi = psi.copy ()
-        for ix, aidx, iidx, amp in self.gen_fac (reverse=transpose):
-            if ix==igend: _projai_(self.norb, aidx, iidx, dupsi)
-            _op1u_(self.norb, aidx, iidx, amp, dupsi,
+    def get_deriv1 (self, psi, igend, transpose=False, copy=True,
+            _ustart=None, _cache=False):
+        ''' Get the derivative of U|Psi> wrt a particular generator amplitude 
+
+        Args:
+            psi : ndarray of shape (2**norb)
+                wfn |Psi> in dU/dun |Psi>
+            igend : integer
+                index of generator amplitude un in dU/dun
+
+        Kwargs:
+            transpose: logical
+                If true, differentiate U'|Psi> instead of U|Psi> 
+            copy : logical
+                If false, input psi is modified in-place
+            _ustart : integer or None
+                If provided, describes how many factors of U have already been
+                evaluated from right to left in the argument psi.
+            _cache : logical
+                If true, return U_partial|Psi>, where U_partial contains the first
+                igend-1 unitary factors from right to left
+
+        Returns:
+            psi : ndarray of shape (2**norb)
+                dU/dun |Psi>; input argument modified in-place unless copy=True
+            _upsi : ndarrya of shape (2**norb)
+                U_partial |Psi> = U(igend-1)U(igend-2)...U(0)|Psi>, returned
+                only if _cache==True '''
+            
+        if copy: psi = psi.copy ()
+        _upsi = None
+        if (_ustart is not None) and (_ustart>igend):
+            raise RuntimeError (("Can't evaluate dU/dun|Psi> because "
+                "Un|Psi> has already been evaluated in input."))
+        for ix, aidx, iidx, amp in self.gen_fac (reverse=transpose, 
+                ustart=_ustart):
+            # U       = ..U2.U1.U0
+            # Un      = 1 + sin(un) (a'i - i'a) + (cos(un) - 1) (na vi + va ni)
+            # dUn/dun = cos(u1) (a'i - i'a) - sin(u1) (na vi + va ni)
+            #         = sin(v1) (a'i - i'a) + cos(v1) (na vi + va ni)
+            #           where v1 = u1 + pi/2
+            # but notice that the unity term for spectator determinants disappears!
+            # we have to project away all spectator determinants!
+            if ix==igend: 
+                if _cache: _upsi = psi.copy ()
+                _projai_(self.norb, aidx, iidx, psi) # project spectators
+            _op1u_(self.norb, aidx, iidx, amp, psi,
                 transpose=transpose, deriv=(ix==igend))
-        return dupsi
+        if _cache: return psi, _upsi
+        return psi
 
     def gen_deriv1 (self, psi, transpose=False):
-        ''' Iterate over first derivatives of U|Psi> wrt to generator amplitudes '''
-        for igend in range (self.ngen):
-            yield self.get_deriv1 (psi, igend, transpose=transpose)
+        ''' Iterate over first derivatives of U|Psi> wrt to generator amplitudes 
+            transpose == True yields dU/dun|Psi> in reverse order '''
+        upsi, ustart = psi.copy (), None
+        start = self.ngen-1 if transpose else 0
+        stop = -1 if transpose else self.ngen
+        step = -1 if transpose else 1
+        for igend in range (start, stop, step):
+            dupsi, upsi = self.get_deriv1 (upsi, igend, 
+                transpose=transpose, copy=False, _ustart=ustart,
+                _cache=True)
+            ustart = igend
+            yield dupsi
 
     def assert_sanity (self, nodupes=True):
         ''' check for nilpotent generators, too many cr/an ops, or orbital
@@ -398,15 +449,15 @@ if __name__ == '__main__':
             jac[ix] += 2*(upsi.dot (dupsi) - dupsi[7]*upsi[7])
         return err, jac
 
-    #res = optimize.minimize (obj_fun, uop_sd.amps, method='BFGS', jac=True)
+    res = optimize.minimize (obj_fun, uop_sd.amps, method='BFGS', jac=True)
 
-    #print (res.success)
-    #uop_sd.amps[:] = res.x
-    #upsi = uop_sd (psi)
-    #uTupsi = uop_sd (upsi, transpose=True)
-    #for ix in range (2**norb):
-    #    print (pbin (ix), psi[ix], upsi[ix], uTupsi[ix])
-    #print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
+    print (res.success)
+    uop_sd.set_uniq_amps_(res.x)
+    upsi = uop_sd (psi)
+    uTupsi = uop_sd (upsi, transpose=True)
+    for ix in range (2**norb):
+        print (pbin (ix), psi[ix], upsi[ix], uTupsi[ix])
+    print ("<psi|psi> =",psi.dot (psi), "<psi|U|psi> =",psi.dot (upsi),"<psi|U'U|psi> =",upsi.dot (upsi))
 
     from pyscf import gto, scf, fci
     from mrh.exploratory.citools import fockspace

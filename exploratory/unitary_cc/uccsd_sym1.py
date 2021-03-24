@@ -56,7 +56,7 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
                         if mi != ma: continue # sz-break escape
                         if np.amax (np.unique (ij, # nilpotent escape
                             return_counts=True)[1]) > 1: continue
-                        self.symtab.append ([len (self.symtab)])
+                        self.symtab.append ([len (self.a_idxs)])
                         self.a_idxs.append (ab)
                         self.i_idxs.append (ij)
         self.norb = 2*norb
@@ -88,10 +88,17 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
 
     def gen_deriv1 (self, psi, transpose=False):
         ''' Implement the product rule for constrained derivatives '''
-        for symrow in self.symtab:
-            dupsi = np.zeros_like (psi)
-            for igend in symrow: dupsi += self.get_deriv1 (psi, igend,
-                transpose=transpose)
+        # TODO: handle different orderings
+        upsi, ustart = psi.copy (), None
+        step = -1 if transpose else 1
+        for symrow in self.symtab[::step]:
+            dupsi = np.zeros_like (upsi)
+            for igend in symrow[::step]:
+                dupsi_i, upsi = self.get_deriv1 (upsi, igend,
+                    transpose=transpose, copy=False, _ustart=ustart,
+                    _cache=True)
+                ustart = igend
+                dupsi += dupsi_i
             yield dupsi
 
     def print_tab (self):
