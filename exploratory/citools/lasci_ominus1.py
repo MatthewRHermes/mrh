@@ -36,13 +36,12 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
         log = lib.logger.new_logger (fci, verbose)
 
     las = fci.get_obj (h1, h2, ci0_f, norb, nlas, nelec, ecore=ecore, log=log)
-    las_options = {'ftol':     tol,
-                   'gtol':     gtol,
-                   'maxfun':   max_cycle,
+    las_options = {'gtol':     gtol,
                    'maxiter':  max_cycle,
-                   'iprint':   verbose_lbjfgs[verbose]}
+                   'disp':     verbose>lib.logger.DEBUG}
+    log.info ('LASCI object has %d degrees of freedom', las.nvar_tot)
     res = optimize.minimize (las, las.get_init_guess (),
-        method='L-BFGS-B', jac=True, callback=las.solver_callback,
+        method='BFGS', jac=True, callback=las.solver_callback,
         options=las_options)
     assert (res.success)
 
@@ -118,7 +117,10 @@ class LASCI_ObjectiveFunction (object):
 
     def fermion_frag_shuffle (self, c, i, j, norb=None):
         if norb is None: norb=self.norb
-        return c * fockspace.fermion_frag_shuffle (norb, i, j)
+        c_shape = c.shape
+        c = c.ravel ()
+        c *= fockspace.fermion_frag_shuffle (2*norb, 2*i, 2*j)
+        return c.reshape (c_shape)
 
     def pack (self, xconstr, xorb, xci_f):
         x = [xconstr, xorb]
@@ -368,30 +370,38 @@ class LASCI_ObjectiveFunction (object):
         log.debug ('These two energies should be the same: %e - %e = %e',
             e_tot0, e_tot1, e_tot0-e_tot1)
 
-    def print_x (self, x, print_fn=print, ci_maxlines=10):
+    def print_x (self, x, print_fn=print, ci_maxlines=10, jac=None):
         norb, nlas = self.norb, self.nlas
-        xconstr, xorb, xci_f = self.unpack (x)
+        if jac is None: jac = self.jac (x)
+        xconstr, xcc, xci_f = self.unpack (x)
+        jconstr, jcc, jci_f = self.unpack (jac)
         print_fn ('xconstr = {}'.format (xconstr))
-        umat = linalg.expm (xorb/2)
+        kappa = np.zeros ((norb, norb), dtype=xcc.dtype)
+        kappa[self.uniq_orb_idx] = xcc[:]
+        kappa -= kappa.T
+        umat = linalg.expm (kappa)
         ci1_f = self.rotate_ci0 (xci_f)
         print_fn ('umat:')
         fmt_str = ' '.join (['{:10.7f}',]*norb)
         for row in umat: print_fn (fmt_str.format (*row))
-        for ix, (xci, ci1, n) in enumerate (zip (xci_f, ci1_f, nlas)):
+        for ix, (xci, ci1, jci, n) in enumerate (zip (xci_f, ci1_f, jci_f, nlas)):
             print_fn ('Fragment {} x and ci1 leading elements'.format (ix))
             fmt_det = '{:>' + str (max(4,n)) + 's}'
-            fmt_str = ' '.join ([fmt_det, '{:>10s}', fmt_det, '{:>10s}'])
-            print_fn (fmt_str.format ('xdet', 'xcoeff', 'cdet', 'ccoeff'))
+            fmt_str = ' '.join ([fmt_det, '{:>10s}', fmt_det, '{:>10s}', fmt_det, '{:>10s}'])
+            print_fn (fmt_str.format ('xdet', 'xcoeff', 'cdet', 'ccoeff', 'jdet', 'jcoeff'))
             strs_x = np.argsort (-np.abs (xci).ravel ())
             strs_c = np.argsort (-np.abs (ci1).ravel ())
+            strs_j = np.argsort (-np.abs (jci).ravel ())
             strsa_x, strsb_x = np.divmod (strs_x, 2**n)
             strsa_c, strsb_c = np.divmod (strs_c, 2**n)
-            fmt_str = ' '.join ([fmt_det, '{:10.3e}', fmt_det, '{:10.3e}'])
-            for irow, (sa, sb, ca, cb) in enumerate (zip (strsa_x, strsb_x, strsa_c, strsb_c)):
+            strsa_j, strsb_j = np.divmod (strs_j, 2**n)
+            fmt_str = ' '.join ([fmt_det, '{:10.3e}', fmt_det, '{:10.3e}', fmt_det, '{:10.3e}'])
+            for irow, (sa, sb, ca, cb, ja, jb) in enumerate (zip (strsa_x, strsb_x, strsa_c, strsb_c, strsa_j, strsb_j)):
                 if irow==ci_maxlines: break
                 sdet = fockspace.pretty_str (sa, sb, n)
                 cdet = fockspace.pretty_str (ca, cb, n)
-                print_fn (fmt_str.format (sdet, xci[sa,sb], cdet, ci1[ca,cb]))
+                jdet = fockspace.pretty_str (ja, jb, n)
+                print_fn (fmt_str.format (sdet, xci[sa,sb], cdet, ci1[ca,cb], jdet, jci[ja,jb]))
 
 class FCISolver (direct_spin1.FCISolver):
     kernel = kernel
