@@ -163,7 +163,7 @@ def kernel (mc,nroots):
         j = mc_1root._scf.get_j (dm=dm1_cirot)
         e_coul2 = (j*dm1_cirot).sum((1,2)) / 2
         print("iter", it, "e coul",e_coul2.sum(), e_coul2)
-        print("sum diff", (e_coul-e_coul2).sum(0)) 
+        print("sum diff", (e_coul-e_coul2).sum()) 
         grad1 = np.zeros((nroots,pairs))
 #Gradient
 #        for m in range(nroots):
