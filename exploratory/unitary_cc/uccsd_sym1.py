@@ -79,7 +79,11 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
 
     def set_uniq_amps_(self, x):
         for symrow, xi in zip (self.symtab, x):
-            self.amps[symrow] = xi
+            try:
+                self.amps[symrow] = xi
+            except ValueError as e:
+                print (symrow, xi, x.shape)
+                raise (e)
         return self
 
     def gen_deriv1 (self, psi, transpose=False):
@@ -107,8 +111,12 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
             ptstr += ')'
             print (ptstr)
 
-def get_uccs_op (norb, t1=None):
-    t1_idx = np.tril_indices (norb, k=-1)
+def get_uccs_op (norb, t1=None, freeze_mask=None):
+    t1_idx = np.zeros ((norb, norb), dtype=np.bool_)
+    t1_idx[np.tril_indices (norb, k=-1)] = True
+    if freeze_mask is not None:
+        t1_idx[freeze_mask] = False
+    t1_idx = np.where (t1_idx)
     a, i = list (t1_idx[0]), list (t1_idx[1])
     uop = FSUCCOperator (norb, a, i)
     if t1 is not None:
