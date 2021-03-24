@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <omp.h>
+#include <time.h>
 #include "fblas.h"
 
 #ifndef MINMAX
@@ -31,30 +32,28 @@
    nPmH in general
 */
 
-typedef void (*FSUCCmixer) (int, double, double*, double*, uint64_t, uint64_t);
+typedef void (*FSUCCmixer) (int, double*, double*, double*, uint64_t, uint64_t);
 
 
-void FSUCCmixdetu (int sgn, double amp, double * psi, double * upsi,
+void FSUCCmixdetu (int sgn, double * amp, double * psi, double * upsi,
     uint64_t det_ia, uint64_t det_ai)
 {
     /* Unitary determinant mixer */
-    double ct = cos (amp); // A product of number operators never flips sign!
-    double st = sgn * sin (amp);
-    double psi_ia = psi[det_ia];
-    double psi_ai = psi[det_ai];
-    upsi[det_ia] = (ct*psi_ia) - (st*psi_ai);
-    upsi[det_ai] = (st*psi_ia) + (ct*psi_ai);
+    double snamp1 = sgn * amp[1]; // sin (amp);
+    double psi_ia = psi[det_ia]; // In case things are modified in-place
+    upsi[det_ia] = (amp[0]*psi_ia) - (snamp1*psi[det_ai]);
+    upsi[det_ai] = (snamp1*psi_ia) + (amp[0]*psi[det_ai]);
 
 }
 
-void FSUCCmixdetg (int sgn, double amp, double * psi, double * hpsi,
+void FSUCCmixdetg (int sgn, double * amp, double * psi, double * hpsi,
     uint64_t det_ia, uint64_t det_ai)
 {
     /* General determinant mixer */
-    hpsi[det_ai] += sgn * amp * psi[det_ia]; 
+    hpsi[det_ai] += sgn * (*amp) * psi[det_ia]; 
 }
 
-void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double amp,
+void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double * amp,
     double * psi, double * opsi, FSUCCmixer mixer, 
     unsigned int norb, unsigned int na, unsigned int ni)
 {
@@ -65,7 +64,9 @@ void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double amp,
             iidx : array of shape (ni); identifies an,cr ops
                 Note: creation operators are applied left < right;
                 annihilation operators are applied right < left
-            amp : the amplitude or angle
+            amp : amplitudes
+                Precompute things like cos (t), sin (t) in caller
+                and cache them in arrays
             psi : array of shape (2**norb); input wfn
             mixer : function pointer; corresponds to type of operator
                 The two valid "types" at the moment are unitary
@@ -121,6 +122,7 @@ void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double amp,
         } // det_00: spectator spinorbitals; all i, a bits unset
         det_ia = det_00 | det_i;
         det_ai = det_00 | det_a;
+        if ((psi[det_ia] == 0.0) && (psi[det_ai] == 0.0)){ continue; }
         // The sign for the whole excitation is the product of the sign incurred
         // by doing this to det_ia:
         // ...i2'...i1'...i0'|0> -> i0'i1'i2'...|0>
@@ -151,6 +153,7 @@ void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double amp,
 
 }
 
+
 }
 
 void FSUCCcontract1u (uint8_t * aidx, uint8_t * iidx, double tamp,
@@ -171,8 +174,11 @@ void FSUCCcontract1u (uint8_t * aidx, uint8_t * iidx, double tamp,
                 Modified in place. Make a copy in the caller
                 if you don't want to modify the input
     */
+    double amp[2];
+    amp[0] = cos (tamp);
+    amp[1] = sin (tamp);
     FSUCCmixer mixer = &FSUCCmixdetu;
-    FSUCCcontract1 (aidx, iidx, tamp, psi, psi, mixer, norb, na, ni);
+    FSUCCcontract1 (aidx, iidx, amp, psi, psi, mixer, norb, na, ni);
 }
 
 void FSUCCcontract1g (uint8_t * aidx, uint8_t * iidx, double gamp,
@@ -193,7 +199,7 @@ void FSUCCcontract1g (uint8_t * aidx, uint8_t * iidx, double gamp,
             hpsi : array of shape (2**norb); output wfn
     */
     FSUCCmixer mixer = &FSUCCmixdetg;
-    FSUCCcontract1 (aidx, iidx, gamp, psi, hpsi, mixer, norb, na, ni);
+    FSUCCcontract1 (aidx, iidx, &gamp, psi, hpsi, mixer, norb, na, ni);
 }
 
 void FSUCCprojai (uint8_t * aidx, uint8_t * iidx, double * psi, 
