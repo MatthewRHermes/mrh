@@ -116,11 +116,23 @@ class LASCI_ObjectiveFunction (object):
         return c * fockspace.fermion_spin_shuffle (norb, nlas)
 
     def fermion_frag_shuffle (self, c, i, j, norb=None):
+        # TODO: fix this!
         if norb is None: norb=self.norb
         c_shape = c.shape
         c = c.ravel ()
-        c *= fockspace.fermion_frag_shuffle (2*norb, 2*i, 2*j)
-        return c.reshape (c_shape)
+        sgn = fockspace.fermion_frag_shuffle (norb, i, j)
+        sgn = np.multiply.outer (sgn, sgn).ravel ()
+        #if isinstance (sgn, np.ndarray):
+        #    print (sgn.shape)
+        #    flip_idx = sgn<0
+        #    if np.count_nonzero (flip_idx):
+        #        c_flip = c.copy ()
+        #        c_flip[~flip_idx] = 0.0
+        #        det_flp = np.argsort (-np.abs (c_flip))
+        #        for det in det_flp[:10]:
+        #            deta, detb = divmod (det, 2**norb)
+        #            print (fockspace.pretty_str (deta, detb, norb), c_flip[det])
+        return (c * sgn).reshape (c_shape)
 
     def pack (self, xconstr, xorb, xci_f):
         x = [xconstr, xorb]
