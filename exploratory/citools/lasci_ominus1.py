@@ -47,6 +47,7 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
 
     e_tot = las.energy_tot (res.x)
     ci1 = las.get_fcivec (res.x)
+    las.uop.print_tab ()
     return e_tot, ci1
 
 def make_rdm12 (fci, fcivec, norb, nelec, **kwargs):
@@ -103,11 +104,8 @@ class LASCI_ObjectiveFunction (object):
         self.nconstr = 1 # Total charge only
         self.log = log if log is not None else lib.logger.new_logger (fcisolver, fcisolver.verbose)
         self.it_cnt = 0
+        self.uop = fcisolver.get_uop (norb, nlas)
         self._x_last = np.zeros (self.nvar_tot)
-        freeze_mask = np.zeros ((norb, norb), dtype=np.bool_)
-        for i,j in zip (np.cumsum (nlas)-nlas, np.cumsum(nlas)):
-            freeze_mask[i:j,i:j] = True
-        self.uop = get_uccs_op (norb, freeze_mask=freeze_mask)
         assert (self.check_ci0_constr ())
 
     def fermion_spin_shuffle (self, c, norb=None, nlas=None):
@@ -134,8 +132,8 @@ class LASCI_ObjectiveFunction (object):
         #            print (fockspace.pretty_str (deta, detb, norb), c_flip[det])
         return (c * sgn).reshape (c_shape)
 
-    def pack (self, xconstr, xorb, xci_f):
-        x = [xconstr, xorb]
+    def pack (self, xconstr, xcc, xci_f):
+        x = [xconstr, xcc]
         ci0_f = self.ci0_f
         for xci, ci0 in zip (xci_f, ci0_f):
             cHx = ci0.conj ().ravel ().dot (xci.ravel ())
@@ -146,8 +144,8 @@ class LASCI_ObjectiveFunction (object):
     def unpack (self, x):
         xconstr, x = x[:self.nconstr], x[self.nconstr:]
 
-        xcc = x[:self.nvar_orb] 
-        x = x[self.nvar_orb:]
+        xcc = x[:self.uop.ngen_uniq] 
+        x = x[self.uop.ngen_uniq:]
 
         xci = []
         for n in self.nlas:
@@ -157,12 +155,8 @@ class LASCI_ObjectiveFunction (object):
         return xconstr, xcc, xci
 
     @property
-    def nvar_orb (self):
-        return np.count_nonzero (self.uniq_orb_idx)
-
-    @property
     def nvar_tot (self):
-        return self.nconstr + self.nvar_orb + sum ([c.size for c in self.ci0_f])
+        return self.nconstr + self.uop.ngen_uniq + sum ([c.size for c in self.ci0_f])
 
     def __call__(self, x):
         c, uc, huc, uhuc, c_f = self.hc_x (x)
@@ -423,6 +417,10 @@ class FCISolver (direct_spin1.FCISolver):
     spin_square = spin_square
     def get_obj (self, *args, **kwargs):
         return LASCI_ObjectiveFunction (self, *args, **kwargs)
-
+    def get_uop (self, norb, nlas):
+        freeze_mask = np.zeros ((norb, norb), dtype=np.bool_)
+        for i,j in zip (np.cumsum (nlas)-nlas, np.cumsum(nlas)):
+            freeze_mask[i:j,i:j] = True
+        return get_uccs_op (norb, freeze_mask=freeze_mask)
 
 

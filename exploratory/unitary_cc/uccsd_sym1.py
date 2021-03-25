@@ -106,6 +106,7 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
         for ix in range (self.ngen_uniq): self.print_uniq (ix)
 
     def print_uniq (self, ix):
+        norb = self.norb // 2
         symrow = self.symtab[ix]
         print ("Unique amplitude {}".format (ix))
         for gen in symrow:
