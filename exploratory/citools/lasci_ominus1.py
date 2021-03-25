@@ -47,7 +47,7 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
 
     e_tot = las.energy_tot (res.x)
     ci1 = las.get_fcivec (res.x)
-    las.uop.print_tab ()
+    if verbose>=lib.logger.DEBUG: las.uop.print_tab (_print_fn=log.debug)
     return e_tot, ci1
 
 def make_rdm12 (fci, fcivec, norb, nelec, **kwargs):

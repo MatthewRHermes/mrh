@@ -101,14 +101,15 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
                 dupsi += dupsi_i
             yield dupsi
 
-    def print_tab (self):
+    def print_tab (self, _print_fn=print):
         norb = self.norb // 2
-        for ix in range (self.ngen_uniq): self.print_uniq (ix)
+        for ix in range (self.ngen_uniq): self.print_uniq (ix,
+            _print_fn=_print_fn)
 
-    def print_uniq (self, ix):
+    def print_uniq (self, ix, _print_fn=print):
         norb = self.norb // 2
         symrow = self.symtab[ix]
-        print ("Unique amplitude {}".format (ix))
+        _print_fn ("Unique amplitude {}".format (ix))
         for gen in symrow:
             ab = self.a_idxs[gen]
             ij = self.i_idxs[gen]
@@ -117,7 +118,7 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
             ptstr += '->'
             for a in ab: ptstr += "{}{}".format (a%norb,('a','b')[a//norb])
             ptstr += ')'
-            print (ptstr)
+            _print_fn (ptstr)
 
 def get_uccs_op (norb, t1=None, freeze_mask=None):
     t1_idx = np.zeros ((norb, norb), dtype=np.bool_)
