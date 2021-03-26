@@ -4,6 +4,7 @@ from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import product
 from mrh.my_pyscf.mcscf.lassi_op_o1 import fermion_spin_shuffle as _fss
+from mrh.my_pyscf.fci.csfstring import CSFTransformer
 
 MAX_NORB = 26 # for now
 ADDRS_NELEC = np.array ([0], dtype=np.uint8)
@@ -147,7 +148,31 @@ def pretty_str (stra, strb, norb):
         if bet & (1 << iorb): s = 'b' + s
     assert len (s) == norb
     return s
-        
+
+def hilbert_sector_weight (ci, norb, nelec, smult, is_hilbert=False):
+    if np.asarray (nelec).size == 1:
+        nelec = _unpack_nelec (nelec,spin=(smult-1))
+    if not is_hilbert:
+        ci = fock2hilbert (ci, norb, nelec)
+    norm = CSFTransformer (norb, nelec[0], nelec[1],
+        smult).vec_det2csf (ci, normalize=False, return_norm=True)[1]
+    return norm**2
+
+def hilbert_sector_weights (ci, norb):
+    sectors = []
+    n_weights = []
+    for nelec in product (range (norb+1), repeat=2):
+        spin = nelec[0] - nelec[1]
+        smin = abs (spin) + 1
+        smax = min (sum (nelec), 2*norb - sum (nelec)) + 1
+        ci_h = fock2hilbert (ci, norb, nelec)
+        n_weights.append ((ci_h*ci_h).sum((1,2)))
+        for smult in range (smin, smax+1, 2):
+            w = hilbert_sector_weight (ci_h, norb, nelec, smult, is_hilbert=True)
+            sectors.append ([nelec, smult, w])
+    weights = np.asarray ([w[-1] for w in sectors])
+    assert (np.all (np.abs (1.0 - weights.sum (0)) < 1e-4)), '{}'.format (weights.sum (0))
+    return sectors
 
 if __name__ == '__main__':
     nroots = 3
@@ -174,6 +199,10 @@ if __name__ == '__main__':
     neleca_avg = np.stack (neleca_avg, axis=0).sum (0)
     nelecb_avg = np.stack (nelecb_avg, axis=0).sum (0)
     print ("<neleca>, <nelecb> should be close to 4 (statistically) =", neleca_avg, nelecb_avg)
+    weights = hilbert_sector_weights (ci_f, norb)
+    for row in weights:
+        print ("nelec = {}, smult = {}, weight = {}".format (*row))
+    print ("Trying out smult = 9 manually:", hilbert_sector_weight (ci_f, 8, 8, 9))
 
     # Test outer-product stuff
     from mrh.my_pyscf.mcscf.lassi_op_o0 import _ci_outer_product
