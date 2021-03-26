@@ -45,10 +45,31 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
         options=las_options)
     assert (res.success)
 
+    fci.converged = res.success
     e_tot = las.energy_tot (res.x)
     ci1 = las.get_fcivec (res.x)
-    if verbose>=lib.logger.DEBUG: las.uop.print_tab (_print_fn=log.debug)
+    if verbose>=lib.logger.DEBUG:
+        las.uop.print_tab (_print_fn=log.debug)
+        las.print_x (res.x, _print_fn=log.debug)
     return e_tot, ci1
+
+def make_rdm1 (fci, fcivec, norb, nelec, **kwargs):
+    dm1 = np.zeros ((norb, norb))
+    for nelec in product (range (norb+1), repeat=2):
+        ci = fockspace.fock2hilbert (fcivec, norb, nelec)
+        d = direct_spin1.make_rdm1 (ci, norb, nelec, **kwargs)
+        dm1 += d
+    return dm1
+
+def make_rdm1s (fci, fcivec, norb, nelec, **kwargs):
+    dm1a = np.zeros ((norb,norb))
+    dm1b = np.zeros ((norb,norb))
+    for nelec in product (range (norb+1), repeat=2):
+        ci = fockspace.fock2hilbert (fcivec, norb, nelec)
+        da, db = direct_spin1.make_rdm1s (ci, norb, nelec, **kwargs)
+        dm1a += da
+        dm1b += db
+    return dm1a, dm1b
 
 def make_rdm12 (fci, fcivec, norb, nelec, **kwargs):
     dm1 = np.zeros ((norb,norb))
@@ -376,25 +397,25 @@ class LASCI_ObjectiveFunction (object):
         log.debug ('These two energies should be the same: %e - %e = %e',
             e_tot0, e_tot1, e_tot0-e_tot1)
 
-    def print_x (self, x, print_fn=print, ci_maxlines=10, jac=None):
+    def print_x (self, x, _print_fn=print, ci_maxlines=10, jac=None):
         norb, nlas = self.norb, self.nlas
         if jac is None: jac = self.jac (x)
         xconstr, xcc, xci_f = self.unpack (x)
         jconstr, jcc, jci_f = self.unpack (jac)
-        print_fn ('xconstr = {}'.format (xconstr))
-        kappa = np.zeros ((norb, norb), dtype=xcc.dtype)
-        kappa[self.uniq_orb_idx] = xcc[:]
-        kappa -= kappa.T
-        umat = linalg.expm (kappa)
+        _print_fn ('xconstr = {}'.format (xconstr))
+        #kappa = np.zeros ((norb, norb), dtype=xcc.dtype)
+        #kappa[self.uniq_orb_idx] = xcc[:]
+        #kappa -= kappa.T
+        #umat = linalg.expm (kappa)
         ci1_f = self.rotate_ci0 (xci_f)
-        print_fn ('umat:')
-        fmt_str = ' '.join (['{:10.7f}',]*norb)
-        for row in umat: print_fn (fmt_str.format (*row))
+        #_print_fn ('umat:')
+        #fmt_str = ' '.join (['{:10.7f}',]*norb)
+        #for row in umat: _print_fn (fmt_str.format (*row))
         for ix, (xci, ci1, jci, n) in enumerate (zip (xci_f, ci1_f, jci_f, nlas)):
-            print_fn ('Fragment {} x and ci1 leading elements'.format (ix))
+            _print_fn ('Fragment {} x and ci1 leading elements'.format (ix))
             fmt_det = '{:>' + str (max(4,n)) + 's}'
             fmt_str = ' '.join ([fmt_det, '{:>10s}', fmt_det, '{:>10s}', fmt_det, '{:>10s}'])
-            print_fn (fmt_str.format ('xdet', 'xcoeff', 'cdet', 'ccoeff', 'jdet', 'jcoeff'))
+            _print_fn (fmt_str.format ('xdet', 'xcoeff', 'cdet', 'ccoeff', 'jdet', 'jcoeff'))
             strs_x = np.argsort (-np.abs (xci).ravel ())
             strs_c = np.argsort (-np.abs (ci1).ravel ())
             strs_j = np.argsort (-np.abs (jci).ravel ())
@@ -407,11 +428,13 @@ class LASCI_ObjectiveFunction (object):
                 sdet = fockspace.pretty_str (sa, sb, n)
                 cdet = fockspace.pretty_str (ca, cb, n)
                 jdet = fockspace.pretty_str (ja, jb, n)
-                print_fn (fmt_str.format (sdet, xci[sa,sb], cdet, ci1[ca,cb], jdet, jci[ja,jb]))
+                _print_fn (fmt_str.format (sdet, xci[sa,sb], cdet, ci1[ca,cb], jdet, jci[ja,jb]))
 
 class FCISolver (direct_spin1.FCISolver):
     kernel = kernel
     approx_kernel = kernel
+    make_rdm1 = make_rdm1
+    make_rdm1s = make_rdm1s
     make_rdm12 = make_rdm12
     get_init_guess = get_init_guess
     spin_square = spin_square
