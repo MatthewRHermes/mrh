@@ -211,7 +211,7 @@ class LASCI_ObjectiveFunction (object):
         # number symmetry
         jacconstr = self.get_jac_constr (uc)
         t1 = log.timer ('las_obj constr jac', *t0)
-        jact1 = self.get_jac_t1 (x, c=c, huc=huc)
+        jact1 = self.get_jac_t1 (x, c=c, huc=huc, uhuc=uhuc)
         t1 = log.timer ('las_obj ucc jac', *t1)
         jacci_f = self.get_jac_ci (x, uhuc=uhuc, uci_f=c_f)
         t1 = log.timer ('las_obj ci jac', *t1)
@@ -274,15 +274,15 @@ class LASCI_ObjectiveFunction (object):
         dm1 = self.fcisolver.make_rdm12 (ci, self.norb, 0)[0]
         return np.array ([np.trace (dm1) - self.nelec])
 
-    def get_jac_t1 (self, x, c=None, huc=None):
+    def get_jac_t1 (self, x, c=None, huc=None, uhuc=None):
         g = []
         xconstr, xcc, xci_f = self.unpack (x)
         self.uop.set_uniq_amps_(xcc)
-        if (c is None) or (huc is None):
-            c, _, huc = self.hc_x (x)[:3] 
-        huc = huc.ravel ()
-        for duc in self.uop.gen_deriv1 (c):
-            g.append (2*duc.ravel ().dot (huc))
+        if (c is None) or (uhuc is None):
+            c, _, _, uhuc = self.hc_x (x)[:4] 
+        for duc, uhuc_i in zip (self.uop.gen_deriv1 (c, _full=False), self.uop.gen_partial (uhuc)):
+            g.append (2*duc.ravel ().dot (uhuc_i.ravel ()))
+        g = self.uop.product_rule_pack (g)
         return np.asarray (g)
 
     def get_jac_ci (self, x, uhuc=None, uci_f=None):

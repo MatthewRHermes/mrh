@@ -148,7 +148,7 @@ class FSUCCOperator (object):
             yield igen, self.a_idxs[igen], self.i_idxs[igen], self.amps[igen]
 
     def get_deriv1 (self, psi, igend, transpose=False, copy=True,
-            _ustart=None, _cache=False):
+            _ustart=None, _cache=False, _full=True):
         ''' Get the derivative of U|Psi> wrt a particular generator amplitude 
 
         Args:
@@ -168,6 +168,9 @@ class FSUCCOperator (object):
             _cache : logical
                 If true, return U_partial|Psi>, where U_partial contains the first
                 igend-1 unitary factors from right to left
+            _full : logical
+                If false, instead of evaluating the full vector d(U|Psi>)/dun,
+                it returns immediately after evaluating the differentiated factor.
 
         Returns:
             psi : ndarray of shape (2**norb)
@@ -195,10 +198,13 @@ class FSUCCOperator (object):
                 _projai_(self.norb, aidx, iidx, psi) # project spectators
             _op1u_(self.norb, aidx, iidx, amp, psi,
                 transpose=transpose, deriv=(ix==igend))
+            if ix==igend and not _full: break
         if _cache: return psi, _upsi
         return psi
 
-    def gen_deriv1 (self, psi, transpose=False):
+    def product_rule_pack (self, g): return g
+
+    def gen_deriv1 (self, psi, transpose=False, _full=True):
         ''' Iterate over first derivatives of U|Psi> wrt to generator amplitudes 
             transpose == True yields dU/dun|Psi> in reverse order '''
         upsi, ustart = psi.copy (), None
@@ -208,9 +214,17 @@ class FSUCCOperator (object):
         for igend in range (start, stop, step):
             dupsi, upsi = self.get_deriv1 (upsi, igend, 
                 transpose=transpose, copy=False, _ustart=ustart,
-                _cache=True)
+                _cache=True, _full=_full)
             ustart = igend
             yield dupsi
+
+    def gen_partial (self, psi, transpose=False, inplace=False):
+        ''' Like __call__, except it yields the partially-transformed vector after
+            each factor. Be careful not to destroy the data in the yield vector.'''
+        upsi = psi.view () if inplace else psi.copy ()
+        for ix, aidx, iidx, amp in self.gen_fac (reverse=transpose):
+            _op1u_(self.norb, aidx, iidx, amp, upsi, transpose=transpose, deriv=0)
+            yield upsi
 
     def assert_sanity (self, nodupes=True):
         ''' check for nilpotent generators, too many cr/an ops, or orbital
@@ -371,9 +385,11 @@ class UCCS (lib.StreamObject):
             upsi = uop (psi0) 
             hupsi = hop (upsi)
             e_tot = upsi.conj ().dot (hupsi)
+            uhupsi = uop (hupsi, transpose=True)
             jac = []
-            for ix, dupsi in enumerate (uop.gen_deriv1 (psi0)):
-                jac.append (2*dupsi.conj ().dot (hupsi)) 
+            for du, uhu in zip (uop.gen_deriv1 (psi0, _full=False), uop.gen_partial (uhupsi)):
+                jac.append (2*du.conj ().dot (uhu)) 
+            jac = uop.product_rule_pack (jac)
             return e_tot, np.asarray (jac)
         return mo_coeff, obj_fun, x0
 

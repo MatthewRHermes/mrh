@@ -86,20 +86,15 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
                 raise (e)
         return self
 
-    def gen_deriv1 (self, psi, transpose=False):
-        ''' Implement the product rule for constrained derivatives '''
-        # TODO: handle different orderings
-        upsi, ustart = psi.copy (), None
-        step = -1 if transpose else 1
-        for symrow in self.symtab[::step]:
-            dupsi = np.zeros_like (upsi)
-            for igend in symrow[::step]:
-                dupsi_i, upsi = self.get_deriv1 (upsi, igend,
-                    transpose=transpose, copy=False, _ustart=ustart,
-                    _cache=True)
-                ustart = igend
-                dupsi += dupsi_i
-            yield dupsi
+    def product_rule_pack (self, g):
+        ''' Pack a vector of size self.ngen according to the product
+            rule; i.e., for a gradient wrt generator amplitudes '''
+        assert (len (g) == self.ngen)
+        g = np.asarray (g)
+        g_uniq = np.empty (self.ngen_uniq)
+        for ix, symrow in enumerate (self.symtab):
+            g_uniq[ix] = g[symrow].sum ()
+        return g_uniq
 
     def print_tab (self, _print_fn=print):
         norb = self.norb // 2
@@ -237,9 +232,10 @@ if __name__ == '__main__':
             upsi = uop_test (psi)
             ut = upsi.dot (tpsi)
             err = upsi.dot (upsi) - (ut**2)
-            jac = np.zeros_like (x)
+            jac = np.zeros (uop_test.ngen)
             for ix, dupsi in enumerate (uop_test.gen_deriv1 (psi)):
                 jac[ix] += 2*dupsi.dot (upsi - ut*tpsi) 
+            jac = uop_test.product_rule_pack (jac)
             print (err, linalg.norm (jac))
             return err, jac
 
