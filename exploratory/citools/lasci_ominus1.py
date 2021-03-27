@@ -242,8 +242,8 @@ class LASCI_ObjectiveFunction (object):
         uhuc = self.uop (huc, transpose=True)
         return c, uc, huc, uhuc, c_f
         
-    def contract_h2 (self, h, ci):
-        norb = self.norb
+    def contract_h2 (self, h, ci, norb=None):
+        if norb is None: norb = self.norb
         hci = h[0] * ci
         for neleca, nelecb in product (range (norb+1), repeat=2):
             nelec = (neleca, nelecb)
