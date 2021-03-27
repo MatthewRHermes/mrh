@@ -62,7 +62,7 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
         self.norb = 2*norb
         self.ngen = len (self.a_idxs)
         assert (len (self.i_idxs) == self.ngen)
-        self.ngen_uniq = len (self.symtab)
+        #self.ngen_uniq = len (self.symtab)
         self.uniq_gen_idx = np.array ([x[0] for x in self.symtab])
         self.amps = np.zeros (self.ngen)
         self.assert_sanity ()
@@ -95,6 +95,11 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
         for ix, symrow in enumerate (self.symtab):
             g_uniq[ix] = g[symrow].sum ()
         return g_uniq
+
+    @property
+    def ngen_uniq (self):
+        ''' subclass me to apply s**2 or irrep symmetries '''
+        return len (self.symtab)
 
     def print_tab (self, _print_fn=print):
         norb = self.norb // 2
@@ -177,6 +182,10 @@ class UCCS (uccsd_sym0.UCCS):
         t1 -= t1.T
         umat = linalg.expm (t1)
         return mo_coeff @ umat
+
+class UCCSD (UCCS):
+    def get_uop (self):
+        return get_uccsd_op (self.norb)
 
 
 if __name__ == '__main__':

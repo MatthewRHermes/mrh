@@ -268,7 +268,7 @@ class FSUCCOperator (object):
         return self
     
     @property
-    def nuniq (self):
+    def ngen_uniq (self):
         ''' subclass me to apply s**2 or irrep symmetries '''
         return self.ngen
 
@@ -333,9 +333,9 @@ class UCCS (lib.StreamObject):
         self.mol = mol
         self.norb = mol.nao_nr ()
         self.mo_coeff = None # One needs at least an orthonormal basis
-        self.verbose = mol.verbose
         self.stdout = mol.stdout
         self.x = None
+        self.psi0 = None
         self.e_tot = None
 
     def get_uop (self):
@@ -393,8 +393,11 @@ class UCCS (lib.StreamObject):
             return e_tot, np.asarray (jac)
         return mo_coeff, obj_fun, x0
 
-    def kernel (self, mo_coeff=None, psi0=None, x0=None):
-        self.mo_coeff, obj_fun, x0 = self.get_obj_fun (mo_coeff=mo_coeff, psi0=psi0)
+    def kernel (self, mo_coeff=None, psi0=None, x=None):
+        if mo_coeff is None: mo_coeff=self.mo_coeff
+        if psi0 is None: psi0=self.psi0
+        if x is None: x = self.x
+        self.mo_coeff, obj_fun, x0 = self.get_obj_fun (mo_coeff=mo_coeff, psi0=psi0, x0=x)
         res = optimize.minimize (obj_fun, x0, method='BFGS', jac=True)
         lib.logger.info (self, 'UCCS BFGS {}'.format (
             ('not converged','converged')[int (res.success)]))
@@ -414,6 +417,10 @@ class UCCS (lib.StreamObject):
         mspo_coeff = np.zeros ((2*norb,2*norb), dtype=mo_coeff.dtype)
         mspo_coeff[:norb,:norb] = mspo_coeff[norb:,norb:] = mo_coeff[:,:]
         return mspo_coeff @ umat
+
+class UCCSD (UCCS):
+    def get_uop (self):
+        return get_uccsd_op_numsym (2*self.norb)
 
 if __name__ == '__main__':
     norb = 4
