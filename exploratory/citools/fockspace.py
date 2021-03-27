@@ -132,7 +132,7 @@ def fermion_frag_shuffle (norb, i, j):
     assert (sgn.size==ndet)
     return sgn
 
-def pretty_str (stra, strb, norb):
+def onv_str (stra, strb, norb):
     ''' Generate a printable string of the type 0a2b from spin-up and spin-down
     strings for norb orbitals '''
     s = ''

@@ -160,7 +160,7 @@ class LASCI_ObjectiveFunction (object):
         #        det_flp = np.argsort (-np.abs (c_flip))
         #        for det in det_flp[:10]:
         #            deta, detb = divmod (det, 2**norb)
-        #            print (fockspace.pretty_str (deta, detb, norb), c_flip[det])
+        #            print (fockspace.onv_str (deta, detb, norb), c_flip[det])
         return (c * sgn).reshape (c_shape)
 
     def pack (self, xconstr, xcc, xci_f):
@@ -444,9 +444,9 @@ class LASCI_ObjectiveFunction (object):
             fmt_str = ' '.join ([fmt_det, '{:10.3e}', fmt_det, '{:10.3e}', fmt_det, '{:10.3e}'])
             for irow, (sa, sb, ca, cb, ja, jb) in enumerate (zip (strsa_x, strsb_x, strsa_c, strsb_c, strsa_j, strsb_j)):
                 if irow==ci_maxlines: break
-                sdet = fockspace.pretty_str (sa, sb, n)
-                cdet = fockspace.pretty_str (ca, cb, n)
-                jdet = fockspace.pretty_str (ja, jb, n)
+                sdet = fockspace.onv_str (sa, sb, n)
+                cdet = fockspace.onv_str (ca, cb, n)
+                jdet = fockspace.onv_str (ja, jb, n)
                 _print_fn (fmt_str.format (sdet, xci[sa,sb], cdet, ci1[ca,cb], jdet, jci[ja,jb]))
 
     gen_frag_basis = addons.gen_frag_basis

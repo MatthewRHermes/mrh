@@ -39,11 +39,9 @@ res = obj_fn.res # OptimizeResult object returned by scipy.optimize.minimize
                  # see docs.scipy.org for more documentation about this
 x = res.x # Amplitude vector for the BFGS problem 
 energy, gradient = obj_fn (x) # obj_fn is callable!
-print (("Recomputing LASUCCSD total energy with cached objective "
-    "function: {:.9f}").format (energy, mc.e_tot))
-print (("At convergence, the gradient norm of the LASUCCSD "
-    "energy-minimization problem was {:.9e}").format (
-    linalg.norm (gradient)))
+print ("Recomputing LASUCC total energy with cached objective function")
+print ("LASUCCSD energy: {:.9f}".format (energy))
+print ("|gradient| = {:.3e}".format (linalg.norm (gradient)))
 print ("If that seems too high to you, consider: BFGS sucks.\n")
 
 fcivec = obj_fn.get_fcivec (x) # |LASUCC> itself as a CI vector
@@ -63,11 +61,12 @@ ci_f = obj_fn.get_ci_f (x) # list of optimized CI vectors for each fragment
 ci_h = [fockspace.fock2hilbert (c, 2, (1,1)) for c in ci_f]
 w_nb = [linalg.norm (c_f)**2 - linalg.norm (c_h)**2 for (c_f, c_h) in 
     zip (ci_f, ci_h)]
-print (("If the two numbers below are nonzero, then my implementation "
-        "of this definitely doesn't pointlessly waste memory."))
+print (("Wave function weight outside of the singlet 2-electron "
+        "Hilbert space"))
+print (("(If these numbers are nonzero, then my implementation "
+        "of UCC doesn't pointlessly waste memory)"))
 for ix in range (2):
-    print (("Weight of fragment-{} wfn outside of the singlet "
-            "2-electron Hilbert space: {:.1e}".format (ix, w_nb[ix])))
+    print ("Fragment {}: {:.1e}".format (ix, w_nb[ix]))
 
 # U'HU for a single fragment can be retrieved as a
 # LASUCCEffectiveHamiltonian object, which is just the ndarray (in 
@@ -77,31 +76,53 @@ print ("\nThe shape of the dense matrix U'HU for the first fragment is",
     heff.full.shape)
 hc_f = np.dot (heff.full, ci_f[0].ravel ())
 chc_f = np.dot (ci_f[0].ravel ().conj (), hc_f)
-g_f = hc_f - (ci_f[0].ravel ()*chc_f)
 print (("Recomputing LASUCCSD total energy from the effective "
-        "Hamiltonian of the first fragment and its optimized CI vector"
-        ": {:.9f}").format (chc_f))
-print (("Gradient norm according to the effective Hamiltonian of the "
-        "first fragment and its optimized CI vector: {:.9e}".format (
-        linalg.norm (g_f))))
-heff_non0, idx = heff.get_nonzero_elements ()
+        "Hamiltonian of the 1st fragment and its optimized CI vector"))
+print ("LASUCCSD energy: {:.9f}".format (chc_f))
+diag_err = linalg.norm (hc_f - (ci_f[0].ravel ()*chc_f))
+print (("CI vector diagonalization error: {:.3e}\n".format (diag_err)))
+
+# There are a couple of different ways to expose the tiny useful part
+# of the LASUCCEffectiveHamiltonian array
+heff_non0, idx_non0 = heff.get_nonzero_elements ()
+neleca, nelecb = 1,1
+nelec_bra = (neleca, nelecb)
+nelec_ket = (neleca, nelecb)
+heff_11, idx_11 = heff.get_number_block (nelec_bra, nelec_ket)
+
+# In spinless Fock space, determinants can be so ordered that the occupation
+# number vector is equal to the binary representation of its ordinal index.
+# Taking advantage of this, I wrote a function in fockspace that takes two 
+# integers, one for spin-up and the other for spin-down electrons, and returns
+# an ONV string for the spin-symmetric basis (i.e., elements have value 0, a, b, 
+# or 2). Since PySCF has the normal-order convention that any spin-up operator 
+# is to the left of all spin-down operators, you can work out that the relation
+# between the spinless determinant and the two spin-separated determinants is
+# simply det_a, det_b = divmod (det_spinless, 2**norb), where norb is the 
+# number of spin-down spinorbitals.
 print (("The effective Hamiltonian of the first fragment has {} nonzero"
         " elements.").format (len (heff_non0)))
-print ("They are:")
-ix, jx = np.where (idx)
+print ("They are, in no particular order:")
+idx_bra, idx_ket = np.where (idx_non0)
 print ("{:>8s}  {:>3s}  {:>3s}  {:>13s}".format ("Index",
     "Bra", "Ket", "Value"))
-for i, j, el in zip (ix, jx, heff_non0):
-    idx = "({},{})".format (i, j)
-    ia, ib = divmod (i, 4) # 4 determinants possible for 2 spinorbitals
-    ja, jb = divmod (j, 4)
-    print ("{:>8s}  {:>3s}  {:>3s}  {:13.6e}".format (idx, 
-           fockspace.pretty_str (ia, ib, 2),
-           fockspace.pretty_str (ja, jb, 2), el))
-heff_11, idx = heff.get_number_block ((1,1),(1,1))
-print (("The diagonal 2-electron singlet block of the first effective "
+for bra_spinless, ket_spinless, el in zip (idx_bra, idx_ket, heff_non0):
+    idx = "({},{})".format (bra_spinless, ket_spinless)
+    bra_a, bra_b = divmod (bra_spinless, 4) 
+    bra_onv = fockspace.onv_str (bra_a, bra_b, 2)
+    ket_a, ket_b = divmod (ket_spinless, 4)
+    ket_onv = fockspace.onv_str (ket_a, ket_b, 2)
+    print ("{:>8s}  {:>3s}  {:>3s}  {:13.6e}".format (idx, bra_onv,
+           ket_onv, el))
+print (("The diagonal 2-electron sz=0 block of the first effective "
         "Hamiltonian of the first fragment is:"))
 print (heff_11)
+idx_spinless = np.squeeze (idx_11[0])
+print ("The basis is:")
+for ix, det_spinless in enumerate (idx_spinless):
+    deta, detb = divmod (det_spinless, 4)
+    det_onv = fockspace.onv_str (deta, detb, 2)
+    print ("{} {}".format (ix, det_onv))
 print ("The eigenspectrum of this block is:")
 print (linalg.eigh (heff_11)[0])
 
