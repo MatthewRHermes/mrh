@@ -15,7 +15,7 @@ from scipy import linalg, optimize
 from pyscf import lib
 from pyscf.fci import direct_spin1, cistring, spin_op, addons
 from itertools import product
-from mrh.exploratory.citools import fockspace
+from mrh.exploratory.citools import fockspace, addons
 from mrh.exploratory.unitary_cc.uccsd_sym1 import get_uccs_op
 from mrh.my_pyscf.mcscf.lasci import all_nonredundant_idx
 from itertools import product
@@ -51,6 +51,8 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
     if verbose>=lib.logger.DEBUG:
         las.uop.print_tab (_print_fn=log.debug)
         las.print_x (res.x, _print_fn=log.debug)
+    las.res = res
+    fci._obj_fn = las
     return e_tot, ci1
 
 def make_rdm1 (fci, fcivec, norb, nelec, **kwargs):
@@ -126,7 +128,7 @@ class LASCI_ObjectiveFunction (object):
         self.norb = norb
         self.nlas = nlas = np.asarray (nlas)
         self.nelec = sum (direct_spin1._unpack_nelec (nelec))
-        self.nfrags = len (nlas)
+        self.nfrag = len (nlas)
         assert (sum (nlas) == norb)
         self.uniq_orb_idx = all_nonredundant_idx (norb, 0, nlas)
         self.nconstr = 1 # Total charge only
@@ -134,6 +136,7 @@ class LASCI_ObjectiveFunction (object):
         self.it_cnt = 0
         self.uop = fcisolver.get_uop (norb, nlas)
         self._x_last = np.zeros (self.nvar_tot)
+        self.res = None
         assert (self.check_ci0_constr ())
 
     def fermion_spin_shuffle (self, c, norb=None, nlas=None):
@@ -277,6 +280,34 @@ class LASCI_ObjectiveFunction (object):
             ci1.append (cosp*c + sinp*dc)
         return ci1
 
+    def project_frag (self, ifrag, vec, ci0_f=None):
+        ''' Integrate a vector over all fragments other than ifrag '''
+        if ci0_f is None: ci0_f = self.ci0_f
+        vec = self.fermion_spin_shuffle (vec.copy ())
+        norb, nlas = self.norb, self.nlas
+        norb0, ndet0 = norb, 2**norb
+        norb2, ndet2 = 0, 1
+        for jfrag, (ci, norb1) in enumerate (zip (ci0_f, nlas)):
+            norb0 -= norb1
+            if (jfrag==ifrag):
+                norb2 = norb1
+                ndet2 = 2**norb1
+                continue
+            # norb0, norb1, and norb2 are the number of orbitals in the sectors arranged
+            # in major-axis order: the slower-moving orbital indices we haven't touched yet,
+            # the orbitals we are integrating over in this particular cycle of the for loop,
+            # and the fast-moving orbital indices that we have to keep uncontracted
+            # because they correspond to the outer for loop.
+            # We want to move the field operators corresponding to the generation of the
+            # norb1 set to the front of the operator products in order to integrate
+            # with the correct sign.
+            vec = self.fermion_frag_shuffle (vec, norb2, norb2+norb1, norb=norb0+norb1+norb2)
+            ndet0 = 2**norb0
+            ndet1 = 2**norb1
+            vec = vec.reshape (ndet0, ndet1, ndet2, ndet0, ndet1, ndet2)
+            vec = np.tensordot (vec, ci, axes=((1,4),(0,1))).reshape (ndet0*ndet2, ndet0*ndet2)
+        return vec
+
     def get_jac_constr (self, ci):
         dm1 = self.fcisolver.make_rdm12 (ci, self.norb, 0)[0]
         return np.array ([np.trace (dm1) - self.nelec])
@@ -300,35 +331,11 @@ class LASCI_ObjectiveFunction (object):
         xconstr, xcc, xci_f = self.unpack (x)
         if uhuc is None or uci_f is None:
             uhuc, uci_f = self.hc_x (x)[3:]
-        uhuc = self.fermion_spin_shuffle (uhuc)
+        #uhuc = self.fermion_spin_shuffle (uhuc)
         norb, nlas, ci0_f = self.norb, self.nlas, self.ci0_f
         jacci_f = []
         for ifrag, (ci0, xci) in enumerate (zip (ci0_f, xci_f)):
-            uhuc_i = uhuc.copy ()
-            # We're going to contract the fragments in ascending order
-            # so minor axes disappear first
-            # However, we have to skip the ith fragment itself
-            norb0, ndet0 = norb, 2**norb
-            norb2, ndet2 = 0, 1
-            for jfrag, (uci, norb1) in enumerate (zip (uci_f, nlas)):
-                norb0 -= norb1
-                if (jfrag==ifrag):
-                    norb2 = norb1
-                    ndet2 = 2**norb1
-                    continue
-                # norb0, norb1, and norb2 are the number of orbitals in the sectors arranged
-                # in major-axis order: the slower-moving orbital indices we haven't touched yet,
-                # the orbitals we are integrating over in this particular cycle of the for loop,
-                # and the fast-moving orbital indices that we have to keep uncontracted
-                # because they correspond to the outer for loop.
-                # We want to move the field operators corresponding to the generation of the
-                # norb1 set to the front of the operator products in order to integrate
-                # with the correct sign.
-                uhuc_i = self.fermion_frag_shuffle (uhuc_i, norb2, norb2+norb1, norb=norb0+norb1+norb2)
-                ndet0 = 2**norb0
-                ndet1 = 2**norb1
-                uhuc_i = uhuc_i.reshape (ndet0, ndet1, ndet2, ndet0, ndet1, ndet2)
-                uhuc_i = np.tensordot (uhuc_i, uci, axes=((1,4),(0,1))).reshape (ndet0*ndet2, ndet0*ndet2)
+            uhuc_i = self.project_frag (ifrag, uhuc, ci0_f=uci_f)
             # Given three orthonormal basis states |0>, |p>, and |q>,
             # with U = exp [xp (|p><0| - |0><p|) + xq (|q><0| - |0><q|)],
             # we have @ xq = 0, xp != 0:
@@ -363,9 +370,14 @@ class LASCI_ObjectiveFunction (object):
     def get_init_guess (self):
         return np.zeros (self.nvar_tot)
 
+    def get_ci_f (self, x, xci_f=None):
+        if xci_f is None: xci_f = self.unpack (x)[2]
+        uc_f = self.rotate_ci0 (xci_f)
+        return uc_f
+
     def get_fcivec (self, x):
         xconstr, xcc, xci_f = self.unpack (x)
-        uc_f = self.rotate_ci0 (xci_f)
+        uc_f = self.get_ci_f (x, xci_f=xci_f)
         uc = self.dp_ci (uc_f)
         self.uop.set_uniq_amps_(xcc)
         uc = self.uop (uc)
@@ -436,6 +448,9 @@ class LASCI_ObjectiveFunction (object):
                 cdet = fockspace.pretty_str (ca, cb, n)
                 jdet = fockspace.pretty_str (ja, jb, n)
                 _print_fn (fmt_str.format (sdet, xci[sa,sb], cdet, ci1[ca,cb], jdet, jci[ja,jb]))
+
+    gen_frag_basis = addons.gen_frag_basis
+    get_dense_heff = addons.get_dense_heff
 
 class FCISolver (direct_spin1.FCISolver):
     kernel = kernel
