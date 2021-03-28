@@ -38,15 +38,15 @@ def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
         log = lib.logger.new_logger (fci, verbose)
 
     psi = getattr (fci, 'psi', fci.build_psi (ci0_f, norb, norb_f, nelec, log=log))
+    assert (psi.check_ci0_constr)
     psi_options = {'gtol':     gtol,
                    'maxiter':  max_cycle,
                    'disp':     verbose>lib.logger.DEBUG}
     log.info ('LASCI object has %d degrees of freedom', psi.nvar_tot)
     h = [ecore, h1, h2]
     psi_callback = psi.get_solver_callback (h)
-    res = optimize.minimize (psi.e_de, psi.get_init_guess (), args=(h,),
-        method='BFGS', jac=True, callback=psi_callback,
-        options=psi_options)
+    res = optimize.minimize (psi.e_de, psi.x, args=(h,), method='BFGS',
+        jac=True, callback=psi_callback, options=psi_options)
 
     fci.converged = res.success
     e_tot = psi.energy_tot (res.x, h)
@@ -170,7 +170,6 @@ class LASUCCTrialState (object):
         self.uop = fcisolver.get_uop (norb, norb_f)
         self.x = np.zeros (self.nvar_tot)
         self.converged = False
-        assert (self.check_ci0_constr ())
 
     def fermion_spin_shuffle (self, c, norb=None, norb_f=None):
         if norb is None: norb = self.norb
@@ -406,9 +405,6 @@ class LASUCCTrialState (object):
             self.it_cnt += 1
         return my_call
 
-    def get_init_guess (self):
-        return np.zeros (self.nvar_tot)
-
     def get_fcivec (self, x=None):
         if x is None: x = self.x
         xconstr, xcc, xci_f = self.unpack (x)
@@ -506,6 +502,22 @@ class FCISolver (direct_spin1.FCISolver):
     transform_ci_for_orbital_rotation = transform_ci_for_orbital_rotation
     def build_psi (self, *args, **kwargs):
         return LASUCCTrialState (self, *args, **kwargs)
+    def save_psi (self, fname, psi):
+        psi_raw = np.concatenate ([psi.x,] 
+            + [c.ravel () for c in psi.ci_f])
+        np.save (fname, psi_raw)
+    def load_psi (self, fname, norb, nelec, norb_f=None):
+        if norb_f is None: norb_f = getattr (fci, 'norb_f', [norb])
+        raw = np.load (fname)
+        ci0_f = [np.empty ((2**n,2**n), dtype=raw.dtype) for n in norb_f]
+        psi = self.build_psi (ci0_f, norb, norb_f, nelec)
+        n = psi.nvar_tot
+        psi.x[:], raw = raw[:n], raw[n:]
+        for ci in psi.ci_f:
+            n = ci.size
+            s = ci.shape
+            ci[:,:], raw = raw[:n].reshape (s), raw[n:]
+        return psi
     def get_uop (self, norb, norb_f):
         freeze_mask = np.zeros ((norb, norb), dtype=np.bool_)
         for i,j in zip (np.cumsum (norb_f)-norb_f, np.cumsum(norb_f)):
