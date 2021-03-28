@@ -36,24 +36,27 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
     else:
         log = lib.logger.new_logger (fci, verbose)
 
-    las = fci.get_obj (h1, h2, ci0_f, norb, nlas, nelec, ecore=ecore, log=log)
-    las_options = {'gtol':     gtol,
+    psi = fci.build_psi (ci0_f, norb, nlas, nelec, log=log)
+    psi_options = {'gtol':     gtol,
                    'maxiter':  max_cycle,
                    'disp':     verbose>lib.logger.DEBUG}
-    log.info ('LASCI object has %d degrees of freedom', las.nvar_tot)
-    res = optimize.minimize (las, las.get_init_guess (),
-        method='BFGS', jac=True, callback=las.solver_callback,
-        options=las_options)
-    assert (res.success)
+    log.info ('LASCI object has %d degrees of freedom', psi.nvar_tot)
+    h = [ecore, h1, h2]
+    psi_callback = psi.get_solver_callback (h)
+    res = optimize.minimize (psi.e_de, psi.get_init_guess (), args=(h,),
+        method='BFGS', jac=True, callback=psi_callback,
+        options=psi_options)
 
     fci.converged = res.success
-    e_tot = las.energy_tot (res.x)
-    ci1 = las.get_fcivec (res.x)
+    e_tot = psi.energy_tot (res.x, h)
+    ci1 = psi.get_fcivec (res.x)
     if verbose>=lib.logger.DEBUG:
-        las.uop.print_tab (_print_fn=log.debug)
-        las.print_x (res.x, _print_fn=log.debug)
-    las.res = res
-    fci._obj_fn = las
+        psi.uop.print_tab (_print_fn=log.debug)
+        psi.print_x (res.x, h, _print_fn=log.debug)
+    psi.x = res.x
+    psi.converged = res.success
+    psi.finalize_()
+    fci.psi = psi
     return e_tot, ci1
 
 def make_rdm1 (fci, fcivec, norb, nelec, **kwargs):
@@ -118,14 +121,13 @@ def transform_ci_for_orbital_rotation (fci, ci, norb, nelec, umat):
         fcivec += np.squeeze (fockspace.hilbert2fock (c, norb, ne))
     return fcivec
 
-class LASCI_ObjectiveFunction (object):
+class LASUCCTrialState (object):
     ''' Evaluate the energy and Jacobian of a LASSCF trial function parameterized in terms
         of unitary CC singles amplitudes and CI transfer operators. '''
 
-    def __init__(self, fcisolver, h1, h2, ci0_f, norb, nlas, nelec, ecore=0, log=None):
+    def __init__(self, fcisolver, ci0_f, norb, nlas, nelec, log=None):
         self.fcisolver = fcisolver
-        self.h = (ecore, h1, h2)
-        self.ci0_f = [ci.copy () for ci in ci0_f]
+        self.ci_f = [ci.copy () for ci in ci0_f]
         self.norb = norb
         self.nlas = nlas = np.asarray (nlas)
         self.nelec = sum (direct_spin1._unpack_nelec (nelec))
@@ -136,8 +138,8 @@ class LASCI_ObjectiveFunction (object):
         self.log = log if log is not None else lib.logger.new_logger (fcisolver, fcisolver.verbose)
         self.it_cnt = 0
         self.uop = fcisolver.get_uop (norb, nlas)
-        self._x_last = np.zeros (self.nvar_tot)
-        self.res = None
+        self.x = np.zeros (self.nvar_tot)
+        self.converged = False
         assert (self.check_ci0_constr ())
 
     def fermion_spin_shuffle (self, c, norb=None, nlas=None):
@@ -166,7 +168,7 @@ class LASCI_ObjectiveFunction (object):
 
     def pack (self, xconstr, xcc, xci_f):
         x = [xconstr, xcc]
-        ci0_f = self.ci0_f
+        ci0_f = self.ci_f
         for xci, ci0 in zip (xci_f, ci0_f):
             cHx = ci0.conj ().ravel ().dot (xci.ravel ())
             x.append ((xci - (ci0*cHx)).ravel ())
@@ -188,20 +190,20 @@ class LASCI_ObjectiveFunction (object):
 
     @property
     def nvar_tot (self):
-        return self.nconstr + self.uop.ngen_uniq + sum ([c.size for c in self.ci0_f])
+        return self.nconstr + self.uop.ngen_uniq + sum ([c.size for c in self.ci_f])
 
-    def __call__(self, x):
-        c, uc, huc, uhuc, c_f = self.hc_x (x)
-        e_tot = self.energy_tot (x, uc=uc, huc=huc)
-        jac = self.jac (x, c=c, uc=uc, huc=huc, uhuc=uhuc, c_f=c_f)
+    def e_de (self, x, h):
+        c, uc, huc, uhuc, c_f = self.hc_x (x, h)
+        e_tot = self.energy_tot (x, h, uc=uc, huc=huc)
+        jac = self.jac (x, h, c=c, uc=uc, huc=huc, uhuc=uhuc, c_f=c_f)
         return e_tot, jac
 
-    def energy_tot (self, x, uc=None, huc=None):
+    def energy_tot (self, x, h, uc=None, huc=None):
         log = self.log
         norm_x = linalg.norm (x)
         t0 = (time.clock (), time.time ())
         if (uc is None) or (huc is None):
-            uc, huc = self.hc_x (x)[1:3]
+            uc, huc = self.hc_x (x, h)[1:3]
         uc, huc = uc.ravel (), huc.ravel ()
         cu = uc.conj ()
         cuuc = cu.dot (uc)
@@ -212,19 +214,19 @@ class LASCI_ObjectiveFunction (object):
         if log.verbose > lib.logger.DEBUG: self.check_x_change (x, e_tot0=e_tot)
         return e_tot
 
-    def jac (self, x, c=None, uc=None, huc=None, uhuc=None, c_f=None):
+    def jac (self, x, h, c=None, uc=None, huc=None, uhuc=None, c_f=None):
         norm_x = linalg.norm (x)
         log = self.log
         t0 = (time.clock (), time.time ())
         if any ([x is None for x in [c, uc, huc, uhuc, c_f]]):
-            c, uc, huc, uhuc, c_f = self.hc_x (x)
+            c, uc, huc, uhuc, c_f = self.hc_x (x, h)
         # Revisit the first line below if t ever breaks
         # number symmetry
         jacconstr = self.get_jac_constr (uc)
         t1 = log.timer ('las_obj constr jac', *t0)
-        jact1 = self.get_jac_t1 (x, c=c, huc=huc, uhuc=uhuc)
+        jact1 = self.get_jac_t1 (x, h, c=c, huc=huc, uhuc=uhuc)
         t1 = log.timer ('las_obj ucc jac', *t1)
-        jacci_f = self.get_jac_ci (x, uhuc=uhuc, uci_f=c_f)
+        jacci_f = self.get_jac_ci (x, h, uhuc=uhuc, uci_f=c_f)
         t1 = log.timer ('las_obj ci jac', *t1)
         log.timer ('las_obj jac eval', *t0)
         g = self.pack (jacconstr, jact1, jacci_f)
@@ -232,10 +234,10 @@ class LASCI_ObjectiveFunction (object):
         log.debug ('|gradient| = %e, |x| = %e',norm_g, norm_x)
         return g
 
-    def hc_x (self, x):
+    def hc_x (self, x, h):
         xconstr, xcc, xci = self.unpack (x)
         self.uop.set_uniq_amps_(xcc)
-        h = self.constr_h (xconstr)
+        h = self.constr_h (xconstr, h)
         c_f = self.rotate_ci0 (xci)
         c = self.dp_ci (c_f)
         uc = self.uop (c)
@@ -263,14 +265,14 @@ class LASCI_ObjectiveFunction (object):
         ci = self.fermion_spin_shuffle (ci, norb=norb, nlas=nlas)
         return ci
 
-    def constr_h (self, xconstr):
+    def constr_h (self, xconstr, h):
         x = xconstr[0]
-        h, norb, nelec = self.h, self.norb, self.nelec
+        norb, nelec = self.norb, self.nelec
         h = [h[0] - (x*nelec), h[1] + (x*np.eye (self.norb)), h[2]]
         return h 
 
     def rotate_ci0 (self, xci_f):
-        ci0, norb = self.ci0_f, self.norb
+        ci0, norb = self.ci_f, self.norb
         ci1 = []
         for dc, c in zip (xci_f, ci0):
             dc -= c * c.conj ().ravel ().dot (dc.ravel ())
@@ -283,7 +285,7 @@ class LASCI_ObjectiveFunction (object):
 
     def project_frag (self, ifrag, vec, ci0_f=None):
         ''' Integrate a vector over all fragments other than ifrag '''
-        if ci0_f is None: ci0_f = self.ci0_f
+        if ci0_f is None: ci0_f = self.ci_f
         vec = self.fermion_spin_shuffle (vec.copy ())
         norb, nlas = self.norb, self.nlas
         norb0, ndet0 = norb, 2**norb
@@ -313,27 +315,27 @@ class LASCI_ObjectiveFunction (object):
         dm1 = self.fcisolver.make_rdm12 (ci, self.norb, 0)[0]
         return np.array ([np.trace (dm1) - self.nelec])
 
-    def get_jac_t1 (self, x, c=None, huc=None, uhuc=None):
+    def get_jac_t1 (self, x, h, c=None, huc=None, uhuc=None):
         g = []
         xconstr, xcc, xci_f = self.unpack (x)
         self.uop.set_uniq_amps_(xcc)
         if (c is None) or (uhuc is None):
-            c, _, _, uhuc = self.hc_x (x)[:4] 
+            c, _, _, uhuc = self.hc_x (x, h)[:4] 
         for duc, uhuc_i in zip (self.uop.gen_deriv1 (c, _full=False), self.uop.gen_partial (uhuc)):
             g.append (2*duc.ravel ().dot (uhuc_i.ravel ()))
         g = self.uop.product_rule_pack (g)
         return np.asarray (g)
 
-    def get_jac_ci (self, x, uhuc=None, uci_f=None):
+    def get_jac_ci (self, x, h, uhuc=None, uci_f=None):
         # "uhuc": e^-T1 H e^T1 U|ci0>
         # "jacci": Jacobian elements for the CI degrees of freedom
         # subscript_f means a list over fragments
         # subscript_i means this is not a list but it applies to a particular fragment
         xconstr, xcc, xci_f = self.unpack (x)
         if uhuc is None or uci_f is None:
-            uhuc, uci_f = self.hc_x (x)[3:]
+            uhuc, uci_f = self.hc_x (x, h)[3:]
         #uhuc = self.fermion_spin_shuffle (uhuc)
-        norb, nlas, ci0_f = self.norb, self.nlas, self.ci0_f
+        norb, nlas, ci0_f = self.norb, self.nlas, self.ci_f
         jacci_f = []
         for ifrag, (ci0, xci) in enumerate (zip (ci0_f, xci_f)):
             uhuc_i = self.project_frag (ifrag, uhuc, ci0_f=uci_f)
@@ -358,27 +360,25 @@ class LASCI_ObjectiveFunction (object):
 
         return jacci_f
 
-    def solver_callback (self, x):
-        it, log = self.it_cnt, self.log
-        norm_x = linalg.norm (x)
-        norm_g = linalg.norm (self.jac (x))
-        e = self.energy_tot (x)
-        log.info ('iteration %d, E = %f, |x| = %e, |g| = %e', it, e, norm_x, norm_g)
-        if log.verbose >= lib.logger.DEBUG:
-            self.check_x_symm (x, e_tot0=e)
-        self.it_cnt += 1
+    def get_solver_callback (self, h):
+        self.it_cnt = 0
+        def my_call (x):
+            it, log = self.it_cnt, self.log
+            norm_x = linalg.norm (x)
+            e, de = self.e_de (x, h)
+            norm_g = linalg.norm (de)
+            log.info ('iteration %d, E = %f, |x| = %e, |g| = %e', it, e, norm_x, norm_g)
+            if log.verbose >= lib.logger.DEBUG:
+                self.check_x_symm (x, h, e_tot0=e)
+            self.it_cnt += 1
+        return my_call
 
     def get_init_guess (self):
         return np.zeros (self.nvar_tot)
 
-    def get_ci_f (self, x, xci_f=None):
-        if xci_f is None: xci_f = self.unpack (x)[2]
-        uc_f = self.rotate_ci0 (xci_f)
-        return uc_f
-
     def get_fcivec (self, x):
         xconstr, xcc, xci_f = self.unpack (x)
-        uc_f = self.get_ci_f (x, xci_f=xci_f)
+        uc_f = self.rotate_ci0 (xci_f)
         uc = self.dp_ci (uc_f)
         self.uop.set_uniq_amps_(xcc)
         uc = self.uop (uc)
@@ -386,7 +386,7 @@ class LASCI_ObjectiveFunction (object):
 
     def check_ci0_constr (self):
         norb, nelec = self.norb, self.nelec
-        ci0 = self.dp_ci (self.ci0_f)
+        ci0 = self.dp_ci (self.ci_f)
         neleca_min = max (0, nelec-norb)
         neleca_max = min (norb, nelec)
         w = 0.0
@@ -398,18 +398,18 @@ class LASCI_ObjectiveFunction (object):
 
     def check_x_change (self, x, e_tot0=None):
         norb, nelec, log = self.norb, self.nelec, self.log
-        log.debug ('<x|x_last>/<x|x> = %e', x.dot (self._x_last) / x.dot (x))
-        self._x_last = x.copy ()
+        log.debug ('<x|x_last>/<x|x> = %e', x.dot (self.x) / x.dot (x))
+        self.x = x.copy ()
 
-    def check_x_symm (self, x, e_tot0=None):
+    def check_x_symm (self, x, h, e_tot0=None):
         norb, nelec, log = self.norb, self.nelec, self.log
-        if e_tot0 is None: e_tot0 = self.energy_tot (x)
+        if e_tot0 is None: e_tot0 = self.energy_tot (x, h)
         xconstr = self.unpack (x)[0]
         ci1 = self.get_fcivec (x)
         ss = self.fcisolver.spin_square (ci1, norb, nelec)[0]
         n = np.trace (self.fcisolver.make_rdm12 (ci1, norb, nelec)[0])
-        h = self.constr_h (xconstr)
-        hc1 = self.contract_h2 (self.constr_h (xconstr), ci1).ravel ()
+        h = self.constr_h (xconstr, h)
+        hc1 = self.contract_h2 (h, ci1).ravel ()
         ci1 = ci1.ravel ()
         cc = ci1.conj ().dot (ci1)
         e_tot1 = ci1.conj ().dot (hc1) / cc
@@ -417,9 +417,9 @@ class LASCI_ObjectiveFunction (object):
         log.debug ('These two energies should be the same: %e - %e = %e',
             e_tot0, e_tot1, e_tot0-e_tot1)
 
-    def print_x (self, x, _print_fn=print, ci_maxlines=10, jac=None):
+    def print_x (self, x, h, _print_fn=print, ci_maxlines=10, jac=None):
         norb, nlas = self.norb, self.nlas
-        if jac is None: jac = self.jac (x)
+        if jac is None: jac = self.jac (x, h)
         xconstr, xcc, xci_f = self.unpack (x)
         jconstr, jcc, jci_f = self.unpack (jac)
         _print_fn ('xconstr = {}'.format (xconstr))
@@ -450,6 +450,14 @@ class LASCI_ObjectiveFunction (object):
                 jdet = fockspace.onv_str (ja, jb, n)
                 _print_fn (fmt_str.format (sdet, xci[sa,sb], cdet, ci1[ca,cb], jdet, jci[ja,jb]))
 
+    def finalize_(self):
+        ''' Update self.ci_f and set the corresponding part of self.x to zero '''
+        xconstr, xcc, xci_f = self.unpack (self.x)
+        self.ci_f = self.rotate_ci0 (xci_f) 
+        for xc in xci_f: xc[:] = 0.0
+        self.x = self.pack (xconstr, xcc, xci_f)
+        return self.x
+
     gen_frag_basis = addons.gen_frag_basis
     get_dense_heff = addons.get_dense_heff
 
@@ -462,8 +470,8 @@ class FCISolver (direct_spin1.FCISolver):
     get_init_guess = get_init_guess
     spin_square = spin_square
     transform_ci_for_orbital_rotation = transform_ci_for_orbital_rotation
-    def get_obj (self, *args, **kwargs):
-        return LASCI_ObjectiveFunction (self, *args, **kwargs)
+    def build_psi (self, *args, **kwargs):
+        return LASUCCTrialState (self, *args, **kwargs)
     def get_uop (self, norb, nlas):
         freeze_mask = np.zeros ((norb, norb), dtype=np.bool_)
         for i,j in zip (np.cumsum (nlas)-nlas, np.cumsum(nlas)):

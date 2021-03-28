@@ -34,9 +34,9 @@ class LASUCCEffectiveHamiltonian (object):
         block = self.full[idx]
         return block, idx
 
-def gen_frag_basis (las_op, ifrag, ci_f=None):
-    if ci_f is None: ci_f = las_op.ci0_f
-    norb, nlas, nfrag = las_op.norb, las_op.nlas, las_op.nfrag
+def gen_frag_basis (psi, ifrag, ci_f=None):
+    if ci_f is None: ci_f = psi.ci0_f
+    norb, nlas, nfrag = psi.norb, psi.nlas, psi.nfrag
     ci0 = np.ones ([1,1], dtype=ci_f[0].dtype)
     n = 0
     for jfrag, (c, dn) in enumerate (zip (ci_f, nlas)):
@@ -56,22 +56,22 @@ def gen_frag_basis (las_op, ifrag, ci_f=None):
         ci1 = ci1.reshape (ndet0, ndet1, ndet2, ndet0, ndet1, ndet2)
         ci1[:,ideta,:,:,idetb,:] = ci0.reshape (ndet0, ndet2, ndet0, ndet2)
         ci1 = ci1.reshape (ndet, ndet)
-        ci1 = las_op.fermion_spin_shuffle (ci1)
+        ci1 = psi.fermion_spin_shuffle (ci1)
         yield ideta, idetb, ci1
 
-def get_dense_heff (las_op, x, ifrag):
-    uop, nlas = las_op.uop, las_op.nlas
-    xconstr, xcc, xci = las_op.unpack (x)
+def get_dense_heff (psi, x, h, ifrag):
+    uop, nlas = psi.uop, psi.nlas
+    xconstr, xcc, xci = psi.unpack (x)
     uop.set_uniq_amps_(xcc)
-    ci_f = las_op.rotate_ci0 (xci)
-    h = las_op.constr_h (xconstr)
+    ci_f = psi.rotate_ci0 (xci)
+    h = psi.constr_h (xconstr, h)
     ndet = 2**nlas[ifrag]
     heff = np.zeros ((ndet,ndet,ndet,ndet), dtype=x.dtype)
-    for ideta, idetb, c in las_op.gen_frag_basis (ifrag, ci_f=ci_f):
+    for ideta, idetb, c in psi.gen_frag_basis (ifrag, ci_f=ci_f):
         uhuc = uop (c)
-        uhuc = las_op.contract_h2 (h, uhuc)
+        uhuc = psi.contract_h2 (h, uhuc)
         uhuc = uop (uhuc, transpose=True)
-        heff[ideta,idetb,:,:] = las_op.project_frag (ifrag, uhuc, ci0_f=ci_f)
+        heff[ideta,idetb,:,:] = psi.project_frag (ifrag, uhuc, ci0_f=ci_f)
     return LASUCCEffectiveHamiltonian (heff)
 
         

@@ -39,29 +39,30 @@ class KnownValues(unittest.TestCase):
         mc.kernel ()
         with self.subTest (from_='reported'):
             self.assertAlmostEqual (mc.e_tot, ref.e_tot, 6)
-        obj_fn = mc.fcisolver._obj_fn
-        x = obj_fn.res.x
-        energy, gradient = obj_fn (x)
+        psi = mc.fcisolver.psi
+        x = psi.x
+        h1, h0 = mc.get_h1eff ()
+        h2 = mc.get_h2eff ()
+        h = [h0, h1, h2]
+        energy, gradient = psi.e_de (x, h)
         with self.subTest (from_='obj fn'):
             self.assertAlmostEqual (energy, mc.e_tot, 9)
-        c = np.squeeze (fockspace.fock2hilbert (obj_fn.get_fcivec (x), 4, (2,2)))
-        h1, ecore = mc.get_h1eff ()
-        h2 = mc.get_h2eff ()
+        c = np.squeeze (fockspace.fock2hilbert (psi.get_fcivec (x), 4, (2,2)))
         h2eff = direct_spin1.absorb_h1e (h1, h2, 4, (2,2), 0.5)
         hc = direct_spin1.contract_2e (h2eff, c, 4, (2,2))
-        chc = c.conj ().ravel ().dot (hc.ravel ()) + ecore
+        chc = c.conj ().ravel ().dot (hc.ravel ()) + h0
         with self.subTest (from_='h2 contraction'):
             self.assertAlmostEqual (chc, mc.e_tot, 9)
-        c_f = obj_fn.get_ci_f (x)
+        c_f = psi.ci_f
         for ifrag, c in enumerate (c_f):
-            heff = obj_fn.get_dense_heff (x, ifrag)
+            heff = psi.get_dense_heff (x, h, ifrag)
             hc = np.dot (heff.full, c.ravel ())
             chc = np.dot (c.conj ().ravel (), hc)
             with self.subTest (from_='frag {} Fock-space dense effective Hamiltonian'.format (ifrag)):
                 self.assertAlmostEqual (chc, mc.e_tot, 9)
-            h, _ = heff.get_number_block ((1,1),(1,1))
+            heff, _ = heff.get_number_block ((1,1),(1,1))
             c = np.squeeze (fockspace.fock2hilbert (c, 2, (1,1))).ravel ()
-            hc = np.dot (h, c)
+            hc = np.dot (heff, c)
             chc = np.dot (c.conj (), hc)
             with self.subTest (from_='frag {} Hilbert-space dense effective Hamiltonian'.format (ifrag)):
                 self.assertAlmostEqual (chc, mc.e_tot, 9)

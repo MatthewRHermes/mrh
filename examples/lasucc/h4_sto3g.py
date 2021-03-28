@@ -30,21 +30,23 @@ print ("FCI energy:      {:.9f}".format (ref.e_tot))
 print ("LASSCF energy:   {:.9f}".format (las.e_tot))
 print ("LASUCCSD energy: {:.9f}\n".format (mc.e_tot))
 
-# It's a bit opaque but this is an object I use to set up the BFGS
-# and store intermediates. I cache it at the end.
-# All of the CI vecs below are in Fock space <s>because I'm an idiot</s>
-obj_fn = mc.fcisolver._obj_fn
+# mc.ci has to be a full CI vector ndarray. In order to access more
+# information, a "LASUCCTrialState" object is cached on the fcisolver
+psi = mc.fcisolver.psi
 
-res = obj_fn.res # OptimizeResult object returned by scipy.optimize.minimize
-                 # see docs.scipy.org for more documentation about this
-x = res.x # Amplitude vector for the BFGS problem 
-energy, gradient = obj_fn (x) # obj_fn is callable!
+x = psi.x # Amplitude vector that solves the BFGS problem 
+# The trailing elements of x are all zero because the fragment CI vectors
+# are updated at the end of a calculation.
+h1, h0 = mc.get_h1eff ()
+h2 = mc.get_h2eff ()
+h = [h0, h1, h2] # 2nd-quantized CAS Hamiltonian
+energy, gradient = psi.e_de (x, h)
 print ("Recomputing LASUCC total energy with cached objective function")
 print ("LASUCCSD energy: {:.9f}".format (energy))
 print ("|gradient| = {:.3e}".format (linalg.norm (gradient)))
 print ("If that seems too high to you, consider: BFGS sucks.\n")
 
-fcivec = obj_fn.get_fcivec (x) # |LASUCC> itself as a CI vector
+fcivec = psi.get_fcivec (x) # |LASUCC> itself as a CI vector
 ss, multip = mc.fcisolver.spin_square (fcivec, 4, 'ThisArgDoesntMatter')
 print ("<LASUCC|S^2|LASUCC> = {:.3f}; apparent S = {:.1f}".format (
     ss, 0.5*(multip-1)))
@@ -57,7 +59,7 @@ print ("Quintet weight: {:.2f}".format (fockspace.hilbert_sector_weight(
     fcivec, 4, (2,2), 5)))
 print ("Oh well, I guess it couldn't have been anything else.\n")
 
-ci_f = obj_fn.get_ci_f (x) # list of optimized CI vectors for each fragment
+ci_f = psi.ci_f # list of optimized CI vectors for each fragment
 ci_h = [fockspace.fock2hilbert (c, 2, (1,1)) for c in ci_f]
 w_nb = [linalg.norm (c_f)**2 - linalg.norm (c_h)**2 for (c_f, c_h) in 
     zip (ci_f, ci_h)]
@@ -71,7 +73,7 @@ for ix in range (2):
 # U'HU for a single fragment can be retrieved as a
 # LASUCCEffectiveHamiltonian object, which is just the ndarray (in 
 # the member "full") and some convenience functions
-heff = obj_fn.get_dense_heff (x, 0)
+heff = psi.get_dense_heff (x, h, 0)
 print ("\nThe shape of the dense matrix U'HU for the first fragment is",
     heff.full.shape)
 hc_f = np.dot (heff.full, ci_f[0].ravel ())
