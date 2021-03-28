@@ -170,6 +170,8 @@ class LASUCCTrialState (object):
         self.uop = fcisolver.get_uop (norb, norb_f)
         self.x = np.zeros (self.nvar_tot)
         self.converged = False
+        self._e_last = None
+        self._jac_last = None
 
     def fermion_spin_shuffle (self, c, norb=None, norb_f=None):
         if norb is None: norb = self.norb
@@ -244,6 +246,7 @@ class LASUCCTrialState (object):
         log.timer ('las_obj energy eval', *t0)
         log.debug ('energy value = %f, norm value = %e, |x| = %e', e_tot, cuuc, norm_x)
         if log.verbose > lib.logger.DEBUG: self.check_x_change (x, e_tot0=e_tot)
+        self._e_last = e_tot
         return e_tot
 
     def jac (self, x, h, c=None, uc=None, huc=None, uhuc=None, c_f=None):
@@ -264,6 +267,7 @@ class LASUCCTrialState (object):
         g = self.pack (jacconstr, jact1, jacci_f)
         norm_g = linalg.norm (g)
         log.debug ('|gradient| = %e, |x| = %e',norm_g, norm_x)
+        self._jac_last = g
         return g
 
     def hc_x (self, x, h):
@@ -394,15 +398,18 @@ class LASUCCTrialState (object):
 
     def get_solver_callback (self, h):
         self.it_cnt = 0
+        log = self.log
         def my_call (x):
-            it, log = self.it_cnt, self.log
+            t0 = (time.clock (), time.time ())
             norm_x = linalg.norm (x)
-            e, de = self.e_de (x, h)
+            e, de = self._e_last, self._jac_last
+            if (e is None) or (de is None): e, de = self.e_de (x, h)
             norm_g = linalg.norm (de)
-            log.info ('iteration %d, E = %f, |x| = %e, |g| = %e', it, e, norm_x, norm_g)
+            log.info ('iteration %d, E = %f, |x| = %e, |g| = %e', self.it_cnt, e, norm_x, norm_g)
             if log.verbose >= lib.logger.DEBUG:
                 self.check_x_symm (x, h, e_tot0=e)
             self.it_cnt += 1
+            log.timer ('callback', *t0)
         return my_call
 
     def get_fcivec (self, x=None):
