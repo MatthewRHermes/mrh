@@ -38,13 +38,18 @@ class KnownValues(unittest.TestCase):
         norms = np.stack (norms, axis=0).sum (0)
         neleca_avg = np.stack (neleca_avg, axis=0).sum (0)
         nelecb_avg = np.stack (nelecb_avg, axis=0).sum (0)
+        na_ci, nb_ci = number_operator (ci_f, norb)
+        neleca_test = np.diag (np.dot (ci_f.reshape (nroots,-1), na_ci.reshape(nroots,-1).T))
+        nelecb_test = np.diag (np.dot (ci_f.reshape (nroots,-1), nb_ci.reshape(nroots,-1).T))
         for i in range (nroots):
             with self.subTest (check='root {} norm'.format (i)):
                 self.assertAlmostEqual (norms[i], 1.0, 8)
             with self.subTest (check='root {} neleca'.format (i)):
                 self.assertAlmostEqual (neleca_avg[i], 4.0, 1)
+                self.assertAlmostEqual (neleca_avg[i], neleca_test[i], 9)
             with self.subTest (check='root {} nelecb'.format (i)):
                 self.assertAlmostEqual (nelecb_avg[i], 4.0, 1)
+                self.assertAlmostEqual (nelecb_avg[i], nelecb_test[i], 9)
 
 
     def test_outer_product (self):

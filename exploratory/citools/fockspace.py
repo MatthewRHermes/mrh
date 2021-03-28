@@ -174,6 +174,16 @@ def hilbert_sector_weights (ci, norb):
     assert (np.all (np.abs (1.0 - weights.sum (0)) < 1e-4)), '{}'.format (weights.sum (0))
     return sectors
 
+def number_operator (ci, norb):
+    ''' Two returns: neleca|ci> and nelecb|ci> '''
+    naci = np.zeros_like (ci)
+    nbci = np.zeros_like (ci)
+    for (na,nb) in product (range (norb+1), repeat=2):
+        ci_h = fock2hilbert (ci, norb, (na,nb))
+        naci += hilbert2fock (na*ci_h, norb, (na,nb)).reshape (*naci.shape)
+        nbci += hilbert2fock (nb*ci_h, norb, (na,nb)).reshape (*nbci.shape)
+    return naci, nbci
+
 if __name__ == '__main__':
     nroots = 3
     norb = 8
