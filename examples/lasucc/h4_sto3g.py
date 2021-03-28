@@ -86,11 +86,13 @@ print (("CI vector diagonalization error: {:.3e}\n".format (diag_err)))
 
 # There are a couple of different ways to expose the tiny useful part
 # of the LASUCCEffectiveHamiltonian array
-heff_non0, idx_non0 = heff.get_nonzero_elements ()
+heff_non0, idx_non0 = heff.get_nonzero_elements () 
+# heff_non0 = heff.full[idx_non0]
 neleca, nelecb = 1,1
 nelec_bra = (neleca, nelecb)
 nelec_ket = (neleca, nelecb)
 heff_11, idx_11 = heff.get_number_block (nelec_bra, nelec_ket)
+# heff_11 = heff.full[idx_11]
 
 # In spinless Fock space, determinants can be so ordered that the occupation
 # number vector is equal to the binary representation of its ordinal index.
@@ -119,7 +121,7 @@ for bra_spinless, ket_spinless, el in zip (idx_bra, idx_ket, heff_non0):
 print (("The diagonal 2-electron sz=0 block of the transformed "
         "Hamiltonian of the first fragment is:"))
 print (heff_11)
-idx_spinless = np.squeeze (idx_11[0])
+idx_spinless = np.squeeze (idx_11[0]) 
 print ("The basis is:")
 for ix, det_spinless in enumerate (idx_spinless):
     deta, detb = divmod (det_spinless, 4)
@@ -129,9 +131,10 @@ print ("The eigenspectrum of this block is:")
 print (linalg.eigh (heff_11)[0])
 
 # Here's a quick way to compare to the physical, untransformed Hamiltonian
+# Additionally displays a way to get a single number block in 1 command
 x_null = np.zeros_like (x)
-heff_null = psi.get_dense_heff (x_null, h, 0)
-heff_null = heff_null.get_number_block (nelec_bra, nelec_ket)[0]
+heff_null, idx_spinless = psi.get_dense_heff (x_null, h, 0, nelec=nelec_bra)
+# ^ three of the above commands in one
 print ("By comparison, the untransformed Hamiltonian in the same block is:")
 print (heff_null)
 print ("with eigenspectrum:")

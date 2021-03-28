@@ -2,7 +2,8 @@ import numpy as np
 from scipy import linalg
 from itertools import product
 from mrh.exploratory.citools import fockspace
-
+from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.fci.cistring import make_strings
 
 class LASUCCEffectiveHamiltonian (object):
     def __init__(self, full):
@@ -34,7 +35,11 @@ class LASUCCEffectiveHamiltonian (object):
         block = self.full[idx]
         return block, idx
 
-def gen_frag_basis (psi, ifrag, ci_f=None):
+    @property
+    def shape (self):
+        return self.full.shape
+
+def gen_frag_basis (psi, ifrag, ci_f=None, nelec=None):
     if ci_f is None: ci_f = psi.ci0_f
     norb, norb_f, nfrag = psi.norb, psi.norb_f, psi.nfrag
     ci0 = np.ones ([1,1], dtype=ci_f[0].dtype)
@@ -51,7 +56,12 @@ def gen_frag_basis (psi, ifrag, ci_f=None):
     norb1 = norb_f[ifrag]
     norb2 = sum (norb_f[:ifrag]) if ifrag>0 else 0
     ndet0, ndet1, ndet2 = 2**norb0, 2**norb1, 2**norb2
-    for ideta, idetb in product (range (ndet1), repeat=2):
+    deta_gen, detb_gen = range (ndet1), range (ndet1)
+    if nelec is not None:
+        nelec = _unpack_nelec (nelec)
+        deta_gen = make_strings (range (norb1), nelec[0])
+        detb_gen = make_strings (range (norb1), nelec[1])
+    for ideta, idetb in product (deta_gen, detb_gen):
         ci1[:,:] = 0
         ci1 = ci1.reshape (ndet0, ndet1, ndet2, ndet0, ndet1, ndet2)
         ci1[:,ideta,:,:,idetb,:] = ci0.reshape (ndet0, ndet2, ndet0, ndet2)
@@ -59,7 +69,7 @@ def gen_frag_basis (psi, ifrag, ci_f=None):
         ci1 = psi.fermion_spin_shuffle (ci1)
         yield ideta, idetb, ci1
 
-def get_dense_heff (psi, x, h, ifrag):
+def get_dense_heff (psi, x, h, ifrag, nelec=None):
     uop, norb_f = psi.uop, psi.norb_f
     xconstr, xcc, xci = psi.unpack (x)
     uop.set_uniq_amps_(xcc)
@@ -67,12 +77,21 @@ def get_dense_heff (psi, x, h, ifrag):
     h = psi.constr_h (xconstr, h)
     ndet = 2**norb_f[ifrag]
     heff = np.zeros ((ndet,ndet,ndet,ndet), dtype=x.dtype)
-    for ideta, idetb, c in psi.gen_frag_basis (ifrag, ci_f=ci_f):
+    for ideta, idetb, c in psi.gen_frag_basis (ifrag, ci_f=ci_f, 
+     nelec=nelec):
+        psi.log.debug ("dense heff fragment %d: %d,%d / %d,%d", ifrag, 
+            ideta, idetb, ndet, ndet)
         uhuc = uop (c)
         uhuc = psi.contract_h2 (h, uhuc)
         uhuc = uop (uhuc, transpose=True)
-        heff[ideta,idetb,:,:] = psi.project_frag (ifrag, uhuc, ci0_f=ci_f)
-    return LASUCCEffectiveHamiltonian (heff)
+        heff[ideta,idetb,:,:] = psi.project_frag (ifrag, uhuc,
+            ci0_f=ci_f)
+    heff = LASUCCEffectiveHamiltonian (heff)
+    if nelec is not None:
+        nelec = _unpack_nelec (nelec)
+        heff, idx = heff.get_number_block (nelec, nelec)
+        return heff, np.squeeze (idx[0])
+    return heff
 
         
 
