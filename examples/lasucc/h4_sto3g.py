@@ -23,7 +23,7 @@ las.kernel (mo_loc)
 mc = mcscf.CASCI (mf, 4, 4)
 mc.mo_coeff = las.mo_coeff
 mc.fcisolver = lasuccsd.FCISolver (mol)
-mc.fcisolver.nlas = [2,2] # Number of orbitals per fragment
+mc.fcisolver.norb_f = [2,2] # Number of orbitals per fragment
 mc.kernel ()
 
 print ("FCI energy:      {:.9f}".format (ref.e_tot))
@@ -46,7 +46,7 @@ print ("LASUCCSD energy: {:.9f}".format (energy))
 print ("|gradient| = {:.3e}".format (linalg.norm (gradient)))
 print ("If that seems too high to you, consider: BFGS sucks.\n")
 
-fcivec = psi.get_fcivec (x) # |LASUCC> itself as a CI vector
+fcivec = psi.get_fcivec () # |LASUCC> itself as a CI vector
 ss, multip = mc.fcisolver.spin_square (fcivec, 4, 'ThisArgDoesntMatter')
 print ("<LASUCC|S^2|LASUCC> = {:.3f}; apparent S = {:.1f}".format (
     ss, 0.5*(multip-1)))

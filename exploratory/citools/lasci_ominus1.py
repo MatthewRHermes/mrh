@@ -12,23 +12,24 @@
 import time, math
 import numpy as np
 from scipy import linalg, optimize
-from pyscf import lib
+from pyscf import lib, ao2mo
 from pyscf.fci import direct_spin1, cistring, spin_op
 from pyscf.fci import addons as fci_addons
 from itertools import product
 from mrh.exploratory.citools import fockspace, addons
 from mrh.exploratory.unitary_cc.uccsd_sym1 import get_uccs_op
 from mrh.my_pyscf.mcscf.lasci import all_nonredundant_idx
+from mrh.my_pyscf.fci import csf_solver
 from itertools import product
 
 verbose_lbjfgs = [-1,-1,-1,0,50,99,100,101,101,101]
 
-def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
+def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
             tol=1e-8, gtol=1e-4, max_cycle=15000, 
             orbsym=None, wfnsym=None, ecore=0, **kwargs):
 
-    if nlas is None: nlas = getattr (fci, 'nlas', [norb])
-    if ci0_f is None: ci0_f = fci.get_init_guess (norb, nelec, nlas, h1, h2)
+    if norb_f is None: norb_f = getattr (fci, 'norb_f', [norb])
+    if ci0_f is None: ci0_f = fci.get_init_guess (norb, nelec, norb_f, h1, h2)
     verbose = kwargs.get ('verbose', getattr (fci, 'verbose', 0))
     if isinstance (verbose, lib.logger.Logger):
         log = verbose
@@ -36,7 +37,7 @@ def kernel (fci, h1, h2, norb, nelec, nlas=None, ci0_f=None,
     else:
         log = lib.logger.new_logger (fci, verbose)
 
-    psi = fci.build_psi (ci0_f, norb, nlas, nelec, log=log)
+    psi = getattr (fci, 'psi', fci.build_psi (ci0_f, norb, norb_f, nelec, log=log))
     psi_options = {'gtol':     gtol,
                    'maxiter':  max_cycle,
                    'disp':     verbose>lib.logger.DEBUG}
@@ -87,21 +88,50 @@ def make_rdm12 (fci, fcivec, norb, nelec, **kwargs):
         dm2 += d2
     return dm1, dm2
 
-def get_init_guess (fci, norb, nelec, nlas, h1, h2):
+#def get_init_guess (fci, norb, nelec, norb_f, h1, h2, ci0_f=None, nelec_f=None, smult_f=None):
+#    log = lib.logger.new_logger (fci, fci.verbose)
+#    if ci0_f is None: ci0_f = _get_init_guess_ci0_f (fci, norb, nelec, norb_f,
+#        h1, h2, nelelas=None, smult=None)
+
+def get_init_guess (fci, norb, nelec, norb_f, h1, h2, nelec_f=None, smult_f=None):
+    if nelec_f is None:
+        nelec_f = _guess_nelec_f (fci, norb, nelec, norb_f, h1, h2)
+    if smult_f is None:
+        smult_f = [abs(n[0]-n[1])+1 for n in nelec_f]
+    h2 = ao2mo.restore (1, h2, norb)
+    i = 0
+    ci0_f = []
+    for no, ne, s in zip (norb_f, nelec_f, smult_f):
+        j = i + no
+        h1_i = h1[i:j,i:j]
+        h2_i = h2[i:j,i:j,i:j,i:j]
+        i = j
+        csf = csf_solver (fci.mol, smult=s)
+        hdiag = csf.make_hdiag_csf (h1_i, h2_i, no, ne)
+        ci = csf.get_init_guess (no, ne, 1, hdiag)[0]
+        ci = np.squeeze (fockspace.hilbert2fock (ci, no, ne))
+        ci0_f.append (ci)
+    return ci0_f
+
+def _guess_nelec_f (fci, norb, nelec, norb_f, h1, h2):
+    # Pick electron distribution by the lowest-energy single determinant
     nelec = direct_spin1._unpack_nelec (nelec)
     hdiag = fci.make_hdiag (h1, h2, norb, nelec)
-    ndeta = cistring.num_strings (norb, nelec[0])
-    addr_dp = np.divmod (np.argmin (hdiag), ndeta)
+    ndetb = cistring.num_strings (norb, nelec[1])
+    addr_dp = np.divmod (np.argmin (hdiag), ndetb)
     str_dp = [cistring.addr2str (norb, n, c) for n,c in zip (nelec, addr_dp)]
-    ci0_f = []
-    for n in nlas:
+    nelec_f = []
+    for n in norb_f:
         ndet = 2**n
         c = np.zeros ((ndet, ndet))
-        s = [str_dp[0] % ndet, str_dp[1] % ndet]
-        c[s[0],s[1]] = 1.0
+        det = np.array ([str_dp[0] % ndet, str_dp[1] % ndet], dtype=np.integer)
         str_dp = [str_dp[0] // ndet, str_dp[1] // ndet]
-        ci0_f.append (c)
-    return ci0_f
+        ne = [0,0]
+        for spin in range (2):
+            for iorb in range (n):
+                ne[spin] += int (bool ((det[spin] & (1 << iorb))))
+        nelec_f.append (ne)
+    return nelec_f
 
 def spin_square (fci, fcivec, norb, nelec):
     ss = 0.0
@@ -125,27 +155,27 @@ class LASUCCTrialState (object):
     ''' Evaluate the energy and Jacobian of a LASSCF trial function parameterized in terms
         of unitary CC singles amplitudes and CI transfer operators. '''
 
-    def __init__(self, fcisolver, ci0_f, norb, nlas, nelec, log=None):
+    def __init__(self, fcisolver, ci0_f, norb, norb_f, nelec, log=None):
         self.fcisolver = fcisolver
         self.ci_f = [ci.copy () for ci in ci0_f]
         self.norb = norb
-        self.nlas = nlas = np.asarray (nlas)
+        self.norb_f = norb_f = np.asarray (norb_f)
         self.nelec = sum (direct_spin1._unpack_nelec (nelec))
-        self.nfrag = len (nlas)
-        assert (sum (nlas) == norb)
-        self.uniq_orb_idx = all_nonredundant_idx (norb, 0, nlas)
+        self.nfrag = len (norb_f)
+        assert (sum (norb_f) == norb)
+        self.uniq_orb_idx = all_nonredundant_idx (norb, 0, norb_f)
         self.nconstr = 1 # Total charge only
         self.log = log if log is not None else lib.logger.new_logger (fcisolver, fcisolver.verbose)
         self.it_cnt = 0
-        self.uop = fcisolver.get_uop (norb, nlas)
+        self.uop = fcisolver.get_uop (norb, norb_f)
         self.x = np.zeros (self.nvar_tot)
         self.converged = False
         assert (self.check_ci0_constr ())
 
-    def fermion_spin_shuffle (self, c, norb=None, nlas=None):
+    def fermion_spin_shuffle (self, c, norb=None, norb_f=None):
         if norb is None: norb = self.norb
-        if nlas is None: nlas = self.nlas
-        return c * fockspace.fermion_spin_shuffle (norb, nlas)
+        if norb_f is None: norb_f = self.norb_f
+        return c * fockspace.fermion_spin_shuffle (norb, norb_f)
 
     def fermion_frag_shuffle (self, c, i, j, norb=None):
         # TODO: fix this!
@@ -182,7 +212,7 @@ class LASUCCTrialState (object):
         x = x[self.uop.ngen_uniq:]
 
         xci = []
-        for n in self.nlas:
+        for n in self.norb_f:
             xci.append (x[:2**(2*n)].reshape (2**n, 2**n))
             x = x[2**(2*n):]
 
@@ -193,9 +223,12 @@ class LASUCCTrialState (object):
         return self.nconstr + self.uop.ngen_uniq + sum ([c.size for c in self.ci_f])
 
     def e_de (self, x, h):
+        log = self.log
+        t0 = (time.clock (), time.time ())
         c, uc, huc, uhuc, c_f = self.hc_x (x, h)
         e_tot = self.energy_tot (x, h, uc=uc, huc=huc)
         jac = self.jac (x, h, c=c, uc=uc, huc=huc, uhuc=uhuc, c_f=c_f)
+        log.timer ('las_obj full ene+jac eval', *t0)
         return e_tot, jac
 
     def energy_tot (self, x, h, uc=None, huc=None):
@@ -209,7 +242,7 @@ class LASUCCTrialState (object):
         cuuc = cu.dot (uc)
         cuhuc = cu.dot (huc)
         e_tot = cuhuc/cuuc
-        log.timer ('las_obj fn eval', *t0)
+        log.timer ('las_obj energy eval', *t0)
         log.debug ('energy value = %f, norm value = %e, |x| = %e', e_tot, cuuc, norm_x)
         if log.verbose > lib.logger.DEBUG: self.check_x_change (x, e_tot0=e_tot)
         return e_tot
@@ -257,12 +290,12 @@ class LASUCCTrialState (object):
         return hci
             
     def dp_ci (self, ci_f):
-        norb, nlas = self.norb, self.nlas
+        norb, norb_f = self.norb, self.norb_f
         ci = np.ones ([1,1], dtype=ci_f[0].dtype)
         for ix, c in enumerate(ci_f):
-            ndet = 2**sum(nlas[:ix+1])
+            ndet = 2**sum(norb_f[:ix+1])
             ci = np.multiply.outer (c, ci).transpose (0,2,1,3).reshape (ndet, ndet)
-        ci = self.fermion_spin_shuffle (ci, norb=norb, nlas=nlas)
+        ci = self.fermion_spin_shuffle (ci, norb=norb, norb_f=norb_f)
         return ci
 
     def constr_h (self, xconstr, h):
@@ -287,10 +320,10 @@ class LASUCCTrialState (object):
         ''' Integrate a vector over all fragments other than ifrag '''
         if ci0_f is None: ci0_f = self.ci_f
         vec = self.fermion_spin_shuffle (vec.copy ())
-        norb, nlas = self.norb, self.nlas
+        norb, norb_f = self.norb, self.norb_f
         norb0, ndet0 = norb, 2**norb
         norb2, ndet2 = 0, 1
-        for jfrag, (ci, norb1) in enumerate (zip (ci0_f, nlas)):
+        for jfrag, (ci, norb1) in enumerate (zip (ci0_f, norb_f)):
             norb0 -= norb1
             if (jfrag==ifrag):
                 norb2 = norb1
@@ -335,7 +368,7 @@ class LASUCCTrialState (object):
         if uhuc is None or uci_f is None:
             uhuc, uci_f = self.hc_x (x, h)[3:]
         #uhuc = self.fermion_spin_shuffle (uhuc)
-        norb, nlas, ci0_f = self.norb, self.nlas, self.ci_f
+        norb, norb_f, ci0_f = self.norb, self.norb_f, self.ci_f
         jacci_f = []
         for ifrag, (ci0, xci) in enumerate (zip (ci0_f, xci_f)):
             uhuc_i = self.project_frag (ifrag, uhuc, ci0_f=uci_f)
@@ -376,7 +409,8 @@ class LASUCCTrialState (object):
     def get_init_guess (self):
         return np.zeros (self.nvar_tot)
 
-    def get_fcivec (self, x):
+    def get_fcivec (self, x=None):
+        if x is None: x = self.x
         xconstr, xcc, xci_f = self.unpack (x)
         uc_f = self.rotate_ci0 (xci_f)
         uc = self.dp_ci (uc_f)
@@ -418,7 +452,7 @@ class LASUCCTrialState (object):
             e_tot0, e_tot1, e_tot0-e_tot1)
 
     def print_x (self, x, h, _print_fn=print, ci_maxlines=10, jac=None):
-        norb, nlas = self.norb, self.nlas
+        norb, norb_f = self.norb, self.norb_f
         if jac is None: jac = self.jac (x, h)
         xconstr, xcc, xci_f = self.unpack (x)
         jconstr, jcc, jci_f = self.unpack (jac)
@@ -431,7 +465,7 @@ class LASUCCTrialState (object):
         #_print_fn ('umat:')
         #fmt_str = ' '.join (['{:10.7f}',]*norb)
         #for row in umat: _print_fn (fmt_str.format (*row))
-        for ix, (xci, ci1, jci, n) in enumerate (zip (xci_f, ci1_f, jci_f, nlas)):
+        for ix, (xci, ci1, jci, n) in enumerate (zip (xci_f, ci1_f, jci_f, norb_f)):
             _print_fn ('Fragment {} x and ci1 leading elements'.format (ix))
             fmt_det = '{:>' + str (max(4,n)) + 's}'
             fmt_str = ' '.join ([fmt_det, '{:>10s}', fmt_det, '{:>10s}', fmt_det, '{:>10s}'])
@@ -472,9 +506,9 @@ class FCISolver (direct_spin1.FCISolver):
     transform_ci_for_orbital_rotation = transform_ci_for_orbital_rotation
     def build_psi (self, *args, **kwargs):
         return LASUCCTrialState (self, *args, **kwargs)
-    def get_uop (self, norb, nlas):
+    def get_uop (self, norb, norb_f):
         freeze_mask = np.zeros ((norb, norb), dtype=np.bool_)
-        for i,j in zip (np.cumsum (nlas)-nlas, np.cumsum(nlas)):
+        for i,j in zip (np.cumsum (norb_f)-norb_f, np.cumsum(norb_f)):
             freeze_mask[i:j,i:j] = True
         return get_uccs_op (norb, freeze_mask=freeze_mask)
 

@@ -36,20 +36,20 @@ class LASUCCEffectiveHamiltonian (object):
 
 def gen_frag_basis (psi, ifrag, ci_f=None):
     if ci_f is None: ci_f = psi.ci0_f
-    norb, nlas, nfrag = psi.norb, psi.nlas, psi.nfrag
+    norb, norb_f, nfrag = psi.norb, psi.norb_f, psi.nfrag
     ci0 = np.ones ([1,1], dtype=ci_f[0].dtype)
     n = 0
-    for jfrag, (c, dn) in enumerate (zip (ci_f, nlas)):
+    for jfrag, (c, dn) in enumerate (zip (ci_f, norb_f)):
         if (ifrag == jfrag): continue
         n += dn
         ndet = 2**n
         ci0 = np.multiply.outer (c, ci0).transpose (0,2,1,3).reshape (ndet, ndet)
-    n = nlas[ifrag]
+    n = norb_f[ifrag]
     ndet = 2**norb
     ci1 = np.empty ((ndet, ndet), dtype=ci_f[0].dtype)
-    norb0 = sum (nlas[ifrag+1:]) if ifrag+1<nfrag else 0 
-    norb1 = nlas[ifrag]
-    norb2 = sum (nlas[:ifrag]) if ifrag>0 else 0
+    norb0 = sum (norb_f[ifrag+1:]) if ifrag+1<nfrag else 0 
+    norb1 = norb_f[ifrag]
+    norb2 = sum (norb_f[:ifrag]) if ifrag>0 else 0
     ndet0, ndet1, ndet2 = 2**norb0, 2**norb1, 2**norb2
     for ideta, idetb in product (range (ndet1), repeat=2):
         ci1[:,:] = 0
@@ -60,12 +60,12 @@ def gen_frag_basis (psi, ifrag, ci_f=None):
         yield ideta, idetb, ci1
 
 def get_dense_heff (psi, x, h, ifrag):
-    uop, nlas = psi.uop, psi.nlas
+    uop, norb_f = psi.uop, psi.norb_f
     xconstr, xcc, xci = psi.unpack (x)
     uop.set_uniq_amps_(xcc)
     ci_f = psi.rotate_ci0 (xci)
     h = psi.constr_h (xconstr, h)
-    ndet = 2**nlas[ifrag]
+    ndet = 2**norb_f[ifrag]
     heff = np.zeros ((ndet,ndet,ndet,ndet), dtype=x.dtype)
     for ideta, idetb, c in psi.gen_frag_basis (ifrag, ci_f=ci_f):
         uhuc = uop (c)

@@ -27,7 +27,7 @@ class KnownValues(unittest.TestCase):
         mc = mcscf.CASCI (mf, 4, 4)
         mc.mo_coeff = las.mo_coeff
         mc.fcisolver = lasci_ominus1.FCISolver (mol)
-        mc.fcisolver.nlas = [2,2]
+        mc.fcisolver.norb_f = [2,2]
         mc.kernel ()
         self.assertAlmostEqual (mc.e_tot, las.e_tot, 6)
 
@@ -35,7 +35,7 @@ class KnownValues(unittest.TestCase):
         mc = mcscf.CASCI (mf, 4, 4)
         mc.mo_coeff = las.mo_coeff
         mc.fcisolver = lasuccsd.FCISolver (mol)
-        mc.fcisolver.nlas = [2,2]
+        mc.fcisolver.norb_f = [2,2]
         mc.kernel ()
         with self.subTest (from_='reported'):
             self.assertAlmostEqual (mc.e_tot, ref.e_tot, 6)
