@@ -13,7 +13,8 @@ import time, math
 import numpy as np
 from scipy import linalg, optimize
 from pyscf import lib
-from pyscf.fci import direct_spin1, cistring, spin_op, addons
+from pyscf.fci import direct_spin1, cistring, spin_op
+from pyscf.fci import addons as fci_addons
 from itertools import product
 from mrh.exploratory.citools import fockspace, addons
 from mrh.exploratory.unitary_cc.uccsd_sym1 import get_uccs_op
@@ -113,7 +114,7 @@ def transform_ci_for_orbital_rotation (fci, ci, norb, nelec, umat):
     fcivec = np.zeros_like (ci) 
     for ne in product (range (norb+1), repeat=2):
         c = np.squeeze (fockspace.fock2hilbert (ci, norb, ne))
-        c = addons.transform_ci_for_orbital_rotation (c, norb, ne, umat)
+        c = fci_addons.transform_ci_for_orbital_rotation (c, norb, ne, umat)
         fcivec += np.squeeze (fockspace.hilbert2fock (c, norb, ne))
     return fcivec
 
