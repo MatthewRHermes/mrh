@@ -78,8 +78,8 @@ print ("\nThe shape of the dense matrix U'HU for the first fragment is",
     heff.full.shape)
 hc_f = np.dot (heff.full, ci_f[0].ravel ())
 chc_f = np.dot (ci_f[0].ravel ().conj (), hc_f)
-print (("Recomputing LASUCCSD total energy from the effective "
-        "Hamiltonian of the 1st fragment and its optimized CI vector"))
+print (("Recomputing LASUCCSD total energy from U'HU in the 1st "
+        "fragment and corresponding optimized CI vector"))
 print ("LASUCCSD energy: {:.9f}".format (chc_f))
 diag_err = linalg.norm (hc_f - (ci_f[0].ravel ()*chc_f))
 print (("CI vector diagonalization error: {:.3e}\n".format (diag_err)))
@@ -102,8 +102,8 @@ heff_11, idx_11 = heff.get_number_block (nelec_bra, nelec_ket)
 # between the spinless determinant and the two spin-separated determinants is
 # simply det_a, det_b = divmod (det_spinless, 2**norb), where norb is the 
 # number of spin-down spinorbitals.
-print (("The effective Hamiltonian of the first fragment has {} nonzero"
-        " elements.").format (len (heff_non0)))
+print (("The similarity-transformed Hamiltonian of the first fragment"
+        " has {} nonzero elements.").format (len (heff_non0)))
 print ("They are, in no particular order:")
 idx_bra, idx_ket = np.where (idx_non0)
 print ("{:>8s}  {:>3s}  {:>3s}  {:>13s}".format ("Index",
@@ -116,7 +116,7 @@ for bra_spinless, ket_spinless, el in zip (idx_bra, idx_ket, heff_non0):
     ket_onv = fockspace.onv_str (ket_a, ket_b, 2)
     print ("{:>8s}  {:>3s}  {:>3s}  {:13.6e}".format (idx, bra_onv,
            ket_onv, el))
-print (("The diagonal 2-electron sz=0 block of the first effective "
+print (("The diagonal 2-electron sz=0 block of the transformed "
         "Hamiltonian of the first fragment is:"))
 print (heff_11)
 idx_spinless = np.squeeze (idx_11[0])
@@ -127,4 +127,14 @@ for ix, det_spinless in enumerate (idx_spinless):
     print ("{} {}".format (ix, det_onv))
 print ("The eigenspectrum of this block is:")
 print (linalg.eigh (heff_11)[0])
+
+# Here's a quick way to compare to the physical, untransformed Hamiltonian
+x_null = np.zeros_like (x)
+heff_null = psi.get_dense_heff (x_null, h, 0)
+heff_null = heff_null.get_number_block (nelec_bra, nelec_ket)[0]
+print ("By comparison, the untransformed Hamiltonian in the same block is:")
+print (heff_null)
+print ("with eigenspectrum:")
+print (linalg.eigh (heff_null)[0])
+
 
