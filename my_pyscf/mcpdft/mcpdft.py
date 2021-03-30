@@ -97,14 +97,6 @@ def kernel (mc, ot, root=-1):
     E_ot = get_E_ot (ot, dm1s, adm2, amo, max_memory=mc.max_memory)
     t0 = logger.timer (ot, 'E_ot', *t0)
     e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) + E_ot
-#    TRS
-    print("new state")
-    print ("vnn", Vnn)
-    print ("coulomb", E_j)
-    print ("eot", E_ot)
-    print("E_c",E_c)
-    print("te_vne", Te_Vne)
-    print("E_x",E_x)
     logger.note (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
 
     return e_tot, E_ot
