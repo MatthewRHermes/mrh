@@ -2,7 +2,7 @@ from pyscf.scf.rohf import get_roothaan_fock
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf.tools import molden
 from pyscf import symm, gto, scf, ao2mo, lib
-from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver
+from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.scf import hf_as
@@ -1076,6 +1076,8 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None):
     # TODO: come up with a better algorithm? This might be working better than what I had before but it omits inter-active
     # coulomb and exchange interactions altogether. Is there a non-outer-product algorithm for finding the lowest-energy single
     # product of CSFs?
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     nmo = mo_coeff.shape[-1]
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -1103,6 +1105,41 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None):
     return ci0
 
 def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None, wfnsyms=None):
+    ''' Transform LASCI/LASSCF object into state-average LASCI/LASSCF 
+
+    Args:
+        las: LASCI/LASSCF instance
+
+    Kwargs:
+        weights: list of float; required
+            E_SA = sum_i weights[i] E[i] is used to optimize the orbitals
+        charges: 2d ndarray or nested list of integers
+        spins: 2d ndarray or nested list of integers
+            For the jth fragment in the ith state,
+            neleca = (sum(las.nelecas_sub[j]) - charges[i][j] + spins[i][j]) // 2
+            nelecb = (sum(las.nelecas_sub[j]) - charges[i][j] - spins[i][j]) // 2
+            Defaults to
+            charges[i][j] = 0
+            spins[i][j] = las.nelecas_sub[j][0] - las.nelecas_sub[j][1]
+        smults: 2d ndarray or nested list of integers
+            For the jth fragment in the ith state,
+            smults[i][j] = (2*s)+1
+            where "s" is the total spin quantum number,
+            S^2|j,i> = s*(s+1)|j,i>
+            Defaults to
+            smults[i][j] = abs (spins[i][j]) + 1
+        wfnsyms: 2d ndarray or nested list of integers or strings
+            For the jth fragment of the ith state,
+            wfnsyms[i][j]
+            identifies the point-group irreducible representation
+            Defaults to all zeros (i.e., the totally-symmetric irrep)
+
+    Returns:
+        las: LASCI/LASSCF instance
+            The first positional argument, modified in-place into a
+            state-averaged LASCI/LASSCF instance.
+
+    '''
     las.nroots = nroots = len (weights)
     las.weights = weights
     nfrags = len (las.ncas_sub)
@@ -1129,6 +1166,11 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None
     return las
 
 def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None, wfnsyms=None):
+    ''' A version of lasci.state_average_ that creates a copy instead of modifying the 
+    LASCI/LASSCF method instance in place.
+
+    See lasci.state_average_ docstring below:\n\n''' + state_average_.__doc__
+
     new_las = las.__class__(las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
     return state_average_(new_las, weights=weights, charges=charges, spins=spins,
@@ -1625,6 +1667,7 @@ class LASCINoSymm (casci.CASCI):
     state_average = state_average
     state_average_ = state_average_
     lassi = lassi
+    las2cas_civec = las2cas_civec
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 

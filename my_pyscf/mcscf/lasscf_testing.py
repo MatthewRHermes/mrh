@@ -16,7 +16,41 @@ from functools import partial
 def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=False):
     ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
     and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
-    space. '''
+    space. Beware that unless freeze_cas_spaces=True, frozen orbitals will not be preserved.
+
+    Args:
+        las: LASSCF or LASCI object
+        frags_orbs: list of length nfrags
+            Contains list of AO indices formally defining the fragments
+            into which the active orbitals are to be localized
+
+    Kwargs: (some of these are args here but kwargs in the actual caller)
+        mo_coeff: ndarray of shape (nao, nmo)
+            Molecular orbital coefficients containing active orbitals
+            on columns ncore:ncore+ncas
+        spin: integer
+            Unused; retained for backwards compatibility I guess
+        lo_coeff: ndarray of shape (nao, nao)
+            Linear combinations of AOs that are localized and orthonormal
+        fock: ndarray of shape (nmo, nmo)
+            Effective 1-electron Hamiltonian matrix for recanonicalizing
+            the inactive and external sectors after the latter are
+            possibly distorted by the projection of the active orbitals
+        ao_ovlp: ndarray of shape (nao, nao)
+            Overlap matrix of the underlying AO basis
+        freeze_cas_spaces: logical
+            If true, then active orbitals are mixed only among themselves
+            when localizing, which leaves the inactive and external sectors
+            unchanged (to within numerical precision). Otherwise, active
+            orbitals are projected into the localized-orbital space and
+            the inactive and external orbitals are reconstructed as closely
+            as possible using SVD.
+
+    Returns:
+        mo_coeff: ndarray of shape (nao,nmo)
+            Orbital coefficients after localization of the active space;
+            columns in the order (inactive,las1,las2,...,lasn,external)
+    '''
     # For reasons that pass my understanding, mo_coeff sometimes can't be assigned symmetry
     # by PySCF's own code. Therefore, I'm going to keep the symmetry tags on mo_coeff
     # and make sure the SVD engine sees them and doesn't try to figure it out itself.
@@ -157,10 +191,13 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         return np.stack ([veffa, veffb], axis=0)
 
     def orbital_response (self, kappa, odm1fs, ocm2, tdm1frs, tcm2, veff_prime):
+        ''' Parent class does everything except va/ac degrees of freedom
+        (c: closed; a: active; v: virtual; p: any) '''
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1fs,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
+        # (H.x_va)_pp, (H.x_ac)_pp sector
         for p, f1 in enumerate (f1_prime):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
@@ -174,10 +211,12 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
                 ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
                 f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
+                # The following three lines are the only part of the calculation that requires
+                # ppaa, papa ERIs
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
                 f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
-        # Clumsy repetition...
+        # (H.x_aa)_va, (H.x_aa)_ac
         ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
         ocm2 += ocm2.transpose (2,3,0,1)
         ecm2 = ocm2 + tcm2
