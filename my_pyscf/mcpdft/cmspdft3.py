@@ -89,6 +89,20 @@ def kernel (mc,nroots=None):
                                               # element!
     def w_klmn(k,l,m,n,ci):
         casdm1 = mc.fcisolver.states_make_rdm1 (ci,mc_1root.ncas,mc_1root.nelecas)
+        # MRH: don't you also need to put casdm1 into the AO basis/recompute dm1?
+        dm1 = np.dot(casdm1,mo_cas.T)
+        dm1 = np.dot(mo_cas,dm1).transpose(1,0,2)
+        # MRH: IMO it's more elegant to rewrite these functions to take the density
+        # matrices dm1_cirot and tdm1 as you compute them for the gradient downstairs,
+        # since it's the same density matrices for both derivatives. Then this whole
+        # function could be like 5 lines long:
+        #   d = dm1_cirot[k] if k==l else tdm1[rowscol2ind[k,l]]
+        #   dm1_g = mc_1root._scf.get_j (dm=d)
+        #   d = dm1_cirot[m] if m==n else tdm1[rowscol2ind[m,n]]
+        #   w = (dm1_g*d).sum ((0,1))
+        #   return w
+        # But I'll leave it like this so you can see what's going on more clearly in
+        # the github "files changed" tab.
         trans12_tdm1, trans12_tdm2 = mc.fcisolver.states_trans_rdm12(ci[col],ci[rows],mc_1root.ncas,mc_1root.nelecas)
         if k==l:
             dm1_g = mc_1root._scf.get_j (dm=dm1[k])
