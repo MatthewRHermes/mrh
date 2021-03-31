@@ -282,7 +282,7 @@ if __name__ == '__main__':
     print (("Molden files with intermediate-state NOs are in "
             "h2o_sapdft_int?.molden"))
     with lib.temporary_env (mc, ci=ci_int):
-        # ^ See line 225 
+        # ^ See line 244
         for i in range (3):
             fname = 'h2o_sapdft_int{}.molden'.format (i)
             molden.from_sa_mcscf (mc, fname, state=i, cas_natorb=True)
