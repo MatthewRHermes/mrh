@@ -82,11 +82,11 @@ def kernel (mc,nroots=None):
 # be clear how this works.
     rowscol2ind = np.zeros ((nroots, nroots), dtype=np.integer)
     rowscol2ind[(rows,col)] = list (range (pairs)) # 0,1,2,3,...
-    rowscol2ind += rowscol2ind.T # lower triangle -> upper triangle
+    rowscol2ind += rowscol2ind.T # Now it can handle both k>l and l>k 
     rowscol2ind[np.diag_indices(nroots)] = -1 # Makes sure it crashes if you look
-                                              # for the diagonal element, since
-                                              # rows, col don't include the diagonal
-                                              # element!
+                                              # for k==l, since that's the density 
+                                              # matrix and we compute that with a 
+                                              # different function.
     def w_klmn(k,l,m,n,ci):
         casdm1 = mc.fcisolver.states_make_rdm1 (ci,mc_1root.ncas,mc_1root.nelecas)
         # MRH: don't you also need to put casdm1 into the AO basis/recompute dm1?
