@@ -1,5 +1,6 @@
 import numpy as np
 import time
+from itertools import product
 from scipy import linalg
 from pyscf import gto, dft, ao2mo, fci, mcscf, lib
 from pyscf.lib import logger, temporary_env
@@ -76,33 +77,30 @@ def kernel (mc,nroots=None):
 # log.xxx ("{} and {} and {}".format (a, b, c))
 
 #Hessian Functions
+# MRH: Here's a way do not do those nested loops and conditionals and therefore
+# have less to worry about re indentation. Print out "rowscol2ind" and it should
+# be clear how this works.
+    rowscol2ind = np.zeros ((nroots, nroots), dtype=np.integer)
+    rowscol2ind[(rows,col)] = list (range (pairs)) # 0,1,2,3,...
+    rowscol2ind += rowscol2ind.T # lower triangle -> upper triangle
+    rowscol2ind[np.diag_indices(nroots)] = -1 # Makes sure it crashes if you look
+                                              # for the diagonal element, since
+                                              # rows, col don't include the diagonal
+                                              # element!
     def w_klmn(k,l,m,n,ci):
         casdm1 = mc.fcisolver.states_make_rdm1 (ci,mc_1root.ncas,mc_1root.nelecas)
         trans12_tdm1, trans12_tdm2 = mc.fcisolver.states_trans_rdm12(ci[col],ci[rows],mc_1root.ncas,mc_1root.nelecas)
         if k==l:
             dm1_g = mc_1root._scf.get_j (dm=dm1[k])
         else:
-            for i in range (pairs):
-                if rows[i]==k:
-                    if col[i]==l:
-                        ind=i
-                if col[i]==k:
-                    if rows[i]==l:
-                        ind=i
-
+            ind = rowscol2ind[k,l]
             tdm1_2 = np.dot(trans12_tdm1[ind],mo_cas.T)
             tdm1_2 = np.dot(mo_cas,tdm1_2).transpose(1,0)
             dm1_g = mc_1root._scf.get_j(dm=tdm1_2)
         if m==n:
             w  = (dm1_g*dm1[n]).sum((0,1))
         else:
-            for i in range (pairs):
-               if rows[i]==m:
-                   if col[i]==n:
-                       ind2=i
-               if col[i]==m:
-                   if rows[i]==n:
-                       ind2=i
+            ind2 = rowscol2ind[m,n]
             tdm1_2 = np.dot(trans12_tdm1_array[ind2],mo_cas.T)
             tdm1_2 = np.dot(mo_cas,tdm1_2).transpose(1,0)
             w = (dm1_g*tdm1_2).sum((0,1))
@@ -172,13 +170,34 @@ def kernel (mc,nroots=None):
 
 #       Hessian
         hess = np.zeros((pairs, pairs))
-        for i in range (pairs):
-            k=rows[i]
-            l=col[i]
-            for j in range(pairs):
-                m=rows[j]
-                n=col[j]
-                hess[i,j] = v_klmn(k,l,m,n,ci_rot)+v_klmn(l,k,n,m,ci_rot)-v_klmn(k,l,n,m,ci_rot)-v_klmn(l,k,m,n,ci_rot)
+#       MRH: you can do this whole nested loop, defining all six indices, in one (1) line:
+        for (i, (k,l)), (j, (m,n)) in product (enumerate (zip (rows, col)), repeat=2):
+            # To explain:
+            # for k,l in zip (rows, col) 
+            #  ^ Puts elements of "rows" in "k" and elements of "col" in "l"
+            #    Advances through "rows" and "col" simultaneously, so it's always
+            #    the nth element of "rows" and the nth element of "col"
+            #    So obviously, "rows" and "col" have to be the same size.
+            #    You don't need parentheses on the right-hand side at this point
+            # for i, (k, l) in enumerate (zip (rows,col)):
+            #  ^ Iterates over the zip and puts its elements in (k, l), and also 
+            #    counts upwards from zero and puts the count in "i". Here, you do
+            #    need parentheses so that the interpreter understands that "k"
+            #    and "l" are grouped together, separate from "i".
+            # the uncommented line
+            #  ^ "Product" is like "zip", except instead of advancing through the
+            #    arguments simultaneously, it gives you all combinations of all 
+            #    elements. Also, I've only entered one argument and asked it to
+            #    repeat it twice. I would have gotten the same result with, i.e.,
+            #    product (enumerate, enumerate). Note that I had to import the
+            #    function "product" from the built-in Python module "itertools",
+            #    which happens on line 3. Again, you need parentheses to show
+            #    which indices are grouped together.
+            # Using stuff like this really helps keep the indentations under
+            # control. Nested loops and conditionals are really slow in Python,
+            # so it's a good idea to combine them using tools like this whenever
+            # possible.
+            hess[i,j] = v_klmn(k,l,m,n,ci_rot)+v_klmn(l,k,n,m,ci_rot)-v_klmn(k,l,n,m,ci_rot)-v_klmn(l,k,m,n,ci_rot)
 
 #       MRH: print some diagnostic stuff, but only do the potentially-expensive
 #       diagonalization if the user-specified verbosity is high enough
