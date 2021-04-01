@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import gto, scf, mcscf
 from pyscf.fci import direct_spin1
-from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.exploratory.unitary_cc import lasuccsd
 from mrh.exploratory.citools import lasci_ominus1, fockspace
 import unittest
