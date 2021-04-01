@@ -12,47 +12,152 @@ from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 
-def kernel (mc, ot, root=-1):
+def energy_tot (mc, ot=None, ci=None, root=-1, _test_cas_energy=False):
     ''' Calculate MC-PDFT total energy
 
         Args:
             mc : an instance of CASSCF or CASCI class
                 Note: this function does not currently run the CASSCF or CASCI calculation itself
                 prior to calculating the MC-PDFT energy. Call mc.kernel () before passing to this function!
-            ot : an instance of on-top density functional class - see otfnal.py
 
         Kwargs:
+            ot : an instance of on-top density functional class - see otfnal.py
+            ci : ndarray or list
+                CI vector or vectors. Must be consistent with the nroots of mc.
+            root : int
+                If mc describes a state-averaged calculation, select the root (0-indexed)
+                Negative number requests state-averaged MC-PDFT results (i.e., using state-averaged density matrices)
+            _test_cas_energy : logical
+                If True, an assert statement checks that the total energy reconstructed from density matrices
+                is equal to the total energy stored on the MC object.
+
+        Returns:
+            e_tot : float
+                Total MC-PDFT energy including nuclear repulsion energy
+            E_ot : float
+                On-top (cf. exchange-correlation) energy
+    '''
+    if ci is None: ci = mc.ci
+    t0 = (time.clock (), time.time ())
+    # make_rdm12s returns (a, b), (aa, ab, bb)
+
+
+    # Allow MC-PDFT to be subclassed, and also allow this function to be
+    # called without mc being an instance of MC-PDFT class
+
+    if callable (getattr (mc, 'make_rdms_mcpdft', None)):
+        dm_list = mc.make_rdms_mcpdft (ci=ci, root=root)
+    else:
+        dm_list = make_rdms_mcpdft (mc, ci=ci, root=root)
+    t0 = logger.timer (ot, 'rdms', *t0)
+
+
+    if callable (getattr (mc, 'energy_mcwfn', None)):
+        e_mcwfn = mc.energy_mcwfn (ot=ot, dm_list=dm_list, _test_cas_energy=_test_cas_energy)
+    else:
+        e_mcwfn = energy_mcwfn (mc, ot=ot, dm_list=dm_list, _test_cas_energy=_test_cas_energy)
+    t0 = logger.timer (ot, 'MC wfn energy', *t0)
+
+
+    if callable (getattr (mc, 'energy_ot', None)):
+        e_ot = mc.energy_ot (ot=ot, dm_list=dm_list)
+    else:
+        e_ot = energy_ot (mc, ot=ot, dm_list=dm_list)
+    t0 = logger.timer (ot, 'E_ot', *t0)
+
+
+    e_tot = e_mcwfn + e_ot
+    logger.note (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, e_ot)
+
+    return e_tot, e_ot
+
+# Consistency with PySCF convention
+kernel = energy_tot # backwards compatibility
+def energy_elec (mc, *args, **kwargs):
+    e_tot, E_ot = energy_tot (mc, *args, **kwargs)
+    e_elec = e_tot - mc._scf.energy_nuc ()
+    return e_elec, E_ot
+
+def make_rdms_mcpdft (mc, ot=None, ci=None, root=-1):
+    ''' Build the necessary density matrices for an MC-PDFT calculation 
+
+        Args:
+            mc : an instance of CASSCF or CASCI class
+                Note: this function does not currently run the CASSCF or CASCI calculation itself
+
+        Kwargs:
+            ot : an instance of on-top density functional class - see otfnal.py
+            ci : ndarray or list
+                CI vector or vectors. Must be consistent with the nroots of mc.
             root : int
                 If mc describes a state-averaged calculation, select the root (0-indexed)
                 Negative number requests state-averaged MC-PDFT results (i.e., using state-averaged density matrices)
 
         Returns:
-            Total MC-PDFT energy including nuclear repulsion energy.
+            dm1s : ndarray of shape (2,nao,nao)
+                Spin-separated 1-RDM
+            adm : (adm1s, adm2s)
+                adm1s : ndarray of shape (2,ncas,ncas)
+                    Spin-separated 1-RDM for the active orbitals
+                adm2s : 3 ndarrays of shape (ncas,ncas,ncas,ncas)
+                    First ndarray is spin-summed casdm2
+                    Second ndarray is casdm2_aa + casdm2_bb
+                    Third ndarray is casdm2_ab
     '''
-    t0 = (time.clock (), time.time ())
-    amo = mc.mo_coeff[:,mc.ncore:mc.ncore+mc.ncas]
+    if ci is None: ci = mc.ci
+    if ot is None: ot = mc.otfnal
+    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
+    nocc = ncore + ncas
     # make_rdm12s returns (a, b), (aa, ab, bb)
 
-    mc_1root = mc
+    # build the correct RDMs
+    _rdms = mc
     if isinstance (mc, StateAverageMCSCFSolver) and root >= 0:
-        mc_1root = mcscf.CASCI (mc._scf, mc.ncas, mc.nelecas)
-        mc_1root.fcisolver = fci.solver (mc._scf.mol, singlet = False, symm = False)
-        mc_1root.mo_coeff = mc.mo_coeff
-        mc_1root.ci = mc.ci[root]
-        mc_1root.e_tot = mc.e_states[root]
-    dm1s = np.asarray (mc_1root.make_rdm1s ())
-    adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (mc_1root.ci, mc.ncas, mc.nelecas), axis=0)
-    adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
-    spin = abs(mc.nelecas[0] - mc.nelecas[1])
-    spin = abs(mc.nelecas[0] - mc.nelecas[1])
+        _rdms = mcscf.CASCI (mc._scf, ncas, nelecas)
+        _rdms.fcisolver = fci.solver (mc._scf.mol, singlet = False, symm = False)
+        _rdms.mo_coeff = mc.mo_coeff
+        _rdms.ci = ci = ci[root]
+        _rdms.e_tot = mc.e_states[root]
+    _casdms = _rdms.fcisolver
+    dm1s = np.asarray (_rdms.make_rdm1s ())
+    adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
+    adm2 = get_2CDM_from_2RDM (_casdms.make_rdm12 (ci, ncas, nelecas)[1], adm1s)
+    adm2s = get_2CDMs_from_2RDMs (_casdms.make_rdm12s (ci, ncas, nelecas)[1], adm1s)
+    adm2_ss = adm2s[0] + adm2s[2]
+    adm2_os = adm2s[1]
+    return dm1s, (adm1s, (adm2, adm2_ss, adm2_os))
+
+def energy_mcwfn (mc, ot=None, dm_list=None, _test_cas_energy=False):
+    ''' Compute the parts of the MC-PDFT energy arising from the wave function
+
+        Args:
+            mc : an instance of CASSCF or CASCI class
+                Note: this function does not currently run the CASSCF or CASCI calculation itself
+                prior to calculating the MC-PDFT energy. Call mc.kernel () before passing to this function!
+
+        Kwargs:
+            ot : an instance of on-top density functional class - see otfnal.py
+            dm_list : (dm1s, adm2)
+                return arguments of make_rdms_mcpdft
+            _test_cas_energy : logical
+                If True, an assert statement checks that the total energy reconstructed from density matrices
+                is equal to the total energy stored on the MC object.
+
+        Returns:
+            e_mcwfn : float
+                Energy from the multiconfigurational wave function:
+                nuclear repulsion + 1e + coulomb
+    '''
+
+    if ot is None: ot = mc.otfnal
+    if dm_list is None: dm_list = mc.make_rdms_mcpdft ()
+    ncas, nelecas = mc.ncas, mc.nelecas
+    dm1s, (adm1s, (adm2, adm2_ss, adm2_os)) = dm_list
+
+    spin = abs(nelecas[0] - nelecas[1])
+    spin = abs(nelecas[0] - nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
     hyb_x, hyb_c = hyb
-    if ot.verbose >= logger.DEBUG or abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
-        adm2s = get_2CDMs_from_2RDMs (mc_1root.fcisolver.make_rdm12s (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
-        adm2s_ss = adm2s[0] + adm2s[2]
-        adm2s_os = adm2s[1]
-    t0 = logger.timer (ot, 'rdms', *t0)
-
     Vnn = mc._scf.energy_nuc ()
     h = mc._scf.get_hcore ()
     dm1 = dm1s[0] + dm1s[1]
@@ -78,28 +183,34 @@ def kernel (mc, ot, root=-1):
     if ot.verbose >= logger.DEBUG or abs (hyb_c) > 1e-10:
         # g_pqrs * l_pqrs / 2
         #if ot.verbose >= logger.DEBUG:
-        aeri = ao2mo.restore (1, mc.get_h2eff (mc.mo_coeff), mc.ncas)
+        aeri = ao2mo.restore (1, mc.get_h2eff (mc.mo_coeff), ncas)
         E_c = np.tensordot (aeri, adm2, axes=4) / 2
-        E_c_ss = np.tensordot (aeri, adm2s_ss, axes=4) / 2
-        E_c_os = np.tensordot (aeri, adm2s_os, axes=4) # ab + ba -> factor of 2
+        E_c_ss = np.tensordot (aeri, adm2_ss, axes=4) / 2
+        E_c_os = np.tensordot (aeri, adm2_os, axes=4) # ab + ba -> factor of 2
         logger.info (ot, 'E_c = %s', E_c)
         logger.info (ot, 'E_c (SS) = %s', E_c_ss)
         logger.info (ot, 'E_c (OS) = %s', E_c_os)
         e_err = E_c_ss + E_c_os - E_c
         assert (abs (e_err) < 1e-8), e_err
-        if isinstance (mc_1root.e_tot, float):
-            e_err = mc_1root.e_tot - (Vnn + Te_Vne + E_j + E_x + E_c)
+        if _test_cas_energy and isinstance (_rdms.e_tot, float):
+            e_err = _rdms.e_tot - (Vnn + Te_Vne + E_j + E_x + E_c)
             assert (abs (e_err) < 1e-8), e_err
     if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
         logger.debug (ot, 'Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
-    t0 = logger.timer (ot, 'Vnn, Te, Vne, E_j, E_x', *t0)
+    e_mcwfn = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) 
+    return e_mcwfn
 
-    E_ot = get_E_ot (ot, dm1s, adm2, amo, max_memory=mc.max_memory)
-    t0 = logger.timer (ot, 'E_ot', *t0)
-    e_tot = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) + E_ot
-    logger.note (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, E_ot)
-
-    return e_tot, E_ot
+def energy_ot (mc, ot=None, mo_coeff=None, dm_list=None, max_memory=None, hermi=1):
+    ''' Wrap to get_E_ot for subclassing. '''
+    if ot is None: ot = mc.otfnal
+    if dm_list is None: dm_list = mc.make_rdms_mcpdft ()
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if max_memory is None: max_memory = mc.max_memory
+    ncore, ncas = mc.ncore, mc.ncas
+    nocc = ncore + ncas
+    mo_cas = mo_coeff[:,ncore:nocc]
+    dm1s, (adm1s, (adm2, adm2_ss, adm2_os)) = dm_list
+    return get_E_ot (ot, dm1s, adm2, mo_cas, max_memory=max_memory, hermi=hermi)
 
 def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
     ''' E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi] 
@@ -177,18 +288,20 @@ def get_energy_decomposition (mc, ot, mo_coeff=None, ci=None):
     return e_nuc, e_core, e_coul, e_otx, e_otc, e_wfnxc
 
 def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal):
-    mc_1root = mcscf.CASCI (mc._scf, mc.ncas, mc.nelecas)
-    mc_1root.fcisolver = fci.solver (mc._scf.mol, singlet = False, symm = False)
-    mc_1root.mo_coeff = mo_coeff
-    mc_1root.ci = ci
-    dm1s = np.stack (mc_1root.make_rdm1s (), axis=0)
+    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
+    _rdms = mcscf.CASCI (mc._scf, ncas, nelecas)
+    _rdms.fcisolver = fci.solver (mc._scf.mol, singlet = False, symm = False)
+    _rdms.mo_coeff = mo_coeff
+    _rdms.ci = ci
+    _casdms = _rdms.fcisolver
+    dm1s = np.stack (_rdms.make_rdm1s (), axis=0)
     dm1 = dm1s[0] + dm1s[1]
-    j = mc_1root._scf.get_j (dm=dm1)
+    j = _rdms._scf.get_j (dm=dm1)
     e_core = np.tensordot (h, dm1, axes=2)
     e_coul = np.tensordot (j, dm1, axes=2) / 2
-    adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, mc.ncas, mc.nelecas), axis=0)
-    adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (mc_1root.ci, mc.ncas, mc.nelecas)[1], adm1s)
-    mo_cas = mo_coeff[:,mc.ncore:][:,:mc.ncas]
+    adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
+    adm2 = get_2CDM_from_2RDM (_casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1], adm1s)
+    mo_cas = mo_coeff[:,ncore:][:,:ncas]
     e_otx = get_E_ot (xfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
     e_otc = get_E_ot (cfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
     e_wfnxc = e_mcscf - e_nuc - e_core - e_coul
@@ -250,7 +363,7 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
             self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)
             if isinstance (self, StateAverageMCSCFSolver):
-                epdft = [kernel (self, self.otfnal, root=ix) for ix in range (len (self.e_states))]
+                epdft = [energy_tot (self, self.otfnal, root=ix) for ix in range (len (self.e_states))]
                 self.e_mcscf = self.e_states
                 self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
                 self.e_ot = [e_ot for e_tot, e_ot in epdft]
@@ -288,19 +401,24 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
             t0 = (time.clock (), time.time ())
             if mo is None: mo = self.mo_coeff
             if ci is None: ci = self.ci
+            ncore, ncas, nelecas = self.ncore, self.ncas, self.nelecas
+
             # If ci is not a list and mc is a state-average solver, use a different fcisolver for make_rdm
-            mc_1root = self
+            _rdms = self
             if isinstance (self, StateAverageMCSCFSolver) and not isinstance (ci, list):
-                mc_1root = mcscf.CASCI (self._scf, self.ncas, self.nelecas)
-                mc_1root.fcisolver = fci.solver (self._scf.mol, singlet = False, symm = False)
-                mc_1root.mo_coeff = mo
-                mc_1root.ci = ci
-                mc_1root.e_tot = self.e_tot
-            dm1s = np.asarray (mc_1root.make_rdm1s ())
-            adm1s = np.stack (mc_1root.fcisolver.make_rdm1s (ci, self.ncas, self.nelecas), axis=0)
-            adm2 = get_2CDM_from_2RDM (mc_1root.fcisolver.make_rdm12 (ci, self.ncas, self.nelecas)[1], adm1s)
-            mo_cas = mo[:,self.ncore:][:,:self.ncas]
-            pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, adm2, mo, self.ncore, self.ncas, max_memory=self.max_memory, paaa_only=paaa_only)
+                _rdms = mcscf.CASCI (self._scf, ncas, nelecas)
+                _rdms.fcisolver = fci.solver (self._scf.mol, singlet = False, symm = False)
+                _rdms.mo_coeff = mo
+                _rdms.ci = ci
+                _rdms.e_tot = self.e_tot
+            _casdms = _rdms.fcisolver
+            dm1s = np.asarray (_rdms.make_rdm1s ())
+            adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
+            adm2 = get_2CDM_from_2RDM (_casdms.make_rdm12 (ci, ncas, nelecas)[1], adm1s)
+            mo_cas = mo[:,ncore:][:,:ncas]
+            pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, 
+                adm2, mo, ncore, ncas, max_memory=self.max_memory, 
+                paaa_only=paaa_only)
             if self.verbose > logger.DEBUG:
                 logger.debug (self, 'Warning: memory-intensive lazy kernel for pdft_veff initiated for '
                     'testing purposes; reduce verbosity to decrease memory footprint')
@@ -366,6 +484,11 @@ def get_mcpdft_child_class (mc, ot, **kwargs):
         @otxc.setter
         def otxc (self, x):
             self._init_ot_grids (x, grids_level=self.otfnal.grids.level)
+
+        make_rdms_mcpdft = make_rdms_mcpdft
+        energy_mcwfn = energy_mcwfn
+        energy_ot = energy_ot
+        energy_tot = energy_tot
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy ()
