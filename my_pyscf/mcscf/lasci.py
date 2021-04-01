@@ -142,9 +142,16 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
                 tf_list.append (solver.transformer)
             self.ci_transformers.append (tf_list)
 
+def _init_df_(h_op):
+    if isinstance (h_op.las, _DFLASCI):
+        h_op.with_df = h_op.las.with_df
+        if h_op.bPpj is None: h_op.bPpj = np.ascontiguousarray (
+            h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
+            compact=False))
+
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
-    def __init__(self, las, ugg, mo_coeff=None, ci=None, ncore=None, ncas_sub=None, nelecas_sub=None, h2eff_sub=None, veff=None):
+    def __init__(self, las, ugg, mo_coeff=None, ci=None, ncore=None, ncas_sub=None, nelecas_sub=None, h2eff_sub=None, veff=None, do_init_eri=True):
         if mo_coeff is None: mo_coeff = las.mo_coeff
         if ci is None: ci = las.ci
         if ncore is None: ncore = las.ncore
@@ -190,8 +197,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
         moH_coeff = mo_coeff.conjugate ().T
         if veff is None: 
-            self._init_df ()
             if isinstance (las, _DFLASCI):
+                _init_df_(self)
                 # Can't use this module's get_veff because here I need to have f_aa and f_ii correctly
                 # On the other hand, I know that dm1s spans only the occupied orbitals
                 rho = np.tensordot (self.bPpj[:,:nocc,:], self.dm1s[:,:nocc,:nocc].sum (0))
@@ -253,14 +260,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.e0 = [[hc.dot (c) for hc, c in zip (hcr, cr)] for hcr, cr in zip (self.hci0, ci)]
         self.hci0 = [[hc - c*e for hc, c, e in zip (hcr, cr, er)] for hcr, cr, er in zip (self.hci0, ci, self.e0)]
 
-        # That should be everything!
+        # turn this off for extra optimization in kernel
+        if do_init_eri: self._init_eri ()
 
-    def _init_df (self):
-        if isinstance (self.las, _DFLASCI):
-            self.with_df = self.las.with_df
-            if self.bPpj is None: self.bPpj = np.ascontiguousarray (
-                self.las.cderi_ao2mo (self.mo_coeff, self.mo_coeff[:,:self.nocc],
-                compact=False))
+    _init_eri = _init_df_
 
     @property
     def dtype (self):
@@ -429,12 +432,14 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
         # veff
         vj_bj = vj_pj[ncore:,:]
-        vj_ai = vj_bj[ncas:,:ncore]
-        vk_ai = vk_bj[ncas:,:ncore]
-        veff_mo[ncore:,:nocc] = vj_bj
-        veff_mo[:ncore,nocc:] = vj_ai.T
-        veff_mo[ncore:,:nocc] -= vk_bj/2
-        veff_mo[:ncore,nocc:] -= vk_ai.T/2
+        veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
+        veff_mo[:nocc,ncore:] = veff_mo[ncore:,:nocc].T
+        #vj_ai = vj_bj[ncas:,:ncore]
+        #vk_ai = vk_bj[ncas:,:ncore]
+        #veff_mo[ncore:,:nocc] = vj_bj
+        #veff_mo[:ncore,nocc:] = vj_ai.T
+        #veff_mo[ncore:,:nocc] -= vk_bj/2
+        #veff_mo[:ncore,nocc:] -= vk_ai.T/2
         return veff_mo
 
     def split_veff (self, veff_mo, dm1s_mo):
@@ -761,17 +766,6 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
 
     return h1e_fr
 
-    #mo_cas = [las.get_mo_slice (idx, mo_coeff) for idx in range (len (ncas_sub))]
-    #moH_cas = [mo.conjugate ().T for mo in mo_cas]
-    ## Subtract double-counting
-    #h2e_sub = [las.get_h2eff_slice (h2eff_sub, ix) for ix, ncas in enumerate (ncas_sub)]
-    #j_sub = [np.tensordot (casdm1s, h2e, axes=((1,2),(2,3))) for casdm1s, h2e in zip (casdm1s_sub, h2e_sub)]
-    #k_sub = [np.tensordot (casdm1s, h2e, axes=((1,2),(2,1))) for casdm1s, h2e in zip (casdm1s_sub, h2e_sub)]
-    #veff_sub = [j[0][None,:,:] + j[1][None,:,:] - k for j, k in zip (j_sub, k_sub)]
-    #h1e_sub = [np.tensordot (moH, np.dot (h1e, mo), axes=((1),(1))).transpose (1,0,2) - v
-    #    for moH, mo, v in zip (moH_cas, mo_cas, veff_sub)]
-    #return h1e_sub
-
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     log = lib.logger.new_logger(las, verbose)
@@ -832,7 +826,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         casdm1s_sub = casdm1s_new
 
         t1 = log.timer ('LASCI get_veff after ci', *t1)
-        H_op = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)
+        H_op = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff, do_init_eri=False)
         g_vec = H_op.get_grad ()
         if las.verbose > lib.logger.INFO:
             g_orb_test, g_ci_test = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff)[:2]
@@ -864,7 +858,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         if (norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad) or ((norm_gorb + norm_gci) < norm_gx/10):
             converged = True
             break
-        H_op._init_df () # Take this part out of the true initialization b/c if I'm already converged I don't want to waste the cycles
+        H_op._init_eri () # Take this part out of the true initialization b/c if I'm already converged I don't want to waste the cycles
         t1 = log.timer ('LASCI Hessian constructor', *t1)
         microit = [0]
         def my_callback (x):
@@ -898,7 +892,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
     t2 = log.timer ('LASCI {} macrocycles'.format (it), *t2)
 
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub, veff=veff)
-    e_tot_test = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff).e_tot
+    e_tot_test = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff, do_init_eri=False).e_tot
     veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1s_fr], h2eff_sub, mo_coeff=mo_coeff, ci=ci1, _full=True)
         for state in range (las.nroots)], axis=0)
     veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, las.weights))/2 # veff's spin-summed component should be correct because I called get_veff with spin-summed rdm
@@ -1212,6 +1206,15 @@ class LASCINoSymm (casci.CASCI):
         self.nroots = 1
         self.weights = [1.0]
         self.e_states = [0.0]
+
+    def get_las_idx (self, idx, incl_core=True):
+        i = (self.ncore * int(incl_core)) + sum (self.ncas_sub[:idx])
+        j = i + self.ncas_sub[idx]
+        return i, j
+
+    def loop_las_idx (self, incl_core=True):
+        for idx in range (len (self.ncas_sub)):
+            yield self.get_las_idx (idx, incl_core=incl_core)
 
     def get_mo_slice (self, idx, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
