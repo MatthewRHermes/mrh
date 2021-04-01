@@ -45,8 +45,6 @@ def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None, _test_cas_energy=Fa
     if verbose is None: verbose = mc.verbose
     t0 = (time.clock (), time.time ())
     if root>=0: ci=ci[root]
-    # make_rdm12s returns (a, b), (aa, ab, bb)
-
 
     # Allow MC-PDFT to be subclassed, and also allow this function to be
     # called without mc being an instance of MC-PDFT class
@@ -67,17 +65,14 @@ def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None, _test_cas_energy=Fa
     t0 = logger.timer (ot, 'MC wfn energy', *t0)
 
 
-    if callable (getattr (mc, 'energy_ot', None)):
-        e_ot = mc.energy_ot (ot=ot, dm_list=dm_list)
+    if callable (getattr (mc, 'energy_dft', None)):
+        e_dft = mc.energy_dft (ot=ot, dm_list=dm_list)
     else:
-        e_ot = energy_ot (mc, ot=ot, dm_list=dm_list)
+        e_dft = energy_dft (mc, ot=ot, dm_list=dm_list)
     t0 = logger.timer (ot, 'E_ot', *t0)
 
-
-    e_tot = e_mcwfn + e_ot
-    logger.note (ot, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, e_ot)
-
-    return e_tot, e_ot
+    e_tot = e_mcwfn + e_dft
+    return e_tot, e_dft
 
 # Consistency with PySCF convention
 kernel = energy_tot # backwards compatibility
@@ -222,7 +217,7 @@ def energy_mcwfn (mc, ot=None, dm_list=None, _test_cas_energy=False, verbose=Non
     e_mcwfn = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) 
     return e_mcwfn
 
-def energy_ot (mc, ot=None, mo_coeff=None, dm_list=None, max_memory=None, hermi=1):
+def energy_dft (mc, ot=None, mo_coeff=None, dm_list=None, max_memory=None, hermi=1):
     ''' Wrap to get_E_ot for subclassing. '''
     if ot is None: ot = mc.otfnal
     if dm_list is None: dm_list = mc.make_rdms_mcpdft ()
@@ -501,7 +496,12 @@ class _PDFT ():
 
     make_rdms_mcpdft = make_rdms_mcpdft
     energy_mcwfn = energy_mcwfn
-    energy_ot = energy_ot
+    energy_dft = energy_dft
+    def energy_tot (self, ot=None, ci=None, root=-1, verbose=None, _test_cas_energy=False):
+        e_tot, e_ot = self.energy_tot (ot=ot, ci=ci, root=root, verbose=verbose,
+            _test_cas_energy=_test_cas_energy)
+        logger.note (self, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, self.ot.otxc, e_ot)
+        return e_tot, e_ot
     energy_tot = energy_tot
 
 def get_mcpdft_child_class (mc, ot, ci_min='ecas', **kwargs):
