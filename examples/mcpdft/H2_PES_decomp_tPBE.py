@@ -1,6 +1,7 @@
 import numpy as np
 import os, sys
-from pyscf import gto, dft, scf, mcscf, lib, ci, molden
+from pyscf import gto, dft, scf, mcscf, lib, ci
+from pyscf.tools import molden
 from mrh.my_pyscf import mcpdft
 
 # Usage: python H2_PES_decomp_tPBE.py basis ncas

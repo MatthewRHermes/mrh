@@ -18,7 +18,7 @@ import unittest
 import numpy as np
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from c2h4n4_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
 dr_nn = 3.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')

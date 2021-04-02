@@ -19,7 +19,7 @@ import numpy as np
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.mcscf import newton_casscf
 from me2n2_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
 r_nn = 3.0
 mol = struct (3.0, '6-31g')
