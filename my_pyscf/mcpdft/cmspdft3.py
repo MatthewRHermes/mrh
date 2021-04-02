@@ -131,16 +131,23 @@ def kernel (mc,nroots=None):
             conv = True
             break
 
+#       (OPTIONAL) Kick away from minima to accelerate convergence
+        grad = np.dot (evecs.T, grad)
+        idx_minima = (evals>0) & (np.abs (grad)<thrs)
+        grad_sign = np.logical_or (np.sign (grad[idx_minima]), 1)
+        grad_shift = grad_sign * thrs # ??? how much ???
+        grad[idx_minima] += grad_shift
+        grad = np.dot (evecs, grad)
+
 #       Effective Hessian that moves us away from minima
         evals = -np.abs (evals) 
         hess = np.dot (evecs * evals[None,:], evecs.T)
 
+#       Rotation step
         t_add = linalg.solve(hess,-grad)
         t[:] = 0
         t[np.tril_indices(t.shape[0], k = -1)] = t_add
-
         t = t - t.T
-        t_old = t.copy()
 
 #       Reset Old Values
 
@@ -150,15 +157,22 @@ def kernel (mc,nroots=None):
 # End Loop
 
     if conv:
-        log.note ("CMS-PDFT intermediate state determination CONVERGED")
+        log.note (("CMS-PDFT intermediate state determination CONVERGED"
+                   " after {} cycles").format (it+1))
     else:
         log.note (("CMS-PDFT intermediate state determination did not converge"
-                   " after {} cycles").format (it))
+                   " after {} cycles").format (it+1))
 
 # Intermediate Energies 
 # Run MC-PDFT
     E_int = np.asarray ([mcpdft.mcpdft.kernel (mc, ot=mc.otfnal, ci=c)[0] 
         for c in ci_rot])
+
+# (OPTIONAL) sort states in ascending order by their intermediate energies
+    idx_sort = np.argsort (E_int)
+    E_int = E_int[idx_sort]
+    ci_rot = ci_rot[idx_sort,...]
+
     log.info ("CMS-PDFT intermediate state energies: {}".format (E_int))
 
 
