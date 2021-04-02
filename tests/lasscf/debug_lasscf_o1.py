@@ -20,7 +20,7 @@ from scipy import linalg
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_o1 import LASSCF
 
 dr_nn = 2.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
@@ -30,6 +30,8 @@ mol.spin = 0
 mol.build ()
 mf = scf.RHF (mol).run ()
 las = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3))
+las._debug_full_pspace = True
+las._debug_o0 = False
 las.max_cycle_macro = 1
 las.kernel ()
 las.mo_coeff = np.loadtxt ('test_lasci_mo.dat')

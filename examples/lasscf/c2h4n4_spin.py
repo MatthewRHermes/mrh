@@ -1,6 +1,6 @@
 from pyscf import gto, scf, lib
 from c2h4n4_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
 mol = struct (3.0, 3.0, '6-31g', symmetry=False)
 mol.verbose = lib.logger.INFO

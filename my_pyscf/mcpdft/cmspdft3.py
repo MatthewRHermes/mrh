@@ -253,15 +253,17 @@ def kernel (mc,nroots=None):
 # Intermediate Energies 
 # Run MC-PDFT
     #mc.ci = ci_final
-    E_int = np.zeros((nroots)) 
-    with lib.temporary_env (mc, ci=ci_rot):
-        # This ^ ~temporarily sets mc.ci to ci_rot
-        # As soon as you leave this indent block, it returns to
-        # whatever it was before. Convenient! Of course, it would
-        # be WAY BETTER for me to just implement ci as a kwarg
-        # in mcpdft.kernel.
-        for i in range(nroots):    
-            E_int [i]= mcpdft.mcpdft.kernel(mc,mc.otfnal,i)[0]
+    #E_int = np.zeros((nroots)) 
+    #with lib.temporary_env (mc, ci=ci_rot):
+    #    # This ^ ~temporarily sets mc.ci to ci_rot
+    #    # As soon as you leave this indent block, it returns to
+    #    # whatever it was before. Convenient! Of course, it would
+    #    # be WAY BETTER for me to just implement ci as a kwarg
+    #    # in mcpdft.kernel.
+    #    for i in range(nroots):    
+    #        E_int [i]= mcpdft.mcpdft.kernel(mc,mc.otfnal,root=i)[0]
+    E_int = np.asarray ([mcpdft.mcpdft.kernel (mc, ot=mc.otfnal, ci=c)[0] 
+        for c in ci_rot])
     log.info ("CMS-PDFT intermediate state energies: {}".format (E_int))
 
 

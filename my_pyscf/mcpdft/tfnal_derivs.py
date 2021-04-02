@@ -209,7 +209,7 @@ def jT_f_j (log, frr, jT_op, *args):
     nr = int (round (np.sqrt (1 + 8*nel) - 1)) // 2
     ngrids = frr[0].shape[-1]
 
-    # yada yada indexing...
+    # build square-matrix index array to address packed matrix frr w/o copying
     ltri_ix = np.tril_indices (nr)
     idx_arr = np.zeros ((nr, nr), dtype=np.int)
     idx_arr[ltri_ix] = range (nel)
@@ -217,11 +217,11 @@ def jT_f_j (log, frr, jT_op, *args):
     diag_ix = np.diag_indices (nr)
     idx_arr[diag_ix] = idx_arr[diag_ix] // 2
     
-    # first pass
+    # first pass: jT . frr -> fcr
     fcr = np.stack ([jT_op ([frr[i] for i in ix_row], *args)
            for ix_row in idx_arr], axis=1)
 
-    # second pass
+    # second pass. fcr is a rectangular matrix (unavoidably) 
     nc = fcr.shape[0]
     if log.verbose < logger.DEBUG:
         fcc = np.empty ((nc*(nc+1)//2, ngrids), dtype=fcr.dtype)
@@ -241,9 +241,8 @@ def jT_f_j (log, frr, jT_op, *args):
                 scale[scale==0] = 1
                 logger.debug (log, 'MC-PDFT jT_f_j symmetry check %d,%d: %e', i, j, 
                     linalg.norm ((fcc[i,j]-fcc[j,i])/scale))
-
-    ltri_ix = np.tril_indices (nc)
-    fcc = fcc[ltri_ix]
+        ltri_ix = np.tril_indices (nc)
+        fcc = fcc[ltri_ix]
 
     return fcc
     
@@ -257,7 +256,9 @@ def gentLDA_jT_op (x, rho, Pi, R, zeta):
     xc = (x[0] + x[1]) / 2.0
     xm = (x[0] - x[1]) / 2.0
 
-    # Charge sector has no explicit rho denominator and so does not require indexing
+    # Charge sector has no explicit rho denominator
+    # and so does not require indexing to avoid
+    # division by zero
     jTx = np.zeros ((2, ngrid), dtype=x[0].dtype)
     jTx[0] = xc + xm*(zeta[0]-(2*R*zeta[1]))
 
