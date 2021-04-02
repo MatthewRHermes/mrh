@@ -14,7 +14,7 @@ from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 
-def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None, _test_cas_energy=False):
+def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None):
     ''' Calculate MC-PDFT total energy
 
         Args:
@@ -31,9 +31,6 @@ def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None, _test_cas_energy=Fa
                 Negative number requests state-averaged MC-PDFT results (i.e., using state-averaged density matrices)
             verbose : int
                 Verbosity of logger output; defaults to mc.verbose
-            _test_cas_energy : logical
-                If True, an assert statement checks that the total energy reconstructed from density matrices
-                is equal to the total energy stored on the MC object.
 
         Returns:
             e_tot : float
@@ -57,11 +54,9 @@ def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None, _test_cas_energy=Fa
 
 
     if callable (getattr (mc, 'energy_mcwfn', None)):
-        e_mcwfn = mc.energy_mcwfn (ot=ot, dm_list=dm_list, 
-            verbose=verbose, _test_cas_energy=_test_cas_energy)
+        e_mcwfn = mc.energy_mcwfn (ot=ot, dm_list=dm_list, verbose=verbose)
     else:
-        e_mcwfn = energy_mcwfn (mc, ot=ot, dm_list=dm_list, 
-            verbose=verbose, _test_cas_energy=_test_cas_energy)
+        e_mcwfn = energy_mcwfn (mc, ot=ot, dm_list=dm_list, verbose=verbose)
     t0 = logger.timer (ot, 'MC wfn energy', *t0)
 
 
@@ -141,7 +136,7 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None):
     dm1s += np.dot (mo_core, moH_core)[None,:,:]
     return dm1s, (adm1s, (adm2, adm2_ss, adm2_os))
 
-def energy_mcwfn (mc, ot=None, dm_list=None, _test_cas_energy=False, verbose=None):
+def energy_mcwfn (mc, ot=None, dm_list=None, verbose=None):
     ''' Compute the parts of the MC-PDFT energy arising from the wave function
 
         Args:
@@ -153,9 +148,6 @@ def energy_mcwfn (mc, ot=None, dm_list=None, _test_cas_energy=False, verbose=Non
             ot : an instance of on-top density functional class - see otfnal.py
             dm_list : (dm1s, adm2)
                 return arguments of make_rdms_mcpdft
-            _test_cas_energy : logical
-                If True, an assert statement checks that the total energy reconstructed from density matrices
-                is equal to the total energy stored on the MC object.
 
         Returns:
             e_mcwfn : float
@@ -209,9 +201,6 @@ def energy_mcwfn (mc, ot=None, dm_list=None, _test_cas_energy=False, verbose=Non
         log.info ('E_c (OS) = %s', E_c_os)
         e_err = E_c_ss + E_c_os - E_c
         assert (abs (e_err) < 1e-8), e_err
-        if _test_cas_energy and isinstance (_rdms.e_tot, float):
-            e_err = _rdms.e_tot - (Vnn + Te_Vne + E_j + E_x + E_c)
-            assert (abs (e_err) < 1e-8), e_err
     if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
         log.debug ('Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
     e_mcwfn = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) 
@@ -497,9 +486,8 @@ class _PDFT ():
     make_rdms_mcpdft = make_rdms_mcpdft
     energy_mcwfn = energy_mcwfn
     energy_dft = energy_dft
-    def energy_tot (self, ot=None, ci=None, root=-1, verbose=None, _test_cas_energy=False):
-        e_tot, e_ot = self.energy_tot (ot=ot, ci=ci, root=root, verbose=verbose,
-            _test_cas_energy=_test_cas_energy)
+    def energy_tot (self, ot=None, ci=None, root=-1, verbose=None):
+        e_tot, e_ot = self.energy_tot (ot=ot, ci=ci, root=root, verbose=verbose)
         logger.note (self, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, self.ot.otxc, e_ot)
         return e_tot, e_ot
     energy_tot = energy_tot
