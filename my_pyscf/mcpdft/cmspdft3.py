@@ -261,7 +261,7 @@ def kernel (mc,nroots=None):
         # be WAY BETTER for me to just implement ci as a kwarg
         # in mcpdft.kernel.
         for i in range(nroots):    
-            E_int [i]= mcpdft.mcpdft.kernel(mc,mc.otfnal,i)[0]
+            E_int [i]= mcpdft.mcpdft.kernel(mc,mc.otfnal,root=i)[0]
     log.info ("CMS-PDFT intermediate state energies: {}".format (E_int))
 
 
