@@ -26,7 +26,7 @@ def mc1step_gen_g_hop (mc, mo, u, casdm1, casdm2, eris):
             paaa_only=True)
         h1e_mo_ = ((mo_.T @ (mc._scf.get_hcore (mc.mol) + veff1_) @ mo_)
                    + veff2_.vhf_c)
-        casdm1_, casdm2_ = mc.fcisolver.make_rdm12(fcivec, ncas, nelecas)
+        casdm1_, casdm2_ = mc.fcisolver.make_rdm12(ci_, ncas, nelecas)
         aapa = np.zeros ((ncas,ncas,nmo,ncas), dtype=h1e_mo_.dtype)
         vhf_a = np.zeros ((nmo,nmo), dtype=h1e_mo_.dtype)
         for i in range (nmo):
@@ -68,4 +68,35 @@ def mc1step_update_jk_in_ah (mc, mo, x1, casdm1, veff2):
     return dg_a, dg_c    
 
 
+if __name__ == '__main__':
+    from pyscf import gto, scf
+    from mrh.my_pyscf import mcpdft
+    mol = gto.M (atom = 'Li 0 0 0; Li 1.2 0 0', basis = '6-31g',
+        verbose=lib.logger.DEBUG, output='orb_scf.log')
+    mf = scf.RHF (mol).run ()
+    mc = mcpdft.CASSCF (mf, 'tPBE', 2, 2, grids_level=9).run ()
+    print ("Ordinary Li2 tPBE energy:",mc.e_tot)
+
+    nao, nmo = mc.mo_coeff.shape
+    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
+    nocc = ncore+ncas
+
+    casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, ncas, nelecas)
+    g_orb, gorb_update, h_op, h_diag = mc1step_gen_g_hop (mc,
+        mc.mo_coeff, 1, casdm1, casdm2, None)
+
+    print ("g_orb:", linalg.norm (g_orb))
+    print ("gorb_update (1,mc.ci):", linalg.norm (gorb_update (1, mc.ci)))
+    print ("h_op(0):", linalg.norm (h_op (np.zeros (60))))
+    print ("h_diag:", linalg.norm (h_diag))
+
+    x0 = -g_orb/h_diag
+    u0 = mc.update_rotate_matrix (x0)
+    print ("\nx0 = -g_orb/h_diag; u0 = expm (x0)")
+    print ("h_op(x0):", linalg.norm (h_op(x0)))
+    print ("gorb_update (u0,mc.ci):", linalg.norm (gorb_update (u0, mc.ci)))
+
+    mc.mo_coeff = np.dot (mc.mo_coeff, u0)
+    e_tot, e_ot = mc.energy_tot ()
+    print ("Li2 tPBE energy after rotating orbitals:", e_tot)
 
