@@ -7,8 +7,6 @@ from pyscf.fci import cistring
 from pyscf.mcscf import mc_ao2mo, mc1step
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
-from mrh.my_pyscf.grad.mcpdft import Gradients
-from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
 from mrh.my_pyscf.mcpdft import pdft_veff, scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
@@ -321,6 +319,7 @@ def sapdft_grad_monkeypatch_(mc):
         return mc
     class StateAverageMCPDFT (mc.__class__, StateAverageMCPDFTSolver):
         def nuc_grad_method (self):
+            from mrh.my_pyscf.grad.mcpdft import Gradients
             return Gradients (self)
     mc.__class__ = StateAverageMCPDFT
     return mc
@@ -445,9 +444,11 @@ class _PDFT ():
         return pdft_veff1, pdft_veff2
 
     def nuc_grad_method (self):
+        from mrh.my_pyscf.grad.mcpdft import Gradients
         return Gradients (self)
 
     def dip_moment (self, unit='Debye'):
+        from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
         dip_obj =  ElectricDipole(self) 
         mol_dipole = dip_obj.kernel ()
         return mol_dipole
