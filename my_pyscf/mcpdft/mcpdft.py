@@ -379,7 +379,7 @@ class _PDFT ():
         self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
         self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)
         if isinstance (self, StateAverageMCSCFSolver):
-            epdft = [energy_tot (self, self.otfnal, root=ix) for ix in range (len (self.e_states))]
+            epdft = [self.energy_tot (root=ix) for ix in range (len (self.e_states))]
             self.e_mcscf = self.e_states
             self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
             self.e_ot = [e_ot for e_tot, e_ot in epdft]
@@ -498,10 +498,11 @@ class _PDFT ():
     energy_mcwfn = energy_mcwfn
     energy_dft = energy_dft
     def energy_tot (self, ot=None, ci=None, root=-1, verbose=None):
-        e_tot, e_ot = self.energy_tot (ot=ot, ci=ci, root=root, verbose=verbose)
-        logger.note (self, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, self.ot.otxc, e_ot)
+        if ot is None: ot = self.otfnal
+        if ci is None: ci = self.ci
+        e_tot, e_ot = energy_tot (self, ot=ot, ci=ci, root=root, verbose=verbose)
+        logger.note (self, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc, e_ot)
         return e_tot, e_ot
-    energy_tot = energy_tot
 
 def get_mcpdft_child_class (mc, ot, ci_min='ecas', **kwargs):
 
