@@ -7,7 +7,7 @@ from pyscf.fci import cistring
 from pyscf.mcscf import mc_ao2mo, mc1step
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
-from mrh.my_pyscf.mcpdft import pdft_veff, scf
+from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
@@ -393,7 +393,7 @@ class _PDFT ():
         log = logger.new_logger(self, verbose)
         log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal.otxc)
 
-    def get_pdft_veff (self, mo=None, ci=None, incl_coul=False, paaa_only=False):
+    def get_pdft_veff (self, mo=None, ci=None, incl_coul=False, paaa_only=False):#, aaaa_only=False):
         ''' Get the 1- and 2-body MC-PDFT effective potentials for a set of mos and ci vectors
 
             Kwargs:
@@ -425,7 +425,7 @@ class _PDFT ():
         mo_cas = mo[:,ncore:][:,:ncas]
         pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, 
             adm2, mo, ncore, ncas, max_memory=self.max_memory, 
-            paaa_only=paaa_only)
+            paaa_only=paaa_only)#, aaaa_only=aaaa_only)
         if self.verbose > logger.DEBUG:
             logger.debug (self, 'Warning: memory-intensive lazy kernel for pdft_veff initiated for '
                 'testing purposes; reduce verbosity to decrease memory footprint')
@@ -509,11 +509,11 @@ def get_mcpdft_child_class (mc, ot, ci_min='ecas', **kwargs):
     class PDFT (_PDFT, mc.__class__):
         if ci_min.lower () == 'epdft':
             if isinstance (mc, mc1step.CASSCF):
-                casci=scf.mc1step_casci # CASSCF CI step
-                update_casdm=scf.mc1step_update_casdm # inner cycle CI update
+                casci=ci_scf.mc1step_casci # CASSCF CI step
+                update_casdm=ci_scf.mc1step_update_casdm # inner cycle CI update
             else:
-                kernel=scf.casci_kernel # CASCI
-                _finalize=scf.casci_finalize # I/O clarity
+                kernel=ci_scf.casci_kernel # CASCI
+                _finalize=ci_scf.casci_finalize # I/O clarity
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy ()
