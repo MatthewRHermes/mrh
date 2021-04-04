@@ -393,19 +393,31 @@ class _PDFT ():
         log = logger.new_logger(self, verbose)
         log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal.otxc)
 
-    def get_pdft_veff (self, mo=None, ci=None, incl_coul=False, paaa_only=False, aaaa_only=False):
+    def get_pdft_veff (self, mo=None, ci=None, casdm1s=None, casdm2=None, 
+            incl_coul=False, paaa_only=False, aaaa_only=False):
         ''' Get the 1- and 2-body MC-PDFT effective potentials for a set of mos and ci vectors
 
             Kwargs:
                 mo : ndarray of shape (nao,nmo)
-                    A full set of molecular orbital coefficients. Taken from self if not provided
+                    A full set of molecular orbital coefficients. Taken from 
+                    self if not provided
                 ci : list or ndarray
                     CI vectors. Taken from self if not provided
+                casdm1s : ndarray of shape (2,ncas,ncas)
+                    Spin-separated 1-RDM in the active space. Overrides CI if
+                    and only if both this and casdm2 are provided 
+                casdm2 : ndarray of shape (ncas,ncas,ncas,ncas)
+                    2-RDM in the active space. Overrides CI if and only if both
+                    this and casdm1s are provided 
                 incl_coul : logical
-                    If true, includes the Coulomb repulsion energy in the 1-body effective potential.
-                    In practice they always appear together.
+                    If true, includes the Coulomb repulsion energy in the 1-body
+                    effective potential. In practice they always appear together.
                 paaa_only : logical
-                    If true, only the paaa 2-body effective potential elements are evaluated; the rest of ppaa are filled with zeros.
+                    If true, only the paaa 2-body effective potential elements
+                    are evaluated; the rest of ppaa are filled with zeros.
+                aaaa_only : logical
+                    If true, only the aaaa 2-body effective potential elements
+                    are evaluated; the rest of ppaa are filled with zeros.
 
             Returns:
                 veff1 : ndarray of shape (nao, nao)
@@ -418,9 +430,19 @@ class _PDFT ():
         if mo is None: mo = self.mo_coeff
         if ci is None: ci = self.ci
         ncore, ncas, nelecas = self.ncore, self.ncas, self.nelecas
+        nocc = ncore + ncas
 
-        dm_list = self.make_rdms_mcpdft (mo_coeff=mo, ci=ci)
-        dm1s, (adm1s, (adm2, adm2_ss, adm2_os)) = dm_list
+        if (casdm1s is not None) and (casdm2 is not None):
+            mo_core = mo[:,:ncore]
+            mo_cas = mo[:,ncore:nocc]
+            dm1s = np.dot (mo_cas, casdm1s).transpose (1,0,2)
+            dm1s = np.dot (dm1s, mo_cas.conj ().T)
+            dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
+            adm1s = casdm1s
+            adm2 = get_2CDM_from_2RDM (casdm2, casdm1s)
+        else:
+            dm_list = self.make_rdms_mcpdft (mo_coeff=mo, ci=ci)
+            dm1s, (adm1s, (adm2, _ss, _os)) = dm_list
 
         mo_cas = mo[:,ncore:][:,:ncas]
         pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, 
