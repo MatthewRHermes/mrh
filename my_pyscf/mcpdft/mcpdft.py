@@ -12,7 +12,7 @@ from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 
-def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None):
+def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
     ''' Calculate MC-PDFT total energy
 
         Args:
@@ -22,6 +22,8 @@ def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None):
 
         Kwargs:
             ot : an instance of on-top density functional class - see otfnal.py
+            mo_coeff : ndarray of shape (nao, nmo)
+                Molecular orbital coefficients
             ci : ndarray or list
                 CI vector or vectors. Must be consistent with the nroots of mc.
             root : int
@@ -36,6 +38,8 @@ def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None):
             E_ot : float
                 On-top (cf. exchange-correlation) energy
     '''
+    if ot is None: ot = mc.otfnal
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
     if verbose is None: verbose = mc.verbose
     t0 = (time.clock (), time.time ())
@@ -45,16 +49,16 @@ def energy_tot (mc, ot=None, ci=None, root=-1, verbose=None):
     # called without mc being an instance of MC-PDFT class
 
     if callable (getattr (mc, 'make_rdms_mcpdft', None)):
-        dm_list = mc.make_rdms_mcpdft (ot=ot, ci=ci)
+        dm_list = mc.make_rdms_mcpdft (ot=ot, mo_coeff=mo_coeff, ci=ci)
     else:
-        dm_list = make_rdms_mcpdft (mc, ot=ot, ci=ci)
+        dm_list = make_rdms_mcpdft (mc, ot=ot, mo_coeff=mo_coeff, ci=ci)
     t0 = logger.timer (ot, 'rdms', *t0)
 
 
     if callable (getattr (mc, 'energy_mcwfn', None)):
-        e_mcwfn = mc.energy_mcwfn (ot=ot, dm_list=dm_list, verbose=verbose)
+        e_mcwfn = mc.energy_mcwfn (ot=ot, mo_coeff=mo_coeff, dm_list=dm_list, verbose=verbose)
     else:
-        e_mcwfn = energy_mcwfn (mc, ot=ot, dm_list=dm_list, verbose=verbose)
+        e_mcwfn = energy_mcwfn (mc, ot=ot, mo_coeff=mo_coeff, dm_list=dm_list, verbose=verbose)
     t0 = logger.timer (ot, 'MC wfn energy', *t0)
 
 
@@ -134,7 +138,7 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None):
     dm1s += np.dot (mo_core, moH_core)[None,:,:]
     return dm1s, (adm1s, (adm2, adm2_ss, adm2_os))
 
-def energy_mcwfn (mc, ot=None, dm_list=None, verbose=None):
+def energy_mcwfn (mc, ot=None, mo_coeff=None, ci=None, dm_list=None, verbose=None):
     ''' Compute the parts of the MC-PDFT energy arising from the wave function
 
         Args:
@@ -144,6 +148,10 @@ def energy_mcwfn (mc, ot=None, dm_list=None, verbose=None):
 
         Kwargs:
             ot : an instance of on-top density functional class - see otfnal.py
+            mo_coeff : ndarray of shape (nao, nmo)
+                contains molecular orbital coefficients
+            ci : list or ndarray
+                contains ci vectors
             dm_list : (dm1s, adm2)
                 return arguments of make_rdms_mcpdft
 
@@ -154,8 +162,10 @@ def energy_mcwfn (mc, ot=None, dm_list=None, verbose=None):
     '''
 
     if ot is None: ot = mc.otfnal
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ci is None: ci = mc.ci
     if verbose is None: verbose = mc.verbose
-    if dm_list is None: dm_list = mc.make_rdms_mcpdft ()
+    if dm_list is None: dm_list = mc.make_rdms_mcpdft (ot=ot, mo_coeff=mo_coeff, ci=ci)
     log = logger.new_logger (mc, verbose=verbose)
     ncas, nelecas = mc.ncas, mc.nelecas
     dm1s, (adm1s, (adm2, adm2_ss, adm2_os)) = dm_list
@@ -190,7 +200,7 @@ def energy_mcwfn (mc, ot=None, dm_list=None, verbose=None):
     if log.verbose >= logger.DEBUG or abs (hyb_c) > 1e-10:
         # g_pqrs * l_pqrs / 2
         #if log.verbose >= logger.DEBUG:
-        aeri = ao2mo.restore (1, mc.get_h2eff (mc.mo_coeff), mc.ncas)
+        aeri = ao2mo.restore (1, mc.get_h2eff (mo_coeff), mc.ncas)
         E_c = np.tensordot (aeri, adm2, axes=4) / 2
         E_c_ss = np.tensordot (aeri, adm2_ss, axes=4) / 2
         E_c_os = np.tensordot (aeri, adm2_os, axes=4) # ab + ba -> factor of 2

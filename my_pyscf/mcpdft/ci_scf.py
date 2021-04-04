@@ -77,8 +77,7 @@ def _ci_min_epdft_fp (mc, mo_coeff, ci0, hcas=None, verbose=None):
         ci_grad = hc - (chc * ci1.ravel ())
         ci_grad_norm = ci_grad.dot (ci_grad)
         epdft_last = epdft
-        with lib.temporary_env (mc, ci=ci1, mo_coeff=mo_coeff): # TODO: remove; fix mcpdft.kernel or write a better function
-            epdft = mcpdft.kernel (mc, mc.otfnal, verbose=0)[0]
+        epdft = mcpdft.energy_tot (mc, mc.otfnal, mo_coeff=mo_coeff, ci=ci1)[0]
 
         dchc = chc + h0_pdft - chc_last # careful; don't mess up ci_grad
         depdft = epdft - epdft_last
@@ -264,6 +263,7 @@ def casci_kernel(mc, mo_coeff=None, ci0=None, verbose=None):
     return mc.e_tot, mc.e_cas, mc.ci, mc.mo_coeff, mc.mo_energy
 
 def casci_finalize(mc):
+    ''' This function is for I/O clarity only '''
     log = logger.Logger(mc.stdout, mc.verbose)
     if log.verbose >= logger.NOTE and getattr(mc.fcisolver, 'spin_square', None):
         if isinstance(mc.e_cas, (float, np.number)):
