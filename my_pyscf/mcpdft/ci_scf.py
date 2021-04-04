@@ -12,13 +12,13 @@ def get_heff_cas (mc, mo_coeff, ci, link_index=None):
     mo_core = mo_coeff[:,:ncore]
     mo_cas = mo_coeff[:,ncore:nocc]
 
-    veff1, veff2 = mc.get_pdft_veff (mo=mo_coeff, ci=ci, incl_coul=False, paaa_only=True)
+    veff1, veff2 = mc.get_pdft_veff (mo=mo_coeff, ci=ci, incl_coul=False, aaaa_only=True)
     h1_ao = (mc.get_hcore () + veff1
            + mc._scf.get_j (dm=mc.make_rdm1 (mo_coeff=mo_coeff, ci=ci)))
 
-    h0 = (mc._scf.energy_nuc () 
-        + (h1_ao @ mo_core).ravel ().dot (mo_core.conj ().ravel ())
-        + np.trace (veff2._vhf_c[:ncore,:ncore])/2)
+    h0 = ((mc._scf.energy_nuc () 
+        + (h1_ao @ mo_core).ravel ().dot (mo_core.conj ().ravel ()))/2
+        + veff2.energy_core)
     h1 = (mo_cas.conj ().T @ (h1_ao) @ mo_cas
         + veff2.vhf_c[ncore:nocc,ncore:nocc])
     h2 = np.zeros ([ncas,]*4) # Forward-compatibility for outcore pdft veff...

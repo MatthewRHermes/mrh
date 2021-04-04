@@ -393,7 +393,7 @@ class _PDFT ():
         log = logger.new_logger(self, verbose)
         log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal.otxc)
 
-    def get_pdft_veff (self, mo=None, ci=None, incl_coul=False, paaa_only=False):#, aaaa_only=False):
+    def get_pdft_veff (self, mo=None, ci=None, incl_coul=False, paaa_only=False, aaaa_only=False):
         ''' Get the 1- and 2-body MC-PDFT effective potentials for a set of mos and ci vectors
 
             Kwargs:
@@ -425,7 +425,7 @@ class _PDFT ():
         mo_cas = mo[:,ncore:][:,:ncas]
         pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, 
             adm2, mo, ncore, ncas, max_memory=self.max_memory, 
-            paaa_only=paaa_only)#, aaaa_only=aaaa_only)
+            paaa_only=paaa_only, aaaa_only=aaaa_only)
         if self.verbose > logger.DEBUG:
             logger.debug (self, 'Warning: memory-intensive lazy kernel for pdft_veff initiated for '
                 'testing purposes; reduce verbosity to decrease memory footprint')

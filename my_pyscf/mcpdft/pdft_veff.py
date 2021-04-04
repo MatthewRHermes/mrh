@@ -28,7 +28,7 @@ SWITCH_SIZE = getattr(__config__, 'dft_numint_SWITCH_SIZE', 800)
 libpdft = load_library('libpdft')
 
 class _ERIS(object):
-    def __init__(self, mol, mo_coeff, ncore, ncas, method='incore', paaa_only=False, verbose=0, stdout=None):
+    def __init__(self, mol, mo_coeff, ncore, ncas, method='incore', paaa_only=False, aaaa_only=False, verbose=0, stdout=None):
         self.mol = mol
         self.mo_coeff = mo_coeff
         self.nao, self.nmo = mo_coeff.shape
@@ -37,6 +37,7 @@ class _ERIS(object):
         self.vhf_c = np.zeros ((self.nmo, self.nmo), dtype=mo_coeff.dtype)
         self.method = method
         self.paaa_only = paaa_only
+        self.aaaa_only = aaaa_only
         self.verbose = verbose
         self.stdout = stdout
         if method == 'incore':
@@ -66,19 +67,26 @@ class _ERIS(object):
         mo_cas = _grid_ao2mo (self.mol, ao, mo_coeff[:,ncore:nocc], non0tab)
         # vhf_c
         vrho_c = _contract_vot_rho (vPi, rho_c)
-        self.vhf_c += mo_coeff.conjugate ().T @ ot.get_veff_1body (rho, Pi, ao, weight, non0tab=non0tab, shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho_c) @ mo_coeff
+        self.vhf_c += mo_coeff.conjugate ().T @ ot.get_veff_1body (rho, Pi, ao,
+            weight, non0tab=non0tab, shls_slice=shls_slice, ao_loc=ao_loc,
+            hermi=1, kern=vrho_c) @ mo_coeff
+        self.energy_core = np.trace (self.vhf_c[:ncore,:ncore])/2
         if self.paaa_only:
-            # 1/2 v_aiuv D_ii D_uv = v^ai_uv D_uv -> F_ai, F_ia needs to be in here since it would otherwise be calculated using ppaa and papa
-            # This is harmless to the CI problem because the elements in the active space are voided out below.
-            # First, though, stash the 'actual' vhf_c somewhere
-            self._vhf_c = self.vhf_c.copy ()
+            # 1/2 v_aiuv D_ii D_uv = v^ai_uv D_uv -> F_ai, F_ia
+            # needs to be in here since it would otherwise be calculated using ppaa and papa
+            # This is harmless to the CI problem because the elements in the active space and
+            # core-core sector are ignored below.
             vrho_a = _contract_vot_rho (vPi, rho_a.sum (0))
-            vhf_a = ot.get_veff_1body (rho, Pi, ao, weight, non0tab=non0tab, shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho_a) 
+            vhf_a = ot.get_veff_1body (rho, Pi, ao, weight, non0tab=non0tab,
+                shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho_a) 
             vhf_a = mo_coeff.conjugate ().T @ vhf_a @ mo_coeff
             vhf_a[ncore:nocc,:] = vhf_a[:,ncore:nocc] = 0.0
             self.vhf_c += vhf_a
         # ppaa
-        if self.paaa_only:
+        if self.aaaa_only:
+            aaaa = ot.get_veff_2body (rho, Pi, [mo_cas, mo_cas, mo_cas, mo_cas], weight, aosym='s1', kern=vPi)
+            self.papa[ncore:nocc,:,ncore:nocc,:] += aaaa
+        elif self.paaa_only:
             paaa = ot.get_veff_2body (rho, Pi, [ao, mo_cas, mo_cas, mo_cas], weight, aosym='s1', kern=vPi)
             paaa = np.tensordot (mo_coeff.T, paaa, axes=1)
             #paaa = unpack_tril (paaa.reshape (-1, ncas * (ncas + 1) // 2)).reshape (-1, ncas, ncas, ncas)
@@ -121,7 +129,8 @@ class _ERIS(object):
             raise NotImplementedError ("method={} for veff2".format (self.method))
         self.k_pc = self.j_pc.copy ()
 
-def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=2000, hermi=1, veff2_mo=None, paaa_only=False):
+def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=2000,
+        hermi=1, veff2_mo=None, paaa_only=False, aaaa_only=False):
     ''' Get the 1- and 2-body effective potential from MC-PDFT. Eventually I'll be able to specify
         mo slices for the 2-body part
 
@@ -155,7 +164,8 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=2000,
     npair = norbs_ao * (norbs_ao + 1) // 2
 
     veff1 = np.zeros ((norbs_ao, norbs_ao), dtype=oneCDMs_amo.dtype)
-    veff2 = _ERIS (ot.mol, mo_coeff, ncore, ncas, paaa_only=paaa_only, verbose=ot.verbose, stdout=ot.stdout)
+    veff2 = _ERIS (ot.mol, mo_coeff, ncore, ncas, paaa_only=paaa_only, 
+        aaaa_only=aaaa_only, verbose=ot.verbose, stdout=ot.stdout)
 
     t0 = (time.clock (), time.time ())
     dm_core = mo_core @ mo_core.T 
