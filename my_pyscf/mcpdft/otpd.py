@@ -59,6 +59,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0, n
     # Fix dimensionality of rho and ao
     if rho.ndim == 2:
         rho = rho.reshape (rho.shape[0], 1, rho.shape[1])
+    if ao.ndim == 2:
         ao = ao.reshape (1, ao.shape[0], ao.shape[1])
 
     # Debug code for ultra-slow, ultra-high-memory but very safe implementation
@@ -184,8 +185,9 @@ def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
                       = i(r) d_j(r) - j(r) d_i(r)
         What this function computes is D_i(r) and d_i(r)
     '''
-    assert (rho.ndim == mo.ndim), "rho.shape={0}; ao.shape={1}".format (rho.shape, mo.shape)
+    assert (rho.ndim == mo.ndim), "rho.shape={0}; mo.shape={1}".format (rho.shape, mo.shape)
     nocc = ncore + ncas
+    nderiv_Pi = (1,4)[int (deriv)]
 
     # Fix dimensionality of rho and mo
     if rho.ndim == 2:
@@ -196,24 +198,19 @@ def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
     # First cumulant and derivatives
     dm1s_mo = np.stack ([np.eye (nocc, dtype=casdm1s.dtype),]*2, axis=0)
     dm1s_mo[:,ncore:nocc,ncore:nocc] = casdm1s
-    drho = [_grid_ao2mo (ot.mol, mo, dm1, non0tab=non0tab) for dm1 in dm1s_mo]
-    dPi = ((drho[0][0] * rho[1,0,:,None]) 
-        + (rho[0,0,:,None] * drho[1][0]))
+    drho = np.stack ([_grid_ao2mo (ot.mol, mo, dm1, non0tab=non0tab)
+        for dm1 in dm1s_mo], axis=0)
+    dPi = np.zeros ((nderiv_Pi, ngrids), dtype=rho.dtype)
+    dPi[0] = ((drho[0][0] * rho[1,0,:,None]) 
+           + (rho[0,0,:,None] * drho[1][0]))
     if deriv > 0:
-        assert (rho.shape[1] >= 4), rho.shape
-        assert (ao.shape[0] >= 4), ao.shape
         for ideriv in range(1,4):
-            Pi[ideriv] = ((drho[0][ideriv]*rho[1,0,:,None]) 
-                        + (drho[0][0]*rho[1,ideriv,:,None])
-                        + (rho[0,ideriv,:,None]*drho[1][0])
-                        + (rho[0,0,:,None]*drho[1][ideriv]))
+            dPi[ideriv] = ((drho[0][ideriv]*rho[1,0,:,None]) 
+                         + (drho[0][0]*rho[1,ideriv,:,None])
+                         + (rho[0,ideriv,:,None]*drho[1][0])
+                         + (rho[0,0,:,None]*drho[1][ideriv]))
     if deriv > 1:
         raise NotImplementedError ("Colle-Salvetti type orbital+grid derivatives")
-        #assert (rho.shape[1] >= 6), rho.shape
-        #assert (ao.shape[0] >= 10), ao.shape
-        #Pi[4] = -(rho[:,1:4].sum (0).conjugate () * rho[:,1:4].sum (0)).sum (0) / 4
-        #Pi[4] += rho[0,0]*(rho[1,4]/4 + rho[0,5]*2) 
-        #Pi[4] += rho[1,0]*(rho[0,4]/4 + rho[1,5]*2)
 
     # Second cumulant and derivatives
     mo_cas = mo[:,:,ncore:nocc]
@@ -225,16 +222,15 @@ def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
         for ideriv in range (1, 4):
             dPi[ideriv] += (mo_cas[ideriv][:,None,:] * wrk0).sum (2)                     # r_1aj,  P_0aij -> P_1ai
             gridkern[ideriv] = mo_cas[ideriv,:,:,np.newaxis] * mo_cas[0,:,np.newaxis,:]  # r_1ai,  r_0aj  -> r_1aij
-            wrk1 = np.tensordot (gridkern[ideriv], cascm2, axes=2)                       # r_1aij, P_ijkl -> P_1akl
-            Pi[ideriv] += (mo_cas[0][:,None,:] * wrk1).sum (2) * 2                       # r_0aj,  P_1aij -> P_1ai
+        for ideriv in range (1, 4):
+            wrk0 = np.tensordot (gridkern[ideriv], cascm2, axes=2)                       # r_1aij, P_ijkl -> P_1akl
+            dPi[ideriv] += (mo_cas[0][:,None,:] * wrk0).sum (2) * 2                      # r_0aj,  P_1aij -> P_1ai
     if deriv > 1: 
         raise NotImplementedError ("Colle-Salvetti type orbital+grid derivatives")
 
     # Unfix dimensionality of rho, ao, and Pi
-    if dPi.shape[0] == 1:
-        dPi = np.reshape (dPi.shape[1:])
-        rho = rho.reshape (rho.shape[0], rho.shape[2])
-        mo = mo.reshape (mo.shape[1], mo.shape[2])
+    dPi = dPi.transpose (0,2,1)
+    drho = drho.transpose (0,1,3,2)
 
     return drho, dPi
 
