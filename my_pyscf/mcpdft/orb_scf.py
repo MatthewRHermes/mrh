@@ -42,22 +42,22 @@ def mc1step_gen_g_hop (mc, mo, u, casdm1, casdm2, eris):
         return mc.pack_uniq_var(g-g.T)
     return g_orb, gorb_update, h_op, h_diag
 
-def mc1step_update_jk_in_ah (mc, mo, x1, casdm1, veff2):
+def mc1step_update_jk_in_ah (mc, mo_coeff, x1, casdm1, veff2):
     ''' Wrapper to mc1step.update_jk_in_ah for minimizing the PDFT energy
         instead of the CASSCF energy by varying orbitals '''
     ncore, ncas = mc.ncore, mc.ncas
     nocc = ncore + ncas
-    nao, nmo = mo.shape
+    nao, nmo = mo_coeff.shape
 
     # Density matrices
     dm1 = 2 * np.eye (nmo)
     dm1[nocc:,nocc:] = 0.0
     dm1[ncore:nocc,ncore:nocc] = casdm1
-    ddm1 = mo @ x1 @ dm1 @ mo.conj ().T
+    ddm1 = mo_coeff @ x1 @ dm1 @ mo_coeff.conj ().T
 
     # Coulomb 
     ddm1 += ddm1.T
-    dvj = mo.conj ().T @ mc._scf.get_j (dm=ddm1) @ mo
+    dvj = mo_coeff.conj ().T @ mc._scf.get_j (dm=ddm1) @ mo_coeff
     dg = dm1 @ dvj # convention of mc1step: density matrix index first
 
     # TODO: OT; requires more thought
