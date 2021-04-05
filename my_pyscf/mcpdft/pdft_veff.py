@@ -83,7 +83,7 @@ class _ERIS(object):
             # needs to be in here since it would otherwise be calculated using ppaa and papa
             # This is harmless to the CI problem because the elements in the active space and
             # core-core sector are ignored below.
-            vrho_a = _contract_vot_rho (vPi, rho_a.sum (0))
+            vrho_a = _contract_vot_rho (vPi, rho_a)
             vhf_a = ot.get_veff_1body (rho, Pi, ao, weight, non0tab=non0tab,
                 shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho_a) 
             vhf_a = mo_coeff.conjugate ().T @ vhf_a @ mo_coeff
@@ -264,13 +264,12 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=2000,
     nderiv_rho = (1,4,10)[dens_deriv] # ?? for meta-GGA
     nderiv_Pi = (1,4)[ot.Pi_deriv]
     ncols  = 4 + nderiv_rho*nao # ao, weight, coords
-    ncols += nderiv_rho * 5 + nderiv_Pi # rho, rho_a, rho_c, Pi
+    ncols += nderiv_rho * 4 + nderiv_Pi # rho, rho_a, rho_c, Pi
     ncols += 1 + nderiv_rho + nderiv_Pi # eot, vot
     # Asynchronous part
     nveff1 = nderiv_rho * (nao+1) # footprint of get_veff_1body
     nveff2 = veff2._accumulate_ftpt () * nderiv_Pi
-    nfx = 0 # for fot.x
-    ncols += np.amax ([nveff1, nveff2, nfx]) # asynchronous fns
+    ncols += np.amax ([nveff1, nveff2]) # asynchronous fns
     pdft_blksize = int (remaining_floats / (ncols * BLKSIZE)) * BLKSIZE # round up
     if ot.grids.coords is None:
         ot.grids.build(with_non0tab=True)
@@ -282,19 +281,17 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=2000,
     # The actual loop
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, nao, dens_deriv, max_memory, blksize=pdft_blksize):
         rho = np.asarray ([make_rho (i, ao, mask, xctype) for i in range(2)])
+        rho_a = sum ([make_rho_a (i, ao, mask, xctype) for i in range(2)])
+        rho_c = make_rho_c (0, ao, mask, xctype)
         t0 = logger.timer (ot, 'untransformed densities (core and total)', *t0)
         Pi = get_ontop_pair_density (ot, rho, ao, dm1s, twoCDM_amo, ao2amo, dens_deriv, mask)
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
         eot, vot = ot.eval_ot (rho, Pi, weights=weight)[:2]
         vrho, vPi = vot
-        if ao.ndim == 2: ao = ao[None,:,:] # TODO: consistent format req's ao LDA case
         t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
+        if ao.ndim == 2: ao = ao[None,:,:] # TODO: consistent format req's ao LDA case
         veff1 += ot.get_veff_1body (rho, Pi, ao, weight, non0tab=mask, shls_slice=shls_slice, ao_loc=ao_loc, hermi=1, kern=vrho)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
-        #ao[:,:,:] = np.tensordot (ao, mo_coeff, axes=1)
-        #t0 = logger.timer (ot, 'ao2mo grid points', *t0)
-        rho_a = np.asarray ([make_rho_a (i, ao, mask, xctype) for i in range(2)])
-        rho_c = make_rho_c (0, ao, mask, xctype)
         veff2._accumulate (ot, rho, Pi, ao, weight, rho_c, rho_a, vPi, mask, shls_slice, ao_loc)
         t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
     veff2._finalize ()

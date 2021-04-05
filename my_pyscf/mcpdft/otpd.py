@@ -173,21 +173,24 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0, n
 
     return Pi
 
-def pair_density_orbital_derivative (ot, mo_coeff, ncore, ncas, casdm1s, cascm2,
-        rho, mo, deriv=0, non0tab=None):
-    ''' d/dk_ij Pi(r) = [i(r) d_jklm - j(r) d_iklm] k(r) l(r) m(r)
+def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
+        deriv=0, non0tab=None):
+    ''' d/dk_ij rho(r) = [i(r) D_jk - j(r) D_ik] k(r)
+                       = i(r) D_j(r) - j(r) D_k(r)
+        d/dk_ij Pi(r) = [i(r) d_jklm - j(r) d_iklm] k(r) l(r) m(r)
                       = [i(r) l_jklm - j(r) l_iklm] k(r) l(r) m(r)
                         + [i(r) D[0]_jk - j(r) D[0]_ik] k(r) rho[1]
                         + [i(r) D[1]_jk - j(r) D[1]_ik] k(r) rho[0]
                       = i(r) d_j(r) - j(r) d_i(r)
-        What this function computes is d_i(r)
+        What this function computes is D_i(r) and d_i(r)
     '''
     assert (rho.ndim == mo.ndim), "rho.shape={0}; ao.shape={1}".format (rho.shape, mo.shape)
     nocc = ncore + ncas
 
-    # Fix dimensionality of rho and ao
+    # Fix dimensionality of rho and mo
     if rho.ndim == 2:
         rho = rho.reshape (rho.shape[0], 1, rho.shape[1])
+    if mo.ndim == 2:
         mo = mo.reshape (1, mo.shape[0], mo.shape[1])
 
     # First cumulant and derivatives
@@ -233,6 +236,6 @@ def pair_density_orbital_derivative (ot, mo_coeff, ncore, ncas, casdm1s, cascm2,
         rho = rho.reshape (rho.shape[0], rho.shape[2])
         mo = mo.reshape (mo.shape[1], mo.shape[2])
 
-    return dPi
+    return drho, dPi
 
 
