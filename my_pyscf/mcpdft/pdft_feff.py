@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
+from pyscf.dft.gen_grid import BLKSIZE
 from mrh.my_pyscf.mcpdft.otpd import *
 from mrh.my_pyscf.mcpdft.tfnal_derivs import contract_fot
 from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_ao
@@ -53,7 +54,25 @@ def EotOrbitalHessianOperator (object):
         self.make_rho = ni._gen_rho_evaluator (ot.mol, dm1, 1)
         
     def get_blocksize (self):
-        return 128 # TODO
+        nderiv_ao, nao = self.nderiv_ao, self.nao
+        nderiv_rho, nderiv_Pi = self.nderiv_rho, self.nderiv_Pi
+        ncas, nocc = self.ncas, self.nocc
+        nvar = 2 + int (self.rho_deriv) + 2*int (self.Pi_deriv)
+        ncol_perm = (4 + nderiv_ao*nao                    # ao, weights, coords
+            + (nocc+2) * (nderiv_rho+nderiv_Pi))          # rho + fx + drho
+        ncol_vol = (nderiv_ao*(nao+ncas) + 2*nderiv_rho   # rho volatile
+            + (1+nderiv_Pi)*(ncas**2))
+        ncol_vol = max (ncol_vol,                         # drho volatile
+            (2*nderiv_rho*(nocc+1) 
+            + (1+nderiv_Pi)*(ncas**2)))
+        ncol_vol = max (ncol_vol,                         # fx volatile
+            (nvar*(nvar+1)//2 + nderiv_rho + nderiv_Pi
+            + 2*nderiv_ao*nocc))
+        ncol = ncol_perm + ncol_vol
+        ngrids = self.ot.grids.coords.shape[0]
+        remaining_floats = (self.max_memory-lib.current_memory())[0] * 1e6 / 8
+        blksize = int (remaining_floats/(ncol*BLKSIZE))*BLKSIZE
+        return max(BLKSIZE,min(blksize,ngrids,BLKSIZE*1200))
 
     def make_dens0 (self, ao, mask):
         rho = self.make_rho (0, ao, mask, self.xctype)
@@ -91,13 +110,15 @@ def EotOrbitalHessianOperator (object):
         ngrids = drho.shape[-1]
         occ_coeff_1 = self.mo_coeff @ (x-x.T)[:,:self.nocc]
         mo1 = _grid_ao2mo (self.ot.mol, ao, occ_coeff_1, non0tab=mask)
-        rho1 = (mo1 * drho[0:1,:,:]).sum (1)
-        Pi1 = (mo1 * dPi[0:1,:,:]).sum (1)
+        rho1 = (mo1[:self.nderiv_rho] * drho[0:1,:,:]).sum (1)
+        Pi1 = (mo1[:self.nderiv_Pi] * dPi[0:1,:,:]).sum (1)
         if self.rho_deriv:
             rho1[1:4] += (mo1[0:1,:,:] * drho[1:4,:,:]).sum (1)
         if self.Pi_deriv:
             Pi1[1:4] += (mo1[0:1,:,:] * dPi[1:4,:,:]).sum (1)
         return rho1, Pi1
+        # persistent memory footprint: (nderiv_rho + nderiv_Pi) * ngrids
+        # volatile memory footprint: 2 * nderiv_ao * nocc * ngrids
 
     def get_fot (self, rho, Pi, weights):
         eot, vot, fot = self.ot.eval_ot (rho, Pi, dderiv=2, weights=weights, 
@@ -114,6 +135,11 @@ def EotOrbitalHessianOperator (object):
         fot = self.get_fot (rho0, Pi0, weights)
         rho1, Pi1 = self.make_dens1 (ao, drho, dPi, mask, x)
         return contract_fot (fot, rho0, Pi0, rho1, Pi1)
+        # persistent memory footprint: (nderiv_rho + nderiv_Pi) * ngrids
+        # volatile memory footprint:
+        #   get_fot persistent
+        # + make_dens1 persistent
+        # + make_dens1 volatile
 
     def __call__ (self, x):
         dg = np.zeros ((self.nocc, self.nao), dtype=x.dtype)
