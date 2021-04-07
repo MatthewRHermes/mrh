@@ -54,8 +54,6 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0, n
             
 
     '''
-    assert (rho.ndim == ao.ndim), "rho.shape={0}; ao.shape={1}".format (rho.shape, ao.shape)
-
     # Fix dimensionality of rho and ao
     if rho.ndim == 2:
         rho = rho.reshape (rho.shape[0], 1, rho.shape[1])

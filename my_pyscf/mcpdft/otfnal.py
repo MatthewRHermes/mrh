@@ -225,6 +225,9 @@ class transfnal (otfnal):
         rho_t[0] += w
         rho_t[1] -= w
 
+        # Regularization for PySCF eval_xc?
+        rho_t[:,0,:] = np.maximum (rho_t[:,0,:],1e-10)
+
         if _fn_deriv > 0: return rho_t, R, zeta
         return rho_t
 
@@ -455,7 +458,7 @@ class ftransfnal (transfnal):
         self._numint._xc_type = ft_xc_type.__get__(self._numint)
         self._init_info ()
 
-    Pi_deriv = 1
+    Pi_deriv = transfnal.dens_deriv
 
     def get_rho_translated (self, Pi, rho, **kwargs):
         r''' Compute the "fully-translated" alpha and beta densities
