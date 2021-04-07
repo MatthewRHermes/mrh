@@ -2,6 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib
 from pyscf.mcscf import mc1step
+from mrh.my_pyscf.mcpdft.pdft_feff import EotOrbitalHessianOperator
 
 def mc1step_gen_g_hop (mc, mo, u, casdm1, casdm2, eris):
     ''' Wrapper to mc1step.gen_g_hop for minimizing the PDFT energy
@@ -13,6 +14,8 @@ def mc1step_gen_g_hop (mc, mo, u, casdm1, casdm2, eris):
     casdm1s = np.stack ([casdm1s, casdm1s], axis=0)
     veff1, veff2 = mc.get_pdft_veff (mo=mo, casdm1s=casdm1s, casdm2=casdm2,
         incl_coul=True)
+    veff2.eot_h_op = EotOrbitalHessianOperator (mc.otfnal, mo, ncore, ncas,
+        casdm1, casdm2, mc.max_memory, do_cumulant=True)
     def get_hcore (mol=None):
         return mc._scf.get_hcore (mol) + veff1
     with lib.temporary_env (mc, get_hcore=get_hcore):
@@ -60,7 +63,8 @@ def mc1step_update_jk_in_ah (mc, mo_coeff, x1, casdm1, veff2):
     dvj = mo_coeff.conj ().T @ mc._scf.get_j (dm=ddm1) @ mo_coeff
     dg = dm1 @ dvj # convention of mc1step: density matrix index first
 
-    # TODO: OT; requires more thought
+    # OT
+    dg[:nocc] += veff2.eot_h_op (x1)
 
     # comply with return signature
     dg_a = dg[ncore:nocc]
@@ -71,32 +75,33 @@ def mc1step_update_jk_in_ah (mc, mo_coeff, x1, casdm1, veff2):
 if __name__ == '__main__':
     from pyscf import gto, scf
     from mrh.my_pyscf import mcpdft
-    mol = gto.M (atom = 'Li 0 0 0; Li 1.2 0 0', basis = '6-31g',
+    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
         verbose=lib.logger.DEBUG, output='orb_scf.log')
     mf = scf.RHF (mol).run ()
     mc = mcpdft.CASSCF (mf, 'tPBE', 2, 2, grids_level=9).run ()
-    print ("Ordinary Li2 tPBE energy:",mc.e_tot)
+    print ("Ordinary H2 tPBE energy:",mc.e_tot)
 
     nao, nmo = mc.mo_coeff.shape
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
     nocc = ncore+ncas
 
     casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, ncas, nelecas)
+    mc.update_jk_in_ah = mc1step_update_jk_in_ah
     g_orb, gorb_update, h_op, h_diag = mc1step_gen_g_hop (mc,
         mc.mo_coeff, 1, casdm1, casdm2, None)
 
-    print ("g_orb:", linalg.norm (g_orb))
-    print ("gorb_update (1,mc.ci):", linalg.norm (gorb_update (1, mc.ci)))
-    print ("h_op(0):", linalg.norm (h_op (np.zeros (60))))
-    print ("h_diag:", linalg.norm (h_diag))
+    print ("g_orb:", g_orb)
+    print ("gorb_update (1,mc.ci):", gorb_update (1, mc.ci))
+    print ("h_op(0):", h_op (np.zeros_like (g_orb)))
+    print ("h_diag:", h_diag)
 
     x0 = -g_orb/h_diag
     u0 = mc.update_rotate_matrix (x0)
     print ("\nx0 = -g_orb/h_diag; u0 = expm (x0)")
-    print ("h_op(x0):", linalg.norm (h_op(x0)))
-    print ("gorb_update (u0,mc.ci):", linalg.norm (gorb_update (u0, mc.ci)))
+    print ("h_op(x0):", h_op(x0))
+    print ("gorb_update (u0,mc.ci):", gorb_update (u0, mc.ci))
 
     mc.mo_coeff = np.dot (mc.mo_coeff, u0)
     e_tot, e_ot = mc.energy_tot ()
-    print ("Li2 tPBE energy after rotating orbitals:", e_tot)
+    print ("H2 tPBE energy after rotating orbitals:", e_tot)
 

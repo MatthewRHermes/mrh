@@ -357,9 +357,10 @@ class transfnal (otfnal):
 
         return f
 
-    def eval_ot (self, rho, Pi, dderiv=1, weights=None):
-        eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv, weights=weights)
-        if (self.verbose < logger.DEBUG) or (dderiv<2) or (weights is None): return eot, vot, fot
+    def eval_ot (self, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
+        eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv,
+            weights=weights, _unpack_vot=_unpack_vot)
+        if (self.verbose <= logger.DEBUG) or (dderiv<2) or (weights is None): return eot, vot, fot
         if rho.ndim == 2: rho = rho[:,None,:]
         if Pi.ndim == 1: Pi = Pi[None,:]
         rho_tot = rho.sum (0)
