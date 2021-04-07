@@ -449,7 +449,7 @@ class _PDFT ():
             logger.debug (self, 'veff2.k_pc error: {}'.format (err))
         
         if incl_coul:
-            pdft_veff1 += self.get_jk (self.mol, dm1s[0] + dm1s[1])[0]
+            pdft_veff1 += self._scf.get_j (self.mol, dm1s[0] + dm1s[1])
         logger.timer (self, 'get_pdft_veff', *t0)
         return pdft_veff1, pdft_veff2
 
