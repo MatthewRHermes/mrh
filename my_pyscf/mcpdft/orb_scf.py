@@ -70,7 +70,7 @@ def mc1step_update_jk_in_ah (mc, mo_coeff, x1, casdm1, veff2):
     dm1 = 2 * np.eye (nmo)
     dm1[nocc:,nocc:] = 0.0
     dm1[ncore:nocc,ncore:nocc] = casdm1
-    ddm1 = mo_coeff @ x1 @ dm1 @ mo_coeff.conj ().T
+    ddm1 = mo_coeff @ dm1 @ x1 @ mo_coeff.conj ().T
 
     # Coulomb 
     ddm1 += ddm1.T

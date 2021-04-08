@@ -15,6 +15,9 @@ def _contract_rho_all (bra, ket):
     if ket.ndim == 2: ket = ket[None,:,:]
     nderiv, ngrids, norb = bra.shape
     rho = np.empty ((nderiv, ngrids), dtype=bra.dtype)
+    if norb==0:
+        rho[:] = 0.0
+        return rho
     rho[0] = _contract_rho (bra[0], ket[0])
     for ideriv in range (1,min(nderiv,4)):
         rho[ideriv]  = _contract_rho (bra[ideriv], ket[0])
@@ -54,6 +57,7 @@ class EotOrbitalHessianOperator (object):
 
         self.ot = ot
         self.verbose, self.stdout = ot.verbose, ot.stdout
+        self.log = lib.logger.new_logger (self, self.verbose)
         self.ni, self.xctype = ni, xctype = ot._numint, ot.xctype
         self.rho_deriv, self.Pi_deriv = ot.dens_deriv, ot.Pi_deriv
         deriv = ot.dens_deriv
@@ -100,7 +104,7 @@ class EotOrbitalHessianOperator (object):
             def delta_gorb (x):
                 u = mc.update_rotate_matrix (x)
                 g1 = gorb_update_u (u, mc.ci)
-                return g1 - g_orb
+                return g_orb - g1 # hx is actually -hx or something
             jk_null = np.zeros ((ncas,nmo)), np.zeros ((ncore,nmo-ncore))
             update_jk = lambda * args: jk_null
             def d2rho_h_op (x):
@@ -149,13 +153,18 @@ class EotOrbitalHessianOperator (object):
         blksize = int (remaining_floats/(ncol*BLKSIZE))*BLKSIZE
         return max(BLKSIZE,min(blksize,ngrids,BLKSIZE*1200))
 
-    def make_dens0 (self, ao, mask):
-        rho = self.make_rho (0, ao, mask, self.xctype)
+    def make_dens0 (self, ao, mask, make_rho=None, casdm1s=None, cascm2=None,
+            mo_cas=None):
+        if make_rho is None: make_rho = self.make_rho
+        if casdm1s is None: casdm1s = self.casdm1s
+        if cascm2 is None: cascm2 = self.cascm2
+        if mo_cas is None: mo_cas = self.mo_coeff[:,self.ncore:self.nocc]
+        if ao.shape[0] == 1 and ao.ndim == 3: ao = ao[0]
+        rho = make_rho (0, ao, mask, self.xctype)
         if ao.ndim == 2: ao = ao[None,:,:]
         rhos = np.stack ([rho, rho], axis=0)/2
-        Pi = get_ontop_pair_density (self.ot, rhos, ao, self.casdm1s,
-            self.cascm2, self.mo_coeff[:,self.ncore:self.nocc],
-            deriv=self.Pi_deriv, non0tab=mask)
+        Pi = get_ontop_pair_density (self.ot, rhos, ao, casdm1s, cascm2,
+            mo_cas, deriv=self.Pi_deriv, non0tab=mask)
         return rho, Pi
         # volatile memory footprint:
         #   nderiv_ao * nao * ngrids            (copying ao in make_rho)
@@ -179,10 +188,16 @@ class EotOrbitalHessianOperator (object):
         # + (2+nderiv_Pi) * ncas**2 * ngrids    (tensor-product intermediates)
 
     def make_dens1 (self, ao, drho, dPi, mask, x):
-        # the SECOND index of x touches the DENSITY MATRIX
+        # In mc1step.update_jk_in_ah:
+        # ddm1 = dm1 @ x - x @ dm1
+        # The dm1 index is hidden in drho and dPi
+        # Therefore,
+        # 1) the FIRST index of x contracts with drho
+        # 2) we MULTIPLY BY TWO to to account for + transpose
+        
         ngrids = drho.shape[-1]
         ncore, nocc = self.ncore, self.nocc
-        occ_coeff_1 = self.mo_coeff @ (x-x.T)[:,:self.nocc]
+        occ_coeff_1 = self.mo_coeff @ x[:self.nocc,:].T * 2
         mo1 = _grid_ao2mo (self.ot.mol, ao, occ_coeff_1, non0tab=mask)
         Pi1 = _contract_rho_all (mo1[:self.nderiv_Pi], dPi)
         mo1 = mo1[:self.nderiv_rho]
@@ -191,6 +206,42 @@ class EotOrbitalHessianOperator (object):
         rho1_c = _contract_rho_all (mo1_c, drho_c)
         rho1_a = _contract_rho_all (mo1_a, drho_a)
         return rho1_c, rho1_a, Pi1
+
+    def debug_dens1 (self, ao, mask, x, weights, rho0, Pi0, rho1_test, Pi1_test):
+        # This requires the full-space 2RDM
+        ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
+        casdm1 = self.casdm1s.sum (0)
+        dm1 = 2 * np.eye (nmo, dtype=self.dm1.dtype)
+        dm1[ncore:nocc,ncore:nocc] = casdm1
+        dm1[nocc:,nocc:] = 0
+        dm2 = np.multiply.outer (dm1, dm1)
+        dm2 -= dm2.transpose (0,3,2,1)/2
+        dm2[ncore:nocc,ncore:nocc,ncore:nocc,ncore:nocc] += self.cascm2
+        dm1 = dm1 @ x - x @ dm1
+        dm2 = np.dot (dm2, x)
+        dm2 += dm2.transpose (1,0,3,2)
+        dm2 += dm2.transpose (2,3,0,1)
+        cm2 = get_2CDM_from_2RDM (dm2, dm1)
+        dm1s = dm1/2
+        dm1s = np.stack ([dm1s, dm1s], axis=0)
+        dm1_ao = self.mo_coeff @ dm1 @ self.mo_coeff.conj ().T
+        make_rho = self.ni._gen_rho_evaluator (self.ot.mol, dm1_ao, 1)[0]
+        rho1_ref, Pi1_ref = self.make_dens0 (ao, mask, make_rho=make_rho, casdm1s=dm1s,
+            cascm2=cm2, mo_cas=self.mo_coeff)
+        if rho0.ndim == 1: rho0 = rho0[None,:]
+        if Pi0.ndim == 1: Pi0 = Pi0[None,:]
+        if rho1_ref.ndim == 1: rho1_ref = rho1_ref[None,:]
+        if Pi1_ref.ndim == 1: Pi1_ref = Pi1_ref[None,:]
+        nderiv_Pi = self.nderiv_Pi
+        Pi0 = Pi0[:nderiv_Pi]
+        Pi1_test = Pi1_test[:nderiv_Pi]
+        Pi1_ref = Pi1_ref[:nderiv_Pi]
+        rho1_err = linalg.norm (rho1_test - rho1_ref)
+        Pi1_err = linalg.norm (Pi1_test - Pi1_ref)
+        x_norm = linalg.norm (x)
+        self.log.debug ("shifted dens: |x|, |rho1_err|, |Pi1_err| = %e, %e, %e",
+            x_norm, rho1_err, Pi1_err)
+        return rho1_err, Pi1_err
 
     def get_fot (self, rho, Pi, weights):
         rho = np.stack ([rho,rho], axis=0)/2
@@ -201,6 +252,8 @@ class EotOrbitalHessianOperator (object):
         vot, fot = self.get_fot (rho0, Pi0, weights)
         rho1_c, rho1_a, Pi1 = self.make_dens1 (ao, drho, dPi, mask, x)
         rho1 = rho1_c + rho1_a
+        if self.verbose >= lib.logger.DEBUG: # TODO: require higher verbosity
+            self.debug_dens1 (ao, mask, x, weights, rho0, Pi0, rho1, Pi1)
         fxrho, fxPi = contract_fot (self.ot, fot, rho0, Pi0, rho1, Pi1)
         vrho, vPi = vot
         de = (np.dot (rho1.ravel (), (vrho * weights[None,:]).ravel ())
@@ -223,7 +276,11 @@ class EotOrbitalHessianOperator (object):
         if self.incl_d2rho:
             packed = True
             dg_d2rho = self.d2rho_h_op (x)
-        if packed: x = self.unpack_uniq_var (x)
+        if packed: 
+            x_packed = x.copy ()
+            x = self.unpack_uniq_var (x)
+        else:
+            x_packed = self.pack_uniq_var (x)
         dg = np.zeros ((self.nocc, self.nao), dtype=x.dtype)
         de = 0
         for ao, mask, weights, coords in self.ni.block_loop (self.ot.mol,
@@ -240,15 +297,17 @@ class EotOrbitalHessianOperator (object):
             if self.do_cumulant: # The D_c D_a part
                 drho_c = drho[:,:,:self.ncore]
                 dg[:self.ncore] += self.contract_v_ddens (fxrho_a, drho_c,
-                    ao, weights)
-            
-        dg = -np.dot (dg, self.mo_coeff) # I don't understand?
+                    ao, weights) 
+        if self.incl_d2rho:
+            de_test = np.dot (x_packed, self.g_orb)
+            #print (de/de_test)
+        dg = np.dot (dg, self.mo_coeff) 
         if packed:
             dg_full = np.zeros ((self.nmo, self.nmo), dtype=dg.dtype)
             dg_full[:self.nocc,:] = dg[:,:]
             dg_full -= dg_full.T
             dg = self.pack_uniq_var (dg_full)
-            if self.incl_d2rho: dg += dg_d2rho 
+            if self.incl_d2rho: dg = dg_d2rho 
         return dg, de
 
     def e_de_full (self, x):
@@ -256,9 +315,52 @@ class EotOrbitalHessianOperator (object):
         assert (self.incl_d2rho)
         return self.delta_gorb (x), self.delta_eot (x)
 
+class ExcOrbitalHessianOperator (object):
+    ''' for comparison '''
+
+    def __init__(self, ks, mo_coeff=None, mo_occ=None):
+        if mo_coeff is None: mo_coeff = ks.mo_coeff
+        if mo_occ is None: mo_occ = ks.mo_occ
+        self.nao, self.nmo = nao, nmo = mo_coeff.shape[-2:]
+        self.ks = ks = ks.newton ()
+        self.mo_coeff = mo_coeff
+        self.mo_occ = mo_occ
+
+        dm = ks.make_rdm1 (mo_coeff=mo_coeff, mo_occ=mo_occ)
+        vxc = ks.get_veff (dm=dm)
+        self.exc = exc = vxc.exc
+        vxc -= vxc.vj
+        self.vxc = vxc
+        no_j = lambda * args: 0
+        no_jk = lambda * args: 0, 0
+        with lib.temporary_env (ks, get_j=no_j, get_jk=no_jk):
+            g_orb, h_op, h_diag = ks.gen_g_hop (mo_coeff, mo_occ, fock_ao=vxc)
+        self.g_orb = g_orb
+        self.h_op = h_op
+        self.h_diag = h_diag
+
+    def __call__(self, x):
+        ''' return dg, de; always packed '''
+        dg = self.h_op (x)
+        de = 2*np.dot (self.g_orb.ravel (), x.ravel ())
+        return dg, de
+
+    def e_de_full (self, x):
+        ks = self.ks
+        mo_occ = self.mo_occ
+        u = self.ks.update_rotate_matrix (x, mo_occ)
+        mo1 = ks.rotate_mo (self.mo_coeff, u)
+        dm1 = self.ks.make_rdm1 (mo_coeff=mo1, mo_occ=mo_occ)
+        vxc1 = self.ks.get_veff (dm=dm1)
+        exc1 = vxc1.exc
+        vxc1 -= vxc1.vj
+        de = exc1 - self.exc
+        g1 = ks.gen_g_hop (mo1, mo_occ, fock_ao=vxc1)[0]
+        dg = self.g_orb - g1 # hx is actually -hx
+        return dg, de
 
 if __name__ == '__main__':
-    from pyscf import gto, scf
+    from pyscf import gto, scf, dft
     from mrh.my_pyscf import mcpdft
     from functools import partial
     mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
@@ -268,24 +370,16 @@ if __name__ == '__main__':
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
         print (lbl,'case\n')
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
-            mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
-            print ("Ordinary H2 {} energy:".format (fnal),mc.e_tot)
+            xcfnal = fnal[1:]
+            if xcfnal[0] == 't': xcfnal = xcfnal[1:]
+            ks = dft.RKS (mol).set (xc=xcfnal).run ()
+            print ("Ordinary H2 {} energy:".format (xcfnal),ks.e_tot)
+            nmo = ks.mo_coeff.shape[-1]
 
-            nao, nmo = mc.mo_coeff.shape
-            ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
-            nocc = ncore+ncas
-
-            from mrh.my_pyscf.mcpdft.orb_scf import *
-            casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, ncas, nelecas)
-            g_orb, gorb_update, h_op, h_diag = mc1step_gen_g_hop (mc,
-                mc.mo_coeff, 1, casdm1, casdm2, None)
-            mc.update_jk_in_ah = partial (mc1step_update_jk_in_ah, mc)
-            eot_h_op = EotOrbitalHessianOperator (mc)
-
-            eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
-            print ("g_orb:", linalg.norm (eot_hop.g_orb))
-            print ("h_diag:", linalg.norm (eot_hop.h_diag))
-            x0 = -eot_hop.g_orb / eot_hop.h_diag
+            exc_hop = ExcOrbitalHessianOperator (ks)
+            print ("g_orb:", linalg.norm (exc_hop.g_orb))
+            print ("h_diag:", linalg.norm (exc_hop.h_diag))
+            x0 = exc_hop.g_orb / exc_hop.h_diag
             conv_tab = np.zeros ((8,3), dtype=x0.dtype)
             print ("x0 = g_orb/h_diag:", linalg.norm (x0))
             print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
@@ -293,6 +387,46 @@ if __name__ == '__main__':
             for p in range (10):
                 fac = 1/(2**p)
                 x1 = x0 * fac
+                if p==10: x1[:] = 0
+                dg_test, de_test = exc_hop (x1)
+                dg_ref,  de_ref  = exc_hop.e_de_full (x1)
+                e_err = (de_test-de_ref)/de_ref
+                idx = np.argmax (np.abs (dg_test-dg_ref))
+                dg_test_max = dg_test[idx]
+                dg_ref_max = dg_ref[idx]
+                g_err = (dg_test_max-dg_ref_max)/dg_ref_max
+                row = [p, de_test, de_ref, e_err, dg_test_max, dg_ref_max, g_err]
+                print (("{:2d} " + ' '.join (['{:10.3e}',]*6)).format (*row))
+            dg_err = dg_test - dg_ref
+            denom = dg_ref.copy ()
+            denom[np.abs(dg_ref)<1e-8] = 1.0
+            dg_err /= denom
+            fmt_str = ' '.join (['{:10.3e}',]*nmo)
+            from pyscf.scf.hf import unpack_uniq_var
+            print ("dg_test:")
+            for row in unpack_uniq_var (dg_test, ks.mo_occ): print (fmt_str.format (*row))
+            print ("dg_ref:")
+            for row in unpack_uniq_var (dg_ref, ks.mo_occ): print (fmt_str.format (*row))
+            fmt_str = ' '.join (['{:6.2f}',]*nmo)
+            print ("dg_err (relative):")
+            for row in unpack_uniq_var (dg_err, ks.mo_occ): print (fmt_str.format (*row))
+            print ("")
+
+            mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
+            print ("Ordinary H2 {} energy:".format (fnal),mc.e_tot)
+
+            eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
+            print ("g_orb:", linalg.norm (eot_hop.g_orb))
+            print ("h_diag:", linalg.norm (eot_hop.h_diag))
+            x0 = eot_hop.g_orb / eot_hop.h_diag
+            conv_tab = np.zeros ((8,3), dtype=x0.dtype)
+            print ("x0 = g_orb/h_diag:", linalg.norm (x0))
+            print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
+                'de_err','dg_test','dg_ref','dg_err'))
+            for p in range (10):
+                fac = 1/(2**p)
+                x1 = x0 * fac
+                if p==10: x1[:] = 0
                 dg_test, de_test = eot_hop (x1)
                 dg_ref,  de_ref  = eot_hop.e_de_full (x1)
                 e_err = (de_test-de_ref)/de_ref
