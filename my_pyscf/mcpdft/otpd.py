@@ -183,7 +183,6 @@ def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
                       = i(r) d_j(r) - j(r) d_i(r)
         What this function computes is D_i(r) and d_i(r)
     '''
-    assert (rho.ndim == mo.ndim), "rho.shape={0}; mo.shape={1}".format (rho.shape, mo.shape)
     nocc = ncore + ncas
     nderiv_Pi = (1,4)[int (deriv)]
     nmo = mo.shape[-1]
