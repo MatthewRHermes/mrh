@@ -242,13 +242,13 @@ class EotOrbitalHessianOperator (object):
                 dg[:self.ncore] += self.contract_v_ddens (fxrho_a, drho_c,
                     ao, weights)
             
-        dg = np.dot (dg, self.mo_coeff)
+        dg = -np.dot (dg, self.mo_coeff) # I don't understand?
         if packed:
             dg_full = np.zeros ((self.nmo, self.nmo), dtype=dg.dtype)
             dg_full[:self.nocc,:] = dg[:,:]
             dg_full -= dg_full.T
             dg = self.pack_uniq_var (dg_full)
-            if self.incl_d2rho: dg = dg_d2rho
+            if self.incl_d2rho: dg += dg_d2rho 
         return dg, de
 
     def e_de_full (self, x):
@@ -261,15 +261,15 @@ if __name__ == '__main__':
     from pyscf import gto, scf
     from mrh.my_pyscf import mcpdft
     from functools import partial
-    mol = gto.M (atom = 'Li 0 0 0; H 1.2 0 0', basis = '6-31g',
-        verbose=lib.logger.DEBUG, output='pdft_veff.log')
+    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
+        verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()
     print (mf.mo_coeff.shape)
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
         print (lbl,'case\n')
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
-            print ("Ordinary Li2 {} energy:".format (fnal),mc.e_tot)
+            print ("Ordinary H2 {} energy:".format (fnal),mc.e_tot)
 
             nao, nmo = mc.mo_coeff.shape
             ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
@@ -282,16 +282,15 @@ if __name__ == '__main__':
             mc.update_jk_in_ah = partial (mc1step_update_jk_in_ah, mc)
             eot_h_op = EotOrbitalHessianOperator (mc)
 
-            print ("g_orb:", linalg.norm (g_orb))
-            print ("h_diag:", linalg.norm (h_diag))
-            x0 = -g_orb/h_diag
-            print ("x0 = -g_orb/h_diag")
-
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
+            print ("g_orb:", linalg.norm (eot_hop.g_orb))
+            print ("h_diag:", linalg.norm (eot_hop.h_diag))
+            x0 = -eot_hop.g_orb / eot_hop.h_diag
             conv_tab = np.zeros ((8,3), dtype=x0.dtype)
+            print ("x0 = g_orb/h_diag:", linalg.norm (x0))
             print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
                 'de_err','dg_test','dg_ref','dg_err'))
-            for p in range (8):
+            for p in range (10):
                 fac = 1/(2**p)
                 x1 = x0 * fac
                 dg_test, de_test = eot_hop (x1)
