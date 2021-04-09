@@ -5,6 +5,7 @@ from pyscf import lib
 from pyscf.dft.gen_grid import BLKSIZE
 from pyscf.dft.numint import _contract_rho
 from pyscf.mcscf import mc1step
+from pyscf.scf import hf
 from mrh.my_pyscf.mcpdft.otpd import *
 from mrh.my_pyscf.mcpdft.otpd import _grid_ao2mo
 from mrh.my_pyscf.mcpdft.tfnal_derivs import contract_fot
@@ -26,22 +27,24 @@ def _contract_rho_all (bra, ket):
         'functionals'))
     return rho
 
-# I will demand this sign convention:
+# PySCF's overall sign convention is
 #   de = h.D - D.h
 #   dD = x.D - D.x
-# Abstractly, this is consistent with mc1step's sign convention
+# which is consistent with
+#   |trial> = exp(k_pq E_pq)|0>
+# where k_pq is an antihermitian matrix
 # However, in various individual terms the two conventions in 
 # h_op are simultaneously reversed:
 #   de = D.h - h.D
 #   dD = D.x - x.D
 # Specifically, update_jk_in_ah has this return signature. So I have
-# to compute -hx.T
+# to return -hx.T specifically.
 # I'm also really confused by factors of 2. It looks like PySCF does
 # the full commutator
 #   dD = x.D - D.x
 # in update_jk_in_ah, but only does 
 #   dD = x.D
-# the everywhere else? Why would the update_jk_in_ah terms be
+# everywhere else? Why would the update_jk_in_ah terms be
 # multiplied by 2?
 
 class EotOrbitalHessianOperator (object):
@@ -359,8 +362,8 @@ class ExcOrbitalHessianOperator (object):
         self.exc = exc = vxc.exc
         vxc -= vxc.vj
         self.vxc = vxc
-        no_j = lambda * args: 0
-        no_jk = lambda * args: 0, 0
+        def no_j (*args, **kwargs): return 0
+        def no_jk (*args, **kwargs): return 0, 0
         with lib.temporary_env (ks, get_j=no_j, get_jk=no_jk):
             g_orb, h_op, h_diag = ks.gen_g_hop (mo_coeff, mo_occ, fock_ao=vxc)
         self.g_orb = g_orb
@@ -369,7 +372,10 @@ class ExcOrbitalHessianOperator (object):
 
     def __call__(self, x):
         ''' return dg, de; always packed '''
-        dg = self.h_op (x)
+        def no_j (*args, **kwargs): return 0
+        def no_jk (*args, **kwargs): return 0, 0
+        with lib.temporary_env (self.ks, get_j=no_j, get_jk=no_jk):
+            dg = self.h_op (x)
         de = 2*np.dot (self.g_orb.ravel (), x.ravel ())
         return dg, de
 
@@ -387,6 +393,12 @@ class ExcOrbitalHessianOperator (object):
         dg = g1 - self.g_orb 
         return dg, de
 
+    def pack_uniq_var (self, x):
+        return hf.pack_uniq_var (x, self.mo_occ)
+
+    def unpack_uniq_var (self, x):
+        return hf.unpack_uniq_var (x, self.mo_occ)
+
 if __name__ == '__main__':
     from pyscf import gto, scf, dft
     from mrh.my_pyscf import mcpdft
@@ -394,88 +406,51 @@ if __name__ == '__main__':
     mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
         verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()
-    print (mf.mo_coeff.shape)
+    def debug_hess (hop):
+        print ("g_orb:", linalg.norm (hop.g_orb))
+        print ("h_diag:", linalg.norm (hop.h_diag))
+        x0 = -hop.g_orb / hop.h_diag
+        conv_tab = np.zeros ((8,3), dtype=x0.dtype)
+        print ("x0 = g_orb/h_diag:", linalg.norm (x0))
+        print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
+            'de_relerr','dg_test','dg_ref','dg_relerr'))
+        for p in range (10):
+            fac = 1/(2**p)
+            x1 = x0 * fac
+            if p==10: x1[:] = 0
+            dg_test, de_test = hop (x1)
+            dg_ref,  de_ref  = hop.e_de_full (x1)
+            e_err = (de_test-de_ref)/de_ref
+            idx = np.argmax (np.abs (dg_test-dg_ref))
+            dg_test_max = dg_test[idx]
+            dg_ref_max = dg_ref[idx]
+            g_err = (dg_test_max-dg_ref_max)/dg_ref_max
+            row = [p, de_test, de_ref, e_err, dg_test_max, dg_ref_max, g_err]
+            print (("{:2d} " + ' '.join (['{:10.3e}',]*6)).format (*row))
+        dg_err = dg_test - dg_ref
+        denom = dg_ref.copy ()
+        denom[np.abs(dg_ref)<1e-8] = 1.0
+        dg_err /= denom
+        fmt_str = ' '.join (['{:10.3e}',]*hop.nmo)
+        print ("dg_test:")
+        for row in hop.unpack_uniq_var (dg_test): print (fmt_str.format (*row))
+        print ("dg_ref:")
+        for row in hop.unpack_uniq_var (dg_ref): print (fmt_str.format (*row))
+        fmt_str = ' '.join (['{:6.2f}',]*hop.nmo)
+        print ("dg_err (relative):")
+        for row in hop.unpack_uniq_var (dg_err): print (fmt_str.format (*row))
+        print ("")
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
         print (lbl,'case\n')
-        for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
-            xcfnal = fnal[1:]
-            if xcfnal[0] == 't': xcfnal = xcfnal[1:]
-            ks = dft.RKS (mol).set (xc=xcfnal).run ()
-            print ("Ordinary H2 {} energy:".format (xcfnal),ks.e_tot)
-            nmo = ks.mo_coeff.shape[-1]
-
+        for fnal in 'LDA,VWN3', 'PBE':
+            ks = dft.RKS (mol).set (xc=fnal).run ()
+            print ("H2 {} energy:".format (fnal),ks.e_tot)
             exc_hop = ExcOrbitalHessianOperator (ks)
-            print ("g_orb:", linalg.norm (exc_hop.g_orb))
-            print ("h_diag:", linalg.norm (exc_hop.h_diag))
-            x0 = -exc_hop.g_orb / exc_hop.h_diag
-            conv_tab = np.zeros ((8,3), dtype=x0.dtype)
-            print ("x0 = g_orb/h_diag:", linalg.norm (x0))
-            print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
-                'de_err','dg_test','dg_ref','dg_err'))
-            for p in range (10):
-                fac = 1/(2**p)
-                x1 = x0 * fac
-                if p==10: x1[:] = 0
-                dg_test, de_test = exc_hop (x1)
-                dg_ref,  de_ref  = exc_hop.e_de_full (x1)
-                e_err = (de_test-de_ref)
-                idx = np.argmax (np.abs (dg_test-dg_ref))
-                dg_test_max = dg_test[idx]
-                dg_ref_max = dg_ref[idx]
-                g_err = (dg_test_max-dg_ref_max)
-                row = [p, de_test, de_ref, e_err, dg_test_max, dg_ref_max, g_err]
-                print (("{:2d} " + ' '.join (['{:10.3e}',]*6)).format (*row))
-            dg_err = dg_test - dg_ref
-            denom = dg_ref.copy ()
-            denom[np.abs(dg_ref)<1e-8] = 1.0
-            dg_err /= denom
-            fmt_str = ' '.join (['{:10.3e}',]*nmo)
-            from pyscf.scf.hf import unpack_uniq_var
-            print ("dg_test:")
-            for row in unpack_uniq_var (dg_test, ks.mo_occ): print (fmt_str.format (*row))
-            print ("dg_ref:")
-            for row in unpack_uniq_var (dg_ref, ks.mo_occ): print (fmt_str.format (*row))
-            fmt_str = ' '.join (['{:6.2f}',]*nmo)
-            print ("dg_err (relative):")
-            for row in unpack_uniq_var (dg_err, ks.mo_occ): print (fmt_str.format (*row))
-            print ("")
-
+            debug_hess (exc_hop)
+        for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
-            print ("Ordinary H2 {} energy:".format (fnal),mc.e_tot)
-
+            print ("H2 {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
-            print ("g_orb:", linalg.norm (eot_hop.g_orb))
-            print ("h_diag:", linalg.norm (eot_hop.h_diag))
-            x0 = -eot_hop.g_orb / eot_hop.h_diag
-            conv_tab = np.zeros ((8,3), dtype=x0.dtype)
-            print ("x0 = g_orb/h_diag:", linalg.norm (x0))
-            print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
-                'de_err','dg_test','dg_ref','dg_err'))
-            for p in range (10):
-                fac = 1/(2**p)
-                x1 = x0 * fac
-                if p==10: x1[:] = 0
-                dg_test, de_test = eot_hop (x1)
-                dg_ref,  de_ref  = eot_hop.e_de_full (x1)
-                e_err = (de_test-de_ref)
-                idx = np.argmax (np.abs (dg_test-dg_ref))
-                dg_test_max = dg_test[idx]
-                dg_ref_max = dg_ref[idx]
-                g_err = (dg_test_max-dg_ref_max)
-                row = [p, de_test, de_ref, e_err, dg_test_max, dg_ref_max, g_err]
-                print (("{:2d} " + ' '.join (['{:10.3e}',]*6)).format (*row))
-            dg_err = dg_test - dg_ref
-            denom = dg_ref.copy ()
-            denom[np.abs(dg_ref)<1e-8] = 1.0
-            dg_err /= denom
-            fmt_str = ' '.join (['{:10.3e}',]*nmo)
-            print ("dg_test:")
-            for row in mc.unpack_uniq_var (dg_test): print (fmt_str.format (*row))
-            print ("dg_ref:")
-            for row in mc.unpack_uniq_var (dg_ref): print (fmt_str.format (*row))
-            fmt_str = ' '.join (['{:6.2f}',]*nmo)
-            print ("dg_err (relative):")
-            for row in mc.unpack_uniq_var (dg_err): print (fmt_str.format (*row))
-            print ("")
+            debug_hess (eot_hop)
         print ("")
 
