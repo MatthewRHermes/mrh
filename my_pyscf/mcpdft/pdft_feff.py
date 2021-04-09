@@ -26,6 +26,24 @@ def _contract_rho_all (bra, ket):
         'functionals'))
     return rho
 
+# I will demand this sign convention:
+#   de = h.D - D.h
+#   dD = x.D - D.x
+# Abstractly, this is consistent with mc1step's sign convention
+# However, in various individual terms the two conventions in 
+# h_op are simultaneously reversed:
+#   de = D.h - h.D
+#   dD = D.x - x.D
+# Specifically, update_jk_in_ah has this return signature. So I have
+# to compute -hx.T
+# I'm also really confused by factors of 2. It looks like PySCF does
+# the full commutator
+#   dD = x.D - D.x
+# in update_jk_in_ah, but only does 
+#   dD = x.D
+# the everywhere else? Why would the update_jk_in_ah terms be
+# multiplied by 2?
+
 class EotOrbitalHessianOperator (object):
     ''' Callable object for computing
         (f.x)_pq = (int fot * drho/dk_pq drho/dk_rs x_rs dr)
@@ -104,7 +122,7 @@ class EotOrbitalHessianOperator (object):
             def delta_gorb (x):
                 u = mc.update_rotate_matrix (x)
                 g1 = gorb_update_u (u, mc.ci)
-                return g_orb - g1 # hx is actually -hx or something
+                return g1 - g_orb
             jk_null = np.zeros ((ncas,nmo)), np.zeros ((ncore,nmo-ncore))
             update_jk = lambda * args: jk_null
             def d2rho_h_op (x):
@@ -189,15 +207,19 @@ class EotOrbitalHessianOperator (object):
 
     def make_dens1 (self, ao, drho, dPi, mask, x):
         # In mc1step.update_jk_in_ah:
-        # ddm1 = dm1 @ x - x @ dm1
+        #   hx = ddm1 @ h - h @ ddm1
+        #   ddm1 = dm1 @ x - x @ dm1
+        # the PROPER convention for consistent sign is
+        #   hx = h @ ddm1 - ddm1 @ h
+        #   ddm1 = x @ dm1 - dm1 @ x
         # The dm1 index is hidden in drho and dPi
         # Therefore,
-        # 1) the FIRST index of x contracts with drho
+        # 1) the SECOND index of x contracts with drho
         # 2) we MULTIPLY BY TWO to to account for + transpose
         
         ngrids = drho.shape[-1]
         ncore, nocc = self.ncore, self.nocc
-        occ_coeff_1 = self.mo_coeff @ x[:self.nocc,:].T * 2
+        occ_coeff_1 = self.mo_coeff @ x[:,:self.nocc] * 2
         mo1 = _grid_ao2mo (self.ot.mol, ao, occ_coeff_1, non0tab=mask)
         Pi1 = _contract_rho_all (mo1[:self.nderiv_Pi], dPi)
         mo1 = mo1[:self.nderiv_rho]
@@ -217,8 +239,8 @@ class EotOrbitalHessianOperator (object):
         dm2 = np.multiply.outer (dm1, dm1)
         dm2 -= dm2.transpose (0,3,2,1)/2
         dm2[ncore:nocc,ncore:nocc,ncore:nocc,ncore:nocc] += self.cascm2
-        dm1 = dm1 @ x - x @ dm1
-        dm2 = np.dot (dm2, x)
+        dm1 = x @ dm1 - dm1 @ x
+        dm2 = np.dot (dm2, x.T)
         dm2 += dm2.transpose (1,0,3,2)
         dm2 += dm2.transpose (2,3,0,1)
         cm2 = get_2CDM_from_2RDM (dm2, dm1)
@@ -270,7 +292,7 @@ class EotOrbitalHessianOperator (object):
         vw = v * weights[None,:]
         vd = _contract_vot_ao (vw, ddens)
         ao = ao[:vd.shape[0]]
-        return np.tensordot (vd, ao, axes=((0,1),(0,1)))
+        return np.tensordot (ao, vd, axes=((0,1),(0,1)))
 
     def __call__ (self, x, packed=False):
         if self.incl_d2rho:
@@ -291,19 +313,15 @@ class EotOrbitalHessianOperator (object):
             drho, dPi = self.make_ddens (ao, rho0, mask)
             dde, fxrho, fxPi, fxrho_a = self.get_fxot (ao, rho0, Pi0, drho, dPi,
                 x, weights, mask)
-            de -= dde
-            # Minus because
-            # g_pq x_pq = h_pr D_qr x_pq - h_qr D_pr x_pq + ...
-            #           = h_pr (x_pq D_qr) - h_qr (D_rp x_pq) + ...
-            #           = h_pq [x,D]_pq + ...
-            # But in make_dens1, we did [D,x] = -[x,D] because that's how it's
-            # done in mc1step.update_jk_in_ah
-            dg += self.contract_v_ddens (fxrho, drho, ao, weights)
-            dg += self.contract_v_ddens (fxPi, dPi, ao, weights)
+            de += dde
+            dg -= self.contract_v_ddens (fxrho, drho, ao, weights).T
+            dg -= self.contract_v_ddens (fxPi, dPi, ao, weights).T
+            # Transpose because update_jk_in_ah requires this shape
+            # Minus because I want to use 1 consistent sign rule here
             if self.do_cumulant: # The D_c D_a part
                 drho_c = drho[:,:,:self.ncore]
-                dg[:self.ncore] += self.contract_v_ddens (fxrho_a, drho_c,
-                    ao, weights) 
+                dg[:self.ncore] -= self.contract_v_ddens (fxrho_a, drho_c,
+                    ao, weights).T
         if self.incl_d2rho:
             de_test = 2 * np.dot (x_packed, self.g_orb)
             # The factor of 2 is because g_orb is evaluated in terms of square
@@ -317,7 +335,7 @@ class EotOrbitalHessianOperator (object):
             dg_full[:self.nocc,:] = dg[:,:]
             dg_full -= dg_full.T
             dg = self.pack_uniq_var (dg_full)
-            if self.incl_d2rho: dg = dg_d2rho 
+            if self.incl_d2rho: dg += dg_d2rho 
         return dg, de
 
     def e_de_full (self, x):
@@ -366,14 +384,14 @@ class ExcOrbitalHessianOperator (object):
         vxc1 -= vxc1.vj
         de = exc1 - self.exc
         g1 = ks.gen_g_hop (mo1, mo_occ, fock_ao=vxc1)[0]
-        dg = self.g_orb - g1 # hx is actually -hx
+        dg = g1 - self.g_orb 
         return dg, de
 
 if __name__ == '__main__':
     from pyscf import gto, scf, dft
     from mrh.my_pyscf import mcpdft
     from functools import partial
-    mol = gto.M (atom = 'Li 0 0 0; H 1.2 0 0', basis = 'sto-3g',
+    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
         verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()
     print (mf.mo_coeff.shape)
@@ -383,13 +401,13 @@ if __name__ == '__main__':
             xcfnal = fnal[1:]
             if xcfnal[0] == 't': xcfnal = xcfnal[1:]
             ks = dft.RKS (mol).set (xc=xcfnal).run ()
-            print ("Ordinary LiH {} energy:".format (xcfnal),ks.e_tot)
+            print ("Ordinary H2 {} energy:".format (xcfnal),ks.e_tot)
             nmo = ks.mo_coeff.shape[-1]
 
             exc_hop = ExcOrbitalHessianOperator (ks)
             print ("g_orb:", linalg.norm (exc_hop.g_orb))
             print ("h_diag:", linalg.norm (exc_hop.h_diag))
-            x0 = exc_hop.g_orb / exc_hop.h_diag
+            x0 = -exc_hop.g_orb / exc_hop.h_diag
             conv_tab = np.zeros ((8,3), dtype=x0.dtype)
             print ("x0 = g_orb/h_diag:", linalg.norm (x0))
             print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
@@ -400,11 +418,11 @@ if __name__ == '__main__':
                 if p==10: x1[:] = 0
                 dg_test, de_test = exc_hop (x1)
                 dg_ref,  de_ref  = exc_hop.e_de_full (x1)
-                e_err = (de_test-de_ref)/de_ref
+                e_err = (de_test-de_ref)
                 idx = np.argmax (np.abs (dg_test-dg_ref))
                 dg_test_max = dg_test[idx]
                 dg_ref_max = dg_ref[idx]
-                g_err = (dg_test_max-dg_ref_max)/dg_ref_max
+                g_err = (dg_test_max-dg_ref_max)
                 row = [p, de_test, de_ref, e_err, dg_test_max, dg_ref_max, g_err]
                 print (("{:2d} " + ' '.join (['{:10.3e}',]*6)).format (*row))
             dg_err = dg_test - dg_ref
@@ -423,12 +441,12 @@ if __name__ == '__main__':
             print ("")
 
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
-            print ("Ordinary LiH {} energy:".format (fnal),mc.e_tot)
+            print ("Ordinary H2 {} energy:".format (fnal),mc.e_tot)
 
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
             print ("g_orb:", linalg.norm (eot_hop.g_orb))
             print ("h_diag:", linalg.norm (eot_hop.h_diag))
-            x0 = eot_hop.g_orb / eot_hop.h_diag
+            x0 = -eot_hop.g_orb / eot_hop.h_diag
             conv_tab = np.zeros ((8,3), dtype=x0.dtype)
             print ("x0 = g_orb/h_diag:", linalg.norm (x0))
             print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
@@ -439,11 +457,11 @@ if __name__ == '__main__':
                 if p==10: x1[:] = 0
                 dg_test, de_test = eot_hop (x1)
                 dg_ref,  de_ref  = eot_hop.e_de_full (x1)
-                e_err = (de_test-de_ref)/de_ref
+                e_err = (de_test-de_ref)
                 idx = np.argmax (np.abs (dg_test-dg_ref))
                 dg_test_max = dg_test[idx]
                 dg_ref_max = dg_ref[idx]
-                g_err = (dg_test_max-dg_ref_max)/dg_ref_max
+                g_err = (dg_test_max-dg_ref_max)
                 row = [p, de_test, de_ref, e_err, dg_test_max, dg_ref_max, g_err]
                 print (("{:2d} " + ' '.join (['{:10.3e}',]*6)).format (*row))
             dg_err = dg_test - dg_ref
