@@ -273,19 +273,81 @@ class EotOrbitalHessianOperator (object):
         eot, vot, fot = self.ot.eval_ot (rho, Pi, dderiv=2, weights=weights)
         return vot, fot
 
+    def get_vot (self, rho, Pi, weights):
+        rho = np.stack ([rho,rho], axis=0)/2
+        eot, vot, _ = self.ot.eval_ot (rho, Pi, dderiv=1, weights=weights)
+        vrho, vPi = vot
+        return vrho, vPi
+
+    def debug_fot (self, x, vot, fot, rho0, Pi0, rho1, Pi1, weights, mask):
+        log = self.log
+        x_norm = linalg.norm (x)
+        if rho0.ndim == 1: rho0 = rho0[None,:]
+        if Pi0.ndim == 1: Pi0 = Pi0[None,:]
+        Pi0 = Pi0[:self.nderiv_Pi,:]
+        def gen_cols ():
+            rho1_col = np.zeros_like (rho1)
+            Pi1_col = np.zeros_like (Pi1)
+            rho1_col[0,:] = rho1[0].copy ()
+            yield rho1_col, Pi1_col
+            rho1_col[:] = 0.0
+            Pi1_col[0,:] = Pi1[0,:].copy ()
+            yield rho1_col, Pi1_col
+            if not self.rho_deriv: return
+            Pi1_col[0,:] = 0.0
+            rho1_col[1:4,:] = rho1[1:4].copy ()
+            yield rho1_col, Pi1_col
+            if not self.Pi_deriv: return
+            rho1_col[1:4,:] = 0.0
+            Pi1_col[1:4,:] = Pi1[1:4,:].copy ()
+        def gen_rows (fxrho, fxPi, dvrho, dvPi):
+            yield fxrho[0,:], dvrho[0,:]
+            yield fxPi[0,:], dvPi[0,:]
+            if not self.rho_deriv: return
+            yield fxrho[1:4,:], dvrho[1:4,:]
+            if not self.Pi_deriv: return
+            yield fxPi[1:4,:], dvPi[1:4,:]
+
+        for icol, (rho1_col, Pi1_col) in enumerate (gen_cols ()):
+            xlbl = 'x_' + ('rho','Pi','srr')[icol]
+            fxrho, fxPi = contract_fot (self.ot, fot, rho0, Pi0,
+                rho1_col, Pi1_col)
+            dvrho, dvPi = self.get_vot (rho0+rho1_col, Pi0+Pi1_col, weights)
+            dvrho -= vot[0]
+            dvPi -= vot[1]
+            idx = rho0[0] < 2e-10 # TODO: understand why I have to do this
+            fxrho[:,idx] = 0.0    # Some ftLDA (f.x)_Pi elements specifically
+            fxPi[:,idx] = 0.0     # are very large while the corresponding 
+            dvrho[:,idx] = 0.0    # v1-v0 elements are identically zero, unless
+            dvPi[:,idx] = 0.0     # I do this. This is despite the fact that
+            # the orbital Hessian-vector product of the ftLDA on-top energy
+            # appears fine even if I don't do this. I checked and it has
+            # NOTHING to do with the mask index.
+            fxrho *= weights[None,:]
+            fxPi *= weights[None,:]
+            dvrho *= weights[None,:]
+            dvPi *= weights[None,:]
+
+            for irow, (fx, dv) in enumerate (gen_rows (fxrho, fxPi, dvrho,
+                    dvPi)):
+                lbl = 'f(' + xlbl + ')_' + ('rho', 'Pi', 'rhop')[irow]
+                log.debug (('test '+lbl+': |x| = %e, |fx-dv|/|dv| = %e'),
+                    x_norm, linalg.norm (fx-dv)/linalg.norm(dv))
+
     def get_fxot (self, ao, rho0, Pi0, drho, dPi, x, weights, mask):
         vot, fot = self.get_fot (rho0, Pi0, weights)
         rho1_c, rho1_a, Pi1 = self.make_dens1 (ao, drho, dPi, mask, x)
         rho1 = rho1_c + rho1_a
         if self.verbose >= lib.logger.DEBUG: # TODO: require higher verbosity
             self.debug_dens1 (ao, mask, x, weights, rho0, Pi0, rho1, Pi1)
+            self.debug_fot (x, vot, fot, rho0, Pi0, rho1, Pi1, weights, mask)
         fxrho, fxPi = contract_fot (self.ot, fot, rho0, Pi0, rho1, Pi1)
         vrho, vPi = vot
         de = (np.dot (rho1.ravel (), (vrho * weights[None,:]).ravel ())
             + np.dot (Pi1.ravel (), (vPi * weights[None,:]).ravel ()))
         Pi1 = fxrho_a = rho1 = vrho = None
-        if self.do_cumulant: # fxrho gets the D_all D_c part
-                             # the D_c D_a part has to be done separately
+        if self.do_cumulant and self.ncore: # fxrho gets the D_all D_c part
+                                            # D_c D_a part has to be separate
             if vPi.ndim == 1: vPi = vPi[None,:]
             fxrho =   _contract_vot_rho (vPi, rho1_c, add_vrho=fxrho)
             fxrho_a = _contract_vot_rho (vPi, rho1_a)
@@ -293,9 +355,8 @@ class EotOrbitalHessianOperator (object):
 
     def contract_v_ddens (self, v, ddens, ao, weights):
         vw = v * weights[None,:]
-        vd = _contract_vot_ao (vw, ddens)
-        ao = ao[:vd.shape[0]]
-        return np.tensordot (ao, vd, axes=((0,1),(0,1)))
+        vao = _contract_vot_ao (vw, ao)
+        return np.tensordot (vao, ddens, axes=((0,1),(0,1)))
 
     def __call__ (self, x, packed=False):
         if self.incl_d2rho:
@@ -321,7 +382,7 @@ class EotOrbitalHessianOperator (object):
             dg -= self.contract_v_ddens (fxPi, dPi, ao, weights).T
             # Transpose because update_jk_in_ah requires this shape
             # Minus because I want to use 1 consistent sign rule here
-            if self.do_cumulant: # The D_c D_a part
+            if self.do_cumulant and self.ncore: # The D_c D_a part
                 drho_c = drho[:,:,:self.ncore]
                 dg[:self.ncore] -= self.contract_v_ddens (fxrho_a, drho_c,
                     ao, weights).T
@@ -442,15 +503,16 @@ if __name__ == '__main__':
         print ("")
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
         print (lbl,'case\n')
-        for fnal in 'LDA,VWN3', 'PBE':
-            ks = dft.RKS (mol).set (xc=fnal).run ()
-            print ("H2 {} energy:".format (fnal),ks.e_tot)
-            exc_hop = ExcOrbitalHessianOperator (ks)
-            debug_hess (exc_hop)
-        for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
-            mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
+        #for fnal in 'LDA,VWN3', 'PBE':
+        #    ks = dft.RKS (mol).set (xc=fnal).run ()
+        #    print ("H2 {} energy:".format (fnal),ks.e_tot)
+        #    exc_hop = ExcOrbitalHessianOperator (ks)
+        #    debug_hess (exc_hop)
+        #for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
+        for fnal in 'ftLDA,VWN3', 'tPBE':
+            mc = mcpdft.CASSCF (mf, fnal, 2, nelecas, grids_level=1).run ()
             print ("H2 {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
             debug_hess (eot_hop)
         print ("")
-
+        assert (False)
