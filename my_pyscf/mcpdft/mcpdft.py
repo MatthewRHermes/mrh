@@ -210,12 +210,15 @@ def energy_mcwfn (mc, ot=None, mo_coeff=None, ci=None, dm_list=None, verbose=Non
         e_err = E_c_ss + E_c_os - E_c
         assert (abs (e_err) < 1e-8), e_err
 <<<<<<< HEAD
+<<<<<<< HEAD
         if isinstance (mc_1root.e_tot, float):
             e_err = mc_1root.e_tot - (Vnn + Te_Vne + E_j + E_x + E_c)
             # assert (abs (e_err) < 1e-8), e_err
             # TODO: come up with a better way to handle this for CMS-PDFT
 =======
 >>>>>>> 2714c2ab23ad7b8896b65da4b171cdb938bf2c6f
+=======
+>>>>>>> 8190a79572d551ad205ad56b706363b7585453ee
     if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
         log.debug ('Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
     e_mcwfn = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) 
