@@ -19,6 +19,23 @@ def v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
     xfx = ((xf[0]*x[0]).sum (0) + (xf[1]*x[1][:nvP]).sum (0)) / 2
     xf_df = [xf[0][0], xf[1][0]]
     dv_df = [(v1[0][0]-v0[0][0])*w, (v1[1][0]-v0[1][0])*w]
+    # The lesson of the debug experience provided by the commented-out block below is:
+    # the largest errors (fractional or absolute) in the ftLDA functional gradient
+    # appear to be for R just under 1.0!
+    #if 'LDA' in otfnal.otxc:
+    #    print ("bigtab", otfnal.otxc, (np.sum (vx) - np.sum (de)) / np.sum (de))
+    #    tab = np.empty ((xf[0][0].size, 6), dtype=xf[0].dtype)
+    #    tab[:,0] = otfnal.get_ratio (Pi, rho_tot/2)[0] - 1.0
+    #    tab[:,1] = rho_tot
+    #    tab[:,2] = Pi
+    #    tab[:,3] = vx
+    #    tab[:,4] = tab[:,3] - de
+    #    tab[:,5] = tab[:,4] / de
+    #    tab[(de==0)&(vx==0),3] = 0.0
+    #    tab[(de==0)&(vx!=0),3] = 1.0
+    #    tab = tab[np.argsort (-np.abs (tab[:,4])),:]
+    #    for row in tab:
+    #        print ("{:20.12e} {:9.2e} {:9.2e} {:9.2e} {:9.2e} {:9.2e}".format (*row))
     if ndf > 2: 
         xf_df += [xf[0][1:4],]
         dv_df += [(v1[0][1:4]-v0[0][1:4])*w,]
@@ -39,6 +56,8 @@ def v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
                 linalg.norm (dv_row[ix_col::ndf]),
                 linalg.norm (xf_row[ix_col::ndf]),
                 linalg.norm (err_row[ix_col::ndf]))
+            # I am not doing rho'.rho'->sigma right for x.f.x/2
+            # However I am somehow doing it right for f.x vs. delta v?
     lib.logger.debug (otfnal, "%s dE - v.x - x.f.x: %e - %e - %e = %e",
         tag, de.sum (), vx.sum (), xfx.sum (), de_err2.sum ())
 
@@ -206,6 +225,9 @@ class transfnal (otfnal):
         rho_t[0] += w
         rho_t[1] -= w
 
+        # Regularization for PySCF eval_xc?
+        rho_t[:,0,:] = np.maximum (rho_t[:,0,:],1e-10)
+
         if _fn_deriv > 0: return rho_t, R, zeta
         return rho_t
 
@@ -343,11 +365,37 @@ class transfnal (otfnal):
         if (self.verbose < logger.DEBUG) or (dderiv<2) or (weights is None): return eot, vot, fot
         if rho.ndim == 2: rho = rho[:,None,:]
         if Pi.ndim == 1: Pi = Pi[None,:]
-
         rho_tot = rho.sum (0)
         nvr = rho_tot.shape[0]
-        nvP = vot[1].shape[0]
         ngrids = rho_tot.shape[-1]
+
+        # ~~~ eval_xc reference ~~~
+        rho_t0 = self.get_rho_translated (Pi, rho, weights=weights)
+        exc, vxc, fxc = self._numint.eval_xc (self.otxc, (rho_t0[0,:,:], rho_t0[1,:,:]), spin=1,
+            relativity=0, deriv=2, verbose=self.verbose)[:3]
+        exc *= rho_t0[:,0,:].sum (0)
+        vxc =  tfnal_derivs._unpack_vxc_sigma (vxc, rho_t0, self.dens_deriv)
+        fxc =  tfnal_derivs._pack_fxc_ltri (fxc, self.dens_deriv)
+        # ~~~ shift translated rho directly ~~~
+        r = rho_t0 * (2*np.random.rand (ngrids)-1) / 10**3
+        drho_t = np.zeros_like (rho_t0)
+        ndf = 2 * (1 + int (nvr>1))
+        drho_t[0,0,0::ndf] = r[0,0,0::ndf]
+        drho_t[1,0,1::ndf] = r[1,0,1::ndf]
+        if ndf > 2:
+            drho_t[0,1:4,2::ndf] = r[0,1:4,2::ndf]
+            drho_t[1,1:4,3::ndf] = r[1,1:4,3::ndf]
+        # ~~~ eval_xc @ rho_t1 = rho_t0 + drho_t ~~~
+        rho_t1 = rho_t0 + drho_t
+        exc1, vxc1 = self._numint.eval_xc (self.otxc, (rho_t1[0,:,:], rho_t1[1,:,:]), spin=1,
+            relativity=0, deriv=2, verbose=self.verbose)[:2]
+        exc1 *= rho_t1[:,0,:].sum (0)
+        vxc1 =  tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t0, self.dens_deriv)
+        df_lbl = ('rhoa', 'rhob', "rhoa'", "rhob'")[:2*(1+int(nvr>1))]
+        v_err_report (self, 'eval_xc', df_lbl, rho_t0[0], rho_t0[1], exc, vxc, fxc, exc1, vxc1, drho_t, weights)
+
+        # ~~~ eval_ot compare ~~~
+        nvP = vot[1].shape[0]
         drho = rho_tot * (2*np.random.rand (ngrids)-1) / 10**3
         dPi = Pi * (2*np.random.rand (ngrids)-1) / 10**3
         nst = 2 + int(rho_tot.shape[0]>1) + int(vot[1].shape[0]>1)
@@ -358,31 +406,17 @@ class transfnal (otfnal):
         dPi[0,1::ndf]  = P[0,1::ndf]
         if ndf > 2: drho[1:4,2::ndf] = r[1:4,2::ndf]
         if ndf > 3:  dPi[1:4,3::ndf] = P[1:4,3::ndf]
-        rho1 = rho+(drho/2)
+        rho1 = rho+(drho/2) # /2 because rho has one more dimension of size = 2 that gets summed later
         Pi1 = Pi + dPi
         # ~~~ ignore numerical instability of unfully-translated fnals ~~~
-        z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0], fn_deriv=0)[0]
-        z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0], fn_deriv=0)[0]
-        idx = (z0==0)|(z1==0)
-        drho[:,idx] = dPi[:,idx] = 0
-        rho1[:,:,idx] = rho[:,:,idx]
-        Pi1[:,idx] = Pi[:,idx]
-        # ~~~ eval_xc reference ~~~
-        rho_t0 = self.get_rho_translated (Pi, rho, weights=weights)
-        exc, vxc, fxc = self._numint.eval_xc (self.otxc, (rho_t0[0,:,:], rho_t0[1,:,:]), spin=1,
-            relativity=0, deriv=2, verbose=self.verbose)[:3]
-        exc *= rho_t0[:,0,:].sum (0)
-        vxc =  tfnal_derivs._unpack_vxc_sigma (vxc, rho_t0, self.dens_deriv)
-        fxc =  tfnal_derivs._pack_fxc_ltri (fxc, self.dens_deriv)
-        rho_t1 = self.get_rho_translated (Pi1, rho1, weights=weights)
-        exc1, vxc1 = self._numint.eval_xc (self.otxc, (rho_t1[0,:,:], rho_t1[1,:,:]), spin=1,
-            relativity=0, deriv=2, verbose=self.verbose)[:2]
-        exc1 *= rho_t1[:,0,:].sum (0)
-        vxc1 =  tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t0, self.dens_deriv)
-        drho_t = rho_t1 - rho_t0
-        df_lbl = ('rhoa', 'rhob', "rhoa'", "rhob'")[:2*(1+int(nvr>1))]
-        v_err_report (self, 'eval_xc', df_lbl, rho_t0[0], rho_t0[1], exc, vxc, fxc, exc1, vxc1, drho_t, weights)
-        # ~~~ eval_ot shifted ~~~
+        if self.otxc[0].lower () == 't':
+            z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0], fn_deriv=0)[0]
+            z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0], fn_deriv=0)[0]
+            idx = (z0==0)|(z1==0)
+            drho[:,idx] = dPi[:,idx] = 0
+            rho1[:,:,idx] = rho[:,:,idx]
+            Pi1[:,idx] = Pi[:,idx]
+        # ~~~ eval_ot @ rho1 = rho + drho ~~~
         eot1, vot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
             dderiv=dderiv-1, weights=weights, _unpack_vot=False)[:2]
         d1 = rho_tot[1:4] if nvr > 1 else None
@@ -423,7 +457,7 @@ class ftransfnal (transfnal):
         self._numint._xc_type = ft_xc_type.__get__(self._numint)
         self._init_info ()
 
-    Pi_deriv = 1
+    Pi_deriv = transfnal.dens_deriv
 
     def get_rho_translated (self, Pi, rho, **kwargs):
         r''' Compute the "fully-translated" alpha and beta densities

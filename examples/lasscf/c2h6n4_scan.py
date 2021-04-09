@@ -1,7 +1,7 @@
 import numpy as np
 from pyscf import gto, scf, tools
 from c2h6n4_struct import structure as struct
-from mrh.my_pyscf.mcscf.lasscf_testing import LASSCF
+from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
 rnn0 = 1.23681571
 mol = struct (3.0, 3.0, '6-31g', symmetry=False)

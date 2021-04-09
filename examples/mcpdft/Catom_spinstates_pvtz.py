@@ -11,7 +11,7 @@ from mrh.my_pyscf.mcpdft import mcpdft, otfnal
     'Relaxed' means optimized orbitals for both states
 '''
 
-mol = gto.M (atom = 'C 0 0 0', basis='cc-pvtz', spin = 2, symmetry=True)
+mol = gto.M (atom = 'C 0 0 0', basis='cc-pvtz', spin = 2, symmetry='D2h')
 mf = scf.RHF (mol)
 mf.kernel ()
 hs = mcscf.CASSCF (mf, 4, (3, 1))
