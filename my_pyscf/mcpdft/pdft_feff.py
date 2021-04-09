@@ -291,7 +291,13 @@ class EotOrbitalHessianOperator (object):
             drho, dPi = self.make_ddens (ao, rho0, mask)
             dde, fxrho, fxPi, fxrho_a = self.get_fxot (ao, rho0, Pi0, drho, dPi,
                 x, weights, mask)
-            de += dde
+            de -= dde
+            # Minus because
+            # g_pq x_pq = h_pr D_qr x_pq - h_qr D_pr x_pq + ...
+            #           = h_pr (x_pq D_qr) - h_qr (D_rp x_pq) + ...
+            #           = h_pq [x,D]_pq + ...
+            # But in make_dens1, we did [D,x] = -[x,D] because that's how it's
+            # done in mc1step.update_jk_in_ah
             dg += self.contract_v_ddens (fxrho, drho, ao, weights)
             dg += self.contract_v_ddens (fxPi, dPi, ao, weights)
             if self.do_cumulant: # The D_c D_a part
@@ -299,8 +305,12 @@ class EotOrbitalHessianOperator (object):
                 dg[:self.ncore] += self.contract_v_ddens (fxrho_a, drho_c,
                     ao, weights) 
         if self.incl_d2rho:
-            de_test = np.dot (x_packed, self.g_orb)
-            #print (de/de_test)
+            de_test = 2 * np.dot (x_packed, self.g_orb)
+            # The factor of 2 is because g_orb is evaluated in terms of square
+            # antihermitian arrays, but only the lower-triangular parts are
+            # stored in x and g_orb.
+            self.log.debug (('E from integration: %e; from stored grad: %e; '
+                'diff: %e'), de, de_test, de-de_test)
         dg = np.dot (dg, self.mo_coeff) 
         if packed:
             dg_full = np.zeros ((self.nmo, self.nmo), dtype=dg.dtype)
@@ -363,7 +373,7 @@ if __name__ == '__main__':
     from pyscf import gto, scf, dft
     from mrh.my_pyscf import mcpdft
     from functools import partial
-    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
+    mol = gto.M (atom = 'Li 0 0 0; H 1.2 0 0', basis = 'sto-3g',
         verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()
     print (mf.mo_coeff.shape)
@@ -373,7 +383,7 @@ if __name__ == '__main__':
             xcfnal = fnal[1:]
             if xcfnal[0] == 't': xcfnal = xcfnal[1:]
             ks = dft.RKS (mol).set (xc=xcfnal).run ()
-            print ("Ordinary H2 {} energy:".format (xcfnal),ks.e_tot)
+            print ("Ordinary LiH {} energy:".format (xcfnal),ks.e_tot)
             nmo = ks.mo_coeff.shape[-1]
 
             exc_hop = ExcOrbitalHessianOperator (ks)
@@ -413,7 +423,7 @@ if __name__ == '__main__':
             print ("")
 
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
-            print ("Ordinary H2 {} energy:".format (fnal),mc.e_tot)
+            print ("Ordinary LiH {} energy:".format (fnal),mc.e_tot)
 
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
             print ("g_orb:", linalg.norm (eot_hop.g_orb))
