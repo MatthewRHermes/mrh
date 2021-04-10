@@ -482,10 +482,9 @@ if __name__ == '__main__':
         print ("x0 = g_orb/h_diag:", linalg.norm (x0))
         print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
             'de_relerr','dg_test','dg_ref','dg_relerr'))
-        for p in range (10):
+        for p in range (20):
             fac = 1/(2**p)
             x1 = x0 * fac
-            if p==10: x1[:] = 0
             dg_test, de_test = hop (x1)
             dg_ref,  de_ref  = hop.e_de_full (x1)
             e_err = (de_test-de_ref)/de_ref
