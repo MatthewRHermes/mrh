@@ -340,7 +340,7 @@ class EotOrbitalHessianOperator (object):
             # Transpose because update_jk_in_ah requires this shape
             # Minus because I want to use 1 consistent sign rule here
             if self.do_cumulant and self.ncore: # The D_c D_a part
-                drho_c = drho[:,:,:self.ncore]
+                drho_c = drho[:self.nderiv_Pi,:,:self.ncore]
                 dg[:self.ncore] -= self.contract_v_ddens (fxrho_a, drho_c,
                     ao, weights).T
         if self.incl_d2rho:
@@ -412,8 +412,12 @@ class EotOrbitalHessianOperator (object):
             if packed: dg_num = self.pack_uniq_var (dg_num-dg_num.T)
             norm_an = linalg.norm (dg_an)
             norm_num = linalg.norm (dg_num)
-            norm_err_rel = linalg.norm (dg_an - dg_num) / norm_num
-            theta = math.acos (np.dot (dg_an, dg_num) / norm_an / norm_num)
+            denom = norm_an if norm_num < 1e-15 else norm_num
+            if denom < 1e-15: denom = 1.0
+            norm_err_rel = linalg.norm (dg_an - dg_num) / denom
+            denom = norm_an * norm_num
+            if denom < 1e-15: denom = 1.0
+            theta = math.acos (np.dot (dg_an, dg_num) / denom)
             log.debug (('Debugging %s: |x| = %8.2e, |num| = %8.2e, '
                 '|an-num|/|num| = %8.2e, theta(an,num) = %8.2e'), sector,
                 norm_x, norm_num, norm_err_rel, theta)
@@ -514,17 +518,17 @@ if __name__ == '__main__':
         for row in hop.unpack_uniq_var (dg_err): print (fmt_str.format (*row))
         print ("")
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
+        if nelecas is 2: continue
         print (lbl,'case\n')
         #for fnal in 'LDA,VWN3', 'PBE':
         #    ks = dft.RKS (mol).set (xc=fnal).run ()
         #    print ("H2 {} energy:".format (fnal),ks.e_tot)
         #    exc_hop = ExcOrbitalHessianOperator (ks)
         #    debug_hess (exc_hop)
-        #for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
             print ("H2 {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
             debug_hess (eot_hop)
         print ("")
-        assert (False)
+
