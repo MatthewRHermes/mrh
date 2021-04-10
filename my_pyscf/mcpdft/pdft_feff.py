@@ -9,7 +9,7 @@ from pyscf.mcscf import mc1step
 from pyscf.scf import hf
 from mrh.my_pyscf.mcpdft.otpd import *
 from mrh.my_pyscf.mcpdft.otpd import _grid_ao2mo
-from mrh.my_pyscf.mcpdft.tfnal_derivs import contract_fot
+from mrh.my_pyscf.mcpdft.tfnal_derivs import contract_fot, _unpack_sigma_vector
 from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho
 
 def _contract_rho_all (bra, ket):
@@ -274,7 +274,8 @@ class EotOrbitalHessianOperator (object):
 
     def get_fot (self, rho, Pi, weights):
         rho = np.stack ([rho,rho], axis=0)/2
-        eot, vot, fot = self.ot.eval_ot (rho, Pi, dderiv=2, weights=weights)
+        eot, vot, fot = self.ot.eval_ot (rho, Pi, dderiv=2, weights=weights,
+            _unpack_vot=False)
         return vot, fot
 
     def get_vot (self, rho, Pi, weights):
@@ -290,11 +291,14 @@ class EotOrbitalHessianOperator (object):
         rho1 = rho1_c + rho1_a
         if self.verbose >= lib.logger.DEBUG: # TODO: require higher verbosity
             self.debug_dens1 (ao, mask, x, weights, rho0, Pi0, rho1, Pi1)
+        fxrho, fxPi = contract_fot (self.ot, fot, rho0, Pi0, rho1, Pi1,
+            unpack=True, vot_packed=vot)
+        rho0_deriv = rho0[1:4,:] if self.rho_deriv else None
+        Pi0_deriv = Pi0[1:4,:] if self.Pi_deriv else None
+        vrho, vPi = _unpack_sigma_vector (vot, rho0_deriv, Pi0_deriv)
         if return_num:
             dvrho, dvPi = self.get_vot (rho0+rho1, Pi0+Pi1, weights)
-            dvot = [dvrho - vot[0], dvPi - vot[1]]
-        fxrho, fxPi = contract_fot (self.ot, fot, rho0, Pi0, rho1, Pi1)
-        vrho, vPi = vot
+            dvot = [dvrho - vrho, dvPi - vPi]
         de = (np.dot (rho1.ravel (), (vrho * weights[None,:]).ravel ())
             + np.dot (Pi1.ravel (), (vPi * weights[None,:]).ravel ()))
         Pi1 = fxrho_a = rho1 = None
