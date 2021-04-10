@@ -1,4 +1,4 @@
-import time
+import time, math
 import numpy as np
 from scipy import linalg
 from itertools import combinations_with_replacement, product
@@ -77,7 +77,6 @@ class EotOrbitalHessianOperator (object):
             if casdm1 is None: casdm1 = dm1
             if casdm2 is None: casdm2 = dm2
 
-        self.mc = mc
         self.ot = ot
         self.verbose, self.stdout = ot.verbose, ot.stdout
         self.log = lib.logger.new_logger (self, self.verbose)
@@ -284,61 +283,6 @@ class EotOrbitalHessianOperator (object):
         vrho, vPi = vot
         return vrho, vPi
 
-    def debug_fot (self, x, vot, fot, rho0, Pi0, rho1, Pi1, weights, mask):
-        log = self.log
-        x_norm = linalg.norm (x)
-        if rho0.ndim == 1: rho0 = rho0[None,:]
-        if Pi0.ndim == 1: Pi0 = Pi0[None,:]
-        Pi0 = Pi0[:self.nderiv_Pi,:]
-        def gen_cols ():
-            rho1_col = np.zeros_like (rho1)
-            Pi1_col = np.zeros_like (Pi1)
-            rho1_col[0,:] = rho1[0].copy ()
-            yield rho1_col, Pi1_col
-            rho1_col[:] = 0.0
-            Pi1_col[0,:] = Pi1[0,:].copy ()
-            yield rho1_col, Pi1_col
-            if not self.rho_deriv: return
-            Pi1_col[0,:] = 0.0
-            rho1_col[1:4,:] = rho1[1:4].copy ()
-            yield rho1_col, Pi1_col
-            if not self.Pi_deriv: return
-            rho1_col[1:4,:] = 0.0
-            Pi1_col[1:4,:] = Pi1[1:4,:].copy ()
-        def gen_rows (fxrho, fxPi, dvrho, dvPi):
-            yield fxrho[0,:], dvrho[0,:]
-            yield fxPi[0,:], dvPi[0,:]
-            if not self.rho_deriv: return
-            yield fxrho[1:4,:], dvrho[1:4,:]
-            if not self.Pi_deriv: return
-            yield fxPi[1:4,:], dvPi[1:4,:]
-
-        for icol, (rho1_col, Pi1_col) in enumerate (gen_cols ()):
-            xlbl = 'x_' + ('rho','Pi','srr')[icol]
-            fxrho, fxPi = contract_fot (self.ot, fot, rho0, Pi0,
-                rho1_col, Pi1_col)
-            dvrho, dvPi = self.get_vot (rho0+rho1_col, Pi0+Pi1_col, weights)
-            dvrho -= vot[0]
-            dvPi -= vot[1]
-            idx = rho0[0] < 2e-10 # TODO: understand why I have to do this
-            fxrho[:,idx] = 0.0    # Some ftLDA (f.x)_Pi elements specifically
-            fxPi[:,idx] = 0.0     # are very large while the corresponding 
-            dvrho[:,idx] = 0.0    # v1-v0 elements are identically zero, unless
-            dvPi[:,idx] = 0.0     # I do this. This is despite the fact that
-            # the orbital Hessian-vector product of the ftLDA on-top energy
-            # appears fine even if I don't do this. I checked and it has
-            # NOTHING to do with the mask index.
-            fxrho *= weights[None,:]
-            fxPi *= weights[None,:]
-            dvrho *= weights[None,:]
-            dvPi *= weights[None,:]
-
-            for irow, (fx, dv) in enumerate (gen_rows (fxrho, fxPi, dvrho,
-                    dvPi)):
-                lbl = 'f(' + xlbl + ')_' + ('rho', 'Pi', 'rhop')[irow]
-                log.debug (('test '+lbl+': |x| = %e, |fx-dv|/|dv| = %e'),
-                    x_norm, linalg.norm (fx-dv)/linalg.norm(dv))
-
     def get_fxot (self, ao, rho0, Pi0, drho, dPi, x, weights, mask,
             return_num=False):
         vot, fot = self.get_fot (rho0, Pi0, weights)
@@ -346,7 +290,6 @@ class EotOrbitalHessianOperator (object):
         rho1 = rho1_c + rho1_a
         if self.verbose >= lib.logger.DEBUG: # TODO: require higher verbosity
             self.debug_dens1 (ao, mask, x, weights, rho0, Pi0, rho1, Pi1)
-            #self.debug_fot (x, vot, fot, rho0, Pi0, rho1, Pi1, weights, mask)
         if return_num:
             dvrho, dvPi = self.get_vot (rho0+rho1, Pi0+Pi1, weights)
             dvot = [dvrho - vot[0], dvPi - vot[1]]
@@ -354,7 +297,7 @@ class EotOrbitalHessianOperator (object):
         vrho, vPi = vot
         de = (np.dot (rho1.ravel (), (vrho * weights[None,:]).ravel ())
             + np.dot (Pi1.ravel (), (vPi * weights[None,:]).ravel ()))
-        Pi1 = fxrho_a = rho1 = vrho = None
+        Pi1 = fxrho_a = rho1 = None
         if self.do_cumulant and self.ncore: # fxrho gets the D_all D_c part
                                             # D_c D_a part has to be separate
             if vPi.ndim == 1: vPi = vPi[None,:]
@@ -418,22 +361,21 @@ class EotOrbitalHessianOperator (object):
         return self.delta_gorb (x), self.delta_eot (x)
 
     def debug_hessian_blocks (self, x, packed=False):
-        mc = self.mc
         log = self.log
         nao, nmo, nocc = self.nao, self.nmo, self.nocc
         make_dens1 = self.make_dens1
         norm_x = linalg.norm (x)
+        def mask_rho_(arr, iel):
+            if iel != 0: arr[0:1,:] = 0.0
+            if iel != 2: arr[1:4,:] = 0.0
+            return arr
+        def mask_Pi_(arr, iel): return mask_rho_(arr,iel-1)
         def mask_dens1 (icol):
             def make_masked_dens1 (ao, drho, dPi, mask, my_x):
                 rho1_c, rho1_a, Pi1 = make_dens1 (ao, drho, dPi, mask, my_x)
-                if icol != 0:
-                    rho1_c[0:1,:] = 0
-                    rho1_a[0:1,:] = 0
-                if icol != 1: Pi1[0:1,:] = 0.0
-                if icol != 2:
-                    rho1_c[1:4,:] = 0
-                    rho1_a[1:4,:] = 0
-                if icol != 3: Pi1[1:4,:] = 0.0
+                rho1_c = mask_rho_(rho1_c, icol)
+                rho1_a = mask_rho_(rho1_a, icol)
+                Pi1 = mask_Pi_(Pi1, icol)
                 return rho1_c, rho1_a, Pi1
             return make_masked_dens1
         get_fxot = self.get_fxot
@@ -441,20 +383,14 @@ class EotOrbitalHessianOperator (object):
             def get_masked_fxot (ao, rho0, Pi0, drho, dPi, my_x, weights, mask):
                 de, fxrho, fxPi, fxrho_a, dvot = get_fxot (ao, rho0, Pi0, drho,
                     dPi, my_x, weights, mask, return_num=True)
+                if rho0.ndim == 1: rho0 = rho0[None,:]
+                idx = rho0[0,:] < 1e-10
                 dvrho, dvPi = dvot[0], dvot[1]
-                if fxrho_a is not None: fxrho_a[:,:] = 0.0
-                if irow != 0:
-                    fxrho[0:1,:] = 0.0
-                    dvrho[0:1,:] = 0.0
-                if irow != 1:
-                    fxPi[0:1,:] = 0.0
-                    dvPi[0:1,:] = 0.0
-                if irow != 2:
-                    fxrho[1:4,:] = 0.0
-                    dvrho[1:4,:] = 0.0
-                if irow != 3:
-                    fxPi[1:4,:] = 0.0
-                    dvPi[1:4,:] = 0.0
+                #dvrho[:,idx] = dvPi[:,idx] = fxrho[:,idx] = fxPi[:,idx] = 0.0
+                fxrho = mask_rho_(fxrho, irow)
+                dvrho = mask_rho_(dvrho, irow)
+                fxPi = mask_Pi_(fxPi, irow)
+                dvPi = mask_Pi_(dvPi, irow)
                 my_dg[:,:] -= self.contract_v_ddens (dvrho, drho, ao, weights).T
                 my_dg[:,:] -= self.contract_v_ddens (dvPi, dPi, ao, weights).T
                 return de, fxrho, fxPi, fxrho_a
@@ -463,20 +399,20 @@ class EotOrbitalHessianOperator (object):
         lbls = ('rho','Pi',"rho'","Pi'")
         for irow, icol in product (range (ndim), repeat=2):
             sector = 'f_' + lbls[irow] + ',' + lbls[icol]
-            dg_num = np.zeros ((nmo, nao), dtype=x.dtype)
-            with lib.temporary_env (self, incl_d2rho=False,
+            dg_num = np.zeros ((nmo if packed else nocc, nao), dtype=x.dtype)
+            with lib.temporary_env (self, incl_d2rho=False, do_cumulant=False,
                     get_fxot = mask_fxot (irow, dg_num[:nocc,:]),
                     make_dens1 = mask_dens1 (icol)):
                 dg_an = self (x, packed=packed)[0]
             dg_num = np.dot (dg_num, self.mo_coeff) 
             if packed: dg_num = self.pack_uniq_var (dg_num-dg_num.T)
-            else: dg_num = dg_num[:nocc,:]
-            dg_err = dg_an-dg_num
-            idx = np.argmax (np.abs (dg_err))
-            dg_err, dg_an, dg_num = dg_err[idx], dg_an[idx], dg_num[idx]
-            dg_err /= dg_num
-            log.debug ('Debugging %s: |x|=%e, %e - %e => %e', sector,
-                norm_x, dg_an, dg_num, dg_err)
+            norm_an = linalg.norm (dg_an)
+            norm_num = linalg.norm (dg_num)
+            norm_err_rel = linalg.norm (dg_an - dg_num) / norm_num
+            theta = math.acos (np.dot (dg_an, dg_num) / norm_an / norm_num)
+            log.debug (('Debugging %s: |x| = %8.2e, |num| = %8.2e, '
+                '|an-num|/|num| = %8.2e, theta(an,num) = %8.2e'), sector,
+                norm_x, norm_num, norm_err_rel, theta)
 
 class ExcOrbitalHessianOperator (object):
     ''' for comparison '''
@@ -582,7 +518,7 @@ if __name__ == '__main__':
         #    exc_hop = ExcOrbitalHessianOperator (ks)
         #    debug_hess (exc_hop)
         #for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
-        for fnal in 'ftLDA,VWN3', 'tPBE':
+        for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
             print ("H2 {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
