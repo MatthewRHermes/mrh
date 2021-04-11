@@ -74,6 +74,12 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     if nderiv > 4:
         raise NotImplementedError ("Translation of meta-GGA functionals")
     rho_t = otfnal.get_rho_translated (Pi, rho, weights=weights)
+    # LDA in libxc has a special numerical problem with zero-valued densities in one spin
+    if nderiv == 1:
+        idx = (rho_t[0,0] > 1e-15) & (rho_t[1,0] < 1e-15) 
+        rho_t[1,0,idx] = 1e-15
+        idx = (rho_t[0,0] < 1e-15) & (rho_t[1,0] > 1e-15)
+        rho_t[0,0,idx] = 1e-15
     rho_tot = rho.sum (0)
     rho_deriv = rho_tot[1:4,:] if nderiv > 1 else None
     Pi_deriv = Pi[1:4,:] if nderiv_Pi > 1 else None
