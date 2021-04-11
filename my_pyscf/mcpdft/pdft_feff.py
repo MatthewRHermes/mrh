@@ -10,7 +10,7 @@ from pyscf.scf import hf
 from mrh.my_pyscf.mcpdft.otpd import *
 from mrh.my_pyscf.mcpdft.otpd import _grid_ao2mo
 from mrh.my_pyscf.mcpdft.tfnal_derivs import contract_fot, _unpack_sigma_vector
-from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho
+from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho, _dot_ao_mo
 
 def _contract_rho_all (bra, ket):
     if bra.ndim == 2: bra = bra[None,:,:]
@@ -112,6 +112,9 @@ class EotOrbitalHessianOperator (object):
         self.make_rho = ni._gen_rho_evaluator (ot.mol, dm1, 1)[0]
         self.pack_uniq_var = mc.pack_uniq_var
         self.unpack_uniq_var = mc.unpack_uniq_var        
+
+        self.shls_slice = (0, ot.mol.nbas)
+        self.ao_loc = ot.mol.ao_loc_nr()
 
         if incl_d2rho: # Include d^2rho/dk^2 type derivatives
             # Also include a full E_OT value and gradient recalculator
@@ -310,10 +313,12 @@ class EotOrbitalHessianOperator (object):
         if return_num: return de, fxrho, fxPi, fxrho_a, dvot
         return de, fxrho, fxPi, fxrho_a
 
-    def contract_v_ddens (self, v, ddens, ao, weights):
+    def contract_v_ddens (self, v, ddens, ao, weights, mask):
         vw = v * weights[None,:]
         vao = _contract_vot_ao (vw, ao)
-        return np.tensordot (vao, ddens, axes=((0,1),(0,1)))
+        return sum ([_dot_ao_mo (self.ot.mol, v, d, non0tab=mask,
+            shls_slice=self.shls_slice, ao_loc=self.ao_loc,
+            hermi=0) for v, d in zip (vao, ddens)])
 
     def __call__ (self, x, packed=False):
         if self.incl_d2rho:
@@ -335,14 +340,14 @@ class EotOrbitalHessianOperator (object):
             dde, fxrho, fxPi, fxrho_a = self.get_fxot (ao, rho0, Pi0, drho, dPi,
                 x, weights, mask)
             de += dde
-            dg -= self.contract_v_ddens (fxrho, drho, ao, weights).T
-            dg -= self.contract_v_ddens (fxPi, dPi, ao, weights).T
+            dg -= self.contract_v_ddens (fxrho, drho, ao, weights, mask).T
+            dg -= self.contract_v_ddens (fxPi, dPi, ao, weights, mask).T
             # Transpose because update_jk_in_ah requires this shape
             # Minus because I want to use 1 consistent sign rule here
             if self.do_cumulant and self.ncore: # The D_c D_a part
                 drho_c = drho[:self.nderiv_Pi,:,:self.ncore]
                 dg[:self.ncore] -= self.contract_v_ddens (fxrho_a, drho_c,
-                    ao, weights).T
+                    ao, weights, mask).T
         if self.incl_d2rho:
             de_test = 2 * np.dot (x_packed, self.g_orb)
             # The factor of 2 is because g_orb is evaluated in terms of square
@@ -388,15 +393,15 @@ class EotOrbitalHessianOperator (object):
                 de, fxrho, fxPi, fxrho_a, dvot = get_fxot (ao, rho0, Pi0, drho,
                     dPi, my_x, weights, mask, return_num=True)
                 if rho0.ndim == 1: rho0 = rho0[None,:]
-                idx = rho0[0,:] < 1e-10
                 dvrho, dvPi = dvot[0], dvot[1]
-                #dvrho[:,idx] = dvPi[:,idx] = fxrho[:,idx] = fxPi[:,idx] = 0.0
                 fxrho = mask_rho_(fxrho, irow)
                 dvrho = mask_rho_(dvrho, irow)
                 fxPi = mask_Pi_(fxPi, irow)
                 dvPi = mask_Pi_(dvPi, irow)
-                my_dg[:,:] -= self.contract_v_ddens (dvrho, drho, ao, weights).T
-                my_dg[:,:] -= self.contract_v_ddens (dvPi, dPi, ao, weights).T
+                my_dg[:,:] -= self.contract_v_ddens (dvrho, drho, ao, weights,
+                    mask).T
+                my_dg[:,:] -= self.contract_v_ddens (dvPi, dPi, ao, weights,
+                    mask).T
                 return de, fxrho, fxPi, fxrho_a
             return get_masked_fxot
         ndim = 2 + int (self.rho_deriv) + int (self.Pi_deriv)
