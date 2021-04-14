@@ -301,7 +301,7 @@ class EotOrbitalHessianOperator (object):
         vrho, vPi = _unpack_sigma_vector (vot, rho0_deriv, Pi0_deriv)
         if return_num:
             dvrho, dvPi = self.get_vot (rho0+rho1, Pi0+Pi1, weights)
-            dvot = [dvrho - vrho, dvPi - vPi]
+            dvot = [dvrho - vrho, dvPi - vPi, rho1, Pi1]
         de = (np.dot (rho1.ravel (), (vrho * weights[None,:]).ravel ())
             + np.dot (Pi1.ravel (), (vPi * weights[None,:]).ravel ()))
         Pi1 = fxrho_a = rho1 = None
@@ -369,16 +369,18 @@ class EotOrbitalHessianOperator (object):
         assert (self.incl_d2rho)
         return self.delta_gorb (x), self.delta_eot (x)
 
-    def debug_hessian_blocks (self, x, packed=False):
+    def debug_hessian_blocks (self, x, packed=False, mask_dcon=False):
         log = self.log
         nao, nmo, nocc = self.nao, self.nmo, self.nocc
         make_dens1 = self.make_dens1
         norm_x = linalg.norm (x)
-        def mask_rho_(arr, iel):
+        def mask_rho_(arr, iel, idx0=None):
             if iel != 0: arr[0:1,:] = 0.0
             if iel != 2: arr[1:4,:] = 0.0
+            if idx0 is not None:
+                arr[:,idx0] = 0.0
             return arr
-        def mask_Pi_(arr, iel): return mask_rho_(arr,iel-1)
+        def mask_Pi_(arr, iel, idx0=None): return mask_rho_(arr,iel-1,idx0)
         def mask_dens1 (icol):
             def make_masked_dens1 (ao, drho, dPi, mask, my_x):
                 rho1_c, rho1_a, Pi1 = make_dens1 (ao, drho, dPi, mask, my_x)
@@ -392,12 +394,16 @@ class EotOrbitalHessianOperator (object):
             def get_masked_fxot (ao, rho0, Pi0, drho, dPi, my_x, weights, mask):
                 de, fxrho, fxPi, fxrho_a, dvot = get_fxot (ao, rho0, Pi0, drho,
                     dPi, my_x, weights, mask, return_num=True)
+                norm_x = linalg.norm (my_x)
                 if rho0.ndim == 1: rho0 = rho0[None,:]
-                dvrho, dvPi = dvot[0], dvot[1]
-                fxrho = mask_rho_(fxrho, irow)
-                dvrho = mask_rho_(dvrho, irow)
-                fxPi = mask_Pi_(fxPi, irow)
-                dvPi = mask_Pi_(dvPi, irow)
+                dvrho, dvPi, rho1, Pi1 = dvot
+                idx = rho0[0]>0
+                R0 = self.ot.get_ratio (np.atleast_2d (Pi0), rho0/2)[0]
+                idx_dcon = np.abs (1.0-R0) < 1e-3 if mask_dcon else None
+                fxrho = mask_rho_(fxrho, irow, idx_dcon)
+                dvrho = mask_rho_(dvrho, irow, idx_dcon)
+                fxPi = mask_Pi_(fxPi, irow, idx_dcon)
+                dvPi = mask_Pi_(dvPi, irow, idx_dcon)
                 my_dg[:,:] -= self.contract_v_ddens (dvrho, drho, ao, weights,
                     mask).T
                 my_dg[:,:] -= self.contract_v_ddens (dvPi, dPi, ao, weights,
@@ -486,7 +492,7 @@ if __name__ == '__main__':
     from pyscf import gto, scf, dft
     from mrh.my_pyscf import mcpdft
     from functools import partial
-    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
+    mol = gto.M (atom = 'Li 0 0 0; H 1.2 0 0', basis = 'sto-3g',
         verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()
     def debug_hess (hop):
@@ -509,7 +515,8 @@ if __name__ == '__main__':
             g_err = (dg_test_max-dg_ref_max)/dg_ref_max
             row = [p, de_test, de_ref, e_err, dg_test_max, dg_ref_max, g_err]
             if callable (getattr (hop, 'debug_hessian_blocks', None)):
-                hop.debug_hessian_blocks (x1, packed=True)
+                hop.debug_hessian_blocks (x1, packed=True,
+                mask_dcon=(hop.ot.otxc[0]=='t'))
             print (("{:2d} " + ' '.join (['{:10.3e}',]*6)).format (*row))
         dg_err = dg_test - dg_ref
         denom = dg_ref.copy ()
@@ -525,6 +532,7 @@ if __name__ == '__main__':
         for row in hop.unpack_uniq_var (dg_err): print (fmt_str.format (*row))
         print ("")
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
+        if nelecas is not 2: continue
         print (lbl,'case\n')
         #for fnal in 'LDA,VWN3', 'PBE':
         #    ks = dft.RKS (mol).set (xc=fnal).run ()
@@ -533,7 +541,7 @@ if __name__ == '__main__':
         #    debug_hess (exc_hop)
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
-            print ("H2 {} energy:".format (fnal),mc.e_tot)
+            print ("LiH {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
             debug_hess (eot_hop)
         print ("")
