@@ -2,8 +2,10 @@ import h5py
 import numpy as np
 from pyscf.symm.param import IRREP_ID_MOLPRO as IRREP_ID_MOLCAS
 from pyscf.symm.geom import detect_symm, get_subgroup
+from pyscf.symm import label_orb_symm
 from pyscf.lib import logger
 from pyscf import gto
+from pyscf.tools import molden
 
 def get_mo_from_h5 (mol, h5fname, symmetry=None):
     ''' Get MO vectors for a pyscf molecule from an h5 file written by OpenMolcas
@@ -43,6 +45,7 @@ def get_mo_from_h5 (mol, h5fname, symmetry=None):
         mo_energy = f['MO_ENERGIES'][()]
         mo_occ = f['MO_OCCUPATIONS'][()]
 
+    usymm_list = []
     if mol.symmetry:
         uuu = [m_ir * mol.nao_nr () for m_ir in nmo_irrep]
         usymm_irrep_offset = [0] + [sum (uuu[:i+1]) for i in range (len (uuu)-1)]
@@ -52,6 +55,7 @@ def get_mo_from_h5 (mol, h5fname, symmetry=None):
         mo_coeff = np.zeros ((mol.nao_nr (), mol.nao_nr ()), dtype=np.float_)
         for m_ir, orb_off, usymm_off, coeff_off in zip (nmo_irrep, orb_irrep_offset, usymm_irrep_offset, coeff_irrep_offset):
             usymm = molcas_usymm[usymm_off:usymm_off+(m_ir*mol.nao_nr ())].reshape (m_ir, mol.nao_nr ()).T
+            usymm_list.append (usymm)
             coeff = molcas_coeff[coeff_off:coeff_off+(m_ir*m_ir)].reshape (m_ir, m_ir).T
             mo_coeff[:,orb_off:orb_off+m_ir] = np.dot (usymm, coeff)
     else:
@@ -59,7 +63,6 @@ def get_mo_from_h5 (mol, h5fname, symmetry=None):
             molcas_coeff.shape, mol.nao_nr ())
         mo_coeff = molcas_coeff.reshape (mol.nao_nr (), mol.nao_nr ()).T
         
-
     idx_ao = []
     for (c, n, l, m) in molcas_basids:
         # 0-index atom list in PySCF, 1-index atom list in Molcas
@@ -72,6 +75,7 @@ def get_mo_from_h5 (mol, h5fname, symmetry=None):
         idx_ao.append (mol.search_ao_nr (c, l, m, n))
     idx_ao = np.argsort (np.asarray (idx_ao))
     mo_coeff = mo_coeff[idx_ao,:]
+    if mol.symmetry: usymm_list = [u[idx_ao,:] for u in usymm_list]
 
     # 'mergesort' keeps degenerate or active-space orbitals in the provided order!
     #  idx_ene = np.argsort (mo_energy, kind='mergesort')
@@ -80,6 +84,34 @@ def get_mo_from_h5 (mol, h5fname, symmetry=None):
     sort_key = np.min(mo_energy) * 100000 * mo_occ + mo_energy
     idx_ene = np.argsort(sort_key, kind='mergesort')
     mo_coeff = mo_coeff[:,idx_ene]
+    mo_occ = mo_occ[idx_ene]
+    mo_energy = mo_energy[idx_ene]
+
+    nao, nmo = mo_coeff.shape
+    s0 = mol.intor_symmetric ('int1e_ovlp')
+    err = np.amax (np.abs ((mo_coeff.conj ().T @ s0 @ mo_coeff) - np.eye (nmo)))
+    print ("Are {} h5 MOs orthonormal in AO basis? {}".format (mol.output, err)) 
+    err = np.amax (np.abs ((mo_coeff.conj ().T @ mo_coeff) - np.eye (nmo)))
+    print ("Are {} h5 MOs in an orthonormal basis? {}".format (mol.output, err)) 
+    if len (usymm_list):
+        usymm = np.concatenate (usymm_list, axis=-1)
+        err = np.amax (np.abs ((usymm.conj ().T @ usymm) - np.eye (nmo)))
+        print ("Are {} h5 symm_orb in an orthonormal basis? {}".format (
+            mol.output, err))
+        usymm = np.concatenate (mol.symm_orb, axis=-1)
+        err = np.amax (np.abs ((usymm.conj ().T @ usymm) - np.eye (nmo)))
+        print ("Are {} mol symm_orb in an orthonormal basis? {}".format (
+            mol.output, err))
+    if mol.verbose > logger.INFO:
+        fname = str (mol.output)[:-4] + "_h5debug.molden"
+        molden.from_mo (mol, fname, mo_coeff, occ=mo_occ, ene=mo_energy)
+    if mol.symmetry:
+        try:
+            orbsym = label_orb_symm (mol, mol.irrep_name, usymm_list, mo_coeff)
+        except ValueError as e:
+            print (e)
+            with h5py.File (h5fname, 'r') as f:
+                
 
     return mo_coeff
 
