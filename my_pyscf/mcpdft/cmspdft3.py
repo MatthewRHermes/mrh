@@ -7,6 +7,7 @@ from pyscf.lib import logger, temporary_env
 from pyscf.mcscf import mc_ao2mo
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_, state_average
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
+from pyscf.fci import direct_spin1
 from mrh.my_pyscf.mcpdft import pdft_veff
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
@@ -40,6 +41,11 @@ def kernel (mc,nroots=None):
     u = np.identity(nroots)
     t = np.zeros((nroots,nroots))
     t_old = np.zeros((nroots,nroots))
+
+    trans12_tdm1, trans12_tdm2 = mc.fcisolver.states_trans_rdm12(ci_array[col],ci_array[rows],mc_1root.ncas,mc_1root.nelecas)
+    trans12_tdm1_array = np.array(trans12_tdm1)
+    tdm1 = np.dot(trans12_tdm1_array,mo_cas.T)
+    tdm1 = np.dot(mo_cas,tdm1).transpose(1,0,2)
 
     log = lib.logger.new_logger (mc, mc.verbose)
     log.info ("Entering cmspdft3.kernel")
@@ -87,49 +93,60 @@ def kernel (mc,nroots=None):
                                               # for k==l, since that's the density 
                                               # matrix and we compute that with a 
                                               # different function.
-    def w_klmn(k,l,m,n,ci):
-        casdm1 = mc.fcisolver.states_make_rdm1 (ci,mc_1root.ncas,mc_1root.nelecas)
+    def w_klmn(k,l,m,n,dm,tdm):
+#        casdm1 = mc.fcisolver.states_make_rdm1 (ci,mc_1root.ncas,mc_1root.nelecas)
         # MRH: don't you also need to put casdm1 into the AO basis/recompute dm1?
-        dm1 = np.dot(casdm1,mo_cas.T)
-        dm1 = np.dot(mo_cas,dm1).transpose(1,0,2)
+#        dm1 = np.dot(casdm1,mo_cas.T)
+#        dm1 = np.dot(mo_cas,dm1).transpose(1,0,2)
         # MRH: IMO it's more elegant to rewrite these functions to take the density
         # matrices dm1_cirot and tdm1 as you compute them for the gradient downstairs,
         # since it's the same density matrices for both derivatives. Then this whole
         # function could be like 5 lines long:
-        #   d = dm1_cirot[k] if k==l else tdm1[rowscol2ind[k,l]]
-        #   dm1_g = mc_1root._scf.get_j (dm=d)
-        #   d = dm1_cirot[m] if m==n else tdm1[rowscol2ind[m,n]]
-        #   w = (dm1_g*d).sum ((0,1))
-        #   return w
+          d = dm[k] if k==l else tdm[rowscol2ind[k,l]]
+          dm1_g = mc_1root._scf.get_j (dm=d)
+          d = dm[m] if m==n else tdm[rowscol2ind[m,n]]
+          w = (dm1_g*d).sum ((0,1))
+          return w
         # But I'll leave it like this so you can see what's going on more clearly in
         # the github "files changed" tab.
-        trans12_tdm1, trans12_tdm2 = mc.fcisolver.states_trans_rdm12(ci[col],ci[rows],mc_1root.ncas,mc_1root.nelecas)
-        if k==l:
-            dm1_g = mc_1root._scf.get_j (dm=dm1[k])
-        else:
-            ind = rowscol2ind[k,l]
-            tdm1_2 = np.dot(trans12_tdm1[ind],mo_cas.T)
-            tdm1_2 = np.dot(mo_cas,tdm1_2).transpose(1,0)
-            dm1_g = mc_1root._scf.get_j(dm=tdm1_2)
-        if m==n:
-            w  = (dm1_g*dm1[n]).sum((0,1))
-        else:
-            ind2 = rowscol2ind[m,n]
-            tdm1_2 = np.dot(trans12_tdm1_array[ind2],mo_cas.T)
-            tdm1_2 = np.dot(mo_cas,tdm1_2).transpose(1,0)
-            w = (dm1_g*tdm1_2).sum((0,1))
-        return w
+#        trans12_tdm1, trans12_tdm2 = mc.fcisolver.states_trans_rdm12(ci[col],ci[rows],mc_1root.ncas,mc_1root.nelecas)
+#        if k==l:
+#            dm1_g = mc_1root._scf.get_j (dm=dm1[k])
+#        else:
+#            ind = rowscol2ind[k,l]
+#            tdm1_2 = np.dot(trans12_tdm1[ind],mo_cas.T)
+#            tdm1_2 = np.dot(mo_cas,tdm1_2).transpose(1,0)
+#            dm1_g = mc_1root._scf.get_j(dm=tdm1_2)
+#        if m==n:
+#            w  = (dm1_g*dm1[n]).sum((0,1))
+#        else:
+#            ind2 = rowscol2ind[m,n]
+#            tdm1_2 = np.dot(trans12_tdm1_array[ind2],mo_cas.T)
+#            tdm1_2 = np.dot(mo_cas,tdm1_2).transpose(1,0)
+#            w = (dm1_g*tdm1_2).sum((0,1))
 
-    def v_klmn(k,l,m,n,ci):
+    def v_klmn(k,l,m,n,dm,tdm):
         if l==m:
-            v = w_klmn(k,n,k,k,ci)-w_klmn(k,n,l,l,ci)+w_klmn(n,k,n,n,ci)-w_klmn(k,n,m,m,ci)-4*w_klmn(k,l,m,n,ci)
+            v = w_klmn(k,n,k,k,dm,tdm)-w_klmn(k,n,l,l,dm,tdm)+w_klmn(n,k,n,n,dm,tdm)-w_klmn(k,n,m,m,dm,tdm)-4*w_klmn(k,l,m,n,dm,tdm)
         else:
             v = 0
         return v
 
+#Rotate to XMS States
+   
+    h1, h0 = mc.get_h1eff ()
+
+#    print("fvecs_nstates",fvecs_nstates)         
+     
+#    ci_array = np.tensordot(fvecs_nstates, ci_array, 1)  
+
+    casdm1 = mc.fcisolver.states_make_rdm1 (ci_array,mc_1root.ncas,mc_1root.nelecas)
+    dm1 = np.dot(casdm1,mo_cas.T)
+    dm1 = np.dot(mo_cas,dm1).transpose(1,0,2)
+
 #Loop Initializations
     dm1_old = dm1
-    maxiter = 5
+    maxiter = 150
     ci_old = ci_array
     thrs = 1.0e-06
     e_coul_old = e_coul
@@ -138,7 +155,6 @@ def kernel (mc,nroots=None):
 #################
 #Begin Loop 
 #################
-
 
     for it in range(maxiter):
         log.info ("****iter {} ***********".format (it))
@@ -171,17 +187,16 @@ def kernel (mc,nroots=None):
         dg = mc_1root._scf.get_j (dm=tdm1)
         grad1 = (dg*dm1_cirot[rows]).sum((1,2))
         grad2 = (dg*dm1_cirot[col]).sum((1,2))
-        grad = 4*(grad1 + grad2)
+        grad = 2*(grad1 - grad2)
         grad_norm = np.linalg.norm(grad)
         log.debug ("grad: {}".format (grad))
         log.info ("grad norm = %f", grad_norm)
 
-
-        if grad_norm < thrs:
-            conv = True
+#        if grad_norm < thrs:
+#            conv = True
             # ci_final = ci_rot # best just to use ci_rot
-            break
-
+#            break
+#        print("hello")
 #       Hessian
         hess = np.zeros((pairs, pairs))
 #       MRH: you can do this whole nested loop, defining all six indices, in one (1) line:
@@ -211,13 +226,37 @@ def kernel (mc,nroots=None):
             # control. Nested loops and conditionals are really slow in Python,
             # so it's a good idea to combine them using tools like this whenever
             # possible.
-            hess[i,j] = v_klmn(k,l,m,n,ci_rot)+v_klmn(l,k,n,m,ci_rot)-v_klmn(k,l,n,m,ci_rot)-v_klmn(l,k,m,n,ci_rot)
+            hess[i,j] = v_klmn(k,l,m,n,dm1_cirot,tdm1)+v_klmn(l,k,n,m,dm1_cirot,tdm1)-v_klmn(k,l,n,m,dm1_cirot,tdm1)-v_klmn(l,k,m,n,dm1_cirot,tdm1)
 
 #       MRH: print some diagnostic stuff, but only do the potentially-expensive
 #       diagonalization if the user-specified verbosity is high enough
-        if log.verbose >= lib.logger.DEBUG:
-            evals, evecs = linalg.eigh (hess)
-            log.debug ("Hessian eigenvalues: {}".format (evals))
+#        if log.verbose >= lib.logger.DEBUG:
+        evals, evecs = linalg.eigh (hess)
+        evecs = np.array(evecs)
+        log.info ("Hessian eigenvalues: {}".format (evals))
+        hess1=hess        
+#        print("hess1",hess)            
+#        print("evals",evals)
+
+        for i in range(pairs):
+            if 1E-09 > evals[i] and evals[i] > -1E-09:
+               log.info ("Hess is singular!")
+            if evals[i] > 0 :
+                neg = False
+                break
+            neg = True
+        log.info ("Hess diag is neg? {}".format (neg))
+#        If the diagonals are positive make them negative:
+        if neg == False :
+            for i in range(pairs):
+                if evals[i] > 0 :
+                    evals[i]=-evals[i]
+#      Remake the Hessian
+        diag = np.identity(pairs)*evals
+        hess = np.dot(np.dot(evecs,diag),evecs.T)
+        hess2= hess
+#        print("hess2", hess)
+#        print("difference between hessian", hess2-hess1)         
 
 #       Make T
 
@@ -241,6 +280,11 @@ def kernel (mc,nroots=None):
         ci_old=ci_rot
         e_coul_old = e_coul_new
 
+
+        if grad_norm < thrs and neg == True:
+                conv = True
+                break
+
 #########################
 # End Loop
 
@@ -262,10 +306,35 @@ def kernel (mc,nroots=None):
     #    # in mcpdft.kernel.
     #    for i in range(nroots):    
     #        E_int [i]= mcpdft.mcpdft.kernel(mc,mc.otfnal,root=i)[0]
-    E_int = np.asarray ([mcpdft.mcpdft.kernel (mc, ot=mc.otfnal, ci=c)[0] 
+    E_int = np.asarray ([mcpdft.mcpdft.kernel (mc, ot=mc.otfnal, ci=c)[0]
         for c in ci_rot])
     log.info ("CMS-PDFT intermediate state energies: {}".format (E_int))
 
+   #Compute the full Hamiltonian
+
+    h1, h0 = mc.get_h1eff ()
+
+    h2 = mc.get_h2eff ()
+
+    h2eff = direct_spin1.absorb_h1e (h1, h2, mc.ncas, mc.nelecas, 0.5)
+
+    hc_all = [direct_spin1.contract_2e (h2eff, c, mc.ncas, mc.nelecas) for c in ci_rot]
+
+    Ham = np.tensordot (ci_rot, hc_all, axes=((1,2),(1,2)))
+
+ #   print ("ham", Ham)
+   
+    for i in range(nroots):
+        Ham[i,i]=E_int[i]
+#    print("ham",Ham)
+
+    log.info ("Effective hamiltonian: {}".format (Ham))
+
+    e_cms, e_vecs = linalg.eigh(Ham) 
+    
+#    print("e_cms", e_cms)
+
+    log.info ("CMS-PDFT final state energies: {}".format (e_cms))
 
     return conv, E_int, ci_rot
 
@@ -304,4 +373,3 @@ if __name__ == '__main__':
             molden.from_sa_mcscf (mc, fname, state=i, cas_natorb=True)
     
     print ("See cmspdft3.log for more information")
-
