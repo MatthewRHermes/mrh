@@ -124,6 +124,7 @@ def get_mol_from_h5 (h5fname, **kwargs):
         Returns:
             mol: gto.mole object
     '''
+    # TODO: somehow preserve OpenMolcas's irrep axes using DESYM_CENTER_LABELS 
 
     my_symmetry = True
     with h5py.File (h5fname, 'r') as f:
