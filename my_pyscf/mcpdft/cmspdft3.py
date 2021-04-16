@@ -42,6 +42,11 @@ def kernel (mc,nroots=None):
     t = np.zeros((nroots,nroots))
     t_old = np.zeros((nroots,nroots))
 
+    trans12_tdm1, trans12_tdm2 = mc.fcisolver.states_trans_rdm12(ci_array[col],ci_array[rows],mc_1root.ncas,mc_1root.nelecas)
+    trans12_tdm1_array = np.array(trans12_tdm1)
+    tdm1 = np.dot(trans12_tdm1_array,mo_cas.T)
+    tdm1 = np.dot(mo_cas,tdm1).transpose(1,0,2)
+
     log = lib.logger.new_logger (mc, mc.verbose)
     log.info ("Entering cmspdft3.kernel")
 # MRH: PySCF convention is never to use the "print" function in method code.
@@ -127,9 +132,21 @@ def kernel (mc,nroots=None):
             v = 0
         return v
 
+#Rotate to XMS States
+   
+    h1, h0 = mc.get_h1eff ()
+
+#    print("fvecs_nstates",fvecs_nstates)         
+     
+#    ci_array = np.tensordot(fvecs_nstates, ci_array, 1)  
+
+    casdm1 = mc.fcisolver.states_make_rdm1 (ci_array,mc_1root.ncas,mc_1root.nelecas)
+    dm1 = np.dot(casdm1,mo_cas.T)
+    dm1 = np.dot(mo_cas,dm1).transpose(1,0,2)
+
 #Loop Initializations
     dm1_old = dm1
-    maxiter = 50
+    maxiter = 150
     ci_old = ci_array
     thrs = 1.0e-06
     e_coul_old = e_coul
@@ -175,7 +192,6 @@ def kernel (mc,nroots=None):
         log.debug ("grad: {}".format (grad))
         log.info ("grad norm = %f", grad_norm)
 
-        print("before grad notm")
 #        if grad_norm < thrs:
 #            conv = True
             # ci_final = ci_rot # best just to use ci_rot
@@ -217,30 +233,30 @@ def kernel (mc,nroots=None):
 #        if log.verbose >= lib.logger.DEBUG:
         evals, evecs = linalg.eigh (hess)
         evecs = np.array(evecs)
-        log.debug ("Hessian eigenvalues: {}".format (evals))
+        log.info ("Hessian eigenvalues: {}".format (evals))
         hess1=hess        
-        print("hess1",hess)            
-        print("evals",evals)
+#        print("hess1",hess)            
+#        print("evals",evals)
 
         for i in range(pairs):
+            if 1E-09 > evals[i] and evals[i] > -1E-09:
+               log.info ("Hess is singular!")
             if evals[i] > 0 :
                 neg = False
                 break
             neg = True
+        log.info ("Hess diag is neg? {}".format (neg))
 #        If the diagonals are positive make them negative:
-
         if neg == False :
-            for i in range(nroots):
+            for i in range(pairs):
                 if evals[i] > 0 :
-#                     print("not this time")
                     evals[i]=-evals[i]
-            print("evals",evals)
 #      Remake the Hessian
-        diag = np.identity(nroots)*evals
+        diag = np.identity(pairs)*evals
         hess = np.dot(np.dot(evecs,diag),evecs.T)
         hess2= hess
 #        print("hess2", hess)
-        print("difference between hessian", hess2-hess1)         
+#        print("difference between hessian", hess2-hess1)         
 
 #       Make T
 
@@ -290,7 +306,7 @@ def kernel (mc,nroots=None):
     #    # in mcpdft.kernel.
     #    for i in range(nroots):    
     #        E_int [i]= mcpdft.mcpdft.kernel(mc,mc.otfnal,root=i)[0]
-    E_int = np.asarray ([mcpdft.mcpdft.kernel (mc, ot=mc.otfnal, ci=c)[0] 
+    E_int = np.asarray ([mcpdft.mcpdft.kernel (mc, ot=mc.otfnal, ci=c)[0]
         for c in ci_rot])
     log.info ("CMS-PDFT intermediate state energies: {}".format (E_int))
 
@@ -306,15 +322,19 @@ def kernel (mc,nroots=None):
 
     Ham = np.tensordot (ci_rot, hc_all, axes=((1,2),(1,2)))
 
-    print ("ham", Ham)
+ #   print ("ham", Ham)
    
     for i in range(nroots):
         Ham[i,i]=E_int[i]
-    print("ham",Ham)
+#    print("ham",Ham)
+
+    log.info ("Effective hamiltonian: {}".format (Ham))
 
     e_cms, e_vecs = linalg.eigh(Ham) 
     
-    print("e_cms", e_cms)
+#    print("e_cms", e_cms)
+
+    log.info ("CMS-PDFT final state energies: {}".format (e_cms))
 
     return conv, E_int, ci_rot
 
