@@ -2,7 +2,7 @@ import time, math
 import numpy as np
 from scipy import linalg
 from itertools import combinations_with_replacement, product
-from pyscf import lib
+from pyscf import lib, ao2mo
 from pyscf.dft.gen_grid import BLKSIZE
 from pyscf.dft.numint import _contract_rho
 from pyscf.mcscf import mc1step
@@ -163,6 +163,11 @@ class EotOrbitalHessianOperator (object):
                 return e1 - e_ot
             self.e_ot = e_ot
             self.delta_eot = delta_eot
+            if self.verbose > lib.logger.INFO:
+                # TODO: require higher verbosity
+                from mrh.my_pyscf.mcpdft.pdft_veff import lazy_kernel
+                v1, v2 = lazy_kernel (ot, dm1s, cascm2, mo_coeff[:,ncore:nocc])
+                self._v2 = ao2mo.full (v2, mo_coeff)
 
 
     def get_blocksize (self):
@@ -304,14 +309,14 @@ class EotOrbitalHessianOperator (object):
             dvot = [dvrho - vrho, dvPi - vPi, rho1, Pi1]
         de = (np.dot (rho1.ravel (), (vrho * weights[None,:]).ravel ())
             + np.dot (Pi1.ravel (), (vPi * weights[None,:]).ravel ()))
-        Pi1 = fxrho_a = rho1 = None
+        Pi1 = fxrho_a = fxrho_c = rho1 = None
         if self.do_cumulant and self.ncore: # fxrho gets the D_all D_c part
                                             # D_c D_a part has to be separate
             if vPi.ndim == 1: vPi = vPi[None,:]
-            fxrho =   _contract_vot_rho (vPi, rho1_c, add_vrho=fxrho)
+            fxrho_c = _contract_vot_rho (vPi, rho1_c)
             fxrho_a = _contract_vot_rho (vPi, rho1_a)
-        if return_num: return de, fxrho, fxPi, fxrho_a, dvot
-        return de, fxrho, fxPi, fxrho_a
+        if return_num: return de, fxrho, fxPi, fxrho_c, fxrho_a, dvot
+        return de, fxrho, fxPi, fxrho_c, fxrho_a
 
     def contract_v_ddens (self, v, ddens, ao, weights, mask):
         vw = v * weights[None,:]
@@ -320,7 +325,30 @@ class EotOrbitalHessianOperator (object):
             shls_slice=self.shls_slice, ao_loc=self.ao_loc,
             hermi=0) for v, d in zip (vao, ddens)])
 
+    def debug_cumulant (self, x, dg_cum):
+        norm_x = linalg.norm (x)
+        ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
+        casdm1 = self.casdm1s.sum (0)
+        dm1 = 2 * np.eye (nmo, dtype=self.dm1.dtype)
+        dm1[ncore:nocc,ncore:nocc] = casdm1
+        dm1[nocc:,nocc:] = 0
+        dm_core = dm1.copy ()
+        dm_core[ncore:,ncore:] = 0.0
+        dm_cas = dm1.copy ()
+        dm_cas[:ncore,:ncore] = 0.0
+        x_core = x @ dm_core - dm_core @ x
+        x_cas = x @ dm_cas - dm_cas @ x
+        v_c = np.tensordot (self._v2, x_core) / 2
+        v_a = np.tensordot (self._v2, x_cas) / 2
+        dm_core, dm_cas = dm_core[:nocc], dm_cas[:nocc]
+        dg_cum_ref = -dm_core @ (v_c + v_a) - dm_cas @ v_c
+        norm_ref = linalg.norm (dg_cum_ref)
+        norm_err = linalg.norm (dg_cum-dg_cum_ref)
+        self.log.debug ("cumulant debug: |x|, |ref|, |err| = %e, %e, %e",
+            norm_x, norm_ref, norm_err)
+
     def __call__ (self, x, packed=False):
+        ncore, nocc = self.ncore, self.nocc
         if self.incl_d2rho:
             packed = True
             dg_d2rho = self.d2rho_h_op (x)
@@ -330,6 +358,7 @@ class EotOrbitalHessianOperator (object):
         else:
             x_packed = self.pack_uniq_var (x)
         dg = np.zeros ((self.nocc, self.nao), dtype=x.dtype)
+        dg_cum = np.zeros_like (dg)
         de = 0
         for ao, mask, weights, coords in self.ni.block_loop (self.ot.mol,
                 self.ot.grids, self.nao, self.rho_deriv, self.max_memory,
@@ -337,16 +366,21 @@ class EotOrbitalHessianOperator (object):
             rho0, Pi0 = self.make_dens0 (ao, mask)
             if ao.ndim == 2: ao = ao[None,:,:]
             drho, dPi = self.make_ddens (ao, rho0, mask)
-            dde, fxrho, fxPi, fxrho_a = self.get_fxot (ao, rho0, Pi0, drho, dPi,
+            dde, fxrho, fxPi, fxrho_c, fxrho_a = self.get_fxot (ao, rho0, Pi0, drho, dPi,
                 x, weights, mask)
             de += dde
             dg -= self.contract_v_ddens (fxrho, drho, ao, weights, mask).T
             dg -= self.contract_v_ddens (fxPi, dPi, ao, weights, mask).T
             # Transpose because update_jk_in_ah requires this shape
             # Minus because I want to use 1 consistent sign rule here
-            if self.do_cumulant and self.ncore: # The D_c D_a part
-                drho_c = drho[:self.nderiv_Pi,:,:self.ncore]
-                dg[:self.ncore] -= self.contract_v_ddens (fxrho_a, drho_c,
+            if self.do_cumulant and ncore: # The D_c D_a part
+                drho_c = drho[:self.nderiv_Pi,:,:ncore]
+                drho_a = drho[:self.nderiv_Pi,:,ncore:nocc]
+                dg_cum[:ncore] -= self.contract_v_ddens (fxrho_c, drho_c,
+                    ao, weights, mask).T
+                dg_cum[:ncore] -= self.contract_v_ddens (fxrho_a, drho_c,
+                    ao, weights, mask).T
+                dg_cum[ncore:nocc] -= self.contract_v_ddens (fxrho_c, drho_a,
                     ao, weights, mask).T
         if self.incl_d2rho:
             de_test = 2 * np.dot (x_packed, self.g_orb)
@@ -356,6 +390,11 @@ class EotOrbitalHessianOperator (object):
             self.log.debug (('E from integration: %e; from stored grad: %e; '
                 'diff: %e'), de, de_test, de-de_test)
         dg = np.dot (dg, self.mo_coeff) 
+        dg_cum = np.dot (dg_cum, self.mo_coeff) 
+        dg += dg_cum
+        if self.verbose > lib.logger.INFO and self.do_cumulant and ncore:
+            # TODO: require higher verbosity
+            self.debug_cumulant (x, dg_cum)
         if packed:
             dg_full = np.zeros ((self.nmo, self.nmo), dtype=dg.dtype)
             dg_full[:self.nocc,:] = dg[:,:]
@@ -392,7 +431,7 @@ class EotOrbitalHessianOperator (object):
         get_fxot = self.get_fxot
         def mask_fxot (irow, my_dg):
             def get_masked_fxot (ao, rho0, Pi0, drho, dPi, my_x, weights, mask):
-                de, fxrho, fxPi, fxrho_a, dvot = get_fxot (ao, rho0, Pi0, drho,
+                de, fxrho, fxPi, fxrho_c, fxrho_a, dvot = get_fxot (ao, rho0, Pi0, drho,
                     dPi, my_x, weights, mask, return_num=True)
                 norm_x = linalg.norm (my_x)
                 if rho0.ndim == 1: rho0 = rho0[None,:]
@@ -408,7 +447,7 @@ class EotOrbitalHessianOperator (object):
                     mask).T
                 my_dg[:,:] -= self.contract_v_ddens (dvPi, dPi, ao, weights,
                     mask).T
-                return de, fxrho, fxPi, fxrho_a
+                return de, fxrho, fxPi, fxrho_c, fxrho_a
             return get_masked_fxot
         ndim = 2 + int (self.rho_deriv) + int (self.Pi_deriv)
         lbls = ('rho','Pi',"rho'","Pi'")
@@ -540,6 +579,7 @@ if __name__ == '__main__':
         #    exc_hop = ExcOrbitalHessianOperator (ks)
         #    debug_hess (exc_hop)
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
+            if fnal[:2] != 'ft': continue
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
             print ("LiH {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)

@@ -61,11 +61,6 @@ class _ERIS(object):
             raise NotImplementedError ("method={} for veff2".format (self.method))
         self._accumulate_j_pc (*args)
 
-    def _accumulate_incore (self, ot, rho, Pi, ao, weight, rho_c, rho_a, vPi,
-            non0tab, shls_slice, ao_loc):
-        self._accumulate_ppaa (*args)
-        if self.verbose > logger.DEBUG: self._accumulate_j_pc (*args)
-
     def _accumulate_vhf_c (self, ot, rho, Pi, ao, weight, rho_c, rho_a, vPi,
             non0tab, shls_slice, ao_loc):
         mo_coeff = self.mo_coeff
@@ -329,7 +324,7 @@ def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1, veff
     npair = nao * (nao + 1) // 2
 
     veff1 = np.zeros_like (oneCDMs[0])
-    veff2 = np.zeros ((npair, npair), dtype=veff1.dtype)
+    veff2 = np.zeros ((nao, nao, nao, nao), dtype=veff1.dtype)
 
     t0 = (time.clock (), time.time ())
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
@@ -341,9 +336,10 @@ def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1, veff
         eot, vot = ot.eval_ot (rho, Pi, weights=weight)[:2]
         vrho, vPi = vot
         t0 = logger.timer (ot, 'effective potential kernel calculation', *t0)
+        if ao.ndim == 2: ao = ao[None,:,:] # TODO: consistent format req's ao LDA case
         veff1 += ot.get_veff_1body (rho, Pi, ao, weight, kern=vrho)
         t0 = logger.timer (ot, '1-body effective potential calculation', *t0)
-        veff2 += ot.get_veff_2body (rho, Pi, ao, weight, aosym='s4', kern=vPi)
+        veff2 += ot.get_veff_2body (rho, Pi, ao, weight, aosym=1, kern=vPi)
         t0 = logger.timer (ot, '2-body effective potential calculation', *t0)
     return veff1, veff2
 
@@ -474,7 +470,11 @@ def get_veff_2body (otfnal, rho, Pi, ao, weight, aosym='s4', kern=None, vao=None
     nderiv = vao.shape[0]
     ao2 = _contract_ao1_ao2 (ao[0], ao[1], nderiv, symm=ij_symm)
     # Put in column-major order so reshape doesn't make a copy and screw everything up
-    ao2 = ao2.transpose (0,3,2,1)
+    try:
+        ao2 = ao2.transpose (0,3,2,1)
+    except ValueError as e:
+        print (ao[0].shape, ao[1].shape, ao2.shape)
+        raise (e)
     vao = vao.transpose (0,3,2,1)
     ijkl_shape = list (ao2.shape[1:-1]) + list (vao.shape[1:-1])
     ao2 = ao2.reshape (ao2.shape[0], -1, ao2.shape[-1]).transpose (0,2,1)
