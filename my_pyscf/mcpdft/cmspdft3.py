@@ -373,4 +373,3 @@ if __name__ == '__main__':
             molden.from_sa_mcscf (mc, fname, state=i, cas_natorb=True)
     
     print ("See cmspdft3.log for more information")
-
