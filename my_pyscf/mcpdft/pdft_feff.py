@@ -467,7 +467,11 @@ class EotOrbitalHessianOperator (object):
             norm_err_rel = linalg.norm (dg_an - dg_num) / denom
             numer, denom = np.dot (dg_an, dg_num), norm_an * norm_num
             theta = denom
-            if denom >= 1e-15: theta = math.acos (numer / denom)
+            try:
+                if denom >= 1e-15: theta = math.acos (numer / denom)
+            except ValueError as e:
+                print (numer, denom)
+                raise (e)
             assert (not (np.isnan (theta))), '{} {} {} {}'.format (numer,
                 denom, norm_an, norm_num)
             log.debug (('Debugging %s: |x| = %8.2e, |num| = %8.2e, '
@@ -540,23 +544,24 @@ if __name__ == '__main__':
         x0 = -hop.g_orb / hop.h_diag
         conv_tab = np.zeros ((8,3), dtype=x0.dtype)
         print ("x0 = g_orb/h_diag:", linalg.norm (x0))
-        print (" n " + ' '.join (['{:>10s}',]*6).format ('de_test','de_ref',
-            'de_relerr','dg_test','dg_ref','dg_relerr'))
+        print (" n " + ' '.join (['{:>10s}',]*7).format ('x_norm','de_test',
+            'de_ref','de_relerr','dg_test','dg_ref','dg_relerr'))
         for p in range (20):
             fac = 1/(2**p)
             x1 = x0 * fac
+            x_norm = linalg.norm (x1)
             dg_test, de_test = hop (x1)
             dg_ref,  de_ref  = hop.e_de_full (x1)
-            e_err = (de_test-de_ref)/de_ref
+            e_err = abs ((de_test-de_ref)/de_ref)
             idx = np.argmax (np.abs (dg_test-dg_ref))
             dg_test_max = dg_test[idx]
             dg_ref_max = dg_ref[idx]
-            g_err = (dg_test_max-dg_ref_max)/dg_ref_max
-            row = [p, de_test, de_ref, e_err, dg_test_max, dg_ref_max, g_err]
+            g_err = abs ((dg_test_max-dg_ref_max)/dg_ref_max)
+            row = [p, x_norm, abs(de_test), abs(de_ref), e_err, abs(dg_test_max), abs(dg_ref_max), g_err]
             if callable (getattr (hop, 'debug_hessian_blocks', None)):
                 hop.debug_hessian_blocks (x1, packed=True,
                 mask_dcon=(hop.ot.otxc[0]=='t'))
-            print (("{:2d} " + ' '.join (['{:10.3e}',]*6)).format (*row))
+            print (("{:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
         dg_err = dg_test - dg_ref
         denom = dg_ref.copy ()
         denom[np.abs(dg_ref)<1e-8] = 1.0
@@ -573,13 +578,13 @@ if __name__ == '__main__':
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
         if nelecas is not 2: continue
         print (lbl,'case\n')
-        #for fnal in 'LDA,VWN3', 'PBE':
-        #    ks = dft.RKS (mol).set (xc=fnal).run ()
-        #    print ("H2 {} energy:".format (fnal),ks.e_tot)
-        #    exc_hop = ExcOrbitalHessianOperator (ks)
-        #    debug_hess (exc_hop)
+        for fnal in 'LDA,VWN3', 'PBE':
+            ks = dft.RKS (mol).set (xc=fnal).run ()
+            print ("LiH {} energy:".format (fnal),ks.e_tot)
+            exc_hop = ExcOrbitalHessianOperator (ks)
+            debug_hess (exc_hop)
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
-            if fnal[:2] != 'ft': continue
+            #if fnal[:2] != 'ft': continue
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
             print ("LiH {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
