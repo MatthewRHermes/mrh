@@ -28,6 +28,24 @@ def _contract_rho_all (bra, ket):
         'functionals'))
     return rho
 
+def vector_error (test, ref):
+    err = test - ref
+    norm_test = linalg.norm (test)
+    norm_ref = linalg.norm (ref)
+    norm_err = linalg.norm (err) / norm_ref
+    numer, denom = np.dot (test, ref), norm_test * norm_ref
+    theta = denom
+    try:
+        if denom >= 1e-15: theta = math.acos (numer / denom)
+    except ValueError as e:
+        if numer > denom:
+            assert (np.isclose (numer, denom))
+            theta = 0
+        else:
+            print (numer, denom)
+            raise (e)
+    return norm_err, theta
+
 # PySCF's overall sign convention is
 #   de = h.D - D.h
 #   dD = x.D - D.x
@@ -163,12 +181,13 @@ class EotOrbitalHessianOperator (object):
                 return e1 - e_ot
             self.e_ot = e_ot
             self.delta_eot = delta_eot
-            if self.verbose > lib.logger.INFO:
-                # TODO: require higher verbosity
-                from mrh.my_pyscf.mcpdft.pdft_veff import lazy_kernel
-                v1, v2 = lazy_kernel (ot, dm1s, cascm2, mo_coeff[:,ncore:nocc])
-                self._v2 = ao2mo.full (v2, mo_coeff)
 
+        if self.verbose > lib.logger.INFO:
+            # TODO: require higher verbosity
+            from mrh.my_pyscf.mcpdft.pdft_veff import lazy_kernel
+            v1, v2 = lazy_kernel (ot, dm1s, cascm2, mo_coeff[:,ncore:nocc])
+            self._v1 = mo_coeff.conj ().T @ v1 @ mo_coeff
+            self._v2 = ao2mo.full (v2, mo_coeff)
 
     def get_blocksize (self):
         nderiv_ao, nao = self.nderiv_ao, self.nao
@@ -347,7 +366,13 @@ class EotOrbitalHessianOperator (object):
         self.log.debug ("cumulant debug: |x|, |ref|, |err| = %e, %e, %e",
             norm_x, norm_ref, norm_err)
 
-    def __call__ (self, x, packed=False):
+    def __call__(self, x, packed=False, algorithm='analytic'):
+        if algorithm.lower () == 'analytic': return self.kernel (x, 
+            packed=packed)
+        elif 'seminum' in algorithm.lower (): return self.seminum_orb (x)
+        else: raise RuntimeError ("Unknown algorithm '{}'".format (algorithm))
+
+    def kernel (self, x, packed=False):
         ncore, nocc = self.ncore, self.nocc
         if self.incl_d2rho:
             packed = True
@@ -382,6 +407,8 @@ class EotOrbitalHessianOperator (object):
                     ao, weights, mask).T
                 dg_cum[ncore:nocc] -= self.contract_v_ddens (fxrho_c, drho_a,
                     ao, weights, mask).T
+        dg = np.dot (dg, self.mo_coeff) 
+        dg_cum = np.dot (dg_cum, self.mo_coeff) 
         if self.incl_d2rho:
             de_test = 2 * np.dot (x_packed, self.g_orb)
             # The factor of 2 is because g_orb is evaluated in terms of square
@@ -389,8 +416,8 @@ class EotOrbitalHessianOperator (object):
             # stored in x and g_orb.
             self.log.debug (('E from integration: %e; from stored grad: %e; '
                 'diff: %e'), de, de_test, de-de_test)
-        dg = np.dot (dg, self.mo_coeff) 
-        dg_cum = np.dot (dg_cum, self.mo_coeff) 
+            if self.verbose >= lib.logger.DEBUG: # TODO: require higher verbosity
+                dg_d2rho = self.debug_d2rho (x, dg_d2rho, dg_cum)
         dg += dg_cum
         if self.verbose > lib.logger.INFO and self.do_cumulant and ncore:
             # TODO: require higher verbosity
@@ -403,10 +430,45 @@ class EotOrbitalHessianOperator (object):
             if self.incl_d2rho: dg += dg_d2rho 
         return dg, de
 
-    def e_de_full (self, x):
-        # Compare me to __call__ for debugging purposes
+    def seminum_orb (self, x):
+        ''' Calculate energy and gradient change seminumerically using
+            updated-orbital recalculation of everything '''
         assert (self.incl_d2rho)
         return self.delta_gorb (x), self.delta_eot (x)
+
+    def debug_d2rho (self, x, dg_test=None, dg_cum=None):
+        ncore, nocc, nmo, nao = self.ncore, self.nocc, self.nmo, self.nao
+        dg = np.zeros ((self.nocc, self.nao), dtype=x.dtype)
+        if dg_test is None:
+            dg_test = self.d2rho_h_op (self.pack_uniq_var (x))
+        casdm1 = self.casdm1s.sum (0)
+        dm1 = 2 * np.eye (nmo, dtype=self.dm1.dtype)
+        dm1[ncore:nocc,ncore:nocc] = casdm1
+        dm1[nocc:,nocc:] = 0
+        dm2 = np.zeros ([nmo,]*4, dtype=self.casdm2.dtype)
+        dm2 = np.multiply.outer (dm1, dm1)
+        dm2 -= 0.5 * dm2.transpose (0,3,2,1)
+        dm2[ncore:nocc,ncore:nocc,ncore:nocc,ncore:nocc] = self.casdm2
+        f = self._v1 @ dm1
+        f += np.tensordot (self._v2, dm2, axes=((1,2,3),(1,2,3)))
+        # ^ This f is 100% validated
+        dg = (f @ x - x @ f) / 2
+        dm1 = x @ dm1 - dm1 @ x
+        dm2 = np.dot (dm2, x.T)
+        dm2 += dm2.transpose (1,0,3,2)
+        dm2 += dm2.transpose (2,3,0,1)
+        dg += self._v1 @ dm1
+        dg += np.tensordot (self._v2, dm2, axes=((1,2,3),(1,2,3)))
+        if dg_cum is not None: dg[:nocc,:] -= dg_cum
+        dg -= dg.T
+        dg = self.pack_uniq_var (dg)
+        norm_err, theta = vector_error (dg_test, dg)
+        norm_test = linalg.norm (dg_test)
+        norm_ref = linalg.norm (dg)
+        self.log.debug (('d2rho debug: |PySCF code| = %e; '
+            '|reimplementation| = %e; |error| = %e; theta = %e'),
+            norm_test, norm_ref, norm_err, theta)
+        return dg
 
     def debug_hessian_blocks (self, x, packed=False, mask_dcon=False):
         log = self.log
@@ -419,7 +481,8 @@ class EotOrbitalHessianOperator (object):
             if idx0 is not None:
                 arr[:,idx0] = 0.0
             return arr
-        def mask_Pi_(arr, iel, idx0=None): return mask_rho_(arr,iel-1,idx0)
+        def mask_Pi_(arr, iel, idx0=None): 
+            return mask_rho_(arr,iel-1,idx0)
         def mask_dens1 (icol):
             def make_masked_dens1 (ao, drho, dPi, mask, my_x):
                 rho1_c, rho1_a, Pi1 = make_dens1 (ao, drho, dPi, mask, my_x)
@@ -511,7 +574,7 @@ class ExcOrbitalHessianOperator (object):
         de = 2*np.dot (self.g_orb.ravel (), x.ravel ())
         return dg, de
 
-    def e_de_full (self, x):
+    def seminum_orb (self, x):
         ks = self.ks
         mo_occ = self.mo_occ
         u = self.ks.update_rotate_matrix (x, mo_occ)
@@ -535,13 +598,14 @@ if __name__ == '__main__':
     from pyscf import gto, scf, dft
     from mrh.my_pyscf import mcpdft
     from functools import partial
-    mol = gto.M (atom = 'Li 0 0 0; H 1.2 0 0', basis = 'sto-3g',
+    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
         verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()
     def debug_hess (hop):
         print ("g_orb:", linalg.norm (hop.g_orb))
         print ("h_diag:", linalg.norm (hop.h_diag))
         x0 = -hop.g_orb / hop.h_diag
+        x0[hop.g_orb==0] = 0
         conv_tab = np.zeros ((8,3), dtype=x0.dtype)
         print ("x0 = g_orb/h_diag:", linalg.norm (x0))
         print (" n " + ' '.join (['{:>10s}',]*7).format ('x_norm','de_test',
@@ -551,16 +615,16 @@ if __name__ == '__main__':
             x1 = x0 * fac
             x_norm = linalg.norm (x1)
             dg_test, de_test = hop (x1)
-            dg_ref,  de_ref  = hop.e_de_full (x1)
+            dg_ref,  de_ref  = hop.seminum_orb (x1)
             e_err = abs ((de_test-de_ref)/de_ref)
             idx = np.argmax (np.abs (dg_test-dg_ref))
             dg_test_max = dg_test[idx]
             dg_ref_max = dg_ref[idx]
             g_err = abs ((dg_test_max-dg_ref_max)/dg_ref_max)
             row = [p, x_norm, abs(de_test), abs(de_ref), e_err, abs(dg_test_max), abs(dg_ref_max), g_err]
-            if callable (getattr (hop, 'debug_hessian_blocks', None)):
-                hop.debug_hessian_blocks (x1, packed=True,
-                mask_dcon=(hop.ot.otxc[0]=='t'))
+            #if callable (getattr (hop, 'debug_hessian_blocks', None)):
+            #    hop.debug_hessian_blocks (x1, packed=True,
+            #    mask_dcon=(hop.ot.otxc[0]=='t'))
             print (("{:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
         dg_err = dg_test - dg_ref
         denom = dg_ref.copy ()
@@ -575,18 +639,20 @@ if __name__ == '__main__':
         print ("dg_err (relative):")
         for row in hop.unpack_uniq_var (dg_err): print (fmt_str.format (*row))
         print ("")
+    from mrh.my_pyscf.tools import molden
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
-        if nelecas is not 2: continue
+        #if nelecas is not 2: continue
         print (lbl,'case\n')
         for fnal in 'LDA,VWN3', 'PBE':
             ks = dft.RKS (mol).set (xc=fnal).run ()
-            print ("LiH {} energy:".format (fnal),ks.e_tot)
+            print ("H2 {} energy:".format (fnal),ks.e_tot)
             exc_hop = ExcOrbitalHessianOperator (ks)
             debug_hess (exc_hop)
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
             #if fnal[:2] != 'ft': continue
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
-            print ("LiH {} energy:".format (fnal),mc.e_tot)
+            molden.from_mcscf (mc, lbl + '.molden')
+            print ("H2 {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
             debug_hess (eot_hop)
         print ("")
