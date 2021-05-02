@@ -617,11 +617,10 @@ if __name__ == '__main__':
             dg_test, de_test = hop (x1)
             dg_ref,  de_ref  = hop.seminum_orb (x1)
             e_err = abs ((de_test-de_ref)/de_ref)
-            idx = np.argmax (np.abs (dg_test-dg_ref))
-            dg_test_max = dg_test[idx]
-            dg_ref_max = dg_ref[idx]
-            g_err = abs ((dg_test_max-dg_ref_max)/dg_ref_max)
-            row = [p, x_norm, abs(de_test), abs(de_ref), e_err, abs(dg_test_max), abs(dg_ref_max), g_err]
+            dg_err_norm, dg_theta = vector_error (dg_test, dg_ref) 
+            dg_test_norm = linalg.norm (dg_test)
+            dg_ref_norm = linalg.norm (dg_ref)
+            row = [p, x_norm, abs(de_test), abs(de_ref), e_err, dg_test_norm, dg_ref_norm, dg_err_norm]
             #if callable (getattr (hop, 'debug_hessian_blocks', None)):
             #    hop.debug_hessian_blocks (x1, packed=True,
             #    mask_dcon=(hop.ot.otxc[0]=='t'))
