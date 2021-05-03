@@ -650,6 +650,7 @@ if __name__ == '__main__':
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
             #if fnal[:2] != 'ft': continue
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
+            mc.canonicalize_(cas_natorb=True)
             molden.from_mcscf (mc, lbl + '.molden')
             print ("H2 {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
