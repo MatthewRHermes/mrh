@@ -74,6 +74,12 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     if nderiv > 4:
         raise NotImplementedError ("Translation of meta-GGA functionals")
     rho_t = otfnal.get_rho_translated (Pi, rho, weights=weights)
+    # LDA in libxc has a special numerical problem with zero-valued densities in one spin
+    if nderiv == 1:
+        idx = (rho_t[0,0] > 1e-15) & (rho_t[1,0] < 1e-15) 
+        rho_t[1,0,idx] = 1e-15
+        idx = (rho_t[0,0] < 1e-15) & (rho_t[1,0] > 1e-15)
+        rho_t[0,0,idx] = 1e-15
     rho_tot = rho.sum (0)
     rho_deriv = rho_tot[1:4,:] if nderiv > 1 else None
     Pi_deriv = Pi[1:4,:] if nderiv_Pi > 1 else None
@@ -82,9 +88,11 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     eot = xc_grid[0] * rho_t[:,0,:].sum (0)
     if (weights is not None) and otfnal.verbose >= logger.DEBUG:
         nelec = rho_t[0,0].dot (weights) + rho_t[1,0].dot (weights)
-        logger.debug (otfnal, 'MC-PDFT: Total number of electrons in (this chunk of) the total density = %s', nelec)
+        logger.debug (otfnal, ('MC-PDFT: Total number of electrons in (this '
+            'chunk of) the total density = %s'), nelec)
         ms = (rho_t[0,0].dot (weights) - rho_t[1,0].dot (weights)) / 2.0
-        logger.debug (otfnal, 'MC-PDFT: Total ms = (neleca - nelecb) / 2 in (this chunk of) the translated density = %s', ms)
+        logger.debug (otfnal, ('MC-PDFT: Total ms = (neleca - nelecb) / 2 in '
+            '(this chunk of) the translated density = %s'), ms)
     vot = fot = None
     if dderiv > 0:
         vrho, vsigma = xc_grid[1][:2]
@@ -130,15 +138,16 @@ def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
             unp2[1:4] = (2*deriv2*packed[4]) + (deriv1*packed[3])
     return unp1, unp2
 
-def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
+def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1, unpack=True,
+        vot_packed=None):
     r''' Evaluate the product of a packed lower-triangular matrix
     with perturbed density, pair density, and derivatives.
 
     Args:
         fot : ndarray of shape (*,ngrids)
             Lower-triangular matrix elements corresponding to the basis
-            (rho, Pi, |drho|^2, drho'.dPi, |dPi|) stopping at Pi (3 elements)
-            for t-LDA or ft-LDA and |drho|^2 (6 elements) for t-GGA.
+            (rho, Pi, |drho|^2, drho'.dPi, |dPi|^2) stopping at Pi (3 elements)
+            for *tLDA and |drho|^2 (6 elements) for tGGA.
         rho0 : ndarray of shape (2,*,ngrids)
             containing density [and derivatives]
             the density at which fot was evaluated
@@ -151,6 +160,23 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
         Pi1 : ndarray with shape (*,ngrids)
             containing on-top pair density [and derivatives]
             the density contracted with fot
+
+    Kwargs:
+        unpack : logical
+            If True, returns vot1 in unpacked shape:
+                (ndarray of shape (*,ngrids), ndarray of shape (*,ngrids))
+            corresponding to (density, pair density) and their derivatives
+            This requires vot_packed for *tGGA functionals
+            Otherwise, returns vot1 in packed shape:
+                (rho, Pi, |rho'|^2, rho'.Pi', |Pi'|^2)
+            stopping at Pi (3 elements) for *tLDA and |rho'|^2 (6 elements)
+            for tGGA.
+        vot_packed : ndarray of shape (*,ngrids)
+            Vector elements corresponding to the basis
+            (rho, Pi, |drho|^2, drho'.dPi, |dPi|^2) stopping at Pi (2 elements)
+            for *tLDA and |drho|^2 (3 elements) for tGGA.
+            Required if unpack == True for *tGGA functionals
+            (because vot_|drho|^2 contributes to fot_rho',rho', etc.)
 
     Returns: 
         vot1 : (ndarray of shape (*,ngrids), ndarray of shape (*,ngrids))
@@ -175,14 +201,15 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
     vrho1 = fot[0]*rho1[0] + fot[1]*Pi1[0]
     vPi1 = fot[2]*Pi1[0] + fot[1]*rho1[0]
 
-    rhop = Pip = None
+    rho0p = Pi0p = rho1p = Pi1p = None
     v1 = [vrho1, vPi1]
     if len (fot) > 3:
         srr = 2*(rho0[1:4,:]*rho1[1:4,:]).sum (0)
         vrho1 += fot[3]*srr
         vPi1  += fot[4]*srr
         vrr = fot[3]*rho1[0] + fot[4]*Pi1[0] + fot[5]*srr
-        rhop = rho0[1:4]
+        rho0p = rho0[1:4]
+        rho1p = rho1[1:4]
         v1 = [vrho1, vPi1, vrr]
     if len (fot) > 6:
         srP = ((rho0[1:4,:]*Pi1[1:4,:]).sum (0)
@@ -195,12 +222,23 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1):
              + fot[8]*srr  +  fot[9]*srP  + fot[13]*sPP)
         vPP = (fot[10]*rho1[0] + fot[11]*Pi1[0]
              + fot[12]*srr +  fot[13]*srP + fot[14]*sPP)
-        Pip = Pi0[1:4]
+        Pi0p = Pi0[1:4]
+        Pi1p = Pi1[1:4]
         v1 = [vrho1, vPi1, vrr, vrP, vPP]
 
-    vrho1, vPi1 = _unpack_sigma_vector (v1, rhop, Pip)
+    ggrad = (rho0p is not None) or (Pi0p is not None)
+    if unpack:
+        vrho1, vPi1 = _unpack_sigma_vector (v1, rho0p, Pi0p)
+        if ggrad:
+            if vot_packed is None:
+                raise RuntimeError (("Cannot evaluate fot.x in terms of "
+                    "unpacked density gradients without vot_packed"))
+            vrho2, vPi2 = _unpack_sigma_vector (vot_packed, rho1p, Pi1p)
+            if vrho1.shape[0]>1: vrho1[1:4,:] += vrho2[1:4,:]
+            if vPi1.shape[0]>1:  vPi1[1:4,:]  += vPi2[1:4,:]
+        v1 = (vrho1, vPi1)
 
-    return vrho1, vPi1
+    return v1
 
 def jT_f_j (log, frr, jT_op, *args):
     r''' Apply a jacobian function taking *args to the lower-triangular

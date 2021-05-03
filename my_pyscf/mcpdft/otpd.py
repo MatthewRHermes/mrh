@@ -25,7 +25,7 @@ def _grid_ao2mo (mol, ao, mo_coeff, non0tab=None, shls_slice=None, ao_loc=None):
 
 
 def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0, non0tab=None):
-    r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*g_ijkl / 2
+    r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*d_ijkl / 2
                = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2
 
         Args:
@@ -57,6 +57,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0, n
     # Fix dimensionality of rho and ao
     if rho.ndim == 2:
         rho = rho.reshape (rho.shape[0], 1, rho.shape[1])
+    if ao.ndim == 2:
         ao = ao.reshape (1, ao.shape[0], ao.shape[1])
 
     # Debug code for ultra-slow, ultra-high-memory but very safe implementation
