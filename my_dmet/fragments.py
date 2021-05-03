@@ -522,10 +522,10 @@ class fragment_object:
             return
         '''
         if not ('dummy' in self.imp_solver_name):
-            w0, t0 = time.time (), time.clock ()
+            w0, t0 = time.time (), time.process_time ()
             self.hesscalc = LASSCFHessianCalculator (self.ints, oneRDM_loc, all_frags, self.ints.activeFOCK,
                 self.ints.activeVSPIN, Hop_noxc=self.approx_hessbath) 
-            print ("Time in building Hessian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+            print ("Time in building Hessian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.process_time () - t0))
         frag2wmcs = np.dot (self.frag2loc, loc2wmcs)
         proj = np.dot (frag2wmcs.conjugate ().T, frag2wmcs)
         norbs_wmcsf = np.trace (proj)
@@ -626,7 +626,7 @@ class fragment_object:
             loc2sort_core = np.concatenate ([loc2virt_core, loc2inac_core, loc2amo_core], axis=1)
             self.loc2emb[:,self.norbs_imp:] = loc2sort_core[:,:]
             # Get the conjugate gradient. Push into the loc basis so I can use the weak inner symmetry capability of the svd function
-            w0, t0 = time.time (), time.clock ()
+            w0, t0 = time.time (), time.process_time ()
             pq_pairs = ((loc2virt_core, loc2occ_imp), (loc2inac_core, loc2ninac_imp))
             #grad = self.hesscalc.get_conjugate_gradient (pq_pairs, loc2unac_imp, self.loc2amo)
             #grad_test = self.hesscalc.get_impurity_conjugate_gradient (loc2canon_imp, loc2canon_core, self.loc2amo)
@@ -635,7 +635,7 @@ class fragment_object:
             #print ("Error in grad_test: {}".format (linalg.norm (grad_test-grad)))
             print (norbs_inac_imp, " inactive in impurity; ", norbs_inac_core, " inactive in core")
             grad = self.hesscalc.get_impurity_conjugate_gradient (loc2canon_imp, loc2unac_core, self.loc2amo)
-            print ("Time in Hessian module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+            print ("Time in Hessian module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.process_time () - t0))
             # Zero gradient escape
             if np.count_nonzero (np.abs (grad) > 1e-8): 
                 # SVD and add to the bath
@@ -950,7 +950,7 @@ class fragment_object:
     # Impurity Hamiltonian
     ###############################################################################################################################
     def construct_impurity_hamiltonian (self, xtra_CONST=0.0):
-        w0, t0 = time.time (), time.clock () 
+        w0, t0 = time.time (), time.process_time () 
         self.warn_check_Schmidt ("construct_impurity_hamiltonian")
         if self.imp_solver_name == "dummy RHF":
             self.E2_frag_core = 0
@@ -1035,7 +1035,7 @@ class fragment_object:
 
         self.impham_built = True
         self.imp_solved   = False
-        print ("Time in impurity Hamiltonian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+        print ("Time in impurity Hamiltonian constructor: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.process_time () - t0))
         sys.stdout.flush ()
 
     def test_impurity_hamiltonian_energy (self):
@@ -1124,9 +1124,9 @@ class fragment_object:
 
         # Execute solver function
         #if self.imp_solver_name != 'dummy RHF': self.analyze_gradient ()
-        w0, t0 = time.time (), time.clock ()
+        w0, t0 = time.time (), time.process_time ()
         self.imp_solver_function (guess_1RDM, chempot_imp)
-        print ("Time in solver function: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+        print ("Time in solver function: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.process_time () - t0))
         self.imp_solved = True
 
         # Main results: oneRDM in local basis and nelec_frag

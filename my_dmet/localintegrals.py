@@ -493,7 +493,7 @@ class localintegrals:
 
     def dmet_cderi (self, loc2dmet, numAct=None):
 
-        t0 = time.clock ()
+        t0 = time.process_time ()
         w0 = time.time ()     
         norbs_aux = self.with_df.get_naoaux ()   
         numAct = loc2dmet.shape[1] if numAct==None else numAct
@@ -514,7 +514,7 @@ class localintegrals:
             eri2 = CDERI[b0:b1]
             eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym, out=eri2)
             b0 = b1
-        t1 = time.clock ()
+        t1 = time.process_time ()
         w1 = time.time ()
         print (("({0}, {1}) seconds to turn {2:.0f}-MB full"
                 "cderi array into {3:.0f}-MP impurity cderi array").format (

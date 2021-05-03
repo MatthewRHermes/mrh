@@ -55,7 +55,7 @@ def _ci_min_epdft_fp (mc, mo_coeff, ci0, hcas=None, verbose=None):
         emcscf : float or None
             <ci1|hcas|ci1>
     '''
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     ncas, nelecas = mc.ncas, mc.nelecas
     if verbose is None: verbose = mc.verbose
     log = logger.new_logger (mc, verbose)
@@ -106,7 +106,7 @@ def mc1step_casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
     ''' Wrapper for _ci_min_epdft_fp to mcscf.mc1step.casci function '''
     if ci0 is None: ci0 = mc.ci
     if verbose is None: verbose = mc.verbose
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     ncas, nelecas = mc.ncas, mc.nelecas
     linkstrl = mc.fcisolver.gen_linkstr(ncas, nelecas, True)
     linkstr  = mc.fcisolver.gen_linkstr(ncas, nelecas, False)
@@ -207,7 +207,7 @@ def casci_kernel(mc, mo_coeff=None, ci0=None, verbose=None):
 
     # enter casci.kernel part
 
-    t0 = (time.clock(), time.time())
+    t0 = (time.process_time(), time.time())
     log.debug('Start CASCI')
 
     ncas = mc.ncas

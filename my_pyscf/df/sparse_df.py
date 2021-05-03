@@ -130,7 +130,7 @@ class sparsedf_array (np.ndarray):
         return vk
 
     def vk_svd (self, mo_coeff, mo_occ, thresh=1e-8):
-        t0, w0 = time.clock (), time.time ()
+        t0, w0 = time.process_time (), time.time ()
         if self.ndim == 3: return self.pack_mo ()
         if not self.flags['C_CONTIGUOUS']: self = self.naux_slow ()
         nao = self.nmo[0]
@@ -157,8 +157,8 @@ class sparsedf_array (np.ndarray):
             imo_nent.ctypes.data_as (ctypes.c_void_p),
             ctypes.c_int (nao), ctypes.c_int (self.naux),
             ctypes.c_int (nmo), ctypes.c_int (self.nent_max))
-        print ("First C function time: {} clock ; {} wall".format (time.clock () - t0, time.time () - w0))
-        t0, w0 = time.clock (), time.time ()
+        print ("First C function time: {} clock ; {} wall".format (time.process_time () - t0, time.time () - w0))
+        t0, w0 = time.process_time (), time.time ()
         wrk[:self.nent_max*(self.nent_max+nmo)] = 0.0
         vk = np.zeros ((nao, nao), dtype=mo_coeff.dtype)
         libsint.SINT_SDCDERI_DDMAT_MOSVD (cderi_lvec.ctypes.data_as (ctypes.c_void_p),
@@ -169,7 +169,7 @@ class sparsedf_array (np.ndarray):
             ctypes.c_int (nao), ctypes.c_int (nmo),
             ctypes.c_int (self.naux), ctypes.c_int (self.nent_max),
             ctypes.c_int (global_K))
-        print ("Second C function time: {} clock ; {} wall".format (time.clock () - t0, time.time () - w0))
+        print ("Second C function time: {} clock ; {} wall".format (time.process_time () - t0, time.time () - w0))
         return vk
 
 

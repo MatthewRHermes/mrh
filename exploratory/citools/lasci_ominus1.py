@@ -225,7 +225,7 @@ class LASUCCTrialState (object):
 
     def e_de (self, x, h):
         log = self.log
-        t0 = (time.clock (), time.time ())
+        t0 = (time.process_time (), time.time ())
         c, uc, huc, uhuc, c_f = self.hc_x (x, h)
         e_tot = self.energy_tot (x, h, uc=uc, huc=huc)
         jac = self.jac (x, h, c=c, uc=uc, huc=huc, uhuc=uhuc, c_f=c_f)
@@ -235,7 +235,7 @@ class LASUCCTrialState (object):
     def energy_tot (self, x, h, uc=None, huc=None):
         log = self.log
         norm_x = linalg.norm (x)
-        t0 = (time.clock (), time.time ())
+        t0 = (time.process_time (), time.time ())
         if (uc is None) or (huc is None):
             uc, huc = self.hc_x (x, h)[1:3]
         uc, huc = uc.ravel (), huc.ravel ()
@@ -252,7 +252,7 @@ class LASUCCTrialState (object):
     def jac (self, x, h, c=None, uc=None, huc=None, uhuc=None, c_f=None):
         norm_x = linalg.norm (x)
         log = self.log
-        t0 = (time.clock (), time.time ())
+        t0 = (time.process_time (), time.time ())
         if any ([x is None for x in [c, uc, huc, uhuc, c_f]]):
             c, uc, huc, uhuc, c_f = self.hc_x (x, h)
         # Revisit the first line below if t ever breaks
@@ -400,7 +400,7 @@ class LASUCCTrialState (object):
         self.it_cnt = 0
         log = self.log
         def my_call (x):
-            t0 = (time.clock (), time.time ())
+            t0 = (time.process_time (), time.time ())
             norm_x = linalg.norm (x)
             e, de = self._e_last, self._jac_last
             if (e is None) or (de is None): e, de = self.e_de (x, h)

@@ -61,7 +61,7 @@ def kernel(mc, ot, root=-1):
         Returns:
             Total MC-DCFT energy including nuclear repulsion energy.
     '''
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
 
     mc_1root = mc
     if isinstance (mc, StateAverageMCSCFSolver) and root >= 0:
@@ -114,7 +114,7 @@ def _recalculate_with_xc(ot, chkdata):
         Returns:
             Total MC-DCFT energy including nuclear repulsion energy.
     '''
-    t0 = (time.clock(), time.time())
+    t0 = (time.process_time(), time.time())
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=chkdata['spin'])
     hyb_x, hyb_c = hyb
 
@@ -171,7 +171,7 @@ def get_E_ot (ot, oneCDMs, max_memory=20000, hermi=1):
     E_ot = 0.0
     ot.ms = 0.0
 
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])

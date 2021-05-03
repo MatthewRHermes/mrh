@@ -42,7 +42,7 @@ def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
     if verbose is None: verbose = mc.verbose
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     if root>=0: ci=ci[root]
 
     # Allow MC-PDFT to be subclassed, and also allow this function to be
@@ -209,16 +209,6 @@ def energy_mcwfn (mc, ot=None, mo_coeff=None, ci=None, dm_list=None, verbose=Non
         log.info ('E_c (OS) = %s', E_c_os)
         e_err = E_c_ss + E_c_os - E_c
         assert (abs (e_err) < 1e-8), e_err
-<<<<<<< HEAD
-<<<<<<< HEAD
-        if isinstance (mc_1root.e_tot, float):
-            e_err = mc_1root.e_tot - (Vnn + Te_Vne + E_j + E_x + E_c)
-            # assert (abs (e_err) < 1e-8), e_err
-            # TODO: come up with a better way to handle this for CMS-PDFT
-=======
->>>>>>> 2714c2ab23ad7b8896b65da4b171cdb938bf2c6f
-=======
->>>>>>> 8190a79572d551ad205ad56b706363b7585453ee
     if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
         log.debug ('Adding %s * %s CAS exchange, %s * %s CAS correlation to E_ot', hyb_x, E_x, hyb_c, E_c)
     e_mcwfn = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) 
@@ -266,7 +256,7 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
 
     E_ot = 0.0
 
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
@@ -436,7 +426,7 @@ class _PDFT ():
                 veff2 : pyscf.mcscf.mc_ao2mo._ERIS instance
                     Relevant 2-body effective potential in the MO basis
         ''' 
-        t0 = (time.clock (), time.time ())
+        t0 = (time.process_time (), time.time ())
         if mo is None: mo = self.mo_coeff
         if ci is None: ci = self.ci
         ncore, ncas, nelecas = self.ncore, self.ncas, self.nelecas
