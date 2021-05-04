@@ -137,7 +137,7 @@ class EotOrbitalHessianOperator (object):
         if incl_d2rho: # Include d^2rho/dk^2 type derivatives
             # Also include a full E_OT value and gradient recalculator
             # for debugging purposes
-            self.veff1, self.veff2 = mc.get_pdft_veff (mo=mo_coeff,
+            veff1, veff2 = self.veff1, self.veff2 = mc.get_pdft_veff (mo=mo_coeff,
                 casdm1s=casdm1s, casdm2=casdm2, incl_coul=False)
             get_hcore = lambda * args: self.veff1
             with lib.temporary_env (mc, get_hcore=get_hcore):
@@ -153,9 +153,31 @@ class EotOrbitalHessianOperator (object):
                 return g1 - g_orb
             jk_null = np.zeros ((ncas,nmo)), np.zeros ((ncore,nmo-ncore))
             update_jk = lambda * args: jk_null
+            # Must correct ERROR in pyscf.mcscf.mc1step.gen_g_hop:
+            # requires I recalculate effective Fock matrix
+            v1 = mo_coeff.conj ().T @ veff1 @ mo_coeff + veff2.vhf_c
+            v2 = np.zeros ((nmo,ncas,ncas,ncas), dtype=v1.dtype)
+            for i in range (nmo):
+                jbuf = veff2.ppaa[i]
+                v2[i,:,:,:] = jbuf[ncore:nocc,:,:]
+                v1[i,:] += np.tensordot (jbuf, casdm1, axes=2) * 0.5
+            f1 = np.zeros_like (v1)
+            f1[:,:ncore] = 2 * v1[:,:ncore]
+            f1[:,ncore:nocc] += v1[:,ncore:nocc] @ casdm1
+            f1[:,ncore:nocc] += np.tensordot (v2, cascm2, axes=((1,2,3),(1,2,3)))
+            self._f1_test = f1
             def d2rho_h_op (x):
                 with lib.temporary_env (mc, update_jk_in_ah=update_jk):
-                    return h_op (x)
+                    hx = h_op (x) # This has an ERROR which is corrected below
+                    hx = self.unpack_uniq_var (hx)
+                    x = self.unpack_uniq_var (x)
+                    # TODO: evaluate whether this error correction has to do
+                    # with an actual oversight in the PySCF MC-SCF code, or
+                    # with a simplification that is applicable to MC-SCF but
+                    # not to MC-PDFT
+                    f2 = (f1 @ x - x @ f1) / 2
+                    hx += (f2 - f2.T)
+                    return self.pack_uniq_var (hx)
             self.g_orb = g_orb
             self.delta_gorb = delta_gorb
             self.d2rho_h_op = d2rho_h_op
@@ -417,7 +439,7 @@ class EotOrbitalHessianOperator (object):
             self.log.debug (('E from integration: %e; from stored grad: %e; '
                 'diff: %e'), de, de_test, de-de_test)
             if self.verbose >= lib.logger.DEBUG: # TODO: require higher verbosity
-                dg_d2rho = self.debug_d2rho (x, dg_d2rho, dg_cum)
+                self.debug_d2rho (x, dg_d2rho, dg_cum)
         dg += dg_cum
         if self.verbose > lib.logger.INFO and self.do_cumulant and ncore:
             # TODO: require higher verbosity
@@ -427,7 +449,7 @@ class EotOrbitalHessianOperator (object):
             dg_full[:self.nocc,:] = dg[:,:]
             dg_full -= dg_full.T
             dg = self.pack_uniq_var (dg_full)
-            if self.incl_d2rho: dg += dg_d2rho 
+            if self.incl_d2rho: dg += dg_d2rho
         return dg, de
 
     def seminum_orb (self, x):
@@ -452,7 +474,7 @@ class EotOrbitalHessianOperator (object):
         f = self._v1 @ dm1
         f += np.tensordot (self._v2, dm2, axes=((1,2,3),(1,2,3)))
         # ^ This f is 100% validated
-        dg = (f @ x - x @ f) / 2
+        dg = (f @ x - x @ f) 
         dm1 = x @ dm1 - dm1 @ x
         dm2 = np.dot (dm2, x.T)
         dm2 += dm2.transpose (1,0,3,2)
@@ -598,7 +620,7 @@ if __name__ == '__main__':
     from pyscf import gto, scf, dft
     from mrh.my_pyscf import mcpdft
     from functools import partial
-    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
+    mol = gto.M (atom = 'Li 0 0 0; H 1.2 0 0', basis = 'sto-3g',
         verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()
     def debug_hess (hop):
@@ -644,7 +666,7 @@ if __name__ == '__main__':
         print (lbl,'case\n')
         for fnal in 'LDA,VWN3', 'PBE':
             ks = dft.RKS (mol).set (xc=fnal).run ()
-            print ("H2 {} energy:".format (fnal),ks.e_tot)
+            print ("LiH {} energy:".format (fnal),ks.e_tot)
             exc_hop = ExcOrbitalHessianOperator (ks)
             debug_hess (exc_hop)
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
@@ -652,7 +674,7 @@ if __name__ == '__main__':
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
             mc.canonicalize_(cas_natorb=True)
             molden.from_mcscf (mc, lbl + '.molden')
-            print ("H2 {} energy:".format (fnal),mc.e_tot)
+            print ("LiH {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
             debug_hess (eot_hop)
         print ("")
