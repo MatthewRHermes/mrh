@@ -166,18 +166,15 @@ class EotOrbitalHessianOperator (object):
             f1[:,ncore:nocc] += v1[:,ncore:nocc] @ casdm1
             f1[:,ncore:nocc] += np.tensordot (v2, cascm2, axes=((1,2,3),(1,2,3)))
             self._f1_test = f1
+            dE = f1 - f1.T # gradient
             def d2rho_h_op (x):
                 with lib.temporary_env (mc, update_jk_in_ah=update_jk):
-                    hx = h_op (x) # This has an ERROR which is corrected below
-                    # The term that we are adding is essentially
-                    # dE/dx_pr x_rq - dE/dx_qr x_rp
-                    # which is naturally zero in the usual context in which
-                    # this function is called
-                    hx = self.unpack_uniq_var (hx)
+                    # Add a term proportional to the gradient which is missing
+                    # from mc1step h_op
+                    hx = h_op (x)
                     x = self.unpack_uniq_var (x)
-                    f2 = (f1 @ x - x @ f1) / 2
-                    hx += (f2 - f2.T)
-                    return self.pack_uniq_var (hx)
+                    return hx + self.pack_uniq_var (
+                        (dE @ x - x @ dE) / 2)
             self.g_orb = g_orb
             self.delta_gorb = delta_gorb
             self.d2rho_h_op = d2rho_h_op
@@ -643,9 +640,9 @@ if __name__ == '__main__':
             dg_test_norm = linalg.norm (dg_test)
             dg_ref_norm = linalg.norm (dg_ref)
             row = [p, x_norm, abs(de_test), abs(de_ref), e_err, dg_test_norm, dg_ref_norm, dg_err_norm]
-            #if callable (getattr (hop, 'debug_hessian_blocks', None)):
-            #    hop.debug_hessian_blocks (x1, packed=True,
-            #    mask_dcon=(hop.ot.otxc[0]=='t'))
+            if callable (getattr (hop, 'debug_hessian_blocks', None)):
+                hop.debug_hessian_blocks (x1, packed=True,
+                mask_dcon=(hop.ot.otxc[0]=='t'))
             print (("{:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
         dg_err = dg_test - dg_ref
         denom = dg_ref.copy ()
@@ -662,15 +659,15 @@ if __name__ == '__main__':
         print ("")
     from mrh.my_pyscf.tools import molden
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
-        if nelecas is not 2: continue
+        #if nelecas is not 2: continue
         print (lbl,'case\n')
-        #for fnal in 'LDA,VWN3', 'PBE':
-        #    ks = dft.RKS (mol).set (xc=fnal).run ()
-        #    print ("LiH {} energy:".format (fnal),ks.e_tot)
-        #    exc_hop = ExcOrbitalHessianOperator (ks)
-        #    debug_hess (exc_hop)
+        for fnal in 'LDA,VWN3', 'PBE':
+            ks = dft.RKS (mol).set (xc=fnal).run ()
+            print ("LiH {} energy:".format (fnal),ks.e_tot)
+            exc_hop = ExcOrbitalHessianOperator (ks)
+            debug_hess (exc_hop)
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
-            if fnal[:2] != 'ft': continue
+            #if fnal[:2] != 'ft': continue
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
             mc.canonicalize_(cas_natorb=True)
             molden.from_mcscf (mc, lbl + '.molden')
