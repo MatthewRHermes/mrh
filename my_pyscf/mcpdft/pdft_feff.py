@@ -169,12 +169,12 @@ class EotOrbitalHessianOperator (object):
             def d2rho_h_op (x):
                 with lib.temporary_env (mc, update_jk_in_ah=update_jk):
                     hx = h_op (x) # This has an ERROR which is corrected below
+                    # The term that we are adding is essentially
+                    # dE/dx_pr x_rq - dE/dx_qr x_rp
+                    # which is naturally zero in the usual context in which
+                    # this function is called
                     hx = self.unpack_uniq_var (hx)
                     x = self.unpack_uniq_var (x)
-                    # TODO: evaluate whether this error correction has to do
-                    # with an actual oversight in the PySCF MC-SCF code, or
-                    # with a simplification that is applicable to MC-SCF but
-                    # not to MC-PDFT
                     f2 = (f1 @ x - x @ f1) / 2
                     hx += (f2 - f2.T)
                     return self.pack_uniq_var (hx)
@@ -662,15 +662,15 @@ if __name__ == '__main__':
         print ("")
     from mrh.my_pyscf.tools import molden
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
-        #if nelecas is not 2: continue
+        if nelecas is not 2: continue
         print (lbl,'case\n')
-        for fnal in 'LDA,VWN3', 'PBE':
-            ks = dft.RKS (mol).set (xc=fnal).run ()
-            print ("LiH {} energy:".format (fnal),ks.e_tot)
-            exc_hop = ExcOrbitalHessianOperator (ks)
-            debug_hess (exc_hop)
+        #for fnal in 'LDA,VWN3', 'PBE':
+        #    ks = dft.RKS (mol).set (xc=fnal).run ()
+        #    print ("LiH {} energy:".format (fnal),ks.e_tot)
+        #    exc_hop = ExcOrbitalHessianOperator (ks)
+        #    debug_hess (exc_hop)
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
-            #if fnal[:2] != 'ft': continue
+            if fnal[:2] != 'ft': continue
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
             mc.canonicalize_(cas_natorb=True)
             molden.from_mcscf (mc, lbl + '.molden')
