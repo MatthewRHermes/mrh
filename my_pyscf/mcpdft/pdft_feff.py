@@ -32,7 +32,9 @@ def vector_error (test, ref):
     err = test - ref
     norm_test = linalg.norm (test)
     norm_ref = linalg.norm (ref)
-    norm_err = linalg.norm (err) / norm_ref
+    norm_err = linalg.norm (err)
+    if norm_ref > 0: norm_err /= norm_ref
+    elif norm_test > 0: norm_err /= norm_test
     numer, denom = np.dot (test, ref), norm_test * norm_ref
     theta = denom
     try:
@@ -544,16 +546,7 @@ class EotOrbitalHessianOperator (object):
             if packed: dg_num = self.pack_uniq_var (dg_num-dg_num.T)
             norm_an = linalg.norm (dg_an)
             norm_num = linalg.norm (dg_num)
-            denom = norm_an if norm_num < 1e-15 else norm_num
-            if denom < 1e-15: denom = 1.0
-            norm_err_rel = linalg.norm (dg_an - dg_num) / denom
-            numer, denom = np.dot (dg_an, dg_num), norm_an * norm_num
-            theta = denom
-            try:
-                if denom >= 1e-15: theta = math.acos (numer / denom)
-            except ValueError as e:
-                print (numer, denom)
-                raise (e)
+            norm_err_rel, theta = vector_error (dg_an, dg_num)
             assert (not (np.isnan (theta))), '{} {} {} {}'.format (numer,
                 denom, norm_an, norm_num)
             log.debug (('Debugging %s: |x| = %8.2e, |num| = %8.2e, '
@@ -642,7 +635,7 @@ if __name__ == '__main__':
             row = [p, x_norm, abs(de_test), abs(de_ref), e_err, dg_test_norm, dg_ref_norm, dg_err_norm]
             if callable (getattr (hop, 'debug_hessian_blocks', None)):
                 hop.debug_hessian_blocks (x1, packed=True,
-                mask_dcon=(hop.ot.otxc[0]=='t'))
+                mask_dcon=False)#(hop.ot.otxc[0]=='t'))
             print (("{:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
         dg_err = dg_test - dg_ref
         denom = dg_ref.copy ()
