@@ -46,7 +46,7 @@ def contract_sd (mol, t1, t2, ci, norb, nelec, hermi=-1, unit_tol=1e-8, tci_tol=
         uci : ndarray of shape (*,ndeta,ndetb)
             CI vector(s) after unitary transformation
     '''
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     nelec = _unpack_nelec (nelec)
     if hermi == 0:
         t1 = t1 - t1.T

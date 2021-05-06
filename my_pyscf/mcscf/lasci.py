@@ -407,7 +407,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             return np.dot (moH, np.dot (veff_ao, mo)) 
         ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
         # vj
-        t0 = (time.clock (), time.time ())
+        t0 = (time.process_time (), time.time ())
         veff_mo = np.zeros_like (dm1_mo)
         dm1_rect = dm1_mo + dm1_mo.T
         dm1_rect[ncore:nocc,ncore:nocc] /= 2
@@ -646,7 +646,7 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
     casdm2 -= np.multiply.outer (casdm1, casdm1)
     casdm2 += np.multiply.outer (casdm1s[0], casdm1s[0]).transpose (0,3,2,1)
     casdm2 += np.multiply.outer (casdm1s[1], casdm1s[1]).transpose (0,3,2,1)
-    eri = h2eff_sub.reshape (nmo, ncas, ncas*(ncas+1)//2)
+    eri = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
     eri = lib.numpy_helper.unpack_tril (eri).reshape (nmo, ncas, ncas, ncas)
     f1[:,ncore:nocc] += np.tensordot (eri, casdm2, axes=((1,2,3),(1,2,3)))
     gorb = f1 - f1.T
@@ -769,7 +769,7 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     log = lib.logger.new_logger(las, verbose)
-    t0 = (time.clock(), time.time())
+    t0 = (time.process_time(), time.time())
     log.debug('Start LASCI')
 
     h2eff_sub = las.get_h2eff (mo_coeff)
@@ -918,7 +918,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
 def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_fr, log, veff_sub_test=None):
     if ci0 is None: ci0 = [None for idx in range (len (las.ncas_sub))]
     # CI problems
-    t1 = (time.clock(), time.time())
+    t1 = (time.process_time(), time.time())
     h1eff_sub = las.get_h1eff (mo, veff=veff, h2eff_sub=h2eff_sub, casdm1s_fr=casdm1s_fr, veff_sub_test=veff_sub_test)
     ncas_cum = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
     e_cas = []

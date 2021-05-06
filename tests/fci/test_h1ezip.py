@@ -31,7 +31,7 @@ def zip_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE):
     '''
     if mo_coeff is None: mo_coeff = casci.mo_coeff
     log = logger.new_logger(casci, verbose)
-    t0 = (time.clock(), time.time())
+    t0 = (time.process_time(), time.time())
     log.debug('Start CASCI')
 
     ncas = casci.ncas

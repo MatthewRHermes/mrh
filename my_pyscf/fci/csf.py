@@ -106,7 +106,7 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None):
         det_addr = det_addr.reshape (nconf, ndet, order='C')
         hdiag_conf = np.ascontiguousarray (np.zeros ((nconf, ndet, ndet), dtype=np.float64))
         hdiag_conf_det = np.ascontiguousarray (hdiag_det[det_addr], dtype=np.float64)
-        t1 = time.clock ()
+        t1 = time.process_time ()
         w1 = time.time ()
         libcsf.FCICSFhdiag (hdiag_conf.ctypes.data_as (ctypes.c_void_p),
                             hdiag_conf_det.ctypes.data_as (ctypes.c_void_p),
@@ -114,7 +114,7 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None):
                             det_stra.ctypes.data_as (ctypes.c_void_p),
                             det_strb.ctypes.data_as (ctypes.c_void_p),
                             ctypes.c_uint (norb), ctypes.c_uint (nconf), ctypes.c_uint (ndet))
-        tlib += time.clock () - t1
+        tlib += time.process_time () - t1
         wlib += time.time () - w1
         umat = get_spin_evecs (nspin, neleca, nelecb, smult)
         hdiag_conf = np.tensordot (hdiag_conf, umat, axes=1)
@@ -130,7 +130,7 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None):
     ''' This is tricky because I need the diagonal blocks for each configuration in order to get
     the correct csf hdiag values, not just the diagonal elements for each determinant. '''
     smult = transformer.smult
-    t0, w0 = time.clock (), time.time ()
+    t0, w0 = time.process_time (), time.time ()
     tstr = tlib = tloop = wstr = wlib = wloop = 0
     if hdiag_det is None:
         hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
@@ -166,10 +166,10 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None):
             continue
         umat = get_spin_evecs (nspin, neleca, nelecb, smult)
         det_addra, det_addrb = divmod (det_addr, ndetb_all)
-        t1, w1 = time.clock (), time.time ()
+        t1, w1 = time.process_time (), time.time ()
         det_stra = cistring.addrs2str (norb, neleca, det_addra).reshape (nconf, ndet, order='C')
         det_strb = cistring.addrs2str (norb, nelecb, det_addrb).reshape (nconf, ndet, order='C')
-        tstr += time.clock () - t1
+        tstr += time.process_time () - t1
         wstr += time.time () - w1
         det_addr = det_addr.reshape (nconf, ndet, order='C')
         diag_idx = np.diag_indices (ndet)
@@ -177,26 +177,26 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None):
         ipair_check = 0
         # It looks like the library call below is, itself, usually responsible for about 50% of the
         # clock and wall time that this function consumes.
-        t1, w1 = time.clock (), time.time ()
+        t1, w1 = time.process_time (), time.time ()
         for iconf in range (nconf):
             addr = det_addr[iconf]
             assert (len (addr) == ndet)
             stra = det_stra[iconf]
             strb = det_strb[iconf]
-            t2, w2 = time.clock (), time.time ()
+            t2, w2 = time.process_time (), time.time ()
             libfci.FCIpspace_h0tril(hdiag_conf[iconf].ctypes.data_as(ctypes.c_void_p),
                 h1e.ctypes.data_as(ctypes.c_void_p),
                 eri.ctypes.data_as(ctypes.c_void_p),
                 stra.ctypes.data_as(ctypes.c_void_p),
                 strb.ctypes.data_as(ctypes.c_void_p),
                 ctypes.c_int(norb), ctypes.c_int(ndet))
-            tlib += time.clock () - t2
+            tlib += time.process_time () - t2
             wlib += time.time () - w2
             #hdiag_conf[iconf][diag_idx] = hdiag_det[addr]
             #hdiag_conf[iconf] = lib.hermi_triu(hdiag_conf[iconf])
         for iconf in range (nconf): hdiag_conf[iconf] = lib.hermi_triu (hdiag_conf[iconf])
         for iconf in range (nconf): hdiag_conf[iconf][diag_idx] = hdiag_det[det_addr[iconf]]
-        tloop += time.clock () - t1
+        tloop += time.process_time () - t1
         wloop += time.time () - w1
 
         hdiag_conf = np.tensordot (hdiag_conf, umat, axes=1)
@@ -204,7 +204,7 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None):
         hdiag_csf[csf_offset:][:nconf*ncsf] = hdiag_conf.ravel (order='C')
         hdiag_csf_check[csf_offset:][:nconf*ncsf] = False
     assert (np.count_nonzero (hdiag_csf_check) == 0), np.count_nonzero (hdiag_csf_check)
-    #print ("Total time in hdiag_csf: {}, {}".format (time.clock () - t0, time.time () - w0))
+    #print ("Total time in hdiag_csf: {}, {}".format (time.process_time () - t0, time.time () - w0))
     #print ("    Loop: {}, {}".format (tloop, wloop))
     #print ("    Library: {}, {}".format (tlib, wlib))
     #print ("    Cistring: {}, {}".format (tstr, wstr))
@@ -233,7 +233,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     if norb > 63:
         raise NotImplementedError('norb > 63')
 
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     neleca, nelecb = _unpack_nelec(nelec)
     h1e = np.ascontiguousarray(h1e)
     eri = ao2mo.restore(1, eri, norb)
@@ -331,7 +331,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
            tol=None, lindep=None, max_cycle=None, max_space=None,
            nroots=None, davidson_only=None, pspace_size=None, max_memory=None,
            orbsym=None, wfnsym=None, ecore=0, transformer=None, **kwargs):
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     if 'verbose' in kwargs:
         verbose = kwargs['verbose']
         kwargs.pop ('verbose')

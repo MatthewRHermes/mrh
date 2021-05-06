@@ -65,7 +65,7 @@ from pyscf.ao2mo import _ao2mo
 #      for me!
 
 def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=True):
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     if mol is None: mol = mf_grad.mol
     if dm is None: dm = mf_grad.base.make_rdm1()
 
@@ -198,7 +198,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     # (P|Q)
     int2c = scipy.linalg.cho_factor(auxmol.intor('int2c2e', aosym='s1'))
 
-    t1 = (time.clock (), time.time ())
+    t1 = (time.process_time (), time.time ())
     max_memory = mf_grad.max_memory - lib.current_memory()[0]
     blksize = max_memory * .5e6/8 / (naux*nao)
     mol_ao_ranges = balance_partition(ao_loc, blksize)

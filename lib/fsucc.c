@@ -145,7 +145,7 @@ void FSUCCcontract1 (uint8_t * aidx, uint8_t * iidx, double * amp,
             for (q = aidx[p]+1; q < norb; q++){
                 sgnbit ^= (det_00 & (1<<q))>>q; // c1'c2' = -c2'c1' sign toggle
             }
-            det_00 ^= (1<<aidx[p]); // pop a[p]
+            det_00 ^= (1<<aidx[p]); // push a[p]
         }
         sgn = int_one - 2*((int) sgnbit);
         mixer (sgn, amp, psi, opsi, det_ia, det_ai);

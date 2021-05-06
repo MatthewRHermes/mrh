@@ -165,12 +165,13 @@ class transfnal (otfnal):
 
             Note this function returns 1 for values and 0 for derivatives for every point where the charge density is close to zero (i.e., convention: 0/0 = 1)
         '''
-        assert (Pi.shape == rho_avg.shape)
-        nderiv = Pi.shape[0]
+        nderiv = min (rho_avg.shape[0], Pi.shape[0])
+        ngrids = rho_avg.shape[1]
+        assert (Pi.shape[1] == ngrids)
         if nderiv > 4:
             raise NotImplementedError("derivatives above order 1")
 
-        R = np.zeros_like (Pi)  
+        R = np.zeros ((nderiv,ngrids), dtype=Pi.dtype) 
         R[0,:] = 1
         idx = rho_avg[0] >= (1e-15 / 2)
         # Chain rule!
@@ -224,9 +225,6 @@ class transfnal (otfnal):
         w = rho_avg * zeta[0:1]
         rho_t[0] += w
         rho_t[1] -= w
-
-        # Regularization for PySCF eval_xc?
-        rho_t[:,0,:] = np.maximum (rho_t[:,0,:],1e-10)
 
         if _fn_deriv > 0: return rho_t, R, zeta
         return rho_t
@@ -360,9 +358,10 @@ class transfnal (otfnal):
 
         return f
 
-    def eval_ot (self, rho, Pi, dderiv=1, weights=None):
-        eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv, weights=weights)
-        if (self.verbose < logger.DEBUG) or (dderiv<2) or (weights is None): return eot, vot, fot
+    def eval_ot (self, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
+        eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv,
+            weights=weights, _unpack_vot=_unpack_vot)
+        if (self.verbose <= logger.DEBUG) or (dderiv<2) or (weights is None): return eot, vot, fot
         if rho.ndim == 2: rho = rho[:,None,:]
         if Pi.ndim == 1: Pi = Pi[None,:]
         rho_tot = rho.sum (0)

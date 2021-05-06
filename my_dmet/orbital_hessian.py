@@ -187,7 +187,7 @@ class HessianCalculator (object):
             hess += np.multiply.outer (ovlp_qr, gf_ps).transpose (2,0,1,3) # 'qr,ps->pqrs'
 
         # Explicit CDM contributions:  2 v^pu_rv l^qu_sv  +  2 v^pr_uv (l^qs_uv + l^qv_us)        
-        t0, w0 = time.clock (), time.time ()
+        t0, w0 = time.process_time (), time.time ()
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
             a2q = a.conjugate ().T @ q
             a2s = a.conjugate ().T @ s
@@ -305,9 +305,9 @@ class HessianCalculator (object):
         ''' OLD CODE, NOT USED '''
         ''' Obtain the gradient for ranges p->q after making an approximate gradient-descent step in r->s:
         E1'^p_q = E1^p_q - E2^pr_qs * x^r_s = E1^p_q + E2^pr_qs * E1^r_s / E2^rr_ss '''
-        t0, w0 = time.clock (), time.time ()
+        t0, w0 = time.process_time (), time.time ()
         r, x_rs, s = self.get_diagonal_step (r, s)
-        print ("Time to get diagonal step: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
+        print ("Time to get diagonal step: {:.3f} s clock, {:.3f} wall".format (time.process_time () - t0, time.time () - w0))
         e1 = np.zeros ((self.nao,self.nao), dtype=np.float64)
         for p, q in pq_pairs:
             qH = q.conjugate ().T
@@ -319,9 +319,9 @@ class HessianCalculator (object):
         ls = s.shape[-1]
         diag_idx = np.arange (lr, dtype=int)
         diag_idx = (diag_idx * lr) + diag_idx
-        #t0, w0 = time.clock (), time.time ()
+        #t0, w0 = time.process_time (), time.time ()
         Hop = self.get_operator (r, s)
-        #print ("Time to make Hop: {:.3f} s clock, {:.3f} wall".format (time.clock () - t0, time.time () - w0))
+        #print ("Time to make Hop: {:.3f} s clock, {:.3f} wall".format (time.process_time () - t0, time.time () - w0))
         #p = self._get_collective_basis (pq_pairs[0][0], pq_pairs[1][0])[0]
         #q = self._get_collective_basis (pq_pairs[0][1], pq_pairs[1][1])[0]
         #qH = q.conjugate ().T

@@ -52,7 +52,7 @@ def grad_elec(mc_grad, mo_coeff=None, ci=None, atmlst=None, verbose=None):
     if mc.frozen is not None:
         raise NotImplementedError
 
-    time0 = time.clock(), time.time()
+    time0 = time.process_time(), time.time()
     log = logger.new_logger(mc_grad, verbose)
     mol = mc_grad.mol
     auxmol = with_df.auxmol
@@ -187,7 +187,7 @@ class Gradients(casci_grad.Gradients):
     def get_jk (self, mol=None, dm=None, hermi=0):
         if mol is None: mol = self.mol
         if dm is None: dm = self.base.make_rdm1()
-        cpu0 = (time.clock(), time.time())
+        cpu0 = (time.process_time(), time.time())
         vj, vk = dfrhf_grad.get_jk(self, mol, dm, ishf=False)
         logger.timer(self, 'vj and vk', *cpu0)
         return vj, vk

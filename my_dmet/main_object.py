@@ -532,7 +532,7 @@ class dmet:
             f.conv_tol_grad = self.conv_tol_grad
 
         if self.doLASSCF:
-            w0, t0 = time.time (), time.clock ()
+            w0, t0 = time.time (), time.process_time ()
             active_frags = [f for f in self.fragments if f.active_space]
             nelec_amo = sum (f.active_space[0] for f in active_frags)
             ncore = (self.ints.nelec_tot - nelec_amo) // 2
@@ -556,7 +556,7 @@ class dmet:
             frozen = np.arange (ncore, sum(ncas_sub)+ncore, dtype=np.int32) if self.oldLASSCF else None
             self.las = lasci.LASCI (self.ints._scf, ncas_sub, nelecas_sub, spin_sub=spin_sub, wfnsym_sub=wfnsym_sub, frozen=frozen)
             self.las.conv_tol_grad = self.conv_tol_grad
-            print ("Time preparing LASCI object: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+            print ("Time preparing LASCI object: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.process_time () - t0))
 
 
         # Initial lasci cycle!
@@ -1455,12 +1455,12 @@ class dmet:
             casdm0_fr = None
         else:
             ci0 = None
-        w0, t0 = time.time (), time.clock ()
+        w0, t0 = time.time (), time.process_time ()
         e_tot, _, ci_sub, _, _, h2eff_sub, veff = self.las.kernel (mo_coeff = ao2no, ci0 = ci0, casdm0_fr = casdm0_fr)
         if not self.las.converged:
             raise RuntimeError ("LASCI SCF cycle not converged")
         print ("LASCI module energy: {:.9f}".format (e_tot))
-        print ("Time in LASCI module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.clock () - t0))
+        print ("Time in LASCI module: {:.8f} wall, {:.8f} clock".format (time.time () - w0, time.process_time () - t0))
         return self.las, h2eff_sub, veff
 
     def lasci_ (self, dm0=None, loc2wmas=None):

@@ -46,7 +46,7 @@ def Lorb_dot_dgorb_dx (Lorb, mc, mo_coeff=None, ci=None, atmlst=None, mf_grad=No
 
     # dmo = smoT.dao.smo
     # dao = mo.dmo.moT
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
 
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
@@ -202,7 +202,7 @@ def Lci_dot_dgci_dx (Lci, weights, mc, mo_coeff=None, ci=None, atmlst=None, mf_g
     if mc.frozen is not None:
         raise NotImplementedError
 
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     mol = mc.mol
     ncore = mc.ncore
     ncas = mc.ncas

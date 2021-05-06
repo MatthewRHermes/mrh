@@ -25,7 +25,7 @@ def kernel (fnal, dm, max_memory=None, hermi=1):
 
     Exc = 0.0
     make_rho, ndms, nao = ni._gen_rho_evaluator (fnal.mol, dm1, hermi)
-    t0 = (time.clock (), time.time ())
+    t0 = (time.process_time (), time.time ())
     for ao, mask, weight, coords in ni.block_loop (fnal.mol, fnal.grids, nao, dens_deriv, max_memory):
         rho_eff = np.stack ([make_rho (spin, ao, mask, xctype) for spin in range (ndms)], axis=0)
         rho_eff = 0.5 * np.stack ((rho_eff.sum (0), rho_eff[0] - rho_eff[1]), axis=0)
