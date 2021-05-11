@@ -149,14 +149,9 @@ class EotOrbitalHessianOperator (object):
             from mrh.my_pyscf.mcpdft.orb_scf import get_gorb_update
             gorb_update_u = get_gorb_update (mc, mo_coeff, ncore=ncore,
                 ncas=ncas, eot_only=True)
-            def delta_gorb (x):
-                u = mc.update_rotate_matrix (x)
-                g1 = gorb_update_u (u, mc.ci)
-                return g1 - g_orb
-            jk_null = np.zeros ((ncas,nmo)), np.zeros ((ncore,nmo-ncore))
-            update_jk = lambda * args: jk_null
-            # Must correct ERROR in pyscf.mcscf.mc1step.gen_g_hop:
-            # requires I recalculate effective Fock matrix
+            # Must correct for different orbital bases in seminumerical
+            # calculation. Have to completely redo the gradient matrix
+            # because "redundant" d.o.f. aren't
             v1 = mo_coeff.conj ().T @ veff1 @ mo_coeff + veff2.vhf_c
             v2 = np.zeros ((nmo,ncas,ncas,ncas), dtype=v1.dtype)
             for i in range (nmo):
@@ -168,15 +163,18 @@ class EotOrbitalHessianOperator (object):
             f1[:,ncore:nocc] += v1[:,ncore:nocc] @ casdm1
             f1[:,ncore:nocc] += np.tensordot (v2, cascm2, axes=((1,2,3),(1,2,3)))
             self._f1_test = f1
-            dE = f1 - f1.T # gradient
+            dE = f1 - f1.T # gradient, but the full matrix
+            def delta_gorb (x):
+                u = mc.update_rotate_matrix (x)
+                g1 = gorb_update_u (u, mc.ci)
+                x = self.unpack_uniq_var (x)
+                g1 += self.pack_uniq_var (x @ dE - dE @ x)/2
+                return g1 - g_orb
+            jk_null = np.zeros ((ncas,nmo)), np.zeros ((ncore,nmo-ncore))
+            update_jk = lambda * args: jk_null
             def d2rho_h_op (x):
                 with lib.temporary_env (mc, update_jk_in_ah=update_jk):
-                    # Add a term proportional to the gradient which is missing
-                    # from mc1step h_op
-                    hx = h_op (x)
-                    x = self.unpack_uniq_var (x)
-                    return hx + self.pack_uniq_var (
-                        (dE @ x - x @ dE) / 2)
+                    return h_op (x)
             self.g_orb = g_orb
             self.delta_gorb = delta_gorb
             self.d2rho_h_op = d2rho_h_op
