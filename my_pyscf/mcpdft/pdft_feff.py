@@ -118,9 +118,6 @@ class EotOrbitalHessianOperator (object):
         self.do_cumulant = do_cumulant
         self.incl_d2rho = incl_d2rho
 
-        self._col_mask = None
-        self._row_mask = None
-
         dm1 = 2 * np.eye (nocc, dtype=casdm1.dtype)
         dm1[ncore:,ncore:] = casdm1
         occ_coeff = mo_coeff[:,:nocc]
@@ -201,8 +198,7 @@ class EotOrbitalHessianOperator (object):
             self.e_ot = e_ot
             self.delta_eot = delta_eot
 
-        if self.verbose > lib.logger.INFO:
-            # TODO: require higher verbosity
+        if self.verbose > lib.logger.DEBUG:
             from mrh.my_pyscf.mcpdft.pdft_veff import lazy_kernel
             v1, v2 = lazy_kernel (ot, dm1s, cascm2, mo_coeff[:,ncore:nocc])
             self._v1 = mo_coeff.conj ().T @ v1 @ mo_coeff
@@ -335,7 +331,7 @@ class EotOrbitalHessianOperator (object):
         vot, fot = self.get_fot (rho0, Pi0, weights)
         rho1_c, rho1_a, Pi1 = self.make_dens1 (ao, drho, dPi, mask, x)
         rho1 = rho1_c + rho1_a
-        if self.verbose >= lib.logger.DEBUG: # TODO: require higher verbosity
+        if self.verbose > lib.logger.DEBUG:
             self.debug_dens1 (ao, mask, x, weights, rho0, Pi0, rho1, Pi1)
         fxrho, fxPi = contract_fot (self.ot, fot, rho0, Pi0, rho1, Pi1,
             unpack=True, vot_packed=vot)
@@ -435,11 +431,10 @@ class EotOrbitalHessianOperator (object):
             # stored in x and g_orb.
             self.log.debug (('E from integration: %e; from stored grad: %e; '
                 'diff: %e'), de, de_test, de-de_test)
-            if self.verbose >= lib.logger.DEBUG: # TODO: require higher verbosity
+            if self.verbose > lib.logger.DEBUG: 
                 self.debug_d2rho (x, dg_d2rho, dg_cum)
         dg += dg_cum
-        if self.verbose > lib.logger.INFO and self.do_cumulant and ncore:
-            # TODO: require higher verbosity
+        if self.verbose > lib.logger.DEBUG and self.do_cumulant and ncore:
             self.debug_cumulant (x, dg_cum)
         if packed:
             dg_full = np.zeros ((self.nmo, self.nmo), dtype=dg.dtype)
@@ -607,7 +602,6 @@ class ExcOrbitalHessianOperator (object):
 if __name__ == '__main__':
     from pyscf import gto, scf, dft
     from mrh.my_pyscf import mcpdft
-    from functools import partial
     mol = gto.M (atom = 'Li 0 0 0; H 1.2 0 0', basis = 'sto-3g',
         verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()
@@ -616,7 +610,6 @@ if __name__ == '__main__':
         print ("h_diag:", linalg.norm (hop.h_diag))
         x0 = -hop.g_orb / hop.h_diag
         x0[hop.g_orb==0] = 0
-        conv_tab = np.zeros ((8,3), dtype=x0.dtype)
         print ("x0 = g_orb/h_diag:", linalg.norm (x0))
         print (" n " + ' '.join (['{:>10s}',]*7).format ('x_norm','de_test',
             'de_ref','de_relerr','dg_test','dg_ref','dg_relerr'))
