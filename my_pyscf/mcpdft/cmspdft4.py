@@ -166,4 +166,4 @@ def si_newton (mc, maxiter,thrs):
     e_cms, ecms_vecs = eff_ham (mc, ci_rot)
     log.info ("CMS-PDFT final state energies: {}".format (e_cms))
 
-    return e_cms, ecms_vecs
+    return e_cms, ecms_vecs, ci_rot
