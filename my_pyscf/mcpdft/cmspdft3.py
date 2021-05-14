@@ -15,7 +15,7 @@ from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad.mcpdft import Gradients
 # MRH: this ^ import can cause recursive inheritance crashes if it appears
 # higher in this list, before other mcpdft modules. I need to fix it but in the
-# meantime just make sure it's the last import and it should be OK.
+# meantime jost ,col = np.tril_indices(nroots,k=-1)ake sure it's the last import and it should be OK.
 
 def kernel (mc,nroots=None):
 # MRH: made nroots a kwarg so that this function can be called more simply
@@ -134,7 +134,7 @@ def kernel (mc,nroots=None):
 
 #Rotate to XMS States
    
-    h1, h0 = mc.get_h1eff ()
+#    h1, h0 = mc.get_h1eff ()
 
 #    print("fvecs_nstates",fvecs_nstates)         
      
@@ -161,7 +161,9 @@ def kernel (mc,nroots=None):
        
 #       Form U
         U = linalg.expm(t) 
-      
+
+        log.info ("t = {} ".format (t)) 
+     
 #       Rotate T
         ci_rot = np.tensordot(U,ci_old,1)
 
