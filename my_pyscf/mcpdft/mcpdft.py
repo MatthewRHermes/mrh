@@ -344,9 +344,11 @@ class _PDFT ():
         except TypeError as e:
             # I think this is the same DFCASSCF problem as with the DF-SACASSCF gradients earlier
             super().__init__()
-        keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states', 'otfnal', 'grids', 'max_cycle_fp', 'conv_tol_ci_fp'))
+        keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states', 'otfnal', 'grids', 'max_cycle_fp',
+            'conv_tol_ci_fp', 'mcscf_kernel'))
         self.max_cycle_fp = getattr (__config__, 'mcscf_mcpdft_max_cycle_fp', 50)
         self.conv_tol_ci_fp = getattr (__config__, 'mcscf_mcpdft_conv_tol_ci_fp', 1e-8)
+        self.mcscf_kernel = super().kernel
         self._keys = set ((self.__dict__.keys ())).union (keys)
         if my_ot is not None:
             self._init_ot_grids (my_ot, grids_level=grids_level)
@@ -377,7 +379,7 @@ class _PDFT ():
     def kernel (self, mo=None, ci=None, **kwargs):
         # Hafta reset the grids so that geometry optimization works!
         self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
-        self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)
+        self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = self.mcscf_kernel (mo, ci, **kwargs)
         if isinstance (self, StateAverageMCSCFSolver):
             epdft = [self.energy_tot (root=ix) for ix in range (len (self.e_states))]
             self.e_mcscf = self.e_states
