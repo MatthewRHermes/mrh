@@ -250,7 +250,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         veff_a = veff_c + veff_s
         veff_b = veff_c - veff_s
         veff = np.stack ([veff_a, veff_b], axis=0)
-        dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
+        dm1s = self.make_rdm1s (mo_coeff=mo_coeff, casdm1s_sub=casdm1s_sub)
         vj, vk = get_jk (dm1s, hermi=1)
         veff_a = vj[0] + vj[1] - vk[0]
         veff_b = vj[0] + vj[1] - vk[1]
