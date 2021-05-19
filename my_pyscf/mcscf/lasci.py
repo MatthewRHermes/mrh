@@ -180,14 +180,13 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.nroots = las.nroots
         self.weights = las.weights
         self.bPpj = None
-        self.h2eff_sub = h2eff_sub
 
         self._init_dms_(casdm1frs, casdm2fr)
-        self._init_ham_(veff)
+        self._init_ham_(h2eff_sub, veff)
         self._init_orb_()
         self._init_ci_()
         # turn this off for extra optimization in kernel
-        if do_init_eri: self._init_eri ()
+        if do_init_eri: self._init_eri_()
 
     def _init_dms_(self, casdm1frs, casdm2fr):
         las, ncore, nocc = self.las, self.ncore, self.nocc
@@ -208,11 +207,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.dm1s[1,ncore:nocc,ncore:nocc] = casdm1b
         self.dm1s[:,nocc:,nocc:] = 0
         
-    def _init_ham_(self, veff):
-        las, mo_coeff, h2eff_sub = self.las, self.mo_coeff, self.h2eff_sub
+    def _init_ham_(self, h2eff_sub, veff):
+        las, mo_coeff, ncas_sub = self.las, self.mo_coeff, self.ncas_sub
         ncore, ncas, nocc = self.ncore, self.ncas, self.nocc
-        nao, nmo, nocc = self.nao, self.nmo, ncore+ncas,
-        ncas_sub = self.ncas_sub
+        nao, nmo, nocc = self.nao, self.nmo, ncore+ncas
         casdm1a, casdm1b = tuple (self.casdm1s)
         casdm1 = casdm1a + casdm1b
         moH_coeff = mo_coeff.conjugate ().T
@@ -242,10 +240,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             else:
                 veff = las.get_veff (dm1s = np.dot (mo_coeff, np.dot (self.dm1s.sum (0), moH_coeff)))
             veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=self.casdm1fs)
-        self.h2eff_sub = h2eff_sub = lib.numpy_helper.unpack_tril (
+        self.eri_paaa = eri_paaa = lib.numpy_helper.unpack_tril (
             h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas,
             ncas, ncas)
-        self.eri_cas = h2eff_sub[ncore:nocc,:,:,:]
+        self.eri_cas = eri_paaa[ncore:nocc,:,:,:]
         h1s = las.get_hcore ()[None,:,:] + veff
         h1s = np.dot (h1s, mo_coeff)
         self.h1s = np.dot (moH_coeff, h1s).transpose (1,0,2)
@@ -260,8 +258,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 dm1s[0] -= casdm1a # No state-averaging
                 dm1s[1] -= casdm1b # No state-averaging
                 dm1 = dm1s[0] + dm1s[1]
-                h1s_sub[:,:,:] += np.tensordot (dm1, h2eff_sub, axes=((0,1),(2,3)))[None,:,:]
-                h1s_sub[:,:,:] -= np.tensordot (dm1s, h2eff_sub, axes=((1,2),(2,1)))
+                h1s_sub[:,:,:] += np.tensordot (dm1, eri_paaa, axes=((0,1),(2,3)))[None,:,:]
+                h1s_sub[:,:,:] -= np.tensordot (dm1s, eri_paaa, axes=((1,2),(2,1)))
         self.h1frs_aa = self.h1frs[:,:,:,ncore:nocc,:]
 
         # Total energy (for callback)
@@ -271,9 +269,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             + np.tensordot (self.eri_cas, self.cascm2, axes=4) / 2)
 
     def _init_orb_(self):
-        h2eff_sub, ncore, nocc = self.h2eff_sub, self.ncore, self.nocc
+        eri_paaa, ncore, nocc = self.eri_paaa, self.ncore, self.nocc
         self.fock1 = sum ([f @ d for f,d in zip (list (self.h1s), list (self.dm1s))])
-        self.fock1[:,ncore:nocc] += np.tensordot (h2eff_sub, self.cascm2, axes=((1,2,3),(1,2,3)))
+        self.fock1[:,ncore:nocc] += np.tensordot (eri_paaa, self.cascm2, axes=((1,2,3),(1,2,3)))
 
     def _init_ci_(self):
         ci, ncas_sub, nelecas_sub = self.ci, self.ncas_sub, self.nelecas_sub
@@ -286,7 +284,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.e0 = [[hc.dot (c) for hc, c in zip (hcr, cr)] for hcr, cr in zip (self.hci0, ci)]
         self.hci0 = [[hc - c*e for hc, c, e in zip (hcr, cr, er)] for hcr, cr, er in zip (self.hci0, ci, self.e0)]
 
-    _init_eri = _init_df_
+    _init_eri_ = _init_df_
 
     @property
     def dtype (self):
@@ -409,9 +407,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             err_dm1rs = err_dm1rs[:,:,:,ncore:nocc] * 2.0
             err_dm1rs[:,:,ncore:nocc,:] /= 2.0 
             # veff contraction
-            err_h1rs = np.tensordot (err_dm1rs, self.h2eff_sub, axes=2)
+            err_h1rs = np.tensordot (err_dm1rs, self.eri_paaa, axes=2)
             err_h1rs += err_h1rs[:,::-1] # ja + jb
-            err_h1rs -= np.tensordot (err_dm1rs, self.h2eff_sub, axes=((2,3),(0,3)))
+            err_h1rs -= np.tensordot (err_dm1rs, self.eri_paaa, axes=((2,3),(0,3)))
             # Deal with nonsymmetric eri: exchange part
             err_h1rs += err_h1rs.transpose (0,1,3,2)
             err_h1rs /= 2.0
@@ -528,7 +526,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         kappa1_cas = kappa1[ncore:nocc,:]
         h1frs = -np.tensordot (kappa1_cas, self.h1frs, axes=((1),(3))).transpose (1,2,3,0,4)
         h1frs += h1frs.transpose (0,1,2,4,3)
-        h2 = -np.tensordot (kappa1_cas, self.h2eff_sub, axes=1)
+        h2 = -np.tensordot (kappa1_cas, self.eri_paaa, axes=1)
         h2 += h2.transpose (2,3,0,1)
         h2 += h2.transpose (1,0,3,2)
         h1frs += h1frs_prime
@@ -547,6 +545,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return [[x*2 for x in xr] for xr in ci2]
 
     def get_prec (self):
+        Hdiag = np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
+        Hdiag += self.ah_level_shift
+        Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
+        return sparse_linalg.LinearOperator (self.shape, matvec=(lambda x:x/Hdiag), dtype=self.dtype)
+
+    def _get_Horb_diag (self):
         fock = np.stack ([np.diag (h) for h in list (self.h1s)], axis=0)
         num = np.stack ([np.diag (d) for d in list (self.dm1s)], axis=0)
         Horb_diag = sum ([np.multiply.outer (f,n) for f,n in zip (fock, num)])
@@ -555,6 +559,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # This is where I stop unless I want to add the split-c and split-x terms
         # Split-c and split-x, for inactive-external rotations, requires I calculate a bunch
         # of extra eris (g^aa_ii, g^ai_ai)
+        return Horb_diag[self.ugg.uniq_orb_idx]
+
+    def _get_Hci_diag (self):
         Hci_diag = []
         for ix, (fcibox, norb, nelec, h1rs, csf_list) in enumerate (zip (self.fciboxes, 
          self.ncas_sub, self.nelecas_sub, self.h1frs_aa, self.ugg.ci_transformers)):
@@ -565,20 +572,27 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             hdiag_csf_list = fcibox.states_make_hdiag_csf (h1rs, h2, norb, nelec)
             for csf, hdiag_csf in zip (csf_list, hdiag_csf_list):
                 Hci_diag.append (csf.pack_csf (hdiag_csf))
-        Hdiag = np.concatenate ([Horb_diag[self.ugg.uniq_orb_idx]] + Hci_diag)
-        Hdiag += self.ah_level_shift
-        Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
-        return sparse_linalg.LinearOperator (self.shape, matvec=(lambda x:x/Hdiag), dtype=self.dtype)
+        return Hci_diag
 
     def update_mo_ci_eri (self, x, h2eff_sub):
-        nmo, ncore, ncas, nocc = self.nmo, self.ncore, self.ncas, self.nocc
         kappa, dci = self.ugg.unpack (x)
         umat = linalg.expm (kappa/2)
         # The 1/2 here is because my actual variables are just the lower-triangular
         # part of kappa, or equivalently 1/2 k^p_q (E^p_q - E^q_p). I can simplify
         # this to k^p_q E^p_q when evaluating derivatives, but not when exponentiating,
         # because the operator part has to be anti-hermitian.
+        mo1 = self._update_mo (umat)
+        ci1 = self._update_ci (dci)
+        h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub)
+        return mo1, ci1, h2eff_sub
+
+    def _update_mo (self, umat):
         mo1 = self.mo_coeff @ umat
+        if hasattr (self.mo_coeff, 'orbsym'):
+            mo1 = lib.tag_array (mo1, orbsym=self.mo_coeff.orbsym)
+        return mo1
+
+    def _update_ci (self, dci):
         ci1 = []
         for c_r, dc_r in zip (self.ci, dci):
             ci1_r = []
@@ -592,8 +606,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 assert (np.isclose (linalg.norm (c1), 1))
                 ci1_r.append (c1)
             ci1.append (ci1_r)
-        if hasattr (self.mo_coeff, 'orbsym'):
-            mo1 = lib.tag_array (mo1, orbsym=self.mo_coeff.orbsym)
+        return ci1
+
+    def _update_h2eff_sub (self, mo1, umat, h2eff_sub):
+        ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
         ucas = umat[ncore:nocc, ncore:nocc]
         bmPu = None
         if hasattr (h2eff_sub, 'bmPu'): bmPu = h2eff_sub.bmPu
@@ -611,7 +627,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         if bmPu is not None:
             bmPu = np.dot (bmPu, ucas)
             h2eff_sub = lib.tag_array (h2eff_sub, bmPu = bmPu)
-        return mo1, ci1, h2eff_sub
+        return h2eff_sub
 
     def get_grad (self):
         gorb = self.fock1 - self.fock1.T
@@ -881,7 +897,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         if (norm_gorb < conv_tol_grad and norm_gci < conv_tol_grad) or ((norm_gorb + norm_gci) < norm_gx/10):
             converged = True
             break
-        H_op._init_eri () # Take this part out of the true initialization b/c if I'm already converged I don't want to waste the cycles
+        H_op._init_eri_() # Take this part out of the true initialization b/c if I'm already converged I don't want to waste the cycles
         t1 = log.timer ('LASCI Hessian constructor', *t1)
         microit = [0]
         def my_callback (x):

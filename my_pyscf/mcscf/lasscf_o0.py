@@ -145,7 +145,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
     #   7) current prec may not be "good enough" - get_prec
     #   8) define "gx" in this context - get_gx 
 
-    def _init_eri (self):
+    def _init_eri_(self):
         lasci._init_df_(self)
         if isinstance (self.las, lasci._DFLASCI):
             self.cas_type_eris = mc_df._ERIS (self.las, self.mo_coeff, self.with_df)
@@ -202,7 +202,7 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
             paaa = praa[ncore:nocc]
-            assert (np.allclose (paaa, self.h2eff_sub[p]))
+            assert (np.allclose (paaa, self.eri_paaa[p]))
             # g_pabc d_qabc + g_prab d_qrab + g_parb d_qarb + g_pabr d_qabr (Formal)
             #        d_cbaq          d_abqr          d_aqbr          d_qabr (Symmetry of ocm2)
             # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)
@@ -218,14 +218,12 @@ class LASSCF_HessianOperator (lasci.LASCI_HessianOperator):
         ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
         ocm2 += ocm2.transpose (2,3,0,1)
         ecm2 = ocm2 + tcm2
-        f1_prime[:ncore,ncore:nocc] += np.tensordot (self.h2eff_sub[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
-        f1_prime[nocc:,ncore:nocc] += np.tensordot (self.h2eff_sub[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
+        f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
+        f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
         return gorb + (f1_prime - f1_prime.T)
 
-    def update_mo_ci_eri (self, x, h2eff_sub):
-        # mo and ci are fine, but h2eff sub simply has to be replaced
-        mo1, ci1 = lasci.LASCI_HessianOperator.update_mo_ci_eri (self, x, h2eff_sub)[:2]
-        return mo1, ci1, self.las.ao2mo (mo1)
+    def _update_h2eff_sub (self, mo1, umat, h2eff_sub):
+        return self.las.ao2mo (mo1)
 
 class LASSCFNoSymm (lasci.LASCINoSymm):
     _ugg = LASSCF_UnitaryGroupGenerators
