@@ -103,6 +103,121 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
         return sparse.linalg.LinearOperator (self.shape, matvec=(lambda x:x/Hdiag), dtype=self.dtype)
 
+def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    log = lib.logger.new_logger(las, verbose)
+    t0 = (time.process_time(), time.time())
+    log.debug('Start LASSCF')
+
+    h2eff_sub = las.get_h2eff (mo_coeff)
+    t1 = log.timer('integral transformation to LAS space', *t0)
+
+    if casdm1frs is None: casdm1frs, casdm2fr = get_init_guess_rdm (las, mo_coeff, h2eff_sub)
+    casdm1fs = las.make_casdm1s_sub (casdm1frs=casdm1frs)
+    dm = las.make_rdm1 (casdm1s_sub=casdm1fs)
+    veff = las.get_veff (dm1s=dm1)
+    veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
+    t1 = log.timer('LASSCF initial get_veff', *t1)
+
+    ugg = None
+    converged = False
+    t2 = (t1[0], t1[1])
+    it = 0
+    for it in range (las.max_cycle_macro):
+        e_cas, casdm1frs, casdm2fr = rdm_cycle (las, mo_coeff, casdm1frs,
+            casdm2fr, veff, h2eff_sub, log)
+        if ugg is None: ugg = las.get_ugg (mo_coeff, ci1)
+        log.info ('LASSCF subspace CI energies: {}'.format (e_cas))
+        t1 = log.timer ('LASSCF rdm_cycle', *t1)
+
+        casdm1fs_new = las.make_casdm1s_sub (casdm1frs=casdm1frs)
+        veff = veff.sum (0)/2
+        if not isinstance (las, _DFLASCI) or las.verbose > lib.logger.DEBUG:
+            dm1 = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
+            veff_new = las.get_veff (dm1s=dm1)
+            if not isinstance (las, _DFLASCI): veff = veff_new
+        if isinstance (las, _DFLASCI):
+            ddm = [dm_new - dm_old for dm_new, dm_old in zip (casdm1fs_new, casdm1fs)]
+            veff += las.fast_veffa (ddm, h2eff_sub, mo_coeff=mo_coeff)
+            if las.verbose > lib.logger.DEBUG:
+                errmat = veff - veff_new
+                lib.logger.debug (las, 'fast_veffa error: {}'.format (linalg.norm (errmat)))
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
+        casdm1fs = casdm1s_new
+
+        t1 = log.timer ('LASSCF get_veff after ci', *t1)
+        H_op = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, casdm1frs=casdm1frs,
+            casdm2fr=casdm2fr, h2eff_sub=h2eff_sub, veff=veff, do_init_eri=False)
+        g_vec = H_op.get_grad ()
+        gx = H_op.get_gx ()
+        prec_op = H_op.get_prec ()
+        prec = prec_op (np.ones_like (g_vec)) # Check for divergences
+        norm_gorb = linalg.norm (g_vec) if g_vec.size else 0.0
+        norm_gx = linalg.norm (gx) if gx.size else 0.0
+        x0 = prec_op._matvec (-g_vec)
+        norm_xorb = linalg.norm (x0) if x0.size else 0.0
+        lib.logger.info (las, 'LASSCF macro %d : E = %.15g ; |g_int| = %.15g ; |g_x| = %.15g',
+            it, H_op.e_tot, norm_gorb, norm_gx)
+        if (norm_gorb < conv_tol_grad) or (norm_gorb < norm_gx/10):
+            converged = True
+            break
+        H_op._init_eri_() # Take this part out of the true initialization b/c 
+                          # if I'm already converged I don't want to waste the cycles
+        t1 = log.timer ('LASSCF Hessian constructor', *t1)
+        microit = [0]
+        def my_callback (x):
+            microit[0] += 1
+            norm_xorb = linalg.norm (x) if x.size else 0.0
+            if las.verbose > lib.logger.INFO:
+                Hx = H_op._matvec (x) # This doubles the price of each iteration!!
+                resid = g_vec + Hx
+                norm_gorb = linalg.norm (resid) if resid.size else 0.0
+                Ecall = H_op.e_tot + x.dot (g_vec + (Hx/2))
+                log.info ('LASSCF micro %d : E = %.15g ; |g_orb| = %.15g ; |x_orb| = %.15g',
+                    microit[0], Ecall, norm_gorb, norm_xorb)
+            else:
+                log.info ('LASSCF micro %d : |x_orb| = %.15g', microit[0], norm_xorb)
+    
+        my_tol = max (conv_tol_grad, norm_gx/10)
+        x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol, maxiter=las.max_cycle_micro,
+         callback=my_callback, M=prec_op)
+        t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
+        mo_coeff, h2eff_sub = H_op.update_mo_eri (x, h2eff_sub)
+        t1 = log.timer ('LASSCF Hessian update', *t1)
+
+        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
+        t1 = log.timer ('LASSCF get_veff after secondorder', *t1)
+
+    t2 = log.timer ('LASSCF {} macrocycles'.format (it), *t2)
+
+    e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff,
+        casm1frs=casdm1frs, casdm2fr=casdm2fr, h2eff=h2eff_sub, veff=veff)
+    e_tot_test = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, casdm1frs=casdm1frs,
+        casdm2fr=casdm2fr, h2eff_sub=h2eff_sub, veff=veff, do_init_eri=False).e_tot
+    veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub, mo_coeff=mo_coeff, _full=True)
+        for state in range (las.nroots)], axis=0)
+    veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, las.weights))/2 
+    veff = veff_c[None,None,:,:] + veff_a
+    veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff, las.weights))
+    e_states = las.energy_nuc () + np.array (las.states_energy_elec (
+        mo_coeff=mo_coeff, h2eff=h2eff_sub, veff=veff, casdm1frs=casdm1frs,
+        casdm2fr=casdm2fr))
+    assert (np.allclose (np.dot (las.weights, e_states), e_tot)), '{} {} {} {}'.format (
+        e_states, np.dot (las.weights, e_states), e_tot, e_tot_test)
+
+    lib.logger.info (las, 'LASSCF %s after %d cycles', ('not converged', 'converged')[converged], it+1)
+    lib.logger.info (las, 'LASSCF E = %.15g ; |g_int| = %.15g ; |g_ext| = %.15g', e_tot, norm_gorb, norm_gx)
+    t1 = log.timer ('LASSCF wrap-up', *t1)
+
+    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, casdm1frs, veff=veff.sa, h2eff_sub=h2eff_sub)
+    t1 = log.timer ('LASSCF canonicalization', *t1)
+
+    t0 = log.timer ('LASSCF kernel function', *t0)
+
+    return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, casdm1frs, casdm2fr, h2eff_sub, veff
+
+
 if __name__ == '__main__':
     from pyscf import gto, scf, lib
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF

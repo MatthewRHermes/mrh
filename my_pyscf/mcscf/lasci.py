@@ -1388,12 +1388,15 @@ class LASCINoSymm (casci.CASCI):
         casdm2_fr = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
         return [np.einsum ('rijkl,r->ijkl', dm2, box.weights) for dm2, box in zip (casdm2_fr, self.fciboxes)]
 
-    def states_make_rdm1s (self, mo_coeff=None, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
+    def states_make_rdm1s (self, mo_coeff=None, ci=None, ncas_sub=None,
+            nelecas_sub=None, casdm1rs=None, casdm1frs=None, **kwargs):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
-        casdm1rs = self.states_make_casdm1s (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        if casdm1rs is None: casdm1rs = self.states_make_casdm1s (ci=ci, 
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm1frs=casdm1frs, 
+            **kwargs)
         mo_core = mo_coeff[:,:self.ncore]
         mo_cas = mo_coeff[:,self.ncore:][:,:self.ncas]
         dm1rs = np.tensordot (mo_cas.conj (), np.dot (casdm1rs, mo_cas.conj ().T), axes=((1),(2))).transpose (1,2,0,3)
@@ -1572,7 +1575,9 @@ class LASCINoSymm (casci.CASCI):
         return np.stack ([veffa, veffb], axis=0)
          
 
-    def states_energy_elec (self, mo_coeff=None, ncore=None, ncas=None, ncas_sub=None, nelecas_sub=None, ci=None, h2eff=None, veff=None, **kwargs):
+    def states_energy_elec (self, mo_coeff=None, ncore=None, ncas=None,
+            ncas_sub=None, nelecas_sub=None, ci=None, h2eff=None, veff=None, 
+            casdm1frs=None, casdm2fr=None, **kwargs):
         ''' Since the LASCI energy cannot be calculated as simply as ecas + ecore, I need this function.
             Here, veff has to be the TRUE AND ACCURATE, ACTUAL veff_rs!'''
         if mo_coeff is None: mo_coeff = self.mo_coeff
@@ -1582,13 +1587,13 @@ class LASCINoSymm (casci.CASCI):
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         if ci is None: ci = self.ci
         if h2eff is None: h2eff = self.get_h2eff (mo_coeff)
+        if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        if casdm2fr is None: casdm2fr = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
 
-        dm1rs = self.states_make_rdm1s (mo_coeff=mo_coeff, ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
-        casdm1frs = self.states_make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
-        casdm2fr = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        dm1rs = self.states_make_rdm1s (mo_coeff=mo_coeff, ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm1frs=casdm1frs)
         if veff is None: veff = np.stack ([self.get_veff (dm1s = dm1s, spin_sep=True) for dm1s in dm1rs], axis=0)
         assert (veff.ndim == 4)
-
 
         energy_elec = []
         for idx, (dm1s, v) in enumerate (zip (dm1rs, veff)):
@@ -1614,7 +1619,9 @@ class LASCINoSymm (casci.CASCI):
 
         return energy_elec
 
-    def energy_elec (self, mo_coeff=None, ncore=None, ncas=None, ncas_sub=None, nelecas_sub=None, ci=None, h2eff=None, veff=None, **kwargs):
+    def energy_elec (self, mo_coeff=None, ncore=None, ncas=None,
+            ncas_sub=None, nelecas_sub=None, ci=None, h2eff=None, veff=None,
+            casdm1frs=None, casdm2fr=None, **kwargs):
         ''' Since the LASCI energy cannot be calculated as simply as ecas + ecore, I need this function '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ncore is None: ncore = self.ncore
@@ -1623,20 +1630,23 @@ class LASCINoSymm (casci.CASCI):
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         if ci is None: ci = self.ci
         if h2eff is None: h2eff = self.get_h2eff (mo_coeff)
-        casdm1s_sub = self.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        casdm1s_sub = self.make_casdm1s_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm1frs=casdm1frs)
         if veff is None:
-            veff = self.get_veff (dm1s = self.make_rdm1 (mo_coeff=mo_coeff, ci=ci))
-            veff = self.split_veff (veff, h2eff, mo_coeff=mo_coeff, ci=ci, casdm1s_sub=casdm1s_sub)
+            veff = self.get_veff (dm1s = self.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1s_sub))
+            veff = self.split_veff (veff, h2eff, mo_coeff=mo_coeff, casdm1s_sub=casdm1s_sub)
 
         # 1-body veff terms
         h1e = self.get_hcore ()[None,:,:] + veff/2
-        dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ncore=ncore, ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        dm1s = self.make_rdm1s (mo_coeff=mo_coeff, ncore=ncore, ncas_sub=ncas_sub,
+            nelecas_sub=nelecas_sub, casdm1s_sub=casdm1s_sub)
         e1 = np.dot (h1e.ravel (), dm1s.ravel ())
 
         # 2-body cumulant terms
-        casdm1s = self.make_casdm1s (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        casdm1s = self.make_casdm1s (ci=ci, ncas_sub=ncas_sub, 
+            nelecas_sub=nelecas_sub, casdm1frs=casdm1frs)
         casdm1 = casdm1s.sum (0)
-        casdm2 = self.make_casdm2 (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        casdm2 = self.make_casdm2 (ci=ci, ncas_sub=ncas_sub,
+            nelecas_sub=nelecas_sub, casdm2fr=casdm2fr)
         casdm2 -= np.multiply.outer (casdm1, casdm1)
         casdm2 += np.multiply.outer (casdm1s[0], casdm1s[0]).transpose (0,3,2,1)
         casdm2 += np.multiply.outer (casdm1s[1], casdm1s[1]).transpose (0,3,2,1)
