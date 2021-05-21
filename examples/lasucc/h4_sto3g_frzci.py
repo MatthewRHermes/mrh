@@ -9,7 +9,7 @@ xyz = '''H 0.0 0.0 0.0
          H 1.0 0.0 0.0
          H 0.2 3.9 0.1
          H 1.159166 4.1 -0.1'''
-mol = gto.M (atom = xyz, basis = 'sto-3g', output='h4_sto3g_1shot.log',
+mol = gto.M (atom = xyz, basis = 'sto-3g', output='h4_sto3g_frzci.log',
     verbose=lib.logger.DEBUG)
 mf = scf.RHF (mol).run ()
 ref = mcscf.CASSCF (mf, 4, 4).run () # = FCI
@@ -39,6 +39,6 @@ mc2.kernel ()
 
 print ("FCI energy:               {:.9f}".format (ref.e_tot))
 print ("LASSCF energy:            {:.9f}".format (las.e_tot))
-print ("LASUCCSD (full) energy:   {:.9f}\n".format (mc1.e_tot))
+print ("LASUCCSD (full) energy:   {:.9f}".format (mc1.e_tot))
 print ("LASUCCSD (1-shot) energy: {:.9f}\n".format (mc2.e_tot))
 

@@ -14,7 +14,7 @@ norb = 8
 nelec = 8
 norb_f = (4,4)
 nelec_f = ((2,2),(2,2))
-mol = structure (3.0, 3.0, output='c4h6_stretched_631g_1shot.log', verbose=logger.DEBUG)
+mol = structure (3.0, 3.0, output='c4h6_stretched_631g_frzci.log', verbose=logger.DEBUG)
 mf = scf.RHF (mol).run ()
 
 # CASSCF (for orbital initialization)
@@ -43,11 +43,11 @@ ucc.fcisolver.norb_f = [4,4]
 ucc.fcisolver.frozen = 'ci'
 ucc.fcisolver.get_init_guess = lambda *args: ci0_f
 try:
-    mo_loc = np.load ('c4h6_stretched_631g_1shot.mo.npy')
+    mo_loc = np.load ('c4h6_stretched_631g_frzci.mo.npy')
     # ^ In principle, this shouldn't be necessary, however this system happens
     # to have big gauge invariance in its orbital frame. If there was less
     # symmetry, you wouldn't need to cache this part.
-    psi = ucc.fcisolver.load_psi ('c4h6_stretched_631g_1shot.psi.npy',
+    psi = ucc.fcisolver.load_psi ('c4h6_stretched_631g_frzci.psi.npy',
         norb, nelec, norb_f, frozen='ci')
     ucc.fcisolver.psi = psi
     print ("Found cached wave function data")
@@ -59,12 +59,12 @@ except FileNotFoundError as e:
     print (("After this run finishes successfully, the wave function "
             "data will be cached to disk"))
 ucc.kernel (mo_loc)
-molden.from_mcscf (ucc, 'c4h6_stretched_lasuccsd_631g_1shot.molden', cas_natorb=True)
+molden.from_mcscf (ucc, 'c4h6_stretched_lasuccsd_631g_frzci.molden', cas_natorb=True)
 e_luc = ucc.e_tot
 
 # Cache result for the next time you run this
-np.save ('c4h6_stretched_631g_1shot.mo', ucc.mo_coeff)
-ucc.fcisolver.save_psi ('c4h6_stretched_631g_1shot.psi', ucc.fcisolver.psi)
+np.save ('c4h6_stretched_631g_frzci.mo', ucc.mo_coeff)
+ucc.fcisolver.save_psi ('c4h6_stretched_631g_frzci.psi', ucc.fcisolver.psi)
 
 # Some post-processing
 print ('\nLASSCF: %.12f, CASCI: %.12f, LASUCC: %.12f' % (e_las, e_cas, e_luc))

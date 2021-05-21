@@ -29,6 +29,9 @@ def gen_uccsd_op (norb, nlas):
         
 class FCISolver (lasci_ominus1.FCISolver):
     def get_uop (self, norb, nlas):
+        frozen = str (getattr (self, 'frozen', None))
+        if frozen.upper () == 'CI':
+            return uccsd_sym1.get_uccsd_op (norb)
         return gen_uccsd_op (norb, nlas)        
         
 
