@@ -37,12 +37,14 @@ def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
     else:
         log = lib.logger.new_logger (fci, verbose)
 
-    psi = getattr (fci, 'psi', fci.build_psi (ci0_f, norb, norb_f, nelec, log=log))
+    frozen = getattr (fci, 'frozen', None)
+    psi = getattr (fci, 'psi', fci.build_psi (ci0_f, norb, norb_f, nelec,
+        log=log, frozen=frozen))
     assert (psi.check_ci0_constr)
     psi_options = {'gtol':     gtol,
                    'maxiter':  max_cycle,
                    'disp':     verbose>lib.logger.DEBUG}
-    log.info ('LASCI object has %d degrees of freedom', psi.nvar_tot)
+    log.info ('LASCI object has %d degrees of freedom', psi.nvar)
     h = [ecore, h1, h2]
     psi_callback = psi.get_solver_callback (h)
     res = optimize.minimize (psi.e_de, psi.x, args=(h,), method='BFGS',
@@ -155,7 +157,7 @@ class LASUCCTrialState (object):
     ''' Evaluate the energy and Jacobian of a LASSCF trial function parameterized in terms
         of unitary CC singles amplitudes and CI transfer operators. '''
 
-    def __init__(self, fcisolver, ci0_f, norb, norb_f, nelec, log=None):
+    def __init__(self, fcisolver, ci0_f, norb, norb_f, nelec, log=None, frozen=None):
         self.fcisolver = fcisolver
         self.ci_f = [ci.copy () for ci in ci0_f]
         self.norb = norb
@@ -168,7 +170,14 @@ class LASUCCTrialState (object):
         self.log = log if log is not None else lib.logger.new_logger (fcisolver, fcisolver.verbose)
         self.it_cnt = 0
         self.uop = fcisolver.get_uop (norb, norb_f)
-        self.x = np.zeros (self.nvar_tot)
+        self.var_mask = np.ones (self.nvar_tot, dtype=np.bool_)
+        if frozen is not None:
+            if frozen.upper () == 'CI':
+                i = self.nconstr + self.uop.ngen_uniq
+                self.var_mask[i:] = False
+            else:
+                self.var_mask[frozen] = False
+        self.x = np.zeros (self.nvar)
         self.converged = False
         self._e_last = None
         self._jac_last = None
@@ -204,9 +213,11 @@ class LASUCCTrialState (object):
             cHx = ci0.conj ().ravel ().dot (xci.ravel ())
             x.append ((xci - (ci0*cHx)).ravel ())
         x = np.concatenate (x)
-        return x
+        return x[self.var_mask]
 
-    def unpack (self, x):
+    def unpack (self, x_):
+        x = np.zeros (self.nvar_tot)
+        x[self.var_mask] = x_[:]
         xconstr, x = x[:self.nconstr], x[self.nconstr:]
 
         xcc = x[:self.uop.ngen_uniq] 
@@ -222,6 +233,10 @@ class LASUCCTrialState (object):
     @property
     def nvar_tot (self):
         return self.nconstr + self.uop.ngen_uniq + sum ([c.size for c in self.ci_f])
+
+    @property
+    def nvar (self):
+        return np.count_nonzero (self.var_mask)
 
     def e_de (self, x, h):
         log = self.log
@@ -513,12 +528,12 @@ class FCISolver (direct_spin1.FCISolver):
         psi_raw = np.concatenate ([psi.x,] 
             + [c.ravel () for c in psi.ci_f])
         np.save (fname, psi_raw)
-    def load_psi (self, fname, norb, nelec, norb_f=None):
+    def load_psi (self, fname, norb, nelec, norb_f=None, **kwargs):
         if norb_f is None: norb_f = getattr (fci, 'norb_f', [norb])
         raw = np.load (fname)
         ci0_f = [np.empty ((2**n,2**n), dtype=raw.dtype) for n in norb_f]
-        psi = self.build_psi (ci0_f, norb, norb_f, nelec)
-        n = psi.nvar_tot
+        psi = self.build_psi (ci0_f, norb, norb_f, nelec, **kwargs)
+        n = psi.nvar
         psi.x[:], raw = raw[:n], raw[n:]
         for ci in psi.ci_f:
             n = ci.size
