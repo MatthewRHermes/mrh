@@ -231,7 +231,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
 
 def get_sarotfns (obj):
     if obj.upper () == 'CMS':
-        from mrh.my_pyscf.mcpdft.cmspdft4 import e_coul as sarot_objfn
+        from mrh.my_pyscf.mcpdft.cmspdft import e_coul as sarot_objfn
         sarot = si_newton
     else:
         raise RuntimeError ('SI-PDFT type not supported')
@@ -268,7 +268,7 @@ def state_interaction (mc, weights=(0.5,0.5), obj='CMS', **kwargs):
 if __name__ == '__main__':
     # This ^ is a convenient way to debug code that you are working on. The
     # code in this block will only execute if you run this python script as the
-    # input directly: "python cmspdft3.py".
+    # input directly: "python sipdft.py".
 
     from pyscf import scf, gto
     from mrh.my_pyscf.tools import molden # My version is better for MC-SCF
