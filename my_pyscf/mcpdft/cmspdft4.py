@@ -56,7 +56,7 @@ def e_coul (mc,ci):
     for (i, (k,l)), (j, (m,n)) in product (enumerate (zip (rows, col)), repeat=2):
         e_hess[i,j] = v_klmn(k,l,m,n,dm1,tdm1)+v_klmn(l,k,n,m,dm1,tdm1)-v_klmn(k,l,n,m,dm1,tdm1)-v_klmn(l,k,m,n,dm1,tdm1)
 
-    return e_coul, e_grad, e_hess
+    return sum (e_coul), e_grad, e_hess
 
 
 def eff_ham (mc,ci):
