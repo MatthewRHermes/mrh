@@ -344,9 +344,11 @@ class _PDFT ():
         except TypeError as e:
             # I think this is the same DFCASSCF problem as with the DF-SACASSCF gradients earlier
             super().__init__()
-        keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states', 'otfnal', 'grids', 'max_cycle_fp', 'conv_tol_ci_fp'))
+        keys = set (('e_ot', 'e_mcscf', 'get_pdft_veff', 'e_states', 'otfnal', 'grids', 'max_cycle_fp',
+            'conv_tol_ci_fp', 'mcscf_kernel'))
         self.max_cycle_fp = getattr (__config__, 'mcscf_mcpdft_max_cycle_fp', 50)
         self.conv_tol_ci_fp = getattr (__config__, 'mcscf_mcpdft_conv_tol_ci_fp', 1e-8)
+        self.mcscf_kernel = super().kernel
         self._keys = set ((self.__dict__.keys ())).union (keys)
         if my_ot is not None:
             self._init_ot_grids (my_ot, grids_level=grids_level)
@@ -507,6 +509,10 @@ class _PDFT ():
         # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
         sapdft_grad_monkeypatch_(state_average_mix_(self, fcisolvers, weights))
         return self
+
+    def state_interaction (self, weights=(0.5,0.5), obj='CMS'):
+        from mrh.my_pyscf.mcpdft.sipdft import state_interaction
+        return state_interaction (self, weights=weights, obj=obj)
 
     @property
     def otxc (self):

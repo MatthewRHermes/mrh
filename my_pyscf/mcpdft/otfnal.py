@@ -702,7 +702,7 @@ def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None, fnal_c = Non
 
     return x_code + ',' + c_code
 
-def make_hybrid_fnal (xc_code, hyb, hyb_type = 4):
+def make_hybrid_fnal (xc_code, hyb, hyb_type = 1):
     ''' Convenience function to write "hybrid" xc functional in terms of only one parameter
 
         Args:
