@@ -1242,12 +1242,15 @@ class LASCINoSymm (casci.CASCI):
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
         for smult, nel in zip (spin_sub, self.nelecas_sub):
-            s = csf_solver (self.mol, smult=smult)
-            s.spin = nel[0] - nel[1] 
-            self.fciboxes.append (get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)) 
+            self.fciboxes.append (self._init_fcibox (smult, nel)) 
         self.nroots = 1
         self.weights = [1.0]
         self.e_states = [0.0]
+
+    def _init_fcibox (self, smult, nel): 
+        s = csf_solver (self.mol, smult=smult)
+        s.spin = nel[0] - nel[1] 
+        return get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)
 
     def get_mo_slice (self, idx, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff

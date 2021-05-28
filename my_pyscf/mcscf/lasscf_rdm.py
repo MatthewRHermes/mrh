@@ -4,7 +4,8 @@
 
 import numpy as np
 from scipy import linalg, sparse
-from mrh.my_pyscf.mcscf import lasscf_o0
+from mrh.my_pyscf.mcscf import lasscf_o0, lasci
+from pyscf import lib
 
 class LASSCF_UnitaryGroupGenerators (lasscf_o0.LASSCF_UnitaryGroupGenerators):
     ''' spoof away CI degrees of freedom '''
@@ -103,6 +104,21 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
         return sparse.linalg.LinearOperator (self.shape, matvec=(lambda x:x/Hdiag), dtype=self.dtype)
 
+def get_init_guess_rdm (las, mo_coeff=None, h2eff_sub=None):
+    ''' fcibox.solver[i] members make_hdiag_csf and get_init_guess both have
+        to be spoofed '''
+    fakeci = lasci.get_init_guess_ci (las, mo_coeff=mo_coeff, h2eff_sub=h2eff_sub)
+    casdm1frs = [f[0] for f in fakeci]
+    casdm2fr = [f[1] for f in fakeci]
+    return casdm1frs, casdm2fr
+
+def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log):
+    ''' "fcibox.kernel" should return e_cas, (casdm1rs, casdm2r) '''
+    e_cas, fakeci = lasci.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
+    casdm1frs = [f[0] for f in fakeci]
+    casdm2fr = [f[1] for f in fakeci]
+    return e_cas, casdm1frs, casdm2fr
+
 def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     log = lib.logger.new_logger(las, verbose)
@@ -125,7 +141,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     it = 0
     for it in range (las.max_cycle_macro):
         e_cas, casdm1frs, casdm2fr = rdm_cycle (las, mo_coeff, casdm1frs,
-            casdm2fr, veff, h2eff_sub, log)
+            veff, h2eff_sub, log)
         if ugg is None: ugg = las.get_ugg (mo_coeff, ci1)
         log.info ('LASSCF subspace CI energies: {}'.format (e_cas))
         t1 = log.timer ('LASSCF rdm_cycle', *t1)
@@ -218,8 +234,77 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, casdm1frs, casdm2fr, h2eff_sub, veff
 
 
+# From lasci.ci_cycle and lasci.get_init_guess ci, I deduce that
+# the fcibox class should have the following members:
+#   callable "_get_nelec"
+#   callable "kernel"
+#   list of solvers "fcisolvers"
+# And that the solver class should have members:
+#   callable "make_hdiag_csf"
+#   callable "get_init_guess"
+#   integer "spin"
+#   integer "charge"
+# It should probably also have callable "kernel" which fcibox.kernel
+# calls. I can use the fcibox as syntactic sugar here
+
+class RDMSolver (lib.StreamObject):
+    
+    def __init__(self, norb, get_init_guess, kernel):
+        self.spin = None
+        self.charge = None
+        self._get_init_guess = get_init_guess
+        self._kernel = kernel
+
+    def make_hdiag_csf (self, h1s, h2, norb, nelec):
+        ''' spoof! '''
+        return (h1s, h2)
+
+    def get_init_guess (self, norb, nelec, nroots, ham):
+        ''' Important: list gets unwrapped '''
+        h1s, h2 = ham
+        dm1rs, dm2r = self._get_init_guess (norb, nelec, h1s, h2)
+        return [[dm1rs, dm2r]]
+
+    def kernel (self, norb, nelec, h0, h1s, h2):
+        erdm, dm1s, dm2 = self._kernel (norb, nelec, h0, h1s, h2)
+        return erdm, dm1s, dm2
+
+class FCIBox (lib.StreamObject):
+
+    def __init__(self, rdmsolvers):
+        self.fcisolvers = rdmsolvers
+
+    def kernel (self, h1rs, h2r, norb, nelec, ci0=None, verbose=None,
+            max_memory=None, ecore=0, orbsym=None):
+        if isinstance (ecore, (int, float, np.integer, np.floating)):
+            ecore = [ecore,] * len (h1rs)
+        erdm = []
+        dm1rs = []
+        dm2 = []
+        for h0, h1s, solver in zip (ecore, h1rs, self.fcisolvers):
+            e, dm1s, dm2 = solver.kernel (norb, nelec, h0, h1s, h2)
+            erdm.append (e)
+            dm1rs.append (dm1s)
+            dm2r.append (dm2)
+        dm1rs = np.stack (dm1rs, axis=0)
+        dm2r = np.stack (dm2r, axis=0)
+        erdm = np.array (erdm)
+        return erdm, (dm1rs, dm2r)
+
+    def _get_nelec (self, solver, nelec):
+        m = solver.spin if solver.spin is not None else 0
+        c = getattr (solver, 'charge', 0) or 0
+        if m or c:
+            nelec = np.sum (nelec) - c
+            nelec = (nelec+m)//2, (nelec-m)//2
+        return nelec
+
+#class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
+#    def _init_fcibox (self, smult, nel):
+#        spin = s.spin
+
 if __name__ == '__main__':
-    from pyscf import gto, scf, lib
+    from pyscf import gto, scf
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     xyz = '''H 0.0 0.0 0.0
              H 1.0 0.0 0.0
