@@ -1017,9 +1017,10 @@ def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None
     fock = las.get_hcore () + vj - (vk/2)
     return fock
 
-def canonicalize (las, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2eff_sub=None, orbsym=None):
+def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None, veff=None, h2eff_sub=None, orbsym=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
+    if casdm1fs is None: casdm1fs = las.make_casdm1s_sub (ci=ci)
     nao, nmo = mo_coeff.shape
     ncore = las.ncore
     nocc = ncore + las.ncas
@@ -1027,10 +1028,9 @@ def canonicalize (las, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2
     nelecas_sub = las.nelecas_sub
 
     # Passing casdm1 or lasdm1 only affects the canonicalization of the active orbitals
-    casdm1s_sub = las.make_casdm1s_sub (ci=ci)
     umat = np.zeros_like (mo_coeff)
-    casdm1s = np.stack ([linalg.block_diag (*[dm[0] for dm in casdm1s_sub]),
-                         linalg.block_diag (*[dm[1] for dm in casdm1s_sub])], axis=0)
+    casdm1s = np.stack ([linalg.block_diag (*[dm[0] for dm in casdm1fs]),
+                         linalg.block_diag (*[dm[1] for dm in casdm1fs])], axis=0)
     fock = mo_coeff.conjugate ().T @ las.get_fock (mo_coeff=mo_coeff, casdm1s=casdm1s, veff=veff) @ mo_coeff
     if natorb_casdm1 is None: # State-average natural orbitals by default
         natorb_casdm1 = casdm1s.sum (0)
@@ -1051,7 +1051,7 @@ def canonicalize (las, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2
         check_diag[i:j,i:j] = 0.0
     if np.amax (np.abs (check_diag)) < 1e-8:
         # No off-diagonal RDM elements -> extra effort to prevent diagonalizer from breaking frags
-        for isub, (fcibox, ncas, nelecas, ci_i) in enumerate (zip (las.fciboxes, ncas_sub, nelecas_sub, ci)):
+        for isub, (ncas, nelecas) in enumerate (zip (ncas_sub, nelecas_sub)):
             i = sum (ncas_sub[:isub])
             j = i + ncas
             dm1 = natorb_casdm1[i:j,i:j]
@@ -1062,7 +1062,10 @@ def canonicalize (las, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2
             idx = np.argsort (occ)[::-1]
             umat[i:j,i:j] = umat[i:j,i:j][:,idx]
             if orbsym_i is not None: orbsym[i:j] = orbsym[i:j][idx]
-            ci[isub] = fcibox.states_transform_ci_for_orbital_rotation (ci_i, ncas, nelecas, umat[i:j,i:j])
+            if ci is not None:
+                fcibox = las.fciboxes[isub]
+                ci[isub] = fcibox.states_transform_ci_for_orbital_rotation (
+                    ci[isub], ncas, nelecas, umat[i:j,i:j])
     else: # You can't get proper LAS-type CI vectors w/out active space fragmentation
         ci = None 
         orbsym_cas = None if orbsym is None else orbsym[ncore:nocc]
