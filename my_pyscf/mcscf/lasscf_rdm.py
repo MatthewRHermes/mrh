@@ -7,7 +7,7 @@ import numpy as np
 from scipy import linalg, sparse
 from mrh.my_pyscf.mcscf import lasscf_o0, lasci
 from mrh.my_pyscf.fci import csf_solver
-from pyscf import lib
+from pyscf import lib, gto
 
 class LASSCF_UnitaryGroupGenerators (lasscf_o0.LASSCF_UnitaryGroupGenerators):
     ''' spoof away CI degrees of freedom '''
@@ -228,12 +228,36 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     lib.logger.info (las, 'LASSCF E = %.15g ; |g_int| = %.15g ; |g_ext| = %.15g', e_tot, norm_gorb, norm_gx)
     t1 = log.timer ('LASSCF wrap-up', *t1)
 
-    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, None, casdm1fs, veff=veff.sa, h2eff_sub=h2eff_sub)
+    mo_coeff, mo_energy, mo_occ, casdm1frs, casdm2fr, h2eff_sub = las.canonicalize (
+        mo_coeff, casdm1frs, casdm2fr, veff=veff.sa, h2eff_sub=h2eff_sub)
     t1 = log.timer ('LASSCF canonicalization', *t1)
 
     t0 = log.timer ('LASSCF kernel function', *t0)
 
     return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, casdm1frs, casdm2fr, h2eff_sub, veff
+
+def canonicalize (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, natorb_casdm1=None,
+        veff=None, h2eff_sub=None, orbsym=None):
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    if casdm1frs is None: casdm1frs = las.casdm1frs
+    if casdm2fr is None: casdm2fr = las.casdm2fr
+    casdm1fs = las.make_casdm1s_sub (casdm1frs=casdm1frs)
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    moH_cas = mo_coeff[:,ncore:nocc].conj ().T.copy ()
+    mo_coeff, mo_ene, mo_occ, _, h2eff_sub = lasci.canonicalize (las, mo_coeff=mo_coeff,
+        ci=None, casdm1fs=casdm1fs, natorb_casdm1=natorb_casdm1, veff=veff,
+        h2eff_sub=h2eff_sub, orbsym=orbsym)
+    ovlp = las._scf.get_ovlp ()
+    umat = moH_cas @ ovlp @ mo_coeff[:,ncore:nocc]
+    for isub, (lasdm1rs, lasdm2r) in enumerate (zip (casdm1frs, casdm2fr)):
+        i = sum (las.ncas_sub[:isub])
+        j = i + las.ncas_sub[isub]
+        u = umat[i:j,i:j]
+        lasdm1rs[:,:,:,:] = np.einsum ('rsij,ia,jb->rsab', lasdm1rs, u.conj (), u)
+        lasdm2r[:,:,:,:,:] = np.einsum ('rijkl,ia,jb,kc,ld->rabcd', lasdm2r,
+            u.conj (), u, u.conj (), u)
+    return mo_coeff, mo_ene, mo_occ, casdm1frs, casdm2fr, h2eff_sub
 
 
 # From lasci.ci_cycle and lasci.get_init_guess ci, I deduce that
@@ -337,6 +361,7 @@ class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
 
     _ugg = LASSCF_UnitaryGroupGenerators
     _hop = LASSCF_HessianOperator
+    canonicalize = canonicalize
 
     def _init_fcibox (self, smult, nel):
         s = ci2rdm_solver (csf_solver (self.mol, smult=smult))
@@ -364,16 +389,30 @@ class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
         self.weights = self.fciboxes[0].weights
 
         self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, \
-            self.e_cas, casdm1frs, casdm2fr, h2eff_sub, veff = \
+            self.e_cas, self.casdm1frs, self.casdm2fr, h2eff_sub, veff = \
                 kernel(self, mo_coeff, casdm1frs=casdm1frs, casdm2fr=casdm2fr, 
                     verbose=verbose, conv_tol_grad=conv_tol_grad)
 
-        return self.e_tot, self.e_cas, casdm1frs, casdm2fr, self.mo_coeff, self.mo_energy, h2eff_sub, veff
+        return self.e_tot, self.e_cas, self.casdm1frs, self.casdm2fr, self.mo_coeff, self.mo_energy, h2eff_sub, veff
+
+def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    if isinstance(mf_or_mol, gto.Mole):
+        mf = scf.RHF(mf_or_mol)
+    else:
+        mf = mf_or_mol
+    if mf.mol.symmetry: 
+        raise NotImplementedError ("point-group symmetry")
+        #las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    else:
+        las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    if getattr (mf, 'with_df', None):
+        las = lasci.density_fit (las, with_df = mf.with_df) 
+    return las
 
 
 if __name__ == '__main__':
     from pyscf import gto, scf
-    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF as LASSCFRef
     xyz = '''H 0.0 0.0 0.0
              H 1.0 0.0 0.0
              H 0.2 3.9 0.1
@@ -381,7 +420,7 @@ if __name__ == '__main__':
     mol = gto.M (atom = xyz, basis = '6-31g', output='lasscf_rdm.log',
         verbose=lib.logger.INFO)
     mf = scf.RHF (mol).run ()
-    las = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1))
+    las = LASSCFRef (mf, (2,2), (2,2), spin_sub=(1,1))
     frag_atom_list = ((0,1),(2,3))
     mo_loc = las.localize_init_guess (frag_atom_list, mf.mo_coeff)
     las.ah_level_shift = 1e-4
@@ -417,7 +456,7 @@ if __name__ == '__main__':
     print ('hessian test:', linalg.norm (hx_test-hx_ref), linalg.norm (hx_ref))
 
     print ("CI algorithm total energy:", las.e_tot)
-    las_test = LASSCFNoSymm (mf, (2,2), (2,2), spin_sub=(1,1))
+    las_test = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1))
     las_test.kernel (mo_loc)
     print ("RDM algorithm total energy:", las_test.e_tot)
 
