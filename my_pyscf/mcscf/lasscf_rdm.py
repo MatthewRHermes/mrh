@@ -2,9 +2,11 @@
 # localized active subspace is decoupled from orbital rotation and the kernel
 # for obtaining RDMs given LAS Hamiltonians can be subclassed arbitrarily
 
+import time
 import numpy as np
 from scipy import linalg, sparse
 from mrh.my_pyscf.mcscf import lasscf_o0, lasci
+from mrh.my_pyscf.fci import csf_solver
 from pyscf import lib
 
 class LASSCF_UnitaryGroupGenerators (lasscf_o0.LASSCF_UnitaryGroupGenerators):
@@ -248,8 +250,9 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
 # calls. I can use the fcibox as syntactic sugar here
 
 class RDMSolver (lib.StreamObject):
-    
-    def __init__(self, norb, get_init_guess, kernel):
+
+    nroots=1 
+    def __init__(self, get_init_guess, kernel):
         self.spin = None
         self.charge = None
         self._get_init_guess = get_init_guess
@@ -262,17 +265,25 @@ class RDMSolver (lib.StreamObject):
     def get_init_guess (self, norb, nelec, nroots, ham):
         ''' Important: list gets unwrapped '''
         h1s, h2 = ham
-        dm1rs, dm2r = self._get_init_guess (norb, nelec, h1s, h2)
+        dm1rs, dm2r = self._get_init_guess (norb, nelec, nroots, h1s, h2)
         return [[dm1rs, dm2r]]
 
-    def kernel (self, norb, nelec, h0, h1s, h2):
-        erdm, dm1s, dm2 = self._kernel (norb, nelec, h0, h1s, h2)
+    def kernel (self, norb, nelec, h0, h1s, h2, nroots=1):
+        erdm, dm1s, dm2 = self._kernel (norb, nelec, h0, h1s, h2, nroots=nroots)
         return erdm, dm1s, dm2
 
 class FCIBox (lib.StreamObject):
 
     def __init__(self, rdmsolvers):
         self.fcisolvers = rdmsolvers
+
+    @property
+    def nroots (self):
+        return len (self.fcisolvers)
+
+    @property
+    def weights (self):
+        return [1.0/self.nroots,]*self.nroots
 
     def kernel (self, h1rs, h2r, norb, nelec, ci0=None, verbose=None,
             max_memory=None, ecore=0, orbsym=None):
@@ -299,9 +310,61 @@ class FCIBox (lib.StreamObject):
             nelec = (nelec+m)//2, (nelec-m)//2
         return nelec
 
-#class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
-#    def _init_fcibox (self, smult, nel):
-#        spin = s.spin
+
+def ci2rdm_solver (fci):
+
+    make_hdiag = getattr (fci, 'make_hdiag_csf', fci.make_hdiag)
+    def ci2rdm (ci, nroots, norb, nelec):
+        assert (nroots == 1)
+        dm1s, dm2 = fci.make_rdm12s (ci, norb, nelec)
+        dm1s = np.stack (dm1s, axis=0)
+        dm2 = dm2[0] + dm2[1] + dm2[1].transpose (2,3,0,1) + dm2[2]
+        return dm1s, dm2
+
+    def get_init_guess (norb, nelec, nroots, h1s, h2):
+        hdiag = fci.make_hdiag (h1s, h2, norb, nelec)
+        cir = fci.get_init_guess (norb, nelec, nroots, hdiag)
+        return ci2rdm (cir, nroots, norb, nelec)
+
+    def kernel (norb, nelec, h0, h1rs, h2, nroots=1):
+        er, cir = fci.kernel (h1s, h2, norb, nelec, nroots=nroots, ecore=h0)
+        return ci2rdm (cir, nroots, norb, nelec)
+
+    return RDMSolver (get_init_guess, kernel) 
+
+class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
+    def _init_fcibox (self, smult, nel):
+        s = ci2rdm_solver (csf_solver (self.mol, smult=smult))
+        s.spin = nel[0] - nel[1]
+        return FCIBox ([s])
+
+    def kernel(self, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=None, verbose=None):
+        if mo_coeff is None:
+            mo_coeff = self.mo_coeff
+        else:
+            self.mo_coeff = mo_coeff
+        if verbose is None: verbose = self.verbose
+        if conv_tol_grad is None: conv_tol_grad = self.conv_tol_grad
+        log = lib.logger.new_logger(self, verbose)
+
+        if self.verbose >= lib.logger.WARN:
+            self.check_sanity()
+        self.dump_flags(log)
+
+        # MRH: the below two lines are not the ideal solution to my problem...
+        for fcibox in self.fciboxes:
+            fcibox.verbose = self.verbose
+            fcibox.stdout = self.stdout
+        self.nroots = self.fciboxes[0].nroots
+        self.weights = self.fciboxes[0].weights
+
+        self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, \
+            self.e_cas, casdm1frs, casdm2fr, h2eff_sub, veff = \
+                kernel(self, mo_coeff, casdm1frs=casdm1frs, casdm2fr=casdm2fr, 
+                    verbose=verbose, conv_tol_grad=conv_tol_grad)
+
+        return self.e_tot, self.e_cas, casdm1frs, casdm2fr, self.mo_coeff, self.mo_energy, h2eff_sub, veff
+
 
 if __name__ == '__main__':
     from pyscf import gto, scf
@@ -347,4 +410,6 @@ if __name__ == '__main__':
     hx_ref = hop_ref._matvec (x_ref)[:hx_test.size]
     print ('hessian test:', linalg.norm (hx_test-hx_ref), linalg.norm (hx_ref))
 
+    las_test = LASSCFNoSymm (mf, (2,2), (2,2), spin_sub=(1,1))
+    las_test.kernel (mo_loc)
 
