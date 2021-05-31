@@ -132,7 +132,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
             return [np.eye (self.nmo)]
         return make_schmidt_spaces (self)
 
-    def _init_eri (self):
+    def _init_eri_(self):
         lasci._init_df_(self)
         t0 = (time.process_time (), time.time ())
         self.uschmidt = uschmidt = self.make_schmidt_spaces ()
@@ -164,9 +164,9 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         odm1rs_ua = odm1rs[:,:,ncore:nocc,:].copy ()
         odm1rs_ua[:,:,:,ncore:nocc] = 0.0
         odm1s_ua = np.einsum ('r,rsap->sap', self.weights, odm1rs_ua)
-        veff_aa = np.tensordot (odm1s_ua, self.h2eff_sub, axes=((2,1),(0,1)))
+        veff_aa = np.tensordot (odm1s_ua, self.eri_paaa, axes=((2,1),(0,1)))
         veff_aa += veff_aa[::-1] # vj(a) + vj(b)
-        veff_aa -= np.tensordot (odm1s_ua, self.h2eff_sub, axes=((2,1),(0,3)))
+        veff_aa -= np.tensordot (odm1s_ua, self.eri_paaa, axes=((2,1),(0,3)))
         veff_aa += veff_aa.transpose (0,2,1)
         veff_mo[:,ncore:nocc,ncore:nocc] += veff_aa
         for isub, h1rs in enumerate (h1frs):
@@ -174,9 +174,9 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
             j = i + self.ncas_sub[isub]
             dm1rs = odm1rs_ua.copy ()
             dm1rs[:,:,i:j,:] = 0.0
-            v  = np.tensordot (dm1rs, self.h2eff_sub, axes=((3,2),(0,1)))
+            v  = np.tensordot (dm1rs, self.eri_paaa, axes=((3,2),(0,1)))
             v += v[:,::-1,:,:]
-            v -= np.tensordot (dm1rs, self.h2eff_sub, axes=((3,2),(0,3)))
+            v -= np.tensordot (dm1rs, self.eri_paaa, axes=((3,2),(0,3)))
             v += v.transpose (0,1,3,2)
             h1rs[:,:,:,:] += v
 
@@ -223,7 +223,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         sdm = dm1s_mo[0] - dm1s_mo[1]
         veff_s = np.zeros_like (veff_c)
         sdm_cas = sdm[ncore:nocc,ncore:nocc]
-        veff_s[:,ncore:nocc] = np.tensordot (self.h2eff_sub, sdm_cas, axes=((1,2),(0,1)))
+        veff_s[:,ncore:nocc] = np.tensordot (self.eri_paaa, sdm_cas, axes=((1,2),(0,1)))
         veff_s[ncore:nocc,:] = veff_s[:,ncore:nocc].T
         veff_s[:,:] *= -0.5
         veffa = veff_c + veff_s
@@ -274,17 +274,17 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         # (H.x_aa)_ua
         ecm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
         ecm2 += ecm2.transpose (2,3,0,1) + tcm2
-        f1_prime[:ncore,ncore:nocc] += np.tensordot (self.h2eff_sub[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
-        f1_prime[nocc:,ncore:nocc] += np.tensordot (self.h2eff_sub[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
+        f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
+        f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
         # (H.x_ua)_aa
         ecm2 = ocm2.copy ()
         f1_aa = f1_prime[ncore:nocc,ncore:nocc]
-        f1_aa[:,:] += (np.tensordot (self.h2eff_sub[:ncore], ocm2[:,:,:,:ncore], axes=((0,2,3),(3,0,1)))
-                     + np.tensordot (self.h2eff_sub[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,2,3),(3,0,1))))
-        f1_aa[:,:] += (np.tensordot (self.h2eff_sub[:ncore], ocm2[:,:,:,:ncore], axes=((0,1,3),(3,2,1)))
-                     + np.tensordot (self.h2eff_sub[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,1,3),(3,2,1))))
-        f1_aa[:,:] += (np.tensordot (self.h2eff_sub[:ncore], ocm2[:,:,:,:ncore], axes=((0,1,2),(3,2,0)))
-                     + np.tensordot (self.h2eff_sub[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,1,2),(3,2,0))))
+        f1_aa[:,:] += (np.tensordot (self.eri_paaa[:ncore], ocm2[:,:,:,:ncore], axes=((0,2,3),(3,0,1)))
+                     + np.tensordot (self.eri_paaa[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,2,3),(3,0,1))))
+        f1_aa[:,:] += (np.tensordot (self.eri_paaa[:ncore], ocm2[:,:,:,:ncore], axes=((0,1,3),(3,2,1)))
+                     + np.tensordot (self.eri_paaa[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,1,3),(3,2,1))))
+        f1_aa[:,:] += (np.tensordot (self.eri_paaa[:ncore], ocm2[:,:,:,:ncore], axes=((0,1,2),(3,2,0)))
+                     + np.tensordot (self.eri_paaa[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,1,2),(3,2,0))))
         return gorb + (f1_prime - f1_prime.T)
 
 class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
