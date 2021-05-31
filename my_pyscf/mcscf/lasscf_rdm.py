@@ -7,7 +7,7 @@ import numpy as np
 from scipy import linalg, sparse
 from mrh.my_pyscf.mcscf import lasscf_o0, lasci
 from mrh.my_pyscf.fci import csf_solver
-from pyscf import lib, gto
+from pyscf import lib, gto, ao2mo
 from pyscf.fci.direct_spin1 import _unpack_nelec
 
 class LASSCF_UnitaryGroupGenerators (lasscf_o0.LASSCF_UnitaryGroupGenerators):
@@ -302,6 +302,7 @@ class RDMSolver (lib.StreamObject):
         return [dm1s, dm2], None
 
     def kernel (self, norb, nelec, h0, h1s, h2):
+        h2 = ao2mo.restore (1, h2, norb)
         if callable (self._kernel):
             erdm, dm1s, dm2 = self._kernel (norb, nelec, h0, h1s, h2)
         else:
@@ -362,6 +363,10 @@ class FCIBox (lib.StreamObject):
             nelec = (nelec+m)//2, (nelec-m)//2
         return nelec
 
+def make_fcibox (mol, kernel=None, get_init_guess=None, spin=None):
+    s = RDMSolver (mol, kernel=kernel, get_init_guess=get_init_guess)
+    s.spin = spin
+    return FCIBox ([s])
 
 class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
 
@@ -375,9 +380,7 @@ class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
     canonicalize = canonicalize
 
     def _init_fcibox (self, smult, nel):
-        s = RDMSolver (self.mol)
-        s.spin = nel[0] - nel[1]
-        return FCIBox ([s])
+        return make_fcibox (self.mol, spin=nel[0]-nel[1])
 
     def kernel(self, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=None, verbose=None):
         if mo_coeff is None:
