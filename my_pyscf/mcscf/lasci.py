@@ -1622,6 +1622,8 @@ class LASCINoSymm (casci.CASCI):
                 te2 = np.tensordot (eri, cdm2, axes=4) / 2
                 e2 += te2
             energy_elec.append (e1 + e2)
+            self._e1_ref = e1
+            self._e2_ref = e2
 
         return energy_elec
 
@@ -1652,7 +1654,7 @@ class LASCINoSymm (casci.CASCI):
             nelecas_sub=nelecas_sub, casdm1frs=casdm1frs)
         casdm1 = casdm1s.sum (0)
         casdm2 = self.make_casdm2 (ci=ci, ncas_sub=ncas_sub,
-            nelecas_sub=nelecas_sub, casdm2fr=casdm2fr)
+            nelecas_sub=nelecas_sub, casdm1frs=casdm1frs, casdm2fr=casdm2fr)
         casdm2 -= np.multiply.outer (casdm1, casdm1)
         casdm2 += np.multiply.outer (casdm1s[0], casdm1s[0]).transpose (0,3,2,1)
         casdm2 += np.multiply.outer (casdm1s[1], casdm1s[1]).transpose (0,3,2,1)
@@ -1661,6 +1663,8 @@ class LASCINoSymm (casci.CASCI):
         e2 = np.tensordot (eri, casdm2, axes=4)/2
 
         e0 = self.energy_nuc ()
+        self._e1_test = e1
+        self._e2_test = e2
         return e1 + e2
 
     _ugg = LASCI_UnitaryGroupGenerators

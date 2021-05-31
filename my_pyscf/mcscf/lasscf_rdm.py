@@ -35,7 +35,7 @@ class LASSCFSymm_UnitaryGroupGenerators (LASSCF_UnitaryGroupGenerators):
 class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
     def __init__(self, las, ugg, mo_coeff=None, casdm1frs=None, casdm2fr=None,
             ncore=None, ncas_sub=None, nelecas_sub=None, h2eff_sub=None, veff=None,
-            do_init_eri=True):
+            do_init_eri=True, **kwargs):
         if mo_coeff is None: mo_coeff = las.mo_coeff
         if casdm1frs is None: casdm1frs = las.casdm1frs
         if casdm2fr is None: casdm2fr = las.casdm2fr
@@ -110,8 +110,8 @@ def get_init_guess_rdm (las, mo_coeff=None, h2eff_sub=None):
     ''' fcibox.solver[i] members make_hdiag_csf and get_init_guess both have
         to be spoofed '''
     fakeci = lasci.get_init_guess_ci (las, mo_coeff=mo_coeff, h2eff_sub=h2eff_sub)
-    casdm1frs = [f[0] for f in fakeci]
-    casdm2fr = [f[1] for f in fakeci]
+    casdm1frs = [[r[0] for r in f] for f in fakeci]
+    casdm2fr = [[r[1] for r in f] for f in fakeci]
     return casdm1frs, casdm2fr
 
 def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log):
@@ -132,7 +132,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
 
     if casdm1frs is None: casdm1frs, casdm2fr = get_init_guess_rdm (las, mo_coeff, h2eff_sub)
     casdm1fs = las.make_casdm1s_sub (casdm1frs=casdm1frs)
-    dm = las.make_rdm1 (casdm1s_sub=casdm1fs)
+    dm1 = las.make_rdm1 (casdm1s_sub=casdm1fs)
     veff = las.get_veff (dm1s=dm1)
     veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
     t1 = log.timer('LASSCF initial get_veff', *t1)
@@ -144,24 +144,24 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     for it in range (las.max_cycle_macro):
         e_cas, casdm1frs, casdm2fr = rdm_cycle (las, mo_coeff, casdm1frs,
             veff, h2eff_sub, log)
-        if ugg is None: ugg = las.get_ugg (mo_coeff, ci1)
+        if ugg is None: ugg = las.get_ugg (mo_coeff)
         log.info ('LASSCF subspace CI energies: {}'.format (e_cas))
         t1 = log.timer ('LASSCF rdm_cycle', *t1)
 
         casdm1fs_new = las.make_casdm1s_sub (casdm1frs=casdm1frs)
         veff = veff.sum (0)/2
-        if not isinstance (las, _DFLASCI) or las.verbose > lib.logger.DEBUG:
+        if not isinstance (las, lasci._DFLASCI) or las.verbose > lib.logger.DEBUG:
             dm1 = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
             veff_new = las.get_veff (dm1s=dm1)
-            if not isinstance (las, _DFLASCI): veff = veff_new
-        if isinstance (las, _DFLASCI):
+            if not isinstance (las, lasci._DFLASCI): veff = veff_new
+        if isinstance (las, lasci._DFLASCI):
             ddm = [dm_new - dm_old for dm_new, dm_old in zip (casdm1fs_new, casdm1fs)]
             veff += las.fast_veffa (ddm, h2eff_sub, mo_coeff=mo_coeff)
             if las.verbose > lib.logger.DEBUG:
                 errmat = veff - veff_new
                 lib.logger.debug (las, 'fast_veffa error: {}'.format (linalg.norm (errmat)))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
-        casdm1fs = casdm1s_new
+        casdm1fs = casdm1fs_new
 
         t1 = log.timer ('LASSCF get_veff after ci', *t1)
         H_op = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, casdm1frs=casdm1frs,
@@ -197,7 +197,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
                 log.info ('LASSCF micro %d : |x_orb| = %.15g', microit[0], norm_xorb)
     
         my_tol = max (conv_tol_grad, norm_gx/10)
-        x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol, maxiter=las.max_cycle_micro,
+        x, info_int = sparse.linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol, maxiter=las.max_cycle_micro,
          callback=my_callback, M=prec_op)
         t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
         mo_coeff, h2eff_sub = H_op.update_mo_eri (x, h2eff_sub)
@@ -210,7 +210,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     t2 = log.timer ('LASSCF {} macrocycles'.format (it), *t2)
 
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff,
-        casm1frs=casdm1frs, casdm2fr=casdm2fr, h2eff=h2eff_sub, veff=veff)
+        casdm1frs=casdm1frs, casdm2fr=casdm2fr, h2eff=h2eff_sub, veff=veff)
     e_tot_test = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, casdm1frs=casdm1frs,
         casdm2fr=casdm2fr, h2eff_sub=h2eff_sub, veff=veff, do_init_eri=False).e_tot
     veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub, mo_coeff=mo_coeff, _full=True)
@@ -228,7 +228,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     lib.logger.info (las, 'LASSCF E = %.15g ; |g_int| = %.15g ; |g_ext| = %.15g', e_tot, norm_gorb, norm_gx)
     t1 = log.timer ('LASSCF wrap-up', *t1)
 
-    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, casdm1frs, veff=veff.sa, h2eff_sub=h2eff_sub)
+    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, None, casdm1fs, veff=veff.sa, h2eff_sub=h2eff_sub)
     t1 = log.timer ('LASSCF canonicalization', *t1)
 
     t0 = log.timer ('LASSCF kernel function', *t0)
@@ -263,10 +263,10 @@ class RDMSolver (lib.StreamObject):
         return (h1s, h2)
 
     def get_init_guess (self, norb, nelec, nroots, ham):
-        ''' Important: list gets unwrapped '''
+        ''' Important: zeroth item selected in get_init_guess_ci '''
         h1s, h2 = ham
-        dm1rs, dm2r = self._get_init_guess (norb, nelec, nroots, h1s, h2)
-        return [[dm1rs, dm2r]]
+        dm1s, dm2 = self._get_init_guess (norb, nelec, nroots, h1s, h2)
+        return [dm1s, dm2], None
 
     def kernel (self, norb, nelec, h0, h1s, h2, nroots=1):
         erdm, dm1s, dm2 = self._kernel (norb, nelec, h0, h1s, h2, nroots=nroots)
@@ -285,13 +285,13 @@ class FCIBox (lib.StreamObject):
     def weights (self):
         return [1.0/self.nroots,]*self.nroots
 
-    def kernel (self, h1rs, h2r, norb, nelec, ci0=None, verbose=None,
+    def kernel (self, h1rs, h2, norb, nelec, ci0=None, verbose=None,
             max_memory=None, ecore=0, orbsym=None):
         if isinstance (ecore, (int, float, np.integer, np.floating)):
             ecore = [ecore,] * len (h1rs)
         erdm = []
         dm1rs = []
-        dm2 = []
+        dm2r = []
         for h0, h1s, solver in zip (ecore, h1rs, self.fcisolvers):
             e, dm1s, dm2 = solver.kernel (norb, nelec, h0, h1s, h2)
             erdm.append (e)
@@ -326,13 +326,18 @@ def ci2rdm_solver (fci):
         cir = fci.get_init_guess (norb, nelec, nroots, hdiag)
         return ci2rdm (cir, nroots, norb, nelec)
 
-    def kernel (norb, nelec, h0, h1rs, h2, nroots=1):
+    def kernel (norb, nelec, h0, h1s, h2, nroots=1):
         er, cir = fci.kernel (h1s, h2, norb, nelec, nroots=nroots, ecore=h0)
-        return ci2rdm (cir, nroots, norb, nelec)
+        dm1s, dm2 = ci2rdm (cir, nroots, norb, nelec)
+        return er, dm1s, dm2
 
     return RDMSolver (get_init_guess, kernel) 
 
 class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
+
+    _ugg = LASSCF_UnitaryGroupGenerators
+    _hop = LASSCF_HessianOperator
+
     def _init_fcibox (self, smult, nel):
         s = ci2rdm_solver (csf_solver (self.mol, smult=smult))
         s.spin = nel[0] - nel[1]
@@ -379,7 +384,8 @@ if __name__ == '__main__':
     las = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1))
     frag_atom_list = ((0,1),(2,3))
     mo_loc = las.localize_init_guess (frag_atom_list, mf.mo_coeff)
-    las.max_cycle_macro = 3
+    las.ah_level_shift = 1e-4
+    #las.max_cycle_macro = 3
     las.kernel (mo_loc)
 
     mo = las.mo_coeff
@@ -410,6 +416,8 @@ if __name__ == '__main__':
     hx_ref = hop_ref._matvec (x_ref)[:hx_test.size]
     print ('hessian test:', linalg.norm (hx_test-hx_ref), linalg.norm (hx_ref))
 
+    print ("CI algorithm total energy:", las.e_tot)
     las_test = LASSCFNoSymm (mf, (2,2), (2,2), spin_sub=(1,1))
     las_test.kernel (mo_loc)
+    print ("RDM algorithm total energy:", las_test.e_tot)
 
