@@ -8,6 +8,7 @@ from scipy import linalg, sparse
 from mrh.my_pyscf.mcscf import lasscf_o0, lasci
 from mrh.my_pyscf.fci import csf_solver
 from pyscf import lib, gto
+from pyscf.fci.direct_spin1 import _unpack_nelec
 
 class LASSCF_UnitaryGroupGenerators (lasscf_o0.LASSCF_UnitaryGroupGenerators):
     ''' spoof away CI degrees of freedom '''
@@ -276,9 +277,11 @@ def canonicalize (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, natorb_casd
 class RDMSolver (lib.StreamObject):
 
     nroots=1 
-    def __init__(self, get_init_guess, kernel):
+    def __init__(self, mol, kernel=None, get_init_guess=None):
+        self.mol = mol
         self.spin = None
         self.charge = None
+        self.fci = None
         self._get_init_guess = get_init_guess
         self._kernel = kernel
 
@@ -289,12 +292,37 @@ class RDMSolver (lib.StreamObject):
     def get_init_guess (self, norb, nelec, nroots, ham):
         ''' Important: zeroth item selected in get_init_guess_ci '''
         h1s, h2 = ham
-        dm1s, dm2 = self._get_init_guess (norb, nelec, nroots, h1s, h2)
+        if callable (self._get_init_guess):
+            dm1s, dm2 = self._get_init_guess (norb, nelec, nroots, h1s, h2)
+        else:
+            fci = self._get_csf_solver (nelec)
+            hdiag = fci.make_hdiag_csf (h1s, h2, norb, nelec)
+            ci = fci.get_init_guess (norb, nelec, nroots, hdiag)
+            dm1s, dm2 = self._ci2rdm (fci, ci, norb, nelec)
         return [dm1s, dm2], None
 
-    def kernel (self, norb, nelec, h0, h1s, h2, nroots=1):
-        erdm, dm1s, dm2 = self._kernel (norb, nelec, h0, h1s, h2, nroots=nroots)
+    def kernel (self, norb, nelec, h0, h1s, h2):
+        if callable (self._kernel):
+            erdm, dm1s, dm2 = self._kernel (norb, nelec, h0, h1s, h2)
+        else:
+            fci = self._get_csf_solver (nelec)
+            erdm, ci = fci.kernel (h1s, h2, norb, nelec, nroots=1, ecore=h0)
+            dm1s, dm2 = self._ci2rdm (fci, ci, norb, nelec)
         return erdm, dm1s, dm2
+
+    def _get_csf_solver (self, nelec):
+        if (self.spin is None) or isinstance (nelec, (list, tuple, np.ndarray)):
+            nelec = _unpack_nelec (nelec)
+            smult = nelec[0] - nelec[1] + 1
+        else: 
+            smult = self.spin + 1
+        return csf_solver (self.mol, smult=smult)
+
+    def _ci2rdm (self, fci, ci, norb, nelec):
+        dm1s, dm2 = fci.make_rdm12s (ci, norb, nelec)
+        dm1s = np.stack (dm1s, axis=0)
+        dm2 = dm2[0] + dm2[1] + dm2[1].transpose (2,3,0,1) + dm2[2]
+        return dm1s, dm2
 
 class FCIBox (lib.StreamObject):
 
@@ -335,36 +363,19 @@ class FCIBox (lib.StreamObject):
         return nelec
 
 
-def ci2rdm_solver (fci):
-
-    make_hdiag = getattr (fci, 'make_hdiag_csf', fci.make_hdiag)
-    def ci2rdm (ci, nroots, norb, nelec):
-        assert (nroots == 1)
-        dm1s, dm2 = fci.make_rdm12s (ci, norb, nelec)
-        dm1s = np.stack (dm1s, axis=0)
-        dm2 = dm2[0] + dm2[1] + dm2[1].transpose (2,3,0,1) + dm2[2]
-        return dm1s, dm2
-
-    def get_init_guess (norb, nelec, nroots, h1s, h2):
-        hdiag = fci.make_hdiag (h1s, h2, norb, nelec)
-        cir = fci.get_init_guess (norb, nelec, nroots, hdiag)
-        return ci2rdm (cir, nroots, norb, nelec)
-
-    def kernel (norb, nelec, h0, h1s, h2, nroots=1):
-        er, cir = fci.kernel (h1s, h2, norb, nelec, nroots=nroots, ecore=h0)
-        dm1s, dm2 = ci2rdm (cir, nroots, norb, nelec)
-        return er, dm1s, dm2
-
-    return RDMSolver (get_init_guess, kernel) 
-
 class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
+
+    def __init__(self, *args, **kwargs):
+        self.casdm1frs = None
+        self.casdm2fr = None
+        lasscf_o0.LASSCFNoSymm.__init__(self, *args, **kwargs)
 
     _ugg = LASSCF_UnitaryGroupGenerators
     _hop = LASSCF_HessianOperator
     canonicalize = canonicalize
 
     def _init_fcibox (self, smult, nel):
-        s = ci2rdm_solver (csf_solver (self.mol, smult=smult))
+        s = RDMSolver (self.mol)
         s.spin = nel[0] - nel[1]
         return FCIBox ([s])
 
