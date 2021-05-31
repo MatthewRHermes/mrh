@@ -52,11 +52,11 @@ las1.fciboxes = [make_fcibox (las1.mol, kernel=get_kernel_fn (ifrag))
     algorithm, as opposed to the original coupled algorithm that las0
     is using. '''
 las1.kernel (las0.mo_coeff)
-''' Warning: currently, this doesn't converge correctly if I don't initialize
-    from the converged orbitals of the CI algorithm. However, I'm able to
-    complete a full calculation from scratch for the H2 dimer using the
-    original CI solver in this framework, so this might still work with a real
-    kernel function. See tests/lasscf/test_lasscf_rdm.py '''
+''' Warning: currently, this doesn't converge correctly with the highly fake
+    kernel I wrote above unless I initialize from the converged orbitals of the
+    CI algorithm. However, I'm able to complete a full calculation from scratch
+    using the original CI solver in this framework, so this should work with a
+    real kernel function. Also see tests/lasscf/test_lasscf_rdm.py '''
 print ("E(RDM algorithm) =", las1.e_tot)
 
 
