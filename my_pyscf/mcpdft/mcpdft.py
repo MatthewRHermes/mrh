@@ -379,7 +379,7 @@ class _PDFT ():
     def kernel (self, mo=None, ci=None, **kwargs):
         # Hafta reset the grids so that geometry optimization works!
         self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
-        self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = self.mcscf_kernel (mo, ci, **kwargs)
+        self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)
         if isinstance (self, StateAverageMCSCFSolver):
             epdft = [self.energy_tot (root=ix) for ix in range (len (self.e_states))]
             self.e_mcscf = self.e_states
@@ -509,6 +509,10 @@ class _PDFT ():
         # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
         sapdft_grad_monkeypatch_(state_average_mix_(self, fcisolvers, weights))
         return self
+
+    def state_interaction (self, weights=(0.5,0.5), obj='CMS'):
+        from mrh.my_pyscf.mcpdft.sipdft import state_interaction
+        return state_interaction (self, weights=weights, obj=obj)
 
     @property
     def otxc (self):
