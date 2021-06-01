@@ -113,8 +113,8 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
             Args: ci vectors
             Returns: float, array (nroots), array (nroots,nroots)
             The value, first, and second derivatives of the objective function
-            defining the method. May be used both in performing the SI-PDFT
-            energy calculation and in gradients.
+            which extrema define the intermediate states. May be used both in
+            performing the SI-PDFT energy calculation and in gradients.
 
         _sarot : callable
             Args: ci vectors
