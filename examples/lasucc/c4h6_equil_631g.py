@@ -33,6 +33,16 @@ e_las = las.kernel (mo_loc)[0]
 mo_loc = las.mo_coeff.copy ()
 molden.from_lasscf (las, 'c4h6_equil_lasscf88_631g.molden')
 
+# How to grab the intra-fragment effective Hamiltonians
+h2eff_sub = las.get_h2eff ()
+h1eff_list = las.get_h1eff (h2eff_sub=h2eff_sub) # Kwarg->efficiency
+h2eff_list = [las.get_h2eff_slice (h2eff_sub, i) for i in range (2)]
+print ('h1eff_list shape:', [x.shape for x in h1eff_list])
+print ('Overall dimension should be [(1,2,norb1,norb1),(1,2,norb2,norb2),...]')
+print ('h2eff_list shape:', [x.shape for x in h2eff_list])
+print (('Overall dimension should be [(norb1,norb1,norb1,norb1),'
+    '(norb2,norb2,norb2,norb2),...]\n'))
+
 # CASCI (for comparison)
 mc = mcscf.CASCI (mf, 8, 8).set (mo_coeff = mo_loc,
     fcisolver = csf_solver (mol, smult=1)).run ()
