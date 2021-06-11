@@ -3,7 +3,9 @@ from scipy import linalg
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
 from pyscf import lib
+from pyscf.lib import logger
 from pyscf.mcscf import mc1step
+from pyscf.grad import rhf as rhf_grad
 from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import sacasscf as sacasscf_grad
 
@@ -83,36 +85,68 @@ def get_sarotfns (obj):
 
 class Gradients (mcpdft_grad.Gradients):
 
+    # Preconditioner solves the IS problem; hence, get_init_guess rewrite unnecessary
+    get_init_guess = sacasscf_grad.Gradients.get_init_guess
+    project_Aop = sacasscf_grad.Gradients.project_Aop
+
     def __init__(self, mc):
         mcpdft_grad.Gradients.__init__(self, mc)
         r, g = get_sarotfns (self.base.sarot_name)
         self._sarot_response = r
         self._sarot_grad = d
+        self.nlag += self.nis
 
     @property
     def nis (self): return self.nroots * (self.nroots - 1) // 2
-    def sarot_response (self, *args, **kwargs): return self._sarot_response (self, *args, **kwargs)
-    def sarot_grad (self, *args, **kwargs): return self._sarot_grad (self, *args, **kwargs)
 
-    def solve_Lagrange_IS_part (self, g_all, ci=None):
-        # TODO: state-average-mix generalization
+    def sarot_response (self, Lis, **kwargs): return self._sarot_response (self, Lis, **kwargs)
+    def sarot_grad (self, Lis, **kwargs): return self._sarot_grad (self, Lis, **kwargs)
+
+    def kernel (self, state=None, mo=None, ci=None, **kwargs):
+        ''' Cache the Hamiltonian and effective Hamiltonian terms, and pass
+            around the IS hessian
+
+            eris, veff1, veff2, and d2f should be available to all top-level
+            functions: get_wfn_response, get_Aop_Adiag, get_ham_repsonse, and
+            get_LdotJnuc
+        '''
+        if state is None: state = self.state
+        if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        nroots, ngorb = self.nroots, self.ngorb
-        ci_arr = np.asarray (ci).reshape (nroots, -1)
+        if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
+        if state is None:
+            raise NotImplementedError ('Gradient of PDFT state-average energy')
+        self.state = state # Not the best code hygiene maybe
+        nroots = self.nroots
+        veff1 = []
+        veff2 = []
+        d2f = self.base.sarot_objfn (ci=ci)[2]
+        for c in ci:
+            v1, v2 = self.base.get_pdft_veff (mo, c, incl_coul=True, paaa_only=True)
+            veff1.append (v1)
+            veff2.append (v2)
+        return mcpdft_grad.Gradients.kernel (state=state, mo=mo, ci=ci, d2f=d2f,
+            veff1=veff1, veff2=veff2, **kwargs)
 
-        idx = np.tril_indices (nroots, k=-1)
-        d2f = self.base.sarot_objfn (ci=ci)
-        df = np.dot (bvec[ngorb:].reshape (nroots, -1).conj (), ci_arr.T)
-        return linalg.solve (d2f, -df[idx])
+    def pack_uniq_var (self, xorb, xci, xis=None):
+        x = sacasscf_grad.Gradients.pack_uniq_var (self, xorb, xci)
+        if xis is not None: x = np.append (x, xis)
+        return x
+
+    def unpack_uniq_var (self, x):
+        ngorb, nci, nroots, nis = self.ngorb, self.nci, self.nroots, self.nis
+        x, xis = x[:ngorb+nci], x[ngorb+nci:]
+        xorb, xci = sacasscf_grad.Gradients.unpack_uniq_var (x)
+        if len (xis)==nis: return xorb, xci, xis
+        return xorb, xci
 
     def get_wfn_response (self, si_bra=None, si_ket=None, state=None, mo=None,
-            ci=None, eris=None, veff1=None, veff2=None, Lis=None, **kwargs):
+            ci=None, eris=None, veff1=None, veff2=None, **kwargs):
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if state is None: state = mc_grad.state
         if si_bra is None: si_bra = mc_grad.si[:,state]
         if si_ket is None: si_ket = mc_grad.si[:,state]
-        assert (Lis is not None)
         log = lib.logger.new_logger (self, self.verbose)
         si_diag = si_bra * si_ket
         nroots, ngorb, nci = self.nroots, self.ngorb, self.nci
@@ -129,64 +163,47 @@ class Gradients (mcpdft_grad.Gradients):
         g_all += sipdft_heff_response (self, mo_coeff=mo_coeff, ci=ci,
             si_bra=si_bra, si_ket=si_ket, eris=eris)
 
-        # Solve Lagrange IS part
-        Lis[:] = self.solve_Lagrange_IS_part (g_all, ci=ci)
-
-        # Effective response including IS part
-        g_all += self.sarot_response (Lis, mo=mo, ci=ci, eris=eris)
-
-        # Double-check IS part worked?
+        # Separate IS part (TODO: state-average-mix)
         ci_arr = np.asarray (ci).reshape (nroots, -1)
         gci = g_all[ngorb:].reshape (nroots, -1)
         g_is = np.dot (gci.conj (), ci_arr.T)
-        assert (np.amax (np.abs (g_is)) < 1e-8), g_is
+        g_all[ngorb:] -= np.dot (g_is, ci_arr.conj ()).ravel ()
+        g_is = g_is[np.tril_indices (nroots, k=-1)]
+
+        g_all = np.append (g_all, g_is)
         return g_all
 
-    def project_Aop (self, Aop, ci, state):
-        ''' How do I put the SI constraint derivatives in this? '''
-        # Remove intermediate-state rotation entirely
-        # TODO: state-average-mix generalization)
-        nroots, ngorb = self.nroots, self.ngorb
-        ci = np.asarray (ci).reshape (nroots, -1)
-        def my_Aop (x0):
-            x = x0.copy ()
-            cx = np.dot (ci.conjugate (), x[ngorb:].reshape (nroots, -1))
-            x[ngorb:] -= np.dot (ci.T, cx).ravel ()
-            Ax = Aop (x)
-            cAx = ci.conjugate () @ Ax[ngorb:].reshape (nroots, -1)
-            Ax[ngorb:] -= np.dot (ci.T, cAx).ravel ()
-            return Ax
-        return my_Aop
-
-    def kernel (self, state=None, mo=None, ci=None, **kwargs):
-        ''' Cache the Hamiltonian and effective Hamiltonian terms, and create a
-            box for the intermediate-state terms of the Lagrange vector, to
-            keep them separate from the PCG algorithm until the end 
-
-            eris, veff1, veff2, and Lis should be available to all top-level
-            functions: get_wfn_response, get_Aop_Adiag, get_ham_repsonse, and
-            get_LdotJnuc
-        '''
-        if state is None: state = self.state
+    def get_Aop_Adiag (self, verbose=None, mo=None, ci=None, eris=None,
+            level_shift=None, d2f=None, **kwargs):
+        if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
-        if state is None:
-            raise NotImplementedError ('Gradient of PDFT state-average energy')
-        self.state = state # Not the best code hygiene maybe
-        nroots = self.nroots
-        Lis = np.zeros (nroots * (nroots - 1) // 2, dtype=mo.dtype)
-        veff1 = []
-        veff2 = []
-        for c in ci:
-            v1, v2 = self.base.get_pdft_veff (mo, c, incl_coul=True, paaa_only=True)
-            veff1.append (v1)
-            veff2.append (v2)
-        return mcpdft_grad.Gradients.kernel (state=state, mo=mo, ci=ci, Lis=Lis,
-            veff1=veff1, veff2=veff2, **kwargs)
+        if eris is None and self.eris is None:
+            eris = self.eris = self.base.ao2mo (mo)
+        elif eris is None:
+            eris = self.eris
+        if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
+        fcasscf = self.make_fcasscf_sa ()
+        hop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris, verbose)[2:]
+        hop = self.project_Aop (hop, ci, 0), Adiag
+        ngorb, nci = self.ngorb, self.nci
+        # TODO: cacheing sarot_response?
+        def Aop (x):
+            x_v, x_is = x[:ngorb+nci], x[ngorb+nci:]
+            Ax_v = hop (x_v) + self.sarot_response (x_is, mo=mo, ci=ci, eris=eris)
+            Ax_is = np.dot (d2f, x_is)
+            return np.append (Ax_v, Ax_is)
+        return Aop, Adiag
+
+    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, d2f=None, **kwargs):
+        if level_shift is None: level_shift = self.level_shift
+        if ci is None: ci = self.base.ci
+        if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
+        return SIPDFTLagPrec (Adiag=Adiag, level_shift=level_shift, ci=ci, 
+            d2f=d2f, grad_method=self)
 
     def get_ham_response (self, si_bra=None, si_ket=None, state=None, mo=None,
-            ci=None, eris=None, veff1=None, veff2=None, Lis=None, **kwargs):
+            ci=None, eris=None, veff1=None, veff2=None, **kwargs):
         ''' write sipdft heff Hellmann-Feynman calculator; sum over diagonal
             PDFT Hellmann-Feynman terms '''
         if mo is None: mo = self.base.mo_coeff
@@ -209,8 +226,58 @@ class Gradients (mcpdft_grad.Gradients):
         
         return de
 
+    def get_LdotJnuc (self, Lvec, atmlst=None, verbose=None,
+            ci=None, eris=None, mf_grad=None, **kwargs):
+        ''' Add the IS component '''
+        if atmlst is None: atmlst = self.atmlst
+        if verbose is None: verbose = self.verbose
+        if ci is None: ci = self.base.ci[state]
+        if eris is None and self.eris is None:
+            eris = self.eris = self.base.ao2mo (mo)
+        elif eris is None:
+            eris = self.eris
 
-    def get_LdotJnuc (self, *args, **kwargs):
-        ''' add Lis component using the kwarg (not the Lvec arg) and
-            sarot_grad function call '''
+        ngorb, nci, nis = self.ngorb, self.nci, self.nis
+        Lvec_v, Lvec_is = Lvec[:ngorb+nci], Lvec[ngorb+nci:]
+
+        # Orbital and CI components
+        de_Lv = sacasscf_grad.get_LdotJnuc (Lvec_v, atmlst=atmlst,
+            verbose=verbose, ci=ci, eris=eris, mf_grad=mf_grad,
+            **kwargs)
+
+        # SI component
+        t0 = (logger.process_clock(), logger.perf_counter())
+        de_Lis = self.sarot_grad (Lvec_is, atmlst=atmlst, mf_grad=mf_grad,
+            eris=eris, mo=mo, ci=ci, **kwargs)
+        logger.info (self, 
+            '--------------- %s gradient Lagrange IS response ---------------',
+            self.base.__class__.__name__)
+        if verbose >= logger.INFO: rhf_grad._write(self, self.mol, de_Lis, atmlst)
+        logger.info (self,
+            '----------------------------------------------------------------')
+        t0 = logger.timer (self, '{} gradient Lagrange IS response'.format (
+            self.base.__class__.__name__), *t0)
+        return de_Lv + de_Lis
+
+
+
+class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
+    ''' Solve IS part exactly, then do everything else the same '''
+
+    def __init__(self, Adiag=None, level_shift=None, ci=None, grad_method=None,
+            d2f=d2f, **kwargs):
+        sacasscf_grad.SACASLagPrec.__init__(self, Adiag=Adiag,
+            level_shift=level_shift, ci=ci, grad_method=grad_method)
+        self._init_is (d2f=d2f, **kwargs)
+
+    def _init_d2f (d2f=None, **kwargs): self.d2f=d2f
+
+    def __call__(self, x):
+        xorb, xci, xis = self.unpack_uniq_var (x)
+        Mxorb = self.orb_prec (xorb)
+        Mxci = self.ci_prec (xci)
+        Mxis = self.is_prec (xis)
+        return self.pack_uniq_var (Mxorb, Mxci, Mxis)
+
+    def is_prec (xis): Mxis = linalg.solve (self.d2f, -xis)
 
