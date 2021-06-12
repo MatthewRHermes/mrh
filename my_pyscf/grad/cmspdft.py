@@ -1,5 +1,6 @@
 import numpy as np
 from pyscf import ao2mo
+from pyscf.lib import logger
 
 def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     ''' Returns orbital/CI gradient vector '''
@@ -108,9 +109,9 @@ def sarot_grad (mc_grad, Lis, atmlst=atmlst, mo=None, ci=None, eris=None,
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
         h1ao = hcore_deriv(ia)
-        de_renorm[k] -= np.einsum('xij,ij->x', s1[:,p0:p1], dme0[p0:p1]) * 2
-        de_direct[k] += np.einsum('xij,ij->x', dvj[:,p0:p1], edm1_ao[p0:p1]) * 2
-        de_direct[k] += np.einsum('xij,ij->x', devj[:,p0:p1], dm1_ao[p0:p1]) * 2
+        de_renorm[k] -= np.einsum('xpq,pq->x', s1[:,p0:p1], dme0[p0:p1]) * 2
+        de_direct[k] += np.einsum('xipq,ipq->x', dvj[:,:,p0:p1], edm1_ao[:,p0:p1]) * 2
+        de_direct[k] += np.einsum('xipq,ipq->x', devj[:,:,p0:p1], dm1_ao[:,p0:p1]) * 2
 
     logger.debug (mc, "CMS-PDFT Lis lagrange direct component:\n{}".format (de_direct))
     logger.debug (mc, "CMS-PDFT Lis lagrange renorm component:\n{}".format (de_renorm))

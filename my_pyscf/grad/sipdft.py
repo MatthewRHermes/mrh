@@ -4,6 +4,7 @@ from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
 from pyscf import lib
 from pyscf.lib import logger
+from pyscf.fci import direct_spin1
 from pyscf.mcscf import mc1step
 from pyscf.grad import rhf as rhf_grad
 from pyscf.grad import casscf as casscf_grad
@@ -16,11 +17,11 @@ def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket):
     ci_arr = np.asarray (ci)
     ci_bra = np.tensordot (si_bra, ci_arr, axes=1)
     ci_ket = np.tensordot (si_ket, ci_arr, axes=1)
-    casdm1, casdm2 = mc.fcisolver.trans_rdm12 (ci_bra, ci_ket, ncas, nelecas)
+    casdm1, casdm2 = direct_spin1.trans_rdm12 (ci_bra, ci_ket, ncas, nelecas)
     ddm1 = np.zeros ((nroots, ncas, ncas), dtype=casdm1.dtype)
     ddm2 = np.zeros ((nroots, ncas, ncas, ncas, ncas), dtype=casdm1.dtype)
     for i in range (nroots):
-        ddm1[i,...], ddm2[i,...] = mc.fcisolver.make_rdm12 (ci[i], ncas, nelecas)
+        ddm1[i,...], ddm2[i,...] = direct_spin1.make_rdm12 (ci[i], ncas, nelecas)
     si_diag = si_bra * si_ket
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     casdm2 -= np.tensordot (si_diag, ddm2, axes=1)
@@ -36,8 +37,9 @@ def sipdft_heff_response (mc_grad, mo_coeff=None, ci=None,
     if state is None: state = mc_grad.state
     if si_bra is None: si_bra = mc.si[:,state]
     if si_ket is None: si_ket = mc.si[:,state]
-    if ham_si is None: ham_si = mc.ham_si.copy ()
+    if ham_si is None: ham_si = mc.ham_si
     if eris is None: eris = mc.ao2mo (mo_coeff)
+    ham_si = ham_si.copy ()
     nroots = mc_grad.nroots
 
     # Orbital rotation
@@ -54,7 +56,7 @@ def sipdft_heff_response (mc_grad, mo_coeff=None, ci=None,
     ci_arr = np.asarray (ci).reshape (nroots, -1)
     gci = np.dot (g_is, ci_arr)
 
-    return np.concatenate (g_orb, gci.ravel ())
+    return np.append (g_orb, gci.ravel ())
 
 def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo_coeff=None, ci=None,
         si_bra=None, si_ket=None, state=None, eris=None, **kwargs):
@@ -69,7 +71,7 @@ def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo_coeff=None, ci=None,
     nroots = mc_grad.nroots
     
     casdm1, casdm2 = make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket)
-    dm12 = lambda * args: casdm1, casdm2
+    dm12 = lambda * args: (casdm1, casdm2)
     fcasscf = mc_grad.make_fcasscf (state=state,
         fcisolver_attr={'make_rdm12' : dm12})
     fcasscf_grad = casscf_grad.Gradients (fcasscf)
@@ -164,10 +166,14 @@ class Gradients (mcpdft_grad.Gradients):
             si_bra=si_bra, si_ket=si_ket, eris=eris)
 
         # Separate IS part (TODO: state-average-mix)
+        # I will NOT remove it from the CI vectors. Instead, both d2f.Lis and
+        # sarot_response (Lis) will compute the IS part of the CI space as a
+        # sanity check. I can throw an assert statement into the cg callback to
+        # make sure the two representations of the IS sector agree with each
+        # other at all times.
         ci_arr = np.asarray (ci).reshape (nroots, -1)
         gci = g_all[ngorb:].reshape (nroots, -1)
         g_is = np.dot (gci.conj (), ci_arr.T)
-        g_all[ngorb:] -= np.dot (g_is, ci_arr.conj ()).ravel ()
         g_is = g_is[np.tril_indices (nroots, k=-1)]
 
         g_all = np.append (g_all, g_is)
@@ -187,7 +193,7 @@ class Gradients (mcpdft_grad.Gradients):
         hop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris, verbose)[2:]
         hop = self.project_Aop (hop, ci, 0), Adiag
         ngorb, nci = self.ngorb, self.nci
-        # TODO: cacheing sarot_response?
+        # TODO: cacheing sarot_response? or an x=0 branch?
         def Aop (x):
             x_v, x_is = x[:ngorb+nci], x[ngorb+nci:]
             Ax_v = hop (x_v) + self.sarot_response (x_is, mo=mo, ci=ci, eris=eris)
@@ -265,7 +271,7 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
     ''' Solve IS part exactly, then do everything else the same '''
 
     def __init__(self, Adiag=None, level_shift=None, ci=None, grad_method=None,
-            d2f=d2f, **kwargs):
+            d2f=None, **kwargs):
         sacasscf_grad.SACASLagPrec.__init__(self, Adiag=Adiag,
             level_shift=level_shift, ci=ci, grad_method=grad_method)
         self._init_is (d2f=d2f, **kwargs)
@@ -280,4 +286,57 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
         return self.pack_uniq_var (Mxorb, Mxci, Mxis)
 
     def is_prec (xis): Mxis = linalg.solve (self.d2f, -xis)
+
+
+if __name__ == '__main__':
+    # Test sipdft_heff_response and sipdft_heff_HellmannFeynman by trying to
+    # reproduce SA-CASSCF derivatives in an arbitrary basis
+    import math
+    from pyscf import scf, gto, mcscf
+    from mrh.my_pyscf.fci import csf_solver
+    xyz = '''O  0.00000000   0.08111156   0.00000000
+             H  0.78620605   0.66349738   0.00000000
+             H -0.78620605   0.66349738   0.00000000'''
+    mol = gto.M (atom=xyz, basis='sto-3g', symmetry=False, output='sipdft.log',
+        verbose=lib.logger.DEBUG)
+    mf = scf.RHF (mol).run ()
+    mc = mcscf.CASSCF (mf, 4, 4).set (fcisolver = csf_solver (mol, 1))
+    mc = mc.state_average ([1.0/3,]*3).run ()
+    e_states = mc.e_states.copy ()
+    ham_si = np.diag (mc.e_states)
+    
+    mc_grad = mc.nuc_grad_method ()
+    dh_ref = np.stack ([mc_grad.get_ham_response (state=i) for i in range (3)], axis=0)
+    dw_ref = np.stack ([mc_grad.get_wfn_response (state=i) for i in range (3)], axis=0)
+
+    si = np.zeros ((3,3), dtype=mc.ci[0].dtype)
+    si[np.tril_indices (3, k=-1)] = math.pi * (np.random.rand ((3)) - 0.5)
+    si = linalg.expm (si-si.T)
+    ci_arr = np.asarray (mc.ci)
+    ham_si = si @ ham_si @ si.T
+    eris = mc.ao2mo (mc.mo_coeff)
+    ci = mc.ci = mc_grad.ci = mc_grad.base.ci = list (np.tensordot (si, ci_arr, axes=1))
+
+    dh_diag = np.stack ([mc_grad.get_ham_response (state=i, ci=ci) for i in range (3)], axis=0)
+    dw_diag = np.stack ([mc_grad.get_wfn_response (state=i, ci=ci) for i in range (3)], axis=0)
+    si_diag = si * si
+    dh_diag = np.einsum ('sac,sr->rac', dh_diag, si_diag)
+    dw_diag = np.einsum ('sc,sr->rc', dw_diag, si_diag)
+
+    print ("diag", linalg.norm (dw_diag-dw_ref), linalg.norm (dh_diag-dh_ref), (dw_diag-dw_ref)[:,:3])
+
+    dh_offdiag = np.zeros_like (dh_diag)
+    dw_offdiag = np.zeros_like (dw_diag)
+    for i in range (3):
+        dw_offdiag[i] += sipdft_heff_response (mc_grad, ci=ci, state=i, eris=eris,
+            si_bra=si[:,i], si_ket=si[:,i], ham_si=ham_si)
+        dh_offdiag[i] += sipdft_heff_HellmanFeynman (mc_grad, ci=ci, state=i,
+            si_bra=si[:,i], si_ket=si[:,i], eris=eris)
+
+    print ("offdiag", linalg.norm (dw_offdiag-dw_ref), linalg.norm (dh_offdiag-dh_ref), (dw_offdiag-dw_ref)[:,:3])
+
+    dw_test = dw_diag + dw_offdiag
+    dh_test = dh_diag + dh_offdiag
+
+    print ("test", linalg.norm (dw_test-dw_ref), linalg.norm (dh_test-dh_ref), (dw_test-dw_ref)[:,:3])
 
