@@ -387,7 +387,7 @@ class _PDFT ():
             self.e_ot = [e_ot for e_tot, e_ot in epdft]
             self.e_tot = np.dot (self.e_states, self.weights)
         else:
-            self.e_tot, self.e_ot = kernel (self, self.otfnal)
+            self.e_tot, self.e_ot = self.energy_tot ()
         return self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
 
     def dump_flags (self, verbose=None):

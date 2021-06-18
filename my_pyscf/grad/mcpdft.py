@@ -248,7 +248,6 @@ class Gradients (sacasscf.Gradients):
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if (veff1 is None) or (veff2 is None):
-            assert (False), kwargs
             veff1, veff2 = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
         ndet = ci[state].size
         fcasscf = self.make_fcasscf (state)
@@ -332,7 +331,9 @@ class Gradients (sacasscf.Gradients):
         ci = kwargs['ci'] if 'ci' in kwargs else self.base.ci
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
         kwargs['ci'] = ci
-        kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
+        if ('veff1' not in kwargs) or ('veff2' not in kwargs):
+            kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo,
+                ci[state], incl_coul=True, paaa_only=True)
         return super().kernel (**kwargs)
 
     def project_Aop (self, Aop, ci, state):
