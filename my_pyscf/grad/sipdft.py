@@ -40,7 +40,8 @@ def mcscf_gorb_coreonly (mc, mo=None, eris=None, ncore=None, h1e_ao=None):
     return mc.pack_uniq_var (f-f.T)
 
 def sipdft_heff_response (mc_grad, mo=None, ci=None,
-        si_bra=None, si_ket=None, state=None, ham_si=None, eris=None):
+        si_bra=None, si_ket=None, state=None, ham_si=None, 
+        e_mcscf=None, eris=None):
     ''' Compute the orbital and intermediate-state rotation response 
         vector in the context of an SI-PDFT gradient calculation '''
     mc = mc_grad.base
@@ -50,6 +51,7 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     if si_bra is None: si_bra = mc.si[:,state]
     if si_ket is None: si_ket = mc.si[:,state]
     if ham_si is None: ham_si = mc.ham_si
+    if e_mcscf is None: e_mcscf = mc.e_mcscf
     if eris is None: eris = mc.ao2mo (mo)
     nroots, ncore = mc_grad.nroots, mc.ncore
     moH = mo.conj ().T
@@ -62,12 +64,14 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
         g_orb = mc1step.gen_g_hop (mc, mo, 1, casdm1, casdm2, eris)[0]
 
     # Intermediate state rotation (TODO: state-average-mix generalization)
-    ham_od = ham_si.copy ()
-    ham_od[np.diag_indices (nroots)] = 0.0
-    braH = np.dot (si_bra, ham_od)
-    Hket = np.dot (ham_od, si_ket)
+    ham_is = ham_si.copy ()
+    ham_is[np.diag_indices (nroots)] = e_mcscf
+    braH = np.dot (si_bra, ham_is)
+    Hket = np.dot (ham_is, si_ket)
+    si2 = si_bra * si_ket
     g_is  = np.multiply.outer (si_ket, braH)
     g_is += np.multiply.outer (si_bra, Hket)
+    g_is -= 2 * si2[:,None] * ham_is
     g_is -= g_is.T
     ci_arr = np.asarray (ci).reshape (nroots, -1)
     gci = np.dot (g_is, ci_arr)
@@ -325,39 +329,44 @@ if __name__ == '__main__':
     dh_ref = np.stack ([mc_grad.get_ham_response (state=i) for i in range (3)], axis=0)
     dw_ref = np.stack ([mc_grad.get_wfn_response (state=i) for i in range (3)], axis=0)
     dworb_ref, dwci_ref = dw_ref[:,:mc_grad.ngorb], dw_ref[:,mc_grad.ngorb:]
+    assert (linalg.norm (dwci_ref) < 1e-8)
 
     si = np.zeros ((3,3), dtype=mc.ci[0].dtype)
     si[np.tril_indices (3, k=-1)] = math.pi * (np.random.rand ((3)) - 0.5)
     si = linalg.expm (si-si.T)
     ci_arr = np.asarray (mc.ci)
     ham_si = si @ ham_si @ si.T
+    e_mcscf = ham_si.diagonal ()
     eris = mc.ao2mo (mc.mo_coeff)
     ci = mc.ci = mc_grad.ci = mc_grad.base.ci = list (np.tensordot (si, ci_arr, axes=1))
+    ci_arr = np.asarray (mc.ci)
 
     dh_diag = np.stack ([mc_grad.get_ham_response (state=i, ci=ci) for i in range (3)], axis=0)
     dw_diag = np.stack ([mc_grad.get_wfn_response (state=i, ci=ci) for i in range (3)], axis=0)
     si_diag = si * si
     dh_diag = np.einsum ('sac,sr->rac', dh_diag, si_diag)
-    dw_diag = np.einsum ('sc,sr->rc', dw_diag, si_diag)
     dworb_diag, dwci_diag = dw_diag[:,:mc_grad.ngorb], dw_diag[:,mc_grad.ngorb:]
-    print ("diag", linalg.norm (dworb_diag-dworb_ref), linalg.norm (dwci_diag-dwci_ref), linalg.norm (dh_diag-dh_ref))
+    dworb_diag = np.einsum ('sc,sr->rc', dworb_diag, si_diag)
+    dwci_diag = np.einsum ('rpab,qab->rpq', dwci_diag.reshape (3,3,6,6), ci_arr)
+    dwci_diag -= dwci_diag.transpose (0,2,1)
+    dwci_diag = np.einsum ('spq,sr->rpq', dwci_diag, si_diag)
 
     dh_offdiag = np.zeros_like (dh_diag)
     dw_offdiag = np.zeros_like (dw_diag)
     for i in range (3):
         dw_offdiag[i] += sipdft_heff_response (mc_grad, ci=ci, state=i, eris=eris,
-            si_bra=si[:,i], si_ket=si[:,i], ham_si=ham_si)
+            si_bra=si[:,i], si_ket=si[:,i], ham_si=ham_si, e_mcscf=e_mcscf)
         dh_offdiag[i] += sipdft_heff_HellmanFeynman (mc_grad, ci=ci, state=i,
             si_bra=si[:,i], si_ket=si[:,i], eris=eris)
     dworb_offdiag, dwci_offdiag = dw_offdiag[:,:mc_grad.ngorb], dw_offdiag[:,mc_grad.ngorb:]
-    
-    print ("offdiag", linalg.norm (dworb_offdiag), linalg.norm (dwci_offdiag), linalg.norm (dh_offdiag))
-
-    dw_test = dw_diag + dw_offdiag
+    dwci_offdiag = np.einsum ('rpab,qab->rpq', dwci_offdiag.reshape (3,3,6,6), ci_arr)
+ 
+    dworb_test = dworb_diag + dworb_offdiag
+    dwci_test = dwci_diag + dwci_offdiag
     dh_test = dh_diag + dh_offdiag
 
-    dw_err = dw_test - dw_ref
-    dworb_err, dwci_err = dw_err[:,:mc_grad.ngorb], dw_err[:,mc_grad.ngorb:]
+    dworb_err = dworb_test - dworb_ref
+    dwci_err = dwci_test 
     dh_err = dh_test - dh_ref 
     print ("test", linalg.norm (dworb_err), linalg.norm (dwci_err), linalg.norm (dh_err))
 
