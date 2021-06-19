@@ -45,6 +45,7 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     moH = mo.conj ().T
 
     # Orbital rotation (no all-core DM terms allowed!)
+    # (Factor of 2 is convention difference between mc1step and newton_casscf)
     casdm1, casdm2 = make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket)
     vnocore = eris.vhf_c.copy ()
     vnocore[:,:ncore] = -moH @ mc.get_hcore () @ mo[:,:ncore]
