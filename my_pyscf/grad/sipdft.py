@@ -25,19 +25,7 @@ def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket):
     si_diag = si_bra * si_ket
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     casdm2 -= np.tensordot (si_diag, ddm2, axes=1)
-    casdm1 += casdm1.T
-    casdm2 += casdm2.transpose (1,0,3,2)
     return casdm1, casdm2
-
-def mcscf_gorb_coreonly (mc, mo=None, eris=None, ncore=None, h1e_ao=None):
-    if mo is None: mo = mc.mo_coeff
-    if eris is None: eris = mc.ao2mo (eris)
-    if ncore is None: ncore = mc.ncore
-    if h1e_ao is None: h1e_ao = mc.get_hcore ()
-    moH = mo.conj ().T
-    f = 2 * ((moH @ h1e_ao @ mo) + eris.vhf_c)
-    f[:,ncore:] = 0.0
-    return mc.pack_uniq_var (f-f.T)
 
 def sipdft_heff_response (mc_grad, mo=None, ci=None,
         si_bra=None, si_ket=None, state=None, ham_si=None, 
@@ -61,7 +49,7 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     vnocore = eris.vhf_c.copy ()
     vnocore[:,:ncore] = -moH @ mc.get_hcore () @ mo[:,:ncore]
     with lib.temporary_env (eris, vhf_c=vnocore):
-        g_orb = mc1step.gen_g_hop (mc, mo, 1, casdm1, casdm2, eris)[0]
+        g_orb = 2 * mc1step.gen_g_hop (mc, mo, 1, casdm1, casdm2, eris)[0]
 
     # Intermediate state rotation (TODO: state-average-mix generalization)
     ham_is = ham_si.copy ()
@@ -78,25 +66,47 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
 
     return np.append (g_orb, gci.ravel ())
 
-def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo_coeff=None, ci=None,
-        si_bra=None, si_ket=None, state=None, eris=None, **kwargs):
+def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
+        si_bra=None, si_ket=None, state=None, eris=None, mf_grad=None,
+        verbose=None, **kwargs):
     mc = mc_grad.base
     if atmlst is None: atmlst = mc_grad.atmlst
-    if mo_coeff is None: mo_coeff = mc_grad.mo_coeff
+    if mo is None: mo = mc_grad.mo_coeff
     if ci is None: ci = mc_grad.ci
     if state is None: state = mc_grad.state
     if si_bra is None: si_bra = mc.si[:,state]
     if si_ket is None: si_ket = mc.si[:,state]
-    if eris is None: eris = mc.ao2mo (mo_coeff)
-    nroots = mc_grad.nroots
-    
+    if eris is None: eris = mc.ao2mo (mo)
+    if mf_grad is None: mf_grad = mc._scf.nuc_grad_method ()
+    if verbose is None: verbose = mc_grad.verbose
+    ncore, nroots = mc.ncore, mc_grad.nroots
+    log = logger.new_logger (mc_grad, verbose)
+    ci0 = np.zeros_like (ci[0])
+
+    # CASSCF grad with effective RDMs
+    t0 = (logger.process_clock (), logger.perf_counter ())    
     casdm1, casdm2 = make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket)
     dm12 = lambda * args: (casdm1, casdm2)
     fcasscf = mc_grad.make_fcasscf (state=state,
         fcisolver_attr={'make_rdm12' : dm12})
     fcasscf_grad = casscf_grad.Gradients (fcasscf)
-    return fcasscf_grad.kernel (mo_coeff=mo_coeff, ci=ci[state], 
-        atmlst=atmlst, verbose=mc_grad.verbose)
+    de = fcasscf_grad.kernel (mo_coeff=mo, ci=ci0, atmlst=atmlst, verbose=0)
+
+    # subtract nuc-nuc and core-core (patching out simplified gfock terms)
+    moH, io = mo.conj ().T, mo.copy ()
+    f0 = (moH @ mc.get_hcore () @ mo) + eris.vhf_c
+    mo_energy = f0.diagonal ().copy ()
+    mo_occ = np.zeros_like (mo_energy)
+    mo_occ[:ncore] = 2.0
+    f0 *= mo_occ[None,:]
+    dme0 = lambda * args: mo @ ((f0+f0.T)*.5) @ moH
+    with lib.temporary_env (mf_grad, make_rdm1e=dme0, verbose=0):
+        dde = mf_grad.kernel (mo_coeff=mo, mo_energy=mo_energy, mo_occ=mo_occ,
+            atmlst=atmlst)
+    de -= dde
+    log.debug ('SI-PDFT gradient off-diagonal H-F terms:\n{}'.format (de))
+    log.timer ('SI-PDFT gradient off-diagonal H-F terms', *t0)
+    return de
 
 def get_sarotfns (obj):
     if obj.upper () == 'CMS':
@@ -166,9 +176,9 @@ class Gradients (mcpdft_grad.Gradients):
             ci=None, eris=None, veff1=None, veff2=None, **kwargs):
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        if state is None: state = mc_grad.state
-        if si_bra is None: si_bra = mc_grad.si[:,state]
-        if si_ket is None: si_ket = mc_grad.si[:,state]
+        if state is None: state = self.state
+        if si_bra is None: si_bra = self.base.si[:,state]
+        if si_ket is None: si_ket = self.base.si[:,state]
         log = lib.logger.new_logger (self, self.verbose)
         si_diag = si_bra * si_ket
         nroots, ngorb, nci = self.nroots, self.ngorb, self.nci
@@ -229,26 +239,42 @@ class Gradients (mcpdft_grad.Gradients):
             d2f=d2f, grad_method=self)
 
     def get_ham_response (self, si_bra=None, si_ket=None, state=None, mo=None,
-            ci=None, eris=None, veff1=None, veff2=None, **kwargs):
+            ci=None, eris=None, veff1=None, veff2=None, mf_grad=None, 
+            atmlst=None, verbose=None, **kwargs):
         ''' write sipdft heff Hellmann-Feynman calculator; sum over diagonal
             PDFT Hellmann-Feynman terms '''
+        if atmlst is None: atmlst = mc_grad.atmlst
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        if state is None: state = mc_grad.state
-        if si_bra is None: si_bra = mc_grad.si[:,state]
-        if si_ket is None: si_ket = mc_grad.si[:,state]
+        if state is None: state = self.state
+        if si_bra is None: si_bra = self.base.si[:,state]
+        if si_ket is None: si_ket = self.base.si[:,state]
+        if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
+        if verbose is None: verbose = self.verbose
         si_diag = si_bra * si_ket
+        log = logger.new_logger (self, verbose)
+
+        # Fix messed-up counting of the nuclear part
+        de_nuc = mf_grad.grad_nuc (self.mol, atmlst)
+        log.debug ('SI-PDFT gradient n-n terms:\n{}'.format (de_nuc))
+        de = de_nuc.copy ()
 
         # Diagonal: PDFT component
-        de = 0
         for i, (amp, c, v1, v2) in enumerate (zip (si_diag, ci, veff1, veff2)):
             if not amp: continue
-            de += amp * mcpdft_grad.Gradients.get_ham_response (state=i,
-                mo=mo, ci=ci, veff1=v1, veff2=v2, eris=eris, **kwargs)
+            de_i = mcpdft_grad.Gradients.get_ham_response (state=i, mo=mo,
+                ci=ci, veff1=v1, veff2=v2, eris=eris, mf_grad=mf_grad,
+                verbose=0, **kwargs) - de_nuc
+            log.debug ('SI-PDFT gradient int-state {} EPDFT terms:\n{}'.format
+                (i, de_i))
+            log.debug ('Factor for these terms: {}'.format (amp))
+            de += amp * de_i
 
         # Off-diagonal: heff component
-        de += sipdft_heff_HellmanFeynman (mo_coeff=mo, ci=ci, si_bra=si_bra,
-            si_ket=si_ket, eris=eris, state=state, **kwargs)
+        de_o = sipdft_heff_HellmanFeynman (mo_coeff=mo, ci=ci, si_bra=si_bra,
+            si_ket=si_ket, eris=eris, state=state, mf_grad=mf_grad, **kwargs)
+        log.debug ('SI-PDFT gradient offdiag H-F terms:\n{}'.format (de_o))
+        de += de_o
         
         return de
 
@@ -326,12 +352,14 @@ if __name__ == '__main__':
     ham_si = np.diag (mc.e_states)
     
     mc_grad = mc.nuc_grad_method ()
+    mf_grad = mf.nuc_grad_method ()
     dh_ref = np.stack ([mc_grad.get_ham_response (state=i) for i in range (3)], axis=0)
     dw_ref = np.stack ([mc_grad.get_wfn_response (state=i) for i in range (3)], axis=0)
     dworb_ref, dwci_ref = dw_ref[:,:mc_grad.ngorb], dw_ref[:,mc_grad.ngorb:]
     assert (linalg.norm (dwci_ref) < 1e-8)
 
     si = np.zeros ((3,3), dtype=mc.ci[0].dtype)
+    np.random.seed (0)
     si[np.tril_indices (3, k=-1)] = math.pi * (np.random.rand ((3)) - 0.5)
     si = linalg.expm (si-si.T)
     ci_arr = np.asarray (mc.ci)
