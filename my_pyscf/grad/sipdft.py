@@ -102,6 +102,9 @@ def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
     f0 *= mo_occ[None,:]
     dme0 = lambda * args: mo @ ((f0+f0.T)*.5) @ moH
     with lib.temporary_env (mf_grad, make_rdm1e=dme0, verbose=0):
+     with lib.temporary_env (mf_grad.base, mo_coeff=mo, mo_occ=mo_occ):
+        # Second level there should become unnecessary in future, if anyone
+        # ever gets around to cleaning up pyscf.df.grad.rhf & pyscf.grad.rhf
         dde = mf_grad.kernel (mo_coeff=mo, mo_energy=mo_energy, mo_occ=mo_occ,
             atmlst=atmlst)
     de -= dde
