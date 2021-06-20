@@ -1,11 +1,15 @@
 import numpy as np
 from pyscf import ao2mo
 from pyscf.lib import logger
+import copy
 
 def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     ''' Returns orbital/CI gradient vector '''
 
     mc = mc_grad.base
+    if mo is None: mo = mc.mo_coeff
+    if ci is None: ci = mc.ci
+    if eris is None: eris = mc.ao2mo (mo)
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
     nroots, nocc = mc_grad.nroots, ncore + ncas
 
@@ -62,6 +66,40 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
         Rci[I] -= ci[I] * cc # Q_I operator
 
     return mc_grad.pack_uniq_var (Rorb, Rci)
+
+def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
+    ''' Alternate implementation: monkeypatch everything but active-active
+        Coulomb part of the Hamiltonian and call newton_casscf.gen_g_hop ()[2].
+    '''
+
+    mc = mc_grad.base
+    if mo is None: mo = mc.mo_coeff
+    if ci is None: ci = mc.ci
+    if eris is None: eris = mc.ao2mo (mo)
+    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
+    nroots, nocc, nmo = mc_grad.nroots, ncore + ncas, mo.shape[1]
+    moH = mo.conj ().T
+
+    # CI vector shift
+    L = np.zeros ((nroots, nroots), dtype=Lis.dtype)
+    L[np.tril_indices (nroots, k=-1)] = Lis[:]
+    L -= L.T
+    ci_arr = np.asarray (ci)
+    Lci = np.tensordot (L, ci_arr, axes=1)
+
+    # Fake Hamiltonian!
+    h1e_mo = moH @ mc.get_hcore () @ mo
+    feris = mc.ao2mo (mo)
+    for i in range (nmo): feris.papa[i][:,:,:] = 0.0
+    feris.vhf_c[:,:] = -h1e_mo.copy ()
+
+    # Fake 2RDM!
+    def trans_rdm12 (ci1, ci0, *args, **kwargs):
+        dm1, dm2 = mc.fcisolver.states_trans_rdm12 (ci1, ci0, *args, **kwargs)
+        for d1, d2 in zip (dm1, dm2):
+            d2[:,:,:,:] = np.multiply.outer (d1, d1)
+        return dm1, dm2
+
 
 def sarot_grad (mc_grad, Lis, atmlst=atmlst, mo=None, ci=None, eris=None,
         mf_grad=None, **kwargs):
