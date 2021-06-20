@@ -4,6 +4,7 @@ from pyscf import gto, scf, df, mcscf, lib
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.grad.sipdft import sipdft_heff_response, sipdft_heff_HellmanFeynman
+from mrh.my_pyscf.df.grad import dfsacasscf
 import unittest, math
 
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
@@ -42,7 +43,8 @@ class KnownValues(unittest.TestCase):
         for mcl, stype in zip (mc_list, ('nosymm','symm')):
          for mc, itype in zip (mcl, ('conv', 'DF')):
             ci_arr = np.asarray (mc.ci)
-            mc_grad = mc.nuc_grad_method ()
+            if itype == 'conv': mc_grad = mc.nuc_grad_method ()
+            else: mc_grad = dfsacasscf.Gradients (mc)
             ngorb = mc_grad.ngorb
             dw_ref = np.stack ([mc_grad.get_wfn_response (state=i) for i in (0,1)], axis=0)
             dworb_ref, dwci_ref = dw_ref[:,:ngorb], dw_ref[:,ngorb:]
@@ -75,7 +77,8 @@ class KnownValues(unittest.TestCase):
         for mcl, stype in zip (mc_list, ('nosymm','symm')):
          for mc, itype in zip (mcl, ('conv', 'DF')):
             ci_arr = np.asarray (mc.ci)
-            mc_grad = mc.nuc_grad_method ()
+            if itype == 'conv': mc_grad = mc.nuc_grad_method ()
+            else: mc_grad = dfsacasscf.Gradients (mc)
             de_ref = np.stack ([mc_grad.get_ham_response (state=i) for i in (0,1)], axis=0)
             eris = mc.ao2mo (mc.mo_coeff)
             ci = list (np.tensordot (si, ci_arr, axes=1))
