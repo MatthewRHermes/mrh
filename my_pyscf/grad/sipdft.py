@@ -90,11 +90,12 @@ def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
     dm12 = lambda * args: (casdm1, casdm2)
     fcasscf = mc_grad.make_fcasscf (state=state,
         fcisolver_attr={'make_rdm12' : dm12})
+    # TODO: DFeri functionality
     fcasscf_grad = casscf_grad.Gradients (fcasscf)
     de = fcasscf_grad.kernel (mo_coeff=mo, ci=ci0, atmlst=atmlst, verbose=0)
 
     # subtract nuc-nuc and core-core (patching out simplified gfock terms)
-    moH, io = mo.conj ().T, mo.copy ()
+    moH = mo.conj ().T
     f0 = (moH @ mc.get_hcore () @ mo) + eris.vhf_c
     mo_energy = f0.diagonal ().copy ()
     mo_occ = np.zeros_like (mo_energy)
