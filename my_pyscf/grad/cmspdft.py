@@ -46,12 +46,10 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     tvj = np.tensordot (tdm1, aapa[:,:,ncore:nocc,:], axes=2)
     w = np.tensordot (tvj, tdm1, axes=((1,2),(1,2)))
     w = ao2mo.restore (1, w, nroots)
-    w_IJIJ = np.einsum ('ijij->ij', w)
-    w_IIJJ = np.einsum ('iijj->ij', w)
     w_IJJJ = np.einsum ('ijjj->ij', w)
-    w_IIII = np.einsum ('iiii->i', w)
-    const_IJ = (4*w_IJIJ + 2*w_IIJJ - 2*w_IIII[:,None]) * L
-    const_IJ -= np.dot (L, w_IJJJ)
+    v = -2*np.einsum ('ikjj->ijk', w) - 4*np.einsum ('ijkj->ijk', w)
+    v += (w_IJJJ + w_IJJJ.T)[:,None,:]
+    const_IJ = (v*L[None,:,:]).sum (2) - np.dot (L, w_IJJJ)
 
     # Orbital degree of freedom
     Rorb = np.zeros ((nmo,nmo), dtype=vj[0].dtype)
@@ -60,6 +58,8 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     Rorb -= Rorb.T
     
     # CI degree of freedom
+    vj = vj[:,ncore:nocc,:]
+    evj = evj[:,ncore:nocc,:]
     def contract (v,c): return mc.fcisolver.contract_1e (v, c, ncas, nelecas)
     Rci = np.tensordot (const_IJ, ci_arr, axes=1) # Delta_IJ |J> term
     vci = np.stack ([contract (v,c) for v, c in zip (vj, ci)], axis=0)
@@ -67,10 +67,8 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     for I in range (nroots):
         Rci[I] += 2 * contract (vj[I], Lci[I]) # 2 v_I |J>z_{IJ} term
         Rci[I] += 2 * contract (evj[I], ci[I]) # 2 veff_I |I> term
-        cc = np.dot (ci[I].ravel ().conj (), Rci[I].ravel ())
-        Rci[I] -= ci[I] * cc # Q_I operator
 
-    return mc_grad.pack_uniq_var (2*Rorb, 2*Rci)
+    return mc_grad.pack_uniq_var (2*Rorb, Rci)
 
 def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     ''' Alternate implementation: monkeypatch everything but active-active
@@ -271,3 +269,6 @@ if __name__ == '__main__':
 
     print (dwis_test)
     print (dwis_ref)
+
+    print (dwis_test-dwis_ref)
+
