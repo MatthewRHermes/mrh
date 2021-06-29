@@ -4,6 +4,7 @@ from pyscf import ao2mo, lib
 from pyscf.lib import logger
 from pyscf.mcscf import newton_casscf
 import copy
+from functools import reduce
 
 def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     ''' Returns orbital/CI gradient vector '''
@@ -184,6 +185,8 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     nroots, nocc = mc_grad.nroots, ncore + ncas
     mo_cas = mo[:,ncore:nocc]
     moH_cas = mo_cas.conj ().T
+    if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
+    if atmlst is None: atmlst = list (range(mol.natm))
 
     # CI vector shift
     L = np.zeros ((nroots, nroots), dtype=Lis.dtype)
@@ -202,12 +205,13 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
 
     # Potentials and operators
     eri_cas = np.zeros ([ncas,]*4, dtype=dm1.dtype)
-    for i in range (ncore, nocc):
-        eri_cas[i,:,:,:] = eris.ppaa[i][ncore:nocc,:,:]
+    for i in range (ncas):
+        j = i + ncore
+        eri_cas[i,:,:,:] = eris.ppaa[j][ncore:nocc,:,:]
     vj = np.tensordot (dm1, eri_cas, axes=2)
-    evj = np.tensordot (edm1, eri_cas, axis=2)
-    dvj = np.stack (mf_grad.get_jk (mc.mol, list(dm1)), axis=0)
-    devj = np.stack (mf_grad.get_jk (mc.mol, list(edm1_ao)), axis=0)
+    evj = np.tensordot (edm1, eri_cas, axes=2)
+    dvj = np.stack (mf_grad.get_jk (mc.mol, list(dm1_ao))[0], axis=0)
+    devj = np.stack (mf_grad.get_jk (mc.mol, list(edm1_ao))[0], axis=0)
 
     # Generalized Fock and overlap operator
     gfock = sum ([np.dot (v, ed) + np.dot (ev, d) for v, d, ev, ed
@@ -218,9 +222,9 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     # Crunch
     de_direct = np.zeros ((len (atmlst), 3))
     de_renorm = np.zeros ((len (atmlst), 3))
+    aoslices = mol.aoslice_by_atom()
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
-        h1ao = hcore_deriv(ia)
         de_renorm[k] -= np.einsum('xpq,pq->x', s1[:,p0:p1], dme0[p0:p1]) * 2
         de_direct[k] += np.einsum('xipq,ipq->x', dvj[:,:,p0:p1], edm1_ao[:,p0:p1]) * 2
         de_direct[k] += np.einsum('xipq,ipq->x', devj[:,:,p0:p1], dm1_ao[:,p0:p1]) * 2
@@ -233,7 +237,32 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
 def sarot_grad_o0 (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
         mf_grad=None, **kwargs):
     ''' Monkeypatch version of sarot_grad '''
-    pass
+    mc = mc_grad.base
+    ncas, nelecas, nroots = mc.ncas, mc.nelecas, mc_grad.nroots
+    if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
+
+    # CI vector shift
+    L = np.zeros ((nroots, nroots), dtype=Lis.dtype)
+    L[np.tril_indices (nroots, k=-1)] = Lis[:]
+    L -= L.T
+    ci_arr = np.asarray (ci)
+    Lci = list (np.tensordot (L, ci_arr, axes=1))
+
+    # Fake dms!
+    dm1 = mc.fcisolver.states_make_rdm1 (ci, ncas, nelecas)
+    def trans_rdm12 (ci1, ci0, *args, **kwargs):
+        tm1, tm2 = mc.fcisolver.states_trans_rdm12 (ci1, ci0, *args, **kwargs)
+        for t1, t2, d1, w in zip (tm1, tm2, dm1, mc.weights):
+            t2[:,:,:,:] = w * (np.multiply.outer (t1, d1)
+                             + np.multiply.outer (d1, t1))
+            t1[:,:] = 0.0
+        return sum (tm1), sum (tm2)
+
+    from pyscf.grad.sacasscf import Lci_dot_dgci_dx
+    with lib.temporary_env (mc.fcisolver, trans_rdm12=trans_rdm12):
+        de = Lci_dot_dgci_dx (Lci, mc.weights, mc, mo_coeff=mo, ci=ci,
+            atmlst=atmlst, eris=eris, mf_grad=mf_grad, verbose=0)
+    return de
 
 if __name__ == '__main__':
     import math
@@ -264,9 +293,12 @@ if __name__ == '__main__':
     dwci_ref = np.asarray (dwci_ref)
     dwis_ref = np.einsum ('pab,qab->pq', dwci_ref, ci_arr.conj ())
     dwci_ref -= np.einsum ('pq,qab->pab', dwis_ref, ci_arr)
+    dh_test = sarot_grad (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
+    dh_ref = sarot_grad_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
 
     print ("dworb:", vector_error (dworb_test, dworb_ref), linalg.norm (dworb_ref))
     print ("dwci:", vector_error (dwci_test, dwci_ref), linalg.norm (dwci_ref))
     print ("dwis:", vector_error (dwis_test, dwis_ref), linalg.norm (dwis_ref))
+    print ("dh:", vector_error (dh_test, dh_ref), linalg.norm (dh_ref))
 
 
