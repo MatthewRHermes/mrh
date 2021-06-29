@@ -106,44 +106,42 @@ def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
             mo1, ci1)
         dm1 = mc.fcisolver.states_make_rdm1 (ci1, ncas, nelecas)
         _state_arg = addons.StateAverageMixFCISolver_state_args
+        def _Hci_kernel (s, op1, op2, ci1, ci2, ne, my_L):
+            h1ci2, h1ci1, h2ci1, c1c2 = [], [], [], []
+            for o1, o2, c2, c1 in zip (op1, op2, ci2, ci1):
+                h1ci2.append (s.contract_1e (o1, c2, ncas, ne))
+                h2ci1.append (s.contract_1e (o2, c1, ncas, ne))
+                h1ci1.append (s.contract_1e (o1, c1, ncas, ne))
+                c1c2.append (c1.dot (c2))
+            if np.all (np.asarray (c1c2) < 0.5): # chain rule
+                h1ci2, h2ci1 = np.asarray (h1ci2), np.asarray (h2ci1)
+                h1ci1 = np.tensordot (my_L, np.asarray (h1ci1), axes=1)
+                return list (h1ci2 + h2ci1 - 0.5*h1ci1)
+            else:
+                return h1ci2
+
         if isinstance (mc.fcisolver, addons.StateAverageMixFCISolver):
+            full_idx = np.arange (nroots)
             def _Hci (h1, h2, ci2):
-                raise NotImplementedError ("state-average-mix extension")
                 hci = []
-                tm1 = mc.fcisolver.states_trans_rdm12 (ci2, ci1, ncas, nelecas)[0]
+                tm1 = mc.fcisolver.states_trans_rdm12 (ci2, ci1, ncas, nelecas)[9]
                 for s, args, kwargs in enumerate (mc.fcisolver._loop_solver (
                         _state_arg (ci2), _state_arg (ci1), _state_arg (dm1),
-                        _state_arg (tm1))):
-                    ci2i, ci1i, dm1i, tm1i = args[0:4]
+                        _state_arg (tm1), _state_arg (full_idx))):
+                    ci2i, ci1i, dm1i, tm1i, idx = args[0:5]
+                    Lsec = L[np.ix_(idx,idx)]
                     nelec = mc.fcisolver._get_nelec (s, nelecas)
-                    op1 = np.tensordot (tm1i, h2, axes=2)
-                    op = np.tensordot (dm1i, h2, axes=2)
-                    hci1 = (s.contract_1e (h1, ci2i[j], ncas, nelec)
-                          + s.contract_1e (op[j], ci2i[j], ncas, nelec)
-                            for j in range (len (ci2i)))
-                    if abs (ci1i.dot (ci2i)) < 0.5: # Chain rule
-                        tm1i += tm1i.transpose (0,2,1)
-                        op = np.tensordot (tm1i, h2, axes=2)
-                        hci1 = [hc + s.contract_1e (op, ci1i[j], ncas, nelec)
-                            for j, hc in enumerate (hci1)]
-                    hci.extend (hci1)
+                    op1 = h1[None,:,:] + np.tensordot (dm1i, h2, axes=2)
+                    op2 = np.tensordot (tm1i + tm1i.transpose (0,2,1), h2, axes=2)
+                    hci.extend (_Hci_kernel (s, op1, op2, ci1i, ci2i, nelec, Lsec))
                 return hci
         else:
             def _Hci (h1, h2, ci2):
-                h1ci2, h2ci1, h1ci1 = [], [], []
-                tm1 = mc.fcisolver.states_trans_rdm12 (ci2, ci1, ncas, nelecas)[0]
-                for dm1i, tm1i, ci1i, ci2i in zip (dm1, tm1, ci1, ci2):
-                    op = h1 + np.tensordot (h2, dm1i, axes=2)
-                    h1ci2.append (mc.fcisolver.contract_1e (op, ci2i, ncas, nelecas))
-                    h1ci1.append (mc.fcisolver.contract_1e (op, ci1i, ncas, nelecas))
-                    op = np.tensordot (h2, tm1i+tm1i.T, axes=2)
-                    h2ci1.append (mc.fcisolver.contract_1e (op, ci1i, ncas, nelecas))
-                c1c2 = np.array ([c1.dot (c2) for c1, c2 in zip (ci1, ci2)])
-                if np.all (c1c2 < 0.5): # chain rule
-                    h1ci1 = list (np.tensordot (L, np.asarray (h1ci1), axes=1))
-                    h1ci2 = [h1ci2[j] + h2ci1[j] - 0.5*h1ci1[j]
-                        for j in range (nroots)]
-                return h1ci2
+                tm1 = np.asarray (mc.fcisolver.states_trans_rdm12 (ci2, ci1, 
+                    ncas, nelecas)[0])
+                op1 = h1[None,:,:] + np.tensordot (dm1, h2, axes=2)
+                op2 = np.tensordot (tm1 + tm1.transpose (0,2,1), h2, axes=2)
+                return _Hci_kernel (mc.fcisolver, op1, op2, ci1, ci2, nelecas, L)
         return ci1, _Hci, _Hdiag, linkstrl, linkstr, _pack_ci, _unpack_ci
 
     # Fake 2TDM!
@@ -160,12 +158,11 @@ def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     with lib.temporary_env (newton_casscf, _pack_ci_get_H=_pack_ci_get_H):
      with lib.temporary_env (mc.fcisolver, trans_rdm12=trans_rdm12):
         hx = newton_casscf.gen_g_hop (mc, mo, ci, feris, verbose=0)[2](x)
+    hx *= nroots
     hx_orb, hx_ci = mc_grad.unpack_uniq_var (hx)
-    hx_orb *= nroots
     hx_ci = np.asarray (hx_ci)
     hx_is = np.einsum ('pab,qab->pq', hx_ci, ci_arr.conj ())
     hx_ci -= np.einsum ('pq,qab->pab', hx_is, ci_arr)
-    hx_ci *= nroots
 
     # IS degrees of freedom using cmspdft module
     from mrh.my_pyscf.mcpdft.cmspdft import e_coul
@@ -233,10 +230,16 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     de = de_direct + de_renorm
     return de
 
+def sarot_grad_o0 (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
+        mf_grad=None, **kwargs):
+    ''' Monkeypatch version of sarot_grad '''
+    pass
+
 if __name__ == '__main__':
     import math
     from pyscf import scf, gto, mcscf
     from mrh.my_pyscf.fci import csf_solver
+    from mrh.my_pyscf.mcpdft.pdft_feff import vector_error
     xyz = '''O  0.00000000   0.08111156   0.00000000
              H  0.78620605   0.66349738   0.00000000
              H -0.78620605   0.66349738   0.00000000'''
@@ -262,28 +265,8 @@ if __name__ == '__main__':
     dwis_ref = np.einsum ('pab,qab->pq', dwci_ref, ci_arr.conj ())
     dwci_ref -= np.einsum ('pq,qab->pab', dwis_ref, ci_arr)
 
-    dwci_ref_norm = linalg.norm (dwci_ref)
-    dwci_test_norm = linalg.norm (dwci_test)
-    dwci_ref_test = np.dot (dwci_test.ravel (), dwci_ref.ravel ())
-    dwci_err_ovlp = dwci_ref_test / (dwci_ref_norm * dwci_test_norm)
+    print ("dworb:", vector_error (dworb_test, dworb_ref), linalg.norm (dworb_ref))
+    print ("dwci:", vector_error (dwci_test, dwci_ref), linalg.norm (dwci_ref))
+    print ("dwis:", vector_error (dwis_test, dwis_ref), linalg.norm (dwis_ref))
 
-    print ("dworb:", linalg.norm (dworb_test-dworb_ref), linalg.norm (dworb_ref))
-    print ("dwci:", linalg.norm (dwci_test-dwci_ref), linalg.norm (dwci_ref))
-    print ("dwis:", linalg.norm (dwis_test-dwis_ref), linalg.norm (dwis_ref))
-
-    #dwci_test = dwci_test.reshape (3,36)
-    #dwci_ref = dwci_ref.reshape (3,36)
-    #dwci_test_norm = linalg.norm (dwci_test, axis=1)
-    #dwci_ref_norm = linalg.norm (dwci_ref, axis=1)
-    #n = dwci_test_norm * dwci_ref_norm
-    #dwci_err_norm = linalg.norm (dwci_test-dwci_ref, axis=1)
-    #dwci_err_ovlp = (dwci_test * dwci_ref).sum (1) / np.sqrt (n)
-    #print (dwci_test_norm, dwci_ref_norm)
-    #print (dwci_err_norm)
-    #print (dwci_err_ovlp)
-
-    print (dwis_test)
-    print (dwis_ref)
-
-    print (dwis_test-dwis_ref)
 

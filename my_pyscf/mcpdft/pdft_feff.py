@@ -29,6 +29,7 @@ def _contract_rho_all (bra, ket):
     return rho
 
 def vector_error (test, ref):
+    test, ref = test.ravel (), ref.ravel ()
     err = test - ref
     norm_test = linalg.norm (test)
     norm_ref = linalg.norm (ref)
