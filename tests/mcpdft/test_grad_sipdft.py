@@ -19,18 +19,24 @@ def random_si ():
     si = np.array ([[cp,-sp],[sp,cp]])
     return si
 si = random_si ()
-def get_mc_ref (mol, ri=False):
+def get_mc_ref (mol, ri=False, sam=False):
     mf = scf.RHF (mol)
     if ri: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
     mc = mcscf.CASSCF (mf.run (), 6, 6)
-    fcisolvers = [csf_solver (mol, smult=((2*i)+1)) for i in (0,1)]
-    if mol.symmetry:
-        fcisolvers[0].wfnsym = 'A1'
-        fcisolvers[1].wfnsym = 'A2'
-    mc = mcscf.addons.state_average_mix (mc, fcisolvers, [0.5,0.5])
+    if sam:
+        fcisolvers = [csf_solver (mol, smult=((2*i)+1)) for i in (0,1)]
+        if mol.symmetry:
+            fcisolvers[0].wfnsym = 'A1'
+            fcisolvers[1].wfnsym = 'A2'
+        mc = mcscf.addons.state_average_mix (mc, fcisolvers, [0.5,0.5])
+    else:
+        mc.fcisolver = csf_solver (mol, smult=1)
+        if mol.symmetry:
+            mc.fcisolver.wfnsym = 'A1'
+        mc = mc.state_average ([0.5,0.5])
     mc.conv_tol = 1e-12
     return mc.run ()
-mc_list = [[get_mc_ref (m, ri=i) for i in (0,1)] for m in (mol_nosymm, mol_symm)]
+mc_list = [[[get_mc_ref (m, ri=i, sam=j) for i in (0,1)] for j in (0,1)] for m in (mol_nosymm, mol_symm)]
 def tearDownModule():
     global mol_nosymm, mol_symm, mc_list, si
     mol_nosymm.stdout.close ()
@@ -40,15 +46,18 @@ def tearDownModule():
 class KnownValues(unittest.TestCase):
 
     def test_offdiag_response_sanity (self):
-        for mcl, stype in zip (mc_list, ('nosymm','symm')):
-         for mc, itype in zip (mcl, ('conv', 'DF')):
+        for mcs, stype in zip (mc_list, ('nosymm','symm')):
+         for mca, atype in zip (mcs, ('nomix','mix')):
+          for mc, itype in zip (mca, ('conv', 'DF')):
             ci_arr = np.asarray (mc.ci)
             if itype == 'conv': mc_grad = mc.nuc_grad_method ()
             else: mc_grad = dfsacasscf.Gradients (mc)
             ngorb = mc_grad.ngorb
             dw_ref = np.stack ([mc_grad.get_wfn_response (state=i) for i in (0,1)], axis=0)
             dworb_ref, dwci_ref = dw_ref[:,:ngorb], dw_ref[:,ngorb:]
-            with self.subTest (symm=stype, eri=itype, check='ref CI d.f. zero'):
+            with self.subTest (symm=stype, solver=atype, eri=itype, check='energy convergence'):
+                self.assertTrue (mc.converged)
+            with self.subTest (symm=stype, solver=atype, eri=itype, check='ref CI d.f. zero'):
                 self.assertLessEqual (linalg.norm (dwci_ref), 2e-6)
             ham_si = np.diag (mc.e_states)
             ham_si = si @ ham_si @ si.T
@@ -68,14 +77,15 @@ class KnownValues(unittest.TestCase):
                     si_bra=si[:,r], si_ket=si[:,r], ham_si=ham_si, e_mcscf=e_mcscf)
                 dworb_test, dwci_test = dw_test[:ngorb], dw_test[ngorb:]
                 dwci_test = np.einsum ('pab,qab->pq', dwci_test.reshape (2,20,20), ci_arr)
-                with self.subTest (symm=stype, eri=itype, root=r, check='orb'):
+                with self.subTest (symm=stype, solver=atype, eri=itype, root=r, check='orb'):
                     self.assertAlmostEqual (lib.fp (dworb_test), lib.fp (dworb_ref[r]), 8)
-                with self.subTest (symm=stype, eri=itype, root=r, check='CI'):
+                with self.subTest (symm=stype, solver=atype, eri=itype, root=r, check='CI'):
                     self.assertAlmostEqual (lib.fp (dwci_test), lib.fp (dwci_ref[r]), 8)
 
     def test_offdiag_grad_sanity (self):
-        for mcl, stype in zip (mc_list, ('nosymm','symm')):
-         for mc, itype in zip (mcl, ('conv', 'DF')):
+        for mcs, stype in zip (mc_list, ('nosymm','symm')):
+         for mca, atype in zip (mcs, ('nomix','mix')):
+          for mc, itype in zip (mca, ('conv', 'DF')):
             ci_arr = np.asarray (mc.ci)
             if itype == 'conv': mc_grad = mc.nuc_grad_method ()
             else: continue #mc_grad = dfsacasscf.Gradients (mc)
@@ -90,7 +100,7 @@ class KnownValues(unittest.TestCase):
             for r in (0,1):
                 de_test = sipdft_heff_HellmanFeynman (mc_grad, ci=ci, state=r,
                     si_bra=si[:,r], si_ket=si[:,r], eris=eris)
-                with self.subTest (symm=stype, eri=itype, root=r):
+                with self.subTest (symm=stype, solver=atype, eri=itype, root=r):
                     self.assertAlmostEqual (lib.fp (de_test), lib.fp (de_ref[r]), 8)
 
 

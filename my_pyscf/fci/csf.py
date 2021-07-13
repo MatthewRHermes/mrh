@@ -428,7 +428,8 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
             nrow = len (ci0)
             ci0 = np.asarray (ci0).reshape (nrow, -1, order='C')
             ci0 = np.ascontiguousarray (ci0)
-            ci0 = transformer.vec_det2csf (ci0.ravel ())
+            if nrow==1: ci0 = ci0[0]
+            ci0 = transformer.vec_det2csf (ci0)
             ci0 = [c for c in ci0.reshape (nrow, -1)]
     t0 = lib.logger.timer (fci, "csf.kernel: ci0 handling", *t0)
 

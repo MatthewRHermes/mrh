@@ -231,7 +231,12 @@ def pack_sym_ci (ci, idx, vec_on_cols=False):
         return dummy
     else:
         assert (ci.ndim == 1)
-        return ci[idx]
+        try: 
+            ci=ci[idx]
+        except Exception as e:
+            print (ci.shape, idx.shape)
+            raise (e)
+        return ci
         
 
 def make_confsym (norb, neleca, nelecb, econf_det_mask, orbsym):
