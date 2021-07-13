@@ -181,6 +181,7 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     ''' Returns geometry derivative of Q.x '''
 
     mc = mc_grad.base
+    mol = mc_grad.mol
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
     nroots, nocc, nmo = mc_grad.nroots, ncore + ncas, mo.shape[1]
     moH = mo.conj ().T
