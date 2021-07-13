@@ -182,9 +182,10 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
 
     mc = mc_grad.base
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
-    nroots, nocc = mc_grad.nroots, ncore + ncas
+    nroots, nocc, nmo = mc_grad.nroots, ncore + ncas, mo.shape[1]
+    moH = mo.conj ().T
     mo_cas = mo[:,ncore:nocc]
-    moH_cas = mo_cas.conj ().T
+    moH_cas = moH[ncore:nocc,:]
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
     if atmlst is None: atmlst = list (range(mol.natm))
 
@@ -204,19 +205,19 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     edm1_ao = reduce (np.dot, (mo_cas, edm1, moH_cas)).transpose (1,0,2)
 
     # Potentials and operators
-    eri_cas = np.zeros ([ncas,]*4, dtype=dm1.dtype)
-    for i in range (ncas):
-        j = i + ncore
-        eri_cas[i,:,:,:] = eris.ppaa[j][ncore:nocc,:,:]
-    vj = np.tensordot (dm1, eri_cas, axes=2)
-    evj = np.tensordot (edm1, eri_cas, axes=2)
-    dvj = np.stack (mf_grad.get_jk (mc.mol, list(dm1_ao))[0], axis=0)
-    devj = np.stack (mf_grad.get_jk (mc.mol, list(edm1_ao))[0], axis=0)
+    aapa = np.zeros ([nmo,]+[ncas,]*3, dtype=dm1.dtype)
+    for i in range (nmo): aapa[i] = eris.ppaa[i][ncore:nocc,:,:]
+    aapa = aapa.transpose (2,3,0,1)
+    vj = np.tensordot (dm1, aapa, axes=2)
+    evj = np.tensordot (edm1, aapa, axes=2)
+    dvj = np.stack (mf_grad.get_jk (mc.mol, list(dm1_ao))[0], axis=1)
+    devj = np.stack (mf_grad.get_jk (mc.mol, list(edm1_ao))[0], axis=1)
 
     # Generalized Fock and overlap operator
-    gfock = sum ([np.dot (v, ed) + np.dot (ev, d) for v, d, ev, ed
-        in zip (vj, dm1, evj, edm1)])
-    dme0 = reduce (np.dot, (mo_cas, (gfock+gfock.T)/2, moH_cas))
+    gfock = np.zeros ([nmo,nmo], dtype=vj.dtype)
+    gfock[:,ncore:nocc] = sum ([np.dot (v, ed) + np.dot (ev, d)
+        for v, d, ev, ed in zip (vj, dm1, evj, edm1)])
+    dme0 = reduce (np.dot, (mo, (gfock+gfock.T)*.5, moH))
     s1 = mf_grad.get_ovlp (mc.mol)
 
     # Crunch
@@ -253,15 +254,15 @@ def sarot_grad_o0 (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     def trans_rdm12 (ci1, ci0, *args, **kwargs):
         tm1, tm2 = mc.fcisolver.states_trans_rdm12 (ci1, ci0, *args, **kwargs)
         for t1, t2, d1, w in zip (tm1, tm2, dm1, mc.weights):
-            t2[:,:,:,:] = w * (np.multiply.outer (t1, d1)
-                             + np.multiply.outer (d1, t1))
+            t2[:,:,:,:] = (np.multiply.outer (t1, d1)
+                         + np.multiply.outer (d1, t1))
             t1[:,:] = 0.0
         return sum (tm1), sum (tm2)
 
     from pyscf.grad.sacasscf import Lci_dot_dgci_dx
     with lib.temporary_env (mc.fcisolver, trans_rdm12=trans_rdm12):
         de = Lci_dot_dgci_dx (Lci, mc.weights, mc, mo_coeff=mo, ci=ci,
-            atmlst=atmlst, eris=eris, mf_grad=mf_grad, verbose=0)
+            atmlst=atmlst, eris=eris, mf_grad=mf_grad)
     return de
 
 if __name__ == '__main__':
@@ -272,7 +273,7 @@ if __name__ == '__main__':
     xyz = '''O  0.00000000   0.08111156   0.00000000
              H  0.78620605   0.66349738   0.00000000
              H -0.78620605   0.66349738   0.00000000'''
-    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, output='sipdft.log',
+    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, output='cmspdft.log',
         verbose=lib.logger.DEBUG)
     mf = scf.RHF (mol).run ()
     mc = mcscf.CASSCF (mf, 4, 4).set (fcisolver = csf_solver (mol, 1))
@@ -301,4 +302,4 @@ if __name__ == '__main__':
     print ("dwis:", vector_error (dwis_test, dwis_ref), linalg.norm (dwis_ref))
     print ("dh:", vector_error (dh_test, dh_ref), linalg.norm (dh_ref))
 
-
+    print (dh_test, '\n', dh_ref)
