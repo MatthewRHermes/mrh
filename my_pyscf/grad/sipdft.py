@@ -5,7 +5,7 @@ from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.fci import direct_spin1
-from pyscf.mcscf import mc1step
+from pyscf.mcscf import mc1step, newton_casscf
 from pyscf.grad import rhf as rhf_grad
 from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import sacasscf as sacasscf_grad
@@ -131,7 +131,7 @@ class Gradients (mcpdft_grad.Gradients):
         mcpdft_grad.Gradients.__init__(self, mc)
         r, g = get_sarotfns (self.base.sarot_name)
         self._sarot_response = r
-        self._sarot_grad = d
+        self._sarot_grad = g
         self.nlag += self.nis
 
     @property
@@ -163,8 +163,8 @@ class Gradients (mcpdft_grad.Gradients):
             v1, v2 = self.base.get_pdft_veff (mo, c, incl_coul=True, paaa_only=True)
             veff1.append (v1)
             veff2.append (v2)
-        return mcpdft_grad.Gradients.kernel (state=state, mo=mo, ci=ci, d2f=d2f,
-            veff1=veff1, veff2=veff2, **kwargs)
+        return mcpdft_grad.Gradients.kernel (self, state=state, mo=mo, ci=ci,
+            d2f=d2f, veff1=veff1, veff2=veff2, **kwargs)
 
     def pack_uniq_var (self, xorb, xci, xis=None):
         x = sacasscf_grad.Gradients.pack_uniq_var (self, xorb, xci)
@@ -174,7 +174,7 @@ class Gradients (mcpdft_grad.Gradients):
     def unpack_uniq_var (self, x):
         ngorb, nci, nroots, nis = self.ngorb, self.nci, self.nroots, self.nis
         x, xis = x[:ngorb+nci], x[ngorb+nci:]
-        xorb, xci = sacasscf_grad.Gradients.unpack_uniq_var (x)
+        xorb, xci = sacasscf_grad.Gradients.unpack_uniq_var (self, x)
         if len (xis)==nis: return xorb, xci, xis
         return xorb, xci
 
@@ -191,14 +191,14 @@ class Gradients (mcpdft_grad.Gradients):
         ptr_is = ngorb + nci
 
         # Diagonal: PDFT component
-        g_all = 0
+        g_all, nlag = 0, self.nlag-self.nis
         for i, (amp, c, v1, v2) in enumerate (zip (si_diag, ci, veff1, veff2)):
             if not amp: continue
-            g_all += amp * mcpdft_grad.Gradients.get_wfn_response (state=i,
-                mo=mo, ci=ci, veff1=v1, veff2=v2, **kwargs)
+            g_all += amp * mcpdft_grad.Gradients.get_wfn_response (self,
+                state=i, mo=mo, ci=ci, veff1=v1, veff2=v2, nlag=nlag, **kwargs)
 
         # Off-diagonal: heff component
-        g_all += sipdft_heff_response (self, mo_coeff=mo_coeff, ci=ci,
+        g_all += sipdft_heff_response (self, mo=mo, ci=ci,
             si_bra=si_bra, si_ket=si_ket, eris=eris)
 
         # Separate IS part (TODO: state-average-mix)
@@ -227,7 +227,7 @@ class Gradients (mcpdft_grad.Gradients):
         if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
         fcasscf = self.make_fcasscf_sa ()
         hop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris, verbose)[2:]
-        hop = self.project_Aop (hop, ci, 0), Adiag
+        hop = self.project_Aop (hop, ci, 0)
         ngorb, nci = self.ngorb, self.nci
         # TODO: cacheing sarot_response? or an x=0 branch?
         def Aop (x):
@@ -268,7 +268,7 @@ class Gradients (mcpdft_grad.Gradients):
         # Diagonal: PDFT component
         for i, (amp, c, v1, v2) in enumerate (zip (si_diag, ci, veff1, veff2)):
             if not amp: continue
-            de_i = mcpdft_grad.Gradients.get_ham_response (state=i, mo=mo,
+            de_i = mcpdft_grad.Gradients.get_ham_response (self, state=i, mo=mo,
                 ci=ci, veff1=v1, veff2=v2, eris=eris, mf_grad=mf_grad,
                 verbose=0, **kwargs) - de_nuc
             log.debug ('SI-PDFT gradient int-state {} EPDFT terms:\n{}'.format
@@ -277,18 +277,20 @@ class Gradients (mcpdft_grad.Gradients):
             de += amp * de_i
 
         # Off-diagonal: heff component
-        de_o = sipdft_heff_HellmanFeynman (mo_coeff=mo, ci=ci, si_bra=si_bra,
-            si_ket=si_ket, eris=eris, state=state, mf_grad=mf_grad, **kwargs)
+        de_o = sipdft_heff_HellmanFeynman (self, mo_coeff=mo, ci=ci,
+            si_bra=si_bra, si_ket=si_ket, eris=eris, state=state,
+            mf_grad=mf_grad, **kwargs)
         log.debug ('SI-PDFT gradient offdiag H-F terms:\n{}'.format (de_o))
         de += de_o
         
         return de
 
-    def get_LdotJnuc (self, Lvec, atmlst=None, verbose=None,
+    def get_LdotJnuc (self, Lvec, atmlst=None, verbose=None, mo=None,
             ci=None, eris=None, mf_grad=None, **kwargs):
         ''' Add the IS component '''
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
+        if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci[state]
         if eris is None and self.eris is None:
             eris = self.eris = self.base.ao2mo (mo)
@@ -299,8 +301,8 @@ class Gradients (mcpdft_grad.Gradients):
         Lvec_v, Lvec_is = Lvec[:ngorb+nci], Lvec[ngorb+nci:]
 
         # Orbital and CI components
-        de_Lv = sacasscf_grad.get_LdotJnuc (Lvec_v, atmlst=atmlst,
-            verbose=verbose, ci=ci, eris=eris, mf_grad=mf_grad,
+        de_Lv = sacasscf_grad.Gradients.get_LdotJnuc (self, Lvec_v,
+            atmlst=atmlst, verbose=verbose, ci=ci, eris=eris, mf_grad=mf_grad,
             **kwargs)
 
         # SI component
@@ -317,6 +319,24 @@ class Gradients (mcpdft_grad.Gradients):
             self.base.__class__.__name__), *t0)
         return de_Lv + de_Lis
 
+    def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
+        def my_call (x): pass
+        #    itvec[0] += 1
+        #    geff = geff_op (x)
+        #    deltax = x - Lvec_last
+        #    gorb, gci = self.unpack_uniq_var (geff)
+        #    deltaorb, deltaci = self.unpack_uniq_var (deltax)
+        #    gci = np.concatenate ([g.ravel () for g in gci])
+        #    deltaci = np.concatenate ([d.ravel () for d in deltaci])
+        #    logger.info(self, ('Lagrange optimization iteration {}, |gorb| = {}, |gci| = {}, '
+        #                       '|dLorb| = {}, |dLci| = {}').format (
+        #                           itvec[0], linalg.norm (gorb), linalg.norm (gci),
+        #                           linalg.norm (deltaorb), linalg.norm (deltaci)))
+        #    Lvec_last[:] = x[:]
+        return my_call
+
+    def debug_lagrange (self, Lvec, bvec, Aop, Adiag, state=None, mo=None,
+        ci=None, **kwargs): pass
 
 
 class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
@@ -326,18 +346,25 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
             d2f=None, **kwargs):
         sacasscf_grad.SACASLagPrec.__init__(self, Adiag=Adiag,
             level_shift=level_shift, ci=ci, grad_method=grad_method)
-        self._init_is (d2f=d2f, **kwargs)
+        self._init_d2f (d2f=d2f, **kwargs)
+        self.grad_method = grad_method
 
-    def _init_d2f (d2f=None, **kwargs): self.d2f=d2f
+    def _init_d2f (self, d2f=None, **kwargs): self.d2f=d2f
+
+    def unpack_uniq_var (self, x):
+        return self.grad_method.unpack_uniq_var (x)
+    def pack_uniq_var (self, x0, x1, x2=None):
+        return self.grad_method.pack_uniq_var (x0, x1, x2)
 
     def __call__(self, x):
         xorb, xci, xis = self.unpack_uniq_var (x)
         Mxorb = self.orb_prec (xorb)
         Mxci = self.ci_prec (xci)
         Mxis = self.is_prec (xis)
+        Mx = self.pack_uniq_var (Mxorb, Mxci, Mxis)
         return self.pack_uniq_var (Mxorb, Mxci, Mxis)
 
-    def is_prec (xis): Mxis = linalg.solve (self.d2f, -xis)
+    def is_prec (self, xis): return linalg.solve (self.d2f, -xis)
 
 
 if __name__ == '__main__':
@@ -352,55 +379,59 @@ if __name__ == '__main__':
     mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, output='sipdft.log',
         verbose=lib.logger.DEBUG)
     mf = scf.RHF (mol).run ()
-    mc = mcscf.CASSCF (mf, 4, 4).set (fcisolver = csf_solver (mol, 1))
-    mc = mc.state_average ([1.0/3,]*3).run ()
-    e_states = mc.e_states.copy ()
-    ham_si = np.diag (mc.e_states)
-    
-    mc_grad = mc.nuc_grad_method ()
-    mf_grad = mf.nuc_grad_method ()
-    dh_ref = np.stack ([mc_grad.get_ham_response (state=i) for i in range (3)], axis=0)
-    dw_ref = np.stack ([mc_grad.get_wfn_response (state=i) for i in range (3)], axis=0)
-    dworb_ref, dwci_ref = dw_ref[:,:mc_grad.ngorb], dw_ref[:,mc_grad.ngorb:]
-    assert (linalg.norm (dwci_ref) < 1e-8)
+    mc = mcpdft.CASSCF (mf, 'tPBE', 4, 4).set (fcisolver = csf_solver (mol, 1))
+    mc = mc.state_interaction ([1.0/3,]*3, 'cms').run ()
+    mc_grad = Gradients (mc) 
+    de = np.stack ([mc_grad.kernel (state=i) for i in range (3)], axis=0)
+    print (de)
 
-    si = np.zeros ((3,3), dtype=mc.ci[0].dtype)
-    np.random.seed (0)
-    si[np.tril_indices (3, k=-1)] = math.pi * (np.random.rand ((3)) - 0.5)
-    si = linalg.expm (si-si.T)
-    ci_arr = np.asarray (mc.ci)
-    ham_si = si @ ham_si @ si.T
-    e_mcscf = ham_si.diagonal ()
-    eris = mc.ao2mo (mc.mo_coeff)
-    ci = mc.ci = mc_grad.ci = mc_grad.base.ci = list (np.tensordot (si, ci_arr, axes=1))
-    ci_arr = np.asarray (mc.ci)
+    #e_states = mc.e_states.copy ()
+    #ham_si = np.diag (mc.e_states)
+    #
+    #mc_grad = mc.nuc_grad_method ()
+    #mf_grad = mf.nuc_grad_method ()
+    #dh_ref = np.stack ([mc_grad.get_ham_response (state=i) for i in range (3)], axis=0)
+    #dw_ref = np.stack ([mc_grad.get_wfn_response (state=i) for i in range (3)], axis=0)
+    #dworb_ref, dwci_ref = dw_ref[:,:mc_grad.ngorb], dw_ref[:,mc_grad.ngorb:]
+    #assert (linalg.norm (dwci_ref) < 1e-8)
 
-    dh_diag = np.stack ([mc_grad.get_ham_response (state=i, ci=ci) for i in range (3)], axis=0)
-    dw_diag = np.stack ([mc_grad.get_wfn_response (state=i, ci=ci) for i in range (3)], axis=0)
-    si_diag = si * si
-    dh_diag = np.einsum ('sac,sr->rac', dh_diag, si_diag)
-    dworb_diag, dwci_diag = dw_diag[:,:mc_grad.ngorb], dw_diag[:,mc_grad.ngorb:]
-    dworb_diag = np.einsum ('sc,sr->rc', dworb_diag, si_diag)
-    dwci_diag = np.einsum ('rpab,qab->rpq', dwci_diag.reshape (3,3,6,6), ci_arr)
-    dwci_diag -= dwci_diag.transpose (0,2,1)
-    dwci_diag = np.einsum ('spq,sr->rpq', dwci_diag, si_diag)
+    #si = np.zeros ((3,3), dtype=mc.ci[0].dtype)
+    #np.random.seed (0)
+    #si[np.tril_indices (3, k=-1)] = math.pi * (np.random.rand ((3)) - 0.5)
+    #si = linalg.expm (si-si.T)
+    #ci_arr = np.asarray (mc.ci)
+    #ham_si = si @ ham_si @ si.T
+    #e_mcscf = ham_si.diagonal ()
+    #eris = mc.ao2mo (mc.mo_coeff)
+    #ci = mc.ci = mc_grad.ci = mc_grad.base.ci = list (np.tensordot (si, ci_arr, axes=1))
+    #ci_arr = np.asarray (mc.ci)
 
-    dh_offdiag = np.zeros_like (dh_diag)
-    dw_offdiag = np.zeros_like (dw_diag)
-    for i in range (3):
-        dw_offdiag[i] += sipdft_heff_response (mc_grad, ci=ci, state=i, eris=eris,
-            si_bra=si[:,i], si_ket=si[:,i], ham_si=ham_si, e_mcscf=e_mcscf)
-        dh_offdiag[i] += sipdft_heff_HellmanFeynman (mc_grad, ci=ci, state=i,
-            si_bra=si[:,i], si_ket=si[:,i], eris=eris)
-    dworb_offdiag, dwci_offdiag = dw_offdiag[:,:mc_grad.ngorb], dw_offdiag[:,mc_grad.ngorb:]
-    dwci_offdiag = np.einsum ('rpab,qab->rpq', dwci_offdiag.reshape (3,3,6,6), ci_arr)
+    #dh_diag = np.stack ([mc_grad.get_ham_response (state=i, ci=ci) for i in range (3)], axis=0)
+    #dw_diag = np.stack ([mc_grad.get_wfn_response (state=i, ci=ci) for i in range (3)], axis=0)
+    #si_diag = si * si
+    #dh_diag = np.einsum ('sac,sr->rac', dh_diag, si_diag)
+    #dworb_diag, dwci_diag = dw_diag[:,:mc_grad.ngorb], dw_diag[:,mc_grad.ngorb:]
+    #dworb_diag = np.einsum ('sc,sr->rc', dworb_diag, si_diag)
+    #dwci_diag = np.einsum ('rpab,qab->rpq', dwci_diag.reshape (3,3,6,6), ci_arr)
+    #dwci_diag -= dwci_diag.transpose (0,2,1)
+    #dwci_diag = np.einsum ('spq,sr->rpq', dwci_diag, si_diag)
+
+    #dh_offdiag = np.zeros_like (dh_diag)
+    #dw_offdiag = np.zeros_like (dw_diag)
+    #for i in range (3):
+    #    dw_offdiag[i] += sipdft_heff_response (mc_grad, ci=ci, state=i, eris=eris,
+    #        si_bra=si[:,i], si_ket=si[:,i], ham_si=ham_si, e_mcscf=e_mcscf)
+    #    dh_offdiag[i] += sipdft_heff_HellmanFeynman (mc_grad, ci=ci, state=i,
+    #        si_bra=si[:,i], si_ket=si[:,i], eris=eris)
+    #dworb_offdiag, dwci_offdiag = dw_offdiag[:,:mc_grad.ngorb], dw_offdiag[:,mc_grad.ngorb:]
+    #dwci_offdiag = np.einsum ('rpab,qab->rpq', dwci_offdiag.reshape (3,3,6,6), ci_arr)
  
-    dworb_test = dworb_diag + dworb_offdiag
-    dwci_test = dwci_diag + dwci_offdiag
-    dh_test = dh_diag + dh_offdiag
+    #dworb_test = dworb_diag + dworb_offdiag
+    #dwci_test = dwci_diag + dwci_offdiag
+    #dh_test = dh_diag + dh_offdiag
 
-    dworb_err = dworb_test - dworb_ref
-    dwci_err = dwci_test 
-    dh_err = dh_test - dh_ref 
-    print ("test", linalg.norm (dworb_err), linalg.norm (dwci_err), linalg.norm (dh_err))
+    #dworb_err = dworb_test - dworb_ref
+    #dwci_err = dwci_test 
+    #dh_err = dh_test - dh_ref 
+    #print ("test", linalg.norm (dworb_err), linalg.norm (dwci_err), linalg.norm (dh_err))
 

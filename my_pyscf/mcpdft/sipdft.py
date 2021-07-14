@@ -99,7 +99,7 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None):
         log.note (("{}-PDFT intermediate state determination did not converge"
                    " after {} cycles").format (mc.sarot_name, it))
 
-    return ci
+    return list (ci)
 
 class StateInteractionMCPDFTSolver ():
     pass

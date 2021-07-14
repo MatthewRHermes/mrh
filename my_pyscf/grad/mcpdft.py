@@ -241,12 +241,14 @@ class Gradients (sacasscf.Gradients):
             self.state = 0
         self.e_mcscf = self.base.e_mcscf
 
-    def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None, ci=None, veff1=None, veff2=None, **kwargs):
+    def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None,
+            ci=None, veff1=None, veff2=None, nlag=None, **kwargs):
         if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
+        if nlag is None: nlag = self.nlag
         if (veff1 is None) or (veff2 is None):
             veff1, veff2 = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
         ndet = ci[state].size
@@ -259,7 +261,7 @@ class Gradients (sacasscf.Gradients):
 
         g_all_state = newton_casscf.gen_g_hop (fcasscf, mo, ci[state], veff2, verbose)[0]
 
-        g_all = np.zeros (self.nlag)
+        g_all = np.zeros (nlag)
         g_all[:self.ngorb] = g_all_state[:self.ngorb]
         # Eliminate gradient of self-rotation
         gci_state = g_all_state[self.ngorb:]
