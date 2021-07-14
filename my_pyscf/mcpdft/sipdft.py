@@ -35,6 +35,7 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None):
     if ci is None: ci = mc.ci
     if max_cyc is None: max_cyc = getattr (mc, 'max_cyc_sarot', 50)
     if conv_tol is None: conv_tol = getattr (mc, 'conv_tol_sarot', 1e-8)
+    ci_old = np.array (ci)
     log = lib.logger.new_logger (mc, mc.verbose)
     nroots = mc.fcisolver.nroots 
     rows,col = np.tril_indices(nroots,k=-1)
@@ -93,11 +94,34 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None):
         if grad_norm < conv_tol and neg == True:
                 conv = True
                 break
+
+    # Root order and sign by overlap criterion
+    # Requires ~strictly~ non-repeating sort
+    # TODO: generalize to only sort within solvers in
+    # SA-mix (can probably hack this using U_abs)
+    U_signed = np.tensordot (ci_old, ci.conj (), axes=((1,2),(1,2)))
+    U_abs = np.abs (U_signed)
+    sgn = np.ones (nroots)
+    ovlp_idx = -sgn.copy ().astype (np.int32)
+    for imax in range (nroots):
+        i = np.argmax (U_abs)
+        j, k = i // nroots, i % nroots
+        sgn[j] -= 2 * int (U_signed[j,k] < 0)
+        ovlp_idx[j] = k
+        U_abs[j,:] = -1
+    log.debug ("{}-PDFT intermediate state sign array: {}".format (
+        mc.sarot_name, sgn))
+    log.debug ("{}-PDFT intermediate state overlap sort array: {}".format (
+        mc.sarot_name, ovlp_idx))
+    ci *= sgn[:,None,None]
+    ci = ci[ovlp_idx,:,:]
+
     if conv:
         log.note ("{}-PDFT intermediate state determination CONVERGED".format (mc.sarot_name))
     else:
         log.note (("{}-PDFT intermediate state determination did not converge"
                    " after {} cycles").format (mc.sarot_name, it))
+
 
     return list (ci)
 

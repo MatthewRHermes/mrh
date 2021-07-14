@@ -249,7 +249,7 @@ class Gradients (mcpdft_grad.Gradients):
             atmlst=None, verbose=None, **kwargs):
         ''' write sipdft heff Hellmann-Feynman calculator; sum over diagonal
             PDFT Hellmann-Feynman terms '''
-        if atmlst is None: atmlst = mc_grad.atmlst
+        if atmlst is None: atmlst = self.atmlst
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if state is None: state = self.state
