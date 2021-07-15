@@ -286,7 +286,7 @@ class Gradients (mcpdft_grad.Gradients):
         return de
 
     def get_LdotJnuc (self, Lvec, atmlst=None, verbose=None, mo=None,
-            ci=None, eris=None, mf_grad=None, **kwargs):
+            ci=None, eris=None, mf_grad=None, d2f=None, **kwargs):
         ''' Add the IS component '''
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
@@ -320,24 +320,56 @@ class Gradients (mcpdft_grad.Gradients):
         return de_Lv + de_Lis
 
     def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
-        def my_call (x): pass
-        #    itvec[0] += 1
-        #    geff = geff_op (x)
-        #    deltax = x - Lvec_last
-        #    gorb, gci = self.unpack_uniq_var (geff)
-        #    deltaorb, deltaci = self.unpack_uniq_var (deltax)
-        #    gci = np.concatenate ([g.ravel () for g in gci])
-        #    deltaci = np.concatenate ([d.ravel () for d in deltaci])
-        #    logger.info(self, ('Lagrange optimization iteration {}, |gorb| = {}, |gci| = {}, '
-        #                       '|dLorb| = {}, |dLci| = {}').format (
-        #                           itvec[0], linalg.norm (gorb), linalg.norm (gci),
-        #                           linalg.norm (deltaorb), linalg.norm (deltaci)))
-        #    Lvec_last[:] = x[:]
+        def my_call (x):
+            itvec[0] += 1
+            geff = geff_op (x)
+            deltax = x - Lvec_last
+            gorb, gci, gis = self.unpack_uniq_var (geff)
+            deltaorb, deltaci, deltais = self.unpack_uniq_var (deltax)
+            gci = np.concatenate ([g.ravel () for g in gci])
+            deltaci = np.concatenate ([d.ravel () for d in deltaci])
+            logger.info(self, ('Lagrange optimization iteration {}, |gorb| = '
+                '{}, |gci| = {}, |gis| = {} |dLorb| = {}, |dLci| = {}, |dLis|'
+                ' = {}').format (itvec[0], linalg.norm (gorb),
+                linalg.norm (gci), linalg.norm (gis), linalg.norm (deltaorb),
+                linalg.norm (deltaci), linalg.norm (deltais)))
+            Lvec_last[:] = x[:]
         return my_call
 
     def debug_lagrange (self, Lvec, bvec, Aop, Adiag, state=None, mo=None,
-        ci=None, **kwargs): pass
-
+        ci=None, d2f=None, **kwargs):
+        if state is None: state = self.state
+        if mo is None: mo = self.base.mo_coeff
+        if ci is None: ci = self.base.ci
+        def _debug_cispace (xci, label):
+            xci_norm = [np.dot (c.ravel (), c.ravel ()) for c in xci]
+            try:
+                xci_ss = self.base.fcisolver.states_spin_square (xci, self.base.ncas, self.base.nelecas)[0]
+            except AttributeError:
+                nelec = sum (_unpack_nelec (self.base.nelecas))
+                xci_ss = [spin_square (x, self.base.ncas, ((nelec+m)//2,(nelec-m)//2))[0]
+                          for x, m in zip (xci, self.spin_states)]
+            xci_ss = [x / max (y, 1e-8) for x, y in zip (xci_ss, xci_norm)]
+            xci_multip = [np.sqrt (x+.25) - .5 for x in xci_ss]
+            for ix, (norm, ss, multip) in enumerate (zip (xci_norm, xci_ss, xci_multip)):
+                logger.debug (self,
+                              ' State {} {} norm = {:.7e} ; <S^2> = {:.7f} ; 2S+1 = {:.7f}'.format(
+                                  ix, label, norm, ss, multip))
+        borb, bci, bis = self.unpack_uniq_var (bvec)
+        logger.debug (self, 'Orbital rotation gradient norm = {:.6e}'.format (linalg.norm (borb)))
+        _debug_cispace (bci, 'CI gradient')
+        Aorb, Aci = self.unpack_uniq_var (Adiag)
+        logger.debug (self, 'Orbital rotation Hamiltonian diagonal norm = {:.7e}'.format (linalg.norm (Aorb)))
+        _debug_cispace (Aci, 'Hamiltonian diagonal')
+        Lorb, Lci, Lis = self.unpack_uniq_var (Lvec)
+        logger.debug (self, 'Orbital rotation Lagrange vector norm = {:.7e}'.format (linalg.norm (Lorb)))
+        _debug_cispace (Lci, 'Lagrange vector')
+        logger.debug (self, 'Constraint Jacobian:')
+        fmt = ' '.join (['{:12.7e}' for i in range (self.nis)])
+        for row in d2f: logger.debug (self, fmt.format (*row))
+        logger.debug (self, '{:>12s} {:>12s}'.format ('Gradient', 'Vector'))
+        for g, v in zip (bis, Lis):
+            logger.debug (self, '{:12.7e} {:12.7e}'.format (g, v))
 
 class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
     ''' Solve IS part exactly, then do everything else the same '''
