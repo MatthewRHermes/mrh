@@ -30,11 +30,13 @@ def make_ham_si (mc,ci):
     ovlp_si = np.dot (ci_flat.conj (), ci_flat.T)
     return ham_si, ovlp_si, e_mcscf, e_cas, e_ot
 
-def si_newton (mc, ci=None, max_cyc=None, conv_tol=None):
+def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_tol=None):
 
     if ci is None: ci = mc.ci
     if max_cyc is None: max_cyc = getattr (mc, 'max_cyc_sarot', 50)
     if conv_tol is None: conv_tol = getattr (mc, 'conv_tol_sarot', 1e-8)
+    if sing_tol is None: sing_tol = getattr (mc, 'sing_tol_sarot', 1e-8)
+    if nudge_tol is None: nudge_tol = getattr (mc, 'nudge_tol_sarot', 1e-6)
     ci_old = np.array (ci)
     log = lib.logger.new_logger (mc, mc.verbose)
     nroots = mc.fcisolver.nroots 
@@ -60,38 +62,30 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None):
         log.info ("e_coul sum = {} ".format (f))
         log.info ("t = {} ".format (t))
 
-        evals, evecs = linalg.eigh (d2f)
+        # Analyze Hessian
+        d2f, evecs = linalg.eigh (d2f)
         evecs = np.array(evecs)
-        log.info ("Hessian eigenvalues: {}".format (evals))
+        log.info ("Hessian eigenvalues: {}".format (d2f))
+        if np.any (np.abs (d2f) < sing_tol): log.info ("Hess is singular!")
+        pos_idx = d2f > 0
+        neg_def = np.all (~pos_idx)
+        log.info ("Hess is negative-definite? {}".format (neg_def))
 
-        for i in range(npairs):
-            if 1E-09 > evals[i] and evals[i] > -1E-09:
-               log.info ("Hess is singular!")
-            if evals[i] > 0 :
-                neg = False
-                break
-            neg = True
-        log.info ("Hess diag is neg? {}".format (neg))
+        # Analyze gradient
+        grad_norm = np.linalg.norm(df)
+        log.info ("grad norm = %f", grad_norm)
+        df = np.dot (df, evecs)
+        log.info ("grad (normal modes) = {}".format (df))
 
-        if neg == False :
-            for i in range(npairs):
-                if evals[i] > 0 :
-                    evals[i]=-evals[i]
-
-        diag = np.identity(npairs)*evals
-        d2f = np.dot(np.dot(evecs,diag),evecs.T)
-
-        Dt = linalg.solve(d2f,-df)
+        # Take step
+        d2f = -np.abs (d2f)
+        df[pos_idx & (np.abs (df) < nudge_tol)] = nudge_tol
+        Dt = np.dot (-df/d2f, evecs.T)
         t[:] = 0
         t[np.tril_indices(t.shape[0], k = -1)] = Dt
-
         t = t - t.T
 
-        grad_norm = np.linalg.norm(df)
-        log.info ("grad = {}".format (df))
-        log.info ("grad norm = %f", grad_norm)
-
-        if grad_norm < conv_tol and neg == True:
+        if grad_norm < conv_tol and neg_def == True:
                 conv = True
                 break
 
