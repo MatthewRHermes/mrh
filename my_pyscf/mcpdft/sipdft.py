@@ -44,6 +44,7 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
     npairs = nroots * (nroots - 1) // 2
     t = np.zeros((nroots,nroots))
     conv = False
+    hdr = '{}-PDFT intermediate-state'.format (mc.sarot_name)
 
     for it in range(max_cyc):
         log.info ("****iter {} ***********".format (it))
@@ -59,30 +60,30 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
             raise (e)
 
         f, df, d2f = mc.sarot_objfn (ci)
-        log.info ("e_coul sum = {} ".format (f))
-        log.info ("t = {} ".format (t))
+        log.info ("{} objective function value = {}".format (hdr, f))
 
         # Analyze Hessian
         d2f, evecs = linalg.eigh (d2f)
         evecs = np.array(evecs)
-        log.info ("Hessian eigenvalues: {}".format (d2f))
-        if np.any (np.abs (d2f) < sing_tol): log.info ("Hess is singular!")
+        if np.any (np.abs (d2f) < sing_tol):
+            log.info ("{} Hess is singular!".format (hdr))
         pos_idx = d2f > 0
         neg_def = np.all (~pos_idx)
-        log.info ("Hess is negative-definite? {}".format (neg_def))
+        log.info ("{} Hessian is negative-definite? {}".format (hdr, neg_def))
 
         # Analyze gradient
         grad_norm = np.linalg.norm(df)
-        log.info ("grad norm = %f", grad_norm)
+        log.info ("{} grad norm = %f".format (hdr), grad_norm)
         df = np.dot (df, evecs)
-        log.info ("grad (normal modes) = {}".format (df))
+        log.info ("{} grad (normal modes) = {}".format (hdr, df))
 
         # Take step
-        d2f = -np.abs (d2f)
         df[pos_idx & (np.abs (df) < nudge_tol)] = nudge_tol
-        Dt = np.dot (-df/d2f, evecs.T)
+        Dt = df/np.abs (d2f)
+        log.info ("{} Hessian eigenvalues: {}".format (hdr, d2f))
+        log.info ("{} step vector (normal modes): {}".format (hdr, Dt))
         t[:] = 0
-        t[np.tril_indices(t.shape[0], k = -1)] = Dt
+        t[np.tril_indices(t.shape[0], k = -1)] = np.dot (Dt, evecs.T)
         t = t - t.T
 
         if grad_norm < conv_tol and neg_def == True:
@@ -93,28 +94,26 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
     # Requires ~strictly~ non-repeating sort
     # TODO: generalize to only sort within solvers in
     # SA-mix (can probably hack this using U_abs)
-    U_signed = np.tensordot (ci_old, ci.conj (), axes=((1,2),(1,2)))
-    U_abs = np.abs (U_signed)
-    sgn = np.ones (nroots)
-    ovlp_idx = -sgn.copy ().astype (np.int32)
-    for imax in range (nroots):
-        i = np.argmax (U_abs)
-        j, k = i // nroots, i % nroots
-        sgn[j] -= 2 * int (U_signed[j,k] < 0)
-        ovlp_idx[j] = k
-        U_abs[j,:] = -1
-    log.debug ("{}-PDFT intermediate state sign array: {}".format (
-        mc.sarot_name, sgn))
-    log.debug ("{}-PDFT intermediate state overlap sort array: {}".format (
-        mc.sarot_name, ovlp_idx))
-    ci *= sgn[:,None,None]
-    ci = ci[ovlp_idx,:,:]
+    #U_signed = np.tensordot (ci_old, ci.conj (), axes=((1,2),(1,2)))
+    #U_abs = np.abs (U_signed)
+    #sgn = np.ones (nroots)
+    #ovlp_idx = -sgn.copy ().astype (np.int32)
+    #for imax in range (nroots):
+    #    i = np.argmax (U_abs)
+    #    j, k = i // nroots, i % nroots
+    #    sgn[j] -= 2 * int (U_signed[j,k] < 0)
+    #    ovlp_idx[j] = k
+    #    U_abs[j,:] = -1
+    #log.debug ("{} sign-permutation array: {}".format (hdr, sgn))
+    #log.debug ("{} overlap sort array: {}".format (hdr, ovlp_idx))
+    #ci *= sgn[:,None,None]
+    #ci = ci[ovlp_idx,:,:]
 
     if conv:
-        log.note ("{}-PDFT intermediate state determination CONVERGED".format (mc.sarot_name))
+        log.note ("{} optimization CONVERGED".format (hdr))
     else:
-        log.note (("{}-PDFT intermediate state determination did not converge"
-                   " after {} cycles").format (mc.sarot_name, it))
+        log.note (("{} optimization did not converge after {} "
+                   "cycles".format (hdr, it)))
 
 
     return list (ci)
