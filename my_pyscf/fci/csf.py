@@ -454,7 +454,10 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     else:
         return e+ecore, c.reshape(na,nb)
 
-class FCISolver (direct_spin1.FCISolver):
+class CSFFCISolver: # tag class
+    pass
+
+class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
     out in the CSF basis. However, the ci attribute is put in the determinant basis at the end of it all, and "ci0" is also assumed
     to be in the determinant basis.'''

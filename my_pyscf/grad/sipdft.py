@@ -2,6 +2,7 @@ import numpy as np
 from scipy import linalg
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
+from mrh.my_pyscf.fci.csf import CSFFCISolver
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.fci import direct_spin1
@@ -178,6 +179,40 @@ class Gradients (mcpdft_grad.Gradients):
         if len (xis)==nis: return xorb, xci, xis
         return xorb, xci
 
+    def _get_is_component (self, xci, ci=None, symm=-1):
+        # TODO: state-average-mix
+        if ci is None: ci = self.base.ci
+        nroots = self.nroots
+        xci = np.asarray (xci).reshape (nroots, -1)
+        ci = np.asarray (ci).reshape (nroots, -1)
+        xis = np.dot (xci.conj (), ci.T)
+        if symm > -1: xis -= xis.T
+        else:
+            assert (np.amax (np.abs (xis + xis.T)) < 1e-8), '{}'.format (xis)
+        return xis[np.tril_indices (nroots, k=-1)]
+
+    def _separate_is_component (self, xci, ci=None, symm=-1):
+        # TODO: state-average-mix
+        is_list = isinstance (xci, list)
+        is_tuple = isinstance (xci, tuple)
+        if ci is None: ci = self.base.ci
+        nroots = self.nroots
+        ishape = np.asarray (xci).shape
+        xci = np.asarray (xci).reshape (nroots, -1)
+        xci = np.asarray (xci).reshape (nroots, -1)
+        ci = np.asarray (ci).reshape (nroots, -1)
+        xis = np.dot (xci.conj (), ci.T)
+        xci -= np.dot (xis.conj (), ci)
+        xci = xci.reshape (ishape)
+        if is_list: xci = list (xci)
+        elif is_tuple: xci = tuple (xci)
+        if symm > -1: xis -= xis.T
+        else:
+            assert (np.amax (np.abs (xis + xis.T)) < 1e-8), '{}'.format (xis)
+        xis = xis[np.tril_indices (nroots, k=-1)]
+        return xci, xis
+
+
     def get_wfn_response (self, si_bra=None, si_ket=None, state=None, mo=None,
             ci=None, eris=None, veff1=None, veff2=None, **kwargs):
         if mo is None: mo = self.base.mo_coeff
@@ -201,18 +236,16 @@ class Gradients (mcpdft_grad.Gradients):
         g_all += sipdft_heff_response (self, mo=mo, ci=ci,
             si_bra=si_bra, si_ket=si_ket, eris=eris)
 
-        # Separate IS part (TODO: state-average-mix)
+        # Separate IS part
         # I will NOT remove it from the CI vectors. Instead, both d2f.Lis and
         # sarot_response (Lis) will compute the IS part of the CI space as a
         # sanity check. I can throw an assert statement into the cg callback to
         # make sure the two representations of the IS sector agree with each
         # other at all times.
-        ci_arr = np.asarray (ci).reshape (nroots, -1)
-        gci = g_all[ngorb:].reshape (nroots, -1)
-        g_is = np.dot (gci.conj (), ci_arr.T)
-        g_is = g_is[np.tril_indices (nroots, k=-1)]
+        g_orb, g_ci = self.unpack_uniq_var (g_all)
+        g_ci, g_is = self._separate_is_component (g_ci, ci=ci, symm=0)
+        g_all = self.pack_uniq_var (g_orb, g_ci, g_is)
 
-        g_all = np.append (g_all, g_is)
         return g_all
 
     def get_Aop_Adiag (self, verbose=None, mo=None, ci=None, eris=None,
@@ -234,7 +267,13 @@ class Gradients (mcpdft_grad.Gradients):
             x_v, x_is = x[:ngorb+nci], x[ngorb+nci:]
             Ax_v = hop (x_v) + self.sarot_response (x_is, mo=mo, ci=ci, eris=eris)
             Ax_is = np.dot (d2f, x_is)
-            return np.append (Ax_v, Ax_is)
+            logger.debug (self, ('fp (x) = {}\nfp (A.x [var]) = {}\n'
+                'fp (A.x [is]) = {}').format (lib.fp (x), lib.fp (Ax_v),
+                lib.fp (Ax_is)))
+            Ax_o, Ax_c = self.unpack_uniq_var (Ax_v)
+            Ax_c, Ax_is2 = self._separate_is_component (Ax_c)
+            assert (np.amax (np.abs (Ax_is2 - Ax_is)) < 1e-8), '{}\n{}'.format (Ax_is, Ax_is2)
+            return self.pack_uniq_var (Ax_o, Ax_c, Ax_is)
         return Aop, Adiag
 
     def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, d2f=None, **kwargs):
@@ -320,19 +359,41 @@ class Gradients (mcpdft_grad.Gradients):
         return de_Lv + de_Lis
 
     def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
+        # TODO: state-average-mix
+        nroots = self.nroots
+        if isinstance (self.base.fcisolver, CSFFCISolver):
+            transf = self.base.fcisolver.transformer
+            def _debug_csfs (xci, tag):
+                xci_csf = transf.vec_det2csf (xci, normalize=False)
+                xci_p = transf.vec_csf2det (xci_csf, normalize=False)
+                xci_p = np.concatenate ([x.ravel () for x in xci_p])
+                xci_p_norm = linalg.norm (xci_p)
+                logger.debug (self, '|{}(smult={})| = {}'.format (
+                    tag, transf.smult, xci_p_norm))
+                xci_arr = np.concatenate ([x.ravel () for x in xci])
+                logger.debug (self, '|{}(bs)| = {}'.format (tag, 
+                    linalg.norm (xci_arr-xci_p)))
+        else:
+            def _debug_csfs (xci, tag): pass
         def my_call (x):
             itvec[0] += 1
             geff = geff_op (x)
             deltax = x - Lvec_last
             gorb, gci, gis = self.unpack_uniq_var (geff)
             deltaorb, deltaci, deltais = self.unpack_uniq_var (deltax)
-            gci = np.concatenate ([g.ravel () for g in gci])
-            deltaci = np.concatenate ([d.ravel () for d in deltaci])
+            gci_norm = linalg.norm (np.asarray (gci).ravel ())
+            deltaci_norm = linalg.norm (np.asarray (deltaci).ravel ())
             logger.info(self, ('Lagrange optimization iteration {}, |gorb| = '
                 '{}, |gci| = {}, |gis| = {} |dLorb| = {}, |dLci| = {}, |dLis|'
                 ' = {}').format (itvec[0], linalg.norm (gorb),
-                linalg.norm (gci), linalg.norm (gis), linalg.norm (deltaorb),
-                linalg.norm (deltaci), linalg.norm (deltais)))
+                gci_norm, linalg.norm (gis), linalg.norm (deltaorb),
+                deltaci_norm, linalg.norm (deltais)))
+            gis2 = self._get_is_component (gci, symm=0)
+            deltais2 = self._get_is_component (deltaci, symm=0)
+            logger.debug (self, '|gis2| = {} |dLis2| = {}'.format (
+                linalg.norm (gis2), linalg.norm (deltais2)))
+            _debug_csfs (gci, 'gci')
+            _debug_csfs (deltaci, 'dLci')
             Lvec_last[:] = x[:]
         return my_call
 
@@ -396,7 +457,7 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
         Mx = self.pack_uniq_var (Mxorb, Mxci, Mxis)
         return self.pack_uniq_var (Mxorb, Mxci, Mxis)
 
-    def is_prec (self, xis): return linalg.solve (self.d2f, -xis)
+    def is_prec (self, xis): return linalg.solve (self.d2f, xis)
 
 
 if __name__ == '__main__':

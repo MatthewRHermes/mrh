@@ -332,23 +332,24 @@ def transform_civec_det2csf (detarr, norb, neleca, nelecb, smult, csd_mask=None,
         assert (detarr.size % ndet == 0), 'Impossible CI vector size {0} for system with {1} determinants'.format (detarr.size, ndet)
         nvec = detarr.size // ndet
         is_flat = len (detarr.shape) == 1
-        if vec_on_cols:
-            detarr = detarr.reshape (ndet, nvec)
-            detarr = np.ascontiguousarray (detarr.T)
-        else:
-            detarr = np.ascontiguousarray (detarr.reshape (nvec, ndet))
+    if vec_on_cols:
+        detarr = detarr.reshape (ndet, nvec)
+        detarr = np.ascontiguousarray (detarr.T)
+    else:
+        detarr = np.ascontiguousarray (detarr.reshape (nvec, ndet))
      
 
     # Driver needs an ndarray of explicit shape (*, ndet)        
     csfarr = _transform_detcsf_vec_or_mat (detarr, norb, neleca, nelecb, smult, reverse=False, op_matrix=False, csd_mask=csd_mask, project=False)
     if csfarr.size == 0:
+        assert (False)
         return np.zeros (0, dtype=detarr.dtype), 0.0
 
     # Manipulate csfarr back into the original shape
     csfnorm = linalg.norm (csfarr, axis=1)
     idx_norm = ~np.isclose (csfnorm, 0)
     if do_normalize:
-        csfarr = csfarr[idx_norm,:] / csfnorm[idx_norm,np.newaxis]
+        csfarr[idx_norm,:] /= csfnorm[idx_norm,np.newaxis]
     if vec_on_cols:
         csfarr = csfarr.T
     csfarr = np.ascontiguousarray (csfarr)
@@ -388,7 +389,7 @@ def transform_civec_csf2det (csfarr, norb, neleca, nelecb, smult, csd_mask=None,
     detnorm: ndarray of (maximum) length nvec, floats
     '''
     if np.asarray (csfarr).size == 0:
-        return np.zeros (0, dtype=detarr.dtype), 0.0
+        return np.zeros (0, dtype=csfarr.dtype), 0.0
 
     ndeta = special.comb (norb, neleca, exact=True) 
     ndetb = special.comb (norb, nelecb, exact=True)
@@ -404,11 +405,11 @@ def transform_civec_csf2det (csfarr, norb, neleca, nelecb, smult, csd_mask=None,
         assert (csfarr.size % ncsf == 0), 'Impossible CI vector size {0} for system with {1} CSFs'.format (csfarr.size, ncsf)
         nvec = csfarr.size // ncsf
         is_flat = len (csfarr.shape) == 1
-        if vec_on_cols:
-            csfarr = csfarr.reshape (ncsf, nvec)
-            csfarr = np.ascontiguousarray (csfarr.T)
-        else:
-            csfarr = np.ascontiguousarray (csfarr.reshape (nvec, ncsf))
+    if vec_on_cols:
+        csfarr = csfarr.reshape (ncsf, nvec)
+        csfarr = np.ascontiguousarray (csfarr.T)
+    else:
+        csfarr = np.ascontiguousarray (csfarr.reshape (nvec, ncsf))
 
     detarr = _transform_detcsf_vec_or_mat (csfarr, norb, neleca, nelecb, smult, reverse=True, op_matrix=False, csd_mask=csd_mask, project=False)
 

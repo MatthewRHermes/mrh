@@ -7,7 +7,7 @@ from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec, _get_init_guess, kernel_ms1
 from pyscf.fci.direct_spin1_symm import _gen_strs_irrep, _id_wfnsym
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
-from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf, make_hdiag_det, unpack_h1e_cs
+from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf, make_hdiag_det, unpack_h1e_cs, CSFFCISolver
 '''
     MRH 03/24/2019
     IMPORTANT: this solver will interpret a two-component one-body Hamiltonian as [h1e_charge, h1e_spin] where
@@ -20,7 +20,7 @@ from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf,
 '''
 
 
-class FCISolver (direct_spin1_symm.FCISolver):
+class FCISolver (direct_spin1_symm.FCISolver, CSFFCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
     out in the CSF basis. However, the ci attribute is put in the determinant basis at the end of it all, and "ci0" is also assumed
     to be in the determinant basis.
