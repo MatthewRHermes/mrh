@@ -314,6 +314,7 @@ class Gradients (mcpdft_grad.Gradients):
                 (i, de_i))
             log.debug ('Factor for these terms: {}'.format (amp))
             de += amp * de_i
+        log.debug ('SI-PDFT gradient diag H-F terms:\n{}'.format (de))
 
         # Off-diagonal: heff component
         de_o = sipdft_heff_HellmanFeynman (self, mo_coeff=mo, ci=ci,
