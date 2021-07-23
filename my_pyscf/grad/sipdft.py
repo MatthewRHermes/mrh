@@ -273,17 +273,23 @@ class Gradients (mcpdft_grad.Gradients):
         elif eris is None:
             eris = self.eris
         if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
+        ham_od = self.base.ham_si.copy ()
+        ham_od[np.diag_indices (self.nroots)] = 0.0
+        ham_od += ham_od.T # This corresponds to the arbitrary newton_casscf * 2
         fcasscf = self.make_fcasscf_sa ()
         hop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris, verbose)[2:]
         ngorb, nci = self.ngorb, self.nci
         # TODO: cacheing sarot_response? or an x=0 branch?
         def Aop (x):
             x_v, x_is = x[:ngorb+nci], x[ngorb+nci:]
-            Ax_v = hop (x_v) #+ self.sarot_response (x_is, mo=mo, ci=ci, eris=eris)
+            Ax_v = hop (x_v) + self.sarot_response (x_is, mo=mo, ci=ci, eris=eris)
             x_c = self.unpack_uniq_var (x_v)[1]
             Ax_is = np.dot (d2f, x_is)
             Ax_o, Ax_c = self.unpack_uniq_var (Ax_v)
             Ax_c, Ax_is2 = self._separate_is_component (Ax_c)
+            # off-diagonal correction??
+            Ax_c_od = list (np.tensordot (-ham_od, np.stack (x_c, axis=0), axes=1))
+            Ax_c = [a1 + (w*a2) for a1, a2, w in zip (Ax_c, Ax_c_od, self.base.weights)]
             assert (np.amax (np.abs (Ax_is2 - Ax_is)) < 1e-8), '{}\n{}'.format (Ax_is, Ax_is2)
             return self.pack_uniq_var (Ax_o, Ax_c, Ax_is)
         return Aop, Adiag
