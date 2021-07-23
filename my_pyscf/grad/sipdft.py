@@ -10,6 +10,7 @@ from pyscf.mcscf import mc1step, newton_casscf
 from pyscf.grad import rhf as rhf_grad
 from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import sacasscf as sacasscf_grad
+from itertools import product
 
 def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket): 
     # TODO: state-average-mix generalization
@@ -68,16 +69,17 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
 
     return np.append (g_orb, gci.ravel ())
 
-def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
+def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None, si=None,
         si_bra=None, si_ket=None, state=None, eris=None, mf_grad=None,
         verbose=None, **kwargs):
     mc = mc_grad.base
     if atmlst is None: atmlst = mc_grad.atmlst
-    if mo is None: mo = mc_grad.mo_coeff
-    if ci is None: ci = mc_grad.ci
+    if mo is None: mo = mc.mo_coeff
+    if ci is None: ci = mc.ci
+    if si is None: si = mc.si
     if state is None: state = mc_grad.state
-    if si_bra is None: si_bra = mc.si[:,state]
-    if si_ket is None: si_ket = mc.si[:,state]
+    if si_bra is None: si_bra = si[:,state]
+    if si_ket is None: si_ket = si[:,state]
     if eris is None: eris = mc.ao2mo (mo)
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method ()
     if verbose is None: verbose = mc_grad.verbose
@@ -141,17 +143,22 @@ class Gradients (mcpdft_grad.Gradients):
     def sarot_response (self, Lis, **kwargs): return self._sarot_response (self, Lis, **kwargs)
     def sarot_grad (self, Lis, **kwargs): return self._sarot_grad (self, Lis, **kwargs)
 
-    def kernel (self, state=None, mo=None, ci=None, **kwargs):
+    def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False, 
+            **kwargs):
         ''' Cache the Hamiltonian and effective Hamiltonian terms, and pass
             around the IS hessian
 
             eris, veff1, veff2, and d2f should be available to all top-level
             functions: get_wfn_response, get_Aop_Adiag, get_ham_repsonse, and
             get_LdotJnuc
+ 
+            freeze_is == True sets the is component of the response to zero
+            for debugging purposes
         '''
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
+        if si is None: si = self.base.si
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
         if state is None:
             raise NotImplementedError ('Gradient of PDFT state-average energy')
@@ -165,7 +172,8 @@ class Gradients (mcpdft_grad.Gradients):
             veff1.append (v1)
             veff2.append (v2)
         return mcpdft_grad.Gradients.kernel (self, state=state, mo=mo, ci=ci,
-            d2f=d2f, veff1=veff1, veff2=veff2, **kwargs)
+            si=si, d2f=d2f, veff1=veff1, veff2=veff2, _freeze_is=_freeze_is,
+            **kwargs)
 
     def pack_uniq_var (self, xorb, xci, xis=None):
         x = sacasscf_grad.Gradients.pack_uniq_var (self, xorb, xci)
@@ -214,12 +222,14 @@ class Gradients (mcpdft_grad.Gradients):
 
 
     def get_wfn_response (self, si_bra=None, si_ket=None, state=None, mo=None,
-            ci=None, eris=None, veff1=None, veff2=None, **kwargs):
+            ci=None, si=None, eris=None, veff1=None, veff2=None,
+            _freeze_is=False, **kwargs):
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
+        if si is None: si = self.base.si
         if state is None: state = self.state
-        if si_bra is None: si_bra = self.base.si[:,state]
-        if si_ket is None: si_ket = self.base.si[:,state]
+        if si_bra is None: si_bra = si[:,state]
+        if si_ket is None: si_ket = si[:,state]
         log = lib.logger.new_logger (self, self.verbose)
         si_diag = si_bra * si_ket
         nroots, ngorb, nci = self.nroots, self.ngorb, self.nci
@@ -231,6 +241,10 @@ class Gradients (mcpdft_grad.Gradients):
             if not amp: continue
             g_all += amp * mcpdft_grad.Gradients.get_wfn_response (self,
                 state=i, mo=mo, ci=ci, veff1=v1, veff2=v2, nlag=nlag, **kwargs)
+
+        # DEBUG
+        g_is_pdft = self._get_is_component (self.unpack_uniq_var (g_all)[1],
+            ci=ci, symm=0)
 
         # Off-diagonal: heff component
         g_all += sipdft_heff_response (self, mo=mo, ci=ci,
@@ -244,6 +258,7 @@ class Gradients (mcpdft_grad.Gradients):
         # other at all times.
         g_orb, g_ci = self.unpack_uniq_var (g_all)
         g_ci, g_is = self._separate_is_component (g_ci, ci=ci, symm=0)
+        if _freeze_is: g_is[:] = 0.0
         g_all = self.pack_uniq_var (g_orb, g_ci, g_is)
 
         return g_all
@@ -260,16 +275,13 @@ class Gradients (mcpdft_grad.Gradients):
         if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
         fcasscf = self.make_fcasscf_sa ()
         hop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris, verbose)[2:]
-        hop = self.project_Aop (hop, ci, 0)
         ngorb, nci = self.ngorb, self.nci
         # TODO: cacheing sarot_response? or an x=0 branch?
         def Aop (x):
             x_v, x_is = x[:ngorb+nci], x[ngorb+nci:]
-            Ax_v = hop (x_v) + self.sarot_response (x_is, mo=mo, ci=ci, eris=eris)
+            Ax_v = hop (x_v) #+ self.sarot_response (x_is, mo=mo, ci=ci, eris=eris)
+            x_c = self.unpack_uniq_var (x_v)[1]
             Ax_is = np.dot (d2f, x_is)
-            logger.debug (self, ('fp (x) = {}\nfp (A.x [var]) = {}\n'
-                'fp (A.x [is]) = {}').format (lib.fp (x), lib.fp (Ax_v),
-                lib.fp (Ax_is)))
             Ax_o, Ax_c = self.unpack_uniq_var (Ax_v)
             Ax_c, Ax_is2 = self._separate_is_component (Ax_c)
             assert (np.amax (np.abs (Ax_is2 - Ax_is)) < 1e-8), '{}\n{}'.format (Ax_is, Ax_is2)
@@ -284,16 +296,17 @@ class Gradients (mcpdft_grad.Gradients):
             d2f=d2f, grad_method=self)
 
     def get_ham_response (self, si_bra=None, si_ket=None, state=None, mo=None,
-            ci=None, eris=None, veff1=None, veff2=None, mf_grad=None, 
+            ci=None, si=None, eris=None, veff1=None, veff2=None, mf_grad=None, 
             atmlst=None, verbose=None, **kwargs):
         ''' write sipdft heff Hellmann-Feynman calculator; sum over diagonal
             PDFT Hellmann-Feynman terms '''
         if atmlst is None: atmlst = self.atmlst
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
+        if si is None: si = self.base.si
         if state is None: state = self.state
-        if si_bra is None: si_bra = self.base.si[:,state]
-        if si_ket is None: si_ket = self.base.si[:,state]
+        if si_bra is None: si_bra = si[:,state]
+        if si_ket is None: si_ket = si[:,state]
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
         if verbose is None: verbose = self.verbose
         si_diag = si_bra * si_ket
@@ -362,18 +375,15 @@ class Gradients (mcpdft_grad.Gradients):
     def get_lagrange_callback (self, Lvec_last, itvec, geff_op):
         # TODO: state-average-mix
         nroots = self.nroots
+        log = logger.new_logger (self, self.verbose)
         if isinstance (self.base.fcisolver, CSFFCISolver):
             transf = self.base.fcisolver.transformer
             def _debug_csfs (xci, tag):
                 xci_csf = transf.vec_det2csf (xci, normalize=False)
                 xci_p = transf.vec_csf2det (xci_csf, normalize=False)
-                xci_p = np.concatenate ([x.ravel () for x in xci_p])
-                xci_p_norm = linalg.norm (xci_p)
-                logger.debug (self, '|{}(smult={})| = {}'.format (
-                    tag, transf.smult, xci_p_norm))
-                xci_arr = np.concatenate ([x.ravel () for x in xci])
-                logger.debug (self, '|{}(bs)| = {}'.format (tag, 
-                    linalg.norm (xci_arr-xci_p)))
+                xci_bs_norm = linalg.norm (np.concatenate (
+                    [x.ravel () - y.ravel () for x, y in zip (xci_p, xci)]))
+                log.debug ('Broken-spin |{}| = {}'.format (tag, xci_bs_norm))
         else:
             def _debug_csfs (xci, tag): pass
         def my_call (x):
@@ -389,21 +399,33 @@ class Gradients (mcpdft_grad.Gradients):
                 ' = {}').format (itvec[0], linalg.norm (gorb),
                 gci_norm, linalg.norm (gis), linalg.norm (deltaorb),
                 deltaci_norm, linalg.norm (deltais)))
-            gis2 = self._get_is_component (gci, symm=0)
-            deltais2 = self._get_is_component (deltaci, symm=0)
-            logger.debug (self, '|gis2| = {} |dLis2| = {}'.format (
-                linalg.norm (gis2), linalg.norm (deltais2)))
             _debug_csfs (gci, 'gci')
             _debug_csfs (deltaci, 'dLci')
             Lvec_last[:] = x[:]
         return my_call
 
     def debug_lagrange (self, Lvec, bvec, Aop, Adiag, state=None, mo=None,
-        ci=None, d2f=None, **kwargs):
+        ci=None, d2f=None, verbose=None, **kwargs):
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
+        if verbose is None: verbose = self.verbose
+        nroots = self.nroots
+        log = logger.new_logger (self, verbose)
+        if isinstance (self.base.fcisolver, CSFFCISolver):
+            transf = self.base.fcisolver.transformer
+            def _debug_csfs (xci, label, normalize=False):
+                strs, vecs = transf.printable_largest_csf (np.asarray (xci), 10,
+                    isdet=True, normalize=normalize, order='C')
+                log.debug ('Leading CSFs for %s', label)
+                for iroot in range (nroots):
+                    log.debug (' Root %d', iroot)
+                    for s, v in zip (strs[iroot], vecs[iroot]):
+                        log.debug ('  |%s>: %s', s, v)
+        else: 
+            def _debug_csfs (*args, **kwargs): pass
         def _debug_cispace (xci, label):
+            log.debug ('%s', label)
             xci_norm = [np.dot (c.ravel (), c.ravel ()) for c in xci]
             try:
                 xci_ss = self.base.fcisolver.states_spin_square (xci, self.base.ncas, self.base.nelecas)[0]
@@ -413,25 +435,36 @@ class Gradients (mcpdft_grad.Gradients):
                           for x, m in zip (xci, self.spin_states)]
             xci_ss = [x / max (y, 1e-8) for x, y in zip (xci_ss, xci_norm)]
             xci_multip = [np.sqrt (x+.25) - .5 for x in xci_ss]
+            xci_norm = np.sqrt (xci_norm)
             for ix, (norm, ss, multip) in enumerate (zip (xci_norm, xci_ss, xci_multip)):
-                logger.debug (self,
-                              ' State {} {} norm = {:.7e} ; <S^2> = {:.7f} ; 2S+1 = {:.7f}'.format(
-                                  ix, label, norm, ss, multip))
+                log.debug ((' State {} norm = {:.7e} ; <S^2> = {:.7f} ; 2S+1'
+                            ' = {:.7f}').format (ix, norm, ss, multip))
+            ovlp = np.zeros ((nroots, nroots), dtype=xci[0].dtype)
+            for i, j in product (range (nroots), repeat=2):
+                if self.spin_states[i] != self.spin_states[j]: continue
+                ovlp[i,j] = np.dot (xci[i].ravel (), ci[j].ravel ())
+            log.debug (' Overlap matrix with CI array:')
+            fmt_str = '  ' + ' '.join (['{:8.1e}',]*nroots)
+            for row in ovlp: log.debug (fmt_str.format (*row))
+        _debug_csfs (ci, 'CI vector', normalize=True)
         borb, bci, bis = self.unpack_uniq_var (bvec)
-        logger.debug (self, 'Orbital rotation gradient norm = {:.6e}'.format (linalg.norm (borb)))
-        _debug_cispace (bci, 'CI gradient')
+        log.debug ('Orbital rotation gradient (b) norm = {:.6e}'.format (linalg.norm (borb)))
+        _debug_cispace (bci, 'CI gradient (b)')
+        _debug_csfs (bci, 'CI gradient (b)')
         Aorb, Aci = self.unpack_uniq_var (Adiag)
-        logger.debug (self, 'Orbital rotation Hamiltonian diagonal norm = {:.7e}'.format (linalg.norm (Aorb)))
-        _debug_cispace (Aci, 'Hamiltonian diagonal')
+        log.debug ('Orbital rotation Hessian (A) diagonal norm = {:.7e}'.format (linalg.norm (Aorb)))
+        _debug_cispace (Aci, 'CI Hessian (A) diagonal')
+        _debug_csfs (Aci, 'CI Hessian (A) diagonal')
         Lorb, Lci, Lis = self.unpack_uniq_var (Lvec)
-        logger.debug (self, 'Orbital rotation Lagrange vector norm = {:.7e}'.format (linalg.norm (Lorb)))
-        _debug_cispace (Lci, 'Lagrange vector')
-        logger.debug (self, 'Constraint Jacobian:')
-        fmt = ' '.join (['{:12.7e}' for i in range (self.nis)])
-        for row in d2f: logger.debug (self, fmt.format (*row))
-        logger.debug (self, '{:>12s} {:>12s}'.format ('Gradient', 'Vector'))
+        log.debug ('Orbital rotation Lagrange vector (x) norm = {:.7e}'.format (linalg.norm (Lorb)))
+        _debug_cispace (Lci, 'CI Lagrange (x) vector')
+        _debug_csfs (Lci, 'CI Lagrange (x) vector')
+        log.debug ('SI-PDFT Constraint Jacobian (type = {}) (A):'.format (self.base.sarot_name))
+        fmt = ' ' + ' '.join (['{:12.5e}' for i in range (self.nis)])
+        for row in d2f: log.debug (fmt.format (*row))
+        log.debug (' {:>12s} {:>12s}'.format ('Gradient (b)', 'Vector (x)'))
         for g, v in zip (bis, Lis):
-            logger.debug (self, '{:12.7e} {:12.7e}'.format (g, v))
+            log.debug (' {:12.5e} {:12.5e}'.format (g, v))
 
 class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
     ''' Solve IS part exactly, then do everything else the same '''

@@ -36,7 +36,7 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
     if max_cyc is None: max_cyc = getattr (mc, 'max_cyc_sarot', 50)
     if conv_tol is None: conv_tol = getattr (mc, 'conv_tol_sarot', 1e-8)
     if sing_tol is None: sing_tol = getattr (mc, 'sing_tol_sarot', 1e-8)
-    if nudge_tol is None: nudge_tol = getattr (mc, 'nudge_tol_sarot', 1e-6)
+    if nudge_tol is None: nudge_tol = getattr (mc, 'nudge_tol_sarot', 1e-3)
     ci_old = np.array (ci)
     log = lib.logger.new_logger (mc, mc.verbose)
     nroots = mc.fcisolver.nroots 
@@ -78,23 +78,28 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
         log.info ("{} grad (normal modes) = {}".format (hdr, df))
 
         # Take step
-        df[pos_idx & (np.abs (df) < nudge_tol)] = nudge_tol
+        df[pos_idx & (np.abs (df/d2f) < nudge_tol)] = nudge_tol
         Dt = df/np.abs (d2f)
+        step_norm = np.linalg.norm (Dt)
         log.info ("{} Hessian eigenvalues: {}".format (hdr, d2f))
         log.info ("{} step vector (normal modes): {}".format (hdr, Dt))
         t[:] = 0
         t[np.tril_indices(t.shape[0], k = -1)] = np.dot (Dt, evecs.T)
         t = t - t.T
 
-        if grad_norm < conv_tol and neg_def == True:
+        if grad_norm < conv_tol and step_norm < conv_tol and neg_def == True:
                 conv = True
                 break
 
+    U_signed = np.tensordot (ci_old, ci.conj (), axes=((1,2),(1,2)))
+    if mc.verbose >= lib.logger.DEBUG:
+        fmt_str = ' ' + ' '.join (['{:5.2f}',]*nroots)
+        log.debug ("{} final overlap matrix:".format (hdr))
+        for row in U_signed: log.debug (fmt_str.format (*row))
     # Root order and sign by overlap criterion
     # Requires ~strictly~ non-repeating sort
     # TODO: generalize to only sort within solvers in
     # SA-mix (can probably hack this using U_abs)
-    #U_signed = np.tensordot (ci_old, ci.conj (), axes=((1,2),(1,2)))
     #U_abs = np.abs (U_signed)
     #sgn = np.ones (nroots)
     #ovlp_idx = -sgn.copy ().astype (np.int32)

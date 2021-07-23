@@ -303,7 +303,7 @@ class Gradients (sacasscf.Gradients):
             logger.debug (self, 'Linear response SA-SA part:\n{}'.format (ovlp))
             logger.debug (self, 'Linear response SA-CI norms:\n{}'.format (linalg.norm (
                 b_ci.T - ci_arr.T @ ovlp, axis=1)))
-            logger.debug (self, 'Linear response orbital norms:\n{}'.format (linalg.norm (bvec[:self.ngorb])))
+            if self.ngorb: logger.debug (self, 'Linear response orbital norms:\n{}'.format (linalg.norm (bvec[:self.ngorb])))
             logger.debug (self, 'SA-SA Lagrange multiplier for root {}:\n{}'.format (self.state, x0_sa))
             x0[self.ngorb:][ndet*self.state:][:ndet] = np.dot (x0_sa, ci_arr)
         r0 = bvec + Aop (x0)
@@ -312,7 +312,8 @@ class Gradients (sacasscf.Gradients):
         logger.debug (self, 'Lagrange residual SA-SA part after solving SA-SA part:\n{}'.format (ovlp))
         logger.debug (self, 'Lagrange residual SA-CI norms after solving SA-SA part:\n{}'.format (linalg.norm (
             r0_ci.T - ci_arr.T @ ovlp, axis=1)))
-        logger.debug (self, 'Lagrange residual orbital norms after solving SA-SA part:\n{}'.format (linalg.norm (r0[:self.ngorb])))
+        if self.ngorb: logger.debug (self,
+            'Lagrange residual orbital norms after solving SA-SA part:\n{}'.format (linalg.norm (r0[:self.ngorb])))
         x0 += precond (-r0)
         r1 = bvec + Aop (x0)
         r1_ci = r1[self.ngorb:].reshape (self.nroots, ndet)
@@ -320,7 +321,8 @@ class Gradients (sacasscf.Gradients):
         logger.debug (self, 'Lagrange residual SA-SA part after first precondition:\n{}'.format (ovlp))
         logger.debug (self, 'Lagrange residual SA-CI norms after first precondition:\n{}'.format (linalg.norm (
             r1_ci.T - ci_arr.T @ ovlp, axis=1)))
-        logger.debug (self, 'Lagrange residual orbital norms after first precondition:\n{}'.format (linalg.norm (r1[:self.ngorb])))
+        if self.ngorb: logger.debug (self,
+            'Lagrange residual orbital norms after first precondition:\n{}'.format (linalg.norm (r1[:self.ngorb])))
         return x0
 
     def kernel (self, **kwargs):
