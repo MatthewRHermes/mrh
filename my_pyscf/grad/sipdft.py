@@ -53,6 +53,7 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     vnocore[:,:ncore] = -moH @ mc.get_hcore () @ mo[:,:ncore]
     with lib.temporary_env (eris, vhf_c=vnocore):
         g_orb = 2 * mc1step.gen_g_hop (mc, mo, 1, casdm1, casdm2, eris)[0]
+    g_orb = mc.unpack_uniq_var (g_orb)
 
     # Intermediate state rotation (TODO: state-average-mix generalization)
     ham_is = ham_si.copy ()
@@ -64,10 +65,9 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     g_is += np.multiply.outer (si_bra, Hket)
     g_is -= 2 * si2[:,None] * ham_is
     g_is -= g_is.T
-    ci_arr = np.asarray (ci).reshape (nroots, -1)
-    gci = np.dot (g_is, ci_arr)
+    g_is = g_is[np.tril_indices (nroots, k=-1)]
 
-    return np.append (g_orb, gci.ravel ())
+    return g_orb, g_is
 
 def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None, si=None,
         si_bra=None, si_ket=None, state=None, eris=None, mf_grad=None,
@@ -215,8 +215,8 @@ class Gradients (mcpdft_grad.Gradients):
         if is_list: xci = list (xci)
         elif is_tuple: xci = tuple (xci)
         if symm > -1: xis -= xis.T
-        else:
-            assert (np.amax (np.abs (xis + xis.T)) < 1e-8), '{}'.format (xis)
+        #else:
+        #    assert (np.amax (np.abs (xis + xis.T)) < 1e-8), '{}'.format (xis)
         xis = xis[np.tril_indices (nroots, k=-1)]
         return xci, xis
 
@@ -236,28 +236,23 @@ class Gradients (mcpdft_grad.Gradients):
         ptr_is = ngorb + nci
 
         # Diagonal: PDFT component
-        g_all, nlag = 0, self.nlag-self.nis
+        g_all_pdft, nlag = 0, self.nlag-self.nis
         for i, (amp, c, v1, v2) in enumerate (zip (si_diag, ci, veff1, veff2)):
             if not amp: continue
-            g_all += amp * mcpdft_grad.Gradients.get_wfn_response (self,
+            g_all_pdft += amp * mcpdft_grad.Gradients.get_wfn_response (self,
                 state=i, mo=mo, ci=ci, veff1=v1, veff2=v2, nlag=nlag, **kwargs)
 
         # DEBUG
-        g_is_pdft = self._get_is_component (self.unpack_uniq_var (g_all)[1],
-            ci=ci, symm=0)
+        g_orb_pdft, g_ci = self.unpack_uniq_var (g_all_pdft)
+        g_ci, g_is_pdft = self._separate_is_component (g_ci, ci=ci, symm=0)
 
         # Off-diagonal: heff component
-        g_all += sipdft_heff_response (self, mo=mo, ci=ci,
+        g_orb_heff, g_is_heff = sipdft_heff_response (self, mo=mo, ci=ci,
             si_bra=si_bra, si_ket=si_ket, eris=eris)
 
-        # Separate IS part
-        # I will NOT remove it from the CI vectors. Instead, both d2f.Lis and
-        # sarot_response (Lis) will compute the IS part of the CI space as a
-        # sanity check. I can throw an assert statement into the cg callback to
-        # make sure the two representations of the IS sector agree with each
-        # other at all times.
-        g_orb, g_ci = self.unpack_uniq_var (g_all)
-        g_ci, g_is = self._separate_is_component (g_ci, ci=ci, symm=0)
+        # Combine
+        g_orb = g_orb_pdft + g_orb_heff
+        g_is = g_is_pdft + g_is_heff
         if _freeze_is: g_is[:] = 0.0
         g_all = self.pack_uniq_var (g_orb, g_ci, g_is)
 
@@ -287,10 +282,9 @@ class Gradients (mcpdft_grad.Gradients):
             Ax_is = np.dot (d2f, x_is)
             Ax_o, Ax_c = self.unpack_uniq_var (Ax_v)
             Ax_c, Ax_is2 = self._separate_is_component (Ax_c)
-            # off-diagonal correction??
             Ax_c_od = list (np.tensordot (-ham_od, np.stack (x_c, axis=0), axes=1))
             Ax_c = [a1 + (w*a2) for a1, a2, w in zip (Ax_c, Ax_c_od, self.base.weights)]
-            assert (np.amax (np.abs (Ax_is2 - Ax_is)) < 1e-8), '{}\n{}'.format (Ax_is, Ax_is2)
+            #assert (np.amax (np.abs (Ax_is2 - Ax_is)) < 1e-8), '{}\n{}'.format (Ax_is, Ax_is2)
             return self.pack_uniq_var (Ax_o, Ax_c, Ax_is)
         return Aop, Adiag
 
@@ -411,10 +405,11 @@ class Gradients (mcpdft_grad.Gradients):
         return my_call
 
     def debug_lagrange (self, Lvec, bvec, Aop, Adiag, state=None, mo=None,
-        ci=None, d2f=None, verbose=None, **kwargs):
+        ci=None, d2f=None, verbose=None, eris=None, **kwargs):
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
+        if eris is None: eris = self.base.ao2mo (mo)
         if verbose is None: verbose = self.verbose
         nroots = self.nroots
         log = logger.new_logger (self, verbose)
@@ -471,6 +466,8 @@ class Gradients (mcpdft_grad.Gradients):
         log.debug (' {:>12s} {:>12s}'.format ('Gradient (b)', 'Vector (x)'))
         for g, v in zip (bis, Lis):
             log.debug (' {:12.5e} {:12.5e}'.format (g, v))
+        #log.debug ('FOR JIE:')
+        #_debug_csfs (self.unpack_uniq_var (self.sarot_response (np.array ([1.0]), mo=mo, ci=ci, eris=eris))[1], 'A_(IS,CI)')
 
 class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
     ''' Solve IS part exactly, then do everything else the same '''
