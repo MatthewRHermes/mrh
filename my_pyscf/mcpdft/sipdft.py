@@ -169,10 +169,43 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
     ''' Unfixed to FCIsolver since SI-PDFT state energies are no longer
         CI solutions '''
 
-    def kernel (self, mo=None, ci=None, **kwargs):
+    def _init_ci0 (self, ci0, mo_coeff=None):
+        ''' On the assumption that ci0 represents states that optimize the
+            SI-PDFT objective function, prediagonalize the Hamiltonian so that
+            the MC-SCF step has a better initialization. '''
+        # TODO: different spin states in state-average-mix
+        if ci0 is None: return None
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        ncas, nelecas = self.ncas, self.nelecas
+        h1, h0 = self.get_h1eff (mo_coeff)
+        h2 = self.get_h2eff (mo_coeff)
+        h2eff = direct_spin1.absorb_h1e (h1, h2, ncas, nelecas, 0.5)
+        hc_all = [direct_spin1.contract_2e (h2eff, c, ncas, nelecas) for c in ci0]
+        ham_ci = np.tensordot (np.asarray (ci0), hc_all, axes=((1,2),(1,2)))
+        e, u = linalg.eigh (ham_ci)
+        ci = list (np.tensordot (u.T, np.asarray (ci0), axes=1))
+        return ci
+
+    def _init_sarot_ci (self, ci, ci0):
+        ''' On the assumption that ci0 represents states that optimize the
+            SI-PDFT objective function, rotate the MC-SCF ci vectors to maximize
+            their overlap with ci0 so that the sarot step has a better
+            initialization.'''
+        # TODO: different spin states in state-average-mix
+        if ci0 is None: return None
+        ci0_array = np.asarray (ci0)
+        ci_array = np.asarray (ci)
+        ovlp = np.tensordot (ci0_array.conj (), ci_array, axes=((1,2),(1,2)))
+        u, svals, vh = linalg.svd (ovlp)
+        ci = list (np.tensordot (u @ vh, ci_array, axes=1))
+        return ci
+
+    def kernel (self, mo_coeff=None, ci0=None, **kwargs):
         # I should maybe rethink keeping all this intermediate information
         self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
-        ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)[-3:]
+        ci = self._init_ci0 (ci0, mo_coeff=mo_coeff)
+        ci, self.mo_coeff, self.mo_energy = super().kernel (mo_coeff, ci, **kwargs)[-3:]
+        ci = self._init_sarot_ci (ci, ci0)
         self.ci = self.sarot (ci=ci, **kwargs)
         self.ham_si, self.ovlp_si, self.e_mcscf, self.e_ot, self.e_cas = self.make_ham_si (self.ci)
         self._log_sarot ()
