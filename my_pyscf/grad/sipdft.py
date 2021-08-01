@@ -76,7 +76,7 @@ def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None, si=None,
     if atmlst is None: atmlst = mc_grad.atmlst
     if mo is None: mo = mc.mo_coeff
     if ci is None: ci = mc.ci
-    if si is None: si = mc.si
+    if si is None: si = getattr (mc, 'si', None)
     if state is None: state = mc_grad.state
     if si_bra is None: si_bra = si[:,state]
     if si_ket is None: si_ket = si[:,state]

@@ -36,7 +36,14 @@ def get_mc_ref (mol, ri=False, sam=False):
         mc = mc.state_average ([0.5,0.5])
     mc.conv_tol = 1e-12
     return mc.run ()
-mc_list = [[[get_mc_ref (m, ri=i, sam=j) for i in (0,1)] for j in (0,1)] for m in (mol_nosymm, mol_symm)]
+#mc_list = [[[get_mc_ref (m, ri=i, sam=j) for i in (0,1)] for j in (0,1)] for m in (mol_nosymm, mol_symm)]
+mc_list = [] # Crunch within unittest.main for accurate clock
+def get_mc_list ():
+    if len (mc_list) == 0:
+        for m in [mol_nosymm, mol_symm]:
+            mc_list.append ([[get_mc_ref (m, ri=i, sam=j) for i in (0,1)] for j in (0,1)])
+    return mc_list
+
 def tearDownModule():
     global mol_nosymm, mol_symm, mc_list, si
     mol_nosymm.stdout.close ()
@@ -46,7 +53,7 @@ def tearDownModule():
 class KnownValues(unittest.TestCase):
 
     def test_offdiag_response_sanity (self):
-        for mcs, stype in zip (mc_list, ('nosymm','symm')):
+        for mcs, stype in zip (get_mc_list (), ('nosymm','symm')):
          for mca, atype in zip (mcs, ('nomix','mix')):
           for mc, itype in zip (mca, ('conv', 'DF')):
             ci_arr = np.asarray (mc.ci)
@@ -72,18 +79,18 @@ class KnownValues(unittest.TestCase):
             dwci_ref = -np.einsum ('rpab,qab->rpq', dwci_ref.reshape (2,2,20,20), ci_arr)
             dwci_ref -= dwci_ref.transpose (0,2,1)
             dwci_ref = np.einsum ('spq,sr->rpq', dwci_ref, si_diag)
+            dwci_ref = dwci_ref[:,1,0]
             for r in (0,1):
-                dw_test = sipdft_heff_response (mc_grad, ci=ci, state=r, eris=eris,
+                dworb_test, dwci_test = sipdft_heff_response (mc_grad, ci=ci, state=r, eris=eris,
                     si_bra=si[:,r], si_ket=si[:,r], ham_si=ham_si, e_mcscf=e_mcscf)
-                dworb_test, dwci_test = dw_test[:ngorb], dw_test[ngorb:]
-                dwci_test = np.einsum ('pab,qab->pq', dwci_test.reshape (2,20,20), ci_arr)
+                dworb_test = mc.pack_uniq_var (dworb_test)
                 with self.subTest (symm=stype, solver=atype, eri=itype, root=r, check='orb'):
                     self.assertAlmostEqual (lib.fp (dworb_test), lib.fp (dworb_ref[r]), 8)
                 with self.subTest (symm=stype, solver=atype, eri=itype, root=r, check='CI'):
                     self.assertAlmostEqual (lib.fp (dwci_test), lib.fp (dwci_ref[r]), 8)
 
     def test_offdiag_grad_sanity (self):
-        for mcs, stype in zip (mc_list, ('nosymm','symm')):
+        for mcs, stype in zip (get_mc_list (), ('nosymm','symm')):
          for mca, atype in zip (mcs, ('nomix','mix')):
           for mc, itype in zip (mca, ('conv', 'DF')):
             ci_arr = np.asarray (mc.ci)
