@@ -65,14 +65,14 @@ class KnownValues(unittest.TestCase):
         grad0 = np.append (gorb0, gci0)
         grad1 = h_op.get_grad ()
         gx1 = h_op.get_gx () # "gx" is not even defined in this context
-        self.assertAlmostEqual (lib.fp (grad0), -0.1547273632764783, 9)
-        self.assertAlmostEqual (lib.fp (grad1), -0.1547273632764783, 9)
+        self.assertAlmostEqual (lib.fp (grad0), -0.1547273632764783, 7)
+        self.assertAlmostEqual (lib.fp (grad1), -0.1547273632764783, 7)
         self.assertAlmostEqual (lib.fp (gx0), 0.0, 9)
         self.assertAlmostEqual (lib.fp (gx1), 0.0, 9) 
 
     def test_hessian (self):
         hx = h_op._matvec (x)
-        self.assertAlmostEqual (lib.fp (hx), 179.117392525215, 9)
+        self.assertAlmostEqual (lib.fp (hx), 179.117392525215, 7)
 
     def test_hc2 (self):
         xp = x.copy ()
@@ -102,7 +102,7 @@ class KnownValues(unittest.TestCase):
         xp = x.copy ()
         xp[offs_ci1:] = 0.0
         hx = h_op._matvec (xp)[:offs_ci1]
-        self.assertAlmostEqual (lib.fp (hx), 178.41916344898377, 9)
+        self.assertAlmostEqual (lib.fp (hx), 178.41916344898377, 7)
 
     def test_h_xcv (self):
         xorb0 = xorb.copy ()
@@ -112,7 +112,7 @@ class KnownValues(unittest.TestCase):
         refs = [-0.06544076804895266,0.20492877852377767,-76.54148711825971,0.001430987773399131,-0.023324408608589215,0.011004024379865151]
         for sec, test, ref in zip (sectors, itsec (hxorb,hxci), refs):
             with self.subTest (sector=sec):
-                self.assertAlmostEqual (lib.fp (test), ref, 9)
+                self.assertAlmostEqual (lib.fp (test), ref, 7)
 
     def test_h_xaa (self):
         xorb0 = np.zeros_like (xorb)
@@ -133,12 +133,12 @@ class KnownValues(unittest.TestCase):
         refs = [32.59486557852766,0.8505552949164717,-1.5790308710536478,-2.7650296786870276,-0.09445253579668796,0.12861532657269764]
         for sec, test, ref in zip (sectors, itsec (hxorb,hxci), refs):
             with self.subTest (sector=sec):
-                self.assertAlmostEqual (lib.fp (test), ref, 9)
+                self.assertAlmostEqual (lib.fp (test), ref, 8)
 
     def test_prec (self):
         M_op = h_op.get_prec ()
         Mx = M_op._matvec (x)
-        self.assertAlmostEqual (lib.fp (Mx), 8358.536413578968, 7)
+        self.assertAlmostEqual (lib.fp (Mx), 8358.536413578968, 6)
 
 
 if __name__ == "__main__":
