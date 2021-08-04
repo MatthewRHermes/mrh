@@ -46,8 +46,6 @@ def contract_ano_basis (mol, contractions):
     mol.build ()
     return mol
 
-
-
 def parse_basis_tbl (contr):
     ''' Read OpenMolcas's basis.tbl to get the meaning of strings like MB, VTZP, etc. '''
     splitter = re.compile ('\.|\ ')
@@ -59,7 +57,26 @@ def parse_basis_tbl (contr):
             if cols[0] in contr and cols[1] == 'ANO-RCC-' + contr[cols[0]].upper ():
                 contr[cols[0]] = cols[-2]
     return contr
-                
+
+BREAK_ELEMENT = {'VDZP': 'Fr',
+                 'VTZP': 'Fr',
+                 'VQZP': 'Fr'}
+def ano_rcc_(level='MB'):
+    ''' Read OpenMolcas's basis.tbl and build a complete PySCF basis dictionary
+        for MB, VTZP, etc. '''
+    splitter = re.compile ('\.|\ ')
+    basis = {}
+    break_element = BREAK_ELEMENT.get (level.upper ())
+    with open (os.path.join (os.path.dirname (__file__), 'basis.tbl'), 'r') as f:
+        for line in f:
+            if not 'ANO-RCC' in line:
+                continue
+            cols = splitter.split (line)
+            if cols[0] == break_element:
+                break
+            if cols[1] == 'ANO-RCC-' + level.upper ():
+                basis[cols[0]] = 'ano@' + cols[-2]
+    return basis
                 
 
 
