@@ -250,6 +250,9 @@ class Gradients (mcpdft_grad.Gradients):
         g_orb_heff, g_is_heff = sipdft_heff_response (self, mo=mo, ci=ci,
             si_bra=si_bra, si_ket=si_ket, eris=eris)
 
+        log.debug ('g_is pdft component:\n{}'.format (g_is_pdft))
+        log.debug ('g_is heff component:\n{}'.format (g_is_heff))
+
         # Combine
         g_orb = g_orb_pdft + g_orb_heff
         g_is = g_is_pdft + g_is_heff
