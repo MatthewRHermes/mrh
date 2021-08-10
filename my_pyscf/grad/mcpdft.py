@@ -126,7 +126,6 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     for k, ia in enumerate (atmlst):
         full_atmlst[ia] = k
     for ia, (coords, w0, w1) in enumerate (rks_grad.grids_response_cc (ot.grids)):
-        mask = gen_grid.make_mask (mol, coords)
         # For the xc potential derivative, I need every grid point in the entire molecule regardless of atmlist. (Because that's about orbitals.)
         # For the grid and weight derivatives, I only need the gridpoints that are in atmlst
         # It is conceivable that I can make this more efficient by only doing cross-combinations of grids and AOs, but I don't know how "mask"
@@ -142,6 +141,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
         t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} mask and memory setup'.format (ia), *t1)
         for ip0 in range (0, ngrids, blksize):
             ip1 = min (ngrids, ip0+blksize)
+            mask = gen_grid.make_mask (mol, coords[ip0:ip1])
             logger.info (mc, 'PDFT gradient atom {} slice {}-{} of {} total'.format (ia, ip0, ip1, ngrids))
             ao = ot._numint.eval_ao (mol, coords[ip0:ip1], deriv=ot.dens_deriv+1, non0tab=mask) # Need 1st derivs for LDA, 2nd for GGA, etc.
             t1 = logger.timer (mc, 'PDFT HlFn quadrature atom {} ao grids'.format (ia), *t1)
