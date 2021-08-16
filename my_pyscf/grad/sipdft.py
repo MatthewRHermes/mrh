@@ -236,7 +236,8 @@ class Gradients (mcpdft_grad.Gradients):
         ptr_is = ngorb + nci
 
         # Diagonal: PDFT component
-        g_all_pdft, nlag = 0, self.nlag-self.nis
+        nlag = self.nlag-self.nis
+        g_all_pdft = np.zeros (nlag)
         for i, (amp, c, v1, v2) in enumerate (zip (si_diag, ci, veff1, veff2)):
             if not amp: continue
             g_all_pdft += amp * mcpdft_grad.Gradients.get_wfn_response (self,
@@ -318,7 +319,7 @@ class Gradients (mcpdft_grad.Gradients):
         # Fix messed-up counting of the nuclear part
         de_nuc = mf_grad.grad_nuc (self.mol, atmlst)
         log.debug ('SI-PDFT gradient n-n terms:\n{}'.format (de_nuc))
-        de = de_nuc.copy ()
+        de = si_diag.sum () * de_nuc.copy ()
 
         # Diagonal: PDFT component
         for i, (amp, c, v1, v2) in enumerate (zip (si_diag, ci, veff1, veff2)):
