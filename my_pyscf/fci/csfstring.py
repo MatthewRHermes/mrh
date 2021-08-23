@@ -102,6 +102,7 @@ class CSFTransformer (lib.StreamObject):
             csfvec = self.vec_det2csf (csfvec, order=order, normalize=normalize)
         csfvec = self.unpack_csf (csfvec, order=order) # Don't let symmetry scramble CSF indexing
         nelec = self._neleca + self._nelecb
+        csfvec = np.asarray (csfvec)
         if csfvec.ndim == 1:
             nvec = 1
             ncsf = csfvec.size

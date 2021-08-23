@@ -49,6 +49,8 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     # Orbital rotation (no all-core DM terms allowed!)
     # (Factor of 2 is convention difference between mc1step and newton_casscf)
     casdm1, casdm2 = make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket)
+    casdm1 = 0.5 * (casdm1 + casdm1.T)
+    casdm2 = 0.5 * (casdm2 + casdm2.transpose (1,0,3,2))
     vnocore = eris.vhf_c.copy ()
     vnocore[:,:ncore] = -moH @ mc.get_hcore () @ mo[:,:ncore]
     with lib.temporary_env (eris, vhf_c=vnocore):
@@ -90,6 +92,8 @@ def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None, si=None,
     # CASSCF grad with effective RDMs
     t0 = (logger.process_clock (), logger.perf_counter ())    
     casdm1, casdm2 = make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket)
+    casdm1 = 0.5 * (casdm1 + casdm1.T)
+    casdm2 = 0.5 * (casdm2 + casdm2.transpose (1,0,3,2))
     dm12 = lambda * args: (casdm1, casdm2)
     fcasscf = mc_grad.make_fcasscf (state=state,
         fcisolver_attr={'make_rdm12' : dm12})

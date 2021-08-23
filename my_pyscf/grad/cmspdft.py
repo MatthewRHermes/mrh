@@ -58,16 +58,17 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
         for v, d, ev, ed in zip (vj, dm1, evj, edm1)])
     Rorb -= Rorb.T
     
-    # CI degree of freedom
+    # CI degree of freedom (whole thing is /2 for some reason)
     vj = vj[:,ncore:nocc,:]
     evj = evj[:,ncore:nocc,:]
     def contract (v,c): return mc.fcisolver.contract_1e (v, c, ncas, nelecas)
     Rci = np.tensordot (const_IJ, ci_arr, axes=1) # Delta_IJ |J> term
     vci = np.stack ([contract (v,c) for v, c in zip (vj, ci)], axis=0)
-    Rci -= np.tensordot (L, vci, axes=1) # |W_J>z_{IJ} term
+    Rci -= np.tensordot (L, vci, axes=1) # -2 |zW_I> term
     for I in range (nroots):
-        Rci[I] += 2 * contract (vj[I], Lci[I]) # 2 v_I |J>z_{IJ} term
-        Rci[I] += 2 * contract (evj[I], ci[I]) # 2 veff_I |I> term
+        Rci[I] += 2 * contract (vj[I], Lci[I]) # 4 W^I_I |z_I> term
+        Rci[I] += 2 * contract (evj[I], ci[I]) # 8 W^zI_I |I> z_IJ term 
+                                               # (*2 in def. of evj)
 
     return mc_grad.pack_uniq_var (2*Rorb, Rci)
 
