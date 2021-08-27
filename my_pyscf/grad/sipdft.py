@@ -352,7 +352,7 @@ class Gradients (mcpdft_grad.Gradients):
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci[state]
+        if ci is None: ci = self.base.ci
         if eris is None and self.eris is None:
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
@@ -360,6 +360,11 @@ class Gradients (mcpdft_grad.Gradients):
 
         ngorb, nci, nis = self.ngorb, self.nci, self.nis
         Lvec_v, Lvec_is = Lvec[:ngorb+nci], Lvec[ngorb+nci:]
+
+        # Double-check Lvec_v sanity
+        Lvec_orb, Lvec_ci = self.unpack_uniq_var (Lvec_v)
+        Lvec_is2 = self._get_is_component (Lvec_ci, symm=0)
+        assert (np.amax (np.abs (Lvec_is2)) < 1e-8), '{} {}'.format (Lvec_is, Lvec_is2)
 
         # Orbital and CI components
         de_Lv = sacasscf_grad.Gradients.get_LdotJnuc (self, Lvec_v,
@@ -484,10 +489,15 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
             d2f=None, **kwargs):
         sacasscf_grad.SACASLagPrec.__init__(self, Adiag=Adiag,
             level_shift=level_shift, ci=ci, grad_method=grad_method)
-        self._init_d2f (d2f=d2f, **kwargs)
         self.grad_method = grad_method
+        self._init_d2f (d2f=d2f, **kwargs)
 
-    def _init_d2f (self, d2f=None, **kwargs): self.d2f=d2f
+    def _init_d2f (self, d2f=None, **kwargs):
+        log = logger.new_logger (self.grad_method, self.grad_method.verbose)
+        self.d2f=d2f
+        evals, evecs = linalg.eigh (d2f)
+        log.debug ('IS component preconditioner eigenvalues: {}'.format (
+            1.0/evals))
 
     def unpack_uniq_var (self, x):
         return self.grad_method.unpack_uniq_var (x)
