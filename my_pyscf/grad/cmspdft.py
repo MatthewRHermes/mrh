@@ -72,6 +72,7 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
 
     return mc_grad.pack_uniq_var (2*Rorb, Rci)
 
+# BROKEN FOR CI AND IS; DO NOT USE
 def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     ''' Alternate implementation: monkeypatch everything but active-active
         Coulomb part of the Hamiltonian and call newton_casscf.gen_g_hop ()[2].
