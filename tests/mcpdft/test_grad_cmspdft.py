@@ -40,24 +40,27 @@ def get_mc_list ():
         for m in [mol_nosymm, mol_symm]:
             mc_list.append ([[get_mc_ref (m, ri=i, sam=j) for i in (0,1)] for j in (0,1)])
     return mc_list
-def do_diatomic (a1='H', a2='H', r=1.6, fnal='tPBE', basis='sto-3g', ncas=2,
-        nelecas=2, nroots=2, symmetry=False):
-    xyz = '{:s} 0 0 0; {:s} {:.2f} 0 0'.format (a1, a2, r)
-    mf = scf.RHF (gto.M (atom=xyz, basis=basis, symmetry=symmetry,
-        output='/dev/null', verbose=0)).run ()
+def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates, charge=None, spin=None, symmetry=False, cas_irrep=None):
+    xyz = '{:s} 0.0 0.0 0.0; {:s} {:.3f} 0.0 0.0'.format (atom1, atom2, r)
+    mol = gto.M (atom=xyz, basis=basis, charge=charge, spin=spin, symmetry=symmetry, verbose=0, output='/dev/null')
+    mf = scf.RHF (mol).run ()
     mc = mcpdft.CASSCF (mf, fnal, ncas, nelecas, grids_level=9)
-    mc.fcisolver = csf_solver (mf.mol, smult=1)
-    mc = mc.state_interaction ([1.0/nroots,]*nroots, 'cms').run ()
+    if spin is not None: smult = spin+1
+    else: smult = (mol.nelectron % 2) + 1
+    mc.fcisolver = csf_solver (mol, smult=smult)
+    mc = mc.state_interaction ([1.0/float(nstates),]*nstates, 'cms')
+    mo = None
+    if symmetry and (cas_irrep is not None):
+        mo = mc.sort_mo_by_irrep (cas_irrep)
+    mc.kernel (mo)
     mc_grad = sipdft_grad.Gradients (mc)
-    de = [mc_grad.kernel (state=i) [1,0] / BOHR for i in range (nroots)]
-    mf.mol.stdout.close ()
-    return de
+    return mc_grad
 
 def tearDownModule():
-    global mol_nosymm, mol_symm, mc_list, Lis, get_mc_list, do_diatomic
+    global mol_nosymm, mol_symm, mc_list, Lis, get_mc_list, diatomic
     mol_nosymm.stdout.close ()
     mol_symm.stdout.close ()
-    del mol_nosymm, mol_symm, mc_list, Lis, get_mc_list, do_diatomic
+    del mol_nosymm, mol_symm, mc_list, Lis, get_mc_list, diatomic
 
 class KnownValues(unittest.TestCase):
 
@@ -102,12 +105,23 @@ class KnownValues(unittest.TestCase):
                 dh_ref = sarot_grad_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
                 self.assertAlmostEqual (lib.fp (dh_test), lib.fp (dh_ref), 8)
 
-    def test_grad_h2 (self):
-        de = do_diatomic ()
-        with self.subTest (root=0):
-            self.assertAlmostEqual (de[0], 0.03622639, 4) # numerical
-        with self.subTest (root=1):
-            self.assertAlmostEqual (de[1], -0.06910341, 4) # numerical
+    def test_grad_h2_cms2tpbe22_sto3g (self):
+        mc_grad = diatomic ('H', 'H', 1.6, 'tPBE', 'STO-3G', 2, 2, 2)
+        de_ref = [0.03622639, -0.06910341] 
+        # Numerical from this software
+        for i in range (2):
+         with self.subTest (state=i):
+            de = mc_grad.kernel (state=i) [1,0] / BOHR
+            self.assertAlmostEqual (de, de_ref[i], 4)
+
+    def test_grad_lih_cms2ftlda44_sto3g (self):
+        mc_grad = diatomic ('Li', 'H', 1.8, 'ftLDA,VWN3', 'STO-3G', 4, 4, 2, symmetry=True, cas_irrep={'A1': 4})
+        de_ref = [0.0659740768, -0.005995224082] 
+        # Numerical from this software
+        for i in range (2):
+         with self.subTest (state=i):
+            de = mc_grad.kernel (state=i) [1,0] / BOHR
+            self.assertAlmostEqual (de, de_ref[i], 6)
 
 if __name__ == "__main__":
     print("Full Tests for CMS-PDFT gradient objective fn derivatives")
