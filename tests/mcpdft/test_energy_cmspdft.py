@@ -26,6 +26,50 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
+    def test_h2_cms3ftlda22_sto3g (self):
+        e = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', 'STO-3G', 2, 2, 3)
+        e_ref = [-1.02544144, -0.44985771, -0.23390995]
+        # Reference values obtained with OpenMolcas
+        #   version: 21.06 
+        #   tag: 109-gbd596f6ca-dirty
+        #   commit: bd596f6cabd6da0301f3623af2de6a14082b34b5
+        for i in range (3):
+         with self.subTest (state=i):
+            self.assertAlmostEqual (e[i], e_ref[i], 6)
+
+    def test_h2_cms2ftlda22_sto3g (self):
+        e = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', 'STO-3G', 2, 2, 2)
+        e_ref = [-1.11342858, -0.50064433]
+        # Reference values obtained with OpenMolcas
+        #   version: 21.06 
+        #   tag: 109-gbd596f6ca-dirty
+        #   commit: bd596f6cabd6da0301f3623af2de6a14082b34b5
+        for i in range (2):
+         with self.subTest (state=i):
+            self.assertAlmostEqual (e[i], e_ref[i], 6)
+
+    def test_h2_cms3ftlda22_631g (self):
+        e = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', '6-31G', 2, 2, 3)
+        e_ref = [-1.08553117, -0.69136123, -0.49602992]
+        # Reference values obtained with OpenMolcas
+        #   version: 21.06 
+        #   tag: 109-gbd596f6ca-dirty
+        #   commit: bd596f6cabd6da0301f3623af2de6a14082b34b5
+        for i in range (3):
+         with self.subTest (state=i):
+            self.assertAlmostEqual (e[i], e_ref[i], 5)
+
+    def test_h2_cms2ftlda22_631g (self):
+        e = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', '6-31G', 2, 2, 2)
+        e_ref = [-1.13120015, -0.71600911]
+        # Reference values obtained with OpenMolcas
+        #   version: 21.06 
+        #   tag: 109-gbd596f6ca-dirty
+        #   commit: bd596f6cabd6da0301f3623af2de6a14082b34b5
+        for i in range (2):
+         with self.subTest (state=i):
+            self.assertAlmostEqual (e[i], e_ref[i], 5)
+
     def test_lih_cms2ftlda44_sto3g (self):
         e = diatomic ('Li', 'H', 1.8, 'ftLDA,VWN3', 'STO-3G', 4, 4, 2, symmetry=True, cas_irrep={'A1': 4})
         e_ref = [-7.86001566, -7.71804507]
@@ -37,7 +81,7 @@ class KnownValues(unittest.TestCase):
          with self.subTest (state=i):
             self.assertAlmostEqual (e[i], e_ref[i], 6)
 
-    def test_lih_cms2ftlda44_sto3g (self):
+    def test_lih_cms2ftlda22_sto3g (self):
         e = diatomic ('Li', 'H', 2.5, 'ftLDA,VWN3', 'STO-3G', 2, 2, 2)
         e_ref = [-7.77572652, -7.68950326]
         # Reference values obtained with OpenMolcas
@@ -47,6 +91,17 @@ class KnownValues(unittest.TestCase):
         for i in range (2):
          with self.subTest (state=i):
             self.assertAlmostEqual (e[i], e_ref[i], 6)
+
+    def test_lih_cms3ftlda22_sto3g (self):
+        e = diatomic ('Li', 'H', 2.5, 'ftLDA,VWN3', 'STO-3G', 2, 2, 3)
+        e_ref = [-7.79692534, -7.64435032, -7.35033371]
+        # Reference values obtained with OpenMolcas
+        #   version: 21.06 
+        #   tag: 109-gbd596f6ca-dirty
+        #   commit: bd596f6cabd6da0301f3623af2de6a14082b34b5
+        for i in range (3):
+         with self.subTest (state=i):
+            self.assertAlmostEqual (e[i], e_ref[i], 5)
 
 
 if __name__ == "__main__":

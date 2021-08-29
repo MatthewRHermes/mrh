@@ -106,17 +106,53 @@ class KnownValues(unittest.TestCase):
                 dh_ref = sarot_grad_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
                 self.assertAlmostEqual (lib.fp (dh_test), lib.fp (dh_ref), 8)
 
-    def test_grad_h2_cms2tpbe22_sto3g (self):
+    def test_grad_h2_cms3ftlda22_sto3g (self):
+        # z_orb:    no
+        # z_ci:     no
+        # z_is:     no
+        mc_grad = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', 'STO-3G', 2, 2, 3)
+        de_ref = [0.226842531, -0.100538192, -0.594129499] 
+        # Numerical from this software
+        for i in range (3):
+         with self.subTest (state=i):
+            de = mc_grad.kernel (state=i) [1,0] / BOHR
+            self.assertAlmostEqual (de, de_ref[i], 5)
+
+    def test_grad_h2_cms2ftlda22_sto3g (self):
         # z_orb:    no
         # z_ci:     yes
         # z_is:     no
-        mc_grad = diatomic ('H', 'H', 1.6, 'tPBE', 'STO-3G', 2, 2, 2)
-        de_ref = [0.03622639, -0.06910341] 
+        mc_grad = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', 'STO-3G', 2, 2, 2)
+        de_ref = [0.125068648, -0.181916973] 
         # Numerical from this software
         for i in range (2):
          with self.subTest (state=i):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
-            self.assertAlmostEqual (de, de_ref[i], 4)
+            self.assertAlmostEqual (de, de_ref[i], 6)
+
+    def test_grad_h2_cms3ftlda22_631g (self):
+        # z_orb:    yes
+        # z_ci:     no
+        # z_is:     no
+        mc_grad = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', '6-31G', 2, 2, 3)
+        de_ref = [0.1717391582, -0.05578044075, -0.418332932] 
+        # Numerical from this software
+        for i in range (3):
+         with self.subTest (state=i):
+            de = mc_grad.kernel (state=i) [1,0] / BOHR
+            self.assertAlmostEqual (de, de_ref[i], 5)
+
+    def test_grad_h2_cms2ftlda22_631g (self):
+        # z_orb:    yes
+        # z_ci:     yes
+        # z_is:     no
+        mc_grad = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', '6-31G', 2, 2, 2)
+        de_ref = [0.1046653372, -0.07056592067] 
+        # Numerical from this software
+        for i in range (2):
+         with self.subTest (state=i):
+            de = mc_grad.kernel (state=i) [1,0] / BOHR
+            self.assertAlmostEqual (de, de_ref[i], 6)
 
     def test_grad_lih_cms2ftlda44_sto3g (self):
         # z_orb:    no
@@ -126,6 +162,18 @@ class KnownValues(unittest.TestCase):
         de_ref = [0.0659740768, -0.005995224082] 
         # Numerical from this software
         for i in range (2):
+         with self.subTest (state=i):
+            de = mc_grad.kernel (state=i) [1,0] / BOHR
+            self.assertAlmostEqual (de, de_ref[i], 6)
+
+    def test_grad_lih_cms3ftlda22_sto3g (self):
+        # z_orb:    yes
+        # z_ci:     no
+        # z_is:     yes
+        mc_grad = diatomic ('Li', 'H', 2.5, 'ftLDA,VWN3', 'STO-3G', 2, 2, 3)
+        de_ref = [0.09307779491, 0.07169985876, -0.08034177097] 
+        # Numerical from this software
+        for i in range (3):
          with self.subTest (state=i):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
             self.assertAlmostEqual (de, de_ref[i], 6)
@@ -141,7 +189,6 @@ class KnownValues(unittest.TestCase):
          with self.subTest (state=i):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
             self.assertAlmostEqual (de, de_ref[i], 6)
-
 
 if __name__ == "__main__":
     print("Full Tests for CMS-PDFT gradient objective fn derivatives")
