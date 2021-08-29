@@ -79,18 +79,14 @@ class KnownValues(unittest.TestCase):
             def _crunch (fn):
                 dw = fn (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
                 dworb, dwci = mc_grad.unpack_uniq_var (dw)
-                dwis = np.einsum ('pab,qab->pq', dwci, ci_arr.conj ())
-                dwci -= np.einsum ('pq,qab->pab', dwis, ci_arr)
-                return dworb, dwci, dwis
+                return dworb, dwci
             with self.subTest (symm=stype, solver=atype, eri=itype):
-                dworb_test, dwci_test, dwis_test = _crunch (sarot_response)
-                dworb_ref, dwci_ref, dwis_ref = _crunch (sarot_response_o0)
+                dworb_test, dwci_test = _crunch (sarot_response)
+                dworb_ref, dwci_ref = _crunch (sarot_response_o0)
             with self.subTest (symm=stype, solver=atype, eri=itype, check='orb'):
                 self.assertAlmostEqual (lib.fp (dworb_test), lib.fp (dworb_ref), 8)
-            #with self.subTest (symm=stype, solver=atype, eri=itype, check='CI'):
-            #    self.assertAlmostEqual (lib.fp (dwci_test), lib.fp (dwci_ref), 8)
-            #with self.subTest (symm=stype, solver=atype, eri=itype, check='IS'):
-            #    self.assertAlmostEqual (lib.fp (dwis_test), lib.fp (dwis_ref), 8)
+            with self.subTest (symm=stype, solver=atype, eri=itype, check='CI'):
+                self.assertAlmostEqual (lib.fp (dwci_test), lib.fp (dwci_ref), 8)
 
     def test_sarot_grad_sanity (self):
         for mcs, stype in zip (get_mc_list (), ('nosymm','symm')):

@@ -47,10 +47,9 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     tvj = np.tensordot (tdm1, aapa[:,:,ncore:nocc,:], axes=2)
     w = np.tensordot (tvj, tdm1, axes=((1,2),(1,2)))
     w = ao2mo.restore (1, w, nroots)
-    w_IJJJ = np.einsum ('ijjj->ij', w)
-    v = -2*np.einsum ('ikjj->ijk', w) - 4*np.einsum ('ijkj->ijk', w)
-    v += (w_IJJJ + w_IJJJ.T)[:,None,:]
-    const_IJ = (v*L[None,:,:]).sum (2) - np.dot (L, w_IJJJ)
+    const_IJ = -4*np.einsum ('jiik,ik->ij', w, L)
+    const_IJ -= 2*np.einsum ('iijk,ik->ij', w, L)
+    const_IJ += 2*np.einsum ('jkkk,ik->ij', w, L)
 
     # Orbital degree of freedom
     Rorb = np.zeros ((nmo,nmo), dtype=vj[0].dtype)
@@ -119,7 +118,7 @@ def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
             if np.all (np.asarray (c1c2) < 0.5): # chain rule
                 h1ci2, h2ci1 = np.asarray (h1ci2), np.asarray (h2ci1)
                 h1ci1 = np.tensordot (my_L, np.asarray (h1ci1), axes=1)
-                return list (h1ci2 + h2ci1 - 0.5*h1ci1)
+                return list (h1ci2 + h2ci1 - h1ci1)
             else:
                 return h1ci2
 
@@ -166,15 +165,6 @@ def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     hx_ci = np.asarray (hx_ci)
     hx_is = np.einsum ('pab,qab->pq', hx_ci, ci_arr.conj ())
     hx_ci -= np.einsum ('pq,qab->pab', hx_is, ci_arr)
-
-    # IS degrees of freedom using cmspdft module
-    from mrh.my_pyscf.mcpdft.cmspdft import e_coul
-    Q, dQ, d2Q = e_coul (mc, ci)
-    d2Qx = np.dot (d2Q, Lis)
-    hx_is = np.zeros ((nroots,nroots), dtype=d2Qx.dtype)
-    hx_is[np.tril_indices (nroots, k=-1)] = d2Qx
-    hx_is -= hx_is.T
-    hx_ci += np.einsum ('pq,qab->pab', hx_is, ci_arr)
 
     return mc_grad.pack_uniq_var (hx_orb, hx_ci)
 
