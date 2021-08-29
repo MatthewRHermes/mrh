@@ -49,6 +49,7 @@ def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates, charge=None,
     else: smult = (mol.nelectron % 2) + 1
     mc.fcisolver = csf_solver (mol, smult=smult)
     mc = mc.state_interaction ([1.0/float(nstates),]*nstates, 'cms')
+    mc.conv_tol = mc.conv_tol_sarot = 1e-12
     mo = None
     if symmetry and (cas_irrep is not None):
         mo = mc.sort_mo_by_irrep (cas_irrep)
@@ -106,6 +107,9 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual (lib.fp (dh_test), lib.fp (dh_ref), 8)
 
     def test_grad_h2_cms2tpbe22_sto3g (self):
+        # z_orb:    no
+        # z_ci:     yes
+        # z_is:     no
         mc_grad = diatomic ('H', 'H', 1.6, 'tPBE', 'STO-3G', 2, 2, 2)
         de_ref = [0.03622639, -0.06910341] 
         # Numerical from this software
@@ -115,6 +119,9 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (de, de_ref[i], 4)
 
     def test_grad_lih_cms2ftlda44_sto3g (self):
+        # z_orb:    no
+        # z_ci:     yes
+        # z_is:     yes
         mc_grad = diatomic ('Li', 'H', 1.8, 'ftLDA,VWN3', 'STO-3G', 4, 4, 2, symmetry=True, cas_irrep={'A1': 4})
         de_ref = [0.0659740768, -0.005995224082] 
         # Numerical from this software
@@ -122,6 +129,19 @@ class KnownValues(unittest.TestCase):
          with self.subTest (state=i):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
             self.assertAlmostEqual (de, de_ref[i], 6)
+
+    def test_grad_lih_cms2ftlda22_sto3g (self):
+        # z_orb:    yes
+        # z_ci:     yes
+        # z_is:     yes
+        mc_grad = diatomic ('Li', 'H', 2.5, 'ftLDA,VWN3', 'STO-3G', 2, 2, 2)
+        de_ref = [0.1071803011, 0.03972321867] 
+        # Numerical from this software
+        for i in range (2):
+         with self.subTest (state=i):
+            de = mc_grad.kernel (state=i) [1,0] / BOHR
+            self.assertAlmostEqual (de, de_ref[i], 6)
+
 
 if __name__ == "__main__":
     print("Full Tests for CMS-PDFT gradient objective fn derivatives")
