@@ -5,6 +5,7 @@ from pyscf.lib import logger
 from pyscf.mcscf import newton_casscf
 import copy
 from functools import reduce
+from mrh.my_pyscf.mcpdft.cmspdft import coulomb_tensor
 
 def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     ''' Returns orbital/CI gradient vector '''
@@ -43,14 +44,6 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     vj = np.tensordot (dm1, aapa, axes=2)
     evj = np.tensordot (edm1, aapa, axes=2)
 
-    # Constants (state-integrals)
-    tvj = np.tensordot (tdm1, aapa[:,:,ncore:nocc,:], axes=2)
-    w = np.tensordot (tvj, tdm1, axes=((1,2),(1,2)))
-    w = ao2mo.restore (1, w, nroots)
-    const_IJ = -4*np.einsum ('jiik,ik->ij', w, L)
-    const_IJ -= 2*np.einsum ('iijk,ik->ij', w, L)
-    const_IJ += 2*np.einsum ('jkkk,ik->ij', w, L)
-
     # Orbital degree of freedom
     Rorb = np.zeros ((nmo,nmo), dtype=vj[0].dtype)
     Rorb[:,ncore:nocc] = sum ([np.dot (v, ed) + np.dot (ev, d) 
@@ -58,10 +51,13 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     Rorb -= Rorb.T
     
     # CI degree of freedom 
-    vj = vj[:,ncore:nocc,:]
-    evj = evj[:,ncore:nocc,:]
-    def contract (v,c): return mc.fcisolver.contract_1e (v, c, ncas, nelecas)
+    w = coulomb_tensor (mc, mo_coeff=mo, ci=ci, h2eff=aapa[:,:,ncore:nocc,:])
+    const_IJ = -4*np.einsum ('jiik,ik->ij', w, L)
+    const_IJ -= 2*np.einsum ('iijk,ik->ij', w, L)
+    const_IJ += 2*np.einsum ('jkkk,ik->ij', w, L)
     Rci = np.tensordot (const_IJ, ci_arr, axes=1) # Delta_IJ |J> term
+    def contract (v,c): return mc.fcisolver.contract_1e (v, c, ncas, nelecas)
+    vj, evj = vj[:,ncore:nocc,:], evj[:,ncore:nocc,:]
     vci = np.stack ([contract (v,c) for v, c in zip (vj, ci)], axis=0)
     Rci -= 2 * np.tensordot (L, vci, axes=1) # -2 |zW_I> term
     for I in range (nroots):

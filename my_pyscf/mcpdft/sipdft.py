@@ -284,6 +284,10 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                 log.note ('  State %d weight %g  EPDFT = %.15g  EMCSCF = %.15g',
                     i, self.weights[i], e_pdft[i], self.e_mcscf[i])
 
+    def nuc_grad_method (self):
+        from mrh.my_pyscf.grad.sipdft import Gradients
+        return Gradients (self)
+
 def get_sarotfns (obj):
     if obj.upper () == 'CMS':
         from mrh.my_pyscf.mcpdft.cmspdft import e_coul as sarot_objfn

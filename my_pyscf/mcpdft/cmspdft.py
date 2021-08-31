@@ -8,6 +8,25 @@ from pyscf.fci import direct_spin1
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad.mcpdft import Gradients
 
+def coulomb_tensor (mc, mo_coeff=None, ci=None, h2eff=None, eris=None):
+    if mo_coeff is None: mo_coeff=mc.mo_coeff
+    if ci is None: ci = mc.ci
+    # TODO: state-average mix extension
+    ci = np.asarray (ci)
+    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
+    nroots, nocc = mc.fcisolver.nroots, ncore + ncas
+    if h2eff is None:
+        if eris is None: h2eff = mc.get_h2eff (mo_coeff=mo_coeff)
+        else: h2eff = np.asarray (eris.ppaa[ncore:nocc,ncore:nocc,:,:])
+    
+    row, col = np.tril_indices (nroots)
+    tdm1 = np.stack (mc.fcisolver.states_trans_rdm12(ci[col], ci[row], ncas,
+        nelecas)[0], axis=0)
+    
+    w = np.tensordot (tdm1, h2eff, axes=2)
+    w = np.tensordot (w, tdm1, axes=((1,2),(1,2)))
+    return ao2mo.restore (1, w, nroots)
+
 def e_coul (mc,ci):
     nroots = mc.fcisolver.nroots
     ncas, ncore = mc.ncas,mc.ncore
