@@ -59,7 +59,7 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
             print (U.shape, ci.shape)
             raise (e)
 
-        f, df, d2f = mc.sarot_objfn (ci)
+        f, df, d2f = mc.sarot_objfn (ci=ci)
         log.info ("{} objective function value = {}".format (hdr, f))
 
         # Analyze Hessian
@@ -222,12 +222,13 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         if ci is None: ci = self.ci
         return self._sarot (self, ci)
 
-    def sarot_objfn (self, ci=None):
+    def sarot_objfn (self, mo_coeff=None, ci=None):
         ''' The value, first, and second-derivative matrix of the objective
             function rendered stationary by the intermediate states. Used
             in gradient calculations and possibly in sarot. '''
+        if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        return self._sarot_objfn (self, ci)
+        return self._sarot_objfn (self, mo_coeff=mo_coeff, ci=ci)
 
     def _eig_si (self, ham_si):
         return linalg.eigh (ham_si)

@@ -9,6 +9,25 @@ from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad.mcpdft import Gradients
 
 def coulomb_tensor (mc, mo_coeff=None, ci=None, h2eff=None, eris=None):
+    ''' Compute w_IJKL = (pq|rs) D^IJ_pq D^KL_rs 
+
+    Args:
+        mc : mcscf method instance
+
+    Kwargs:
+        mo_coeff : ndarray of shape (nao,nmo)
+            Contains molecular orbital coefficients
+        ci : list of ndarrays of shape (ndeta,ndetb)
+            Contains CI vectors
+        h2eff : ndarray of shape [ncas,]*4
+            Contains active-space ERIs
+        eris : mc_ao2mo.ERI object
+            Contains active-space ERIs. Ignored if h2eff is passed; if h2eff
+            is not passed then it is constructed from eris.ppaa
+
+    Returns:
+        w : ndarray of shape [nroots,]*4
+    '''
     if mo_coeff is None: mo_coeff=mc.mo_coeff
     if ci is None: ci = mc.ci
     # TODO: state-average mix extension
@@ -18,7 +37,8 @@ def coulomb_tensor (mc, mo_coeff=None, ci=None, h2eff=None, eris=None):
     if h2eff is None:
         if eris is None: h2eff = mc.get_h2eff (mo_coeff=mo_coeff)
         else: h2eff = np.asarray (eris.ppaa[ncore:nocc,ncore:nocc,:,:])
-    
+    h2eff = ao2mo.restore (1, h2eff, ncas)   
+ 
     row, col = np.tril_indices (nroots)
     tdm1 = np.stack (mc.fcisolver.states_trans_rdm12(ci[col], ci[row], ncas,
         nelecas)[0], axis=0)
@@ -27,7 +47,59 @@ def coulomb_tensor (mc, mo_coeff=None, ci=None, h2eff=None, eris=None):
     w = np.tensordot (w, tdm1, axes=((1,2),(1,2)))
     return ao2mo.restore (1, w, nroots)
 
-def e_coul (mc,ci):
+def e_coul (mc, mo_coeff=None, ci=None, h2eff=None, eris=None):
+    ''' Compute the sum of Coulomb energies and its first and second derivatives 
+
+    Args:
+        mc : mcscf method instance
+
+    Kwargs:
+        mo_coeff : ndarray of shape (nao,nmo)
+            Contains molecular orbital coefficients
+        ci : list of ndarrays of shape (ndeta,ndetb)
+            Contains CI vectors
+        h2eff : ndarray of shape [ncas,]*4
+            Contains active-space ERIs
+        eris : mc_ao2mo.ERI object
+            Contains active-space ERIs. Ignored if h2eff is passed; if h2eff
+            is not passed then it is constructed from eris.ppaa
+
+    Returns:
+        J : float
+            sum of Coulomb energies
+        dJ : ndarray of shape npair = nroots*(nroots-1)/2
+            first derivatives of J wrt interstate rotation
+        d2J : ndarray of shape (npair,npair)
+            Hessian of J wrt interstate rotation
+    '''
+    nroots = mc.fcisolver.nroots   
+    npair = nroots * (nroots - 1) // 2
+ 
+    w_IJKL = coulomb_tensor (mc, mo_coeff=mo_coeff, ci=ci, h2eff=h2eff, eris=eris)
+    w_IJKK = np.diagonal (w_IJKL, axis1=2, axis2=3)
+    w_IKJK = np.diagonal (w_IJKL, axis1=1, axis2=3)
+    w_IJJJ = np.diagonal (w_IJKK, axis1=1, axis2=2)
+    
+    J = np.trace (w_IJJJ) / 2.0
+
+    tril_mask = np.zeros ([nroots,nroots], dtype=np.bool_)
+    tril_mask[np.tril_indices (nroots,k=-1)] = True
+    dJ = 2*(w_IJJJ.T-w_IJJJ)[tril_mask] # check sign!
+    
+    v_IJ_K = -4*w_IKJK - 2*w_IJKK
+    v_IJ_K += (w_IJJJ+w_IJJJ.T)[:,:,None]
+    d2J = np.zeros_like (w_IJKL)
+    for k in range (nroots):
+        d2J[:,k,k,:] = v_IJ_K[:,:,k]
+    d2J -= d2J.transpose (0,1,3,2)
+    d2J -= d2J.transpose (1,0,2,3)
+    tril_mask2 = np.logical_and.outer (tril_mask, tril_mask)
+    d2J = d2J[tril_mask2].reshape (npair, npair)
+
+    return J, dJ, d2J
+
+def e_coul_o0 (mc,ci):
+    # Old implementation
     nroots = mc.fcisolver.nroots
     ncas, ncore = mc.ncas,mc.ncore
     nocc = ncas + ncore
