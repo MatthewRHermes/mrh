@@ -244,8 +244,14 @@ class Gradients (mcpdft_grad.Gradients):
         g_all_pdft = np.zeros (nlag)
         for i, (amp, c, v1, v2) in enumerate (zip (si_diag, ci, veff1, veff2)):
             if not amp: continue
-            g_all_pdft += amp * mcpdft_grad.Gradients.get_wfn_response (self,
+            g_i = mcpdft_grad.Gradients.get_wfn_response (self,
                 state=i, mo=mo, ci=ci, veff1=v1, veff2=v2, nlag=nlag, **kwargs)
+            g_all_pdft += amp * g_i
+            if self.verbose >= lib.logger.DEBUG:
+                g_orb, g_ci = self.unpack_uniq_var (g_i)
+                g_ci, g_is = self._separate_is_component (g_ci, ci=ci, symm=0)
+                log.debug ('g_is pdft state {} component:\n{} * {}'.format (i,
+                    amp, g_is))
 
         # DEBUG
         g_orb_pdft, g_ci = self.unpack_uniq_var (g_all_pdft)
@@ -255,7 +261,7 @@ class Gradients (mcpdft_grad.Gradients):
         g_orb_heff, g_is_heff = sipdft_heff_response (self, mo=mo, ci=ci,
             si_bra=si_bra, si_ket=si_ket, eris=eris)
 
-        log.debug ('g_is pdft component:\n{}'.format (g_is_pdft))
+        log.debug ('g_is pdft total component:\n{}'.format (g_is_pdft))
         log.debug ('g_is heff component:\n{}'.format (g_is_heff))
 
         # Combine
