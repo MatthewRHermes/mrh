@@ -199,8 +199,10 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     aapa = aapa.transpose (2,3,0,1)
     vj = np.tensordot (dm1, aapa, axes=2)
     evj = np.tensordot (edm1, aapa, axes=2)
-    dvj = np.stack (mf_grad.get_j (mc.mol, list(dm1_ao)), axis=1)
-    devj = np.stack (mf_grad.get_j (mc.mol, list(edm1_ao)), axis=1)
+    dvj_all = mf_grad.get_j (mc.mol, list(dm1_ao) + list(edm1_ao))
+    dvj_aux = getattr (dvj_all, 'aux', np.zeros ((nroots, nroots, mol.natm, 3)))
+    dvj = np.stack (dvj_all[:nroots], axis=1)
+    devj = np.stack (dvj_all[nroots:], axis=1)
 
     # Generalized Fock and overlap operator
     gfock = np.zeros ([nmo,nmo], dtype=vj.dtype)
@@ -218,10 +220,14 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
         de_renorm[k] -= np.einsum('xpq,pq->x', s1[:,p0:p1], dme0[p0:p1]) * 2
         de_direct[k] += np.einsum('xipq,ipq->x', dvj[:,:,p0:p1], edm1_ao[:,p0:p1]) * 2
         de_direct[k] += np.einsum('xipq,ipq->x', devj[:,:,p0:p1], dm1_ao[:,p0:p1]) * 2
+    dvj_aux = dvj_aux[:,:,atmlst,:]
+    de_aux = (np.trace (dvj_aux, offset=nroots, axis1=0, axis2=1)
+            + np.trace (dvj_aux, offset=-nroots, axis1=0, axis2=1))
 
     logger.debug (mc, "CMS-PDFT Lis lagrange direct component:\n{}".format (de_direct))
     logger.debug (mc, "CMS-PDFT Lis lagrange renorm component:\n{}".format (de_renorm))
-    de = de_direct + de_renorm
+    logger.debug (mc, "CMS-PDFT Lis lagrange auxbasis component:\n{}".format (de_aux))
+    de = de_direct + de_aux + de_renorm
     return de
 
 def sarot_grad_o0 (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
