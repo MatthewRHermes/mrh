@@ -199,8 +199,8 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     aapa = aapa.transpose (2,3,0,1)
     vj = np.tensordot (dm1, aapa, axes=2)
     evj = np.tensordot (edm1, aapa, axes=2)
-    dvj = np.stack (mf_grad.get_jk (mc.mol, list(dm1_ao))[0], axis=1)
-    devj = np.stack (mf_grad.get_jk (mc.mol, list(edm1_ao))[0], axis=1)
+    dvj = np.stack (mf_grad.get_j (mc.mol, list(dm1_ao)), axis=1)
+    devj = np.stack (mf_grad.get_j (mc.mol, list(edm1_ao)), axis=1)
 
     # Generalized Fock and overlap operator
     gfock = np.zeros ([nmo,nmo], dtype=vj.dtype)

@@ -58,7 +58,7 @@ from pyscf.ao2mo import _ao2mo
 #      orbital index on the 2RDM. The solution to this is to change the logic.
 #      The new kwarg ishf defaults to the original behavior, but if
 #      switched to False, it causes vj.aux and vk.aux to return as arrays of shape
-#      (nset,nset,3,nao,nao) containing terms involving all pairs of dms.
+#      (nset,nset,natm,3) containing terms involving all pairs of dms.
 #      The caller can figure things out from there.
 #   3. It just assumes that mf_grad.base.mo_coeff and mf_grad.base.mo_occ are
 #      the eigendecomposition! I have to make it actually do the eigendecomposition
@@ -333,8 +333,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         vkaux = numpy.array ([-vkaux[:,:,:,p0:p1].sum(axis=3) for p0, p1 in auxslices[:,2:]])
         if ishf:
             vjaux = vjaux.sum ((1,2))
-            idx = numpy.array (list (range (nset))) * (nset + 1)
-            vkaux = vkaux.reshape ((nset**2,3,mol.natm))[idx,:,:].sum (0)
+            vkaux = numpy.trace (vkaux, axis1=1, axis2=2)
         else:
             vjaux = numpy.ascontiguousarray (vjaux.transpose (1,2,0,3))
             vkaux = numpy.ascontiguousarray (vkaux.transpose (1,2,0,3))
@@ -344,7 +343,8 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         vj = -vj.reshape(out_shape)
         vk = -vk.reshape(out_shape)
     logger.timer (mf_grad, 'df grad vj and vk', *t0)
-    return vj, vk
+    if with_j: return vj, vk
+    else: return vk
 
 def _int3c_wrapper(mol, auxmol, intor, aosym):
     nbas = mol.nbas
@@ -371,11 +371,15 @@ class Gradients(rhf_grad.Gradients):
 
     get_jk = get_jk
 
-    def get_j(self, mol=None, dm=None, hermi=0):
-        return self.get_jk(mol, dm, with_k=False)[0]
+    # Setting ishf=False as the default in get_j and get_k is literally
+    # just a convenience thing for MRH on 09/01/2021. A different philosophy
+    # is probably needed here.
 
-    def get_k(self, mol=None, dm=None, hermi=0):
-        return self.get_jk(mol, dm, with_j=False)[1]
+    def get_j(self, mol=None, dm=None, hermi=0, ishf=False):
+        return self.get_jk(mol, dm, with_k=False, ishf=False)[0]
+
+    def get_k(self, mol=None, dm=None, hermi=0, ishf=False):
+        return self.get_jk(mol, dm, with_j=False, ishf=False)[1]
 
     def get_veff(self, mol=None, dm=None):
         vj, vk = self.get_jk(mol, dm)
