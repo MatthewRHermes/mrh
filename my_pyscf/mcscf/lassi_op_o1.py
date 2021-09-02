@@ -102,7 +102,7 @@ def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
         Returns:
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
                 element [i,j,k,l] reports the change of number of electrons of
-                spin l in fragment i between LAS states j and k
+                spin j in fragment i between LAS states k and l
             zerop_index: ndarray of bools of shape (nroots, nroots)
                 element [i,j] is true where the ith and jth LAS states are
                 connected by a null excitation; i.e., no electron, pair,
@@ -130,7 +130,7 @@ class LSTDMint1 (object):
     ''' Quasi-sparse-memory storage for LAS-state transition density matrix 
         single-fragment intermediates. '''
 
-    def __init__(self, fcibox, norb, nelec, nroots, idx_root, dtype=np.float64):
+    def __init__(self, fcibox, norb, nelec, nroots, idx_root, hopping_index, idx_frag, dtype=np.float64):
         # I'm not sure I need linkstrl
         self.linkstrl = fcibox.states_gen_linkstr (norb, nelec, tril=True)
         self.linkstr = fcibox.states_gen_linkstr (norb, nelec, tril=False)
@@ -148,6 +148,18 @@ class LSTDMint1 (object):
         self._sm = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm1 = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
+        self.hopping_index = hopping_index
+        self.idx_frag = idx_frag
+
+    # Exception catching
+
+    def try_get (self, tab, s, i, j):
+        try:
+            return tab[s][i][j]
+        except Exception as e:
+            errstr = 'frag {} failure to get element {},{} w spin {}'.format (self.idx_frag, i, j, s)
+            errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,i,j])
+            raise RuntimeError (errstr)
 
     # 1-particle 1-operator intermediate
 
@@ -669,7 +681,7 @@ def make_ints (las, ci, idx_root):
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root)
+        tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root, hopping_index[ifrag], ifrag)
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (ifrag), *t0)        
         ints.append (tdmint)
