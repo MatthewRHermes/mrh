@@ -99,7 +99,8 @@ def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None, si=None,
         fcisolver_attr={'make_rdm12' : dm12})
     # TODO: DFeri functionality
     # Perhaps by patching fcasscf.nuc_grad_method?
-    fcasscf_grad = casscf_grad.Gradients (fcasscf)
+    fcasscf_grad = fcasscf.nuc_grad_method ()
+    #fcasscf_grad = casscf_grad.Gradients (fcasscf)
     de = fcasscf_grad.kernel (mo_coeff=mo, ci=ci0, atmlst=atmlst, verbose=0)
 
     # subtract nuc-nuc and core-core (patching out simplified gfock terms)

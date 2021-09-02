@@ -308,12 +308,14 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                      ctypes.c_int (3*(p1-p0)), ctypes.c_int (nao),
                      (ctypes.c_int*4)(0, nocc_i, 0, nao),
                      null, ctypes.c_int(0))
-            int3c = [[lib.dot (buf.reshape (-1, nao), orb).reshape (3, p1-p0, -1, norb)
-                for orb, norb in zip (orbor, nocc)] for buf in tmp] # pim,mj,j -> pij
+            int3c = [[lib.dot (buf.reshape (-1, nao), orb).reshape (3, p1-p0, ni, nj)
+                for orb, nj in zip (orbor, nocc)]
+                for buf, ni in zip (tmp, nocc)] # pim,mj,j -> pij
             t2 = logger.timer_debug1 (mf_grad, "df grad einsum (P'|mn) u_mi u_nj N_j = v_Pmn", *t2)
             for i, j in product (range (nset), repeat=2):
                 k = (i*nset) + j
                 tmp = rhok_oo[k][p0:p1]
+                ni, nj = nocc[i], nocc[j]
                 vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c[i][j], tmp)
                 t2 = logger.timer_debug1 (mf_grad, "df grad einsum d_Pij v_Pij = v_P", *t2)
         int3c = tmp = None
