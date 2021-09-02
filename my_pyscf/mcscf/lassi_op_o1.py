@@ -582,7 +582,7 @@ class LSTDMint2 (object):
             hh = self.ints[j].get_hh (bra, ket, s2lt)
             if s2lt != 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
         else:
-            hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12), self.ints[j].get_p (bra, ket, s11))
+            hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12), self.ints[j].get_h (bra, ket, s11))
             fac *= (1,-1)[int (j>l)]
             fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), j)
             fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), l)
