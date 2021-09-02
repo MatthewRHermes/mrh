@@ -153,8 +153,23 @@ class LSTDMint1 (object):
 
     # Exception catching
 
-    def try_get (self, tab, s, i, j):
+    def try_get (self, tab, *args):
+        if len (args) == 3: return self.try_get_tdm (tab, *args)
+        elif len (args) == 2: return self.try_get_dm (tab, *args)
+        else: raise RuntimeError (str (len (args)))
+
+    def try_get_dm (self, tab, i, j):
         try:
+            assert (tab[i][j] is not None)
+            return tab[i][j]
+        except Exception as e:
+            errstr = 'frag {} failure to get element {},{}'.format (self.idx_frag, i, j)
+            errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,i,j])
+            raise RuntimeError (errstr)
+
+    def try_get_tdm (self, tab, s, i, j):
+        try:
+            assert (tab[s][i][j] is not None)
             return tab[s][i][j]
         except Exception as e:
             errstr = 'frag {} failure to get element {},{} w spin {}'.format (self.idx_frag, i, j, s)
@@ -164,57 +179,67 @@ class LSTDMint1 (object):
     # 1-particle 1-operator intermediate
 
     def get_h (self, i, j, s):
-        return self._h[s][i][j]
+        return self.try_get (self._h, s, i, j)
+        #return self._h[s][i][j]
 
     def set_h (self, i, j, s, x):
         self._h[s][i][j] = x
         return x
 
     def get_p (self, i, j, s):
-        return self._h[s][j][i].conj ()
+        return self.try_get (self._h, s, j, i).conj ()
+        #return self._h[s][j][i].conj ()
 
     # 2-particle intermediate
 
     def get_hh (self, i, j, s):
-        return self._hh[s][i][j]
+        return self.try_get (self._hh, s, i, j)
+        #return self._hh[s][i][j]
 
     def set_hh (self, i, j, s, x):
         self._hh[s][i][j] = x
         return x
 
     def get_pp (self, i, j, s):
-        return self._hh[s][j][i].conj ().T
+        return self.try_get (self._hh, s, j, i).conj ().T
+        #return self._hh[s][j][i].conj ().T
 
     # 1-particle 3-operator intermediate
 
     def get_phh (self, i, j, s):
-        return self._phh[s][i][j]
+        return self.try_get (self._phh, s, i, j)
+        #return self._phh[s][i][j]
 
     def set_phh (self, i, j, s, x):
         self._phh[s][i][j] = x
         return x
 
     def get_pph (self, i, j, s):
-        return self._phh[s][j][i].conj ().transpose (0,3,2,1)
+        return self.try_get (self._phh, s, j, i).conj ().transpose (0,3,2,1)
+        #return self._phh[s][j][i].conj ().transpose (0,3,2,1)
 
     # spin-hop intermediate
 
     def get_sm (self, i, j):
-        return self._sm[i][j]
+        return self.try_get (self._sm, i, j)
+        #return self._sm[i][j]
 
     def set_sm (self, i, j, x):
         self._sm[i][j] = x
         return x
 
     def get_sp (self, i, j):
-        return self._sm[j][i].conj ().T
+        return self.try_get (self._sm, j, i).conj ().T
+        #return self._sm[j][i].conj ().T
 
     # 1-density intermediate
 
     def get_dm1 (self, i, j):
         if j > i:
-            return self.dm1[j][i].conj ().transpose (0, 2, 1)
-        return self.dm1[i][j]
+            return self.try_get (self.dm1, j, i).conj ().transpose (0, 2, 1)
+            #return self.dm1[j][i].conj ().transpose (0, 2, 1)
+        return self.try_get (self.dm1, i, j)
+        #return self.dm1[i][j]
 
     def set_dm1 (self, i, j, x):
         if j > i:
@@ -226,7 +251,8 @@ class LSTDMint1 (object):
 
     def get_dm2 (self, i, j):
         k, l = max (i, j), min (i, j)
-        return self.dm2[k][l]
+        return self.try_get (self.dm2, k, l)
+        #return self.dm2[k][l]
 
     def set_dm2 (self, i, j, x):
         if j > i:
