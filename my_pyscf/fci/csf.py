@@ -259,7 +259,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     econf_addr = np.unique (transformer.econf_csf_mask[csf_addr])
     det_addr = np.concatenate ([np.nonzero (transformer.econf_det_mask == conf)[0]
         for conf in econf_addr])
-    lib.logger.debug (fci, ("csf.pspace: Lowest-energy %s CSFs correspond to %s configurations"
+    lib.logger.debug1 (fci, ("csf.pspace: Lowest-energy %s CSFs correspond to %s configurations"
         " which are spanned by %s determinants"), npsp, econf_addr.size, det_addr.size)
 
     addra, addrb = divmod(det_addr, nb)
@@ -273,7 +273,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     g2e = ao2mo.restore(1, eri, norb)
     g2e_ab = g2e_bb = g2e_aa = g2e
     _debug_g2e (fci, g2e, eri, norb) # Exploring g2e nan bug; remove later?
-    t0 = lib.logger.timer (fci, "csf.pspace: index manipulation", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.pspace: index manipulation", *t0)
     libfci.FCIpspace_h0tril_uhf(h0.ctypes.data_as(ctypes.c_void_p),
                                 h1e_a.ctypes.data_as(ctypes.c_void_p),
                                 h1e_b.ctypes.data_as(ctypes.c_void_p),
@@ -283,7 +283,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
                                 stra.ctypes.data_as(ctypes.c_void_p),
                                 strb.ctypes.data_as(ctypes.c_void_p),
                                 ctypes.c_int(norb), ctypes.c_int(npsp_det))
-    t0 = lib.logger.timer (fci, "csf.pspace: pspace Hamiltonian in determinant basis", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.pspace: pspace Hamiltonian in determinant basis", *t0)
 
     for i in range(npsp_det):
         h0[i,i] = hdiag_det[det_addr[i]]
@@ -292,7 +292,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     try:
         if fci.verbose >= lib.logger.DEBUG: evals_before = scipy.linalg.eigh (h0)[0]
     except ValueError as e:
-        lib.logger.debug (fci, ("ERROR: h0 has {} infs, {} nans; h1e_a has {} infs, {} nans; "
+        lib.logger.debug1 (fci, ("ERROR: h0 has {} infs, {} nans; h1e_a has {} infs, {} nans; "
             "h1e_b has {} infs, {} nans; g2e has {} infs, {} nans, norb = {}, npsp_det = {}").format (
             np.count_nonzero (np.isinf (h0)), np.count_nonzero (np.isnan (h0)),
             np.count_nonzero (np.isinf (h1e_a)), np.count_nonzero (np.isnan (h1e_a)),
@@ -302,16 +302,16 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
         evals_before = np.zeros (npsp_det)
 
     h0, csf_addr = transformer.mat_det2csf_confspace (h0, econf_addr)
-    t0 = lib.logger.timer (fci, "csf.pspace: transform pspace Hamiltonian into CSF basis", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.pspace: transform pspace Hamiltonian into CSF basis", *t0)
 
-    if fci.verbose >= lib.logger.DEBUG:
-        lib.logger.debug2 (fci, "csf.pspace: eigenvalues of h0 before transformation %s", evals_before)
+    if fci.verbose > lib.logger.DEBUG:
+        lib.logger.debug1 (fci, "csf.pspace: eigenvalues of h0 before transformation %s", evals_before)
         evals_after = scipy.linalg.eigh (h0)[0]
-        lib.logger.debug2 (fci, "csf.pspace: eigenvalues of h0 after transformation %s", evals_after)
+        lib.logger.debug1 (fci, "csf.pspace: eigenvalues of h0 after transformation %s", evals_after)
         idx = [np.argmin (np.abs (evals_before - ev)) for ev in evals_after]
         resid = evals_after - evals_before[idx]
-        lib.logger.debug2 (fci, "csf.pspace: best h0 eigenvalue matching differences after transformation: %s", resid)
-        lib.logger.debug (fci, "csf.pspace: if the transformation of h0 worked the following number will be zero: %s", np.max (np.abs(resid)))
+        lib.logger.debug1 (fci, "csf.pspace: best h0 eigenvalue matching differences after transformation: %s", resid)
+        lib.logger.debug1 (fci, "csf.pspace: if the transformation of h0 worked the following number will be zero: %s", np.max (np.abs(resid)))
 
     # We got extra CSFs from building the configurations most of the time.
     if csf_addr.size > npsp:
@@ -322,9 +322,9 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
         csf_addr = csf_addr[csf_addr_2]
         h0 = h0[np.ix_(csf_addr_2,csf_addr_2)]
     npsp_csf = csf_addr.size
-    lib.logger.debug (fci, "csf_solver.pspace: asked for %s-CSF pspace; found %s CSFs", npsp, npsp_csf)
+    lib.logger.debug1 (fci, "csf_solver.pspace: asked for %s-CSF pspace; found %s CSFs", npsp, npsp_csf)
 
-    t0 = lib.logger.timer (fci, "csf.pspace wrapup", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.pspace wrapup", *t0)
     return csf_addr, h0
 
 def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
@@ -344,11 +344,11 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     if transformer is None: transformer = fci.transformer
     nelec = _unpack_nelec(nelec, fci.spin)
     neleca, nelecb = nelec
-    t0 = lib.logger.timer (fci, "csf.kernel: throat-clearing", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: throat-clearing", *t0)
     hdiag_det = fci.make_hdiag (h1e, eri, norb, nelec)
-    t0 = lib.logger.timer (fci, "csf.kernel: hdiag_det", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: hdiag_det", *t0)
     hdiag_csf = fci.make_hdiag_csf (h1e, eri, norb, nelec, hdiag_det=hdiag_det)
-    t0 = lib.logger.timer (fci, "csf.kernel: hdiag_csf", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: hdiag_csf", *t0)
     ncsf_all = count_all_csfs (norb, neleca, nelecb, smult)
     if idx_sym is None:
         ncsf_sym = ncsf_all
@@ -361,10 +361,10 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     na = link_indexa.shape[0]
     nb = link_indexb.shape[0]
 
-    t0 = lib.logger.timer (fci, "csf.kernel: throat-clearing", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: throat-clearing", *t0)
     addr, h0 = fci.pspace(h1e, eri, norb, nelec, idx_sym=idx_sym, hdiag_det=hdiag_det, hdiag_csf=hdiag_csf, npsp=max(pspace_size,nroots))
-    lib.logger.debug (fci, 'csf.kernel: error of hdiag_csf: %s', np.amax (np.abs (hdiag_csf[addr]-np.diag (h0))))
-    t0 = lib.logger.timer (fci, "csf.kernel: make pspace", *t0)
+    lib.logger.debug1 (fci, 'csf.kernel: error of hdiag_csf: %s', np.amax (np.abs (hdiag_csf[addr]-np.diag (h0))))
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: make pspace", *t0)
     if pspace_size > 0:
         pw, pv = fci.eig (h0)
     else:
@@ -385,14 +385,14 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
             civec = transformer.vec_csf2det (civec)
             return pw[0]+ecore, civec.reshape(na,nb)
 
-    t0 = lib.logger.timer (fci, "csf.kernel: throat-clearing", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: throat-clearing", *t0)
     if idx_sym is None:
         precond = fci.make_precond(hdiag_csf, pw, pv, addr)
     else:
         addr_bool = np.zeros (ncsf_all, dtype=np.bool)
         addr_bool[addr] = True
         precond = fci.make_precond(hdiag_csf[idx_sym], pw, pv, addr_bool[idx_sym])
-    t0 = lib.logger.timer (fci, "csf.kernel: make preconditioner", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: make preconditioner", *t0)
     '''
     fci.eci, fci.ci = \
             kernel_ms1(fci, h1e, eri, norb, nelec, ci0, None,
@@ -400,13 +400,13 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
                        davidson_only, pspace_size, ecore=ecore, **kwargs)
     '''
     h2e = fci.absorb_h1e(h1e, eri, norb, nelec, .5)
-    t0 = lib.logger.timer (fci, "csf.kernel: h2e", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: h2e", *t0)
     def hop(x):
         x_det = transformer.vec_csf2det (x)
         hx = fci.contract_2e(h2e, x_det, norb, nelec, (link_indexa,link_indexb))
         return transformer.vec_det2csf (hx, normalize=False).ravel ()
 
-    t0 = lib.logger.timer (fci, "csf.kernel: make hop", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: make hop", *t0)
     if ci0 is None:
         if hasattr(fci, 'get_init_guess'):
             def ci0 ():
@@ -431,7 +431,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
             if nrow==1: ci0 = ci0[0]
             ci0 = transformer.vec_det2csf (ci0)
             ci0 = [c for c in ci0.reshape (nrow, -1)]
-    t0 = lib.logger.timer (fci, "csf.kernel: ci0 handling", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: ci0 handling", *t0)
 
     if tol is None: tol = fci.conv_tol
     if lindep is None: lindep = fci.lindep
@@ -446,9 +446,9 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
                        max_cycle=max_cycle, max_space=max_space, nroots=nroots,
                        max_memory=max_memory, verbose=verbose, follow_state=True,
                        tol_residual=tol_residual, **kwargs)
-    t0 = lib.logger.timer (fci, "csf.kernel: running fci.eig", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: running fci.eig", *t0)
     c = transformer.vec_csf2det (c, order='C')
-    t0 = lib.logger.timer (fci, "csf.kernel: transforming final ci vector", *t0)
+    t0 = lib.logger.timer_debug1 (fci, "csf.kernel: transforming final ci vector", *t0)
     if nroots > 1:
         return e+ecore, [ci.reshape(na,nb) for ci in c]
     else:
