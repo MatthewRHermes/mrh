@@ -1,4 +1,5 @@
 from pyscf.fci import cistring
+from pyscf.lib import logger
 from scipy import special
 import numpy as np
 import ctypes
@@ -29,7 +30,7 @@ def make_csd_mask (norb, neleca, nelecb):
 
     mask[idx_csd] = idx_dd '''
 
-    t_start = time.time ()
+    t_start = logger.perf_counter ()
     ndeta = int (special.comb (norb, neleca))
     ndetb = int (special.comb (norb, nelecb))
     mask = np.empty (ndeta*ndetb, dtype=np.uint32)
@@ -40,7 +41,7 @@ def make_csd_mask (norb, neleca, nelecb):
         nspin = neleca + nelecb - 2*npair
         mask[npair_offset[ipair]:][:pair_size[ipair]] = get_nspin_dets (norb, neleca, nelecb, nspin).flat
     #print ("Time to make csf mask index array: {:.2f} seconds, memory: {:.2f} MB".format (
-    #        time.time () - t_start, mask.nbytes / 1e6, ndeta*ndetb*4 / 1e6))
+    #        logger.perf_counter () - t_start, mask.nbytes / 1e6, ndeta*ndetb*4 / 1e6))
     return mask
 
 def make_econf_det_mask (norb, neleca, nelecb, csd_mask):
@@ -70,19 +71,19 @@ def get_nspin_dets (norb, neleca, nelecb, nspin):
         Address for the raveled version of the matrix CI vector, i.e., ideta*ndetb + idetb
     '''
 
-    t_start = time.time ()
+    t_start = logger.perf_counter ()
     assert ((neleca + nelecb - nspin) % 2 == 0)
     npair = (neleca + nelecb - nspin) // 2
     min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size = get_csdaddrs_shape (norb, neleca, nelecb)
     offset = npair_offset[npair-min_npair]
     conf_size = npair_dconf_size[npair-min_npair] * npair_sconf_size[npair-min_npair]
     spin_size = npair_spins_size[npair-min_npair]
-    t_ref = time.time ()
+    t_ref = logger.perf_counter ()
     ddaddrs = csdaddrs2ddaddrs (norb, neleca, nelecb, list (range (offset, offset+(conf_size*spin_size))))
-    t_sub = time.time () - t_ref
+    t_sub = logger.perf_counter () - t_ref
     ddaddrs = ddaddrs[0,:] * int (round (special.binom (norb, nelecb))) + ddaddrs[1,:]
     ddaddrs = ddaddrs.reshape (conf_size, spin_size)
-    t_tot = time.time () - t_start
+    t_tot = logger.perf_counter () - t_start
     return ddaddrs
 
 def ddaddrs2csdaddrs (norb, neleca, nelecb, ddaddrs):
@@ -121,18 +122,18 @@ def csdaddrs2ddaddrs (norb, neleca, nelecb, csdaddrs):
     ''' Inverse operation of ddaddrs2csdaddrs 
         ddaddrs is returned in the format of a contiguous 2d ndarray with shape (naddrs,2), where naddrs is the length of csdaddrs
     '''
-    t_start = time.time ()
+    t_start = logger.perf_counter ()
     csdaddrs = np.asarray (csdaddrs)
     if not csdaddrs.flags['C_CONTIGUOUS']:
         csdaddrs = np.ravel (csdaddrs, order='C')
-    t0 = time.time ()
+    t0 = logger.perf_counter ()
     csdstrs = csdaddrs2csdstrs (norb, neleca, nelecb, csdaddrs)
-    t1 = time.time ()
+    t1 = logger.perf_counter ()
     ddstrs = csdstrs2ddstrs (norb, neleca, nelecb, csdstrs)
-    t2 = time.time ()
+    t2 = logger.perf_counter ()
     ddaddrs = np.ascontiguousarray ([cistring.strs2addr (norb, neleca, ddstrs[0]), cistring.strs2addr (norb, nelecb, ddstrs[1])], dtype=np.int32)
-    t3 = time.time ()
-    t_tot = time.time () - t_start
+    t3 = logger.perf_counter ()
+    t_tot = logger.perf_counter () - t_start
     return ddaddrs
 
 def csdstrs2csdaddrs (norb, neleca, nelecb, csdstrs):
@@ -162,7 +163,7 @@ def csdstrs2csdaddrs (norb, neleca, nelecb, csdstrs):
 
 def csdaddrs2csdstrs (norb, neleca, nelecb, csdaddrs):
     ''' This is extremely slow because of the amount of repetition in dconf_addr, sconf_addr, and spins_addr! '''
-    t_start = time.time ()
+    t_start = logger.perf_counter ()
     min_npair, npair_offset, npair_dconf_size, npair_sconf_size, npair_spins_size = get_csdaddrs_shape (norb, neleca, nelecb)
     csdstrs = np.empty ((4, len (csdaddrs)), dtype=np.int64)
     for npair, offset, dconf_size, sconf_size, spins_size in zip (range (min_npair, min (neleca, nelecb)+1), 
@@ -188,7 +189,7 @@ def csdaddrs2csdstrs (norb, neleca, nelecb, csdaddrs):
         spins_addr = dconf_rem  % spins_size
         csdstrs[0,idx] = npair
        
-        t_ref = time.time ()
+        t_ref = logger.perf_counter ()
         dconf_addr_uniq, dconf_addr_uniq2full = np.unique (dconf_addr, return_inverse=True)
         try:
             csdstrs[1,idx] = cistring.addrs2str (norb, npair, dconf_addr_uniq)[dconf_addr_uniq2full]
@@ -206,10 +207,10 @@ def csdaddrs2csdstrs (norb, neleca, nelecb, csdaddrs):
             csdstrs[3,idx] = cistring.addrs2str (nspins, nup, spins_addr_uniq)[spins_addr_uniq2full]
         except TypeError:
             csdstrs[3,idx] = cistring.addr2str (nspins, nup, spins_addr_uniq)
-        #print ("{:.2f} seconds in cistring".format (time.time () - t_ref))
+        #print ("{:.2f} seconds in cistring".format (logger.perf_counter () - t_ref))
 
         '''
-        t_ref = time.time ()
+        t_ref = logger.perf_counter ()
         try:
             csdstrs[1,idx] = cistring.addrs2str (norb, npair, dconf_addr)
             csdstrs[2,idx] = cistring.addrs2str (norb - npair, nspins, sconf_addr)
@@ -218,10 +219,10 @@ def csdaddrs2csdstrs (norb, neleca, nelecb, csdaddrs):
             csdstrs[1,idx] = cistring.addr2str (norb, npair, dconf_addr)
             csdstrs[2,idx] = cistring.addr2str (norb - npair, nspins, sconf_addr)
             csdstrs[3,idx] = cistring.addr2str (nspins, nup, spins_addr)
-        print ("{:.2f} seconds in cistring".format (time.time () - t_ref))
+        print ("{:.2f} seconds in cistring".format (logger.perf_counter () - t_ref))
         '''
 
-    #print ("{:.2f} seconds spent in csdaddrs2csdstrs".format (time.time () - t_start))
+    #print ("{:.2f} seconds spent in csdaddrs2csdstrs".format (logger.perf_counter () - t_start))
     return csdstrs
 
 def get_csdaddrs_shape (norb, neleca, nelecb):

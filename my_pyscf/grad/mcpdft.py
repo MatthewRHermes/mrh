@@ -26,7 +26,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None, at
     if mc.frozen is not None:
         raise NotImplementedError
     if max_memory is None: max_memory = mc.max_memory
-    t0 = (time.process_time (), time.time ())
+    t0 = (logger.process_clock (), logger.perf_counter ())
 
     mol = mc.mol
     ncore = mc.ncore

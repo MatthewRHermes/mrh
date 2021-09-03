@@ -117,7 +117,7 @@ if __name__ == '__main__':
     import time
     from pyscf.fci.direct_spin1 import contract_2e
     from pyscf.fci.spin_op import spin_square0
-    t0, w0 = time.process_time (), time.time ()
+    t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
     nelec, norb = (int (argv) for argv in sys.argv[1:])
     nelec = (min (norb, nelec), nelec - min(norb, nelec))
     smult = nelec[0]-nelec[1]+1
@@ -148,5 +148,5 @@ if __name__ == '__main__':
         ci = contract_sup (ci, norb, nelec)
         nelec = (nelec[0]+1, nelec[1]-1)
         print_line (ci, nelec)
-    print ("Time elapsed {} clock ; {} wall".format (time.process_time () - t0, time.time () - w0))
+    print ("Time elapsed {} clock ; {} wall".format (lib.logger.process_clock () - t0, lib.logger.perf_counter () - w0))
 

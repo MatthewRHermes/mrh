@@ -262,7 +262,7 @@ class LSTDMint1 (object):
 
     def kernel (self, ci, hopping_index, zerop_index, onep_index):
         nroots, norb = self.nroots, self.norb
-        t0 = (time.process_time (), time.time ())
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
 
         # Overlap matrix
         for i, j in combinations (range (self.nroots), 2):
@@ -612,7 +612,7 @@ class LSTDMint2 (object):
         self.tdm2s += self.tdm2s.conj ().transpose (1,0,2,4,3,6,5)
 
     def kernel (self):
-        t0 = (time.process_time (), time.time ())
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.tdm1s = np.zeros ([self.nroots,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
         self.tdm2s = np.zeros ([self.nroots,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
         self._crunch_all_()
@@ -650,7 +650,7 @@ class HamS2ovlpint (LSTDMint2):
         self.s2 += self.s2.T
 
     def kernel (self):
-        t0 = (time.process_time (), time.time ())
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
         self.ham = np.zeros ([self.nroots,]*2, dtype=self.dtype)
@@ -689,7 +689,7 @@ class LRRDMint (LSTDMint2):
         self.rdm2s += self.rdm2s.conj ().transpose (0,1,3,2,5,4)
 
     def kernel (self):
-        t0 = (time.process_time (), time.time ())
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
         self.rdm1s = np.zeros ([self.nroots_si,] + list (self.d1.shape), dtype=self.dtype)
@@ -723,7 +723,7 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
     hopping_index, ints = make_ints (las, ci, idx_root)
 
     # Second pass: upper-triangle
-    t0 = (time.process_time (), time.time ())
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = LSTDMint2 (ints, nlas, hopping_index, dtype=ci[0][0].dtype)
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)        
     tdm1s, tdm2s, t0 = outerprod.kernel ()
@@ -739,7 +739,7 @@ def ham (las, h1, h2, ci, idx_root, **kwargs):
     hopping_index, ints = make_ints (las, ci, idx_root)
 
     # Second pass: upper-triangle
-    t0 = (time.process_time (), time.time ())
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = HamS2ovlpint (ints, nlas, hopping_index, h1, h2, dtype=ci[0][0].dtype)
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)        
     ham, s2, ovlp, t0 = outerprod.kernel ()
@@ -757,7 +757,7 @@ def roots_make_rdm12s (las, ci, idx_root, si, **kwargs):
     hopping_index, ints = make_ints (las, ci, idx_root)
 
     # Second pass: upper-triangle
-    t0 = (time.process_time (), time.time ())
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     outerprod = LRRDMint (ints, nlas, hopping_index, si, dtype=ci[0][0].dtype)
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
     rdm1s, rdm2s, t0 = outerprod.kernel ()

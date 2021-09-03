@@ -222,7 +222,7 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas, max_memory=2000,
     veff2 = _ERIS (ot.mol, mo_coeff, ncore, ncas, paaa_only=paaa_only, 
         aaaa_only=aaaa_only, verbose=ot.verbose, stdout=ot.stdout)
 
-    t0 = (time.process_time (), time.time ())
+    t0 = (logger.process_clock (), logger.perf_counter ())
 
     # Make density matrices and TAG THEM with their own eigendecompositions
     # because that speeds up the rho generators!
@@ -326,7 +326,7 @@ def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1, veff
     veff1 = np.zeros_like (oneCDMs[0])
     veff2 = np.zeros ((nao, nao, nao, nao), dtype=veff1.dtype)
 
-    t0 = (time.process_time (), time.time ())
+    t0 = (logger.process_clock (), logger.perf_counter ())
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, nao, dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])

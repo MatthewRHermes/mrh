@@ -42,7 +42,7 @@ def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
     if verbose is None: verbose = mc.verbose
-    t0 = (time.process_time (), time.time ())
+    t0 = (logger.process_clock (), logger.perf_counter ())
     if root>=0: ci=ci[root]
 
     # Allow MC-PDFT to be subclassed, and also allow this function to be
@@ -256,7 +256,7 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
 
     E_ot = 0.0
 
-    t0 = (time.process_time (), time.time ())
+    t0 = (logger.process_clock (), logger.perf_counter ())
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for i in range(2))
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao, dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
@@ -428,7 +428,7 @@ class _PDFT ():
                 veff2 : pyscf.mcscf.mc_ao2mo._ERIS instance
                     Relevant 2-body effective potential in the MO basis
         ''' 
-        t0 = (time.process_time (), time.time ())
+        t0 = (logger.process_clock (), logger.perf_counter ())
         if mo is None: mo = self.mo_coeff
         if ci is None: ci = self.ci
         ncore, ncas, nelecas = self.ncore, self.ncas, self.nelecas

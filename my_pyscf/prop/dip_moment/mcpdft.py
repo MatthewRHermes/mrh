@@ -22,7 +22,7 @@ def mcpdft_HellmanFeynman_dipole (mc, ot, veff1, veff2, mo_coeff=None, ci=None, 
     if mc.frozen is not None:
         raise NotImplementedError
     if max_memory is None: max_memory = mc.max_memory
-    t0 = (time.process_time (), time.time ())
+    t0 = (logger.process_clock (), logger.perf_counter ())
 
     mol = mc.mol
     ncore = mc.ncore
@@ -63,7 +63,7 @@ class ElectricDipole (mcpdft.Gradients):
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
         kwargs['ci'] = ci
         kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
-        cput0 = (time.process_time(), time.time())
+        cput0 = (logger.process_clock(), logger.perf_counter())
         log = lib.logger.new_logger(self, self.verbose)
         if 'atmlst' in kwargs:
             self.atmlst = kwargs['atmlst']

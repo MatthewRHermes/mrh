@@ -125,7 +125,7 @@ def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log):
 def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     log = lib.logger.new_logger(las, verbose)
-    t0 = (time.process_time(), time.time())
+    t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     log.debug('Start LASSCF')
 
     h2eff_sub = las.get_h2eff (mo_coeff)

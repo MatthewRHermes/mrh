@@ -68,7 +68,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0, n
         twoRDM = get_2RDM_from_2CDM (twoRDM, oneCDMs)
 
     # First cumulant and derivatives (chain rule! product rule!)
-    t0 = (time.process_time (), time.time ())
+    t0 = (logger.process_clock (), logger.perf_counter ())
     Pi = np.zeros_like (rho[0])
     Pi[0] = rho[0,0] * rho[1,0]
     if deriv > 0:

@@ -511,7 +511,7 @@ def _transform_detcsf_vec_or_mat (arr, norb, neleca, nelecb, smult, reverse=Fals
     
 def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_mask=None, project=False):
     ''' Must take an array of shape (*, ndet) or (*, ncsf) '''
-    t_start = time.time ()
+    t_start = lib.logger.perf_counter ()
     time_umat = 0
     time_mult = 0
     time_getdet = 0
@@ -550,20 +550,20 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
             csf_addrs[:] = False
             csf_addrs_ipair = csf_addrs[csf_offset:][:nconf*ncsf].reshape (nconf, ncsf) # Note: this is a view, i.e., a pointer
 
-        t_ref = time.time ()
+        t_ref = lib.logger.perf_counter ()
         if csd_mask is None:
             det_addrs = csdstring.get_nspin_dets (norb, neleca, nelecb, nspin)
         else:
             det_addrs = csd_mask[csd_offset:][:nconf*ndet].reshape (nconf, ndet, order='C')
         assert (det_addrs.shape[0] == nconf)
         assert (det_addrs.shape[1] == ndet)
-        time_getdet += time.time () - t_ref
+        time_getdet += lib.logger.perf_counter () - t_ref
 
         if (ncsf == 0):
             inparr[:,det_addrs] = 0 
             continue
 
-        t_ref = time.time ()
+        t_ref = lib.logger.perf_counter ()
         umat = np.asarray_chkfinite (get_spin_evecs (nspin, neleca, nelecb, smult))
         size_umat = max (size_umat, umat.nbytes)
         ncsf_blk = ncsf # later on I can use this variable to implement a generator form of get_spin_evecs to save memory when there are too many csfs
@@ -571,7 +571,7 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
         assert (umat.shape[1] == ncsf_blk)
         if project:
             Pmat = np.dot (umat, umat.T)
-        time_umat += time.time () - t_ref
+        time_umat += lib.logger.perf_counter () - t_ref
 
         if not project:
             csf_addrs_ipair[:,:ncsf_blk] = True # Note: edits csf_addrs
@@ -580,14 +580,14 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
         # Passing them unflattened as indices of the flattened arrays should result in a 3-dimensional array if I understand numpy's indexing rules correctly
         # For the lvalues, I think it's necessary to flatten csf_addrs and det_addrs to avoid an exception
         # Hopefully this is parallel under the hood, and hopefully the OpenMP reduction epsilon doesn't ruin the spin eigenvectors
-        t_ref = time.time ()
+        t_ref = lib.logger.perf_counter ()
         if project:
             inparr[:,det_addrs] = np.tensordot (inparr[:,det_addrs], Pmat, axes=1)
         elif not reverse:
             outarr[:,csf_addrs] = np.tensordot (inparr[:,det_addrs], umat, axes=1).reshape (nrow, ncsf_blk*nconf)
         else:
             outarr[:,det_addrs] = np.tensordot (inparr[:,csf_addrs].reshape (nrow, nconf, ncsf_blk), umat, axes=((2,),(1,)))
-        time_mult += time.time () - t_ref
+        time_mult += lib.logger.perf_counter () - t_ref
 
     if project:
         outarr = inparr
@@ -599,7 +599,7 @@ def _transform_det2csf (inparr, norb, neleca, nelecb, smult, reverse=False, csd_
             ' {:.2f} seconds to build umat, {:.2f} seconds matrix-vector multiplication,            ' {:.2f} MB largest umat').format (d[reverse], d[~reverse], time_getdet, time_umat,
             ' {:.2f} MB largest umat').format (d[reverse], d[~reverse], time_getdet, time_umat,
             time_mult, size_umat / 1e6))
-    print ('Total time spend in _transform_det2csf: {:.2f} seconds'.format (time.time () - t_start))
+    print ('Total time spend in _transform_det2csf: {:.2f} seconds'.format (lib.logger.perf_counter () - t_start))
     '''
     return outarr
 
@@ -821,11 +821,11 @@ def get_spin_evecs (nspin, neleca, nelecb, smult):
     ndet = special.comb (nspin, na, exact=True)
     ncsf = count_csfs (nspin, smult)
 
-    t_start = time.time ()
+    t_start = lib.logger.perf_counter ()
     spinstrs = cistring.addrs2str (nspin, na, list (range (ndet)))
     assert (len (spinstrs) == ndet), "should have {} spin strings; have {} (nspin={}, ms={}".format (ndet, len (spinstrs), nspin, ms)
 
-    t_start = time.time ()
+    t_start = lib.logger.perf_counter ()
     scstrs = addrs2str (nspin, smult, list (range (ncsf)))
     assert (len (scstrs) == ncsf), "should have {} coupling strings; have {} (nspin={}, s={})".format (ncsf, len (scstrs), nspin, s)
 
@@ -833,7 +833,7 @@ def get_spin_evecs (nspin, neleca, nelecb, smult):
     twoS = smult-1
     twoMS = neleca - nelecb
     
-    t_start = time.time ()
+    t_start = lib.logger.perf_counter ()
     libcsf.FCICSFmakecsf (umat.ctypes.data_as (ctypes.c_void_p),
                         spinstrs.ctypes.data_as (ctypes.c_void_p),
                         scstrs.ctypes.data_as (ctypes.c_void_p),
@@ -863,7 +863,7 @@ def test_spin_evecs (nspin, neleca, nelecb, smult, S2mat=None):
         twoS = smult - 1
         twoMS = int (round (2 * ms))
 
-        t_start = time.time ()    
+        t_start = lib.logger.perf_counter ()    
         libcsf.FCICSFmakeS2mat (S2mat.ctypes.data_as (ctypes.c_void_p),
                              spinstrs.ctypes.data_as (ctypes.c_void_p),
                              ctypes.c_int (ndet),
@@ -871,7 +871,7 @@ def test_spin_evecs (nspin, neleca, nelecb, smult, S2mat=None):
                              ctypes.c_int (twoS),
                              ctypes.c_int (twoMS))
         print ("TIME: {} seconds to make S2mat for {} spins with s={}, ms={}".format (
-            time.time() - t_start, nspin, (smult-1)/2, ms))
+            lib.logger.perf_counter() - t_start, nspin, (smult-1)/2, ms))
         print ("MEMORY: {} MB for {}-spin S2 matrix with s={}, ms={}".format (S2mat.nbytes / 1e6,
             nspin, (smult-1)/2, ms))
 
@@ -881,7 +881,7 @@ def test_spin_evecs (nspin, neleca, nelecb, smult, S2mat=None):
     assert (umat.shape == tuple((ndet, ncsf))), "umat shape should be ({},{}); is {}".format (ndet, ncsf, umat.shape)
     
     s = (smult-1)/2
-    t_start = time.time ()
+    t_start = lib.logger.perf_counter ()
     isorth = np.allclose (np.dot (umat.T, umat), np.eye (umat.shape[1]))
     ortherr = linalg.norm (np.dot (umat.T, umat) - np.eye (umat.shape[1]))
     S2mat_csf = reduce (np.dot, (umat.T, S2mat, umat))
@@ -890,7 +890,7 @@ def test_spin_evecs (nspin, neleca, nelecb, smult, S2mat=None):
     diagsS2 = np.allclose (S2mat_csf, S2mat_csf_comp)
     passed = isorth and diagsS2
     print ("TIME: {} seconds to analyze umat for {} spins with s={}, ms={}".format (
-        time.time() - t_start, nspin, s, ms))
+        lib.logger.perf_counter() - t_start, nspin, s, ms))
     
 
     print (('For a system of {} spins with total spin {} and spin projection {}'
@@ -1008,7 +1008,7 @@ if __name__ == '__main__':
                 evecs.append (umat)
                 evals.append (s*(s+1)*np.ones (umat.shape[1]))
             print ("COLLECTIVE RESULTS:")
-            t_start = time.time ()
+            t_start = lib.logger.perf_counter ()
             evals = np.concatenate (evals)
             evecs = np.concatenate (evecs, axis=-1)
             print ('Is the final CSF vector matrix square with correct dimension? {} vs {}'.format (evecs.shape, S2mat.shape))
@@ -1023,7 +1023,7 @@ if __name__ == '__main__':
             isorthnorm = ovlperr < 1e-8
             diagsS2 = diagerr < 1e-8
             print ("TIME: {} seconds to analyze umat for {} spins with ms={} and all s".format (
-                time.time() - t_start, nspin, ms))
+                lib.logger.perf_counter() - t_start, nspin, ms))
             print ("Is the final CSF vector matrix unitary? {}".format (("NO (err = {})".format (ovlperr), "Yes")[isorthnorm]))
             print (('Does the final CSF vector matrix correctly diagonalize S2?'
                     ' {}').format (('NO (err = {})'.format (diagerr), 'Yes')[diagsS2]))

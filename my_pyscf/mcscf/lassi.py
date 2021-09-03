@@ -99,7 +99,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             continue
         wfnsym = rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
-        t0 = (time.process_time (), time.time ())
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if (las.verbose > lib.logger.INFO) and (o0_memcheck):
             ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (rootsym), *t0)
@@ -197,7 +197,7 @@ def make_stdm12s (las, ci=None, orbsym=None, opt=1):
         idx = np.all (np.array (statesym) == rootsym, axis=1)
         wfnsym = rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
-        t0 = (time.process_time (), time.time ())
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if (las.verbose > lib.logger.INFO) and (o0_memcheck):
             d1s, d2s = op_o0.make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (rootsym), *t0)
@@ -250,7 +250,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, opt=1):
         wfnsym = sym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
         si_blk = si[np.ix_(idx_ci,idx_si)]
-        t0 = (time.process_time (), time.time ())
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if (las.verbose > lib.logger.INFO) and (o0_memcheck):
             d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym), *t0)

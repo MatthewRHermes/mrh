@@ -46,7 +46,7 @@ def grad_elec(mc_grad, mo_coeff=None, ci=None, atmlst=None, verbose=None):
     if mc.frozen is not None:
         raise NotImplementedError
 
-    time0 = time.process_time(), time.time()
+    time0 = logger.process_clock(), logger.perf_counter()
     log = logger.new_logger(mc_grad, verbose)
     mol = mc_grad.mol
     ncore = mc.ncore

@@ -134,7 +134,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
 
     def _init_eri_(self):
         lasci._init_df_(self)
-        t0 = (time.process_time (), time.time ())
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.uschmidt = uschmidt = self.make_schmidt_spaces ()
         t1 = lib.logger.timer (self.las, 'build schmidt spaces', *t0)
         if isinstance (self.las, lasci._DFLASCI):
@@ -186,7 +186,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         # I can't do better than O(N^4), but maybe I can do better than O(M^4)
         # Neither dm1_vv nor veff_vv elements are needed here
         # Nothing in this function should distinguish between core and active orbitals!
-        t0 = (time.process_time (), time.time ())
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if not isinstance (self.las, lasci._DFLASCI):
             return lasscf_o0.LASSCF_HessianOperator.get_veff (self, dm1s_mo=dm1s_mo)
         nocc, mo, bPpj = self.nocc, self.mo_coeff, self.bPpj
