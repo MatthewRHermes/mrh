@@ -879,7 +879,6 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
                 k = i + ugg.nvar_orb
                 l = j + ugg.nvar_orb
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_ci({})| = %.15g'.format (isub), linalg.norm (g_ci_test[i:j] - g_vec[k:l]))
-                log.debug ('GRADIENT IMPLEMENTATION TEST: |g_ci({})| = %.15g'.format (isub), linalg.norm (g_ci_test[i:j]))
             err = linalg.norm (g_ci_test - g_vec[ugg.nvar_orb:])
             assert (err < 1e-5), '{}'.format (err)
         gx = H_op.get_gx ()
@@ -974,11 +973,13 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_fr, log, veff_sub_test=None
             log.info ("LASCI subspace {} with orbsyms {}".format (isub, orbsym))
         else:
             log.info ("LASCI subspace {} with no orbsym information".format (isub))
-        for state, solver in enumerate (fcibox.fcisolvers):
+        if log.verbose > lib.logger.DEBUG: 
+         for state, solver in enumerate (fcibox.fcisolvers):
             wfnsym = getattr (solver, 'wfnsym', None)
             if (wfnsym is not None) and (orbsym is not None):
                 wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (las.mol.groupname, wfnsym)
-                log.info ("LASCI subspace {} state {} with wfnsym {}".format (isub, state, wfnsym_str))
+                log.debug1 ("LASCI subspace {} state {} with wfnsym {}".format (isub, state, wfnsym_str))
+                
         e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
                                       ci0=fcivec, verbose=log,
                                       max_memory=max_memory,

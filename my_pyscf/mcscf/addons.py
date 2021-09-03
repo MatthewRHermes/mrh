@@ -88,9 +88,15 @@ def get_h1e_zipped_fcisolver (fcisolver):
                 if has_spin_square:
                     ss = self.states_spin_square(cs, norb, nelec)[0]
                     for i, ei in enumerate(es):
+                        if i>10 and log.verbose < logger.DEBUG1:
+                            log.debug ('printout for %d more states truncated', len(es)-11)
+                            break
                         log.debug('state %d  E = %.15g S^2 = %.7f', i, ei, ss[i])
                 else:
                     for i, ei in enumerate(es):
+                        if i>10 and log.verbose < logger.DEBUG1:
+                            log.debug ('printout for %d more states truncated', len(es)-11)
+                            break
                         log.debug('state %d  E = %.15g', i, ei)
             return np.einsum('i,i', np.array(es), self.weights), cs
 
