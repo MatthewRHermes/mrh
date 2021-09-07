@@ -908,7 +908,10 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
                 resid = g_vec + Hx
                 norm_gorb = linalg.norm (resid[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
                 norm_gci = linalg.norm (resid[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
-                Ecall = H_op.e_tot + x.dot (g_vec + (Hx/2))
+                xorb, xci = ugg.unpack (x)
+                xci = [[x_s * las.weights[iroot] for iroot, x_s in enumerate (x_rs)] for x_rs in xci]
+                xscale = ugg.pack (xorb, xci)
+                Ecall = H_op.e_tot + xscale.dot (g_vec + (Hx/2))
                 log.info ('LASCI micro %d : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x_orb| = %.15g ; |x_ci| = %.15g', microit[0], Ecall, norm_gorb, norm_gci, norm_xorb, norm_xci)
             else:
                 log.info ('LASCI micro %d : |x_orb| = %.15g ; |x_ci| = %.15g', microit[0], norm_xorb, norm_xci)
