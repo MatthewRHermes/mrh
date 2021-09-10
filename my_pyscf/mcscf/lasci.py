@@ -1,4 +1,5 @@
 from pyscf.scf.rohf import get_roothaan_fock
+from pyscf.fci import cistring
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf.tools import molden
 from pyscf import symm, gto, scf, ao2mo, lib
@@ -831,7 +832,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         casdm1s_fr = casdm0_fr
     else:
         if ci0 is None:
-            ci0 = get_init_guess_ci (las, mo_coeff, h2eff_sub)
+            ci0 = get_init_guess_ci (las, mo_coeff, h2eff_sub, ci0)
         veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
         casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
         casdm1s_fr = las.states_make_casdm1s_sub (ci=ci0)
@@ -959,7 +960,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
     return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
 
 def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1s_fr, log, veff_sub_test=None):
-    if ci0 is None: ci0 = [None for idx in range (len (las.ncas_sub))]
+    if ci0 is None: ci0 = [None for idx in range (las.nfrags)]
     # CI problems
     t1 = (lib.logger.process_clock(), lib.logger.perf_counter())
     h1eff_sub = las.get_h1eff (mo, veff=veff, h2eff_sub=h2eff_sub, casdm1s_fr=casdm1s_fr, veff_sub_test=veff_sub_test)
@@ -1114,16 +1115,16 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
         h2eff_sub = lib.numpy_helper.pack_tril (h2eff_sub.reshape (nmo*las.ncas, las.ncas, las.ncas)).reshape (nmo, -1)
     return mo_coeff, mo_ene, mo_occ, ci, h2eff_sub
 
-def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None):
+def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
     # TODO: come up with a better algorithm? This might be working better than what I had before but it omits inter-active
     # coulomb and exchange interactions altogether. Is there a non-outer-product algorithm for finding the lowest-energy single
     # product of CSFs?
     if mo_coeff is None: mo_coeff = las.mo_coeff
+    if ci0 is None: ci0 = [[None,]*las.nroots,]*las.nfrags
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     nmo = mo_coeff.shape[-1]
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
-    ci0 = []
     dm1_core= 2 * mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
     h1e_ao = las._scf.get_fock (dm=dm1_core)
     eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas, ncas, ncas)
@@ -1136,15 +1137,30 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None):
         h1e = moH @ h1e_ao @ mo
         h1e = [h1e, h1e]
         eri = eri_cas[i:j,i:j,i:j,i:j]
-        ci0_i = []
-        for solver in fcibox.fcisolvers:
+        for iy, solver in enumerate (fcibox.fcisolvers):
             nelec = fcibox._get_nelec (solver, nelecas)
+            ndet = tuple ([cistring.num_strings (norb, n) for n in nelec])
+            if isinstance (ci0[ix][iy], np.ndarray) and ci0[ix][iy].shape==ndet: continue
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
             hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec)
-            ci0_i.append (solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0])
-        ci0.append (ci0_i)
+            ci0[ix,iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0]
     return ci0
+
+def get_state_info (las):
+    ''' Retrieve the quantum numbers defining the states of a LASSCF calculation '''
+    nfrags, nroots = las.nfrags, las.nroots
+    charges = np.zeros ((nroots, nfrags), dtype=np.int32)
+    wfnsyms, spins, smults = charges.copy (), charges.copy (), charges.copy ()
+    for ifrag, fcibox in enumerate (las.fciboxes):
+     for iroot, solver in enumerate (fcibox.fcisolvers):
+        nelec = fcibox._get_nelec (solver, las.nelecas[ifrag])
+        charges[iroot,ifrag] = np.sum (las.nelecas[ifrag]) - np.sum (nelec)
+        spins[iroot,ifrag] = nelec[0]-nelec[1]
+        smults[iroot,ifrag] = solver.smult
+        wfnsyms[iroot,ifrag] = solver.wfnsym
+    return charges, spins, smults, wfnsyms
+    
 
 def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None, wfnsyms=None):
     ''' Transform LASCI/LASSCF object into state-average LASCI/LASSCF 
@@ -1182,11 +1198,11 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None
             state-averaged LASCI/LASSCF instance.
 
     '''
-    las.nroots = nroots = len (weights)
-    las.weights = weights
-    nfrags = len (las.ncas_sub)
-    if charges is None: charges = np.zeros ((nroots, nfrags), dtype=np.int)
-    if wfnsyms is None: wfnsyms = np.zeros ((nroots, nfrags), dtype=np.int)
+    old_states = np.stack (get_state_info (las), axis=-1)
+    nroots = len (weights)
+    nfrags = las.nfrags
+    if charges is None: charges = np.zeros ((nroots, nfrags), dtype=np.int32)
+    if wfnsyms is None: wfnsyms = np.zeros ((nroots, nfrags), dtype=np.int32)
     if spins is None: spins = np.asarray ([[n[0] - n[1] for n in las.nelecas_sub] for i in weights]) 
     if smults is None: smults = np.abs (spins)+1 
 
@@ -1200,11 +1216,22 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None
         spins = np.atleast_2d (np.squeeze (spins)).T
         smults = np.atleast_2d (np.squeeze (smults)).T
 
+
     las.fciboxes = [get_h1e_zipped_fcisolver (state_average_n_mix (las,
         [csf_solver (las.mol, smult=s2p1).set (charge=c, spin=m2, wfnsym=ir)
         for c, m2, s2p1, ir in zip (c_r, m2_r, s2p1_r, ir_r)],
         weights).fcisolver) for c_r, m2_r, s2p1_r, ir_r in zip (charges.T, spins.T, smults.T, wfnsyms.T)]
-    las.e_states = np.zeros (las.nroots)
+    las.e_states = np.zeros (nroots)
+    las.nroots = nroots
+    las.weights = weights
+
+    new_states = np.stack ([charges, spins, smults, wfnsyms], axis=-1)
+    if las.ci is not None:
+        log = lib.logger.new_logger(las, las.verbose)
+        log.debug (("lasci.state_average: Cached CI vectors may be present.\n"
+                    "Looking for matches between old and new LAS states..."))
+        ci0 = [[None,]*nroots,]*nfrags
+            pass 
     return las
 
 def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None, wfnsyms=None):
@@ -1257,6 +1284,9 @@ class LASCINoSymm (casci.CASCI):
         s = csf_solver (self.mol, smult=smult)
         s.spin = nel[0] - nel[1] 
         return get_h1e_zipped_fcisolver (state_average_n_mix (self, [s], [1.0]).fcisolver)
+
+    @property
+    def nfrags (self): return len (self.ncas_sub)
 
     def get_mo_slice (self, idx, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff

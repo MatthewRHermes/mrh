@@ -19,11 +19,12 @@ def get_sanmix_fcisolver (samix_fcisolver):
     class FCISolver (samix_fcisolver.__class__, StateAverageNMixFCISolver):
 
         def _get_nelec (self, solver, nelec):
-            m = solver.spin if solver.spin is not None else 0
+            n = np.sum (nelec)
+            m = solver.spin if solver.spin is not None else n%2
             c = getattr (solver, 'charge', 0) or 0
             if m or c:
-                nelec = np.sum (nelec) - c
-                nelec = (nelec+m)//2, (nelec-m)//2
+                n -= c
+                nelec = (n+m)//2, (n-m)//2
             return nelec
 
     sanmix_fcisolver = FCISolver (samix_fcisolver.mol)
