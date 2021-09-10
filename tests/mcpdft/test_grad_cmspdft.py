@@ -6,7 +6,7 @@ from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.grad.cmspdft import sarot_response, sarot_grad, sarot_response_o0, sarot_grad_o0
 from mrh.my_pyscf.grad import sipdft as sipdft_grad
-from mrh.my_pyscf.df.grad import dfsacasscf
+from mrh.my_pyscf.df.grad import dfsacasscf, dfsipdft
 import unittest, math
 
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
@@ -40,11 +40,13 @@ def get_mc_list ():
         for m in [mol_nosymm, mol_symm]:
             mc_list.append ([[get_mc_ref (m, ri=i, sam=j) for i in (0,1)] for j in (0,1)])
     return mc_list
-def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates, charge=None, spin=None, symmetry=False, cas_irrep=None):
+def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates,
+  charge=None, spin=None, symmetry=False, cas_irrep=None, density_fit=False):
     xyz = '{:s} 0.0 0.0 0.0; {:s} {:.3f} 0.0 0.0'.format (atom1, atom2, r)
     mol = gto.M (atom=xyz, basis=basis, charge=charge, spin=spin, symmetry=symmetry, verbose=0, output='/dev/null')
-    mf = scf.RHF (mol).run ()
-    mc = mcpdft.CASSCF (mf, fnal, ncas, nelecas, grids_level=9)
+    mf = scf.RHF (mol)
+    if density_fit: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
+    mc = mcpdft.CASSCF (mf.run (), fnal, ncas, nelecas, grids_level=9)
     if spin is not None: smult = spin+1
     else: smult = (mol.nelectron % 2) + 1
     mc.fcisolver = csf_solver (mol, smult=smult)
@@ -54,8 +56,8 @@ def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates, charge=None,
     if symmetry and (cas_irrep is not None):
         mo = mc.sort_mo_by_irrep (cas_irrep)
     mc.kernel (mo)
-    mc_grad = sipdft_grad.Gradients (mc)
-    return mc_grad
+    if density_fit: return dfsipdft.Gradients (mc)
+    return mc.nuc_grad_method ()
 
 def tearDownModule():
     global mol_nosymm, mol_symm, mc_list, Lis, get_mc_list, diatomic
@@ -180,6 +182,18 @@ class KnownValues(unittest.TestCase):
         # z_is:     yes
         mc_grad = diatomic ('Li', 'H', 2.5, 'ftLDA,VWN3', 'STO-3G', 2, 2, 2)
         de_ref = [0.1071803011, 0.03972321867] 
+        # Numerical from this software
+        for i in range (2):
+         with self.subTest (state=i):
+            de = mc_grad.kernel (state=i) [1,0] / BOHR
+            self.assertAlmostEqual (de, de_ref[i], 6)
+
+    def test_grad_lih_cms2ftlda22_sto3g_df (self):
+        # z_orb:    yes
+        # z_ci:     yes
+        # z_is:     yes
+        mc_grad = diatomic ('Li', 'H', 2.5, 'ftLDA,VWN3', 'STO-3G', 2, 2, 2, density_fit=True)
+        de_ref = [0.1074553399, 0.03956955205] 
         # Numerical from this software
         for i in range (2):
          with self.subTest (state=i):
