@@ -22,9 +22,8 @@ def get_sanmix_fcisolver (samix_fcisolver):
             n = np.sum (nelec)
             m = solver.spin if solver.spin is not None else n%2
             c = getattr (solver, 'charge', 0) or 0
-            if m or c:
-                n -= c
-                nelec = (n+m)//2, (n-m)//2
+            n -= c
+            nelec = (n+m)//2, (n-m)//2
             return nelec
 
     sanmix_fcisolver = FCISolver (samix_fcisolver.mol)

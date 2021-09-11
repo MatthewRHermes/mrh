@@ -831,8 +831,12 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, ve
         casdm1s_sub = casdm0_sub
         casdm1s_fr = casdm0_fr
     else:
-        if ci0 is None:
+        if (ci0 is None or any ([c is None for c in ci0]) or
+          any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
             ci0 = get_init_guess_ci (las, mo_coeff, h2eff_sub, ci0)
+        if (ci0 is None or any ([c is None for c in ci0]) or
+          any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
+            raise RuntimeError ("failed to populate get_init_guess")
         veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
         casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
         casdm1s_fr = las.states_make_casdm1s_sub (ci=ci0)
@@ -1120,7 +1124,7 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
     # coulomb and exchange interactions altogether. Is there a non-outer-product algorithm for finding the lowest-energy single
     # product of CSFs?
     if mo_coeff is None: mo_coeff = las.mo_coeff
-    if ci0 is None: ci0 = [[None,]*las.nroots,]*las.nfrags
+    if ci0 is None: ci0 = [[None for i in range (las.nroots)] for j in range (las.nfrags)]
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     nmo = mo_coeff.shape[-1]
     ncore, ncas = las.ncore, las.ncas
@@ -1140,11 +1144,11 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
         for iy, solver in enumerate (fcibox.fcisolvers):
             nelec = fcibox._get_nelec (solver, nelecas)
             ndet = tuple ([cistring.num_strings (norb, n) for n in nelec])
-            if isinstance (ci0[ix][iy], np.ndarray) and ci0[ix][iy].shape==ndet: continue
+            if isinstance (ci0[ix][iy], np.ndarray) and ci0[ix][iy].size==ndet[0]*ndet[1]: continue
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
             hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec)
-            ci0[ix,iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0]
+            ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0]
     return ci0
 
 def get_state_info (las):
@@ -1154,11 +1158,11 @@ def get_state_info (las):
     wfnsyms, spins, smults = charges.copy (), charges.copy (), charges.copy ()
     for ifrag, fcibox in enumerate (las.fciboxes):
      for iroot, solver in enumerate (fcibox.fcisolvers):
-        nelec = fcibox._get_nelec (solver, las.nelecas[ifrag])
-        charges[iroot,ifrag] = np.sum (las.nelecas[ifrag]) - np.sum (nelec)
+        nelec = fcibox._get_nelec (solver, las.nelecas_sub[ifrag])
+        charges[iroot,ifrag] = np.sum (las.nelecas_sub[ifrag]) - np.sum (nelec)
         spins[iroot,ifrag] = nelec[0]-nelec[1]
         smults[iroot,ifrag] = solver.smult
-        wfnsyms[iroot,ifrag] = solver.wfnsym
+        wfnsyms[iroot,ifrag] = solver.wfnsym or 0
     return charges, spins, smults, wfnsyms
     
 
@@ -1225,13 +1229,24 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None
     las.nroots = nroots
     las.weights = weights
 
-    new_states = np.stack ([charges, spins, smults, wfnsyms], axis=-1)
     if las.ci is not None:
         log = lib.logger.new_logger(las, las.verbose)
         log.debug (("lasci.state_average: Cached CI vectors may be present.\n"
                     "Looking for matches between old and new LAS states..."))
-        ci0 = [[None,]*nroots,]*nfrags
-            pass 
+        ci0 = [[None for i in range (nroots)] for j in range (nfrags)]
+        new_states = np.stack ([charges, spins, smults, wfnsyms],
+            axis=-1).reshape (nroots, nfrags*4)
+        old_states = old_states.reshape (-1, nfrags*4)
+        for iroot, row in enumerate (old_states):
+            idx = np.all (new_states == row[None,:], axis=1)
+            if np.count_nonzero (idx) == 1:
+                jroot = np.where (idx)[0][0] 
+                log.debug ("Old state {} -> New state {}".format (iroot, jroot))
+                for ifrag in range (nfrags):
+                    ci0[ifrag][jroot] = las.ci[ifrag][iroot]
+            elif np.count_nonzero (idx) > 1:
+                raise RuntimeError ("Duplicate states specified?\n{}".format (idx))
+        las.ci = ci0
     return las
 
 def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None, wfnsyms=None):
