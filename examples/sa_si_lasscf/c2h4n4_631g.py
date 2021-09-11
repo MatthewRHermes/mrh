@@ -26,14 +26,29 @@ mf = scf.RHF (mol).run ()
 #       nelecb = (sum(las.ncas_sub[i]) - charges[j][i] - spins[j][i]) / 2
 # If your molecule doesn't have point-group symmetry turned on then don't pass "wfnsyms"
 las = LASSCF (mf, (5,5), ((3,2),(2,3)))
+las = las.state_average ([0.5,0.5],
+    spins=[[1,-1],[-1,1]],
+    smults=[[2,2],[2,2]],    
+    charges=[[0,0],[0,0]],
+    wfnsyms=[[1,1],[1,1]])
+las.conv_tol = 1e-12
+mo_loc = las.localize_init_guess ((list (range (5)), list (range (5,10))), mf.mo_coeff)
+las.kernel (mo_loc)
+print ("\n---SA(2)-LASSCF---")
+print ("Energy:", las.e_states)
+# Now I will add "spectator" states, which don't affect the state-averaged
+# energy for the purposes of orbital optimization. (You can do this in one
+# step, but then the orbitals would not optimize as quickly.) 
+print (("\nThe orbitals and CI vectors are preserved when going from a completed\n"
+    "smaller SA-LASSCF to a larger one, so the energies of the first two states\n"
+    "should be unchanged to many digits:"))
 las = las.state_average ([0.5,0.5,0.0,0.0],
     spins=[[1,-1],[-1,1],[0,0],[0,0]],
     smults=[[2,2],[2,2],[1,1],[1,1]],    
     charges=[[0,0],[0,0],[-1,1],[1,-1]],
     wfnsyms=[[1,1],[1,1],[0,0],[0,0]])   
-mo_loc = las.localize_init_guess ((list (range (5)), list (range (5,10))), mf.mo_coeff)
-las.kernel (mo_loc)
-print ("\n---SA-LASSCF---")
+las.kernel ()
+print ("\n---SA(4)-LASSCF---")
 print ("Energy:", las.e_states)
 
 # For now, the LASSI diagonalizer is just a post-hoc function call
@@ -45,7 +60,7 @@ e_roots, si = las.lassi ()
 # Additionally, since spin contamination sometimes happens, the S**2 operator
 # in the LAS-state "diabatic" basis is also available
 print ("S**2 operator:\n", si.s2_mat)
-print ("\n---LASSI solutions---")
+print ("\n---LASSI(4) solutions---")
 print ("Energy:", e_roots)
 print ("<S**2>:",si.s2)
 print ("(neleca, nelecb):", si.nelec)
