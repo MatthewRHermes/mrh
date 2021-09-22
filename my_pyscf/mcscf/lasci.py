@@ -1545,20 +1545,21 @@ class LASCINoSymm (casci.CASCI):
         return casdm2r 
 
     def make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
-            casdm2r=None, casdm1fs=None, casdm2f=None,
-            casdm1frs=None, casdm2fr=None, **kwargs):
+            casdm2r=None, casdm2f=None, casdm1frs=None, casdm2fr=None,
+            **kwargs):
         ''' Make the full-dimensional casdm2 spanning the collective active space '''
         if casdm2r is not None: 
             return np.einsum ('rijkl,r->ijkl', casdm2r, self.weights)
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
-        if casdm1fs is None: casdm1fs = self.make_casdm1s_sub (ci=ci,
-            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm1frs=casdm1frs)
+        if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
         if casdm2f is None: casdm2f = self.make_casdm2_sub (ci=ci,
             ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm2fr=casdm2fr)
         ncas = sum (ncas_sub)
         ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
+        weights = self.weights
         casdm2 = np.zeros ((ncas,ncas,ncas,ncas))
         # Diagonal 
         for isub, dm2 in enumerate (casdm2f):
@@ -1566,18 +1567,22 @@ class LASCINoSymm (casci.CASCI):
             j = ncas_cum[isub+1]
             casdm2[i:j, i:j, i:j, i:j] = dm2
         # Off-diagonal
-        for (isub1, dm1s1), (isub2, dm1s2) in combinations (enumerate (casdm1fs), 2):
+        for (isub1, dm1rs1), (isub2, dm1rs2) in combinations (enumerate (casdm1frs), 2):
             i = ncas_cum[isub1]
             j = ncas_cum[isub1+1]
             k = ncas_cum[isub2]
             l = ncas_cum[isub2+1]
-            dma1, dmb1 = dm1s1[0], dm1s1[1]
-            dma2, dmb2 = dm1s2[0], dm1s2[1]
+            dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1]
+            dma2r, dmb2r = dm1rs2[:,0], dm1rs2[:,1]
+            dm1r = dma1r + dmb1r
+            dm2r = dma2r + dmb2r
             # Coulomb slice
-            casdm2[i:j, i:j, k:l, k:l] = np.multiply.outer (dma1+dmb1, dma2+dmb2)
+            casdm2[i:j, i:j, k:l, k:l] = lib.einsum ('r,rij,rkl->ijkl', weights, dm1r, dm2r)
             casdm2[k:l, k:l, i:j, i:j] = casdm2[i:j, i:j, k:l, k:l].transpose (2,3,0,1)
             # Exchange slice
-            casdm2[i:j, k:l, k:l, i:j] = -(np.multiply.outer (dma1, dma2) + np.multiply.outer (dmb1, dmb2)).transpose (0,3,2,1)
+            d2exc = (lib.einsum ('rij,rkl->rilkj', dma1r, dma2r)
+                   + lib.einsum ('rij,rkl->rilkj', dmb1r, dmb2r))
+            casdm2[i:j, k:l, k:l, i:j] -= np.tensordot (weights, d2exc, axes=1)
             casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
         return casdm2 
 
