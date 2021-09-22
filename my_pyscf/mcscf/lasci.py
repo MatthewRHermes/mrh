@@ -1441,9 +1441,10 @@ class LASCINoSymm (casci.CASCI):
             casdm2.append (fcibox.states_make_rdm12 (ci_i, ncas, nel)[-1])
         return casdm2
 
-    def make_casdm2_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
-        casdm2_fr = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
-        return [np.einsum ('rijkl,r->ijkl', dm2, box.weights) for dm2, box in zip (casdm2_fr, self.fciboxes)]
+    def make_casdm2_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, casdm2fr=None, **kwargs):
+        if casdm2fr is None: casdm2fr = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub,
+            nelecas_sub=nelecas_sub, **kwargs)
+        return [np.einsum ('rijkl,r->ijkl', dm2, box.weights) for dm2, box in zip (casdm2fr, self.fciboxes)]
 
     def states_make_rdm1s (self, mo_coeff=None, ci=None, ncas_sub=None,
             nelecas_sub=None, casdm1rs=None, casdm1frs=None, **kwargs):
@@ -1543,39 +1544,41 @@ class LASCINoSymm (casci.CASCI):
         return casdm2r 
 
     def make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
-            casdm2r=None, **kwargs):
+            casdm2r=None, casdm1fs=None, casdm2f=None,
+            casdm1frs=None, casdm2fr=None, **kwargs):
         ''' Make the full-dimensional casdm2 spanning the collective active space '''
-        if casdm2r is None: casdm2r = self.states_make_casdm2 (ci=ci,
-            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
-        return np.einsum ('rijkl,r->ijkl', casdm2r, self.weights)
-        #if ci is None: ci = self.ci
-        #if ncas_sub is None: ncas_sub = self.ncas_sub
-        #if nelecas_sub is None: nelecas_sub = self.nelecas_sub
-        #ncas = sum (ncas_sub)
-        #ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
-        #casdm2s_sub = self.make_casdm2_sub (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
-        #casdm2 = np.zeros ((ncas,ncas,ncas,ncas))
-        ## Diagonal 
-        #for isub, dm2 in enumerate (casdm2s_sub):
-        #    i = ncas_cum[isub]
-        #    j = ncas_cum[isub+1]
-        #    casdm2[i:j, i:j, i:j, i:j] = dm2
-        ## Off-diagonal
-        #casdm1s_sub = self.make_casdm1s_sub (ci=ci)
-        #for (isub1, dm1s1), (isub2, dm1s2) in combinations (enumerate (casdm1s_sub), 2):
-        #    i = ncas_cum[isub1]
-        #    j = ncas_cum[isub1+1]
-        #    k = ncas_cum[isub2]
-        #    l = ncas_cum[isub2+1]
-        #    dma1, dmb1 = dm1s1[0], dm1s1[1]
-        #    dma2, dmb2 = dm1s2[0], dm1s2[1]
-        #    # Coulomb slice
-        #    casdm2[i:j, i:j, k:l, k:l] = np.multiply.outer (dma1+dmb1, dma2+dmb2)
-        #    casdm2[k:l, k:l, i:j, i:j] = casdm2[i:j, i:j, k:l, k:l].transpose (2,3,0,1)
-        #    # Exchange slice
-        #    casdm2[i:j, k:l, k:l, i:j] = -(np.multiply.outer (dma1, dma2) + np.multiply.outer (dmb1, dmb2)).transpose (0,3,2,1)
-        #    casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
-        #return casdm2 
+        if casdm2r is not None: 
+            return np.einsum ('rijkl,r->ijkl', casdm2r, self.weights)
+        if ci is None: ci = self.ci
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
+        if casdm1fs is None: casdm1fs = self.make_casdm1s_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm1frs=casdm1frs)
+        if casdm2f is None: casdm2f = self.make_casdm2_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm2fr=casdm2fr)
+        ncas = sum (ncas_sub)
+        ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
+        casdm2 = np.zeros ((ncas,ncas,ncas,ncas))
+        # Diagonal 
+        for isub, dm2 in enumerate (casdm2f):
+            i = ncas_cum[isub]
+            j = ncas_cum[isub+1]
+            casdm2[i:j, i:j, i:j, i:j] = dm2
+        # Off-diagonal
+        for (isub1, dm1s1), (isub2, dm1s2) in combinations (enumerate (casdm1fs), 2):
+            i = ncas_cum[isub1]
+            j = ncas_cum[isub1+1]
+            k = ncas_cum[isub2]
+            l = ncas_cum[isub2+1]
+            dma1, dmb1 = dm1s1[0], dm1s1[1]
+            dma2, dmb2 = dm1s2[0], dm1s2[1]
+            # Coulomb slice
+            casdm2[i:j, i:j, k:l, k:l] = np.multiply.outer (dma1+dmb1, dma2+dmb2)
+            casdm2[k:l, k:l, i:j, i:j] = casdm2[i:j, i:j, k:l, k:l].transpose (2,3,0,1)
+            # Exchange slice
+            casdm2[i:j, k:l, k:l, i:j] = -(np.multiply.outer (dma1, dma2) + np.multiply.outer (dmb1, dmb2)).transpose (0,3,2,1)
+            casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
+        return casdm2 
 
     def get_veff (self, mol=None, dm1s=None, hermi=1, spin_sep=False, **kwargs):
         ''' Returns a spin-summed veff! If dm1s isn't provided, builds from self.mo_coeff, self.ci etc. '''
