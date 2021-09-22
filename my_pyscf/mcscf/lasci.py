@@ -194,6 +194,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.casdm1frs = casdm1frs 
         self.casdm1fs = las.make_casdm1s_sub (casdm1frs=self.casdm1frs)
         self.casdm1rs = las.states_make_casdm1s (casdm1frs=self.casdm1frs)
+        self.casdm2fr = casdm2fr
         casdm1a = linalg.block_diag (*[dm[0] for dm in self.casdm1fs])
         casdm1b = linalg.block_diag (*[dm[1] for dm in self.casdm1fs])
         self.casdm1s = np.stack ([casdm1a, casdm1b], axis=0)
@@ -334,19 +335,19 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def make_tdm1s2c_sub (self, ci1):
         tdm1frs = np.zeros ((len (self.fciboxes), self.nroots, 2, self.ncas, self.ncas), dtype=self.dtype)
         tcm2 = np.zeros ([self.ncas,]*4, dtype=self.dtype)
-        for isub, (fcibox, ncas, nelecas, c1, c0, casdm1rs, casdm1s) in enumerate (
+        for isub, (fcibox, ncas, nelecas, c1, c0, casdm1rs, casdm1s, casdm2r) in enumerate (
           zip (self.fciboxes, self.ncas_sub, self.nelecas_sub, ci1, self.ci,
-          self.casdm1frs, self.casdm1fs)):
+          self.casdm1frs, self.casdm1fs, self.casdm2fr)):
             s01 = [c1i.dot (c0i) for c1i, c0i in zip (c1, c0)]
             i = sum (self.ncas_sub[:isub])
             j = i + ncas
-            casdm2 = self.casdm2r[:,i:j,i:j,i:j,i:j]
+            #casdm2 = self.casdm2r[:,i:j,i:j,i:j,i:j]
             linkstr = None if self.linkstr is None else self.linkstr[isub]
             tdm1rs, dm2 = fcibox.states_trans_rdm12s (c1, c0, ncas, nelecas, link_index=linkstr)
             # Subtrahend: super important, otherwise the veff part of CI response is even more of a nightmare
             # With this in place, I don't have to worry about subtracting an overlap times a gradient
             tdm1rs = np.stack ([np.stack (t, axis=0) - c * s for t, c, s in zip (tdm1rs, casdm1rs, s01)], axis=0)
-            dm2 = np.stack ([(sum (t) - (c*s)) / 2 for t, c, s, in zip (dm2, casdm2, s01)], axis=0)
+            dm2 = np.stack ([(sum (t) - (c*s)) / 2 for t, c, s, in zip (dm2, casdm2r, s01)], axis=0)
             dm2 = np.einsum ('rijkl,r->ijkl', dm2, fcibox.weights)
             tdm1frs[isub,:,:,i:j,i:j] = tdm1rs 
             tcm2[i:j,i:j,i:j,i:j] = dm2
