@@ -199,8 +199,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         casdm1b = linalg.block_diag (*[dm[1] for dm in self.casdm1fs])
         self.casdm1s = np.stack ([casdm1a, casdm1b], axis=0)
         casdm1 = self.casdm1s.sum (0)
-        self.casdm2r = las.states_make_casdm2 (casdm1frs=casdm1frs, casdm2fr=casdm2fr)
-        self.casdm2 = las.make_casdm2 (casdm2r=self.casdm2r)
+        #self.casdm2r = las.states_make_casdm2 (casdm1frs=casdm1frs, casdm2fr=casdm2fr)
+        self.casdm2 = las.make_casdm2 (casdm1frs=casdm1frs, casdm2fr=casdm2fr)
         self.cascm2 = self.casdm2 - np.multiply.outer (casdm1, casdm1)
         self.cascm2 += np.multiply.outer (casdm1a, casdm1a).transpose (0,3,2,1)
         self.cascm2 += np.multiply.outer (casdm1b, casdm1b).transpose (0,3,2,1)
@@ -1513,6 +1513,10 @@ class LASCINoSymm (casci.CASCI):
     def states_make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm1frs=None, casdm2fr=None, **kwargs):
         ''' Make the full-dimensional casdm2 spanning the collective active space '''
+        log = lib.logger.new_logger (self, verbose)
+        log.warn (("You have found yourself in states_make_casdm2, which is "
+                   "a very bad piece of code that Matt should be avoiding. "
+                   "Please yell at him about this at earliest convenience."))
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
