@@ -252,19 +252,23 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.h1s_cas = self.h1s[:,:,ncore:nocc].copy ()
         self.h1s_cas -= np.tensordot (eri_paaa, casdm1, axes=2)[None,:,:]
         self.h1s_cas += np.tensordot (self.casdm1s, eri_paaa, axes=((1,2),(2,1)))
-        self.h1frs = np.zeros ((len (self.casdm1frs), self.nroots, 2, ncas, ncas), dtype=self.dtype)
-        self.h1frs[:,:,:,:,:] = self.h1s[None,None,:,ncore:nocc,ncore:nocc].copy ()
+
+        self.h1frs = [np.zeros ((self.nroots, 2, nlas, nlas)) for nlas in ncas_sub]
+        #self.h1frs = np.zeros ((len (self.casdm1frs), self.nroots, 2, ncas, ncas), dtype=self.dtype)
+        #self.h1frs[:,:,:,:,:] = self.h1s[None,None,:,ncore:nocc,ncore:nocc].copy ()
         for ix, h1rs in enumerate (self.h1frs):
             i = sum (ncas_sub[:ix])
             j = i + ncas_sub[ix]
+            k, l = i + ncore, j + ncore
             for h1s_sub, casdm1s in zip (h1rs, self.casdm1rs):
+                h1s_sub[:,:,:] = self.h1s[:,k:l,k:l].copy ()
                 dm1s = casdm1s.copy ()
                 dm1s[:,i:j,i:j] = 0.0 # No double-counting
                 dm1s[0] -= casdm1a # No state-averaging
                 dm1s[1] -= casdm1b # No state-averaging
                 dm1 = dm1s[0] + dm1s[1]
-                h1s_sub[:,:,:] += np.tensordot (dm1, eri_cas, axes=((0,1),(2,3)))[None,:,:]
-                h1s_sub[:,:,:] -= np.tensordot (dm1s, eri_cas, axes=((1,2),(2,1)))
+                h1s_sub[:,:,:] += np.tensordot (dm1, eri_cas, axes=((0,1),(2,3)))[None,i:j,i:j]
+                h1s_sub[:,:,:] -= np.tensordot (dm1s, eri_cas, axes=((1,2),(2,1)))[:,i:j,i:j]
 
         # Total energy (for callback)
         h1 = (self.h1s + (moH_coeff @ las.get_hcore () @ mo_coeff)[None,:,:]) / 2
@@ -315,7 +319,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i = sum (self.ncas_sub[:isub])
             j = i + ncas
             h2_i = h2[i:j,i:j,i:j,i:j]
-            h1rs_i = h1rs[:,:,i:j,i:j]
+            h1rs_i = h1rs#[:,:,i:j,i:j]
             hcfr.append (self.Hci (fcibox, ncas, nelecas, h0, h1rs_i, h2_i, ci, linkstrl=linkstrl))
         return hcfr
 
@@ -542,9 +546,14 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 h1frs[i,j,:,:,:] -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))
         h1frs += h1frs.transpose (0,1,2,4,3)
         h1frs += h1frs_prime
+        h1frs_compress = []
+        for isub, nlas in enumerate (ncas_sub):
+            i = sum (ncas_sub[:isub])
+            j = i + ncas_sub[isub]
+            h1frs_compress.append (h1frs[isub,:,:,i:j,i:j])
         h2 += h2.transpose (2,3,0,1)
         h2 += h2.transpose (1,0,3,2)
-        Kci0 = self.Hci_all (None, h1frs, h2, self.ci)
+        Kci0 = self.Hci_all (None, h1frs_compress, h2, self.ci)
         Kci0 = [[Kc - c*(c.dot (Kc)) for Kc, c in zip (Kcr, cr)] for Kcr, cr in zip (Kci0, self.ci)]
         # ^ The definition of the unitary group generator compels you to do this always!!!
         return Kci0
@@ -582,7 +591,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2 = self.eri_cas[i:j,i:j,i:j,i:j]
-            h1rs = h1rs[:,:,i:j,i:j]
+            #h1rs = h1rs[:,:,i:j,i:j]
             hdiag_csf_list = fcibox.states_make_hdiag_csf (h1rs, h2, norb, nelec)
             for csf, hdiag_csf in zip (csf_list, hdiag_csf_list):
                 Hci_diag.append (csf.pack_csf (hdiag_csf))
