@@ -380,7 +380,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         veffs with the external indices rotated (i.e., in the CI part). Uses the cached eris for the latter in the hope that
         this is faster than calling get_jk with many dms. '''
 
-        ncore, nocc = self.ncore, self.nocc
+        ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
         tdm1s_sa = np.einsum ('frspq,r->spq', tdm1frs, self.weights)
         odm1s_sa = np.einsum ('rspq,r->spq', odm1rs, self.weights)
         dm1s_mo = odm1s_sa + odm1s_sa.transpose (0,2,1)
@@ -397,11 +397,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # 2) veff_mo has the effect I want for the orbrots, so long as I choose not to explicitly add h.c. at the end
         # 3) If I don't add h.c., then the (non-self) mean-field effect of the 1-tdms needs to be twice as strong
         # 4) Of course, self-interaction (from both 1-odms and 1-tdms) needs to be completely eliminated
-        h1frs = np.zeros ((tdm1frs.shape[0], self.nroots, 2, self.ncas, self.ncas), dtype=self.dtype)
-        h1frs[:,:,:,:,:] = veff_mo[None,None,:,self.ncore:self.nocc,self.ncore:self.nocc].copy ()
+        h1frs = [np.zeros ((nroots, 2, nlas, nlas), dtype=self.dtype) for nlas in self.ncas_sub]
+        #h1frs[:,:,:,:,:] = veff_mo[None,None,:,self.ncore:self.nocc,self.ncore:self.nocc].copy ()
         for isub, (tdm1rs, nlas) in enumerate (zip (tdm1frs, self.ncas_sub)):
             i = ncore + sum (self.ncas_sub[:isub])
             j = i + nlas
+            h1frs[isub][:,:,:,:] = veff_mo[None,:,i:j,i:j]
             # orb: no double-counting; subtract state-average
             err_dm1rs = odm1rs.copy ()
             err_dm1rs[:,:,i:j,:] = 0.0 
@@ -421,7 +422,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             # Deal with nonsymmetric eri: exchange part
             err_h1rs += err_h1rs.transpose (0,1,3,2)
             err_h1rs /= 2.0
-            h1frs[isub,:,:,:,:] += err_h1rs
+            i -= ncore
+            j -= ncore
+            h1frs[isub][:,:,:,:] += err_h1rs[:,:,i:j,i:j]
 
         return veff_mo, h1frs
 
@@ -530,30 +533,30 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ''' Rotate external indices with kappa1; add contributions from rotated internal indices
         and mean-field intersubspace response in h1s_prime. I have set it up so that
         I do NOT add h.c. (multiply by 2) at the end. '''
-        ncore, nocc, ncas_sub = self.ncore, self.nocc, self.ncas_sub
+        ncore, nocc, ncas_sub, nroots = self.ncore, self.nocc, self.ncas_sub, self.nroots
         kappa1_cas = kappa1[ncore:nocc,:]
-        h1frs = np.zeros_like (h1frs_prime)
-        h1frs[:,:] = -np.tensordot (kappa1_cas, self.h1s_cas, axes=((1),(1))).transpose (1,0,2)[None,None,:,:,:]
+        h1frs = [np.zeros_like (h1) for h1 in h1frs_prime]
+        #h1frs = np.zeros_like (h1frs_prime)
+        h1_core = -np.tensordot (kappa1_cas, self.h1s_cas, axes=((1),(1))).transpose (1,0,2)
+        #h1frs[:,:] = -np.tensordot (kappa1_cas, self.h1s_cas, axes=((1),(1))).transpose (1,0,2)[None,None,:,:,:]
         h2 = -np.tensordot (kappa1_cas, self.eri_paaa, axes=1)
         for j, casdm1s in enumerate (self.casdm1rs):
-            for i, h1rs in enumerate (h1frs):
+            for i, (h1rs, h1rs_prime) in enumerate (zip (h1frs, h1frs_prime)):
                 k = sum (ncas_sub[:i])
                 l = k + ncas_sub[i]
+                h1s, h1s_prime = h1rs[j], h1rs_prime[j]
                 dm1s = casdm1s.copy ()
                 dm1s[:,k:l,k:l] = 0.0 # no double-counting
                 dm1 = dm1s.sum (0)
-                h1frs[i,j,:,:,:] += np.tensordot (h2, dm1, axes=2)[None,:,:]
-                h1frs[i,j,:,:,:] -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))
-        h1frs += h1frs.transpose (0,1,2,4,3)
-        h1frs += h1frs_prime
-        h1frs_compress = []
-        for isub, nlas in enumerate (ncas_sub):
-            i = sum (ncas_sub[:isub])
-            j = i + ncas_sub[isub]
-            h1frs_compress.append (h1frs[isub,:,:,i:j,i:j])
+                h1s[:,:,:] = h1_core[:,k:l,k:l].copy ()
+                h1s[:,:,:] += np.tensordot (h2, dm1, axes=2)[None,k:l,k:l]
+                h1s[:,:,:] -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))[:,k:l,k:l]
+                h1s[:,:,:] += h1s.transpose (0,2,1)
+                h1s[:,:,:] += h1s_prime[:,:,:]
+        #h1frs += h1frs.transpose (0,1,2,4,3)
         h2 += h2.transpose (2,3,0,1)
         h2 += h2.transpose (1,0,3,2)
-        Kci0 = self.Hci_all (None, h1frs_compress, h2, self.ci)
+        Kci0 = self.Hci_all (None, h1frs, h2, self.ci)
         Kci0 = [[Kc - c*(c.dot (Kc)) for Kc, c in zip (Kcr, cr)] for Kcr, cr in zip (Kci0, self.ci)]
         # ^ The definition of the unitary group generator compels you to do this always!!!
         return Kci0
