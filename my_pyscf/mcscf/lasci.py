@@ -265,7 +265,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 dm1 = dm1s[0] + dm1s[1]
                 h1s_sub[:,:,:] += np.tensordot (dm1, eri_cas, axes=((0,1),(2,3)))[None,:,:]
                 h1s_sub[:,:,:] -= np.tensordot (dm1s, eri_cas, axes=((1,2),(2,1)))
-        self.h1frs_aa = self.h1frs#[:,:,:,ncore:nocc,:]
 
         # Total energy (for callback)
         h1 = (self.h1s + (moH_coeff @ las.get_hcore () @ mo_coeff)[None,:,:]) / 2
@@ -285,7 +284,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         for fcibox, no, ne in zip (self.fciboxes, ncas_sub, nelecas_sub):
             self.linkstrl.append (fcibox.states_gen_linkstr (no, ne, True)) 
             self.linkstr.append (fcibox.states_gen_linkstr (no, ne, False))
-        self.hci0 = self.Hci_all (None, self.h1frs_aa, self.eri_cas, ci)
+        self.hci0 = self.Hci_all (None, self.h1frs, self.eri_cas, ci)
         self.e0 = [[hc.dot (c) for hc, c in zip (hcr, cr)] for hcr, cr in zip (self.hci0, ci)]
         self.hci0 = [[hc - c*e for hc, c, e in zip (hcr, cr, er)] for hcr, cr, er in zip (self.hci0, ci, self.e0)]
 
@@ -554,7 +553,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # IMPORTANT: this disagrees with PySCF, but I still think it's right and PySCF is wrong
         ci1HmEci0 = [[c.dot (Hci) for c, Hci in zip (cr, Hcir)] for cr, Hcir in zip (ci1, self.hci0)]
         s01 = [[c1.dot (c0) for c1,c0 in zip (c1r, c0r)] for c1r, c0r in zip (ci1, self.ci)]
-        ci2 = self.Hci_all ([[-e for e in er] for er in self.e0], self.h1frs_aa, self.eri_cas, ci1)
+        ci2 = self.Hci_all ([[-e for e in er] for er in self.e0], self.h1frs, self.eri_cas, ci1)
         ci2 = [[x-(y*z) for x,y,z in zip (xr,yr,zr)] for xr,yr,zr in zip (ci2, self.ci, ci1HmEci0)]
         ci2 = [[x-(y*z) for x,y,z in zip (xr,yr,zr)] for xr,yr,zr in zip (ci2, self.hci0, s01)]
         return [[x*2 for x in xr] for xr in ci2]
@@ -579,7 +578,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def _get_Hci_diag (self):
         Hci_diag = []
         for ix, (fcibox, norb, nelec, h1rs, csf_list) in enumerate (zip (self.fciboxes, 
-         self.ncas_sub, self.nelecas_sub, self.h1frs_aa, self.ugg.ci_transformers)):
+         self.ncas_sub, self.nelecas_sub, self.h1frs, self.ugg.ci_transformers)):
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2 = self.eri_cas[i:j,i:j,i:j,i:j]
