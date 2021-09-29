@@ -199,7 +199,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         casdm1b = linalg.block_diag (*[dm[1] for dm in self.casdm1fs])
         self.casdm1s = np.stack ([casdm1a, casdm1b], axis=0)
         casdm1 = self.casdm1s.sum (0)
-        #self.casdm2r = las.states_make_casdm2 (casdm1frs=casdm1frs, casdm2fr=casdm2fr)
         self.casdm2 = las.make_casdm2 (casdm1frs=casdm1frs, casdm2fr=casdm2fr)
         self.cascm2 = self.casdm2 - np.multiply.outer (casdm1, casdm1)
         self.cascm2 += np.multiply.outer (casdm1a, casdm1a).transpose (0,3,2,1)
@@ -254,8 +253,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         self.h1s_cas += np.tensordot (self.casdm1s, eri_paaa, axes=((1,2),(2,1)))
 
         self.h1frs = [np.zeros ((self.nroots, 2, nlas, nlas)) for nlas in ncas_sub]
-        #self.h1frs = np.zeros ((len (self.casdm1frs), self.nroots, 2, ncas, ncas), dtype=self.dtype)
-        #self.h1frs[:,:,:,:,:] = self.h1s[None,None,:,ncore:nocc,ncore:nocc].copy ()
         for ix, h1rs in enumerate (self.h1frs):
             i = sum (ncas_sub[:ix])
             j = i + ncas_sub[ix]
@@ -319,7 +316,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i = sum (self.ncas_sub[:isub])
             j = i + ncas
             h2_i = h2[i:j,i:j,i:j,i:j]
-            h1rs_i = h1rs#[:,:,i:j,i:j]
+            h1rs_i = h1rs
             hcfr.append (self.Hci (fcibox, ncas, nelecas, h0, h1rs_i, h2_i, ci, linkstrl=linkstrl))
         return hcfr
 
@@ -347,7 +344,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             s01 = [c1i.dot (c0i) for c1i, c0i in zip (c1, c0)]
             i = sum (self.ncas_sub[:isub])
             j = i + ncas
-            #casdm2 = self.casdm2r[:,i:j,i:j,i:j,i:j]
             linkstr = None if self.linkstr is None else self.linkstr[isub]
             tdm1rs, dm2 = fcibox.states_trans_rdm12s (c1, c0, ncas, nelecas, link_index=linkstr)
             # Subtrahend: super important, otherwise the veff part of CI response is even more of a nightmare
@@ -398,7 +394,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # 3) If I don't add h.c., then the (non-self) mean-field effect of the 1-tdms needs to be twice as strong
         # 4) Of course, self-interaction (from both 1-odms and 1-tdms) needs to be completely eliminated
         h1frs = [np.zeros ((nroots, 2, nlas, nlas), dtype=self.dtype) for nlas in self.ncas_sub]
-        #h1frs[:,:,:,:,:] = veff_mo[None,None,:,self.ncore:self.nocc,self.ncore:self.nocc].copy ()
         for isub, (tdm1rs, nlas) in enumerate (zip (tdm1frs, self.ncas_sub)):
             i = ncore + sum (self.ncas_sub[:isub])
             j = i + nlas
@@ -536,9 +531,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ncore, nocc, ncas_sub, nroots = self.ncore, self.nocc, self.ncas_sub, self.nroots
         kappa1_cas = kappa1[ncore:nocc,:]
         h1frs = [np.zeros_like (h1) for h1 in h1frs_prime]
-        #h1frs = np.zeros_like (h1frs_prime)
         h1_core = -np.tensordot (kappa1_cas, self.h1s_cas, axes=((1),(1))).transpose (1,0,2)
-        #h1frs[:,:] = -np.tensordot (kappa1_cas, self.h1s_cas, axes=((1),(1))).transpose (1,0,2)[None,None,:,:,:]
         h2 = -np.tensordot (kappa1_cas, self.eri_paaa, axes=1)
         for j, casdm1s in enumerate (self.casdm1rs):
             for i, (h1rs, h1rs_prime) in enumerate (zip (h1frs, h1frs_prime)):
@@ -553,7 +546,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 h1s[:,:,:] -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))[:,k:l,k:l]
                 h1s[:,:,:] += h1s.transpose (0,2,1)
                 h1s[:,:,:] += h1s_prime[:,:,:]
-        #h1frs += h1frs.transpose (0,1,2,4,3)
         h2 += h2.transpose (2,3,0,1)
         h2 += h2.transpose (1,0,3,2)
         Kci0 = self.Hci_all (None, h1frs, h2, self.ci)
