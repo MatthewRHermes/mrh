@@ -306,7 +306,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return hcr
 
     def Hci_all (self, h0fr, h1frs, h2, ci_sub):
-        ''' Assumes h1frs and h2 are in the active superspace MO basis '''
+        ''' Assumes h2 is in the active superspace MO basis; h1frs is a list in
+            separate subspace bases. '''
         if h0fr is None: h0fr = [[0.0 for h1r in h1rs] for h1rs in h1frs]
         hcfr = []
         for isub, (fcibox, h0, h1rs, ci) in enumerate (zip (self.fciboxes, h0fr, h1frs, ci_sub)):
@@ -586,7 +587,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2 = self.eri_cas[i:j,i:j,i:j,i:j]
-            #h1rs = h1rs[:,:,i:j,i:j]
             hdiag_csf_list = fcibox.states_make_hdiag_csf (h1rs, h2, norb, nelec)
             for csf, hdiag_csf in zip (csf_list, hdiag_csf_list):
                 Hci_diag.append (csf.pack_csf (hdiag_csf))
