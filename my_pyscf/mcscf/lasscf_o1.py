@@ -153,6 +153,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         lib.logger.timer (self.las, '_init_eri', *t0)
 
     def get_veff_Heff (self, odm1rs, tdm1frs):
+        raise NotImplementedError ("Matt, you need to update this for odm1rs->odm1s!")
         # Separating out ua degrees of freedom and treating them differently for reasons
         ncore, nocc = self.ncore, self.nocc
         odm1rs_frz = odm1rs.copy ()
@@ -233,6 +234,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
     def orbital_response (self, kappa, odm1rs, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Parent class does everything except va/ac degrees of freedom
         (c: closed; a: active; v: virtual; p: any) '''
+        raise NotImplementedError ("Matt, you need to update this for odm1rs->odm1s!")
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         # Separate out active-unactive degrees of freedom
         odm1rs_frz = odm1rs.copy ()

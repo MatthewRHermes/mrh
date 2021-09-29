@@ -324,17 +324,22 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     def make_odm1s2c_sub (self, kappa):
         # the various + transposes are omitted because dropping them lets me identify
         # sectors by fragment without adding a whole extra dimension to the arrays
-        # ocm2 doesn't have a "root" index because it only affects the orbital rotation,
-        # which is always state-averaged. However further development may alter this...
-        odm1rs = np.zeros ((self.nroots, 2, self.nmo, self.nmo), dtype=self.dtype)
-        odm1rs[:,:,:self.ncore,self.ncore:] = -kappa[:self.ncore,self.ncore:]
-        for isub, (ncas, casdm1rs) in enumerate (zip (self.ncas_sub, self.casdm1frs)):
-            i = self.ncore + sum (self.ncas_sub[:isub])
-            j = i + ncas
-            odm1rs[:,:,i:j,:] -= np.dot (casdm1rs, kappa[i:j,:])
+        # "root" index is omitted because in the only place where it matters
+        # (ci_response_offdiag) I transform the Hamiltonian using eri_paaa instead.
+        # Everywhere else, it's state-averaged.
+        ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
+        odm1s = np.zeros ((2, nmo, nmo), dtype=self.dtype)
+        odm1s[:,:ncore,ncore:] = -kappa[:self.ncore,self.ncore:]
+        odm1s[:,ncore:nocc,:] -= np.dot (self.casdm1s, kappa[ncore:nocc,:])
+        #odm1rs = np.zeros ((self.nroots, 2, self.nmo, self.nmo), dtype=self.dtype)
+        #odm1rs[:,:,:self.ncore,self.ncore:] = -kappa[:self.ncore,self.ncore:]
+        #for isub, (ncas, casdm1rs) in enumerate (zip (self.ncas_sub, self.casdm1frs)):
+        #    i = self.ncore + sum (self.ncas_sub[:isub])
+        #    j = i + ncas
+        #    odm1rs[:,:,i:j,:] -= np.dot (casdm1rs, kappa[i:j,:])
         ocm2 = -np.dot (self.cascm2, kappa[self.ncore:self.nocc,:])
 
-        return odm1rs, ocm2 
+        return odm1s, ocm2 
 
     def make_tdm1s2c_sub (self, ci1):
         tdm1frs = np.zeros ((len (self.fciboxes), self.nroots, 2, self.ncas, self.ncas), dtype=self.dtype)
@@ -371,7 +376,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         return tdm1frs, tcm2    
 
-    def get_veff_Heff (self, odm1rs, tdm1frs):
+    def get_veff_Heff (self, odm1s, tdm1frs):
         ''' Returns the veff for the orbital part and the h1s shifts for the CI part arising from the contraction
         of shifted or 'effective' 1-rdms in the two sectors with the Hamiltonian. Return values do not include
         veffs with the external indices rotated (i.e., in the CI part). Uses the cached eris for the latter in the hope that
@@ -379,8 +384,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
         tdm1s_sa = np.einsum ('frspq,r->spq', tdm1frs, self.weights)
-        odm1s_sa = np.einsum ('rspq,r->spq', odm1rs, self.weights)
-        dm1s_mo = odm1s_sa + odm1s_sa.transpose (0,2,1)
+        #odm1s_sa = np.einsum ('rspq,r->spq', odm1rs, self.weights)
+        dm1s_mo = odm1s + odm1s.transpose (0,2,1)
         dm1s_mo[:,ncore:nocc,ncore:nocc] += tdm1s_sa
         mo = self.mo_coeff
         moH = mo.conjugate ().T
@@ -388,6 +393,22 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Overall veff for gradient: the one and only jk call per microcycle that I will allow.
         veff_mo = self.get_veff (dm1s_mo=dm1s_mo)
         veff_mo = self.split_veff (veff_mo, dm1s_mo)
+
+        # Core-orbital-effect only for individual CI problems
+        odm1s_core = np.copy (odm1s)
+        odm1s_core[:,ncore:nocc,:] = 0.0
+        odm1s_core += odm1s_core.transpose (0,2,1)
+        err_dm1s = odm1s_core - dm1s_mo
+        # Deal with nonsymmetric eri: Coulomb part
+        err_dm1s = err_dm1s[:,:,ncore:nocc] * 2.0
+        err_dm1s[:,ncore:nocc,:] /= 2.0
+        veff_ci = np.tensordot (err_dm1s, self.eri_paaa, axes=2)
+        veff_ci += veff_ci[::-1,:,:]
+        veff_ci -= np.tensordot (err_dm1s, self.eri_paaa, axes=((1,2),(0,3)))
+        # Deal with nonsymmetric eri: exchange part
+        veff_ci += veff_ci.transpose (0,2,1)
+        veff_ci /= 2.0
+        veff_ci += veff_mo[:,ncore:nocc,ncore:nocc]
         
         # SO, individual CI problems!
         # 1) There is NO constant term. Constant terms immediately drop out via the unitary group generator definition!
@@ -396,30 +417,30 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # 4) Of course, self-interaction (from both 1-odms and 1-tdms) needs to be completely eliminated
         h1frs = [np.zeros ((nroots, 2, nlas, nlas), dtype=self.dtype) for nlas in self.ncas_sub]
         for isub, (tdm1rs, nlas) in enumerate (zip (tdm1frs, self.ncas_sub)):
-            i = ncore + sum (self.ncas_sub[:isub])
+            i = sum (self.ncas_sub[:isub])
             j = i + nlas
-            h1frs[isub][:,:,:,:] = veff_mo[None,:,i:j,i:j]
+            h1frs[isub][:,:,:,:] = veff_ci[None,:,i:j,i:j]
             # orb: no double-counting; subtract state-average
-            err_dm1rs = odm1rs.copy ()
-            err_dm1rs[:,:,i:j,:] = 0.0 
-            err_dm1rs -= odm1s_sa[None,:,:,:]
-            # orb: I put off + h.c. until now in order to make subtraction of double-counting more natural
-            err_dm1rs += err_dm1rs.transpose (0,1,3,2)
+            #err_dm1rs = odm1rs.copy ()
+            #err_dm1rs[:,:,i:j,:] = 0.0 
+            #err_dm1rs -= odm1s_sa[None,:,:,:]
+            ## orb: I put off + h.c. until now in order to make subtraction of double-counting more natural
+            #err_dm1rs += err_dm1rs.transpose (0,1,3,2)
             # CI: no double-counting; subtract state-average
-            err_dm1rs[:,:,ncore:nocc,ncore:nocc] += 2 * (tdm1frs.sum (0) - tdm1rs)
-            err_dm1rs[:,:,ncore:nocc,ncore:nocc] -= tdm1s_sa
+            err_dm1rs = 2 * (tdm1frs.sum (0) - tdm1rs)
+            #err_dm1rs[:,:,ncore:nocc,ncore:nocc] -= tdm1s_sa
             # Deal with nonsymmetric eri: Coulomb part
-            err_dm1rs = err_dm1rs[:,:,:,ncore:nocc] * 2.0
-            err_dm1rs[:,:,ncore:nocc,:] /= 2.0 
+            #err_dm1rs = err_dm1rs[:,:,:,ncore:nocc] * 2.0
+            #err_dm1rs[:,:,ncore:nocc,:] /= 2.0 
             # veff contraction
-            err_h1rs = np.tensordot (err_dm1rs, self.eri_paaa, axes=2)
+            err_h1rs = np.tensordot (err_dm1rs, self.eri_cas, axes=2)
             err_h1rs += err_h1rs[:,::-1] # ja + jb
-            err_h1rs -= np.tensordot (err_dm1rs, self.eri_paaa, axes=((2,3),(0,3)))
+            err_h1rs -= np.tensordot (err_dm1rs, self.eri_cas, axes=((2,3),(0,3)))
             # Deal with nonsymmetric eri: exchange part
-            err_h1rs += err_h1rs.transpose (0,1,3,2)
-            err_h1rs /= 2.0
-            i -= ncore
-            j -= ncore
+            #err_h1rs += err_h1rs.transpose (0,1,3,2)
+            #err_h1rs /= 2.0
+            #i -= ncore
+            #j -= ncore
             h1frs[isub][:,:,:,:] += err_h1rs[:,:,i:j,i:j]
 
         return veff_mo, h1frs
@@ -487,12 +508,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         kappa1, ci1 = self.ugg.unpack (x)
 
         # Effective density matrices, veffs, and overlaps from linear response
-        odm1rs, ocm2 = self.make_odm1s2c_sub (kappa1)
+        odm1s, ocm2 = self.make_odm1s2c_sub (kappa1)
         tdm1frs, tcm2 = self.make_tdm1s2c_sub (ci1)
-        veff_prime, h1s_prime = self.get_veff_Heff (odm1rs, tdm1frs)
+        veff_prime, h1s_prime = self.get_veff_Heff (odm1s, tdm1frs)
 
         # Responses!
-        kappa2 = self.orbital_response (kappa1, odm1rs, ocm2, tdm1frs, tcm2, veff_prime)
+        kappa2 = self.orbital_response (kappa1, odm1s, ocm2, tdm1frs, tcm2, veff_prime)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, self.ci_response_diag (ci1))]
 
@@ -504,12 +525,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
 
-    def orbital_response (self, kappa, odm1rs, ocm2, tdm1frs, tcm2, veff_prime):
+    def orbital_response (self, kappa, odm1s, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Formally, orbital response if F'_pq - F'_qp, F'_pq = h_pq D'_pq + g_prst d'_qrst.
         Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
         ncore, nocc = self.ncore, self.nocc
-        # Always state averaged
-        odm1s = np.einsum ('r,rspq->spq', self.weights, odm1rs)
+        ## Always state averaged
+        #odm1s = np.einsum ('r,rspq->spq', self.weights, odm1rs)
         # I put off + h.c. until now in order to make other things more natural
         odm1s += odm1s.transpose (0,2,1)
         ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
@@ -533,7 +554,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         kappa1_cas = kappa1[ncore:nocc,:]
         h1frs = [np.zeros_like (h1) for h1 in h1frs_prime]
         h1_core = -np.tensordot (kappa1_cas, self.h1s_cas, axes=((1),(1))).transpose (1,0,2)
+        h1_core += h1_core.transpose (0,2,1)
         h2 = -np.tensordot (kappa1_cas, self.eri_paaa, axes=1)
+        h2 += h2.transpose (2,3,0,1)
+        h2 += h2.transpose (1,0,3,2)
         for j, casdm1s in enumerate (self.casdm1rs):
             for i, (h1rs, h1rs_prime) in enumerate (zip (h1frs, h1frs_prime)):
                 k = sum (ncas_sub[:i])
@@ -545,10 +569,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 h1s[:,:,:] = h1_core[:,k:l,k:l].copy ()
                 h1s[:,:,:] += np.tensordot (h2, dm1, axes=2)[None,k:l,k:l]
                 h1s[:,:,:] -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))[:,k:l,k:l]
-                h1s[:,:,:] += h1s.transpose (0,2,1)
+                #h1s[:,:,:] += h1s.transpose (0,2,1)
                 h1s[:,:,:] += h1s_prime[:,:,:]
-        h2 += h2.transpose (2,3,0,1)
-        h2 += h2.transpose (1,0,3,2)
         Kci0 = self.Hci_all (None, h1frs, h2, self.ci)
         Kci0 = [[Kc - c*(c.dot (Kc)) for Kc, c in zip (Kcr, cr)] for Kcr, cr in zip (Kci0, self.ci)]
         # ^ The definition of the unitary group generator compels you to do this always!!!
