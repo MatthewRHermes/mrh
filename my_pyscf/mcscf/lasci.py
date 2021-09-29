@@ -331,12 +331,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         odm1s = np.zeros ((2, nmo, nmo), dtype=self.dtype)
         odm1s[:,:ncore,ncore:] = -kappa[:self.ncore,self.ncore:]
         odm1s[:,ncore:nocc,:] -= np.dot (self.casdm1s, kappa[ncore:nocc,:])
-        #odm1rs = np.zeros ((self.nroots, 2, self.nmo, self.nmo), dtype=self.dtype)
-        #odm1rs[:,:,:self.ncore,self.ncore:] = -kappa[:self.ncore,self.ncore:]
-        #for isub, (ncas, casdm1rs) in enumerate (zip (self.ncas_sub, self.casdm1frs)):
-        #    i = self.ncore + sum (self.ncas_sub[:isub])
-        #    j = i + ncas
-        #    odm1rs[:,:,i:j,:] -= np.dot (casdm1rs, kappa[i:j,:])
         ocm2 = -np.dot (self.cascm2, kappa[self.ncore:self.nocc,:])
 
         return odm1s, ocm2 
@@ -384,7 +378,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
         tdm1s_sa = np.einsum ('frspq,r->spq', tdm1frs, self.weights)
-        #odm1s_sa = np.einsum ('rspq,r->spq', odm1rs, self.weights)
         dm1s_mo = odm1s + odm1s.transpose (0,2,1)
         dm1s_mo[:,ncore:nocc,ncore:nocc] += tdm1s_sa
         mo = self.mo_coeff
@@ -420,27 +413,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i = sum (self.ncas_sub[:isub])
             j = i + nlas
             h1frs[isub][:,:,:,:] = veff_ci[None,:,i:j,i:j]
-            # orb: no double-counting; subtract state-average
-            #err_dm1rs = odm1rs.copy ()
-            #err_dm1rs[:,:,i:j,:] = 0.0 
-            #err_dm1rs -= odm1s_sa[None,:,:,:]
-            ## orb: I put off + h.c. until now in order to make subtraction of double-counting more natural
-            #err_dm1rs += err_dm1rs.transpose (0,1,3,2)
-            # CI: no double-counting; subtract state-average
             err_dm1rs = 2 * (tdm1frs.sum (0) - tdm1rs)
-            #err_dm1rs[:,:,ncore:nocc,ncore:nocc] -= tdm1s_sa
-            # Deal with nonsymmetric eri: Coulomb part
-            #err_dm1rs = err_dm1rs[:,:,:,ncore:nocc] * 2.0
-            #err_dm1rs[:,:,ncore:nocc,:] /= 2.0 
-            # veff contraction
             err_h1rs = np.tensordot (err_dm1rs, self.eri_cas, axes=2)
             err_h1rs += err_h1rs[:,::-1] # ja + jb
             err_h1rs -= np.tensordot (err_dm1rs, self.eri_cas, axes=((2,3),(0,3)))
-            # Deal with nonsymmetric eri: exchange part
-            #err_h1rs += err_h1rs.transpose (0,1,3,2)
-            #err_h1rs /= 2.0
-            #i -= ncore
-            #j -= ncore
             h1frs[isub][:,:,:,:] += err_h1rs[:,:,i:j,i:j]
 
         return veff_mo, h1frs
@@ -529,8 +505,6 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ''' Formally, orbital response if F'_pq - F'_qp, F'_pq = h_pq D'_pq + g_prst d'_qrst.
         Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
         ncore, nocc = self.ncore, self.nocc
-        ## Always state averaged
-        #odm1s = np.einsum ('r,rspq->spq', self.weights, odm1rs)
         # I put off + h.c. until now in order to make other things more natural
         odm1s += odm1s.transpose (0,2,1)
         ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
