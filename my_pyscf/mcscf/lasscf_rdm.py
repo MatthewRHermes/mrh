@@ -59,7 +59,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         self.weights = las.weights
         self.bPpj = None
         # Spoof away CI: fixed zeros
-        self._tdm1frs = np.zeros ((len (ncas_sub), nroots, 2, ncas, ncas))
+        self._tdm1rs = np.zeros ((nroots, 2, ncas, ncas))
         self._tcm2 = np.zeros ([ncas,]*4)
 
         self._init_dms_(casdm1frs, casdm2fr)
@@ -85,12 +85,12 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
     def get_veff_prime (self, odm1rs):
         # Spoof away CI by wrapping call
         fn = lasscf_o0.LASSCF_HessianOperator.get_veff_Heff
-        return fn (self, odm1rs, self._tdm1frs)[0]
+        return fn (self, odm1rs, self._tdm1rs)[0]
 
     def orbital_response (self, kappa1, odm1rs, ocm2, veff_prime):
         # Spoof away CI by wrapping call
         fn = lasscf_o0.LASSCF_HessianOperator.orbital_response
-        t1, t2 = self._tdm1frs, self._tcm2
+        t1, t2 = self._tdm1rs, self._tcm2
         return fn (self, kappa1, odm1rs, ocm2, t1, t2, veff_prime)
 
     def update_mo_eri (self, x, h2eff_sub):

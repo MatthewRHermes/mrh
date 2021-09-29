@@ -336,7 +336,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return odm1s, ocm2 
 
     def make_tdm1s2c_sub (self, ci1):
-        tdm1frs = np.zeros ((len (self.fciboxes), self.nroots, 2, self.ncas, self.ncas), dtype=self.dtype)
+        tdm1rs = np.zeros ((self.nroots, 2, self.ncas, self.ncas), dtype=self.dtype)
         tcm2 = np.zeros ([self.ncas,]*4, dtype=self.dtype)
         for isub, (fcibox, ncas, nelecas, c1, c0, casdm1rs, casdm1s, casdm2r) in enumerate (
           zip (self.fciboxes, self.ncas_sub, self.nelecas_sub, ci1, self.ci,
@@ -345,39 +345,39 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             i = sum (self.ncas_sub[:isub])
             j = i + ncas
             linkstr = None if self.linkstr is None else self.linkstr[isub]
-            tdm1rs, dm2 = fcibox.states_trans_rdm12s (c1, c0, ncas, nelecas, link_index=linkstr)
+            dm1, dm2 = fcibox.states_trans_rdm12s (c1, c0, ncas, nelecas, link_index=linkstr)
             # Subtrahend: super important, otherwise the veff part of CI response is even more of a nightmare
             # With this in place, I don't have to worry about subtracting an overlap times a gradient
-            tdm1rs = np.stack ([np.stack (t, axis=0) - c * s for t, c, s in zip (tdm1rs, casdm1rs, s01)], axis=0)
+            tdm1rs[:,:,i:j,i:j] = np.stack ([np.stack (t, axis=0) - c * s for t, c, s in zip (dm1, casdm1rs, s01)], axis=0)
             dm2 = np.stack ([(sum (t) - (c*s)) / 2 for t, c, s, in zip (dm2, casdm2r, s01)], axis=0)
             dm2 = np.einsum ('rijkl,r->ijkl', dm2, fcibox.weights)
-            tdm1frs[isub,:,:,i:j,i:j] = tdm1rs 
+            #tdm1frs[isub,:,:,i:j,i:j] = tdm1rs 
             tcm2[i:j,i:j,i:j,i:j] = dm2
 
         # Cumulant decomposition so I only have to do one jk call for orbrot response
         # The only rules are 1) the sectors that you think are zero must really be zero, and
         #                    2) you subtract here what you add later
-        tdm1s = np.einsum ('r,frspq->spq', self.weights, tdm1frs)
+        tdm1s = np.einsum ('r,rspq->spq', self.weights, tdm1rs)
         cdm1s = np.einsum ('r,rsqp->spq', self.weights, self.casdm1rs)
         tcm2 -= np.multiply.outer (tdm1s[0] + tdm1s[1], cdm1s[0] + cdm1s[1])
         tcm2 += np.multiply.outer (tdm1s[0], cdm1s[0]).transpose (0,3,2,1)
         tcm2 += np.multiply.outer (tdm1s[1], cdm1s[1]).transpose (0,3,2,1)
 
         # Two transposes 
-        tdm1frs += tdm1frs.transpose (0,1,2,4,3) 
+        tdm1rs += tdm1rs.transpose (0,1,3,2) 
         tcm2 += tcm2.transpose (1,0,3,2)        
         tcm2 += tcm2.transpose (2,3,0,1)        
 
-        return tdm1frs, tcm2    
+        return tdm1rs, tcm2    
 
-    def get_veff_Heff (self, odm1s, tdm1frs):
+    def get_veff_Heff (self, odm1s, tdm1rs):
         ''' Returns the veff for the orbital part and the h1s shifts for the CI part arising from the contraction
         of shifted or 'effective' 1-rdms in the two sectors with the Hamiltonian. Return values do not include
         veffs with the external indices rotated (i.e., in the CI part). Uses the cached eris for the latter in the hope that
         this is faster than calling get_jk with many dms. '''
 
         ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
-        tdm1s_sa = np.einsum ('frspq,r->spq', tdm1frs, self.weights)
+        tdm1s_sa = np.einsum ('rspq,r->spq', tdm1rs, self.weights)
         dm1s_mo = odm1s + odm1s.transpose (0,2,1)
         dm1s_mo[:,ncore:nocc,ncore:nocc] += tdm1s_sa
         mo = self.mo_coeff
@@ -405,18 +405,27 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         
         # SO, individual CI problems!
         # 1) There is NO constant term. Constant terms immediately drop out via the unitary group generator definition!
-        # 2) veff_mo has the effect I want for the orbrots, so long as I choose not to explicitly add h.c. at the end
+        # 2) veff_ci has the effect I want for the orbrots, so long as I choose not to explicitly add h.c. at the end
         # 3) If I don't add h.c., then the (non-self) mean-field effect of the 1-tdms needs to be twice as strong
         # 4) Of course, self-interaction (from both 1-odms and 1-tdms) needs to be completely eliminated
+        # 5) I do the latter by copying the eris, rather than the tdms, in case there are a large number of states
         h1frs = [np.zeros ((nroots, 2, nlas, nlas), dtype=self.dtype) for nlas in self.ncas_sub]
-        for isub, (tdm1rs, nlas) in enumerate (zip (tdm1frs, self.ncas_sub)):
+        eri_tmp = self.eri_cas.copy ()
+        for isub, nlas in enumerate (self.ncas_sub):
             i = sum (self.ncas_sub[:isub])
             j = i + nlas
             h1frs[isub][:,:,:,:] = veff_ci[None,:,i:j,i:j]
-            err_dm1rs = 2 * (tdm1frs.sum (0) - tdm1rs)
-            err_h1rs = np.tensordot (err_dm1rs, self.eri_cas, axes=2)
+            eri_tmp[:,:,:,:] = self.eri_cas[:,:,:,:]
+            eri_tmp[i:j,i:j,:,:] = 0.0
+            err_h1rs = 2.0 * np.tensordot (tdm1rs, eri_tmp, axes=2) 
             err_h1rs += err_h1rs[:,::-1] # ja + jb
-            err_h1rs -= np.tensordot (err_dm1rs, self.eri_cas, axes=((2,3),(0,3)))
+            eri_tmp[:,:,:,:] = self.eri_cas[:,:,:,:]
+            eri_tmp[i:j,:,:,i:j] = 0.0
+            err_h1rs -= 2.0 * np.tensordot (tdm1rs, eri_tmp, axes=((2,3),(0,3)))
+            #err_dm1rs = 2 * (tdm1frs.sum (0) - tdm1rs)
+            #err_h1rs = np.tensordot (err_dm1rs, self.eri_cas, axes=2)
+            #err_h1rs += err_h1rs[:,::-1] # ja + jb
+            #err_h1rs -= np.tensordot (err_dm1rs, self.eri_cas, axes=((2,3),(0,3)))
             h1frs[isub][:,:,:,:] += err_h1rs[:,:,i:j,i:j]
 
         return veff_mo, h1frs
@@ -485,11 +494,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # Effective density matrices, veffs, and overlaps from linear response
         odm1s, ocm2 = self.make_odm1s2c_sub (kappa1)
-        tdm1frs, tcm2 = self.make_tdm1s2c_sub (ci1)
-        veff_prime, h1s_prime = self.get_veff_Heff (odm1s, tdm1frs)
+        tdm1rs, tcm2 = self.make_tdm1s2c_sub (ci1)
+        veff_prime, h1s_prime = self.get_veff_Heff (odm1s, tdm1rs)
 
         # Responses!
-        kappa2 = self.orbital_response (kappa1, odm1s, ocm2, tdm1frs, tcm2, veff_prime)
+        kappa2 = self.orbital_response (kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, self.ci_response_diag (ci1))]
 
@@ -501,7 +510,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
 
-    def orbital_response (self, kappa, odm1s, ocm2, tdm1frs, tcm2, veff_prime):
+    def orbital_response (self, kappa, odm1s, ocm2, tdm1rs, tcm2, veff_prime):
         ''' Formally, orbital response if F'_pq - F'_qp, F'_pq = h_pq D'_pq + g_prst d'_qrst.
         Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
         ncore, nocc = self.ncore, self.nocc
@@ -511,7 +520,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ocm2 += ocm2.transpose (2,3,0,1)
         # Effective density matrices
         edm1s = odm1s
-        edm1s[:,ncore:nocc,ncore:nocc] += np.einsum ('frspq,r->spq', tdm1frs, self.weights)
+        edm1s[:,ncore:nocc,ncore:nocc] += np.einsum ('rspq,r->spq', tdm1rs, self.weights)
         ecm2 = ocm2 + tcm2
         # Evaluate hx = (F2..x) - (F2..x).T + (F1.x) - (F1.x).T
         fock1  = self.h1s[0] @ edm1s[0] + self.h1s[1] @ edm1s[1]
