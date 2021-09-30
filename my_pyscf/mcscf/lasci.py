@@ -9,6 +9,7 @@ from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.scf import hf_as
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf.lassi import lassi
+from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
 from itertools import combinations, product
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg, special
@@ -1282,6 +1283,48 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None
     return state_average_(new_las, weights=weights, charges=charges, spins=spins,
         smults=smults, wfnsyms=wfnsyms)
 
+def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    nao, nmo = mo_coeff.shape
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    ncas_sub = las.ncas_sub
+    nelecas_sub = las.nelecas_sub
+    log = lib.logger.new_logger (las, verbose)
+
+    h1eff, energy_core = casci.h1e_for_cas (las, mo_coeff=mo_coeff,
+        ncas=las.ncas, ncore=las.ncore)
+    h2eff = las.get_h2eff (mo_coeff) 
+    if (ci0 is None or any ([c is None for c in ci0]) or
+            any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
+        ci0 = get_init_guess_ci (las, mo_coeff, h2eff, ci0)
+    eri_cas = lib.numpy_helper.unpack_tril (
+            h2eff.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas,
+            ncas, ncas)[ncore:nocc]
+
+    e_cas = []
+    e_states = []
+    ci1 = [[None for c2 in c1] for c1 in ci0]
+    converged = True
+    t = (lib.logger.process_clock(), lib.logger.perf_counter())
+    for state in range (las.nroots):
+        fcisolvers = [b.fcisolvers[state] for b in las.fciboxes]
+        ci0_i = [c[state] for c in ci0]
+        solver = ProductStateFCISolver (fcisolvers, stdout=las.stdout,
+            verbose=verbose)
+        # TODO: conv_tol_self config var on the LASSCF caller
+        conv, e_i, ci_i = solver.kernel (h1eff, eri_cas, ncas_sub, nelecas_sub,
+            ecore=0, ci0=ci0_i, conv_tol_grad=las.conv_tol_grad,
+            max_cycle_macro=las.max_cycle_macro)
+        e_cas.append (e_i)
+        e_tot.append (e_i + energy_core)
+        for c1, c2 in zip (ci1, ci_i): c1[state] = c2
+        if not conv: log.warn ('State %d LASCI not converged!', state)
+        converged = converged and conv
+        t = log.timer ('State % LASCI', *t)
+
+    e_tot = np.dot (las.weights, e_states)
+    return converged, e_tot, e_states, e_cas, ci1
 
 class LASCINoSymm (casci.CASCI):
 
@@ -1813,6 +1856,13 @@ class LASCINoSymm (casci.CASCI):
             vmPu = np.dot (bmPu, casdm1)
             vk = np.tensordot (vmPu, bmPu, axes=((1,2),(1,2)))
             return vj - vk/2
+
+    def lasci (self, mo_coeff=None, ci0=None, verbose=0):
+        converged, e_tot, e_states, e_cas, ci = run_lasci (
+            self, mo_coeff=mo_coeff, ci=ci, verbose=verbose)
+        self.converged, self.ci = converged, ci
+        self.e_tot, self.e_state, self.e_cas = e_tot, e_state, e_cas
+        return self.converged, self.e_tot, self.e_states, self.e_cas, self.ci
 
     state_average = state_average
     state_average_ = state_average_

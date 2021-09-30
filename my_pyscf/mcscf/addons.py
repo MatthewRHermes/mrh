@@ -8,7 +8,13 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.lassi_op_o0 import ci_outer_product
 
 class StateAverageNMixFCISolver (StateAverageMixFCISolver):
-    pass
+    def _get_nelec (self, solver, nelec):
+        n = np.sum (nelec)
+        m = solver.spin if solver.spin is not None else n%2
+        c = getattr (solver, 'charge', 0) or 0
+        n -= c
+        nelec = (n+m)//2, (n-m)//2
+        return nelec
 
 def get_sanmix_fcisolver (samix_fcisolver):
 
@@ -17,14 +23,7 @@ def get_sanmix_fcisolver (samix_fcisolver):
         return samix_fcisolver
 
     class FCISolver (samix_fcisolver.__class__, StateAverageNMixFCISolver):
-
-        def _get_nelec (self, solver, nelec):
-            n = np.sum (nelec)
-            m = solver.spin if solver.spin is not None else n%2
-            c = getattr (solver, 'charge', 0) or 0
-            n -= c
-            nelec = (n+m)//2, (n-m)//2
-            return nelec
+        _get_nelec = StateAverageNMixFCISolver._get_nelec
 
     sanmix_fcisolver = FCISolver (samix_fcisolver.mol)
     sanmix_fcisolver.__dict__.update (samix_fcisolver.__dict__)
@@ -196,6 +195,7 @@ def las2cas_civec (las):
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci, nelec = ci_outer_product (las.ci, norb_f, nelec_fr)
     return ci, nelec
+
 
 
 
