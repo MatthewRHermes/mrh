@@ -1280,6 +1280,8 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None
 
     new_las = las.__class__(las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
+    new_las.mo_coeff = las.mo_coeff.copy ()
+    new_las.ci = [[c2.copy () for c2 in c1] for c1 in las.ci]
     return state_average_(new_las, weights=weights, charges=charges, spins=spins,
         smults=smults, wfnsyms=wfnsyms)
 
@@ -1317,7 +1319,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
             ecore=0, ci0=ci0_i, conv_tol_grad=las.conv_tol_grad,
             max_cycle_macro=las.max_cycle_macro)
         e_cas.append (e_i)
-        e_tot.append (e_i + energy_core)
+        e_states.append (e_i + energy_core)
         for c1, c2 in zip (ci1, ci_i): c1[state] = c2
         if not conv: log.warn ('State %d LASCI not converged!', state)
         converged = converged and conv
@@ -1859,9 +1861,9 @@ class LASCINoSymm (casci.CASCI):
 
     def lasci (self, mo_coeff=None, ci0=None, verbose=0):
         converged, e_tot, e_states, e_cas, ci = run_lasci (
-            self, mo_coeff=mo_coeff, ci=ci, verbose=verbose)
+            self, mo_coeff=mo_coeff, ci0=ci0, verbose=verbose)
         self.converged, self.ci = converged, ci
-        self.e_tot, self.e_state, self.e_cas = e_tot, e_state, e_cas
+        self.e_tot, self.e_states, self.e_cas = e_tot, e_states, e_cas
         return self.converged, self.e_tot, self.e_states, self.e_cas, self.ci
 
     state_average = state_average

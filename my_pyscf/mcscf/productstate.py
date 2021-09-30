@@ -22,9 +22,9 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         ci1 = ci0 # TODO: get_init_guess
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
-            h1eff, h0eff = self.project_hfrag (h1, h2, norb_f, nelec_f,
+            h1eff, h0eff = self.project_hfrag (h1, h2, ci1, norb_f, nelec_f,
                 ecore=ecore, **kwargs)
-            grad = self.get_grad (h1eff, h2, ci, norb_f, nelec_f, **kwargs)
+            grad = self._get_grad (h1eff, h2, ci1, norb_f, nelec_f, **kwargs)
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; sigma = %e', it, grad_max,
                 e_sigma)
@@ -46,12 +46,12 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             **kwargs):
         nj = np.cumsum (norb_f)
         ni = nj - norb_f
-        zipper = [h0eff, h1eff, h2, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
+        zipper = [h0eff, h1eff, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
         e1 = []
         ci1 = []
-        for h0e, h1e, c, no, ne, solver, i, j in zip (zipper):
+        for h0e, h1e, c, no, ne, solver, i, j in zip (*zipper):
             h2e = h2[i:j,i:j,i:j,i:j]
-            osym = solver.orbsym
+            osym = getattr (solver, 'orbsym', None)
             if orbsym is not None: osym=orbsym[i:j]
             nelec = self._get_nelec (solver, ne)
             e, c1 = solver.kernel (h1e, h2e, no, nelec, ci0=c, ecore=h0e,
@@ -65,27 +65,27 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         ni = nj - norb_f
         zipper = [h1eff, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
         grad = []
-        for h1e, c, no, ne, i, j, solver in zip (zipper):
+        for h1e, c, no, ne, solver, i, j in zip (*zipper):
             nelec = self._get_nelec (solver, ne)
             h2e = h2[i:j,i:j,i:j,i:j]
             h2e = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
             hc = solver.contract_2e (h2e, c, no, nelec)
             chc = c.ravel ().dot (hc.ravel ())
             hc -= c * chc
-            grad.append (hc.ravel)
+            grad.append (hc.ravel ())
         return np.concatenate (grad)
 
     def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
-        dm1 = np.stack (self.make_rdm1 (ci0, norb_f, nelec_f), axis=0)
-        dm2 = self.make_rdm2 (ci0, norb_f, nelec_f)
+        dm1 = np.stack (self.make_rdm1 (ci, norb_f, nelec_f), axis=0)
+        dm2 = self.make_rdm2 (ci, norb_f, nelec_f)
         energy_tot = (ecore + np.tensordot (h1, dm1, axes=2)
                         + 0.5*np.tensordot (h2, dm2, axes=4))
         return energy_tot
 
     def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
-        dm1s = np.stack (self.make_rdm1s (ci0, norb_f, nelec_f), axis=0)
+        dm1s = np.stack (self.make_rdm1s (ci, norb_f, nelec_f), axis=0)
         dm1 = dm1s.sum (0)
-        dm2 = self.make_rdm2 (ci0, norb_f, nelec_f)
+        dm2 = self.make_rdm2 (ci, norb_f, nelec_f)
         energy_tot = (ecore + np.tensordot (h1, dm1, axes=2)
                         + 0.5*np.tensordot (h2, dm2, axes=4))
         v1  = np.tensordot (dm1s, h2, axes=2)
@@ -102,7 +102,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             # v1_self
             h2_i = h2[i:j,i:j,:,:]
             v1_i = np.tensordot (dm1s_i, h2_i, axes=2)
-            v1_i += v1_self[::-1] # ja + jb
+            v1_i += v1_i[::-1] # ja + jb
             h2_i = h2[:,i:j,i:j,:]
             v1_i -= np.tensordot (dm1s_i, h2_i, axes=((1,2),(2,1)))
             # cancel off-diagonal energy double-counting
@@ -135,26 +135,24 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         dm1a, dm1b = self.make_rdm1s (ci, norb_f, nelec_f, **kwargs)
         return dm1a + dm1b
 
-    def make_rdm2 (ci, norb_f, nelec_f, **kwargs):
+    def make_rdm2 (self, ci, norb_f, nelec_f, **kwargs):
         norb = sum (norb_f)
         dm2 = np.zeros ([norb,]*4)
         nj = np.cumsum (norb_f)
         ni = nj - norb_f
+        dm1a, dm1b = self.make_rdm1s (ci, norb_f, nelec_f, **kwargs)
         for i, j, c, no, ne, s in zip (ni, nj, ci, norb_f, nelec_f, self.fcisolvers):
             nelec = self._get_nelec (s, ne)
             dm2[i:j,i:j,i:j,i:j] = s.make_rdm2 (c, no, nelec)
-            dm1a[i:j,i:j] = a[:,:]
-            dm1b[i:j,i:j] = b[:,:]
-        dm1a, dm1b = self.make_rdm1s (ci, norb_f, nelec_f, **kwargs)
         dm1 = dm1a + dm1b
         for (i,j), (k,l) in combinations (zip (ni, nj), 2):
             d1_ij, d1a_ij, d1b_ij = dm1[i:j,i:j], dm1a[i:j,i:j], dm1b[i:j,i:j]
             d1_kl, d1a_kl, d1b_kl = dm1[k:l,k:l], dm1a[k:l,k:l], dm1b[k:l,k:l]
-            d2 = np.multiply.outer (dm1_ij, dm1_kl)
+            d2 = np.multiply.outer (d1_ij, d1_kl)
             dm2[i:j,i:j,k:l,k:l] = d2
             dm2[k:l,k:l,i:j,i:j] = d2.transpose (2,3,0,1)
-            d2  = np.multiply.outer (dm1a_ij, dm1a_kl)
-            d2 += np.multiply.outer (dm1b_ij, dm1b_kl)
+            d2  = np.multiply.outer (d1a_ij, d1a_kl)
+            d2 += np.multiply.outer (d1b_ij, d1b_kl)
             dm2[i:j,k:l,k:l,i:j] = -d2.transpose (0,2,3,1)
             dm2[k:l,i:j,i:j,k:l] = -d2.transpose (2,0,1,3)
         return dm2
