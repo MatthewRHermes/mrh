@@ -816,6 +816,7 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
         k = np.tensordot (dm1s, h2e, axes=((1,2),(2,1)))
         h1e_r[state] = h1e + j + j[::-1] - k
 
+
     # Second pass: split by fragment and subtract double-counting
     h1e_fr = []
     for ix, casdm1s_r in enumerate (casdm1frs):
@@ -1012,7 +1013,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log, veff_sub_test=None)
             if (wfnsym is not None) and (orbsym is not None):
                 wfnsym_str = wfnsym if isinstance (wfnsym, str) else symm.irrep_id2name (las.mol.groupname, wfnsym)
                 log.debug1 ("LASCI subspace {} state {} with wfnsym {}".format (isub, state, wfnsym_str))
-                
+
         e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
                                       ci0=fcivec, verbose=log,
                                       max_memory=max_memory,
@@ -1287,6 +1288,7 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None
 
 def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
     if mo_coeff is None: mo_coeff = las.mo_coeff
+    if ci0 is None: ci0 = las.ci
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -1323,7 +1325,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
         for c1, c2 in zip (ci1, ci_i): c1[state] = c2
         if not conv: log.warn ('State %d LASCI not converged!', state)
         converged = converged and conv
-        t = log.timer ('State % LASCI', *t)
+        t = log.timer ('State {} LASCI'.format (state), *t)
 
     e_tot = np.dot (las.weights, e_states)
     return converged, e_tot, e_states, e_cas, ci1

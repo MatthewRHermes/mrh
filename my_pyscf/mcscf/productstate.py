@@ -89,7 +89,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         energy_tot = (ecore + np.tensordot (h1, dm1, axes=2)
                         + 0.5*np.tensordot (h2, dm2, axes=4))
         v1  = np.tensordot (dm1s, h2, axes=2)
-        v1 += v1[::1] # ja + jb
+        v1 += v1[::-1] # ja + jb
         v1 -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))
         f1 = h1[None,:,:] + v1
         h1eff = []
@@ -99,7 +99,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         for i, j in zip (ni, nj):
             dm1s_i = dm1s[:,i:j,i:j]
             dm2_i = dm2[i:j,i:j,i:j,i:j]
-            # v1_self
+            # v1 self-interaction
             h2_i = h2[i:j,i:j,:,:]
             v1_i = np.tensordot (dm1s_i, h2_i, axes=2)
             v1_i += v1_i[::-1] # ja + jb
