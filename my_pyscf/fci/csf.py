@@ -389,7 +389,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     if idx_sym is None:
         precond = fci.make_precond(hdiag_csf, pw, pv, addr)
     else:
-        addr_bool = np.zeros (ncsf_all, dtype=np.bool)
+        addr_bool = np.zeros (ncsf_all, dtype=np.bool_)
         addr_bool[addr] = True
         precond = fci.make_precond(hdiag_csf[idx_sym], pw, pv, addr_bool[idx_sym])
     t0 = lib.logger.timer_debug1 (fci, "csf.kernel: make preconditioner", *t0)

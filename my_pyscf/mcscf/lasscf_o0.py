@@ -75,7 +75,8 @@ def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovl
         try:
             mo_proj, sval, mo_cas = las._svd (lo_coeff[:,frag_orbs], mo_cas, s=ao_ovlp)
         except ValueError as e:
-            print (ix, mo_proj.shape, ao_ovlp.shape, mo_cas.shape)
+            print (ix, lo_coeff[:,frag_orbs].shape, ao_ovlp.shape, mo_cas.shape)
+            print (mo_cas.orbsym)
             raise (e)
         i, j = ncore + sum (las.ncas_sub[:ix]), ncore + sum (las.ncas_sub[:ix]) + nlas
         mo_las = mo_cas if freeze_cas_spaces else mo_proj

@@ -43,11 +43,15 @@ xyz = '''6        2.215130000      3.670330000      0.000000000
 1       -2.161870000     -4.749620000      0.000000000
 1       -3.206320000     -3.233120000      0.000000000'''
 mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False, verbose=0, output='/dev/null')
+mol_symm = gto.M (atom = xyz, basis='STO-3G', symmetry='Cs', verbose=0, output='/dev/null')
 mf = scf.RHF (mol).run ()
+mf_symm = scf.RHF (mol_symm).run ()
 las = LASSCF (mf, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
+las_symm = LASSCF (mf_symm, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
 a = list (range (18))
 frags = [a[:5], a[5:9], a[9:13], a[13:18]]
 mo = las.localize_init_guess (frags, mf.mo_coeff)
+mo_symm = las_symm.localize_init_guess (frags, mf_symm.mo_coeff)
 del a, frags
 #las.kernel (mo)
 
@@ -56,20 +60,28 @@ states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],
            'spins':   [[0,0,0,0],[1,1,-1,-1],[0,1,-1,0], [1,0,0,-1],[-1,-1,1,1],[0,-1,1,0], [-1,0,0,1]],
            'smults':  [[1,1,1,1],[2,2,2,2],  [1,2,2,1],  [2,1,1,2], [2,2,2,2],  [1,2,2,1],  [2,1,1,2]],
            'wfnsyms': [[0,0,0,0],]*7}
+states_symm = copy.deepcopy (states)
+states_symm['wfnsyms'] = [[0,0,0,0],[1,1,1,1],[0,1,1,0],[1,0,0,1],[1,1,1,1],[0,1,1,0],[1,0,0,1]]
 weights = [1.0,] + [0.0,]*6
-las_ref = [None]
+las_ref = [None, None]
 
 def _check_():
     if not las.converged: las.kernel (mo)
+    if not las_symm.converged: las_symm.kernel (mo_symm)
     if las_ref[0] is None:
         las_ref[0] = las.state_average (weights=weights, **states)
         las_ref[0].frozen = range (mo.shape[1])
         las_ref[0].kernel ()
+    if las_ref[1] is None:
+        las_ref[1] = las_symm.state_average (weights=weights, **states_symm)
+        las_ref[1].frozen = range (mo_symm.shape[1])
+        las_ref[1].kernel ()
+        
 
 def tearDownModule():
-    global mol, mf, las, las_ref, states, weights, mo, _check_
-    mol.stdout.close ()
-    del mol, mf, las, las_ref, states, weights, mo, _check_
+    global mol, mol_symm, mf, mf_symm, las, las_symm, las_ref, states, states_symm, weights, mo, mo_symm, _check_
+    mol.stdout.close (), mol_symm.stdout.close ()
+    del mol, mol_symm, mf, mf_symm, las, las_symm, las_ref, states, states_symm, weights, mo, mo_symm, _check_
 
 class KnownValues(unittest.TestCase):
     def test_sanity (self):
@@ -84,6 +96,17 @@ class KnownValues(unittest.TestCase):
         las_test.lasci ()
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[0].e_states), 5)
 
+    def test_sanity_symm (self):
+        _check_()
+        las_test = las_ref[1].state_average (weights=weights, **states_symm)
+        las_test.lasci ()
+        self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[1].e_states), 5)
+
+    def test_convergence_symm (self):
+        _check_()
+        las_test = las_symm.state_average (weights=weights, **states_symm)
+        las_test.lasci ()
+        self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[1].e_states), 5)
 
 
 if __name__ == "__main__":
