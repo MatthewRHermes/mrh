@@ -1282,6 +1282,7 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None
     new_las = las.__class__(las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
     new_las.mo_coeff = las.mo_coeff.copy ()
+    new_las.mo_coeff.__dict__.update (las.mo_coeff.__dict__)
     new_las.ci = None
     if las.ci is not None:
         new_las.ci = [[c2.copy () if isinstance (c2, np.ndarray) else None
@@ -1295,6 +1296,8 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
     nocc = ncore + ncas
     ncas_sub = las.ncas_sub
     nelecas_sub = las.nelecas_sub
+    orbsym = getattr (mo_coeff, 'orbsym', None)
+    if orbsym is not None: orbsym=orbsym[ncore:nocc]
     log = lib.logger.new_logger (las, verbose)
 
     h1eff, energy_core = casci.h1e_for_cas (las, mo_coeff=mo_coeff,
@@ -1307,8 +1310,8 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
             h2eff.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas,
             ncas, ncas)[ncore:nocc]
 
-    e_cas = []
-    e_states = []
+    e_cas = np.empty (las.nroots)
+    e_states = np.empty (las.nroots)
     ci1 = [[None for c2 in c1] for c1 in ci0]
     converged = True
     t = (lib.logger.process_clock(), lib.logger.perf_counter())
@@ -1319,10 +1322,10 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
             verbose=verbose)
         # TODO: conv_tol_self config var on the LASSCF caller
         conv, e_i, ci_i = solver.kernel (h1eff, eri_cas, ncas_sub, nelecas_sub,
-            ecore=0, ci0=ci0_i, conv_tol_grad=las.conv_tol_grad,
+            ecore=0, ci0=ci0_i, orbsym=orbsym, conv_tol_grad=las.conv_tol_grad,
             max_cycle_macro=las.max_cycle_macro)
-        e_cas.append (e_i)
-        e_states.append (e_i + energy_core)
+        e_cas[state] = e_i
+        e_states[state] = e_i + energy_core
         for c1, c2 in zip (ci1, ci_i): c1[state] = c2
         if not conv: log.warn ('State %d LASCI not converged!', state)
         converged = converged and conv

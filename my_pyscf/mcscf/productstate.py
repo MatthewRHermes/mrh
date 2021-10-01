@@ -61,7 +61,8 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             ci1.append (c1)
         return e1, ci1
 
-    def _get_grad (self, h1eff, h2, ci, norb_f, nelec_f, **kwargs):
+    def _get_grad (self, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
+            **kwargs):
         nj = np.cumsum (norb_f)
         ni = nj - norb_f
         zipper = [h1eff, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
@@ -75,6 +76,10 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             hc -= c * chc
             if isinstance (getattr (solver, 'transformer', None),
                     CSFTransformer):
+                if orbsym is not None:
+                    solver.orbsym = orbsym[i:j]
+                solver.nelec = nelec
+                solver.check_transformer_cache ()
                 hc = solver.transformer.vec_det2csf (hc, normalize='False')
             grad.append (hc.ravel ())
         return np.concatenate (grad)
