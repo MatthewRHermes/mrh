@@ -20,7 +20,7 @@ import time
 
 def all_nonredundant_idx (nmo, ncore, ncas_sub):
     nocc = ncore + sum (ncas_sub)
-    idx = np.zeros ((nmo, nmo), dtype=np.bool)
+    idx = np.zeros ((nmo, nmo), dtype=np.bool_)
     idx[ncore:,:ncore] = True # inactive -> everything
     idx[nocc:,ncore:nocc] = True # active -> virtual
     sub_slice = np.cumsum ([0] + ncas_sub.tolist ()) + ncore
@@ -1282,7 +1282,9 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None
     new_las = las.__class__(las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
     new_las.mo_coeff = las.mo_coeff.copy ()
-    new_las.mo_coeff.__dict__.update (las.mo_coeff.__dict__)
+    if getattr (las.mo_coeff, 'orbsym', None) is not None:
+        new_las.mo_coeff = lib.tag_array (new_las.mo_coeff,
+            orbsym=las.mo_coeff.orbsym)
     new_las.ci = None
     if las.ci is not None:
         new_las.ci = [[c2.copy () if isinstance (c2, np.ndarray) else None

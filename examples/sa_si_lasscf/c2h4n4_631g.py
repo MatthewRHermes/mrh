@@ -34,21 +34,23 @@ las = las.state_average ([0.5,0.5],
 las.conv_tol = 1e-12
 mo_loc = las.localize_init_guess ((list (range (5)), list (range (5,10))), mf.mo_coeff)
 las.kernel (mo_loc)
-print ("\n---SA(2)-LASSCF---")
+print ("\n--- SA(2)-LASSCF ---")
 print ("Energy:", las.e_states)
 # Now I will add "spectator" states, which don't affect the state-averaged
 # energy for the purposes of orbital optimization. (You can do this in one
 # step, but then the orbitals would not optimize as quickly.) 
-print (("\nThe orbitals and CI vectors are preserved when going from a completed\n"
-    "smaller SA-LASSCF to a larger one, so the energies of the first two states\n"
-    "should be unchanged to many digits:"))
+print (("\nThe orbitals and CI vectors are preserved as much as possible when\n"
+    "going from a completed smaller SA-LASSCF to a larger one.\n\n"
+    "The 'lasci ()' function call optimizes the CI vectors with the orbitals all\n"
+    "frozen, so the energies of the first two states below should be unchanged\n"
+    "to many digits:"))
 las = las.state_average ([0.5,0.5,0.0,0.0],
     spins=[[1,-1],[-1,1],[0,0],[0,0]],
     smults=[[2,2],[2,2],[1,1],[1,1]],    
     charges=[[0,0],[0,0],[-1,1],[1,-1]],
     wfnsyms=[[1,1],[1,1],[0,0],[0,0]])   
 las.lasci ()
-print ("\n---SA(4)-LASSCF---")
+print ("\n--- LASCI(4) @ SA(2)-LASSCF orbitals ---")
 print ("Energy:", las.e_states)
 
 # For now, the LASSI diagonalizer is just a post-hoc function call
@@ -60,7 +62,7 @@ e_roots, si = las.lassi ()
 # Additionally, since spin contamination sometimes happens, the S**2 operator
 # in the LAS-state "diabatic" basis is also available
 print ("S**2 operator:\n", si.s2_mat)
-print ("\n---LASSI(4) solutions---")
+print ("\n--- LASSI(4) solutions ---")
 print ("Energy:", e_roots)
 print ("<S**2>:",si.s2)
 print ("(neleca, nelecb):", si.nelec)
@@ -72,7 +74,7 @@ print (("\nIn this example, the triplet eigenvector is determined by symmetry\n"
           "localized and the interfragment entanglement is second-order, only\n"
           "appearing in the 2RDM. On the other hand, the singlets do interact\n"
           "leading to first-order entanglement which is visible in the NOs:\n"))
-print ("---LASSI eigenvectors---")
+print ("--- LASSI eigenvectors ---")
 print (si)
 
 # You can get the 1-RDMs of the SA-LASSCF states like this

@@ -657,7 +657,7 @@ def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd
     _, npair_csf_offset, _, _, npair_csf_size = get_csfvec_shape (norb, neleca, nelecb, smult)
     npair_econf_size = npair_dconf_size * npair_sconf_size
     max_npair = min (neleca, nelecb)
-    csf_idx = np.zeros (ncsf_all, dtype=np.bool)
+    csf_idx = np.zeros (ncsf_all, dtype=np.bool_)
     def ax_b (mat):
         nrow = mat.shape[0]
         assert (mat.shape[1] == ndet_all)
