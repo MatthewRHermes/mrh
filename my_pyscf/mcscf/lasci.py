@@ -1322,6 +1322,14 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
         ci0_i = [c[state] for c in ci0]
         solver = ProductStateFCISolver (fcisolvers, stdout=las.stdout,
             verbose=verbose)
+        # TODO: better handling of CSF symmetry quantum numbers in general
+        for ix, s in enumerate (solver.fcisolvers):
+            i = sum (ncas_sub[:ix])
+            j = i + ncas_sub[ix]
+            if orbsym is not None: s.orbsym = orbsym[i:j]
+            s.norb = ncas_sub[ix]
+            s.nelec = solver._get_nelec (s, nelecas_sub[ix])
+            s.check_transformer_cache ()
         # TODO: conv_tol_self config var on the LASSCF caller
         conv, e_i, ci_i = solver.kernel (h1eff, eri_cas, ncas_sub, nelecas_sub,
             ecore=0, ci0=ci0_i, orbsym=orbsym, conv_tol_grad=las.conv_tol_grad,

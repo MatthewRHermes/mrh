@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
+from mrh.my_pyscf.fci.csf import CSFFCISolver
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.mcscf.addons import StateAverageNMixFCISolver
 from itertools import combinations
@@ -38,9 +39,36 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
+        if not converged: self._debug_csfs (log, ci1, norb_f, nelec_f, grad)
         energy_elec = self.energy_elec (h1, h2, ci1, norb_f, nelec_f,
             ecore=ecore, **kwargs)
         return converged, energy_elec, ci1
+
+    def _debug_csfs (self, log, ci1, norb_f, nelec_f, grad):
+        if not all ([isinstance (s, CSFFCISolver) for s in self.fcisolvers]):
+            return
+        if log.verbose < lib.logger.INFO: return
+        transformers = [s.transformer for s in self.fcisolvers]
+        grad_f = []
+        for t in transformers: 
+            grad_f.append (grad[:t.ncsf])
+            grad = grad[t.ncsf:]
+        assert (len (grad) == 0)
+        log.info ('Debugging CI and gradient vectors...')
+        for ix, (grad, ci, s, t) in enumerate (zip (grad_f, ci1, self.fcisolvers, transformers)):
+            log.info ('Fragment %d', ix)
+            ci_csf, ci_norm = t.vec_det2csf (ci, normalize=True, return_norm=True)
+            log.info ('CI vector norm = %e', ci_norm)
+            grad_norm = linalg.norm (grad)
+            log.info ('Gradient norm = %e', grad_norm)
+            log.info ('CI vector leading components:')
+            lbls, coeffs = t.printable_largest_csf (ci_csf, 10)
+            for l, c in zip (lbls[0], coeffs[0]):
+                log.info ('%s : %e', l, c)
+            log.info ('Grad vector leading components:')
+            lbls, coeffs = t.printable_largest_csf (grad, 10, normalize=False)
+            for l, c in zip (lbls[0], coeffs[0]):
+                log.info ('%s : %e', l, c)
 
 
     def _1shot (self, h0eff, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
@@ -74,13 +102,8 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             hc = solver.contract_2e (h2e, c, no, nelec)
             chc = c.ravel ().dot (hc.ravel ())
             hc -= c * chc
-            if isinstance (getattr (solver, 'transformer', None),
-                    CSFTransformer):
-                if orbsym is not None:
-                    solver.orbsym = orbsym[i:j]
-                solver.nelec = nelec
-                solver.check_transformer_cache ()
-                hc = solver.transformer.vec_det2csf (hc, normalize='False')
+            if isinstance (solver, CSFFCISolver):
+                hc = solver.transformer.vec_det2csf (hc, normalize=False)
             grad.append (hc.ravel ())
         return np.concatenate (grad)
 
