@@ -1330,10 +1330,9 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
             s.norb = ncas_sub[ix]
             s.nelec = solver._get_nelec (s, nelecas_sub[ix])
             s.check_transformer_cache ()
-        # TODO: conv_tol_self config var on the LASSCF caller
         conv, e_i, ci_i = solver.kernel (h1eff, eri_cas, ncas_sub, nelecas_sub,
             ecore=0, ci0=ci0_i, orbsym=orbsym, conv_tol_grad=las.conv_tol_grad,
-            max_cycle_macro=las.max_cycle_macro)
+            conv_tol_self=las.conv_tol_self, max_cycle_macro=las.max_cycle_macro)
         e_cas[state] = e_i
         e_states[state] = e_i + energy_core
         for c1, c2 in zip (ci1, ci_i): c1[state] = c2
@@ -1366,10 +1365,11 @@ class LASCINoSymm (casci.CASCI):
         self.nelecas_sub = np.asarray (nelecas)
         self.frozen = frozen
         self.conv_tol_grad = 1e-4
+        self.conv_tol_self = 1e-10
         self.ah_level_shift = 1e-8
         self.max_cycle_macro = 50
         self.max_cycle_micro = 5
-        keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub', 'conv_tol_grad', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
+        keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub', 'conv_tol_grad', 'conv_tol_self', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
         for smult, nel in zip (spin_sub, self.nelecas_sub):

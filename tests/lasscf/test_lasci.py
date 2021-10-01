@@ -89,24 +89,28 @@ class KnownValues(unittest.TestCase):
         las_test = las_ref[0].state_average (weights=weights, **states)
         las_test.lasci ()
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[0].e_states), 5)
+        self.assertTrue (las_test.converged)
 
     def test_convergence (self):
         _check_()
         las_test = las.state_average (weights=weights, **states)
         las_test.lasci ()
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[0].e_states), 5)
+        self.assertTrue (las_test.converged)
 
     def test_sanity_symm (self):
         _check_()
         las_test = las_ref[1].state_average (weights=weights, **states_symm)
         las_test.lasci ()
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[1].e_states), 5)
+        self.assertTrue (las_test.converged)
 
     def test_convergence_symm (self):
         _check_()
         las_test = las_symm.state_average (weights=weights, **states_symm)
         las_test.lasci ()
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[1].e_states), 5)
+        self.assertTrue (las_test.converged)
 
 
 if __name__ == "__main__":
