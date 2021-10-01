@@ -1335,7 +1335,10 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
             conv_tol_self=las.conv_tol_self, max_cycle_macro=las.max_cycle_macro)
         e_cas[state] = e_i
         e_states[state] = e_i + energy_core
-        for c1, c2 in zip (ci1, ci_i): c1[state] = c2
+        for c1, c2, s, no, ne in zip (ci1, ci_i, solver.fcisolvers, ncas_sub, nelecas_sub):
+            ne = solver._get_nelec (s, ne)
+            ndet = tuple ([cistring.num_strings (no, n) for n in ne])
+            c1[state] = c2.reshape (*ndet)
         if not conv: log.warn ('State %d LASCI not converged!', state)
         converged = converged and conv
         t = log.timer ('State {} LASCI'.format (state), *t)
