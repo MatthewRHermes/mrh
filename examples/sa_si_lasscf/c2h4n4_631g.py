@@ -47,7 +47,7 @@ las = las.state_average ([0.5,0.5,0.0,0.0],
     smults=[[2,2],[2,2],[1,1],[1,1]],    
     charges=[[0,0],[0,0],[-1,1],[1,-1]],
     wfnsyms=[[1,1],[1,1],[0,0],[0,0]])   
-las.kernel ()
+las.lasci ()
 print ("\n---SA(4)-LASSCF---")
 print ("Energy:", las.e_states)
 

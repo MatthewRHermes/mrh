@@ -1282,13 +1282,14 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None
     new_las = las.__class__(las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
     new_las.mo_coeff = las.mo_coeff.copy ()
-    new_las.ci = [[c2.copy () for c2 in c1] for c1 in las.ci]
+    new_las.ci = None
+    if las.ci is not None:
+        new_las.ci = [[c2.copy () if isinstance (c2, np.ndarray) else None
+            for c2 in c1] for c1 in las.ci]
     return state_average_(new_las, weights=weights, charges=charges, spins=spins,
         smults=smults, wfnsyms=wfnsyms)
 
 def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
-    if mo_coeff is None: mo_coeff = las.mo_coeff
-    if ci0 is None: ci0 = las.ci
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -1861,7 +1862,10 @@ class LASCINoSymm (casci.CASCI):
             vk = np.tensordot (vmPu, bmPu, axes=((1,2),(1,2)))
             return vj - vk/2
 
-    def lasci (self, mo_coeff=None, ci0=None, verbose=0):
+    def lasci (self, mo_coeff=None, ci0=None, verbose=None):
+        if mo_coeff is None: mo_coeff=self.mo_coeff
+        if ci0 is None: ci0 = self.ci
+        if verbose is None: verbose = self.verbose
         converged, e_tot, e_states, e_cas, ci = run_lasci (
             self, mo_coeff=mo_coeff, ci0=ci0, verbose=verbose)
         self.converged, self.ci = converged, ci

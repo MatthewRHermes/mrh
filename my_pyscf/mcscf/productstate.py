@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
+from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.mcscf.addons import StateAverageNMixFCISolver
 from itertools import combinations
 
@@ -72,6 +73,9 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             hc = solver.contract_2e (h2e, c, no, nelec)
             chc = c.ravel ().dot (hc.ravel ())
             hc -= c * chc
+            if isinstance (getattr (solver, 'transformer', None),
+                    CSFTransformer):
+                hc = solver.transformer.vec_det2csf (hc, normalize='False')
             grad.append (hc.ravel ())
         return np.concatenate (grad)
 
