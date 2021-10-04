@@ -8,6 +8,8 @@ from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
 
+LINDEP_THRESHOLD = 1.0e-5
+
 op = (op_o0, op_o1)
 
 def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
@@ -121,24 +123,37 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         else:
             if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
             ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {}'.format (rootsym), *t0)
-        lib.logger.debug (las, 'Block Hamiltonian - ecore:')
-        lib.logger.debug (las, '{}'.format (ham_blk))
-        lib.logger.debug (las, 'Block S**2:')
-        lib.logger.debug (las, '{}'.format (s2_blk))
-        lib.logger.debug (las, 'Block overlap matrix:')
-        lib.logger.debug (las, '{}'.format (ovlp_blk))
+            t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
+        lib.logger.debug2 (las, 'Block Hamiltonian - ecore:')
+        lib.logger.debug2 (las, '{}'.format (ham_blk))
+        lib.logger.debug2 (las, 'Block S**2:')
+        lib.logger.debug2 (las, '{}'.format (s2_blk))
+        lib.logger.debug2 (las, 'Block overlap matrix:')
+        lib.logger.debug2 (las, '{}'.format (ovlp_blk))
         s2_mat[np.ix_(idx,idx)] = s2_blk
+        # Error catch: diagonal Hamiltonian elements
         diag_test = np.diag (ham_blk)
         diag_ref = las.e_states[idx] - e0
-        lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference', 'Error'))
+        lib.logger.debug2 (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference', 'Error'))
         for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
-            lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
+            lib.logger.debug2 (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
         assert (np.allclose (diag_test, diag_ref, atol=1e-5)), 'SI Hamiltonian diagonal element error. Inadequate convergence?'
-        e, c = linalg.eigh (ham_blk, b=ovlp_blk)
+        # Error catch: linear dependencies in basis
+        try:
+            e, c = linalg.eigh (ham_blk, b=ovlp_blk)
+        except linalg.LinAlgError as e:
+            ovlp_det = linalg.det (ovlp_blk)
+            lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
+            lib.logger.info (las, 'Caught error %s, %s', str (e), lc)
+            if ovlp_det < LINDEP_THRESHOLD:
+                err_str = ('LASSI basis appears to have linear dependencies; '
+                           'double-check your state list.\n'
+                           '|ovlp| = {:.6e}').format (ovlp_det)
+                raise RuntimeError (err_str) from e
+            else: raise (e) from None
         s2_blk = c.conj ().T @ s2_blk @ c
-        lib.logger.debug (las, 'Block S**2 in adiabat basis:')
-        lib.logger.debug (las, '{}'.format (s2_blk))
+        lib.logger.debug2 (las, 'Block S**2 in adiabat basis:')
+        lib.logger.debug2 (las, '{}'.format (s2_blk))
         e_roots[idx] = e
         s2_roots[idx] = np.diag (s2_blk)
         si[np.ix_(idx,idx)] = c
