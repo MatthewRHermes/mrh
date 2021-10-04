@@ -1320,7 +1320,8 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None
     return state_average_(new_las, weights=weights, charges=charges, spins=spins,
         smults=smults, wfnsyms=wfnsyms)
 
-def run_lasci (las, mo_coeff=None, ci0=None, verbose=0):
+def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=True):
+    if assert_no_dupes: assert_no_duplicates (las)
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -1908,12 +1909,14 @@ class LASCINoSymm (casci.CASCI):
             vk = np.tensordot (vmPu, bmPu, axes=((1,2),(1,2)))
             return vj - vk/2
 
-    def lasci (self, mo_coeff=None, ci0=None, verbose=None):
+    def lasci (self, mo_coeff=None, ci0=None, verbose=None,
+            assert_no_dupes=True):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci0 is None: ci0 = self.ci
         if verbose is None: verbose = self.verbose
         converged, e_tot, e_states, e_cas, ci = run_lasci (
-            self, mo_coeff=mo_coeff, ci0=ci0, verbose=verbose)
+            self, mo_coeff=mo_coeff, ci0=ci0, verbose=verbose,
+            assert_no_dupes=assert_no_dupes)
         self.converged, self.ci = converged, ci
         self.e_tot, self.e_states, self.e_cas = e_tot, e_states, e_cas
         return self.converged, self.e_tot, self.e_states, self.e_cas, self.ci
