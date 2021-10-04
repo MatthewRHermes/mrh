@@ -830,8 +830,10 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
 
     return h1e_fr
 
-def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
+def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
+        assert_no_dupes=True, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
+    if assert_no_dupes: assert_no_duplicates (las)
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     log.debug('Start LASCI')
@@ -1188,7 +1190,33 @@ def get_state_info (las):
         smults[iroot,ifrag] = solver.smult
         wfnsyms[iroot,ifrag] = solver.wfnsym or 0
     return charges, spins, smults, wfnsyms
-    
+   
+def assert_no_duplicates (las):
+    log = lib.logger.new_logger (las, las.verbose)
+    tab = np.stack (get_state_info (las), axis=-1)
+    tab_uniq, uniq_idx, uniq_inv, uniq_cnts = np.unique (tab, return_index=True,
+        return_inverse=True, return_counts=True, axis=0)
+    idx_dupe = uniq_cnts>1
+    try:
+        err_str = ('LAS state basis has duplicates; details in logfile for '
+                   'verbose >= INFO (4) [more details for verbose > INFO].\n'
+                   '(Disable this assertion by passing assert_no_dupes=False '
+                   'to the kernel or lasci function.)')
+        assert (~np.any (idx_dupe)), err_str
+    except AssertionError as e:
+        dupe_idx = uniq_idx[idx_dupe]
+        dupe_cnts = uniq_cnts[idx_dupe]
+        for i, (ix, cnt, col) in enumerate (zip (uniq_idx, uniq_cnts, tab_uniq)):
+            if cnt==1: continue
+            log.info ('State %d appears %d times', ix, cnt)
+            idx_thisdupe = np.where (uniq_inv==i)[0]
+            row = col.T
+            log.debug ('As states {}'.format (idx_thisdupe))
+            log.debug ('Charges = {}'.format (row[0]))
+            log.debug ('2M_S = {}'.format (row[1]))
+            log.debug ('2S+1 = {}'.format (row[2]))
+            log.debug ('Wfnsyms = {}'.format (row[3]))
+        raise e from None
 
 def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None, wfnsyms=None):
     ''' Transform LASCI/LASSCF object into state-average LASCI/LASSCF 
@@ -1461,7 +1489,8 @@ class LASCINoSymm (casci.CASCI):
         return self._hop (self, ugg, mo_coeff=mo_coeff, ci=ci, **kwargs)
     canonicalize = canonicalize
 
-    def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=None, verbose=None):
+    def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=None,
+            assert_no_dupes=True, verbose=None):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         else:
@@ -1483,7 +1512,8 @@ class LASCINoSymm (casci.CASCI):
         self.weights = self.fciboxes[0].weights
 
         self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, self.e_cas, self.ci, h2eff_sub, veff = \
-                kernel(self, mo_coeff, ci0=ci0, verbose=verbose, casdm0_fr=casdm0_fr, conv_tol_grad=conv_tol_grad)
+                kernel(self, mo_coeff, ci0=ci0, verbose=verbose, casdm0_fr=casdm0_fr, conv_tol_grad=conv_tol_grad,
+                assert_no_dupes=assert_no_dupes)
 
         return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy, h2eff_sub, veff
 
