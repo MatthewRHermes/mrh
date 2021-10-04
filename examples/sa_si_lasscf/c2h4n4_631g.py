@@ -25,17 +25,19 @@ mf = scf.RHF (mol).run ()
 #       neleca = (sum(las.ncas_sub[i]) - charges[j][i] + spins[j][i]) / 2
 #       nelecb = (sum(las.ncas_sub[i]) - charges[j][i] - spins[j][i]) / 2
 # If your molecule doesn't have point-group symmetry turned on then don't pass "wfnsyms"
-las = LASSCF (mf, (5,5), ((3,2),(2,3)))
-las = las.state_average ([0.5,0.5],
+las2 = LASSCF (mf, (5,5), ((3,2),(2,3)))
+las2 = las2.state_average ([0.5,0.5],
     spins=[[1,-1],[-1,1]],
     smults=[[2,2],[2,2]],    
     charges=[[0,0],[0,0]],
     wfnsyms=[[1,1],[1,1]])
-las.conv_tol = 1e-12
-mo_loc = las.localize_init_guess ((list (range (5)), list (range (5,10))), mf.mo_coeff)
-las.kernel (mo_loc)
+las2.conv_tol = 1e-12
+mo_loc = las2.localize_init_guess ((list (range (5)), list (range (5,10))), mf.mo_coeff)
+las2.kernel (mo_loc)
+
 print ("\n--- SA(2)-LASSCF ---")
-print ("Energy:", las.e_states)
+print ("Energy:", las2.e_states)
+
 # Now I will add "spectator" states, which don't affect the state-averaged
 # energy for the purposes of orbital optimization. (You can do this in one
 # step, but then the orbitals would not optimize as quickly.) 
@@ -44,25 +46,39 @@ print (("\nThe orbitals and CI vectors are preserved as much as possible when\n"
     "The 'lasci ()' function call optimizes the CI vectors with the orbitals all\n"
     "frozen, so the energies of the first two states below should be unchanged\n"
     "to many digits:"))
-las = las.state_average ([0.5,0.5,0.0,0.0],
+las4 = las2.state_average ([0.5,0.5,0.0,0.0],
     spins=[[1,-1],[-1,1],[0,0],[0,0]],
     smults=[[2,2],[2,2],[1,1],[1,1]],    
     charges=[[0,0],[0,0],[-1,1],[1,-1]],
     wfnsyms=[[1,1],[1,1],[0,0],[0,0]])   
-las.lasci ()
+las4.lasci ()
 print ("\n--- LASCI(4) @ SA(2)-LASSCF orbitals ---")
-print ("Energy:", las.e_states)
+print ("Energy:", las4.e_states)
+
+# An example of input error handling
+print (("\nThe LASSCF kernel and lasci functions check for duplicate states\n"
+    "in the state list by default, using this AssertionError:"))
+try:
+    las5 = las2.state_average ([0.5,0.5,0.0,0.0,0.0],
+        spins=[[1,-1],[-1,1],[0,0],[0,0],[0,0]],
+        smults=[[2,2],[2,2],[1,1],[1,1],[1,1]],
+        charges=[[0,0],[0,0],[-1,1],[1,-1],[-1,1]],
+        wfnsyms=[[1,1],[1,1],[0,0],[0,0],[0,0]])
+    las5.lasci ()
+except AssertionError as e:
+    print (e)
+
+print ("\n--- LASSI(4) @ SA(2)-LASSCF orbitals ---")
 
 # For now, the LASSI diagonalizer is just a post-hoc function call
 # It returns eigenvalues (energies) in the first position and
 # eigenvectors (here, a 4-by-4 vector)
-e_roots, si = las.lassi ()
+e_roots, si = las4.lassi ()
 
 # Symmetry information about the LASSI solutions is "tagged" on the si array
 # Additionally, since spin contamination sometimes happens, the S**2 operator
 # in the LAS-state "diabatic" basis is also available
 print ("S**2 operator:\n", si.s2_mat)
-print ("\n--- LASSI(4) solutions ---")
 print ("Energy:", e_roots)
 print ("<S**2>:",si.s2)
 print ("(neleca, nelecb):", si.nelec)
@@ -78,10 +94,10 @@ print ("--- LASSI eigenvectors ---")
 print (si)
 
 # You can get the 1-RDMs of the SA-LASSCF states like this
-states_casdm1s = las.states_make_casdm1s ()
+states_casdm1s = las4.states_make_casdm1s ()
 
 # You can get the 1- and 2-RDMs of the LASSI solutions like this
-roots_casdm1s, roots_casdm2s = lassi.roots_make_rdm12s (las, las.ci, si)
+roots_casdm1s, roots_casdm2s = lassi.roots_make_rdm12s (las4, las4.ci, si)
 
 # No super-convenient molden API yet
 # By default orbitals are state-averaged natural-orbitals at the end
@@ -89,13 +105,13 @@ roots_casdm1s, roots_casdm2s = lassi.roots_make_rdm12s (las, las.ci, si)
 # But you can recanonicalize
 print ("\nlasscf_state_0-3.molden: single LAS state NOs, (strictly) unentangled")
 for iroot, dm1 in enumerate (states_casdm1s.sum (1)): # spin sum
-    no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=dm1)[:3]
-    molden.from_mo (las.mol, 'lasscf_state_{}.molden'.format (iroot),
+    no_coeff, no_ene, no_occ = las4.canonicalize (natorb_casdm1=dm1)[:3]
+    molden.from_mo (las4.mol, 'lasscf_state_{}.molden'.format (iroot),
         no_coeff, occ=no_occ, ene=no_ene)
 print ("lassi_root_0-3.molden: LASSI eigenstate NOs, (generally) entangled")
 for iroot, dm1 in enumerate (roots_casdm1s.sum (1)): # spin sum
-    no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=dm1)[:3]
-    molden.from_mo (las.mol, 'lassi_root_{}.molden'.format (iroot),
+    no_coeff, no_ene, no_occ = las4.canonicalize (natorb_casdm1=dm1)[:3]
+    molden.from_mo (las4.mol, 'lassi_root_{}.molden'.format (iroot),
         no_coeff, occ=no_occ, ene=no_ene)
 
 # Beware! Don't do ~~~anything~~ to the si array before you pass it to the
@@ -108,7 +124,7 @@ except AttributeError as e:
     print ("Oh no! <S**2> disappeared and all I have now is this error message:")
     print ("AttributeError:", str (e))
 try:
-    roots_casdm1s, roots_casdm2s = lassi.roots_make_rdm12s (las, las.ci, si)
+    roots_casdm1s, roots_casdm2s = lassi.roots_make_rdm12s (las4, las4.ci, si)
 except AttributeError as e:
     print ("Oh no! I can't make rdms anymore either because:")
     print ("AttributeError:", str (e))
@@ -116,17 +132,17 @@ print ("(Yes, dear user, I will have to make this less stupid in future)")
 
 # Remember that LASSI is a post-hoc diagonalization step if you want to do a
 # potential energy scan
-las = las.as_scanner ()
+las4 = las4.as_scanner ()
 new_mol = struct (2.9, 2.9, '6-31g', symmetry='Cs')
 new_mol.symmetry = 'Cs'
 new_mol.build ()
 print ("\n\nPotential energy scan to dr = 2.9 Angs")
-e = las (new_mol)
+e = las4 (new_mol)
 print (e, "<- this is just the state-average energy!")
 print (("(Which happens to be identical to the first two LAS state energies\n"
         "because I chose a bad example, but shhhh)"))
 print ("You need to interrogate the LAS object to get the interesting parts!")
-print ("New E_LASSCF:", las.e_states)
-e_roots, si = las.lassi ()
+print ("New E_LASSCF:", las4.e_states)
+e_roots, si = las4.lassi ()
 print ("New E_LASSI:", e_roots)
 

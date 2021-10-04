@@ -831,7 +831,7 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
     return h1e_fr
 
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
-        assert_no_dupes=True, verbose=lib.logger.NOTE):
+        assert_no_dupes=False, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if assert_no_dupes: assert_no_duplicates (las)
     log = lib.logger.new_logger(las, verbose)
@@ -1191,9 +1191,9 @@ def get_state_info (las):
         wfnsyms[iroot,ifrag] = solver.wfnsym or 0
     return charges, spins, smults, wfnsyms
    
-def assert_no_duplicates (las):
+def assert_no_duplicates (las, tab=None):
     log = lib.logger.new_logger (las, las.verbose)
-    tab = np.stack (get_state_info (las), axis=-1)
+    if tab is None: tab = np.stack (get_state_info (las), axis=-1)
     tab_uniq, uniq_idx, uniq_inv, uniq_cnts = np.unique (tab, return_index=True,
         return_inverse=True, return_counts=True, axis=0)
     idx_dupe = uniq_cnts>1
@@ -1201,7 +1201,7 @@ def assert_no_duplicates (las):
         err_str = ('LAS state basis has duplicates; details in logfile for '
                    'verbose >= INFO (4) [more details for verbose > INFO].\n'
                    '(Disable this assertion by passing assert_no_dupes=False '
-                   'to the kernel or lasci function.)')
+                   'to the kernel, lasci, and state_average(_) functions.)')
         assert (~np.any (idx_dupe)), err_str
     except AssertionError as e:
         dupe_idx = uniq_idx[idx_dupe]
@@ -1218,7 +1218,8 @@ def assert_no_duplicates (las):
             log.debug ('Wfnsyms = {}'.format (row[3]))
         raise e from None
 
-def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None, wfnsyms=None):
+def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
+        smults=None, wfnsyms=None, assert_no_dupes=True):
     ''' Transform LASCI/LASSCF object into state-average LASCI/LASSCF 
 
     Args:
@@ -1271,7 +1272,8 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None
         wfnsyms = np.atleast_2d (np.squeeze (wfnsyms)).T
         spins = np.atleast_2d (np.squeeze (spins)).T
         smults = np.atleast_2d (np.squeeze (smults)).T
-
+    new_states = np.stack ([charges, spins, smults, wfnsyms], axis=-1)
+    if assert_no_dupes: assert_no_duplicates (las, tab=new_states)
 
     las.fciboxes = [get_h1e_zipped_fcisolver (state_average_n_mix (las,
         [csf_solver (las.mol, smult=s2p1).set (charge=c, spin=m2, wfnsym=ir)
@@ -1301,7 +1303,8 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None, smults=None
         las.ci = ci0
     return las
 
-def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None, wfnsyms=None):
+def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
+        smults=None, wfnsyms=None, assert_no_dupes=True):
     ''' A version of lasci.state_average_ that creates a copy instead of modifying the 
     LASCI/LASSCF method instance in place.
 
@@ -1318,9 +1321,9 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None, smults=None
         new_las.ci = [[c2.copy () if isinstance (c2, np.ndarray) else None
             for c2 in c1] for c1 in las.ci]
     return state_average_(new_las, weights=weights, charges=charges, spins=spins,
-        smults=smults, wfnsyms=wfnsyms)
+        smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
 
-def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=True):
+def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
     if assert_no_dupes: assert_no_duplicates (las)
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
@@ -1491,7 +1494,7 @@ class LASCINoSymm (casci.CASCI):
     canonicalize = canonicalize
 
     def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=None,
-            assert_no_dupes=True, verbose=None):
+            assert_no_dupes=False, verbose=None):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         else:
@@ -1910,7 +1913,7 @@ class LASCINoSymm (casci.CASCI):
             return vj - vk/2
 
     def lasci (self, mo_coeff=None, ci0=None, verbose=None,
-            assert_no_dupes=True):
+            assert_no_dupes=False):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci0 is None: ci0 = self.ci
         if verbose is None: verbose = self.verbose
@@ -1953,7 +1956,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     def wfnsym (self, ir):
         raise RuntimeError ("Cannot assign the whole-system symmetry of a LASCI wave function. Address fciboxes[ifrag].fcisolvers[istate].wfnsym instead.")
 
-    def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, verbose=None):
+    def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, verbose=None, assert_no_dupes=False):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         if ci0 is None:
@@ -1962,7 +1965,8 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         # Initialize/overwrite mo_coeff.orbsym. Don't pass ci0 because it's not the right shape
         lib.logger.info (self, "LASCI lazy hack note: lines below reflect the point-group symmetry of the whole molecule but not of the individual subspaces")
         mo_coeff = self.mo_coeff = self.label_symmetry_(mo_coeff)
-        return LASCINoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0, casdm0_fr=casdm0_fr, verbose=verbose)
+        return LASCINoSymm.kernel(self, mo_coeff=mo_coeff, ci0=ci0,
+            casdm0_fr=casdm0_fr, verbose=verbose, assert_no_dupes=assert_no_dupes)
 
     def canonicalize (self, mo_coeff=None, ci=None, natorb_casdm1=None, veff=None, h2eff_sub=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
