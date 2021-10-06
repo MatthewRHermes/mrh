@@ -377,8 +377,7 @@ class _PDFT ():
         self.otfnal.stdout = self.stdout
         
     def kernel (self, mo=None, ci=None, **kwargs):
-        # Hafta reset the grids so that geometry optimization works!
-        self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
+        self.otfnal.reset (mol=self.mol) # scanner mode safety
         self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = super().kernel (mo, ci, **kwargs)
         if isinstance (self, StateAverageMCSCFSolver):
             epdft = [self.energy_tot (root=ix) for ix in range (len (self.e_states))]
