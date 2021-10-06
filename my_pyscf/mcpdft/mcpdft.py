@@ -4,6 +4,7 @@ from scipy import linalg
 from pyscf import gto, dft, ao2mo, fci, mcscf, lib, __config__
 from pyscf.lib import logger, temporary_env
 from pyscf.fci import cistring
+from pyscf.dft import gen_grid
 from pyscf.mcscf import mc_ao2mo, mc1step
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
@@ -337,7 +338,7 @@ def sapdft_grad_monkeypatch_(mc):
 class _PDFT ():
     # Metaclass parent; unusable on its own
 
-    def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None, **kwargs):
+    def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None, grids_attr={}, **kwargs):
         # Keep the same initialization pattern for backwards-compatibility. Use a separate intializer for the ot functional
         try:
             super().__init__(scf, ncas, nelecas)
@@ -350,10 +351,13 @@ class _PDFT ():
         self.conv_tol_ci_fp = getattr (__config__, 'mcscf_mcpdft_conv_tol_ci_fp', 1e-8)
         self.mcscf_kernel = super().kernel
         self._keys = set ((self.__dict__.keys ())).union (keys)
+        if grids_level is not None:
+            grids_attr['level'] = grids_level
         if my_ot is not None:
-            self._init_ot_grids (my_ot, grids_level=grids_level)
+            self._init_ot_grids (my_ot, grids_attr=grids_attr)
 
-    def _init_ot_grids (self, my_ot, grids_level=None):
+    def _init_ot_grids (self, my_ot, grids_attr={}):
+        old_grids = getattr (self, 'grids', None)
         if isinstance (my_ot, (str, np.string_)):
             ks = dft.RKS (self.mol)
             if my_ot[:1].upper () == 'T':
@@ -368,10 +372,12 @@ class _PDFT ():
                     'an object of class otfnal in place of a string.'))
         else:
             self.otfnal = my_ot
+        if isinstance (old_grids, gen_grid.Grids):
+            self.otfnal.grids = old_grids
         self.grids = self.otfnal.grids
-        if grids_level is not None:
-            self.grids.level = grids_level
-            assert (self.grids.level == self.otfnal.grids.level)
+        self.grids.__dict__.update (grids_attr)
+        for key in grids_attr:
+            assert (getattr (self.grids, key, None) == getattr (self.otfnal.grids, key, None))
         # Make sure verbose and stdout don't accidentally change (i.e., in scanner mode)
         self.otfnal.verbose = self.verbose
         self.otfnal.stdout = self.stdout
@@ -519,7 +525,7 @@ class _PDFT ():
 
     @otxc.setter
     def otxc (self, x):
-        self._init_ot_grids (x, grids_level=self.otfnal.grids.level)
+        self._init_ot_grids (x)
 
     make_rdms_mcpdft = make_rdms_mcpdft
     energy_mcwfn = energy_mcwfn
