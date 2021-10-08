@@ -24,9 +24,12 @@ def get_rotational_coordinates (carts, masses):
     mI, X = linalg.eigh (I)
     # Generate rotational coordinates: cross-product of X axes with radial displacement from X axes
     u = np.zeros ((natm, 3, 3))
-    RXt = np.dot (carts, X.T)
+    RXt = np.dot (carts, X)
     for iatm in range (natm):
-        u[iatm] = np.stack ([np.cross (RXt[iatm], xyz) for xyz in X], axis=0)
+        iRXt = np.stack ([RXt[iatm].copy () for i in range (3)], axis=0)
+        iRXt[np.diag_indices (3)] = 0.0
+        iRXt = iRXt @ X.T
+        u[iatm] = np.stack ([np.cross (i, j) for i, j in zip (iRXt, X.T)], axis=-1)
     u *= np.sqrt (masses)[:,None,None]
     # Remove norm = 0 modes (linear molecules)
     norm_u = (u * u).sum ((0,1))
@@ -65,17 +68,24 @@ class InternalCoords (object):
         vec_r = np.tensordot (vec, urot,   axes=((0,1),(0,1)))
         vec_v = np.tensordot (vec, uvib,   axes=((0,1),(0,1)))
         return vec_t, vec_r, vec_v
-    def _project_1body (self, vec, carts=None, idx=None):
+    def _project_1body (self, vec, carts=None, idx=None, mass_weighted=False):
+        if not mass_weighted:
+            vec = vec.copy () / np.sqrt (self.masses)[:,None]
         uvib = self.get_coords (carts=carts)[idx]
-        vec = np.tensordot (vec, uvib, axes((0,1),(0,1)))
+        vec = np.tensordot (vec, uvib, axes=((0,1),(0,1)))
         vec = np.dot (uvib.conjugate (), vec)
+        if not mass_weighted:
+            vec *= np.sqrt (self.masses)[:,None]
         return vec
-    def project_1body_trans (self, vec, carts=None):
-        return self._project_1body (vec, carts=carts, idx=0)
-    def project_1body_rot (self, vec, carts=None):
-        return self._project_1body (vec, carts=carts, idx=1)
-    def project_1body_vib (self, vec, carts=None):
-        return self._project_1body (vec, carts=carts, idx=2)
+    def project_1body_trans (self, vec, carts=None, mass_weighted=False):
+        return self._project_1body (vec, carts=carts, idx=0,
+            mass_weighted=mass_weighted)
+    def project_1body_rot (self, vec, carts=None, mass_weighted=False):
+        return self._project_1body (vec, carts=carts, idx=1,
+            mass_weighted=mass_weighted)
+    def project_1body_vib (self, vec, carts=None, mass_weighted=False):
+        return self._project_1body (vec, carts=carts, idx=2,
+            mass_weighted=mass_weighted)
 
 
 
