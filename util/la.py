@@ -2,7 +2,55 @@ import sys
 import numpy as np
 import scipy
 import copy
+import math
 from mrh.util import params
+
+def vector_error (test, ref, frac=False, ang_units='rad'):
+    ''' For two ndarrays test and ref, compute the norm of the difference and
+        the angle between them.
+
+        Args:
+            test: ndarray
+            ref: ndarray
+
+        Kwargs:
+            frac: logical
+                If true, divide the difference norm by the first nonzero
+                value in the list (||ref||, ||test||, 1.0)
+            ang_units: str
+                Change to 'deg' to express the difference angle in
+                degrees instead of radians
+
+        Return:
+            norm_err: float
+                ||test-ref||, possibly divided by ||ref|| or ||test|| (see
+                "frac" kwarg)
+            theta: float
+                Angle between test and ref in radians or degrees (see
+                "ang_units" kwarg)
+    '''
+
+    test, ref = test.ravel (), ref.ravel ()
+    err = test - ref
+    norm_test = scipy.linalg.norm (test)
+    norm_ref = scipy.linalg.norm (ref)
+    norm_err = scipy.linalg.norm (err)
+    if frac:
+        if norm_ref > 0: norm_err /= norm_ref
+        elif norm_test > 0: norm_err /= norm_test
+    numer, denom = np.dot (test, ref), norm_test * norm_ref
+    theta = denom
+    try:
+        if denom >= 1e-15: theta = math.acos (numer / denom)
+    except ValueError as e:
+        if numer > denom:
+            assert (np.isclose (numer, denom))
+            theta = 0
+        else:
+            print (numer, denom)
+            raise (e)
+    if 'DEG' in ang_units.upper (): theta *= 180.0 / math.pi
+    return norm_err, theta
 
 # A collection of simple manipulations of matrices that I somehow can't find in numpy
 
