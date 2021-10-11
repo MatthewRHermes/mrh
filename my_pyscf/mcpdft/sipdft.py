@@ -202,7 +202,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
 
     def kernel (self, mo_coeff=None, ci0=None, **kwargs):
         # I should maybe rethink keeping all this intermediate information
-        self._init_ot_grids (self.otfnal.otxc, grids_level=self.grids.level)
+        self.otfnal.reset (mol=self.mol) # scanner mode safety 
         ci = self._init_ci0 (ci0, mo_coeff=mo_coeff)
         ci, self.mo_coeff, self.mo_energy = super().kernel (mo_coeff, ci, **kwargs)[-3:]
         ci = self._init_sarot_ci (ci, ci0)

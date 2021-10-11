@@ -143,6 +143,12 @@ class otfnal:
     get_veff_2body = pdft_veff.get_veff_2body
     get_veff_2body_kl = pdft_veff.get_veff_2body_kl
 
+    def reset (self, mol=None):
+        ''' Discard cached grid data and optionally update the molecule '''
+        if mol is not None:
+            self.mol = mol
+        self.grids.reset (mol=mol)
+
 class transfnal (otfnal):
     r''' "translated functional" of Li Manni et al., JCTC 10, 3669 (2014).
     '''
