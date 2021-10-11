@@ -34,7 +34,7 @@ def om_treutler_ahlrichs(n, chg, *args, **kwargs):
                 * ln2*(1+x)**.6 *(-.6/(1+x)*numpy.log((1-x)/2)+1/(1-x)))
     return r[::-1], dr[::-1]
 
-quasi_ultrafine = {'grid_atom': (99,590),
+quasi_ultrafine = {'atom_grid': (99,590),
     'radi_method': om_treutler_ahlrichs,
     'prune': False,
     'radii_adjust': None}
