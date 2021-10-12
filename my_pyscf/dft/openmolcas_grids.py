@@ -6,6 +6,7 @@ import numpy
 #   lmax=41
 #   rquad=ta
 #   nopr
+#   noro
 #   end of grid input
 # in OpenMolcas version 21.06
 # It is similar to "grid=ultrafine"
