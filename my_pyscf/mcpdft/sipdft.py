@@ -66,9 +66,9 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
         d2f, evecs = linalg.eigh (d2f)
         evecs = np.array(evecs)
         if np.any (np.abs (d2f) < sing_tol):
-            log.info ("{} Hess is singular!".format (hdr))
+            log.warn ("{} Hess is singular!".format (hdr))
         pos_idx = d2f > 0
-        neg_def = np.all (~pos_idx)
+        neg_def = np.all (d2f < 0)
         log.info ("{} Hessian is negative-definite? {}".format (hdr, neg_def))
 
         # Analyze gradient

@@ -178,6 +178,7 @@ def eff_ham (mc,ci):
 
 def si_newton (mc, maxiter,thrs):
 
+    assert (False)
     log = lib.logger.new_logger (mc, mc.verbose)
     nroots = mc.fcisolver.nroots 
     rows,col = np.tril_indices(nroots,k=-1)
