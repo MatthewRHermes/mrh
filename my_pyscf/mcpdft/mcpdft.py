@@ -7,7 +7,7 @@ from pyscf.fci import cistring
 from pyscf.dft import gen_grid
 from pyscf.mcscf import mc_ao2mo, mc1step
 from pyscf.fci.direct_spin1 import _unpack_nelec
-from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
+from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_, StateAverageMixFCISolver
 from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
@@ -44,15 +44,14 @@ def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
     if ci is None: ci = mc.ci
     if verbose is None: verbose = mc.verbose
     t0 = (logger.process_clock (), logger.perf_counter ())
-    if root>=0: ci=ci[root]
 
     # Allow MC-PDFT to be subclassed, and also allow this function to be
     # called without mc being an instance of MC-PDFT class
 
     if callable (getattr (mc, 'make_rdms_mcpdft', None)):
-        dm_list = mc.make_rdms_mcpdft (ot=ot, mo_coeff=mo_coeff, ci=ci)
+        dm_list = mc.make_rdms_mcpdft (ot=ot, mo_coeff=mo_coeff, ci=ci, state=root)
     else:
-        dm_list = make_rdms_mcpdft (mc, ot=ot, mo_coeff=mo_coeff, ci=ci)
+        dm_list = make_rdms_mcpdft (mc, ot=ot, mo_coeff=mo_coeff, ci=ci, state=root)
     t0 = logger.timer (ot, 'rdms', *t0)
 
 
@@ -79,7 +78,7 @@ def energy_elec (mc, *args, **kwargs):
     e_elec = e_tot - mc._scf.energy_nuc ()
     return e_elec, E_ot
 
-def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None):
+def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=-1):
     ''' Build the necessary density matrices for an MC-PDFT calculation 
 
         Args:
@@ -93,6 +92,10 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None):
             ci : ndarray or list
                 CI vector or vectors. If a list of many CI vectors, mc must be a 
                 state-average object with the correct nroots
+            state : integer
+                Indexes the CI vector. If negative and if mc.fcisolver is a
+                state-average object, state-averaged density matrices are 
+                returned.
 
         Returns:
             dm1s : ndarray of shape (2,nao,nao)
@@ -112,15 +115,23 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None):
     nocc = ncore + ncas
 
     # figure out the correct RDMs to build (state-average or state-specific?)
-    nelecas = _unpack_nelec (nelecas)
-    ndet = [cistring.num_strings (ncas, n) for n in nelecas]
-    ci = np.asarray (ci).reshape (-1, ndet[0], ndet[1])
-    nroots = ci.shape[0]
-    if nroots > 1:
-        _casdms = mc.fcisolver
-    else:
-        ci = ci[0]
-        _casdms = fci.solver (mc._scf.mol, singlet=False, symm=False)
+    _casdms = mc.fcisolver
+    if state >= 0:
+        ci = ci[state]
+        if isinstance (mc.fcisolver, StateAverageMixFCISolver):
+            p0 = 0
+            _casdms = None
+            for s in mc.fcisolver.fcisolvers:
+                p1 = p0 + s.nroots
+                if p0 <= state and state < p1:
+                    _casdms = s
+                    nelecas = mc.fcisolver._get_nelec (s, nelecas)
+                    break
+                p0 = p1
+            if _casdms is None:
+                raise RuntimeError ("Couldn't find the FCI solver for state", state)
+        else:
+            _casdms = fci.solver (mc._scf.mol, singlet=False, symm=False)
 
     # Make the rdms
     # make_rdm12s returns (a, b), (aa, ab, bb)
@@ -400,7 +411,7 @@ class _PDFT ():
         log = logger.new_logger(self, verbose)
         log.info ('on-top pair density exchange-correlation functional: %s', self.otfnal.otxc)
 
-    def get_pdft_veff (self, mo=None, ci=None, casdm1s=None, casdm2=None, 
+    def get_pdft_veff (self, mo=None, ci=None, state=-1, casdm1s=None, casdm2=None, 
             incl_coul=False, paaa_only=False, aaaa_only=False):
         ''' Get the 1- and 2-body MC-PDFT effective potentials for a set of mos and ci vectors
 
@@ -410,6 +421,9 @@ class _PDFT ():
                     self if not provided
                 ci : list or ndarray
                     CI vectors. Taken from self if not provided
+                state : integer
+                    Indexes a specific state in state-averaged calculations. If
+                    negative, it generates a state-averaged effective potential.
                 casdm1s : ndarray of shape (2,ncas,ncas)
                     Spin-separated 1-RDM in the active space. Overrides CI if
                     and only if both this and casdm2 are provided 
@@ -448,7 +462,7 @@ class _PDFT ():
             adm1s = casdm1s
             adm2 = get_2CDM_from_2RDM (casdm2, casdm1s)
         else:
-            dm_list = self.make_rdms_mcpdft (mo_coeff=mo, ci=ci)
+            dm_list = self.make_rdms_mcpdft (mo_coeff=mo, ci=ci, state=state)
             dm1s, (adm1s, (adm2, _ss, _os)) = dm_list
 
         mo_cas = mo[:,ncore:][:,:ncas]

@@ -172,8 +172,9 @@ class Gradients (mcpdft_grad.Gradients):
         veff1 = []
         veff2 = []
         d2f = self.base.sarot_objfn (ci=ci)[2]
-        for c in ci:
-            v1, v2 = self.base.get_pdft_veff (mo, c, incl_coul=True, paaa_only=True)
+        for ix in range (nroots):
+            v1, v2 = self.base.get_pdft_veff (mo, ci, incl_coul=True,
+                paaa_only=True, state=ix)
             veff1.append (v1)
             veff2.append (v2)
         return mcpdft_grad.Gradients.kernel (self, state=state, mo=mo, ci=ci,

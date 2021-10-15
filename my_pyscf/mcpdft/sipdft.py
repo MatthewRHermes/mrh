@@ -14,8 +14,8 @@ def make_ham_si (mc,ci):
     ci = np.asarray(ci)
     nroots = ci.shape[0]
 
-    e_pdft = np.stack ([mcpdft.mcpdft.kernel (mc, ot=mc.otfnal, ci=c)
-        for c in ci], axis=1)
+    e_pdft = np.stack ([mcpdft.mcpdft.kernel (mc, ot=mc.otfnal, ci=ci, root=i)
+        for i in range (nroots)], axis=1)
     e_int, e_ot = e_pdft
 
     h1, h0 = mc.get_h1eff ()
