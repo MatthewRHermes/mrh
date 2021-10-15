@@ -29,7 +29,7 @@ def _contract_rho_all (bra, ket):
     return rho
 
 from mrh.util import la
-def vector_error (test, ref): return la.vector_error (test, ref, frac=True)
+def vector_error (test, ref): return la.vector_error (test, ref, 'rel')
 #def vector_error (test, ref, frac=True):
 #    test, ref = test.ravel (), ref.ravel ()
 #    err = test - ref
