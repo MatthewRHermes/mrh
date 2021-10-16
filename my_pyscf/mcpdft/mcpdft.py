@@ -302,19 +302,25 @@ def get_energy_decomposition (mc, ot, mo_coeff=None, ci=None):
         e_otx = []
         e_otc = []
         e_wfnxc = []
-        for ci_i, ei_mcscf in zip (ci, e_mcscf):
-            row = _get_e_decomp (mc, ot, mo_coeff, ci_i, ei_mcscf, e_nuc, h, xfnal, cfnal)
+        nelec_root = [mc.nelecas,]* len (e_mcscf)
+        if isinstance (mc.fcisolver, StateAverageMixFCISolver):
+            nelec_root = []
+            for s in mc.fcisolver.fcisolvers:
+                nelec_root.extend ([mc.fcisolver._get_nelec (s, mc.nelecas),]*s.nroots)
+        for ci_i, ei_mcscf, nelec in zip (ci, e_mcscf, nelec_root):
+            row = _get_e_decomp (mc, ot, mo_coeff, ci_i, ei_mcscf, e_nuc, h, xfnal, cfnal, nelec)
             e_core.append  (row[0])
             e_coul.append  (row[1])
             e_otx.append   (row[2])
             e_otc.append   (row[3])
             e_wfnxc.append (row[4])
     else:
-        e_core, e_coul, e_otx, e_otc, e_wfnxc = _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal)
+        e_core, e_coul, e_otx, e_otc, e_wfnxc = _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal,
+            cfnal, mc.nelecas)
     return e_nuc, e_core, e_coul, e_otx, e_otc, e_wfnxc
 
-def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal):
-    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
+def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal, nelecas):
+    ncore, ncas = mc.ncore, mc.ncas
     _rdms = mcscf.CASCI (mc._scf, ncas, nelecas)
     _rdms.fcisolver = fci.solver (mc._scf.mol, singlet = False, symm = False)
     _rdms.mo_coeff = mo_coeff
