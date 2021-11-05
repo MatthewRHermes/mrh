@@ -16,7 +16,7 @@ GPL research code of Matthew R. Hermes
 `cmake -DBLA_VENDOR=Intel10_64lp_seq ..`
 
 ### DEPENDENCIES:
-- PySCF (most recently checked commit: 29add01)
+- PySCF (most recently checked commit: e064645, v2.0.1)
 - Python 3
 
 ### ACKNOWLEDGMENTS:
