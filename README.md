@@ -16,6 +16,7 @@ GPL research code of Matthew R. Hermes
     * "ln -s /path/to/mrh /path/to/python/site-packages/mrh" in the shell
 
 ### Notes
+- The dev branch is continuously updated. The master branch is updated every time I pull PySCF and confirm that everything still works. If you have some issue and you think it may be related to PySCF version mismatch, try using the master branch and the precise PySCF commit indicated above.
 - If you are using Intel MKL as the BLAS library, you may need to enable the corresponding cmake option:
 `cmake -DBLA_VENDOR=Intel10_64lp_seq ..`
 - The C code uses PySCF header files, which may cause problems if you installed PySCF using pip. To be safe, it is best to download and compile PySCF from source.
