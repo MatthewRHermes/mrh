@@ -1,6 +1,10 @@
 # mrh
 GPL research code of Matthew R. Hermes
 
+### DEPENDENCIES:
+- PySCF (most recently checked commit: e064645, v2.0.1)
+- Python 3
+
 ### INSTALLATION:
 - cd /path/to/mrh/lib
 - mkdir build ; cd build
@@ -14,10 +18,7 @@ GPL research code of Matthew R. Hermes
 ### Notes
 - If you are using Intel MKL as the BLAS library, you may need to enable the corresponding cmake option:
 `cmake -DBLA_VENDOR=Intel10_64lp_seq ..`
-
-### DEPENDENCIES:
-- PySCF (most recently checked commit: e064645, v2.0.1)
-- Python 3
+- The C code uses PySCF header files, which may cause problems if you installed PySCF using pip. To be safe, it is best to download and compile PySCF from source.
 
 ### ACKNOWLEDGMENTS:
 - This work is supported by the U.S. Department of Energy, Office of Basic Energy Sciences, Division of Chemical Sciences, Geosciences and Biosciences through the Nanoporous Materials Genome Center under award DE-FG02-17ER16362.
