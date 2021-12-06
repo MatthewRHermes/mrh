@@ -488,6 +488,8 @@ class _PDFT ():
 
     def dip_moment (self, unit='Debye', state=None):
         from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
+        if state is None and not isinstance (self, StateAverageMCSCFSolver):
+            state = 0    
         dip_obj =  ElectricDipole(self) 
         mol_dipole = dip_obj.kernel (state=state)
         return mol_dipole
