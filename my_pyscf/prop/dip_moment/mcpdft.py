@@ -179,7 +179,10 @@ class ElectricDipole (mcpdft.Gradients):
         dmL_cas += dmL_cas.T
 
         # MRH: TDMs + c.c. instead of RDMs; 06/30/2020: new interface in mcscf.addons makes this much more transparent
-        casdm1_transit = mc.fcisolver.trans_rdm1 (Lci, ci, ncas, nelecas)
+        # MRH 12/06/2021: When Aleks wrote this, he falsely assumed that I had implemented
+        # trans_rdm1 as well as trans_rdm12 for the state-averaged case. Luckily there's a quick way
+        # to fix this without pushing something to PySCF at the moment: just make both 1 and 2 and discard 2
+        casdm1_transit, _ = mc.fcisolver.trans_rdm12 (Lci, ci, ncas, nelecas)
         casdm1_transit += casdm1_transit.transpose (1,0)
 
         dm_cas_transit = reduce(np.dot, (mo_cas, casdm1_transit, mo_cas.T))

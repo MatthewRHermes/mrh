@@ -486,10 +486,10 @@ class _PDFT ():
         from mrh.my_pyscf.grad.mcpdft import Gradients
         return Gradients (self)
 
-    def dip_moment (self, unit='Debye'):
+    def dip_moment (self, unit='Debye', state=None):
         from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
         dip_obj =  ElectricDipole(self) 
-        mol_dipole = dip_obj.kernel ()
+        mol_dipole = dip_obj.kernel (state=state)
         return mol_dipole
 
     def get_energy_decomposition (self, mo_coeff=None, ci=None):
