@@ -153,6 +153,8 @@ class transfnal (otfnal):
     r''' "translated functional" of Li Manni et al., JCTC 10, 3669 (2014).
     '''
 
+    transl_prefix='t'
+
     def __init__ (self, ks, **kwargs):
         otfnal.__init__(self, ks.mol, **kwargs)
         self.otxc = 't' + ks.xc
@@ -277,11 +279,11 @@ class transfnal (otfnal):
         ''' Get one translated functional for just the exchange and one for just the correlation part of the energy. '''
         if not re.search (',', self.otxc):
             x_code = c_code = self.otxc
-            c_code = c_code[1:]
+            c_code = c_code[len (self.transl_prefix):]
         else:
-            x_code, c_code = ','.split (self.otxc)
+            x_code, c_code = self.otxc.split (',')
         x_code = x_code + ','
-        c_code = 't,' + c_code
+        c_code = self.transl_prefix + ',' + c_code
         xfnal = copy.copy (self)
         xfnal._numint = copy.copy (self._numint)
         xfnal.grids = copy.copy (self.grids)
@@ -445,6 +447,8 @@ class ftransfnal (transfnal):
     r''' "fully translated functional" of Carlson et al., JCTC 11, 4077 (2015)
     '''
 
+    transl_prefix='ft'
+
     def __init__ (self, ks, **kwargs):
         otfnal.__init__(self, ks.mol, **kwargs)
         self.R0=_FT_R0_DEFAULT
@@ -540,12 +544,6 @@ class ftransfnal (transfnal):
             if n == fn_deriv: break
 
         return zeta
-
-    def split_x_c (self):
-        xfnal, cfnal = super().split_x_c ()
-        xfnal.otxc = 'f' + xfnal.otxc
-        cfnal.otxc = 'f' + cfnal.otxc
-        return xfnal, cfnal
 
     def jT_op (self, x, rho, Pi, **kwargs):
         r''' Evaluate jTx = (x.j)T where j is the Jacobian of the translated densities

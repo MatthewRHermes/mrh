@@ -169,6 +169,13 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
     ''' Unfixed to FCIsolver since SI-PDFT state energies are no longer
         CI solutions '''
 
+    @property
+    def ham_ci (self):
+        ham_ci = self.ham_si.copy ()
+        nroots = ham_ci.shape[0]
+        ham_ci[np.diag_indices (nroots)] = self.e_mcscf.copy ()
+        return ham_ci
+    
     def _init_ci0 (self, ci0, mo_coeff=None):
         ''' On the assumption that ci0 represents states that optimize the
             SI-PDFT objective function, prediagonalize the Hamiltonian so that
@@ -261,17 +268,16 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         log.info ('Intermediate state Hamiltonian matrix:')
         fmt_str = ' '.join (['{:9.5f}',]*nroots)
         for row in self.ham_si: log.info (fmt_str.format (*row))
-        log.info ('Intermediate state overlap matrix:')
-        for row in self.ovlp_si: log.info (fmt_str.format (*row))
+        log.info ('Intermediate states (columns) in terms of reference states (rows):')
+        e, v = self._eig_si (self.ham_ci)
+        for row in v.T: log.info (fmt_str.format (*row))
 
     def _log_si (self):
         ''' Information about the final states '''
         log = lib.logger.new_logger (self, self.verbose)
         e_pdft = self.e_states
         nroots = len (e_pdft)
-        ham_ci = self.ham_si.copy ()
-        ham_ci[np.diag_indices (nroots)] = self.e_mcscf.copy ()
-        e_mcscf = (np.dot (ham_ci, self.si) * self.si.conj ()).sum (0)
+        e_mcscf = (np.dot (self.ham_ci, self.si) * self.si.conj ()).sum (0)
         log.note ('%s-PDFT final states:', self.sarot_name) 
         if getattr (self.fcisolver, 'spin_square', None):
             ci = np.tensordot (self.si.T, np.asarray (self.ci), axes=1)

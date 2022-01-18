@@ -760,7 +760,7 @@ class dmet:
         print ("Whole-molecule Eimp stdev = {}".format (Eimp_stdev))
         print ("Whole-molecule active-space orbital shift = {0}".format (orb_diff))
         if self.doLASSCF == False:
-            orb_diff = oneRDM_diff = Eimp_stdev = Eiter = 0 # Do only 1 iteration
+            orb_diff = oneRDM_diff = Eimp_stdev = Eiter = norm_gorb = norm_gci = 0 # Do only 1 iteration
         else:
             self.energy = e_tot
             Eiter = self.energy - old_energy
