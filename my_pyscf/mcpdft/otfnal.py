@@ -279,7 +279,7 @@ class transfnal (otfnal):
             x_code = c_code = self.otxc
             c_code = c_code[1:]
         else:
-            x_code, c_code = ','.split (self.otxc)
+            x_code, c_code = self.otxc.split (',')
         x_code = x_code + ','
         c_code = 't,' + c_code
         xfnal = copy.copy (self)
