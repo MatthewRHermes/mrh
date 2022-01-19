@@ -120,8 +120,7 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
         log.note (("{} optimization did not converge after {} "
                    "cycles".format (hdr, it)))
 
-
-    return list (ci)
+    return conv, list (ci)
 
 class StateInteractionMCPDFTSolver ():
     pass
@@ -213,7 +212,8 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         ci = self._init_ci0 (ci0, mo_coeff=mo_coeff)
         ci, self.mo_coeff, self.mo_energy = super().kernel (mo_coeff, ci, **kwargs)[-3:]
         ci = self._init_sarot_ci (ci, ci0)
-        self.ci = self.sarot (ci=ci, **kwargs)
+        sarot_conv, self.ci = self.sarot (ci=ci, **kwargs)
+        self.converged = self.converged and sarot_conv
         self.ham_si, self.ovlp_si, self.e_mcscf, self.e_ot, self.e_cas = self.make_ham_si (self.ci)
         self._log_sarot ()
         self.e_states, self.si = self._eig_si (self.ham_si)
