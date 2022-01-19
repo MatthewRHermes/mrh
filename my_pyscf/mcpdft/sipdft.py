@@ -65,8 +65,14 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
         # Analyze Hessian
         d2f, evecs = linalg.eigh (d2f)
         evecs = np.array(evecs)
-        if np.any (np.abs (d2f) < sing_tol):
+        df = np.dot (df, evecs)
+        d2f_zero = np.abs (d2f) < sing_tol
+        df_zero = np.abs (df) < sing_tol
+        if np.any (d2f_zero & (~df_zero)):
             log.warn ("{} Hess is singular!".format (hdr))
+        idx_null = d2f_zero & df_zero
+        df[idx_null] = 0.0
+        d2f[idx_null] = -1e-16
         pos_idx = d2f > 0
         neg_def = np.all (d2f < 0)
         log.info ("{} Hessian is negative-definite? {}".format (hdr, neg_def))
@@ -74,7 +80,6 @@ def si_newton (mc, ci=None, max_cyc=None, conv_tol=None, sing_tol=None, nudge_to
         # Analyze gradient
         grad_norm = np.linalg.norm(df)
         log.info ("{} grad norm = %f".format (hdr), grad_norm)
-        df = np.dot (df, evecs)
         log.info ("{} grad (normal modes) = {}".format (hdr, df))
 
         # Take step
