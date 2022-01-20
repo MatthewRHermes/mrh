@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import linalg
+from mrh.util.la import vector_error
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
 from mrh.my_pyscf.fci.csf import CSFFCISolver
@@ -498,14 +499,15 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
         sacasscf_grad.SACASLagPrec.__init__(self, Adiag=Adiag,
             level_shift=level_shift, ci=ci, grad_method=grad_method)
         self.grad_method = grad_method
+        self.log = logger.new_logger (self.grad_method, self.grad_method.verbose)
         self._init_d2f (d2f=d2f, **kwargs)
+        self.verbose = self.grad_method.verbose
 
     def _init_d2f (self, d2f=None, **kwargs):
-        log = logger.new_logger (self.grad_method, self.grad_method.verbose)
         self.d2f=d2f
-        evals, evecs = linalg.eigh (d2f)
-        log.debug ('IS component preconditioner eigenvalues: {}'.format (
-            1.0/evals))
+        self.d2f_evals, self.d2f_evecs = linalg.eigh (d2f)
+        self.log.debug ('IS component preconditioner eigenvalues: {}'.format (
+            1.0/self.d2f_evals))
 
     def unpack_uniq_var (self, x):
         return self.grad_method.unpack_uniq_var (x)
@@ -520,8 +522,18 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
         Mx = self.pack_uniq_var (Mxorb, Mxci, Mxis)
         return self.pack_uniq_var (Mxorb, Mxci, Mxis)
 
-    def is_prec (self, xis): return linalg.solve (self.d2f, xis)
-
+    def is_prec (self, xis): 
+        Mxis = linalg.solve (self.d2f, xis)
+        #if self.verbose >= logger.DEBUG:
+        #    x = np.dot (xis, self.d2f_evecs)
+        #    Mxis_test = x/self.d2f_evals
+        #    Mxis_test = np.dot (self.d2f_evecs, Mxis_test)
+        #    Mxis_err = vector_error (Mxis_test, Mxis)[0]
+        #    print (Mxis)
+        #    print (Mxis_test)
+        #    print (Mxis_err)
+        #    assert (np.abs (Mxis_err) == 0.0), '{} {}'.format (x, self.d2f_evals)
+        return Mxis
 
 if __name__ == '__main__':
     # Test sipdft_heff_response and sipdft_heff_HellmannFeynman by trying to
