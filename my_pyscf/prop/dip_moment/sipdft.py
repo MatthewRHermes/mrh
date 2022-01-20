@@ -33,23 +33,24 @@ def mcpdft_HellmanFeynman_dipole (mc, ot, veff1, veff2, mo_coeff=None, ci=None, 
 
     mo_core = mo_coeff[:,:ncore]
     mo_cas = mo_coeff[:,ncore:nocc]
- 
-    casdm1 = mc.fcisolver.make_rdm1(ci, ncas, nelecas)
- 
+
+    casdm1 = [mc.fcisolver.make_rdm1(ici, ncas, nelecas) for ici in ci]
+
     dm_core = np.dot(mo_core, mo_core.T) * 2
-    dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
-    dm = dm_core + dm_cas
- 
+    dm_cas = [reduce(np.dot, (mo_cas, icasdm1, mo_cas.T)) for icasdm1 in casdm1]
+    dm = [dm_core + idm_cas for idm_cas in dm_cas]
+
     with mol.with_common_orig((0,0,0)):
         ao_dip = mol.intor_symmetric('int1e_r', comp=3)
-    el_dip = np.einsum('xij,ij->x', ao_dip, dm).real
- 
+
+    el_dip = [np.einsum('xij,ij->x', ao_dip, idm).real for idm in dm]
+
     charges = mol.atom_charges()
     coords  = mol.atom_coords()
     nucl_dip = np.einsum('i,ix->x', charges, coords)
-    cas_dip = nucl_dip - el_dip
+    cas_dip = np.array([nucl_dip - iel_dip for iel_dip in el_dip])
 
-    return cas_dip
+    return cas_dip   #returns array with cas_dip for each state specified with corresponding ci vector
 
 class ElectricDipole (sipdft.Gradients):
 
