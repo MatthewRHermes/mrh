@@ -14,6 +14,7 @@ import time, gc
 from pyscf.data import nist
 from pyscf import lib
 from mrh.my_pyscf.grad import mcpdft
+from mrh.my_pyscf.grad import sipdft
 
 def mcpdft_HellmanFeynman_dipole (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None, max_memory=None, auxbasis_response=False):
     if mo_coeff is None: mo_coeff = mc.mo_coeff
@@ -50,7 +51,7 @@ def mcpdft_HellmanFeynman_dipole (mc, ot, veff1, veff2, mo_coeff=None, ci=None, 
 
     return cas_dip
 
-class ElectricDipole (mcpdft.Gradients):
+class ElectricDipole (sipdft.Gradients):
 
     def kernel (self, level_shift=None, unit='Debye', **kwargs):
         ''' Cache the effective Hamiltonian terms so you don't have to calculate them twice '''
