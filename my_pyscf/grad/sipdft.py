@@ -499,6 +499,7 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
         sacasscf_grad.SACASLagPrec.__init__(self, Adiag=Adiag,
             level_shift=level_shift, ci=ci, grad_method=grad_method)
         self.grad_method = grad_method
+        self.sing_tol = getattr (grad_method.base, 'sing_tol_sarot', 1e-8)
         self.log = logger.new_logger (self.grad_method, self.grad_method.verbose)
         self._init_d2f (d2f=d2f, **kwargs)
         self.verbose = self.grad_method.verbose
@@ -506,8 +507,16 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
     def _init_d2f (self, d2f=None, **kwargs):
         self.d2f=d2f
         self.d2f_evals, self.d2f_evecs = linalg.eigh (d2f)
-        self.log.debug ('IS component preconditioner eigenvalues: {}'.format (
-            1.0/self.d2f_evals))
+        idx_sing = np.abs (self.d2f_evals) < self.sing_tol
+        self.log.debug ('IS component Hessian eigenvalues: {}'.format (
+            self.d2f_evals))
+        if np.any (idx_sing):
+            self.log.warn (('Model-space frame-rotation Hessian is singular! '
+                'Response equations may not be solvable to arbitrary '
+                'precision!'))
+        self.d2f_evals = self.d2f_evals[~idx_sing]
+        self.d2f_evecs = self.d2f_evecs[:,~idx_sing]
+
 
     def unpack_uniq_var (self, x):
         return self.grad_method.unpack_uniq_var (x)
@@ -523,16 +532,9 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
         return self.pack_uniq_var (Mxorb, Mxci, Mxis)
 
     def is_prec (self, xis): 
-        Mxis = linalg.solve (self.d2f, xis)
-        #if self.verbose >= logger.DEBUG:
-        #    x = np.dot (xis, self.d2f_evecs)
-        #    Mxis_test = x/self.d2f_evals
-        #    Mxis_test = np.dot (self.d2f_evecs, Mxis_test)
-        #    Mxis_err = vector_error (Mxis_test, Mxis)[0]
-        #    print (Mxis)
-        #    print (Mxis_test)
-        #    print (Mxis_err)
-        #    assert (np.abs (Mxis_err) == 0.0), '{} {}'.format (x, self.d2f_evals)
+        xis = np.dot (xis, self.d2f_evecs)
+        Mxis = xis/self.d2f_evals
+        Mxis = np.dot (self.d2f_evecs, Mxis)
         return Mxis
 
 if __name__ == '__main__':
