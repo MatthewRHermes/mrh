@@ -7,6 +7,8 @@ from pyscf.lib import logger
 from pyscf import gto
 from pyscf.tools import molden
 
+CARTESIAN = "Cartesian or mixed Cartesian-spherical basis sets"
+
 def get_mo_from_h5 (mol, h5fname, symmetry=None):
     ''' Get MO vectors for a pyscf molecule from an h5 file written by OpenMolcas
 
@@ -47,6 +49,7 @@ def get_mo_from_h5 (mol, h5fname, symmetry=None):
 
     idx_ao = []
     for (c, n, l, m) in molcas_basids:
+        if l < 0: raise NotImplementedError (CARTESIAN)
         # 0-index atom list in PySCF, 1-index atom list in Molcas
         c -= 1
         # Actual principal quantum number in PySCF, 1-indexed list in Molcas
@@ -131,19 +134,28 @@ def get_mol_from_h5 (h5fname, **kwargs):
         try:
             symbs = np.asarray (f['DESYM_CENTER_LABELS']).astype ('|U10')
             carts = np.asarray (f['DESYM_CENTER_COORDINATES'])
+            basids = np.asarray (f['DESYM_BASIS_FUNCTION_IDS'])
         except KeyError:
             my_symmetry = False
             symbs = np.asarray (f['CENTER_LABELS']).astype ('|U10')
             carts = np.asarray (f['CENTER_COORDINATES'])
+            basids = np.asarray (f['BASIS_FUNCTION_IDS'])
         primids = np.asarray (f['PRIMITIVE_IDS'])
         prims = np.asarray (f['PRIMITIVES'])
 
+    # Check for Cartesian bases
+    for (c, n, l, m) in basids:
+        if l < 0:
+            raise NotImplementedError (CARTESIAN)
+
+    # Atomic coordinates and symmetry framework
     symbs = [s.split (' ')[0] for s in symbs]
     my_atom = [[s, xyz.tolist ()] for s, xyz in zip (symbs, carts)]
     if my_symmetry:
         symm, charge_center, axes = detect_symm (my_atom)
         my_symmetry, axes = get_subgroup (symm, axes)
     
+    # Find basis functions
     my_basis = {}
     for idx, symb in enumerate (symbs):
         if symb in my_basis:
