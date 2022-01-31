@@ -347,9 +347,9 @@ class transfnal (otfnal):
         rho = rho.sum (0)
         R = self.get_ratio (Pi, rho/2)
         zeta = self.get_zeta (R, fn_deriv=1)
-        jTx[:2] = tfnal_derivs.gentLDA_jT_op (x, rho, Pi, R, zeta)
+        jTx[:2] = tfnal_derivs._gentLDA_jT_op (x, rho, Pi, R, zeta)
         if self.dens_deriv > 0:
-            jTx[:] += tfnal_derivs.tGGA_jT_op (x, rho, Pi, R, zeta)
+            jTx[:] += tfnal_derivs._tGGA_jT_op (x, rho, Pi, R, zeta)
         return jTx
 
     def d_jT_op (self, x, rho, Pi, **kwargs):
@@ -377,9 +377,9 @@ class transfnal (otfnal):
         R = self.get_ratio (Pi, rho/2)
         zeta = self.get_zeta (R, fn_deriv=2)
 
-        f[:3] = tfnal_derivs.gentLDA_d_jT_op (x, rho, Pi, R, zeta)
+        f[:3] = tfnal_derivs._gentLDA_d_jT_op (x, rho, Pi, R, zeta)
         if self.dens_deriv:
-            f[:] += tfnal_derivs.tGGA_d_jT_op (x, rho, Pi, R, zeta)
+            f[:] += tfnal_derivs._tGGA_d_jT_op (x, rho, Pi, R, zeta)
 
         if self.verbose >= logger.DEBUG:
             idx = zeta[0] == 0
@@ -610,7 +610,7 @@ class ftransfnal (transfnal):
         R = self.get_ratio (Pi[0:4,:], rho[0:4,:]/2)
         zeta = self.get_zeta (R[0], fn_deriv=2)
         if self.dens_deriv > 0:
-            jTx[:] += tfnal_derivs.ftGGA_jT_op (x, rho, Pi, R, zeta)
+            jTx[:] += tfnal_derivs._ftGGA_jT_op (x, rho, Pi, R, zeta)
         return jTx
 
 _CS_a_DEFAULT = 0.04918
