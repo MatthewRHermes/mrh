@@ -4,6 +4,7 @@ from pyscf import lib
 from pyscf.mcscf import mc1step
 from mrh.my_pyscf.mcpdft.pdft_feff import EotOrbitalHessianOperator
 
+# TODO: docstring
 def get_gorb_update (mc, mo_coeff, ncore=None, ncas=None, nelecas=None,
         eot_only=False):
      # I have to reimplement this because of ci-dependence of veff1 and veff2
@@ -60,8 +61,8 @@ def mc1step_gen_g_hop (mc, mo, u, casdm1, casdm2, eris):
     return g_orb, gorb_update, h_op, h_diag
 
 def mc1step_update_jk_in_ah (mc, mo_coeff, x1, casdm1, veff2):
-    ''' Wrapper to mc1step.update_jk_in_ah for minimizing the PDFT energy
-        instead of the CASSCF energy by varying orbitals '''
+    ''' Wrapper to mc1step.update_jk_in_ah for minimizing the PDFT
+        energy instead of the CASSCF energy by varying orbitals '''
     ncore, ncas = mc.ncore, mc.ncas
     nocc = ncore + ncas
     nao, nmo = mo_coeff.shape

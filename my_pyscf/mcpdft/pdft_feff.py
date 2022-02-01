@@ -10,9 +10,11 @@ from pyscf.scf import hf
 from mrh.my_pyscf.mcpdft.otpd import *
 from mrh.my_pyscf.mcpdft.otpd import _grid_ao2mo
 from mrh.my_pyscf.mcpdft.tfnal_derivs import contract_fot, _unpack_sigma_vector
-from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho, _dot_ao_mo
+from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho
+from mrh.my_pyscf.mcpdft.pdft_veff import _dot_ao_mo
 
 def _contract_rho_all (bra, ket):
+    # Apply the product rule when computing density & derivs on a grid
     if bra.ndim == 2: bra = bra[None,:,:]
     if ket.ndim == 2: ket = ket[None,:,:]
     nderiv, ngrids, norb = bra.shape
@@ -30,27 +32,6 @@ def _contract_rho_all (bra, ket):
 
 from mrh.util import la
 def vector_error (test, ref): return la.vector_error (test, ref, 'rel')
-#def vector_error (test, ref, frac=True):
-#    test, ref = test.ravel (), ref.ravel ()
-#    err = test - ref
-#    norm_test = linalg.norm (test)
-#    norm_ref = linalg.norm (ref)
-#    norm_err = linalg.norm (err)
-#    if frac:
-#        if norm_ref > 0: norm_err /= norm_ref
-#        elif norm_test > 0: norm_err /= norm_test
-#    numer, denom = np.dot (test, ref), norm_test * norm_ref
-#    theta = denom
-#    try:
-#        if denom >= 1e-15: theta = math.acos (numer / denom)
-#    except ValueError as e:
-#        if numer > denom:
-#            assert (np.isclose (numer, denom))
-#            theta = 0
-#        else:
-#            print (numer, denom)
-#            raise (e)
-#    return norm_err, theta
 
 # PySCF's overall sign convention is
 #   de = h.D - D.h
