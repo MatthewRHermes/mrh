@@ -13,8 +13,30 @@ from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import sacasscf as sacasscf_grad
 from itertools import product
 
+# TODO: state-average-mix generalization ?
 def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket): 
-    # TODO: state-average-mix generalization
+    ''' Compute <bra|O|ket> - sum_i <i|O|i>, where O is the 1- and 2-RDM
+        operator product, and |bra> and |ket> are both states spanning
+        the vector space of |i>, which are multi-determinantal many-
+        electron states in an active space.
+
+        Args:
+            mc : object of class CASCI or CASSCF
+                Only "ncas" and "nelecas" are used, to determine Hilbert
+                space of ci
+            ci : ndarray or list of length (nroots)
+                Contains CI vectors spanning a model space
+            si_bra : ndarray of shape (nroots)
+                Coefficients of ci elements for state |bra>
+            si_ket : ndarray of shape (nroots)
+                Coefficients of ci elements for state |ket>
+
+        Returns:
+            casdm1 : ndarray of shape [ncas,]*2
+                Contains O = p'q case
+            casdm2 : ndarray of shape [ncas,]*4
+                Contains O = p'q'sr case
+    '''
     ncas, nelecas = mc.ncas, mc.nelecas
     nroots = len (ci)
     ci_arr = np.asarray (ci)
@@ -24,12 +46,14 @@ def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket):
     ddm1 = np.zeros ((nroots, ncas, ncas), dtype=casdm1.dtype)
     ddm2 = np.zeros ((nroots, ncas, ncas, ncas, ncas), dtype=casdm1.dtype)
     for i in range (nroots):
-        ddm1[i,...], ddm2[i,...] = direct_spin1.make_rdm12 (ci[i], ncas, nelecas)
+        ddm1[i,...], ddm2[i,...] = direct_spin1.make_rdm12 (ci[i], ncas,
+            nelecas)
     si_diag = si_bra * si_ket
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     casdm2 -= np.tensordot (si_diag, ddm2, axes=1)
     return casdm1, casdm2
 
+# TODO: docstring?
 def sipdft_heff_response (mc_grad, mo=None, ci=None,
         si_bra=None, si_ket=None, state=None, ham_si=None, 
         e_mcscf=None, eris=None):
@@ -72,8 +96,9 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
 
     return g_orb, g_is
 
-def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None, si=None,
-        si_bra=None, si_ket=None, state=None, eris=None, mf_grad=None,
+# TODO: docstring?
+def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
+        si=None, si_bra=None, si_ket=None, state=None, eris=None, mf_grad=None,
         verbose=None, **kwargs):
     mc = mc_grad.base
     if atmlst is None: atmlst = mc_grad.atmlst
@@ -124,15 +149,40 @@ def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None, si=None,
     return de
 
 def get_sarotfns (obj):
+    ''' Interpret the name of the MS-PDFT method as a pair of functions
+        which compute the derivatives of a particular objective function
+        with respect to wave function parameters and geometry
+        perturbations, excluding first and second derivatives wrt
+        intermediate state rotations, which is handled by the energy-
+        class version of this function.
+
+        Args:
+            obj : string
+                Specify particular MS-PDFT method. Currently, only "CMS"
+                is supported. Not case-sensitive.
+
+        Returns:
+            sarot_response : callable
+                Computes the orbital-rotation and CI-transfer sectors of
+                the Hessian-vector product of the MS objective function
+                for a vector of intermediate-state rotations
+            sarot : callable
+                Computes the gradient of the MS objective function wrt
+                geometry perturbation
+    '''
     if obj.upper () == 'CMS':
         from mrh.my_pyscf.grad.cmspdft import sarot_response, sarot_grad
     else:
         raise RuntimeError ('SI-PDFT type not supported')
     return sarot_response, sarot_grad
 
+# TODO: docstring? especially considering the "si_bra," "si_ket" 
+# functionality??
+# TODO: figure out how to log the gradients with the right method name!
 class Gradients (mcpdft_grad.Gradients):
 
-    # Preconditioner solves the IS problem; hence, get_init_guess rewrite unnecessary
+    # Preconditioner solves the IS problem; hence, get_init_guess rewrite is 
+    # unnecessary
     get_init_guess = sacasscf_grad.Gradients.get_init_guess
     project_Aop = sacasscf_grad.Gradients.project_Aop
 
@@ -146,20 +196,22 @@ class Gradients (mcpdft_grad.Gradients):
     @property
     def nis (self): return self.nroots * (self.nroots - 1) // 2
 
-    def sarot_response (self, Lis, **kwargs): return self._sarot_response (self, Lis, **kwargs)
-    def sarot_grad (self, Lis, **kwargs): return self._sarot_grad (self, Lis, **kwargs)
+    def sarot_response (self, Lis, **kwargs):
+        return self._sarot_response (self, Lis, **kwargs)
+    def sarot_grad (self, Lis, **kwargs):
+        return self._sarot_grad (self, Lis, **kwargs)
 
     def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False, 
             **kwargs):
-        ''' Cache the Hamiltonian and effective Hamiltonian terms, and pass
-            around the IS hessian
+        ''' Cache the Hamiltonian and effective Hamiltonian terms, and
+            pass around the IS hessian
 
-            eris, veff1, veff2, and d2f should be available to all top-level
-            functions: get_wfn_response, get_Aop_Adiag, get_ham_repsonse, and
-            get_LdotJnuc
+            eris, veff1, veff2, and d2f should be available to all top-
+            level functions: get_wfn_response, get_Aop_Adiag,
+            get_ham_response, and get_LdotJnuc
  
-            freeze_is == True sets the is component of the response to zero
-            for debugging purposes
+            freeze_is == True sets the is component of the response to
+            zero for debugging purposes
         '''
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
@@ -287,25 +339,29 @@ class Gradients (mcpdft_grad.Gradients):
         if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
         ham_od = self.base.ham_si.copy ()
         ham_od[np.diag_indices (self.nroots)] = 0.0
-        ham_od += ham_od.T # This corresponds to the arbitrary newton_casscf * 2
+        ham_od += ham_od.T # This corresponds to the arbitrary newton_casscf*2
         fcasscf = self.make_fcasscf_sa ()
-        hop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris, verbose)[2:]
+        hop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris,
+            verbose)[2:]
         ngorb, nci = self.ngorb, self.nci
         # TODO: cacheing sarot_response? or an x=0 branch?
         def Aop (x):
             x_v, x_is = x[:ngorb+nci], x[ngorb+nci:]
-            Ax_v = hop (x_v) + self.sarot_response (x_is, mo=mo, ci=ci, eris=eris)
+            Ax_v = hop (x_v) + self.sarot_response (x_is, mo=mo, ci=ci,
+                eris=eris)
             x_c = self.unpack_uniq_var (x_v)[1]
             Ax_is = np.dot (d2f, x_is)
             Ax_o, Ax_c = self.unpack_uniq_var (Ax_v)
             Ax_c, Ax_is2 = self._separate_is_component (Ax_c)
-            Ax_c_od = list (np.tensordot (-ham_od, np.stack (x_c, axis=0), axes=1))
-            Ax_c = [a1 + (w*a2) for a1, a2, w in zip (Ax_c, Ax_c_od, self.base.weights)]
-            #assert (np.amax (np.abs (Ax_is2 - Ax_is)) < 1e-8), '{}\n{}'.format (Ax_is, Ax_is2)
+            Ax_c_od = list (np.tensordot (-ham_od, np.stack (x_c, axis=0),
+                axes=1))
+            Ax_c = [a1 + (w*a2) for a1, a2, w in zip (Ax_c, Ax_c_od,
+                self.base.weights)]
             return self.pack_uniq_var (Ax_o, Ax_c, Ax_is)
         return Aop, Adiag
 
-    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, d2f=None, **kwargs):
+    def get_lagrange_precond (self, Adiag, level_shift=None, ci=None, d2f=None,
+            **kwargs):
         if level_shift is None: level_shift = self.level_shift
         if ci is None: ci = self.base.ci
         if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
@@ -315,8 +371,8 @@ class Gradients (mcpdft_grad.Gradients):
     def get_ham_response (self, si_bra=None, si_ket=None, state=None, mo=None,
             ci=None, si=None, eris=None, veff1=None, veff2=None, mf_grad=None, 
             atmlst=None, verbose=None, **kwargs):
-        ''' write sipdft heff Hellmann-Feynman calculator; sum over diagonal
-            PDFT Hellmann-Feynman terms '''
+        ''' write sipdft heff Hellmann-Feynman calculator; sum over
+            diagonal PDFT Hellmann-Feynman terms '''
         if atmlst is None: atmlst = self.atmlst
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
@@ -337,8 +393,8 @@ class Gradients (mcpdft_grad.Gradients):
         # Diagonal: PDFT component
         for i, (amp, c, v1, v2) in enumerate (zip (si_diag, ci, veff1, veff2)):
             if not amp: continue
-            de_i = mcpdft_grad.Gradients.get_ham_response (self, state=i, mo=mo,
-                ci=ci, veff1=v1, veff2=v2, eris=eris, mf_grad=mf_grad,
+            de_i = mcpdft_grad.Gradients.get_ham_response (self, state=i,
+                mo=mo, ci=ci, veff1=v1, veff2=v2, eris=eris, mf_grad=mf_grad,
                 verbose=0, **kwargs) - de_nuc
             log.debug ('SI-PDFT gradient int-state {} EPDFT terms:\n{}'.format
                 (i, de_i))
@@ -373,7 +429,8 @@ class Gradients (mcpdft_grad.Gradients):
         # Double-check Lvec_v sanity
         Lvec_orb, Lvec_ci = self.unpack_uniq_var (Lvec_v)
         Lvec_is2 = self._get_is_component (Lvec_ci, symm=0)
-        assert (np.amax (np.abs (Lvec_is2)) < 1e-8), '{} {}'.format (Lvec_is, Lvec_is2)
+        assert (np.amax (np.abs (Lvec_is2)) < 1e-8), '{} {}'.format (Lvec_is,
+            Lvec_is2)
 
         # Orbital and CI components
         de_Lv = sacasscf_grad.Gradients.get_LdotJnuc (self, Lvec_v,
@@ -387,7 +444,8 @@ class Gradients (mcpdft_grad.Gradients):
         logger.info (self, 
             '--------------- %s gradient Lagrange IS response ---------------',
             self.base.__class__.__name__)
-        if verbose >= logger.INFO: rhf_grad._write(self, self.mol, de_Lis, atmlst)
+        if verbose >= logger.INFO:
+            rhf_grad._write(self, self.mol, de_Lis, atmlst)
         logger.info (self,
             '----------------------------------------------------------------')
         t0 = logger.timer (self, '{} gradient Lagrange IS response'.format (
@@ -438,8 +496,8 @@ class Gradients (mcpdft_grad.Gradients):
         if isinstance (self.base.fcisolver, CSFFCISolver):
             transf = self.base.fcisolver.transformer
             def _debug_csfs (xci, label, normalize=False):
-                strs, vecs = transf.printable_largest_csf (np.asarray (xci), 10,
-                    isdet=True, normalize=normalize, order='C')
+                strs, vecs = transf.printable_largest_csf (np.asarray (xci),
+                    10, isdet=True, normalize=normalize, order='C')
                 log.debug ('Leading CSFs for %s', label)
                 for iroot in range (nroots):
                     log.debug (' Root %d', iroot)
@@ -451,15 +509,18 @@ class Gradients (mcpdft_grad.Gradients):
             log.debug ('%s', label)
             xci_norm = [np.dot (c.ravel (), c.ravel ()) for c in xci]
             try:
-                xci_ss = self.base.fcisolver.states_spin_square (xci, self.base.ncas, self.base.nelecas)[0]
+                xci_ss = self.base.fcisolver.states_spin_square (xci,
+                    self.base.ncas, self.base.nelecas)[0]
             except AttributeError:
                 nelec = sum (_unpack_nelec (self.base.nelecas))
-                xci_ss = [spin_square (x, self.base.ncas, ((nelec+m)//2,(nelec-m)//2))[0]
+                xci_ss = [spin_square (x, self.base.ncas,
+                          ((nelec+m)//2,(nelec-m)//2))[0]
                           for x, m in zip (xci, self.spin_states)]
             xci_ss = [x / max (y, 1e-8) for x, y in zip (xci_ss, xci_norm)]
             xci_multip = [np.sqrt (x+.25) - .5 for x in xci_ss]
             xci_norm = np.sqrt (xci_norm)
-            for ix, (norm, ss, multip) in enumerate (zip (xci_norm, xci_ss, xci_multip)):
+            for ix, (norm, ss, multip) in enumerate (zip (xci_norm, xci_ss,
+                    xci_multip)):
                 log.debug ((' State {} norm = {:.7e} ; <S^2> = {:.7f} ; 2S+1'
                             ' = {:.7f}').format (ix, norm, ss, multip))
             ovlp = np.zeros ((nroots, nroots), dtype=xci[0].dtype)
@@ -471,25 +532,27 @@ class Gradients (mcpdft_grad.Gradients):
             for row in ovlp: log.debug (fmt_str.format (*row))
         _debug_csfs (ci, 'CI vector', normalize=True)
         borb, bci, bis = self.unpack_uniq_var (bvec)
-        log.debug ('Orbital rotation gradient (b) norm = {:.6e}'.format (linalg.norm (borb)))
+        log.debug ('Orbital rotation gradient (b) norm = {:.6e}'.format (
+            linalg.norm (borb)))
         _debug_cispace (bci, 'CI gradient (b)')
         _debug_csfs (bci, 'CI gradient (b)')
         Aorb, Aci = self.unpack_uniq_var (Adiag)
-        log.debug ('Orbital rotation Hessian (A) diagonal norm = {:.7e}'.format (linalg.norm (Aorb)))
+        log.debug ('Orbital rotation Hessian (A) diagonal norm = {:.7e}'.format
+            (linalg.norm (Aorb)))
         _debug_cispace (Aci, 'CI Hessian (A) diagonal')
         _debug_csfs (Aci, 'CI Hessian (A) diagonal')
         Lorb, Lci, Lis = self.unpack_uniq_var (Lvec)
-        log.debug ('Orbital rotation Lagrange vector (x) norm = {:.7e}'.format (linalg.norm (Lorb)))
+        log.debug ('Orbital rotation Lagrange vector (x) norm = {:.7e}'.format
+            (linalg.norm (Lorb)))
         _debug_cispace (Lci, 'CI Lagrange (x) vector')
         _debug_csfs (Lci, 'CI Lagrange (x) vector')
-        log.debug ('SI-PDFT Constraint Jacobian (type = {}) (A):'.format (self.base.sarot_name))
+        log.debug ('SI-PDFT Constraint Jacobian (type = {}) (A):'.format (
+            self.base.sarot_name))
         fmt = ' ' + ' '.join (['{:12.5e}' for i in range (self.nis)])
         for row in d2f: log.debug (fmt.format (*row))
         log.debug (' {:>12s} {:>12s}'.format ('Gradient (b)', 'Vector (x)'))
         for g, v in zip (bis, Lis):
             log.debug (' {:12.5e} {:12.5e}'.format (g, v))
-        #log.debug ('FOR JIE:')
-        #_debug_csfs (self.unpack_uniq_var (self.sarot_response (np.array ([1.0]), mo=mo, ci=ci, eris=eris))[1], 'A_(IS,CI)')
 
 class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
     ''' Solve IS part exactly, then do everything else the same '''
@@ -500,7 +563,8 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
             level_shift=level_shift, ci=ci, grad_method=grad_method)
         self.grad_method = grad_method
         self.sing_tol = getattr (grad_method.base, 'sing_tol_sarot', 1e-8)
-        self.log = logger.new_logger (self.grad_method, self.grad_method.verbose)
+        self.log = logger.new_logger (self.grad_method,
+            self.grad_method.verbose)
         self._init_d2f (d2f=d2f, **kwargs)
         self.verbose = self.grad_method.verbose
 
@@ -553,55 +617,4 @@ if __name__ == '__main__':
     mc = mc.state_interaction ([1.0/3,]*3, 'cms').run ()
     mc_grad = Gradients (mc) 
     de = np.stack ([mc_grad.kernel (state=i) for i in range (3)], axis=0)
-    print (de)
-
-    #e_states = mc.e_states.copy ()
-    #ham_si = np.diag (mc.e_states)
-    #
-    #mc_grad = mc.nuc_grad_method ()
-    #mf_grad = mf.nuc_grad_method ()
-    #dh_ref = np.stack ([mc_grad.get_ham_response (state=i) for i in range (3)], axis=0)
-    #dw_ref = np.stack ([mc_grad.get_wfn_response (state=i) for i in range (3)], axis=0)
-    #dworb_ref, dwci_ref = dw_ref[:,:mc_grad.ngorb], dw_ref[:,mc_grad.ngorb:]
-    #assert (linalg.norm (dwci_ref) < 1e-8)
-
-    #si = np.zeros ((3,3), dtype=mc.ci[0].dtype)
-    #np.random.seed (0)
-    #si[np.tril_indices (3, k=-1)] = math.pi * (np.random.rand ((3)) - 0.5)
-    #si = linalg.expm (si-si.T)
-    #ci_arr = np.asarray (mc.ci)
-    #ham_si = si @ ham_si @ si.T
-    #e_mcscf = ham_si.diagonal ()
-    #eris = mc.ao2mo (mc.mo_coeff)
-    #ci = mc.ci = mc_grad.ci = mc_grad.base.ci = list (np.tensordot (si, ci_arr, axes=1))
-    #ci_arr = np.asarray (mc.ci)
-
-    #dh_diag = np.stack ([mc_grad.get_ham_response (state=i, ci=ci) for i in range (3)], axis=0)
-    #dw_diag = np.stack ([mc_grad.get_wfn_response (state=i, ci=ci) for i in range (3)], axis=0)
-    #si_diag = si * si
-    #dh_diag = np.einsum ('sac,sr->rac', dh_diag, si_diag)
-    #dworb_diag, dwci_diag = dw_diag[:,:mc_grad.ngorb], dw_diag[:,mc_grad.ngorb:]
-    #dworb_diag = np.einsum ('sc,sr->rc', dworb_diag, si_diag)
-    #dwci_diag = np.einsum ('rpab,qab->rpq', dwci_diag.reshape (3,3,6,6), ci_arr)
-    #dwci_diag -= dwci_diag.transpose (0,2,1)
-    #dwci_diag = np.einsum ('spq,sr->rpq', dwci_diag, si_diag)
-
-    #dh_offdiag = np.zeros_like (dh_diag)
-    #dw_offdiag = np.zeros_like (dw_diag)
-    #for i in range (3):
-    #    dw_offdiag[i] += sipdft_heff_response (mc_grad, ci=ci, state=i, eris=eris,
-    #        si_bra=si[:,i], si_ket=si[:,i], ham_si=ham_si, e_mcscf=e_mcscf)
-    #    dh_offdiag[i] += sipdft_heff_HellmanFeynman (mc_grad, ci=ci, state=i,
-    #        si_bra=si[:,i], si_ket=si[:,i], eris=eris)
-    #dworb_offdiag, dwci_offdiag = dw_offdiag[:,:mc_grad.ngorb], dw_offdiag[:,mc_grad.ngorb:]
-    #dwci_offdiag = np.einsum ('rpab,qab->rpq', dwci_offdiag.reshape (3,3,6,6), ci_arr)
- 
-    #dworb_test = dworb_diag + dworb_offdiag
-    #dwci_test = dwci_diag + dwci_offdiag
-    #dh_test = dh_diag + dh_offdiag
-
-    #dworb_err = dworb_test - dworb_ref
-    #dwci_err = dwci_test 
-    #dh_err = dh_test - dh_ref 
-    #print ("test", linalg.norm (dworb_err), linalg.norm (dwci_err), linalg.norm (dh_err))
 
