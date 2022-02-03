@@ -1,26 +1,43 @@
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
+from pyscf.data.nist import HARTREE2EV
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.fci import csf_solver
 import unittest
 
-Natom = scf.RHF (gto.M (atom = 'N 0 0 0', basis='cc-pvtz', spin=3, symmetry='Dooh', output='/dev/null')).run ()
-Beatom = scf.RHF (gto.M (atom = 'Be 0 0 0', basis='cc-pvtz', spin=2, symmetry=False, output='/dev/null')).run ()
-Natom_hs = mcscf.CASSCF (Natom, 4, (4,1)).set (fcisolver=csf_solver (Natom.mol, smult=4), conv_tol=1e-10).run ()
-Natom_ls = mcscf.CASSCF (Natom, 4, (3,2)).set (fcisolver=csf_solver (Natom.mol, smult=2), conv_tol=1e-10).run ()
-Beatom_ls = mcscf.CASSCF (Beatom, 4, (1,1)).set (fcisolver=csf_solver (Beatom.mol, smult=1), conv_tol=1e-10).run ()
-Beatom_hs = mcscf.CASSCF (Beatom, 4, (2,0)).set (fcisolver=csf_solver (Beatom.mol, smult=3), conv_tol=1e-10).run ()
+Natom = scf.RHF (gto.M (atom = 'N 0 0 0', basis='cc-pvtz', spin=3, symmetry='Dooh', output='/dev/null'))
+Beatom = scf.RHF (gto.M (atom = 'Be 0 0 0', basis='cc-pvtz', spin=2, symmetry=False, output='/dev/null'))
+Natom_hs = [Natom, (4,1), None]
+Natom_ls = [Natom, (3,2), None]
+Beatom_ls = [Beatom, (1,1), None]
+Beatom_hs = [Beatom, (2,0), None]
+
+def check_calc (calc):
+    if not calc[0].converged: calc[0].kernel ()
+    if calc[-1] is None:
+        mf = calc[0]
+        mol = mf.mol
+        nelecas = calc[1]
+        s = (nelecas[1]-nelecas[0])*0.5
+        ss = s*(s+1)
+        mc = mcscf.CASSCF (mf, 4, nelecas).set (conv_tol=1e-10)
+        mc.fix_spin_(ss=ss)
+        calc[-1] = mc
+    if not calc[-1].converged:
+        calc[-1].kernel ()
+    return calc[-1]
 
 def get_gap (gs, es, fnal):
+    gs = check_calc (gs)
+    es = check_calc (es)
     e0 = mcpdft.CASSCF (gs._scf, fnal, gs.ncas, gs.nelecas, grids_level=9).set (
         fcisolver = gs.fcisolver, conv_tol=1e-10).kernel (
         gs.mo_coeff, gs.ci)[0]
     e1 = mcpdft.CASSCF (es._scf, fnal, es.ncas, es.nelecas, grids_level=9).set (
         fcisolver = es.fcisolver, conv_tol=1e-10).kernel (
         es.mo_coeff, es.ci)[0]
-    return (e1-e0)*27.2114
+    return (e1-e0)*HARTREE2EV
 
 def tearDownModule():
     global Natom, Natom_hs, Natom_ls, Beatom, Beatom_ls, Beatom_hs
