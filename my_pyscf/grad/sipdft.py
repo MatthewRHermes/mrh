@@ -546,8 +546,7 @@ class Gradients (mcpdft_grad.Gradients):
             (linalg.norm (Lorb)))
         _debug_cispace (Lci, 'CI Lagrange (x) vector')
         _debug_csfs (Lci, 'CI Lagrange (x) vector')
-        log.debug ('SI-PDFT Constraint Jacobian (type = {}) (A):'.format (
-            self.base.sarot_name))
+        log.debug ('{} Constraint Jacobian (A):'.format (self.base.__class__.__name__))
         fmt = ' ' + ' '.join (['{:12.5e}' for i in range (self.nis)])
         for row in d2f: log.debug (fmt.format (*row))
         log.debug (' {:>12s} {:>12s}'.format ('Gradient (b)', 'Vector (x)'))

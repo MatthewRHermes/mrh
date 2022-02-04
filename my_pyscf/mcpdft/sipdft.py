@@ -106,7 +106,7 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
     npairs = nroots * (nroots - 1) // 2
     t = np.zeros((nroots,nroots))
     conv = False
-    hdr = '{}-PDFT intermediate-state'.format (mc.sarot_name)
+    hdr = '{} intermediate-state'.format (mc.__class__.__name__)
 
     for it in range(max_cyc):
         log.info ("****iter {} ***********".format (it))
@@ -336,12 +336,11 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         nroots = len (e_pdft)
         log = lib.logger.new_logger (self, self.verbose)
         f, df, d2f = self.sarot_objfn ()
-        log.note ('%s-PDFT intermediate objective function  value = %.15g ' 
-            '|grad| = %.7g', self.sarot_name, f, linalg.norm (df))
-        log.note ('%s-PDFT intermediate average energy  EPDFT = %.15g  EMCSCF '
-            '= %.15g', self.sarot_name, np.dot (self.weights, e_pdft),
-            np.dot (self.weights, self.e_mcscf))
-        log.note ('%s-PDFT intermediate states:', self.sarot_name)
+        hdr = '{} intermediate'.format (self.__class__.__name__)
+        log.note ('%s objective function  value = %.15g |grad| = %.7g', hdr, f, linalg.norm (df))
+        log.note ('%s average energy  EPDFT = %.15g  EMCSCF = %.15g', hdr,
+                  np.dot (self.weights, e_pdft), np.dot (self.weights, self.e_mcscf))
+        log.note ('%s states:', hdr)
         if getattr (self.fcisolver, 'spin_square', None):
             ss = self.fcisolver.states_spin_square (self.ci, self.ncas,
                                                     self.nelecas)[0]
@@ -367,7 +366,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         e_pdft = self.e_states
         nroots = len (e_pdft)
         e_mcscf = (np.dot (self.ham_ci, self.si) * self.si.conj ()).sum (0)
-        log.note ('%s-PDFT final states:', self.sarot_name) 
+        log.note ('%s final states:', self.__class__.__name__) 
         if getattr (self.fcisolver, 'spin_square', None):
             ci = np.tensordot (self.si.T, np.asarray (self.ci), axes=1)
             ss = self.fcisolver.states_spin_square (ci, self.ncas,
@@ -431,12 +430,16 @@ def state_interaction (mc, weights=(0.5,0.5), obj='CMS', **kwargs):
     if isinstance (mc.fcisolver, StateAverageMixFCISolver):
         raise RuntimeError ('TODO: state-average mix support')
     if not isinstance (mc, StateAverageMCSCFSolver):
+        base_name = mc.__class__.__name__
         mc = mc.state_average (weights=weights, **kwargs)
+    else:
+        base_name = mc.__class__.__bases__[0].__name__
     mcbase_class = mc.__class__
     sarot_objfn, sarot = get_sarotfns (obj)
 
     class SIPDFT (_SIPDFT, mcbase_class):
         pass
+    SIPDFT.__name__ = obj.upper () + base_name
     return SIPDFT (mc, sarot_objfn, sarot, obj)
     
 
