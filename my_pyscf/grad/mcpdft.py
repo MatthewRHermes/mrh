@@ -289,8 +289,8 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None,
 # TODO: docstrings (parent classes???)
 class Gradients (sacasscf.Gradients):
 
-    def __init__(self, pdft):
-        super().__init__(pdft)
+    def __init__(self, pdft, state=None):
+        super().__init__(pdft, state=state)
         # TODO: gradient of PDFT state-average energy 
         # i.e., state = 0 & nroots > 1 case
         if self.state is None and self.nroots == 1:

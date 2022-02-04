@@ -7,7 +7,6 @@ from pyscf import gto, dft, ao2mo, fci, mcscf, lib
 from pyscf.lib import logger
 from pyscf.mcscf import mc_ao2mo
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_
-from mrh.my_pyscf.mcpdft.mcpdft import StateAverageMCPDFTSolver, sapdft_grad_monkeypatch_
 from mrh.my_pyscf.mcdcft.convfnal import convfnal
 
 def get_unpaired_density(natorb, occ, ao):
@@ -308,25 +307,7 @@ def get_mcdcft_child_class (mc, ot, **kwargs):
 
         # TODO: gradient has not been implemented
         def nuc_grad_method (self):
-            return Gradients (self)
-
-        def state_average (self, weights=(0.5,0.5)):
-            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
-            return sapdft_grad_monkeypatch_(super ().state_average (weights=weights))
-
-        def state_average_(self, weights=(0.5,0.5)):
-            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
-            sapdft_grad_monkeypatch_(super ().state_average_(weights=weights))
-            return self
-
-        def state_average_mix (self, fcisolvers=None, weights=(0.5,0.5)):
-            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
-            return sapdft_grad_monkeypatch_(state_average_mix (self, fcisolvers, weights))
-
-        def state_average_mix_(self, fcisolvers=None, weights=(0.5,0.5)):
-            # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons eventually rather than here
-            sapdft_grad_monkeypatch_(state_average_mix_(self, fcisolvers, weights))
-            return self
+            raise NotImplementedError ("MC-DCFT nuclear gradients")
 
         @property
         def otxc (self):

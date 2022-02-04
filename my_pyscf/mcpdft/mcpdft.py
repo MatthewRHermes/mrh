@@ -377,20 +377,6 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal,
     e_wfnxc = e_mcscf - e_nuc - e_core - e_coul
     return e_core, e_coul, e_otx, e_otc, e_wfnxc
 
-# TODO: edit pyscf.mcscf.addons to look for a hook to a child-class gradients
-# method, so that all of this "monkeypatch" nonsense can be deleted
-class StateAverageMCPDFTSolver:
-    pass
-def sapdft_grad_monkeypatch_(mc):
-    if isinstance (mc, StateAverageMCPDFTSolver):
-        return mc
-    class StateAverageMCPDFT (mc.__class__, StateAverageMCPDFTSolver):
-        def nuc_grad_method (self):
-            from mrh.my_pyscf.grad.mcpdft import Gradients
-            return Gradients (self)
-    mc.__class__ = StateAverageMCPDFT
-    return mc
-
 class _PDFT ():
     # Metaclass parent; unusable on its own
 
@@ -561,9 +547,12 @@ class _PDFT ():
         logger.timer (self, 'get_pdft_veff', *t0)
         return pdft_veff1, pdft_veff2
 
-    def nuc_grad_method (self):
+    def _state_average_nuc_grad_method (self, state=None):
         from mrh.my_pyscf.grad.mcpdft import Gradients
-        return Gradients (self)
+        return Gradients (self, state=state)
+
+    def nuc_grad_method (self):
+        return self._state_average_nuc_grad_method (state=None)
 
     def dip_moment (self, unit='Debye', state=None):
         from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
@@ -583,29 +572,12 @@ class _PDFT ():
         return get_energy_decomposition (self, self.otfnal, mo_coeff=mo_coeff,
             ci=ci)
 
-    def state_average (self, weights=(0.5,0.5)):
-        # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons
-        # eventually rather than here
-        return sapdft_grad_monkeypatch_(super ().state_average (
-            weights=weights))
-
-    def state_average_(self, weights=(0.5,0.5)):
-        # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons
-        # eventually rather than here
-        sapdft_grad_monkeypatch_(super ().state_average_(weights=weights))
-        return self
-
     def state_average_mix (self, fcisolvers=None, weights=(0.5,0.5)):
-        # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons
-        # eventually rather than here
-        return sapdft_grad_monkeypatch_(state_average_mix (self, fcisolvers,
-            weights))
+        return state_average_mix (self, fcisolvers, weights)
 
     def state_average_mix_(self, fcisolvers=None, weights=(0.5,0.5)):
-        # This is clumsy and hacky and should be fixed in pyscf.mcscf.addons
-        # eventually rather than here
-        sapdft_grad_monkeypatch_(state_average_mix_(self, fcisolvers, weights))
-        return self
+         state_average_mix_(self, fcisolvers, weights)
+         return self
 
     def state_interaction (self, weights=(0.5,0.5), obj='CMS'):
         from mrh.my_pyscf.mcpdft.sipdft import state_interaction
