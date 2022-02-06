@@ -478,7 +478,7 @@ class _PDFT ():
             return self.e_tot, self.e_ot, self.e_states
         else:
             self.e_tot, self.e_ot = self.energy_tot (mo_coeff=mo, ci=ci)
-            return self.e_tot, self.e_ot, [self.e_tot} 
+            return self.e_tot, self.e_ot, [self.e_tot] 
 
     def kernel (self, mo=None, ci=None, **kwargs):
         self.otfnal.reset (mol=self.mol) # scanner mode safety
