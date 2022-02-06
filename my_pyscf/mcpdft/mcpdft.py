@@ -11,7 +11,7 @@ from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix
 from pyscf.mcscf.addons import state_average_mix_, StateAverageMixFCISolver
 from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
-from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
+from mrh.my_pyscf.mcpdft.otfnal import otfnal, get_transfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 
 # TODO: 
@@ -427,18 +427,19 @@ class _PDFT ():
     def _init_ot_grids (self, my_ot, grids_attr={}):
         old_grids = getattr (self, 'grids', None)
         if isinstance (my_ot, (str, np.string_)):
-            ks = dft.RKS (self.mol)
-            if my_ot[:1].upper () == 'T':
-                ks.xc = my_ot[1:]
-                self.otfnal = transfnal (ks)
-            elif my_ot[:2].upper () == 'FT':
-                ks.xc = my_ot[2:]
-                self.otfnal = ftransfnal (ks)
-            else:
-                raise NotImplementedError (('On-top pair-density functional '
-                    'names other than "translated" (t) or "fully-translated" '
-                    '(ft). Nonstandard functionals can be specified by passing'
-                    ' an object of class otfnal in place of a string.'))
+            self.otfnal = get_transfnal (self.mol, my_ot)
+            #ks = dft.RKS (self.mol)
+            #if my_ot[:1].upper () == 'T':
+            #    ks.xc = my_ot[1:]
+            #    self.otfnal = transfnal (ks)
+            #elif my_ot[:2].upper () == 'FT':
+            #    ks.xc = my_ot[2:]
+            #    self.otfnal = ftransfnal (ks)
+            #else:
+            #    raise NotImplementedError (('On-top pair-density functional '
+            #        'names other than "translated" (t) or "fully-translated" '
+            #        '(ft). Nonstandard functionals can be specified by passing'
+            #        ' an object of class otfnal in place of a string.'))
         else:
             self.otfnal = my_ot
         if isinstance (old_grids, gen_grid.Grids):

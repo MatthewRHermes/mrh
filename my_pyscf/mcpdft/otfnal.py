@@ -2,7 +2,7 @@ import numpy as np
 import copy
 import re
 from scipy import linalg
-from pyscf import lib
+from pyscf import lib, dft
 from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
@@ -617,6 +617,23 @@ _CS_a_DEFAULT = 0.04918
 _CS_b_DEFAULT = 0.132
 _CS_c_DEFAULT = 0.2533
 _CS_d_DEFAULT = 0.349
+
+def get_transfnal (mol, otxc):
+    ks = dft.RKS (mol)
+    if otxc.upper ().startswith ('T'):
+        ks.xc = otxc[1:]
+        fnal_class = transfnal
+    elif otxc.upper ().startswith ('FT'):
+        ks.xc = otxc[2:]
+        fnal_class = ftransfnal
+    else:
+        raise NotImplementedError (
+            'On-top pair-density functional names other than "translated" (t) or '
+            '"fully-translated (ft).'
+            )
+    return fnal_class (ks)
+    
+
 
 class colle_salvetti_corr (otfnal):
 
