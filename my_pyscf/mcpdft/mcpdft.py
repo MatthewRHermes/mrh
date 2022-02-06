@@ -14,7 +14,19 @@ from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, ftransfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 
-# TODO: negative number = state-average API unittest
+# TODO: 
+# 1. More logging output in the "kernel" function. Redo the "finalize"
+#    function.
+# 2. Allow for quick energy recomputation with different functional, without
+#    messing up the convention that all the "energy_*" functions return ONE
+#    energy only (is this consistent with PySCF convention overall???).
+# 3. Redesign state-average API. Get rid of awful root=-1 convention while
+#    still allowing computation of the total state-average energy only.
+# 4. Clean up "make_rdms_mcpdft":
+#       a. Make better use of existing API and name conventions
+#       b. Get rid of pointless _os, _ss computation unless necessary. (Tags?)
+# 5. Unify calling signatures of the "energy_*" functions: mo_coeff, ci, ot,
+#    state.
 
 def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
     ''' Calculate MC-PDFT total energy
@@ -431,20 +443,38 @@ class _PDFT ():
         # (i.e., in scanner mode)
         self.otfnal.verbose = self.verbose
         self.otfnal.stdout = self.stdout
-        
-    def kernel (self, mo=None, ci=None, **kwargs):
-        self.otfnal.reset (mol=self.mol) # scanner mode safety
+ 
+    def optimize_mcscf_(self, mo=None, ci=None, **kwargs):
+        ''' Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
+            Has the same calling signature as the parent kernel method. '''
         self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
             super().kernel (mo, ci, **kwargs)
+        # TODO: is "super" safe? If I try to tag the specific kernel in the
+        # class factory at the bottom, the problem then becomes that state_average
+        # and state_interaction classes don't work right.
         if isinstance (self, StateAverageMCSCFSolver):
-            epdft = [self.energy_tot (root=ix) for ix in range (len (
+            self.e_mcscf = self.e_states
+        return self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
+
+    def compute_pdft_energy_(self, mo=None, ci=None, **kwargs):
+        ''' Compute the MC-PDFT energy(ies) (and update stored data)
+            with the MC-SCF wave function fixed. '''
+        if isinstance (self, StateAverageMCSCFSolver):
+            epdft = [self.energy_tot (mo_coeff=mo, ci=ci, root=ix) for ix in range (len (
                 self.e_states))]
             self.e_mcscf = self.e_states
             self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
             self.e_ot = [e_ot for e_tot, e_ot in epdft]
             self.e_tot = np.dot (self.e_states, self.weights)
+            return self.e_tot, self.e_ot, self.e_states
         else:
-            self.e_tot, self.e_ot = self.energy_tot ()
+            self.e_tot, self.e_ot = self.energy_tot (mo_coeff=mo, ci=ci)
+            return self.e_tot, self.e_ot, [self.e_tot} 
+
+    def kernel (self, mo=None, ci=None, **kwargs):
+        self.otfnal.reset (mol=self.mol) # scanner mode safety
+        self.optimize_mcscf_(mo, ci, **kwargs)
+        self.compute_pdft_energy_(mo, ci, **kwargs)
         return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci,
             self.mo_coeff, self.mo_energy)
 
@@ -594,11 +624,12 @@ class _PDFT ():
     make_rdms_mcpdft = make_rdms_mcpdft
     energy_mcwfn = energy_mcwfn
     energy_dft = energy_dft
-    def energy_tot (self, ot=None, ci=None, root=-1, verbose=None):
-        if ot is None: ot = self.otfnal
+    def energy_tot (self, mo_coeff=None, ci=None, ot=None, root=-1, verbose=None):
+        if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        e_tot, e_ot = energy_tot (self, ot=ot, ci=ci, root=root,
-            verbose=verbose)
+        if ot is None: ot = self.otfnal
+        e_tot, e_ot = energy_tot (self, mo_coeff=mo_coeff, ot=ot, ci=ci,
+            root=root, verbose=verbose)
         logger.note (self, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc,
             e_ot)
         return e_tot, e_ot
