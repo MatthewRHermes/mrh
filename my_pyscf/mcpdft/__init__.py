@@ -13,7 +13,8 @@ def _MCPDFT (mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=No
     else:
         mc0 = None
         mf_or_mol = mc_or_mf_or_mol
-    mc1 = mc_class (mf_or_mol, ncas, nelecas, ncore=ncore, frozen=frozen)
+    if frozen is not None: mc1 = mc_class (mf_or_mol, ncas, nelecas, ncore=ncore, frozen=frozen)
+    else: mc1 = mc_class (mf_or_mol, ncas, nelecas, ncore=ncore)
     mc2 = get_mcpdft_child_class (mc1, ot, ci_min=ci_min, **kwargs)
     if mc0 is not None:
         mc2.mo_coeff = mc_or_mf_or_mol.mo_coeff.copy ()    
@@ -27,8 +28,8 @@ def CASSCFPDFT (mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None, ci_
                     ci_min='ecas', **kwargs)
 
 def CASCIPDFT (mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, ci_min='ecas', **kwargs):
-    return _MCPDFT (mcscf.CASCI, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=ncore, frozen=frozen,
-                    ci_min='ecas', **kwargs)
+    return _MCPDFT (mcscf.CASCI, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=ncore, ci_min='ecas',
+                    **kwargs)
 
 CASSCF=CASSCFPDFT
 CASCI=CASCIPDFT

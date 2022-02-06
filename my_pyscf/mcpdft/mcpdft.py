@@ -5,7 +5,7 @@ from pyscf import gto, dft, ao2mo, fci, mcscf, lib, __config__
 from pyscf.lib import logger, temporary_env
 from pyscf.fci import cistring
 from pyscf.dft import gen_grid
-from pyscf.mcscf import mc_ao2mo, mc1step
+from pyscf.mcscf import mc_ao2mo, mc1step, casci
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix
 from pyscf.mcscf.addons import state_average_mix_, StateAverageMixFCISolver
@@ -586,11 +586,19 @@ class _PDFT ():
         logger.timer (self, 'get_pdft_veff', *t0)
         return pdft_veff1, pdft_veff2
 
+    def _casci_nuc_grad_not_implemented (self):
+        if isinstance (self, casci.CASCI) and not isinstance (self, mc1step.CASSCF):
+            raise NotImplementedError (
+                "Nuclear gradients for CASCI-based MC-PDFT energy"
+                )
+
     def _state_average_nuc_grad_method (self, state=None):
+        self._casci_nuc_grad_not_implemented ()
         from mrh.my_pyscf.grad.mcpdft import Gradients
         return Gradients (self, state=state)
 
     def nuc_grad_method (self):
+        self._casci_nuc_grad_not_implemented ()
         return self._state_average_nuc_grad_method (state=None)
 
     def dip_moment (self, unit='Debye', state=None):

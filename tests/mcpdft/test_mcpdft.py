@@ -12,4 +12,5 @@
 #   2. Symmetry, with and without
 #   3. State average, state average mix w/ different spin states
 
+# Building the rudiments of this in debug/debug_mcpdft_api.py
 
