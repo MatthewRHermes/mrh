@@ -454,11 +454,11 @@ class _PDFT ():
         self.otfnal.verbose = self.verbose
         self.otfnal.stdout = self.stdout
  
-    def optimize_mcscf_(self, mo=None, ci=None, **kwargs):
+    def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
         ''' Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
             Has the same calling signature as the parent kernel method. '''
         self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
-            super().kernel (mo, ci, **kwargs)
+            super().kernel (mo_coeff, ci0=ci0, **kwargs)
         # TODO: is "super" safe? If I try to tag the specific kernel in the
         # class factory at the bottom, the problem then becomes that state_average
         # and state_interaction classes don't work right.
@@ -466,25 +466,28 @@ class _PDFT ():
             self.e_mcscf = self.e_states
         return self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
 
-    def compute_pdft_energy_(self, mo=None, ci=None, **kwargs):
+    def compute_pdft_energy_(self, mo_coeff=None, ci=None, otxc=None, **kwargs):
         ''' Compute the MC-PDFT energy(ies) (and update stored data)
             with the MC-SCF wave function fixed. '''
+        if mo_coeff is not None: self.mo_coeff = mo_coeff
+        if ci is not None: self.ci = ci
+        if otxc is not None: self.otxc = otxc
         if isinstance (self, StateAverageMCSCFSolver):
-            epdft = [self.energy_tot (mo_coeff=mo, ci=ci, root=ix) for ix in range (len (
-                self.e_states))]
+            epdft = [self.energy_tot (mo_coeff=self.mo_coeff, ci=self.ci, root=ix)
+                     for ix in range (len (self.e_states))]
             self.e_mcscf = self.e_states
             self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
             self.e_ot = [e_ot for e_tot, e_ot in epdft]
             self.e_tot = np.dot (self.e_states, self.weights)
             return self.e_tot, self.e_ot, self.e_states
         else:
-            self.e_tot, self.e_ot = self.energy_tot (mo_coeff=mo, ci=ci)
+            self.e_tot, self.e_ot = self.energy_tot (mo_coeff=self.mo_coeff, ci=self.ci)
             return self.e_tot, self.e_ot, [self.e_tot] 
 
-    def kernel (self, mo=None, ci=None, **kwargs):
+    def kernel (self, mo_coeff=None, ci0=None, otxc=None, **kwargs):
         self.otfnal.reset (mol=self.mol) # scanner mode safety
-        self.optimize_mcscf_(mo, ci, **kwargs)
-        self.compute_pdft_energy_(mo, ci, **kwargs)
+        self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0, **kwargs)
+        self.compute_pdft_energy_(otxc=otxc, **kwargs)
         return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci,
             self.mo_coeff, self.mo_energy)
 
