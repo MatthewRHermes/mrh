@@ -27,6 +27,15 @@ from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 #       b. Get rid of pointless _os, _ss computation unless necessary. (Tags?)
 # 5. Unify calling signatures of the "energy_*" functions: mo_coeff, ci, ot,
 #    state.
+# 6. Additional API desiderata:
+#       a. Recompute energies w/ a temporary different functional, w/out
+#          recomputing mo_coeff or ci.
+#       b. Recompute energies in-place w/ a new functional, w/out recomputing
+#          mo_coeff or ci.
+#       c. Initialize NEW MC-PDFT object w/ converged MC-SCF or MC-PDFT calc'n,
+#          including state_average, state_interaction, newton versions!
+#          (Check if copy.deepcopy can do this for MC-PDFT version.)
+# 7. Hybrid API and unittests. NotImplementedErrors for omega and alpha.
 
 def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
     ''' Calculate MC-PDFT total energy

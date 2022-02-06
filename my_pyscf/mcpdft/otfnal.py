@@ -664,7 +664,7 @@ class colle_salvetti_corr (otfnal):
         return E_ot      
                 
 # TODO: better docstring
-def hybrid_2c_coeff (ni, xc_code, spin=0):
+def _hybrid_2c_coeff (ni, xc_code, spin=0):
     ''' Wrapper to the xc_code hybrid coefficient parser to return the
     exchange and correlation components of the hybrid coefficent
     separately '''
@@ -832,7 +832,7 @@ __ft_doc__="For 'fully translated' functionals, otxc string = 'ft'+xc string\n"
 
 def t_hybrid_coeff(ni, xc_code, spin=0):
     #return _NumInt.hybrid_coeff(ni, xc_code[1:], spin=0)
-    return hybrid_2c_coeff (ni, xc_code[1:], spin=0)
+    return _hybrid_2c_coeff (ni, xc_code[1:], spin=0)
 t_hybrid_coeff.__doc__ = __t_doc__ + str(_NumInt.hybrid_coeff.__doc__)
 
 def t_nlc_coeff(ni, xc_code):
@@ -859,7 +859,7 @@ t_rsh_and_hybrid_coeff.__doc__ = (__t_doc__
 
 def ft_hybrid_coeff(ni, xc_code, spin=0):
     #return _NumInt.hybrid_coeff(ni, xc_code[2:], spin=0)
-    return hybrid_2c_coeff(ni, xc_code[2:], spin=0)
+    return _hybrid_2c_coeff(ni, xc_code[2:], spin=0)
 ft_hybrid_coeff.__doc__ = __ft_doc__ + str(_NumInt.hybrid_coeff.__doc__)
 
 def ft_nlc_coeff(ni, xc_code):
