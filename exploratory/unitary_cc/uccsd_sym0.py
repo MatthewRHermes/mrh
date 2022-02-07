@@ -331,6 +331,8 @@ class UCCS (lib.StreamObject):
 
     def __init__(self, mol):
         self.mol = mol
+        self.verbose = mol.verbose
+        self.stdout = mol.stdout
         self.norb = mol.nao_nr ()
         self.mo_coeff = None # One needs at least an orthonormal basis
         self.stdout = mol.stdout

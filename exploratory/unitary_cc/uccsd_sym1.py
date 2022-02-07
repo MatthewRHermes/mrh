@@ -1,6 +1,7 @@
 import numpy as np
 import math, ctypes
 from scipy import linalg
+from pyscf.lib import logger
 from mrh.lib.helper import load_library
 from mrh.exploratory.unitary_cc import uccsd_sym0
 from itertools import combinations, permutations, product, combinations_with_replacement
@@ -54,6 +55,7 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
                         return_counts=True)[1]) > 1: continue
                     for ij, mi in zip (*spincases (i, norb)):
                         if mi != ma: continue # sz-break escape
+                        #if np.all (ab==ij): continue # undefined escape
                         if np.amax (np.unique (ij, # nilpotent escape
                             return_counts=True)[1]) > 1: continue
                         self.symtab.append ([len (self.a_idxs)])
@@ -133,20 +135,56 @@ def get_uccs_op (norb, t1=None, freeze_mask=None):
     return uop
 
 def get_uccsd_op (norb, t1=None, t2=None):
+    ''' Construct and initialize semi-spin-adapted unitary CC correlator with
+        singles and doubles spanning a single undifferentiated orbital range.
+        The overall operator is constructed in the order ab_idxs, ij_idxs FROM
+        RIGHT TO LEFT:
+
+        U = u^n(n-1)_nn u^n(n-2)_nn ... u^11_22 u^11_21
+            ... u^n_(n-1) u^n_(n-2) ... u^3_2 u^3_1 u^2_1
+
+        where the individual factors include all relevant spin cases in
+        lexically increasing order from right to left with (where 'a' is
+        spin up and 'b' is spin down):
+        1. b > a
+        2. bb > ab > ba > aa
+        3. for the singles, ^b_b amplitudes constrained to equal ^a_a ones,
+        3. for the doubles, upper indices faster-moving than lower indices
+
+        Several spin cases are omitted (w,x,y,z are spinorbital indices):
+        1. symmetry-breaking cases: ^b_a, ^bb_ba
+        2. nilpotent terms: ^ww, _ww 
+        3. terms that are redundant because of the antisymmetries:
+           u^wx_yz = -u^yz_wx = -u^xw_yz = -u^wx_zy
+
+        I.E.,
+        u^p_q -> ^b_b ^a_a
+        u^pq_rs -> ^bb_bb ^ab_ab ^ba_ab ^ab_ba ^ba_ba ^aa_aa
+        u^pp_qr -> ^ba_ab ^ba_ba
+        u^pp_qq -> ^ba_ba
+
+        Args:
+            norb : integer
+                Total number of spatial orbitals. (0.5 * #spinorbitals)
+
+        Kwargs:
+            t1 : ndarray of shape (norb,norb)
+                Amplitudes at which to initialize the singles operators
+            t2 : None
+                NOT IMPLEMENTED. Amplitudes at which to initialize the doubles
+                operators
+
+        Returns:
+            uop : object of class FSUCCOperator
+                The callable UCCSD operator
+    '''
     t1_idx = np.tril_indices (norb, k=-1)
     ab_idxs, ij_idxs = list (t1_idx[0]), list (t1_idx[1])
     pq = [(p, q) for p, q in zip (*np.tril_indices (norb))]
-    a = []
-    b = []
-    i = []
-    j = []
+    #for ab, ij in combinations_with_replacement (pq, 2):
     for ab, ij in combinations (pq, 2):
         ab_idxs.append (ab)
         ij_idxs.append (ij)
-        a.append (ab[0])
-        b.append (ab[1])
-        i.append (ij[0])
-        j.append (ij[1])
     uop = FSUCCOperator (norb, ab_idxs, ij_idxs)
     x0 = uop.get_uniq_amps ()
     if t1 is not None: x0[:len (t1_idx[0])] = t1[t1_idx]
@@ -182,6 +220,14 @@ class UCCS (uccsd_sym0.UCCS):
         t1 -= t1.T
         umat = linalg.expm (t1)
         return mo_coeff @ umat
+
+    def kernel (self, mo_coeff=None, psi0=None, x=None):
+        self.e_tot, self.mo_coeff, self.x, self.conv = super().kernel (mo_coeff=mo_coeff, psi0=psi0, x=x)
+        log = logger.new_logger (self, self.verbose)
+        uop = self.get_uop ()
+        uop.set_uniq_amps_(self.x)
+        uop.print_tab (_print_fn=log.info)
+        return self.e_tot, self.mo_coeff, self.x, self.conv
 
 class UCCSD (UCCS):
     def get_uop (self):
