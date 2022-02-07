@@ -2,8 +2,12 @@
 import copy
 from mrh.my_pyscf.mcpdft.mcpdft import get_mcpdft_child_class
 from mrh.my_pyscf.mcpdft.otfnal import make_hybrid_fnal as hyb
-from pyscf import mcscf
+from pyscf import mcscf, gto
+from pyscf.lib import logger
 from pyscf.mcscf import mc1step, casci
+
+# NOTE: As of 02/06/2022, initializing PySCF mcscf classes with a symmetry-enabled molecule
+# doesn't work.
 
 def _MCPDFT (mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None, ci_min='ecas',
              **kwargs):
@@ -13,6 +17,9 @@ def _MCPDFT (mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=No
     else:
         mc0 = None
         mf_or_mol = mc_or_mf_or_mol
+    if isinstance (mf_or_mol, gto.Mole) and mf_or_mol.symmetry:
+        logger.warn (mf_or_mol,
+                     'Initializing MC-SCF with a symmetry-adapted Mole object may not work!')
     if frozen is not None: mc1 = mc_class (mf_or_mol, ncas, nelecas, ncore=ncore, frozen=frozen)
     else: mc1 = mc_class (mf_or_mol, ncas, nelecas, ncore=ncore)
     mc2 = get_mcpdft_child_class (mc1, ot, ci_min=ci_min, **kwargs)
