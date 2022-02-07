@@ -1,7 +1,7 @@
 import numpy as np
 from mrh.exploratory.unitary_cc import uccsd_sym1
 from mrh.exploratory.citools import lasci_ominus1
-from itertools import combinations
+from itertools import combinations, combinations_with_replacement
 
 
 def gen_uccsd_op (norb, nlas):
@@ -18,7 +18,7 @@ def gen_uccsd_op (norb, nlas):
     a_idxs, i_idxs = list (t1_idx[0]), list (t1_idx[1])
     pq = [[p, q] for p, q in zip (*np.tril_indices (norb))]
     frag_idx = np.concatenate ([[ix,]*n for ix, n in enumerate (nlas)])
-    for ab, ij in combinations (pq, 2):
+    for ab, ij in combinations_with_replacement (pq, 2):
         abij = np.concatenate ([ab, ij])
         nfint = len (np.unique (frag_idx[abij]))
         if nfint > 1:
