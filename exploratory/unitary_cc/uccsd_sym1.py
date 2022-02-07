@@ -41,8 +41,8 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
             i = np.ascontiguousarray (i, dtype=np.uint8)
             errstr = 'a,i={},{} invalid for number-sym op'.format (a,i)
             assert (len (a) == len (i)), errstr
-            errstr = 'a,i={},{} degree of freedom undefined'.format (a,i)
-            assert (not (np.all (a == i))), errstr
+            #errstr = 'a,i={},{} degree of freedom undefined'.format (a,i)
+            #assert (not (np.all (a == i))), errstr
             if len (a) == 1: # Only case where I know the proper symmetry
                              # relation between amps to ensure S**2
                 symrow = [len (self.a_idxs), len (self.i_idxs)+1]
@@ -50,12 +50,13 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
                 self.i_idxs.extend ([i, i+norb])
                 self.symtab.append (symrow)
             else:
-                for ab, ma in zip (*spincases (a, norb)):
+                for ix_ab, (ab, ma) in enumerate (zip (*spincases (a, norb))):
                     if np.amax (np.unique (ab, # nilpotent escape
                         return_counts=True)[1]) > 1: continue
-                    for ij, mi in zip (*spincases (i, norb)):
+                    for ix_ij, (ij, mi) in enumerate (zip (*spincases (i, norb))):
                         if mi != ma: continue # sz-break escape
-                        #if np.all (ab==ij): continue # undefined escape
+                        if np.all (ab==ij): continue # undefined escape
+                        if np.all (a==i) and ix_ab>ix_ij: continue # redundant escape
                         if np.amax (np.unique (ij, # nilpotent escape
                             return_counts=True)[1]) > 1: continue
                         self.symtab.append ([len (self.a_idxs)])
@@ -181,8 +182,7 @@ def get_uccsd_op (norb, t1=None, t2=None):
     t1_idx = np.tril_indices (norb, k=-1)
     ab_idxs, ij_idxs = list (t1_idx[0]), list (t1_idx[1])
     pq = [(p, q) for p, q in zip (*np.tril_indices (norb))]
-    #for ab, ij in combinations_with_replacement (pq, 2):
-    for ab, ij in combinations (pq, 2):
+    for ab, ij in combinations_with_replacement (pq, 2):
         ab_idxs.append (ab)
         ij_idxs.append (ij)
     uop = FSUCCOperator (norb, ab_idxs, ij_idxs)
