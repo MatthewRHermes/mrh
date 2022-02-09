@@ -13,6 +13,29 @@ libfsucc = load_library ('libfsucc')
 # general s**2 symmetry
 
 def spincases (p_idxs, norb):
+    ''' Compute the spinorbital indices corresponding to all spin cases of a
+        set of field operators acting on a specified list of spatial orbitals
+        The different spin cases are returned 'column-major order':
+
+        aaa...
+        baa...
+        aba...
+        bba...
+        aab...
+
+        Args:
+            p_idxs : ndarray of shape (nelec,)
+                Spatial orbital indices
+            norb : integer
+                Total number of spatial orbitals
+
+        Returns:
+            p_idxs : ndarray of shape (2^nelec, nelec)
+                Rows contain different spinorbital cases of the input spatial
+                orbitals
+            m : ndarray of shape (2^nelec,)
+                Number of beta (spin-down) orbitals in each spin case
+    '''
     nelec = len (p_idxs)
     p_idxs = p_idxs[None,:]
     m = np.array ([0])
@@ -28,7 +51,26 @@ def spincases (p_idxs, norb):
     return p_idxs, m
 
 class FSUCCOperator (uccsd_sym0.FSUCCOperator):
-    ''' Hide the spin degrees of freedom '''
+    ''' A callable spin-adapted (Sz only) unrestricted coupled cluster
+        operator. For single-excitation operators, spin-up and spin-down
+        amplitudes are constrained to be equal. All spin cases for a given
+        spatial-orbital excitation pattern (from i_idxs to a_idxs) are grouped
+        together and applied to the ket in ascending order of the index
+
+        (a_spin) * nelec + i_spin
+
+        where 'a_spin' and 'i_spin' are the ordinal indices of the spin
+        cases returned by the function 'spincases' for a_idxs (creation
+        operators) and i_idxs (annihilation operators) respectively, and nelec
+        is the order of the generator (1=singles, 2=doubles, etc.) Nilpotent
+        or undefined spin cases (i.e., because of spatial-orbital index
+        collisions) are omitted.
+
+        The spatial-orbital excitation patterns are applied to the ket in
+        ascending order of their ordinal positions in the 'a_idxs' and 'i_idxs'
+        lists provided to the constructor.
+    '''
+
 
     def __init__(self, norb, a_idxs, i_idxs):
         # Up to two equal indices in one generator are allowed
@@ -136,33 +178,30 @@ def get_uccs_op (norb, t1=None, freeze_mask=None):
     return uop
 
 def get_uccsd_op (norb, t1=None, t2=None):
-    ''' Construct and initialize semi-spin-adapted unitary CC correlator with
-        singles and doubles spanning a single undifferentiated orbital range.
-        The overall operator is constructed in the order ab_idxs, ij_idxs FROM
-        RIGHT TO LEFT:
+    ''' Construct and optionally initialize semi-spin-adapted unitary CC
+        correlator with singles and doubles spanning a single undifferentiated
+        orbital range. Excitations from spatial orbitals i, j to spatial
+        orbitals a, b are applied to the ket in the order
 
-        U = u^n(n-1)_nn u^n(n-2)_nn ... u^11_22 u^11_21
-            ... u^n_(n-1) u^n_(n-2) ... u^3_2 u^3_1 u^2_1
+        U|ket> = u^n(n-1)_nn u^n(n-1)_n(n-1) u^n(n-2)_nn ... u^11_22 u^11_21
+                 ... u^n_(n-1) u^n_(n-2) ... u^3_2 u^3_1 u^2_1 |ket>
 
-        where the individual factors include all relevant spin cases in
-        lexically increasing order from right to left with (where 'a' is
-        spin up and 'b' is spin down):
-        1. b > a
-        2. bb > ab > ba > aa
-        3. for the singles, ^b_b amplitudes constrained to equal ^a_a ones,
-        3. for the doubles, upper indices faster-moving than lower indices
+        where ^ indicates creation operators (a, b) and _ indicates 
+        annihilation operators (i, j). The doubles amplitudes are arbitrarily
+        chosen in the upper-triangular space (subscript >= superscript), and
+        the singles amplitudes are chosen in the lower-triangular space
+        (subscript < superscript). In both cases, the faster-moving index is
+        the subscript index.
 
-        Several spin cases are omitted (w,x,y,z are spinorbital indices):
-        1. symmetry-breaking cases: ^b_a, ^bb_ba
-        2. nilpotent terms: ^ww, _ww 
-        3. terms that are redundant because of the antisymmetries:
-           u^wx_yz = -u^yz_wx = -u^xw_yz = -u^wx_zy
+        The spin cases of a given set of orbitals a, b, i, j are grouped 
+        together. For singles, spin-up (a) and spin-down (b) amplitudes are
+        constrained to be equal and the spin-up operator is on the right (i.e.,
+        is applied first). For doubles, the spin case order is
 
-        I.E.,
-        u^p_q -> ^b_b ^a_a
-        u^pq_rs -> ^bb_bb ^ab_ab ^ba_ab ^ab_ba ^ba_ba ^aa_aa
-        u^pp_qr -> ^ba_ab ^ba_ba
-        u^pp_qq -> ^ba_ba
+        u|ket> -> ^bb_bb ^ab_ab ^ab_ba ^ba_ab ^ba_ba ^aa_aa |ket>
+
+        Spin cases that correspond to nilpotent or undefined operators because
+        of spatial-orbital index collisions are omitted.
 
         Args:
             norb : integer
