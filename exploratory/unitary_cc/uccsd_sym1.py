@@ -100,19 +100,20 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
                 for ix_ab, (ab, ma) in enumerate (zip (*spincases (a, norb))):
                     if np.amax (np.unique (ab, # nilpotent escape
                         return_counts=True)[1]) > 1: continue
-                    for ix_ij, (ij, mi) in enumerate (zip (*spincases (i, norb))):
+                    for ix_ij, (ij, mi) in enumerate (zip (*spincases (
+                            i, norb))):
                         if mi != ma: continue # sz-break escape
                         if np.all (ab==ij): continue # undefined escape
-                        if np.all (a==i) and ix_ab>ix_ij: continue # redundant escape
-                        if np.amax (np.unique (ij, # nilpotent escape
-                            return_counts=True)[1]) > 1: continue
+                        if np.all (a==i) and ix_ab>ix_ij:
+                            continue # redundant escape
+                        if np.amax (np.unique (ij, return_counts=True)[1]) > 1:
+                            continue # nilpotent escape
                         self.symtab.append ([len (self.a_idxs)])
                         self.a_idxs.append (ab)
                         self.i_idxs.append (ij)
         self.norb = 2*norb
         self.ngen = len (self.a_idxs)
         assert (len (self.i_idxs) == self.ngen)
-        #self.ngen_uniq = len (self.symtab)
         self.uniq_gen_idx = np.array ([x[0] for x in self.symtab])
         self.amps = np.zeros (self.ngen)
         self.assert_sanity ()
