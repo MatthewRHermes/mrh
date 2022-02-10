@@ -23,6 +23,11 @@ def spincases (p_idxs, norb):
         bba...
         aab...
 
+        The index of a given spincase string ('aba...', etc.) can be computed
+        as
+
+        p_spin = int (spincase[::-1].replace ('a','0').replace ('b','1'), 2)
+
         Args:
             p_idxs : ndarray of shape (nelec,)
                 Spatial orbital indices
@@ -180,18 +185,18 @@ def get_uccs_op (norb, t1=None, freeze_mask=None):
 def get_uccsd_op (norb, t1=None, t2=None):
     ''' Construct and optionally initialize semi-spin-adapted unitary CC
         correlator with singles and doubles spanning a single undifferentiated
-        orbital range. Excitations from spatial orbitals i, j to spatial
-        orbitals a, b are applied to the ket in the order
+        orbital range. Excitations from spatial orbital(s) i(, j) to spatial
+        orbital(s) a(, b) are applied to the ket in the order
 
         U|ket> = u^n(n-1)_nn u^n(n-1)_n(n-1) u^n(n-2)_nn ... u^11_22 u^11_21
                  ... u^n_(n-1) u^n_(n-2) ... u^3_2 u^3_1 u^2_1 |ket>
 
-        where ^ indicates creation operators (a, b) and _ indicates 
-        annihilation operators (i, j). The doubles amplitudes are arbitrarily
-        chosen in the upper-triangular space (subscript >= superscript), and
-        the singles amplitudes are chosen in the lower-triangular space
-        (subscript < superscript). In both cases, the faster-moving index is
-        the subscript index.
+        where ^ indicates creation operators (a, b; rows) and _ indicates
+        annihilation operators (i, j; columns). The doubles amplitudes are
+        arbitrarily chosen in the upper-triangular space (a,b <= i,j), but the
+        lower-triangular space is used for the individual double pairs
+        (a > b, i > j) and for the singles amplitudes (a > i). In all cases,
+        row-major ordering is employed.
 
         The spin cases of a given set of orbitals a, b, i, j are grouped 
         together. For singles, spin-up (a) and spin-down (b) amplitudes are
@@ -200,8 +205,10 @@ def get_uccsd_op (norb, t1=None, t2=None):
 
         u|ket> -> ^bb_bb ^ab_ab ^ab_ba ^ba_ab ^ba_ba ^aa_aa |ket>
 
-        Spin cases that correspond to nilpotent or undefined operators because
-        of spatial-orbital index collisions are omitted.
+        For spatial orbital cases in which the same index appears more than
+        once, spin cases that correspond to nilpotent (eg., ^pp_qr ^aa_aa),
+        undefined (eg., ^pq_pq ^ab_ab), or redundant (eg., ^pq_pq ^ab_ba)
+        operators are omitted.
 
         Args:
             norb : integer
