@@ -13,9 +13,9 @@ libfsucc = load_library ('libfsucc')
 # general s**2 symmetry
 
 def spincases (p_idxs, norb):
-    ''' Compute the spinorbital indices corresponding to all spin cases of a
-        set of field operators acting on a specified list of spatial orbitals
-        The different spin cases are returned 'column-major order':
+    ''' Compute all unique spinorbital indices corresponding to all spin cases
+        of a set of field operators acting on a specified list of spatial
+        orbitals. The different spin cases are returned 'column-major order':
 
         aaa...
         baa...
@@ -36,7 +36,7 @@ def spincases (p_idxs, norb):
 
         Returns:
             p_idxs : ndarray of shape (2^nelec, nelec)
-                Rows contain different spinorbital cases of the input spatial
+                Rows contain unique spinorbital cases of the input spatial
                 orbitals
             m : ndarray of shape (2^nelec,)
                 Number of beta (spin-down) orbitals in each spin case
@@ -98,8 +98,8 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
                 self.symtab.append (symrow)
             else:
                 for ix_ab, (ab, ma) in enumerate (zip (*spincases (a, norb))):
-                    if np.amax (np.unique (ab, # nilpotent escape
-                        return_counts=True)[1]) > 1: continue
+                    if np.amax (np.unique (ab,return_counts=True)[1]) > 1:
+                        continue # nilpotent escape
                     for ix_ij, (ij, mi) in enumerate (zip (*spincases (
                             i, norb))):
                         if mi != ma: continue # sz-break escape
