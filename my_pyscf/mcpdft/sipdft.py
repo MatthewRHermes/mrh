@@ -295,6 +295,17 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         from mrh.my_pyscf.grad.sipdft import Gradients
         return Gradients (self)
 
+    def dip_moment (self, unit='Debye', state=None):
+        from mrh.my_pyscf.prop.dip_moment.sipdft import ElectricDipole
+        #is_sa = isinstance (self, StateAverageMCSCFSolver)
+        #if state is None and not is_sa:
+        #    state = 0    
+        #if is_sa:
+        #    logger.warn (self, "State-averaged dipole moments are UNTESTED!")
+        dip_obj =  ElectricDipole(self) 
+        mol_dipole = dip_obj.kernel (state=state)
+        return mol_dipole
+
 def get_sarotfns (obj):
     if obj.upper () == 'CMS':
         from mrh.my_pyscf.mcpdft.cmspdft import e_coul as sarot_objfn

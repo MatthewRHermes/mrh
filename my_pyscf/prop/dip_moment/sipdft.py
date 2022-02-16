@@ -54,27 +54,27 @@ def mcpdft_HellmanFeynman_dipole (mc, ot, veff1, veff2, mo_coeff=None, ci=None, 
 
 class ElectricDipole (sipdft.Gradients):
 
-    def kernel (self, level_shift=None, unit='Debye', **kwargs):
+    def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False, level_shift=None, unit='Debye', **kwargs):
         ''' Cache the effective Hamiltonian terms so you don't have to calculate them twice '''
-        state = kwargs['state'] if 'state' in kwargs else self.state
+        if state is None: state = self.state
+        if mo is None: mo = self.base.mo_coeff
+        if ci is None: ci = self.base.ci
+        if si is None: si = self.base.si
+        if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
         if state is None:
             raise NotImplementedError ('Gradient of PDFT state-average energy')
         self.state = state # Not the best code hygiene maybe
-        mo = kwargs['mo'] if 'mo' in kwargs else self.base.mo_coeff
-        ci = kwargs['ci'] if 'ci' in kwargs else self.base.ci
-        si = kwargs['si'] if 'si' in kwargs else self.base.si
-        if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
-        kwargs['ci'] = ci
-
+        state = kwargs['state'] if 'state' in kwargs else self.state
         nroots = self.nroots
         veff1 = []
         veff2 = []
+        d2f = self.base.sarot_objfn (ci=ci)[2]
         for ix in range (nroots):
             v1, v2 = self.base.get_pdft_veff (mo, ci, incl_coul=True,
-                paaa_only=True, state=state)
+                paaa_only=True, state=ix)
             veff1.append (v1)
             veff2.append (v2)
-        kwargs['veff1'], kwargs['veff2'] = veff1, veff2
+        #kwargs['veff1'], kwargs['veff2'] = veff1, veff2
 
         #kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci, incl_coul=True, paaa_only=True, state=state)
         cput0 = (logger.process_clock(), logger.perf_counter())
@@ -87,7 +87,6 @@ class ElectricDipole (sipdft.Gradients):
         if self.verbose >= lib.logger.INFO:
             self.dump_flags()
         
-        d2f = self.base.sarot_objfn (ci=ci)[2]
         conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
         self.debug_lagrange (Lvec, bvec, Aop, Adiag, d2f=d2f, **kwargs)
         #if not conv: raise RuntimeError ('Lagrange multiplier determination not converged!')
