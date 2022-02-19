@@ -15,42 +15,85 @@ from pyscf.data import nist
 from pyscf import lib
 from mrh.my_pyscf.grad import mcpdft
 from mrh.my_pyscf.grad import sipdft
+from pyscf.fci import direct_spin1
 
 
-def mcpdft_HellmanFeynman_dipole (mc, ot, veff1, veff2, mo_coeff=None, ci=None, atmlst=None, mf_grad=None, verbose=None, max_memory=None, auxbasis_response=False):
+def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket): 
+    # TODO: state-average-mix generalization
+    ncas, nelecas = mc.ncas, mc.nelecas
+    nroots = len (ci)
+    ci_arr = np.asarray (ci)
+    ci_bra = np.tensordot (si_bra, ci_arr, axes=1)
+    ci_ket = np.tensordot (si_ket, ci_arr, axes=1)
+    casdm1, _ = direct_spin1.trans_rdm12 (ci_bra, ci_ket, ncas, nelecas)
+    ddm1 = np.zeros ((nroots, ncas, ncas), dtype=casdm1.dtype)
+    for i in range (nroots):
+        ddm1[i,...], _ = direct_spin1.make_rdm12 (ci[i], ncas, nelecas)
+    print('before',ddm1.shape)
+    si_diag = si_bra * si_ket
+    a= np.tensordot (si_diag, ddm1, axes=1)
+    print('after ',a.shape)
+    casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
+    return casdm1
+
+def sipdft_HellmanFeynman_dipole (mc, si,  state=None, mo_coeff=None, ci=None, atmlst=None, verbose=None, max_memory=None, auxbasis_response=False):
+    if state is None: state = mc.state
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
-    if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
     if mc.frozen is not None:
         raise NotImplementedError
     if max_memory is None: max_memory = mc.max_memory
     t0 = (logger.process_clock (), logger.perf_counter ())
 
-    mol = mc.mol
-    ncore = mc.ncore
-    ncas = mc.ncas
-    nocc = ncore + ncas
-    nelecas = mc.nelecas
+    si_bra = si[:,state]
+    si_ket = si[:,state]
+    si_diag = si_bra * si_ket
 
-    mo_core = mo_coeff[:,:ncore]
-    mo_cas = mo_coeff[:,ncore:nocc]
- 
-    casdm1 = mc.fcisolver.make_rdm1(ci, ncas, nelecas)
- 
-    dm_core = np.dot(mo_core, mo_core.T) * 2
-    dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
-    dm = dm_core + dm_cas
- 
-    with mol.with_common_orig((0,0,0)):
-        ao_dip = mol.intor_symmetric('int1e_r', comp=3)
-    el_dip = np.einsum('xij,ij->x', ao_dip, dm).real
- 
-    charges = mol.atom_charges()
-    coords  = mol.atom_coords()
-    nucl_dip = np.einsum('i,ix->x', charges, coords)
-    cas_dip = nucl_dip - el_dip
+    mol = mc.mol                                           
+    ncore = mc.ncore                                       
+    ncas = mc.ncas                                         
+    nelecas = mc.nelecas                                   
+    nocc = ncore + ncas                                    
+                                                           
+    mo_core = mo_coeff[:,:ncore]                           
+    mo_cas  = mo_coeff[:,ncore:nocc]                        
+                                                           
+    dm_core = np.dot(mo_core, mo_core.T) * 2               
 
-    return cas_dip
+    #print(dm_core.shape)
+    #print('CI vector 0')
+    #print(ci[0])
+    #print('CI vector 1')
+    #print(ci[1])
+
+    # ----- Electronic contribution ------
+    dm_diag=np.zeros_like(dm_core)
+    # Diagonal part
+    for i, (amp, c) in enumerate (zip (si_diag, ci)):
+        if not amp: continue
+        casdm1 = mc.fcisolver.make_rdm1(ci[i], ncas, nelecas)     
+        dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))    
+        dm_i = dm_cas + dm_core 
+        dm_diag += amp * dm_i
+        
+    # Off-diagonal part
+    casdm1 = make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket)
+    casdm1 = 0.5 * (casdm1 + casdm1.T)
+    dm_off = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))    
+
+    dm = dm_diag + dm_off                                             
+
+    with mol.with_common_orig((0,0,0)):                    
+        ao_dip = mol.intor_symmetric('int1e_r', comp=3)    
+    el_dip = np.einsum('xij,ij->x', ao_dip, dm).real       
+                                                           
+    # ---- Nuclear contribution -----
+    charges = mol.atom_charges()                           
+    coords  = mol.atom_coords()                            
+    nucl_dip = np.einsum('i,ix->x', charges, coords)       
+    cas_dip = nucl_dip - el_dip                            
+                                                           
+    return cas_dip                                         
 
 class ElectricDipole (sipdft.Gradients):
 
@@ -74,7 +117,7 @@ class ElectricDipole (sipdft.Gradients):
                 paaa_only=True, state=ix)
             veff1.append (v1)
             veff2.append (v2)
-        #kwargs['veff1'], kwargs['veff2'] = veff1, veff2
+        kwargs['veff1'], kwargs['veff2'] = veff1, veff2
 
         #kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci, incl_coul=True, paaa_only=True, state=state)
         cput0 = (logger.process_clock(), logger.perf_counter())
@@ -92,8 +135,9 @@ class ElectricDipole (sipdft.Gradients):
         #if not conv: raise RuntimeError ('Lagrange multiplier determination not converged!')
         cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
 
-        ci_final = np.tensordot (si.T, np.stack (ci, axis=0), axes=1)
-        kwargs['ci'] = ci_final
+#        ci_final = np.tensordot (si.T, np.stack (ci, axis=0), axes=1)
+#        kwargs['ci'] = ci_final
+
 #        fcasscf = self.make_fcasscf (state)
 #        fcasscf.mo_coeff = mo
 #        fcasscf.ci = ci[state]
@@ -116,8 +160,8 @@ class ElectricDipole (sipdft.Gradients):
 
         if unit.upper() == 'DEBYE':
             ham_response *= nist.AU2DEBYE
-            mol_dip      *= nist.AU2DEBYE
             LdotJnuc     *= nist.AU2DEBYE
+            mol_dip      *= nist.AU2DEBYE
             log.note('CASSCF  Dipole moment(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *ham_response)
             log.note('Lagrange Contribution(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *LdotJnuc)
             log.note('MC-PDFT Dipole moment(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *mol_dip)
@@ -129,23 +173,27 @@ class ElectricDipole (sipdft.Gradients):
         #print('LdotJnuc = %f' %LdotJnuc)
         return mol_dip
 
-    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, veff1=None, veff2=None, si=None, **kwargs):
+    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, si=None, **kwargs):
+        mc = self.base
         if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
-        if (veff1 is None) or (veff2 is None):
-            assert (False), kwargs
-            veff1, veff2 = self.base.get_pdft_veff (mo, ci[state], incl_coul=True, paaa_only=True)
+        #if si_bra is None: si_bra = si[:,state]
+        #if si_ket is None: si_ket = si[:,state]
+        si_bra = si[:,state]
+        si_ket = si[:,state]
+        si_diag = si_bra * si_ket
+
         fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
         #new_ci = np.tensordot(si.T, np.stack(ci,axis = 0), axes = 1)
         fcasscf.ci = ci[state]
-        return mcpdft_HellmanFeynman_dipole (fcasscf, self.base.otfnal, veff1, veff2, mo_coeff=mo, ci=ci[state], atmlst=atmlst, mf_grad=mf_grad, verbose=verbose)
+        return sipdft_HellmanFeynman_dipole (fcasscf, si, state=state, mo_coeff=mo, ci=ci, atmlst=atmlst, verbose=verbose)
 
-    def get_LdotJnuc (self, Lvec, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, si=None, **kwargs):
+    def get_LdotJnuc (self, Lvec, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, si=None, **kwargs):
         if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
@@ -339,26 +387,3 @@ if __name__ == '__main__':
         # Final scan table
         line1 = ['CMS State','Distance', 'Energy CASSCF', 'Energy MC-PDFT', 'X', 'Y', 'Z',
                     'Dipole Analytic']
-        line2 = (".0f",".5f", ".8f", ".8f", ".6f", ".6f", ".6f",
-                    ".6f")
-        print(pdtabulate(list, line1, line2))
-        with open('CO_'+str(nel)+'x'+str(norb)+'_'+basis_name+'.txt', 'w') as f:
-            f.write(pdtabulate(list, line1, line2))
-        print_numerical_dipole()
-
-    #MAIN
-    array = np.array([1.1419269322867753])
-    isym='A1'
-    ispin=0
-    icharge=0
-    nel, norb  = 10, 10
-    cas_list = [i for i in range(3,13)]
-    ndata = len(array)
-    list = [0]*ndata
-    pdft = [0]*ndata
-    basis_name = 'augccpvdz'
-    my_basis = basis_name
-    dm1 = mo = None
-    weights = [1/2]*2
-
-    run(norb, nel, mo, array, icharge, ispin, isym, cas_list, weights)
