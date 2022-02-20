@@ -23,16 +23,19 @@ def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket):
     ncas, nelecas = mc.ncas, mc.nelecas
     nroots = len (ci)
     ci_arr = np.asarray (ci)
+    #print('ci_arr is ',ci_arr,ci_arr.shape)
+    #print('si_bra is ',si_bra,si_bra.shape)
     ci_bra = np.tensordot (si_bra, ci_arr, axes=1)
     ci_ket = np.tensordot (si_ket, ci_arr, axes=1)
+    #print('ci_bra is ',ci_bra,ci_bra.shape)
     casdm1, _ = direct_spin1.trans_rdm12 (ci_bra, ci_ket, ncas, nelecas)
     ddm1 = np.zeros ((nroots, ncas, ncas), dtype=casdm1.dtype)
     for i in range (nroots):
         ddm1[i,...], _ = direct_spin1.make_rdm12 (ci[i], ncas, nelecas)
-    print('before',ddm1.shape)
+    #print('before',ddm1.shape)
     si_diag = si_bra * si_ket
     a= np.tensordot (si_diag, ddm1, axes=1)
-    print('after ',a.shape)
+    #print('after ',a.shape)
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     return casdm1
 
@@ -59,12 +62,6 @@ def sipdft_HellmanFeynman_dipole (mc, si,  state=None, mo_coeff=None, ci=None, a
     mo_cas  = mo_coeff[:,ncore:nocc]                        
                                                            
     dm_core = np.dot(mo_core, mo_core.T) * 2               
-
-    #print(dm_core.shape)
-    #print('CI vector 0')
-    #print(ci[0])
-    #print('CI vector 1')
-    #print(ci[1])
 
     # ----- Electronic contribution ------
     dm_diag=np.zeros_like(dm_core)
@@ -190,10 +187,10 @@ class ElectricDipole (sipdft.Gradients):
         fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
         #new_ci = np.tensordot(si.T, np.stack(ci,axis = 0), axes = 1)
-        fcasscf.ci = ci[state]
+        fcasscf.ci = ci
         return sipdft_HellmanFeynman_dipole (fcasscf, si, state=state, mo_coeff=mo, ci=ci, atmlst=atmlst, verbose=verbose)
 
-    def get_LdotJnuc (self, Lvec, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, si=None, **kwargs):
+    def get_LdotJnuc (self, Lvec, state=None, atmlst=None, verbose=None, mo=None, ci=None, si=None, eris=None, **kwargs):
         if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
@@ -216,6 +213,12 @@ class ElectricDipole (sipdft.Gradients):
      #   fcasscf.mo_coeff = mo
      #   fcasscf.ci = ci[state]
 
+        si_bra = si[:,state]
+        si_ket = si[:,state]
+        si_diag = si_bra * si_ket
+        si_matrix = np.outer(si_ket, si_bra, out=None)
+        si_fac = np.sum(si_matrix)
+        print('si_fac is ',si_fac)
 
         # Just sum the weights now... Lorb can be implicitly summed
         # Lci may be in the csf basis
@@ -223,7 +226,7 @@ class ElectricDipole (sipdft.Gradients):
 
         mo_coeff = mc.mo_coeff
         ci = mc.ci
-        new_ci = np.tensordot(si.T, np.stack(ci,axis = 0), axes = 1)
+        #new_ci = np.tensordot(si.T, np.stack(ci,axis = 0), axes = 1)
     
         mol = mc.mol
         ncore = mc.ncore
@@ -265,6 +268,7 @@ class ElectricDipole (sipdft.Gradients):
         dm_cas_transit = reduce(np.dot, (mo_cas, casdm1_transit, mo_cas.T))
 
         dm = dmL_core + dmL_cas + dm_cas_transit
+        dm = dm * si_fac
 
         with mol.with_common_orig((0,0,0)):
             ao_dip = mol.intor_symmetric('int1e_r', comp=3)
