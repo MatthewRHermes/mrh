@@ -23,26 +23,22 @@ def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket):
     ncas, nelecas = mc.ncas, mc.nelecas
     nroots = len (ci)
     ci_arr = np.asarray (ci)
-    #print('ci_arr is ',ci_arr,ci_arr.shape)
-    #print('si_bra is ',si_bra,si_bra.shape)
     ci_bra = np.tensordot (si_bra, ci_arr, axes=1)
     ci_ket = np.tensordot (si_ket, ci_arr, axes=1)
-    #print('ci_bra is ',ci_bra,ci_bra.shape)
     casdm1, _ = direct_spin1.trans_rdm12 (ci_bra, ci_ket, ncas, nelecas)
     ddm1 = np.zeros ((nroots, ncas, ncas), dtype=casdm1.dtype)
     for i in range (nroots):
         ddm1[i,...], _ = direct_spin1.make_rdm12 (ci[i], ncas, nelecas)
-    #print('before',ddm1.shape)
     si_diag = si_bra * si_ket
     a= np.tensordot (si_diag, ddm1, axes=1)
-    #print('after ',a.shape)
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     return casdm1
 
-def sipdft_HellmanFeynman_dipole (mc, si,  state=None, mo_coeff=None, ci=None, atmlst=None, verbose=None, max_memory=None, auxbasis_response=False):
+def sipdft_HellmanFeynman_dipole (mc, state=None, mo_coeff=None, ci=None, si=None, atmlst=None, verbose=None, max_memory=None, auxbasis_response=False):
     if state is None: state = mc.state
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
+    if si is None: si = mc.si
     if mc.frozen is not None:
         raise NotImplementedError
     if max_memory is None: max_memory = mc.max_memory
@@ -89,7 +85,6 @@ def sipdft_HellmanFeynman_dipole (mc, si,  state=None, mo_coeff=None, ci=None, a
     coords  = mol.atom_coords()                            
     nucl_dip = np.einsum('i,ix->x', charges, coords)       
     cas_dip = nucl_dip - el_dip                            
-                                                           
     return cas_dip                                         
 
 class ElectricDipole (sipdft.Gradients):
@@ -116,7 +111,6 @@ class ElectricDipole (sipdft.Gradients):
             veff2.append (v2)
         kwargs['veff1'], kwargs['veff2'] = veff1, veff2
 
-        #kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo, ci, incl_coul=True, paaa_only=True, state=state)
         cput0 = (logger.process_clock(), logger.perf_counter())
         log = lib.logger.new_logger(self, self.verbose)
         if 'atmlst' in kwargs:
@@ -132,26 +126,10 @@ class ElectricDipole (sipdft.Gradients):
         #if not conv: raise RuntimeError ('Lagrange multiplier determination not converged!')
         cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
 
-#        ci_final = np.tensordot (si.T, np.stack (ci, axis=0), axes=1)
-#        kwargs['ci'] = ci_final
 
-#        fcasscf = self.make_fcasscf (state)
-#        fcasscf.mo_coeff = mo
-#        fcasscf.ci = ci[state]
         ham_response = self.get_ham_response (**kwargs)
-#        lib.logger.info(self, '--------------- %s gradient Hamiltonian response ---------------',
-#                    self.base.__class__.__name__)
-#        rhf_grad._write(self, self.mol, ham_response, self.atmlst)
-#        lib.logger.info(self, '----------------------------------------------')
-#        cput1 = lib.logger.timer (self, 'Lagrange gradient Hellmann-Feynman determination', *cput1)
 
         LdotJnuc = self.get_LdotJnuc (Lvec, **kwargs)
-#        lib.logger.info(self, '--------------- %s gradient Lagrange response ---------------',
-#                    self.base.__class__.__name__)
-#        rhf_grad._write(self, self.mol, LdotJnuc, self.atmlst)
-#        lib.logger.info(self, '----------------------------------------------')
-#        cput1 = lib.logger.timer (self, 'Lagrange gradient Jacobian', *cput1)
-
         
         mol_dip = ham_response + LdotJnuc
 
@@ -178,17 +156,11 @@ class ElectricDipole (sipdft.Gradients):
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
-        #if si_bra is None: si_bra = si[:,state]
-        #if si_ket is None: si_ket = si[:,state]
-        si_bra = si[:,state]
-        si_ket = si[:,state]
-        si_diag = si_bra * si_ket
 
         fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
-        #new_ci = np.tensordot(si.T, np.stack(ci,axis = 0), axes = 1)
         fcasscf.ci = ci
-        return sipdft_HellmanFeynman_dipole (fcasscf, si, state=state, mo_coeff=mo, ci=ci, atmlst=atmlst, verbose=verbose)
+        return sipdft_HellmanFeynman_dipole (fcasscf, state=state, mo_coeff=mo, ci=ci, si=si, atmlst=atmlst, verbose=verbose)
 
     def get_LdotJnuc (self, Lvec, state=None, atmlst=None, verbose=None, mo=None, ci=None, si=None, eris=None, **kwargs):
         if state is None: state = self.state
@@ -208,10 +180,6 @@ class ElectricDipole (sipdft.Gradients):
         else:
             linkstr  = None
         mc = self.base
-     #   mc = self.make_fcasscf (state)
-     #   fcasscf = self.make_fcasscf (state)
-     #   fcasscf.mo_coeff = mo
-     #   fcasscf.ci = ci[state]
 
         si_bra = si[:,state]
         si_ket = si[:,state]
@@ -237,7 +205,6 @@ class ElectricDipole (sipdft.Gradients):
         mo_occ = mo_coeff[:,:nocc]
         mo_core = mo_coeff[:,:ncore]
         mo_cas = mo_coeff[:,ncore:nocc]
-    
 
         # Orb part
         # MRH: new 'effective' MO coefficients including contraction from the Lagrange multipliers
@@ -260,9 +227,6 @@ class ElectricDipole (sipdft.Gradients):
         # to fix this without pushing something to PySCF at the moment: just make both 1 and 2 and discard 2
         
         casdm1_transit, _ = mc.fcisolver.trans_rdm12 (Lci, ci, ncas, nelecas)
-        #print('shape::: ', casdm1_transit)
-        #casdm1_transit_vec = [i[0] for i in casdm_transit]
-        #casdm1_transit = np.sum([weigths[i] * casdm1_transit_vec[i] for i in range(len(weights))])
         casdm1_transit += casdm1_transit.transpose (1,0)
 
         dm_cas_transit = reduce(np.dot, (mo_cas, casdm1_transit, mo_cas.T))
@@ -281,8 +245,6 @@ class ElectricDipole (sipdft.Gradients):
    #             orbcas = mo_coeff[:,ncore:ncore+ncas]
     #            t_dm1_ao = reduce(np.dot, (orbcas, t_dm1, orbcas.T))
      #           tot_mol[i][j] =  -np.einsum('xij,ji->x', ao_dip, t_dm1_ao).real
-
-
 
         return mol_dip_L
 
