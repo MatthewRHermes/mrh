@@ -233,6 +233,10 @@ class ElectricDipole (sipdft.Gradients):
         dm = dmL_core + dmL_cas + dm_cas_transit
         dm = dm * si_fac
 
+        #charges = mol.atom_charges()
+        #coords = mol.atom_coords()
+        #nuc_charge_center = numpy.einsum('z,zx->x', charges, coords) / charges.sum()
+        #with mol.set_common_orig_(nuc_charge_center)
         with mol.with_common_orig((0,0,0)):
             ao_dip = mol.intor_symmetric('int1e_r', comp=3)
         mol_dip_L = -np.einsum('xij,ji->x', ao_dip, dm).real
