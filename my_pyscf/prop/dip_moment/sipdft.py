@@ -76,6 +76,10 @@ def sipdft_HellmanFeynman_dipole (mc, state=None, mo_coeff=None, ci=None, si=Non
 
     dm = dm_diag + dm_off                                             
 
+    #charges = mol.atom_charges()
+    #coords = mol.atom_coords()
+    #nuc_charge_center = numpy.einsum('z,zx->x', charges, coords) / charges.sum()
+    #with mol.set_common_orig_(nuc_charge_center)
     with mol.with_common_orig((0,0,0)):                    
         ao_dip = mol.intor_symmetric('int1e_r', comp=3)    
     el_dip = np.einsum('xij,ij->x', ao_dip, dm).real       
@@ -221,11 +225,6 @@ class ElectricDipole (sipdft.Gradients):
         dmL_core += dmL_core.T
         dmL_cas += dmL_cas.T
 
-        # MRH: TDMs + c.c. instead of RDMs; 06/30/2020: new interface in mcscf.addons makes this much more transparent
-        # MRH 12/06/2021: When Aleks wrote this, he falsely assumed that I had implemented
-        # trans_rdm1 as well as trans_rdm12 for the state-averaged case. Luckily there's a quick way
-        # to fix this without pushing something to PySCF at the moment: just make both 1 and 2 and discard 2
-        
         casdm1_transit, _ = mc.fcisolver.trans_rdm12 (Lci, ci, ncas, nelecas)
         casdm1_transit += casdm1_transit.transpose (1,0)
 
