@@ -306,6 +306,12 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         mol_dipole = dip_obj.kernel (state=state)
         return mol_dipole
 
+    def trans_moment (self, unit='Debye', state=None):
+        from mrh.my_pyscf.prop.trans_moment.sipdft import TransitionDipole
+        tran_dip_obj = TransitionDipole(self) 
+        mol_trans_dipole = tran_dip_obj.kernel (state=state)
+        return mol_trans_dipole
+
 def get_sarotfns (obj):
     if obj.upper () == 'CMS':
         from mrh.my_pyscf.mcpdft.cmspdft import e_coul as sarot_objfn
