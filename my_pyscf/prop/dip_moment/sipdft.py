@@ -129,7 +129,8 @@ class ElectricDipole (sipdft.Gradients):
         self.debug_lagrange (Lvec, bvec, Aop, Adiag, d2f=d2f, **kwargs)
         #if not conv: raise RuntimeError ('Lagrange multiplier determination not converged!')
         cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
-
+        print("Lvec is ",Lvec,Lvec.shape)
+        #print("bvec is ",bvec)
 
         ham_response = self.get_ham_response (**kwargs)
 
@@ -141,13 +142,13 @@ class ElectricDipole (sipdft.Gradients):
             ham_response *= nist.AU2DEBYE
             LdotJnuc     *= nist.AU2DEBYE
             mol_dip      *= nist.AU2DEBYE
-            log.note('CASSCF  Dipole moment(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *ham_response)
+            log.note('Hellmann-Feynman Term(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *ham_response)
             log.note('Lagrange Contribution(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *LdotJnuc)
-            log.note('MC-PDFT Dipole moment(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *mol_dip)
+            log.note('CMS-PDFT Dipole moment(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *mol_dip)
         else:
-            log.note('CASSCF  Dipole moment(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *ham_response)
+            log.note('Hellmann-Feynman Term(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *ham_response)
             log.note('Lagrange Contribution(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *LdotJnuc)
-            log.note('MC-PDFT Dipole moment(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *mol_dip)
+            log.note('CMS-PDFT Dipole moment(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *mol_dip)
         #print('ham_response = %f' %ham_response)
         #print('LdotJnuc = %f' %LdotJnuc)
         return mol_dip
