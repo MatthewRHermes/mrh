@@ -106,7 +106,7 @@ class ElectricDipole (mcpdft.Gradients):
         else:
             log.note('CASSCF  Dipole moment(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *ham_response)
             log.note('MC-PDFT Dipole moment(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *mol_dip)
-        return mol_dip
+        return mol_dip, ham_response
 
     def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, mf_grad=None, veff1=None, veff2=None, **kwargs):
         if state is None: state = self.state
