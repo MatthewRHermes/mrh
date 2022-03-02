@@ -307,7 +307,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         return mol_dipole
 
     def trans_moment (self, unit='Debye', state=None):
-        from mrh.my_pyscf.prop.trans_moment.sipdft import TransitionDipole
+        from mrh.my_pyscf.prop.trans_dip_moment.sipdft import TransitionDipole
         tran_dip_obj = TransitionDipole(self) 
         mol_trans_dipole = tran_dip_obj.kernel (state=state)
         return mol_trans_dipole
