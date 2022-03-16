@@ -215,12 +215,12 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         ci = self._init_sarot_ci (ci, ci0)
         self.ci = self.sarot (ci=ci, **kwargs)
         self.ham_si, self.ovlp_si, self.e_mcscf, self.e_ot, self.e_cas = self.make_ham_si (self.ci)
-        self._log_sarot ()
+        self.si_mat, self.ham = self._log_sarot ()
         self.e_states, self.si = self._eig_si (self.ham_si)
         # TODO: state_average_mix support
         self.e_tot = np.dot (self.e_states, self.weights)
         self._log_si ()
-        return self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
+        return self.e_tot, self.si_mat, self.ham, self.e_ot, self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
 
     # All of the below probably need to be wrapped over solvers in state-interaction-mix metaclass
 
@@ -266,11 +266,14 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                 log.note ('  State %d weight %g  EPDFT = %.15g  EMCSCF = %.15g',
                     i, self.weights[i], e_pdft[i], self.e_mcscf[i])
         log.info ('Intermediate state Hamiltonian matrix:')
-        fmt_str = ' '.join (['{:9.5f}',]*nroots)
+        fmt_str = ' '.join (['{:9.9f}',]*nroots)
         for row in self.ham_si: log.info (fmt_str.format (*row))
         log.info ('Intermediate states (columns) in terms of reference states (rows):')
         e, v = self._eig_si (self.ham_ci)
         for row in v.T: log.info (fmt_str.format (*row))
+        #print('AOL self.ham_si \n',self.ham_si)
+        #print('AOL v \n',v)
+        return v, self.ham_si
 
     def _log_si (self):
         ''' Information about the final states '''
