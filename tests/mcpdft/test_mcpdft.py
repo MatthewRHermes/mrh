@@ -60,6 +60,15 @@ class KnownValues(unittest.TestCase):
                         self.assertAlmostEqual (mc.e_tot, ref_e, 7)
                         self.assertTrue (mc.converged)
 
+    def test_state_average (self): # TODO
+        pass
+
+    def test_decomposition (self): # TODO
+        pass
+
+    def test_energy_calc (sefl): # TODO
+        pass
+
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT energy API")
     unittest.main()
