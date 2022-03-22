@@ -402,9 +402,10 @@ class _PDFT ():
     # Metaclass parent; unusable on its own
 
     def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None,
-            grids_attr={}, **kwargs):
+            grids_attr=None, **kwargs):
         # Keep the same initialization pattern for backwards-compatibility.
         # Use a separate intializer for the ot functional
+        if grids_attr is None: grids_attr = {}
         try:
             super().__init__(scf, ncas, nelecas)
         except TypeError as e:

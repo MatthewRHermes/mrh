@@ -1,6 +1,6 @@
 # Test API:
-#   0. Initialize from mol, mf, and mc
-#   1. kernel
+#   0. Initialize from mol, mf, and mc (done)
+#   1. kernel (done)
 #   2. optimize_mcscf_
 #   3. compute_pdft_
 #   4. energy_* 
@@ -16,6 +16,7 @@
 
 import numpy as np
 from pyscf import gto, scf, mcscf, lib, fci
+from pyscf.fci.addons import fix_spin_
 from mrh.my_pyscf import mcpdft
 import unittest
 
@@ -27,17 +28,31 @@ mol_sym = gto.M (atom = 'Li 0 0 0\nH 1.5 0 0', basis = 'sto3g', symmetry=True,
 mf_nosym = mf_sym = mc_nosym = mc_sym = None
 
 def setUpModule():
-    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym
+    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
     mf_nosym = scf.RHF (mol_nosym).run ()
     mc_nosym = mcscf.CASSCF (mf_nosym, 5, 2).run ()
     mf_sym = scf.RHF (mol_sym).run ()
     mc_sym = mcscf.CASSCF (mf_sym, 5, 2).run ()
+    # SA just inherently needs tighter grids and convergence for repeatability
+    mcp_ss_nosym = mcpdft.CASSCF (mf_nosym, 'tPBE', 5, 2, grids_level=6).run (conv_tol=1e-12)
+    mcp_ss_sym = mcpdft.CASSCF (mf_sym, 'tPBE', 5, 2, grids_level=6).run (conv_tol=1e-12)
+    mcp_sa_0 = mcp_ss_nosym.state_average ([1.0/5,]*5).run (conv_tol=1e-12)
+    solver_S = fci.solver (mol_nosym, singlet=True).set (spin=0, nroots=2)
+    solver_T = fci.solver (mol_nosym, singlet=False).set (spin=2, nroots=3)
+    mcp_sa_1 = mcp_ss_nosym.state_average_mix (
+        [solver_S,solver_T], [1.0/5,]*5).run (conv_tol=1e-12)
+    solver_A1 = fci.solver (mol_sym).set (wfnsym='A1', nroots=3)
+    solver_E1x = fci.solver (mol_sym).set (wfnsym='E1x', nroots=1, spin=2)
+    solver_E1y = fci.solver (mol_sym).set (wfnsym='E1y', nroots=1, spin=2)
+    mcp_sa_2 = mcp_ss_sym.state_average_mix (
+        [solver_A1,solver_E1x,solver_E1y], [1.0/5,]*5).run (conv_tol=1e-12)
+    mcp = [mcp_ss_nosym, mcp_ss_sym, mcp_sa_0, mcp_sa_1, mcp_sa_2]
 
 def tearDownModule():
-    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym
+    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
     mol_nosym.stdout.close ()
     mol_sym.stdout.close ()
-    del mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym
+    del mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
 
 class KnownValues(unittest.TestCase):
 
@@ -61,24 +76,14 @@ class KnownValues(unittest.TestCase):
                         self.assertAlmostEqual (mc.e_tot, ref_e, 7)
                         self.assertTrue (mc.converged)
 
-    def test_state_average (self): # TODO
+    def test_state_average (self): 
         ref = np.array ([-7.9238958646710085,-7.7887395616498125,-7.7761692676370355,
                          -7.754856419853813,-7.754856419853812,]) 
-        mcp = mcpdft.CASSCF (mc_nosym, 'tPBE', 5, 2, grids_level=6).state_average (
-            [1.0/5,]*5).run (conv_tol=1e-12)
-        with self.subTest (symmetry=False):
-            self.assertTrue (mcp.converged)
-            self.assertAlmostEqual (lib.fp (mcp.e_states), lib.fp (ref), 6)
-            self.assertAlmostEqual (mcp.e_tot, np.average (ref), 7)
-        solver_A1 = fci.FCI (mol_sym).set (wfnsym='A1', nroots=3)
-        solver_E1x = fci.FCI (mol_sym).set (wfnsym='E1x', nroots=1, spin=2)
-        solver_E1y = fci.FCI (mol_sym).set (wfnsym='E1y', nroots=1, spin=2)
-        mcp = mcpdft.CASSCF (mc_sym, 'tPBE', 5, 2, grids_level=6).state_average_mix (
-            [solver_A1, solver_E1x, solver_E1y], [1.0/5,]*5).run (conv_tol=1e-12)
-        with self.subTest (symmetry=True):
-            self.assertTrue (mcp.converged)
-            self.assertAlmostEqual (lib.fp (np.sort (mcp.e_states)), lib.fp (ref), 5)
-            self.assertAlmostEqual (mcp.e_tot, np.average (ref), 7)
+        for ix, mc in enumerate (mcp[2:]):
+            with self.subTest (symmetry=bool(ix//2), triplet_ms=(0,1,'mixed')[ix]):
+                self.assertTrue (mc.converged)
+                self.assertAlmostEqual (lib.fp (np.sort (mc.e_states)), lib.fp (ref), delta=1e-6)
+                self.assertAlmostEqual (mc.e_tot, np.average (ref), delta=1e-7)
 
     def test_decomposition (self): # TODO
         pass
