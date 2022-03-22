@@ -14,7 +14,8 @@
 
 # Building the rudiments of this in debug/debug_mcpdft_api.py
 
-from pyscf import gto, scf, mcscf, lib
+import numpy as np
+from pyscf import gto, scf, mcscf, lib, fci
 from mrh.my_pyscf import mcpdft
 import unittest
 
@@ -61,7 +62,23 @@ class KnownValues(unittest.TestCase):
                         self.assertTrue (mc.converged)
 
     def test_state_average (self): # TODO
-        pass
+        ref = np.array ([-7.9238958646710085,-7.7887395616498125,-7.7761692676370355,
+                         -7.754856419853813,-7.754856419853812,]) 
+        mcp = mcpdft.CASSCF (mc_nosym, 'tPBE', 5, 2, grids_level=6).state_average (
+            [1.0/5,]*5).run (conv_tol=1e-12)
+        with self.subTest (symmetry=False):
+            self.assertTrue (mcp.converged)
+            self.assertAlmostEqual (lib.fp (mcp.e_states), lib.fp (ref), 6)
+            self.assertAlmostEqual (mcp.e_tot, np.average (ref), 7)
+        solver_A1 = fci.FCI (mol_sym).set (wfnsym='A1', nroots=3)
+        solver_E1x = fci.FCI (mol_sym).set (wfnsym='E1x', nroots=1, spin=2)
+        solver_E1y = fci.FCI (mol_sym).set (wfnsym='E1y', nroots=1, spin=2)
+        mcp = mcpdft.CASSCF (mc_sym, 'tPBE', 5, 2, grids_level=6).state_average_mix (
+            [solver_A1, solver_E1x, solver_E1y], [1.0/5,]*5).run (conv_tol=1e-12)
+        with self.subTest (symmetry=True):
+            self.assertTrue (mcp.converged)
+            self.assertAlmostEqual (lib.fp (np.sort (mcp.e_states)), lib.fp (ref), 5)
+            self.assertAlmostEqual (mcp.e_tot, np.average (ref), 7)
 
     def test_decomposition (self): # TODO
         pass

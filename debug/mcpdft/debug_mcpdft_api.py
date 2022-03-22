@@ -3,7 +3,7 @@ from pyscf.tools import molden
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.tools.molden import from_sa_mcscf
 
-mol = gto.M (atom = 'Li 0 0 0\nH 1.5 0 0', basis = 'sto3g', symmetry=True,
+mol = gto.M (atom = 'Li 0 0 0\nH 1.5 0 0', basis = 'sto3g', symmetry=False,
              output = 'LiH.log', verbose = lib.logger.INFO)
 mf = scf.RHF (mol).run ()
 mc0 = mcscf.CASSCF (mf, 5, 2).run ()
@@ -13,7 +13,7 @@ mc0 = mcscf.CASSCF (mf, 5, 2).run ()
 mc = []
 mc.append (mcpdft.CASSCF (mol, 'tPBE', 5, 2).set (mo_coeff=mf.mo_coeff).run ())
 mc.append (mcpdft.CASSCF (mf, 'tPBE', 5, 2).run ())
-mc.append (mcpdft.CASSCF (mc0, 'tPBE', 5, 2).run ())
+mc.append (mcpdft.CASSCF (mc0, 'tPBE', 5, 2, grids_level=6).run ())
 mc.append (mcpdft.CASCI (mol, 'tPBE', 5, 2).set (mo_coeff=mc[-1].mo_coeff).run ())
 mc.append (mcpdft.CASCI (mf, 'tPBE', 5, 2).set (mo_coeff=mc[-1].mo_coeff).run ())
 mc.append (mcpdft.CASCI (mc0, 'tPBE', 5, 2).run ())
@@ -41,10 +41,11 @@ for m in mc_grad:
 #  S2 E1x (B1) E = -7.69084161562994
 #  S3 E1y (B2) E = -7.69084161562994
 
-#nroots = 7
-#mc0 = mc0.state_average ([1.0/nroots,]*nroots).run ()
-#for state in range (nroots):
-#    from_sa_mcscf (mc0, 'LiH.{}.molden'.format (state),
-#                   state=state, cas_natorb=True)
+nroots = 5
+mc_sa = mc[2].state_average ([1.0/nroots,]*nroots).run (conv_tol=1e-12)
+for state in range (nroots):
+    print (mc_sa.e_states[state])
+    from_sa_mcscf (mc_sa, 'LiH.{}.molden'.format (state),
+                   state=state, cas_natorb=True)
 
 
