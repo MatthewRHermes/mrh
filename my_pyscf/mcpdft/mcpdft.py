@@ -657,7 +657,6 @@ class _PDFT ():
         return e_tot, e_ot
 
 def get_mcpdft_child_class (mc, ot, ci_min='ecas', **kwargs):
-    print (ci_min)
     # Inheritance magic
     class PDFT (_PDFT, mc.__class__):
         if ci_min.lower () == 'epdft':

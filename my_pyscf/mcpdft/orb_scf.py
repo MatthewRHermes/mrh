@@ -111,9 +111,11 @@ if __name__ == '__main__':
     print ("h_diag:", h_diag)
 
     x0 = -g_orb/h_diag
-    u0 = mc.update_rotate_matrix (x0)
     print ("\nx0 = -g_orb/h_diag; u0 = expm (x0)")
-    print ("h_op(x0):", h_op(x0))
+    hx0 = h_op (x0)
+    print ("h_op(x0):", hx0)
+    print ("g_orb + h_op(x0):", g_orb + hx0)
+    u0 = mc.update_rotate_matrix (x0)
     print ("gorb_update (u0,mc.ci):", gorb_update (u0, mc.ci))
 
     mc.mo_coeff = np.dot (mc.mo_coeff, u0)
