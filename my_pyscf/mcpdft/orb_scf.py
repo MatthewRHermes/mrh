@@ -93,7 +93,7 @@ if __name__ == '__main__':
     mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
         verbose=lib.logger.DEBUG, output='orb_scf.log')
     mf = scf.RHF (mol).run ()
-    mc = mcpdft.CASSCF (mf, 'tPBE', 2, 2, grids_level=9).run ()
+    mc = mcpdft.CASSCF (mf, 'tPBE', 2, 2).run ()
     print ("Ordinary H2 tPBE energy:",mc.e_tot)
 
     nao, nmo = mc.mo_coeff.shape
@@ -121,5 +121,18 @@ if __name__ == '__main__':
     mc.mo_coeff = np.dot (mc.mo_coeff, u0)
     e_tot, e_ot = mc.energy_tot ()
     print ("H2 tPBE energy after rotating orbitals:", e_tot)
+
+    print ("\nNow attempting to minimize...")
+    mcv0 = mcpdft.CASSCF (mc, 'tPBE', 2, 2, ci_min='epdft')
+    class orbvarMCPDFT (mcv0.__class__):
+        gen_g_hop = mc1step_gen_g_hop
+        update_jk_in_ah = mc1step_update_jk_in_ah
+
+    mcv = orbvarMCPDFT (mcv0._scf, mcv0.ncas, mcv0.nelecas, my_ot=mcv0.otxc)
+    _keys = mcv._keys.copy ()
+    mcv.__dict__.update (mc.__dict__)
+    mcv._keys = mcv._keys.union (_keys)    
+    mcv.kernel ()
+    print ("H2 tPBE energy after attempted minimization:", mcv.e_tot, '(MCSCF E = ', mcv.e_mcscf, ')')
 
 

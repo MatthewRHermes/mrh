@@ -96,9 +96,9 @@ def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
 
 
     if callable (getattr (mc, 'energy_dft', None)):
-        e_dft = mc.energy_dft (ot=ot, dm_list=dm_list)
+        e_dft = mc.energy_dft (ot=ot, dm_list=dm_list, mo_coeff=mo_coeff)
     else:
-        e_dft = energy_dft (mc, ot=ot, dm_list=dm_list)
+        e_dft = energy_dft (mc, ot=ot, dm_list=dm_list, mo_coeff=mo_coeff)
     t0 = logger.timer (ot, 'E_ot', *t0)
 
     e_tot = e_mcwfn + e_dft
