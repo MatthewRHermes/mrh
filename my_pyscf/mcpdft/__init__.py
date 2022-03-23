@@ -32,10 +32,10 @@ def _MCPDFT (mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=No
 def CASSCFPDFT (mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None, ci_min='ecas',
                 **kwargs):
     return _MCPDFT (mcscf.CASSCF, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=ncore, frozen=frozen,
-                    ci_min='ecas', **kwargs)
+                    ci_min=ci_min, **kwargs)
 
 def CASCIPDFT (mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, ci_min='ecas', **kwargs):
-    return _MCPDFT (mcscf.CASCI, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=ncore, ci_min='ecas',
+    return _MCPDFT (mcscf.CASCI, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=ncore, ci_min=ci_min,
                     **kwargs)
 
 CASSCF=CASSCFPDFT
