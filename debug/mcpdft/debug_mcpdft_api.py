@@ -13,7 +13,7 @@ mc0 = mcscf.CASSCF (mf, 5, 2).run ()
 mc = []
 mc.append (mcpdft.CASSCF (mol, 'tPBE', 5, 2).set (mo_coeff=mf.mo_coeff).run ())
 mc.append (mcpdft.CASSCF (mf, 'tPBE', 5, 2).run ())
-mc.append (mcpdft.CASSCF (mc0, 'tPBE', 5, 2, grids_level=4).run ())
+mc.append (mcpdft.CASSCF (mc0, 'tPBE', 5, 2, grids_level=3).run ())
 mc.append (mcpdft.CASCI (mol, 'tPBE', 5, 2).set (mo_coeff=mc[-1].mo_coeff).run ())
 mc.append (mcpdft.CASCI (mf, 'tPBE', 5, 2).set (mo_coeff=mc[-1].mo_coeff).run ())
 mc.append (mcpdft.CASCI (mc0, 'tPBE', 5, 2).run ())
@@ -48,5 +48,5 @@ for state in range (nroots):
     from_sa_mcscf (mc_sa, 'LiH.{}.molden'.format (state),
                    state=state, cas_natorb=True)
 
-print ('ref = np.array ([{}'.format (mc_sa.e_states[:3]))
-print ('{}])'.format (mc_sa.e_states[3:]))
+print (('       ref = np.array ([{},{},{},\n'
+        '                        {},{}])').format (*mc_sa.e_states))
