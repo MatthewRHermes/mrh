@@ -344,8 +344,8 @@ def get_energy_decomposition (mc, ot, mo_coeff=None, ci=None):
     This is not meant to work with MC-PDFT methods that are already
     hybrids. Most return arguments are lists if mc is a state average
     instance. '''
-    e_tot, e_ot, e_mcscf, e_cas, ci, mo_coeff = mc.kernel (mo=mo_coeff,
-        ci=ci)[:6]
+    e_tot, e_ot, e_mcscf, e_cas, ci, mo_coeff = mc.kernel (mo_coeff=mo_coeff,
+        ci0=ci)[:6]
     if isinstance (mc, StateAverageMCSCFSolver):
         e_tot = mc.e_states
     e_nuc = mc._scf.energy_nuc ()
