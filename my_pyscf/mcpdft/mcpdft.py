@@ -20,8 +20,7 @@ from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 # 2. Allow for quick energy recomputation with different functional, without
 #    messing up the convention that all the "energy_*" functions return ONE
 #    energy only (is this consistent with PySCF convention overall???).
-# 3. Redesign state-average API. Get rid of awful root=-1 convention while
-#    still allowing computation of the total state-average energy only.
+# 3. Redesign state-average API. Get rid of awful root=-1 convention.
 # 4. Clean up "make_rdms_mcpdft":
 #       a. Make better use of existing API and name conventions
 #       b. Get rid of pointless _os, _ss computation unless necessary. (Tags?)
@@ -37,7 +36,7 @@ from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 #          (Check if copy.deepcopy can do this for MC-PDFT version.)
 # 7. Hybrid API and unittests. NotImplementedErrors for omega and alpha.
 
-def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
+def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=0, verbose=None):
     ''' Calculate MC-PDFT total energy
 
         Args:
@@ -56,9 +55,7 @@ def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
                 of mc.
             root : int
                 If mc describes a state-averaged calculation, select the
-                root (0-indexed). Negative number requests state-average
-                MC-PDFT results (i.e., using state-averaged density
-                matrices).
+                root (0-indexed).
             verbose : int
                 Verbosity of logger output; defaults to mc.verbose
 
@@ -112,7 +109,7 @@ def energy_elec (mc, *args, **kwargs):
     e_elec = e_tot - mc._scf.energy_nuc ()
     return e_elec, E_ot
 
-def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=-1):
+def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=0):
     ''' Build the necessary density matrices for an MC-PDFT calculation 
 
         Args:
@@ -151,7 +148,7 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=-1):
 
     # figure out the correct RDMs to build (SA or SS?)
     _casdms = mc.fcisolver
-    if state >= 0:
+    if isinstance (mc, StateAverageMCSCFSolver):
         ci = ci[state]
         if isinstance (mc.fcisolver, StateAverageMixFCISolver):
             p0 = 0
@@ -649,9 +646,9 @@ class _PDFT ():
     make_rdms_mcpdft = make_rdms_mcpdft
     energy_mcwfn = energy_mcwfn
     energy_dft = energy_dft
-    def energy_tot (self, mo_coeff=None, ci=None, ot=None, root=-1,
+    def energy_tot (self, mo_coeff=None, ci=None, ot=None, root=0,
                     verbose=None, otxc=None, grids_level=None, grids_attr=None):
-        ''' Compute a single MC-PDFT energy '''
+        ''' Compute the MC-PDFT energy of a single state '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
         if grids_attr is None: grids_attr = {}

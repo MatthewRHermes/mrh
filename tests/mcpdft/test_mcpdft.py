@@ -27,6 +27,20 @@ mol_sym = gto.M (atom = 'Li 0 0 0\nH 1.5 0 0', basis = 'sto3g', symmetry=True,
 
 mf_nosym = mf_sym = mc_nosym = mc_sym = None
 
+def get_attr (mc):
+    mo_ref = lib.fp (mc.mo_coeff)
+    ci_ref = lib.fp (np.concatenate (mc.ci, axis=None))
+    e_states_ref = lib.fp (getattr (mc, 'e_states', 0))
+    return mo_ref, ci_ref, mc.e_tot, e_states_ref, mc.grids.level, mc.otxc
+
+def test_energy_tot_crunch (ks, test_list, ref_list, casestr):
+    for ix, (t, r) in enumerate (zip (test_list, ref_list)):
+        with ks.subTest (case=casestr, item=ix):
+            if isinstance (t, (float, np.floating)):
+                ks.assertAlmostEqual (t, r, delta=1e-6)
+            else:
+                ks.assertEqual (t, r)
+
 def setUpModule():
     global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
     mf_nosym = scf.RHF (mol_nosym).run ()
@@ -134,7 +148,28 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (np.sum (test[:-1])+test_nuc, e_ref[state], 9)
 
 
-    def test_energy_calc (sefl): # TODO
+    def test_energy_tot (self):
+        # Test both correctness and purity
+        # tBLYP
+        e_ref = mcpdft.CASSCF (mcp[0][0], 'tBLYP', 5, 2).kernel ()[0]
+        for ix, mc in enumerate (mcp[0]):
+            ref_list = [e_ref] + list (get_attr (mc))
+            e_test = mc.energy_tot (otxc='tBLYP')[0]
+            test_list = [e_test] + list (get_attr (mc))
+            casestr = 'diff=fnal; SS; symmetry={}'.format (bool(ix))
+            test_energy_tot_crunch (self, test_list, ref_list, casestr)
+        mc_ref = mcpdft.CASSCF (mcp[1][0], 'tBLYP', 5, 2).state_average ([1.0/5,]*5).run ()
+        e_s0_ref = mc_ref.e_states[0]
+        for ix, mc in enumerate (mcp[1]):
+            ref_list = [e_s0_ref] + list (get_attr (mc))
+            e_s0_test = mc.energy_tot (otxc='tBLYP')[0]
+            test_list = [e_s0_test] + list (get_attr (mc))
+            sym = bool(ix//2)
+            tms = (0,1,'mixed')[ix]
+            casestr = 'diff=fnal; SA; symmetry={}; triplet_ms={}'.format (sym, tms)
+            test_energy_tot_crunch (self, test_list, ref_list, casestr)
+        # grids_level = 2
+        # CASCI wfn
         pass
 
 if __name__ == "__main__":
