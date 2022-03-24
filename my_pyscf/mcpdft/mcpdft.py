@@ -11,7 +11,7 @@ from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix
 from pyscf.mcscf.addons import state_average_mix_, StateAverageMixFCISolver
 from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
-from mrh.my_pyscf.mcpdft.otfnal import otfnal, get_transfnal
+from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, get_transfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 
 # TODO: 
@@ -69,6 +69,7 @@ def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=-1, verbose=None):
                 On-top (cf. exchange-correlation) energy
     '''
     if ot is None: ot = mc.otfnal
+    ot.reset (mol=mc.mol) # scanner mode safety
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
     if verbose is None: verbose = mc.verbose
@@ -425,27 +426,16 @@ class _PDFT ():
         if my_ot is not None:
             self._init_ot_grids (my_ot, grids_attr=grids_attr)
 
-    def _init_ot_grids (self, my_ot, grids_attr={}):
+    def _init_ot_grids (self, my_ot, grids_attr=None):
+        if grids_attr is None: grids_attr = {}
         old_grids = getattr (self, 'grids', None)
         if isinstance (my_ot, (str, np.string_)):
             self.otfnal = get_transfnal (self.mol, my_ot)
-            #ks = dft.RKS (self.mol)
-            #if my_ot[:1].upper () == 'T':
-            #    ks.xc = my_ot[1:]
-            #    self.otfnal = transfnal (ks)
-            #elif my_ot[:2].upper () == 'FT':
-            #    ks.xc = my_ot[2:]
-            #    self.otfnal = ftransfnal (ks)
-            #else:
-            #    raise NotImplementedError (('On-top pair-density functional '
-            #        'names other than "translated" (t) or "fully-translated" '
-            #        '(ft). Nonstandard functionals can be specified by passing'
-            #        ' an object of class otfnal in place of a string.'))
         else:
             self.otfnal = my_ot
         if isinstance (old_grids, gen_grid.Grids):
             self.otfnal.grids = old_grids
-        self.grids = self.otfnal.grids
+        #self.grids = self.otfnal.grids
         self.grids.__dict__.update (grids_attr)
         for key in grids_attr:
             assert (getattr (self.grids, key, None) == getattr (
@@ -454,7 +444,14 @@ class _PDFT ():
         # (i.e., in scanner mode)
         self.otfnal.verbose = self.verbose
         self.otfnal.stdout = self.stdout
- 
+
+    @property
+    def grids (self): return self.otfnal.grids
+    @grids.setter
+    def grids (self, x):
+        self.otfnal.grids = x
+        return self.otfnal.grids 
+
     def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
         ''' Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
             Has the same calling signature as the parent kernel method. '''
@@ -467,12 +464,17 @@ class _PDFT ():
             self.e_mcscf = self.e_states
         return self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
 
-    def compute_pdft_energy_(self, mo_coeff=None, ci=None, otxc=None, **kwargs):
+    def compute_pdft_energy_(self, mo_coeff=None, ci=None, ot=None, otxc=None,
+                             grids_level=None, grids_attr=None, **kwargs):
         ''' Compute the MC-PDFT energy(ies) (and update stored data)
             with the MC-SCF wave function fixed. '''
         if mo_coeff is not None: self.mo_coeff = mo_coeff
         if ci is not None: self.ci = ci
+        if ot is not None: self.otfnal = ot
         if otxc is not None: self.otxc = otxc
+        if grids_attr is None: grids_attr = {}
+        if grids_level is not None: grids_attr['level'] = grids_level
+        if len (grids_attr): self.grids.__dict__.update (**grids_attr)
         if isinstance (self, StateAverageMCSCFSolver):
             epdft = [self.energy_tot (mo_coeff=self.mo_coeff, ci=self.ci, root=ix)
                      for ix in range (len (self.e_states))]
@@ -486,7 +488,6 @@ class _PDFT ():
             return self.e_tot, self.e_ot, [self.e_tot] 
 
     def kernel (self, mo_coeff=None, ci0=None, otxc=None, **kwargs):
-        self.otfnal.reset (mol=self.mol) # scanner mode safety
         self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0, **kwargs)
         self.compute_pdft_energy_(otxc=otxc, **kwargs)
         return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci,
@@ -646,10 +647,24 @@ class _PDFT ():
     make_rdms_mcpdft = make_rdms_mcpdft
     energy_mcwfn = energy_mcwfn
     energy_dft = energy_dft
-    def energy_tot (self, mo_coeff=None, ci=None, ot=None, root=-1, verbose=None):
+    def energy_tot (self, mo_coeff=None, ci=None, ot=None, root=-1,
+                    verbose=None, otxc=None, grids_level=None, grids_attr=None):
+        ''' Compute a single MC-PDFT energy '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        if ot is None: ot = self.otfnal
+        if grids_attr is None: grids_attr = {}
+        if grids_level is not None: grids_attr['level'] = grids_level
+        if len (grids_attr) or (otxc is not None):
+            old_ot = ot if (ot is not None) else self.otfnal
+            old_grids = old_ot.grids
+            # TODO: general compatibility with arbitrary (non-translated) fnals
+            if otxc is None: otxc = old_ot.otxc
+            new_ot = get_transfnal (self.mol, otxc)
+            new_ot.grids.__dict__.update (old_grids.__dict__)
+            new_ot.grids.__dict__.update (**grids_attr)
+            ot = new_ot
+        elif ot is None:
+            ot = self.otfnal
         e_tot, e_ot = energy_tot (self, mo_coeff=mo_coeff, ot=ot, ci=ci,
             root=root, verbose=verbose)
         logger.note (self, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc,
