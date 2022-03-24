@@ -59,7 +59,7 @@ def mc1step_gen_g_hop (mc, mo, u, casdm1, casdm2, eris):
             veff2)
     gorb_update = get_gorb_update (mc, mo)
     def h_op (x):
-        # OT second density derivative
+        # OT Coulomb and second density derivative
         dg = h_op0 (x)
         x1 = mc.unpack_uniq_var (x)
         x2 = mc.update_jot_in_ah (mo, x1, casdm1, veff2)
