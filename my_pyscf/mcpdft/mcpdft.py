@@ -487,9 +487,11 @@ class _PDFT ():
             self.e_tot, self.e_ot = self.energy_tot (mo_coeff=self.mo_coeff, ci=self.ci)
             return self.e_tot, self.e_ot, [self.e_tot] 
 
-    def kernel (self, mo_coeff=None, ci0=None, otxc=None, **kwargs):
+    def kernel (self, mo_coeff=None, ci0=None, otxc=None, grids_attr=None,
+                grids_level=None, **kwargs):
         self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0, **kwargs)
-        self.compute_pdft_energy_(otxc=otxc, **kwargs)
+        self.compute_pdft_energy_(otxc=otxc, grids_attr=grids_attr,
+                                  grids_level=grids_level, **kwargs)
         return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci,
             self.mo_coeff, self.mo_energy)
 

@@ -42,7 +42,18 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0,
                 contains spin-separated 1-RDM
             twoCDM_amo : ndarray of shape [ncas,]*4
                 contains spin-summed two-body cumulant density matrix in
-                active space
+                the active-orbital basis:
+                cdm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
+                                + dm1s[0][u,y]*dm1s[0][x,v]
+                                + dm1s[1][u,y]*dm1s[1][x,v]
+                                    or
+                              = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
+                                + 0.5*dm1[u,y]*dm1[x,v]
+                or any similar decomposition which results in cdm2
+                having no nonzero elements for any index outside the
+                active space (unlike dm2, which formally has elements
+                [i,i,u,v], etc., even though they are not constructed
+                explicitly in PySCF)
             ao2amo : ndarray of shape (nao, ncas)
                 molecular-orbital coefficients for active-space orbitals
 
