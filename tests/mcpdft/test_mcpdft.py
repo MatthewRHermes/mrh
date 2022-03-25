@@ -3,8 +3,8 @@
 #   1. kernel (done)
 #   2. optimize_mcscf_
 #   3. compute_pdft_
-#   4. energy_* 
-#   5. get_energy_decomposition
+#   4. energy_tot (done) 
+#   5. get_energy_decomposition (done)
 #   6. checkpoint stuff
 #   7. get_pdft_veff (maybe this elsewhere?)
 # In the context of:
@@ -27,19 +27,6 @@ mol_sym = gto.M (atom = 'Li 0 0 0\nH 1.5 0 0', basis = 'sto3g', symmetry=True,
 
 mf_nosym = mf_sym = mc_nosym = mc_sym = None
 
-def get_attr (mc):
-    mo_ref = lib.fp (mc.mo_coeff)
-    ci_ref = lib.fp (np.concatenate (mc.ci, axis=None))
-    e_states_ref = lib.fp (getattr (mc, 'e_states', 0))
-    return mo_ref, ci_ref, mc.e_tot, e_states_ref, mc.grids.level, mc.otxc
-
-def test_energy_tot_crunch (ks, test_list, ref_list, casestr):
-    for ix, (t, r) in enumerate (zip (test_list, ref_list)):
-        with ks.subTest (case=casestr, item=ix):
-            if isinstance (t, (float, np.floating)):
-                ks.assertAlmostEqual (t, r, delta=1e-6)
-            else:
-                ks.assertEqual (t, r)
 
 def setUpModule():
     global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
@@ -149,28 +136,60 @@ class KnownValues(unittest.TestCase):
 
 
     def test_energy_tot (self):
-        # Test both correctness and purity
+        # Test both correctness and energy_tot function purity
+        def get_attr (mc):
+            mo_ref = lib.fp (mc.mo_coeff)
+            ci_ref = lib.fp (np.concatenate (mc.ci, axis=None))
+            e_states_ref = lib.fp (getattr (mc, 'e_states', 0))
+            return mo_ref, ci_ref, mc.e_tot, e_states_ref, mc.grids.level, mc.otxc
+        def test_energy_tot_crunch (test_list, ref_list, casestr):
+            for ix, (t, r) in enumerate (zip (test_list, ref_list)):
+                with self.subTest (case=casestr, item=ix):
+                    if isinstance (t, (float, np.floating)):
+                        self.assertAlmostEqual (t, r, delta=1e-6)
+                    else:
+                        self.assertEqual (t, r)
+        def test_energy_tot_loop_ss (e_ref_ss, diff, **kwargs):
+            for ix, mc in enumerate (mcp[0]):
+                ref_list = [e_ref_ss] + list (get_attr (mc))
+                e_test = mc.energy_tot (**kwargs)[0]
+                test_list = [e_test] + list (get_attr (mc))
+                casestr = 'diff={}; SS; symmetry={}'.format (diff, bool(ix))
+                test_energy_tot_crunch (test_list, ref_list, casestr)
+        def test_energy_tot_loop_sa (e_ref_sa, diff, **kwargs):
+            for ix, mc in enumerate (mcp[1]):
+                ref_list = [e_ref_sa] + list (get_attr (mc))
+                e_s0_test = mc.energy_tot (**kwargs)[0]
+                test_list = [e_s0_test] + list (get_attr (mc))
+                sym = bool(ix//2)
+                tms = (0,1,'mixed')[ix]
+                casestr = 'diff={}; SA; symmetry={}; triplet_ms={}'.format (diff, sym, tms)
+                test_energy_tot_crunch (test_list, ref_list, casestr)
+        def test_energy_tot_loop (e_ref_ss, e_ref_sa, diff, **kwargs):
+            test_energy_tot_loop_ss (e_ref_ss, diff, **kwargs)
+            test_energy_tot_loop_sa (e_ref_sa, diff, **kwargs)
         # tBLYP
-        e_ref = mcpdft.CASSCF (mcp[0][0], 'tBLYP', 5, 2).kernel ()[0]
-        for ix, mc in enumerate (mcp[0]):
-            ref_list = [e_ref] + list (get_attr (mc))
-            e_test = mc.energy_tot (otxc='tBLYP')[0]
-            test_list = [e_test] + list (get_attr (mc))
-            casestr = 'diff=fnal; SS; symmetry={}'.format (bool(ix))
-            test_energy_tot_crunch (self, test_list, ref_list, casestr)
+        e_ref_ss = mcpdft.CASSCF (mcp[0][0], 'tBLYP', 5, 2).kernel ()[0]
         mc_ref = mcpdft.CASSCF (mcp[1][0], 'tBLYP', 5, 2).state_average ([1.0/5,]*5).run ()
-        e_s0_ref = mc_ref.e_states[0]
-        for ix, mc in enumerate (mcp[1]):
-            ref_list = [e_s0_ref] + list (get_attr (mc))
-            e_s0_test = mc.energy_tot (otxc='tBLYP')[0]
-            test_list = [e_s0_test] + list (get_attr (mc))
-            sym = bool(ix//2)
-            tms = (0,1,'mixed')[ix]
-            casestr = 'diff=fnal; SA; symmetry={}; triplet_ms={}'.format (sym, tms)
-            test_energy_tot_crunch (self, test_list, ref_list, casestr)
+        e_ref_sa = mc_ref.e_states[0]
+        test_energy_tot_loop (e_ref_ss, e_ref_sa, 'fnal', otxc='tBLYP')
         # grids_level = 2
+        e_ref_ss = mcpdft.CASSCF (mcp[0][0], 'tPBE', 5, 2, grids_level=2).kernel ()[0]
+        mc_ref = mcpdft.CASSCF (mcp[1][0], 'tPBE', 5, 2, grids_level=2).state_average ([1.0/5,]*5).run ()
+        e_ref_sa = mc_ref.e_states[0]
+        test_energy_tot_loop (e_ref_ss, e_ref_sa, 'grids', grids_level=2)
         # CASCI wfn
-        pass
+        mc_ref = mcpdft.CASCI (mf_nosym, 'tPBE', 5, 2).run ()
+        test_energy_tot_loop_ss (mc_ref.e_tot, 'wfn', mo_coeff=mc_ref.mo_coeff, ci=mc_ref.ci)
+        fake_ci = [c.copy () for c in mcp[1][0].ci]
+        fake_ci[0] = mc_ref.ci.copy ()
+        test_energy_tot_loop_sa (mc_ref.e_tot, 'wfn', mo_coeff=mc_ref.mo_coeff, ci=fake_ci)
+
+    def test_kernel_steps (self):
+        ''' kernel is split into optimize_mcscf_ and compute_pdft_energy_.
+            I need to make sure that they don't step on each others' toes. '''
+
+
 
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT energy API")
