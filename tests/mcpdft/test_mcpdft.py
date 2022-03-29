@@ -186,8 +186,70 @@ class KnownValues(unittest.TestCase):
         test_energy_tot_loop_sa (mc_ref.e_tot, 'wfn', mo_coeff=mc_ref.mo_coeff, ci=fake_ci)
 
     def test_kernel_steps (self):
-        ''' kernel is split into optimize_mcscf_ and compute_pdft_energy_.
-            I need to make sure that they don't step on each others' toes. '''
+        ref_tot = -7.919939037859329
+        ref_ot = -2.2384273324895165
+        for ix, mc in enumerate (mcp[0]):
+            e_tot = mc.e_tot
+            e_ot = mc.e_ot
+            e_mcscf = mc.e_mcscf
+            mo = (mf_nosym, mf_sym)[ix].mo_coeff.copy ()
+            ci = np.zeros_like (mc.ci)
+            ci[0,0] = 1.0
+            mc.compute_pdft_energy_(mo_coeff=mo, ci=ci)
+            with self.subTest (case='SS', part='pdft1', symmetry=bool(ix)):
+                self.assertAlmostEqual (lib.fp (mc.mo_coeff), lib.fp (mo), 9)
+                self.assertAlmostEqual (lib.fp (mc.ci), lib.fp (ci), 9)
+                self.assertAlmostEqual (mc.e_mcscf, e_mcscf, 9)
+                self.assertAlmostEqual (mc.e_tot, ref_tot, 9)
+                self.assertAlmostEqual (mc.e_ot, ref_ot, 7)
+            mc.e_tot = 0.0
+            mc.e_ot = 0.0
+            mc.optimize_mcscf_()
+            with self.subTest (case='SS', part='mcscf', symmetry=bool(ix)):
+                self.assertEqual (mc.e_tot, 0.0)
+                self.assertEqual (mc.e_ot, 0.0)
+                self.assertAlmostEqual (mc.e_mcscf, e_mcscf, 9)
+            mc.compute_pdft_energy_()
+            with self.subTest (case='SS', part='pdft2', symmetry=bool(ix)):
+                self.assertAlmostEqual (mc.e_tot, e_tot, 6)
+                self.assertAlmostEqual (mc.e_ot, e_ot, 6)
+        ref_avg = -7.7986453
+        for ix, mc in enumerate (mcp[1]):
+            sym = bool(ix//2)
+            tms = (0,1,'mixed')[ix]
+            e_tot = mc.e_tot
+            e_ot = np.array (mc.e_ot)
+            e_mcscf = np.array (mc.e_mcscf)
+            e_states = np.array (mc.e_states)
+            nroots = len (e_mcscf)
+            mo = (mf_nosym, mf_sym)[int(sym)].mo_coeff.copy ()
+            ci = [c.copy () for c in mc.ci]
+            ci[0][:,:] = 0.0
+            ci[0][0,0] = 1.0
+            fp_fake_ci = lib.fp (np.concatenate (ci, axis=None))
+            mc.compute_pdft_energy_(mo_coeff=mo, ci=ci)
+            with self.subTest (case='SA', part='pdft1', symmetry=sym, triplet_ms=tms):
+                self.assertAlmostEqual (lib.fp (mc.mo_coeff), lib.fp (mo), 9)
+                self.assertAlmostEqual (lib.fp (np.concatenate (mc.ci, axis=None)), fp_fake_ci, 9)
+                self.assertAlmostEqual (lib.fp (mc.e_mcscf), lib.fp (e_mcscf), 9)
+                self.assertAlmostEqual (mc.e_tot, ref_avg, delta=1e-5)
+                self.assertAlmostEqual (mc.e_states[0], ref_tot, 9)
+                self.assertAlmostEqual (mc.e_ot[0], ref_ot, 7)
+            mc.e_tot = 0.0
+            mc.e_ot = [0.0,]*len(mc.e_ot)
+            mc.fcisolver.e_states = [0.0,]*len(mc.e_states)
+            mc.optimize_mcscf_()
+            with self.subTest (case='SA', part='mcscf', symmetry=sym, triplet_ms=tms):
+                self.assertEqual (mc.e_tot, 0.0)
+                self.assertEqual (lib.fp (mc.e_ot), 0.0)
+                self.assertEqual (lib.fp (mc.e_states), 0.0)
+                self.assertAlmostEqual (lib.fp (mc.e_mcscf), lib.fp (e_mcscf), 7)
+            mc.compute_pdft_energy_()
+            with self.subTest (case='SA', part='pdft2', symmetry=sym, triplet_ms=tms):
+                self.assertAlmostEqual (mc.e_tot, e_tot, delta=1e-6)
+                self.assertAlmostEqual (lib.fp (mc.e_ot), lib.fp (e_ot), delta=1e-5)
+                self.assertAlmostEqual (lib.fp (mc.e_states), lib.fp (e_states), delta=1e-5)
+
 
 
 
