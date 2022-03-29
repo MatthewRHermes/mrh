@@ -1,5 +1,6 @@
 import numpy as np
 import time
+from copy import deepcopy
 from scipy import linalg
 from pyscf import gto, dft, ao2mo, fci, mcscf, lib, __config__
 from pyscf.lib import logger, temporary_env
@@ -36,7 +37,7 @@ from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 #          (Check if copy.deepcopy can do this for MC-PDFT version.)
 # 7. Hybrid API and unittests. NotImplementedErrors for omega and alpha.
 
-def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=0, verbose=None):
+def energy_tot (mc, ot=None, mo_coeff=None, ci=None, state=0, verbose=None):
     ''' Calculate MC-PDFT total energy
 
         Args:
@@ -53,9 +54,9 @@ def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=0, verbose=None):
             ci : ndarray or list
                 CI vector or vectors. Must be consistent with the nroots
                 of mc.
-            root : int
+            state : int
                 If mc describes a state-averaged calculation, select the
-                root (0-indexed).
+                state (0-indexed).
             verbose : int
                 Verbosity of logger output; defaults to mc.verbose
 
@@ -77,10 +78,10 @@ def energy_tot (mc, ot=None, mo_coeff=None, ci=None, root=0, verbose=None):
 
     if callable (getattr (mc, 'make_rdms_mcpdft', None)):
         dm_list = mc.make_rdms_mcpdft (ot=ot, mo_coeff=mo_coeff, ci=ci,
-            state=root)
+            state=state)
     else:
         dm_list = make_rdms_mcpdft (mc, ot=ot, mo_coeff=mo_coeff, ci=ci,
-            state=root)
+            state=state)
     t0 = logger.timer (ot, 'rdms', *t0)
 
 
@@ -396,6 +397,22 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal,
     e_wfnxc = e_mcscf - e_nuc - e_core - e_coul
     return e_core, e_coul, e_otx, e_otc, e_wfnxc
 
+class _mcscf_env (object):
+    ''' Prevent MC-SCF step of MC-PDFT from overwriting redefined
+        quantities e_states and e_tot '''
+    def __init__(self, mc):
+        self.mc = mc
+        self.e_tot = deepcopy (self.mc.e_tot)
+        self.e_states = deepcopy (getattr (self.mc, 'e_states', None))
+    def __enter__(self):
+        pass
+    def __exit__(self, type, value, traceback):
+        self.mc.e_tot = self.e_tot
+        if getattr (self.mc, 'e_states', None) is not None:
+            self.mc.e_mcscf = np.array (self.mc.e_states)
+        if self.e_states is not None:
+            self.mc.fcisolver.e_states = self.e_states
+
 class _PDFT ():
     # Metaclass parent; unusable on its own
 
@@ -452,13 +469,9 @@ class _PDFT ():
     def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
         ''' Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
             Has the same calling signature as the parent kernel method. '''
-        self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
-            super().kernel (mo_coeff, ci0=ci0, **kwargs)
-        # TODO: is "super" safe? If I try to tag the specific kernel in the
-        # class factory at the bottom, the problem then becomes that state_average
-        # and state_interaction classes don't work right.
-        if isinstance (self, StateAverageMCSCFSolver):
-            self.e_mcscf = self.e_states
+        with _mcscf_env (self):
+            self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
+                super().kernel (mo_coeff, ci0=ci0, **kwargs)
         return self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
 
     def compute_pdft_energy_(self, mo_coeff=None, ci=None, ot=None, otxc=None,
@@ -472,13 +485,17 @@ class _PDFT ():
         if grids_attr is None: grids_attr = {}
         if grids_level is not None: grids_attr['level'] = grids_level
         if len (grids_attr): self.grids.__dict__.update (**grids_attr)
-        if isinstance (self, StateAverageMCSCFSolver):
-            epdft = [self.energy_tot (mo_coeff=self.mo_coeff, ci=self.ci, root=ix)
-                     for ix in range (len (self.e_states))]
-            self.e_mcscf = self.e_states
-            self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
+        nroots = getattr (self.fcisolver, 'nroots', 1)
+        if nroots>1:
+            epdft = [self.energy_tot (mo_coeff=self.mo_coeff, ci=self.ci, state=ix,
+                     logger_tag='MC-PDFT state {}'.format (ix))
+                     for ix in range (nroots)]
             self.e_ot = [e_ot for e_tot, e_ot in epdft]
-            self.e_tot = np.dot (self.e_states, self.weights)
+            if isinstance (self, StateAverageMCSCFSolver):
+                self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
+                self.e_tot = np.dot (self.e_states, self.weights)
+            else: # nroots>1 CASCI
+                self.e_tot = [e_tot for e_tot, e_ot in epdft]
             return self.e_tot, self.e_ot, self.e_states
         else:
             self.e_tot, self.e_ot = self.energy_tot (mo_coeff=self.mo_coeff, ci=self.ci)
@@ -646,8 +663,9 @@ class _PDFT ():
     make_rdms_mcpdft = make_rdms_mcpdft
     energy_mcwfn = energy_mcwfn
     energy_dft = energy_dft
-    def energy_tot (self, mo_coeff=None, ci=None, ot=None, root=0,
-                    verbose=None, otxc=None, grids_level=None, grids_attr=None):
+    def energy_tot (self, mo_coeff=None, ci=None, ot=None, state=0,
+                    verbose=None, otxc=None, grids_level=None, grids_attr=None,
+                    logger_tag='MC-PDFT'):
         ''' Compute the MC-PDFT energy of a single state '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
@@ -665,9 +683,9 @@ class _PDFT ():
         elif ot is None:
             ot = self.otfnal
         e_tot, e_ot = energy_tot (self, mo_coeff=mo_coeff, ot=ot, ci=ci,
-            root=root, verbose=verbose)
-        logger.note (self, 'MC-PDFT E = %s, Eot(%s) = %s', e_tot, ot.otxc,
-            e_ot)
+            state=state, verbose=verbose)
+        logger.note (self, '%s E = %s, Eot(%s) = %s', logger_tag,
+            e_tot, ot.otxc, e_ot)
         return e_tot, e_ot
 
 def get_mcpdft_child_class (mc, ot, **kwargs):

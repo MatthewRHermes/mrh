@@ -420,12 +420,15 @@ class Gradients (sacasscf.Gradients):
             freedom for the CI part.  What's redundant changes between
             SA-CASSCF and MC-PDFT so modify this part in child classes.
         '''
+        weights, e_mcscf = np.asarray (self.weights), np.asarray (self.e_mcscf)
         try:
-            A_sa = 2 * self.weights[state] * (self.e_mcscf
-                - self.e_mcscf[state])
+            A_sa = 2 * weights[state] * (e_mcscf - e_mcscf[state])
         except IndexError as e:
             assert (self.nroots == 1), e
             A_sa = 0
+        except Exception as e:
+            print (self.weights, self.e_mcscf)
+            raise (e)
         ci_arr = np.asarray (ci).reshape (self.nroots, -1)
         def my_Aop (x):
             Ax = Aop (x)
