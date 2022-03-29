@@ -670,16 +670,10 @@ class _PDFT ():
             e_ot)
         return e_tot, e_ot
 
-def get_mcpdft_child_class (mc, ot, ci_min='ecas', **kwargs):
+def get_mcpdft_child_class (mc, ot, **kwargs):
     # Inheritance magic
     class PDFT (_PDFT, mc.__class__):
-        if ci_min.lower () == 'epdft':
-            if isinstance (mc, mc1step.CASSCF):
-                casci=ci_scf.mc1step_casci # CASSCF CI step
-                update_casdm=ci_scf.mc1step_update_casdm # innercycle CI update
-            else:
-                kernel=ci_scf.casci_kernel # CASCI
-                _finalize=ci_scf.casci_finalize # I/O clarity
+        pass
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy ()

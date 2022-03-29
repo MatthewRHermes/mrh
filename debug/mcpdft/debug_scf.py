@@ -12,8 +12,8 @@ mol = gto.M (atom = 'N 0 0 0; N 1.2 0 0', basis='cc-pvdz', verbose=lib.logger.IN
 mf = scf.RHF (mol).run ()
 mc_ecas = mcpdft.CASSCF (mf, 'tLDA,VWN3', 6, 6, ci_min='ecas').run ()
 molden.from_mcscf (mc_ecas, 'debug_scf.molden')
-casci_epdft = mcpdft.CASCI (mf, 'tLDA,VWN3', 6, 6, ci_min='epdft').set (mo_coeff=mc_ecas.mo_coeff).run ()
-mc_epdft = mcpdft.CASSCF (mf, 'tLDA,VWN3', 6, 6, ci_min='epdft').set (mo_coeff=mc_ecas.mo_coeff, ci=casci_epdft.ci).run ()
+casci_epdft = mcpdft.CIMCPDFT (mf, 'tLDA,VWN3', 6, 6).set (mo_coeff=mc_ecas.mo_coeff).run ()
+mc_epdft = mcpdft.CIMCPDFT_SCF (mf, 'tLDA,VWN3', 6, 6).set (mo_coeff=mc_ecas.mo_coeff, ci=casci_epdft.ci).run ()
 
 #rnn = np.arange (0.8, 4.81, 0.125)
 #epdft = np.zeros_like (rnn)
