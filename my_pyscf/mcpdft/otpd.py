@@ -119,17 +119,6 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0,
     Pi[0] += (gridkern[0] * wrk0).sum ((1,2)) / 2                          
     # r_0aij, P_0aij -> P_0a
     t0 = logger.timer_debug1 (ot, 'otpd second cumulant 0th derivative', *t0)
-    if ot.verbose > logger.DEBUG:
-        # TODO: insufficient memory escape or remove and put in unittest
-        logger.warn (ot, 'Warning: slow einsum-based testing calculation of '
-            'Pi initiated; reduce verbosity to increase speed and memory '
-            'efficiency')
-        test_Pi = np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM, ao[0], ao[0],
-            ao[0], ao[0]) / 2
-        logger.debug (ot, "Pi, |tensordot_formula - einsum_formula| = %s",
-            linalg.norm (Pi[0] - test_Pi)) 
-        t0 = logger.timer (ot, 'otpd 0th derivative debug'.format (ideriv),
-            *t0)
     if deriv > 0:
         for ideriv in range (1, 4):
             # Fourfold tensor symmetry ijkl = klij = jilk = lkji
@@ -141,23 +130,6 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0,
             # r_1aij, P_0aij -> P_1a  
             t0 = logger.timer_debug1 (ot, 'otpd second cumulant 1st derivative'
                 ' ({})'.format (ideriv), *t0)
-            if ot.verbose > logger.DEBUG:
-                # TODO: insufficient memory escape OR remove to unittest
-                logger.warn (ot, 'Warning: slow einsum-based testing '
-                    'calculation of Pi\'s first derivatives initiated; reduce '
-                    'verbosity to increase speed and memory efficiency')
-                test_Pi  = np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                    ao[ideriv], ao[0], ao[0], ao[0]) / 2
-                test_Pi += np.einsum ('ijkl,aj,ai,ak,al->a', twoRDM,
-                    ao[ideriv], ao[0], ao[0], ao[0]) / 2
-                test_Pi += np.einsum ('ijkl,ak,ai,aj,al->a', twoRDM,
-                    ao[ideriv], ao[0], ao[0], ao[0]) / 2
-                test_Pi += np.einsum ('ijkl,al,ai,aj,ak->a', twoRDM,
-                    ao[ideriv], ao[0], ao[0], ao[0]) / 2
-                logger.debug (ot, "Pi derivative, |tensordot_formula - "
-                    "einsum_formula| = %s", linalg.norm (Pi[ideriv] - test_Pi)) 
-                t0 = logger.timer (ot, 'otpd 1st derivative ({}) debug'.format 
-                    (ideriv), *t0)
     if deriv > 1: # The fifth slot is allocated to the "off-top Laplacian,"
         # i.e., nabla_(r1-r2)^2 Pi(r1,r2)|(r1=r2) 
         # nabla_off^2 Pi = 1/2 d^ik_jl * ([nabla_r^2 phi_i] phi_j phi_k phi_l
@@ -180,66 +152,6 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0,
             * wrk1).sum ((0,2,3)) / 2
         # r_1aij, P_1aij -> P_2a
         t0 = logger.timer (ot, 'otpd second cumulant off-top Laplacian', *t0)
-        if ot.verbose > logger.DEBUG:
-            # TODO: insufficient memory escape OR remove to unittest
-            logger.warn (ot, 'Warning: slow einsum-based testing calculation '
-                'of Pi\'s second derivatives initiated; reduce verbosity to '
-                'increase speed and memory efficiency')
-            X, Y, Z = 1, 2, 3
-            test_Pi  = np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[XX], ao[0], ao[0], ao[0]) / 2
-            test_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[YY], ao[0], ao[0], ao[0]) / 2
-            test_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[ZZ], ao[0], ao[0], ao[0]) / 2
-            test_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[X], ao[X], ao[0], ao[0]) / 2
-            test_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[Y], ao[Y], ao[0], ao[0]) / 2
-            test_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[Z], ao[Z], ao[0], ao[0]) / 2
-            test_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[X], ao[0], ao[X], ao[0]) / 2
-            test_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[Y], ao[0], ao[Y], ao[0]) / 2
-            test_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM, 
-                ao[Z], ao[0], ao[Z], ao[0]) / 2
-            test_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[X], ao[0], ao[0], ao[X]) / 2
-            test_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[Y], ao[0], ao[0], ao[Y]) / 2
-            test_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoRDM,
-                ao[Z], ao[0], ao[0], ao[Z]) / 2
-            logger.debug (ot, 'Pi off-top Laplacian, |tensordot formula - '
-                'einsum_formula| = %s', linalg.norm (Pi[4] - test_Pi))
-            test2_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo, 
-                grid2amo[XX], grid2amo[0], grid2amo[0], grid2amo[0]) / 2
-            test2_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[YY], grid2amo[0], grid2amo[0], grid2amo[0]) / 2
-            test2_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[ZZ], grid2amo[0], grid2amo[0], grid2amo[0]) / 2
-            test2_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[X], grid2amo[X], grid2amo[0], grid2amo[0]) / 2
-            test2_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[Y], grid2amo[Y], grid2amo[0], grid2amo[0]) / 2
-            test2_Pi += np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[Z], grid2amo[Z], grid2amo[0], grid2amo[0]) / 2
-            test2_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[X], grid2amo[0], grid2amo[X], grid2amo[0]) / 2
-            test2_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[Y], grid2amo[0], grid2amo[Y], grid2amo[0]) / 2
-            test2_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[Z], grid2amo[0], grid2amo[Z], grid2amo[0]) / 2
-            test2_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[X], grid2amo[0], grid2amo[0], grid2amo[X]) / 2
-            test2_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[Y], grid2amo[0], grid2amo[0], grid2amo[Y]) / 2
-            test2_Pi -= np.einsum ('ijkl,ai,aj,ak,al->a', twoCDM_amo,
-                grid2amo[Z], grid2amo[0], grid2amo[0], grid2amo[Z]) / 2
-            logger.debug (ot, 'Pi off-top Laplacian, testing second cumulant '
-                'only |tensordot formula - einsum_formula| = %s', linalg.norm (
-                Pi[4] - test2_Pi))
-            t0 = logger.timer (ot, 'otpd off-top Laplacian debug', *t0)
 
     # Unfix dimensionality of rho, ao, and Pi
     if Pi.shape[0] == 1:
