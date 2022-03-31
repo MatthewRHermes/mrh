@@ -209,7 +209,6 @@ def energy_mcwfn (mc, ot=None, mo_coeff=None, ci=None, dm_list=None,
     dm1s, (adm1s, (adm2, adm2_ss, adm2_os)) = dm_list
 
     spin = abs(nelecas[0] - nelecas[1])
-    spin = abs(nelecas[0] - nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
     hyb_x, hyb_c = hyb
 
@@ -324,15 +323,53 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
     return E_ot
 
 # TODO: more detailed docstring + unittest
-def get_energy_decomposition (mc, ot, mo_coeff=None, ci=None):
-    ''' Compute a decomposition of the MC-PDFT energy into nuclear
-    potential, core, Coulomb, exchange, and correlation terms. The
-    exchange-correlation energy at the MC-SCF level is also returned.
-    This is not meant to work with MC-PDFT methods that are already
-    hybrids. Most return arguments are lists if mc is a state average
-    instance. '''
+def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
+    ''' Compute a decomposition of the MC-PDFT energy into nuclear potential
+        (E0), one-electron (E1), Coulomb (E2c), exchange (EOTx), correlation
+        (EOTc) terms, and additionally the nonclassical part (E2nc) of the
+        MC-SCF energy:
+
+        E(MC-SCF) = E0 + E1 + E2c + Enc
+        E(MC-PDFT) = E0 + E1 + E2c + EOTx + EOTc
+
+        Only compatible with pure translated or fully-translated functionals.
+        If mc.fcisolver.nroots > 1, lists are returned for everything except
+        the nuclear potential energy.
+
+        Args:
+            mc : an instance of CASSCF or CASCI class
+
+        Kwargs:
+            mo_coeff : ndarray
+                Contains MO coefficients
+            ci : ndarray or list of length nroots
+                Contains CI vectors
+            ot : an instance of (translated) on-top density fnal class
+
+        Returns:
+            e_nuc : float
+                E0 = sum_A>B ZA*ZB/rAB
+            e_1e : float or list of length nroots
+                E1 = <T+sum_A ZA/rA> 
+            e_coul : float or list of length nroots
+                E2c = 1/2 int rho(1)rho(2)/r12 d1d2
+            e_otx : float or list of length nroots
+                EOTx = exchange part of translated functional
+            e_otc : float or list of length nroots
+                EOTx = correlation part of translated functional
+            e_ncwfn : float or list of length nroots
+                E2ncc = <H> - E0 - E1 - E2c
+    '''            
     if mo_coeff is None: mo_coeff=mc.mo_coeff
     if ci is None: mo_coeff=mc.ci
+    if ot is None: ot = mc.otfnal
+
+    hyb_x, hyb_c = ot._numint.hybrid_coeff(ot.otxc)
+    if hyb_x>1e-10 or hyb_c>1e-10:
+        raise NotImplementedError ("Decomp for hybrid PDFT fnals")
+    if not isinstance (ot, transfnal):
+        raise NotImplementedError ("Decomp for non-translated PDFT fnals")
+
     e_nuc = mc._scf.energy_nuc ()
     h = mc.get_hcore ()
     xfnal, cfnal = ot.split_x_c ()
@@ -629,8 +666,8 @@ class _PDFT ():
     def get_energy_decomposition (self, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        return get_energy_decomposition (self, self.otfnal, mo_coeff=mo_coeff,
-            ci=ci)
+        return get_energy_decomposition (self, mo_coeff=mo_coeff,
+            ci=ci, ot=self.otfnal)
 
     def state_average_mix (self, fcisolvers=None, weights=(0.5,0.5)):
         return state_average_mix (self, fcisolvers, weights)
