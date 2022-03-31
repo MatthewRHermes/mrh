@@ -10,32 +10,19 @@ from pyscf.mcscf import mc_ao2mo, mc1step, casci
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix
 from pyscf.mcscf.addons import state_average_mix_, StateAverageMixFCISolver
+from pyscf.mcscf.addons import StateAverageFCISolver
 from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, get_transfnal
 from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 
 # TODO: 
-# 1. More logging output in the "kernel" function. Redo the "finalize"
-#    function.
-# 2. Allow for quick energy recomputation with different functional, without
-#    messing up the convention that all the "energy_*" functions return ONE
-#    energy only (is this consistent with PySCF convention overall???).
-# 3. Redesign state-average API. Get rid of awful root=-1 convention.
-# 4. Clean up "make_rdms_mcpdft":
+# 1. Clean up "make_rdms_mcpdft":
 #       a. Make better use of existing API and name conventions
 #       b. Get rid of pointless _os, _ss computation unless necessary. (Tags?)
-# 5. Unify calling signatures of the "energy_*" functions: mo_coeff, ci, ot,
+# 2. Unify calling signatures of the "energy_*" functions: mo_coeff, ci, ot,
 #    state.
-# 6. Additional API desiderata:
-#       a. Recompute energies w/ a temporary different functional, w/out
-#          recomputing mo_coeff or ci.
-#       b. Recompute energies in-place w/ a new functional, w/out recomputing
-#          mo_coeff or ci.
-#       c. Initialize NEW MC-PDFT object w/ converged MC-SCF or MC-PDFT calc'n,
-#          including state_average, state_interaction, newton versions!
-#          (Check if copy.deepcopy can do this for MC-PDFT version.)
-# 7. Hybrid API and unittests. NotImplementedErrors for omega and alpha.
+# 3. Hybrid API and unittests. NotImplementedErrors for omega and alpha.
 
 def energy_tot (mc, ot=None, mo_coeff=None, ci=None, state=0, verbose=None):
     ''' Calculate MC-PDFT total energy
@@ -146,10 +133,11 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=0):
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
     nocc = ncore + ncas
+    nroots = getattr (mc.fcisolver, 'nroots', 1)
 
     # figure out the correct RDMs to build (SA or SS?)
     _casdms = mc.fcisolver
-    if isinstance (mc, StateAverageMCSCFSolver):
+    if nroots>1:
         ci = ci[state]
         if isinstance (mc.fcisolver, StateAverageMixFCISolver):
             p0 = 0
@@ -163,7 +151,7 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=0):
                 p0 = p1
             if _casdms is None:
                 raise RuntimeError ("Can't find FCI solver for state", state)
-        else:
+        elif isinstance (mc.fcisolver, StateAverageFCISolver):
             _casdms = fci.solver (mc._scf.mol, singlet=False, symm=False)
 
     # Make the rdms
@@ -343,39 +331,38 @@ def get_energy_decomposition (mc, ot, mo_coeff=None, ci=None):
     This is not meant to work with MC-PDFT methods that are already
     hybrids. Most return arguments are lists if mc is a state average
     instance. '''
-    e_tot, e_ot, e_mcscf, e_cas, ci, mo_coeff = mc.kernel (mo_coeff=mo_coeff,
-        ci0=ci)[:6]
-    if isinstance (mc, StateAverageMCSCFSolver):
-        e_tot = mc.e_states
+    if mo_coeff is None: mo_coeff=mc.mo_coeff
+    if ci is None: mo_coeff=mc.ci
     e_nuc = mc._scf.energy_nuc ()
     h = mc.get_hcore ()
     xfnal, cfnal = ot.split_x_c ()
-    if isinstance (mc, StateAverageMCSCFSolver):
-        e_core = []
+    nroots = getattr (mc.fcisolver, 'nroots', 1)
+    if nroots>1:
+        e_1e = []
         e_coul = []
         e_otx = []
         e_otc = []
-        e_wfnxc = []
-        nelec_root = [mc.nelecas,]* len (e_mcscf)
+        e_ncwfn = []
+        nelec_root = [mc.nelecas,]*nroots
         if isinstance (mc.fcisolver, StateAverageMixFCISolver):
             nelec_root = []
             for s in mc.fcisolver.fcisolvers:
                 ne_root_s = mc.fcisolver._get_nelec (s, mc.nelecas)
                 nelec_root.extend ([ne_root_s,]*s.nroots)
-        for ci_i, ei_mcscf, nelec in zip (ci, e_mcscf, nelec_root):
-            row = _get_e_decomp (mc, ot, mo_coeff, ci_i, ei_mcscf, e_nuc, h,
+        for ci_i, nelec in zip (ci, nelec_root):
+            row = _get_e_decomp (mc, ot, mo_coeff, ci_i, e_nuc, h,
                 xfnal, cfnal, nelec)
-            e_core.append  (row[0])
+            e_1e.append  (row[0])
             e_coul.append  (row[1])
             e_otx.append   (row[2])
             e_otc.append   (row[3])
-            e_wfnxc.append (row[4])
+            e_ncwfn.append (row[4])
     else:
-        e_core, e_coul, e_otx, e_otc, e_wfnxc = _get_e_decomp (mc, ot,
-            mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal, mc.nelecas)
-    return e_nuc, e_core, e_coul, e_otx, e_otc, e_wfnxc
+        e_1e, e_coul, e_otx, e_otc, e_ncwfn = _get_e_decomp (mc, ot,
+            mo_coeff, ci, e_nuc, h, xfnal, cfnal, mc.nelecas)
+    return e_nuc, e_1e, e_coul, e_otx, e_otc, e_ncwfn
 
-def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal,
+def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
         nelecas):
     ncore, ncas = mc.ncore, mc.ncas
     _rdms = mcscf.CASCI (mc._scf, ncas, nelecas)
@@ -383,19 +370,24 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_mcscf, e_nuc, h, xfnal, cfnal,
     _rdms.mo_coeff = mo_coeff
     _rdms.ci = ci
     _casdms = _rdms.fcisolver
+    h1, h0 = _rdms.h1e_for_cas ()
+    h2 = ao2mo.restore (1,_rdms.ao2mo (), ncas)
     dm1s = np.stack (_rdms.make_rdm1s (), axis=0)
     dm1 = dm1s[0] + dm1s[1]
     j = _rdms._scf.get_j (dm=dm1)
-    e_core = np.tensordot (h, dm1, axes=2)
+    e_1e = np.tensordot (h, dm1, axes=2)
     e_coul = np.tensordot (j, dm1, axes=2) / 2
+    adm1, adm2 = _casdms.make_rdm12 (_rdms.ci, ncas, nelecas)
+    e_mcscf = h0 + np.dot (h1.ravel (), adm1.ravel ()) + (
+                np.dot (h2.ravel (), adm2.ravel ())*0.5)
     adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
     adm2 = get_2CDM_from_2RDM (_casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1],
         adm1s)
     mo_cas = mo_coeff[:,ncore:][:,:ncas]
     e_otx = get_E_ot (xfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
     e_otc = get_E_ot (cfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
-    e_wfnxc = e_mcscf - e_nuc - e_core - e_coul
-    return e_core, e_coul, e_otx, e_otc, e_wfnxc
+    e_ncwfn = e_mcscf - e_nuc - e_1e - e_coul
+    return e_1e, e_coul, e_otx, e_otc, e_ncwfn
 
 class _mcscf_env (object):
     ''' Prevent MC-SCF step of MC-PDFT from overwriting redefined
@@ -494,9 +486,11 @@ class _PDFT ():
             if isinstance (self, StateAverageMCSCFSolver):
                 self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
                 self.e_tot = np.dot (self.e_states, self.weights)
+                e_states = self.e_states
             else: # nroots>1 CASCI
                 self.e_tot = [e_tot for e_tot, e_ot in epdft]
-            return self.e_tot, self.e_ot, self.e_states
+                e_states = self.e_tot
+            return self.e_tot, self.e_ot, e_states
         else:
             self.e_tot, self.e_ot = self.energy_tot (mo_coeff=self.mo_coeff, ci=self.ci)
             return self.e_tot, self.e_ot, [self.e_tot] 
@@ -515,7 +509,7 @@ class _PDFT ():
         log.info ('on-top pair density exchange-correlation functional: %s',
             self.otfnal.otxc)
 
-    def get_pdft_veff (self, mo=None, ci=None, state=-1, casdm1s=None,
+    def get_pdft_veff (self, mo=None, ci=None, state=0, casdm1s=None,
             casdm2=None, incl_coul=False, paaa_only=False, aaaa_only=False):
         ''' Get the 1- and 2-body MC-PDFT effective potentials for a set
             of mos and ci vectors
@@ -623,12 +617,9 @@ class _PDFT ():
         self._casci_nuc_grad_not_implemented ()
         return self._state_average_nuc_grad_method (state=None)
 
-    def dip_moment (self, unit='Debye', state=None):
+    def dip_moment (self, unit='Debye', state=0):
         from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
-        is_sa = isinstance (self, StateAverageMCSCFSolver)
-        if state is None and not is_sa:
-            state = 0    
-        if is_sa:
+        if isinstance (self, StateAverageMCSCFSolver):
             # TODO: SA dipole moment unittests
             logger.warn (self, "State-averaged dipole moments are UNTESTED!")
         dip_obj =  ElectricDipole(self) 

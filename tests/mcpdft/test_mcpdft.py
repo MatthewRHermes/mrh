@@ -1,8 +1,8 @@
 # Test API:
 #   0. Initialize from mol, mf, and mc (done)
 #   1. kernel (done)
-#   2. optimize_mcscf_
-#   3. compute_pdft_
+#   2. optimize_mcscf_ (done)
+#   3. compute_pdft_ (done)
 #   4. energy_tot (done) 
 #   5. get_energy_decomposition (done)
 #   6. checkpoint stuff
@@ -12,8 +12,9 @@
 #   2. Symmetry, with and without
 #   3. State average, state average mix w/ different spin states
 
-# Building the rudiments of this in debug/debug_mcpdft_api.py
-
+# Some assertAlmostTrue thresholds are loose because we are only
+# trying to test the API here; we need tight convergence and grids
+# to reproduce well when OMP is on.
 import numpy as np
 from pyscf import gto, scf, mcscf, lib, fci
 from pyscf.fci.addons import fix_spin_
@@ -96,18 +97,53 @@ class KnownValues(unittest.TestCase):
             with self.subTest (symmetry=bool(ix//2), triplet_ms=(0,1,'mixed')[ix]):
                 self.assertTrue (mc.converged)
                 self.assertAlmostEqual (lib.fp (np.sort (mc.e_states)), lib.fp (ref), delta=1e-5)
-                self.assertAlmostEqual (mc.e_tot, np.average (ref), delta=1e-6)
+                self.assertAlmostEqual (mc.e_tot, np.average (ref), delta=1e-5)
+
+    def test_casci_multistate (self):
+        # grids_level = 3
+        ref = np.array ([-7.923894179700609,-7.7887396628199,-7.776172495309403,
+                         -7.754856085624646,-7.754856085624647])
+        mc = mcpdft.CASCI (mcp[1][0], 'tPBE', 5, 2)
+        mc.fcisolver.nroots = 5
+        mc.kernel ()
+        with self.subTest (symmetry=False):
+            self.assertTrue (mc.converged)
+            self.assertAlmostEqual (lib.fp (np.sort (mc.e_tot)), lib.fp (ref), delta=1e-5)
+            self.assertAlmostEqual (np.average (mc.e_tot), np.average (ref), delta=1e-5)
+        e_tot = []
+        mc = mcpdft.CASCI (mcp[1][2], 'tPBE', 5, 2)
+        ci_ref = mcp[1][2].ci
+        mc.ci, mc.fcisolver.nroots, mc.fcisolver.wfnsym = ci_ref[:3], 3, 'A1'
+        mc.kernel ()
+        self.assertTrue (mc.converged)
+        e_tot.extend (mc.e_tot)
+        mc.ci, mc.fcisolver.nroots, mc.fcisolver.wfnsym = ci_ref[3], 1, 'E1x'
+        mc.fcisolver.spin = 2
+        mc.kernel ()
+        self.assertTrue (mc.converged)
+        e_tot.append (mc.e_tot)
+        mc.ci, mc.fcisolver.nroots, mc.fcisolver.wfnsym = ci_ref[4], 1, 'E1y'
+        mc.kernel ()
+        self.assertTrue (mc.converged)
+        e_tot.append (mc.e_tot)
+        with self.subTest (symmetry=True):
+            self.assertTrue (mc.converged)
+            self.assertAlmostEqual (lib.fp (np.sort (e_tot)), lib.fp (ref), delta=1e-5)
+            self.assertAlmostEqual (np.average (e_tot), np.average (ref), delta=1e-5)
 
     def test_decomposition_ss (self): # TODO
         ref = [1.0583544218,-12.5375911135, 5.8093938665, -2.1716353580, -0.0826115115, -2.2123063329]
         terms = ['nuc', 'core', 'Coulomb', 'OT(X)', 'OT(C)', 'WFN(XC)']
         for ix, mc in enumerate (mcp[0]):
-            test = mc.get_energy_decomposition ()
-            for t, r, term in zip (test, ref, terms):
-                with self.subTest (symmetry=bool(ix), term=term):
-                    self.assertAlmostEqual (t, r, delta=1e-5)
-            with self.subTest (symmetry=bool(ix), term='sanity'):
-                self.assertAlmostEqual (np.sum (test[:-1]), mc.e_tot, 9)
+            casci = mcpdft.CASCI (mc, 'tPBE', 5, 2).run ()
+            for obj, objtype in zip ((mc, casci), ('CASSCF', 'CASCI')):
+                test = obj.get_energy_decomposition ()
+                for t, r, term in zip (test, ref, terms):
+                    with self.subTest (objtype=objtype, symmetry=bool(ix), term=term):
+                        self.assertAlmostEqual (t, r, delta=1e-5)
+                with self.subTest (objtype=objtype, symmetry=bool(ix), term='sanity'):
+                    self.assertAlmostEqual (np.sum (test[:-1]), obj.e_tot, 9)
+            
 
     def test_decomposition_sa (self):
         ref_nuc = 1.0583544218
@@ -119,20 +155,31 @@ class KnownValues(unittest.TestCase):
         terms = ['core', 'Coulomb', 'OT(X)', 'OT(C)', 'WFN(XC)']
         for ix, (mc,ms) in enumerate (zip (mcp[1], [0,1,'mixed'])):
             s = bool(ix//2)
-            test = mc.get_energy_decomposition ()
-            test_nuc, test_states = test[0], np.array (test[1:]).T
-            # Arrange states in ascending energy order
-            idx = np.argsort (mc.e_states)
-            test_states = test_states[idx,:]
-            e_ref = np.array (mc.e_states)[idx] 
-            with self.subTest (symmetry=s, triplet_ms=ms, term='nuc'):
-                self.assertAlmostEqual (test_nuc, ref_nuc, 9)
-            for state, (test, ref) in enumerate (zip (test_states, ref_states)):
-                for t, r, term in zip (test, ref, terms):
-                    with self.subTest (symmetry=s, triplet_ms=ms, term=term, state=state):
-                        self.assertAlmostEqual (t, r, delta=1e-5)
-                with self.subTest (symmetry=s, triplet_ms=ms, term='sanity', state=state):
-                    self.assertAlmostEqual (np.sum (test[:-1])+test_nuc, e_ref[state], 9)
+            objs = [mc,]
+            objtypes = ['CASSCF',]
+            if ix != 1: # There is no CASCI equivalent to mcp[1][1]
+                casci = mcpdft.CASCI (mc, 'tPBE', 5, 2)
+                casci.fcisolver.nroots = 5-ix # Just check the A1 roots when symmetry is enabled
+                casci.ci = mc.ci[:5-ix]
+                casci.kernel ()
+                objs.append (casci)
+                objtypes.append ('CASCI')
+            for obj, objtype in zip (objs, objtypes):
+                test = obj.get_energy_decomposition ()
+                test_nuc, test_states = test[0], np.array (test[1:]).T
+                # Arrange states in ascending energy order
+                e_states = getattr (obj, 'e_states', obj.e_tot)
+                idx = np.argsort (e_states)
+                test_states = test_states[idx,:]
+                e_ref = np.array (e_states)[idx] 
+                with self.subTest (objtype=objtype, symmetry=s, triplet_ms=ms, term='nuc'):
+                    self.assertAlmostEqual (test_nuc, ref_nuc, 9)
+                for state, (test, ref) in enumerate (zip (test_states, ref_states)):
+                    for t, r, term in zip (test, ref, terms):
+                        with self.subTest (objtype=objtype, symmetry=s, triplet_ms=ms, term=term, state=state):
+                            self.assertAlmostEqual (t, r, delta=1e-5)
+                    with self.subTest (objtype=objtype, symmetry=s, triplet_ms=ms, term='sanity', state=state):
+                        self.assertAlmostEqual (np.sum (test[:-1])+test_nuc, e_ref[state], 9)
 
 
     def test_energy_tot (self):
@@ -146,7 +193,7 @@ class KnownValues(unittest.TestCase):
             for ix, (t, r) in enumerate (zip (test_list, ref_list)):
                 with self.subTest (case=casestr, item=ix):
                     if isinstance (t, (float, np.floating)):
-                        self.assertAlmostEqual (t, r, delta=1e-6)
+                        self.assertAlmostEqual (t, r, delta=1e-5)
                     else:
                         self.assertEqual (t, r)
         def test_energy_tot_loop_ss (e_ref_ss, diff, **kwargs):
@@ -185,9 +232,11 @@ class KnownValues(unittest.TestCase):
         fake_ci[0] = mc_ref.ci.copy ()
         test_energy_tot_loop_sa (mc_ref.e_tot, 'wfn', mo_coeff=mc_ref.mo_coeff, ci=fake_ci)
 
-    def test_kernel_steps (self):
+    def test_kernel_steps_casscf (self):
         ref_tot = -7.919939037859329
         ref_ot = -2.2384273324895165
+        mo_ref = 0.9925428665189101
+        ci_ref = 0.9886507094634355
         for ix, mc in enumerate (mcp[0]):
             e_tot = mc.e_tot
             e_ot = mc.e_ot
@@ -197,9 +246,9 @@ class KnownValues(unittest.TestCase):
             ci[0,0] = 1.0
             mc.compute_pdft_energy_(mo_coeff=mo, ci=ci)
             with self.subTest (case='SS', part='pdft1', symmetry=bool(ix)):
-                self.assertAlmostEqual (lib.fp (mc.mo_coeff), lib.fp (mo), 9)
-                self.assertAlmostEqual (lib.fp (mc.ci), lib.fp (ci), 9)
-                self.assertAlmostEqual (mc.e_mcscf, e_mcscf, 9)
+                self.assertEqual (lib.fp (mc.mo_coeff), lib.fp (mo))
+                self.assertEqual (lib.fp (mc.ci), lib.fp (ci))
+                self.assertEqual (mc.e_mcscf, e_mcscf)
                 self.assertAlmostEqual (mc.e_tot, ref_tot, 9)
                 self.assertAlmostEqual (mc.e_ot, ref_ot, 7)
             mc.e_tot = 0.0
@@ -208,11 +257,15 @@ class KnownValues(unittest.TestCase):
             with self.subTest (case='SS', part='mcscf', symmetry=bool(ix)):
                 self.assertEqual (mc.e_tot, 0.0)
                 self.assertEqual (mc.e_ot, 0.0)
+                self.assertAlmostEqual (abs(mc.mo_coeff[0,0]), mo_ref, delta=1e-5)
+                self.assertAlmostEqual (abs(mc.ci[0,0]), ci_ref, delta=1e-5)
                 self.assertAlmostEqual (mc.e_mcscf, e_mcscf, 9)
             mc.compute_pdft_energy_()
             with self.subTest (case='SS', part='pdft2', symmetry=bool(ix)):
                 self.assertAlmostEqual (mc.e_tot, e_tot, 6)
                 self.assertAlmostEqual (mc.e_ot, e_ot, 6)
+        mo_ref = 0.9908324004974881
+        ci_ref = 0.988599145861302
         ref_avg = -7.7986453
         for ix, mc in enumerate (mcp[1]):
             sym = bool(ix//2)
@@ -229,9 +282,9 @@ class KnownValues(unittest.TestCase):
             fp_fake_ci = lib.fp (np.concatenate (ci, axis=None))
             mc.compute_pdft_energy_(mo_coeff=mo, ci=ci)
             with self.subTest (case='SA', part='pdft1', symmetry=sym, triplet_ms=tms):
-                self.assertAlmostEqual (lib.fp (mc.mo_coeff), lib.fp (mo), 9)
-                self.assertAlmostEqual (lib.fp (np.concatenate (mc.ci, axis=None)), fp_fake_ci, 9)
-                self.assertAlmostEqual (lib.fp (mc.e_mcscf), lib.fp (e_mcscf), 9)
+                self.assertEqual (lib.fp (mc.mo_coeff), lib.fp (mo))
+                self.assertEqual (lib.fp (np.concatenate (mc.ci, axis=None)), fp_fake_ci)
+                self.assertEqual (lib.fp (mc.e_mcscf), lib.fp (e_mcscf))
                 self.assertAlmostEqual (mc.e_tot, ref_avg, delta=1e-5)
                 self.assertAlmostEqual (mc.e_states[0], ref_tot, 9)
                 self.assertAlmostEqual (mc.e_ot[0], ref_ot, 7)
@@ -243,13 +296,48 @@ class KnownValues(unittest.TestCase):
                 self.assertEqual (mc.e_tot, 0.0)
                 self.assertEqual (lib.fp (mc.e_ot), 0.0)
                 self.assertEqual (lib.fp (mc.e_states), 0.0)
+                self.assertAlmostEqual (abs(mc.mo_coeff[0,0]), mo_ref, delta=1e-5)
+                self.assertAlmostEqual (abs(mc.ci[0][0,0]), ci_ref, delta=1e-5)
                 self.assertAlmostEqual (lib.fp (mc.e_mcscf), lib.fp (e_mcscf), 7)
             mc.compute_pdft_energy_()
             with self.subTest (case='SA', part='pdft2', symmetry=sym, triplet_ms=tms):
-                self.assertAlmostEqual (mc.e_tot, e_tot, delta=1e-6)
+                self.assertAlmostEqual (mc.e_tot, e_tot, delta=1e-5)
                 self.assertAlmostEqual (lib.fp (mc.e_ot), lib.fp (e_ot), delta=1e-5)
                 self.assertAlmostEqual (lib.fp (mc.e_states), lib.fp (e_states), delta=1e-5)
 
+    def test_kernel_steps_casci (self):
+        ref_tot = -7.919924747436255
+        ref_ot = -2.238538447576774
+        ci_ref = 0.9886507094634355
+        for nroots in range (1,3):
+            for init, symmetry in zip (mcp[0], (False, True)):
+                mc = mcpdft.CASCI (init, 'tPBE', 5, 2)
+                mc.fcisolver.nroots = nroots
+                if nroots>1: mc.ci = None
+                mc.kernel ()
+                e_tot = np.atleast_1d (mc.e_tot)[0]
+                e_ot = np.atleast_1d (mc.e_ot)[0]
+                e_mcscf = np.atleast_1d (mc.e_mcscf)[0]
+                ci = np.zeros_like (mc.ci)
+                ci.flat[0] = 1.0
+                mc.compute_pdft_energy_(ci=ci)
+                with self.subTest (part='pdft1', symmetry=symmetry, nroots=nroots):
+                    self.assertEqual (lib.fp (np.array(mc.ci)), lib.fp (ci), 9)
+                    self.assertEqual (np.atleast_1d (mc.e_mcscf)[0], e_mcscf)
+                    self.assertAlmostEqual (np.atleast_1d (mc.e_tot)[0], ref_tot, 7)
+                    self.assertAlmostEqual (np.atleast_1d (mc.e_ot)[0], ref_ot, 7)
+                mc.e_tot = 0.0
+                mc.e_ot = 0.0
+                mc.optimize_mcscf_()
+                with self.subTest (part='mcscf', symmetry=symmetry, nroots=nroots):
+                    self.assertEqual (np.atleast_1d (mc.e_tot)[0], 0.0)
+                    self.assertEqual (np.atleast_1d (mc.e_ot)[0], 0.0)
+                    self.assertAlmostEqual (abs(np.asarray (mc.ci).flat[0]), ci_ref, delta=1e-5)
+                    self.assertAlmostEqual (np.atleast_1d (mc.e_mcscf)[0], e_mcscf, 9)
+                mc.compute_pdft_energy_()
+                with self.subTest (part='pdft2', symmetry=symmetry, nroots=nroots):
+                    self.assertAlmostEqual (np.atleast_1d (mc.e_tot)[0], e_tot, delta=1e-5)
+                    self.assertAlmostEqual (np.atleast_1d (mc.e_ot)[0], e_ot, delta=1e-5)
 
 
 

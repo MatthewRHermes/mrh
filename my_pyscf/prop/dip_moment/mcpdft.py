@@ -55,7 +55,7 @@ class ElectricDipole (mcpdft_grad.Gradients):
         '''
         state = kwargs['state'] if 'state' in kwargs else self.state
         if state is None:
-            raise NotImplementedError ('Gradient of PDFT state-average energy')
+            raise NotImplementedError ('Dipole of PDFT state-average energy')
         self.state = state # Not the best code hygiene maybe
         mo = kwargs['mo'] if 'mo' in kwargs else self.base.mo_coeff
         ci = kwargs['ci'] if 'ci' in kwargs else self.base.ci
