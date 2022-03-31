@@ -57,7 +57,7 @@ class KnownValues(unittest.TestCase):
                         case (self, mc, mol, state, fnal)
 
 if __name__ == "__main__":
-    print("Full Tests for MC-PDFT fnal derivatives")
+    print("Full Tests for MC-PDFT second fnal derivatives")
     unittest.main()
 
 
