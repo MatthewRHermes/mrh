@@ -305,14 +305,6 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao,
             dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
-        if ot.verbose > logger.DEBUG and dens_deriv > 0:
-            for ideriv in range (1,4):
-                rho_test  = np.einsum ('ijk,aj,ak->ia', oneCDMs, ao[ideriv],
-                    ao[0])
-                rho_test += np.einsum ('ijk,ak,aj->ia', oneCDMs, ao[ideriv],
-                    ao[0])
-                logger.debug (ot, ("Spin-density derivatives, |PySCF-einsum| ="
-                    " %s"), linalg.norm (rho[:,ideriv,:]-rho_test))
         t0 = logger.timer (ot, 'untransformed density', *t0)
         Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo,
             dens_deriv, mask) 
@@ -547,7 +539,8 @@ class _PDFT ():
             self.otfnal.otxc)
 
     def get_pdft_veff (self, mo=None, ci=None, state=0, casdm1s=None,
-            casdm2=None, incl_coul=False, paaa_only=False, aaaa_only=False):
+            casdm2=None, incl_coul=False, paaa_only=False, aaaa_only=False,
+            jk_pc=False):
         ''' Get the 1- and 2-body MC-PDFT effective potentials for a set
             of mos and ci vectors
 
@@ -578,6 +571,10 @@ class _PDFT ():
                     If true, only the aaaa 2-body effective potential
                     elements are evaluated; the rest of ppaa are filled
                     with zeros.
+                jk_pc : logical
+                    If true, calculate the ppii=pipi 2-body effective
+                    potential in veff2.j_pc and veff2.k_pc. Otherwise
+                    these arrays are filled with zeroes.
 
             Returns:
                 veff1 : ndarray of shape (nao, nao)
@@ -608,7 +605,7 @@ class _PDFT ():
         mo_cas = mo[:,ncore:][:,:ncas]
         pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, 
             adm2, mo, ncore, ncas, max_memory=self.max_memory, 
-            paaa_only=paaa_only, aaaa_only=aaaa_only)
+            paaa_only=paaa_only, aaaa_only=aaaa_only, jk_pc=jk_pc)
         if self.verbose > logger.DEBUG:
             logger.debug (self, 'Warning: memory-intensive lazy kernel for '
                 'pdft_veff initiated for testing purposes; reduce verbosity to'
@@ -617,10 +614,9 @@ class _PDFT ():
             pdft_veff1_test, _pdft_veff2_test = pdft_veff.lazy_kernel (
                 self.otfnal, dm1s, adm2, mo_cas)
             old_eri = self._scf._eri
-            self._scf._eri = _pdft_veff2_test
-            with temporary_env (self.mol, incore_anyway=True):
-                pdft_veff2_test = mc_ao2mo._ERIS (self, mo, method='incore')
-            self._scf._eri = old_eri
+            with temporary_env (self._scf, _eri=_pdft_veff2_test):
+                with temporary_env (self.mol, incore_anyway=True):
+                    pdft_veff2_test = mc_ao2mo._ERIS (self, mo, method='incore')
             err = linalg.norm (pdft_veff1 - pdft_veff1_test)
             logger.debug (self, 'veff1 error: {}'.format (err))
             err = linalg.norm (pdft_veff2.vhf_c - pdft_veff2_test.vhf_c)

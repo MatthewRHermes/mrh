@@ -34,7 +34,7 @@ libpdft = load_library('libpdft')
 # TODO: docstring
 class _ERIS(object):
     def __init__(self, mol, mo_coeff, ncore, ncas, method='incore',
-            paaa_only=False, aaaa_only=False, verbose=0, stdout=None):
+            paaa_only=False, aaaa_only=False, jk_pc=False, verbose=0, stdout=None):
         self.mol = mol
         self.mo_coeff = mo_coeff
         self.nao, self.nmo = mo_coeff.shape
@@ -44,6 +44,7 @@ class _ERIS(object):
         self.method = method
         self.paaa_only = paaa_only
         self.aaaa_only = aaaa_only
+        self.jk_pc = jk_pc
         self.verbose = verbose
         self.stdout = stdout
         if method == 'incore':
@@ -135,7 +136,7 @@ class _ERIS(object):
         ncore, ncas = self.ncore, self.ncas
         nocc = ncore + ncas
         nderiv = vPi.shape[0]
-        if self.verbose > logger.DEBUG:
+        if self.jk_pc:
             mo = _square_ao (_grid_ao2mo (self.mol, ao[:nderiv], mo_coeff,
                 non0tab))
             mo_core = mo[:,:,:ncore]
@@ -171,7 +172,8 @@ class _ERIS(object):
         self.k_pc = self.j_pc.copy ()
 
 def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
-        max_memory=2000, hermi=1, paaa_only=False, aaaa_only=False):
+            max_memory=2000, hermi=1, paaa_only=False, aaaa_only=False,
+            jk_pc=False):
     ''' Get the 1- and 2-body effective potential from MC-PDFT.
 
         Args:
@@ -200,6 +202,9 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
             aaaa_only : logical
                 If true, only compute the aaaa range of papa and ppaa
                 (all other elements set to zero; overrides paaa_only)
+            jk_pc : logical
+                If true, compute the ppii=pipi elements of veff2
+                (otherwise, these are set to zero)
 
         Returns:
             veff1 : ndarray of shape (nao, nao)
@@ -219,7 +224,8 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
 
     veff1 = np.zeros ((nao, nao), dtype=oneCDMs_amo.dtype)
     veff2 = _ERIS (ot.mol, mo_coeff, ncore, ncas, paaa_only=paaa_only, 
-        aaaa_only=aaaa_only, verbose=ot.verbose, stdout=ot.stdout)
+        aaaa_only=aaaa_only, jk_pc=jk_pc, verbose=ot.verbose,
+        stdout=ot.stdout)
 
     t0 = (logger.process_clock (), logger.perf_counter ())
 
