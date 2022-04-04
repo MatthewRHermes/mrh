@@ -146,7 +146,7 @@ def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
     log.timer ('SI-PDFT gradient off-diagonal H-F terms', *t0)
     return de
 
-def get_sarotfns (obj):
+def get_diabfns (obj):
     ''' Interpret the name of the MS-PDFT method as a pair of functions
         which compute the derivatives of a particular objective function
         with respect to wave function parameters and geometry
@@ -160,19 +160,19 @@ def get_sarotfns (obj):
                 is supported. Not case-sensitive.
 
         Returns:
-            sarot_response : callable
+            diab_response : callable
                 Computes the orbital-rotation and CI-transfer sectors of
                 the Hessian-vector product of the MS objective function
                 for a vector of intermediate-state rotations
-            sarot : callable
+            diab_grad : callable
                 Computes the gradient of the MS objective function wrt
                 geometry perturbation
     '''
     if obj.upper () == 'CMS':
-        from mrh.my_pyscf.grad.cmspdft import sarot_response, sarot_grad
+        from mrh.my_pyscf.grad.cmspdft import diab_response, diab_grad
     else:
         raise RuntimeError ('SI-PDFT type not supported')
-    return sarot_response, sarot_grad
+    return diab_response, diab_grad
 
 # TODO: docstring? especially considering the "si_bra," "si_ket" 
 # functionality??
@@ -186,18 +186,18 @@ class Gradients (mcpdft_grad.Gradients):
 
     def __init__(self, mc):
         mcpdft_grad.Gradients.__init__(self, mc)
-        r, g = get_sarotfns (self.base.sarot_name)
-        self._sarot_response = r
-        self._sarot_grad = g
+        r, g = get_diabfns (self.base.diabatization)
+        self._diab_response = r
+        self._diab_grad = g
         self.nlag += self.nis
 
     @property
     def nis (self): return self.nroots * (self.nroots - 1) // 2
 
-    def sarot_response (self, Lis, **kwargs):
-        return self._sarot_response (self, Lis, **kwargs)
-    def sarot_grad (self, Lis, **kwargs):
-        return self._sarot_grad (self, Lis, **kwargs)
+    def diab_response (self, Lis, **kwargs):
+        return self._diab_response (self, Lis, **kwargs)
+    def diab_grad (self, Lis, **kwargs):
+        return self._diab_grad (self, Lis, **kwargs)
 
     def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False, 
             **kwargs):
@@ -222,7 +222,7 @@ class Gradients (mcpdft_grad.Gradients):
         nroots = self.nroots
         veff1 = []
         veff2 = []
-        d2f = self.base.sarot_objfn (ci=ci)[2]
+        d2f = self.base.diabatizer (ci=ci)[2]
         for ix in range (nroots):
             v1, v2 = self.base.get_pdft_veff (mo, ci, incl_coul=True,
                 paaa_only=True, state=ix)
@@ -334,7 +334,7 @@ class Gradients (mcpdft_grad.Gradients):
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
             eris = self.eris
-        if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
+        if d2f is None: d2f = self.base.diabatizer (ci=ci)[2]
         ham_od = self.base.heff_pdft.copy ()
         ham_od[np.diag_indices (self.nroots)] = 0.0
         ham_od += ham_od.T # This corresponds to the arbitrary newton_casscf*2
@@ -342,10 +342,10 @@ class Gradients (mcpdft_grad.Gradients):
         hop, Adiag = newton_casscf.gen_g_hop (fcasscf, mo, ci, eris,
             verbose)[2:]
         ngorb, nci = self.ngorb, self.nci
-        # TODO: cacheing sarot_response? or an x=0 branch?
+        # TODO: cacheing diab_response? or an x=0 branch?
         def Aop (x):
             x_v, x_is = x[:ngorb+nci], x[ngorb+nci:]
-            Ax_v = hop (x_v) + self.sarot_response (x_is, mo=mo, ci=ci,
+            Ax_v = hop (x_v) + self.diab_response (x_is, mo=mo, ci=ci,
                 eris=eris)
             x_c = self.unpack_uniq_var (x_v)[1]
             Ax_is = np.dot (d2f, x_is)
@@ -362,7 +362,7 @@ class Gradients (mcpdft_grad.Gradients):
             **kwargs):
         if level_shift is None: level_shift = self.level_shift
         if ci is None: ci = self.base.ci
-        if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
+        if d2f is None: d2f = self.base.diabatizer (ci=ci)[2]
         return SIPDFTLagPrec (Adiag=Adiag, level_shift=level_shift, ci=ci, 
             d2f=d2f, grad_method=self)
 
@@ -437,7 +437,7 @@ class Gradients (mcpdft_grad.Gradients):
 
         # SI component
         t0 = (logger.process_clock(), logger.perf_counter())
-        de_Lis = self.sarot_grad (Lvec_is, atmlst=atmlst, mf_grad=mf_grad,
+        de_Lis = self.diab_grad (Lvec_is, atmlst=atmlst, mf_grad=mf_grad,
             eris=eris, mo=mo, ci=ci, **kwargs)
         logger.info (self, 
             '--------------- %s gradient Lagrange IS response ---------------',
@@ -559,7 +559,7 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
         sacasscf_grad.SACASLagPrec.__init__(self, Adiag=Adiag,
             level_shift=level_shift, ci=ci, grad_method=grad_method)
         self.grad_method = grad_method
-        self.sing_tol = getattr (grad_method.base, 'sing_tol_sarot', 1e-8)
+        self.sing_tol = getattr (grad_method.base, 'sing_tol_diabatize', 1e-8)
         self.log = logger.new_logger (self.grad_method,
             self.grad_method.verbose)
         self._init_d2f (d2f=d2f, **kwargs)

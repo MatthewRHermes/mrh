@@ -11,12 +11,11 @@ from mrh.my_pyscf import mcpdft
 
 # API cleanup desiderata:
 # 1. "sipdft", "state_interaction" -> "mspdft", "multi_state"
-# 2. "sarot", "sarot_name" -> "diabatize", "diabatization"
-# 3. "get_ci_mcscf" and "get_ci_final" QOL functions
-# 4. Canonicalize function to quickly generate mo_coeff, ci, mo_occ, mo_energy
+# 2. "get_ci_mcscf" and "get_ci_final" QOL functions
+# 3. Canonicalize function to quickly generate mo_coeff, ci, mo_occ, mo_energy
 #    for different choices of intermediate, reference, final states.
-# 5. Probably "_finalize" stuff
-# 6. checkpoint stuff
+# 4. Probably "_finalize" stuff
+# 5. checkpoint stuff
 def make_heff_mcscf (mc, mo_coeff=None, ci=None):
     ''' Build Hamiltonian matrix in basis of ci vector
 
@@ -89,11 +88,11 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
     '''
 
     if ci is None: ci = mc.ci
-    if objfn is None: objfn = mc.sarot_objfn
-    if max_cyc is None: max_cyc = getattr (mc, 'max_cyc_sarot', 50)
-    if conv_tol is None: conv_tol = getattr (mc, 'conv_tol_sarot', 1e-8)
-    if sing_tol is None: sing_tol = getattr (mc, 'sing_tol_sarot', 1e-8)
-    if nudge_tol is None: nudge_tol = getattr (mc, 'nudge_tol_sarot', 1e-3)
+    if objfn is None: objfn = mc.diabatizer
+    if max_cyc is None: max_cyc = getattr (mc, 'max_cyc_diabatize', 50)
+    if conv_tol is None: conv_tol = getattr (mc, 'conv_tol_diabatize', 1e-8)
+    if sing_tol is None: sing_tol = getattr (mc, 'sing_tol_diabatize', 1e-8)
+    if nudge_tol is None: nudge_tol = getattr (mc, 'nudge_tol_diabatize', 1e-3)
     ci = np.array (ci) # copy
     ci_old = ci.copy ()
     log = lib.logger.new_logger (mc, mc.verbose)
@@ -194,35 +193,35 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
     ''' I'm not going to use subclass to distinguish between various SI-PDFT
         types. Instead, I'm going to use three method attributes:
 
-        _sarot_objfn : callable
+        _diabatizer : callable
             Args: ci vectors
             Returns: float, array (nroots), array (nroots,nroots)
             The value, first, and second derivatives of the objective function
             which extrema define the intermediate states. May be used both in
             performing the SI-PDFT energy calculation and in gradients.
 
-        _sarot : callable
+        _diabatize : callable
             Args: ci vectors
             Returns: ci vectors
             Obtain the intermediate states from the reference states
 
-        sarot_name: string
+        diabatization: string
             Label for I/O.
     '''
 
     # Metaclass parent
 
-    def __init__(self, mc, sarot_objfn, sarot, sarot_name):
+    def __init__(self, mc, diabatizer, diabatize, diabatization):
         self.__dict__.update (mc.__dict__)
-        keys = set (('sarot_objfn', 'sarot', 'sarot_name',
+        keys = set (('diabatizer', 'diabatize', 'diabatization',
                      'heff_mcscf', 'heff_pdft', 'hdiag_mcscf', 'hdiag_pdft',
                      'si', 'si_mcscf', 'si_pdft',
-                     'max_cycle_sarot', 'conv_tol_sarot'))
-        self._sarot_objfn = sarot_objfn
-        self._sarot = sarot
-        self.max_cycle_sarot = 50
-        self.conv_tol_sarot = 1e-8
-        self.sarot_name = sarot_name
+                     'max_cyc_diabatize', 'conv_tol_diabatize'))
+        self._diabatizer = diabatizer
+        self._diabatize = diabatize
+        self.max_cyc_diabatize = 50
+        self.conv_tol_diabatize = 1e-8
+        self.diabatization = diabatization
         self._keys = set ((self.__dict__.keys ())).union (keys)
 
     @property
@@ -268,10 +267,10 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         ci = list (np.tensordot (u.T, np.asarray (ci0), axes=1))
         return ci
 
-    def _init_sarot_ci (self, ci, ci0):
+    def _init_diabatize_ci (self, ci, ci0):
         ''' On the assumption that ci0 represents states that optimize
             the SI-PDFT objective function, rotate the MC-SCF ci vectors
-            to maximize their overlap with ci0 so that the sarot step
+            to maximize their overlap with ci0 so that the diab. step
             has a better initialization.'''
         # TODO: different spin states in state-average-mix ?
         if ci0 is None: return None
@@ -290,9 +289,9 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         ci = self._init_ci0 (ci0, mo_coeff=mo_coeff)
         self.optimize_mcscf_(mo_coeff=mo_coeff,ci0=ci)
         # Intermediate state determination
-        ci = self._init_sarot_ci (ci, ci0)
-        sarot_conv, self.ci = self.sarot (ci=ci, **kwargs)
-        self.converged = self.converged and sarot_conv
+        ci = self._init_diabatize_ci (ci, ci0)
+        diab_conv, self.ci = self.diabatize (ci=ci, **kwargs)
+        self.converged = self.converged and diab_conv
         # Energy calculation
         self.heff_mcscf = self.make_heff_mcscf ()
         self.hdiag_pdft = self.compute_pdft_energy_(
@@ -305,47 +304,47 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                                 self.e_mcscf))
         self.e_states, self.si_pdft = self._eig_si (self.heff_pdft)
         self.e_tot = np.dot (self.e_states, self.weights)
-        self._log_sarot ()
-        self._log_si ()
+        self._log_diabats ()
+        self._log_adiabats ()
         return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, 
             self.mo_coeff, self.mo_energy)
 
     # All of the below probably need to be wrapped over solvers in
     # state-interaction-mix metaclass
 
-    def sarot (self, ci=None, **kwargs):
+    def diabatize (self, ci=None, **kwargs):
         ''' Optimize the intermediate states describing the model space
             of an MS-PDFT calculation. The specific algorithm depends on
             the specific MS method; see the docstring for this object's
-            _sarot member.
+            _diabatize member.
         '''
         if ci is None: ci = self.ci
-        return self._sarot (self, ci, **kwargs)
+        return self._diabatize (self, ci, **kwargs)
 
-    def sarot_objfn (self, mo_coeff=None, ci=None):
+    def diabatizer (self, mo_coeff=None, ci=None):
         ''' Computes the value, gradient vector, and Hessian matrix of
             the objective function rendered stationary by the
             optimized intermediate states. Used in gradient calculations
-            and possibly in sarot. The details depend on the specific MS
-            method; see the docstring for this object's _sarot_objfn
+            and possibly in diabatize. The details depend on the specific MS
+            method; see the docstring for this object's _diabatizer
             member.
         '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        return self._sarot_objfn (self, mo_coeff=mo_coeff, ci=ci)
+        return self._diabatizer (self, mo_coeff=mo_coeff, ci=ci)
 
     def _eig_si (self, heff):
         return linalg.eigh (heff)
 
     make_heff_mcscf = make_heff_mcscf
 
-    def _log_sarot (self):
+    def _log_diabats (self):
         # Information about the intermediate states
         hdiag_mcscf = self.hdiag_mcscf
         hdiag_pdft = self.hdiag_pdft
         nroots = len (hdiag_pdft)
         log = lib.logger.new_logger (self, self.verbose)
-        f, df, d2f = self.sarot_objfn ()
+        f, df, d2f = self.diabatizer ()
         hdr = '{} intermediate'.format (self.__class__.__name__)
         log.note ('%s objective function  value = %.15g |grad| = %.7g', hdr, f, linalg.norm (df))
         log.note ('%s average energy  EPDFT = %.15g  EMCSCF = %.15g', hdr,
@@ -369,7 +368,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
             '(rows):')
         for row in self.si_mcscf.T: log.info (fmt_str.format (*row))
 
-    def _log_si (self):
+    def _log_adiabats (self):
         # Information about the final states
         log = lib.logger.new_logger (self, self.verbose)
         nroots = len (self.e_states)
@@ -390,7 +389,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         from mrh.my_pyscf.grad.sipdft import Gradients
         return Gradients (self)
 
-def get_sarotfns (obj):
+def get_diabfns (obj):
     ''' Interpret the name of the MS-PDFT method as a pair of functions
         which optimize the intermediate states and calculate the power
         series in the corresponding objective function to second order.
@@ -401,23 +400,23 @@ def get_sarotfns (obj):
                 is supported. Not case-sensitive.
 
         Returns:
-            sarot_objfn : callable
+            diabatizer : callable
                 Takes model-space CI vectors in a trial intermediate-
                 state basis and returns the value and first and second
                 derivatives of the objective function specified by obj
-            sarot : callable
+            diabatize : callable
                 Takes model-space CI vectors and returns CI vectors in
                 the optimized intermediate-state basis
     '''
 
     if obj.upper () == 'CMS':
-        from mrh.my_pyscf.mcpdft.cmspdft import e_coul as sarot_objfn
-        sarot = si_newton
+        from mrh.my_pyscf.mcpdft.cmspdft import e_coul as diabatizer
+        diabatize = si_newton
     else:
         raise RuntimeError ('SI-PDFT type not supported')
-    return sarot_objfn, sarot
+    return diabatizer, diabatize
 
-def state_interaction (mc, weights=(0.5,0.5), obj='CMS', **kwargs):
+def state_interaction (mc, weights=(0.5,0.5), diabatization='CMS', **kwargs):
     ''' Build state-interaction MC-PDFT method object
 
     Args:
@@ -425,7 +424,7 @@ def state_interaction (mc, weights=(0.5,0.5), obj='CMS', **kwargs):
     
     Kwargs:
         weights : sequence of floats
-        obj : objective-function type
+        diabatization : objective-function type
             Currently supports only 'cms'
 
     Returns:
@@ -441,12 +440,12 @@ def state_interaction (mc, weights=(0.5,0.5), obj='CMS', **kwargs):
     else:
         base_name = mc.__class__.__bases__[0].__name__
     mcbase_class = mc.__class__
-    sarot_objfn, sarot = get_sarotfns (obj)
+    diabatizer, diabatize = get_diabfns (diabatization)
 
     class SIPDFT (_SIPDFT, mcbase_class):
         pass
-    SIPDFT.__name__ = obj.upper () + base_name
-    return SIPDFT (mc, sarot_objfn, sarot, obj)
+    SIPDFT.__name__ = diabatization.upper () + base_name
+    return SIPDFT (mc, diabatizer, diabatize, diabatization)
     
 
 if __name__ == '__main__':

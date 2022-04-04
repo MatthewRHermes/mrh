@@ -8,7 +8,7 @@ from functools import reduce
 from mrh.my_pyscf.mcpdft.cmspdft import coulomb_tensor
 
 # TODO: docstring?
-def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
+def diab_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     ''' Computes the Hessian-vector product of
         Q_a-a = 1/2 sum_I g_pqrs <I|p'q|I> <I|r's|I>
         where the vector is a vector of intermediate-state rotations
@@ -92,7 +92,7 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
 
 # TODO: get rid?? Fix?? Unittest???
 # BROKEN FOR CI AND IS; DO NOT USE
-def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
+def diab_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
     ''' Alternate implementation: monkeypatch everything but
         active-active Coulomb part of the Hamiltonian and call
         newton_casscf.gen_g_hop ()[2].
@@ -193,7 +193,7 @@ def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
 
     return mc_grad.pack_uniq_var (hx_orb, hx_ci)
 
-def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
+def diab_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
         mf_grad=None, **kwargs):
     ''' Computes the partial first derivatives of
         Q_a-a = 1/2 sum_I g_pqrs <I|p'q|I> <I|r's|I>
@@ -291,9 +291,9 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     return de
 
 # TODO: get rid? Unittest?
-def sarot_grad_o0 (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
+def diab_grad_o0 (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
         mf_grad=None, **kwargs):
-    ''' Monkeypatch version of sarot_grad '''
+    ''' Monkeypatch version of diab_grad '''
     mc = mc_grad.base
     ncas, nelecas, nroots = mc.ncas, mc.nelecas, mc_grad.nroots
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
@@ -340,20 +340,20 @@ if __name__ == '__main__':
     Lis = math.pi * (np.random.rand ((3)) - 0.5)
     eris = mc.ao2mo (mc.mo_coeff)
 
-    dw_test = sarot_response (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci,
+    dw_test = diab_response (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci,
         eris=eris)
     dworb_test, dwci_test = mc_grad.unpack_uniq_var (dw_test)
     dwci_test = np.asarray (dwci_test)
     dwis_test = np.einsum ('pab,qab->pq', dwci_test, ci_arr.conj ())
     dwci_test -= np.einsum ('pq,qab->pab', dwis_test, ci_arr)
-    dw_ref = sarot_response_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci,
+    dw_ref = diab_response_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci,
         eris=eris)
     dworb_ref, dwci_ref = mc_grad.unpack_uniq_var (dw_ref)
     dwci_ref = np.asarray (dwci_ref)
     dwis_ref = np.einsum ('pab,qab->pq', dwci_ref, ci_arr.conj ())
     dwci_ref -= np.einsum ('pq,qab->pab', dwis_ref, ci_arr)
-    dh_test = sarot_grad (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
-    dh_ref = sarot_grad_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
+    dh_test = diab_grad (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
+    dh_ref = diab_grad_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
 
     print ("dworb:", vector_error (dworb_test, dworb_ref), linalg.norm (
         dworb_ref))

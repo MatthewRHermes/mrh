@@ -649,9 +649,10 @@ class _PDFT ():
          state_average_mix_(self, fcisolvers, weights)
          return self
 
-    def state_interaction (self, weights=(0.5,0.5), obj='CMS'):
+    def state_interaction (self, weights=(0.5,0.5), diabatization='CMS'):
         from mrh.my_pyscf.mcpdft.sipdft import state_interaction
-        return state_interaction (self, weights=weights, obj=obj)
+        return state_interaction (self, weights=weights,
+                                  diabatization=diabatization)
 
     @property
     def otxc (self):
