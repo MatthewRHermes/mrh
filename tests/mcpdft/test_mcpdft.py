@@ -16,7 +16,7 @@
 # trying to test the API here; we need tight convergence and grids
 # to reproduce well when OMP is on.
 import numpy as np
-from pyscf import gto, scf, mcscf, lib, fci
+from pyscf import gto, scf, mcscf, lib, fci, df
 from pyscf.fci.addons import fix_spin_
 from mrh.my_pyscf import mcpdft
 import unittest
@@ -76,6 +76,33 @@ class KnownValues(unittest.TestCase):
                         mc = cls (my_init, 'tPBE', 5, 2).run (**my_kwargs)
                         self.assertAlmostEqual (mc.e_tot, ref_e, 7)
                         self.assertTrue (mc.converged)
+
+    def test_df (self):
+        ref_e = -7.924259
+        ref_e0_sa = -7.923959
+        for mf, symm in zip ((mf_nosym, mf_sym), (False, True)):
+            mf_df = mf.density_fit ()
+            mo = (mc_nosym, mc_sym)[int(symm)].mo_coeff
+            for i, cls in enumerate ((mcpdft.CASCI, mcpdft.CASSCF)):
+                scf = bool (i)
+                mc = cls (mf_df, 'tPBE', 5, 2).run (mo_coeff=mo)
+                with self.subTest (symm=symm, scf=scf, nroots=1):
+                    self.assertAlmostEqual (mc.e_tot, ref_e, delta=1e-6)
+                    self.assertTrue (mc.converged)
+                nroots = 3
+                if scf:
+                    mc = mc.state_average ([1.0/nroots,]*nroots).run ()
+                    e_states = mc.e_states
+                    ref = ref_e0_sa
+                else:
+                    mc.fcisolver.nroots = nroots
+                    mc.kernel ()
+                    e_states = mc.e_tot
+                    ref = ref_e
+                with self.subTest (symm=symm, scf=scf, nroots=nroots):
+                    self.assertAlmostEqual (e_states[0], ref, delta=1e-6)
+                    self.assertTrue (mc.converged)
+                
 
     def test_state_average (self): 
         # grids_level = 6
