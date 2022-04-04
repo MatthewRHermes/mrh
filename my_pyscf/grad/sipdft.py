@@ -55,8 +55,8 @@ def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket):
 
 # TODO: docstring?
 def sipdft_heff_response (mc_grad, mo=None, ci=None,
-        si_bra=None, si_ket=None, state=None, ham_si=None, 
-        e_mcscf=None, eris=None):
+        si_bra=None, si_ket=None, state=None, heff_pdft=None, 
+        heff_mcscf=None, eris=None):
     ''' Compute the orbital and intermediate-state rotation response 
         vector in the context of an SI-PDFT gradient calculation '''
     mc = mc_grad.base
@@ -65,8 +65,8 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     if state is None: state = mc_grad.state
     if si_bra is None: si_bra = mc.si[:,state]
     if si_ket is None: si_ket = mc.si[:,state]
-    if ham_si is None: ham_si = mc.ham_si
-    if e_mcscf is None: e_mcscf = mc.e_mcscf
+    if heff_pdft is None: heff_pdft = mc.heff_pdft
+    if heff_mcscf is None: heff_mcscf = mc.heff_mcscf
     if eris is None: eris = mc.ao2mo (mo)
     nroots, ncore = mc_grad.nroots, mc.ncore
     moH = mo.conj ().T
@@ -83,14 +83,12 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     g_orb = mc.unpack_uniq_var (g_orb)
 
     # Intermediate state rotation (TODO: state-average-mix generalization)
-    ham_is = ham_si.copy ()
-    ham_is[np.diag_indices (nroots)] = e_mcscf
-    braH = np.dot (si_bra, ham_is)
-    Hket = np.dot (ham_is, si_ket)
+    braH = np.dot (si_bra, heff_mcscf)
+    Hket = np.dot (heff_mcscf, si_ket)
     si2 = si_bra * si_ket
     g_is  = np.multiply.outer (si_ket, braH)
     g_is += np.multiply.outer (si_bra, Hket)
-    g_is -= 2 * si2[:,None] * ham_is
+    g_is -= 2 * si2[:,None] * heff_mcscf
     g_is -= g_is.T
     g_is = g_is[np.tril_indices (nroots, k=-1)]
 
@@ -337,7 +335,7 @@ class Gradients (mcpdft_grad.Gradients):
         elif eris is None:
             eris = self.eris
         if d2f is None: d2f = self.base.sarot_objfn (ci=ci)[2]
-        ham_od = self.base.ham_si.copy ()
+        ham_od = self.base.heff_pdft.copy ()
         ham_od[np.diag_indices (self.nroots)] = 0.0
         ham_od += ham_od.T # This corresponds to the arbitrary newton_casscf*2
         fcasscf = self.make_fcasscf_sa ()

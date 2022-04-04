@@ -10,61 +10,46 @@ from mrh.my_pyscf import mcpdft
 # In principle, various forms can be implemented: CMS, XMS, etc.
 
 # API cleanup desiderata:
-# 1. Rename "ham_si," "ham_ci" to "heff_pdft", "heff_mcscf"
-# 2. Eigendecomposition of heff_pdft, heff_mcscf available on same footing
-#       a. mc.e_mcscf should have eigenvalues of heff_mcscf
-#       b. old meaning of e_mcscf should be named "hdiag_mcscf"
-#       c. hdiag_pdft should be available on same footing
-#       d. what about e_cas? e_ot? What is e_cas even used for?
+# 1. "sipdft", "state_interaction" -> "mspdft", "multi_state"
+# 2. "sarot", "sarot_name" -> "diabatize", "diabatization"
 # 3. "get_ci_mcscf" and "get_ci_final" QOL functions
 # 4. Canonicalize function to quickly generate mo_coeff, ci, mo_occ, mo_energy
 #    for different choices of intermediate, reference, final states.
-def make_ham_si (mc,ci):
-    ''' Build Hamiltonian matrix in basis of ci vector, with diagonal 
-        elements computed by PDFT and off-diagonal elements computed by
-        MC-SCF 
+# 5. Probably "_finalize" stuff
+# 6. checkpoint stuff
+def make_heff_mcscf (mc, mo_coeff=None, ci=None):
+    ''' Build Hamiltonian matrix in basis of ci vector
 
         Args:
             mc : an instance of MCPDFT class
+
+        Kwargs:
+            mo_coeff : ndarray of shape (nao, nmo)
+                MO coefficients
             ci : ndarray or list of len (nroots)
                 CI vectors describing the model space, presumed to be in
                 the optimized intermediate-state basis
 
         Returns:
-            ham_si : ndarray of shape (nroots, nroots)
-                Effective MS-PDFT hamiltonian matrix in the basis of the
+            heff_mcscf : ndarray of shape (nroots, nroots)
+                Effective MC-SCF hamiltonian matrix in the basis of the
                 provided CI vectors
-            ovlp_si : ndarray of shape (nroots, nroots)
-                Overlap matrix of the provided CI vectors
-            e_mcscf : ndarray of shape (nroots,)
-                Diagonal elements of the true physical Hamiltonian in
-                the the basis of the provided CI vectors
-            e_cas : ndarray of shape (nroots,)
-                e_mcscf - e_cas; for compatibility with parent classes
-            e_ot : ndarray of shape (nroots,)
-                On-top energy corresponding to the diagonal elements of
-                ham_si; for compatibility with parent classes
     '''
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ci is None: ci = mc.ci
 
     ci = np.asarray(ci)
     nroots = ci.shape[0]
 
-    e_pdft = np.stack ([mcpdft.mcpdft.kernel (mc, ot=mc.otfnal, ci=ci, state=i)
-        for i in range (nroots)], axis=1)
-    e_int, e_ot = e_pdft
-
-    h1, h0 = mc.get_h1eff ()
-    h2 = mc.get_h2eff ()
+    h1, h0 = mc.get_h1eff (mo_coeff)
+    h2 = mc.get_h2eff (mo_coeff)
     h2eff = direct_spin1.absorb_h1e (h1, h2, mc.ncas, mc.nelecas, 0.5)
     hc_all = [direct_spin1.contract_2e (h2eff, c, mc.ncas, mc.nelecas)
         for c in ci]
-    ham_si = np.tensordot (ci, hc_all, axes=((1,2),(1,2))) 
-    e_cas = ham_si.diagonal ().copy ()
-    e_mcscf = e_cas + h0
-    ham_si[np.diag_indices (nroots)] = e_int[:].copy ()
-    ci_flat = ci.reshape (nroots, -1)
-    ovlp_si = np.dot (ci_flat.conj (), ci_flat.T)
-    return ham_si, ovlp_si, e_mcscf, e_cas, e_ot
+    heff = np.tensordot (ci, hc_all, axes=((1,2),(1,2)))
+    idx = np.diag_indices_from (heff)
+    heff[idx] += h0
+    return heff
 
 def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
         sing_tol=None, nudge_tol=None):
@@ -229,13 +214,14 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
 
     def __init__(self, mc, sarot_objfn, sarot, sarot_name):
         self.__dict__.update (mc.__dict__)
-        keys = set (('sarot_objfn', 'sarot', 'sarot_name', 'ham_si', 'si',
-            'max_cycle_sarot', 'conv_tol_sarot'))
+        keys = set (('sarot_objfn', 'sarot', 'sarot_name',
+                     'heff_mcscf', 'heff_pdft', 'hdiag_mcscf', 'hdiag_pdft',
+                     'si', 'si_mcscf', 'si_pdft',
+                     'max_cycle_sarot', 'conv_tol_sarot'))
         self._sarot_objfn = sarot_objfn
         self._sarot = sarot
         self.max_cycle_sarot = 50
         self.conv_tol_sarot = 1e-8
-        self.si = self.ham_si = None
         self.sarot_name = sarot_name
         self._keys = set ((self.__dict__.keys ())).union (keys)
 
@@ -249,12 +235,24 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         CI solutions '''
 
     @property
-    def ham_ci (self):
-        ham_ci = self.ham_si.copy ()
-        nroots = ham_ci.shape[0]
-        ham_ci[np.diag_indices (nroots)] = self.e_mcscf.copy ()
-        return ham_ci
-    
+    def hdiag_mcscf (self):
+        return self.heff_mcscf.diagonal ()
+
+    @property
+    def heff_pdft (self):
+        arr = self.heff_mcscf.copy ()
+        idx = np.diag_indices_from (arr)
+        arr[idx] = self.hdiag_pdft
+        arr.flags['WRITEABLE'] = False
+        return arr
+
+    @property
+    def si (self):
+        return self.si_pdft
+    @si.setter
+    def si (self, x):
+        self.si_pdft = x
+
     def _init_ci0 (self, ci0, mo_coeff=None):
         ''' On the assumption that ci0 represents states that optimize
             the SI-PDFT objective function, prediagonalize the
@@ -262,16 +260,11 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
             initialization. 
         '''
         # TODO: different spin states in state-average-mix ?
+        if ci0 is None: ci0 = getattr (self, 'ci', None)
         if ci0 is None: return None
         if mo_coeff is None: mo_coeff = self.mo_coeff
-        ncas, nelecas = self.ncas, self.nelecas
-        h1, h0 = self.get_h1eff (mo_coeff)
-        h2 = self.get_h2eff (mo_coeff)
-        h2eff = direct_spin1.absorb_h1e (h1, h2, ncas, nelecas, 0.5)
-        hc_all = [direct_spin1.contract_2e (h2eff, c, ncas, nelecas)
-            for c in ci0]
-        ham_ci = np.tensordot (np.asarray (ci0), hc_all, axes=((1,2),(1,2)))
-        e, u = linalg.eigh (ham_ci)
+        heff_mcscf = get_heff_mcscf (mo_coeff, ci0)
+        e, u = self._eig_si (heff_mcscf)
         ci = list (np.tensordot (u.T, np.asarray (ci0), axes=1))
         return ci
 
@@ -290,21 +283,29 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         return ci
 
     # TODO: docstring
-    def kernel (self, mo_coeff=None, ci0=None, **kwargs):
-        # I should maybe rethink keeping all this intermediate information
+    def kernel (self, mo_coeff=None, ci0=None, otxc=None, grids_level=None,
+                grids_attr=None, **kwargs):
+        # Reference state determination
         self.otfnal.reset (mol=self.mol) # scanner mode safety 
         ci = self._init_ci0 (ci0, mo_coeff=mo_coeff)
-        ci, self.mo_coeff, self.mo_energy = super().kernel (mo_coeff, ci,
-            **kwargs)[-3:]
+        self.optimize_mcscf_(mo_coeff=mo_coeff,ci0=ci)
+        # Intermediate state determination
         ci = self._init_sarot_ci (ci, ci0)
         sarot_conv, self.ci = self.sarot (ci=ci, **kwargs)
         self.converged = self.converged and sarot_conv
-        self.ham_si, self.ovlp_si, self.e_mcscf, self.e_ot, self.e_cas = \
-            self.make_ham_si (self.ci)
-        self._log_sarot ()
-        self.e_states, self.si = self._eig_si (self.ham_si)
-        # TODO: state_average_mix support?
+        # Energy calculation
+        self.heff_mcscf = self.make_heff_mcscf ()
+        self.hdiag_pdft = self.compute_pdft_energy_(
+            otxc=otxc, grids_level=grids_level, grids_attr=grids_attr)[-1]
+        # Final diagonalization
+        e_mcscf, self.si_mcscf = self._eig_si (self.heff_mcscf)
+        if abs (linalg.norm (self.e_mcscf-e_mcscf)) > 1e-10:
+            raise RuntimeError (("Sanity fault: e_mcscf ({}) != "
+                                "self.e_mcscf ({})").format (e_mcscf,
+                                self.e_mcscf))
+        self.e_states, self.si_pdft = self._eig_si (self.heff_pdft)
         self.e_tot = np.dot (self.e_states, self.weights)
+        self._log_sarot ()
         self._log_si ()
         return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, 
             self.mo_coeff, self.mo_energy)
@@ -333,63 +334,57 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         if ci is None: ci = self.ci
         return self._sarot_objfn (self, mo_coeff=mo_coeff, ci=ci)
 
-    def _eig_si (self, ham_si):
-        return linalg.eigh (ham_si)
+    def _eig_si (self, heff):
+        return linalg.eigh (heff)
 
-    def make_ham_si (self, ci=None):
-        __doc__ = make_ham_si.__doc__
-        if ci is None: ci = self.ci
-        return make_ham_si (self, ci)
+    make_heff_mcscf = make_heff_mcscf
 
     def _log_sarot (self):
         # Information about the intermediate states
-        e_pdft = self.ham_si.diagonal ()
-        nroots = len (e_pdft)
+        hdiag_mcscf = self.hdiag_mcscf
+        hdiag_pdft = self.hdiag_pdft
+        nroots = len (hdiag_pdft)
         log = lib.logger.new_logger (self, self.verbose)
         f, df, d2f = self.sarot_objfn ()
         hdr = '{} intermediate'.format (self.__class__.__name__)
         log.note ('%s objective function  value = %.15g |grad| = %.7g', hdr, f, linalg.norm (df))
         log.note ('%s average energy  EPDFT = %.15g  EMCSCF = %.15g', hdr,
-                  np.dot (self.weights, e_pdft), np.dot (self.weights, self.e_mcscf))
+                  np.dot (self.weights, hdiag_pdft), np.dot (self.weights, hdiag_mcscf))
         log.note ('%s states:', hdr)
         if getattr (self.fcisolver, 'spin_square', None):
             ss = self.fcisolver.states_spin_square (self.ci, self.ncas,
                                                     self.nelecas)[0]
             for i in range (nroots):
                 log.note ('  State %d weight %g  EPDFT = %.15g  EMCSCF = %.15g'
-                    '  S^2 = %.7f', i, self.weights[i], e_pdft[i],
-                    self.e_mcscf[i], ss[i])
+                    '  S^2 = %.7f', i, self.weights[i], hdiag_pdft[i],
+                    hdiag_mcscf[i], ss[i])
         else:
             for i in range (nroots):
                 log.note ('  State %d weight %g  EPDFT = %.15g  EMCSCF = '
-                    '%.15g', i, self.weights[i], e_pdft[i], self.e_mcscf[i])
-        log.info ('Intermediate state Hamiltonian matrix:')
+                    '%.15g', i, self.weights[i], hdiag_pdft[i], hdiag_mcscf[i])
+        log.info ('Intermediate state MS-PDFT effective Hamiltonian matrix:')
         fmt_str = ' '.join (['{:9.5f}',]*nroots)
-        for row in self.ham_si: log.info (fmt_str.format (*row))
+        for row in self.heff_pdft: log.info (fmt_str.format (*row))
         log.info ('Intermediate states (columns) in terms of reference states '
             '(rows):')
-        e, v = self._eig_si (self.ham_ci)
-        for row in v.T: log.info (fmt_str.format (*row))
+        for row in self.si_mcscf.T: log.info (fmt_str.format (*row))
 
     def _log_si (self):
         # Information about the final states
         log = lib.logger.new_logger (self, self.verbose)
-        e_pdft = self.e_states
-        nroots = len (e_pdft)
-        e_mcscf = (np.dot (self.ham_ci, self.si) * self.si.conj ()).sum (0)
+        nroots = len (self.e_states)
         log.note ('%s final states:', self.__class__.__name__) 
         if getattr (self.fcisolver, 'spin_square', None):
             ci = np.tensordot (self.si.T, np.asarray (self.ci), axes=1)
             ss = self.fcisolver.states_spin_square (ci, self.ncas,
                                                     self.nelecas)[0]
             for i in range (nroots):
-                log.note ('  State %d weight %g  EPDFT = %.15g  EMCSCF = %.15g'
-                    '  S^2 = %.7f', i, self.weights[i], e_pdft[i],
-                    self.e_mcscf[i], ss[i])
+                log.note ('  State %d weight %g  EMSPDFT = %.15g  S^2 = %.7f',
+                          i, self.weights[i], self.e_states[i], ss[i])
         else:
             for i in range (nroots):
-                log.note ('  State %d weight %g  EPDFT = %.15g  EMCSCF = '
-                    '%.15g', i, self.weights[i], e_pdft[i], self.e_mcscf[i])
+                log.note ('  State %d weight %g  EMSPDFT = %.15g', i,
+                          self.weights[i], self.e_states[i])
 
     def nuc_grad_method (self):
         from mrh.my_pyscf.grad.sipdft import Gradients

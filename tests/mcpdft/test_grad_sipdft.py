@@ -68,7 +68,6 @@ class KnownValues(unittest.TestCase):
                 self.assertLessEqual (linalg.norm (dwci_ref), 2e-6)
             ham_si = np.diag (mc.e_states)
             ham_si = si @ ham_si @ si.T
-            e_mcscf = ham_si.diagonal ().copy ()
             eris = mc.ao2mo (mc.mo_coeff)
             ci = list (np.tensordot (si, ci_arr, axes=1))
             ci_arr = np.asarray (ci)
@@ -82,7 +81,7 @@ class KnownValues(unittest.TestCase):
             dwci_ref = dwci_ref[:,1,0]
             for r in (0,1):
                 dworb_test, dwci_test = sipdft_heff_response (mc_grad, ci=ci, state=r, eris=eris,
-                    si_bra=si[:,r], si_ket=si[:,r], ham_si=ham_si, e_mcscf=e_mcscf)
+                    si_bra=si[:,r], si_ket=si[:,r], heff_pdft=ham_si, heff_mcscf=ham_si)
                 dworb_test = mc.pack_uniq_var (dworb_test)
                 with self.subTest (symm=stype, solver=atype, eri=itype, root=r, check='orb'):
                     self.assertAlmostEqual (lib.fp (dworb_test), lib.fp (dworb_ref[r]), 8)
