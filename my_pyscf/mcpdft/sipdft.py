@@ -5,9 +5,20 @@ from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from pyscf.mcscf.addons import StateAverageMixFCISolver
 from pyscf.fci import direct_spin1
 from mrh.my_pyscf import mcpdft
+
 # API for general state-interaction MC-PDFT method object
 # In principle, various forms can be implemented: CMS, XMS, etc.
 
+# API cleanup desiderata:
+# 1. Rename "ham_si," "ham_ci" to "heff_pdft", "heff_mcscf"
+# 2. Eigendecomposition of heff_pdft, heff_mcscf available on same footing
+#       a. mc.e_mcscf should have eigenvalues of heff_mcscf
+#       b. old meaning of e_mcscf should be named "hdiag_mcscf"
+#       c. hdiag_pdft should be available on same footing
+#       d. what about e_cas? e_ot? What is e_cas even used for?
+# 3. "get_ci_mcscf" and "get_ci_final" QOL functions
+# 4. Canonicalize function to quickly generate mo_coeff, ci, mo_occ, mo_energy
+#    for different choices of intermediate, reference, final states.
 def make_ham_si (mc,ci):
     ''' Build Hamiltonian matrix in basis of ci vector, with diagonal 
         elements computed by PDFT and off-diagonal elements computed by

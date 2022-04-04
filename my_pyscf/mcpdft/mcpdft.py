@@ -606,29 +606,6 @@ class _PDFT ():
         pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, 
             adm2, mo, ncore, ncas, max_memory=self.max_memory, 
             paaa_only=paaa_only, aaaa_only=aaaa_only, jk_pc=jk_pc)
-        if self.verbose > logger.DEBUG:
-            logger.debug (self, 'Warning: memory-intensive lazy kernel for '
-                'pdft_veff initiated for testing purposes; reduce verbosity to'
-                ' decrease memory footprint')
-            # TODO: insufficient memory escape!
-            pdft_veff1_test, _pdft_veff2_test = pdft_veff.lazy_kernel (
-                self.otfnal, dm1s, adm2, mo_cas)
-            old_eri = self._scf._eri
-            with temporary_env (self._scf, _eri=_pdft_veff2_test):
-                with temporary_env (self.mol, incore_anyway=True):
-                    pdft_veff2_test = mc_ao2mo._ERIS (self, mo, method='incore')
-            err = linalg.norm (pdft_veff1 - pdft_veff1_test)
-            logger.debug (self, 'veff1 error: {}'.format (err))
-            err = linalg.norm (pdft_veff2.vhf_c - pdft_veff2_test.vhf_c)
-            logger.debug (self, 'veff2.vhf_c error: {}'.format (err))
-            err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
-            logger.debug (self, 'veff2.ppaa error: {}'.format (err))
-            err = linalg.norm (pdft_veff2.papa - pdft_veff2_test.papa)
-            logger.debug (self, 'veff2.papa error: {}'.format (err))
-            err = linalg.norm (pdft_veff2.j_pc - pdft_veff2_test.j_pc)
-            logger.debug (self, 'veff2.j_pc error: {}'.format (err))
-            err = linalg.norm (pdft_veff2.k_pc - pdft_veff2_test.k_pc)
-            logger.debug (self, 'veff2.k_pc error: {}'.format (err))
         
         if incl_coul:
             pdft_veff1 += self._scf.get_j (self.mol, dm1s[0] + dm1s[1])
