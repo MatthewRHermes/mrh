@@ -21,16 +21,13 @@ from pyscf.fci.addons import fix_spin_
 from mrh.my_pyscf import mcpdft
 import unittest
 
-mol_nosym = gto.M (atom = 'Li 0 0 0\nH 1.5 0 0', basis = 'sto3g',
-                   output = '/dev/null', verbose = 0)
-mol_sym = gto.M (atom = 'Li 0 0 0\nH 1.5 0 0', basis = 'sto3g', symmetry=True,
-                 output = '/dev/null', verbose = 0)
 
-mf_nosym = mf_sym = mc_nosym = mc_sym = None
-
-
-def setUpModule():
-    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
+mol_nosym = mol_sym = mf_nosym = mf_sym = mc_nosym = mc_sym = mcp = None
+def auto_setup (xyz='Li 0 0 0\nH 1.5 0 0'):
+    mol_nosym = gto.M (atom = xyz, basis = 'sto3g',
+                       output = '/dev/null', verbose = 0)
+    mol_sym = gto.M (atom = xyz, basis = 'sto3g', symmetry=True,
+                     output = '/dev/null', verbose = 0)
     mf_nosym = scf.RHF (mol_nosym).run ()
     mc_nosym = mcscf.CASSCF (mf_nosym, 5, 2).run ()
     mf_sym = scf.RHF (mol_sym).run ()
@@ -48,6 +45,15 @@ def setUpModule():
     mcp_sa_2 = mcp_ss_sym.state_average_mix (
         [solver_A1,solver_E1x,solver_E1y], [1.0/5,]*5).run ()
     mcp = [[mcp_ss_nosym, mcp_ss_sym], [mcp_sa_0, mcp_sa_1, mcp_sa_2]]
+    nosym = [mol_nosym, mf_nosym, mc_nosym]
+    sym = [mol_sym, mf_sym, mc_sym]
+    return nosym, sym, mcp
+
+def setUpModule():
+    global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
+    nosym, sym, mcp = auto_setup ()
+    mol_nosym, mf_nosym, mc_nosym = nosym
+    mol_sym, mf_sym, mc_sym = sym
 
 def tearDownModule():
     global mol_nosym, mf_nosym, mc_nosym, mol_sym, mf_sym, mc_sym, mcp
@@ -366,7 +372,25 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (np.atleast_1d (mc.e_tot)[0], e_tot, delta=1e-5)
                     self.assertAlmostEqual (np.atleast_1d (mc.e_ot)[0], e_ot, delta=1e-5)
 
-
+    def test_casscf_scanner (self):
+        # Putting more energy into this than the CASCI scanner because this is
+        # necessary for geometry optimization, which isn't available for CASCI
+        mcp1 = auto_setup (xyz='Li 0 0 0\nH 1.55 0 0')[-1]
+        for mol0, mc0, mc1 in zip ([mol_nosym, mol_sym], mcp[0], mcp1[0]):
+            with self.subTest (case='SS', symm=mol0.symmetry):
+                mc_scan = mc1.as_scanner ()
+                self.assertAlmostEqual (mc_scan (mol0), mc0.e_tot, delta=1e-6)
+        for ix, (mc0, mc1) in enumerate (zip (mcp[1], mcp1[1])):
+            tms = (0,1,'mixed')[ix]
+            sym = bool (ix//2)
+            mol0 = [mol_nosym, mol_sym][int(sym)]
+            with self.subTest (case='SA', symm=mol0.symmetry, triplet_ms=tms):
+                mc_scan = mc1.as_scanner ()
+                e_tot = mc_scan (mol0)
+                e_states_fp = lib.fp (np.sort (mc_scan.e_states))
+                e_states_fp_ref = lib.fp (np.sort (mc0.e_states))
+                self.assertAlmostEqual (e_tot, mc0.e_tot, delta=1e-6)
+                self.assertAlmostEqual (e_states_fp, e_states_fp_ref, delta=5e-6)
 
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT energy API")
