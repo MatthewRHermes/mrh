@@ -529,6 +529,9 @@ class _PDFT ():
         self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0, **kwargs)
         self.compute_pdft_energy_(otxc=otxc, grids_attr=grids_attr,
                                   grids_level=grids_level, **kwargs)
+        # TODO: edit StateAverageMCSCF._finalize in pyscf.mcscf.addons
+        # to use the proper name of the class rather than "CASCI", so
+        # that I can meaningfully play with "finalize" here
         return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci,
             self.mo_coeff, self.mo_energy)
 

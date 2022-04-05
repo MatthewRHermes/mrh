@@ -11,11 +11,10 @@ from mrh.my_pyscf import mcpdft
 
 # API cleanup desiderata:
 # 1. "sipdft", "state_interaction" -> "mspdft", "multi_state"
-# 2. "get_ci_mcscf" and "get_ci_final" QOL functions
-# 3. Canonicalize function to quickly generate mo_coeff, ci, mo_occ, mo_energy
+# 2. Canonicalize function to quickly generate mo_coeff, ci, mo_occ, mo_energy
 #    for different choices of intermediate, reference, final states.
-# 4. Probably "_finalize" stuff
-# 5. checkpoint stuff
+# 3. Probably "_finalize" stuff?
+# 4. checkpoint stuff
 def make_heff_mcscf (mc, mo_coeff=None, ci=None):
     ''' Build Hamiltonian matrix in basis of ci vector
 
@@ -214,7 +213,8 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
     def __init__(self, mc, diabatizer, diabatize, diabatization):
         self.__dict__.update (mc.__dict__)
         keys = set (('diabatizer', 'diabatize', 'diabatization',
-                     'heff_mcscf', 'heff_pdft', 'hdiag_mcscf', 'hdiag_pdft',
+                     'heff_mcscf', 'hdiag_pdft',
+                     'get_heff_offdiag', 'get_heff_pdft', 
                      'si', 'si_mcscf', 'si_pdft',
                      'max_cyc_diabatize', 'conv_tol_diabatize'))
         self._diabatizer = diabatizer
@@ -234,91 +234,98 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         CI solutions '''
 
     @property
-    def hdiag_mcscf (self):
-        return self.heff_mcscf.diagonal ()
-
-    @property
-    def heff_pdft (self):
-        arr = self.heff_mcscf.copy ()
-        idx = np.diag_indices_from (arr)
-        arr[idx] = self.hdiag_pdft
-        arr.flags['WRITEABLE'] = False
-        return arr
-
-    @property
     def si (self):
         return self.si_pdft
     @si.setter
     def si (self, x):
         self.si_pdft = x
 
-    def _init_ci0 (self, ci0, mo_coeff=None):
-        ''' On the assumption that ci0 represents states that optimize
-            the SI-PDFT objective function, prediagonalize the
-            Hamiltonian so that the MC-SCF step has a better
-            initialization. 
-        '''
-        # TODO: different spin states in state-average-mix ?
-        if ci0 is None: ci0 = getattr (self, 'ci', None)
-        if ci0 is None: return None
-        if mo_coeff is None: mo_coeff = self.mo_coeff
-        heff_mcscf = get_heff_mcscf (mo_coeff, ci0)
-        e, u = self._eig_si (heff_mcscf)
-        ci = list (np.tensordot (u.T, np.asarray (ci0), axes=1))
-        return ci
+    def get_heff_offdiag (self):
+        idx = np.diag_indices_from (self.heff_mcscf)
+        heff_offdiag = self.heff_mcscf.copy ()
+        heff_offdiag[idx] = 0.0
+        return heff_offdiag
 
-    def _init_diabatize_ci (self, ci, ci0):
-        ''' On the assumption that ci0 represents states that optimize
-            the SI-PDFT objective function, rotate the MC-SCF ci vectors
-            to maximize their overlap with ci0 so that the diab. step
-            has a better initialization.'''
-        # TODO: different spin states in state-average-mix ?
-        if ci0 is None: return None
-        ci0_array = np.asarray (ci0)
-        ci_array = np.asarray (ci)
-        ovlp = np.tensordot (ci0_array.conj (), ci_array, axes=((1,2),(1,2)))
-        u, svals, vh = linalg.svd (ovlp)
-        ci = list (np.tensordot (u @ vh, ci_array, axes=1))
-        return ci
+    def get_heff_pdft (self):
+        idx = np.diag_indices_from (self.heff_mcscf)
+        heff_pdft = self.heff_mcscf.copy ()
+        heff_pdft[idx] = self.hdiag_pdft
+        return heff_pdft
+
+    def get_ci_adiabats (self, ci=None, uci='MSPDFT'):
+        ''' Get the CI vectors in an alternate basis (usually one of the
+            two adiabatic bases: MCSCF or MSPDFT)
+
+            Kwargs:
+                ci : list of length nroots
+                    Diabatic ci vectors; defaults to self.ci
+                uci : 'MSPDFT', 'MCSCF', or square array of length nroots
+                    (String indicating) unitary matrix for transforming
+                    ci vectors
+
+            Returns:
+                ci : list of length nroots
+                    CI vectors for adiabats
+        '''
+        si_dict = {'MCSCF': mc.si_mcscf,
+                   'MSPDFT': mc.si_pdft}
+        if isinstance (uci, (str,np.string)):
+            if uci.upper () in si_dict:
+                uci = si_dict[si.upper ()]
+            else:
+                raise RuntimeError ("valid uci : 'MCSCF', 'MSPDFT', or ndarray")
+        if ci is None: ci = mc.ci
+        return list (np.tensordot (uci.T, np.asarray (ci), axes=1))
+    get_ci_basis=get_ci_adiabats
 
     # TODO: docstring
     def kernel (self, mo_coeff=None, ci0=None, otxc=None, grids_level=None,
                 grids_attr=None, **kwargs):
-        # Reference state determination
         self.otfnal.reset (mol=self.mol) # scanner mode safety 
-        ci = self._init_ci0 (ci0, mo_coeff=mo_coeff)
-        self.optimize_mcscf_(mo_coeff=mo_coeff,ci0=ci)
-        # Intermediate state determination
-        ci = self._init_diabatize_ci (ci, ci0)
-        diab_conv, self.ci = self.diabatize (ci=ci, **kwargs)
+        self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0)
+        diab_conv, self.ci = self.diabatize (ci=self.ci, ci0=ci0, **kwargs)
         self.converged = self.converged and diab_conv
-        # Energy calculation
         self.heff_mcscf = self.make_heff_mcscf ()
         self.hdiag_pdft = self.compute_pdft_energy_(
             otxc=otxc, grids_level=grids_level, grids_attr=grids_attr)[-1]
-        # Final diagonalization
         e_mcscf, self.si_mcscf = self._eig_si (self.heff_mcscf)
         if abs (linalg.norm (self.e_mcscf-e_mcscf)) > 1e-10:
             raise RuntimeError (("Sanity fault: e_mcscf ({}) != "
                                 "self.e_mcscf ({})").format (e_mcscf,
                                 self.e_mcscf))
-        self.e_states, self.si_pdft = self._eig_si (self.heff_pdft)
+        self.e_states, self.si_pdft = self._eig_si (self.get_heff_pdft ())
         self.e_tot = np.dot (self.e_states, self.weights)
         self._log_diabats ()
         self._log_adiabats ()
         return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci, 
             self.mo_coeff, self.mo_energy)
 
+    def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
+        # Initialize in an adiabatic basis
+        if ci0 is not None: 
+            if mo_coeff is None: mo_coeff = self.mo_coeff
+            heff_mcscf = get_heff_mcscf (mo_coeff, ci0)
+            e, self.si_mcscf = self._eig_si (heff_mcscf)
+            ci1 = self.get_ci_adiabats (ci=ci0, uci='MCSCF')
+        else:
+            ci1 = None
+        return super().optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci1, **kwargs)
+
     # All of the below probably need to be wrapped over solvers in
     # state-interaction-mix metaclass
 
-    def diabatize (self, ci=None, **kwargs):
+    def diabatize (self, ci=None, ci0=None, **kwargs):
         ''' Optimize the intermediate states describing the model space
             of an MS-PDFT calculation. The specific algorithm depends on
             the specific MS method; see the docstring for this object's
             _diabatize member.
         '''
         if ci is None: ci = self.ci
+        if ci0 is not None: 
+            ovlp = np.tensordot (np.asarray (ci).conj (), np.asarray (ci0),
+                                 axes=((1,2),(1,2)))
+            u, svals, vh = linalg.svd (ovlp)
+            ci = self.get_ci_basis (ci=ci, si=np.dot (u,vh)) 
         return self._diabatize (self, ci, **kwargs)
 
     def diabatizer (self, mo_coeff=None, ci=None):
@@ -340,12 +347,12 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
 
     def _log_diabats (self):
         # Information about the intermediate states
-        hdiag_mcscf = self.hdiag_mcscf
+        hdiag_mcscf = self.heff_mcscf.diagonal ()
         hdiag_pdft = self.hdiag_pdft
         nroots = len (hdiag_pdft)
         log = lib.logger.new_logger (self, self.verbose)
         f, df, d2f = self.diabatizer ()
-        hdr = '{} intermediate'.format (self.__class__.__name__)
+        hdr = '{} diabatic (intermediate)'.format (self.__class__.__name__)
         log.note ('%s objective function  value = %.15g |grad| = %.7g', hdr, f, linalg.norm (df))
         log.note ('%s average energy  EPDFT = %.15g  EMCSCF = %.15g', hdr,
                   np.dot (self.weights, hdiag_pdft), np.dot (self.weights, hdiag_mcscf))
@@ -354,17 +361,17 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
             ss = self.fcisolver.states_spin_square (self.ci, self.ncas,
                                                     self.nelecas)[0]
             for i in range (nroots):
-                log.note ('  State %d weight %g  EPDFT = %.15g  EMCSCF = %.15g'
-                    '  S^2 = %.7f', i, self.weights[i], hdiag_pdft[i],
+                log.note ('  State %d  EPDFT = %.15g  EMCSCF = %.15g'
+                    '  S^2 = %.7f', i, hdiag_pdft[i],
                     hdiag_mcscf[i], ss[i])
         else:
             for i in range (nroots):
-                log.note ('  State %d weight %g  EPDFT = %.15g  EMCSCF = '
-                    '%.15g', i, self.weights[i], hdiag_pdft[i], hdiag_mcscf[i])
-        log.info ('Intermediate state MS-PDFT effective Hamiltonian matrix:')
+                log.note ('  State %d  EPDFT = %.15g  EMCSCF = '
+                    '%.15g', i, hdiag_pdft[i], hdiag_mcscf[i])
+        log.info ('MS-PDFT effective Hamiltonian matrix in diabatic basis:')
         fmt_str = ' '.join (['{:9.5f}',]*nroots)
-        for row in self.heff_pdft: log.info (fmt_str.format (*row))
-        log.info ('Intermediate states (columns) in terms of reference states '
+        for row in self.get_heff_pdft(): log.info (fmt_str.format (*row))
+        log.info ('Diabatic states (columns) in terms of reference states '
             '(rows):')
         for row in self.si_mcscf.T: log.info (fmt_str.format (*row))
 
@@ -372,7 +379,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         # Information about the final states
         log = lib.logger.new_logger (self, self.verbose)
         nroots = len (self.e_states)
-        log.note ('%s final states:', self.__class__.__name__) 
+        log.note ('%s adiabatic (final) states:', self.__class__.__name__) 
         if getattr (self.fcisolver, 'spin_square', None):
             ci = np.tensordot (self.si.T, np.asarray (self.ci), axes=1)
             ss = self.fcisolver.states_spin_square (ci, self.ncas,
@@ -431,9 +438,9 @@ def state_interaction (mc, weights=(0.5,0.5), diabatization='CMS', **kwargs):
         si : instance of class _SIPDFT '''
 
     if isinstance (mc, StateInteractionMCPDFTSolver):
-        raise RuntimeError ('state_interaction recursion! possible API bug!')
+        raise RuntimeError ('already a multi-state PDFT solver')
     if isinstance (mc.fcisolver, StateAverageMixFCISolver):
-        raise RuntimeError ('TODO: state-average mix support')
+        raise RuntimeError ('state-average mix type')
     if not isinstance (mc, StateAverageMCSCFSolver):
         base_name = mc.__class__.__name__
         mc = mc.state_average (weights=weights, **kwargs)

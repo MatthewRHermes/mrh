@@ -81,7 +81,7 @@ class KnownValues(unittest.TestCase):
             dwci_ref = dwci_ref[:,1,0]
             for r in (0,1):
                 dworb_test, dwci_test = sipdft_heff_response (mc_grad, ci=ci, state=r, eris=eris,
-                    si_bra=si[:,r], si_ket=si[:,r], heff_pdft=ham_si, heff_mcscf=ham_si)
+                    si_bra=si[:,r], si_ket=si[:,r], heff_mcscf=ham_si)
                 dworb_test = mc.pack_uniq_var (dworb_test)
                 with self.subTest (symm=stype, solver=atype, eri=itype, root=r, check='orb'):
                     self.assertAlmostEqual (lib.fp (dworb_test), lib.fp (dworb_ref[r]), 8)
