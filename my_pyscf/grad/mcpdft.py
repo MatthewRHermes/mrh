@@ -9,6 +9,7 @@ from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
 from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_rho, _contract_ao_vao
 from mrh.util.rdm import get_2CDM_from_2RDM
 from functools import reduce
+from itertools import product
 from scipy import linalg
 import numpy as np
 import time, gc
@@ -309,6 +310,7 @@ class Gradients (sacasscf.Gradients):
         if (veff1 is None) or (veff2 is None):
             veff1, veff2 = self.base.get_pdft_veff (mo, ci[state],
                 incl_coul=True, paaa_only=True)
+        sing_tol = getattr (self, 'sing_tol_sasa', 1e-8)
         ndet = ci[state].size
         fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
@@ -327,7 +329,7 @@ class Gradients (sacasscf.Gradients):
         spin_states = np.asarray (self.spin_states)
         idx_spin = spin_states==spin_states[state]
         e_gap = self.e_mcscf-self.e_mcscf[state] if self.nroots>1 else [0.0]
-        idx_degen = np.abs (e_gap)<1e-10
+        idx_degen = np.abs (e_gap)<sing_tol
         idx = np.where (idx_spin & idx_degen)[0]
         assert (state in idx)
         gci_state = g_all_state[self.ngorb:]
@@ -365,6 +367,7 @@ class Gradients (sacasscf.Gradients):
     def get_init_guess (self, bvec, Adiag, Aop, precond):
         ''' Initial guess should solve the problem for SA-SA
             rotations '''
+        sing_tol = getattr (self, 'sing_tol_sasa', 1e-8)
         ci = self.base.ci
         state = self.state
         if self.nroots == 1: ci = [ci,]
@@ -380,12 +383,14 @@ class Gradients (sacasscf.Gradients):
             b_sa = np.dot (ci_blk.conjugate (), b_ci[state].ravel ())
             A_sa = 2 * self.weights[state] * (self.e_mcscf 
                 - self.e_mcscf[state])
-            ix_null = np.abs (A_sa)<1e-10
-            assert (ix_null[state])
+            idx_null = np.abs (A_sa)<sing_tol
+            assert (idx_null[state])
             A_sa = A_sa[idx_spin]
-            ix_null = np.abs (A_sa)<1e-10
-            b_sa[ix_null] = 0
-            A_sa[ix_null] = 1
+            idx_null = np.abs (A_sa)<sing_tol
+            if np.any (np.abs (b_sa[idx_null])>=sing_tol):
+                logger.warn (self, 'Singular Hessian in CP-MCPDFT!')
+            idx_null &= np.abs (b_sa)<sing_tol
+            A_sa[idx_null] = sing_tol
             x0_sa = -b_sa / A_sa # Hessian is diagonal so: easy
             ovlp = ci_blk.conjugate () @ b_ci_blk.T
             logger.debug (self, 'Linear response SA-SA part:\n{}'.format (
@@ -461,19 +466,17 @@ class Gradients (sacasscf.Gradients):
                     if self.spin_states[i]==self.spin_states[state]]
         if self.nroots==1:
             ci_blk = ci.reshape (1, -1)
+            ci = [ci]
         else:
             ci_blk = np.asarray ([ci[i].ravel () for i in idx_spin])
             A_sa = A_sa[idx_spin]
         def my_Aop (x):
             Ax = Aop (x)
             x_orb, x_ci = self.unpack_uniq_var (x)
-            x_ci_blk = np.asarray ([x_ci[i].ravel () for i in idx_spin])
             Ax_orb, Ax_ci = self.unpack_uniq_var (Ax)
-            Ax_ci_blk = np.asarray ([Ax_ci[i].ravel () for i in idx_spin])
-            ovlp = ci_blk.conjugate () @ Ax_ci_blk.T
-            Ax_ci_blk -= np.dot (ovlp.T, ci_blk)
-            for i, j in enumerate (idx_spin):
-                Ax_ci[j][:,:] = Ax_ci_blk[i,:].reshape (Ax_ci[j].shape)
+            for i, j in product (range (self.nroots), repeat=2):
+                if self.spin_states[i] != self.spin_states[j]: continue
+                Ax_ci[i] -= np.dot (Ax_ci[i].ravel (), ci[j].ravel ()) * ci[j]
             # Add back in the SA rotation part but from the true energy conds
             x_sa = np.dot (ci_blk.conjugate (), x_ci[state].ravel ())
             Ax_ci[state] += np.dot (x_sa * A_sa, ci_blk).reshape (

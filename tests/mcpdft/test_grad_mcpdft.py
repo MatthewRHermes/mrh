@@ -69,9 +69,11 @@ class KnownValues(unittest.TestCase):
             mc0_grad = mc0.nuc_grad_method ()
             mc1_gradscanner = mc1.nuc_grad_method ().as_scanner ()
             de0 = lib.fp (mc0_grad.kernel ())
-            e1, de1 = mc1_gradscanner (mol0)   
-            de1 = lib.fp (de1)
+            e1, de1 = mc1_gradscanner (mol0)
+            de1 = lib.fp (de1) 
             with self.subTest (case='SS', symm=mol0.symmetry):
+                self.assertTrue(mc0_grad.converged)
+                self.assertTrue(mc1_gradscanner.converged)
                 self.assertAlmostEqual (de0, de1, delta=1e-6)
         for ix, (mc0, mc1) in enumerate (zip (mcp[1], mcp1[1])):
             tms = (0,1,'mixed')[ix]
@@ -84,7 +86,10 @@ class KnownValues(unittest.TestCase):
                     de0 = lib.fp (mc0_grad.kernel (state=state))
                     e1, de1 = mc1_gradscanner (mol0, state=state)   
                     de1 = lib.fp (de1)
-                    self.assertAlmostEqual (de0, de1, delta=1e-4)
+                    self.assertTrue(mc0_grad.converged)
+                    self.assertTrue(mc1_gradscanner.converged)
+                    self.assertAlmostEqual (de0, de1, delta=1e-5)
+
 
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT gradients API")
