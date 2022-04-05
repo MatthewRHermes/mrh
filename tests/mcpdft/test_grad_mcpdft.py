@@ -32,8 +32,10 @@ def auto_setup (xyz='Li 0 0 0\nH 1.5 0 0'):
     mc_nosym = mcscf.CASSCF (mf_nosym, 5, 2).run ()
     mf_sym = scf.RHF (mol_sym).run ()
     mc_sym = mcscf.CASSCF (mf_sym, 5, 2).run ()
-    mcp_ss_nosym = mcpdft.CASSCF (mc_nosym, 'tPBE', 5, 2).run ()
-    mcp_ss_sym = mcpdft.CASSCF (mc_sym, 'tPBE', 5, 2).run ()
+    mcp_ss_nosym = mcpdft.CASSCF (mc_nosym, 'ftLDA,VWN3', 5, 2,
+                                  grids_level=1).run ()
+    mcp_ss_sym = mcpdft.CASSCF (mc_sym, 'ftLDA,VWN3', 5, 2,
+                                grids_level=1).run ()
     mcp_sa_0 = mcp_ss_nosym.state_average ([1.0/5,]*5).run ()
     solver_S = fci.solver (mol_nosym, singlet=True).set (spin=0, nroots=2)
     solver_T = fci.solver (mol_nosym, singlet=False).set (spin=2, nroots=3)
