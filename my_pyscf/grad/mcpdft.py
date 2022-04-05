@@ -287,6 +287,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None,
     return de
 
 # TODO: docstrings (parent classes???)
+# TODO: add a consistent threshold for elimination of degenerate-state rotations
 class Gradients (sacasscf.Gradients):
 
     def __init__(self, pdft, state=None):
@@ -321,14 +322,25 @@ class Gradients (sacasscf.Gradients):
 
         g_all = np.zeros (nlag)
         g_all[:self.ngorb] = g_all_state[:self.ngorb]
-        # Eliminate gradient of self-rotation
+        # Eliminate gradient of self-rotation and rotation into
+        # degenerate states
+        spin_states = np.asarray (self.spin_states)
+        idx_spin = spin_states==spin_states[state]
+        e_gap = self.e_mcscf-self.e_mcscf[state] if self.nroots>1 else [0.0]
+        idx_degen = np.abs (e_gap)<1e-10
+        idx = np.where (idx_spin & idx_degen)[0]
+        assert (state in idx)
         gci_state = g_all_state[self.ngorb:]
-        ci_arr = np.asarray (ci).reshape (self.nroots, -1)
-        gci_sa = np.dot (ci_arr[state], gci_state)
-        gci_state -= gci_sa * gci_state
-        gci = g_all[self.ngorb:].reshape (self.nroots, -1)
-        gci[state] += gci_state 
-
+        ci_proj = np.asarray ([ci[i].ravel () for i in idx])
+        gci_sa = np.dot (ci_proj, gci_state)
+        gci_state -= np.dot (gci_sa, ci_proj)
+        gci = g_all[self.ngorb:]
+        offs = 0
+        if state>0:
+            offs = sum ([na * nb for na, nb in zip(
+                        self.na_states[:state], self.nb_states[:state])]) 
+        ndet = self.na_states[state]*self.nb_states[state]
+        gci[offs:][:ndet] += gci_state 
         return g_all
 
     def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None,
@@ -353,50 +365,66 @@ class Gradients (sacasscf.Gradients):
     def get_init_guess (self, bvec, Adiag, Aop, precond):
         ''' Initial guess should solve the problem for SA-SA
             rotations '''
-        ci_arr = np.asarray (self.base.ci).reshape (self.nroots, -1)
-        ndet = ci_arr.shape[-1]
-        b_ci = bvec[self.ngorb:].reshape (self.nroots, ndet)
+        ci = self.base.ci
+        state = self.state
+        if self.nroots == 1: ci = [ci,]
+        idx_spin = [i for i in range (self.nroots)
+                    if self.spin_states[i]==self.spin_states[state]]
+        nroots_blk = len (idx_spin)
+        ci_blk = np.asarray ([ci[i].ravel () for i in idx_spin])
+        ndet = ci_blk.shape[-1]
+        b_orb, b_ci = self.unpack_uniq_var (bvec)
+        b_ci_blk = np.asarray ([b_ci[i].ravel () for i in idx_spin])
         x0 = np.zeros_like (bvec)
         if self.nroots > 1:
-            b_sa = np.dot (ci_arr.conjugate (), b_ci[self.state])
-            A_sa = 2 * self.weights[self.state] * (self.e_mcscf 
-                - self.e_mcscf[self.state])
-            A_sa[self.state] = 1
-            b_sa[self.state] = 0
+            b_sa = np.dot (ci_blk.conjugate (), b_ci[state].ravel ())
+            A_sa = 2 * self.weights[state] * (self.e_mcscf 
+                - self.e_mcscf[state])
+            ix_null = np.abs (A_sa)<1e-10
+            assert (ix_null[state])
+            A_sa = A_sa[idx_spin]
+            ix_null = np.abs (A_sa)<1e-10
+            b_sa[ix_null] = 0
+            A_sa[ix_null] = 1
             x0_sa = -b_sa / A_sa # Hessian is diagonal so: easy
-            ovlp = ci_arr.conjugate () @ b_ci.T
+            ovlp = ci_blk.conjugate () @ b_ci_blk.T
             logger.debug (self, 'Linear response SA-SA part:\n{}'.format (
                 ovlp))
             logger.debug (self, 'Linear response SA-CI norms:\n{}'.format (
-                linalg.norm (b_ci.T - ci_arr.T @ ovlp, axis=1)))
+                linalg.norm (b_ci_blk.T - ci_blk.T @ ovlp, axis=1)))
             if self.ngorb: logger.debug (self, 'Linear response orbital '
                 'norms:\n{}'.format (linalg.norm (bvec[:self.ngorb])))
             logger.debug (self, 'SA-SA Lagrange multiplier for root '
-                '{}:\n{}'.format (self.state, x0_sa))
-            x0[self.ngorb:][ndet*self.state:][:ndet] = np.dot (x0_sa, ci_arr)
+                '{}:\n{}'.format (state, x0_sa))
+            x0_orb, x0_ci = self.unpack_uniq_var (x0)
+            x0_ci[state] = np.dot (x0_sa, ci_blk).reshape (
+                self.na_states[state], self.nb_states[state])
+            x0 = self.pack_uniq_var (x0_orb, x0_ci)
         r0 = bvec + Aop (x0)
-        r0_ci = r0[self.ngorb:].reshape (self.nroots, ndet)
-        ovlp = ci_arr.conjugate () @ r0_ci.T
+        r0_orb, r0_ci = self.unpack_uniq_var (r0)
+        r0_ci_blk = np.asarray ([r0_ci[i].ravel () for i in idx_spin])
+        ovlp = ci_blk.conjugate () @ r0_ci_blk.T
         logger.debug (self, 'Lagrange residual SA-SA part after solving SA-SA'
             ' part:\n{}'.format (ovlp))
         logger.debug (self, 'Lagrange residual SA-CI norms after solving SA-SA'
-            ' part:\n{}'.format (linalg.norm (r0_ci.T - ci_arr.T @ ovlp,
+            ' part:\n{}'.format (linalg.norm (r0_ci_blk.T - ci_blk.T @ ovlp,
             axis=1)))
         if self.ngorb: logger.debug (self, 'Lagrange residual orbital norms '
             'after solving SA-SA part:\n{}'.format (linalg.norm (
-            r0[:self.ngorb])))
+            r0_orb)))
         x0 += precond (-r0)
         r1 = bvec + Aop (x0)
-        r1_ci = r1[self.ngorb:].reshape (self.nroots, ndet)
-        ovlp = ci_arr.conjugate () @ r1_ci.T
+        r1_orb, r1_ci = self.unpack_uniq_var (r0)
+        r1_ci_blk = np.asarray ([r1_ci[i].ravel () for i in idx_spin])
+        ovlp = ci_blk.conjugate () @ r1_ci_blk.T
         logger.debug (self, 'Lagrange residual SA-SA part after first '
             'precondition:\n{}'.format (ovlp))
         logger.debug (self, 'Lagrange residual SA-CI norms after first '
-            'precondition:\n{}'.format (linalg.norm (r1_ci.T - ci_arr.T @ ovlp,
+            'precondition:\n{}'.format (linalg.norm (r1_ci_blk.T - ci_blk.T @ ovlp,
             axis=1)))
         if self.ngorb: logger.debug (self, 'Lagrange residual orbital norms '
             'after first precondition:\n{}'.format (linalg.norm (
-            r1[:self.ngorb])))
+            r1_orb)))
         return x0
 
     def kernel (self, **kwargs):
@@ -429,16 +457,27 @@ class Gradients (sacasscf.Gradients):
         except Exception as e:
             print (self.weights, self.e_mcscf)
             raise (e)
-        ci_arr = np.asarray (ci).reshape (self.nroots, -1)
+        idx_spin = [i for i in range (self.nroots)
+                    if self.spin_states[i]==self.spin_states[state]]
+        if self.nroots==1:
+            ci_blk = ci.reshape (1, -1)
+        else:
+            ci_blk = np.asarray ([ci[i].ravel () for i in idx_spin])
+            A_sa = A_sa[idx_spin]
         def my_Aop (x):
             Ax = Aop (x)
-            x_ci = x[self.ngorb:].reshape (self.nroots, -1)
-            Ax_ci = Ax[self.ngorb:].reshape (self.nroots, -1)
-            ovlp = ci_arr.conjugate () @ Ax_ci.T
-            Ax_ci -= np.dot (ovlp.T, ci_arr)
+            x_orb, x_ci = self.unpack_uniq_var (x)
+            x_ci_blk = np.asarray ([x_ci[i].ravel () for i in idx_spin])
+            Ax_orb, Ax_ci = self.unpack_uniq_var (Ax)
+            Ax_ci_blk = np.asarray ([Ax_ci[i].ravel () for i in idx_spin])
+            ovlp = ci_blk.conjugate () @ Ax_ci_blk.T
+            Ax_ci_blk -= np.dot (ovlp.T, ci_blk)
+            for i, j in enumerate (idx_spin):
+                Ax_ci[j][:,:] = Ax_ci_blk[i,:].reshape (Ax_ci[j].shape)
             # Add back in the SA rotation part but from the true energy conds
-            x_sa = np.dot (ci_arr.conjugate (), x_ci[state])
-            Ax_ci[state] += np.dot (x_sa * A_sa, ci_arr)
-            Ax[self.ngorb:] = Ax_ci.ravel ()
+            x_sa = np.dot (ci_blk.conjugate (), x_ci[state].ravel ())
+            Ax_ci[state] += np.dot (x_sa * A_sa, ci_blk).reshape (
+                Ax_ci[state].shape)
+            Ax = self.pack_uniq_var (Ax_orb, Ax_ci)
             return Ax
         return my_Aop

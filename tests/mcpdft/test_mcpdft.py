@@ -372,7 +372,7 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (np.atleast_1d (mc.e_tot)[0], e_tot, delta=1e-5)
                     self.assertAlmostEqual (np.atleast_1d (mc.e_ot)[0], e_ot, delta=1e-5)
 
-    def test_casscf_scanner (self):
+    def test_scanner (self):
         # Putting more energy into CASSCF than CASCI scanner because this is
         # necessary for geometry optimization, which isn't available for CASCI
         mcp1 = auto_setup (xyz='Li 0 0 0\nH 1.55 0 0')[-1]
@@ -415,7 +415,6 @@ class KnownValues(unittest.TestCase):
         e_states_fp_ref = lib.fp (np.sort (mcp[1][0].e_states))
         with self.subTest (case='nroots=5 CASCI'):
             self.assertAlmostEqual (e_states_fp, e_states_fp_ref, delta=5e-6)
-        e_states_fp
 
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT energy API")
