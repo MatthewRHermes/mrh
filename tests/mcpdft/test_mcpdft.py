@@ -373,24 +373,49 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (np.atleast_1d (mc.e_ot)[0], e_ot, delta=1e-5)
 
     def test_casscf_scanner (self):
-        # Putting more energy into this than the CASCI scanner because this is
+        # Putting more energy into CASSCF than CASCI scanner because this is
         # necessary for geometry optimization, which isn't available for CASCI
         mcp1 = auto_setup (xyz='Li 0 0 0\nH 1.55 0 0')[-1]
         for mol0, mc0, mc1 in zip ([mol_nosym, mol_sym], mcp[0], mcp1[0]):
-            with self.subTest (case='SS', symm=mol0.symmetry):
-                mc_scan = mc1.as_scanner ()
+            mc_scan = mc1.as_scanner ()
+            with self.subTest (case='SS CASSCF', symm=mol0.symmetry):
                 self.assertAlmostEqual (mc_scan (mol0), mc0.e_tot, delta=1e-6)
+            mc2 = mcpdft.CASCI (mc1, 'tPBE', 5, 2).run (mo_coeff=mc1.mo_coeff)
+            mc_scan = mc2.as_scanner ()
+            mc_scan._scf (mol0) # TODO: fix this in CASCI as_scanner
+                # when you pass mo_coeff on call, it skips updating the _scf
+                # object geometry. This breaks things like CASCI.energy_nuc (),
+                # CASCI.get_hcore (), etc. which refer to the corresponding
+                # _scf fns but don't default to CASCI self.mol
+            e_tot = mc_scan (mol0, mo_coeff=mc0.mo_coeff, ci0=mc0.ci)
+            with self.subTest (case='SS CASCI', symm=mol0.symmetry):
+                self.assertAlmostEqual (e_tot, mc0.e_tot, delta=1e-6)
         for ix, (mc0, mc1) in enumerate (zip (mcp[1], mcp1[1])):
             tms = (0,1,'mixed')[ix]
             sym = bool (ix//2)
             mol0 = [mol_nosym, mol_sym][int(sym)]
-            with self.subTest (case='SA', symm=mol0.symmetry, triplet_ms=tms):
+            with self.subTest (case='SA CASSCF', symm=mol0.symmetry, triplet_ms=tms):
                 mc_scan = mc1.as_scanner ()
                 e_tot = mc_scan (mol0)
                 e_states_fp = lib.fp (np.sort (mc_scan.e_states))
                 e_states_fp_ref = lib.fp (np.sort (mc0.e_states))
                 self.assertAlmostEqual (e_tot, mc0.e_tot, delta=1e-6)
                 self.assertAlmostEqual (e_states_fp, e_states_fp_ref, delta=5e-6)
+        mc2 = mcpdft.CASCI (mcp1[1][0], 'tPBE', 5, 2)
+        mc2.fcisolver.nroots = 5
+        mc2.run (mo_coeff=mcp[1][0].mo_coeff)
+        mc_scan = mc2.as_scanner ()
+        mc_scan._scf (mol_nosym) # TODO: fix this in CASCI as_scanner
+        # when you pass mo_coeff on call, it skips updating the _scf
+        # object geometry. This breaks things like CASCI.energy_nuc (),
+        # CASCI.get_hcore (), etc. which refer to the corresponding
+        # _scf fns but don't default to CASCI self.mol
+        e_tot = mc_scan (mol_nosym, mo_coeff=mcp[1][0].mo_coeff, ci0=mcp[1][0].ci)
+        e_states_fp = lib.fp (np.sort (e_tot))
+        e_states_fp_ref = lib.fp (np.sort (mcp[1][0].e_states))
+        with self.subTest (case='nroots=5 CASCI'):
+            self.assertAlmostEqual (e_states_fp, e_states_fp_ref, delta=5e-6)
+        e_states_fp
 
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT energy API")
