@@ -92,6 +92,23 @@ class KnownValues(unittest.TestCase):
                     self.assertTrue(mc1_gradscanner.converged)
                     self.assertAlmostEqual (de0, de1, delta=1e-5)
 
+    def test_gradients (self):
+        ref_ss = 5.29903936e-03
+        ref_sa = [5.66392595e-03,3.67724051e-02,3.62698260e-02,2.53851408e-02,2.53848341e-02]
+        # Source: numerical @ this program
+        for mc, symm in zip (mcp[0], (False, True)):
+            with self.subTest (case='SS', symmetry=symm):
+                de = mc.nuc_grad_method ().kernel ()[0,0]
+                self.assertAlmostEqual (de, ref_ss, 6)
+        for ix, mc in enumerate (mcp[1]):
+            tms = (0,1,'mixed')[ix]
+            sym = bool (ix//2)
+            mc_grad = mc.nuc_grad_method ()
+            for state in range (5):
+                with self.subTest (case='SA', state=state, symmetry=sym, triplet_ms=tms):
+                    i = np.argsort (mc.e_states)[state]
+                    de = mc_grad.kernel (state=i)[0,0]
+                    self.assertAlmostEqual (de, ref_sa[state], 5)
 
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT gradients API")
