@@ -426,13 +426,21 @@ class _mcscf_env (object):
         self.e_tot = deepcopy (self.mc.e_tot)
         self.e_states = deepcopy (getattr (self.mc, 'e_states', None))
     def __enter__(self):
-        pass
+        self.mc._in_mcscf_env = True
     def __exit__(self, type, value, traceback):
         self.mc.e_tot = self.e_tot
         if getattr (self.mc, 'e_states', None) is not None:
             self.mc.e_mcscf = np.array (self.mc.e_states)
         if self.e_states is not None:
-            self.mc.fcisolver.e_states = self.e_states
+            try:
+                self.mc.e_states = self.e_states
+            except AttributeError as e:
+                self.mc.fcisolver.e_states = self.e_states
+                assert (self.mc.e_states is self.e_states), str (e)
+            # TODO: redesign this. MC-SCF e_states is stapled to
+            # fcisolver.e_states, but I don't want MS-PDFT to be 
+            # because that makes no sense
+        self.mc._in_mcscf_env = False
 
 class _PDFT ():
     # Metaclass parent; unusable on its own
@@ -455,6 +463,7 @@ class _PDFT ():
         self.conv_tol_ci_fp = getattr (__config__,
             'mcscf_mcpdft_conv_tol_ci_fp', 1e-8)
         self.mcscf_kernel = super().kernel
+        self._in_mcscf_env = False
         self._keys = set ((self.__dict__.keys ())).union (keys)
         if grids_level is not None:
             grids_attr['level'] = grids_level
@@ -513,8 +522,16 @@ class _PDFT ():
                      for ix in range (nroots)]
             self.e_ot = [e_ot for e_tot, e_ot in epdft]
             if isinstance (self, StateAverageMCSCFSolver):
-                self.fcisolver.e_states = [e_tot for e_tot, e_ot in epdft]
-                self.e_tot = np.dot (self.e_states, self.weights)
+                e_states = [e_tot for e_tot, e_ot in epdft]
+                try:
+                    self.e_states = e_states
+                except AttributeError as e:
+                    self.fcisolver.e_states = e_states
+                    assert (self.e_states is e_states), str (e)
+                # TODO: redesign this. MC-SCF e_states is stapled to
+                # fcisolver.e_states, but I don't want MS-PDFT to be 
+                # because that makes no sense
+                self.e_tot = np.dot (e_states, self.weights)
                 e_states = self.e_states
             else: # nroots>1 CASCI
                 self.e_tot = [e_tot for e_tot, e_ot in epdft]

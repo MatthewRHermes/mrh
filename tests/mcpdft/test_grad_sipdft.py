@@ -109,6 +109,27 @@ class KnownValues(unittest.TestCase):
                 with self.subTest (symm=stype, solver=atype, eri=itype, root=r):
                     self.assertAlmostEqual (lib.fp (de_test), lib.fp (de_ref[r]), 8)
 
+    def test_scanner (self):
+        def get_lih (r):
+            mol = gto.M (atom='Li 0 0 0\nH {} 0 0'.format (r), basis='sto3g',
+                         output='test.{}.log'.format (r), verbose=5)
+            mf = scf.RHF (mol).run ()
+            mc = mcpdft.CASSCF (mf, 'ftLDA,VWN3', 2, 2, grids_level=1)
+            mc.fix_spin_(ss=0)
+            mc = mc.state_interaction ([0.5,0.5], 'cms').run (conv_tol=1e-8)
+            return mol, mc.nuc_grad_method ()
+        mol1, mc_grad1 = get_lih (1.5)
+        mol2, mc_grad2 = get_lih (1.55)
+        mc_grad2 = mc_grad2.as_scanner ()
+        for state in 0,1:
+            de1 = mc_grad1.kernel (state=state)
+            e1 = mc_grad1.base.e_states[state]
+            e2, de2 = mc_grad2 (mol1, state=state)
+            self.assertTrue(mc_grad1.converged)
+            self.assertTrue(mc_grad2.converged)
+            self.assertAlmostEqual (e1, e2, 6)
+            self.assertAlmostEqual (lib.fp (de1), lib.fp (de2), 6)
+    
 
 if __name__ == "__main__":
     print("Full Tests for SI-PDFT gradient off-diagonal heff fns")

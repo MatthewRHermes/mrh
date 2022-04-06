@@ -219,6 +219,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                      'max_cyc_diabatize', 'conv_tol_diabatize'))
         self._diabatizer = diabatizer
         self._diabatize = diabatize
+        self._e_states = None
         self.max_cyc_diabatize = 50
         self.conv_tol_diabatize = 1e-8
         self.diabatization = diabatization
@@ -226,7 +227,10 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
 
     @property
     def e_states (self):
-        return getattr (self, '_e_states', self.fcisolver.e_states)
+        if self._in_mcscf_env:
+            return self.fcisolver.e_states
+        else:
+            return self._e_states
     @e_states.setter
     def e_states (self, x):
         self._e_states = x
@@ -267,11 +271,11 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                 ci : list of length nroots
                     CI vectors for adiabats
         '''
-        si_dict = {'MCSCF': mc.si_mcscf,
-                   'MSPDFT': mc.si_pdft}
-        if isinstance (uci, (str,np.string)):
+        si_dict = {'MCSCF': self.si_mcscf,
+                   'MSPDFT': self.si_pdft}
+        if isinstance (uci, (str,np.string_)):
             if uci.upper () in si_dict:
-                uci = si_dict[si.upper ()]
+                uci = si_dict[uci.upper ()]
             else:
                 raise RuntimeError ("valid uci : 'MCSCF', 'MSPDFT', or ndarray")
         if ci is None: ci = mc.ci
@@ -304,7 +308,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         # Initialize in an adiabatic basis
         if ci0 is not None: 
             if mo_coeff is None: mo_coeff = self.mo_coeff
-            heff_mcscf = get_heff_mcscf (mo_coeff, ci0)
+            heff_mcscf = self.make_heff_mcscf (mo_coeff, ci0)
             e, self.si_mcscf = self._eig_si (heff_mcscf)
             ci1 = self.get_ci_adiabats (ci=ci0, uci='MCSCF')
         else:
@@ -325,7 +329,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
             ovlp = np.tensordot (np.asarray (ci).conj (), np.asarray (ci0),
                                  axes=((1,2),(1,2)))
             u, svals, vh = linalg.svd (ovlp)
-            ci = self.get_ci_basis (ci=ci, si=np.dot (u,vh)) 
+            ci = self.get_ci_basis (ci=ci, uci=np.dot (u,vh)) 
         return self._diabatize (self, ci, **kwargs)
 
     def diabatizer (self, mo_coeff=None, ci=None):
