@@ -5,6 +5,7 @@ from pyscf.mcscf.addons import StateAverageMCSCFSolver
 from pyscf.mcscf.addons import StateAverageMixFCISolver
 from pyscf.fci import direct_spin1
 from mrh.my_pyscf import mcpdft
+from pyscf import __config__
 
 # API for general state-interaction MC-PDFT method object
 # In principle, various forms can be implemented: CMS, XMS, etc.
@@ -15,6 +16,12 @@ from mrh.my_pyscf import mcpdft
 #    for different choices of intermediate, reference, final states.
 # 3. Probably "_finalize" stuff?
 # 4. checkpoint stuff
+
+MAX_CYC_DIABATIZE = getattr(__config__, 'mcpdft_sipdft_max_cyc_diabatize', 50)
+CONV_TOL_DIABATIZE = getattr(__config__, 'mcpdft_sipdft_conv_tol_diabatize', 1e-8)
+SING_TOL_DIABATIZE = getattr(__config__, 'mcpdft_sipdft_sing_tol_diabatize', 1e-8)
+NUDGE_TOL_DIABATIZE = getattr(__config__, 'mcpdft_sipdft_nudge_tol_diabatize', 1e-3)
+
 def make_heff_mcscf (mc, mo_coeff=None, ci=None):
     ''' Build Hamiltonian matrix in basis of ci vector
 
@@ -88,10 +95,10 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
 
     if ci is None: ci = mc.ci
     if objfn is None: objfn = mc.diabatizer
-    if max_cyc is None: max_cyc = getattr (mc, 'max_cyc_diabatize', 50)
-    if conv_tol is None: conv_tol = getattr (mc, 'conv_tol_diabatize', 1e-8)
-    if sing_tol is None: sing_tol = getattr (mc, 'sing_tol_diabatize', 1e-8)
-    if nudge_tol is None: nudge_tol = getattr (mc, 'nudge_tol_diabatize', 1e-3)
+    if max_cyc is None: max_cyc = getattr (mc, 'max_cyc_diabatize', MAX_CYC_DIABATIZE)
+    if conv_tol is None: conv_tol = getattr (mc, 'conv_tol_diabatize', CONV_TOL_DIABATIZE)
+    if sing_tol is None: sing_tol = getattr (mc, 'sing_tol_diabatize', SING_TOL_DIABATIZE)
+    if nudge_tol is None: nudge_tol = getattr (mc, 'nudge_tol_diabatize', NUDGE_TOL_DIABATIZE)
     ci = np.array (ci) # copy
     ci_old = ci.copy ()
     log = lib.logger.new_logger (mc, mc.verbose)
@@ -187,25 +194,57 @@ class StateInteractionMCPDFTSolver ():
     pass
     # tag
 
-# TODO: better docstring
 class _SIPDFT (StateInteractionMCPDFTSolver):
-    ''' I'm not going to use subclass to distinguish between various SI-PDFT
-        types. Instead, I'm going to use three method attributes:
+    '''SI-PDFT 
 
-        _diabatizer : callable
-            Args: ci vectors
-            Returns: float, array (nroots), array (nroots,nroots)
-            The value, first, and second derivatives of the objective function
-            which extrema define the intermediate states. May be used both in
-            performing the SI-PDFT energy calculation and in gradients.
-
-        _diabatize : callable
-            Args: ci vectors
-            Returns: ci vectors
-            Obtain the intermediate states from the reference states
+    Extra attributes for SI-PDFT:
 
         diabatization: string
-            Label for I/O.
+            The name describing the type of diabatization for I/O.
+            Currently, only ``CMS'' is available.
+        max_cyc_diabatize : integer
+            Maximum cycles of the diabatization iteration. Default is 50.
+        conv_tol_diabatize : float
+            Convergence threshold of the diabatization algorithm. Default
+            is 1e-8.
+        sing_tol_diabatize : float
+            Numerical tolerance for null state-rotation modes and 
+            singularities within the diabatization algorithm. Null modes
+            (e.g., rotation between E1x and E1y states in a linear
+            molecule) are ignored. Singularities (zero Hessian and
+            non-zero gradient in the same mode) print a warning. Default
+            is 1e-8.
+        nudge_tol_diabatize : float
+            Minimum step size along modes with positive curvature during
+            the diabatization algorithm, so as to push away from saddle
+            points and minima. Default is 1e-3.
+
+    Saved results
+
+        e_tot : float
+            Weighted-average SI-PDFT final energy
+        e_states : ndarray of shape (nroots)
+            SI-PDFT final energies of the adiabatic states
+        ci : list of length (nroots) of ndarrays
+            CI vectors in the optimized diabatic basis. Related to the
+            MC-SCF and SI-PDFT adiabat CI vectors by the expansion
+            coefficients ``si_mcscf'' and ``si_pdft''. Either set of
+            adiabat CI vectors can be obtained quickly via
+            ``get_ci_adiabats''
+        si : ndarray of shape (nroots, nroots)
+            Expansion coefficients for the SI-PDFT adiabats in terms of
+            the optimized diabatic states
+        si_pdft : ndarray of shape (nroots, nroots)
+            Synonym of si
+        e_mcscf : ndarray of shape (nroots)
+            Energies of the MS-SCF adiabatic states
+        si_mcscf : ndarray of shape (nroots, nroots)
+            Expansion coefficients for the MC-SCF adiabats in terms of
+            the optimized diabatic states
+        heff_mcscf : ndarray of shape (nroots, nroots)
+            Molecular Hamiltonian in the diabatic basis
+        hdiag_pdft : ndarray of shape (nroots)
+            MC-PDFT total energies of the optimized diabatic states
     '''
 
     # Metaclass parent
@@ -216,12 +255,15 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                      'heff_mcscf', 'hdiag_pdft',
                      'get_heff_offdiag', 'get_heff_pdft', 
                      'si', 'si_mcscf', 'si_pdft',
-                     'max_cyc_diabatize', 'conv_tol_diabatize'))
+                     'max_cyc_diabatize', 'conv_tol_diabatize',
+                     'sing_tol_diabatize', 'nudge_tol_diabatize'))
         self._diabatizer = diabatizer
         self._diabatize = diabatize
         self._e_states = None
-        self.max_cyc_diabatize = 50
-        self.conv_tol_diabatize = 1e-8
+        self.max_cyc_diabatize = MAX_CYC_DIABATIZE
+        self.conv_tol_diabatize = CONV_TOL_DIABATIZE
+        self.sing_tol_diabatize = SING_TOL_DIABATIZE
+        self.nudge_tol_diabatize = CONV_TOL_DIABATIZE
         self.diabatization = diabatization
         self._keys = set ((self.__dict__.keys ())).union (keys)
 
@@ -245,12 +287,36 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         self.si_pdft = x
 
     def get_heff_offdiag (self):
+        ''' The off-diagonal elements of the effective Hamiltonian matrix
+
+        = heff_mcscf - np.diag (heff_mcscf.diagonal ())
+        = ( 0     H_10^* ... )
+          ( H_10  0      ... ) 
+          ( ...   ...    ... )
+
+        Returns:
+            heff_offdiag : ndarray of shape (nroots, nroots)
+                Contains molecular Hamiltonian elements on the off-diagonals
+                and zero on the diagonals
+        '''
         idx = np.diag_indices_from (self.heff_mcscf)
         heff_offdiag = self.heff_mcscf.copy ()
         heff_offdiag[idx] = 0.0
         return heff_offdiag
 
     def get_heff_pdft (self):
+        ''' The SI-PDFT effective Hamiltonian matrix
+
+        = get_heff_offdiag () + np.diag (hdiag_pdft)
+        = ( EPDFT_0  H_10^*   ... )
+          ( H_10     EPDFT_1  ... ) 
+          ( ...      ...      ... )
+
+        Returns:
+            heff_pdft : ndarray of shape (nroots, nroots)
+                Contains molecular Hamiltonian elements on the off-diagonals
+                and PDFT energies on the diagonals
+        '''
         idx = np.diag_indices_from (self.heff_mcscf)
         heff_pdft = self.heff_mcscf.copy ()
         heff_pdft[idx] = self.hdiag_pdft
@@ -282,7 +348,6 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         return list (np.tensordot (uci.T, np.asarray (ci), axes=1))
     get_ci_basis=get_ci_adiabats
 
-    # TODO: docstring
     def kernel (self, mo_coeff=None, ci0=None, otxc=None, grids_level=None,
                 grids_attr=None, **kwargs):
         self.otfnal.reset (mol=self.mol) # scanner mode safety 
@@ -319,10 +384,26 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
     # state-interaction-mix metaclass
 
     def diabatize (self, ci=None, ci0=None, **kwargs):
-        ''' Optimize the intermediate states describing the model space
-            of an MS-PDFT calculation. The specific algorithm depends on
-            the specific MS method; see the docstring for this object's
-            _diabatize member.
+        ''' Optimize the ``intermediate'' diabatic states of an MS-PDFT
+            calculation in the space defined by the MC-SCF ``reference''
+            adiabatic states.
+
+            Kwargs
+                ci : list of ndarrays of length nroots
+                    CI vectors defining the model space, usually from
+                    a CASCI or CASSCF kernel call
+                ci0 : list of ndarrays of length nroots
+                    Initial guess for optimized diabatic CI vectors,
+                    possibly spanning a slightly different space,
+                    usually at a different geometry (i.e., during a
+                    geometry optimization or dynamics trajectory) 
+
+            Returns
+                conv : logical
+                    Reports whether the diabatization algorithm
+                    converged successfully
+                ci : list of ndarrays of length = nroots
+                    CI vectors of the optimized diabatic states
         '''
         if ci is None: ci = self.ci
         if ci0 is not None: 
@@ -333,12 +414,26 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         return self._diabatize (self, ci, **kwargs)
 
     def diabatizer (self, mo_coeff=None, ci=None):
-        ''' Computes the value, gradient vector, and Hessian matrix of
-            the objective function rendered stationary by the
-            optimized intermediate states. Used in gradient calculations
-            and possibly in diabatize. The details depend on the specific MS
-            method; see the docstring for this object's _diabatizer
-            member.
+        ''' Computes the value, gradient vector, and Hessian matrix with
+            respect to pairwise state rotations of the objective
+            function maximized by the optimized diabatic
+            (``intermediate'') states.
+
+            Kwargs
+                mo_coeff : ndarray of shape (nao,nmo)
+                    MO coefficients
+                ci : list of ndarrays of length nroots
+                    CI vectors
+
+            Returns:
+                f : float
+                    Objective function value for states 
+                df : ndarray of shape (npairs = nroots*(nroots-1)/2)
+                    Gradient vector of objective function with respect
+                    to pairwise rotations between states
+                d2f : ndarray of shape (npairs,npairs)
+                    Hessian matrix of objective function with respect to
+                    pairwise rotations between states
         '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci

@@ -8,6 +8,13 @@ from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
 from mrh.util import params
 from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs
+from pyscf import __config__
+
+FT_R0 = getattr(__config__, 'mcpdft_otfnal_ftransfnal_R0', 0.9)
+FT_R1 = getattr(__config__, 'mcpdft_otfnal_ftransfnal_R1', 1.15)
+FT_A = getattr(__config__, 'mcpdft_otfnal_ftransfnal_A', -475.60656009)
+FT_B = getattr(__config__, 'mcpdft_otfnal_ftransfnal_B', -379.47331922)
+FT_C = getattr(__config__, 'mcpdft_otfnal_ftransfnal_C', -85.38149682)
 
 def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
     # Examine the error of the first and second functional derivatives in the
@@ -65,20 +72,26 @@ def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
     lib.logger.debug (otfnal, "%s dE - v.x - x.f.x: %e - %e - %e = %e",
         tag, de.sum (), vx.sum (), xfx.sum (), de_err2.sum ())
 
-# TODO: better class docstring
 class otfnal:
-    r''' Needs:
-        mol: object of class pyscf.gto.mole
-        grids: object of class pyscf.dft.gen_grid.Grids
-        eval_ot: function with calling signature shown below
-        _numint: object of class pyscf.dft.NumInt
+    r''' Parent class of on-top pair-density functional. The main
+    callable is ``eval_ot,'' which is comparable to pyscf.dft.libxc
+    ``eval_xc.'' A true ``kernel'' method, which would take arbitrary
+    1- and 2-RDMs and return the total PDFT energy, awaits design
+    decisions on how far I'm willing/able to generalize the otpd
+    functions. For instance, in MP2 or CCSD, the 2-RDM spans the
+    whole orbital space and it may not be possible to hold it in
+    memory. At present, it's all designed around MC-SCF, which is
+    why the ``kernel'' function that actually calculates the energy
+    is in mcpdft.py instead of here.
+
+    Attributes:
+        mol : object of class pyscf.gto.mole
+        grids : object of class pyscf.dft.gen_grid.Grids
+        eval_ot : function with calling signature shown below
+        _numint : object of class pyscf.dft.NumInt
             member functions "hybrid_coeff", "nlc_coeff, "rsh_coeff",
             and "_xc_type" (at least) must be overloaded; see below
-        verbose: integer
-            for PySCF's logger system
-        stdout: record
-            for PySCF's logger system
-        otxc: string
+        otxc : string
             name of on-top pair-density exchange-correlation functional
     '''
 
@@ -149,6 +162,7 @@ class otfnal:
         return self.eval_ot (rho, Pi, dderiv=0, weights=weights)[0].dot (
             weights)
 
+    # TODO: really??? Do I really need this?????
     get_veff_1body = pdft_veff.get_veff_1body
     get_veff_2body = pdft_veff.get_veff_2body
     get_veff_2body_kl = pdft_veff.get_veff_2body_kl
@@ -161,8 +175,17 @@ class otfnal:
 
 # TODO: better class docstring
 class transfnal (otfnal):
-    r''' "translated functional" of Li Manni et al., JCTC 10, 3669
-    (2014). '''
+    __doc__ = otfnal.__doc__ + r'''
+
+    ``translated functional'' of Li Manni et al., JCTC 10, 3669 (2014).
+    The extra attributes are all callables; see their docstrings for
+    more information.
+
+    Args:
+        ks : object of class :dft.RKS:
+            ks.xc is the Kohn-Sham functional being ``translated''
+
+    '''
 
     transl_prefix='t'
 
@@ -178,7 +201,6 @@ class transfnal (otfnal):
         self._numint._xc_type = t_xc_type.__get__(self._numint)
         self._init_info ()
 
-    # TODO: better docstring
     def get_ratio (self, Pi, rho_avg):
         r''' R = Pi / [rho/2]^2 = Pi / rho_avg^2
             An intermediate quantity when computing the translated spin
@@ -187,6 +209,17 @@ class transfnal (otfnal):
             Note this function returns 1 for values and 0 for
             derivatives for every point where the charge density is
             close to zero (i.e., convention: 0/0 = 1)
+
+            Args:
+                Pi : ndarray of shape (*,ngrids)
+                    Contains on-top pair density on a grid
+                rho_avg : ndarray of shape (*,ngrids)
+                    Contains the average of the spin-up and spin-down
+                    charge densities on a grid, (rho[0]+rho[1])/2
+
+            Returns:
+                R : ndarray of shape (*,ngrids)
+                    on-top ratio
         '''
         nderiv = min (rho_avg.shape[0], Pi.shape[0])
         ngrids = rho_avg.shape[1]
@@ -298,7 +331,14 @@ class transfnal (otfnal):
 
     def split_x_c (self):
         ''' Get one translated functional for just the exchange and one
-            for just the correlation part of the energy. '''
+            for just the correlation part of the energy.
+
+            Returns:
+                xfnal : object of class :transfnal:
+                    this functional, but only the exchange part
+                cfnal : object of class :transfnal:
+                    this functional, but only the correlation part
+        '''
         if not re.search (',', self.otxc):
             x_code = c_code = self.otxc
             c_code = c_code[len (self.transl_prefix):]
@@ -393,6 +433,7 @@ class transfnal (otfnal):
         return f
 
     def eval_ot (self, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
+        __doc__ = otfnal.eval_ot.__doc__
         eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv,
             weights=weights, _unpack_vot=_unpack_vot)
         if (self.verbose <= logger.DEBUG) or (dderiv<2) or (weights is None):
@@ -469,28 +510,42 @@ class transfnal (otfnal):
         return eot, vot, fot
 
 
-
-
-_FT_R0_DEFAULT=0.9
-_FT_R1_DEFAULT=1.15
-_FT_A_DEFAULT=-475.60656009
-_FT_B_DEFAULT=-379.47331922 
-_FT_C_DEFAULT=-85.38149682
-
-# TODO: better class docstring
+# TODO: test continuity of smoothing function and warn at initialization?
 class ftransfnal (transfnal):
-    r''' "fully translated functional" of Carlson et al., JCTC 11, 4077
-    (2015)'''
+    __doc__ = transfnal.__doc__ + r'''
+
+    Extra attributes for ``fully-translated'' extension of Carlson
+    et al., JCTC 11, 4077 (2015):
+
+        R0 : float
+            connecting point to polynomial smoothing function;
+            R0 <= 1.0. Default is 0.9.
+        R1 : float
+            endpoint of polynomial smoothing function, zeta(R1) =
+            zeta'(R1) = zeta''(R1) = 0.0; R1 >= 1.0. Default is 1.15.
+        A : float
+            Quintic coefficient of polynomial smoothing function.
+            Default = -475.60656009 is chosen to make zeta continuous
+            through its second derivative at given the default R0 and R1.
+        B : float
+            Quartic coefficient of polynomial smoothing function.
+            Default = -379.47331922 is chosen to make zeta continuous
+            through its second derivative given the default R0 and R1.
+        C : float
+            Cubic coefficient of polynomial smoothing function.
+            Default = -85.38149682 chosen to make zeta continuous
+            through its second derivative given the default R0 and R1.
+    '''
 
     transl_prefix='ft'
 
     def __init__ (self, ks, **kwargs):
         otfnal.__init__(self, ks.mol, **kwargs)
-        self.R0=_FT_R0_DEFAULT
-        self.R1=_FT_R1_DEFAULT
-        self.A=_FT_A_DEFAULT
-        self.B=_FT_B_DEFAULT
-        self.C=_FT_C_DEFAULT
+        self.R0=FT_R0
+        self.R1=FT_R1
+        self.A=FT_A
+        self.B=FT_B
+        self.C=FT_C
         self.otxc = 'ft' + ks.xc
         self._numint = copy.copy (ks._numint)
         self.grids = copy.copy (ks.grids)

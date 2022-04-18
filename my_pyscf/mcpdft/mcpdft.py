@@ -314,7 +314,6 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
 
     return E_ot
 
-# TODO: more detailed docstring + unittest
 def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
     ''' Compute a decomposition of the MC-PDFT energy into nuclear potential
         (E0), one-electron (E1), Coulomb (E2c), exchange (EOTx), correlation
@@ -442,6 +441,7 @@ class _mcscf_env (object):
             # because that makes no sense
         self.mc._in_mcscf_env = False
 
+# TODO: docstring
 class _PDFT ():
     # Metaclass parent; unusable on its own
 

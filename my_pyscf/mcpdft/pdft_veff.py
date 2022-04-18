@@ -31,8 +31,14 @@ import time, gc, ctypes
 SWITCH_SIZE = getattr(__config__, 'dft_numint_SWITCH_SIZE', 800)
 libpdft = load_library('libpdft')
 
-# TODO: docstring
+# TODO: outcore implementation; can I use properties instead of copying?
 class _ERIS(object):
+    ''' Stores two-body PDFT on-top effective potential array in a form
+        compatible with existing MC-SCF kernel and derivative functions.
+        Unlike actual eris, PDFT veff2 has 24-fold permutation symmetry,
+        so j_pc = k_pc and ppaa = papa.transpose (0,2,1,3). The mcscf
+        _ERIS is currently undocumented so I won't spend more time
+        documenting this for now. '''
     def __init__(self, mol, mo_coeff, ncore, ncas, method='incore',
             paaa_only=False, aaaa_only=False, jk_pc=False, verbose=0, stdout=None):
         self.mol = mol
@@ -306,7 +312,6 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
         *t0)
     return veff1, veff2
 
-# TODO: turn this into a unittest?
 def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1,
         veff2_mo=None):
     ''' Get the 1- and 2-body effective potential from MC-PDFT.
