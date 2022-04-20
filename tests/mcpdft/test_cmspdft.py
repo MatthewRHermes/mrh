@@ -39,18 +39,29 @@ def get_lih (r):
     return mol, mf, mc
 
 def setUpModule():
-    global mol, mf, mc
+    global mol, mf, mc, Q_max
     mol, mf, mc = get_lih (1.5)
+    Q_max = mc.diabatizer ()[0]
 
 def tearDownModule():
-    global mol, mf, mc
+    global mol, mf, mc, Q_max
     mol.stdout.close ()
-    del mol, mf, mc
+    del mol, mf, mc, Q_max
 
 class KnownValues(unittest.TestCase):
 
+    def test_lih_diabats (self):
+        # Reference values from OpenMolcas v22.02, tag 177-gc48a1862b
+        # Ignoring the PDFT energies and final states because of grid nonsense
+        e_mcscf_avg = np.dot (mc.e_mcscf, mc.weights)
+        hcoup = abs (mc.heff_mcscf[1,0])
+        ct_mcscf = abs (mc.si_mcscf[0,0])
+        self.assertAlmostEqual (e_mcscf_avg, -7.78902185, 7)
+        self.assertAlmostEqual (Q_max, 1.76394711, 5)
+        self.assertAlmostEqual (hcoup, 0.0350876533212476, 5)
+        self.assertAlmostEqual (ct_mcscf, 0.96259815333407572, 5)
+
     def test_e_coul (self):
-        Q_max = mc.diabatizer ()[0]
         ci_theta0 = mc.get_ci_basis (uci=u_theta(theta0))
         Q_test, dQ_test, d2Q_test = mc.diabatizer (ci=ci_theta0)[:3]
         num_Q = numerical_Q (mf, mc)
@@ -81,7 +92,6 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (d2Q_test[0,0], d2Q_ref[0,0], 9)
     
     def test_e_coul_update (self):
-        Q_max = mc.diabatizer ()[0]
         theta_rand = 360 * np.random.rand () - 180
         u_rand = u_theta (theta_rand)
         ci_rand = mc.get_ci_basis (uci=u_rand)
