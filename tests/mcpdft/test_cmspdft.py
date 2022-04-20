@@ -7,6 +7,9 @@ import unittest, math
 degree = math.pi / 180.0
 theta0 = 30
 def u_theta (theta=theta0):
+    # The sign here is consistent with my desired variable convention:
+    # lower-triangular positive w/ row idx = initial state and col idx = 
+    # final state
     ct = math.cos (theta*degree)
     st = math.sin (theta*degree)
     return np.array ([[ct,st],[-st,ct]])
@@ -47,6 +50,7 @@ def tearDownModule():
 class KnownValues(unittest.TestCase):
 
     def test_derivs (self):
+        Q_max = mc.diabatizer ()[0]
         ci_theta0 = mc.get_ci_basis (uci=u_theta(theta0))
         Q_test, dQ_test, d2Q_test = mc.diabatizer (ci=ci_theta0)[:3]
         num_Q = numerical_Q (mf, mc)
@@ -57,6 +61,7 @@ class KnownValues(unittest.TestCase):
         dQ_ref = (Qp-Qm)/2/delta/degree
         d2Q_ref = (Qp+Qm-2*Q0)/degree/degree/delta/delta
         with self.subTest (deriv=0):
+            self.assertLess (Q_test, Q_max)
             self.assertAlmostEqual (Q_test, Q0, 9)
         with self.subTest (deriv=1):
             self.assertAlmostEqual (dQ_test[0], dQ_ref, 6)

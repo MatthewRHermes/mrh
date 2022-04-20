@@ -110,7 +110,6 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
     conv = False
     hdr = '{} intermediate-state'.format (mc.__class__.__name__)
     f, df, d2f, f_update = objfn (ci=ci)
-
     for it in range(max_cyc):
         log.info ("****iter {} ***********".format (it))
         log.info ("{} objective function value = {}".format (hdr, f))
@@ -149,7 +148,15 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
                 conv = True
                 break
 
-        u = np.dot (u, linalg.expm (-t))
+        # I want the states we come from on the rows and the states we
+        # are going to on the columns: |f> = |i>.Umat. However, the
+        # antihermitian parameterization of a unitary operator always
+        # puts it the other way around: |f> = Uop|i>, ~no matter how you
+        # choose the generator indices~. So I have to transpose here.
+        # Flipping the sign of t does the same thing, but don't get
+        # confused: this isn't related to the choice of variables!
+        u = np.dot (u, linalg.expm (t).T)
+        f_last = f
         f, df, d2f = f_update (u)
 
     try:
@@ -178,7 +185,6 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
     #log.debug ("{} overlap sort array: {}".format (hdr, ovlp_idx))
     #ci *= sgn[:,None,None]
     #ci = ci[ovlp_idx,:,:]
-
     if conv:
         log.note ("{} optimization CONVERGED".format (hdr))
     else:
@@ -444,7 +450,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         if ci is None: ci = self.ci
         rets = self._diabatizer (self, mo_coeff=mo_coeff, ci=ci)
         f, df, d2f = rets[:3]
-        if len (rets) > 4 and callable (rets[3]):
+        if len (rets) > 3 and callable (rets[3]):
             f_update = rets[3]
         else:
             def f_update (u=1):
