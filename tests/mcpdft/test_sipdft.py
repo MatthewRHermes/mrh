@@ -1,21 +1,18 @@
 import numpy as np
 from scipy import linalg
-from pyscf import gto, scf, df, mcscf, lib
+from pyscf import gto, scf, mcscf 
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.grad.sipdft import sipdft_heff_response, sipdft_heff_HellmanFeynman
-from mrh.my_pyscf.df.grad import dfsacasscf
 import unittest, math
 
 
 def get_lih (r):
     mol = gto.M (atom='Li 0 0 0\nH {} 0 0'.format (r), basis='sto3g',
-                 output='/dev/null'.format (r), verbose=0)
+                 output='/dev/null', verbose=0)
     mf = scf.RHF (mol).run ()
     mc = mcpdft.CASSCF (mf, 'ftLDA,VWN3', 2, 2, grids_level=1)
     mc.fix_spin_(ss=0)
     mc = mc.state_interaction ([0.5,0.5], 'cms').run (conv_tol=1e-8)
-    return mol, mf, mc.run ()
+    return mol, mf, mc
 
 def setUpModule():
     global mol, mf, mc
