@@ -105,24 +105,14 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
     nroots = mc.fcisolver.nroots 
     rows,col = np.tril_indices(nroots,k=-1)
     npairs = nroots * (nroots - 1) // 2
+    u = np.eye (nroots)
     t = np.zeros((nroots,nroots))
     conv = False
     hdr = '{} intermediate-state'.format (mc.__class__.__name__)
+    f, df, d2f, f_update = objfn (ci=ci)
 
     for it in range(max_cyc):
         log.info ("****iter {} ***********".format (it))
-
-#       Form U
-        U = linalg.expm(t)
-
-#       Rotate T
-        try:
-            ci = np.tensordot(U, ci, 1)
-        except ValueError as e:
-            print (U.shape, ci.shape)
-            raise (e)
-
-        f, df, d2f = objfn (ci=ci)
         log.info ("{} objective function value = {}".format (hdr, f))
 
         # Analyze Hessian
@@ -159,11 +149,18 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
                 conv = True
                 break
 
-    U_signed = np.tensordot (ci_old, ci.conj (), axes=((1,2),(1,2)))
+        u = np.dot (u, linalg.expm (-t))
+        f, df, d2f = f_update (u)
+
+    try:
+        ci = np.tensordot(u.T, ci, 1)
+    except ValueError as e:
+        print (u.shape, ci.shape)
+        raise (e)
     if mc.verbose >= lib.logger.DEBUG:
         fmt_str = ' ' + ' '.join (['{:5.2f}',]*nroots)
         log.debug ("{} final overlap matrix:".format (hdr))
-        for row in U_signed: log.debug (fmt_str.format (*row))
+        for row in u: log.debug (fmt_str.format (*row))
     # Root order and sign by overlap criterion
     # Requires ~strictly~ non-repeating sort
     # TODO: generalize to only sort within solvers in
@@ -265,6 +262,8 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         self.sing_tol_diabatize = SING_TOL_DIABATIZE
         self.nudge_tol_diabatize = CONV_TOL_DIABATIZE
         self.diabatization = diabatization
+        self.si_mcscf = None
+        self.si_pdft = None
         self._keys = set ((self.__dict__.keys ())).union (keys)
 
     @property
@@ -434,10 +433,26 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                 d2f : ndarray of shape (npairs,npairs)
                     Hessian matrix of objective function with respect to
                     pairwise rotations between states
+                f_update : callable
+                    Takes a unitary matrix and returns f, df, and d2f as
+                    above. Some kinds of MS-PDFT can be sped up using
+                    intermediates. If so, the _diabatizer function can
+                    provide f_update. Otherwise, it defaults to running
+                    _diabatizer itself on a rotated set of CI vectors.
         '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        return self._diabatizer (self, mo_coeff=mo_coeff, ci=ci)
+        rets = self._diabatizer (self, mo_coeff=mo_coeff, ci=ci)
+        f, df, d2f = rets[:3]
+        if len (rets) > 4 and callable (rets[3]):
+            f_update = rets[3]
+        else:
+            def f_update (u=1):
+                ci1 = self.get_ci_basis(ci=ci, uci=u)
+                f1, df1, d2f1 = self._diabatizer (
+                    self, mo_coeff=mo_coeff, ci=ci1)
+                return f1, df1, d2f1
+        return f, df, d2f, f_update
 
     def _eig_si (self, heff):
         return linalg.eigh (heff)
@@ -450,7 +465,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         hdiag_pdft = self.hdiag_pdft
         nroots = len (hdiag_pdft)
         log = lib.logger.new_logger (self, self.verbose)
-        f, df, d2f = self.diabatizer ()
+        f, df, d2f = self.diabatizer ()[:3]
         hdr = '{} diabatic (intermediate)'.format (self.__class__.__name__)
         log.note ('%s objective function  value = %.15g |grad| = %.7g', hdr, f, linalg.norm (df))
         log.note ('%s average energy  EPDFT = %.15g  EMCSCF = %.15g', hdr,

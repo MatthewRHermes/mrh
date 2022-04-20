@@ -48,7 +48,7 @@ class KnownValues(unittest.TestCase):
 
     def test_derivs (self):
         ci_theta0 = mc.get_ci_basis (uci=u_theta(theta0))
-        Q_test, dQ_test, d2Q_test = mc.diabatizer (ci=ci_theta0)
+        Q_test, dQ_test, d2Q_test = mc.diabatizer (ci=ci_theta0)[:3]
         num_Q = numerical_Q (mf, mc)
         delta=0.01
         Qm = num_Q (theta0-delta)
@@ -65,7 +65,7 @@ class KnownValues(unittest.TestCase):
 
     def test_old_implementation (self):
         ci_theta0 = mc.get_ci_basis (uci=u_theta(theta0))
-        Q_test, dQ_test, d2Q_test = mc.diabatizer (ci=ci_theta0)
+        Q_test, dQ_test, d2Q_test = mc.diabatizer (ci=ci_theta0)[:3]
         from mrh.my_pyscf.mcpdft.cmspdft import e_coul_o0
         Q_ref, dQ_ref, d2Q_ref = e_coul_o0 (mc, ci_theta0)
         with self.subTest (deriv=0):
