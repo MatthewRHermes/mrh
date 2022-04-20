@@ -210,6 +210,8 @@ def energy_mcwfn (mc, ot=None, mo_coeff=None, ci=None, dm_list=None,
 
     spin = abs(nelecas[0] - nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
+    if omega or alpha:
+        raise NotImplementedError ("range-separated on-top functionals")
     hyb_x, hyb_c = hyb
 
     Vnn = mc._scf.energy_nuc ()
@@ -632,26 +634,18 @@ class _PDFT ():
         logger.timer (self, 'get_pdft_veff', *t0)
         return pdft_veff1, pdft_veff2
 
-    def _casci_nuc_grad_not_implemented (self):
-        if isinstance (self, casci.CASCI) and not isinstance (self, mc1step.CASSCF):
-            raise NotImplementedError (
-                "Nuclear gradients for CASCI-based MC-PDFT energy"
-                )
-
     def _state_average_nuc_grad_method (self, state=None):
-        self._casci_nuc_grad_not_implemented ()
         from mrh.my_pyscf.grad.mcpdft import Gradients
         return Gradients (self, state=state)
 
     def nuc_grad_method (self):
-        self._casci_nuc_grad_not_implemented ()
         return self._state_average_nuc_grad_method (state=None)
 
     def dip_moment (self, unit='Debye', state=0):
-        from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
         if isinstance (self, StateAverageMCSCFSolver):
             # TODO: SA dipole moment unittests
             logger.warn (self, "State-averaged dipole moments are UNTESTED!")
+        from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
         dip_obj =  ElectricDipole(self) 
         mol_dipole = dip_obj.kernel (state=state)
         return mol_dipole

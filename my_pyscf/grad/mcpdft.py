@@ -1,4 +1,4 @@
-from pyscf.mcscf import newton_casscf
+from pyscf.mcscf import newton_casscf, casci, mc1step
 from pyscf.grad import rks as rks_grad
 from pyscf.dft import gen_grid
 from pyscf.lib import logger, pack_tril, current_memory, tag_array
@@ -298,6 +298,28 @@ class Gradients (sacasscf.Gradients):
         if self.state is None and self.nroots == 1:
             self.state = 0
         self.e_mcscf = self.base.e_mcscf
+        self._not_implemented_check ()
+
+    def _not_implemented_check (self):
+        name = self.__class__.__name__
+        if (isinstance (self.base, casci.CASCI) and not
+            isinstance (self.base, mc1step.CASSCF)):
+            raise NotImplementedError (
+                "{} for CASCI-based MC-PDFT".format (name)
+                )
+        ot, otxc, nelecas = self.base.otfnal, self.base.otxc, self.base.nelecas
+        spin = abs (nelecas[0]-nelecas[1])
+        omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff (
+            otxc, spin=spin)
+        hyb_x, hyb_c = hyb
+        if hyb_x or hyb_c:
+            raise NotImplementedError (
+                "{} for hybrid MC-PDFT functionals".format (name)
+                )
+        if omega or alpha:
+            raise NotImplementedError (
+                "{} for range-separated MC-PDFT functionals".format (name)
+                )
 
     def get_wfn_response (self, atmlst=None, state=None, verbose=None, mo=None,
             ci=None, veff1=None, veff2=None, nlag=None, **kwargs):
