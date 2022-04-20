@@ -162,7 +162,6 @@ class otfnal:
         return self.eval_ot (rho, Pi, dderiv=0, weights=weights)[0].dot (
             weights)
 
-    # TODO: really??? Do I really need this?????
     get_veff_1body = pdft_veff.get_veff_1body
     get_veff_2body = pdft_veff.get_veff_2body
     get_veff_2body_kl = pdft_veff.get_veff_2body_kl
@@ -173,7 +172,6 @@ class otfnal:
             self.mol = mol
         self.grids.reset (mol=mol)
 
-# TODO: better class docstring
 class transfnal (otfnal):
     __doc__ = otfnal.__doc__ + r'''
 
@@ -675,6 +673,10 @@ _CS_d_DEFAULT = 0.349
 
 def get_transfnal (mol, otxc):
     ks = dft.RKS (mol)
+    if otxc.upper () in ('TPBE0', 'FTPBE0'):
+        xc = otxc[-4:-1]
+        xc = make_hybrid_fnal (xc, 0.25)
+        otxc = otxc[:-4] + xc
     if otxc.upper ().startswith ('T'):
         ks.xc = otxc[1:]
         fnal_class = transfnal

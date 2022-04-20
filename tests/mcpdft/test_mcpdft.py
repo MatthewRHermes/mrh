@@ -23,7 +23,7 @@ import unittest
 
 
 mol_nosym = mol_sym = mf_nosym = mf_sym = mc_nosym = mc_sym = mcp = None
-def auto_setup (xyz='Li 0 0 0\nH 1.5 0 0'):
+def auto_setup (xyz='Li 0 0 0\nH 1.5 0 0', fnal='tPBE'):
     mol_nosym = gto.M (atom = xyz, basis = 'sto3g',
                        output = '/dev/null', verbose = 0)
     mol_sym = gto.M (atom = xyz, basis = 'sto3g', symmetry=True,
@@ -32,8 +32,8 @@ def auto_setup (xyz='Li 0 0 0\nH 1.5 0 0'):
     mc_nosym = mcscf.CASSCF (mf_nosym, 5, 2).run (conv_tol=1e-8)
     mf_sym = scf.RHF (mol_sym).run ()
     mc_sym = mcscf.CASSCF (mf_sym, 5, 2).run (conv_tol=1e-8)
-    mcp_ss_nosym = mcpdft.CASSCF (mc_nosym, 'tPBE', 5, 2).run (conv_tol=1e-8)
-    mcp_ss_sym = mcpdft.CASSCF (mc_sym, 'tPBE', 5, 2).run (conv_tol=1e-8)
+    mcp_ss_nosym = mcpdft.CASSCF (mc_nosym, fnal, 5, 2).run (conv_tol=1e-8)
+    mcp_ss_sym = mcpdft.CASSCF (mc_sym, fnal, 5, 2).run (conv_tol=1e-8)
     mcp_sa_0 = mcp_ss_nosym.state_average ([1.0/5,]*5).run (conv_tol=1e-8)
     solver_S = fci.solver (mol_nosym, singlet=True).set (spin=0, nroots=2)
     solver_T = fci.solver (mol_nosym, singlet=False).set (spin=2, nroots=3)
@@ -415,6 +415,26 @@ class KnownValues(unittest.TestCase):
         e_states_fp_ref = lib.fp (np.sort (mcp[1][0].e_states))
         with self.subTest (case='nroots=5 CASCI'):
             self.assertAlmostEqual (e_states_fp, e_states_fp_ref, delta=5e-6)
+
+    def test_tpbe0 (self):
+        # The most common hybrid functional
+        for mc in mcp[0]:
+            e_ref = 0.75 * mc.e_tot + 0.25 * mc.e_mcscf
+            e_test = mc.energy_tot (otxc='tPBE0')[0]
+            with self.subTest (case='SS', symm=mc.mol.symmetry):
+                self.assertAlmostEqual (e_test, e_ref, 10)
+        for ix, mc in enumerate (mcp[1]):
+            tms = (0,1,'mixed')[ix]
+            sym = bool (ix//2)
+            e_states = np.array (mc.e_states)
+            e_mcscf = np.array (mc.e_mcscf)
+            e_ref = 0.75*e_states + 0.25*e_mcscf
+            e_test = [mc.energy_tot (otxc='tPBE0', state=i)[0]
+                      for i in range (len (mc.e_states))]
+            with self.subTest (case='SA CASSCF', symm=sym, triplet_ms=tms):
+                e_ref_fp = lib.fp (np.sort (e_ref))
+                e_test_fp = lib.fp (np.sort (e_test))
+                self.assertAlmostEqual (e_test_fp, e_ref_fp, 10)
 
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT energy API")
