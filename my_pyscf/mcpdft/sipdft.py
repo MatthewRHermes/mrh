@@ -344,7 +344,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                 uci = si_dict[uci.upper ()]
             else:
                 raise RuntimeError ("valid uci : 'MCSCF', 'MSPDFT', or ndarray")
-        if ci is None: ci = mc.ci
+        if ci is None: ci = self.ci
         return list (np.tensordot (uci.T, np.asarray (ci), axes=1))
     get_ci_basis=get_ci_adiabats
 
@@ -355,13 +355,13 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         diab_conv, self.ci = self.diabatize (ci=self.ci, ci0=ci0, **kwargs)
         self.converged = self.converged and diab_conv
         self.heff_mcscf = self.make_heff_mcscf ()
-        self.hdiag_pdft = self.compute_pdft_energy_(
-            otxc=otxc, grids_level=grids_level, grids_attr=grids_attr)[-1]
         e_mcscf, self.si_mcscf = self._eig_si (self.heff_mcscf)
         if abs (linalg.norm (self.e_mcscf-e_mcscf)) > 1e-10:
             raise RuntimeError (("Sanity fault: e_mcscf ({}) != "
                                 "self.e_mcscf ({})").format (e_mcscf,
                                 self.e_mcscf))
+        self.hdiag_pdft = self.compute_pdft_energy_(
+            otxc=otxc, grids_level=grids_level, grids_attr=grids_attr)[-1]
         self.e_states, self.si_pdft = self._eig_si (self.get_heff_pdft ())
         self.e_tot = np.dot (self.e_states, self.weights)
         self._log_diabats ()
