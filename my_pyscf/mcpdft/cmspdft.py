@@ -106,7 +106,7 @@ def _e_coul (w_IJKL, nroots):
     # columns, because that's just what the word "operator" means: 
     # |f> = U|i>. So when I exponentiate later, I transpose. Don't let
     # the fact that that transpose is mathematically the same as
-    # flipping the sign here confuse you: the sign here is CORRECT.
+    # flipping this sign confuse you: the sign here is CORRECT.
     
     v_IJ_K = -4*w_IKJK - 2*w_IJKK
     v_IJ_K += (w_IJJJ+w_IJJJ.T)[:,:,None]

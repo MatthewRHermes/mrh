@@ -100,6 +100,19 @@ class KnownValues(unittest.TestCase):
                 e2 = e_ref[state] + h0
                 self.assertAlmostEqual (e1, e2, 8)
         
+    def test_diabatize (self):
+        f_ref = mc.diabatizer ()[0]
+        theta_rand = 360 * np.random.rand () - 180
+        ct = math.cos (theta_rand)
+        st = math.sin (theta_rand)
+        u_rand = np.array ([[ct,st],[-st,ct]])
+        ci_rand = mc.get_ci_basis (uci=u_rand)
+        f_test = mc.diabatizer (ci=ci_rand)[0]
+        self.assertLessEqual (f_test, f_ref)
+        conv, ci_test = mc.diabatize (ci=ci_rand)
+        f_test = mc.diabatizer (ci=ci_test)[0]
+        self.assertTrue (conv)
+        self.assertAlmostEqual (f_test, f_ref, 9)
 
 if __name__ == "__main__":
     print("Full Tests for SI-PDFT energy API")

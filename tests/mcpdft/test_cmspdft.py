@@ -49,7 +49,7 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
-    def test_derivs (self):
+    def test_e_coul (self):
         Q_max = mc.diabatizer ()[0]
         ci_theta0 = mc.get_ci_basis (uci=u_theta(theta0))
         Q_test, dQ_test, d2Q_test = mc.diabatizer (ci=ci_theta0)[:3]
@@ -68,7 +68,7 @@ class KnownValues(unittest.TestCase):
         with self.subTest (deriv=2):
             self.assertAlmostEqual (d2Q_test[0,0], d2Q_ref, 6)
 
-    def test_old_implementation (self):
+    def test_e_coul_old (self):
         ci_theta0 = mc.get_ci_basis (uci=u_theta(theta0))
         Q_test, dQ_test, d2Q_test = mc.diabatizer (ci=ci_theta0)[:3]
         from mrh.my_pyscf.mcpdft.cmspdft import e_coul_o0
@@ -80,6 +80,23 @@ class KnownValues(unittest.TestCase):
         with self.subTest (deriv=2):
             self.assertAlmostEqual (d2Q_test[0,0], d2Q_ref[0,0], 9)
     
+    def test_e_coul_update (self):
+        Q_max = mc.diabatizer ()[0]
+        theta_rand = 360 * np.random.rand () - 180
+        u_rand = u_theta (theta_rand)
+        ci_rand = mc.get_ci_basis (uci=u_rand)
+        Q, _, _, Q_update = mc.diabatizer ()
+        Q_ref, dQ_ref, d2Q_ref = mc.diabatizer (ci=ci_rand)[:3]
+        Q_test, dQ_test, d2Q_test = Q_update (u_rand)
+        with self.subTest (deriv=0):
+            self.assertLessEqual (Q_test, Q_max)
+            self.assertAlmostEqual (Q_test, Q_ref, 9)
+        with self.subTest (deriv=1):
+            self.assertAlmostEqual (dQ_test[0], dQ_ref[0], 9)
+        with self.subTest (deriv=2):
+            self.assertAlmostEqual (d2Q_test[0,0], d2Q_ref[0,0], 9)
+        
+        
 
 if __name__ == "__main__":
     print("Full Tests for CMS-PDFT objective function")
