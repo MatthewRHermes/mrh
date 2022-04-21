@@ -7,7 +7,7 @@ from pyscf.fci import direct_spin1
 from mrh.my_pyscf import mcpdft
 from pyscf import __config__
 
-# API for general state-interaction MC-PDFT method object
+# API for general multi-state MC-PDFT method object
 # In principle, various forms can be implemented: CMS, XMS, etc.
 
 # API cleanup desiderata:
@@ -17,10 +17,10 @@ from pyscf import __config__
 # 3. Probably "_finalize" stuff?
 # 4. checkpoint stuff
 
-MAX_CYC_DIABATIZE = getattr(__config__, 'mcpdft_sipdft_max_cyc_diabatize', 50)
-CONV_TOL_DIABATIZE = getattr(__config__, 'mcpdft_sipdft_conv_tol_diabatize', 1e-8)
-SING_TOL_DIABATIZE = getattr(__config__, 'mcpdft_sipdft_sing_tol_diabatize', 1e-8)
-NUDGE_TOL_DIABATIZE = getattr(__config__, 'mcpdft_sipdft_nudge_tol_diabatize', 1e-3)
+MAX_CYC_DIABATIZE = getattr(__config__, 'mcpdft_mspdft_max_cyc_diabatize', 50)
+CONV_TOL_DIABATIZE = getattr(__config__, 'mcpdft_mspdft_conv_tol_diabatize', 1e-8)
+SING_TOL_DIABATIZE = getattr(__config__, 'mcpdft_mspdft_sing_tol_diabatize', 1e-8)
+NUDGE_TOL_DIABATIZE = getattr(__config__, 'mcpdft_mspdft_nudge_tol_diabatize', 1e-3)
 
 def make_heff_mcscf (mc, mo_coeff=None, ci=None):
     ''' Build Hamiltonian matrix in basis of ci vector
@@ -63,7 +63,7 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
         function using a gradient-ascent algorithm
 
         Args:
-            mc : an instance of SIPDFT class
+            mc : an instance of MSPDFT class
 
         Kwargs:
             ci : ndarray or list of len (nroots)
@@ -193,14 +193,14 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
 
     return conv, list (ci)
 
-class StateInteractionMCPDFTSolver ():
+class MultiStateMCPDFTSolver ():
     pass
     # tag
 
-class _SIPDFT (StateInteractionMCPDFTSolver):
-    '''SI-PDFT 
+class _MSPDFT (MultiStateMCPDFTSolver):
+    '''MS-PDFT 
 
-    Extra attributes for SI-PDFT:
+    Extra attributes for MS-PDFT:
 
         diabatization: string
             The name describing the type of diabatization for I/O.
@@ -225,17 +225,17 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
     Saved results
 
         e_tot : float
-            Weighted-average SI-PDFT final energy
+            Weighted-average MS-PDFT final energy
         e_states : ndarray of shape (nroots)
-            SI-PDFT final energies of the adiabatic states
+            MS-PDFT final energies of the adiabatic states
         ci : list of length (nroots) of ndarrays
             CI vectors in the optimized diabatic basis. Related to the
-            MC-SCF and SI-PDFT adiabat CI vectors by the expansion
+            MC-SCF and MS-PDFT adiabat CI vectors by the expansion
             coefficients ``si_mcscf'' and ``si_pdft''. Either set of
             adiabat CI vectors can be obtained quickly via
             ``get_ci_adiabats''
         si : ndarray of shape (nroots, nroots)
-            Expansion coefficients for the SI-PDFT adiabats in terms of
+            Expansion coefficients for the MS-PDFT adiabats in terms of
             the optimized diabatic states
         si_pdft : ndarray of shape (nroots, nroots)
             Synonym of si
@@ -281,7 +281,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
     @e_states.setter
     def e_states (self, x):
         self._e_states = x
-    ''' Unfixed to FCIsolver since SI-PDFT state energies are no longer
+    ''' Unfixed to FCIsolver since MS-PDFT state energies are no longer
         CI solutions '''
 
     @property
@@ -310,7 +310,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         return heff_offdiag
 
     def get_heff_pdft (self):
-        ''' The SI-PDFT effective Hamiltonian matrix
+        ''' The MS-PDFT effective Hamiltonian matrix
 
         = get_heff_offdiag () + np.diag (hdiag_pdft)
         = ( EPDFT_0  H_10^*   ... )
@@ -386,7 +386,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
         return super().optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci1, **kwargs)
 
     # All of the below probably need to be wrapped over solvers in
-    # state-interaction-mix metaclass
+    # multi-state-mix metaclass
 
     def diabatize (self, ci=None, ci0=None, **kwargs):
         ''' Optimize the ``intermediate'' diabatic states of an MS-PDFT
@@ -513,7 +513,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                           self.weights[i], self.e_states[i])
 
     def nuc_grad_method (self):
-        from mrh.my_pyscf.grad.sipdft import Gradients
+        from mrh.my_pyscf.grad.mspdft import Gradients
         return Gradients (self)
 
 def get_diabfns (obj):
@@ -540,11 +540,11 @@ def get_diabfns (obj):
         from mrh.my_pyscf.mcpdft.cmspdft import e_coul as diabatizer
         diabatize = si_newton
     else:
-        raise RuntimeError ('SI-PDFT type not supported')
+        raise RuntimeError ('MS-PDFT type not supported')
     return diabatizer, diabatize
 
-def state_interaction (mc, weights=(0.5,0.5), diabatization='CMS', **kwargs):
-    ''' Build state-interaction MC-PDFT method object
+def multi_state (mc, weights=(0.5,0.5), diabatization='CMS', **kwargs):
+    ''' Build multi-state MC-PDFT method object
 
     Args:
         mc : instance of class _PDFT
@@ -555,9 +555,9 @@ def state_interaction (mc, weights=(0.5,0.5), diabatization='CMS', **kwargs):
             Currently supports only 'cms'
 
     Returns:
-        si : instance of class _SIPDFT '''
+        si : instance of class _MSPDFT '''
 
-    if isinstance (mc, StateInteractionMCPDFTSolver):
+    if isinstance (mc, MultiStateMCPDFTSolver):
         raise RuntimeError ('already a multi-state PDFT solver')
     if isinstance (mc.fcisolver, StateAverageMixFCISolver):
         raise RuntimeError ('state-average mix type')
@@ -569,16 +569,16 @@ def state_interaction (mc, weights=(0.5,0.5), diabatization='CMS', **kwargs):
     mcbase_class = mc.__class__
     diabatizer, diabatize = get_diabfns (diabatization)
 
-    class SIPDFT (_SIPDFT, mcbase_class):
+    class MSPDFT (_MSPDFT, mcbase_class):
         pass
-    SIPDFT.__name__ = diabatization.upper () + base_name
-    return SIPDFT (mc, diabatizer, diabatize, diabatization)
+    MSPDFT.__name__ = diabatization.upper () + base_name
+    return MSPDFT (mc, diabatizer, diabatize, diabatization)
     
 
 if __name__ == '__main__':
     # This ^ is a convenient way to debug code that you are working on. The
     # code in this block will only execute if you run this python script as the
-    # input directly: "python sipdft.py".
+    # input directly: "python mspdft.py".
 
     from pyscf import scf, gto
     from mrh.my_pyscf.tools import molden # My version is better for MC-SCF
@@ -586,10 +586,10 @@ if __name__ == '__main__':
     xyz = '''O  0.00000000   0.08111156   0.00000000
              H  0.78620605   0.66349738   0.00000000
              H -0.78620605   0.66349738   0.00000000'''
-    mol = gto.M (atom=xyz, basis='sto-3g', symmetry=False, output='sipdft.log',
+    mol = gto.M (atom=xyz, basis='sto-3g', symmetry=False, output='mspdft.log',
         verbose=lib.logger.DEBUG)
     mf = scf.RHF (mol).run ()
     mc = mcpdft.CASSCF (mf, 'tPBE', 4, 4).set (fcisolver = csf_solver (mol, 1))
-    mc = mc.state_interaction ([1.0/3,]*3, 'cms').run ()
+    mc = mc.multi_state ([1.0/3,]*3, 'cms').run ()
 
 

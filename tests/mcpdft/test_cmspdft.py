@@ -35,7 +35,7 @@ def get_lih (r):
     mf = scf.RHF (mol).run ()
     mc = mcpdft.CASSCF (mf, 'ftLDA,VWN3', 2, 2, grids_level=1)
     mc.fix_spin_(ss=0)
-    mc = mc.state_interaction ([0.5,0.5], 'cms').run (conv_tol=1e-8)
+    mc = mc.multi_state ([0.5,0.5], 'cms').run (conv_tol=1e-8)
     return mol, mf, mc
 
 def setUpModule():

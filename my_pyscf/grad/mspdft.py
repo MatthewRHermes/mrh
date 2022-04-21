@@ -54,11 +54,11 @@ def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket):
     return casdm1, casdm2
 
 # TODO: docstring?
-def sipdft_heff_response (mc_grad, mo=None, ci=None,
+def mspdft_heff_response (mc_grad, mo=None, ci=None,
         si_bra=None, si_ket=None, state=None, 
         heff_mcscf=None, eris=None):
     ''' Compute the orbital and intermediate-state rotation response 
-        vector in the context of an SI-PDFT gradient calculation '''
+        vector in the context of an MS-PDFT gradient calculation '''
     mc = mc_grad.base
     if mo is None: mo = mc_grad.mo_coeff
     if ci is None: ci = mc_grad.ci
@@ -94,7 +94,7 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     return g_orb, g_is
 
 # TODO: docstring?
-def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
+def mspdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
         si=None, si_bra=None, si_ket=None, state=None, eris=None, mf_grad=None,
         verbose=None, **kwargs):
     mc = mc_grad.base
@@ -141,8 +141,8 @@ def sipdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
         dde = mf_grad.kernel (mo_coeff=mo, mo_energy=mo_energy, mo_occ=mo_occ,
             atmlst=atmlst)
     de -= dde
-    log.debug ('SI-PDFT gradient off-diagonal H-F terms:\n{}'.format (de))
-    log.timer ('SI-PDFT gradient off-diagonal H-F terms', *t0)
+    log.debug ('MS-PDFT gradient off-diagonal H-F terms:\n{}'.format (de))
+    log.timer ('MS-PDFT gradient off-diagonal H-F terms', *t0)
     return de
 
 def get_diabfns (obj):
@@ -170,7 +170,7 @@ def get_diabfns (obj):
     if obj.upper () == 'CMS':
         from mrh.my_pyscf.grad.cmspdft import diab_response, diab_grad
     else:
-        raise RuntimeError ('SI-PDFT type not supported')
+        raise RuntimeError ('MS-PDFT type not supported')
     return diab_response, diab_grad
 
 # TODO: docstring? especially considering the "si_bra," "si_ket" 
@@ -310,7 +310,7 @@ class Gradients (mcpdft_grad.Gradients):
         g_ci, g_is_pdft = self._separate_is_component (g_ci, ci=ci, symm=0)
 
         # Off-diagonal: heff component
-        g_orb_heff, g_is_heff = sipdft_heff_response (self, mo=mo, ci=ci,
+        g_orb_heff, g_is_heff = mspdft_heff_response (self, mo=mo, ci=ci,
             si_bra=si_bra, si_ket=si_ket, eris=eris)
 
         log.debug ('g_is pdft total component:\n{}'.format (g_is_pdft))
@@ -361,13 +361,13 @@ class Gradients (mcpdft_grad.Gradients):
         if level_shift is None: level_shift = self.level_shift
         if ci is None: ci = self.base.ci
         if d2f is None: d2f = self.base.diabatizer (ci=ci)[2]
-        return SIPDFTLagPrec (Adiag=Adiag, level_shift=level_shift, ci=ci, 
+        return MSPDFTLagPrec (Adiag=Adiag, level_shift=level_shift, ci=ci, 
             d2f=d2f, grad_method=self)
 
     def get_ham_response (self, si_bra=None, si_ket=None, state=None, mo=None,
             ci=None, si=None, eris=None, veff1=None, veff2=None, mf_grad=None, 
             atmlst=None, verbose=None, **kwargs):
-        ''' write sipdft heff Hellmann-Feynman calculator; sum over
+        ''' write mspdft heff Hellmann-Feynman calculator; sum over
             diagonal PDFT Hellmann-Feynman terms '''
         if atmlst is None: atmlst = self.atmlst
         if mo is None: mo = self.base.mo_coeff
@@ -383,7 +383,7 @@ class Gradients (mcpdft_grad.Gradients):
 
         # Fix messed-up counting of the nuclear part
         de_nuc = mf_grad.grad_nuc (self.mol, atmlst)
-        log.debug ('SI-PDFT gradient n-n terms:\n{}'.format (de_nuc))
+        log.debug ('MS-PDFT gradient n-n terms:\n{}'.format (de_nuc))
         de = si_diag.sum () * de_nuc.copy ()
 
         # Diagonal: PDFT component
@@ -392,17 +392,17 @@ class Gradients (mcpdft_grad.Gradients):
             de_i = mcpdft_grad.Gradients.get_ham_response (self, state=i,
                 mo=mo, ci=ci, veff1=v1, veff2=v2, eris=eris, mf_grad=mf_grad,
                 verbose=0, **kwargs) - de_nuc
-            log.debug ('SI-PDFT gradient int-state {} EPDFT terms:\n{}'.format
+            log.debug ('MS-PDFT gradient int-state {} EPDFT terms:\n{}'.format
                 (i, de_i))
             log.debug ('Factor for these terms: {}'.format (amp))
             de += amp * de_i
-        log.debug ('SI-PDFT gradient diag H-F terms:\n{}'.format (de))
+        log.debug ('MS-PDFT gradient diag H-F terms:\n{}'.format (de))
 
         # Off-diagonal: heff component
-        de_o = sipdft_heff_HellmanFeynman (self, mo_coeff=mo, ci=ci,
+        de_o = mspdft_heff_HellmanFeynman (self, mo_coeff=mo, ci=ci,
             si_bra=si_bra, si_ket=si_ket, eris=eris, state=state,
             mf_grad=mf_grad, **kwargs)
-        log.debug ('SI-PDFT gradient offdiag H-F terms:\n{}'.format (de_o))
+        log.debug ('MS-PDFT gradient offdiag H-F terms:\n{}'.format (de_o))
         de += de_o
         
         return de
@@ -549,7 +549,7 @@ class Gradients (mcpdft_grad.Gradients):
         for g, v in zip (bis, Lis):
             log.debug (' {:12.5e} {:12.5e}'.format (g, v))
 
-class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
+class MSPDFTLagPrec (sacasscf_grad.SACASLagPrec):
     ''' Solve IS part exactly, then do everything else the same '''
 
     def __init__(self, Adiag=None, level_shift=None, ci=None, grad_method=None,
@@ -597,7 +597,7 @@ class SIPDFTLagPrec (sacasscf_grad.SACASLagPrec):
         return Mxis
 
 if __name__ == '__main__':
-    # Test sipdft_heff_response and sipdft_heff_HellmannFeynman by trying to
+    # Test mspdft_heff_response and mspdft_heff_HellmannFeynman by trying to
     # reproduce SA-CASSCF derivatives in an arbitrary basis
     import math
     from pyscf import scf, gto, mcscf
@@ -605,11 +605,11 @@ if __name__ == '__main__':
     xyz = '''O  0.00000000   0.08111156   0.00000000
              H  0.78620605   0.66349738   0.00000000
              H -0.78620605   0.66349738   0.00000000'''
-    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, output='sipdft.log',
+    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, output='mspdft.log',
         verbose=lib.logger.DEBUG)
     mf = scf.RHF (mol).run ()
     mc = mcpdft.CASSCF (mf, 'tPBE', 4, 4).set (fcisolver = csf_solver (mol, 1))
-    mc = mc.state_interaction ([1.0/3,]*3, 'cms').run ()
+    mc = mc.multi_state ([1.0/3,]*3, 'cms').run ()
     mc_grad = Gradients (mc) 
     de = np.stack ([mc_grad.kernel (state=i) for i in range (3)], axis=0)
 

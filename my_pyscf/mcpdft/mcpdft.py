@@ -663,10 +663,16 @@ class _PDFT ():
          state_average_mix_(self, fcisolvers, weights)
          return self
 
-    def state_interaction (self, weights=(0.5,0.5), diabatization='CMS'):
-        from mrh.my_pyscf.mcpdft.sipdft import state_interaction
-        return state_interaction (self, weights=weights,
+    def multi_state (self, weights=(0.5,0.5), diabatization='CMS'):
+        from mrh.my_pyscf.mcpdft.mspdft import multi_state
+        return multi_state (self, weights=weights,
                                   diabatization=diabatization)
+
+    def state_interaction (self, weights=(0.5,0.5), diabatization='CMS'):
+        logger.warn (self, ('"state_interaction" for multi-state PDFT is '
+                            'deprecated. Use multi_state instead. In the '
+                            'future this will raise an error.'))
+        return self.multi_state (weights=weights, diabatization=diabatization)
 
     @property
     def otxc (self):

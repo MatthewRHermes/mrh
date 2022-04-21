@@ -11,7 +11,7 @@ def get_lih (r):
     mf = scf.RHF (mol).run ()
     mc = mcpdft.CASSCF (mf, 'ftLDA,VWN3', 2, 2, grids_level=1)
     mc.fix_spin_(ss=0)
-    mc = mc.state_interaction ([0.5,0.5], 'cms').run (conv_tol=1e-8)
+    mc = mc.multi_state ([0.5,0.5], 'cms').run (conv_tol=1e-8)
     return mol, mf, mc
 
 def setUpModule():
@@ -115,7 +115,7 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (f_test, f_ref, 9)
 
 if __name__ == "__main__":
-    print("Full Tests for SI-PDFT energy API")
+    print("Full Tests for MS-PDFT energy API")
     unittest.main()
 
 
