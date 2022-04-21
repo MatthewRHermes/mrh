@@ -95,7 +95,7 @@ class KnownValues(unittest.TestCase):
                     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, nao, 2, 2000):
                         rho = np.array ([m[0] (0, ao, mask, 'MGGA') for m in make_rho])
                         Pi_test = get_ontop_pair_density (
-                            ot, rho, ao, dm1s, cascm2, mo_cas, deriv=2,
+                            ot, rho, ao, cascm2, mo_cas, deriv=2,
                             non0tab=mask)
                         Pi_ref = get_Pi_ref (dm2_ao, ao)
                         self.assertAlmostEqual (lib.fp (Pi_test), lib.fp (Pi_ref), 10)

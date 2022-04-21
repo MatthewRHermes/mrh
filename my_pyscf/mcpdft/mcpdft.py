@@ -98,7 +98,8 @@ def energy_elec (mc, *args, **kwargs):
     return e_elec, E_ot
 
 def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=0):
-    ''' Build the necessary density matrices for an MC-PDFT calculation 
+    ''' Build the necessary density matrices for an MC-PDFT calculation.
+        The two-body matrices are "cumulants": dm2 - dm2_HF(dm1).
 
         Args:
             mc : an instance of CASSCF or CASCI class
@@ -124,9 +125,9 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=0):
                 adm1s : ndarray of shape (2,ncas,ncas)
                     Spin-separated 1-RDM for the active orbitals
                 adm2s : 3 ndarrays of shape (ncas,ncas,ncas,ncas)
-                    First ndarray is spin-summed casdm2
-                    Second ndarray is casdm2_aa + casdm2_bb
-                    Third ndarray is casdm2_ab
+                    First ndarray is spin-summed cascm2
+                    Second ndarray is cascm2_aa + cascm2_bb
+                    Third ndarray is cascm2_ab
     '''
     if ci is None: ci = mc.ci
     if ot is None: ot = mc.otfnal
@@ -308,7 +309,7 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
             dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
         t0 = logger.timer (ot, 'untransformed density', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo,
+        Pi = get_ontop_pair_density (ot, rho, ao, twoCDM_amo, ao2amo,
             dens_deriv, mask) 
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0) 
         E_ot += ot.get_E_ot (rho, Pi, weight)

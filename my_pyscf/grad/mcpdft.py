@@ -173,7 +173,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None,
             rho = np.stack ((rho,)*2, axis=0)
             t1 = logger.timer (mc, ('PDFT HlFn quadrature atom {} rho '
                 'calc').format (ia), *t1)
-            Pi = get_ontop_pair_density (ot, rho, aoval, dm1s, twoCDM, mo_cas,
+            Pi = get_ontop_pair_density (ot, rho, aoval, twoCDM, mo_cas,
                 ot.dens_deriv, mask)
             t1 = logger.timer (mc, ('PDFT HlFn quadrature atom {} Pi '
                 'calc').format (ia), *t1)

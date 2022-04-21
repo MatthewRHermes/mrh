@@ -27,7 +27,7 @@ def _grid_ao2mo (mol, ao, mo_coeff, non0tab=None, shls_slice=None,
     return mo 
 
 
-def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0,
+def get_ontop_pair_density (ot, rho, ao, cascm2, ao2amo, deriv=0,
         non0tab=None):
     r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*d_ijkl / 2
                = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2
@@ -38,17 +38,15 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0,
                 contains spin density [and derivatives] 
             ao : ndarray of shape (*, ngrids, nao)
                 contains values of aos [and derivatives] 
-            oneCDMs : ndarray of shape (2, nao, nao)
-                contains spin-separated 1-RDM
-            twoCDM_amo : ndarray of shape [ncas,]*4
+            cascm2 : ndarray of shape [ncas,]*4
                 contains spin-summed two-body cumulant density matrix in
                 the active-orbital basis:
-                cdm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
-                                + dm1s[0][u,y]*dm1s[0][x,v]
-                                + dm1s[1][u,y]*dm1s[1][x,v]
-                                    or
-                              = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
-                                + 0.5*dm1[u,y]*dm1[x,v]
+                cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
+                               + dm1s[0][u,y]*dm1s[0][x,v]
+                               + dm1s[1][u,y]*dm1s[1][x,v]
+                                   or
+                             = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
+                               + 0.5*dm1[u,y]*dm1[x,v]
                 or any similar decomposition which results in cdm2
                 having no nonzero elements for any index outside the
                 active space (unlike dm2, which formally has elements
@@ -75,15 +73,6 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0,
         rho = rho.reshape (rho.shape[0], 1, rho.shape[1])
     if ao.ndim == 2:
         ao = ao.reshape (1, ao.shape[0], ao.shape[1])
-
-    # Debug code for ultra-slow, ultra-high-memory but very safe implementation
-    # TODO: insufficient memory escape or remove and put in unittest
-    if ot.verbose > logger.DEBUG:
-        logger.warn (ot, 'Warning: memory-intensive cacheing of full 2RDM for '
-            'testing purposes initiated; reduce verbosity to increase speed '
-            'and memory efficiency')
-        twoRDM = represent_operator_in_basis (twoCDM_amo, ao2amo.conjugate().T)
-        twoRDM = get_2RDM_from_2CDM (twoRDM, oneCDMs)
 
     # First cumulant and derivatives (chain rule! product rule!)
     t0 = (logger.process_clock (), logger.perf_counter ())
@@ -114,7 +103,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0,
         dtype=grid2amo.dtype)
     gridkern[0] = grid2amo[0,:,:,np.newaxis] * grid2amo[0,:,np.newaxis,:]  
     # r_0ai,  r_0aj  -> r_0aij
-    wrk0 = np.tensordot (gridkern[0], twoCDM_amo, axes=2)                  
+    wrk0 = np.tensordot (gridkern[0], cascm2, axes=2)                  
     # r_0aij, P_ijkl -> P_0akl
     Pi[0] += (gridkern[0] * wrk0).sum ((1,2)) / 2                          
     # r_0aij, P_0aij -> P_0a
@@ -144,7 +133,7 @@ def get_ontop_pair_density (ot, rho, ao, oneCDMs, twoCDM_amo, ao2amo, deriv=0,
         gridkern[4] += (grid2amo[1:4,:,:,np.newaxis]
             * grid2amo[1:4,:,np.newaxis,:]).sum (0)
         # r_1ai, r_1aj -> r_2aij
-        wrk1 = np.tensordot (gridkern[1:4], twoCDM_amo, axes=2)
+        wrk1 = np.tensordot (gridkern[1:4], cascm2, axes=2)
         # r_1aij, P_ijkl -> P_1akl
         Pi[4] += (gridkern[4] * wrk0).sum ((1,2)) / 2
         # r_2aij, P_0aij -> P_2a

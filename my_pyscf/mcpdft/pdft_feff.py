@@ -220,7 +220,7 @@ class EotOrbitalHessianOperator (object):
         rho = make_rho (0, ao, mask, self.xctype)
         if ao.ndim == 2: ao = ao[None,:,:]
         rhos = np.stack ([rho, rho], axis=0)/2
-        Pi = get_ontop_pair_density (self.ot, rhos, ao, casdm1s, cascm2,
+        Pi = get_ontop_pair_density (self.ot, rhos, ao, cascm2,
             mo_cas, deriv=self.Pi_deriv, non0tab=mask)
         return rho, Pi
         # volatile memory footprint:
