@@ -177,16 +177,16 @@ class _ERIS(object):
                 self.method))
         self.k_pc = self.j_pc.copy ()
 
-def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
+def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
             max_memory=2000, hermi=1, paaa_only=False, aaaa_only=False,
             jk_pc=False):
     ''' Get the 1- and 2-body effective potential from MC-PDFT.
 
         Args:
             ot : an instance of otfnal class
-            oneCDMs_amo : ndarray of shape (2, ncas, ncas)
+            casdm1s : ndarray of shape (2, ncas, ncas)
                 containing spin-separated one-body density matrices
-            twoCDM_amo : ndarray of shape (ncas, ncas, ncas, ncas)
+            cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
                 containing spin-summed two-body cumulant density matrix
                 in an active space
             mo_coeff : ndarray of shape (nao, nmo)
@@ -201,7 +201,7 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
                 maximum cache size in MB
                 default is 2000
             hermi : int
-                1 if 1CDMs are assumed hermitian, 0 otherwise
+                1 if 1rdms are assumed hermitian, 0 otherwise
             paaa_only : logical
                 If true, only compute the paaa range of papa and ppaa
                 (all other elements set to zero)
@@ -228,7 +228,7 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
     shls_slice = (0, ot.mol.nbas)
     ao_loc = ot.mol.ao_loc_nr()
 
-    veff1 = np.zeros ((nao, nao), dtype=oneCDMs_amo.dtype)
+    veff1 = np.zeros ((nao, nao), dtype=casdm1s.dtype)
     veff2 = _ERIS (ot.mol, mo_coeff, ncore, ncas, paaa_only=paaa_only, 
         aaaa_only=aaaa_only, jk_pc=jk_pc, verbose=ot.verbose,
         stdout=ot.stdout)
@@ -238,7 +238,7 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
     # Make density matrices and TAG THEM with their own eigendecompositions
     # because that speeds up the rho generators!
     dm_core = mo_core @ mo_core.T 
-    dm_cas = np.dot (ao2amo, np.dot (oneCDMs_amo, ao2amo.T)).transpose (1,0,2)
+    dm_cas = np.dot (ao2amo, np.dot (casdm1s, ao2amo.T)).transpose (1,0,2)
     dm1s = dm_cas + dm_core[None,:,:] 
     dm_core *= 2
     # tag dm_core
@@ -248,7 +248,7 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
     amo_occ = np.zeros ((2,ncas), dtype=dm_cas.dtype)
     amo_coeff = np.stack ([ao2amo.copy (), ao2amo.copy ()], axis=0)
     for i in range (2):
-        amo_occ[i], ua = linalg.eigh (oneCDMs_amo[i])
+        amo_occ[i], ua = linalg.eigh (casdm1s[i])
         amo_coeff[i] = amo_coeff[i] @ ua
     dm_cas = tag_array (dm_cas, mo_coeff=amo_coeff, mo_occ=amo_occ)
     # tag dm1s
@@ -293,7 +293,7 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
         rho_a = sum ([make_rho_a (i, ao, mask, xctype) for i in range(2)])
         rho_c = make_rho_c (0, ao, mask, xctype)
         t0 = logger.timer (ot, 'untransformed densities (core and total)', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, twoCDM_amo, ao2amo,
+        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, ao2amo,
             dens_deriv, mask)
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
         eot, vot = ot.eval_ot (rho, Pi, weights=weight)[:2]
@@ -312,16 +312,16 @@ def kernel (ot, oneCDMs_amo, twoCDM_amo, mo_coeff, ncore, ncas,
         *t0)
     return veff1, veff2
 
-def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1,
+def lazy_kernel (ot, dm1s, cascm2, ao2amo, max_memory=2000, hermi=1,
         veff2_mo=None):
     ''' Get the 1- and 2-body effective potential from MC-PDFT.
         Eventually I'll be able to specify mo slices for the 2-body part
 
         Args:
             ot : an instance of otfnal class
-            oneCDMs : ndarray of shape (2, nao, nao)
+            dm1s : ndarray of shape (2, nao, nao)
                 containing spin-separated one-body density matrices
-            twoCDM_amo : ndarray of shape (ncas, ncas, ncas, ncas)
+            cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
                 containing spin-summed two-body cumulant density matrix
                 in an active space
             ao2amo : ndarray of shape (nao, ncas)
@@ -333,7 +333,7 @@ def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1,
                 maximum cache size in MB
                 default is 2000
             hermi : int
-                1 if 1CDMs are assumed hermitian, 0 otherwise
+                1 if 1rdms are assumed hermitian, 0 otherwise
 
         Returns : float
             The MC-PDFT on-top exchange-correlation energy
@@ -345,17 +345,17 @@ def lazy_kernel (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1,
     nao = ao2amo.shape[0]
     npair = nao * (nao + 1) // 2
 
-    veff1 = np.zeros_like (oneCDMs[0])
+    veff1 = np.zeros_like (dm1s[0])
     veff2 = np.zeros ((nao, nao, nao, nao), dtype=veff1.dtype)
 
     t0 = (logger.process_clock (), logger.perf_counter ())
-    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi)
+    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, dm1s[i,:,:], hermi)
         for i in range(2))
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, nao,
             dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
         t0 = logger.timer (ot, 'untransformed density', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, twoCDM_amo, ao2amo,
+        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, ao2amo,
             dens_deriv, mask)
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
         eot, vot = ot.eval_ot (rho, Pi, weights=weight)[:2]

@@ -14,7 +14,7 @@ from pyscf.mcscf.addons import StateAverageFCISolver
 from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, get_transfnal
-from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
+from mrh.my_pyscf.mcpdft.addons import dm2_cumulant, dm2s_cumulant
 
 # TODO: 
 # 1. Clean up "make_rdms_mcpdft":
@@ -24,7 +24,7 @@ from mrh.util.rdm import get_2CDM_from_2RDM, get_2CDMs_from_2RDMs
 #    state.
 # 3. Hybrid API and unittests. NotImplementedErrors for omega and alpha.
 
-def energy_tot (mc, ot=None, mo_coeff=None, ci=None, state=0, verbose=None):
+def energy_tot (mc, mo_coeff=None, ci=None, ot=None, state=0, verbose=None):
     ''' Calculate MC-PDFT total energy
 
         Args:
@@ -35,12 +35,12 @@ def energy_tot (mc, ot=None, mo_coeff=None, ci=None, state=0, verbose=None):
                 function!
 
         Kwargs:
-            ot : an instance of on-top functional class - see otfnal.py
             mo_coeff : ndarray of shape (nao, nmo)
                 Molecular orbital coefficients
             ci : ndarray or list
                 CI vector or vectors. Must be consistent with the nroots
                 of mc.
+            ot : an instance of on-top functional class - see otfnal.py
             state : int
                 If mc describes a state-averaged calculation, select the
                 state (0-indexed).
@@ -97,7 +97,7 @@ def energy_elec (mc, *args, **kwargs):
     e_elec = e_tot - mc._scf.energy_nuc ()
     return e_elec, E_ot
 
-def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=0):
+def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
     ''' Build the necessary density matrices for an MC-PDFT calculation.
         The two-body matrices are "cumulants": dm2 - dm2_HF(dm1).
 
@@ -107,16 +107,15 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=0):
                 CASCI calculation itself
 
         Kwargs:
-            ot : an instance of on-top functional class - see otfnal.py
             mo_coeff : ndarray of shape (nao, nmo)
                 Molecular orbital coefficients
             ci : ndarray or list
-                CI vector or vectors. If a list of many CI vectors, mc
-                must be a state-average object with the correct nroots
+                CI vector or vectors. Must be consistent with the nroots
+                of mc.
+            ot : an instance of on-top functional class - see otfnal.py
             state : integer
-                Indexes the CI vector. If negative and if mc.fcisolver
-                is a state-average object, state-averaged density
-                matrices are returned.
+                If mc describes a state-averaged calculation, select the
+                state (0-indexed).
 
         Returns:
             dm1s : ndarray of shape (2,nao,nao)
@@ -163,7 +162,7 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=0):
     moH_core = mo_core.conj ().T
     adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
     adm2s = _casdms.make_rdm12s (ci, ncas, nelecas)[1]
-    adm2s = get_2CDMs_from_2RDMs (adm2s, adm1s)
+    adm2s = dm2s_cumulant (adm2s, adm1s)
     adm2_ss = adm2s[0] + adm2s[2]
     adm2_os = adm2s[1]
     adm2 = adm2_ss + adm2_os + adm2_os.transpose (2,3,0,1)
@@ -172,7 +171,7 @@ def make_rdms_mcpdft (mc, ot=None, mo_coeff=None, ci=None, state=0):
     dm1s += np.dot (mo_core, moH_core)[None,:,:]
     return dm1s, (adm1s, (adm2, adm2_ss, adm2_os))
 
-def energy_mcwfn (mc, ot=None, mo_coeff=None, ci=None, dm_list=None,
+def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
         verbose=None):
     ''' Compute the parts of the MC-PDFT energy arising from the wave
         function
@@ -185,11 +184,14 @@ def energy_mcwfn (mc, ot=None, mo_coeff=None, ci=None, dm_list=None,
                 function!
 
         Kwargs:
-            ot : an instance of on-top functional class - see otfnal.py
             mo_coeff : ndarray of shape (nao, nmo)
                 contains molecular orbital coefficients
             ci : list or ndarray
                 contains ci vectors
+            ot : an instance of on-top functional class - see otfnal.py
+            state : int
+                If mc describes a state-averaged calculation, select the
+                state (0-indexed).
             dm_list : (dm1s, adm2)
                 return arguments of make_rdms_mcpdft
 
@@ -204,7 +206,7 @@ def energy_mcwfn (mc, ot=None, mo_coeff=None, ci=None, dm_list=None,
     if ci is None: ci = mc.ci
     if verbose is None: verbose = mc.verbose
     if dm_list is None: dm_list = mc.make_rdms_mcpdft (ot=ot,
-        mo_coeff=mo_coeff, ci=ci)
+        mo_coeff=mo_coeff, ci=ci, state=state)
     log = logger.new_logger (mc, verbose=verbose)
     ncas, nelecas = mc.ncas, mc.nelecas
     dm1s, (adm1s, (adm2, adm2_ss, adm2_os)) = dm_list
@@ -270,19 +272,19 @@ def energy_dft (mc, ot=None, mo_coeff=None, dm_list=None, max_memory=None,
     return get_E_ot (ot, dm1s, adm2, mo_cas, max_memory=max_memory,
         hermi=hermi)
 
-def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
+def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
     ''' E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi] 
         or, in other terms, 
         E_MCPDFT = T_KS[rho] + E_ext[rho] + E_coul[rho] + E_ot[rho, Pi]
                  = E_DFT[1rdm] - E_xc[rho] + E_ot[rho, Pi] 
         Args:
             ot : an instance of otfnal class
-            oneCDMs : ndarray of shape (2, nao, nao)
+            dm1s : ndarray of shape (2, nao, nao)
                 containing spin-separated one-body density matrices
-            twoCDM_amo : ndarray of shape (ncas, ncas, ncas, ncas)
+            cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
                 containing spin-summed two-body cumulant density matrix
                 in an active space
-            ao2amo : ndarray of shape (nao, ncas)
+            mo_cas : ndarray of shape (nao, ncas)
                 containing molecular orbital coefficients for
                 active-space orbitals
 
@@ -291,25 +293,25 @@ def get_E_ot (ot, oneCDMs, twoCDM_amo, ao2amo, max_memory=2000, hermi=1):
                 maximum cache size in MB
                 default is 2000
             hermi : int
-                1 if 1CDMs are assumed hermitian, 0 otherwise
+                1 if 1rdms are assumed hermitian, 0 otherwise
 
         Returns : float
-            The MC-PDFT on-top exchange-correlation energy
+            The MC-PDFT on-top (nonclassical) energy
 
     '''
     ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
-    norbs_ao = ao2amo.shape[0]
+    norbs_ao = mo_cas.shape[0]
 
     E_ot = 0.0
 
     t0 = (logger.process_clock (), logger.perf_counter ())
-    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, oneCDMs[i,:,:], hermi) for
+    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, dm1s[i,:,:], hermi) for
         i in range(2))
     for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao,
             dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
         t0 = logger.timer (ot, 'untransformed density', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, twoCDM_amo, ao2amo,
+        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas,
             dens_deriv, mask) 
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0) 
         E_ot += ot.get_E_ot (rho, Pi, weight)
@@ -412,7 +414,7 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
     e_mcscf = h0 + np.dot (h1.ravel (), adm1.ravel ()) + (
                 np.dot (h2.ravel (), adm2.ravel ())*0.5)
     adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
-    adm2 = get_2CDM_from_2RDM (_casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1],
+    adm2 = dm2_cumulant (_casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1],
         adm1s)
     mo_cas = mo_coeff[:,ncore:][:,:ncas]
     e_otx = get_E_ot (xfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
@@ -620,7 +622,7 @@ class _PDFT ():
             dm1s = np.dot (dm1s, mo_cas.conj ().T)
             dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
             adm1s = casdm1s
-            adm2 = get_2CDM_from_2RDM (casdm2, casdm1s)
+            adm2 = dm2_cumulant (casdm2, casdm1s)
         else:
             dm_list = self.make_rdms_mcpdft (mo_coeff=mo, ci=ci, state=state)
             dm1s, (adm1s, (adm2, _ss, _os)) = dm_list

@@ -102,7 +102,7 @@ class EotOrbitalHessianOperator (object):
         self.nocc = nocc = ncore + ncas
         self.casdm2 = casdm2
         self.casdm1s = casdm1s = np.stack ([casdm1, casdm1], axis=0)/2
-        self.cascm2 = cascm2 = get_2CDM_from_2RDM (casdm2, casdm1)
+        self.cascm2 = cascm2 = dm2_cumulant (casdm2, casdm1)
         self.max_memory = max_memory        
         self.do_cumulant = do_cumulant
         self.incl_d2rho = incl_d2rho
@@ -283,7 +283,7 @@ class EotOrbitalHessianOperator (object):
         dm2 = np.dot (dm2, x.T)
         dm2 += dm2.transpose (1,0,3,2)
         dm2 += dm2.transpose (2,3,0,1)
-        cm2 = get_2CDM_from_2RDM (dm2, dm1)
+        cm2 = dm2_cumulant (dm2, dm1)
         dm1s = dm1/2
         dm1s = np.stack ([dm1s, dm1s], axis=0)
         dm1_ao = self.mo_coeff @ dm1 @ self.mo_coeff.conj ().T

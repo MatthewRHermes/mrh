@@ -79,7 +79,7 @@ def _ci_min_epdft_fp (mc, mo_coeff, ci0, hcas=None, verbose=None):
         ci_grad = hc - (chc * ci1.ravel ())
         ci_grad_norm = ci_grad.dot (ci_grad)
         epdft_last = epdft
-        epdft = mcpdft.energy_tot (mc, mc.otfnal, mo_coeff=mo_coeff, ci=ci1)[0]
+        epdft = mcpdft.energy_tot (mc, ot=mc.otfnal, mo_coeff=mo_coeff, ci=ci1)[0]
 
         dchc = chc + h0_pdft - chc_last # careful; don't mess up ci_grad
         depdft = epdft - epdft_last
