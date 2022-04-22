@@ -228,6 +228,7 @@ def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
     shls_slice = (0, ot.mol.nbas)
     ao_loc = ot.mol.ao_loc_nr()
 
+    casdm1s = np.asarray (casdm1s)
     veff1 = np.zeros ((nao, nao), dtype=casdm1s.dtype)
     veff2 = _ERIS (ot.mol, mo_coeff, ncore, ncas, paaa_only=paaa_only, 
         aaaa_only=aaaa_only, jk_pc=jk_pc, verbose=ot.verbose,

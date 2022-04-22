@@ -4,7 +4,7 @@ from scipy import linalg
 from pyscf.lib import logger
 from pyscf.lib import einsum as einsum_threads
 from pyscf.dft.numint import _dot_ao_dm
-from mrh.my_pyscf.mcpdft.addons import dm2_cumulant
+from mrh.my_pyscf.mcpdft._dms import dm2_cumulant
 from mrh.util.basis import represent_operator_in_basis
 from itertools import product
 from os import path

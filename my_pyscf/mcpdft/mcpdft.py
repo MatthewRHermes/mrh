@@ -14,7 +14,7 @@ from pyscf.mcscf.addons import StateAverageFCISolver
 from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, get_transfnal
-from mrh.my_pyscf.mcpdft.addons import dm2_cumulant, dm2s_cumulant
+from mrh.my_pyscf.mcpdft._dms import dm2_cumulant, dm2s_cumulant, casdm1s_to_dm1s
 
 # TODO: 
 # 1. Clean up "make_rdms_mcpdft":
@@ -97,6 +97,9 @@ def _get_fcisolver (mc, state=0):
     ''' Find the appropriate FCI solver and nelecas tuple to build
         single-state reduced density matrices. If state_average or
         state_average_mix is involved this takes a bit of work
+
+        The better solution, of course, is to edit StateAverage*FCI
+        classes to have quick density-matrices-of-one-state API...
     '''
     nelecas = mc.nelecas
     nroots = getattr (mc.fcisolver, 'nroots', 1)
@@ -115,7 +118,8 @@ def _get_fcisolver (mc, state=0):
             if fcisolver is None:
                 raise RuntimeError ("Can't find FCI solver for state", state)
         elif isinstance (mc.fcisolver, StateAverageFCISolver):
-            fcisolver = fci.solver (mc._scf.mol, singlet=False, symm=False)
+            fcisolver = fcisolver._base_class (mc._scf.mol)
+            fcisolver.__dict__.update(mc.fcisolver.__dict__)
     return fcisolver, nelecas
 
 def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
@@ -149,26 +153,17 @@ def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
     if ci is None: ci = mc.ci
     if ot is None: ot = mc.otfnal
     if mo_coeff is None: mo_coeff = mc.mo_coeff
-    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
-    nocc = ncore + ncas
+    ncas = mc.ncas
     fcisolver, nelecas = mc._get_fcisolver (state=state)
     nroots = getattr (mc.fcisolver, 'nroots', 1)
     if nroots>1: ci=ci[state]
 
     # Make the rdms
     # make_rdm12s returns (a, b), (aa, ab, bb)
-    mo_cas = mo_coeff[:,ncore:nocc]
-    moH_cas = mo_cas.conj ().T
-    mo_core = mo_coeff[:,:ncore]
-    moH_core = mo_core.conj ().T
-    casdm1s = np.stack (fcisolver.make_rdm1s (ci, ncas, nelecas), axis=0)
-    casdm2s = fcisolver.make_rdm12s (ci, ncas, nelecas)[1]
-    cascm2s = dm2s_cumulant (casdm2s, casdm1s)
-    cascm2 = (cascm2s[0] + cascm2s[2] + cascm2s[1]
-              + cascm2s[1].transpose (2,3,0,1))
-    dm1s = np.dot (casdm1s, moH_cas)
-    dm1s = np.dot (mo_cas, dm1s).transpose (1,0,2)
-    dm1s += np.dot (mo_core, moH_core)[None,:,:]
+    casdm1s = fcisolver.make_rdm1s (ci, ncas, nelecas)
+    casdm2 = fcisolver.make_rdm2 (ci, ncas, nelecas)
+    cascm2 = dm2_cumulant (casdm2, casdm1s)
+    dm1s = casdm1s_to_dm1s (mc, casdm1s, mo_coeff=mo_coeff)
     return dm1s, casdm1s, cascm2
 
 def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
@@ -620,7 +615,6 @@ class _PDFT ():
             dm_list = self.make_rdms_mcpdft (mo_coeff=mo, ci=ci, state=state)
             dm1s, casdm1s, cascm2 = dm_list
 
-        mo_cas = mo[:,ncore:][:,:ncas]
         pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, casdm1s, 
             cascm2, mo, ncore, ncas, max_memory=self.max_memory, 
             paaa_only=paaa_only, aaaa_only=aaaa_only, jk_pc=jk_pc)
