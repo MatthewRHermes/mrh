@@ -93,34 +93,6 @@ def energy_elec (mc, *args, **kwargs):
     e_elec = e_tot - mc._scf.energy_nuc ()
     return e_elec, E_ot
 
-def _get_fcisolver (mc, state=0):
-    ''' Find the appropriate FCI solver and nelecas tuple to build
-        single-state reduced density matrices. If state_average or
-        state_average_mix is involved this takes a bit of work
-
-        The better solution, of course, is to edit StateAverage*FCI
-        classes to have quick density-matrices-of-one-state API...
-    '''
-    nelecas = mc.nelecas
-    nroots = getattr (mc.fcisolver, 'nroots', 1)
-    fcisolver = mc.fcisolver
-    if nroots>1:
-        if isinstance (mc.fcisolver, StateAverageMixFCISolver):
-            p0 = 0
-            fcisolver = None
-            for s in mc.fcisolver.fcisolvers:
-                p1 = p0 + s.nroots
-                if p0 <= state and state < p1:
-                    fcisolver = s
-                    nelecas = mc.fcisolver._get_nelec (s, nelecas)
-                    break
-                p0 = p1
-            if fcisolver is None:
-                raise RuntimeError ("Can't find FCI solver for state", state)
-        elif isinstance (mc.fcisolver, StateAverageFCISolver):
-            fcisolver = fcisolver._base_class (mc._scf.mol)
-            fcisolver.__dict__.update(mc.fcisolver.__dict__)
-    return fcisolver, nelecas
 
 def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
     ''' Build the necessary density matrices for an MC-PDFT calculation.
@@ -154,7 +126,7 @@ def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
     if ot is None: ot = mc.otfnal
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     ncas = mc.ncas
-    fcisolver, nelecas = mc._get_fcisolver (state=state)
+    fcisolver, nelecas = _dms._get_fcisolver (mc, state=state)
     nroots = getattr (mc.fcisolver, 'nroots', 1)
     if nroots>1: ci=ci[state]
 
@@ -669,7 +641,6 @@ class _PDFT ():
     def otxc (self, x):
         self._init_ot_grids (x)
 
-    _get_fcisolver = _get_fcisolver
     make_rdms_mcpdft = make_rdms_mcpdft
     energy_mcwfn = energy_mcwfn
     energy_dft = energy_dft

@@ -2,7 +2,38 @@
 
 import numpy as np
 from pyscf import lib
+from pyscf.mcscf.addons import StateAverageFCISolver
+from pyscf.mcscf.addons import StateAverageMixFCISolver
 from scipy import linalg
+
+def _get_fcisolver (mc, state=0):
+    ''' Find the appropriate FCI solver and nelecas tuple to build
+        single-state reduced density matrices. If state_average or
+        state_average_mix is involved this takes a bit of work
+
+        The better solution, of course, is to edit StateAverage*FCI
+        classes to have quick density-matrices-of-one-state API...
+    '''
+    nelecas = mc.nelecas
+    nroots = getattr (mc.fcisolver, 'nroots', 1)
+    fcisolver = mc.fcisolver
+    if nroots>1:
+        if isinstance (mc.fcisolver, StateAverageMixFCISolver):
+            p0 = 0
+            fcisolver = None
+            for s in mc.fcisolver.fcisolvers:
+                p1 = p0 + s.nroots
+                if p0 <= state and state < p1:
+                    fcisolver = s
+                    nelecas = mc.fcisolver._get_nelec (s, nelecas)
+                    break
+                p0 = p1
+            if fcisolver is None:
+                raise RuntimeError ("Can't find FCI solver for state", state)
+        elif isinstance (mc.fcisolver, StateAverageFCISolver):
+            fcisolver = fcisolver._base_class (mc._scf.mol)
+            fcisolver.__dict__.update(mc.fcisolver.__dict__)
+    return fcisolver, nelecas
 
 def dm2_cumulant (dm2, dm1s):
     '''

@@ -235,15 +235,17 @@ def kernel (ot, dm1s, cascm2, mo_coeff, ncore, ncas,
 
     t0 = (logger.process_clock (), logger.perf_counter ())
 
-    # Make density matrices and TAG THEM with their own eigendecompositions
-    # because that speeds up the rho generators!
+    # Density matrices
     dm_core = mo_core @ mo_core.T 
     dm_cas = dm1s - dm_core[None,:,:] 
     dm_core *= 2
-    dm_core = tag_array (dm_core, mo_coeff=dm1s.mo_coeff[0,:,:ncore], 
-                         mo_occ=dm1s.mo_occ[:,:ncore].sum(0))
-    dm_cas = tag_array (dm_cas, mo_coeff=dm1s.mo_coeff[:,:,ncore:nocc],
-                        mo_occ=dm1s.mo_occ[:,ncore:nocc])
+
+    # Propagate speedup tags
+    if hasattr (dm1s, 'mo_coeff') and hasattr (dm1s, 'mo_occ'):
+        dm_core = tag_array (dm_core, mo_coeff=dm1s.mo_coeff[0,:,:ncore], 
+                             mo_occ=dm1s.mo_occ[:,:ncore].sum(0))
+        dm_cas = tag_array (dm_cas, mo_coeff=dm1s.mo_coeff[:,:,ncore:nocc],
+                            mo_occ=dm1s.mo_occ[:,ncore:nocc])
 
     # rho generators
     make_rho_c, nset_c, nao_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)
@@ -258,7 +260,8 @@ def kernel (ot, dm1s, cascm2, mo_coeff, ncore, ncas,
     ncols  = 4 + nderiv_rho*nao # ao, weight, coords
     ncols += nderiv_rho * 4 + nderiv_Pi # rho, rho_a, rho_c, Pi
     ncols += 1 + nderiv_rho + nderiv_Pi # eot, vot
-    # Asynchronous part
+ 
+   # Asynchronous part
     nveff1 = nderiv_rho * (nao+1) # footprint of get_veff_1body
     nveff2 = veff2._accumulate_ftpt () * nderiv_Pi
     ncols += np.amax ([nveff1, nveff2]) # asynchronous fns
