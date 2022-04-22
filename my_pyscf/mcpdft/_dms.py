@@ -6,9 +6,9 @@ from pyscf.mcscf.addons import StateAverageFCISolver
 from pyscf.mcscf.addons import StateAverageMixFCISolver
 from scipy import linalg
 
-def _get_fcisolver (mc, state=0):
-    ''' Find the appropriate FCI solver and nelecas tuple to build
-        single-state reduced density matrices. If state_average or
+def _get_fcisolver (mc, ci, state=0):
+    ''' Find the appropriate FCI solver, CI vector, and nelecas tuple to
+        build single-state reduced density matrices. If state_average or
         state_average_mix is involved this takes a bit of work
 
         The better solution, of course, is to edit StateAverage*FCI
@@ -18,6 +18,7 @@ def _get_fcisolver (mc, state=0):
     nroots = getattr (mc.fcisolver, 'nroots', 1)
     fcisolver = mc.fcisolver
     if nroots>1:
+        ci = ci[state]
         if isinstance (mc.fcisolver, StateAverageMixFCISolver):
             p0 = 0
             fcisolver = None
@@ -33,7 +34,32 @@ def _get_fcisolver (mc, state=0):
         elif isinstance (mc.fcisolver, StateAverageFCISolver):
             fcisolver = fcisolver._base_class (mc._scf.mol)
             fcisolver.__dict__.update(mc.fcisolver.__dict__)
-    return fcisolver, nelecas
+    return fcisolver, ci, nelecas
+
+def make_one_casdm1s (mc, ci, state=0):
+    '''
+    Construct the spin-separated active-space one-body reduced density
+    matrix for a single state. This API is not consistently available
+    in the StateAverageFCISolver functions without wasted effort (i.e.,
+    without constructing the dms for all states and then discarding most
+    of them
+    '''
+    ncas = mc.ncas
+    fcisolver, ci, nelecas = _get_fcisolver (mc, ci, state=state)
+    return fcisolver.make_rdm1s (ci, ncas, nelecas)
+
+def make_one_casdm2 (mc, ci, state=0):
+    '''
+    Construct the spin-summed active-space two-body reduced density
+    matrix for a single state. This API is not consistently available
+    in the StateAverageFCISolver functions without wasted effort (i.e.,
+    without constructing the dms for all states and then discarding most
+    of them
+    '''
+    ncas = mc.ncas
+    fcisolver, ci, nelecas = _get_fcisolver (mc, ci, state=state)
+    return fcisolver.make_rdm2 (ci, ncas, nelecas)
+    
 
 def dm2_cumulant (dm2, dm1s):
     '''

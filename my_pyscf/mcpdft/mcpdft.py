@@ -59,28 +59,25 @@ def energy_tot (mc, mo_coeff=None, ci=None, ot=None, state=0, verbose=None):
     # Allow MC-PDFT to be subclassed, and also allow this function to be
     # called without mc being an instance of MC-PDFT class
 
-    if callable (getattr (mc, 'make_rdms_mcpdft', None)):
-        dm_list = mc.make_rdms_mcpdft (ot=ot, mo_coeff=mo_coeff, ci=ci,
-            state=state)
-    else:
-        dm_list = make_rdms_mcpdft (mc, ot=ot, mo_coeff=mo_coeff, ci=ci,
-            state=state)
+    casdm1s = mc.make_one_casdm1s (ci, state=state)
+    casdm2 = mc.make_one_casdm2 (ci, state=state)
     t0 = logger.timer (ot, 'rdms', *t0)
 
-
     if callable (getattr (mc, 'energy_mcwfn', None)):
-        e_mcwfn = mc.energy_mcwfn (ot=ot, mo_coeff=mo_coeff, dm_list=dm_list,
-            verbose=verbose)
+        e_mcwfn = mc.energy_mcwfn (ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s,
+                                   casdm2=casdm2, verbose=verbose)
     else:
-        e_mcwfn = energy_mcwfn (mc, ot=ot, mo_coeff=mo_coeff, dm_list=dm_list,
-            verbose=verbose)
+        e_mcwfn = energy_mcwfn (ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s,
+                                casdm2=casdm2, verbose=verbose)
     t0 = logger.timer (ot, 'MC wfn energy', *t0)
 
 
     if callable (getattr (mc, 'energy_dft', None)):
-        e_dft = mc.energy_dft (ot=ot, dm_list=dm_list, mo_coeff=mo_coeff)
+        e_dft = mc.energy_dft (ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s,
+                               casdm2=casdm2)
     else:
-        e_dft = energy_dft (mc, ot=ot, dm_list=dm_list, mo_coeff=mo_coeff)
+        e_dft = energy_dft (ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s,
+                               casdm2=casdm2)
     t0 = logger.timer (ot, 'E_ot', *t0)
 
     e_tot = e_mcwfn + e_dft
@@ -93,53 +90,8 @@ def energy_elec (mc, *args, **kwargs):
     e_elec = e_tot - mc._scf.energy_nuc ()
     return e_elec, E_ot
 
-
-def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
-    ''' Build the necessary density matrices for an MC-PDFT calculation.
-        The two-body matrices are "cumulants": dm2 - dm2_HF(dm1).
-
-        Args:
-            mc : an instance of CASSCF or CASCI class
-                Note: this function does not currently run the CASSCF or
-                CASCI calculation itself
-
-        Kwargs:
-            mo_coeff : ndarray of shape (nao, nmo)
-                Molecular orbital coefficients
-            ci : ndarray or list
-                CI vector or vectors. Must be consistent with the nroots
-                of mc.
-            ot : an instance of on-top functional class - see otfnal.py
-            state : integer
-                If mc describes a state-averaged calculation, select the
-                state (0-indexed).
-
-        Returns:
-            dm1s : ndarray of shape (2,nao,nao)
-                Spin-separated 1-RDM
-            casdm1s : ndarray of shape (2,ncas,ncas)
-                Spin-separated 1-RDM for the active orbitals
-            cascm2 : ndarray of shape (ncas,ncas,ncas,ncas)
-                Spin-summed cumulant of 2-RDM
-    '''
-    if ci is None: ci = mc.ci
-    if ot is None: ot = mc.otfnal
-    if mo_coeff is None: mo_coeff = mc.mo_coeff
-    ncas = mc.ncas
-    fcisolver, nelecas = _dms._get_fcisolver (mc, state=state)
-    nroots = getattr (mc.fcisolver, 'nroots', 1)
-    if nroots>1: ci=ci[state]
-
-    # Make the rdms
-    # make_rdm12s returns (a, b), (aa, ab, bb)
-    casdm1s = fcisolver.make_rdm1s (ci, ncas, nelecas)
-    casdm2 = fcisolver.make_rdm2 (ci, ncas, nelecas)
-    cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
-    dm1s = _dms.casdm1s_to_dm1s (mc, casdm1s, mo_coeff=mo_coeff)
-    return dm1s, casdm1s, cascm2
-
-def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
-        verbose=None):
+def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
+        casdm2=None, verbose=None):
     ''' Compute the parts of the MC-PDFT energy arising from the wave
         function
 
@@ -159,8 +111,10 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
             state : int
                 If mc describes a state-averaged calculation, select the
                 state (0-indexed).
-            dm_list : (dm1s, casdm1s, cascm2)
-                return arguments of make_rdms_mcpdft
+            casdm1s : ndarray or compatible of shape (2,ncas,ncas)
+                Contains spin-separated active-space 1RDM
+            casdm2 : ndarray or compatible of shape [ncas,]*4
+                Contains spin-summed active-space 2RDM
 
         Returns:
             e_mcwfn : float
@@ -172,11 +126,12 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
     if verbose is None: verbose = mc.verbose
-    if dm_list is None: dm_list = mc.make_rdms_mcpdft (ot=ot,
-        mo_coeff=mo_coeff, ci=ci, state=state)
+    if casdm1s is None: casdm1s = mc.make_one_casdm1s (ci=ci, state=state)
+    if casdm2 is None: casdm2 = mc.make_one_casdm2 (ci=ci, state=state)
     log = logger.new_logger (mc, verbose=verbose)
     ncas, nelecas = mc.ncas, mc.nelecas
-    dm1s, casdm1s, cascm2 = dm_list
+    dm1s = _dms.casdm1s_to_dm1s (mc, casdm1s, mo_coeff=mo_coeff)
+    cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
 
     spin = abs(nelecas[0] - nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
@@ -219,17 +174,21 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
     e_mcwfn = Vnn + Te_Vne + E_j + (hyb_x * E_x) + (hyb_c * E_c) 
     return e_mcwfn
 
-def energy_dft (mc, ot=None, mo_coeff=None, dm_list=None, max_memory=None,
-        hermi=1):
+def energy_dft (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
+        casdm2=None, max_memory=None, hermi=1):
     ''' Wrap to get_E_ot for subclassing. '''
     if ot is None: ot = mc.otfnal
-    if dm_list is None: dm_list = mc.make_rdms_mcpdft ()
     if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ci is None: ci = mc.ci
+    if casdm1s is None: casdm1s = mc.make_one_casdm1s (ci, state=state)
+    if casdm2 is None: casdm2 = mc.make_one_casdm2 (ci, state=state)
     if max_memory is None: max_memory = mc.max_memory
     ncore, ncas = mc.ncore, mc.ncas
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
-    dm1s, casdm1s, cascm2 = dm_list
+    dm1s = _dms.casdm1s_to_dm1s (mc, casdm1s, mo_coeff=mo_coeff, ncore=ncore,
+                                 ncas=ncas)
+    cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
     return get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=max_memory,
         hermi=hermi)
 
@@ -541,11 +500,9 @@ class _PDFT ():
                     calculations. If negative, it generates a
                     state-averaged effective potential.
                 casdm1s : ndarray of shape (2,ncas,ncas)
-                    Spin-separated 1-RDM in the active space. Overrides
-                    CI if and only if both this and casdm2 are provided
+                    Spin-separated 1-RDM in the active space
                 casdm2 : ndarray of shape (ncas,ncas,ncas,ncas)
-                    2-RDM in the active space. Overrides CI if and only
-                    if both this and casdm1s are provided 
+                    Spin-summed 2-RDM in the active space
                 incl_coul : logical
                     If true, includes the Coulomb repulsion energy in
                     the 1-body effective potential.
@@ -573,16 +530,13 @@ class _PDFT ():
         t0 = (logger.process_clock (), logger.perf_counter ())
         if mo is None: mo = self.mo_coeff
         if ci is None: ci = self.ci
+        if casdm1s is None: casdm1s = self.make_one_casdm1s (ci, state=state)
+        if casdm2 is None: casdm2 = self.make_one_casdm2 (ci, state=state)
         ncore, ncas, nelecas = self.ncore, self.ncas, self.nelecas
         nocc = ncore + ncas
-
-        if (casdm1s is not None) and (casdm2 is not None):
-            dm1s = _dms.casdm1s_to_dm1s (self, casdm1s, mo_coeff=mo,
-                                         ncore=ncore, ncas=ncas)
-            cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
-        else:
-            dm_list = self.make_rdms_mcpdft (mo_coeff=mo, ci=ci, state=state)
-            dm1s, casdm1s, cascm2 = dm_list
+        dm1s = _dms.casdm1s_to_dm1s (self, casdm1s, mo_coeff=mo,
+                                     ncore=ncore, ncas=ncas)
+        cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
 
         pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, dm1s, 
             cascm2, mo, ncore, ncas, max_memory=self.max_memory, 
@@ -641,7 +595,8 @@ class _PDFT ():
     def otxc (self, x):
         self._init_ot_grids (x)
 
-    make_rdms_mcpdft = make_rdms_mcpdft
+    make_one_casdm1s = _dms.make_one_casdm1s
+    make_one_casdm2 = _dms.make_one_casdm2    
     energy_mcwfn = energy_mcwfn
     energy_dft = energy_dft
     def energy_tot (self, mo_coeff=None, ci=None, ot=None, state=0,

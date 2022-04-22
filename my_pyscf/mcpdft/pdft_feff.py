@@ -172,8 +172,8 @@ class EotOrbitalHessianOperator (object):
             dm1s = np.dot (dm1s, mo_cas.conj ().T)
             mo_core = mo_coeff[:,:ncore]
             dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
-            dm_list = (dm1s, casdm1s, cascm2)
-            e_ot = mc.energy_dft (ot=ot, mo_coeff=mo_coeff, dm_list=dm_list)
+            e_ot = mc.energy_dft (ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s,
+                casdm2=casdm2)
             def delta_eot (x):
                 u = mc.update_rotate_matrix (x)
                 mo1 = mo_coeff @ u
@@ -182,8 +182,8 @@ class EotOrbitalHessianOperator (object):
                 dm1s = np.dot (dm1s, mo_cas.conj ().T)
                 mo_core = mo1[:,:ncore]
                 dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
-                dm_list = (dm1s, casdm1s, cascm2)
-                e1 = mc.energy_dft (ot=ot, mo_coeff=mo1, dm_list=dm_list)
+                e1 = mc.energy_dft (ot=ot, mo_coeff=mo1, casdm1s=casdm1s,
+                    casdm2=casdm2)
                 return e1 - e_ot
             self.e_ot = e_ot
             self.delta_eot = delta_eot
