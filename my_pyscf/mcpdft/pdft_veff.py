@@ -223,7 +223,7 @@ def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
     ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
     nao = mo_coeff.shape[0]
     mo_core = mo_coeff[:,:ncore]
-    ao2amo = mo_coeff[:,ncore:nocc]
+    mo_cas = mo_coeff[:,ncore:nocc]
     npair = nao * (nao + 1) // 2
     shls_slice = (0, ot.mol.nbas)
     ao_loc = ot.mol.ao_loc_nr()
@@ -238,7 +238,7 @@ def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
     # Make density matrices and TAG THEM with their own eigendecompositions
     # because that speeds up the rho generators!
     dm_core = mo_core @ mo_core.T 
-    dm_cas = np.dot (ao2amo, np.dot (casdm1s, ao2amo.T)).transpose (1,0,2)
+    dm_cas = np.dot (mo_cas, np.dot (casdm1s, mo_cas.T)).transpose (1,0,2)
     dm1s = dm_cas + dm_core[None,:,:] 
     dm_core *= 2
     # tag dm_core
@@ -246,7 +246,7 @@ def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
     dm_core = tag_array (dm_core, mo_coeff=mo_core, mo_occ=imo_occ)
     # tag dm_cas
     amo_occ = np.zeros ((2,ncas), dtype=dm_cas.dtype)
-    amo_coeff = np.stack ([ao2amo.copy (), ao2amo.copy ()], axis=0)
+    amo_coeff = np.stack ([mo_cas.copy (), mo_cas.copy ()], axis=0)
     for i in range (2):
         amo_occ[i], ua = linalg.eigh (casdm1s[i])
         amo_coeff[i] = amo_coeff[i] @ ua
@@ -293,7 +293,7 @@ def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
         rho_a = sum ([make_rho_a (i, ao, mask, xctype) for i in range(2)])
         rho_c = make_rho_c (0, ao, mask, xctype)
         t0 = logger.timer (ot, 'untransformed densities (core and total)', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, ao2amo,
+        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas,
             dens_deriv, mask)
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
         eot, vot = ot.eval_ot (rho, Pi, weights=weight)[:2]
@@ -312,7 +312,7 @@ def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
         *t0)
     return veff1, veff2
 
-def lazy_kernel (ot, dm1s, cascm2, ao2amo, max_memory=2000, hermi=1,
+def lazy_kernel (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1,
         veff2_mo=None):
     ''' Get the 1- and 2-body effective potential from MC-PDFT.
         Eventually I'll be able to specify mo slices for the 2-body part
@@ -324,7 +324,7 @@ def lazy_kernel (ot, dm1s, cascm2, ao2amo, max_memory=2000, hermi=1,
             cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
                 containing spin-summed two-body cumulant density matrix
                 in an active space
-            ao2amo : ndarray of shape (nao, ncas)
+            mo_cas : ndarray of shape (nao, ncas)
                 containing molecular orbital coefficients for
                 active-space orbitals
 
@@ -342,7 +342,7 @@ def lazy_kernel (ot, dm1s, cascm2, ao2amo, max_memory=2000, hermi=1,
     if veff2_mo is not None:
         raise NotImplementedError ('Molecular orbital slices for 2-body part')
     ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
-    nao = ao2amo.shape[0]
+    nao = mo_cas.shape[0]
     npair = nao * (nao + 1) // 2
 
     veff1 = np.zeros_like (dm1s[0])
@@ -355,7 +355,7 @@ def lazy_kernel (ot, dm1s, cascm2, ao2amo, max_memory=2000, hermi=1,
             dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
         t0 = logger.timer (ot, 'untransformed density', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, ao2amo,
+        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas,
             dens_deriv, mask)
         t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
         eot, vot = ot.eval_ot (rho, Pi, weights=weight)[:2]

@@ -19,10 +19,6 @@ from mrh.my_pyscf.mcpdft.addons import dm2_cumulant, dm2s_cumulant
 # TODO: 
 # 1. Clean up "make_rdms_mcpdft":
 #       a. Make better use of existing API and name conventions
-#       b. Get rid of pointless _os, _ss computation unless necessary. (Tags?)
-# 2. Unify calling signatures of the "energy_*" functions: mo_coeff, ci, ot,
-#    state.
-# 3. Hybrid API and unittests. NotImplementedErrors for omega and alpha.
 
 def energy_tot (mc, mo_coeff=None, ci=None, ot=None, state=0, verbose=None):
     ''' Calculate MC-PDFT total energy
@@ -97,6 +93,31 @@ def energy_elec (mc, *args, **kwargs):
     e_elec = e_tot - mc._scf.energy_nuc ()
     return e_elec, E_ot
 
+def _get_fcisolver (mc, state=0):
+    ''' Find the appropriate FCI solver and nelecas tuple to build
+        single-state reduced density matrices. If state_average or
+        state_average_mix is involved this takes a bit of work
+    '''
+    nelecas = mc.nelecas
+    nroots = getattr (mc.fcisolver, 'nroots', 1)
+    fcisolver = mc.fcisolver
+    if nroots>1:
+        if isinstance (mc.fcisolver, StateAverageMixFCISolver):
+            p0 = 0
+            fcisolver = None
+            for s in mc.fcisolver.fcisolvers:
+                p1 = p0 + s.nroots
+                if p0 <= state and state < p1:
+                    fcisolver = s
+                    nelecas = mc.fcisolver._get_nelec (s, nelecas)
+                    break
+                p0 = p1
+            if fcisolver is None:
+                raise RuntimeError ("Can't find FCI solver for state", state)
+        elif isinstance (mc.fcisolver, StateAverageFCISolver):
+            fcisolver = fci.solver (mc._scf.mol, singlet=False, symm=False)
+    return fcisolver, nelecas
+
 def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
     ''' Build the necessary density matrices for an MC-PDFT calculation.
         The two-body matrices are "cumulants": dm2 - dm2_HF(dm1).
@@ -120,39 +141,19 @@ def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
         Returns:
             dm1s : ndarray of shape (2,nao,nao)
                 Spin-separated 1-RDM
-            adm : (adm1s, adm2s)
-                adm1s : ndarray of shape (2,ncas,ncas)
-                    Spin-separated 1-RDM for the active orbitals
-                adm2s : 3 ndarrays of shape (ncas,ncas,ncas,ncas)
-                    First ndarray is spin-summed cascm2
-                    Second ndarray is cascm2_aa + cascm2_bb
-                    Third ndarray is cascm2_ab
+            casdm1s : ndarray of shape (2,ncas,ncas)
+                Spin-separated 1-RDM for the active orbitals
+            cascm2 : ndarray of shape (ncas,ncas,ncas,ncas)
+                Spin-summed cumulant of 2-RDM
     '''
     if ci is None: ci = mc.ci
     if ot is None: ot = mc.otfnal
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
     nocc = ncore + ncas
+    fcisolver, nelecas = mc._get_fcisolver (state=state)
     nroots = getattr (mc.fcisolver, 'nroots', 1)
-
-    # figure out the correct RDMs to build (SA or SS?)
-    _casdms = mc.fcisolver
-    if nroots>1:
-        ci = ci[state]
-        if isinstance (mc.fcisolver, StateAverageMixFCISolver):
-            p0 = 0
-            _casdms = None
-            for s in mc.fcisolver.fcisolvers:
-                p1 = p0 + s.nroots
-                if p0 <= state and state < p1:
-                    _casdms = s
-                    nelecas = mc.fcisolver._get_nelec (s, nelecas)
-                    break
-                p0 = p1
-            if _casdms is None:
-                raise RuntimeError ("Can't find FCI solver for state", state)
-        elif isinstance (mc.fcisolver, StateAverageFCISolver):
-            _casdms = fci.solver (mc._scf.mol, singlet=False, symm=False)
+    if nroots>1: ci=ci[state]
 
     # Make the rdms
     # make_rdm12s returns (a, b), (aa, ab, bb)
@@ -160,16 +161,15 @@ def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
     moH_cas = mo_cas.conj ().T
     mo_core = mo_coeff[:,:ncore]
     moH_core = mo_core.conj ().T
-    adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
-    adm2s = _casdms.make_rdm12s (ci, ncas, nelecas)[1]
-    adm2s = dm2s_cumulant (adm2s, adm1s)
-    adm2_ss = adm2s[0] + adm2s[2]
-    adm2_os = adm2s[1]
-    adm2 = adm2_ss + adm2_os + adm2_os.transpose (2,3,0,1)
-    dm1s = np.dot (adm1s, moH_cas)
+    casdm1s = np.stack (fcisolver.make_rdm1s (ci, ncas, nelecas), axis=0)
+    casdm2s = fcisolver.make_rdm12s (ci, ncas, nelecas)[1]
+    cascm2s = dm2s_cumulant (casdm2s, casdm1s)
+    cascm2 = (cascm2s[0] + cascm2s[2] + cascm2s[1]
+              + cascm2s[1].transpose (2,3,0,1))
+    dm1s = np.dot (casdm1s, moH_cas)
     dm1s = np.dot (mo_cas, dm1s).transpose (1,0,2)
     dm1s += np.dot (mo_core, moH_core)[None,:,:]
-    return dm1s, (adm1s, (adm2, adm2_ss, adm2_os))
+    return dm1s, casdm1s, cascm2
 
 def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
         verbose=None):
@@ -192,7 +192,7 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
             state : int
                 If mc describes a state-averaged calculation, select the
                 state (0-indexed).
-            dm_list : (dm1s, adm2)
+            dm_list : (dm1s, casdm1s, cascm2)
                 return arguments of make_rdms_mcpdft
 
         Returns:
@@ -209,7 +209,7 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
         mo_coeff=mo_coeff, ci=ci, state=state)
     log = logger.new_logger (mc, verbose=verbose)
     ncas, nelecas = mc.ncas, mc.nelecas
-    dm1s, (adm1s, (adm2, adm2_ss, adm2_os)) = dm_list
+    dm1s, casdm1s, cascm2 = dm_list
 
     spin = abs(nelecas[0] - nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
@@ -244,14 +244,8 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
         # g_pqrs * l_pqrs / 2
         #if log.verbose >= logger.DEBUG:
         aeri = ao2mo.restore (1, mc.get_h2eff (mo_coeff), mc.ncas)
-        E_c = np.tensordot (aeri, adm2, axes=4) / 2
-        E_c_ss = np.tensordot (aeri, adm2_ss, axes=4) / 2
-        E_c_os = np.tensordot (aeri, adm2_os, axes=4) # ab + ba -> factor of 2
+        E_c = np.tensordot (aeri, cascm2, axes=4) / 2
         log.info ('E_c = %s', E_c)
-        log.info ('E_c (SS) = %s', E_c_ss)
-        log.info ('E_c (OS) = %s', E_c_os)
-        e_err = E_c_ss + E_c_os - E_c
-        assert (abs (e_err) < 1e-8), e_err
     if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
         log.debug (('Adding %s * %s CAS exchange, %s * %s CAS correlation to '
                     'E_ot'), hyb_x, E_x, hyb_c, E_c)
@@ -268,8 +262,8 @@ def energy_dft (mc, ot=None, mo_coeff=None, dm_list=None, max_memory=None,
     ncore, ncas = mc.ncore, mc.ncas
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
-    dm1s, (adm1s, (adm2, adm2_ss, adm2_os)) = dm_list
-    return get_E_ot (ot, dm1s, adm2, mo_cas, max_memory=max_memory,
+    dm1s, casdm1s, cascm2 = dm_list
+    return get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=max_memory,
         hermi=hermi)
 
 def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
@@ -621,15 +615,14 @@ class _PDFT ():
             dm1s = np.dot (mo_cas, casdm1s).transpose (1,0,2)
             dm1s = np.dot (dm1s, mo_cas.conj ().T)
             dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
-            adm1s = casdm1s
-            adm2 = dm2_cumulant (casdm2, casdm1s)
+            cascm2 = dm2_cumulant (casdm2, casdm1s)
         else:
             dm_list = self.make_rdms_mcpdft (mo_coeff=mo, ci=ci, state=state)
-            dm1s, (adm1s, (adm2, _ss, _os)) = dm_list
+            dm1s, casdm1s, cascm2 = dm_list
 
         mo_cas = mo[:,ncore:][:,:ncas]
-        pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, adm1s, 
-            adm2, mo, ncore, ncas, max_memory=self.max_memory, 
+        pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, casdm1s, 
+            cascm2, mo, ncore, ncas, max_memory=self.max_memory, 
             paaa_only=paaa_only, aaaa_only=aaaa_only, jk_pc=jk_pc)
         
         if incl_coul:
@@ -685,6 +678,7 @@ class _PDFT ():
     def otxc (self, x):
         self._init_ot_grids (x)
 
+    _get_fcisolver = _get_fcisolver
     make_rdms_mcpdft = make_rdms_mcpdft
     energy_mcwfn = energy_mcwfn
     energy_dft = energy_dft
