@@ -14,7 +14,7 @@ from pyscf.mcscf.addons import StateAverageFCISolver
 from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, get_transfnal
-from mrh.my_pyscf.mcpdft._dms import dm2_cumulant, dm2s_cumulant, casdm1s_to_dm1s
+from mrh.my_pyscf.mcpdft import _dms 
 
 # TODO: 
 # 1. Clean up "make_rdms_mcpdft":
@@ -162,8 +162,8 @@ def make_rdms_mcpdft (mc, mo_coeff=None, ci=None, ot=None, state=0):
     # make_rdm12s returns (a, b), (aa, ab, bb)
     casdm1s = fcisolver.make_rdm1s (ci, ncas, nelecas)
     casdm2 = fcisolver.make_rdm2 (ci, ncas, nelecas)
-    cascm2 = dm2_cumulant (casdm2, casdm1s)
-    dm1s = casdm1s_to_dm1s (mc, casdm1s, mo_coeff=mo_coeff)
+    cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
+    dm1s = _dms.casdm1s_to_dm1s (mc, casdm1s, mo_coeff=mo_coeff)
     return dm1s, casdm1s, cascm2
 
 def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, dm_list=None,
@@ -403,7 +403,7 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
     e_mcscf = h0 + np.dot (h1.ravel (), adm1.ravel ()) + (
                 np.dot (h2.ravel (), adm2.ravel ())*0.5)
     adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
-    adm2 = dm2_cumulant (_casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1],
+    adm2 = _dms.dm2_cumulant (_casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1],
         adm1s)
     mo_cas = mo_coeff[:,ncore:][:,:ncas]
     e_otx = get_E_ot (xfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
@@ -605,17 +605,14 @@ class _PDFT ():
         nocc = ncore + ncas
 
         if (casdm1s is not None) and (casdm2 is not None):
-            mo_core = mo[:,:ncore]
-            mo_cas = mo[:,ncore:nocc]
-            dm1s = np.dot (mo_cas, casdm1s).transpose (1,0,2)
-            dm1s = np.dot (dm1s, mo_cas.conj ().T)
-            dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
-            cascm2 = dm2_cumulant (casdm2, casdm1s)
+            dm1s = _dms.casdm1s_to_dm1s (self, casdm1s, mo_coeff=mo,
+                                         ncore=ncore, ncas=ncas)
+            cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
         else:
             dm_list = self.make_rdms_mcpdft (mo_coeff=mo, ci=ci, state=state)
             dm1s, casdm1s, cascm2 = dm_list
 
-        pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, casdm1s, 
+        pdft_veff1, pdft_veff2 = pdft_veff.kernel (self.otfnal, dm1s, 
             cascm2, mo, ncore, ncas, max_memory=self.max_memory, 
             paaa_only=paaa_only, aaaa_only=aaaa_only, jk_pc=jk_pc)
         

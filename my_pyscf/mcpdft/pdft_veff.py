@@ -177,14 +177,14 @@ class _ERIS(object):
                 self.method))
         self.k_pc = self.j_pc.copy ()
 
-def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
+def kernel (ot, dm1s, cascm2, mo_coeff, ncore, ncas,
             max_memory=2000, hermi=1, paaa_only=False, aaaa_only=False,
             jk_pc=False):
     ''' Get the 1- and 2-body effective potential from MC-PDFT.
 
         Args:
             ot : an instance of otfnal class
-            casdm1s : ndarray of shape (2, ncas, ncas)
+            dm1s : ndarray of shape (2, nao, nao)
                 containing spin-separated one-body density matrices
             cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
                 containing spin-summed two-body cumulant density matrix
@@ -228,8 +228,7 @@ def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
     shls_slice = (0, ot.mol.nbas)
     ao_loc = ot.mol.ao_loc_nr()
 
-    casdm1s = np.asarray (casdm1s)
-    veff1 = np.zeros ((nao, nao), dtype=casdm1s.dtype)
+    veff1 = np.zeros ((nao, nao), dtype=dm1s.dtype)
     veff2 = _ERIS (ot.mol, mo_coeff, ncore, ncas, paaa_only=paaa_only, 
         aaaa_only=aaaa_only, jk_pc=jk_pc, verbose=ot.verbose,
         stdout=ot.stdout)
@@ -239,27 +238,12 @@ def kernel (ot, casdm1s, cascm2, mo_coeff, ncore, ncas,
     # Make density matrices and TAG THEM with their own eigendecompositions
     # because that speeds up the rho generators!
     dm_core = mo_core @ mo_core.T 
-    dm_cas = np.dot (mo_cas, np.dot (casdm1s, mo_cas.T)).transpose (1,0,2)
-    dm1s = dm_cas + dm_core[None,:,:] 
+    dm_cas = dm1s - dm_core[None,:,:] 
     dm_core *= 2
-    # tag dm_core
-    imo_occ = np.ones (ncore, dtype=dm_core.dtype) * 2.0
-    dm_core = tag_array (dm_core, mo_coeff=mo_core, mo_occ=imo_occ)
-    # tag dm_cas
-    amo_occ = np.zeros ((2,ncas), dtype=dm_cas.dtype)
-    amo_coeff = np.stack ([mo_cas.copy (), mo_cas.copy ()], axis=0)
-    for i in range (2):
-        amo_occ[i], ua = linalg.eigh (casdm1s[i])
-        amo_coeff[i] = amo_coeff[i] @ ua
-    dm_cas = tag_array (dm_cas, mo_coeff=amo_coeff, mo_occ=amo_occ)
-    # tag dm1s
-    mo_occ = np.zeros ((2, nocc), dtype=dm1s.dtype)
-    mo_occ[:,:ncore] = 1.0
-    mo_occ[:,ncore:nocc] = amo_occ
-    tag_coeff = np.stack ((mo_coeff[:,:nocc].copy (),
-        mo_coeff[:,:nocc].copy ()), axis=0)
-    tag_coeff[:,:,ncore:nocc] = amo_coeff 
-    dm1s = tag_array (dm1s, mo_coeff=tag_coeff, mo_occ=mo_occ)
+    dm_core = tag_array (dm_core, mo_coeff=dm1s.mo_coeff[0,:,:ncore], 
+                         mo_occ=dm1s.mo_occ[:,:ncore].sum(0))
+    dm_cas = tag_array (dm_cas, mo_coeff=dm1s.mo_coeff[:,:,ncore:nocc],
+                        mo_occ=dm1s.mo_occ[:,ncore:nocc])
 
     # rho generators
     make_rho_c, nset_c, nao_c = ni._gen_rho_evaluator (ot.mol, dm_core, hermi)

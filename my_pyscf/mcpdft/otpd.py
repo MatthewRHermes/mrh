@@ -27,7 +27,7 @@ def _grid_ao2mo (mol, ao, mo_coeff, non0tab=None, shls_slice=None,
     return mo 
 
 
-def get_ontop_pair_density (ot, rho, ao, cascm2, ao2amo, deriv=0,
+def get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas, deriv=0,
         non0tab=None):
     r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*d_ijkl / 2
                = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2
@@ -35,7 +35,9 @@ def get_ontop_pair_density (ot, rho, ao, cascm2, ao2amo, deriv=0,
         Args:
             ot : on-top pair density functional object
             rho : ndarray of shape (2,*,ngrids) 
-                contains spin density [and derivatives] 
+                Contains spin-separated density [and derivatives]. 
+                The dm1s underlying these densities must correspond
+                to the dm1s/dm1 in the expression for cascm2 below.
             ao : ndarray of shape (*, ngrids, nao)
                 contains values of aos [and derivatives] 
             cascm2 : ndarray of shape [ncas,]*4
@@ -44,15 +46,11 @@ def get_ontop_pair_density (ot, rho, ao, cascm2, ao2amo, deriv=0,
                 cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
                                + dm1s[0][u,y]*dm1s[0][x,v]
                                + dm1s[1][u,y]*dm1s[1][x,v]
-                                   or
-                             = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
-                               + 0.5*dm1[u,y]*dm1[x,v]
-                or any similar decomposition which results in cdm2
-                having no nonzero elements for any index outside the
-                active space (unlike dm2, which formally has elements
-                [i,i,u,v], etc., even though they are not constructed
-                explicitly in PySCF)
-            ao2amo : ndarray of shape (nao, ncas)
+                The cumulant has no nonzero elements for any index 
+                outside the active space (unlike dm2, which formally has
+                elements [i,i,u,v], etc., even though they are not
+                constructed explicitly in PySCF).
+            mo_cas : ndarray of shape (nao, ncas)
                 molecular-orbital coefficients for active-space orbitals
 
         Kwargs:
@@ -97,7 +95,7 @@ def get_ontop_pair_density (ot, rho, ao, cascm2, ao2amo, deriv=0,
     # but whether or when they actually multithread is unclear
     # Update 05/11/2020: ao is actually stored in row-major order
     # = (deriv,AOs,grids).
-    grid2amo = _grid_ao2mo (ot.mol, ao, ao2amo, non0tab=non0tab)
+    grid2amo = _grid_ao2mo (ot.mol, ao, mo_cas, non0tab=non0tab)
     t0 = logger.timer (ot, 'otpd ao2mo', *t0)
     gridkern = np.zeros (grid2amo.shape + (grid2amo.shape[2],),
         dtype=grid2amo.dtype)
