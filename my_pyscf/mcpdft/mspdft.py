@@ -23,22 +23,22 @@ SING_TOL_DIABATIZE = getattr(__config__, 'mcpdft_mspdft_sing_tol_diabatize', 1e-
 NUDGE_TOL_DIABATIZE = getattr(__config__, 'mcpdft_mspdft_nudge_tol_diabatize', 1e-3)
 
 def make_heff_mcscf (mc, mo_coeff=None, ci=None):
-    ''' Build Hamiltonian matrix in basis of ci vector
+    '''Build Hamiltonian matrix in basis of ci vector
 
-        Args:
-            mc : an instance of MCPDFT class
+    Args:
+        mc : an instance of MCPDFT class
 
-        Kwargs:
-            mo_coeff : ndarray of shape (nao, nmo)
-                MO coefficients
-            ci : ndarray or list of len (nroots)
-                CI vectors describing the model space, presumed to be in
-                the optimized intermediate-state basis
+    Kwargs:
+        mo_coeff : ndarray of shape (nao, nmo)
+            MO coefficients
+        ci : ndarray or list of len (nroots)
+            CI vectors describing the model space, presumed to be in the
+            optimized intermediate-state basis
 
-        Returns:
-            heff_mcscf : ndarray of shape (nroots, nroots)
-                Effective MC-SCF hamiltonian matrix in the basis of the
-                provided CI vectors
+    Returns:
+        heff_mcscf : ndarray of shape (nroots, nroots)
+            Effective MC-SCF hamiltonian matrix in the basis of the
+            provided CI vectors
     '''
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
@@ -58,39 +58,38 @@ def make_heff_mcscf (mc, mo_coeff=None, ci=None):
 
 def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
         sing_tol=None, nudge_tol=None):
-    ''' Optimize the intermediate states describing the model space of
-        an MS-PDFT calculation by maximizing the provided objective
-        function using a gradient-ascent algorithm
+    '''Optimize the intermediate states describing the model space of
+    an MS-PDFT calculation by maximizing the provided objective function
+    using a gradient-ascent algorithm
 
-        Args:
-            mc : an instance of MSPDFT class
+    Args:
+        mc : an instance of MSPDFT class
 
-        Kwargs:
-            ci : ndarray or list of len (nroots)
-                CI vectors spanning the model space
-            objfn : callable 
-                Takes CI vectors as a kwarg and returns the value,
-                gradient, and Hessian of a chosen objective function wrt
-                rotation between pairs of CI vectors
-            max_cyc : integer
-                Maximum number of cycles of the gradient-ascent
-                algorithm
-            conv_tol : float
-                Maximum value of both gradient and step vectors at
-                convergence
-            sing_tol : float
-                Tolerance for determining when normal coordinate belongs
-                to the null space (df = d2f = 0) or when the Hessian is
-                singular (df != 0, d2f = 0).
-            nudge_tol : float
-                Minimum step size along a normal coordinate when the
-                surface is locally concave.
+    Kwargs:
+        ci : ndarray or list of len (nroots)
+            CI vectors spanning the model space
+        objfn : callable
+            Takes CI vectors as a kwarg and returns the value, gradient,
+            and Hessian of a chosen objective function wrt rotation
+            between pairs of CI vectors
+        max_cyc : integer
+            Maximum number of cycles of the gradient-ascent algorithm
+        conv_tol : float
+            Maximum value of both gradient and step vectors at
+            convergence
+        sing_tol : float
+            Tolerance for determining when normal coordinate belongs to
+            the null space (df = d2f = 0) or when the Hessian is
+            singular (df != 0, d2f = 0).
+        nudge_tol : float
+            Minimum step size along a normal coordinate when the surface
+            is locally concave.
 
-        Returns:
-            conv : logical
-                True if the optimization is converged
-            ci : list of len (nroots)
-                Optimized CI vectors describing intermediate states
+    Returns:
+        conv : logical
+            True if the optimization is converged
+        ci : list of len (nroots)
+            Optimized CI vectors describing intermediate states
     '''
 
     if ci is None: ci = mc.ci
@@ -264,8 +263,8 @@ class _MSPDFT (MultiStateMCPDFTSolver):
     @e_states.setter
     def e_states (self, x):
         self._e_states = x
-    ''' Unfixed to FCIsolver since MS-PDFT state energies are no longer
-        CI solutions '''
+    # Unfixed to FCIsolver since MS-PDFT state energies are no longer
+    # CI solutions
 
     @property
     def si (self):
@@ -275,7 +274,7 @@ class _MSPDFT (MultiStateMCPDFTSolver):
         self.si_pdft = x
 
     def get_heff_offdiag (self):
-        ''' The off-diagonal elements of the effective Hamiltonian matrix
+        '''The off-diagonal elements of the effective Hamiltonian matrix
 
         = heff_mcscf - np.diag (heff_mcscf.diagonal ())
         = ( 0     H_10^* ... )
@@ -293,7 +292,7 @@ class _MSPDFT (MultiStateMCPDFTSolver):
         return heff_offdiag
 
     def get_heff_pdft (self):
-        ''' The MS-PDFT effective Hamiltonian matrix
+        '''The MS-PDFT effective Hamiltonian matrix
 
         = get_heff_offdiag () + np.diag (hdiag_pdft)
         = ( EPDFT_0  H_10^*   ... )
@@ -372,26 +371,26 @@ class _MSPDFT (MultiStateMCPDFTSolver):
     # multi-state-mix metaclass
 
     def diabatize (self, ci=None, ci0=None, **kwargs):
-        ''' Optimize the ``intermediate'' diabatic states of an MS-PDFT
-            calculation in the space defined by the MC-SCF ``reference''
-            adiabatic states.
+        '''Optimize the ``intermediate'' diabatic states of an MS-PDFT
+        calculation in the space defined by the MC-SCF ``reference''
+        adiabatic states.
 
-            Kwargs
-                ci : list of ndarrays of length nroots
-                    CI vectors defining the model space, usually from
-                    a CASCI or CASSCF kernel call
-                ci0 : list of ndarrays of length nroots
-                    Initial guess for optimized diabatic CI vectors,
-                    possibly spanning a slightly different space,
-                    usually at a different geometry (i.e., during a
-                    geometry optimization or dynamics trajectory) 
+        Kwargs
+            ci : list of ndarrays of length nroots
+                CI vectors defining the model space, usually from a
+                or CASSCF kernel call
+            ci0 : list of ndarrays of length nroots
+                Initial guess for optimized diabatic CI vectors,
+                possibly spanning a slightly different space, usually at
+                a different geometry (i.e., during a geometry
+                optimization or dynamics trajectory)
 
-            Returns
-                conv : logical
-                    Reports whether the diabatization algorithm
-                    converged successfully
-                ci : list of ndarrays of length = nroots
-                    CI vectors of the optimized diabatic states
+        Returns
+            conv : logical
+                Reports whether the diabatization algorithm converged
+                successfully
+            ci : list of ndarrays of length = nroots
+                CI vectors of the optimized diabatic states
         '''
         if ci is None: ci = self.ci
         if ci0 is not None: 
@@ -402,32 +401,31 @@ class _MSPDFT (MultiStateMCPDFTSolver):
         return self._diabatize (self, ci, **kwargs)
 
     def diabatizer (self, mo_coeff=None, ci=None):
-        ''' Computes the value, gradient vector, and Hessian matrix with
-            respect to pairwise state rotations of the objective
-            function maximized by the optimized diabatic
-            (``intermediate'') states.
+        '''Computes the value, gradient vector, and Hessian matrix with
+        respect to pairwise state rotations of the objective function
+        maximized by the optimized diabatic (``intermediate'') states.
 
-            Kwargs
-                mo_coeff : ndarray of shape (nao,nmo)
-                    MO coefficients
-                ci : list of ndarrays of length nroots
-                    CI vectors
+        Kwargs
+            mo_coeff : ndarray of shape (nao,nmo)
+                MO coefficients
+            ci : list of ndarrays of length nroots
+                CI vectors
 
-            Returns:
-                f : float
-                    Objective function value for states 
-                df : ndarray of shape (npairs = nroots*(nroots-1)/2)
-                    Gradient vector of objective function with respect
-                    to pairwise rotations between states
-                d2f : ndarray of shape (npairs,npairs)
-                    Hessian matrix of objective function with respect to
-                    pairwise rotations between states
-                f_update : callable
-                    Takes a unitary matrix and returns f, df, and d2f as
-                    above. Some kinds of MS-PDFT can be sped up using
-                    intermediates. If so, the _diabatizer function can
-                    provide f_update. Otherwise, it defaults to running
-                    _diabatizer itself on a rotated set of CI vectors.
+        Returns:
+            f : float
+                Objective function value for states
+            df : ndarray of shape (npairs = nroots*(nroots-1)/2)
+                Gradient vector of objective function with respect to
+                pairwise rotations between states
+            d2f : ndarray of shape (npairs,npairs)
+                Hessian matrix of objective function with respect to
+                pairwise rotations between states
+            f_update : callable
+                Takes a unitary matrix and returns f, df, and d2f as
+                above. Some kinds of MS-PDFT can be sped up using
+                intermediates. If so, the _diabatizer function can
+                provide f_update. Otherwise, it defaults to running
+                _diabatizer itself on a rotated set of CI vectors.
         '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
@@ -500,23 +498,23 @@ class _MSPDFT (MultiStateMCPDFTSolver):
         return Gradients (self)
 
 def get_diabfns (obj):
-    ''' Interpret the name of the MS-PDFT method as a pair of functions
-        which optimize the intermediate states and calculate the power
-        series in the corresponding objective function to second order.
+    '''Interpret the name of the MS-PDFT method as a pair of functions
+    which optimize the intermediate states and calculate the power
+    series in the corresponding objective function to second order.
 
-        Args:
-            obj : string
-                Specify particular MS-PDFT method. Currently, only "CMS"
-                is supported. Not case-sensitive.
+    Args:
+        obj : string
+            Specify particular MS-PDFT method. Currently, only "CMS" is
+            supported. Not case-sensitive.
 
-        Returns:
-            diabatizer : callable
-                Takes model-space CI vectors in a trial intermediate-
-                state basis and returns the value and first and second
-                derivatives of the objective function specified by obj
-            diabatize : callable
-                Takes model-space CI vectors and returns CI vectors in
-                the optimized intermediate-state basis
+    Returns:
+        diabatizer : callable
+            Takes model-space CI vectors in a trial intermediate-state
+            basis and returns the value and first and second derivatives
+            of the objective function specified by obj
+        diabatize : callable
+            Takes model-space CI vectors and returns CI vectors in the
+            optimized intermediate-state basis
     '''
 
     if obj.upper () == 'CMS':
@@ -538,7 +536,8 @@ def multi_state (mc, weights=(0.5,0.5), diabatization='CMS', **kwargs):
             Currently supports only 'cms'
 
     Returns:
-        si : instance of class _MSPDFT '''
+        si : instance of class _MSPDFT
+    '''
 
     if isinstance (mc, MultiStateMCPDFTSolver):
         raise RuntimeError ('already a multi-state PDFT solver')

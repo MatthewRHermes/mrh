@@ -33,12 +33,13 @@ libpdft = load_library('libpdft')
 
 # TODO: outcore implementation; can I use properties instead of copying?
 class _ERIS(object):
-    ''' Stores two-body PDFT on-top effective potential array in a form
-        compatible with existing MC-SCF kernel and derivative functions.
-        Unlike actual eris, PDFT veff2 has 24-fold permutation symmetry,
-        so j_pc = k_pc and ppaa = papa.transpose (0,2,1,3). The mcscf
-        _ERIS is currently undocumented so I won't spend more time
-        documenting this for now. '''
+    '''Stores two-body PDFT on-top effective potential array in a form
+    compatible with existing MC-SCF kernel and derivative functions.
+    Unlike actual eris, PDFT veff2 has 24-fold permutation symmetry, so
+    j_pc = k_pc and ppaa = papa.transpose (0,2,1,3). The mcscf _ERIS is
+    currently undocumented so I won't spend more time documenting this
+    for now.
+    '''
     def __init__(self, mol, mo_coeff, ncore, ncas, method='incore',
             paaa_only=False, aaaa_only=False, jk_pc=False, verbose=0, stdout=None):
         self.mol = mol
@@ -180,44 +181,43 @@ class _ERIS(object):
 def kernel (ot, dm1s, cascm2, mo_coeff, ncore, ncas,
             max_memory=2000, hermi=1, paaa_only=False, aaaa_only=False,
             jk_pc=False):
-    ''' Get the 1- and 2-body effective potential from MC-PDFT.
+    '''Get the 1- and 2-body effective potential from MC-PDFT.
 
-        Args:
-            ot : an instance of otfnal class
-            dm1s : ndarray of shape (2, nao, nao)
-                containing spin-separated one-body density matrices
-            cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
-                containing spin-summed two-body cumulant density matrix
-                in an active space
-            mo_coeff : ndarray of shape (nao, nmo)
-                containing molecular orbital coefficients
-            ncore : integer
-                number of inactive orbitals
-            ncas : integer
-                number of active orbitals
+    Args:
+        ot : an instance of otfnal class
+        dm1s : ndarray of shape (2, nao, nao)
+            containing spin-separated one-body density matrices
+        cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            containing spin-summed two-body cumulant density matrix in
+            an active space
+        mo_coeff : ndarray of shape (nao, nmo)
+            containing molecular orbital coefficients
+        ncore : integer
+            number of inactive orbitals
+        ncas : integer
+            number of active orbitals
 
-        Kwargs:
-            max_memory : int or float
-                maximum cache size in MB
-                default is 2000
-            hermi : int
-                1 if 1rdms are assumed hermitian, 0 otherwise
-            paaa_only : logical
-                If true, only compute the paaa range of papa and ppaa
-                (all other elements set to zero)
-            aaaa_only : logical
-                If true, only compute the aaaa range of papa and ppaa
-                (all other elements set to zero; overrides paaa_only)
-            jk_pc : logical
-                If true, compute the ppii=pipi elements of veff2
-                (otherwise, these are set to zero)
+    Kwargs:
+        max_memory : int or float
+            maximum cache size in MB
+            default is 2000
+        hermi : int
+            1 if 1rdms are assumed hermitian, 0 otherwise
+        paaa_only : logical
+            If true, only compute the paaa range of papa and ppaa
+            (all other elements set to zero)
+        aaaa_only : logical
+            If true, only compute the aaaa range of papa and ppaa
+            (all other elements set to zero; overrides paaa_only)
+        jk_pc : logical
+            If true, compute the ppii=pipi elements of veff2
+            (otherwise, these are set to zero)
 
-        Returns:
-            veff1 : ndarray of shape (nao, nao)
-                1-body effective potential
-            veff2 : object of class pdft_veff._ERIS
-                2-body effective potential and related quantities
-
+    Returns:
+        veff1 : ndarray of shape (nao, nao)
+            1-body effective potential
+        veff2 : object of class pdft_veff._ERIS
+            2-body effective potential and related quantities
     '''
     nocc = ncore + ncas
     ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
@@ -302,30 +302,29 @@ def kernel (ot, dm1s, cascm2, mo_coeff, ncore, ncas,
 
 def lazy_kernel (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1,
         veff2_mo=None):
-    ''' Get the 1- and 2-body effective potential from MC-PDFT.
-        Eventually I'll be able to specify mo slices for the 2-body part
+    '''Get the 1- and 2-body effective potential from MC-PDFT.
+    Eventually I'll be able to specify mo slices for the 2-body part
 
-        Args:
-            ot : an instance of otfnal class
-            dm1s : ndarray of shape (2, nao, nao)
-                containing spin-separated one-body density matrices
-            cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
-                containing spin-summed two-body cumulant density matrix
-                in an active space
-            mo_cas : ndarray of shape (nao, ncas)
-                containing molecular orbital coefficients for
-                active-space orbitals
+    Args:
+        ot : an instance of otfnal class
+        dm1s : ndarray of shape (2, nao, nao)
+            containing spin-separated one-body density matrices
+        cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            containing spin-summed two-body cumulant density matrix
+            in an active space
+        mo_cas : ndarray of shape (nao, ncas)
+            containing molecular orbital coefficients for
+            active-space orbitals
 
-        Kwargs:
-            max_memory : int or float
-                maximum cache size in MB
-                default is 2000
-            hermi : int
-                1 if 1rdms are assumed hermitian, 0 otherwise
+    Kwargs:
+        max_memory : int or float
+            maximum cache size in MB
+            default is 2000
+        hermi : int
+            1 if 1rdms are assumed hermitian, 0 otherwise
 
-        Returns : float
-            The MC-PDFT on-top exchange-correlation energy
-
+    Returns : float
+        The MC-PDFT on-top exchange-correlation energy
     '''
     if veff2_mo is not None:
         raise NotImplementedError ('Molecular orbital slices for 2-body part')

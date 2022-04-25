@@ -41,8 +41,9 @@ def get_gorb_update (mc, mo_coeff, ncore=None, ncas=None, nelecas=None,
     return gorb_update
 
 def mc1step_gen_g_hop (mc, mo, u, casdm1, casdm2, eris):
-    ''' Wrapper to mc1step.gen_g_hop for minimizing the PDFT energy
-        instead of the CASSCF energy by varying orbitals '''
+    '''Wrapper to mc1step.gen_g_hop for minimizing the PDFT energy
+    instead of the CASSCF energy by varying orbitals
+    '''
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
     nocc = ncore + ncas
     nao, nmo = mo.shape
@@ -67,14 +68,16 @@ def mc1step_gen_g_hop (mc, mo, u, casdm1, casdm2, eris):
     return g_orb, gorb_update, h_op, h_diag
 
 def mc1step_update_jk_in_ah (*args, **kwargs):
-    ''' Wrapper to nullify mc1step.update_jk_in_ah, which is called
-        only when nocc>0 (inapplicable to MC-PDFT). Hybrid fnals might
-        need something here, though. ''' 
+    '''Wrapper to nullify mc1step.update_jk_in_ah, which is called only
+    when nocc>0 (inapplicable to MC-PDFT). Hybrid fnals might need
+    something here, though.
+    '''
     return 0,0
 
 def update_jot_in_ah (mc, mo_coeff, x1, casdm1, veff2):
-    ''' Replacement for mc1step.update_jk_in_ah for minimizing the PDFT
-        energy instead of the CASSCF energy by varying orbitals '''
+    '''Replacement for mc1step.update_jk_in_ah for minimizing the PDFT
+    energy instead of the CASSCF energy by varying orbitals.
+    '''
     ncore, ncas = mc.ncore, mc.ncas
     nocc = ncore + ncas
     nao, nmo = mo_coeff.shape

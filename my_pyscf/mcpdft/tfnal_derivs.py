@@ -29,8 +29,8 @@ def _pack_fxc_ltri (fxc, dens_deriv):
     return fxc
 
 def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
-    r''' get the integrand of the on-top xc energy and its functional
-         derivatives wrt rho and Pi 
+    r'''get the integrand of the on-top xc energy and its functional
+    derivatives wrt rho and Pi
 
     Args:
         rho : ndarray of shape (2,*,ngrids)

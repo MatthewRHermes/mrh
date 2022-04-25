@@ -29,7 +29,7 @@ def get_heff_cas (mc, mo_coeff, ci, link_index=None):
     return h0, h1, h2
 
 def _ci_min_epdft_fp (mc, mo_coeff, ci0, hcas=None, verbose=None):
-    ''' Minimize the PDFT energy of a single state by repeated 
+    '''Minimize the PDFT energy of a single state by repeated
     diagonalizations of the effective PDFT Hamiltonian
     hpdft = Pcas (vnuc + dE/drdm1 op1 + dE/drdm2 op2) Pcas
     (as if that makes sense...) 
@@ -178,8 +178,8 @@ def mc1step_casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
 
 def mc1step_update_casdm(mc, mo, u, fcivec, e_cas, eris, envs={}):
     ''' Wrapper for mc1step.update_casdm to use the PDFT effective
-        Hamiltonian, rather than the physical Hamiltonian, for
-        approximate micro-step CI vector updates. '''
+    Hamiltonian, rather than the physical Hamiltonian, for approximate
+    micro-step CI vector updates. '''
     mo1 = np.dot (mo, u)
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
 

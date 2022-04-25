@@ -7,12 +7,12 @@ from pyscf.mcscf.addons import StateAverageMixFCISolver
 from scipy import linalg
 
 def _get_fcisolver (mc, ci, state=0):
-    ''' Find the appropriate FCI solver, CI vector, and nelecas tuple to
-        build single-state reduced density matrices. If state_average or
-        state_average_mix is involved this takes a bit of work
+    '''Find the appropriate FCI solver, CI vector, and nelecas tuple to
+    build single-state reduced density matrices. If state_average or
+    state_average_mix is involved this takes a bit of work.
 
-        The better solution, of course, is to edit StateAverage*FCI
-        classes to have quick density-matrices-of-one-state API...
+    The better solution, of course, is to edit StateAverage*FCI classes
+    to have quick density-matrices-of-one-state API...
     '''
     nelecas = mc.nelecas
     nroots = getattr (mc.fcisolver, 'nroots', 1)
@@ -94,8 +94,7 @@ def dm2_cumulant (dm2, dm1s):
     return cm2
 
 def dm2s_cumulant (dm2s, dm1s):
-    '''
-    Evaluate the spin-summed two-body cumulant reduced density
+    '''Evaluate the spin-summed two-body cumulant reduced density
     matrix:
 
     cm2s[0][p,q,r,s] = (dm2s[0][p,q,r,s] - dm1s[0][p,q]*dm1s[0][r,s]
@@ -131,10 +130,9 @@ def dm2s_cumulant (dm2s, dm1s):
     return tuple (cm2s)
 
 def casdm1s_to_dm1s (mc, casdm1s, mo_coeff=None, ncore=None, ncas=None):
-    '''
-    Generate AO-basis spin-separated 1-RDM from active space part. This
-    is necessary because the StateAverageMCSCFSolver class doesn't have
-    API for getting the AO-basis density matrix of a single state.
+    '''Generate AO-basis spin-separated 1-RDM from active space part.
+    This is necessary because the StateAverageMCSCFSolver class doesn't
+    have API for getting the AO-basis density matrix of a single state.
 
     Args:
         mc : object of CASCI or CASSCF class

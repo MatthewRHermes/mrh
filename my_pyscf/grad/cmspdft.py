@@ -9,28 +9,30 @@ from mrh.my_pyscf.mcpdft.cmspdft import coulomb_tensor
 
 # TODO: docstring?
 def diab_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
-    ''' Computes the Hessian-vector product of
-        Q_a-a = 1/2 sum_I g_pqrs <I|p'q|I> <I|r's|I>
-        where the vector is a vector of intermediate-state rotations
-        and the external derivatives are with respect to orbital
-        rotations and CI transfers.
+    '''Computes the Hessian-vector product of
 
-        Args:
-            mc_grad : object of class Gradients (CASSCF or CASCI)
-            Lis : ndarray of shape (nroots*(nroots-1)/2,)
-                Contains step vector for intermediate state rotations
+    Q_a-a = 1/2 sum_I g_pqrs <I|p'q|I> <I|r's|I>
 
-        Kwargs:
-            mo : ndarray of shape (nao,nmo)
-                Contains MO coefficients
-            ci : ndarray or list of length (nroots)
-                Contains intermediate-state CI vectors
-            eris : object of class ERIS (CASSCF or CASCI)
-                Contains (true) ERIs in the MO basis
+    where the vector is a vector of intermediate-state rotations and the
+    external derivatives are with respect to orbital rotations and CI
+    transfers.
 
-        Returns:
-            R : ndarray of shape (mc_grad.ngorb+mc_grad.nci)
-                Contains Hessian-vector product
+    Args:
+        mc_grad : object of class Gradients (CASSCF or CASCI)
+        Lis : ndarray of shape (nroots*(nroots-1)/2,)
+            Contains step vector for intermediate state rotations
+
+    Kwargs:
+        mo : ndarray of shape (nao,nmo)
+            Contains MO coefficients
+        ci : ndarray or list of length (nroots)
+            Contains intermediate-state CI vectors
+        eris : object of class ERIS (CASSCF or CASCI)
+            Contains (true) ERIs in the MO basis
+
+    Returns:
+        R : ndarray of shape (mc_grad.ngorb+mc_grad.nci)
+            Contains Hessian-vector product
     '''
 
     mc = mc_grad.base
@@ -93,9 +95,9 @@ def diab_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
 # TODO: get rid?? Fix?? Unittest???
 # BROKEN FOR CI AND IS; DO NOT USE
 def diab_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
-    ''' Alternate implementation: monkeypatch everything but
-        active-active Coulomb part of the Hamiltonian and call
-        newton_casscf.gen_g_hop ()[2].
+    '''Alternate implementation: monkeypatch everything but
+    active-active Coulomb part of the Hamiltonian and call
+    newton_casscf.gen_g_hop ()[2].
     '''
 
     mc = mc_grad.base
@@ -195,31 +197,33 @@ def diab_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
 
 def diab_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
         mf_grad=None, **kwargs):
-    ''' Computes the partial first derivatives of
-        Q_a-a = 1/2 sum_I g_pqrs <I|p'q|I> <I|r's|I>
-        with respect to geometry perturbation.
+    '''Computes the partial first derivatives of
 
-        Args:
-            mc_grad : object of class Gradients (CASSCF or CASCI)
-            Lis : ndarray of shape (nroots*(nroots-1)/2,)
-                Contains step vector for intermediate state rotations
+    Q_a-a = 1/2 sum_I g_pqrs <I|p'q|I> <I|r's|I>
 
-        Kwargs:
-            atmlst : list
-                List of atoms whose geometries are perturbed. Defaults
-                to all atoms in mc_grad.mol.
-            mo : ndarray of shape (nao,nmo)
-                Contains MO coefficients
-            ci : ndarray or list of length (nroots)
-                Contains intermediate-state CI vectors
-            eris : object of class ERIS (CASSCF or CASCI)
-                Contains (true) ERIs in the MO basis
-            mf_grad: object of class Gradients (RHF)
-                Defaults to mc_grad.base._scf.nuc_grad_method ()
+    with respect to geometry perturbation.
 
-        Returns:
-            de : ndarray of shape (len (atmlst), 3)
-                Contains gradient vector
+    Args:
+        mc_grad : object of class Gradients (CASSCF or CASCI)
+        Lis : ndarray of shape (nroots*(nroots-1)/2,)
+            Contains step vector for intermediate state rotations
+
+    Kwargs:
+        atmlst : list
+            List of atoms whose geometries are perturbed. Defaults
+            to all atoms in mc_grad.mol.
+        mo : ndarray of shape (nao,nmo)
+            Contains MO coefficients
+        ci : ndarray or list of length (nroots)
+            Contains intermediate-state CI vectors
+        eris : object of class ERIS (CASSCF or CASCI)
+            Contains (true) ERIs in the MO basis
+        mf_grad: object of class Gradients (RHF)
+            Defaults to mc_grad.base._scf.nuc_grad_method ()
+
+    Returns:
+        de : ndarray of shape (len (atmlst), 3)
+            Contains gradient vector
     '''
 
     mc = mc_grad.base

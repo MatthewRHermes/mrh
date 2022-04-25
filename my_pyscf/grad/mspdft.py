@@ -15,27 +15,27 @@ from itertools import product
 
 # TODO: state-average-mix generalization ?
 def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket): 
-    ''' Compute <bra|O|ket> - sum_i <i|O|i>, where O is the 1- and 2-RDM
-        operator product, and |bra> and |ket> are both states spanning
-        the vector space of |i>, which are multi-determinantal many-
-        electron states in an active space.
+    '''Compute <bra|O|ket> - sum_i <i|O|i>, where O is the 1- and 2-RDM
+    operator product, and |bra> and |ket> are both states spanning the
+    vector space of |i>, which are multi-determinantal many-electron
+    states in an active space.
 
-        Args:
-            mc : object of class CASCI or CASSCF
-                Only "ncas" and "nelecas" are used, to determine Hilbert
-                space of ci
-            ci : ndarray or list of length (nroots)
-                Contains CI vectors spanning a model space
-            si_bra : ndarray of shape (nroots)
-                Coefficients of ci elements for state |bra>
-            si_ket : ndarray of shape (nroots)
-                Coefficients of ci elements for state |ket>
+    Args:
+        mc : object of class CASCI or CASSCF
+            Only "ncas" and "nelecas" are used, to determine Hilbert
+            of ci
+        ci : ndarray or list of length (nroots)
+            Contains CI vectors spanning a model space
+        si_bra : ndarray of shape (nroots)
+            Coefficients of ci elements for state |bra>
+        si_ket : ndarray of shape (nroots)
+            Coefficients of ci elements for state |ket>
 
-        Returns:
-            casdm1 : ndarray of shape [ncas,]*2
-                Contains O = p'q case
-            casdm2 : ndarray of shape [ncas,]*4
-                Contains O = p'q'sr case
+    Returns:
+        casdm1 : ndarray of shape [ncas,]*2
+            Contains O = p'q case
+        casdm2 : ndarray of shape [ncas,]*4
+            Contains O = p'q'sr case
     '''
     ncas, nelecas = mc.ncas, mc.nelecas
     nroots = len (ci)
@@ -57,8 +57,8 @@ def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket):
 def mspdft_heff_response (mc_grad, mo=None, ci=None,
         si_bra=None, si_ket=None, state=None, 
         heff_mcscf=None, eris=None):
-    ''' Compute the orbital and intermediate-state rotation response 
-        vector in the context of an MS-PDFT gradient calculation '''
+    '''Compute the orbital and intermediate-state rotation response
+    vector in the context of an MS-PDFT gradient calculation '''
     mc = mc_grad.base
     if mo is None: mo = mc_grad.mo_coeff
     if ci is None: ci = mc_grad.ci
@@ -146,26 +146,26 @@ def mspdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
     return de
 
 def get_diabfns (obj):
-    ''' Interpret the name of the MS-PDFT method as a pair of functions
-        which compute the derivatives of a particular objective function
-        with respect to wave function parameters and geometry
-        perturbations, excluding first and second derivatives wrt
-        intermediate state rotations, which is handled by the energy-
-        class version of this function.
+    '''Interpret the name of the MS-PDFT method as a pair of functions
+    which compute the derivatives of a particular objective function
+    with respect to wave function parameters and geometry perturbations,
+    excluding first and second derivatives wrt intermediate state
+    rotations, which is handled by the energy-class version of this
+    function.
 
-        Args:
-            obj : string
-                Specify particular MS-PDFT method. Currently, only "CMS"
-                is supported. Not case-sensitive.
+    Args:
+        obj : string
+            Specify particular MS-PDFT method. Currently, only "CMS" is
+            supported. Not case-sensitive.
 
-        Returns:
-            diab_response : callable
-                Computes the orbital-rotation and CI-transfer sectors of
-                the Hessian-vector product of the MS objective function
-                for a vector of intermediate-state rotations
-            diab_grad : callable
-                Computes the gradient of the MS objective function wrt
-                geometry perturbation
+    Returns:
+        diab_response : callable
+            Computes the orbital-rotation and CI-transfer sectors of the
+            Hessian-vector product of the MS objective function for a
+            vector of intermediate-state rotations
+        diab_grad : callable
+            Computes the gradient of the MS objective function wrt
+            geometry perturbation
     '''
     if obj.upper () == 'CMS':
         from mrh.my_pyscf.grad.cmspdft import diab_response, diab_grad
@@ -200,15 +200,15 @@ class Gradients (mcpdft_grad.Gradients):
 
     def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False, 
             **kwargs):
-        ''' Cache the Hamiltonian and effective Hamiltonian terms, and
-            pass around the IS hessian
+        '''Cache the Hamiltonian and effective Hamiltonian terms, and
+        pass around the IS hessian
 
-            eris, veff1, veff2, and d2f should be available to all top-
-            level functions: get_wfn_response, get_Aop_Adiag,
-            get_ham_response, and get_LdotJnuc
+        eris, veff1, veff2, and d2f should be available to all top-level
+        functions: get_wfn_response, get_Aop_Adiag, get_ham_response,
+        and get_LdotJnuc
  
-            freeze_is == True sets the is component of the response to
-            zero for debugging purposes
+        freeze_is == True sets the is component of the response to zero
+        for debugging purposes
         '''
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
@@ -367,8 +367,9 @@ class Gradients (mcpdft_grad.Gradients):
     def get_ham_response (self, si_bra=None, si_ket=None, state=None, mo=None,
             ci=None, si=None, eris=None, veff1=None, veff2=None, mf_grad=None, 
             atmlst=None, verbose=None, **kwargs):
-        ''' write mspdft heff Hellmann-Feynman calculator; sum over
-            diagonal PDFT Hellmann-Feynman terms '''
+        '''write mspdft heff Hellmann-Feynman calculator; sum over
+        diagonal PDFT Hellmann-Feynman terms
+        '''
         if atmlst is None: atmlst = self.atmlst
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci

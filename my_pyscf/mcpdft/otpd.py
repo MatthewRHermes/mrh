@@ -11,7 +11,7 @@ from os import path
 
 def _grid_ao2mo (mol, ao, mo_coeff, non0tab=None, shls_slice=None,
         ao_loc=None):
-    ''' ao[deriv,grid,AO].mo_coeff[AO,MO]->mo[deriv,grid,MO]
+    '''ao[deriv,grid,AO].mo_coeff[AO,MO]->mo[deriv,grid,MO]
     ASSUMES that ao is in data layout (deriv,AO,grid) in row-major order!
     mo is returned in data layout (deriv,MO,grid) in row-major order '''
     nderiv, ngrid, nao = ao.shape
@@ -29,42 +29,42 @@ def _grid_ao2mo (mol, ao, mo_coeff, non0tab=None, shls_slice=None,
 
 def get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas, deriv=0,
         non0tab=None):
-    r''' Pi(r) = i(r)*j(r)*k(r)*l(r)*d_ijkl / 2
-               = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2
+    r'''Compute the on-top pair density and its derivatives on a grid:
 
-        Args:
-            ot : on-top pair density functional object
-            rho : ndarray of shape (2,*,ngrids) 
-                Contains spin-separated density [and derivatives]. 
-                The dm1s underlying these densities must correspond
-                to the dm1s/dm1 in the expression for cascm2 below.
-            ao : ndarray of shape (*, ngrids, nao)
-                contains values of aos [and derivatives] 
-            cascm2 : ndarray of shape [ncas,]*4
-                contains spin-summed two-body cumulant density matrix in
-                the active-orbital basis:
-                cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
-                               + dm1s[0][u,y]*dm1s[0][x,v]
-                               + dm1s[1][u,y]*dm1s[1][x,v]
-                The cumulant has no nonzero elements for any index 
-                outside the active space (unlike dm2, which formally has
-                elements [i,i,u,v], etc., even though they are not
-                constructed explicitly in PySCF).
-            mo_cas : ndarray of shape (nao, ncas)
-                molecular-orbital coefficients for active-space orbitals
+    Pi(r) = i(r)*j(r)*k(r)*l(r)*d_ijkl / 2
+          = rho[0](r)*rho[1](r) + i(r)*j(r)*k(r)*l(r)*l_ijkl / 2
 
-        Kwargs:
-            deriv : derivative order through which to calculate. Default
-                is 0. deriv > 1 not implemented
-            non0tab : as in pyscf.dft.gen_grid and pyscf.dft.numint
+    Args:
+        ot : on-top pair density functional object
+        rho : ndarray of shape (2,*,ngrids)
+            Contains spin-separated density [and derivatives]. The dm1s
+            underlying these densities must correspond to the dm1s/dm1
+            in the expression for cascm2 below.
+        ao : ndarray of shape (*, ngrids, nao)
+            contains values of aos [and derivatives]
+        cascm2 : ndarray of shape [ncas,]*4
+            contains spin-summed two-body cumulant density matrix in the
+            active-orbital basis:
+            cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
+                           + dm1s[0][u,y]*dm1s[0][x,v]
+                           + dm1s[1][u,y]*dm1s[1][x,v]
+            The cumulant has no nonzero elements for any index outside
+            the active space (unlike dm2, which formally has elements
+            [i,i,u,v], etc., even though they are not constructed
+            explicitly in PySCF).
+        mo_cas : ndarray of shape (nao, ncas)
+            molecular-orbital coefficients for active-space orbitals
 
-        Returns : ndarray of shape (*,ngrids)
-            The on-top pair density and its derivatives if requested
-            deriv = 0 : value (1d array)
-            deriv = 1 : value, d/dx, d/dy, d/dz
-            deriv = 2 : value, d/dx, d/dy, d/dz, d^2/d|r1-r2|^2_(r1=r2)
-            
+    Kwargs:
+        deriv : derivative order through which to calculate.
+            deriv > 1 not implemented
+        non0tab : as in pyscf.dft.gen_grid and pyscf.dft.numint
 
+    Returns : ndarray of shape (*,ngrids)
+        The on-top pair density and its derivatives if requested
+        deriv = 0 : value (1d array)
+        deriv = 1 : value, d/dx, d/dy, d/dz
+        deriv = 2 : value, d/dx, d/dy, d/dz, d^2/d|r1-r2|^2_(r1=r2)
     '''
     # Fix dimensionality of rho and ao
     if rho.ndim == 2:
@@ -214,7 +214,6 @@ def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
             3/4-transformed pair density matrix on a grid and its
             derivatives. Data stride is 0>2>1; i.e.,
             dPi.transpose (0,2,1) is a contiguous row-major array.
-            
     '''
     nocc = ncore + ncas
     nderiv_Pi = (1,4)[int (deriv)]

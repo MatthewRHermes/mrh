@@ -57,20 +57,22 @@ def vector_error (test, ref): return la.vector_error (test, ref, 'rel')
 # Reposition class-member kwargs as calling kwargs where appropriate and
 # possible.
 class EotOrbitalHessianOperator (object):
-    ''' Callable object for computing
-        (f.x)_pq = (int fot * drho/dk_pq drho/dk_rs x_rs dr)
-        where fot is the second functional derivative of an on-top
-        functional, and "rho" is any of the density, the on-top pair
-        density or their derivatives, in the context of an MC-PDFT
-        calculation the ncore, ncas, mo_coeff.
+    '''Callable object for computing
 
-        Does not compute any contribution of the type
-        (int vot * d^2 rho / dk_pq dk_rs x_rs dr)
-        except optionally for that related to the Pi = (1/4) rho^2
-        cumulant approximation. All other vot terms are more efficiently
-        computed using cached effective Hamiltonian tensors that map
-        straightforwardly to those involved in CASSCF orbital
-        optimization.
+    (f.x)_pq = (int fot * drho/dk_pq drho/dk_rs x_rs dr)
+
+    where fot is the second functional derivative of an on-top
+    functional, and "rho" is any of the density, the on-top pair
+    density or their derivatives, in the context of an MC-PDFT
+    calculation the ncore, ncas, mo_coeff.
+
+    Does not compute any contribution of the type
+    (int vot * d^2 rho / dk_pq dk_rs x_rs dr)
+    except optionally for that related to the Pi = (1/4) rho^2
+    cumulant approximation. All other vot terms are more efficiently
+    computed using cached effective Hamiltonian tensors that map
+    straightforwardly to those involved in CASSCF orbital
+    optimization.
     '''
     
     def __init__(self, mc, ot=None, mo_coeff=None, ncore=None, ncas=None,

@@ -17,33 +17,31 @@ from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, get_transfnal
 from mrh.my_pyscf.mcpdft import _dms 
 
 def energy_tot (mc, mo_coeff=None, ci=None, ot=None, state=0, verbose=None):
-    ''' Calculate MC-PDFT total energy
+    '''Calculate MC-PDFT total energy
 
-        Args:
-            mc : an instance of CASSCF or CASCI class
-                Note: this function does not currently run the CASSCF or
-                CASCI calculation itself prior to calculating the
-                MC-PDFT energy. Call mc.kernel () before passing to this
-                function!
+    Args:
+        mc : an instance of CASSCF or CASCI class
+            Note: this function does not currently run the CASSCF or
+            CASCI calculation itself prior to calculating the MC-PDFT
+            energy. Call mc.kernel () before passing to this function!
 
-        Kwargs:
-            mo_coeff : ndarray of shape (nao, nmo)
-                Molecular orbital coefficients
-            ci : ndarray or list
-                CI vector or vectors. Must be consistent with the nroots
-                of mc.
-            ot : an instance of on-top functional class - see otfnal.py
-            state : int
-                If mc describes a state-averaged calculation, select the
-                state (0-indexed).
-            verbose : int
-                Verbosity of logger output; defaults to mc.verbose
+    Kwargs:
+        mo_coeff : ndarray of shape (nao, nmo)
+            Molecular orbital coefficients
+        ci : ndarray or list of length (nroots)
+            CI vector or vectors.
+        ot : an instance of on-top functional class - see otfnal.py
+        state : int
+            If mc describes a state-averaged calculation, select the
+            state (0-indexed).
+        verbose : int
+            Verbosity of logger output; defaults to mc.verbose
 
-        Returns:
-            e_tot : float
-                Total MC-PDFT energy including nuclear repulsion energy
-            E_ot : float
-                On-top (cf. exchange-correlation) energy
+    Returns:
+        e_tot : float
+            Total MC-PDFT energy including nuclear repulsion energy
+        E_ot : float
+            On-top (cf. exchange-correlation) energy
     '''
     if ot is None: ot = mc.otfnal
     ot.reset (mol=mc.mol) # scanner mode safety
@@ -88,34 +86,33 @@ def energy_elec (mc, *args, **kwargs):
 
 def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
         casdm2=None, verbose=None):
-    ''' Compute the parts of the MC-PDFT energy arising from the wave
-        function
+    '''Compute the parts of the MC-PDFT energy arising from the wave
+    function
 
-        Args:
-            mc : an instance of CASSCF or CASCI class
-                Note: this function does not currently run the CASSCF or
-                CASCI calculation itself prior to calculating the
-                MC-PDFT energy. Call mc.kernel () before passing to thiswould
-                function!
+    Args:
+        mc : an instance of CASSCF or CASCI class
+            Note: this function does not currently run the CASSCF or
+            CASCI calculation itself prior to calculating the MC-PDFT
+            energy. Call mc.kernel () before passing to this function!
 
-        Kwargs:
-            mo_coeff : ndarray of shape (nao, nmo)
-                contains molecular orbital coefficients
-            ci : list or ndarray
-                contains ci vectors
-            ot : an instance of on-top functional class - see otfnal.py
-            state : int
-                If mc describes a state-averaged calculation, select the
-                state (0-indexed).
-            casdm1s : ndarray or compatible of shape (2,ncas,ncas)
-                Contains spin-separated active-space 1RDM
-            casdm2 : ndarray or compatible of shape [ncas,]*4
-                Contains spin-summed active-space 2RDM
+    Kwargs:
+        mo_coeff : ndarray of shape (nao, nmo)
+            contains molecular orbital coefficients
+        ci : list or ndarray
+            contains ci vectors
+        ot : an instance of on-top functional class - see otfnal.py
+        state : int
+            If mc describes a state-averaged calculation, select the
+            state (0-indexed).
+        casdm1s : ndarray or compatible of shape (2,ncas,ncas)
+            Contains spin-separated active-space 1RDM
+        casdm2 : ndarray or compatible of shape [ncas,]*4
+            Contains spin-summed active-space 2RDM
 
-        Returns:
-            e_mcwfn : float
-                Energy from the multiconfigurational wave function:
-                nuclear repulsion + 1e + coulomb
+    Returns:
+        e_mcwfn : float
+            Energy from the multiconfigurational wave function:
+            nuclear repulsion + 1e + coulomb
     '''
 
     if ot is None: ot = mc.otfnal
@@ -189,31 +186,32 @@ def energy_dft (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
         hermi=hermi)
 
 def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
-    ''' E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi] 
-        or, in other terms, 
-        E_MCPDFT = T_KS[rho] + E_ext[rho] + E_coul[rho] + E_ot[rho, Pi]
-                 = E_DFT[1rdm] - E_xc[rho] + E_ot[rho, Pi] 
-        Args:
-            ot : an instance of otfnal class
-            dm1s : ndarray of shape (2, nao, nao)
-                containing spin-separated one-body density matrices
-            cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
-                containing spin-summed two-body cumulant density matrix
-                in an active space
-            mo_cas : ndarray of shape (nao, ncas)
-                containing molecular orbital coefficients for
-                active-space orbitals
+    '''E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi]
 
-        Kwargs:
-            max_memory : int or float
-                maximum cache size in MB
-                default is 2000
-            hermi : int
-                1 if 1rdms are assumed hermitian, 0 otherwise
+    or, in other terms,
 
-        Returns : float
-            The MC-PDFT on-top (nonclassical) energy
+    E_MCPDFT = T_KS[rho] + E_ext[rho] + E_coul[rho] + E_ot[rho, Pi]
+             = E_DFT[1rdm] - E_xc[rho] + E_ot[rho, Pi]
+    Args:
+        ot : an instance of otfnal class
+        dm1s : ndarray of shape (2, nao, nao)
+            containing spin-separated one-body density matrices
+        cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            containing spin-summed two-body cumulant density matrix in
+            an active space
+        mo_cas : ndarray of shape (nao, ncas)
+            containing molecular orbital coefficients for active-space
+            orbitals
 
+    Kwargs:
+        max_memory : int or float
+            maximum cache size in MB
+            default is 2000
+        hermi : int
+            1 if 1rdms are assumed hermitian, 0 otherwise
+
+    Returns : float
+        The MC-PDFT on-top (nonclassical) energy
     '''
     ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
     norbs_ao = mo_cas.shape[0]
@@ -236,41 +234,41 @@ def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
     return E_ot
 
 def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
-    ''' Compute a decomposition of the MC-PDFT energy into nuclear potential
-        (E0), one-electron (E1), Coulomb (E2c), exchange (EOTx), correlation
-        (EOTc) terms, and additionally the nonclassical part (E2nc) of the
-        MC-SCF energy:
+    '''Compute a decomposition of the MC-PDFT energy into nuclear
+    potential (E0), one-electron (E1), Coulomb (E2c), exchange (EOTx),
+    correlation (EOTc) terms, and additionally the nonclassical part
+    (E2nc) of the MC-SCF energy:
 
-        E(MC-SCF) = E0 + E1 + E2c + Enc
-        E(MC-PDFT) = E0 + E1 + E2c + EOTx + EOTc
+    E(MC-SCF) = E0 + E1 + E2c + Enc
+    E(MC-PDFT) = E0 + E1 + E2c + EOTx + EOTc
 
-        Only compatible with pure translated or fully-translated functionals.
-        If mc.fcisolver.nroots > 1, lists are returned for everything except
-        the nuclear potential energy.
+    Only compatible with pure translated or fully-translated fnals. If
+    mc.fcisolver.nroots > 1, lists are returned for everything except
+    the nuclear potential energy.
 
-        Args:
-            mc : an instance of CASSCF or CASCI class
+    Args:
+        mc : an instance of CASSCF or CASCI class
 
-        Kwargs:
-            mo_coeff : ndarray
-                Contains MO coefficients
-            ci : ndarray or list of length nroots
-                Contains CI vectors
-            ot : an instance of (translated) on-top density fnal class
+    Kwargs:
+        mo_coeff : ndarray
+            Contains MO coefficients
+        ci : ndarray or list of length nroots
+            Contains CI vectors
+        ot : an instance of (translated) on-top density fnal class
 
-        Returns:
-            e_nuc : float
-                E0 = sum_A>B ZA*ZB/rAB
-            e_1e : float or list of length nroots
-                E1 = <T+sum_A ZA/rA> 
-            e_coul : float or list of length nroots
-                E2c = 1/2 int rho(1)rho(2)/r12 d1d2
-            e_otx : float or list of length nroots
-                EOTx = exchange part of translated functional
-            e_otc : float or list of length nroots
-                EOTx = correlation part of translated functional
-            e_ncwfn : float or list of length nroots
-                E2ncc = <H> - E0 - E1 - E2c
+    Returns:
+        e_nuc : float
+            E0 = sum_A>B ZA*ZB/rAB
+        e_1e : float or list of length nroots
+            E1 = <T+sum_A ZA/rA>
+        e_coul : float or list of length nroots
+            E2c = 1/2 int rho(1)rho(2)/r12 d1d2
+        e_otx : float or list of length nroots
+            EOTx = exchange part of translated functional
+        e_otc : float or list of length nroots
+            EOTx = correlation part of translated functional
+        e_ncwfn : float or list of length nroots
+            E2ncc = <H> - E0 - E1 - E2c
     '''            
     if mo_coeff is None: mo_coeff=mc.mo_coeff
     if ci is None: mo_coeff=mc.ci
@@ -339,8 +337,8 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
     return e_1e, e_coul, e_otx, e_otc, e_ncwfn
 
 class _mcscf_env (object):
-    ''' Prevent MC-SCF step of MC-PDFT from overwriting redefined
-        quantities e_states and e_tot '''
+    '''Prevent MC-SCF step of MC-PDFT from overwriting redefined
+    quantities e_states and e_tot '''
     def __init__(self, mc):
         self.mc = mc
         self.e_tot = deepcopy (self.mc.e_tot)
@@ -385,7 +383,6 @@ class _PDFT ():
             Vnn + h_pq*D_pq + g_pqrs*d_pqrs/2
         e_ot : float or list of length nroots
             On-top nonclassical term in the MC-PDFT energy
-
     '''
 
     def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None,
@@ -440,8 +437,8 @@ class _PDFT ():
         return self.otfnal.grids 
 
     def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
-        ''' Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
-            Has the same calling signature as the parent kernel method. '''
+        '''Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
+        Has the same calling signature as the parent kernel method. '''
         with _mcscf_env (self):
             self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
                 super().kernel (mo_coeff, ci0=ci0, **kwargs)
@@ -449,8 +446,8 @@ class _PDFT ():
 
     def compute_pdft_energy_(self, mo_coeff=None, ci=None, ot=None, otxc=None,
                              grids_level=None, grids_attr=None, **kwargs):
-        ''' Compute the MC-PDFT energy(ies) (and update stored data)
-            with the MC-SCF wave function fixed. '''
+        '''Compute the MC-PDFT energy(ies) (and update stored data)
+        with the MC-SCF wave function fixed. '''
         if mo_coeff is not None: self.mo_coeff = mo_coeff
         if ci is not None: self.ci = ci
         if ot is not None: self.otfnal = ot
@@ -504,46 +501,44 @@ class _PDFT ():
     def get_pdft_veff (self, mo=None, ci=None, state=0, casdm1s=None,
             casdm2=None, incl_coul=False, paaa_only=False, aaaa_only=False,
             jk_pc=False):
-        ''' Get the 1- and 2-body MC-PDFT effective potentials for a set
-            of mos and ci vectors
+        '''Get the 1- and 2-body MC-PDFT effective potentials for a set
+        of mos and ci vectors
 
-            Kwargs:
-                mo : ndarray of shape (nao,nmo)
-                    A full set of molecular orbital coefficients. Taken
-                    from self if not provided
-                ci : list or ndarray
-                    CI vectors. Taken from self if not provided
-                state : integer
-                    Indexes a specific state in state-averaged
-                    calculations. If negative, it generates a
-                    state-averaged effective potential.
-                casdm1s : ndarray of shape (2,ncas,ncas)
-                    Spin-separated 1-RDM in the active space
-                casdm2 : ndarray of shape (ncas,ncas,ncas,ncas)
-                    Spin-summed 2-RDM in the active space
-                incl_coul : logical
-                    If true, includes the Coulomb repulsion energy in
-                    the 1-body effective potential.
-                paaa_only : logical
-                    If true, only the paaa 2-body effective potential
-                    elements are evaluated; the rest of ppaa are filled
-                    with zeros.
-                aaaa_only : logical
-                    If true, only the aaaa 2-body effective potential
-                    elements are evaluated; the rest of ppaa are filled
-                    with zeros.
-                jk_pc : logical
-                    If true, calculate the ppii=pipi 2-body effective
-                    potential in veff2.j_pc and veff2.k_pc. Otherwise
-                    these arrays are filled with zeroes.
+        Kwargs:
+            mo : ndarray of shape (nao,nmo)
+                A full set of molecular orbital coefficients. Taken from
+                self if not provided
+            ci : list or ndarray
+                CI vectors. Taken from self if not provided
+            state : integer
+                Indexes a specific state in state-averaged calculations.
+            casdm1s : ndarray of shape (2,ncas,ncas)
+                Spin-separated 1-RDM in the active space
+            casdm2 : ndarray of shape (ncas,ncas,ncas,ncas)
+                Spin-summed 2-RDM in the active space
+            incl_coul : logical
+                If true, includes the Coulomb repulsion energy in the
+                1-body effective potential.
+            paaa_only : logical
+                If true, only the paaa 2-body effective potential
+                elements are evaluated; the rest of ppaa are filled with
+                zeros.
+            aaaa_only : logical
+                If true, only the aaaa 2-body effective potential
+                elements are evaluated; the rest of ppaa are filled with
+                zeros.
+            jk_pc : logical
+                If true, calculate the ppii=pipi 2-body effective
+                potential in veff2.j_pc and veff2.k_pc. Otherwise these
+                arrays are filled with zeroes.
 
-            Returns:
-                veff1 : ndarray of shape (nao, nao)
-                    1-body effective potential in the AO basis
-                    May include classical Coulomb potential term (see
-                    incl_coul kwarg)
-                veff2 : pyscf.mcscf.mc_ao2mo._ERIS instance
-                    Relevant 2-body effective potential in the MO basis
+        Returns:
+            veff1 : ndarray of shape (nao, nao)
+                1-body effective potential in the AO basis
+                May include classical Coulomb potential term (see
+                incl_coul kwarg)
+            veff2 : pyscf.mcscf.mc_ao2mo._ERIS instance
+                Relevant 2-body effective potential in the MO basis
         ''' 
         t0 = (logger.process_clock (), logger.perf_counter ())
         if mo is None: mo = self.mo_coeff
@@ -644,8 +639,10 @@ class _PDFT ():
 
 def get_mcpdft_child_class (mc, ot, **kwargs):
     # Inheritance magic
+    mc_doc = (mc.__class__.__doc__ or
+              'No docstring for MC-SCF parent method')
     class PDFT (_PDFT, mc.__class__):
-        __doc__=mc.__class__.__doc__+'\n\n'+_PDFT.__doc__
+        __doc__= mc_doc + '\n\n' +_PDFT.__doc__
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy ()

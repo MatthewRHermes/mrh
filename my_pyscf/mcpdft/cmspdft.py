@@ -9,7 +9,7 @@ from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad.mcpdft import Gradients
 
 def coulomb_tensor (mc, mo_coeff=None, ci=None, h2eff=None, eris=None):
-    ''' Compute w_IJKL = (tu|vx) D^IJ_tu D^KL_vx 
+    '''Compute w_IJKL = (tu|vx) D^IJ_tu D^KL_vx
 
     Args:
         mc : mcscf method instance
@@ -48,8 +48,8 @@ def coulomb_tensor (mc, mo_coeff=None, ci=None, h2eff=None, eris=None):
     return ao2mo.restore (1, w, nroots)
 
 def e_coul (mc, mo_coeff=None, ci=None, h2eff=None, eris=None):
-    ''' Compute the sum of active-space Coulomb energies (the diabatizer
-        function for CMS-PDFT) and its first and second derivatives
+    '''Compute the sum of active-space Coulomb energies (the diabatizer
+    function for CMS-PDFT) and its first and second derivatives
 
     Args:
         mc : mcscf method instance

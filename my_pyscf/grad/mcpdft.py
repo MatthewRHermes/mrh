@@ -16,17 +16,15 @@ import time, gc
 
 BLKSIZE = gen_grid.BLKSIZE
 
-# TODO: docstring? Should this be considered "private"? What about parent fn?
 def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None,
         atmlst=None, mf_grad=None, verbose=None, max_memory=None,
         auxbasis_response=False):
-    ''' Modification of pyscf.grad.casscf.kernel to compute instead the
-        Hellman-Feynman gradient terms of MC-PDFT. From the
-        differentiated Hamiltonian matrix elements, only the core and
-        Coulomb energy parts remain. For the renormalization terms, the
-        effective Fock matrix is as in CASSCF, but with the same
-        Hamiltonian substutition that is used for the energy response
-        terms. '''
+    '''Modification of pyscf.grad.casscf.kernel to compute instead the
+    Hellman-Feynman gradient terms of MC-PDFT. From the differentiated
+    Hamiltonian matrix elements, only the core and Coulomb energy parts
+    remain. For the renormalization terms, the effective Fock matrix is
+    as in CASSCF, but with the same Hamiltonian substutition that is
+    used for the energy response terms. '''
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
@@ -387,8 +385,7 @@ class Gradients (sacasscf.Gradients):
             verbose=verbose)
 
     def get_init_guess (self, bvec, Adiag, Aop, precond):
-        ''' Initial guess should solve the problem for SA-SA
-            rotations '''
+        '''Initial guess should solve the problem for SA-SA rotations'''
         sing_tol = getattr (self, 'sing_tol_sasa', 1e-8)
         ci = self.base.ci
         state = self.state
@@ -455,8 +452,9 @@ class Gradients (sacasscf.Gradients):
         return x0
 
     def kernel (self, **kwargs):
-        ''' Cache the effective Hamiltonian terms so you don't have to
-            calculate them twice '''
+        '''Cache the effective Hamiltonian terms so you don't have to
+        calculate them twice
+        '''
         state = kwargs['state'] if 'state' in kwargs else self.state
         if state is None:
             raise NotImplementedError ('Gradient of PDFT state-average energy')
@@ -471,9 +469,9 @@ class Gradients (sacasscf.Gradients):
         return super().kernel (**kwargs)
 
     def project_Aop (self, Aop, ci, state):
-        ''' Wrap the Aop function to project out redundant degrees of
-            freedom for the CI part.  What's redundant changes between
-            SA-CASSCF and MC-PDFT so modify this part in child classes.
+        '''Wrap the Aop function to project out redundant degrees of
+        freedom for the CI part.  What's redundant changes between
+        SA-CASSCF and MC-PDFT so modify this part in child classes.
         '''
         weights, e_mcscf = np.asarray (self.weights), np.asarray (self.e_mcscf)
         try:
