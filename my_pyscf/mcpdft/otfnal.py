@@ -180,7 +180,7 @@ class transfnal (otfnal):
     more information.
 
     Args:
-        ks : object of class :dft.RKS:
+        ks : object of :class:`dft.RKS`
             ks.xc is the Kohn-Sham functional being ``translated''
 
     '''
@@ -332,9 +332,9 @@ class transfnal (otfnal):
             for just the correlation part of the energy.
 
             Returns:
-                xfnal : object of class :transfnal:
+                xfnal : object of :class:`transfnal`
                     this functional, but only the exchange part
-                cfnal : object of class :transfnal:
+                cfnal : object of :class:`transfnal`
                     this functional, but only the correlation part
         '''
         if not re.search (',', self.otxc):
@@ -737,7 +737,6 @@ class colle_salvetti_corr (otfnal):
         E_ot *= -4 * a
         return E_ot      
                 
-# TODO: better docstring
 def _hybrid_2c_coeff (ni, xc_code, spin=0):
     ''' Wrapper to the xc_code hybrid coefficient parser to return the
     exchange and correlation components of the hybrid coefficent

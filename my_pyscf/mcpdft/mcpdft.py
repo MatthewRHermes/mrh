@@ -16,10 +16,6 @@ from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, get_transfnal
 from mrh.my_pyscf.mcpdft import _dms 
 
-# TODO: 
-# 1. Clean up "make_rdms_mcpdft":
-#       a. Make better use of existing API and name conventions
-
 def energy_tot (mc, mo_coeff=None, ci=None, ot=None, state=0, verbose=None):
     ''' Calculate MC-PDFT total energy
 
@@ -366,9 +362,31 @@ class _mcscf_env (object):
             # because that makes no sense
         self.mc._in_mcscf_env = False
 
-# TODO: docstring
 class _PDFT ():
     # Metaclass parent; unusable on its own
+    '''MC-PDFT child class. All total energy quantities (e_tot,
+    e_states) are MC-PDFT total energies:
+
+    E = Vnn + h_pq*D_pq + g_pqrs*D_pq*D_rs/2 + E_ot
+      = T + Vnn + Vne + E_Coul + E_ot
+      = E_classical + E_ot
+
+    Extra attributes:
+        otfnal : instance of :class:`otfnal`
+            The on-top energy functional class
+        otxc : string
+            Synonym for `otfnal.otxc`
+        grids : instance of :class:`Grids`
+            Synonym for `otfnal.grids`
+
+    Additional saved results:
+        e_mcscf : float or list of length nroots
+            MC-SCF total energy or energies:
+            Vnn + h_pq*D_pq + g_pqrs*d_pqrs/2
+        e_ot : float or list of length nroots
+            On-top nonclassical term in the MC-PDFT energy
+
+    '''
 
     def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None,
             grids_attr=None, **kwargs):
@@ -627,7 +645,7 @@ class _PDFT ():
 def get_mcpdft_child_class (mc, ot, **kwargs):
     # Inheritance magic
     class PDFT (_PDFT, mc.__class__):
-        pass
+        __doc__=mc.__class__.__doc__+'\n\n'+_PDFT.__doc__
 
     pdft = PDFT (mc._scf, mc.ncas, mc.nelecas, my_ot=ot, **kwargs)
     _keys = pdft._keys.copy ()

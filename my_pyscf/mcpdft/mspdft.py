@@ -168,23 +168,6 @@ def si_newton (mc, ci=None, objfn=None, max_cyc=None, conv_tol=None,
         fmt_str = ' ' + ' '.join (['{:5.2f}',]*nroots)
         log.debug ("{} final overlap matrix:".format (hdr))
         for row in u: log.debug (fmt_str.format (*row))
-    # Root order and sign by overlap criterion
-    # Requires ~strictly~ non-repeating sort
-    # TODO: generalize to only sort within solvers in
-    # SA-mix (can probably hack this using U_abs)
-    #U_abs = np.abs (U_signed)
-    #sgn = np.ones (nroots)
-    #ovlp_idx = -sgn.copy ().astype (np.int32)
-    #for imax in range (nroots):
-    #    i = np.argmax (U_abs)
-    #    j, k = i // nroots, i % nroots
-    #    sgn[j] -= 2 * int (U_signed[j,k] < 0)
-    #    ovlp_idx[j] = k
-    #    U_abs[j,:] = -1
-    #log.debug ("{} sign-permutation array: {}".format (hdr, sgn))
-    #log.debug ("{} overlap sort array: {}".format (hdr, ovlp_idx))
-    #ci *= sgn[:,None,None]
-    #ci = ci[ovlp_idx,:,:]
     if conv:
         log.note ("{} optimization CONVERGED".format (hdr))
     else:

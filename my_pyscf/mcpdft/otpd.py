@@ -148,17 +148,73 @@ def get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas, deriv=0,
 
     return Pi
 
-# TODO: better docstring
 def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
         deriv=0, non0tab=None):
-    ''' d/dk_ij rho(r) = [i(r) D_jk - j(r) D_ik] k(r)
-                       = i(r) D_j(r) - j(r) D_k(r)
-        d/dk_ij Pi(r) = [i(r) d_jklm - j(r) d_iklm] k(r) l(r) m(r)
-                      = [i(r) l_jklm - j(r) l_iklm] k(r) l(r) m(r)
-                        + [i(r) D[0]_jk - j(r) D[0]_ik] k(r) rho[1]
-                        + [i(r) D[1]_jk - j(r) D[1]_ik] k(r) rho[0]
-                      = i(r) d_j(r) - j(r) d_i(r)
-        What this function computes is D_i(r) and d_i(r)
+    '''Compute the half-transformed density and 3/4-transformed pair-
+    density matrix:
+
+    D_i(r) = sum_j D_ij phi_j(r)
+    d_i(r) = sum_jkl d_ijkl phi_j(r) phi_k(r) phi_l(r)
+
+    so that, for instance, the derivative with respect to orbital
+    rotations of the density and pair density are
+
+    d/dk_ij rho(r) = phi_i(r) D_j(r) - phi_j(r) D_k(r)
+    d/dk_ij Pi(r) = i(r) d_j(r) - j(r) d_i(r)
+
+    and the derivatives with respect to nuclear displacement are
+
+    drho/dRA|(r not in A) = -sum_(mu in A) phi'_mu(r) D_mu(r)
+    drho/dRA|(r in A) = +sum_(mu not in A) phi'_mu(r) D_mu(r)
+    dPi/dRA|(r not in A) = -sum_(mu in A) phi'_mu(r) d_mu(r)
+    dPi/dRA|(r in A) = +sum_(mu not in A) phi'_mu(r) d_mu(r)
+
+    There is a mismatch between the ndarray shape and the data layout in
+    the arg `mo` and the two return arrays. For performance reasons, the
+    grid index should be contiguous in memory for every array with a
+    a grid dimension. However, by convention, in PySCF ndarrays with
+    grid and orbital indices place the latter index in the last
+    position, the former in the second-to-last position, and any other
+    before that in row-major order. That is, for a four-index array of
+    this type, transpose (2,3,1,0) gives a contiguous column-major array,
+    and transpose (0,1,3,2) results in a contiguous row-major array.
+
+    Args:
+        ot : object of :class:`otfnal`
+            The on-top density functional containing grid information
+        ncore : integer
+            Number of doubly-occupied core orbitals
+        ncas : integer
+            Number of active orbitals
+        casdm1s : ndarray of shape (2,ncas,ncas)
+            Spin-separated one-body reduced density matrix
+        cascm2 : ndarray of shape [ncas,]*4
+            Spin-summed cumulant of two-body reduced density matrix
+        rho : ndarray of shape (2,*,ngrids)
+            Spin-separated density (and derivatives) on a grid
+        mo : ndarray of shape (*,ngrids,nmo)
+            Molecular orbitals (and derivatives) evaluated on a grid.
+            Data stride must be 0>2>1; i.e., mo.transpose (0,2,1) must
+            be a contiguous row-major array.
+
+    Kwargs:
+        deriv : integer
+            Order of derivatives of half-transformed density to compute;
+            i.e., 0 for LDA and 1 for GGA
+        non0tab : 2D boolean array
+            Mask array to determine whether densities are considered to
+            be numerically zero
+
+    Returns:
+        drho : ndarray of shape (2,*,ngrids,nmo)
+            Half-transformed density matrix on a grid and its
+            derivatives. Data stride is 0>1>3>2; i.e.,
+            drho.transpose (0,1,3,2) is a contiguous row-major array.
+        dPi : ndarray of shape (*,ngrids,nmo)
+            3/4-transformed pair density matrix on a grid and its
+            derivatives. Data stride is 0>2>1; i.e.,
+            dPi.transpose (0,2,1) is a contiguous row-major array.
+            
     '''
     nocc = ncore + ncas
     nderiv_Pi = (1,4)[int (deriv)]
