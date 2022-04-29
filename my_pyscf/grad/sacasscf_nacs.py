@@ -135,7 +135,7 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         if ndet_ket==ndet_bra:
             ket2bra = np.dot (ci[bra].conj (), g_ci_ket)
             bra2ket = np.dot (ci[ket].conj (), g_ci_bra)
-            log.debug ('SA-CASSCF <bra|H|ket>, <ket|H|bra> check: %s, %s',
+            log.debug ('SA-CASSCF <bra|H|ket>,<ket|H|bra> check: %5.3g , %5.3g',
                        ket2bra, bra2ket)
             g_ci_ket -= ket2bra * ci[bra]
             g_ci_bra -= bra2ket * ci[ket]
