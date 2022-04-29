@@ -67,6 +67,35 @@ def gen_g_hop_active (mc, mo, ci0, eris, verbose=None):
         return newton_casscf.gen_g_hop (mc, mo, ci0, eris, verbose=verbose)
 
 
+def nac_csf (mc_grad, mo_coeff=None, ci=None, state=None, mf_grad=None, 
+             atmlst=None):
+    '''Compute the "CSF contribution" to the SA-CASSCF NAC'''
+    mc = mc_grad.base
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ci is None: ci = mc.ci
+    if state is None: state = mc_grad.state
+    if mf_grad is None: mf_grad = mc._scf.nuc_grad_method ()
+    if atmlst is None: atmlst = mc_grad.atmlst
+    mol = mc.mol
+    bra, ket = _unpack_state (state)
+    e_bra = mc.e_states[bra]
+    e_ket = mc.e_states[ket]
+    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
+    castm1 = direct_spin1.trans_rdm1 (ci[bra], ci[ket], ncas, nelecas).T
+    castm1 -= castm1.T 
+    mo_cas = mo_coeff[:,ncore:][:,:ncas]
+    tm1 = reduce (np.dot, (mo_cas, castm1, mo_cas.conj ().T))
+    if atmlst is None:
+        atmlst = list (range (mol.natm))
+    aoslices = mol.aoslice_by_atom ()
+    s1 = mf_grad.get_ovlp (mol)
+    # TODO: check SIGN!!!! (and factor)
+    nac = np.zeros ((len(atmlst), 3))
+    for k, ia in enumerate (atmlst):
+        shl0, shl1, p0, p1 = aoslices[ia]
+        nac[k] += 0.5*np.einsum ('xij,ij->x', s1[:,p0:p1], tm1[p0:p1])
+    return nac
+
 class NonAdiabaticCouplings (sacasscf_grad.Gradients):
     '''SA-CASSCF non-adiabatic couplings between states
 
@@ -75,14 +104,14 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
     mult_ediff : logical
         If True, returns NACs multiplied by the energy difference.
         Useful near conical intersections to avoid numerical problems.
-    incl_csf : logical
+    incl_antisym_tdm : logical
         If True, the NACs include the ``CSF contribution.'' This term
         does not observe translational and rotational symmetry.
     '''
 
-    def __init__(self, mc, state=None, mult_ediff=False, incl_csf=False):
+    def __init__(self, mc, state=None, mult_ediff=False, incl_antisym_tdm=False):
         self.mult_ediff = mult_ediff
-        self.incl_csf = incl_csf
+        self.incl_antisym_tdm = incl_antisym_tdm
         sacasscf_grad.Gradients.__init__(self, mc, state=state)
 
     def make_fcasscf (self, state=None, casscf_attr=None,
@@ -160,17 +189,18 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
+        if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
         if eris is None and self.eris is None:
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
             eris = self.eris
-        incl_csf = kwargs.get ('incl_csf', self.incl_csf)
+        incl_antisym_tdm = kwargs.get ('incl_antisym_tdm', self.incl_antisym_tdm)
         bra, ket = _unpack_state (state)
         fcasscf_grad = casscf_grad.Gradients (self.make_fcasscf (state))
         nac = grad_elec_active (fcasscf_grad, mo_coeff=mo, ci=ci[ket],
                                 atmlst=atmlst, verbose=verbose)
-        if incl_csf: nac += self.nac_csf (mo_coeff=mo, ci=ci, state=state,
-                                          atmlst=atmlst)
+        if incl_antisym_tdm: nac += self.nac_csf (
+            mo_coeff=mo, ci=ci, state=state, mf_grad=mf_grad, atmlst=atmlst)
         return nac
 
     def nac_csf (self, mo_coeff=None, ci=None, state=None, atmlst=None):
