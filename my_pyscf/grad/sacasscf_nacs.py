@@ -66,7 +66,6 @@ def gen_g_hop_active (mc, mo, ci0, eris, verbose=None):
     with lib.temporary_env (eris, vhf_c=vnocore):
         return newton_casscf.gen_g_hop (mc, mo, ci0, eris, verbose=verbose)
 
-
 def nac_csf (mc_grad, mo_coeff=None, ci=None, state=None, mf_grad=None, 
              atmlst=None):
     '''Compute the "CSF contribution" to the SA-CASSCF NAC'''
@@ -81,15 +80,17 @@ def nac_csf (mc_grad, mo_coeff=None, ci=None, state=None, mf_grad=None,
     e_bra = mc.e_states[bra]
     e_ket = mc.e_states[ket]
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
-    castm1 = direct_spin1.trans_rdm1 (ci[bra], ci[ket], ncas, nelecas).T
-    castm1 -= castm1.T 
+    castm1 = direct_spin1.trans_rdm1 (ci[bra], ci[ket], ncas, nelecas)
+    # if PySCF commentary is to be trusted, trans_rdm1[p,q] is
+    # <bra|q'p|ket>. I want <bra|p'q - q'p|ket>.
+    castm1 = castm1.conj ().T - castm1
     mo_cas = mo_coeff[:,ncore:][:,:ncas]
     tm1 = reduce (np.dot, (mo_cas, castm1, mo_cas.conj ().T))
-    if atmlst is None:
-        atmlst = list (range (mol.natm))
+    if atmlst is None: atmlst = list (range (mol.natm))
     aoslices = mol.aoslice_by_atom ()
     s1 = mf_grad.get_ovlp (mol)
-    # TODO: check SIGN!!!! (and factor)
+    # if libcint documentation is to be trusted, mf_grad.get_ovlp
+    # corresponds to differentiating on the SECOND index: <p|dq/dR>
     nac = np.zeros ((len(atmlst), 3))
     for k, ia in enumerate (atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]

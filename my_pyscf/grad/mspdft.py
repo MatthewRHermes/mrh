@@ -13,6 +13,10 @@ from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import sacasscf as sacasscf_grad
 from itertools import product
 
+def _unpack_state (state):
+    if hasattr (state, '__len__'): return state[0], state[1]
+    return state, state
+
 # TODO: state-average-mix generalization ?
 def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket): 
     '''Compute <bra|O|ket> - sum_i <i|O|i>, where O is the 1- and 2-RDM
@@ -63,8 +67,9 @@ def mspdft_heff_response (mc_grad, mo=None, ci=None,
     if mo is None: mo = mc_grad.mo_coeff
     if ci is None: ci = mc_grad.ci
     if state is None: state = mc_grad.state
-    if si_bra is None: si_bra = mc.si[:,state]
-    if si_ket is None: si_ket = mc.si[:,state]
+    bra, ket = _unpack_state (state)
+    if si_bra is None: si_bra = mc.si[:,bra]
+    if si_ket is None: si_ket = mc.si[:,ket]
     if heff_mcscf is None: heff_mcscf = mc.heff_mcscf
     if eris is None: eris = mc.ao2mo (mo)
     nroots, ncore = mc_grad.nroots, mc.ncore
@@ -103,8 +108,9 @@ def mspdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
     if ci is None: ci = mc.ci
     if si is None: si = getattr (mc, 'si', None)
     if state is None: state = mc_grad.state
-    if si_bra is None: si_bra = si[:,state]
-    if si_ket is None: si_ket = si[:,state]
+    bra, ket = _unpack_state (state)
+    if si_bra is None: si_bra = si[:,bra]
+    if si_ket is None: si_ket = si[:,ket]
     if eris is None: eris = mc.ao2mo (mo)
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method ()
     if verbose is None: verbose = mc_grad.verbose
@@ -118,7 +124,7 @@ def mspdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
     casdm1 = 0.5 * (casdm1 + casdm1.T)
     casdm2 = 0.5 * (casdm2 + casdm2.transpose (1,0,3,2))
     dm12 = lambda * args: (casdm1, casdm2)
-    fcasscf = mc_grad.make_fcasscf (state=state,
+    fcasscf = mc_grad.make_fcasscf (state=ket,
         fcisolver_attr={'make_rdm12' : dm12})
     # TODO: DFeri functionality
     # Perhaps by patching fcasscf.nuc_grad_method?
@@ -284,8 +290,9 @@ class Gradients (mcpdft_grad.Gradients):
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
         if state is None: state = self.state
-        if si_bra is None: si_bra = si[:,state]
-        if si_ket is None: si_ket = si[:,state]
+        bra, ket = _unpack_state (state)
+        if si_bra is None: si_bra = si[:,bra]
+        if si_ket is None: si_ket = si[:,ket]
         log = lib.logger.new_logger (self, self.verbose)
         si_diag = si_bra * si_ket
         nroots, ngorb, nci = self.nroots, self.ngorb, self.nci
@@ -375,8 +382,9 @@ class Gradients (mcpdft_grad.Gradients):
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
         if state is None: state = self.state
-        if si_bra is None: si_bra = si[:,state]
-        if si_ket is None: si_ket = si[:,state]
+        bra, ket = _unpack_state (state)
+        if si_bra is None: si_bra = si[:,bra]
+        if si_ket is None: si_ket = si[:,ket]
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
         if verbose is None: verbose = self.verbose
         si_diag = si_bra * si_ket
