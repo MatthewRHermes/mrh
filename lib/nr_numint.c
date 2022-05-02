@@ -23,47 +23,47 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+
+// --------------------------------------------------------------
+// -------------------- begin PySCF includes --------------------
+// --------------------------------------------------------------
+
 #include "build/config.h"
+/*
+#if defined _OPENMP
+#include <omp.h>
+#else
+#define omp_get_thread_num() 0
+#define omp_get_num_threads() 1
+#endif
+*/
+
 #include "gto/grid_ao_drv.h"
+//#define BLKSIZE         104
+
 #include "np_helper/np_helper.h"
+//#define MIN(X, Y)       ((X) < (Y) ? (X) : (Y))
+
 #include "vhf/fblas.h"
+/*
+void dgemm_(const char*, const char*,
+            const int*, const int*, const int*,
+            const double*, const double*, const int*,
+            const double*, const int*,
+            const double*, double*, const int*);
+*/
+
+// --------------------------------------------------------------
+// --------------------- end PySCF includes ---------------------
+// --------------------------------------------------------------
 
 #define BOXSIZE         56
-//#define MIN(X, Y)       ((X) < (Y) ? (X) : (Y))
-//#define BLKSIZE         128
-
-/* MRH 05/18/2020: I should link this to libdft if possible */
+/* 
+MRH 05/02/2022: This function is defined in pyscf/lib/libdft.so
+(dft/nr_numint.c) 
+*/
 int VXCao_empty_blocks(char *empty, unsigned char *non0table, int *shls_slice,
                        int *ao_loc);
-/*{
-        if (non0table == NULL || shls_slice == NULL || ao_loc == NULL) {
-                return 0;
-        }
-
-        const int sh0 = shls_slice[0];
-        const int sh1 = shls_slice[1];
-
-        int bas_id;
-        int box_id = 0;
-        int bound = BOXSIZE;
-        int has0 = 0;
-        empty[box_id] = 1;
-        for (bas_id = sh0; bas_id < sh1; bas_id++) {
-                empty[box_id] &= !non0table[bas_id];
-                if (ao_loc[bas_id] == bound) {
-                        has0 |= empty[box_id];
-                        box_id++;
-                        bound += BOXSIZE;
-                        empty[box_id] = 1;
-                } else if (ao_loc[bas_id] > bound) {
-                        has0 |= empty[box_id];
-                        box_id++;
-                        bound += BOXSIZE;
-                        empty[box_id] = !non0table[bas_id];
-                }
-        }
-        return has0;
-}*/
 
 /* vv[n,m] = ao[n,ngrids] * mo[m,ngrids] */
 /* MRH 05/18/2020: dot_ao_ao -> dot_ao_mo requires
