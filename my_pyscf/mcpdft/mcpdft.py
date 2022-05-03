@@ -322,8 +322,8 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
     dm1s = np.stack (_rdms.make_rdm1s (), axis=0)
     dm1 = dm1s[0] + dm1s[1]
     j = _rdms._scf.get_j (dm=dm1)
-    e_1e = np.tensordot (h, dm1, axes=2)
-    e_coul = np.tensordot (j, dm1, axes=2) / 2
+    e_1e = np.dot (h.ravel (), dm1.ravel ())
+    e_coul = np.dot (j.ravel (), dm1.ravel ()) / 2
     adm1, adm2 = _casdms.make_rdm12 (_rdms.ci, ncas, nelecas)
     e_mcscf = h0 + np.dot (h1.ravel (), adm1.ravel ()) + (
                 np.dot (h2.ravel (), adm2.ravel ())*0.5)
