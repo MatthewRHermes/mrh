@@ -3,6 +3,9 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf.fci import direct_spin1
 from pyscf.mcscf import newton_casscf
+from pyscf.grad import casscf as casscf_grad
+from pyscf.grad import sacasscf as sacasscf_grad
+from functools import reduce
 
 # The extension from gradients -> NACs has three basic steps:
 # 0. ("state" index integer -> tuple)
@@ -34,7 +37,7 @@ def grad_elec_core (mc_grad, mo_coeff=None, atmlst=None, eris=None,
     f0 *= mo_occ[None,:]
     dme0 = lambda * args: mo_coeff @ ((f0+f0.T)*.5) @ moH
     with lib.temporary_env (mf_grad, make_rdm1e=dme0, verbose=0):
-     with lib.temporary_env (mf_grad.base, mo_coeff=mo, mo_occ=mo_occ):
+     with lib.temporary_env (mf_grad.base, mo_coeff=mo_coeff, mo_occ=mo_occ):
         # Second level there should become unnecessary in future, if anyone
         # ever gets around to cleaning up pyscf.df.grad.rhf & pyscf.grad.rhf
         de = mf_grad.grad_elec (mo_coeff=mo_coeff, mo_energy=mo_energy,
@@ -60,6 +63,7 @@ def grad_elec_active (mc_grad, mo_coeff=None, ci=None, atmlst=None,
 def gen_g_hop_active (mc, mo, ci0, eris, verbose=None):
     '''Compute the active-electron part of the orbital rotation gradient
     by patching out the appropriate block of eris.vhf_c'''
+    moH = mo.conj ().T
     ncore = mc.ncore
     vnocore = eris.vhf_c.copy ()
     vnocore[:,:ncore] = -moH @ mc.get_hcore () @ mo[:,:ncore]
@@ -115,8 +119,8 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         self.incl_antisym_tdm = incl_antisym_tdm
         sacasscf_grad.Gradients.__init__(self, mc, state=state)
 
-    def make_fcasscf (self, state=None, casscf_attr=None,
-                      fcisolver_attr=None):
+    def make_fcasscf_nacs (self, state=None, casscf_attr=None,
+                           fcisolver_attr=None):
         if state is None: state = self.state
         if casscf_attr is None: casscf_attr = {}
         if fcisolver_attr is None: fcisolver_attr = {}
@@ -126,11 +130,11 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         castm1, castm2 = direct_spin1.trans_rdm12 (ci[bra], ci[ket], ncas,
                                                    nelecas)
         castm1 = 0.5 * (castm1 + castm1.T)
-        castm2 = 0.5 * (castm2 + castm2.transpose (2,3,0,1))
-        fcisolver_attr['make_rdm12'] = lambda *args : castm1, castm2
-        fcisolver_attr['make_rdm1'] = lambda *args : castm1
-        fcisolver_attr['make_rdm2'] = lambda *args : castm2
-        return sacasscf_grad.Gradients.make_fcasscf (
+        castm2 = 0.5 * (castm2 + castm2.transpose (1,0,3,2))
+        fcisolver_attr['make_rdm12'] = lambda *args, **kwargs : (castm1, castm2)
+        fcisolver_attr['make_rdm1'] = lambda *args, **kwargs : castm1
+        fcisolver_attr['make_rdm2'] = lambda *args, **kwargs : castm2
+        return sacasscf_grad.Gradients.make_fcasscf (self,
             state=ket, casscf_attr=casscf_attr, fcisolver_attr=fcisolver_attr)
 
 
@@ -142,7 +146,7 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         if ci is None: ci = self.base.ci
         log = logger.new_logger (self, verbose)
         bra, ket = _unpack_state (state)
-        fcasscf = self.make_fcasscf (state)
+        fcasscf = self.make_fcasscf_nacs (state)
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci[ket]
         eris = fcasscf.ao2mo (mo)
@@ -163,12 +167,12 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         ndet_ket = (self.na_states[ket], self.nb_states[ket])
         ndet_bra = (self.na_states[bra], self.nb_states[bra])
         if ndet_ket==ndet_bra:
-            ket2bra = np.dot (ci[bra].conj (), g_ci_ket)
-            bra2ket = np.dot (ci[ket].conj (), g_ci_bra)
+            ket2bra = np.dot (ci[bra].conj ().ravel (), g_ci_ket)
+            bra2ket = np.dot (ci[ket].conj ().ravel (), g_ci_bra)
             log.debug ('SA-CASSCF <bra|H|ket>,<ket|H|bra> check: %5.3g , %5.3g',
                        ket2bra, bra2ket)
-            g_ci_ket -= ket2bra * ci[bra]
-            g_ci_bra -= bra2ket * ci[ket]
+            g_ci_ket -= ket2bra * ci[bra].ravel ()
+            g_ci_bra -= bra2ket * ci[ket].ravel ()
         ndet_ket = ndet_ket[0]*ndet_ket[1]
         ndet_bra = ndet_bra[0]*ndet_bra[1]
         # No need to reshape or anything, just use the magic of repeated slicing
@@ -178,8 +182,8 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         offs_bra = (sum ([na * nb for na, nb in zip(
                          self.na_states[:bra], self.nb_states[:bra])])
                     if ket > 0 else 0)
-        g_all[self.ngorb:][offs:][:ndet_ket] = g_ci_ket[self.ngorb:]
-        g_all[self.ngorb:][offs:][:ndet_bra] = g_ci_bra[self.ngorb:]
+        g_all[self.ngorb:][offs_ket:][:ndet_ket] = g_ci_ket
+        g_all[self.ngorb:][offs_bra:][:ndet_bra] = g_ci_bra
         return g_all
 
 
@@ -197,19 +201,21 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
             eris = self.eris
         incl_antisym_tdm = kwargs.get ('incl_antisym_tdm', self.incl_antisym_tdm)
         bra, ket = _unpack_state (state)
-        fcasscf_grad = casscf_grad.Gradients (self.make_fcasscf (state))
+        fcasscf_grad = casscf_grad.Gradients (self.make_fcasscf_nacs (state))
         nac = grad_elec_active (fcasscf_grad, mo_coeff=mo, ci=ci[ket],
                                 atmlst=atmlst, verbose=verbose)
         if incl_antisym_tdm: nac += self.nac_csf (
             mo_coeff=mo, ci=ci, state=state, mf_grad=mf_grad, atmlst=atmlst)
         return nac
 
-    def nac_csf (self, mo_coeff=None, ci=None, state=None, atmlst=None):
+    def nac_csf (self, mo_coeff=None, ci=None, state=None, mf_grad=None, atmlst=None):
         if state is None: state = self.state
         if atmlst is None: atmlst = self.atmlst
         if mo_coeff is None: mo_coeff = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        nac = nac_csf (mo_coeff, ci, state, atmlst)
+        if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
+        nac = nac_csf (self, mo_coeff=mo_coeff, ci=ci, state=state,
+                       mf_grad=mf_grad, atmlst=atmlst)
         bra, ket = _unpack_state (state)
         e_bra = self.base.e_states[bra]
         e_ket = self.base.e_states[ket]
@@ -219,12 +225,46 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
     def kernel (self, *args, **kwargs):
         mult_ediff = kwargs.get ('mult_ediff', self.mult_ediff)
         state = kwargs.get ('state', self.state)
-        conv, nac = sacasscf_grad.Gradients.kernel (self, *args, **kwargs)
+        nac = sacasscf_grad.Gradients.kernel (self, *args, **kwargs)
         if not mult_ediff:
             bra, ket = _unpack_state (state)
             e_bra = self.base.e_states[bra]
             e_ket = self.base.e_states[ket]
             nac /= e_bra - e_ket
-        return conv, nac
+        return nac
+
+if __name__=='__main__':
+    from pyscf import gto, scf, mcscf
+    from scipy import linalg
+    mol = gto.M (atom = 'Li 0 0 0; H 1.5 0 0', basis='sto-3g',
+                 output='sacasscf_nacs.log', verbose=lib.logger.INFO)
+    mf = scf.RHF (mol).run ()
+    mc = mcscf.CASSCF (mf, 2, 2).fix_spin_(ss=0).state_average ([0.5,0.5]).run ()
+    mc_nacs = NonAdiabaticCouplings (mc)
+    print ("no csf contr")
+    nac_01 = mc_nacs.kernel (state=(0,1))
+    nac_10 = mc_nacs.kernel (state=(1,0))
+    nac_01_mult = mc_nacs.kernel (state=(0,1), mult_ediff=True)
+    nac_10_mult = mc_nacs.kernel (state=(1,0), mult_ediff=True)
+    print ("antisym")
+    print (nac_01)
+    print ("checking antisym:",linalg.norm(nac_01+nac_10))
+    print ("sym")
+    print (nac_01_mult)
+    print ("checking sym:",linalg.norm(nac_01_mult-nac_10_mult))
 
 
+    print ("incl csf contr")
+    nac_01 = mc_nacs.kernel (state=(0,1), incl_antisym_tdm=True)
+    nac_10 = mc_nacs.kernel (state=(1,0), incl_antisym_tdm=True)
+    nac_01_mult = mc_nacs.kernel (state=(0,1), incl_antisym_tdm=True, mult_ediff=True)
+    nac_10_mult = mc_nacs.kernel (state=(1,0), incl_antisym_tdm=True, mult_ediff=True)
+    print ("antisym")
+    print (nac_01)
+    print ("checking antisym:",linalg.norm(nac_01+nac_10))
+    print ("sym")
+    print (nac_01_mult)
+    print ("checking sym:",linalg.norm(nac_01_mult-nac_10_mult))
+
+
+ 
