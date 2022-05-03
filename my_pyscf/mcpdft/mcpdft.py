@@ -271,7 +271,7 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
             E2ncc = <H> - E0 - E1 - E2c
     '''            
     if mo_coeff is None: mo_coeff=mc.mo_coeff
-    if ci is None: mo_coeff=mc.ci
+    if ci is None: ci = mc.ci
     if ot is None: ot = mc.otfnal
 
     hyb_x, hyb_c = ot._numint.hybrid_coeff(ot.otxc)
