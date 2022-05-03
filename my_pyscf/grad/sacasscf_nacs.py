@@ -124,7 +124,7 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         3636 (2016)].
     '''
 
-    def __init__(self, mc, state=None, mult_ediff=False, use_etfs=True):
+    def __init__(self, mc, state=None, mult_ediff=False, use_etfs=False):
         self.mult_ediff = mult_ediff
         self.use_etfs = use_etfs
         sacasscf_grad.Gradients.__init__(self, mc, state=state)
@@ -255,10 +255,10 @@ if __name__=='__main__':
     print ("disagreement w openmolcas:", np.around (mc.e_states-openmolcas_energies, 8))
     mc_nacs = NonAdiabaticCouplings (mc)
     print ("no csf contr")
-    nac_01 = mc_nacs.kernel (state=(0,1))
-    nac_10 = mc_nacs.kernel (state=(1,0))
-    nac_01_mult = mc_nacs.kernel (state=(0,1), mult_ediff=True)
-    nac_10_mult = mc_nacs.kernel (state=(1,0), mult_ediff=True)
+    nac_01 = mc_nacs.kernel (state=(0,1), use_etfs=True)
+    nac_10 = mc_nacs.kernel (state=(1,0), use_etfs=True)
+    nac_01_mult = mc_nacs.kernel (state=(0,1), use_etfs=True, mult_ediff=True)
+    nac_10_mult = mc_nacs.kernel (state=(1,0), use_etfs=True, mult_ediff=True)
     print ("antisym")
     print (nac_01)
     print ("checking antisym:",linalg.norm(nac_01+nac_10))
@@ -285,4 +285,23 @@ if __name__=='__main__':
     print (de_0)
     de_1 = mc_grad.kernel (state=1)
     print (de_1)
- 
+
+    from mrh.my_pyscf.tools.molcas2pyscf import *
+    mol = get_mol_from_h5 ('LiH_sa2casscf22_sto3g.rasscf.h5',
+                           output='sacasscf_nacs_fromh5.log',
+                           verbose=lib.logger.INFO)
+    mo = get_mo_from_h5 (mol, 'LiH_sa2casscf22_sto3g.rasscf.h5')
+    nac_etfs_ref = np.array ([9.14840490109073E-02, -9.14840490109074E-02])
+    nac_ref = np.array ([1.83701578323929E-01, -6.91459741744125E-02])
+    mf = scf.RHF (mol).run ()
+    mc = mcscf.CASSCF (mol, 2, 2).fix_spin_(ss=0).state_average ([0.5,0.5])
+    mc.run (mo, natorb=True, conv_tol=1e-10)
+    mc_nacs = NonAdiabaticCouplings (mc)
+    nac = mc_nacs.kernel (state=(0,1))
+    print (nac)
+    print (nac_ref)
+    nac_etfs = mc_nacs.kernel (state=(0,1), use_etfs=True)
+    print (nac_etfs)
+    print (nac_etfs_ref)
+
+

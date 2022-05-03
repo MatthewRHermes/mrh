@@ -14,9 +14,10 @@ def diatomic (atom1, atom2, r, basis, ncas, nelecas, nstates,
     mf = scf.RHF (mol)
     if density_fit: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
     mc = mcscf.CASSCF (mf.run (), ncas, nelecas).set (natorb=True)
-    if spin is not None: smult = spin+1
-    else: smult = (mol.nelectron % 2) + 1
-    mc.fcisolver = csf_solver (mol, smult=smult)
+    if spin is not None: s = spin*0.5
+    else: s = (mol.nelectron % 2)*0.5
+    #mc.fcisolver = csf_solver (mol, smult=smult)
+    mc.fix_spin_(ss=s*(s+1))
     mc = mc.state_average ([1.0/float(nstates),]*nstates)
     mc.conv_tol = mc.conv_tol_diabatize = 1e-12
     mo = None
@@ -45,8 +46,8 @@ class KnownValues(unittest.TestCase):
             de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
             de *= np.sign (de[0]) * np.sign (de_ref[i,0])
             # TODO: somehow confirm sign convention
-            self.assertAlmostEqual (de[0], de_ref[i,0], 6)
-            self.assertAlmostEqual (de[1], de_ref[i,1], 6)
+            self.assertAlmostEqual (de[0], de_ref[i,0], 5)
+            self.assertAlmostEqual (de[1], de_ref[i,1], 5)
 
     #def test_grad_h2_cms3ftlda22_sto3g (self):
     #    # z_orb:    no

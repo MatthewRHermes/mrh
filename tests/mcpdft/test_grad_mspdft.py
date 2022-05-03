@@ -112,7 +112,7 @@ class KnownValues(unittest.TestCase):
     def test_scanner (self):
         def get_lih (r):
             mol = gto.M (atom='Li 0 0 0\nH {} 0 0'.format (r), basis='sto3g',
-                         output='test.{}.log'.format (r), verbose=5)
+                         output='/dev/null', verbose=0)
             mf = scf.RHF (mol).run ()
             mc = mcpdft.CASSCF (mf, 'ftLDA,VWN3', 2, 2, grids_level=1)
             mc.fix_spin_(ss=0)
