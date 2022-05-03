@@ -102,21 +102,25 @@ def nac_csf (mc_grad, mo_coeff=None, ci=None, state=None, mf_grad=None,
     return nac
 
 class NonAdiabaticCouplings (sacasscf_grad.Gradients):
-    '''SA-CASSCF non-adiabatic couplings between states
+    '''SA-CASSCF non-adiabatic couplings (NACs) between states
 
     Extra attributes:
 
     mult_ediff : logical
         If True, returns NACs multiplied by the energy difference.
         Useful near conical intersections to avoid numerical problems.
-    incl_antisym_tdm : logical
-        If True, the NACs include the ``CSF contribution.'' This term
-        does not observe translational and rotational symmetry.
+    use_etfs : logical
+        If True, use the ``electron translation factors'' of Fatehi and
+        Subotnik [JPCL 3, 2039 (2012)], which guarantee conservation of
+        total electron + nuclear momentum when the nuclei are moving
+        (i.e., in non-adiabatic molecular dynamics). This corresponds
+        to omitting the so-called ``CSF contribution'' [cf. JCTC 12,
+        3636 (2016)].
     '''
 
-    def __init__(self, mc, state=None, mult_ediff=False, incl_antisym_tdm=False):
+    def __init__(self, mc, state=None, mult_ediff=False, use_etfs=True):
         self.mult_ediff = mult_ediff
-        self.incl_antisym_tdm = incl_antisym_tdm
+        self.use_etfs = use_etfs
         sacasscf_grad.Gradients.__init__(self, mc, state=state)
 
     def make_fcasscf_nacs (self, state=None, casscf_attr=None,
@@ -199,12 +203,12 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
             eris = self.eris
-        incl_antisym_tdm = kwargs.get ('incl_antisym_tdm', self.incl_antisym_tdm)
+        use_etfs = kwargs.get ('use_etfs', self.use_etfs)
         bra, ket = _unpack_state (state)
         fcasscf_grad = casscf_grad.Gradients (self.make_fcasscf_nacs (state))
         nac = grad_elec_active (fcasscf_grad, mo_coeff=mo, ci=ci[ket],
                                 atmlst=atmlst, verbose=verbose)
-        if incl_antisym_tdm: nac += self.nac_csf (
+        if not use_etfs: nac += self.nac_csf (
             mo_coeff=mo, ci=ci, state=state, mf_grad=mf_grad, atmlst=atmlst)
         return nac
 
@@ -255,10 +259,10 @@ if __name__=='__main__':
 
 
     print ("incl csf contr")
-    nac_01 = mc_nacs.kernel (state=(0,1), incl_antisym_tdm=True)
-    nac_10 = mc_nacs.kernel (state=(1,0), incl_antisym_tdm=True)
-    nac_01_mult = mc_nacs.kernel (state=(0,1), incl_antisym_tdm=True, mult_ediff=True)
-    nac_10_mult = mc_nacs.kernel (state=(1,0), incl_antisym_tdm=True, mult_ediff=True)
+    nac_01 = mc_nacs.kernel (state=(0,1), use_etfs=False)
+    nac_10 = mc_nacs.kernel (state=(1,0), use_etfs=False)
+    nac_01_mult = mc_nacs.kernel (state=(0,1), use_etfs=False, mult_ediff=True)
+    nac_10_mult = mc_nacs.kernel (state=(1,0), use_etfs=False, mult_ediff=True)
     print ("antisym")
     print (nac_01)
     print ("checking antisym:",linalg.norm(nac_01+nac_10))
@@ -266,5 +270,10 @@ if __name__=='__main__':
     print (nac_01_mult)
     print ("checking sym:",linalg.norm(nac_01_mult-nac_10_mult))
 
-
+    print ("Check gradients")
+    mc_grad = mc.nuc_grad_method ()
+    de_0 = mc_grad.kernel (state=0)
+    print (de_0)
+    de_1 = mc_grad.kernel (state=1)
+    print (de_1)
  
