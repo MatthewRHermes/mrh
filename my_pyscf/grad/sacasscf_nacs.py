@@ -70,26 +70,7 @@ def gen_g_hop_active (mc, mo, ci0, eris, verbose=None):
     with lib.temporary_env (eris, vhf_c=vnocore):
         return newton_casscf.gen_g_hop (mc, mo, ci0, eris, verbose=verbose)
 
-def nac_csf (mc_grad, mo_coeff=None, ci=None, state=None, mf_grad=None, 
-             atmlst=None):
-    '''Compute the "CSF contribution" to the SA-CASSCF NAC'''
-    mc = mc_grad.base
-    if mo_coeff is None: mo_coeff = mc.mo_coeff
-    if ci is None: ci = mc.ci
-    if state is None: state = mc_grad.state
-    if mf_grad is None: mf_grad = mc._scf.nuc_grad_method ()
-    if atmlst is None: atmlst = mc_grad.atmlst
-    mol = mc.mol
-    bra, ket = _unpack_state (state)
-    e_bra = mc.e_states[bra]
-    e_ket = mc.e_states[ket]
-    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
-    castm1 = direct_spin1.trans_rdm1 (ci[bra], ci[ket], ncas, nelecas)
-    # if PySCF commentary is to be trusted, trans_rdm1[p,q] is
-    # <bra|q'p|ket>. I want <bra|p'q - q'p|ket>.
-    castm1 = castm1.conj ().T - castm1
-    mo_cas = mo_coeff[:,ncore:][:,:ncas]
-    tm1 = reduce (np.dot, (mo_cas, castm1, mo_cas.conj ().T))
+def _nac_csf (mol, mf_grad, tm1, atmlst):
     if atmlst is None: atmlst = list (range (mol.natm))
     aoslices = mol.aoslice_by_atom ()
     s1 = mf_grad.get_ovlp (mol)
@@ -101,11 +82,36 @@ def nac_csf (mc_grad, mo_coeff=None, ci=None, state=None, mf_grad=None,
         nac[k] += 0.5*np.einsum ('xij,ij->x', s1[:,p0:p1], tm1[p0:p1])
     return nac
 
+def nac_csf (mc_grad, mo_coeff=None, ci=None, state=None, mf_grad=None, 
+             atmlst=None):
+    '''Compute the "CSF contribution" to the SA-CASSCF NAC'''
+    mc = mc_grad.base
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ci is None: ci = mc.ci
+    if state is None: state = mc_grad.state
+    if mf_grad is None: mf_grad = mc._scf.nuc_grad_method ()
+    if atmlst is None: atmlst = mc_grad.atmlst
+    mol = mc.mol
+    ket, bra = _unpack_state (state)
+    e_bra = mc.e_states[bra]
+    e_ket = mc.e_states[ket]
+    ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
+    castm1 = direct_spin1.trans_rdm1 (ci[bra], ci[ket], ncas, nelecas)
+    # if PySCF commentary is to be trusted, trans_rdm1[p,q] is
+    # <bra|q'p|ket>. I want <bra|p'q - q'p|ket>.
+    castm1 = castm1.conj ().T - castm1
+    mo_cas = mo_coeff[:,ncore:][:,:ncas]
+    tm1 = reduce (np.dot, (mo_cas, castm1, mo_cas.conj ().T))
+    return _nac_csf (mol, mf_grad, tm1, atmlst)    
+
 class NonAdiabaticCouplings (sacasscf_grad.Gradients):
     '''SA-CASSCF non-adiabatic couplings (NACs) between states
 
-    Extra attributes:
+    kwargs/attributes:
 
+    state : tuple of length 2
+        The NACs returned are <state[1]|d(state[0])/dR>.
+        In other words, state = (ket, bra).
     mult_ediff : logical
         If True, returns NACs multiplied by the energy difference.
         Useful near conical intersections to avoid numerical problems.
@@ -128,7 +134,7 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         if state is None: state = self.state
         if casscf_attr is None: casscf_attr = {}
         if fcisolver_attr is None: fcisolver_attr = {}
-        bra, ket = _unpack_state (state)
+        ket, bra = _unpack_state (state)
         ci, ncas, nelecas = self.base.ci, self.base.ncas, self.base.nelecas
         # TODO: use fcisolver.fcisolvers in state-average mix case for this
         castm1, castm2 = direct_spin1.trans_rdm12 (ci[bra], ci[ket], ncas,
@@ -149,7 +155,7 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         log = logger.new_logger (self, verbose)
-        bra, ket = _unpack_state (state)
+        ket, bra = _unpack_state (state)
         fcasscf = self.make_fcasscf_nacs (state)
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci[ket]
@@ -204,7 +210,7 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         elif eris is None:
             eris = self.eris
         use_etfs = kwargs.get ('use_etfs', self.use_etfs)
-        bra, ket = _unpack_state (state)
+        ket, bra = _unpack_state (state)
         fcasscf_grad = casscf_grad.Gradients (self.make_fcasscf_nacs (state))
         nac = grad_elec_active (fcasscf_grad, mo_coeff=mo, ci=ci[ket],
                                 atmlst=atmlst, verbose=verbose)
@@ -220,7 +226,7 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
         nac = nac_csf (self, mo_coeff=mo_coeff, ci=ci, state=state,
                        mf_grad=mf_grad, atmlst=atmlst)
-        bra, ket = _unpack_state (state)
+        ket, bra = _unpack_state (state)
         e_bra = self.base.e_states[bra]
         e_ket = self.base.e_states[ket]
         nac *= e_bra - e_ket
@@ -231,7 +237,7 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         state = kwargs.get ('state', self.state)
         nac = sacasscf_grad.Gradients.kernel (self, *args, **kwargs)
         if not mult_ediff:
-            bra, ket = _unpack_state (state)
+            ket, bra = _unpack_state (state)
             e_bra = self.base.e_states[bra]
             e_ket = self.base.e_states[ket]
             nac /= e_bra - e_ket
@@ -240,10 +246,13 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
 if __name__=='__main__':
     from pyscf import gto, scf, mcscf
     from scipy import linalg
-    mol = gto.M (atom = 'Li 0 0 0; H 1.5 0 0', basis='sto-3g',
+    mol = gto.M (atom = 'Li 0 0 0; H 0 0 1.5', basis='sto-3g',
                  output='sacasscf_nacs.log', verbose=lib.logger.INFO)
     mf = scf.RHF (mol).run ()
-    mc = mcscf.CASSCF (mf, 2, 2).fix_spin_(ss=0).state_average ([0.5,0.5]).run ()
+    mc = mcscf.CASSCF (mf, 2, 2).fix_spin_(ss=0).state_average ([0.5,0.5]).run (conv_tol=1e-10)
+    openmolcas_energies = np.array ([-7.85629118, -7.72175252])
+    print ("energies:",mc.e_states)
+    print ("disagreement w openmolcas:", np.around (mc.e_states-openmolcas_energies, 8))
     mc_nacs = NonAdiabaticCouplings (mc)
     print ("no csf contr")
     nac_01 = mc_nacs.kernel (state=(0,1))
