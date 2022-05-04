@@ -43,42 +43,60 @@ mc = mc.multi_state ([0.5,0.5], 'cms').run (mo, conv_tol=1e-10)
 
 mc_nacs = NonAdiabaticCouplings (mc)
 
-# 1. Equivalent OpenMolcas input:
+# 1. <1|d0/dR>
+#    Equivalent OpenMolcas input:
 #    ```
 #    &ALASKA
 #    NAC=1 2
 #    ```
-print ("\nNAC <1|d0/dR>:\n",mc_nacs.kernel (state=(0,1)))
-
-# 2. Equivalent OpenMolcas input:
-#    ```
-#    &ALASKA
-#    NAC=1 2
-#    NOCSF
-#    ```
-print ("\nNotice that according to the NACs printed above, rigidly moving the")
+nac = mc_nacs.kernel (state=(0,1))
+print ("\nNAC <1|d0/dR>:\n",nac)
+print ("Notice that according to the NACs printed above, rigidly moving the")
 print ("molecule along the bond axis changes the electronic wave function, which")
 print ("is obviously unphysical. This broken translational symmetry is due to the")
 print ("antisymmetric orbital-overlap derivative in the Hellmann-Feynman part of")
 print ("the 'model state contribution'. Omitting the antisymmetric orbital-overlap")
 print ("derivative corresponds to the use of the 'electron-translation factors' of")
 print ("Fatehi and Subotnik and is requested by passing 'use_etfs=True'.")
-print ("NAC <1|d0/dR> w/ ETFs:\n",mc_nacs.kernel (state=(0,1), use_etfs=True))
+
+# 2. <1|d0/dR> w/ ETFs (i.e., w/out model-state Hellmann-Feynman contribution)
+#    Equivalent OpenMolcas input:
+#    ```
+#    &ALASKA
+#    NAC=1 2
+#    NOCSF
+#    ```
+nac = mc_nacs.kernel (state=(0,1), use_etfs=True)
+print ("\nNAC <1|d0/dR> w/ ETFs:\n", nac)
 print ("These NACs are much more well-behaved: moving the molecule rigidly around")
 print ("in space doesn't induce any change to the electronic wave function.")
 
-print ("\nThe NACs are antisymmetric in the state indices and diverge at conical")
-print ("intersections.")
-print ("NAC <0|d1/dR>:\n",mc_nacs.kernel (state=(1,0)))
+# 3. <0|d1/dR>
+#    Equivalent OpenMolcas input:
+#    ```
+#    &ALASKA
+#    NAC=2 1
+#    ```
+nac = mc_nacs.kernel (state=(1,0))
+print ("\nThe NACs are antisymmetric with respect to state transposition.")
+print ("NAC <0|d1/dR>:\n", nac)
 
-print ("\nWhat really matters for dynamics is how quickly it diverges. You can")
-print ("get at this by calculating NACs multiplied by the energy difference")
-print ("using the keyword 'mult_ediff=True'. This yields a symmetric quantity")
-print ("which is real and finite at a CI and tells you one of the dimensions")
-print ("of the branching plane.")
-print ("NAC <1|d0/dR>*(E1-E0):\n",mc_nacs.kernel (state=(0,1), mult_ediff=True))
-print ("NAC <0|d1/dR>*(E0-E1):\n",mc_nacs.kernel (state=(1,0), mult_ediff=True))
+# 4. <1|d0/dR>*(E1-E0) = <0|d1/dR>*(E0-E1)
+#    I'm not aware of any OpenMolcas equivalent for this, but all the information
+#    should obviously be in the output file, as long as you aren't right at a CI.
+nac_01 = mc_nacs.kernel (state=(0,1), mult_ediff=True)
+nac_10 = mc_nacs.kernel (state=(1,0), mult_ediff=True)
+print ("\nNACs diverge at conical intersections (CI). The important question")
+print ("is how quickly it diverges. You can get at this by calculating NACs")
+print ("multiplied by the energy difference using the keyword 'mult_ediff=True'.")
+print ("This yields a quantity which is symmetric wrt state interchange and is")
+print ("finite at a CI.")
+print ("NAC <1|d0/dR>*(E1-E0):\n", nac_01)
+print ("NAC <0|d1/dR>*(E0-E1):\n", nac_10)
 
+# 5. <1|d0/dR>*(E1-E0) w/ ETFs
+#    For comparison with 6 below.
+nac = mc_nacs.kernel(state=(0,1),use_etfs=True,mult_ediff=True)
 print ("\nUnlike the SA-CASSCF case, using both 'use_etfs=True' and")
 print ("'mult_ediff=True' DOES NOT reproduce the first derivative of the")
 print ("off-diagonal element of the potential matrix. This is because the")
@@ -87,8 +105,11 @@ print ("response equations and changes the values of the Lagrange multipliers,")
 print ("even if the Hellmann-Feynman part of the model-state contribution is")
 print ("omitted. You can get the gradients of the potential couplings by")
 print ("passing a tuple to the gradient method instance instead.")
-print ("<1|d0/dR>*(E1-E0) w/ ETFS:\n",
-       mc_nacs.kernel(state=(0,1),use_etfs=True,mult_ediff=True))
+print ("<1|d0/dR>*(E1-E0) w/ ETFs:\n",nac)
+
+# 6. <1|dH/dR|0>
+#    THIS is the quantity one uses to optimize MECIs
 mc_grad = mc.nuc_grad_method ()
-print ("<1|dH/dR|0>:\n", mc_grad.kernel(state=(0,1)))
+v01 = mc_grad.kernel (state=(0,1))
+print ("<1|dH/dR|0>:\n", v01)
 
