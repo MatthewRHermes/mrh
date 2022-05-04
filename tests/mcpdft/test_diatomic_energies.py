@@ -1,7 +1,8 @@
 import numpy as np
-from pyscf import gto, scf, df
+from pyscf import gto, scf, df, fci
+from pyscf.fci.addons import fix_spin_
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.fci import csf_solver
+#from mrh.my_pyscf.fci import csf_solver
 import unittest
 
 def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates, charge=None, spin=None,
@@ -12,10 +13,13 @@ def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates, charge=None,
     if density_fit: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
     mf.kernel ()
     mc = mcpdft.CASSCF (mf, fnal, ncas, nelecas, grids_level=9)
-    if spin is not None: smult = spin+1
-    else: smult = (mol.nelectron % 2) + 1
-    mc.fcisolver = csf_solver (mol, smult=smult)
+    #if spin is not None: smult = spin+1
+    #else: smult = (mol.nelectron % 2) + 1
+    #mc.fcisolver = csf_solver (mol, smult=smult)
+    if spin is None: spin = mol.nelectron%2
+    ss = spin*(spin+2)*0.25
     mc = mc.multi_state ([1.0/float(nstates),]*nstates, 'cms')
+    mc.fix_spin_(ss=ss, shift=1)
     mc.conv_tol = mc.conv_tol_sarot = 1e-12
     mo = None
     if symmetry and (cas_irrep is not None):
@@ -82,7 +86,7 @@ class KnownValues(unittest.TestCase):
         #   commit: bd596f6cabd6da0301f3623af2de6a14082b34b5
         for i in range (2):
          with self.subTest (state=i):
-            self.assertAlmostEqual (e[i], e_ref[i], 6)
+            self.assertAlmostEqual (e[i], e_ref[i], 5)
 
     def test_lih_cms2ftlda22_sto3g (self):
         e = diatomic ('Li', 'H', 2.5, 'ftLDA,VWN3', 'STO-3G', 2, 2, 2)
@@ -101,7 +105,7 @@ class KnownValues(unittest.TestCase):
         # Reference values from this program
         for i in range (2):
          with self.subTest (state=i):
-            self.assertAlmostEqual (e[i], e_ref[i], 6)
+            self.assertAlmostEqual (e[i], e_ref[i], 5)
 
     def test_lih_cms3ftlda22_sto3g (self):
         e = diatomic ('Li', 'H', 2.5, 'ftLDA,VWN3', 'STO-3G', 2, 2, 3)

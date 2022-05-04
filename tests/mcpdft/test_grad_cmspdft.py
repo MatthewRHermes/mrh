@@ -1,9 +1,10 @@
 import numpy as np
 from scipy import linalg
-from pyscf import gto, scf, df, mcscf, lib
+from pyscf import gto, scf, df, mcscf, lib, fci
+from pyscf.fci.addons import fix_spin_
 from pyscf.data.nist import BOHR
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.fci import csf_solver
+#from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.grad.cmspdft import diab_response, diab_grad, diab_response_o0, diab_grad_o0
 from mrh.my_pyscf.grad import mspdft as mspdft_grad
 from mrh.my_pyscf.df.grad import dfsacasscf, dfmspdft
@@ -21,13 +22,16 @@ def get_mc_ref (mol, ri=False, sam=False):
     if ri: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
     mc = mcscf.CASSCF (mf.run (), 6, 6)
     if sam:
-        fcisolvers = [csf_solver (mol, smult=((2*i)+1)) for i in (0,1)]
+        #fcisolvers = [csf_solver (mol, smult=((2*i)+1)) for i in (0,1)]
+        fcisolvers = [fix_spin_(fci.solver (mol), ss=0),
+                      fix_spin_(fci.solver (mol).set (spin=2), ss=2)]
         if mol.symmetry:
             fcisolvers[0].wfnsym = 'A1'
             fcisolvers[1].wfnsym = 'A2'
         mc = mcscf.addons.state_average_mix (mc, fcisolvers, [0.5,0.5])
     else:
-        mc.fcisolver = csf_solver (mol, smult=1)
+        #mc.fcisolver = csf_solver (mol, smult=1)
+        mc.fix_spin_(ss=0)
         if mol.symmetry:
             mc.fcisolver.wfnsym = 'A1'
         mc = mc.state_average ([0.5,0.5])
