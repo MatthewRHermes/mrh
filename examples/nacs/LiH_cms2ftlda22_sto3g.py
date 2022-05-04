@@ -81,7 +81,18 @@ nac = mc_nacs.kernel (state=(1,0))
 print ("\nThe NACs are antisymmetric with respect to state transposition.")
 print ("NAC <0|d1/dR>:\n", nac)
 
-# 4. <1|d0/dR>*(E1-E0) = <0|d1/dR>*(E0-E1)
+# 4. <0|d1/dR> w/ ETFs
+#    Equivalent OpenMolcas input:
+#    ```
+#    &ALASKA
+#    NAC=2 1
+#    NOCSF
+#    ```
+nac = mc_nacs.kernel (state=(1,0), use_etfs=True)
+print ("NAC <0|d1/dR> w/ ETFs:\n", nac)
+
+
+# 5. <1|d0/dR>*(E1-E0) = <0|d1/dR>*(E0-E1)
 #    I'm not aware of any OpenMolcas equivalent for this, but all the information
 #    should obviously be in the output file, as long as you aren't right at a CI.
 nac_01 = mc_nacs.kernel (state=(0,1), mult_ediff=True)
@@ -94,9 +105,10 @@ print ("finite at a CI.")
 print ("NAC <1|d0/dR>*(E1-E0):\n", nac_01)
 print ("NAC <0|d1/dR>*(E0-E1):\n", nac_10)
 
-# 5. <1|d0/dR>*(E1-E0) w/ ETFs
-#    For comparison with 6 below.
-nac = mc_nacs.kernel(state=(0,1),use_etfs=True,mult_ediff=True)
+# 6. <1|d0/dR>*(E1-E0) w/ ETFs
+#    For comparison with 7 below.
+nac_01 = mc_nacs.kernel (state=(0,1), mult_ediff=True, use_etfs=True)
+nac_10 = mc_nacs.kernel (state=(1,0), mult_ediff=True, use_etfs=True)
 print ("\nUnlike the SA-CASSCF case, using both 'use_etfs=True' and")
 print ("'mult_ediff=True' DOES NOT reproduce the first derivative of the")
 print ("off-diagonal element of the potential matrix. This is because the")
@@ -105,11 +117,14 @@ print ("response equations and changes the values of the Lagrange multipliers,")
 print ("even if the Hellmann-Feynman part of the model-state contribution is")
 print ("omitted. You can get the gradients of the potential couplings by")
 print ("passing a tuple to the gradient method instance instead.")
-print ("<1|d0/dR>*(E1-E0) w/ ETFs:\n",nac)
+print ("<1|d0/dR>*(E1-E0) w/ ETFs:\n",nac_01)
+print ("<0|d1/dR>*(E0-E1) w/ ETFs:\n",nac_10)
 
-# 6. <1|dH/dR|0>
+# 7. <1|dH/dR|0>
 #    THIS is the quantity one uses to optimize MECIs
 mc_grad = mc.nuc_grad_method ()
 v01 = mc_grad.kernel (state=(0,1))
+v10 = mc_grad.kernel (state=(1,0))
 print ("<1|dH/dR|0>:\n", v01)
+print ("<0|dH/dR|1>:\n", v10)
 

@@ -66,7 +66,17 @@ nac = mc_nacs.kernel (state=(1,0))
 print ("\nThe NACs are antisymmetric with respect to state transposition.")
 print ("NAC <0|d1/dR>:\n", nac)
 
-# 4. <1|d0/dR>*(E1-E0) = <0|d1/dR>*(E0-E1)
+# 4. <0|d1/dR> w/ ETFs
+#    Equivalent OpenMolcas input:
+#    ```
+#    &ALASKA
+#    NAC=2 1
+#    NOCSF
+#    ```
+nac = mc_nacs.kernel (state=(1,0), use_etfs=True)
+print ("NAC <0|d1/dR> w/ ETFs:\n", nac)
+
+# 5. <1|d0/dR>*(E1-E0) = <0|d1/dR>*(E0-E1)
 #    I'm not aware of any OpenMolcas equivalent for this, but all the information
 #    should obviously be in the output file, as long as you aren't right at a CI.
 nac_01 = mc_nacs.kernel (state=(0,1), mult_ediff=True)
@@ -79,11 +89,13 @@ print ("finite at a CI.")
 print ("NAC <1|d0/dR>*(E1-E0):\n", nac_01)
 print ("NAC <0|d1/dR>*(E0-E1):\n", nac_10)
 
-# 5. <1|d0/dR>*(E1-E0) w/ETFs = <0|d1/dR>*(E0-E1) w/ETFs = <0|dH/dR|1>
+# 6. <1|d0/dR>*(E1-E0) w/ETFs = <0|d1/dR>*(E0-E1) w/ETFs = <0|dH/dR|1>
 #    This is the quantity one uses to optimize MECIs
 v01 = mc_nacs.kernel (state=(0,1), use_etfs=True, mult_ediff=True)
+v10 = mc_nacs.kernel (state=(1,0), use_etfs=True, mult_ediff=True)
 print ("\nUsing both 'use_etfs=True' and 'mult_ediff=True' corresponds to the")
 print ("derivative of the off-diagonal element of the potential matrix. This")
 print ("tells you one of the two components of the branching plane at the CI.")
 print ("<1|d0/dR>*(E1-E0) w/ ETFs = <1|dH/dR|0>:\n", v01)
+print ("<0|d1/dR>*(E0-E1) w/ ETFs = <0|dH/dR|1>:\n", v10)
 
