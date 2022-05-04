@@ -93,8 +93,6 @@ def nac_csf (mc_grad, mo_coeff=None, ci=None, state=None, mf_grad=None,
     if atmlst is None: atmlst = mc_grad.atmlst
     mol = mc.mol
     ket, bra = _unpack_state (state)
-    e_bra = mc.e_states[bra]
-    e_ket = mc.e_states[ket]
     ncore, ncas, nelecas = mc.ncore, mc.ncas, mc.nelecas
     castm1 = direct_spin1.trans_rdm1 (ci[bra], ci[ket], ncas, nelecas)
     # if PySCF commentary is to be trusted, trans_rdm1[p,q] is
@@ -213,7 +211,7 @@ class NonAdiabaticCouplings (sacasscf_grad.Gradients):
         ket, bra = _unpack_state (state)
         fcasscf_grad = casscf_grad.Gradients (self.make_fcasscf_nacs (state))
         nac = grad_elec_active (fcasscf_grad, mo_coeff=mo, ci=ci[ket],
-                                atmlst=atmlst, verbose=verbose)
+                                eris=eris, atmlst=atmlst, verbose=verbose)
         if not use_etfs: nac += self.nac_csf (
             mo_coeff=mo, ci=ci, state=state, mf_grad=mf_grad, atmlst=atmlst)
         return nac
