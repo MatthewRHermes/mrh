@@ -671,23 +671,26 @@ _CS_b_DEFAULT = 0.132
 _CS_c_DEFAULT = 0.2533
 _CS_d_DEFAULT = 0.349
 
+
 def get_transfnal (mol, otxc):
-    ks = dft.RKS (mol)
-    if otxc.upper () in ('TPBE0', 'FTPBE0'):
-        xc = otxc[-4:-1]
-        xc = make_hybrid_fnal (xc, 0.25)
-        otxc = otxc[:-4] + xc
+    #if otxc.upper () in ('TPBE0', 'FTPBE0'):
+    #    xc = otxc[-4:-1]
+    #    xc = make_hybrid_fnal (xc, 0.25)
+    #    otxc = otxc[:-4] + xc
     if otxc.upper ().startswith ('T'):
-        ks.xc = otxc[1:]
+        xc_base = otxc[1:]
         fnal_class = transfnal
     elif otxc.upper ().startswith ('FT'):
-        ks.xc = otxc[2:]
+        xc_base = otxc[2:]
         fnal_class = ftransfnal
     else:
         raise NotImplementedError (
             'On-top pair-density functional names other than "translated" (t) or '
             '"fully-translated (ft).'
             )
+    xc_base = OT_HYB_ALIAS.get (xc_base.upper (), xc_base)
+    ks = dft.RKS (mol)
+    ks.xc = xc_base
     return fnal_class (ks)
     
 
@@ -742,7 +745,7 @@ def _hybrid_2c_coeff (ni, xc_code, spin=0):
     exchange and correlation components of the hybrid coefficent
     separately '''
 
-    # For all prebuilt and exchange-only functionals, hyb_c = 0
+    # For exchange-only functionals, hyb_c = hyb_x
     if not re.search (',', xc_code): return [_NumInt.hybrid_coeff(ni, xc_code,
         spin=0), 0]
 
@@ -898,6 +901,8 @@ def make_hybrid_fnal (xc_code, hyb, hyb_type = 1):
             fnal_c=(1-b))
     else:
         raise RuntimeError ('hybrid type undefined')
+
+OT_HYB_ALIAS = {'PBE0': make_hybrid_fnal ('PBE', 0.25, hyb_type='average')}
 
 # TODO: reconsider this goofy API...
 __t_doc__="For 'translated' functionals, otxc string = 't'+xc string\n"
