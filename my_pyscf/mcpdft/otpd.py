@@ -43,15 +43,18 @@ def get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas, deriv=0,
         ao : ndarray of shape (*, ngrids, nao)
             contains values of aos [and derivatives]
         cascm2 : ndarray of shape [ncas,]*4
-            contains spin-summed two-body cumulant density matrix in the
-            active-orbital basis:
-            cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
-                           + dm1s[0][u,y]*dm1s[0][x,v]
-                           + dm1s[1][u,y]*dm1s[1][x,v]
-            The cumulant has no nonzero elements for any index outside
-            the active space (unlike dm2, which formally has elements
-            [i,i,u,v], etc., even though they are not constructed
-            explicitly in PySCF).
+            contains spin-summed two-body cumulant density matrix in an
+            active-orbital basis given by mo_cas:
+                cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
+                               + dm1s[0][u,y]*dm1s[0][x,v]
+                               + dm1s[1][u,y]*dm1s[1][x,v]
+            where dm1 = dm1s[0] + dm1s[1]. The cumulant (cm2) has no
+            nonzero elements for any index outside the active space,
+            unlike the density matrix (dm2), which formally has elements
+            involving uncorrelated, doubly-occupied ``core'' orbitals
+            which are not usually computed explicitly:
+                dm2[i,i,u,v] = dm2[u,v,i,i] = 2*dm1[u,v]
+                dm2[u,i,i,v] = dm2[i,v,u,i] = -dm1[u,v]
         mo_cas : ndarray of shape (nao, ncas)
             molecular-orbital coefficients for active-space orbitals
 

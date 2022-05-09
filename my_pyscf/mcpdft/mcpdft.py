@@ -128,7 +128,7 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
 
     spin = abs(nelecas[0] - nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
-    if omega or alpha:
+    if abs (omega) > 1e-11:
         raise NotImplementedError ("range-separated on-top functionals")
     hyb_x, hyb_c = hyb
 
@@ -197,8 +197,18 @@ def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
         dm1s : ndarray of shape (2, nao, nao)
             containing spin-separated one-body density matrices
         cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
-            containing spin-summed two-body cumulant density matrix in
-            an active space
+            contains spin-summed two-body cumulant density matrix in an
+            active-orbital basis given by mo_cas:
+                cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
+                               + dm1s[0][u,y]*dm1s[0][x,v]
+                               + dm1s[1][u,y]*dm1s[1][x,v]
+            where dm1 = dm1s[0] + dm1s[1]. The cumulant (cm2) has no
+            nonzero elements for any index outside the active space,
+            unlike the density matrix (dm2), which formally has elements
+            involving uncorrelated, doubly-occupied ``core'' orbitals
+            which are not usually computed explicitly:
+                dm2[i,i,u,v] = dm2[u,v,i,i] = 2*dm1[u,v]
+                dm2[u,i,i,v] = dm2[i,v,u,i] = -dm1[u,v]
         mo_cas : ndarray of shape (nao, ncas)
             containing molecular orbital coefficients for active-space
             orbitals
