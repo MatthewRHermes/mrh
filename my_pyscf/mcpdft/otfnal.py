@@ -7,7 +7,7 @@ from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
 from mrh.util import params
-from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs
+from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs, _libxc
 from pyscf import __config__
 
 FT_R0 = getattr(__config__, 'mcpdft_otfnal_ftransfnal_R0', 0.9)
@@ -337,12 +337,9 @@ class transfnal (otfnal):
                 cfnal : object of :class:`transfnal`
                     this functional, but only the correlation part
         '''
-        if not re.search (',', self.otxc):
-            x_code = c_code = self.otxc
-            c_code = c_code[len (self.transl_prefix):]
-        else:
-            x_code, c_code = self.otxc.split (',')
-        x_code = x_code + ','
+        xc_base = self.otxc[len (self.transl_prefix):]
+        x_code, c_code = _libxc.split_x_c_comma (xc_base)
+        x_code = self.transl_prefix + x_code + ','
         c_code = self.transl_prefix + ',' + c_code
         xfnal = copy.copy (self)
         xfnal._numint = copy.copy (self._numint)
@@ -673,10 +670,6 @@ _CS_d_DEFAULT = 0.349
 
 
 def get_transfnal (mol, otxc):
-    #if otxc.upper () in ('TPBE0', 'FTPBE0'):
-    #    xc = otxc[-4:-1]
-    #    xc = make_hybrid_fnal (xc, 0.25)
-    #    otxc = otxc[:-4] + xc
     if otxc.upper ().startswith ('T'):
         xc_base = otxc[1:]
         fnal_class = transfnal
@@ -689,6 +682,13 @@ def get_transfnal (mol, otxc):
             '"fully-translated (ft).'
             )
     xc_base = OT_HYB_ALIAS.get (xc_base.upper (), xc_base)
+    if ',' not in xc_base and _libxc.is_hybrid_xc (xc_base):
+        raise NotImplementedError (
+            ('Aliased or built-in translated hybrid functionals other than'
+             'tPBE0/ftPBE0. Build a compound functional string with a comma '
+             'separating the exchange and correlation parts or use '
+             'otfnal.make_hybrid_fnal instead.')
+        )
     ks = dft.RKS (mol)
     ks.xc = xc_base
     return fnal_class (ks)
@@ -746,13 +746,11 @@ def _hybrid_2c_coeff (ni, xc_code, spin=0):
     separately '''
 
     # For exchange-only functionals, hyb_c = hyb_x
-    if not re.search (',', xc_code): return [_NumInt.hybrid_coeff(ni, xc_code,
-        spin=0), 0]
+    x_code, c_code = _libxc.split_x_c_comma (xc_code)
+    c_code = ',' + c_code
 
     # All factors of 'HF' are summed by default. Therefore just run the same
     # code for the exchange and correlation parts of the string separately
-    x_code, c_code = xc_code.split (',')
-    c_code = ',' + c_code
     hyb_x = _NumInt.hybrid_coeff(ni, x_code, spin=0) if len (x_code) else 0
     hyb_c = _NumInt.hybrid_coeff(ni, c_code, spin=0) if len (c_code) else 0
     return [hyb_x, hyb_c]
@@ -771,11 +769,9 @@ def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None,
 
         Args:
             xc_code : string
-                As used in pyscf.dft.libxc. If it contains no comma, it
-                is assumed to be a predefined functional with
-                separately-defined exchange and correlation parts:
-                'xc_code' -> 'xc_code,xc_code'. Currently cannot parse
-                mixed functionals.
+                As used in pyscf.dft.libxc. An exception is raised if it
+                is already a hybrid or contains a kinetic-energy
+                functional component.
 
         Kwargs:
             hyb_x : float
@@ -800,10 +796,10 @@ def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None,
     if fnal_x is None: fnal_x = 1 - hyb_x
     if fnal_c is None: fnal_c = 1 - hyb_c
 
-    if not re.search (',', xc_code):
-        x_code = c_code = xc_code
-    else:
-        x_code, c_code = ','.split (xc_code)
+    if _libxc.is_hybrid_xc (xc_code):
+        raise RuntimeError ('Functional {} is already a hybrid!'.format (
+            xc_code))
+    x_code, c_code = _libxc.split_x_c_comma (xc_code)
 
     # TODO: actually parse the xc_code so that custom functionals are
     # compatible with this
@@ -826,11 +822,9 @@ def make_hybrid_fnal (xc_code, hyb, hyb_type = 1):
 
         Args:
             xc_code : string
-                As used in pyscf.dft.libxc. If it contains no comma, it
-                is assumed to be a predefined functional with
-                separately-defined exchange and correlation parts:
-                'xc_code' -> 'xc_code,xc_code'. Currently cannot parse
-                mixed functionals.
+                As used in pyscf.dft.libxc. An exception is raised if it
+                is already a hybrid or contains a kinetic-energy
+                functional component.
             hyb : float
                 Parameter(s) defining the "hybridization" which is
                 handled in various ways according to hyb_type
