@@ -16,61 +16,7 @@ FT_A = getattr(__config__, 'mcpdft_otfnal_ftransfnal_A', -475.60656009)
 FT_B = getattr(__config__, 'mcpdft_otfnal_ftransfnal_B', -379.47331922)
 FT_C = getattr(__config__, 'mcpdft_otfnal_ftransfnal_C', -85.38149682)
 
-def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
-    # Examine the error of the first and second functional derivatives in the
-    # debugging block under transfnal.eval_ot below
-    ndf = len (lbls)
-    nvP = v0[1].shape[0]
-    de = (e1-e0) * w
-    vx = ((v0[0]*x[0]).sum (0) + (v0[1]*x[1][:nvP]).sum (0)) * w
-    xf = tfnal_derivs.contract_fot (otfnal, f, rho_tot, Pi, x[0], x[1])
-    for row in xf: row[:] *= w
-    xfx = ((xf[0]*x[0]).sum (0) + (xf[1]*x[1][:nvP]).sum (0)) / 2
-    xf_df = [xf[0][0], xf[1][0]]
-    dv_df = [(v1[0][0]-v0[0][0])*w, (v1[1][0]-v0[1][0])*w]
-    # The lesson of the debug experience from the commented-out block below is:
-    # the largest errors (fractional or absolute) in the ftLDA fnal gradient
-    # appear to be for R just under 1.0!
-    #if 'LDA' in otfnal.otxc:
-    #    print ("bigtab", otfnal.otxc, (np.sum (vx) - np.sum (de))/np.sum (de))
-    #    tab = np.empty ((xf[0][0].size, 6), dtype=xf[0].dtype)
-    #    tab[:,0] = otfnal.get_ratio (Pi, rho_tot/2)[0] - 1.0
-    #    tab[:,1] = rho_tot
-    #    tab[:,2] = Pi
-    #    tab[:,3] = vx
-    #    tab[:,4] = tab[:,3] - de
-    #    tab[:,5] = tab[:,4] / de
-    #    tab[(de==0)&(vx==0),3] = 0.0
-    #    tab[(de==0)&(vx!=0),3] = 1.0
-    #    tab = tab[np.argsort (-np.abs (tab[:,4])),:]
-    #    for row in tab:
-    #        print ("{:20.12e} {:9.2e} {:9.2e} {:9.2e} {:9.2e} {:9.2e}".format
-    #           (*row))
-    if ndf > 2: 
-        xf_df += [xf[0][1:4],]
-        dv_df += [(v1[0][1:4]-v0[0][1:4])*w,]
-    if ndf > 3: 
-        xf_df += [xf[1][1:4],]
-        dv_df += [(v1[1][1:4]-v0[1][1:4])*w,]
-    de_err1 = de - vx
-    de_err2 = de_err1 - xfx
-    for ix, lbl in enumerate (lbls):
-        lib.logger.debug (otfnal, "%s gradient debug %s: %e - %e (- %e) -> %e "
-            "(%e)", tag, lbl, np.sum  (de[ix::ndf]), np.sum (vx[ix::ndf]),
-            np.sum (xfx[ix::ndf]), np.sum (de_err1[ix::ndf]),
-            np.sum (de_err2[ix::ndf]))
-    for lbl_row, xf_row, dv_row in zip (lbls, xf_df, dv_df):
-        err_row = dv_row-xf_row
-        for ix_col, lbl_col in enumerate (lbls):
-            lib.logger.debug (otfnal, ("%s Hessian debug (H.x_%s)_%s: "
-                "%e - %e -> %e"), tag, lbl_col, lbl_row, 
-                linalg.norm (dv_row[ix_col::ndf]),
-                linalg.norm (xf_row[ix_col::ndf]),
-                linalg.norm (err_row[ix_col::ndf]))
-            # I am not doing rho'.rho'->sigma right for x.f.x/2
-            # However I am somehow doing it right for f.x vs. delta v?
-    lib.logger.debug (otfnal, "%s dE - v.x - x.f.x: %e - %e - %e = %e",
-        tag, de.sum (), vx.sum (), xfx.sum (), de_err2.sum ())
+OT_HYB_ALIAS = {'PBE0': '0.25*HF + 0.75*PBE, 0.25*HF + 0.75*PBE'}
 
 class otfnal:
     r''' Parent class of on-top pair-density functional. The main
@@ -896,7 +842,6 @@ def make_hybrid_fnal (xc_code, hyb, hyb_type = 1):
     else:
         raise RuntimeError ('hybrid type undefined')
 
-OT_HYB_ALIAS = {'PBE0': make_hybrid_fnal ('PBE', 0.25, hyb_type='average')}
 
 # TODO: reconsider this goofy API...
 __t_doc__="For 'translated' functionals, otxc string = 't'+xc string\n"
@@ -956,3 +901,58 @@ def ft_rsh_and_hybrid_coeff(ni, xc_code, spin=0):
 ft_rsh_and_hybrid_coeff.__doc__ = (__ft_doc__
     + str(_NumInt.rsh_and_hybrid_coeff.__doc__))
 
+def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
+    # Examine the error of the first and second functional derivatives in the
+    # debugging block under transfnal.eval_ot below
+    ndf = len (lbls)
+    nvP = v0[1].shape[0]
+    de = (e1-e0) * w
+    vx = ((v0[0]*x[0]).sum (0) + (v0[1]*x[1][:nvP]).sum (0)) * w
+    xf = tfnal_derivs.contract_fot (otfnal, f, rho_tot, Pi, x[0], x[1])
+    for row in xf: row[:] *= w
+    xfx = ((xf[0]*x[0]).sum (0) + (xf[1]*x[1][:nvP]).sum (0)) / 2
+    xf_df = [xf[0][0], xf[1][0]]
+    dv_df = [(v1[0][0]-v0[0][0])*w, (v1[1][0]-v0[1][0])*w]
+    # The lesson of the debug experience from the commented-out block below is:
+    # the largest errors (fractional or absolute) in the ftLDA fnal gradient
+    # appear to be for R just under 1.0!
+    #if 'LDA' in otfnal.otxc:
+    #    print ("bigtab", otfnal.otxc, (np.sum (vx) - np.sum (de))/np.sum (de))
+    #    tab = np.empty ((xf[0][0].size, 6), dtype=xf[0].dtype)
+    #    tab[:,0] = otfnal.get_ratio (Pi, rho_tot/2)[0] - 1.0
+    #    tab[:,1] = rho_tot
+    #    tab[:,2] = Pi
+    #    tab[:,3] = vx
+    #    tab[:,4] = tab[:,3] - de
+    #    tab[:,5] = tab[:,4] / de
+    #    tab[(de==0)&(vx==0),3] = 0.0
+    #    tab[(de==0)&(vx!=0),3] = 1.0
+    #    tab = tab[np.argsort (-np.abs (tab[:,4])),:]
+    #    for row in tab:
+    #        print ("{:20.12e} {:9.2e} {:9.2e} {:9.2e} {:9.2e} {:9.2e}".format
+    #           (*row))
+    if ndf > 2: 
+        xf_df += [xf[0][1:4],]
+        dv_df += [(v1[0][1:4]-v0[0][1:4])*w,]
+    if ndf > 3: 
+        xf_df += [xf[1][1:4],]
+        dv_df += [(v1[1][1:4]-v0[1][1:4])*w,]
+    de_err1 = de - vx
+    de_err2 = de_err1 - xfx
+    for ix, lbl in enumerate (lbls):
+        lib.logger.debug (otfnal, "%s gradient debug %s: %e - %e (- %e) -> %e "
+            "(%e)", tag, lbl, np.sum  (de[ix::ndf]), np.sum (vx[ix::ndf]),
+            np.sum (xfx[ix::ndf]), np.sum (de_err1[ix::ndf]),
+            np.sum (de_err2[ix::ndf]))
+    for lbl_row, xf_row, dv_row in zip (lbls, xf_df, dv_df):
+        err_row = dv_row-xf_row
+        for ix_col, lbl_col in enumerate (lbls):
+            lib.logger.debug (otfnal, ("%s Hessian debug (H.x_%s)_%s: "
+                "%e - %e -> %e"), tag, lbl_col, lbl_row, 
+                linalg.norm (dv_row[ix_col::ndf]),
+                linalg.norm (xf_row[ix_col::ndf]),
+                linalg.norm (err_row[ix_col::ndf]))
+            # I am not doing rho'.rho'->sigma right for x.f.x/2
+            # However I am somehow doing it right for f.x vs. delta v?
+    lib.logger.debug (otfnal, "%s dE - v.x - x.f.x: %e - %e - %e = %e",
+        tag, de.sum (), vx.sum (), xfx.sum (), de_err2.sum ())

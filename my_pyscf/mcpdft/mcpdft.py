@@ -243,7 +243,8 @@ def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
 
     return E_ot
 
-def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
+def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
+                              grids_level=None, grids_attr=None):
     '''Compute a decomposition of the MC-PDFT energy into nuclear
     potential (E0), one-electron (E1), Coulomb (E2c), exchange (EOTx),
     correlation (EOTc) terms, and additionally the nonclassical part
@@ -265,6 +266,12 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
         ci : ndarray or list of length nroots
             Contains CI vectors
         ot : an instance of (translated) on-top density fnal class
+        otxc : string
+            identity of translated functional; overrides ot
+        grids_level : integer
+            level preset for DFT quadrature grids
+        grids_attr : dictionary
+            general attributes for DFT quadrature grids
 
     Returns:
         e_nuc : float
@@ -282,6 +289,17 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
     '''            
     if mo_coeff is None: mo_coeff=mc.mo_coeff
     if ci is None: ci = mc.ci
+    if grids_attr is None: grids_attr = {}
+    if grids_level is not None: grids_attr['level'] = grids_level
+    if len (grids_attr) or (otxc is not None):
+        old_ot = ot if (ot is not None) else mc.otfnal
+        old_grids = old_ot.grids
+        # TODO: general compatibility with arbitrary (non-translated) fnals
+        if otxc is None: otxc = old_ot.otxc
+        new_ot = get_transfnal (mc.mol, otxc)
+        new_ot.grids.__dict__.update (old_grids.__dict__)
+        new_ot.grids.__dict__.update (**grids_attr)
+        ot = new_ot
     if ot is None: ot = mc.otfnal
 
     hyb_x, hyb_c = ot._numint.hybrid_coeff(ot.otxc)
