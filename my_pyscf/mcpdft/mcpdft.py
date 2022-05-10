@@ -160,7 +160,7 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
         #if log.verbose >= logger.DEBUG:
         aeri = ao2mo.restore (1, mc.get_h2eff (mo_coeff), mc.ncas)
         E_c = np.tensordot (aeri, cascm2, axes=4) / 2
-        log.info ('E_c = %s', E_c)
+        log.debug ('E_c = %s', E_c)
     if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
         log.debug (('Adding %s * %s CAS exchange, %s * %s CAS correlation to '
                     'E_ot'), hyb_x, E_x, hyb_c, E_c)
@@ -182,16 +182,16 @@ def energy_dft (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
     dm1s = _dms.casdm1s_to_dm1s (mc, casdm1s, mo_coeff=mo_coeff, ncore=ncore,
                                  ncas=ncas)
     cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
-    return get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=max_memory,
+    return ot.energy_ot (dm1s, cascm2, mo_cas, max_memory=max_memory,
         hermi=hermi)
+    #return get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=max_memory,
+    #    hermi=hermi)
 
 def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
-    '''E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi]
+    '''Compute the on-top energy - the last term in 
 
-    or, in other terms,
+    E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi]
 
-    E_MCPDFT = T_KS[rho] + E_ext[rho] + E_coul[rho] + E_ot[rho, Pi]
-             = E_DFT[1rdm] - E_xc[rho] + E_ot[rho, Pi]
     Args:
         ot : an instance of otfnal class
         dm1s : ndarray of shape (2, nao, nao)
@@ -362,8 +362,8 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
     adm2 = _dms.dm2_cumulant (_casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1],
         adm1s)
     mo_cas = mo_coeff[:,ncore:][:,:ncas]
-    e_otx = get_E_ot (xfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
-    e_otc = get_E_ot (cfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
+    e_otx = xfnal.energy_ot (dm1s, adm2, mo_cas, max_memory=mc.max_memory)
+    e_otc = cfnal.energy_ot (dm1s, adm2, mo_cas, max_memory=mc.max_memory)
     e_ncwfn = e_mcscf - e_nuc - e_1e - e_coul
     return e_1e, e_coul, e_otx, e_otc, e_ncwfn
 
