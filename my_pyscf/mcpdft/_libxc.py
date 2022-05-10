@@ -32,6 +32,8 @@ def split_x_c_comma (xc):
     '''Split an xc code string into two separate strings, one for
     exchange and one for correlation, by finding a comma in the string
     or in some alias'''
+    if ',' in xc: return xc.split (',')
+    if not len (xc): return '',''
     xc = xc.upper ()
     myerr = XCSplitError (xc)
     max_recurse = 5
@@ -116,4 +118,3 @@ def assemble_xc_formula (facs, terms):
             code.append ('{:s}*{:s}'.format (fac, term))
     code = '+'.join (code).replace ('+-','-')
     return code
-

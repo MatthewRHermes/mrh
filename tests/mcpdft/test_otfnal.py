@@ -66,6 +66,9 @@ class KnownValues(unittest.TestCase):
             with self.subTest (xc=xc):
                 test_hybrid_and_decomp (self, xc)
 
+    def test_null_fnal (self):
+        test_hybrid_and_decomp (self, '')
+
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT on-top functional class API")
     unittest.main()
