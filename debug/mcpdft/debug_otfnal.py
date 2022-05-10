@@ -42,7 +42,6 @@ for xc_name in XC_NAMES:
             if e_tot is not None: print (e_tot, e_ot)
             if e_nuc is not None: print (e_nuc, e_1e, e_coul, e_otx, e_otc, e_mcwfn)
             if str (e).startswith ('Aliased'):
-                print (hybrid_coeff (xc_name))
-                print (rsh_coeff (xc_name))
+                print (hybrid_coeff (xc_name), rsh_coeff (xc_name)[0])
 
 

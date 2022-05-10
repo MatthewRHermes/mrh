@@ -16,7 +16,7 @@ FT_A = getattr(__config__, 'mcpdft_otfnal_ftransfnal_A', -475.60656009)
 FT_B = getattr(__config__, 'mcpdft_otfnal_ftransfnal_B', -379.47331922)
 FT_C = getattr(__config__, 'mcpdft_otfnal_ftransfnal_C', -85.38149682)
 
-OT_HYB_ALIAS = {'PBE0': '0.25*HF + 0.75*PBE, 0.25*HF + 0.75*PBE'}
+OT_HYB_ALIAS = {'PBE0' : '0.25*HF + 0.75*PBE, 0.25*HF + 0.75*PBE'}
 
 class otfnal:
     r''' Parent class of on-top pair-density functional. The main
@@ -631,9 +631,10 @@ def get_transfnal (mol, otxc):
     if ',' not in xc_base and _libxc.is_hybrid_or_rsh (xc_base):
         raise NotImplementedError (
             ('Aliased or built-in translated hybrid or range-separated '
-             'functionals other than tPBE0/ftPBE0.\nBuild a compound '
-             'functional string with a comma separating the exchange and '
-             'correlation parts,\nor use otfnal.make_hybrid_fnal instead.')
+             'functionals\nother than those listed in otfnal.OT_HYB_ALIAS. '
+             'Build a compound functional\nstring with a comma separating the '
+             'exchange and correlation parts, or use\notfnal.make_hybrid_fnal '
+             'instead.')
         )
     ks = dft.RKS (mol)
     ks.xc = xc_base
