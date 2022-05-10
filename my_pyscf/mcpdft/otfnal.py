@@ -697,6 +697,7 @@ def _hybrid_2c_coeff (ni, xc_code, spin=0):
 
     # For exchange-only functionals, hyb_c = hyb_x
     x_code, c_code = _libxc.split_x_c_comma (xc_code)
+    x_code = x_code + ','
     c_code = ',' + c_code
 
     # All factors of 'HF' are summed by default. Therefore just run the same

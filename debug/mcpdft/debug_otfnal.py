@@ -1,4 +1,4 @@
-from pyscf import gto, scf
+from pyscf import gto, scf, dft
 from pyscf.dft.libxc import XC_KEYS, is_meta_gga, hybrid_coeff, rsh_coeff
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.mcpdft import _libxc
@@ -19,7 +19,7 @@ def _test_xc (xc):
     epdft = mc.energy_tot (otxc=otxc)[0]
     otxc = 't'+hyb(xc,0.25)
     ehyb = mc.energy_tot (otxc=otxc)[0]
-    print (otxc)
+    print ('\n', otxc)
     print (ehyb, ehyb-(0.25*emcscf+0.75*epdft))
 
 for xc in xc_list: _test_xc (xc)

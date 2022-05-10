@@ -40,7 +40,7 @@ def split_x_c_comma (xc):
             break
         elif xc in XC_ALIAS_KEYS:
             xc = XC_ALIAS[xc]
-        elif isinstance (XC_CODES[xc], int):
+        elif isinstance (XC_CODES.get (xc, None), int):
             xc_int = XC_CODES[xc]
             if xc_int in INTCODES_HYB:
                 raise myerr ('LibXC built-in hybrid')
@@ -59,7 +59,7 @@ def split_x_c_comma (xc):
         elif xc in XC_KEYS:
             xc = XC_CODES[xc]
         else:
-            raise myerr
+            raise myerr (xc)
         myerr.extend (xc)
     if not ',' in xc:
         raise myerr ('Maximum XC alias recursion depth')
@@ -107,9 +107,13 @@ def _parse_xc_formula (xc_code):
 def assemble_xc_formula (facs, terms):
     code = []
     for fac, term in zip (facs, terms):
-        fac = '{:.16f}'.format (round (fac,14))
-        fac = fac.rstrip ('0').rstrip ('.')
-        code.append ('{:s}*{:s}'.format (fac, term))
+        if fac==1.0: code.append ('{:s}'.format (fac))
+        elif fac==-1.0: code.append ('-{:s}'.format (fac))
+        elif fac==0.0: continue
+        else:
+            fac = '{:.16f}'.format (round (fac,14))
+            fac = fac.rstrip ('0').rstrip ('.')
+            code.append ('{:s}*{:s}'.format (fac, term))
     code = '+'.join (code).replace ('+-','-')
     return code
 
