@@ -71,3 +71,45 @@ def is_hybrid_or_rsh (xc_code):
     non0 = [abs (x)>1e-10 for x in (hyb, omega)]
     return any (non0)
 
+def is_hybrid_xc (xc_code):
+    hyb = hybrid_coeff (xc_code)
+    return abs (hyb)>1e-10
+
+def parse_xc_formula (xc_code):
+    if ',' in xc_code:
+        x_code, c_code = xc_code.split (',')
+        x_facs, x_fnals = _parse_xc_formula (x_code)
+        c_facs, c_fnals = _parse_xc_formula (c_code)
+        return x_facs+c_facs, x_fnals+c_fnals
+    return _parse_xc_formula (xc_code)
+
+def _parse_xc_formula (xc_code):
+    facs = []
+    fnals = []
+    for token in xc_code.replace('-','+-').replace(';+',';').split('+'):
+        sign = 1
+        if not len (token): continue
+        if token[0] == '-':
+            sign = -1
+            token = token[1:]
+        if '*' in token:
+            fac, fnal = token.split ('*')
+            if fac[0].isalpha ():
+                fac, fnal = fnal, fac
+            fac = sign * float (fac)
+        else:
+            fac = sign
+            fnal = token
+        facs.append (fac)
+        fnals.append (fnal)
+    return facs, fnals
+
+def assemble_xc_formula (facs, terms):
+    code = []
+    for fac, term in zip (facs, terms):
+        fac = '{:.16f}'.format (round (fac,14))
+        fac = fac.rstrip ('0').rstrip ('.')
+        code.append ('{:s}*{:s}'.format (fac, term))
+    code = '+'.join (code).replace ('+-','-')
+    return code
+

@@ -751,18 +751,19 @@ def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None,
             xc_code))
     x_code, c_code = _libxc.split_x_c_comma (xc_code)
 
-    # TODO: actually parse the xc_code so that custom functionals are
-    # compatible with this
-
-    if fnal_x != 1:
-        x_code = '{:.16f}*{:s}'.format (fnal_x, x_code)
+    x_facs, x_terms = _libxc.parse_xc_formula (x_code)
+    if fnal_x != 1: x_facs = list (np.asarray (x_facs)*fnal_x)
     if hyb_x != 0:
-        x_code = x_code + ' + {:.16f}*HF'.format (hyb_x)
+        x_facs.append (hyb_x)
+        x_terms.append ('HF')
+    x_code = _libxc.assemble_xc_formula (x_facs, x_terms)
 
-    if fnal_c != 1:
-        c_code = '{:.16f}*{:s}'.format (fnal_c, c_code)
+    c_facs, c_terms = _libxc.parse_xc_formula (c_code)
+    if fnal_c != 1: c_facs = list (np.asarray (c_facs)*fnal_c)
     if hyb_c != 0:
-        c_code = c_code + ' + {:.16f}*HF'.format (hyb_c)
+        c_facs.append (hyb_c)
+        c_terms.append ('HF')
+    c_code = _libxc.assemble_xc_formula (c_facs, c_terms)
 
     return x_code + ',' + c_code
 
