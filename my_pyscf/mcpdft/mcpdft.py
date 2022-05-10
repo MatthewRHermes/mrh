@@ -169,7 +169,7 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
 
 def energy_dft (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
         casdm2=None, max_memory=None, hermi=1):
-    ''' Wrap to get_E_ot for subclassing. '''
+    ''' Wrap to ot.energy_ot for subclassing. '''
     if ot is None: ot = mc.otfnal
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
@@ -184,67 +184,6 @@ def energy_dft (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
     cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
     return ot.energy_ot (dm1s, cascm2, mo_cas, max_memory=max_memory,
         hermi=hermi)
-    #return get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=max_memory,
-    #    hermi=hermi)
-
-def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
-    '''Compute the on-top energy - the last term in 
-
-    E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi]
-
-    Args:
-        ot : an instance of otfnal class
-        dm1s : ndarray of shape (2, nao, nao)
-            containing spin-separated one-body density matrices
-        cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
-            contains spin-summed two-body cumulant density matrix in an
-            active-orbital basis given by mo_cas:
-                cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
-                               + dm1s[0][u,y]*dm1s[0][x,v]
-                               + dm1s[1][u,y]*dm1s[1][x,v]
-            where dm1 = dm1s[0] + dm1s[1]. The cumulant (cm2) has no
-            nonzero elements for any index outside the active space,
-            unlike the density matrix (dm2), which formally has elements
-            involving uncorrelated, doubly-occupied ``core'' orbitals
-            which are not usually computed explicitly:
-                dm2[i,i,u,v] = dm2[u,v,i,i] = 2*dm1[u,v]
-                dm2[u,i,i,v] = dm2[i,v,u,i] = -dm1[u,v]
-        mo_cas : ndarray of shape (nao, ncas)
-            containing molecular orbital coefficients for active-space
-            orbitals
-
-    Kwargs:
-        max_memory : int or float
-            maximum cache size in MB
-            default is 2000
-        hermi : int
-            1 if 1rdms are assumed hermitian, 0 otherwise
-
-    Returns : float
-        The MC-PDFT on-top (nonclassical) energy
-    '''
-    E_ot = 0.0
-    ni, xctype = ot._numint, ot.xctype
-    if xctype=='HF': return E_ot
-    dens_deriv = ot.dens_deriv
-
-    norbs_ao = mo_cas.shape[0]
-
-
-    t0 = (logger.process_clock (), logger.perf_counter ())
-    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, dm1s[i,:,:], hermi) for
-        i in range(2))
-    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao,
-            dens_deriv, max_memory):
-        rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
-        t0 = logger.timer (ot, 'untransformed density', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas,
-            dens_deriv, mask) 
-        t0 = logger.timer (ot, 'on-top pair density calculation', *t0) 
-        E_ot += ot.get_E_ot (rho, Pi, weight)
-        t0 = logger.timer (ot, 'on-top energy calculation', *t0) 
-
-    return E_ot
 
 def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
                               grids_level=None, grids_attr=None):

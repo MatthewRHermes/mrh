@@ -76,7 +76,6 @@ def energy_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
             rho = np.expand_dims (rho, 1)
             Pi = np.expand_dims (Pi, 0)
         E_ot += ot.eval_ot (rho, Pi, dderiv=0, weights=weight)[0].dot (weight)
-        #E_ot += ot.get_E_ot (rho, Pi, weight)
         t0 = logger.timer (ot, 'on-top energy calculation', *t0)
 
     return E_ot
@@ -159,19 +158,6 @@ class otfnal:
         return 0
 
     energy_ot = energy_ot
-    #def get_E_ot (self, rho, Pi, weights):
-    #    r''' Being phased out as redundant with eval_ot
-    #    Left in place for backwards-compatibility'''
-
-    #    assert (rho.shape[1:] == Pi.shape[:]), \
-    #        "rho.shape={0}, Pi.shape={1}".format (rho.shape, Pi.shape)
-    #    if rho.ndim == 2:
-    #        rho = np.expand_dims (rho, 1)
-    #        Pi = np.expand_dims (Pi, 0)
-    #    
-    #    return self.eval_ot (rho, Pi, dderiv=0, weights=weights)[0].dot (
-    #        weights)
-
     get_veff_1body = pdft_veff.get_veff_1body
     get_veff_2body = pdft_veff.get_veff_2body
     get_veff_2body_kl = pdft_veff.get_veff_2body_kl
