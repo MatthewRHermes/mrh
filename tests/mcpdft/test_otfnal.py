@@ -11,7 +11,7 @@ import unittest
 from itertools import product
 
 h2 = scf.RHF (gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = 'sto-3g', 
-    output='/dev/null')).run ()
+                     output='/dev/null', verbose=0)).run ()
 mc = mcpdft.CASSCF (h2, 'tPBE', 2, 2, grids_level=1).run ()
 LIBXC_KILLS = ['GGA_X_LB','GGA_X_LBM','LDA_XC_TIH']
 

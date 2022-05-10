@@ -180,7 +180,8 @@ def energy_dft (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
         max_memory=max_memory, hermi=hermi)
 
 def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
-                              grids_level=None, grids_attr=None):
+                              grids_level=None, grids_attr=None,
+                              split_x_c=None, verbose=None):
     '''Compute a decomposition of the MC-PDFT energy into nuclear
     potential (E0), one-electron (E1), Coulomb (E2c), exchange (EOTx),
     correlation (EOTc) terms, and additionally the nonclassical part
@@ -208,6 +209,10 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
             level preset for DFT quadrature grids
         grids_attr : dictionary
             general attributes for DFT quadrature grids
+        split_x_c : logical
+            whether to split the exchange and correlation parts of the
+            ot functional into two separate contributions
+        
 
     Returns:
         e_nuc : float
@@ -216,13 +221,18 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
             E1 = <T+sum_A ZA/rA>
         e_coul : float or list of length nroots
             E2c = 1/2 int rho(1)rho(2)/r12 d1d2
-        e_otx : float or list of length nroots
-            EOTx = exchange part of translated functional
+        e_otxc : float or list of length nroots
+            EOTxc = translated functional energy
+            if split_x_c == True, this is instead
+            EOTx = exchange part of translated functional energy
         e_otc : float or list of length nroots
-            EOTx = correlation part of translated functional
+            only returned if split_x_c == True
+            EOTc = correlation part of translated functional
         e_ncwfn : float or list of length nroots
             E2ncc = <H> - E0 - E1 - E2c
     '''            
+    if verbose is None: verbose = mc.verbose
+    log = logger.new_logger(mc, verbose)
     if mo_coeff is None: mo_coeff=mc.mo_coeff
     if ci is None: ci = mc.ci
     if grids_attr is None: grids_attr = {}
@@ -237,6 +247,12 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
         new_ot.grids.__dict__.update (**grids_attr)
         ot = new_ot
     if ot is None: ot = mc.otfnal
+    if split_x_c is None:
+        split_x_c = True
+        log.warn (
+            'Currently, split_x_c in get_energy_decomposition defaults to '
+            'True.\nThis default will change to False in the near future.'
+        )
 
     hyb_x, hyb_c = ot._numint.hybrid_coeff(ot.otxc)
     if hyb_x>1e-10 or hyb_c>1e-10:
@@ -244,15 +260,15 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
     if not isinstance (ot, transfnal):
         raise NotImplementedError ("Decomp for non-translated PDFT fnals")
 
+    if split_x_c: ot = list (ot.split_x_c ())
+    else: ot = [ot,]
     e_nuc = mc._scf.energy_nuc ()
     h = mc.get_hcore ()
-    xfnal, cfnal = ot.split_x_c ()
     nroots = getattr (mc.fcisolver, 'nroots', 1)
     if nroots>1:
         e_1e = []
         e_coul = []
-        e_otx = []
-        e_otc = []
+        e_otxc = []
         e_ncwfn = []
         nelec_root = [mc.nelecas,]*nroots
         if isinstance (mc.fcisolver, StateAverageMixFCISolver):
@@ -261,20 +277,23 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
                 ne_root_s = mc.fcisolver._get_nelec (s, mc.nelecas)
                 nelec_root.extend ([ne_root_s,]*s.nroots)
         for ci_i, nelec in zip (ci, nelec_root):
-            row = _get_e_decomp (mc, ot, mo_coeff, ci_i, e_nuc, h,
-                xfnal, cfnal, nelec)
-            e_1e.append  (row[0])
+            row = _get_e_decomp (mc, ot, mo_coeff, ci_i, e_nuc, h, nelec)
+            e_1e.append    (row[0])
             e_coul.append  (row[1])
-            e_otx.append   (row[2])
-            e_otc.append   (row[3])
-            e_ncwfn.append (row[4])
+            e_otxc.append  (row[2])
+            e_ncwfn.append (row[3])
+        e_otxc = [[e[i] for e in e_otxc] for i in range (len (e_otxc[0]))]
     else:
-        e_1e, e_coul, e_otx, e_otc, e_ncwfn = _get_e_decomp (mc, ot,
-            mo_coeff, ci, e_nuc, h, xfnal, cfnal, mc.nelecas)
-    return e_nuc, e_1e, e_coul, e_otx, e_otc, e_ncwfn
+        e_1e, e_coul, e_otxc, e_ncwfn = _get_e_decomp (
+            mc, ot, mo_coeff, ci, e_nuc, h, mc.nelecas
+        )
+    if split_x_c:
+        e_otx, e_otc = e_otxc
+        return e_nuc, e_1e, e_coul, e_otx, e_otc, e_ncwfn
+    else:
+        return e_nuc, e_1e, e_coul, e_otxc[0], e_ncwfn
 
-def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
-        nelecas):
+def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, nelecas):
     ncore, ncas = mc.ncore, mc.ncas
     _rdms = mcscf.CASCI (mc._scf, ncas, nelecas)
     _rdms.fcisolver = fci.solver (mc._scf.mol, singlet = False, symm = False)
@@ -294,12 +313,11 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
     adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
     adm2 = _casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1]
     mo_cas = mo_coeff[:,ncore:][:,:ncas]
-    e_otx = xfnal.energy_ot (adm1s, adm2, mo_coeff, ncore,
-                             max_memory=mc.max_memory)
-    e_otc = cfnal.energy_ot (adm1s, adm2, mo_coeff, ncore,
-                             max_memory=mc.max_memory)
+    e_otxc = [fnal.energy_ot (adm1s, adm2, mo_coeff, ncore,
+                              max_memory=mc.max_memory)
+              for fnal in ot]
     e_ncwfn = e_mcscf - e_nuc - e_1e - e_coul
-    return e_1e, e_coul, e_otx, e_otc, e_ncwfn
+    return e_1e, e_coul, e_otxc, e_ncwfn
 
 class _mcscf_env (object):
     '''Prevent MC-SCF step of MC-PDFT from overwriting redefined
@@ -543,12 +561,13 @@ class _PDFT ():
 
     def get_energy_decomposition (self, mo_coeff=None, ci=None, ot=None,
                                   otxc=None, grids_level=None,
-                                  grids_attr=None):
+                                  grids_attr=None, verbose=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
+        if verbose is None: verbose = self.verbose
         return get_energy_decomposition (
             self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
-            grids_level=grids_level, grids_attr=grids_attr
+            grids_level=grids_level, grids_attr=grids_attr, verbose=verbose
         )
 
     def state_average_mix (self, fcisolvers=None, weights=(0.5,0.5)):
