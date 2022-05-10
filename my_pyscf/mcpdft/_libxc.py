@@ -1,8 +1,6 @@
 import re
 from pyscf.dft.libxc import XC_ALIAS, XC_CODES, XC_KEYS
-from pyscf.dft.libxc import is_hybrid_xc
-
-is_hybrid_xc = is_hybrid_xc
+from pyscf.dft.libxc import hybrid_coeff, rsh_coeff
 
 XC_ALIAS_KEYS = set (XC_ALIAS.keys ())
 XC_TYPE_HDR = tuple (['LDA_','GGA_','MGGA_'])
@@ -42,8 +40,6 @@ def split_x_c_comma (xc):
             break
         elif xc in XC_ALIAS_KEYS:
             xc = XC_ALIAS[xc]
-        elif ((xc in XC_KEYS) and XC_CODES[xc] in XC_KEYS):
-            xc = XC_CODES[xc]
         elif isinstance (XC_CODES[xc], int):
             xc_int = XC_CODES[xc]
             if xc_int in INTCODES_HYB:
@@ -60,9 +56,18 @@ def split_x_c_comma (xc):
             else:
                 raise myerr ('Unknown functional type {} for code {}'.format (
                     xc_type, xc_int))
+        elif xc in XC_KEYS:
+            xc = XC_CODES[xc]
+        else:
+            raise myerr
         myerr.extend (xc)
     if not ',' in xc:
         raise myerr ('Maximum XC alias recursion depth')
     return xc.split (',')
 
+def is_hybrid_or_rsh (xc_code):
+    hyb = hybrid_coeff (xc_code)
+    omega, alpha, beta = rsh_coeff (xc_code)
+    non0 = [abs (x)>1e-10 for x in (hyb, omega)]
+    return any (non0)
 

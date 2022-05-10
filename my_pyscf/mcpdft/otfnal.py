@@ -628,12 +628,12 @@ def get_transfnal (mol, otxc):
             '"fully-translated (ft).'
             )
     xc_base = OT_HYB_ALIAS.get (xc_base.upper (), xc_base)
-    if ',' not in xc_base and _libxc.is_hybrid_xc (xc_base):
+    if ',' not in xc_base and _libxc.is_hybrid_or_rsh (xc_base):
         raise NotImplementedError (
-            ('Aliased or built-in translated hybrid functionals other than'
-             'tPBE0/ftPBE0. Build a compound functional string with a comma '
-             'separating the exchange and correlation parts or use '
-             'otfnal.make_hybrid_fnal instead.')
+            ('Aliased or built-in translated hybrid or range-separated '
+             'functionals other than tPBE0/ftPBE0.\nBuild a compound '
+             'functional string with a comma separating the exchange and '
+             'correlation parts,\nor use otfnal.make_hybrid_fnal instead.')
         )
     ks = dft.RKS (mol)
     ks.xc = xc_base
@@ -691,14 +691,17 @@ def _hybrid_2c_coeff (ni, xc_code, spin=0):
     exchange and correlation components of the hybrid coefficent
     separately '''
 
+    hyb_tot = _NumInt.hybrid_coeff (ni, xc_code, spin=spin)
+    if hyb_tot == 0: return [0, 0]
+
     # For exchange-only functionals, hyb_c = hyb_x
     x_code, c_code = _libxc.split_x_c_comma (xc_code)
     c_code = ',' + c_code
 
     # All factors of 'HF' are summed by default. Therefore just run the same
     # code for the exchange and correlation parts of the string separately
-    hyb_x = _NumInt.hybrid_coeff(ni, x_code, spin=0) if len (x_code) else 0
-    hyb_c = _NumInt.hybrid_coeff(ni, c_code, spin=0) if len (c_code) else 0
+    hyb_x = _NumInt.hybrid_coeff(ni, x_code, spin=spin) if len (x_code) else 0
+    hyb_c = _NumInt.hybrid_coeff(ni, c_code, spin=spin) if len (c_code) else 0
     return [hyb_x, hyb_c]
 
 def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None,

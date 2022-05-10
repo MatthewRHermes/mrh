@@ -223,10 +223,13 @@ def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
     Returns : float
         The MC-PDFT on-top (nonclassical) energy
     '''
-    ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
+    E_ot = 0.0
+    ni, xctype = ot._numint, ot.xctype
+    if xctype=='HF': return E_ot
+    dens_deriv = ot.dens_deriv
+
     norbs_ao = mo_cas.shape[0]
 
-    E_ot = 0.0
 
     t0 = (logger.process_clock (), logger.perf_counter ())
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, dm1s[i,:,:], hermi) for
@@ -604,11 +607,15 @@ class _PDFT ():
         mol_dipole = dip_obj.kernel (state=state)
         return mol_dipole
 
-    def get_energy_decomposition (self, mo_coeff=None, ci=None):
+    def get_energy_decomposition (self, mo_coeff=None, ci=None, ot=None,
+                                  otxc=None, grids_level=None,
+                                  grids_attr=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        return get_energy_decomposition (self, mo_coeff=mo_coeff,
-            ci=ci, ot=self.otfnal)
+        return get_energy_decomposition (
+            self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
+            grids_level=grids_level, grids_attr=grids_attr
+        )
 
     def state_average_mix (self, fcisolvers=None, weights=(0.5,0.5)):
         return state_average_mix (self, fcisolvers, weights)
