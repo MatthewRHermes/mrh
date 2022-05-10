@@ -7,7 +7,7 @@ from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
 from mrh.util import params
-from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs, _libxc
+from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs, _libxc, _dms
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from pyscf import __config__
 
@@ -19,31 +19,26 @@ FT_C = getattr(__config__, 'mcpdft_otfnal_ftransfnal_C', -85.38149682)
 
 OT_HYB_ALIAS = {'PBE0' : '0.25*HF + 0.75*PBE, 0.25*HF + 0.75*PBE'}
 
-def energy_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
+def energy_ot (ot, casdm1s, casdm2, mo_coeff, ncore, max_memory=2000, hermi=1):
     '''Compute the on-top energy - the last term in 
 
     E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi]
 
     Args:
         ot : an instance of otfnal class
-        dm1s : ndarray of shape (2, nao, nao)
-            containing spin-separated one-body density matrices
-        cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
-            contains spin-summed two-body cumulant density matrix in an
-            active-orbital basis given by mo_cas:
-                cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
-                               + dm1s[0][u,y]*dm1s[0][x,v]
-                               + dm1s[1][u,y]*dm1s[1][x,v]
-            where dm1 = dm1s[0] + dm1s[1]. The cumulant (cm2) has no
-            nonzero elements for any index outside the active space,
-            unlike the density matrix (dm2), which formally has elements
-            involving uncorrelated, doubly-occupied ``core'' orbitals
-            which are not usually computed explicitly:
-                dm2[i,i,u,v] = dm2[u,v,i,i] = 2*dm1[u,v]
-                dm2[u,i,i,v] = dm2[i,v,u,i] = -dm1[u,v]
-        mo_cas : ndarray of shape (nao, ncas)
-            containing molecular orbital coefficients for active-space
-            orbitals
+        casdm1s : ndarray of shape (2, ncas, ncas)
+            Contains spin-separated one-body density matrices in an
+            active-orbital basis
+        casdm2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            Contains spin-summed two-body density matrix in an active-
+            orbital basis 
+        mo_coeff : ndarray of shape (nao, nmo)
+            Contains molecular orbital coefficients for active-space
+            orbitals. Columns ncore through ncore+ncas give the basis
+            in which casdm1s and casdm2 are expressed.
+        ncore : integer
+            Number of doubly occupied inactive "core" orbitals not
+            explicitly included in casdm1s and casdm2
 
     Kwargs:
         max_memory : int or float
@@ -60,12 +55,17 @@ def energy_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
     if xctype=='HF': return E_ot
     dens_deriv = ot.dens_deriv
 
-    norbs_ao = mo_cas.shape[0]
+    nao = mo_coeff.shape[0]
+    ncas = casdm2.shape[0]
+    cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
+    dm1s = _dms.casdm1s_to_dm1s (ot, casdm1s, mo_coeff=mo_coeff, ncore=ncore,
+                                 ncas=ncas)
+    mo_cas = mo_coeff[:,ncore:][:,:ncas]
 
     t0 = (logger.process_clock (), logger.perf_counter ())
     make_rho = tuple (ni._gen_rho_evaluator (ot.mol, dm1s[i,:,:], hermi) for
         i in range(2))
-    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao,
+    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, nao,
             dens_deriv, max_memory):
         rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
         t0 = logger.timer (ot, 'untransformed density', *t0)

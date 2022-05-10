@@ -176,14 +176,8 @@ def energy_dft (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
     if casdm1s is None: casdm1s = mc.make_one_casdm1s (ci, state=state)
     if casdm2 is None: casdm2 = mc.make_one_casdm2 (ci, state=state)
     if max_memory is None: max_memory = mc.max_memory
-    ncore, ncas = mc.ncore, mc.ncas
-    nocc = ncore + ncas
-    mo_cas = mo_coeff[:,ncore:nocc]
-    dm1s = _dms.casdm1s_to_dm1s (mc, casdm1s, mo_coeff=mo_coeff, ncore=ncore,
-                                 ncas=ncas)
-    cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
-    return ot.energy_ot (dm1s, cascm2, mo_cas, max_memory=max_memory,
-        hermi=hermi)
+    return ot.energy_ot (casdm1s, casdm2, mo_coeff, mc.ncore,
+        max_memory=max_memory, hermi=hermi)
 
 def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
                               grids_level=None, grids_attr=None):
@@ -298,11 +292,12 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
     e_mcscf = h0 + np.dot (h1.ravel (), adm1.ravel ()) + (
                 np.dot (h2.ravel (), adm2.ravel ())*0.5)
     adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
-    adm2 = _dms.dm2_cumulant (_casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1],
-        adm1s)
+    adm2 = _casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1]
     mo_cas = mo_coeff[:,ncore:][:,:ncas]
-    e_otx = xfnal.energy_ot (dm1s, adm2, mo_cas, max_memory=mc.max_memory)
-    e_otc = cfnal.energy_ot (dm1s, adm2, mo_cas, max_memory=mc.max_memory)
+    e_otx = xfnal.energy_ot (adm1s, adm2, mo_coeff, ncore,
+                             max_memory=mc.max_memory)
+    e_otc = cfnal.energy_ot (adm1s, adm2, mo_coeff, ncore,
+                             max_memory=mc.max_memory)
     e_ncwfn = e_mcscf - e_nuc - e_1e - e_coul
     return e_1e, e_coul, e_otx, e_otc, e_ncwfn
 
