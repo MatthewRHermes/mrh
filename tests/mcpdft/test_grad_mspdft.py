@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import gto, scf, df, mcscf, lib
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.grad.sipdft import sipdft_heff_response, sipdft_heff_HellmanFeynman
+from mrh.my_pyscf.grad.mspdft import mspdft_heff_response, mspdft_heff_HellmanFeynman
 from mrh.my_pyscf.df.grad import dfsacasscf
 import unittest, math
 
@@ -68,7 +68,6 @@ class KnownValues(unittest.TestCase):
                 self.assertLessEqual (linalg.norm (dwci_ref), 2e-6)
             ham_si = np.diag (mc.e_states)
             ham_si = si @ ham_si @ si.T
-            e_mcscf = ham_si.diagonal ().copy ()
             eris = mc.ao2mo (mc.mo_coeff)
             ci = list (np.tensordot (si, ci_arr, axes=1))
             ci_arr = np.asarray (ci)
@@ -81,8 +80,8 @@ class KnownValues(unittest.TestCase):
             dwci_ref = np.einsum ('spq,sr->rpq', dwci_ref, si_diag)
             dwci_ref = dwci_ref[:,1,0]
             for r in (0,1):
-                dworb_test, dwci_test = sipdft_heff_response (mc_grad, ci=ci, state=r, eris=eris,
-                    si_bra=si[:,r], si_ket=si[:,r], ham_si=ham_si, e_mcscf=e_mcscf)
+                dworb_test, dwci_test = mspdft_heff_response (mc_grad, ci=ci, state=r, eris=eris,
+                    si_bra=si[:,r], si_ket=si[:,r], heff_mcscf=ham_si)
                 dworb_test = mc.pack_uniq_var (dworb_test)
                 with self.subTest (symm=stype, solver=atype, eri=itype, root=r, check='orb'):
                     self.assertAlmostEqual (lib.fp (dworb_test), lib.fp (dworb_ref[r]), 8)
@@ -105,14 +104,35 @@ class KnownValues(unittest.TestCase):
             de_diag = np.stack ([mc_grad.get_ham_response (state=i, ci=ci) for i in (0,1)], axis=0)
             de_ref -= np.einsum ('sac,sr->rac', de_diag, si_diag)
             for r in (0,1):
-                de_test = sipdft_heff_HellmanFeynman (mc_grad, ci=ci, state=r,
+                de_test = mspdft_heff_HellmanFeynman (mc_grad, ci=ci, state=r,
                     si_bra=si[:,r], si_ket=si[:,r], eris=eris)
                 with self.subTest (symm=stype, solver=atype, eri=itype, root=r):
                     self.assertAlmostEqual (lib.fp (de_test), lib.fp (de_ref[r]), 8)
 
+    def test_scanner (self):
+        def get_lih (r):
+            mol = gto.M (atom='Li 0 0 0\nH {} 0 0'.format (r), basis='sto3g',
+                         output='test.{}.log'.format (r), verbose=5)
+            mf = scf.RHF (mol).run ()
+            mc = mcpdft.CASSCF (mf, 'ftLDA,VWN3', 2, 2, grids_level=1)
+            mc.fix_spin_(ss=0)
+            mc = mc.multi_state ([0.5,0.5], 'cms').run (conv_tol=1e-8)
+            return mol, mc.nuc_grad_method ()
+        mol1, mc_grad1 = get_lih (1.5)
+        mol2, mc_grad2 = get_lih (1.55)
+        mc_grad2 = mc_grad2.as_scanner ()
+        for state in 0,1:
+            de1 = mc_grad1.kernel (state=state)
+            e1 = mc_grad1.base.e_states[state]
+            e2, de2 = mc_grad2 (mol1, state=state)
+            self.assertTrue(mc_grad1.converged)
+            self.assertTrue(mc_grad2.converged)
+            self.assertAlmostEqual (e1, e2, 6)
+            self.assertAlmostEqual (lib.fp (de1), lib.fp (de2), 6)
+    
 
 if __name__ == "__main__":
-    print("Full Tests for SI-PDFT gradient off-diagonal heff fns")
+    print("Full Tests for MS-PDFT gradient off-diagonal heff fns")
     unittest.main()
 
 

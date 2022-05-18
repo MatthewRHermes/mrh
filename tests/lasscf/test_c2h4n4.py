@@ -60,12 +60,14 @@ class KnownValues(unittest.TestCase):
         las = LASSCF (mf_hs, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
         mo_coeff = las.localize_init_guess (frags)
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, mf_hs.e_tot, 7)
 
     def test_ferro_df (self):
         las = LASSCF (mf_hs_df, (4,4), ((4,0),(4,0)), spin_sub=(5,5))
         mo_coeff = las.localize_init_guess (frags)
         las.kernel (mo_coeff)
+        self.assertTrue (las.converged)
         self.assertAlmostEqual (las.e_tot, mf_hs_df.e_tot, 7)
 
     def test_af (self):

@@ -10,9 +10,11 @@ from pyscf.scf import hf
 from mrh.my_pyscf.mcpdft.otpd import *
 from mrh.my_pyscf.mcpdft.otpd import _grid_ao2mo
 from mrh.my_pyscf.mcpdft.tfnal_derivs import contract_fot, _unpack_sigma_vector
-from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho, _dot_ao_mo
+from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho
+from mrh.my_pyscf.mcpdft.pdft_veff import _dot_ao_mo
 
 def _contract_rho_all (bra, ket):
+    # Apply the product rule when computing density & derivs on a grid
     if bra.ndim == 2: bra = bra[None,:,:]
     if ket.ndim == 2: ket = ket[None,:,:]
     nderiv, ngrids, norb = bra.shape
@@ -30,27 +32,6 @@ def _contract_rho_all (bra, ket):
 
 from mrh.util import la
 def vector_error (test, ref): return la.vector_error (test, ref, 'rel')
-#def vector_error (test, ref, frac=True):
-#    test, ref = test.ravel (), ref.ravel ()
-#    err = test - ref
-#    norm_test = linalg.norm (test)
-#    norm_ref = linalg.norm (ref)
-#    norm_err = linalg.norm (err)
-#    if frac:
-#        if norm_ref > 0: norm_err /= norm_ref
-#        elif norm_test > 0: norm_err /= norm_test
-#    numer, denom = np.dot (test, ref), norm_test * norm_ref
-#    theta = denom
-#    try:
-#        if denom >= 1e-15: theta = math.acos (numer / denom)
-#    except ValueError as e:
-#        if numer > denom:
-#            assert (np.isclose (numer, denom))
-#            theta = 0
-#        else:
-#            print (numer, denom)
-#            raise (e)
-#    return norm_err, theta
 
 # PySCF's overall sign convention is
 #   de = h.D - D.h
@@ -72,20 +53,26 @@ def vector_error (test, ref): return la.vector_error (test, ref, 'rel')
 # everywhere else? Why would the update_jk_in_ah terms be
 # multiplied by 2?
 
+# TODO: better docstring, private/public member distinction?
+# Reposition class-member kwargs as calling kwargs where appropriate and
+# possible.
 class EotOrbitalHessianOperator (object):
-    ''' Callable object for computing
-        (f.x)_pq = (int fot * drho/dk_pq drho/dk_rs x_rs dr)
-        where fot is the second functional derivative of an on-top energy
-        functional, and "rho" is any of the density, the on-top pair density,
-        or their derivatives, in the context of an MC-PDFT calculation using
-        the ncore, ncas, mo_coeff.
+    '''Callable object for computing
 
-        Does not compute any contribution of the type
-        (int vot * d^2 rho / dk_pq dk_rs x_rs dr)
-        except optionally for that related to the Pi = (1/4) rho^2 cumulant
-        approximation. All other vot terms are more efficiently computed using
-        cached effective Hamiltonian tensors that map straightforwardly to
-        those involved in CASSCF orbital optimization.
+    (f.x)_pq = (int fot * drho/dk_pq drho/dk_rs x_rs dr)
+
+    where fot is the second functional derivative of an on-top
+    functional, and "rho" is any of the density, the on-top pair
+    density or their derivatives, in the context of an MC-PDFT
+    calculation the ncore, ncas, mo_coeff.
+
+    Does not compute any contribution of the type
+    (int vot * d^2 rho / dk_pq dk_rs x_rs dr)
+    except optionally for that related to the Pi = (1/4) rho^2
+    cumulant approximation. All other vot terms are more efficiently
+    computed using cached effective Hamiltonian tensors that map
+    straightforwardly to those involved in CASSCF orbital
+    optimization.
     '''
     
     def __init__(self, mc, ot=None, mo_coeff=None, ncore=None, ncas=None,
@@ -117,7 +104,7 @@ class EotOrbitalHessianOperator (object):
         self.nocc = nocc = ncore + ncas
         self.casdm2 = casdm2
         self.casdm1s = casdm1s = np.stack ([casdm1, casdm1], axis=0)/2
-        self.cascm2 = cascm2 = get_2CDM_from_2RDM (casdm2, casdm1)
+        self.cascm2 = cascm2 = dm2_cumulant (casdm2, casdm1)
         self.max_memory = max_memory        
         self.do_cumulant = do_cumulant
         self.incl_d2rho = incl_d2rho
@@ -140,8 +127,8 @@ class EotOrbitalHessianOperator (object):
         if incl_d2rho: # Include d^2rho/dk^2 type derivatives
             # Also include a full E_OT value and gradient recalculator
             # for debugging purposes
-            veff1, veff2 = self.veff1, self.veff2 = mc.get_pdft_veff (mo=mo_coeff,
-                casdm1s=casdm1s, casdm2=casdm2, incl_coul=False)
+            veff1, veff2 = self.veff1, self.veff2 = mc.get_pdft_veff (
+                mo=mo_coeff, casdm1s=casdm1s, casdm2=casdm2, incl_coul=False)
             get_hcore = lambda * args: self.veff1
             with lib.temporary_env (mc, get_hcore=get_hcore):
                 g_orb, _, h_op, h_diag = mc1step.gen_g_hop (mc, mo_coeff,
@@ -162,7 +149,8 @@ class EotOrbitalHessianOperator (object):
             f1 = np.zeros_like (v1)
             f1[:,:ncore] = 2 * v1[:,:ncore]
             f1[:,ncore:nocc] += v1[:,ncore:nocc] @ casdm1
-            f1[:,ncore:nocc] += np.tensordot (v2, cascm2, axes=((1,2,3),(1,2,3)))
+            f1[:,ncore:nocc] += np.tensordot (v2, cascm2,
+                axes=((1,2,3),(1,2,3)))
             self._f1_test = f1
             dE = f1 - f1.T # gradient, but the full matrix
             def delta_gorb (x):
@@ -186,8 +174,8 @@ class EotOrbitalHessianOperator (object):
             dm1s = np.dot (dm1s, mo_cas.conj ().T)
             mo_core = mo_coeff[:,:ncore]
             dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
-            dm_list = (dm1s, (casdm1s, (cascm2, None, None)))
-            e_ot = mc.energy_dft (ot=ot, mo_coeff=mo_coeff, dm_list=dm_list)
+            e_ot = mc.energy_dft (ot=ot, mo_coeff=mo_coeff, casdm1s=casdm1s,
+                casdm2=casdm2)
             def delta_eot (x):
                 u = mc.update_rotate_matrix (x)
                 mo1 = mo_coeff @ u
@@ -196,8 +184,8 @@ class EotOrbitalHessianOperator (object):
                 dm1s = np.dot (dm1s, mo_cas.conj ().T)
                 mo_core = mo1[:,:ncore]
                 dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
-                dm_list = (dm1s, (casdm1s, (cascm2, None, None)))
-                e1 = mc.energy_dft (ot=ot, mo_coeff=mo1, dm_list=dm_list)
+                e1 = mc.energy_dft (ot=ot, mo_coeff=mo1, casdm1s=casdm1s,
+                    casdm2=casdm2)
                 return e1 - e_ot
             self.e_ot = e_ot
             self.delta_eot = delta_eot
@@ -234,7 +222,7 @@ class EotOrbitalHessianOperator (object):
         rho = make_rho (0, ao, mask, self.xctype)
         if ao.ndim == 2: ao = ao[None,:,:]
         rhos = np.stack ([rho, rho], axis=0)/2
-        Pi = get_ontop_pair_density (self.ot, rhos, ao, casdm1s, cascm2,
+        Pi = get_ontop_pair_density (self.ot, rhos, ao, cascm2,
             mo_cas, deriv=self.Pi_deriv, non0tab=mask)
         return rho, Pi
         # volatile memory footprint:
@@ -247,8 +235,8 @@ class EotOrbitalHessianOperator (object):
         rhos = np.stack ([rho, rho], axis=0)/2
         mo = _grid_ao2mo (self.ot.mol, ao[:self.nderiv_rho], occ_coeff,
             non0tab=mask)
-        drhos, dPi = density_orbital_derivative (self.ot, self.ncore, self.ncas,
-            self.casdm1s, self.cascm2, rhos, mo, non0tab=mask)
+        drhos, dPi = density_orbital_derivative (self.ot, self.ncore,
+            self.ncas, self.casdm1s, self.cascm2, rhos, mo, non0tab=mask)
         return drhos.sum (0), dPi
         # persistent memory footprint:
         #   nderiv_rho * nocc * ngrids          (drho)
@@ -282,7 +270,8 @@ class EotOrbitalHessianOperator (object):
         rho1_a = _contract_rho_all (mo1_a, drho_a)
         return rho1_c, rho1_a, Pi1
 
-    def debug_dens1 (self, ao, mask, x, weights, rho0, Pi0, rho1_test, Pi1_test):
+    def debug_dens1 (self, ao, mask, x, weights, rho0, Pi0, rho1_test,
+            Pi1_test):
         # This requires the full-space 2RDM
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         casdm1 = self.casdm1s.sum (0)
@@ -296,13 +285,13 @@ class EotOrbitalHessianOperator (object):
         dm2 = np.dot (dm2, x.T)
         dm2 += dm2.transpose (1,0,3,2)
         dm2 += dm2.transpose (2,3,0,1)
-        cm2 = get_2CDM_from_2RDM (dm2, dm1)
+        cm2 = dm2_cumulant (dm2, dm1)
         dm1s = dm1/2
         dm1s = np.stack ([dm1s, dm1s], axis=0)
         dm1_ao = self.mo_coeff @ dm1 @ self.mo_coeff.conj ().T
         make_rho = self.ni._gen_rho_evaluator (self.ot.mol, dm1_ao, 1)[0]
-        rho1_ref, Pi1_ref = self.make_dens0 (ao, mask, make_rho=make_rho, casdm1s=dm1s,
-            cascm2=cm2, mo_cas=self.mo_coeff)
+        rho1_ref, Pi1_ref = self.make_dens0 (ao, mask, make_rho=make_rho,
+            casdm1s=dm1s, cascm2=cm2, mo_cas=self.mo_coeff)
         if rho0.ndim == 1: rho0 = rho0[None,:]
         if Pi0.ndim == 1: Pi0 = Pi0[None,:]
         if rho1_ref.ndim == 1: rho1_ref = rho1_ref[None,:]
@@ -314,8 +303,8 @@ class EotOrbitalHessianOperator (object):
         rho1_err = linalg.norm (rho1_test - rho1_ref)
         Pi1_err = linalg.norm (Pi1_test - Pi1_ref)
         x_norm = linalg.norm (x)
-        self.log.debug ("shifted dens: |x|, |rho1_err|, |Pi1_err| = %e, %e, %e",
-            x_norm, rho1_err, Pi1_err)
+        self.log.debug ("shifted dens: |x|, |rho1_err|, |Pi1_err| = %e, %e, "
+            "%e", x_norm, rho1_err, Pi1_err)
         return rho1_err, Pi1_err
 
     def get_fot (self, rho, Pi, weights):
@@ -386,6 +375,28 @@ class EotOrbitalHessianOperator (object):
             norm_x, norm_ref, norm_err)
 
     def __call__(self, x, packed=False, algorithm='analytic'):
+        ''' Compute Hessian-vector and gradient-vector product of on-top
+            energy wrt orbital rotation.
+
+            Args:
+                x : ndarray
+                    Orbital-rotation step vector. See kwarg "packed" for
+                    shape
+    
+            Kwargs:
+                packed : logical
+                    If true, x has shape given by mc.pack_uniq_var
+                algorithm : string
+                    Select Hessian-vector product calculation type:
+                    'analytic': Analytical Hessian-vector product
+                    'seminum': gradient @ x - gradient @ x=0.
+    
+            Returns:
+                dg : ndarray of shape (x.shape)
+                    Hessian-vector product
+                de : float
+                    gradient-vector product 
+        '''
         if algorithm.lower () == 'analytic': return self.kernel (x, 
             packed=packed)
         elif 'seminum' in algorithm.lower (): return self.seminum_orb (x)
@@ -410,8 +421,8 @@ class EotOrbitalHessianOperator (object):
             rho0, Pi0 = self.make_dens0 (ao, mask)
             if ao.ndim == 2: ao = ao[None,:,:]
             drho, dPi = self.make_ddens (ao, rho0, mask)
-            dde, fxrho, fxPi, fxrho_c, fxrho_a = self.get_fxot (ao, rho0, Pi0, drho, dPi,
-                x, weights, mask)
+            dde, fxrho, fxPi, fxrho_c, fxrho_a = self.get_fxot (ao, rho0, Pi0,
+                drho, dPi, x, weights, mask)
             de += dde
             dg -= self.contract_v_ddens (fxrho, drho, ao, weights, mask).T
             dg -= self.contract_v_ddens (fxPi, dPi, ao, weights, mask).T
@@ -511,9 +522,10 @@ class EotOrbitalHessianOperator (object):
             return make_masked_dens1
         get_fxot = self.get_fxot
         def mask_fxot (irow, my_dg):
-            def get_masked_fxot (ao, rho0, Pi0, drho, dPi, my_x, weights, mask):
-                de, fxrho, fxPi, fxrho_c, fxrho_a, dvot = get_fxot (ao, rho0, Pi0, drho,
-                    dPi, my_x, weights, mask, return_num=True)
+            def get_masked_fxot (ao, rho0, Pi0, drho, dPi, my_x, weights,
+                    mask):
+                de, fxrho, fxPi, fxrho_c, fxrho_a, dvot = get_fxot (ao, rho0,
+                    Pi0, drho, dPi, my_x, weights, mask, return_num=True)
                 norm_x = linalg.norm (my_x)
                 if rho0.ndim == 1: rho0 = rho0[None,:]
                 dvrho, dvPi, rho1, Pi1 = dvot
@@ -627,7 +639,8 @@ if __name__ == '__main__':
             dg_err_norm, dg_theta = vector_error (dg_test, dg_ref) 
             dg_test_norm = linalg.norm (dg_test)
             dg_ref_norm = linalg.norm (dg_ref)
-            row = [p, x_norm, abs(de_test), abs(de_ref), e_err, dg_test_norm, dg_ref_norm, dg_err_norm]
+            row = [p, x_norm, abs(de_test), abs(de_ref), e_err, dg_test_norm,
+                dg_ref_norm, dg_err_norm]
             if callable (getattr (hop, 'debug_hessian_blocks', None)):
                 hop.debug_hessian_blocks (x1, packed=True,
                 mask_dcon=False)#(hop.ot.otxc[0]=='t'))

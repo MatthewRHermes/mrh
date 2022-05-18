@@ -134,10 +134,12 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         # Error catch: diagonal Hamiltonian elements
         diag_test = np.diag (ham_blk)
         diag_ref = las.e_states[idx] - e0
-        lib.logger.debug2 (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference', 'Error'))
-        for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
-            lib.logger.debug2 (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
-        assert (np.allclose (diag_test, diag_ref, atol=1e-5)), 'SI Hamiltonian diagonal element error. Inadequate convergence?'
+        maxerr = np.max (np.abs (diag_test-diag_ref))
+        if maxerr>1e-5:
+            lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference', 'Error'))
+            for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
+                lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
+            raise RuntimeError ('SI Hamiltonian diagonal element error = {}'.format (maxerr))
         # Error catch: linear dependencies in basis
         try:
             e, c = linalg.eigh (ham_blk, b=ovlp_blk)

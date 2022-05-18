@@ -1,6 +1,12 @@
 import numpy
 
-# quasi_ultrafine is the equivalent of
+# Update 04/07/2022:
+# OpenMolcas seems to have changed something about its angular grids
+# in the last few months. The smallest possible angular grid
+# in OpenMolcas distributes 5 points on each radial shell, as opposed
+# to 6 in PySCF. I need to figure this out.
+
+# quasi_ultrafine is nearly the equivalent of
 #   grid input
 #   nr=100
 #   lmax=41

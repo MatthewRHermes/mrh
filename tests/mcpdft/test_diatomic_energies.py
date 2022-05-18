@@ -15,7 +15,7 @@ def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates, charge=None,
     if spin is not None: smult = spin+1
     else: smult = (mol.nelectron % 2) + 1
     mc.fcisolver = csf_solver (mol, smult=smult)
-    mc = mc.state_interaction ([1.0/float(nstates),]*nstates, 'cms')
+    mc = mc.multi_state ([1.0/float(nstates),]*nstates, 'cms')
     mc.conv_tol = mc.conv_tol_sarot = 1e-12
     mo = None
     if symmetry and (cas_irrep is not None):

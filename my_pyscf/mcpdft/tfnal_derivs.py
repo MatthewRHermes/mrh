@@ -4,6 +4,7 @@ from pyscf import lib
 from pyscf.lib import logger
 
 def _unpack_vxc_sigma (vxc, rho, dens_deriv):
+    # d/drho, d/dsigma -> d/drho, d/drho'
     vrho, vsigma = vxc[:2]
     vxc = list (vrho.T)
     if dens_deriv:
@@ -14,6 +15,8 @@ def _unpack_vxc_sigma (vxc, rho, dens_deriv):
     return vxc
 
 def _pack_fxc_ltri (fxc, dens_deriv):
+    # d2/drho2, d2/drhodsigma, d2/dsigma2
+    # -> lower-triangular Hessian matrix
     frho, frhosigma, fsigma = fxc[:3]
     frho = frho.T
     fxc  = [frho[0],]
@@ -26,7 +29,8 @@ def _pack_fxc_ltri (fxc, dens_deriv):
     return fxc
 
 def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
-    r''' get the integrand of the on-top xc energy and its functional derivatives wrt rho and Pi 
+    r'''get the integrand of the on-top xc energy and its functional
+    derivatives wrt rho and Pi
 
     Args:
         rho : ndarray of shape (2,*,ngrids)
@@ -43,29 +47,31 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
             Not multiplied into anything!
         _unpack_vot : logical
             If True, derivatives with respect to density gradients are
-            reported as de/drho' and de/dPi'; otherwise, they are reported
-            as de/d|rho'|^2, de/d(rho'.Pi'), and de/d|Pi'|^2
+            reported as de/drho' and de/dPi'; otherwise, they are
+            reported as de/d|rho'|^2, de/d(rho'.Pi'), and de/d|Pi'|^2
 
     Returns: 
         eot : ndarray of shape (ngrids)
             integrand of the on-top exchange-correlation energy
         vot : ndarrays of shape (*,ngrids) or None
-            first functional derivative of Eot wrt (density, pair density)
-            and their derivatives. If _unpack_vot = True, shape and format is
-            ([a, ngrids], [b, ngrids]) : (vrho, vPi); otherwise,
-            [c, ngrids] : [rho,Pi,|rho'|^2,rho'.Pi',|Pi'|^2]
+            first functional derivative of Eot wrt (density, pair
+            density) and their derivatives. If _unpack_vot = True, shape
+            and format is ([a, ngrids], [b, ngrids]) : (vrho, vPi);
+            otherwise, [c, ngrids] : [rho,Pi,|rho'|^2,rho'.Pi',|Pi'|^2]
             ftGGA: a=4, b=4, c=5
             tGGA: a=4, b=1, c=3 (drop Pi')
             *tLDA: a=1, b=1, c=2 (drop rho')
         fot : ndarray of shape (*,ngrids) or None
-            second functional derivative of Eot wrt density, pair density,
-            and derivatives; first dimension is lower-triangular matrix elements
-            corresponding to the basis (rho, Pi, |rho'|^2, rho'.Pi', |Pi'|^2)
-            stopping at Pi (3 elements) for *tLDA and |rho'|^2 (6 elements)
-            for tGGA.
+            second functional derivative of Eot wrt density, pair
+            density, and derivatives; first dimension is lower-
+            triangular matrix elements corresponding to the basis
+            (rho, Pi, |rho'|^2, rho'.Pi', |Pi'|^2)
+            stopping at Pi (3 elements) for *tLDA and |rho'|^2 (6
+            elements) for tGGA.
     '''
     if dderiv > 2:
-        raise NotImplementedError ("Translation of density derivatives of higher order than 2")
+        raise NotImplementedError ("Translation of density derivatives of "
+            "higher order than 2")
     if rho.ndim == 2: rho = rho[:,None,:]
     if Pi.ndim == 1: Pi = Pi[None,:]
     assert (rho.shape[0] == 2)
@@ -74,7 +80,8 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     if nderiv > 4:
         raise NotImplementedError ("Translation of meta-GGA functionals")
     rho_t = otfnal.get_rho_translated (Pi, rho, weights=weights)
-    # LDA in libxc has a special numerical problem with zero-valued densities in one spin
+    # LDA in libxc has a special numerical problem with zero-valued densities
+    # in one spin
     if nderiv == 1:
         idx = (rho_t[0,0] > 1e-15) & (rho_t[1,0] < 1e-15) 
         rho_t[1,0,idx] = 1e-15
@@ -83,8 +90,9 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     rho_tot = rho.sum (0)
     rho_deriv = rho_tot[1:4,:] if nderiv > 1 else None
     Pi_deriv = Pi[1:4,:] if nderiv_Pi > 1 else None
-    xc_grid = otfnal._numint.eval_xc (otfnal.otxc, (rho_t[0,:,:], rho_t[1,:,:]), spin=1, 
-        relativity=0, deriv=dderiv, verbose=otfnal.verbose)[:dderiv+1]
+    xc_grid = otfnal._numint.eval_xc (otfnal.otxc, (rho_t[0,:,:],
+        rho_t[1,:,:]), spin=1, relativity=0, deriv=dderiv,
+        verbose=otfnal.verbose)[:dderiv+1]
     eot = xc_grid[0] * rho_t[:,0,:].sum (0)
     if (weights is not None) and otfnal.verbose >= logger.DEBUG:
         nelec = rho_t[0,0].dot (weights) + rho_t[1,0].dot (weights)
@@ -102,12 +110,13 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
         if _unpack_vot: vot = _unpack_sigma_vector (vot,
             deriv1=rho_deriv, deriv2=Pi_deriv)
     if dderiv > 1:
-        # I should implement this entirely in terms of the gradient norm, since that reduces the
-        # number of grid columns from 25 to 9 for t-GGA and from 64 to 25 for ft-GGA (and steps
-        # around the need to "unpack" fsigma and frhosigma entirely).
+        # I should implement this entirely in terms of the gradient norm, since
+        # that reduces the number of grid columns from 25 to 9 for t-GGA and
+        # from 64 to 25 for ft-GGA (and steps around the need to "unpack"
+        # fsigma and frhosigma entirely).
         fxc = _pack_fxc_ltri (xc_grid[2], otfnal.dens_deriv)
         # First pass: fxc
-        fot = jT_f_j (otfnal, fxc, otfnal.jT_op, rho, Pi)
+        fot = _jT_f_j (otfnal, fxc, otfnal.jT_op, rho, Pi)
         # Second pass: translation derivatives
         fot[:5] += otfnal.d_jT_op (vxc, rho, Pi)
     return eot, vot, fot
@@ -146,8 +155,8 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1, unpack=True,
     Args:
         fot : ndarray of shape (*,ngrids)
             Lower-triangular matrix elements corresponding to the basis
-            (rho, Pi, |drho|^2, drho'.dPi, |dPi|^2) stopping at Pi (3 elements)
-            for *tLDA and |drho|^2 (6 elements) for tGGA.
+            (rho, Pi, |drho|^2, drho'.dPi, |dPi|^2) stopping at Pi (3
+            elements) for *tLDA and |drho|^2 (6 elements) for tGGA.
         rho0 : ndarray of shape (2,*,ngrids)
             containing density [and derivatives]
             the density at which fot was evaluated
@@ -164,29 +173,31 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1, unpack=True,
     Kwargs:
         unpack : logical
             If True, returns vot1 in unpacked shape:
-                (ndarray of shape (*,ngrids), ndarray of shape (*,ngrids))
-            corresponding to (density, pair density) and their derivatives
-            This requires vot_packed for *tGGA functionals
+                (ndarray of shape (*,ngrids),
+                 ndarray of shape (*,ngrids))
+            corresponding to (density, pair density) and their
+            derivatives. This requires vot_packed for *tGGA functionals
             Otherwise, returns vot1 in packed shape:
                 (rho, Pi, |rho'|^2, rho'.Pi', |Pi'|^2)
-            stopping at Pi (3 elements) for *tLDA and |rho'|^2 (6 elements)
-            for tGGA.
+            stopping at Pi (3 elements) for *tLDA and |rho'|^2 (6
+            elements) for tGGA.
         vot_packed : ndarray of shape (*,ngrids)
             Vector elements corresponding to the basis
-            (rho, Pi, |drho|^2, drho'.dPi, |dPi|^2) stopping at Pi (2 elements)
-            for *tLDA and |drho|^2 (3 elements) for tGGA.
+            (rho, Pi, |drho|^2, drho'.dPi, |dPi|^2) stopping at Pi (2
+            elements) for *tLDA and |drho|^2 (3 elements) for tGGA.
             Required if unpack == True for *tGGA functionals
             (because vot_|drho|^2 contributes to fot_rho',rho', etc.)
 
     Returns: 
-        vot1 : (ndarray of shape (*,ngrids), ndarray of shape (*,ngrids))
+        vot1 : (ndarray of shape (*,ngrids),
+                ndarray of shape (*,ngrids))
             product of fot wrt (density, pair density)
             and their derivatives
     ''' 
-    if rho0.shape[0] == 2: rho0 = rho0.sum (0) # No version of this has one derivative
+    if rho0.shape[0] == 2: rho0 = rho0.sum (0) # Never has exactly 1 derivative
     if rho0.ndim == 1: rho0 = rho0[None,:]
     if Pi0.ndim == 1: Pi0 = Pi0[None,:]
-    if rho1.shape[0] == 2: rho1 = rho1.sum (0) # No version of this has one derivative
+    if rho1.shape[0] == 2: rho1 = rho1.sum (0) # Never has exactly 1 derivative
     if rho1.ndim == 1: rho1 = rho1[None,:]
     if Pi1.ndim == 1: Pi1 = Pi1[None,:]
 
@@ -240,7 +251,7 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1, unpack=True,
 
     return v1
 
-def jT_f_j (log, frr, jT_op, *args):
+def _jT_f_j (log, frr, jT_op, *args):
     r''' Apply a jacobian function taking *args to the lower-triangular
     second-derivative array frr'''
     nel = len (frr)
@@ -277,8 +288,8 @@ def jT_f_j (log, frr, jT_op, *args):
             for j in range (i):
                 scale = (fcc[i,j] + fcc[j,i])/2
                 scale[scale==0] = 1
-                logger.debug (log, 'MC-PDFT jT_f_j symmetry check %d,%d: %e', i, j, 
-                    linalg.norm ((fcc[i,j]-fcc[j,i])/scale))
+                logger.debug (log, 'MC-PDFT jT_f_j symmetry check %d,%d: %e',
+                    i, j, linalg.norm ((fcc[i,j]-fcc[j,i])/scale))
         ltri_ix = np.tril_indices (nc)
         fcc = fcc[ltri_ix]
 
@@ -286,7 +297,12 @@ def jT_f_j (log, frr, jT_op, *args):
     
 
 
-def gentLDA_jT_op (x, rho, Pi, R, zeta):
+def _gentLDA_jT_op (x, rho, Pi, R, zeta):
+    # On a grid, multiply the transpose of the Jacobian
+    #     d(trhoa,trhob) [fictitous densities]
+    # J = ______________
+    #     d(rho,Pi)      [real densities]
+    # by a vector x_(trhoa,trhob)
     ngrid = rho.shape[-1]
     if R.ndim > 1: R = R[0]
 
@@ -309,7 +325,12 @@ def gentLDA_jT_op (x, rho, Pi, R, zeta):
 
     return jTx
 
-def tGGA_jT_op (x, rho, Pi, R, zeta):
+def _tGGA_jT_op (x, rho, Pi, R, zeta):
+    # On a grid, multiply the transpose of the Jacobian
+    #     d(trho?'.trho?') [fictitous density gradients]
+    # J = ______________
+    #     d(rho,Pi,|rho'|) [real densities and gradients]
+    # by a vector x_(|trho*'|^2) in the context of tGGAs
     ngrid = rho.shape[-1]
     jTx = np.zeros ((3, ngrid), dtype=x[0].dtype)
     if R.ndim > 1: R = R[0]
@@ -335,6 +356,7 @@ def tGGA_jT_op (x, rho, Pi, R, zeta):
     return jTx
 
 def _ftGGA_jT_op_m2z (x, rho, zeta, srz, szz):
+    # cs -> rho,zeta step of _ftGGA_jT_op below
     jTx = np.empty_like (x)
     jTx[0] = 2*x[4]*(zeta[0]*srz+rho*szz) + x[3]*srz
     jTx[1] = 2*x[4]*rho*srz
@@ -344,6 +366,7 @@ def _ftGGA_jT_op_m2z (x, rho, zeta, srz, szz):
     return jTx
 
 def _ftGGA_jT_op_z2R (x, zeta, srP, sPP):
+    # rho,zeta -> rho,R step of _ftGGA_jT_op below
     jTx = np.empty_like (x)
     jTx[0] = 0
     jTx[1] = (x[1]*zeta[1] * x[3]*srP*zeta[2] +
@@ -354,6 +377,7 @@ def _ftGGA_jT_op_z2R (x, zeta, srP, sPP):
     return jTx
 
 def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
+    # rho,R -> rho,Pi step of _ftGGA_jT_op below
     if rho.ndim > 1: rho = rho[0]
     if R.ndim > 1: R = R[0]
     jTx = np.empty_like (x)
@@ -375,7 +399,15 @@ def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
     jTx[4] = 16*x[4]*ri[3]
     return jTx
 
-def ftGGA_jT_op (x, rho, Pi, R, zeta):
+# TODO: debug!!!!
+def _ftGGA_jT_op (x, rho, Pi, R, zeta):
+    # On a grid, evaluate the contribution to the matrix-vector product
+    # of the transpose of the Jacobian
+    #     d(trho?'.trho?') [fictitous density gradients]
+    # J = ______________
+    #     d(rho,Pi,|rho'|) [real densities and gradients]
+    # with a vector x_(|trho*'|^2), which is present in ftGGAs and
+    # missing in tGGAs
     ngrid = rho.shape[-1]
     jTx = np.zeros ((5, ngrid), dtype=x[0].dtype)
 
@@ -407,7 +439,14 @@ def ftGGA_jT_op (x, rho, Pi, R, zeta):
 
     return jTx
 
-def gentLDA_d_jT_op (x, rho, Pi, R, zeta):
+def _gentLDA_d_jT_op (x, rho, Pi, R, zeta):
+    # On a grid, differentiate once the Jacobian
+    #     d(trhoa,trhob) [fictitous densities]
+    # J = ______________
+    #     d(rho,Pi)      [real densities]
+    # and multiply by x_(trhoa,trhob) so as to compute the nonlinear-
+    # translation contribution to the second functional derivatives of
+    # the on-top energy in tLDA and ftLDA.
     rho = rho[0]
     Pi = Pi[0]
     R = R[0]
@@ -438,7 +477,15 @@ def gentLDA_d_jT_op (x, rho, Pi, R, zeta):
 
     return f
 
-def tGGA_d_jT_op (x, rho, Pi, R, zeta):
+def _tGGA_d_jT_op (x, rho, Pi, R, zeta):
+    # On a grid, differentiate once the Jacobian
+    #     d(trho?'.trho?') [fictitous density gradients]
+    # J = ______________
+    #     d(rho,Pi,|rho'|) [real densities and gradients]
+    # and multiply by x_(trho?'.trho?') so as to compute the nonlinear-
+    # translation contribution to the second functional derivatives of
+    # the on-top energy in tGGAs.
+
     # Generates contributions to the first five elements
     # of the lower-triangular packed Hessian
     ngrid = rho.shape[-1]
@@ -482,8 +529,9 @@ def tGGA_d_jT_op (x, rho, Pi, R, zeta):
     
     return f
 
-def ftGGA_d_jT_op (x, rho, Pi, R, zeta):
-    raise NotImplementedError ("Second density derivatives for fully-translated GGA functionals")
+def _ftGGA_d_jT_op (x, rho, Pi, R, zeta):
+    raise NotImplementedError ("Second density derivatives for fully-"
+        "translated GGA functionals")
     # Generates contributions to the first five elements,
     # then 6,7, then 10,11
     # of the lower-triangular packed Hessian

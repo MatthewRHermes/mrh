@@ -11,7 +11,7 @@ mol = gto.M (atom = 'Li 0 0 0; H 2.5 0 0', basis='STO-3G',
 mf = scf.RHF (mol).run ()
 mc = mcpdft.CASSCF (mf, 'ftLDA,VWN3', 2, 2, grids_level=9)
 mc.fcisolver = csf_solver (mol, smult=1) # Important: singlets only
-mc = mc.state_interaction ([0.5,0.5], 'CMS')
+mc = mc.multi_state ([0.5,0.5], 'CMS')
 mc.kernel ()
 print ("CMS-PDFT energies are: {}".format (mc.e_states))
 print ("Examine LiH_cms2ftlda22_sto3g.log for more information")

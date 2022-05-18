@@ -32,6 +32,7 @@ def addr_outer_product (norb_f, nelec_f):
             addrs = new_addrs
         elif len (new_addrs) > 0:
             addrs = np.intersect1d (addrs, new_addrs)
+    if not len (addrs): addrs=[0] # No beta electrons edge case
     return addrs
 
 def _ci_outer_product (ci_f, norb_f, nelec_f):
@@ -47,9 +48,14 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
         ci_dp = ci_dp.transpose (0,2,1,3).reshape (ndeta*ndet[0], ndetb*ndet[1])
     addrs_a = addr_outer_product (norb_f, neleca_f)
     addrs_b = addr_outer_product (norb_f, nelecb_f)
-    ci = np.zeros ((cistring.num_strings (sum (norb_f), sum (neleca_f)), cistring.num_strings (sum (norb_f), sum (nelecb_f))),
-        dtype=ci_dp.dtype)
+    ndet_a = cistring.num_strings (sum (norb_f), sum (neleca_f))
+    ndet_b = cistring.num_strings (sum (norb_f), sum (nelecb_f))
+    ci = np.zeros ((ndet_a,ndet_b), dtype=ci_dp.dtype)
     ci[np.ix_(addrs_a,addrs_b)] = ci_dp[:,:] / linalg.norm (ci_dp)
+    if not np.isclose (linalg.norm (ci), 1.0):
+        errstr = 'CI norm = {}\naddrs_a = {}\naddrs_b = {}'.format (
+            linalg.norm (ci), addrs_a, addrs_b)
+        raise RuntimeError (errstr)
     return ci
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):

@@ -1,6 +1,7 @@
 import numpy as np
 import math, ctypes
 from scipy import linalg
+from pyscf.lib import logger
 from mrh.lib.helper import load_library
 from mrh.exploratory.unitary_cc import uccsd_sym0
 from itertools import combinations, permutations, product, combinations_with_replacement
@@ -12,6 +13,34 @@ libfsucc = load_library ('libfsucc')
 # general s**2 symmetry
 
 def spincases (p_idxs, norb):
+    ''' Compute all unique spinorbital indices corresponding to all spin cases
+        of a set of field operators acting on a specified list of spatial
+        orbitals. The different spin cases are returned 'column-major order':
+
+        aaa...
+        baa...
+        aba...
+        bba...
+        aab...
+
+        The index of a given spincase string ('aba...', etc.) can be computed
+        as
+
+        p_spin = int (spincase[::-1].replace ('a','0').replace ('b','1'), 2)
+
+        Args:
+            p_idxs : ndarray of shape (nelec,)
+                Spatial orbital indices
+            norb : integer
+                Total number of spatial orbitals
+
+        Returns:
+            p_idxs : ndarray of shape (2^nelec, nelec)
+                Rows contain unique spinorbital cases of the input spatial
+                orbitals
+            m : ndarray of shape (2^nelec,)
+                Number of beta (spin-down) orbitals in each spin case
+    '''
     nelec = len (p_idxs)
     p_idxs = p_idxs[None,:]
     m = np.array ([0])
@@ -27,7 +56,26 @@ def spincases (p_idxs, norb):
     return p_idxs, m
 
 class FSUCCOperator (uccsd_sym0.FSUCCOperator):
-    ''' Hide the spin degrees of freedom '''
+    ''' A callable spin-adapted (Sz only) unrestricted coupled cluster
+        operator. For single-excitation operators, spin-up and spin-down
+        amplitudes are constrained to be equal. All spin cases for a given
+        spatial-orbital excitation pattern (from i_idxs to a_idxs) are grouped
+        together and applied to the ket in ascending order of the index
+
+        (a_spin) * nelec + i_spin
+
+        where 'a_spin' and 'i_spin' are the ordinal indices of the spin
+        cases returned by the function 'spincases' for a_idxs (creation
+        operators) and i_idxs (annihilation operators) respectively, and nelec
+        is the order of the generator (1=singles, 2=doubles, etc.) Nilpotent
+        or undefined spin cases (i.e., because of spatial-orbital index
+        collisions) are omitted.
+
+        The spatial-orbital excitation patterns are applied to the ket in
+        ascending order of their ordinal positions in the 'a_idxs' and 'i_idxs'
+        lists provided to the constructor.
+    '''
+
 
     def __init__(self, norb, a_idxs, i_idxs):
         # Up to two equal indices in one generator are allowed
@@ -40,8 +88,8 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
             i = np.ascontiguousarray (i, dtype=np.uint8)
             errstr = 'a,i={},{} invalid for number-sym op'.format (a,i)
             assert (len (a) == len (i)), errstr
-            errstr = 'a,i={},{} degree of freedom undefined'.format (a,i)
-            assert (not (np.all (a == i))), errstr
+            #errstr = 'a,i={},{} degree of freedom undefined'.format (a,i)
+            #assert (not (np.all (a == i))), errstr
             if len (a) == 1: # Only case where I know the proper symmetry
                              # relation between amps to ensure S**2
                 symrow = [len (self.a_idxs), len (self.i_idxs)+1]
@@ -49,20 +97,23 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
                 self.i_idxs.extend ([i, i+norb])
                 self.symtab.append (symrow)
             else:
-                for ab, ma in zip (*spincases (a, norb)):
-                    if np.amax (np.unique (ab, # nilpotent escape
-                        return_counts=True)[1]) > 1: continue
-                    for ij, mi in zip (*spincases (i, norb)):
+                for ix_ab, (ab, ma) in enumerate (zip (*spincases (a, norb))):
+                    if np.amax (np.unique (ab,return_counts=True)[1]) > 1:
+                        continue # nilpotent escape
+                    for ix_ij, (ij, mi) in enumerate (zip (*spincases (
+                            i, norb))):
                         if mi != ma: continue # sz-break escape
-                        if np.amax (np.unique (ij, # nilpotent escape
-                            return_counts=True)[1]) > 1: continue
+                        if np.all (ab==ij): continue # undefined escape
+                        if np.all (a==i) and ix_ab>ix_ij:
+                            continue # redundant escape
+                        if np.amax (np.unique (ij, return_counts=True)[1]) > 1:
+                            continue # nilpotent escape
                         self.symtab.append ([len (self.a_idxs)])
                         self.a_idxs.append (ab)
                         self.i_idxs.append (ij)
         self.norb = 2*norb
         self.ngen = len (self.a_idxs)
         assert (len (self.i_idxs) == self.ngen)
-        #self.ngen_uniq = len (self.symtab)
         self.uniq_gen_idx = np.array ([x[0] for x in self.symtab])
         self.amps = np.zeros (self.ngen)
         self.assert_sanity ()
@@ -133,20 +184,54 @@ def get_uccs_op (norb, t1=None, freeze_mask=None):
     return uop
 
 def get_uccsd_op (norb, t1=None, t2=None):
+    ''' Construct and optionally initialize semi-spin-adapted unitary CC
+        correlator with singles and doubles spanning a single undifferentiated
+        orbital range. Excitations from spatial orbital(s) i(, j) to spatial
+        orbital(s) a(, b) are applied to the ket in the order
+
+        U|ket> = u^n(n-1)_nn u^n(n-1)_n(n-1) u^n(n-2)_nn ... u^11_22 u^11_21
+                 ... u^n_(n-1) u^n_(n-2) ... u^3_2 u^3_1 u^2_1 |ket>
+
+        where ^ indicates creation operators (a, b; rows) and _ indicates
+        annihilation operators (i, j; columns). The doubles amplitudes are
+        arbitrarily chosen in the upper-triangular space (a,b <= i,j), but the
+        lower-triangular space is used for the individual double pairs
+        (a > b, i > j) and for the singles amplitudes (a > i). In all cases,
+        row-major ordering is employed.
+
+        The spin cases of a given set of orbitals a, b, i, j are grouped 
+        together. For singles, spin-up (a) and spin-down (b) amplitudes are
+        constrained to be equal and the spin-up operator is on the right (i.e.,
+        is applied first). For doubles, the spin case order is
+
+        u|ket> -> ^bb_bb ^ab_ab ^ab_ba ^ba_ab ^ba_ba ^aa_aa |ket>
+
+        For spatial orbital cases in which the same index appears more than
+        once, spin cases that correspond to nilpotent (eg., ^pp_qr ^aa_aa),
+        undefined (eg., ^pq_pq ^ab_ab), or redundant (eg., ^pq_pq ^ab_ba)
+        operators are omitted.
+
+        Args:
+            norb : integer
+                Total number of spatial orbitals. (0.5 * #spinorbitals)
+
+        Kwargs:
+            t1 : ndarray of shape (norb,norb)
+                Amplitudes at which to initialize the singles operators
+            t2 : None
+                NOT IMPLEMENTED. Amplitudes at which to initialize the doubles
+                operators
+
+        Returns:
+            uop : object of class FSUCCOperator
+                The callable UCCSD operator
+    '''
     t1_idx = np.tril_indices (norb, k=-1)
     ab_idxs, ij_idxs = list (t1_idx[0]), list (t1_idx[1])
     pq = [(p, q) for p, q in zip (*np.tril_indices (norb))]
-    a = []
-    b = []
-    i = []
-    j = []
-    for ab, ij in combinations (pq, 2):
+    for ab, ij in combinations_with_replacement (pq, 2):
         ab_idxs.append (ab)
         ij_idxs.append (ij)
-        a.append (ab[0])
-        b.append (ab[1])
-        i.append (ij[0])
-        j.append (ij[1])
     uop = FSUCCOperator (norb, ab_idxs, ij_idxs)
     x0 = uop.get_uniq_amps ()
     if t1 is not None: x0[:len (t1_idx[0])] = t1[t1_idx]
@@ -182,6 +267,14 @@ class UCCS (uccsd_sym0.UCCS):
         t1 -= t1.T
         umat = linalg.expm (t1)
         return mo_coeff @ umat
+
+    def kernel (self, mo_coeff=None, psi0=None, x=None):
+        self.e_tot, self.mo_coeff, self.x, self.conv = super().kernel (mo_coeff=mo_coeff, psi0=psi0, x=x)
+        log = logger.new_logger (self, self.verbose)
+        uop = self.get_uop ()
+        uop.set_uniq_amps_(self.x)
+        uop.print_tab (_print_fn=log.info)
+        return self.e_tot, self.mo_coeff, self.x, self.conv
 
 class UCCSD (UCCS):
     def get_uop (self):

@@ -15,6 +15,7 @@ from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg, special
 import numpy as np
 import time
+import copy
 
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to handle spin-breaking potentials while retaining spin constraint
 
@@ -1058,6 +1059,11 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
     if casdm1fs is None: casdm1fs = las.make_casdm1s_sub (ci=ci)
+
+    # In-place safety
+    mo_coeff = mo_coeff.copy ()
+    ci = copy.deepcopy (ci)
+
     nao, nmo = mo_coeff.shape
     ncore = las.ncore
     nocc = ncore + las.ncas

@@ -7,8 +7,33 @@ import copy
 from functools import reduce
 from mrh.my_pyscf.mcpdft.cmspdft import coulomb_tensor
 
-def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
-    ''' Returns orbital/CI gradient vector '''
+# TODO: docstring?
+def diab_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
+    '''Computes the Hessian-vector product of
+
+    Q_a-a = 1/2 sum_I g_pqrs <I|p'q|I> <I|r's|I>
+
+    where the vector is a vector of intermediate-state rotations and the
+    external derivatives are with respect to orbital rotations and CI
+    transfers.
+
+    Args:
+        mc_grad : object of class Gradients (CASSCF or CASCI)
+        Lis : ndarray of shape (nroots*(nroots-1)/2,)
+            Contains step vector for intermediate state rotations
+
+    Kwargs:
+        mo : ndarray of shape (nao,nmo)
+            Contains MO coefficients
+        ci : ndarray or list of length (nroots)
+            Contains intermediate-state CI vectors
+        eris : object of class ERIS (CASSCF or CASCI)
+            Contains (true) ERIs in the MO basis
+
+    Returns:
+        R : ndarray of shape (mc_grad.ngorb+mc_grad.nci)
+            Contains Hessian-vector product
+    '''
 
     mc = mc_grad.base
     if mo is None: mo = mc.mo_coeff
@@ -67,10 +92,12 @@ def sarot_response (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
 
     return mc_grad.pack_uniq_var (2*Rorb, Rci)
 
+# TODO: get rid?? Fix?? Unittest???
 # BROKEN FOR CI AND IS; DO NOT USE
-def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
-    ''' Alternate implementation: monkeypatch everything but active-active
-        Coulomb part of the Hamiltonian and call newton_casscf.gen_g_hop ()[2].
+def diab_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
+    '''Alternate implementation: monkeypatch everything but
+    active-active Coulomb part of the Hamiltonian and call
+    newton_casscf.gen_g_hop ()[2].
     '''
 
     mc = mc_grad.base
@@ -122,7 +149,8 @@ def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
             full_idx = np.arange (nroots)
             def _Hci (h1, h2, ci2):
                 hci = []
-                tm1 = mc.fcisolver.states_trans_rdm12 (ci2, ci1, ncas, nelecas)[9]
+                tm1 = mc.fcisolver.states_trans_rdm12 (ci2, ci1, ncas,
+                    nelecas)[9]
                 for s, args, kwargs in enumerate (mc.fcisolver._loop_solver (
                         _state_arg (ci2), _state_arg (ci1), _state_arg (dm1),
                         _state_arg (tm1), _state_arg (full_idx))):
@@ -130,8 +158,10 @@ def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
                     Lsec = L[np.ix_(idx,idx)]
                     nelec = mc.fcisolver._get_nelec (s, nelecas)
                     op1 = h1[None,:,:] + np.tensordot (dm1i, h2, axes=2)
-                    op2 = np.tensordot (tm1i + tm1i.transpose (0,2,1), h2, axes=2)
-                    hci.extend (_Hci_kernel (s, op1, op2, ci1i, ci2i, nelec, Lsec))
+                    op2 = np.tensordot (tm1i + tm1i.transpose (0,2,1), h2,
+                        axes=2)
+                    hci.extend (_Hci_kernel (s, op1, op2, ci1i, ci2i, nelec,
+                        Lsec))
                 return hci
         else:
             def _Hci (h1, h2, ci2):
@@ -139,7 +169,8 @@ def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
                     ncas, nelecas)[0])
                 op1 = h1[None,:,:] + np.tensordot (dm1, h2, axes=2)
                 op2 = np.tensordot (tm1 + tm1.transpose (0,2,1), h2, axes=2)
-                return _Hci_kernel (mc.fcisolver, op1, op2, ci1, ci2, nelecas, L)
+                return _Hci_kernel (mc.fcisolver, op1, op2, ci1, ci2, nelecas,
+                    L)
         return ci1, _Hci, _Hdiag, linkstrl, linkstr, _pack_ci, _unpack_ci
 
     # Fake 2TDM!
@@ -164,9 +195,36 @@ def sarot_response_o0 (mc_grad, Lis, mo=None, ci=None, eris=None, **kwargs):
 
     return mc_grad.pack_uniq_var (hx_orb, hx_ci)
 
-def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
+def diab_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
         mf_grad=None, **kwargs):
-    ''' Returns geometry derivative of Q.x '''
+    '''Computes the partial first derivatives of
+
+    Q_a-a = 1/2 sum_I g_pqrs <I|p'q|I> <I|r's|I>
+
+    with respect to geometry perturbation.
+
+    Args:
+        mc_grad : object of class Gradients (CASSCF or CASCI)
+        Lis : ndarray of shape (nroots*(nroots-1)/2,)
+            Contains step vector for intermediate state rotations
+
+    Kwargs:
+        atmlst : list
+            List of atoms whose geometries are perturbed. Defaults
+            to all atoms in mc_grad.mol.
+        mo : ndarray of shape (nao,nmo)
+            Contains MO coefficients
+        ci : ndarray or list of length (nroots)
+            Contains intermediate-state CI vectors
+        eris : object of class ERIS (CASSCF or CASCI)
+            Contains (true) ERIs in the MO basis
+        mf_grad: object of class Gradients (RHF)
+            Defaults to mc_grad.base._scf.nuc_grad_method ()
+
+    Returns:
+        de : ndarray of shape (len (atmlst), 3)
+            Contains gradient vector
+    '''
 
     mc = mc_grad.base
     mol = mc_grad.mol
@@ -200,7 +258,8 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     vj = np.tensordot (dm1, aapa, axes=2)
     evj = np.tensordot (edm1, aapa, axes=2)
     dvj_all = mf_grad.get_j (mc.mol, list(dm1_ao) + list(edm1_ao))
-    dvj_aux = getattr (dvj_all, 'aux', np.zeros ((nroots, nroots, mol.natm, 3)))
+    dvj_aux = getattr (dvj_all, 'aux', np.zeros ((nroots, nroots, mol.natm,
+        3)))
     dvj = np.stack (dvj_all[:nroots], axis=1)
     devj = np.stack (dvj_all[nroots:], axis=1)
 
@@ -218,21 +277,27 @@ def sarot_grad (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
     for k, ia in enumerate(atmlst):
         shl0, shl1, p0, p1 = aoslices[ia]
         de_renorm[k] -= np.einsum('xpq,pq->x', s1[:,p0:p1], dme0[p0:p1]) * 2
-        de_direct[k] += np.einsum('xipq,ipq->x', dvj[:,:,p0:p1], edm1_ao[:,p0:p1]) * 2
-        de_direct[k] += np.einsum('xipq,ipq->x', devj[:,:,p0:p1], dm1_ao[:,p0:p1]) * 2
+        de_direct[k] += np.einsum('xipq,ipq->x', dvj[:,:,p0:p1],
+            edm1_ao[:,p0:p1]) * 2
+        de_direct[k] += np.einsum('xipq,ipq->x', devj[:,:,p0:p1],
+            dm1_ao[:,p0:p1]) * 2
     dvj_aux = dvj_aux[:,:,atmlst,:]
     de_aux = (np.trace (dvj_aux, offset=nroots, axis1=0, axis2=1)
             + np.trace (dvj_aux, offset=-nroots, axis1=0, axis2=1))
 
-    logger.debug (mc, "CMS-PDFT Lis lagrange direct component:\n{}".format (de_direct))
-    logger.debug (mc, "CMS-PDFT Lis lagrange renorm component:\n{}".format (de_renorm))
-    logger.debug (mc, "CMS-PDFT Lis lagrange auxbasis component:\n{}".format (de_aux))
+    logger.debug (mc, "CMS-PDFT Lis lagrange direct component:\n{}".format (
+        de_direct))
+    logger.debug (mc, "CMS-PDFT Lis lagrange renorm component:\n{}".format (
+        de_renorm))
+    logger.debug (mc, "CMS-PDFT Lis lagrange auxbasis component:\n{}".format (
+        de_aux))
     de = de_direct + de_aux + de_renorm
     return de
 
-def sarot_grad_o0 (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
+# TODO: get rid? Unittest?
+def diab_grad_o0 (mc_grad, Lis, atmlst=None, mo=None, ci=None, eris=None,
         mf_grad=None, **kwargs):
-    ''' Monkeypatch version of sarot_grad '''
+    ''' Monkeypatch version of diab_grad '''
     mc = mc_grad.base
     ncas, nelecas, nroots = mc.ncas, mc.nelecas, mc_grad.nroots
     if mf_grad is None: mf_grad = mc._scf.nuc_grad_method()
@@ -279,20 +344,23 @@ if __name__ == '__main__':
     Lis = math.pi * (np.random.rand ((3)) - 0.5)
     eris = mc.ao2mo (mc.mo_coeff)
 
-    dw_test = sarot_response (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
+    dw_test = diab_response (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci,
+        eris=eris)
     dworb_test, dwci_test = mc_grad.unpack_uniq_var (dw_test)
     dwci_test = np.asarray (dwci_test)
     dwis_test = np.einsum ('pab,qab->pq', dwci_test, ci_arr.conj ())
     dwci_test -= np.einsum ('pq,qab->pab', dwis_test, ci_arr)
-    dw_ref = sarot_response_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
+    dw_ref = diab_response_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci,
+        eris=eris)
     dworb_ref, dwci_ref = mc_grad.unpack_uniq_var (dw_ref)
     dwci_ref = np.asarray (dwci_ref)
     dwis_ref = np.einsum ('pab,qab->pq', dwci_ref, ci_arr.conj ())
     dwci_ref -= np.einsum ('pq,qab->pab', dwis_ref, ci_arr)
-    dh_test = sarot_grad (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
-    dh_ref = sarot_grad_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
+    dh_test = diab_grad (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
+    dh_ref = diab_grad_o0 (mc_grad, Lis, mo=mc.mo_coeff, ci=mc.ci, eris=eris)
 
-    print ("dworb:", vector_error (dworb_test, dworb_ref), linalg.norm (dworb_ref))
+    print ("dworb:", vector_error (dworb_test, dworb_ref), linalg.norm (
+        dworb_ref))
     print ("dwci:", vector_error (dwci_test, dwci_ref), linalg.norm (dwci_ref))
     print ("dwis:", vector_error (dwis_test, dwis_ref), linalg.norm (dwis_ref))
     print ("dh:", vector_error (dh_test, dh_ref), linalg.norm (dh_ref))

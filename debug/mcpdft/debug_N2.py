@@ -43,7 +43,7 @@ def test_densgrad (otxc):
         make_rho, nset, nao = ni._gen_rho_evaluator (ot.mol, d1, 1)
         for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, nao, ot.dens_deriv, mc.max_memory, blksize=ngrids):
             rho = np.asarray ([make_rho (i, ao, mask, ot.xctype) for i in range(2)])
-            Pi = get_ontop_pair_density (ot, rho, ao, d1, d2, mo_cas, ot.dens_deriv, mask)
+            Pi = get_ontop_pair_density (ot, rho, ao, d2, mo_cas, ot.dens_deriv, mask)
             return rho, Pi, weight
 
     # densities and potentials for the wave function
