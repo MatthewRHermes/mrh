@@ -96,7 +96,7 @@ class ElectricDipole (mcpdft_grad.Gradients):
                 '%8.5f', *ham_response)
             log.note('MC-PDFT Dipole moment(X, Y, Z, A.U.): %8.5f, %8.5f, '
                 '%8.5f', *mol_dip)
-        return mol_dip, ham_response
+        return mol_dip
 
     def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None,
             ci=None, eris=None, mf_grad=None, veff1=None, veff2=None,
