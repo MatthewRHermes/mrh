@@ -62,7 +62,7 @@ class ElectricDipole (mcpdft_grad.Gradients):
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
         kwargs['ci'] = ci
         kwargs['veff1'], kwargs['veff2'] = self.base.get_pdft_veff (mo,
-            ci[state], incl_coul=True, paaa_only=True)
+            ci, incl_coul=True, paaa_only=True)
         cput0 = (logger.process_clock(), logger.perf_counter())
         log = lib.logger.new_logger(self, self.verbose)
         if 'atmlst' in kwargs:
