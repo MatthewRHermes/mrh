@@ -427,7 +427,7 @@ class transfnal (otfnal):
         __doc__ = otfnal.eval_ot.__doc__
         eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv,
             weights=weights, _unpack_vot=_unpack_vot)
-        if (self.verbose <= logger.DEBUG) or (dderiv<2) or (weights is None):
+        if (self.verbose <= logger.DEBUG) or (dderiv<1) or (weights is None):
             return eot, vot, fot
         if rho.ndim == 2: rho = rho[:,None,:]
         if Pi.ndim == 1: Pi = Pi[None,:]
@@ -960,6 +960,7 @@ ft_rsh_and_hybrid_coeff.__doc__ = (__ft_doc__
 def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
     # Examine the error of the first and second functional derivatives in the
     # debugging block under transfnal.eval_ot below
+    logger.debug (otfnal, '--- v_err_report (%s) ---', tag)
     ndf = len (lbls)
     nvP = v0[1].shape[0]
     de = (e1-e0) * w
