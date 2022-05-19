@@ -435,6 +435,9 @@ def _ftGGA_jT_op (x, rho, Pi, R, zeta):
     sPP = (Pi[1:4,:]*Pi[1:4,:]).sum (0)
     jTx = _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP)
 
+    # DEBUG NOTE:
+    # jTx[0] and jTx[1] specifically are bugged, but other rows seem fine
+
     return jTx
 
 def _gentLDA_d_jT_op (x, rho, Pi, R, zeta):
