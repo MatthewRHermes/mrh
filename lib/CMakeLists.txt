@@ -55,9 +55,11 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O3")
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O3")
 
 # Find the PySCF "library" directory
-set (PYTHON_EXECUTABLE "python")
+find_package (Python)
+variable_watch (PYSCFLIB)
+variable_watch (Python_EXECUTABLE)
 execute_process(
-  COMMAND "${PYTHON_EXECUTABLE}" -c "if True:
+  COMMAND "${Python_EXECUTABLE}" -c "if True:
     import os
     from pyscf import lib
     print (os.path.dirname (lib.__file__))"
