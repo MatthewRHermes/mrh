@@ -7,7 +7,8 @@ from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
 from mrh.util import params
-from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs, _libxc
+from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs, _libxc, _dms
+from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from pyscf import __config__
 
 FT_R0 = getattr(__config__, 'mcpdft_otfnal_ftransfnal_R0', 0.9)
@@ -16,7 +17,68 @@ FT_A = getattr(__config__, 'mcpdft_otfnal_ftransfnal_A', -475.60656009)
 FT_B = getattr(__config__, 'mcpdft_otfnal_ftransfnal_B', -379.47331922)
 FT_C = getattr(__config__, 'mcpdft_otfnal_ftransfnal_C', -85.38149682)
 
-OT_HYB_ALIAS = {'PBE0': '0.25*HF + 0.75*PBE, 0.25*HF + 0.75*PBE'}
+OT_HYB_ALIAS = {'PBE0' : '0.25*HF + 0.75*PBE, 0.25*HF + 0.75*PBE'}
+
+def energy_ot (ot, casdm1s, casdm2, mo_coeff, ncore, max_memory=2000, hermi=1):
+    '''Compute the on-top energy - the last term in 
+
+    E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi]
+
+    Args:
+        ot : an instance of otfnal class
+        casdm1s : ndarray of shape (2, ncas, ncas)
+            Contains spin-separated one-body density matrices in an
+            active-orbital basis
+        casdm2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            Contains spin-summed two-body density matrix in an active-
+            orbital basis 
+        mo_coeff : ndarray of shape (nao, nmo)
+            Contains molecular orbital coefficients for active-space
+            orbitals. Columns ncore through ncore+ncas give the basis
+            in which casdm1s and casdm2 are expressed.
+        ncore : integer
+            Number of doubly occupied inactive "core" orbitals not
+            explicitly included in casdm1s and casdm2
+
+    Kwargs:
+        max_memory : int or float
+            maximum cache size in MB
+            default is 2000
+        hermi : int
+            1 if 1rdms are assumed hermitian, 0 otherwise
+
+    Returns : float
+        The MC-PDFT on-top (nonclassical) energy
+    '''
+    E_ot = 0.0
+    ni, xctype = ot._numint, ot.xctype
+    if xctype=='HF': return E_ot
+    dens_deriv = ot.dens_deriv
+
+    nao = mo_coeff.shape[0]
+    ncas = casdm2.shape[0]
+    cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
+    dm1s = _dms.casdm1s_to_dm1s (ot, casdm1s, mo_coeff=mo_coeff, ncore=ncore,
+                                 ncas=ncas)
+    mo_cas = mo_coeff[:,ncore:][:,:ncas]
+
+    t0 = (logger.process_clock (), logger.perf_counter ())
+    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, dm1s[i,:,:], hermi) for
+        i in range(2))
+    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, nao,
+            dens_deriv, max_memory):
+        rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
+        t0 = logger.timer (ot, 'untransformed density', *t0)
+        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas,
+            dens_deriv, mask)
+        t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
+        if rho.ndim == 2:
+            rho = np.expand_dims (rho, 1)
+            Pi = np.expand_dims (Pi, 0)
+        E_ot += ot.eval_ot (rho, Pi, dderiv=0, weights=weight)[0].dot (weight)
+        t0 = logger.timer (ot, 'on-top energy calculation', *t0)
+
+    return E_ot
 
 class otfnal:
     r''' Parent class of on-top pair-density functional. The main
@@ -95,19 +157,7 @@ class otfnal:
         raise RuntimeError("on-top xc functional not defined")
         return 0
 
-    def get_E_ot (self, rho, Pi, weights):
-        r''' Being phased out as redundant with eval_ot
-        Left in place for backwards-compatibility'''
-
-        assert (rho.shape[1:] == Pi.shape[:]), \
-            "rho.shape={0}, Pi.shape={1}".format (rho.shape, Pi.shape)
-        if rho.ndim == 2:
-            rho = np.expand_dims (rho, 1)
-            Pi = np.expand_dims (Pi, 0)
-        
-        return self.eval_ot (rho, Pi, dderiv=0, weights=weights)[0].dot (
-            weights)
-
+    energy_ot = energy_ot
     get_veff_1body = pdft_veff.get_veff_1body
     get_veff_2body = pdft_veff.get_veff_2body
     get_veff_2body_kl = pdft_veff.get_veff_2body_kl
@@ -631,9 +681,10 @@ def get_transfnal (mol, otxc):
     if ',' not in xc_base and _libxc.is_hybrid_or_rsh (xc_base):
         raise NotImplementedError (
             ('Aliased or built-in translated hybrid or range-separated '
-             'functionals other than tPBE0/ftPBE0.\nBuild a compound '
-             'functional string with a comma separating the exchange and '
-             'correlation parts,\nor use otfnal.make_hybrid_fnal instead.')
+             'functionals\nother than those listed in otfnal.OT_HYB_ALIAS. '
+             'Build a compound functional\nstring with a comma separating the '
+             'exchange and correlation parts, or use\notfnal.make_hybrid_fnal '
+             'instead.')
         )
     ks = dft.RKS (mol)
     ks.xc = xc_base
@@ -696,6 +747,7 @@ def _hybrid_2c_coeff (ni, xc_code, spin=0):
 
     # For exchange-only functionals, hyb_c = hyb_x
     x_code, c_code = _libxc.split_x_c_comma (xc_code)
+    x_code = x_code + ','
     c_code = ',' + c_code
 
     # All factors of 'HF' are summed by default. Therefore just run the same
@@ -750,18 +802,19 @@ def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None,
             xc_code))
     x_code, c_code = _libxc.split_x_c_comma (xc_code)
 
-    # TODO: actually parse the xc_code so that custom functionals are
-    # compatible with this
-
-    if fnal_x != 1:
-        x_code = '{:.16f}*{:s}'.format (fnal_x, x_code)
+    x_facs, x_terms = _libxc.parse_xc_formula (x_code)
+    if fnal_x != 1: x_facs = list (np.asarray (x_facs)*fnal_x)
     if hyb_x != 0:
-        x_code = x_code + ' + {:.16f}*HF'.format (hyb_x)
+        x_facs.append (hyb_x)
+        x_terms.append ('HF')
+    x_code = _libxc.assemble_xc_formula (x_facs, x_terms)
 
-    if fnal_c != 1:
-        c_code = '{:.16f}*{:s}'.format (fnal_c, c_code)
+    c_facs, c_terms = _libxc.parse_xc_formula (c_code)
+    if fnal_c != 1: c_facs = list (np.asarray (c_facs)*fnal_c)
     if hyb_c != 0:
-        c_code = c_code + ' + {:.16f}*HF'.format (hyb_c)
+        c_facs.append (hyb_c)
+        c_terms.append ('HF')
+    c_code = _libxc.assemble_xc_formula (c_facs, c_terms)
 
     return x_code + ',' + c_code
 
