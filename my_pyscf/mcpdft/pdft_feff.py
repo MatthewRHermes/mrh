@@ -236,7 +236,8 @@ class EotOrbitalHessianOperator (object):
         mo = _grid_ao2mo (self.ot.mol, ao[:self.nderiv_rho], occ_coeff,
             non0tab=mask)
         drhos, dPi = density_orbital_derivative (self.ot, self.ncore,
-            self.ncas, self.casdm1s, self.cascm2, rhos, mo, non0tab=mask)
+            self.ncas, self.casdm1s, self.cascm2, rhos, mo,
+            deriv=self.Pi_deriv, non0tab=mask)
         return drhos.sum (0), dPi
         # persistent memory footprint:
         #   nderiv_rho * nocc * ngrids          (drho)
@@ -644,7 +645,7 @@ if __name__ == '__main__':
             if callable (getattr (hop, 'debug_hessian_blocks', None)):
                 hop.debug_hessian_blocks (x1, packed=True,
                 mask_dcon=False)#(hop.ot.otxc[0]=='t'))
-            print (("{:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
+            print ((" {:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
         dg_err = dg_test - dg_ref
         denom = dg_ref.copy ()
         denom[np.abs(dg_ref)<1e-8] = 1.0
@@ -667,9 +668,9 @@ if __name__ == '__main__':
             print ("LiH {} energy:".format (fnal),ks.e_tot)
             exc_hop = ExcOrbitalHessianOperator (ks)
             debug_hess (exc_hop)
-        for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
-            #if fnal[:2] != 'ft': continue
-            mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
+        for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE', 'ftPBE':
+            #if fnal[:3] != 'ftP': continue
+            mc = mcpdft.CASSCF (mf, fnal, 2, nelecas, grids_level=1).run ()
             mc.canonicalize_(cas_natorb=True)
             molden.from_mcscf (mc, lbl + '.molden')
             print ("LiH {} energy:".format (fnal),mc.e_tot)

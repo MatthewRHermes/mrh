@@ -368,7 +368,7 @@ def _ftGGA_jT_op_m2z (x, rho, zeta, srz, szz):
 def _ftGGA_jT_op_z2R (x, zeta, srP, sPP):
     # rho,zeta -> rho,R step of _ftGGA_jT_op below
     jTx = np.empty_like (x)
-    jTx[0] = 0
+    jTx[0] = x[0]
     jTx[1] = (x[1]*zeta[1] * x[3]*srP*zeta[2] +
               2*x[4]*sPP*zeta[1]*zeta[2])
     jTx[2] = 0
@@ -388,7 +388,7 @@ def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
     for i in range (4):
         ri[i+1] = ri[i]*ri[0]
 
-    jTx[0] = (-2*R*x[1]*ri[0]
+    jTx[0] = (x[0] - 2*R*x[1]*ri[0]
                + x[3]*(6*R*ri[1]*srr - 8*srP*ri[2])
                + x[4]*(-24*R*R*ri[2]*srr + 80*R*ri[3]*srP 
                         - 64*ri[4]*sPP))
@@ -426,8 +426,6 @@ def _ftGGA_jT_op (x, rho, Pi, R, zeta):
 
     # cs -> rho,zeta step
     x = _ftGGA_jT_op_m2z (x, rho[0], zeta, srz, szz)
-    jTx[0]  = x[0]
-    jTx[1:] = 0.0
 
     # rho,zeta -> rho,R step
     x = _ftGGA_jT_op_z2R (x, zeta, srP, sPP)
@@ -435,7 +433,10 @@ def _ftGGA_jT_op (x, rho, Pi, R, zeta):
     # rho,R -> rho,Pi step
     srP = (rho[1:4,:]*Pi[1:4,:]).sum (0)
     sPP = (Pi[1:4,:]*Pi[1:4,:]).sum (0)
-    jTx += _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP)
+    jTx = _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP)
+
+    # DEBUG NOTE:
+    # jTx[0] and jTx[1] specifically are bugged, but other rows seem fine
 
     return jTx
 
