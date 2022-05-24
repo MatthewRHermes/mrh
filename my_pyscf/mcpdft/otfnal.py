@@ -584,7 +584,7 @@ class ftransfnal (transfnal):
         rho_ft[0][1:4] += w
         rho_ft[1][1:4] -= w
 
-        return np.squeeze (rho_ft)
+        return rho_ft
 
     def get_zeta (self, R, fn_deriv=1, **kwargs):
         r''' Compute the intermediate zeta used to compute the translated spin

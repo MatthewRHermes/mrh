@@ -76,7 +76,7 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     if Pi.ndim == 1: Pi = Pi[None,:]
     assert (rho.shape[0] == 2)
     nderiv = rho.shape[1]
-    nderiv_Pi = Pi.shape[1]
+    nderiv_Pi = Pi.shape[0]
     if nderiv > 4:
         raise NotImplementedError ("Translation of meta-GGA functionals")
     rho_t = otfnal.get_rho_translated (Pi, rho, weights=weights)
