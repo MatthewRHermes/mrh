@@ -355,6 +355,17 @@ def _tGGA_jT_op (x, rho, Pi, R, zeta):
 
     return jTx
 
+def _tGGA_jT_op_m2z (x, rho, zeta, srr):
+    # cs -> rho,zeta step of _tGGA_jT_op above
+    # unused; for contemplative purposes only
+    jTx = np.empty_like (x)
+    jTx[0] = x[0] + zeta[0]*x[1]
+    jTx[1] = x[1]*rho + (x[3] + 2*zeta[0]*x[4])*srr
+    jTx[2] = x[2] + x[3]*zeta[0] + x[4]*zeta[0]*zeta[0]
+    jTx[3] = 0
+    jTx[4] = 0
+    return jTx
+
 def _ftGGA_jT_op_m2z (x, rho, zeta, srz, szz):
     # cs -> rho,zeta step of _ftGGA_jT_op below
     jTx = np.empty_like (x)
@@ -371,7 +382,7 @@ def _ftGGA_jT_op_z2R (x, zeta, srP, sPP):
     jTx[0] = x[0]
     jTx[1] = (x[1]*zeta[1] * x[3]*srP*zeta[2] +
               2*x[4]*sPP*zeta[1]*zeta[2])
-    jTx[2] = 0
+    jTx[2] = x[2]
     jTx[3] = x[3]*zeta[1]
     jTx[4] = x[4]*zeta[1]*zeta[1]
     return jTx
@@ -394,7 +405,7 @@ def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
                         - 64*ri[4]*sPP))
     jTx[1] = (4*x[1]*ri[1] - 8*x[3]*ri[2]*srr
               + x[4]*(32*R*ri[3]*srr - 64*ri[4]*srP))
-    jTx[2] = -2*R*x[3]*ri[0] + 4*x[4]*R*R*ri[1]
+    jTx[2] = x[2] - 2*R*x[3]*ri[0] + 4*x[4]*R*R*ri[1]
     jTx[3] = 4*x[3]*ri[1] - 16*x[4]*R*ri[2]
     jTx[4] = 16*x[4]*ri[3]
     return jTx
@@ -437,6 +448,9 @@ def _ftGGA_jT_op (x, rho, Pi, R, zeta):
 
     # DEBUG NOTE:
     # jTx[0] and jTx[1] specifically are bugged, but other rows seem fine
+    # Upon comparison to numerical derivatives, the errors are consistent
+    # with an error in x[1], which here should contain de/dR, where R is
+    # the on-top ratio.
 
     return jTx
 
