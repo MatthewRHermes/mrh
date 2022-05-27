@@ -7,7 +7,7 @@ from mrh.my_pyscf.dft.openmolcas_grids import quasi_ultrafine
 import unittest
 
 # Need to use custom grids to get consistent agreement w/ the other program
-# particularly for ftPBE test below. 
+# particularly for ftPBE test below.
 # TODO: type in orbital initialization from OpenMolcas converged orbitals,
 # which should result in agreement to 1e-8.
 
