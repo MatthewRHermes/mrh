@@ -380,7 +380,7 @@ def _ftGGA_jT_op_z2R (x, zeta, srP, sPP):
     # rho,zeta -> rho,R step of _ftGGA_jT_op below
     jTx = np.empty_like (x)
     jTx[0] = x[0]
-    jTx[1] = (x[1]*zeta[1] * x[3]*srP*zeta[2] +
+    jTx[1] = (x[1]*zeta[1] + x[3]*srP*zeta[2] +
               2*x[4]*sPP*zeta[1]*zeta[2])
     jTx[2] = x[2]
     jTx[3] = x[3]*zeta[1]
@@ -410,7 +410,6 @@ def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
     jTx[4] = 16*x[4]*ri[3]
     return jTx
 
-# TODO: debug!!!!
 def _ftGGA_jT_op (x, rho, Pi, R, zeta):
     # On a grid, evaluate the contribution to the matrix-vector product
     # of the transpose of the Jacobian
@@ -445,12 +444,6 @@ def _ftGGA_jT_op (x, rho, Pi, R, zeta):
     srP = (rho[1:4,:]*Pi[1:4,:]).sum (0)
     sPP = (Pi[1:4,:]*Pi[1:4,:]).sum (0)
     jTx = _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP)
-
-    # DEBUG NOTE:
-    # jTx[0] and jTx[1] specifically are bugged, but other rows seem fine
-    # Upon comparison to numerical derivatives, the errors are consistent
-    # with an error in x[1], which here should contain de/dR, where R is
-    # the on-top ratio.
 
     return jTx
 
