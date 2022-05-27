@@ -6,6 +6,11 @@ from mrh.my_pyscf.dft.openmolcas_grids import quasi_ultrafine
 #from mrh.my_pyscf.fci import csf_solver
 import unittest
 
+# Need to use custom grids to get consistent agreement w/ the other program
+# particularly for ftPBE test below. 
+# TODO: type in orbital initialization from OpenMolcas converged orbitals,
+# which should result in agreement to 1e-8.
+
 ##############################################################################
 # Inline definition of quadrature grid that can be implemented in OpenMolcas #
 # v21.10. The corresponding input to the SEWARD module in OpenMolcas is      #
