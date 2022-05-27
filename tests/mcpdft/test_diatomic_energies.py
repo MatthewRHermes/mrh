@@ -2,17 +2,59 @@ import numpy as np
 from pyscf import gto, scf, df, fci
 from pyscf.fci.addons import fix_spin_
 from mrh.my_pyscf import mcpdft
+from mrh.my_pyscf.dft.openmolcas_grids import quasi_ultrafine
 #from mrh.my_pyscf.fci import csf_solver
 import unittest
 
+##############################################################################
+# Inline definition of quadrature grid that can be implemented in OpenMolcas #
+# v21.10. The corresponding input to the SEWARD module in OpenMolcas is      #
+#   grid input                                                               #
+#   nr=100                                                                   #
+#   lmax=41                                                                  #
+#   rquad=ta                                                                 #
+#   nopr                                                                     #
+#   noro                                                                     #
+#   end of grid input                                                        #
+##############################################################################
+
+om_ta_alpha = [0.8, 0.9, # H, He
+    1.8, 1.4, # Li, Be
+        1.3, 1.1, 0.9, 0.9, 0.9, 0.9, # B - Ne
+    1.4, 1.3, # Na, Mg
+        1.3, 1.2, 1.1, 1.0, 1.0, 1.0, # Al - Ar
+    1.5, 1.4, # K, Ca
+            1.3, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.1, 1.1, 1.1, # Sc - Zn
+        1.1, 1.0, 0.9, 0.9, 0.9, 0.9] # Ga - Kr
+def om_treutler_ahlrichs(n, chg, *args, **kwargs):
+    '''
+    "Treutler-Ahlrichs" as implemented in OpenMolcas
+    '''
+    r = np.empty(n)
+    dr = np.empty(n)
+    alpha = om_ta_alpha[chg-1]
+    step = 2.0 / (n+1) # = numpy.pi / (n+1)
+    ln2 = alpha / np.log(2)
+    for i in range(n):
+        x = (i+1)*step - 1 # = numpy.cos((i+1)*step)
+        r [i] = -ln2*(1+x)**.6 * np.log((1-x)/2)
+        dr[i] = (step #* numpy.sin((i+1)*step) 
+                * ln2*(1+x)**.6 *(-.6/(1+x)*np.log((1-x)/2)+1/(1-x)))
+    return r[::-1], dr[::-1]
+
+my_grids = {'atom_grid': (99,590),
+    'radi_method': om_treutler_ahlrichs,
+    'prune': False,
+    'radii_adjust': None}
+
 def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates, charge=None, spin=None,
-  symmetry=False, cas_irrep=None, density_fit=False):
+              symmetry=False, cas_irrep=None, density_fit=False):
     xyz = '{:s} 0.0 0.0 0.0; {:s} {:.3f} 0.0 0.0'.format (atom1, atom2, r)
     mol = gto.M (atom=xyz, basis=basis, charge=charge, spin=spin, symmetry=symmetry, verbose=0, output='/dev/null')
     mf = scf.RHF (mol)
     if density_fit: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
     mf.kernel ()
-    mc = mcpdft.CASSCF (mf, fnal, ncas, nelecas, grids_level=9)
+    mc = mcpdft.CASSCF (mf, fnal, ncas, nelecas, grids_attr=my_grids)
     #if spin is not None: smult = spin+1
     #else: smult = (mol.nelectron % 2) + 1
     #mc.fcisolver = csf_solver (mol, smult=smult)
@@ -95,6 +137,17 @@ class KnownValues(unittest.TestCase):
         #   version: 21.06 
         #   tag: 109-gbd596f6ca-dirty
         #   commit: bd596f6cabd6da0301f3623af2de6a14082b34b5
+        for i in range (2):
+         with self.subTest (state=i):
+            self.assertAlmostEqual (e[i], e_ref[i], 6)
+
+    def test_lih_cms2ftpbe22_sto3g (self):
+        e = diatomic ('Li', 'H', 2.5, 'ftPBE', 'STO-3G', 2, 2, 2)
+        e_ref = [-7.83953187, -7.75506453]
+        # Reference values obtained with OpenMolcas
+        #   version: 22.02
+        #   tag: 277-gd1f6a7392
+        #   commit: c3bdc83f9213a511233096e94715be3bbc73fb94
         for i in range (2):
          with self.subTest (state=i):
             self.assertAlmostEqual (e[i], e_ref[i], 6)
