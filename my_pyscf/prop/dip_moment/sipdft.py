@@ -14,11 +14,31 @@ import time, gc
 from pyscf.data import nist
 from pyscf import lib
 from mrh.my_pyscf.grad import mcpdft
-from mrh.my_pyscf.grad import sipdft
+from mrh.my_pyscf.grad import mspdft
 from pyscf.fci import direct_spin1
 
+# TODO: state-average-mix generalization ?
 def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket): 
-    # TODO: state-average-mix generalization
+    '''Compute <bra|O|ket> - sum_i <i|O|i>, where O is the 1-RDM
+    operator product, and |bra> and |ket> are both states spanning the
+    vector space of |i>, which are multi-determinantal many-electron
+    states in an active space.
+
+    Args:
+        mc : object of class CASCI or CASSCF
+            Only "ncas" and "nelecas" are used, to determine Hilbert
+            of ci
+        ci : ndarray or list of length (nroots)
+            Contains CI vectors spanning a model space
+        si_bra : ndarray of shape (nroots)
+            Coefficients of ci elements for state |bra>
+        si_ket : ndarray of shape (nroots)
+            Coefficients of ci elements for state |ket>
+
+    Returns:
+        casdm1 : ndarray of shape [ncas,]*2
+            Contains O = p'q case
+    '''
     ncas, nelecas = mc.ncas, mc.nelecas
     nroots = len (ci)
     ci_arr = np.asarray (ci)
@@ -29,7 +49,6 @@ def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket):
     for i in range (nroots):
         ddm1[i,...], _ = direct_spin1.make_rdm12 (ci[i], ncas, nelecas)
     si_diag = si_bra * si_ket
-    a= np.tensordot (si_diag, ddm1, axes=1)
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     return casdm1
 
@@ -90,7 +109,7 @@ def sipdft_HellmanFeynman_dipole (mc, state=None, mo_coeff=None, ci=None, si=Non
     cas_dip = nucl_dip - el_dip                            
     return cas_dip                                         
 
-class ElectricDipole (sipdft.Gradients):
+class ElectricDipole (mspdft.Gradients):
 
     def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False, level_shift=None, unit='Debye', **kwargs):
         ''' Cache the Hamiltonian and effective Hamiltonian terms, and pass
@@ -170,23 +189,18 @@ class ElectricDipole (sipdft.Gradients):
         fcasscf.ci = ci
         return sipdft_HellmanFeynman_dipole (fcasscf, state=state, mo_coeff=mo, ci=ci, si=si, atmlst=atmlst, verbose=verbose)
 
-    def get_LdotJnuc (self, Lvec, state=None, atmlst=None, verbose=None, mo=None, ci=None, si=None, eris=None, **kwargs):
-        if state is None: state = self.state
+    def get_LdotJnuc (self, Lvec, atmlst=None, verbose=None, mo=None,
+        ci=None, eris=None, **kwargs):
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        if si is None: si = self.base.si
         if eris is None and self.eris is None:
             eris = self.eris = self.base.ao2mo (mo)
         elif eris is None:
             eris = self.eris
         ncas = self.base.ncas
         nelecas = self.base.nelecas
-        if getattr(self.base.fcisolver, 'gen_linkstr', None):
-            linkstr  = self.base.fcisolver.gen_linkstr(ncas, nelecas, False)
-        else:
-            linkstr  = None
         mc = self.base
 
         ngorb, nci, nis = self.ngorb, self.nci, self.nis
@@ -206,16 +220,14 @@ class ElectricDipole (sipdft.Gradients):
         mo_core = mo_coeff[:,:ncore]
         mo_cas = mo_coeff[:,ncore:nocc]
 
-        # Orb part
-        # MRH: new 'effective' MO coefficients including contraction from the Lagrange multipliers
+        # Orbital part
+        # MO coeff contracted against Lagrange multipliers
         moL_coeff = np.dot (mo_coeff, Lorb)
         moL_core = moL_coeff[:,:ncore]
         moL_cas = moL_coeff[:,ncore:nocc]
     
-        # MRH: these SHOULD be state-averaged! Use the actual sacasscf object!
         casdm1 = mc.fcisolver.make_rdm1(ci, ncas, nelecas)
     
-        # MRH: new density matrix terms
         dmL_core = np.dot(moL_core, mo_core.T) * 2
         dmL_cas = reduce(np.dot, (moL_cas, casdm1, mo_cas.T))
         dmL_core += dmL_core.T
@@ -227,7 +239,7 @@ class ElectricDipole (sipdft.Gradients):
 
         dm_cas_transit = reduce(np.dot, (mo_cas, casdm1_transit, mo_cas.T))
 
-        # AOL: Expansion coefficients are already accounted for in Lagrange multipliers
+        # Expansion coefficients are already in Lagrange multipliers
         dm = dmL_core + dmL_cas + dm_cas_transit
 
         #charges = mol.atom_charges()
