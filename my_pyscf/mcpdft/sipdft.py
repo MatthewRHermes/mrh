@@ -295,6 +295,7 @@ class _SIPDFT (StateInteractionMCPDFTSolver):
                     i, self.weights[i], e_pdft[i], self.e_mcscf[i])
 
     def nuc_grad_method (self):
+        print('AOL /mcpdft/sipdft.py calls gradient FROM')
         from mrh.my_pyscf.grad.sipdft import Gradients
         return Gradients (self)
 

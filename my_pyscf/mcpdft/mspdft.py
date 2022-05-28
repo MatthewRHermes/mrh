@@ -494,8 +494,21 @@ class _MSPDFT (MultiStateMCPDFTSolver):
                           self.weights[i], self.e_states[i])
 
     def nuc_grad_method (self):
+        print('AOL /mcpdft/mspdft.py calls gradient FROM')
         from mrh.my_pyscf.grad.mspdft import Gradients
         return Gradients (self)
+
+    def dip_moment (self, unit='Debye', state=None):
+        from mrh.my_pyscf.prop.dip_moment.mspdft import ElectricDipole
+        dip_obj =  ElectricDipole(self)
+        mol_dipole = dip_obj.kernel (state=state)
+        return mol_dipole
+
+    def trans_moment (self, unit='Debye', state=None):
+        from mrh.my_pyscf.prop.trans_dip_moment.mspdft import TransitionDipole
+        tran_dip_obj = TransitionDipole(self)
+        mol_trans_dipole = tran_dip_obj.kernel (state=state)
+        return mol_trans_dipole
 
 def get_diabfns (obj):
     '''Interpret the name of the MS-PDFT method as a pair of functions

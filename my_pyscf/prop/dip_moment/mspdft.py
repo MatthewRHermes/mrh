@@ -133,7 +133,7 @@ class ElectricDipole (mspdft.Gradients):
         nroots = self.nroots
         veff1 = []
         veff2 = []
-        d2f = self.base.sarot_objfn (ci=ci)[2]
+        d2f = self.base.diabatizer (ci=ci)[2]
         for ix in range (nroots):
             v1, v2 = self.base.get_pdft_veff (mo, ci, incl_coul=True,
                 paaa_only=True, state=ix)
