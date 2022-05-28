@@ -537,26 +537,105 @@ def _tGGA_d_jT_op (x, rho, Pi, R, zeta):
     
     return f
 
-def _ftGGA_d_jT_op (x, rho, Pi, R, zeta):
-    raise NotImplementedError ("Second density derivatives for fully-"
-        "translated GGA functionals")
+def _ftGGA_d_jT_op_m2z (v, rho, zeta, srz, szz):
+    f = list (np.zeros (15))
+    f[0] = 2*v[4]*szz
+    f[1] = 2*v[4]*srz
+    f[6] = v[3] + 2*v[4]*zeta[0]
+    f[10] = 2*v[4]*rho
+    assert (tuple (f[0].shape) == tuple (f[1].shape))
+    assert (tuple (f[0].shape) == tuple (f[6].shape))
+    assert (tuple (f[0].shape) == tuple (f[10].shape))
+    return f
+
+def _ftGGA_d_jT_op_z2R (v, zeta, srP, sPP):
+    f = list (np.zeros (15))
+    f[2] = 2*v[4]*sPP*(zeta[3]*zeta[1] + zeta[2]*zeta[2])
+    f[2] += v[1]*zeta[2] + v[3]*srP*zeta[3]
+    f[7] = v[3]*zeta[2]
+    f[11] = 2*v[4]*zeta[1]*zeta[2]
+    assert (tuple (f[2].shape) == tuple (f[7].shape))
+    assert (tuple (f[2].shape) == tuple (f[11].shape))
+    return f
+
+def _ftGGA_d_jT_op_R2Pi (v, rho, Pi, srr, srP, sPP):
+    ngrids = v.shape[-1]
+    f = list (np.zeros (15))
+    d = np.zeros ((4,ngrids), dtype=v.dtype)
+    idx = np.abs (rho) > 1e-15
+    d[0,idx] = 4 / rho[idx] / rho[idx]
+    d[1,idx] = -2*d[0,idx]/rho[idx]
+    d[2,idx] = -3*d[1,idx]/rho[idx]
+    d[3,idx] = -4*d[2,idx]/rho[idx]
+    # rho, rho
+    f[0] = v[1]*Pi*d[2]
+    f[0] += v[3]*(srP*d[2] + srr*Pi*d[3])
+    f[0] += 2*v[4]*sPP*(d[2]*d[0] + d[1]*d[1])
+    f[0] += 2*v[4]*srP*Pi*(2*d[2]*d[1] + d[3]*d[0])
+    f[0] += 2*v[4]*sPP*Pi*Pi*(d[3]*d[1] + d[2]*d[2])
+    # rho, Pi
+    f[1] = v[1]*d[1] + v[3]*srr*d[2]
+    f[1] += 2*v[4]*srP*(d[2]*d[0] + d[1]*d[1])
+    f[1] += 4*v[4]*srr*Pi*d[2]*d[1]
+    # Pi, Pi
+    f[2] = 2*v[4]*srr*d[1]*d[1]
+    # rho, rr
+    f[3] = v[3]*Pi*d[2] + 2*v[4]*Pi*Pi*d[2]*d[1]
+    # Pi, rr
+    f[4] = v[3]*d[1] + 2*v[4]*Pi*d[1]*d[1]
+    # rho, rP
+    f[6] = v[3]*d[1] + 2*v[4]*Pi*(d[2]*d[0] + d[1]*d[1])
+    # Pi, rP
+    f[7] = 2*v[4]*d[0]*d[1]
+    # rho, PP
+    f[10] = 2*v[4]*d[0]*d[1]
+    for row in f[1:]:
+        if hasattr (row, 'shape'):
+            assert (tuple (row.shape) == tuple (f[0].shape))
+    return f
+
+def _ftGGA_d_jT_op (v, rho, Pi, R, zeta):
+    # raise NotImplementedError ("Second density derivatives for fully-"
+    #    "translated GGA functionals")
     # Generates contributions to the first five elements,
     # then 6,7, then 10,11
     # of the lower-triangular packed Hessian
     # (I.E., no double gradient derivatives)
-    ngrid = rho.shape[-1]
-    # rho,rho ; Pi,rho ; Pi,Pi ; s(rho,rho),rho ; s(rho,rho),Pi ([0:5])
-    frr = np.zeros ((5,ngrid), dtype=x[0].dtype) 
-    # s(Pi,rho),rho ; s(Pi,rho),Pi ([6:8])
-    fPr = np.zeros ((2,ngrid), dtype=x[0].dtype)
-    # s(Pi,Pi),rho ; s(Pi,Pi),Pi ([10:12])
-    fPP = np.zeros ((2,ngrid), dtype=x[0].dtype)
-    # This is a bad idea why I am I doing this
-    f = [[frr[0], frr[1], frr[3], fPr[0], fPP[0]],
-         [frr[1], frr[2], frr[4], fPr[1], fPP[1]],
-         [frr[3], frr[4], None,   None,   None],
-         [fPr[0], fPr[1], None,   None,   None],
-         [fPP[0], fPP[1], None,   None,   None]]
+    # for the terms added in the fully-translated extension of tGGA
 
+    # ab -> cs
+    vcm = (v[2] - v[4]) / 2.0
+    vmm = (v[2] + v[4] - v[3]) / 4.0
+    v[3] = vcm
+    v[4] = vmm
+
+    # Intermediates
+    srr = (rho[1:4,:]*rho[1:4,:]).sum (0)
+    srP = (rho[1:4,:]*R[1:4,:]).sum (0)
+    sPP = (R[1:4,:]*R[1:4,:]).sum (0)
+    srz = srP * zeta[1]
+    szz = sPP * zeta[1] * zeta[1]
+
+    # cs -> rho, zeta
+    f = _ftGGA_d_jT_op_m2z (v, rho[0], zeta, srz, szz)
+    v = _ftGGA_jT_op_m2z (v, rho[0], zeta, srz, szz)
+
+    # rho, zeta -> rho, R
+    # The for loops here are because I'm guessing that repeated
+    # initialization of large arrays to zero is slower than a short,
+    # shallow Python loop
+    f = _jT_f_j (log, f, _ftGGA_jT_op_z2R, zeta, srP, sPP)
+    f1 = _ftGGA_d_jT_op_z2R (v, zeta, srP, sPP)
+    for ix in range (len (f)): f[ix] += f1[ix]
+    v = _ftGGA_jT_op_z2R (v, zeta, srP, sPP)
+
+    # rho, R -> rho, Pi
+    srP = (rho[1:4,:]*Pi[1:4,:]).sum (0)
+    sPP = (Pi[1:4,:]*Pi[1:4,:]).sum (0)
+    f = _jT_f_j (log, f, _ftGGA_jT_op_R2Pi, rho, R, srr, srP, sPP)
+    f1 = _ftGGA_d_jT_op_R2Pi (v, rho[0], Pi[0], srr, srP, sPP)
+    for ix in range (len (f)): f[ix] += f1[ix]
+
+    return f
 
 
