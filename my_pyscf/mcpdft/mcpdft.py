@@ -568,9 +568,6 @@ class _PDFT ():
         return self._state_average_nuc_grad_method (state=None)
 
     def dip_moment (self, unit='Debye', state=0):
-        if isinstance (self, StateAverageMCSCFSolver):
-            # TODO: SA dipole moment unittests
-            logger.warn (self, "State-averaged dipole moments are UNTESTED!")
         from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
         dip_obj =  ElectricDipole(self) 
         mol_dipole = dip_obj.kernel (state=state)
