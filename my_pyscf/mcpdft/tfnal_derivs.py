@@ -537,11 +537,25 @@ def _tGGA_d_jT_op (x, rho, Pi, R, zeta):
     
     return f
 
+#   r,r
+#   1,r   1,1
+#   srr,r srr,1 srr,srr
+#   sr1,r sr1,1 sr1,srr sr1,sr1
+#   s11,r s11,1 s11,srr s11,sr1 s11,s11
+
 def _ftGGA_d_jT_op_m2z (v, rho, zeta, srz, szz):
+    # srm += srz*r
+    # smm += 2srz*r*z + szz*r*r
+    # 0  : r, r
+    # 1  : r, z
+    # 6  : srz, r
+    # 7  : srz, z
+    # 10 : szz, r
     f = list (np.zeros (15))
     f[0] = 2*v[4]*szz
     f[1] = 2*v[4]*srz
     f[6] = v[3] + 2*v[4]*zeta[0]
+    f[7] = 2*v[4]*rho
     f[10] = 2*v[4]*rho
     assert (tuple (f[0].shape) == tuple (f[1].shape))
     assert (tuple (f[0].shape) == tuple (f[6].shape))
@@ -549,6 +563,12 @@ def _ftGGA_d_jT_op_m2z (v, rho, zeta, srz, szz):
     return f
 
 def _ftGGA_d_jT_op_z2R (v, zeta, srP, sPP):
+    # z = z[0]
+    # srz = srP*z[1]
+    # szz = sPP*z[1]**2
+    # 2  : P, P
+    # 7  : srP, P
+    # 11 : sPP, P
     f = list (np.zeros (15))
     f[2] = 2*v[4]*sPP*(zeta[3]*zeta[1] + zeta[2]*zeta[2])
     f[2] += v[1]*zeta[2] + v[3]*srP*zeta[3]
@@ -559,6 +579,12 @@ def _ftGGA_d_jT_op_z2R (v, zeta, srP, sPP):
     return f
 
 def _ftGGA_d_jT_op_R2Pi (v, rho, Pi, srr, srP, sPP):
+    # R = 4Pi/(r**2) = Pi*d[0]
+    # srR = srP*d[0] + srr*Pi*d[1]
+    # sRR = sPP*d[0]**2 + 2*Pi*d[1]*srP*d[0] + srr*(Pi*d[1])**2
+    #        d^n(d[0])
+    # d[n] = ---------
+    #          dr^n
     ngrids = v.shape[-1]
     f = list (np.zeros (15))
     d = np.zeros ((4,ngrids), dtype=v.dtype)
@@ -572,7 +598,7 @@ def _ftGGA_d_jT_op_R2Pi (v, rho, Pi, srr, srP, sPP):
     f[0] += v[3]*(srP*d[2] + srr*Pi*d[3])
     f[0] += 2*v[4]*sPP*(d[2]*d[0] + d[1]*d[1])
     f[0] += 2*v[4]*srP*Pi*(2*d[2]*d[1] + d[3]*d[0])
-    f[0] += 2*v[4]*sPP*Pi*Pi*(d[3]*d[1] + d[2]*d[2])
+    f[0] += 2*v[4]*srr*Pi*Pi*(d[3]*d[1] + d[2]*d[2])
     # rho, Pi
     f[1] = v[1]*d[1] + v[3]*srr*d[2]
     f[1] += 2*v[4]*srP*(d[2]*d[0] + d[1]*d[1])
