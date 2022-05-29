@@ -5,26 +5,25 @@ import numpy as np
 import time, gc
 from pyscf.data import nist
 from pyscf import lib
-from mrh.my_pyscf.grad import mcpdft
-from mrh.my_pyscf.grad import sipdft
-from mrh.my_pyscf.prop.dip_moment import sipdft
+from mrh.my_pyscf.prop.dip_moment import mspdft
 from pyscf.fci import direct_spin1
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
 
-def sipdft_heff_response (mc_grad, mo=None, ci=None,
-        si_bra=None, si_ket=None, state=None, ham_si=None, 
-        e_mcscf=None, eris=None):
+# TODO: docstring?
+def mspdft_heff_response (mc_grad, mo=None, ci=None,
+        si_bra=None, si_ket=None, state=None, 
+        heff_mcscf=None, eris=None):
     ''' Compute the orbital and intermediate-state rotation response 
         vector in the context of an SI-PDFT gradient calculation '''
     mc = mc_grad.base
     if mo is None: mo = mc_grad.mo_coeff
     if ci is None: ci = mc_grad.ci
     if state is None: state = mc_grad.state
-    print('states are  ',state[0],state[1])
+    #bra, ket = _unpack_state (state)
+    #print('states are  ',state[0],state[1])
     if si_bra is None: si_bra = mc.si[:,state[0]]
     if si_ket is None: si_ket = mc.si[:,state[1]]
-    if ham_si is None: ham_si = mc.ham_si
-    if e_mcscf is None: e_mcscf = mc.e_mcscf
+    if heff_mcscf is None: heff_mcscf = mc.heff_mcscf
     if eris is None: eris = mc.ao2mo (mo)
     nroots, ncore = mc_grad.nroots, mc.ncore
     moH = mo.conj ().T
@@ -41,21 +40,39 @@ def sipdft_heff_response (mc_grad, mo=None, ci=None,
     g_orb = mc.unpack_uniq_var (g_orb)
 
     # Intermediate state rotation (TODO: state-average-mix generalization)
-    ham_is = ham_si.copy ()
-    ham_is[np.diag_indices (nroots)] = e_mcscf
-    braH = np.dot (si_bra, ham_is)
-    Hket = np.dot (ham_is, si_ket)
+    braH = np.dot (si_bra, heff_mcscf)
+    Hket = np.dot (heff_mcscf, si_ket)
     si2 = si_bra * si_ket
     g_is  = np.multiply.outer (si_ket, braH)
     g_is += np.multiply.outer (si_bra, Hket)
-    g_is -= 2 * si2[:,None] * ham_is
+    g_is -= 2 * si2[:,None] * heff_mcscf
     g_is -= g_is.T
     g_is = g_is[np.tril_indices (nroots, k=-1)]
 
     return g_orb, g_is
 
+# TODO: state-average-mix generalization
 def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket): 
-    # TODO: state-average-mix generalization
+    '''Compute <bra|O|ket> - sum_i <i|O|i>, where O is the 1-RDM
+    operator product, and |bra> and |ket> are both states spanning the
+    vector space of |i>, which are multi-determinantal many-electron
+    states in an active space.
+
+    Args:
+        mc : object of class CASCI or CASSCF
+            Only "ncas" and "nelecas" are used, to determine Hilbert
+            of ci
+        ci : ndarray or list of length (nroots)
+            Contains CI vectors spanning a model space
+        si_bra : ndarray of shape (nroots)
+            Coefficients of ci elements for state |bra>
+        si_ket : ndarray of shape (nroots)
+            Coefficients of ci elements for state |ket>
+
+    Returns:
+        casdm1 : ndarray of shape [ncas,]*2
+            Contains O = p'q case
+    '''
     ncas, nelecas = mc.ncas, mc.nelecas
     nroots = len (ci)
     ci_arr = np.asarray (ci)
@@ -66,7 +83,6 @@ def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket):
     for i in range (nroots):
         ddm1[i,...], _ = direct_spin1.make_rdm12 (ci[i], ncas, nelecas)
     si_diag = si_bra * si_ket
-    a= np.tensordot (si_diag, ddm1, axes=1)
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     return casdm1
 
@@ -140,7 +156,7 @@ def sipdft_HellmanFeynman_dipole (mc, state=None, mo_coeff=None, ci=None, si=Non
                                                            
     return el_dip                                         
 
-class TransitionDipole (sipdft.ElectricDipole):
+class TransitionDipole (mspdft.ElectricDipole):
 
     def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False, level_shift=None, unit='Debye', **kwargs):
         ''' Cache the Hamiltonian and effective Hamiltonian terms, and pass
@@ -164,7 +180,7 @@ class TransitionDipole (sipdft.ElectricDipole):
         nroots = self.nroots
         veff1 = []
         veff2 = []
-        d2f = self.base.sarot_objfn (ci=ci)[2]
+        d2f = self.base.diabatizer (ci=ci)[2]
         for ix in range (nroots):
             v1, v2 = self.base.get_pdft_veff (mo, ci, incl_coul=True,
                 paaa_only=True, state=ix)
@@ -191,20 +207,25 @@ class TransitionDipole (sipdft.ElectricDipole):
 
         LdotJnuc = self.get_LdotJnuc (Lvec, **kwargs)
         
-        mol_dip = ham_response + LdotJnuc
+        tdm   = ham_response + LdotJnuc
+        val   = np.linalg.norm(tdm)
+        oscil = 777
+        #oscil = 2/3*()*val**2
 
         if unit.upper() == 'DEBYE':
             ham_response *= nist.AU2DEBYE
             LdotJnuc     *= nist.AU2DEBYE
-            mol_dip      *= nist.AU2DEBYE
+            tdm          *= nist.AU2DEBYE
             log.note('Hellmann-Feynman Term(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *ham_response)
             log.note('Lagrange Contribution(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *LdotJnuc)
-            log.note('CMS-PDFT transition dipole moment between states %i and %i (X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', state[0], state[1], *mol_dip)
+            log.note('CMS-PDFT transition dipole moment between states %i and %i (X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', state[0], state[1], *tdm)
+            log.note('Oscillator strength %i <-> %i: %8.5f', state[0], state[1], oscil)
         else:
             log.note('Hellmann-Feynman Term(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *ham_response)
             log.note('Lagrange Contribution(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *LdotJnuc)
-            log.note('CMS-PDFT transition dipole moment between states %i and %i (X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', state[0], state[1], *mol_dip)
-        return mol_dip
+            log.note('CMS-PDFT transition dipole moment between states %i and %i (X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', state[0], state[1], *tdm)
+            log.note('Oscillator strength %i <-> %i: %8.5f', state[0], state[1], oscil)
+        return tdm
 
     def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, si=None, **kwargs):
         mc = self.base
@@ -253,7 +274,7 @@ class TransitionDipole (sipdft.ElectricDipole):
         g_ci, g_is_pdft = self._separate_is_component (g_ci, ci=ci, symm=0)
 
         # Off-diagonal: heff component
-        g_orb_heff, g_is_heff = sipdft_heff_response (self, mo=mo, ci=ci,
+        g_orb_heff, g_is_heff = mspdft_heff_response (self, mo=mo, ci=ci,
             si_bra=si_bra, si_ket=si_ket, eris=eris)
 
         log.debug ('g_is pdft total component:\n{}'.format (g_is_pdft))
