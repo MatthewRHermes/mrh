@@ -209,8 +209,7 @@ class TransitionDipole (mspdft.ElectricDipole):
         
         tdm   = ham_response + LdotJnuc
         val   = np.linalg.norm(tdm)
-        oscil = 777
-        #oscil = 2/3*()*val**2
+        oscil = 2/3*abs(self.e_states[state[0]]-self.e_states[state[1]])*val**2
 
         if unit.upper() == 'DEBYE':
             ham_response *= nist.AU2DEBYE
