@@ -69,13 +69,13 @@ def case (kv, mc, mol, state, fnal):
         err_tab = np.append (err_tab, [[x1_norm, de_err]], axis=0)
         if ix > 0:
             conv_tab = err_tab[1:ix+1,:] / err_tab[:ix,:]
-        if ix > 1 and np.all (np.abs (conv_tab[-3:,-1]-0.5)<0.01):
+        if ix > 1 and np.all (np.abs (conv_tab[-3:,-1]-0.5)<0.01) and abs (err_tab[-1,1])<1e-3:
             break
     with kv.subTest (q='x'):
         kv.assertAlmostEqual (conv_tab[-1,0], 0.5, 9)
     with kv.subTest (q='de'):
+        kv.assertLess (abs(err_tab[-1,1]), 1e-3)
         kv.assertAlmostEqual (conv_tab[-1,1], 0.5, delta=0.01)
-    
 
 def tearDownModule():
     global h2, lih
