@@ -116,9 +116,10 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
         # fsigma and frhosigma entirely).
         fxc = _pack_fxc_ltri (xc_grid[2], otfnal.dens_deriv)
         # First pass: fxc
-        fot = _jT_f_j (otfnal, fxc, otfnal.jT_op, rho, Pi)
+        fot = _jT_f_j (fxc, otfnal.jT_op, rho, Pi, rec=otfnal)
         # Second pass: translation derivatives
-        fot[:5] += otfnal.d_jT_op (vxc, rho, Pi)
+        fot_d_jT = otfnal.d_jT_op (vxc, rho, Pi)
+        fot[:fot_d_jT.shape[0]] += fot_d_jT
     return eot, vot, fot
 
 def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
@@ -251,11 +252,12 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1, unpack=True,
 
     return v1
 
-def _jT_f_j (log, frr, jT_op, *args):
+def _jT_f_j (frr, jT_op, *args, **kwargs):
     r''' Apply a jacobian function taking *args to the lower-triangular
     second-derivative array frr'''
     nel = len (frr)
     nr = int (round (np.sqrt (1 + 8*nel) - 1)) // 2
+    rec = kwargs.get ('rec', None)
     ngrids = frr[0].shape[-1]
 
     # build square-matrix index array to address packed matrix frr w/o copying
@@ -272,7 +274,7 @@ def _jT_f_j (log, frr, jT_op, *args):
 
     # second pass. fcr is a rectangular matrix (unavoidably) 
     nc = fcr.shape[0]
-    if log.verbose < logger.DEBUG:
+    if getattr (rec, 'verbose', 0) < logger.DEBUG:
         fcc = np.empty ((nc*(nc+1)//2, ngrids), dtype=fcr.dtype)
         i = 0
         for ix_row, fc_row in enumerate (fcr):
@@ -288,7 +290,7 @@ def _jT_f_j (log, frr, jT_op, *args):
             for j in range (i):
                 scale = (fcc[i,j] + fcc[j,i])/2
                 scale[scale==0] = 1
-                logger.debug (log, 'MC-PDFT jT_f_j symmetry check %d,%d: %e',
+                logger.debug (rec, 'MC-PDFT jT_f_j symmetry check %d,%d: %e',
                     i, j, linalg.norm ((fcc[i,j]-fcc[j,i])/scale))
         ltri_ix = np.tril_indices (nc)
         fcc = fcc[ltri_ix]
@@ -551,7 +553,8 @@ def _ftGGA_d_jT_op_m2z (v, rho, zeta, srz, szz):
     # 6  : srz, r
     # 7  : srz, z
     # 10 : szz, r
-    f = list (np.zeros (15))
+    ngrids = v.shape[1]
+    f = np.zeros ((15,ngrids), dtype=v.dtype)
     f[0] = 2*v[4]*szz
     f[1] = 2*v[4]*srz
     f[6] = v[3] + 2*v[4]*zeta[0]
@@ -569,7 +572,8 @@ def _ftGGA_d_jT_op_z2R (v, zeta, srP, sPP):
     # 2  : P, P
     # 7  : srP, P
     # 11 : sPP, P
-    f = list (np.zeros (15))
+    ngrids = v.shape[1]
+    f = np.zeros ((15,ngrids), dtype=v.dtype)
     f[2] = 2*v[4]*sPP*(zeta[3]*zeta[1] + zeta[2]*zeta[2])
     f[2] += v[1]*zeta[2] + v[3]*srP*zeta[3]
     f[7] = v[3]*zeta[2]
@@ -586,7 +590,7 @@ def _ftGGA_d_jT_op_R2Pi (v, rho, Pi, srr, srP, sPP):
     # d[n] = ---------
     #          dr^n
     ngrids = v.shape[-1]
-    f = list (np.zeros (15))
+    f = np.zeros ((15,ngrids), dtype=v.dtype)
     d = np.zeros ((4,ngrids), dtype=v.dtype)
     idx = np.abs (rho) > 1e-15
     d[0,idx] = 4 / rho[idx] / rho[idx]
@@ -634,6 +638,7 @@ def _ftGGA_d_jT_op (v, rho, Pi, R, zeta):
     vmm = (v[2] + v[4] - v[3]) / 4.0
     v[3] = vcm
     v[4] = vmm
+    v = np.asarray (v)
 
     # Intermediates
     srr = (rho[1:4,:]*rho[1:4,:]).sum (0)
@@ -650,17 +655,15 @@ def _ftGGA_d_jT_op (v, rho, Pi, R, zeta):
     # The for loops here are because I'm guessing that repeated
     # initialization of large arrays to zero is slower than a short,
     # shallow Python loop
-    f = _jT_f_j (log, f, _ftGGA_jT_op_z2R, zeta, srP, sPP)
-    f1 = _ftGGA_d_jT_op_z2R (v, zeta, srP, sPP)
-    for ix in range (len (f)): f[ix] += f1[ix]
+    f = _jT_f_j (f, _ftGGA_jT_op_z2R, zeta, srP, sPP)
+    f += _ftGGA_d_jT_op_z2R (v, zeta, srP, sPP)
     v = _ftGGA_jT_op_z2R (v, zeta, srP, sPP)
 
     # rho, R -> rho, Pi
     srP = (rho[1:4,:]*Pi[1:4,:]).sum (0)
     sPP = (Pi[1:4,:]*Pi[1:4,:]).sum (0)
-    f = _jT_f_j (log, f, _ftGGA_jT_op_R2Pi, rho, R, srr, srP, sPP)
-    f1 = _ftGGA_d_jT_op_R2Pi (v, rho[0], Pi[0], srr, srP, sPP)
-    for ix in range (len (f)): f[ix] += f1[ix]
+    f = _jT_f_j (f, _ftGGA_jT_op_R2Pi, rho, R, srr, srP, sPP)
+    f += _ftGGA_d_jT_op_R2Pi (v, rho[0], Pi[0], srr, srP, sPP)
 
     return f
 

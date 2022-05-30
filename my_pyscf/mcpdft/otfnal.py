@@ -662,6 +662,36 @@ class ftransfnal (transfnal):
             jTx[:] += tfnal_derivs._ftGGA_jT_op (x, rho, Pi, R, zeta)
         return jTx
 
+    def d_jT_op (self, x, rho, Pi, **kwargs):
+        r''' Evaluate the x.(nabla j) contribution to the second density
+        derivatives of the on-top energy in terms of the untranslated
+        density and pair density
+
+        Args:
+            x : ndarray of shape (2,*,ngrids)
+                Usually, a functional derivative of the on-top xc energy
+                wrt translated densities
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+
+        Returns: ndarray of shape (*,ngrids)
+            second derivative of the translation dotted with x
+            3 rows for tLDA and 5 rows for tGGA
+        '''
+        nrow_t = 3 + 2*int(self.dens_deriv>0)
+        nrow = 3 + 12*int(self.dens_deriv>0)
+        f = np.zeros ((nrow, x[0].shape[-1]), dtype=x[0].dtype)
+        f[:nrow_t] = transfnal.d_jT_op (self, x, rho, Pi, **kwargs)
+        if self.dens_deriv:
+            rho = rho.sum (0)
+            R = self.get_ratio (Pi[0:4,:], rho[0:4,:]/2)
+            zeta = self.get_zeta (R[0], fn_deriv=3)
+            f[:] += tfnal_derivs._ftGGA_d_jT_op (x, rho, Pi, R, zeta)
+        return f
+
+
 _CS_a_DEFAULT = 0.04918
 _CS_b_DEFAULT = 0.132
 _CS_c_DEFAULT = 0.2533
