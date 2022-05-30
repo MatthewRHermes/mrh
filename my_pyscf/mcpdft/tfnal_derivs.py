@@ -5,28 +5,28 @@ from pyscf.lib import logger
 
 def _unpack_vxc_sigma (vxc, rho, dens_deriv):
     # d/drho, d/dsigma -> d/drho, d/drho'
-    vrho, vsigma = vxc[:2]
+    vrho = vxc[0]
     vxc = list (vrho.T)
     if dens_deriv:
+        vsigma = vxc[1]
         vxc = vxc + list (vsigma.T)
         vxc = _unpack_sigma_vector (vxc, rho[0][1:4], rho[1][1:4])
     else:
         vxc = [vxc[0][None,:], vxc[1][None,:]]
     return vxc
 
-def _pack_fxc_ltri (fxc, dens_deriv):
+def _pack_fxc_ltri (fxc0, dens_deriv):
     # d2/drho2, d2/drhodsigma, d2/dsigma2
     # -> lower-triangular Hessian matrix
-    frho, frhosigma, fsigma = fxc[:3]
-    frho = frho.T
-    fxc  = [frho[0],]
-    fxc += [frho[1],      frho[2],]
+    frho = fxc0[0].T
+    fxc1  = [frho[0],]
+    fxc1 += [frho[1],      frho[2],]
     if dens_deriv:
-        frhosigma, fsigma = frhosigma.T, fsigma.T
-        fxc += [frhosigma[0], frhosigma[3], fsigma[0],]
-        fxc += [frhosigma[1], frhosigma[4], fsigma[1], fsigma[3],]
-        fxc += [frhosigma[2], frhosigma[5], fsigma[2], fsigma[4], fsigma[5]]
-    return fxc
+        frhosigma, fsigma = fxc0[1].T, fxc0[2].T
+        fxc1 += [frhosigma[0], frhosigma[3], fsigma[0],]
+        fxc1 += [frhosigma[1], frhosigma[4], fsigma[1], fsigma[3],]
+        fxc1 += [frhosigma[2], frhosigma[5], fsigma[2], fsigma[4], fsigma[5]]
+    return fxc1
 
 def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     r'''get the integrand of the on-top xc energy and its functional
@@ -103,9 +103,9 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
             '(this chunk of) the translated density = %s'), ms)
     vot = fot = None
     if dderiv > 0:
-        vrho, vsigma = xc_grid[1][:2]
-        vxc = list (vrho.T)
-        if otfnal.dens_deriv: vxc = vxc + list (vsigma.T)
+        #vrho, vsigma = xc_grid[1][:2]
+        vxc = list (xc_grid[1][0].T)
+        if otfnal.dens_deriv: vxc = vxc + list (xc_grid[1][1].T)
         vot = otfnal.jT_op (vxc, rho, Pi)
         if _unpack_vot: vot = _unpack_sigma_vector (vot,
             deriv1=rho_deriv, deriv2=Pi_deriv)
