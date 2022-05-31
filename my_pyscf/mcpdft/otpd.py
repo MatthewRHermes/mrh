@@ -230,8 +230,11 @@ def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
         mo = mo.reshape (1, mo.shape[0], mo.shape[1])
 
     # First cumulant and derivatives
-    dm1s_mo = np.stack ([np.eye (nocc, dtype=casdm1s.dtype),]*2, axis=0)
+    dm1s_mo = np.stack ([np.eye (nmo, dtype=casdm1s[0].dtype),]*2, axis=0)
     dm1s_mo[:,ncore:nocc,ncore:nocc] = casdm1s
+    dm1s_mo[:,nocc:,:] = 0
+    dm1s_mo[:,:,nocc:] = 0
+
     drho = np.stack ([_grid_ao2mo (ot.mol, mo, dm1, non0tab=non0tab)
         for dm1 in dm1s_mo], axis=0).transpose (0,1,3,2)
     dPi = np.zeros ((nderiv_Pi, nmo, ngrids), dtype=rho.dtype)

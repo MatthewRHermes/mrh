@@ -619,7 +619,7 @@ class ExcOrbitalHessianOperator (object):
 if __name__ == '__main__':
     from pyscf import gto, scf, dft
     from mrh.my_pyscf import mcpdft
-    mol = gto.M (atom = 'Li 0 0 0; H 1.2 0 0', basis = 'sto-3g',
+    mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
         verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()
     def debug_hess (hop):
@@ -665,7 +665,7 @@ if __name__ == '__main__':
         print (lbl,'case\n')
         for fnal in 'LDA,VWN3', 'PBE':
             ks = dft.RKS (mol).set (xc=fnal).run ()
-            print ("LiH {} energy:".format (fnal),ks.e_tot)
+            print ("H2 {} energy:".format (fnal),ks.e_tot)
             exc_hop = ExcOrbitalHessianOperator (ks)
             debug_hess (exc_hop)
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE', 'ftPBE':
@@ -673,7 +673,7 @@ if __name__ == '__main__':
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas, grids_level=1).run ()
             mc.canonicalize_(cas_natorb=True)
             molden.from_mcscf (mc, lbl + '.molden')
-            print ("LiH {} energy:".format (fnal),mc.e_tot)
+            print ("H2 {} energy:".format (fnal),mc.e_tot)
             eot_hop = EotOrbitalHessianOperator (mc, incl_d2rho=True)
             debug_hess (eot_hop)
         print ("")

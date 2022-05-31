@@ -2,7 +2,8 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
+from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
+from mrh.my_pyscf.mcpdft.otpd import density_orbital_derivative
 from mrh.my_pyscf.mcpdft.pdft_feff import EotOrbitalHessianOperator
 from mrh.my_pyscf.mcpdft.pdft_feff import vector_error
 import unittest
@@ -75,10 +76,10 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
-    def test_de_d2e (self):
+    def test_otpd (self):
         for mol, mf in zip (('H2', 'LiH'), (h2, lih)):
             for state, nel in zip (('Singlet', 'Triplet'), (2, (2,0))):
-                mc = mcpdft.CASSCF (mf, 'tLDA,VWN3', 2, nel, grids_level=1).run ()
+                mc = mcpdft.CASSCF (mf, 'tLDA,VWN3', 2, nel, grids_attr={'atom_grid':(2,14)}).run ()
                 dm1s = np.array (mc.make_rdm1s ())
                 casdm1s, casdm2s = mc.fcisolver.make_rdm12s (mc.ci, mc.ncas, mc.nelecas)
                 casdm1 = casdm1s[0] + casdm1s[1]
@@ -99,7 +100,17 @@ class KnownValues(unittest.TestCase):
                             non0tab=mask)
                         Pi_ref = get_Pi_ref (dm2_ao, ao)
                         self.assertAlmostEqual (lib.fp (Pi_test), lib.fp (Pi_ref), 10)
-                    
+                        mo = _grid_ao2mo (ot.mol, ao, mc.mo_coeff, non0tab=mask)
+                        drho, dPi = density_orbital_derivative (
+                            ot, mc.ncore, ncas, casdm1s, cascm2, rho, mo, deriv=1,
+                        non0tab=mask)
+                        rho_test = np.einsum ('sdgi,gi->sdg', drho[:,:4], mo[0])
+                        rho_test[:,1:4] += np.einsum ('sgi,dgi->sdg', drho[:,0], mo[1:4])
+                        self.assertAlmostEqual (lib.fp (rho_test), lib.fp (rho[:,:4]), 10)
+                        Pi_test = np.einsum ('dgi,gi->dg', dPi[:4], mo[0]) / 2
+                        Pi_test[1:4] += np.einsum ('gi,dgi->dg', dPi[0], mo[1:4]) / 2
+                        self.assertAlmostEqual (lib.fp (Pi_test), lib.fp (Pi_ref[:4]), 10)
+
 
 if __name__ == "__main__":
     print("Full Tests for MC-PDFT on-top pair density construction")
