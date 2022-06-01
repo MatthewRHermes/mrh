@@ -266,11 +266,12 @@ def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
             # r_1aj,  P_0aij -> P_1ai
             gridkern[ideriv] = (mo_cas[ideriv,:,:,np.newaxis]
                 * mo_cas[0,:,np.newaxis,:])
+            gridkern[ideriv] += gridkern[ideriv].transpose (0,2,1)
             # r_1ai,  r_0aj  -> r_1aij
         for ideriv in range (1, 4):
             wrk0 = np.tensordot (gridkern[ideriv], cascm2, axes=2)
             # r_1aij, P_ijkl -> P_1akl
-            dPi[ideriv,ncore:nocc] += (mo_cas[0][:,None,:] * wrk0).sum (2).T*2
+            dPi[ideriv,ncore:nocc] += (mo_cas[0][:,None,:] * wrk0).sum (2).T
             # r_0aj,  P_1aij -> P_1ai
     if deriv > 1: 
         raise NotImplementedError ("Colle-Salvetti type orbital+grid "
