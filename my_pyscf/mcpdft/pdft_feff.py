@@ -630,7 +630,7 @@ if __name__ == '__main__':
         print ("x0 = g_orb/h_diag:", linalg.norm (x0))
         print (" n " + ' '.join (['{:>10s}',]*7).format ('x_norm','de_test',
             'de_ref','de_relerr','dg_test','dg_ref','dg_relerr'))
-        for p in range (20):
+        for p in range (1):
             fac = 1/(2**p)
             x1 = x0 * fac
             x_norm = linalg.norm (x1)
@@ -642,9 +642,9 @@ if __name__ == '__main__':
             dg_ref_norm = linalg.norm (dg_ref)
             row = [p, x_norm, abs(de_test), abs(de_ref), e_err, dg_test_norm,
                 dg_ref_norm, dg_err_norm]
-            if callable (getattr (hop, 'debug_hessian_blocks', None)):
-                hop.debug_hessian_blocks (x1, packed=True,
-                mask_dcon=False)#(hop.ot.otxc[0]=='t'))
+            #if callable (getattr (hop, 'debug_hessian_blocks', None)):
+            #    hop.debug_hessian_blocks (x1, packed=True,
+            #    mask_dcon=False)#(hop.ot.otxc[0]=='t'))
             print ((" {:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
         dg_err = dg_test - dg_ref
         denom = dg_ref.copy ()
@@ -660,16 +660,17 @@ if __name__ == '__main__':
         for row in hop.unpack_uniq_var (dg_err): print (fmt_str.format (*row))
         print ("")
     from mrh.my_pyscf.tools import molden
+    mini_grid = {'atom_grid': (1,1)}
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
-        #if nelecas is not 2: continue
+        if nelecas is not 2: continue
         print (lbl,'case\n')
-        for fnal in 'LDA,VWN3', 'PBE':
-            ks = dft.RKS (mol).set (xc=fnal).run ()
-            print ("H2 {} energy:".format (fnal),ks.e_tot)
-            exc_hop = ExcOrbitalHessianOperator (ks)
-            debug_hess (exc_hop)
+        #for fnal in 'LDA,VWN3', 'PBE':
+        #    ks = dft.RKS (mol).set (xc=fnal).run ()
+        #    print ("H2 {} energy:".format (fnal),ks.e_tot)
+        #    exc_hop = ExcOrbitalHessianOperator (ks)
+        #    debug_hess (exc_hop)
         for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE', 'ftPBE':
-            #if fnal[:3] != 'ftP': continue
+            if fnal[:3] != 'ftP': continue
             mc = mcpdft.CASSCF (mf, fnal, 2, nelecas, grids_level=1).run ()
             mc.canonicalize_(cas_natorb=True)
             molden.from_mcscf (mc, lbl + '.molden')

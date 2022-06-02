@@ -3,17 +3,28 @@ from scipy import linalg
 from pyscf import lib
 from pyscf.lib import logger
 
-def _unpack_vxc_sigma (vxc, rho, dens_deriv):
+def _reshape_vxc_sigma (vxc0, dens_deriv):
     # d/drho, d/dsigma -> d/drho, d/drho'
-    vrho = vxc[0]
-    vxc = list (vrho.T)
+    vrho = vxc0[0]
+    vxc1 = list (vrho.T)
     if dens_deriv:
-        vsigma = vxc[1]
-        vxc = vxc + list (vsigma.T)
-        vxc = _unpack_sigma_vector (vxc, rho[0][1:4], rho[1][1:4])
+        vsigma = vxc0[1]
+        vxc1 = vxc1 + list (vsigma.T)
     else:
-        vxc = [vxc[0][None,:], vxc[1][None,:]]
-    return vxc
+        vxc1 = [vxc[0][None,:], vxc[1][None,:]]
+    return vxc1
+
+def _unpack_vxc_sigma (vxc0, rho, dens_deriv):
+    # d/drho, d/dsigma -> d/drho, d/drho'
+    vrho = vxc0[0]
+    vxc1 = list (vrho.T)
+    if dens_deriv:
+        vsigma = vxc0[1]
+        vxc1 = vxc1 + list (vsigma.T)
+        vxc1 = _unpack_sigma_vector (vxc1, rho[0][1:4], rho[1][1:4])
+    else:
+        vxc1 = [vxc[0][None,:], vxc[1][None,:]]
+    return vxc1
 
 def _pack_fxc_ltri (fxc0, dens_deriv):
     # d2/drho2, d2/drhodsigma, d2/dsigma2
@@ -134,6 +145,8 @@ def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
     #   J[1,nabla rhob] = nabla rhoa
     #   J[2,nabla rhoa] = 0
     #   J[2,nabla rhob] = 2 * nabla rhob
+    if len (packed) > 5:
+        raise RuntimeError ("{} {}".format (len (packed), [p.shape for p in packed[:5]]))
     ncol1 = 1 + 3 * int ((deriv1 is not None) and len (packed) > 2)
     ncol2 = 1 + 3 * int ((deriv2 is not None) and len (packed) > 3)
     ngrid = packed[0].shape[-1] # Don't assume it's an ndarray

@@ -427,7 +427,7 @@ class transfnal (otfnal):
         __doc__ = otfnal.eval_ot.__doc__
         eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv,
             weights=weights, _unpack_vot=_unpack_vot)
-        if (self.verbose <= logger.DEBUG) or (dderiv<1) or (weights is None):
+        if (self.verbose < logger.DEBUG) or (dderiv<1) or (weights is None):
             return eot, vot, fot
         if rho.ndim == 2: rho = rho[:,None,:]
         if Pi.ndim == 1: Pi = Pi[None,:]
@@ -440,11 +440,12 @@ class transfnal (otfnal):
         for p in range (20):
             # ~~~ eval_xc reference ~~~
             rho_t0 = self.get_rho_translated (Pi, rho, weights=weights)
-            exc, vxc, fxc = self._numint.eval_xc (self.otxc, (rho_t0[0,:,:],
+            exc, vxc_p, fxc = self._numint.eval_xc (self.otxc, (rho_t0[0,:,:],
                 rho_t0[1,:,:]), spin=1, relativity=0, deriv=dderiv,
                 verbose=self.verbose)[:3]
             exc *= rho_t0[:,0,:].sum (0)
-            vxc = tfnal_derivs._unpack_vxc_sigma (vxc, rho_t0, self.dens_deriv)
+            vxc_p = tfnal_derivs._reshape_vxc_sigma (vxc_p, self.dens_deriv)
+            vxc = tfnal_derivs._unpack_sigma_vector (vxc_p, rho_t0[0,1:4], rho_t0[1,1:4])
             if dderiv>1: fxc = tfnal_derivs._pack_fxc_ltri (fxc, self.dens_deriv)
             # ~~~ shift translated rho directly ~~~
             r = rho_t0 * r0 / 2**p
@@ -461,13 +462,22 @@ class transfnal (otfnal):
                 rho_t1[1,:,:]), spin=1, relativity=0, deriv=dderiv,
                 verbose=self.verbose)[:2]
             exc1 *= rho_t1[:,0,:].sum (0)
-            vxc1 =  tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t0, self.dens_deriv)
+            vxc1 =  tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t1, self.dens_deriv)
             df_lbl = ('rhoa', 'rhob', "rhoa'", "rhob'")[:2*(1+int(nvr>1))]
             _v_err_report (self, 'eval_xc {}'.format (p), df_lbl, rho_t0[0], rho_t0[1], exc, vxc,
-                fxc, exc1, vxc1, drho_t, weights)
+                vxc_p, fxc, exc1, vxc1, drho_t, weights)
 
             # ~~~ eval_ot compare ~~~
             nvP = vot[1].shape[0]
+            d1 = rho_tot[1:4] if nvr > 1 else None
+            d2 = Pi[1:4] if nvP > 1 else None
+            if _unpack_vot:
+                vot_u = vot
+                vot_p = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv,
+                                              weights=weights, _unpack_vot=False)[1]
+            else:
+                vot_p = vot
+                vot_u = tfnal_derivs._unpack_sigma_vector (vot, d1, d2)
             drho = rho_tot * r0 / 2**p
             dPi = Pi * r0 / 2**p
             nst = 2 + int(rho_tot.shape[0]>1) + int(vot[1].shape[0]>1)
@@ -493,12 +503,10 @@ class transfnal (otfnal):
                 Pi1[:,idx] = Pi[:,idx]
             # ~~~ eval_ot @ rho1 = rho + drho ~~~
             eot1, vot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
-                dderiv=dderiv, weights=weights, _unpack_vot=False)[:2]
-            d1 = rho_tot[1:4] if nvr > 1 else None
-            d2 = Pi[1:4] if nvP > 1 else None
-            vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)
+                dderiv=dderiv, weights=weights, _unpack_vot=True)[:2]
+            #vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)
             df_lbl = ('rho', 'Pi', "rho'", "Pi'")[:ndf]
-            _v_err_report (self, 'eval_ot {}'.format (p), df_lbl, rho_tot, Pi, eot, vot, fot,
+            _v_err_report (self, 'eval_ot {}'.format (p), df_lbl, rho_tot, Pi, eot, vot_u, vot_p, fot,
                 eot1, vot1, (drho, dPi), weights)
 
         return eot, vot, fot
@@ -990,7 +998,7 @@ def ft_rsh_and_hybrid_coeff(ni, xc_code, spin=0):
 ft_rsh_and_hybrid_coeff.__doc__ = (__ft_doc__
     + str(_NumInt.rsh_and_hybrid_coeff.__doc__))
 
-def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
+def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, v0_packed, f, e1, v1, x, w):
     # Examine the error of the first and second functional derivatives in the
     # debugging block under transfnal.eval_ot below
     logger.debug (otfnal, '--- v_err_report (%s) ---', tag)
@@ -1001,7 +1009,7 @@ def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
     if f is None:
         xfx = np.zeros_like (de)
     else:
-        xf = tfnal_derivs.contract_fot (otfnal, f, rho_tot, Pi, x[0], x[1])
+        xf = tfnal_derivs.contract_fot (otfnal, f, rho_tot, Pi, x[0], x[1], vot_packed=v0_packed)
         for row in xf: row[:] *= w
         xfx = ((xf[0]*x[0]).sum (0) + (xf[1]*x[1][:nvP]).sum (0)) / 2
         xf_df = [xf[0][0], xf[1][0]]
@@ -1025,11 +1033,11 @@ def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
         #        print ("{:20.12e} {:9.2e} {:9.2e} {:9.2e} {:9.2e} {:9.2e}".format
         #           (*row))
         if ndf > 2: 
-            xf_df += [xf[0][1:4],]
-            dv_df += [(v1[0][1:4]-v0[0][1:4])*w,]
+            xf_df += [xf[0][1:4].T,]
+            dv_df += [((v1[0][1:4]-v0[0][1:4])*w).T,]
         if ndf > 3: 
-            xf_df += [xf[1][1:4],]
-            dv_df += [(v1[1][1:4]-v0[1][1:4])*w,]
+            xf_df += [xf[1][1:4].T,]
+            dv_df += [((v1[1][1:4]-v0[1][1:4])*w).T,]
     de_err1 = de - vx
     de_err2 = de_err1 - xfx
     for ix, lbl in enumerate (lbls):
