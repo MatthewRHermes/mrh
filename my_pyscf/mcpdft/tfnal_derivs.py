@@ -614,7 +614,7 @@ def _ftGGA_d_jT_op_R2Pi (v, rho, Pi, srr, srP, sPP):
     f[0] = v[1]*Pi*d[2]
     f[0] += v[3]*(srP*d[2] + srr*Pi*d[3])
     f[0] += 2*v[4]*sPP*(d[2]*d[0] + d[1]*d[1])
-    f[0] += 2*v[4]*srP*Pi*(2*d[2]*d[1] + d[3]*d[0])
+    f[0] += 2*v[4]*srP*Pi*(3*d[2]*d[1] + d[3]*d[0])
     f[0] += 2*v[4]*srr*Pi*Pi*(d[3]*d[1] + d[2]*d[2])
     # rho, Pi
     f[1] = v[1]*d[1] + v[3]*srr*d[2]

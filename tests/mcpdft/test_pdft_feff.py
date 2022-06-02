@@ -49,7 +49,6 @@ def case (kv, mc, mol, state, fnal):
         kv.assertAlmostEqual (conv_tab[-1,0], 0.5, 9)
     with kv.subTest (q='de'):
         kv.assertAlmostEqual (conv_tab[-1,1], 0.5, delta=0.05)
-    if fnal=='ftPBE': return # TODO: debug
     with kv.subTest (q='d2e'):
         kv.assertAlmostEqual (conv_tab[-1,2], 0.5, delta=0.05)
     
