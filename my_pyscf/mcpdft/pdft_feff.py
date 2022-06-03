@@ -89,6 +89,13 @@ class EotOrbitalHessianOperator (object):
             if casdm2 is None: casdm2 = dm2
 
         self.ot = ot
+        omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc)
+        hyb_x, hyb_c = hyb
+        if abs (omega) > 1e-11:
+            raise NotImplementedError ("range-separated on-top functionals")
+        if abs (hyb_x) > 1e-11 or abs (hyb_c) > 1e-11:
+            raise NotImplementedError ("2nd fnal derivatives for hybrid functionals")
+
         self.verbose, self.stdout = ot.verbose, ot.stdout
         self.log = lib.logger.new_logger (self, self.verbose)
         self.ni, self.xctype = ni, xctype = ot._numint, ot.xctype
@@ -630,7 +637,7 @@ if __name__ == '__main__':
         print ("x0 = g_orb/h_diag:", linalg.norm (x0))
         print (" n " + ' '.join (['{:>10s}',]*7).format ('x_norm','de_test',
             'de_ref','de_relerr','dg_test','dg_ref','dg_relerr'))
-        for p in range (1):
+        for p in range (20):
             fac = 1/(2**p)
             x1 = x0 * fac
             x_norm = linalg.norm (x1)
@@ -642,9 +649,9 @@ if __name__ == '__main__':
             dg_ref_norm = linalg.norm (dg_ref)
             row = [p, x_norm, abs(de_test), abs(de_ref), e_err, dg_test_norm,
                 dg_ref_norm, dg_err_norm]
-            #if callable (getattr (hop, 'debug_hessian_blocks', None)):
-            #    hop.debug_hessian_blocks (x1, packed=True,
-            #    mask_dcon=False)#(hop.ot.otxc[0]=='t'))
+            if callable (getattr (hop, 'debug_hessian_blocks', None)):
+                hop.debug_hessian_blocks (x1, packed=True,
+                mask_dcon=False)#(hop.ot.otxc[0]=='t'))
             print ((" {:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
         dg_err = dg_test - dg_ref
         denom = dg_ref.copy ()
@@ -662,7 +669,7 @@ if __name__ == '__main__':
     from mrh.my_pyscf.tools import molden
     mini_grid = {'atom_grid': (1,1)}
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
-        if nelecas is not 2: continue
+        #if nelecas is not 2: continue
         print (lbl,'case\n')
         #for fnal in 'LDA,VWN3', 'PBE':
         #    ks = dft.RKS (mol).set (xc=fnal).run ()

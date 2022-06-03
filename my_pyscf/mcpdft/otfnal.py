@@ -427,7 +427,7 @@ class transfnal (otfnal):
         __doc__ = otfnal.eval_ot.__doc__
         eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv,
             weights=weights, _unpack_vot=_unpack_vot)
-        if (self.verbose < logger.DEBUG) or (dderiv<1) or (weights is None):
+        if (self.verbose <= logger.DEBUG) or (dderiv<1) or (weights is None):
             return eot, vot, fot
         if rho.ndim == 2: rho = rho[:,None,:]
         if Pi.ndim == 1: Pi = Pi[None,:]
