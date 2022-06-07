@@ -49,17 +49,22 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (de[0], de_ref[i,0], 5)
             self.assertAlmostEqual (de[1], de_ref[i,1], 5)
 
-    #def test_grad_h2_cms3ftlda22_sto3g (self):
-    #    # z_orb:    no
-    #    # z_ci:     no
-    #    # z_is:     no
-    #    mc_grad = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', 'STO-3G', 2, 2, 3)
-    #    de_ref = [0.226842531, -0.100538192, -0.594129499] 
-    #    # Numerical from this software
-    #    for i in range (3):
-    #     with self.subTest (state=i):
-    #        de = mc_grad.kernel (state=i) [1,0] / BOHR
-    #        self.assertAlmostEqual (de, de_ref[i], 5)
+    def test_grad_h2_cms3ftlda22_sto3g (self):
+        # z_orb:    no
+        # z_ci:     no
+        # z_is:     no
+        mc_grad = diatomic ('H', 'H', 1.3, 'STO-3G', 2, 2, 3)
+        
+        # OpenMolcas v22.02
+        de_ref = np.array ([[2.24611972496342E-01, 2.24611972496342E-01],
+                            [-3.91518173397213E-18, 3.91518173397213E-18]])
+        for i in range (2):
+         with self.subTest (use_etfs=bool(i)):
+            de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
+            de *= np.sign (de[0]) * np.sign (de_ref[i,0])
+            # TODO: somehow confirm sign convention
+            self.assertAlmostEqual (de[0], de_ref[i,0], 5)
+            self.assertAlmostEqual (de[1], de_ref[i,1], 5)
 
     #def test_grad_h2_cms2ftlda22_sto3g (self):
     #    # z_orb:    no
