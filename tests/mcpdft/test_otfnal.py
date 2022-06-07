@@ -5,8 +5,6 @@ from pyscf.dft.libxc import XC_KEYS, XC_ALIAS, is_meta_gga, hybrid_coeff, rsh_co
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.mcpdft.otfnal import make_hybrid_fnal
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
-from mrh.my_pyscf.mcpdft.pdft_feff import EotOrbitalHessianOperator
-from mrh.my_pyscf.mcpdft.pdft_feff import vector_error
 import unittest
 from itertools import product
 

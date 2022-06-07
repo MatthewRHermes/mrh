@@ -2,7 +2,7 @@ import numpy as np
 from pyscf import gto, scf, df, fci
 from pyscf.fci.addons import fix_spin_
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.dft.openmolcas_grids import quasi_ultrafine
+#from mrh.my_pyscf.dft.openmolcas_grids import quasi_ultrafine
 #from mrh.my_pyscf.fci import csf_solver
 import unittest
 

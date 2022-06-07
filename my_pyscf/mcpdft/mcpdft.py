@@ -11,7 +11,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix
 from pyscf.mcscf.addons import state_average_mix_, StateAverageMixFCISolver
 from pyscf.mcscf.addons import StateAverageFCISolver
-from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
+from mrh.my_pyscf.mcpdft import pdft_veff
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, get_transfnal
 from mrh.my_pyscf.mcpdft import _dms 

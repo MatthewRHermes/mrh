@@ -4,9 +4,17 @@ from pyscf import gto, scf, lib, mcscf
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
 from mrh.my_pyscf.mcpdft.otpd import density_orbital_derivative
-from mrh.my_pyscf.mcpdft.pdft_feff import EotOrbitalHessianOperator
-from mrh.my_pyscf.mcpdft.pdft_feff import vector_error
 import unittest
+
+def vector_error (test, ref):
+    err = test - ref
+    norm_test = linalg.norm (test)
+    norm_ref = linalg.norm (ref)
+    norm_err = linalg.norm (err)
+    if norm_ref > 0: err = norm_err / norm_ref
+    elif norm_test > 0: err = norm_err / norm_test
+    else: err = norm_err
+    return err
 
 h2 = scf.RHF (gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g', 
     output='/dev/null')).run ()
@@ -115,10 +123,10 @@ def convergence_table_Drho_DPi (mc, x, make_rho, casdm1s, cascm2, ao, mask):
         Drho_num -= rho
         DPi_num -= Pi
         err_tab[ix,0] = 1/2**p
-        err_tab[ix,1] = vector_error (Drho_an[:,0], Drho_num[:,0])[0]
-        err_tab[ix,2] = vector_error (Drho_an[:,1:4], Drho_num[:,1:4])[0]
-        err_tab[ix,3] = vector_error (DPi_an[0], DPi_num[0])[0]
-        err_tab[ix,4] = vector_error (DPi_an[1:4], DPi_num[1:4])[0]
+        err_tab[ix,1] = vector_error (Drho_an[:,0], Drho_num[:,0])
+        err_tab[ix,2] = vector_error (Drho_an[:,1:4], Drho_num[:,1:4])
+        err_tab[ix,3] = vector_error (DPi_an[0], DPi_num[0])
+        err_tab[ix,4] = vector_error (DPi_an[1:4], DPi_num[1:4])
     denom_tab = err_tab[:-1].copy ()
     err_tab[1:][denom_tab==0] = 0.5
     denom_tab[denom_tab==0] = 1
