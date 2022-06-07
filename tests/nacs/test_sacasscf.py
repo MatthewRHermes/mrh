@@ -136,18 +136,25 @@ class KnownValues(unittest.TestCase):
     #        de = mc_grad.kernel (state=i) [1,0] / BOHR
     #        self.assertAlmostEqual (de, de_ref[i], 6)
 
-    #def test_grad_lih_cms3ftlda22_sto3g (self):
-    #    # z_orb:    yes
-    #    # z_ci:     no
-    #    # z_is:     yes
-    #    mc_grad = diatomic ('Li', 'H', 2.5, 'ftLDA,VWN3', 'STO-3G', 2, 2, 3)
-    #    de_ref = [0.09307779491, 0.07169985876, -0.08034177097] 
-    #    # Numerical from this software
-    #    for i in range (3):
-    #     with self.subTest (state=i):
-    #        de = mc_grad.kernel (state=i) [1,0] / BOHR
-    #        self.assertAlmostEqual (de, de_ref[i], 6)
+    def test_grad_lih_cms3ftlda22_sto3g (self):
+        # z_orb:    yes
+        # z_ci:     no
+        # z_is:     yes
+        mc_grad = diatomic ('Li', 'H', 2.5, 'STO-3G', 2, 2, 3)
+        
+        # OpenMolcas v22.02
+        de_ref = np.array ([[2.68017988841929E-01, -6.48495477749689E-02],
+                            [1.24872843191788E-01, -1.24872843191788E-01]])
+        
+        for i in range (2):
+            with self.subTest (use_etfs=bool(i)):
+                de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
+                de *= np.sign (de[0]) * np.sign (de_ref[i,0])
+                # TODO: somehow confirm sign convention
+                self.assertAlmostEqual (de[0], de_ref[i,0], 5)
+                self.assertAlmostEqual (de[1], de_ref[i,1], 5)
 
+    # Hennefarth: I don't believe we need this test since it is the same as the first one, but with density fitting.
     #def test_grad_lih_cms2ftlda22_sto3g_df (self):
     #    # z_orb:    yes
     #    # z_ci:     yes
