@@ -1,32 +1,35 @@
 import numpy as np
-from scipy import linalg
 from pyscf import gto, scf, df, mcscf, lib
-from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.grad.sacasscf_nacs import NonAdiabaticCouplings
-#from mrh.my_pyscf.df.grad import dfsacasscf, dfmspdft
-import unittest, math
+import unittest
 
 def diatomic (atom1, atom2, r, basis, ncas, nelecas, nstates,
-              charge=None, spin=None, symmetry=False, cas_irrep=None,
-              density_fit=False):
+              charge=None, spin=None, symmetry=False, cas_irrep=None):
+
     xyz = '{:s} 0.0 0.0 0.0; {:s} {:.3f} 0.0 0.0'.format (atom1, atom2, r)
-    #mol = gto.M (atom=xyz, basis=basis, charge=charge, spin=spin, symmetry=symmetry, verbose=0, output='/dev/null')
-    mol = gto.M (atom=xyz, basis=basis, charge=charge, spin=spin, symmetry=symmetry, verbose=3)
+    mol = gto.M (atom=xyz, basis=basis, charge=charge, spin=spin, symmetry=symmetry, verbose=0, output='/dev/null')
+    #mol = gto.M (atom=xyz, basis=basis, charge=charge, spin=spin, symmetry=symmetry, verbose=3)
+    
     mf = scf.RHF (mol)
-    if density_fit: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
+    
     mc = mcscf.CASSCF (mf.run (), ncas, nelecas).set (natorb=True)
-    if spin is not None: s = spin*0.5
-    else: s = (mol.nelectron % 2)*0.5
-    #mc.fcisolver = csf_solver (mol, smult=1)
+    
+    if spin is not None: 
+        s = spin*0.5
+    
+    else: 
+        s = (mol.nelectron % 2)*0.5
+    
     mc.fix_spin_(ss=s*(s+1), shift=1)
-    #mc.fcisolver.spin = int(s*(s+1))
     mc = mc.state_average ([1.0/float(nstates),]*nstates)
     mc.conv_tol = mc.conv_tol_diabatize = 1e-12
     mo = None
+    
     if symmetry and (cas_irrep is not None):
         mo = mc.sort_mo_by_irrep (cas_irrep)
+   
     mc.kernel (mo)
-    #if density_fit: return dfmspdft.Gradients (mc)
+    
     return NonAdiabaticCouplings (mc)
 
 def tearDownModule():
@@ -44,12 +47,12 @@ class KnownValues(unittest.TestCase):
                             [9.14840490109073E-02,-9.14840490109074E-02]])
         # OpenMolcas v22.02
         for i in range (2):
-         with self.subTest (use_etfs=bool(i)):
-            de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
-            de *= np.sign (de[0]) * np.sign (de_ref[i,0])
-            # TODO: somehow confirm sign convention
-            self.assertAlmostEqual (de[0], de_ref[i,0], 5)
-            self.assertAlmostEqual (de[1], de_ref[i,1], 5)
+            with self.subTest (use_etfs=bool(i)):
+                de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
+                de *= np.sign (de[0]) * np.sign (de_ref[i,0])
+                # TODO: somehow confirm sign convention
+                self.assertAlmostEqual (de[0], de_ref[i,0], 5)
+                self.assertAlmostEqual (de[1], de_ref[i,1], 5)
 
     def test_grad_h2_sa3casscf22_sto3g (self):
         # z_orb:    no
@@ -61,12 +64,12 @@ class KnownValues(unittest.TestCase):
         de_ref = np.array ([[2.24611972496342E-01, 2.24611972496342E-01],
                             [-3.91518173397213E-18, 3.91518173397213E-18]])
         for i in range (2):
-         with self.subTest (use_etfs=bool(i)):
-            de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
-            de *= np.sign (de[0]) * np.sign (de_ref[i,0])
-            # TODO: somehow confirm sign convention
-            self.assertAlmostEqual (de[0], de_ref[i,0], 5)
-            self.assertAlmostEqual (de[1], de_ref[i,1], 5)
+            with self.subTest (use_etfs=bool(i)):
+                de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
+                de *= np.sign (de[0]) * np.sign (de_ref[i,0])
+                # TODO: somehow confirm sign convention
+                self.assertAlmostEqual (de[0], de_ref[i,0], 5)
+                self.assertAlmostEqual (de[1], de_ref[i,1], 5)
 
     def test_grad_h2_sa2casscf22_sto3g (self):
         # z_orb:    no
@@ -78,36 +81,48 @@ class KnownValues(unittest.TestCase):
         de_ref = np.array ([[2.24611972496342E-01, 2.24611972496342E-01],
                             [2.39916167049495E-18, -2.39916167049495E-18]])
         for i in range (2):
-         with self.subTest (use_etfs=bool(i)):
-            de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
-            de *= np.sign (de[0]) * np.sign (de_ref[i,0])
-            # TODO: somehow confirm sign convention
-            self.assertAlmostEqual (de[0], de_ref[i,0], 5)
-            self.assertAlmostEqual (de[1], de_ref[i,1], 5)
+            with self.subTest (use_etfs=bool(i)):
+                de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
+                de *= np.sign (de[0]) * np.sign (de_ref[i,0])
+                # TODO: somehow confirm sign convention
+                self.assertAlmostEqual (de[0], de_ref[i,0], 5)
+                self.assertAlmostEqual (de[1], de_ref[i,1], 5)
 
-    #def test_grad_h2_cms3ftlda22_631g (self):
-    #    # z_orb:    yes
-    #    # z_ci:     no
-    #    # z_is:     no
-    #    mc_grad = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', '6-31G', 2, 2, 3)
-    #    de_ref = [0.1717391582, -0.05578044075, -0.418332932] 
-    #    # Numerical from this software
-    #    for i in range (3):
-    #     with self.subTest (state=i):
-    #        de = mc_grad.kernel (state=i) [1,0] / BOHR
-    #        self.assertAlmostEqual (de, de_ref[i], 5)
+    def test_grad_h2_sa3casscf22_631g (self):
+        # z_orb:    yes
+        # z_ci:     no
+        # z_is:     no
+        mc_grad = diatomic ('H', 'H', 1.3, '6-31G', 2, 2, 3)
+        
+        # OpenMolcas v22.02
+        de_ref = np.array ([[-2.61261687627056E-01, -2.61264418066149E-01],
+                            [1.36521954655411E-06, -1.36521954652113E-06]])
+        
+        for i in range (2):
+            with self.subTest (use_etfs=bool(i)):
+                de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
+                de *= np.sign (de[0]) * np.sign (de_ref[i,0])
+                # TODO: somehow confirm sign convention
+                self.assertAlmostEqual (de[0], de_ref[i,0], 5)
+                self.assertAlmostEqual (de[1], de_ref[i,1], 5)
 
-    #def test_grad_h2_cms2ftlda22_631g (self):
-    #    # z_orb:    yes
-    #    # z_ci:     yes
-    #    # z_is:     no
-    #    mc_grad = diatomic ('H', 'H', 1.3, 'ftLDA,VWN3', '6-31G', 2, 2, 2)
-    #    de_ref = [0.1046653372, -0.07056592067] 
-    #    # Numerical from this software
-    #    for i in range (2):
-    #     with self.subTest (state=i):
-    #        de = mc_grad.kernel (state=i) [1,0] / BOHR
-    #        self.assertAlmostEqual (de, de_ref[i], 6)
+    def test_grad_h2_cms2ftlda22_631g (self):
+        # z_orb:    yes
+        # z_ci:     yes
+        # z_is:     no
+        mc_grad = diatomic ('H', 'H', 1.3, '6-31G', 2, 2, 2)
+        
+        # OpenMolcas v22.02
+        de_ref = np.array ([[2.63335711494442E-01, 2.63335711494442E-01],
+                            [-9.19189316184818E-17, 9.19189316184818E-17]])
+        
+        for i in range (2):
+            with self.subTest (use_etfs=bool(i)):
+                de = mc_grad.kernel (state=(0,1), use_etfs=bool(i)) [:,0]
+                de *= np.sign (de[0]) * np.sign (de_ref[i,0])
+                # TODO: somehow confirm sign convention
+                self.assertAlmostEqual (de[0], de_ref[i,0], 5)
+                self.assertAlmostEqual (de[1], de_ref[i,1], 5)
 
     #def test_grad_lih_cms2ftlda44_sto3g (self):
     #    # z_orb:    no
@@ -148,9 +163,3 @@ class KnownValues(unittest.TestCase):
 if __name__ == "__main__":
     print("Full Tests for SA-CASSCF non-adiabatic couplings of diatomic molecules")
     unittest.main()
-
-
-
-
-
-
