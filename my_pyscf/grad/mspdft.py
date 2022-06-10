@@ -2,7 +2,6 @@ import numpy as np
 from scipy import linalg
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
-from mrh.my_pyscf.fci.csf import CSFFCISolver
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.fci import direct_spin1
@@ -11,6 +10,13 @@ from pyscf.grad import rhf as rhf_grad
 from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import sacasscf as sacasscf_grad
 from itertools import product
+
+try:
+    from mrh.my_pyscf.fci.csf import CSFFCISolver
+except ModuleNotFoundError:
+    # dummy
+    class CSFFCISolver (object):
+        pass
 
 def _unpack_state (state):
     if hasattr (state, '__len__'): return state[0], state[1]
