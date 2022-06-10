@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdint.h>
 
 // --------------------------------------------------------------
 // -------------------- begin PySCF includes --------------------
@@ -59,10 +60,10 @@ void dgemm_(const char*, const char*,
 
 #define BOXSIZE         56
 /* 
-MRH 05/02/2022: This function is defined in pyscf/lib/libdft.so
+MRH 06/10/2022: This function is defined in pyscf/lib/libdft.so
 (dft/nr_numint.c) 
 */
-int VXCao_empty_blocks(char *empty, unsigned char *non0table, int *shls_slice,
+int VXCao_empty_blocks(int8_t *empty, uint8_t *non0table, int *shls_slice,
                        int *ao_loc);
 
 /* vv[n,m] = ao[n,ngrids] * mo[m,ngrids] */
@@ -75,11 +76,11 @@ Notice that the linear algebra in column-major order is
 mo(ngrids,nmo).T @ ao(ngrids, nao) = vv(nmo,nao) */ 
 static void dot_ao_mo(double *vv, double *ao, double *mo,
                       int nao, int nmo, int ngrids, int bgrids,
-                      unsigned char *non0table, int *shls_slice, int *ao_loc)
+                      uint8_t *non0table, int *shls_slice, int *ao_loc)
 {
         int nboxi = (nao+BOXSIZE-1) / BOXSIZE;
         int nboxj = (nmo+BOXSIZE-1) / BOXSIZE;
-        char empty[nboxi];
+        int8_t empty[nboxi];
         int has0 = VXCao_empty_blocks(empty, non0table, shls_slice, ao_loc);
 
         const char TRANS_T = 'T';
