@@ -1,6 +1,5 @@
 import numpy as np
 from scipy import linalg
-from mrh.util.la import vector_error
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
 from mrh.my_pyscf.fci.csf import CSFFCISolver

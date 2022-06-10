@@ -6,7 +6,6 @@ from pyscf import lib, dft
 from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
-from mrh.util import params
 from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs, _libxc, _dms
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from pyscf import __config__
