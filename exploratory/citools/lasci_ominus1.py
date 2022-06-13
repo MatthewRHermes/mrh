@@ -24,6 +24,14 @@ from itertools import product
 
 verbose_lbjfgs = [-1,-1,-1,0,50,99,100,101,101,101]
 
+def _n_m_s (dm1s, dm2s, _print_fn=print):
+    neleca = np.trace (dm1s[0])
+    nelecb = np.trace (dm1s[1])
+    n = neleca+nelecb
+    m = (neleca-nelecb)/2.
+    ss = m*m + (n/2.) - np.einsum ('pqqp->pq', dm2s[1]).sum ()
+    _print_fn ('<N>,<Sz>,<S^2> = %f, %f, %f', n, m, ss)
+
 def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
             tol=1e-8, gtol=1e-4, max_cycle=15000, 
             orbsym=None, wfnsym=None, ecore=0, **kwargs):
@@ -56,11 +64,22 @@ def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
     if verbose>=lib.logger.DEBUG:
         psi.uop.print_tab (_print_fn=log.debug)
         psi.print_x (res.x, h, _print_fn=log.debug)
+    if verbose>=lib.logger.INFO:
+        dm1s, dm2s = fci.make_rdm12s (ci1, norb, nelec)
+        dm1s = np.stack (dm1s, axis=0)
+        dm2s = np.stack (dm2s, axis=0)
+        for ix, j in enumerate (np.cumsum (norb_f)):
+            i = j - norb_f[ix]
+            log.info ('Fragment %d local quantum numbers', ix)
+            _n_m_s (dm1s[:,i:j,i:j], dm2s[:,i:j,i:j,i:j,i:j], _print_fn=log.info)
+        log.info ('Whole system quantum numbers')
+        _n_m_s (dm1s, dm2s, _print_fn=log.info)
     psi.x = res.x
     psi.converged = res.success
     psi.finalize_()
     fci.psi = psi
     return e_tot, ci1
+
 
 def make_rdm1 (fci, fcivec, norb, nelec, **kwargs):
     dm1 = np.zeros ((norb, norb))
@@ -89,6 +108,16 @@ def make_rdm12 (fci, fcivec, norb, nelec, **kwargs):
         dm1 += d1
         dm2 += d2
     return dm1, dm2
+
+def make_rdm12s (fci, fcivec, norb, nelec, **kwargs):
+    dm1 = np.zeros ((2,norb,norb))
+    dm2 = np.zeros ((3,norb,norb,norb,norb))
+    for nelec in product (range (norb+1), repeat=2):
+        ci = fockspace.fock2hilbert (fcivec, norb, nelec)
+        d1, d2 = direct_spin1.make_rdm12s (ci, norb, nelec, **kwargs)
+        dm1 += np.stack (d1, axis=0)
+        dm2 += np.stack (d2, axis=0)
+    return tuple(dm1), tuple(dm2)
 
 #def get_init_guess (fci, norb, nelec, norb_f, h1, h2, ci0_f=None, nelec_f=None, smult_f=None):
 #    log = lib.logger.new_logger (fci, fci.verbose)
@@ -519,6 +548,7 @@ class FCISolver (direct_spin1.FCISolver):
     make_rdm1 = make_rdm1
     make_rdm1s = make_rdm1s
     make_rdm12 = make_rdm12
+    make_rdm12s = make_rdm12s
     get_init_guess = get_init_guess
     spin_square = spin_square
     transform_ci_for_orbital_rotation = transform_ci_for_orbital_rotation
