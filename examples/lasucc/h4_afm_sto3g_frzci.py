@@ -44,6 +44,7 @@ mc2.mo_coeff = las.mo_coeff
 mc2.fcisolver = lasuccsd.FCISolver (mol)
 mc2.fcisolver.norb_f = [2,2] # Number of orbitals per fragment
 mc2.fcisolver.nelec_f = [(2,0),(0,2)] # (neleca, nelecb) in each fragment
+mc2.fcisolver.t1_s2sym = False
 mc2.fcisolver.frozen = 'CI'
 ci0_f = [np.squeeze (fockspace.hilbert2fock (ci[0], no, ne))
     for ci, no, ne in zip (las.ci, las.ncas_sub, las.nelecas_sub)]
