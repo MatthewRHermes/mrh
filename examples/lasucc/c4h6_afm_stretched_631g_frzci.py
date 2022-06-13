@@ -52,7 +52,7 @@ try:
     # to have big gauge invariance in its orbital frame. If there was less
     # symmetry, you wouldn't need to cache this part.
     psi = ucc.fcisolver.load_psi ('c4h6_afm_stretched_631g_frzci.psi.npy',
-        norb, nelec, norb_f, frozen='ci')
+        norb, nelec, norb_f, frozen='ci', t1_s2sym=False)
     ucc.fcisolver.psi = psi
     print ("Found cached wave function data")
     print ("This calculation should terminate after 1 cycle")

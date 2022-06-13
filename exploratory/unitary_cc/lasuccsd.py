@@ -28,9 +28,10 @@ def gen_uccsd_op (norb, nlas, t1_s2sym=True):
     return uop
         
 class FCISolver (lasci_ominus1.FCISolver):
-    def get_uop (self, norb, nlas):
+    def get_uop (self, norb, nlas, t1_s2sym=None):
         frozen = str (getattr (self, 'frozen', None))
-        t1_s2sym = getattr (self, 't1_s2sym', True)
+        if t1_s2sym is None:
+            t1_s2sym = getattr (self, 't1_s2sym', True)
         if frozen.upper () == 'CI':
             return uccsd_sym1.get_uccsd_op (norb, s2sym=t1_s2sym)
         return gen_uccsd_op (norb, nlas, t1_s2sym=t1_s2sym) 
