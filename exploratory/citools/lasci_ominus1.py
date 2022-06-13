@@ -97,7 +97,7 @@ def make_rdm12 (fci, fcivec, norb, nelec, **kwargs):
 
 def get_init_guess (fci, norb, nelec, norb_f, h1, h2, nelec_f=None, smult_f=None):
     if nelec_f is None:
-        nelec_f = _guess_nelec_f (fci, norb, nelec, norb_f, h1, h2)
+        nelec_f = getattr (fci, 'nelec_f', _guess_nelec_f (fci, norb, nelec, norb_f, h1, h2))
     if smult_f is None:
         smult_f = [abs(n[0]-n[1])+1 for n in nelec_f]
     h2 = ao2mo.restore (1, h2, norb)
