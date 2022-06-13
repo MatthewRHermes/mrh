@@ -174,6 +174,14 @@ def spin_square (fci, fcivec, norb, nelec):
     multip = s*2+1
     return ss, multip
 
+def contract_ss (fci, ci, norb, nelec):
+    fcivec = np.zeros_like (ci)
+    for ne in product (range (norb+1), repeat=2):
+        c = fockspace.fock2hilbert (ci, norb, ne)
+        ssc = spin_op.contract_ss (c, norb, ne)
+        ssci += np.squeeze (fockspace.hilbert2fock (ssc, norb, ne))
+    return fcivec
+
 def transform_ci_for_orbital_rotation (fci, ci, norb, nelec, umat):
     fcivec = np.zeros_like (ci) 
     for ne in product (range (norb+1), repeat=2):
@@ -551,6 +559,7 @@ class FCISolver (direct_spin1.FCISolver):
     make_rdm12s = make_rdm12s
     get_init_guess = get_init_guess
     spin_square = spin_square
+    contract_ss = contract_ss
     transform_ci_for_orbital_rotation = transform_ci_for_orbital_rotation
     def build_psi (self, *args, **kwargs):
         return LASUCCTrialState (self, *args, **kwargs)

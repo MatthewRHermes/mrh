@@ -43,8 +43,8 @@ molden.from_mcscf (mc, 'c4h6_afm_stretched_casci88_631g.molden', cas_natorb=True
 ucc = mcscf.CASCI (mf, 8, (4,4)).set (fcisolver = lasucc (mol))
 ucc.fcisolver.norb_f = [4,4]
 ucc.fcisolver.nelec_f = nelec_f
+ucc.fcisolver.t1_s2sym = False
 ucc.fcisolver.frozen = 'ci'
-print (ci0_f)
 ucc.fcisolver.get_init_guess = lambda *args: ci0_f
 try:
     mo_loc = np.load ('c4h6_afm_stretched_631g_frzci.mo.npy')

@@ -4,7 +4,7 @@ from mrh.exploratory.citools import lasci_ominus1
 from itertools import combinations, combinations_with_replacement
 
 
-def gen_uccsd_op (norb, nlas):
+def gen_uccsd_op (norb, nlas, t1_s2sym=True):
     ''' Build the fragment-interaction singles and doubles UCC operator!! '''
     t1_idx = np.zeros ((norb, norb), dtype=np.bool_)
     nfrag = len (nlas)
@@ -24,15 +24,16 @@ def gen_uccsd_op (norb, nlas):
         if nfint > 1:
             a_idxs.append (ab)
             i_idxs.append (ij)
-    uop = uccsd_sym1.FSUCCOperator (norb, a_idxs, i_idxs)
+    uop = uccsd_sym1.FSUCCOperator (norb, a_idxs, i_idxs, s2sym=t1_s2sym)
     return uop
         
 class FCISolver (lasci_ominus1.FCISolver):
     def get_uop (self, norb, nlas):
         frozen = str (getattr (self, 'frozen', None))
+        t1_s2sym = getattr (self, 't1_s2sym', True)
         if frozen.upper () == 'CI':
-            return uccsd_sym1.get_uccsd_op (norb)
-        return gen_uccsd_op (norb, nlas)        
+            return uccsd_sym1.get_uccsd_op (norb, s2sym=t1_s2sym)
+        return gen_uccsd_op (norb, nlas, t1_s2sym=t1_s2sym) 
         
 
 

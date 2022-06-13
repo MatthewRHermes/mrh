@@ -35,6 +35,7 @@ mc1.mo_coeff = las.mo_coeff
 mc1.fcisolver = lasuccsd.FCISolver (mol)
 mc1.fcisolver.norb_f = [2,2] # Number of orbitals per fragment
 mc1.fcisolver.nelec_f = [(2,0),(0,2)] # (neleca, nelecb) in each fragment
+mc1.fcisolver.t1_s2sym = False
 mc1.kernel ()
 
 # 1-shot version
