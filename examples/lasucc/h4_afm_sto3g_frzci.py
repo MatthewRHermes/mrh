@@ -7,6 +7,15 @@ from mrh.exploratory.unitary_cc import lasuccsd
 
 # Antiferromagnetically pseudo-coupled triplets
 
+# Different local spin (or charge) states are specified by setting
+# the "nelec_f" attribute of mc.fcisolver.
+
+# In the case of antiferromagnetic coupling, the S^2 spin symmetry
+# is already broken by the reference, so it makes no sense to try
+# to preserve spin in the UCC generators. Therefore, I have also 
+# allowed the spin-up and spin-down T1 amplitudes to differ by
+# setting the "t1_s2sym" attribute of mc.fcisolver to "False".
+
 xyz = '''H 0.0 0.0 0.0
          H 1.0 0.0 0.0
          H 0.2 3.9 0.1
@@ -35,7 +44,7 @@ mc1.mo_coeff = las.mo_coeff
 mc1.fcisolver = lasuccsd.FCISolver (mol)
 mc1.fcisolver.norb_f = [2,2] # Number of orbitals per fragment
 mc1.fcisolver.nelec_f = [(2,0),(0,2)] # (neleca, nelecb) in each fragment
-mc1.fcisolver.t1_s2sym = False
+mc1.fcisolver.t1_s2sym = False # Allows t1a and t1b amplitudes to differ
 mc1.kernel ()
 
 # 1-shot version
@@ -44,8 +53,8 @@ mc2.mo_coeff = las.mo_coeff
 mc2.fcisolver = lasuccsd.FCISolver (mol)
 mc2.fcisolver.norb_f = [2,2] # Number of orbitals per fragment
 mc2.fcisolver.nelec_f = [(2,0),(0,2)] # (neleca, nelecb) in each fragment
-mc2.fcisolver.t1_s2sym = False
-mc2.fcisolver.frozen = 'CI'
+mc2.fcisolver.frozen = 'CI' # Prevent reoptimization of the CI vector
+mc2.fcisolver.t1_s2sym = False # Allows t1a and t1b amplitudes to differ
 ci0_f = [np.squeeze (fockspace.hilbert2fock (ci[0], no, ne))
     for ci, no, ne in zip (las.ci, las.ncas_sub, las.nelecas_sub)]
 mc2.fcisolver.get_init_guess = lambda *args: ci0_f

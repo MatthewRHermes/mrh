@@ -12,6 +12,15 @@ from mrh.exploratory.citools import fockspace
 
 # Antiferromagnetically quasi-coupled quintets
 
+# Different local spin (or charge) states are specified by setting
+# the "nelec_f" attribute of mc.fcisolver.
+
+# In the case of antiferromagnetic coupling, the S^2 spin symmetry
+# is already broken by the reference, so it makes no sense to try
+# to preserve spin in the UCC generators. Therefore, I have also 
+# allowed the spin-up and spin-down T1 amplitudes to differ by
+# setting the "t1_s2sym" attribute of mc.fcisolver to "False".
+
 norb = 8
 nelec = (4,4)
 norb_f = (4,4)
@@ -43,8 +52,8 @@ molden.from_mcscf (mc, 'c4h6_afm_stretched_casci88_631g.molden', cas_natorb=True
 ucc = mcscf.CASCI (mf, 8, (4,4)).set (fcisolver = lasucc (mol))
 ucc.fcisolver.norb_f = [4,4]
 ucc.fcisolver.nelec_f = nelec_f
-ucc.fcisolver.t1_s2sym = False
 ucc.fcisolver.frozen = 'ci'
+ucc.fcisolver.t1_s2sym = False
 ucc.fcisolver.get_init_guess = lambda *args: ci0_f
 try:
     mo_loc = np.load ('c4h6_afm_stretched_631g_frzci.mo.npy')
@@ -52,7 +61,7 @@ try:
     # to have big gauge invariance in its orbital frame. If there was less
     # symmetry, you wouldn't need to cache this part.
     psi = ucc.fcisolver.load_psi ('c4h6_afm_stretched_631g_frzci.psi.npy',
-        norb, nelec, norb_f, frozen='ci', t1_s2sym=False)
+        norb, nelec, norb_f, frozen='ci')
     ucc.fcisolver.psi = psi
     print ("Found cached wave function data")
     print ("This calculation should terminate after 1 cycle")

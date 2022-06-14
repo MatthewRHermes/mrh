@@ -7,6 +7,9 @@ from mrh.exploratory.unitary_cc import lasuccsd
 
 # High-spin (ferromagnetic) state
 
+# Different local spin (or charge) states are specified by setting
+# the nelec_f attribute of mc.fcisolver.
+
 xyz = '''H 0.0 0.0 0.0
          H 1.0 0.0 0.0
          H 0.2 3.9 0.1

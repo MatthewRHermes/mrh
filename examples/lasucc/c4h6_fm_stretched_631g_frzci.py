@@ -12,6 +12,9 @@ from mrh.exploratory.citools import fockspace
 
 # Ferromagnetic high-spin quintets
 
+# Different local spin (or charge) states are specified by setting
+# the "nelec_f" attribute of mc.fcisolver.
+
 norb = 8
 nelec = (8,0)
 norb_f = (4,4)
@@ -60,7 +63,7 @@ except FileNotFoundError as e:
     print (("After this run finishes successfully, the wave function "
             "data will be cached to disk"))
     print (("This isn't necessary at all, since this single-determinantal"
-            "wave function is artificially cheap"))
+            " wave function is artificially cheap"))
     print (("But I'm too lazy to remove this feature"))
 ucc.kernel (mo_loc)
 molden.from_mcscf (ucc, 'c4h6_fm_stretched_lasuccsd_631g_frzci.molden', cas_natorb=True)
@@ -73,14 +76,7 @@ ucc.fcisolver.save_psi ('c4h6_fm_stretched_631g_frzci.psi', ucc.fcisolver.psi)
 # Some post-processing
 print ('\nLASSCF: %.12f, CASCI: %.12f, LASUCC: %.12f' % (e_las, e_cas, e_luc))
 logger.info (ucc, 'LASSCF: %.12f, CASCI: %.12f, LASUCC: %.12f', e_las, e_cas, e_luc)
-w_singlet = fockspace.hilbert_sector_weight (ucc.ci, 8, (4,4), 1)
-w_triplet = fockspace.hilbert_sector_weight (ucc.ci, 8, (4,4), 3)
-w_quintet = fockspace.hilbert_sector_weight (ucc.ci, 8, (4,4), 5)
-print ('LASUCC singlet weight: %.5f' % (w_singlet))
-print ('LASUCC triplet weight: %.5f' % (w_triplet))
-print ('LASUCC quintet weight: %.5f' % (w_quintet))
-logger.info (ucc, 'LASUCC singlet weight: %.5f', w_singlet)
-logger.info (ucc, 'LASUCC triplet weight: %.5f', w_triplet)
-logger.info (ucc, 'LASUCC quintet weight: %.5f', w_quintet)
-
+w_nonet = fockspace.hilbert_sector_weight (ucc.ci, 8, (8,0), 9)
+print ('LASUCC nonet weight: %.5f' % (w_nonet))
+logger.info (ucc, 'LASUCC nonet weight: %.5f', w_nonet)
 
