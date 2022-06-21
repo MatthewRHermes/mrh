@@ -1,7 +1,7 @@
 import pyscf
 from pyscf import scf, gto, mcscf, lib
 import numpy as np
-from mrh.my_pyscf.fci import csf_solver
+#from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcdcft import mcdcft
 
 '''
@@ -17,7 +17,8 @@ def run(r, chkfile=None, mo_coeff=None):
     mf.kernel()
     mc = mcdcft.CASSCF(mf, 'BLYP', 2, 2, ot_name='cBLYP', 
                        grids_level=6)
-    mc.fcisolver = csf_solver(mol, smult=1)
+    #mc.fcisolver = csf_solver(mol, smult=1)
+    mc.fix_spin_(ss=0)
     if mo_coeff is not None:
         mo_coeff = mcscf.addons.project_init_guess(mc, mo_coeff, priority=[[0,1]])
     if chkfile is not None:

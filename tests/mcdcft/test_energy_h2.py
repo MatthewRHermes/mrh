@@ -1,6 +1,6 @@
 from pyscf import gto, scf, lib, mcscf
 from mrh.my_pyscf.mcdcft import mcdcft
-from mrh.my_pyscf.fci import csf_solver
+#from mrh.my_pyscf.fci import csf_solver
 import unittest
 import tempfile
 import os
@@ -13,7 +13,8 @@ def run(r, xc, ot_name, chkfile):
     mf.kernel()
     mc = mcdcft.CASSCF(mf, xc, 2, 2, ot_name=ot_name, 
                        grids_level=6)
-    mc.fcisolver = csf_solver(mol, smult=1)
+    #mc.fcisolver = csf_solver(mol, smult=1)
+    mc.fix_spin_(ss=0)
     mc.chkfile = chkfile
     mc.kernel()
     mc.dump_mcdcft_chk(chkfile)
