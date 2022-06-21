@@ -2,7 +2,7 @@
 GPL research code of Matthew R. Hermes
 
 ### DEPENDENCIES:
-- PySCF, including all header files in pyscf/lib (most recently checked commit: a1787b366, v2.0.0)
+- PySCF, including all header files in pyscf/lib (most recently checked commit: 98eb8dacc, v2.0.0)
     * This usually requires a PySCF installation which was downloaded as source (i.e., from github.com/pyscf/pyscf) and compiled
     * If you installed PySCF via pip, your compilation of mrh will probably fail
     * TODO: learn enough CMake to handle this automatically
