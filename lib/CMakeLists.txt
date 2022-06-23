@@ -75,6 +75,7 @@ else ()
 endif ()
 include_directories(${PYSCFLIB})
 include_directories(${PYSCFLIB}/deps/include)
+include_directories(${CINT_DIR}/include)
 link_directories(${PYSCFLIB})
 
 # Build the QC-DMET shared library
