@@ -20,10 +20,12 @@ def from_sa_mcscf (mc, fname, state=None, cas_natorb=False, cas_mo_energy=False,
     mo_occ[mc.ncore:][:mc.ncas] = mc.fcisolver.states_make_rdm1 (ci, mc.ncas, mc.nelecas)[state].diagonal ()
     return from_mo (mc.mol, fname, mo_coeff, occ=mo_occ, ene=mo_energy, **kwargs)
 
-def from_si_mcscf (mc, *args, **kwargs):
-    ci = list (np.tensordot (mc.si.T, np.stack (mc.ci, axis=0), axes=1))
+def from_si_mcscf (mc, fname, state=None, si=None, cas_natorb=False, cas_mo_energy=False, **kwargs):
+    if si is None: si = mc.si
+    ci = list (np.tensordot (si.T, np.stack (mc.ci, axis=0), axes=1))
     with temporary_env (mc, ci=ci):
-        return from_sa_mcscf (mc, *args, **kwargs)
+        return from_sa_mcscf (mc, fname, state=state, cas_natorb=cas_natorb,
+                              cas_mo_energy=cas_mo_energy, **kwargs)
 
 def from_lasscf (las, fname, **kwargs):
     mo_coeff, mo_ene, mo_occ = las.canonicalize ()[:3]
