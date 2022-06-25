@@ -3,30 +3,41 @@ from scipy import linalg
 from pyscf import lib
 from pyscf.lib import logger
 
-def _unpack_vxc_sigma (vxc, rho, dens_deriv):
+def _reshape_vxc_sigma (vxc0, dens_deriv):
     # d/drho, d/dsigma -> d/drho, d/drho'
-    vrho, vsigma = vxc[:2]
-    vxc = list (vrho.T)
+    vrho = vxc0[0]
+    vxc1 = list (vrho.T)
     if dens_deriv:
-        vxc = vxc + list (vsigma.T)
-        vxc = _unpack_sigma_vector (vxc, rho[0][1:4], rho[1][1:4])
+        vsigma = vxc0[1]
+        vxc1 = vxc1 + list (vsigma.T)
     else:
-        vxc = [vxc[0][None,:], vxc[1][None,:]]
-    return vxc
+        vxc1 = [vxc[0][None,:], vxc[1][None,:]]
+    return vxc1
 
-def _pack_fxc_ltri (fxc, dens_deriv):
+def _unpack_vxc_sigma (vxc0, rho, dens_deriv):
+    # d/drho, d/dsigma -> d/drho, d/drho'
+    vrho = vxc0[0]
+    vxc1 = list (vrho.T)
+    if dens_deriv:
+        vsigma = vxc0[1]
+        vxc1 = vxc1 + list (vsigma.T)
+        vxc1 = _unpack_sigma_vector (vxc1, rho[0][1:4], rho[1][1:4])
+    else:
+        vxc1 = [vxc[0][None,:], vxc[1][None,:]]
+    return vxc1
+
+def _pack_fxc_ltri (fxc0, dens_deriv):
     # d2/drho2, d2/drhodsigma, d2/dsigma2
     # -> lower-triangular Hessian matrix
-    frho, frhosigma, fsigma = fxc[:3]
-    frho = frho.T
-    fxc  = [frho[0],]
-    fxc += [frho[1],      frho[2],]
+    frho = fxc0[0].T
+    fxc1  = [frho[0],]
+    fxc1 += [frho[1],      frho[2],]
     if dens_deriv:
-        frhosigma, fsigma = frhosigma.T, fsigma.T
-        fxc += [frhosigma[0], frhosigma[3], fsigma[0],]
-        fxc += [frhosigma[1], frhosigma[4], fsigma[1], fsigma[3],]
-        fxc += [frhosigma[2], frhosigma[5], fsigma[2], fsigma[4], fsigma[5]]
-    return fxc
+        frhosigma, fsigma = fxc0[1].T, fxc0[2].T
+        fxc1 += [frhosigma[0], frhosigma[3], fsigma[0],]
+        fxc1 += [frhosigma[1], frhosigma[4], fsigma[1], fsigma[3],]
+        fxc1 += [frhosigma[2], frhosigma[5], fsigma[2], fsigma[4], fsigma[5]]
+    return fxc1
 
 def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     r'''get the integrand of the on-top xc energy and its functional
@@ -76,7 +87,7 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
     if Pi.ndim == 1: Pi = Pi[None,:]
     assert (rho.shape[0] == 2)
     nderiv = rho.shape[1]
-    nderiv_Pi = Pi.shape[1]
+    nderiv_Pi = Pi.shape[0]
     if nderiv > 4:
         raise NotImplementedError ("Translation of meta-GGA functionals")
     rho_t = otfnal.get_rho_translated (Pi, rho, weights=weights)
@@ -103,9 +114,9 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
             '(this chunk of) the translated density = %s'), ms)
     vot = fot = None
     if dderiv > 0:
-        vrho, vsigma = xc_grid[1][:2]
-        vxc = list (vrho.T)
-        if otfnal.dens_deriv: vxc = vxc + list (vsigma.T)
+        #vrho, vsigma = xc_grid[1][:2]
+        vxc = list (xc_grid[1][0].T)
+        if otfnal.dens_deriv: vxc = vxc + list (xc_grid[1][1].T)
         vot = otfnal.jT_op (vxc, rho, Pi)
         if _unpack_vot: vot = _unpack_sigma_vector (vot,
             deriv1=rho_deriv, deriv2=Pi_deriv)
@@ -116,9 +127,10 @@ def eval_ot (otfnal, rho, Pi, dderiv=1, weights=None, _unpack_vot=True):
         # fsigma and frhosigma entirely).
         fxc = _pack_fxc_ltri (xc_grid[2], otfnal.dens_deriv)
         # First pass: fxc
-        fot = _jT_f_j (otfnal, fxc, otfnal.jT_op, rho, Pi)
+        fot = _jT_f_j (fxc, otfnal.jT_op, rho, Pi, rec=otfnal)
         # Second pass: translation derivatives
-        fot[:5] += otfnal.d_jT_op (vxc, rho, Pi)
+        fot_d_jT = otfnal.d_jT_op (vxc, rho, Pi)
+        fot[:fot_d_jT.shape[0]] += fot_d_jT
     return eot, vot, fot
 
 def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
@@ -133,6 +145,8 @@ def _unpack_sigma_vector (packed, deriv1=None, deriv2=None):
     #   J[1,nabla rhob] = nabla rhoa
     #   J[2,nabla rhoa] = 0
     #   J[2,nabla rhob] = 2 * nabla rhob
+    if len (packed) > 5:
+        raise RuntimeError ("{} {}".format (len (packed), [p.shape for p in packed[:5]]))
     ncol1 = 1 + 3 * int ((deriv1 is not None) and len (packed) > 2)
     ncol2 = 1 + 3 * int ((deriv2 is not None) and len (packed) > 3)
     ngrid = packed[0].shape[-1] # Don't assume it's an ndarray
@@ -251,11 +265,12 @@ def contract_fot (otfnal, fot, rho0, Pi0, rho1, Pi1, unpack=True,
 
     return v1
 
-def _jT_f_j (log, frr, jT_op, *args):
+def _jT_f_j (frr, jT_op, *args, **kwargs):
     r''' Apply a jacobian function taking *args to the lower-triangular
     second-derivative array frr'''
     nel = len (frr)
     nr = int (round (np.sqrt (1 + 8*nel) - 1)) // 2
+    rec = kwargs.get ('rec', None)
     ngrids = frr[0].shape[-1]
 
     # build square-matrix index array to address packed matrix frr w/o copying
@@ -272,7 +287,7 @@ def _jT_f_j (log, frr, jT_op, *args):
 
     # second pass. fcr is a rectangular matrix (unavoidably) 
     nc = fcr.shape[0]
-    if log.verbose < logger.DEBUG:
+    if getattr (rec, 'verbose', 0) < logger.DEBUG:
         fcc = np.empty ((nc*(nc+1)//2, ngrids), dtype=fcr.dtype)
         i = 0
         for ix_row, fc_row in enumerate (fcr):
@@ -288,7 +303,7 @@ def _jT_f_j (log, frr, jT_op, *args):
             for j in range (i):
                 scale = (fcc[i,j] + fcc[j,i])/2
                 scale[scale==0] = 1
-                logger.debug (log, 'MC-PDFT jT_f_j symmetry check %d,%d: %e',
+                logger.debug (rec, 'MC-PDFT jT_f_j symmetry check %d,%d: %e',
                     i, j, linalg.norm ((fcc[i,j]-fcc[j,i])/scale))
         ltri_ix = np.tril_indices (nc)
         fcc = fcc[ltri_ix]
@@ -355,6 +370,17 @@ def _tGGA_jT_op (x, rho, Pi, R, zeta):
 
     return jTx
 
+def _tGGA_jT_op_m2z (x, rho, zeta, srr):
+    # cs -> rho,zeta step of _tGGA_jT_op above
+    # unused; for contemplative purposes only
+    jTx = np.empty_like (x)
+    jTx[0] = x[0] + zeta[0]*x[1]
+    jTx[1] = x[1]*rho + (x[3] + 2*zeta[0]*x[4])*srr
+    jTx[2] = x[2] + x[3]*zeta[0] + x[4]*zeta[0]*zeta[0]
+    jTx[3] = 0
+    jTx[4] = 0
+    return jTx
+
 def _ftGGA_jT_op_m2z (x, rho, zeta, srz, szz):
     # cs -> rho,zeta step of _ftGGA_jT_op below
     jTx = np.empty_like (x)
@@ -368,10 +394,10 @@ def _ftGGA_jT_op_m2z (x, rho, zeta, srz, szz):
 def _ftGGA_jT_op_z2R (x, zeta, srP, sPP):
     # rho,zeta -> rho,R step of _ftGGA_jT_op below
     jTx = np.empty_like (x)
-    jTx[0] = 0
-    jTx[1] = (x[1]*zeta[1] * x[3]*srP*zeta[2] +
+    jTx[0] = x[0]
+    jTx[1] = (x[1]*zeta[1] + x[3]*srP*zeta[2] +
               2*x[4]*sPP*zeta[1]*zeta[2])
-    jTx[2] = 0
+    jTx[2] = x[2]
     jTx[3] = x[3]*zeta[1]
     jTx[4] = x[4]*zeta[1]*zeta[1]
     return jTx
@@ -388,18 +414,17 @@ def _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP):
     for i in range (4):
         ri[i+1] = ri[i]*ri[0]
 
-    jTx[0] = (-2*R*x[1]*ri[0]
+    jTx[0] = (x[0] - 2*R*x[1]*ri[0]
                + x[3]*(6*R*ri[1]*srr - 8*srP*ri[2])
                + x[4]*(-24*R*R*ri[2]*srr + 80*R*ri[3]*srP 
                         - 64*ri[4]*sPP))
     jTx[1] = (4*x[1]*ri[1] - 8*x[3]*ri[2]*srr
               + x[4]*(32*R*ri[3]*srr - 64*ri[4]*srP))
-    jTx[2] = -2*R*x[3]*ri[0] + 4*x[4]*R*R*ri[1]
+    jTx[2] = x[2] - 2*R*x[3]*ri[0] + 4*x[4]*R*R*ri[1]
     jTx[3] = 4*x[3]*ri[1] - 16*x[4]*R*ri[2]
     jTx[4] = 16*x[4]*ri[3]
     return jTx
 
-# TODO: debug!!!!
 def _ftGGA_jT_op (x, rho, Pi, R, zeta):
     # On a grid, evaluate the contribution to the matrix-vector product
     # of the transpose of the Jacobian
@@ -426,8 +451,6 @@ def _ftGGA_jT_op (x, rho, Pi, R, zeta):
 
     # cs -> rho,zeta step
     x = _ftGGA_jT_op_m2z (x, rho[0], zeta, srz, szz)
-    jTx[0]  = x[0]
-    jTx[1:] = 0.0
 
     # rho,zeta -> rho,R step
     x = _ftGGA_jT_op_z2R (x, zeta, srP, sPP)
@@ -435,7 +458,7 @@ def _ftGGA_jT_op (x, rho, Pi, R, zeta):
     # rho,R -> rho,Pi step
     srP = (rho[1:4,:]*Pi[1:4,:]).sum (0)
     sPP = (Pi[1:4,:]*Pi[1:4,:]).sum (0)
-    jTx += _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP)
+    jTx = _ftGGA_jT_op_R2Pi (x, rho, R, srr, srP, sPP)
 
     return jTx
 
@@ -529,26 +552,132 @@ def _tGGA_d_jT_op (x, rho, Pi, R, zeta):
     
     return f
 
-def _ftGGA_d_jT_op (x, rho, Pi, R, zeta):
-    raise NotImplementedError ("Second density derivatives for fully-"
-        "translated GGA functionals")
+#   r,r
+#   1,r   1,1
+#   srr,r srr,1 srr,srr
+#   sr1,r sr1,1 sr1,srr sr1,sr1
+#   s11,r s11,1 s11,srr s11,sr1 s11,s11
+
+def _ftGGA_d_jT_op_m2z (v, rho, zeta, srz, szz):
+    # srm += srz*r
+    # smm += 2srz*r*z + szz*r*r
+    # 0  : r, r
+    # 1  : r, z
+    # 6  : srz, r
+    # 7  : srz, z
+    # 10 : szz, r
+    ngrids = v.shape[1]
+    f = np.zeros ((15,ngrids), dtype=v.dtype)
+    f[0] = 2*v[4]*szz
+    f[1] = 2*v[4]*srz
+    f[6] = v[3] + 2*v[4]*zeta[0]
+    f[7] = 2*v[4]*rho
+    f[10] = 2*v[4]*rho
+    assert (tuple (f[0].shape) == tuple (f[1].shape))
+    assert (tuple (f[0].shape) == tuple (f[6].shape))
+    assert (tuple (f[0].shape) == tuple (f[10].shape))
+    return f
+
+def _ftGGA_d_jT_op_z2R (v, zeta, srP, sPP):
+    # z = z[0]
+    # srz = srP*z[1]
+    # szz = sPP*z[1]**2
+    # 2  : P, P
+    # 7  : srP, P
+    # 11 : sPP, P
+    ngrids = v.shape[1]
+    f = np.zeros ((15,ngrids), dtype=v.dtype)
+    f[2] = 2*v[4]*sPP*(zeta[3]*zeta[1] + zeta[2]*zeta[2])
+    f[2] += v[1]*zeta[2] + v[3]*srP*zeta[3]
+    f[7] = v[3]*zeta[2]
+    f[11] = 2*v[4]*zeta[1]*zeta[2]
+    assert (tuple (f[2].shape) == tuple (f[7].shape))
+    assert (tuple (f[2].shape) == tuple (f[11].shape))
+    return f
+
+def _ftGGA_d_jT_op_R2Pi (v, rho, Pi, srr, srP, sPP):
+    # R = 4Pi/(r**2) = Pi*d[0]
+    # srR = srP*d[0] + srr*Pi*d[1]
+    # sRR = sPP*d[0]**2 + 2*Pi*d[1]*srP*d[0] + srr*(Pi*d[1])**2
+    #        d^n(d[0])
+    # d[n] = ---------
+    #          dr^n
+    ngrids = v.shape[-1]
+    f = np.zeros ((15,ngrids), dtype=v.dtype)
+    d = np.zeros ((4,ngrids), dtype=v.dtype)
+    idx = np.abs (rho) > 1e-15
+    d[0,idx] = 4 / rho[idx] / rho[idx]
+    d[1,idx] = -2*d[0,idx]/rho[idx]
+    d[2,idx] = -3*d[1,idx]/rho[idx]
+    d[3,idx] = -4*d[2,idx]/rho[idx]
+    # rho, rho
+    f[0] = v[1]*Pi*d[2]
+    f[0] += v[3]*(srP*d[2] + srr*Pi*d[3])
+    f[0] += 2*v[4]*sPP*(d[2]*d[0] + d[1]*d[1])
+    f[0] += 2*v[4]*srP*Pi*(3*d[2]*d[1] + d[3]*d[0])
+    f[0] += 2*v[4]*srr*Pi*Pi*(d[3]*d[1] + d[2]*d[2])
+    # rho, Pi
+    f[1] = v[1]*d[1] + v[3]*srr*d[2]
+    f[1] += 2*v[4]*srP*(d[2]*d[0] + d[1]*d[1])
+    f[1] += 4*v[4]*srr*Pi*d[2]*d[1]
+    # Pi, Pi
+    f[2] = 2*v[4]*srr*d[1]*d[1]
+    # rho, rr
+    f[3] = v[3]*Pi*d[2] + 2*v[4]*Pi*Pi*d[2]*d[1]
+    # Pi, rr
+    f[4] = v[3]*d[1] + 2*v[4]*Pi*d[1]*d[1]
+    # rho, rP
+    f[6] = v[3]*d[1] + 2*v[4]*Pi*(d[2]*d[0] + d[1]*d[1])
+    # Pi, rP
+    f[7] = 2*v[4]*d[0]*d[1]
+    # rho, PP
+    f[10] = 2*v[4]*d[0]*d[1]
+    for row in f[1:]:
+        if hasattr (row, 'shape'):
+            assert (tuple (row.shape) == tuple (f[0].shape))
+    return f
+
+def _ftGGA_d_jT_op (v, rho, Pi, R, zeta):
+    # raise NotImplementedError ("Second density derivatives for fully-"
+    #    "translated GGA functionals")
     # Generates contributions to the first five elements,
     # then 6,7, then 10,11
     # of the lower-triangular packed Hessian
     # (I.E., no double gradient derivatives)
-    ngrid = rho.shape[-1]
-    # rho,rho ; Pi,rho ; Pi,Pi ; s(rho,rho),rho ; s(rho,rho),Pi ([0:5])
-    frr = np.zeros ((5,ngrid), dtype=x[0].dtype) 
-    # s(Pi,rho),rho ; s(Pi,rho),Pi ([6:8])
-    fPr = np.zeros ((2,ngrid), dtype=x[0].dtype)
-    # s(Pi,Pi),rho ; s(Pi,Pi),Pi ([10:12])
-    fPP = np.zeros ((2,ngrid), dtype=x[0].dtype)
-    # This is a bad idea why I am I doing this
-    f = [[frr[0], frr[1], frr[3], fPr[0], fPP[0]],
-         [frr[1], frr[2], frr[4], fPr[1], fPP[1]],
-         [frr[3], frr[4], None,   None,   None],
-         [fPr[0], fPr[1], None,   None,   None],
-         [fPP[0], fPP[1], None,   None,   None]]
+    # for the terms added in the fully-translated extension of tGGA
 
+    # ab -> cs
+    vcm = (v[2] - v[4]) / 2.0
+    vmm = (v[2] + v[4] - v[3]) / 4.0
+    v[3] = vcm
+    v[4] = vmm
+    v = np.asarray (v)
+
+    # Intermediates
+    srr = (rho[1:4,:]*rho[1:4,:]).sum (0)
+    srP = (rho[1:4,:]*R[1:4,:]).sum (0)
+    sPP = (R[1:4,:]*R[1:4,:]).sum (0)
+    srz = srP * zeta[1]
+    szz = sPP * zeta[1] * zeta[1]
+
+    # cs -> rho, zeta
+    f = _ftGGA_d_jT_op_m2z (v, rho[0], zeta, srz, szz)
+    v = _ftGGA_jT_op_m2z (v, rho[0], zeta, srz, szz)
+
+    # rho, zeta -> rho, R
+    # The for loops here are because I'm guessing that repeated
+    # initialization of large arrays to zero is slower than a short,
+    # shallow Python loop
+    f = _jT_f_j (f, _ftGGA_jT_op_z2R, zeta, srP, sPP)
+    f += _ftGGA_d_jT_op_z2R (v, zeta, srP, sPP)
+    v = _ftGGA_jT_op_z2R (v, zeta, srP, sPP)
+
+    # rho, R -> rho, Pi
+    srP = (rho[1:4,:]*Pi[1:4,:]).sum (0)
+    sPP = (Pi[1:4,:]*Pi[1:4,:]).sum (0)
+    f = _jT_f_j (f, _ftGGA_jT_op_R2Pi, rho, R, srr, srP, sPP)
+    f += _ftGGA_d_jT_op_R2Pi (v, rho[0], Pi[0], srr, srP, sPP)
+
+    return f
 
 

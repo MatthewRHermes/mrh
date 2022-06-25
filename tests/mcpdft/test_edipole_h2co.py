@@ -2,8 +2,8 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, df
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
+#from mrh.my_pyscf.fci import csf_solver
+#from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
 import unittest
 
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000

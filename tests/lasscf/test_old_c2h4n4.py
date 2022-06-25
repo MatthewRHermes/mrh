@@ -17,6 +17,14 @@ import copy
 import unittest
 import numpy as np
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
+from pyscf.lib import linalg_helper
+# More conservative lindep than default
+# I can't override the parameter alone because the
+# function gets loaded from linalg_helper into
+# lib as soon as any PySCF module is loaded
+def my_safe_eigh (h, s, lindep=1e-10):
+    return linalg_helper.safe_eigh (h, s, lindep)
+lib.safe_eigh = my_safe_eigh
 from c2h4n4_struct import structure as struct
 from mrh.my_dmet import localintegrals, dmet, fragments
 from mrh.my_dmet.fragments import make_fragment_atom_list, make_fragment_orb_list

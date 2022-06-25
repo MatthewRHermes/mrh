@@ -64,7 +64,7 @@ class KnownValues(unittest.TestCase):
     def test_de_d2e (self):
         for mol, mf in zip (('H2', 'LiH'), (h2, lih)):
             for state, nel in zip (('Singlet', 'Triplet'), (2, (2,0))):
-                for fnal in ('tLDA,VWN3', 'ftLDA,VWN3', 'tPBE'):
+                for fnal in ('tLDA,VWN3', 'ftLDA,VWN3', 'tPBE', 'ftPBE'):
                     mc = mcpdft.CASSCF (mf, fnal, 2, nel, grids_level=1).run ()
                     with self.subTest (mol=mol, state=state, fnal=fnal):
                         case (self, mc, mol, state, fnal)

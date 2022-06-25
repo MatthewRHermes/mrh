@@ -5,7 +5,6 @@ from pyscf.lib import logger
 from pyscf.lib import einsum as einsum_threads
 from pyscf.dft.numint import _dot_ao_dm
 from mrh.my_pyscf.mcpdft._dms import dm2_cumulant
-from mrh.util.basis import represent_operator_in_basis
 from itertools import product
 from os import path
 
@@ -43,15 +42,18 @@ def get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas, deriv=0,
         ao : ndarray of shape (*, ngrids, nao)
             contains values of aos [and derivatives]
         cascm2 : ndarray of shape [ncas,]*4
-            contains spin-summed two-body cumulant density matrix in the
-            active-orbital basis:
-            cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
-                           + dm1s[0][u,y]*dm1s[0][x,v]
-                           + dm1s[1][u,y]*dm1s[1][x,v]
-            The cumulant has no nonzero elements for any index outside
-            the active space (unlike dm2, which formally has elements
-            [i,i,u,v], etc., even though they are not constructed
-            explicitly in PySCF).
+            contains spin-summed two-body cumulant density matrix in an
+            active-orbital basis given by mo_cas:
+                cm2[u,v,x,y] = dm2[u,v,x,y] - dm1[u,v]*dm1[x,y]
+                               + dm1s[0][u,y]*dm1s[0][x,v]
+                               + dm1s[1][u,y]*dm1s[1][x,v]
+            where dm1 = dm1s[0] + dm1s[1]. The cumulant (cm2) has no
+            nonzero elements for any index outside the active space,
+            unlike the density matrix (dm2), which formally has elements
+            involving uncorrelated, doubly-occupied ``core'' orbitals
+            which are not usually computed explicitly:
+                dm2[i,i,u,v] = dm2[u,v,i,i] = 2*dm1[u,v]
+                dm2[u,i,i,v] = dm2[i,v,u,i] = -dm1[u,v]
         mo_cas : ndarray of shape (nao, ncas)
             molecular-orbital coefficients for active-space orbitals
 
@@ -227,8 +229,11 @@ def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
         mo = mo.reshape (1, mo.shape[0], mo.shape[1])
 
     # First cumulant and derivatives
-    dm1s_mo = np.stack ([np.eye (nocc, dtype=casdm1s.dtype),]*2, axis=0)
+    dm1s_mo = np.stack ([np.eye (nmo, dtype=casdm1s[0].dtype),]*2, axis=0)
     dm1s_mo[:,ncore:nocc,ncore:nocc] = casdm1s
+    dm1s_mo[:,nocc:,:] = 0
+    dm1s_mo[:,:,nocc:] = 0
+
     drho = np.stack ([_grid_ao2mo (ot.mol, mo, dm1, non0tab=non0tab)
         for dm1 in dm1s_mo], axis=0).transpose (0,1,3,2)
     dPi = np.zeros ((nderiv_Pi, nmo, ngrids), dtype=rho.dtype)
@@ -260,11 +265,12 @@ def density_orbital_derivative (ot, ncore, ncas, casdm1s, cascm2, rho, mo,
             # r_1aj,  P_0aij -> P_1ai
             gridkern[ideriv] = (mo_cas[ideriv,:,:,np.newaxis]
                 * mo_cas[0,:,np.newaxis,:])
+            gridkern[ideriv] += gridkern[ideriv].transpose (0,2,1)
             # r_1ai,  r_0aj  -> r_1aij
         for ideriv in range (1, 4):
             wrk0 = np.tensordot (gridkern[ideriv], cascm2, axes=2)
             # r_1aij, P_ijkl -> P_1akl
-            dPi[ideriv,ncore:nocc] += (mo_cas[0][:,None,:] * wrk0).sum (2).T*2
+            dPi[ideriv,ncore:nocc] += (mo_cas[0][:,None,:] * wrk0).sum (2).T
             # r_0aj,  P_1aij -> P_1ai
     if deriv > 1: 
         raise NotImplementedError ("Colle-Salvetti type orbital+grid "

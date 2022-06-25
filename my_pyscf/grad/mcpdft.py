@@ -7,7 +7,7 @@ from pyscf.grad import sacasscf
 from pyscf.mcscf.casci import cas_natorb
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
 from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_rho, _contract_ao_vao
-from mrh.util.rdm import get_2CDM_from_2RDM
+from mrh.my_pyscf.mcpdft import _dms
 from functools import reduce
 from itertools import product
 from scipy import linalg
@@ -115,7 +115,7 @@ def mcpdft_HellmanFeynman_grad (mc, ot, veff1, veff2, mo_coeff=None, ci=None,
     # defined without the spin-density matrices and it's still valid!
     mo_n = mo_occ * mo_occup[None,:nocc]
     casdm1, casdm2 = mc.fcisolver.make_rdm12(ci, ncas, nelecas)
-    twoCDM = get_2CDM_from_2RDM (casdm2, casdm1)
+    twoCDM = _dms.dm2_cumulant (casdm2, casdm1)
     dm1s = np.stack ((dm1/2.0,)*2, axis=0)
     dm1 = tag_array (dm1, mo_coeff=mo_occ, mo_occ=mo_occup[:nocc])
     make_rho = ot._numint._gen_rho_evaluator (mol, dm1, 1)[0]

@@ -11,7 +11,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix
 from pyscf.mcscf.addons import state_average_mix_, StateAverageMixFCISolver
 from pyscf.mcscf.addons import StateAverageFCISolver
-from mrh.my_pyscf.mcpdft import pdft_veff, ci_scf
+from mrh.my_pyscf.mcpdft import pdft_veff
 from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from mrh.my_pyscf.mcpdft.otfnal import otfnal, transfnal, get_transfnal
 from mrh.my_pyscf.mcpdft import _dms 
@@ -128,7 +128,7 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
 
     spin = abs(nelecas[0] - nelecas[1])
     omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc, spin=spin)
-    if omega or alpha:
+    if abs (omega) > 1e-11:
         raise NotImplementedError ("range-separated on-top functionals")
     hyb_x, hyb_c = hyb
 
@@ -160,7 +160,7 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
         #if log.verbose >= logger.DEBUG:
         aeri = ao2mo.restore (1, mc.get_h2eff (mo_coeff), mc.ncas)
         E_c = np.tensordot (aeri, cascm2, axes=4) / 2
-        log.info ('E_c = %s', E_c)
+        log.debug ('E_c = %s', E_c)
     if abs (hyb_x) > 1e-10 or abs (hyb_c) > 1e-10:
         log.debug (('Adding %s * %s CAS exchange, %s * %s CAS correlation to '
                     'E_ot'), hyb_x, E_x, hyb_c, E_c)
@@ -169,71 +169,19 @@ def energy_mcwfn (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
 
 def energy_dft (mc, mo_coeff=None, ci=None, ot=None, state=0, casdm1s=None,
         casdm2=None, max_memory=None, hermi=1):
-    ''' Wrap to get_E_ot for subclassing. '''
+    ''' Wrap to ot.energy_ot for subclassing. '''
     if ot is None: ot = mc.otfnal
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
     if casdm1s is None: casdm1s = mc.make_one_casdm1s (ci, state=state)
     if casdm2 is None: casdm2 = mc.make_one_casdm2 (ci, state=state)
     if max_memory is None: max_memory = mc.max_memory
-    ncore, ncas = mc.ncore, mc.ncas
-    nocc = ncore + ncas
-    mo_cas = mo_coeff[:,ncore:nocc]
-    dm1s = _dms.casdm1s_to_dm1s (mc, casdm1s, mo_coeff=mo_coeff, ncore=ncore,
-                                 ncas=ncas)
-    cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
-    return get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=max_memory,
-        hermi=hermi)
+    return ot.energy_ot (casdm1s, casdm2, mo_coeff, mc.ncore,
+        max_memory=max_memory, hermi=hermi)
 
-def get_E_ot (ot, dm1s, cascm2, mo_cas, max_memory=2000, hermi=1):
-    '''E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi]
-
-    or, in other terms,
-
-    E_MCPDFT = T_KS[rho] + E_ext[rho] + E_coul[rho] + E_ot[rho, Pi]
-             = E_DFT[1rdm] - E_xc[rho] + E_ot[rho, Pi]
-    Args:
-        ot : an instance of otfnal class
-        dm1s : ndarray of shape (2, nao, nao)
-            containing spin-separated one-body density matrices
-        cascm2 : ndarray of shape (ncas, ncas, ncas, ncas)
-            containing spin-summed two-body cumulant density matrix in
-            an active space
-        mo_cas : ndarray of shape (nao, ncas)
-            containing molecular orbital coefficients for active-space
-            orbitals
-
-    Kwargs:
-        max_memory : int or float
-            maximum cache size in MB
-            default is 2000
-        hermi : int
-            1 if 1rdms are assumed hermitian, 0 otherwise
-
-    Returns : float
-        The MC-PDFT on-top (nonclassical) energy
-    '''
-    ni, xctype, dens_deriv = ot._numint, ot.xctype, ot.dens_deriv
-    norbs_ao = mo_cas.shape[0]
-
-    E_ot = 0.0
-
-    t0 = (logger.process_clock (), logger.perf_counter ())
-    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, dm1s[i,:,:], hermi) for
-        i in range(2))
-    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, norbs_ao,
-            dens_deriv, max_memory):
-        rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
-        t0 = logger.timer (ot, 'untransformed density', *t0)
-        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas,
-            dens_deriv, mask) 
-        t0 = logger.timer (ot, 'on-top pair density calculation', *t0) 
-        E_ot += ot.get_E_ot (rho, Pi, weight)
-        t0 = logger.timer (ot, 'on-top energy calculation', *t0) 
-
-    return E_ot
-
-def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
+def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None, otxc=None,
+                              grids_level=None, grids_attr=None,
+                              split_x_c=None, verbose=None):
     '''Compute a decomposition of the MC-PDFT energy into nuclear
     potential (E0), one-electron (E1), Coulomb (E2c), exchange (EOTx),
     correlation (EOTc) terms, and additionally the nonclassical part
@@ -255,6 +203,16 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
         ci : ndarray or list of length nroots
             Contains CI vectors
         ot : an instance of (translated) on-top density fnal class
+        otxc : string
+            identity of translated functional; overrides ot
+        grids_level : integer
+            level preset for DFT quadrature grids
+        grids_attr : dictionary
+            general attributes for DFT quadrature grids
+        split_x_c : logical
+            whether to split the exchange and correlation parts of the
+            ot functional into two separate contributions
+        
 
     Returns:
         e_nuc : float
@@ -263,16 +221,38 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
             E1 = <T+sum_A ZA/rA>
         e_coul : float or list of length nroots
             E2c = 1/2 int rho(1)rho(2)/r12 d1d2
-        e_otx : float or list of length nroots
-            EOTx = exchange part of translated functional
+        e_otxc : float or list of length nroots
+            EOTxc = translated functional energy
+            if split_x_c == True, this is instead
+            EOTx = exchange part of translated functional energy
         e_otc : float or list of length nroots
-            EOTx = correlation part of translated functional
+            only returned if split_x_c == True
+            EOTc = correlation part of translated functional
         e_ncwfn : float or list of length nroots
             E2ncc = <H> - E0 - E1 - E2c
     '''            
+    if verbose is None: verbose = mc.verbose
+    log = logger.new_logger(mc, verbose)
     if mo_coeff is None: mo_coeff=mc.mo_coeff
-    if ci is None: mo_coeff=mc.ci
+    if ci is None: ci = mc.ci
+    if grids_attr is None: grids_attr = {}
+    if grids_level is not None: grids_attr['level'] = grids_level
+    if len (grids_attr) or (otxc is not None):
+        old_ot = ot if (ot is not None) else mc.otfnal
+        old_grids = old_ot.grids
+        # TODO: general compatibility with arbitrary (non-translated) fnals
+        if otxc is None: otxc = old_ot.otxc
+        new_ot = get_transfnal (mc.mol, otxc)
+        new_ot.grids.__dict__.update (old_grids.__dict__)
+        new_ot.grids.__dict__.update (**grids_attr)
+        ot = new_ot
     if ot is None: ot = mc.otfnal
+    if split_x_c is None:
+        split_x_c = True
+        log.warn (
+            'Currently, split_x_c in get_energy_decomposition defaults to '
+            'True.\nThis default will change to False in the near future.'
+        )
 
     hyb_x, hyb_c = ot._numint.hybrid_coeff(ot.otxc)
     if hyb_x>1e-10 or hyb_c>1e-10:
@@ -280,15 +260,15 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
     if not isinstance (ot, transfnal):
         raise NotImplementedError ("Decomp for non-translated PDFT fnals")
 
+    if split_x_c: ot = list (ot.split_x_c ())
+    else: ot = [ot,]
     e_nuc = mc._scf.energy_nuc ()
     h = mc.get_hcore ()
-    xfnal, cfnal = ot.split_x_c ()
     nroots = getattr (mc.fcisolver, 'nroots', 1)
     if nroots>1:
         e_1e = []
         e_coul = []
-        e_otx = []
-        e_otc = []
+        e_otxc = []
         e_ncwfn = []
         nelec_root = [mc.nelecas,]*nroots
         if isinstance (mc.fcisolver, StateAverageMixFCISolver):
@@ -297,20 +277,23 @@ def get_energy_decomposition (mc, mo_coeff=None, ci=None, ot=None):
                 ne_root_s = mc.fcisolver._get_nelec (s, mc.nelecas)
                 nelec_root.extend ([ne_root_s,]*s.nroots)
         for ci_i, nelec in zip (ci, nelec_root):
-            row = _get_e_decomp (mc, ot, mo_coeff, ci_i, e_nuc, h,
-                xfnal, cfnal, nelec)
-            e_1e.append  (row[0])
+            row = _get_e_decomp (mc, ot, mo_coeff, ci_i, e_nuc, h, nelec)
+            e_1e.append    (row[0])
             e_coul.append  (row[1])
-            e_otx.append   (row[2])
-            e_otc.append   (row[3])
-            e_ncwfn.append (row[4])
+            e_otxc.append  (row[2])
+            e_ncwfn.append (row[3])
+        e_otxc = [[e[i] for e in e_otxc] for i in range (len (e_otxc[0]))]
     else:
-        e_1e, e_coul, e_otx, e_otc, e_ncwfn = _get_e_decomp (mc, ot,
-            mo_coeff, ci, e_nuc, h, xfnal, cfnal, mc.nelecas)
-    return e_nuc, e_1e, e_coul, e_otx, e_otc, e_ncwfn
+        e_1e, e_coul, e_otxc, e_ncwfn = _get_e_decomp (
+            mc, ot, mo_coeff, ci, e_nuc, h, mc.nelecas
+        )
+    if split_x_c:
+        e_otx, e_otc = e_otxc
+        return e_nuc, e_1e, e_coul, e_otx, e_otc, e_ncwfn
+    else:
+        return e_nuc, e_1e, e_coul, e_otxc[0], e_ncwfn
 
-def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
-        nelecas):
+def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, nelecas):
     ncore, ncas = mc.ncore, mc.ncas
     _rdms = mcscf.CASCI (mc._scf, ncas, nelecas)
     _rdms.fcisolver = fci.solver (mc._scf.mol, singlet = False, symm = False)
@@ -322,19 +305,19 @@ def _get_e_decomp (mc, ot, mo_coeff, ci, e_nuc, h, xfnal, cfnal,
     dm1s = np.stack (_rdms.make_rdm1s (), axis=0)
     dm1 = dm1s[0] + dm1s[1]
     j = _rdms._scf.get_j (dm=dm1)
-    e_1e = np.tensordot (h, dm1, axes=2)
-    e_coul = np.tensordot (j, dm1, axes=2) / 2
+    e_1e = np.dot (h.ravel (), dm1.ravel ())
+    e_coul = np.dot (j.ravel (), dm1.ravel ()) / 2
     adm1, adm2 = _casdms.make_rdm12 (_rdms.ci, ncas, nelecas)
     e_mcscf = h0 + np.dot (h1.ravel (), adm1.ravel ()) + (
                 np.dot (h2.ravel (), adm2.ravel ())*0.5)
     adm1s = np.stack (_casdms.make_rdm1s (ci, ncas, nelecas), axis=0)
-    adm2 = _dms.dm2_cumulant (_casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1],
-        adm1s)
+    adm2 = _casdms.make_rdm12 (_rdms.ci, ncas, nelecas)[1]
     mo_cas = mo_coeff[:,ncore:][:,:ncas]
-    e_otx = get_E_ot (xfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
-    e_otc = get_E_ot (cfnal, dm1s, adm2, mo_cas, max_memory=mc.max_memory)
+    e_otxc = [fnal.energy_ot (adm1s, adm2, mo_coeff, ncore,
+                              max_memory=mc.max_memory)
+              for fnal in ot]
     e_ncwfn = e_mcscf - e_nuc - e_1e - e_coul
-    return e_1e, e_coul, e_otx, e_otc, e_ncwfn
+    return e_1e, e_coul, e_otxc, e_ncwfn
 
 class _mcscf_env (object):
     '''Prevent MC-SCF step of MC-PDFT from overwriting redefined
@@ -573,11 +556,18 @@ class _PDFT ():
         mol_dipole = dip_obj.kernel (state=state)
         return mol_dipole
 
-    def get_energy_decomposition (self, mo_coeff=None, ci=None):
+    def get_energy_decomposition (self, mo_coeff=None, ci=None, ot=None,
+                                  otxc=None, grids_level=None,
+                                  grids_attr=None, split_x_c=None,
+                                  verbose=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
-        return get_energy_decomposition (self, mo_coeff=mo_coeff,
-            ci=ci, ot=self.otfnal)
+        if verbose is None: verbose = self.verbose
+        return get_energy_decomposition (
+            self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
+            grids_level=grids_level, grids_attr=grids_attr,
+            split_x_c=split_x_c, verbose=verbose
+        )
 
     def state_average_mix (self, fcisolvers=None, weights=(0.5,0.5)):
         return state_average_mix (self, fcisolvers, weights)

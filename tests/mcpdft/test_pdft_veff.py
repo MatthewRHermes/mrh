@@ -69,13 +69,13 @@ def case (kv, mc, mol, state, fnal):
         err_tab = np.append (err_tab, [[x1_norm, de_err]], axis=0)
         if ix > 0:
             conv_tab = err_tab[1:ix+1,:] / err_tab[:ix,:]
-        if ix > 1 and np.all (np.abs (conv_tab[-3:,-1]-0.5)<0.01):
+        if ix > 1 and np.all (np.abs (conv_tab[-3:,-1]-0.5)<0.01) and abs (err_tab[-1,1])<1e-3:
             break
     with kv.subTest (q='x'):
         kv.assertAlmostEqual (conv_tab[-1,0], 0.5, 9)
     with kv.subTest (q='de'):
+        kv.assertLess (abs(err_tab[-1,1]), 1e-3)
         kv.assertAlmostEqual (conv_tab[-1,1], 0.5, delta=0.01)
-    
 
 def tearDownModule():
     global h2, lih
@@ -89,7 +89,7 @@ class KnownValues(unittest.TestCase):
         np.random.seed (1)
         for mol, mf in zip (('H2', 'LiH'), (h2, lih)):
             for state, nel in zip (('Singlet', 'Triplet'), (2, (2,0))):
-                for fnal in ('tLDA,VWN3', 'ftLDA,VWN3', 'tPBE'):
+                for fnal in ('tLDA,VWN3', 'ftLDA,VWN3', 'tPBE', 'ftPBE'):
                     mc = mcpdft.CASSCF (mf, fnal, 2, nel, grids_level=1).run ()
                     with self.subTest (mol=mol, state=state, fnal=fnal):
                         case (self, mc, mol, state, fnal)
@@ -97,7 +97,7 @@ class KnownValues(unittest.TestCase):
     def test_veff_ao2mo (self):
         for mol, mf in zip (('H2', 'LiH'), (h2, lih)):
             for state, nel in zip (('Singlet', 'Triplet'), (2, (2,0))):
-                for fnal in ('tLDA,VWN3', 'ftLDA,VWN3', 'tPBE'):
+                for fnal in ('tLDA,VWN3', 'ftLDA,VWN3', 'tPBE', 'ftPBE'):
                     mc = mcpdft.CASSCF (mf, fnal, 2, nel, grids_level=1).run ()
                     v1_test, v2_test = mc.get_pdft_veff (jk_pc=True)      
                     v1_ref, v2_ref = get_veff_ref (mc)

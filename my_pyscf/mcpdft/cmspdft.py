@@ -6,7 +6,6 @@ from pyscf.lib import logger, temporary_env
 from pyscf.mcscf.addons import StateAverageMCSCFSolver, state_average_mix, state_average_mix_, state_average
 from pyscf.fci import direct_spin1
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.grad.mcpdft import Gradients
 
 def coulomb_tensor (mc, mo_coeff=None, ci=None, h2eff=None, eris=None):
     '''Compute w_IJKL = (tu|vx) D^IJ_tu D^KL_vx

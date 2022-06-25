@@ -6,8 +6,8 @@ from pyscf import lib, dft
 from pyscf.lib import logger
 from pyscf.dft.gen_grid import Grids
 from pyscf.dft.numint import _NumInt, NumInt
-from mrh.util import params
-from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs
+from mrh.my_pyscf.mcpdft import pdft_veff, tfnal_derivs, _libxc, _dms
+from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
 from pyscf import __config__
 
 FT_R0 = getattr(__config__, 'mcpdft_otfnal_ftransfnal_R0', 0.9)
@@ -16,61 +16,68 @@ FT_A = getattr(__config__, 'mcpdft_otfnal_ftransfnal_A', -475.60656009)
 FT_B = getattr(__config__, 'mcpdft_otfnal_ftransfnal_B', -379.47331922)
 FT_C = getattr(__config__, 'mcpdft_otfnal_ftransfnal_C', -85.38149682)
 
-def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, f, e1, v1, x, w):
-    # Examine the error of the first and second functional derivatives in the
-    # debugging block under transfnal.eval_ot below
-    ndf = len (lbls)
-    nvP = v0[1].shape[0]
-    de = (e1-e0) * w
-    vx = ((v0[0]*x[0]).sum (0) + (v0[1]*x[1][:nvP]).sum (0)) * w
-    xf = tfnal_derivs.contract_fot (otfnal, f, rho_tot, Pi, x[0], x[1])
-    for row in xf: row[:] *= w
-    xfx = ((xf[0]*x[0]).sum (0) + (xf[1]*x[1][:nvP]).sum (0)) / 2
-    xf_df = [xf[0][0], xf[1][0]]
-    dv_df = [(v1[0][0]-v0[0][0])*w, (v1[1][0]-v0[1][0])*w]
-    # The lesson of the debug experience from the commented-out block below is:
-    # the largest errors (fractional or absolute) in the ftLDA fnal gradient
-    # appear to be for R just under 1.0!
-    #if 'LDA' in otfnal.otxc:
-    #    print ("bigtab", otfnal.otxc, (np.sum (vx) - np.sum (de))/np.sum (de))
-    #    tab = np.empty ((xf[0][0].size, 6), dtype=xf[0].dtype)
-    #    tab[:,0] = otfnal.get_ratio (Pi, rho_tot/2)[0] - 1.0
-    #    tab[:,1] = rho_tot
-    #    tab[:,2] = Pi
-    #    tab[:,3] = vx
-    #    tab[:,4] = tab[:,3] - de
-    #    tab[:,5] = tab[:,4] / de
-    #    tab[(de==0)&(vx==0),3] = 0.0
-    #    tab[(de==0)&(vx!=0),3] = 1.0
-    #    tab = tab[np.argsort (-np.abs (tab[:,4])),:]
-    #    for row in tab:
-    #        print ("{:20.12e} {:9.2e} {:9.2e} {:9.2e} {:9.2e} {:9.2e}".format
-    #           (*row))
-    if ndf > 2: 
-        xf_df += [xf[0][1:4],]
-        dv_df += [(v1[0][1:4]-v0[0][1:4])*w,]
-    if ndf > 3: 
-        xf_df += [xf[1][1:4],]
-        dv_df += [(v1[1][1:4]-v0[1][1:4])*w,]
-    de_err1 = de - vx
-    de_err2 = de_err1 - xfx
-    for ix, lbl in enumerate (lbls):
-        lib.logger.debug (otfnal, "%s gradient debug %s: %e - %e (- %e) -> %e "
-            "(%e)", tag, lbl, np.sum  (de[ix::ndf]), np.sum (vx[ix::ndf]),
-            np.sum (xfx[ix::ndf]), np.sum (de_err1[ix::ndf]),
-            np.sum (de_err2[ix::ndf]))
-    for lbl_row, xf_row, dv_row in zip (lbls, xf_df, dv_df):
-        err_row = dv_row-xf_row
-        for ix_col, lbl_col in enumerate (lbls):
-            lib.logger.debug (otfnal, ("%s Hessian debug (H.x_%s)_%s: "
-                "%e - %e -> %e"), tag, lbl_col, lbl_row, 
-                linalg.norm (dv_row[ix_col::ndf]),
-                linalg.norm (xf_row[ix_col::ndf]),
-                linalg.norm (err_row[ix_col::ndf]))
-            # I am not doing rho'.rho'->sigma right for x.f.x/2
-            # However I am somehow doing it right for f.x vs. delta v?
-    lib.logger.debug (otfnal, "%s dE - v.x - x.f.x: %e - %e - %e = %e",
-        tag, de.sum (), vx.sum (), xfx.sum (), de_err2.sum ())
+OT_HYB_ALIAS = {'PBE0' : '0.25*HF + 0.75*PBE, 0.25*HF + 0.75*PBE'}
+
+def energy_ot (ot, casdm1s, casdm2, mo_coeff, ncore, max_memory=2000, hermi=1):
+    '''Compute the on-top energy - the last term in 
+
+    E_MCPDFT = h_pq l_pq + 1/2 v_pqrs l_pq l_rs + E_ot[rho,Pi]
+
+    Args:
+        ot : an instance of otfnal class
+        casdm1s : ndarray of shape (2, ncas, ncas)
+            Contains spin-separated one-body density matrices in an
+            active-orbital basis
+        casdm2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            Contains spin-summed two-body density matrix in an active-
+            orbital basis 
+        mo_coeff : ndarray of shape (nao, nmo)
+            Contains molecular orbital coefficients for active-space
+            orbitals. Columns ncore through ncore+ncas give the basis
+            in which casdm1s and casdm2 are expressed.
+        ncore : integer
+            Number of doubly occupied inactive "core" orbitals not
+            explicitly included in casdm1s and casdm2
+
+    Kwargs:
+        max_memory : int or float
+            maximum cache size in MB
+            default is 2000
+        hermi : int
+            1 if 1rdms are assumed hermitian, 0 otherwise
+
+    Returns : float
+        The MC-PDFT on-top (nonclassical) energy
+    '''
+    E_ot = 0.0
+    ni, xctype = ot._numint, ot.xctype
+    if xctype=='HF': return E_ot
+    dens_deriv = ot.dens_deriv
+
+    nao = mo_coeff.shape[0]
+    ncas = casdm2.shape[0]
+    cascm2 = _dms.dm2_cumulant (casdm2, casdm1s)
+    dm1s = _dms.casdm1s_to_dm1s (ot, casdm1s, mo_coeff=mo_coeff, ncore=ncore,
+                                 ncas=ncas)
+    mo_cas = mo_coeff[:,ncore:][:,:ncas]
+
+    t0 = (logger.process_clock (), logger.perf_counter ())
+    make_rho = tuple (ni._gen_rho_evaluator (ot.mol, dm1s[i,:,:], hermi) for
+        i in range(2))
+    for ao, mask, weight, coords in ni.block_loop (ot.mol, ot.grids, nao,
+            dens_deriv, max_memory):
+        rho = np.asarray ([m[0] (0, ao, mask, xctype) for m in make_rho])
+        t0 = logger.timer (ot, 'untransformed density', *t0)
+        Pi = get_ontop_pair_density (ot, rho, ao, cascm2, mo_cas,
+            dens_deriv, mask)
+        t0 = logger.timer (ot, 'on-top pair density calculation', *t0)
+        if rho.ndim == 2:
+            rho = np.expand_dims (rho, 1)
+            Pi = np.expand_dims (Pi, 0)
+        E_ot += ot.eval_ot (rho, Pi, dderiv=0, weights=weight)[0].dot (weight)
+        t0 = logger.timer (ot, 'on-top energy calculation', *t0)
+
+    return E_ot
 
 class otfnal:
     r''' Parent class of on-top pair-density functional. The main
@@ -149,19 +156,7 @@ class otfnal:
         raise RuntimeError("on-top xc functional not defined")
         return 0
 
-    def get_E_ot (self, rho, Pi, weights):
-        r''' Being phased out as redundant with eval_ot
-        Left in place for backwards-compatibility'''
-
-        assert (rho.shape[1:] == Pi.shape[:]), \
-            "rho.shape={0}, Pi.shape={1}".format (rho.shape, Pi.shape)
-        if rho.ndim == 2:
-            rho = np.expand_dims (rho, 1)
-            Pi = np.expand_dims (Pi, 0)
-        
-        return self.eval_ot (rho, Pi, dderiv=0, weights=weights)[0].dot (
-            weights)
-
+    energy_ot = energy_ot
     get_veff_1body = pdft_veff.get_veff_1body
     get_veff_2body = pdft_veff.get_veff_2body
     get_veff_2body_kl = pdft_veff.get_veff_2body_kl
@@ -337,12 +332,9 @@ class transfnal (otfnal):
                 cfnal : object of :class:`transfnal`
                     this functional, but only the correlation part
         '''
-        if not re.search (',', self.otxc):
-            x_code = c_code = self.otxc
-            c_code = c_code[len (self.transl_prefix):]
-        else:
-            x_code, c_code = self.otxc.split (',')
-        x_code = x_code + ','
+        xc_base = self.otxc[len (self.transl_prefix):]
+        x_code, c_code = _libxc.split_x_c_comma (xc_base)
+        x_code = self.transl_prefix + x_code + ','
         c_code = self.transl_prefix + ',' + c_code
         xfnal = copy.copy (self)
         xfnal._numint = copy.copy (self._numint)
@@ -434,7 +426,7 @@ class transfnal (otfnal):
         __doc__ = otfnal.eval_ot.__doc__
         eot, vot, fot = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv,
             weights=weights, _unpack_vot=_unpack_vot)
-        if (self.verbose <= logger.DEBUG) or (dderiv<2) or (weights is None):
+        if (self.verbose <= logger.DEBUG) or (dderiv<1) or (weights is None):
             return eot, vot, fot
         if rho.ndim == 2: rho = rho[:,None,:]
         if Pi.ndim == 1: Pi = Pi[None,:]
@@ -442,68 +434,79 @@ class transfnal (otfnal):
         nvr = rho_tot.shape[0]
         ngrids = rho_tot.shape[-1]
 
-        # ~~~ eval_xc reference ~~~
-        rho_t0 = self.get_rho_translated (Pi, rho, weights=weights)
-        exc, vxc, fxc = self._numint.eval_xc (self.otxc, (rho_t0[0,:,:],
-            rho_t0[1,:,:]), spin=1, relativity=0, deriv=2,
-            verbose=self.verbose)[:3]
-        exc *= rho_t0[:,0,:].sum (0)
-        vxc =  tfnal_derivs._unpack_vxc_sigma (vxc, rho_t0, self.dens_deriv)
-        fxc =  tfnal_derivs._pack_fxc_ltri (fxc, self.dens_deriv)
-        # ~~~ shift translated rho directly ~~~
-        r = rho_t0 * (2*np.random.rand (ngrids)-1) / 10**3
-        drho_t = np.zeros_like (rho_t0)
-        ndf = 2 * (1 + int (nvr>1))
-        drho_t[0,0,0::ndf] = r[0,0,0::ndf]
-        drho_t[1,0,1::ndf] = r[1,0,1::ndf]
-        if ndf > 2:
-            drho_t[0,1:4,2::ndf] = r[0,1:4,2::ndf]
-            drho_t[1,1:4,3::ndf] = r[1,1:4,3::ndf]
-        # ~~~ eval_xc @ rho_t1 = rho_t0 + drho_t ~~~
-        rho_t1 = rho_t0 + drho_t
-        exc1, vxc1 = self._numint.eval_xc (self.otxc, (rho_t1[0,:,:],
-            rho_t1[1,:,:]), spin=1, relativity=0, deriv=2,
-            verbose=self.verbose)[:2]
-        exc1 *= rho_t1[:,0,:].sum (0)
-        vxc1 =  tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t0, self.dens_deriv)
-        df_lbl = ('rhoa', 'rhob', "rhoa'", "rhob'")[:2*(1+int(nvr>1))]
-        _v_err_report (self, 'eval_xc', df_lbl, rho_t0[0], rho_t0[1], exc, vxc,
-            fxc, exc1, vxc1, drho_t, weights)
+        r0 = 2*(np.random.rand (ngrids)-1)
 
-        # ~~~ eval_ot compare ~~~
-        nvP = vot[1].shape[0]
-        drho = rho_tot * (2*np.random.rand (ngrids)-1) / 10**3
-        dPi = Pi * (2*np.random.rand (ngrids)-1) / 10**3
-        nst = 2 + int(rho_tot.shape[0]>1) + int(vot[1].shape[0]>1)
-        r, P = drho.copy (), dPi.copy ()
-        drho[:] = dPi[:] = 0.0
-        ndf = 2 + int(nvr>1) + int(nvP>1)
-        drho[0,0::ndf] = r[0,0::ndf]
-        dPi[0,1::ndf]  = P[0,1::ndf]
-        if ndf > 2: drho[1:4,2::ndf] = r[1:4,2::ndf]
-        if ndf > 3:  dPi[1:4,3::ndf] = P[1:4,3::ndf]
-        rho1 = rho+(drho/2) # /2 because rho has one more dimension of size = 2
-                            # that gets summed later
-        Pi1 = Pi + dPi
-        # ~~~ ignore numerical instability of unfully-translated fnals ~~~
-        if self.otxc[0].lower () == 't':
-            z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0],
-                fn_deriv=0)[0]
-            z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0],
-                fn_deriv=0)[0]
-            idx = (z0==0)|(z1==0)
-            drho[:,idx] = dPi[:,idx] = 0
-            rho1[:,:,idx] = rho[:,:,idx]
-            Pi1[:,idx] = Pi[:,idx]
-        # ~~~ eval_ot @ rho1 = rho + drho ~~~
-        eot1, vot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
-            dderiv=dderiv-1, weights=weights, _unpack_vot=False)[:2]
-        d1 = rho_tot[1:4] if nvr > 1 else None
-        d2 = Pi[1:4] if nvP > 1 else None
-        vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)
-        df_lbl = ('rho', 'Pi', "rho'", "Pi'")[:ndf]
-        _v_err_report (self, 'eval_ot', df_lbl, rho_tot, Pi, eot, vot, fot,
-            eot1, vot1, (drho, dPi), weights)
+        for p in range (20):
+            # ~~~ eval_xc reference ~~~
+            rho_t0 = self.get_rho_translated (Pi, rho, weights=weights)
+            exc, vxc_p, fxc = self._numint.eval_xc (self.otxc, (rho_t0[0,:,:],
+                rho_t0[1,:,:]), spin=1, relativity=0, deriv=dderiv,
+                verbose=self.verbose)[:3]
+            exc *= rho_t0[:,0,:].sum (0)
+            vxc_p = tfnal_derivs._reshape_vxc_sigma (vxc_p, self.dens_deriv)
+            vxc = tfnal_derivs._unpack_sigma_vector (vxc_p, rho_t0[0,1:4], rho_t0[1,1:4])
+            if dderiv>1: fxc = tfnal_derivs._pack_fxc_ltri (fxc, self.dens_deriv)
+            # ~~~ shift translated rho directly ~~~
+            r = rho_t0 * r0 / 2**p
+            drho_t = np.zeros_like (rho_t0)
+            ndf = 2 * (1 + int (nvr>1))
+            drho_t[0,0,0::ndf] = r[0,0,0::ndf]
+            drho_t[1,0,1::ndf] = r[1,0,1::ndf]
+            if ndf > 2:
+                drho_t[0,1:4,2::ndf] = r[0,1:4,2::ndf]
+                drho_t[1,1:4,3::ndf] = r[1,1:4,3::ndf]
+            # ~~~ eval_xc @ rho_t1 = rho_t0 + drho_t ~~~
+            rho_t1 = rho_t0 + drho_t
+            exc1, vxc1 = self._numint.eval_xc (self.otxc, (rho_t1[0,:,:],
+                rho_t1[1,:,:]), spin=1, relativity=0, deriv=dderiv,
+                verbose=self.verbose)[:2]
+            exc1 *= rho_t1[:,0,:].sum (0)
+            vxc1 =  tfnal_derivs._unpack_vxc_sigma (vxc1, rho_t1, self.dens_deriv)
+            df_lbl = ('rhoa', 'rhob', "rhoa'", "rhob'")[:2*(1+int(nvr>1))]
+            _v_err_report (self, 'eval_xc {}'.format (p), df_lbl, rho_t0[0], rho_t0[1], exc, vxc,
+                vxc_p, fxc, exc1, vxc1, drho_t, weights)
+
+            # ~~~ eval_ot compare ~~~
+            nvP = vot[1].shape[0]
+            d1 = rho_tot[1:4] if nvr > 1 else None
+            d2 = Pi[1:4] if nvP > 1 else None
+            if _unpack_vot:
+                vot_u = vot
+                vot_p = tfnal_derivs.eval_ot (self, rho, Pi, dderiv=dderiv,
+                                              weights=weights, _unpack_vot=False)[1]
+            else:
+                vot_p = vot
+                vot_u = tfnal_derivs._unpack_sigma_vector (vot, d1, d2)
+            drho = rho_tot * r0 / 2**p
+            dPi = Pi * r0 / 2**p
+            nst = 2 + int(rho_tot.shape[0]>1) + int(vot[1].shape[0]>1)
+            r, P = drho.copy (), dPi.copy ()
+            drho[:] = dPi[:] = 0.0
+            ndf = 2 + int(nvr>1) + int(nvP>1)
+            drho[0,0::ndf] = r[0,0::ndf]
+            dPi[0,1::ndf]  = P[0,1::ndf]
+            if ndf > 2: drho[1:4,2::ndf] = r[1:4,2::ndf]
+            if ndf > 3:  dPi[1:4,3::ndf] = P[1:4,3::ndf]
+            rho1 = rho+(drho/2) # /2 because rho has one more dimension of size = 2
+                                # that gets summed later
+            Pi1 = Pi + dPi
+            # ~~~ ignore numerical instability of unfully-translated fnals ~~~
+            if self.otxc[0].lower () == 't':
+                z0 = self.get_zeta (self.get_ratio (Pi, rho_tot/2)[0],
+                    fn_deriv=0)[0]
+                z1 = self.get_zeta (self.get_ratio (Pi1, rho1.sum(0)/2)[0],
+                    fn_deriv=0)[0]
+                idx = (z0==0)|(z1==0)
+                drho[:,idx] = dPi[:,idx] = 0
+                rho1[:,:,idx] = rho[:,:,idx]
+                Pi1[:,idx] = Pi[:,idx]
+            # ~~~ eval_ot @ rho1 = rho + drho ~~~
+            eot1, vot1 = tfnal_derivs.eval_ot (self, rho1, Pi1,
+                dderiv=dderiv, weights=weights, _unpack_vot=True)[:2]
+            #vot1 = tfnal_derivs._unpack_sigma_vector (vot1, d1, d2)
+            df_lbl = ('rho', 'Pi', "rho'", "Pi'")[:ndf]
+            _v_err_report (self, 'eval_ot {}'.format (p), df_lbl, rho_tot, Pi, eot, vot_u, vot_p, fot,
+                eot1, vot1, (drho, dPi), weights)
 
         return eot, vot, fot
 
@@ -588,7 +591,7 @@ class ftransfnal (transfnal):
         rho_ft[0][1:4] += w
         rho_ft[1][1:4] -= w
 
-        return np.squeeze (rho_ft)
+        return rho_ft
 
     def get_zeta (self, R, fn_deriv=1, **kwargs):
         r''' Compute the intermediate zeta used to compute the translated spin
@@ -666,28 +669,65 @@ class ftransfnal (transfnal):
             jTx[:] += tfnal_derivs._ftGGA_jT_op (x, rho, Pi, R, zeta)
         return jTx
 
+    def d_jT_op (self, x, rho, Pi, **kwargs):
+        r''' Evaluate the x.(nabla j) contribution to the second density
+        derivatives of the on-top energy in terms of the untranslated
+        density and pair density
+
+        Args:
+            x : ndarray of shape (2,*,ngrids)
+                Usually, a functional derivative of the on-top xc energy
+                wrt translated densities
+            rho : ndarray of shape (2,*,ngrids)
+                containing spin-density [and derivatives]
+            Pi : ndarray with shape (*,ngrids)
+                containing on-top pair density [and derivatives]
+
+        Returns: ndarray of shape (*,ngrids)
+            second derivative of the translation dotted with x
+            3 rows for tLDA and 5 rows for tGGA
+        '''
+        nrow_t = 3 + 2*int(self.dens_deriv>0)
+        nrow = 3 + 12*int(self.dens_deriv>0)
+        f = np.zeros ((nrow, x[0].shape[-1]), dtype=x[0].dtype)
+        f[:nrow_t] = transfnal.d_jT_op (self, x, rho, Pi, **kwargs)
+        if self.dens_deriv:
+            rho = rho.sum (0)
+            R = self.get_ratio (Pi[0:4,:], rho[0:4,:]/2)
+            zeta = self.get_zeta (R[0], fn_deriv=3)
+            f[:] += tfnal_derivs._ftGGA_d_jT_op (x, rho, Pi, R, zeta)
+        return f
+
+
 _CS_a_DEFAULT = 0.04918
 _CS_b_DEFAULT = 0.132
 _CS_c_DEFAULT = 0.2533
 _CS_d_DEFAULT = 0.349
 
+
 def get_transfnal (mol, otxc):
-    ks = dft.RKS (mol)
-    if otxc.upper () in ('TPBE0', 'FTPBE0'):
-        xc = otxc[-4:-1]
-        xc = make_hybrid_fnal (xc, 0.25)
-        otxc = otxc[:-4] + xc
     if otxc.upper ().startswith ('T'):
-        ks.xc = otxc[1:]
+        xc_base = otxc[1:]
         fnal_class = transfnal
     elif otxc.upper ().startswith ('FT'):
-        ks.xc = otxc[2:]
+        xc_base = otxc[2:]
         fnal_class = ftransfnal
     else:
         raise NotImplementedError (
             'On-top pair-density functional names other than "translated" (t) or '
             '"fully-translated (ft).'
             )
+    xc_base = OT_HYB_ALIAS.get (xc_base.upper (), xc_base)
+    if ',' not in xc_base and _libxc.is_hybrid_or_rsh (xc_base):
+        raise NotImplementedError (
+            ('Aliased or built-in translated hybrid or range-separated '
+             'functionals\nother than those listed in otfnal.OT_HYB_ALIAS. '
+             'Build a compound functional\nstring with a comma separating the '
+             'exchange and correlation parts, or use\notfnal.make_hybrid_fnal '
+             'instead.')
+        )
+    ks = dft.RKS (mol)
+    ks.xc = xc_base
     return fnal_class (ks)
     
 
@@ -742,16 +782,18 @@ def _hybrid_2c_coeff (ni, xc_code, spin=0):
     exchange and correlation components of the hybrid coefficent
     separately '''
 
-    # For all prebuilt and exchange-only functionals, hyb_c = 0
-    if not re.search (',', xc_code): return [_NumInt.hybrid_coeff(ni, xc_code,
-        spin=0), 0]
+    hyb_tot = _NumInt.hybrid_coeff (ni, xc_code, spin=spin)
+    if hyb_tot == 0: return [0, 0]
+
+    # For exchange-only functionals, hyb_c = hyb_x
+    x_code, c_code = _libxc.split_x_c_comma (xc_code)
+    x_code = x_code + ','
+    c_code = ',' + c_code
 
     # All factors of 'HF' are summed by default. Therefore just run the same
     # code for the exchange and correlation parts of the string separately
-    x_code, c_code = xc_code.split (',')
-    c_code = ',' + c_code
-    hyb_x = _NumInt.hybrid_coeff(ni, x_code, spin=0) if len (x_code) else 0
-    hyb_c = _NumInt.hybrid_coeff(ni, c_code, spin=0) if len (c_code) else 0
+    hyb_x = _NumInt.hybrid_coeff(ni, x_code, spin=spin) if len (x_code) else 0
+    hyb_c = _NumInt.hybrid_coeff(ni, c_code, spin=spin) if len (c_code) else 0
     return [hyb_x, hyb_c]
 
 def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None,
@@ -768,11 +810,9 @@ def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None,
 
         Args:
             xc_code : string
-                As used in pyscf.dft.libxc. If it contains no comma, it
-                is assumed to be a predefined functional with
-                separately-defined exchange and correlation parts:
-                'xc_code' -> 'xc_code,xc_code'. Currently cannot parse
-                mixed functionals.
+                As used in pyscf.dft.libxc. An exception is raised if it
+                is already a hybrid or contains a kinetic-energy
+                functional component.
 
         Kwargs:
             hyb_x : float
@@ -797,23 +837,24 @@ def make_scaled_fnal (xc_code, hyb_x = 0, hyb_c = 0, fnal_x = None,
     if fnal_x is None: fnal_x = 1 - hyb_x
     if fnal_c is None: fnal_c = 1 - hyb_c
 
-    if not re.search (',', xc_code):
-        x_code = c_code = xc_code
-    else:
-        x_code, c_code = ','.split (xc_code)
+    if _libxc.is_hybrid_xc (xc_code):
+        raise RuntimeError ('Functional {} is already a hybrid!'.format (
+            xc_code))
+    x_code, c_code = _libxc.split_x_c_comma (xc_code)
 
-    # TODO: actually parse the xc_code so that custom functionals are
-    # compatible with this
-
-    if fnal_x != 1:
-        x_code = '{:.16f}*{:s}'.format (fnal_x, x_code)
+    x_facs, x_terms = _libxc.parse_xc_formula (x_code)
+    if fnal_x != 1: x_facs = list (np.asarray (x_facs)*fnal_x)
     if hyb_x != 0:
-        x_code = x_code + ' + {:.16f}*HF'.format (hyb_x)
+        x_facs.append (hyb_x)
+        x_terms.append ('HF')
+    x_code = _libxc.assemble_xc_formula (x_facs, x_terms)
 
-    if fnal_c != 1:
-        c_code = '{:.16f}*{:s}'.format (fnal_c, c_code)
+    c_facs, c_terms = _libxc.parse_xc_formula (c_code)
+    if fnal_c != 1: c_facs = list (np.asarray (c_facs)*fnal_c)
     if hyb_c != 0:
-        c_code = c_code + ' + {:.16f}*HF'.format (hyb_c)
+        c_facs.append (hyb_c)
+        c_terms.append ('HF')
+    c_code = _libxc.assemble_xc_formula (c_facs, c_terms)
 
     return x_code + ',' + c_code
 
@@ -823,11 +864,9 @@ def make_hybrid_fnal (xc_code, hyb, hyb_type = 1):
 
         Args:
             xc_code : string
-                As used in pyscf.dft.libxc. If it contains no comma, it
-                is assumed to be a predefined functional with
-                separately-defined exchange and correlation parts:
-                'xc_code' -> 'xc_code,xc_code'. Currently cannot parse
-                mixed functionals.
+                As used in pyscf.dft.libxc. An exception is raised if it
+                is already a hybrid or contains a kinetic-energy
+                functional component.
             hyb : float
                 Parameter(s) defining the "hybridization" which is
                 handled in various ways according to hyb_type
@@ -899,6 +938,7 @@ def make_hybrid_fnal (xc_code, hyb, hyb_type = 1):
     else:
         raise RuntimeError ('hybrid type undefined')
 
+
 # TODO: reconsider this goofy API...
 __t_doc__="For 'translated' functionals, otxc string = 't'+xc string\n"
 __ft_doc__="For 'fully translated' functionals, otxc string = 'ft'+xc string\n"
@@ -957,3 +997,63 @@ def ft_rsh_and_hybrid_coeff(ni, xc_code, spin=0):
 ft_rsh_and_hybrid_coeff.__doc__ = (__ft_doc__
     + str(_NumInt.rsh_and_hybrid_coeff.__doc__))
 
+def _v_err_report (otfnal, tag, lbls, rho_tot, Pi, e0, v0, v0_packed, f, e1, v1, x, w):
+    # Examine the error of the first and second functional derivatives in the
+    # debugging block under transfnal.eval_ot below
+    logger.debug (otfnal, '--- v_err_report (%s) ---', tag)
+    ndf = len (lbls)
+    nvP = v0[1].shape[0]
+    de = (e1-e0) * w
+    vx = ((v0[0]*x[0]).sum (0) + (v0[1]*x[1][:nvP]).sum (0)) * w
+    if f is None:
+        xfx = np.zeros_like (de)
+    else:
+        xf = tfnal_derivs.contract_fot (otfnal, f, rho_tot, Pi, x[0], x[1], vot_packed=v0_packed)
+        for row in xf: row[:] *= w
+        xfx = ((xf[0]*x[0]).sum (0) + (xf[1]*x[1][:nvP]).sum (0)) / 2
+        xf_df = [xf[0][0], xf[1][0]]
+        dv_df = [(v1[0][0]-v0[0][0])*w, (v1[1][0]-v0[1][0])*w]
+        # The lesson of the debug experience from the commented-out block below is:
+        # the largest errors (fractional or absolute) in the ftLDA fnal gradient
+        # appear to be for R just under 1.0!
+        #if 'LDA' in otfnal.otxc:
+        #    print ("bigtab", otfnal.otxc, (np.sum (vx) - np.sum (de))/np.sum (de))
+        #    tab = np.empty ((xf[0][0].size, 6), dtype=xf[0].dtype)
+        #    tab[:,0] = otfnal.get_ratio (Pi, rho_tot/2)[0] - 1.0
+        #    tab[:,1] = rho_tot
+        #    tab[:,2] = Pi
+        #    tab[:,3] = vx
+        #    tab[:,4] = tab[:,3] - de
+        #    tab[:,5] = tab[:,4] / de
+        #    tab[(de==0)&(vx==0),3] = 0.0
+        #    tab[(de==0)&(vx!=0),3] = 1.0
+        #    tab = tab[np.argsort (-np.abs (tab[:,4])),:]
+        #    for row in tab:
+        #        print ("{:20.12e} {:9.2e} {:9.2e} {:9.2e} {:9.2e} {:9.2e}".format
+        #           (*row))
+        if ndf > 2: 
+            xf_df += [xf[0][1:4].T,]
+            dv_df += [((v1[0][1:4]-v0[0][1:4])*w).T,]
+        if ndf > 3: 
+            xf_df += [xf[1][1:4].T,]
+            dv_df += [((v1[1][1:4]-v0[1][1:4])*w).T,]
+    de_err1 = de - vx
+    de_err2 = de_err1 - xfx
+    for ix, lbl in enumerate (lbls):
+        lib.logger.debug (otfnal, "%s gradient debug %s: %e - %e (- %e) -> %e "
+            "(%e)", tag, lbl, np.sum  (de[ix::ndf]), np.sum (vx[ix::ndf]),
+            np.sum (xfx[ix::ndf]), np.sum (de_err1[ix::ndf]),
+            np.sum (de_err2[ix::ndf]))
+    if f is not None:
+        for lbl_row, xf_row, dv_row in zip (lbls, xf_df, dv_df):
+            err_row = dv_row-xf_row
+            for ix_col, lbl_col in enumerate (lbls):
+                lib.logger.debug (otfnal, ("%s Hessian debug (H.x_%s)_%s: "
+                    "%e - %e -> %e"), tag, lbl_col, lbl_row, 
+                    linalg.norm (dv_row[ix_col::ndf]),
+                    linalg.norm (xf_row[ix_col::ndf]),
+                    linalg.norm (err_row[ix_col::ndf]))
+                # I am not doing rho'.rho'->sigma right for x.f.x/2
+                # However I am somehow doing it right for f.x vs. delta v?
+        lib.logger.debug (otfnal, "%s dE - v.x - x.f.x: %e - %e - %e = %e",
+            tag, de.sum (), vx.sum (), xfx.sum (), de_err2.sum ())

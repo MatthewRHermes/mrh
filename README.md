@@ -2,7 +2,7 @@
 GPL research code of Matthew R. Hermes
 
 ### DEPENDENCIES:
-- PySCF, including all header files in pyscf/lib (most recently checked commit: bed5d1861, v2.0.0)
+- PySCF, including all header files in pyscf/lib (most recently checked commit: 98eb8dacc, v2.0.0)
     * This usually requires a PySCF installation which was downloaded as source (i.e., from github.com/pyscf/pyscf) and compiled
     * If you installed PySCF via pip, your compilation of mrh will probably fail
     * TODO: learn enough CMake to handle this automatically
@@ -17,6 +17,8 @@ GPL research code of Matthew R. Hermes
     * "sys.path.append ('/path/to')" in Python script files
     * "export PYTHONPATH=/path/to:$PYTHONPATH" in the shell
     * "ln -s /path/to/mrh /path/to/python/site-packages/mrh" in the shell
+- If you installed PySCF from source and the compilation still fails, try setting the path to the PySCF library directory manually:
+`cmake -DPYSCFLIB=/full/path/to/pyscf/lib ..`
 
 ### Notes
 - The dev branch is continuously updated. The master branch is updated every time I pull PySCF and confirm that everything still works. If you have some issue and you think it may be related to PySCF version mismatch, try using the master branch and the precise PySCF commit indicated above.

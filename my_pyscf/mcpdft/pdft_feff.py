@@ -89,6 +89,13 @@ class EotOrbitalHessianOperator (object):
             if casdm2 is None: casdm2 = dm2
 
         self.ot = ot
+        omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc)
+        hyb_x, hyb_c = hyb
+        if abs (omega) > 1e-11:
+            raise NotImplementedError ("range-separated on-top functionals")
+        if abs (hyb_x) > 1e-11 or abs (hyb_c) > 1e-11:
+            raise NotImplementedError ("2nd fnal derivatives for hybrid functionals")
+
         self.verbose, self.stdout = ot.verbose, ot.stdout
         self.log = lib.logger.new_logger (self, self.verbose)
         self.ni, self.xctype = ni, xctype = ot._numint, ot.xctype
@@ -236,7 +243,8 @@ class EotOrbitalHessianOperator (object):
         mo = _grid_ao2mo (self.ot.mol, ao[:self.nderiv_rho], occ_coeff,
             non0tab=mask)
         drhos, dPi = density_orbital_derivative (self.ot, self.ncore,
-            self.ncas, self.casdm1s, self.cascm2, rhos, mo, non0tab=mask)
+            self.ncas, self.casdm1s, self.cascm2, rhos, mo,
+            deriv=self.Pi_deriv, non0tab=mask)
         return drhos.sum (0), dPi
         # persistent memory footprint:
         #   nderiv_rho * nocc * ngrids          (drho)
@@ -644,7 +652,7 @@ if __name__ == '__main__':
             if callable (getattr (hop, 'debug_hessian_blocks', None)):
                 hop.debug_hessian_blocks (x1, packed=True,
                 mask_dcon=False)#(hop.ot.otxc[0]=='t'))
-            print (("{:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
+            print ((" {:2d} " + ' '.join (['{:10.3e}',]*7)).format (*row))
         dg_err = dg_test - dg_ref
         denom = dg_ref.copy ()
         denom[np.abs(dg_ref)<1e-8] = 1.0
@@ -659,17 +667,18 @@ if __name__ == '__main__':
         for row in hop.unpack_uniq_var (dg_err): print (fmt_str.format (*row))
         print ("")
     from mrh.my_pyscf.tools import molden
+    mini_grid = {'atom_grid': (1,1)}
     for nelecas, lbl in zip ((2, (2,0)), ('Singlet','Triplet')):
         #if nelecas is not 2: continue
         print (lbl,'case\n')
-        for fnal in 'LDA,VWN3', 'PBE':
-            ks = dft.RKS (mol).set (xc=fnal).run ()
-            print ("LiH {} energy:".format (fnal),ks.e_tot)
-            exc_hop = ExcOrbitalHessianOperator (ks)
-            debug_hess (exc_hop)
-        for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE':
-            #if fnal[:2] != 'ft': continue
-            mc = mcpdft.CASSCF (mf, fnal, 2, nelecas).run ()
+        #for fnal in 'LDA,VWN3', 'PBE':
+        #    ks = dft.RKS (mol).set (xc=fnal).run ()
+        #    print ("LiH {} energy:".format (fnal),ks.e_tot)
+        #    exc_hop = ExcOrbitalHessianOperator (ks)
+        #    debug_hess (exc_hop)
+        for fnal in 'tLDA,VWN3', 'ftLDA,VWN3', 'tPBE', 'ftPBE':
+            if fnal[:3] != 'ftP': continue
+            mc = mcpdft.CASSCF (mf, fnal, 2, nelecas, grids_level=1).run ()
             mc.canonicalize_(cas_natorb=True)
             molden.from_mcscf (mc, lbl + '.molden')
             print ("LiH {} energy:".format (fnal),mc.e_tot)

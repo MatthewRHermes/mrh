@@ -1,9 +1,7 @@
 import numpy as np
 from scipy import linalg
-from mrh.util.la import vector_error
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
-from mrh.my_pyscf.fci.csf import CSFFCISolver
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.fci import direct_spin1
@@ -12,6 +10,13 @@ from pyscf.grad import rhf as rhf_grad
 from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import sacasscf as sacasscf_grad
 from itertools import product
+
+try:
+    from mrh.my_pyscf.fci.csf import CSFFCISolver
+except ModuleNotFoundError:
+    # dummy
+    class CSFFCISolver (object):
+        pass
 
 def _unpack_state (state):
     if hasattr (state, '__len__'): return state[0], state[1]
@@ -67,7 +72,7 @@ def mspdft_heff_response (mc_grad, mo=None, ci=None,
     if mo is None: mo = mc_grad.mo_coeff
     if ci is None: ci = mc_grad.ci
     if state is None: state = mc_grad.state
-    bra, ket = _unpack_state (state)
+    ket, bra = _unpack_state (state)
     if si_bra is None: si_bra = mc.si[:,bra]
     if si_ket is None: si_ket = mc.si[:,ket]
     if heff_mcscf is None: heff_mcscf = mc.heff_mcscf
@@ -108,7 +113,7 @@ def mspdft_heff_HellmanFeynman (mc_grad, atmlst=None, mo=None, ci=None,
     if ci is None: ci = mc.ci
     if si is None: si = getattr (mc, 'si', None)
     if state is None: state = mc_grad.state
-    bra, ket = _unpack_state (state)
+    ket, bra = _unpack_state (state)
     if si_bra is None: si_bra = si[:,bra]
     if si_ket is None: si_ket = si[:,ket]
     if eris is None: eris = mc.ao2mo (mo)
@@ -290,7 +295,7 @@ class Gradients (mcpdft_grad.Gradients):
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
         if state is None: state = self.state
-        bra, ket = _unpack_state (state)
+        ket, bra = _unpack_state (state)
         if si_bra is None: si_bra = si[:,bra]
         if si_ket is None: si_ket = si[:,ket]
         log = lib.logger.new_logger (self, self.verbose)
@@ -382,7 +387,7 @@ class Gradients (mcpdft_grad.Gradients):
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
         if state is None: state = self.state
-        bra, ket = _unpack_state (state)
+        ket, bra = _unpack_state (state)
         if si_bra is None: si_bra = si[:,bra]
         if si_ket is None: si_ket = si[:,ket]
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
