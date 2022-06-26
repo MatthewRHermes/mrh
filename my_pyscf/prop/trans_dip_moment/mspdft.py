@@ -158,73 +158,23 @@ def sipdft_HellmanFeynman_dipole (mc, state=None, mo_coeff=None, ci=None, si=Non
 
 class TransitionDipole (mspdft.ElectricDipole):
 
-    def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False, level_shift=None, unit='Debye', **kwargs):
-        ''' Cache the Hamiltonian and effective Hamiltonian terms, and pass
-            around the IS hessian
-
-            eris, veff1, veff2, and d2f should be available to all top-level
-            functions: get_wfn_response, get_Aop_Adiag, get_ham_repsonse, and
-            get_LdotJnuc
- 
-            freeze_is == True sets the is component of the response to zero
-            for debugging purposes
-        '''
-        if state is None: state = self.state
-        if mo is None: mo = self.base.mo_coeff
-        if ci is None: ci = self.base.ci
-        if si is None: si = self.base.si
-        if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
-        if state is None:
-            raise NotImplementedError ('Gradient of PDFT state-average energy')
-        self.state = state # Not the best code hygiene maybe
-        nroots = self.nroots
-        veff1 = []
-        veff2 = []
-        d2f = self.base.diabatizer (ci=ci)[2]
-        for ix in range (nroots):
-            v1, v2 = self.base.get_pdft_veff (mo, ci, incl_coul=True,
-                paaa_only=True, state=ix)
-            veff1.append (v1)
-            veff2.append (v2)
-        kwargs['veff1'], kwargs['veff2'] = veff1, veff2
-        kwargs['d2f'] = d2f 
-
-        cput0 = (logger.process_clock(), logger.perf_counter())
-        log = lib.logger.new_logger(self, self.verbose)
-        if 'atmlst' in kwargs:
-            self.atmlst = kwargs['atmlst']
-
-        if self.verbose >= lib.logger.WARN:
-            self.check_sanity()
-        if self.verbose >= lib.logger.INFO:
-            self.dump_flags()
-        
-        conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
-        #self.debug_lagrange (Lvec, bvec, Aop, Adiag, **kwargs)
-        cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
-
-        ham_response = self.get_ham_response (**kwargs)
-
-        LdotJnuc = self.get_LdotJnuc (Lvec, **kwargs)
-        
-        tdm   = ham_response + LdotJnuc
-        val   = np.linalg.norm(tdm)
-        oscil = 2/3*abs(self.e_states[state[0]]-self.e_states[state[1]])*val**2
-
+    def convert_dipole (self, ham_response, LdotJnuc, mol_dip, unit='Debye'):
+        val = np.linalg.norm(mol_dip)
+        i   = self.state[0]
+        j   = self.state[1]
+        dif = abs(self.e_states[i]-self.e_states[j]) 
+        osc = 2/3*dif*val**2
         if unit.upper() == 'DEBYE':
             ham_response *= nist.AU2DEBYE
             LdotJnuc     *= nist.AU2DEBYE
-            tdm          *= nist.AU2DEBYE
-            log.note('Hellmann-Feynman Term(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *ham_response)
-            log.note('Lagrange Contribution(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *LdotJnuc)
-            log.note('CMS-PDFT transition dipole moment between states %i and %i (X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', state[0], state[1], *tdm)
-            log.note('Oscillator strength %i <-> %i: %8.5f', state[0], state[1], oscil)
-        else:
-            log.note('Hellmann-Feynman Term(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *ham_response)
-            log.note('Lagrange Contribution(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *LdotJnuc)
-            log.note('CMS-PDFT transition dipole moment between states %i and %i (X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', state[0], state[1], *tdm)
-            log.note('Oscillator strength %i <-> %i: %8.5f', state[0], state[1], oscil)
-        return tdm
+            mol_dip      *= nist.AU2DEBYE
+        log = lib.logger.new_logger(self, self.verbose)
+        log.note('CMS-PDFT TDM <{}|mu|{}>          {:>10} {:>10} {:>10}'.format(i,j,'X','Y','Z'))
+        log.note('Hamiltonian Contribution (%s) : %9.5f, %9.5f, %9.5f', unit, *ham_response)
+        log.note('Lagrange Contribution    (%s) : %9.5f, %9.5f, %9.5f', unit, *LdotJnuc)
+        log.note('Transition Dipole Moment (%s) : %9.5f, %9.5f, %9.5f', unit, *mol_dip)
+        log.note('Oscillator strength  : %9.5f', osc)
+        return mol_dip
 
     def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, si=None, **kwargs):
         mc = self.base

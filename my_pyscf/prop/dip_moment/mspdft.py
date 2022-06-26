@@ -153,7 +153,6 @@ class ElectricDipole (mspdft.Gradients):
             self.dump_flags()
         
         conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
-        #self.debug_lagrange (Lvec, bvec, Aop, Adiag, **kwargs)
         cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
 
         ham_response = self.get_ham_response (**kwargs)
@@ -162,17 +161,20 @@ class ElectricDipole (mspdft.Gradients):
         
         mol_dip = ham_response + LdotJnuc
 
+        mol_dip = self.convert_dipole (ham_response, LdotJnuc, mol_dip, unit)
+        return mol_dip
+
+    def convert_dipole (self, ham_response, LdotJnuc, mol_dip, unit='Debye'):
+        i = self.state
         if unit.upper() == 'DEBYE':
             ham_response *= nist.AU2DEBYE
             LdotJnuc     *= nist.AU2DEBYE
             mol_dip      *= nist.AU2DEBYE
-            log.note('Hellmann-Feynman Term(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *ham_response)
-            log.note('Lagrange Contribution(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *LdotJnuc)
-            log.note('CMS-PDFT Dipole moment(X, Y, Z, Debye): %8.5f, %8.5f, %8.5f', *mol_dip)
-        else:
-            log.note('Hellmann-Feynman Term(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *ham_response)
-            log.note('Lagrange Contribution(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *LdotJnuc)
-            log.note('CMS-PDFT Dipole moment(X, Y, Z, A.U.): %8.5f, %8.5f, %8.5f', *mol_dip)
+        log = lib.logger.new_logger(self, self.verbose)
+        log.note('CMS-PDFT PDM <{}|mu|{}>          {:>10} {:>10} {:>10}'.format(i,i,'X','Y','Z'))
+        log.note('Hamiltonian Contribution (%s) : %9.5f, %9.5f, %9.5f', unit, *ham_response)
+        log.note('Lagrange Contribution    (%s) : %9.5f, %9.5f, %9.5f', unit, *LdotJnuc)
+        log.note('Permanent Dipole Moment  (%s) : %9.5f, %9.5f, %9.5f', unit, *mol_dip)
         return mol_dip
 
     def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, si=None, **kwargs):
