@@ -502,12 +502,16 @@ class _MSPDFT (MultiStateMCPDFTSolver):
 
     def dip_moment (self, unit='Debye', state=None):
         from mrh.my_pyscf.prop.dip_moment.mspdft import ElectricDipole
+        if not isinstance(state, int):
+            raise RuntimeError ('Permanent dipole requires a single state')
         dip_obj =  ElectricDipole(self)
         mol_dipole = dip_obj.kernel (state=state)
         return mol_dipole
 
     def trans_moment (self, unit='Debye', state=None):
         from mrh.my_pyscf.prop.trans_dip_moment.mspdft import TransitionDipole
+        if not isinstance(state, list) or len(state)!=2:
+            raise RuntimeError ('Transition dipole requires two states')
         tran_dip_obj = TransitionDipole(self)
         mol_trans_dipole = tran_dip_obj.kernel (state=state)
         return mol_trans_dipole
