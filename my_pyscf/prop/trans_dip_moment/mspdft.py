@@ -51,41 +51,6 @@ def mspdft_heff_response (mc_grad, mo=None, ci=None,
 
     return g_orb, g_is
 
-# TODO: state-average-mix generalization
-def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket): 
-    '''Compute <bra|O|ket> - sum_i <i|O|i>, where O is the 1-RDM
-    operator product, and |bra> and |ket> are both states spanning the
-    vector space of |i>, which are multi-determinantal many-electron
-    states in an active space.
-
-    Args:
-        mc : object of class CASCI or CASSCF
-            Only "ncas" and "nelecas" are used, to determine Hilbert
-            of ci
-        ci : ndarray or list of length (nroots)
-            Contains CI vectors spanning a model space
-        si_bra : ndarray of shape (nroots)
-            Coefficients of ci elements for state |bra>
-        si_ket : ndarray of shape (nroots)
-            Coefficients of ci elements for state |ket>
-
-    Returns:
-        casdm1 : ndarray of shape [ncas,]*2
-            Contains O = p'q case
-    '''
-    ncas, nelecas = mc.ncas, mc.nelecas
-    nroots = len (ci)
-    ci_arr = np.asarray (ci)
-    ci_bra = np.tensordot (si_bra, ci_arr, axes=1)
-    ci_ket = np.tensordot (si_ket, ci_arr, axes=1)
-    casdm1, _ = direct_spin1.trans_rdm12 (ci_bra, ci_ket, ncas, nelecas)
-    ddm1 = np.zeros ((nroots, ncas, ncas), dtype=casdm1.dtype)
-    for i in range (nroots):
-        ddm1[i,...], _ = direct_spin1.make_rdm12 (ci[i], ncas, nelecas)
-    si_diag = si_bra * si_ket
-    casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
-    return casdm1
-
 def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket): 
     # TODO: state-average-mix generalization
     #print('During Gradient, CI',ci)
@@ -103,59 +68,6 @@ def make_rdm12_heff_offdiag (mc, ci, si_bra, si_ket):
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     casdm2 -= np.tensordot (si_diag, ddm2, axes=1)
     return casdm1, casdm2
-
-def sipdft_HellmanFeynman_dipole (mc, state=None, mo_coeff=None, ci=None, si=None, atmlst=None, verbose=None, max_memory=None, auxbasis_response=False):
-    if state is None: state = mc.state
-    if mo_coeff is None: mo_coeff = mc.mo_coeff
-    if ci is None: ci = mc.ci
-    if si is None: si = mc.si
-    if mc.frozen is not None:
-        raise NotImplementedError
-    if max_memory is None: max_memory = mc.max_memory
-    t0 = (logger.process_clock (), logger.perf_counter ())
-
-    si_bra = si[:,state[0]]
-    si_ket = si[:,state[1]]
-    si_diag = si_bra * si_ket
-
-    mol = mc.mol                                           
-    ncore = mc.ncore                                       
-    ncas = mc.ncas                                         
-    nelecas = mc.nelecas                                   
-    nocc = ncore + ncas                                    
-                                                           
-    mo_core = mo_coeff[:,:ncore]                           
-    mo_cas  = mo_coeff[:,ncore:nocc]                        
-                                                           
-    dm_core = np.dot(mo_core, mo_core.T) * 2               
-
-    # ----- Electronic contribution ------
-    dm_diag=np.zeros_like(dm_core)
-    # Diagonal part
-    for i, (amp, c) in enumerate (zip (si_diag, ci)):
-        if not amp: continue
-        casdm1 = mc.fcisolver.make_rdm1(ci[i], ncas, nelecas)     
-        dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))    
-        dm_i = dm_cas + dm_core 
-        dm_diag += amp * dm_i
-        
-    # Off-diagonal part
-    casdm1 = make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket)
-#    casdm1 = 0.5 * (casdm1 + casdm1.T)
-    dm_off = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))    
-
-    dm = dm_diag + dm_off                                             
-
-    #charges = mol.atom_charges()
-    #coords = mol.atom_coords()
-    #nuc_charge_center = numpy.einsum('z,zx->x', charges, coords) / charges.sum()
-    #with mol.set_common_orig_(nuc_charge_center)
-    with mol.with_common_orig((0,0,0)):                    
-        ao_dip = mol.intor_symmetric('int1e_r', comp=3)    
-    el_dip = np.einsum('xij,ij->x', ao_dip, dm).real       
-                                                           
-    return el_dip                                         
-
 class TransitionDipole (mspdft.ElectricDipole):
 
     def convert_dipole (self, ham_response, LdotJnuc, mol_dip, unit='Debye'):
@@ -176,11 +88,14 @@ class TransitionDipole (mspdft.ElectricDipole):
         log.note('Oscillator strength  : %9.5f', osc)
         return mol_dip
 
-    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None, ci=None, eris=None, si=None, **kwargs):
-        mc = self.base
+    def get_bra_ket(self, state, si):
+        si_bra = si[:,state[0]]
+        si_ket = si[:,state[1]]
+        return si_bra, si_ket
+
+    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None,
+                    ci=None, eris=None, si=None, **kwargs):
         if state is None: state = self.state
-        if atmlst is None: atmlst = self.atmlst
-        if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
@@ -188,21 +103,21 @@ class TransitionDipole (mspdft.ElectricDipole):
         fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci
-        return sipdft_HellmanFeynman_dipole (fcasscf, state=state, mo_coeff=mo, ci=ci, si=si, atmlst=atmlst, verbose=verbose)
+        elec_term = self.sipdft_HellmanFeynman_dipole (fcasscf, state=state, mo_coeff=mo, ci=ci, si=si)
+        return elec_term
 
-    def get_wfn_response (self, si_bra=None, si_ket=None, state=None, mo=None,
-            ci=None, si=None, eris=None, veff1=None, veff2=None,
-            _freeze_is=False, **kwargs):
+    def get_wfn_response (self, state=None, mo=None, ci=None, si=None,
+            eris=None, veff1=None, veff2=None, _freeze_is=False, **kwargs):
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
         if state is None: state = self.state
-        if si_bra is None: si_bra = si[:,state[0]]
-        if si_ket is None: si_ket = si[:,state[1]]
         log = lib.logger.new_logger (self, self.verbose)
+        si_bra, si_ket = self.get_bra_ket(state, si)
         si_diag = si_bra * si_ket
         nroots, ngorb, nci = self.nroots, self.ngorb, self.nci
         ptr_is = ngorb + nci
+        # print('updated ',si_bra,si_ket,state[0],state[1] )
 
         # Diagonal: PDFT component
         nlag = self.nlag-self.nis
