@@ -77,7 +77,7 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
     '''
 
 
-    def __init__(self, norb, a_idxs, i_idxs):
+    def __init__(self, norb, a_idxs, i_idxs, s2sym=True):
         # Up to two equal indices in one generator are allowed
         # However, we still can't have any equal generators
         self.a_idxs = []
@@ -92,10 +92,18 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
             #assert (not (np.all (a == i))), errstr
             if len (a) == 1: # Only case where I know the proper symmetry
                              # relation between amps to ensure S**2
-                symrow = [len (self.a_idxs), len (self.i_idxs)+1]
-                self.a_idxs.extend ([a, a+norb])
-                self.i_idxs.extend ([i, i+norb])
-                self.symtab.append (symrow)
+                if s2sym:
+                    symrow = [len (self.a_idxs), len (self.i_idxs)+1]
+                    self.a_idxs.extend ([a, a+norb])
+                    self.i_idxs.extend ([i, i+norb])
+                    self.symtab.append (symrow)
+                else:
+                    self.symtab.append ([len (self.a_idxs)])
+                    self.a_idxs.extend ([a])
+                    self.i_idxs.extend ([i])
+                    self.symtab.append ([len (self.a_idxs)])
+                    self.a_idxs.extend ([a+norb])
+                    self.i_idxs.extend ([i+norb])
             else:
                 for ix_ab, (ab, ma) in enumerate (zip (*spincases (a, norb))):
                     if np.amax (np.unique (ab,return_counts=True)[1]) > 1:
@@ -183,7 +191,7 @@ def get_uccs_op (norb, t1=None, freeze_mask=None):
         uop.set_uniq_amps_(t1[t1_idx])
     return uop
 
-def get_uccsd_op (norb, t1=None, t2=None):
+def get_uccsd_op (norb, t1=None, t2=None, s2sym=True):
     ''' Construct and optionally initialize semi-spin-adapted unitary CC
         correlator with singles and doubles spanning a single undifferentiated
         orbital range. Excitations from spatial orbital(s) i(, j) to spatial
@@ -221,6 +229,8 @@ def get_uccsd_op (norb, t1=None, t2=None):
             t2 : None
                 NOT IMPLEMENTED. Amplitudes at which to initialize the doubles
                 operators
+            s2sym : logical
+                If false, alpha and beta t1 amplitudes are allowed to differ
 
         Returns:
             uop : object of class FSUCCOperator
@@ -232,7 +242,7 @@ def get_uccsd_op (norb, t1=None, t2=None):
     for ab, ij in combinations_with_replacement (pq, 2):
         ab_idxs.append (ab)
         ij_idxs.append (ij)
-    uop = FSUCCOperator (norb, ab_idxs, ij_idxs)
+    uop = FSUCCOperator (norb, ab_idxs, ij_idxs, s2sym=s2sym)
     x0 = uop.get_uniq_amps ()
     if t1 is not None: x0[:len (t1_idx[0])] = t1[t1_idx]
     if t2 is not None: raise NotImplementedError ("t2 initialization")

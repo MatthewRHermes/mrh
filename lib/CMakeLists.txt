@@ -55,16 +55,27 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O3")
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -O3")
 
 # Find the PySCF "library" directory
-set (PYTHON_EXECUTABLE "python")
-execute_process(
-  COMMAND "${PYTHON_EXECUTABLE}" -c "if True:
-    import os
-    from pyscf import lib
-    print (os.path.dirname (lib.__file__))"
-  OUTPUT_VARIABLE PYSCFLIB
-  OUTPUT_STRIP_TRAILING_WHITESPACE)
+if (PYSCFLIB)
+    message (STATUS "PYSCFLIB set by user: ${PYSCFLIB}")
+else ()
+    find_package (Python)
+    execute_process(
+      COMMAND "${Python_EXECUTABLE}" -c "if True:
+        import os
+        from pyscf import lib
+        print (os.path.dirname (lib.__file__))"
+      OUTPUT_VARIABLE PYSCFLIB
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    message (STATUS "Trying to find PYSCFLIB: ${PYSCFLIB}")
+endif ()
+if (EXISTS ${PYSCFLIB})
+    message (STATUS "PYSCFLIB found!")
+else ()
+    message (STATUS "PYSCFLIB not found!")
+endif ()
 include_directories(${PYSCFLIB})
 include_directories(${PYSCFLIB}/deps/include)
+include_directories(${CINT_DIR}/include)
 link_directories(${PYSCFLIB})
 
 # Build the QC-DMET shared library

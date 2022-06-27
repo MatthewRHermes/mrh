@@ -1,8 +1,9 @@
 import numpy as np
 from scipy import linalg
-from pyscf import gto, scf, df
+from pyscf import gto, scf, df, fci
+from pyscf.fci.addons import fix_spin_
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.fci import csf_solver
+#from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
 import unittest
 
@@ -17,7 +18,9 @@ def get_mc_ref (mol, ri=False, sa2=False):
     if ri: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
     mc = mcpdft.CASSCF (mf.run (), 'tPBE', 6, 6, grids_level=6)
     if sa2:
-        fcisolvers = [csf_solver (mol, smult=((2*i)+1)) for i in (0,1)]
+        #fcisolvers = [csf_solver (mol, smult=((2*i)+1)) for i in (0,1)]
+        fcisolvers = [fix_spin_(fci.solver (mol), ss=0),
+                      fix_spin_(fci.solver (mol).set (spin=2), ss=2)]
         if mol.symmetry:
             fcisolvers[0].wfnsym = 'A1'
             fcisolvers[1].wfnsym = 'A2'

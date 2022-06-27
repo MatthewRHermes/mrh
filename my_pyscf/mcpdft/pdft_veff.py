@@ -228,6 +228,13 @@ def kernel (ot, dm1s, cascm2, mo_coeff, ncore, ncas,
     shls_slice = (0, ot.mol.nbas)
     ao_loc = ot.mol.ao_loc_nr()
 
+    omega, alpha, hyb = ot._numint.rsh_and_hybrid_coeff(ot.otxc)
+    hyb_x, hyb_c = hyb
+    if abs (omega) > 1e-11:
+        raise NotImplementedError ("range-separated on-top functionals")
+    if abs (hyb_x) > 1e-11 or abs (hyb_c) > 1e-11:
+        raise NotImplementedError ("effective potential for hybrid functionals")
+
     veff1 = np.zeros ((nao, nao), dtype=dm1s.dtype)
     veff2 = _ERIS (ot.mol, mo_coeff, ncore, ncas, paaa_only=paaa_only, 
         aaaa_only=aaaa_only, jk_pc=jk_pc, verbose=ot.verbose,

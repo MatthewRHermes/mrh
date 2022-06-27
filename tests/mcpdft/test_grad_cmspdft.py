@@ -1,9 +1,10 @@
 import numpy as np
 from scipy import linalg
-from pyscf import gto, scf, df, mcscf, lib
+from pyscf import gto, scf, df, mcscf, lib, fci
+from pyscf.fci.addons import fix_spin_, initguess_triplet
 from pyscf.data.nist import BOHR
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.fci import csf_solver
+#from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.grad.cmspdft import diab_response, diab_grad, diab_response_o0, diab_grad_o0
 from mrh.my_pyscf.grad import mspdft as mspdft_grad
 from mrh.my_pyscf.df.grad import dfsacasscf, dfmspdft
@@ -20,19 +21,29 @@ def get_mc_ref (mol, ri=False, sam=False):
     mf = scf.RHF (mol)
     if ri: mf = mf.density_fit (auxbasis = df.aug_etb (mol))
     mc = mcscf.CASSCF (mf.run (), 6, 6)
+    mo = None
+    ci0 = None
     if sam:
-        fcisolvers = [csf_solver (mol, smult=((2*i)+1)) for i in (0,1)]
+        #fcisolvers = [csf_solver (mol, smult=((2*i)+1)) for i in (0,1)]
+        fcisolvers = [fci.solver (mol), fci.solver (mol)]
         if mol.symmetry:
             fcisolvers[0].wfnsym = 'A1'
             fcisolvers[1].wfnsym = 'A2'
+        else:
+            h1, h0 = mc.get_h1cas ()
+            h2 = mc.get_h2cas ()
+            hdiag = mc.fcisolver.make_hdiag (h1, h2, 6, 6)
+            ci0 = [mc.fcisolver.get_init_guess (6, 6, 1, hdiag),
+                   initguess_triplet (6, 6, '1011')]
         mc = mcscf.addons.state_average_mix (mc, fcisolvers, [0.5,0.5])
     else:
-        mc.fcisolver = csf_solver (mol, smult=1)
+        #mc.fcisolver = csf_solver (mol, smult=1)
         if mol.symmetry:
             mc.fcisolver.wfnsym = 'A1'
         mc = mc.state_average ([0.5,0.5])
+        mc.fix_spin_(ss=0)
     mc.conv_tol = 1e-12
-    return mc.run ()
+    return mc.run (mo, ci0)
 #mc_list = [[[get_mc_ref (m, ri=i, sam=j) for i in (0,1)] for j in (0,1)] for m in (mol_nosymm, mol_symm)]
 mc_list = [] # Crunch within unittest.main for accurate clock
 def get_mc_list ():
