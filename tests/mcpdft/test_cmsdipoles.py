@@ -1,30 +1,33 @@
 import numpy as np
-from scipy import linalg
-from pyscf import gto, scf, df
+from pyscf import gto, scf, mcscf
 from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.prop.dip_moment.mspdft import ElectricDipole as CMSED
 import unittest
 
 def get_h2o():
+    weights = [1/3]*3
     mol = gto.M(atom = '''O  0.00000000   0.08111156   0.00000000
              H  0.78620605   0.66349738   0.00000000
-             H -0.78620605   0.66349738   0.00000000''', basis = 'sto3g',
-             output='/dev/null', verbose=0)
+             H -0.78620605   0.66349738   0.00000000''', basis = '6-31g',
+             symmetry='c2v', output='/dev/null', verbose=0)
     mf = scf.RHF(mol).run()
-    mc = mcpdft.CASSCF(mf,'tPBE', 4, 4, grids_level=1)
-    mc.fcisolver = csf_solver(mol, smult=1)
-    mc = mc.multi_state([0.5,0.5], 'cms').run(mo=mf.mo_coeff, conv_tol=1e-8)
-    return mc
+    mc = mcscf.CASSCF(mf, 4,4)
+    mc = mc.state_average_(weights)
+    mc.kernel(mf.mo_coeff)
+
+    mcms = mcpdft.CASSCF(mf,'tPBE', 4, 4, grids_level=1)
+    mcms = mcms.multi_state(weights = weights)
+    mcms.kernel(mc.mo_coeff, mc.ci)
+    return mcms
 
 class KnownValues(unittest.TestCase):
     
     def test_h2o_cms2tpbe_sto3g(self):
-        dm_ref = np.array([[1.10016978e-01,1.65443708e+00,-4.62578013e-10],
-            [-4.36406963e-01,-2.39398833e-03,9.54500757e-11]])
+        dm_ref = np.array([[-1.26839490e-09,2.34877543e+00,-2.57099161e-11],
+            [5.64381079e-16,-5.49340995e-01,1.50676478e-16],
+            [1.46930730e-09,-1.30914327e-01,1.16235053e-11]])
 
         mc = get_h2o()
-        for i in range(2):
+        for i in range(3):
             with self.subTest (i=i):
                 dm_test = mc.dip_moment(unit='Debye', state=i)
                 for dmt,dmr in zip(dm_test,dm_ref[i]):
