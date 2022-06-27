@@ -9,20 +9,23 @@ from mrh.my_pyscf.prop.dip_moment import mspdft
 from pyscf.fci import direct_spin1
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
 
+def _unpack_state (state):
+    if hasattr (state, '__len__'): return state[0], state[1]
+    return state, state
+
 # TODO: docstring?
 def mspdft_heff_response (mc_grad, mo=None, ci=None,
         si_bra=None, si_ket=None, state=None, 
         heff_mcscf=None, eris=None):
-    ''' Compute the orbital and intermediate-state rotation response 
-        vector in the context of an SI-PDFT gradient calculation '''
+    '''Compute the orbital and intermediate-state rotation response 
+    vector in the context of an MS-PDFT gradient calculation '''
     mc = mc_grad.base
     if mo is None: mo = mc_grad.mo_coeff
     if ci is None: ci = mc_grad.ci
     if state is None: state = mc_grad.state
-    #bra, ket = _unpack_state (state)
-    #print('states are  ',state[0],state[1])
-    if si_bra is None: si_bra = mc.si[:,state[0]]
-    if si_ket is None: si_ket = mc.si[:,state[1]]
+    ket, bra = _unpack_state (state)
+    if si_bra is None: si_bra = mc.si[:,bra]
+    if si_ket is None: si_ket = mc.si[:,ket]
     if heff_mcscf is None: heff_mcscf = mc.heff_mcscf
     if eris is None: eris = mc.ao2mo (mo)
     nroots, ncore = mc_grad.nroots, mc.ncore
@@ -89,8 +92,8 @@ class TransitionDipole (mspdft.ElectricDipole):
         return mol_dip
 
     def get_bra_ket(self, state, si):
-        si_bra = si[:,state[0]]
-        si_ket = si[:,state[1]]
+        si_bra = si[:,state[1]]
+        si_ket = si[:,state[0]]
         return si_bra, si_ket
 
     def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None,

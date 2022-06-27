@@ -37,12 +37,12 @@ def mcpdft_HellmanFeynman_dipole (mc, ot, veff1, veff2, mo_coeff=None, ci=None,
  
     with mol.with_common_orig((0,0,0)):
         ao_dip = mol.intor_symmetric('int1e_r', comp=3)
-    el_dip = np.einsum('xij,ij->x', ao_dip, dm).real
+    el_dip = -np.einsum('xij,ij->x', ao_dip, dm).real
  
     charges = mol.atom_charges()
     coords  = mol.atom_coords()
     nucl_dip = np.einsum('i,ix->x', charges, coords)
-    cas_dip = nucl_dip - el_dip
+    cas_dip = nucl_dip + el_dip
 
     return cas_dip
 

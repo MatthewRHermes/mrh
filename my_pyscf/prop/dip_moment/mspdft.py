@@ -17,6 +17,10 @@ from mrh.my_pyscf.grad import mcpdft
 from mrh.my_pyscf.grad import mspdft
 from pyscf.fci import direct_spin1
 
+def _unpack_state (state):
+    if hasattr (state, '__len__'): return state[0], state[1]
+    return state, state
+
 # TODO: state-average-mix generalization ?
 def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket): 
     '''Compute <bra|O|ket> - sum_i <i|O|i>, where O is the 1-RDM
@@ -176,7 +180,7 @@ class ElectricDipole (mspdft.Gradients):
         #with mol.set_common_orig_(nuc_charge_center)
         with mol.with_common_orig((0,0,0)):
             ao_dip = mol.intor_symmetric('int1e_r', comp=3)
-        elec_term = np.einsum('xij,ij->x', ao_dip, dm).real
+        elec_term = -np.einsum('xij,ij->x', ao_dip, dm).real
         return elec_term
 
     def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None,
