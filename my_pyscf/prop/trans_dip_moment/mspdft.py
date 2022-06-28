@@ -4,7 +4,7 @@ import numpy as np
 from pyscf.data import nist
 from pyscf import lib
 from mrh.my_pyscf.prop.dip_moment import mspdft
-from mrh.my_pyscf.prop.dip_moment.mspdft import sipdft_HellmanFeynman_dipole
+from mrh.my_pyscf.prop.dip_moment.mspdft import sipdft_HellmanFeynman_dipole, get_guage_origin
 from mrh.my_pyscf.grad.mspdft import mspdft_heff_response
 from mrh.my_pyscf.grad.mspdft import _unpack_state
 

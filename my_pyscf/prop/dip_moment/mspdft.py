@@ -53,26 +53,24 @@ def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket):
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     return casdm1
 
-def get_center_of_molecule(mol,center):
+def get_guage_origin(mol,center):
     charges = mol.atom_charges()
     coords  = mol.atom_coords()
-    # coords  = mol.atom_coords(unit='ANG')
     mass    = mol.atom_mass_list()
     if isinstance(center,str):
         if center.upper() == 'ORIGIN':
-            coord = (0,0,0)
+            origin = (0,0,0)
         elif center.upper() == 'MASS_CENTER':
-            coord = np.einsum('i,ij->j', mass, coords) / mass.sum()
-        elif center.upper() == 'NUC_CHARGE_CENTER':
-            coord = np.einsum('z,zx->x', charges, coords) / charges.sum()
+            origin = np.einsum('i,ij->j', mass, coords) / mass.sum()
+        elif center.upper() == 'CHARGE_CENTER':
+            origin = np.einsum('z,zx->x', charges, coords) / charges.sum()
         else:
-            raise RuntimeError ("Dipole's origin is not recognized")
+            raise RuntimeError ("Gauge origin is not recognized")
     elif isinstance(center,str):
-        coord = center
+        origin = center
     else:
-        raise RuntimeError ("Dipole's origin must be a string or tuple")
-    print('coord',coord)
-    return coord
+        raise RuntimeError ("Gauge origin must be a string or tuple")
+    return origin
 
 def sipdft_HellmanFeynman_dipole (mc, si_bra=None, si_ket=None,
         state=None, mo_coeff=None, ci=None, si=None, center='Origin'):
@@ -113,19 +111,19 @@ def sipdft_HellmanFeynman_dipole (mc, si_bra=None, si_ket=None,
 
     dm = dm_diag + dm_off
 
-    print('sipdft_HellmanFeynman_dipole',center)
-
-    coord = get_center_of_molecule(mol,center)
-    with mol.with_common_orig(coord):
+    origin = get_guage_origin(mol,center)
+    with mol.with_common_orig(origin):
         ao_dip = mol.intor_symmetric('int1e_r', comp=3)
     elec_term = -np.einsum('xij,ij->x', ao_dip, dm).real
     return elec_term
 
-def nuclear_dipole(mc):
-    '''Compute nuclear contribution to the dipole moment'''
+def nuclear_dipole(mc,center='Origin'):
+    '''Compute nuclear contribution wrt gauge origin of the dipole moment'''
     mol = mc.mol
+    origin = get_guage_origin(mol,center)
     charges = mol.atom_charges()                           
     coords  = mol.atom_coords()
+    coords -= origin
     nucl_term = np.einsum('i,ix->x', charges, coords)
     return nucl_term
 
@@ -176,7 +174,6 @@ class ElectricDipole (mspdft.Gradients):
         conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
         cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
 
-        print('kernel',center)
         ham_response = self.get_ham_response (center=center, **kwargs)
 
         LdotJnuc = self.get_LdotJnuc (Lvec, center=center, **kwargs)
@@ -211,10 +208,9 @@ class ElectricDipole (mspdft.Gradients):
         fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci
-        print('get_ham_response',center)
         elec_term = sipdft_HellmanFeynman_dipole (fcasscf, si_bra=si_bra, si_ket=si_ket,
          state=state, mo_coeff=mo, ci=ci, si=si, center=center)
-        nucl_term = nuclear_dipole(fcasscf)
+        nucl_term = nuclear_dipole(fcasscf,center=center)
         total = nucl_term + elec_term
         return total
 
@@ -238,13 +234,13 @@ class ElectricDipole (mspdft.Gradients):
 
         mo_coeff = mc.mo_coeff
         ci = mc.ci
-    
+
         mol   = mc.mol
         ncore = mc.ncore
         ncas  = mc.ncas
         nocc  = ncore + ncas
         nelecas = mc.nelecas
-    
+
         mo_core = mo_coeff[:,:ncore]
         mo_cas = mo_coeff[:,ncore:nocc]
 
@@ -253,9 +249,9 @@ class ElectricDipole (mspdft.Gradients):
         moL_coeff = np.dot (mo_coeff, Lorb)
         moL_core = moL_coeff[:,:ncore]
         moL_cas = moL_coeff[:,ncore:nocc]
-    
+
         casdm1 = mc.fcisolver.make_rdm1(ci, ncas, nelecas)
-    
+
         dmL_core = np.dot(moL_core, mo_core.T) * 2
         dmL_cas = reduce(np.dot, (moL_cas, casdm1, mo_cas.T))
         dmL_core += dmL_core.T
@@ -269,10 +265,10 @@ class ElectricDipole (mspdft.Gradients):
 
         # Expansion coefficients are already in Lagrange multipliers
         dm = dmL_core + dmL_cas + dm_cas_transit
-        print('get_LdotJnuc',center)
-        coord = get_center_of_molecule(mol,center)
-        with mol.with_common_orig(coord):
+
+        origin = get_guage_origin(mol,center)
+        with mol.with_common_orig(origin):
             ao_dip = mol.intor_symmetric('int1e_r', comp=3)
         mol_dip_L = -np.einsum('xij,ji->x', ao_dip, dm).real
-        
+
         return mol_dip_L
