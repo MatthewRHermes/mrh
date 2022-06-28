@@ -154,7 +154,11 @@ def get_mol_from_h5 (h5fname, **kwargs):
     if my_symmetry:
         symm, charge_center, axes = detect_symm (my_atom)
         my_symmetry, axes = get_subgroup (symm, axes)
-    
+    if my_symmetry.upper () in ('SO3', 'DOOH'):
+        my_symmetry = 'D2h'
+    if my_symmetry.upper () in ('COOV'):
+        my_symmetry = 'C2v'
+
     # Find basis functions
     my_basis = {}
     for idx, symb in enumerate (symbs):
