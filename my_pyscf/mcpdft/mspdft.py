@@ -496,7 +496,6 @@ class _MSPDFT (MultiStateMCPDFTSolver):
                           self.weights[i], self.e_states[i])
 
     def nuc_grad_method (self):
-        print('AOL /mcpdft/mspdft.py calls gradient FROM')
         from mrh.my_pyscf.grad.mspdft import Gradients
         return Gradients (self)
 

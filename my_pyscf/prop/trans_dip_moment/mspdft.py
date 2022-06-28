@@ -17,9 +17,7 @@ class TransitionDipole (mspdft.ElectricDipole):
         dif = abs(self.e_states[i]-self.e_states[j]) 
         osc = 2/3*dif*val**2
         if unit.upper() == 'DEBYE':
-            ham_response *= nist.AU2DEBYE
-            LdotJnuc     *= nist.AU2DEBYE
-            mol_dip      *= nist.AU2DEBYE
+            for x in [ham_response, LdotJnuc, mol_dip]: x *= nist.AU2DEBYE
         log = lib.logger.new_logger(self, self.verbose)
         log.note('CMS-PDFT TDM <{}|mu|{}>          {:>10} {:>10} {:>10}'.format(i,j,'X','Y','Z'))
         log.note('Hamiltonian Contribution (%s) : %9.5f, %9.5f, %9.5f', unit, *ham_response)
@@ -28,8 +26,8 @@ class TransitionDipole (mspdft.ElectricDipole):
         log.note('Oscillator strength  : %9.5f', osc)
         return mol_dip
 
-    def get_ham_response (self,  si_bra=None, si_ket=None, state=None, atmlst=None, verbose=None, mo=None,
-                    ci=None, eris=None, si=None, **kwargs):
+    def get_ham_response (self,  si_bra=None, si_ket=None, state=None, verbose=None, mo=None,
+                    ci=None, si=None, **kwargs):
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci

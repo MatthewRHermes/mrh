@@ -129,8 +129,8 @@ def nuclear_dipole(mc,origin='Coord_Center'):
 
 class ElectricDipole (mspdft.Gradients):
 
-    def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False,
-        level_shift=None, unit='Debye', origin='Coord_Center', **kwargs):
+    def kernel (self, state=None, mo=None, ci=None, si=None,
+     unit='Debye', origin='Coord_Center', **kwargs):
         ''' Cache the Hamiltonian and effective Hamiltonian terms, and pass
             around the IS hessian
 
@@ -161,18 +161,7 @@ class ElectricDipole (mspdft.Gradients):
         kwargs['veff1'], kwargs['veff2'] = veff1, veff2
         kwargs['d2f'] = d2f 
 
-        cput0 = (logger.process_clock(), logger.perf_counter())
-        log = lib.logger.new_logger(self, self.verbose)
-        if 'atmlst' in kwargs:
-            self.atmlst = kwargs['atmlst']
-
-        if self.verbose >= lib.logger.WARN:
-            self.check_sanity()
-        if self.verbose >= lib.logger.INFO:
-            self.dump_flags()
-        
-        conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
-        cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
+        conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (**kwargs)
 
         ham_response = self.get_ham_response (origin=origin, **kwargs)
 
@@ -186,9 +175,7 @@ class ElectricDipole (mspdft.Gradients):
     def convert_dipole (self, ham_response, LdotJnuc, mol_dip, unit='Debye'):
         i = self.state
         if unit.upper() == 'DEBYE':
-            ham_response *= nist.AU2DEBYE
-            LdotJnuc     *= nist.AU2DEBYE
-            mol_dip      *= nist.AU2DEBYE
+            for x in [ham_response, LdotJnuc, mol_dip]: x *= nist.AU2DEBYE
         log = lib.logger.new_logger(self, self.verbose)
         log.note('CMS-PDFT PDM <{}|mu|{}>          {:>10} {:>10} {:>10}'.format(i,i,'X','Y','Z'))
         log.note('Hamiltonian Contribution (%s) : %9.5f, %9.5f, %9.5f', unit, *ham_response)
@@ -196,8 +183,8 @@ class ElectricDipole (mspdft.Gradients):
         log.note('Permanent Dipole Moment  (%s) : %9.5f, %9.5f, %9.5f', unit, *mol_dip)
         return mol_dip
 
-    def get_ham_response (self, si_bra=None, si_ket=None, state=None, atmlst=None, verbose=None, mo=None,
-                    ci=None, eris=None, si=None, origin='Coord_Center', **kwargs):
+    def get_ham_response (self, si_bra=None, si_ket=None, state=None, mo=None,
+                    ci=None, si=None, origin='Coord_Center', **kwargs):
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
@@ -215,25 +202,17 @@ class ElectricDipole (mspdft.Gradients):
         return total
 
     def get_LdotJnuc (self, Lvec, atmlst=None, verbose=None, mo=None,
-        ci=None, eris=None, origin='Coord_Center', **kwargs):
+        ci=None, origin='Coord_Center', **kwargs):
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
-        if eris is None and self.eris is None:
-            eris = self.eris = self.base.ao2mo (mo)
-        elif eris is None:
-            eris = self.eris
-        ncas = self.base.ncas
-        nelecas = self.base.nelecas
+        
         mc = self.base
 
-        ngorb, nci, nis = self.ngorb, self.nci, self.nis
+        ngorb, nci = self.ngorb, self.nci
         Lvec_v = Lvec[:ngorb+nci]
         Lorb, Lci = self.unpack_uniq_var (Lvec_v)
-
-        mo_coeff = mc.mo_coeff
-        ci = mc.ci
 
         mol   = mc.mol
         ncore = mc.ncore
@@ -241,12 +220,12 @@ class ElectricDipole (mspdft.Gradients):
         nocc  = ncore + ncas
         nelecas = mc.nelecas
 
-        mo_core = mo_coeff[:,:ncore]
-        mo_cas = mo_coeff[:,ncore:nocc]
+        mo_core = mo[:,:ncore]
+        mo_cas = mo[:,ncore:nocc]
 
         # Orbital part
         # MO coeff contracted against Lagrange multipliers
-        moL_coeff = np.dot (mo_coeff, Lorb)
+        moL_coeff = np.dot (mo, Lorb)
         moL_core = moL_coeff[:,:ncore]
         moL_cas = moL_coeff[:,ncore:nocc]
 
