@@ -53,8 +53,29 @@ def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket):
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     return casdm1
 
+def get_center_of_molecule(mol,center):
+    charges = mol.atom_charges()
+    coords  = mol.atom_coords()
+    # coords  = mol.atom_coords(unit='ANG')
+    mass    = mol.atom_mass_list()
+    if isinstance(center,str):
+        if center.upper() == 'ORIGIN':
+            coord = (0,0,0)
+        elif center.upper() == 'MASS_CENTER':
+            coord = np.einsum('i,ij->j', mass, coords) / mass.sum()
+        elif center.upper() == 'NUC_CHARGE_CENTER':
+            coord = np.einsum('z,zx->x', charges, coords) / charges.sum()
+        else:
+            raise RuntimeError ("Dipole's origin is not recognized")
+    elif isinstance(center,str):
+        coord = center
+    else:
+        raise RuntimeError ("Dipole's origin must be a string or tuple")
+    print('coord',coord)
+    return coord
+
 def sipdft_HellmanFeynman_dipole (mc, si_bra=None, si_ket=None,
-        state=None, mo_coeff=None, ci=None, si=None):
+        state=None, mo_coeff=None, ci=None, si=None, center='Origin'):
     if state is None: state = mc.state
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
@@ -92,11 +113,10 @@ def sipdft_HellmanFeynman_dipole (mc, si_bra=None, si_ket=None,
 
     dm = dm_diag + dm_off
 
-    #charges = mol.atom_charges()
-    #coords = mol.atom_coords()
-    #nuc_charge_center = numpy.einsum('z,zx->x', charges, coords) / charges.sum()
-    #with mol.set_common_orig_(nuc_charge_center)
-    with mol.with_common_orig((0,0,0)):
+    print('sipdft_HellmanFeynman_dipole',center)
+
+    coord = get_center_of_molecule(mol,center)
+    with mol.with_common_orig(coord):
         ao_dip = mol.intor_symmetric('int1e_r', comp=3)
     elec_term = -np.einsum('xij,ij->x', ao_dip, dm).real
     return elec_term
@@ -112,7 +132,7 @@ def nuclear_dipole(mc):
 class ElectricDipole (mspdft.Gradients):
 
     def kernel (self, state=None, mo=None, ci=None, si=None, _freeze_is=False,
-        level_shift=None, unit='Debye', **kwargs):
+        level_shift=None, unit='Debye', center='Origin', **kwargs):
         ''' Cache the Hamiltonian and effective Hamiltonian terms, and pass
             around the IS hessian
 
@@ -156,13 +176,14 @@ class ElectricDipole (mspdft.Gradients):
         conv, Lvec, bvec, Aop, Adiag = self.solve_lagrange (level_shift=level_shift, **kwargs)
         cput1 = lib.logger.timer (self, 'Lagrange gradient multiplier solution', *cput0)
 
-        ham_response = self.get_ham_response (**kwargs)
+        print('kernel',center)
+        ham_response = self.get_ham_response (center=center, **kwargs)
 
-        LdotJnuc = self.get_LdotJnuc (Lvec, **kwargs)
+        LdotJnuc = self.get_LdotJnuc (Lvec, center=center, **kwargs)
         
         mol_dip = ham_response + LdotJnuc
 
-        mol_dip = self.convert_dipole (ham_response, LdotJnuc, mol_dip, unit)
+        mol_dip = self.convert_dipole (ham_response, LdotJnuc, mol_dip, unit=unit)
         return mol_dip
 
     def convert_dipole (self, ham_response, LdotJnuc, mol_dip, unit='Debye'):
@@ -179,7 +200,7 @@ class ElectricDipole (mspdft.Gradients):
         return mol_dip
 
     def get_ham_response (self, si_bra=None, si_ket=None, state=None, atmlst=None, verbose=None, mo=None,
-                    ci=None, eris=None, si=None, **kwargs):
+                    ci=None, eris=None, si=None, center='Origin', **kwargs):
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
@@ -190,15 +211,15 @@ class ElectricDipole (mspdft.Gradients):
         fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci
-
+        print('get_ham_response',center)
         elec_term = sipdft_HellmanFeynman_dipole (fcasscf, si_bra=si_bra, si_ket=si_ket,
-         state=state, mo_coeff=mo, ci=ci, si=si)
+         state=state, mo_coeff=mo, ci=ci, si=si, center=center)
         nucl_term = nuclear_dipole(fcasscf)
         total = nucl_term + elec_term
         return total
 
     def get_LdotJnuc (self, Lvec, atmlst=None, verbose=None, mo=None,
-        ci=None, eris=None, **kwargs):
+        ci=None, eris=None, center='Origin', **kwargs):
         if atmlst is None: atmlst = self.atmlst
         if verbose is None: verbose = self.verbose
         if mo is None: mo = self.base.mo_coeff
@@ -224,7 +245,6 @@ class ElectricDipole (mspdft.Gradients):
         nocc  = ncore + ncas
         nelecas = mc.nelecas
     
-        mo_occ = mo_coeff[:,:nocc]
         mo_core = mo_coeff[:,:ncore]
         mo_cas = mo_coeff[:,ncore:nocc]
 
@@ -249,12 +269,9 @@ class ElectricDipole (mspdft.Gradients):
 
         # Expansion coefficients are already in Lagrange multipliers
         dm = dmL_core + dmL_cas + dm_cas_transit
-
-        #charges = mol.atom_charges()
-        #coords = mol.atom_coords()
-        #nuc_charge_center = numpy.einsum('z,zx->x', charges, coords) / charges.sum()
-        #with mol.set_common_orig_(nuc_charge_center)
-        with mol.with_common_orig((0,0,0)):
+        print('get_LdotJnuc',center)
+        coord = get_center_of_molecule(mol,center)
+        with mol.with_common_orig(coord):
             ao_dip = mol.intor_symmetric('int1e_r', comp=3)
         mol_dip_L = -np.einsum('xij,ji->x', ao_dip, dm).real
         
