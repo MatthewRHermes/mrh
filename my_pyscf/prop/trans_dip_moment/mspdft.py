@@ -4,6 +4,7 @@ import numpy as np
 from pyscf.data import nist
 from pyscf import lib
 from mrh.my_pyscf.prop.dip_moment import mspdft
+from mrh.my_pyscf.prop.dip_moment.mspdft import sipdft_HellmanFeynman_dipole
 from mrh.my_pyscf.grad.mspdft import mspdft_heff_response
 from mrh.my_pyscf.grad.mspdft import _unpack_state
 
@@ -27,20 +28,19 @@ class TransitionDipole (mspdft.ElectricDipole):
         log.note('Oscillator strength  : %9.5f', osc)
         return mol_dip
 
-    def get_bra_ket(self, state, si):
-        si_bra = si[:,state[1]]
-        si_ket = si[:,state[0]]
-        return si_bra, si_ket
-
-    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None,
+    def get_ham_response (self,  si_bra=None, si_ket=None, state=None, atmlst=None, verbose=None, mo=None,
                     ci=None, eris=None, si=None, **kwargs):
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
+        ket, bra = _unpack_state (state)
+        if si_bra is None: si_bra = si[:,bra]
+        if si_ket is None: si_ket = si[:,ket]
 
         fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci
-        elec_term = self.sipdft_HellmanFeynman_dipole (fcasscf, state=state, mo_coeff=mo, ci=ci, si=si)
+        elec_term = sipdft_HellmanFeynman_dipole (fcasscf, si_bra=si_bra, si_ket=si_ket,
+         state=state, mo_coeff=mo, ci=ci, si=si)
         return elec_term

@@ -16,10 +16,7 @@ from pyscf import lib
 from mrh.my_pyscf.grad import mcpdft
 from mrh.my_pyscf.grad import mspdft
 from pyscf.fci import direct_spin1
-
-def _unpack_state (state):
-    if hasattr (state, '__len__'): return state[0], state[1]
-    return state, state
+from mrh.my_pyscf.grad.mspdft import _unpack_state
 
 # TODO: state-average-mix generalization ?
 def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket): 
@@ -55,6 +52,54 @@ def make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket):
     si_diag = si_bra * si_ket
     casdm1 -= np.tensordot (si_diag, ddm1, axes=1)
     return casdm1
+
+def sipdft_HellmanFeynman_dipole (mc, si_bra=None, si_ket=None,
+        state=None, mo_coeff=None, ci=None, si=None):
+    if state is None: state = mc.state
+    if mo_coeff is None: mo_coeff = mc.mo_coeff
+    if ci is None: ci = mc.ci
+    if si is None: si = mc.si
+    if mc.frozen is not None:
+        raise NotImplementedError
+    t0 = (logger.process_clock (), logger.perf_counter ())
+
+    ket, bra = _unpack_state (state)
+    if si_bra is None: si_bra = mc.si[:,bra]
+    if si_ket is None: si_ket = mc.si[:,ket]
+    si_diag = si_bra * si_ket
+
+    mol     = mc.mol
+    ncore   = mc.ncore
+    ncas    = mc.ncas
+    nelecas = mc.nelecas
+    nocc    = ncore + ncas
+    mo_core = mo_coeff[:,:ncore]
+    mo_cas  = mo_coeff[:,ncore:nocc]
+
+    dm_core = np.dot(mo_core, mo_core.T) * 2
+
+    dm_diag=np.zeros_like(dm_core)
+    # Diagonal part
+    for i, (amp, c) in enumerate (zip (si_diag, ci)):
+        if not amp: continue
+        casdm1 = mc.fcisolver.make_rdm1(ci[i], ncas, nelecas)
+        dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
+        dm_i = dm_cas + dm_core
+        dm_diag += amp * dm_i
+    # Off-diagonal part
+    casdm1 = make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket)
+    dm_off = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
+
+    dm = dm_diag + dm_off
+
+    #charges = mol.atom_charges()
+    #coords = mol.atom_coords()
+    #nuc_charge_center = numpy.einsum('z,zx->x', charges, coords) / charges.sum()
+    #with mol.set_common_orig_(nuc_charge_center)
+    with mol.with_common_orig((0,0,0)):
+        ao_dip = mol.intor_symmetric('int1e_r', comp=3)
+    elec_term = -np.einsum('xij,ij->x', ao_dip, dm).real
+    return elec_term
 
 def nuclear_dipole(mc):
     '''Compute nuclear contribution to the dipole moment'''
@@ -133,69 +178,23 @@ class ElectricDipole (mspdft.Gradients):
         log.note('Permanent Dipole Moment  (%s) : %9.5f, %9.5f, %9.5f', unit, *mol_dip)
         return mol_dip
 
-    def get_bra_ket(self, state, si):
-        si_bra = si[:,state]
-        si_ket = si[:,state]
-        return si_bra, si_ket
-
-    def sipdft_HellmanFeynman_dipole (self, mc, state=None, mo_coeff=None, ci=None, si=None):
-        if state is None: state = mc.state
-        if mo_coeff is None: mo_coeff = mc.mo_coeff
-        if ci is None: ci = mc.ci
-        if si is None: si = mc.si
-        if mc.frozen is not None:
-            raise NotImplementedError
-        t0 = (logger.process_clock (), logger.perf_counter ())
-
-        si_bra, si_ket = self.get_bra_ket(state, si)
-        si_diag = si_bra * si_ket
-
-        mol     = mc.mol
-        ncore   = mc.ncore
-        ncas    = mc.ncas
-        nelecas = mc.nelecas
-        nocc    = ncore + ncas
-        mo_core = mo_coeff[:,:ncore]
-        mo_cas  = mo_coeff[:,ncore:nocc]
-
-        dm_core = np.dot(mo_core, mo_core.T) * 2
-
-        dm_diag=np.zeros_like(dm_core)
-        # Diagonal part
-        for i, (amp, c) in enumerate (zip (si_diag, ci)):
-            if not amp: continue
-            casdm1 = mc.fcisolver.make_rdm1(ci[i], ncas, nelecas)
-            dm_cas = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
-            dm_i = dm_cas + dm_core
-            dm_diag += amp * dm_i
-        # Off-diagonal part
-        casdm1 = make_rdm1_heff_offdiag (mc, ci, si_bra, si_ket)
-        dm_off = reduce(np.dot, (mo_cas, casdm1, mo_cas.T))
-
-        dm = dm_diag + dm_off
-
-        #charges = mol.atom_charges()
-        #coords = mol.atom_coords()
-        #nuc_charge_center = numpy.einsum('z,zx->x', charges, coords) / charges.sum()
-        #with mol.set_common_orig_(nuc_charge_center)
-        with mol.with_common_orig((0,0,0)):
-            ao_dip = mol.intor_symmetric('int1e_r', comp=3)
-        elec_term = -np.einsum('xij,ij->x', ao_dip, dm).real
-        return elec_term
-
-    def get_ham_response (self, state=None, atmlst=None, verbose=None, mo=None,
+    def get_ham_response (self, si_bra=None, si_ket=None, state=None, atmlst=None, verbose=None, mo=None,
                     ci=None, eris=None, si=None, **kwargs):
         if state is None: state = self.state
         if mo is None: mo = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
+        ket, bra = _unpack_state (state)
+        if si_bra is None: si_bra = si[:,bra]
+        if si_ket is None: si_ket = si[:,ket]
         fcasscf = self.make_fcasscf (state)
         fcasscf.mo_coeff = mo
         fcasscf.ci = ci
 
-        elec_term = self.sipdft_HellmanFeynman_dipole (fcasscf, state=state, mo_coeff=mo, ci=ci, si=si)
+        elec_term = sipdft_HellmanFeynman_dipole (fcasscf, si_bra=si_bra, si_ket=si_ket,
+         state=state, mo_coeff=mo, ci=ci, si=si)
         nucl_term = nuclear_dipole(fcasscf)
-        total = nucl_term - elec_term
+        total = nucl_term + elec_term
         return total
 
     def get_LdotJnuc (self, Lvec, atmlst=None, verbose=None, mo=None,
