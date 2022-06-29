@@ -1,5 +1,4 @@
 from pyscf.lib import logger
-from pyscf.mcscf import mc1step
 import numpy as np
 from pyscf.data import nist
 from pyscf import lib

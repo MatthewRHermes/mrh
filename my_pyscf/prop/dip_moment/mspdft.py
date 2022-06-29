@@ -65,7 +65,7 @@ class ElectricDipole (mspdft.Gradients):
         if si is None: si = self.base.si
         if isinstance (ci, np.ndarray): ci = [ci] # hack hack hack...
         if state is None:
-            raise NotImplementedError ('Gradient of PDFT state-average energy')
+            raise NotImplementedError ('Dipole of PDFT state-average energy')
         self.state = state # Not the best code hygiene maybe
         nroots = self.nroots
         veff1 = []
