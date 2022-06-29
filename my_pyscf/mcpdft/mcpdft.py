@@ -550,13 +550,12 @@ class _PDFT ():
     def nuc_grad_method (self):
         return self._state_average_nuc_grad_method (state=None)
 
-    def dip_moment (self, unit='Debye', state=0):
-        if isinstance (self, StateAverageMCSCFSolver):
-            # TODO: SA dipole moment unittests
-            logger.warn (self, "State-averaged dipole moments are UNTESTED!")
+    def dip_moment (self, unit='Debye', origin='Coord_Center', state=0):
         from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
+        if state!=0:
+            RuntimeError('Only ground electronic is allowed')
         dip_obj =  ElectricDipole(self) 
-        mol_dipole = dip_obj.kernel (state=state)
+        mol_dipole = dip_obj.kernel (state=state, unit=unit, origin=origin)
         return mol_dipole
 
     def get_energy_decomposition (self, mo_coeff=None, ci=None, ot=None,

@@ -499,6 +499,22 @@ class _MSPDFT (MultiStateMCPDFTSolver):
         from mrh.my_pyscf.grad.mspdft import Gradients
         return Gradients (self)
 
+    def dip_moment (self, unit='Debye', origin='Coord_Center', state=None):
+        from mrh.my_pyscf.prop.dip_moment.mspdft import ElectricDipole
+        if not isinstance(state, int):
+            raise RuntimeError ('Permanent dipole requires a single state')
+        dip_obj =  ElectricDipole(self)
+        mol_dipole = dip_obj.kernel (state=state, unit=unit, origin=origin)
+        return mol_dipole
+
+    def trans_moment (self, unit='Debye', origin='Coord_Center', state=None):
+        from mrh.my_pyscf.prop.trans_dip_moment.mspdft import TransitionDipole
+        if not isinstance(state, list) or len(state)!=2:
+            raise RuntimeError ('Transition dipole requires two states')
+        tran_dip_obj = TransitionDipole(self)
+        mol_trans_dipole = tran_dip_obj.kernel (state=state, unit=unit, origin=origin)
+        return mol_trans_dipole
+
 def get_diabfns (obj):
     '''Interpret the name of the MS-PDFT method as a pair of functions
     which optimize the intermediate states and calculate the power
