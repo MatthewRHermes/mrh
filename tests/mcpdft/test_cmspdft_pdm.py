@@ -20,24 +20,19 @@ H        0.000000000     -3.062658055     -1.175803180
 H        0.000000000     -1.688293885      1.206105691
 H        0.000000000      1.250242874     -1.655874372
 '''
-def get_h2o():
+mol_h2o = gto.M(atom = geom_h2o, basis = '6-31g', symmetry='c2v', output='/dev/null', verbose=0)
+mol_furan_cation = gto.M(atom = geom_furan, basis = 'sto-3g', charge=1, spin=1, symmetry=False, output='/dev/null', verbose=0)
+
+def get_h2o(mol):
     weights = [1/3]*3
-    mol = gto.M(atom = geom_h2o, basis = '6-31g',
-             symmetry='c2v', output='/dev/null', verbose=0)
     mf = scf.RHF(mol).run()
-    mc = mcscf.CASSCF(mf, 4,4)
-    mc = mc.state_average_(weights)
-    mc.kernel(mf.mo_coeff)
+    mc = mcpdft.CASSCF(mf,'tPBE', 4, 4, grids_level=1)
+    mc = mc.multi_state(weights = weights)
+    mc.kernel()
+    return mc
 
-    mcms = mcpdft.CASSCF(mf,'tPBE', 4, 4, grids_level=1)
-    mcms = mcms.multi_state(weights = weights)
-    mcms.kernel(mc.mo_coeff, mc.ci)
-    return mcms
-
-def get_furan_cation(iroots=3):# A2,B2, and A2 states
+def get_furan_cation(mol,iroots=3):# A2,B2, and A2 states
     weights = [1/iroots]*iroots
-    mol = gto.M(atom = geom_furan, basis = 'sto-3g', charge=1, spin=1,
-             symmetry=False, output='/dev/null', verbose=0)
     mf = scf.RHF(mol).run()
     mc = mcpdft.CASSCF(mf,'tBLYP', 5, 5, grids_level=1)
     mc.fcisolver = csf_solver(mol, smult=2)
@@ -47,6 +42,12 @@ def get_furan_cation(iroots=3):# A2,B2, and A2 states
     mc.kernel(mo)
     return mc
 
+def tearDownModule():
+    global mol_h2o, mol_furan_cation
+    mol_h2o.stdout.close ()
+    mol_furan_cation.stdout.close ()
+    del mol_h2o, mol_furan_cation
+
 class KnownValues(unittest.TestCase):
     
     def test_h2o_cms3_tpbe_631g(self):
@@ -55,12 +56,13 @@ class KnownValues(unittest.TestCase):
             [  5.64381079e-16,-5.49340995e-01,1.50676478e-16],
             [  1.46930730e-09,-1.30914327e-01,1.16235053e-11]])
 
-        mc = get_h2o()
+        mc = get_h2o(mol_h2o)
         for i in range(3):
             with self.subTest (i=i):
                 dm_test = mc.dip_moment(unit='Debye', origin="Coord_center",state=i)
                 for dmt,dmr in zip(dm_test,dm_ref[i]):
                     self.assertAlmostEqual(dmt,dmr)
+        mc.stdout.close()
         
     def test_furan_cation_cms3_tblyp_sto3g(self):
         dm_ref = np.array(\
@@ -69,7 +71,7 @@ class KnownValues(unittest.TestCase):
             [ 1.64503146e-15, -3.95041004e-01, -4.05738740e-01]])
 
         iroots=3
-        mc = get_furan_cation(iroots)
+        mc = get_furan_cation(mol_furan_cation, iroots)
         for i in range(iroots):
             with self.subTest (i=i):
                 dm_test = mc.dip_moment(unit='Debye', origin="charge_center",state=i)
