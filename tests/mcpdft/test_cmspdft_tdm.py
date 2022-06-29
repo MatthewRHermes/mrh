@@ -58,7 +58,10 @@ class KnownValues(unittest.TestCase):
                     tdm_test = mc.trans_moment(\
                         unit='Debye', origin="mass_center",state=[i,j])
                     for tdmt,tdmr in zip(tdm_test,tdm_ref[k]):
-                        self.assertAlmostEqual(tdmt,tdmr)
+                        try:
+                            self.assertAlmostEqual(tdmt,tdmr)
+                        except:
+                            self.assertAlmostEqual(-tdmt,tdmr)
                 k += 1
 
     def test_furan_cation_cms2_tblyp_sto3g(self):
@@ -76,7 +79,10 @@ class KnownValues(unittest.TestCase):
                     tdm_test = mc.trans_moment(\
                         unit='AU', origin="Charge_center",state=[i,j])
                     for tdmt,tdmr in zip(tdm_test,tdm_ref[k]):
-                        self.assertAlmostEqual(tdmt,tdmr)
+                        try:
+                            self.assertAlmostEqual(tdmt,tdmr)
+                        except:
+                            self.assertAlmostEqual(-tdmt,tdmr)
                 k += 1  
 
 if __name__ == "__main__":
