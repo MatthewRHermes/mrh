@@ -367,7 +367,14 @@ class LSTDMint1 (object):
         return t0
 
 class LSTDMint2 (object):
-    ''' Intermediate-storage convenience object for second pass of LAS-state tdm12s calculations
+    ''' Parent class for Hamiltonian/spin/overlap matrix and reduced density matrix crunching.
+        The initializer categorizes all possible interactions among a set of LAS states as
+        "null" (no electrons move), "1c" (one charge unit hops), "1s" (one spin hops), "1s1c",
+        and "2c". TODO: add ms-breaking interactions from spin-orbit coupling.
+        The heart of the class is "_crunch_all_", which iterates over all listed interactions,
+        builds the corresponding transition density matrices, and passes them into the "_put_D1_"
+        and "_put_D2_" methods, which are overwritten in child classes to make the operator or
+        reduced density matrices as appropriate.
         Subclass the __init__, __??t_D?_, __add_transpose__, and kernel methods to do various
         different things which rely on LAS-state tdm12s as intermediates without cacheing the whole
         things (i.e. operators or DMs in different basis)'''
@@ -378,9 +385,17 @@ class LSTDMint2 (object):
         self.nlas = nlas
         self.norb = sum (nlas)
         self.hopping_index = hopping_index
-        self.nfrags, _, self.nroots, _ = hopping_index.shape
+        self.nfrags, _, self.nroots, _ = nfrags, _, nroots, _ = hopping_index.shape
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
+
+        # The primary index arrays
+        self.exc_null = np.empty ((0,2), dtype=int)
+        self.exc_1c = np.empty ((0,5), dtype=int)
+        self.exc_1s = np.empty ((0,4), dtype=int)
+        self.exc_1s1c = np.empty ((0,5), dtype=int)
+        self.exc_2c = np.empty ((0,7), dtype=int)
+
         # Process connectivity data to quickly distinguish interactions
 
         # Should probably be all == true anyway if I call this by symmetry blocks
@@ -403,40 +418,87 @@ class LSTDMint2 (object):
         ncharge_index = np.count_nonzero (charge_index, axis=0) # change in charge
         nspin_index = np.count_nonzero (spin_index, axis=0) # change in spin
 
-        # Provided one only looks at symmetry-allowed interactions of order 1 or 2
         findf = np.argsort ((3*hopping_index[:,0]) + hopping_index[:,1], axis=0, kind='stable')
-        # The above puts the source of either charge or spin at the bottom and the destination at the top
-        # Because at most 2 des/creation ops are involved, the factor of 3 sets up the order
-        # a'b'ba without creating confusion between spin and charge degrees of freedom
-        # The 'stable' sort keeps relative order -> sign convention!
+        # This is an array of shape (nfrags, nroots, nroots) such that findf[:,i,j]
+        # is list of fragment indices sorted first by the number of spin-up electrons
+        # gained (>0) or lost (<0), and then by the number of spin-down electrons gained
+        # or lost in the interaction between states "i" and "j". Because at most 2
+        # des/creation ops are involved, the factor of 3 sets up the order a'b'ba without
+        # creating confusion between spin and charge of freedom. The 'stable' sort keeps
+        # relative order -> sign convention!
+        #
+        # Throughout the below, we use element-wise logical operators to generate mask
+        # index arrays addressing elements of the last two dimensions of "findf" that
+        # are consistent with a state interaction of a specific type. We then use the
+        # fragment index lists thus specified to identify the source and destination
+        # fragments of the charge or spin units that are transferred in that interaction,
+        # and store those fragment indices along with the state indices.
+
+
+        # Zero-electron interactions
         tril_index = np.zeros_like (conserv_index)
         tril_index[np.tril_indices (self.nroots,k=-1)] = True
         idx = conserv_index & tril_index & (nop == 0)
         self.exc_null = np.vstack (list (np.where (idx))).T
+ 
+        # One-electron interactions
         idx = conserv_index & (nop == 2) & tril_index
-        self.exc_1c = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], ispin[idx]]).T
+        if nfrags > 1: self.exc_1c = np.vstack (
+            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], ispin[idx]]
+        ).T
+
+        # Unsymmetric two-electron interactions: full square
         idx_2e = conserv_index & (nop == 4)
-        # Do splits first since splits (as opposed to coalescence) might be in triu corner
+
+        # Two-electron interaction: ii -> jk ("split").
         idx = idx_2e & (ncharge_index == 3) & (np.amin (charge_index, axis=0) == -2)
-        exc_split = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[0][idx], ispin[idx]]).T
-        # Also do conga-line (b: j->k ; a: k->i) in full space so that we can always use <sm> as opposed to <sp>
-        idx = idx_2e & (nspin_index == 3) & (ncharge_index == 2) & (np.amin (spin_index, axis=0) == -2)
-        self.exc_1s1c = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]).T
-        # Now restrict to tril corner
+        if nfrags > 2: exc_split = np.vstack (
+            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[0][idx],
+            ispin[idx]]
+        ).T
+
+        # Two-electron interaction: k(a)j(b) -> i(a)k(b) ("1s1c")
+        idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amin(spin_index,axis=0)==-2)
+        if nfrags > 2: self.exc_1s1c = np.vstack (
+            list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]
+        ).T
+
+        # Symmetric two-electron interactions: lower triangle only
         idx_2e = idx_2e & tril_index
+
+        # Two-electron interaction: i(a)j(b) -> j(a)i(b) ("1s") 
         idx = idx_2e & (ncharge_index == 0) & (nspin_index == 2)
-        self.exc_1s = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]).T
+        if nfrags > 1: self.exc_1s = np.vstack (
+            list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]
+        ).T
+
+        # Two-electron interaction: ii -> jj ("pair") 
         idx = idx_2e & (ncharge_index == 2) & (nspin_index < 3)
-        exc_pair = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[0][idx], ispin[idx]]).T
+        if nfrags > 1: exc_pair = np.vstack (
+            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-1][idx], findf[0][idx],
+            ispin[idx]]
+        ).T
+
+        # Two-electron interaction: ij -> kl ("scatter")
         idx = idx_2e & (ncharge_index == 4)
-        exc_scatter = np.vstack (list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], ispin[idx]]).T
-        # combine all two-charge interactions
-        self.exc_2c = np.vstack ((exc_pair, exc_split, exc_scatter))
+        if nfrags > 3: exc_scatter = np.vstack (
+            list (np.where (idx)) + [findf[-1][idx], findf[0][idx], findf[-2][idx], findf[1][idx], 
+            ispin[idx]]
+        ).T
+
+        # Combine "split", "pair", and "scatter" into "2c"
+        if nfrags > 1: self.exc_2c = exc_pair
+        if nfrags > 2: self.exc_2c = np.vstack ((self.exc_2c, exc_split))
+        if nfrags > 3: self.exc_2c = np.vstack ((self.exc_2c, exc_scatter))
+
         # overlap tensor
         self.ovlp = np.stack ([i.ovlp for i in ints], axis=-1)
+
         # spin-shuffle sign vector
-        self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints] for ket in range (self.nroots)]).transpose (0,2,1)
-        self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1]) for nelec_sf in self.nelec_rf]
+        self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
+                                     for ket in range (self.nroots)]).transpose (0,2,1)
+        self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
+                             for nelec_sf in self.nelec_rf]
         self.nelec_rf = self.nelec_rf.sum (1)
 
     def get_range (self, i):
