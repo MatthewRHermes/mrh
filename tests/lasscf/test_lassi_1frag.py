@@ -7,17 +7,18 @@ from mrh.my_pyscf.fci import csf_solver
 from me2n2_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
-r_nn = 3.0
-mol = struct (3.0, '6-31g')
-mol.output = '/dev/null'
-mol.verbose = lib.logger.DEBUG
-mol.build ()
-mf = scf.RHF (mol).run ()
-
-mc_ss = mcscf.CASSCF (mf, 4, 4).run ()
-mc_sa = state_average_mix (mcscf.CASSCF (mf, 4, 4),
-    [csf_solver (mol, smult=m2+1).set (spin=m2) for m2 in (0,2)],
-    [0.5, 0.5]).run ()
+def setUpModule():
+   global mol, mf, mc_ss, mc_sa
+   r_nn = 3.0
+   mol = struct (3.0, '6-31g')
+   mol.output = '/dev/null'
+   mol.verbose = lib.logger.DEBUG
+   mol.build ()
+   mf = scf.RHF (mol).run ()
+   mc_ss = mcscf.CASSCF (mf, 4, 4).run ()
+   mc_sa = state_average_mix (mcscf.CASSCF (mf, 4, 4),
+       [csf_solver (mol, smult=m2+1).set (spin=m2) for m2 in (0,2)],
+       [0.5, 0.5]).run ()
 
 def tearDownModule():
     global mol, mf, mc_ss, mc_sa
