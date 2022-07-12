@@ -297,27 +297,25 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             drhoj = lib.dot (int3c.transpose (0,2,1).reshape (3*(p1-p0), -1),
                 dm_tril.T).reshape (3, p1-p0, -1) # xpij,mij->xpm
             vjaux[:,:,:,p0:p1] = lib.einsum ('xpm,np->mnxp', drhoj, rhoj[:,p0:p1])
-            t2 = logger.timer_debug1 (mf_grad, "df grad einsum rho_P (P'|mn) D_mn = v_P", *t2)
-            tmp = [numpy.empty ((3, p1-p0, nocc_i, nao), dtype=orbor_stack.dtype) for nocc_i in nocc]
-            assert (orbor_stack.flags.f_contiguous), '{} {}'.format (orbor_stack.shape, orbor_stack.strides)
-            for orb, buf, nocc_i in zip (orbol, tmp, nocc):
+            t2 = logger.timer_debug1 (mf_grad, "df grad vj aux (P'|mn) eval", *t2)
+            for i in range (nset):
+                assert (orbol[i].flags.f_contiguous), '{} {}'.format (orbol[i].shape, orbol[i].strides)
+                buf = numpy.empty ((3, p1-p0, nocc[i], nao), dtype=orbol[i].dtype) 
                 fdrv(ftrans, fmmm, # gPmn u_ni -> gPim
                      buf.ctypes.data_as(ctypes.c_void_p),
                      int3c.ctypes.data_as(ctypes.c_void_p),
-                     orb.ctypes.data_as(ctypes.c_void_p),
+                     orbol[i].ctypes.data_as(ctypes.c_void_p),
                      ctypes.c_int (3*(p1-p0)), ctypes.c_int (nao),
-                     (ctypes.c_int*4)(0, nocc_i, 0, nao),
+                     (ctypes.c_int*4)(0, nocc[i], 0, nao),
                      null, ctypes.c_int(0))
-            int3c = [[lib.dot (buf.reshape (-1, nao), orb).reshape (3, p1-p0, ni, nj)
-                for orb, nj in zip (orbor, nocc)]
-                for buf, ni in zip (tmp, nocc)] # pim,mj,j -> pij
-            t2 = logger.timer_debug1 (mf_grad, "df grad einsum (P'|mn) u_mi u_nj N_j = v_Pmn", *t2)
-            for i, j in product (range (nset), repeat=2):
-                k = (i*nset) + j
-                tmp = rhok_oo[k][p0:p1]
-                ni, nj = nocc[i], nocc[j]
-                vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c[i][j], tmp)
-                t2 = logger.timer_debug1 (mf_grad, "df grad einsum d_Pij v_Pij = v_P", *t2)
+                for j in range (nset): # pim,mj,j -> pij
+                    assert (orbor[j].flags.f_contiguous), '{} {}'.format (orbor[j].shape, orbor[j].strides)
+                    int3c_ij = lib.dot (buf.reshape (-1, nao), orbor[j])
+                    int3c_ij = int3c_ij.reshape (3, p1-p0, nocc[i], nocc[j])
+                    rhok_oo_ij = rhok_oo[(i*nset)+j][p0:p1]
+                    vkaux[i,j,:,p0:p1] += lib.einsum('xpij,pij->xp', int3c_ij,
+                                                     rhok_oo_ij)
+            t2 = logger.timer_debug1 (mf_grad, "df grad vk aux (P'|mn) eval", *t2)
         int3c = tmp = None
         t1 = logger.timer_debug1 (mf_grad, "df grad vj and vk aux (P'|mn) eval", *t1)
 
