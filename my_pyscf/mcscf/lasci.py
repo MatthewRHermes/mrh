@@ -1387,6 +1387,8 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
 class LASCINoSymm (casci.CASCI):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, **kwargs):
+        if isinstance(ncas,int):
+            ncas = [ncas]
         ncas_tot = sum (ncas)
         nel_tot = [0, 0]
         new_nelecas = []
@@ -1413,8 +1415,11 @@ class LASCINoSymm (casci.CASCI):
         keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub', 'conv_tol_grad', 'conv_tol_self', 'max_cycle_macro', 'max_cycle_micro', 'ah_level_shift'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
-        for smult, nel in zip (spin_sub, self.nelecas_sub):
-            self.fciboxes.append (self._init_fcibox (smult, nel)) 
+        if isinstance(spin_sub,int):
+            self.fciboxes.append(self._init_fcibox(spin_sub,self.nelecas_sub[0]))
+        else:
+            for smult, nel in zip (spin_sub, self.nelecas_sub):
+                self.fciboxes.append (self._init_fcibox (smult, nel)) 
         self.nroots = 1
         self.weights = [1.0]
         self.e_states = [0.0]
