@@ -1387,9 +1387,9 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
 class LASCINoSymm (casci.CASCI):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, **kwargs):
-        ncas_tot = sum (ncas)
         if isinstance(ncas,int):
             ncas = [ncas]
+        ncas_tot = sum (ncas)
         nel_tot = [0, 0]
         new_nelecas = []
         for ix, nel in enumerate (nelecas):
