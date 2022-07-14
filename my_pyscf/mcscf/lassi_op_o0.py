@@ -8,6 +8,7 @@ from pyscf.fci.spin_op import contract_ss
 from itertools import combinations
 
 def memcheck (las, ci):
+    '''Check if the system has enough memory to run these functions!'''
     nfrags = len (ci)
     nroots = len (ci[0])
     assert (all ([len (c) == nroots for c in ci]))
@@ -21,13 +22,16 @@ def memcheck (las, ci):
     return mem < max_memory
 
 def addr_outer_product (norb_f, nelec_f):
+    '''Build index arrays for reshaping a direct product of LAS CI
+    vectors into the appropriate orbital ordering for a CAS CI vector'''
     norb = sum (norb_f)
     nelec = sum (nelec_f)
     # Must skip over cases where there are no electrons of a specific spin in a particular subspace
     norbrange = np.cumsum (norb_f)
     addrs = []
     for i in range (0, len (norbrange)):
-        new_addrs = cistring.sub_addrs (norb, nelec, range (norbrange[i]-norb_f[i], norbrange[i]), nelec_f[i]) if nelec_f[i] else []
+        irange = range (norbrange[i]-norb_f[i], norbrange[i])
+        new_addrs = cistring.sub_addrs (norb, nelec, irange, nelec_f[i]) if nelec_f[i] else []
         if len (addrs) == 0:
             addrs = new_addrs
         elif len (new_addrs) > 0:
@@ -36,11 +40,18 @@ def addr_outer_product (norb_f, nelec_f):
     return addrs
 
 def _ci_outer_product (ci_f, norb_f, nelec_f):
-    # There may be an ambiguous factor of -1, but it should apply to the entire product CI vector so maybe it doesn't matter?
+    '''Compute ONE outer-product CI vector from fragment LAS CI vectors.
+    See "ci_outer_product"'''
+    # The two steps here are:
+    #   1. Multiply the CI vectors together using np.multiply.outer, and
+    #   2. Reshape and transpose the product so that the orbitals appear
+    #      in the correct order.
+    # There may be an ambiguous factor of -1, but it should apply to the
+    # entire product CI vector so maybe it doesn't matter?
     neleca_f = [ne[0] for ne in nelec_f]
     nelecb_f = [ne[1] for ne in nelec_f]
-    ndet_f = [(cistring.num_strings (norb, neleca), cistring.num_strings (norb, nelecb)) for norb, neleca, nelecb
-        in zip (norb_f, neleca_f, nelecb_f)]
+    ndet_f = [(cistring.num_strings (norb, neleca), cistring.num_strings (norb, nelecb))
+              for norb, neleca, nelecb in zip (norb_f, neleca_f, nelecb_f)]
     ci_dp = ci_f[-1].copy ().reshape (ndet_f[-1])
     for ci_r, ndet in zip (ci_f[-2::-1], ndet_f[-2::-1]):
         ndeta, ndetb = ci_dp.shape
@@ -59,6 +70,28 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
     return ci
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):
+    '''Compute outer-product CI vectors from fragment LAS CI vectors.
+    TODO: extend to accomodate states o different ms being addressed
+    together. I think the only thing this entails is turning "nelec"
+    into a list of length (nroots)
+
+    Args:
+        ci_fr : nested list of shape (nfrags, nroots)
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (ndeta[i,j],ndetb[i,j])
+        norb_f : list of length (nfrags)
+            Number of orbitals in each fragment
+        nelec_fr : ndarray-like of shape (nfrags, nroots, 2)
+            Number of spin-up and spin-down electrons in each fragment
+            and root
+
+    Returns:
+        ci_r : list of length (nroots)
+            Contains full CAS CI vector
+        nelec : tuple of length 2
+            (neleca, nelecb) for this batch of states
+    '''
+
     ci_r = []
     for state in range (len (ci_fr[0])):
         ci_f = [ci[state] for ci in ci_fr]
@@ -66,13 +99,55 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
         ci_r.append (_ci_outer_product (ci_f, norb_f, nelec_f))
     nelec = (sum ([ne[0] for ne in nelec_f]),
              sum ([ne[1] for ne in nelec_f]))
+    # NOTE: this ASSUMES that the (neleca, nelecb) tuple for the LAST
+    # state in this list is accurate for ALL the states in this list
     return ci_r, nelec
 
 def ham (las, h1, h2, ci_fr, idx_root, orbsym=None, wfnsym=None):
+    '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
+    TODO: extend to accomodate states of different ms being addressed
+    together, and then spin-orbit coupling.
+
+    Args:
+        las : instance of class LASSCF
+        h1 : ndarray of shape (ncas, ncas)
+            Spin-orbit-free one-body CAS Hamiltonian
+        h2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            Spin-orbit-free two-body CAS Hamiltonian
+        ci_fr : nested list of shape (nfrags, count_nonzero (idx_root))
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (ndeta[i,j],ndetb[i,j])
+        idx_root : mask index array of shape (las.nroots)
+            Maps the states included in ci_fr to the states in "las"
+
+    Kwargs:
+        orbsym : list of int of length (ncas)
+            Irrep ID for each orbital
+        wfnsym : int
+            Irrep ID for target matrix block
+
+    Returns:
+        ham_eff : square ndarray of length (count_nonzero (idx_root))
+            Spin-orbit-free Hamiltonian in state-interaction basis
+        s2_eff : square ndarray of length (count_nonzero (idx_root))
+            S2 operator matrix in state-interaction basis
+        ovlp_eff : square ndarray of length (count_nonzero (idx_root))
+            Overlap matrix in state-interaction basis
+    '''
     mol = las.mol
     norb_f = las.ncas_sub
-    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
+                 for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
+                for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+
+    # The function below is the main workhorse of this whole implementation
     ci, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
+
+    # TODO: extend to spin-orbit coupling case. The operator-vector
+    # product functions "contract_2e" and "contract_ss" are specific to
+    # a single ms=nelec[0]-nelec[1] value, and the shapes and sizes of
+    # CI vectors with different ms are different. How does FCI-SISO deal
+    # with that?
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     norb = sum (norb_f)
     h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
@@ -84,9 +159,36 @@ def ham (las, h1, h2, ci_fr, idx_root, orbsym=None, wfnsym=None):
     return ham_eff, s2_eff, ovlp_eff
 
 def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
+    '''Build LAS state interaction transition density matrices
+    TODO: extend to accomodate states of different ms being addressed
+    together, and then spin-orbit coupling.
+
+    Args:
+        las : instance of class LASSCF
+        ci_fr : nested list of shape (nfrags, count_nonzero (idx_root))
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (ndeta[i,j],ndetb[i,j])
+        idx_root : mask index array of shape (las.nroots)
+            Maps the states included in ci_fr to the states in "las"
+            (Below, "nroots" means "count_nonzero (idx_root)")
+
+    Kwargs:
+        orbsym : list of int of length (ncas)
+            Irrep ID for each orbital
+        wfnsym : int
+            Irrep ID for target matrix block
+
+    Returns:
+        stdm1s : ndarray of shape (nroots, nroots, 2, ncas, ncas)
+            One-body transition density matrices between LAS states
+        stdm2s : ndarray of shape [nroots,]*2 + [2,ncas,ncas,]*2
+            Two-body transition density matrices between LAS states
+    '''
     mol = las.mol
     norb_f = las.ncas_sub
-    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
+                 for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
+                for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
     norb = sum (norb_f) 
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
@@ -118,9 +220,40 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
     return stdm1s, stdm2s 
 
 def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
+    '''Build LAS state interaction reduced density matrices for final
+    LASSI eigenstates.
+    TODO: extend to accomodate states of different ms being addressed
+    together, and then spin-orbit coupling.
+
+    Args:
+        las : instance of class LASSCF
+        ci_fr : nested list of shape (nfrags, count_nonzero (idx_root))
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (ndeta[i,j],ndetb[i,j])
+        idx_root : mask index array of shape (las.nroots)
+            Maps the states included in ci_fr to the states in "las"
+            (Below, "nroots" means "count_nonzero (idx_root)")
+        si : ndarray of shape (nroots, nroots)
+            Unitary matrix defining final LASSI states in terms of
+            non-interacting LAS states
+
+    Kwargs:
+        orbsym : list of int of length (ncas)
+            Irrep ID for each orbital
+        wfnsym : int
+            Irrep ID for target matrix block
+
+    Returns:
+        rdm1s : ndarray of length (nroots, 2, ncas, ncas)
+            One-body transition density matrices between LAS states
+        rdm2s : ndarray of length (nroots, 2, ncas, ncas, 2, ncas, ncas)
+            Two-body transition density matrices between LAS states
+    '''
     mol = las.mol
     norb_f = las.ncas_sub
-    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
+                 for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
+                for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
     norb = sum (norb_f)
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
