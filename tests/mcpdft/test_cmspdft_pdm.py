@@ -20,18 +20,23 @@ H        0.000000000     -3.062658055     -1.175803180
 H        0.000000000     -1.688293885      1.206105691
 H        0.000000000      1.250242874     -1.655874372
 '''
-mol_h2o = gto.M(atom = geom_h2o, basis = '6-31g', symmetry='c2v', output='/dev/null', verbose=0)
+mol_h2o = gto.M(atom = geom_h2o, basis = 'aug-cc-pVDZ', symmetry='c2v', output='/dev/null', verbose=0)
 mol_furan_cation = gto.M(atom = geom_furan, basis = 'sto-3g', charge=1, spin=1, symmetry=False, output='/dev/null', verbose=0)
 
-def get_h2o(mol):
-    weights = [1/3]*3
+# Three singlets all of A1 symmetry
+def get_h2o(mol,iroots=3): 
+    weights = [1/iroots]*iroots
     mf = scf.RHF(mol).run()
     mc = mcpdft.CASSCF(mf,'tPBE', 4, 4, grids_level=1)
-    mc = mc.multi_state(weights = weights)
-    mc.kernel()
+    mc.fcisolver = csf_solver(mol, smult=1, symm='A1')
+    mc = mc.multi_state(weights)
+    mo = mcscf.sort_mo(mc, mf.mo_coeff, [4,5,8,9])
+    mc.conv_tol = 1e-11
+    mc.kernel(mo)
     return mc
 
-def get_furan_cation(mol,iroots=3):# A2,B2, and A2 states
+# Three doublets of A2, B2, and A2 symmetries
+def get_furan_cation(mol,iroots=3):
     weights = [1/iroots]*iroots
     mf = scf.RHF(mol).run()
     mc = mcpdft.CASSCF(mf,'tBLYP', 5, 5, grids_level=1)
@@ -39,6 +44,7 @@ def get_furan_cation(mol,iroots=3):# A2,B2, and A2 states
     mc = mc.multi_state(weights, 'cms')
     mc.max_cycle_macro = 200
     mo = mcscf.sort_mo(mc, mf.mo_coeff, [12,17,18,19,20])
+    mc.conv_tol = 1e-11
     mc.kernel(mo)
     return mc
 
@@ -52,23 +58,29 @@ class KnownValues(unittest.TestCase):
     
     def test_h2o_cms3_tpbe_631g(self):
         dm_ref = np.array(\
-            [[-1.26839490e-09,2.34877543e+00,-2.57099161e-11],
-            [  5.64381079e-16,-5.49340995e-01,1.50676478e-16],
-            [  1.46930730e-09,-1.30914327e-01,1.16235053e-11]])
+            [[0.0000, 1.5991, 0.0000],
+            [ 0.0000,-0.2234, 0.0000],
+            [ 0.0000, 3.7302, 0.0000]])
+        delta = 0.001
+        message = "Dipoles are not equal within {} D".format(delta)
 
-        mc = get_h2o(mol_h2o)
+        iroots=3
+        mc = get_h2o(mol_h2o, iroots)
         for i in range(3):
             with self.subTest (i=i):
                 dm_test = mc.dip_moment(unit='Debye', origin="Coord_center",state=i)
                 for dmt,dmr in zip(dm_test,dm_ref[i]):
-                    self.assertAlmostEqual(dmt,dmr)
+                    self.assertAlmostEqual(dmt, dmr, None, message, delta)
         mc.stdout.close()
         
     def test_furan_cation_cms3_tblyp_sto3g(self):
+        # Numerical ref from this software using 2-point central difference formula
         dm_ref = np.array(\
-            [[1.53083932e-15, -1.01474042e+00, -1.04204761e+00],
-            [ 1.04025912e-15, -1.10039329e+00, -1.12987135e+00],
-            [ 1.64503146e-15, -3.95041004e-01, -4.05738740e-01]])
+            [[0.0000, -1.0146, -1.0418],
+            [ 0.0000, -1.1001, -1.1296],
+            [ 0.0000, -0.3954, -0.4061]])
+        delta = 0.001
+        message = "Dipoles are not equal within {} D".format(delta)
 
         iroots=3
         mc = get_furan_cation(mol_furan_cation, iroots)
@@ -76,7 +88,7 @@ class KnownValues(unittest.TestCase):
             with self.subTest (i=i):
                 dm_test = mc.dip_moment(unit='Debye', origin="charge_center",state=i)
                 for dmt,dmr in zip(dm_test,dm_ref[i]):
-                    self.assertAlmostEqual(dmt,dmr)
+                    self.assertAlmostEqual(dmt, dmr, None, message, delta)
 
 if __name__ == "__main__":
     print("Test for CMS-PDFT permanent dipole moments")

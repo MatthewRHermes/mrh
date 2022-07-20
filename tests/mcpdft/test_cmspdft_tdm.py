@@ -15,6 +15,7 @@ H        0.000000000     -3.062658055     -1.175803180
 H        0.000000000     -1.688293885      1.206105691
 H        0.000000000      1.250242874     -1.655874372
 '''
+# Three doublets of A1 symmetry
 def get_furan(iroots=3):
     weights = [1/iroots]*iroots
     mol = gto.M(atom = geom_furan, basis = 'sto-3g',
@@ -25,19 +26,22 @@ def get_furan(iroots=3):
     mc = mc.multi_state(weights, 'cms')
     mc.max_cycle_macro = 200
     mo = mcscf.sort_mo(mc, mf.mo_coeff, [12,17,18,19,20])
+    mc.conv_tol = 1e-11
     mc.kernel(mo)
     return mc
 
-def get_furan_cation(iroots=3):
+# Two doublets of A2 symmetry
+def get_furan_cation(iroots=2):
     weights = [1/iroots]*iroots
     mol = gto.M(atom = geom_furan, basis = 'sto-3g', charge=1, spin=1,
-             symmetry=False, output='/dev/null', verbose=0)
+             symmetry='C2v', output='/dev/null', verbose=0)
     mf = scf.RHF(mol).run()
     mc = mcpdft.CASSCF(mf,'tBLYP', 5, 5, grids_level=1)
-    mc.fcisolver = csf_solver(mol, smult=2)
+    mc.fcisolver = csf_solver(mol, smult=2, symm='A2')
     mc = mc.multi_state(weights, 'cms')
     mc.max_cycle_macro = 200
     mo = mcscf.sort_mo(mc, mf.mo_coeff, [12,17,18,19,20])
+    mc.conv_tol = 1e-11
     mc.kernel(mo)
     return mc
 
@@ -45,9 +49,11 @@ class KnownValues(unittest.TestCase):
     
     def test_furan_cms3_tpbe_sto3g(self):
         tdm_ref = np.array(\
-        [[-9.69627146e-18, -2.04665383e-01, -2.10140092e-01],
-        [ -1.18108406e-17, -6.83355318e-01, -7.01634766e-01],
-        [ -1.03002864e-17, -7.03590398e-01, -7.22411131e-01]])
+        [[0.0000, -0.2049, -0.2104],
+        [ 0.0000, -0.6832, -0.7015],
+        [ 0.0000, -0.7035, -0.7223]])
+        delta = 0.001
+        message = "Transition dipoles are not equal within {} D".format(delta)
 
         iroots=3
         k=0
@@ -59,18 +65,18 @@ class KnownValues(unittest.TestCase):
                         unit='Debye', origin="mass_center",state=[i,j])
                     for tdmt,tdmr in zip(tdm_test,tdm_ref[k]):
                         try:
-                            self.assertAlmostEqual(tdmt,tdmr)
+                            self.assertAlmostEqual(tdmt, tdmr, None, message, delta)
                         except:
-                            self.assertAlmostEqual(-tdmt,tdmr)
+                            self.assertAlmostEqual(-tdmt, tdmr, None, message, delta )
                 k += 1
 
     def test_furan_cation_cms2_tblyp_sto3g(self):
         tdm_ref = np.array(\
-        [[-3.99323562e-17,  3.58096881e-01, -3.48749335e-01],
-        [  1.10330560e-16, -3.42447674e-01,  3.33516674e-01],
-        [ -1.41464772e-16,  1.84049078e-01,  1.88940159e-01]])
+        [[0.0000,  -0.0742, -0.0762]])
+        delta = 0.001
+        message = "Transition dipoles are not equal within {} D".format(delta)
 
-        iroots=3
+        iroots=2
         k=0
         mc = get_furan_cation(iroots)
         for i in range(iroots):
@@ -80,9 +86,9 @@ class KnownValues(unittest.TestCase):
                         unit='AU', origin="Charge_center",state=[i,j])
                     for tdmt,tdmr in zip(tdm_test,tdm_ref[k]):
                         try:
-                            self.assertAlmostEqual(tdmt,tdmr)
+                            self.assertAlmostEqual(tdmt, tdmr, None, message, delta)
                         except:
-                            self.assertAlmostEqual(-tdmt,tdmr)
+                            self.assertAlmostEqual(-tdmt, tdmr, None, message, delta )
                 k += 1  
 
 if __name__ == "__main__":
