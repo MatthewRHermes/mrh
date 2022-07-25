@@ -55,7 +55,12 @@ def tearDownModule():
     del mol_h2o, mol_furan_cation
 
 class KnownValues(unittest.TestCase):
-    
+    '''
+    The reference values were obtained by numeric differentiation of the energy 
+    with respect to the electric field strength extrapolated to zero step size. 
+    The fields were applied along each direction in the XYZ frame, and derivatives 
+    were evaluated using 2-point central difference formula.   
+    '''
     def test_h2o_cms3_tpbe_631g(self):
         dm_ref = np.array(\
             [[0.0000, 1.5991, 0.0000],

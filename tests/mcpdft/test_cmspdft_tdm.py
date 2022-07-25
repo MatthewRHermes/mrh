@@ -46,7 +46,12 @@ def get_furan_cation(iroots=2):
     return mc
 
 class KnownValues(unittest.TestCase):
-    
+    '''
+    The reference values were obtained by numerical differentiation of the model-space Hamiltonian
+    in the intermediate-state basis w.r.t the electric field extrapolated to the zero step size. 
+    The fields were applied along each direction in the XYZ frame, and derivatives 
+    were evaluated using 2-point central difference formula.   
+    '''
     def test_furan_cms3_tpbe_sto3g(self):
         tdm_ref = np.array(\
         [[0.0000, -0.2049, -0.2104],
