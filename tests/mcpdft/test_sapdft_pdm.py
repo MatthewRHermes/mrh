@@ -20,31 +20,47 @@ H        0.000000000     -3.062658055     -1.175803180
 H        0.000000000     -1.688293885      1.206105691
 H        0.000000000      1.250242874     -1.655874372
 '''
-def get_h2o(iroots=3):
+mol_h2o = gto.M(atom = geom_h2o, basis = 'aug-cc-pVDZ', symmetry='c2v', output='/dev/null', verbose=0)
+mol_furan_cation = gto.M(atom = geom_furan, basis = 'sto-3g', charge=1, spin=1, symmetry=False, output='/dev/null', verbose=0)
+def get_h2o(mol,iroots=3):
     weights = [1/iroots]*iroots
-    mol = gto.M(atom = geom_h2o, basis = '6-31g',
-             symmetry='c2v', output='/dev/null', verbose=0)
     mf = scf.RHF(mol).run()
     mc = mcpdft.CASSCF(mf,'tPBE', 4, 4, grids_level=1)
+    mc.fcisolver = csf_solver(mol, smult=1, symm='A1')
     mc = mc.state_average_(weights)
-    mc.kernel(mf.mo_coeff)
+    mo = mcscf.sort_mo(mc, mf.mo_coeff, [4,5,8,9])
+    mc.conv_tol = 1e-11
+    mc.kernel(mo)
     return mc
 
+def tearDownModule():
+    global mol_h2o, mol_furan_cation
+    mol_h2o.stdout.close ()
+    mol_furan_cation.stdout.close ()
+    del mol_h2o, mol_furan_cation
+
 class KnownValues(unittest.TestCase):
-    
+    '''
+    The reference values were obtained by numeric differentiation of the energy 
+    with respect to the electric field strength extrapolated to zero step size. 
+    The fields were applied along each direction in the XYZ frame, and derivatives 
+    were evaluated using 2-point central difference formula.   
+    '''
     def test_h2o_sa3_tpbe_631g(self):
         dm_ref = np.array(\
-            [[-1.67550633e-16,  2.23632807e+00,  9.65318153e-17],
-            [ -2.18697668e-15, -5.49340995e-01,  1.50687836e-16],
-            [-1.41095270e-15, -6.49403912e-01,  1.47911868e-16]])
+            [[0.0000,  1.3147, 0.0000],
+            [ 0.0000, -0.8687, 0.0000],
+            [ 0.0000,  2.6450, 0.0000]])
+        delta = 0.001
+        message = "Dipoles are not equal within {} D".format(delta)
 
         iroots=3
-        mc = get_h2o(iroots)
+        mc = get_h2o(mol_h2o, iroots)
         for i in range(iroots):
             with self.subTest (i=i):
                 dm_test = mc.dip_moment(unit='Debye', origin="Coord_center",state=i)
                 for dmt,dmr in zip(dm_test,dm_ref[i]):
-                    self.assertAlmostEqual(dmt,dmr)
+                    self.assertAlmostEqual(dmt, dmr, None, message, delta)
         
 if __name__ == "__main__":
     print("Test for SA-PDFT permanent dipole moments")
