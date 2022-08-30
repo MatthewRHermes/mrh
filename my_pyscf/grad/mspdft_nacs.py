@@ -63,8 +63,8 @@ class NonAdiabaticCouplings (mspdft_grad.Gradients):
         if state is None: state = self.state
         ket, bra = _unpack_state (state)
         if si is None: si = self.base.si
-        if si_bra is None: si_bra = si[bra]
-        if si_ket is None: si_ket = si[ket]
+        if si_bra is None: si_bra = si[:,bra]
+        if si_ket is None: si_ket = si[:,ket]
         nroots = self.nroots
         log = lib.logger.new_logger (self, verbose)
         g_model = np.multiply.outer (si_bra.conj (), si_ket)
@@ -93,8 +93,8 @@ class NonAdiabaticCouplings (mspdft_grad.Gradients):
         if mo_coeff is None: mo_coeff = self.base.mo_coeff
         if ci is None: ci = self.base.ci
         if si is None: si = self.base.si
-        if si_bra is None: si_bra = si[bra]
-        if si_ket is None: si_ket = si[ket]
+        if si_bra is None: si_bra = si[:,bra]
+        if si_ket is None: si_ket = si[:,ket]
         if mf_grad is None: mf_grad = self.base._scf.nuc_grad_method ()
         if atmlst is None: atmlst = self.atmlst
         nac = nac_model (self, mo_coeff=mo_coeff, ci=ci, si_bra=si_bra,
