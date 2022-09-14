@@ -2,7 +2,8 @@ import numpy as np
 from pyscf import gto, scf, mcscf
 from mrh.my_pyscf import mcpdft
 import unittest
-from mrh.my_pyscf.fci import csf_solver
+#from mrh.my_pyscf.fci import csf_solver
+from pyscf.fci.addons import fix_spin_
 
 geom_h2o='''
 O  0.00000000   0.08111156   0.00000000
@@ -28,7 +29,9 @@ def get_h2o(mol,iroots=3):
     weights = [1/iroots]*iroots
     mf = scf.RHF(mol).run()
     mc = mcpdft.CASSCF(mf,'tPBE', 4, 4, grids_level=1)
-    mc.fcisolver = csf_solver(mol, smult=1, symm='A1')
+    #mc.fcisolver = csf_solver(mol, smult=1, symm='A1')
+    fix_spin_(mc.fcisolver, ss=0)
+    mc.fcisolver.wfnsym = 'A1'
     mc = mc.multi_state(weights)
     mo = mcscf.sort_mo(mc, mf.mo_coeff, [4,5,8,9])
     mc.conv_tol = 1e-11
@@ -40,7 +43,8 @@ def get_furan_cation(mol,iroots=3):
     weights = [1/iroots]*iroots
     mf = scf.RHF(mol).run()
     mc = mcpdft.CASSCF(mf,'tBLYP', 5, 5, grids_level=1)
-    mc.fcisolver = csf_solver(mol, smult=2)
+    #mc.fcisolver = csf_solver(mol, smult=2)
+    fix_spin_(mc.fcisolver, ss=0.75)
     mc = mc.multi_state(weights, 'cms')
     mc.max_cycle_macro = 200
     mo = mcscf.sort_mo(mc, mf.mo_coeff, [12,17,18,19,20])

@@ -2,7 +2,8 @@ import numpy as np
 from pyscf import gto, scf, mcscf
 from mrh.my_pyscf import mcpdft
 import unittest
-from mrh.my_pyscf.fci import csf_solver
+#from mrh.my_pyscf.fci import csf_solver
+from pyscf.fci.addons import fix_spin_
 
 geom_furan= '''
 C        0.000000000     -0.965551055     -2.020010585
@@ -22,7 +23,9 @@ def get_furan(iroots=3):
              symmetry='C2v', output='/dev/null', verbose=0)
     mf = scf.RHF(mol).run()
     mc = mcpdft.CASSCF(mf,'tPBE', 5, 6, grids_level=1)
-    mc.fcisolver = csf_solver(mol, smult=1, symm='A1')
+    #mc.fcisolver = csf_solver(mol, smult=1, symm='A1')
+    fix_spin_(mc.fcisolver, ss=0)
+    mc.fcisolver.wfnsym = 'A1'
     mc = mc.multi_state(weights, 'cms')
     mc.max_cycle_macro = 200
     mo = mcscf.sort_mo(mc, mf.mo_coeff, [12,17,18,19,20])
@@ -37,7 +40,9 @@ def get_furan_cation(iroots=2):
              symmetry='C2v', output='/dev/null', verbose=0)
     mf = scf.RHF(mol).run()
     mc = mcpdft.CASSCF(mf,'tBLYP', 5, 5, grids_level=1)
-    mc.fcisolver = csf_solver(mol, smult=2, symm='A2')
+    #mc.fcisolver = csf_solver(mol, smult=2, symm='A2')
+    fix_spin_(mc.fcisolver, ss=0.75)
+    mc.fcisolver.wfnsym = 'A2'
     mc = mc.multi_state(weights, 'cms')
     mc.max_cycle_macro = 200
     mo = mcscf.sort_mo(mc, mf.mo_coeff, [12,17,18,19,20])
