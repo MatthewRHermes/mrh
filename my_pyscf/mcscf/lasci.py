@@ -21,6 +21,21 @@ import copy
 # handle spin-breaking potentials while retaining spin constraint
 
 def all_nonredundant_idx (nmo, ncore, ncas_sub):
+    ''' Generate a index mask array addressing all nonredundant, lower-triangular elements of an
+    nmo-by-nmo orbital-rotation unitary generator amplitude matrix for a LASSCF or LASCI problem
+    with ncore inactive orbitals and len (ncas_sub) fragments with ncas_sub[i] active orbitals in
+    the ith fragment:
+
+        <--------------nmo--------------->
+        <-ncore->|<-sum(ncas_sub)->|
+        __________________________________
+        | False  |False|False| ... |False|
+        |  True  |False|False| ... |False|
+        |  True  | True|False| ... |False|
+        |  ...   | ... | ... | ... |False|
+        |  True  | True| True| ....|False|
+        ----------------------------------
+    '''
     nocc = ncore + sum (ncas_sub)
     idx = np.zeros ((nmo, nmo), dtype=np.bool_)
     idx[ncore:,:ncore] = True # inactive -> everything
@@ -36,11 +51,37 @@ def all_nonredundant_idx (nmo, ncore, ncas_sub):
     return idx
 
 class LASCI_UnitaryGroupGenerators (object):
-    ''' Object for packing (for root-finding algorithms) and unpacking (for direct manipulation)
-    the nonredundant variables ('unitary group generators') of a LASCI problem. Selects
-    nonredundant lower-triangular part ('x') of a skew-symmetric orbital rotation matrix ('kappa')
+    ''' Object for `pack'ing (for root-finding algorithms) and `unpack'ing (for direct
+    manipulation) the nonredundant variables ('unitary generator amplitudes') of a `LASCI' problem.
+    `LASCI' here means that the CAS is frozen relative to inactive or external orbitals, but active
+    orbitals from different fragments may rotate into one another, and inactive orbitals may rotate
+    into virtual orbitals, and CI vectors may also evolve. Transforms between the nonredundant
+    lower-triangular part ('x') of a skew-symmetric orbital rotation matrix ('kappa')
     and transforms CI transfer vectors between the determinant and configuration state function
-    bases. Subclass me to apply point-group symmetry. '''
+    bases. Subclass me to apply point-group symmetry or to do a full LASSCF calculation.
+
+    Attributes:
+        nmo : int
+            Number of molecular orbitals
+        frozen : sequence of int or index mask array
+            Identify orbitals which are frozen.
+        nfrz_orb_idx : index mask array
+            Identifies all nonredundant orbital rotation amplitudes for non-frozen orbitals
+        uniq_orb_idx : index mask array
+            The same as nfrz_orb_idx, but omitting active<->(inactive,virtual) degrees of freedom.
+            (In the LASSCF child class uniq_orb_idx == nfrz_orb_idx.)
+        ci_transformer : sequence of shape (nfrags,nroots) of :class:`CSFTransformer`
+            Element [i][j] transforms between single determinants and CSFs for the ith fragment in
+            the jth state
+        nvar_orb : int
+            Total number of nonredundant orbital-rotation degrees of freedom
+        ncsf_sub : ndarray of shape (nfrags,nroots)
+            Number of CSF vector elements in each fragment and state.
+        nvar_tot : int
+            Total length of the packed vector - approximately the number of nonredundant degrees
+            of freedom (the CSF vector representation of the CI part of the problem still contains
+            some redundancy even in `packed' form; fixing this is more trouble than it's worth).
+    '''
 
     def __init__(self, las, mo_coeff, ci):
         self.nmo = mo_coeff.shape[-1]
@@ -65,6 +106,10 @@ class LASCI_UnitaryGroupGenerators (object):
         self.uniq_orb_idx = idx
 
     def get_gx_idx (self):
+        ''' Returns an index mask array identifying all nonredundant, nonfrozen orbital rotations
+        which are not considered in the current phase of the phase of the problem:
+        active<->inactive and active<->virtual for the LASCI parent class; nothing (all elements
+        False) in the LASSCF child class. '''
         return np.logical_and (self.nfrz_orb_idx, np.logical_not (self.uniq_orb_idx))
 
     def _init_ci (self, las, mo_coeff, ci):
@@ -117,6 +162,13 @@ class LASCI_UnitaryGroupGenerators (object):
         return self.nvar_orb + self.ncsf_sub.sum ()
 
 class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
+    __doc__ = LASCI_UnitaryGroupGenerators.__doc__ + '''
+
+    Symmetry subclass forbids rotations between orbitals of different point groups or CSFs of
+    other-than-specified point group -> sets many additional elements of nfrz_orb_idx and
+    uniq_orb_idx to False and reduces the values of nvar_orb, ncsf_sub, and nvar_tot.
+    '''
+
     def __init__(self, las, mo_coeff, ci): 
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
@@ -156,6 +208,108 @@ def _init_df_(h_op):
             compact=False))
 
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
+    ''' The Hessian-vector product for a `LASCI' energy minimization, implemented as a linear
+    operator from the scipy.sparse.linalg module. `LASCI' here means that the CAS is frozen
+    relative to inactive or external orbitals, but active orbitals from different fragments may
+    rotate into one another, and inactive orbitals may rotate into virtual orbitals, and CI vectors
+    may also evolve. Implements the get_grad (gradient of the energy), get_prec (preconditioner for
+    conjugate-gradient iteration), get_gx (gradient along non-`LASCI' degrees of freedom), and
+    update_mo_ci_eri (apply a shift vector `x' to MO coefficients and CI vectors) in addition to
+    _matvec and _rmatvec. For a shift vector `x', in terms of attributes and methods of this class,
+    the second-order power series for the total (state-averaged) electronic energy is
+
+    e = self.e_tot + np.dot (self.get_grad (), x) + (.5 * np.dot (self._matvec (x), x))
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        ugg : instance of :class:`LASCI_UnitaryGroupGenerators`
+
+    Kwargs:
+        mo_coeff : ndarray of shape (nao,nmo)
+            Molecular orbitals for trial state(s)
+        ci : list (length = nfrags) of lists (length = nroots) of ndarrays
+            CI vectors of the trial state(s); element [i][j] describes the ith fragment in the jth
+            state
+        casdm1frs : list of length (nfrags) of ndarrays
+            ith element has shape (nroots,2,ncas_sub[i],ncas_sub[i])
+            Contains spin-separated 1-RDMs for the active orbitals of each fragment in each state.
+        casdm2fr : list of length (nfrags) of ndarrays
+            ith element has shape [nroots,] + [ncas_sub[i],]*4
+            Contains spin-summed 2-RDMs for the active orbitals of each fragment in each state.
+        ncore : int
+            Number of doubly-occupied inactive orbitals
+        ncas_sub : list of length (nfrags)
+            Number of active orbitals in each fragment
+        nelecas_sub : list of list of length (2) of length (nfrags)
+            Number of active electrons in each fragment
+        h2eff_sub : ndarray of shape (nmo,ncas**2*(ncas+1)/2)
+            Contains ERIs (p1a1|a2a3), lower-triangular in the a2a3 indices, where p1 is any MO
+            and an is any active MO (in any fragment).
+        veff : ndarray of shape (2,nao,nao)
+            Spin-separated, state-averaged 1-electron mean-field potential in the AO basis
+        do_init_eri : logical
+            If False, the bPpj attribute is not initialized until the _init_eri_ method is
+            separately called.
+
+    Attributes:
+        ah_level_shift : float
+            Shift added to the diagonal of the Hessian to improve convergence. Default = 1e-8.
+        ncas : int
+            Total number of active orbitals
+        nao : int
+            Total number of atomic orbitals
+        nmo : int
+            Total number of molecular orbitals
+        nocc : int
+            Total number of inactive plus active orbitals
+        nroots : int
+            Total number of states whose energies are averaged
+        weights : list of length (nroots)
+            Weights of the different states in the state average
+        fciboxes : list of length (nfrags) of instances of :class:`H1EZipFCISolver`
+            Contains the FCISolver objects for each fragment which implement the CI vector
+            manipulation methods
+        bPpj : ndarray of shape (naux,nmo,nocc)
+            MO-basis CDERI array; only used in combination with density fitting. If
+            do_init_eri=False is passed to the constructor
+        casdm(N=1,2)[f][r][s] : ndarray or list of ndarrays
+            Various 1RDMs (if N==1) or 2RDMs (if N==2) of active orbitals, obtained by summing or
+            averaging over the casdm1frs and casdm2fr kwargs.
+            If `f' is present, it is a list of ndarrays of length nfrags, and the last 2*N
+            dimensions of the ith element are ncas_sub[i]. Otherwise, it is a single ndarray, and
+            the last 2*N dimensions are ncas.
+            If `r' is present, density matrices are separated by state and the first dimension of
+            the ndarray(s) is nroots. Otherwise, density matrices are state-averaged.
+            If 's' is present, density matrices are spin-separated and the first dimension of
+            the ndarray(s) is 1+N. Otherwise, density matrices are spin-summed.
+        cascm2 : ndarray of shape (ncas,ncas,ncas,ncas)
+            The cumulant of the state-averaged, spin-summed 2-RDM of the active orbitals.
+        dm1s : ndarray of shape (2,nmo,nmo)
+            State-averaged, spin-separated 1-RDM of the whole molecule in the MO basis.
+        eri_paaa : ndarray of shape (nmo, ncas, ncas, ncas)
+            Same as kwarg h2eff_sub, be reshaped to be more accessible
+        eri_cas : ndarray of shape [ncas,]*4
+            ERIs (a1a2|a3a4)
+        h1s : ndarray of shape (2,nmo,nmo)
+            Spin-separated, state-averaged effective 1-electron Hamiltonian elements in MO basis
+        h1s_cas : ndarray of shape (2,nmo,ncas)
+            Spin-separated effective 1-electron Hamiltonian experience by the CAS, including the
+            mean-field potential generated by the inactive electrons but not by any active space
+        h1frs : list of length nroots of ndarray
+            ith element has shape (nroots,2,ncas_sub[i],ncas_sub[i])
+            Spin-separated effective 1-electron Hamiltonian experienced by each fragment in each
+            state
+        e_tot : float
+            Total (state-averaged) electronic energy for the trial state(s) at x=0
+        fock1 : ndarray of shape (nmo,nmo)
+            State-averaged first-order effective Fock matrix
+        hci0 : list (length = nfrags) of lists (length = nroots) of ndarrays
+            (H(i,j) - e0[i][j]) |ci[i][j]>, where H(i,j) is the effective Hamiltonian experienced
+            by the ith fragment in the jth state, stored as a CI vector
+        e0 : list (length = nfrags) of lists (length = nroots) of floats
+            <ci[i][j]|H(i,j)|ci[i][j]>, where H(i,j) is the effective Hamiltonian experienced by
+            the ith fragment in the jth state
+    '''
 
     def __init__(self, las, ugg, mo_coeff=None, ci=None, casdm1frs=None,
             casdm2fr=None, ncore=None, ncas_sub=None, nelecas_sub=None,
