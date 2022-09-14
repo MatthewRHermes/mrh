@@ -309,6 +309,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         e0 : list (length = nfrags) of lists (length = nroots) of floats
             <ci[i][j]|H(i,j)|ci[i][j]>, where H(i,j) is the effective Hamiltonian experienced by
             the ith fragment in the jth state
+        linkstr[l] : list (length = nfrags) of lists (length = nroots)
+            PySCF FCI module linkstr and linkstrl arrays, for accelerating CI manipulation
     '''
 
     def __init__(self, las, ugg, mo_coeff=None, ci=None, casdm1frs=None,
@@ -462,14 +464,54 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return ((self.ugg.nvar_tot, self.ugg.nvar_tot))
 
     def Hci (self, fcibox, no, ne, h0r, h1rs, h2, ci, linkstrl=None):
+        ''' For a single fragment, evaluate the FCI operation H(i)|ci[i]>, where H(i) is the
+        effective Hamiltonian experienced by the fragment in the ith state
+
+        Args:
+            fcibox : instance of :class:`H1EZipFCISolver`
+                The FCI solver method for the fragment
+            no : integer
+                Number of active orbitals in the fragment
+            ne : list of length (2) of integers
+                Number of spin-up and spin-down electrons in the fragment
+            h0r : list of length nroots
+                Constant part of the effective Hamiltonian for each state
+            h1rs : ndarray of shape (nroots,2,no,no)
+                Spin-separated 1-electron part of the effective Hamiltonian for each state
+            h2 : ndarray of shape (no,no,no,no)
+                Two-electron integrals
+            ci : list of length nroots of ndarray
+                CI vectors
+
+        Kwargs:
+            linkstrl : see pyscf.fci module documentation
+
+        Returns:
+            hcr : list of length nroots of ndarray
+        '''
         hr = fcibox.states_absorb_h1e (h1rs, h2, no, ne, 0.5)
         hcr = fcibox.states_contract_2e (hr, ci, no, ne, link_index=linkstrl)
         hcr = [hc + (h0 * c) for hc, h0, c in zip (hcr, h0r, ci)]
         return hcr
 
     def Hci_all (self, h0fr, h1frs, h2, ci_sub):
-        ''' Assumes h2 is in the active superspace MO basis; h1frs is a list in
-            separate subspace bases. '''
+        ''' For all fragments, evaluate the FCI operations H(i,j)|ci_sub[i][j]>, where H(i,j) is
+        the effective Hamiltonian experienced by the ith fragment in the jth state.
+
+        Args:
+            h0fr : list of length nfrags of lists of length nroots
+                Constant part of the effective Hamiltonian for each fragment and state
+            h1frs : list of length nfrags of ndarrays
+                Spin-separated 1-electron parts of the effective Hamiltonian for each fragment and
+                state
+            h2 : ndarray of shape (ncas,ncas,ncas,ncas)
+                Two-electron integrals spanning the entire active space
+            ci_sub : list of length nfrags of list of length nroots of ndarray
+                CI vectors
+
+        Returns:
+            hcfr : list of length nfrags of list of length nroots of ndarray
+        '''
         if h0fr is None: h0fr = [[0.0 for h1r in h1rs] for h1rs in h1frs]
         hcfr = []
         for isub, (fcibox, h0, h1rs, ci) in enumerate (zip (self.fciboxes, h0fr, h1frs, ci_sub)):
