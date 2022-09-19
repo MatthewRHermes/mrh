@@ -552,8 +552,6 @@ class _PDFT ():
 
     def dip_moment (self, unit='Debye', origin='Coord_Center', state=0):
         from mrh.my_pyscf.prop.dip_moment.mcpdft import ElectricDipole
-        if state!=0:
-            RuntimeError('Only ground electronic is allowed')
         dip_obj =  ElectricDipole(self) 
         mol_dipole = dip_obj.kernel (state=state, unit=unit, origin=origin)
         return mol_dipole
