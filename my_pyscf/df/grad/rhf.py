@@ -252,7 +252,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             vj[i,2] += numpy.dot (rhoj[i,p0:p1], int3c[2].reshape (p1-p0, -1)).reshape (nao, nao).T
             t2 = logger.timer_debug1 (mf_grad, "df grad einsum rho_P (P|mn') rho_P", *t2)
             tmp = numpy.empty ((3,p1-p0,nocc[i],nao), dtype=orbol_stack.dtype) 
-            fdrv(ftrans, fmmm, # xPmn u_mi -> xPin
+            fdrv(ftrans, fmmm, # lib.einsum ('xpmn,mi->xpin', int3c, orbol[i])
                  tmp.ctypes.data_as(ctypes.c_void_p),
                  int3c.ctypes.data_as(ctypes.c_void_p),
                  orbol[i].ctypes.data_as(ctypes.c_void_p),
@@ -298,17 +298,21 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
                 dm_tril.T).reshape (3, p1-p0, -1) # xpij,mij->xpm
             vjaux[:,:,:,p0:p1] = lib.einsum ('xpm,np->mnxp', drhoj, rhoj[:,p0:p1])
             t2 = logger.timer_debug1 (mf_grad, "df grad vj aux (P'|mn) eval", *t2)
+            # MRH, 09/19/2022: This is a different order of operations than PySCF v2.1.0. In PySCF,
+            #                  the dense matrix rhok_oo is transformed into the larger AO basis.
+            #                  Here, the sparse matrix int3c is transformed into the smaller MO
+            #                  basis. The latter approach is obviously more performant.
             for i in range (nset):
                 assert (orbol[i].flags.f_contiguous), '{} {}'.format (orbol[i].shape, orbol[i].strides)
                 buf = numpy.empty ((3, p1-p0, nocc[i], nao), dtype=orbol[i].dtype) 
-                fdrv(ftrans, fmmm, # gPmn u_ni -> gPim
+                fdrv(ftrans, fmmm, # lib.einsum ('pmn,ni->pim', int3c, orbol[i])
                      buf.ctypes.data_as(ctypes.c_void_p),
                      int3c.ctypes.data_as(ctypes.c_void_p),
                      orbol[i].ctypes.data_as(ctypes.c_void_p),
                      ctypes.c_int (3*(p1-p0)), ctypes.c_int (nao),
                      (ctypes.c_int*4)(0, nocc[i], 0, nao),
                      null, ctypes.c_int(0))
-                for j in range (nset): # pim,mj,j -> pij
+                for j in range (nset): # lib.einsum ('pim,mj->pij', buf, orbor[j])
                     assert (orbor[j].flags.f_contiguous), '{} {}'.format (orbor[j].shape, orbor[j].strides)
                     int3c_ij = lib.dot (buf.reshape (-1, nao), orbor[j])
                     int3c_ij = int3c_ij.reshape (3, p1-p0, nocc[i], nocc[j])
