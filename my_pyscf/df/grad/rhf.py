@@ -93,13 +93,25 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
     nauxbas, naux = auxmol.nbas, auxmol.nao
 
     # Density matrix preprocessing
-    dm_tril, orbol, orbor, out_shape = _decompose_rdm1 (mf_grad, mol, dm, ishf=ishf)
+    dms = numpy.asarray(dm)
+    out_shape = dms.shape[:-2] + (3,) + dms.shape[-2:]
+    dms = dms.reshape(-1,nao,nao)
+    nset = dms.shape[0]
+
+    # For j
+    idx = numpy.arange(nao)
+    idx = idx * (idx+1) // 2 + idx
+    dm_tril = dms + dms.transpose(0,2,1)
+    dm_tril = lib.pack_tril(dm_tril)
+    dm_tril[:,idx] *= .5
+
+    # For k
+    orbol, orbor = _decompose_rdm1 (mf_grad, mol, dm, ishf=ishf)
     nocc = [o.shape[-1] for o in orbor]
-    nset = len (dm_tril)
 
     # Coulomb: (P|Q) D_Q = (P|uv) D_uv for D_Q ("rhoj")
     # Exchange: (P|Q) D_Qui = (P|uv) C_vi n_i for D_Qui ("rhok") 
-    rhoj, get_rhok = _cho_solve_rho (mf_grad, mol, auxmol, dm_tril, orbol, orbor)
+    rhoj, get_rhok = _cho_solve_rhojk (mf_grad, mol, auxmol, orbol, orbor)
 
     # (d/dX i,j|P)
     t1 = (logger.process_clock (), logger.perf_counter ())
@@ -119,7 +131,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         t2 = logger.timer_debug1 (mf_grad, "df grad intor (P|mn')", *t2)
         p0, p1 = aux_loc[shl0], aux_loc[shl1]
         for i in range(nset):
-            # MRH 05/21/2020: De-vectorize this because array contiguity -> parallel scaling
+            # MRH 05/21/2020: De-vectorize this because array contiguity -> multithread efficiency
             vj[i,0] += numpy.dot (rhoj[i,p0:p1], int3c[0].reshape (p1-p0, -1)).reshape (nao, nao).T
             vj[i,1] += numpy.dot (rhoj[i,p0:p1], int3c[1].reshape (p1-p0, -1)).reshape (nao, nao).T
             vj[i,2] += numpy.dot (rhoj[i,p0:p1], int3c[2].reshape (p1-p0, -1)).reshape (nao, nao).T
@@ -146,10 +158,12 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
         logger.timer (mf_grad, 'df grad vj and vk', *t0)
         if with_j: return vj, vk
         else: return None, vk
-    # else: except now I don't have to indent
 
-    # Cache (P|uv) D_ui c_vj. Must be include both upper and lower triangles
-    # over nset.
+    ####### BEGIN AUXBASIS PART #######
+
+    # ao2mo the final AO index of rhok and store in "rhok_oo":
+    # dPiu C_uj -> dPij. *Not* symmetric i<->j: "i" has an occupancy
+    # factor and "j" must not.
     max_memory = mf_grad.max_memory - lib.current_memory()[0]
     blksize = int(min(max(max_memory * .5e6/8 / (nao*max (nocc)), 20), naux))
     rhok_oo = []
@@ -179,7 +193,7 @@ def get_jk(mf_grad, mol=None, dm=None, hermi=0, with_j=True, with_k=True, ishf=T
             dm_tril.T).reshape (3, p1-p0, -1) # xpij,mij->xpm
         vjaux[:,:,:,p0:p1] = lib.einsum ('xpm,np->mnxp', drhoj, rhoj[:,p0:p1])
         t2 = logger.timer_debug1 (mf_grad, "df grad vj aux (P'|mn) eval", *t2)
-        # MRH, 09/19/2022: This is a different order of operations than PySCF v2.1.0. In PySCF,
+        # MRH, 09/19/2022: This is a different order of operations than PySCF v2.1.0. There,
         #                  the dense matrix rhok_oo is transformed into the larger AO basis.
         #                  Here, the sparse matrix int3c is transformed into the smaller MO
         #                  basis. The latter approach is obviously more performant.
@@ -311,6 +325,7 @@ def get_j(mf_grad, mol=None, dm=None, hermi=0, ishf=True):
     return vj
 
 def _int3c_wrapper(mol, auxmol, intor, aosym):
+    ''' Convenience wrapper for getints '''
     nbas = mol.nbas
     pmol = mol + auxmol
     intor = mol._add_suffix(intor)
@@ -325,14 +340,31 @@ def _int3c_wrapper(mol, auxmol, intor, aosym):
     return get_int3c
 
 def _decompose_rdm1 (mf_grad, mol, dm, ishf=True):
-    # Decompose dms as U.Vh, where 
-    # U = orbol = eigenvectors
-    # V = orbor = U * eigenvalues
+    '''Decompose dms as U.Vh, where 
+    U = orbol = eigenvectors
+    V = orbor = U * eigenvalues
+
+    Args:
+        mf_grad : instance of :class:`Gradients`
+        mol : instance of :class:`gto.Mole`
+        dm : ndarray or sequence of ndarrays of shape (nao,nao)
+            Density matrices
+
+    Kwargs:
+        ishf : Logical
+            If True and dm lacks tags mo_coeff (eigenvectors)
+            or mo_occ (eigenvalues), these are taken from attributes
+            of mf_grad.base instead
+
+    Returns:
+        orbol : list of ndarrays of shape (nao,*)
+            Contains non-null eigenvectors of density matrix
+        orbor : list of ndarrays of shape (nao,*)
+            Contains orbol * eigenvalues (occupancies)
+    '''
     # TODO: get rid of ishf and tag dm in the caller instead
     nao = mol.nao
-    dms = numpy.asarray(dm)
-    out_shape = dms.shape[:-2] + (3,) + dms.shape[-2:]
-    dms = dms.reshape(-1,nao,nao)
+    dms = numpy.asarray(dm).reshape (-1,nao,nao)
     nset = dms.shape[0]
     if hasattr (dm, 'mo_coeff') and hasattr (dm, 'mo_occ'):
         mo_coeff = dm.mo_coeff
@@ -377,15 +409,38 @@ def _decompose_rdm1 (mf_grad, mol, dm, ishf=True):
         offs += nocc
 
     # For Coulomb
-    idx = numpy.arange(nao)
-    idx = idx * (idx+1) // 2 + idx
-    dm_tril = dms + dms.transpose(0,2,1)
-    dm_tril = lib.pack_tril(dm_tril)
-    dm_tril[:,idx] *= .5
-    return dm_tril, orbol, orbor, out_shape
+    return orbol, orbor
 
-def _cho_solve_rho (mf_grad, mol, auxmol, dm_tril, orbol, orbor):
-    nset = len (dm_tril)
+def _cho_solve_rhojk (mf_grad, mol, auxmol, orbol, orbor):
+    ''' Solve
+
+    (P|Q) dQ = (P|uv) D_uv
+    (P|Q) dQiu = (P|uv) C_vi n_i
+
+    for dQ ('rhoj') and dQui ('rhok'), where D_uv = C_ui n_i C_vi* is
+    a density matrix.
+
+    Args:
+        mf_grad : instance of :class:`Gradients`
+        mol : instance of :class:`gto.Mole`
+        auxmol : instance of :class:`gto.Mole`
+        orbol : list of length nset of ndarrays of shape (nao,*)
+            Contains non-null eigenvectors of density matrices. See
+            docstring for _decompose_1rdm.
+        orbor : list of length nset of ndarrays of shape (nao,*)
+            Contains orbol multiplied by eigenvalues. See docstring for
+            _decompose_1rdm.
+
+    Returns:
+        rhoj : ndarray of shape (nset, naux)
+            Aux-basis densities
+        get_rhok : callable taking 3 integers (i,j,k), i,j<naux, k<nset
+            Returns C-contiguous ndarray of shape
+            (k-j,orbol[i].shape[1],nao) which contains a mixed-basis
+            density matrix
+    '''
+
+    nset = len (orbol)
     nao, naux = mol.nao, auxmol.nao
     nbas, nauxbas = mol.nbas, auxmol.nbas
     ao_loc = mol.ao_loc
@@ -406,7 +461,7 @@ def _cho_solve_rho (mf_grad, mol, auxmol, dm_tril, orbol, orbor):
         t2 = logger.timer_debug1 (mf_grad, 'df grad intor (P|mn)', *t2)
         p0, p1 = ao_loc[shl0], ao_loc[shl1]
         for i in range(nset):
-            # MRH 05/21/2020: De-vectorize this because array contiguity -> parallel scaling
+            # MRH 05/21/2020: De-vectorize this because array contiguity -> multithread efficiency
             v = lib.dot(int3c.reshape (nao, -1, order='F').T, orbor[i]).reshape (naux, (p1-p0)*nocc[i])
             t2 = logger.timer_debug1 (mf_grad, 'df grad einsum (P|mn) u_ni N_i = v_Pmi', *t2)
             rhoj[i] += numpy.dot (v, orbol[i][p0:p1].ravel ())
