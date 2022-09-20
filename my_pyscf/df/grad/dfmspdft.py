@@ -4,9 +4,9 @@ from pyscf.grad import sacasscf as sacasscf_grad
 from mrh.my_pyscf.grad import mspdft as mspdft_grad
 from mrh.my_pyscf.grad import mcpdft as mcpdft_grad
 from mrh.my_pyscf.df.grad import dfmcpdft as dfmcdpft_grad
-from mrh.my_pyscf.df.grad import dfcasscf as dfcasscf_grad
-from mrh.my_pyscf.df.grad import dfsacasscf as dfsacasscf_grad
-from mrh.my_pyscf.df.grad import rhf as dfrhf_grad
+from pyscf.df.grad import casscf as dfcasscf_grad
+from pyscf.df.grad import sacasscf as dfsacasscf_grad
+from pyscf.df.grad import rhf as dfrhf_grad
 from functools import partial
 
 # I need to resolve the __init__ and get_ham_response members. Otherwise everything should be fine! 
