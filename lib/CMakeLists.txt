@@ -78,6 +78,8 @@ include_directories(${PYSCFLIB}/deps/include)
 include_directories(${CINT_DIR}/include)
 link_directories(${PYSCFLIB})
 
+find_library(DFT_LIBRARY dft HINTS ${PYSCFLIB} )
+
 # Build the QC-DMET shared library
 set (BUILD_SHARED_LIBS ON)
 set (QCDMET_SOURCE_FILES "rhf_response.cc")
@@ -112,7 +114,7 @@ set_target_properties (clib_mrh_sint PROPERTIES
 # Build the PDFT library
 set (PDFT_SOURCE_FILES "nr_numint.c")
 add_library (clib_mrh_pdft SHARED ${PDFT_SOURCE_FILES})
-target_link_libraries (clib_mrh_pdft ${LAPACK_LIBRARIES} ${PYSCFLIB}/libdft.so)
+target_link_libraries (clib_mrh_pdft ${LAPACK_LIBRARIES} ${DFT_LIBRARY})
 set_target_properties (clib_mrh_pdft PROPERTIES
     LINKER_LANGUAGE C
     CLEAN_DIRECT_OUTPUT 1
