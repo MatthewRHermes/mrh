@@ -29,7 +29,6 @@ def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates,
     if symmetry and (cas_irrep is not None):
         mo = mc.sort_mo_by_irrep (cas_irrep)
     mc.kernel (mo)
-    if density_fit: return dfmspdft.Gradients (mc)
     return mc.nuc_grad_method ()
 
 def tearDownModule():
