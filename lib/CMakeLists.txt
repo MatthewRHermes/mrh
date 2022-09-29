@@ -79,6 +79,9 @@ include_directories(${CINT_DIR}/include)
 link_directories(${PYSCFLIB})
 
 find_library(DFT_LIBRARY dft HINTS ${PYSCFLIB} )
+if(NOT DFT_LIBRARY)
+  message(FATAL_ERROR "PySCF dft library not found")
+endif()
 
 # Build the QC-DMET shared library
 set (BUILD_SHARED_LIBS ON)
