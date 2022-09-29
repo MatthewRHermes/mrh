@@ -7,7 +7,8 @@ from mrh.my_pyscf import mcpdft
 #from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.grad.cmspdft import diab_response, diab_grad, diab_response_o0, diab_grad_o0
 from mrh.my_pyscf.grad import mspdft as mspdft_grad
-from mrh.my_pyscf.df.grad import dfsacasscf, dfmspdft
+from mrh.my_pyscf.df.grad import dfmspdft
+from pyscf.df.grad import sacasscf as dfsacasscf
 import unittest, math
 
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
