@@ -4,8 +4,10 @@ from scipy import linalg
 from pyscf.fci import cistring
 from pyscf import fci, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
-from pyscf.fci.spin_op import contract_ss
+from pyscf.fci.spin_op import contract_ss, spin_square
+from pyscf.data import nist
 from itertools import combinations
+from mrh.my_pyscf.mcscf import soc_int as soc_int
 
 def memcheck (las, ci):
     '''Check if the system has enough memory to run these functions!'''
@@ -69,7 +71,7 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
         raise RuntimeError (errstr)
     return ci
 
-def ci_outer_product (ci_fr, norb_f, nelec_fr):
+def ci_outer_product (ci_fr, norb_f, nelec_fr, soc):
     '''Compute outer-product CI vectors from fragment LAS CI vectors.
     TODO: extend to accomodate states o different ms being addressed
     together. I think the only thing this entails is turning "nelec"
@@ -93,17 +95,133 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
     '''
 
     ci_r = []
+    nelec = []
     for state in range (len (ci_fr[0])):
         ci_f = [ci[state] for ci in ci_fr]
         nelec_f = [nelec[state] for nelec in nelec_fr]
         ci_r.append (_ci_outer_product (ci_f, norb_f, nelec_f))
-    nelec = (sum ([ne[0] for ne in nelec_f]),
-             sum ([ne[1] for ne in nelec_f]))
+
+        if soc == True:
+            nelec.append ((sum ([ne[0] for ne in nelec_f]),
+                           sum ([ne[1] for ne in nelec_f])))
+    if soc == False:
+        nelec = (sum ([ne[0] for ne in nelec_f]),
+                sum ([ne[1] for ne in nelec_f]))
     # NOTE: this ASSUMES that the (neleca, nelecb) tuple for the LAST
     # state in this list is accurate for ALL the states in this list
     return ci_r, nelec
 
-def ham (las, h1, h2, ci_fr, idx_root, orbsym=None, wfnsym=None):
+def make_trans_rdm1(dspin, cibra, ciket, norb, nelec_bra, nelec_ket):
+
+### function taken from github.com/hczhai/fci-siso/blob/master/fcisiso.py ##
+
+    nelabra, nelbbra = nelec_bra
+    nelaket, nelbket = nelec_ket
+
+    if dspin == 'ba':
+        cond = nelabra == nelaket - 1 and nelbbra == nelbket + 1
+    elif dspin == 'ab':
+        cond = nelabra == nelaket + 1 and nelbbra == nelbket - 1
+    else:
+        cond = nelabra == nelaket and nelbbra == nelbket
+    if not cond:
+        return np.array(0)
+
+    nabra = fci.cistring.num_strings(norb, nelabra)
+    nbbra = fci.cistring.num_strings(norb, nelbbra)
+    naket = fci.cistring.num_strings(norb, nelaket)
+    nbket = fci.cistring.num_strings(norb, nelbket)
+    cibra = cibra.reshape(nabra, nbbra)
+    ciket = ciket.reshape(naket, nbket)
+    lidxbra = fci.cistring.gen_des_str_index(range(norb), nelabra if dspin[0] == 'a' else nelbbra)
+    if dspin[1] == 'a':
+        lidxket = fci.cistring.gen_des_str_index(range(norb), nelaket)
+        naketd = fci.cistring.num_strings(norb, nelaket - 1)
+        t1 = np.zeros((norb, naketd, nbket))
+        for str0 in range(naket):
+            for _, i, str1, sign in lidxket[str0]:
+                t1[i, str1, :] += sign * ciket[str0, :]
+    else:
+        lidxket = fci.cistring.gen_des_str_index(range(norb), nelbket)
+        nbketd = fci.cistring.num_strings(norb, nelbket - 1)
+        t1 = np.zeros((norb, naket, nbketd))
+        for str0 in range(nbket):
+            for _, i, str1, sign in lidxket[str0]:
+                t1[i, :, str1] += sign * ciket[:, str0]
+        if nelaket % 2 == 1:
+            t1 = -t1
+    if dspin[0] == 'a':
+        lidxbra = fci.cistring.gen_des_str_index(range(norb), nelabra)
+        nabrad = fci.cistring.num_strings(norb, nelabra - 1)
+        t2 = np.zeros((norb, nabrad, nbbra))
+        for str0 in range(nabra):
+            for _, i, str1, sign in lidxbra[str0]:
+                t2[i, str1, :] += sign * cibra[str0, :]
+    else:
+        lidxbra = fci.cistring.gen_des_str_index(range(norb), nelbbra)
+        nbbrad = fci.cistring.num_strings(norb, nelbbra - 1)
+        t2 = np.zeros((norb, nabra, nbbrad))
+        for str0 in range(nbbra):
+            for _, i, str1, sign in lidxbra[str0]:
+                t2[i, :, str1] += sign * cibra[:, str0]
+        if nelabra % 2 == 1:
+            t2 = -t2
+    
+    rdm1 = np.tensordot(t1, t2, axes=((1,2), (1,2)))
+    
+    return rdm1
+
+def make_trans(m, cibra, ciket, norb, nelec_bra, nelec_ket):
+
+### function taken from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
+
+    if m == 1:
+        return -1.0 * make_trans_rdm1('ab', cibra, ciket, norb, nelec_bra, nelec_ket).T
+    elif m == -1:
+        return make_trans_rdm1('ba', cibra, ciket, norb, nelec_bra, nelec_ket).T
+    else:
+        return np.sqrt(0.5) * (make_trans_rdm1('aa', cibra, ciket, norb, nelec_bra, nelec_ket)
+                               - make_trans_rdm1('bb', cibra, ciket, norb, nelec_bra, nelec_ket)).T
+
+def si_soc (las, ci, nelec, norb):
+
+### function adapted from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
+
+    au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
+    nroots = len(ci)
+    hsiso = np.zeros((nroots, nroots), dtype=complex)
+
+    dm0 = las.mol.make_rdm1() # potentially replace with pre-calculated atomic densities used in AMFI
+    hsoao = soc_int.compute_hso(las.mol, dm0, amfi=True)
+    hso = np.einsum('rij, ip, jq -> rpq', hsoao, las.mo_coeff[:, las.ncore:las.ncore + norb],
+            las.mo_coeff[:, las.ncore:las.ncore + norb])
+
+    for istate, (ici, inelec) in enumerate(zip(ci, nelec)):
+        for jstate, (jci, jnelec) in enumerate(zip(ci, nelec)):
+            if jstate > istate:
+                continue
+
+            tp1 = make_trans(1, ici, jci, norb, inelec, jnelec)
+            tze = make_trans(0, ici, jci, norb, inelec, jnelec)
+            tm1 = make_trans(-1, ici, jci, norb, inelec, jnelec)
+
+            t = np.zeros((3, norb, norb), dtype=complex)
+            t[0] = (0.5 + 0j) * (tm1 - tp1)
+            t[1] = (0.5j + 0) * (tm1 + tp1)
+            t[2] = (np.sqrt(0.5) + 0j) * tze
+
+            somat = np.einsum('rij, rij ->', t, hso)
+            hsiso[istate, jstate] = somat
+
+            if istate!= jstate:
+                hsiso[jstate, istate] = somat.conj()
+            somat *= au2cm
+
+    heigso, hvecso = np.linalg.eigh(hsiso)
+
+    return hsiso
+
+def ham (las, h1, h2, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
     TODO: extend to accomodate states of different ms being addressed
     together, and then spin-orbit coupling.
@@ -141,7 +259,7 @@ def ham (las, h1, h2, ci_fr, idx_root, orbsym=None, wfnsym=None):
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
 
     # The function below is the main workhorse of this whole implementation
-    ci, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
+    ci, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr, soc)
 
     # TODO: extend to spin-orbit coupling case. The operator-vector
     # product functions "contract_2e" and "contract_ss" are specific to
@@ -150,15 +268,35 @@ def ham (las, h1, h2, ci_fr, idx_root, orbsym=None, wfnsym=None):
     # with that?
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     norb = sum (norb_f)
-    h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
-    ham_ci = [solver.contract_2e (h2eff, c, norb, nelec) for c in ci]
-    s2_ci = [contract_ss (c, norb, nelec) for c in ci]
-    ham_eff = np.array ([[c.ravel ().dot (hc.ravel ()) for hc in ham_ci] for c in ci])
-    s2_eff = np.array ([[c.ravel ().dot (s2c.ravel ()) for s2c in s2_ci] for c in ci])
-    ovlp_eff = np.array ([[bra.ravel ().dot (ket.ravel ()) for ket in ci] for bra in ci])
+    if soc==False:
+        h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
+        ham_ci = [solver.contract_2e (h2eff, c, norb, nelec) for c in ci]
+        s2_ci = [contract_ss (c, norb, nelec) for c in ci]
+        
+        ham_eff = np.array ([[c.ravel ().dot (hc.ravel ()) for hc in ham_ci] for c in ci])
+        s2_eff = np.array ([[c.ravel ().dot (s2c.ravel ()) for s2c in s2_ci] for c in ci])
+        ovlp_eff = np.array ([[bra.ravel ().dot (ket.ravel ()) for ket in ci] for bra in ci])
+    
+    else:
+        nroots = len(ci)
+        h2eff = solver.absorb_h1e (h1, h2, norb, nelec[0], 0.5)
+        ham_ci = [solver.contract_2e (h2eff, c, norb, ne) for c, ne in zip(ci, nelec)]
+        s2_ci = [contract_ss (c, norb, ne) for c, ne in zip(ci, nelec)]
+
+        ham_eff, s2_eff, ovlp_eff = [ np.zeros((nroots, nroots)) for i in range (3) ]
+        for i, hc, s2c, ket, nelec_ket in zip(range(nroots), ham_ci, s2_ci, ci, nelec):
+            for j, c, nelec_bra in zip(range(nroots), ci, nelec):
+                if len(hc) == len(c):
+                    ham_eff[i, j] = c.ravel ().dot (hc.ravel ()) 
+                    s2_eff[i, j] = c.ravel ().dot (s2c.ravel ()) 
+                    ovlp_eff[i,j] = c.ravel ().dot (ket.ravel ())
+        
+        hso = si_soc(las, ci, nelec, norb)
+        ham_eff = ham_eff + hso
+    
     return ham_eff, s2_eff, ovlp_eff
 
-def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
+def make_stdm12s (las, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
     TODO: extend to accomodate states of different ms being addressed
     together, and then spin-orbit coupling.
@@ -189,7 +327,7 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
                  for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
+    ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr, soc)
     norb = sum (norb_f) 
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     nroots = len (ci_r)
@@ -197,29 +335,57 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
         dtype=ci_r[0].dtype).transpose (0,2,3,4,1)
     stdm2s = np.zeros ((nroots, nroots, 2, norb, norb, 2, norb, norb),
         dtype=ci_r[0].dtype).transpose (0,2,3,4,5,6,7,1)
-    for i, ci in enumerate (ci_r):
-        rdm1s, rdm2s = solver.make_rdm12s (ci, norb, nelec)
-        stdm1s[i,0,:,:,i] = rdm1s[0]
-        stdm1s[i,1,:,:,i] = rdm1s[1]
-        stdm2s[i,0,:,:,0,:,:,i] = rdm2s[0]
-        stdm2s[i,0,:,:,1,:,:,i] = rdm2s[1]
-        stdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
-        stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
-    for (i, ci_bra), (j, ci_ket) in combinations (enumerate (ci_r), 2):
-        tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, nelec)
-        # Transpose for 1TDM is backwards because of stupid PySCF convention
-        stdm1s[i,0,:,:,j] = tdm1s[0].T
-        stdm1s[i,1,:,:,j] = tdm1s[1].T
-        stdm1s[j,0,:,:,i] = tdm1s[0]
-        stdm1s[j,1,:,:,i] = tdm1s[1]
-        for spin, tdm2 in enumerate (tdm2s):
-            p = spin // 2
-            q = spin % 2
-            stdm2s[i,p,:,:,q,:,:,j] = tdm2
-            stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
+    if soc:  
+        for i, (ci, ne) in enumerate (zip (ci_r, nelec)):
+            rdm1s, rdm2s = solver.make_rdm12s (ci, norb, ne)
+            stdm1s[i,0,:,:,i] = rdm1s[0]
+            stdm1s[i,1,:,:,i] = rdm1s[1]
+            stdm2s[i,0,:,:,0,:,:,i] = rdm2s[0]
+            stdm2s[i,0,:,:,1,:,:,i] = rdm2s[1]
+            stdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
+            stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
+        
+        for (i, (ci_bra, ne_bra)), (j, (ci_ket, ne_ket)) in combinations (enumerate (zip (ci_r, nelec)), 2):
+             if ne_bra == ne_ket:
+                tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, ne_bra)
+                # Transpose for 1TDM is backwards because of stupid PySCF convention
+                stdm1s[i,0,:,:,j] = tdm1s[0].T
+                stdm1s[i,1,:,:,j] = tdm1s[1].T
+                stdm1s[j,0,:,:,i] = tdm1s[0]
+                stdm1s[j,1,:,:,i] = tdm1s[1]
+                for spin, tdm2 in enumerate (tdm2s):
+                    p = spin // 2
+                    q = spin % 2
+                    stdm2s[i,p,:,:,q,:,:,j] = tdm2
+                    stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
+             else:
+                stdm1s[i,:,:,:,j] =  stdm1s[j,:,:,:,i] = np.array(0)
+                stdm2s[i,:,:,:,:,:,:,j] = stdm2s[j,:,:,:,:,:,:,i] = np.array(0)
+
+    else:       
+        for i, ci in enumerate (ci_r):    
+            rdm1s, rdm2s = solver.make_rdm12s (ci, norb, nelec)
+            stdm1s[i,0,:,:,i] = rdm1s[0]
+            stdm1s[i,1,:,:,i] = rdm1s[1]
+            stdm2s[i,0,:,:,0,:,:,i] = rdm2s[0]
+            stdm2s[i,0,:,:,1,:,:,i] = rdm2s[1]
+            stdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
+            stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
+        for (i, ci_bra), (j, ci_ket) in combinations (enumerate (ci_r), 2):
+            tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, nelec)
+            # Transpose for 1TDM is backwards because of stupid PySCF convention
+            stdm1s[i,0,:,:,j] = tdm1s[0].T
+            stdm1s[i,1,:,:,j] = tdm1s[1].T
+            stdm1s[j,0,:,:,i] = tdm1s[0]
+            stdm1s[j,1,:,:,i] = tdm1s[1]
+            for spin, tdm2 in enumerate (tdm2s):
+                p = spin // 2
+                q = spin % 2
+                stdm2s[i,p,:,:,q,:,:,j] = tdm2
+                stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
     return stdm1s, stdm2s 
 
-def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
+def roots_make_rdm12s (las, ci_fr, idx_root, si, soc=False, orbsym=None, wfnsym=None):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
     TODO: extend to accomodate states of different ms being addressed
@@ -254,21 +420,31 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
                  for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr)
+    ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr, soc)
     norb = sum (norb_f)
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     nroots = len (ci_r)
     ci_r = np.tensordot (si.conj ().T, np.stack (ci_r, axis=0), axes=1)
     rdm1s = np.zeros ((nroots, 2, norb, norb), dtype=ci_r.dtype)
     rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb), dtype=ci_r.dtype)
-    for ix, ci in enumerate (ci_r):
-        d1s, d2s = solver.make_rdm12s (ci, norb, nelec)
-        rdm1s[ix,0,:,:] = d1s[0]
-        rdm1s[ix,1,:,:] = d1s[1]
-        rdm2s[ix,0,:,:,0,:,:] = d2s[0]
-        rdm2s[ix,0,:,:,1,:,:] = d2s[1]
-        rdm2s[ix,1,:,:,0,:,:] = d2s[1].transpose (2,3,0,1)
-        rdm2s[ix,1,:,:,1,:,:] = d2s[2]
+    if soc:
+        for ix, (ci, ne) in enumerate (zip (ci_r, nelec)):
+            d1s, d2s = solver.make_rdm12s (ci, norb, ne)
+            rdm1s[ix,0,:,:] = d1s[0]
+            rdm1s[ix,1,:,:] = d1s[1]
+            rdm2s[ix,0,:,:,0,:,:] = d2s[0]
+            rdm2s[ix,0,:,:,1,:,:] = d2s[1]
+            rdm2s[ix,1,:,:,0,:,:] = d2s[1].transpose (2,3,0,1)
+            rdm2s[ix,1,:,:,1,:,:] = d2s[2]
+    else:
+        for ix, ci in enumerate (ci_r):
+            d1s, d2s = solver.make_rdm12s (ci, norb, nelec)
+            rdm1s[ix,0,:,:] = d1s[0]
+            rdm1s[ix,1,:,:] = d1s[1]
+            rdm2s[ix,0,:,:,0,:,:] = d2s[0]
+            rdm2s[ix,0,:,:,1,:,:] = d2s[1]
+            rdm2s[ix,1,:,:,0,:,:] = d2s[1].transpose (2,3,0,1)
+            rdm2s[ix,1,:,:,1,:,:] = d2s[2]
     return rdm1s, rdm2s
 
 if __name__ == '__main__':
