@@ -5,7 +5,7 @@ from pyscf.fci.addons import fix_spin_, initguess_triplet
 from mrh.my_pyscf import mcpdft
 #from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.grad.mspdft import mspdft_heff_response, mspdft_heff_HellmanFeynman
-from mrh.my_pyscf.df.grad import dfsacasscf
+#from mrh.my_pyscf.df.grad import dfsacasscf
 import unittest, math
 
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
