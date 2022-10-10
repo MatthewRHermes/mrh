@@ -4,7 +4,6 @@ from pyscf import gto, scf, df, fci
 from pyscf.fci.addons import fix_spin_
 from mrh.my_pyscf import mcpdft
 #from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
 import unittest
 
 h2co_casscf66_631g_xyz = '''C  0.534004  0.000000  0.000000
@@ -43,7 +42,7 @@ class KnownValues(unittest.TestCase):
             mc_conv, ref_conv = get_mc_ref (mol, ri=False, sa2=False)
             mc_conv_grad = mc_conv.nuc_grad_method ()
             mc_df, ref_df = get_mc_ref (mol, ri=True, sa2=False)
-            mc_df_grad = mcpdft_grad.Gradients (mc_df)
+            mc_df_grad = mc_df.nuc_grad_method ()
             for lbl, mc_grad, ref in (('conv', mc_conv_grad, ref_conv), ('DF', mc_df_grad, ref_df)):
                 with self.subTest (symm=mol.symmetry, eri=lbl):
                     test = mc_grad.kernel ()
@@ -54,7 +53,7 @@ class KnownValues(unittest.TestCase):
             mc_conv, ref_conv = get_mc_ref (mol, ri=False, sa2=True)
             mc_conv_grad = mc_conv.nuc_grad_method ()
             mc_df, ref_df = get_mc_ref (mol, ri=True, sa2=True)
-            mc_df_grad = mcpdft_grad.Gradients (mc_df)
+            mc_df_grad = mc_df.nuc_grad_method ()
             for lbl, mc_grad, ref in (('conv', mc_conv_grad, ref_conv), ('DF', mc_df_grad, ref_df)):
                 with self.subTest (symm=mol.symmetry, eri=lbl):
                     test = mc_grad.kernel (state=0)
