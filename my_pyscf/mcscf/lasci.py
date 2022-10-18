@@ -526,6 +526,19 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return hcfr
 
     def make_tdm1s2c_sub (self, ci1):
+        ''' Make effective 1-body and 2-body cumulant density matrices to first order
+        in a CI rotation vector. 
+
+        Args:
+            ci : list (length = nfrags) of lists (length = nroots) of ndarrays
+                CI shift vectors
+
+        Returns:
+            tdm1s : ndarray of shape (nroots,2,ncas,ncas)
+                Spin-separated effective 1-body density matrix
+            tcm2 : ndarray of shape (ncas,ncas,ncas,ncas)
+                Spin-summed state-averaged cumulant effective 2-body density matrix
+        '''
         tdm1rs = np.zeros ((self.nroots, 2, self.ncas, self.ncas), dtype=self.dtype)
         tcm2 = np.zeros ([self.ncas,]*4, dtype=self.dtype)
         for isub, (fcibox, ncas, nelecas, c1, c0, casdm1rs, casdm1s, casdm2r) in enumerate (
@@ -688,11 +701,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
         # Effective density matrices, veffs, and overlaps from linear response
         odm1s = -np.dot (self.dm1s, kappa1)
+        ocm2 = -np.dot (self.cascm2, kappa1[self.ncore:self.nocc])
         tdm1rs, tcm2 = self.make_tdm1s2c_sub (ci1)
         veff_prime, h1s_prime = self.get_veff_Heff (odm1s, tdm1rs)
 
         # Responses!
-        kappa2 = self.orbital_response (kappa1, odm1s, tdm1rs, tcm2, veff_prime)
+        kappa2 = self.orbital_response (kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, self.ci_response_diag (ci1))]
 
@@ -704,13 +718,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
 
-    def orbital_response (self, kappa, odm1s, tdm1rs, tcm2, veff_prime):
+    def orbital_response (self, kappa, odm1s, ocm2, tdm1rs, tcm2, veff_prime):
         ''' Formally, orbital response if F'_pq - F'_qp, F'_pq = h_pq D'_pq + g_prst d'_qrst.
         Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
         ncore, nocc = self.ncore, self.nocc
         # I put off + h.c. until now in order to make other things more natural
         odm1s += odm1s.transpose (0,2,1)
-        ocm2 = -np.dot (self.cascm2, kappa[ncore:nocc])
         ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
         ocm2 += ocm2.transpose (2,3,0,1)
         # Effective density matrices
