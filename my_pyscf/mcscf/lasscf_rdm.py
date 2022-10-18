@@ -71,27 +71,27 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         kappa1 = self.ugg.unpack (x)
 
         # Effective density matrices, veffs, and overlaps from linear response
-        odm1rs, ocm2 = self.make_odm1s2c_sub (kappa1)
-        veff_prime = self.get_veff_prime (odm1rs)
+        odm1s = -np.dot (self.dm1s, kappa1)
+        veff_prime = self.get_veff_prime (odm1s)
 
         # Responses!
-        kappa2 = self.orbital_response (kappa1, odm1rs, ocm2, veff_prime)
+        kappa2 = self.orbital_response (kappa1, odm1s, veff_prime)
 
         # LEVEL SHIFT!!
         kappa3 = self.ugg.unpack (self.ah_level_shift * np.abs (x))
         kappa2 += kappa3
         return self.ugg.pack (kappa2)
 
-    def get_veff_prime (self, odm1rs):
+    def get_veff_prime (self, odm1s):
         # Spoof away CI by wrapping call
         fn = lasscf_o0.LASSCF_HessianOperator.get_veff_Heff
-        return fn (self, odm1rs, self._tdm1rs)[0]
+        return fn (self, odm1s, self._tdm1rs)[0]
 
-    def orbital_response (self, kappa1, odm1rs, ocm2, veff_prime):
+    def orbital_response (self, kappa1, odm1s, veff_prime):
         # Spoof away CI by wrapping call
         fn = lasscf_o0.LASSCF_HessianOperator.orbital_response
         t1, t2 = self._tdm1rs, self._tcm2
-        return fn (self, kappa1, odm1rs, ocm2, t1, t2, veff_prime)
+        return fn (self, kappa1, odm1s, t1, t2, veff_prime)
 
     def update_mo_eri (self, x, h2eff_sub):
         kappa = self.ugg.unpack (x)

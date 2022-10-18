@@ -231,7 +231,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         veffb = veff_c - veff_s
         return np.stack ([veffa, veffb], axis=0)
 
-    def orbital_response (self, kappa, odm1rs, ocm2, tdm1frs, tcm2, veff_prime):
+    def orbital_response (self, kappa, odm1rs, tdm1frs, tcm2, veff_prime):
         ''' Parent class does everything except va/ac degrees of freedom
         (c: closed; a: active; v: virtual; p: any) '''
         raise NotImplementedError ("Matt, you need to update this for odm1rs->odm1s!")
@@ -242,8 +242,9 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         odm1rs_frz[:,:,ncore:nocc,nocc:]  = 0.0
         odm1rs_ua = odm1rs - odm1rs_frz
         gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs_frz,
-            ocm2, tdm1frs, tcm2, veff_prime)
+            tdm1frs, tcm2, veff_prime)
         # Add back terms omitted for (H.x_ua)_aa
+        ocm2 = -np.dot (self.cascm2, kappa[ncore:nocc])
         odm1s_ua = np.einsum ('r,rspq->spq', self.weights, odm1rs_ua)
         odm1s_ua += odm1s_ua.transpose (0,2,1)
         f1_prime = self.h1_bare @ odm1s_ua.sum (0)
