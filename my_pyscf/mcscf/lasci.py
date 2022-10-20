@@ -1250,7 +1250,11 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log, veff_sub_test=None)
             i = ncas_cum[isub]
             j = ncas_cum[isub+1]
             orbsym = orbsym[i:j]
-            log.info ("LASCI subspace {} with orbsyms {}".format (isub, orbsym))
+            orbsym_io = orbsym.copy ()
+            if np.issubsctype (orbsym.dtype, np.integer):
+                orbsym_io = np.asarray ([symm.irrep_id2name (las.mol.groupname, x)
+                                         for x in orbsym])
+            log.info ("LASCI subspace {} with orbsyms {}".format (isub, orbsym_io))
         else:
             log.info ("LASCI subspace {} with no orbsym information".format (isub))
         if log.verbose > lib.logger.DEBUG: 
@@ -1447,7 +1451,10 @@ def get_state_info (las):
         charges[iroot,ifrag] = np.sum (las.nelecas_sub[ifrag]) - np.sum (nelec)
         spins[iroot,ifrag] = nelec[0]-nelec[1]
         smults[iroot,ifrag] = solver.smult
-        wfnsyms[iroot,ifrag] = solver.wfnsym or 0
+        try:
+            wfnsyms[iroot,ifrag] = solver.wfnsym or 0
+        except ValueError as e:
+            wfnsyms[iroot,ifrag] = symm.irrep_name2id (las.mol.groupname, solver.wfnsym)
     return charges, spins, smults, wfnsyms
    
 def assert_no_duplicates (las, tab=None):
@@ -1526,6 +1533,14 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
     wfnsyms = np.asarray (wfnsyms)
     spins = np.asarray (spins)
     smults = np.asarray (smults)
+    if np.issubsctype (wfnsyms.dtype, np.str):
+        wfnsyms_str = wfnsyms
+        wfnsyms = np.zeros (wfnsyms_str.shape, dtype=np.int32)
+        for ix, wfnsym in enumerate (wfnsyms_str.flat):
+            try:
+                wfnsyms.flat[ix] = symm.irrep_name2id (las.mol.groupname, wfnsym)
+            except (TypeError, KeyError) as e:
+                wfnsyms.flat[ix] = int (wfnsym)
     if nfrags == 1:
         charges = np.atleast_2d (np.squeeze (charges)).T
         wfnsyms = np.atleast_2d (np.squeeze (wfnsyms)).T
@@ -2219,6 +2234,8 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
                              frozen=frozen, **kwargs)
         if wfnsym_sub is None: wfnsym_sub = [0 for icas in self.ncas_sub]
         for wfnsym, frag in zip (wfnsym_sub, self.fciboxes):
+            if isinstance (wfnsym, (str, np.str)):
+                wfnsym = symm.irrep_name2id (self.mol.groupname, wfnsym)
             frag.fcisolvers[0].wfnsym = wfnsym
 
     make_rdm1s = LASCINoSymm.make_rdm1s
