@@ -576,11 +576,30 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return tdm1rs, tcm2    
 
     def get_veff_Heff (self, odm1s, tdm1rs):
-        ''' Returns the veff for the orbital part and the h1s shifts for the CI part arising from
-        the contraction of shifted or 'effective' 1-rdms in the two sectors with the Hamiltonian.
-        Return values do not include veffs with the external indices rotated (i.e., in the CI
-        part). Uses the cached eris for the latter in the hope that this is faster than calling
-        get_jk with many dms. '''
+        ''' Compute first-order effective potential (relevant to the orbital-rotation sector of the
+        Hessian-vector product) and first-order effective 1-body Hamiltonian operator (relevant to
+        the CI-rotation sector of the Hessian-vector product) from first-order effective density
+        matrices. "First-order" means proportional to one power of the orbital/CI-rotation step
+        vector.
+
+        Args:
+            odm1s : ndarray of shape (2,nmo,nmo)
+                Pre-symmetrization effective spin-separated state-averaged 1-RDM from the orbital
+                rotation part of the step vector
+            tdm1rs : ndarray of shape (nroots,2,ncas,ncas)
+                Effective spin-separated 1-RDMs from the CI rotation part of the step vector,
+                separated by root
+
+        Returns:
+            veff_mo : ndarray of shape (nmo,nmo)
+                Spin-symmetric effective 1-body potential, including the effects of both the
+                orbital and CI parts of the step vector
+            h1frs : list of length nfrags of ndarrays
+                ith element has shape (nroots,2,ncas_sub[i],ncas_sub[i]).
+                Effective one-electron Hamiltonian amplitudes for each state and fragment + h.c.
+                Includes the effects of orbital rotation and CI rotation of other fragments (i.e.,
+                omits double-counting).
+        '''
 
         ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
         tdm1s_sa = np.einsum ('rspq,r->spq', tdm1rs, self.weights)
@@ -637,6 +656,22 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return veff_mo, h1frs
 
     def get_veff (self, dm1s_mo=None):
+        '''THIS FUNCTION IS OVERWRITTEN WITH A CALL TO LAS.GET_VEFF IN THE LASSCF_O0 CLASS. IT IS
+        ONLY RELEVANT TO THE "LASCI" STEP OF THE OLDER, DEPRECATED, DMET-BASED ALGORITHM.
+
+        Compute the effective potential from a 1-RDM in the MO basis (presumptively the first-order
+        effective 1-RDM which is proportional to a step vector in MO and CI rotation coordinates).
+        If density fitting is used, the effective potential is approximate: it omits the
+        unoccupied-unoccupied lower-diagonal block.
+
+        Kwargs:
+            dm1s_mo : ndarray of shape (2,nmo,nmo)
+                Contains spin-separated 1-RDM
+
+        Returns:
+            veff_mo : ndarray of shape (nmo,nmo)
+                Spin-symmetric effective potential in the MO basis
+        '''
         mo = self.mo_coeff
         moH = mo.conjugate ().T
         nmo = mo.shape[-1]
@@ -684,6 +719,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return veff_mo
 
     def split_veff (self, veff_mo, dm1s_mo):
+        # This function seems orphaned? Is it used anywhere?
         veff_c = veff_mo.copy ()
         ncore = self.ncore
         nocc = self.nocc
@@ -719,8 +755,47 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     _rmatvec = _matvec # Hessian is Hermitian in this context!
 
     def orbital_response (self, kappa, odm1s, ocm2, tdm1rs, tcm2, veff_prime):
-        ''' Formally, orbital response if F'_pq - F'_qp, F'_pq = h_pq D'_pq + g_prst d'_qrst.
-        Applying the cumulant decomposition requires veff(D').D == veff'.D as well as veff.D'. '''
+        '''Compute the orbital-response sector of the Hessian-vector product. It's conceptually
+        pretty simple:
+
+        Hx_pq = F'_pq - F'_qp + .5*(F_pr k_rq - k_pr F_rq)
+        F'_pq = h_pr D'_qr + g_prst d'_qrst
+
+        Since we use the cumulant decomposition:
+
+        d'_pqrs = l'_pqrs + D'_pq D_rs + D_pq D'_rs
+                  - .5*(D[s]'_ps D[s]_qr + D[s]_ps D[s]'_qr)
+
+        where [s] means spin index, we find that
+
+        F'_pq = h_pr D_qr + veff[s]_pr D'[s]_qr + veff'[s]_pr D[s]_qr + g_prst l'_qrst
+
+        where veff is the effective potential from the zeroth-order 1-RDMs and veff' is that from
+        the first-order 1-RDMs.
+
+        Args:
+            kappa : ndarray of shape (nmo,nmo)
+                Unpacked orbital-rotation step vector
+            odm1s : ndarray of shape (2,nmo,nmo)
+                Pre-symmetrization effective spin-separated state-averaged 1-RDM from the orbital
+                rotation part of the step vector
+            ocm2 : ndarray of shape (ncas,ncas,ncas,nmo)
+                Pre-symmetrization spin-summed state-averaged effective cumulant of the 2-RDM
+                from the orbital-rotation part of the step vector
+            tdm1rs : ndarray of shape (nroots,2,ncas,ncas)
+                Effective spin-separated 1-RDMs from the CI rotation part of the step vector,
+                separated by root
+            tcm2 : ndarray of shape (ncas,ncas,ncas,nncas)
+                Spin-summed state-averaged effective cumulant of the 2-RDM from the CI rotation
+                part of the step vector
+            veff_prime : ndarray of shape (2,nmo,nmo)
+                Spin-separated state-averaged effective potential proportional to the first power
+                of the step vector (all sectors)
+
+        Returns:
+            kappa2 : ndarray of shape (nmo,nmo)
+                Contains the unpacked orbital-rotation sector of the Hessian-vector product.
+        '''
         ncore, nocc = self.ncore, self.nocc
         # I put off + h.c. until now in order to make other things more natural
         odm1s += odm1s.transpose (0,2,1)
@@ -738,9 +813,26 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return fock1 - fock1.T
 
     def ci_response_offdiag (self, kappa1, h1frs_prime):
-        ''' Rotate external indices with kappa1; add contributions from rotated internal indices
-        and mean-field intersubspace response in h1s_prime. I have set it up so that
-        I do NOT add h.c. (multiply by 2) at the end. '''
+        '''Compute part of the CI rotation sector of the Hessian-vector product corresponding
+        to off-diagonal blocks of the Hessian matrix; i.e., for a given fragment block of the
+        Hessian-vector product, the input step vector omits CI degrees of freedom of that fragment,
+        but includes CI degrees of freedom for all other fragments as well as orbital-rotation
+        degrees of freedom.
+
+        Args:
+            kappa1 : ndarray of shape (nmo,nmo)
+                Unpacked orbital-rotation step vector
+            h1frs : list of length nfrags of ndarrays
+                ith element has shape (nroots,2,ncas_sub[i],ncas_sub[i]).
+                Effective one-electron Hamiltonian amplitudes for each state and fragment + h.c.
+                Includes the effects of orbital rotation and CI rotation of other fragments (i.e.,
+                omits double-counting).
+
+        Returns:
+            Kci0 : list (length = nfrags) of lists (length = nroots) of ndarrays
+                Contains unpacked CI sector of partial Hessian-vector product
+        '''
+        # Since h1frs contains + h.c., I do NOT explicitly add + h.c. in this function
         ncore, nocc, ncas_sub, nroots = self.ncore, self.nocc, self.ncas_sub, self.nroots
         kappa1_cas = kappa1[ncore:nocc,:]
         h1frs = [np.zeros_like (h1) for h1 in h1frs_prime]
@@ -749,6 +841,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         h2 = -np.tensordot (kappa1_cas, self.eri_paaa, axes=1)
         h2 += h2.transpose (2,3,0,1)
         h2 += h2.transpose (1,0,3,2)
+        # ^ h2 should also include + h.c.
         for j, casdm1s in enumerate (self.casdm1rs):
             for i, (h1rs, h1rs_prime) in enumerate (zip (h1frs, h1frs_prime)):
                 k = sum (ncas_sub[:i])
@@ -769,6 +862,19 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return Kci0
 
     def ci_response_diag (self, ci1):
+        '''Compute part of the CI response sector of the Hessian-vector product corresponding
+        to diagonal blocks of the Hessian matrix; i.e., for a given fragment block of the Hessian-
+        vector product, the input step vector includes ONLY CI degrees of freedom for THAT
+        FRAGMENT.
+
+        Args:
+            ci1 : list (length = nfrags) of lists (length = nroots) of ndarrays
+                Contains unpacked CI sector of input step vector
+
+        Returns:
+            ci2 : list (length = nfrags) of lists (length = nroots) of ndarrays
+                Contains unpacked CI sector of partial Hessian-vector product
+        '''
         # IMPORTANT: this disagrees with PySCF, but I still think it's right and PySCF is wrong
         ci1HmEci0 = [[c.dot (Hci) for c, Hci in zip (cr, Hcir)] 
                      for cr, Hcir in zip (ci1, self.hci0)]
@@ -779,6 +885,13 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return [[x*2 for x in xr] for xr in ci2]
 
     def get_prec (self):
+        '''Obtain the preconditioner for conjugate-gradient descent within a single LASCI
+        macrocycle
+
+        Returns:
+            prec_op : LinearOperator
+                Approximately the inverse of the Hessian
+        '''
         Hdiag = np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
         Hdiag += self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
