@@ -3,36 +3,41 @@ import numpy as np
 from pyscf import ao2mo
 from pyscf.lib import current_memory, numpy_helper
 from pyscf.mcscf.mc1step import gen_g_hop
-from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap, orthonormalize_a_basis, get_complementary_states, get_overlapping_states, is_basis_orthonormal_and_complete
+from mrh.util.basis import represent_operator_in_basis, is_basis_orthonormal, measure_basis_olap
+from mrh.util.basis import orthonormalize_a_basis, get_complementary_states, get_overlapping_states
+from mrh.util.basis import is_basis_orthonormal_and_complete
 from mrh.util.rdm import get_2CDM_from_2RDM
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from scipy import linalg
 from itertools import product
 
-''' Always remember: ~spin-restricted orbitals~ means the unitary group generator is spin-symmetric regardless of the wave function!
-    This means you NEVER handle an alpha fock matrix and a beta fock matrix separately and you must do the "fake" semi-cumulant decomposition
-    d^pr_qs = l^pr_qs + D^p_q D^r_s - D^p_s D^r_q / 2 without the spin-density terms! For now fix this by setting dm1s = [dm1/2, dm1/2] and 
-    focka = fockb = fock. '''
+''' Always remember: ~spin-restricted orbitals~ means the unitary group generator is spin-symmetric
+regardless of the wave function! This means you NEVER handle an alpha fock matrix and a beta fock
+matrix separately and you must do the "fake" semi-cumulant decomposition
+    d^pr_qs = l^pr_qs + D^p_q D^r_s - D^p_s D^r_q / 2
+without the spin-density terms! For now fix this by setting dm1s = [dm1/2, dm1/2] and focka = fockb
+= fock. '''
 
 class HessianCalculator (object):
-    ''' Calculate elements of an orbital-rotation Hessian corresponding to particular orbital ranges in a CASSCF or
-    LASSCF wave function. This is not designed to be efficient in orbital optimization; it is designed to collect
-    slices of the Hessian stored explicitly for some kind of spectral analysis. '''
+    ''' Calculate elements of an orbital-rotation Hessian corresponding to particular orbital
+    ranges in a CASSCF or LASSCF wave function. This is not designed to be efficient in orbital
+    optimization; it is designed to collect slices of the Hessian stored explicitly for some kind
+    of spectral analysis. '''
 
     def get_operator (self, r, s):
         return HessianOperator (self, r, s)
 
     def __init__(self, mf, oneRDMs, twoCDM, ao2amo):
         ''' Args:
-                mf: pyscf.scf.hf object (or at any rate, an object with the member attributes get_hcore, get_jk, and get_ovlp that
-                    behaves like a pyscf scf object)
-                    Must also have an orthonormal complete set of orbitals in mo_coeff (they don't have to be optimized in any way,
-                    they just have to be complete and orthonormal)
+                mf: pyscf.scf.hf object
+                    Must also have an orthonormal complete set of orbitals in mo_coeff (they don't
+                    have to be optimized in any way, they just have to be complete and orthonormal)
                 oneRDMs: ndarray or list of ndarray with overall shape (2,nao,nao)
                     spin-separated one-body density matrix in the AO basis.
                 twoCDM: ndarray or list of ndarray with overall shape (*,ncas,ncas,ncas,ncas) 
-                    two-body cumulant density matrix of or list of two-body cumulant density matrices for
-                    the active orbital space(s). Has multiple elements in LASSCF (in general)
+                    two-body cumulant density matrix of or list of two-body cumulant density
+                    matrices for the active orbital space(s). Has multiple elements in LASSCF (in
+                    general)
                 ao2amo: ndarray of list of ndarray with overall shape (*,nao,ncas)
                     molecular orbital coefficients for the active space(s)
         '''
@@ -77,7 +82,7 @@ class HessianCalculator (object):
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
             assert (t.shape == (n, n, n, n)), "twoCDM array size problem"
             assert (a.shape == (self.nmo, n)), "mo2amo array size problem"
-            assert (is_basis_orthonormal (a)), 'problem putting active orbitals in orthonormal basis'       
+            assert (is_basis_orthonormal (a)), 'problem putting active orbs in orthonormal basis'       
             self.faaa.append (self._get_eri ([f,a,a,a]))
 
         # Precalculate the fock matrix 
@@ -94,19 +99,21 @@ class HessianCalculator (object):
             ''' If no orbital ranges are passed, return the full mo-basis Hessian '''
             return self._call_fullrange (self.mo)
         elif len (args) == 1:
-            ''' If one orbital range is passed, return the Hessian with all four indices in that range'''
+            ''' If 1 orbital range is passed, return Hessian with all 4 indices in that range'''
             return self._call_fullrange (args[0])
         elif len (args) == 2:
-            ''' If two orbital ranges are passed, I assume that you are asking ONLY for the diagonal elements'''
+            ''' If 2 orbital ranges are passed, I assume that you are asking ONLY for the diag'''
             return self._call_diag (args[0], args[1])
         elif len (args) == 3:
             ''' No interpretation; raise an error '''
             raise RuntimeError ("Can't interpret 3 orbital ranges; pass 0, 1, 2, or 4")
         elif len (args) == 4:
-            ''' If all four orbital ranges are passed, return the Hessian so specified. No permutation symmetry can be exploited. '''
+            ''' If all 4 orbital ranges are passed, return the Hessian so specified. No permutation
+                symmetry can be exploited. '''
             return self._call_general (args[0], args[1], args[2], args[3])
         else:
-            raise RuntimeError ("Orbital Hessian has 4 orbital indices; you passed {} orbital ranges".format (len (args)))
+            raise RuntimeError (("Orbital Hessian has 4 orbital indices; you passed {} orbital "
+                                 "ranges").format (len (args)))
 
     def _call_fullrange (self, p):
         '''Use full permutation symmetry to accelerate it!'''
@@ -114,7 +121,8 @@ class HessianCalculator (object):
         if 0 in norb: return np.zeros (norb)
         # Put the orbital ranges in the orthonormal basis for fun and profit
         p = self.moHS @ p
-        hess = self._get_Fock2 (p, p, p, p)
+        eris = HessianERITransformer (self, p, p, p, p)
+        hess = self._get_Fock2 (p, p, p, p, eris)
         hess -= hess.transpose (1, 0, 2, 3)
         hess -= hess.transpose (0, 1, 3, 2)
         return hess / 2
@@ -127,7 +135,7 @@ class HessianCalculator (object):
 
     def _call_general (self, p, q, r, s):
         ''' The Hessian E2^pr_qs is F2^pr_qs - F2^qr_ps - F2^ps_qr + F2^qs_pr. 
-        Since the orbitals are segmented into separate ranges, you cannot necessarily just calculate
+        Since the orbitals are segmented into separate ranges, you can't necessarily just calculate
         one of these and transpose. '''
         norb = [p.shape[-1], q.shape[-1], r.shape[-1], s.shape[-1]]
         if 0 in norb: return np.zeros (norb)
@@ -146,7 +154,8 @@ class HessianCalculator (object):
     def _get_eri (self, orbs_list, compact=False):
         if isinstance (orbs_list, np.ndarray) and orbs_list.ndim == 2:
             orbs_list = [orbs_list, orbs_list, orbs_list, orbs_list]
-        # Tragically, I have to go back to the AO basis to interact with PySCF's eri modules. This is the greatest form of racism.
+        # Tragically, I have to go back to the AO basis to interact with PySCF's eri modules.
+        # This is the greatest form of racism.
         orbs_list = [self.mo @ o for o in orbs_list]
         if self.scf._eri is not None:
             eri = ao2mo.incore.general (self.scf._eri, orbs_list, compact=compact) 
@@ -160,7 +169,8 @@ class HessianCalculator (object):
 
     def _get_collective_basis (self, *args):
         p = np.concatenate (args, axis=-1)
-        try: # Linear algebra problem sometimes if one of the arguments is a complete basis? Can I exception-handle my way out of this?
+        try: # Linear algebra problem sometimes if one of the arguments is a complete basis?
+             # Can I exception-handle my way out of this?
             q = orthonormalize_a_basis (p)
         except np.linalg.LinAlgError as e:
             q = None
@@ -182,7 +192,7 @@ class HessianCalculator (object):
 
         # Generalized Fock matrix terms: delta_qr (F^p_s + F^s_p)
         ovlp_qr = q.conjugate ().T @ r
-        if np.amax (np.abs (ovlp_qr)) > 1e-8: # skip if there is no overlap between the q and r ranges
+        if np.amax (np.abs (ovlp_qr)) > 1e-8: # skip if there is no ovlp between the q and r ranges
             gf_ps = self._get_Fock1 (p, s) + self._get_Fock1 (s, p).T
             hess += np.multiply.outer (ovlp_qr, gf_ps).transpose (2,0,1,3) # 'qr,ps->pqrs'
 
@@ -196,7 +206,7 @@ class HessianCalculator (object):
                 continue
             thess  = np.tensordot (eris (p,r,a,a), t, axes=((2,3),(2,3)))
             thess += np.tensordot (eris (p,a,r,a), t + t.transpose (0,1,3,2), axes=((1,3),(1,3)))
-            thess = np.tensordot (thess, a2q, axes=(2,0)) # 'prab,aq->prbq' (tensordot always puts output indices in order of the arguments)
+            thess = np.tensordot (thess, a2q, axes=(2,0)) # 'prab,aq->prbq'
             thess = np.tensordot (thess, a2s, axes=(2,0)) # 'prbq,bs->prqs'
             hess += 2 * thess.transpose (0, 2, 1, 3) # 'prqs->pqrs'
 
@@ -204,9 +214,9 @@ class HessianCalculator (object):
         # u,v are supersets of q,s 
         u = self._append_entangled (q)
         v = self._append_entangled (s)
-        hess += 4 * self._get_splitc (p, q, r, s, sum (self.oneRDMs), u, v, eris) #perm_pq, perm_rs)
+        hess += 4 * self._get_splitc (p, q, r, s, sum (self.oneRDMs), u, v, eris) #perm_pq, perm_rs
         for dm in self.oneRDMs:
-            hess -= 2 * self._get_splitx (p, q, r, s, dm, u, v, eris) #perm_pq, perm_rs)
+            hess -= 2 * self._get_splitx (p, q, r, s, dm, u, v, eris) #perm_pq, perm_rs
         return hess
 
     def _get_Fock1 (self, p, q):
@@ -225,7 +235,7 @@ class HessianCalculator (object):
 
     def _get_splitc (self, p, q, r, s, dm, u, v, eris): #perm_pq, perm_rs):
         ''' v^pr_uv D^q_u D^s_v
-        It shows up because some of the cumulant decompositions put q and s on different 1rdm factors '''
+        It shows up because some of the cumulant decomps put q and s on different 1rdm factors '''
         if u.shape[1] == 0 or v.shape[1] == 0: return 0
         D_uq = u.conjugate ().T @ dm @ q
         D_vs = v.conjugate ().T @ dm @ s
@@ -237,11 +247,12 @@ class HessianCalculator (object):
 
     def _get_splitx (self, p, q, r, s, dm, u, v, eris): #perm_pq, perm_rs):
         ''' (v^pv_ru + v^pr_vu) g^q_u g^s_v = v^pr_vu g^q_u g^s_v - v^pv_su g^q_u g^r_v
-        It shows up because some of the cumulant decompositions put q and s on different 1rdm factors 
-        Pay VERY CLOSE ATTENTION to the order of the indices! Remember p-q, r-s are the degrees of freedom
-        and the contractions should resemble an exchange diagram from mp2! (I've exploited elsewhere
-        the fact that v^pv_ru = v^pu_rv because that's just complex conjugation, but I wrote it as v^pv_ru here
-        to make the point because you cannot swap u and v in the other one.)'''
+        It shows up because some of the cumulant decompositions put q and s on different 1rdm
+        factors. Pay VERY CLOSE ATTENTION to the order of the indices! Remember p-q, r-s are the
+        degrees of freedom and the contractions should resemble an exchange diagram from mp2! (I've
+        exploited elsewhere the fact that v^pv_ru = v^pu_rv because that's just complex
+        conjugation, but I wrote it as v^pv_ru here to make the point because you cannot swap u and
+        v in the other one.)'''
         if u.shape[1] == 0 or v.shape[1] == 0: return 0
         D_uq = u.conjugate ().T @ dm @ q
         D_vs = v.conjugate ().T @ dm @ s
@@ -252,8 +263,8 @@ class HessianCalculator (object):
         return hess.transpose (0,2,1,3) # 'prqs->pqrs'
 
     def _append_entangled (self, p):
-        ''' Do SVD of 1-rdms to get a small number of orbitals that you need to actually pay attention to
-        when computing splitc and splitx eris. Append these extras to the end of p '''
+        ''' Do SVD of 1-rdms to get a small number of orbitals that you need to actually pay
+        attention to when computing splitc and splitx eris. Append these extras to the end of p '''
         q = get_complementary_states (p)
         if 0 in q.shape: return p
         qH = q.conjugate ().T
@@ -269,8 +280,8 @@ class HessianCalculator (object):
         return p
 
     def get_diagonal_step (self, p, q):
-        ''' Obtain a gradient-descent approximation for the relaxation of orbitals p in range q using the gradient and
-        diagonal elements of the Hessian, x^p_q = -E1^p_q / E2^pp_qq '''
+        ''' Obtain a gradient-descent approximation for the relaxation of orbitals p in range q
+        using the gradient and diagonal elements of the Hessian, x^p_q = -E1^p_q / E2^pp_qq '''
         # First, get the gradient and svd to obtain conjugate orbitals of p in q
         grad = self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T
         lvec, e1, rvecH = linalg.svd (grad, full_matrices=False)
@@ -282,7 +293,8 @@ class HessianCalculator (object):
         lpq = lp * lq
         # Zero gradient escape
         if not np.count_nonzero (np.abs (e1) > 1e-8): return p, np.zeros (lp), q
-        # Because this ^ is faster than sectioning it and even with 20+20+20 active/inactive/external, it's still only 100 MB
+        # Because this ^ is faster than sectioning it and even with 20+20+20 active/inactive/ext,
+        # it's still only 100 MB
         f_pp = np.stack ([((f @ p) * p).sum (0) for f in self.fock], 0)
         f_qq = np.stack ([((f @ q) * q).sum (0) for f in self.fock], 0)
         f_pq = np.stack ([((f @ p) * q).sum (0) for f in self.fock], 0)
@@ -303,11 +315,12 @@ class HessianCalculator (object):
 
     def get_conjugate_gradient (self, pq_pairs, r, s):
         ''' OLD CODE, NOT USED '''
-        ''' Obtain the gradient for ranges p->q after making an approximate gradient-descent step in r->s:
+        ''' Obtain the gradient for ranges p->q after making approx gradient-descent step in r->s:
         E1'^p_q = E1^p_q - E2^pr_qs * x^r_s = E1^p_q + E2^pr_qs * E1^r_s / E2^rr_ss '''
         t0, w0 = time.process_time (), time.time ()
         r, x_rs, s = self.get_diagonal_step (r, s)
-        print ("Time to get diagonal step: {:.3f} s clock, {:.3f} wall".format (time.process_time () - t0, time.time () - w0))
+        print ("Time to get diagonal step: {:.3f} s clock, {:.3f} wall".format (
+            time.process_time () - t0, time.time () - w0))
         e1 = np.zeros ((self.nao,self.nao), dtype=np.float64)
         for p, q in pq_pairs:
             qH = q.conjugate ().T
@@ -321,7 +334,8 @@ class HessianCalculator (object):
         diag_idx = (diag_idx * lr) + diag_idx
         #t0, w0 = time.process_time (), time.time ()
         Hop = self.get_operator (r, s)
-        #print ("Time to make Hop: {:.3f} s clock, {:.3f} wall".format (time.process_time () - t0, time.time () - w0))
+        #print ("Time to make Hop: {:.3f} s clock, {:.3f} wall".format (time.process_time () - t0,
+        #   time.time () - w0))
         #p = self._get_collective_basis (pq_pairs[0][0], pq_pairs[1][0])[0]
         #q = self._get_collective_basis (pq_pairs[0][1], pq_pairs[1][1])[0]
         #qH = q.conjugate ().T
@@ -342,7 +356,8 @@ class HessianCalculator (object):
             ndmat = dm1s.shape[0]
             dm1s = dm1s.reshape (dm1s.shape[0]*dm1s.shape[1], dm1s.shape[2], dm1s.shape[3])
         else:
-            assert (dm1s.ndim == 3 and dm1s.shape[0] % 2 == 0), 'must provide an even number of density matrices (a1, b1, a2, b2, ...)'
+            errstr = 'must provide an even number of density matrices (a1, b1, a2, b2, ...)'
+            assert (dm1s.ndim == 3 and dm1s.shape[0] % 2 == 0), errstr
             ndmat = dm1s.shape[0] // 2
         vj, vk = self.get_jk (dm1s)
         vj = vj.reshape (ndmat, 2, dm1s.shape[-2], dm1s.shape[-1])
@@ -388,7 +403,8 @@ class CASSCFHessianTester (object):
         r, s, rrange, srange, nr, ns = self._parse_range (rs)
 
         my_hess = self.calculator (p, q, r, s)
-        print ("{:8s} {:13s} {:13s} {:13s} {:13}".format ('Idx', 'Mine', "PySCF's", 'Difference', 'Ratio'))
+        print ("{:8s} {:13s} {:13s} {:13s} {:13}".format ('Idx', 'Mine', "PySCF's", 'Difference',
+                                                          'Ratio'))
         fmt_str = "{0:d},{1:d},{2:d},{3:d} {4:13.6e} {5:13.6e} {6:13.6e} {7:13.6e}"
 
         for (ixp, pi), (ixq, qi) in product (enumerate (prange), enumerate (qrange)):
@@ -396,7 +412,8 @@ class CASSCFHessianTester (object):
             for (ixr, ri), (ixs, si) in product (enumerate (rrange), enumerate (srange)):
                 diff = my_hess[ixp,ixq,ixr,ixs] - Py_hess[ixr,ixs]
                 rat = my_hess[ixp,ixq,ixr,ixs] / Py_hess[ixr,ixs]
-                print (fmt_str.format (pi, qi, ri, si, my_hess[ixp,ixq,ixr,ixs], Py_hess[ixr,ixs], diff, rat))
+                print (fmt_str.format (pi, qi, ri, si, my_hess[ixp,ixq,ixr,ixs], Py_hess[ixr,ixs],
+                                       diff, rat))
 
     def _call_diag (self, pq):
         offs = ix = np = nq = 0
@@ -408,7 +425,8 @@ class CASSCFHessianTester (object):
         Py_hdiag = self.hdiag[offs:][:np*nq].reshape (np, nq)
         my_hdiag = self.calculator (p, q)
 
-        print ("{:8s} {:13s} {:13s} {:13s} {:13}".format ('Idx', 'Mine', "PySCF's", 'Difference', 'Ratio'))
+        print ("{:8s} {:13s} {:13s} {:13s} {:13}".format ('Idx', 'Mine', "PySCF's", 'Difference',
+                                                          'Ratio'))
         fmt_str = "{0:d},{1:d},{0:d},{1:d} {2:13.6e} {3:13.6e} {4:13.6e} {5:13.6e}"
         for (ixp, pi), (ixq, qi) in product (enumerate (prange), enumerate (qrange)):
             diff = my_hdiag[ixp,ixq] - Py_hdiag[ixp,ixq]
@@ -465,15 +483,16 @@ class LASSCFHessianCalculator (HessianCalculator):
         self.Hop_noxc = Hop_noxc
         active_frags = [f for f in all_frags if f.norbs_as]
 
-        # Global things. fock_s is zero because of the semi-cumulant decomposition; this only works because I
-        # don't call this constructer for intersubspace ranges!
+        # Global things. fock_s is zero because of the semi-cumulant decomposition; this only works
+        # because I don't call this constructer for intersubspace ranges!
         self.nmo = self.nao = ints.norbs_tot
         self.mo = self.moH = self.Smo = self.moHS = np.eye (self.nmo)
         oneSDM_loc = sum ([f.oneSDMas_loc for f in active_frags])
         self.oneRDMs = [(oneRDM_loc + oneSDM_loc)/2, (oneRDM_loc - oneSDM_loc)/2]
         #fock_c = ints.loc_rhf_fock_bis (oneRDM_loc)
-        #fock_s = -ints.loc_rhf_k_bis (oneSDM_loc) / 2 if isinstance (oneSDM_loc, np.ndarray) else 0
-        #print ("Error: {} charge; {} spin".format (linalg.norm (fock_c - fock_c_check), linalg.norm (fock_s - fock_s_check)))
+        #fock_s = -ints.loc_rhf_k_bis (oneSDM_loc)/2 if isinstance (oneSDM_loc, np.ndarray) else 0
+        #print ("Error: {} charge; {} spin".format (linalg.norm (fock_c - fock_c_check),
+        #                                           linalg.norm (fock_s - fock_s_check)))
         self.fock = [fock_c + fock_s, fock_c - fock_s]
 
         # Fragment things
@@ -511,14 +530,15 @@ class LASSCFHessianCalculator (HessianCalculator):
         #    rho = np.dot (eri1, dm)
         #    vj_test += numpy_helper.unpack_tril (np.dot (rho, eri1))
         #    print (vj_test)
-        #print ("Comparing vj to manual vj recalculation using cderi: {}".format (vj.sum (0) - vj_test))
+        #print ("Comparing vj to manual vj recalculation using cderi: {}".format (vj.sum (0)
+        #                                                                         - vj_test))
         vj = np.dot (moH, np.dot (vj, mo)).transpose (1,0,2)
         vk = np.dot (moH, np.dot (vk, mo)).transpose (1,0,2)
         return vj, vk
 
     def get_diagonal_step (self, p, q):
-        ''' Obtain a gradient-descent approximation for the relaxation of orbitals p in range q using the gradient and
-        diagonal elements of the Hessian, x^p_q = -E1^p_q / E2^pp_qq '''
+        ''' Obtain a gradient-descent approximation for the relaxation of orbitals p in range q
+        using the gradient and diagonal elements of the Hessian, x^p_q = -E1^p_q / E2^pp_qq '''
         # First, get the gradient and svd to obtain conjugate orbitals of p in q
         grad = self._get_Fock1 (p, q) - self._get_Fock1 (q, p).T
         lvec, e1, rvecH = linalg.svd (grad, full_matrices=False)
@@ -530,7 +550,8 @@ class LASSCFHessianCalculator (HessianCalculator):
         lpq = lp * lq
         # Zero gradient escape
         if not np.count_nonzero (np.abs (e1) > 1e-8): return p, np.zeros (lp), q
-        # Because this ^ is faster than sectioning it and even with 20+20+20 active/inactive/external, it's still only 100 MB
+        # Because this ^ is faster than sectioning it and even with 20+20+20 active/inactive/ext,
+        # it's still only 100 MB
         if self.Hop_noxc:
             f_pp = np.stack ([((f @ p) * p).sum (0) for f in self.fock], 0)
             f_qq = np.stack ([((f @ q) * q).sum (0) for f in self.fock], 0)
@@ -554,9 +575,9 @@ class HessianERITransformer (object):
                 z: a & s & q
             Based on the idea that p is the largest orbital range and s is the smallest,
             so p appears only once and s appears three times. Given permutation symmetries
-            (wx|yz) = (yz|wx) = (xw|yz) = (wx|zy), I can generate all the eris I need for the Hessian
-            calculation from this cache. Since this calls _get_eri, it will also automatically take advantage
-            of _eri_kernel if it's available.
+            (wx|yz) = (yz|wx) = (xw|yz) = (wx|zy), I can generate all the eris I need for the
+            Hessian calculation from this cache. Since this calls _get_eri, it will also
+            automatically take advantage of _eri_kernel if it's available.
         '''
         p,q,r,s = (parent._append_entangled (z) for z in (p,q,r,s))
         a = np.concatenate (parent.mo2amo, axis=1)
@@ -568,13 +589,14 @@ class HessianERITransformer (object):
         return
 
     def __call__(self, p, q, r, s, _first_call=True):
-        ''' Because of several necessary index permutations, I cannot know in advance which of w,x,y,z
-        encloses each of p, q, r, s, but I should have prepared it so that any call I make can be carried out.
-        yz is the more restrictive pair in my cache, so first see if r, s is in yz and if not, flip pq<->rs.
-        wx contains all pairs that I should ever need so. ''' 
+        ''' Because of several necessary index permutations, I cannot know in advance which of
+        w,x,y,z encloses each of p, q, r, s, but I should have prepared it so that any call I make
+        can be carried out. yz is the more restrictive pair in my cache, so first see if r, s is in
+        yz and if not, flip pq<->rs. wx contains all pairs that I should ever need so. ''' 
         rs_yz, rs_correct = self.pq_in_cd (self.y, self.z, r, s)
         pq_wx, pq_correct = self.pq_in_cd (self.w, self.x, p, q)
-        if _first_call and (not (pq_wx and rs_yz)): return self.__call__(r, s, p, q, _first_call=False).transpose (2, 3, 0, 1)
+        if _first_call and (not (pq_wx and rs_yz)):
+            return self.__call__(r, s, p, q, _first_call=False).transpose (2, 3, 0, 1)
         try:
             assert (pq_wx and rs_yz), "Can't place orbital sets in this eri array"
         except AssertionError as e:
@@ -582,7 +604,8 @@ class HessianERITransformer (object):
             print (self.w.shape, self.x.shape, self.y.shape, self.z.shape)
             for name1, arr1 in zip (('w','x','y','z'), (self.w, self.x, self.y, self.z)):
                 for name2, arr2 in zip (('p','q','r','s'), (p, q, r, s)):
-                    print ("Is {} in {}? {}".format (name2, name1, self.p_in_c (arr1, arr2, _return_numbers=True)))
+                    print ("Is {} in {}? {}".format (name2, name1, self.p_in_c (
+                        arr1, arr2, _return_numbers=True)))
             print ("Is p orthonormal? {}".format (linalg.eigh (p.conjugate ().T @ p)[0]))
             print ("Is q orthonormal? {}".format (linalg.eigh (q.conjugate ().T @ q)[0]))
             print ("Is r orthonormal? {}".format (linalg.eigh (r.conjugate ().T @ r)[0]))
@@ -677,9 +700,10 @@ class HessianOperator (HessianCalculator):
             kap_ka = kH @ kappa @ a
             if linalg.norm (q2a) > 1e-8 and linalg.norm (kap_ka) > 1e-8:
                 l_qaaa = np.tensordot (q2a, t, axes=1)
-                g_pkaa = np.tensordot (self.eris (p, k, a, a), kap_ka, axes=((1),(0))).transpose (0,3,1,2) # contraction on the second index
-                g_paka = np.tensordot (self.eris (p, a, a, k), kap_ka, axes=1) # contraction on the fourth index
-                g_paka += g_paka.transpose (0, 1, 3, 2) # contraction on the third index
+                g_pkaa = np.tensordot (self.eris (p, k, a, a), kap_ka, axes=((1),(0))).transpose (
+                    0,3,1,2) # contraction on the second index
+                g_paka = np.tensordot (self.eris (p, a, a, k), kap_ka, axes=1) # contract 4th idx
+                g_paka += g_paka.transpose (0, 1, 3, 2) # contract on the 3rd index
                 tFock1 += np.tensordot (g_pkaa, l_qaaa, axes=((1,2,3),(1,2,3)))
                 tFock1 += np.tensordot (g_paka, l_qaaa, axes=((1,2,3),(1,2,3)))
         return tFock1
@@ -713,8 +737,9 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         return np.tensordot (self.fock, tdm1s, axes=((0,1),(0,2)))
         
     def _get_tFock1_2b (self, p, q, kappa):
-        ''' This assumes that p and q are unentangled subspaces, that p has no active orbitals, that
-        r,s contains only full active subspaces, and that r,s are contained entirely in exactly one of p,q!'''
+        ''' This assumes that p and q are unentangled subspaces, that p has no active orbitals,
+        that r,s contains only full active subspaces, and that r,s are contained entirely in
+        exactly one of p,q!'''
         # Include veff terms here by reusing intermediates
         # Include both F_pq and F_qp!
         m2p = self.ints.ao2loc @ p
@@ -733,9 +758,11 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         rinq = abs (svals_rinq - self.rs.shape[-1]) < 1e-5
         rinp = abs (svals_rinp - self.rs.shape[-1]) < 1e-5
         if rinp:
-            return np.zeros ((p.shape[-1], q.shape[-1])) # Hack to keep both F_pq and F_qp in the rinq case
+            return np.zeros ((p.shape[-1], q.shape[-1]))
+            # Hack to keep both F_pq and F_qp in the rinq case
         elif not rinq:
-            raise RuntimeError ("Totally off-diagonal Hessian elements not supported ({} {} {})".format (svals_rinq, svals_rinp, self.rs.shape[-1]))
+            raise RuntimeError (("Totally off-diagonal Hessian elements not supported "
+                                 "({} {} {})").format (svals_rinq, svals_rinp, self.rs.shape[-1]))
         tdm1s = np.stack ([kappa @ dm - dm @ kappa for dm in self.oneRDMs], axis=0)
         tdm1s = np.dot (qH, np.dot (tdm1s, q)).transpose (1,0,2) # Put in q (impurity) basis
         pH = p.conjugate ().T
@@ -752,16 +779,17 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         vk_pq = np.dot (p2m, np.tensordot (tdm_qr, g_mqrq, axes=((1,2),(1,2)))).transpose (1,0,2)
         # Veff 
         veff_pq = vj_pq[None,:,:] - vk_pq
-        tFock1 = np.tensordot (veff_pq, dm_qq, axes=((0,2),(0,1))) - np.tensordot (dm_pp, veff_pq, axes=((0,1),(0,1)))
+        tFock1 = np.tensordot (veff_pq, dm_qq, axes=((0,2),(0,1)))
+        tFock1 -= np.tensordot (dm_pp, veff_pq, axes=((0,1),(0,1)))
         # Cumulant
         g_mrrr = np.tensordot (r2q, np.dot (g_mqrq, q2r), axes=((1),(1))).transpose (1,0,2,3)
         for t, a, n in zip (self.twoCDM, self.mo2amo, self.ncas):
             rs2a = rsH @ a
             if linalg.norm (rs2a) < 1e-8: continue
-            l_rrrr = np.tensordot (rs2a, t,      axes=((1),(1))) # (ar|aa) (idx's 0 and 1 are now switched)
-            l_rrrr = np.tensordot (rs2a, l_rrrr, axes=((1),(1))) # (rr|aa) (calling idx 1 gets idx 0)
-            l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|ra) (idx's 2 and 3 are now switched)
-            l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|rr) (calling idx 2 gets idx 3)
+            l_rrrr = np.tensordot (rs2a, t,      axes=((1),(1))) # (ar|aa) (idxs 0,1 switched)
+            l_rrrr = np.tensordot (rs2a, l_rrrr, axes=((1),(1))) # (rr|aa) (calling idx 1 gets 0)
+            l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|ra) (idxs 2,3 switched)
+            l_rrrr = np.tensordot (l_rrrr, rs2a, axes=((2),(1))) # (rr|rr) (calling idx 2 gets 3)
             rKr = rsH @ kappa @ self.rs
             # This is a sum, so I can't do the index-order switching thing I did above
             # It's always positive as long as I always contract the ~second~ axis of rKr
@@ -774,8 +802,8 @@ class DFLASSCFHessianOperator (LASSCFHessianOperator):
         return tFock1
         
 class DFLASSCFHessianOperator_noxc (DFLASSCFHessianOperator):
-    ''' Approximate the Hessian by omitting the response of the exchange potential and correlation part of the gradient, leaving only
-    the one-body density and Coulomb responses. '''
+    ''' Approximate the Hessian by omitting the response of the exchange potential and correlation
+    part of the gradient, leaving only the one-body density and Coulomb responses. '''
 
     def _get_tFock1_2b (self, p, q, kappa):
         rsH = self.rs.conjugate ().T
@@ -787,9 +815,11 @@ class DFLASSCFHessianOperator_noxc (DFLASSCFHessianOperator):
         rinq = abs (svals_rinq - self.rs.shape[-1]) < 1e-5
         rinp = abs (svals_rinp - self.rs.shape[-1]) < 1e-5
         if rinp:
-            return np.zeros ((p.shape[-1], q.shape[-1])) # Hack to keep both F_pq and F_qp in the rinq case
+            return np.zeros ((p.shape[-1], q.shape[-1]))
+            # Hack to keep both F_pq and F_qp in the rinq case
         elif not rinq:
-            raise RuntimeError ("Totally off-diagonal Hessian elements not supported ({} {} {})".format (svals_rinq, svals_rinp, self.rs.shape[-1]))
+            raise RuntimeError (("Totally off-diagonal Hessian elements not supported "
+                                 "({} {} {})").format (svals_rinq, svals_rinp, self.rs.shape[-1]))
         m2p = self.ints.ao2loc @ p
         m2q = self.ints.ao2loc @ q
         p2m = m2p.conjugate ().T
