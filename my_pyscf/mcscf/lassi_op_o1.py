@@ -127,8 +127,48 @@ def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
     return hopping_index, zerop_index, onep_index
 
 class LSTDMint1 (object):
-    ''' Quasi-sparse-memory storage for LAS-state transition density matrix 
-        single-fragment intermediates. '''
+    ''' LAS state transition density matrix intermediate 1: fragment-local data.
+
+        Quasi-sparse-memory storage for LAS-state transition density matrix single-fragment
+        intermediates. Stores all local transition density matrix factors. Run the `kernel` method
+        to compute all data, and run the get_* methods to return the computed intermediates:
+
+        (s and t are spin: a,b for 1 operator; aa, ab, bb for 2 operators
+        s is a spin argument passed to the "get" function
+        t is a spin index on the returned array)
+
+        get_h (i,j,s): <i|s|j>
+        get_p (i,j,s): <i|s'|j> = conj (<j|s|i>)
+        get_dm1 (i,j): <i|t't|j>
+        get_hh (i,j,s): <i|s2s1|j>
+        get_pp (i,j,s): <i|s1's2'|j> = conj (<j|s2s1|i>)
+        get_sm (i,j): <i|b'a|j>
+        get_sp (i,j): <i|a'b|j> = conj (<j|b'a|i>)
+        get_phh (i,j): <i|t'ts|j>
+        get_pph (i,j): <i|s't't|j> = conj (<j|t'ts|i>)
+        get_dm2 (i,j): <i|t1't2't2t1|j>
+
+        Args:
+            fcibox: instance of :class:`H1EZipFCISolver`
+                fcisolvers for the current fragment
+            norb : integer
+                number of active orbitals in the current fragment
+            nelec : integer or sequence of length 2
+                base number of electrons in the current fragment
+            nroots : integer
+                number of states considered
+            idx_root : list of length (nroots)
+                list of specific states considered in the current calculation
+            hopping_index: ndarray of ints of shape (2, nroots, nroots)
+                element [i,j,k] reports the change of number of electrons of
+                spin i in the current fragment between LAS states j and k
+            idx_frag : integer
+                index label of current fragment
+
+        Kwargs:
+            dtype : instance of np.dtype
+                Currently not used
+    '''
 
     def __init__(self, fcibox, norb, nelec, nroots, idx_root, hopping_index, idx_frag, dtype=np.float64):
         # I'm not sure I need linkstrl
@@ -261,6 +301,32 @@ class LSTDMint1 (object):
             self.dm2[i][j] = x
 
     def kernel (self, ci, hopping_index, zerop_index, onep_index):
+        ''' Compute the transition density matrix factors.
+
+        Args:
+            ci : list of ndarray of length nroots
+                Contains CI vectors for the current fragment
+            hopping_index: ndarray of ints of shape (2, nroots, nroots)
+                element [i,j,k] reports the change of number of electrons of
+                spin i in the current fragment between LAS states j and k
+            zerop_index : ndarray of bools of shape (nroots, nroots)
+                element [i,j] is true where the ith and jth LAS states are
+                connected by a null excitation; i.e., no electron, pair,
+                or spin hopping or pair splitting/coalescence. This implies
+                nonzero 1- and 2-body transition density matrices within
+                all fragments.
+            onep_index : ndarray of bools of shape (nroots, nroots)
+                element [i,j] is true where the ith and jth LAS states
+                are connected by exactly one electron hop from i to j or vice
+                versa, implying nonzero 1-body transition density matrices
+                within spectator fragments and phh/pph modes within
+                source/dest fragments.
+
+        Returns:
+            t0 : tuple of length 2
+                timestamp of entry into this function, for profiling by caller
+        '''
+
         nroots, norb = self.nroots, self.norb
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
 
@@ -367,17 +433,59 @@ class LSTDMint1 (object):
         return t0
 
 class LSTDMint2 (object):
-    ''' Parent class for Hamiltonian/spin/overlap matrix and reduced density matrix crunching.
+    ''' LAS state transition density matrix intermediate 2 - whole-system DMs
+        Carry out multiplications such as
+
+            <I|sp'sq|J> = <I|sp'|J> * <I|sq|J>
+            <I|s1p's2p's2p s1q|J> = <I|s1p's2p's2p|J> * <I|s1q|J>
+
+        and so forth, where `p` and `q` are on different fragments. The parent class stores the
+        entire nroots-by-nroots 1- and 2-body transition density matrix arrays (see make_stdm12s
+        below), which is computed and returned by calling the `kernel` method.
+
         The initializer categorizes all possible interactions among a set of LAS states as
         "null" (no electrons move), "1c" (one charge unit hops), "1s" (one spin hops), "1s1c",
-        and "2c". TODO: add ms-breaking interactions from spin-orbit coupling.
+        and "2c".
+
         The heart of the class is "_crunch_all_", which iterates over all listed interactions,
         builds the corresponding transition density matrices, and passes them into the "_put_D1_"
         and "_put_D2_" methods, which are overwritten in child classes to make the operator or
         reduced density matrices as appropriate.
+
         Subclass the __init__, __??t_D?_, __add_transpose__, and kernel methods to do various
         different things which rely on LAS-state tdm12s as intermediates without cacheing the whole
-        things (i.e. operators or DMs in different basis)'''
+        things (i.e. operators or DMs in different basis).
+
+        Args:
+            ints : list of length nfrags of instances of :class:`LSTDMint1`
+                fragment-local intermediates
+            nlas : list of length nfrags of integers
+                numbers of active orbitals in each fragment
+            hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
+                element [i,j,k,l] reports the change of number of electrons of
+                spin j in fragment i between LAS states k and l
+
+        Kwargs:
+            dtype : instance of np.dtype
+                Currently not used; TODO: generalize to ms-broken fragment-local states?
+        '''
+    # TODO: SO-LASSI o1 implementation: a SOMF implementation using spin-pure LAS product states
+    # states as a basis requires the sz-breaking sector of the 1-body stdm1 to be added here. I.E.,
+    # tdm1s[i,j,0,p,q] is <i|ap'aq|j>, and tdm1s[i,j,1,p,q] is <i|bp'bq|j>, but we also need
+    # <i|bp'aq|j> (what was called "sm" in LSTDMint1) and <i|ap'bq|j> ("sp" = adjoint of sm). There
+    # are two possible strategies for this:
+    #   1) (More work, but more general and clean once tested) generalize this whole class and all
+    #      of its children to spinorbitals. Instead of (2,ncas,ncas) and (4,ncas,ncas,ncas,ncas),
+    #      the 1-body and 2-body transition density matrices between a given pair of LAS states
+    #      become (2*ncas,2*ncas) and (2*ncas,2*ncas,2*ncas,2*ncas). This requires editing ALL the
+    #      _crunch_ functions.
+    #   2) (Less work, but less general) Because we are only using SOMF methods, we can just add
+    #      the one-body spin-breaking interaction explicitly while leaving everything else
+    #      untouched. We still unavoidably have to switch over to spinorbitals in the make_stdm12s
+    #      and roots_make_rdm12s callers below for spin-orbit coupled systems, but in this class
+    #      all we have to do is add the sm matrix (shape of tdm1s[0]), the excitation index array
+    #      (probably something like "exc_sm"), and the crunching function ("_crunch_sm_") or
+    #      something.
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
     def __init__(self, ints, nlas, hopping_index, dtype=np.float64):
@@ -674,6 +782,16 @@ class LSTDMint2 (object):
         self.tdm2s += self.tdm2s.conj ().transpose (1,0,2,4,3,6,5)
 
     def kernel (self):
+        ''' Main driver method of class.
+
+        Returns:
+            stdm1s : ndarray of shape (nroots,nroots,2,ncas,ncas)
+                1-body spin-separated LAS-state transition density matrices
+            stdm2s : ndarray of shape (nroots,nroots,4,ncas,ncas,ncas,ncas)
+                2-body spin-separated LAS-state transition density matrices
+            t0 : tuple of length 2
+                timestamp of entry into this function, for profiling by caller
+        '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.tdm1s = np.zeros ([self.nroots,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
         self.tdm2s = np.zeros ([self.nroots,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
@@ -681,8 +799,20 @@ class LSTDMint2 (object):
         return self.tdm1s, self.tdm2s, t0
 
 class HamS2ovlpint (LSTDMint2):
-    ''' For computing the Hamiltonian, S^2, and overlap matrices without storing
-        the entire stdm12s arrays '''
+    __doc__ = LSTDMint2.__doc__ + '''
+
+    SUBCLASS: Hamiltonian, spin-squared, and overlap matrices
+
+    `kernel` call returns operator matrices without cacheing stdm12s array
+
+    Additional args:
+        h1 : ndarray of size ncas**2
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization
+        h2 : ndarray of size ncas**4
+            Contains 2-electron Hamiltonian amplitudes in second quantization
+    '''
+    # TODO: SO-LASSI o1 implementation: the one-body spin-orbit coupling part of the
+    # Hamiltonian in addition to h1 and h2, which are spin-symmetric
 
     def __init__(self, ints, nlas, hopping_index, h1, h2, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, dtype=dtype)
@@ -712,6 +842,18 @@ class HamS2ovlpint (LSTDMint2):
         self.s2 += self.s2.T
 
     def kernel (self):
+        ''' Main driver method of class.
+
+        Returns:
+            ham : ndarray of shape (nroots,nroots)
+                Hamiltonian in LAS product state basis
+            s2 : ndarray of shape (nroots,nroots)
+                Spin-squared operator in LAS product state basis
+            ovlp : ndarray of shape (nroots,nroots)
+                Overlap matrix of LAS product states
+            t0 : tuple of length 2
+                timestamp of entry into this function, for profiling by caller
+        '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
@@ -723,8 +865,20 @@ class HamS2ovlpint (LSTDMint2):
         return self.ham, self.s2, ovlp, t0
 
 class LRRDMint (LSTDMint2):
-    ''' For computing RDMs of LASSI roots without cacheing the whole damn STDM12s array '''
+    __doc__ = LSTDMint2.__doc__ + '''
+
+    SUBCLASS: LASSI-root reduced density matrix
+
+    `kernel` call returns reduced density matrices for LASSI eigenstates (or linear combinations of
+    product states generally) without cacheing stdm12s array
+
+    Additional args:
+        si : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors
+    '''
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
+    # TODO: SO-LASSI o1 implementation: these density matrices can only be defined in the full
+    # spinorbital basis
 
     def __init__(self, ints, nlas, hopping_index, si, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, dtype=dtype)
@@ -751,6 +905,16 @@ class LRRDMint (LSTDMint2):
         self.rdm2s += self.rdm2s.conj ().transpose (0,1,3,2,5,4)
 
     def kernel (self):
+        ''' Main driver method of class.
+
+        Returns:
+            rdm1s : ndarray of shape (nroots_si,2,ncas,ncas)
+                Spin-separated 1-body reduced density matrices of LASSI states
+            rdm2s : ndarray of shape (nroots_si,4,ncas,ncas,ncas,ncas)
+                Spin-separated 2-body reduced density matrices of LASSI states
+            t0 : tuple of length 2
+                timestamp of entry into this function, for profiling by caller
+        '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
@@ -759,8 +923,22 @@ class LRRDMint (LSTDMint2):
         self._crunch_all_()
         return self.rdm1s, self.rdm2s, t0
 
-
 def make_ints (las, ci, idx_root):
+    ''' Build fragment-local intermediates (`LSTDMint1`) for LASSI o1
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        ci : list of list of ndarrays
+            Contains all CI vectors
+        idx_root : list of length (nroots)
+            list of specific LAS states considered in the current calculation
+
+    Returns:
+        hopping_index : ndarray of ints of shape (nfrags, 2, nroots, nroots)
+            element [i,j,k,l] reports the change of number of electrons of
+            spin j in fragment i between LAS states k and l
+        ints : list of length nfrags of instances of :class:`LSTDMint1`
+    '''
     fciboxes = las.fciboxes
     nfrags = len (fciboxes)
     nroots = idx_root.size
@@ -776,6 +954,21 @@ def make_ints (las, ci, idx_root):
     return hopping_index, ints
 
 def make_stdm12s (las, ci, idx_root, **kwargs):
+    ''' Build spin-separated LAS product-state 1- and 2-body transition density matrices
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        ci : list of list of ndarrays
+            Contains all CI vectors
+        idx_root : list of length (nroots)
+            list of specific LAS states considered in the current calculation
+
+    Returns:
+        tdm1s : ndarray of shape (nroots,2,ncas,ncas,nroots)
+            Contains 1-body LAS state transition density matrices
+        tdm2s : ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas,nroots)
+            Contains 2-body LAS state transition density matrices
+    '''
     nlas = las.ncas_sub
     ncas = las.ncas
     nroots = np.count_nonzero (idx_root)
@@ -794,6 +987,27 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
     return tdm1s.transpose (0,2,3,4,1), tdm2s.reshape (nroots, nroots, 2, 2, ncas, ncas, ncas, ncas).transpose (0,2,4,5,3,6,7,1)
 
 def ham (las, h1, h2, ci, idx_root, **kwargs):
+    ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        h1 : ndarray of size ncas**2
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization
+        h2 : ndarray of size ncas**4
+            Contains 2-electron Hamiltonian amplitudes in second quantization
+        ci : list of list of ndarrays
+            Contains all CI vectors
+        idx_root : list of length (nroots)
+            list of specific LAS states considered in the current calculation
+
+    Returns:
+        ham : ndarray of shape (nroots,nroots)
+            Hamiltonian in LAS product state basis
+        s2 : ndarray of shape (nroots,nroots)
+            Spin-squared operator in LAS product state basis
+        ovlp : ndarray of shape (nroots,nroots)
+            Overlap matrix of LAS product states
+    '''
     nlas = las.ncas_sub
     idx_root = np.where (idx_root)[0]
 
@@ -810,6 +1024,23 @@ def ham (las, h1, h2, ci, idx_root, **kwargs):
 
 
 def roots_make_rdm12s (las, ci, idx_root, si, **kwargs):
+    ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        ci : list of list of ndarrays
+            Contains all CI vectors
+        idx_root : list of length (nroots)
+            list of specific LAS states considered in the current calculation
+        si : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors
+
+    Returns:
+        rdm1s : ndarray of shape (nroots_si,2,ncas,ncas)
+            Spin-separated 1-body reduced density matrices of LASSI states
+        rdm2s : ndarray of shape (nroots_si,2,ncas,ncas,2,ncas,ncas)
+            Spin-separated 2-body reduced density matrices of LASSI states
+    '''
     nlas = las.ncas_sub
     ncas = las.ncas
     nroots_si = si.shape[-1]
