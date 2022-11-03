@@ -71,7 +71,7 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
         raise RuntimeError (errstr)
     return ci
 
-def ci_outer_product (ci_fr, norb_f, nelec_fr, soc):
+def ci_outer_product (ci_fr, norb_f, nelec_fr):
     '''Compute outer-product CI vectors from fragment LAS CI vectors.
     TODO: extend to accomodate states o different ms being addressed
     together. I think the only thing this entails is turning "nelec"
@@ -95,21 +95,21 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr, soc):
     '''
 
     ci_r = []
-    nelec = []
+    nelec_r = []
     for state in range (len (ci_fr[0])):
         ci_f = [ci[state] for ci in ci_fr]
         nelec_f = [nelec[state] for nelec in nelec_fr]
         ci_r.append (_ci_outer_product (ci_f, norb_f, nelec_f))
+        nelec_r.append ((sum ([ne[0] for ne in nelec_f]),
+                       sum ([ne[1] for ne in nelec_f])))
+    # Teffanie: rather than doing one thing for SOC calc'ns and another thing for spin-pure
+    # calc'ns, I think it makes good sense to just return the full list of nelec_r for every calc'n
+    # regardless of whether or not it's needed; calling functions can be easily modified to account
+    # for this.
+    return ci_r, nelec_r
 
-        if soc == True:
-            nelec.append ((sum ([ne[0] for ne in nelec_f]),
-                           sum ([ne[1] for ne in nelec_f])))
-    if soc == False:
-        nelec = (sum ([ne[0] for ne in nelec_f]),
-                sum ([ne[1] for ne in nelec_f]))
-    # NOTE: this ASSUMES that the (neleca, nelecb) tuple for the LAST
-    # state in this list is accurate for ALL the states in this list
-    return ci_r, nelec
+# Teffanie: these trans_rdm functions will be useful in many other places, so maybe we can put them
+# in another file
 
 def make_trans_rdm1(dspin, cibra, ciket, norb, nelec_bra, nelec_ket):
 
@@ -183,6 +183,20 @@ def make_trans(m, cibra, ciket, norb, nelec_bra, nelec_ket):
         return np.sqrt(0.5) * (make_trans_rdm1('aa', cibra, ciket, norb, nelec_bra, nelec_ket)
                                - make_trans_rdm1('bb', cibra, ciket, norb, nelec_bra, nelec_ket)).T
 
+# Teffanie: I would rather "hso" be computed by the caller (lassi.py) and passed as part of h1,
+# because that makes it more general for later on if we want to do X2C, other kinds of SOMF, etc. In
+# the spinorbital basis, the full 2*nao-by-2*nao spin-pure 1-electron Hamiltonian operator is
+# ___________
+# | h1 | 0  |
+# | 0  | h1 |
+# -----------
+# With 1-electron spin-orbit coupling, this becomes
+# _____________________________________
+# | h1 + hso_z      | hso_x + i*hso_y |
+# | hso_x - i*hso_y | h1 - hso_z      |
+# -------------------------------------
+# or something (not sure about the signs and I might be missing factors of 1/2; it at least has to
+# be hermitian)
 def si_soc (las, ci, nelec, norb):
 
 ### function adapted from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
@@ -221,7 +235,11 @@ def si_soc (las, ci, nelec, norb):
 
     return hsiso
 
-def ham (las, h1, h2, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
+# Teffanie: when you add an argument or keyword argument to a function, you should describe it in
+# the docstring. I changed soc from a boolean to an integer, on the idea that later on we can
+# distinguish between soc=1 for SOMF calculations and soc=2 for 2-electron spin-breaking.
+# However, you can still pass "soc=True" or "soc=False" and it should work.
+def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
     TODO: extend to accomodate states of different ms being addressed
     together, and then spin-orbit coupling.
@@ -239,6 +257,8 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
             Maps the states included in ci_fr to the states in "las"
 
     Kwargs:
+        soc : integer
+            Order of spin-orbit coupling included in the Hamiltonian
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
@@ -259,44 +279,39 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
 
     # The function below is the main workhorse of this whole implementation
-    ci, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr, soc)
+    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
 
-    # TODO: extend to spin-orbit coupling case. The operator-vector
-    # product functions "contract_2e" and "contract_ss" are specific to
-    # a single ms=nelec[0]-nelec[1] value, and the shapes and sizes of
-    # CI vectors with different ms are different. How does FCI-SISO deal
-    # with that?
+    # Teffanie: I got rid of the conditional here doing one thing with soc and another thing w/out
+    # it, because the former works for both cases. However, see the note below.
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     norb = sum (norb_f)
-    if soc==False:
+    nroots = len(ci_r)
+    # Teffanie: note that absorb_h1e here required knowledge of nelec.
+    ham_ci = []
+    for ci, nelec in zip (ci_r, nelec_r):
         h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
-        ham_ci = [solver.contract_2e (h2eff, c, norb, nelec) for c in ci]
-        s2_ci = [contract_ss (c, norb, nelec) for c in ci]
-        
-        ham_eff = np.array ([[c.ravel ().dot (hc.ravel ()) for hc in ham_ci] for c in ci])
-        s2_eff = np.array ([[c.ravel ().dot (s2c.ravel ()) for s2c in s2_ci] for c in ci])
-        ovlp_eff = np.array ([[bra.ravel ().dot (ket.ravel ()) for ket in ci] for bra in ci])
-    
-    else:
-        nroots = len(ci)
-        h2eff = solver.absorb_h1e (h1, h2, norb, nelec[0], 0.5)
-        ham_ci = [solver.contract_2e (h2eff, c, norb, ne) for c, ne in zip(ci, nelec)]
-        s2_ci = [contract_ss (c, norb, ne) for c, ne in zip(ci, nelec)]
+        ham_ci.append (solver.contract_2e (h2eff, ci, norb, nelec))
+    s2_ci = [contract_ss (c, norb, ne) for c, ne in zip(ci_r, nelec_r)]
 
-        ham_eff, s2_eff, ovlp_eff = [ np.zeros((nroots, nroots)) for i in range (3) ]
-        for i, hc, s2c, ket, nelec_ket in zip(range(nroots), ham_ci, s2_ci, ci, nelec):
-            for j, c, nelec_bra in zip(range(nroots), ci, nelec):
-                if len(hc) == len(c):
-                    ham_eff[i, j] = c.ravel ().dot (hc.ravel ()) 
-                    s2_eff[i, j] = c.ravel ().dot (s2c.ravel ()) 
-                    ovlp_eff[i,j] = c.ravel ().dot (ket.ravel ())
-        
-        hso = si_soc(las, ci, nelec, norb)
+    ham_eff, s2_eff, ovlp_eff = [ np.zeros((nroots, nroots)) for i in range (3) ]
+    for i, hc, s2c, ket, nelec_ket in zip(range(nroots), ham_ci, s2_ci, ci_r, nelec_r):
+        for j, c, nelec_bra in zip(range(nroots), ci_r, nelec_r):
+            if nelec_ket == nelec_bra:
+                # Teffanie: you had 'if len(hc) == len(c):', which I'm not sure is general enough.
+                # For example, in six orbitals, nelec=(4,2) and nelec=(2,4) have the same array
+                # shapes because of particle-hole symmetry, but the matrix elements coupling them
+                # should be zero.
+                ham_eff[i, j] = c.ravel ().dot (hc.ravel ())
+                s2_eff[i, j] = c.ravel ().dot (s2c.ravel ())
+                ovlp_eff[i,j] = c.ravel ().dot (ket.ravel ())
+    if soc: # Teffanie: conveniently, this still works if soc is an integer
+        hso = si_soc(las, ci_r, nelec_r, norb)
         ham_eff = ham_eff + hso
     
     return ham_eff, s2_eff, ovlp_eff
 
-def make_stdm12s (las, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
+# Teffanie: see note above "def ham"
+def make_stdm12s (las, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
     TODO: extend to accomodate states of different ms being addressed
     together, and then spin-orbit coupling.
@@ -311,6 +326,8 @@ def make_stdm12s (las, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
             (Below, "nroots" means "count_nonzero (idx_root)")
 
     Kwargs:
+        soc : integer
+            Order of spin-orbit coupling included in the Hamiltonian
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
@@ -322,12 +339,14 @@ def make_stdm12s (las, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
         stdm2s : ndarray of shape [nroots,]*2 + [2,ncas,ncas,]*2
             Two-body transition density matrices between LAS states
     '''
+    # Teffanie: we need to extend this to the spin-breaking blocks of the transition density
+    # matrices
     mol = las.mol
     norb_f = las.ncas_sub
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
                  for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr, soc)
+    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
     norb = sum (norb_f) 
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     nroots = len (ci_r)
@@ -335,44 +354,22 @@ def make_stdm12s (las, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
         dtype=ci_r[0].dtype).transpose (0,2,3,4,1)
     stdm2s = np.zeros ((nroots, nroots, 2, norb, norb, 2, norb, norb),
         dtype=ci_r[0].dtype).transpose (0,2,3,4,5,6,7,1)
-    if soc:  
-        for i, (ci, ne) in enumerate (zip (ci_r, nelec)):
-            rdm1s, rdm2s = solver.make_rdm12s (ci, norb, ne)
-            stdm1s[i,0,:,:,i] = rdm1s[0]
-            stdm1s[i,1,:,:,i] = rdm1s[1]
-            stdm2s[i,0,:,:,0,:,:,i] = rdm2s[0]
-            stdm2s[i,0,:,:,1,:,:,i] = rdm2s[1]
-            stdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
-            stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
-        
-        for (i, (ci_bra, ne_bra)), (j, (ci_ket, ne_ket)) in combinations (enumerate (zip (ci_r, nelec)), 2):
-             if ne_bra == ne_ket:
-                tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, ne_bra)
-                # Transpose for 1TDM is backwards because of stupid PySCF convention
-                stdm1s[i,0,:,:,j] = tdm1s[0].T
-                stdm1s[i,1,:,:,j] = tdm1s[1].T
-                stdm1s[j,0,:,:,i] = tdm1s[0]
-                stdm1s[j,1,:,:,i] = tdm1s[1]
-                for spin, tdm2 in enumerate (tdm2s):
-                    p = spin // 2
-                    q = spin % 2
-                    stdm2s[i,p,:,:,q,:,:,j] = tdm2
-                    stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
-             else:
-                stdm1s[i,:,:,:,j] =  stdm1s[j,:,:,:,i] = np.array(0)
-                stdm2s[i,:,:,:,:,:,:,j] = stdm2s[j,:,:,:,:,:,:,i] = np.array(0)
+    # Teffanie: I removed the conditional "if soc:" below because both blocks work for the
+    # spin-pure case
+    for i, (ci, ne) in enumerate (zip (ci_r, nelec_r)):
+        rdm1s, rdm2s = solver.make_rdm12s (ci, norb, ne)
+        stdm1s[i,0,:,:,i] = rdm1s[0]
+        stdm1s[i,1,:,:,i] = rdm1s[1]
+        stdm2s[i,0,:,:,0,:,:,i] = rdm2s[0]
+        stdm2s[i,0,:,:,1,:,:,i] = rdm2s[1]
+        stdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
+        stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
 
-    else:       
-        for i, ci in enumerate (ci_r):    
-            rdm1s, rdm2s = solver.make_rdm12s (ci, norb, nelec)
-            stdm1s[i,0,:,:,i] = rdm1s[0]
-            stdm1s[i,1,:,:,i] = rdm1s[1]
-            stdm2s[i,0,:,:,0,:,:,i] = rdm2s[0]
-            stdm2s[i,0,:,:,1,:,:,i] = rdm2s[1]
-            stdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
-            stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
-        for (i, ci_bra), (j, ci_ket) in combinations (enumerate (ci_r), 2):
-            tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, nelec)
+    for (i, (ci_bra, ne_bra)), (j, (ci_ket, ne_ket)) in combinations (enumerate (zip (ci_r, nelec_r)), 2):
+        spin_bra = ne_bra[1] - ne_bra[0]
+        spin_ket = ne_ket[0] - ne_ket[1]
+        if ne_bra == ne_ket:
+            tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, ne_bra)
             # Transpose for 1TDM is backwards because of stupid PySCF convention
             stdm1s[i,0,:,:,j] = tdm1s[0].T
             stdm1s[i,1,:,:,j] = tdm1s[1].T
@@ -383,9 +380,14 @@ def make_stdm12s (las, ci_fr, idx_root, soc=False, orbsym=None, wfnsym=None):
                 q = spin % 2
                 stdm2s[i,p,:,:,q,:,:,j] = tdm2
                 stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
+        # Teffanie: the below is unnecessary; the whole arrays were initialized to zero anyway
+        #else:
+        #   stdm1s[i,:,:,:,j] =  stdm1s[j,:,:,:,i] = np.array(0)
+        #   stdm2s[i,:,:,:,:,:,:,j] = stdm2s[j,:,:,:,:,:,:,i] = np.array(0)
+
     return stdm1s, stdm2s 
 
-def roots_make_rdm12s (las, ci_fr, idx_root, si, soc=False, orbsym=None, wfnsym=None):
+def roots_make_rdm12s (las, ci_fr, idx_root, si, soc=0, orbsym=None, wfnsym=None):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
     TODO: extend to accomodate states of different ms being addressed
@@ -404,6 +406,8 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, soc=False, orbsym=None, wfnsym=
             non-interacting LAS states
 
     Kwargs:
+        soc : integer
+            Order of spin-orbit coupling included in the Hamiltonian
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
@@ -415,36 +419,33 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, soc=False, orbsym=None, wfnsym=
         rdm2s : ndarray of length (nroots, 2, ncas, ncas, 2, ncas, ncas)
             Two-body transition density matrices between LAS states
     '''
+    # Teffanie: there are whole other sectors of transition density matrices that should be
+    # considered with soc: the <I|ap'bq|J> and <I|bp'aq|J> sector. There's basically no way to
+    # get the right RDMs without completely going over to the spinless-fermion representation.
+    if soc:
+        raise NotImplementedError ("Reduced density matrices for spin-orbit coupling")
     mol = las.mol
     norb_f = las.ncas_sub
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
                  for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    ci_r, nelec = ci_outer_product (ci_fr, norb_f, nelec_fr, soc)
+    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
     norb = sum (norb_f)
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     nroots = len (ci_r)
     ci_r = np.tensordot (si.conj ().T, np.stack (ci_r, axis=0), axes=1)
     rdm1s = np.zeros ((nroots, 2, norb, norb), dtype=ci_r.dtype)
     rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb), dtype=ci_r.dtype)
-    if soc:
-        for ix, (ci, ne) in enumerate (zip (ci_r, nelec)):
-            d1s, d2s = solver.make_rdm12s (ci, norb, ne)
-            rdm1s[ix,0,:,:] = d1s[0]
-            rdm1s[ix,1,:,:] = d1s[1]
-            rdm2s[ix,0,:,:,0,:,:] = d2s[0]
-            rdm2s[ix,0,:,:,1,:,:] = d2s[1]
-            rdm2s[ix,1,:,:,0,:,:] = d2s[1].transpose (2,3,0,1)
-            rdm2s[ix,1,:,:,1,:,:] = d2s[2]
-    else:
-        for ix, ci in enumerate (ci_r):
-            d1s, d2s = solver.make_rdm12s (ci, norb, nelec)
-            rdm1s[ix,0,:,:] = d1s[0]
-            rdm1s[ix,1,:,:] = d1s[1]
-            rdm2s[ix,0,:,:,0,:,:] = d2s[0]
-            rdm2s[ix,0,:,:,1,:,:] = d2s[1]
-            rdm2s[ix,1,:,:,0,:,:] = d2s[1].transpose (2,3,0,1)
-            rdm2s[ix,1,:,:,1,:,:] = d2s[2]
+    # Teffanie: again, you don't need the conditional if both blocks are nearly identical
+    # like this. Just leave the more general one.
+    for ix, (ci, ne) in enumerate (zip (ci_r, nelec_r)):
+        d1s, d2s = solver.make_rdm12s (ci, norb, ne)
+        rdm1s[ix,0,:,:] = d1s[0]
+        rdm1s[ix,1,:,:] = d1s[1]
+        rdm2s[ix,0,:,:,0,:,:] = d2s[0]
+        rdm2s[ix,0,:,:,1,:,:] = d2s[1]
+        rdm2s[ix,1,:,:,0,:,:] = d2s[1].transpose (2,3,0,1)
+        rdm2s[ix,1,:,:,1,:,:] = d2s[2]
     return rdm1s, rdm2s
 
 if __name__ == '__main__':
