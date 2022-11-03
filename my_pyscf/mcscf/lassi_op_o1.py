@@ -170,7 +170,8 @@ class LSTDMint1 (object):
                 Currently not used
     '''
 
-    def __init__(self, fcibox, norb, nelec, nroots, idx_root, hopping_index, idx_frag, dtype=np.float64):
+    def __init__(self, fcibox, norb, nelec, nroots, idx_root, hopping_index, idx_frag,
+                 dtype=np.float64):
         # I'm not sure I need linkstrl
         self.linkstrl = fcibox.states_gen_linkstr (norb, nelec, tril=True)
         self.linkstr = fcibox.states_gen_linkstr (norb, nelec, tril=False)
@@ -181,7 +182,8 @@ class LSTDMint1 (object):
         self.nelec = nelec
         self.nroots = nroots
         self.ovlp = np.zeros ((nroots, nroots), dtype=dtype)
-        self.nelec_r = [_unpack_nelec (fcibox._get_nelec (solver, nelec)) for solver in self.fcisolvers]
+        self.nelec_r = [_unpack_nelec (fcibox._get_nelec (solver, nelec))
+                        for solver in self.fcisolvers]
         self._h = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
         self._hh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (-1,0,1)] 
         self._phh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
@@ -212,7 +214,8 @@ class LSTDMint1 (object):
             assert (tab[s][i][j] is not None)
             return tab[s][i][j]
         except Exception as e:
-            errstr = 'frag {} failure to get element {},{} w spin {}'.format (self.idx_frag, i, j, s)
+            errstr = 'frag {} failure to get element {},{} w spin {}'.format (
+                self.idx_frag, i, j, s)
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,i,j])
             raise RuntimeError (errstr)
 
@@ -347,7 +350,8 @@ class LSTDMint1 (object):
             linkstr = self.linkstr[j]
             nelec = self.nelec_r[j]
             dm1s, dm2s = solver.trans_rdm12s (ci[i], ci[j], norb, nelec, link_index=linkstr) 
-            self.set_dm1 (i, j, np.stack (dm1s, axis=0).transpose (0,2,1)) # Based on docstring of direct_spin1.trans_rdm12s
+            self.set_dm1 (i, j, np.stack (dm1s, axis=0).transpose (0,2,1))
+            # Transpose based on docstring of direct_spin1.trans_rdm12s
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
 
         # Cache some b_p|i> beforehand for the sake of the spin-flip intermediate 
@@ -356,7 +360,8 @@ class LSTDMint1 (object):
         bpvec_list = [None for ket in range (nroots)]
         for ket in hidx_ket_b:
             if np.any (np.all (hopping_index[:,:,ket] == np.array ([1,-1])[:,None], axis=0)):
-                bpvec_list[ket] = np.stack ([des_b (ci[ket], norb, self.nelec_r[ket], p) for p in range (norb)], axis=0)
+                bpvec_list[ket] = np.stack ([des_b (ci[ket], norb, self.nelec_r[ket], p)
+                                             for p in range (norb)], axis=0)
 
         # a_p|i>
         for ket in hidx_ket_a:
@@ -368,13 +373,13 @@ class LSTDMint1 (object):
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
                     self.set_h (bra, ket, 0, bravec.dot (apket.reshape (norb,-1).T))
-                    # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how do I tell if I have a consistent sign rule...?
+                    # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
                         solver = self.fcisolvers[bra]
                         linkstr = self.linkstr[bra]
                         phh = np.stack ([solver.trans_rdm12s (ketmat, ci[bra], norb,
                             self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket],
-                            axis=-1)# Arg order switched based on docstring of direct_spin1.trans_rdm12s
+                            axis=-1)# Arg order switched cf. docstring of direct_spin1.trans_rdm12s
                         err = np.abs (phh[0] + phh[0].transpose (0,2,1))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
                         # ^ Passing this assert proves that I have the correct index
@@ -409,13 +414,13 @@ class LSTDMint1 (object):
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
                     self.set_h (bra, ket, 1, bravec.dot (bpket.reshape (norb,-1).T))
-                    # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how do I tell if I have a consistent sign rule...?
+                    # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
                         solver = self.fcisolvers[bra]
                         linkstr = self.linkstr[bra]
                         phh = np.stack ([solver.trans_rdm12s (ketmat, ci[bra], norb,
                             self.nelec_r[bra], link_index=linkstr)[0] for ketmat in bpket],
-                            axis=-1) # Arg order switched based on docstring of direct_spin1.trans_rdm12s
+                            axis=-1) # Arg order switched cf. docstring direct_spin1.trans_rdm12s
                         err = np.abs (phh[1] + phh[1].transpose (0,2,1))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
                         # ^ Passing this assert proves that I have the correct index
@@ -444,8 +449,10 @@ class LSTDMint2 (object):
         below), which is computed and returned by calling the `kernel` method.
 
         The initializer categorizes all possible interactions among a set of LAS states as
-        "null" (no electrons move), "1c" (one charge unit hops), "1s" (one spin hops), "1s1c",
-        and "2c".
+        "null" (no electrons move), "1c" (one charge unit hops; cp'cq), "1s" (one spin unit hops;
+        ap'bq'bp aq), "1s1c", (a coupled spin flip of between one fragment and a charge unit which
+        is hopping between two other fragments; ap'br'bq ar) "2c" (every case in which two charge
+        units move among any two, three, or four fragments).
 
         The heart of the class is "_crunch_all_", which iterates over all listed interactions,
         builds the corresponding transition density matrices, and passes them into the "_put_D1_"
@@ -471,21 +478,8 @@ class LSTDMint2 (object):
         '''
     # TODO: SO-LASSI o1 implementation: a SOMF implementation using spin-pure LAS product states
     # states as a basis requires the sz-breaking sector of the 1-body stdm1 to be added here. I.E.,
-    # tdm1s[i,j,0,p,q] is <i|ap'aq|j>, and tdm1s[i,j,1,p,q] is <i|bp'bq|j>, but we also need
-    # <i|bp'aq|j> (what was called "sm" in LSTDMint1) and <i|ap'bq|j> ("sp" = adjoint of sm). There
-    # are two possible strategies for this:
-    #   1) (More work, but more general and clean once tested) generalize this whole class and all
-    #      of its children to spinorbitals. Instead of (2,ncas,ncas) and (4,ncas,ncas,ncas,ncas),
-    #      the 1-body and 2-body transition density matrices between a given pair of LAS states
-    #      become (2*ncas,2*ncas) and (2*ncas,2*ncas,2*ncas,2*ncas). This requires editing ALL the
-    #      _crunch_ functions.
-    #   2) (Less work, but less general) Because we are only using SOMF methods, we can just add
-    #      the one-body spin-breaking interaction explicitly while leaving everything else
-    #      untouched. We still unavoidably have to switch over to spinorbitals in the make_stdm12s
-    #      and roots_make_rdm12s callers below for spin-orbit coupled systems, but in this class
-    #      all we have to do is add the sm matrix (shape of tdm1s[0]), the excitation index array
-    #      (probably something like "exc_sm"), and the crunching function ("_crunch_sm_") or
-    #      something.
+    # in addition to the interactions listed above, we also need "sm" (total spin lowering; ap'bq)
+    # (N.B.: "sp" is just the adjoint of "sm"). 
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
     def __init__(self, ints, nlas, hopping_index, dtype=np.float64):
@@ -498,6 +492,10 @@ class LSTDMint2 (object):
         self.tdm1s = self.tdm2s = None
 
         # The primary index arrays
+        # The nth column of each array is the (n+1)th argument of the corresponding _crunch_*_
+        # member function below. The first two columns are always the bra and the ket. Further
+        # columns identify fragments whose quantum numbers are changed by the interaction. If
+        # necessary (i.e., for 1c and 2c), the last column identifies spin case.
         self.exc_null = np.empty ((0,2), dtype=int)
         self.exc_1c = np.empty ((0,5), dtype=int)
         self.exc_1s = np.empty ((0,4), dtype=int)
@@ -674,7 +672,8 @@ class LSTDMint2 (object):
         fac = self.get_ovlp_fac (bra, ket, i, j)
         fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j), i)
         fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j), j)
-        d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_h (bra, ket, s1))
+        d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1),
+                                   self.ints[j].get_h (bra, ket, s1))
         d1[s1,p:q,r:s] = fac * d1_ij
         s12l = s1 * 2   # aa: 0 OR ba: 2
         s12h = s12l + 1 # ab: 1 OR bb: 3 
@@ -686,11 +685,13 @@ class LSTDMint2 (object):
             d2[(s21l,s21h), k0:k1, k0:k1, i0:i1, j0:j1] = d2_ijkk.transpose (0,3,4,1,2)
             d2[s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_ijkk[s1,...].transpose (0,3,2,1)
             d2[s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_ijkk[s1,...].transpose (2,1,0,3)
-        # pph (transpose is from Dirac order to Mulliken order)
-        d2_ijii = fac * np.multiply.outer (self.ints[i].get_pph (bra, ket, s1), self.ints[j].get_h (bra, ket, s1)).transpose (0,1,4,2,3)
+        # pph (transpose from Dirac order to Mulliken order)
+        d2_ijii = fac * np.multiply.outer (self.ints[i].get_pph (bra,ket,s1),
+                                           self.ints[j].get_h (bra,ket,s1)).transpose (0,1,4,2,3)
         _crunch_1c_tdm2 (d2_ijii, p, q, r, s, p, q)
-        # phh (transpose is to bring spin onto the outside and then from Dirac order to Mulliken order)
-        d2_ijjj = fac * np.multiply.outer (self.ints[i].get_p (bra, ket, s1), self.ints[j].get_phh (bra, ket, s1)).transpose (1,0,4,2,3)
+        # phh (transpose to bring spin to outside and then from Dirac order to Mulliken order)
+        d2_ijjj = fac * np.multiply.outer (self.ints[i].get_p (bra,ket,s1),
+                                           self.ints[j].get_phh (bra,ket,s1)).transpose (1,0,4,2,3)
         _crunch_1c_tdm2 (d2_ijjj, p, q, r, s, r, s)
         # spectator fragment mean-field (should automatically be in Mulliken order)
         for k in range (self.nfrags):
@@ -711,7 +712,8 @@ class LSTDMint2 (object):
         r, s = self.get_range (j)
         y, z = min (i, j), max (i, j)
         fac = -1 * self.get_ovlp_fac (bra, ket, i, j)
-        d2_spsm = fac * np.multiply.outer (self.ints[i].get_sp (bra, ket), self.ints[j].get_sm (bra, ket))
+        d2_spsm = fac * np.multiply.outer (self.ints[i].get_sp (bra, ket),
+                                           self.ints[j].get_sm (bra, ket))
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
         self._put_D2_(bra, ket, d2)
@@ -742,21 +744,25 @@ class LSTDMint2 (object):
         fac = self.get_ovlp_fac (bra, ket, i, j, k, l)
         if i == k:
             pp = self.ints[i].get_pp (bra, ket, s2lt)
-            if s2lt != 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (np.amax (np.abs (pp + pp.T)))
+            if s2lt != 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (
+                np.amax (np.abs (pp + pp.T)))
         else:
-            pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11), self.ints[k].get_p (bra, ket, s12))
+            pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11),
+                                    self.ints[k].get_p (bra, ket, s12))
             fac *= (1,-1)[int (i>k)]
             fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k, l), i)
             fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k, l), k)
         if j == l:
             hh = self.ints[j].get_hh (bra, ket, s2lt)
-            if s2lt != 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (np.amax (np.abs (hh + hh.T)))
+            if s2lt != 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (
+                np.amax (np.abs (hh + hh.T)))
         else:
-            hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12), self.ints[j].get_h (bra, ket, s11))
+            hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12),
+                                    self.ints[j].get_h (bra, ket, s11))
             fac *= (1,-1)[int (j>l)]
             fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), j)
             fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), l)
-        d2_ijkl = fac * np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transpose
+        d2_ijkl = fac * np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transp
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         t, u = self.get_range (k) 
@@ -947,9 +953,11 @@ def make_ints (las, ci, idx_root):
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root, hopping_index[ifrag], ifrag)
+        tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root,
+                            hopping_index[ifrag], ifrag)
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
-        lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (ifrag), *t0)        
+        lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
+            ifrag), *t0)
         ints.append (tdmint)
     return hopping_index, ints
 
@@ -984,7 +992,8 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
     tdm1s, tdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
 
-    return tdm1s.transpose (0,2,3,4,1), tdm2s.reshape (nroots, nroots, 2, 2, ncas, ncas, ncas, ncas).transpose (0,2,4,5,3,6,7,1)
+    return tdm1s.transpose (0,2,3,4,1), tdm2s.reshape (
+        nroots, nroots, 2, 2, ncas, ncas, ncas, ncas).transpose (0,2,4,5,3,6,7,1)
 
 def ham (las, h1, h2, ci, idx_root, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis

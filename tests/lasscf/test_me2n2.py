@@ -47,11 +47,11 @@ def tearDownModule():
 class KnownValues(unittest.TestCase):
     def test_energy (self):
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
-        self.assertAlmostEqual (las.e_tot, mc.e_tot, 8)
+        self.assertAlmostEqual (las.e_tot, mc.e_tot, 6)
 
     def test_energy_df (self):
         las = LASSCF (mf_df, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
-        self.assertAlmostEqual (las.e_tot, mc_df.e_tot, 8)
+        self.assertAlmostEqual (las.e_tot, mc_df.e_tot, 6)
 
     def test_energy_hs (self):
         las = LASSCF (mf_hs, (4,), ((4,0),), spin_sub=(5,)).set (conv_tol_grad=1e-5).run ()
