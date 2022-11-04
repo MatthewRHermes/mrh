@@ -5,7 +5,6 @@ from pyscf.mcscf.addons import StateAverageMCSCFSolver, StateAverageMixFCISolver
 from pyscf.mcscf.addons import StateAverageMixFCISolver_state_args as _state_arg
 from pyscf.mcscf.addons import StateAverageMixFCISolver_solver_args as _solver_arg
 from pyscf.fci.direct_spin1 import _unpack_nelec
-from mrh.my_pyscf.mcscf.lassi_op_o0 import ci_outer_product
 
 class StateAverageNMixFCISolver (StateAverageMixFCISolver):
     def _get_nelec (self, solver, nelec):
@@ -195,6 +194,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
     return h1ezipped_fcisolver
 
 def las2cas_civec (las):
+    from mrh.my_pyscf.mcscf.lassi_op_o0 import ci_outer_product
     norb_f = las.ncas_sub
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers] for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci, nelec = ci_outer_product (las.ci, norb_f, nelec_fr)

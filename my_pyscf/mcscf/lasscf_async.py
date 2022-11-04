@@ -144,7 +144,7 @@ class LASFragmenter (object):
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
-    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
     from pyscf import scf
 
     mol = struct (3.0, 3.0, '6-31g', symmetry=False)
