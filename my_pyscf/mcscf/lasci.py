@@ -1646,7 +1646,7 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
     wfnsyms = np.asarray (wfnsyms)
     spins = np.asarray (spins)
     smults = np.asarray (smults)
-    if np.issubsctype (wfnsyms.dtype, np.str):
+    if np.issubsctype (wfnsyms.dtype, np.str_):
         wfnsyms_str = wfnsyms
         wfnsyms = np.zeros (wfnsyms_str.shape, dtype=np.int32)
         for ix, wfnsym in enumerate (wfnsyms_str.flat):
@@ -2347,7 +2347,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
                              frozen=frozen, **kwargs)
         if wfnsym_sub is None: wfnsym_sub = [0 for icas in self.ncas_sub]
         for wfnsym, frag in zip (wfnsym_sub, self.fciboxes):
-            if isinstance (wfnsym, (str, np.str)):
+            if isinstance (wfnsym, (str, np.str_)):
                 wfnsym = symm.irrep_name2id (self.mol.groupname, wfnsym)
             frag.fcisolvers[0].wfnsym = wfnsym
 

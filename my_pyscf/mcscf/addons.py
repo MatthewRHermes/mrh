@@ -32,6 +32,10 @@ def get_sanmix_fcisolver (samix_fcisolver):
 def state_average_n_mix (casscf, fcisolvers, weights=(0.5,0.5)):
     sacasscf = state_average_mix (casscf, fcisolvers, weights=weights)
     sacasscf.fcisolver = get_sanmix_fcisolver (sacasscf.fcisolver)
+    # Inject "charge" into "_keys" to suppress annoying warning msg
+    keys = set(('charge',))
+    for solver in sacasscf.fcisolver.fcisolvers:
+        solver._keys = set (solver._keys).union (keys)
     return sacasscf
 
 def state_average_n_mix_(casscf, fcisolvers, weights=(0.5,0.5)):
