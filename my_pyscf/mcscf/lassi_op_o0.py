@@ -183,20 +183,9 @@ def make_trans(m, cibra, ciket, norb, nelec_bra, nelec_ket):
         return np.sqrt(0.5) * (make_trans_rdm1('aa', cibra, ciket, norb, nelec_bra, nelec_ket)
                                - make_trans_rdm1('bb', cibra, ciket, norb, nelec_bra, nelec_ket)).T
 
-# Teffanie: I would rather "hso" be computed by the caller (lassi.py) and passed as part of h1,
-# because that makes it more general for later on if we want to do X2C, other kinds of SOMF, etc. In
-# the spinorbital basis, the full 2*nao-by-2*nao spin-pure 1-electron Hamiltonian operator is
-# ___________
-# | h1 | 0  |
-# | 0  | h1 |
-# -----------
-# With 1-electron spin-orbit coupling, this becomes
-# _____________________________________
-# | h1 + hso_z      | hso_x + i*hso_y |
-# | hso_x - i*hso_y | h1 - hso_z      |
-# -------------------------------------
-# or something (not sure about the signs and I might be missing factors of 1/2; it at least has to
-# be hermitian)
+# Teffanie: I would rather "hso" be computed by the caller (lassi.py) and passed as part of h1 or in
+# addition to h1, because that makes it more general for later on if we want to do X2C, other kinds
+# of SOMF, etc. 
 def si_soc (las, ci, nelec, norb):
 
 ### function adapted from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
@@ -310,8 +299,10 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
     
     return ham_eff, s2_eff, ovlp_eff
 
-# Teffanie: see note above "def ham"
-def make_stdm12s (las, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
+# Teffanie: in these functions, we don't need to know why or how we have multiple distinct spin
+# sectors; the "ci_outer_product" function itself tells us this. So there's no reason to pass
+# "soc" here or in the next function.
+def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
     TODO: extend to accomodate states of different ms being addressed
     together, and then spin-orbit coupling.
@@ -326,8 +317,6 @@ def make_stdm12s (las, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
             (Below, "nroots" means "count_nonzero (idx_root)")
 
     Kwargs:
-        soc : integer
-            Order of spin-orbit coupling included in the Hamiltonian
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
@@ -387,7 +376,7 @@ def make_stdm12s (las, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
 
     return stdm1s, stdm2s 
 
-def roots_make_rdm12s (las, ci_fr, idx_root, si, soc=0, orbsym=None, wfnsym=None):
+def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
     TODO: extend to accomodate states of different ms being addressed
@@ -406,8 +395,6 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, soc=0, orbsym=None, wfnsym=None
             non-interacting LAS states
 
     Kwargs:
-        soc : integer
-            Order of spin-orbit coupling included in the Hamiltonian
         orbsym : list of int of length (ncas)
             Irrep ID for each orbital
         wfnsym : int
@@ -420,16 +407,16 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, soc=0, orbsym=None, wfnsym=None
             Two-body transition density matrices between LAS states
     '''
     # Teffanie: there are whole other sectors of transition density matrices that should be
-    # considered with soc: the <I|ap'bq|J> and <I|bp'aq|J> sector. There's basically no way to
-    # get the right RDMs without completely going over to the spinless-fermion representation.
-    if soc:
-        raise NotImplementedError ("Reduced density matrices for spin-orbit coupling")
+    # considered with soc: the <I|ap'bq|J> and <I|bp'aq|J> sectors, etc. Also, this will/should
+    # crash when different spin sectors are considered, so I put a NotImplementedError below.
     mol = las.mol
     norb_f = las.ncas_sub
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
                  for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
+    if len (set (nelec_r)) > 1:
+        raise NotImplementedError ("Reduced density matrices for spin-impure states")
     norb = sum (norb_f)
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     nroots = len (ci_r)
