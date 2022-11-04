@@ -239,7 +239,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, opt=1):
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-            d1s, d2s = op_o0.make_stdm12s (las, ci_blk, idx, soc=soc, orbsym=orbsym, wfnsym=wfnsym)
+            d1s, d2s = op_o0.make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (rootsym), *t0)
             d1s_test, d2s_test = op_o1.make_stdm12s (las, ci_blk, idx)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} TDM algorithm'.format (rootsym), *t0)
@@ -256,11 +256,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, opt=1):
                 d2s = d2s_test
         else:
             if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
-            if opt == 0: # tmp until SOC implemented for op_o1
-                d1s, d2s = op_o0.make_stdm12s (las, ci_blk, idx, soc=soc, orbsym=orbsym, wfnsym=wfnsym)
-            else:
-                d1s, d2s = op_o1.make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
-            #d1s, d2s = op[opt].make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
+            d1s, d2s = op[opt].make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (rootsym), *t0)
         idx_int = np.where (idx)[0]
         for (i,a), (j,b) in product (enumerate (idx_int), repeat=2):
@@ -296,7 +292,7 @@ def roots_make_rdm12s (las, ci, si, soc=False, orbsym=None, opt=1):
         si_blk = si[np.ix_(idx_ci,idx_si)]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-            d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, soc=soc, orbsym=orbsym, wfnsym=wfnsym)
+            d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym), *t0)
             d1s_test, d2s_test = op_o1.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} TDM algorithm'.format (sym), *t0)
