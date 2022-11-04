@@ -3,7 +3,7 @@ from pyscf.fci import cistring
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf import symm, gto, scf, ao2mo, lib
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
-from mrh.my_pyscf.mcscf import lasci_coords
+from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf.lassi import lassi
@@ -26,9 +26,6 @@ def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if getattr (mf, 'with_df', None):
         las = density_fit (las, with_df = mf.with_df) 
     return las
-
-class _DFLASCI: # Tag
-    pass
 
 def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=None,
               veff=None, dm1s=None):
@@ -190,234 +187,188 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
 
     return h1e_fr
 
-def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
-        assert_no_dupes=False, verbose=lib.logger.NOTE):
-    if mo_coeff is None: mo_coeff = las.mo_coeff
-    if assert_no_dupes: assert_no_duplicates (las)
-    log = lib.logger.new_logger(las, verbose)
-    t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
-    log.debug('Start LASCI')
+#def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
+#        assert_no_dupes=False, verbose=lib.logger.NOTE):
+#    if mo_coeff is None: mo_coeff = las.mo_coeff
+#    if assert_no_dupes: assert_no_duplicates (las)
+#    log = lib.logger.new_logger(las, verbose)
+#    t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
+#    log.debug('Start LASCI')
+#
+#    h2eff_sub = las.get_h2eff (mo_coeff)
+#    t1 = log.timer('integral transformation to LAS space', *t0)
+#
+#    # In the first cycle, I may pass casdm0_fr instead of ci0.
+#    # Therefore, I need to work out this get_veff call separately.
+#    # This is only for compatibility with the "old" algorithm
+#    if ci0 is None and casdm0_fr is not None:
+#        casdm0_sub = [np.einsum ('rsij,r->sij', dm, las.weights) for dm in casdm0_fr]
+#        dm1_core = mo_coeff[:,:las.ncore] @ mo_coeff[:,:las.ncore].conjugate ().T
+#        dm1s_sub = [np.stack ([dm1_core, dm1_core], axis=0)]
+#        for idx, casdm1s in enumerate (casdm0_sub):
+#            mo = las.get_mo_slice (idx, mo_coeff=mo_coeff)
+#            moH = mo.conjugate ().T
+#            dm1s_sub.append (np.tensordot (mo, np.dot (casdm1s, moH), 
+#                                           axes=((1),(1))).transpose (1,0,2))
+#        dm1s_sub = np.stack (dm1s_sub, axis=0)
+#        dm1s = dm1s_sub.sum (0)
+#        veff = las.get_veff (dm1s=dm1s.sum (0))
+#        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm0_sub)
+#        casdm1s_sub = casdm0_sub
+#        casdm1frs = casdm0_fr
+#    else:
+#        if (ci0 is None or any ([c is None for c in ci0]) or
+#          any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
+#            ci0 = get_init_guess_ci (las, mo_coeff, h2eff_sub, ci0)
+#        if (ci0 is None or any ([c is None for c in ci0]) or
+#          any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
+#            raise RuntimeError ("failed to populate get_init_guess")
+#        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
+#        casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
+#        casdm1frs = las.states_make_casdm1s_sub (ci=ci0)
+#        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci0, casdm1s_sub=casdm1s_sub)
+#    t1 = log.timer('LASCI initial get_veff', *t1)
+#
+#    ugg = None
+#    converged = False
+#    ci1 = ci0
+#    t2 = (t1[0], t1[1])
+#    it = 0
+#    for it in range (las.max_cycle_macro):
+#        e_cas, ci1 = ci_cycle (las, mo_coeff, ci1, veff, h2eff_sub, casdm1frs, log)
+#        if ugg is None: ugg = las.get_ugg (mo_coeff, ci1)
+#        log.info ('LASCI subspace CI energies: {}'.format (e_cas))
+#        t1 = log.timer ('LASCI ci_cycle', *t1)
+#
+#        veff = veff.sum (0)/2
+#        casdm1s_new = las.make_casdm1s_sub (ci=ci1)
+#        if not isinstance (las, _DFLASCI) or las.verbose > lib.logger.DEBUG:
+#            #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
+#            veff_new = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
+#            if not isinstance (las, _DFLASCI): veff = veff_new
+#        if isinstance (las, _DFLASCI):
+#            dcasdm1s = [dm_new - dm_old for dm_new, dm_old in zip (casdm1s_new, casdm1s_sub)]
+#            veff += las.fast_veffa (dcasdm1s, h2eff_sub, mo_coeff=mo_coeff, ci=ci1) 
+#            if las.verbose > lib.logger.DEBUG:
+#                errmat = veff - veff_new
+#                lib.logger.debug (las, 'fast_veffa error: {}'.format (linalg.norm (errmat)))
+#        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
+#        casdm1s_sub = casdm1s_new
+#
+#        t1 = log.timer ('LASCI get_veff after ci', *t1)
+#        H_op = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff,
+#                            do_init_eri=False)
+#        g_vec = H_op.get_grad ()
+#        if las.verbose > lib.logger.INFO:
+#            g_orb_test, g_ci_test = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1,
+#                                                  h2eff_sub=h2eff_sub, veff=veff)[:2]
+#            if ugg.nvar_orb:
+#                err = linalg.norm (g_orb_test - g_vec[:ugg.nvar_orb])
+#                log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_orb| = %.15g', err)
+#                assert (err < 1e-5), '{}'.format (err)
+#            for isub in range (len (ci1)): # TODO: double-check that this code works in SA-LASSCF
+#                i = ugg.ncsf_sub[:isub].sum ()
+#                j = i + ugg.ncsf_sub[isub].sum ()
+#                k = i + ugg.nvar_orb
+#                l = j + ugg.nvar_orb
+#                log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_ci({})| = %.15g'.format (isub), 
+#                           linalg.norm (g_ci_test[i:j] - g_vec[k:l]))
+#            err = linalg.norm (g_ci_test - g_vec[ugg.nvar_orb:])
+#            assert (err < 1e-5), '{}'.format (err)
+#        gx = H_op.get_gx ()
+#        prec_op = H_op.get_prec ()
+#        prec = prec_op (np.ones_like (g_vec)) # Check for divergences
+#        norm_gorb = linalg.norm (g_vec[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
+#        norm_gci = linalg.norm (g_vec[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
+#        norm_gx = linalg.norm (gx) if gx.size else 0.0
+#        x0 = prec_op._matvec (-g_vec)
+#        norm_xorb = linalg.norm (x0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
+#        norm_xci = linalg.norm (x0[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
+#        lib.logger.info (
+#            las, 'LASCI macro %d : E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_x| = %.15g',
+#            it, H_op.e_tot, norm_gorb, norm_gci, norm_gx)
+#        #log.info (
+#        #    ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g '
+#        #    '; |x0_ci| = %.15g'), H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
+#        if (norm_gorb<conv_tol_grad and norm_gci<conv_tol_grad)or((norm_gorb+norm_gci)<norm_gx/10):
+#            converged = True
+#            break
+#        H_op._init_eri_() 
+#        # ^ This is down here to save time in case I am already converged at initialization
+#        t1 = log.timer ('LASCI Hessian constructor', *t1)
+#        microit = [0]
+#        def my_callback (x):
+#            microit[0] += 1
+#            norm_xorb = linalg.norm (x[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
+#            norm_xci = linalg.norm (x[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
+#            if las.verbose > lib.logger.INFO:
+#                Hx = H_op._matvec (x) # This doubles the price of each iteration!!
+#                resid = g_vec + Hx
+#                norm_gorb = linalg.norm (resid[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
+#                norm_gci = linalg.norm (resid[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
+#                xorb, xci = ugg.unpack (x)
+#                xci = [[x_s * las.weights[iroot] for iroot, x_s in enumerate (x_rs)]
+#                       for x_rs in xci]
+#                xscale = ugg.pack (xorb, xci)
+#                Ecall = H_op.e_tot + xscale.dot (g_vec + (Hx/2))
+#                log.info (('LASCI micro %d : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ;'
+#                          '|x_orb| = %.15g ; |x_ci| = %.15g'), microit[0], Ecall, norm_gorb,
+#                          norm_gci, norm_xorb, norm_xci)
+#            else:
+#                log.info ('LASCI micro %d : |x_orb| = %.15g ; |x_ci| = %.15g', microit[0],
+#                          norm_xorb, norm_xci)
+#
+#        my_tol = max (conv_tol_grad, norm_gx/10)
+#        x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
+#                                        maxiter=las.max_cycle_micro, callback=my_callback,
+#                                        M=prec_op)
+#        t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
+#        mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
+#        casdm1frs = las.states_make_casdm1s_sub (ci=ci1)
+#        casdm1s_sub = las.make_casdm1s_sub (ci=ci1)
+#        t1 = log.timer ('LASCI Hessian update', *t1)
+#
+#        #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
+#        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
+#        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
+#        t1 = log.timer ('LASCI get_veff after secondorder', *t1)
+#
+#    t2 = log.timer ('LASCI {} macrocycles'.format (it), *t2)
+#
+#    e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub,
+#                                                 veff=veff)
+#    if log.verbose > lib.logger.INFO:
+#        e_tot_test = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub,
+#                                  veff=veff, do_init_eri=False).e_tot
+#    veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub,
+#                                        mo_coeff=mo_coeff, ci=ci1, _full=True)
+#                        for state in range (las.nroots)], axis=0)
+#    veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, las.weights))/2
+#    # veff's spin-summed component should be correct because I called get_veff with spin-summed rdm
+#    veff = veff_c[None,None,:,:] + veff_a 
+#    veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff, las.weights))
+#    e_states = las.energy_nuc () + np.array (las.states_energy_elec (mo_coeff=mo_coeff, ci=ci1,
+#                                                                     h2eff=h2eff_sub, veff=veff))
+#    if log.verbose > lib.logger.INFO:
+#        assert (np.allclose (np.dot (las.weights, e_states), e_tot)), '{} {} {} {}'.format (
+#            e_states, np.dot (las.weights, e_states), e_tot, e_tot_test)
+#
+#    # I need the true veff, with f^a_a and f^i_i spin-separated, in order to use the Hessian
+#    # Better to do it here with bmPu than in localintegrals
+#
+#    log.info ('LASCI %s after %d cycles', ('not converged', 'converged')[converged], it+1)
+#    log.info ('LASCI E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', e_tot,
+#              norm_gorb, norm_gci, norm_gx)
+#    t1 = log.timer ('LASCI wrap-up', *t1)
+#        
+#    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, veff=veff.sa,
+#                                                                    h2eff_sub=h2eff_sub)
+#    t1 = log.timer ('LASCI canonicalization', *t1)
+#
+#    t0 = log.timer ('LASCI kernel function', *t0)
+#
+#    return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
 
-    h2eff_sub = las.get_h2eff (mo_coeff)
-    t1 = log.timer('integral transformation to LAS space', *t0)
-
-    # In the first cycle, I may pass casdm0_fr instead of ci0.
-    # Therefore, I need to work out this get_veff call separately.
-    # This is only for compatibility with the "old" algorithm
-    if ci0 is None and casdm0_fr is not None:
-        casdm0_sub = [np.einsum ('rsij,r->sij', dm, las.weights) for dm in casdm0_fr]
-        dm1_core = mo_coeff[:,:las.ncore] @ mo_coeff[:,:las.ncore].conjugate ().T
-        dm1s_sub = [np.stack ([dm1_core, dm1_core], axis=0)]
-        for idx, casdm1s in enumerate (casdm0_sub):
-            mo = las.get_mo_slice (idx, mo_coeff=mo_coeff)
-            moH = mo.conjugate ().T
-            dm1s_sub.append (np.tensordot (mo, np.dot (casdm1s, moH), 
-                                           axes=((1),(1))).transpose (1,0,2))
-        dm1s_sub = np.stack (dm1s_sub, axis=0)
-        dm1s = dm1s_sub.sum (0)
-        veff = las.get_veff (dm1s=dm1s.sum (0))
-        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm0_sub)
-        casdm1s_sub = casdm0_sub
-        casdm1frs = casdm0_fr
-    else:
-        if (ci0 is None or any ([c is None for c in ci0]) or
-          any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
-            ci0 = get_init_guess_ci (las, mo_coeff, h2eff_sub, ci0)
-        if (ci0 is None or any ([c is None for c in ci0]) or
-          any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
-            raise RuntimeError ("failed to populate get_init_guess")
-        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
-        casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
-        casdm1frs = las.states_make_casdm1s_sub (ci=ci0)
-        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci0, casdm1s_sub=casdm1s_sub)
-    t1 = log.timer('LASCI initial get_veff', *t1)
-
-    ugg = None
-    converged = False
-    ci1 = ci0
-    t2 = (t1[0], t1[1])
-    it = 0
-    for it in range (las.max_cycle_macro):
-        e_cas, ci1 = ci_cycle (las, mo_coeff, ci1, veff, h2eff_sub, casdm1frs, log)
-        if ugg is None: ugg = las.get_ugg (mo_coeff, ci1)
-        log.info ('LASCI subspace CI energies: {}'.format (e_cas))
-        t1 = log.timer ('LASCI ci_cycle', *t1)
-
-        veff = veff.sum (0)/2
-        casdm1s_new = las.make_casdm1s_sub (ci=ci1)
-        if not isinstance (las, _DFLASCI) or las.verbose > lib.logger.DEBUG:
-            #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-            veff_new = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
-            if not isinstance (las, _DFLASCI): veff = veff_new
-        if isinstance (las, _DFLASCI):
-            dcasdm1s = [dm_new - dm_old for dm_new, dm_old in zip (casdm1s_new, casdm1s_sub)]
-            veff += las.fast_veffa (dcasdm1s, h2eff_sub, mo_coeff=mo_coeff, ci=ci1) 
-            if las.verbose > lib.logger.DEBUG:
-                errmat = veff - veff_new
-                lib.logger.debug (las, 'fast_veffa error: {}'.format (linalg.norm (errmat)))
-        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
-        casdm1s_sub = casdm1s_new
-
-        t1 = log.timer ('LASCI get_veff after ci', *t1)
-        H_op = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub, veff=veff,
-                            do_init_eri=False)
-        g_vec = H_op.get_grad ()
-        if las.verbose > lib.logger.INFO:
-            g_orb_test, g_ci_test = las.get_grad (ugg=ugg, mo_coeff=mo_coeff, ci=ci1,
-                                                  h2eff_sub=h2eff_sub, veff=veff)[:2]
-            if ugg.nvar_orb:
-                err = linalg.norm (g_orb_test - g_vec[:ugg.nvar_orb])
-                log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_orb| = %.15g', err)
-                assert (err < 1e-5), '{}'.format (err)
-            for isub in range (len (ci1)): # TODO: double-check that this code works in SA-LASSCF
-                i = ugg.ncsf_sub[:isub].sum ()
-                j = i + ugg.ncsf_sub[isub].sum ()
-                k = i + ugg.nvar_orb
-                l = j + ugg.nvar_orb
-                log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_ci({})| = %.15g'.format (isub), 
-                           linalg.norm (g_ci_test[i:j] - g_vec[k:l]))
-            err = linalg.norm (g_ci_test - g_vec[ugg.nvar_orb:])
-            assert (err < 1e-5), '{}'.format (err)
-        gx = H_op.get_gx ()
-        prec_op = H_op.get_prec ()
-        prec = prec_op (np.ones_like (g_vec)) # Check for divergences
-        norm_gorb = linalg.norm (g_vec[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-        norm_gci = linalg.norm (g_vec[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
-        norm_gx = linalg.norm (gx) if gx.size else 0.0
-        x0 = prec_op._matvec (-g_vec)
-        norm_xorb = linalg.norm (x0[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-        norm_xci = linalg.norm (x0[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
-        lib.logger.info (
-            las, 'LASCI macro %d : E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_x| = %.15g',
-            it, H_op.e_tot, norm_gorb, norm_gci, norm_gx)
-        #log.info (
-        #    ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g '
-        #    '; |x0_ci| = %.15g'), H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
-        if (norm_gorb<conv_tol_grad and norm_gci<conv_tol_grad)or((norm_gorb+norm_gci)<norm_gx/10):
-            converged = True
-            break
-        H_op._init_eri_() 
-        # ^ This is down here to save time in case I am already converged at initialization
-        t1 = log.timer ('LASCI Hessian constructor', *t1)
-        microit = [0]
-        def my_callback (x):
-            microit[0] += 1
-            norm_xorb = linalg.norm (x[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-            norm_xci = linalg.norm (x[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
-            if las.verbose > lib.logger.INFO:
-                Hx = H_op._matvec (x) # This doubles the price of each iteration!!
-                resid = g_vec + Hx
-                norm_gorb = linalg.norm (resid[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
-                norm_gci = linalg.norm (resid[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
-                xorb, xci = ugg.unpack (x)
-                xci = [[x_s * las.weights[iroot] for iroot, x_s in enumerate (x_rs)]
-                       for x_rs in xci]
-                xscale = ugg.pack (xorb, xci)
-                Ecall = H_op.e_tot + xscale.dot (g_vec + (Hx/2))
-                log.info (('LASCI micro %d : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ;'
-                          '|x_orb| = %.15g ; |x_ci| = %.15g'), microit[0], Ecall, norm_gorb,
-                          norm_gci, norm_xorb, norm_xci)
-            else:
-                log.info ('LASCI micro %d : |x_orb| = %.15g ; |x_ci| = %.15g', microit[0],
-                          norm_xorb, norm_xci)
-
-        my_tol = max (conv_tol_grad, norm_gx/10)
-        x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
-                                        maxiter=las.max_cycle_micro, callback=my_callback,
-                                        M=prec_op)
-        t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
-        mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
-        casdm1frs = las.states_make_casdm1s_sub (ci=ci1)
-        casdm1s_sub = las.make_casdm1s_sub (ci=ci1)
-        t1 = log.timer ('LASCI Hessian update', *t1)
-
-        #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
-        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
-        t1 = log.timer ('LASCI get_veff after secondorder', *t1)
-
-    t2 = log.timer ('LASCI {} macrocycles'.format (it), *t2)
-
-    e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub,
-                                                 veff=veff)
-    if log.verbose > lib.logger.INFO:
-        e_tot_test = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub,
-                                  veff=veff, do_init_eri=False).e_tot
-    veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub,
-                                        mo_coeff=mo_coeff, ci=ci1, _full=True)
-                        for state in range (las.nroots)], axis=0)
-    veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, las.weights))/2
-    # veff's spin-summed component should be correct because I called get_veff with spin-summed rdm
-    veff = veff_c[None,None,:,:] + veff_a 
-    veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff, las.weights))
-    e_states = las.energy_nuc () + np.array (las.states_energy_elec (mo_coeff=mo_coeff, ci=ci1,
-                                                                     h2eff=h2eff_sub, veff=veff))
-    if log.verbose > lib.logger.INFO:
-        assert (np.allclose (np.dot (las.weights, e_states), e_tot)), '{} {} {} {}'.format (
-            e_states, np.dot (las.weights, e_states), e_tot, e_tot_test)
-
-    # I need the true veff, with f^a_a and f^i_i spin-separated, in order to use the Hessian
-    # Better to do it here with bmPu than in localintegrals
-
-    log.info ('LASCI %s after %d cycles', ('not converged', 'converged')[converged], it+1)
-    log.info ('LASCI E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', e_tot,
-              norm_gorb, norm_gci, norm_gx)
-    t1 = log.timer ('LASCI wrap-up', *t1)
-        
-    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, veff=veff.sa,
-                                                                    h2eff_sub=h2eff_sub)
-    t1 = log.timer ('LASCI canonicalization', *t1)
-
-    t0 = log.timer ('LASCI kernel function', *t0)
-
-    return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
-
-def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log, veff_sub_test=None):
-    if ci0 is None: ci0 = [None for idx in range (las.nfrags)]
-    # CI problems
-    t1 = (lib.logger.process_clock(), lib.logger.perf_counter())
-    h1eff_sub = las.get_h1eff (mo, veff=veff, h2eff_sub=h2eff_sub, casdm1frs=casdm1frs,
-                               veff_sub_test=veff_sub_test)
-    ncas_cum = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
-    e_cas = []
-    ci1 = []
-    e0 = 0.0 
-    for isub, (fcibox, ncas, nelecas, h1e, fcivec) in enumerate (zip (las.fciboxes, las.ncas_sub,
-                                                                      las.nelecas_sub, h1eff_sub,
-                                                                      ci0)):
-        eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
-        max_memory = max(400, las.max_memory-lib.current_memory()[0])
-        orbsym = getattr (mo, 'orbsym', None)
-        if orbsym is not None:
-            i = ncas_cum[isub]
-            j = ncas_cum[isub+1]
-            orbsym = orbsym[i:j]
-            orbsym_io = orbsym.copy ()
-            if np.issubsctype (orbsym.dtype, np.integer):
-                orbsym_io = np.asarray ([symm.irrep_id2name (las.mol.groupname, x)
-                                         for x in orbsym])
-            log.info ("LASCI subspace {} with orbsyms {}".format (isub, orbsym_io))
-        else:
-            log.info ("LASCI subspace {} with no orbsym information".format (isub))
-        if log.verbose > lib.logger.DEBUG: 
-         for state, solver in enumerate (fcibox.fcisolvers):
-            wfnsym = getattr (solver, 'wfnsym', None)
-            if (wfnsym is not None) and (orbsym is not None):
-                if isinstance (wfnsym, str):
-                    wfnsym_str = wfnsym
-                else:
-                    wfnsym_str = symm.irrep_id2name (las.mol.groupname, wfnsym)
-                log.debug1 ("LASCI subspace {} state {} with wfnsym {}".format (isub, state,
-                                                                                wfnsym_str))
-
-        e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
-                                      ci0=fcivec, verbose=log,
-                                      max_memory=max_memory,
-                                      ecore=e0, orbsym=orbsym)
-        e_cas.append (e_sub)
-        ci1.append (fcivec)
-        t1 = log.timer ('FCI box for subspace {}'.format (isub), *t1)
-    return e_cas, ci1
 
 def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None, veff=None,
               dm1s=None):
@@ -755,7 +706,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
     h2eff = las.get_h2eff (mo_coeff) 
     if (ci0 is None or any ([c is None for c in ci0]) or
             any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
-        ci0 = get_init_guess_ci (las, mo_coeff, h2eff, ci0)
+        ci0 = las.get_init_guess_ci (mo_coeff, h2eff, ci0)
     eri_cas = lib.numpy_helper.unpack_tril (
             h2eff.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas,
             ncas, ncas)[ncore:nocc]
@@ -909,7 +860,7 @@ class LASCINoSymm (casci.CASCI):
 
     get_fock = get_fock
     get_grad = get_grad
-    _hop = lasci_coords.LASCI_HessianOperator
+    _hop = lasci_sync.LASCI_HessianOperator
     def get_hop (self, mo_coeff=None, ci=None, ugg=None, **kwargs):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
@@ -918,7 +869,7 @@ class LASCINoSymm (casci.CASCI):
     canonicalize = canonicalize
 
     def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=None,
-            assert_no_dupes=False, verbose=None):
+            assert_no_dupes=False, verbose=None, _kern=None):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         else:
@@ -926,6 +877,7 @@ class LASCINoSymm (casci.CASCI):
         if ci0 is None: ci0 = self.ci
         if verbose is None: verbose = self.verbose
         if conv_tol_grad is None: conv_tol_grad = self.conv_tol_grad
+        if _kern is None: _kern = lasci_sync.kernel
         log = lib.logger.new_logger(self, verbose)
 
         if self.verbose >= lib.logger.WARN:
@@ -940,7 +892,7 @@ class LASCINoSymm (casci.CASCI):
         self.weights = self.fciboxes[0].weights
 
         self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, self.e_cas, \
-                self.ci, h2eff_sub, veff = kernel(self, mo_coeff, ci0=ci0, verbose=verbose, \
+                self.ci, h2eff_sub, veff = _kern(self, mo_coeff, ci0=ci0, verbose=verbose, \
                 casdm0_fr=casdm0_fr, conv_tol_grad=conv_tol_grad, assert_no_dupes=assert_no_dupes)
 
         return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy, h2eff_sub, veff
@@ -1289,7 +1241,7 @@ class LASCINoSymm (casci.CASCI):
         self._e2_test = e2
         return e1 + e2
 
-    _ugg = lasci_coords.LASCI_UnitaryGroupGenerators
+    _ugg = lasci_sync.LASCI_UnitaryGroupGenerators
     def get_ugg (self, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
@@ -1367,6 +1319,8 @@ class LASCINoSymm (casci.CASCI):
     state_average_ = state_average_
     lassi = lassi
     las2cas_civec = las2cas_civec
+    assert_no_duplicates = assert_no_duplicates
+    get_init_guess_ci = get_init_guess_ci
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
@@ -1384,7 +1338,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     make_rdm1 = LASCINoSymm.make_rdm1
     get_veff = LASCINoSymm.get_veff
     get_h1eff = get_h1cas = h1e_for_cas 
-    _ugg = lasci_coords.LASCISymm_UnitaryGroupGenerators
+    _ugg = lasci_sync.LASCISymm_UnitaryGroupGenerators
 
     @property
     def wfnsym (self):

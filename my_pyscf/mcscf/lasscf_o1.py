@@ -2,7 +2,7 @@ import time
 import numpy as np
 from scipy import linalg
 from pyscf import gto, lib, ao2mo
-from mrh.my_pyscf.mcscf import lasci, lasci_coords, lasscf_o0
+from mrh.my_pyscf.mcscf import lasci, lasci_sync, lasscf_o0, _DFLASCI
 from functools import partial
 
 # Let's finally implement, in the more pure LASSCF rewrite, the ERI-
@@ -133,11 +133,11 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         return make_schmidt_spaces (self)
 
     def _init_eri_(self):
-        lasci_coords._init_df_(self)
+        lasci_sync._init_df_(self)
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.uschmidt = uschmidt = self.make_schmidt_spaces ()
         t1 = lib.logger.timer (self.las, 'build schmidt spaces', *t0)
-        if isinstance (self.las, lasci._DFLASCI):
+        if isinstance (self.las, _DFLASCI):
             eri = self.las.with_df.ao2mo
         elif getattr (self.las._scf, '_eri', None) is not None:
             eri = partial (ao2mo.full, self.las._scf._eri)
@@ -188,7 +188,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         # Neither dm1_vv nor veff_vv elements are needed here
         # Nothing in this function should distinguish between core and active orbitals!
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        if not isinstance (self.las, lasci._DFLASCI):
+        if not isinstance (self.las, _DFLASCI):
             return lasscf_o0.LASSCF_HessianOperator.get_veff (self, dm1s_mo=dm1s_mo)
         nocc, mo, bPpj = self.nocc, self.mo_coeff, self.bPpj
         moH = mo.conj ().T
@@ -241,7 +241,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         odm1rs_frz[:,:,ncore:nocc,:ncore] = 0.0
         odm1rs_frz[:,:,ncore:nocc,nocc:]  = 0.0
         odm1rs_ua = odm1rs - odm1rs_frz
-        gorb = lasci_coords.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs_frz,
+        gorb = lasci_sync.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs_frz,
             ocm2, tdm1frs, tcm2, veff_prime)
         # Add back terms omitted for (H.x_ua)_aa
         odm1s_ua = np.einsum ('r,rspq->spq', self.weights, odm1rs_ua)

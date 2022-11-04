@@ -24,7 +24,6 @@ from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
-from mrh.my_pyscf.mcscf.lasci import get_init_guess_ci
 from mrh.my_pyscf.mcscf import lassi_op_o0 as op_o0
 from mrh.my_pyscf.mcscf import lassi_op_o1 as op_o1
 
@@ -76,7 +75,7 @@ las = LASSCF (mf, (4,2,4), (4,2,4))
 las.state_average_(weights=weights, **states)
 las.mo_coeff = las.localize_init_guess ((list (range (3)),
     list (range (3,7)), list (range (7,10))), mf.mo_coeff)
-las.ci = get_init_guess_ci (las, las.mo_coeff, las.get_h2eff (las.mo_coeff))
+las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
 np.random.seed (1)
 for c in las.ci:
     for iroot in range (len (c)):
