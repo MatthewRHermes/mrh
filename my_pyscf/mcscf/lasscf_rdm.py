@@ -5,7 +5,7 @@
 import time
 import numpy as np
 from scipy import linalg, sparse
-from mrh.my_pyscf.mcscf import lasscf_o0, lasci
+from mrh.my_pyscf.mcscf import lasscf_o0, lasci, lasci_coords
 from mrh.my_pyscf.fci import csf_solver
 from pyscf import lib, gto, ao2mo
 from pyscf.fci.direct_spin1 import _unpack_nelec

@@ -22,7 +22,7 @@ from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_dmet import localintegrals, dmet, fragments
 from mrh.my_dmet.fragments import make_fragment_atom_list, make_fragment_orb_list
-from mrh.my_pyscf.mcscf.lasci import LASCI_HessianOperator, LASCI_UnitaryGroupGenerators
+from mrh.my_pyscf.mcscf.lasci_coords import LASCI_HessianOperator, LASCI_UnitaryGroupGenerators
 
 def build (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcname='c2h4n4', **kwargs):
     # I/O

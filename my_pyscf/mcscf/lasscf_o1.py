@@ -2,7 +2,7 @@ import time
 import numpy as np
 from scipy import linalg
 from pyscf import gto, lib, ao2mo
-from mrh.my_pyscf.mcscf import lasci, lasscf_o0
+from mrh.my_pyscf.mcscf import lasci, lasci_coords, lasscf_o0
 from functools import partial
 
 # Let's finally implement, in the more pure LASSCF rewrite, the ERI-
@@ -133,7 +133,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         return make_schmidt_spaces (self)
 
     def _init_eri_(self):
-        lasci._init_df_(self)
+        lasci_coords._init_df_(self)
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.uschmidt = uschmidt = self.make_schmidt_spaces ()
         t1 = lib.logger.timer (self.las, 'build schmidt spaces', *t0)
@@ -241,7 +241,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         odm1rs_frz[:,:,ncore:nocc,:ncore] = 0.0
         odm1rs_frz[:,:,ncore:nocc,nocc:]  = 0.0
         odm1rs_ua = odm1rs - odm1rs_frz
-        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs_frz,
+        gorb = lasci_coords.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs_frz,
             ocm2, tdm1frs, tcm2, veff_prime)
         # Add back terms omitted for (H.x_ua)_aa
         odm1s_ua = np.einsum ('r,rspq->spq', self.weights, odm1rs_ua)
