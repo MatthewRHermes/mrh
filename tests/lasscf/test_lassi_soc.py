@@ -13,14 +13,6 @@ def setUpModule():
     """, basis='631g')
     mfh2o = scf.RHF (mol).run ()
     
-    # Pre-calculated atomic densities used in AMFI
-    h2o_dm = np.zeros ((13,13))
-    h2o_dm[0,0] = h2o_dm[1,1] = 2
-    h2o_dm[3,3] = h2o_dm[4,4] = h2o_dm[5,5] = 4/3
-
-    # Below obtained from OpenMolcas v22.02
-    int_ref = np.array ([0.0000000185242348, 0.0000393310222742, 0.0000393310222742, 0.0005295974407740]) 
-
 def tearDownModule():
     global mol, mfh2o, h2o_dm
     mol.stdout.close()
