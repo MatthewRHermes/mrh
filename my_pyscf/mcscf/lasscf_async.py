@@ -26,7 +26,7 @@ class LASFragmenter (object):
         veff : ndarray of shape (nao,nao)
             State-averaged spin-symmetric effective potential in the AO basis
         fock1 : ndarray of shape (nmo,nmo)
-            First-order effective Fock matrix
+            First-order effective Fock matrix in the MO basis
         
     Returns:
         fo_coeff : ndarray of shape (nao, *)
@@ -54,93 +54,135 @@ class LASFragmenter (object):
         self.ncas = sum (self.ncas_sub)
         self.nocc = self.ncore + self.ncas
         self.s0 = self.mol.get_ovlp ()
+        self.soo_coeff = self.s0 @ self.oo_coeff
 
         # Orthonormal AO basis for frag_atom
+        # For now, I WANT these to overlap for different atoms. That is why I am pretending that
+        # self.s0 is block-diagonal (so that <*|f>.(<f|f>^-1).<f|*> ~> P_f <f|f> P_f).
         ao_offset = self.mol.offset_ao_by_atom ()
         frag_orb = [orb for atom in frag_atom
                     for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
         self.nao_frag = len (frag_orb)
-        s0 = self.s0[frag_orb,:][:,frag_orb]
-        ao_coeff = self.oo_coeff[frag_orb,:]
-        s1 = ao_coeff.conj ().T @ s0 @ ao_coeff
+        ovlp_frag = self.s0[frag_orb,:][:,frag_orb] # <f|f> in the comment above
+        proj_oo = self.oo_coeff[frag_orb,:] # P_f . oo_coeff in the comment above
+        s1 = proj_oo.conj ().T @ ovlp_frag @ proj_oo
         w, u = linalg.eigh (-s1) # negative: sort from largest to smallest
-        self.ao_coeff = self.oo_coeff @ u[:,:self.nao_frag]
-        self.sao_coeff = self.s0 @ self.ao_coeff
+        self.frag_umat = u[:,:self.nao_frag]
 
     def __call__(self, mo_coeff, dm1, veff, fock1):
         # TODO: gradient/hessian orbitals
         # TODO: how to handle active/active rotations
-        fo_coeff, eo_coeff = self._get_orthnorm_frag (mo_coeff)
-        fo_coeff, eo_coeff = self._schmidt (mo_coeff, fo_coeff, eo_coeff)
+
+        # Everything in the orth-AO basis
+        oo, soo = self.oo_coeff, self.soo_coeff
+        mo = soo.conj ().T @ mo_coeff
+        dm1 = soo.conj ().T @ dm1 @ soo
+        veff = oo.conj ().T @ veff @ oo
+        fock1 = mo @ fock1 @ mo.conj ().T
+
+        fo, eo = self._get_orthnorm_frag (mo)
+        fo, eo = self._a2i_gradorbs (fo, eo, fock1)
+        nf = fo.shape[1]
+        fo, eo = self._schmidt (fo, eo, mo)
+        fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1)
+        fo, eo = self._hessorbs (fo, eo, 2*nf, fock1)
+        fo_coeff = self.oo_coeff @ fo
         return fo_coeff
 
-    def _get_orthnorm_frag (self, mo_coeff):
+    def _get_orthnorm_frag (self, mo):
         '''Get an orthonormal basis spanning the union of the frag_idth active space and
         ao_coeff, projected orthogonally to all other active subspaces.
 
         Args:
-            mo_coeff : ndarray of shape (nao,nmo)
-                Contains MO coefficients
+            mo : ndarray of shape (nmo,nmo)
+                Contains MO coefficients in self.oo_coeff basis
 
         Returns:
-            fo_coeff : ndarray of shape (nao,*)
-                Contains frag_idth active orbitals plus ao_coeff approximately projected onto the
-                inactive/external space
-            eo_coeff : ndarray of shape (nao,*)
-                Contains complementary part of the inactive/external space
+            fo : ndarray of shape (nmo,*)
+                Contains frag_idth active orbitals plus frag_orb approximately projected onto the
+                inactive/external space in self.oo_coeff basis
+            eo : ndarray of shape (nmo,*)
+                Contains complementary part of the inactive/external space in self.oo_coeff basis
         '''
         # TODO: edge case for no active orbitals
-        fo_coeff = mo_coeff[:,self.las0:self.las1]
-        idx = np.ones (mo_coeff.shape[1], dtype=np.bool_)
+        fo = mo[:,self.las0:self.las1]
+        idx = np.ones (mo.shape[1], dtype=np.bool_)
         idx[self.ncore:self.nocc] = False
-        mo_basis = mo_coeff[:,idx]
+        uo = mo[:,idx]
 
-        s1 = mo_basis.conj ().T @ self.sao_coeff
+        s1 = uo.conj ().T @ self.frag_umat
         u, svals, vh = linalg.svd (s1, full_matrices=True)
         idx = np.zeros (u.shape[1], dtype=np.bool_)
         idx[:len(svals)][np.abs (svals)>1e-8] = True
-        fo_coeff = np.append (fo_coeff, mo_basis @ u[:,idx], axis=-1)
+        fo = np.append (fo, uo @ u[:,idx], axis=-1)
 
-        eo_coeff = mo_basis @ u[:,~idx]
+        eo = uo @ u[:,~idx]
 
-        return fo_coeff, eo_coeff
+        return fo, eo
 
-    def _schmidt (self, mo_coeff, fo_coeff, eo_coeff):
+    def _a2i_gradorbs (self, fo, eo, fock1):
+        '''Augment fragment-orbitals with environment orbitals coupled by the gradient to the
+        active space
+
+        Args:
+            fo : ndarray of shape (nmo,*)
+                Contains fragment-orbital coefficients in self.oo_coeff basis
+            eo : ndarray of shape (nmo,*)
+                Contains environment-orbital coefficients in self.oo_coeff basis
+            fock : ndarray of shape (nmo,nmo)
+                First-order effective Fock matrix in self.oo_coeff basis
+
+
+        Returns:
+            fo : ndarray of shape (nmo,*)
+                Same as input, except with self.nlas additional gradient-coupled env orbs
+            eo : ndarray of shape (nmo,*)
+                Same as input, less the orbitals added to fo
+        '''
+        iGa = eo.conj ().T @ (fock1-fock1.T) @ fo[:,:self.nlas]
+        u, svals, vh = linalg.svd (iGa, full_matrices=True)
+        fo = np.append (fo, eo @ u[:,:self.nlas] @ vh[:self.nlas,:])
+        eo = e0 @ u[:,self.nlas:]
+        return fo, eo
+
+    def _schmidt (self, fo, eo, mo):
         '''Do the Schmidt decomposition of the inactive determinant
 
         Args:
-            mo_coeff : ndarray of shape (nao,nmo)
-                Contains MO coefficients
-            fo_coeff : ndarray of shape (nao,*)
-                Contains fragment-orbital coefficients
-            eo_coeff : ndarray of shape (nao,*)
-                Contains environment-orbital coefficients
+            fo : ndarray of shape (nao,*)
+                Contains fragment-orbital coefficients in self.oo_coeff basis
+            eo : ndarray of shape (nao,*)
+                Contains environment-orbital coefficients in self.oo_coeff basis
+            mo : ndarray of shape (nao,nmo)
+                Contains MO coefficients in self.oo_coeff basis
 
         Returns:
-            fbo_coeff : ndarray of shape (nao,*)
+            fbo : ndarray of shape (nao,*)
                 Contains fragment and bath orbital coefficients
-            ueo_coeff : ndarray of shape (nao,*)
+            ueo : ndarray of shape (nao,*)
                 Contains unentangled inactive/external environment orbital coefficients
         '''
-        nf = fo_coeff.shape[1] - self.nlas
-        # TODO: edge case for eo_coeff.shape[1] < fo_coeff.shape[1]
-        mo_core = mo_coeff[:,:self.ncore]
+        nf = fo.shape[1] - self.nlas
+        # TODO: edge case for eo.shape[1] < fo.shape[1]
+        mo_core = mo[:,:self.ncore]
         dm_core = mo_core @ mo_core.conj ().T
         try:
-            s1 = eo_coeff.conj ().T @ self.s0 @ dm_core @ self.s0 @ fo_coeff[:,self.nlas:]
+            s1 = eo.conj ().T @ dm_core @ fo[:,self.nlas:]
         except IndexError as e:
-            print (eo_coeff.shape, self.s0.shape, dm_core.shape, fo_coeff.shape)
+            print (eo.shape, dm_core.shape, fo.shape)
             raise (e)
         u, svals, vh = linalg.svd (s1)
         svals = svals[:min(len(svals),nf)]
         idx = np.zeros (u.shape[1], dtype=np.bool_)
         idx[:len(svals)][np.abs(svals)>self.schmidt_thresh] = True
-        eo_coeff = eo_coeff @ u
-        fbo_coeff = np.append (fo_coeff, eo_coeff[:,idx], axis=-1)
-        ueo_coeff = eo_coeff[:,~idx]
+        eo = eo @ u
+        fbo = np.append (fo, eo[:,idx], axis=-1)
+        ueo = eo[:,~idx]
         print ("nf =",nf,"nb =",np.count_nonzero(idx),"nc =",np.count_nonzero(~idx))
-        return fbo_coeff, ueo_coeff
+        return fbo, ueo
 
+    def _ia2x_gradorbs (self, mo, fo, eo, fock1):
+        '''Replace virtual orbitals in fragment space with gradient-coupled virtual orbitals '''
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
