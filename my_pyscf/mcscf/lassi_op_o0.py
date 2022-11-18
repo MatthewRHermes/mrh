@@ -8,6 +8,7 @@ from pyscf.fci.spin_op import contract_ss, spin_square
 from pyscf.data import nist
 from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
+from mrh.my_pyscf.mcscf import lassi_dms as lassi_dms 
 
 def memcheck (las, ci):
     '''Check if the system has enough memory to run these functions!'''
@@ -108,81 +109,6 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
     # for this.
     return ci_r, nelec_r
 
-# Teffanie: these trans_rdm functions will be useful in many other places, so maybe we can put them
-# in another file
-
-def make_trans_rdm1(dspin, cibra, ciket, norb, nelec_bra, nelec_ket):
-
-### function taken from github.com/hczhai/fci-siso/blob/master/fcisiso.py ##
-
-    nelabra, nelbbra = nelec_bra
-    nelaket, nelbket = nelec_ket
-
-    if dspin == 'ba':
-        cond = nelabra == nelaket - 1 and nelbbra == nelbket + 1
-    elif dspin == 'ab':
-        cond = nelabra == nelaket + 1 and nelbbra == nelbket - 1
-    else:
-        cond = nelabra == nelaket and nelbbra == nelbket
-    if not cond:
-        return np.array(0)
-
-    nabra = fci.cistring.num_strings(norb, nelabra)
-    nbbra = fci.cistring.num_strings(norb, nelbbra)
-    naket = fci.cistring.num_strings(norb, nelaket)
-    nbket = fci.cistring.num_strings(norb, nelbket)
-    cibra = cibra.reshape(nabra, nbbra)
-    ciket = ciket.reshape(naket, nbket)
-    lidxbra = fci.cistring.gen_des_str_index(range(norb), nelabra if dspin[0] == 'a' else nelbbra)
-    if dspin[1] == 'a':
-        lidxket = fci.cistring.gen_des_str_index(range(norb), nelaket)
-        naketd = fci.cistring.num_strings(norb, nelaket - 1)
-        t1 = np.zeros((norb, naketd, nbket))
-        for str0 in range(naket):
-            for _, i, str1, sign in lidxket[str0]:
-                t1[i, str1, :] += sign * ciket[str0, :]
-    else:
-        lidxket = fci.cistring.gen_des_str_index(range(norb), nelbket)
-        nbketd = fci.cistring.num_strings(norb, nelbket - 1)
-        t1 = np.zeros((norb, naket, nbketd))
-        for str0 in range(nbket):
-            for _, i, str1, sign in lidxket[str0]:
-                t1[i, :, str1] += sign * ciket[:, str0]
-        if nelaket % 2 == 1:
-            t1 = -t1
-    if dspin[0] == 'a':
-        lidxbra = fci.cistring.gen_des_str_index(range(norb), nelabra)
-        nabrad = fci.cistring.num_strings(norb, nelabra - 1)
-        t2 = np.zeros((norb, nabrad, nbbra))
-        for str0 in range(nabra):
-            for _, i, str1, sign in lidxbra[str0]:
-                t2[i, str1, :] += sign * cibra[str0, :]
-    else:
-        lidxbra = fci.cistring.gen_des_str_index(range(norb), nelbbra)
-        nbbrad = fci.cistring.num_strings(norb, nelbbra - 1)
-        t2 = np.zeros((norb, nabra, nbbrad))
-        for str0 in range(nbbra):
-            for _, i, str1, sign in lidxbra[str0]:
-                t2[i, :, str1] += sign * cibra[:, str0]
-        if nelabra % 2 == 1:
-            t2 = -t2
-    
-    rdm1 = np.tensordot(t1, t2, axes=((1,2), (1,2)))
-    
-    return rdm1
-
-def make_trans(m, cibra, ciket, norb, nelec_bra, nelec_ket):
-
-### function taken from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
-
-    if m == 1:
-        return -1.0 * make_trans_rdm1('ab', cibra, ciket, norb, nelec_bra, nelec_ket).T
-    elif m == -1:
-        return make_trans_rdm1('ba', cibra, ciket, norb, nelec_bra, nelec_ket).T
-    else:
-        return np.sqrt(0.5) * (make_trans_rdm1('aa', cibra, ciket, norb, nelec_bra, nelec_ket)
-                               - make_trans_rdm1('bb', cibra, ciket, norb, nelec_bra, nelec_ket)).T
-
 # Teffanie: I would rather "hso" be computed by the caller (lassi.py) and passed as part of h1 or in
 # addition to h1, because that makes it more general for later on if we want to do X2C, other kinds
 # of SOMF, etc. 
@@ -204,9 +130,9 @@ def si_soc (las, ci, nelec, norb):
             if jstate > istate:
                 continue
 
-            tp1 = make_trans(1, ici, jci, norb, inelec, jnelec)
-            tze = make_trans(0, ici, jci, norb, inelec, jnelec)
-            tm1 = make_trans(-1, ici, jci, norb, inelec, jnelec)
+            tp1 = lassi_dms.make_trans(1, ici, jci, norb, inelec, jnelec)
+            tze = lassi_dms.make_trans(0, ici, jci, norb, inelec, jnelec)
+            tm1 = lassi_dms.make_trans(-1, ici, jci, norb, inelec, jnelec)
 
             t = np.zeros((3, norb, norb), dtype=complex)
             t[0] = (0.5 + 0j) * (tm1 - tp1)
