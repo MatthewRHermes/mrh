@@ -1,11 +1,11 @@
 import unittest
 import numpy as np
-from pyscf import gto, scf
+from pyscf import gto, scf, lib
 from mrh.my_pyscf.mcscf.soc_int import compute_hso
 from mrh.my_pyscf.mcscf.lassi_op_o0 import si_soc
 
 def setUpModule():
-    global mol, mfh2o, h2o_dm
+    global mol, mfh2o
     mol = gto.M (atom="""
         O  0.000000  0.000000  0.000000
         H  0.758602  0.000000  0.504284
@@ -14,9 +14,9 @@ def setUpModule():
     mfh2o = scf.RHF (mol).run ()
     
 def tearDownModule():
-    global mol, mfh2o, h2o_dm
+    global mol, mfh2o
     mol.stdout.close()
-    del mol, mfh2o, h2o_dm, int_ref
+    del mol, mfh2o
 
 class KnownValues (unittest.TestCase):
 
@@ -31,18 +31,23 @@ class KnownValues (unittest.TestCase):
         
         amfi_int = compute_hso (mol, h2o_dm, amfi=True)
         amfi_int = amfi_int[2][amfi_int[2] > 0]
-        self.assertAlmostEqual (np.sort (amfi_int), int_ref, 10)
+        amfi_int = np.sort (amfi_int.imag)
+        self.assertAlmostEqual (lib.fp (amfi_int), lib.fp (int_ref), 8)
 
     def test_soc_1frag (self):
+        pass
         ## compare excited state energies (incl. SOC) for 1 frag calculation
 
     def test_soc_2frag (self):
+        pass
         ## stationary test for >1 frag calc
 
     def test_soc_stdm12s (self):
+        pass
         ## stationary test for roots_make_stdm12s
   
-  def test_soc_rdm12s (self):
+    def test_soc_rdm12s (self):
+        pass
         ## stationary test for roots_make_rdm12s
 
 if __name__ == "__main__":
