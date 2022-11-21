@@ -34,6 +34,8 @@ class LASFragmenter (object):
             orbitals and the AOs of frag_atom
 
     '''
+    # TODO: spin-separated veff and dm1? Potentially makes approximate step in _a2i_gradorbs
+    # more accurate.
 
     def __init__(self, las, frag_id, frag_atom, schmidt_thresh=1e-8):
         self.mol = las.mol
@@ -54,7 +56,9 @@ class LASFragmenter (object):
         self.ncas = sum (self.ncas_sub)
         self.nocc = self.ncore + self.ncas
         self.s0 = self.mol.get_ovlp ()
+        self.hcore = self.oo_coeff.conj ().T @ self._scf.get_hcore () @ self.oo_coeff
         self.soo_coeff = self.s0 @ self.oo_coeff
+        self.log = lib.logger.new_logger (las, las.verbose)
 
         # Orthonormal AO basis for frag_atom
         # For now, I WANT these to overlap for different atoms. That is why I am pretending that
@@ -72,6 +76,7 @@ class LASFragmenter (object):
     def __call__(self, mo_coeff, dm1, veff, fock1):
         # TODO: gradient/hessian orbitals
         # TODO: how to handle active/active rotations
+        self.log.info ("nmo = %d", mo_coeff.shape[1])
 
         # Everything in the orth-AO basis
         oo, soo = self.oo_coeff, self.soo_coeff
@@ -81,11 +86,14 @@ class LASFragmenter (object):
         fock1 = mo @ fock1 @ mo.conj ().T
 
         fo, eo = self._get_orthnorm_frag (mo)
-        fo, eo = self._a2i_gradorbs (fo, eo, fock1)
+        self.log.info ("nfrag before gradorbs = %d", fo.shape[1])
+        fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1)
         nf = fo.shape[1]
+        self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
         fo, eo = self._schmidt (fo, eo, mo)
-        fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1)
-        fo, eo = self._hessorbs (fo, eo, 2*nf, fock1)
+        self.log.info ("nfrag after schmidt = %d", fo.shape[1])
+        fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, 2*nf)
+        self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
         fo_coeff = self.oo_coeff @ fo
         return fo_coeff
 
@@ -120,7 +128,7 @@ class LASFragmenter (object):
 
         return fo, eo
 
-    def _a2i_gradorbs (self, fo, eo, fock1):
+    def _a2i_gradorbs (self, fo, eo, fock1, veff, dm1):
         '''Augment fragment-orbitals with environment orbitals coupled by the gradient to the
         active space
 
@@ -129,21 +137,54 @@ class LASFragmenter (object):
                 Contains fragment-orbital coefficients in self.oo_coeff basis
             eo : ndarray of shape (nmo,*)
                 Contains environment-orbital coefficients in self.oo_coeff basis
-            fock : ndarray of shape (nmo,nmo)
+            fock1 : ndarray of shape (nmo,nmo)
                 First-order effective Fock matrix in self.oo_coeff basis
-
+            veff : ndarray of shape (nmo,nmo)
+                State-averaged spin-symmetric effective potential in self.oo_coeff basis
+            dm1 : ndarray of shape (nmo,nmo)
+                State-averaged spin-summed 1-RDM in self.oo_coeff basis
 
         Returns:
             fo : ndarray of shape (nmo,*)
                 Same as input, except with self.nlas additional gradient-coupled env orbs
             eo : ndarray of shape (nmo,*)
                 Same as input, less the orbitals added to fo
+            fock1 : ndarray of shape (nmo,nmo)
+                Same as input, after an approximate step towards optimizing the active orbitals
         '''
         iGa = eo.conj ().T @ (fock1-fock1.T) @ fo[:,:self.nlas]
         u, svals, vh = linalg.svd (iGa, full_matrices=True)
-        fo = np.append (fo, eo @ u[:,:self.nlas] @ vh[:self.nlas,:])
-        eo = e0 @ u[:,self.nlas:]
-        return fo, eo
+        fo = np.append (fo, eo @ u[:,:self.nlas] @ vh[:self.nlas,:], axis=1)
+        eo = eo @ u[:,self.nlas:]
+        mo = np.append (fo, eo, axis=1)
+
+        # Get an estimated active-orbital relaxation step size
+        ao, uo = fo[:,:self.nlas], fo[:,self.nlas:]
+        uGa = uo.conj ().T @ (fock1-fock1.T) @ ao
+        u, uGa, vh = linalg.svd (uGa, full_matrices=False)
+        uo = uo @ u[:,:self.nlas]
+        ao = ao @ vh[:self.nlas,:].conj ().T
+        f0 = self.hcore + veff
+        f0_aa = ((f0 @ ao) * ao).sum (0)
+        f0_uu = ((f0 @ uo) * uo).sum (0)
+        f0_ua = ((f0 @ ao) * uo).sum (0)
+        dm1_aa = ((dm1 @ ao) * ao).sum (0)
+        dm1_uu = ((dm1 @ uo) * uo).sum (0)
+        dm1_ua = ((dm1 @ ao) * uo).sum (0)
+        uHa = (f0_aa*dm1_uu) + (f0_uu*dm1_aa) - (2*f0_ua*dm1_ua)
+        uXa = (u * ((-uGa/uHa)[None,:])) @ vh # x = -b/A
+        kappa1 = np.zeros ((mo.shape[1], mo.shape[1]), dtype=mo.dtype)
+        kappa1[self.nlas:fo.shape[1],:self.nlas] = uXa
+        kappa1 -= kappa1.T 
+        kappa1 = mo @ kappa1 @ mo.conj ().T
+
+        # approximate update to fock1
+        tdm1 = -dm1 @ kappa1
+        tdm1 += tdm1.T
+        fock1 += f0 @ tdm1 
+        # TODO: missing Coulomb potential update?
+
+        return fo, eo, fock1
 
     def _schmidt (self, fo, eo, mo):
         '''Do the Schmidt decomposition of the inactive determinant
@@ -166,11 +207,7 @@ class LASFragmenter (object):
         # TODO: edge case for eo.shape[1] < fo.shape[1]
         mo_core = mo[:,:self.ncore]
         dm_core = mo_core @ mo_core.conj ().T
-        try:
-            s1 = eo.conj ().T @ dm_core @ fo[:,self.nlas:]
-        except IndexError as e:
-            print (eo.shape, dm_core.shape, fo.shape)
-            raise (e)
+        s1 = eo.conj ().T @ dm_core @ fo[:,self.nlas:]
         u, svals, vh = linalg.svd (s1)
         svals = svals[:min(len(svals),nf)]
         idx = np.zeros (u.shape[1], dtype=np.bool_)
@@ -178,18 +215,66 @@ class LASFragmenter (object):
         eo = eo @ u
         fbo = np.append (fo, eo[:,idx], axis=-1)
         ueo = eo[:,~idx]
-        print ("nf =",nf,"nb =",np.count_nonzero(idx),"nc =",np.count_nonzero(~idx))
         return fbo, ueo
 
-    def _ia2x_gradorbs (self, mo, fo, eo, fock1):
-        '''Replace virtual orbitals in fragment space with gradient-coupled virtual orbitals '''
+    def _ia2x_gradorbs (self, fo, eo, mo, fock1, ntarget):
+        '''Augment fragment space with gradient/Hessian orbs
+
+        Args:
+            fo : ndarray of shape (nao,*)
+                Contains fragment-orbital coefficients in self.oo_coeff basis
+            eo : ndarray of shape (nao,*)
+                Contains environment-orbital coefficients in self.oo_coeff basis
+            mo : ndarray of shape (nao,nmo)
+                Contains MO coefficients in self.oo_coeff basis
+            fock1 : ndarray of shape (nmo,nmo)
+                First-order effective Fock matrix in self.oo_coeff basis
+            ntarget : integer
+                Desired number of fragment orbitals when all is said and done
+
+        Returns:
+            fo : ndarray of shape (nmo,*)
+                Same as input, except with additional gradient/Hessian-coupled env orbs
+            eo : ndarray of shape (nmo,*)
+                Same as input, less the orbitals added to fo
+        '''
+
+        # Split environment orbitals into inactive and external
+        eSi = eo.conj ().T @ mo[:,:self.ncore]
+        u, svals, vH = linalg.svd (eSi, full_matrices=True)
+        ni = np.count_nonzero (svals>0.5)
+        eo = eo @ u
+        eio = eo[:,:ni]
+        exo = eo[:,ni:]
+ 
+        # Separate SVDs to avoid re-entangling fragment to environment
+        svals_i = svals_x = np.zeros (0)
+        if eio.shape[1]:
+            eGf = eio.conj ().T @ (fock1-fock1.T) @ fo
+            u_i, svals_i, vh = linalg.svd (eGf, full_matrices=True)
+            eio = eio @ u_i
+        if exo.shape[1]:
+            eGf = exo.conj ().T @ (fock1-fock1.T) @ fo
+            u_x, svals_x, vh = linalg.svd (eGf, full_matrices=True)
+            exo = exo @ u_x
+        eo = np.append (eio, exo, axis=1)
+        svals = np.append (svals_i, svals_x)
+        idx = np.argsort (-np.abs (svals))
+        eo = eo[:,idx]
+        
+        # Augment fo
+        nadd = min (u.shape[1], ntarget-fo.shape[1])
+        fo = np.append (fo, eo[:,:nadd], axis=1)
+        eo = eo[:,nadd:]
+
+        return fo, eo
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
     from pyscf import scf
 
-    mol = struct (3.0, 3.0, '6-31g', symmetry=False)
+    mol = struct (3.0, 3.0, 'cc-pvdz', symmetry=False)
     mol.verbose = lib.logger.INFO
     mol.output = __file__+'.log'
     mol.build ()
@@ -199,7 +284,14 @@ if __name__=='__main__':
     frag_atom_list = (list (range (3)), list (range (7,10)))
     mo_coeff = mc.localize_init_guess (frag_atom_list, mf.mo_coeff)
     mc.kernel (mo_coeff)
-    fo_coeff = LASFragmenter (mc, 0, frag_atom_list[0]) (mo_coeff, None, None, None) 
+
+    print ("Kernel done")
+    ###########################
+    dm1 = mc.make_rdm1 ()
+    veff = mc.get_veff (dm1s=dm1)
+    fock1 = mc.get_hop ().fock1
+    ###########################
+    fo_coeff = LASFragmenter (mc, 0, frag_atom_list[0]) (mo_coeff, dm1, veff, fock1) 
 
     from pyscf.tools import molden
     molden.from_mo (mol, __file__+'.molden', fo_coeff)
