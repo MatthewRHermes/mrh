@@ -27,10 +27,37 @@ def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
         las = density_fit (las, with_df = mf.with_df) 
     return las
 
-def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, h2eff_sub=None,
+def get_grad (las, mo_coeff=None, ci=None, ugg=None, h1eff_sub=None, h2eff_sub=None,
               veff=None, dm1s=None):
-    ''' Return energy gradient for 1) inactive-external orbital rotation and 2) CI relaxation.
-    Eventually to include 3) intersubspace orbital rotation. '''
+    '''Return energy gradient for orbital rotation and CI relaxation.
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+
+    Kwargs:
+        mo_coeff : ndarray of shape (nao,nmo)
+            Contains molecular orbitals
+        ci : list (length=nfrags) of list (length=nroots) of ndarray
+            Contains CI vectors
+        ugg : instance of :class:`LASCI_UnitaryGroupGenerators`
+        h1eff_sub : list (length=nfrags) of list (length=nroots) of ndarray
+            Contains effective one-electron Hamiltonians experienced by each fragment
+            in each state
+        h2eff_sub : ndarray of shape (nmo,ncas**2*(ncas+1)/2)
+            Contains ERIs (p1a1|a2a3), lower-triangular in the a2a3 indices
+        veff : ndarray of shape (2,nao,nao)
+            Spin-separated, state-averaged 1-electron mean-field potential in the AO basis
+        dm1s : ndarray of shape (2,nao,nao)
+            Spin-separated, state-averaged 1-RDM in the AO basis
+
+    Returns:
+        gorb : ndarray of shape (ugg.nvar_orb,)
+            Orbital rotation gradients as a flat array
+        gci : ndarray of shape (sum(ugg.ncsf_sub),)
+            CI relaxation gradients as a flat array
+        gx : ndarray
+            Orbital rotation gradients for temporarily frozen orbitals in the "LASCI" problem
+    '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
     if ugg is None: ugg = las.get_ugg (mo_coeff, ci)
@@ -39,12 +66,53 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
     if veff is None:
         veff = las.get_veff (dm1s = dm1s.sum (0))
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci)
-    if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, ci=ci, veff=veff, h2eff_sub=h2eff_sub)
+    if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, ci=ci, veff=veff,
+                                                     h2eff_sub=h2eff_sub)
+
+    gorb = get_grad_orb (las, mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub, veff=veff, dm1s=dm1s)
+    gci = get_grad_ci (las, mo_coeff=mo_coeff, ci=ci, h1eff_sub=h1eff_sub, h2eff_sub=h2eff_sub,
+                       veff=veff)
+
+    idx = ugg.get_gx_idx ()
+    gx = gorb[idx]
+    gint = ugg.pack (gorb, gci)
+    gorb = gint[:ugg.nvar_orb]
+    gci = gint[ugg.nvar_orb:]
+    return gorb, gci, gx.ravel ()
+
+def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=None):
+    '''Return energy gradient for orbital rotation.
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+
+    Kwargs:
+        mo_coeff : ndarray of shape (nao,nmo)
+            Contains molecular orbitals
+        ci : list (length=nfrags) of list (length=nroots) of ndarray
+            Contains CI vectors
+        h2eff_sub : ndarray of shape (nmo,ncas**2*(ncas+1)/2)
+            Contains ERIs (p1a1|a2a3), lower-triangular in the a2a3 indices
+        veff : ndarray of shape (2,nao,nao)
+            Spin-separated, state-averaged 1-electron mean-field potential in the AO basis
+        dm1s : ndarray of shape (2,nao,nao)
+            Spin-separated, state-averaged 1-RDM in the AO basis
+
+    Returns:
+        gorb : ndarray of shape (nmo,nmo)
+            Orbital rotation gradients as a square antihermitian array
+    '''
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    if ci is None: ci = las.ci
+    if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
+    if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
+    if veff is None:
+        veff = las.get_veff (dm1s = dm1s.sum (0))
+        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci)
     nao, nmo = mo_coeff.shape
     ncore = las.ncore
     ncas = las.ncas
     nocc = las.ncore + las.ncas
-    nvirt = nmo - nocc
     smo_cas = las._scf.get_ovlp () @ mo_coeff[:,ncore:nocc]
     smoH_cas = smo_cas.conj ().T
 
@@ -64,11 +132,36 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
     f1[:,ncore:nocc] += np.tensordot (eri, casdm2, axes=((1,2,3),(1,2,3)))
     gorb = f1 - f1.T
 
-    # Split into internal and external parts
-    idx = ugg.get_gx_idx ()
-    gx = gorb[idx]
+    return gorb
 
-    # The CI part
+def get_grad_ci (las, mo_coeff=None, ci=None, h1eff_sub=None, h2eff_sub=None, veff=None):
+    '''Return energy gradient for CI relaxation.
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+
+    Kwargs:
+        mo_coeff : ndarray of shape (nao,nmo)
+            Contains molecular orbitals
+        ci : list (length=nfrags) of list (length=nroots) of ndarray
+            Contains CI vectors
+        h1eff_sub : list (length=nfrags) of list (length=nroots) of ndarray
+            Contains effective one-electron Hamiltonians experienced by each fragment
+            in each state
+        h2eff_sub : ndarray of shape (nmo,ncas**2*(ncas+1)/2)
+            Contains ERIs (p1a1|a2a3), lower-triangular in the a2a3 indices
+        veff : ndarray of shape (2,nao,nao)
+            Spin-separated, state-averaged 1-electron mean-field potential in the AO basis
+
+    Returns:
+        gci : list (length=nfrags) of list (length=nroots) of ndarray
+            CI relaxation gradients in the shape of CI vectors
+    '''
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    if ci is None: ci = las.ci
+    if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
+    if h1eff_sub is None: h1eff_sub = las.get_h1eff (mo_coeff, ci=ci, veff=veff,
+                                                     h2eff_sub=h2eff_sub)
     gci = []
     for isub, (fcibox, h1e, ci0, ncas, nelecas) in enumerate (zip (
             las.fciboxes, h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
@@ -81,11 +174,7 @@ def get_grad (las, ugg=None, mo_coeff=None, ci=None, fock=None, h1eff_sub=None, 
         hc0 = [hc.ravel () for hc in hc0]
         ci0 = [c.ravel () for c in ci0]
         gci.append ([2.0 * (hc - c * (c.dot (hc))) for c, hc in zip (ci0, hc0)])
-
-    gint = ugg.pack (gorb, gci)
-    gorb = gint[:ugg.nvar_orb]
-    gci = gint[ugg.nvar_orb:]
-    return gorb, gci, gx.ravel ()
+    return gci
 
 def density_fit (las, auxbasis=None, with_df=None):
     ''' Here I ONLY need to attach the tag and the df object because I put conditionals in
