@@ -80,7 +80,7 @@ def get_grad (las, mo_coeff=None, ci=None, ugg=None, h1eff_sub=None, h2eff_sub=N
     gci = gint[ugg.nvar_orb:]
     return gorb, gci, gx.ravel ()
 
-def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=None):
+def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=None, hermi=-1):
     '''Return energy gradient for orbital rotation.
 
     Args:
@@ -97,6 +97,12 @@ def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=N
             Spin-separated, state-averaged 1-electron mean-field potential in the AO basis
         dm1s : ndarray of shape (2,nao,nao)
             Spin-separated, state-averaged 1-RDM in the AO basis
+        hermi : integer
+            Control (anti-)symmetrization. 0 means to return the effective Fock matrix,
+            F1 = h.D + g.d. -1 means to return the true orbital-rotation gradient, which is skew-
+            symmetric: gorb = F1 - F1.T. +1 means to return the symmetrized effective Fock matrix,
+            (F1 + F1.T) / 2. The factor of 2 difference between hermi=-1 and the other two options
+            is intentional and necessary.
 
     Returns:
         gorb : ndarray of shape (nmo,nmo)
@@ -130,9 +136,15 @@ def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=N
     eri = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
     eri = lib.numpy_helper.unpack_tril (eri).reshape (nmo, ncas, ncas, ncas)
     f1[:,ncore:nocc] += np.tensordot (eri, casdm2, axes=((1,2,3),(1,2,3)))
-    gorb = f1 - f1.T
 
-    return gorb
+    if hermi == -1:
+        return f1 - f1.T
+    elif hermi == 1:
+        return .5*(f1+f1.T)
+    elif hermi == 0:
+        return f1
+    else:
+        raise ValueError ("kwarg 'hermi' must = -1, 0, or +1")
 
 def get_grad_ci (las, mo_coeff=None, ci=None, h1eff_sub=None, h2eff_sub=None, veff=None):
     '''Return energy gradient for CI relaxation.
@@ -199,8 +211,7 @@ def density_fit (las, auxbasis=None, with_df=None):
     return DFLASCI (las)
 
 def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None, ncas_sub=None,
-                 nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None, casdm1frs=None,
-                 veff_sub_test=None):
+                 nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None, casdm1frs=None):
     ''' Effective one-body Hamiltonians (plural) for a LASCI problem
 
     Args:
@@ -214,19 +225,24 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
             As in PySCF's existing CASCI/CASSCF implementation
         nelecas: sequence of 2 integers
             As in PySCF's existing CASCI/CASSCF implementation
-        ci: list of ndarrays of length (nsub)
-            CI coefficients
-            used to generate 1-RDMs in active subspaces; overrides casdm0_sub
+        ci: list (length=nfrags) of list (length=nroots) of ndarrays
+            Contains CI vectors
         ncas_sub: ndarray of shape (nsub)
             Number of active orbitals in each subspace
         nelecas_sub: ndarray of shape (nsub,2)
             na, nb in each subspace
         veff: ndarray of shape (2, nao, nao)
-            If you precalculated this, pass it to save on calls to get_jk
+            Contains spin-separated, state-averaged effective potential
+        h2eff_sub : ndarray of shape (nmo,ncas**2*(ncas+1)/2)
+            Contains ERIs (p1a1|a2a3), lower-triangular in the a2a3 indices
+        casdm1s_sub : list (length=nfrags) of ndarrays
+            Contains state-averaged, spin-separated 1-RDMs in the localized active subspaces
+        casdm1frs : list (length=nfrags) of list (length=nroots) of ndarrays
+            Contains spin-separated 1-RDMs for each state in the localized active subspaces
 
     Returns:
-        h1e: list like [ndarray of shape (2, isub, isub) for isub in ncas_sub]
-            Spin-separated 1-body Hamiltonian operator for each active subspace
+        h1e_fr: list (length=nfrags) of list (length=nroots) of ndarrays
+            Spin-separated 1-body Hamiltonian operator for each fragment and state
     '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ncas is None: ncas = las.ncas

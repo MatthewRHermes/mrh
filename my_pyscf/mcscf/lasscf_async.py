@@ -287,9 +287,10 @@ if __name__=='__main__':
 
     print ("Kernel done")
     ###########################
+    from mrh.my_pyscf.mcscf.lasci import get_grad_orb
     dm1 = mc.make_rdm1 ()
     veff = mc.get_veff (dm1s=dm1)
-    fock1 = mc.get_hop ().fock1
+    fock1 = get_grad_orb (mc, hermi=0)
     ###########################
     fo_coeff = LASFragmenter (mc, 0, frag_atom_list[0]) (mo_coeff, dm1, veff, fock1) 
 
