@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib
 
-class LASFragmenter (object):
+class LASImpurityOrbitalCallable (object):
     '''Construct an impurity subspace for a specific "fragment" of a LASSCF calculation defined
     as the union of a set of trial orbitals for a particular localized active subspace and the
     AO basis of a specified collection of atoms.
@@ -21,10 +21,10 @@ class LASFragmenter (object):
     Calling args:
         mo_coeff : ndarray of shape (nao,nmo)
             Contains MO coefficients
-        dm1 : ndarray of shape (nao,nao)
-            State-averaged spin-summed 1-RDM in the AO basis
-        veff : ndarray of shape (nao,nao)
-            State-averaged spin-symmetric effective potential in the AO basis
+        dm1s : ndarray of shape (2,nao,nao)
+            State-averaged spin-separated 1-RDM in the AO basis
+        veff : ndarray of shape (2,nao,nao)
+            State-averaged spin-separated effective potential in the AO basis
         fock1 : ndarray of shape (nmo,nmo)
             First-order effective Fock matrix in the MO basis
         
@@ -32,12 +32,13 @@ class LASFragmenter (object):
         fo_coeff : ndarray of shape (nao, *)
             Orbitals defining an unentangled subspace containing the frag_idth set of active
             orbitals and the AOs of frag_atom
-
+        nelec_fo : 2-tuple of integers
+            Number of electrons (spin-up, spin-down) in the impurity subspace
     '''
     # TODO: spin-separated veff and dm1? Potentially makes approximate step in _a2i_gradorbs
     # more accurate.
 
-    def __init__(self, las, frag_id, frag_atom, schmidt_thresh=1e-8):
+    def __init__(self, las, frag_id, frag_atom, schmidt_thresh=1e-8, nelec_int_thresh=1e-4):
         self.mol = las.mol
         self._scf = las._scf
         self.ncore, self.ncas_sub, self.ncas = las.ncore, las.ncas_sub, las.ncas
@@ -46,6 +47,7 @@ class LASFragmenter (object):
         self.frag_id = frag_id
         self.frag_atom = frag_atom
         self.schmidt_thresh = schmidt_thresh
+        self.nelec_int_thresh = nelec_int_thresh
 
         # Convenience
         self.las0 = self.nlas = self.las1 = 0
@@ -55,7 +57,7 @@ class LASFragmenter (object):
             self.las1 = self.las0 + self.nlas
         self.ncas = sum (self.ncas_sub)
         self.nocc = self.ncore + self.ncas
-        self.s0 = self.mol.get_ovlp ()
+        self.s0 = self._scf.get_ovlp ()
         self.hcore = self.oo_coeff.conj ().T @ self._scf.get_hcore () @ self.oo_coeff
         self.soo_coeff = self.s0 @ self.oo_coeff
         self.log = lib.logger.new_logger (las, las.verbose)
@@ -73,7 +75,7 @@ class LASFragmenter (object):
         w, u = linalg.eigh (-s1) # negative: sort from largest to smallest
         self.frag_umat = u[:,:self.nao_frag]
 
-    def __call__(self, mo_coeff, dm1, veff, fock1):
+    def __call__(self, mo_coeff, dm1s, veff, fock1):
         # TODO: gradient/hessian orbitals
         # TODO: how to handle active/active rotations
         self.log.info ("nmo = %d", mo_coeff.shape[1])
@@ -81,21 +83,26 @@ class LASFragmenter (object):
         # Everything in the orth-AO basis
         oo, soo = self.oo_coeff, self.soo_coeff
         mo = soo.conj ().T @ mo_coeff
-        dm1 = soo.conj ().T @ dm1 @ soo
-        veff = oo.conj ().T @ veff @ oo
+        dm1s[0] = soo.conj ().T @ dm1s[0] @ soo
+        dm1s[1] = soo.conj ().T @ dm1s[1] @ soo
+        veff[0] = oo.conj ().T @ veff[0] @ oo
+        veff[1] = oo.conj ().T @ veff[1] @ oo
         fock1 = mo @ fock1 @ mo.conj ().T
 
         fo, eo = self._get_orthnorm_frag (mo)
         self.log.info ("nfrag before gradorbs = %d", fo.shape[1])
-        fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1)
+        fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1s)
         nf = fo.shape[1]
         self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
         fo, eo = self._schmidt (fo, eo, mo)
         self.log.info ("nfrag after schmidt = %d", fo.shape[1])
         fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, 2*nf)
         self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
+        nelec_fo = self._get_nelec_fo (fo, dm1s)
+        self.log.info ("nelec in fragment = %d, %d", nelec_fo[0], nelec_fo[1])
         fo_coeff = self.oo_coeff @ fo
-        return fo_coeff
+
+        return fo_coeff, nelec_fo
 
     def _get_orthnorm_frag (self, mo):
         '''Get an orthonormal basis spanning the union of the frag_idth active space and
@@ -128,7 +135,7 @@ class LASFragmenter (object):
 
         return fo, eo
 
-    def _a2i_gradorbs (self, fo, eo, fock1, veff, dm1):
+    def _a2i_gradorbs (self, fo, eo, fock1, veff, dm1s):
         '''Augment fragment-orbitals with environment orbitals coupled by the gradient to the
         active space
 
@@ -139,10 +146,10 @@ class LASFragmenter (object):
                 Contains environment-orbital coefficients in self.oo_coeff basis
             fock1 : ndarray of shape (nmo,nmo)
                 First-order effective Fock matrix in self.oo_coeff basis
-            veff : ndarray of shape (nmo,nmo)
-                State-averaged spin-symmetric effective potential in self.oo_coeff basis
-            dm1 : ndarray of shape (nmo,nmo)
-                State-averaged spin-summed 1-RDM in self.oo_coeff basis
+            veff : ndarray of shape (2,nmo,nmo)
+                State-averaged spin-separated effective potential in self.oo_coeff basis
+            dm1s : ndarray of shape (2,nmo,nmo)
+                State-averaged spin-separated 1-RDM in self.oo_coeff basis
 
         Returns:
             fo : ndarray of shape (nmo,*)
@@ -164,14 +171,14 @@ class LASFragmenter (object):
         u, uGa, vh = linalg.svd (uGa, full_matrices=False)
         uo = uo @ u[:,:self.nlas]
         ao = ao @ vh[:self.nlas,:].conj ().T
-        f0 = self.hcore + veff
-        f0_aa = ((f0 @ ao) * ao).sum (0)
-        f0_uu = ((f0 @ uo) * uo).sum (0)
-        f0_ua = ((f0 @ ao) * uo).sum (0)
-        dm1_aa = ((dm1 @ ao) * ao).sum (0)
-        dm1_uu = ((dm1 @ uo) * uo).sum (0)
-        dm1_ua = ((dm1 @ ao) * uo).sum (0)
-        uHa = (f0_aa*dm1_uu) + (f0_uu*dm1_aa) - (2*f0_ua*dm1_ua)
+        f0 = self.hcore[None,:,:] + veff
+        f0_aa = (np.dot (f0, ao) * ao[None,:,:]).sum (1)
+        f0_uu = (np.dot (f0, uo) * uo[None,:,:]).sum (1)
+        f0_ua = (np.dot (f0, ao) * uo[None,:,:]).sum (1)
+        dm1s_aa = (np.dot (dm1s, ao) * ao[None,:,:]).sum (1)
+        dm1s_uu = (np.dot (dm1s, uo) * uo[None,:,:]).sum (1)
+        dm1s_ua = (np.dot (dm1s, ao) * uo[None,:,:]).sum (1)
+        uHa = ((f0_aa*dm1s_uu) + (f0_uu*dm1s_aa) - (2*f0_ua*dm1s_ua)).sum (0)
         uXa = (u * ((-uGa/uHa)[None,:])) @ vh # x = -b/A
         kappa1 = np.zeros ((mo.shape[1], mo.shape[1]), dtype=mo.dtype)
         kappa1[self.nlas:fo.shape[1],:self.nlas] = uXa
@@ -179,9 +186,9 @@ class LASFragmenter (object):
         kappa1 = mo @ kappa1 @ mo.conj ().T
 
         # approximate update to fock1
-        tdm1 = -dm1 @ kappa1
-        tdm1 += tdm1.T
-        fock1 += f0 @ tdm1 
+        tdm1 = -np.dot (dm1s, kappa1)
+        tdm1 += tdm1.transpose (0,2,1)
+        fock1 += f0[0]@tdm1[0] + f0[1]@tdm1[1]
         # TODO: missing Coulomb potential update?
 
         return fo, eo, fock1
@@ -269,6 +276,19 @@ class LASFragmenter (object):
 
         return fo, eo
 
+    def _get_nelec_fo (self, fo, dm1s):
+        neleca = (dm1s[0] @ fo).ravel ().dot (fo.conj ().ravel ())
+        neleca_err = neleca - int (round (neleca))
+        nelecb = (dm1s[1] @ fo).ravel ().dot (fo.conj ().ravel ())
+        nelecb_err = nelecb - int (round (nelecb))
+        if any ([x>self.nelec_int_thresh for x in (neleca_err, nelecb_err)]):
+            raise RuntimeError (
+                "Non-integer number of electrons in impurity! (neleca,nelecb)={}".format (
+                    (neleca,nelecb)))
+        neleca = int (round (neleca))
+        nelecb = int (round (nelecb))
+        return neleca, nelecb
+
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
@@ -283,16 +303,18 @@ if __name__=='__main__':
     mc = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3))
     frag_atom_list = (list (range (3)), list (range (7,10)))
     mo_coeff = mc.localize_init_guess (frag_atom_list, mf.mo_coeff)
+    mc.max_cycle_macro = 1
     mc.kernel (mo_coeff)
 
     print ("Kernel done")
     ###########################
     from mrh.my_pyscf.mcscf.lasci import get_grad_orb
-    dm1 = mc.make_rdm1 ()
-    veff = mc.get_veff (dm1s=dm1)
+    dm1s = mc.make_rdm1s ()
+    veff = mc.get_veff (dm1s=dm1s)
     fock1 = get_grad_orb (mc, hermi=0)
     ###########################
-    fo_coeff = LASFragmenter (mc, 0, frag_atom_list[0]) (mo_coeff, dm1, veff, fock1) 
+    get_imporbs_0 = LASImpurityOrbitalCallable (mc, 0, frag_atom_list[0])
+    fo_coeff, nelec_fo = get_imporbs_0 (mc.mo_coeff, dm1s, veff, fock1)
 
     from pyscf.tools import molden
     molden.from_mo (mol, __file__+'.molden', fo_coeff)
