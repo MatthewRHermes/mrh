@@ -29,7 +29,7 @@
 // -------------------- begin PySCF includes --------------------
 // --------------------------------------------------------------
 
-#include "build/config.h"
+#include "config.h"
 /*
 #if defined _OPENMP
 #include <omp.h>
