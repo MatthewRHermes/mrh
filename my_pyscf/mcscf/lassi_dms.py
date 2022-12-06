@@ -1,0 +1,73 @@
+### functions taken from github.com/hczhai/fci-siso/blob/master/fcisiso.py ##
+
+import numpy as np
+from pyscf import fci, lib
+from pyscf.fci import cistring
+
+def make_trans_rdm1(dspin, cibra, ciket, norb, nelec_bra, nelec_ket):
+
+    nelabra, nelbbra = nelec_bra
+    nelaket, nelbket = nelec_ket
+
+    if dspin == 'ba':
+        cond = nelabra == nelaket - 1 and nelbbra == nelbket + 1
+    elif dspin == 'ab':
+        cond = nelabra == nelaket + 1 and nelbbra == nelbket - 1
+    else:
+        cond = nelabra == nelaket and nelbbra == nelbket
+    if not cond:
+        return np.array(0)
+
+    nabra = fci.cistring.num_strings(norb, nelabra)
+    nbbra = fci.cistring.num_strings(norb, nelbbra)
+    naket = fci.cistring.num_strings(norb, nelaket)
+    nbket = fci.cistring.num_strings(norb, nelbket)
+    cibra = cibra.reshape(nabra, nbbra)
+    ciket = ciket.reshape(naket, nbket)
+    lidxbra = fci.cistring.gen_des_str_index(range(norb), nelabra if dspin[0] == 'a' else nelbbra)
+    if dspin[1] == 'a':
+        lidxket = fci.cistring.gen_des_str_index(range(norb), nelaket)
+        naketd = fci.cistring.num_strings(norb, nelaket - 1)
+        t1 = np.zeros((norb, naketd, nbket))
+        for str0 in range(naket):
+            for _, i, str1, sign in lidxket[str0]:
+                t1[i, str1, :] += sign * ciket[str0, :]
+    else:
+        lidxket = fci.cistring.gen_des_str_index(range(norb), nelbket)
+        nbketd = fci.cistring.num_strings(norb, nelbket - 1)
+        t1 = np.zeros((norb, naket, nbketd))
+        for str0 in range(nbket):
+            for _, i, str1, sign in lidxket[str0]:
+                t1[i, :, str1] += sign * ciket[:, str0]
+        if nelaket % 2 == 1:
+            t1 = -t1
+    if dspin[0] == 'a':
+        lidxbra = fci.cistring.gen_des_str_index(range(norb), nelabra)
+        nabrad = fci.cistring.num_strings(norb, nelabra - 1)
+        t2 = np.zeros((norb, nabrad, nbbra))
+        for str0 in range(nabra):
+            for _, i, str1, sign in lidxbra[str0]:
+                t2[i, str1, :] += sign * cibra[str0, :]
+    else:
+        lidxbra = fci.cistring.gen_des_str_index(range(norb), nelbbra)
+        nbbrad = fci.cistring.num_strings(norb, nelbbra - 1)
+        t2 = np.zeros((norb, nabra, nbbrad))
+        for str0 in range(nbbra):
+            for _, i, str1, sign in lidxbra[str0]:
+                t2[i, :, str1] += sign * cibra[:, str0]
+        if nelabra % 2 == 1:
+            t2 = -t2
+    
+    rdm1 = np.tensordot(t1, t2, axes=((1,2), (1,2)))
+    
+    return rdm1
+
+def make_trans(m, cibra, ciket, norb, nelec_bra, nelec_ket):
+
+    if m == 1:
+        return -1.0 * make_trans_rdm1('ab', cibra, ciket, norb, nelec_bra, nelec_ket).T
+    elif m == -1:
+        return make_trans_rdm1('ba', cibra, ciket, norb, nelec_bra, nelec_ket).T
+    else:
+        return np.sqrt(0.5) * (make_trans_rdm1('aa', cibra, ciket, norb, nelec_bra, nelec_ket)
+                               - make_trans_rdm1('bb', cibra, ciket, norb, nelec_bra, nelec_ket)).T
