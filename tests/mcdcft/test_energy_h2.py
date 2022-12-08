@@ -1,5 +1,5 @@
 from pyscf import gto, scf, lib, mcscf
-from mrh.my_pyscf.mcdcft import mcdcft
+from pyscf.mcdcft import mcdcft
 #from mrh.my_pyscf.fci import csf_solver
 import unittest
 import tempfile

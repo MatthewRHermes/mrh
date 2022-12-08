@@ -1,9 +1,9 @@
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
-from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
-from mrh.my_pyscf.mcpdft.otpd import density_orbital_derivative
+from pyscf import mcpdft
+from pyscf.mcpdft.otpd import get_ontop_pair_density, _grid_ao2mo
+from pyscf.mcpdft.otpd import density_orbital_derivative
 import unittest
 
 def vector_error (test, ref):

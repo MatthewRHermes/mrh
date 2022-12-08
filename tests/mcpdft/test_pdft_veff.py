@@ -3,8 +3,8 @@ from scipy import linalg
 from pyscf import gto, scf, lib, mcscf, ao2mo
 from pyscf.lib import temporary_env
 from pyscf.mcscf import newton_casscf, mc_ao2mo
-from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.mcpdft import pdft_veff
+from pyscf import mcpdft
+from pyscf.mcpdft import pdft_veff
 import unittest
 
 h2 = scf.RHF (gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g', 

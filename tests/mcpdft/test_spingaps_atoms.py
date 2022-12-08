@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from pyscf.data.nist import HARTREE2EV
 from pyscf.fci.direct_spin1 import _unpack_nelec
-from mrh.my_pyscf import mcpdft
+from pyscf import mcpdft
 import unittest
 
 
