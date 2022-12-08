@@ -5,7 +5,7 @@ from pyscf.fci import direct_spin1
 from pyscf.mcscf import newton_casscf
 from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import sacasscf as sacasscf_grad
-from mrh.my_pyscf.grad import mspdft as mspdft_grad
+from pyscf.grad import mspdft as mspdft_grad
 from mrh.my_pyscf.grad import sacasscf_nacs
 from functools import reduce
 
@@ -116,8 +116,7 @@ class NonAdiabaticCouplings (mspdft_grad.Gradients):
         return nac
 
 if __name__=='__main__':
-    from pyscf import gto, scf, mcscf
-    from mrh.my_pyscf import mcpdft
+    from pyscf import gto, scf, mcscf, mcpdft
     from mrh.my_pyscf.dft.openmolcas_grids import quasi_ultrafine
     from scipy import linalg
     mol = gto.M (atom = 'Li 0 0 0; H 0 0 1.5', basis='sto-3g',

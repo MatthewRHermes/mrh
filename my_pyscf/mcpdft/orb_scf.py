@@ -100,8 +100,7 @@ def update_jot_in_ah (mc, mo_coeff, x1, casdm1, veff2):
 
 
 if __name__ == '__main__':
-    from pyscf import gto, scf
-    from mrh.my_pyscf import mcpdft
+    from pyscf import gto, scf, mcpdft
     mol = gto.M (atom = 'H 0 0 0; H 1.2 0 0', basis = '6-31g',
         verbose=lib.logger.DEBUG, output='orb_scf.log')
     mf = scf.RHF (mol).run ()

@@ -1,6 +1,7 @@
 from pyscf import gto
 from pyscf.mcscf import mc1step, casci
-from mrh.my_pyscf.mcpdft import mcpdft, ci_scf
+from pyscf.mcpdft import mcpdft
+from mrh.my_pyscf.mcpdft import ci_scf
 
 
 def CIMCPDFT (mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None,
