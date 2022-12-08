@@ -2,7 +2,7 @@ from pyscf import gto, scf, mcscf
 from pyscf.lib import logger
 from pyscf.data.nist import BOHR
 from pyscf.geomopt.geometric_solver import kernel as optimize
-from mrh.my_pyscf import mcpdft
+from pyscf import mcpdft
 from mrh.my_pyscf.fci import csf_solver
 from scipy import linalg
 import numpy as np

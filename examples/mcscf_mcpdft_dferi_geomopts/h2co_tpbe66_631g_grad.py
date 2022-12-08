@@ -4,8 +4,8 @@ import math
 import numpy as np
 from scipy import linalg
 from pyscf import scf, gto, lib, mcscf, df
-from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.df.grad import dfmcpdft as mcpdft_grad
+from pyscf import mcpdft
+from pyscf.df.grad import mcpdft as mcpdft_grad
 from mrh.my_pyscf.grad import numeric as numeric_grad
 
 # Convenience functions to get the internal coordinates for human inspection

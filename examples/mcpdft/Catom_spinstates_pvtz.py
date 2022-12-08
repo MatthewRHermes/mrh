@@ -1,7 +1,6 @@
 import sys
 sys.path.append ('../../..')
-from pyscf import gto, mcscf, scf, fci, dft
-from mrh.my_pyscf.mcpdft import mcpdft, otfnal
+from pyscf import gto, mcscf, scf, fci, dft, mcpdft
 
 ''' C atom triplet-singlet gap reported in JCTC 2014, 10, 3669
     CASSCF(4,4):    1.6 eV
@@ -32,28 +31,22 @@ print ("CASSCF (relaxed) low-spin energy: {:.8f}".format (els_rel))
 print ("CASSCF vertical excitation energy (eV): {:.8f}".format (27.2114 * (els_vert - ehs)))
 print ("CASSCF relaxed excitation energy (eV): {:.8f}".format (27.2114 * (els_rel - ehs)))
 
-ks = dft.UKS (mol)
-ks.xc = 'pbe'
-ks.grids.level = 9
-ot = otfnal.transfnal (ks)
+ls_vert = mcpdft.CASCI (ls_vert, 'tPBE', 4, (2, 2), grids_level=9)
+ls_rel = mcpdft.CASCI (ls_rel, 'tPBE', 4, (2, 2), grids_level=9)
+hs = mcpdft.CASCI (hs, 'tPBE', 4, (3, 1), grids_level=9)
 
-els_vert = mcpdft.kernel (ls_vert, ot)[0]
-els_rel = mcpdft.kernel (ls_rel, ot)[0]
-ehs = mcpdft.kernel (hs, ot)[0]
+els_vert = ls_vert.compute_pdft_energy_()[0]
+els_rel = ls_rel.compute_pdft_energy_()[0]
+ehs = hs.compute_pdft_energy_()[0]
 print ("MC-PDFT (tPBE) high-spin energy: {:.8f}".format (ehs))
 print ("MC-PDFT (tPBE) (vertical) low-spin energy: {:.8f}".format (els_vert))
 print ("MC-PDFT (tPBE) (relaxed) low-spin energy: {:.8f}".format (els_rel))
 print ("MC-PDFT (tPBE) vertical excitation energy (eV): {:.8f}".format (27.2114 * (els_vert - ehs)))
 print ("MC-PDFT (tPBE) relaxed excitation energy (eV): {:.8f}".format (27.2114 * (els_rel - ehs)))
 
-ks = dft.UKS (mol)
-ks.xc = 'blyp'
-#ks.grids.level = 9
-ot = otfnal.transfnal (ks)
-
-els_vert = mcpdft.kernel (ls_vert, ot)[0]
-els_rel = mcpdft.kernel (ls_rel, ot)[0]
-ehs = mcpdft.kernel (hs, ot)[0]
+els_vert = ls_vert.compute_pdft_energy_(otxc='tBLYP')[0]
+els_rel = ls_rel.compute_pdft_energy_(otxc='tBLYP')[0]
+ehs = hs.compute_pdft_energy_(otxc='tBLYP')[0]
 print ("MC-PDFT (tBLYP) high-spin energy: {:.8f}".format (ehs))
 print ("MC-PDFT (tBLYP) (vertical) low-spin energy: {:.8f}".format (els_vert))
 print ("MC-PDFT (tBLYP) (relaxed) low-spin energy: {:.8f}".format (els_rel))
