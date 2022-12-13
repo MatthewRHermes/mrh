@@ -3,7 +3,7 @@ import scipy, time
 from pyscf import fci, lib, mcscf
 from pyscf.mcscf import casci
 from pyscf.mcscf.mc1step import _fake_h_for_fast_casci
-from mrh.my_pyscf.mcpdft import mcpdft
+from pyscf.mcpdft import mcpdft
 logger = lib.logger
 
 def get_heff_cas (mc, mo_coeff, ci, link_index=None):

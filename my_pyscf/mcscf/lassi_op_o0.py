@@ -363,7 +363,7 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
 
 if __name__ == '__main__':
     from pyscf import scf, lib
-    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
     import os
     class cd:
         """Context manager for changing the current working directory"""

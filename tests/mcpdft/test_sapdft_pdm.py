@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import gto, scf, mcscf
-from mrh.my_pyscf import mcpdft
+from pyscf import mcpdft
 import unittest
 from pyscf.fci.addons import fix_spin_
 #from mrh.my_pyscf.fci import csf_solver

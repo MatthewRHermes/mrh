@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from pyscf.lib import temporary_env
 from pyscf.mcscf import mc_ao2mo
-from mrh.my_pyscf import mcpdft
+from pyscf import mcpdft
 from mrh.my_pyscf.mcpdft.pdft_feff import EotOrbitalHessianOperator
 from mrh.my_pyscf.mcpdft.pdft_feff import vector_error
 import unittest

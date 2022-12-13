@@ -3,8 +3,8 @@ from scipy import linalg
 from pyscf import gto, scf, lib, df
 from pyscf.data.nist import BOHR
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.df.grad import dfmspdft as mspdft_grad
+from pyscf import mcpdft
+from pyscf.df.grad import mspdft as mspdft_grad
 
 # 1. Energy calculation
 mol = gto.M (atom = 'Li 0 0 0; H 2.5 0 0', basis='STO-3G',

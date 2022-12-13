@@ -1,10 +1,12 @@
 # Lahh dee dah
 import copy
-from mrh.my_pyscf.mcpdft.mcpdft import get_mcpdft_child_class
-from mrh.my_pyscf.mcpdft.otfnal import make_hybrid_fnal as hyb
+from pyscf.mcpdft.mcpdft import get_mcpdft_child_class
+from pyscf.mcpdft.otfnal import make_hybrid_fnal as hyb
 from pyscf import mcscf, gto
 from pyscf.lib import logger
 from pyscf.mcscf import mc1step, casci
+from mrh.util.io import mcpdft_removal_warn
+mcpdft_removal_warn ()
 
 # NOTE: As of 02/06/2022, initializing PySCF mcscf classes with a symmetry-enabled molecule
 # doesn't work.

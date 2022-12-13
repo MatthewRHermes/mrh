@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, mcscf 
-from mrh.my_pyscf import mcpdft
+from pyscf import mcpdft
 import unittest, math
 
 degree = math.pi / 180.0
@@ -82,7 +82,7 @@ class KnownValues(unittest.TestCase):
     def test_e_coul_old (self):
         ci_theta0 = mc.get_ci_basis (uci=u_theta(theta0))
         Q_test, dQ_test, d2Q_test = mc.diabatizer (ci=ci_theta0)[:3]
-        from mrh.my_pyscf.mcpdft.cmspdft import e_coul_o0
+        from pyscf.mcpdft.cmspdft import e_coul_o0
         Q_ref, dQ_ref, d2Q_ref = e_coul_o0 (mc, ci_theta0)
         with self.subTest (deriv=0):
             self.assertAlmostEqual (Q_test, Q_ref, 9)

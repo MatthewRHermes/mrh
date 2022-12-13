@@ -7,11 +7,11 @@ from pyscf.dft.gen_grid import BLKSIZE
 from pyscf.dft.numint import _contract_rho
 from pyscf.mcscf import mc1step
 from pyscf.scf import hf
-from mrh.my_pyscf.mcpdft.otpd import *
-from mrh.my_pyscf.mcpdft.otpd import _grid_ao2mo
-from mrh.my_pyscf.mcpdft.tfnal_derivs import contract_fot, _unpack_sigma_vector
-from mrh.my_pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho
-from mrh.my_pyscf.mcpdft.pdft_veff import _dot_ao_mo
+from pyscf.mcpdft.otpd import *
+from pyscf.mcpdft.otpd import _grid_ao2mo
+from pyscf.mcpdft.tfnal_derivs import contract_fot, _unpack_sigma_vector
+from pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho
+from pyscf.mcpdft.pdft_veff import _dot_ao_mo
 
 def _contract_rho_all (bra, ket):
     # Apply the product rule when computing density & derivs on a grid
@@ -198,7 +198,7 @@ class EotOrbitalHessianOperator (object):
             self.delta_eot = delta_eot
 
         if self.verbose > lib.logger.DEBUG:
-            from mrh.my_pyscf.mcpdft.pdft_veff import lazy_kernel
+            from pyscf.mcpdft.pdft_veff import lazy_kernel
             v1, v2 = lazy_kernel (ot, dm1s, cascm2, mo_coeff[:,ncore:nocc])
             self._v1 = mo_coeff.conj ().T @ v1 @ mo_coeff
             self._v2 = ao2mo.full (v2, mo_coeff)
@@ -624,8 +624,7 @@ class ExcOrbitalHessianOperator (object):
         return hf.unpack_uniq_var (x, self.mo_occ)
 
 if __name__ == '__main__':
-    from pyscf import gto, scf, dft
-    from mrh.my_pyscf import mcpdft
+    from pyscf import gto, scf, dft, mcpdft
     mol = gto.M (atom = 'Li 0 0 0; H 1.2 0 0', basis = 'sto-3g',
         verbose=lib.logger.DEBUG, output='pdft_feff.log')
     mf = scf.RHF (mol).run ()

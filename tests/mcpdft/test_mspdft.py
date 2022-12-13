@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, mcscf 
-from mrh.my_pyscf import mcpdft
+from pyscf import mcpdft
 import unittest, math
 
 
