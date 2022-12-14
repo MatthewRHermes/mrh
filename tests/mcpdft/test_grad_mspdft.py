@@ -2,9 +2,9 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, df, mcscf, lib, fci
 from pyscf.fci.addons import fix_spin_, initguess_triplet
-from mrh.my_pyscf import mcpdft
+from pyscf import mcpdft
 #from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.grad.mspdft import mspdft_heff_response, mspdft_heff_HellmanFeynman
+from pyscf.grad.mspdft import mspdft_heff_response, mspdft_heff_HellmanFeynman
 #from mrh.my_pyscf.df.grad import dfsacasscf
 import unittest, math
 

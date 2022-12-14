@@ -2,9 +2,9 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from pyscf.dft.libxc import XC_KEYS, XC_ALIAS, is_meta_gga, hybrid_coeff, rsh_coeff
-from mrh.my_pyscf import mcpdft
-from mrh.my_pyscf.mcpdft.otfnal import make_hybrid_fnal
-from mrh.my_pyscf.mcpdft.otpd import get_ontop_pair_density
+from pyscf import mcpdft
+from pyscf.mcpdft.otfnal import make_hybrid_fnal
+from pyscf.mcpdft.otpd import get_ontop_pair_density
 import unittest
 from itertools import product
 

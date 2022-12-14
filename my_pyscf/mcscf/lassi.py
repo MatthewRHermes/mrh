@@ -29,12 +29,43 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
     h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
     return e0, h1, h2
 
-def las_symm_tuple (las, soc):
-    # This really should be much more modular
-    # If soc == False, symmetry tuple: neleca, nelecb, irrep
-    # If soc == True, symmetry tuple: (neleca+nelecb), irrep
-    statesym = []
+def las_symm_tuple (las, break_spin=False, break_symmetry=False):
+    '''Identify the symmetries/quantum numbers of of each LAS state within a LASSI model space
+    which are to be preserved by projecting the Hamiltonian into the corresponding diagonal
+    symmetry blocks.
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+
+    Kwargs:
+        break_spin : logical
+            Whether to mix states of different neleca-nelecb (necessary for spin-orbit coupling).
+            If True, the first item of each element in statesym is the total number of electrons;
+            otherwise, the first two items are the total number of spin-up and spin-down
+            electrons.
+        break_symmetry : logical
+            Whether to mix states of different point-group irreps (may also be necessary for
+            spin-orbit coupling). If True, the point-group irrep of each state is omitted from
+            the elements of statesym; otherwise, this datum is the last item of each element.
+
+    Returns:
+        statesym : list of length nroots
+            Each element is a tuple describing all enforced symmetries of a LAS state. 
+            The length of each tuple varies between 1 and 4 based on the kwargs break_spin and
+            break_symmetry.
+        s2_states : list of length nroots
+            The expectation values of the <S**2> operator for each state, for convenience
+    '''
+    # kwarg logic setup
+    qn_lbls = ['Neleca', 'Nelecb', 'Nelec', 'Wfnsym']
+    incl_spin = not (bool (break_spin))
+    incl_symmetry = not (bool (break_symmetry))
+    qn_filter = [incl_spin, incl_spin, not incl_spin, incl_symmetry]
+    # end kwarg logic setup
+    full_statesym = [] # keep everything for i/o...
+    statesym = [] # ...but return only this
     s2_states = []
+    log = lib.logger.new_logger (las, las.verbose)
     for iroot in range (las.nroots):
         neleca = 0
         nelecb = 0
@@ -52,27 +83,44 @@ def las_symm_tuple (las, soc):
             fragsym = getattr (solver, 'wfnsym', 0) or 0 # in case getattr returns "None"
             if isinstance (fragsym, str):
                 fragsym = symm.irrep_name2id (solver.mol.groupname, fragsym)
-            assert isinstance (fragsym, (int, np.integer)), '{} {}'.format (type (fragsym), fragsym)
+            assert isinstance (fragsym, (int, np.integer)), '{} {}'.format (type (fragsym),
+                                                                            fragsym)
             wfnsym ^= fragsym
         s += sum ([2*m1*m2 for m1, m2 in combinations (m, 2)])
         s2_states.append (s)
-        if soc == False:
-            statesym.append ((neleca, nelecb, wfnsym))
-        else: 
-            statesym.append ((neleca+nelecb, wfnsym))
-    lib.logger.info (las, 'Symmetry analysis of LAS states:')
-    lib.logger.info (las, ' {:2s}  {:>16s}  {:6s}  {:6s}  {:6s}  {:6s}'.format ('ix', 'Energy', 'Neleca', 'Nelecb', '<S**2>', 'Wfnsym'))
-    for ix, (e, sy, s2) in enumerate (zip (las.e_states, statesym, s2_states)):
-        if soc == False:
-            neleca, nelecb, wfnsym = sy
-        else: 
-            nelec, wfnsym = sy
-        wfnsym = symm.irrep_id2name (las.mol.groupname, wfnsym)
-        lib.logger.info (las, ' {:2d}  {:16.10f}  {:6d}  {:6d}  {:6.3f}  {:>6s}'.format (ix, e, neleca, nelecb, s2, wfnsym))
+        all_qns = [neleca, nelecb, neleca+nelecb, wfnsym]
+        full_statesym.append (tuple (all_qns))
+        statesym.append (tuple (qn for qn, incl in zip (all_qns, qn_filter) if incl))
+    log.info ('Symmetry analysis of LAS states:')
+    qn_lbls = ['Neleca', 'Nelecb', 'Nelec', 'Wfnsym']
+    qn_fmts = ['{:6d}', '{:6d}', '{:6d}', '{:>6s}']
+    lbls = ['ix', 'Energy', '<S**2>'] + qn_lbls
+    fmt_str = ' {:2s}  {:>16s}  {:6s}  ' + '  '.join (['{:6s}',]*len(qn_lbls))
+    log.info (fmt_str.format (*lbls))
+    for ix, (e, sy, s2) in enumerate (zip (las.e_states, full_statesym, s2_states)):
+        data = [ix, e, s2] + list (sy)
+        data[-1] = symm.irrep_id2name (las.mol.groupname, data[-1])
+        fmts = ['{:2d}','{:16.10f}','{:6.3f}'] + qn_fmts
+        fmt_str = ' ' + '  '.join (fmts)
+        log.info (fmt_str.format (*data))
+    if break_spin:
+        log.info ("States with different neleca-nelecb can be mixed by LASSI")
+    if break_symmetry:
+        log.info ("States with different point-group symmetry can be mixed by LASSI")
 
     return statesym, np.asarray (s2_states)
 
-def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False, opt=1):
+class LASSIOop01DisagreementError (RuntimeError):
+    def __init__(self, message, errvec):
+        self.message = message + ("\n"
+            "max abs errvec = {}; ||errvec|| = {}").format (
+                np.amax (np.abs (errvec)), linalg.norm (errvec))
+        self.errvec = errvec
+    def __str__(self):
+        return self.message
+
+def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,
+           break_symmetry=False, opt=1):
     ''' Diagonalize the state-interaction matrix of LASSCF '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
@@ -90,7 +138,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None)
 
     # Symmetry tuple: neleca, nelecb, irrep
-    statesym, s2_states = las_symm_tuple (las, soc)
+    statesym, s2_states = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)
 
     # Loop over symmetry blocks
     e_roots = np.zeros (las.nroots, dtype=np.float64)
@@ -104,53 +152,73 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         si = np.zeros ((las.nroots, las.nroots), dtype=complex)
         s2_mat = np.zeros ((las.nroots, las.nroots), dtype=complex)        
     
+    qn_lbls = ['nelec',] if soc else ['neleca','nelecb',]
+    if not break_symmetry: qn_lbls.append ('irrep')
     for rootsym in set (statesym):
         idx = np.all (np.array (statesym) == rootsym, axis=1)
-        lib.logger.debug (las, 'Diagonalizing LAS state symmetry block (neleca, nelecb, irrep) = {}'.format (rootsym))
+        lib.logger.debug (las,
+            'Diagonalizing LAS state symmetry block {} = {}'.format (qn_lbls, rootsym))
         if np.count_nonzero (idx) == 1:
             lib.logger.debug (las, 'Only one state in this symmetry block')
             e_roots[idx] = las.e_states[idx] - e0
             si[np.ix_(idx,idx)] = 1.0
             s2_roots[idx] = s2_states[idx]
             continue
-        wfnsym = rootsym[-1]
+        wfnsym = None if break_symmetry else rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-            ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, idx, soc=soc, orbsym=orbsym, wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (rootsym), *t0)
-            ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (rootsym), *t0)
-            lib.logger.debug (las, 'LASSI diagonalizer rootsym {}: ham o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (ham_blk - ham_ref))) 
-            lib.logger.debug (las, 'LASSI diagonalizer rootsym {}: S2 o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (s2_blk - s2_ref))) 
-            lib.logger.debug (las, 'LASSI diagonalizer rootsym {}: ovlp o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (ovlp_blk - ovlp_ref))) 
-            errvec = np.concatenate ([(ham_blk-ham_ref).ravel (), (s2_blk-s2_ref).ravel (), (ovlp_blk-ovlp_ref).ravel ()])
-            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC is implemented for op_o1
-                raise RuntimeError (("Congratulations, you have found a bug in either lassi_op_o0 (I really hope not)"
-                    " or lassi_op_o1 (much more likely)!\nPlease inspect the last few printed lines of logger output"
-                    " for more information.\nError in lassi, max abs: {}; norm: {}").format (np.amax (np.abs (errvec)),
-                    linalg.norm (errvec)))
+            ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, idx, soc=soc,
+                                                   orbsym=orbsym, wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
+                rootsym), *t0)
+            ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym,
+                                                   wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
+                rootsym), *t0)
+            lib.logger.debug (las,
+                'LASSI diagonalizer rootsym {}: ham o0-o1 algorithm disagreement = {}'.format (
+                    rootsym, linalg.norm (ham_blk - ham_ref))) 
+            lib.logger.debug (las,
+                'LASSI diagonalizer rootsym {}: S2 o0-o1 algorithm disagreement = {}'.format (
+                    rootsym, linalg.norm (s2_blk - s2_ref))) 
+            lib.logger.debug (las,
+                'LASSI diagonalizer rootsym {}: ovlp o0-o1 algorithm disagreement = {}'.format (
+                    rootsym, linalg.norm (ovlp_blk - ovlp_ref))) 
+            errvec = np.concatenate ([(ham_blk-ham_ref).ravel (), (s2_blk-s2_ref).ravel (),
+                                      (ovlp_blk-ovlp_ref).ravel ()])
+            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
+                raise LASSIOop01DisagreementError ("Hamiltonian + S2 + Ovlp", errvec)
             if opt == 0:
                 ham_blk = ham_ref
                 s2_blk = s2_ref
                 ovlp_blk = ovlp_ref
         else:
-            if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
-            ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, idx, soc=soc, orbsym=orbsym, wfnsym=wfnsym)
+            if (las.verbose > lib.logger.INFO): lib.logger.debug (
+                las, 'Insufficient memory to test against o0 LASSI algorithm')
+            ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, idx, soc=soc,
+                                                     orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
-        lib.logger.debug2 (las, 'Block Hamiltonian - ecore:')
-        lib.logger.debug2 (las, '{}'.format (ham_blk))
+        if np.iscomplexobj (ham_blk):
+            lib.logger.debug2 (las, 'Block Hamiltonian - ecore (real):')
+            lib.logger.debug2 (las, '{}'.format (ham_blk.real.round (8)))
+            lib.logger.debug2 (las, 'Block Hamiltonian - ecore (imag):')
+            lib.logger.debug2 (las, '{}'.format (ham_blk.imag.round (8)))
+        else:
+            lib.logger.debug2 (las, 'Block Hamiltonian - ecore:')
+            lib.logger.debug2 (las, '{}'.format (ham_blk.round (8)))
         lib.logger.debug2 (las, 'Block S**2:')
-        lib.logger.debug2 (las, '{}'.format (s2_blk))
+        lib.logger.debug2 (las, '{}'.format (s2_blk.round (8)))
         lib.logger.debug2 (las, 'Block overlap matrix:')
-        lib.logger.debug2 (las, '{}'.format (ovlp_blk))
+        lib.logger.debug2 (las, '{}'.format (ovlp_blk.round (8)))
         s2_mat[np.ix_(idx,idx)] = s2_blk
         # Error catch: diagonal Hamiltonian elements
         diag_test = np.diag (ham_blk)
         diag_ref = las.e_states[idx] - e0
         maxerr = np.max (np.abs (diag_test-diag_ref))
         if maxerr>1e-5 and soc == False: # tmp?
-            lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference', 'Error'))
+            lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference',
+                                                                     'Error'))
             for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
                 lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
             raise RuntimeError ('SI Hamiltonian diagonal element error = {}'.format (maxerr))
@@ -179,26 +247,36 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     s2_roots = s2_roots[idx]
     if soc == False:
         nelec_roots = [statesym[ix][0:2] for ix in idx]
-        wfnsym_roots = [statesym[ix][2] for ix in idx]
     else:
         nelec_roots = [statesym[ix][0] for ix in idx]
-        wfnsym_roots = [statesym[ix][1] for ix in idx]    
+    if break_symmetry:
+        wfnsym_roots = [None for ix in idx]
+    else:
+        wfnsym_roots = [statesym[ix][-1] for ix in idx]
     si = si[:,idx]
     si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots)
     lib.logger.info (las, 'LASSI eigenvalues:')
-    lib.logger.info (las, ' {:2s}  {:>16s}  {:6s}  {:6s}  {:6s}  {:6s}'.format ('ix', 'Energy', 'Neleca', 'Nelecb', '<S**2>', 'Wfnsym'))
+    fmt_str = ' {:2s}  {:>16s}  {:6s}  '
+    col_lbls = ['Nelec'] if soc else ['Neleca','Nelecb']
+    if not break_symmetry: col_lbls.append ('Wfnsym')
+    fmt_str += '  '.join (['{:6s}',]*len(col_lbls))
+    col_lbls = ['ix','Energy','<S**2>'] + col_lbls
+    lib.logger.info (las, fmt_str.format (*col_lbls))
+    fmt_str = ' {:2d}  {:16.10f}  {:6.3f}  '
+    col_fmts = ['{:6d}',]*(2-int(soc))
+    if not break_symmetry: col_fmts.append ('{:>6s}')
+    fmt_str += '  '.join (col_fmts)
     for ix, (er, s2r, rsym) in enumerate (zip (e_roots, s2_roots, rootsym)):
-        if soc == False:  
-            neleca, nelecb, wfnsym = rsym
-            wfnsym = symm.irrep_id2name (las.mol.groupname, wfnsym)
-            lib.logger.info (las, ' {:2d}  {:16.10f}  {:6d}  {:6d}  {:6.3f}  {:>6s}'.format (ix, er, neleca, nelecb, s2r, wfnsym))
-        else:
-            nelec, wfnsym = rsym
-            wfnsym = symm.irrep_id2name (las.mol.groupname, wfnsym)
-            lib.logger.info (las, ' {:2d}  {:16.10f}  {:6d}  {:6.3f}  {:>6s}'.format (ix, er, nelec, s2r, wfnsym))
+        if np.iscomplexobj (s2r):
+            assert (abs (s2r.imag) < 1e-8)
+            s2r = s2r.real
+        nelec = rsym[0:1] if soc else rsym[:2]
+        row = [ix,er,s2r] + list (nelec)
+        if not break_symmetry: row.append (symm.irrep_id2name (las.mol.groupname, rsym[-1]))
+        lib.logger.info (las, fmt_str.format (*row))
     return e_roots, si
 
-def make_stdm12s (las, ci=None, orbsym=None, soc=False, opt=1):
+def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
     ''' Evaluate <I|p'q|J> and <I|p'r'sq|J> where |I>, |J> are LAS states.
 
         Args:
@@ -207,6 +285,10 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, opt=1):
         Kwargs:
             ci: list of list of ci vectors
             orbsym: None or list of orbital symmetries spanning the whole orbital space
+            soc: logical
+                Whether to include the effects of spin-orbit coupling
+            break_symmetry: logical
+                Whether to allow coupling between states of different point-group irreps
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -227,7 +309,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, opt=1):
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     norb = las.ncas
-    statesym = las_symm_tuple (las, soc)[0]
+    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
     stdm1s = np.zeros ((las.nroots, las.nroots, 2, norb, norb),
         dtype=ci[0][0].dtype).transpose (0,2,3,4,1)
     stdm2s = np.zeros ((las.nroots, las.nroots, 2, norb, norb, 2, norb, norb),
@@ -235,27 +317,31 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, opt=1):
 
     for rootsym in set (statesym):
         idx = np.all (np.array (statesym) == rootsym, axis=1)
-        wfnsym = rootsym[-1]
+        wfnsym = None if break_symmetry else rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if (las.verbose > lib.logger.INFO) and (o0_memcheck):
             d1s, d2s = op_o0.make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (rootsym), *t0)
+            t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (
+                rootsym), *t0)
             d1s_test, d2s_test = op_o1.make_stdm12s (las, ci_blk, idx)
-            t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} TDM algorithm'.format (rootsym), *t0)
-            lib.logger.debug (las, 'LASSI make_stdm12s rootsym {}: D1 o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (d1s_test - d1s))) 
-            lib.logger.debug (las, 'LASSI make_stdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (rootsym, linalg.norm (d2s_test - d2s))) 
+            t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} TDM algorithm'.format (
+                rootsym), *t0)
+            lib.logger.debug (las,
+                'LASSI make_stdm12s rootsym {}: D1 o0-o1 algorithm disagreement = {}'.format (
+                    rootsym, linalg.norm (d1s_test - d1s))) 
+            lib.logger.debug (las,
+                'LASSI make_stdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (
+                    rootsym, linalg.norm (d2s_test - d2s))) 
             errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
-            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC implemented for op_o1
-                raise RuntimeError (("Congratulations, you have found a bug in either lassi_op_o0 (I really hope not)"
-                    " or lassi_op_o1 (much more likely)!\nPlease inspect the last few printed lines of logger output"
-                    " for more information.\nError in make_stdm12s, max abs: {}; norm: {}").format (np.amax (np.abs (errvec)),
-                    linalg.norm (errvec)))
+            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
+                raise LASSIOop01DisagreementError ("State-transition density matrices", errvec)
             if opt == 0:
                 d1s = d1s_test
                 d2s = d2s_test
         else:
-            if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
+            if (las.verbose > lib.logger.INFO): lib.logger.debug (
+                las, 'Insufficient memory to test against o0 LASSI algorithm')
             d1s, d2s = op[opt].make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (rootsym), *t0)
         idx_int = np.where (idx)[0]
@@ -264,7 +350,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, opt=1):
             stdm2s[a,...,b] = d2s[i,...,j]
     return stdm1s, stdm2s
 
-def roots_make_rdm12s (las, ci, si, soc=False, orbsym=None, opt=1):
+def roots_make_rdm12s (las, ci, si, soc=False, break_symmetry=False, orbsym=None, opt=1):
     if orbsym is None: 
         orbsym = getattr (las.mo_coeff, 'orbsym', None)
         if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
@@ -277,7 +363,7 @@ def roots_make_rdm12s (las, ci, si, soc=False, orbsym=None, opt=1):
 
     # Symmetry tuple: neleca, nelecb, irrep
     norb = las.ncas
-    statesym = las_symm_tuple (las, soc)[0]
+    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
     rdm1s = np.zeros ((las.nroots, 2, norb, norb),
         dtype=ci[0][0].dtype)
     rdm2s = np.zeros ((las.nroots, 2, norb, norb, 2, norb, norb),
@@ -287,29 +373,35 @@ def roots_make_rdm12s (las, ci, si, soc=False, orbsym=None, opt=1):
     for sym in set (statesym):
         idx_ci = np.all (np.array (statesym) == sym, axis=1)
         idx_si = np.all (np.array (rootsym)  == sym, axis=1)
-        wfnsym = sym[-1]
+        wfnsym = None if break_symmetry else sym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
         si_blk = si[np.ix_(idx_ci,idx_si)]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-            d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym), *t0)
+            d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym,
+                                                wfnsym=wfnsym)
+            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym),
+                                   *t0)
             d1s_test, d2s_test = op_o1.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk)
-            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} TDM algorithm'.format (sym), *t0)
-            lib.logger.debug (las, 'LASSI make_rdm12s rootsym {}: D1 o0-o1 algorithm disagreement = {}'.format (sym, linalg.norm (d1s_test - d1s))) 
-            lib.logger.debug (las, 'LASSI make_rdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (sym, linalg.norm (d2s_test - d2s))) 
+            t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} TDM algorithm'.format (sym),
+                                   *t0)
+            lib.logger.debug (las,
+                'LASSI make_rdm12s rootsym {}: D1 o0-o1 algorithm disagreement = {}'.format (
+                    sym, linalg.norm (d1s_test - d1s))) 
+            lib.logger.debug (las,
+                'LASSI make_rdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (
+                    sym, linalg.norm (d2s_test - d2s))) 
             errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
-            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC is implemented for op_o1
-                raise RuntimeError (("Congratulations, you have found a bug in either lassi_op_o0 (I really hope not)"
-                    " or lassi_op_o1 (much more likely)!\nPlease inspect the last few printed lines of logger output"
-                    " for more information.\nError in make_stdm12s, max abs: {}; norm: {}").format (np.amax (np.abs (errvec)),
-                    linalg.norm (errvec)))
+            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in for op_o1
+                raise LASSIOop01DisagreementError ("LASSI mixed-state RDMs", errvec)
             if opt == 0:
                 d1s = d1s_test
                 d2s = d2s_test
         else:
-            if (las.verbose > lib.logger.INFO): lib.logger.debug (las, 'Insufficient memory to test against o0 LASSI algorithm')
-            d1s, d2s = op[opt].roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym, wfnsym=wfnsym)
+            if (las.verbose > lib.logger.INFO): lib.logger.debug (las,
+                'Insufficient memory to test against o0 LASSI algorithm')
+            d1s, d2s = op[opt].roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym,
+                                                  wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {}'.format (sym), *t0)
         idx_int = np.where (idx_si)[0]
         for (i,a) in enumerate (idx_int):

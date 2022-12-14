@@ -1,5 +1,4 @@
-from pyscf import gto, scf, mcscf, lib
-from mrh.my_pyscf import mcpdft
+from pyscf import gto, scf, mcscf, lib, mcpdft
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.tools.molcas2pyscf import *
 from mrh.my_pyscf.dft.openmolcas_grids import quasi_ultrafine

@@ -198,7 +198,7 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
 
     # Teffanie: I got rid of the conditional here doing one thing with soc and another thing w/out
     # it, because the former works for both cases. However, see the note below.
-    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+    solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
     norb = sum (norb_f)
     nroots = len(ci_r)
     # Teffanie: note that absorb_h1e here required knowledge of nelec.
@@ -363,7 +363,7 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
 
 if __name__ == '__main__':
     from pyscf import scf, lib
-    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
     import os
     class cd:
         """Context manager for changing the current working directory"""

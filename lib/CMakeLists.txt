@@ -114,16 +114,6 @@ set_target_properties (clib_mrh_sint PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
     OUTPUT_NAME "sint")
 
-# Build the PDFT library
-set (PDFT_SOURCE_FILES "nr_numint.c")
-add_library (clib_mrh_pdft SHARED ${PDFT_SOURCE_FILES})
-target_link_libraries (clib_mrh_pdft ${LAPACK_LIBRARIES} ${DFT_LIBRARY})
-set_target_properties (clib_mrh_pdft PROPERTIES
-    LINKER_LANGUAGE C
-    CLEAN_DIRECT_OUTPUT 1
-    LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}
-    OUTPUT_NAME "pdft")
-
 # Build the FSUCC library
 set (FSUCC_SOURCE_FILES "fsucc.c")
 add_library (clib_mrh_fsucc SHARED ${FSUCC_SOURCE_FILES})

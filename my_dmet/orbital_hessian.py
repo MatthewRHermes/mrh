@@ -43,10 +43,10 @@ class HessianCalculator (object):
         '''
         self.scf = mf
         self.oneRDMs = np.asarray (oneRDMs)
-        if self.oneRDMs.ndim == 3: #== 2:
-            dm = sum (self.oneRDMs) / 2
-            self.oneRDMs /= 2
-            self.oneRDMs = np.asarray ([dm, dm])#self.oneRDMs, self.oneRDMs])
+        #if self.oneRDMs.ndim == 3: #== 2:
+        #    dm = sum (self.oneRDMs) / 2
+        #    self.oneRDMs /= 2
+        #    self.oneRDMs = np.asarray ([dm, dm])#self.oneRDMs, self.oneRDMs])
 
         mo = self.scf.mo_coeff
         Smo = self.scf.get_ovlp () @ mo

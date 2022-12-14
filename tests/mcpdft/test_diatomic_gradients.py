@@ -2,11 +2,9 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, df, mcscf, lib
 from pyscf.data.nist import BOHR
-from mrh.my_pyscf import mcpdft
+from pyscf import mcpdft
 #from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.grad.cmspdft import diab_response, diab_grad, diab_response_o0, diab_grad_o0
-from mrh.my_pyscf.grad import mspdft as mspdft_grad
-from mrh.my_pyscf.df.grad import dfmspdft
+from pyscf.grad.cmspdft import diab_response, diab_grad, diab_response_o0, diab_grad_o0
 import unittest, math
 
 def diatomic (atom1, atom2, r, fnal, basis, ncas, nelecas, nstates,

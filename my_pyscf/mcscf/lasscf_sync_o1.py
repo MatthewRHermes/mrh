@@ -2,7 +2,7 @@ import time
 import numpy as np
 from scipy import linalg
 from pyscf import gto, lib, ao2mo
-from mrh.my_pyscf.mcscf import lasci, lasscf_o0
+from mrh.my_pyscf.mcscf import lasci, lasci_sync, lasscf_sync_o0, _DFLASCI
 from functools import partial
 
 # Let's finally implement, in the more pure LASSCF rewrite, the ERI-
@@ -119,12 +119,12 @@ def make_schmidt_spaces (h_op):
 
     return uschmidt
 
-class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
+class LASSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
 
     def __init__(self, las, ugg, **kwargs):
         self._debug_full_pspace = kwargs.pop ('_debug_full_pspace', getattr (las, '_debug_full_pspace', False))
         self._debug_o0 = kwargs.pop ('_debug_o0', getattr (las, '_debug_o0', False))
-        lasscf_o0.LASSCF_HessianOperator.__init__(self, las, ugg, **kwargs)
+        lasscf_sync_o0.LASSCF_HessianOperator.__init__(self, las, ugg, **kwargs)
         self.h1_bare = self.mo_coeff.conj ().T @ self.las.get_hcore () @ self.mo_coeff
 
     def make_schmidt_spaces (self):
@@ -133,11 +133,11 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         return make_schmidt_spaces (self)
 
     def _init_eri_(self):
-        lasci._init_df_(self)
+        lasci_sync._init_df_(self)
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.uschmidt = uschmidt = self.make_schmidt_spaces ()
         t1 = lib.logger.timer (self.las, 'build schmidt spaces', *t0)
-        if isinstance (self.las, lasci._DFLASCI):
+        if isinstance (self.las, _DFLASCI):
             eri = self.las.with_df.ao2mo
         elif getattr (self.las._scf, '_eri', None) is not None:
             eri = partial (ao2mo.full, self.las._scf._eri)
@@ -159,7 +159,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         odm1rs_frz = odm1rs.copy ()
         odm1rs_frz[:,:,ncore:nocc,:ncore] = 0.0
         odm1rs_frz[:,:,ncore:nocc,nocc:]  = 0.0
-        veff_mo, h1frs = lasscf_o0.LASSCF_HessianOperator.get_veff_Heff (self, odm1rs_frz, tdm1frs)
+        veff_mo, h1frs = lasscf_sync_o0.LASSCF_HessianOperator.get_veff_Heff (self, odm1rs_frz, tdm1frs)
 
         # Now I need to specifically add back the (H.x_ua)_aa degrees of freedom to both of these
         odm1rs_ua = odm1rs[:,:,ncore:nocc,:].copy ()
@@ -188,8 +188,8 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         # Neither dm1_vv nor veff_vv elements are needed here
         # Nothing in this function should distinguish between core and active orbitals!
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        if not isinstance (self.las, lasci._DFLASCI):
-            return lasscf_o0.LASSCF_HessianOperator.get_veff (self, dm1s_mo=dm1s_mo)
+        if not isinstance (self.las, _DFLASCI):
+            return lasscf_sync_o0.LASSCF_HessianOperator.get_veff (self, dm1s_mo=dm1s_mo)
         nocc, mo, bPpj = self.nocc, self.mo_coeff, self.bPpj
         moH = mo.conj ().T
         dm1_mo = dm1s_mo.sum (0)
@@ -241,7 +241,7 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
         odm1rs_frz[:,:,ncore:nocc,:ncore] = 0.0
         odm1rs_frz[:,:,ncore:nocc,nocc:]  = 0.0
         odm1rs_ua = odm1rs - odm1rs_frz
-        gorb = lasci.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs_frz,
+        gorb = lasci_sync.LASCI_HessianOperator.orbital_response (self, kappa, odm1rs_frz,
             ocm2, tdm1frs, tcm2, veff_prime)
         # Add back terms omitted for (H.x_ua)_aa
         odm1s_ua = np.einsum ('r,rspq->spq', self.weights, odm1rs_ua)
@@ -289,19 +289,19 @@ class LASSCF_HessianOperator (lasscf_o0.LASSCF_HessianOperator):
                      + np.tensordot (self.eri_paaa[nocc:],  ocm2[:,:,:,nocc:],  axes=((0,1,2),(3,2,0))))
         return gorb + (f1_prime - f1_prime.T)
 
-class LASSCFNoSymm (lasscf_o0.LASSCFNoSymm):
+class LASSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
     _hop = LASSCF_HessianOperator
     def __init__(self, *args, **kwargs):
         self._debug_full_pspace = kwargs.pop ('_debug_full_pspace', False)
         self._debug_o0 = kwargs.pop ('_debug_o0', False)
-        lasscf_o0.LASSCFNoSymm.__init__(self, *args, **kwargs)
+        lasscf_sync_o0.LASSCFNoSymm.__init__(self, *args, **kwargs)
 
-class LASSCFSymm (lasscf_o0.LASSCFSymm):
+class LASSCFSymm (lasscf_sync_o0.LASSCFSymm):
     _hop = LASSCF_HessianOperator
     def __init__(self, *args, **kwargs):
         self._debug_full_pspace = kwargs.pop ('_debug_full_pspace', False)
         self._debug_o0 = kwargs.pop ('_debug_o0', False)
-        lasscf_o0.LASSCFSymm.__init__(self, *args, **kwargs)
+        lasscf_sync_o0.LASSCFSymm.__init__(self, *args, **kwargs)
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):
