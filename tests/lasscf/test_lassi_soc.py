@@ -39,16 +39,20 @@ class KnownValues (unittest.TestCase):
         self.assertAlmostEqual (lib.fp (amfi_int), lib.fp (int_ref), 8)
 
     def test_soc_1frag (self):
-        las = LASSCF (mfh2o, (8,), (4,2), spin_sub=(3,), wfnsym_sub=('A1',)).run ()
-        las.state_average_(weights=[1/4,]*4, 
-                           spins=[[2,],[0,],[-2,],[0]],
-                           smults=[[3,],[3,],[3,],[1]],
-                           wfnsyms=(([['B1',],]*3)+[['A1',],]))
-        las.lasci ()
-        e_roots, si = las.lassi (opt=0, soc=True, break_symmetry=True)
-        
-        self.assertAlmostEqual (e_roots[-1]-e_roots[-2], 5.857505854578449e-06, 10)
-        ## compare excited state energies (incl. SOC) for 1 frag calculation
+        with lib.temporary_env (mfh2o.mol, charge=2):
+            las = LASSCF (mfh2o, (8,), (4,), spin_sub=(3,), wfnsym_sub=('A1',)).run ()
+            las.state_average_(weights=[1/4,]*4,
+                               spins=[[2,],[0,],[-2,],[0]],
+                               smults=[[3,],[3,],[3,],[1]],
+                               wfnsyms=(([['B1',],]*3)+[['A1',],]))
+            las.lasci ()
+            e_roots, si = las.lassi (opt=0, soc=True, break_symmetry=True)
+        # TODO: either validate this number or replace it with a more meaningful test.
+        # I discovered by accident that the charge=+2 A1 singlet and B1 triplet of this water
+        # molecule are close enough in energy for a usable splitting here if you use the
+        # orbitals of the charge=+2 A1 triplet. But if you change anything at all about this,
+        # it drops by 2 orders of magnitude. So we probably want a different test here.
+        self.assertAlmostEqual (e_roots[-1]-e_roots[-2], 5.416359101673152e-06, 10)
 
     def test_soc_2frag (self):
         pass
