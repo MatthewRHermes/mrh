@@ -7,6 +7,9 @@ import numpy as np
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to
 # handle spin-breaking potentials while retaining spin constraint
 
+class MicroIterInstabilityException (Exception):
+    pass
+
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
         assert_no_dupes=False, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
@@ -139,9 +142,13 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                           norm_xorb, norm_xci)
 
         my_tol = max (conv_tol_grad, norm_gx/10)
-        x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
-                                        maxiter=las.max_cycle_micro, callback=my_callback,
-                                        M=prec_op)
+        try:
+            x = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
+                                  maxiter=las.max_cycle_micro, callback=my_callback,
+                                  M=prec_op)[0]
+        except MicroIterInstabilityException as e:
+            log.info ('Unstable microiteration aborted: %s', str (e))
+            x = last_x[0].copy ()
         t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
         mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
         casdm1frs = las.states_make_casdm1s_sub (ci=ci1)
