@@ -106,7 +106,12 @@ class LASSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
     def get_prec (self):
         Hdiag = self._get_Horb_diag () + self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
-        return sparse.linalg.LinearOperator (self.shape, matvec=(lambda x:x/Hdiag), dtype=self.dtype)
+        def Mx (x):
+            # a step of greater than .5*pi is meaningless: .5*pi transposes two states
+            Mx = x/Hdiag
+            Mx[np.abs(Mx)>np.pi*.5] = 0
+            return Mx
+        return sparse.linalg.LinearOperator (self.shape, matvec=Mx, dtype=self.dtype)
 
 def get_init_guess_rdm (las, mo_coeff=None, h2eff_sub=None):
     ''' fcibox.solver[i] members make_hdiag_csf and get_init_guess both have
