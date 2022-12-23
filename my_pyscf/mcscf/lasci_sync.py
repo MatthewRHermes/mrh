@@ -120,6 +120,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         # ^ This is down here to save time in case I am already converged at initialization
         t1 = log.timer ('LASCI Hessian constructor', *t1)
         microit = [0]
+        last_x = [0]
         def my_callback (x):
             microit[0] += 1
             norm_xorb = linalg.norm (x[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
@@ -140,6 +141,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             else:
                 log.info ('LASCI micro %d : |x_orb| = %.15g ; |x_ci| = %.15g', microit[0],
                           norm_xorb, norm_xci)
+            last_x[0] = x.copy ()
 
         my_tol = max (conv_tol_grad, norm_gx/10)
         try:
@@ -149,6 +151,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         except MicroIterInstabilityException as e:
             log.info ('Unstable microiteration aborted: %s', str (e))
             x = last_x[0].copy ()
+
         t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
         mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
         casdm1frs = las.states_make_casdm1s_sub (ci=ci1)
@@ -1119,7 +1122,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         Hdiag = np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
         Hdiag += self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
-        return sparse_linalg.LinearOperator (self.shape,matvec=(lambda x:x/Hdiag),dtype=self.dtype)
+        def Mx (x):
+            # a step of greater than .5*pi is meaningless: .5*pi transposes two states
+            Mx = x/Hdiag
+            Mx[np.abs(Mx)>np.pi*.5] = 0
+            return Mx
+        return sparse_linalg.LinearOperator (self.shape,matvec=Mx,dtype=self.dtype)
 
     def _get_Horb_diag (self):
         fock = np.stack ([np.diag (h) for h in list (self.h1s)], axis=0)
