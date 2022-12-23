@@ -125,12 +125,16 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             microit[0] += 1
             norm_xorb = linalg.norm (x[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
             norm_xci = linalg.norm (x[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
+            addr_max = np.argmax (np.abs (x))
+            id_max = ugg.addr2idstr (addr_max)
+            x_max = x[addr_max]/np.pi
+            log.debug ('Maximum step vector element x[{}] = {}*pi ({})'.format (addr_max, x_max, id_max))
             if las.verbose > lib.logger.INFO:
                 Hx = H_op._matvec (x) # This doubles the price of each iteration!!
                 resid = g_vec + Hx
                 norm_gorb = linalg.norm (resid[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
                 norm_gci = linalg.norm (resid[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
-                xorb, xci = ugg.unpack (x)
+                #xorb, xci = ugg.unpack (x)
                 xci = [[x_s * las.weights[iroot] for iroot, x_s in enumerate (x_rs)]
                        for x_rs in xci]
                 xscale = ugg.pack (xorb, xci)
@@ -372,6 +376,27 @@ class LASCI_UnitaryGroupGenerators (object):
             ci_sub.append (ci_frag)
 
         return kappa, ci_sub
+
+    def addr2idstr (self, addr):
+        if addr<self.nvar_orb:
+            probe_orb = np.argwhere (self.uniq_orb_idx)[addr]
+            idstr = 'orb: {},{}'.format (*probe_orb)
+        else:
+            addr -= self.nvar_orb
+            ncsf_frag = self.ncsf_sub.sum (1)
+            for i, trans_frag in enumerate (self.ci_transformers):
+                if addr >= ncsf_frag[i]:
+                    addr -= ncsf_frag[i]
+                    continue
+                for j, trans in enumerate (trans_frag):
+                    if addr >= trans.ncsf:
+                        addr -= trans.ncsf
+                        continue
+                    idstr = 'CI({}): <{}|{}>'.format (
+                        i, j, trans.printable_csfstring (addr))
+                    break
+                break
+        return idstr
 
     @property
     def nvar_orb (self):
