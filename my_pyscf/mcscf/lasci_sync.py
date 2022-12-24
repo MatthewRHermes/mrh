@@ -352,18 +352,26 @@ class LASCI_UnitaryGroupGenerators (object):
                 tf_list.append (solver.transformer)
             self.ci_transformers.append (tf_list)
 
+    def pack_orb (self, kappa):
+        return kappa[self.uniq_orb_idx]
+
     def pack (self, kappa, ci_sub):
-        x = kappa[self.uniq_orb_idx]
+        x = self.pack_orb (kappa)
         for trans_frag, ci_frag in zip (self.ci_transformers, ci_sub):
             for transformer, ci in zip (trans_frag, ci_frag):
                 x = np.append (x, transformer.vec_det2csf (ci, normalize=False))
         assert (x.shape[0] == self.nvar_tot)
         return x
 
-    def unpack (self, x):
+    def unpack_orb (self, x):
         kappa = np.zeros ((self.nmo, self.nmo), dtype=x.dtype)
         kappa[self.uniq_orb_idx] = x[:self.nvar_orb]
         kappa = kappa - kappa.T
+
+        return kappa 
+
+    def unpack (self, x):
+        kappa = self.unpack_orb (x)
 
         y = x[self.nvar_orb:]
         ci_sub = []
@@ -1136,6 +1144,33 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ci2 = [[x-(y*z) for x,y,z in zip (xr,yr,zr)] for xr,yr,zr in zip (ci2, self.hci0, s01)]
         return [[x*2 for x in xr] for xr in ci2]
 
+    def naive_canon (self):
+        '''Obtain the natural orbital canonicalization for the current trial wave function. This
+        function is naive and allows fragments to mix, because its purpose is to get a better
+        orbrot preconditioner
+
+        Returns:
+            occ : ndarray of shape (nmo)
+                Contains natural-orbital occupancies
+            umat : ndarray of shape (nmo,nmo)
+                Contains MO transformation eigenvectors
+        '''
+        casdm1 = self.casdm1s.sum (0)
+        cas_occ, cas_umat = linalg.eigh (-casdm1)
+        cas_occ *= -1
+        occ = np.zeros (self.nmo)
+        occ[:self.ncore] = 2
+        occ[self.ncore:self.nocc] = cas_occ
+        umat = np.eye (self.nmo)
+        umat[self.ncore:self.nocc,self.ncore:self.nocc] = cas_umat
+        fock = self.h1s[:,:self.ncore,:self.ncore].sum (0)
+        ene, inac_umat = linalg.eigh (fock)
+        umat[:self.ncore,:self.ncore] = inac_umat
+        fock = self.h1s[:,self.nocc:,self.nocc:].sum (0)
+        ene, virt_umat = linalg.eigh (fock)
+        umat[self.nocc:,self.nocc:] = virt_umat
+        return occ, umat
+
     def get_prec (self):
         '''Obtain the preconditioner for conjugate-gradient descent within a single LASCI
         macrocycle
@@ -1144,26 +1179,56 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             prec_op : LinearOperator
                 Approximately the inverse of the Hessian
         '''
-        Hdiag = np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
-        Hdiag += self.ah_level_shift
-        Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
+        log = lib.logger.new_logger(self.las, self.las.verbose)
+        occ, umat = self.naive_canon ()
+        cas_occ = occ[self.ncore:self.nocc]
+        log.debug ("cas_occ = {}".format (cas_occ))
+        min_n = np.amin (np.append (cas_occ, 2-cas_occ))
+        if (min_n < 1e-8): log.warn (("There is at least one doubly- or un-occupied orbital in "
+                                      "the active space (min (n, 2-n) = {:.1e}). You may have "
+                                      "lost an orbital you actually wanted!").format (min_n))
+        Horb_diag = self._get_Horb_diag (umat=umat)
+        Horb_diag += self.ah_level_shift
+        Horb_diag[np.abs (Horb_diag)<1e-8] = 1e-8
+        Hci_diag = np.concatenate (self._get_Hci_diag ())
+        Hci_diag += self.ah_level_shift
+        Hci_diag[np.abs (Hci_diag)<1e-8] = 1e-8
+        uH = umat.conj ().T
         def Mx (x):
             # a step of greater than .5*pi is meaningless: .5*pi transposes two states
-            Mx = x/Hdiag
+            Mx = np.empty_like (x)
+            # orb
+            xorb = self.ugg.unpack_orb (x)
+            xorb = uH @ xorb @ umat
+            Mxorb = xorb/Horb_diag
+            Mxorb[np.abs(Mxorb)>np.pi*.5] = 0
+            Mxorb[:] = umat @ Mxorb @ uH
+            Mx[:self.ugg.nvar_orb] = self.ugg.pack_orb (Mxorb)
+            # CI
+            xci = x[self.ugg.nvar_orb:]
+            Mxci = Mx[self.ugg.nvar_orb:]
+            Mxci[:] = xci/Hci_diag
             Mx[np.abs(Mx)>np.pi*.5] = 0
             return Mx
         return sparse_linalg.LinearOperator (self.shape,matvec=Mx,dtype=self.dtype)
 
-    def _get_Horb_diag (self):
-        fock = np.stack ([np.diag (h) for h in list (self.h1s)], axis=0)
-        num = np.stack ([np.diag (d) for d in list (self.dm1s)], axis=0)
-        Horb_diag = sum ([np.multiply.outer (f,n) for f,n in zip (fock, num)])
-        Horb_diag -= np.diag (self.fock1)[None,:]
+    def _get_Horb_diag (self, umat=None):
+        h1s, dm1s, fock1 = self.h1s, self.dm1s, self.fock1
+        if umat is not None:
+            uH = umat.conj ().T
+            h1s = np.stack ([uH @ h @ umat for h in h1s], axis=0)
+            dm1s = np.stack ([uH @ d @ umat for d in dm1s], axis=0)
+            fock1 = uH @ fock1 @ umat
+        fock = np.diagonal (h1s, axis1=1, axis2=2) 
+        num = np.diagonal (dm1s, axis1=1, axis2=2) 
+        Horb_diag = np.multiply.outer (fock[0], num[0])
+        Horb_diag += np.multiply.outer (fock[1], num[1])
+        Horb_diag -= np.diag (fock1)[None,:]
         Horb_diag += Horb_diag.T
         # This is where I stop unless I want to add the split-c and split-x terms
         # Split-c and split-x, for inactive-external rotations, requires I calculate a bunch
         # of extra eris (g^aa_ii, g^ai_ai)
-        return Horb_diag[self.ugg.uniq_orb_idx]
+        return Horb_diag
 
     def _get_Hci_diag (self):
         Hci_diag = []
