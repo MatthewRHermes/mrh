@@ -145,6 +145,12 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             else:
                 log.info ('LASCI micro %d : |x_orb| = %.15g ; |x_ci| = %.15g', microit[0],
                           norm_xorb, norm_xci)
+            if abs(x_max)>.5: # Nonphysical step vector element
+                if last_x[0] is 0:
+                    x[np.abs (x)>.5*np.pi] = 0
+                    # Attempt at least one microcycle w/o broken element
+                else:
+                    raise MicroIterInstabilityException ("|x[i]| > pi/2")
             last_x[0] = x.copy ()
 
         my_tol = max (conv_tol_grad, norm_gx/10)
@@ -152,20 +158,35 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             x = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
                                   maxiter=las.max_cycle_micro, callback=my_callback,
                                   M=prec_op)[0]
+            t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
+            mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
+            t1 = log.timer ('LASCI Hessian update', *t1)
+
+            #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
+            veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
+            veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
+            t1 = log.timer ('LASCI get_veff after secondorder', *t1)
         except MicroIterInstabilityException as e:
             log.info ('Unstable microiteration aborted: %s', str (e))
             x = last_x[0]
+            for i in range (3): # Make up to 3 attempts to scale-down x if necessary
+                mo2, ci2, h2eff_sub2 = H_op.update_mo_ci_eri (x, h2eff_sub)
+                t1 = log.timer ('LASCI Hessian update', *t1)
+                veff2 = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo2, ci=ci2))
+                veff2 = las.split_veff (veff2, h2eff_sub2, mo_coeff=mo2, ci=ci2)
+                t1 = log.timer ('LASCI get_veff after secondorder', *t1)
+                e2 = las.energy_nuc () + las.energy_elec (mo_coeff=mo2, ci=ci2, h2eff=h2eff_sub2,
+                                                          veff=veff2)
+                if e2 < (H_op.e_tot+1e-6):
+                    break
+                log.info ('Attempt {} of 3 to scale down trial step vector'.format (i+1))
+                x *= .5
+            mo_coeff, ci1, h2eff_sub, veff = mo2, ci2, h2eff_sub2, veff2
 
-        t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
-        mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
+
+
         casdm1frs = las.states_make_casdm1s_sub (ci=ci1)
         casdm1s_sub = las.make_casdm1s_sub (ci=ci1)
-        t1 = log.timer ('LASCI Hessian update', *t1)
-
-        #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
-        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
-        t1 = log.timer ('LASCI get_veff after secondorder', *t1)
 
     t2 = log.timer ('LASCI {} macrocycles'.format (it), *t2)
 
