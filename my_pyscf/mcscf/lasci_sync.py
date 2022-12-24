@@ -134,7 +134,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                 resid = g_vec + Hx
                 norm_gorb = linalg.norm (resid[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
                 norm_gci = linalg.norm (resid[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
-                #xorb, xci = ugg.unpack (x)
+                xorb, xci = ugg.unpack (x)
                 xci = [[x_s * las.weights[iroot] for iroot, x_s in enumerate (x_rs)]
                        for x_rs in xci]
                 xscale = ugg.pack (xorb, xci)
@@ -154,7 +154,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                                   M=prec_op)[0]
         except MicroIterInstabilityException as e:
             log.info ('Unstable microiteration aborted: %s', str (e))
-            x = last_x[0].copy ()
+            x = last_x[0]
 
         t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
         mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
