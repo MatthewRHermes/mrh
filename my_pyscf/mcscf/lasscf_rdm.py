@@ -115,7 +115,7 @@ class LASSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
         ndeg = len (trial_x0)
         idx_unstable = np.abs (trial_x0) > np.pi*.5
         Hdiag[idx_unstable] = np.inf
-        return sparse_linalg.LinearOperator (self.shape,matvec=(lambda x:x/Hdiag),dtype=self.dtype)
+        return sparse.linalg.LinearOperator (self.shape,matvec=(lambda x:x/Hdiag),dtype=self.dtype)
 
 def get_init_guess_rdm (las, mo_coeff=None, h2eff_sub=None):
     ''' fcibox.solver[i] members make_hdiag_csf and get_init_guess both have
