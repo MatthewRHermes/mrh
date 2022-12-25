@@ -148,9 +148,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             if abs(x_max)>.5: # Nonphysical step vector element
                 if last_x[0] is 0:
                     x[np.abs (x)>.5*np.pi] = 0
-                    # Attempt at least one microcycle w/o broken element
-                else:
-                    raise MicroIterInstabilityException ("|x[i]| > pi/2")
+                    last_x[0] = x
+                raise MicroIterInstabilityException ("|x[i]| > pi/2")
             last_x[0] = x.copy ()
 
         my_tol = max (conv_tol_grad, norm_gx/10)
@@ -1168,12 +1167,16 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         Hdiag = np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
         Hdiag += self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
-        def Mx (x):
-            # a step of greater than .5*pi is meaningless: .5*pi transposes two states
-            Mx = x/Hdiag
-            Mx[np.abs(Mx)>np.pi*.5] = 0
-            return Mx
-        return sparse_linalg.LinearOperator (self.shape,matvec=Mx,dtype=self.dtype)
+        # The quadratic power series is a bad approximation if the magnitude of the gradient in
+        # the current keyframe is such that we will tend to predict steps with magnitude greater
+        # than .5*pi (a step of exactly .5*pi transposes two states). This preconditioner should
+        # mask out the corresponding degrees of freedom
+        b = linalg.norm (self.get_grad ())
+        trial_x0 = b/Hdiag
+        ndeg = len (trial_x0)
+        idx_unstable = np.abs (trial_x0) > np.pi*.5
+        Hdiag[idx_unstable] = np.inf
+        return sparse_linalg.LinearOperator (self.shape,matvec=(lambda x:x/Hdiag),dtype=self.dtype)
 
     def _get_Horb_diag (self):
         fock = np.stack ([np.diag (h) for h in list (self.h1s)], axis=0)
