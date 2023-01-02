@@ -103,19 +103,7 @@ class LASSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
 
     def get_grad (self): return self.ugg.pack (self.fock1 - self.fock1.T)
 
-    def get_prec (self):
-        Hdiag = self._get_Horb_diag () + self.ah_level_shift
-        Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
-        # The quadratic power series is a bad approximation if the magnitude of the gradient in
-        # the current keyframe is such that we will tend to predict steps with magnitude greater
-        # than .5*pi (a step of exactly .5*pi transposes two states). This preconditioner should
-        # mask out the corresponding degrees of freedom
-        b = linalg.norm (self.get_grad ())
-        trial_x0 = b/Hdiag
-        ndeg = len (trial_x0)
-        idx_unstable = np.abs (trial_x0) > np.pi*.5
-        Hdiag[idx_unstable] = np.inf
-        return sparse.linalg.LinearOperator (self.shape,matvec=(lambda x:x/Hdiag),dtype=self.dtype)
+    def _get_Hdiag (self): return self._get_Horb_diag ()
 
 def get_init_guess_rdm (las, mo_coeff=None, h2eff_sub=None):
     ''' fcibox.solver[i] members make_hdiag_csf and get_init_guess both have

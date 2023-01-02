@@ -1157,25 +1157,35 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return [[x*2 for x in xr] for xr in ci2]
 
     def get_prec (self):
-        '''Obtain the preconditioner for conjugate-gradient descent within a single LASCI
-        macrocycle
+        '''Obtain the preconditioner for conjugate-gradient descent using a second-order power
+        series of the energy from a given LAS-state keyframe (a single "macrocycle"). In general,
+        the preconditioner should approximate multiplication by the matrix-inverse of the Hessian.
+        Here, however, we also use it to identify and mask degrees of freedom along which the
+        quadratically-approximated energy is numerically unstable.
+
+        N.B. to future developers: an "exact" inverted-Hessian preconditioner is actually not
+        desirable, because a failure of optimization is more likely due to the unsuitability of a
+        quadratic power series in fundamentally periodic variables. I.O.W., we can't get too hung
+        up on solving Ax=b, because Ax=b is an approximate equation in the first place. The actual
+        goal is to minimize successive keyframe (aka "macrocycle" aka "trial") energies.
 
         Returns:
             prec_op : LinearOperator
                 Approximately the inverse of the Hessian
         '''
-        Hdiag = np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
-        Hdiag += self.ah_level_shift
+        Hdiag = self._get_Hdiag () + self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
         # The quadratic power series is a bad approximation if the magnitude of the gradient in
         # the current keyframe is such that we will tend to predict steps with magnitude greater
         # than .5*pi (a step of exactly .5*pi transposes two states). This preconditioner should
         # mask out the corresponding degrees of freedom
         b = linalg.norm (self.get_grad ())
-        trial_x0 = b/Hdiag
-        ndeg = len (trial_x0)
-        idx_unstable = np.abs (trial_x0) > np.pi*.5
-        Hdiag[idx_unstable] = np.inf
+        probe_x0 = b/Hdiag
+        ndeg = len (probe_x0)
+        idx_unstable = np.abs (probe_x0) > np.pi*.5
+        # We can't mask everything, because that behavior would obfuscate the problem
+        # If NO stable D.O.F. exist, then keyframe is just bad and it has to be handled upstream
+        if np.count_nonzero (~idx_unstable): Hdiag[idx_unstable] = np.inf
         return sparse_linalg.LinearOperator (self.shape,matvec=(lambda x:x/Hdiag),dtype=self.dtype)
 
     def _get_Horb_diag (self):
@@ -1200,6 +1210,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             for csf, hdiag_csf in zip (csf_list, hdiag_csf_list):
                 Hci_diag.append (csf.pack_csf (hdiag_csf))
         return Hci_diag
+
+    def _get_Hdiag (self):
+        return np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
 
     def update_mo_ci_eri (self, x, h2eff_sub):
         kappa, dci = self.ugg.unpack (x)
