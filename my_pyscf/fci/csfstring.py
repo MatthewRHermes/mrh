@@ -123,6 +123,15 @@ class CSFTransformer (lib.StreamObject):
         printable = np.stack (printable, axis=(order.upper () == 'F'))
         return printable, csfvec_list
 
+    def printable_csfstring (self, idx):
+        isarr = hasattr (idx, '__len__')
+        idx = np.atleast_1d (idx)
+        if (self.wfnsym is not None) and (self._orbsym is not None):
+            idx_sym = (self.confsym[self.econf_csf_mask] == self.wfnsym)
+            idx = np.argwhere (idx_sym)[idx]
+        ret = printable_csfstring (self._norb, self._neleca, self._nelecb, self._smult, idx)
+        if not isarr: ret = ret[0]
+        return ret
 
     # Setting the below properties triggers cache updating
     @property

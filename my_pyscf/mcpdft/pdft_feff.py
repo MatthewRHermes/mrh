@@ -217,7 +217,8 @@ class EotOrbitalHessianOperator (object):
         ngrids = self.ot.grids.coords.shape[0]
         remaining_floats = (self.max_memory-lib.current_memory()[0]) * 1e6 / 8
         blksize = int (remaining_floats/(ncol*BLKSIZE))*BLKSIZE
-        return max(BLKSIZE,min(blksize,ngrids,BLKSIZE*1200))
+        ngrids_blk = int (ngrids / BLKSIZE) * BLKSIZE
+        return max(BLKSIZE,min(blksize,ngrids_blk,BLKSIZE*1200))
 
     def make_dens0 (self, ao, mask, make_rho=None, casdm1s=None, cascm2=None,
             mo_cas=None):

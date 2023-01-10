@@ -1227,6 +1227,33 @@ class LASCINoSymm (casci.CASCI):
 
     def lasci (self, mo_coeff=None, ci0=None, verbose=None,
             assert_no_dupes=False):
+        '''Self-consistently optimize the CI vectors of a LAS wave function with 
+        frozen orbitals using a fixed-point algorithm. "lasci_" (with the
+        trailing underscore) sets self.mo_coeff from the kwarg if it is passed;
+        "lasci" (without the trailing underscore) leaves self.mo_coeff unchanged.
+
+        Kwargs:
+            mo_coeff : ndarray of shape (nao,nmo)
+                MO coefficients; defaults to self.mo_coeff
+            ci0 : list (length nfrags) of list (length nroots) of ndarrays
+                Contains CI vectors for initial guess
+            verbose : integer
+                See pyscf.lib.logger.
+            assert_no_dupes : logical
+                If True, checks state list for duplicate states
+
+        Returns:
+            converged : logical
+                Stores whether the calculation successfully converged
+            e_tot : float
+                (State-averaged) total energy
+            e_states : list of length nroots
+                List of each state energy
+            e_cas : list of length nroots
+                List of the CAS space energy of each state
+            ci : list (length nfrags) of list (length nroots) of ndarrays
+                Contains optimized CI vectyors
+        '''
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci0 is None: ci0 = self.ci
         if verbose is None: verbose = self.verbose
@@ -1236,6 +1263,14 @@ class LASCINoSymm (casci.CASCI):
         self.converged, self.ci = converged, ci
         self.e_tot, self.e_states, self.e_cas = e_tot, e_states, e_cas
         return self.converged, self.e_tot, self.e_states, self.e_cas, self.ci
+
+    def lasci_(self, mo_coeff=None, ci0=None, verbose=None,
+            assert_no_dupes=False):
+        __doc__=self.lasci.__doc__
+        if mo_coeff is not None:
+            self.mo_coeff = mo_coeff
+        return self.lasci (mo_coeff=mo_coeff, ci0=ci0, verbose=verbose,
+                           assert_no_dupes=assert_no_dupes)
 
     state_average = state_average
     state_average_ = state_average_
