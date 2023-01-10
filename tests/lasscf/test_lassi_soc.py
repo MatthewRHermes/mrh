@@ -40,7 +40,13 @@ class KnownValues (unittest.TestCase):
 
     def test_soc_1frag (self):
         with lib.temporary_env (mfh2o.mol, charge=2):
-            las = LASSCF (mfh2o, (8,), (4,), spin_sub=(3,), wfnsym_sub=('A1',)).run ()
+            mc = mcscf.CASSCF (mfh2o, 8, 4).set (conv_tol=1e-12)
+            mc.fcisolver = csf_solver (mfh2o.mol, smult=3).set (wfnsym='A1')
+            mc.kernel ()
+            # The result is very sensitive to orbital basis, so I optimize orbitals
+            # tightly using CASSCF, which is a more stable implementation
+            las = LASSCF (mfh2o, (8,), (4,), spin_sub=(3,), wfnsym_sub=('A1',))
+            las.mo_coeff = mc.mo_coeff
             las.state_average_(weights=[1/4,]*4,
                                spins=[[2,],[0,],[-2,],[0]],
                                smults=[[3,],[3,],[3,],[1]],
@@ -52,7 +58,7 @@ class KnownValues (unittest.TestCase):
         # molecule are close enough in energy for a usable splitting here if you use the
         # orbitals of the charge=+2 A1 triplet. But if you change anything at all about this,
         # it drops by 2 orders of magnitude. So we probably want a different test here.
-        self.assertAlmostEqual (e_roots[-1]-e_roots[-2], 5.416359101673152e-06, 10)
+        self.assertAlmostEqual (e_roots[-1]-e_roots[-2], 5.39438435964712e-06, 10)
 
     def test_soc_2frag (self):
         pass
