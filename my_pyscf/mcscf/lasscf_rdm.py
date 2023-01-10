@@ -103,10 +103,7 @@ class LASSCF_HessianOperator (lasscf_sync_o0.LASSCF_HessianOperator):
 
     def get_grad (self): return self.ugg.pack (self.fock1 - self.fock1.T)
 
-    def get_prec (self):
-        Hdiag = self._get_Horb_diag () + self.ah_level_shift
-        Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
-        return sparse.linalg.LinearOperator (self.shape, matvec=(lambda x:x/Hdiag), dtype=self.dtype)
+    def _get_Hdiag (self): return self._get_Horb_diag ()
 
 def get_init_guess_rdm (las, mo_coeff=None, h2eff_sub=None):
     ''' fcibox.solver[i] members make_hdiag_csf and get_init_guess both have

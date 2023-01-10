@@ -58,7 +58,7 @@ def get_init_guess(norb, nelec, nroots, hdiag_csf, transformer):
     ncsf_sym = transformer.ncsf
     assert (ncsf_sym >= nroots), "Can't find {} roots among only {} CSFs of symmetry {}".format (nroots, ncsf_sym, transformer.wfnsym)
     hdiag_csf = transformer.pack_csf (hdiag_csf)
-    ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf)
+    ci = _get_init_guess (ncsf_sym, 1, nroots, hdiag_csf, nelec)
     return transformer.vec_csf2det (ci)
 
 def make_hdiag_det (fci, h1e, eri, norb, nelec):

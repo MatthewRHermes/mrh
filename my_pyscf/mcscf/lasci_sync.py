@@ -7,6 +7,9 @@ import numpy as np
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to
 # handle spin-breaking potentials while retaining spin constraint
 
+class MicroIterInstabilityException (Exception):
+    pass
+
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
         assert_no_dupes=False, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
@@ -117,10 +120,15 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         # ^ This is down here to save time in case I am already converged at initialization
         t1 = log.timer ('LASCI Hessian constructor', *t1)
         microit = [0]
+        last_x = [0]
         def my_callback (x):
             microit[0] += 1
             norm_xorb = linalg.norm (x[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
             norm_xci = linalg.norm (x[ugg.nvar_orb:]) if ugg.ncsf_sub.sum () else 0.0
+            addr_max = np.argmax (np.abs (x))
+            id_max = ugg.addr2idstr (addr_max)
+            x_max = x[addr_max]/np.pi
+            log.debug ('Maximum step vector element x[{}] = {}*pi ({})'.format (addr_max, x_max, id_max))
             if las.verbose > lib.logger.INFO:
                 Hx = H_op._matvec (x) # This doubles the price of each iteration!!
                 resid = g_vec + Hx
@@ -137,21 +145,47 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             else:
                 log.info ('LASCI micro %d : |x_orb| = %.15g ; |x_ci| = %.15g', microit[0],
                           norm_xorb, norm_xci)
+            if abs(x_max)>.5: # Nonphysical step vector element
+                if last_x[0] is 0:
+                    x[np.abs (x)>.5*np.pi] = 0
+                    last_x[0] = x
+                raise MicroIterInstabilityException ("|x[i]| > pi/2")
+            last_x[0] = x.copy ()
 
         my_tol = max (conv_tol_grad, norm_gx/10)
-        x, info_int = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
-                                        maxiter=las.max_cycle_micro, callback=my_callback,
-                                        M=prec_op)
-        t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
-        mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
+        try:
+            x = sparse_linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
+                                  maxiter=las.max_cycle_micro, callback=my_callback,
+                                  M=prec_op)[0]
+            t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
+            mo_coeff, ci1, h2eff_sub = H_op.update_mo_ci_eri (x, h2eff_sub)
+            t1 = log.timer ('LASCI Hessian update', *t1)
+
+            #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
+            veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
+            veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
+            t1 = log.timer ('LASCI get_veff after secondorder', *t1)
+        except MicroIterInstabilityException as e:
+            log.info ('Unstable microiteration aborted: %s', str (e))
+            x = last_x[0]
+            for i in range (3): # Make up to 3 attempts to scale-down x if necessary
+                mo2, ci2, h2eff_sub2 = H_op.update_mo_ci_eri (x, h2eff_sub)
+                t1 = log.timer ('LASCI Hessian update', *t1)
+                veff2 = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo2, ci=ci2))
+                veff2 = las.split_veff (veff2, h2eff_sub2, mo_coeff=mo2, ci=ci2)
+                t1 = log.timer ('LASCI get_veff after secondorder', *t1)
+                e2 = las.energy_nuc () + las.energy_elec (mo_coeff=mo2, ci=ci2, h2eff=h2eff_sub2,
+                                                          veff=veff2)
+                if e2 < (H_op.e_tot+1e-6):
+                    break
+                log.info ('Attempt {} of 3 to scale down trial step vector'.format (i+1))
+                x *= .5
+            mo_coeff, ci1, h2eff_sub, veff = mo2, ci2, h2eff_sub2, veff2
+
+
+
         casdm1frs = las.states_make_casdm1s_sub (ci=ci1)
         casdm1s_sub = las.make_casdm1s_sub (ci=ci1)
-        t1 = log.timer ('LASCI Hessian update', *t1)
-
-        #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)
-        veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci1))
-        veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci1)
-        t1 = log.timer ('LASCI get_veff after secondorder', *t1)
 
     t2 = log.timer ('LASCI {} macrocycles'.format (it), *t2)
 
@@ -362,6 +396,27 @@ class LASCI_UnitaryGroupGenerators (object):
             ci_sub.append (ci_frag)
 
         return kappa, ci_sub
+
+    def addr2idstr (self, addr):
+        if addr<self.nvar_orb:
+            probe_orb = np.argwhere (self.uniq_orb_idx)[addr]
+            idstr = 'orb: {},{}'.format (*probe_orb)
+        else:
+            addr -= self.nvar_orb
+            ncsf_frag = self.ncsf_sub.sum (1)
+            for i, trans_frag in enumerate (self.ci_transformers):
+                if addr >= ncsf_frag[i]:
+                    addr -= ncsf_frag[i]
+                    continue
+                for j, trans in enumerate (trans_frag):
+                    if addr >= trans.ncsf:
+                        addr -= trans.ncsf
+                        continue
+                    idstr = 'CI({}): <{}|{}>'.format (
+                        i, j, trans.printable_csfstring (addr))
+                    break
+                break
+        return idstr
 
     @property
     def nvar_orb (self):
@@ -1102,16 +1157,35 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return [[x*2 for x in xr] for xr in ci2]
 
     def get_prec (self):
-        '''Obtain the preconditioner for conjugate-gradient descent within a single LASCI
-        macrocycle
+        '''Obtain the preconditioner for conjugate-gradient descent using a second-order power
+        series of the energy from a given LAS-state keyframe (a single "macrocycle"). In general,
+        the preconditioner should approximate multiplication by the matrix-inverse of the Hessian.
+        Here, however, we also use it to identify and mask degrees of freedom along which the
+        quadratically-approximated energy is numerically unstable.
+
+        N.B. to future developers: an "exact" inverted-Hessian preconditioner is actually not
+        desirable, because a failure of optimization is more likely due to the unsuitability of a
+        quadratic power series in fundamentally periodic variables. I.O.W., we can't get too hung
+        up on solving Ax=b, because Ax=b is an approximate equation in the first place. The actual
+        goal is to minimize successive keyframe (aka "macrocycle" aka "trial") energies.
 
         Returns:
             prec_op : LinearOperator
                 Approximately the inverse of the Hessian
         '''
-        Hdiag = np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
-        Hdiag += self.ah_level_shift
+        Hdiag = self._get_Hdiag () + self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
+        # The quadratic power series is a bad approximation if the magnitude of the gradient in
+        # the current keyframe is such that we will tend to predict steps with magnitude greater
+        # than .5*pi (a step of exactly .5*pi transposes two states). This preconditioner should
+        # mask out the corresponding degrees of freedom
+        b = linalg.norm (self.get_grad ())
+        probe_x0 = b/Hdiag
+        ndeg = len (probe_x0)
+        idx_unstable = np.abs (probe_x0) > np.pi*.5
+        # We can't mask everything, because that behavior would obfuscate the problem
+        # If NO stable D.O.F. exist, then keyframe is just bad and it has to be handled upstream
+        if np.count_nonzero (~idx_unstable): Hdiag[idx_unstable] = np.inf
         return sparse_linalg.LinearOperator (self.shape,matvec=(lambda x:x/Hdiag),dtype=self.dtype)
 
     def _get_Horb_diag (self):
@@ -1136,6 +1210,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             for csf, hdiag_csf in zip (csf_list, hdiag_csf_list):
                 Hci_diag.append (csf.pack_csf (hdiag_csf))
         return Hci_diag
+
+    def _get_Hdiag (self):
+        return np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
 
     def update_mo_ci_eri (self, x, h2eff_sub):
         kappa, dci = self.ugg.unpack (x)
