@@ -621,6 +621,9 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
     nelecas_sub = las.nelecas_sub
     orbsym = getattr (mo_coeff, 'orbsym', None)
     if orbsym is not None: orbsym=orbsym[ncore:nocc]
+    elif isinstance (las, LASCISymm):
+        mo_coeff = las.label_symmetry_(mo_coeff)
+        orbsym = mo_coeff.orbsym[ncore:nocc]
     log = lib.logger.new_logger (las, verbose)
 
     h1eff, energy_core = casci.h1e_for_cas (las, mo_coeff=mo_coeff,

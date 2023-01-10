@@ -636,6 +636,9 @@ class LSTDMint2 (object):
 
     # Cruncher functions
     def _crunch_null_(self, bra, ket):
+        '''Compute the reduced density matrix elements between states bra and ket which have the
+        the same spin-up and spin-down electron numbers on all fragments (For instance, bra=ket)
+        '''
         d1 = self._get_D1_(bra, ket)
         d2 = self._get_D2_(bra, ket)
         nlas = self.nlas
@@ -663,6 +666,16 @@ class LSTDMint2 (object):
         self._put_D2_(bra, ket, d2)
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
+        '''Compute the reduced density matrix elements of a single electron hop; i.e.,
+
+        <bra|j'(s1)i(s1)|ket>
+
+        i.e.,
+
+        j ---s1---> i
+
+        and conjugate transpose
+        '''
         d1 = self._get_D1_(bra, ket)
         d2 = self._get_D2_(bra, ket)
         inti, intj = self.ints[i], self.ints[j]
@@ -707,6 +720,17 @@ class LSTDMint2 (object):
         self._put_D2_(bra, ket, d2)
 
     def _crunch_1s_(self, bra, ket, i, j):
+        '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
+
+        <bra|i'(a)j'(b)i(b)j(a)|ket>
+
+        i.e.,
+
+        j ---a---> i
+        i ---b---> j
+
+        and conjugate transpose
+        '''
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -719,6 +743,17 @@ class LSTDMint2 (object):
         self._put_D2_(bra, ket, d2)
 
     def _crunch_1s1c_(self, bra, ket, i, j, k):
+        '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
+
+        <bra|i'(a)k'(b)j(b)k(a)|ket>
+
+        i.e.,
+
+        k ---a---> i
+        j ---b---> k
+
+        and conjugate transpose
+        '''
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -734,6 +769,23 @@ class LSTDMint2 (object):
         self._put_D2_(bra, ket, d2)
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
+        '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
+
+        <bra|i'(s1)k'(s2)l(s2)j(s1)|ket>
+
+        i.e.,
+
+        j ---s1---> i
+        l ---s2---> k
+
+        with
+
+        s2lt = 0, 1, 2
+        s1   = a, a, b
+        s2   = a, b, b
+
+        and conjugate transpose
+        '''
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
         s2  = (0, 1, 3)[s2lt] # aa, ab, bb
