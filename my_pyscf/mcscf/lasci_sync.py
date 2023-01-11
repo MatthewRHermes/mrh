@@ -121,6 +121,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         t1 = log.timer ('LASCI Hessian constructor', *t1)
         microit = [0]
         last_x = [0]
+        first_norm_x = [None]
         def my_callback (x):
             microit[0] += 1
             norm_xorb = linalg.norm (x[:ugg.nvar_orb]) if ugg.nvar_orb else 0.0
@@ -150,6 +151,11 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                     x[np.abs (x)>.5*np.pi] = 0
                     last_x[0] = x
                 raise MicroIterInstabilityException ("|x[i]| > pi/2")
+            norm_x = linalg.norm (x)
+            if first_norm_x[0] is None:
+                first_norm_x[0] = norm_x
+            elif norm_x > 10*first_norm_x[0]:
+                raise MicroIterInstabilityException ("||x(n)|| > 10*||x(0)||")
             last_x[0] = x.copy ()
 
         my_tol = max (conv_tol_grad, norm_gx/10)
@@ -176,8 +182,10 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                 t1 = log.timer ('LASCI get_veff after secondorder', *t1)
                 e2 = las.energy_nuc () + las.energy_elec (mo_coeff=mo2, ci=ci2, h2eff=h2eff_sub2,
                                                           veff=veff2)
-                if e2 < (H_op.e_tot+1e-6):
+                if e2 < H_op.e_tot:
                     break
+                log.info ('New energy ({}) is higher than keyframe energy ({})'.format (
+                    e2, H_op.e_tot))
                 log.info ('Attempt {} of 3 to scale down trial step vector'.format (i+1))
                 x *= .5
             mo_coeff, ci1, h2eff_sub, veff = mo2, ci2, h2eff_sub2, veff2
