@@ -12,6 +12,7 @@ class MicroIterInstabilityException (Exception):
 
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
         assert_no_dupes=False, verbose=lib.logger.NOTE):
+    from mrh.my_pyscf.mcscf.lasci import _eig_inactive_virtual
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if assert_no_dupes: las.assert_no_duplicates ()
     log = lib.logger.new_logger(las, verbose)
@@ -64,6 +65,17 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         t1 = log.timer ('LASCI ci_cycle', *t1)
 
         veff = veff.sum (0)/2
+        # Canonicalize inactive and virtual spaces to set many off-diagonal elements of the
+        # orbital-rotation Hessian to zero, which should improve the microiteration below
+        fock = las.get_hcore () + veff
+        fock = mo_coeff.conj ().T @ fock @ mo_coeff
+        orbsym = getattr (mo_coeff, 'orbsym', None)
+        ene, umat = _eig_inactive_virtual (las, fock, orbsym=orbsym)
+        mo_coeff = mo_coeff @ umat
+        if orbsym is not None:
+            mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym)
+        h2eff_sub[:,:] = umat.conj ().T @ h2eff_sub
+
         casdm1s_new = las.make_casdm1s_sub (ci=ci1)
         if not isinstance (las, _DFLASCI) or las.verbose > lib.logger.DEBUG:
             #veff = las.get_veff (mo_coeff=mo_coeff, ci=ci1)

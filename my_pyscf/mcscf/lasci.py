@@ -322,6 +322,36 @@ def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None
     fock = las.get_hcore () + vj - (vk/2)
     return fock
 
+def _eig_inactive_virtual (las, fock, orbsym=None):
+    '''Generate the unitary matrix canonicalizing the inactive and virtual orbitals only.
+
+    Args:
+        las : object of :class:`LASCINoSymm`
+        fock : ndarray of shape (nmo,nmo)
+            Contains Fock matrix in MO basis
+
+    Kwargs:
+        orbsym : list of length nmo
+        umat : ndarray of shape (nmo, nmo)
+
+    Returns:
+        ene : ndarray of shape (nmo,)
+        umat : ndarray of shape (nmo, nmo)'''
+    nmo = fock.shape[0]
+    ncore = las.ncore
+    nocc = ncore + las.ncas
+    ene = np.zeros (nmo)
+    umat = np.eye (nmo)
+    if ncore:
+        orbsym_i = None if orbsym is None else orbsym[:ncore]
+        fock_i = fock[:ncore,:ncore]
+        ene[:ncore], umat[:ncore,:ncore] = las._eig (fock_i, 0, 0, orbsym_i)
+    if nmo-nocc:
+        orbsym_i = None if orbsym is None else orbsym[nocc:]
+        fock_i = fock[nocc:,nocc:]
+        ene[nocc:], umat[nocc:,nocc:] = las._eig (fock_i, 0, 0, orbsym_i)
+    return ene, umat
+
 def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None, veff=None,
                   h2eff_sub=None, orbsym=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
@@ -347,14 +377,13 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
     if natorb_casdm1 is None: # State-average natural orbitals by default
         natorb_casdm1 = casdm1s.sum (0)
 
-    # Inactive-inactive
-    orbsym_i = None if orbsym is None else orbsym[:ncore]
-    fock_i = fock[:ncore,:ncore]
-    if ncore:
-        ene, umat[:ncore,:ncore] = las._eig (fock_i, 0, 0, orbsym_i)
-        idx = np.argsort (ene)
-        umat[:ncore,:ncore] = umat[:ncore,:ncore][:,idx]
-        if orbsym_i is not None: orbsym[:ncore] = orbsym[:ncore][idx]
+    # Inactive-inactive and virtual-virtual
+    ene, umat = _eig_inactive_virtual (las, fock, orbsym=orbsym)
+    idx = np.arange (nmo, dtype=int)
+    if ncore: idx[:ncore] = idx[:ncore][np.argsort (ene[:ncore])]
+    if nmo-nocc: idx[nocc:] = idx[nocc:][np.argsort (ene[nocc:])]
+    umat = umat[:,idx]
+    if orbsym is not None: orbsym = orbsym[idx]
     # Active-active
     check_diag = natorb_casdm1.copy ()
     for ix, ncas in enumerate (ncas_sub):
@@ -385,14 +414,6 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
         idx = np.argsort (occ)[::-1]
         umat[ncore:nocc,ncore:nocc] = umat[ncore:nocc,ncore:nocc][:,idx]
         if orbsym_cas is not None: orbsym[ncore:nocc] = orbsym[ncore:nocc][idx]
-    # External-external
-    if nmo-nocc:
-        orbsym_i = None if orbsym is None else orbsym[nocc:]
-        fock_i = fock[nocc:,nocc:]
-        ene, umat[nocc:,nocc:] = las._eig (fock_i, 0, 0, orbsym_i)
-        idx = np.argsort (ene)
-        umat[nocc:,nocc:] = umat[nocc:,nocc:][:,idx]
-        if orbsym_i is not None: orbsym[nocc:] = orbsym[nocc:][idx]
 
     # Final
     mo_occ = np.zeros (nmo, dtype=natorb_casdm1.dtype)
