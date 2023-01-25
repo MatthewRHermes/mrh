@@ -785,6 +785,14 @@ class LSTDMint2 (object):
         s2   = a, b, b
 
         and conjugate transpose
+
+        Note that this includes i=k and/or j=l cases, but no other coincident fragment indices. Any
+        other coincident fragment index (that is, any coincident index between the bra and the ket)
+        turns this into one of the other interactions implemented in the above _crunch_ functions:
+        s1 = s2  AND SORT (ik) = SORT (jl)                 : _crunch_null_
+        s1 = s2  AND (i = j XOR i = l XOR j = k XOR k = l) : _crunch_1c_
+        s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
+        s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
         '''
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
