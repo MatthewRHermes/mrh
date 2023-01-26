@@ -3,7 +3,7 @@ import numpy as np
 from pyscf.symm.param import IRREP_ID_MOLPRO
 from pyscf.symm.geom import detect_symm, get_subgroup
 from pyscf.symm import label_orb_symm, irrep_name2id, irrep_id2name
-from pyscf.lib import logger
+from pyscf.lib import logger, tag_array
 from pyscf import gto
 from pyscf.tools import molden
 
@@ -107,7 +107,8 @@ def get_mo_from_h5 (mol, h5fname, symmetry=None):
         molden.from_mo (mol, fname, mo_coeff, occ=mo_occ, ene=mo_energy)
     if mol.symmetry: # assert (symmetry is right)
         try:
-            orbsym = label_orb_symm (mol, mol.irrep_name, mol.symm_orb, mo_coeff)
+            orbsym = label_orb_symm (mol, mol.irrep_id, mol.symm_orb, mo_coeff)
+            mo_coeff = tag_array (mo_coeff, orbsym=orbsym)
         except ValueError as e:
             raise ValueError (("Problem understanding Molcas symmetry?\n"
                 "{}").format (str(e)))
