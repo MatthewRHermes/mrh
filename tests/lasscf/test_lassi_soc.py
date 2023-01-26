@@ -1,8 +1,10 @@
 import unittest
 import numpy as np
-from pyscf import gto, scf, lib
+from pyscf import gto, scf, lib, mcscf
+from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcscf.soc_int import compute_hso
 from mrh.my_pyscf.mcscf.lassi_op_o0 import si_soc
+from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
 def setUpModule():
     global mol, mfh2o
@@ -10,7 +12,9 @@ def setUpModule():
         O  0.000000  0.000000  0.000000
         H  0.758602  0.000000  0.504284
         H  0.758602  0.000000  -0.504284
-    """, basis='631g')
+    """, basis='631g',symmetry=True,
+    output='test_lassi_soc.log',
+    verbose=lib.logger.DEBUG)
     mfh2o = scf.RHF (mol).run ()
     
 def tearDownModule():
@@ -35,8 +39,26 @@ class KnownValues (unittest.TestCase):
         self.assertAlmostEqual (lib.fp (amfi_int), lib.fp (int_ref), 8)
 
     def test_soc_1frag (self):
-        pass
-        ## compare excited state energies (incl. SOC) for 1 frag calculation
+        with lib.temporary_env (mfh2o.mol, charge=2):
+            mc = mcscf.CASSCF (mfh2o, 8, 4).set (conv_tol=1e-12)
+            mc.fcisolver = csf_solver (mfh2o.mol, smult=3).set (wfnsym='A1')
+            mc.kernel ()
+            # The result is very sensitive to orbital basis, so I optimize orbitals
+            # tightly using CASSCF, which is a more stable implementation
+            las = LASSCF (mfh2o, (8,), (4,), spin_sub=(3,), wfnsym_sub=('A1',))
+            las.mo_coeff = mc.mo_coeff
+            las.state_average_(weights=[1/4,]*4,
+                               spins=[[2,],[0,],[-2,],[0]],
+                               smults=[[3,],[3,],[3,],[1]],
+                               wfnsyms=(([['B1',],]*3)+[['A1',],]))
+            las.lasci ()
+            e_roots, si = las.lassi (opt=0, soc=True, break_symmetry=True)
+        # TODO: either validate this number or replace it with a more meaningful test.
+        # I discovered by accident that the charge=+2 A1 singlet and B1 triplet of this water
+        # molecule are close enough in energy for a usable splitting here if you use the
+        # orbitals of the charge=+2 A1 triplet. But if you change anything at all about this,
+        # it drops by 2 orders of magnitude. So we probably want a different test here.
+        self.assertAlmostEqual (e_roots[-1]-e_roots[-2], 5.39438435964712e-06, 10)
 
     def test_soc_2frag (self):
         pass
