@@ -814,6 +814,23 @@ class LASCINoSymm (casci.CASCI):
         return self._hop (self, ugg, mo_coeff=mo_coeff, ci=ci, **kwargs)
     canonicalize = canonicalize
 
+    def _finalize(self):
+        log = lib.logger.new_logger (self, self.verbose)
+        nroots_prt = len (self.e_states)
+        if self.verbose <= lib.logger.INFO:
+            nroots_prt = min (nroots_prt, 100)
+        if nroots_prt < len (self.e_states):
+            log.info (("Printing a maximum of 100 state energies;"
+                       " increase self.verbose to see them all"))
+        if nroots_prt > 1:
+            log.info ("LASCI state-average energy = %.15g", self.e_tot)
+            for i, e in enumerate (self.e_states):
+                log.info ("LASCI state %d energy = %.15g", i, e)
+        else:
+            log.info ("LASCI energy = %.15g", self.e_tot)
+        return
+
+
     def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=None,
             assert_no_dupes=False, verbose=None, _kern=None):
         if mo_coeff is None:
@@ -841,6 +858,7 @@ class LASCINoSymm (casci.CASCI):
                 self.ci, h2eff_sub, veff = _kern(self, mo_coeff, ci0=ci0, verbose=verbose, \
                 casdm0_fr=casdm0_fr, conv_tol_grad=conv_tol_grad, assert_no_dupes=assert_no_dupes)
 
+        self._finalize ()
         return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy, h2eff_sub, veff
 
     def states_make_casdm1s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
@@ -1286,6 +1304,7 @@ class LASCINoSymm (casci.CASCI):
             assert_no_dupes=assert_no_dupes)
         self.converged, self.ci = converged, ci
         self.e_tot, self.e_states, self.e_cas = e_tot, e_states, e_cas
+        self._finalize ()
         return self.converged, self.e_tot, self.e_states, self.e_cas, self.ci
 
     def lasci_(self, mo_coeff=None, ci0=None, verbose=None,
