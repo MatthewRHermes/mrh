@@ -5,26 +5,29 @@ from pyscf import fci, lib
 from pyscf.fci import cistring
 
 def make_trans_rdm1(dspin, cibra, ciket, norb, nelec_bra, nelec_ket):
-
+    
     nelabra, nelbbra = nelec_bra
     nelaket, nelbket = nelec_ket
 
     if dspin == 'ba':
-        cond = nelabra == nelaket - 1 and nelbbra == nelbket + 1
+        cond = nelabra == nelaket - 1 and nelbbra == nelbket + 1 and nelaket != 0 and nelbbra != 0
     elif dspin == 'ab':
-        cond = nelabra == nelaket + 1 and nelbbra == nelbket - 1
+        cond = nelabra == nelaket + 1 and nelbbra == nelbket - 1 and nelbket != 0 and nelabra != 0
+    elif dspin == 'aa':
+        cond = nelabra == nelaket and nelaket != 0 and nelabra !=0
     else:
-        cond = nelabra == nelaket and nelbbra == nelbket
+        cond = nelbbra == nelbket and nelbbra !=0 and nelbket !=0
+        
     if not cond:
         return np.array(0)
-
+   
     nabra = fci.cistring.num_strings(norb, nelabra)
     nbbra = fci.cistring.num_strings(norb, nelbbra)
     naket = fci.cistring.num_strings(norb, nelaket)
     nbket = fci.cistring.num_strings(norb, nelbket)
     cibra = cibra.reshape(nabra, nbbra)
     ciket = ciket.reshape(naket, nbket)
-    lidxbra = fci.cistring.gen_des_str_index(range(norb), nelabra if dspin[0] == 'a' else nelbbra)
+    #lidxbra = fci.cistring.gen_des_str_index(range(norb), nelabra if dspin[0] == 'a' else nelbbra)
     if dspin[1] == 'a':
         lidxket = fci.cistring.gen_des_str_index(range(norb), nelaket)
         naketd = fci.cistring.num_strings(norb, nelaket - 1)
