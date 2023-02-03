@@ -16,7 +16,7 @@ mf = scf.RHF (mol).run ()
 
 # SA-LASSCF object
 # The first positional argument of "state_average" is the orbital weighting function
-# Note that there are four states and two fragments and the weights sum to 1
+# Note that there are two states and two fragments and the weights sum to 1
 # "Spins" is neleca - nelecb (= 2m for the sake of being an integer)
 # "Smults" is the desired local spin quantum *MULTIPLICITY* (2s+1)
 # "Wfnsyms" can also be the names of the irreps but I got lazy
