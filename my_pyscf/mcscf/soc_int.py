@@ -1,8 +1,10 @@
 ### Adapted from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
 
 import numpy as np
+from scipy import linalg
 import copy
 from pyscf.data import nist
+from pyscf.lib import logger
 
 def get_jk(mol, dm0):
     hso2e = mol.intor('int2e_p1vxp1', 3).reshape(3, mol.nao, mol.nao, mol.nao, mol.nao)
@@ -34,8 +36,9 @@ def compute_hso_amfi(mol, dm0):
     for i in range(mol.natm):
         si, sf, ai, af = aoslice[i]
         slices = (si, sf, si, sf)
-        mol.set_rinv_origin(mol.atom_coord(i))
-        atom_1e = mol.intor('int1e_prinvxp', comp=3, shls_slice=slices)
+        #mol.set_rinv_origin(mol.atom_coord(i))
+        with mol.with_rinv_as_nucleus (i):
+            atom_1e = mol.intor('int1e_prinvxp', comp=3, shls_slice=slices)
         hso_1e[:,ai:af,ai:af] = - atom_1e * (mol.atom_charge(i))
 
     vj, vk = get_jk_amfi(mol, dm0)
@@ -57,3 +60,42 @@ def compute_hso(mol, dm0, amfi=True):
         hso = (alpha2 / 4) * (hso_1e + hso_2e)
     return hso * 1j
 
+def amfi_dm (mol):
+    '''Generate AMFI density matrix, which is exactly like the
+    "init_guess_by_atom" density matrix except that the orbitals
+    of the atom hf's aren't optimized.
+
+    Returns:
+        dm : ndarray of shape (nao, nao)
+            AMFI density matrix
+    '''
+    # TODO: refactor so that the discarded AO optimization doesn't happen
+    # and waste cycles
+    from pyscf.scf import atom_hf
+    atm_scf = atom_hf.get_atm_nrhf(mol)
+    aoslice = mol.aoslice_by_atom()
+    atm_dms = []
+    for ia in range(mol.natm):
+        symb = mol.atom_symbol(ia)
+        if symb not in atm_scf:
+            symb = mol.atom_pure_symbol(ia)
+
+        if symb in atm_scf:
+            e_hf, e, c, occ = atm_scf[symb]
+            #dm = np.dot(c*occ, c.conj().T)
+            dm = np.diag (occ)
+        else:  # symb's basis is not specified in the input
+            nao_atm = aoslice[ia,3] - aoslice[ia,2]
+            dm = np.zeros((nao_atm, nao_atm))
+
+        atm_dms.append(dm)
+
+    dm = linalg.block_diag(*atm_dms)
+
+    if mol.cart:
+        cart2sph = mol.cart2sph_coeff(normalized='sp')
+        dm = reduce(np.dot, (cart2sph, dm, cart2sph.T))
+
+    for k, v in atm_scf.items():
+        logger.debug1(mol, 'Atom %s, E = %.12g', k, v[0])
+    return dm

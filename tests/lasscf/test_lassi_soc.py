@@ -3,7 +3,7 @@ import numpy as np
 from pyscf import gto, scf, lib, mcscf
 from me2n2_struct import structure as struct
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.mcscf.soc_int import compute_hso
+from mrh.my_pyscf.mcscf.soc_int import compute_hso, amfi_dm
 from mrh.my_pyscf.mcscf.lassi_op_o0 import si_soc
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lassi import make_stdm12s, roots_make_rdm12s
@@ -39,9 +39,10 @@ class KnownValues (unittest.TestCase):
 
     def test_soc_int (self):
         # Pre-calculated atomic densities used in the OpenMolcas version of AMFI
-        h2o_dm = np.zeros ((13,13))
-        h2o_dm[0,0] = h2o_dm[1,1] = 2
-        h2o_dm[3,3] = h2o_dm[4,4] = h2o_dm[5,5] = 4/3
+        #h2o_dm = np.zeros ((13,13))
+        #h2o_dm[0,0] = h2o_dm[1,1] = 2
+        #h2o_dm[3,3] = h2o_dm[4,4] = h2o_dm[5,5] = 4/3
+        h2o_dm = amfi_dm (molh2o)
 
         # Obtained from OpenMolcas v22.02
         int_ref = np.array ([0.0000000185242348, 0.0000393310222742, 0.0000393310222742, 0.0005295974407740]) 
@@ -71,7 +72,7 @@ class KnownValues (unittest.TestCase):
         # molecule are close enough in energy for a usable splitting here if you use the
         # orbitals of the charge=+2 A1 triplet. But if you change anything at all about this,
         # it drops by 2 orders of magnitude. So we probably want a different test here.
-        self.assertAlmostEqual (e_roots[-1]-e_roots[-2], 5.39438435964712e-06, 10)
+        self.assertAlmostEqual (e_roots[-1]-e_roots[-2], 4.7494996806562995e-06, 10)
 
     def test_soc_2frag (self):
         e_ref = [-187.72602434, -187.53610235, -187.53600644, -187.50096683, -187.48344907]
