@@ -710,7 +710,7 @@ class LASCINoSymm (casci.CASCI):
             nel_tot[1] += nb
         nelecas = new_nelecas
         super().__init__(mf, ncas=ncas_tot, nelecas=nel_tot, ncore=ncore)
-        if spin_sub is None: spin_sub = [1 for sub in ncas]
+        if spin_sub is None: spin_sub = [1 + abs(ne[0]-ne[1]) for ne in nelecas]
         self.ncas_sub = np.asarray (ncas)
         self.nelecas_sub = np.asarray (nelecas)
         self.frozen = frozen
@@ -1329,6 +1329,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub,
                              frozen=frozen, **kwargs)
         if wfnsym_sub is None: wfnsym_sub = [0 for icas in self.ncas_sub]
+        # TODO: guess wfnsym_sub intelligently (0 can be impossible for some multiplicities)
         for wfnsym, frag in zip (wfnsym_sub, self.fciboxes):
             if isinstance (wfnsym, (str, np.str_)):
                 wfnsym = symm.irrep_name2id (self.mol.groupname, wfnsym)
