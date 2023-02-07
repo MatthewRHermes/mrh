@@ -8,10 +8,14 @@ from pyscf.lib import logger
 from pyscf.data import elements
 
 def get_jk(mol, dm0):
+    log = logger.new_logger (mol, mol.verbose)
+    t0 = (logger.process_clock (), logger.perf_counter ())
     hso2e = mol.intor('int2e_p1vxp1', 3).reshape(3, mol.nao, mol.nao, mol.nao, mol.nao)
+    t0 = log.timer ('SSO eri for {} AOs'.format (mol.nao), *t0)
     vj = np.einsum('yijkl,lk->yij', hso2e, dm0)
     vk = np.einsum('yijkl,jk->yil', hso2e, dm0)
     vk += np.einsum('yijkl,li->ykj', hso2e, dm0)
+    t0 = log.timer ('SSO vj & vk for {} AOs'.format (mol.nao), *t0)
     return vj, vk
 
 def get_jk_amfi(mol, dm0):
