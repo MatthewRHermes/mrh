@@ -5,6 +5,7 @@ from scipy import linalg
 import copy
 from pyscf.data import nist
 from pyscf.lib import logger
+from pyscf.data import elements
 
 def get_jk(mol, dm0):
     hso2e = mol.intor('int2e_p1vxp1', 3).reshape(3, mol.nao, mol.nao, mol.nao, mol.nao)
@@ -60,7 +61,7 @@ def compute_hso(mol, dm0, amfi=True):
         hso = (alpha2 / 4) * (hso_1e + hso_2e)
     return hso * 1j
 
-def amfi_dm (mol):
+def amfi_dm (mol, atomic_configuration=elements.CONFIGURATION):
     '''Generate AMFI density matrix, which is exactly like the
     "init_guess_by_atom" density matrix except that the orbitals
     of the atom hf's aren't optimized.
@@ -72,7 +73,7 @@ def amfi_dm (mol):
     # TODO: refactor so that the discarded AO optimization doesn't happen
     # and waste cycles
     from pyscf.scf import atom_hf
-    atm_scf = atom_hf.get_atm_nrhf(mol)
+    atm_scf = atom_hf.get_atm_nrhf(mol, atomic_configuration=atomic_configuration)
     aoslice = mol.aoslice_by_atom()
     atm_dms = []
     for ia in range(mol.natm):
