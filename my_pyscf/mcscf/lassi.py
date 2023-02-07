@@ -199,18 +199,19 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, idx, soc=soc,
                                                      orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
+        log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
         if np.iscomplexobj (ham_blk):
-            lib.logger.debug2 (las, 'Block Hamiltonian - ecore (real):')
-            lib.logger.debug2 (las, '{}'.format (ham_blk.real.round (8)))
-            lib.logger.debug2 (las, 'Block Hamiltonian - ecore (imag):')
-            lib.logger.debug2 (las, '{}'.format (ham_blk.imag.round (8)))
+            log_debug (las, 'Block Hamiltonian - ecore (real):')
+            log_debug (las, '{}'.format (ham_blk.real.round (8)))
+            log_debug (las, 'Block Hamiltonian - ecore (imag):')
+            log_debug (las, '{}'.format (ham_blk.imag.round (8)))
         else:
-            lib.logger.debug2 (las, 'Block Hamiltonian - ecore:')
-            lib.logger.debug2 (las, '{}'.format (ham_blk.round (8)))
-        lib.logger.debug2 (las, 'Block S**2:')
-        lib.logger.debug2 (las, '{}'.format (s2_blk.round (8)))
-        lib.logger.debug2 (las, 'Block overlap matrix:')
-        lib.logger.debug2 (las, '{}'.format (ovlp_blk.round (8)))
+            log_debug (las, 'Block Hamiltonian - ecore:')
+            log_debug (las, '{}'.format (ham_blk.round (8)))
+        log_debug (las, 'Block S**2:')
+        log_debug (las, '{}'.format (s2_blk.round (8)))
+        log_debug (las, 'Block overlap matrix:')
+        log_debug (las, '{}'.format (ovlp_blk.round (8)))
         s2_mat[np.ix_(idx,idx)] = s2_blk
         # Error catch: diagonal Hamiltonian elements
         diag_test = np.diag (ham_blk)

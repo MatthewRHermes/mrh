@@ -120,7 +120,8 @@ def si_soc (las, ci, nelec, norb):
     nroots = len(ci)
     hsiso = np.zeros((nroots, nroots), dtype=complex)
 
-    dm0 = las.mol.make_rdm1() # potentially replace with pre-calculated atomic densities used in AMFI
+    #dm0 = las.mol.make_rdm1() # potentially replace with pre-calculated atomic densities used in AMFI
+    dm0 = soc_int.amfi_dm (las.mol)
     hsoao = soc_int.compute_hso(las.mol, dm0, amfi=True)
     hso = np.einsum('rij, ip, jq -> rpq', hsoao, las.mo_coeff[:, las.ncore:las.ncore + norb],
             las.mo_coeff[:, las.ncore:las.ncore + norb])
@@ -146,7 +147,7 @@ def si_soc (las, ci, nelec, norb):
                 hsiso[jstate, istate] = somat.conj()
             somat *= au2cm
 
-    heigso, hvecso = np.linalg.eigh(hsiso)
+    #heigso, hvecso = np.linalg.eigh(hsiso)
 
     return hsiso
 
