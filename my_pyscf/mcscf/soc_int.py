@@ -49,7 +49,7 @@ def compute_hso_amfi(mol, dm0):
     vj, vk = get_jk_amfi(mol, dm0)
     hso_2e = vj - vk * 1.5
     
-    hso = (alpha2 / 4) * (hso_1e + hso_2e)
+    hso = (alpha2 / 2) * (hso_1e + hso_2e)
     return hso
 
 def compute_hso(mol, dm0, amfi=True):  

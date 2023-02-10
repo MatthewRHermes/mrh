@@ -139,9 +139,9 @@ def si_soc (las, ci, nelec, norb):
             #t[0] = (0.5 + 0j) * (tm1 - tp1)
             #t[1] = (0.5j + 0) * (tm1 + tp1)
             #t[2] = (np.sqrt(0.5) + 0j) * tze
-            t[0] = (np.sqrt(0.5) + 0j) * (tm1 - tp1)
-            t[1] = (np.sqrt(0.5)*1j + 0) * (tm1 + tp1)
-            t[2] = (np.sqrt(2.0) + 0j) * tze
+            t[0] = (np.sqrt(0.125) + 0j) * (tm1 - tp1)
+            t[1] = (np.sqrt(0.125)*1j + 0) * (tm1 + tp1)
+            t[2] = tze
 
             somat = np.einsum('rij, rij ->', t, hso)
             hsiso[istate, jstate] = somat
