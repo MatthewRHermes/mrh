@@ -74,3 +74,47 @@ def make_trans(m, cibra, ciket, norb, nelec_bra, nelec_ket):
     else:
         return np.sqrt(0.5) * (make_trans_rdm1('aa', cibra, ciket, norb, nelec_bra, nelec_ket)
                                - make_trans_rdm1('bb', cibra, ciket, norb, nelec_bra, nelec_ket)).T
+
+
+if __name__=='__main__':
+    from pyscf import gto, scf, mcscf
+    from mrh.my_pyscf.fci import csf_solver
+    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    molh2o = gto.M (atom="""
+        O  0.000000  0.000000  0.000000
+        H  0.758602  0.000000  0.504284
+        H  0.758602  0.000000  -0.504284
+    """, basis='631g',symmetry=True,
+    output='test_lassi_soc.log',
+    verbose=lib.logger.DEBUG)
+    mfh2o = scf.RHF (molh2o).run ()
+    with lib.temporary_env (mfh2o.mol, charge=2):
+        mc = mcscf.CASSCF (mfh2o, 8, 4).set (conv_tol=1e-12)
+        mc.fcisolver = csf_solver (mfh2o.mol, smult=3).set (wfnsym='A1')
+        mc.kernel ()
+        # The result is very sensitive to orbital basis, so I optimize orbitals
+        # tightly using CASSCF, which is a more stable implementation
+        las = LASSCF (mfh2o, (8,), (4,), spin_sub=(3,), wfnsym_sub=('A1',))
+        las.mo_coeff = mc.mo_coeff
+        las.state_average_(weights=[1/4,]*4,
+                           spins=[[2,],[0,],[-2,],[0]],
+                           smults=[[3,],[3,],[3,],[1]],
+                           wfnsyms=(([['B1',],]*3)+[['A1',],]))
+        las.lasci ()
+        from mrh.my_pyscf.mcscf import lassi_op_o1
+        ints = lassi_op_o1.make_ints (las, las.ci, np.array (list (range (4))))[1][0]
+        tdm_test = make_trans (1, las.ci[0][0], las.ci[0][3], 8, (3,1), (2,2))
+        tdm_ref = ints.get_sp (0,3)
+        print ("ab:")
+        print (lib.fp (tdm_test))
+        print (lib.fp (tdm_ref))
+        tdm_test = make_trans (-1, las.ci[0][2], las.ci[0][3], 8, (1,3), (2,2))
+        tdm_ref = ints.get_sm (2,3)
+        print ("ba:")
+        print (lib.fp (tdm_test))
+        print (lib.fp (tdm_ref))
+        e_roots, si = las.lassi (opt=0, soc=True, break_symmetry=True)
+
+
+
+
