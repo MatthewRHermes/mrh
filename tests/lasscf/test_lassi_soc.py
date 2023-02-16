@@ -49,7 +49,11 @@ def tearDownModule():
 
 class KnownValues (unittest.TestCase):
 
-    # CRITICAL TODO: fix the unknown problem affecting the ANO-RCC basis sets!
+    # NOTE: In OpenMolcas, when using the ANO-RCC basis sets, the AMFI operator is switched from the Breit-Pauli
+    # to the Douglass-Kroll Hamiltonian. There is no convenient way to switch this off; the only workaround
+    # I've found is to "disguise" the basis set as something unrelated to ANO-RCC by copying and pasting it into
+    # a separate file. Therefore, for now, we can only compare results from non-relativistic basis sets between
+    # the two codes, until we implement Douglass-Kroll ourselves.
 
     def test_soc_int (self):
         # Obtained from OpenMolcas v22.02
