@@ -4,7 +4,7 @@ import numpy as np
 from scipy import linalg
 import copy
 from pyscf.data import nist
-from pyscf.lib import logger
+from pyscf.lib import logger, param
 from pyscf.data import elements
 
 def get_jk(mol, dm0):
@@ -34,7 +34,8 @@ def get_jk_amfi(mol, dm0):
     return vj, vk
 
 def compute_hso_amfi(mol, dm0): 
-    alpha2 = nist.ALPHA ** 2
+    alpha2 = param.LIGHT_SPEED**(-2)
+    #alpha2 = nist.ALPHA ** 2
     aoslice = mol.aoslice_by_atom()
     nao = mol.nao_nr()
     hso_1e = np.zeros((3,nao,nao))
@@ -49,11 +50,12 @@ def compute_hso_amfi(mol, dm0):
     vj, vk = get_jk_amfi(mol, dm0)
     hso_2e = vj - vk * 1.5
     
-    hso = (alpha2 / 4) * (hso_1e + hso_2e)
+    hso = (alpha2 / 2) * (hso_1e + hso_2e)
     return hso
 
 def compute_hso(mol, dm0, amfi=True):  
-    alpha2 = nist.ALPHA ** 2
+    alpha2 = param.LIGHT_SPEED**(-2)
+    #alpha2 = nist.ALPHA ** 2
     
     if amfi:
         hso = compute_hso_amfi(mol, dm0)
@@ -62,7 +64,7 @@ def compute_hso(mol, dm0, amfi=True):
         hso_1e = mol.intor('int1e_prinvxp', comp=3)
         vj, vk = get_jk(mol, dm0)
         hso_2e = vj - vk * 1.5
-        hso = (alpha2 / 4) * (hso_1e + hso_2e)
+        hso = (alpha2 / 2) * (hso_1e + hso_2e)
     return hso * 1j
 
 def amfi_dm (mol, atomic_configuration=elements.CONFIGURATION):

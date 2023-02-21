@@ -2,8 +2,8 @@ import numpy as np
 from pyscf import gto
 
 def structure (dnn1=0, dnn2=0, basis='6-31g', symmetry=False):
-    f = open ('c2h6n4.xyz', 'r')
-    equilgeom = f.read ()
+    with open ('c2h6n4.xyz', 'r') as f:
+        equilgeom = f.read ()
     mol = gto.M (atom = equilgeom, basis = basis, symmetry=True, unit='au')
     atoms = tuple(mol.atom_symbol (i) for i in range (mol.natm))
     coords = mol.atom_coords ()
