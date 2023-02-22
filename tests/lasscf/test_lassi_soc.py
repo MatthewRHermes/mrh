@@ -1,5 +1,6 @@
 import unittest
 import numpy as np
+from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from c2h6n4_struct import structure as struct
 from mrh.my_pyscf.fci import csf_solver
@@ -7,6 +8,7 @@ from mrh.my_pyscf.mcscf.soc_int import compute_hso, amfi_dm
 from mrh.my_pyscf.mcscf.lassi_op_o0 import si_soc
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lassi import make_stdm12s, roots_make_rdm12s
+import itertools
 
 def setUpModule():
     global mol1, mf1, mol2, mf2, las2
@@ -125,10 +127,42 @@ class KnownValues (unittest.TestCase):
             self.assertAlmostEqual (lib.fp (e_test), lib.fp (eso_ref), 8)
 
     def test_soc_stdm12s (self):
-        pass
-        #stdm1s_test, stdm2s_test = make_stdm12s (las2, soc=True, opt=0)    
-        ## stationary test for roots_make_stdm12s
-  
+        stdm1s_test, stdm2s_test = make_stdm12s (las2, soc=True, opt=0)    
+        with self.subTest ('2-electron'):
+            self.assertAlmostEqual (linalg.norm (stdm2s_test), 12.835689640991259)
+        with self.subTest ('1-electron'):
+            self.assertAlmostEqual (linalg.norm (stdm1s_test), 5.719302474657559)
+        dm1s_test = np.einsum ('ipqi->ipq', stdm1s_test)
+        with self.subTest (oneelectron_sanity='diag'):
+            # LAS states are spin-pure: there should be nothing in the spin-breaking sector
+            self.assertAlmostEqual (np.amax(np.abs(dm1s_test[:,8:,:8])), 0)
+            self.assertAlmostEqual (np.amax(np.abs(dm1s_test[:,:8,8:])), 0)
+        # All the stuff below is about making sure that the nonzero part of this is in
+        # exactly the right spot
+        for i in range (1,5):
+            ifrag, ispin = divmod (i-1, 2)
+            jfrag = int (not bool (ifrag))
+            with self.subTest (oneelectron_sanity='hermiticity', ket=i):
+                self.assertAlmostEqual (lib.fp (stdm1s_test[0,:,:,i]),
+                                        lib.fp (stdm1s_test[i,:,:,0].conj ().T), 16)
+            d1 = stdm1s_test[0,:,:,i].reshape (2,2,4,2,2,4)
+            with self.subTest (oneelectron_sanity='fragment-local', ket=i):
+                self.assertAlmostEqual (np.amax(np.abs(d1[:,jfrag,:,:,:,:])), 0, 16)
+                self.assertAlmostEqual (np.amax(np.abs(d1[:,:,:,:,jfrag,:])), 0, 16)
+            d1 = d1[:,ifrag,:,:,ifrag,:]
+            with self.subTest (oneelectron_sanity='sf sector zero', ket=i):
+                self.assertAlmostEqual (np.amax(np.abs(d1[0,:,0,:])), 0, 16)
+                self.assertAlmostEqual (np.amax(np.abs(d1[1,:,1,:])), 0, 16)
+            with self.subTest (oneelectron_sanity='raising XOR lowering', ket=i):
+                if ispin:
+                    self.assertAlmostEqual (np.amax (np.abs (d1[1,:,0,:])), 0, 16)
+                    d1=d1[0,:,1,:]
+                else:
+                    self.assertAlmostEqual (np.amax (np.abs (d1[0,:,1,:])), 0, 16)
+                    d1=d1[1,:,0,:]
+            with self.subTest (oneelectron_sanity='nonzero S.O.C.', ket=i):
+                self.assertAlmostEqual (linalg.norm (d1), 1.1539613201047167, 8)
+
     def test_soc_rdm12s (self):
         pass
         #rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, si_ref, soc=True, opt=0)

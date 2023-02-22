@@ -148,6 +148,11 @@ class LSTDMint1 (object):
         get_pph (i,j): <i|s't't|j> = conj (<j|t'ts|i>)
         get_dm2 (i,j): <i|t1't2't2t1|j>
 
+        TODO: two-electron spin-broken components
+            <i|a'b'bb|j> & h.c. & a<->b
+            <i|a'a'bb|j> & a<->b
+        Req'd for 2e- relativistic (i.e., spin-breaking) operators
+
         Args:
             fcibox: instance of :class:`H1EZipFCISolver`
                 fcisolvers for the current fragment

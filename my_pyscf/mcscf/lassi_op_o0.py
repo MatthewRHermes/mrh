@@ -136,8 +136,8 @@ def si_soc (las, ci, nelec, norb):
             tm1 = lassi_dms.make_trans(-1, ici, jci, norb, inelec, jnelec)
 
             t = np.zeros((3, norb, norb), dtype=complex)
-            t[0] = (0.5 + 0j) * (tm1 - tp1)
-            t[1] = (0.5j + 0) * (tm1 + tp1)
+            t[0] = (0.5 + 0j) * (tm1 + tp1)
+            t[1] = (0.5j + 0) * (tm1 - tp1)
             t[2] = (np.sqrt(0.5) + 0j) * tze
 
             somat = np.einsum('rij, rij ->', t, hso)
@@ -250,22 +250,24 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
             Irrep ID for target matrix block
 
     Returns:
-        stdm1s : ndarray of shape (nroots, nroots, 2, ncas, ncas)
+        stdm1s : ndarray of shape (nroots, 2, ncas, ncas, nroots)
             One-body transition density matrices between LAS states
-        stdm2s : ndarray of shape [nroots,]*2 + [2,ncas,ncas,]*2
+        stdm2s : ndarray of shape [nroots,]+ [2,ncas,ncas,]*2 + [nroots,]
             Two-body transition density matrices between LAS states
     '''
     # Teffanie: we need to extend this to the spin-breaking blocks of the transition density
     # matrices
     mol = las.mol
     norb_f = las.ncas_sub
+    norb = sum (norb_f) 
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
                  for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
-    norb = sum (norb_f) 
-    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     nroots = len (ci_r)
+    spin_pure = len (set (nelec_r)) == 1
+
+    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     stdm1s = np.zeros ((nroots, nroots, 2, norb, norb),
         dtype=ci_r[0].dtype).transpose (0,2,3,4,1)
     stdm2s = np.zeros ((nroots, nroots, 2, norb, norb, 2, norb, norb),
@@ -281,7 +283,8 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
         stdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
         stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
 
-    for (i, (ci_bra, ne_bra)), (j, (ci_ket, ne_ket)) in combinations (enumerate (zip (ci_r, nelec_r)), 2):
+    spin_sector_offset = np.zeros ((nroots,nroots))
+    for (i,(ci_bra,ne_bra)), (j,(ci_ket,ne_ket)) in combinations(enumerate(zip(ci_r,nelec_r)),2):
         spin_bra = ne_bra[1] - ne_bra[0]
         spin_ket = ne_ket[0] - ne_ket[1]
         if ne_bra == ne_ket:
@@ -296,10 +299,26 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
                 q = spin % 2
                 stdm2s[i,p,:,:,q,:,:,j] = tdm2
                 stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
-        # Teffanie: the below is unnecessary; the whole arrays were initialized to zero anyway
-        #else:
-        #   stdm1s[i,:,:,:,j] =  stdm1s[j,:,:,:,i] = np.array(0)
-        #   stdm2s[i,:,:,:,:,:,:,j] = stdm2s[j,:,:,:,:,:,:,i] = np.array(0)
+        elif abs (spin_bra-spin_ket) == 2: # 1-electron spin-orbit coupling
+            m = (spin_bra-spin_ket)//2
+            spin_sector_offset[i,j] = m
+            spin_sector_offset[j,i] = -m
+            # put lowering operator at position 0, raising operator at position 1
+            stdm1s[i,int(m>0),:,:,j] = lassi_dms.make_trans (m, ci_bra, ci_ket, norb, ne_bra, ne_ket)
+            stdm1s[j,int(m<0),:,:,i] = stdm1s[i,int(m>0),:,:,j].conj ().T
+            #test = lassi_dms.make_trans (-m, ci_ket, ci_bra, norb, ne_ket, ne_bra)
+            #if abs (lib.fp (test) - lib.fp (stdm1s[j,int(m<0),:,:,i])) > 1e-8:
+            #    raise RuntimeError ("{}\n\n{}".format (test, stdm1s[j,0,:,:,i]))
+
+    if not spin_pure:
+        stdm1s_ = np.zeros ((nroots,nroots,2*norb,2*norb),dtype=stdm1s.dtype).transpose (0,2,3,1)
+        stdm1s_[:,:norb,:norb,:] = stdm1s[:,0,:,:,:]
+        stdm1s_[:,norb:,norb:,:] = stdm1s[:,1,:,:,:]
+        for i, j in zip (*np.where (spin_sector_offset)):
+            stdm1s_[i,norb:,:norb,j] = stdm1s[i,0,:,:,j]
+            stdm1s_[i,:norb,norb:,j] = stdm1s[i,1,:,:,j]
+            stdm1s_[i,:norb,:norb,j] = stdm1s_[i,norb:,norb:,j] = 0
+        stdm1s = stdm1s_
 
     return stdm1s, stdm2s 
 

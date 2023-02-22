@@ -311,17 +311,24 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
 
     norb = las.ncas
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
-    stdm1s = np.zeros ((las.nroots, las.nroots, 2, norb, norb),
-        dtype=ci[0][0].dtype).transpose (0,2,3,4,1)
+    if soc:
+        stdm1s = np.zeros ((las.nroots, las.nroots, 2*norb, 2*norb),
+            dtype=ci[0][0].dtype).transpose (0,2,3,1)
+    else:
+        stdm1s = np.zeros ((las.nroots, las.nroots, 2, norb, norb),
+            dtype=ci[0][0].dtype).transpose (0,2,3,4,1)
+    # TODO: 2e- spin-symmetry-broken sectors
     stdm2s = np.zeros ((las.nroots, las.nroots, 2, norb, norb, 2, norb, norb),
         dtype=ci[0][0].dtype).transpose (0,2,3,4,5,6,7,1)
+
 
     for rootsym in set (statesym):
         idx = np.all (np.array (statesym) == rootsym, axis=1)
         wfnsym = None if break_symmetry else rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        if (las.verbose > lib.logger.INFO) and (o0_memcheck):
+        # TODO: implement SOC in op_o1 and then re-enable the debugging block below
+        if (las.verbose > lib.logger.INFO) and (o0_memcheck) and False:
             d1s, d2s = op_o0.make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (
                 rootsym), *t0)
@@ -335,9 +342,9 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
                 'LASSI make_stdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (
                     rootsym, linalg.norm (d2s_test - d2s))) 
             errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
-            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
+            if np.amax (np.abs (errvec)) > 1e-8:#
                 raise LASSIOop01DisagreementError ("State-transition density matrices", errvec)
-            if opt == 0:
+            if opt == 1:
                 d1s = d1s_test
                 d2s = d2s_test
         else:
