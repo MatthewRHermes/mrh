@@ -287,7 +287,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             ci: list of list of ci vectors
             orbsym: None or list of orbital symmetries spanning the whole orbital space
             soc: logical
-                Whether to include the effects of spin-orbit coupling
+                Whether to include the effects of spin-orbit coupling (in the 1-RDMs only)
             break_symmetry: logical
                 Whether to allow coupling between states of different point-group irreps
             opt: Optimization level, i.e.,  take outer product of
@@ -295,9 +295,28 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
                 1: TDMs
 
         Returns:
-            stdm1s: ndarray of shape (nroots,2,ncas,ncas,nroots)
+            stdm1s: ndarray of shape (nroots,2,ncas,ncas,nroots) if soc==False;
+                or of shape (nroots,2*ncas,2*ncas,nroots) if soc==True.
             stdm2s: ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas,nroots)
     '''
+    # NOTE: A spin-pure dm1s is two ncas-by-ncas matrices,
+    #    _______    _______
+    #    |     |    |     |
+    #  [ | a'a | ,  | b'b | ]
+    #    |     |    |     |
+    #    -------    -------  
+    # Spin-orbit coupling generates the a'b and b'a sectors, which are
+    # in the missing off-diagonal sectors,
+    # _____________
+    # |     |     |  
+    # | a'a | a'b |  
+    # |     |     |  
+    # -------------
+    # |     |     |  
+    # | b'a | b'b |  
+    # |     |     |  
+    # -------------
+
     if ci is None: ci = las.ci
     if orbsym is None: 
         orbsym = getattr (las.mo_coeff, 'orbsym', None)
@@ -317,7 +336,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
     else:
         stdm1s = np.zeros ((las.nroots, las.nroots, 2, norb, norb),
             dtype=ci[0][0].dtype).transpose (0,2,3,4,1)
-    # TODO: 2e- spin-symmetry-broken sectors
+    # TODO: 2e- SOC
     stdm2s = np.zeros ((las.nroots, las.nroots, 2, norb, norb, 2, norb, norb),
         dtype=ci[0][0].dtype).transpose (0,2,3,4,5,6,7,1)
 
@@ -328,7 +347,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         # TODO: implement SOC in op_o1 and then re-enable the debugging block below
-        if (las.verbose > lib.logger.INFO) and (o0_memcheck) and False:
+        if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
             d1s, d2s = op_o0.make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (
                 rootsym), *t0)
@@ -348,7 +367,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
                 d1s = d1s_test
                 d2s = d2s_test
         else:
-            if (las.verbose > lib.logger.INFO): lib.logger.debug (
+            if not o0_memcheck: lib.logger.debug (
                 las, 'Insufficient memory to test against o0 LASSI algorithm')
             d1s, d2s = op[opt].make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (rootsym), *t0)
@@ -372,20 +391,27 @@ def roots_make_rdm12s (las, ci, si, soc=False, break_symmetry=False, orbsym=None
     # Symmetry tuple: neleca, nelecb, irrep
     norb = las.ncas
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
-    rdm1s = np.zeros ((las.nroots, 2, norb, norb),
-        dtype=ci[0][0].dtype)
+    if soc:
+        rdm1s = np.zeros ((las.nroots, 2*norb, 2*norb),
+            dtype=si.dtype)
+        rootsym = [(ne, wfnsym or 0) for ne, wfnsym in zip (si.nelec, si.wfnsym)]
+    else:
+        rdm1s = np.zeros ((las.nroots, 2, norb, norb),
+            dtype=si.dtype)
+        rootsym = [(ne[0], ne[1], wfnsym or 0) for ne, wfnsym in zip (si.nelec, si.wfnsym)]
+    # TODO: 2e- SOC
     rdm2s = np.zeros ((las.nroots, 2, norb, norb, 2, norb, norb),
-        dtype=ci[0][0].dtype)
-    rootsym = [(ne[0], ne[1], wfnsym) for ne, wfnsym in zip (si.nelec, si.wfnsym)]
+        dtype=si.dtype)
 
-    for sym in set (statesym):
+    for sym in set (rootsym):
         idx_ci = np.all (np.array (statesym) == sym, axis=1)
         idx_si = np.all (np.array (rootsym)  == sym, axis=1)
         wfnsym = None if break_symmetry else sym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
         si_blk = si[np.ix_(idx_ci,idx_si)]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        if (las.verbose > lib.logger.INFO) and (o0_memcheck):
+        # TODO: implement SOC in op_o1 and then re-enable the debugging block below
+        if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
             d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym,
                                                 wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym),
@@ -402,11 +428,11 @@ def roots_make_rdm12s (las, ci, si, soc=False, break_symmetry=False, orbsym=None
             errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
             if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in for op_o1
                 raise LASSIOop01DisagreementError ("LASSI mixed-state RDMs", errvec)
-            if opt == 0:
+            if opt == 1:
                 d1s = d1s_test
                 d2s = d2s_test
         else:
-            if (las.verbose > lib.logger.INFO): lib.logger.debug (las,
+            if not o0_memcheck: lib.logger.debug (las,
                 'Insufficient memory to test against o0 LASSI algorithm')
             d1s, d2s = op[opt].roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym,
                                                   wfnsym=wfnsym)
