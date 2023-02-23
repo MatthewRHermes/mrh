@@ -173,7 +173,7 @@ class KnownValues (unittest.TestCase):
                 self.assertAlmostEqual (linalg.norm (d1), 1.1539613201047167, 8)
 
     def test_soc_rdm12s (self):
-        rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, las2_si, soc=True, opt=0)
+        rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, las2_si, opt=0)
         stdm1s, stdm2s = make_stdm12s (las2, soc=True, opt=0)    
         rdm1s_ref = np.einsum ('ir,jr,iabj->rab', las2_si.conj (), las2_si, stdm1s)
         rdm2s_ref = np.einsum ('ir,jr,isabtcdj->rsabtcd', las2_si.conj (), las2_si, stdm2s)

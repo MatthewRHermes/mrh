@@ -130,7 +130,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
-    o0_memcheck = op_o0.memcheck (las, ci)
+    o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
@@ -255,7 +255,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     else:
         wfnsym_roots = [statesym[ix][-1] for ix in idx]
     si = si[:,idx]
-    si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots)
+    si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots,
+                    rootsym=rootsym, break_symmetry=break_symmetry, soc=soc)
     lib.logger.info (las, 'LASSI eigenvalues:')
     fmt_str = ' {:2s}  {:>16s}  {:6s}  '
     col_lbls = ['Nelec'] if soc else ['Neleca','Nelecb']
@@ -306,7 +307,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
     #    |     |    |     |
     #    -------    -------  
     # Spin-orbit coupling generates the a'b and b'a sectors, which are
-    # in the missing off-diagonal sectors,
+    # in the missing off-diagonal blocks,
     # _____________
     # |     |     |  
     # | a'a | a'b |  
@@ -324,7 +325,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
-    o0_memcheck = op_o0.memcheck (las, ci)
+    o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
@@ -377,28 +378,29 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             stdm2s[a,...,b] = d2s[i,...,j]
     return stdm1s, stdm2s
 
-def roots_make_rdm12s (las, ci, si, soc=False, break_symmetry=False, orbsym=None, opt=1):
+def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, opt=1):
+    '''Evaluate 1- and 2-electron reduced density matrices of LASSI states'''
     if orbsym is None: 
         orbsym = getattr (las.mo_coeff, 'orbsym', None)
         if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
-    o0_memcheck = op_o0.memcheck (las, ci)
+    if soc is None: soc = si.soc
+    if break_symmetry is None: break_symmetry = si.break_symmetry
+    o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
-
-    # Symmetry tuple: neleca, nelecb, irrep
     norb = las.ncas
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
+    rootsym = [tuple (x) for x in si.rootsym]
+
     if soc:
         rdm1s = np.zeros ((las.nroots, 2*norb, 2*norb),
             dtype=si.dtype)
-        rootsym = [(ne, wfnsym or 0) for ne, wfnsym in zip (si.nelec, si.wfnsym)]
     else:
         rdm1s = np.zeros ((las.nroots, 2, norb, norb),
             dtype=si.dtype)
-        rootsym = [(ne[0], ne[1], wfnsym or 0) for ne, wfnsym in zip (si.nelec, si.wfnsym)]
     # TODO: 2e- SOC
     rdm2s = np.zeros ((las.nroots, 2, norb, norb, 2, norb, norb),
         dtype=si.dtype)
