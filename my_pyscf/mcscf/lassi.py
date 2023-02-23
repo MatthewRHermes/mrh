@@ -14,6 +14,44 @@ op = (op_o0, op_o1)
 
 def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
     # Construct second-quantization Hamiltonian
+    # NOTE: In the spinorbital representation, the proper form of h1 is
+    # _____________
+    # |     |     |  
+    # | a'a | a'b |  
+    # |     |     |  
+    # -------------
+    # |     |     |  
+    # | b'a | b'b |  
+    # |     |     |  
+    # -------------
+    # where each square is a las.ncas x las.ncas matrix. In the spatial-orbital
+    # representation (i.e., current behavior), the content of h1 is
+    #        _______    _______
+    #        |     |    |     |
+    #  1/2 ( | a'a | +  | b'b | )
+    #        |     |    |     |
+    #        -------    -------  
+    # Spin-orbit coupling generates the a'b and b'a sectors, which are
+    # in the missing off-diagonal blocks, and the "antisymmetric" part
+    # of the diagonal blocks:
+    #        _______
+    #        |     |
+    #  S+:   | a'b |
+    #        |     |
+    #        ------- 
+    #        _______
+    #        |     |
+    #  S-:   | b'a |
+    #        |     |
+    #        -------
+    #            _______    _______
+    #            |     |    |     |
+    #  Sz: 1/2 ( | a'a | -  | b'b | )
+    #            |     |    |     |
+    #            -------    -------
+    # If h1 is generalized to the spinorbital representation, then downstream
+    # functions (e.g. lassi_op_o0.ham and lassi_op_o0.si_soc) will need to be
+    # edited to extract the particular "sectors" that they need.
     ncore, ncas, nocc = las.ncore, las.ncas, las.ncore + las.ncas
     mo_core = mo_coeff[:,:ncore]
     mo_cas = mo_coeff[:,ncore:nocc]
@@ -379,7 +417,34 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
     return stdm1s, stdm2s
 
 def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, opt=1):
-    '''Evaluate 1- and 2-electron reduced density matrices of LASSI states'''
+    '''Evaluate 1- and 2-electron reduced density matrices of LASSI states
+
+        Args:
+            las: LASCI object
+            ci: list of list of ci vectors
+            si: tagged ndarray of shape (nroots,nroots)
+               Linear combination vectors defining LASSI states.
+               Requires tag "rootsym"
+
+        Kwargs:
+            orbsym: None or list of orbital symmetries spanning the whole orbital space
+            soc: logical
+                Whether to include the effects of spin-orbit coupling (in the 1-RDMs only)
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            break_symmetry: logical
+                Whether to allow coupling between states of different point-group irreps
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            opt: Optimization level, i.e.,  take outer product of
+                0: CI vectors
+                1: TDMs
+
+        Returns:
+            rdm1s: ndarray of shape (nroots,2,ncas,ncas) if soc==False;
+                or of shape (nroots,2*ncas,2*ncas) if soc==True.
+            rdm2s: ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas)
+    '''
     if orbsym is None: 
         orbsym = getattr (las.mo_coeff, 'orbsym', None)
         if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):

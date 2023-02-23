@@ -34,6 +34,13 @@ def memcheck (las, ci, soc=None):
     return mem < max_memory
 
 def civec_spinless_repr (ci0_r, norb, nelec_r):
+    ''' Put CI vectors in the spinless representation; i.e., map
+            norb -> 2 * norb
+            (neleca, nelecb) -> (neleca+nelecb, 0)
+        This permits linear combinations of CI vectors with different
+        M == neleca-nelecb at the price of higher memory cost. This function
+        does NOT change the datatype.
+    '''
     nroots = len (ci0_r)
     nelec_r_tot = [sum (n) for n in nelec_r]
     if len (set (nelec_r_tot)) > 1:
