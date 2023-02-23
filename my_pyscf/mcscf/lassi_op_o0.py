@@ -10,19 +10,54 @@ from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.mcscf import lassi_dms as lassi_dms 
 
-def memcheck (las, ci):
+def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions!'''
     nfrags = len (ci)
     nroots = len (ci[0])
     assert (all ([len (c) == nroots for c in ci]))
-    mem = sum ([np.prod ([c[iroot].size for c in ci]) 
-        * np.amax ([c[iroot].dtype.itemsize for c in ci]) 
-        for iroot in range (nroots)]) / 1e6
+    if soc: # Complex numbers and spinless CI vectors
+        itemsize = np.dtype (complex).itemsize
+        nelec_fr = [[sum (_unpack_nelec (fcibox._get_nelec (solver, nelecas)))
+                     for solver in fcibox.fcisolvers]
+                    for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+        nelec_r = np.asarray (nelec_fr).sum (0)
+        mem = sum ([cistring.num_strings (2*las.ncas, nelec) for nelec in nelec_r])
+        mem *= itemsize / 1e6
+    else:
+        mem = sum ([np.prod ([c[iroot].size for c in ci]) 
+            * np.amax ([c[iroot].dtype.itemsize for c in ci]) 
+            for iroot in range (nroots)]) / 1e6
     max_memory = las.max_memory - lib.current_memory ()[0]
     lib.logger.debug (las, 
         "LASSI op_o0 memory check: {} MB needed of {} MB available ({} MB max)".format (mem,\
         max_memory, las.max_memory))
     return mem < max_memory
+
+def civec_spinless_repr (ci0_r, norb, nelec_r):
+    ''' Put CI vectors in the spinless representation; i.e., map
+            norb -> 2 * norb
+            (neleca, nelecb) -> (neleca+nelecb, 0)
+        This permits linear combinations of CI vectors with different
+        M == neleca-nelecb at the price of higher memory cost. This function
+        does NOT change the datatype.
+    '''
+    nroots = len (ci0_r)
+    nelec_r_tot = [sum (n) for n in nelec_r]
+    if len (set (nelec_r_tot)) > 1:
+        raise NotImplementedError ("Different particle-number subspaces")
+    nelec = nelec_r_tot[0]
+    ndet = cistring.num_strings (2*norb, nelec)
+    ci1_r = np.zeros ((nroots, ndet), dtype=ci0_r[0].dtype)
+    for ci0, ci1, ne in zip (ci0_r, ci1_r, nelec_r):
+        neleca, nelecb = _unpack_nelec (ne)
+        ndeta = cistring.num_strings (norb, neleca)
+        ndetb = cistring.num_strings (norb, nelecb)
+        strsa = cistring.addrs2str (norb, neleca, list(range(ndeta)))
+        strsb = cistring.addrs2str (norb, nelecb, list(range(ndetb)))
+        strs = np.add.outer (np.left_shift (strsa, norb), strsb).ravel ()
+        addrs = cistring.strs2addr (2*norb, nelec, strs)
+        ci1[addrs] = ci0[:,:].ravel ()
+    return ci1_r[:,:,None]
 
 def addr_outer_product (norb_f, nelec_f):
     '''Build index arrays for reshaping a direct product of LAS CI
@@ -136,8 +171,8 @@ def si_soc (las, ci, nelec, norb):
             tm1 = lassi_dms.make_trans(-1, ici, jci, norb, inelec, jnelec)
 
             t = np.zeros((3, norb, norb), dtype=complex)
-            t[0] = (0.5 + 0j) * (tm1 - tp1)
-            t[1] = (0.5j + 0) * (tm1 + tp1)
+            t[0] = (0.5 + 0j) * (tm1 + tp1)
+            t[1] = (0.5j + 0) * (tm1 - tp1)
             t[2] = (np.sqrt(0.5) + 0j) * tze
 
             somat = np.einsum('rij, rij ->', t, hso)
@@ -231,8 +266,6 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
 # "soc" here or in the next function.
 def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
-    TODO: extend to accomodate states of different ms being addressed
-    together, and then spin-orbit coupling.
 
     Args:
         las : instance of class LASSCF
@@ -250,28 +283,37 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
             Irrep ID for target matrix block
 
     Returns:
-        stdm1s : ndarray of shape (nroots, nroots, 2, ncas, ncas)
-            One-body transition density matrices between LAS states
-        stdm2s : ndarray of shape [nroots,]*2 + [2,ncas,ncas,]*2
+        stdm1s : ndarray of shape (nroots,2,ncas,ncas,nroots) OR (nroots,2*ncas,2*ncas,nroots)
+            One-body transition density matrices between LAS states.
+            If states with different spin projections (i.e., neleca-nelecb) are present, the 4d
+            spinorbital array is returned. Otherwise, the 5d spatial-orbital array is returned.
+        stdm2s : ndarray of shape [nroots,]+ [2,ncas,ncas,]*2 + [nroots,]
             Two-body transition density matrices between LAS states
     '''
-    # Teffanie: we need to extend this to the spin-breaking blocks of the transition density
-    # matrices
     mol = las.mol
     norb_f = las.ncas_sub
+    norb = sum (norb_f) 
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
                  for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
-    norb = sum (norb_f) 
-    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+    nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     nroots = len (ci_r)
+    if not len (set (nelec_r_spinless)) == 1:
+        raise NotImplementedError ("States with different numbers of electrons")
+    spin_pure = len (set (nelec_r)) == 1
+    if not spin_pure:
+        # Map to "spinless electrons": 
+        ci_r = civec_spinless_repr (ci_r, norb, nelec_r)
+        nelec_r = nelec_r_spinless
+        norb = 2 * norb
+        if orbsym is not None: orbsym *= 2
+
+    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     stdm1s = np.zeros ((nroots, nroots, 2, norb, norb),
         dtype=ci_r[0].dtype).transpose (0,2,3,4,1)
     stdm2s = np.zeros ((nroots, nroots, 2, norb, norb, 2, norb, norb),
         dtype=ci_r[0].dtype).transpose (0,2,3,4,5,6,7,1)
-    # Teffanie: I removed the conditional "if soc:" below because both blocks work for the
-    # spin-pure case
     for i, (ci, ne) in enumerate (zip (ci_r, nelec_r)):
         rdm1s, rdm2s = solver.make_rdm12s (ci, norb, ne)
         stdm1s[i,0,:,:,i] = rdm1s[0]
@@ -281,9 +323,12 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
         stdm2s[i,1,:,:,0,:,:,i] = rdm2s[1].transpose (2,3,0,1)
         stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
 
-    for (i, (ci_bra, ne_bra)), (j, (ci_ket, ne_ket)) in combinations (enumerate (zip (ci_r, nelec_r)), 2):
-        spin_bra = ne_bra[1] - ne_bra[0]
-        spin_ket = ne_ket[0] - ne_ket[1]
+    spin_sector_offset = np.zeros ((nroots,nroots))
+    for (i,(ci_bra,ne_bra)), (j,(ci_ket,ne_ket)) in combinations(enumerate(zip(ci_r,nelec_r)),2):
+        M_bra = ne_bra[1] - ne_bra[0]
+        M_ket = ne_ket[0] - ne_ket[1]
+        N_bra = sum (ne_bra)
+        N_ket = sum (ne_ket)
         if ne_bra == ne_ket:
             tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, ne_bra)
             # Transpose for 1TDM is backwards because of stupid PySCF convention
@@ -296,18 +341,24 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
                 q = spin % 2
                 stdm2s[i,p,:,:,q,:,:,j] = tdm2
                 stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
-        # Teffanie: the below is unnecessary; the whole arrays were initialized to zero anyway
-        #else:
-        #   stdm1s[i,:,:,:,j] =  stdm1s[j,:,:,:,i] = np.array(0)
-        #   stdm2s[i,:,:,:,:,:,:,j] = stdm2s[j,:,:,:,:,:,:,i] = np.array(0)
+
+    if not spin_pure: # cleanup the "spinless mapping"
+        stdm1s = stdm1s[:,0,:,:,:]
+        # TODO: 2e- spin-orbit coupling support in caller
+        n = norb // 2
+        stdm2s_ = np.zeros ((nroots, nroots, 2, n, n, 2, n, n),
+            dtype=ci_r[0].dtype).transpose (0,2,3,4,5,6,7,1)
+        stdm2s_[:,0,:,:,0,:,:,:] = stdm2s[:,0,:n,:n,0,:n,:n,:]
+        stdm2s_[:,0,:,:,1,:,:,:] = stdm2s[:,0,:n,:n,0,n:,n:,:]
+        stdm2s_[:,1,:,:,0,:,:,:] = stdm2s[:,0,n:,n:,0,:n,:n,:]
+        stdm2s_[:,1,:,:,1,:,:,:] = stdm2s[:,0,n:,n:,0,n:,n:,:]
+        stdm2s = stdm2s_
 
     return stdm1s, stdm2s 
 
 def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
-    TODO: extend to accomodate states of different ms being addressed
-    together, and then spin-orbit coupling.
 
     Args:
         las : instance of class LASSCF
@@ -328,38 +379,82 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
             Irrep ID for target matrix block
 
     Returns:
-        rdm1s : ndarray of length (nroots, 2, ncas, ncas)
+        rdm1s : ndarray of shape (nroots, 2, ncas, ncas) OR (nroots, 2*ncas, 2*ncas)
             One-body transition density matrices between LAS states
+            If states with different spin projections (i.e., neleca-nelecb) are present, the 3d
+            spinorbital array is returned. Otherwise, the 4d spatial-orbital array is returned.
         rdm2s : ndarray of length (nroots, 2, ncas, ncas, 2, ncas, ncas)
             Two-body transition density matrices between LAS states
     '''
-    # Teffanie: there are whole other sectors of transition density matrices that should be
-    # considered with soc: the <I|ap'bq|J> and <I|bp'aq|J> sectors, etc. Also, this will/should
-    # crash when different spin sectors are considered, so I put a NotImplementedError below.
     mol = las.mol
     norb_f = las.ncas_sub
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
                  for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
-    if len (set (nelec_r)) > 1:
-        raise NotImplementedError ("Reduced density matrices for spin-impure states")
-    norb = sum (norb_f)
-    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+    nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     nroots = len (ci_r)
-    ci_r = np.tensordot (si.conj ().T, np.stack (ci_r, axis=0), axes=1)
+    norb = sum (norb_f)
+    if not len (set (nelec_r_spinless)) == 1:
+        raise NotImplementedError ("States with different numbers of electrons")
+    spin_pure = len (set (nelec_r)) == 1
+    if not spin_pure:
+        # Map to "spinless electrons": 
+        ci_r = civec_spinless_repr (ci_r, norb, nelec_r)
+        nelec_r = nelec_r_spinless
+        norb = 2 * norb
+        if orbsym is not None: orbsym *= 2
+
+    ci_r = np.tensordot (si.T, np.stack (ci_r, axis=0), axes=1)
+    ci_r_real = np.ascontiguousarray (ci_r.real)
     rdm1s = np.zeros ((nroots, 2, norb, norb), dtype=ci_r.dtype)
     rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb), dtype=ci_r.dtype)
-    # Teffanie: again, you don't need the conditional if both blocks are nearly identical
-    # like this. Just leave the more general one.
-    for ix, (ci, ne) in enumerate (zip (ci_r, nelec_r)):
-        d1s, d2s = solver.make_rdm12s (ci, norb, ne)
+    is_complex = np.iscomplexobj (ci_r)
+    if is_complex:
+        #solver = fci.fci_dhf_slow.FCISolver (mol)
+        #for ix, (ci, ne) in enumerate (zip (ci_r, nelec_r)):
+        #    d1, d2 = solver.make_rdm12 (ci, norb, sum(ne))
+        #    rdm1s[ix,0,:,:] = d1[:]
+        #    rdm2s[ix,0,:,:,0,:,:] = d2[:]
+        # ^ this is WAY too slow!
+        ci_r_imag = np.ascontiguousarray (ci_r.imag)
+    else:
+        ci_r_imag = [0,]*nroots
+        #solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+    for ix, (ci_re, ci_im, ne) in enumerate (zip (ci_r_real, ci_r_imag, nelec_r)):
+        d1s, d2s = solver.make_rdm12s (ci_re, norb, ne)
+        d2s = (d2s[0], d2s[1], d2s[1].transpose (2,3,0,1), d2s[2])
+        if is_complex:
+            d1s = np.asarray (d1s, dtype=complex)
+            d2s = np.asarray (d2s, dtype=complex)
+            d1s2, d2s2 = solver.make_rdm12s (ci_im, norb, ne)
+            d2s2 = (d2s2[0], d2s2[1], d2s2[1].transpose (2,3,0,1), d2s2[2])
+            d1s += np.asarray (d1s2)
+            d2s += np.asarray (d2s2)
+            d1s2, d2s2 = solver.trans_rdm12s (ci_re, ci_im, norb, ne)
+            d1s2 -= np.asarray (d1s2).transpose (0,2,1)
+            d2s2 -= np.asarray (d2s2).transpose (0,2,1,4,3)
+            d1s -= 1j * d1s2 # Backwards PySCF 1RDM convention leads to minus
+            d2s += 1j * d2s2
         rdm1s[ix,0,:,:] = d1s[0]
         rdm1s[ix,1,:,:] = d1s[1]
         rdm2s[ix,0,:,:,0,:,:] = d2s[0]
         rdm2s[ix,0,:,:,1,:,:] = d2s[1]
-        rdm2s[ix,1,:,:,0,:,:] = d2s[1].transpose (2,3,0,1)
-        rdm2s[ix,1,:,:,1,:,:] = d2s[2]
+        rdm2s[ix,1,:,:,0,:,:] = d2s[2]
+        rdm2s[ix,1,:,:,1,:,:] = d2s[3]
+
+    if not spin_pure: # cleanup the "spinless mapping"
+        rdm1s = rdm1s[:,0,:,:]
+        # TODO: 2e- SOC
+        n = norb // 2
+        rdm2s_ = np.zeros ((nroots, 2, n, n, 2, n, n), dtype=ci_r.dtype)
+        rdm2s_[:,0,:,:,0,:,:] = rdm2s[:,0,:n,:n,0,:n,:n]
+        rdm2s_[:,0,:,:,1,:,:] = rdm2s[:,0,:n,:n,0,n:,n:]
+        rdm2s_[:,1,:,:,0,:,:] = rdm2s[:,0,n:,n:,0,:n,:n]
+        rdm2s_[:,1,:,:,1,:,:] = rdm2s[:,0,n:,n:,0,n:,n:]
+        rdm2s = rdm2s_
+
     return rdm1s, rdm2s
 
 if __name__ == '__main__':

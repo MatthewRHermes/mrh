@@ -68,7 +68,8 @@ def make_trans_rdm1(dspin, cibra, ciket, norb, nelec_bra, nelec_ket):
 def make_trans(m, cibra, ciket, norb, nelec_bra, nelec_ket):
 
     if m == 1:
-        return -1.0 * make_trans_rdm1('ab', cibra, ciket, norb, nelec_bra, nelec_ket).T
+        # MRH NOTE: the factor of -1 that used to be here makes no sense
+        return make_trans_rdm1('ab', cibra, ciket, norb, nelec_bra, nelec_ket).T
     elif m == -1:
         return make_trans_rdm1('ba', cibra, ciket, norb, nelec_bra, nelec_ket).T
     else:

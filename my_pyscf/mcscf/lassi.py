@@ -14,6 +14,44 @@ op = (op_o0, op_o1)
 
 def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
     # Construct second-quantization Hamiltonian
+    # NOTE: In the spinorbital representation, the proper form of h1 is
+    # _____________
+    # |     |     |  
+    # | a'a | a'b |  
+    # |     |     |  
+    # -------------
+    # |     |     |  
+    # | b'a | b'b |  
+    # |     |     |  
+    # -------------
+    # where each square is a las.ncas x las.ncas matrix. In the spatial-orbital
+    # representation (i.e., current behavior), the content of h1 is
+    #        _______    _______
+    #        |     |    |     |
+    #  1/2 ( | a'a | +  | b'b | )
+    #        |     |    |     |
+    #        -------    -------  
+    # Spin-orbit coupling generates the a'b and b'a sectors, which are
+    # in the missing off-diagonal blocks, and the "antisymmetric" part
+    # of the diagonal blocks:
+    #        _______
+    #        |     |
+    #  S+:   | a'b |
+    #        |     |
+    #        ------- 
+    #        _______
+    #        |     |
+    #  S-:   | b'a |
+    #        |     |
+    #        -------
+    #            _______    _______
+    #            |     |    |     |
+    #  Sz: 1/2 ( | a'a | -  | b'b | )
+    #            |     |    |     |
+    #            -------    -------
+    # If h1 is generalized to the spinorbital representation, then downstream
+    # functions (e.g. lassi_op_o0.ham and lassi_op_o0.si_soc) will need to be
+    # edited to extract the particular "sectors" that they need.
     ncore, ncas, nocc = las.ncore, las.ncas, las.ncore + las.ncas
     mo_core = mo_coeff[:,:ncore]
     mo_cas = mo_coeff[:,ncore:nocc]
@@ -130,7 +168,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
-    o0_memcheck = op_o0.memcheck (las, ci)
+    o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
@@ -255,7 +293,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     else:
         wfnsym_roots = [statesym[ix][-1] for ix in idx]
     si = si[:,idx]
-    si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots)
+    si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots,
+                    rootsym=rootsym, break_symmetry=break_symmetry, soc=soc)
     lib.logger.info (las, 'LASSI eigenvalues:')
     fmt_str = ' {:2s}  {:>16s}  {:6s}  '
     col_lbls = ['Nelec'] if soc else ['Neleca','Nelecb']
@@ -287,7 +326,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             ci: list of list of ci vectors
             orbsym: None or list of orbital symmetries spanning the whole orbital space
             soc: logical
-                Whether to include the effects of spin-orbit coupling
+                Whether to include the effects of spin-orbit coupling (in the 1-RDMs only)
             break_symmetry: logical
                 Whether to allow coupling between states of different point-group irreps
             opt: Optimization level, i.e.,  take outer product of
@@ -295,9 +334,28 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
                 1: TDMs
 
         Returns:
-            stdm1s: ndarray of shape (nroots,2,ncas,ncas,nroots)
+            stdm1s: ndarray of shape (nroots,2,ncas,ncas,nroots) if soc==False;
+                or of shape (nroots,2*ncas,2*ncas,nroots) if soc==True.
             stdm2s: ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas,nroots)
     '''
+    # NOTE: A spin-pure dm1s is two ncas-by-ncas matrices,
+    #    _______    _______
+    #    |     |    |     |
+    #  [ | a'a | ,  | b'b | ]
+    #    |     |    |     |
+    #    -------    -------  
+    # Spin-orbit coupling generates the a'b and b'a sectors, which are
+    # in the missing off-diagonal blocks,
+    # _____________
+    # |     |     |  
+    # | a'a | a'b |  
+    # |     |     |  
+    # -------------
+    # |     |     |  
+    # | b'a | b'b |  
+    # |     |     |  
+    # -------------
+
     if ci is None: ci = las.ci
     if orbsym is None: 
         orbsym = getattr (las.mo_coeff, 'orbsym', None)
@@ -305,23 +363,30 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
-    o0_memcheck = op_o0.memcheck (las, ci)
+    o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     norb = las.ncas
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
-    stdm1s = np.zeros ((las.nroots, las.nroots, 2, norb, norb),
-        dtype=ci[0][0].dtype).transpose (0,2,3,4,1)
+    if soc:
+        stdm1s = np.zeros ((las.nroots, las.nroots, 2*norb, 2*norb),
+            dtype=ci[0][0].dtype).transpose (0,2,3,1)
+    else:
+        stdm1s = np.zeros ((las.nroots, las.nroots, 2, norb, norb),
+            dtype=ci[0][0].dtype).transpose (0,2,3,4,1)
+    # TODO: 2e- SOC
     stdm2s = np.zeros ((las.nroots, las.nroots, 2, norb, norb, 2, norb, norb),
         dtype=ci[0][0].dtype).transpose (0,2,3,4,5,6,7,1)
+
 
     for rootsym in set (statesym):
         idx = np.all (np.array (statesym) == rootsym, axis=1)
         wfnsym = None if break_symmetry else rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        if (las.verbose > lib.logger.INFO) and (o0_memcheck):
+        # TODO: implement SOC in op_o1 and then re-enable the debugging block below
+        if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
             d1s, d2s = op_o0.make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (
                 rootsym), *t0)
@@ -335,13 +400,13 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
                 'LASSI make_stdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (
                     rootsym, linalg.norm (d2s_test - d2s))) 
             errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
-            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
+            if np.amax (np.abs (errvec)) > 1e-8:#
                 raise LASSIOop01DisagreementError ("State-transition density matrices", errvec)
-            if opt == 0:
+            if opt == 1:
                 d1s = d1s_test
                 d2s = d2s_test
         else:
-            if (las.verbose > lib.logger.INFO): lib.logger.debug (
+            if not o0_memcheck: lib.logger.debug (
                 las, 'Insufficient memory to test against o0 LASSI algorithm')
             d1s, d2s = op[opt].make_stdm12s (las, ci_blk, idx, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (rootsym), *t0)
@@ -351,34 +416,69 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             stdm2s[a,...,b] = d2s[i,...,j]
     return stdm1s, stdm2s
 
-def roots_make_rdm12s (las, ci, si, soc=False, break_symmetry=False, orbsym=None, opt=1):
+def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, opt=1):
+    '''Evaluate 1- and 2-electron reduced density matrices of LASSI states
+
+        Args:
+            las: LASCI object
+            ci: list of list of ci vectors
+            si: tagged ndarray of shape (nroots,nroots)
+               Linear combination vectors defining LASSI states.
+               Requires tag "rootsym"
+
+        Kwargs:
+            orbsym: None or list of orbital symmetries spanning the whole orbital space
+            soc: logical
+                Whether to include the effects of spin-orbit coupling (in the 1-RDMs only)
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            break_symmetry: logical
+                Whether to allow coupling between states of different point-group irreps
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            opt: Optimization level, i.e.,  take outer product of
+                0: CI vectors
+                1: TDMs
+
+        Returns:
+            rdm1s: ndarray of shape (nroots,2,ncas,ncas) if soc==False;
+                or of shape (nroots,2*ncas,2*ncas) if soc==True.
+            rdm2s: ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas)
+    '''
     if orbsym is None: 
         orbsym = getattr (las.mo_coeff, 'orbsym', None)
         if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
-    o0_memcheck = op_o0.memcheck (las, ci)
+    if soc is None: soc = si.soc
+    if break_symmetry is None: break_symmetry = si.break_symmetry
+    o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
-
-    # Symmetry tuple: neleca, nelecb, irrep
     norb = las.ncas
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
-    rdm1s = np.zeros ((las.nroots, 2, norb, norb),
-        dtype=ci[0][0].dtype)
-    rdm2s = np.zeros ((las.nroots, 2, norb, norb, 2, norb, norb),
-        dtype=ci[0][0].dtype)
-    rootsym = [(ne[0], ne[1], wfnsym) for ne, wfnsym in zip (si.nelec, si.wfnsym)]
+    rootsym = [tuple (x) for x in si.rootsym]
 
-    for sym in set (statesym):
+    if soc:
+        rdm1s = np.zeros ((las.nroots, 2*norb, 2*norb),
+            dtype=si.dtype)
+    else:
+        rdm1s = np.zeros ((las.nroots, 2, norb, norb),
+            dtype=si.dtype)
+    # TODO: 2e- SOC
+    rdm2s = np.zeros ((las.nroots, 2, norb, norb, 2, norb, norb),
+        dtype=si.dtype)
+
+    for sym in set (rootsym):
         idx_ci = np.all (np.array (statesym) == sym, axis=1)
         idx_si = np.all (np.array (rootsym)  == sym, axis=1)
         wfnsym = None if break_symmetry else sym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
         si_blk = si[np.ix_(idx_ci,idx_si)]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        if (las.verbose > lib.logger.INFO) and (o0_memcheck):
+        # TODO: implement SOC in op_o1 and then re-enable the debugging block below
+        if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
             d1s, d2s = op_o0.roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym,
                                                 wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym),
@@ -395,11 +495,11 @@ def roots_make_rdm12s (las, ci, si, soc=False, break_symmetry=False, orbsym=None
             errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
             if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in for op_o1
                 raise LASSIOop01DisagreementError ("LASSI mixed-state RDMs", errvec)
-            if opt == 0:
+            if opt == 1:
                 d1s = d1s_test
                 d2s = d2s_test
         else:
-            if (las.verbose > lib.logger.INFO): lib.logger.debug (las,
+            if not o0_memcheck: lib.logger.debug (las,
                 'Insufficient memory to test against o0 LASSI algorithm')
             d1s, d2s = op[opt].roots_make_rdm12s (las, ci_blk, idx_ci, si_blk, orbsym=orbsym,
                                                   wfnsym=wfnsym)
