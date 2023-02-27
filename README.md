@@ -5,8 +5,8 @@ GPL research code of Matthew R. Hermes
 MC-PDFT and MC-DCFT modules (other than a few experimental features) have been *moved to [pyscf-forge](https://github.com/pyscf/pyscf-forge)* and are currently in the process of being removed from this project.
 
 ### DEPENDENCIES:
-- PySCF, including all header files in pyscf/lib (most recently checked commit: 0df2ead0c, v2.1.1)
-- [pyscf-forge](https://github.com/pyscf/pyscf-forge) (most recently checked commit: b77ec30be)
+- PySCF, including all header files in pyscf/lib (most recently checked commit: 8b3fef8cf, v2.1.1)
+- [pyscf-forge](https://github.com/pyscf/pyscf-forge) (most recently checked commit: 51e546b3b)
 
 ### INSTALLATION:
 - cd /path/to/mrh/lib
