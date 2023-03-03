@@ -13,6 +13,12 @@ from mrh.lib.helper import load_library
 from pyscf.fci.direct_spin1_symm import _gen_strs_irrep
 libcsf = load_library ('libcsf')
 
+class ImpossibleCIvecError (RuntimeError):
+    pass
+
+class ImpossibleSpinError (ImpossibleCIvecError):
+    pass
+
 class CSFTransformer (lib.StreamObject):
     def __init__(self, norb, neleca, nelecb, smult, orbsym=None, wfnsym=None):
         self._norb = self._neleca = self._nelecb = self._smult = self._orbsym = None
@@ -339,7 +345,8 @@ def transform_civec_det2csf (detarr, norb, neleca, nelecb, smult, csd_mask=None,
         nvec = len (detarr)
         detarr = np.ascontiguousarray (detarr)
     else:
-        assert (detarr.size % ndet == 0), 'Impossible CI vector size {0} for system with {1} determinants'.format (detarr.size, ndet)
+        if (detarr.size % ndet != 0):
+            raise ImpossibleCIvecError ('Impossible CI vector size {0} for system with {1} determinants'.format (detarr.size, ndet))
         nvec = detarr.size // ndet
         is_flat = len (detarr.shape) == 1
     if vec_on_cols:
@@ -412,7 +419,8 @@ def transform_civec_csf2det (csfarr, norb, neleca, nelecb, smult, csd_mask=None,
         nvec = len (csfarr)
         csfarr = np.ascontiguousarray (csfarr)
     else:
-        assert (csfarr.size % ncsf == 0), 'Impossible CI vector size {0} for system with {1} CSFs'.format (csfarr.size, ncsf)
+        if (csfarr.size % ncsf != 0):
+            raise ImpossibleCIvecError ('Impossible CI vector size {0} for system with {1} CSFs'.format (csfarr.size, ncsf))
         nvec = csfarr.size // ncsf
         is_flat = len (csfarr.shape) == 1
     if vec_on_cols:
@@ -798,7 +806,8 @@ def get_csfvec_shape (norb, neleca, nelecb, smult):
     ms = (neleca - nelecb) / 2
     #assert (neleca >= nelecb)
     nless = min (neleca, nelecb)
-    assert (abs (neleca - nelecb) <= smult - 1), "Impossible quantum numbers: s = {}; ms = {}".format (s, ms)
+    if (abs (neleca-nelecb) > smult - 1):
+        raise ImpossibleSpinError ("Impossible quantum numbers: s = {}; ms = {}".format (s, ms))
     min_npair = max (0, neleca + nelecb - norb)
     nspins = [neleca + nelecb - 2*npair for npair in range (min_npair, nless+1)]
     nfreeorbs = [norb - npair for npair in range (min_npair, nless+1)]
