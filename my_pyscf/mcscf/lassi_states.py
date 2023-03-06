@@ -121,6 +121,9 @@ class SingleLASState (object):
 
 def all_single_excitations (las):
     from mrh.my_pyscf.mcscf.lasci import get_state_info
+    from mrh.my_pyscf.mcscf.lasci import LASCISymm
+    if isinstance (las, LASCISymm):
+        raise NotImplementedError ("Point-group symmetry for LASSI state generator")
     ref_states = [SingleLASState (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
     for weight, state in zip (las.weights, ref_states): state.weight = weight
     new_states = []
