@@ -3,7 +3,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 
 class ImpurityMole (gto.Mole):
     def __init__(self, las, nelec_imp):
-        self.las = las
+        self._las = las
         self.verbose = las.verbose
         self.max_memory = las.max_memory
         self._update_nelec_imp_(nelec_imp)
@@ -25,8 +25,9 @@ class ImpurityMole (gto.Mole):
 class ImpuritySCF (scf.hf.SCF):
     def _update_space_(self, imporb_coeff, nelec_imp, veff, dm1s, de=0):
         self.mol._update_nelec_imp (nelec_imp)
+        self._imporb_coeff = imporb_coeff
         nimp = self._nimp = imporb_coeff.shape[1]
-        mf = self.mol.las._scf
+        mf = self.mol._las._scf
         # Two-electron integrals
         if hasattr (mf, '_eri'):
             self._eri = ao2mo.full (mf._eri, imporb_coeff, 4)
@@ -84,17 +85,17 @@ class ImpuritySCF (scf.hf.SCF):
 
 class ImpurityROHF (scf.rohf.ROHF, ImpuritySCF):
     get_hcore = ImpuritySCF.get_hcore
-    get_ovlp = ImpuritySCF.get_hcore
-    get_fock = ImpuritySCF.get_hcore
-    energy_nuc = ImpuritySCF.get_hcore
-    energy_elec = ImpuritySCF.get_hcore
+    get_ovlp = ImpuritySCF.get_ovlp
+    get_fock = ImpuritySCF.get_fock
+    energy_nuc = ImpuritySCF.energy_nuc
+    energy_elec = ImpuritySCF.energy_elec
 
 class ImpurityRHF (scf.hf.RHF, ImpuritySCF):
     get_hcore = ImpuritySCF.get_hcore
-    get_ovlp = ImpuritySCF.get_hcore
-    get_fock = ImpuritySCF.get_hcore
-    energy_nuc = ImpuritySCF.get_hcore
-    energy_elec = ImpuritySCF.get_hcore
+    get_ovlp = ImpuritySCF.get_ovlp
+    get_fock = ImpuritySCF.get_fock
+    energy_nuc = ImpuritySCF.energy_nuc
+    energy_elec = ImpuritySCF.energy_elec
 
 def ImpurityHF (mol):
     if mol.spin == 0: return ImpurityRHF (mol)
@@ -102,11 +103,50 @@ def ImpurityHF (mol):
 
 # This is the really tricky part
 def ImpurityCASSCF (mcscf.mc1step.CASSCF):
-    def _update_space_(self, mo_coeff, ci, ifrag, imporb_coeff, nelec_imp, veff, dm1s, de=0):
+    def _update_space_(self, mo_coeff, ci, imporb_coeff, nelec_imp, veff, dm1s, de=0):
         self._scf._update_space_(imporb_coeff, nelec_imp, veff, dm1s, de=de)
-        # Two-body correction to _scf._imporb_h0 is better computed here
-        eri_cas = self.get_h2eff (np.eye (self.ncas))
+
+    def _update_keyframe (self, mo_coeff, ci):
+        # Project mo_coeff and ci keyframe into impurity space and cache
+        las = self.mol._las
+        mf = las._scf
+        ifrag = self._ifrag
+        imporb_coeff = self._scf._imporb_coeff
+        self.ci = ci[_ifrag]
+        # Inactive orbitals
+        mo_core = mo_coeff[:,:las.ncore]
+        s0 = mf.get_ovlp ()
+        ovlp = imporb_coeff.conj ().T @ s0 @ mo_core
+        self.mo_coeff, svals, vh = linalg.svd (ovlp)
+        assert (self.mo_coeff.shape == imporb_coeff.shape)
+        self.ncore = np.count_nonzero (np.isclose (svals, 1))
+        # Active and virtual orbitals (note self.ncas must be set at construction)
+        nocc = self.ncore + self.ncas
+        i = las.ncore + sum (las.ncas_sub[:_ifrag])
+        j = i + las.ncas_sub[_ifrag]
+        mo_las = mo_coeff[:,i:j]
+        ovlp = (imporb_coeff @ self.mo_coeff[:,self.ncore:]).conj ().T @ s0 @ mo_las
+        u, svals, vh = linalg.svd (ovlp)
+        assert (np.allclose(svals[:self.ncas], 1))
+        u[:,:self.ncas] = u[:,:self.ncas] @ vh
+        self.mo_coeff[:,self.ncore:] = self.mo_coeff[:,self.ncore:] @ u
+        # Canonicalize core and virtual spaces
         casdm1s, casdm2s = self.fcisolver.make_rdm12s (ci, self.ncas, self.nelecas)
+        mo_core = self.mo_coeff[:,:self.ncore]
+        mo_cas = self.mo_coeff[:,self.ncore:nocc]
+        dm1s = np.dot (mo_cas, np.dot (casdm1s, mo_cas.conj ().T)).transpose (1,0,2)
+        dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
+        fock = self._scf.get_fock (dm=dm1s)
+        mo_core = self.mo_coeff[:,:self.ncore]
+        fock_core = mo_core.conj ().T @ fock @ mo_core
+        w, c = linalg.eigh (fock_core)
+        self.mo_coeff[:,:self.ncore] = mo_core @ c
+        mo_virt = self.mo_coeff[:,nocc:]
+        fock_virt = mo_virt.conj ().T @ fock @ mo_virt
+        w, c = linalg.eigh (fock_virt)
+        self.mo_coeff[:,nocc:] = mo_virt @ c
+        # Two-body correction to _scf._imporb_h0 is better computed here
+        eri_cas = self.get_h2eff (mo_cas)
         casdm1 = casdm1s[0] + casdm1s[1]
         casdm2 = casdm2s[0] + casdm2s[1] + casdm2s[1].transpose (2,3,0,1) + casdm2s[2]
         casdm2 -= np.multiply.outer (casdm1, casdm1)
@@ -114,6 +154,24 @@ def ImpurityCASSCF (mcscf.mc1step.CASSCF):
         casdm2 += np.multiply.outer (casdm1s[1], casdm1s[1]).transpose (0,3,2,1)
         de = np.dot (eri_cas.ravel (), casdm2.ravel ()) / 2
         self._scf._imporb_h0 -= de
+
+    def _update_ci_meanfields (self, mo_coeff, ci, casdm1rs=None):
+        # What's an efficient way to do this?
+        # I'm stuck between
+        #  1. Building a fixed, large dh1e few times
+        #  2. Building a smaller, updating dh1e many times
+        las = self.mol._las
+        if casdm1rs is None: casdm1rs = las.states_make_casdm1s (ci=ci)
+        casdm1s = np.tensordot (las.weights, casdm1rs, axes=1)
+        dcasdm1rs = casdm1rs - casdm1s
+        i = sum (las.ncas_sub[:self._ifrag])
+        j = i + las.ncas_sub[self._ifrag]
+        dcasdm1rs = np.stack (dcasdm1rs[:,:,:i,:], dcasdm1rs[:,:,j:,:], axis=2)
+        dcasdm1rs = np.stack (dcasdm1rs[:,:,:,:i], dcasdm1rs[:,:,:,j:], axis=3)
+        mo_cas = mo_coeff[:,las.ncore:][:,:las.ncas]
+        mo_olas = np.stack (mo_cas[:,:i], mo_cas[:,j:], axis=1)
+
+
 
     #def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
     #    mo_cas = mo_coeff[:,mc.ncore:][:,:mc.ncas]
