@@ -69,18 +69,18 @@ class SingleLASState (object):
         a_nelecb = (self.nelelas[a]-charges[a]-spins[a]) // 2
         i_ncsf = CSFTransformer (self.nlas[i], i_neleca, i_nelecb, smults[i]).ncsf
         a_ncsf = CSFTransformer (self.nlas[a], a_neleca, a_nelecb, smults[a]).ncsf
-        if (i_neleca==self.nlas[i]) and (i_nelecb==self.nlas[i]) and (smults[i]>1):
-            raise ImpossibleSpinError ("norb = {}; nelec = {}; smult = {}".format (
-                self.nlas[i], (i_neleca, i_nelecb), smults[i]))
+        #if (i_neleca==self.nlas[i]) and (i_nelecb==self.nlas[i]) and (smults[i]>1):
+        #    raise ImpossibleSpinError ("too few orbitals?", norb=self.nlas[i],
+        #                               neleca=i_neleca, nelecb=i_nelecb, smults=smults[i])
         if (a_neleca==self.nlas[a]) and (a_nelecb==self.nlas[a]) and (smults[a]>1):
-            raise ImpossibleSpinError ("norb = {}; nelec = {}; smult = {}".format (
-                self.nlas[a], (a_neleca, a_nelecb), smults[a]))
+            raise ImpossibleSpinError ("too few orbitals?", norb=self.nlas[a],
+                                       neleca=a_neleca, nelecb=a_nelecb, smult=smults[a])
         if (i_neleca==0) and (i_nelecb==0) and (smults[i]>1):
-            raise ImpossibleSpinError ("norb = {}; nelec = {}; smult = {}".format (
-                self.nlas[i], (i_neleca, i_nelecb), smults[i]))
-        if (a_neleca==0) and (a_nelecb==0) and (smults[a]>1):
-            raise ImpossibleSpinError ("norb = {}; nelec = {}; smult = {}".format (
-                self.nlas[a], (a_neleca, a_nelecb), smults[a]))
+            raise ImpossibleSpinError ("too few electrons?", norb=self.nlas[i],
+                                       neleca=i_neleca, nelecb=i_nelecb, smult=smults[i])
+        #if (a_neleca==0) and (a_nelecb==0) and (smults[a]>1):
+        #    raise ImpossibleSpinError ("too few electrons?", norb=self.nlas[a],
+        #                               neleca=a_neleca, nelecb=a_nelecb, smults=smults[a])
         log.info ("spin={} electron from {} to {}".format (dm, i, a))
         log.info ("c,m,s=[{},{},{}]->c,m,s=[{},{},{}]; {},{} CSFs".format (
             self.charges, self.spins, self.smults,
@@ -95,28 +95,47 @@ class SingleLASState (object):
         return SingleLASState (self.las, spins, smults, charges, 0, nlas=self.nlas,
                                nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
 
+    def get_valid_smult_change (self, i, dneleca, dnelecb):
+        assert ((abs (dneleca) + abs (dnelecb)) == 1)
+        dsmult = []
+        neleca = self.neleca[i] + dneleca
+        nelecb = self.nelecb[i] + dnelecb
+        new_2ms = neleca - nelecb
+        min_smult = abs (new_2ms)+1
+        min_npair = max (0, neleca+nelecb - self.nlas[i])
+        max_smult = 1+neleca+nelecb-(2*min_npair)
+        if self.smults[i]>min_smult: dsmult.append (-1)
+        if self.smults[i]<max_smult: dsmult.append (+1)
+        return dsmult
+        
+
     def get_singles (self):
+        log = logger.new_logger (self, self.verbose)
         # move 1 alpha electron
         has_ea = np.where (self.neleca > 0)[0]
         has_ha = np.where (self.nholea > 0)[0]
         singles = []
         for i, a in itertools.product (has_ea, has_ha):
             if i==a: continue
-            for si, sa in itertools.product (range (-1,2,2), repeat=2):
+            si_range = self.get_valid_smult_change (i, -1, 0)
+            sa_range = self.get_valid_smult_change (a,  1, 0)
+            for si, sa in itertools.product (si_range, sa_range):
                 try:
                     singles.append (self.get_single (i,a,0,si,sa))
                 except ImpossibleSpinError as e:
-                    pass
+                    log.info ('Caught ImpossibleSpinError: {}'.format (e.__dict__))
         # move 1 beta electron
         has_eb = np.where (self.nelecb > 0)[0]
         has_hb = np.where (self.nholeb > 0)[0]
         for i, a in itertools.product (has_eb, has_hb):
             if i==a: continue
-            for si, sa in itertools.product (range (-1,2,2), repeat=2):
+            si_range = self.get_valid_smult_change (i, 0, -1)
+            sa_range = self.get_valid_smult_change (a, 0,  1)
+            for si, sa in itertools.product (si_range, sa_range):
                 try:
                     singles.append (self.get_single (i,a,1,si,sa))
                 except ImpossibleSpinError as e:
-                    pass
+                    log.info ('Caught ImpossibleSpinError: {}'.format (e.__dict__))
         return singles
 
 def all_single_excitations (las):

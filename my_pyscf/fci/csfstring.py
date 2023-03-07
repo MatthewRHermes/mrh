@@ -14,10 +14,22 @@ from pyscf.fci.direct_spin1_symm import _gen_strs_irrep
 libcsf = load_library ('libcsf')
 
 class ImpossibleCIvecError (RuntimeError):
-    pass
+    def __init__(self, message, ndet=None, ncsf=None, norb=None, neleca=None, nelecb=None):
+        self.message = message
+        self.ndet = ndet
+        self.ncsf = ncsf
+        self.norb = norb
+        self.neleca = neleca
+        self.nelecb = nelecb
+        
+    def __str__(self):
+        return self.message
 
 class ImpossibleSpinError (ImpossibleCIvecError):
-    pass
+    def __init__(self, message, ndet=None, ncsf=None, norb=None, neleca=None, nelecb=None, smult=None):
+        ImpossibleCIvecError.__init__(self, message, ndet=ndet, ncsf=ncsf, norb=norb,
+                                      neleca=neleca, nelecb=nelecb)
+        self.smult = smult
 
 class CSFTransformer (lib.StreamObject):
     def __init__(self, norb, neleca, nelecb, smult, orbsym=None, wfnsym=None):
@@ -346,7 +358,9 @@ def transform_civec_det2csf (detarr, norb, neleca, nelecb, smult, csd_mask=None,
         detarr = np.ascontiguousarray (detarr)
     else:
         if (detarr.size % ndet != 0):
-            raise ImpossibleCIvecError ('Impossible CI vector size {0} for system with {1} determinants'.format (detarr.size, ndet))
+            raise ImpossibleCIvecError (('Impossible CI vector size {0} for system with {1} '
+                                         'determinants').format (detarr.size, ndet), ndet=ndet,
+                                        norb=norb, neleca=neleca, nelecb=nelecb)
         nvec = detarr.size // ndet
         is_flat = len (detarr.shape) == 1
     if vec_on_cols:
@@ -420,7 +434,9 @@ def transform_civec_csf2det (csfarr, norb, neleca, nelecb, smult, csd_mask=None,
         csfarr = np.ascontiguousarray (csfarr)
     else:
         if (csfarr.size % ncsf != 0):
-            raise ImpossibleCIvecError ('Impossible CI vector size {0} for system with {1} CSFs'.format (csfarr.size, ncsf))
+            raise ImpossibleCIvecError (('Impossible CI vector size {0} for system with {1} '
+                                         'CSFs').format (csfarr.size, ncsf), ncsf=ncsf, norb=norb,
+                                        neleca=neleca, nelecb=nelecb, smult=smult)
         nvec = csfarr.size // ncsf
         is_flat = len (csfarr.shape) == 1
     if vec_on_cols:
@@ -807,7 +823,8 @@ def get_csfvec_shape (norb, neleca, nelecb, smult):
     #assert (neleca >= nelecb)
     nless = min (neleca, nelecb)
     if (abs (neleca-nelecb) > smult - 1):
-        raise ImpossibleSpinError ("Impossible quantum numbers: s = {}; ms = {}".format (s, ms))
+        raise ImpossibleSpinError ("Impossible quantum numbers: s = {}; ms = {}".format (s, ms),
+                                   norb=norb, neleca=neleca, nelecb=nelecb, smult=smult)
     min_npair = max (0, neleca + nelecb - norb)
     nspins = [neleca + nelecb - 2*npair for npair in range (min_npair, nless+1)]
     nfreeorbs = [norb - npair for npair in range (min_npair, nless+1)]
