@@ -69,20 +69,14 @@ class SingleLASState (object):
         a_nelecb = (self.nelelas[a]-charges[a]-spins[a]) // 2
         i_ncsf = CSFTransformer (self.nlas[i], i_neleca, i_nelecb, smults[i]).ncsf
         a_ncsf = CSFTransformer (self.nlas[a], a_neleca, a_nelecb, smults[a]).ncsf
-        #if (i_neleca==self.nlas[i]) and (i_nelecb==self.nlas[i]) and (smults[i]>1):
-        #    raise ImpossibleSpinError ("too few orbitals?", norb=self.nlas[i],
-        #                               neleca=i_neleca, nelecb=i_nelecb, smults=smults[i])
         if (a_neleca==self.nlas[a]) and (a_nelecb==self.nlas[a]) and (smults[a]>1):
             raise ImpossibleSpinError ("too few orbitals?", norb=self.nlas[a],
                                        neleca=a_neleca, nelecb=a_nelecb, smult=smults[a])
         if (i_neleca==0) and (i_nelecb==0) and (smults[i]>1):
             raise ImpossibleSpinError ("too few electrons?", norb=self.nlas[i],
                                        neleca=i_neleca, nelecb=i_nelecb, smult=smults[i])
-        #if (a_neleca==0) and (a_nelecb==0) and (smults[a]>1):
-        #    raise ImpossibleSpinError ("too few electrons?", norb=self.nlas[a],
-        #                               neleca=a_neleca, nelecb=a_nelecb, smults=smults[a])
-        log.info ("spin={} electron from {} to {}".format (dm, i, a))
-        log.info ("c,m,s=[{},{},{}]->c,m,s=[{},{},{}]; {},{} CSFs".format (
+        log.debug ("spin={} electron from {} to {}".format (dm, i, a))
+        log.debug ("c,m,s=[{},{},{}]->c,m,s=[{},{},{}]; {},{} CSFs".format (
             self.charges, self.spins, self.smults,
             charges, spins, smults,
             i_ncsf, a_ncsf))
@@ -96,7 +90,7 @@ class SingleLASState (object):
                                nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
 
     def get_valid_smult_change (self, i, dneleca, dnelecb):
-        assert ((abs (dneleca) + abs (dnelecb)) == 1)
+        assert ((abs (dneleca) + abs (dnelecb)) == 1), 'Function only implemented for +-1 e-'
         dsmult = []
         neleca = self.neleca[i] + dneleca
         nelecb = self.nelecb[i] + dnelecb
@@ -123,7 +117,7 @@ class SingleLASState (object):
                 try:
                     singles.append (self.get_single (i,a,0,si,sa))
                 except ImpossibleSpinError as e:
-                    log.info ('Caught ImpossibleSpinError: {}'.format (e.__dict__))
+                    log.debug ('Caught ImpossibleSpinError: {}'.format (e.__dict__))
         # move 1 beta electron
         has_eb = np.where (self.nelecb > 0)[0]
         has_hb = np.where (self.nholeb > 0)[0]
@@ -135,12 +129,13 @@ class SingleLASState (object):
                 try:
                     singles.append (self.get_single (i,a,1,si,sa))
                 except ImpossibleSpinError as e:
-                    log.info ('Caught ImpossibleSpinError: {}'.format (e.__dict__))
+                    log.debug ('Caught ImpossibleSpinError: {}'.format (e.__dict__))
         return singles
 
 def all_single_excitations (las):
     from mrh.my_pyscf.mcscf.lasci import get_state_info
     from mrh.my_pyscf.mcscf.lasci import LASCISymm
+    log = logger.new_logger (las, las.verbose)
     if isinstance (las, LASCISymm):
         raise NotImplementedError ("Point-group symmetry for LASSI state generator")
     ref_states = [SingleLASState (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
@@ -155,6 +150,8 @@ def all_single_excitations (las):
     spins = [state.spins for state in all_states]
     smults = [state.smults for state in all_states]
     #wfnsyms = [state.wfnsyms for state in all_states]
+    log.info ('Built {} singly-excited LAS states from {} reference LAS states'.format (
+        len (all_states) - len (ref_states), len (ref_states)))
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
 
@@ -195,6 +192,14 @@ if __name__=='__main__':
     casdm1 = lassi.roots_make_rdm12s (las3, las3.ci, si)[0][0].sum (0)
     no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
     molden.from_mo (las.mol, 'lassi_states.lassisd.molden', no_coeff, ene=no_ene, occ=no_occ)
+    #las4 = all_single_excitations (las3)
+    #las4.lasci ()
+    #e_roots, si = las4.lassi ()
+    #elas3 = e_roots[0]
+    #print ("LASSI(SDT):", elas3)
+    #casdm1 = lassi.roots_make_rdm12s (las4, las4.ci, si)[0][0].sum (0)
+    #no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
+    #molden.from_mo (las.mol, 'lassi_states.lassisdt.molden', no_coeff, ene=no_ene, occ=no_occ)
     mc = mcscf.CASCI (mf, (10), (5,5)).set (fcisolver=csf_solver (mol, smult=1))
     mc.kernel (mo_coeff=las.mo_coeff)
     ecas = mc.e_tot
