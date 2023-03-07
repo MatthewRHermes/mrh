@@ -7,12 +7,13 @@ from pyscf import lib, symm
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
+from mrh.my_pyscf.mcscf import soc_int as soc_int
 
 LINDEP_THRESHOLD = 1.0e-5
 
 op = (op_o0, op_o1)
 
-def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
+def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=False):
     # Construct second-quantization Hamiltonian
     # NOTE: In the spinorbital representation, the proper form of h1 is
     # _____________
@@ -61,8 +62,21 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
         veff_c = las.get_veff (dm1s=dm_core)
     if h2eff_sub is None:
         h2eff_sub = las.ao2mo (mo_coeff)
+    if soc:
+        dm0 = soc_int.amfi_dm (las.mol)
+        hsoao = soc_int.compute_hso(las.mol, dm0, amfi=True)
+        hso = np.einsum('rij, ip, jq -> rpq', hsoao, las.mo_coeff[:, las.ncore:las.ncore + norb],
+            las.mo_coeff[:, las.ncore:las.ncore + norb])
+        
+        h1 = np.zeros ((2*ncas, 2*ncas), dtype=complex)
+        h1[ncas:2*ncas,0:ncas] = hso[0] + 0j * hso[1]
+        h1[0:ncas,ncas:2*ncas] = hso[1] - 0j * hso[0]
+        #fix line below
+        h1[0:ncas,0:ncas] = h1[ncas:2*ncas,ncas:2*ncas] = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
+    else:
+        h1 = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
+
     e0 = las._scf.energy_nuc () + 2 * (((hcore + veff_c/2) @ mo_core) * mo_core).sum ()
-    h1 = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
     h2 = h2eff_sub[ncore:nocc].reshape (ncas*ncas, ncas * (ncas+1) // 2)
     h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
     return e0, h1, h2
@@ -173,7 +187,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     # Construct second-quantization Hamiltonian
-    e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None)
+    e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=False)
 
     # Symmetry tuple: neleca, nelecb, irrep
     statesym, s2_states = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)
