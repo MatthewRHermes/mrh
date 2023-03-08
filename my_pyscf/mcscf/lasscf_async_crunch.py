@@ -16,17 +16,20 @@ class ImpurityMole (gto.Mole):
             self.output = output
         self.build ()
 
-    def _update_nelec_imp_(self, nelec_imp):
+    def _update_space (self, imporb_coeff, nelec_imp):
+        self._imporb_coeff = imporb_coeff
         nelec_imp = _unpack_nelec (nelec_imp)
         self.nelectron = sum (nelec_imp)
         self.spin = nelec_imp[0] - nelec_imp[1]
-        
+
+    def get_imporb_coeff (self): return self._imporb_coeff
+    def nao_nr (self): return self._imporb_coeff.shape[-1]
+    def nao (self): return self._imporb_coeff.shape[-1]
 
 class ImpuritySCF (scf.hf.SCF):
-    def _update_space_(self, imporb_coeff, nelec_imp, veff, dm1s, de=0):
-        self.mol._update_nelec_imp (nelec_imp)
-        self._imporb_coeff = imporb_coeff
-        nimp = self._nimp = imporb_coeff.shape[1]
+    def _update_heff_(self, veff, dm1s, de=0):
+        imporb_coeff = self.mol.get_imporb_coeff ()
+        nimp = self.mol.nao ()
         mf = self.mol._las._scf
         # Two-electron integrals
         if hasattr (mf, '_eri'):
@@ -61,8 +64,16 @@ class ImpuritySCF (scf.hf.SCF):
     def get_hcore (self):
         return self._imporb_h1
 
+    def get_hcore_sz (self):
+        return self._imporb_h1_sz
+
+    def get_hcore_spinsep (self):
+        h1c = self.get_hcore ()
+        h1s = self.get_hcore_sz ()
+        return np.stack ([h1c+h1s, h1c-h1s], axis=0)
+
     def get_ovlp (self):
-        return np.eye (self._nimp)
+        return np.eye (self.mol.nao ())
 
     def energy_nuc (self):
         return self._imporb_h0
@@ -71,8 +82,8 @@ class ImpuritySCF (scf.hf.SCF):
         diis_start_cycle=None, level_shift_factor=None, damp_factor=None):
 
         if vhf is None: vhf = self.get_veff (self.mol, dm)
-        vhf[0] += self._imporb_h1_sz
-        vhf[1] -= self._imporb_h1_sz
+        vhf[0] += self.get_hcore_sz ()
+        vhf[1] -= self.get_hcore_sz ()
         return super().get_fock (h1e=h1e, s1e=s1e, vhf=vhf, dm=dm, cycle=cycle, diis=diis,
             diis_start_cycle=diis_start_cycle, level_shift_factor=level_shift_factor,
             damp_factor=damp_factor)
@@ -80,7 +91,7 @@ class ImpuritySCF (scf.hf.SCF):
     def energy_elec (self, dm=None, h1e=None, vhf=None):
         if dm is None: dm = self.make_rdm1 ()
         e_elec, e_coul = super().energy_elec (dm=dm, h1e=h1e, vhf=vhf)
-        e_elec += (self._imporb_h1_sz * (dm[0] - dm[1])).sum ()
+        e_elec += (self.get_hcore_sz () * (dm[0] - dm[1])).sum ()
         return e_elec, e_coul
 
 class ImpurityROHF (scf.rohf.ROHF, ImpuritySCF):
@@ -103,15 +114,13 @@ def ImpurityHF (mol):
 
 # This is the really tricky part
 def ImpurityCASSCF (mcscf.mc1step.CASSCF):
-    def _update_space_(self, mo_coeff, ci, imporb_coeff, nelec_imp, veff, dm1s, de=0):
-        self._scf._update_space_(imporb_coeff, nelec_imp, veff, dm1s, de=de)
 
     def _update_keyframe (self, mo_coeff, ci):
         # Project mo_coeff and ci keyframe into impurity space and cache
         las = self.mol._las
         mf = las._scf
         ifrag = self._ifrag
-        imporb_coeff = self._scf._imporb_coeff
+        imporb_coeff = self.mol.get_imporb_coeff ()
         self.ci = ci[_ifrag]
         # Inactive orbitals
         mo_core = mo_coeff[:,:las.ncore]
@@ -155,23 +164,54 @@ def ImpurityCASSCF (mcscf.mc1step.CASSCF):
         de = np.dot (eri_cas.ravel (), casdm2.ravel ()) / 2
         self._scf._imporb_h0 -= de
 
-    def _update_ci_meanfields (self, mo_coeff, ci, casdm1rs=None):
-        # What's an efficient way to do this?
-        # I'm stuck between
-        #  1. Building a fixed, large dh1e few times
-        #  2. Building a smaller, updating dh1e many times
+    def _update_hcore_cishift (self, mo_coeff, ci, casdm1rs=None, h2eff_sub=None):
         las = self.mol._las
         if casdm1rs is None: casdm1rs = las.states_make_casdm1s (ci=ci)
         casdm1s = np.tensordot (las.weights, casdm1rs, axes=1)
-        dcasdm1rs = casdm1rs - casdm1s
+        dm1rs = casdm1rs - casdm1s
         i = sum (las.ncas_sub[:self._ifrag])
         j = i + las.ncas_sub[self._ifrag]
-        dcasdm1rs = np.stack (dcasdm1rs[:,:,:i,:], dcasdm1rs[:,:,j:,:], axis=2)
-        dcasdm1rs = np.stack (dcasdm1rs[:,:,:,:i], dcasdm1rs[:,:,:,j:], axis=3)
+        dm1rs = np.stack (dm1rs[:,:,:i,:], dm1rs[:,:,j:,:], axis=2)
+        dm1rs = np.stack (dm1rs[:,:,:,:i], dm1rs[:,:,:,j:], axis=3)
         mo_cas = mo_coeff[:,las.ncore:][:,:las.ncas]
         mo_olas = np.stack (mo_cas[:,:i], mo_cas[:,j:], axis=1)
+        bPmu = getattr (h2eff_sub, 'bPmu')
+        if bPmu is not None:
+            bPmu = np.stack (bPmu[...,:i], bPmu[...,j:], axis=-1)
+            vj_r = self.get_vj_ext (mo_olas, dm1rs, bPmu=bPmu).sum (1)
+            vk_rs = self.get_vk_ext (mo_olas, dm1rs, bPmu=bPmu)
+            vext = vj_r[:,None,:,:] - vk_rs
+        else:
+            raise NotImplementedError ("Non-DF version")
+        self._imporb_h1_cishift = vext
 
+    def get_vj_ext (self, mo_ext, dm1rs_ext, bPmu=None):
+        if bPmu is not None:
+            bPuu = np.tensordot (bPmu, mo_ext, axes=((1),(0)))
+            return np.tensordot (bPuu, dm1rs_ext, axes=((1,2),(-2,-1)))
+        else: # Safety case: AO-basis SCF driver
+            output_shape = list (dm1rs.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
+            dm1 = dm1rs.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
+            dm1 = np.dot (mo_ext.conj ().T, np.dot (dm1, mo_ext)).transpose (1,0,2)
+            return self.mol._las.scf.get_j (dm1).reshape (*output_shape)
 
+    def get_vk_ext (self, mo_ext, dm1rs_ext, bPmu=None):
+        imporb_coeff = self.mol.get_imporb_coeff ()
+        if bPmu is not None:
+            bPiu = np.tensordot (bPmu, imporb_coeff, axes=((1),(0)))
+            vuPi = np.tensordot (dm1rs_ext, bPiu, axes=((-1),(-1)))
+            return np.tensordot (bPiu, vuPi, axes=((0,2),(-2,-3)))
+        else: # Safety case: AO-basis SCF driver
+            output_shape = list (dm1rs.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
+            dm1 = dm1rs.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
+            dm1 = np.dot (mo_ext.conj ().T, np.dot (dm1, mo_ext)).transpose (1,0,2)
+            return self.mol._las.scf.get_k (dm1).reshape (*output_shape)
+            
+    def get_hcore_cishift (self):
+        return self._imporb_h1_cishift
+
+    def get_hcore_ci (self):
+        return self._scf.get_hcore_spinsep ()[None,:,:,:] + self.get_hcore_cishift ()
 
     #def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
     #    mo_cas = mo_coeff[:,mc.ncore:][:,:mc.ncas]
