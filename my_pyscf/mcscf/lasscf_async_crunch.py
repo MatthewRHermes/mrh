@@ -1,4 +1,4 @@
-from pyscf import gto, scf, mcscf, ao2mo
+from pyscf import gto, scf, mcscf, ao2mo, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
 
 class ImpurityMole (gto.Mole):
@@ -112,6 +112,33 @@ def ImpurityHF (mol):
     if mol.spin == 0: return ImpurityRHF (mol)
     else: return ImpurityROHF (mol)
 
+# Monkeypatch the monkeypatch from mc1step.py
+def _fake_h_for_fast_casci(casscf, mo, eris):
+    mc = copy.copy(casscf)
+    mc.mo_coeff = mo
+    ncore = casscf.ncore
+    nocc = ncore + casscf.ncas
+
+    mo_core = mo[:,:ncore]
+    mo_cas = mo[:,ncore:nocc]
+    core_dm = numpy.dot(mo_core, mo_core.T) * 2
+    hcore = casscf.get_hcore()
+    hcore_sz = casscf._scf.get_hcore_sz()
+    hcore = np.stack ([hcore+hcore_sz, hcore-hcore_sz], axis=0)
+    hcore = hcore[None,:,:,:] + casscf.get_hcore_cishift ()
+    energy_core = casscf.energy_nuc()
+    energy_core += numpy.einsum('ij,ji', core_dm, hcore)
+    energy_core += eris.vhf_c[:ncore,:ncore].trace()
+    h1eff = np.tensordot (mo_cas.conj (), np.dot (hcore, mo_cas), axes=((0),(2))).transpose (1,2,0,3)
+    h1eff += eris.vhf_c[None,None,ncore:nocc,ncore:nocc]
+    
+    mc.get_h1eff = lambda *args: (h1eff, energy_core)
+
+    eri_cas = eris.ppaa[ncore:nocc,ncore:nocc,:,:].copy()
+    mc.get_h2eff = lambda *args: eri_cas
+    return mc
+
+
 # This is the really tricky part
 def ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
@@ -213,11 +240,21 @@ def ImpurityCASSCF (mcscf.mc1step.CASSCF):
     def get_hcore_ci (self):
         return self._scf.get_hcore_spinsep ()[None,:,:,:] + self.get_hcore_cishift ()
 
-    #def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
-    #    mo_cas = mo_coeff[:,mc.ncore:][:,:mc.ncas]
-    #    h1e_s_amo[:,:] = amoH @ h1e_s @ amo
-    #    return super().casci (mo_coeff, ci0=ci0, eris=eris, verbose=verbose, envs=envs)
+    def get_h1eff (self, mo_coeff=None, ncas=None, ncore=None):
+        ''' must needs change the dimension of h1eff '''
+        h1_avg_spinless, energy_core = self.h1e_for_cas (mo_coeff, ncas, ncore)[1]
+        mo_cas = mo_coeff[:,ncore:][:,:ncas]
+        h1_avg_sz = mo_cas.conj ().T @ self._scf.get_hcore_sz () @ mo_cas
+        h1_avg = np.stack ([h1_avg_spinless + h1_avg_sz, h1_avg_spinless - h1_avg_sz], axis=0)
+        h1 += mo_cas.conj ().T @ self.get_hcore_cishift () @ mo_cas
+        return h1, energy_core
 
+    def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
+        from pyscf.mcscf import mc1step
+        with lib.temporary_env (mc1step, _fake_h_for_fast_casci=_fake_h_for_fast_casci):
+             e_tot, e_cas, fcivec = super().casci (mo_coeff, ci0=ci0, eris=eris, verbose=verbose,
+                                                   envs=envs)
+        return e_tot, e_cas, fcivec
 
 
 
