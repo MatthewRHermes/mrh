@@ -190,11 +190,11 @@ class KnownValues (unittest.TestCase):
             self.assertAlmostEqual (linalg.norm (rdm2s_test), 11.399865962223883)
         with self.subTest ('1-electron'):
             self.assertAlmostEqual (linalg.norm (rdm1s_test), 4.478325182276608)
-        e0, h1, h2 = ham_2q (las2, las2.mo_coeff)
+        e0, h1, h2 = ham_2q (las2, las2.mo_coeff, soc=True)
         rdm2_test = rdm2s_test.sum ((1,4))
         # Teffanie: once you have modified ham_2q, delete "block_diag" below
         # When you've done it correctly, the following test will pass
-        h1 = linalg.block_diag (h1,h1)
+#        h1 = linalg.block_diag (h1,h1)
         e1 = np.einsum ('pq,ipq->i', h1, rdm1s_test)
         e2 = np.einsum ('pqrs,ipqrs->i', h2, rdm2_test) * .5
         e_test = e0 + e1 + e2

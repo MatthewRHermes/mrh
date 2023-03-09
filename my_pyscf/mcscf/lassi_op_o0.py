@@ -151,15 +151,9 @@ def si_soc (las, h1, ci, nelec, norb):
 
 ### function adapted from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
 
-    au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
+#    au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
     nroots = len(ci)
     hsiso = np.zeros((nroots, nroots), dtype=complex)
-
-#    dm0 = soc_int.amfi_dm (las.mol)
-    
-#    hsoao = soc_int.compute_hso(las.mol, dm0, amfi=True)
-#    hso = np.einsum('rij, ip, jq -> rpq', hsoao, las.mo_coeff[:, las.ncore:las.ncore + norb],
-#            las.mo_coeff[:, las.ncore:las.ncore + norb])
     ncas = las.ncas
     hso_p1 = h1[ncas:2*ncas,0:ncas]
     hso_m1 = h1[0:ncas,ncas:2*ncas]
@@ -174,18 +168,19 @@ def si_soc (las, h1, ci, nelec, norb):
             tze = lassi_dms.make_trans(0, ici, jci, norb, inelec, jnelec)
             tm1 = lassi_dms.make_trans(-1, ici, jci, norb, inelec, jnelec)
 
-#            t = np.zeros((3, norb, norb), dtype=complex)
-#            t[0] = (0.5 + 0j) * (tm1 + tp1)
-#            t[1] = (0.5j + 0) * (tm1 - tp1)
-#            t[2] = (np.sqrt(0.5) + 0j) * tze
+            if tp1.shape == ():
+                tp1 = np.zeros((ncas,ncas))
+            if tze.shape == ():
+                tze = np.zeros((ncas,ncas))
+            if tm1.shape == ():
+                tm1 = np.zeros((ncas,ncas))
 
-#            somat = np.einsum('rij, rij ->', t, hso)
-            somat_p1 = np.einsum('rij, rij ->', tp1, hso_p1)
-            somat_m1 = np.einsum('rij, rij ->', tm1, hso_m1)
-            somat_ze = np.einsum('rij, rij ->', tze, hso_ze)
+            somat = np.einsum('ri, ri ->', tm1, hso_p1)
+            somat += np.einsum('ri, ri ->', tp1, hso_m1)
+            somat = somat/2
+            somat += np.einsum('ri, ri ->', tze, hso_ze)
 
             hsiso[istate, jstate] = somat
-
             if istate!= jstate:
                 hsiso[jstate, istate] = somat.conj()
 #            somat *= au2cm
@@ -247,8 +242,10 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
     nroots = len(ci_r)
     # Teffanie: note that absorb_h1e here required knowledge of nelec.
     ham_ci = []
+    ncas = las.ncas
+    h1_sf = (h1[0:ncas,0:ncas] + h1[ncas:2*ncas,ncas:2*ncas]).real/2
     for ci, nelec in zip (ci_r, nelec_r):
-        h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
+        h2eff = solver.absorb_h1e (h1_sf, h2, norb, nelec, 0.5)
         ham_ci.append (solver.contract_2e (h2eff, ci, norb, nelec))
     s2_ci = [contract_ss (c, norb, ne) for c, ne in zip(ci_r, nelec_r)]
 
