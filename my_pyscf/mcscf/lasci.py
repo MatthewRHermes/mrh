@@ -203,12 +203,13 @@ def density_fit (las, auxbasis=None, with_df=None):
             with_df.verbose = las.verbose
             with_df.auxbasis = auxbasis
     class DFLASCI (las_class, _DFLASCI):
-        def __init__(self, my_las):
-            self.__dict__.update(my_las.__dict__)
-            #self.grad_update_dep = 0
+        def __init__(self, scf, ncas, nelecas):
             self.with_df = with_df
             self._keys = self._keys.union(['with_df'])
-    return DFLASCI (las)
+            las_class.__init__(self, scf, ncas, nelecas)
+    new_las = DFLASCI (las._scf, las.ncas, las.nelecas)
+    new_las.__dict__.update (las.__dict__)
+    return new_las
 
 def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None, ncas_sub=None,
                  nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None, casdm1frs=None):
