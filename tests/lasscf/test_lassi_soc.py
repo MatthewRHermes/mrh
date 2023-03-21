@@ -105,16 +105,24 @@ class KnownValues (unittest.TestCase):
         au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
         hso_test *= au2cm
         hso_test = np.around (hso_test, 8)
+        # Align relative signs: 0 - 1,3,5 block (all imaginary; vide supra)
+        for i in (1,3,5):
+            if np.sign (hso_test.imag[i,0]) != np.sign (hso_ref.imag[i,0]):
+                hso_test[i,:] *= -1
+                hso_test[:,i] *= -1
+        # Align relative signs: 2 - 4,6 block (all real; vide supra)
+        for i in (4,6):
+            if np.sign (hso_test.real[i,2]) != np.sign (hso_ref.real[i,2]):
+                hso_test[i,:] *= -1
+                hso_test[:,i] *= -1
         for i, j in zip (*np.where (hso_ref)):
             with self.subTest (hso=(i,j)):
-                # The spin-pure states have arbitrary sign, but they're all
-                # real, so it's just +- 1. I want to do this instead of abs
-                # because whether something's on the real or imaginary number
-                # line should be consistent.
                 try:
                     self.assertAlmostEqual (hso_test[i,j],hso_ref[i,j],1)
-                except AssertionError:
-                    self.assertAlmostEqual (hso_test[i,j],-hso_ref[i,j],1)
+                except AssertionError as e:
+                    if abs (hso_test[i,j]+hso_ref[i,j]) < 0.05:
+                        raise AssertionError ("Sign fix failed for element",i,j)
+                    raise (e)
                 # NOTE: 0.1 cm-1 -> 0.5 * 10^-6 au. These are actually tight checks.
 
 
