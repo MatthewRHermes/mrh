@@ -115,6 +115,7 @@ class KnownValues (unittest.TestCase):
                     self.assertAlmostEqual (hso_test[i,j],hso_ref[i,j],1)
                 except AssertionError:
                     self.assertAlmostEqual (hso_test[i,j],-hso_ref[i,j],1)
+                # NOTE: 0.1 cm-1 -> 0.5 * 10^-6 au. These are actually tight checks.
 
 
     def test_soc_2frag (self):
