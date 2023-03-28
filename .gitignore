@@ -22,3 +22,5 @@ Makefile
 *.swp
 *.chk
 
+# OSX
+.DS_Store

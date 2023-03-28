@@ -1,0 +1,11 @@
+INSTALL = /lus/grand/projects/catalyst/proj-shared/knight/projects/Jasper/mini_dint/
+
+FC = ftn
+FCFLAGS = -g -O3 -mp
+
+CXX = CC
+CXXFLAGS = -g -O3 -mp
+
+CXXFLAGS += -D_USE_CPU
+
+LD = $(FC)
