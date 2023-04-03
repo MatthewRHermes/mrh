@@ -243,7 +243,9 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
     # Teffanie: note that absorb_h1e here required knowledge of nelec.
     ham_ci = []
     ncas = las.ncas
-    h1_sf = (h1[0:ncas,0:ncas] + h1[ncas:2*ncas,ncas:2*ncas]).real/2
+    h1_sf = h1
+    if soc:
+        h1_sf = (h1[0:ncas,0:ncas] + h1[ncas:2*ncas,ncas:2*ncas]).real/2
     for ci, nelec in zip (ci_r, nelec_r):
         h2eff = solver.absorb_h1e (h1_sf, h2, norb, nelec, 0.5)
         ham_ci.append (solver.contract_2e (h2eff, ci, norb, nelec))

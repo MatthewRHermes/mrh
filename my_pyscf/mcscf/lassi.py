@@ -227,7 +227,10 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
                 rootsym), *t0)
 
-            h1_sf = (h1[0:las.ncas,0:las.ncas] - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
+            h1_sf = h1
+            if soc:
+                h1_sf = (h1[0:las.ncas,0:las.ncas]
+                         - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
             ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1_sf, h2, ci_blk, idx, orbsym=orbsym,
                                                    wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
