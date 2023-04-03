@@ -147,19 +147,17 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
 # Teffanie: I would rather "hso" be computed by the caller (lassi.py) and passed as part of h1 or in
 # addition to h1, because that makes it more general for later on if we want to do X2C, other kinds
 # of SOMF, etc. 
-def si_soc (las, ci, nelec, norb):
+def si_soc (las, h1, ci, nelec, norb):
 
 ### function adapted from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
 
-    au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
+#    au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
     nroots = len(ci)
     hsiso = np.zeros((nroots, nroots), dtype=complex)
-
-    #dm0 = las.mol.make_rdm1() # potentially replace with pre-calculated atomic densities used in AMFI
-    dm0 = soc_int.amfi_dm (las.mol)
-    hsoao = soc_int.compute_hso(las.mol, dm0, amfi=True)
-    hso = np.einsum('rij, ip, jq -> rpq', hsoao, las.mo_coeff[:, las.ncore:las.ncore + norb],
-            las.mo_coeff[:, las.ncore:las.ncore + norb])
+    ncas = las.ncas
+    hso_p1 = h1[ncas:2*ncas,0:ncas]
+    hso_m1 = h1[0:ncas,ncas:2*ncas]
+    hso_ze = (h1[0:ncas,0:ncas] - h1[ncas:2*ncas,ncas:2*ncas])/2 
 
     for istate, (ici, inelec) in enumerate(zip(ci, nelec)):
         for jstate, (jci, jnelec) in enumerate(zip(ci, nelec)):
@@ -170,17 +168,22 @@ def si_soc (las, ci, nelec, norb):
             tze = lassi_dms.make_trans(0, ici, jci, norb, inelec, jnelec)
             tm1 = lassi_dms.make_trans(-1, ici, jci, norb, inelec, jnelec)
 
-            t = np.zeros((3, norb, norb), dtype=complex)
-            t[0] = (0.5 + 0j) * (tm1 + tp1)
-            t[1] = (0.5j + 0) * (tm1 - tp1)
-            t[2] = (np.sqrt(0.5) + 0j) * tze
+            if tp1.shape == ():
+                tp1 = np.zeros((ncas,ncas))
+            if tze.shape == ():
+                tze = np.zeros((ncas,ncas))
+            if tm1.shape == ():
+                tm1 = np.zeros((ncas,ncas))
 
-            somat = np.einsum('rij, rij ->', t, hso)
+            somat = np.einsum('ri, ri ->', tm1, hso_p1)
+            somat += np.einsum('ri, ri ->', tp1, hso_m1)
+            somat = somat/2
+            somat += np.einsum('ri, ri ->', tze, hso_ze)
+
             hsiso[istate, jstate] = somat
-
             if istate!= jstate:
                 hsiso[jstate, istate] = somat.conj()
-            somat *= au2cm
+#            somat *= au2cm
 
     #heigso, hvecso = np.linalg.eigh(hsiso)
 
@@ -239,8 +242,10 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
     nroots = len(ci_r)
     # Teffanie: note that absorb_h1e here required knowledge of nelec.
     ham_ci = []
+    ncas = las.ncas
+    h1_sf = (h1[0:ncas,0:ncas] + h1[ncas:2*ncas,ncas:2*ncas]).real/2
     for ci, nelec in zip (ci_r, nelec_r):
-        h2eff = solver.absorb_h1e (h1, h2, norb, nelec, 0.5)
+        h2eff = solver.absorb_h1e (h1_sf, h2, norb, nelec, 0.5)
         ham_ci.append (solver.contract_2e (h2eff, ci, norb, nelec))
     s2_ci = [contract_ss (c, norb, ne) for c, ne in zip(ci_r, nelec_r)]
 
@@ -256,7 +261,7 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
                 s2_eff[i, j] = c.ravel ().dot (s2c.ravel ())
                 ovlp_eff[i,j] = c.ravel ().dot (ket.ravel ())
     if soc: # Teffanie: conveniently, this still works if soc is an integer
-        hso = si_soc(las, ci_r, nelec_r, norb)
+        hso = si_soc(las, h1, ci_r, nelec_r, norb)
         ham_eff = ham_eff + hso
     
     return ham_eff, s2_eff, ovlp_eff

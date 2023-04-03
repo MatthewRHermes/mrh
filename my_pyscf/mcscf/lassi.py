@@ -7,12 +7,13 @@ from pyscf import lib, symm
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
+from mrh.my_pyscf.mcscf import soc_int as soc_int
 
 LINDEP_THRESHOLD = 1.0e-5
 
 op = (op_o0, op_o1)
 
-def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
+def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=False):
     # Construct second-quantization Hamiltonian
     # NOTE: In the spinorbital representation, the proper form of h1 is
     # _____________
@@ -53,6 +54,7 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
     # functions (e.g. lassi_op_o0.ham and lassi_op_o0.si_soc) will need to be
     # edited to extract the particular "sectors" that they need.
     ncore, ncas, nocc = las.ncore, las.ncas, las.ncore + las.ncas
+    norb = sum(las.ncas_sub)
     mo_core = mo_coeff[:,:ncore]
     mo_cas = mo_coeff[:,ncore:nocc]
     hcore = las._scf.get_hcore ()
@@ -61,8 +63,22 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None):
         veff_c = las.get_veff (dm1s=dm_core)
     if h2eff_sub is None:
         h2eff_sub = las.ao2mo (mo_coeff)
+    if soc:
+        dm0 = soc_int.amfi_dm (las.mol)
+        hsoao = soc_int.compute_hso(las.mol, dm0, amfi=True)
+        hso = np.einsum('rij, ip, jq -> rpq', hsoao, las.mo_coeff[:, las.ncore:las.ncore + norb],
+            las.mo_coeff[:, las.ncore:las.ncore + norb])
+        
+        h1 = np.zeros ((2*ncas, 2*ncas), dtype=complex)
+        h1[ncas:2*ncas,0:ncas] = hso[0] + 1j * hso[1]
+        h1[0:ncas,ncas:2*ncas] = hso[0] - 1j * hso[1]
+        h1[0:ncas,0:ncas] = h1[ncas:2*ncas,ncas:2*ncas] = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
+        h1[0:ncas,0:ncas] += np.sqrt(0.5) * hso[2]
+        h1[ncas:2*ncas,ncas:2*ncas] -= np.sqrt(0.5) * hso[2]
+    else:
+        h1 = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
+
     e0 = las._scf.energy_nuc () + 2 * (((hcore + veff_c/2) @ mo_core) * mo_core).sum ()
-    h1 = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
     h2 = h2eff_sub[ncore:nocc].reshape (ncas*ncas, ncas * (ncas+1) // 2)
     h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
     return e0, h1, h2
@@ -173,7 +189,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     # Construct second-quantization Hamiltonian
-    e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None)
+    e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
 
     # Symmetry tuple: neleca, nelecb, irrep
     statesym, s2_states = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)
@@ -210,7 +226,9 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
                                                    orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
                 rootsym), *t0)
-            ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1, h2, ci_blk, idx, orbsym=orbsym,
+
+            h1_sf = (h1[0:las.ncas,0:las.ncas] - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
+            ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1_sf, h2, ci_blk, idx, orbsym=orbsym,
                                                    wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
                 rootsym), *t0)
