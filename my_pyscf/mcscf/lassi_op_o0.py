@@ -155,8 +155,8 @@ def si_soc (las, h1, ci, nelec, norb):
     nroots = len(ci)
     hsiso = np.zeros((nroots, nroots), dtype=complex)
     ncas = las.ncas
-    hso_p1 = h1[ncas:2*ncas,0:ncas]
-    hso_m1 = h1[0:ncas,ncas:2*ncas]
+    hso_m1 = h1[ncas:2*ncas,0:ncas]
+    hso_p1 = h1[0:ncas,ncas:2*ncas]
     hso_ze = (h1[0:ncas,0:ncas] - h1[ncas:2*ncas,ncas:2*ncas])/2 
 
     for istate, (ici, inelec) in enumerate(zip(ci, nelec)):
