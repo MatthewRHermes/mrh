@@ -2,10 +2,12 @@ import unittest
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
+from pyscf.fci.direct_spin1 import _unpack_nelec
 from c2h6n4_struct import structure as struct
 from mrh.my_pyscf.fci import csf_solver
+from mrh.my_pyscf.mcscf import lassi_dms
 from mrh.my_pyscf.mcscf.soc_int import compute_hso, amfi_dm
-from mrh.my_pyscf.mcscf.lassi_op_o0 import si_soc
+from mrh.my_pyscf.mcscf.lassi_op_o0 import si_soc, ci_outer_product
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lassi import make_stdm12s, roots_make_rdm12s, ham_2q
 import itertools
@@ -172,14 +174,39 @@ class KnownValues (unittest.TestCase):
                 self.assertAlmostEqual (np.amax(np.abs(d1[0,:,0,:])), 0, 16)
                 self.assertAlmostEqual (np.amax(np.abs(d1[1,:,1,:])), 0, 16)
             with self.subTest (oneelectron_sanity='raising XOR lowering', ket=i):
+                # NOTE: dumbass PySCF 1-RDM convention that ket is first
                 if ispin:
-                    self.assertAlmostEqual (np.amax (np.abs (d1[0,:,1,:])), 0, 16)
-                    d1=d1[1,:,0,:]
-                else:
                     self.assertAlmostEqual (np.amax (np.abs (d1[1,:,0,:])), 0, 16)
                     d1=d1[0,:,1,:]
+                else:
+                    self.assertAlmostEqual (np.amax (np.abs (d1[0,:,1,:])), 0, 16)
+                    d1=d1[1,:,0,:]
             with self.subTest (oneelectron_sanity='nonzero S.O.C.', ket=i):
                 self.assertAlmostEqual (linalg.norm (d1), 1.1539613201047167, 8)
+        # lassi_dms.make_trans and total electron count
+        ncas = las2.ncas
+        nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
+                     for solver in fcibox.fcisolvers]
+                    for fcibox, nelecas in zip (las2.fciboxes, las2.nelecas_sub)]
+        ci_r, nelec_r = ci_outer_product (las2.ci, las2.ncas_sub, nelec_fr)
+        for i in range (5):
+            nelec_r_test = (int (round (np.trace (stdm1s_test[i,:ncas,:ncas,i]))),
+                            int (round (np.trace (stdm1s_test[i,ncas:,ncas:,i]))))
+            with self.subTest ('electron count', state=i):
+                self.assertEqual (nelec_r_test, nelec_r[i])
+        def dm_sector (dm, m):
+            # NOTE: dumbass PySCF 1-RDM convention that ket is first
+            if m==-1: return dm[ncas:2*ncas,0:ncas]
+            elif m==1: return dm[0:ncas,ncas:2*ncas]
+            elif m==0:
+                return (dm[0:ncas,0:ncas] - dm[ncas:2*ncas,ncas:2*ncas])*np.sqrt (0.5)
+            else: assert (False)
+        for i,j in itertools.product (range(5), repeat=2):
+            for m in (-1,0,1):
+                t_test = dm_sector (stdm1s_test[i,:,:,j], m)
+                t_ref = lassi_dms.make_trans (m, ci_r[i], ci_r[j], 8, nelec_r[i], nelec_r[j])
+                with self.subTest ('lassi_dms agreement', bra=i, ket=j, sector=m):
+                    self.assertAlmostEqual (lib.fp (t_test), lib.fp (t_ref), 9)
 
     def test_soc_rdm12s (self):
         rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, las2_si, opt=0)
@@ -202,10 +229,8 @@ class KnownValues (unittest.TestCase):
         with lib.light_speed (5):
             e0, h1, h2 = ham_2q (las2, las2.mo_coeff, soc=True)
         rdm2_test = rdm2s_test.sum ((1,4))
-        # Teffanie: once you have modified ham_2q, delete "block_diag" below
-        # When you've done it correctly, the following test will pass
-#        h1 = linalg.block_diag (h1,h1)
-        e1 = np.einsum ('pq,ipq->i', h1, rdm1s_test)
+        # NOTE: dumbass PySCF 1-RDM convention that ket is first
+        e1 = np.einsum ('pq,iqp->i', h1, rdm1s_test)
         e2 = np.einsum ('pqrs,ipqrs->i', h2, rdm2_test) * .5
         e_test = e0 + e1 + e2 - las2.e_states[0]
         e_ref = las2_e - las2.e_states[0]
