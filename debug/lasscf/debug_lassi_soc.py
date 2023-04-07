@@ -133,7 +133,7 @@ class KnownValues (unittest.TestCase):
         stdm2 = stdm2s.sum ((1,4))
         e0eff = h0 - e0
         h0eff = np.eye (7) * e0eff
-        h1eff = np.einsum ('pq,iqpj->ij', h1, stdm1s)
+        h1eff = np.einsum ('pq,iqpj->ij', h1, stdm1s.conj ())
         h2eff = np.einsum ('pqrs,ipqrsj->ij', h2, stdm2) * .5
         test_hso (h0eff + h1eff + h2eff, 'make_stdm12s')
         rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si, soc=True, break_symmetry=True, opt=0)

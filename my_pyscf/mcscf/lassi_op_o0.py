@@ -182,10 +182,10 @@ def si_soc (las, h1, ci, nelec, norb):
             if tm1.shape == ():
                 tm1 = np.zeros((ncas,ncas))
 
-            somat = np.einsum('ri, ri ->', tm1, hso_p1)
-            somat += np.einsum('ri, ri ->', tp1, hso_m1)
+            somat = np.einsum('ri, ir ->', tm1, hso_p1)
+            somat += np.einsum('ri, ir ->', tp1, hso_m1)
             #somat = somat/2
-            somat += np.einsum('ri, ri ->', tze, hso_ze)
+            somat += np.einsum('ri, ir ->', tze, hso_ze)
 
             hsiso[istate, jstate] = somat
             if istate!= jstate:

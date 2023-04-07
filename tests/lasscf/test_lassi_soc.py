@@ -99,34 +99,47 @@ class KnownValues (unittest.TestCase):
             self.assertAlmostEqual (lib.fp (esf_test), lib.fp (esf_ref), 6)
         with lib.light_speed (10):
             e_roots, si = las.lassi (opt=0, soc=True, break_symmetry=True)
+            h0, h1, h2 = ham_2q (las, las.mo_coeff, soc=True)
         eso_test = e_roots - e0
         with self.subTest (deltaE='SO'):
             self.assertAlmostEqual (lib.fp (eso_test), lib.fp (eso_ref), 6)
-        hso_test = (si * eso_test[None,:]) @ si.conj ().T
         from pyscf.data import nist
         au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
-        hso_test *= au2cm
-        hso_test = np.around (hso_test, 8)
-        # Align relative signs: 0 - 1,3,5 block (all imaginary; vide supra)
-        for i in (1,3,5):
-            if np.sign (hso_test.imag[i,0]) != np.sign (hso_ref.imag[i,0]):
-                hso_test[i,:] *= -1
-                hso_test[:,i] *= -1
-        # Align relative signs: 2 - 4,6 block (all real; vide supra)
-        for i in (4,6):
-            if np.sign (hso_test.real[i,2]) != np.sign (hso_ref.real[i,2]):
-                hso_test[i,:] *= -1
-                hso_test[:,i] *= -1
-        for i, j in zip (*np.where (hso_ref)):
-            with self.subTest (hso=(i,j)):
-                try:
-                    self.assertAlmostEqual (hso_test[i,j],hso_ref[i,j],1)
-                except AssertionError as e:
-                    if abs (hso_test[i,j]+hso_ref[i,j]) < 0.05:
-                        raise AssertionError ("Sign fix failed for element",i,j)
-                    raise (e)
-                # NOTE: 0.1 cm-1 -> 0.5 * 10^-6 au. These are actually tight checks.
-
+        def test_hso (hso_test, tag='kernel'):
+            hso_test *= au2cm
+            hso_test = np.around (hso_test, 8)
+            # Align relative signs: 0 - 1,3,5 block (all imaginary; vide supra)
+            for i in (1,3,5):
+                if np.sign (hso_test.imag[i,0]) != np.sign (hso_ref.imag[i,0]):
+                    hso_test[i,:] *= -1
+                    hso_test[:,i] *= -1
+            # Align relative signs: 2 - 4,6 block (all real; vide supra)
+            for i in (4,6):
+                if np.sign (hso_test.real[i,2]) != np.sign (hso_ref.real[i,2]):
+                    hso_test[i,:] *= -1
+                    hso_test[:,i] *= -1
+            for i, j in zip (*np.where (hso_ref)):
+                with self.subTest (tag, hso=(i,j)):
+                    try:
+                        self.assertAlmostEqual (hso_test[i,j],hso_ref[i,j],1)
+                    except AssertionError as e:
+                        if abs (hso_test[i,j]+hso_ref[i,j]) < 0.05:
+                            raise AssertionError ("Sign fix failed for element",i,j)
+                        raise (e)
+                    # NOTE: 0.1 cm-1 -> 0.5 * 10^-6 au. These are actually tight checks.
+        test_hso ((si * eso_test[None,:]) @ si.conj ().T)
+        stdm1s, stdm2s = make_stdm12s (las, soc=True, break_symmetry=True, opt=0)
+        stdm2 = stdm2s.sum ((1,4))
+        e0eff = h0 - e0
+        h0eff = np.eye (7) * e0eff
+        h1eff = np.einsum ('pq,iqpj->ij', h1, stdm1s.conj ())
+        h2eff = np.einsum ('pqrs,ipqrsj->ij', h2, stdm2) * .5
+        test_hso (h0eff + h1eff + h2eff, 'make_stdm12s')
+        rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si, soc=True, break_symmetry=True, opt=0)
+        rdm2 = rdm2s.sum ((1,4))
+        e1eff = np.einsum ('pq,iqp->i', h1, rdm1s)
+        e2eff = np.einsum ('pqrs,ipqrs->i', h2, rdm2) * .5
+        test_hso ((si * (e0eff+e1eff+e2eff)[None,:]) @ si.conj ().T, 'roots_make_rdm12s')
 
     def test_soc_2frag (self):
         ## stationary test for >1 frag calc
@@ -174,7 +187,7 @@ class KnownValues (unittest.TestCase):
                 self.assertAlmostEqual (np.amax(np.abs(d1[0,:,0,:])), 0, 16)
                 self.assertAlmostEqual (np.amax(np.abs(d1[1,:,1,:])), 0, 16)
             with self.subTest (oneelectron_sanity='raising XOR lowering', ket=i):
-                # NOTE: dumbass PySCF 1-RDM convention that ket is first
+                # TODO: figure out the order of the indices!!!
                 if ispin:
                     self.assertAlmostEqual (np.amax (np.abs (d1[1,:,0,:])), 0, 16)
                     d1=d1[0,:,1,:]
@@ -195,11 +208,11 @@ class KnownValues (unittest.TestCase):
             with self.subTest ('electron count', state=i):
                 self.assertEqual (nelec_r_test, nelec_r[i])
         def dm_sector (dm, m):
-            # NOTE: dumbass PySCF 1-RDM convention that ket is first
+            # TODO: figure out the order of the indices!!!
             if m==-1: return dm[ncas:2*ncas,0:ncas]
             elif m==1: return dm[0:ncas,ncas:2*ncas]
             elif m==0:
-                return (dm[0:ncas,0:ncas] - dm[ncas:2*ncas,ncas:2*ncas])*np.sqrt (0.5)
+                return (dm[0:ncas,0:ncas] - dm[ncas:2*ncas,ncas:2*ncas])
             else: assert (False)
         for i,j in itertools.product (range(5), repeat=2):
             for m in (-1,0,1):
