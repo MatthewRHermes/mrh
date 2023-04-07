@@ -54,9 +54,16 @@ def civec_spinless_repr (ci0_r, norb, nelec_r):
         ndetb = cistring.num_strings (norb, nelecb)
         strsa = cistring.addrs2str (norb, neleca, list(range(ndeta)))
         strsb = cistring.addrs2str (norb, nelecb, list(range(ndetb)))
-        strs = np.add.outer (np.left_shift (strsa, norb), strsb).ravel ()
+        strs = np.add.outer (strsa, np.left_shift (strsb, norb)).ravel ()
         addrs = cistring.strs2addr (2*norb, nelec, strs)
         ci1[addrs] = ci0[:,:].ravel ()
+        if abs(neleca*nelecb)%2: ci1[:] *= -1
+        # Sign comes from changing representation:
+        # ... a2' a1' a0' ... b2' b1' b0' |vac>
+        # ->
+        # ... b2' b1' b0' .. a2' a1' a0' |vac>
+        # i.e., strictly decreasing from left to right
+        # (the ordinality of spin-down is conventionally greater than spin-up)
     return ci1_r[:,:,None]
 
 def addr_outer_product (norb_f, nelec_f):
@@ -350,17 +357,15 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
                 stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
 
     if not spin_pure: # cleanup the "spinless mapping"
-        # A consequence of the way PySCF stores CI vectors is that alpha and beta get transposed
-        n = norb // 2
-        stdm1s = np.concatenate ((stdm1s[:,0,n:,:,:], stdm1s[:,0,:n,:,:]), axis=1)
-        stdm1s = np.concatenate ((stdm1s[:,:,n:,:], stdm1s[:,:,:n,:]), axis=2)
+        stdm1s = stdm1s[:,0,:,:,:]
         # TODO: 2e- spin-orbit coupling support in caller
+        n = norb // 2
         stdm2s_ = np.zeros ((nroots, nroots, 2, n, n, 2, n, n),
             dtype=ci_r[0].dtype).transpose (0,2,3,4,5,6,7,1)
-        stdm2s_[:,1,:,:,1,:,:,:] = stdm2s[:,0,:n,:n,0,:n,:n,:]
-        stdm2s_[:,1,:,:,0,:,:,:] = stdm2s[:,0,:n,:n,0,n:,n:,:]
-        stdm2s_[:,0,:,:,1,:,:,:] = stdm2s[:,0,n:,n:,0,:n,:n,:]
-        stdm2s_[:,0,:,:,0,:,:,:] = stdm2s[:,0,n:,n:,0,n:,n:,:]
+        stdm2s_[:,0,:,:,0,:,:,:] = stdm2s[:,0,:n,:n,0,:n,:n,:]
+        stdm2s_[:,0,:,:,1,:,:,:] = stdm2s[:,0,:n,:n,0,n:,n:,:]
+        stdm2s_[:,1,:,:,0,:,:,:] = stdm2s[:,0,n:,n:,0,:n,:n,:]
+        stdm2s_[:,1,:,:,1,:,:,:] = stdm2s[:,0,n:,n:,0,n:,n:,:]
         stdm2s = stdm2s_
 
     return stdm1s, stdm2s 
@@ -454,16 +459,14 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
         rdm2s[ix,1,:,:,1,:,:] = d2s[3]
 
     if not spin_pure: # cleanup the "spinless mapping"
-        # A consequence of the way PySCF stores CI vectors is that alpha and beta get transposed
-        n = norb // 2
-        rdm1s = np.concatenate ((rdm1s[:,0,n:,:], rdm1s[:,0,:n,:]), axis=1)
-        rdm1s = np.concatenate ((rdm1s[:,:,n:], rdm1s[:,:,:n]), axis=2)
+        rdm1s = rdm1s[:,0,:,:]
         # TODO: 2e- SOC
+        n = norb // 2
         rdm2s_ = np.zeros ((nroots, 2, n, n, 2, n, n), dtype=ci_r.dtype)
-        rdm2s_[:,1,:,:,1,:,:] = rdm2s[:,0,:n,:n,0,:n,:n]
-        rdm2s_[:,1,:,:,0,:,:] = rdm2s[:,0,:n,:n,0,n:,n:]
-        rdm2s_[:,0,:,:,1,:,:] = rdm2s[:,0,n:,n:,0,:n,:n]
-        rdm2s_[:,0,:,:,0,:,:] = rdm2s[:,0,n:,n:,0,n:,n:]
+        rdm2s_[:,0,:,:,0,:,:] = rdm2s[:,0,:n,:n,0,:n,:n]
+        rdm2s_[:,0,:,:,1,:,:] = rdm2s[:,0,:n,:n,0,n:,n:]
+        rdm2s_[:,1,:,:,0,:,:] = rdm2s[:,0,n:,n:,0,:n,:n]
+        rdm2s_[:,1,:,:,1,:,:] = rdm2s[:,0,n:,n:,0,n:,n:]
         rdm2s = rdm2s_
 
     return rdm1s, rdm2s
