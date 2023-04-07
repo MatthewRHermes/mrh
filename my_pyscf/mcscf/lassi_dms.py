@@ -73,8 +73,8 @@ def make_trans(m, cibra, ciket, norb, nelec_bra, nelec_ket):
     elif m == -1:
         return make_trans_rdm1('ba', cibra, ciket, norb, nelec_bra, nelec_ket).T
     else:
-        return np.sqrt(0.5) * (make_trans_rdm1('aa', cibra, ciket, norb, nelec_bra, nelec_ket)
-                               - make_trans_rdm1('bb', cibra, ciket, norb, nelec_bra, nelec_ket)).T
+        return (make_trans_rdm1('aa', cibra, ciket, norb, nelec_bra, nelec_ket)
+                - make_trans_rdm1('bb', cibra, ciket, norb, nelec_bra, nelec_ket)).T
 
 
 if __name__=='__main__':

@@ -70,11 +70,11 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=False):
             las.mo_coeff[:, las.ncore:las.ncore + norb])
         
         h1 = np.zeros ((2*ncas, 2*ncas), dtype=complex)
-        h1[ncas:2*ncas,0:ncas] = hso[0] - 1j * hso[1]
-        h1[0:ncas,ncas:2*ncas] = hso[0] + 1j * hso[1]
+        h1[ncas:2*ncas,0:ncas] = (hso[0] - 1j * hso[1]) / 2
+        h1[0:ncas,ncas:2*ncas] = (hso[0] + 1j * hso[1]) / 2
         h1[0:ncas,0:ncas] = h1[ncas:2*ncas,ncas:2*ncas] = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
-        h1[0:ncas,0:ncas] += np.sqrt(0.5) * hso[2]
-        h1[ncas:2*ncas,ncas:2*ncas] -= np.sqrt(0.5) * hso[2]
+        h1[0:ncas,0:ncas] += hso[2] / 2 
+        h1[ncas:2*ncas,ncas:2*ncas] -= hso[2] / 2
     else:
         h1 = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
 

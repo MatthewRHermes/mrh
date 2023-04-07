@@ -184,7 +184,7 @@ def si_soc (las, h1, ci, nelec, norb):
 
             somat = np.einsum('ri, ri ->', tm1, hso_p1)
             somat += np.einsum('ri, ri ->', tp1, hso_m1)
-            somat = somat/2
+            #somat = somat/2
             somat += np.einsum('ri, ri ->', tze, hso_ze)
 
             hsiso[istate, jstate] = somat
