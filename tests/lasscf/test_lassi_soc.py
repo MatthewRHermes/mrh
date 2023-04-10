@@ -132,13 +132,13 @@ class KnownValues (unittest.TestCase):
         stdm2 = stdm2s.sum ((1,4))
         e0eff = h0 - e0
         h0eff = np.eye (7) * e0eff
-        h1eff = np.einsum ('pq,iqpj->ij', h1, stdm1s.conj ())
-        h2eff = np.einsum ('pqrs,ipqrsj->ij', h2, stdm2) * .5
+        h1eff = lib.einsum ('pq,iqpj->ij', h1, stdm1s)
+        h2eff = lib.einsum ('pqrs,ipqrsj->ij', h2, stdm2) * .5
         test_hso (h0eff + h1eff + h2eff, 'make_stdm12s')
         rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si, soc=True, break_symmetry=True, opt=0)
         rdm2 = rdm2s.sum ((1,4))
-        e1eff = np.einsum ('pq,iqp->i', h1, rdm1s)
-        e2eff = np.einsum ('pqrs,ipqrs->i', h2, rdm2) * .5
+        e1eff = lib.einsum ('pq,iqp->i', h1, rdm1s)
+        e2eff = lib.einsum ('pqrs,ipqrs->i', h2, rdm2) * .5
         test_hso ((si * (e0eff+e1eff+e2eff)[None,:]) @ si.conj ().T, 'roots_make_rdm12s')
 
     def test_soc_2frag (self):
@@ -156,17 +156,15 @@ class KnownValues (unittest.TestCase):
             self.assertAlmostEqual (linalg.norm (stdm2s_test), 12.835689640991259)
         with self.subTest ('1-electron'):
             self.assertAlmostEqual (linalg.norm (stdm1s_test), 5.719302474657559)
-        dm1s_test = np.einsum ('ipqi->ipq', stdm1s_test)
+        dm1s_test = lib.einsum ('ipqi->ipq', stdm1s_test)
         with self.subTest (oneelectron_sanity='diag'):
             # LAS states are spin-pure: there should be nothing in the spin-breaking sector
             self.assertAlmostEqual (np.amax(np.abs(dm1s_test[:,8:,:8])), 0)
             self.assertAlmostEqual (np.amax(np.abs(dm1s_test[:,:8,8:])), 0)
-        dm2_test = np.einsum ('iabcdi->iabcd', stdm2s_test.sum ((1,4)))
-        e0, h1, h2 = ham_2q (las2, las2.mo_coeff)
-        # Teffanie: once you have modified ham_2q, delete the "block_diag" line below
-        h1 = linalg.block_diag (h1,h1)
-        e1 = np.einsum ('pq,ipq->i', h1, dm1s_test)
-        e2 = np.einsum ('pqrs,ipqrs->i', h2, dm2_test) * .5
+        dm2_test = lib.einsum ('iabcdi->iabcd', stdm2s_test.sum ((1,4)))
+        e0, h1, h2 = ham_2q (las2, las2.mo_coeff, soc=True)
+        e1 = lib.einsum ('pq,ipq->i', h1, dm1s_test)
+        e2 = lib.einsum ('pqrs,ipqrs->i', h2, dm2_test) * .5
         e_test = e0 + e1 + e2
         with self.subTest (sanity='spin-free total energies'):
             self.assertAlmostEqual (lib.fp (e_test), lib.fp (las2.e_states), 6)
@@ -224,8 +222,8 @@ class KnownValues (unittest.TestCase):
     def test_soc_rdm12s (self):
         rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, las2_si, opt=0)
         stdm1s, stdm2s = make_stdm12s (las2, soc=True, opt=0)    
-        rdm1s_ref = np.einsum ('ir,jr,iabj->rab', las2_si.conj (), las2_si, stdm1s)
-        rdm2s_ref = np.einsum ('ir,jr,isabtcdj->rsabtcd', las2_si.conj (), las2_si, stdm2s)
+        rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', las2_si.conj (), las2_si, stdm1s)
+        rdm2s_ref = lib.einsum ('ir,jr,isabtcdj->rsabtcd', las2_si.conj (), las2_si, stdm2s)
         with self.subTest (sanity='dm1s'):
             self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s_ref), 10)
         with self.subTest (sanity='dm2s'):
@@ -243,8 +241,8 @@ class KnownValues (unittest.TestCase):
             e0, h1, h2 = ham_2q (las2, las2.mo_coeff, soc=True)
         rdm2_test = rdm2s_test.sum ((1,4))
         # NOTE: dumbass PySCF 1-RDM convention that ket is first
-        e1 = np.einsum ('pq,iqp->i', h1, rdm1s_test)
-        e2 = np.einsum ('pqrs,ipqrs->i', h2, rdm2_test) * .5
+        e1 = lib.einsum ('pq,iqp->i', h1, rdm1s_test)
+        e2 = lib.einsum ('pqrs,ipqrs->i', h2, rdm2_test) * .5
         e_test = e0 + e1 + e2 - las2.e_states[0]
         e_ref = las2_e - las2.e_states[0]
         for ix, (test, ref) in enumerate (zip (e_test, e_ref)):

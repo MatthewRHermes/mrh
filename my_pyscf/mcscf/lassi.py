@@ -13,46 +13,51 @@ LINDEP_THRESHOLD = 1.0e-5
 
 op = (op_o0, op_o1)
 
-def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=False):
-    # Construct second-quantization Hamiltonian
-    # NOTE: In the spinorbital representation, the proper form of h1 is
-    # _____________
-    # |     |     |  
-    # | a'a | a'b |  
-    # |     |     |  
-    # -------------
-    # |     |     |  
-    # | b'a | b'b |  
-    # |     |     |  
-    # -------------
-    # where each square is a las.ncas x las.ncas matrix. In the spatial-orbital
-    # representation (i.e., current behavior), the content of h1 is
-    #        _______    _______
-    #        |     |    |     |
-    #  1/2 ( | a'a | +  | b'b | )
-    #        |     |    |     |
-    #        -------    -------  
-    # Spin-orbit coupling generates the a'b and b'a sectors, which are
-    # in the missing off-diagonal blocks, and the "antisymmetric" part
-    # of the diagonal blocks:
-    #        _______
-    #        |     |
-    #  S+:   | a'b |
-    #        |     |
-    #        ------- 
-    #        _______
-    #        |     |
-    #  S-:   | b'a |
-    #        |     |
-    #        -------
-    #            _______    _______
-    #            |     |    |     |
-    #  Sz: 1/2 ( | a'a | -  | b'b | )
-    #            |     |    |     |
-    #            -------    -------
-    # If h1 is generalized to the spinorbital representation, then downstream
-    # functions (e.g. lassi_op_o0.ham and lassi_op_o0.si_soc) will need to be
-    # edited to extract the particular "sectors" that they need.
+def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
+    '''Construct second-quantization Hamiltonian in CAS, using intermediates from
+    a LASSCF calculation.
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        mo_coeff: ndarray of shape (nao,nmo)
+            Contains MO coefficients
+
+    Kwargs:
+        veff_c : ndarray of shape (nao,nao)
+            Effective potential of inactive electrons
+        h2eff_sub : ndarray of shape (nmo,(ncas**2)*(ncas+1)/2)
+            Two-electron integrals
+        soc : integer
+            Order of spin-orbit coupling to include. Currently only 0 or 1 supported.
+            Including spin-orbit coupling increases the size of return arrays to
+            account for additional spin-symmetry-breaking sectors of the Hamiltonian.
+
+    Returns:
+        h0 : float
+            Constant part of the CAS Hamiltonian
+        h1 : ndarray of shape (ncas,ncas) or (2*ncas,2*ncas)
+            One-electron part of the CAS Hamiltonian. If soc==True, h1 is returned in
+            the spinorbital representation: ncas spin-up states followed by ncas
+            spin-down states
+        h2 : ndarray of shape [ncas,]*4
+            Two-electron part of the CAS Hamiltonian.
+    '''
+    # a'b = sx + i*sy
+    # b'a = sx - i*sy
+    # a'a = 1/2 n + sz
+    # b'b = 1/2 n - sz
+    #   ->
+    # sx =  (1/2) (a'b + b'a)
+    # sy = (-i/2) (a'b - b'a)
+    # sz =  (1/2) (a'a - b'b)
+    # 
+    # l.s = lx.sx + ly.sy + lz.sz
+    #     = (1/2) (lx.(a'b + b'a) - i*ly.(a'b - b'a) + lz.(a'a - b'b))
+    #     = (1/2) (  (lx - i*ly).a'b 
+    #              + (lx + i*ly).b'a
+    #              + lz.(a'a - b'b)
+    #             )
+    if soc>1: raise NotImplementedError ("Two-electron spin-orbit coupling")
     ncore, ncas, nocc = las.ncore, las.ncas, las.ncore + las.ncas
     norb = sum(las.ncas_sub)
     mo_core = mo_coeff[:,:ncore]
@@ -63,25 +68,25 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=False):
         veff_c = las.get_veff (dm1s=dm_core)
     if h2eff_sub is None:
         h2eff_sub = las.ao2mo (mo_coeff)
+
+    h0 = las._scf.energy_nuc () + 2 * (((hcore + veff_c/2) @ mo_core) * mo_core).sum ()
+
+    h1 = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
     if soc:
         dm0 = soc_int.amfi_dm (las.mol)
         hsoao = soc_int.compute_hso(las.mol, dm0, amfi=True)
-        hso = np.einsum('rij, ip, jq -> rpq', hsoao, las.mo_coeff[:, las.ncore:las.ncore + norb],
-            las.mo_coeff[:, las.ncore:las.ncore + norb])
-        
-        h1 = np.zeros ((2*ncas, 2*ncas), dtype=complex)
-        h1[ncas:2*ncas,0:ncas] = (hso[0] + 1j * hso[1]) / 2
-        h1[0:ncas,ncas:2*ncas] = (hso[0] - 1j * hso[1]) / 2
-        h1[0:ncas,0:ncas] = h1[ncas:2*ncas,ncas:2*ncas] = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
-        h1[0:ncas,0:ncas] += hso[2] / 2 
-        h1[ncas:2*ncas,ncas:2*ncas] -= hso[2] / 2
-    else:
-        h1 = mo_cas.conj ().T @ (hcore + veff_c) @ mo_cas
+        hso = .5*lib.einsum ('ip,rij,jq->rpq', mo_cas.conj (), hsoao, mo_cas)
 
-    e0 = las._scf.energy_nuc () + 2 * (((hcore + veff_c/2) @ mo_core) * mo_core).sum ()
+        h1 = linalg.block_diag (h1, h1).astype (complex)
+        h1[ncas:2*ncas,0:ncas] = (hso[0] + 1j * hso[1]) # b'a
+        h1[0:ncas,ncas:2*ncas] = (hso[0] - 1j * hso[1]) # a'b
+        h1[0:ncas,0:ncas] += hso[2] # a'a
+        h1[ncas:2*ncas,ncas:2*ncas] -= hso[2] # b'b
+
     h2 = h2eff_sub[ncore:nocc].reshape (ncas*ncas, ncas * (ncas+1) // 2)
     h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
-    return e0, h1, h2
+
+    return h0, h1, h2
 
 def las_symm_tuple (las, break_spin=False, break_symmetry=False):
     '''Identify the symmetries/quantum numbers of of each LAS state within a LASSI model space
