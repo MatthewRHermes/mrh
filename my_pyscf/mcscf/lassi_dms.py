@@ -62,15 +62,17 @@ def make_trans_rdm1(dspin, cibra, ciket, norb, nelec_bra, nelec_ket):
             t2 = -t2
     
     rdm1 = np.tensordot(t1, t2, axes=((1,2), (1,2)))
-    
+
+    # This appears to return rdm1[p,q] = <ket|p'q|bra> = <bra|q'p|ket>
     return rdm1
 
-def make_trans(m, cibra, ciket, norb, nelec_bra, nelec_ket):
+def make_trans(m, ciket, cibra, norb, nelec_ket, nelec_bra):
+    # MRH NOTE: this has been modified to consistency with spinless dm1[p,q] = <q'p>
 
-    if m == 1:
+    if m == -1:
         # MRH NOTE: the factor of -1 that used to be here makes no sense
         return make_trans_rdm1('ab', cibra, ciket, norb, nelec_bra, nelec_ket).T
-    elif m == -1:
+    elif m == 1:
         return make_trans_rdm1('ba', cibra, ciket, norb, nelec_bra, nelec_ket).T
     else:
         return (make_trans_rdm1('aa', cibra, ciket, norb, nelec_bra, nelec_ket)

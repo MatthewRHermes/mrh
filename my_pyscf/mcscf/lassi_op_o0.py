@@ -182,14 +182,14 @@ def si_soc (las, h1, ci, nelec, norb):
             if tm1.shape == ():
                 tm1 = np.zeros((ncas,ncas))
 
-            somat = np.einsum('ri, ir ->', tm1, hso_p1)
-            somat += np.einsum('ri, ir ->', tp1, hso_m1)
+            somat = np.einsum('ri, ir ->', tm1, hso_m1)
+            somat += np.einsum('ri, ir ->', tp1, hso_p1)
             #somat = somat/2
             somat += np.einsum('ri, ir ->', tze, hso_ze)
 
-            hsiso[istate, jstate] = somat
+            hsiso[jstate, istate] = somat
             if istate!= jstate:
-                hsiso[jstate, istate] = somat.conj()
+                hsiso[istate, jstate] = somat.conj()
 #            somat *= au2cm
 
     #heigso, hvecso = np.linalg.eigh(hsiso)
@@ -345,11 +345,10 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
         N_ket = sum (ne_ket)
         if ne_bra == ne_ket:
             tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, ne_bra)
-            # Transpose for 1TDM is backwards because of stupid PySCF convention
-            stdm1s[i,0,:,:,j] = tdm1s[0].T
-            stdm1s[i,1,:,:,j] = tdm1s[1].T
-            stdm1s[j,0,:,:,i] = tdm1s[0]
-            stdm1s[j,1,:,:,i] = tdm1s[1]
+            stdm1s[i,0,:,:,j] = tdm1s[0]
+            stdm1s[i,1,:,:,j] = tdm1s[1]
+            stdm1s[j,0,:,:,i] = tdm1s[0].T
+            stdm1s[j,1,:,:,i] = tdm1s[1].T
             for spin, tdm2 in enumerate (tdm2s):
                 p = spin // 2
                 q = spin % 2
@@ -449,7 +448,7 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
             d1s2, d2s2 = solver.trans_rdm12s (ci_re, ci_im, norb, ne)
             d1s2 -= np.asarray (d1s2).transpose (0,2,1)
             d2s2 -= np.asarray (d2s2).transpose (0,2,1,4,3)
-            d1s -= 1j * d1s2 # Backwards PySCF 1RDM convention leads to minus
+            d1s -= 1j * d1s2 
             d2s += 1j * d2s2
         rdm1s[ix,0,:,:] = d1s[0]
         rdm1s[ix,1,:,:] = d1s[1]

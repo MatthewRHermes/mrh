@@ -130,6 +130,19 @@ class KnownValues (unittest.TestCase):
                     # NOTE: 0.1 cm-1 -> 0.5 * 10^-6 au. These are actually tight checks.
         test_hso ((si * eso_test[None,:]) @ si.conj ().T)
         stdm1s, stdm2s = make_stdm12s (las, soc=True, break_symmetry=True, opt=0)
+        n = las.ncas
+        lbl = np.asarray ([["a'a", "b'a"],["a'b","b'b"]])
+        for i,j in itertools.combinations (range (7), 2):
+            neleca_i = int (round (np.trace (stdm1s[i,:n,:n,i])))
+            nelecb_i = int (round (np.trace (stdm1s[i,n:,n:,i])))
+            neleca_j = int (round (np.trace (stdm1s[j,:n,:n,j])))
+            nelecb_j = int (round (np.trace (stdm1s[j,n:,n:,j])))
+            t = stdm1s[i,:,:,j]
+            t = [[linalg.norm (t[:n,:n]), linalg.norm (t[:n,n:])],
+                 [linalg.norm (t[n:,:n]), linalg.norm (t[n:,n:])]]
+            print (i,j)
+            idx = np.asarray (t) > 0
+            print ((neleca_i, nelecb_i), lbl[idx], (neleca_j, nelecb_j))
         stdm2 = stdm2s.sum ((1,4))
         e0eff = h0 - e0
         h0eff = np.eye (7) * e0eff

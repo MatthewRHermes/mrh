@@ -163,7 +163,7 @@ class KnownValues (unittest.TestCase):
             self.assertAlmostEqual (np.amax(np.abs(dm1s_test[:,:8,8:])), 0)
         dm2_test = lib.einsum ('iabcdi->iabcd', stdm2s_test.sum ((1,4)))
         e0, h1, h2 = ham_2q (las2, las2.mo_coeff, soc=True)
-        e1 = lib.einsum ('pq,ipq->i', h1, dm1s_test)
+        e1 = lib.einsum ('pq,iqp->i', h1, dm1s_test)
         e2 = lib.einsum ('pqrs,ipqrs->i', h2, dm2_test) * .5
         e_test = e0 + e1 + e2
         with self.subTest (sanity='spin-free total energies'):
@@ -187,11 +187,11 @@ class KnownValues (unittest.TestCase):
             with self.subTest (oneelectron_sanity='raising XOR lowering', ket=i):
                 # TODO: figure out the order of the indices!!!
                 if ispin:
-                    self.assertAlmostEqual (np.amax (np.abs (d1[1,:,0,:])), 0, 16)
-                    d1=d1[0,:,1,:]
-                else:
                     self.assertAlmostEqual (np.amax (np.abs (d1[0,:,1,:])), 0, 16)
                     d1=d1[1,:,0,:]
+                else:
+                    self.assertAlmostEqual (np.amax (np.abs (d1[1,:,0,:])), 0, 16)
+                    d1=d1[0,:,1,:]
             with self.subTest (oneelectron_sanity='nonzero S.O.C.', ket=i):
                 self.assertAlmostEqual (linalg.norm (d1), 1.1539613201047167, 8)
         # lassi_dms.make_trans and total electron count
@@ -207,8 +207,8 @@ class KnownValues (unittest.TestCase):
                 self.assertEqual (nelec_r_test, nelec_r[i])
         def dm_sector (dm, m):
             # TODO: figure out the order of the indices!!!
-            if m==-1: return dm[ncas:2*ncas,0:ncas]
-            elif m==1: return dm[0:ncas,ncas:2*ncas]
+            if m==1: return dm[ncas:2*ncas,0:ncas]
+            elif m==-1: return dm[0:ncas,ncas:2*ncas]
             elif m==0:
                 return (dm[0:ncas,0:ncas] - dm[ncas:2*ncas,ncas:2*ncas])
             else: assert (False)
@@ -222,7 +222,7 @@ class KnownValues (unittest.TestCase):
     def test_soc_rdm12s (self):
         rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, las2_si, opt=0)
         stdm1s, stdm2s = make_stdm12s (las2, soc=True, opt=0)    
-        rdm1s_ref = lib.einsum ('ir,jr,iabj->rab', las2_si.conj (), las2_si, stdm1s)
+        rdm1s_ref = lib.einsum ('ir,jr,jabi->rab', las2_si.conj (), las2_si, stdm1s)
         rdm2s_ref = lib.einsum ('ir,jr,isabtcdj->rsabtcd', las2_si.conj (), las2_si, stdm2s)
         with self.subTest (sanity='dm1s'):
             self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s_ref), 10)
