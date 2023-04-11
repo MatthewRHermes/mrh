@@ -2,21 +2,23 @@ from pyscf import gto, scf, mcscf, ao2mo, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
 
 class ImpurityMole (gto.Mole):
-    def __init__(self, las, nelec_imp):
+    def __init__(self, las, stdout=None, output=None):
+        gto.Mole.__init__(self)
         self._las = las
+        self._imporb_coeff = None
         self.verbose = las.verbose
         self.max_memory = las.max_memory
-        self._update_nelec_imp_(nelec_imp)
         self.atom.append (('H', (0, 0, 0)))
         if stdout is None and output is None:
             self.stdout = las.stdout
-        elif stdout is not None
+        elif stdout is not None:
             self.stdout = stdout
         elif output is not None:
             self.output = output
+        self.spin = None
         self.build ()
 
-    def _update_space (self, imporb_coeff, nelec_imp):
+    def _update_space_(self, imporb_coeff, nelec_imp):
         self._imporb_coeff = imporb_coeff
         nelec_imp = _unpack_nelec (nelec_imp)
         self.nelectron = sum (nelec_imp)
@@ -58,8 +60,8 @@ class ImpuritySCF (scf.hf.SCF):
         self._imporb_h1 = h1s.sum (0) / 2
         self._imporb_h1_sz = (h1s[0] - h1s[1]) / 2
         # Constant
-        de -= np.dot ((h1s + (veff1*.5)).ravel (), dm1s.ravel ())
-        self._imporb_h0 = mf.mol.energy_nuc () + de 
+        de = np.dot ((h1s + (veff1*.5)).ravel (), dm1s.ravel ())
+        self._imporb_h0 = mf.mol.energy_nuc () - de 
 
     def get_hcore (self):
         return self._imporb_h1
@@ -140,9 +142,9 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
 
 
 # This is the really tricky part
-def ImpurityCASSCF (mcscf.mc1step.CASSCF):
+class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
-    def _update_keyframe (self, mo_coeff, ci):
+    def _update_keyframe_(self, mo_coeff, ci):
         # Project mo_coeff and ci keyframe into impurity space and cache
         las = self.mol._las
         mf = las._scf
@@ -191,22 +193,20 @@ def ImpurityCASSCF (mcscf.mc1step.CASSCF):
         de = np.dot (eri_cas.ravel (), casdm2.ravel ()) / 2
         self._scf._imporb_h0 -= de
 
-    def _update_hcore_cishift (self, mo_coeff, ci, casdm1rs=None, h2eff_sub=None):
+    def _update_hcore_cishift_(self, mo_coeff, ci, casdm1rs=None, h2eff_sub=None):
         las = self.mol._las
         if casdm1rs is None: casdm1rs = las.states_make_casdm1s (ci=ci)
+        if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         casdm1s = np.tensordot (las.weights, casdm1rs, axes=1)
         dm1rs = casdm1rs - casdm1s
         i = sum (las.ncas_sub[:self._ifrag])
         j = i + las.ncas_sub[self._ifrag]
-        dm1rs = np.stack (dm1rs[:,:,:i,:], dm1rs[:,:,j:,:], axis=2)
-        dm1rs = np.stack (dm1rs[:,:,:,:i], dm1rs[:,:,:,j:], axis=3)
+        dm1rs[:,:,i:j,:] = dm1rs[:,:,:,i:j] = 0.0
         mo_cas = mo_coeff[:,las.ncore:][:,:las.ncas]
-        mo_olas = np.stack (mo_cas[:,:i], mo_cas[:,j:], axis=1)
         bPmu = getattr (h2eff_sub, 'bPmu')
         if bPmu is not None:
-            bPmu = np.stack (bPmu[...,:i], bPmu[...,j:], axis=-1)
-            vj_r = self.get_vj_ext (mo_olas, dm1rs, bPmu=bPmu).sum (1)
-            vk_rs = self.get_vk_ext (mo_olas, dm1rs, bPmu=bPmu)
+            vj_r = self.get_vj_ext (mo_cas, dm1rs, bPmu=bPmu).sum (1)
+            vk_rs = self.get_vk_ext (mo_cas, dm1rs, bPmu=bPmu)
             vext = vj_r[:,None,:,:] - vk_rs
         else:
             raise NotImplementedError ("Non-DF version")
@@ -215,7 +215,9 @@ def ImpurityCASSCF (mcscf.mc1step.CASSCF):
     def get_vj_ext (self, mo_ext, dm1rs_ext, bPmu=None):
         if bPmu is not None:
             bPuu = np.tensordot (bPmu, mo_ext, axes=((1),(0)))
-            return np.tensordot (bPuu, dm1rs_ext, axes=((1,2),(-2,-1)))
+            rho_rs = np.tensordot (dm1rs_ext, bPuu, axes=((2,3),(1,2)))
+            bPii = self._scf.with_df._cderi
+            return np.tensordot (rho_rs, bPii, axes=((-1),(0)))
         else: # Safety case: AO-basis SCF driver
             output_shape = list (dm1rs.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
             dm1 = dm1rs.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
@@ -257,6 +259,37 @@ def ImpurityCASSCF (mcscf.mc1step.CASSCF):
         return e_tot, e_cas, fcivec
 
 
+if __name__=='__main__':
+    from mrh.tests.lasscf.c2h6n4_struct import structure as struct
+    mol = struct (1.0, 1.0, '6-31g', symmetry=False)
+    mf = scf.RHF (mol).density_fit ().run ()
+    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
+    mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
+    #las.state_average_(weights=[1,0,0,0,0],
+    #                   spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
+    #                   smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
+    las.kernel (mo)
 
 
+    ###########################
+    from mrh.my_pyscf.mcscf.lasci import get_grad_orb
+    from mrh.my_pyscf.mcscf.lasscf_async_split import LASImpurityOrbitalCallable
+    dm1s = las.make_rdm1s ()
+    veff = las.get_veff (dm1s=dm1s)
+    fock1 = get_grad_orb (las, hermi=0)
+    get_imporbs_0 = LASImpurityOrbitalCallable (las, 0, list (range (3)))
+    fo_coeff, nelec_fo = get_imporbs_0 (las.mo_coeff, dm1s, veff, fock1)
+    ###########################
+
+    imol = ImpurityMole (las)
+    imol._update_space_(fo_coeff, nelec_fo)
+    imf = ImpurityHF (imol)
+    imf._update_heff_(veff, dm1s)
+    imc = ImpurityCASSCF (imf, 4, 4)
+    imc._ifrag = 0
+    imc.fcisolver = las.fciboxes[0]
+    imc._update_keyframe_(las.mo_coeff, las.ci)
+    imc._update_hcore_cishift_(las.mo_coeff, las.ci)
+    imc.kernel ()
 
