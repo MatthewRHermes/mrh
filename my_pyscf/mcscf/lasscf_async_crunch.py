@@ -19,6 +19,7 @@ class ImpurityMole (gto.Mole):
         elif output is not None:
             self.output = output
         self.spin = None
+        self._imporb_coeff = np.array ([0])
         self.build ()
 
     def _update_space_(self, imporb_coeff, nelec_imp):
@@ -54,17 +55,23 @@ class ImpuritySCF (scf.hf.SCF):
                 b0 = b1
         # External mean-field; potentially spin-broken
         h1s = mf.get_hcore ()[None,:,:] + veff
+        de += np.dot ((h1s - veff*.5).ravel (), dm1s.ravel ()) # all electrons
+        print ("e_tot", mf.mol.energy_nuc () + de)
+        # Project into impurity space
         h1s = np.dot (imporb_coeff.conj ().T, np.dot (h1s, imporb_coeff)).transpose (1,0,2)
         smo = mf.get_ovlp () @ imporb_coeff
         dm1s = np.dot (smo.conj ().T, np.dot (dm1s, smo)).transpose (1,0,2)
+        print (np.trace (dm1s[0]), np.trace (dm1s[1]))
         vj, vk = self.get_jk (dm=dm1s)
         veff1 = vj.sum (0)[None,:,:] - vk
-        h1s -= veff1
+        h1s -= veff1 # Subtract self-energy
         self._imporb_h1 = h1s.sum (0) / 2
         self._imporb_h1_sz = (h1s[0] - h1s[1]) / 2
-        # Constant
-        de = np.dot ((h1s + (veff1*.5)).ravel (), dm1s.ravel ())
-        self._imporb_h0 = mf.mol.energy_nuc () - de 
+        # Subtract self-energy
+        de -= np.dot ((h1s + (veff1*.5)).ravel (), dm1s.ravel ())
+        print ("self-energy subtracted", de)
+        self._imporb_h0 = mf.mol.energy_nuc () + de 
+        print ("supposed imporb_h0", self._imporb_h0)
 
     def get_hcore (self, *args, **kwargs):
         return self._imporb_h1
@@ -264,6 +271,9 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h6n4_struct import structure as struct
     mol = struct (1.0, 1.0, '6-31g', symmetry=False)
+    mol.verbose = 4
+    mol.output = 'lasscf_async_crunch.log'
+    mol.build ()
     mf = scf.RHF (mol).density_fit ().run ()
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
@@ -282,6 +292,7 @@ if __name__=='__main__':
     fock1 = get_grad_orb (las, hermi=0)
     get_imporbs_0 = LASImpurityOrbitalCallable (las, 0, list (range (3)))
     fo_coeff, nelec_fo = get_imporbs_0 (las.mo_coeff, dm1s, veff, fock1)
+    print (nelec_fo, mol.nelectron)
     ###########################
 
     imol = ImpurityMole (las)
