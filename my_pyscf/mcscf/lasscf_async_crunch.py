@@ -1,5 +1,8 @@
-from pyscf import gto, scf, mcscf, ao2mo, lib
+import numpy as np
+from scipy import linalg
+from pyscf import gto, scf, mcscf, ao2mo, lib, df
 from pyscf.fci.direct_spin1 import _unpack_nelec
+import copy
 
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
@@ -25,7 +28,7 @@ class ImpurityMole (gto.Mole):
         self.spin = nelec_imp[0] - nelec_imp[1]
 
     def get_imporb_coeff (self): return self._imporb_coeff
-    def nao_nr (self): return self._imporb_coeff.shape[-1]
+    def nao_nr (self, *args, **kwargs): return self._imporb_coeff.shape[-1]
     def nao (self): return self._imporb_coeff.shape[-1]
 
 class ImpuritySCF (scf.hf.SCF):
@@ -34,9 +37,9 @@ class ImpuritySCF (scf.hf.SCF):
         nimp = self.mol.nao ()
         mf = self.mol._las._scf
         # Two-electron integrals
-        if hasattr (mf, '_eri'):
+        if getattr (mf, '_eri', None) is not None:
             self._eri = ao2mo.full (mf._eri, imporb_coeff, 4)
-        if hasattr (mf, 'with_df'):
+        if getattr (mf, 'with_df', None) is not None:
             # TODO: impurity outcore cderi
             self.with_df._cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
                                             dtype=imporb_coeff.dtype)
@@ -54,7 +57,7 @@ class ImpuritySCF (scf.hf.SCF):
         h1s = np.dot (imporb_coeff.conj ().T, np.dot (h1s, imporb_coeff)).transpose (1,0,2)
         smo = mf.get_ovlp () @ imporb_coeff
         dm1s = np.dot (smo.conj ().T, np.dot (dm1s, smo)).transpose (1,0,2)
-        vj, vk = self.get_jk (dm1s)
+        vj, vk = self.get_jk (dm=dm1s)
         veff1 = vj.sum (0)[None,:,:] - vk
         h1s -= veff1
         self._imporb_h1 = h1s.sum (0) / 2
@@ -63,7 +66,7 @@ class ImpuritySCF (scf.hf.SCF):
         de = np.dot ((h1s + (veff1*.5)).ravel (), dm1s.ravel ())
         self._imporb_h0 = mf.mol.energy_nuc () - de 
 
-    def get_hcore (self):
+    def get_hcore (self, *args, **kwargs):
         return self._imporb_h1
 
     def get_hcore_sz (self):
@@ -86,7 +89,7 @@ class ImpuritySCF (scf.hf.SCF):
         if vhf is None: vhf = self.get_veff (self.mol, dm)
         vhf[0] += self.get_hcore_sz ()
         vhf[1] -= self.get_hcore_sz ()
-        return super().get_fock (h1e=h1e, s1e=s1e, vhf=vhf, dm=dm, cycle=cycle, diis=diis,
+        return scf.rohf.get_fock (self, h1e=h1e, s1e=s1e, vhf=vhf, dm=dm, cycle=cycle, diis=diis,
             diis_start_cycle=diis_start_cycle, level_shift_factor=level_shift_factor,
             damp_factor=damp_factor)
 
@@ -123,15 +126,12 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
 
     mo_core = mo[:,:ncore]
     mo_cas = mo[:,ncore:nocc]
-    core_dm = numpy.dot(mo_core, mo_core.T) * 2
-    hcore = casscf.get_hcore()
-    hcore_sz = casscf._scf.get_hcore_sz()
-    hcore = np.stack ([hcore+hcore_sz, hcore-hcore_sz], axis=0)
-    hcore = hcore[None,:,:,:] + casscf.get_hcore_cishift ()
+    core_dm = np.dot(mo_core, mo_core.T) * 2
     energy_core = casscf.energy_nuc()
-    energy_core += numpy.einsum('ij,ji', core_dm, hcore)
-    energy_core += eris.vhf_c[:ncore,:ncore].trace()
-    h1eff = np.tensordot (mo_cas.conj (), np.dot (hcore, mo_cas), axes=((0),(2))).transpose (1,2,0,3)
+    hcore = casscf.get_hcore ()
+    energy_core += np.einsum('ij,ji', core_dm, hcore)
+    h1 = casscf.get_hcore_ci ()
+    h1eff = np.tensordot (mo_cas.conj (), np.dot (h1, mo_cas), axes=((0),(2))).transpose (1,2,0,3)
     h1eff += eris.vhf_c[None,None,ncore:nocc,ncore:nocc]
     
     mc.get_h1eff = lambda *args: (h1eff, energy_core)
@@ -148,7 +148,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         # Project mo_coeff and ci keyframe into impurity space and cache
         las = self.mol._las
         mf = las._scf
-        ifrag = self._ifrag
+        _ifrag = self._ifrag
         imporb_coeff = self.mol.get_imporb_coeff ()
         self.ci = ci[_ifrag]
         # Inactive orbitals
@@ -156,7 +156,6 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         s0 = mf.get_ovlp ()
         ovlp = imporb_coeff.conj ().T @ s0 @ mo_core
         self.mo_coeff, svals, vh = linalg.svd (ovlp)
-        assert (self.mo_coeff.shape == imporb_coeff.shape)
         self.ncore = np.count_nonzero (np.isclose (svals, 1))
         # Active and virtual orbitals (note self.ncas must be set at construction)
         nocc = self.ncore + self.ncas
@@ -184,7 +183,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         w, c = linalg.eigh (fock_virt)
         self.mo_coeff[:,nocc:] = mo_virt @ c
         # Two-body correction to _scf._imporb_h0 is better computed here
-        eri_cas = self.get_h2eff (mo_cas)
+        eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
         casdm1 = casdm1s[0] + casdm1s[1]
         casdm2 = casdm2s[0] + casdm2s[1] + casdm2s[1].transpose (2,3,0,1) + casdm2s[2]
         casdm2 -= np.multiply.outer (casdm1, casdm1)
@@ -203,39 +202,38 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         j = i + las.ncas_sub[self._ifrag]
         dm1rs[:,:,i:j,:] = dm1rs[:,:,:,i:j] = 0.0
         mo_cas = mo_coeff[:,las.ncore:][:,:las.ncas]
-        bPmu = getattr (h2eff_sub, 'bPmu')
-        if bPmu is not None:
-            vj_r = self.get_vj_ext (mo_cas, dm1rs, bPmu=bPmu).sum (1)
-            vk_rs = self.get_vk_ext (mo_cas, dm1rs, bPmu=bPmu)
-            vext = vj_r[:,None,:,:] - vk_rs
-        else:
-            raise NotImplementedError ("Non-DF version")
+        bmPu = getattr (h2eff_sub, 'bmPu', None)
+        vj_r = self.get_vj_ext (mo_cas, dm1rs.sum(1), bmPu=bmPu)
+        vk_rs = self.get_vk_ext (mo_cas, dm1rs, bmPu=bmPu)
+        vext = vj_r[:,None,:,:] - vk_rs
         self._imporb_h1_cishift = vext
 
-    def get_vj_ext (self, mo_ext, dm1rs_ext, bPmu=None):
-        if bPmu is not None:
-            bPuu = np.tensordot (bPmu, mo_ext, axes=((1),(0)))
-            rho_rs = np.tensordot (dm1rs_ext, bPuu, axes=((2,3),(1,2)))
+    def get_vj_ext (self, mo_ext, dm1rs_ext, bmPu=None):
+        output_shape = list (dm1rs_ext.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
+        dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
+        if bmPu is not None:
+            bPuu = np.tensordot (bmPu, mo_ext, axes=((0),(0)))
+            rho = np.tensordot (dm1, bPuu, axes=((1,2),(1,2)))
             bPii = self._scf.with_df._cderi
-            return np.tensordot (rho_rs, bPii, axes=((-1),(0)))
+            vj = lib.unpack_tril (np.tensordot (rho, bPii, axes=((-1),(0))))
         else: # Safety case: AO-basis SCF driver
-            output_shape = list (dm1rs.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
-            dm1 = dm1rs.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
             dm1 = np.dot (mo_ext.conj ().T, np.dot (dm1, mo_ext)).transpose (1,0,2)
-            return self.mol._las.scf.get_j (dm1).reshape (*output_shape)
+            vj = self.mol._las.scf.get_j (dm1)
+        return vj.reshape (*output_shape) 
 
-    def get_vk_ext (self, mo_ext, dm1rs_ext, bPmu=None):
+    def get_vk_ext (self, mo_ext, dm1rs_ext, bmPu=None):
+        output_shape = list (dm1rs_ext.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
+        dm1 = dm1rs_ext.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
         imporb_coeff = self.mol.get_imporb_coeff ()
-        if bPmu is not None:
-            bPiu = np.tensordot (bPmu, imporb_coeff, axes=((1),(0)))
-            vuPi = np.tensordot (dm1rs_ext, bPiu, axes=((-1),(-1)))
-            return np.tensordot (bPiu, vuPi, axes=((0,2),(-2,-3)))
+        if bmPu is not None:
+            biPu = np.tensordot (imporb_coeff, bmPu, axes=((0),(0)))
+            vuiP = np.tensordot (dm1, biPu, axes=((-1),(-1)))
+            vk = np.tensordot (biPu, vuiP, axes=((-2,-1),(-1,-3)))
         else: # Safety case: AO-basis SCF driver
-            output_shape = list (dm1rs.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
-            dm1 = dm1rs.reshape (-1, mo_ext.shape[1], mo_ext.shape[1])
             dm1 = np.dot (mo_ext.conj ().T, np.dot (dm1, mo_ext)).transpose (1,0,2)
-            return self.mol._las.scf.get_k (dm1).reshape (*output_shape)
-            
+            vk = self.mol._las.scf.get_k (dm1).reshape (*output_shape)
+        return vk.reshape (*output_shape)
+
     def get_hcore_cishift (self):
         return self._imporb_h1_cishift
 
@@ -254,8 +252,12 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
     def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
         from pyscf.mcscf import mc1step
         with lib.temporary_env (mc1step, _fake_h_for_fast_casci=_fake_h_for_fast_casci):
-             e_tot, e_cas, fcivec = super().casci (mo_coeff, ci0=ci0, eris=eris, verbose=verbose,
-                                                   envs=envs)
+            try:
+                e_tot, e_cas, fcivec = super().casci (mo_coeff, ci0=ci0, eris=eris, verbose=verbose,
+                                                      envs=envs)
+            except AssertionError as e:
+                print (type (ci0))
+                raise (e)
         return e_tot, e_cas, fcivec
 
 
@@ -270,7 +272,7 @@ if __name__=='__main__':
     #                   spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
     #                   smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
     las.kernel (mo)
-
+    print (las.e_tot)
 
     ###########################
     from mrh.my_pyscf.mcscf.lasci import get_grad_orb
@@ -284,12 +286,13 @@ if __name__=='__main__':
 
     imol = ImpurityMole (las)
     imol._update_space_(fo_coeff, nelec_fo)
-    imf = ImpurityHF (imol)
+    imf = ImpurityHF (imol).density_fit ()
     imf._update_heff_(veff, dm1s)
-    imc = ImpurityCASSCF (imf, 4, 4)
+    imc = df.density_fit (ImpurityCASSCF (imf, 4, 4))
     imc._ifrag = 0
     imc.fcisolver = las.fciboxes[0]
     imc._update_keyframe_(las.mo_coeff, las.ci)
     imc._update_hcore_cishift_(las.mo_coeff, las.ci)
     imc.kernel ()
+    print (imc.converged)
 

@@ -122,7 +122,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
                 else:
                     es.extend(e)
                     cs.extend(c)
-            return np.einsum('i,i->', es, weights), cs
+            return np.einsum('i,i->', es, self.weights), cs
 
         def states_absorb_h1e (self, h1, h2, norb, nelec, fac):
             op = []
