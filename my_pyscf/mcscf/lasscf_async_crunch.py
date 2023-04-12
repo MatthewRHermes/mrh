@@ -33,7 +33,8 @@ class ImpurityMole (gto.Mole):
     def nao (self): return self._imporb_coeff.shape[-1]
 
 class ImpuritySCF (scf.hf.SCF):
-    def _update_heff_(self, veff, dm1s, de=0):
+    def _update_heff_(self, veff, dm1s, e_tot=None):
+        if e_tot is None: e_tot = self.mol._las.e_tot
         imporb_coeff = self.mol.get_imporb_coeff ()
         nimp = self.mol.nao ()
         mf = self.mol._las._scf
@@ -55,23 +56,31 @@ class ImpuritySCF (scf.hf.SCF):
                 b0 = b1
         # External mean-field; potentially spin-broken
         h1s = mf.get_hcore ()[None,:,:] + veff
-        de += np.dot ((h1s - veff*.5).ravel (), dm1s.ravel ()) # all electrons
-        print ("e_tot", mf.mol.energy_nuc () + de)
-        # Project into impurity space
         h1s = np.dot (imporb_coeff.conj ().T, np.dot (h1s, imporb_coeff)).transpose (1,0,2)
-        smo = mf.get_ovlp () @ imporb_coeff
-        dm1s = np.dot (smo.conj ().T, np.dot (dm1s, smo)).transpose (1,0,2)
-        print (np.trace (dm1s[0]), np.trace (dm1s[1]))
-        vj, vk = self.get_jk (dm=dm1s)
-        veff1 = vj.sum (0)[None,:,:] - vk
-        h1s -= veff1 # Subtract self-energy
         self._imporb_h1 = h1s.sum (0) / 2
         self._imporb_h1_sz = (h1s[0] - h1s[1]) / 2
-        # Subtract self-energy
-        de -= np.dot ((h1s + (veff1*.5)).ravel (), dm1s.ravel ())
-        print ("self-energy subtracted", de)
-        self._imporb_h0 = mf.mol.energy_nuc () + de 
-        print ("supposed imporb_h0", self._imporb_h0)
+        self._imporb_h0 = e_tot 
+        print ('keyframe total energy:', self._imporb_h0)
+
+    def _subtract_self_energy_(self, mo_docc, mo_dm, dm1s, dm2, eri_dm=None):
+        dm_docc = 2*mo_docc @ mo_docc.conj ().T
+        vj, vk = self.get_jk (dm=dm_docc)
+        veff_docc = vj - vk*.5
+        self._imporb_h0 -= np.dot (dm_docc.ravel (), veff_docc.ravel ()) / 2
+        print ('After subtracting inactive two-internal-body self-energy:', self._imporb_h0)
+        self._imporb_h1 -= veff_docc
+        dm1s = np.dot (mo_dm, np.dot (dm1s, mo_dm.conj ().T)).transpose (1,0,2)
+        vj, vk = self.get_jk (dm=dm1s)
+        veff = vj.sum (0)[None,:,:] - vk
+        self._imporb_h1 -= veff.sum (0) / 2
+        self._imporb_h1_sz -= (veff[0] - veff[1]) / 2
+        self._imporb_h0 -= np.dot (dm2.ravel (), eri_dm.ravel ()) / 2
+        print ('After subtracting active two-internal-body self-energy:', self._imporb_h0)
+        dm1s += dm_docc[None,:,:]*.5
+        self._imporb_h0 -= np.dot (self.get_hcore_spinsep ().ravel (),
+                                   dm1s.ravel ())
+        print ('After subtracting self-energy:', self._imporb_h0)
+        print ("energy nuc:", self.mol._las._scf.energy_nuc ())
 
     def get_hcore (self, *args, **kwargs):
         return self._imporb_h1
@@ -135,8 +144,10 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
     mo_cas = mo[:,ncore:nocc]
     core_dm = np.dot(mo_core, mo_core.T) * 2
     energy_core = casscf.energy_nuc()
+    print ("CASSCF energy_nuc:", energy_core) 
     hcore = casscf.get_hcore ()
     energy_core += np.einsum('ij,ji', core_dm, hcore)
+    print ("CASSCF energy_core:", energy_core) 
     h1 = casscf.get_hcore_ci ()
     h1eff = np.tensordot (mo_cas.conj (), np.dot (h1, mo_cas), axes=((0),(2))).transpose (1,2,0,3)
     h1eff += eris.vhf_c[None,None,ncore:nocc,ncore:nocc]
@@ -174,12 +185,16 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         assert (np.allclose(svals[:self.ncas], 1))
         u[:,:self.ncas] = u[:,:self.ncas] @ vh
         self.mo_coeff[:,self.ncore:] = self.mo_coeff[:,self.ncore:] @ u
-        # Canonicalize core and virtual spaces
+        # Subtract self-energy
         casdm1s, casdm2s = self.fcisolver.make_rdm12s (ci, self.ncas, self.nelecas)
+        casdm2 = casdm2s[0] + casdm2s[1] + casdm2s[1].transpose (2,3,0,1) + casdm2s[2]
+        eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
+        self._scf._subtract_self_energy_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
+        # Canonicalize core and virtual spaces
         dm1s = np.dot (mo_cas, np.dot (casdm1s, mo_cas.conj ().T)).transpose (1,0,2)
-        dm1s += (mo_core @ mo_core.conj ().T)[None,:,:]
+        dm1s += np.dot (mo_core, mo_core.conj ().T)[None,:,:]
         fock = self._scf.get_fock (dm=dm1s)
         mo_core = self.mo_coeff[:,:self.ncore]
         fock_core = mo_core.conj ().T @ fock @ mo_core
@@ -189,15 +204,6 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         fock_virt = mo_virt.conj ().T @ fock @ mo_virt
         w, c = linalg.eigh (fock_virt)
         self.mo_coeff[:,nocc:] = mo_virt @ c
-        # Two-body correction to _scf._imporb_h0 is better computed here
-        eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
-        casdm1 = casdm1s[0] + casdm1s[1]
-        casdm2 = casdm2s[0] + casdm2s[1] + casdm2s[1].transpose (2,3,0,1) + casdm2s[2]
-        casdm2 -= np.multiply.outer (casdm1, casdm1)
-        casdm2 += np.multiply.outer (casdm1s[0], casdm1s[0]).transpose (0,3,2,1)
-        casdm2 += np.multiply.outer (casdm1s[1], casdm1s[1]).transpose (0,3,2,1)
-        de = np.dot (eri_cas.ravel (), casdm2.ravel ()) / 2
-        self._scf._imporb_h0 -= de
 
     def _update_hcore_cishift_(self, mo_coeff, ci, casdm1rs=None, h2eff_sub=None):
         las = self.mol._las
@@ -292,13 +298,13 @@ if __name__=='__main__':
     fock1 = get_grad_orb (las, hermi=0)
     get_imporbs_0 = LASImpurityOrbitalCallable (las, 0, list (range (3)))
     fo_coeff, nelec_fo = get_imporbs_0 (las.mo_coeff, dm1s, veff, fock1)
-    print (nelec_fo, mol.nelectron)
+    print (sum (nelec_fo), mol.nelectron)
     ###########################
 
     imol = ImpurityMole (las)
     imol._update_space_(fo_coeff, nelec_fo)
     imf = ImpurityHF (imol).density_fit ()
-    imf._update_heff_(veff, dm1s)
+    imf._update_heff_(veff, dm1s, e_tot=las.e_tot)
     imc = df.density_fit (ImpurityCASSCF (imf, 4, 4))
     imc._ifrag = 0
     imc.fcisolver = las.fciboxes[0]
