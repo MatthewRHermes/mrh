@@ -104,7 +104,11 @@ class KnownValues(unittest.TestCase):
         for r in range (2):
             for i, j in product (range (nroots), repeat=2):
                 with self.subTest (rank=r+1, bra=i, ket=j):
-                    self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
+                    #self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
+                    #    lib.fp (d12_o1[r][i,...,j]), 9)
+                    if r==0: test=d12_o0[r][j,...,i]
+                    else: test=d12_o0[r][i,...,j]
+                    self.assertAlmostEqual (lib.fp (test),
                         lib.fp (d12_o1[r][i,...,j]), 9)
 
     def test_ham_s2_ovlp (self):

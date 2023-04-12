@@ -9,6 +9,8 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 
+# TODO: fix stdm1 index convention in both o0 and o1
+
 LINDEP_THRESHOLD = 1.0e-5
 
 op = (op_o0, op_o1)
