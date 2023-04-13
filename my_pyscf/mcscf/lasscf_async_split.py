@@ -80,10 +80,14 @@ class LASImpurityOrbitalCallable (object):
         # Everything in the orth-AO basis
         oo, soo = self.oo_coeff, self.soo_coeff
         mo = soo.conj ().T @ mo_coeff
-        dm1s[0] = soo.conj ().T @ dm1s[0] @ soo
-        dm1s[1] = soo.conj ().T @ dm1s[1] @ soo
-        veff[0] = oo.conj ().T @ veff[0] @ oo
-        veff[1] = oo.conj ().T @ veff[1] @ oo
+        dm1s_ = [0,0]
+        veff_ = [0,0]
+        dm1s_[0] = soo.conj ().T @ dm1s[0] @ soo
+        dm1s_[1] = soo.conj ().T @ dm1s[1] @ soo
+        veff_[0] = oo.conj ().T @ veff[0] @ oo
+        veff_[1] = oo.conj ().T @ veff[1] @ oo
+        dm1s = dm1s_
+        veff = veff_
         fock1 = mo @ fock1 @ mo.conj ().T
 
         fo, eo = self._get_orthnorm_frag (mo)
