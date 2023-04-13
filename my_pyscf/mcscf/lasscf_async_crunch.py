@@ -180,7 +180,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         u[:,:self.ncas] = u[:,:self.ncas] @ vh
         self.mo_coeff[:,self.ncore:] = self.mo_coeff[:,self.ncore:] @ u
         # Subtract self-energy
-        casdm1s, casdm2s = self.fcisolver.make_rdm12s (ci, self.ncas, self.nelecas)
+        casdm1s, casdm2s = self.fcisolver.make_rdm12s (self.ci, self.ncas, self.nelecas)
         casdm2 = casdm2s[0] + casdm2s[1] + casdm2s[1].transpose (2,3,0,1) + casdm2s[2]
         eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
@@ -249,12 +249,27 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
     def get_h1eff (self, mo_coeff=None, ncas=None, ncore=None):
         ''' must needs change the dimension of h1eff '''
+        assert (False)
         h1_avg_spinless, energy_core = self.h1e_for_cas (mo_coeff, ncas, ncore)[1]
         mo_cas = mo_coeff[:,ncore:][:,:ncas]
         h1_avg_sz = mo_cas.conj ().T @ self._scf.get_hcore_sz () @ mo_cas
         h1_avg = np.stack ([h1_avg_spinless + h1_avg_sz, h1_avg_spinless - h1_avg_sz], axis=0)
         h1 += mo_cas.conj ().T @ self.get_hcore_cishift () @ mo_cas
         return h1, energy_core
+
+    def update_casdm (self, mo, u, fcivec, e_cas, eris, envs={}):
+        ''' inject the cishift h1 into envs '''
+        mou = mo @ u[:,self.ncore:][:,:self.ncas]
+        h1_cishift = self.get_hcore_ci () - self.get_hcore ()[None,None,:,:]
+        h1_cishift = np.tensordot (mou.conj ().T, np.dot (h1_cishift, mou),
+                                   axes=((1),(2))).transpose (1,2,0,3)
+        envs['h1_cishift'] = h1_cishift
+        return super().update_casdm (mo, u, fcivec, e_cas, eris, envs=envs)
+
+    def solve_approx_ci (self, h1, h2, ci0, ecore, e_cas, envs):
+        ''' get the cishifted h1 from envs '''
+        h1 = h1[None,None,:,:] = envs['h1_cishift']
+        return super().solve_approx_ci (h1, h2, ci0, ecore, e_cas, envs)
 
     def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
         from pyscf.mcscf import mc1step
@@ -278,11 +293,10 @@ if __name__=='__main__':
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
-    #las.state_average_(weights=[1,0,0,0,0],
-    #                   spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
-    #                   smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
+    las.state_average_(weights=[1,0,0,0,0],
+                       spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
+                       smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
     las.kernel (mo)
-    print (las.e_tot)
 
     ###########################
     from mrh.my_pyscf.mcscf.lasci import get_grad_orb
@@ -305,4 +319,3 @@ if __name__=='__main__':
     imc._update_hcore_cishift_(las.mo_coeff, las.ci)
     imc.kernel ()
     print (imc.converged, las.e_tot, imc.e_tot, imc.e_tot-las.e_tot)
-
