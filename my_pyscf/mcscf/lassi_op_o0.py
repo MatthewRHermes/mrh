@@ -3,6 +3,7 @@ import numpy as np
 from scipy import linalg
 from pyscf.fci import cistring
 from pyscf import fci, lib
+from pyscf.fci.direct_nosym import contract_1e as contract_1e_nosym
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.spin_op import contract_ss, spin_square
 from pyscf.data import nist
@@ -145,61 +146,50 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
         ci_r.append (_ci_outer_product (ci_f, norb_f, nelec_f))
         nelec_r.append ((sum ([ne[0] for ne in nelec_f]),
                        sum ([ne[1] for ne in nelec_f])))
-    # Teffanie: rather than doing one thing for SOC calc'ns and another thing for spin-pure
-    # calc'ns, I think it makes good sense to just return the full list of nelec_r for every calc'n
-    # regardless of whether or not it's needed; calling functions can be easily modified to account
-    # for this.
     return ci_r, nelec_r
 
-# Teffanie: I would rather "hso" be computed by the caller (lassi.py) and passed as part of h1 or in
-# addition to h1, because that makes it more general for later on if we want to do X2C, other kinds
-# of SOMF, etc. 
-def si_soc (las, h1, ci, nelec, norb):
+#def si_soc (las, h1, ci, nelec, norb):
+#
+#### function adapted from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
+#
+##    au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
+#    nroots = len(ci)
+#    hsiso = np.zeros((nroots, nroots), dtype=complex)
+#    ncas = las.ncas
+#    hso_m1 = h1[ncas:2*ncas,0:ncas]
+#    hso_p1 = h1[0:ncas,ncas:2*ncas]
+#    hso_ze = (h1[0:ncas,0:ncas] - h1[ncas:2*ncas,ncas:2*ncas])/2 
+#
+#    for istate, (ici, inelec) in enumerate(zip(ci, nelec)):
+#        for jstate, (jci, jnelec) in enumerate(zip(ci, nelec)):
+#            if jstate > istate:
+#                continue
+#
+#            tp1 = lassi_dms.make_trans(1, ici, jci, norb, inelec, jnelec)
+#            tze = lassi_dms.make_trans(0, ici, jci, norb, inelec, jnelec)
+#            tm1 = lassi_dms.make_trans(-1, ici, jci, norb, inelec, jnelec)
+#
+#            if tp1.shape == ():
+#                tp1 = np.zeros((ncas,ncas))
+#            if tze.shape == ():
+#                tze = np.zeros((ncas,ncas))
+#            if tm1.shape == ():
+#                tm1 = np.zeros((ncas,ncas))
+#
+#            somat = np.einsum('ri, ir ->', tm1, hso_m1)
+#            somat += np.einsum('ri, ir ->', tp1, hso_p1)
+#            #somat = somat/2
+#            somat += np.einsum('ri, ir ->', tze, hso_ze)
+#
+#            hsiso[jstate, istate] = somat
+#            if istate!= jstate:
+#                hsiso[istate, jstate] = somat.conj()
+##            somat *= au2cm
+#
+#    #heigso, hvecso = np.linalg.eigh(hsiso)
+#
+#    return hsiso
 
-### function adapted from github.com/hczhai/fci-siso/blob/master/fcisiso.py ###
-
-#    au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
-    nroots = len(ci)
-    hsiso = np.zeros((nroots, nroots), dtype=complex)
-    ncas = las.ncas
-    hso_m1 = h1[ncas:2*ncas,0:ncas]
-    hso_p1 = h1[0:ncas,ncas:2*ncas]
-    hso_ze = (h1[0:ncas,0:ncas] - h1[ncas:2*ncas,ncas:2*ncas])/2 
-
-    for istate, (ici, inelec) in enumerate(zip(ci, nelec)):
-        for jstate, (jci, jnelec) in enumerate(zip(ci, nelec)):
-            if jstate > istate:
-                continue
-
-            tp1 = lassi_dms.make_trans(1, ici, jci, norb, inelec, jnelec)
-            tze = lassi_dms.make_trans(0, ici, jci, norb, inelec, jnelec)
-            tm1 = lassi_dms.make_trans(-1, ici, jci, norb, inelec, jnelec)
-
-            if tp1.shape == ():
-                tp1 = np.zeros((ncas,ncas))
-            if tze.shape == ():
-                tze = np.zeros((ncas,ncas))
-            if tm1.shape == ():
-                tm1 = np.zeros((ncas,ncas))
-
-            somat = np.einsum('ri, ir ->', tm1, hso_m1)
-            somat += np.einsum('ri, ir ->', tp1, hso_p1)
-            #somat = somat/2
-            somat += np.einsum('ri, ir ->', tze, hso_ze)
-
-            hsiso[jstate, istate] = somat
-            if istate!= jstate:
-                hsiso[istate, jstate] = somat.conj()
-#            somat *= au2cm
-
-    #heigso, hvecso = np.linalg.eigh(hsiso)
-
-    return hsiso
-
-# Teffanie: when you add an argument or keyword argument to a function, you should describe it in
-# the docstring. I changed soc from a boolean to an integer, on the idea that later on we can
-# distinguish between soc=1 for SOMF calculations and soc=2 for 2-electron spin-breaking.
-# However, you can still pass "soc=True" or "soc=False" and it should work.
 def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
     TODO: extend to accomodate states of different ms being addressed
@@ -233,51 +223,64 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
         ovlp_eff : square ndarray of length (count_nonzero (idx_root))
             Overlap matrix in state-interaction basis
     '''
+    if soc>1:
+        raise NotImplementedError ("Two-electron spin-orbit coupling")
     mol = las.mol
     norb_f = las.ncas_sub
     nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
                  for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+    norb = sum (norb_f)
 
     # The function below is the main workhorse of this whole implementation
     ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
-
-    # Teffanie: I got rid of the conditional here doing one thing with soc and another thing w/out
-    # it, because the former works for both cases. However, see the note below.
-    solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
-    norb = sum (norb_f)
     nroots = len(ci_r)
-    # Teffanie: note that absorb_h1e here required knowledge of nelec.
-    ham_ci = []
-    ncas = las.ncas
-    h1_sf = h1
-    if soc:
-        h1_sf = (h1[0:ncas,0:ncas] + h1[ncas:2*ncas,ncas:2*ncas]).real/2
-    for ci, nelec in zip (ci_r, nelec_r):
-        h2eff = solver.absorb_h1e (h1_sf, h2, norb, nelec, 0.5)
-        ham_ci.append (solver.contract_2e (h2eff, ci, norb, nelec))
+    nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
+    if not len (set (nelec_r_spinless)) == 1:
+        raise NotImplementedError ("States with different numbers of electrons")
+    # S2 best taken care of before "spinless representation"
     s2_ci = [contract_ss (c, norb, ne) for c, ne in zip(ci_r, nelec_r)]
-
-    ham_eff, s2_eff, ovlp_eff = [ np.zeros((nroots, nroots)) for i in range (3) ]
-    for i, hc, s2c, ket, nelec_ket in zip(range(nroots), ham_ci, s2_ci, ci_r, nelec_r):
+    s2_eff = np.zeros ((nroots,nroots))
+    for i, s2c, nelec_ket in zip(range(nroots), s2_ci, nelec_r):
         for j, c, nelec_bra in zip(range(nroots), ci_r, nelec_r):
             if nelec_ket == nelec_bra:
-                # Teffanie: you had 'if len(hc) == len(c):', which I'm not sure is general enough.
-                # For example, in six orbitals, nelec=(4,2) and nelec=(2,4) have the same array
-                # shapes because of particle-hole symmetry, but the matrix elements coupling them
-                # should be zero.
-                ham_eff[i, j] = c.ravel ().dot (hc.ravel ())
                 s2_eff[i, j] = c.ravel ().dot (s2c.ravel ())
+    # Hamiltonian may be complex
+    h1_re = h1.real
+    h2_re = h2.real
+    h1_im = None
+    if soc:
+        h1_im = h1.imag
+        h2_re = np.zeros ([2,norb,]*4, dtype=h1_re.dtype)
+        h2_re[0,:,0,:,0,:,0,:] = h2[:]
+        h2_re[1,:,1,:,0,:,0,:] = h2[:]
+        h2_re[0,:,0,:,1,:,1,:] = h2[:]
+        h2_re[1,:,1,:,1,:,1,:] = h2[:]
+        h2_re = h2_re.reshape ([2*norb,]*4)
+        ci_r = civec_spinless_repr (ci_r, norb, nelec_r)
+        nelec_r = nelec_r_spinless
+        norb = 2 * norb
+        if orbsym is not None: orbsym *= 2
+
+    solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
+    ham_ci = []
+    for ci, nelec in zip (ci_r, nelec_r):
+        h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec, 0.5)
+        ham_ci.append (solver.contract_2e (h2eff, ci, norb, nelec))
+    if h1_im is not None:
+        for i, (ci, nelec) in enumerate (zip (ci_r, nelec_r)):
+            ham_ci[i] = ham_ci[i] + 1j*contract_1e_nosym (h1_im, ci, norb, nelec)
+
+    ham_eff = np.zeros ((nroots, nroots), dtype=ham_ci[0].dtype)
+    ovlp_eff = np.zeros ((nroots, nroots))
+    for i, hc, ket, nelec_ket in zip(range(nroots), ham_ci, ci_r, nelec_r):
+        for j, c, nelec_bra in zip(range(nroots), ci_r, nelec_r):
+            if nelec_ket == nelec_bra:
+                ham_eff[i, j] = c.ravel ().dot (hc.ravel ())
                 ovlp_eff[i,j] = c.ravel ().dot (ket.ravel ())
-    if soc: # Teffanie: conveniently, this still works if soc is an integer
-        hso = si_soc(las, h1, ci_r, nelec_r, norb)
-        ham_eff = ham_eff + hso
     
     return ham_eff, s2_eff, ovlp_eff
 
-# Teffanie: in these functions, we don't need to know why or how we have multiple distinct spin
-# sectors; the "ci_outer_product" function itself tells us this. So there's no reason to pass
-# "soc" here or in the next function.
 def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
 
