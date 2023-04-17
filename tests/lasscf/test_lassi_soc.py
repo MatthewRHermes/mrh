@@ -185,13 +185,12 @@ class KnownValues (unittest.TestCase):
                 self.assertAlmostEqual (np.amax(np.abs(d1[0,:,0,:])), 0, 16)
                 self.assertAlmostEqual (np.amax(np.abs(d1[1,:,1,:])), 0, 16)
             with self.subTest (oneelectron_sanity='raising XOR lowering', ket=i):
-                # TODO: figure out the order of the indices!!!
-                if ispin:
+                if ispin: # <0|pq|down>
                     self.assertAlmostEqual (np.amax (np.abs (d1[0,:,1,:])), 0, 16)
-                    d1=d1[1,:,0,:]
-                else:
+                    d1=d1[1,:,0,:] # [beta,alpha] -> alpha' beta
+                else: # <0|pq|up>
                     self.assertAlmostEqual (np.amax (np.abs (d1[1,:,0,:])), 0, 16)
-                    d1=d1[0,:,1,:]
+                    d1=d1[0,:,1,:] # [alpha,beta] -> beta' alpha
             with self.subTest (oneelectron_sanity='nonzero S.O.C.', ket=i):
                 self.assertAlmostEqual (linalg.norm (d1), 1.1539613201047167, 8)
         # lassi_dms.make_trans and total electron count
@@ -206,9 +205,8 @@ class KnownValues (unittest.TestCase):
             with self.subTest ('electron count', state=i):
                 self.assertEqual (nelec_r_test, nelec_r[i])
         def dm_sector (dm, m):
-            # TODO: figure out the order of the indices!!!
-            if m==1: return dm[ncas:2*ncas,0:ncas]
-            elif m==-1: return dm[0:ncas,ncas:2*ncas]
+            if m==1: return dm[ncas:2*ncas,0:ncas] # [beta,alpha] -> alpha' beta
+            elif m==-1: return dm[0:ncas,ncas:2*ncas] # [alpha,beta] -> beta' alpha
             elif m==0:
                 return (dm[0:ncas,0:ncas] - dm[ncas:2*ncas,ncas:2*ncas])
             else: assert (False)
