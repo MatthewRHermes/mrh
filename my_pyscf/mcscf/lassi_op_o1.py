@@ -5,6 +5,15 @@ from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from itertools import product, combinations
 import time
 
+# NOTE: PySCF has a strange convention where
+# dm1[p,q] = <q'p>, but
+# dm2[p,q,r,s] = <p'r'sq>
+# The return values of make_stdm12s and roots_make_rdm12s observe this convention, but
+# everywhere else in this file, the more sensible convention
+# dm1[p,q] = <p'q>,
+# dm2[p,q,r,s] = <p'r'sq>
+# is used.
+
 def fermion_spin_shuffle (na_list, nb_list):
     ''' Compute the sign factor corresponding to the convention
         difference between
@@ -1057,8 +1066,10 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
     tdm1s, tdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
 
-    return tdm1s.transpose (0,2,3,4,1), tdm2s.reshape (
-        nroots, nroots, 2, 2, ncas, ncas, ncas, ncas).transpose (0,2,4,5,3,6,7,1)
+    # Put tdm1s in PySCF convention: [p,q] -> q'p
+    tdm1s = tdm1s.transpose (0,2,4,3,1)
+    tdm2s = tdm2s.reshape (nroots,nroots,2,2,ncas,ncas,ncas,ncas).transpose (0,2,4,5,3,6,7,1)
+    return tdm1s, tdm2s
 
 def ham (las, h1, h2, ci, idx_root, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
@@ -1128,6 +1139,10 @@ def roots_make_rdm12s (las, ci, idx_root, si, **kwargs):
     outerprod = LRRDMint (ints, nlas, hopping_index, si, dtype=ci[0][0].dtype)
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
     rdm1s, rdm2s, t0 = outerprod.kernel ()
-    lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)        
-    return rdm1s, rdm2s.reshape (nroots_si, 2, 2, ncas, ncas, ncas, ncas).transpose (0,1,3,4,2,5,6)
+    lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
+
+    # Put rdm1s in PySCF convention: [p,q] -> q'p
+    rdm1s = rdm1s.transpose (0,1,3,2)
+    rdm2s = rdm2s.reshape (nroots_si, 2, 2, ncas, ncas, ncas, ncas).transpose (0,1,3,4,2,5,6)
+    return rdm1s, rdm2s
 
