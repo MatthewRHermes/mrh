@@ -142,7 +142,7 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
     hcore = casscf.get_hcore ()
     energy_core += np.einsum('ij,ji', core_dm, hcore)
     energy_core += eris.vhf_c[:ncore,:ncore].trace ()
-    h1 = casscf.get_hcore_ci ()
+    h1 = casscf.get_hcore_rs ()
     h1eff = np.tensordot (mo_cas.conj (), np.dot (h1, mo_cas), axes=((0),(2))).transpose (1,2,0,3)
     h1eff += eris.vhf_c[None,None,ncore:nocc,ncore:nocc]
     
@@ -199,7 +199,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         w, c = linalg.eigh (fock_virt)
         self.mo_coeff[:,nocc:] = mo_virt @ c
 
-    def _update_hcore_cishift_(self, mo_coeff, ci, casdm1rs=None, h2eff_sub=None):
+    def _update_hcore_stateshift_(self, mo_coeff, ci, casdm1rs=None, h2eff_sub=None):
         las = self.mol._las
         if casdm1rs is None: casdm1rs = las.states_make_casdm1s (ci=ci)
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
@@ -213,7 +213,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         vj_r = self.get_vj_ext (mo_cas, dm1rs.sum(1), bmPu=bmPu)
         vk_rs = self.get_vk_ext (mo_cas, dm1rs, bmPu=bmPu)
         vext = vj_r[:,None,:,:] - vk_rs
-        self._imporb_h1_cishift = vext
+        self._imporb_h1_stateshift = vext
 
     def get_vj_ext (self, mo_ext, dm1rs_ext, bmPu=None):
         output_shape = list (dm1rs_ext.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
@@ -241,11 +241,11 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             vk = self.mol._las.scf.get_k (dm1).reshape (*output_shape)
         return vk.reshape (*output_shape)
 
-    def get_hcore_cishift (self):
-        return self._imporb_h1_cishift
+    def get_hcore_stateshift (self):
+        return self._imporb_h1_stateshift
 
-    def get_hcore_ci (self):
-        return self._scf.get_hcore_spinsep ()[None,:,:,:] + self.get_hcore_cishift ()
+    def get_hcore_rs (self):
+        return self._scf.get_hcore_spinsep ()[None,:,:,:] + self.get_hcore_stateshift ()
 
     def get_h1eff (self, mo_coeff=None, ncas=None, ncore=None):
         ''' must needs change the dimension of h1eff '''
@@ -254,21 +254,21 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         mo_cas = mo_coeff[:,ncore:][:,:ncas]
         h1_avg_sz = mo_cas.conj ().T @ self._scf.get_hcore_sz () @ mo_cas
         h1_avg = np.stack ([h1_avg_spinless + h1_avg_sz, h1_avg_spinless - h1_avg_sz], axis=0)
-        h1 += mo_cas.conj ().T @ self.get_hcore_cishift () @ mo_cas
+        h1 += mo_cas.conj ().T @ self.get_hcore_stateshift () @ mo_cas
         return h1, energy_core
 
     def update_casdm (self, mo, u, fcivec, e_cas, eris, envs={}):
-        ''' inject the cishift h1 into envs '''
+        ''' inject the stateshift h1 into envs '''
         mou = mo @ u[:,self.ncore:][:,:self.ncas]
-        h1_cishift = self.get_hcore_ci () - self.get_hcore ()[None,None,:,:]
-        h1_cishift = np.tensordot (mou.conj ().T, np.dot (h1_cishift, mou),
+        h1_stateshift = self.get_hcore_rs () - self.get_hcore ()[None,None,:,:]
+        h1_stateshift = np.tensordot (mou.conj ().T, np.dot (h1_stateshift, mou),
                                    axes=((1),(2))).transpose (1,2,0,3)
-        envs['h1_cishift'] = h1_cishift
+        envs['h1_stateshift'] = h1_stateshift
         return super().update_casdm (mo, u, fcivec, e_cas, eris, envs=envs)
 
     def solve_approx_ci (self, h1, h2, ci0, ecore, e_cas, envs):
-        ''' get the cishifted h1 from envs '''
-        h1 = h1[None,None,:,:] = envs['h1_cishift']
+        ''' get the stateshifted h1 from envs '''
+        h1 = h1[None,None,:,:] + envs['h1_stateshift']
         return super().solve_approx_ci (h1, h2, ci0, ecore, e_cas, envs)
 
     def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
@@ -282,6 +282,63 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
                 raise (e)
         return e_tot, e_cas, fcivec
 
+    def rotate_orb_cc (self, mo, fcivec, fcasdm1, fcasdm2, eris, x0_guess=None,
+                       conv_tol_grad=1e-4, max_stepsize=None, verbose=None):
+        ''' Intercept fcasdm1 and replace it with fully-separated casdm1rs '''
+        try:
+            casdm1rs = np.stack (self.fcisolver.states_make_rdm1s (fcivec(), self.ncas,
+                                                                   self.nelecas), axis=1)
+        except AttributeError as e:
+            casdm1rs = self.fcisolver.make_rdm1s (fcivec(), self.ncas, self.nelecas)[None,:,:,:]
+        my_fcasdm1 = lambda:casdm1rs
+        return super().rotate_orb_cc (mo, fcivec, my_fcasdm1, fcasdm2, eris, x0_guess=x0_guess,
+                                      conv_tol_grad=conv_tol_grad, max_stepsize=max_stepsize,
+                                      verbose=verbose)
+
+    def gen_g_hop (self, mo, u, casdm1rs, casdm2, eris):
+        weights = self.fcisolver.weights
+        casdm1 = np.tensordot (weights, casdm1rs.sum (1), axes=1)
+        g_orb, gorb_update, h_op, h_diag = super().gen_g_hop (mo, u, casdm1, casdm2, eris)
+        ncore = self.ncore
+        ncas = self.ncas
+        nelecas = self.nelecas
+        nocc = ncore + ncas
+        nao, nmo = mo.shape
+        nroots = self.fcisolver.nroots
+
+        h1_rs = lib.einsum ('ip,rsij,jq->rspq', mo.conj (), self.get_hcore_rs (), mo)
+        h1 = mo.conj ().T @ self.get_hcore () @ mo
+        dm1_rs = np.asarray ([[np.eye (nmo),]*2,]*nroots)
+        dm1_rs[:,:,ncore:nocc,ncore:nocc] = casdm1rs
+        dm1_rs[:,:,nocc:,:] = dm1_rs[:,:,:,nocc:] = 0
+        dm1 = np.tensordot (weights, dm1_rs.sum (1), axes=1)
+
+        # Return 1: the macrocycle gradient (odd matrix)
+        g1 = np.tensordot (weights, lib.einsum ('rsik,rskj->rsij', h1_rs, dm1_rs).sum (1), axes=1)
+        g1 -= h1 @ dm1
+        g_orb += self.pack_uniq_var (g1 - g1.T)
+
+        # Return 2: the microcycle gradient as a function of u and fcivec (odd matrix)
+        def my_gorb_update (u, fcivec):
+            g_orb_u = gorb_update (u, fcivec)
+            try:
+                casdm1rs = np.stack (self.fcisolver.states_make_rdm1s (fcivec, ncas, nelecas),
+                                     axis=1)
+            except AttributeError as e:
+                casdm1rs = self.fcisolver.make_rdm1s (fcivec, ncas, nelecas)[None,:,:,:]
+            casdm1 = np.tensordot (weights, casdm1rs.sum (1), axes=1)
+            dm1_rs[:,:,ncore:nocc,ncore:nocc] = casdm1rs
+            h1_rs = lib.einsum ('ip,rsij,jq->rspq', u.conj(), h1_rs, u)
+            h1 = u.conj ().T @ h1 @ u
+            g1_u = np.tensordot (weights, lib.einsum ('rsik,rskj->rsij', h1_rs, dm1_rs).sum (1),
+                                 axes=1)
+            g1_u -= h1 @ dm1
+            g_orb_u += self.pack_uniq_var (g1_u - g1_u.T)
+
+        # Return 3: the diagonal elements of the Hessian (even matrix)
+        # Return 4: the Hessian as a function (odd matrix)
+
+        return g_orb, gorb_update, h_op, h_diag
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h6n4_struct import structure as struct
@@ -291,11 +348,11 @@ if __name__=='__main__':
     mol.build ()
     mf = scf.RHF (mol).density_fit ().run ()
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-    las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
+    las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
-    las.state_average_(weights=[1,0,0,0,0],
-                       spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
-                       smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
+    #las.state_average_(weights=[1,0,0,0,0],
+    #                   spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
+    #                   smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
     las.kernel (mo)
 
     ###########################
@@ -316,6 +373,6 @@ if __name__=='__main__':
     imc._ifrag = 0
     imc.fcisolver = las.fciboxes[0]
     imc._update_keyframe_(las.mo_coeff, las.ci)
-    imc._update_hcore_cishift_(las.mo_coeff, las.ci)
+    imc._update_hcore_stateshift_(las.mo_coeff, las.ci)
     imc.kernel ()
-    print (imc.converged, las.e_tot, imc.e_tot, imc.e_tot-las.e_tot)
+    print (imc.converged, imc.e_tot, las.e_tot, imc.e_tot-las.e_tot)
