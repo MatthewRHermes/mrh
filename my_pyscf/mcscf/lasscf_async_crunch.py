@@ -33,7 +33,9 @@ class ImpurityMole (gto.Mole):
     def nao (self): return self._imporb_coeff.shape[-1]
 
 class ImpuritySCF (scf.hf.SCF):
-    def _update_heff_(self, veff, dm1s, e_tot=None):
+    def _update_impham_1_(self, veff, dm1s, e_tot=None):
+        ''' after this function, get_hcore () and energy_nuc () functions return
+            full-system state-averaged fock and e_tot, respectively '''
         if e_tot is None: e_tot = self.mol._las.e_tot
         imporb_coeff = self.mol.get_imporb_coeff ()
         nimp = self.mol.nao ()
@@ -61,7 +63,9 @@ class ImpuritySCF (scf.hf.SCF):
         self._imporb_h1_sz = (h1s[0] - h1s[1]) / 2
         self._imporb_h0 = e_tot 
 
-    def _subtract_self_energy_(self, mo_docc, mo_dm, dm1s, dm2, eri_dm=None):
+    def _update_impham_2_(self, mo_docc, mo_dm, dm1s, dm2, eri_dm=None):
+        ''' after this function, get_hcore () and energy_nuc () functions return
+            the state-averaged hcore and e0, respectively '''
         dm1 = dm1s.sum (0)
         dm2 -= np.multiply.outer (dm1, dm1)
         dm2 += np.multiply.outer (dm1s[0], dm1s[0]).transpose (0,3,2,1)
@@ -138,7 +142,7 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
     mo_core = mo[:,:ncore]
     mo_cas = mo[:,ncore:nocc]
     core_dm = np.dot(mo_core, mo_core.T) * 2
-    energy_core = casscf.energy_nuc()
+    energy_core = casscf.energy_nuc ()
     hcore = casscf.get_hcore ()
     energy_core += np.einsum('ij,ji', core_dm, hcore)
     energy_core += eris.vhf_c[:ncore,:ncore].trace ()
@@ -156,9 +160,13 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
 # This is the really tricky part
 class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
-    def _update_keyframe_(self, mo_coeff, ci):
+    def _update_keyframe_(self, mo_coeff, ci, h2eff_sub=None, e_states=None):
         # Project mo_coeff and ci keyframe into impurity space and cache
         las = self.mol._las
+        if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
+        if e_states is None: e_states = las.energy_nuc () + las.energy_elec (
+            mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
+        e_tot = np.dot (las.weights, e_states)
         mf = las._scf
         _ifrag = self._ifrag
         imporb_coeff = self.mol.get_imporb_coeff ()
@@ -179,13 +187,19 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         assert (np.allclose(svals[:self.ncas], 1))
         u[:,:self.ncas] = u[:,:self.ncas] @ vh
         self.mo_coeff[:,self.ncore:] = self.mo_coeff[:,self.ncore:] @ u
-        # Subtract self-energy
-        casdm1s, casdm2s = self.fcisolver.make_rdm12s (self.ci, self.ncas, self.nelecas)
-        casdm2 = casdm2s[0] + casdm2s[1] + casdm2s[1].transpose (2,3,0,1) + casdm2s[2]
+        # Set underlying SCF object Hamiltonian to state-averaged Heff
+        casdm1rs, casdm2rs = self.fcisolver.states_make_rdm12s (self.ci, self.ncas, self.nelecas)
+        casdm1rs = np.stack (casdm1rs, axis=1)
+        casdm2sr = np.stack (casdm2rs, axis=0)
+        casdm2r = casdm2sr[0] + casdm2sr[1] + casdm2sr[1].transpose (0,3,4,1,2) + casdm2sr[2]
+        casdm1s = np.tensordot (self.fcisolver.weights, casdm1rs, axes=1)
+        casdm2 = np.tensordot (self.fcisolver.weights, casdm2r, axes=1)
+        #casdm1s, casdm2s = self.fcisolver.make_rdm12s (self.ci, self.ncas, self.nelecas)
+        #casdm2 = casdm2s[0] + casdm2s[1] + casdm2s[1].transpose (2,3,0,1) + casdm2s[2]
         eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
-        self._scf._subtract_self_energy_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
+        self._scf._update_impham_2_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
         # Canonicalize core and virtual spaces
         dm1s = np.dot (mo_cas, np.dot (casdm1s, mo_cas.conj ().T)).transpose (1,0,2)
         dm1s += np.dot (mo_core, mo_core.conj ().T)[None,:,:]
@@ -198,22 +212,31 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         fock_virt = mo_virt.conj ().T @ fock @ mo_virt
         w, c = linalg.eigh (fock_virt)
         self.mo_coeff[:,nocc:] = mo_virt @ c
-
-    def _update_hcore_stateshift_(self, mo_coeff, ci, casdm1rs=None, h2eff_sub=None):
-        las = self.mol._las
-        if casdm1rs is None: casdm1rs = las.states_make_casdm1s (ci=ci)
-        if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
-        casdm1s = np.tensordot (las.weights, casdm1rs, axes=1)
-        dm1rs = casdm1rs - casdm1s
-        i = sum (las.ncas_sub[:self._ifrag])
-        j = i + las.ncas_sub[self._ifrag]
-        dm1rs[:,:,i:j,:] = dm1rs[:,:,:,i:j] = 0.0
-        mo_cas = mo_coeff[:,las.ncore:][:,:las.ncas]
+        # Set state-separated Hamiltonian
+        mo_cas_full = mo_coeff[:,las.ncore:][:,:las.ncas]
+        dm1rs_full = las.states_make_casdm1s (ci=ci)
+        dm1s_full = np.tensordot (self.fcisolver.weights, dm1rs_full, axes=1)
+        dm1rs_stateshift = dm1rs_full - dm1s_full
+        i = sum (las.ncas_sub[:_ifrag])
+        j = i + las.ncas_sub[_ifrag]
+        dm1rs_stateshift[:,:,i:j,:] = dm1rs_stateshift[:,:,:,i:j] = 0
         bmPu = getattr (h2eff_sub, 'bmPu', None)
-        vj_r = self.get_vj_ext (mo_cas, dm1rs.sum(1), bmPu=bmPu)
-        vk_rs = self.get_vk_ext (mo_cas, dm1rs, bmPu=bmPu)
+        vj_r = self.get_vj_ext (mo_cas_full, dm1rs_stateshift.sum(1), bmPu=bmPu)
+        vk_rs = self.get_vk_ext (mo_cas_full, dm1rs_stateshift, bmPu=bmPu)
         vext = vj_r[:,None,:,:] - vk_rs
         self._imporb_h1_stateshift = vext
+        mo_core = self.mo_coeff[:,:self.ncore]
+        mo_cas = self.mo_coeff[:,self.ncore:][:,:self.ncas]
+        dm_core = 2*(mo_core @ mo_core.conj ().T)
+        veff_core = self._scf.get_veff (self.mol, dm_core).sum (0)
+        e2_core = ((veff_core @ mo_core) * mo_core.conj ()).sum ()
+        e0_states = e_states - e2_core
+        h1_rs = self.get_hcore_rs () + veff_core[None,None,:,:]
+        h1_rs = lib.einsum ('rsij,ip,iq->rspq', h1_rs, mo_cas.conj (), mo_cas)
+        e0_states -= (h1_rs * casdm1rs).sum ((1,2,3))
+        e0_states -= np.tensordot (casdm2r, eri_cas, axes=4)*.5
+        print (e_states, e0_states, self._scf.energy_nuc ())
+        self._imporb_h0_stateshift = e0_states - self._scf.energy_nuc ()
 
     def get_vj_ext (self, mo_ext, dm1rs_ext, bmPu=None):
         output_shape = list (dm1rs_ext.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
@@ -241,11 +264,11 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             vk = self.mol._las.scf.get_k (dm1).reshape (*output_shape)
         return vk.reshape (*output_shape)
 
-    def get_hcore_stateshift (self):
-        return self._imporb_h1_stateshift
-
     def get_hcore_rs (self):
-        return self._scf.get_hcore_spinsep ()[None,:,:,:] + self.get_hcore_stateshift ()
+        return self._scf.get_hcore_spinsep ()[None,:,:,:] + self._imporb_h1_stateshift
+
+    def energy_nuc_r (self):
+        return self._scf.energy_nuc () + self._imporb_h0_stateshift
 
     def get_h1eff (self, mo_coeff=None, ncas=None, ncore=None):
         ''' must needs change the dimension of h1eff '''
@@ -368,11 +391,11 @@ if __name__=='__main__':
     imol = ImpurityMole (las)
     imol._update_space_(fo_coeff, nelec_fo)
     imf = ImpurityHF (imol).density_fit ()
-    imf._update_heff_(veff, dm1s, e_tot=las.e_tot)
+    imf._update_impham_1_(veff, dm1s, e_tot=las.e_tot)
     imc = df.density_fit (ImpurityCASSCF (imf, 4, 4))
+    from pyscf.mcscf.addons import _state_average_mcscf_solver
+    imc = _state_average_mcscf_solver (imc, las.fciboxes[0])
     imc._ifrag = 0
-    imc.fcisolver = las.fciboxes[0]
     imc._update_keyframe_(las.mo_coeff, las.ci)
-    imc._update_hcore_stateshift_(las.mo_coeff, las.ci)
     imc.kernel ()
     print (imc.converged, imc.e_tot, las.e_tot, imc.e_tot-las.e_tot)
