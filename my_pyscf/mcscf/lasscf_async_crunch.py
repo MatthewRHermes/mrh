@@ -142,7 +142,7 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
     mo_core = mo[:,:ncore]
     mo_cas = mo[:,ncore:nocc]
     core_dm = np.dot(mo_core, mo_core.T) * 2
-    energy_core = casscf.energy_nuc ()
+    energy_core = casscf.energy_nuc_r ()
     hcore = casscf.get_hcore ()
     energy_core += np.einsum('ij,ji', core_dm, hcore)
     energy_core += eris.vhf_c[:ncore,:ncore].trace ()
@@ -378,9 +378,9 @@ if __name__=='__main__':
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
-    #las.state_average_(weights=[1,0,0,0,0],
-    #                   spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
-    #                   smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
+    las.state_average_(weights=[1,0,0,0,0],
+                       spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
+                       smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
     las.kernel (mo)
 
     ###########################
