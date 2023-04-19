@@ -212,7 +212,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         fock_virt = mo_virt.conj ().T @ fock @ mo_virt
         w, c = linalg.eigh (fock_virt)
         self.mo_coeff[:,nocc:] = mo_virt @ c
-        # Set state-separated Hamiltonian
+        # Set state-separated Hamiltonian 1-body
         mo_cas_full = mo_coeff[:,las.ncore:][:,:las.ncas]
         dm1rs_full = las.states_make_casdm1s (ci=ci)
         dm1s_full = np.tensordot (self.fcisolver.weights, dm1rs_full, axes=1)
@@ -225,17 +225,22 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         vk_rs = self.get_vk_ext (mo_cas_full, dm1rs_stateshift, bmPu=bmPu)
         vext = vj_r[:,None,:,:] - vk_rs
         self._imporb_h1_stateshift = vext
+        # Set state-separated Hamiltonian 0-body
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:][:,:self.ncas]
         dm_core = 2*(mo_core @ mo_core.conj ().T)
-        veff_core = self._scf.get_veff (self.mol, dm_core).sum (0)
+        vj, vk = self._scf.get_jk (dm=dm_core)
+        veff_core = vj - vk*.5
         e2_core = ((veff_core @ mo_core) * mo_core.conj ()).sum ()
         e0_states = e_states - e2_core
+        h1_rs = self.get_hcore_rs ()
+        e1_core = np.tensordot (np.dot (h1_rs.sum (1), mo_core), mo_core[:,:].conj (), axes=2)
+        e0_states -= e1_core
         h1_rs = self.get_hcore_rs () + veff_core[None,None,:,:]
-        h1_rs = lib.einsum ('rsij,ip,iq->rspq', h1_rs, mo_cas.conj (), mo_cas)
-        e0_states -= (h1_rs * casdm1rs).sum ((1,2,3))
-        e0_states -= np.tensordot (casdm2r, eri_cas, axes=4)*.5
-        print (e_states, e0_states, self._scf.energy_nuc ())
+        h1_rs = lib.einsum ('rsij,ip,jq->rspq', h1_rs, mo_cas.conj (), mo_cas)
+        e1_cas = (h1_rs * casdm1rs).sum ((1,2,3))
+        e2_cas = np.tensordot (casdm2r, eri_cas, axes=4)*.5
+        e0_states -= e1_cas + e2_cas
         self._imporb_h0_stateshift = e0_states - self._scf.energy_nuc ()
 
     def get_vj_ext (self, mo_ext, dm1rs_ext, bmPu=None):
