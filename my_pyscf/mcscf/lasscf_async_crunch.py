@@ -141,15 +141,14 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
 
     mo_core = mo[:,:ncore]
     mo_cas = mo[:,ncore:nocc]
-    core_dm = np.dot(mo_core, mo_core.T) * 2
+    core_dm = np.dot(mo_core, mo_core.T) # *2 implicit in hcore = h1(up) + h1(down)
     energy_core = casscf.energy_nuc_r ()
-    hcore = casscf.get_hcore ()
-    energy_core += np.einsum('ij,ji', core_dm, hcore)
-    energy_core += eris.vhf_c[:ncore,:ncore].trace ()
     h1 = casscf.get_hcore_rs ()
+    hcore = h1.sum (1)
+    energy_core += np.einsum('ij,rji->r', core_dm, hcore)
+    energy_core += eris.vhf_c[:ncore,:ncore].trace ()
     h1eff = np.tensordot (mo_cas.conj (), np.dot (h1, mo_cas), axes=((0),(2))).transpose (1,2,0,3)
     h1eff += eris.vhf_c[None,None,ncore:nocc,ncore:nocc]
-    
     mc.get_h1eff = lambda *args: (h1eff, energy_core)
 
     eri_cas = eris.ppaa[ncore:nocc,ncore:nocc,:,:].copy()
