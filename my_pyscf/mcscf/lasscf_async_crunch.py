@@ -336,14 +336,20 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         h1_rs = lib.einsum ('ip,rsij,jq->rspq', mo.conj (), self.get_hcore_rs (), mo)
         h1 = mo.conj ().T @ self.get_hcore () @ mo
-        dm1_rs = np.asarray ([[np.eye (nmo),]*2,]*nroots)
-        dm1_rs[:,:,ncore:nocc,ncore:nocc] = casdm1rs
-        dm1_rs[:,:,nocc:,:] = dm1_rs[:,:,:,nocc:] = 0
-        dm1 = np.tensordot (weights, dm1_rs.sum (1), axes=1)
+
+        def g1_correction (dm1_rs, dm1, u=1):
+            g1_rs = np.zeros_like (h1_rs)
+            h1u_rs = np.dot (h1_rs, u).transpose (0,1,3,2)
+            h1u_rs = np.dot (h1u_rs, u).transpose (0,1,3,2)
+            h1u_rs = h1u_rs[:,:,:,ncore:nocc]
+            h1u = (np.dot (np.dot (h1, u).T, u).T)[:,ncore:nocc]
+            g1_rs[...,ncore:nocc] = lib.einsum ('rsik,rskj->rsij', h1u_rs, dm1_rs)
+            g1 = np.tensordot (weights, g1_rs.sum (1), axes=1)
+            g1[:,ncore:nocc] -= h1u @ dm1
+            return g1
 
         # Return 1: the macrocycle gradient (odd matrix)
-        g1 = np.tensordot (weights, lib.einsum ('rsik,rskj->rsij', h1_rs, dm1_rs).sum (1), axes=1)
-        g1 -= h1 @ dm1
+        g1 = g1_correction (casdm1rs, casdm1)
         g_orb += self.pack_uniq_var (g1 - g1.T)
 
         # Return 2: the microcycle gradient as a function of u and fcivec (odd matrix)
@@ -355,19 +361,37 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             except AttributeError as e:
                 casdm1rs = self.fcisolver.make_rdm1s (fcivec, ncas, nelecas)[None,:,:,:]
             casdm1 = np.tensordot (weights, casdm1rs.sum (1), axes=1)
-            dm1_rs[:,:,ncore:nocc,ncore:nocc] = casdm1rs
-            dm1 = np.tensordot (weights, dm1_rs.sum (1), axes=1)
-            h1_rs = lib.einsum ('ip,rsij,jq->rspq', u.conj(), h1_rs, u)
-            h1 = u.conj ().T @ h1 @ u
-            g1_u = np.tensordot (weights, lib.einsum ('rsik,rskj->rsij', h1_rs, dm1_rs).sum (1),
-                                 axes=1)
-            g1_u -= h1 @ dm1
+            g1_u = g1_correction (casdm1rs, casdm1, u=u)
             g_orb_u += self.pack_uniq_var (g1_u - g1_u.T)
+            return g_orb_u
 
         # Return 3: the diagonal elements of the Hessian (even matrix)
-        # Return 4: the Hessian as a function (odd matrix)
+        g2 = np.zeros_like (g1)
+        g2[:,ncore:nocc] = lib.einsum ('r,rspp,rsqq->pq', weights, h1_rs, casdm1rs)
+        g2[:,ncore:nocc] -= lib.einsum ('pp,qq->pq', h1, casdm1)
+        h1_rs_cas = h1_rs[:,:,ncore:nocc,ncore:nocc]
+        h1_cas = h1[ncore:nocc,ncore:nocc]
+        g2_cas = g2[ncore:nocc,ncore:nocc]
+        g2_cas[:,:] -= lib.einsum ('r,rspq,rspq->pq', weights, h1_rs_cas, casdm1rs)
+        g2_cas[:,:] += h1_cas*casdm1
+        g2 = g2 + g2.T
+        g1_diag = g1.diagonal ()
+        g2 -= g1_diag + g1_diag.reshape (-1,1)
+        idx = np.arange (nmo)
+        g2[idx,idx] += g1_diag * 2
+        h_diag += self.pack_uniq_var (g2)
 
-        return g_orb, gorb_update, h_op, h_diag
+        # Return 4: the Hessian as a function (odd matrix)
+        def my_h_op (x):
+            x1 = self.unpack_uniq_var (x)
+            x1_cas = x1[:,ncore:nocc]
+            hx = np.zeros_like (g1)
+            hx[:,ncore:nocc] = lib.einsum ('r,rsik,kl,rslj->ij', weights, h1_rs, x1_cas, casdm1rs)
+            hx[:,ncore:nocc] -= h1 @ x1_cas @ casdm1
+            hx -= (g1 + g1.T) @ x1 / 2
+            return h_op (x) + self.pack_uniq_var (hx - hx.T)
+
+        return g_orb, my_gorb_update, my_h_op, h_diag
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h6n4_struct import structure as struct
@@ -377,7 +401,7 @@ if __name__=='__main__':
     mol.build ()
     mf = scf.RHF (mol).density_fit ().run ()
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-    las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
+    las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
     las.state_average_(weights=[1,0,0,0,0],
                        spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
