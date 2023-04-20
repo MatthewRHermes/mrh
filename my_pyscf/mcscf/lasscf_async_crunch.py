@@ -263,7 +263,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         if bmPu is not None:
             biPu = np.tensordot (imporb_coeff, bmPu, axes=((0),(0)))
             vuiP = np.tensordot (dm1, biPu, axes=((-1),(-1)))
-            vk = np.tensordot (biPu, vuiP, axes=((-2,-1),(-1,-3)))
+            vk = np.tensordot (vuiP, biPu, axes=((-3,-1),(-1,-2)))
         else: # Safety case: AO-basis SCF driver
             dm1 = np.dot (mo_ext.conj ().T, np.dot (dm1, mo_ext)).transpose (1,0,2)
             vk = self.mol._las.scf.get_k (dm1).reshape (*output_shape)
@@ -376,7 +376,7 @@ if __name__=='__main__':
     mol.build ()
     mf = scf.RHF (mol).density_fit ().run ()
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-    las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
+    las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
     las.state_average_(weights=[1,0,0,0,0],
                        spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
@@ -402,5 +402,8 @@ if __name__=='__main__':
     imc = _state_average_mcscf_solver (imc, las.fciboxes[0])
     imc._ifrag = 0
     imc._update_keyframe_(las.mo_coeff, las.ci)
+    imc.max_cycle_macro = 0
     imc.kernel ()
     print (imc.converged, imc.e_tot, las.e_tot, imc.e_tot-las.e_tot)
+    for t, r in zip (imc.e_states, las.e_states):
+        print (t, r, t-r)
