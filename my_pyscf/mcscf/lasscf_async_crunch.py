@@ -163,7 +163,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         # Project mo_coeff and ci keyframe into impurity space and cache
         las = self.mol._las
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
-        if e_states is None: e_states = las.energy_nuc () + las.energy_elec (
+        if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
             mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
         e_tot = np.dot (las.weights, e_states)
         mf = las._scf
@@ -231,16 +231,17 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         vj, vk = self._scf.get_jk (dm=dm_core)
         veff_core = vj - vk*.5
         e2_core = ((veff_core @ mo_core) * mo_core.conj ()).sum ()
-        e0_states = e_states - e2_core
         h1_rs = self.get_hcore_rs ()
         e1_core = np.tensordot (np.dot (h1_rs.sum (1), mo_core), mo_core[:,:].conj (), axes=2)
-        e0_states -= e1_core
         h1_rs = self.get_hcore_rs () + veff_core[None,None,:,:]
         h1_rs = lib.einsum ('rsij,ip,jq->rspq', h1_rs, mo_cas.conj (), mo_cas)
         e1_cas = (h1_rs * casdm1rs).sum ((1,2,3))
         e2_cas = np.tensordot (casdm2r, eri_cas, axes=4)*.5
-        e0_states -= e1_cas + e2_cas
-        self._imporb_h0_stateshift = e0_states - self._scf.energy_nuc ()
+        e_states_core = e1_core + e2_core
+        e_states_cas = e1_cas + e2_cas
+        e_states_elec = e_states_core + e_states_cas
+        e_states_nuc = e_states - e_states_elec
+        self._imporb_h0_stateshift = e_states_nuc - self._scf.energy_nuc ()
 
     def get_vj_ext (self, mo_ext, dm1rs_ext, bmPu=None):
         output_shape = list (dm1rs_ext.shape[:-2]) + [self.mol.nao (), self.mol.nao ()]
@@ -400,7 +401,7 @@ if __name__=='__main__':
     from pyscf.mcscf.addons import _state_average_mcscf_solver
     imc = _state_average_mcscf_solver (imc, las.fciboxes[0])
     imc._ifrag = 0
-    imc._update_keyframe_(las.mo_coeff, las.ci)
+    imc._update_keyframe_(las.mo_coeff, las.ci, e_states=las.e_states)
     imc.max_cycle_macro = 0
     imc.kernel ()
     print (imc.converged, imc.e_tot, las.e_tot, imc.e_tot-las.e_tot)
