@@ -356,6 +356,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
                 casdm1rs = self.fcisolver.make_rdm1s (fcivec, ncas, nelecas)[None,:,:,:]
             casdm1 = np.tensordot (weights, casdm1rs.sum (1), axes=1)
             dm1_rs[:,:,ncore:nocc,ncore:nocc] = casdm1rs
+            dm1 = np.tensordot (weights, dm1_rs.sum (1), axes=1)
             h1_rs = lib.einsum ('ip,rsij,jq->rspq', u.conj(), h1_rs, u)
             h1 = u.conj ().T @ h1 @ u
             g1_u = np.tensordot (weights, lib.einsum ('rsik,rskj->rsij', h1_rs, dm1_rs).sum (1),
@@ -381,7 +382,9 @@ if __name__=='__main__':
     las.state_average_(weights=[1,0,0,0,0],
                        spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
                        smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
+    las.conv_tol_grad = 1e-6
     las.kernel (mo)
+    print (las.converged)
 
     ###########################
     from mrh.my_pyscf.mcscf.lasci import get_grad_orb
@@ -402,7 +405,7 @@ if __name__=='__main__':
     imc = _state_average_mcscf_solver (imc, las.fciboxes[0])
     imc._ifrag = 0
     imc._update_keyframe_(las.mo_coeff, las.ci, e_states=las.e_states)
-    imc.max_cycle_macro = 0
+    #imc.max_cycle_macro = 0
     imc.kernel ()
     print (imc.converged, imc.e_tot, las.e_tot, imc.e_tot-las.e_tot)
     for t, r in zip (imc.e_states, las.e_states):
