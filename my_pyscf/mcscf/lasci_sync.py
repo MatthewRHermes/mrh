@@ -185,6 +185,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             t1 = log.timer ('LASCI get_veff after secondorder', *t1)
         except MicroIterInstabilityException as e:
             log.info ('Unstable microiteration aborted: %s', str (e))
+            t1 = log.timer ('LASCI {} microcycles'.format (microit[0]), *t1)
             x = last_x[0]
             for i in range (3): # Make up to 3 attempts to scale-down x if necessary
                 mo2, ci2, h2eff_sub2 = H_op.update_mo_ci_eri (x, h2eff_sub)
@@ -1025,24 +1026,37 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return np.stack ([veffa, veffb], axis=0)
 
     def _matvec (self, x):
+        log = lib.logger.new_logger (self.las, self.las.verbose)
+        t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
         kappa1, ci1 = self.ugg.unpack (x)
+        t1 = log.timer ('LASCI sync Hessian operator 1: unpack', *t0)
 
         # Effective density matrices, veffs, and overlaps from linear response
         odm1s = -np.dot (self.dm1s, kappa1)
         ocm2 = -np.dot (self.cascm2, kappa1[self.ncore:self.nocc])
         tdm1rs, tcm2 = self.make_tdm1s2c_sub (ci1)
+        t1 = log.timer ('LASCI sync Hessian operator 2: effective density matrices', *t1)
         veff_prime, h1s_prime = self.get_veff_Heff (odm1s, tdm1rs)
+        t1 = log.timer ('LASCI sync Hessian operator 3: effective potentials', *t1)
 
         # Responses!
         kappa2 = self.orbital_response (kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime)
+        t1 = log.timer ('LASCI sync Hessian operator 4: (Hx)_orb', *t1)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
+        t1 = log.timer ('LASCI sync Hessian operator 5: (Hx)_CI offdiag', *t1)
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, self.ci_response_diag (ci1))]
+        t1 = log.timer ('LASCI sync Hessian operator 6: (Hx)_CI diag', *t1)
 
         # LEVEL SHIFT!!
         kappa3, ci3 = self.ugg.unpack (self.ah_level_shift * np.abs (x))
         kappa2 += kappa3
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, ci3)]
-        return self.ugg.pack (kappa2, ci2)
+        t1 = log.timer ('LASCI sync Hessian operator 7: level shift', *t1)
+
+        Hx = self.ugg.pack (kappa2, ci2)
+        t1 = log.timer ('LASCI sync Hessian operator 8: pack', *t1)
+        t0 = log.timer ('LASCI sync Hessian operator total', *t0)
+        return Hx
 
     _rmatvec = _matvec # Hessian is Hermitian in this context!
 
@@ -1193,6 +1207,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             prec_op : LinearOperator
                 Approximately the inverse of the Hessian
         '''
+        log = lib.logger.new_logger (self.las, self.las.verbose)
         Hdiag = self._get_Hdiag () + self.ah_level_shift
         Hdiag[np.abs (Hdiag)<1e-8] = 1e-8
         # The quadratic power series is a bad approximation if the magnitude of the gradient in
@@ -1205,8 +1220,19 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         idx_unstable = np.abs (probe_x0) > np.pi*.5
         # We can't mask everything, because that behavior would obfuscate the problem
         # If NO stable D.O.F. exist, then keyframe is just bad and it has to be handled upstream
-        if np.count_nonzero (~idx_unstable): Hdiag[idx_unstable] = np.inf
-        return sparse_linalg.LinearOperator (self.shape,matvec=(lambda x:x/Hdiag),dtype=self.dtype)
+        ndeg_stable = np.count_nonzero (~idx_unstable)
+        if ndeg_stable:
+            Hdiag[idx_unstable] = np.inf
+            ndeg_unstable = ndeg - ndeg_stable
+            log.debug ('%d/%d d.o.f. masked in LASCI sync preconditioner', ndeg_unstable, ndeg)
+        else:
+            log.warn ('All d.o.f. in LASCI sync preconditioner unstable! Keyframe may be bad!')
+        def prec_op (x):
+            t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
+            Mx = x/Hdiag
+            log.timer ('LASCI sync preconditioner call', *t0)
+            return Mx
+        return sparse_linalg.LinearOperator (self.shape,matvec=prec_op,dtype=self.dtype)
 
     def _get_Horb_diag (self):
         fock = np.stack ([np.diag (h) for h in list (self.h1s)], axis=0)
