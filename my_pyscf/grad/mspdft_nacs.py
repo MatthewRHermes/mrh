@@ -101,6 +101,8 @@ class NonAdiabaticCouplings (mspdft_grad.Gradients):
                          si_ket=si_ket, mf_grad=mf_grad, atmlst=atmlst)
         e_bra = self.base.e_states[bra]
         e_ket = self.base.e_states[ket]
+        print("NAC_MODEL before Mult dE")
+        print(nac)
         nac *= e_bra - e_ket
         return nac
 
@@ -108,6 +110,9 @@ class NonAdiabaticCouplings (mspdft_grad.Gradients):
         mult_ediff = kwargs.get ('mult_ediff', self.mult_ediff)
         state = kwargs.get ('state', self.state)
         nac = mspdft_grad.Gradients.kernel (self, *args, **kwargs)
+        print("dE")
+        ket, bra = _unpack_state (state)
+        print(self.base.e_states[bra] - self.base.e_states[ket])
         if not mult_ediff:
             ket, bra = _unpack_state (state)
             e_bra = self.base.e_states[bra]
