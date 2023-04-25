@@ -1,6 +1,10 @@
 import numpy as np
 from pyscf import gto, scf, df, mcscf, lib
-from mrh.my_pyscf.grad.sacasscf_nacs import NonAdiabaticCouplings
+from mrh.my_pyscf import mcpdft
+from mrh.my_pyscf.fci import csf_solver
+from mrh.my_pyscf.tools.molcas2pyscf import *
+from mrh.my_pyscf.dft.openmolcas_grids import quasi_ultrafine
+from mrh.my_pyscf.grad.mspdft_nacs import NonAdiabaticCouplings
 import unittest
 
 
@@ -13,7 +17,18 @@ def diatomic(atom1, atom2, r, basis, ncas, nelecas, nstates,
 
     mf = scf.RHF(mol)
 
-    mc = mcscf.CASSCF(mf.run(), ncas, nelecas).set(natorb=True)
+    mc = mcpdft.CASSCF(mf.run(), 'ftLDA,VWN3', ncas, nelecas, grids_attr=quasi_ultrafine).set(natorb=True)
+    # Quasi-ultrafine is ALMOST the same thing as
+    #   ```
+    #   grid input
+    #   nr=100
+    #   lmax=41
+    #   rquad=ta
+    #   nopr
+    #   noro
+    #   end of grid input
+    #   ```
+    # in SEWARD
 
     if spin is not None:
         s = spin*0.5
@@ -22,14 +37,15 @@ def diatomic(atom1, atom2, r, basis, ncas, nelecas, nstates,
         s = (mol.nelectron % 2)*0.5
 
     mc.fix_spin_(ss=s*(s+1), shift=1)
-    mc = mc.state_average([1.0/float(nstates), ]*nstates)
-    mc.conv_tol = mc.conv_tol_diabatize = 1e-12
+    mc = mc.multi_state([1.0/float(nstates), ]*nstates, 'cms')
+    mc.conv_tol = mc.conv_tol_diabatize = 1e-10
     mo = None
 
     if symmetry and (cas_irrep is not None):
         mo = mc.sort_mo_by_irrep(cas_irrep)
 
     mc.kernel(mo)
+
 
     return NonAdiabaticCouplings(mc)
 
@@ -41,15 +57,15 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
-    def test_nac_h2_sa2casscf22_sto3g(self):
+    def test_nac_h2_cms2ftlsda22_sto3g(self):
         # z_orb:    no
         # z_ci:     yes
         # z_is:     no
         mc_grad = diatomic('H', 'H', 1.3, 'STO-3G', 2, 2, 2)
 
         # OpenMolcas v23.02 - PC
-        de_ref = np.array([[2.24611972496341E-01, 2.24611972496341E-01],
-                           [3.91518173397213E-18, -3.91518173397213E-18]])
+        de_ref = np.array([[2.24611972496342E-01,2.24611972496344E-01],
+                           [-6.59892598854941E-16, 6.54230823118723E-16]])
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
@@ -59,15 +75,15 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
 
 
-    def test_nac_h2_sa3casscf22_sto3g(self):
+    def test_nac_h2_cms3ftlsda22_sto3g(self):
         # z_orb:    no
         # z_ci:     no
         # z_is:     no
         mc_grad = diatomic('H', 'H', 1.3, 'STO-3G', 2, 2, 3)
 
         # OpenMolcas v23.02 - PC
-        de_ref = np.array([[2.24611972496341E-01,2.24611972496341E-01 ],
-                           [3.91518173397213E-18, -3.91518173397213E-18]])
+        de_ref = np.array([[-2.21241754295429E-01,-2.21241754290091E-01],
+                           [-2.66888744475119E-12, 2.66888744475119E-12]])
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
@@ -76,15 +92,15 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
 
-    def test_nac_h2_sa2caasf22_631g(self):
+    def test_nac_h2_cms2ftlsda22_631g(self):
         # z_orb:    yes
         # z_ci:     yes
         # z_is:     no
         mc_grad = diatomic('H', 'H', 1.3, '6-31G', 2, 2, 2)
 
         # OpenMolcas v23.02 - PC
-        de_ref = np.array([[2.63335709207419E-01,2.63335709207420E-01],
-                           [-4.13635186565710E-16,4.47060252146777E-16 ]])
+        de_ref = np.array([[2.63335709207423E-01,2.63335709207421E-01],
+                           [9.47391702563375E-16,-1.02050903352196E-15]])
 
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
@@ -95,15 +111,15 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
 
 
-    def test_nac_h2_sa3casscf22_631g(self):
+    def test_nac_h2_cms3ftlsda22_631g(self):
         # z_orb:    yes
         # z_ci:     no
         # z_is:     no
         mc_grad = diatomic('H', 'H', 1.3, '6-31G', 2, 2, 3)
 
         # OpenMolcas v23.02 - PC
-        de_ref = np.array([[-2.61263051047980E-01,-2.61263051047980E-01],
-                           [-5.77124316768522E-17,2.47338992900795E-17 ]])
+        de_ref = np.array([[-2.56602732575249E-01,-2.56602732575251E-01],
+                           [7.94113968580962E-16, -7.74815822050330E-16]])
 
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
@@ -113,15 +129,15 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
 
-    def test_nac_lih_sa2casscf22_sto3g(self):
+    def test_nac_lih_cms2ftlsda22_sto3g(self):
         # z_orb:    yes
         # z_ci:     yes
         # z_is:     yes
         mc_grad = diatomic('Li', 'H', 1.5, 'STO-3G', 2, 2, 2)
 
-        # OpenMolcas v23.02 - PC
-        de_ref = np.array([[1.83701729060390E-01, -6.91462064586138E-02],
-                           [9.14842536971979E-02, -9.14842536971979E-02]])
+        # OpenMolcas v23.02  - PC
+        de_ref = np.array([[1.59470493600856E-01,-4.49149709990789E-02 ],
+                           [6.72530182376632E-02,-6.72530182376630E-02 ]])
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
@@ -130,15 +146,15 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
 
-    def test_nac_lih_cms3ftlda22_sto3g(self):
+    def test_nac_lih_cms3ftlsda22_sto3g(self):
         # z_orb:    yes
         # z_ci:     no
         # z_is:     yes
         mc_grad = diatomic('Li', 'H', 2.5, 'STO-3G', 2, 2, 3)
 
-        # OpenMolcas v23.02 - PC
-        de_ref = np.array([[2.68015835251472E-01, -6.48474666167559E-02],
-                           [1.24870721811750E-01, -1.24870721811750E-01]])
+        # OpenMolcas v23.02 -
+        de_ref = np.array([[-2.61694098289507E-01, 5.88264204831044E-02],
+                           [-1.18760840775087E-01, 1.18760840775087E-01]])
 
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
@@ -150,5 +166,5 @@ class KnownValues(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    print("Full Tests for SA-CASSCF non-adiabatic couplings of diatomic molecules")
+    print("Full Tests for CMS-PDFT non-adiabatic couplings of diatomic molecules")
     unittest.main()
