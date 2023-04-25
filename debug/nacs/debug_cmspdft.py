@@ -73,8 +73,8 @@ class KnownValues(unittest.TestCase):
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
-                de_err = de - de_ref
-                print ("test_nac_h2_cms2ftlsda22_sto3g:", de_err, de_ref)
+                de_err = de - de_ref[i]
+                print ("test_nac_h2_cms2ftlsda22_sto3g:", de_err, de_ref[i])
 
     def test_nac_h2_cms3ftlsda22_sto3g(self):
         # z_orb:    no
@@ -92,8 +92,8 @@ class KnownValues(unittest.TestCase):
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
-                de_err = de - de_ref
-                print ("test_nac_h2_cms3ftlsda22_sto3g:", de_err, de_ref)
+                de_err = de - de_ref[i]
+                print ("test_nac_h2_cms3ftlsda22_sto3g:", de_err, de_ref[i])
 
     def test_nac_h2_cms2ftlsda22_631g(self):
         # z_orb:    yes
@@ -112,8 +112,8 @@ class KnownValues(unittest.TestCase):
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
-                de_err = de - de_ref
-                print ("test_nac_h2_cms2ftlsda22_631g:", de_err, de_ref)
+                de_err = de - de_ref[i]
+                print ("test_nac_h2_cms2ftlsda22_631g:", de_err, de_ref[i])
 
 
     def test_nac_h2_cms3ftlsda22_631g(self):
@@ -133,8 +133,8 @@ class KnownValues(unittest.TestCase):
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
-                de_err = de - de_ref
-                print ("test_nac_h2_cms3ftlsda22_631g:", de_err, de_ref)
+                de_err = de - de_ref[i]
+                print ("test_nac_h2_cms3ftlsda22_631g:", de_err, de_ref[i])
 
     def test_nac_lih_cms2ftlsda22_sto3g(self):
         # z_orb:    yes
@@ -152,8 +152,8 @@ class KnownValues(unittest.TestCase):
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
-                de_err = de - de_ref
-                print ("test_nac_lih_cms2ftlsda22_sto3g:", de_err, de_ref)
+                de_err = de - de_ref[i]
+                print ("test_nac_lih_cms2ftlsda22_sto3g:", de_err, de_ref[i])
 
     def test_nac_lih_cms3ftlsda22_sto3g(self):
         # z_orb:    yes
@@ -172,8 +172,8 @@ class KnownValues(unittest.TestCase):
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
                 self.assertAlmostEqual(de[1], de_ref[i, 1], 5)
-                de_err = de - de_ref
-                print ("test_nac_lih_cms3ftlsda22_sto3g:", de_err, de_ref)
+                de_err = de - de_ref[i]
+                print ("test_nac_lih_cms3ftlsda22_sto3g:", de_err, de_ref[i])
 
 
 
