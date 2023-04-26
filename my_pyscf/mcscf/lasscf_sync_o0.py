@@ -311,7 +311,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
                            for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
                           for frags_atoms in frags_atoms]
         elif frags_atoms_str:
-            frags_orbs = [self.mol.search_ao_labels (i) for i in frags_atoms]
+            frags_orbs = [self.mol.search_ao_label (i) for i in frags_atoms]
         else:
             raise RuntimeError ('localize_init_guess requires either all integers or all strings to identify fragments')
         if fock is None: fock = self._scf.get_fock ()
