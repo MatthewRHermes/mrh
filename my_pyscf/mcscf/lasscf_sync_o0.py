@@ -360,8 +360,10 @@ class LASSCFSymm (lasci.LASCISymm):
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
-    else:
+    elif isinstance (mf_or_mol, scf.hf.SCF):
         mf = mf_or_mol
+    else:
+        raise RuntimeError ("LASSCF constructor requires molecule or SCF instance")
     if mf.mol.symmetry: 
         las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     else:
