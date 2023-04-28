@@ -6,7 +6,7 @@ from pyscf import gto, scf, symm
 from pyscf.mcscf import mc_ao2mo, casci_symm, mc1step
 from pyscf.mcscf import df as mc_df
 from pyscf.lo import orth
-from pyscf.lib import tag_array
+from pyscf.lib import tag_array, with_doc
 from functools import partial
 
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
@@ -257,7 +257,8 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         assert (np.allclose (veff, veff_test))
         return veff
 
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None, freeze_cas_spaces=False):
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
+                             freeze_cas_spaces=False):
         ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
         and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
         space. Beware that unless freeze_cas_spaces=True, frozen orbitals will not be preserved.
@@ -328,8 +329,9 @@ class LASSCFSymm (lasci.LASCISymm):
     split_veff = LASSCFNoSymm.split_veff
     as_scanner = mc1step.as_scanner
 
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None, freeze_cas_spaces=False):
-        __doc__ = LASSCFNoSymm.localize_init_guess.__doc__
+    @with_doc(LASSCFNoSymm.localize_init_guess.__doc__)
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
+                             freeze_cas_spaces=False):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         mo_coeff = casci_symm.label_symmetry_(self, mo_coeff)
