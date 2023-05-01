@@ -352,6 +352,7 @@ class KnownValues(unittest.TestCase):
                 e_mcscf = np.atleast_1d (mc.e_mcscf)[0]
                 ci = np.zeros_like (mc.ci)
                 ci.flat[0] = 1.0
+                if nroots>1: ci=list(ci)
                 mc.compute_pdft_energy_(ci=ci)
                 with self.subTest (part='pdft1', symmetry=symmetry, nroots=nroots):
                     self.assertEqual (lib.fp (np.array(mc.ci)), lib.fp (ci), 9)
