@@ -370,18 +370,20 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     else:
         pw = pv = None
 
+    # MRH 05/01/2023: apparently the code has never been here until now, because the indexing down
+    # there was obviously messed up...
     if pspace_size >= ncsf_sym and not davidson_only:
         if ncsf_sym == 1:
             civec = transformer.vec_csf2det (pv[:,0].reshape (1,1))
             return pw[0]+ecore, civec
         elif nroots > 1:
-            civec = np.empty((nroots,ncsf_all))
-            civec[:,addr] = pv[:,:nroots].T
+            civec = np.empty((nroots,ncsf_sym))
+            civec[:,:] = pv[:,:nroots].T
             civec = transformer.vec_csf2det (civec)
             return pw[:nroots]+ecore, [c.reshape(na,nb) for c in civec]
         elif abs(pw[0]-pw[1]) > 1e-12:
-            civec = np.empty((ncsf_all))
-            civec[addr] = pv[:,0]
+            civec = np.empty((ncsf_sym))
+            civec[:] = pv[:,0]
             civec = transformer.vec_csf2det (civec)
             return pw[0]+ecore, civec.reshape(na,nb)
 

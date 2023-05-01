@@ -353,6 +353,8 @@ class KnownValues(unittest.TestCase):
                 ci = np.zeros_like (mc.ci)
                 ci.flat[0] = 1.0
                 if nroots>1: ci=list(ci)
+                # pyscf PR #1623 made direct_spin1_symm unable to interpret
+                # a 3D fci vector array
                 mc.compute_pdft_energy_(ci=ci)
                 with self.subTest (part='pdft1', symmetry=symmetry, nroots=nroots):
                     self.assertEqual (lib.fp (np.array(mc.ci)), lib.fp (ci), 9)
