@@ -203,11 +203,11 @@ def density_fit (las, auxbasis=None, with_df=None):
             with_df.verbose = las.verbose
             with_df.auxbasis = auxbasis
     class DFLASCI (las_class, _DFLASCI):
-        def __init__(self, scf, ncas, nelecas):
+        def __init__(self, scf, ncas_sub, nelecas_sub):
             self.with_df = with_df
             self._keys = self._keys.union(['with_df'])
-            las_class.__init__(self, scf, ncas, nelecas)
-    new_las = DFLASCI (las._scf, las.ncas, las.nelecas)
+            las_class.__init__(self, scf, ncas_sub, nelecas_sub)
+    new_las = DFLASCI (las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
     return new_las
 
@@ -740,6 +740,7 @@ class LASCINoSymm (casci.CASCI):
         if spin_sub is None: spin_sub = [1 + abs(ne[0]-ne[1]) for ne in nelecas]
         self.ncas_sub = np.asarray (ncas)
         self.nelecas_sub = np.asarray (nelecas)
+        assert (len (self.nelecas_sub) == self.nfrags)
         self.frozen = frozen
         self.conv_tol_grad = 1e-4
         self.conv_tol_self = 1e-10
@@ -754,6 +755,7 @@ class LASCINoSymm (casci.CASCI):
         if isinstance(spin_sub,int):
             self.fciboxes.append(self._init_fcibox(spin_sub,self.nelecas_sub[0]))
         else:
+            assert (len (spin_sub) == self.nfrags)
             for smult, nel in zip (spin_sub, self.nelecas_sub):
                 self.fciboxes.append (self._init_fcibox (smult, nel)) 
         self.nroots = 1
