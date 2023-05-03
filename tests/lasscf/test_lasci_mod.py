@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 import copy
 import unittest
 import numpy as np
@@ -23,6 +23,7 @@ from c2h4n4_struct import structure as struct
 from mrh.my_dmet import localintegrals, dmet, fragments
 from mrh.my_dmet.fragments import make_fragment_atom_list, make_fragment_orb_list
 from mrh.my_pyscf.mcscf.lasci_sync import LASCI_HessianOperator, LASCI_UnitaryGroupGenerators
+topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def build (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcname='c2h4n4', **kwargs):
     # I/O
@@ -86,9 +87,9 @@ except RuntimeError as e:
 #np.savetxt ('test_lasci_mo.dat', dmet.las.mo_coeff)
 #np.savetxt ('test_lasci_ci0.dat', dmet.las.ci0)
 #np.savetxt ('test_lasci_ci1.dat', dmet.las.ci[1])
-dmet.las.mo_coeff = np.loadtxt ('test_lasci_mo.dat')
-dmet.las.ci[0] = [np.loadtxt ('test_lasci_ci0.dat')]
-dmet.las.ci[1] = [-np.loadtxt ('test_lasci_ci1.dat').T]
+dmet.las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lasci_mo.dat'))
+dmet.las.ci[0] = [np.loadtxt (os.path.join (topdir, 'test_lasci_ci0.dat'))]
+dmet.las.ci[1] = [-np.loadtxt (os.path.join (topdir, 'test_lasci_ci1.dat')).T]
 ugg = LASCI_UnitaryGroupGenerators (dmet.las, dmet.las.mo_coeff, dmet.las.ci)
 h_op = LASCI_HessianOperator (dmet.las, ugg)
 np.random.seed (0)

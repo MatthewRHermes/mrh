@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 import copy
 import unittest
 import numpy as np
@@ -22,6 +22,7 @@ from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
+topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 dr_nn = 2.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
@@ -38,8 +39,8 @@ las.state_average_(weights=[1.0/7.0,]*7,
     wfnsyms=[['A\'','A\''],]*4+[['A"','A\''],['A\'','A"'],['A\'','A\'']])
 las.frozen = list (range (las.mo_coeff.shape[-1]))
 ugg = las.get_ugg ()
-las.mo_coeff = las.label_symmetry_(np.loadtxt ('test_lassi_symm_mo.dat'))
-las.ci = ugg.unpack (np.loadtxt ('test_lassi_symm_ci.dat'))[1]
+las.mo_coeff = las.label_symmetry_(np.loadtxt (os.path.join (topdir, 'test_lassi_symm_mo.dat')))
+las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_lassi_symm_ci.dat')))[1]
 #las.set (conv_tol_grad=1e-8).run ()
 las.e_states = las.energy_nuc () + las.states_energy_elec ()
 e_roots, si = las.lassi ()

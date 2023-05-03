@@ -1,11 +1,13 @@
+import os, sys
 from pyscf import gto
 import numpy as np
+topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def structure( distance, basis):
 
     mol = gto.Mole()
 
-    with open ("me2n2_geom.gjf") as f:
+    with open (os.path.join (topdir, "me2n2_geom.gjf"), 'r') as f:
         for i in range(6):
             f.readline()    
 
