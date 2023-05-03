@@ -29,6 +29,13 @@ def restart(xc, ot_name, chkfile):
     mc.recalculate_with_xc(xc, ot_name=ot_name, dump_chk=chkfile)
     return mc.e_tot
 
+def setUpModule ():
+    global tmpdir
+    tmpdir = os.path.abspath (os.path.join (__file__,'..'))
+
+def tearDownModule():
+    global tmpdir
+
 class KnownValues(unittest.TestCase):
 
     def test_cPBE(self):
@@ -49,6 +56,5 @@ class KnownValues(unittest.TestCase):
         
 if __name__ == "__main__":
     print("Full Tests for MC-DCFT energies of H2 molecule")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        unittest.main()
+    unittest.main()
 
