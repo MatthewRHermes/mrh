@@ -37,7 +37,7 @@ jobs:
           curl
     - name: Install
       run: |
-        cd .lib
+        cd ./lib
         mkdir build ; cd build
         cmake ..
         make -j4
