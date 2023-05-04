@@ -68,6 +68,7 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
+                self.assertTrue (mc_grad.converged)
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -86,6 +87,7 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
+                self.assertTrue (mc_grad.converged)
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -104,6 +106,7 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
+                self.assertTrue (mc_grad.converged)
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -123,6 +126,7 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
+                self.assertTrue (mc_grad.converged)
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -140,6 +144,7 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
+                self.assertTrue (mc_grad.converged)
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -158,6 +163,7 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
+                self.assertTrue (mc_grad.converged)
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
