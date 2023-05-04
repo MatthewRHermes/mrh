@@ -33,9 +33,12 @@ def tearDownModule():
     global diatomic
     del diatomic
 
+# The purpose of these separate test functions is to narrow down an error to specific degrees of
+# freedom. But if the lih_cms2ftpbe and _df cases pass, then almost certainly, they all pass.
+
 class KnownValues(unittest.TestCase):
 
-    def test_grad_h2_cms3ftlda22_sto3g (self):
+    def test_grad_h2_cms3ftlda22_sto3g_slow (self):
         # z_orb:    no
         # z_ci:     no
         # z_is:     no
@@ -47,7 +50,7 @@ class KnownValues(unittest.TestCase):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
             self.assertAlmostEqual (de, de_ref[i], 5)
 
-    def test_grad_h2_cms2ftlda22_sto3g (self):
+    def test_grad_h2_cms2ftlda22_sto3g_slow (self):
         # z_orb:    no
         # z_ci:     yes
         # z_is:     no
@@ -59,7 +62,7 @@ class KnownValues(unittest.TestCase):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
             self.assertAlmostEqual (de, de_ref[i], 6)
 
-    def test_grad_h2_cms3ftlda22_631g (self):
+    def test_grad_h2_cms3ftlda22_631g_slow (self):
         # z_orb:    yes
         # z_ci:     no
         # z_is:     no
@@ -71,7 +74,7 @@ class KnownValues(unittest.TestCase):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
             self.assertAlmostEqual (de, de_ref[i], 5)
 
-    def test_grad_h2_cms2ftlda22_631g (self):
+    def test_grad_h2_cms2ftlda22_631g_slow (self):
         # z_orb:    yes
         # z_ci:     yes
         # z_is:     no
@@ -83,7 +86,7 @@ class KnownValues(unittest.TestCase):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
             self.assertAlmostEqual (de, de_ref[i], 5)
 
-    def test_grad_lih_cms2ftlda44_sto3g (self):
+    def test_grad_lih_cms2ftlda44_sto3g_slow (self):
         # z_orb:    no
         # z_ci:     yes
         # z_is:     yes
@@ -95,7 +98,7 @@ class KnownValues(unittest.TestCase):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
             self.assertAlmostEqual (de, de_ref[i], 6)
 
-    def test_grad_lih_cms3ftlda22_sto3g (self):
+    def test_grad_lih_cms3ftlda22_sto3g_slow (self):
         # z_orb:    yes
         # z_ci:     no
         # z_is:     yes
@@ -107,7 +110,7 @@ class KnownValues(unittest.TestCase):
             de = mc_grad.kernel (state=i) [1,0] / BOHR
             self.assertAlmostEqual (de, de_ref[i], 6)
 
-    def test_grad_lih_cms2ftlda22_sto3g (self):
+    def test_grad_lih_cms2ftlda22_sto3g_slow (self):
         # z_orb:    yes
         # z_ci:     yes
         # z_is:     yes
