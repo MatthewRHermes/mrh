@@ -1,4 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+set -e
 
 PYSCFLIB=$(python -c "if True:
     import os
