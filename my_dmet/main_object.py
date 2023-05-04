@@ -136,7 +136,7 @@ class dmet:
             # Note on working with impurities which do no tile the entire system: they should be the first orbitals in the Hamiltonian!
 
         def umat_ftriu_mask (x, k=0):
-            r = np.zeros (x.shape, dtype=np.bool)
+            r = np.zeros (x.shape, dtype=np.bool_)
             for frag in self.fragments:
                 ftriu = np.triu_indices (frag.norbs_frag)
                 c = tuple (np.asarray ([frag.frag_orb_list[i] for i in f]) for f in ftriu)

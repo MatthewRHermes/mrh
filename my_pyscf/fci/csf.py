@@ -145,7 +145,7 @@ def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None):
     ndetb_all = cistring.num_strings(norb, nelecb)
     ndet_all = ndeta_all * ndetb_all
     hdiag_csf = np.ascontiguousarray (np.zeros (ncsf_all, dtype=np.float64))
-    hdiag_csf_check = np.ones (ncsf_all, dtype=np.bool)
+    hdiag_csf_check = np.ones (ncsf_all, dtype=np.bool_)
     for npair in range (min_npair, max_npair+1):
         ipair = npair - min_npair
         nconf = npair_econf_size[ipair]
