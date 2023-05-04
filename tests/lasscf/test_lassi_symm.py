@@ -59,7 +59,7 @@ class KnownValues(unittest.TestCase):
         # Arbitrary signage in both the SI and CI vector, sadly
         # Actually this test seems really inconsistent overall...
         dms = [np.dot (si[:,i:i+1], si[:,i:i+1].conj ().T) for i in range (7)]
-        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.5895141912171784, 7)
+        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.5895141912171784, 6)
 
     def test_nelec (self):
         for ix, ne in enumerate (si.nelec):

@@ -38,6 +38,7 @@ def diatomic(atom1, atom2, r, basis, ncas, nelecas, nstates,
     mc.fix_spin_(ss=s*(s+1), shift=1)
     mc = mc.multi_state([1.0/float(nstates), ]*nstates, 'cms')
     mc.conv_tol = mc.conv_tol_diabatize = 1e-10
+    mc.max_cycle_macro = 100
     mo = None
 
     if symmetry and (cas_irrep is not None):
@@ -68,7 +69,8 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
-                self.assertTrue (mc_grad.converged)
+                self.assertTrue (mc_grad.base.converged, 'energy calculation not converged')
+                self.assertTrue (mc_grad.converged, 'gradient calculation not converged')
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -87,7 +89,8 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
-                self.assertTrue (mc_grad.converged)
+                self.assertTrue (mc_grad.base.converged, 'energy calculation not converged')
+                self.assertTrue (mc_grad.converged, 'gradient calculation not converged')
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -106,7 +109,8 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
-                self.assertTrue (mc_grad.converged)
+                self.assertTrue (mc_grad.base.converged, 'energy calculation not converged')
+                self.assertTrue (mc_grad.converged, 'gradient calculation not converged')
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -126,7 +130,8 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
-                self.assertTrue (mc_grad.converged)
+                self.assertTrue (mc_grad.base.converged, 'energy calculation not converged')
+                self.assertTrue (mc_grad.converged, 'gradient calculation not converged')
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -144,7 +149,8 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
-                self.assertTrue (mc_grad.converged)
+                self.assertTrue (mc_grad.base.converged, 'energy calculation not converged')
+                self.assertTrue (mc_grad.converged, 'gradient calculation not converged')
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
@@ -163,7 +169,8 @@ class KnownValues(unittest.TestCase):
         for i in range(2):
             with self.subTest(use_etfs=bool(i)):
                 de = mc_grad.kernel(state=(0, 1), use_etfs=bool(i))[:, 0]
-                self.assertTrue (mc_grad.converged)
+                self.assertTrue (mc_grad.base.converged, 'energy calculation not converged')
+                self.assertTrue (mc_grad.converged, 'gradient calculation not converged')
                 de *= np.sign(de[0]) * np.sign(de_ref[i, 0])
                 # TODO: somehow confirm sign convention
                 self.assertAlmostEqual(de[0], de_ref[i, 0], 5)
