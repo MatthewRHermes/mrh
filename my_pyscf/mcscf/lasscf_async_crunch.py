@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, mcscf, ao2mo, lib, df
+from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec
 import copy
 
@@ -155,6 +156,62 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
     mc.get_h2eff = lambda *args: eri_cas
     return mc
 
+# I sadly had to copy-and-paste this function from casci.py due to inapplicable
+#   1) logging commands and
+#   2) error checks
+# that could not be monkeypatched out.
+def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None):
+    '''CASCI solver
+
+    Args:
+        casci: CASCI or CASSCF object
+
+        mo_coeff : ndarray
+            orbitals to construct active space Hamiltonian
+        ci0 : ndarray or custom types
+            FCI sovler initial guess. For external FCI-like solvers, it can be
+            overloaded different data type. For example, in the state-average
+            FCI solver, ci0 is a list of ndarray. In other solvers such as
+            DMRGCI solver, SHCI solver, ci0 are custom types.
+
+    kwargs:
+        envs: dict
+            The variable envs is created (for PR 807) to passes MCSCF runtime
+            environment variables to SHCI solver. For solvers which do not
+            need this parameter, a kwargs should be created in kernel method
+            and "envs" pop in kernel function
+    '''
+    if mo_coeff is None: mo_coeff = casci.mo_coeff
+    log = logger.new_logger(casci, verbose)
+    t0 = (logger.process_clock(), logger.perf_counter())
+    log.debug('Start CASCI')
+
+    ncas = casci.ncas
+    nelecas = casci.nelecas
+
+    # 2e
+    eri_cas = casci.get_h2eff(mo_coeff)
+    t1 = log.timer('integral transformation to CAS space', *t0)
+
+    # 1e
+    h1eff, energy_core = casci.get_h1eff(mo_coeff)
+    log.debug('core energy = {}'.format (energy_core))
+    t1 = log.timer('effective h1e in CAS space', *t1)
+
+    if h1eff.shape[-1] != ncas:
+        raise RuntimeError('Active space size error. nmo=%d ncore=%d ncas=%d' %
+                           (mo_coeff.shape[1], casci.ncore, ncas))
+
+    # FCI
+    max_memory = max(400, casci.max_memory-lib.current_memory()[0])
+    e_tot, fcivec = casci.fcisolver.kernel(h1eff, eri_cas, ncas, nelecas,
+                                           ci0=ci0, verbose=log,
+                                           max_memory=max_memory,
+                                           ecore=energy_core)
+
+    t1 = log.timer('FCI solver', *t1)
+    e_cas = e_tot - energy_core
+    return e_tot, e_cas, fcivec
 
 # This is the really tricky part
 class ImpurityCASSCF (mcscf.mc1step.CASSCF):
@@ -300,15 +357,102 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         return super().solve_approx_ci (h1, h2, ci0, ecore, e_cas, envs)
 
     def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
-        from pyscf.mcscf import mc1step
-        with lib.temporary_env (mc1step, _fake_h_for_fast_casci=_fake_h_for_fast_casci):
-            try:
-                e_tot, e_cas, fcivec = super().casci (mo_coeff, ci0=ci0, eris=eris, verbose=verbose,
-                                                      envs=envs)
-            except AssertionError as e:
-                print (type (ci0))
-                raise (e)
+        # I sadly had to copy-and-paste this function from mc1step.py due to inapplicable
+        #   1) logging commands and
+        #   2) error checks
+        # that could not be monkeypatched out.
+        log = logger.new_logger(self, verbose)
+        if eris is None:
+            fcasci = copy.copy(self)
+            fcasci.ao2mo = self.get_h2cas
+        else:
+            fcasci = _fake_h_for_fast_casci(self, mo_coeff, eris)
+
+        e_tot, e_cas, fcivec = casci_kernel(fcasci, mo_coeff, ci0, log,
+                                            envs=envs)
+        #if not isinstance(e_cas, (float, numpy.number)):
+        #    raise RuntimeError('Multiple roots are detected in fcisolver.  '
+        #                       'CASSCF does not know which state to optimize.\n'
+        #                       'See also  mcscf.state_average  or  mcscf.state_specific  for excited states.')
+        #elif numpy.ndim(e_cas) != 0:
+            # This is a workaround for external CI solver compatibility.
+        #    e_cas = e_cas[0]
+
+        if envs is not None and log.verbose >= logger.INFO:
+            log.debug('CAS space CI energy = {}'.format (e_cas))
+
+            if getattr(self.fcisolver, 'spin_square', None):
+                try:
+                    ss = self.fcisolver.spin_square(fcivec, self.ncas, self.nelecas)
+                except NotImplementedError:
+                    ss = None
+            else:
+                ss = None
+
+            if 'imicro' in envs:  # Within CASSCF iteration
+                if ss is None:
+                    log.info('macro iter %3d (%3d JK  %3d micro), '
+                             'CASSCF E = %#.15g  dE = % .8e',
+                             envs['imacro'], envs['njk'], envs['imicro'],
+                             e_tot, e_tot-envs['elast'])
+                else:
+                    log.info('macro iter %3d (%3d JK  %3d micro), '
+                             'CASSCF E = %#.15g  dE = % .8e  S^2 = %.7f',
+                             envs['imacro'], envs['njk'], envs['imicro'],
+                             e_tot, e_tot-envs['elast'], ss[0])
+                if 'norm_gci' in envs and envs['norm_gci'] is not None:
+                    log.info('               |grad[o]|=%5.3g  '
+                             '|grad[c]|=%5.3g  |ddm|=%5.3g  |maxRot[o]|=%5.3g',
+                             envs['norm_gorb0'],
+                             envs['norm_gci'], envs['norm_ddm'], envs['max_offdiag_u'])
+                else:
+                    log.info('               |grad[o]|=%5.3g  |ddm|=%5.3g  |maxRot[o]|=%5.3g',
+                             envs['norm_gorb0'], envs['norm_ddm'], envs['max_offdiag_u'])
+            else:  # Initialization step
+                if ss is None:
+                    log.info('CASCI E = %#.15g', e_tot)
+                else:
+                    log.info('CASCI E = %#.15g  S^2 = %.7f', e_tot, ss[0])
         return e_tot, e_cas, fcivec
+
+    def _finalize(self):
+        # I sadly had to copy-and-paste this function from casci.py due to inapplicable
+        #   1) logging commands and
+        #   2) error checks
+        # that could not be monkeypatched out.
+        log = logger.Logger(self.stdout, self.verbose)
+        if log.verbose >= logger.NOTE and getattr(self.fcisolver, 'spin_square', None):
+            if isinstance(self.e_cas, (float, np.number)):
+                try:
+                    ss = self.fcisolver.spin_square(self.ci, self.ncas, self.nelecas)
+                    log.note('CASCI E = %#.15g  E(CI) = %#.15g  S^2 = %.7f',
+                             self.e_tot, self.e_cas, ss[0])
+                except NotImplementedError:
+                    log.note('CASCI E = %#.15g  E(CI) = %#.15g',
+                             self.e_tot, self.e_cas)
+            elif callable (getattr (self.fcisolver, 'states_spin_square')):
+                ss = self.fcisolver.states_spin_square (self.ci, self.ncas, self.nelecas)
+                for i, e in enumerate(self.e_cas):
+                    log.note('CASCI state %3d  E = %#.15g  E(CI) = %#.15g  S^2 = %.7f',
+                             i, self.e_states[i], e, ss[0][i])
+            else:
+                for i, e in enumerate(self.e_cas):
+                    try:
+                        ss = self.fcisolver.spin_square(self.ci[i], self.ncas, self.nelecas)
+                        log.note('CASCI state %3d  E = %#.15g  E(CI) = %#.15g  S^2 = %.7f',
+                                 i, self.e_states[i], e, ss[0])
+                    except NotImplementedError:
+                        log.note('CASCI state %3d  E = %#.15g  E(CI) = %#.15g',
+                                 i, self.e_states[i], e)
+
+        else:
+            if isinstance(self.e_cas, (float, np.number)):
+                log.note('CASCI E = %#.15g  E(CI) = %#.15g', self.e_tot, self.e_cas)
+            else:
+                for i, e in enumerate(self.e_cas):
+                    log.note('CASCI state %3d  E = %#.15g  E(CI) = %#.15g',
+                             i, self.e_states[i], e)
+        return self
 
     def rotate_orb_cc (self, mo, fcivec, fcasdm1, fcasdm2, eris, x0_guess=None,
                        conv_tol_grad=1e-4, max_stepsize=None, verbose=None):
@@ -403,9 +547,9 @@ if __name__=='__main__':
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
-    las.state_average_(weights=[1,0,0,0,0],
-                       spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
-                       smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
+    #las.state_average_(weights=[1,0,0,0,0],
+    #                   spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
+    #                   smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
     las.conv_tol_grad = 1e-6
     las.kernel (mo)
     print (las.converged)
