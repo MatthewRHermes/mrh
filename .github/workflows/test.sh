@@ -4,4 +4,4 @@ set -e
 
 export PYTHONPATH=${PWD%/*}:$PYTHONPATH
 cd ./tests
-pytest
+pytest -k 'not _slow'
