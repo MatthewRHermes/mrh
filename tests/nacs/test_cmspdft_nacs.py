@@ -39,6 +39,7 @@ def diatomic(atom1, atom2, r, basis, ncas, nelecas, nstates,
     mc = mc.multi_state([1.0/float(nstates), ]*nstates, 'cms')
     mc.conv_tol = mc.conv_tol_diabatize = 1e-10
     mc.max_cycle_macro = 100
+    mc.max_cyc_diabatize = 200
     mo = None
 
     if symmetry and (cas_irrep is not None):
