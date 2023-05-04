@@ -26,25 +26,18 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        python -m pip install flake8 pytest pyscf
-        python -m pip install git+https://github.com/MatthewRHermes/pyscf-forge.git@issue_18_pyprojecttoml
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         sudo apt-get -qq install \
           gcc \
           libblas-dev \
           cmake \
           curl
+        python -m pip install --upgrade pip
+        python -m pip install flake8 pytest pyscf
+        python -m pip install git+https://github.com/MatthewRHermes/pyscf-forge.git@issue_18_pyprojecttoml
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Install
       run: |
-        cd ./lib
-        mkdir build ; cd build
-        cmake ..
-        make -j4
-        cd ..
-        rm -Rf build
-        cd ..
+        ./github/workflows/cmake_make.sh
     - name: Test with pytest
       run: |
-        cd tests
-        pytest
+        ./github/workflows/test.sh
