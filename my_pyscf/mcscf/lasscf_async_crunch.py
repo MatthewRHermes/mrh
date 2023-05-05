@@ -547,9 +547,9 @@ if __name__=='__main__':
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
-    #las.state_average_(weights=[1,0,0,0,0],
-    #                   spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
-    #                   smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
+    las.state_average_(weights=[1,0,0,0,0],
+                       spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
+                       smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
     las.conv_tol_grad = 1e-6
     las.kernel (mo)
     print (las.converged)
@@ -573,7 +573,11 @@ if __name__=='__main__':
     imc = _state_average_mcscf_solver (imc, las.fciboxes[0])
     imc._ifrag = 0
     imc._update_keyframe_(las.mo_coeff, las.ci, e_states=las.e_states)
-    #imc.max_cycle_macro = 0
+    imc.ci = None
+    kappa = (np.random.rand (*imc.mo_coeff.shape)-.5) * np.pi / 100
+    kappa -= kappa.T
+    umat = linalg.expm (kappa)
+    imc.mo_coeff = imc.mo_coeff @ umat
     imc.kernel ()
     print (imc.converged, imc.e_tot, las.e_tot, imc.e_tot-las.e_tot)
     for t, r in zip (imc.e_states, las.e_states):
