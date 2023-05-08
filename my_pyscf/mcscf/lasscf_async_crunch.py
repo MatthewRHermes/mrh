@@ -3,6 +3,8 @@ from scipy import linalg
 from pyscf import gto, scf, mcscf, ao2mo, lib, df
 from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.mcscf.addons import _state_average_mcscf_solver
+from mrh.my_pyscf.mcscf import _DFLASCI
 import copy
 
 class ImpurityMole (gto.Mole):
@@ -34,6 +36,10 @@ class ImpurityMole (gto.Mole):
     def nao (self): return self._imporb_coeff.shape[-1]
 
 class ImpuritySCF (scf.hf.SCF):
+
+    def _update_space_(self, imporb_coeff, nelec_imp):
+        self.mol._update_space_(imporb_coeff, nelec_imp)
+
     def _update_impham_1_(self, veff, dm1s, e_tot=None):
         ''' after this function, get_hcore () and energy_nuc () functions return
             full-system state-averaged fock and e_tot, respectively '''
@@ -216,14 +222,21 @@ def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None)
 # This is the really tricky part
 class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
-    def _update_keyframe_(self, mo_coeff, ci, h2eff_sub=None, e_states=None):
-        # Project mo_coeff and ci keyframe into impurity space and cache
+    def _update_space_(self, imporb_coeff, nelec_imp):
+        self.mol._update_space_(imporb_coeff, nelec_imp)
+
+    def _update_keyframe_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
         las = self.mol._las
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
             mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
+        # Set underlying SCF object Hamiltonian to state-averaged Heff: first pass
         e_tot = np.dot (las.weights, e_states)
+        if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
+        if veff is None: veff = las.get_veff (dm1s=dm1s, spin_sep=True)
         mf = las._scf
+        self._scf._update_impham_1_(veff, dm1s, e_tot=e_tot)
+        # Project mo_coeff and ci keyframe into impurity space and cache
         _ifrag = self._ifrag
         imporb_coeff = self.mol.get_imporb_coeff ()
         self.ci = ci[_ifrag]
@@ -243,15 +256,13 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         assert (np.allclose(svals[:self.ncas], 1))
         u[:,:self.ncas] = u[:,:self.ncas] @ vh
         self.mo_coeff[:,self.ncore:] = self.mo_coeff[:,self.ncore:] @ u
-        # Set underlying SCF object Hamiltonian to state-averaged Heff
+        # Set underlying SCF object Hamiltonian to state-averaged Heff: second pass
         casdm1rs, casdm2rs = self.fcisolver.states_make_rdm12s (self.ci, self.ncas, self.nelecas)
         casdm1rs = np.stack (casdm1rs, axis=1)
         casdm2sr = np.stack (casdm2rs, axis=0)
         casdm2r = casdm2sr[0] + casdm2sr[1] + casdm2sr[1].transpose (0,3,4,1,2) + casdm2sr[2]
         casdm1s = np.tensordot (self.fcisolver.weights, casdm1rs, axes=1)
         casdm2 = np.tensordot (self.fcisolver.weights, casdm2r, axes=1)
-        #casdm1s, casdm2s = self.fcisolver.make_rdm12s (self.ci, self.ncas, self.nelecas)
-        #casdm2 = casdm2s[0] + casdm2s[1] + casdm2s[1].transpose (2,3,0,1) + casdm2s[2]
         eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
@@ -537,6 +548,19 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         return g_orb, my_gorb_update, my_h_op, h_diag
 
+def get_impurity_casscf (las, ifrag):
+    imol = ImpurityMole (las)
+    imol._update_space_(fo_coeff, nelec_fo)
+    imf = ImpurityHF (imol)
+    if isinstance (las, _DFLASCI):
+        imf = imf.density_fit ()
+    imc = ImpurityCASSCF (imf, las.ncas_sub[ifrag], las.nelecas_sub[ifrag])
+    if isinstance (las, _DFLASCI):
+        imc = df.density_fit (imc)
+    imc = _state_average_mcscf_solver (imc, las.fciboxes[ifrag])
+    imc._ifrag = ifrag
+    return imc
+
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h6n4_struct import structure as struct
     mol = struct (1.0, 1.0, '6-31g', symmetry=False)
@@ -550,11 +574,12 @@ if __name__=='__main__':
     las.state_average_(weights=[1,0,0,0,0],
                        spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
                        smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
-    las.conv_tol_grad = 1e-6
+    las.conv_tol_grad = 1e-7
     las.kernel (mo)
     print (las.converged)
 
     ###########################
+    # Build the embedding space
     from mrh.my_pyscf.mcscf.lasci import get_grad_orb
     from mrh.my_pyscf.mcscf.lasscf_async_split import LASImpurityOrbitalCallable
     dm1s = las.make_rdm1s ()
@@ -564,20 +589,22 @@ if __name__=='__main__':
     fo_coeff, nelec_fo = get_imporbs_0 (las.mo_coeff, dm1s, veff, fock1)
     ###########################
 
-    imol = ImpurityMole (las)
-    imol._update_space_(fo_coeff, nelec_fo)
-    imf = ImpurityHF (imol).density_fit ()
-    imf._update_impham_1_(veff, dm1s, e_tot=las.e_tot)
-    imc = df.density_fit (ImpurityCASSCF (imf, 4, 4))
-    from pyscf.mcscf.addons import _state_average_mcscf_solver
-    imc = _state_average_mcscf_solver (imc, las.fciboxes[0])
-    imc._ifrag = 0
-    imc._update_keyframe_(las.mo_coeff, las.ci, e_states=las.e_states)
+    ###########################
+    # Build the impurity method object
+    imc = get_impurity_casscf (las, 0)
+    imc._update_space_(fo_coeff, nelec_fo)
+    imc._update_keyframe_(las.mo_coeff, las.ci)
+    ###########################
+
+    ###########################
+    # Futz up the guess
     imc.ci = None
     kappa = (np.random.rand (*imc.mo_coeff.shape)-.5) * np.pi / 100
     kappa -= kappa.T
     umat = linalg.expm (kappa)
     imc.mo_coeff = imc.mo_coeff @ umat
+    ###########################
+
     imc.kernel ()
     print (imc.converged, imc.e_tot, las.e_tot, imc.e_tot-las.e_tot)
     for t, r in zip (imc.e_states, las.e_states):
