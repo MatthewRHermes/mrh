@@ -230,12 +230,14 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
             mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
-        # Set underlying SCF object Hamiltonian to state-averaged Heff: first pass
         e_tot = np.dot (las.weights, e_states)
         if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
         if veff is None: veff = las.get_veff (dm1s=dm1s, spin_sep=True)
         mf = las._scf
+
+        # Set underlying SCF object Hamiltonian to state-averaged Heff: first pass
         self._scf._update_impham_1_(veff, dm1s, e_tot=e_tot)
+
         # Project mo_coeff and ci keyframe into impurity space and cache
         _ifrag = self._ifrag
         imporb_coeff = self.mol.get_imporb_coeff ()
@@ -256,6 +258,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         assert (np.allclose(svals[:self.ncas], 1))
         u[:,:self.ncas] = u[:,:self.ncas] @ vh
         self.mo_coeff[:,self.ncore:] = self.mo_coeff[:,self.ncore:] @ u
+
         # Set underlying SCF object Hamiltonian to state-averaged Heff: second pass
         casdm1rs, casdm2rs = self.fcisolver.states_make_rdm12s (self.ci, self.ncas, self.nelecas)
         casdm1rs = np.stack (casdm1rs, axis=1)
@@ -267,6 +270,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
         self._scf._update_impham_2_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
+
         # Canonicalize core and virtual spaces
         dm1s = np.dot (mo_cas, np.dot (casdm1s, mo_cas.conj ().T)).transpose (1,0,2)
         dm1s += np.dot (mo_core, mo_core.conj ().T)[None,:,:]
@@ -279,6 +283,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         fock_virt = mo_virt.conj ().T @ fock @ mo_virt
         w, c = linalg.eigh (fock_virt)
         self.mo_coeff[:,nocc:] = mo_virt @ c
+
         # Set state-separated Hamiltonian 1-body
         mo_cas_full = mo_coeff[:,las.ncore:][:,:las.ncas]
         dm1rs_full = las.states_make_casdm1s (ci=ci)
@@ -292,6 +297,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         vk_rs = self.get_vk_ext (mo_cas_full, dm1rs_stateshift, bmPu=bmPu)
         vext = vj_r[:,None,:,:] - vk_rs
         self._imporb_h1_stateshift = vext
+
         # Set state-separated Hamiltonian 0-body
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:][:,:self.ncas]
@@ -320,8 +326,10 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             bPii = self._scf.with_df._cderi
             vj = lib.unpack_tril (np.tensordot (rho, bPii, axes=((-1),(0))))
         else: # Safety case: AO-basis SCF driver
-            dm1 = np.dot (mo_ext.conj ().T, np.dot (dm1, mo_ext)).transpose (1,0,2)
-            vj = self.mol._las.scf.get_j (dm1)
+            imporb_coeff = self.mol.get_imporb_coeff ()
+            dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
+            vj = self.mol._las._scf.get_j (dm=dm1)
+            vj = np.dot (imporb_coeff.conj ().T, np.dot (vj, imporb_coeff)).transpose (1,0,2)
         return vj.reshape (*output_shape) 
 
     def get_vk_ext (self, mo_ext, dm1rs_ext, bmPu=None):
@@ -333,8 +341,9 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             vuiP = np.tensordot (dm1, biPu, axes=((-1),(-1)))
             vk = np.tensordot (vuiP, biPu, axes=((-3,-1),(-1,-2)))
         else: # Safety case: AO-basis SCF driver
-            dm1 = np.dot (mo_ext.conj ().T, np.dot (dm1, mo_ext)).transpose (1,0,2)
-            vk = self.mol._las.scf.get_k (dm1).reshape (*output_shape)
+            dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
+            vk = self.mol._las._scf.get_k (dm=dm1)
+            vk = np.dot (imporb_coeff.conj ().T, np.dot (vk, imporb_coeff)).transpose (1,0,2)
         return vk.reshape (*output_shape)
 
     def get_hcore_rs (self):
@@ -567,7 +576,7 @@ if __name__=='__main__':
     mol.verbose = 5
     mol.output = 'lasscf_async_crunch.log'
     mol.build ()
-    mf = scf.RHF (mol).density_fit ().run ()
+    mf = scf.RHF (mol).run ()
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
