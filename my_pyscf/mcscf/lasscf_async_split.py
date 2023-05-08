@@ -161,6 +161,7 @@ class LASImpurityOrbitalCallable (object):
                 Same as input, after an approximate step towards optimizing the active orbitals
         '''
         iGa = eo.conj ().T @ (fock1-fock1.T) @ fo[:,:self.nlas]
+        if not iGa.size: return fo, eo, fock1
         u, svals, vh = linalg.svd (iGa, full_matrices=True)
         fo = np.append (fo, eo @ u[:,:self.nlas] @ vh[:self.nlas,:], axis=1)
         eo = eo @ u[:,self.nlas:]
@@ -216,6 +217,7 @@ class LASImpurityOrbitalCallable (object):
         mo_core = mo[:,:self.ncore]
         dm_core = mo_core @ mo_core.conj ().T
         s1 = eo.conj ().T @ dm_core @ fo[:,self.nlas:]
+        if not s1.size: return fo, eo
         u, svals, vh = linalg.svd (s1)
         svals = svals[:min(len(svals),nf)]
         idx = np.zeros (u.shape[1], dtype=np.bool_)
@@ -249,6 +251,7 @@ class LASImpurityOrbitalCallable (object):
 
         # Split environment orbitals into inactive and external
         eSi = eo.conj ().T @ mo[:,:self.ncore]
+        if not eSi.size: return fo, eo
         u, svals, vH = linalg.svd (eSi, full_matrices=True)
         ni = np.count_nonzero (svals>0.5)
         eo = eo @ u

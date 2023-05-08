@@ -559,7 +559,6 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
 def get_impurity_casscf (las, ifrag):
     imol = ImpurityMole (las)
-    imol._update_space_(fo_coeff, nelec_fo)
     imf = ImpurityHF (imol)
     if isinstance (las, _DFLASCI):
         imf = imf.density_fit ()
