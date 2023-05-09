@@ -1,6 +1,7 @@
 # Ohh boy
 from mrh.my_pyscf.mcscf.mc1step_csf import fix_ci_response_csf
 import copy
+from types import MethodType
 
 class _DFLASCI: # Tag
     pass
@@ -44,7 +45,17 @@ def LASPDFT(mc_class, ot, ncas, nelecas, ncore=None, frozen=None, verbose=5,
     mc2.mo_coeff = mc_class.mo_coeff.copy()    
     mc2.ci = copy.deepcopy(mc_class.ci)
     mc2.converged = mc_class.converged
-    mc2 = lspdft.update_kernel(mc2)
+    #mc2 = lspdft.update_kernel(mc2)
+    mc2.kernel = MethodType(modified_kernel, mc2)
+    return mc2
+
+def modified_kernel(self, mo_coeff=None, ci0=None, otxc=None, grids_attr=None,
+        grids_level=None, **kwargs ):
+    #self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0, **kwargs)
+    self.compute_pdft_energy_(otxc=otxc, grids_attr=grids_attr,
+                                grids_level=grids_level, **kwargs)
+    return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci,
+    self.mo_coeff, self.mo_energy)
 
 # To make it consistent   
 # LASSCF = _LASPDFT
