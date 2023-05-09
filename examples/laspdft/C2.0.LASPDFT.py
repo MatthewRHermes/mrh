@@ -4,7 +4,7 @@ from pyscf.tools import molden
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_dmet import localintegrals, dmet, fragments
 from mrh.my_dmet.fragments import make_fragment_atom_list, make_fragment_orb_list
-from mrh.my_pyscf.mcscf import LASPDFT
+from mrh.my_pyscf import mcpdft
 
 # Initialisation
 mol = gto.M()
@@ -31,4 +31,5 @@ las.kernel(mo0)
 
 
 # LAS-PDFT
-mc = LASPDFT(las, 'tPBE', 4, 4, verbose = 5)
+mc = mcpdft.LASSCF(las, 'tPBE', 4, 4, verbose = 5)
+mc.kernel()
