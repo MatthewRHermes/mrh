@@ -203,11 +203,11 @@ def density_fit (las, auxbasis=None, with_df=None):
             with_df.verbose = las.verbose
             with_df.auxbasis = auxbasis
     class DFLASCI (las_class, _DFLASCI):
-        def __init__(self, scf, ncas, nelecas):
+        def __init__(self, scf, ncas_sub, nelecas_sub):
             self.with_df = with_df
             self._keys = self._keys.union(['with_df'])
-            las_class.__init__(self, scf, ncas, nelecas)
-    new_las = DFLASCI (las._scf, las.ncas, las.nelecas)
+            las_class.__init__(self, scf, ncas_sub, nelecas_sub)
+    new_las = DFLASCI (las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
     return new_las
 
@@ -614,13 +614,12 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
         las.ci = ci0
     return las
 
-def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
-        smults=None, wfnsyms=None, assert_no_dupes=True):
-    ''' A version of lasci.state_average_ that creates a copy instead of modifying the 
+@lib.with_doc(''' A version of lasci.state_average_ that creates a copy instead of modifying the 
     LASCI/LASSCF method instance in place.
 
-    See lasci.state_average_ docstring below:\n\n''' + state_average_.__doc__
-
+    See lasci.state_average_ docstring below:\n\n''' + state_average_.__doc__)
+def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
+        smults=None, wfnsyms=None, assert_no_dupes=True):
     new_las = las.__class__(las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
     new_las.mo_coeff = las.mo_coeff.copy ()
@@ -635,6 +634,33 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
         smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
 
 def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
+    '''Self-consistently optimize the CI vectors of a LAS wave function with 
+    frozen orbitals using a fixed-point algorithm. "lasci_" (with the
+    trailing underscore) sets self.mo_coeff from the kwarg if it is passed;
+    "lasci" (without the trailing underscore) leaves self.mo_coeff unchanged.
+
+    Kwargs:
+        mo_coeff : ndarray of shape (nao,nmo)
+            MO coefficients; defaults to self.mo_coeff
+        ci0 : list (length nfrags) of list (length nroots) of ndarrays
+            Contains CI vectors for initial guess
+        verbose : integer
+            See pyscf.lib.logger.
+        assert_no_dupes : logical
+            If True, checks state list for duplicate states
+
+    Returns:
+        converged : logical
+            Stores whether the calculation successfully converged
+        e_tot : float
+            (State-averaged) total energy
+        e_states : list of length nroots
+            List of each state energy
+        e_cas : list of length nroots
+            List of the CAS space energy of each state
+        ci : list (length nfrags) of list (length nroots) of ndarrays
+            Contains optimized CI vectyors
+    '''
     if assert_no_dupes: assert_no_duplicates (las)
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
@@ -714,6 +740,7 @@ class LASCINoSymm (casci.CASCI):
         if spin_sub is None: spin_sub = [1 + abs(ne[0]-ne[1]) for ne in nelecas]
         self.ncas_sub = np.asarray (ncas)
         self.nelecas_sub = np.asarray (nelecas)
+        assert (len (self.nelecas_sub) == self.nfrags)
         self.frozen = frozen
         self.conv_tol_grad = 1e-4
         self.conv_tol_self = 1e-10
@@ -728,6 +755,7 @@ class LASCINoSymm (casci.CASCI):
         if isinstance(spin_sub,int):
             self.fciboxes.append(self._init_fcibox(spin_sub,self.nelecas_sub[0]))
         else:
+            assert (len (spin_sub) == self.nfrags)
             for smult, nel in zip (spin_sub, self.nelecas_sub):
                 self.fciboxes.append (self._init_fcibox (smult, nel)) 
         self.nroots = 1
@@ -1268,35 +1296,9 @@ class LASCINoSymm (casci.CASCI):
             vk = np.tensordot (vmPu, bmPu, axes=((1,2),(1,2)))
             return vj - vk/2
 
+    @lib.with_doc(run_lasci.__doc__)
     def lasci (self, mo_coeff=None, ci0=None, verbose=None,
             assert_no_dupes=False):
-        '''Self-consistently optimize the CI vectors of a LAS wave function with 
-        frozen orbitals using a fixed-point algorithm. "lasci_" (with the
-        trailing underscore) sets self.mo_coeff from the kwarg if it is passed;
-        "lasci" (without the trailing underscore) leaves self.mo_coeff unchanged.
-
-        Kwargs:
-            mo_coeff : ndarray of shape (nao,nmo)
-                MO coefficients; defaults to self.mo_coeff
-            ci0 : list (length nfrags) of list (length nroots) of ndarrays
-                Contains CI vectors for initial guess
-            verbose : integer
-                See pyscf.lib.logger.
-            assert_no_dupes : logical
-                If True, checks state list for duplicate states
-
-        Returns:
-            converged : logical
-                Stores whether the calculation successfully converged
-            e_tot : float
-                (State-averaged) total energy
-            e_states : list of length nroots
-                List of each state energy
-            e_cas : list of length nroots
-                List of the CAS space energy of each state
-            ci : list (length nfrags) of list (length nroots) of ndarrays
-                Contains optimized CI vectyors
-        '''
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci0 is None: ci0 = self.ci
         if verbose is None: verbose = self.verbose
@@ -1308,9 +1310,9 @@ class LASCINoSymm (casci.CASCI):
         self._finalize ()
         return self.converged, self.e_tot, self.e_states, self.e_cas, self.ci
 
+    @lib.with_doc(run_lasci.__doc__)
     def lasci_(self, mo_coeff=None, ci0=None, verbose=None,
             assert_no_dupes=False):
-        __doc__=self.lasci.__doc__
         if mo_coeff is not None:
             self.mo_coeff = mo_coeff
         return self.lasci (mo_coeff=mo_coeff, ci0=ci0, verbose=verbose,

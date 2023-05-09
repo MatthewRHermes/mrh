@@ -1,9 +1,11 @@
+import os, sys
 import numpy as np
 from pyscf import gto
 from pyscf.lib.parameters import BOHR
+topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def structure (dnn1=0, dnn2=0, basis='6-31g', symmetry=False):
-    with open ('c2h4n4.xyz', 'r') as f:
+    with open (os.path.join (topdir, 'c2h4n4.xyz'), 'r') as f:
         equilgeom = f.read ()
     mol = gto.M (atom = equilgeom, basis=basis, symmetry=True, spin=0)
     atoms = tuple(mol.atom_symbol (i) for i in range (mol.natm))

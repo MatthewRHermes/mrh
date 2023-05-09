@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 import copy
 import unittest
 import numpy as np
@@ -21,6 +21,7 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 dr_nn = 2.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
@@ -32,8 +33,9 @@ mf = scf.RHF (mol).run ()
 las = LASSCF (mf, (4,4), ((3,1),(1,3)), spin_sub=(3,3))
 las.max_cycle_macro = 1
 las.kernel ()
-las.mo_coeff = np.loadtxt ('test_lasci_mo.dat')
-las.ci = [[np.loadtxt ('test_lasci_ci0.dat')], [-np.loadtxt ('test_lasci_ci1.dat').T]]
+las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lasci_mo.dat'))
+las.ci = [[np.loadtxt (os.path.join (topdir, 'test_lasci_ci0.dat'))],
+          [-np.loadtxt (os.path.join (topdir, 'test_lasci_ci1.dat')).T]]
 ugg = las.get_ugg ()
 h_op = las.get_hop (ugg=ugg)
 nmo, ncore, nocc = h_op.nmo, h_op.ncore, h_op.nocc

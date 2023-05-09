@@ -6,7 +6,7 @@ from pyscf import gto, scf, symm
 from pyscf.mcscf import mc_ao2mo, casci_symm, mc1step
 from pyscf.mcscf import df as mc_df
 from pyscf.lo import orth
-from pyscf.lib import tag_array
+from pyscf.lib import tag_array, with_doc
 from functools import partial
 
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
@@ -257,8 +257,45 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         assert (np.allclose (veff, veff_test))
         return veff
 
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None, freeze_cas_spaces=False):
-        ''' Here spin = 2s = number of singly-occupied orbitals '''
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
+                             freeze_cas_spaces=False):
+        ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
+        and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
+        space. Beware that unless freeze_cas_spaces=True, frozen orbitals will not be preserved.
+
+        Args:
+            frags_atoms: list of length nfrags
+                Contains either lists of integer atom indices, or lists of
+                strings which are passed to mol.search_ao_label, which define
+                fragments into which the active orbitals are to be localized
+
+        Kwargs:
+            mo_coeff: ndarray of shape (nao, nmo)
+                Molecular orbital coefficients containing active orbitals
+                on columns ncore:ncore+ncas
+            spin: integer
+                Unused; retained for backwards compatibility I guess
+            lo_coeff: ndarray of shape (nao, nao)
+                Linear combinations of AOs that are localized and orthonormal
+            fock: ndarray of shape (nmo, nmo)
+                Effective 1-electron Hamiltonian matrix for recanonicalizing
+                the inactive and external sectors after the latter are
+                possibly distorted by the projection of the active orbitals
+            ao_ovlp: ndarray of shape (nao, nao)
+                Overlap matrix of the underlying AO basis
+            freeze_cas_spaces: logical
+                If true, then active orbitals are mixed only among themselves
+                when localizing, which leaves the inactive and external sectors
+                unchanged (to within numerical precision). Otherwise, active
+                orbitals are projected into the localized-orbital space and
+                the inactive and external orbitals are reconstructed as closely
+                as possible using SVD.
+
+        Returns:
+            mo_coeff: ndarray of shape (nao,nmo)
+                Orbital coefficients after localization of the active space;
+                columns in the order (inactive,las1,las2,...,lasn,external)
+        '''
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         if lo_coeff is None:
@@ -267,8 +304,17 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
             spin = self.nelecas[0] - self.nelecas[1]
         assert (spin % 2 == sum (self.nelecas) % 2)
         assert (len (frags_atoms) == len (self.ncas_sub))
-        ao_offset = self.mol.offset_ao_by_atom ()
-        frags_orbs = [[orb for atom in frag_atoms for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))] for frag_atoms in frags_atoms]
+        frags_atoms_int = all ([all ([isinstance (i, int) for i in j]) for j in frags_atoms])
+        frags_atoms_str = all ([all ([isinstance (i, str) for i in j]) for j in frags_atoms])
+        if frags_atoms_int:
+            ao_offset = self.mol.offset_ao_by_atom ()
+            frags_orbs = [[orb for atom in frags_atoms 
+                           for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
+                          for frags_atoms in frags_atoms]
+        elif frags_atoms_str:
+            frags_orbs = [self.mol.search_ao_label (i) for i in frags_atoms]
+        else:
+            raise RuntimeError ('localize_init_guess requires either all integers or all strings to identify fragments')
         if fock is None: fock = self._scf.get_fock ()
         ao_ovlp = self._scf.get_ovlp ()
         return localize_init_guess (self, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=freeze_cas_spaces)
@@ -283,7 +329,9 @@ class LASSCFSymm (lasci.LASCISymm):
     split_veff = LASSCFNoSymm.split_veff
     as_scanner = mc1step.as_scanner
 
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None, freeze_cas_spaces=False):
+    @with_doc(LASSCFNoSymm.localize_init_guess.__doc__)
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
+                             freeze_cas_spaces=False):
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         mo_coeff = casci_symm.label_symmetry_(self, mo_coeff)
@@ -314,8 +362,10 @@ class LASSCFSymm (lasci.LASCISymm):
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
-    else:
+    elif isinstance (mf_or_mol, scf.hf.SCF):
         mf = mf_or_mol
+    else:
+        raise RuntimeError ("LASSCF constructor requires molecule or SCF instance")
     if mf.mol.symmetry: 
         las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     else:

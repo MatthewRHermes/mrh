@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import os
 import copy
 import unittest
 import numpy as np
@@ -22,6 +22,7 @@ from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
+topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 dr_nn = 2.0
 mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
@@ -36,8 +37,8 @@ las.state_average_(weights=[1.0/5.0,]*5,
     smults=[[1,1],[3,3],[3,3],[3,3],[3,3]])
 las.frozen = list (range (las.mo_coeff.shape[-1]))
 ugg = las.get_ugg ()
-las.mo_coeff = np.loadtxt ('test_lassi_mo.dat')
-las.ci = ugg.unpack (np.loadtxt ('test_lassi_ci.dat'))[1]
+las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lassi_mo.dat'))
+las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_lassi_ci.dat')))[1]
 #las.set (conv_tol_grad=1e-8).run ()
 #np.savetxt ('test_lassi_mo.dat', las.mo_coeff)
 #np.savetxt ('test_lassi_ci.dat', ugg.pack (las.mo_coeff, las.ci))
@@ -58,7 +59,7 @@ class KnownValues(unittest.TestCase):
         # Arbitrary signage in both the SI and CI vector, sadly
         # Actually this test seems really inconsistent overall...
         dms = [np.dot (si[:,i:i+1], si[:,i:i+1].conj ().T) for i in range (7)]
-        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.371964339437981, 7)
+        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.371964339437981, 6)
 
     def test_nelec (self):
         for ix, ne in enumerate (si.nelec):

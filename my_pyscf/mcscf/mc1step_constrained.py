@@ -152,9 +152,8 @@ class CASSCF(mc1step.CASSCF):
         cas_ao : list of ints or boolean mask array of shape=(nao)
             aos allowed to contribute to cas
 
-        Parent class documentation follows:
-
-        ''' + mc1step.CASSCF.kernel.__doc__
+        see mc1step.CASSCF.kernel.__doc__ for parent method
+        '''
 
         if self.frozen is not None:
             raise NotImplementedError ("frozen mos in a constrained CASSCF context")

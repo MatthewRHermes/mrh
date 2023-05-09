@@ -1,7 +1,10 @@
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, mcscf, ao2mo, lib, df
+from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.mcscf.addons import _state_average_mcscf_solver
+from mrh.my_pyscf.mcscf import _DFLASCI
 import copy
 
 class ImpurityMole (gto.Mole):
@@ -33,6 +36,10 @@ class ImpurityMole (gto.Mole):
     def nao (self): return self._imporb_coeff.shape[-1]
 
 class ImpuritySCF (scf.hf.SCF):
+
+    def _update_space_(self, imporb_coeff, nelec_imp):
+        self.mol._update_space_(imporb_coeff, nelec_imp)
+
     def _update_impham_1_(self, veff, dm1s, e_tot=None):
         ''' after this function, get_hcore () and energy_nuc () functions return
             full-system state-averaged fock and e_tot, respectively '''
@@ -155,18 +162,83 @@ def _fake_h_for_fast_casci(casscf, mo, eris):
     mc.get_h2eff = lambda *args: eri_cas
     return mc
 
+# I sadly had to copy-and-paste this function from casci.py due to inapplicable
+#   1) logging commands and
+#   2) error checks
+# that could not be monkeypatched out.
+def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None):
+    '''CASCI solver
+
+    Args:
+        casci: CASCI or CASSCF object
+
+        mo_coeff : ndarray
+            orbitals to construct active space Hamiltonian
+        ci0 : ndarray or custom types
+            FCI sovler initial guess. For external FCI-like solvers, it can be
+            overloaded different data type. For example, in the state-average
+            FCI solver, ci0 is a list of ndarray. In other solvers such as
+            DMRGCI solver, SHCI solver, ci0 are custom types.
+
+    kwargs:
+        envs: dict
+            The variable envs is created (for PR 807) to passes MCSCF runtime
+            environment variables to SHCI solver. For solvers which do not
+            need this parameter, a kwargs should be created in kernel method
+            and "envs" pop in kernel function
+    '''
+    if mo_coeff is None: mo_coeff = casci.mo_coeff
+    log = logger.new_logger(casci, verbose)
+    t0 = (logger.process_clock(), logger.perf_counter())
+    log.debug('Start CASCI')
+
+    ncas = casci.ncas
+    nelecas = casci.nelecas
+
+    # 2e
+    eri_cas = casci.get_h2eff(mo_coeff)
+    t1 = log.timer('integral transformation to CAS space', *t0)
+
+    # 1e
+    h1eff, energy_core = casci.get_h1eff(mo_coeff)
+    log.debug('core energy = {}'.format (energy_core))
+    t1 = log.timer('effective h1e in CAS space', *t1)
+
+    if h1eff.shape[-1] != ncas:
+        raise RuntimeError('Active space size error. nmo=%d ncore=%d ncas=%d' %
+                           (mo_coeff.shape[1], casci.ncore, ncas))
+
+    # FCI
+    max_memory = max(400, casci.max_memory-lib.current_memory()[0])
+    e_tot, fcivec = casci.fcisolver.kernel(h1eff, eri_cas, ncas, nelecas,
+                                           ci0=ci0, verbose=log,
+                                           max_memory=max_memory,
+                                           ecore=energy_core)
+
+    t1 = log.timer('FCI solver', *t1)
+    e_cas = e_tot - energy_core
+    return e_tot, e_cas, fcivec
 
 # This is the really tricky part
 class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
-    def _update_keyframe_(self, mo_coeff, ci, h2eff_sub=None, e_states=None):
-        # Project mo_coeff and ci keyframe into impurity space and cache
+    def _update_space_(self, imporb_coeff, nelec_imp):
+        self.mol._update_space_(imporb_coeff, nelec_imp)
+
+    def _update_keyframe_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
         las = self.mol._las
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
             mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
         e_tot = np.dot (las.weights, e_states)
+        if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
+        if veff is None: veff = las.get_veff (dm1s=dm1s, spin_sep=True)
         mf = las._scf
+
+        # Set underlying SCF object Hamiltonian to state-averaged Heff: first pass
+        self._scf._update_impham_1_(veff, dm1s, e_tot=e_tot)
+
+        # Project mo_coeff and ci keyframe into impurity space and cache
         _ifrag = self._ifrag
         imporb_coeff = self.mol.get_imporb_coeff ()
         self.ci = ci[_ifrag]
@@ -186,19 +258,19 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         assert (np.allclose(svals[:self.ncas], 1))
         u[:,:self.ncas] = u[:,:self.ncas] @ vh
         self.mo_coeff[:,self.ncore:] = self.mo_coeff[:,self.ncore:] @ u
-        # Set underlying SCF object Hamiltonian to state-averaged Heff
+
+        # Set underlying SCF object Hamiltonian to state-averaged Heff: second pass
         casdm1rs, casdm2rs = self.fcisolver.states_make_rdm12s (self.ci, self.ncas, self.nelecas)
         casdm1rs = np.stack (casdm1rs, axis=1)
         casdm2sr = np.stack (casdm2rs, axis=0)
         casdm2r = casdm2sr[0] + casdm2sr[1] + casdm2sr[1].transpose (0,3,4,1,2) + casdm2sr[2]
         casdm1s = np.tensordot (self.fcisolver.weights, casdm1rs, axes=1)
         casdm2 = np.tensordot (self.fcisolver.weights, casdm2r, axes=1)
-        #casdm1s, casdm2s = self.fcisolver.make_rdm12s (self.ci, self.ncas, self.nelecas)
-        #casdm2 = casdm2s[0] + casdm2s[1] + casdm2s[1].transpose (2,3,0,1) + casdm2s[2]
         eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
         self._scf._update_impham_2_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
+
         # Canonicalize core and virtual spaces
         dm1s = np.dot (mo_cas, np.dot (casdm1s, mo_cas.conj ().T)).transpose (1,0,2)
         dm1s += np.dot (mo_core, mo_core.conj ().T)[None,:,:]
@@ -211,6 +283,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         fock_virt = mo_virt.conj ().T @ fock @ mo_virt
         w, c = linalg.eigh (fock_virt)
         self.mo_coeff[:,nocc:] = mo_virt @ c
+
         # Set state-separated Hamiltonian 1-body
         mo_cas_full = mo_coeff[:,las.ncore:][:,:las.ncas]
         dm1rs_full = las.states_make_casdm1s (ci=ci)
@@ -224,6 +297,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         vk_rs = self.get_vk_ext (mo_cas_full, dm1rs_stateshift, bmPu=bmPu)
         vext = vj_r[:,None,:,:] - vk_rs
         self._imporb_h1_stateshift = vext
+
         # Set state-separated Hamiltonian 0-body
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:][:,:self.ncas]
@@ -252,8 +326,10 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             bPii = self._scf.with_df._cderi
             vj = lib.unpack_tril (np.tensordot (rho, bPii, axes=((-1),(0))))
         else: # Safety case: AO-basis SCF driver
-            dm1 = np.dot (mo_ext.conj ().T, np.dot (dm1, mo_ext)).transpose (1,0,2)
-            vj = self.mol._las.scf.get_j (dm1)
+            imporb_coeff = self.mol.get_imporb_coeff ()
+            dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
+            vj = self.mol._las._scf.get_j (dm=dm1)
+            vj = np.dot (imporb_coeff.conj ().T, np.dot (vj, imporb_coeff)).transpose (1,0,2)
         return vj.reshape (*output_shape) 
 
     def get_vk_ext (self, mo_ext, dm1rs_ext, bmPu=None):
@@ -265,8 +341,9 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             vuiP = np.tensordot (dm1, biPu, axes=((-1),(-1)))
             vk = np.tensordot (vuiP, biPu, axes=((-3,-1),(-1,-2)))
         else: # Safety case: AO-basis SCF driver
-            dm1 = np.dot (mo_ext.conj ().T, np.dot (dm1, mo_ext)).transpose (1,0,2)
-            vk = self.mol._las.scf.get_k (dm1).reshape (*output_shape)
+            dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
+            vk = self.mol._las._scf.get_k (dm=dm1)
+            vk = np.dot (imporb_coeff.conj ().T, np.dot (vk, imporb_coeff)).transpose (1,0,2)
         return vk.reshape (*output_shape)
 
     def get_hcore_rs (self):
@@ -300,15 +377,102 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         return super().solve_approx_ci (h1, h2, ci0, ecore, e_cas, envs)
 
     def casci (self, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
-        from pyscf.mcscf import mc1step
-        with lib.temporary_env (mc1step, _fake_h_for_fast_casci=_fake_h_for_fast_casci):
-            try:
-                e_tot, e_cas, fcivec = super().casci (mo_coeff, ci0=ci0, eris=eris, verbose=verbose,
-                                                      envs=envs)
-            except AssertionError as e:
-                print (type (ci0))
-                raise (e)
+        # I sadly had to copy-and-paste this function from mc1step.py due to inapplicable
+        #   1) logging commands and
+        #   2) error checks
+        # that could not be monkeypatched out.
+        log = logger.new_logger(self, verbose)
+        if eris is None:
+            fcasci = copy.copy(self)
+            fcasci.ao2mo = self.get_h2cas
+        else:
+            fcasci = _fake_h_for_fast_casci(self, mo_coeff, eris)
+
+        e_tot, e_cas, fcivec = casci_kernel(fcasci, mo_coeff, ci0, log,
+                                            envs=envs)
+        #if not isinstance(e_cas, (float, numpy.number)):
+        #    raise RuntimeError('Multiple roots are detected in fcisolver.  '
+        #                       'CASSCF does not know which state to optimize.\n'
+        #                       'See also  mcscf.state_average  or  mcscf.state_specific  for excited states.')
+        #elif numpy.ndim(e_cas) != 0:
+            # This is a workaround for external CI solver compatibility.
+        #    e_cas = e_cas[0]
+
+        if envs is not None and log.verbose >= logger.INFO:
+            log.debug('CAS space CI energy = {}'.format (e_cas))
+
+            if getattr(self.fcisolver, 'spin_square', None):
+                try:
+                    ss = self.fcisolver.spin_square(fcivec, self.ncas, self.nelecas)
+                except NotImplementedError:
+                    ss = None
+            else:
+                ss = None
+
+            if 'imicro' in envs:  # Within CASSCF iteration
+                if ss is None:
+                    log.info('macro iter %3d (%3d JK  %3d micro), '
+                             'CASSCF E = %#.15g  dE = % .8e',
+                             envs['imacro'], envs['njk'], envs['imicro'],
+                             e_tot, e_tot-envs['elast'])
+                else:
+                    log.info('macro iter %3d (%3d JK  %3d micro), '
+                             'CASSCF E = %#.15g  dE = % .8e  S^2 = %.7f',
+                             envs['imacro'], envs['njk'], envs['imicro'],
+                             e_tot, e_tot-envs['elast'], ss[0])
+                if 'norm_gci' in envs and envs['norm_gci'] is not None:
+                    log.info('               |grad[o]|=%5.3g  '
+                             '|grad[c]|=%5.3g  |ddm|=%5.3g  |maxRot[o]|=%5.3g',
+                             envs['norm_gorb0'],
+                             envs['norm_gci'], envs['norm_ddm'], envs['max_offdiag_u'])
+                else:
+                    log.info('               |grad[o]|=%5.3g  |ddm|=%5.3g  |maxRot[o]|=%5.3g',
+                             envs['norm_gorb0'], envs['norm_ddm'], envs['max_offdiag_u'])
+            else:  # Initialization step
+                if ss is None:
+                    log.info('CASCI E = %#.15g', e_tot)
+                else:
+                    log.info('CASCI E = %#.15g  S^2 = %.7f', e_tot, ss[0])
         return e_tot, e_cas, fcivec
+
+    def _finalize(self):
+        # I sadly had to copy-and-paste this function from casci.py due to inapplicable
+        #   1) logging commands and
+        #   2) error checks
+        # that could not be monkeypatched out.
+        log = logger.Logger(self.stdout, self.verbose)
+        if log.verbose >= logger.NOTE and getattr(self.fcisolver, 'spin_square', None):
+            if isinstance(self.e_cas, (float, np.number)):
+                try:
+                    ss = self.fcisolver.spin_square(self.ci, self.ncas, self.nelecas)
+                    log.note('CASCI E = %#.15g  E(CI) = %#.15g  S^2 = %.7f',
+                             self.e_tot, self.e_cas, ss[0])
+                except NotImplementedError:
+                    log.note('CASCI E = %#.15g  E(CI) = %#.15g',
+                             self.e_tot, self.e_cas)
+            elif callable (getattr (self.fcisolver, 'states_spin_square')):
+                ss = self.fcisolver.states_spin_square (self.ci, self.ncas, self.nelecas)
+                for i, e in enumerate(self.e_cas):
+                    log.note('CASCI state %3d  E = %#.15g  E(CI) = %#.15g  S^2 = %.7f',
+                             i, self.e_states[i], e, ss[0][i])
+            else:
+                for i, e in enumerate(self.e_cas):
+                    try:
+                        ss = self.fcisolver.spin_square(self.ci[i], self.ncas, self.nelecas)
+                        log.note('CASCI state %3d  E = %#.15g  E(CI) = %#.15g  S^2 = %.7f',
+                                 i, self.e_states[i], e, ss[0])
+                    except NotImplementedError:
+                        log.note('CASCI state %3d  E = %#.15g  E(CI) = %#.15g',
+                                 i, self.e_states[i], e)
+
+        else:
+            if isinstance(self.e_cas, (float, np.number)):
+                log.note('CASCI E = %#.15g  E(CI) = %#.15g', self.e_tot, self.e_cas)
+            else:
+                for i, e in enumerate(self.e_cas):
+                    log.note('CASCI state %3d  E = %#.15g  E(CI) = %#.15g',
+                             i, self.e_states[i], e)
+        return self
 
     def rotate_orb_cc (self, mo, fcivec, fcasdm1, fcasdm2, eris, x0_guess=None,
                        conv_tol_grad=1e-4, max_stepsize=None, verbose=None):
@@ -393,24 +557,37 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         return g_orb, my_gorb_update, my_h_op, h_diag
 
+def get_impurity_casscf (las, ifrag):
+    imol = ImpurityMole (las)
+    imf = ImpurityHF (imol)
+    if isinstance (las, _DFLASCI):
+        imf = imf.density_fit ()
+    imc = ImpurityCASSCF (imf, las.ncas_sub[ifrag], las.nelecas_sub[ifrag])
+    if isinstance (las, _DFLASCI):
+        imc = df.density_fit (imc)
+    imc = _state_average_mcscf_solver (imc, las.fciboxes[ifrag])
+    imc._ifrag = ifrag
+    return imc
+
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h6n4_struct import structure as struct
     mol = struct (1.0, 1.0, '6-31g', symmetry=False)
     mol.verbose = 5
     mol.output = 'lasscf_async_crunch.log'
     mol.build ()
-    mf = scf.RHF (mol).density_fit ().run ()
+    mf = scf.RHF (mol).run ()
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
     mo = las.localize_init_guess ((list (range (3)), list (range (9,12))), mf.mo_coeff)
     las.state_average_(weights=[1,0,0,0,0],
                        spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
                        smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
-    las.conv_tol_grad = 1e-6
+    las.conv_tol_grad = 1e-7
     las.kernel (mo)
     print (las.converged)
 
     ###########################
+    # Build the embedding space
     from mrh.my_pyscf.mcscf.lasci import get_grad_orb
     from mrh.my_pyscf.mcscf.lasscf_async_split import LASImpurityOrbitalCallable
     dm1s = las.make_rdm1s ()
@@ -420,16 +597,22 @@ if __name__=='__main__':
     fo_coeff, nelec_fo = get_imporbs_0 (las.mo_coeff, dm1s, veff, fock1)
     ###########################
 
-    imol = ImpurityMole (las)
-    imol._update_space_(fo_coeff, nelec_fo)
-    imf = ImpurityHF (imol).density_fit ()
-    imf._update_impham_1_(veff, dm1s, e_tot=las.e_tot)
-    imc = df.density_fit (ImpurityCASSCF (imf, 4, 4))
-    from pyscf.mcscf.addons import _state_average_mcscf_solver
-    imc = _state_average_mcscf_solver (imc, las.fciboxes[0])
-    imc._ifrag = 0
-    imc._update_keyframe_(las.mo_coeff, las.ci, e_states=las.e_states)
-    #imc.max_cycle_macro = 0
+    ###########################
+    # Build the impurity method object
+    imc = get_impurity_casscf (las, 0)
+    imc._update_space_(fo_coeff, nelec_fo)
+    imc._update_keyframe_(las.mo_coeff, las.ci)
+    ###########################
+
+    ###########################
+    # Futz up the guess
+    imc.ci = None
+    kappa = (np.random.rand (*imc.mo_coeff.shape)-.5) * np.pi / 100
+    kappa -= kappa.T
+    umat = linalg.expm (kappa)
+    imc.mo_coeff = imc.mo_coeff @ umat
+    ###########################
+
     imc.kernel ()
     print (imc.converged, imc.e_tot, las.e_tot, imc.e_tot-las.e_tot)
     for t, r in zip (imc.e_states, las.e_states):
