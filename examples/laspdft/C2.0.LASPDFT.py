@@ -29,7 +29,7 @@ molden.from_mo(mol, f'C2.{mol.spin}.molden', mo0)
 las.set(ah_level_shift=1e-5)
 las.kernel(mo0)
 
-
 # LAS-PDFT
 mc = mcpdft.LASSCF(las, 'tPBE', 4, 4, verbose = 5)
 mc.kernel()
+
