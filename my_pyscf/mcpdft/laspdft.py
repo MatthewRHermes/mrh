@@ -19,9 +19,11 @@ class _LASPDFT(_PDFT):
             grids_attr=None, **kwargs):
         _PDFT.__init__(self, scf, ncas, nelecas, my_ot)
         self.e_mcscf = copy.deepcopy(self.e_tot) # MRH commentary: I think self.e_states goes here
-        # I don't think the line below does anything. What are you trying to accomplish with it?
-        # The parent class _PDFT.optimize_mcscf_ and _PDFT.kernel are overwritten automatically
-        # when you specify new definitions below.
+        # MRH design commentary:
+        # The line below, and the redefinition of optimize_mcscf_ and kernel further down, are a
+        # consequence of my use of "super()" in the MC-PDFT metaclass template, which is something
+        # I absolutely should not have done. I will try to improve upon this so that this
+        # awkwardness isn't necessary in the future.
         del _PDFT.optimize_mcscf_, _PDFT.kernel
         
     def get_h2eff(self, mo_coeff=None):
@@ -60,7 +62,6 @@ class _LASPDFT(_PDFT):
     def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
         '''Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
         Has the same calling signature as the parent kernel method. '''
-        # MRH commentary: why is this necessary? It's already inherited from the parent _PDFT class
         with _mcscf_env(self):
             self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
                 super().kernel(mo_coeff, ci0=ci0, **kwargs)[:-2]
@@ -68,7 +69,6 @@ class _LASPDFT(_PDFT):
     
     def kernel(self, mo_coeff=None, ci0=None, otxc=None, grids_attr=None,
                 grids_level=None, **kwargs):
-        # MRH commentary: why is this necessary? It's already inherited from the parent _PDFT class
         self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0, **kwargs)
         self.compute_pdft_energy_(otxc=otxc, grids_attr=grids_attr,
                                   grids_level=grids_level, **kwargs)
@@ -87,9 +87,19 @@ def get_mcpdft_child_class(mc, ot, **kwargs):
             else: return _LASPDFT.get_h2eff(self, mo_coeff=mo_coeff)
         
         def make_one_casdm1s(self, ci=None, state=None, **kwargs):
+            # MRH commentary: the arguments "ci" and "state" passed by caller
+            # disappear because you don't pass them on to the function below.
+            # You should probably have "ci=ci, state=state" in the line below.
+            # Design commentary: the right way to do this is to make this function
+            # access the "state"th return values of mc.__class__.states_make_casdm1s
             return _LASPDFT.make_casdm1s(self, ci=None, state=None, **kwargs)
 
         def make_one_casdm2(self, ci=None, state=None, **kwargs):
+            # MRH commentary: the arguments "ci" and "state" passed by caller
+            # disappear because you don't pass them on to the function below.
+            # You should probably have "ci=ci, state=state" in the line below.
+            # Design commentary: the right way to do this is to make this function
+            # access the "state"th return values of mc.__class__.states_make_casdm2
             return self.make_casdm2(ci=None, state=None, **kwargs)
         
         def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
