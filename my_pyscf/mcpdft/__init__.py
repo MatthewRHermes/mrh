@@ -5,7 +5,10 @@ from pyscf.mcpdft.otfnal import make_hybrid_fnal as hyb
 from pyscf import mcscf, gto
 from pyscf.lib import logger
 from pyscf.mcscf import mc1step, casci
+import mrh
 from mrh.util.io import mcpdft_removal_warn
+from types import MethodType
+
 mcpdft_removal_warn ()
 
 # NOTE: As of 02/06/2022, initializing PySCF mcscf classes with a symmetry-enabled molecule
@@ -42,6 +45,26 @@ def CASCIPDFT (mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, **kwargs):
 
 CASSCF=CASSCFPDFT
 CASCI=CASCIPDFT
+
+# LAS-PDFT
+def _laspdftEnergy(mc_class, ot, ncas, nelecas, ncore=None, frozen=None, verbose=5,
+             **kwargs):
+    
+    if isinstance(mc_class, (mrh.my_pyscf.mcscf.lasscf_sync_o0.LASSCFNoSymm)): pass
+    else: raise ValueError("LAS-object is not provided")
+    
+    from mrh.my_pyscf.mcpdft.laspdft import get_mcpdft_child_class
+
+    mc2 = get_mcpdft_child_class(mc_class, ot, **kwargs)
+    mc2.verbose = verbose
+    mc2.mo_coeff = mc_class.mo_coeff.copy()
+    mc2.ci = copy.deepcopy(mc_class.ci)
+    mc2.converged = mc_class.converged
+    return mc2
+
+LASSCF = _laspdftEnergy
+LASCI = _laspdftEnergy
+
 def CIMCPDFT (*args, **kwargs):
     from mrh.my_pyscf.mcpdft.var_mcpdft import CIMCPDFT as fn
     return fn (mcscf.CASCI, *args, **kwargs)
