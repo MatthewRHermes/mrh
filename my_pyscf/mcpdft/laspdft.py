@@ -18,7 +18,10 @@ class _LASPDFT(_PDFT):
     def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None,
             grids_attr=None, **kwargs):
         _PDFT.__init__(self, scf, ncas, nelecas, my_ot)
-        self.e_mcscf = copy.deepcopy(self.e_tot)
+        self.e_mcscf = copy.deepcopy(self.e_tot) # MRH commentary: I think self.e_states goes here
+        # I don't think the line below does anything. What are you trying to accomplish with it?
+        # The parent class _PDFT.optimize_mcscf_ and _PDFT.kernel are overwritten automatically
+        # when you specify new definitions below.
         del _PDFT.optimize_mcscf_, _PDFT.kernel
         
     def get_h2eff(self, mo_coeff=None):
@@ -28,11 +31,14 @@ class _LASPDFT(_PDFT):
         nocc = ncore + ncas
 
         if mo_coeff is None:
-            ncore = self.ncore
+            ncore = self.ncore # MRH commentary: This line is redundant (look 5 lines above!)
             mo_coeff = self.mo_coeff[:,ncore:nocc]
         elif mo_coeff.shape[1] != ncas:
             mo_coeff = mo_coeff[:,ncore:nocc]
 
+        # MRH commentary: you can make the line below shorter:
+        #     if getattr (self._scf, '_eri', None) is not None: 
+        # does exactly the same thing.
         if hasattr(self._scf, '_eri') and self._scf._eri is not None:
             eri = ao2mo.full(self._scf._eri, mo_coeff,
                                 max_memory=self.max_memory)
@@ -43,6 +49,9 @@ class _LASPDFT(_PDFT):
 
     def make_casdm1s(self, ci=None, state=None, **kwargs):
        ''' Make the full-dimensional casdm1s spanning the collective active space '''
+       # MRH commentary: Note again that the kwarg "state" does nothing at all.
+       # I don't understand what this redefinition is for. Why do you need this?
+       # It breaks multi-state functionality.
        casdm1s_sub = self.make_casdm1s_sub (**kwargs)
        casdm1a = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
        casdm1b = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
@@ -51,6 +60,7 @@ class _LASPDFT(_PDFT):
     def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
         '''Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
         Has the same calling signature as the parent kernel method. '''
+        # MRH commentary: why is this necessary? It's already inherited from the parent _PDFT class
         with _mcscf_env(self):
             self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
                 super().kernel(mo_coeff, ci0=ci0, **kwargs)[:-2]
@@ -58,6 +68,7 @@ class _LASPDFT(_PDFT):
     
     def kernel(self, mo_coeff=None, ci0=None, otxc=None, grids_attr=None,
                 grids_level=None, **kwargs):
+        # MRH commentary: why is this necessary? It's already inherited from the parent _PDFT class
         self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0, **kwargs)
         self.compute_pdft_energy_(otxc=otxc, grids_attr=grids_attr,
                                   grids_level=grids_level, **kwargs)
@@ -82,10 +93,14 @@ def get_mcpdft_child_class(mc, ot, **kwargs):
             return self.make_casdm2(ci=None, state=None, **kwargs)
         
         def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
+            # MRH commentary: this does nothing, because optimize_mcscf_ is inherited
+            # from the parent _LASPDFT class already
             return _LASPDFT.optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs)
         
         def kernel(self, mo_coeff=None, ci0=None, otxc=None, grids_attr=None,
                 grids_level=None, **kwargs):
+            # MRH commentary: this does nothing, because kernel is inherited
+            # from the parent _LASPDFT class already
             return _LASPDFT.kernel(self, mo_coeff=None, ci0=None, otxc=None, grids_attr=None,
                 grids_level=None, **kwargs)
         

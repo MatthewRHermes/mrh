@@ -46,9 +46,22 @@ def CASCIPDFT (mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, **kwargs):
 CASSCF=CASSCFPDFT
 CASCI=CASCIPDFT
 
+
 # LAS-PDFT
 def _laspdftEnergy(mc_class, ot, ncas, nelecas, ncore=None, frozen=None, verbose=5,
-             **kwargs):
+                   **kwargs):
+# MRH commentary: note that ncas, nelecas, ncore, and frozen aren't used at all in this function.
+# Therefore, they do nothing and shouldn't appear in this argument list at all.
+#
+# Broader design commentary:
+# The idea behind the CASSCF-MC-PDFT and CASCI-MC-PDFT implementations was for the user to go, i.e.,
+#   mc = mcpdft.CASSCF (mf, 'tPBE', [remaining args of mcscf.CASSCF])
+# where mf is a Hartree-Fock instance, such that mc.kernel () runs ~both~ the CASSCF/CASCI step
+# ~and~ the MC-PDFT energy calculation step. The way you've set it up, however, the user has to
+# do it in two steps: first set up and run a LASSCF calculation, and THEN instantiate a second,
+# different method instance for the MC-PDFT energy calculation. That's valid, and maybe in the
+# grand scheme of things it is even smarter, but note that it is different. The argument that
+# you've called "mc_class" is not an MC-SCF class, the way it is in _MCPDFT above.
     
     if isinstance(mc_class, (mrh.my_pyscf.mcscf.lasscf_sync_o0.LASSCFNoSymm)): pass
     else: raise ValueError("LAS-object is not provided")

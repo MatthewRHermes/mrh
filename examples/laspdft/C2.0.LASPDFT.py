@@ -13,6 +13,9 @@ mol.basis='sto3g'
 mol.spin = 0
 mol.charge = 0
 mol.verbose = 5
+mol.output = 'C2.log'
+# MRH: you should generally specify an output file if verbose is set higher than 3
+# just for cleanliness!
 mol.build()
 
 # Performing the mean field calculation
@@ -27,9 +30,15 @@ frag_atom_list = ([1, 6] , [2, 5])
 mo0 = las.localize_init_guess(frag_atom_list)
 molden.from_mo(mol, f'C2.{mol.spin}.molden', mo0)
 las.set(ah_level_shift=1e-5)
-las.kernel(mo0)
+elas = las.kernel(mo0)[0]
 
 # LAS-PDFT
 mc = mcpdft.LASSCF(las, 'tPBE', 4, 4, verbose = 5)
-mc.kernel()
+epdft = mc.kernel()[0]
+
+# MRH: this is the only place where you SHOULD use print
+# A small amount of output data to summarize the calculation,
+# while the more verbose intermediate output is put in a log file
+print ("E(LASSCF) =", elas)
+print ("E(tPBE) =", epdft)
 
