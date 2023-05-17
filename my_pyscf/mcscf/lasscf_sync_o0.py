@@ -6,7 +6,7 @@ from pyscf import gto, scf, symm
 from pyscf.mcscf import mc_ao2mo, casci_symm, mc1step
 from pyscf.mcscf import df as mc_df
 from pyscf.lo import orth
-from pyscf.lib import tag_array, with_doc
+from pyscf.lib import tag_array, with_doc, logger
 from functools import partial
 
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
@@ -157,6 +157,12 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
                 # want the honest hdiag in get_prec ()
         ncore, ncas = self.ncore, self.ncas
         nocc = ncore + ncas
+        paaa_test = np.zeros_like (self.eri_paaa)
+        for p in range (self.nmo):
+            paaa_test[p] = self.cas_type_eris.ppaa[p][ncore:nocc]
+        if ~np.allclose (paaa_test, self.eri_paaa):
+            logger.warn (self.las, 'possible (pa|aa) inconsistency; max err = %e',
+                         np.amax (np.abs (paaa_test-self.eri_paaa)))
 
     def get_veff (self, dm1s_mo=None):
         mo = self.mo_coeff
@@ -203,7 +209,6 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
             paaa = praa[ncore:nocc]
-            assert (np.allclose (paaa, self.eri_paaa[p]))
             # g_pabc d_qabc + g_prab d_qrab + g_parb d_qarb + g_pabr d_qabr (Formal)
             #        d_cbaq          d_abqr          d_aqbr          d_qabr (Symmetry of ocm2)
             # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)
