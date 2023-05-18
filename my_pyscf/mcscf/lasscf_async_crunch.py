@@ -589,11 +589,11 @@ if __name__=='__main__':
     ###########################
     # Build the embedding space
     from mrh.my_pyscf.mcscf.lasci import get_grad_orb
-    from mrh.my_pyscf.mcscf.lasscf_async_split import LASImpurityOrbitalCallable
+    from mrh.my_pyscf.mcscf.lasscf_async_split import get_impurity_space_constructor
     dm1s = las.make_rdm1s ()
     veff = las.get_veff (dm1s=dm1s, spin_sep=True)
     fock1 = get_grad_orb (las, hermi=0)
-    get_imporbs_0 = LASImpurityOrbitalCallable (las, 0, list (range (3)))
+    get_imporbs_0 = get_impurity_space_constructor (las, 0, list (range (3)))
     fo_coeff, nelec_fo = get_imporbs_0 (las.mo_coeff, dm1s, veff, fock1)
     ###########################
 

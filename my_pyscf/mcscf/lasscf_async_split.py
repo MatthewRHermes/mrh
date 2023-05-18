@@ -15,8 +15,8 @@ class LASImpurityOrbitalCallable (object):
             matrix)
         frag_id : integer or None
             identifies which active subspace is associated with this fragment
-        frag_atom : list of integer
-            identifies which atoms are identified with this fragment
+        frag_orbs : list of integer
+            identifies which AOs are identified with this fragment
 
     Calling args:
         mo_coeff : ndarray of shape (nao,nmo)
@@ -31,19 +31,18 @@ class LASImpurityOrbitalCallable (object):
     Returns:
         fo_coeff : ndarray of shape (nao, *)
             Orbitals defining an unentangled subspace containing the frag_idth set of active
-            orbitals and the AOs of frag_atom
+            orbitals and frag_orbs
         nelec_fo : 2-tuple of integers
             Number of electrons (spin-up, spin-down) in the impurity subspace
     '''
 
-    def __init__(self, las, frag_id, frag_atom, schmidt_thresh=1e-8, nelec_int_thresh=1e-4):
+    def __init__(self, las, frag_id, frag_orbs, schmidt_thresh=1e-8, nelec_int_thresh=1e-4):
         self.mol = las.mol
         self._scf = las._scf
         self.ncore, self.ncas_sub, self.ncas = las.ncore, las.ncas_sub, las.ncas
         self.oo_coeff = las.mo_coeff.copy ()
         self.with_df = getattr (las, 'with_df', None)
         self.frag_id = frag_id
-        self.frag_atom = frag_atom
         self.schmidt_thresh = schmidt_thresh
         self.nelec_int_thresh = nelec_int_thresh
 
@@ -60,15 +59,11 @@ class LASImpurityOrbitalCallable (object):
         self.soo_coeff = self.s0 @ self.oo_coeff
         self.log = lib.logger.new_logger (las, las.verbose)
 
-        # Orthonormal AO basis for frag_atom
         # For now, I WANT these to overlap for different atoms. That is why I am pretending that
         # self.s0 is block-diagonal (so that <*|f>.(<f|f>^-1).<f|*> ~> P_f <f|f> P_f).
-        ao_offset = self.mol.offset_ao_by_atom ()
-        frag_orb = [orb for atom in frag_atom
-                    for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
-        self.nao_frag = len (frag_orb)
-        ovlp_frag = self.s0[frag_orb,:][:,frag_orb] # <f|f> in the comment above
-        proj_oo = self.oo_coeff[frag_orb,:] # P_f . oo_coeff in the comment above
+        self.nao_frag = len (frag_orbs)
+        ovlp_frag = self.s0[frag_orbs,:][:,frag_orbs] # <f|f> in the comment above
+        proj_oo = self.oo_coeff[frag_orbs,:] # P_f . oo_coeff in the comment above
         s1 = proj_oo.conj ().T @ ovlp_frag @ proj_oo
         w, u = linalg.eigh (-s1) # negative: sort from largest to smallest
         self.frag_umat = u[:,:self.nao_frag]
@@ -115,7 +110,7 @@ class LASImpurityOrbitalCallable (object):
 
         Returns:
             fo : ndarray of shape (nmo,*)
-                Contains frag_idth active orbitals plus frag_orb approximately projected onto the
+                Contains frag_idth active orbitals plus frag_orbs approximately projected onto the
                 inactive/external space in self.oo_coeff basis
             eo : ndarray of shape (nmo,*)
                 Contains complementary part of the inactive/external space in self.oo_coeff basis
@@ -293,6 +288,56 @@ class LASImpurityOrbitalCallable (object):
         nelecb = int (round (nelecb))
         return neleca, nelecb
 
+def get_impurity_space_constructor (las, frag_id, frag_atoms=None, frag_orbs=None):
+    '''Construct an impurity subspace for a specific "fragment" of a LASSCF calculation defined
+    as the union of a set of trial orbitals for a particular localized active subspace and the
+    AO basis of a specified collection of atoms.
+
+    Args:
+        las : object of :class:`LASCINoSymm`
+            Mined for basic configuration info about the problem: `mole` object, _scf, ncore,
+            ncas_sub, with_df, mo_coeff. The last is copied at construction and should be any
+            othornormal basis (las.mo_coeff.conj ().T @ mol.get_ovlp () @ las.mo_coeff = a unit
+            matrix)
+        frag_id : integer or None
+            identifies which active subspace is associated with this fragment
+
+    Kwargs:
+        frag_atoms : list of integer
+            Atoms considered part of the fragment. All AOs associated with these atoms are appended
+            to frag_orbs.
+        frag_orbs : list of integer
+            Individual AOs considered part of this fragment. Combined with all AOs of frag_atoms.
+
+    Returns:
+        get_imporbs : callable
+            Args:
+                mo_coeff : ndarray of shape (nao,nmo)
+                    Contains MO coefficients
+                dm1s : ndarray of shape (2,nao,nao)
+                    State-averaged spin-separated 1-RDM in the AO basis
+                veff : ndarray of shape (2,nao,nao)
+                    State-averaged spin-separated effective potential in the AO basis
+                fock1 : ndarray of shape (nmo,nmo)
+                    First-order effective Fock matrix in the MO basis
+
+            Returns:
+                fo_coeff : ndarray of shape (nao, *)
+                    Orbitals defining an unentangled subspace containing the frag_idth set of
+                    active orbitals and frag_orbs
+                nelec_fo : 2-tuple of integers
+                    Number of electrons (spin-up, spin-down) in the impurity subspace
+    '''
+    if frag_orbs is None: frag_orbs = []
+    if frag_atoms is None: frag_atoms = []
+    if len (frag_atoms):
+        ao_offset = las.mol.offset_ao_by_atom ()
+        frag_orbs += [orb for atom in frag_atoms
+                      for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
+        frag_orbs = list (np.unique (frag_orbs))
+    assert (len (frag_orbs)), 'Must specify fragment orbitals'
+    return LASImpurityOrbitalCallable (las, frag_id, frag_orbs)
+
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCF
@@ -317,15 +362,8 @@ if __name__=='__main__':
     veff = mc.get_veff (dm1s=dm1s)
     fock1 = get_grad_orb (mc, hermi=0)
     ###########################
-    get_imporbs_0 = LASImpurityOrbitalCallable (mc, 0, frag_atom_list[0])
+    get_imporbs_0 = get_impurity_space_constructor (mc, 0, frag_atoms=frag_atom_list[0])
     fo_coeff, nelec_fo = get_imporbs_0 (mc.mo_coeff, dm1s, veff, fock1)
 
     from pyscf.tools import molden
     molden.from_mo (mol, __file__+'.molden', fo_coeff)
-
-
-
-
-
-
-
