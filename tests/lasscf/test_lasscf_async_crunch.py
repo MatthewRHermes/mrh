@@ -37,13 +37,6 @@ def setUpModule():
     fo_coeff, nelec_fo = get_imporbs_0 (las.mo_coeff, dm1s, veff, fock1)
     ###########################
     
-    ###########################
-    # Build the impurity method object
-    imc = get_impurity_casscf (las, 0)
-    imc._update_space_(fo_coeff, nelec_fo)
-    imc._update_keyframe_(las.mo_coeff, las.ci)
-    ###########################
-
 def tearDownModule():
     global las, fo_coeff, nelec_fo
     las.stdout.close ()
@@ -52,7 +45,7 @@ def tearDownModule():
 def _make_imc (kv):
     imc = get_impurity_casscf (las, 0)
     imc._update_space_(fo_coeff, nelec_fo)
-    imc._update_keyframe_(las.mo_coeff, las.ci)
+    imc._update_trial_state_(las.mo_coeff, las.ci)
     imc.conv_tol = 1e-10
     imc.kernel ()
     with kv.subTest ('impurity CASSCF converged'):

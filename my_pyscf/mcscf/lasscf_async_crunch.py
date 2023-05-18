@@ -225,7 +225,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
     def _update_space_(self, imporb_coeff, nelec_imp):
         self.mol._update_space_(imporb_coeff, nelec_imp)
 
-    def _update_keyframe_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
+    def _update_trial_state_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
         las = self.mol._las
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
@@ -601,7 +601,7 @@ if __name__=='__main__':
     # Build the impurity method object
     imc = get_impurity_casscf (las, 0)
     imc._update_space_(fo_coeff, nelec_fo)
-    imc._update_keyframe_(las.mo_coeff, las.ci)
+    imc._update_trial_state_(las.mo_coeff, las.ci)
     ###########################
 
     ###########################
