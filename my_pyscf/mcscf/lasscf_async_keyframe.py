@@ -34,3 +34,15 @@ class LASKeyframe (object):
             self._h2eff_sub = self.las.get_h2eff (self.mo_coeff)
         return self._h2eff_sub
 
+    def copy (self):
+        ''' MO coefficients deepcopy; CI vectors shallow copy. Everything else, drop. '''
+        mo1 = self.mo_coeff.copy ()
+        ci1_fr = []
+        ci0_fr = self.ci
+        for ci0_r in ci0_fr:
+            ci1_r = []
+            for ci0 in ci0_r:
+                ci1 = ci0.view ()
+                ci1_r.append (ci1)
+            ci1_fr.append (ci1_r)
+        return LASKeyframe (self.las, mo1, ci1_fr)

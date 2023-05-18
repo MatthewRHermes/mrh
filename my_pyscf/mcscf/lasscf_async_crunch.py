@@ -222,11 +222,72 @@ def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None)
 # This is the really tricky part
 class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
+    def _push_keyframe (self, kf1, mo_coeff=None, ci=None):
+        if mo_coeff is None: mo_coeff=self.mo_coeff
+        if ci is None: ci=self.ci
+        kf2 = kf1.copy ()
+        imporb_coeff = self.mol.get_imporb_coeff ()
+        mo_self = imporb_coeff @ mo_coeff
+
+        # active orbital part should be easy
+        kf2.ci[self._ifrag] = self.ci
+        las = self.mol._las
+        i = las.ncore + sum (las.ncas_sub[:self._ifrag])
+        j = i + las.ncas_sub[self._ifrag]
+        k = self.ncore
+        l = k + self.ncas
+        kf2.mo_coeff[:,i:j] = mo_self[:,k:l]
+
+        # Unentangled inactive orbitals
+        ncore_unent = las.ncore - self.ncore
+        assert (ncore_unent>=0)
+        mo_full_core = kf2.mo_coeff[:,:las.ncore]
+        s0 = las._scf.get_ovlp ()
+        ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
+        u, svals, vh = linalg.svd (ovlp, full_matrices=True)
+        svals = np.append (svals, np.zeros (u.shape[1]-len(svals)))
+        assert (ncore_unent==0 or np.amax (np.abs (svals[-ncore_unent:]))<1e-8)
+        if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
+        kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
+        
+        # Canonicalize unentangled inactive orbitals
+        # Be careful not to touch kf2.h2eff_sub or kf2.fock1 until we're done
+        f0 = las.get_fock (mo_coeff=kf2.mo_coeff, ci=kf2.ci, veff=kf2.veff)
+        if ncore_unent>0:
+            mo_i = kf2.mo_coeff[:,:ncore_unent]
+            f0_ij = mo_i.conj ().T @ f0 @ mo_i
+            w, u = linalg.eigh (f0_ij)
+            kf2.mo_coeff[:,:ncore_unent] = mo_i @ u
+
+        # Unentangled virtual orbitals
+        nvirt_full = kf2.mo_coeff.shape[1] - las.ncore - las.ncas
+        nvirt_self = mo_coeff.shape[1] - self.ncore - self.ncas
+        nvirt_unent = nvirt_full - nvirt_self
+        assert (nvirt_unent>=0)
+        mo_full_virt = kf2.mo_coeff[:,las.ncore+las.ncas:]
+        ovlp = mo_full_virt.conj ().T @ s0 @ imporb_coeff
+        u, svals, vh = linalg.svd (ovlp, full_matrices=True)
+        svals = np.append (svals, np.zeros (u.shape[1]-len(svals)))
+        assert (nvirt_unent==0 or np.amax (np.abs (svals[-nvirt_unent:]))<1e-8)
+        if nvirt_unent>0: kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
+        kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
+        
+        # Canonicalize unentangled virtual orbitals
+        if nvirt_unent>0:
+            mo_a = kf2.mo_coeff[:,-nvirt_unent:]
+            f0_ab = mo_a.conj ().T @ f0 @ mo_a
+            w, u = linalg.eigh (f0_ab)
+            kf2.mo_coeff[:,-nvirt_unent:] = mo_a @ u
+
+        return kf2
+
     def _update_keyframe_(self, kf):
         fo_coeff, nelec_f = self._imporb_builder (kf.mo_coeff, kf.dm1s, kf.veff, kf.fock1)
         self._update_space_(fo_coeff, nelec_f)
         self._update_trial_state_(kf.mo_coeff, kf.ci, h2eff_sub=kf.h2eff_sub, veff=kf.veff,
                                   dm1s=kf.dm1s)
+
+    _pull_keyframe_ = _update_keyframe_
 
     def _update_space_(self, imporb_coeff, nelec_imp):
         self.mol._update_space_(imporb_coeff, nelec_imp)
@@ -607,7 +668,8 @@ if __name__=='__main__':
     # Build the impurity method object
     from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
     imc = get_impurity_casscf (las, 0, imporb_builder=get_imporbs_0)
-    imc._update_keyframe_(LASKeyframe (las, las.mo_coeff, las.ci))
+    kf1 = LASKeyframe (las, las.mo_coeff, las.ci)
+    imc._update_keyframe_(kf1)
     ###########################
 
     ###########################
@@ -623,3 +685,5 @@ if __name__=='__main__':
     print (imc.converged, imc.e_tot, las.e_tot, imc.e_tot-las.e_tot)
     for t, r in zip (imc.e_states, las.e_states):
         print (t, r, t-r)
+    kf2 = imc._push_keyframe (kf1)
+

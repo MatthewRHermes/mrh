@@ -53,11 +53,13 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     for it in range (las.max_cycle_macro):
         # 1. Divide into fragments
         for impurity, imporb_builder in zip (impurities, imporb_builders):
-            impurity._update_keyframe_(kf1)
+            impurity._pull_keyframe_(kf1)
 
         # 2. CASSCF on each fragment
+        kf2 = []
         for impurity in impurities:
             impurity.kernel ()
+            kf2.append (impurity._push_keyframe (kf1))
 
         # 3. Combine from fragments
         kf1 = some_complicated_function (impurities)
