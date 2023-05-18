@@ -225,8 +225,10 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     e_states = las.energy_nuc () + np.array (las.states_energy_elec (mo_coeff=mo_coeff, ci=ci1,
                                                                      h2eff=h2eff_sub, veff=veff))
     if log.verbose > lib.logger.INFO:
-        assert (np.allclose (np.dot (las.weights, e_states), e_tot)), '{} {} {} {}'.format (
-            e_states, np.dot (las.weights, e_states), e_tot, e_tot_test)
+        e_tot_test = np.dot (las.weights, e_states)
+        if abs (e_tot_test-e_tot) > 1e-8:
+            log.warn ('order-of-operations disagreement of %e in state-averaged energy (%e)',
+                      e_tot_test-e_tot, e_tot)
 
     # I need the true veff, with f^a_a and f^i_i spin-separated, in order to use the Hessian
     # Better to do it here with bmPu than in localintegrals
