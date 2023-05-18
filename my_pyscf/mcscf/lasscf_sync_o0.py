@@ -160,7 +160,7 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
         paaa_test = np.zeros_like (self.eri_paaa)
         for p in range (self.nmo):
             paaa_test[p] = self.cas_type_eris.ppaa[p][ncore:nocc]
-        if ~np.allclose (paaa_test, self.eri_paaa):
+        if not np.allclose (paaa_test, self.eri_paaa):
             logger.warn (self.las, 'possible (pa|aa) inconsistency; max err = %e',
                          np.amax (np.abs (paaa_test-self.eri_paaa)))
 
