@@ -1,14 +1,16 @@
 import unittest
 import numpy as np
+from functools import partial
 from scipy import linalg
 from pyscf import gto, scf, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lasci import get_grad_orb
 from mrh.my_pyscf.mcscf.lasscf_async_split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async_crunch import get_impurity_casscf
+from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
 
 def setUpModule():
-    global las, fo_coeff, nelec_fo
+    global las, get_imporbs_0
     xyz='''Li 0 0 0,
            H 2 0 0,
            Li 10 0 0,
@@ -27,25 +29,18 @@ def setUpModule():
     las.conv_tol_grad = 1e-6
     las.kernel ()
     assert (las.converged)
-
-    ###########################
-    # Build the embedding space
-    dm1s = las.make_rdm1s ()
-    veff = las.get_veff (dm1s=dm1s, spin_sep=True)
-    fock1 = get_grad_orb (las, hermi=0)
     get_imporbs_0 = get_impurity_space_constructor (las, 0, list (range (2)))
-    fo_coeff, nelec_fo = get_imporbs_0 (las.mo_coeff, dm1s, veff, fock1)
-    ###########################
+    if not callable (getattr (las, 'get_grad_orb', None)):
+        las.get_grad_orb = partial (get_grad_orb, las)
     
 def tearDownModule():
-    global las, fo_coeff, nelec_fo
+    global las, get_imporbs_0
     las.stdout.close ()
-    del las, fo_coeff, nelec_fo
+    del las, get_imporbs_0
 
 def _make_imc (kv):
-    imc = get_impurity_casscf (las, 0)
-    imc._update_space_(fo_coeff, nelec_fo)
-    imc._update_trial_state_(las.mo_coeff, las.ci)
+    imc = get_impurity_casscf (las, 0, imporb_builder=get_imporbs_0)
+    imc._update_keyframe_(LASKeyframe (las, las.mo_coeff, las.ci))
     imc.conv_tol = 1e-10
     imc.kernel ()
     with kv.subTest ('impurity CASSCF converged'):

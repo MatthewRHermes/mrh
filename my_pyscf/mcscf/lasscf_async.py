@@ -53,9 +53,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     for it in range (las.max_cycle_macro):
         # 1. Divide into fragments
         for impurity, imporb_builder in zip (impurities, imporb_builders):
-            # TODO: syntactic sugar on this
-            impurity._update_space_(imporb_builder (mo_coeff, dm1s, veff, fock1))
-            impurity._update_trial_state_(kf1.mo_coeff, kf1.ci)
+            impurity._update_keyframe_(kf1)
 
         # 2. CASSCF on each fragment
         for impurity in impurities:

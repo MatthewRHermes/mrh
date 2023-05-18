@@ -222,6 +222,12 @@ def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None)
 # This is the really tricky part
 class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
+    def _update_keyframe_(self, kf):
+        fo_coeff, nelec_f = self._imporb_builder (kf.mo_coeff, kf.dm1s, kf.veff, kf.fock1)
+        self._update_space_(fo_coeff, nelec_f)
+        self._update_trial_state_(kf.mo_coeff, kf.ci, h2eff_sub=kf.h2eff_sub, veff=kf.veff,
+                                  dm1s=kf.dm1s)
+
     def _update_space_(self, imporb_coeff, nelec_imp):
         self.mol._update_space_(imporb_coeff, nelec_imp)
 
@@ -557,7 +563,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         return g_orb, my_gorb_update, my_h_op, h_diag
 
-def get_impurity_casscf (las, ifrag):
+def get_impurity_casscf (las, ifrag, imporb_builder=None):
     imol = ImpurityMole (las)
     imf = ImpurityHF (imol)
     if isinstance (las, _DFLASCI):
@@ -567,6 +573,7 @@ def get_impurity_casscf (las, ifrag):
         imc = df.density_fit (imc)
     imc = _state_average_mcscf_solver (imc, las.fciboxes[ifrag])
     imc._ifrag = ifrag
+    imc._imporb_builder = imporb_builder
     return imc
 
 if __name__=='__main__':
@@ -585,23 +592,22 @@ if __name__=='__main__':
     las.conv_tol_grad = 1e-7
     las.kernel (mo)
     print (las.converged)
+    from mrh.my_pyscf.mcscf.lasci import get_grad_orb
+    if not callable (getattr (las, 'get_grad_orb', None)):
+        from functools import partial
+        las.get_grad_orb = partial (get_grad_orb, las)
 
     ###########################
     # Build the embedding space
-    from mrh.my_pyscf.mcscf.lasci import get_grad_orb
     from mrh.my_pyscf.mcscf.lasscf_async_split import get_impurity_space_constructor
-    dm1s = las.make_rdm1s ()
-    veff = las.get_veff (dm1s=dm1s, spin_sep=True)
-    fock1 = get_grad_orb (las, hermi=0)
     get_imporbs_0 = get_impurity_space_constructor (las, 0, list (range (3)))
-    fo_coeff, nelec_fo = get_imporbs_0 (las.mo_coeff, dm1s, veff, fock1)
     ###########################
 
     ###########################
     # Build the impurity method object
-    imc = get_impurity_casscf (las, 0)
-    imc._update_space_(fo_coeff, nelec_fo)
-    imc._update_trial_state_(las.mo_coeff, las.ci)
+    from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
+    imc = get_impurity_casscf (las, 0, imporb_builder=get_imporbs_0)
+    imc._update_keyframe_(LASKeyframe (las, las.mo_coeff, las.ci))
     ###########################
 
     ###########################
