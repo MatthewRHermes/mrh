@@ -1,6 +1,8 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
+from mrh.my_pyscf.mcscf.lasci import get_grad_orb
+from mrh.my_pyscf.mcscf.lasscf_async_crunch import get_impurity_casscf
 
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             assert_no_dupes=False, imporb_builders=None, verbose=lib.logger.NOTE):
@@ -30,29 +32,67 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     if (ci0 is None or any ([c is None for c in ci0]) or
       any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
         raise RuntimeError ("failed to populate get_init_guess")
+    nfrags = len (las.ncas_sub)
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
 
     h2eff_sub = las.get_h2eff (mo_coeff)
     t1 = log.timer ('LASSCF initial AO2MO', *t0)
-    veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
-    casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
-    casdm1frs = las.states_make_casdm1s_sub (ci=ci0)
-    veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci0, casdm1s_sub=casdm1s_sub)
+    dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci0)
+    veff = las.get_veff (dm1s=dm1s, spin_sep=True)
+    fock1 = get_grad_orb (las, mo_coeff=mo_coeff, ci=ci0, h2eff_sub=h2eff_sub, veff=veff, dm1s=dm1s,
+                          hermi=0)
     t1 = log.timer ('LASSCF initial get_veff', *t1)
+
+
+
+
+
+    ###############################################################################################
+    ################################## Begin actual kernel logic ##################################
+    ###############################################################################################
+
+
+
+
 
     converged = False
     it = 0
-    nfrags = len (las.ncas_sub)
+    ci1 = ci0
+    impurities = [get_impurity_casscf (las, i) for i in range (nfrags)]
     for it in range (las.max_cycle_macro):
-        pass
         # 1. Divide into fragments
+        for impurity, imporb_builder in zip (impurities, imporb_builders):
+            # TODO: syntactic sugar on this
+            impurity._update_space_(imporb_builder (mo_coeff, dm1s, veff, fock1))
+
         # 2. CASSCF on each fragment
+        for impurity in impurities:
+            impurity.kernel ()
+
         # 3. Combine from fragments
+        mo_coeff, ci1 = some_complicated_function (impurities)
 
     t1 = log.timer ('LASSCF {} macrocycles'.format (it), *t1)
+
+
+
+
+
+    ###############################################################################################
+    ################################### End actual kernel logic ###################################
+    ###############################################################################################
+
+
+
+
+
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub,
                                                  veff=veff)
+    # TODO: I'm guessing this is the only place anywhere that I insist on having an array like
+    # (nroots,2,nao,nao). That's bad and should be designed around, since nroots can get stupidly
+    # large and the matrices objectively cannot have more than ncas linearly-independent d.o.f.
+    # distinguishing them.
     veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub,
                                         mo_coeff=mo_coeff, ci=ci1, _full=True)
                         for state in range (las.nroots)], axis=0)
@@ -61,6 +101,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff, las.weights))
     e_states = las.energy_nuc () + np.array (las.states_energy_elec (mo_coeff=mo_coeff, ci=ci1,
                                                                      h2eff=h2eff_sub, veff=veff))
+    # This crap usually goes in a "_finalize" function
     log.info ('LASSCF %s after %d cycles', ('not converged', 'converged')[converged], it+1)
     log.info ('LASSCF E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', e_tot,
               norm_gorb, norm_gci, norm_gx)
@@ -70,5 +111,6 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     t1 = log.timer ('LASSCF canonicalization', *t1)
     t0 = log.timer ('LASSCF kernel function', *t0)
 
+    e_cas = None # TODO: get rid of this worthless, meaningless variable
     return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
 
