@@ -73,7 +73,7 @@ class LASImpurityOrbitalCallable (object):
         self.frag_umat = u[:,:self.nao_frag]
 
 
-    def __call__(self, mo_coeff, dm1s, veff, fock1, max_nfrag='mid'):
+    def __call__(self, mo_coeff, dm1s, veff, fock1, max_size='mid'):
         # TODO: how to handle active/active rotations
         self.log.info ("nmo = %d", mo_coeff.shape[1])
 
@@ -90,22 +90,22 @@ class LASImpurityOrbitalCallable (object):
         veff = veff_
         fock1 = mo @ fock1 @ mo.conj ().T
 
-        def build (max_nfrag, fock1):
+        def build (max_size, fock1):
             fo, eo = self._get_orthnorm_frag (mo)
             self.log.info ("nfrag before gradorbs = %d", fo.shape[1])
-            if isinstance (max_nfrag, str) and "small" in max_nfrag.lower():
-                max_nfrag = 2*fo.shape[1]
+            if isinstance (max_size, str) and "small" in max_size.lower():
+                max_size = 2*fo.shape[1]
             fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1s)
-            self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
-            if isinstance (max_nfrag, str) and "mid" in max_nfrag.lower():
-                max_nfrag = 2*fo.shape[1]
+            if self.do_gradorbs: self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
+            if isinstance (max_size, str) and "mid" in max_size.lower():
+                max_size = 2*fo.shape[1]
             fo, eo = self._schmidt (fo, eo, mo)
             self.log.info ("nfrag after schmidt = %d", fo.shape[1])
-            if isinstance (max_nfrag, str) and "large" in max_nfrag.lower():
-                max_nfrag = 2*fo.shape[1]
-            if max_nfrag < fo.shape[1]:
-                raise FragSizeError ("max_nfrag of {} is too small".format (max_nfrag))
-            fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, max_nfrag)
+            if isinstance (max_size, str) and "large" in max_size.lower():
+                max_size = 2*fo.shape[1]
+            if max_size < fo.shape[1]:
+                raise FragSizeError ("max_size of {} is too small".format (max_size))
+            fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, max_size)
             self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
             nelec_fo = self._get_nelec_fo (fo, dm1s)
             self.log.info ("nelec in fragment = %d, %d", nelec_fo[0], nelec_fo[1])
@@ -119,21 +119,28 @@ class LASImpurityOrbitalCallable (object):
             return fo_coeff, nelec_fo
 
         try:
-            fo_coeff, nelec_fo = build (max_nfrag, fock1)
+            fo_coeff, nelec_fo = build (max_size, fock1)
         except FragSizeError as e:
             self.log.warn (("Attempting to satisfy request for a smaller fragment by "
                             "discarding gradient orbitals"))
             with lib.temporary_env (self, do_gradorbs=False):
-                fo_coeff, nelec_fo = build (max_nfrag, fock1)
+                fo_coeff, nelec_fo = build (max_size, fock1)
         return fo_coeff, nelec_fo
 
-    def _get_orthnorm_frag (self, mo):
+    def _get_orthnorm_frag (self, mo, ovlp_tol=1e-4):
         '''Get an orthonormal basis spanning the union of the frag_idth active space and
         ao_coeff, projected orthogonally to all other active subspaces.
 
         Args:
             mo : ndarray of shape (nmo,nmo)
                 Contains MO coefficients in self.oo_coeff basis
+
+        Kwargs:
+            ovlp_tol : float
+                Minimimum singular value for a proposed fragment orbital to be included. Tighter
+                values of this tolerance lead to larger impurities with less-localized orbitals.
+                On the other hand, looser values may lead to impurity orbital spaces that don't
+                entirely span the requested AOs.
 
         Returns:
             fo : ndarray of shape (nmo,*)
@@ -151,7 +158,7 @@ class LASImpurityOrbitalCallable (object):
         s1 = uo.conj ().T @ self.frag_umat
         u, svals, vh = linalg.svd (s1, full_matrices=True)
         idx = np.zeros (u.shape[1], dtype=np.bool_)
-        idx[:len(svals)][np.abs (svals)>1e-8] = True
+        idx[:len(svals)][np.abs (svals)>=ovlp_tol] = True
         fo = np.append (fo, uo @ u[:,idx], axis=-1)
 
         eo = uo @ u[:,~idx]

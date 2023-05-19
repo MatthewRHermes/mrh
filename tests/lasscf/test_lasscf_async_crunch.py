@@ -13,9 +13,9 @@ def setUpModule():
     global las, get_imporbs_0
     xyz='''Li 0 0 0,
            H 2 0 0,
-           Li 10 0 0,
-           H 12 0 0'''
-    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, verbose=0, output='/dev/null')
+           Li 20 0 0,
+           H 22 0 0'''
+    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, verbose=4, output='test_lasscf_async_crunch.log')
     mf = scf.RHF (mol).run ()
     mc = mcscf.CASSCF (mf, 4, 4).run ()
     
@@ -40,7 +40,7 @@ def tearDownModule():
 
 def _make_imc (kv):
     imc = get_impurity_casscf (las, 0, imporb_builder=get_imporbs_0)
-    imc._update_keyframe_(LASKeyframe (las, las.mo_coeff, las.ci))
+    imc._update_keyframe_(LASKeyframe (las, las.mo_coeff, las.ci), max_size=11)
     imc.conv_tol = 1e-10
     imc.kernel ()
     with kv.subTest ('impurity CASSCF converged'):
