@@ -281,8 +281,9 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         return kf2
 
-    def _update_keyframe_(self, kf):
-        fo_coeff, nelec_f = self._imporb_builder (kf.mo_coeff, kf.dm1s, kf.veff, kf.fock1)
+    def _update_keyframe_(self, kf, max_nfrag='mid'):
+        fo_coeff, nelec_f = self._imporb_builder (kf.mo_coeff, kf.dm1s, kf.veff, kf.fock1,
+                                                  max_nfrag=max_nfrag)
         self._update_space_(fo_coeff, nelec_f)
         self._update_trial_state_(kf.mo_coeff, kf.ci, h2eff_sub=kf.h2eff_sub, veff=kf.veff,
                                   dm1s=kf.dm1s)

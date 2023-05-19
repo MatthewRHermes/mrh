@@ -2,6 +2,9 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib
 
+class FragSizeError (RuntimeError):
+    pass
+
 class LASImpurityOrbitalCallable (object):
     '''Construct an impurity subspace for a specific "fragment" of a LASSCF calculation defined
     as the union of a set of trial orbitals for a particular localized active subspace and the
@@ -45,6 +48,7 @@ class LASImpurityOrbitalCallable (object):
         self.frag_id = frag_id
         self.schmidt_thresh = schmidt_thresh
         self.nelec_int_thresh = nelec_int_thresh
+        self.do_gradorbs = True
 
         # Convenience
         self.las0 = self.nlas = self.las1 = 0
@@ -68,7 +72,8 @@ class LASImpurityOrbitalCallable (object):
         w, u = linalg.eigh (-s1) # negative: sort from largest to smallest
         self.frag_umat = u[:,:self.nao_frag]
 
-    def __call__(self, mo_coeff, dm1s, veff, fock1):
+
+    def __call__(self, mo_coeff, dm1s, veff, fock1, max_nfrag='mid'):
         # TODO: how to handle active/active rotations
         self.log.info ("nmo = %d", mo_coeff.shape[1])
 
@@ -85,19 +90,41 @@ class LASImpurityOrbitalCallable (object):
         veff = veff_
         fock1 = mo @ fock1 @ mo.conj ().T
 
-        fo, eo = self._get_orthnorm_frag (mo)
-        self.log.info ("nfrag before gradorbs = %d", fo.shape[1])
-        fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1s)
-        nf = fo.shape[1]
-        self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
-        fo, eo = self._schmidt (fo, eo, mo)
-        self.log.info ("nfrag after schmidt = %d", fo.shape[1])
-        fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, 2*nf)
-        self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
-        nelec_fo = self._get_nelec_fo (fo, dm1s)
-        self.log.info ("nelec in fragment = %d, %d", nelec_fo[0], nelec_fo[1])
-        fo_coeff = self.oo_coeff @ fo
+        def build (max_nfrag, fock1):
+            fo, eo = self._get_orthnorm_frag (mo)
+            self.log.info ("nfrag before gradorbs = %d", fo.shape[1])
+            if isinstance (max_nfrag, str) and "small" in max_nfrag.lower():
+                max_nfrag = 2*fo.shape[1]
+            fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1s)
+            self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
+            if isinstance (max_nfrag, str) and "mid" in max_nfrag.lower():
+                max_nfrag = 2*fo.shape[1]
+            fo, eo = self._schmidt (fo, eo, mo)
+            self.log.info ("nfrag after schmidt = %d", fo.shape[1])
+            if isinstance (max_nfrag, str) and "large" in max_nfrag.lower():
+                max_nfrag = 2*fo.shape[1]
+            if max_nfrag < fo.shape[1]:
+                raise FragSizeError ("max_nfrag of {} is too small".format (max_nfrag))
+            fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, max_nfrag)
+            self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
+            nelec_fo = self._get_nelec_fo (fo, dm1s)
+            self.log.info ("nelec in fragment = %d, %d", nelec_fo[0], nelec_fo[1])
+            nelec_eo = self._get_nelec_fo (eo, dm1s)
+            if nelec_eo[0] != nelec_eo[1]:
+                raise RuntimeError (str (abs (nelec_eo[0]-nelec_eo[1]))
+                                    + " singly-occupied unentangled core orbs detected")
+            self.log.info ("%d occupied and %d unoccupied inactive unentangled env orbs",
+                           nelec_eo[0], eo.shape[1] - nelec_eo[1])
+            fo_coeff = self.oo_coeff @ fo
+            return fo_coeff, nelec_fo
 
+        try:
+            fo_coeff, nelec_fo = build (max_nfrag, fock1)
+        except FragSizeError as e:
+            self.log.warn (("Attempting to satisfy request for a smaller fragment by "
+                            "discarding gradient orbitals"))
+            with lib.temporary_env (self, do_gradorbs=False):
+                fo_coeff, nelec_fo = build (max_nfrag, fock1)
         return fo_coeff, nelec_fo
 
     def _get_orthnorm_frag (self, mo):
@@ -156,7 +183,7 @@ class LASImpurityOrbitalCallable (object):
                 Same as input, after an approximate step towards optimizing the active orbitals
         '''
         iGa = eo.conj ().T @ (fock1-fock1.T) @ fo[:,:self.nlas]
-        if not iGa.size: return fo, eo, fock1
+        if not (iGa.size and self.do_gradorbs): return fo, eo, fock1
         u, svals, vh = linalg.svd (iGa, full_matrices=True)
         fo = np.append (fo, eo @ u[:,:self.nlas] @ vh[:self.nlas,:], axis=1)
         eo = eo @ u[:,self.nlas:]
@@ -270,6 +297,7 @@ class LASImpurityOrbitalCallable (object):
         
         # Augment fo
         nadd = min (u.shape[1], ntarget-fo.shape[1])
+        assert (nadd>=0)
         fo = np.append (fo, eo[:,:nadd], axis=1)
         eo = eo[:,nadd:]
 
