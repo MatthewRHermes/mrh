@@ -102,7 +102,7 @@ def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovl
     # Canonicalize for good init CI guess and visualization
     ranges = [(0,ncore),(nocc,nmo)]
     for ix, di in enumerate (ncas_sub):
-        i = sum (ncas_sub[:ix])
+        i = ncore + sum (ncas_sub[:ix])
         ranges.append ((i,i+di))
     fock = mo_coeff.conj ().T @ fock @ mo_coeff
     for i, j in ranges:
