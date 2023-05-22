@@ -4,6 +4,7 @@ from pyscf import lib
 from mrh.my_pyscf.mcscf import lasci
 from mrh.my_pyscf.mcscf.lasscf_async_crunch import get_impurity_casscf
 from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
+from mrh.my_pyscf.mcscf.lasscf_async_combine import combine_o0
 
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             assert_no_dupes=False, imporb_builders=None, verbose=lib.logger.NOTE):
@@ -56,13 +57,13 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             impurity._pull_keyframe_(kf1)
 
         # 2. CASSCF on each fragment
-        kf2 = []
+        kf2_list = []
         for impurity in impurities:
             impurity.kernel ()
-            kf2.append (impurity._push_keyframe (kf1))
+            kf2_list.append (impurity._push_keyframe (kf1))
 
         # 3. Combine from fragments
-        kf1 = some_complicated_function (impurities)
+        kf1 = combine_o0 (las, kf2_list)
 
 
 
