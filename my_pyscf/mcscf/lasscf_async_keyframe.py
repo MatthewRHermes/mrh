@@ -1,3 +1,5 @@
+import numpy as np
+from scipy import linalg
 
 class LASKeyframe (object):
     '''Shallow struct for various intermediates. DON'T put complicated code in here Matt!!!'''
@@ -46,3 +48,57 @@ class LASKeyframe (object):
                 ci1_r.append (ci1)
             ci1_fr.append (ci1_r)
         return LASKeyframe (self.las, mo1, ci1_fr)
+
+
+def approx_keyframe_ovlp (las, kf1, kf2):
+    '''Evaluate the similarity of two keyframes in terms of orbital and CI vector overlaps.
+
+    Args:
+        las : object of :class:`LASCINoSymm`
+        kf1 : object of :class:`LASKeyframe`
+        kf2 : object of :class:`LASKeyframe`
+
+    Returns:
+        mo_ovlp : float
+            Products of the overlaps of the rotationally-invariant subspaces across the two
+            keyframes; i.e.: prod (svals (inactive orbitals)) * prod (svals (virtual orbitals))
+            * prod (svals (active 1)) * prod (svals (active 2)) * ...
+        ci_ovlp : list of length nfrags of list of length nroots of floats
+            Overlaps of the CI vectors, assuming that prod (svals (active n)) = 1. Meaningless
+            if mo_ovlp deviates significantly from 1.
+    '''
+
+    nao, nmo = kf1.mo_coeff.shape    
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    nvirt = nmo - nocc
+
+    s0 = las._scf.get_ovlp ()
+    mo1 = kf1.mo_coeff[:,:ncore]
+    mo2 = kf2.mo_coeff[:,:ncore]
+    s1 = mo1.conj ().T @ s0 @ mo2
+    u, svals, vh = linalg.svd (s1)
+    mo_ovlp = np.prod (svals) # inactive orbitals
+    mo1 = kf1.mo_coeff[:,nocc:]
+    mo2 = kf2.mo_coeff[:,nocc:]
+    s1 = mo1.conj ().T @ s0 @ mo2
+    u, svals, vh = linalg.svd (s1)
+    mo_ovlp *= np.prod (svals) # virtual orbitals
+
+    ci_ovlp = []
+    for ifrag, (fcibox, c1_r, c2_r) in enumerate (zip (las.fciboxes, kf1.ci, kf2.ci)):
+        nlas, nelelas = las.ncas_sub[ifrag], las.nelecas_sub[ifrag]
+        i = ncore + sum (las.ncas_sub[:ifrag])
+        j = i + las.ncas_sub[ifrag]
+        mo1 = kf1.mo_coeff[:,i:j]
+        mo2 = kf2.mo_coeff[:,i:j]
+        s1 = mo1.conj ().T @ s0 @ mo2
+        u, svals, vh = linalg.svd (s1)
+        mo_ovlp *= np.prod (svals) # ifrag active orbitals
+        c1_r = fcibox.states_transform_ci_for_orbital_rotation (c1_r, nlas, nelelas, u @ vh)
+        ci_ovlp.append ([abs (c1.conj ().ravel ().dot (c2.ravel ()))
+                         for c1, c2 in zip (c1_r, c2_r)])
+
+    return mo_ovlp, ci_ovlp
+    
+

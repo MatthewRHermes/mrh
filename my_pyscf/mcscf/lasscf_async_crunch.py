@@ -687,4 +687,5 @@ if __name__=='__main__':
     for t, r in zip (imc.e_states, las.e_states):
         print (t, r, t-r)
     kf2 = imc._push_keyframe (kf1)
-
+    from mrh.my_pyscf.mcscf.lasscf_async_keyframe import approx_keyframe_ovlp
+    print (approx_keyframe_ovlp (las, kf1, kf2))
