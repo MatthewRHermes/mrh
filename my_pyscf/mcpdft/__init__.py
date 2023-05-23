@@ -1,13 +1,13 @@
 # Lahh dee dah
 import copy
 from pyscf.mcpdft.mcpdft import get_mcpdft_child_class
-from pyscf.mcpdft.otfnal import make_hybrid_fnal as hyb
 from pyscf import mcscf, gto
 from pyscf.lib import logger
 from pyscf.mcscf import mc1step, casci
 import mrh
 from mrh.util.io import mcpdft_removal_warn
-from types import MethodType
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCFNoSymm, LASSCFSymm 
+
 
 mcpdft_removal_warn ()
 
@@ -27,7 +27,9 @@ def _MCPDFT (mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=No
                      'Initializing MC-SCF with a symmetry-adapted Mole object may not work!')
     if frozen is not None: mc1 = mc_class (mf_or_mol, ncas, nelecas, ncore=ncore, frozen=frozen)
     else: mc1 = mc_class (mf_or_mol, ncas, nelecas, ncore=ncore)
+    
     mc2 = get_mcpdft_child_class (mc1, ot, **kwargs)
+
     if mc0 is not None:
         mc2.mo_coeff = mc_or_mf_or_mol.mo_coeff.copy ()    
         mc2.ci = copy.deepcopy (mc_or_mf_or_mol.ci)
@@ -47,23 +49,45 @@ CASSCF=CASSCFPDFT
 CASCI=CASCIPDFT
 
 # LAS-PDFT
-def _laspdftEnergy(mc_class, ot, ncas, nelecas, ncore=None, frozen=None, verbose=5,
-             **kwargs):
+def _laspdftEnergy(mc_class, mc_or_mf_or_mol,  ot, ncas_sub, nelecas_sub, ncore = None, spin_sub = None, frozen = None, frags_atoms =None, mo_coeff=None,spin=None, lo_coeff=None, fock=None,
+                             freeze_cas_spaces=False, **kwargs):
+
+    if isinstance (mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)):
+        mc0 = mc_or_mf_or_mol
+        mf_or_mol = mc_or_mf_or_mol._scf
+    else:
+        mc0 = None
+        mf_or_mol = mc_or_mf_or_mol
+
+    if isinstance (mf_or_mol, gto.Mole) and mf_or_mol.symmetry:
+        logger.warn (mf_or_mol,
+                    'Initializing MC-SCF with a symmetry-adapted Mole object may not work!')
+
+    if frozen is not None: mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub = spin_sub, frozen=frozen)
+    else:  mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub = spin_sub)
     
-    if isinstance(mc_class, (mrh.my_pyscf.mcscf.lasscf_sync_o0.LASSCFNoSymm)): pass
-    else: raise ValueError("LAS-object is not provided")
-    
+    if mc0 is None:
+        assert(frags_atoms is not None)
+        mc1.mo_coeff = mc1.localize_init_guess(frags_atoms, mo_coeff=mo_coeff, spin=spin, lo_coeff=lo_coeff, fock=fock,
+                             freeze_cas_spaces=freeze_cas_spaces)
+   
     from mrh.my_pyscf.mcpdft.laspdft import get_mcpdft_child_class
+    mc2 = get_mcpdft_child_class (mc1, ot, **kwargs)
 
-    mc2 = get_mcpdft_child_class(mc_class, ot, **kwargs)
-    mc2.verbose = verbose
-    mc2.mo_coeff = mc_class.mo_coeff.copy()
-    mc2.ci = copy.deepcopy(mc_class.ci)
-    mc2.converged = mc_class.converged
+    if mc0 is not None:
+        mc2.mo_coeff = mc_or_mf_or_mol.mo_coeff.copy ()    
+        mc2.ci = copy.deepcopy (mc_or_mf_or_mol.ci)
+        mc2.converged = mc0.converged
+
     return mc2
+ 
+def LASSCFPDFT( mc_or_mf_or_mol,  ot, ncas_sub, nelecas_sub, ncore=None, spin_sub=None, frozen=None, frags_atoms=None,  mo_coeff=None, spin = None, lo_coeff=None, fock=None,
+                             freeze_cas_spaces=False, **kwargs):
+    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+    return _laspdftEnergy(LASSCF,  mc_or_mf_or_mol,  ot, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub, frozen=frozen, frags_atoms=frags_atoms,mo_coeff=mo_coeff, spin=spin, lo_coeff=lo_coeff, fock=fock,
+                             freeze_cas_spaces=freeze_cas_spaces, **kwargs)
 
-LASSCF = _laspdftEnergy
-LASCI = _laspdftEnergy
+LASSCF = LASSCFPDFT
 
 def CIMCPDFT (*args, **kwargs):
     from mrh.my_pyscf.mcpdft.var_mcpdft import CIMCPDFT as fn
