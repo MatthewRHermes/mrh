@@ -155,7 +155,7 @@ def _guess_nelec_f (fci, norb, nelec, norb_f, h1, h2):
     for n in norb_f:
         ndet = 2**n
         c = np.zeros ((ndet, ndet))
-        det = np.array ([str_dp[0] % ndet, str_dp[1] % ndet], dtype=np.integer)
+        det = np.array ([str_dp[0] % ndet, str_dp[1] % ndet], dtype=np.int64)
         str_dp = [str_dp[0] // ndet, str_dp[1] // ndet]
         ne = [0,0]
         for spin in range (2):

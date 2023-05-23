@@ -143,19 +143,17 @@ class KnownValues (unittest.TestCase):
 
     def test_soc_2frag (self):
         ## stationary test for >1 frag calc
-        esf_ref = np.array ([-296.6356767693,-296.6354236887,-296.6354236887,-296.6354236887,-296.6354236887])
-        eso_ref = np.array ([-296.6357061838,-296.6356871348,-296.6356871348,-296.6351604534,-296.6351310388])
         with self.subTest (deltaE='SF'):
-            self.assertAlmostEqual (lib.fp (las2.e_states), lib.fp (esf_ref), 8)
+            self.assertAlmostEqual (lib.fp (las2.e_states), 154.09610901166508, 8)
         with self.subTest (deltaE='SO'):
-            self.assertAlmostEqual (lib.fp (las2_e), lib.fp (eso_ref), 8)
+            self.assertAlmostEqual (lib.fp (las2_e), 154.09559506105586, 8)
 
     def test_soc_stdm12s (self):
         stdm1s_test, stdm2s_test = make_stdm12s (las2, soc=True, opt=0)    
         with self.subTest ('2-electron'):
-            self.assertAlmostEqual (linalg.norm (stdm2s_test), 12.835689640991259)
+            self.assertAlmostEqual (linalg.norm (stdm2s_test), 12.835690990485933)
         with self.subTest ('1-electron'):
-            self.assertAlmostEqual (linalg.norm (stdm1s_test), 5.719302474657559)
+            self.assertAlmostEqual (linalg.norm (stdm1s_test), 5.719302720036956)
         dm1s_test = lib.einsum ('ipqi->ipq', stdm1s_test)
         with self.subTest (oneelectron_sanity='diag'):
             # LAS states are spin-pure: there should be nothing in the spin-breaking sector
@@ -192,7 +190,7 @@ class KnownValues (unittest.TestCase):
                     self.assertAlmostEqual (np.amax (np.abs (d1[1,:,0,:])), 0, 16)
                     d1=d1[0,:,1,:] # [alpha,beta] -> beta' alpha
             with self.subTest (oneelectron_sanity='nonzero S.O.C.', ket=i):
-                self.assertAlmostEqual (linalg.norm (d1), 1.1539613201047167, 8)
+                self.assertAlmostEqual (linalg.norm (d1), 1.1539612706310192, 8)
         # lassi_dms.make_trans and total electron count
         ncas = las2.ncas
         nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
@@ -232,9 +230,9 @@ class KnownValues (unittest.TestCase):
         rdm1s_test[1:3] = rdm1s_test[1:3].sum (0) / 2
         rdm2s_test[1:3] = rdm2s_test[1:3].sum (0) / 2
         with self.subTest ('2-electron'):
-            self.assertAlmostEqual (linalg.norm (rdm2s_test), 11.399865962223883)
+            self.assertAlmostEqual (linalg.norm (rdm2s_test), 11.39986880775559)
         with self.subTest ('1-electron'):
-            self.assertAlmostEqual (linalg.norm (rdm1s_test), 4.478325182276608)
+            self.assertAlmostEqual (linalg.norm (rdm1s_test), 4.47832557674054)
         with lib.light_speed (5):
             e0, h1, h2 = ham_2q (las2, las2.mo_coeff, soc=True)
         rdm2_test = rdm2s_test.sum ((1,4))

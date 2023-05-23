@@ -2,6 +2,9 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib
 
+class FragSizeError (RuntimeError):
+    pass
+
 class LASImpurityOrbitalCallable (object):
     '''Construct an impurity subspace for a specific "fragment" of a LASSCF calculation defined
     as the union of a set of trial orbitals for a particular localized active subspace and the
@@ -15,8 +18,8 @@ class LASImpurityOrbitalCallable (object):
             matrix)
         frag_id : integer or None
             identifies which active subspace is associated with this fragment
-        frag_atom : list of integer
-            identifies which atoms are identified with this fragment
+        frag_orbs : list of integer
+            identifies which AOs are identified with this fragment
 
     Calling args:
         mo_coeff : ndarray of shape (nao,nmo)
@@ -31,21 +34,21 @@ class LASImpurityOrbitalCallable (object):
     Returns:
         fo_coeff : ndarray of shape (nao, *)
             Orbitals defining an unentangled subspace containing the frag_idth set of active
-            orbitals and the AOs of frag_atom
+            orbitals and frag_orbs
         nelec_fo : 2-tuple of integers
             Number of electrons (spin-up, spin-down) in the impurity subspace
     '''
 
-    def __init__(self, las, frag_id, frag_atom, schmidt_thresh=1e-8, nelec_int_thresh=1e-4):
+    def __init__(self, las, frag_id, frag_orbs, schmidt_thresh=1e-8, nelec_int_thresh=1e-4):
         self.mol = las.mol
         self._scf = las._scf
         self.ncore, self.ncas_sub, self.ncas = las.ncore, las.ncas_sub, las.ncas
         self.oo_coeff = las.mo_coeff.copy ()
         self.with_df = getattr (las, 'with_df', None)
         self.frag_id = frag_id
-        self.frag_atom = frag_atom
         self.schmidt_thresh = schmidt_thresh
         self.nelec_int_thresh = nelec_int_thresh
+        self.do_gradorbs = True
 
         # Convenience
         self.las0 = self.nlas = self.las1 = 0
@@ -60,20 +63,17 @@ class LASImpurityOrbitalCallable (object):
         self.soo_coeff = self.s0 @ self.oo_coeff
         self.log = lib.logger.new_logger (las, las.verbose)
 
-        # Orthonormal AO basis for frag_atom
         # For now, I WANT these to overlap for different atoms. That is why I am pretending that
         # self.s0 is block-diagonal (so that <*|f>.(<f|f>^-1).<f|*> ~> P_f <f|f> P_f).
-        ao_offset = self.mol.offset_ao_by_atom ()
-        frag_orb = [orb for atom in frag_atom
-                    for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
-        self.nao_frag = len (frag_orb)
-        ovlp_frag = self.s0[frag_orb,:][:,frag_orb] # <f|f> in the comment above
-        proj_oo = self.oo_coeff[frag_orb,:] # P_f . oo_coeff in the comment above
+        self.nao_frag = len (frag_orbs)
+        ovlp_frag = self.s0[frag_orbs,:][:,frag_orbs] # <f|f> in the comment above
+        proj_oo = self.oo_coeff[frag_orbs,:] # P_f . oo_coeff in the comment above
         s1 = proj_oo.conj ().T @ ovlp_frag @ proj_oo
         w, u = linalg.eigh (-s1) # negative: sort from largest to smallest
         self.frag_umat = u[:,:self.nao_frag]
 
-    def __call__(self, mo_coeff, dm1s, veff, fock1):
+
+    def __call__(self, mo_coeff, dm1s, veff, fock1, max_size='mid'):
         # TODO: how to handle active/active rotations
         self.log.info ("nmo = %d", mo_coeff.shape[1])
 
@@ -90,22 +90,44 @@ class LASImpurityOrbitalCallable (object):
         veff = veff_
         fock1 = mo @ fock1 @ mo.conj ().T
 
-        fo, eo = self._get_orthnorm_frag (mo)
-        self.log.info ("nfrag before gradorbs = %d", fo.shape[1])
-        fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1s)
-        nf = fo.shape[1]
-        self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
-        fo, eo = self._schmidt (fo, eo, mo)
-        self.log.info ("nfrag after schmidt = %d", fo.shape[1])
-        fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, 2*nf)
-        self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
-        nelec_fo = self._get_nelec_fo (fo, dm1s)
-        self.log.info ("nelec in fragment = %d, %d", nelec_fo[0], nelec_fo[1])
-        fo_coeff = self.oo_coeff @ fo
+        def build (max_size, fock1):
+            fo, eo = self._get_orthnorm_frag (mo)
+            self.log.info ("nfrag before gradorbs = %d", fo.shape[1])
+            if isinstance (max_size, str) and "small" in max_size.lower():
+                max_size = 2*fo.shape[1]
+            fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1s)
+            if self.do_gradorbs: self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
+            if isinstance (max_size, str) and "mid" in max_size.lower():
+                max_size = 2*fo.shape[1]
+            fo, eo = self._schmidt (fo, eo, mo)
+            self.log.info ("nfrag after schmidt = %d", fo.shape[1])
+            if isinstance (max_size, str) and "large" in max_size.lower():
+                max_size = 2*fo.shape[1]
+            if max_size < fo.shape[1]:
+                raise FragSizeError ("max_size of {} is too small".format (max_size))
+            fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, max_size)
+            self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
+            nelec_fo = self._get_nelec_fo (fo, dm1s)
+            self.log.info ("nelec in fragment = %d, %d", nelec_fo[0], nelec_fo[1])
+            nelec_eo = self._get_nelec_fo (eo, dm1s)
+            if nelec_eo[0] != nelec_eo[1]:
+                raise RuntimeError (str (abs (nelec_eo[0]-nelec_eo[1]))
+                                    + " singly-occupied unentangled core orbs detected")
+            self.log.info ("%d occupied and %d unoccupied inactive unentangled env orbs",
+                           nelec_eo[0], eo.shape[1] - nelec_eo[1])
+            fo_coeff = self.oo_coeff @ fo
+            return fo_coeff, nelec_fo
 
+        try:
+            fo_coeff, nelec_fo = build (max_size, fock1)
+        except FragSizeError as e:
+            self.log.warn (("Attempting to satisfy request for a smaller fragment by "
+                            "discarding gradient orbitals"))
+            with lib.temporary_env (self, do_gradorbs=False):
+                fo_coeff, nelec_fo = build (max_size, fock1)
         return fo_coeff, nelec_fo
 
-    def _get_orthnorm_frag (self, mo):
+    def _get_orthnorm_frag (self, mo, ovlp_tol=1e-4):
         '''Get an orthonormal basis spanning the union of the frag_idth active space and
         ao_coeff, projected orthogonally to all other active subspaces.
 
@@ -113,9 +135,16 @@ class LASImpurityOrbitalCallable (object):
             mo : ndarray of shape (nmo,nmo)
                 Contains MO coefficients in self.oo_coeff basis
 
+        Kwargs:
+            ovlp_tol : float
+                Minimimum singular value for a proposed fragment orbital to be included. Tighter
+                values of this tolerance lead to larger impurities with less-localized orbitals.
+                On the other hand, looser values may lead to impurity orbital spaces that don't
+                entirely span the requested AOs.
+
         Returns:
             fo : ndarray of shape (nmo,*)
-                Contains frag_idth active orbitals plus frag_orb approximately projected onto the
+                Contains frag_idth active orbitals plus frag_orbs approximately projected onto the
                 inactive/external space in self.oo_coeff basis
             eo : ndarray of shape (nmo,*)
                 Contains complementary part of the inactive/external space in self.oo_coeff basis
@@ -129,7 +158,7 @@ class LASImpurityOrbitalCallable (object):
         s1 = uo.conj ().T @ self.frag_umat
         u, svals, vh = linalg.svd (s1, full_matrices=True)
         idx = np.zeros (u.shape[1], dtype=np.bool_)
-        idx[:len(svals)][np.abs (svals)>1e-8] = True
+        idx[:len(svals)][np.abs (svals)>=ovlp_tol] = True
         fo = np.append (fo, uo @ u[:,idx], axis=-1)
 
         eo = uo @ u[:,~idx]
@@ -161,7 +190,7 @@ class LASImpurityOrbitalCallable (object):
                 Same as input, after an approximate step towards optimizing the active orbitals
         '''
         iGa = eo.conj ().T @ (fock1-fock1.T) @ fo[:,:self.nlas]
-        if not iGa.size: return fo, eo, fock1
+        if not (iGa.size and self.do_gradorbs): return fo, eo, fock1
         u, svals, vh = linalg.svd (iGa, full_matrices=True)
         fo = np.append (fo, eo @ u[:,:self.nlas] @ vh[:self.nlas,:], axis=1)
         eo = eo @ u[:,self.nlas:]
@@ -275,6 +304,7 @@ class LASImpurityOrbitalCallable (object):
         
         # Augment fo
         nadd = min (u.shape[1], ntarget-fo.shape[1])
+        assert (nadd>=0)
         fo = np.append (fo, eo[:,:nadd], axis=1)
         eo = eo[:,nadd:]
 
@@ -292,6 +322,56 @@ class LASImpurityOrbitalCallable (object):
         neleca = int (round (neleca))
         nelecb = int (round (nelecb))
         return neleca, nelecb
+
+def get_impurity_space_constructor (las, frag_id, frag_atoms=None, frag_orbs=None):
+    '''Construct an impurity subspace for a specific "fragment" of a LASSCF calculation defined
+    as the union of a set of trial orbitals for a particular localized active subspace and the
+    AO basis of a specified collection of atoms.
+
+    Args:
+        las : object of :class:`LASCINoSymm`
+            Mined for basic configuration info about the problem: `mole` object, _scf, ncore,
+            ncas_sub, with_df, mo_coeff. The last is copied at construction and should be any
+            othornormal basis (las.mo_coeff.conj ().T @ mol.get_ovlp () @ las.mo_coeff = a unit
+            matrix)
+        frag_id : integer or None
+            identifies which active subspace is associated with this fragment
+
+    Kwargs:
+        frag_atoms : list of integer
+            Atoms considered part of the fragment. All AOs associated with these atoms are appended
+            to frag_orbs.
+        frag_orbs : list of integer
+            Individual AOs considered part of this fragment. Combined with all AOs of frag_atoms.
+
+    Returns:
+        get_imporbs : callable
+            Args:
+                mo_coeff : ndarray of shape (nao,nmo)
+                    Contains MO coefficients
+                dm1s : ndarray of shape (2,nao,nao)
+                    State-averaged spin-separated 1-RDM in the AO basis
+                veff : ndarray of shape (2,nao,nao)
+                    State-averaged spin-separated effective potential in the AO basis
+                fock1 : ndarray of shape (nmo,nmo)
+                    First-order effective Fock matrix in the MO basis
+
+            Returns:
+                fo_coeff : ndarray of shape (nao, *)
+                    Orbitals defining an unentangled subspace containing the frag_idth set of
+                    active orbitals and frag_orbs
+                nelec_fo : 2-tuple of integers
+                    Number of electrons (spin-up, spin-down) in the impurity subspace
+    '''
+    if frag_orbs is None: frag_orbs = []
+    if frag_atoms is None: frag_atoms = []
+    if len (frag_atoms):
+        ao_offset = las.mol.offset_ao_by_atom ()
+        frag_orbs += [orb for atom in frag_atoms
+                      for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
+        frag_orbs = list (np.unique (frag_orbs))
+    assert (len (frag_orbs)), 'Must specify fragment orbitals'
+    return LASImpurityOrbitalCallable (las, frag_id, frag_orbs)
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
@@ -317,15 +397,8 @@ if __name__=='__main__':
     veff = mc.get_veff (dm1s=dm1s)
     fock1 = get_grad_orb (mc, hermi=0)
     ###########################
-    get_imporbs_0 = LASImpurityOrbitalCallable (mc, 0, frag_atom_list[0])
+    get_imporbs_0 = get_impurity_space_constructor (mc, 0, frag_atoms=frag_atom_list[0])
     fo_coeff, nelec_fo = get_imporbs_0 (mc.mo_coeff, dm1s, veff, fock1)
 
     from pyscf.tools import molden
     molden.from_mo (mol, __file__+'.molden', fo_coeff)
-
-
-
-
-
-
-

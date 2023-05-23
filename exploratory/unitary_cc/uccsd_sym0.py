@@ -127,6 +127,35 @@ def _projai_(norb, aidx, iidx, psi):
     return psi
 
 class FSUCCOperator (object):
+    ''' A callable unitary coupled cluster operator for spinless fermions
+    without number symmetry. The constructor lists the excitations considered.
+    The member functions set_uniq_amps_ and get_uniq_amps access the excitation
+    amplitudes.
+
+    Constructor Args:
+        norb : integer
+            Number of single-particle states
+        a_idxs : sequence of length ngen of sequences of integers
+        i_idxs : sequence of length ngen of sequences of integers
+            The operator consists of ngen generators. The kth generator
+            is T[a_idxs[k],i_idxs[k]] - T[i_idxs[k],a_idxs[k]], where 
+            T[p,q] removes len (q) electrons from states q and creates
+            len (p) electrons in states p.
+
+    Calling Args:
+        psi : ndarray of len (2**norb)
+            Fock-space CI vector
+
+    Calling Kwargs:
+        transpose : logical
+            If True, apply the transpose of the operator
+        inplace : logical
+            If True, modify psi in place
+
+    Calling Returns:
+        upsi : ndarray of len (2**norb)
+            Vector after unitary operator applied
+    '''
 
     def __init__(self, norb, a_idxs, i_idxs):
         self.norb = norb
@@ -259,11 +288,23 @@ class FSUCCOperator (object):
         return upsi
 
     def get_uniq_amps (self):
-        ''' subclass me to apply s**2 or irrep symmetries '''
+        ''' Amplitude getter
+
+        Returns:
+            x : ndarray of length ngen
+                Current amplitudes of each generator
+        '''
+        # subclass me to apply s**2 or irrep symmetries
         return self.amps.copy ()
 
     def set_uniq_amps_(self, x):
-        ''' subclass me to apply s**2 or irrep symmetries '''
+        ''' Amplitude setter
+
+        Args:
+            x : ndarray of length ngen
+                Amplitudes for each generator
+        '''
+        # subclass me to apply s**2 or irrep symmetries
         self.amps[:] = np.asarray (x)
         return self
     

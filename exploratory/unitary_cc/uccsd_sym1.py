@@ -56,7 +56,13 @@ def spincases (p_idxs, norb):
     return p_idxs, m
 
 class FSUCCOperator (uccsd_sym0.FSUCCOperator):
-    ''' A callable spin-adapted (Sz only) unrestricted coupled cluster
+    __doc__ = uccsd_sym0.FSUCCOperator.__doc__ + '\n\n\n' + \
+    ''' uccsd_sym1 child class:
+
+        THE MEANING OF CONSTRUCTOR ARGS a_idxs AND i_idxs IS *CHANGED* IN THIS
+        CHILD CLASS. READ THE BELOW CAREFULLY!!!!
+
+        A callable spin-adapted (Sz only) unitary coupled cluster
         operator. For single-excitation operators, spin-up and spin-down
         amplitudes are constrained to be equal. All spin cases for a given
         spatial-orbital excitation pattern (from i_idxs to a_idxs) are grouped
@@ -74,8 +80,13 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
         The spatial-orbital excitation patterns are applied to the ket in
         ascending order of their ordinal positions in the 'a_idxs' and 'i_idxs'
         lists provided to the constructor.
-    '''
 
+        Extra Constructor Kwargs:
+            s2sym : logical
+                Whether to apply partial S**2 symmetry (only implemented for
+                single excitations; higher-order excitations may still break
+                S**2 symmetry even if True).
+    '''
 
     def __init__(self, norb, a_idxs, i_idxs, s2sym=True):
         # Up to two equal indices in one generator are allowed
@@ -134,9 +145,21 @@ class FSUCCOperator (uccsd_sym0.FSUCCOperator):
             assert (np.sum (a//norb) == np.sum (i//norb)), errstr
 
     def get_uniq_amps (self):
+        ''' Amplitude getter
+
+        Returns:
+            x : ndarray of length ngen_uniq
+                Current amplitudes of each unique generator
+        '''
         return self.amps[self.uniq_gen_idx]
 
     def set_uniq_amps_(self, x):
+        ''' Amplitude setter
+
+        Args:
+            x : ndarray of length ngen_uniq
+                Amplitudes for each unique generator
+        '''
         for symrow, xi in zip (self.symtab, x):
             try:
                 self.amps[symrow] = xi
