@@ -3,11 +3,12 @@ from pyscf.fci import cistring
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf import symm, gto, scf, ao2mo, lib
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
-from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI
+from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf.lassi import lassi
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
+from mrh.util.la import matrix_svd_control_options
 from itertools import combinations
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg
@@ -1324,6 +1325,11 @@ class LASCINoSymm (casci.CASCI):
     las2cas_civec = las2cas_civec
     assert_no_duplicates = assert_no_duplicates
     get_init_guess_ci = get_init_guess_ci
+    localize_init_guess=lasscf_guess.localize_init_guess
+    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
+        if s is None: s = self._scf.get_ovlp ()
+        return matrix_svd_control_options (s, lspace=mo_lspace, rspace=mo_rspace, full_matrices=True)[:3]
+
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
@@ -1395,5 +1401,33 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym)
         return mo_coeff
         
+    @lib.with_doc(LASCINoSymm.localize_init_guess.__doc__)
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
+                             freeze_cas_spaces=False):
+        if mo_coeff is None:
+            mo_coeff = self.mo_coeff
+        mo_coeff = casci_symm.label_symmetry_(self, mo_coeff)
+        return LASCINoSymm.localize_init_guess (self, frags_atoms, mo_coeff=mo_coeff, spin=spin,
+            lo_coeff=lo_coeff, fock=fock, freeze_cas_spaces=freeze_cas_spaces)
 
-        
+    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
+        if s is None: s = self._scf.get_ovlp ()
+        lsymm = getattr (mo_lspace, 'orbsym', None)
+        if lsymm is None:
+            mo_lspace = symm.symmetrize_space (self.mol, mo_lspace)
+            lsymm = symm.label_orb_symm(self.mol, self.mol.irrep_id,
+                self.mol.symm_orb, mo_lspace, s=s)
+        rsymm = getattr (mo_rspace, 'orbsym', None)
+        if rsymm is None:
+            mo_rspace = symm.symmetrize_space (self.mol, mo_rspace)
+            rsymm = symm.label_orb_symm(self.mol, self.mol.irrep_id,
+                self.mol.symm_orb, mo_rspace, s=s)
+        decomp = matrix_svd_control_options (s,
+            lspace=mo_lspace, rspace=mo_rspace,
+            lspace_symmetry=lsymm, rspace_symmetry=rsymm,
+            full_matrices=True, strong_symm=True)
+        mo_lvecs, svals, mo_rvecs, lsymm, rsymm = decomp
+        mo_lvecs = lib.tag_array (mo_lvecs, orbsym=lsymm)
+        mo_rvecs = lib.tag_array (mo_rvecs, orbsym=rsymm)
+        return mo_lvecs, svals, mo_rvecs
+     

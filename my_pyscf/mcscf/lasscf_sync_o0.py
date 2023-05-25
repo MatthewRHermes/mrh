@@ -162,47 +162,11 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         assert (np.allclose (veff, veff_test))
         return veff
 
-    localize_init_guess=lasscf_guess.localize_init_guess
-
-    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
-        if s is None: s = self._scf.get_ovlp ()
-        return matrix_svd_control_options (s, lspace=mo_lspace, rspace=mo_rspace, full_matrices=True)[:3]
- 
 class LASSCFSymm (lasci.LASCISymm):
     _ugg = LASSCFSymm_UnitaryGroupGenerators    
     _hop = LASSCF_HessianOperator
     split_veff = LASSCFNoSymm.split_veff
     as_scanner = mc1step.as_scanner
-
-    @with_doc(LASSCFNoSymm.localize_init_guess.__doc__)
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
-                             freeze_cas_spaces=False):
-        if mo_coeff is None:
-            mo_coeff = self.mo_coeff
-        mo_coeff = casci_symm.label_symmetry_(self, mo_coeff)
-        return LASSCFNoSymm.localize_init_guess (self, frags_atoms, mo_coeff=mo_coeff, spin=spin,
-            lo_coeff=lo_coeff, fock=fock, freeze_cas_spaces=freeze_cas_spaces)
-
-    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
-        if s is None: s = self._scf.get_ovlp ()
-        lsymm = getattr (mo_lspace, 'orbsym', None)
-        if lsymm is None:
-            mo_lspace = symm.symmetrize_space (self.mol, mo_lspace)
-            lsymm = symm.label_orb_symm(self.mol, self.mol.irrep_id,
-                self.mol.symm_orb, mo_lspace, s=s)
-        rsymm = getattr (mo_rspace, 'orbsym', None)
-        if rsymm is None:
-            mo_rspace = symm.symmetrize_space (self.mol, mo_rspace)
-            rsymm = symm.label_orb_symm(self.mol, self.mol.irrep_id,
-                self.mol.symm_orb, mo_rspace, s=s)
-        decomp = matrix_svd_control_options (s,
-            lspace=mo_lspace, rspace=mo_rspace, 
-            lspace_symmetry=lsymm, rspace_symmetry=rsymm,
-            full_matrices=True, strong_symm=True)
-        mo_lvecs, svals, mo_rvecs, lsymm, rsymm = decomp
-        mo_lvecs = tag_array (mo_lvecs, orbsym=lsymm)
-        mo_rvecs = tag_array (mo_rvecs, orbsym=rsymm)
-        return mo_lvecs, svals, mo_rvecs
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):
