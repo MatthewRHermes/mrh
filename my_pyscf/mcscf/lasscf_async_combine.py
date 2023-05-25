@@ -2,11 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf.lo import orth
 from pyscf.scf.rohf import get_roothaan_fock
-
-def combine_o0 (las, kf2_list):
-    kf1 = orth_orb (las, kf2_list)
-    kf1 = relax (las, kf1)
-    return kf1
+from mrh.my_pyscf.mcscf import lasci_sync
 
 # TODO: symmetry
 def orth_orb (las, kf2_list):
@@ -61,4 +57,17 @@ def orth_orb (las, kf2_list):
     mo_coeff = np.concatenate ([mo_core, mo_cas, mo_virt], axis=1)
 
     return las.get_keyframe (mo_coeff, ci)
+
+def relax (las, kf):
+
+    converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci, h2eff_sub, veff = \
+        lasci_sync.kernel (self, kf.mo_coeff, ci0=kf.ci)
+
+    return las.get_keyframe (mo_coeff, ci)
+
+def combine_o0 (las, kf2_list):
+    kf1 = orth_orb (las, kf2_list)
+    kf1 = relax (las, kf1)
+    return kf1
+
 

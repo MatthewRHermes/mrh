@@ -1,7 +1,8 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
-from mrh.my_pyscf.mcscf import lasci
+from pyscf.mcscf import mc1step
+from mrh.my_pyscf.mcscf import lasci, lasscf_sync_o0
 from mrh.my_pyscf.mcscf.lasscf_async_crunch import get_impurity_casscf
 from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
 from mrh.my_pyscf.mcscf.lasscf_async_combine import combine_o0
@@ -65,6 +66,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         # 3. Combine from fragments
         kf1 = combine_o0 (las, kf2_list)
 
+        # Break if converged
 
 
 
@@ -72,10 +74,6 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     ###############################################################################################
     ################################### End actual kernel logic ###################################
     ###############################################################################################
-
-
-
-
 
     t1 = log.timer ('LASSCF {} macrocycles'.format (it), *t1)
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub,
@@ -105,17 +103,23 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     e_cas = None # TODO: get rid of this worthless, meaningless variable
     return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
 
-
+# TODO: Refactor localize_init_guess and _svd to be less silly
 class LASSCFNoSymm (lasci.LASCINoSymm):
+    localize_init_guess = lasscf_sync_o0.LASSCFNoSymm.localize_init_guess
+    _svd = lasscf_sync_o0.LASSCFNoSymm._svd
     get_grad_orb = lasci.get_grad_orb
     def get_keyframe (self, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci is None: ci=self.ci
         return LASKeyframe (self, mo_coeff, ci)
+    as_scanner = mc1step.as_scanner
 
 class LASSCFSymm (lasci.LASCISymm):
+    localize_init_guess = lasscf_sync_o0.LASSCFSymm.localize_init_guess
+    _svd = lasscf_sync_o0.LASSCFSymm._svd
     get_grad_orb = lasci.get_grad_orb
     get_keyframe = LASSCFNoSymm.get_keyframe
+    as_scanner = mc1step.as_scanner
 
 
 

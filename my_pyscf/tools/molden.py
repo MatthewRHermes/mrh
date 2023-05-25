@@ -39,6 +39,8 @@ def from_mcscf (mc, filename, ignore_h=IGNORE_H, cas_natorb=False):
         mo_coeff, ci, mo_energy = mc_can (sort=sort, cas_natorb=cas_natorb)
         mo_energy[ncore:nocc] = 0.0
         return mo_coeff, ci, mo_energy
-    with temporary_env (mc, canonicalize=no_active_ene):
+    mo_energy = mc.mo_energy.copy ()
+    mo_energy[ncore:nocc] = 0.0
+    with temporary_env (mc, canonicalize=no_active_ene, mo_energy=mo_energy):
         ret = pyscf_from_mcscf (mc, filename, ignore_h=IGNORE_H, cas_natorb=cas_natorb)
     return ret
