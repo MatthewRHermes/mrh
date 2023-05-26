@@ -1,4 +1,5 @@
 from pyscf.lib import temporary_env
+from pyscf.mcscf import StateAverageFCISolver, StateAverageMixFCISolver
 from pyscf.tools.molden import from_mo, IGNORE_H
 from pyscf.tools.molden import from_mcscf as pyscf_from_mcscf
 import numpy as np
@@ -7,7 +8,20 @@ def from_sa_mcscf (mc, fname, state=None, cas_natorb=False, cas_mo_energy=False,
     if state is None: 
         if cas_mo_energy: return pyscf_from_mcscf (mc, fname, cas_natorb=cas_natorb, **kwargs)
         else: return from_mcscf (mc, fname, cas_natorb=cas_natorb, **kwargs)
-    casdm1 = mc.fcisolver.states_make_rdm1 (mc.ci, mc.ncas, mc.nelecas)[state]
+    ci, nelecas = mc.ci[state], mc.nelecas
+    fcisolver = mc.fcisolver
+    if isinstance (fcisolver, StateAverageMixFCISolver):
+        p0 = 0
+        for s in fcisolver.fcisolvers:
+            p1 = p0 + s.nroots
+            if p0 <= state and state < p1:
+                nelecas = fcisolver._get_nelec (s, nelecas)
+                fcisolver = s
+                break
+            p0 = p1
+    elif isinstance (fcisolver, StateAverageFCISolver):
+        fcisolver = fcisolver._base_class (mc.mol)
+    casdm1 = fcisolver.make_rdm1 (ci, mc.ncas, nelecas)
     mo_coeff, mo_ci, mo_energy = mc.canonicalize (ci=mc.ci, cas_natorb=cas_natorb, casdm1=casdm1)
     if not cas_mo_energy:
         mo_energy[mc.ncore:][:mc.ncas] = 0.0
@@ -17,7 +31,7 @@ def from_sa_mcscf (mc, fname, state=None, cas_natorb=False, cas_mo_energy=False,
     mo_occ[:mc.ncore] = 2.0
     ci = [c.copy () for c in mc.ci]
     ci[state] = mo_ci[state]
-    mo_occ[mc.ncore:][:mc.ncas] = mc.fcisolver.states_make_rdm1 (ci, mc.ncas, mc.nelecas)[state].diagonal ()
+    mo_occ[mc.ncore:][:mc.ncas] = fcisolver.make_rdm1 (mo_ci[state], mc.ncas, nelecas).diagonal ()
     return from_mo (mc.mol, fname, mo_coeff, occ=mo_occ, ene=mo_energy, **kwargs)
 
 def from_si_mcscf (mc, fname, state=None, si=None, cas_natorb=False, cas_mo_energy=False, **kwargs):
