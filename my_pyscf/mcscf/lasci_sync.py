@@ -215,10 +215,11 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     if log.verbose > lib.logger.INFO:
         e_tot_test = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub,
                                   veff=veff, do_init_eri=False).e_tot
+    dm_core = 2 * mo_coeff[:,:las.ncore] @ mo_coeff[:,:las.ncore].conj ().T
     veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub,
                                         mo_coeff=mo_coeff, ci=ci1, _full=True)
                         for state in range (las.nroots)], axis=0)
-    veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, las.weights))/2
+    veff_c = las.get_veff (dm1s=dm_core)
     # veff's spin-summed component should be correct because I called get_veff with spin-summed rdm
     veff = veff_c[None,None,:,:] + veff_a 
     veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff, las.weights))
