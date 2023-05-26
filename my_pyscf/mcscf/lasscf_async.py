@@ -9,7 +9,7 @@ from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
 from mrh.my_pyscf.mcscf.lasscf_async_combine import combine_o0
 
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
-            assert_no_dupes=False, imporb_builders=None, verbose=lib.logger.NOTE):
+            assert_no_dupes=False, imporb_builders=None, verbose=lib.logger.NOTE, **kwargs):
     '''
     Kwargs:
         imporb_builders : callable of length nfrags
@@ -165,5 +165,20 @@ class LASSCFSymm (lasci.LASCISymm):
     as_scanner = mc1step.as_scanner
     set_fragments_ = LASSCFNoSymm.set_fragments_
 
+if __name__=='__main__':
+    from mrh.tests.lasscf.c2h6n4_struct import structure as struct
+    from pyscf import scf
+    mol = struct (1.0, 1.0, '6-31g', symmetry=False)
+    mol.verbose = 5
+    mol.output = 'lasscf_async_crunch.log'
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    las = LASSCFNoSymm (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
+    mo = las.set_fragments_((list (range (3)), list (range (9,12))), mf.mo_coeff)
+    las.state_average_(weights=[1,0,0,0,0],
+                       spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
+                       smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
+    las.conv_tol_grad = 1e-7
+    las.kernel (mo)
 
 

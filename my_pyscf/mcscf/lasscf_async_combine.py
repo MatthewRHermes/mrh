@@ -30,7 +30,7 @@ def orth_orb (las, kf2_list):
         proj.append (mo_cas_preorth[:,i:j] @ mo_cas_preorth[:,i:j].conj ().T)
     smo1 = s0 @ mo_coeff[:,ncore:nocc]
     frag_weights = np.stack ([((p @ smo1) * smo1.conjugate ()).sum (0)
-                              for p in proj, axis=-1)
+                              for p in proj], axis=-1)
     idx = np.argsort (frag_weights, axis=1)[:,-1]
     mo_las = []
     for ifrag in range (nfrags):

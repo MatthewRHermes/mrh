@@ -888,7 +888,7 @@ class LASCINoSymm (casci.CASCI):
         self.weights = self.fciboxes[0].weights
 
         self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, self.e_cas, \
-                self.ci, h2eff_sub, veff = _kern(self, mo_coeff, ci0=ci0, verbose=verbose, \
+                self.ci, h2eff_sub, veff = _kern(mo_coeff=mo_coeff, ci0=ci0, verbose=verbose, \
                 casdm0_fr=casdm0_fr, conv_tol_grad=conv_tol_grad, assert_no_dupes=assert_no_dupes)
 
         self._finalize ()
