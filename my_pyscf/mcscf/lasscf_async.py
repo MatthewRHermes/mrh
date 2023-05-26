@@ -54,12 +54,12 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     converged = False
     it = 0
     kf1 = kf0
-    impurities = [get_impurity_casscf (las, i) for i in range (nfrags)]
+    impurities = [get_impurity_casscf (las, i, imporb_builder=builder)
+                  for i, builder in enumerate (imporb_builders)]
     ugg = las.get_ugg ()
     for it in range (las.max_cycle_macro):
         # 1. Divide into fragments
-        for impurity, imporb_builder in zip (impurities, imporb_builders):
-            impurity._pull_keyframe_(kf1)
+        for impurity in impurities: impurity._pull_keyframe_(kf1)
 
         # 2. CASSCF on each fragment
         kf2_list = []
@@ -67,12 +67,18 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             impurity.kernel ()
             kf2_list.append (impurity._push_keyframe (kf1))
 
-        # 3. Combine from fragments
+        # 3. Combine from fragments. GRAND CHALLENGE: do this in smaller chunks instead of globally
         kf1 = combine_o0 (las, kf2_list)
 
-        # Break if converged
+        # Evaluate status and break if converged
+        e_tot = las.energy_nuc () + las.energy_elec (
+            mo_coeff=kf1.mo_coeff, ci=kf1.ci, h2eff=kf1.h2eff_sub, veff=kf1.veff)
         gvec = las.get_grad (ugg=ugg, kf=kf1)
-        if linalg.norm (gvec) < conv_tol_grad: break
+        norm_gvec = linalg.norm (gvec)
+        log.info ('LASSCF macro %d : E = %.15g ; |g| = %.15g', it, e_tot, norm_gvec)
+        if norm_gvec < conv_tol_grad:
+            converged = True
+            break
 
 
 
@@ -83,15 +89,15 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     ###############################################################################################
 
     mo_coeff, ci1, h2eff_sub, veff = kf1.mo_coeff, kf1.ci, kf1.h2eff_sub, kf1.veff
-    t1 = log.timer ('LASSCF {} macrocycles'.format (it), *t1)
+    t1 = log.timer ('LASSCF {} macrocycles'.format (it), *t0)
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub,
                                                  veff=veff)
     e_states = las.energy_nuc () + np.array (las.states_energy_elec (mo_coeff=mo_coeff, ci=ci1,
                                                                      h2eff=h2eff_sub, veff=veff))
     # This crap usually goes in a "_finalize" function
     log.info ('LASSCF %s after %d cycles', ('not converged', 'converged')[converged], it+1)
-    log.info ('LASSCF E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', e_tot,
-              norm_gorb, norm_gci, norm_gx)
+    log.info ('LASSCF E = %.15g ; |g| = %.15g', e_tot,
+              norm_gvec)
     t1 = log.timer ('LASSCF final energy', *t1)
     mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, veff=veff,
                                                                     h2eff_sub=h2eff_sub)
@@ -130,12 +136,11 @@ def get_grad (las, mo_coeff=None, ci=None, ugg=None, kf=None):
     h2eff_sub, h1eff_sub = kf.h2eff_sub, kf.h1eff_sub
 
     gorb = fock1 - fock1.T
-    gci = las.get_grad_ci (las, mo_coeff=mo_coeff, ci=ci, h1eff_sub=h1eff_sub, h2eff_sub=h2eff_sub,
+    gci = las.get_grad_ci (mo_coeff=mo_coeff, ci=ci, h1eff_sub=h1eff_sub, h2eff_sub=h2eff_sub,
                            veff=veff)
     return ugg.pack (gorb, gci)
 
 class LASSCFNoSymm (lasci.LASCINoSymm):
-    _lasci_class = lasci.LASCINoSymm
     _ugg = lasscf_sync_o0.LASSCF_UnitaryGroupGenerators
     _kern = kernel
     get_grad = get_grad
@@ -155,30 +160,60 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         if localize_init_guess:
             mo_coeff = self.localize_init_guess (frags_atoms, mo_coeff=mo_coeff, **kwargs) 
         return mo_coeff
-    
+    def _finalize(self):
+        log = lib.logger.new_logger (self, self.verbose)
+        nroots_prt = len (self.e_states)
+        if self.verbose <= lib.logger.INFO:
+            nroots_prt = min (nroots_prt, 100)
+        if nroots_prt < len (self.e_states):
+            log.info (("Printing a maximum of 100 state energies;"
+                       " increase self.verbose to see them all"))
+        if nroots_prt > 1:
+            log.info ("LASSCF state-average energy = %.15g", self.e_tot)
+            for i, e in enumerate (self.e_states):
+                log.info ("LASSCF state %d energy = %.15g", i, e)
+        else:
+            log.info ("LASSCF energy = %.15g", self.e_tot)
+        return
+
 class LASSCFSymm (lasci.LASCISymm):
-    _lasci_class = lasci.LASCISymm
     _ugg = lasscf_sync_o0.LASSCFSymm_UnitaryGroupGenerators
     _kern = kernel
+    _finalize = LASSCFNoSymm._finalize
     get_grad = get_grad
     get_keyframe = LASSCFNoSymm.get_keyframe
     as_scanner = mc1step.as_scanner
     set_fragments_ = LASSCFNoSymm.set_fragments_
+
+def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    from pyscf import gto, scf
+    if isinstance(mf_or_mol, gto.Mole):
+        mf = scf.RHF(mf_or_mol)
+    elif isinstance (mf_or_mol, scf.hf.SCF):
+        mf = mf_or_mol
+    else:
+        raise RuntimeError ("LASSCF constructor requires molecule or SCF instance")
+    if mf.mol.symmetry:
+        las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    else:
+        las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
+    if getattr (mf, 'with_df', None):
+        las = lasci.density_fit (las, with_df = mf.with_df)
+    return las
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h6n4_struct import structure as struct
     from pyscf import scf
     mol = struct (1.0, 1.0, '6-31g', symmetry=False)
     mol.verbose = 5
-    mol.output = 'lasscf_async_crunch.log'
+    mol.output = 'lasscf_async.log'
     mol.build ()
     mf = scf.RHF (mol).run ()
-    las = LASSCFNoSymm (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
+    las = LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
     mo = las.set_fragments_((list (range (3)), list (range (9,12))), mf.mo_coeff)
     las.state_average_(weights=[1,0,0,0,0],
                        spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],
                        smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
-    las.conv_tol_grad = 1e-7
     las.kernel (mo)
 
 

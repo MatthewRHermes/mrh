@@ -20,8 +20,8 @@ def orth_orb (las, kf2_list):
         ci.append (kf2.ci[ifrag])
     mo_cas_preorth = mo_coeff[:,ncore:nocc].copy ()
     s0 = las._scf.get_ovlp ()
-    mo_coeff[:,ncore:nocc] = orth.vec_lowdin (mo_cas_preorth, s=s0)
-
+    mo_cas = mo_coeff[:,ncore:nocc] = orth.vec_lowdin (mo_cas_preorth, s=s0)
+    
     # reassign orthonormalized active orbitals
     proj = []
     for ifrag in range (nfrags):
@@ -44,7 +44,7 @@ def orth_orb (las, kf2_list):
     
     # non-active orbitals
     mo1 = np.concatenate ([mo_cas, mo_coeff[:,:ncore], mo_coeff[:,nocc:]], axis=1)
-    mo1 = orth.vec_schimdt (mo1, s=s0)[:,ncas:]
+    mo1 = orth.vec_schmidt (mo1, s=s0)[:,ncas:]
     veff = sum ([kf2.veff for kf2 in kf2_list]) / nfrags
     dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / nfrags
     fock = las.get_hcore ()[None,:,:] + veff
@@ -60,11 +60,10 @@ def orth_orb (las, kf2_list):
 
 def relax (las, kf):
 
-    flas = las._lasci_class (las._scf, las._ncas_sub, las._nelecas_sub)
+    flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
     flas.__dict__.update (las.__dict__)
-    if isinstance (las, _DFLASCI): lasci.density_fit (flas)
-    converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci, h2eff_sub, veff = \
-        flas.kernel (self, kf.mo_coeff, ci0=kf.ci)
+    e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
+        flas.kernel (kf.mo_coeff, ci0=kf.ci)
     return las.get_keyframe (mo_coeff, ci)
 
 def combine_o0 (las, kf2_list):
