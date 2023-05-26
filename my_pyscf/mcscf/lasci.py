@@ -836,6 +836,8 @@ class LASCINoSymm (casci.CASCI):
 
     get_fock = get_fock
     get_grad = get_grad
+    get_grad_orb = get_grad_orb
+    get_grad_ci = get_grad_ci
     _hop = lasci_sync.LASCI_HessianOperator
     def get_hop (self, mo_coeff=None, ci=None, ugg=None, **kwargs):
         if mo_coeff is None: mo_coeff = self.mo_coeff

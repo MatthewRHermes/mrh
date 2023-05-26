@@ -8,7 +8,7 @@ class LASKeyframe (object):
         self.las = las
         self.mo_coeff = mo_coeff
         self.ci = ci
-        self._dm1s = self._veff = self._fock1 = self._h2eff_sub = None
+        self._dm1s = self._veff = self._fock1 = self._h1eff_sub = self._h2eff_sub = None
 
     @property
     def dm1s (self):
@@ -27,7 +27,7 @@ class LASKeyframe (object):
         if self._fock1 is None:
             self._fock1 = self.las.get_grad_orb (
                 mo_coeff=self.mo_coeff, ci=self.ci, h2eff_sub=self.h2eff_sub, veff=self.veff,
-                dm1s=self.dm1s)
+                dm1s=self.dm1s, hermi=0)
         return self._fock1
 
     @property
@@ -35,6 +35,13 @@ class LASKeyframe (object):
         if self._h2eff_sub is None:
             self._h2eff_sub = self.las.get_h2eff (self.mo_coeff)
         return self._h2eff_sub
+
+    @property
+    def h1eff_sub (self):
+        if self._h1eff_sub is None:
+            self._h1eff_sub = self.las.get_h1eff (self.mo_coeff, ci=self.ci, veff=self.veff,
+                h2eff_sub=self.h2eff_sub)
+        return self._h1eff_sub
 
     def copy (self):
         ''' MO coefficients deepcopy; CI vectors shallow copy. Everything else, drop. '''

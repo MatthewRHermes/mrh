@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib
 from pyscf.mcscf import mc1step
-from mrh.my_pyscf.mcscf import lasci
+from mrh.my_pyscf.mcscf import lasci, lasscf_sync_o0
 from mrh.my_pyscf.mcscf.lasscf_async_crunch import get_impurity_casscf
 from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
 from mrh.my_pyscf.mcscf.lasscf_async_combine import combine_o0
@@ -52,6 +52,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     it = 0
     kf1 = kf0
     impurities = [get_impurity_casscf (las, i) for i in range (nfrags)]
+    ugg = las.get_ugg ()
     for it in range (las.max_cycle_macro):
         # 1. Divide into fragments
         for impurity, imporb_builder in zip (impurities, imporb_builders):
@@ -67,8 +68,8 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         kf1 = combine_o0 (las, kf2_list)
 
         # Break if converged
-
-
+        gvec = las.get_grad (ugg=ugg, kf=kf1)
+        if linalg.norm (gvec) < conv_tol_grad: break
 
 
     ###############################################################################################
@@ -79,9 +80,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub,
                                                  veff=veff)
     # TODO: I'm guessing this is the only place anywhere that I insist on having an array like
-    # (nroots,2,nao,nao). That's bad and should be designed around, since nroots can get stupidly
-    # large and the matrices objectively cannot have more than ncas linearly-independent d.o.f.
-    # distinguishing them.
+    # (nroots,2,nao,nao). That's bad and should be designed around, since nroots can get large
     veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub,
                                         mo_coeff=mo_coeff, ci=ci1, _full=True)
                         for state in range (las.nroots)], axis=0)
@@ -103,9 +102,43 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     e_cas = None # TODO: get rid of this worthless, meaningless variable
     return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
 
-# TODO: Refactor localize_init_guess and _svd to be less silly
+def get_grad (las, mo_coeff=None, ci=None, ugg=None, kf=None):
+    '''Return energy gradient for orbital rotation and CI relaxation.
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+
+    Kwargs:
+        mo_coeff : ndarray of shape (nao,nmo)
+            Contains molecular orbitals
+        ci : list (length=nfrags) of list (length=nroots) of ndarray
+            Contains CI vectors
+        ugg : instance of :class:`LASCI_UnitaryGroupGenerators`
+        kf : instance of :class:`LASKeyframe`
+            Overrides mo_coeff and ci if provided and carries other intermediate
+            quantities that may have been calculated in advance
+
+    Returns:
+        gvec : ndarray of shape (ugg.nvar_tot)
+            Contains collapsed 1d gradient
+    '''
+    if mo_coeff is None: mo_coeff=las.mo_coeff
+    if ci is None: ci=las.ci
+    if ugg is None: ugg=las.get_ugg ()
+    if kf is None: kf=las.get_keyframe (mo_coeff, ci)
+    mo_coeff, ci = kf.mo_coeff, kf.ci
+    veff, fock1 = kf.veff, kf.fock1
+    h2eff_sub, h1eff_sub = kf.h2eff_sub, kf.h1eff_sub
+
+    gorb = fock1 - fock1.T
+    gci = las.get_grad_ci (las, mo_coeff=mo_coeff, ci=ci, h1eff_sub=h1eff_sub, h2eff_sub=h2eff_sub,
+                           veff=veff)
+    return ugg.pack (gorb, gci)
+
 class LASSCFNoSymm (lasci.LASCINoSymm):
-    get_grad_orb = lasci.get_grad_orb
+    _lasci_class = lasci.LASCINoSymm
+    _ugg = lasscf_sync_o0.LASSCF_UnitaryGroupGenerators
+    get_grad = get_grad
     def get_keyframe (self, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci is None: ci=self.ci
@@ -113,7 +146,9 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
     as_scanner = mc1step.as_scanner
 
 class LASSCFSymm (lasci.LASCISymm):
-    get_grad_orb = lasci.get_grad_orb
+    _lasci_class = lasci.LASCISymm
+    _ugg = lasscf_sync_o0.LASSCFSymm_UnitaryGroupGenerators
+    get_grad = get_grad
     get_keyframe = LASSCFNoSymm.get_keyframe
     as_scanner = mc1step.as_scanner
 

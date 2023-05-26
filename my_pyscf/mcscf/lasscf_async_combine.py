@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf.lo import orth
 from pyscf.scf.rohf import get_roothaan_fock
-from mrh.my_pyscf.mcscf import lasci_sync
+from mrh.my_pyscf.mcscf import lasci, _DFLASCI
 
 # TODO: symmetry
 def orth_orb (las, kf2_list):
@@ -60,9 +60,11 @@ def orth_orb (las, kf2_list):
 
 def relax (las, kf):
 
+    flas = las._lasci_class (las._scf, las._ncas_sub, las._nelecas_sub)
+    flas.__dict__.update (las.__dict__)
+    if isinstance (las, _DFLASCI): lasci.density_fit (flas)
     converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci, h2eff_sub, veff = \
-        lasci_sync.kernel (self, kf.mo_coeff, ci0=kf.ci)
-
+        flas.kernel (self, kf.mo_coeff, ci0=kf.ci)
     return las.get_keyframe (mo_coeff, ci)
 
 def combine_o0 (las, kf2_list):
