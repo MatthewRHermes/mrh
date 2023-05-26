@@ -3,6 +3,7 @@ from scipy import linalg
 from pyscf import lib
 from pyscf.mcscf import mc1step
 from mrh.my_pyscf.mcscf import lasci, lasscf_sync_o0
+from mrh.my_pyscf.mcscf.lasscf_async_split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async_crunch import get_impurity_casscf
 from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
 from mrh.my_pyscf.mcscf.lasscf_async_combine import combine_o0
@@ -29,12 +30,14 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if assert_no_dupes: las.assert_no_duplicates ()
+    h2eff_sub = las.get_h2eff (mo_coeff)
     if (ci0 is None or any ([c is None for c in ci0]) or
       any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
         ci0 = las.get_init_guess_ci (mo_coeff, h2eff_sub, ci0)
     if (ci0 is None or any ([c is None for c in ci0]) or
       any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
         raise RuntimeError ("failed to populate get_init_guess")
+    if imporb_builders is None: imporb_builders = getattr (las, '_imporb_builders', None)
     nfrags = len (las.ncas_sub)
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
@@ -72,21 +75,17 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         if linalg.norm (gvec) < conv_tol_grad: break
 
 
+
+
+
     ###############################################################################################
     ################################### End actual kernel logic ###################################
     ###############################################################################################
 
+    mo_coeff, ci1, h2eff_sub, veff = kf1.mo_coeff, kf1.ci, kf1.h2eff_sub, kf1.veff
     t1 = log.timer ('LASSCF {} macrocycles'.format (it), *t1)
     e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, ci=ci1, h2eff=h2eff_sub,
                                                  veff=veff)
-    # TODO: I'm guessing this is the only place anywhere that I insist on having an array like
-    # (nroots,2,nao,nao). That's bad and should be designed around, since nroots can get large
-    veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub,
-                                        mo_coeff=mo_coeff, ci=ci1, _full=True)
-                        for state in range (las.nroots)], axis=0)
-    veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, las.weights))/2
-    veff = veff_c[None,None,:,:] + veff_a
-    veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff, las.weights))
     e_states = las.energy_nuc () + np.array (las.states_energy_elec (mo_coeff=mo_coeff, ci=ci1,
                                                                      h2eff=h2eff_sub, veff=veff))
     # This crap usually goes in a "_finalize" function
@@ -94,7 +93,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     log.info ('LASSCF E = %.15g ; |g_int| = %.15g ; |g_ci| = %.15g ; |g_ext| = %.15g', e_tot,
               norm_gorb, norm_gci, norm_gx)
     t1 = log.timer ('LASSCF final energy', *t1)
-    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, veff=veff.sa,
+    mo_coeff, mo_energy, mo_occ, ci1, h2eff_sub = las.canonicalize (mo_coeff, ci1, veff=veff,
                                                                     h2eff_sub=h2eff_sub)
     t1 = log.timer ('LASSCF canonicalization', *t1)
     t0 = log.timer ('LASSCF kernel function', *t0)
@@ -138,20 +137,33 @@ def get_grad (las, mo_coeff=None, ci=None, ugg=None, kf=None):
 class LASSCFNoSymm (lasci.LASCINoSymm):
     _lasci_class = lasci.LASCINoSymm
     _ugg = lasscf_sync_o0.LASSCF_UnitaryGroupGenerators
+    _kern = kernel
     get_grad = get_grad
     def get_keyframe (self, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci is None: ci=self.ci
         return LASKeyframe (self, mo_coeff, ci)
     as_scanner = mc1step.as_scanner
-
+    def set_fragments_(self, frags_atoms=None, mo_coeff=None, localize_init_guess=True,
+                       **kwargs):
+        # TODO: frags_orbs (requires refactoring localize_init_guess)
+        self._imporb_builders = [
+            get_impurity_space_constructor (self, i, frag_atoms=frag_atoms)
+            for i, frag_atoms in enumerate (frags_atoms)
+        ]
+        if mo_coeff is None: mo_coeff=self.mo_coeff
+        if localize_init_guess:
+            mo_coeff = self.localize_init_guess (frags_atoms, mo_coeff=mo_coeff, **kwargs) 
+        return mo_coeff
+    
 class LASSCFSymm (lasci.LASCISymm):
     _lasci_class = lasci.LASCISymm
     _ugg = lasscf_sync_o0.LASSCFSymm_UnitaryGroupGenerators
+    _kern = kernel
     get_grad = get_grad
     get_keyframe = LASSCFNoSymm.get_keyframe
     as_scanner = mc1step.as_scanner
-
+    set_fragments_ = LASSCFNoSymm.set_fragments_
 
 
 
