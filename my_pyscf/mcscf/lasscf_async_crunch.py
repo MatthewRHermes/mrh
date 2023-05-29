@@ -269,11 +269,10 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         u, svals, vh = linalg.svd (ovlp, full_matrices=True)
         svals = np.append (svals, np.zeros (u.shape[1]-len(svals)))
         assert (nvirt_unent==0 or np.amax (np.abs (svals[-nvirt_unent:]))<1e-8)
-        if nvirt_unent>0: kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
-        kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
-        
-        # Canonicalize unentangled virtual orbitals
         if nvirt_unent>0:
+            kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
+            kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
+            # Canonicalize unentangled virtual orbitals
             mo_a = kf2.mo_coeff[:,-nvirt_unent:]
             f0_ab = mo_a.conj ().T @ f0 @ mo_a
             w, u = linalg.eigh (f0_ab)
