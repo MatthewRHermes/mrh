@@ -57,6 +57,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     impurities = [get_impurity_casscf (las, i, imporb_builder=builder)
                   for i, builder in enumerate (imporb_builders)]
     ugg = las.get_ugg ()
+    # GRAND CHALLENGE: replace rigid algorithm below with dynamic task scheduling
     for it in range (las.max_cycle_macro):
         # 1. Divide into fragments
         for impurity in impurities: impurity._pull_keyframe_(kf1)
@@ -67,7 +68,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             impurity.kernel ()
             kf2_list.append (impurity._push_keyframe (kf1))
 
-        # 3. Combine from fragments. GRAND CHALLENGE: do this in smaller chunks instead of globally
+        # 3. Combine from fragments. TODO: smaller chunks instead of one whole-molecule function
         kf1 = combine_o0 (las, kf2_list)
 
         # Evaluate status and break if converged
