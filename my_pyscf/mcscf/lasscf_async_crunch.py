@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, mcscf, ao2mo, lib, df
@@ -625,7 +626,10 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         return g_orb, my_gorb_update, my_h_op, h_diag
 
 def get_impurity_casscf (las, ifrag, imporb_builder=None):
-    imol = ImpurityMole (las)
+    output = getattr (las.mol, 'output', None)
+    # MRH: checking for '/dev/null' specifically as a string is how mol.build does it
+    if not ((output is None) or (output=='/dev/null')): output += '.{}'.format (ifrag)
+    imol = ImpurityMole (las, output=output)
     imf = ImpurityHF (imol)
     if isinstance (las, _DFLASCI):
         imf = imf.density_fit ()
@@ -634,6 +638,8 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
         imc = df.density_fit (imc)
     imc = _state_average_mcscf_solver (imc, las.fciboxes[ifrag])
     imc._ifrag = ifrag
+    if imporb_builder is not None:
+        imporb_builder.log = logger.new_logger (imc, imc.verbose)
     imc._imporb_builder = imporb_builder
     return imc
 
