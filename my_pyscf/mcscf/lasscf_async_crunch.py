@@ -6,7 +6,7 @@ from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import _state_average_mcscf_solver
 from mrh.my_pyscf.mcscf import _DFLASCI
-import copy
+import copy, json
 
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
@@ -35,6 +35,54 @@ class ImpurityMole (gto.Mole):
     def get_imporb_coeff (self): return self._imporb_coeff
     def nao_nr (self, *args, **kwargs): return self._imporb_coeff.shape[-1]
     def nao (self): return self._imporb_coeff.shape[-1]
+    def dumps (mol):
+        '''Subclassing this to eliminate annoying warning message
+        '''
+        exclude_keys = set(('output', 'stdout', '_keys',
+                            # Constructing in function loads
+                            'symm_orb', 'irrep_id', 'irrep_name',
+                            # LASSCF hook to rest of molecule
+                            '_las'))
+        nparray_keys = set(('_atm', '_bas', '_env', '_ecpbas',
+                            '_symm_orig', '_symm_axes',
+                            # Definition of fragment in LASSCF context
+                            '_imporb_coeff'))
+
+        moldic = dict(mol.__dict__)
+        for k in exclude_keys:
+            if k in moldic:
+                del (moldic[k])
+        for k in nparray_keys:
+            if isinstance(moldic[k], np.ndarray):
+                moldic[k] = moldic[k].tolist()
+        moldic['atom'] = repr(mol.atom)
+        moldic['basis']= repr(mol.basis)
+        moldic['ecp' ] = repr(mol.ecp)
+
+        try:
+            return json.dumps(moldic)
+        except TypeError:
+            def skip_value(dic):
+                dic1 = {}
+                for k,v in dic.items():
+                    if (v is None or
+                        isinstance(v, (str, unicode, bool, int, float))):
+                        dic1[k] = v
+                    elif isinstance(v, (list, tuple)):
+                        dic1[k] = v   # Should I recursively skip_vaule?
+                    elif isinstance(v, set):
+                        dic1[k] = list(v)
+                    elif isinstance(v, dict):
+                        dic1[k] = skip_value(v)
+                    else:
+                        msg =('Function mol.dumps drops attribute %s because '
+                              'it is not JSON-serializable' % k)
+                        assert (False)
+                        warnings.warn(msg)
+                return dic1
+            return json.dumps(skip_value(moldic), skipkeys=True)
+
+
 
 class ImpuritySCF (scf.hf.SCF):
 
