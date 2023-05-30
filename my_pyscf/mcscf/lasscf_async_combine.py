@@ -1,5 +1,7 @@
+import os
 import numpy as np
 from scipy import linalg
+from pyscf import lib
 from pyscf.lo import orth
 from pyscf.scf.rohf import get_roothaan_fock
 from mrh.my_pyscf.mcscf import lasci, _DFLASCI
@@ -60,8 +62,26 @@ def orth_orb (las, kf2_list):
 
 def relax (las, kf):
 
+    flas_stdout = getattr (las, '_flas_stdout', None)
+    if flas_stdout is None:
+        output = getattr (las.mol, 'output', None)
+        if not ((output is None) or (output=='/dev/null')):
+            flas_output = output + '.flas'
+            if las.verbose > lib.logger.QUIET:
+                if os.path.isfile (flas_output):
+                    print('overwrite output file: %s' % flas_output)
+                else:
+                    print('output file: %s' % flas_output)
+            flas_stdout = open (flas_output, 'w')
+            las._flas_stdout = flas_stdout
+        else:
+            flas_stdout = las.stdout
     flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
     flas.__dict__.update (las.__dict__)
+    flas.stdout = flas.fcisolver.stdout = flas_stdout
+    for fcibox in flas.fciboxes:
+        fcibox.stdout = flas_stdout
+        for fcisolver in fcibox.fcisolvers: fcisolver.stdout = flas_stdout
     e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
         flas.kernel (kf.mo_coeff, ci0=kf.ci)
     return las.get_keyframe (mo_coeff, ci)
