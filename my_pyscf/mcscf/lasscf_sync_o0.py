@@ -155,11 +155,14 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         veff_b = veff_c - veff_s
         veff = np.stack ([veff_a, veff_b], axis=0)
         return veff
+    def dump_flags (self, verbose=None, _method_name='LASSCF'):
+        lasci.LASCINoSymm.dump_flags (self, verbose=verbose, _method_name=_method_name)
 
 class LASSCFSymm (lasci.LASCISymm):
     _ugg = LASSCFSymm_UnitaryGroupGenerators    
     _hop = LASSCF_HessianOperator
     split_veff = LASSCFNoSymm.split_veff
+    dump_flags = LASSCFNoSymm.dump_flags
     as_scanner = mc1step.as_scanner
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):

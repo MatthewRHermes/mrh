@@ -162,6 +162,8 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         if localize_init_guess:
             mo_coeff = self.localize_init_guess (frags_atoms, mo_coeff=mo_coeff, **kwargs) 
         return mo_coeff
+    def dump_flags (self, verbose=None, _method_name='LASSCF'):
+        lasci.LASCINoSymm.dump_flags (self, verbose=verbose, _method_name=_method_name)
     def _finalize(self):
         log = lib.logger.new_logger (self, self.verbose)
         nroots_prt = len (self.e_states)
@@ -186,6 +188,7 @@ class LASSCFSymm (lasci.LASCISymm):
     get_keyframe = LASSCFNoSymm.get_keyframe
     as_scanner = mc1step.as_scanner
     set_fragments_ = LASSCFNoSymm.set_fragments_
+    dump_flags = LASSCFNoSymm.dump_flags
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     from pyscf import gto, scf

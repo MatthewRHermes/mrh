@@ -271,6 +271,12 @@ def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None)
 # This is the really tricky part
 class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
+    # make sure the fcisolver flag dump goes to the fragment output file,
+    # not the main output file
+    def dump_flags (self, verbose=None):
+        with lib.temporary_env (self.fcisolver, stdout=self.stdout):
+            mcscf.mc1step.CASSCF.dump_flags(self, verbose=verbose)
+
     def _push_keyframe (self, kf1, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci is None: ci=self.ci

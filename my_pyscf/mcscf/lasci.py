@@ -1343,6 +1343,25 @@ class LASCINoSymm (casci.CASCI):
         if s is None: s = self._scf.get_ovlp ()
         return matrix_svd_control_options (s, lspace=mo_lspace, rspace=mo_rspace, full_matrices=True)[:3]
 
+    def dump_flags (self, verbose=None, _method_name='LASCI'):
+        log = lib.logger.new_logger (self, verbose)
+        log.info ('')
+        log.info ('******** %s flags ********', _method_name)
+        ncore = self.ncore
+        ncas = self.ncas
+        nvir = self.mo_coeff.shape[1] - ncore - ncas
+        nfrags = len (self.nelecas_sub)
+        log.info ('CAS (%de+%de, %do), ncore = %d, nvir = %d',
+                  self.nelecas[0], self.nelecas[1], ncas, ncore, nvir)
+        log.info ('Divided into %d LAS spaces', nfrags)
+        for i, (no, ne) in enumerate (zip (self.ncas_sub, self.nelecas_sub)):
+            log.info ('LAS %d : (%de+%de, %do)', i, ne[0], ne[1], no)
+        log.info ('nroots = %d', self.nroots)
+        log.info ('max_memory %d (MB)', self.max_memory)
+        for i, fcibox in enumerate (self.fciboxes):
+            if getattr (fcibox, 'dump_flags', None):
+                log.info ('fragment %d FCI solver flags:', i)
+                fcibox.dump_flags (log.verbose)
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
@@ -1360,7 +1379,8 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     make_rdm1s = LASCINoSymm.make_rdm1s
     make_rdm1 = LASCINoSymm.make_rdm1
     get_veff = LASCINoSymm.get_veff
-    get_h1eff = get_h1cas = h1e_for_cas 
+    get_h1eff = get_h1cas = h1e_for_cas
+    dump_flags = LASCINoSymm.dump_flags
     _ugg = lasci_sync.LASCISymm_UnitaryGroupGenerators
 
     @property
