@@ -16,14 +16,6 @@ except ImportError:
 
 class _LASPDFT(_PDFT):
     'MC-PDFT energy for a LASSCF wavefunction'
-    _mc_class = _PDFT._mc_class
-    def __init__(self, scf, ncas, nelecas, my_ot=None, grids_level=None,
-            grids_attr=None, **kwargs):
-
-        del _PDFT.optimize_mcscf_, _PDFT.kernel
-        _PDFT.__init__(self, scf, ncas, nelecas, my_ot)
-        self.e_mcscf = copy.deepcopy(self.e_tot)
-        self.e_states = copy.deepcopy(self.e_states)
         
     def get_h2eff(self, mo_coeff=None):
         'Compute the active space two-particle Hamiltonian.'
@@ -41,16 +33,6 @@ class _LASPDFT(_PDFT):
                                 max_memory=self.max_memory)
         return eri
 
-    def make_casdm1s_wrapper(self, ci=None, state=None, **kwargs):
-       ''' Make the full-dimensional casdm1s spanning the collective active space '''
-       if ci is None: ci = self.ci
-       if state is None: state = self.state 
-       casdm1s_sub = self.make_casdm1s_sub (**kwargs)
-       casdm1a = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
-       casdm1b = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
-       return np.stack ([casdm1a, casdm1b], axis=0)
-    
-
 def get_mcpdft_child_class(mc, ot, **kwargs):
     mc_doc = (mc.__class__.__doc__ or 'No docstring for MC-SCF parent method')
    
@@ -61,15 +43,15 @@ def get_mcpdft_child_class(mc, ot, **kwargs):
         def get_h2eff(self, mo_coeff=None):
             if self._in_mcscf_env: return mc.__class__.get_h2eff(self, mo_coeff=mo_coeff)
             else: return _LASPDFT.get_h2eff(self, mo_coeff=mo_coeff)
-        
-        def make_one_casdm1s(self, ci=None, state=None, **kwargs):
-             if not self._in_mcscf_env:
-                 return _LASPDFT.make_casdm1s_wrapper(self, ci=ci, state=state, **kwargs)
 
-        def make_one_casdm2(self, ci=None, state=None, **kwargs):
-            if not self._in_mcscf_env:
-                return self.make_casdm2(ci=ci, state=state, **kwargs)
+        # TODO: in pyscf-forge/pyscf/mcpdft/_dms.py::make_one_casdm1s, make "ci" arg a kwarg
+        # Then the redefinition below wil be unnecessary
+        def make_one_casdm1s (self, ci, state=None):
+            return mc.__class__.make_casdm1s (self, ci=ci, state=state)
+        make_one_casdm2=mc.__class__.make_casdm2
         
+        # TODO: in pyscf-forge/pyscf/mcpdft/mcpdft.py::optimize_mcscf_, generalize the number
+        # of return arguments. Then the redefinition below will be unnecessary
         def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
             '''Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
             Has the same calling signature as the parent kernel method. '''
@@ -78,14 +60,6 @@ def get_mcpdft_child_class(mc, ot, **kwargs):
                     self._mc_class.kernel(self, mo_coeff, ci0=ci0, **kwargs)[:-2]
             return self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
     
-        def kernel(self, mo_coeff=None, ci0=None, otxc=None, grids_attr=None,
-                    grids_level=None, **kwargs):
-            self.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0, **kwargs)
-            self.compute_pdft_energy_(otxc=otxc, grids_attr=grids_attr,
-                                      grids_level=grids_level, **kwargs)
-            return (self.e_tot, self.e_ot, self.e_mcscf, self.e_cas, self.ci,
-                self.mo_coeff, self.mo_energy)
-
     pdft = PDFT(mc._scf, mc.ncas_sub, mc.nelecas_sub, my_ot=ot, **kwargs)
 
     _keys = pdft._keys.copy()

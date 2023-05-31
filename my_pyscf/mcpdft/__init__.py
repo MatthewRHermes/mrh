@@ -50,8 +50,8 @@ CASCI=CASCIPDFT
 
 
 # LAS-PDFT
-def _laspdftEnergy(mc_class, mc_or_mf_or_mol,  ot, ncas_sub, nelecas_sub, ncore = None, spin_sub = None, frozen = None, frags_atoms =None, mo_coeff=None,spin=None, lo_coeff=None, fock=None,
-                             freeze_cas_spaces=False, **kwargs):
+def _laspdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, ncore=None, spin_sub=None,
+                   frozen=None, **kwargs):
 
     if isinstance (mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)):
         mc0 = mc_or_mf_or_mol
@@ -67,11 +67,6 @@ def _laspdftEnergy(mc_class, mc_or_mf_or_mol,  ot, ncas_sub, nelecas_sub, ncore 
     if frozen is not None: mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub = spin_sub, frozen=frozen)
     else:  mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub = spin_sub)
     
-    if mc0 is None:
-        assert(frags_atoms is not None)
-        mc1.mo_coeff = mc1.localize_init_guess(frags_atoms, mo_coeff=mo_coeff, spin=spin, lo_coeff=lo_coeff, fock=fock,
-                             freeze_cas_spaces=freeze_cas_spaces)
-   
     from mrh.my_pyscf.mcpdft.laspdft import get_mcpdft_child_class
     mc2 = get_mcpdft_child_class (mc1, ot, **kwargs)
 
@@ -82,11 +77,11 @@ def _laspdftEnergy(mc_class, mc_or_mf_or_mol,  ot, ncas_sub, nelecas_sub, ncore 
 
     return mc2
  
-def LASSCFPDFT( mc_or_mf_or_mol,  ot, ncas_sub, nelecas_sub, ncore=None, spin_sub=None, frozen=None, frags_atoms=None,  mo_coeff=None, spin = None, lo_coeff=None, fock=None,
-                             freeze_cas_spaces=False, **kwargs):
+def LASSCFPDFT(mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, ncore=None, spin_sub=None, frozen=None,
+               **kwargs):
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-    return _laspdftEnergy(LASSCF,  mc_or_mf_or_mol,  ot, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub, frozen=frozen, frags_atoms=frags_atoms,mo_coeff=mo_coeff, spin=spin, lo_coeff=lo_coeff, fock=fock,
-                             freeze_cas_spaces=freeze_cas_spaces, **kwargs)
+    return _laspdftEnergy(LASSCF,  mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, ncore=ncore,
+                          spin_sub=spin_sub, frozen=frozen, **kwargs)
 
 LASSCF = LASSCFPDFT
 
