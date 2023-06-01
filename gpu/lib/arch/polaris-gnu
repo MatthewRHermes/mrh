@@ -1,3 +1,5 @@
+INSTALL = ../lib
+
 FC = ftn
 FCFLAGS = -g -O3
 #FCFLAGS += -D_SINGLE_PRECISION
