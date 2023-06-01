@@ -857,7 +857,7 @@ class LASCINoSymm (casci.CASCI):
                        " increase self.verbose to see them all"))
         if nroots_prt > 1:
             log.info ("LASCI state-average energy = %.15g", self.e_tot)
-            for i, e in enumerate (self.e_states):
+            for i, e in enumerate (self.e_states[:nroots_prt]):
                 log.info ("LASCI state %d energy = %.15g", i, e)
         else:
             log.info ("LASCI energy = %.15g", self.e_tot)
