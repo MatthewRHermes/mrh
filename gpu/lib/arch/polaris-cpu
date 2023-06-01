@@ -1,4 +1,4 @@
-INSTALL = /lus/grand/projects/catalyst/proj-shared/knight/projects/Jasper/mini_dint/
+INSTALL = ../lib
 
 FC = ftn
 FCFLAGS = -g -O3 -mp
