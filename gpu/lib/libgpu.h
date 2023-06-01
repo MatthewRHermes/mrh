@@ -22,6 +22,10 @@ extern "C"
 
   void libgpu_setup(void *, py::array_t<double>, int);
   double libgpu_compute(void *, py::array_t<double>);
+
+  void libgpu_compute_df_get_jk(void *, py::array_t<double>);
+  void libgpu_orbital_response(void *, int, py::array_t<double>);
+  
 }
 
 
@@ -37,6 +41,9 @@ PYBIND11_MODULE(libgpu, m) {
   
   m.def("libgpu_setup", &libgpu_setup, "setup data structs on device");
   m.def("libgpu_compute", &libgpu_compute, "compute something useful on device");
+
+  m.def("libgpu_compute_df_get_jk", &libgpu_compute_df_get_jk, "pyscf/df/df_jk.py::get_jk()");
+  m.def("libgpu_orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
 }
 
 #endif
