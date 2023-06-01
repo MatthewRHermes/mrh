@@ -10,6 +10,9 @@ from pyscf.lo import orth
 from pyscf.lib import tag_array, with_doc, logger
 from functools import partial
 
+# CHRIS: need a cleaner way of doing this
+import libgpu
+
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than
 # CASSCF. Eventually to be modified into a true all-PySCF implementation of vLASSCF
@@ -100,12 +103,16 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
     def orbital_response (self, kappa, odm1s, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Parent class does everything except va/ac degrees of freedom
         (c: closed; a: active; v: virtual; p: any) '''
+        print("Inside lasscf_sync_o0.py::LASSCF_HessianOperator::orbital_response() w/ use_gpu= ", self.las.use_gpu)
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         gorb = lasci_sync.LASCI_HessianOperator.orbital_response (self, kappa, odm1s,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         # (H.x_va)_pp, (H.x_ac)_pp sector
+        print("shape(ppaa)= ", self.cas_type_eris.ppaa.shape)
+        libgpu.libgpu_orbital_response(self.las.use_gpu, self.nmo, self.cas_type_eris.ppaa)
         for p, f1 in enumerate (f1_prime):
+            print("p= ", p, "f1= ", f1)
             praa = self.cas_type_eris.ppaa[p]
             para = self.cas_type_eris.papa[p]
             paaa = praa[ncore:nocc]
@@ -114,7 +121,9 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
             # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbcr d_qbcr (Relabel)
             #                                                 g_pbrc        (Symmetry of eri)
             # g_pcba d_abcq + g_prab d_abqr + g_parc d_aqcr + g_pbrc d_qbcr (Final)
+            print("  i= 0, ", ncore, "  j= ", nocc, ",", nmo, "  shape(praa)= ", praa.shape, "  shape(para)= ", para.shape, " shape(paaa)= ", paaa.shape)
             for i, j in ((0, ncore), (nocc, nmo)): # Don't double-count
+                print("     i= ", i, " j= ", j, "shape(praa[i:j])= ", praa[i:j].shape)
                 ra, ar, cm = praa[i:j], para[:,i:j], ocm2[:,:,:,i:j]
                 f1[i:j] += np.tensordot (paaa, cm, axes=((0,1,2),(2,1,0))) # last index external
                 f1[ncore:nocc] += np.tensordot (ra, cm, axes=((0,1,2),(3,0,1))) # third index external

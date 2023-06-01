@@ -27,10 +27,15 @@ from pyscf.lib import logger
 from pyscf.ao2mo import _ao2mo
 from gpu4pyscf.lib.utils import patch_cpu_kernel
 
+import libgpu
+
 DEBUG = False
 
 def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
-    print(" -- -- Inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk()")
+    print(" -- -- Inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk() w/ use_gpu= ", dfobj.mol.use_gpu, " with_jk= ", with_j, with_k)
+    gpu = dfobj.mol.use_gpu
+    #libgpu.libgpu_dev_properties(gpu, 1)
+    
     assert (with_j or with_k)
     if (not with_k and not dfobj.mol.incore_anyway and
         # 3-center integral tensor is not initialized
@@ -115,13 +120,26 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         max_memory = dfobj.max_memory - lib.current_memory()[0]
         blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
         buf = numpy.empty((2,blksize,nao,nao))
+        
         for eri1 in dfobj.loop(blksize):
-            naux, nao_pair = eri1.shape
+            naux, nao_pair = eri1.shape            
+            print("naux= ", naux, "  nao_pair= ",nao_pair, "  nset= ", nset)
+            
+            print("dmtril.shape()= ", dmtril.shape)
+            print("dmtril[0][0:4]= ", dmtril[0][0:4])
+            print("eri1.shape()= ", eri1.shape)
+            print("eri1[0][0:4]= ", eri1[0][0:4])
+            print("eri1[1][0:4]= ", eri1[1][0:4])
+
+            
+            libgpu.libgpu_compute_df_get_jk(gpu, eri1)
+            
             if with_j:
                 rho = numpy.einsum('ix,px->ip', dmtril, eri1)
                 vj += numpy.einsum('ip,px->ix', rho, eri1)
 
             for k in range(nset):
+                print("k= ", k)
                 buf1 = buf[0,:naux]
                 fdrv(ftrans, fmmm,
                      buf1.ctypes.data_as(ctypes.c_void_p),
@@ -136,6 +154,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
     if with_k: vk = vk.reshape(dm_shape)
     logger.timer(dfobj, 'df vj and vk', *t0)
+#    quit()
     return vj, vk
 
 def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):
