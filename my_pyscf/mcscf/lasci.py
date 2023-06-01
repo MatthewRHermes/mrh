@@ -2,6 +2,7 @@ from pyscf.scf.rohf import get_roothaan_fock
 from pyscf.fci import cistring
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf import symm, gto, scf, ao2mo, lib
+from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
 from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
 from mrh.my_pyscf.fci import csf_solver
@@ -651,8 +652,8 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
             If True, checks state list for duplicate states
 
     Returns:
-        converged : logical
-            Stores whether the calculation successfully converged
+        converged : list of length nroots of logical
+            Stores whether the calculation for each state successfully converged
         e_tot : float
             (State-averaged) total energy
         e_states : list of length nroots
@@ -688,7 +689,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
     e_cas = np.empty (las.nroots)
     e_states = np.empty (las.nroots)
     ci1 = [[None for c2 in c1] for c1 in ci0]
-    converged = True
+    converged = []
     t = (lib.logger.process_clock(), lib.logger.perf_counter())
     for state in range (las.nroots):
         fcisolvers = [b.fcisolvers[state] for b in las.fciboxes]
@@ -713,7 +714,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
             ndet = tuple ([cistring.num_strings (no, n) for n in ne])
             c1[state] = c2.reshape (*ndet)
         if not conv: log.warn ('State %d LASCI not converged!', state)
-        converged = converged and conv
+        converged.append (conv)
         t = log.timer ('State {} LASCI'.format (state), *t)
 
     e_tot = np.dot (las.weights, e_states)
@@ -737,6 +738,7 @@ class LASCINoSymm (casci.CASCI):
             nel_tot[0] += na
             nel_tot[1] += nb
         nelecas = new_nelecas
+        self.nroots = 1
         super().__init__(mf, ncas=ncas_tot, nelecas=nel_tot, ncore=ncore)
         if spin_sub is None: spin_sub = [1 + abs(ne[0]-ne[1]) for ne in nelecas]
         self.ncas_sub = np.asarray (ncas)
@@ -750,7 +752,7 @@ class LASCINoSymm (casci.CASCI):
         self.max_cycle_micro = 5
         keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub',
                     'conv_tol_grad', 'conv_tol_self', 'max_cycle_macro', 'max_cycle_micro',
-                    'ah_level_shift'))
+                    'ah_level_shift', 'states_converged'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
         if isinstance(spin_sub,int):
@@ -759,7 +761,6 @@ class LASCINoSymm (casci.CASCI):
             assert (len (spin_sub) == self.nfrags)
             for smult, nel in zip (spin_sub, self.nelecas_sub):
                 self.fciboxes.append (self._init_fcibox (smult, nel)) 
-        self.nroots = 1
         self.weights = [1.0]
         self.e_states = [0.0]
 
@@ -1362,6 +1363,74 @@ class LASCINoSymm (casci.CASCI):
             if getattr (fcibox, 'dump_flags', None):
                 log.info ('fragment %d FCI solver flags:', i)
                 fcibox.dump_flags (log.verbose)
+
+    @property
+    def converged (self):
+        return all (self.states_converged)
+    @converged.setter
+    def converged (self, x):
+        if hasattr (x, '__len__'):
+            self.states_converged = list (x)
+        else:
+            self.states_converged = [x,]*self.nroots
+
+    def dump_states (self, nroots=None, sort_energy=False):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.info ("******** LAS state tables ********")
+        if nroots is None and self.verbose <= lib.logger.INFO:
+            nroots = min (self.nroots, 100)
+        elif nroots is None:
+            nroots = self.nroots
+        if nroots < self.nroots:
+            log.warn ("Dumping only 100 of %d states", self.nroots)
+            log.warn ("To see more, explicitly pass nroots to dump_states or increase verbosity")
+        if sort_energy:
+            idx = np.argsort (self.e_states)
+        else:
+            idx = range (nroots)
+        for state in idx:
+            neleca_f = []
+            nelecb_f = []
+            wfnsym_f = []
+            wfnsym = 0
+            m_f = []
+            s_f = []
+            s2_tot = 0
+            for fcibox, nelecas in zip (self.fciboxes, self.nelecas_sub):
+                solver = fcibox.fcisolvers[state]
+                na, nb = _unpack_nelec (fcibox._get_nelec (solver, nelecas))
+                neleca_f.append (na)
+                nelecb_f.append (nb)
+                m_f.append ((na-nb)/2)
+                s_f.append ((solver.smult-1)/2)
+                s2_tot += s_f[-1] * (s_f[-1] + 1)
+                fragsym = getattr (solver, 'wfnsym', 0) or 0
+                if isinstance (fragsym, str):
+                    fragsym_str = fragsym
+                    fragsym_id = symm.irrep_name2id (solver.mol.groupname, fragsym)
+                else:
+                    fragsym_id = fragsym
+                    fragsym_str = symm.irrep_id2name (solver.mol.groupname, fragsym)
+                wfnsym ^= fragsym_id
+                wfnsym_f.append (fragsym_str)
+            s2_tot += sum ([2*m1*m2 for m1, m2 in combinations (m_f, 2)])
+            s_f, m_f = np.asarray (s_f), np.asarray (m_f)
+            if np.all (m_f<0): m_f *= -1
+            s_pure = np.all (s_f==m_f)
+            wfnsym = symm.irrep_id2name (self.mol.groupname, wfnsym)
+            neleca = sum (neleca_f)
+            nelecb = sum (nelecb_f)
+            log.info ("LAS state %d: (%de+%de,%do) wfynsm=%s", state, neleca, nelecb, self.ncas, wfnsym)
+            log.info ("Converged? %s", self.states_converged[state])
+            log.info ("E(LAS) = %.15g", self.e_states[state])
+            log.info ("S^2 = %.7f (%s)", s2_tot, ('Impure','Pure')[s_pure])
+            log.info ("State table")
+            log.info (" frag ( ae+ be, no)  2S+1   ir")
+            for i in range (self.nfrags):
+                smult_f = int (round (2*s_f[i] + 1))
+                log.info (" %4d (%2de+%2de,%2do)  %4d  %3s", i, neleca_f[i], nelecb_f[i],
+                          self.ncas_sub[i], smult_f, wfnsym_f[i])
+
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 

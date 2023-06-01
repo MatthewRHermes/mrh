@@ -177,6 +177,7 @@ if __name__=='__main__':
     molden.from_mo (las.mol, 'lassi_states.lasscf.molden', no_coeff, ene=no_ene, occ=no_occ)
     las2 = all_single_excitations (las)
     las2.lasci ()
+    las2.dump_states ()
     e_roots, si = las2.lassi ()
     elas1 = e_roots[0]
     print ("LASSI(S):", elas1)
@@ -186,6 +187,7 @@ if __name__=='__main__':
     molden.from_mo (las.mol, 'lassi_states.lassis.molden', no_coeff, ene=no_ene, occ=no_occ)
     las3 = all_single_excitations (las2)
     las3.lasci ()
+    las3.dump_states ()
     e_roots, si = las3.lassi ()
     elas2 = e_roots[0]
     print ("LASSI(SD):", elas2)
@@ -194,6 +196,7 @@ if __name__=='__main__':
     molden.from_mo (las.mol, 'lassi_states.lassisd.molden', no_coeff, ene=no_ene, occ=no_occ)
     las4 = all_single_excitations (las3)
     las4.lasci ()
+    las4.dump_states ()
     e_roots, si = las4.lassi ()
     elas3 = e_roots[0]
     print ("LASSI(SDT):", elas3)
@@ -202,6 +205,7 @@ if __name__=='__main__':
     molden.from_mo (las.mol, 'lassi_states.lassisdt.molden', no_coeff, ene=no_ene, occ=no_occ)
     las5 = all_single_excitations (las4)
     las5.lasci ()
+    las5.dump_states ()
     e_roots, si = las5.lassi ()
     elas4 = e_roots[0]
     print ("LASSI(SDTQ):", elas4)
