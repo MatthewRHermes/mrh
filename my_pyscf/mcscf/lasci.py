@@ -5,6 +5,7 @@ from pyscf import symm, gto, scf, ao2mo, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
 from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
+from mrh.my_pyscf.fci.csfstring import ImpossibleCIvecError
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf.lassi import lassi
@@ -1431,6 +1432,19 @@ class LASCINoSymm (casci.CASCI):
                 log.info (" %4d (%2de+%2de,%2do)  %4d  %3s", i, neleca_f[i], nelecb_f[i],
                           self.ncas_sub[i], smult_f, wfnsym_f[i])
 
+    def check_sanity (self):
+        casci.CASCI.check_sanity (self)
+        for ix, fcibox in enumerate (self.fciboxes):
+            for iy, solver in enumerate (fcibox.fcisolvers):
+                norb = self.ncas_sub[ix]
+                nelec = fcibox._get_nelec (solver, self.nelecas_sub[ix])
+                try:
+                    solver.check_transformer_cache (norb=norb, nelec=nelec)
+                except ImpossibleCIvecError as e:
+                    lib.logger.error (self, 'impossible CI vector in fragment %d, state %d',
+                                      ix, iy)
+                    raise (e)
+        
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
@@ -1450,6 +1464,8 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     get_veff = LASCINoSymm.get_veff
     get_h1eff = get_h1cas = h1e_for_cas
     dump_flags = LASCINoSymm.dump_flags
+    dump_states = LASCINoSymm.dump_states
+    check_sanity = LASCINoSymm.check_sanity
     _ugg = lasci_sync.LASCISymm_UnitaryGroupGenerators
 
     @property

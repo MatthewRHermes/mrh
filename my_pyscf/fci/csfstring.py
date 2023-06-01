@@ -822,11 +822,18 @@ def get_csfvec_shape (norb, neleca, nelecb, smult):
     ms = (neleca - nelecb) / 2
     #assert (neleca >= nelecb)
     nless = min (neleca, nelecb)
+    if neleca>norb or nelecb>norb:
+        raise ImpossibleCIvecError ("({}e+{}e,{}o)".format (neleca, nelecb, norb),
+                                    norb=norb, neleca=neleca, nelecb=nelecb)
     if (abs (neleca-nelecb) > smult - 1):
         raise ImpossibleSpinError ("Impossible quantum numbers: s = {}; ms = {}".format (s, ms),
                                    norb=norb, neleca=neleca, nelecb=nelecb, smult=smult)
     min_npair = max (0, neleca + nelecb - norb)
     nspins = [neleca + nelecb - 2*npair for npair in range (min_npair, nless+1)]
+    if (smult-1)>nspins[0]:
+        raise ImpossibleSpinError ('Maximum possible 2s+1 = {} for ({}e+{}e,{}o)'.format (
+            nspins[0]+1, neleca, nelecb, norb), norb=norb, neleca=neleca, nelecb=nelecb,
+            smult=smult)
     nfreeorbs = [norb - npair for npair in range (min_npair, nless+1)]
     nas = [(nspin + neleca - nelecb) // 2 for nspin in nspins]
     for nspin in nspins:
