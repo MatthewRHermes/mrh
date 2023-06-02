@@ -1,4 +1,5 @@
 from pyscf import lib, symm
+from mrh.my_pyscf.fci.csfstring import ImpossibleCIvecError
 from mrh.my_pyscf.mcscf import _DFLASCI
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg 
@@ -387,12 +388,18 @@ class LASCI_UnitaryGroupGenerators (object):
 
     def _init_ci (self, las, mo_coeff, ci):
         self.ci_transformers = []
-        for norb, nelec, fcibox in zip (las.ncas_sub, las.nelecas_sub, las.fciboxes):
+        for i, fcibox in enumerate (las.fciboxes):
+            norb, nelec = las.ncas_sub[i], las.nelecas_sub[i]
             tf_list = []
-            for solver in fcibox.fcisolvers:
+            for j, solver in enumerate (fcibox.fcisolvers):
                 solver.norb = norb
                 solver.nelec = fcibox._get_nelec (solver, nelec)
-                solver.check_transformer_cache ()
+                try:
+                    solver.check_transformer_cache ()
+                except ImpossibleCIvecError as e:
+                    lib.logger.error (self, 'impossible CI vector in fragment %d, state %d',
+                                      ix, iy)
+                    raise (e)
                 tf_list.append (solver.transformer)
             self.ci_transformers.append (tf_list)
 

@@ -111,12 +111,7 @@ class FCISolver (direct_spin1_symm.FCISolver, CSFFCISolver):
         return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
            
 
-    def check_transformer_cache (self, norb=None, nelec=None, smult=None, orbsym=None, wfnsym=None):
-        if norb is not None: self.norb=norb
-        if nelec is not None: self.nelec=nelec
-        if smult is not None: self.smult=smult
-        if orbsym is not None: self.orbsym=orbsym
-        if wfnsym is not None: self.wfnsym=wfnsym
+    def check_transformer_cache (self):
         assert (isinstance (self.smult, (int, np.number)))
         neleca, nelecb = _unpack_nelec (self.nelec)
         if isinstance (self.wfnsym, str):

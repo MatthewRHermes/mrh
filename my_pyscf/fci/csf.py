@@ -522,10 +522,7 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
         self.eci, self.ci = e, c
         return e, c
 
-    def check_transformer_cache (self, norb=None, nelec=None, smult=None):
-        if norb is not None: self.norb=norb
-        if nelec is not None: self.nelec=nelec
-        if smult is not None: self.smult=smult
+    def check_transformer_cache (self):
         assert (isinstance (self.smult, (int, np.number)))
         neleca, nelecb = _unpack_nelec (self.nelec)
         if self.transformer is None:
