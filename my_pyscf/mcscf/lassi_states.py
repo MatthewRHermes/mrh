@@ -133,6 +133,10 @@ class SingleLASState (object):
         return singles
 
 def all_single_excitations (las):
+    '''Add states characterized by one electron hopping from one fragment to another fragment
+    in all possible ways. Uses all states already present as reference states, so that calling
+    this function a second time generates two-electron excitations, etc. The input object is
+    not altered in-place.'''
     from mrh.my_pyscf.mcscf.lasci import get_state_info
     from mrh.my_pyscf.mcscf.lasci import LASCISymm
     log = logger.new_logger (las, las.verbose)

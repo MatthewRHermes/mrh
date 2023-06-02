@@ -613,7 +613,8 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
                     ci0[ifrag][jroot] = las.ci[ifrag][iroot]
             elif np.count_nonzero (idx) > 1:
                 raise RuntimeError ("Duplicate states specified?\n{}".format (idx))
-        las.ci = ci0
+        las.ci = ci0 
+    las.converged = False
     return las
 
 @lib.with_doc(''' A version of lasci.state_average_ that creates a copy instead of modifying the 
@@ -1425,11 +1426,11 @@ class LASCINoSymm (casci.CASCI):
             log.info ("E(LAS) = %.15g", self.e_states[state])
             log.info ("S^2 = %.7f (%s)", s2_tot, ('Impure','Pure')[s_pure])
             log.info ("State table")
-            log.info (" frag ( ae+ be, no)  2S+1   ir")
+            log.info (" frag    (ae+be,no)  2S+1   ir")
             for i in range (self.nfrags):
                 smult_f = int (round (2*s_f[i] + 1))
-                log.info (" %4d (%2de+%2de,%2do)  %4d  %3s", i, neleca_f[i], nelecb_f[i],
-                          self.ncas_sub[i], smult_f, wfnsym_f[i])
+                tupstr = '({}e+{}e,{}o)'.format (neleca_f[i], nelecb_f[i], self.ncas_sub[i])
+                log.info (" %4d %13s  %4d  %3s", i, tupstr, smult_f, wfnsym_f[i])
 
     def check_sanity (self):
         casci.CASCI.check_sanity (self)
