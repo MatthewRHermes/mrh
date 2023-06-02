@@ -44,10 +44,7 @@ def get_mcpdft_child_class(mc, ot, **kwargs):
             if self._in_mcscf_env: return mc.__class__.get_h2eff(self, mo_coeff=mo_coeff)
             else: return _LASPDFT.get_h2eff(self, mo_coeff=mo_coeff)
 
-        # TODO: in pyscf-forge/pyscf/mcpdft/_dms.py::make_one_casdm1s, make "ci" arg a kwarg
-        # Then the redefinition below wil be unnecessary
-        def make_one_casdm1s (self, ci, state=None):
-            return mc.__class__.make_casdm1s (self, ci=ci, state=state)
+        make_one_casdm1s=mc.__class__.make_casdm1s
         make_one_casdm2=mc.__class__.make_casdm2
         
         # TODO: in pyscf-forge/pyscf/mcpdft/mcpdft.py::optimize_mcscf_, generalize the number
