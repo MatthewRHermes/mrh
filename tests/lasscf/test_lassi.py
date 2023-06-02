@@ -102,6 +102,19 @@ class KnownValues(unittest.TestCase):
         for e1, e0 in zip (e_roots_test, e_roots):
             self.assertAlmostEqual (e1, e0, 8)
 
+    def test_lassi_singles_constructor (self):
+        from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
+        las2 = all_single_excitations (las)
+        las2.check_sanity ()
+        # Meaning of tuple: (na+nb,smult)
+        # from state 0, (1+2,2)&(3+2,2) & a<->b & l<->r : 4 states
+        # from state 1, smults=((2,4),(4,2),(4,4)) permutations of above: 12 additional states
+        # from states 2 and 3, (4+1,4)&(0+3,4) & a<->b & l<->r : 4 additional states
+        # from state 4, (2+1,2)&(4+1,4) & (2+1,4)&(4+1,4) 
+        #             & (3+0,4)&(3+2,2) & (3+0,4)&(3+2,4) & l<->r : 8 additional states
+        # 5 + 4 + 12 + 4 + 8 = 33
+        self.assertEqual (las2.nroots, 33)
+
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI")
     unittest.main()

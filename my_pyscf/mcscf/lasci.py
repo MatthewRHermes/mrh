@@ -1417,7 +1417,7 @@ class LASCINoSymm (casci.CASCI):
             s2_tot += sum ([2*m1*m2 for m1, m2 in combinations (m_f, 2)])
             s_f, m_f = np.asarray (s_f), np.asarray (m_f)
             if np.all (m_f<0): m_f *= -1
-            s_pure = np.all (s_f==m_f)
+            s_pure = bool (np.all (s_f==m_f))
             wfnsym = symm.irrep_id2name (self.mol.groupname, wfnsym)
             neleca = sum (neleca_f)
             nelecb = sum (nelecb_f)
