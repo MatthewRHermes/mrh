@@ -397,8 +397,7 @@ class LASCI_UnitaryGroupGenerators (object):
                 try:
                     solver.check_transformer_cache ()
                 except ImpossibleCIvecError as e:
-                    lib.logger.error (self, 'impossible CI vector in fragment %d, state %d',
-                                      ix, iy)
+                    lib.logger.error (las, 'impossible CI vector in LAS frag %d, state %d', i, j)
                     raise (e)
                 tf_list.append (solver.transformer)
             self.ci_transformers.append (tf_list)
