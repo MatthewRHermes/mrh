@@ -33,8 +33,9 @@ mf = scf.ROHF(mol).newton().run()
 
 # Option-2: Feed the mean field object and fragment information to mcpdft.LASSCF
 frag_atom_list = ([1, 6] , [2, 5])
-mc = mcpdft.LASSCF(mf, 'tPBE', (2, 2), (2, 2), spin_sub=(1,1), frags_atoms=frag_atom_list)
-mc.kernel()
+mc = mcpdft.LASSCF(mf, 'tPBE', (2, 2), (2, 2), spin_sub=(1,1))
+mo0 = mc.localize_init_guess (frag_atom_list)
+mc.kernel(mo0)
 
 elas = mc.e_mcscf[0]
 epdft = mc.e_tot
