@@ -1,1 +1,1 @@
-git+https://github.com/pyscf/pyscf.git@8eea7e8cab884bddb7a85aa8ba625503d3a8c9cd
+git+https://github.com/pyscf/pyscf.git@a00d29c1fdb395c3039a5242b8b856ccbc4fd772
