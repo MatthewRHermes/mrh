@@ -487,15 +487,16 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     norb = las.ncas
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
     rootsym = [tuple (x) for x in si.rootsym]
+    nroots = si.shape[1]
 
     if soc:
-        rdm1s = np.zeros ((las.nroots, 2*norb, 2*norb),
+        rdm1s = np.zeros ((nroots, 2*norb, 2*norb),
             dtype=si.dtype)
     else:
-        rdm1s = np.zeros ((las.nroots, 2, norb, norb),
+        rdm1s = np.zeros ((nroots, 2, norb, norb),
             dtype=si.dtype)
     # TODO: 2e- SOC
-    rdm2s = np.zeros ((las.nroots, 2, norb, norb, 2, norb, norb),
+    rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
         dtype=si.dtype)
 
     for sym in set (rootsym):
@@ -538,8 +539,43 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
             rdm2s[a] = d2s[i]
     return rdm1s, rdm2s
 
+def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None, opt=1):
+    '''Evaluate 1- and 2-electron reduced density matrices of one single LASSI state
 
+        Args:
+            las: LASCI object
+            ci: list of list of ci vectors
+            si: tagged ndarray of shape (nroots,nroots)
+               Linear combination vectors defining LASSI states.
+               Requires tag "rootsym"
 
+        Kwargs:
+            orbsym: None or list of orbital symmetries spanning the whole orbital space
+            soc: logical
+                Whether to include the effects of spin-orbit coupling (in the 1-RDMs only)
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            break_symmetry: logical
+                Whether to allow coupling between states of different point-group irreps
+                Overrides tag of si if provided by caller. I have no idea what will happen
+                if they contradict. This should probably be removed.
+            opt: Optimization level, i.e.,  take outer product of
+                0: CI vectors
+                1: TDMs
+
+        Returns:
+            rdm1s: ndarray of shape (2,ncas,ncas) if soc==False;
+                or of shape (2*ncas,2*ncas) if soc==True.
+            rdm2s: ndarray of shape (2,ncas,ncas,2,ncas,ncas)
+    '''
+    si_column = si[:,state:state+1]
+    if soc is None: soc = si.soc
+    if break_symmetry is None: break_symmetry = si.break_symmetry
+    rootsym = si.rootsym[state]
+    si_column = tag_array (si_column, rootsym=[rootsym])
+    rdm1s, rdm2s = roots_make_rdm12s (las, ci, si_column, orbsym=orbsym, soc=soc,
+                                      break_symmetry=break_symmetry, opt=opt)
+    return rdm1s[0], rdm2s[0]
 
 
 

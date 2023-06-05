@@ -2,6 +2,7 @@ import numpy as np
 from scipy import linalg
 from mrh.util.la import matrix_svd_control_options
 from mrh.my_pyscf.mcscf import lasci, lasci_sync, _DFLASCI
+from mrh.my_pyscf.mcscf import lasscf_guess
 from pyscf import gto, scf, symm
 from pyscf.mcscf import mc_ao2mo, casci_symm, mc1step
 from pyscf.mcscf import df as mc_df
@@ -13,108 +14,7 @@ from functools import partial
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than
 # CASSCF. Eventually to be modified into a true all-PySCF implementation of vLASSCF
 
-def localize_init_guess (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=False):
-    ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
-    and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
-    space. Beware that unless freeze_cas_spaces=True, frozen orbitals will not be preserved.
-
-    Args:
-        las: LASSCF or LASCI object
-        frags_orbs: list of length nfrags
-            Contains list of AO indices formally defining the fragments
-            into which the active orbitals are to be localized
-
-    Kwargs: (some of these are args here but kwargs in the actual caller)
-        mo_coeff: ndarray of shape (nao, nmo)
-            Molecular orbital coefficients containing active orbitals
-            on columns ncore:ncore+ncas
-        spin: integer
-            Unused; retained for backwards compatibility I guess
-        lo_coeff: ndarray of shape (nao, nao)
-            Linear combinations of AOs that are localized and orthonormal
-        fock: ndarray of shape (nmo, nmo)
-            Effective 1-electron Hamiltonian matrix for recanonicalizing
-            the inactive and external sectors after the latter are
-            possibly distorted by the projection of the active orbitals
-        ao_ovlp: ndarray of shape (nao, nao)
-            Overlap matrix of the underlying AO basis
-        freeze_cas_spaces: logical
-            If true, then active orbitals are mixed only among themselves
-            when localizing, which leaves the inactive and external sectors
-            unchanged (to within numerical precision). Otherwise, active
-            orbitals are projected into the localized-orbital space and
-            the inactive and external orbitals are reconstructed as closely
-            as possible using SVD.
-
-    Returns:
-        mo_coeff: ndarray of shape (nao,nmo)
-            Orbital coefficients after localization of the active space;
-            columns in the order (inactive,las1,las2,...,lasn,external)
-    '''
-    # For reasons that pass my understanding, mo_coeff sometimes can't be assigned symmetry
-    # by PySCF's own code. Therefore, I'm going to keep the symmetry tags on mo_coeff
-    # and make sure the SVD engine sees them and doesn't try to figure it out itself.
-    # Hopefully this never becomes a problem with the lo_coeff.
-    ncore, ncas, ncas_sub = las.ncore, las.ncas, las.ncas_sub
-    nocc = ncore + ncas
-    nfrags = len (frags_orbs)
-    nao, nmo = mo_coeff.shape
-    unused_aos = np.ones (nao, dtype=np.bool_)
-    for frag_orbs in frags_orbs: unused_aos[frag_orbs] = False
-    has_orbsym = hasattr (mo_coeff, 'orbsym')
-    mo_orbsym = getattr (mo_coeff, 'orbsym', np.zeros (nmo))
-    mo_coeff = mo_coeff.copy () # Safety
-
-    # SVD to pick active orbitals
-    mo_cas = tag_array (mo_coeff[:,ncore:nocc], orbsym=mo_orbsym[ncore:nocc])
-    if freeze_cas_spaces:
-        null_coeff = np.hstack ([mo_coeff[:,:ncore], mo_coeff[:,nocc:]])
-    else:
-        null_coeff = lo_coeff[:,unused_aos]
-    for ix, (nlas, frag_orbs) in enumerate (zip (las.ncas_sub, frags_orbs)):
-        try:
-            mo_proj, sval, mo_cas = las._svd (lo_coeff[:,frag_orbs], mo_cas, s=ao_ovlp)
-        except ValueError as e:
-            print (ix, lo_coeff[:,frag_orbs].shape, ao_ovlp.shape, mo_cas.shape)
-            print (mo_cas.orbsym)
-            raise (e)
-        i, j = ncore + sum (las.ncas_sub[:ix]), ncore + sum (las.ncas_sub[:ix]) + nlas
-        mo_las = mo_cas if freeze_cas_spaces else mo_proj
-        mo_coeff[:,i:j] = mo_las[:,:nlas]
-        if has_orbsym: mo_orbsym[i:j] = mo_las.orbsym[:nlas]
-        if freeze_cas_spaces:
-            if has_orbsym: orbsym = mo_cas.orbsym[nlas:]
-            mo_cas = mo_cas[:,nlas:]
-            if has_orbsym: mo_cas = tag_array (mo_cas, orbsym=orbsym)
-        else:
-            null_coeff = np.hstack ([null_coeff, mo_proj[:,nlas:]])
-
-    # SVD of null space to pick inactive orbitals
-    assert (null_coeff.shape[-1] + ncas == nmo)
-    mo_core = tag_array (mo_coeff[:,:ncore], orbsym=mo_orbsym[:ncore])
-    mo_proj, sval, mo_core = las._svd (null_coeff, mo_core, s=ao_ovlp)
-    mo_coeff[:,:ncore], mo_coeff[:,nocc:] = mo_proj[:,:ncore], mo_proj[:,ncore:]
-    if has_orbsym:
-        mo_orbsym[:ncore] = mo_proj.orbsym[:ncore]
-        mo_orbsym[nocc:] = mo_proj.orbsym[ncore:]
-    mo_coeff = tag_array (mo_coeff, orbsym=mo_orbsym)
-
-    # Canonicalize for good init CI guess and visualization
-    ranges = [(0,ncore),(nocc,nmo)]
-    for ix, di in enumerate (ncas_sub):
-        i = ncore + sum (ncas_sub[:ix])
-        ranges.append ((i,i+di))
-    fock = mo_coeff.conj ().T @ fock @ mo_coeff
-    for i, j in ranges:
-        if (j == i): continue
-        e, c = las._eig (fock[i:j,i:j], i, j)
-        idx = np.argsort (e)
-        mo_coeff[:,i:j] = mo_coeff[:,i:j] @ c[:,idx]
-        mo_orbsym[i:j] = mo_orbsym[i:j][idx]
-    if has_orbsym: mo_coeff = tag_array (mo_coeff, orbsym=mo_orbsym)
-    else: mo_coeff = np.array (mo_coeff) # remove spurious tag
-    return mo_coeff
-
+localize_init_guess=lasscf_guess._localize # backwards compatibility
 
 class LASSCF_UnitaryGroupGenerators (lasci_sync.LASCI_UnitaryGroupGenerators):
 
@@ -254,115 +154,16 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         veff_a = veff_c + veff_s
         veff_b = veff_c - veff_s
         veff = np.stack ([veff_a, veff_b], axis=0)
-        dm1s = self.make_rdm1s (mo_coeff=mo_coeff, casdm1s_sub=casdm1s_sub)
-        vj, vk = get_jk (dm1s, hermi=1)
-        veff_a = vj[0] + vj[1] - vk[0]
-        veff_b = vj[0] + vj[1] - vk[1]
-        veff_test = np.stack ([veff_a, veff_b], axis=0)
-        assert (np.allclose (veff, veff_test))
         return veff
+    def dump_flags (self, verbose=None, _method_name='LASSCF'):
+        lasci.LASCINoSymm.dump_flags (self, verbose=verbose, _method_name=_method_name)
 
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
-                             freeze_cas_spaces=False):
-        ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
-        and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
-        space. Beware that unless freeze_cas_spaces=True, frozen orbitals will not be preserved.
-
-        Args:
-            frags_atoms: list of length nfrags
-                Contains either lists of integer atom indices, or lists of
-                strings which are passed to mol.search_ao_label, which define
-                fragments into which the active orbitals are to be localized
-
-        Kwargs:
-            mo_coeff: ndarray of shape (nao, nmo)
-                Molecular orbital coefficients containing active orbitals
-                on columns ncore:ncore+ncas
-            spin: integer
-                Unused; retained for backwards compatibility I guess
-            lo_coeff: ndarray of shape (nao, nao)
-                Linear combinations of AOs that are localized and orthonormal
-            fock: ndarray of shape (nmo, nmo)
-                Effective 1-electron Hamiltonian matrix for recanonicalizing
-                the inactive and external sectors after the latter are
-                possibly distorted by the projection of the active orbitals
-            ao_ovlp: ndarray of shape (nao, nao)
-                Overlap matrix of the underlying AO basis
-            freeze_cas_spaces: logical
-                If true, then active orbitals are mixed only among themselves
-                when localizing, which leaves the inactive and external sectors
-                unchanged (to within numerical precision). Otherwise, active
-                orbitals are projected into the localized-orbital space and
-                the inactive and external orbitals are reconstructed as closely
-                as possible using SVD.
-
-        Returns:
-            mo_coeff: ndarray of shape (nao,nmo)
-                Orbital coefficients after localization of the active space;
-                columns in the order (inactive,las1,las2,...,lasn,external)
-        '''
-        if mo_coeff is None:
-            mo_coeff = self.mo_coeff
-        if lo_coeff is None:
-            lo_coeff = orth.orth_ao (self.mol, 'meta_lowdin')
-        if spin is None:
-            spin = self.nelecas[0] - self.nelecas[1]
-        assert (spin % 2 == sum (self.nelecas) % 2)
-        assert (len (frags_atoms) == len (self.ncas_sub))
-        frags_atoms_int = all ([all ([isinstance (i, int) for i in j]) for j in frags_atoms])
-        frags_atoms_str = all ([all ([isinstance (i, str) for i in j]) for j in frags_atoms])
-        if frags_atoms_int:
-            ao_offset = self.mol.offset_ao_by_atom ()
-            frags_orbs = [[orb for atom in frags_atoms 
-                           for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
-                          for frags_atoms in frags_atoms]
-        elif frags_atoms_str:
-            frags_orbs = [self.mol.search_ao_label (i) for i in frags_atoms]
-        else:
-            raise RuntimeError ('localize_init_guess requires either all integers or all strings to identify fragments')
-        if fock is None: fock = self._scf.get_fock ()
-        ao_ovlp = self._scf.get_ovlp ()
-        return localize_init_guess (self, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=freeze_cas_spaces)
-
-    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
-        if s is None: s = self._scf.get_ovlp ()
-        return matrix_svd_control_options (s, lspace=mo_lspace, rspace=mo_rspace, full_matrices=True)[:3]
- 
 class LASSCFSymm (lasci.LASCISymm):
     _ugg = LASSCFSymm_UnitaryGroupGenerators    
     _hop = LASSCF_HessianOperator
     split_veff = LASSCFNoSymm.split_veff
+    dump_flags = LASSCFNoSymm.dump_flags
     as_scanner = mc1step.as_scanner
-
-    @with_doc(LASSCFNoSymm.localize_init_guess.__doc__)
-    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
-                             freeze_cas_spaces=False):
-        if mo_coeff is None:
-            mo_coeff = self.mo_coeff
-        mo_coeff = casci_symm.label_symmetry_(self, mo_coeff)
-        return LASSCFNoSymm.localize_init_guess (self, frags_atoms, mo_coeff=mo_coeff, spin=spin,
-            lo_coeff=lo_coeff, fock=fock, freeze_cas_spaces=freeze_cas_spaces)
-
-    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
-        if s is None: s = self._scf.get_ovlp ()
-        lsymm = getattr (mo_lspace, 'orbsym', None)
-        if lsymm is None:
-            mo_lspace = symm.symmetrize_space (self.mol, mo_lspace)
-            lsymm = symm.label_orb_symm(self.mol, self.mol.irrep_id,
-                self.mol.symm_orb, mo_lspace, s=s)
-        rsymm = getattr (mo_rspace, 'orbsym', None)
-        if rsymm is None:
-            mo_rspace = symm.symmetrize_space (self.mol, mo_rspace)
-            rsymm = symm.label_orb_symm(self.mol, self.mol.irrep_id,
-                self.mol.symm_orb, mo_rspace, s=s)
-        decomp = matrix_svd_control_options (s,
-            lspace=mo_lspace, rspace=mo_rspace, 
-            lspace_symmetry=lsymm, rspace_symmetry=rsymm,
-            full_matrices=True, strong_symm=True)
-        mo_lvecs, svals, mo_rvecs, lsymm, rsymm = decomp
-        mo_lvecs = tag_array (mo_lvecs, orbsym=lsymm)
-        mo_rvecs = tag_array (mo_rvecs, orbsym=rsymm)
-        return mo_lvecs, svals, mo_rvecs
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):

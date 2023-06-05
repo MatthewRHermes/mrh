@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, mcscf, ao2mo, lib, df
@@ -5,7 +6,7 @@ from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import _state_average_mcscf_solver
 from mrh.my_pyscf.mcscf import _DFLASCI
-import copy
+import copy, json
 
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
@@ -34,6 +35,54 @@ class ImpurityMole (gto.Mole):
     def get_imporb_coeff (self): return self._imporb_coeff
     def nao_nr (self, *args, **kwargs): return self._imporb_coeff.shape[-1]
     def nao (self): return self._imporb_coeff.shape[-1]
+    def dumps (mol):
+        '''Subclassing this to eliminate annoying warning message
+        '''
+        exclude_keys = set(('output', 'stdout', '_keys',
+                            # Constructing in function loads
+                            'symm_orb', 'irrep_id', 'irrep_name',
+                            # LASSCF hook to rest of molecule
+                            '_las'))
+        nparray_keys = set(('_atm', '_bas', '_env', '_ecpbas',
+                            '_symm_orig', '_symm_axes',
+                            # Definition of fragment in LASSCF context
+                            '_imporb_coeff'))
+
+        moldic = dict(mol.__dict__)
+        for k in exclude_keys:
+            if k in moldic:
+                del (moldic[k])
+        for k in nparray_keys:
+            if isinstance(moldic[k], np.ndarray):
+                moldic[k] = moldic[k].tolist()
+        moldic['atom'] = repr(mol.atom)
+        moldic['basis']= repr(mol.basis)
+        moldic['ecp' ] = repr(mol.ecp)
+
+        try:
+            return json.dumps(moldic)
+        except TypeError:
+            def skip_value(dic):
+                dic1 = {}
+                for k,v in dic.items():
+                    if (v is None or
+                        isinstance(v, (str, unicode, bool, int, float))):
+                        dic1[k] = v
+                    elif isinstance(v, (list, tuple)):
+                        dic1[k] = v   # Should I recursively skip_vaule?
+                    elif isinstance(v, set):
+                        dic1[k] = list(v)
+                    elif isinstance(v, dict):
+                        dic1[k] = skip_value(v)
+                    else:
+                        msg =('Function mol.dumps drops attribute %s because '
+                              'it is not JSON-serializable' % k)
+                        assert (False)
+                        warnings.warn(msg)
+                return dic1
+            return json.dumps(skip_value(moldic), skipkeys=True)
+
+
 
 class ImpuritySCF (scf.hf.SCF):
 
@@ -222,6 +271,12 @@ def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None)
 # This is the really tricky part
 class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
+    # make sure the fcisolver flag dump goes to the fragment output file,
+    # not the main output file
+    def dump_flags (self, verbose=None):
+        with lib.temporary_env (self.fcisolver, stdout=self.stdout):
+            mcscf.mc1step.CASSCF.dump_flags(self, verbose=verbose)
+
     def _push_keyframe (self, kf1, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci is None: ci=self.ci
@@ -269,11 +324,10 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         u, svals, vh = linalg.svd (ovlp, full_matrices=True)
         svals = np.append (svals, np.zeros (u.shape[1]-len(svals)))
         assert (nvirt_unent==0 or np.amax (np.abs (svals[-nvirt_unent:]))<1e-8)
-        if nvirt_unent>0: kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
-        kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
-        
-        # Canonicalize unentangled virtual orbitals
         if nvirt_unent>0:
+            kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
+            kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
+            # Canonicalize unentangled virtual orbitals
             mo_a = kf2.mo_coeff[:,-nvirt_unent:]
             f0_ab = mo_a.conj ().T @ f0 @ mo_a
             w, u = linalg.eigh (f0_ab)
@@ -626,7 +680,10 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         return g_orb, my_gorb_update, my_h_op, h_diag
 
 def get_impurity_casscf (las, ifrag, imporb_builder=None):
-    imol = ImpurityMole (las)
+    output = getattr (las.mol, 'output', None)
+    # MRH: checking for '/dev/null' specifically as a string is how mol.build does it
+    if not ((output is None) or (output=='/dev/null')): output += '.{}'.format (ifrag)
+    imol = ImpurityMole (las, output=output)
     imf = ImpurityHF (imol)
     if isinstance (las, _DFLASCI):
         imf = imf.density_fit ()
@@ -635,6 +692,8 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
         imc = df.density_fit (imc)
     imc = _state_average_mcscf_solver (imc, las.fciboxes[ifrag])
     imc._ifrag = ifrag
+    if imporb_builder is not None:
+        imporb_builder.log = logger.new_logger (imc, imc.verbose)
     imc._imporb_builder = imporb_builder
     return imc
 
@@ -687,4 +746,5 @@ if __name__=='__main__':
     for t, r in zip (imc.e_states, las.e_states):
         print (t, r, t-r)
     kf2 = imc._push_keyframe (kf1)
-
+    from mrh.my_pyscf.mcscf.lasscf_async_keyframe import approx_keyframe_ovlp
+    print (approx_keyframe_ovlp (las, kf1, kf2))

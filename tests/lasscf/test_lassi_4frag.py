@@ -23,7 +23,8 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
+from mrh.my_pyscf.mcscf.lassi import root_make_rdm12s, roots_make_rdm12s
+from mrh.my_pyscf.mcscf.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.mcscf import lassi_op_o0 as op_o0
 from mrh.my_pyscf.mcscf import lassi_op_o1 as op_o1
 
@@ -70,6 +71,7 @@ idx_all = np.ones (nroots, dtype=np.bool_)
 rand_mat = np.random.rand (7,7)
 rand_mat += rand_mat.T
 e, si = linalg.eigh (rand_mat)
+si = lib.tag_array (si, rootsym=las_symm_tuple (las)[0])
 
 def tearDownModule():
     global mol, mf, las
@@ -104,6 +106,14 @@ class KnownValues(unittest.TestCase):
                 with self.subTest (rank=r+1, root=i):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
+                with self.subTest ('single matrix constructor', opt=0, rank=r+1, root=i):
+                    d12_o0_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
+                                                    break_symmetry=False, opt=0)[r]
+                    self.assertAlmostEqual (lib.fp (d12_o0_test), lib.fp (d12_o0[r][i]), 9)
+                with self.subTest ('single matrix constructor', opt=1, rank=r+1, root=i):
+                    d12_o1_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
+                                                    break_symmetry=False, opt=1)[r]
+                    self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI o1 4-fragment intermediates")

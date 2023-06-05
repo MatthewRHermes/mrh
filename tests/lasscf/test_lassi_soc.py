@@ -144,7 +144,7 @@ class KnownValues (unittest.TestCase):
     def test_soc_2frag (self):
         ## stationary test for >1 frag calc
         with self.subTest (deltaE='SF'):
-            self.assertAlmostEqual (lib.fp (las2.e_states), 154.09610901166508, 8)
+            self.assertAlmostEqual (lib.fp (las2.e_states), 154.09610921621356, 8)
         with self.subTest (deltaE='SO'):
             self.assertAlmostEqual (lib.fp (las2_e), 154.09559506105586, 8)
 

@@ -7,7 +7,7 @@ from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lasci import get_grad_orb
 from mrh.my_pyscf.mcscf.lasscf_async_split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async_crunch import get_impurity_casscf
-from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
+from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe, approx_keyframe_ovlp
 
 def setUpModule():
     global las, get_imporbs_0
@@ -15,7 +15,7 @@ def setUpModule():
            H 2 0 0,
            Li 20 0 0,
            H 22 0 0'''
-    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, verbose=4, output='test_lasscf_async_crunch.log')
+    mol = gto.M (atom=xyz, basis='6-31g', symmetry=False, verbose=0, output='/dev/null')
     mf = scf.RHF (mol).run ()
     mc = mcscf.CASSCF (mf, 4, 4).run ()
     
@@ -47,12 +47,21 @@ def _make_imc (kv):
         kv.assertTrue (imc.converged)
     return imc
 
-def _test_energies (kv, imc, tag):
+def _test_results (kv, imc, tag):
     with kv.subTest (tag + ' state-averaged energy'):
         kv.assertAlmostEqual (imc.e_tot, las.e_tot, 8)
     for i, (t, r) in enumerate (zip (imc.e_states, las.e_states)):
         with kv.subTest (tag, state=i):
             kv.assertAlmostEqual (t, r, 6)
+    kf1 = LASKeyframe (las, las.mo_coeff, las.ci)
+    kf2 = imc._push_keyframe (kf1)
+    mo_ovlp, ci_ovlp = approx_keyframe_ovlp (las, kf1, kf2)
+    with kv.subTest(tag + ' MO coeffs'):
+        kv.assertAlmostEqual (mo_ovlp, 1, 5)
+    for i in range (len (ci_ovlp)):
+        for j in range (len (ci_ovlp[i])):
+            with kv.subTest(tag + ' CI vector', frag=i, state=j):
+                kv.assertAlmostEqual (ci_ovlp[i][j], 1, 6)
 
 def _perturb_wfn (imc):
     imc.ci = None
@@ -60,15 +69,15 @@ def _perturb_wfn (imc):
     kappa -= kappa.T
     umat = linalg.expm (kappa)
     imc.mo_coeff = imc.mo_coeff @ umat
-    return imc
+    return imc.run ()
 
 class KnownValues (unittest.TestCase):
 
     def test_energies_and_optimization (self):
         imc = _make_imc (self)
-        _test_energies (self, imc, 'energy')
+        _test_results (self, imc, 'construction')
         imc = _perturb_wfn (imc)
-        _test_energies (self, imc, 'optimization')
+        _test_results (self, imc, 'optimization')
 
 if __name__ == "__main__":
     print("Full Tests for lasscf_async_crunch")

@@ -2,12 +2,14 @@ from pyscf.scf.rohf import get_roothaan_fock
 from pyscf.fci import cistring
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf import symm, gto, scf, ao2mo, lib
+from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
-from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI
+from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf.lassi import lassi
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
+from mrh.util.la import matrix_svd_control_options
 from itertools import combinations
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg
@@ -611,7 +613,8 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
                     ci0[ifrag][jroot] = las.ci[ifrag][iroot]
             elif np.count_nonzero (idx) > 1:
                 raise RuntimeError ("Duplicate states specified?\n{}".format (idx))
-        las.ci = ci0
+        las.ci = ci0 
+    las.converged = False
     return las
 
 @lib.with_doc(''' A version of lasci.state_average_ that creates a copy instead of modifying the 
@@ -650,8 +653,8 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
             If True, checks state list for duplicate states
 
     Returns:
-        converged : logical
-            Stores whether the calculation successfully converged
+        converged : list of length nroots of logical
+            Stores whether the calculation for each state successfully converged
         e_tot : float
             (State-averaged) total energy
         e_states : list of length nroots
@@ -687,7 +690,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
     e_cas = np.empty (las.nroots)
     e_states = np.empty (las.nroots)
     ci1 = [[None for c2 in c1] for c1 in ci0]
-    converged = True
+    converged = []
     t = (lib.logger.process_clock(), lib.logger.perf_counter())
     for state in range (las.nroots):
         fcisolvers = [b.fcisolvers[state] for b in las.fciboxes]
@@ -712,7 +715,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
             ndet = tuple ([cistring.num_strings (no, n) for n in ne])
             c1[state] = c2.reshape (*ndet)
         if not conv: log.warn ('State %d LASCI not converged!', state)
-        converged = converged and conv
+        converged.append (conv)
         t = log.timer ('State {} LASCI'.format (state), *t)
 
     e_tot = np.dot (las.weights, e_states)
@@ -736,6 +739,7 @@ class LASCINoSymm (casci.CASCI):
             nel_tot[0] += na
             nel_tot[1] += nb
         nelecas = new_nelecas
+        self.nroots = 1
         super().__init__(mf, ncas=ncas_tot, nelecas=nel_tot, ncore=ncore)
         if spin_sub is None: spin_sub = [1 + abs(ne[0]-ne[1]) for ne in nelecas]
         self.ncas_sub = np.asarray (ncas)
@@ -749,7 +753,7 @@ class LASCINoSymm (casci.CASCI):
         self.max_cycle_micro = 5
         keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub',
                     'conv_tol_grad', 'conv_tol_self', 'max_cycle_macro', 'max_cycle_micro',
-                    'ah_level_shift'))
+                    'ah_level_shift', 'states_converged'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
         if isinstance(spin_sub,int):
@@ -758,7 +762,6 @@ class LASCINoSymm (casci.CASCI):
             assert (len (spin_sub) == self.nfrags)
             for smult, nel in zip (spin_sub, self.nelecas_sub):
                 self.fciboxes.append (self._init_fcibox (smult, nel)) 
-        self.nroots = 1
         self.weights = [1.0]
         self.e_states = [0.0]
 
@@ -835,7 +838,10 @@ class LASCINoSymm (casci.CASCI):
 
     get_fock = get_fock
     get_grad = get_grad
+    get_grad_orb = get_grad_orb
+    get_grad_ci = get_grad_ci
     _hop = lasci_sync.LASCI_HessianOperator
+    _kern = lasci_sync.kernel
     def get_hop (self, mo_coeff=None, ci=None, ugg=None, **kwargs):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
@@ -853,7 +859,7 @@ class LASCINoSymm (casci.CASCI):
                        " increase self.verbose to see them all"))
         if nroots_prt > 1:
             log.info ("LASCI state-average energy = %.15g", self.e_tot)
-            for i, e in enumerate (self.e_states):
+            for i, e in enumerate (self.e_states[:nroots_prt]):
                 log.info ("LASCI state %d energy = %.15g", i, e)
         else:
             log.info ("LASCI energy = %.15g", self.e_tot)
@@ -869,7 +875,7 @@ class LASCINoSymm (casci.CASCI):
         if ci0 is None: ci0 = self.ci
         if verbose is None: verbose = self.verbose
         if conv_tol_grad is None: conv_tol_grad = self.conv_tol_grad
-        if _kern is None: _kern = lasci_sync.kernel
+        if _kern is None: _kern = self._kern
         log = lib.logger.new_logger(self, verbose)
 
         if self.verbose >= lib.logger.WARN:
@@ -884,7 +890,7 @@ class LASCINoSymm (casci.CASCI):
         self.weights = self.fciboxes[0].weights
 
         self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, self.e_cas, \
-                self.ci, h2eff_sub, veff = _kern(self, mo_coeff, ci0=ci0, verbose=verbose, \
+                self.ci, h2eff_sub, veff = _kern(mo_coeff=mo_coeff, ci0=ci0, verbose=verbose, \
                 casdm0_fr=casdm0_fr, conv_tol_grad=conv_tol_grad, assert_no_dupes=assert_no_dupes)
 
         self._finalize ()
@@ -1145,9 +1151,7 @@ class LASCINoSymm (casci.CASCI):
 
     def states_energy_elec (self, mo_coeff=None, ncore=None, ncas=None,
             ncas_sub=None, nelecas_sub=None, ci=None, h2eff=None, veff=None, 
-            casdm1frs=None, casdm2fr=None, **kwargs):
-        ''' Since the LASCI energy cannot be calculated as simply as ecas + ecore, I need this fn
-            Here, veff has to be the TRUE AND ACCURATE, ACTUAL veff_rs!'''
+            casdm1frs=None, casdm2fr=None, veff_core=None, **kwargs):
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ncore is None: ncore = self.ncore
         if ncas is None: ncas = self.ncas
@@ -1159,20 +1163,32 @@ class LASCINoSymm (casci.CASCI):
                                                                         nelecas_sub=nelecas_sub)
         if casdm2fr is None: casdm2fr = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub,
                                                                      nelecas_sub=nelecas_sub)
-
-        dm1rs = self.states_make_rdm1s (mo_coeff=mo_coeff, ci=ci,
-            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm1frs=casdm1frs)
-        if veff is None: veff = np.stack ([self.get_veff (dm1s = dm1s, spin_sep=True)
-                                           for dm1s in dm1rs], axis=0)
-        assert (veff.ndim == 4)
+        nao, nmo = mo_coeff.shape
+        nocc = ncore + ncas
+        mo_core = mo_coeff[:,:ncore]
+        mo_cas = mo_coeff[:,ncore:nocc]
+        dm_core = 2*mo_core @ mo_core.conj ().T
+        if veff_core is None: veff_core = getattr (veff, 'c', None)
+        if veff_core is None: veff_core = self.get_veff (dm1s=dm_core)
+        h1eff = self.get_hcore () + veff_core
+        e0 = 2*np.dot (((h1eff-(veff_core/2)) @ mo_core).ravel (), mo_core.conj().ravel ())
+        h1eff = mo_cas.conj ().T @ h1eff @ mo_cas
+        eri_cas = lib.numpy_helper.unpack_tril (h2eff.reshape (nmo*ncas, ncas*(ncas+1)//2))
+        eri_cas = eri_cas.reshape (nmo, ncas, ncas, ncas)
+        eri_cas = eri_cas[ncore:nocc]
+        casdm1rs = self.states_make_casdm1s (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub,
+                                             casdm1frs=casdm1frs)
+        vj_r = np.tensordot (casdm1rs.sum (1), eri_cas, axes=2)
+        vk_rs = np.tensordot (casdm1rs, eri_cas, axes=((2,3),(2,1)))
+        veff_rs = vj_r[:,None,:,:] - vk_rs
 
         energy_elec = []
-        for idx, (dm1s, v) in enumerate (zip (dm1rs, veff)):
+        for idx, (dm1s, v) in enumerate (zip (casdm1rs, veff_rs)):
             casdm1fs = [dm[idx] for dm in casdm1frs]
             casdm2f = [dm[idx] for dm in casdm2fr]
             
             # 1-body veff terms
-            h1e = self.get_hcore ()[None,:,:] + v/2
+            h1e = h1eff[None,:,:] + v/2
             e1 = np.dot (h1e.ravel (), dm1s.ravel ())
 
             # 2-body cumulant terms
@@ -1186,8 +1202,8 @@ class LASCINoSymm (casci.CASCI):
                 eri = self.get_h2eff_slice (h2eff, isub)
                 te2 = np.tensordot (eri, cdm2, axes=4) / 2
                 e2 += te2
-            energy_elec.append (e1 + e2)
-            self._e1_ref = e1
+            energy_elec.append (e0 + e1 + e2)
+            self._e1_ref = e0 + e1
             self._e2_ref = e2
 
         return energy_elec
@@ -1324,6 +1340,101 @@ class LASCINoSymm (casci.CASCI):
     las2cas_civec = las2cas_civec
     assert_no_duplicates = assert_no_duplicates
     get_init_guess_ci = get_init_guess_ci
+    localize_init_guess=lasscf_guess.localize_init_guess
+    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
+        if s is None: s = self._scf.get_ovlp ()
+        return matrix_svd_control_options (s, lspace=mo_lspace, rspace=mo_rspace, full_matrices=True)[:3]
+
+    def dump_flags (self, verbose=None, _method_name='LASCI'):
+        log = lib.logger.new_logger (self, verbose)
+        log.info ('')
+        log.info ('******** %s flags ********', _method_name)
+        ncore = self.ncore
+        ncas = self.ncas
+        nvir = self.mo_coeff.shape[1] - ncore - ncas
+        nfrags = len (self.nelecas_sub)
+        log.info ('CAS (%de+%de, %do), ncore = %d, nvir = %d',
+                  self.nelecas[0], self.nelecas[1], ncas, ncore, nvir)
+        log.info ('Divided into %d LAS spaces', nfrags)
+        for i, (no, ne) in enumerate (zip (self.ncas_sub, self.nelecas_sub)):
+            log.info ('LAS %d : (%de+%de, %do)', i, ne[0], ne[1], no)
+        log.info ('nroots = %d', self.nroots)
+        log.info ('max_memory %d (MB)', self.max_memory)
+        for i, fcibox in enumerate (self.fciboxes):
+            if getattr (fcibox, 'dump_flags', None):
+                log.info ('fragment %d FCI solver flags:', i)
+                fcibox.dump_flags (log.verbose)
+
+    @property
+    def converged (self):
+        return all (self.states_converged)
+    @converged.setter
+    def converged (self, x):
+        if hasattr (x, '__len__'):
+            self.states_converged = list (x)
+        else:
+            self.states_converged = [x,]*self.nroots
+
+    def dump_states (self, nroots=None, sort_energy=False):
+        log = lib.logger.new_logger (self, self.verbose)
+        log.info ("******** LAS state tables ********")
+        if nroots is None and self.verbose <= lib.logger.INFO:
+            nroots = min (self.nroots, 100)
+        elif nroots is None:
+            nroots = self.nroots
+        if nroots < self.nroots:
+            log.warn ("Dumping only 100 of %d states", self.nroots)
+            log.warn ("To see more, explicitly pass nroots to dump_states or increase verbosity")
+        if sort_energy:
+            idx = np.argsort (self.e_states)
+        else:
+            idx = range (nroots)
+        for state in idx:
+            neleca_f = []
+            nelecb_f = []
+            wfnsym_f = []
+            wfnsym = 0
+            m_f = []
+            s_f = []
+            s2_tot = 0
+            for fcibox, nelecas in zip (self.fciboxes, self.nelecas_sub):
+                solver = fcibox.fcisolvers[state]
+                na, nb = _unpack_nelec (fcibox._get_nelec (solver, nelecas))
+                neleca_f.append (na)
+                nelecb_f.append (nb)
+                m_f.append ((na-nb)/2)
+                s_f.append ((solver.smult-1)/2)
+                s2_tot += s_f[-1] * (s_f[-1] + 1)
+                fragsym = getattr (solver, 'wfnsym', 0) or 0
+                if isinstance (fragsym, str):
+                    fragsym_str = fragsym
+                    fragsym_id = symm.irrep_name2id (solver.mol.groupname, fragsym)
+                else:
+                    fragsym_id = fragsym
+                    fragsym_str = symm.irrep_id2name (solver.mol.groupname, fragsym)
+                wfnsym ^= fragsym_id
+                wfnsym_f.append (fragsym_str)
+            s2_tot += sum ([2*m1*m2 for m1, m2 in combinations (m_f, 2)])
+            s_f, m_f = np.asarray (s_f), np.asarray (m_f)
+            if np.all (m_f<0): m_f *= -1
+            s_pure = bool (np.all (s_f==m_f))
+            wfnsym = symm.irrep_id2name (self.mol.groupname, wfnsym)
+            neleca = sum (neleca_f)
+            nelecb = sum (nelecb_f)
+            log.info ("LAS state %d: (%de+%de,%do) wfynsm=%s", state, neleca, nelecb, self.ncas, wfnsym)
+            log.info ("Converged? %s", self.states_converged[state])
+            log.info ("E(LAS) = %.15g", self.e_states[state])
+            log.info ("S^2 = %.7f (%s)", s2_tot, ('Impure','Pure')[s_pure])
+            log.info ("State table")
+            log.info (" frag    (ae+be,no)  2S+1   ir")
+            for i in range (self.nfrags):
+                smult_f = int (round (2*s_f[i] + 1))
+                tupstr = '({}e+{}e,{}o)'.format (neleca_f[i], nelecb_f[i], self.ncas_sub[i])
+                log.info (" %4d %13s  %4d  %3s", i, tupstr, smult_f, wfnsym_f[i])
+
+    def check_sanity (self):
+        casci.CASCI.check_sanity (self)
+        self.get_ugg () # constructor encounters impossible states and raises error
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 
@@ -1341,7 +1452,10 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     make_rdm1s = LASCINoSymm.make_rdm1s
     make_rdm1 = LASCINoSymm.make_rdm1
     get_veff = LASCINoSymm.get_veff
-    get_h1eff = get_h1cas = h1e_for_cas 
+    get_h1eff = get_h1cas = h1e_for_cas
+    dump_flags = LASCINoSymm.dump_flags
+    dump_states = LASCINoSymm.dump_states
+    check_sanity = LASCINoSymm.check_sanity
     _ugg = lasci_sync.LASCISymm_UnitaryGroupGenerators
 
     @property
@@ -1395,5 +1509,33 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
         mo_coeff = lib.tag_array (mo_coeff, orbsym=orbsym)
         return mo_coeff
         
+    @lib.with_doc(LASCINoSymm.localize_init_guess.__doc__)
+    def localize_init_guess (self, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
+                             freeze_cas_spaces=False):
+        if mo_coeff is None:
+            mo_coeff = self.mo_coeff
+        mo_coeff = casci_symm.label_symmetry_(self, mo_coeff)
+        return LASCINoSymm.localize_init_guess (self, frags_atoms, mo_coeff=mo_coeff, spin=spin,
+            lo_coeff=lo_coeff, fock=fock, freeze_cas_spaces=freeze_cas_spaces)
 
-        
+    def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
+        if s is None: s = self._scf.get_ovlp ()
+        lsymm = getattr (mo_lspace, 'orbsym', None)
+        if lsymm is None:
+            mo_lspace = symm.symmetrize_space (self.mol, mo_lspace)
+            lsymm = symm.label_orb_symm(self.mol, self.mol.irrep_id,
+                self.mol.symm_orb, mo_lspace, s=s)
+        rsymm = getattr (mo_rspace, 'orbsym', None)
+        if rsymm is None:
+            mo_rspace = symm.symmetrize_space (self.mol, mo_rspace)
+            rsymm = symm.label_orb_symm(self.mol, self.mol.irrep_id,
+                self.mol.symm_orb, mo_rspace, s=s)
+        decomp = matrix_svd_control_options (s,
+            lspace=mo_lspace, rspace=mo_rspace,
+            lspace_symmetry=lsymm, rspace_symmetry=rsymm,
+            full_matrices=True, strong_symm=True)
+        mo_lvecs, svals, mo_rvecs, lsymm, rsymm = decomp
+        mo_lvecs = lib.tag_array (mo_lvecs, orbsym=lsymm)
+        mo_rvecs = lib.tag_array (mo_rvecs, orbsym=rsymm)
+        return mo_lvecs, svals, mo_rvecs
+     

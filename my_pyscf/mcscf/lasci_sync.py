@@ -1,4 +1,5 @@
 from pyscf import lib, symm
+from mrh.my_pyscf.fci.csfstring import ImpossibleCIvecError
 from mrh.my_pyscf.mcscf import _DFLASCI
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg 
@@ -215,10 +216,11 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     if log.verbose > lib.logger.INFO:
         e_tot_test = las.get_hop (ugg=ugg, mo_coeff=mo_coeff, ci=ci1, h2eff_sub=h2eff_sub,
                                   veff=veff, do_init_eri=False).e_tot
+    dm_core = 2 * mo_coeff[:,:las.ncore] @ mo_coeff[:,:las.ncore].conj ().T
     veff_a = np.stack ([las.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub,
                                         mo_coeff=mo_coeff, ci=ci1, _full=True)
                         for state in range (las.nroots)], axis=0)
-    veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, las.weights))/2
+    veff_c = las.get_veff (dm1s=dm_core)
     # veff's spin-summed component should be correct because I called get_veff with spin-summed rdm
     veff = veff_c[None,None,:,:] + veff_a 
     veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff, las.weights))
@@ -386,12 +388,17 @@ class LASCI_UnitaryGroupGenerators (object):
 
     def _init_ci (self, las, mo_coeff, ci):
         self.ci_transformers = []
-        for norb, nelec, fcibox in zip (las.ncas_sub, las.nelecas_sub, las.fciboxes):
+        for i, fcibox in enumerate (las.fciboxes):
+            norb, nelec = las.ncas_sub[i], las.nelecas_sub[i]
             tf_list = []
-            for solver in fcibox.fcisolvers:
+            for j, solver in enumerate (fcibox.fcisolvers):
                 solver.norb = norb
                 solver.nelec = fcibox._get_nelec (solver, nelec)
-                solver.check_transformer_cache ()
+                try:
+                    solver.check_transformer_cache ()
+                except ImpossibleCIvecError as e:
+                    lib.logger.error (las, 'impossible CI vector in LAS frag %d, state %d', i, j)
+                    raise (e)
                 tf_list.append (solver.transformer)
             self.ci_transformers.append (tf_list)
 

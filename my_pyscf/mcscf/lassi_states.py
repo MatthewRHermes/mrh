@@ -133,6 +133,10 @@ class SingleLASState (object):
         return singles
 
 def all_single_excitations (las):
+    '''Add states characterized by one electron hopping from one fragment to another fragment
+    in all possible ways. Uses all states already present as reference states, so that calling
+    this function a second time generates two-electron excitations, etc. The input object is
+    not altered in-place.'''
     from mrh.my_pyscf.mcscf.lasci import get_state_info
     from mrh.my_pyscf.mcscf.lasci import LASCISymm
     log = logger.new_logger (las, las.verbose)
@@ -177,29 +181,41 @@ if __name__=='__main__':
     molden.from_mo (las.mol, 'lassi_states.lasscf.molden', no_coeff, ene=no_ene, occ=no_occ)
     las2 = all_single_excitations (las)
     las2.lasci ()
+    las2.dump_states ()
     e_roots, si = las2.lassi ()
     elas1 = e_roots[0]
     print ("LASSI(S):", elas1)
     from mrh.my_pyscf.mcscf import lassi
-    casdm1 = lassi.roots_make_rdm12s (las2, las2.ci, si)[0][0].sum (0)
+    casdm1 = lassi.root_make_rdm12s (las2, las2.ci, si, state=0)[0].sum (0)
     no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
     molden.from_mo (las.mol, 'lassi_states.lassis.molden', no_coeff, ene=no_ene, occ=no_occ)
     las3 = all_single_excitations (las2)
     las3.lasci ()
+    las3.dump_states ()
     e_roots, si = las3.lassi ()
     elas2 = e_roots[0]
     print ("LASSI(SD):", elas2)
-    casdm1 = lassi.roots_make_rdm12s (las3, las3.ci, si)[0][0].sum (0)
+    casdm1 = lassi.root_make_rdm12s (las3, las3.ci, si, state=0)[0].sum (0)
     no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
     molden.from_mo (las.mol, 'lassi_states.lassisd.molden', no_coeff, ene=no_ene, occ=no_occ)
-    #las4 = all_single_excitations (las3)
-    #las4.lasci ()
-    #e_roots, si = las4.lassi ()
-    #elas3 = e_roots[0]
-    #print ("LASSI(SDT):", elas3)
-    #casdm1 = lassi.roots_make_rdm12s (las4, las4.ci, si)[0][0].sum (0)
-    #no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
-    #molden.from_mo (las.mol, 'lassi_states.lassisdt.molden', no_coeff, ene=no_ene, occ=no_occ)
+    las4 = all_single_excitations (las3)
+    las4.lasci ()
+    las4.dump_states ()
+    e_roots, si = las4.lassi ()
+    elas3 = e_roots[0]
+    print ("LASSI(SDT):", elas3)
+    casdm1 = lassi.root_make_rdm12s (las4, las4.ci, si, state=0)[0].sum (0)
+    no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
+    molden.from_mo (las.mol, 'lassi_states.lassisdt.molden', no_coeff, ene=no_ene, occ=no_occ)
+    las5 = all_single_excitations (las4)
+    las5.lasci ()
+    las5.dump_states ()
+    e_roots, si = las5.lassi ()
+    elas4 = e_roots[0]
+    print ("LASSI(SDTQ):", elas4)
+    casdm1 = lassi.root_make_rdm12s (las5, las5.ci, si, state=0)[0].sum (0)
+    no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
+    molden.from_mo (las.mol, 'lassi_states.lassisdtq.molden', no_coeff, ene=no_ene, occ=no_occ)
     mc = mcscf.CASCI (mf, (10), (5,5)).set (fcisolver=csf_solver (mol, smult=1))
     mc.kernel (mo_coeff=las.mo_coeff)
     ecas = mc.e_tot
