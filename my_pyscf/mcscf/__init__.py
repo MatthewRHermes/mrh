@@ -12,5 +12,3 @@ def constrCASSCF(mf, ncas, nelecas, **kwargs):
     return mc1step_constrained.CASSCF (mf, ncas, nelecas, **kwargs)
 
 constrRCASSCF = constrCASSCF
-
-

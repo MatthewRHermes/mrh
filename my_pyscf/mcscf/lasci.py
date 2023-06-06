@@ -994,19 +994,19 @@ class LASCINoSymm (casci.CASCI):
         dm_cas = self.make_rdm1s_sub (mo_coeff=mo_coeff, **kwargs).sum (0)
         return dm_core[None,:,:] + dm_cas
 
-    def make_rdm1 (self, **kwargs):
-        return self.make_rdm1s (**kwargs).sum (0)
+    def make_rdm1 (self, mo_coeff=None, ci=None, **kwargs):
+        return self.make_rdm1s (mo_coeff=mo_coeff, ci=ci, **kwargs).sum (0)
 
-    def make_casdm1s (self, **kwargs):
+    def make_casdm1s (self, ci=None, **kwargs):
         ''' Make the full-dimensional casdm1s spanning the collective active space '''
-        casdm1s_sub = self.make_casdm1s_sub (**kwargs)
+        casdm1s_sub = self.make_casdm1s_sub (ci=ci, **kwargs)
         casdm1a = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
         casdm1b = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
         return np.stack ([casdm1a, casdm1b], axis=0)
 
-    def make_casdm1 (self, **kwargs):
+    def make_casdm1 (self, ci=None, **kwargs):
         ''' Spin-sum make_casdm1s '''
-        return self.make_casdm1s (**kwargs).sum (0)
+        return self.make_casdm1s (ci=ci, **kwargs).sum (0)
 
     def states_make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm1frs=None, casdm2fr=None, **kwargs):
