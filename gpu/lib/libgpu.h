@@ -24,8 +24,11 @@ extern "C"
   double libgpu_compute(void *, py::array_t<double>);
 
   void libgpu_compute_df_get_jk(void *, py::array_t<double>);
-  void libgpu_orbital_response(void *, int, py::array_t<double>);
-  
+  void libgpu_orbital_response(void *,
+			       py::array_t<double>,
+			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
+			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
+			       int, int, int); 
 }
 
 

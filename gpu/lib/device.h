@@ -6,6 +6,11 @@
 #include <chrono>
 #include <math.h>
 
+#include <pybind11/pybind11.h>
+#include <pybind11/numpy.h>
+
+namespace py = pybind11;
+
 #include "pm.h"
 
 #define _NUM_ITER 10
@@ -28,6 +33,11 @@ public :
 
   void setup(double *, int);
   double compute(double *);
+
+  void orbital_response(py::array_t<double>,
+			py::array_t<double>, py::array_t<double>, py::array_t<double>,
+			py::array_t<double>, py::array_t<double>, py::array_t<double>,
+			int, int, int);
   
 private:
   double host_compute(double *);
