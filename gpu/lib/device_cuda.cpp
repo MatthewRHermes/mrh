@@ -71,4 +71,14 @@ double Device::compute(double * data)
   return sum;
 }
 
+/* ---------------------------------------------------------------------- */
+
+void Device::orbital_response(py::array_t<double> _f1_prime,
+			      py::array_t<double> ppaa, py::array_t<double> papa, py::array_t<double> paaa,
+			      py::array_t<double> ocm2, py::array_t<double> tcm2, py::array_t<double> gorb,
+			      int ncore, int nocc, int nmo)
+{
+  printf("Device::orbital_response w/ CUDA backend not yet enabled\n");
+}
+
 #endif

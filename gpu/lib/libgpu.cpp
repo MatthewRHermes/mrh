@@ -101,18 +101,15 @@ void libgpu_compute_df_get_jk(void * ptr, py::array_t<double> eri1)
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_orbital_response(void * ptr, int nmo, py::array_t<double> ppaa)
+void libgpu_orbital_response(void * ptr,
+			     py::array_t<double> f1_prime,
+			     py::array_t<double> ppaa, py::array_t<double> papa, py::array_t<double> eri_paaa,
+			     py::array_t<double> ocm2, py::array_t<double> tcm2, py::array_t<double> gorb,
+			     int ncore, int nocc, int nmo)
 {
-  printf("HELLO from libgpu_orbital_respons()!!\n");
-  
-  py::buffer_info info_ppaa = ppaa.request();
-
-  double * ptr_ppaa = static_cast<double*>(info_ppaa.ptr);
-  
-  printf("LIBGPU: Inside libgpu_orbital_response()\n");
-  printf("  -- nmo= %i\n",nmo);
-  printf("  -- ppaa: ndim= %i\n",info_ppaa.ndim);
-  printf("  --       shape=");
-  for(int i=0; i<info_ppaa.ndim; ++i) printf(" %i", info_ppaa.shape[i]);
-  printf("\n");
+  Device * dev = (Device *) ptr;
+  dev->orbital_response(f1_prime,
+			ppaa, papa, eri_paaa,
+			ocm2, tcm2, gorb,
+			ncore, nocc, nmo);
 }
