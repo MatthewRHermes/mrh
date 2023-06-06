@@ -33,7 +33,7 @@ int dev_num_devices() {
   printf("\n  Using OPENMP v%3.1f\n", version);
   printf("  num_threads= %i\n",num_threads);
   
-  return 0;
+  return num_threads;
 }
 
 void dev_properties(int ndev) {}

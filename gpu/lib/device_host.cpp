@@ -31,7 +31,9 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 			      py::array_t<double> _ocm2, py::array_t<double> _tcm2, py::array_t<double> _gorb,
 			      int ncore, int nocc, int nmo)
 {
-  printf("HELLO from libgpu_orbital_respons()!!\n");
+  int num_threads = 1;
+#pragma omp parallel
+  num_threads = omp_get_num_threads();
   
   py::buffer_info info_ppaa = _ppaa.request(); // 4D array (26, 26, 2, 2)
   py::buffer_info info_papa = _papa.request(); // 4D array (26, 2, 26, 2)
@@ -60,11 +62,18 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   // printf("\n");
 
   double * f1_prime = (double *) malloc(nmo*nmo*sizeof(double));
+
+  int max_lead_dim_ar = (ncore > (nmo-nocc)) ? ncore : nmo-nocc;
+  int size_ar_2d = max_lead_dim_ar * info_papa.shape[3];
+  int max_size_ar = info_papa.shape[1] * size_ar_2d;
+  double * ar_global = (double *) malloc(num_threads * max_size_ar*sizeof(double));
   
   // loop over f1 (i<nmo)
-  
+#pragma omp parallel for
   for(int p=0; p<nmo; ++p) {
-  
+
+    int it = omp_get_thread_num();
+    
     double * f1 = &(f1_prime[p * nmo]);
   
     // pointers to slices of data
@@ -89,15 +98,14 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     
     int size_ar_2d = ncore * info_papa.shape[3];
     int size_ar = info_papa.shape[1] * size_ar_2d;
-    double * ar = (double *) malloc(size_ar*sizeof(double)); // 2, ncore, 2
+    //double * ar = (double *) malloc(size_ar*sizeof(double)); // 2, ncore, 2
+    double * ar = &(ar_global[it*max_size_ar]);
     int indx = 0;
-    //  printf("Initializing ar\n");
     for(int i1=0; i1<info_papa.shape[1]; ++i1)
       for(int j1=0; j1<ncore; ++j1)
 	for(int k1=0; k1<info_papa.shape[3]; ++k1) {
 	  int indx1 = i1*papa_size_2d + j1*info_papa.shape[3] + k1;
 	  ar[indx++] = para[indx1]; // para(:, i:j, :)
-	  //	printf("ar[%i]= %f\n",indx-1,ar[indx-1]);
 	}
     
     double * cm = ocm2; // (2, 2, 2, ncore)
@@ -113,16 +121,13 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     for(int i=0; i<ncore; ++i) {
       
       double val = 0.0;
-      //    int indx = 0;
       for(int k1=0; k1<info_ppaa.shape[3]; ++k1)
 	for(int j1=0; j1<info_ppaa.shape[2]; ++j1)
 	  for(int i1=0; i1<nocc-ncore; ++i1)
 	    {
 	      int indx1 = i1 * ppaa_size_2d + j1 * info_ppaa.shape[3] + k1;
 	      int indx2 = k1 * ocm2_size_3d + j1 * ocm2_size_2d + i1 * info_ocm2.shape[3] + i;
-	      //printf("i= %i  indx= %i  {%i, %i, %i}  indx1= %i  indx2= %i\n",i,indx,i1,j1,k1,indx1,indx2);
 	      val += paaa[indx1] * cm[indx2];
-	      //indx++;
 	    }
       
       f1[i] += val;
@@ -137,16 +142,13 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     for(int i=0; i<info_ocm2.shape[2]; ++i) {
       
       double val = 0.0;
-      //    int indx = 0;
       for(int k1=0; k1<info_ppaa.shape[3]; ++k1)
 	for(int j1=0; j1<info_ppaa.shape[2]; ++j1)
 	  for(int i1=0; i1<ncore; ++i1)
 	    {
 	      int indx1 = i1 * ppaa_size_2d + j1 * info_ppaa.shape[3] + k1;
 	      int indx2 = j1 * ocm2_size_3d + k1 * ocm2_size_2d + i * info_ocm2.shape[3] + i1;
-	      //printf("i= %i  indx= %i  {%i, %i, %i}  indx1= %i  indx2= %i\n",i,indx,i1,j1,k1,indx1,indx2);
 	      val += ra[indx1] * cm[indx2];
-	      //indx++;
 	    }
       
       f1[ncore+i] += val;
@@ -196,8 +198,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1[ncore+i] += val;
     }
     
-    free(ar);
-    
     // ====================================================================
     // iteration (nocc, nmo)
     // ====================================================================
@@ -209,17 +209,14 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     
     size_ar_2d = (nmo-nocc) * info_papa.shape[3];
     size_ar = info_papa.shape[1] * size_ar_2d;
-    ar = (double *) malloc(size_ar*sizeof(double)); // 2, nmo-nocc, 2
+    //    ar = (double *) malloc(size_ar*sizeof(double)); // 2, nmo-nocc, 2
     indx = 0;
-    //  printf("Initializing ar\n");
     for(int i1=0; i1<info_papa.shape[1]; ++i1)
       for(int j1=nocc; j1<nmo; ++j1)
 	for(int k1=0; k1<info_papa.shape[3]; ++k1) {
 	  int indx1 = i1*papa_size_2d + j1*info_papa.shape[3] + k1;
 	  ar[indx++] = para[indx1];
-	  //printf("ar[%i]= %f\n",indx-1,ar[indx-1]);
 	}
-    
     
     // tensordot(paaa, cm, axes=((0,1,2), (2,1,0)))
     
@@ -237,9 +234,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 	    {
 	      int indx1 = i1 * ppaa_size_2d + j1 * info_ppaa.shape[3] + k1;
 	      int indx2 = k1 * ocm2_size_3d + j1 * ocm2_size_2d + i1 * info_ocm2.shape[3] + i;
-	      //printf("i= %i  indx= %i  {%i, %i, %i}  indx1= %i  indx2= %i\n",i,indx,i1,j1,k1,indx1,indx2);
 	      val += paaa[indx1] * cm[indx2];
-	      //indx++;
 	    }
       
       f1[i] += val;
@@ -254,21 +249,17 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     for(int i=0; i<info_ocm2.shape[2]; ++i) {
       
       double val = 0.0;
-      //int indx = 0;
       for(int k1=0; k1<info_ppaa.shape[3]; ++k1)
 	for(int j1=0; j1<info_ppaa.shape[2]; ++j1)
 	  for(int i1=0; i1<nmo-nocc; ++i1)
 	    {
 	      int indx1 = (nocc+i1) * ppaa_size_2d + j1 * info_ppaa.shape[3] + k1;
 	      int indx2 = j1 * ocm2_size_3d + k1 * ocm2_size_2d + i * info_ocm2.shape[3] + (nocc+i1);
-	      //printf("i= %i  indx= %i  {%i, %i, %i}  indx1= %i  indx2= %i\n",i,indx,i1,j1,k1,indx1,indx2);
 	      val += ra[indx1] * cm[indx2];
-	      //indx++;
 	    }
       
       f1[ncore+i] += val;
     }
-    
     
     // tensordot(ar, cm, axes=((0,1,2), (0,3,2)))
     
@@ -279,7 +270,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     for(int i=0; i<info_ocm2.shape[1]; ++i) {
       
       double val = 0.0;
-      //    int indx = 0;
       for(int k1=0; k1<info_ppaa.shape[3]; ++k1)
 	for(int j1=0; j1<nmo-nocc; ++j1)
 	  for(int i1=0; i1<info_papa.shape[1]; ++i1)
@@ -312,10 +302,8 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[ncore+i] += val;
     }
-    
-    free(ar);
 
-  }
+  } // for(p<nmo)
 
   // # (H.x_aa)_va, (H.x_aa)_ac
 
@@ -341,9 +329,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 	    _ocm2_tmp[indx++] = ocm2[indx1] + ocm2[indx2];
 	  }
   
-  //printf("LIBGPU::ocm2_tmp(%i %i %i %i)= \n",info_ocm2.shape[0], info_ocm2.shape[1], info_ocm2.shape[2], nocc-ncore);
-  // for(int i=0; i<size_ecm; ++i) printf("  i= %i  %f\n",i,_ocm2_tmp[i]);
-  
   // ocm2 += ocm2.transpose (2,3,0,1)
 
   _ocm2_size_3d = info_ocm2.shape[1] * _ocm2_size_2d;
@@ -365,8 +350,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   for(int i=0; i<size_ecm; ++i) ecm2[i] = _ocm2t[i] + tcm2[i];
   
   // f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
-
-  //  printf("LIBGPU::paa(%i %i %i %i)= \n",info_paaa.shape[0], info_paaa.shape[1], info_paaa.shape[2], info_paaa.shape[3]);
   
   int paaa_size_1d = info_paaa.shape[3];
   int paaa_size_2d = info_paaa.shape[2] * paaa_size_1d;
@@ -424,6 +407,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 
   for(int i=0; i<nmo*nmo; ++i) res[i] = g_f1_prime[i];
 
+  free(ar_global);
   free(g_f1_prime);
   free(ecm2);
   free(_ocm2t);
