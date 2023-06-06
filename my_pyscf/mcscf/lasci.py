@@ -1011,7 +1011,7 @@ class LASCINoSymm (casci.CASCI):
     def states_make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm1frs=None, casdm2fr=None, **kwargs):
         ''' Make the full-dimensional casdm2 spanning the collective active space '''
-        log = lib.logger.new_logger (self, verbose)
+        log = lib.logger.new_logger (self, self.verbose)
         log.warn (("You have found yourself in states_make_casdm2, which is "
                    "a very bad piece of code that Matt should be avoiding. "
                    "Please yell at him about this at earliest convenience."))
