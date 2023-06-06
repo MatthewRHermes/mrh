@@ -24,6 +24,7 @@ int dev_num_devices() {
   else if(date == 201307) version = 4.0;
   else if(date == 201511) version = 4.5;
   else if(date == 201611) version = 5.0;
+  else if(date == 202011) version = 5.1;
   else {
     printf("Error: unknown omp version: omp_data= %i.\n",date);
     exit(1);

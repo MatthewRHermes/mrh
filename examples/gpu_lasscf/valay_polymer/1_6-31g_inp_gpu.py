@@ -1,5 +1,5 @@
-#import pyscf
-#from gpu4pyscf import patch_pyscf
+import pyscf
+from gpu4pyscf import patch_pyscf
 
 from geometry_generator import generator
 from pyscf import gto, scf, tools, mcscf
@@ -31,7 +31,10 @@ nfrags=1
 basis='6-31g'
 outputfile='1_6-31g_out.log'
 #mol=gto.M(atom=generator(nfrags),basis=basis,verbose=5,output=outputfile)
-mol=gto.M(atom=generator(nfrags),basis=basis,verbose=5)
+mol=gto.M(use_gpu=gpu, atom=generator(nfrags),basis=basis,verbose=5)
+#mol=gto.M(atom=generator(nfrags),basis=basis,verbose=5)
+print(mol.__dir__())
+#quit()
 print("\nCalling scf.RHF(mol)")
 mf=scf.RHF(mol)
 mf=mf.density_fit()
