@@ -1223,17 +1223,21 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # the current keyframe is such that we will tend to predict steps with magnitude greater
         # than .5*pi (a step of exactly .5*pi transposes two states). This preconditioner should
         # mask out the corresponding degrees of freedom
-        b = linalg.norm (self.get_grad ())
+        g_vec = self.get_grad ()
+        b = linalg.norm (g_vec)
         probe_x0 = b/Hdiag
         ndeg = len (probe_x0)
         idx_unstable = np.abs (probe_x0) > np.pi*.5
         # We can't mask everything, because that behavior would obfuscate the problem
         # If NO stable D.O.F. exist, then keyframe is just bad and it has to be handled upstream
+        ndeg_unstable = np.count_nonzero (idx_unstable)
         ndeg_stable = np.count_nonzero (~idx_unstable)
         if ndeg_stable:
             Hdiag[idx_unstable] = np.inf
             ndeg_unstable = ndeg - ndeg_stable
-            log.debug ('%d/%d d.o.f. masked in LASCI sync preconditioner', ndeg_unstable, ndeg)
+            g_unst = linalg.norm (g_vec[idx_unstable]) if ndeg_unstable else 0
+            log.debug ('%d/%d d.o.f. masked in LASCI sync preconditioner (masked gradient = %g)',
+                       ndeg_unstable, ndeg, g_unst)
         else:
             log.warn ('All d.o.f. in LASCI sync preconditioner unstable! Keyframe may be bad!')
         def prec_op (x):
