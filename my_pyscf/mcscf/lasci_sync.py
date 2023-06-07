@@ -1228,24 +1228,21 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         g_vec = self.get_grad ()
         b = linalg.norm (g_vec)
         probe_x0 = b/Hdiag
+        log.debug ('|probe_x0| / ndeg = %g', linalg.norm (probe_x0) / len (probe_x0))
         ndeg = len (probe_x0)
         idx_unstable = np.abs (probe_x0) > np.pi*.5
         # We can't mask everything, because that behavior would obfuscate the problem
         # If NO stable D.O.F. exist, then keyframe is just bad and it has to be handled upstream
         ndeg_unstable = np.count_nonzero (idx_unstable)
         ndeg_stable = np.count_nonzero (~idx_unstable)
-        if ndeg_stable:
+        g_unst = linalg.norm (g_vec[idx_unstable]) if ndeg_unstable else 0
+        if ndeg_stable and (round (g_unst/b, 2) < 1):
             Hdiag[idx_unstable] = np.inf
             ndeg_unstable = ndeg - ndeg_stable
-            g_unst = linalg.norm (g_vec[idx_unstable]) if ndeg_unstable else 0
             log.debug ('%d/%d d.o.f. masked in LASCI sync preconditioner (masked gradient = %g)',
                        ndeg_unstable, ndeg, g_unst)
-            if ndeg_unstable and (round (g_unst/b, 2) == 1.0):
-                log.warn (('The LASCI sync preconditioner is masking most of the gradient '
-                           '(%g vs %g). This calculation may be unlikely to converge. Try '
-                           'increasing ah_level_shift.'), g_unst, b)
         else:
-            log.warn ('All d.o.f. in LASCI sync preconditioner unstable! Keyframe may be bad!')
+            log.warn ('LASCI encountered an unmaskable instability; calculation may not converge')
         def prec_op (x):
             t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
             Mx = x/Hdiag
