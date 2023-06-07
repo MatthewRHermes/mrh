@@ -1036,34 +1036,36 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def _matvec (self, x):
         log = lib.logger.new_logger (self.las, self.las.verbose)
+        extra_timing = getattr (self.las, '_extra_hessian_timing', False)
+        extra_timer = log.timer if extra_timing else log.timer_debug1
         t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
         kappa1, ci1 = self.ugg.unpack (x)
-        t1 = log.timer ('LASCI sync Hessian operator 1: unpack', *t0)
+        t1 = extra_timer ('LASCI sync Hessian operator 1: unpack', *t0)
 
         # Effective density matrices, veffs, and overlaps from linear response
         odm1s = -np.dot (self.dm1s, kappa1)
         ocm2 = -np.dot (self.cascm2, kappa1[self.ncore:self.nocc])
         tdm1rs, tcm2 = self.make_tdm1s2c_sub (ci1)
-        t1 = log.timer ('LASCI sync Hessian operator 2: effective density matrices', *t1)
+        t1 = extra_timer ('LASCI sync Hessian operator 2: effective density matrices', *t1)
         veff_prime, h1s_prime = self.get_veff_Heff (odm1s, tdm1rs)
-        t1 = log.timer ('LASCI sync Hessian operator 3: effective potentials', *t1)
+        t1 = extra_timer ('LASCI sync Hessian operator 3: effective potentials', *t1)
 
         # Responses!
         kappa2 = self.orbital_response (kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime)
-        t1 = log.timer ('LASCI sync Hessian operator 4: (Hx)_orb', *t1)
+        t1 = extra_timer ('LASCI sync Hessian operator 4: (Hx)_orb', *t1)
         ci2 = self.ci_response_offdiag (kappa1, h1s_prime)
-        t1 = log.timer ('LASCI sync Hessian operator 5: (Hx)_CI offdiag', *t1)
+        t1 = extra_timer ('LASCI sync Hessian operator 5: (Hx)_CI offdiag', *t1)
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, self.ci_response_diag (ci1))]
-        t1 = log.timer ('LASCI sync Hessian operator 6: (Hx)_CI diag', *t1)
+        t1 = extra_timer ('LASCI sync Hessian operator 6: (Hx)_CI diag', *t1)
 
         # LEVEL SHIFT!!
         kappa3, ci3 = self.ugg.unpack (self.ah_level_shift * np.abs (x))
         kappa2 += kappa3
         ci2 = [[x+y for x,y in zip (xr, yr)] for xr, yr in zip (ci2, ci3)]
-        t1 = log.timer ('LASCI sync Hessian operator 7: level shift', *t1)
+        t1 = extra_timer ('LASCI sync Hessian operator 7: level shift', *t1)
 
         Hx = self.ugg.pack (kappa2, ci2)
-        t1 = log.timer ('LASCI sync Hessian operator 8: pack', *t1)
+        t1 = extra_timer ('LASCI sync Hessian operator 8: pack', *t1)
         t0 = log.timer ('LASCI sync Hessian operator total', *t0)
         return Hx
 
@@ -1238,6 +1240,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             g_unst = linalg.norm (g_vec[idx_unstable]) if ndeg_unstable else 0
             log.debug ('%d/%d d.o.f. masked in LASCI sync preconditioner (masked gradient = %g)',
                        ndeg_unstable, ndeg, g_unst)
+            if ndeg_unstable and (round (g_unst/b, 2) == 1.0):
+                log.warn (('The LASCI sync preconditioner is masking most of the gradient '
+                           '(%g vs %g). This calculation may be unlikely to converge. Try '
+                           'increasing ah_level_shift.'), g_unst, b)
         else:
             log.warn ('All d.o.f. in LASCI sync preconditioner unstable! Keyframe may be bad!')
         def prec_op (x):
