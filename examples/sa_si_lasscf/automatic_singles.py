@@ -1,11 +1,10 @@
 import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
-from pyscf.tools import molden
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf import lassi
-from mrh.my_pyscf.tools.molden import from_lasscf
+from mrh.my_pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 
 mol = struct (0, 0, '6-31g')
@@ -23,19 +22,37 @@ las = las.state_average ([0.5,0.5],
 mo = las.sort_mo ([16,18,22,23,24,26])
 mo = las.localize_init_guess ((list (range (5)), list (range (5,10))), mo)
 las.kernel (mo)
+molden.from_lasscf (las, 'c2h4n4_lasscf66_631g.molden')
 
 mc = mcscf.CASCI (mf, 6, 6).set (fcisolver=csf_solver(mol,smult=1))
 mc.kernel (las.mo_coeff)
+molden.from_mcscf (mc, 'c2h4n4_casscf66_631g.molden', cas_natorb=True)
 
 print ("LASSCF((3,3),(3,3)) energy =", las.e_tot)
 print ("CASCI(6,6) energy =", mc.e_tot)
+
+las2 = las.state_average ([0.5,0.5,0,0],
+    spins=[[1,-1],[-1,1],[0,0],[0,0]],
+    smults=[[2,2],[2,2],[1,1],[1,1]],    
+    charges=[[0,0],[0,0],[-1,1],[1,-1]])
+las2.lasci ()
+las2.dump_states ()
+e_roots, si_hand = las2.lassi ()
+print ("LASSI(hand) energy =", e_roots[0])
+molden.from_lassi (las2, 'c2h4n4_las66si4_631g.molden', si=si_hand)
 
 from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
 las = all_single_excitations (las)
 las.lasci () # Optimize the CI vectors
 las.dump_states () # prints all state tables in the output file
-e_roots, si = las.lassi ()
+e_roots, si_s = las.lassi ()
 
 print ("LASSI(S) energy =", e_roots[0])
+molden.from_lassi (las, 'c2h4n4_las66siS_631g.molden', si=si_s)
 
+print ("SI vector (hand):")
+print (si_hand[:,0])
+
+print ("SI vector (singles):")
+print (si_s[:,0])
 

@@ -41,8 +41,16 @@ def from_si_mcscf (mc, fname, state=None, si=None, cas_natorb=False, cas_mo_ener
         return from_sa_mcscf (mc, fname, state=state, cas_natorb=cas_natorb,
                               cas_mo_energy=cas_mo_energy, **kwargs)
 
-def from_lasscf (las, fname, **kwargs):
-    mo_coeff, mo_ene, mo_occ = las.canonicalize ()[:3]
+def from_lasscf (las, fname, state=None, natorb_casdm1=None, **kwargs):
+    if state is not None: natorb_casdm1 = las.states_make_casdm1s ()[state].sum (0)
+    mo_coeff, mo_ene, mo_occ = las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
+    return from_mo (las.mol, fname, mo_coeff, occ=mo_occ, ene=mo_ene, **kwargs)
+
+def from_lassi (las, fname, state=0, si=None, **kwargs):
+    if si is None: si = getattr (las, 'si', None)
+    from mrh.my_pyscf.mcscf.lassi import root_make_rdm12s
+    natorb_casdm1 = root_make_rdm12s (las, las.ci, si, state=state)[0].sum (0)
+    mo_coeff, mo_ene, mo_occ = las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
     return from_mo (las.mol, fname, mo_coeff, occ=mo_occ, ene=mo_ene, **kwargs)
 
 def from_mcscf (mc, filename, ignore_h=IGNORE_H, cas_natorb=False):
