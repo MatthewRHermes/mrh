@@ -90,7 +90,7 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
 
     return h0, h1, h2
 
-def las_symm_tuple (las, break_spin=False, break_symmetry=False):
+def las_symm_tuple (las, break_spin=False, break_symmetry=False, verbose=None):
     '''Identify the symmetries/quantum numbers of of each LAS state within a LASSI model space
     which are to be preserved by projecting the Hamiltonian into the corresponding diagonal
     symmetry blocks.
@@ -126,7 +126,7 @@ def las_symm_tuple (las, break_spin=False, break_symmetry=False):
     full_statesym = [] # keep everything for i/o...
     statesym = [] # ...but return only this
     s2_states = []
-    log = lib.logger.new_logger (las, las.verbose)
+    log = lib.logger.new_logger (las, verbose)
     for iroot in range (las.nroots):
         neleca = 0
         nelecb = 0
@@ -396,7 +396,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     norb = las.ncas
-    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
+    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
     if soc:
         stdm1s = np.zeros ((las.nroots, las.nroots, 2*norb, 2*norb),
             dtype=ci[0][0].dtype).transpose (0,2,3,1)
@@ -485,7 +485,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
     norb = las.ncas
-    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)[0]
+    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
     rootsym = [tuple (x) for x in si.rootsym]
     nroots = si.shape[1]
 
