@@ -7,6 +7,7 @@ from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisol
 from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
+from mrh.my_pyscf.mcscf import chkfile
 from mrh.my_pyscf.mcscf.lassi import lassi
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
 from mrh.util.la import matrix_svd_control_options
@@ -741,6 +742,7 @@ class LASCINoSymm (casci.CASCI):
         nelecas = new_nelecas
         self.nroots = 1
         super().__init__(mf, ncas=ncas_tot, nelecas=nel_tot, ncore=ncore)
+        self.chkfile = self._scf.chkfile
         if spin_sub is None: spin_sub = [1 + abs(ne[0]-ne[1]) for ne in nelecas]
         self.ncas_sub = np.asarray (ncas)
         self.nelecas_sub = np.asarray (nelecas)
@@ -753,7 +755,7 @@ class LASCINoSymm (casci.CASCI):
         self.max_cycle_micro = 5
         keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub',
                     'conv_tol_grad', 'conv_tol_self', 'max_cycle_macro', 'max_cycle_micro',
-                    'ah_level_shift', 'states_converged'))
+                    'ah_level_shift', 'states_converged', 'chkfile'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
         if isinstance(spin_sub,int):
@@ -1435,6 +1437,9 @@ class LASCINoSymm (casci.CASCI):
     def check_sanity (self):
         casci.CASCI.check_sanity (self)
         self.get_ugg () # constructor encounters impossible states and raises error
+
+    dump_chk = chkfile.dump_las
+    load_chk = load_chk_ = chkfile.load_las_
 
 class LASCISymm (casci_symm.CASCI, LASCINoSymm):
 

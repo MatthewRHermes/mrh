@@ -24,46 +24,48 @@ from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
-xyz = '''6        2.215130000      3.670330000      0.000000000
-1        3.206320000      3.233120000      0.000000000
-1        2.161870000      4.749620000      0.000000000
-6        1.117440000      2.907720000      0.000000000
-1        0.141960000      3.387820000      0.000000000
-1       -0.964240000      1.208850000      0.000000000
-6        1.117440000      1.475850000      0.000000000
-1        2.087280000      0.983190000      0.000000000
-6        0.003700000      0.711910000      0.000000000
-6       -0.003700000     -0.711910000      0.000000000
-6       -1.117440000     -1.475850000      0.000000000
-1        0.964240000     -1.208850000      0.000000000
-1       -2.087280000     -0.983190000      0.000000000
-6       -1.117440000     -2.907720000      0.000000000
-6       -2.215130000     -3.670330000      0.000000000
-1       -0.141960000     -3.387820000      0.000000000
-1       -2.161870000     -4.749620000      0.000000000
-1       -3.206320000     -3.233120000      0.000000000'''
-mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False, verbose=0, output='/dev/null')
-mol_symm = gto.M (atom = xyz, basis='STO-3G', symmetry='Cs', verbose=0, output='/dev/null')
-mf = scf.RHF (mol).run ()
-mf_symm = scf.RHF (mol_symm).run ()
-las = LASSCF (mf, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
-las_symm = LASSCF (mf_symm, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
-a = list (range (18))
-frags = [a[:5], a[5:9], a[9:13], a[13:18]]
-mo = las.localize_init_guess (frags, mf.mo_coeff)
-mo_symm = las_symm.localize_init_guess (frags, mf_symm.mo_coeff)
-del a, frags
-#las.kernel (mo)
-
-# State list contains a couple of different 4-frag interactions
-states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1]],
-           'spins':   [[0,0,0,0],[1,1,-1,-1],[0,1,-1,0], [1,0,0,-1],[-1,-1,1,1],[0,-1,1,0], [-1,0,0,1]],
-           'smults':  [[1,1,1,1],[2,2,2,2],  [1,2,2,1],  [2,1,1,2], [2,2,2,2],  [1,2,2,1],  [2,1,1,2]],
-           'wfnsyms': [[0,0,0,0],]*7}
-states_symm = copy.deepcopy (states)
-states_symm['wfnsyms'] = [[0,0,0,0],[1,1,1,1],[0,1,1,0],[1,0,0,1],[1,1,1,1],[0,1,1,0],[1,0,0,1]]
-weights = [1.0,] + [0.0,]*6
-las_ref = [None, None]
+def setUpModule():
+    global mol, mol_symm, mf, mf_symm, las, las_symm, las_ref, states, states_symm, weights, mo, mo_symm, _check_
+    xyz = '''6        2.215130000      3.670330000      0.000000000
+    1        3.206320000      3.233120000      0.000000000
+    1        2.161870000      4.749620000      0.000000000
+    6        1.117440000      2.907720000      0.000000000
+    1        0.141960000      3.387820000      0.000000000
+    1       -0.964240000      1.208850000      0.000000000
+    6        1.117440000      1.475850000      0.000000000
+    1        2.087280000      0.983190000      0.000000000
+    6        0.003700000      0.711910000      0.000000000
+    6       -0.003700000     -0.711910000      0.000000000
+    6       -1.117440000     -1.475850000      0.000000000
+    1        0.964240000     -1.208850000      0.000000000
+    1       -2.087280000     -0.983190000      0.000000000
+    6       -1.117440000     -2.907720000      0.000000000
+    6       -2.215130000     -3.670330000      0.000000000
+    1       -0.141960000     -3.387820000      0.000000000
+    1       -2.161870000     -4.749620000      0.000000000
+    1       -3.206320000     -3.233120000      0.000000000'''
+    mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False, verbose=0, output='/dev/null')
+    mol_symm = gto.M (atom = xyz, basis='STO-3G', symmetry='Cs', verbose=0, output='/dev/null')
+    mf = scf.RHF (mol).run ()
+    mf_symm = scf.RHF (mol_symm).run ()
+    las = LASSCF (mf, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
+    las_symm = LASSCF (mf_symm, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
+    a = list (range (18))
+    frags = [a[:5], a[5:9], a[9:13], a[13:18]]
+    mo = las.localize_init_guess (frags, mf.mo_coeff)
+    mo_symm = las_symm.localize_init_guess (frags, mf_symm.mo_coeff)
+    del a, frags
+    #las.kernel (mo)
+    
+    # State list contains a couple of different 4-frag interactions
+    states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1]],
+               'spins':   [[0,0,0,0],[1,1,-1,-1],[0,1,-1,0], [1,0,0,-1],[-1,-1,1,1],[0,-1,1,0], [-1,0,0,1]],
+               'smults':  [[1,1,1,1],[2,2,2,2],  [1,2,2,1],  [2,1,1,2], [2,2,2,2],  [1,2,2,1],  [2,1,1,2]],
+               'wfnsyms': [[0,0,0,0],]*7}
+    states_symm = copy.deepcopy (states)
+    states_symm['wfnsyms'] = [[0,0,0,0],[1,1,1,1],[0,1,1,0],[1,0,0,1],[1,1,1,1],[0,1,1,0],[1,0,0,1]]
+    weights = [1.0,] + [0.0,]*6
+    las_ref = [None, None]
 
 def _check_():
     if not las.converged: las.kernel (mo)

@@ -126,6 +126,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         #log.info (
         #    ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g '
         #    '; |x0_ci| = %.15g'), H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
+        las.dump_chk (mo_coeff=mo_coeff, ci=ci1)
         if (norm_gorb<conv_tol_grad and norm_gci<conv_tol_grad)or((norm_gorb+norm_gci)<norm_gx/10):
             converged = True
             break
@@ -205,7 +206,6 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
             mo_coeff, ci1, h2eff_sub, veff = mo2, ci2, h2eff_sub2, veff2
 
 
-
         casdm1frs = las.states_make_casdm1s_sub (ci=ci1)
         casdm1s_sub = las.make_casdm1s_sub (ci=ci1)
 
@@ -245,6 +245,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     t1 = log.timer ('LASCI canonicalization', *t1)
 
     t0 = log.timer ('LASCI kernel function', *t0)
+
+    las.dump_chk (mo_coeff=mo_coeff, ci=ci1)
 
     return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
 

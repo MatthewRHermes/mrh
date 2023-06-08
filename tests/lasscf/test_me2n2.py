@@ -21,21 +21,23 @@ from pyscf.mcscf import newton_casscf
 from me2n2_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
-r_nn = 3.0
-mol = struct (3.0, '6-31g')
-mol.output = 'test_me2n2.log'
-mol.verbose = lib.logger.DEBUG
-mol.build ()
-mf = scf.RHF (mol).run ()
-mc = mcscf.CASSCF (mf, 4, 4).run ()
-mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()
-mc_df = mcscf.CASSCF (mf_df, 4, 4).run ()
-
-mol_hs = mol.copy ()
-mol_hs.spin = 4
-mol_hs.build ()
-mf_hs = scf.RHF (mol_hs).run ()
-mf_hs_df = mf_hs.density_fit (auxbasis = df.aug_etb (mol_hs)).run ()
+def setUpModule():
+    global mol, mf, mf_df, mc, mc_df, mol_hs, mf_hs, mf_hs_df
+    r_nn = 3.0
+    mol = struct (3.0, '6-31g')
+    mol.output = '/dev/null'
+    mol.verbose = 0
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    mc = mcscf.CASSCF (mf, 4, 4).run ()
+    mf_df = mf.density_fit (auxbasis = df.aug_etb (mol)).run ()
+    mc_df = mcscf.CASSCF (mf_df, 4, 4).run ()
+    
+    mol_hs = mol.copy ()
+    mol_hs.spin = 4
+    mol_hs.build ()
+    mf_hs = scf.RHF (mol_hs).run ()
+    mf_hs_df = mf_hs.density_fit (auxbasis = df.aug_etb (mol_hs)).run ()
 
 def tearDownModule():
     global mol, mf, mf_df, mc, mc_df, mol_hs, mf_hs, mf_hs_df
@@ -48,6 +50,12 @@ class KnownValues(unittest.TestCase):
     def test_energy (self):
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
         self.assertAlmostEqual (las.e_tot, mc.e_tot, 6)
+        with self.subTest ('chkfile'):
+            las.dump_chk (chkfile='chkfile.chk')
+            las2 = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (max_cycle_macro=1)
+            las2.load_chk_(chkfile='chkfile.chk')
+            las2.kernel ()
+            self.assertAlmostEqual (las.e_tot, las2.e_tot, 8)
 
     def test_energy_df (self):
         las = LASSCF (mf_df, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
