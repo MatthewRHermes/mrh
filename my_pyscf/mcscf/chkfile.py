@@ -9,11 +9,12 @@ def load_las_(mc, chkfile=None):
     if data is None: raise KeyError ('LAS record not in chkfile')
     mc.mo_coeff = data['mo_coeff']
     ci = data['ci']
-    mc.ci = [[None,]*mc.nroots,]*mc.nfrags
+    mc.ci = []
     for i in range (mc.nfrags):
+        mc.ci.append ([])
         cii = ci[str(i)]
         for j in range (mc.nroots):
-            mc.ci[i][j] = cii[str(j)]
+            mc.ci[-1].append (cii[str(j)])
     return mc
 
 def dump_las (mc, chkfile=None, key='las', mo_coeff=None, ci=None,
