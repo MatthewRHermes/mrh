@@ -77,6 +77,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         gvec = las.get_grad (ugg=ugg, kf=kf1)
         norm_gvec = linalg.norm (gvec)
         log.info ('LASSCF macro %d : E = %.15g ; |g| = %.15g', it, e_tot, norm_gvec)
+        las.dump_chk (mo_coeff=kf1.mo_coeff, ci=kf1.ci)
         if norm_gvec < conv_tol_grad:
             converged = True
             break
