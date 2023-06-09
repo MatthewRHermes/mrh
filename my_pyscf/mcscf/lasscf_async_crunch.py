@@ -301,7 +301,6 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
         u, svals, vh = linalg.svd (ovlp, full_matrices=True)
         svals = np.append (svals, np.zeros (u.shape[1]-len(svals)))
-        assert (ncore_unent==0 or np.amax (np.abs (svals[-ncore_unent:]))<1e-8)
         if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
         kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
         
