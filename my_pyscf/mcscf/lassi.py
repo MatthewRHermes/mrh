@@ -577,5 +577,10 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
                                       break_symmetry=break_symmetry, opt=opt)
     return rdm1s[0], rdm2s[0]
 
-
-
+def root_make_casdm12(las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None, opt=1):
+    verbosecopy = las.verbose
+    las.verbose = 2
+    casdm1, casdm2s = root_make_rdm12s (las, ci, si, state=state, orbsym=orbsym, soc=soc, break_symmetry=break_symmetry, opt=opt)
+    casdm2 = np.sum(casdm2s[:, :, :, :, :, :], axis=(0, 3))
+    las.verbose = verbosecopy
+    return casdm1, casdm2

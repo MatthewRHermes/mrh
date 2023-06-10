@@ -11,13 +11,9 @@ mol.verbose = lib.logger.INFO
 mol.build()
 mf = scf.RHF(mol).run()
 
-# CASPDFT
-mycas = mcpdft.CASSCF(mf, 'tPBE', 6, 6)
-mocoeff = mycas.sort_mo([16, 18, 22, 23, 24, 26])
-mycas.kernel(mocoeff)
-
 # LASPDFT
 from mrh.my_pyscf import mcpdft
+
 # Option-1:
 las = LASSCF(mf, (3,3), ((2,1),(1,2)))
 mo0 = las.sort_mo([16,18,22,23,24,26])
@@ -36,7 +32,5 @@ mc.kernel(mo0)
 '''
 
 print("\n------Results-----\n")
-print("E(CASSCF) =", mycas.e_mcscf)
-print("E(CAS-tPBE) =", mycas.e_tot)
 print ("E(LASSCF) =", mc.e_mcscf)
 print ("E(LAS-tPBE) =", mc.e_tot)

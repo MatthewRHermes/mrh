@@ -1047,6 +1047,24 @@ class LASCINoSymm (casci.CASCI):
                 casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
         return casdm2r 
 
+    def state_make_casdm1s(self, ci=None, state=0,  ncas_sub=None, nelecas_sub=None,
+        casdm1frs=None, **kwargs):
+        if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        casdm1s = np.stack([np.stack ([linalg.block_diag (*[dm1rs[iroot][ispin] 
+                                                            for dm1rs in casdm1frs])
+                                        for ispin in (0, 1)], axis=0)
+                            for iroot in range (self.nroots)], axis=0)
+        return casdm1s[state]
+    
+    def state_make_casdm2(self, ci=None, state=0, ncas_sub=None, nelecas_sub=None, 
+            casdm1frs=None, casdm2fr=None, **kwargs):
+        ''' State wise casdm2 spanning the collective active space. '''
+        # This is producing the casdm2 for all states, but need to generate only for one state
+        casdm2r = self.states_make_casdm2(ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, 
+            casdm1frs=casdm1frs, casdm2fr=casdm2fr, **kwargs)
+        return casdm2r[state] 
+    
     def make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm2r=None, casdm2f=None, casdm1frs=None, casdm2fr=None,
             **kwargs):
