@@ -87,11 +87,27 @@ class ImpurityMole (gto.Mole):
 class ImpuritySCF (scf.hf.SCF):
 
     def _update_space_(self, imporb_coeff, nelec_imp):
+        '''Syntactic sugar for updating the impurity orbital subspace in the encapsulated
+        ImpurityMole object.'''
         self.mol._update_space_(imporb_coeff, nelec_imp)
 
     def _update_impham_1_(self, veff, dm1s, e_tot=None):
-        ''' after this function, get_hcore () and energy_nuc () functions return
-            full-system state-averaged fock and e_tot, respectively '''
+        '''Update energy_nuc (), get_hcore (), and the two-electron integrals in either _eri or
+        with_df to correspond to the current full-system total energy, the current full-system
+        state-averaged Fock matrix, and the current impurity orbitals, respectively. I.E.,
+        energy_nuc () and get_hcore () will have double-counting after this call, which can be
+        subtracted subsequently by a call to _update_impham_2_.
+
+        Args:
+            veff : ndarray of shape (2,nao,nao)
+                Full-system spin-separated effective potential in AO basis
+            dm1s : ndarray of shape (2,nao,nao)
+                Full-system spin-separated 1-RDM in AO basis
+
+        Kwargs:
+            e_tot : float
+                Full-system LASSCF total energy; defaults to value stored on parent LASSCF object
+        '''
         if e_tot is None: e_tot = self.mol._las.e_tot
         imporb_coeff = self.mol.get_imporb_coeff ()
         nimp = self.mol.nao ()
@@ -120,8 +136,23 @@ class ImpuritySCF (scf.hf.SCF):
         self._imporb_h0 = e_tot 
 
     def _update_impham_2_(self, mo_docc, mo_dm, dm1s, dm2, eri_dm=None):
-        ''' after this function, get_hcore () and energy_nuc () functions return
-            the state-averaged hcore and e0, respectively '''
+        '''Update energy_nuc () and get_hcore* () to subtract double-counting from the electrons
+        inside the current impurity space; I.E., following a call to _update_impham_1_.
+
+        Args:
+            mo_docc : ndarray of shape (nimp, *a)
+                Doubly-occupied molecular orbitals in the impurity orbital basis
+            mo_dm : ndarray of shape (nimp, *b)
+                Partially-occupied molecular orbitals in the impurity orbital basis
+            dm1s : ndarray of shape (2, *b, *b)
+                Spin-separated 1-RDM in mo_dm basis
+            dm2 : ndarray of shape (*b, *b, *b, *b)
+                Spin-summed 2-RDM in mo_dm basis
+
+        Kwargs:
+            eri_dm : ndarray of shape (*b, *b, *b, *b)
+                ERIs in mo_dm basis
+        '''
         dm1 = dm1s.sum (0)
         dm2 -= np.multiply.outer (dm1, dm1)
         dm2 += np.multiply.outer (dm1s[0], dm1s[0]).transpose (0,3,2,1)
@@ -278,6 +309,23 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             mcscf.mc1step.CASSCF.dump_flags(self, verbose=verbose)
 
     def _push_keyframe (self, kf1, mo_coeff=None, ci=None):
+        '''Generate the whole-system MO and CI vectors corresponding to the current state of this
+        ImpurityCASSCF instance.
+
+        Args:
+            kf1 : object of :class:`LASKeyframe`
+                Copied to output and modified; not altered in-place
+
+        Kwargs:
+            mo_coeff : ndarray of shape (nimp, nimp)
+                The current IO basis MO coefficients
+            ci : list of ndarrays
+                CI vectors
+
+        Returns:
+            kf2 : object of :class:`LASKeyframe`
+                Contains updated whole-molecule data corresponding to mo_coeff and ci.
+        '''
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci is None: ci=self.ci
         kf2 = kf1.copy ()
@@ -334,19 +382,36 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         return kf2
 
-    def _update_keyframe_(self, kf, max_size='mid'):
+    def _pull_keyframe_(self, kf, max_size='mid'):
+        '''Update this impurity solver, and all encapsulated impurity objects all the way down,
+        with a new IO basis set, the corresponding Hamiltonian, and initial guess MO coefficients
+        and CI vectors based on new whole-molecule data.
+
+        Args:
+            kf : object of :class:`LASKeyframe`
+                Contains whole-molecule MO coefficients, CI vectors, and intermediate arrays
+
+        Kwargs:
+            max_size : str or int
+                Control size of impurity subspace
+        '''
         fo_coeff, nelec_f = self._imporb_builder (kf.mo_coeff, kf.dm1s, kf.veff, kf.fock1,
                                                   max_size=max_size)
         self._update_space_(fo_coeff, nelec_f)
         self._update_trial_state_(kf.mo_coeff, kf.ci, h2eff_sub=kf.h2eff_sub, veff=kf.veff,
                                   dm1s=kf.dm1s)
 
-    _pull_keyframe_ = _update_keyframe_
+    _update_keyframe_ = _pull_keyframe_
 
     def _update_space_(self, imporb_coeff, nelec_imp):
+        '''Syntactic sugar for updating the impurity orbital subspace in the encapsulated
+        ImpurityMole object.'''
         self.mol._update_space_(imporb_coeff, nelec_imp)
 
     def _update_trial_state_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
+        '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
+        impurity objects, and project whole-molecule MO coefficients and CI vectors into the
+        impurity space and store on self.mo_coeff; self.ci.'''
         las = self.mol._las
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
