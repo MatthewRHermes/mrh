@@ -219,6 +219,7 @@ class LASImpurityOrbitalCallable (object):
         # approximate update to fock1
         tdm1 = -np.dot (dm1s, kappa1)
         tdm1 += tdm1.transpose (0,2,1)
+        fock1 += (fock1@kappa1 - kappa1@fock1) / 2
         fock1 += f0[0]@tdm1[0] + f0[1]@tdm1[1]
         # TODO: missing Coulomb potential update?
 
