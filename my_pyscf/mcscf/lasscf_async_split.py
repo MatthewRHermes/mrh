@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
+from pyscf.df.df_jk import _DFHF
 
 class FragSizeError (RuntimeError):
     pass
@@ -219,9 +220,10 @@ class LASImpurityOrbitalCallable (object):
         # approximate update to fock1
         tdm1 = -np.dot (dm1s, kappa1)
         tdm1 += tdm1.transpose (0,2,1)
+        v1 = self._get_veff (tdm1)
         fock1 += (fock1@kappa1 - kappa1@fock1) / 2
         fock1 += f0[0]@tdm1[0] + f0[1]@tdm1[1]
-        # TODO: missing Coulomb potential update?
+        fock1 += v1[0]@dm1s[0] + v1[1]@dm1s[1]
 
         return fo, eo, fock1
 
@@ -323,6 +325,17 @@ class LASImpurityOrbitalCallable (object):
         neleca = int (round (neleca))
         nelecb = int (round (nelecb))
         return neleca, nelecb
+
+    def _get_veff (self, dm1s):
+        dm1s = lib.einsum ('ip,sij,jq->spq', self.oo_coeff.conj (), dm1s, self.oo_coeff)
+        if isinstance (self._scf, _DFHF): # only J is cheaper
+            veff = self._scf.get_j (dm=dm1s.sum (0))
+            veff = np.stack ([veff, veff], axis=0)
+        else: # J and K are equally expensive
+            vj, vk = self._scf.get_jk (dm=dm1s)
+            veff = vj.sum (0)[None,:,:] - vk
+        veff = lib.einsum ('ip,spq,jq->sij', self.oo_coeff, veff, self.oo_coeff.conj ())
+        return veff
 
 def get_impurity_space_constructor (las, frag_id, frag_atoms=None, frag_orbs=None):
     '''Construct an impurity subspace for a specific "fragment" of a LASSCF calculation defined
