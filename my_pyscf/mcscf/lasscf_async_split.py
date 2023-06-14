@@ -327,14 +327,14 @@ class LASImpurityOrbitalCallable (object):
         return neleca, nelecb
 
     def _get_veff (self, dm1s):
-        dm1s = lib.einsum ('ip,sij,jq->spq', self.oo_coeff.conj (), dm1s, self.oo_coeff)
+        dm1s = lib.einsum ('ip,spq,jq->sij', self.oo_coeff, dm1s, self.oo_coeff.conj ())
         if isinstance (self._scf, _DFHF): # only J is cheaper
             veff = self._scf.get_j (dm=dm1s.sum (0))
             veff = np.stack ([veff, veff], axis=0)
         else: # J and K are equally expensive
             vj, vk = self._scf.get_jk (dm=dm1s)
             veff = vj.sum (0)[None,:,:] - vk
-        veff = lib.einsum ('ip,spq,jq->sij', self.oo_coeff, veff, self.oo_coeff.conj ())
+        veff = lib.einsum ('ip,sij,jq->spq', self.oo_coeff.conj (), veff, self.oo_coeff)
         return veff
 
 def get_impurity_space_constructor (las, frag_id, frag_atoms=None, frag_orbs=None):
