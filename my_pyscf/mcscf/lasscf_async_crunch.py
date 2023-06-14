@@ -400,6 +400,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         self._update_space_(fo_coeff, nelec_f)
         self._update_trial_state_(kf.mo_coeff, kf.ci, h2eff_sub=kf.h2eff_sub, veff=kf.veff,
                                   dm1s=kf.dm1s)
+        if hasattr (self, '_max_stepsize'): self._max_stepsize = None # PySCF issue #1762
 
     _update_keyframe_ = _pull_keyframe_
 
