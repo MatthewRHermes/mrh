@@ -158,14 +158,6 @@ def all_single_excitations (las):
         len (all_states) - len (ref_states), len (ref_states)))
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
-def get_chargetrans_excitations(las,CT=1):
-    '''This function produce all the states based on the reference state for n-electron charge transfer between the fragments'''
-    assert isinstance(CT, int), "Non-fractional electron transfer only"
-    for _ in range(CT):
-        las = all_single_excitations(las)
-    return las
-
-
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF

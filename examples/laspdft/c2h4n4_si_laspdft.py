@@ -5,7 +5,7 @@ from mrh.my_pyscf.mcscf import lassi
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.tools.molden import from_lasscf
 from c2h4n4_struct import structure as struct
-from mrh.my_pyscf.mcscf.lassi_states import get_chargetrans_excitations
+from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
 
 # Mean field calculation
 mol = struct(0, 0, '6-31g')
@@ -25,7 +25,7 @@ las.kernel(mo0)
  
 # LASSI-PDFT
 mc = mcpdft.LASSI(las, 'tPBE', (3, 3), ((2,1),(1,2)))
-mc = get_chargetrans_excitations(mc, 1) # Level of charge transfer
+mc = all_single_excitations(mc) # Level of charge transfer
 mc.kernel(las.mo_coeff) # SA-LAS orbitals
 
 # Results
