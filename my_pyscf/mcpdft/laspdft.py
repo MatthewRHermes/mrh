@@ -50,10 +50,14 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,  **kwargs):
 
         if _mc_class.DoLASSI:
             # This code doesn't seem efficent, have to calculate the casdm1 and casdm2 in different functions.
-            def make_one_casdm1s(self, ci=None, state=0, **kwargs): 
-                return lassi.root_make_casdm12(self, ci=ci, si=self.si, state=state)[0]
+            def make_one_casdm1s(self, ci=None, state=0, **kwargs):
+                with lib.temporary_env (self, verbose=2):
+                    casdm1s = lassi.root_make_rdm12s (self, ci=ci, si=self.si, state=state)[0]
+                return casdm1s
             def make_one_casdm2(self, ci=None, state=0, **kwargs):
-                 return lassi.root_make_casdm12(self,ci=ci, si=self.si, state=state)[1]
+                with lib.temporary_env (self, verbose=2):
+                    casdm2s = lassi.root_make_rdm12s (self, ci=ci, si=self.si, state=state)[1]
+                return casdm2s.sum ((0,3))
         else:
             make_one_casdm1s=mc.__class__.state_make_casdm1s
             make_one_casdm2=mc.__class__.state_make_casdm2

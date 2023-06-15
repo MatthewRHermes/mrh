@@ -19,7 +19,8 @@ class KnownValues(unittest.TestCase):
         mol.output = '/dev/null'
         mol.build()
         mf = scf.ROHF(mol).newton().run()
-        mc = mcpdft.LASSI(mf, 'tPBE', (2, ), (2, ), grid_level=1).state_average([1, 0], spins=[[0,], [2, ]], smults=[[1, ], [3, ]], charges=[[0, ],[0, ]])
+        mc = mcpdft.LASSI(mf, 'tPBE', (2, ), (2, ), grid_level=1).state_average(
+            [1, 0], spins=[[0,], [2, ]], smults=[[1, ], [3, ]], charges=[[0, ],[0, ]])
         mo0 = mc.localize_init_guess(([0, 1],), mc.sort_mo([8, 9]))
         mc.kernel(mo0)
         elassi = mc.e_mcscf[0]
