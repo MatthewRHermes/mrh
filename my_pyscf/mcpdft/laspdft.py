@@ -1,4 +1,3 @@
-import inspect
 from pyscf import ao2mo, lib
 import numpy as np
 import copy
@@ -6,6 +5,7 @@ from scipy import linalg
 from types import MethodType
 from copy import deepcopy
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
+from mrh.my_pyscf.mcscf import lassi
 
 try:
     from pyscf.mcpdft.mcpdft import _PDFT, _mcscf_env
@@ -32,31 +32,45 @@ class _LASPDFT(_PDFT):
             eri = ao2mo.full(self.mol, mo_coeff, verbose=self.verbose,
                                 max_memory=self.max_memory)
         return eri
-
-def get_mcpdft_child_class(mc, ot, **kwargs):
+        
+def get_mcpdft_child_class(mc, ot, DoLASSI=False,  **kwargs):
     mc_doc = (mc.__class__.__doc__ or 'No docstring for MC-SCF parent method')
    
     class PDFT(_LASPDFT, mc.__class__):
         __doc__= mc_doc + '\n\n' + _LASPDFT.__doc__
         _mc_class = mc.__class__
+        setattr(_mc_class, 'DoLASSI', None)
 
         def get_h2eff(self, mo_coeff=None):
             if self._in_mcscf_env: return mc.__class__.get_h2eff(self, mo_coeff=mo_coeff)
             else: return _LASPDFT.get_h2eff(self, mo_coeff=mo_coeff)
-
-        make_one_casdm1s=mc.__class__.make_casdm1s
-        make_one_casdm2=mc.__class__.make_casdm2
         
+        if DoLASSI:  _mc_class.DoLASSI = True
+        else: _mc_class.DoLASSI = False
+
+        if _mc_class.DoLASSI:
+            # This code doesn't seem efficent, have to calculate the casdm1 and casdm2 in different functions.
+            def make_one_casdm1s(self, ci=None, state=0, **kwargs): 
+                return lassi.root_make_casdm12(self, ci=ci, si=self.si, state=state)[0]
+            def make_one_casdm2(self, ci=None, state=0, **kwargs):
+                 return lassi.root_make_casdm12(self,ci=ci, si=self.si, state=state)[1]
+        else:
+            make_one_casdm1s=mc.__class__.state_make_casdm1s
+            make_one_casdm2=mc.__class__.state_make_casdm2
+
         # TODO: in pyscf-forge/pyscf/mcpdft/mcpdft.py::optimize_mcscf_, generalize the number
-        # of return arguments. Then the redefinition below will be unnecessary
+        # of return arguments. Then the redefinition below will be unnecessary. 
         def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
             '''Optimize the MC-SCF wave function underlying an MC-PDFT calculation.
             Has the same calling signature as the parent kernel method. '''
             with _mcscf_env(self):
                 self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
                     self._mc_class.kernel(self, mo_coeff, ci0=ci0, **kwargs)[:-2]
-            return self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
-    
+                self.fcisolver.nroots = self.nroots
+                if self.DoLASSI:
+                    self.e_states, self.si = self.lassi()
+                return self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy
+
     pdft = PDFT(mc._scf, mc.ncas_sub, mc.nelecas_sub, my_ot=ot, **kwargs)
 
     _keys = pdft._keys.copy()

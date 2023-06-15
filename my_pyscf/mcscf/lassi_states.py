@@ -158,7 +158,6 @@ def all_single_excitations (las):
         len (all_states) - len (ref_states), len (ref_states)))
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
-
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
