@@ -1343,6 +1343,10 @@ class LASCINoSymm (casci.CASCI):
             assert_no_dupes=assert_no_dupes)
         self.converged, self.ci = converged, ci
         self.e_tot, self.e_states, self.e_cas = e_tot, e_states, e_cas
+        if mo_coeff is self.mo_coeff:
+            self.dump_chk ()
+        elif getattr (self, 'chkfile', None) is not None:
+            lib.logger.warn (self, 'orbitals changed; chkfile not dumped!')
         self._finalize ()
         return self.converged, self.e_tot, self.e_states, self.e_cas, self.ci
 

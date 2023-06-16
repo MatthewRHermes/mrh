@@ -15,6 +15,7 @@
 
 import copy
 import unittest
+import tempfile
 import numpy as np
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.mcscf import newton_casscf
@@ -51,9 +52,10 @@ class KnownValues(unittest.TestCase):
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
         self.assertAlmostEqual (las.e_tot, mc.e_tot, 6)
         with self.subTest ('chkfile'):
-            las.dump_chk (chkfile='chkfile.chk')
             las2 = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (max_cycle_macro=1)
-            las2.load_chk_(chkfile='chkfile.chk')
+            with tempfile.NamedTemporaryFile() as chkfile:
+                las.dump_chk (chkfile=chkfile.name)
+                las2.load_chk_(chkfile=chkfile.name)
             las2.kernel ()
             self.assertAlmostEqual (las.e_tot, las2.e_tot, 8)
 

@@ -2,12 +2,29 @@ import h5py
 from pyscf.lib.chkfile import load
 from pyscf.lib.chkfile import load_mol, save_mol
 
+keys_config = ['ncas', 'nelecas', 'ncore', 'ncas_sub', 'nelecas_sub']
+keys_saconstr = ['weights', 'charges', 'spins', 'smults', 'wfnsyms']
+keys_results = ['e_states', 'states_converged', 'e_tot', 'mo_coeff']
+
 def load_las_(mc, chkfile=None):
     if chkfile is None: chkfile = mc.chkfile
     if chkfile is None: raise RuntimeError ('chkfile not specified')
     data = load (chkfile, 'las')
     if data is None: raise KeyError ('LAS record not in chkfile')
-    mc.mo_coeff = data['mo_coeff']
+
+    # conditionals for backwards compatibility with older chkfiles that
+    # only stored mo_coeff and ci
+    for key in keys_config:
+        if key in data:
+            setattr (mc, key, data[key])
+    # this needs to happen before some of the results attributes
+    if all ([key in data for key in keys_saconstr]):
+        sakwargs = {key: data[key] for key in keys_saconstr}
+        mc.state_average_(**sakwargs)
+    for key in keys_results:
+        if key in data:
+            setattr (mc, key, data[key])
+    # special handling for CI vector
     ci = data['ci']
     mc.ci = []
     for i in range (mc.nfrags):
@@ -15,14 +32,27 @@ def load_las_(mc, chkfile=None):
         cii = ci[str(i)]
         for j in range (mc.nroots):
             mc.ci[-1].append (cii[str(j)])
+    # if mo_coeff has tagged orbsym, save it, in case someone decides
+    # to change PySCF symmetry convention again
+    if 'mo_coeff_orbsym' in data:
+        from pyscf.lib import tag_array
+        mc.mo_coeff = tag_array (mc.mo_coeff, orbsym=data['mo_coeff_orbsym'])
     return mc
 
-def dump_las (mc, chkfile=None, key='las', mo_coeff=None, ci=None,
-              overwrite_mol=True):
+def dump_las (mc, chkfile=None, method_key='las', mo_coeff=None, ci=None,
+              overwrite_mol=True, **kwargs):
     if chkfile is None: chkfile = mc.chkfile
     if not chkfile: return mc
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     if ci is None: ci = mc.ci
+
+    keys = keys_config + keys_results
+    data = {key: kwargs.get (key, getattr (mc, key)) for key in keys}
+    from mrh.my_pyscf.mcscf.lasci import get_state_info
+    data_saconstr = get_state_info (mc)
+    data_saconstr = [mc.weights,] + list (data_saconstr)
+    for key, val in zip (keys_saconstr, data_saconstr):
+        data[key] = kwargs.get (key, val)
 
     with h5py.File (chkfile, 'a') as fh5:
         if 'mol' not in fh5:
@@ -30,15 +60,20 @@ def dump_las (mc, chkfile=None, key='las', mo_coeff=None, ci=None,
         elif overwrite_mol:
             del (fh5['mol'])
             fh5['mol'] = mc.mol.dumps()
-        if key in fh5:
-            del (fh5[key])
-        data = fh5.create_group (key)
+        if method_key in fh5:
+            del (fh5[method_key])
+        chkdata = fh5.create_group (method_key)
 
-        data['mo_coeff'] = mo_coeff
+        for key, val in data.items (): chkdata[key] = val
+        # special handling for CI vector
         for i, cii in enumerate (ci):
-            data_ci_i = data.create_group ('ci/'+str(i))
+            chkdata_ci_i = chkdata.create_group ('ci/'+str(i))
             for j, ciij in enumerate (cii):
-                data_ci_i[str(j)] = ciij
+                chkdata_ci_i[str(j)] = ciij
+        # if mo_coeff has tagged orbsym, save it, in case someone decides
+        # to change PySCF symmetry convention again
+        if getattr (mo_coeff, 'orbsym', None) is not None:
+            chkdata['mo_coeff_orbsym'] = mo_coeff.orbsym
     return mc
 
 
