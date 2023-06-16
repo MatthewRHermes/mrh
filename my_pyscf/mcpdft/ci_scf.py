@@ -122,7 +122,7 @@ def mc1step_casci(mc, mo_coeff, ci0=None, eris=None, verbose=None, envs=None):
     linkstr  = mc.fcisolver.gen_linkstr(ncas, nelecas, False)
     log = lib.logger.new_logger (mc, verbose)
     if eris is None:
-        h0_cas, h1_cas = mcscf.casci.h1e_for_cas (mc, mo_coeff, mc.ncas,
+        h0_cas, h1_cas = mcscf.casci.h1e_for_las (mc, mo_coeff, mc.ncas,
             mc.ncore)
         h2_cas = mcscf.casci.CASCI.ao2mo (mc, mo_coeff)
     else:

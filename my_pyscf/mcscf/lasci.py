@@ -214,7 +214,7 @@ def density_fit (las, auxbasis=None, with_df=None):
     new_las.__dict__.update (las.__dict__)
     return new_las
 
-def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None, ncas_sub=None,
+def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None, ncas_sub=None,
                  nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None, casdm1frs=None):
     ''' Effective one-body Hamiltonians (plural) for a LASCI problem
 
@@ -299,7 +299,7 @@ def h1e_for_cas (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=Non
 def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None, veff=None,
               dm1s=None):
     ''' f_pq = h_pq + (g_pqrs - g_psrq/2) D_rs, AO basis
-    Note the difference between this and h1e_for_cas: h1e_for_cas only has
+    Note the difference between this and h1e_for_las: h1e_for_las only has
     JK terms from electrons outside the "current" active subspace; get_fock
     includes JK from all electrons. This is also NOT the "generalized Fock matrix"
     of orbital gradients (but it can be used in calculating those if you do a
@@ -678,7 +678,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
         orbsym = mo_coeff.orbsym[ncore:nocc]
     log = lib.logger.new_logger (las, verbose)
 
-    h1eff, energy_core = casci.h1e_for_cas (las, mo_coeff=mo_coeff,
+    h1eff, energy_core = las.h1e_for_cas (mo_coeff=mo_coeff,
         ncas=las.ncas, ncore=las.ncore)
     h2eff = las.get_h2eff (mo_coeff) 
     if (ci0 is None or any ([c is None for c in ci0]) or
@@ -827,7 +827,7 @@ class LASCINoSymm (casci.CASCI):
         if compact: eri = ao2mo.restore (compact, eri, j-i)
         return eri
 
-    get_h1eff = get_h1cas = h1e_for_cas = h1e_for_cas
+    get_h1eff = get_h1las = h1e_for_las = h1e_for_las
     get_h2eff = ao2mo
     '''
     def get_h2eff (self, mo_coeff=None):
@@ -1469,6 +1469,9 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
                  **kwargs):
         LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub,
                              frozen=frozen, **kwargs)
+        if getattr (self.mol, 'groupname', None) in ('Dooh', 'Coov'):
+            raise NotImplementedError ("LASSCF support for cylindrical point group {}".format (
+                self.mol.groupname))
         if wfnsym_sub is None: wfnsym_sub = [0 for icas in self.ncas_sub]
         # TODO: guess wfnsym_sub intelligently (0 can be impossible for some multiplicities)
         for wfnsym, frag in zip (wfnsym_sub, self.fciboxes):
@@ -1479,7 +1482,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     make_rdm1s = LASCINoSymm.make_rdm1s
     make_rdm1 = LASCINoSymm.make_rdm1
     get_veff = LASCINoSymm.get_veff
-    get_h1eff = get_h1cas = h1e_for_cas
+    get_h1eff = get_h1las = h1e_for_las
     dump_flags = LASCINoSymm.dump_flags
     dump_states = LASCINoSymm.dump_states
     check_sanity = LASCINoSymm.check_sanity

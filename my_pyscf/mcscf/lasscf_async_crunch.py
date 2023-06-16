@@ -542,7 +542,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
     def get_h1eff (self, mo_coeff=None, ncas=None, ncore=None):
         ''' must needs change the dimension of h1eff '''
         assert (False)
-        h1_avg_spinless, energy_core = self.h1e_for_cas (mo_coeff, ncas, ncore)[1]
+        h1_avg_spinless, energy_core = self.h1e_for_las (mo_coeff, ncas, ncore)[1]
         mo_cas = mo_coeff[:,ncore:][:,:ncas]
         h1_avg_sz = mo_cas.conj ().T @ self._scf.get_hcore_sz () @ mo_cas
         h1_avg = np.stack ([h1_avg_spinless + h1_avg_sz, h1_avg_spinless - h1_avg_sz], axis=0)
