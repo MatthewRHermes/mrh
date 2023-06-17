@@ -308,8 +308,8 @@ def get_fock (las, mo_coeff=None, ci=None, eris=None, casdm1s=None, verbose=None
     compatibility (also why I don't just call las.make_rdm1) '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
-    if casdm1s is None: casdm1s = las.make_casdm1s (ci=ci)
     if dm1s is None:
+        if casdm1s is None: casdm1s = las.make_casdm1s (ci=ci)
         mo_cas = mo_coeff[:,las.ncore:][:,:las.ncas]
         moH_cas = mo_cas.conjugate ().T
         mo_core = mo_coeff[:,:las.ncore]

@@ -398,8 +398,9 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         fo_coeff, nelec_f = self._imporb_builder (kf.mo_coeff, kf.dm1s, kf.veff, kf.fock1,
                                                   max_size=max_size)
         self._update_space_(fo_coeff, nelec_f)
-        self._update_trial_state_(kf.mo_coeff, kf.ci, h2eff_sub=kf.h2eff_sub, veff=kf.veff,
-                                  dm1s=kf.dm1s)
+        self._update_trial_state_(kf.mo_coeff, kf.ci, veff=kf.veff, dm1s=kf.dm1s)
+        self._update_impurity_hamiltonian_(kf.mo_coeff, kf.ci, h2eff_sub=kf.h2eff_sub,
+                                           veff=kf.veff, dm1s=kf.dm1s)
         if hasattr (self, '_max_stepsize'): self._max_stepsize = None # PySCF issue #1762
 
     _update_keyframe_ = _pull_keyframe_
@@ -409,24 +410,14 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         ImpurityMole object.'''
         self.mol._update_space_(imporb_coeff, nelec_imp)
 
-    def _update_trial_state_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
-        '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
-        impurity objects, and project whole-molecule MO coefficients and CI vectors into the
+    def _update_trial_state_(self, mo_coeff, ci, veff, dm1s):
+        '''Project whole-molecule MO coefficients and CI vectors into the
         impurity space and store on self.mo_coeff; self.ci.'''
+        _ifrag = self._ifrag
         las = self.mol._las
-        if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
-        if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
-            mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
-        e_tot = np.dot (las.weights, e_states)
-        if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
-        if veff is None: veff = las.get_veff (dm1s=dm1s, spin_sep=True)
         mf = las._scf
 
-        # Set underlying SCF object Hamiltonian to state-averaged Heff: first pass
-        self._scf._update_impham_1_(veff, dm1s, e_tot=e_tot)
-
         # Project mo_coeff and ci keyframe into impurity space and cache
-        _ifrag = self._ifrag
         imporb_coeff = self.mol.get_imporb_coeff ()
         self.ci = ci[_ifrag]
         # Inactive orbitals
@@ -446,7 +437,33 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         u[:,:self.ncas] = u[:,:self.ncas] @ vh
         self.mo_coeff[:,self.ncore:] = self.mo_coeff[:,self.ncore:] @ u
 
-        # Set underlying SCF object Hamiltonian to state-averaged Heff: second pass
+        # Canonicalize core and virtual spaces
+        fock = las.get_fock (veff=veff, dm1s=dm1s)
+        fock = imporb_coeff.conj ().T @ fock @ imporb_coeff
+        mo_core = self.mo_coeff[:,:self.ncore]
+        fock_core = mo_core.conj ().T @ fock @ mo_core
+        w, c = linalg.eigh (fock_core)
+        self.mo_coeff[:,:self.ncore] = mo_core @ c
+        mo_virt = self.mo_coeff[:,nocc:]
+        fock_virt = mo_virt.conj ().T @ fock @ mo_virt
+        w, c = linalg.eigh (fock_virt)
+        self.mo_coeff[:,nocc:] = mo_virt @ c
+
+    def _update_impurity_hamiltonian_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
+        '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
+        impurity objects'''
+        las = self.mol._las
+        _ifrag = self._ifrag
+        if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
+        if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
+            mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
+        e_tot = np.dot (las.weights, e_states)
+        if dm1s is None: dm1s = las.make_rdm1s (mo_coeff=mo_coeff, ci=ci)
+        if veff is None: veff = las.get_veff (dm1s=dm1s, spin_sep=True)
+        nocc = self.ncore + self.ncas
+
+        # Set underlying SCF object Hamiltonian to state-averaged Heff
+        self._scf._update_impham_1_(veff, dm1s, e_tot=e_tot)
         casdm1rs, casdm2rs = self.fcisolver.states_make_rdm12s (self.ci, self.ncas, self.nelecas)
         casdm1rs = np.stack (casdm1rs, axis=1)
         casdm2sr = np.stack (casdm2rs, axis=0)
@@ -457,19 +474,6 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
         self._scf._update_impham_2_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
-
-        # Canonicalize core and virtual spaces
-        dm1s = np.dot (mo_cas, np.dot (casdm1s, mo_cas.conj ().T)).transpose (1,0,2)
-        dm1s += np.dot (mo_core, mo_core.conj ().T)[None,:,:]
-        fock = self._scf.get_fock (dm=dm1s)
-        mo_core = self.mo_coeff[:,:self.ncore]
-        fock_core = mo_core.conj ().T @ fock @ mo_core
-        w, c = linalg.eigh (fock_core)
-        self.mo_coeff[:,:self.ncore] = mo_core @ c
-        mo_virt = self.mo_coeff[:,nocc:]
-        fock_virt = mo_virt.conj ().T @ fock @ mo_virt
-        w, c = linalg.eigh (fock_virt)
-        self.mo_coeff[:,nocc:] = mo_virt @ c
 
         # Set state-separated Hamiltonian 1-body
         mo_cas_full = mo_coeff[:,las.ncore:][:,:las.ncas]
