@@ -60,8 +60,33 @@ def orth_orb (las, kf2_list):
 
     return las.get_keyframe (mo_coeff, ci)
 
-def relax (las, kf):
+class flas_stdout_env (object):
+    def __init__(self, las, flas_stdout):
+        self.las = las
+        self.flas_stdout = flas_stdout
+        self.las_stdout = las.stdout
+    def __enter__(self):
+        self.las.stdout = self.flas_stdout
+        self.las._scf.stdout = self.flas_stdout
+        self.las.fcisolver.stdout = self.flas_stdout
+        for fcibox in self.las.fciboxes:
+            fcibox.stdout = self.flas_stdout
+            for fcisolver in fcibox.fcisolvers:
+                fcisolver.stdout = self.flas_stdout
+        if getattr (self.las, 'with_df', None):
+            self.las.with_df.stdout = self.flas_stdout
+    def __exit__(self, type, value, traceback):
+        self.las.stdout = self.las_stdout
+        self.las._scf.stdout = self.las_stdout
+        self.las.fcisolver.stdout = self.las_stdout
+        for fcibox in self.las.fciboxes:
+            fcibox.stdout = self.las_stdout
+            for fcisolver in fcibox.fcisolvers:
+                fcisolver.stdout = self.las_stdout
+        if getattr (self.las, 'with_df', None):
+            self.las.with_df.stdout = self.las_stdout
 
+def relax (las, kf):
     flas_stdout = getattr (las, '_flas_stdout', None)
     if flas_stdout is None:
         output = getattr (las.mol, 'output', None)
@@ -76,14 +101,11 @@ def relax (las, kf):
             las._flas_stdout = flas_stdout
         else:
             flas_stdout = las.stdout
-    flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
-    flas.__dict__.update (las.__dict__)
-    flas.stdout = flas.fcisolver.stdout = flas_stdout
-    for fcibox in flas.fciboxes:
-        fcibox.stdout = flas_stdout
-        for fcisolver in fcibox.fcisolvers: fcisolver.stdout = flas_stdout
-    e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
-        flas.kernel (kf.mo_coeff, ci0=kf.ci)
+    with flas_stdout_env (las, flas_stdout):
+        flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
+        flas.__dict__.update (las.__dict__)
+        e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
+            flas.kernel (kf.mo_coeff, ci0=kf.ci)
     return las.get_keyframe (mo_coeff, ci)
 
 def combine_o0 (las, kf2_list):

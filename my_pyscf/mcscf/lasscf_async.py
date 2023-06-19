@@ -57,6 +57,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     impurities = [get_impurity_casscf (las, i, imporb_builder=builder)
                   for i, builder in enumerate (imporb_builders)]
     ugg = las.get_ugg ()
+    t1 = log.timer_debug1 ('impurity solver construction', *t0)
     # GRAND CHALLENGE: replace rigid algorithm below with dynamic task scheduling
     for it in range (las.max_cycle_macro):
         # 1. Divide into fragments
@@ -77,6 +78,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         gvec = las.get_grad (ugg=ugg, kf=kf1)
         norm_gvec = linalg.norm (gvec)
         log.info ('LASSCF macro %d : E = %.15g ; |g| = %.15g', it, e_tot, norm_gvec)
+        t1 = log.timer ('one LASSCF macro cycle', *t1)
         las.dump_chk (mo_coeff=kf1.mo_coeff, ci=kf1.ci)
         if norm_gvec < conv_tol_grad:
             converged = True
