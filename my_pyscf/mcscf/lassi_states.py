@@ -132,14 +132,15 @@ class SingleLASState (object):
                     log.debug ('Caught ImpossibleSpinError: {}'.format (e.__dict__))
         return singles
 
-def all_single_excitations (las):
+def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
     in all possible ways. Uses all states already present as reference states, so that calling
     this function a second time generates two-electron excitations, etc. The input object is
     not altered in-place.'''
     from mrh.my_pyscf.mcscf.lasci import get_state_info
     from mrh.my_pyscf.mcscf.lasci import LASCISymm
-    log = logger.new_logger (las, las.verbose)
+    if verbose is None: verbose=las.verbose
+    log = logger.new_logger (las, verbose)
     if isinstance (las, LASCISymm):
         raise NotImplementedError ("Point-group symmetry for LASSI state generator")
     ref_states = [SingleLASState (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
@@ -156,7 +157,25 @@ def all_single_excitations (las):
     #wfnsyms = [state.wfnsyms for state in all_states]
     log.info ('Built {} singly-excited LAS states from {} reference LAS states'.format (
         len (all_states) - len (ref_states), len (ref_states)))
+    if len (all_states) == len (ref_states):
+        log.warn (("%d reference LAS states exhaust current active space specifications; "
+                   "no singly-excited states could be constructed"), len (ref_states))
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
+
+def count_excitations (las0):
+    log = logger.new_logger (las0, las0.verbose)
+    log.info ("Counting possible LASSI excitation ranks...")
+    nroots0 = las0.nroots
+    las1 = all_single_excitations (las0, verbose=0)
+    nroots1 = las1.nroots
+    for ncalls in range (500):
+        if nroots1==nroots0: break
+        las1 = all_single_excitations (las1, verbose=0)
+        nroots0, nroots1 = nroots1, las1.nroots
+    if nroots1>nroots0:
+        raise RuntimeError ("Max ncalls reached")
+    log.info ("Maximum of %d LAS states reached by excitations of rank %d", nroots0, ncalls)
+    return nroots0, ncalls
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
