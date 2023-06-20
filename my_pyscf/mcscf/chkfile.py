@@ -44,6 +44,7 @@ def dump_las (mc, chkfile=None, method_key='las', mo_coeff=None, ci=None,
     if chkfile is None: chkfile = mc.chkfile
     if not chkfile: return mc
     if mo_coeff is None: mo_coeff = mc.mo_coeff
+    kwargs['mo_coeff'] = mo_coeff
     if ci is None: ci = mc.ci
 
     keys = keys_config + keys_results
