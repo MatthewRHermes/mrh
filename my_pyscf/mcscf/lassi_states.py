@@ -131,6 +131,22 @@ class SingleLASState (object):
                     log.debug ('Caught ImpossibleSpinError: {}'.format (e.__dict__))
         return singles
 
+    def gen_spin_shuffles (self):
+        assert ((np.sum (self.smults - 1) - np.sum (self.spins)) % 2 == 0)
+        nflips = (np.sum (self.smults - 1) - np.sum (self.spins)) // 2
+        spins_table = (self.smults-1).copy ()[None,:]
+        subtrahend = 2*np.eye (self.nfrag, dtype=spins_table.dtype)[None,:,:]
+        for i in range (nflips):
+            spins_table = spins_table[:,None,:] - subtrahend
+            spins_table = spins_table.reshape (-1, self.nfrag)
+            # minimum valid value in column i is 1-self.smults[i]
+            idx_valid = np.all (spins_table>-self.smults[None,:], axis=1)
+            spins_table = spins_table[idx_valid,:]
+        for spins in spins_table:
+            yield SingleLASState (self.las, spins, self.smults, self.charges, 0, nlas=self.nlas,
+                                  nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
+
+
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
     in all possible ways. Uses all states already present as reference states, so that calling
@@ -159,6 +175,39 @@ def all_single_excitations (las, verbose=None):
     if len (all_states) == len (ref_states):
         log.warn (("%d reference LAS states exhaust current active space specifications; "
                    "no singly-excited states could be constructed"), len (ref_states))
+    return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
+
+def spin_shuffle (las, verbose=None):
+    '''Add states characterized by varying local Sz in all possible ways without changing
+    local neleca+nelecb, local S**2, or global Sz (== sum local Sz) for each reference state.
+    After calling this function, assuming no spin-orbit coupling is included, all LASSI
+    results should have good global <S**2>, unless there is severe rounding error due to
+    degeneracy between states of different S**2. Unlike all_single_excitations, there
+    should never be any reason to call this function more than once.'''
+    from mrh.my_pyscf.mcscf.lasci import get_state_info
+    from mrh.my_pyscf.mcscf.lasci import LASCISymm
+    if verbose is None: verbose=las.verbose
+    log = logger.new_logger (las, verbose)
+    if isinstance (las, LASCISymm):
+        raise NotImplementedError ("Point-group symmetry for LASSI state generator")
+    ref_states = [SingleLASState (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
+    for weight, state in zip (las.weights, ref_states): state.weight = weight
+    seen = set (ref_states)
+    all_states = [state for state in ref_states]
+    for ref_state in ref_states:
+        for new_state in ref_state.gen_spin_shuffles ():
+            if not new_state in seen:
+                all_states.append (new_state)
+                seen.add (new_state)
+    weights = [state.weight for state in all_states]
+    charges = [state.charges for state in all_states]
+    spins = [state.spins for state in all_states]
+    smults = [state.smults for state in all_states]
+    #wfnsyms = [state.wfnsyms for state in all_states]
+    log.info ('Built {} spin(local Sz)-shuffled LAS states from {} reference LAS states'.format (
+        len (all_states) - len (ref_states), len (ref_states)))
+    if len (all_states) == len (ref_states):
+        log.warn ("no spin-shuffling options found for given LAS states")
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
 def count_excitations (las0):

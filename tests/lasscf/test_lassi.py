@@ -115,6 +115,23 @@ class KnownValues(unittest.TestCase):
         # 5 + 4 + 12 + 4 + 8 = 33
         self.assertEqual (las2.nroots, 33)
 
+    def test_lassi_spin_shuffle (self):
+        from mrh.my_pyscf.mcscf.lassi_states import spin_shuffle
+        las3 = LASSCF (mf, (4,2,4), (4,2,4), spin_sub=(5,3,5))
+        las3 = spin_shuffle (las3)
+        las3.check_sanity ()
+        # The number of states is the number of graphs connecting one number
+        # in each row which sum to zero:
+        # -2 -1 0 +1 +2
+        #    -1 0 +1
+        # -2 -1 0 +1 +2
+        # For the first two rows, paths which sum to -3 and +3 are immediately
+        # excluded. Two paths connecting the first two rows each sum to -2 and +2
+        # and three paths each sum to -1, 0, +1. Each partial sum then has one
+        # remaining option to complete the path, so
+        # 2 + 3 + 3 + 3 + 2 = 13
+        self.assertEqual (las3.nroots, 13)
+
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI")
     unittest.main()
