@@ -328,6 +328,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         '''
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci is None: ci=self.ci
+        log = logger.new_logger (self, self.verbose)
         kf2 = kf1.copy ()
         imporb_coeff = self.mol.get_imporb_coeff ()
         mo_self = imporb_coeff @ mo_coeff
@@ -347,7 +348,14 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         mo_full_core = kf2.mo_coeff[:,:las.ncore]
         s0 = las._scf.get_ovlp ()
         ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
-        u, svals, vh = linalg.svd (ovlp, full_matrices=True)
+        try:
+            u, svals, vh = linalg.svd (ovlp, full_matrices=True)
+        except (ValueError, linalg.LinAlgError) as e:
+            fname = 'ovlp_inac_frag{}.npy'.format (self._ifrag)
+            log.error (('Fragment %d failed to project inactive orbitals into impurity subspace '
+                        'because SVD failed on overlap matrix (saved to %s)'), self._ifrag, fname)
+            np.save (fname, ovlp)
+            raise (e)
         svals = np.append (svals, np.zeros (u.shape[1]-len(svals)))
         if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
         kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
@@ -368,7 +376,14 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         assert (nvirt_unent>=0)
         mo_full_virt = kf2.mo_coeff[:,las.ncore+las.ncas:]
         ovlp = mo_full_virt.conj ().T @ s0 @ imporb_coeff
-        u, svals, vh = linalg.svd (ovlp, full_matrices=True)
+        try:
+            u, svals, vh = linalg.svd (ovlp, full_matrices=True)
+        except (ValueError, linalg.LinAlgError) as e:
+            fname = 'ovlp_virt_frag{}.npy'.format (self._ifrag)
+            log.error (('Fragment %d failed to project virtual orbitals into impurity subspace '
+                        'because SVD failed on overlap matrix (saved to %s)'), self._ifrag, fname)
+            np.save (fname, ovlp)
+            raise (e)
         svals = np.append (svals, np.zeros (u.shape[1]-len(svals)))
         assert (nvirt_unent==0 or np.amax (np.abs (svals[-nvirt_unent:]))<1e-8)
         if nvirt_unent>0:
