@@ -101,7 +101,6 @@ class SingleLASState (object):
         if self.smults[i]>min_smult: dsmult.append (-1)
         if self.smults[i]<max_smult: dsmult.append (+1)
         return dsmult
-        
 
     def get_singles (self):
         log = logger.new_logger (self, self.verbose)
@@ -164,6 +163,7 @@ def all_single_excitations (las, verbose=None):
 
 def count_excitations (las0):
     log = logger.new_logger (las0, las0.verbose)
+    t = (logger.process_clock(), logger.perf_counter ())
     log.info ("Counting possible LASSI excitation ranks...")
     nroots0 = las0.nroots
     las1 = all_single_excitations (las0, verbose=0)
@@ -175,6 +175,7 @@ def count_excitations (las0):
     if nroots1>nroots0:
         raise RuntimeError ("Max ncalls reached")
     log.info ("Maximum of %d LAS states reached by excitations of rank %d", nroots0, ncalls)
+    log.timer ("LAS excitation counting", *t)
     return nroots0, ncalls
 
 if __name__=='__main__':
