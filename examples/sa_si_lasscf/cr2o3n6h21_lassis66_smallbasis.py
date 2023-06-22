@@ -28,8 +28,6 @@ mol=gto.M(atom='cr2o3n6h21.xyz',verbose=4,spin=6,charge=3,basis=basis,output='cr
 mol.build()
 mf=scf.ROHF(mol)
 mf.init_guess='atom'
-print (("The below results are slightly different than I presented on 06/15/2023;\n"
-        "I am still trying to figure out why. - MRH"))
 mf.kernel()
 assert (mf.converged)
 

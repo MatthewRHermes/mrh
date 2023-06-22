@@ -888,8 +888,8 @@ class LASCINoSymm (casci.CASCI):
         for fcibox in self.fciboxes:
             fcibox.verbose = self.verbose
             fcibox.stdout = self.stdout
-        self.nroots = self.fciboxes[0].nroots
-        self.weights = self.fciboxes[0].weights
+            fcibox.nroots = self.nroots
+            fcibox.weights = self.weights
 
         self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, self.e_cas, \
                 self.ci, h2eff_sub, veff = _kern(mo_coeff=mo_coeff, ci0=ci0, verbose=verbose, \
