@@ -151,7 +151,8 @@ def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
     in all possible ways. Uses all states already present as reference states, so that calling
     this function a second time generates two-electron excitations, etc. The input object is
-    not altered in-place.'''
+    not altered in-place. For orbital optimization, all new states have weight = 0; all weights
+    of existing states are unchanged.'''
     from mrh.my_pyscf.mcscf.lasci import get_state_info
     from mrh.my_pyscf.mcscf.lasci import LASCISymm
     if verbose is None: verbose=las.verbose
@@ -183,7 +184,8 @@ def spin_shuffle (las, verbose=None):
     After calling this function, assuming no spin-orbit coupling is included, all LASSI
     results should have good global <S**2>, unless there is severe rounding error due to
     degeneracy between states of different S**2. Unlike all_single_excitations, there
-    should never be any reason to call this function more than once.'''
+    should never be any reason to call this function more than once. For orbital optimization,
+    all new states have weight == 0; all weights of existing states are unchanged.'''
     from mrh.my_pyscf.mcscf.lasci import get_state_info
     from mrh.my_pyscf.mcscf.lasci import LASCISymm
     if verbose is None: verbose=las.verbose
