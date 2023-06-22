@@ -348,15 +348,9 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         mo_full_core = kf2.mo_coeff[:,:las.ncore]
         s0 = las._scf.get_ovlp ()
         ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
-        try:
-            u, svals, vh = linalg.svd (ovlp, full_matrices=True)
-        except (ValueError, linalg.LinAlgError) as e:
-            fname = 'ovlp_inac_frag{}.npy'.format (self._ifrag)
-            log.error (('Fragment %d failed to project inactive orbitals into impurity subspace '
-                        'because SVD failed on overlap matrix (saved to %s)'), self._ifrag, fname)
-            np.save (fname, ovlp)
-            raise (e)
-        svals = np.append (svals, np.zeros (u.shape[1]-len(svals)))
+        proj = ovlp @ ovlp.conj ().T
+        evals, u = linalg.eigh (-proj)
+        assert (ncore_unent==0 or np.amax (np.abs (evals[-ncore_unent:]))<1e-8)
         if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
         kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
         
@@ -376,16 +370,9 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         assert (nvirt_unent>=0)
         mo_full_virt = kf2.mo_coeff[:,las.ncore+las.ncas:]
         ovlp = mo_full_virt.conj ().T @ s0 @ imporb_coeff
-        try:
-            u, svals, vh = linalg.svd (ovlp, full_matrices=True)
-        except (ValueError, linalg.LinAlgError) as e:
-            fname = 'ovlp_virt_frag{}.npy'.format (self._ifrag)
-            log.error (('Fragment %d failed to project virtual orbitals into impurity subspace '
-                        'because SVD failed on overlap matrix (saved to %s)'), self._ifrag, fname)
-            np.save (fname, ovlp)
-            raise (e)
-        svals = np.append (svals, np.zeros (u.shape[1]-len(svals)))
-        assert (nvirt_unent==0 or np.amax (np.abs (svals[-nvirt_unent:]))<1e-8)
+        proj = ovlp @ ovlp.conj ().T
+        evals, u = linalg.eigh (-proj)
+        assert (nvirt_unent==0 or np.amax (np.abs (evals[-nvirt_unent:]))<1e-8)
         if nvirt_unent>0:
             kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
             kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
@@ -394,6 +381,8 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             f0_ab = mo_a.conj ().T @ f0 @ mo_a
             w, u = linalg.eigh (f0_ab)
             kf2.mo_coeff[:,-nvirt_unent:] = mo_a @ u
+        else:
+            kf2.mo_coeff[:,las.ncore+las.ncas:] = mo_self[:,self.ncore+self.ncas:]
 
         return kf2
 
@@ -439,8 +428,8 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         mo_core = mo_coeff[:,:las.ncore]
         s0 = mf.get_ovlp ()
         ovlp = imporb_coeff.conj ().T @ s0 @ mo_core
-        self.mo_coeff, svals, vh = linalg.svd (ovlp)
-        self.ncore = np.count_nonzero (np.isclose (svals, 1))
+        evals, self.mo_coeff = linalg.eigh (-(ovlp @ ovlp.conj().T))
+        self.ncore = np.count_nonzero (np.isclose (-evals, 1))
         # Active and virtual orbitals (note self.ncas must be set at construction)
         nocc = self.ncore + self.ncas
         i = las.ncore + sum (las.ncas_sub[:_ifrag])
