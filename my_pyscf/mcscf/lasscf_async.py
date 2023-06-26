@@ -9,25 +9,8 @@ from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
 from mrh.my_pyscf.mcscf.lasscf_async_combine import combine_o0
 
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
-            assert_no_dupes=False, imporb_builders=None, verbose=lib.logger.NOTE, **kwargs):
-    '''
-    Kwargs:
-        imporb_builders : callable of length nfrags
-            The functions which produce localized impurity orbitals surrounding each
-            active subspace. In a given keyframe, the impurity subspaces should contain
-            some inactive and virtual orbitals but should be unentangled (i.e., contain
-            an integer number of electrons). The calling pattern is
-            imporb_coeff_i, nelec_imp_i = imporb_builders[i] (mo_coeff, dm1s, veff, fock1)
-            Args:
-                mo_coeff : ndarray of shape (nao,nmo)
-                dm1s : ndarray of shape (2,nao,nao)
-                veff : ndarray of shape (2,nao,nao)
-                fock1 : ndarray of shape (nmo,nmo)
-            Returns:
-                imporb_coeff_i : ndarray of shape (nao,*)
-                nelec_imp_i : tuple of length 2
-
-    '''
+            assert_no_dupes=False, verbose=lib.logger.NOTE, frags_orbs=None,
+            **kwargs):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if assert_no_dupes: las.assert_no_duplicates ()
     h2eff_sub = las.get_h2eff (mo_coeff)
@@ -37,7 +20,9 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     if (ci0 is None or any ([c is None for c in ci0]) or
       any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
         raise RuntimeError ("failed to populate get_init_guess")
-    if imporb_builders is None: imporb_builders = getattr (las, '_imporb_builders', None)
+    if frags_orbs is None: frags_orbs = getattr (las, 'frags_orbs', None)
+    imporb_builders = [get_impurity_space_constructor (las, i, frag_orbs=frag_orbs)
+                       for i, frag_orbs in enumerate (frags_orbs)]
     nfrags = len (las.ncas_sub)
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
@@ -156,11 +141,12 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
     as_scanner = mc1step.as_scanner
     def set_fragments_(self, frags_atoms=None, mo_coeff=None, localize_init_guess=True,
                        **kwargs):
-        # TODO: frags_orbs (requires refactoring localize_init_guess)
-        self._imporb_builders = [
-            get_impurity_space_constructor (self, i, frag_atoms=frag_atoms)
-            for i, frag_atoms in enumerate (frags_atoms)
-        ]
+        # TODO: frags_orbs on input (requires refactoring localize_init_guess)
+        ao_offset = self.mol.offset_ao_by_atom ()
+        frags_orbs = [[orb for atom in frag_atom
+                       for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
+                      for frag_atom in frags_atoms]
+        self.frags_orbs = frags_orbs
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if localize_init_guess:
             mo_coeff = self.localize_init_guess (frags_atoms, mo_coeff=mo_coeff, **kwargs) 
