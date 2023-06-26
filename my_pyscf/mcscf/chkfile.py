@@ -39,8 +39,6 @@ def load_las_(mc, chkfile=None):
         frags_orbs = data['frags_orbs']
         for i in range (mc.nfrags):
             mc.frags_orbs.append (list (frags_orbs[str(i)]))
-    else:
-        print ("frags_orbs not found")
     # if mo_coeff has tagged orbsym, save it, in case someone decides
     # to change PySCF symmetry convention again
     if 'mo_coeff_orbsym' in data:
