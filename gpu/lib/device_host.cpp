@@ -62,13 +62,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   // printf("\n");
 
   double * f1_prime = (double *) malloc(nmo*nmo*sizeof(double));
-
-#if 0
-  int max_lead_dim_ar = (ncore > (nmo-nocc)) ? ncore : nmo-nocc;
-  int size_ar_2d = max_lead_dim_ar * info_papa.shape[3];
-  int max_size_ar = info_papa.shape[1] * size_ar_2d;
-  double * ar_global = (double *) malloc(num_threads * max_size_ar*sizeof(double));
-#endif
   
   // loop over f1 (i<nmo)
 #pragma omp parallel for
@@ -97,24 +90,9 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     // construct ra, ar, cm
     
     double * ra = praa; // (ncore,2,2)
-
-#if 0
-    int size_ar_2d = ncore * info_papa.shape[3];
-    int size_ar = info_papa.shape[1] * size_ar_2d;
-    //double * ar = (double *) malloc(size_ar*sizeof(double)); // 2, ncore, 2
-    double * ar = &(ar_global[it*max_size_ar]);
-#endif
     
     int indx = 0;
-#if 0
-    for(int i1=0; i1<info_papa.shape[1]; ++i1)
-      for(int j1=0; j1<ncore; ++j1)
-	for(int k1=0; k1<info_papa.shape[3]; ++k1) {
-	  int indx1 = i1*papa_size_2d + j1*info_papa.shape[3] + k1;
-	  ar[indx++] = para[indx1]; // para(:, i:j, :)
-	}
-#endif
-    
+   
     double * cm = ocm2; // (2, 2, 2, ncore)
     
     for(int i=0; i<nmo; ++i) f1[i] = 0.0;
@@ -124,6 +102,10 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     // printf("f1 += paaa{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
     // 	   nocc-ncore,info_ppaa.shape[2],info_ppaa.shape[3],
     // 	   info_ocm2.shape[0],info_ocm2.shape[1],info_ocm2.shape[2],ncore);
+
+#ifdef _SIMPLE_TIMER
+    double t0 = omp_get_wtime();
+#endif
     
     for(int i=0; i<ncore; ++i) {
       
@@ -139,6 +121,10 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[i] += val;
     }
+    
+#ifdef _SIMPLE_TIMER
+    double t1 = omp_get_wtime();
+#endif
     
     // tensordot(ra, cm, axes=((0,1,2), (3,0,1)))
     
@@ -161,12 +147,16 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1[ncore+i] += val;
     }
     
+#ifdef _SIMPLE_TIMER
+    double t2 = omp_get_wtime();
+#endif
+    
     // tensordot(ar, cm, axes=((0,1,2), (0,3,2)))
     
     // printf("f1 += ar{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
     // 	   info_papa.shape[1], ncore, info_papa.shape[3],
     // 	   info_ocm2.shape[0],info_ocm2.shape[1],info_ocm2.shape[2],ncore);
-#if 1
+
     for(int i=0; i<info_ocm2.shape[1]; ++i) {
       
       double val = 0.0;
@@ -181,22 +171,9 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[ncore+i] += val;
     }
-#else
-    for(int i=0; i<info_ocm2.shape[1]; ++i) {
-      
-      double val = 0.0;
-      //    int indx = 0;
-      for(int k1=0; k1<info_ppaa.shape[3]; ++k1)
-	for(int j1=0; j1<ncore; ++j1)
-	  for(int i1=0; i1<info_papa.shape[1]; ++i1)
-	    {
-	      int indx1 = i1 * size_ar_2d + j1 * info_papa.shape[3] + k1;
-	      int indx2 = i1 * ocm2_size_3d + i * ocm2_size_2d + k1 * info_ocm2.shape[3] + j1;
-	      val += ar[indx1] * cm[indx2];
-	    }
-      
-      f1[ncore+i] += val;
-    }
+    
+#ifdef _SIMPLE_TIMER
+    double t3 = omp_get_wtime();
 #endif
     
     // tensordot(ar, cm, axes=((0,1,2), (1,3,2)))
@@ -205,7 +182,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     // 	   info_papa.shape[1], ncore, info_papa.shape[3],
     // 	   info_ocm2.shape[0],info_ocm2.shape[1],info_ocm2.shape[2],ncore);
 
-#if 1
     for(int i=0; i<info_ocm2.shape[0]; ++i) {
       
       double val = 0.0;
@@ -220,21 +196,9 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[ncore+i] += val;
     }
-#else
-    for(int i=0; i<info_ocm2.shape[0]; ++i) {
-      
-      double val = 0.0;
-      for(int k1=0; k1<info_ppaa.shape[3]; ++k1)
-	for(int j1=0; j1<ncore; ++j1)
-	  for(int i1=0; i1<info_papa.shape[1]; ++i1)
-	    {
-	      int indx1 = i1 * size_ar_2d + j1 * info_papa.shape[3] + k1;
-	      int indx2 = i * ocm2_size_3d + i1 * ocm2_size_2d + k1 * info_ocm2.shape[3] + j1;
-	      val += ar[indx1] * cm[indx2];
-	    }
-      
-      f1[ncore+i] += val;
-    }
+    
+#ifdef _SIMPLE_TIMER
+    double t4 = omp_get_wtime();
 #endif
     
     // ====================================================================
@@ -245,21 +209,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     // ra = praa[i:j] = ppaa[p, nocc:nmo, :, :]
     // ar = para[:, i:j] = papa[p, :, nocc:nmo, :]
     // cm = ocm2[:, :, :, i:j] = ocm2[:, :, :, nocc:nmo]
-#if 0
-    size_ar_2d = (nmo-nocc) * info_papa.shape[3];
-    size_ar = info_papa.shape[1] * size_ar_2d;
-    //    ar = (double *) malloc(size_ar*sizeof(double)); // 2, nmo-nocc, 2
-#endif
-#if 0
-    indx = 0;
-    for(int i1=0; i1<info_papa.shape[1]; ++i1)
-      for(int j1=nocc; j1<nmo; ++j1)
-	for(int k1=0; k1<info_papa.shape[3]; ++k1) {
-	  int indx1 = i1*papa_size_2d + j1*info_papa.shape[3] + k1;
-	  ar[indx++] = para[indx1];
-	}
-#endif
-    
+
     // tensordot(paaa, cm, axes=((0,1,2), (2,1,0)))
     
     // printf("f1 += paaa{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
@@ -282,6 +232,10 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1[i] += val;
     }
     
+#ifdef _SIMPLE_TIMER
+    double t5 = omp_get_wtime();
+#endif
+    
     // tensordot(ra, cm, axes=((0,1,2), (3,0,1)))
     
     // printf("f1 += ra{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
@@ -303,12 +257,16 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1[ncore+i] += val;
     }
     
+#ifdef _SIMPLE_TIMER
+    double t6 = omp_get_wtime();
+#endif
+    
     // tensordot(ar, cm, axes=((0,1,2), (0,3,2)))
     
     // printf("f1 += ar{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
     // 	   info_papa.shape[1], nmo-nocc, info_papa.shape[3],
     // 	   info_ocm2.shape[0],info_ocm2.shape[1],info_ocm2.shape[2],nmo-nocc);
-#if 1
+
     for(int i=0; i<info_ocm2.shape[1]; ++i) {
       
       double val = 0.0;
@@ -323,21 +281,9 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[ncore+i] += val;
     }
-#else
-    for(int i=0; i<info_ocm2.shape[1]; ++i) {
-      
-      double val = 0.0;
-      for(int k1=0; k1<info_ppaa.shape[3]; ++k1)
-	for(int j1=0; j1<nmo-nocc; ++j1)
-	  for(int i1=0; i1<info_papa.shape[1]; ++i1)
-	    {
-	      int indx1 = i1 * size_ar_2d + j1 * info_papa.shape[3] + k1;
-	      int indx2 = i1 * ocm2_size_3d + i * ocm2_size_2d + k1 * info_ocm2.shape[3] + (nocc+j1);
-	      val += ar[indx1] * cm[indx2];
-	    }
-      
-      f1[ncore+i] += val;
-    }
+    
+#ifdef _SIMPLE_TIMER
+    double t7 = omp_get_wtime();
 #endif
     
     // tensordot(ar, cm, axes=((0,1,2), (1,3,2)))
@@ -346,7 +292,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     // 	   info_papa.shape[1], nmo-nocc, info_papa.shape[3],
     // 	   info_ocm2.shape[0],info_ocm2.shape[1],info_ocm2.shape[2],nmo-nocc);
 
-#if 1
     for(int i=0; i<info_ocm2.shape[0]; ++i) {
       
       double val = 0.0;
@@ -361,23 +306,18 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[ncore+i] += val;
     }
-#else
-    for(int i=0; i<info_ocm2.shape[0]; ++i) {
-      
-      double val = 0.0;
-      for(int k1=0; k1<info_ppaa.shape[3]; ++k1)
-	for(int j1=0; j1<nmo-nocc; ++j1)
-	  for(int i1=0; i1<info_papa.shape[1]; ++i1)
-	    {
-	      int indx1 = i1 * size_ar_2d + j1 * info_papa.shape[3] + k1;
-	      int indx2 = i * ocm2_size_3d + i1 * ocm2_size_2d + k1 * info_ocm2.shape[3] + (nocc+j1);
-	      val += ar[indx1] * cm[indx2];
-	    }
-      
-      f1[ncore+i] += val;
-    }
-#endif
+#ifdef _SIMPLE_TIMER
+    double t8 = omp_get_wtime();
     
+    t_array[0] += t1  - t0;
+    t_array[1] += t2  - t1;
+    t_array[2] += t3  - t2;
+    t_array[3] += t4  - t3;
+    t_array[4] += t5  - t4;
+    t_array[5] += t6  - t5;
+    t_array[6] += t7  - t6;
+    t_array[7] += t8  - t7;
+#endif
   } // for(p<nmo)
 
   // # (H.x_aa)_va, (H.x_aa)_ac
@@ -392,6 +332,10 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   
   // ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
 
+#ifdef _SIMPLE_TIMER
+  double t8 = omp_get_wtime();
+#endif
+  
   int indx = 0;
   double * _ocm2_tmp = ecm2;
   for(int i=0; i<info_ocm2.shape[0]; ++i)
@@ -403,6 +347,10 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 	    int indx2 = j * ocm2_size_3d + i * ocm2_size_2d + l * info_ocm2.shape[3] + (ncore+k);
 	    _ocm2_tmp[indx++] = ocm2[indx1] + ocm2[indx2];
 	  }
+  
+#ifdef _SIMPLE_TIMER
+  double t9 = omp_get_wtime();
+#endif
   
   // ocm2 += ocm2.transpose (2,3,0,1)
 
@@ -420,9 +368,17 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 	    indx++;
 	  }
   
+#ifdef _SIMPLE_TIMER
+  double t10 = omp_get_wtime();
+#endif
+    
   // ecm2 = ocm2 + tcm2
   
   for(int i=0; i<size_ecm; ++i) ecm2[i] = _ocm2t[i] + tcm2[i];
+
+#ifdef _SIMPLE_TIMER
+  double t11 = omp_get_wtime();
+#endif
   
   // f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
   
@@ -446,6 +402,10 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1_prime[i*nmo+ncore+j] += val;
     }
 
+#ifdef _SIMPLE_TIMER
+  double t12 = omp_get_wtime();
+#endif
+    
   // f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
 
   for(int i=nocc; i<nmo; ++i) 
@@ -463,7 +423,11 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1_prime[i*nmo+ncore+j] += val;
     }
-
+  
+#ifdef _SIMPLE_TIMER
+  double t13 = omp_get_wtime();
+#endif
+    
   // return gorb + (f1_prime - f1_prime.T)
 
   double * g_f1_prime = (double *) malloc(nmo*nmo*sizeof(double));
@@ -482,9 +446,21 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 
   for(int i=0; i<nmo*nmo; ++i) res[i] = g_f1_prime[i];
 
+#ifdef _SIMPLE_TIMER
+  double t14 = omp_get_wtime();
+
+  t_array[8]  += t9  - t8;
+  t_array[9]  += t10 - t9;
+  t_array[10] += t11 - t10;
+  t_array[11] += t12 - t11;
+  t_array[12] += t13 - t12;
+  t_array[13] += t14 - t13;
+#endif
+  
 #if 0
   free(ar_global);
 #endif
+  
   free(g_f1_prime);
   free(ecm2);
   free(_ocm2t);

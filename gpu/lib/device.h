@@ -50,7 +50,11 @@ private:
   double * partial;
   double * d_partial;
 
+#ifdef _SIMPLE_TIMER
   double total_t;
+
+  double * t_array;
+#endif
 };
 
 #endif
