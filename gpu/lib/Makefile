@@ -12,7 +12,7 @@ LD = g++
 LDFLAGS = -fPIC -shared
 AR = ar rcs
 CPP=cpp -P -traditional
-INSTALL=../lib
+INSTALL=../
 
 ARCH ?= polaris
 include arch/$(ARCH)

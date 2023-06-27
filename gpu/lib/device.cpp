@@ -16,6 +16,10 @@ Device::Device()
 
   partial = nullptr;
   d_partial = nullptr;
+
+#ifdef _SIMPLE_TIMER
+  t_array = (double *) malloc(14 * sizeof(double));
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -28,6 +32,12 @@ Device::~Device()
   
   dev_free(d_partial);
   free(partial);
+
+#ifdef _SIMPLE_TIMER
+  for(int i=0; i<14; ++i) printf("i= %i  t_array= %f s\n",i,t_array[i]);
+  
+  free(t_array);
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
