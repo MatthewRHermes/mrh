@@ -48,11 +48,7 @@ class H1EZipFCISolver (object):
     pass
 
 def get_h1e_zipped_fcisolver (fcisolver):
-    ''' Wrap a state-average-mix FCI solver to take a list of h1es to apply to each state.
-    I'm not sure how orthogonality works into this, but in the most straightforward
-    application of SA-LASSCF all the product states will have different local symmetries
-    so maybe it doesn't matter. (Doing the same for orbital number would be a gigantic pain
-    in the ass because of the rdms.)'''
+    ''' Wrap a state-average-mix FCI solver to take a list of h1es to apply to each solver. '''
 
     # Recursion protection
     if isinstance (fcisolver, H1EZipFCISolver):
@@ -71,7 +67,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
             if isinstance (ecore, (int, float, np.integer, np.floating)):
                 ecore = [ecore,] * len (h1)
             if orbsym is None: orbsym=self.orbsym
-            for solver, my_args, my_kwargs in self._loop_solver(_state_arg (ci0), _state_arg (h1), _state_arg (ecore)):
+            for solver, my_args, my_kwargs in self._loop_solver(_state_arg (ci0), _solver_arg (h1), _state_arg (ecore)):
                 c0 = my_args[0]
                 h1e = my_args[1]
                 e0 = my_args[2]
@@ -107,7 +103,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
             es = []
             cs = []
             if orbsym is None: orbsym=self.orbsym
-            for solver, my_args, _ in self._loop_solver (_state_arg (ci0), _state_arg (h1)):
+            for solver, my_args, _ in self._loop_solver (_state_arg (ci0), _solver_arg (h1)):
                 c0 = my_args[0]
                 h1e = my_args[1]
                 try:
@@ -126,7 +122,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
 
         def states_absorb_h1e (self, h1, h2, norb, nelec, fac):
             op = []
-            for solver, my_args, _ in self._loop_solver (_state_arg (h1)):
+            for solver, my_args, _ in self._loop_solver (_solver_arg (h1)):
                 h1e = my_args[0]
                 op.append (solver.absorb_h1e (h1e, h2, norb, self._get_nelec (solver, nelec), fac) if h1 is not None else h2)
             return op
@@ -142,14 +138,14 @@ def get_h1e_zipped_fcisolver (fcisolver):
 
         def states_make_hdiag (self, h1, h2, norb, nelec):
             hdiag = []
-            for solver, my_args, _ in self._loop_solver (_state_arg (h1)):
+            for solver, my_args, _ in self._loop_solver (_solver_arg (h1)):
                 h1e = my_args[0]
                 hdiag.append (solver.make_hdiag (h1e, h2, norb, self._get_nelec (solver, nelec)))
             return hdiag
 
         def states_make_hdiag_csf (self, h1, h2, norb, nelec):
             hdiag = []
-            for solver, my_args, _ in self._loop_solver (_state_arg (h1)):
+            for solver, my_args, _ in self._loop_solver (_solver_arg (h1)):
                 h1e = my_args[0]
                 with temporary_env (solver, orbsym=self.orbsym):
                     hdiag.append (solver.make_hdiag_csf (h1e, h2, norb, self._get_nelec (solver, nelec)))
@@ -185,7 +181,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
                 tdm2.append (dm2)
             return tdm1, tdm2
 
-        # DANGER! DANGER WILL ROBINSON! I KNOW THAT THE BELOW MAY MAKE SOME THINGS CONVENIENT BUT THERE COULD BE MANY UNFORSEEN PROBLEMS!
+        # TODO: remove this?
         absorb_h1e = states_absorb_h1e
         contract_2e = states_contract_2e
         make_hdiag = states_make_hdiag
