@@ -6,6 +6,13 @@
 
 #include <stdio.h>
 
+extern "C" {
+  void dsymm_(const char*, const char*, const int*, const int*,
+	      const double*, const double*, const int*,
+	      const double*, const int*,
+	      const double*, double*, const int*);
+}
+
 /* ---------------------------------------------------------------------- */
 
 double Device::compute(double * data)
@@ -23,6 +30,300 @@ double Device::compute(double * data)
   
   return sum;
 }
+
+/* ---------------------------------------------------------------------- */
+
+void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::array_t<double> _vjtmp,
+		    py::array_t<double> _buf,
+		    py::list & _dms_list, py::array_t<double> _vk,
+		    int with_j, int blksize, int nset, int naux, int nao)
+{
+  int num_threads = 1;
+#pragma omp parallel
+  num_threads = omp_get_num_threads();
+
+  py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
+  py::buffer_info info_dmtril = _dmtril.request(); // 2D array (1, 351)
+  py::buffer_info info_vj = _vjtmp.request(); // 2D array (1, 351)
+  py::buffer_info info_buf = _buf.request(); // 4D array (2, 240, 26, 26)
+  py::buffer_info info_vk = _vk.request(); // 3D array (nset, 26, 26)
+
+  double * eri1 = static_cast<double*>(info_eri1.ptr);
+  double * dmtril = static_cast<double*>(info_dmtril.ptr);
+  double * _vj = static_cast<double*>(info_vj.ptr);
+  double * vj; // = static_cast<double*>(info_vj.ptr);
+  double * rho; // 2D array (1, 232)
+
+  double * buf = static_cast<double*>(info_buf.ptr);
+  double * vk = static_cast<double*>(info_vk.ptr);
+
+  int eri1_size_1d = info_eri1.shape[1];
+  int dmtril_size_1d = info_dmtril.shape[1];
+
+  int size_rho = info_dmtril.shape[0] * info_eri1.shape[0];
+  rho = (double *) malloc(size_rho * sizeof(double));
+  
+  int size_vj = info_dmtril.shape[0] * info_eri1.shape[1];
+  vj = (double *) malloc(size_vj * sizeof(double));
+  
+  if(with_j) {
+
+    // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
+    
+    for(int i=0; i<info_dmtril.shape[0]; ++i)
+      for(int j=0; j<info_eri1.shape[0]; ++j) {
+
+	int indx = i * info_eri1.shape[0] + j;
+	rho[indx] = 0.0;
+	for(int k=0; k<dmtril_size_1d; ++k) {	  
+	  int indx1 = i * info_dmtril.shape[1] + k;
+	  int indx2 = j * info_eri1.shape[1] + k;
+	  
+	  // rho(i,j) += dmtril(i,k) * eri1(j,k)
+	  rho[indx] += dmtril[indx1] * eri1[indx2];
+	}
+      }
+
+    // vj += numpy.einsum('ip,px->ix', rho, eri1)
+
+    for(int i=0; i<info_dmtril.shape[0]; ++i)
+      for(int j=0; j<info_eri1.shape[1]; ++j) {
+
+        int indx = i * info_eri1.shape[1] + j;
+	vj[indx] = 0.0;
+	for(int k=0; k<info_eri1.shape[0]; ++k) {
+	  int indx1 = i * info_eri1.shape[1] + k;
+	  int indx2 = k * info_eri1.shape[1] + j;
+
+	  // vj(i,j) += rho(i,k) * eri1(k,j)
+	  vj[indx] += rho[indx1] * eri1[indx2];
+	  //printf("ijk= %i %i %i  indx= %i %i %i  rho= %f  eri1= %f  vj= %f\n",i,j,k,indx,indx1,indx2,rho[indx1],eri1[indx2],vj[indx]);
+	}
+      }
+    
+  }
+
+#if 1
+  double err = 0.0;
+  for(int i=0; i<size_vj; ++i) {
+    err += (vj[i] - _vj[i]) * (vj[i] - _vj[i]);
+    //    printf("LIBGPU:: i= %i  vj= %f\n",i,vj[i]);
+  }
+  printf("vj_error= %f\n",err);
+#endif
+
+  //    double * buf1 = buf;
+  double * buf_tmp = (double*) malloc(2 * blksize * nao * nao * sizeof(double));
+  double * buf1 = buf_tmp;
+  
+  double * _vktmp = (double *) malloc(nao*nao*sizeof(double));
+  for(int i=0; i<nao*nao; ++i) _vktmp[i] = 0.0;
+
+  double vk_err = 0.0;
+  for(int indxK=0; indxK<nset; ++indxK) {
+    
+    py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, 26, 26)
+    py::buffer_info info_dms = _dms.request(); // 2D
+  
+    printf("  -- dms[k]: ndim= %i\n",info_dms.ndim);
+    printf("  --        shape=");
+    for(int i=0; i<info_dms.ndim; ++i) printf(" %i", info_dms.shape[i]);
+    printf("\n");
+
+    // rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao), null, ctypes.c_int(0))
+
+    //    fmmm = _ao2mo.libao2mo.AO2MOmmm_bra_nr_s2
+    //    fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
+    //    ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2
+      
+    //    fdrv(ftrans, fmmm,
+    //	       buf1.ctypes.data_as(ctypes.c_void_p),
+    //	       eri1.ctypes.data_as(ctypes.c_void_p),
+    //	       dms[k].ctypes.data_as(ctypes.c_void_p),
+    //	       ctypes.c_int(naux), *rargs)
+
+    int orbs_slice[4] = {0, nao, 0, nao};
+    double * dms = static_cast<double*>(info_dms.ptr);
+    
+    fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0);
+
+    double err = 0.0;
+    for(int i=0; i<blksize*nao*nao; ++i) err += (buf1[i]-buf[i]) * (buf1[i]-buf[i]);
+    printf("buf_err= %f\n",err);
+    
+    // buf2 = lib.unpack_tril(eri1, out=buf[1])
+
+    for(int i=0; i<naux; ++i) {
+
+      // unpack lower-triangle to square
+      
+      int indx = 0;
+      double * buf2 = &(buf_tmp[(blksize + i) * nao * nao]);
+      double * eri1_ = &(eri1[i * info_eri1.shape[1]]);
+      for(int j=0; j<nao; ++j)
+	for(int k=0; k<=j; ++k) {
+	  int indx1 = j * nao + k;
+	  int indx2 = k * nao + j;
+	  buf2[indx1] = eri1_[indx];
+	  buf2[indx2] = eri1_[indx];
+	  indx++;
+	}
+
+      // if(i < 2) {
+      // 	for(int j=0; j<2; ++j) {
+      // 	  printf("\nLIBGPU::buf[%i,%i]= \n",i,j);
+      // 	  for(int k=0; k<nao; ++k) printf(" %f",buf2[j*nao+k]);
+      // 	  printf("\n");
+      // 	}
+      // }
+      
+    }
+
+    // dgemm of (nao X blksize*nao) and (blksize*nao X nao) matrices - can refactor later...
+    // vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))  // vk[k] is nao x nao array
+
+    double * buf2 = &(buf_tmp[blksize * nao * nao]);
+    
+    double val = 0.0;
+    for(int i=0; i<blksize; ++i) {
+      int offset = i * nao * nao;
+
+      for(int irow=0; irow<nao; ++irow)
+	for(int icol=0; icol<nao; ++icol) {
+	  double val = 0.0;
+	  for(int k=0; k<nao; ++k) {
+	    int indx1T = offset + k*nao + irow;
+	    int indx2  = offset + k*nao + icol;
+
+	    val += buf1[indx1T] * buf2[indx2];
+	  }
+	  _vktmp[irow*nao+icol] += val;
+	}
+
+    }
+
+#if 1
+    for(int i=0; i<nao; ++i)
+      for(int j=0; j<nao; ++j) {
+	int indx1 = indxK*nao*nao + i*nao + j;
+	int indx2 = i*nao + j;
+	vk_err += (vk[indx1] - _vktmp[indx2]) * (vk[indx1] - _vktmp[indx2]);
+      }
+    
+    printf("indxK= %i  vk[k]= %f %f %f %f\n", indxK, _vktmp[0], _vktmp[1], _vktmp[nao], _vktmp[nao+1]);
+    printf("indxK= %i  vk_err= %f\n",indxK, vk_err);
+#endif
+  }
+
+  
+  
+  free(_vktmp);
+  free(buf_tmp);
+  free(rho);
+  free(vj);  
+}
+  
+/* ---------------------------------------------------------------------- */
+
+// pyscf/pyscf/lib/ao2mo/nr_ao2mo.c::AO2MOnr_e2_drv()
+void Device::fdrv(double *vout, double *vin, double *mo_coeff,
+	  int nij, int nao, int *orbs_slice, int *ao_loc, int nbas)
+{
+  struct Device::my_AO2MOEnvs envs;
+  envs.bra_start = orbs_slice[0];
+  envs.bra_count = orbs_slice[1] - orbs_slice[0];
+  envs.ket_start = orbs_slice[2];
+  envs.ket_count = orbs_slice[3] - orbs_slice[2];
+  envs.nao = nao;
+  envs.nbas = nbas;
+  envs.ao_loc = ao_loc;
+  envs.mo_coeff = mo_coeff;
+  
+#pragma omp parallel default(none)					\
+  shared(vout, vin, nij, envs, nao, orbs_slice)
+  {
+    int i;
+    int i_count = envs.bra_count;
+    int j_count = envs.ket_count;
+    double *buf = (double *) malloc(sizeof(double) * (nao+i_count) * (nao+j_count));
+#pragma omp for schedule(dynamic)
+    for (i = 0; i < nij; i++) {
+      ftrans(i, vout, vin, buf, &envs);
+    }
+    free(buf);
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+// pyscf/pyscf/lib/np_helper/pack_tril.c
+void Device::NPdsymm_triu(int n, double *mat, int hermi)
+{
+  size_t i, j, j0, j1;
+  
+  if (hermi == HERMITIAN || hermi == SYMMETRIC) {
+    TRIU_LOOP(i, j) {
+      mat[i*n+j] = mat[j*n+i];
+    }
+  } else {
+    TRIU_LOOP(i, j) {
+      mat[i*n+j] = -mat[j*n+i];
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::NPdunpack_tril(int n, double *tril, double *mat, int hermi)
+{
+  size_t i, j, ij;
+  for (ij = 0, i = 0; i < n; i++) {
+    for (j = 0; j <= i; j++, ij++) {
+      mat[i*n+j] = tril[ij];
+    }
+  }
+  if (hermi) {
+    NPdsymm_triu(n, mat, hermi);
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+// pyscf/pyscf/lib/ao2mo/nr_ao2mo.c::AO2MOtranse2_nr_s2kl
+void Device::ftrans(int row_id,
+		    double *vout, double *vin, double *buf,
+		    struct Device::my_AO2MOEnvs *envs)
+{
+  int nao = envs->nao;
+  size_t ij_pair = fmmm(NULL, NULL, buf, envs, OUTPUTIJ);
+  size_t nao2 = fmmm(NULL, NULL, buf, envs, INPUT_IJ);
+  NPdunpack_tril(nao, vin+nao2*row_id, buf, 0);
+  fmmm(vout+ij_pair*row_id, buf, buf+nao*nao, envs, 0);
+}
+
+/* ---------------------------------------------------------------------- */
+// pyscf/pyscf/lib/ao2mo/nr_ao2mo.c::AO2MOmmm_bra_nr_s2
+int Device::fmmm(double *vout, double *vin, double *buf,
+		 struct my_AO2MOEnvs *envs, int seekdim)
+{
+  switch (seekdim) {
+  case OUTPUTIJ: return envs->bra_count * envs->nao;
+  case INPUT_IJ: return envs->nao * (envs->nao+1) / 2;
+  }
+  const double D0 = 0;
+  const double D1 = 1;
+  const char SIDE_L = 'L';
+  const char UPLO_U = 'U';
+  int nao = envs->nao;
+  int i_start = envs->bra_start;
+  int i_count = envs->bra_count;
+  double *mo_coeff = envs->mo_coeff;
+  
+  dsymm_(&SIDE_L, &UPLO_U, &nao, &i_count,
+         &D1, vin, &nao, mo_coeff+i_start*nao, &nao,
+         &D0, vout, &nao);
+  return 0;
+}
+
+/* ---------------------------------------------------------------------- */
 
 // Is both _ocm2 in/out as it get over-written and resized?
 

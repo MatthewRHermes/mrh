@@ -79,24 +79,18 @@ double libgpu_compute(void * ptr, py::array_t<double> array)
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_compute_df_get_jk(void * ptr, py::array_t<double> eri1)
-{
-  py::buffer_info info_eri1 = eri1.request();
-
-  double * ptr_eri1 = static_cast<double*>(info_eri1.ptr);
-  
+void libgpu_compute_get_jk(void * ptr,
+			   py::array_t<double> eri1, py::array_t<double> dmtril, py::array_t<double> vj,
+			   py::array_t<double> buf,
+			   py::list & dms, py::array_t<double> vk,
+			   int with_j, int blksize, int nset, int naux, int nao)
+{ 
   Device * dev = (Device *) ptr;
-  //dev->compute_df_get_jk(data);
-
-  printf("LIBGPU: Inside libgpu_compute_df_get_jk()\n");
-  printf("  -- eri1: ndim= %i\n",info_eri1.ndim);
-  printf("  --       shape=");
-  for(int i=0; i<info_eri1.ndim; ++i) printf(" %i", info_eri1.shape[i]);
-  printf("\n");
-  printf("  -- eri1[0][0:4]= %f %f %f %f\n", ptr_eri1[0], ptr_eri1[1], ptr_eri1[2], ptr_eri1[3]);
-  int off = info_eri1.shape[1];
-  printf("  -- eri1[1][0:4]= %f %f %f %f\n", ptr_eri1[off+0], ptr_eri1[off+1], ptr_eri1[off+2], ptr_eri1[off+3]);
-  
+  dev->get_jk(eri1, dmtril, vj,
+	      buf,
+	      dms, vk,
+	      with_j, blksize, nset, naux, nao);
+ 
 }
 
 /* ---------------------------------------------------------------------- */
