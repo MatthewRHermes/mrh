@@ -120,41 +120,39 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         max_memory = dfobj.max_memory - lib.current_memory()[0]
         blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
         buf = numpy.empty((2,blksize,nao,nao))
-        
+
+        print(" -- -- -- blksize= ", blksize, " blockdim= ", dfobj.blockdim, "  nao= ", nao)
         for eri1 in dfobj.loop(blksize):
-            naux, nao_pair = eri1.shape            
-            print("naux= ", naux, "  nao_pair= ",nao_pair, "  nset= ", nset)
+            naux, nao_pair = eri1.shape
             
-            print("dmtril.shape()= ", dmtril.shape)
-            print("dmtril[0][0:4]= ", dmtril[0][0:4])
-            print("eri1.shape()= ", eri1.shape)
-            print("eri1[0][0:4]= ", eri1[0][0:4])
-            print("eri1[1][0:4]= ", eri1[1][0:4])
+            if dfobj.mol.use_gpu:
+                libgpu.libgpu_compute_get_jk(gpu, eri1, dmtril, vj, buf1, dms, vk, with_j, blksize, nset, naux, nao)
 
-            
-            libgpu.libgpu_compute_df_get_jk(gpu, eri1)
-            
-            if with_j:
-                rho = numpy.einsum('ix,px->ip', dmtril, eri1)
-                vj += numpy.einsum('ip,px->ix', rho, eri1)
-
-            for k in range(nset):
-                print("k= ", k)
-                buf1 = buf[0,:naux]
-                fdrv(ftrans, fmmm,
-                     buf1.ctypes.data_as(ctypes.c_void_p),
-                     eri1.ctypes.data_as(ctypes.c_void_p),
-                     dms[k].ctypes.data_as(ctypes.c_void_p),
-                     ctypes.c_int(naux), *rargs)
-
-                buf2 = lib.unpack_tril(eri1, out=buf[1])
-                vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
+            else:
+                
+                if with_j:
+                    rho = numpy.einsum('ix,px->ip', dmtril, eri1)
+                    vj += numpy.einsum('ip,px->ix', rho, eri1)
+                    
+                    
+                    for k in range(nset):
+                        buf1 = buf[0,:naux]
+                        fdrv(ftrans, fmmm,
+                             buf1.ctypes.data_as(ctypes.c_void_p),
+                             eri1.ctypes.data_as(ctypes.c_void_p),
+                             dms[k].ctypes.data_as(ctypes.c_void_p),
+                             ctypes.c_int(naux), *rargs)
+                        
+                        buf2 = lib.unpack_tril(eri1, out=buf[1])
+                        
+                        vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
+                
             t1 = log.timer_debug1('jk', *t1)
 
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
     if with_k: vk = vk.reshape(dm_shape)
     logger.timer(dfobj, 'df vj and vk', *t0)
-#    quit()
+    quit()
     return vj, vk
 
 def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):

@@ -6,7 +6,7 @@
 #include <iostream>
 #include <omp.h>
 
-#define MIN(A,B) ((A) < (B) ? (A) : (B))
+//#define MIN(A,B) ((A) < (B) ? (A) : (B))
 
 extern int dev_num_devices();
 extern void dev_properties(int);

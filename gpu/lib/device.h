@@ -13,12 +13,26 @@ namespace py = pybind11;
 
 #include "pm.h"
 
-#define _NUM_ITER 10
-
 #define _SIZE_GRID 32
 #define _SIZE_BLOCK 256
 
-#define TOL 1e-6
+#define OUTPUTIJ        1
+#define INPUT_IJ        2
+
+// pyscf/pyscf/lib/np_helper/np_helper.h
+#define BLOCK_DIM    104
+
+#define HERMITIAN    1
+#define ANTIHERMI    2
+#define SYMMETRIC    3
+
+#define MIN(X, Y)       ((X) < (Y) ? (X) : (Y))
+#define MAX(X, Y)       ((X) > (Y) ? (X) : (Y))
+
+#define TRIU_LOOP(I, J) \
+        for (j0 = 0; j0 < n; j0+=BLOCK_DIM) \
+                for (I = 0, j1 = MIN(j0+BLOCK_DIM, n); I < j1; I++) \
+                        for (J = MAX(I,j0); J < j1; J++)
 
 class Device {
   
@@ -34,6 +48,11 @@ public :
   void setup(double *, int);
   double compute(double *);
 
+  void get_jk(py::array_t<double>, py::array_t<double>, py::array_t<double>,
+	      py::array_t<double>,
+	      py::list &, py::array_t<double>,
+	      int, int, int, int, int);
+  
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -50,6 +69,39 @@ private:
   double * partial;
   double * d_partial;
 
+  struct my_AO2MOEnvs {
+    int natm;
+    int nbas;
+    int *atm;
+    int *bas;
+    double *env;
+    int nao;
+    int klsh_start;
+    int klsh_count;
+    int bra_start;
+    int bra_count;
+    int ket_start;
+    int ket_count;
+    int ncomp;
+    int *ao_loc;
+    double *mo_coeff;
+    //        CINTOpt *cintopt;
+    //        CVHFOpt *vhfopt;
+  };
+  
+  void fdrv(double *, double *, double *,
+	    int, int, int *, int *, int);
+
+  void ftrans(int,
+	      double *, double *, double *,
+	      struct my_AO2MOEnvs *);
+
+  int fmmm(double *, double *, double *,
+	   struct my_AO2MOEnvs *, int);
+  
+  void NPdsymm_triu(int, double *, int);
+  void NPdunpack_tril(int, double *, double *, int);
+    
 #ifdef _SIMPLE_TIMER
   double total_t;
 
