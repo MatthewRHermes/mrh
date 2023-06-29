@@ -227,81 +227,9 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             continue
         wfnsym = None if break_symmetry else rootsym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
-        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-            ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, idx, soc=soc,
-                                                   orbsym=orbsym, wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
-                rootsym), *t0)
-
-            h1_sf = h1
-            if soc:
-                h1_sf = (h1[0:las.ncas,0:las.ncas]
-                         - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-            ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1_sf, h2, ci_blk, idx, orbsym=orbsym,
-                                                   wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
-                rootsym), *t0)
-            lib.logger.debug (las,
-                'LASSI diagonalizer rootsym {}: ham o0-o1 algorithm disagreement = {}'.format (
-                    rootsym, linalg.norm (ham_blk - ham_ref))) 
-            lib.logger.debug (las,
-                'LASSI diagonalizer rootsym {}: S2 o0-o1 algorithm disagreement = {}'.format (
-                    rootsym, linalg.norm (s2_blk - s2_ref))) 
-            lib.logger.debug (las,
-                'LASSI diagonalizer rootsym {}: ovlp o0-o1 algorithm disagreement = {}'.format (
-                    rootsym, linalg.norm (ovlp_blk - ovlp_ref))) 
-            errvec = np.concatenate ([(ham_blk-ham_ref).ravel (), (s2_blk-s2_ref).ravel (),
-                                      (ovlp_blk-ovlp_ref).ravel ()])
-            if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
-                raise LASSIOop01DisagreementError ("Hamiltonian + S2 + Ovlp", errvec)
-            if opt == 0:
-                ham_blk = ham_ref
-                s2_blk = s2_ref
-                ovlp_blk = ovlp_ref
-        else:
-            if (las.verbose > lib.logger.INFO): lib.logger.debug (
-                las, 'Insufficient memory to test against o0 LASSI algorithm')
-            ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, idx, soc=soc,
-                                                     orbsym=orbsym, wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
-        log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
-        if np.iscomplexobj (ham_blk):
-            log_debug (las, 'Block Hamiltonian - ecore (real):')
-            log_debug (las, '{}'.format (ham_blk.real.round (8)))
-            log_debug (las, 'Block Hamiltonian - ecore (imag):')
-            log_debug (las, '{}'.format (ham_blk.imag.round (8)))
-        else:
-            log_debug (las, 'Block Hamiltonian - ecore:')
-            log_debug (las, '{}'.format (ham_blk.round (8)))
-        log_debug (las, 'Block S**2:')
-        log_debug (las, '{}'.format (s2_blk.round (8)))
-        log_debug (las, 'Block overlap matrix:')
-        log_debug (las, '{}'.format (ovlp_blk.round (8)))
+        e, c, s2_blk = _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc,
+                                   orbsym, wfnsym, o0_memcheck, opt)
         s2_mat[np.ix_(idx,idx)] = s2_blk
-        # Error catch: diagonal Hamiltonian elements
-        diag_test = np.diag (ham_blk)
-        diag_ref = las.e_states[idx] - e0
-        maxerr = np.max (np.abs (diag_test-diag_ref))
-        if maxerr>1e-5 and soc == False: # tmp?
-            lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference',
-                                                                     'Error'))
-            for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
-                lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
-            raise RuntimeError ('SI Hamiltonian diagonal element error = {}'.format (maxerr))
-        # Error catch: linear dependencies in basis
-        try:
-            e, c = linalg.eigh (ham_blk, b=ovlp_blk)
-        except linalg.LinAlgError as e:
-            ovlp_det = linalg.det (ovlp_blk)
-            lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
-            lib.logger.info (las, 'Caught error %s, %s', str (e), lc)
-            if ovlp_det < LINDEP_THRESHOLD:
-                err_str = ('LASSI basis appears to have linear dependencies; '
-                           'double-check your state list.\n'
-                           '|ovlp| = {:.6e}').format (ovlp_det)
-                raise RuntimeError (err_str) from e
-            else: raise (e) from None
         s2_blk = c.conj ().T @ s2_blk @ c
         lib.logger.debug2 (las, 'Block S**2 in adiabat basis:')
         lib.logger.debug2 (las, '{}'.format (s2_blk))
@@ -343,6 +271,84 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         if not break_symmetry: row.append (symm.irrep_id2name (las.mol.groupname, rsym[-1]))
         lib.logger.info (las, fmt_str.format (*row))
     return e_roots, si
+
+def _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
+    # TODO: simplify
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    if (las.verbose > lib.logger.INFO) and (o0_memcheck):
+        ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, idx, soc=soc,
+                                               orbsym=orbsym, wfnsym=wfnsym)
+        t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
+            rootsym), *t0)
+
+        h1_sf = h1
+        if soc:
+            h1_sf = (h1[0:las.ncas,0:las.ncas]
+                     - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
+        ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1_sf, h2, ci_blk, idx, orbsym=orbsym,
+                                               wfnsym=wfnsym)
+        t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
+            rootsym), *t0)
+        lib.logger.debug (las,
+            'LASSI diagonalizer rootsym {}: ham o0-o1 algorithm disagreement = {}'.format (
+                rootsym, linalg.norm (ham_blk - ham_ref))) 
+        lib.logger.debug (las,
+            'LASSI diagonalizer rootsym {}: S2 o0-o1 algorithm disagreement = {}'.format (
+                rootsym, linalg.norm (s2_blk - s2_ref))) 
+        lib.logger.debug (las,
+            'LASSI diagonalizer rootsym {}: ovlp o0-o1 algorithm disagreement = {}'.format (
+                rootsym, linalg.norm (ovlp_blk - ovlp_ref))) 
+        errvec = np.concatenate ([(ham_blk-ham_ref).ravel (), (s2_blk-s2_ref).ravel (),
+                                  (ovlp_blk-ovlp_ref).ravel ()])
+        if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
+            raise LASSIOop01DisagreementError ("Hamiltonian + S2 + Ovlp", errvec)
+        if opt == 0:
+            ham_blk = ham_ref
+            s2_blk = s2_ref
+            ovlp_blk = ovlp_ref
+    else:
+        if (las.verbose > lib.logger.INFO): lib.logger.debug (
+            las, 'Insufficient memory to test against o0 LASSI algorithm')
+        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, idx, soc=soc,
+                                                 orbsym=orbsym, wfnsym=wfnsym)
+        t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
+    log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
+    if np.iscomplexobj (ham_blk):
+        log_debug (las, 'Block Hamiltonian - ecore (real):')
+        log_debug (las, '{}'.format (ham_blk.real.round (8)))
+        log_debug (las, 'Block Hamiltonian - ecore (imag):')
+        log_debug (las, '{}'.format (ham_blk.imag.round (8)))
+    else:
+        log_debug (las, 'Block Hamiltonian - ecore:')
+        log_debug (las, '{}'.format (ham_blk.round (8)))
+    log_debug (las, 'Block S**2:')
+    log_debug (las, '{}'.format (s2_blk.round (8)))
+    log_debug (las, 'Block overlap matrix:')
+    log_debug (las, '{}'.format (ovlp_blk.round (8)))
+    # Error catch: diagonal Hamiltonian elements
+    diag_test = np.diag (ham_blk)
+    diag_ref = las.e_states[idx] - e0
+    maxerr = np.max (np.abs (diag_test-diag_ref))
+    if maxerr>1e-5 and soc == False: # tmp?
+        lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference',
+                                                                 'Error'))
+        for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
+            lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
+        raise RuntimeError ('SI Hamiltonian diagonal element error = {}'.format (maxerr))
+    # Error catch: linear dependencies in basis
+    try:
+        e, c = linalg.eigh (ham_blk, b=ovlp_blk)
+    except linalg.LinAlgError as e:
+        ovlp_det = linalg.det (ovlp_blk)
+        lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
+        lib.logger.info (las, 'Caught error %s, %s', str (e), lc)
+        if ovlp_det < LINDEP_THRESHOLD:
+            err_str = ('LASSI basis appears to have linear dependencies; '
+                       'double-check your state list.\n'
+                       '|ovlp| = {:.6e}').format (ovlp_det)
+            raise RuntimeError (err_str) from e
+        else: raise (e) from None
+    return e, c, s2_blk
 
 def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
     ''' Evaluate <I|p'q|J> and <I|p'r'sq|J> where |I>, |J> are LAS states.
