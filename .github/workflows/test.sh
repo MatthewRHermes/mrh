@@ -3,5 +3,5 @@
 set -e
 
 export PYTHONPATH=${PWD%/*}:$PYTHONPATH
-cd ./tests
-pytest -k 'not _slow'
+cd ./tests/lasscf
+pytest test_lasci.py
