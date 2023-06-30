@@ -79,6 +79,24 @@ double libgpu_compute(void * ptr, py::array_t<double> array)
 
 /* ---------------------------------------------------------------------- */
 
+void libgpu_init_get_jk(void * ptr,
+			py::array_t<double> eri1, py::array_t<double> dmtril, 
+			int nset, int nao)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->init_get_jk(eri1, dmtril, nset, nao);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void libgpu_free_get_jk(void * ptr)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->free_get_jk();
+}
+
+/* ---------------------------------------------------------------------- */
+
 void libgpu_compute_get_jk(void * ptr,
 			   py::array_t<double> eri1, py::array_t<double> dmtril, py::array_t<double> vj,
 			   py::array_t<double> buf,
