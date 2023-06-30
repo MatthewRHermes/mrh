@@ -56,6 +56,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             na = cistring.num_strings (no, neleca)
             nb = cistring.num_strings (no, nelecb)
             zguess = np.zeros ((solver.nroots,na,nb))
+            for i in range (solver.nroots): zguess[i,i,i] = 1.0
             cguess = np.asarray (ci0[ix]).reshape (-1,na,nb)
             zguess[:cguess.shape[0],:,:] = cguess[:,:,:]
             ci1.append (zguess)

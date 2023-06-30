@@ -122,6 +122,7 @@ class KnownValues(unittest.TestCase):
     def test_sanity_symm (self):
         _check_()
         las_test = las_ref[1].state_average (weights=weights, **states_symm)
+        print ("test_sanity_symm:",las_test.ci)
         las_test.lasci (lroots=lroots)
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[1].e_states), 5)
         self.assertTrue (las_test.converged)
@@ -132,6 +133,7 @@ class KnownValues(unittest.TestCase):
     def test_convergence_symm (self):
         _check_()
         las_test = las_symm.state_average (weights=weights, **states_symm)
+        print ("test_convergence_symm:",las_test.ci)
         las_test.lasci (lroots=lroots)
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[1].e_states), 5)
         self.assertTrue (las_test.converged)
