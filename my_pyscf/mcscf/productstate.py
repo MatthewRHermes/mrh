@@ -28,7 +28,10 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         for it in range (max_cycle_macro):
             h1eff, h0eff = self.project_hfrag (h1, h2, ci1, norb_f, nelec_f,
                 ecore=ecore, **kwargs)
-            grad = self._get_grad (h1eff, h2, ci1, norb_f, nelec_f, **kwargs)
+            try:
+                grad = self._get_grad (h1eff, h2, ci1, norb_f, nelec_f, **kwargs)
+            except ValueError as e:
+                raise ValueError (str (e) + " iteration {} ".format (it))
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; sigma = %e', it, grad_max,
                 e_sigma)
