@@ -48,6 +48,9 @@ public :
   void setup(double *, int);
   double compute(double *);
 
+  void init_get_jk(py::array_t<double>, py::array_t<double>, int, int);
+  void free_get_jk();
+
   void get_jk(py::array_t<double>, py::array_t<double>, py::array_t<double>,
 	      py::array_t<double>,
 	      py::list &, py::array_t<double>,
@@ -69,6 +72,11 @@ private:
   double * partial;
   double * d_partial;
 
+  // get_jk
+
+  double * vj;
+  double * _vktmp;
+  
   struct my_AO2MOEnvs {
     int natm;
     int nbas;
