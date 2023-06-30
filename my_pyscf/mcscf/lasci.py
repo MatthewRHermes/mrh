@@ -9,7 +9,7 @@ from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile
 from mrh.my_pyscf.mcscf.lassi import lassi
-from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
+from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 from mrh.util.la import matrix_svd_control_options
 from itertools import combinations
 from scipy.sparse import linalg as sparse_linalg
@@ -637,8 +637,8 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
     return state_average_(new_las, weights=weights, charges=charges, spins=spins,
         smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
 
-def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
-    '''Self-consistently optimize the CI vectors of a LAS wave function with 
+def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose=0, assert_no_dupes=False):
+    '''Self-consistently optimize the CI vectors of a LAS state with 
     frozen orbitals using a fixed-point algorithm. "lasci_" (with the
     trailing underscore) sets self.mo_coeff from the kwarg if it is passed;
     "lasci" (without the trailing underscore) leaves self.mo_coeff unchanged.
@@ -648,6 +648,13 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
             MO coefficients; defaults to self.mo_coeff
         ci0 : list (length nfrags) of list (length nroots) of ndarrays
             Contains CI vectors for initial guess
+        lroots : ndarray of shape (nfrags,nroots)
+            Number of local roots in each fragment for each global state. 
+            The corresponding local weights are set to [1,0,0,0,...].
+        lweights : list of length nfrags of list of length nroots of sequence
+            Weights of local roots in each fragment for each global state.
+            Passing lweights is incompatible with passing lroots. Defaults
+            to, i.e., np.ones (las.nfrags, las.nroots, 1).tolist ()
         verbose : integer
             See pyscf.lib.logger.
         assert_no_dupes : logical
@@ -663,9 +670,21 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
         e_cas : list of length nroots
             List of the CAS space energy of each state
         ci : list (length nfrags) of list (length nroots) of ndarrays
-            Contains optimized CI vectyors
+            Contains optimized CI vectors
     '''
     if assert_no_dupes: assert_no_duplicates (las)
+    if lroots is not None and lweights is not None:
+        raise RuntimeError ("lroots sets lweights: pass either or none but not both")
+    elif lweights is None:
+        if lroots is None: lroots = np.ones ((las.nfrags, las.nroots), dtype=int)
+        lweights = []
+        for i in range (las.nfrags):
+            lwi = []
+            for j in range (las.nroots):
+                lwij = np.zeros (lroots[i,j])
+                lwij[0] = 1
+                lwi.append (lwij)
+            lweights.append (lwi)
     nao, nmo = mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -696,8 +715,8 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
     for state in range (las.nroots):
         fcisolvers = [b.fcisolvers[state] for b in las.fciboxes]
         ci0_i = [c[state] for c in ci0]
-        solver = ProductStateFCISolver (fcisolvers, stdout=las.stdout,
-            verbose=verbose)
+        solver = ImpureProductStateFCISolver (fcisolvers, stdout=las.stdout,
+            lweights=[l[state] for l in lweights], verbose=verbose)
         # TODO: better handling of CSF symmetry quantum numbers in general
         for ix, s in enumerate (solver.fcisolvers):
             i = sum (ncas_sub[:ix])
@@ -713,8 +732,9 @@ def run_lasci (las, mo_coeff=None, ci0=None, verbose=0, assert_no_dupes=False):
         e_states[state] = e_i + energy_core
         for c1, c2, s, no, ne in zip (ci1, ci_i, solver.fcisolvers, ncas_sub, nelecas_sub):
             ne = solver._get_nelec (s, ne)
-            ndet = tuple ([cistring.num_strings (no, n) for n in ne])
-            c1[state] = c2.reshape (*ndet)
+            ndeta, ndetb = [cistring.num_strings (no, n) for n in ne]
+            shape = [s.nroots, ndeta, ndetb] if s.nroots>1 else [ndeta, ndetb]
+            c1[state] = np.asarray (c2).reshape (*shape)
         if not conv: log.warn ('State %d LASCI not converged!', state)
         converged.append (conv)
         t = log.timer ('State {} LASCI'.format (state), *t)
@@ -1333,14 +1353,14 @@ class LASCINoSymm (casci.CASCI):
             return vj - vk/2
 
     @lib.with_doc(run_lasci.__doc__)
-    def lasci (self, mo_coeff=None, ci0=None, verbose=None,
-            assert_no_dupes=False):
+    def lasci (self, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose=None,
+               assert_no_dupes=False):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci0 is None: ci0 = self.ci
         if verbose is None: verbose = self.verbose
         converged, e_tot, e_states, e_cas, ci = run_lasci (
-            self, mo_coeff=mo_coeff, ci0=ci0, verbose=verbose,
-            assert_no_dupes=assert_no_dupes)
+            self, mo_coeff=mo_coeff, ci0=ci0, lroots=lroots, lweights=lweights,
+            verbose=verbose, assert_no_dupes=assert_no_dupes)
         self.converged, self.ci = converged, ci
         self.e_tot, self.e_states, self.e_cas = e_tot, e_states, e_cas
         if mo_coeff is self.mo_coeff:

@@ -1,6 +1,8 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
+from pyscf.fci import cistring
+from pyscf.mcscf.addons import state_average as state_average_mcscf
 from mrh.my_pyscf.fci.csf import CSFFCISolver
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.mcscf.addons import StateAverageNMixFCISolver
@@ -21,7 +23,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         log = self.log
         converged = False
         e_sigma = conv_tol_self + 1
-        ci1 = ci0 # TODO: get_init_guess
+        ci1 = self._check_init_guess (ci0, norb_f, nelec_f) # TODO: get_init_guess
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
             h1eff, h0eff = self.project_hfrag (h1, h2, ci1, norb_f, nelec_f,
@@ -44,6 +46,21 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             ecore=ecore, **kwargs)
         return converged, energy_elec, ci1
 
+    def _check_init_guess (self, ci0, norb_f, nelec_f):
+        ci1 = []
+        for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
+            neleca, nelecb = self._get_nelec (solver, ne)
+            na = cistring.num_strings (no, neleca)
+            nb = cistring.num_strings (no, nelecb)
+            zguess = np.zeros ((solver.nroots,na,nb))
+            cguess = np.asarray (ci0[ix]).reshape (-1,na,nb)
+            zguess[:cguess.shape[0],:,:] = cguess[:,:,:]
+            ci1.append (zguess)
+            if solver.nroots>na*nb:
+                raise RuntimeError ("{} roots > {} determinants in fragment {}".format (
+                    solver.nroots, na*nb, ix))
+        return ci1
+                
     def _debug_csfs (self, log, ci1, norb_f, nelec_f, grad):
         if not all ([isinstance (s, CSFFCISolver) for s in self.fcisolvers]):
             return
@@ -69,7 +86,6 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             lbls, coeffs = t.printable_largest_csf (grad, 10, normalize=False)
             for l, c in zip (lbls[0], coeffs[0]):
                 log.info ('%s : %e', l, c)
-
 
     def _1shot (self, h0eff, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
             **kwargs):
@@ -97,14 +113,28 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         grad = []
         for h1e, c, no, ne, solver, i, j in zip (*zipper):
             nelec = self._get_nelec (solver, ne)
+            nroots = solver.nroots
             h2e = h2[i:j,i:j,i:j,i:j]
             h2e = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
-            hc = solver.contract_2e (h2e, c, no, nelec)
-            chc = c.ravel ().dot (hc.ravel ())
-            hc -= c * chc
+            if nroots==1: c=c[None,:]
+            hc = [solver.contract_2e (h2e, col, no, nelec) for col in c]
+            c, hc = np.asarray (c), np.asarray (hc)
+            chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
+                          np.asarray (hc).reshape (nroots,-1).T)
+            hc = hc - np.tensordot (chc, c, axes=1)
             if isinstance (solver, CSFFCISolver):
                 hc = solver.transformer.vec_det2csf (hc, normalize=False)
+            # External degrees of freedom: not weighted, because I want
+            # to converge all of the roots even if they don't contribute
+            # to the mean field
             grad.append (hc.ravel ())
+            # Internal degrees of freedom: weighted and lower-triangular
+            # TODO: confirm the sign choice below before using this gradient
+            # for something more advanced than convergence checking
+            if nroots>1 and getattr (solver, 'weights', None) is not None:
+                chc *= np.asarray (solver.weights)[:,None]
+                chc -= chc.T
+                grad.append (chc[np.tril_indices(nroots)])
         return np.concatenate (grad)
 
     def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
@@ -158,7 +188,11 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         ni = nj - norb_f
         for i, j, c, no, ne, s in zip (ni, nj, ci, norb_f, nelec_f, self.fcisolvers):
             nelec = self._get_nelec (s, ne)
-            a, b = s.make_rdm1s (c, no, nelec)
+            try:
+                a, b = s.make_rdm1s (c, no, nelec)
+            except AssertionError as e:
+                print (type (c), np.asarray (c).shape)
+                raise (e)
             dm1a[i:j,i:j] = a[:,:]
             dm1b[i:j,i:j] = b[:,:]
         return dm1a, dm1b
@@ -188,4 +222,20 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             dm2[i:j,k:l,k:l,i:j] = -d2.transpose (0,2,3,1)
             dm2[k:l,i:j,i:j,k:l] = -d2.transpose (2,0,1,3)
         return dm2
+
+def state_average_fcisolver (solver, weights=(.5,.5), wfnsym=None):
+    # hoo boy this is real dumb
+    dummy = type ("dummy",(object,),{"_keys":set()}) ()
+    dummy.fcisolver = solver
+    return state_average_mcscf (dummy, weights=weights, wfnsym=wfnsym).fcisolver
+
+class ImpureProductStateFCISolver (ProductStateFCISolver):
+    def __init__(self, fcisolvers, stdout=None, verbose=0, lweights=None, **kwargs):
+        ProductStateFCISolver.__init__(self, fcisolvers, stdout=stdout, verbose=verbose, **kwargs)
+        if lweights is None: lweights = [[.5,.5],]*len(fcisolvers)
+        for ix, (fcisolver, weights) in enumerate (zip (self.fcisolvers, lweights)):
+            if len (weights) > 1:
+                self.fcisolvers[ix] = state_average_fcisolver (fcisolver, weights=weights)
+
+
 
