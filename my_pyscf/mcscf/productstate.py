@@ -97,6 +97,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         zipper = [h0eff, h1eff, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
         e1 = []
         ci1 = []
+        first=True
         for h0e, h1e, c, no, ne, solver, i, j in zip (*zipper):
             h2e = h2[i:j,i:j,i:j,i:j]
             osym = getattr (solver, 'orbsym', None)
@@ -106,6 +107,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                 orbsym=osym, **kwargs)
             e1.append (e)
             ci1.append (c1)
+            assert (np.asarray (c1).shape[0]==solver.nroots)
         return e1, ci1
 
     def _get_grad (self, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
