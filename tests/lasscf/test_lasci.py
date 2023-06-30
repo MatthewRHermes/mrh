@@ -25,7 +25,7 @@ from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
 def setUpModule():
-    global mol, mol_symm, mf, mf_symm, las, las_symm, las_ref, states, states_symm, weights, mo, mo_symm, _check_
+    global mol, mol_symm, las, las_symm, las_ref, states, states_symm, weights, mo, mo_symm, lroots, _check_
     xyz = '''6        2.215130000      3.670330000      0.000000000
     1        3.206320000      3.233120000      0.000000000
     1        2.161870000      4.749620000      0.000000000
@@ -67,6 +67,12 @@ def setUpModule():
     weights = [1.0,] + [0.0,]*6
     las_ref = [None, None]
 
+    # Local excitation list (avoid exciting zero electrons)
+    lroots = np.array ([[3,2,1,2,2,1,2],
+                        [3,2,2,2,2,2,2],
+                        [3,2,2,2,2,2,2],
+                        [3,2,2,2,2,2,2]])
+
 def _check_():
     if not las.converged: las.kernel (mo)
     if not las_symm.converged: las_symm.kernel (mo_symm)
@@ -79,40 +85,59 @@ def _check_():
         las_ref[1].frozen = range (mo_symm.shape[1])
         las_ref[1].kernel ()
         
+def _lrootsout (las):
+    lout = np.zeros_like (lroots)
+    for i in range (4):
+        for j in range (7):
+            nroots = las.ci[i][j].shape[0] if las.ci[i][j].ndim>2 else 1
+            lout[i,j] = nroots
+    return lout
 
 def tearDownModule():
-    global mol, mol_symm, mf, mf_symm, las, las_symm, las_ref, states, states_symm, weights, mo, mo_symm, _check_
+    global mol, mol_symm, las, las_symm, las_ref, states, states_symm, weights, mo, mo_symm, lroots, _check_, _lrootsout
     mol.stdout.close (), mol_symm.stdout.close ()
-    del mol, mol_symm, mf, mf_symm, las, las_symm, las_ref, states, states_symm, weights, mo, mo_symm, _check_
+    del mol, mol_symm, las, las_symm, las_ref, states, states_symm, weights, mo, mo_symm, lroots, _check_, _lrootsout
 
 class KnownValues(unittest.TestCase):
     def test_sanity (self):
         _check_()
         las_test = las_ref[0].state_average (weights=weights, **states)
-        las_test.lasci ()
+        las_test.lasci (lroots=lroots)
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[0].e_states), 5)
         self.assertTrue (las_test.converged)
+        self.assertTrue (np.all (_lrootsout(las_test)==lroots))
+        e_lexc = np.concatenate ([item for sublist in las_test.e_lexc for item in sublist])
+        self.assertTrue (np.all (e_lexc>-1e-8))
 
     def test_convergence (self):
         _check_()
         las_test = las.state_average (weights=weights, **states)
-        las_test.lasci ()
+        las_test.lasci (lroots=lroots)
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[0].e_states), 5)
         self.assertTrue (las_test.converged)
+        self.assertTrue (np.all (_lrootsout(las_test)==lroots))
+        e_lexc = np.concatenate ([item for sublist in las_test.e_lexc for item in sublist])
+        self.assertTrue (np.all (e_lexc>-1e-8))
 
     def test_sanity_symm (self):
         _check_()
         las_test = las_ref[1].state_average (weights=weights, **states_symm)
-        las_test.lasci ()
+        las_test.lasci (lroots=lroots)
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[1].e_states), 5)
         self.assertTrue (las_test.converged)
+        self.assertTrue (np.all (_lrootsout(las_test)==lroots))
+        e_lexc = np.concatenate ([item for sublist in las_test.e_lexc for item in sublist])
+        self.assertTrue (np.all (e_lexc>-1e-8))
 
     def test_convergence_symm (self):
         _check_()
         las_test = las_symm.state_average (weights=weights, **states_symm)
-        las_test.lasci ()
+        las_test.lasci (lroots=lroots)
         self.assertAlmostEqual (lib.fp (las_test.e_states), lib.fp (las_ref[1].e_states), 5)
         self.assertTrue (las_test.converged)
+        self.assertTrue (np.all (_lrootsout(las_test)==lroots))
+        e_lexc = np.concatenate ([item for sublist in las_test.e_lexc for item in sublist])
+        self.assertTrue (np.all (e_lexc>-1e-8))
 
 
 if __name__ == "__main__":

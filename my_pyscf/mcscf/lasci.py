@@ -712,6 +712,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
     ci1 = [[None for c2 in c1] for c1 in ci0]
     converged = []
     t = (lib.logger.process_clock(), lib.logger.perf_counter())
+    e_lexc = [[None,]*las.nroots,]*las.nfrags
     for state in range (las.nroots):
         fcisolvers = [b.fcisolvers[state] for b in las.fciboxes]
         ci0_i = [c[state] for c in ci0]
@@ -730,6 +731,9 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
             conv_tol_self=las.conv_tol_self, max_cycle_macro=las.max_cycle_macro)
         e_cas[state] = e_i
         e_states[state] = e_i + energy_core
+        for frag, s in enumerate (solver.fcisolvers):
+            e_loc = np.asarray (getattr (s, 'e_states', e_i))
+            e_lexc[frag][state] = e_loc - e_i
         for c1, c2, s, no, ne in zip (ci1, ci_i, solver.fcisolvers, ncas_sub, nelecas_sub):
             ne = solver._get_nelec (s, ne)
             ndeta, ndetb = [cistring.num_strings (no, n) for n in ne]
@@ -740,7 +744,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
         t = log.timer ('State {} LASCI'.format (state), *t)
 
     e_tot = np.dot (las.weights, e_states)
-    return converged, e_tot, e_states, e_cas, ci1
+    return converged, e_tot, e_states, e_cas, e_lexc, ci1
 
 class LASCINoSymm (casci.CASCI):
 
@@ -775,7 +779,7 @@ class LASCINoSymm (casci.CASCI):
         self.max_cycle_micro = 5
         keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub',
                     'conv_tol_grad', 'conv_tol_self', 'max_cycle_macro', 'max_cycle_micro',
-                    'ah_level_shift', 'states_converged', 'chkfile'))
+                    'ah_level_shift', 'states_converged', 'chkfile', 'e_lexc'))
         self._keys = set(self.__dict__.keys()).union(keys)
         self.fciboxes = []
         if isinstance(spin_sub,int):
@@ -786,6 +790,7 @@ class LASCINoSymm (casci.CASCI):
                 self.fciboxes.append (self._init_fcibox (smult, nel)) 
         self.weights = [1.0]
         self.e_states = [0.0]
+        self.e_lexc = [[np.array ([0]),],]
 
     def _init_fcibox (self, smult, nel): 
         s = csf_solver (self.mol, smult=smult)
@@ -1358,17 +1363,17 @@ class LASCINoSymm (casci.CASCI):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci0 is None: ci0 = self.ci
         if verbose is None: verbose = self.verbose
-        converged, e_tot, e_states, e_cas, ci = run_lasci (
+        converged, e_tot, e_states, e_cas, e_lexc, ci = run_lasci (
             self, mo_coeff=mo_coeff, ci0=ci0, lroots=lroots, lweights=lweights,
             verbose=verbose, assert_no_dupes=assert_no_dupes)
         self.converged, self.ci = converged, ci
-        self.e_tot, self.e_states, self.e_cas = e_tot, e_states, e_cas
+        self.e_tot, self.e_states, self.e_cas, self.e_lexc = e_tot, e_states, e_cas, e_lexc
         if mo_coeff is self.mo_coeff:
             self.dump_chk ()
         elif getattr (self, 'chkfile', None) is not None:
             lib.logger.warn (self, 'orbitals changed; chkfile not dumped!')
         self._finalize ()
-        return self.converged, self.e_tot, self.e_states, self.e_cas, self.ci
+        return self.converged, self.e_tot, self.e_states, self.e_cas, e_lexc, self.ci
 
     @lib.with_doc(run_lasci.__doc__)
     def lasci_(self, mo_coeff=None, ci0=None, verbose=None,
