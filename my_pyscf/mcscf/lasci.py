@@ -726,9 +726,12 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
             s.norb = ncas_sub[ix]
             s.nelec = solver._get_nelec (s, nelecas_sub[ix])
             s.check_transformer_cache ()
-        conv, e_i, ci_i = solver.kernel (h1eff, eri_cas, ncas_sub, nelecas_sub,
-            ecore=0, ci0=ci0_i, orbsym=orbsym, conv_tol_grad=las.conv_tol_grad,
-            conv_tol_self=las.conv_tol_self, max_cycle_macro=las.max_cycle_macro)
+        try:
+            conv, e_i, ci_i = solver.kernel (h1eff, eri_cas, ncas_sub, nelecas_sub,
+                ecore=0, ci0=ci0_i, orbsym=orbsym, conv_tol_grad=las.conv_tol_grad,
+                conv_tol_self=las.conv_tol_self, max_cycle_macro=las.max_cycle_macro)
+        except ValueError as e:
+            raise ValueError (str (e) + " state {}".format (state))
         e_cas[state] = e_i
         e_states[state] = e_i + energy_core
         for frag, s in enumerate (solver.fcisolvers):

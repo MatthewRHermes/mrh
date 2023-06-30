@@ -111,7 +111,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         ni = nj - norb_f
         zipper = [h1eff, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
         grad = []
-        for h1e, c, no, ne, solver, i, j in zip (*zipper):
+        for ix, (h1e, c, no, ne, solver, i, j) in enumerate (zip (*zipper)):
             nelec = self._get_nelec (solver, ne)
             nroots = solver.nroots
             h2e = h2[i:j,i:j,i:j,i:j]
@@ -119,8 +119,11 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             if nroots==1: c=c[None,:]
             hc = [solver.contract_2e (h2e, col, no, nelec) for col in c]
             c, hc = np.asarray (c), np.asarray (hc)
-            chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
-                          np.asarray (hc).reshape (nroots,-1).T)
+            try:
+                chc = np.dot (np.asarray (c).reshape (nroots,-1).conj (),
+                              np.asarray (hc).reshape (nroots,-1).T)
+            except ValueError as e:
+                raise ValueError (str (e) + ' fragment {} '.format (ix))
             hc = hc - np.tensordot (chc, c, axes=1)
             if isinstance (solver, CSFFCISolver):
                 hc = solver.transformer.vec_det2csf (hc, normalize=False)
