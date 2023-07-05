@@ -28,8 +28,8 @@ jobs:
           cmake \
           curl
         python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
-        python -m pip install -r pyscf_version.txt
+        python -m pip install flake8 pytest pyscf
+        # python -m pip install -r pyscf_version.txt
         # TODO: figure out how to actually patch a more recent github commit over a pip wheel.
         # 'pip install -r pyscf_version.txt' does nothing by itself because the version number
         # is generally the same as the pip wheel, but even if it were higher, it would just
