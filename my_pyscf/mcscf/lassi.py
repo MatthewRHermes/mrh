@@ -201,53 +201,64 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     # Symmetry tuple: neleca, nelecb, irrep
     statesym, s2_states = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)
 
-    # Loop over symmetry blocks
-    e_roots = np.zeros (las.nroots, dtype=np.float64)
-
+    lroots = np.array ([[1 if ci.ndim<3 else ci.shape[0]
+                         for ci in ci_r]
+                        for ci_r in ci])
+    nprods_r = np.product (lroots, axis=0)
+    prod_off = np.cumsum (nprods_r) - nprods_r
+    nprods = nprods_r.sum ()
+    e_roots = np.zeros (nprods, dtype=np.float64)
     if soc == False:
-        s2_roots = np.zeros (las.nroots, dtype=np.float64)
-        si = np.zeros ((las.nroots, las.nroots), dtype=np.float64)
-        s2_mat = np.zeros ((las.nroots, las.nroots), dtype=np.float64)
+        s2_roots = np.zeros (nprods, dtype=np.float64)
+        si = np.zeros ((nprods, nprods), dtype=np.float64)
+        s2_mat = np.zeros ((nprods, nprods), dtype=np.float64)
     else:
-        s2_roots = np.zeros (las.nroots, dtype=complex)
-        si = np.zeros ((las.nroots, las.nroots), dtype=complex)
-        s2_mat = np.zeros ((las.nroots, las.nroots), dtype=complex)        
-    
+        s2_roots = np.zeros (nprods, dtype=complex)
+        si = np.zeros ((nprods, nprods), dtype=complex)
+        s2_mat = np.zeros ((nprods, nprods), dtype=complex)        
+    prodsym = []
+    for sym, npr in zip (statesym, nprods_r):
+        prodsym.extend ([sym,]*npr)
+ 
+    # Loop over symmetry blocks
     qn_lbls = ['nelec',] if soc else ['neleca','nelecb',]
     if not break_symmetry: qn_lbls.append ('irrep')
     for rootsym in set (statesym):
-        idx = np.all (np.array (statesym) == rootsym, axis=1)
+        idx_space = np.all (np.array (statesym) == rootsym, axis=1)
+        idx_prod = np.zeros (nprods, dtype=bool)
+        for i,di in zip (prod_off[idx_space], nprods_r[idx_space]):
+            idx_prod[i:i+di] = True
         lib.logger.debug (las,
             'Diagonalizing LAS state symmetry block {} = {}'.format (qn_lbls, rootsym))
-        if np.count_nonzero (idx) == 1:
+        if np.count_nonzero (idx_prod) == 1:
             lib.logger.debug (las, 'Only one state in this symmetry block')
-            e_roots[idx] = las.e_states[idx] - e0
-            si[np.ix_(idx,idx)] = 1.0
-            s2_roots[idx] = s2_states[idx]
+            e_roots[idx_prod] = las.e_states[idx_space] - e0
+            si[np.ix_(idx_prod,idx_prod)] = 1.0
+            s2_roots[idx_prod] = s2_states[idx_prod]
             continue
         wfnsym = None if break_symmetry else rootsym[-1]
-        ci_blk = [[c for c, ix in zip (cr, idx) if ix] for cr in ci]
-        e, c, s2_blk = _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc,
+        ci_blk = [[c for c, ix in zip (cr, idx_space) if ix] for cr in ci]
+        e, c, s2_blk = _eig_block (las, e0, h1, h2, ci_blk, idx_space, rootsym, soc,
                                    orbsym, wfnsym, o0_memcheck, opt)
-        s2_mat[np.ix_(idx,idx)] = s2_blk
+        s2_mat[np.ix_(idx_prod,idx_prod)] = s2_blk
         s2_blk = c.conj ().T @ s2_blk @ c
         lib.logger.debug2 (las, 'Block S**2 in adiabat basis:')
         lib.logger.debug2 (las, '{}'.format (s2_blk))
-        e_roots[idx] = e
-        s2_roots[idx] = np.diag (s2_blk)
-        si[np.ix_(idx,idx)] = c
+        e_roots[idx_prod] = e
+        s2_roots[idx_prod] = np.diag (s2_blk)
+        si[np.ix_(idx_prod,idx_prod)] = c
     idx = np.argsort (e_roots)
-    rootsym = np.array (statesym)[idx]
+    rootsym = np.array (prodsym)[idx]
     e_roots = e_roots[idx] + e0
     s2_roots = s2_roots[idx]
     if soc == False:
-        nelec_roots = [statesym[ix][0:2] for ix in idx]
+        nelec_roots = [prodsym[ix][0:2] for ix in idx]
     else:
-        nelec_roots = [statesym[ix][0] for ix in idx]
+        nelec_roots = [prodsym[ix][0] for ix in idx]
     if break_symmetry:
         wfnsym_roots = [None for ix in idx]
     else:
-        wfnsym_roots = [statesym[ix][-1] for ix in idx]
+        wfnsym_roots = [prodsym[ix][-1] for ix in idx]
     si = si[:,idx]
     si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots,
                     rootsym=rootsym, break_symmetry=break_symmetry, soc=soc)
@@ -275,6 +286,9 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
 def _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    lroots = np.array ([[1 if ci.ndim<3 else ci.shape[0]
+                         for ci in ci_r]
+                        for ci_r in ci_blk])
     if (las.verbose > lib.logger.INFO) and (o0_memcheck):
         ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, idx, soc=soc,
                                                orbsym=orbsym, wfnsym=wfnsym)
@@ -326,15 +340,18 @@ def _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc, orbsym, wfnsym, o0_m
     log_debug (las, 'Block overlap matrix:')
     log_debug (las, '{}'.format (ovlp_blk.round (8)))
     # Error catch: diagonal Hamiltonian elements
-    diag_test = np.diag (ham_blk)
-    diag_ref = las.e_states[idx] - e0
-    maxerr = np.max (np.abs (diag_test-diag_ref))
-    if maxerr>1e-5 and soc == False: # tmp?
-        lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference',
-                                                                 'Error'))
-        for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
-            lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
-        raise RuntimeError ('SI Hamiltonian diagonal element error = {}'.format (maxerr))
+    # This diagnostic is simply not valid for local excitations;
+    # the energies aren't supposed to be additive
+    if np.all (lroots==1) and soc==False: # tmp?
+        diag_test = np.diag (ham_blk)
+        diag_ref = las.e_states[idx] - e0
+        maxerr = np.max (np.abs (diag_test-diag_ref))
+        if maxerr>1e-5:
+            lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference',
+                                                                     'Error'))
+            for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
+                lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
+            raise RuntimeError ('SI Hamiltonian diagonal element error = {}'.format (maxerr))
     # Error catch: linear dependencies in basis
     try:
         e, c = linalg.eigh (ham_blk, b=ovlp_blk)
