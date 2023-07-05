@@ -909,12 +909,22 @@ class LASCINoSymm (casci.CASCI):
             self.check_sanity()
         self.dump_flags(log)
 
-        # MRH: the below two lines are not the ideal solution to my problem...
         for fcibox in self.fciboxes:
             fcibox.verbose = self.verbose
             fcibox.stdout = self.stdout
             fcibox.nroots = self.nroots
             fcibox.weights = self.weights
+        # TODO: local excitations and locally-impure states in LASSCF kernel
+        do_warn=False
+        if ci0 is not None:
+            for i, ci0_i in enumerate (ci0):
+                if ci0_i is None: continue
+                for j, ci0_ij in enumerate (ci0_i):
+                    if ci0_ij is None: continue
+                    if np.asarray (ci0_ij).ndim>2:
+                        do_warn=True
+                        ci0_i[j] = ci0_ij[0]
+        if do_warn: log.warn ("Discarding all but the first root of guess CI vectors!")
 
         self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, self.e_cas, \
                 self.ci, h2eff_sub, veff = _kern(mo_coeff=mo_coeff, ci0=ci0, verbose=verbose, \
