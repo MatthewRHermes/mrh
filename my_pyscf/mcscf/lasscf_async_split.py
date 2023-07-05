@@ -193,8 +193,9 @@ class LASImpurityOrbitalCallable (object):
         iGa = eo.conj ().T @ (fock1-fock1.T) @ fo[:,:self.nlas]
         if not (iGa.size and self.do_gradorbs): return fo, eo, fock1
         u, svals, vh = linalg.svd (iGa, full_matrices=True)
-        fo = np.append (fo, eo @ u[:,:self.nlas] @ vh[:self.nlas,:], axis=1)
-        eo = eo @ u[:,self.nlas:]
+        ngrad = min (self.nlas, u.shape[1])
+        fo = np.append (fo, eo @ u[:,:ngrad] @ vh[:ngrad,:], axis=1)
+        eo = eo @ u[:,ngrad:]
         mo = np.append (fo, eo, axis=1)
 
         # Get an estimated active-orbital relaxation step size
@@ -318,7 +319,7 @@ class LASImpurityOrbitalCallable (object):
         neleca_err = neleca - int (round (neleca))
         nelecb = (dm1s[1] @ fo).ravel ().dot (fo.conj ().ravel ())
         nelecb_err = nelecb - int (round (nelecb))
-        if any ([x>self.nelec_int_thresh for x in (neleca_err, nelecb_err)]):
+        if any ([abs(x)>self.nelec_int_thresh for x in (neleca_err, nelecb_err)]):
             raise RuntimeError (
                 "Non-integer number of electrons in impurity! (neleca,nelecb)={}".format (
                     (neleca,nelecb)))
