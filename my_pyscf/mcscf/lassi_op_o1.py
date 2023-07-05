@@ -1024,6 +1024,10 @@ def make_ints (las, ci, idx_root):
     nroots = idx_root.size
     nlas = las.ncas_sub
     nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
+    lroots = np.array ([[1 if ci_ij.ndim<3 else ci_ij.shape[0]
+                         for ci_ij in ci_i]
+                        for ci_i in ci])
+    if np.any(lroots>1): raise NotImplementedError ("LASSI o1 algorithm w/ local excitations")
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
     ints = []
     for ifrag in range (nfrags):
