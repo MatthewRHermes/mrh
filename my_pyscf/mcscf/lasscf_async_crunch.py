@@ -367,7 +367,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         nvirt_full = kf2.mo_coeff.shape[1] - las.ncore - las.ncas
         nvirt_self = mo_coeff.shape[1] - self.ncore - self.ncas
         nvirt_unent = nvirt_full - nvirt_self
-        assert (nvirt_unent>=0)
+        assert (nvirt_unent>=0), '{} {}'.format (nvirt_full, nvirt_self)
         mo_full_virt = kf2.mo_coeff[:,las.ncore+las.ncas:]
         ovlp = mo_full_virt.conj ().T @ s0 @ imporb_coeff
         proj = ovlp @ ovlp.conj ().T

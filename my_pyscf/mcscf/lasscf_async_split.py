@@ -109,13 +109,10 @@ class LASImpurityOrbitalCallable (object):
             fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, max_size)
             self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
             nelec_fo = self._get_nelec_fo (fo, dm1s)
-            self.log.info ("nelec in fragment = %d, %d", nelec_fo[0], nelec_fo[1])
+            self.log.info ("nelec in fragment = %d", nelec_fo)
             nelec_eo = self._get_nelec_fo (eo, dm1s)
-            if nelec_eo[0] != nelec_eo[1]:
-                raise RuntimeError (str (abs (nelec_eo[0]-nelec_eo[1]))
-                                    + " singly-occupied unentangled core orbs detected")
             self.log.info ("%d occupied and %d unoccupied inactive unentangled env orbs",
-                           nelec_eo[0], eo.shape[1] - nelec_eo[1])
+                           nelec_eo//2, eo.shape[1] - (nelec_eo//2))
             fo_coeff = self.oo_coeff @ fo
             return fo_coeff, nelec_fo
 
@@ -194,7 +191,7 @@ class LASImpurityOrbitalCallable (object):
         if not (iGa.size and self.do_gradorbs): return fo, eo, fock1
         u, svals, vh = linalg.svd (iGa, full_matrices=True)
         ngrad = min (self.nlas, u.shape[1])
-        fo = np.append (fo, eo @ u[:,:ngrad] @ vh[:ngrad,:], axis=1)
+        fo = np.append (fo, eo @ u[:,:ngrad], axis=1)
         eo = eo @ u[:,ngrad:]
         mo = np.append (fo, eo, axis=1)
 
@@ -316,16 +313,15 @@ class LASImpurityOrbitalCallable (object):
 
     def _get_nelec_fo (self, fo, dm1s):
         neleca = (dm1s[0] @ fo).ravel ().dot (fo.conj ().ravel ())
-        neleca_err = neleca - int (round (neleca))
         nelecb = (dm1s[1] @ fo).ravel ().dot (fo.conj ().ravel ())
-        nelecb_err = nelecb - int (round (nelecb))
-        if any ([abs(x)>self.nelec_int_thresh for x in (neleca_err, nelecb_err)]):
+        nelec = neleca + nelecb
+        nelec_err = nelec - int (round (nelec))
+        if abs(nelec_err)>self.nelec_int_thresh:
             raise RuntimeError (
                 "Non-integer number of electrons in impurity! (neleca,nelecb)={}".format (
                     (neleca,nelecb)))
-        neleca = int (round (neleca))
-        nelecb = int (round (nelecb))
-        return neleca, nelecb
+        nelec = int (round (nelec))
+        return nelec
 
     def _get_veff (self, dm1s):
         dm1s = lib.einsum ('ip,spq,jq->sij', self.oo_coeff, dm1s, self.oo_coeff.conj ())
