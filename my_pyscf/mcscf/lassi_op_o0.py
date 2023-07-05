@@ -86,40 +86,36 @@ def addr_outer_product (norb_f, nelec_f):
     return addrs
 
 def _ci_outer_product (ci_f, norb_f, nelec_f):
-    '''Compute ONE outer-product CI vector from fragment LAS CI vectors.
+    '''Compute outer-product CI vector for one space table from fragment LAS CI vectors.
     See "ci_outer_product"'''
-    # The two steps here are:
-    #   1. Multiply the CI vectors together using np.multiply.outer, and
-    #   2. Reshape and transpose the product so that the orbitals appear
-    #      in the correct order.
-    # There may be an ambiguous factor of -1, but it should apply to the
-    # entire product CI vector so maybe it doesn't matter?
     neleca_f = [ne[0] for ne in nelec_f]
     nelecb_f = [ne[1] for ne in nelec_f]
-    ndet_f = [(cistring.num_strings (norb, neleca), cistring.num_strings (norb, nelecb))
-              for norb, neleca, nelecb in zip (norb_f, neleca_f, nelecb_f)]
-    ci_dp = ci_f[-1].copy ().reshape (ndet_f[-1])
-    for ci_r, ndet in zip (ci_f[-2::-1], ndet_f[-2::-1]):
-        ndeta, ndetb = ci_dp.shape
-        ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (ndet))
-        ci_dp = ci_dp.transpose (0,2,1,3).reshape (ndeta*ndet[0], ndetb*ndet[1])
+    lroots_f = [1 if ci.ndim<3 else ci.shape[0] for ci in ci_f]
+    shape_f = [(lroots, cistring.num_strings (norb, neleca), cistring.num_strings (norb, nelecb))
+              for lroots, norb, neleca, nelecb in zip (lroots_f, norb_f, neleca_f, nelecb_f)]
+    ci_dp = ci_f[-1].copy ().reshape (shape_f[-1])
+    for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
+        lroots, ndeta, ndetb = ci_dp.shape
+        ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
+        ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
+            lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
+        )
     addrs_a = addr_outer_product (norb_f, neleca_f)
     addrs_b = addr_outer_product (norb_f, nelecb_f)
+    nroots = ci_dp.shape[0]
     ndet_a = cistring.num_strings (sum (norb_f), sum (neleca_f))
     ndet_b = cistring.num_strings (sum (norb_f), sum (nelecb_f))
-    ci = np.zeros ((ndet_a,ndet_b), dtype=ci_dp.dtype)
-    ci[np.ix_(addrs_a,addrs_b)] = ci_dp[:,:] / linalg.norm (ci_dp)
-    if not np.isclose (linalg.norm (ci), 1.0):
+    ci = np.zeros ((nroots,ndet_a,ndet_b), dtype=ci_dp.dtype)
+    idx = np.ix_(np.arange (nroots,dtype=int),addrs_a,addrs_b)
+    ci[idx] = ci_dp[:,:,:] / linalg.norm (ci_dp, axis=(1,2))[:,None,None]
+    if not np.allclose (linalg.norm (ci, axis=(1,2)), 1.0):
         errstr = 'CI norm = {}\naddrs_a = {}\naddrs_b = {}'.format (
-            linalg.norm (ci), addrs_a, addrs_b)
+            linalg.norm (ci, axis=(1,2)), addrs_a, addrs_b)
         raise RuntimeError (errstr)
-    return ci
+    return list (ci)
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):
     '''Compute outer-product CI vectors from fragment LAS CI vectors.
-    TODO: extend to accomodate states o different ms being addressed
-    together. I think the only thing this entails is turning "nelec"
-    into a list of length (nroots)
 
     Args:
         ci_fr : nested list of shape (nfrags, nroots)
@@ -140,12 +136,13 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
 
     ci_r = []
     nelec_r = []
-    for state in range (len (ci_fr[0])):
-        ci_f = [ci[state] for ci in ci_fr]
-        nelec_f = [nelec[state] for nelec in nelec_fr]
-        ci_r.append (_ci_outer_product (ci_f, norb_f, nelec_f))
-        nelec_r.append ((sum ([ne[0] for ne in nelec_f]),
-                       sum ([ne[1] for ne in nelec_f])))
+    for space in range (len (ci_fr[0])):
+        ci_f = [ci[space] for ci in ci_fr]
+        nelec_f = [nelec[space] for nelec in nelec_fr]
+        nelec = (sum ([ne[0] for ne in nelec_f]), sum ([ne[1] for ne in nelec_f]))
+        ci = _ci_outer_product (ci_f, norb_f, nelec_f)
+        ci_r.extend (ci)
+        nelec_r.extend ([nelec,]*len(ci))
     return ci_r, nelec_r
 
 #def si_soc (las, h1, ci, nelec, norb):
@@ -192,8 +189,6 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
 
 def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
-    TODO: extend to accomodate states of different ms being addressed
-    together, and then spin-orbit coupling.
 
     Args:
         las : instance of class LASSCF
