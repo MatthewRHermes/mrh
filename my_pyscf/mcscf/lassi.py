@@ -193,8 +193,9 @@ class _LASSI_subspace_env (object):
             f.fcisolvers = self.fcisolvers[ix]
         self.las.e_states = self.e_states
 
-def iterate_subspace_blocks (las, spacesym):
-    for sym in set (spacesym):
+def iterate_subspace_blocks (las, spacesym, subset=None):
+    if subset is None: subset = set (spacesym)
+    for sym in subset:
         idx = np.all (np.array (spacesym) == sym, axis=1)
         with _LASSI_subspace_env (las, idx):
             yield sym, idx, las
@@ -226,67 +227,71 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     # Construct second-quantization Hamiltonian
     e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
 
-    # Symmetry tuple: neleca, nelecb, irrep
-    statesym, s2_states = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)
-
+    # Work out number of (and offsets to) different (sets of) product states
     lroots = np.array ([[1 if ci.ndim<3 else ci.shape[0]
                          for ci in ci_r]
                         for ci_r in ci])
     nprods_r = np.product (lroots, axis=0)
     prod_off = np.cumsum (nprods_r) - nprods_r
     nprods = nprods_r.sum ()
-    e_roots = np.zeros (nprods, dtype=np.float64)
-    if soc == False:
-        s2_roots = np.zeros (nprods, dtype=np.float64)
-        si = np.zeros ((nprods, nprods), dtype=np.float64)
-        s2_mat = np.zeros ((nprods, nprods), dtype=np.float64)
-    else:
-        s2_roots = np.zeros (nprods, dtype=complex)
-        si = np.zeros ((nprods, nprods), dtype=complex)
-        s2_mat = np.zeros ((nprods, nprods), dtype=complex)        
-    prodsym = []
-    for sym, npr in zip (statesym, nprods_r):
-        prodsym.extend ([sym,]*npr)
+
+    # Symmetry tuple: neleca, nelecb, irrep
+    statesym, s2_states = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)
+
+    # Initialize matrices
+    e_roots = []
+    s2_roots = []
+    rootsym = []
+    si = []
+    s2_mat = []
+    idx_allprods = []
+    dtype = complex if soc else np.float64
  
     # Loop over symmetry blocks
     qn_lbls = ['nelec',] if soc else ['neleca','nelecb',]
     if not break_symmetry: qn_lbls.append ('irrep')
-    for rootsym, idx_space, las1 in iterate_subspace_blocks (las, statesym):
+    for sym, idx_space, las1 in iterate_subspace_blocks (las, statesym):
         idx_prod = np.zeros (nprods, dtype=bool)
         for i,di in zip (prod_off[idx_space], nprods_r[idx_space]):
             idx_prod[i:i+di] = True
+        idx_allprods.extend (list(np.where(idx_prod)[0]))
         lib.logger.debug (las,
-            'Diagonalizing LAS state symmetry block {} = {}'.format (qn_lbls, rootsym))
+            'Diagonalizing LAS state symmetry block {} = {}'.format (qn_lbls, sym))
         if np.count_nonzero (idx_prod) == 1:
             lib.logger.debug (las, 'Only one state in this symmetry block')
-            e_roots[idx_prod] = las1.e_states - e0
-            si[np.ix_(idx_prod,idx_prod)] = 1.0
-            s2_roots[idx_prod] = s2_states[idx_prod]
+            e_roots.extend (las1.e_states - e0)
+            si.append (np.ones ((1,1), dtype=dtype))
+            s2_mat.append (s2_states[idx_prod]*np.ones((1,1)))
+            s2_roots.extend (s2_states[idx_prod])
+            rootsym.extend ([sym,])
             continue
-        wfnsym = None if break_symmetry else rootsym[-1]
+        wfnsym = None if break_symmetry else sym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx_space) if ix] for cr in ci]
         idx_dummy = np.ones (np.count_nonzero (idx_space), dtype=bool)
-        e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, idx_dummy, rootsym, soc,
+        e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, idx_dummy, sym, soc,
                                    orbsym, wfnsym, o0_memcheck, opt)
-        s2_mat[np.ix_(idx_prod,idx_prod)] = s2_blk
+        s2_mat.append (s2_blk)
+        si.append (c)
         s2_blk = c.conj ().T @ s2_blk @ c
         lib.logger.debug2 (las, 'Block S**2 in adiabat basis:')
         lib.logger.debug2 (las, '{}'.format (s2_blk))
-        e_roots[idx_prod] = e
-        s2_roots[idx_prod] = np.diag (s2_blk)
-        si[np.ix_(idx_prod,idx_prod)] = c
+        e_roots.extend (list(e))
+        s2_roots.extend (list (np.diag (s2_blk)))
+        rootsym.extend ([sym,]*c.shape[1])
+    si = linalg.block_diag (*si)[idx_allprods,:]
+    s2_mat = linalg.block_diag (*s2_mat)[np.ix_(idx_allprods,idx_allprods)]
     idx = np.argsort (e_roots)
-    rootsym = np.array (prodsym)[idx]
-    e_roots = e_roots[idx] + e0
-    s2_roots = s2_roots[idx]
+    rootsym = np.asarray (rootsym)[idx]
+    e_roots = np.asarray (e_roots)[idx] + e0
+    s2_roots = np.asarray (s2_roots)[idx]
     if soc == False:
-        nelec_roots = [prodsym[ix][0:2] for ix in idx]
+        nelec_roots = [tuple(rs[0:2]) for rs in rootsym]
     else:
-        nelec_roots = [prodsym[ix][0] for ix in idx]
+        nelec_roots = [rs[0] for rs in rootsym]
     if break_symmetry:
-        wfnsym_roots = [None for ix in idx]
+        wfnsym_roots = [None for rs in rootsym]
     else:
-        wfnsym_roots = [prodsym[ix][-1] for ix in idx]
+        wfnsym_roots = [rs[-1] for rs in rootsym]
     si = si[:,idx]
     si = tag_array (si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots,
                     rootsym=rootsym, break_symmetry=break_symmetry, soc=soc)
@@ -314,9 +319,6 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
 def _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    lroots = np.array ([[1 if ci.ndim<3 else ci.shape[0]
-                         for ci in ci_r]
-                        for ci_r in ci_blk])
     if (las.verbose > lib.logger.INFO) and (o0_memcheck):
         ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, idx, soc=soc,
                                                orbsym=orbsym, wfnsym=wfnsym)
@@ -370,6 +372,9 @@ def _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc, orbsym, wfnsym, o0_m
     # Error catch: diagonal Hamiltonian elements
     # This diagnostic is simply not valid for local excitations;
     # the energies aren't supposed to be additive
+    lroots = np.array ([[1 if ci.ndim<3 else ci.shape[0]
+                         for ci in ci_r]
+                        for ci_r in ci_blk])
     if np.all (lroots==1) and soc==False: # tmp?
         diag_test = np.diag (ham_blk)
         diag_ref = las.e_states[idx] - e0
@@ -446,7 +451,6 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
-    norb = las.ncas
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
     lroots = np.array ([[1 if ci.ndim<3 else ci.shape[0]
                          for ci in ci_r]
@@ -454,6 +458,9 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
     nprods_r = np.product (lroots, axis=0)
     prod_off = np.cumsum (nprods_r) - nprods_r
     nprods = nprods_r.sum ()
+
+    # Initialize matrices
+    norb = las.ncas
     if soc:
         stdm1s = np.zeros ((nprods, nprods, 2*norb, 2*norb),
             dtype=ci[0][0].dtype).transpose (0,2,3,1)
@@ -562,8 +569,8 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
         dtype=si.dtype)
 
-    for sym, idx_ci, las1 in iterate_subspace_blocks (las, statesym):
-        idx_si = np.all (np.array (rootsym)  == sym, axis=1)
+    for sym, idx_ci, las1 in iterate_subspace_blocks (las, statesym, subset=set(rootsym)):
+        idx_si = np.all (np.array (rootsym) == sym, axis=1)
         idx_dummy = np.ones (np.count_nonzero (idx_ci), dtype=bool)
         wfnsym = None if break_symmetry else sym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
