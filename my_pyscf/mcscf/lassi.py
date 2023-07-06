@@ -193,12 +193,28 @@ class _LASSI_subspace_env (object):
             f.fcisolvers = self.fcisolvers[ix]
         self.las.e_states = self.e_states
 
-def iterate_subspace_blocks (las, spacesym, subset=None):
+def iterate_subspace_blocks (las, ci, spacesym, subset=None):
     if subset is None: subset = set (spacesym)
+    lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
+                         for c in ci_r]
+                        for ci_r in ci])
+    nprods_r = np.product (lroots, axis=0)
+    prod_off = np.cumsum (nprods_r) - nprods_r
+    nprods = nprods_r.sum ()
     for sym in subset:
-        idx = np.all (np.array (spacesym) == sym, axis=1)
-        with _LASSI_subspace_env (las, idx):
-            yield sym, idx, las
+        idx_space = np.all (np.array (spacesym) == sym, axis=1)
+        idx = np.where (idx_space)[0]
+        ci_blk = [[c[i] for i in idx] for c in ci]
+        idx_prod = np.zeros (nprods, dtype=bool)
+        for i in idx:
+            idx_prod[prod_off[i]:prod_off[i]+nprods_r[i]] = True
+        with _LASSI_subspace_env (las, idx_space):
+            nelec_blk = np.array (
+                [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
+                  for solver in fcibox.fcisolvers]
+                 for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+            )
+            yield las, sym, idx_space, ci_blk, nelec_blk, idx_prod
 
 class LASSIOop01DisagreementError (RuntimeError):
     def __init__(self, message, errvec):
@@ -227,14 +243,6 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     # Construct second-quantization Hamiltonian
     e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
 
-    # Work out number of (and offsets to) different (sets of) product states
-    lroots = np.array ([[1 if ci.ndim<3 else ci.shape[0]
-                         for ci in ci_r]
-                        for ci_r in ci])
-    nprods_r = np.product (lroots, axis=0)
-    prod_off = np.cumsum (nprods_r) - nprods_r
-    nprods = nprods_r.sum ()
-
     # Symmetry tuple: neleca, nelecb, irrep
     statesym, s2_states = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)
 
@@ -250,10 +258,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     # Loop over symmetry blocks
     qn_lbls = ['nelec',] if soc else ['neleca','nelecb',]
     if not break_symmetry: qn_lbls.append ('irrep')
-    for sym, idx_space, las1 in iterate_subspace_blocks (las, statesym):
-        idx_prod = np.zeros (nprods, dtype=bool)
-        for i,di in zip (prod_off[idx_space], nprods_r[idx_space]):
-            idx_prod[i:i+di] = True
+    for las1, sym, idx_space, ci_blk, nelec_blk, idx_prod in iterate_subspace_blocks (las, ci, statesym):
         idx_allprods.extend (list(np.where(idx_prod)[0]))
         lib.logger.debug (las,
             'Diagonalizing LAS state symmetry block {} = {}'.format (qn_lbls, sym))
@@ -266,7 +271,6 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
-        ci_blk = [[c for c, ix in zip (cr, idx_space) if ix] for cr in ci]
         idx_dummy = np.ones (np.count_nonzero (idx_space), dtype=bool)
         e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, idx_dummy, sym, soc,
                                    orbsym, wfnsym, o0_memcheck, opt)
@@ -471,25 +475,24 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
     stdm2s = np.zeros ((nprods, nprods, 2, norb, norb, 2, norb, norb),
         dtype=ci[0][0].dtype).transpose (0,2,3,4,5,6,7,1)
 
-    for rootsym, idx_space, las1 in iterate_subspace_blocks (las, statesym):
-        idx_dummy = np.ones (np.count_nonzero (idx_space),dtype=bool)
-        wfnsym = None if break_symmetry else rootsym[-1]
-        ci_blk = [[c for c, ix in zip (cr, idx_space) if ix] for cr in ci]
+    for las1,sym,idx_sp,ci_blk,nelec_blk,idx_prod in iterate_subspace_blocks (las,ci,statesym):
+        idx_dummy = np.ones (np.count_nonzero (idx_sp),dtype=bool)
+        wfnsym = None if break_symmetry else sym[-1]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         # TODO: implement SOC in op_o1 and then re-enable the debugging block below
         if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
             d1s, d2s = op_o0.make_stdm12s (las1, ci_blk, idx_dummy, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (
-                rootsym), *t0)
+                sym), *t0)
             d1s_test, d2s_test = op_o1.make_stdm12s (las1, ci_blk, idx_dummy)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} TDM algorithm'.format (
-                rootsym), *t0)
+                sym), *t0)
             lib.logger.debug (las,
                 'LASSI make_stdm12s rootsym {}: D1 o0-o1 algorithm disagreement = {}'.format (
-                    rootsym, linalg.norm (d1s_test - d1s))) 
+                    sym, linalg.norm (d1s_test - d1s))) 
             lib.logger.debug (las,
                 'LASSI make_stdm12s rootsym {}: D2 o0-o1 algorithm disagreement = {}'.format (
-                    rootsym, linalg.norm (d2s_test - d2s))) 
+                    sym, linalg.norm (d2s_test - d2s))) 
             errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
             if np.amax (np.abs (errvec)) > 1e-8:#
                 raise LASSIOop01DisagreementError ("State-transition density matrices", errvec)
@@ -500,11 +503,8 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             if not o0_memcheck: lib.logger.debug (
                 las, 'Insufficient memory to test against o0 LASSI algorithm')
             d1s, d2s = op[opt].make_stdm12s (las1, ci_blk, idx_dummy, orbsym=orbsym, wfnsym=wfnsym)
-            t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (rootsym), *t0)
-        idx_prod = []
-        for ix in np.where (idx_space)[0]:
-            idx_prod.extend (list(range(prod_off[ix],prod_off[ix]+nprods_r[ix])))
-        for (i,a), (j,b) in product (enumerate (idx_prod), repeat=2):
+            t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (sym), *t0)
+        for (i,a), (j,b) in product (enumerate (np.where(idx_prod)[0]), repeat=2):
             stdm1s[a,...,b] = d1s[i,...,j]
             stdm2s[a,...,b] = d2s[i,...,j]
     return stdm1s, stdm2s
@@ -569,14 +569,11 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
         dtype=si.dtype)
 
-    for sym, idx_ci, las1 in iterate_subspace_blocks (las, statesym, subset=set(rootsym)):
+    for las1, sym, idx_ci, ci_blk, nelec_blk, idx_prod in iterate_subspace_blocks (
+            las, ci, statesym, subset=set(rootsym)):
         idx_si = np.all (np.array (rootsym) == sym, axis=1)
         idx_dummy = np.ones (np.count_nonzero (idx_ci), dtype=bool)
         wfnsym = None if break_symmetry else sym[-1]
-        ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
-        idx_prod = []
-        for ix in np.where (idx_ci)[0]:
-            idx_prod.extend (list(range(prod_off[ix],prod_off[ix]+nprods_r[ix])))
         si_blk = si[np.ix_(idx_prod,idx_si)]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         # TODO: implement SOC in op_o1 and then re-enable the debugging block below
