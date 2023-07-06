@@ -214,7 +214,7 @@ def iterate_subspace_blocks (las, ci, spacesym, subset=None):
                   for solver in fcibox.fcisolvers]
                  for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
             )
-            yield las, sym, idx_space, ci_blk, nelec_blk, idx_prod
+            yield las, sym, (idx_space, idx_prod), (ci_blk, nelec_blk)
 
 class LASSIOop01DisagreementError (RuntimeError):
     def __init__(self, message, errvec):
@@ -258,7 +258,9 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     # Loop over symmetry blocks
     qn_lbls = ['nelec',] if soc else ['neleca','nelecb',]
     if not break_symmetry: qn_lbls.append ('irrep')
-    for las1, sym, idx_space, ci_blk, nelec_blk, idx_prod in iterate_subspace_blocks (las, ci, statesym):
+    for las1, sym, indices, indexed in iterate_subspace_blocks (las, ci, statesym):
+        idx_space, idx_prod = indices
+        ci_blk, nelec_blk = indexed
         idx_allprods.extend (list(np.where(idx_prod)[0]))
         lib.logger.debug (las,
             'Diagonalizing LAS state symmetry block {} = {}'.format (qn_lbls, sym))
@@ -461,12 +463,15 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
+    # Loop over symmetry blocks
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
     idx_allprods = []
     d1s_all = []
     d2s_all = []
     nprods = 0
-    for las1,sym,idx_sp,ci_blk,nelec_blk,idx_prod in iterate_subspace_blocks (las,ci,statesym):
+    for las1, sym, indices, indexed in iterate_subspace_blocks (las, ci, statesym):
+        idx_sp, idx_prod = indices
+        ci_blk, nelec_blk = indexed
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         idx_dummy = np.ones (np.count_nonzero (idx_sp),dtype=bool)
         wfnsym = None if break_symmetry else sym[-1]
@@ -500,7 +505,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
         d1s_all.append (d1s)
         d2s_all.append (d2s)
 
-    # block-diagonal matrices
+    # Sort block-diagonal matrices
     norb = las.ncas
     if soc:
         stdm1s = np.zeros ((nprods, nprods, 2*norb, 2*norb),
@@ -557,9 +562,9 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
+
+    # Initialize matrices
     norb = las.ncas
-    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
-    rootsym = [tuple (x) for x in si.rootsym]
     nroots = si.shape[1]
     if soc:
         rdm1s = np.zeros ((nroots, 2*norb, 2*norb),
@@ -571,8 +576,12 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
         dtype=si.dtype)
 
-    for las1, sym, idx_ci, ci_blk, nelec_blk, idx_prod in iterate_subspace_blocks (
-            las, ci, statesym, subset=set(rootsym)):
+    # Loop over symmetry blocks
+    statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
+    rootsym = [tuple (x) for x in si.rootsym]
+    for las1, sym, indcs, indxd in iterate_subspace_blocks(las,ci,statesym,subset=set(rootsym)):
+        idx_ci, idx_prod = indcs
+        ci_blk, nelec_blk = indxd
         idx_si = np.all (np.array (rootsym) == sym, axis=1)
         idx_dummy = np.ones (np.count_nonzero (idx_ci), dtype=bool)
         wfnsym = None if break_symmetry else sym[-1]
