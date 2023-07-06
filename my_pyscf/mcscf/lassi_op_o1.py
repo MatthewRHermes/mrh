@@ -99,14 +99,16 @@ def fermion_des_shuffle (nelec_f, frag_list, i):
     nperms = sum (nelec_f[:i]) if i else 0
     return (1,-1)[nperms%2]
 
-def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
+def lst_hopping_index (fciboxes, nlas, nelelas, nelec_frs):
     ''' Build the LAS state transition hopping index
 
         Args:
             fciboxes: list of h1e_zipped_fcisolvers
             nlas: list of norbs for each fragment
             nelelas: list of neleca + nelecb for each fragment
-            idx_root: integer indices of roots in this symmetry block
+            nelec_frs : ndarray of shape (nfrags,nroots,2)
+                Number of electrons of each spin in each rootspace in each
+                fragment
 
         Returns:
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
@@ -126,8 +128,7 @@ def lst_hopping_index (fciboxes, nlas, nelelas, idx_root):
                 source/dest fragments.
     '''
     nelelas = [sum (_unpack_nelec (ne)) for ne in nelelas]
-    nelec_fsr = np.array ([[_unpack_nelec (fcibox._get_nelec (fcibox.fcisolvers[ix], ne))
-        for ix in idx_root] for fcibox, ne in zip (fciboxes, nelelas)]).transpose (0,2,1)
+    nelec_fsr = nelec_frs.transpose (0,2,1)
     hopping_index = np.array ([[np.subtract.outer (spin, spin)
         for spin in frag] for frag in nelec_fsr])
     symm_index = np.all (hopping_index.sum (0) == 0, axis=0)
@@ -171,8 +172,6 @@ class LSTDMint1 (object):
                 base number of electrons in the current fragment
             nroots : integer
                 number of states considered
-            idx_root : list of length (nroots)
-                list of specific states considered in the current calculation
             hopping_index: ndarray of ints of shape (2, nroots, nroots)
                 element [i,j,k] reports the change of number of electrons of
                 spin i in the current fragment between LAS states j and k
@@ -184,14 +183,12 @@ class LSTDMint1 (object):
                 Currently not used
     '''
 
-    def __init__(self, fcibox, norb, nelec, nroots, idx_root, hopping_index, idx_frag,
+    def __init__(self, fcibox, norb, nelec, nroots, hopping_index, idx_frag,
                  dtype=np.float64):
         # I'm not sure I need linkstrl
         self.linkstrl = fcibox.states_gen_linkstr (norb, nelec, tril=True)
         self.linkstr = fcibox.states_gen_linkstr (norb, nelec, tril=False)
-        self.fcisolvers = [fcibox.fcisolvers[ix] for ix in idx_root]
-        self.linkstrl = [self.linkstrl[ix] for ix in idx_root]
-        self.linkstr = [self.linkstr[ix] for ix in idx_root]
+        self.fcisolvers = fcibox.fcisolvers
         self.norb = norb
         self.nelec = nelec
         self.nroots = nroots
@@ -1003,15 +1000,16 @@ class LRRDMint (LSTDMint2):
         self._crunch_all_()
         return self.rdm1s, self.rdm2s, t0
 
-def make_ints (las, ci, idx_root):
+def make_ints (las, ci, nelec_frs):
     ''' Build fragment-local intermediates (`LSTDMint1`) for LASSI o1
 
     Args:
         las : instance of :class:`LASCINoSymm`
         ci : list of list of ndarrays
             Contains all CI vectors
-        idx_root : list of length (nroots)
-            list of specific LAS states considered in the current calculation
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
 
     Returns:
         hopping_index : ndarray of ints of shape (nfrags, 2, nroots, nroots)
@@ -1021,17 +1019,17 @@ def make_ints (las, ci, idx_root):
     '''
     fciboxes = las.fciboxes
     nfrags = len (fciboxes)
-    nroots = idx_root.size
+    nroots = nelec_frs.shape[1]
     nlas = las.ncas_sub
     nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
     lroots = np.array ([[1 if ci_ij.ndim<3 else ci_ij.shape[0]
                          for ci_ij in ci_i]
                         for ci_i in ci])
     if np.any(lroots>1): raise NotImplementedError ("LASSI o1 algorithm w/ local excitations")
-    hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, idx_root)
+    hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, nelec_frs)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots, idx_root,
+        tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots,
                             hopping_index[ifrag], ifrag)
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
@@ -1039,15 +1037,16 @@ def make_ints (las, ci, idx_root):
         ints.append (tdmint)
     return hopping_index, ints
 
-def make_stdm12s (las, ci, idx_root, **kwargs):
+def make_stdm12s (las, ci, nelec_frs, **kwargs):
     ''' Build spin-separated LAS product-state 1- and 2-body transition density matrices
 
     Args:
         las : instance of :class:`LASCINoSymm`
         ci : list of list of ndarrays
             Contains all CI vectors
-        idx_root : list of length (nroots)
-            list of specific LAS states considered in the current calculation
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
 
     Returns:
         tdm1s : ndarray of shape (nroots,2,ncas,ncas,nroots)
@@ -1057,11 +1056,10 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
     '''
     nlas = las.ncas_sub
     ncas = las.ncas
-    nroots = np.count_nonzero (idx_root)
-    idx_root = np.where (idx_root)[0]
+    nroots = nelec_frs.shape[1]
 
     # First pass: single-fragment intermediates
-    hopping_index, ints = make_ints (las, ci, idx_root)
+    hopping_index, ints = make_ints (las, ci, nelec_frs)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -1075,7 +1073,7 @@ def make_stdm12s (las, ci, idx_root, **kwargs):
     tdm2s = tdm2s.reshape (nroots,nroots,2,2,ncas,ncas,ncas,ncas).transpose (0,2,4,5,3,6,7,1)
     return tdm1s, tdm2s
 
-def ham (las, h1, h2, ci, idx_root, **kwargs):
+def ham (las, h1, h2, ci, nelec_frs, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
     Args:
@@ -1086,8 +1084,9 @@ def ham (las, h1, h2, ci, idx_root, **kwargs):
             Contains 2-electron Hamiltonian amplitudes in second quantization
         ci : list of list of ndarrays
             Contains all CI vectors
-        idx_root : list of length (nroots)
-            list of specific LAS states considered in the current calculation
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
 
     Returns:
         ham : ndarray of shape (nroots,nroots)
@@ -1098,10 +1097,9 @@ def ham (las, h1, h2, ci, idx_root, **kwargs):
             Overlap matrix of LAS product states
     '''
     nlas = las.ncas_sub
-    idx_root = np.where (idx_root)[0]
 
     # First pass: single-fragment intermediates
-    hopping_index, ints = make_ints (las, ci, idx_root)
+    hopping_index, ints = make_ints (las, ci, nelec_frs)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -1112,15 +1110,16 @@ def ham (las, h1, h2, ci, idx_root, **kwargs):
     return ham, s2, ovlp
 
 
-def roots_make_rdm12s (las, ci, idx_root, si, **kwargs):
+def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
 
     Args:
         las : instance of :class:`LASCINoSymm`
         ci : list of list of ndarrays
             Contains all CI vectors
-        idx_root : list of length (nroots)
-            list of specific LAS states considered in the current calculation
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
         si : ndarray of shape (nroots,nroots_si)
             Contains LASSI eigenvectors
 
@@ -1133,10 +1132,9 @@ def roots_make_rdm12s (las, ci, idx_root, si, **kwargs):
     nlas = las.ncas_sub
     ncas = las.ncas
     nroots_si = si.shape[-1]
-    idx_root = np.where (idx_root)[0]
 
     # First pass: single-fragment intermediates
-    hopping_index, ints = make_ints (las, ci, idx_root)
+    hopping_index, ints = make_ints (las, ci, nelec_frs)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())

@@ -11,12 +11,13 @@ from mrh.my_pyscf.mcscf import soc_int as soc_int
 
 # TODO: fix stdm1 index convention in both o0 and o1
 
-# TODO: rather than passing "idx" to lassi_op_o0 or lassi_op_o1, just put the LASSCF
-# method instance into a temporary environment with only those states
-
 # TODO: adopt consistent nomenclature viz "states", "spaces", "roots"
 
-# TODO: simplify the indexing in general
+# TODO: remove the dependence of lassi_op_o1 on las.fciboxes in some way
+# The fcisolvers contain linkstr and symmetry information, but probably
+# only the former is necessary. Once the connection to the parent LAS
+# instance is severed, remove the dangerous "_LASSI_subspace_env"
+# temporary environment.
 
 LINDEP_THRESHOLD = 1.0e-5
 
@@ -273,8 +274,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
-        idx_dummy = np.ones (np.count_nonzero (idx_space), dtype=bool)
-        e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, idx_dummy, sym, soc,
+        e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, sym, soc,
                                    orbsym, wfnsym, o0_memcheck, opt)
         s2_mat.append (s2_blk)
         si.append (c)
@@ -328,11 +328,11 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         lib.logger.info (las, fmt_str.format (*row))
     return e_roots, si
 
-def _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
+def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-        ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, idx, soc=soc,
+        ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
                                                orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
             rootsym), *t0)
@@ -341,7 +341,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc, orbsym, wfnsym, o0_m
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1_sf, h2, ci_blk, idx, orbsym=orbsym,
+        ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym,
                                                wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
             rootsym), *t0)
@@ -365,7 +365,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc, orbsym, wfnsym, o0_m
     else:
         if (las.verbose > lib.logger.INFO): lib.logger.debug (
             las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, idx, soc=soc,
+        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
                                                  orbsym=orbsym, wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
@@ -389,7 +389,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, idx, rootsym, soc, orbsym, wfnsym, o0_m
                         for ci_r in ci_blk])
     if np.all (lroots==1) and soc==False: # tmp?
         diag_test = np.diag (ham_blk)
-        diag_ref = las.e_states[idx] - e0
+        diag_ref = las.e_states - e0
         maxerr = np.max (np.abs (diag_test-diag_ref))
         if maxerr>1e-5:
             lib.logger.debug (las, '{:>13s} {:>13s} {:>13s}'.format ('Diagonal', 'Reference',
@@ -473,14 +473,13 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
         idx_sp, idx_prod = indices
         ci_blk, nelec_blk = indexed
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        idx_dummy = np.ones (np.count_nonzero (idx_sp),dtype=bool)
         wfnsym = None if break_symmetry else sym[-1]
         # TODO: implement SOC in op_o1 and then re-enable the debugging block below
         if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
-            d1s, d2s = op_o0.make_stdm12s (las1, ci_blk, idx_dummy, orbsym=orbsym, wfnsym=wfnsym)
+            d1s, d2s = op_o0.make_stdm12s (las1, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} CI algorithm'.format (
                 sym), *t0)
-            d1s_test, d2s_test = op_o1.make_stdm12s (las1, ci_blk, idx_dummy)
+            d1s_test, d2s_test = op_o1.make_stdm12s (las1, ci_blk, nelec_blk)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {} TDM algorithm'.format (
                 sym), *t0)
             lib.logger.debug (las,
@@ -498,7 +497,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
         else:
             if not o0_memcheck: lib.logger.debug (
                 las, 'Insufficient memory to test against o0 LASSI algorithm')
-            d1s, d2s = op[opt].make_stdm12s (las1, ci_blk, idx_dummy, orbsym=orbsym, wfnsym=wfnsym)
+            d1s, d2s = op[opt].make_stdm12s (las1, ci_blk, nelec_blk, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (sym), *t0)
         idx_allprods.append (list(np.where(idx_prod)[0]))
         nprods += len (idx_allprods[-1])
@@ -583,17 +582,16 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
         idx_ci, idx_prod = indcs
         ci_blk, nelec_blk = indxd
         idx_si = np.all (np.array (rootsym) == sym, axis=1)
-        idx_dummy = np.ones (np.count_nonzero (idx_ci), dtype=bool)
         wfnsym = None if break_symmetry else sym[-1]
         si_blk = si[np.ix_(idx_prod,idx_si)]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         # TODO: implement SOC in op_o1 and then re-enable the debugging block below
         if (las.verbose > lib.logger.INFO) and (o0_memcheck) and (soc==False):
-            d1s, d2s = op_o0.roots_make_rdm12s (las1, ci_blk, idx_dummy, si_blk, orbsym=orbsym,
+            d1s, d2s = op_o0.roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk, orbsym=orbsym,
                                                 wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym),
                                    *t0)
-            d1s_test, d2s_test = op_o1.roots_make_rdm12s (las1, ci_blk, idx_dummy, si_blk)
+            d1s_test, d2s_test = op_o1.roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} TDM algorithm'.format (sym),
                                    *t0)
             lib.logger.debug (las,
@@ -611,7 +609,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
         else:
             if not o0_memcheck: lib.logger.debug (las,
                 'Insufficient memory to test against o0 LASSI algorithm')
-            d1s, d2s = op[opt].roots_make_rdm12s (las1, ci_blk, idx_dummy, si_blk, orbsym=orbsym,
+            d1s, d2s = op[opt].roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk, orbsym=orbsym,
                                                   wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {}'.format (sym), *t0)
         idx_int = np.where (idx_si)[0]

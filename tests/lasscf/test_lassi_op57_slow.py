@@ -21,6 +21,7 @@ from copy import deepcopy
 from itertools import product
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
+from pyscf.fci.direct_spin1 import _unpack_nelec
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
@@ -87,7 +88,10 @@ if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
 if orbsym is not None:
     orbsym = orbsym[las.ncore:las.ncore+las.ncas]
 wfnsym = 0
-idx_all = np.ones (nroots, dtype=np.bool_)
+nelec_frs = np.array (
+    [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
+     for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+)
 rand_mat = np.random.rand (57,57)
 rand_mat += rand_mat.T
 e, si = linalg.eigh (rand_mat)
@@ -110,16 +114,16 @@ class KnownValues(unittest.TestCase):
     def test_ham_s2_ovlp (self):
         h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
         lbls = ('ham','s2','ovlp')
-        mats_o0 = op_o0.ham (las, h1, h2, las.ci, idx_all, orbsym=orbsym, wfnsym=wfnsym)
+        mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
         fps_o0 = [lib.fp (mat) for mat in mats_o0]
-        mats_o1 = op_o1.ham (las, h1, h2, las.ci, idx_all, orbsym=orbsym, wfnsym=wfnsym)
+        mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
             with self.subTest(matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
     def test_rdm12s (self):
-        d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, idx_all, si, orbsym=orbsym, wfnsym=wfnsym)
-        d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, idx_all, si, orbsym=orbsym, wfnsym=wfnsym)
+        d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+        d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
         for r in range (2):
             for i in range (nroots):
                 with self.subTest (rank=r+1, root=i):

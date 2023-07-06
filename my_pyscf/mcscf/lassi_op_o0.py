@@ -187,7 +187,7 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
 #
 #    return hsiso
 
-def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
+def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     '''Build LAS state interaction Hamiltonian, S2, and ovlp matrices
 
     Args:
@@ -196,11 +196,12 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
             Spin-orbit-free one-body CAS Hamiltonian
         h2 : ndarray of shape (ncas, ncas, ncas, ncas)
             Spin-orbit-free two-body CAS Hamiltonian
-        ci_fr : nested list of shape (nfrags, count_nonzero (idx_root))
+        ci_fr : nested list of shape (nfrags, nroots)
             Contains CI vectors; element [i,j] is ndarray of shape
             (ndeta[i,j],ndetb[i,j])
-        idx_root : mask index array of shape (las.nroots)
-            Maps the states included in ci_fr to the states in "las"
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
 
     Kwargs:
         soc : integer
@@ -211,24 +212,21 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
             Irrep ID for target matrix block
 
     Returns:
-        ham_eff : square ndarray of length (count_nonzero (idx_root))
+        ham_eff : square ndarray of length (nroots)
             Spin-orbit-free Hamiltonian in state-interaction basis
-        s2_eff : square ndarray of length (count_nonzero (idx_root))
+        s2_eff : square ndarray of length (nroots)
             S2 operator matrix in state-interaction basis
-        ovlp_eff : square ndarray of length (count_nonzero (idx_root))
+        ovlp_eff : square ndarray of length (nroots)
             Overlap matrix in state-interaction basis
     '''
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
     mol = las.mol
     norb_f = las.ncas_sub
-    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
-                 for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
-                for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     norb = sum (norb_f)
 
     # The function below is the main workhorse of this whole implementation
-    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
+    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_frs)
     nroots = len(ci_r)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     if not len (set (nelec_r_spinless)) == 1:
@@ -276,17 +274,17 @@ def ham (las, h1, h2, ci_fr, idx_root, soc=0, orbsym=None, wfnsym=None):
     
     return ham_eff, s2_eff, ovlp_eff
 
-def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
+def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
 
     Args:
         las : instance of class LASSCF
-        ci_fr : nested list of shape (nfrags, count_nonzero (idx_root))
+        ci_fr : nested list of shape (nfrags, nroots)
             Contains CI vectors; element [i,j] is ndarray of shape
             (ndeta[i,j],ndetb[i,j])
-        idx_root : mask index array of shape (las.nroots)
-            Maps the states included in ci_fr to the states in "las"
-            (Below, "nroots" means "count_nonzero (idx_root)")
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
 
     Kwargs:
         orbsym : list of int of length (ncas)
@@ -305,10 +303,7 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
     mol = las.mol
     norb_f = las.ncas_sub
     norb = sum (norb_f) 
-    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
-                 for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
-                for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
+    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_frs)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     nroots = len (ci_r)
     if not len (set (nelec_r_spinless)) == 1:
@@ -367,18 +362,18 @@ def make_stdm12s (las, ci_fr, idx_root, orbsym=None, wfnsym=None):
 
     return stdm1s, stdm2s 
 
-def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
+def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
 
     Args:
         las : instance of class LASSCF
-        ci_fr : nested list of shape (nfrags, count_nonzero (idx_root))
+        ci_fr : nested list of shape (nfrags, nroots)
             Contains CI vectors; element [i,j] is ndarray of shape
             (ndeta[i,j],ndetb[i,j])
-        idx_root : mask index array of shape (las.nroots)
-            Maps the states included in ci_fr to the states in "las"
-            (Below, "nroots" means "count_nonzero (idx_root)")
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
         si : ndarray of shape (nroots, nroots)
             Unitary matrix defining final LASSI states in terms of
             non-interacting LAS states
@@ -399,10 +394,7 @@ def roots_make_rdm12s (las, ci_fr, idx_root, si, orbsym=None, wfnsym=None):
     '''
     mol = las.mol
     norb_f = las.ncas_sub
-    nelec_fr = [[_unpack_nelec (fcibox._get_nelec (solver, nelecas))
-                 for solver, ix in zip (fcibox.fcisolvers, idx_root) if ix]
-                for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_fr)
+    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_frs)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     nroots = len (ci_r)
     norb = sum (norb_f)
