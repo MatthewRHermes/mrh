@@ -468,7 +468,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             d1s, d2s = op[opt].make_stdm12s (las, ci_blk, idx_space, orbsym=orbsym, wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_stdm12s rootsym {}'.format (rootsym), *t0)
         idx_prod = []
-        for ix in idx_space:
+        for ix in np.where (idx_space)[0]:
             idx_prod.extend (list(range(prod_off[ix],prod_off[ix]+nprods_r[ix])))
         for (i,a), (j,b) in product (enumerate (idx_prod), repeat=2):
             stdm1s[a,...,b] = d1s[i,...,j]
@@ -541,7 +541,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
         wfnsym = None if break_symmetry else sym[-1]
         ci_blk = [[c for c, ix in zip (cr, idx_ci) if ix] for cr in ci]
         idx_prod = []
-        for ix in idx_ci:
+        for ix in np.where (idx_ci)[0]:
             idx_prod.extend (list(range(prod_off[ix],prod_off[ix]+nprods_r[ix])))
         si_blk = si[np.ix_(idx_prod,idx_si)]
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
