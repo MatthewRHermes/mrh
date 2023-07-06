@@ -12,7 +12,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.8", "3.9", "3.10"]
+        python-version: ["3.8"]
+        # TODO: Re-enable python 3.9, 3.10 once PySCF v2.3 drops on Pypi
 
     steps:
     - uses: actions/checkout@v3
