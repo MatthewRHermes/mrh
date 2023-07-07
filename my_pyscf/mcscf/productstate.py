@@ -67,15 +67,16 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         if log.verbose < lib.logger.INFO: return
         transformers = [s.transformer for s in self.fcisolvers]
         grad_f = []
-        for t in transformers: 
-            grad_f.append (grad[:t.ncsf])
-            grad = grad[t.ncsf:]
+        for s,t in zip (self.fcisolvers, transformers):
+            grad_f.append (grad[:t.ncsf*s.nroots].reshape (s.nroots, t.ncsf))
+            offs = (t.ncsf*s.nroots) + (s.nroots*(s.nroots-1)//2)
+            grad = grad[offs:]
         assert (len (grad) == 0)
         log.info ('Debugging CI and gradient vectors...')
         for ix, (grad, ci, s, t) in enumerate (zip (grad_f, ci1, self.fcisolvers, transformers)):
             log.info ('Fragment %d', ix)
             ci_csf, ci_norm = t.vec_det2csf (ci, normalize=True, return_norm=True)
-            log.info ('CI vector norm = %e', ci_norm)
+            log.info ('CI vector norm = %s', str(ci_norm))
             grad_norm = linalg.norm (grad)
             log.info ('Gradient norm = %e', grad_norm)
             log.info ('CI vector leading components:')
@@ -127,6 +128,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             # External degrees of freedom: not weighted, because I want
             # to converge all of the roots even if they don't contribute
             # to the mean field
+            assert (hc.size == nroots*solver.transformer.ncsf)
             grad.append (hc.ravel ())
             # Internal degrees of freedom: weighted and lower-triangular
             # TODO: confirm the sign choice below before using this gradient
@@ -134,7 +136,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             if nroots>1 and getattr (solver, 'weights', None) is not None:
                 chc *= np.asarray (solver.weights)[:,None]
                 chc -= chc.T
-                grad.append (chc[np.tril_indices(nroots)])
+                grad.append (chc[np.tril_indices (nroots,k=-1)])
         return np.concatenate (grad)
 
     def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
