@@ -160,7 +160,7 @@ def las_symm_tuple (las, break_spin=False, break_symmetry=False, verbose=None):
         all_qns = [neleca, nelecb, neleca+nelecb, wfnsym]
         full_statesym.append (tuple (all_qns))
         statesym.append (tuple (qn for qn, incl in zip (all_qns, qn_filter) if incl))
-    log.info ('Symmetry analysis of LAS states:')
+    log.info ('Symmetry analysis of LAS rootspaces:')
     qn_lbls = ['Neleca', 'Nelecb', 'Nelec', 'Wfnsym']
     qn_fmts = ['{:6d}', '{:6d}', '{:6d}', '{:>6s}']
     lbls = ['ix', 'Energy', '<S**2>'] + qn_lbls
@@ -396,7 +396,8 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
                                                                      'Error'))
             for ix, (test, ref) in enumerate (zip (diag_test, diag_ref)):
                 lib.logger.debug (las, '{:13.6e} {:13.6e} {:13.6e}'.format (test, ref, test-ref))
-            raise RuntimeError ('SI Hamiltonian diagonal element error = {}'.format (maxerr))
+            lib.logger.warn (las, 'LAS states in basis may not be converged (%s = %e)',
+                             'max(|Hdiag-e_states|)', maxerr)
     # Error catch: linear dependencies in basis
     try:
         e, c = linalg.eigh (ham_blk, b=ovlp_blk)

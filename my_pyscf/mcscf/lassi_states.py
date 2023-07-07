@@ -5,7 +5,7 @@ from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
 import itertools
 
-class SingleLASState (object):
+class SingleLASRootspace (object):
     def __init__(self, las, spins, smults, charges, weight, nlas=None, nelelas=None, stdout=None,
                  verbose=None):
         if nlas is None: nlas = las.ncas_sub
@@ -86,7 +86,7 @@ class SingleLASState (object):
         assert (a_nelecb>=0)
         assert (i_ncsf)
         assert (a_ncsf)
-        return SingleLASState (self.las, spins, smults, charges, 0, nlas=self.nlas,
+        return SingleLASRootspace (self.las, spins, smults, charges, 0, nlas=self.nlas,
                                nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
 
     def get_valid_smult_change (self, i, dneleca, dnelecb):
@@ -143,7 +143,7 @@ class SingleLASState (object):
             idx_valid = np.all (spins_table>-self.smults[None,:], axis=1)
             spins_table = spins_table[idx_valid,:]
         for spins in spins_table:
-            yield SingleLASState (self.las, spins, self.smults, self.charges, 0, nlas=self.nlas,
+            yield SingleLASRootspace (self.las, spins, self.smults, self.charges, 0, nlas=self.nlas,
                                   nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
 
 
@@ -159,7 +159,7 @@ def all_single_excitations (las, verbose=None):
     log = logger.new_logger (las, verbose)
     if isinstance (las, LASCISymm):
         raise NotImplementedError ("Point-group symmetry for LASSI state generator")
-    ref_states = [SingleLASState (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
+    ref_states = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
     for weight, state in zip (las.weights, ref_states): state.weight = weight
     new_states = []
     for ref_state in ref_states:
@@ -192,7 +192,7 @@ def spin_shuffle (las, verbose=None):
     log = logger.new_logger (las, verbose)
     if isinstance (las, LASCISymm):
         raise NotImplementedError ("Point-group symmetry for LASSI state generator")
-    ref_states = [SingleLASState (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
+    ref_states = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
     for weight, state in zip (las.weights, ref_states): state.weight = weight
     seen = set (ref_states)
     all_states = [state for state in ref_states]
