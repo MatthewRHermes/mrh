@@ -24,32 +24,34 @@ from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
-dr_nn = 2.0
-mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-mol.verbose = lib.logger.DEBUG 
-mol.output = 'test_lassi.log'
-mol.spin = 0 
-mol.build ()
-mf = scf.RHF (mol).run ()
-las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
-las.state_average_(weights=[1.0/5.0,]*5,
-    spins=[[0,0],[0,0],[2,-2],[-2,2],[2,2]],
-    smults=[[1,1],[3,3],[3,3],[3,3],[3,3]])
-las.frozen = list (range (las.mo_coeff.shape[-1]))
-ugg = las.get_ugg ()
-las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lassi_mo.dat'))
-las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_lassi_ci.dat')))[1]
-#las.set (conv_tol_grad=1e-8).run ()
-#np.savetxt ('test_lassi_mo.dat', las.mo_coeff)
-#np.savetxt ('test_lassi_ci.dat', ugg.pack (las.mo_coeff, las.ci))
-las.e_states = las.energy_nuc () + las.states_energy_elec ()
-e_roots, si = las.lassi ()
-rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
+def setUpModule ():
+    global mol, mf, las, e_roots, si, rdm1s, rdm2s
+    dr_nn = 2.0
+    mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
+    mol.verbose = lib.logger.DEBUG
+    mol.output = 'test_lassi.log'
+    mol.spin = 0
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
+    las.state_average_(weights=[1.0/5.0,]*5,
+        spins=[[0,0],[0,0],[2,-2],[-2,2],[2,2]],
+        smults=[[1,1],[3,3],[3,3],[3,3],[3,3]])
+    las.frozen = list (range (las.mo_coeff.shape[-1]))
+    ugg = las.get_ugg ()
+    las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lassi_mo.dat'))
+    las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_lassi_ci.dat')))[1]
+    #las.set (conv_tol_grad=1e-8).run ()
+    #np.savetxt ('test_lassi_mo.dat', las.mo_coeff)
+    #np.savetxt ('test_lassi_ci.dat', ugg.pack (las.mo_coeff, las.ci))
+    las.e_states = las.energy_nuc () + las.states_energy_elec ()
+    e_roots, si = las.lassi ()
+    rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
 
 def tearDownModule():
-    global mol, mf, las
+    global mol, mf, las, e_roots, si, rdm1s, rdm2s
     mol.stdout.close ()
-    del mol, mf, las
+    del mol, mf, las, e_roots, si, rdm1s, rdm2s
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
@@ -131,6 +133,40 @@ class KnownValues(unittest.TestCase):
         # remaining option to complete the path, so
         # 2 + 3 + 3 + 3 + 2 = 13
         self.assertEqual (las3.nroots, 13)
+
+    def test_casci_limit (self):
+        from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
+        from mrh.my_pyscf.mcscf.lasci import get_state_info
+        xyz='''H 0 0 0
+        H 1 0 0
+        H 3 0 0
+        H 4 0 0'''
+        rmol = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
+        rmf = scf.RHF (rmol).run ()
+
+        # Random Hamiltonian
+        rng = np.random.default_rng (seed=422)
+        rmf._eri = rng.random (rmf._eri.shape)
+        hcore = rng.random ((4,4))
+        rmf.get_hcore = lambda *args: hcore
+
+        # CASCI limit
+        mc = mcscf.CASCI (rmf, 4, 4).run ()
+
+        # LASSCF
+        rlas = LASSCF (rmf, (2,2), (2,2), spin_sub=(1,1))
+        rlas.conv_tol_grad = rlas.conv_tol_self = 9e99
+
+        # LASSI in the CASCI limit
+        for i in range (2): rlas = all_single_excitations (rlas)
+        from mrh.my_pyscf.mcscf.lasci import get_state_info
+        charges, spins, smults, wfnsyms = get_state_info (rlas)
+        lroots = 4 - smults
+        idx = (charges!=0) & (lroots==3)
+        lroots[idx] = 1
+        rlas.lasci (lroots=lroots.T)
+        e_roots, si = rlas.lassi (opt=0)
+        self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI")
