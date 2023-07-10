@@ -59,6 +59,11 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             if solver.nroots>na*nb:
                 raise RuntimeError ("{} roots > {} determinants in fragment {}".format (
                     solver.nroots, na*nb, ix))
+            if isinstance (solver, CSFFCISolver):
+                solver.check_transformer_cache ()
+                if solver.nroots>solver.transformer.ncsf:
+                    raise RuntimeError ("{} roots > {} CSFs in fragment {}".format (
+                        solver.nroots, solver.transformer.ncsf, ix))
         return ci1
                 
     def _debug_csfs (self, log, ci1, norb_f, nelec_f, grad):
