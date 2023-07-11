@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib
 from pyscf.df.df_jk import _DFHF
-from mrh.my_util.la import safe_svd
+from mrh.util.la import safe_svd
 
 class FragSizeError (RuntimeError):
     pass

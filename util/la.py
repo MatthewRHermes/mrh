@@ -69,17 +69,17 @@ def safe_svd (a, full_matrices=True):
         return scipy.linalg.svd (a, full_matrices=full_matrices)
     except scipy.linalg.LinAlgError as err:
         aTa = a.conj ().T @ a
-        evals_aTa, u = scipy.linalg.eigh (aTa)
-        M = len (evals_aTa)
+        evals_aTa, v = scipy.linalg.eigh (aTa)
+        N = len (evals_aTa)
         idx = np.argsort (-evals_aTa)
         evals_aTa = evals_aTa[idx]
-        u = u[:,idx]
+        v = v[:,idx]
         aaT = a @ a.conj ().T
-        evals_aaT, v = scipy.linalg.eigh (aaT)
-        N = len (evals_aaT)
+        evals_aaT, u = scipy.linalg.eigh (aaT)
+        M = len (evals_aaT)
         idx = np.argsort (-evals_aaT)
         evals_aaT = evals_aaT[idx]
-        v = v[:,idx]
+        u = u[:,idx]
         K = min (M,N)
         assert (np.allclose (evals_aTa[:K], evals_aaT[:K]))
         evals = np.maximum ((evals_aaT[:K] + evals_aTa[:K])*.5, 0)
