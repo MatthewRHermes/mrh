@@ -344,7 +344,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         # Unentangled inactive orbitals
         ncore_unent = las.ncore - self.ncore
-        assert (nvirt_unent>=0), '{} {}'.format (las.ncore, self.ncore)
+        assert (ncore_unent>=0), '{} {}'.format (las.ncore, self.ncore)
         mo_full_core = kf2.mo_coeff[:,:las.ncore]
         s0 = las._scf.get_ovlp ()
         ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
