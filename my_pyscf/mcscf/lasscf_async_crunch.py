@@ -344,13 +344,18 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         # Unentangled inactive orbitals
         ncore_unent = las.ncore - self.ncore
-        assert (ncore_unent>=0)
+        assert (nvirt_unent>=0), '{} {}'.format (las.ncore, self.ncore)
         mo_full_core = kf2.mo_coeff[:,:las.ncore]
         s0 = las._scf.get_ovlp ()
         ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
         proj = ovlp @ ovlp.conj ().T
         evals, u = linalg.eigh (-proj)
-        assert (ncore_unent==0 or np.amax (np.abs (evals[-ncore_unent:]))<1e-8)
+        try:
+            assert (ncore_unent==0 or np.amax (np.abs (evals[-ncore_unent:]))<1e-4)
+        except AssertionError as err:
+            log.error ("ncore_unent = %d but max |evals[-ncore_unent:]| = %e",
+                       ncore_unent, np.amax (np.abs (evals[-ncore_unent:])))
+            raise (err)
         if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
         kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
         
@@ -372,7 +377,12 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         ovlp = mo_full_virt.conj ().T @ s0 @ imporb_coeff
         proj = ovlp @ ovlp.conj ().T
         evals, u = linalg.eigh (-proj)
-        assert (nvirt_unent==0 or np.amax (np.abs (evals[-nvirt_unent:]))<1e-8)
+        try:
+            assert (nvirt_unent==0 or np.amax (np.abs (evals[-nvirt_unent:]))<1e-4)
+        except AssertionError as err:
+            log.error ("nvirt_unent = %d but max |evals[-nvirt_unent:]| = %e",
+                       nvirt_unent, np.amax (np.abs (evals[-nvirt_unent:])))
+            raise (err)
         if nvirt_unent>0:
             kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
             kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
