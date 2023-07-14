@@ -176,6 +176,14 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (lib.fp (lasdm1), lib.fp (casdm1), 8)
         with self.subTest ("casdm2"):
             self.assertAlmostEqual (lib.fp (lasdm2), lib.fp (casdm2), 8)
+        stdm1s = make_stdm12s (rlas, opt=0)[0][9:13,:,:,:,9:13] # second rootspace
+        with self.subTest("state indexing"):
+            # column-major ordering for state excitation quantum numbers:
+            # earlier fragments advance faster than later fragments
+            self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
+                                    lib.fp (stdm1s[2,:,:2,:2,2]))
+            self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
+                                    lib.fp (stdm1s[1,:,2:,2:,1]))
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI")
