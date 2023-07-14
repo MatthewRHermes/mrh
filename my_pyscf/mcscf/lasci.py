@@ -1437,6 +1437,7 @@ class LASCINoSymm (casci.CASCI):
     def dump_spaces (self, nroots=None, sort_energy=False):
         log = lib.logger.new_logger (self, self.verbose)
         log.info ("******** LAS space tables ********")
+        ci = self.ci
         if nroots is None and self.verbose <= lib.logger.INFO:
             nroots = min (self.nroots, 100)
         elif nroots is None:
@@ -1455,8 +1456,9 @@ class LASCINoSymm (casci.CASCI):
             wfnsym = 0
             m_f = []
             s_f = []
+            lroots = []
             s2_tot = 0
-            for fcibox, nelecas in zip (self.fciboxes, self.nelecas_sub):
+            for ifrag, (fcibox, nelecas) in enumerate (zip (self.fciboxes, self.nelecas_sub)):
                 solver = fcibox.fcisolvers[state]
                 na, nb = _unpack_nelec (fcibox._get_nelec (solver, nelecas))
                 neleca_f.append (na)
@@ -1473,6 +1475,14 @@ class LASCINoSymm (casci.CASCI):
                     fragsym_str = symm.irrep_id2name (solver.mol.groupname, fragsym)
                 wfnsym ^= fragsym_id
                 wfnsym_f.append (fragsym_str)
+                lroots_i = 0
+                if ci is not None:
+                    if ci[ifrag] is not None:
+                        ci_i = ci[ifrag]
+                        if ci_i[state] is not None:
+                            ci_ij = ci_i[state]
+                            lroots_i = 1 if ci_ij.ndim<3 else ci_ij.shape[0]
+                lroots.append (lroots_i)
             s2_tot += sum ([2*m1*m2 for m1, m2 in combinations (m_f, 2)])
             s_f, m_f = np.asarray (s_f), np.asarray (m_f)
             if np.all (m_f<0): m_f *= -1
@@ -1485,11 +1495,11 @@ class LASCINoSymm (casci.CASCI):
             log.info ("E(LAS) = %.15g", self.e_states[state])
             log.info ("S^2 = %.7f (%s)", s2_tot, ('Impure','Pure')[s_pure])
             log.info ("Space table")
-            log.info (" frag    (ae+be,no)  2S+1   ir")
+            log.info (" frag    (ae+be,no)  2S+1   ir   lroots")
             for i in range (self.nfrags):
                 smult_f = int (round (2*s_f[i] + 1))
                 tupstr = '({}e+{}e,{}o)'.format (neleca_f[i], nelecb_f[i], self.ncas_sub[i])
-                log.info (" %4d %13s  %4d  %3s", i, tupstr, smult_f, wfnsym_f[i])
+                log.info (" %4d %13s  %4d  %3s   %6d", i, tupstr, smult_f, wfnsym_f[i], lroots[i])
 
     def check_sanity (self):
         casci.CASCI.check_sanity (self)
