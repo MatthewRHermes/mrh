@@ -659,8 +659,8 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
 
 class LASSI(lib.StreamObject):
     def __init__(self, mf_or_mol_or_las, **kwargs):
-        from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF, LASSCFSymm, LASSCFNoSymm
-        if isinstance(mf_or_mol_or_las, (LASSCFSymm, LASSCFNoSymm)):
+        from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
+        if isinstance(mf_or_mol_or_las, LASCINoSymm):
             self._las = mf_or_mol_or_las
         else:
             raise RuntimeError("LASSI requires las instance")

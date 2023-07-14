@@ -1402,7 +1402,7 @@ class LASCINoSymm (casci.CASCI):
         warnings.warn(lassi_kernel_warn, stacklevel=3)
         from mrh.my_pyscf.mcscf import lassi
         mylassi = lassi.LASSI(self, **kwargs)
-        return mylassi.kernel()
+        return mylassi.kernel(**kwargs)
 
     las2cas_civec = las2cas_civec
     assert_no_duplicates = assert_no_duplicates
