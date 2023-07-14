@@ -56,8 +56,8 @@ def dump_las (mc, chkfile=None, method_key='las', mo_coeff=None, ci=None,
 
     keys = keys_config + keys_results
     data = {key: kwargs.get (key, getattr (mc, key)) for key in keys}
-    from mrh.my_pyscf.mcscf.lasci import get_state_info
-    data_saconstr = get_state_info (mc)
+    from mrh.my_pyscf.mcscf.lasci import get_space_info
+    data_saconstr = get_space_info (mc)
     data_saconstr = [mc.weights,] + list (data_saconstr)
     for key, val in zip (keys_saconstr, data_saconstr):
         data[key] = kwargs.get (key, val)

@@ -480,7 +480,7 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
             ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0]
     return ci0
 
-def get_state_info (las):
+def get_space_info (las):
     ''' Retrieve the quantum numbers defining the states of a LASSCF calculation '''
     nfrags, nroots = las.nfrags, las.nroots
     charges = np.zeros ((nroots, nfrags), dtype=np.int32)
@@ -499,7 +499,7 @@ def get_state_info (las):
    
 def assert_no_duplicates (las, tab=None):
     log = lib.logger.new_logger (las, las.verbose)
-    if tab is None: tab = np.stack (get_state_info (las), axis=-1)
+    if tab is None: tab = np.stack (get_space_info (las), axis=-1)
     tab_uniq, uniq_idx, uniq_inv, uniq_cnts = np.unique (tab, return_index=True,
         return_inverse=True, return_counts=True, axis=0)
     idx_dupe = uniq_cnts>1
@@ -561,7 +561,7 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
             state-averaged LASCI/LASSCF instance.
 
     '''
-    old_states = np.stack (get_state_info (las), axis=-1)
+    old_states = np.stack (get_space_info (las), axis=-1)
     nroots = len (weights)
     nfrags = las.nfrags
     if charges is None: charges = np.zeros ((nroots, nfrags), dtype=np.int32)
@@ -1434,16 +1434,16 @@ class LASCINoSymm (casci.CASCI):
         else:
             self.states_converged = [x,]*self.nroots
 
-    def dump_states (self, nroots=None, sort_energy=False):
+    def dump_spaces (self, nroots=None, sort_energy=False):
         log = lib.logger.new_logger (self, self.verbose)
-        log.info ("******** LAS state tables ********")
+        log.info ("******** LAS space tables ********")
         if nroots is None and self.verbose <= lib.logger.INFO:
             nroots = min (self.nroots, 100)
         elif nroots is None:
             nroots = self.nroots
         if nroots < self.nroots:
-            log.warn ("Dumping only 100 of %d states", self.nroots)
-            log.warn ("To see more, explicitly pass nroots to dump_states or increase verbosity")
+            log.warn ("Dumping only 100 of %d spaces", self.nroots)
+            log.warn ("To see more, explicitly pass nroots to dump_spaces or increase verbosity")
         if sort_energy:
             idx = np.argsort (self.e_states)
         else:
@@ -1480,11 +1480,11 @@ class LASCINoSymm (casci.CASCI):
             wfnsym = symm.irrep_id2name (self.mol.groupname, wfnsym)
             neleca = sum (neleca_f)
             nelecb = sum (nelecb_f)
-            log.info ("LAS state %d: (%de+%de,%do) wfynsm=%s", state, neleca, nelecb, self.ncas, wfnsym)
+            log.info ("LAS space %d: (%de+%de,%do) wfynsm=%s", state, neleca, nelecb, self.ncas, wfnsym)
             log.info ("Converged? %s", self.states_converged[state])
             log.info ("E(LAS) = %.15g", self.e_states[state])
             log.info ("S^2 = %.7f (%s)", s2_tot, ('Impure','Pure')[s_pure])
-            log.info ("State table")
+            log.info ("Space table")
             log.info (" frag    (ae+be,no)  2S+1   ir")
             for i in range (self.nfrags):
                 smult_f = int (round (2*s_f[i] + 1))
@@ -1519,7 +1519,7 @@ class LASCISymm (casci_symm.CASCI, LASCINoSymm):
     get_veff = LASCINoSymm.get_veff
     get_h1eff = get_h1las = h1e_for_las
     dump_flags = LASCINoSymm.dump_flags
-    dump_states = LASCINoSymm.dump_states
+    dump_spaces = LASCINoSymm.dump_spaces
     check_sanity = LASCINoSymm.check_sanity
     _ugg = lasci_sync.LASCISymm_UnitaryGroupGenerators
 

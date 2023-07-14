@@ -136,7 +136,7 @@ class KnownValues(unittest.TestCase):
 
     def test_casci_limit (self):
         from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
-        from mrh.my_pyscf.mcscf.lasci import get_state_info
+        from mrh.my_pyscf.mcscf.lasci import get_space_info
         xyz='''H 0 0 0
         H 1 0 0
         H 3 0 0
@@ -160,8 +160,7 @@ class KnownValues(unittest.TestCase):
 
         # LASSI in the CASCI limit
         for i in range (2): rlas = all_single_excitations (rlas)
-        from mrh.my_pyscf.mcscf.lasci import get_state_info
-        charges, spins, smults, wfnsyms = get_state_info (rlas)
+        charges, spins, smults, wfnsyms = get_space_info (rlas)
         lroots = 4 - smults
         idx = (charges!=0) & (lroots==3)
         lroots[idx] = 1

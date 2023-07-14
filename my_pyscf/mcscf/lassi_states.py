@@ -153,13 +153,13 @@ def all_single_excitations (las, verbose=None):
     this function a second time generates two-electron excitations, etc. The input object is
     not altered in-place. For orbital optimization, all new states have weight = 0; all weights
     of existing states are unchanged.'''
-    from mrh.my_pyscf.mcscf.lasci import get_state_info
+    from mrh.my_pyscf.mcscf.lasci import get_space_info
     from mrh.my_pyscf.mcscf.lasci import LASCISymm
     if verbose is None: verbose=las.verbose
     log = logger.new_logger (las, verbose)
     if isinstance (las, LASCISymm):
         raise NotImplementedError ("Point-group symmetry for LASSI state generator")
-    ref_states = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
+    ref_states = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_space_info (las))]
     for weight, state in zip (las.weights, ref_states): state.weight = weight
     new_states = []
     for ref_state in ref_states:
@@ -186,13 +186,13 @@ def spin_shuffle (las, verbose=None):
     degeneracy between states of different S**2. Unlike all_single_excitations, there
     should never be any reason to call this function more than once. For orbital optimization,
     all new states have weight == 0; all weights of existing states are unchanged.'''
-    from mrh.my_pyscf.mcscf.lasci import get_state_info
+    from mrh.my_pyscf.mcscf.lasci import get_space_info
     from mrh.my_pyscf.mcscf.lasci import LASCISymm
     if verbose is None: verbose=las.verbose
     log = logger.new_logger (las, verbose)
     if isinstance (las, LASCISymm):
         raise NotImplementedError ("Point-group symmetry for LASSI state generator")
-    ref_states = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_state_info (las))]
+    ref_states = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_space_info (las))]
     for weight, state in zip (las.weights, ref_states): state.weight = weight
     seen = set (ref_states)
     all_states = [state for state in ref_states]
@@ -251,7 +251,7 @@ if __name__=='__main__':
     molden.from_mo (las.mol, 'lassi_states.lasscf.molden', no_coeff, ene=no_ene, occ=no_occ)
     las2 = all_single_excitations (las)
     las2.lasci ()
-    las2.dump_states ()
+    las2.dump_spaces ()
     e_roots, si = las2.lassi ()
     elas1 = e_roots[0]
     print ("LASSI(S):", elas1)
@@ -261,7 +261,7 @@ if __name__=='__main__':
     molden.from_mo (las.mol, 'lassi_states.lassis.molden', no_coeff, ene=no_ene, occ=no_occ)
     las3 = all_single_excitations (las2)
     las3.lasci ()
-    las3.dump_states ()
+    las3.dump_spaces ()
     e_roots, si = las3.lassi ()
     elas2 = e_roots[0]
     print ("LASSI(SD):", elas2)
@@ -270,7 +270,7 @@ if __name__=='__main__':
     molden.from_mo (las.mol, 'lassi_states.lassisd.molden', no_coeff, ene=no_ene, occ=no_occ)
     las4 = all_single_excitations (las3)
     las4.lasci ()
-    las4.dump_states ()
+    las4.dump_spaces ()
     e_roots, si = las4.lassi ()
     elas3 = e_roots[0]
     print ("LASSI(SDT):", elas3)
@@ -279,7 +279,7 @@ if __name__=='__main__':
     molden.from_mo (las.mol, 'lassi_states.lassisdt.molden', no_coeff, ene=no_ene, occ=no_occ)
     las5 = all_single_excitations (las4)
     las5.lasci ()
-    las5.dump_states ()
+    las5.dump_spaces ()
     e_roots, si = las5.lassi ()
     elas4 = e_roots[0]
     print ("LASSI(SDTQ):", elas4)
