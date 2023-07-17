@@ -712,7 +712,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
     ci1 = [[None for c2 in c1] for c1 in ci0]
     converged = []
     t = (lib.logger.process_clock(), lib.logger.perf_counter())
-    e_lexc = [[None,]*las.nroots,]*las.nfrags
+    e_lexc = [[None for i in range (las.nroots)] for j in range (las.nfrags)]
     for state in range (las.nroots):
         fcisolvers = [b.fcisolvers[state] for b in las.fciboxes]
         ci0_i = [c[state] for c in ci0]
