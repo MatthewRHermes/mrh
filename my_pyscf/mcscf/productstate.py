@@ -193,12 +193,17 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         dm1b = np.zeros ((norb, norb))
         nj = np.cumsum (norb_f)
         ni = nj - norb_f
-        for i, j, c, no, ne, s in zip (ni, nj, ci, norb_f, nelec_f, self.fcisolvers):
+        for ix, (i, j, c, no, ne, s) in enumerate (zip (ni, nj, ci, norb_f, nelec_f, self.fcisolvers)):
             nelec = self._get_nelec (s, ne)
             try:
                 a, b = s.make_rdm1s (c, no, nelec)
             except AssertionError as e:
                 print (type (c), np.asarray (c).shape)
+                raise (e)
+            except ValueError as e:
+                print ("frag=",ix,"nroots=",s.nroots,"no=",no,"ne=",nelec,'c.shape=',np.asarray(c).shape)
+                if isinstance (s, CSFFCISolver):
+                    print ("smult=",s.smult,"ncsf=",s.transformer.ncsf)
                 raise (e)
             dm1a[i:j,i:j] = a[:,:]
             dm1b[i:j,i:j] = b[:,:]
