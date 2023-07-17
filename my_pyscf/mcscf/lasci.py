@@ -1400,7 +1400,7 @@ class LASCINoSymm (casci.CASCI):
         #lassi_kernel_warn = "Now LASSI have kernel, which takes las instance as input. This [las.lassi()] function " \
         #                    "will be removed soon."
         #warnings.warn(lassi_kernel_warn, stacklevel=3)
-        #from mrh.my_pyscf.mcscf import lassi
+        from mrh.my_pyscf.mcscf import lassi
         mylassi = lassi.LASSI(self, **kwargs)
         return mylassi.kernel(**kwargs)
 
