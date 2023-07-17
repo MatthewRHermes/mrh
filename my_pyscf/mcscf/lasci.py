@@ -732,7 +732,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
         e_cas[state] = e_i
         e_states[state] = e_i + energy_core
         for frag, s in enumerate (solver.fcisolvers):
-            e_loc = np.asarray (getattr (s, 'e_states', e_i))
+            e_loc = np.atleast_1d (getattr (s, 'e_states', e_i))
             e_lexc[frag][state] = e_loc - e_i
         for c1, c2, s, no, ne in zip (ci1, ci_i, solver.fcisolvers, ncas_sub, nelecas_sub):
             ne = solver._get_nelec (s, ne)
