@@ -26,9 +26,6 @@ namespace py = pybind11;
 #define ANTIHERMI    2
 #define SYMMETRIC    3
 
-#define MIN(X, Y)       ((X) < (Y) ? (X) : (Y))
-#define MAX(X, Y)       ((X) > (Y) ? (X) : (Y))
-
 #define TRIU_LOOP(I, J) \
         for (j0 = 0; j0 < n; j0+=BLOCK_DIM) \
                 for (I = 0, j1 = MIN(j0+BLOCK_DIM, n); I < j1; I++) \
