@@ -5,8 +5,6 @@
 
 #include <iostream>
 
-#define MIN(A,B) ((A) < (B) ? (A) : (B))
-
 #define _CUDA_CHECK_ERRORS()               \
 {                                          \
   cudaError err = cudaGetLastError();	   \
