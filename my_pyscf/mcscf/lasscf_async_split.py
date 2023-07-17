@@ -41,7 +41,7 @@ class LASImpurityOrbitalCallable (object):
             Number of electrons (spin-up, spin-down) in the impurity subspace
     '''
 
-    def __init__(self, las, frag_id, frag_orbs, schmidt_thresh=1e-8, nelec_int_thresh=1e-2):
+    def __init__(self, las, frag_id, frag_orbs, schmidt_thresh=1e-8, nelec_int_thresh=1e-5):
         self.mol = las.mol
         self._scf = las._scf
         self.ncore, self.ncas_sub, self.ncas = las.ncore, las.ncas_sub, las.ncas
@@ -318,9 +318,8 @@ class LASImpurityOrbitalCallable (object):
         nelec = neleca + nelecb
         nelec_err = nelec - int (round (nelec))
         if abs(nelec_err)>self.nelec_int_thresh:
-            raise RuntimeError (
-                "Non-integer number of electrons in impurity! (neleca,nelecb)={}".format (
-                    (neleca,nelecb)))
+            self.log.warn ("Non-integer number of electrons in impurity! (neleca,nelecb)=%f,%f",
+                           neleca,nelecb)
         nelec = int (round (nelec))
         return nelec
 
