@@ -41,7 +41,7 @@ class LASImpurityOrbitalCallable (object):
             Number of electrons (spin-up, spin-down) in the impurity subspace
     '''
 
-    def __init__(self, las, frag_id, frag_orbs, schmidt_thresh=1e-8, nelec_int_thresh=1e-4):
+    def __init__(self, las, frag_id, frag_orbs, schmidt_thresh=1e-8, nelec_int_thresh=1e-2):
         self.mol = las.mol
         self._scf = las._scf
         self.ncore, self.ncas_sub, self.ncas = las.ncore, las.ncas_sub, las.ncas
