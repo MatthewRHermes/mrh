@@ -34,7 +34,11 @@ double Device::compute(double * data)
 /* ---------------------------------------------------------------------- */
 
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int nset, int nao)
-{  
+{
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_wget_time();
+#endif
+  
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
 
@@ -47,14 +51,26 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   _vktmp = (double *) malloc(nset*nao*nao*sizeof(double));
   for(int i=0; i<nset*nao*nao; ++i) _vktmp[i] = 0.0;
+
+#ifdef _SIMPLE_TIMER
+  t_array_jk[0] += omp_wget_time() - t0;
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
 
 void Device::free_get_jk()
 {
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_wget_time();
+#endif
+
   if(vj) free(vj);
   if(_vktmp) free(_vktmp);
+ 
+#ifdef _SIMPLE_TIMER
+  t_array_jk[9] += omp_wget_time() - t0;
+#endif 
 }
 
 /* ---------------------------------------------------------------------- */
@@ -67,6 +83,10 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   int num_threads = 1;
 #pragma omp parallel
   num_threads = omp_get_num_threads();
+
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_wget_time();
+#endif
 
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
@@ -93,17 +113,25 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   //vj = (double *) malloc(size_vj * sizeof(double));
   //for(int i=0; i<size_vj; ++i) vj[i] = 0.0;
 
-  printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
-	 info_dmtril.shape[0], info_dmtril.shape[1],
-	 info_eri1.shape[0], info_eri1.shape[1],
-	 info_dmtril.shape[0], info_eri1.shape[0],
-	 info_dmtril.shape[0], info_eri1.shape[1],
-	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
+  // printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
+  // 	 info_dmtril.shape[0], info_dmtril.shape[1],
+  // 	 info_eri1.shape[0], info_eri1.shape[1],
+  // 	 info_dmtril.shape[0], info_eri1.shape[0],
+  // 	 info_dmtril.shape[0], info_eri1.shape[1],
+  // 	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
+
+#ifdef _SIMPLE_TIMER
+  t_array_jk[1] += omp_wget_time() - t0;
+#endif
   
   if(with_j) {
 
+#ifdef _SIMPLE_TIMER
+    double t0 = omp_wget_time();
+#endif
+    
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
-#if 1
+
     for(int i=0; i<info_dmtril.shape[0]; ++i)
       for(int j=0; j<info_eri1.shape[0]; ++j) {
 
@@ -117,10 +145,13 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 	}
 	rho[i * info_eri1.shape[0] + j] = val;
       }
+    
+#ifdef _SIMPLE_TIMER
+    double t1 = omp_wget_time();
 #endif
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
-#if 1
+
     for(int i=0; i<info_dmtril.shape[0]; ++i)
       for(int j=0; j<info_eri1.shape[1]; ++j) {
 
@@ -133,12 +164,17 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 	  val += rho[indx1] * eri1[indx2];
 	  //printf("ijk= %i %i %i  indx= %i %i %i  rho= %f  eri1= %f  vj= %f\n",i,j,k,indx,indx1,indx2,rho[indx1],eri1[indx2],vj[indx]);
 	}
-	vj[i * info_eri1.shape[1] + j] += val;
+	//	vj[i * info_eri1.shape[1] + j] += val;
+	_vj[i * info_eri1.shape[1] + j] += val;
       }
+
+#ifdef _SIMPLE_TIMER
+    t_array_jk[2] += t1 - t0;
+    t_array_jk[3] += omp_wget_time() - t1;
 #endif
   }
 
-#if 1
+#if 0
   double err = 0.0;
   for(int i=0; i<size_vj; ++i) {
     err += (vj[i] - _vj[i]) * (vj[i] - _vj[i]);
@@ -151,6 +187,14 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   }
 #endif
 
+#if 0
+  for(int i=0; i<size_vj; ++i) _vj[i] = vj[i];
+#endif
+
+#ifdef _SIMPLE_TIMER
+  t0 = omp_wget_time();
+#endif
+    
   double * buf_tmp = (double*) malloc(2 * blksize * nao * nao * sizeof(double));
   for(int i=0; i<2*blksize*nao*nao; ++i) buf_tmp[i] = 0.0;
   double * buf1 = buf_tmp;
@@ -158,11 +202,14 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   //  double * _vktmp = (double *) malloc(nset*nao*nao*sizeof(double));
   //  for(int i=0; i<nset*nao*nao; ++i) _vktmp[i] = 0.0;
 
-  printf("LIBGPU::shape: buf= (%i,%i,%i,%i)  vk= (%i,%i,%i)\n",2,blksize,nao,nao,nset,nao,nao);
+  //printf("LIBGPU::shape: buf= (%i,%i,%i,%i)  vk= (%i,%i,%i)\n",2,blksize,nao,nao,nset,nao,nao);
+
+#ifdef _SIMPLE_TIMER
+  t_array_jk[4] += omp_wget_time() - t0;
+#endif
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
-#if 1
     py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, 26, 26)
     py::buffer_info info_dms = _dms.request(); // 2D
   
@@ -185,12 +232,21 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 
     int orbs_slice[4] = {0, nao, 0, nao};
     double * dms = static_cast<double*>(info_dms.ptr);
+
+#ifdef _SIMPLE_TIMER
+    t0 = omp_wget_time();
+#endif
     
     fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0);
 
-#if 1
+#ifdef _SIMPLE_TIMER
+    double t1 = omp_wget_time();
+    t_array_jk[5] += t1 - t0;
+#endif
+    
+#if 0
     double err = 0.0;
-    for(int i=0; i<blksize*nao*nao; ++i) {
+    for(int i=0; i<naux*nao*nao; ++i) {
       err += (buf1[i]-_buf[i]) * (buf1[i]-_buf[i]);
       //      if(i < 2*nao) printf("i= %i  buf1_gpu= %f  buf1_ref= %f\n",i,buf1[i],_buf[i]);
     }
@@ -224,7 +280,12 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
       
     }
 
-#if 1
+#ifdef _SIMPLE_TIMER
+    double t2 = omp_wget_time();
+    t_array_jk[6] += t2 - t1;
+#endif
+    
+#if 0
     err = 0.0;
     for(int i=0; i<naux*nao*nao; ++i) {
       int indx = blksize*nao*nao + i;
@@ -255,7 +316,8 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 
 	  // it's almost like python has swapped order of first two indices in vk[i,j,k] to vk[j,i,k]
 
-	  _vktmp[irow*nset*nao + indxK*nao + icol] += val;
+	  //	  _vktmp[irow*nset*nao + indxK*nao + icol] += val;
+	  vk[irow*nset*nao + indxK*nao + icol] += val;
 	  
 	  // if(irow == 0 && icol == 0)
 	  //   printf("i= %i  ijk= %i %i val= %f\n",i,irow,icol,val);
@@ -267,7 +329,12 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
       // printf("\nLIBGPU::buf2= \n");
       // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,buf2[k*nao + 0]);
     }
+
+#ifdef _SIMPLE_TIMER
+    double t3 = omp_wget_time();
+    t_array_jk[7] += t3 - t2;
 #endif
+    
   }
   
   // printf("LIBGPU::vk[0,0,:]= \n");
@@ -283,7 +350,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,vk[nao*nao + nao + k]);
 
   
-#if 1
+#if 0
   double vk_err = 0.0;
   for(int indxK=0; indxK<nset; ++indxK) {
     //    printf("indxK= %i  nset= %i\n",indxK,nset);
@@ -301,11 +368,23 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   printf("nset= %i  vk_err= %f\n",nset, vk_err);
   if(vk_err > 0.1) abort();
 #endif
+
+#if 0
+  for(int i=0; i<nset*nao*nao; ++i) vk[i] = _vktmp[i];
+#endif
+  
+#ifdef _SIMPLE_TIMER
+  t0 = omp_wget_time();
+#endif
   
   //free(_vktmp);
   free(buf_tmp);
   free(rho);
-  //free(vj);  
+  //free(vj);
+  
+#ifdef _SIMPLE_TIMER
+  t_array_jk[8] += omp_wget_time() - t0;
+#endif
 }
   
 /* ---------------------------------------------------------------------- */
