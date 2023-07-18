@@ -12,6 +12,7 @@ CXXFLAGS += -fPIC
 CXXFLAGS += $(PYTHON_INC)
 
 CXXFLAGS += -D_USE_CPU
+#CXXFLAGS += -D_SIMPLE_TIMER
 
 LD = $(FC)
 LDFLAGS = -fopenmp -fPIC -shared
