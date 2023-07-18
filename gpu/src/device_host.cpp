@@ -36,7 +36,7 @@ double Device::compute(double * data)
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int nset, int nao)
 {
 #ifdef _SIMPLE_TIMER
-  double t0 = omp_wget_time();
+  double t0 = omp_get_wtime();
 #endif
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
@@ -314,7 +314,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 	  }
 	  //	  _vktmp[indxK*nao*nao + irow*nao + icol] += val;
 
-	  // it's almost like python has swapped order of first two indices in vk[i,j,k] to vk[j,i,k]
+	  // seems like python has swapped order of first two indices in vk[i,j,k] to vk[j,i,k]
 
 	  //	  _vktmp[irow*nset*nao + indxK*nao + icol] += val;
 	  vk[irow*nset*nao + indxK*nao + icol] += val;
