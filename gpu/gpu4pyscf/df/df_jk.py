@@ -120,59 +120,40 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
         buf = numpy.empty((2,blksize,nao,nao))
         
-        print(" -- -- -- blksize= ", blksize, " blockdim= ", dfobj.blockdim, "  nao= ", nao)
+#        print(" -- -- -- blksize= ", blksize, " blockdim= ", dfobj.blockdim, "  nao= ", nao)
         
         count = 0
         for eri1 in dfobj.loop(blksize):
             naux, nao_pair = eri1.shape
             if count == 0:
+                vj = numpy.zeros_like(dmtril)
                 libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, nset, nao)
-            print("count= ", count, " naux= ", naux, "  nao_pair= ", nao_pair, " nao= ", nao, " blksize= ", blksize, " nset= ", nset)
+#            print("count= ", count, " naux= ", naux, "  nao_pair= ", nao_pair, " nao= ", nao, " blksize= ", blksize, " nset= ", nset)
             count+=1
             
-            #if gpu:
-            #    vj = numpy.zeros_like(dmtril)
-            #    libgpu.libgpu_compute_get_jk(gpu, eri1, dmtril, vj, buf, dms, vk, with_j, blksize, nset, naux, nao)
+            if gpu:
+                libgpu.libgpu_compute_get_jk(gpu, eri1, dmtril, vj, buf, dms, vk, with_j, blksize, nset, naux, nao)
 
-            #else:
+            else:
                 
-            if with_j:
-                rho = numpy.einsum('ix,px->ip', dmtril, eri1)
-                vj += numpy.einsum('ip,px->ix', rho, eri1)
+                if with_j:
+                    rho = numpy.einsum('ix,px->ip', dmtril, eri1)
+                    vj += numpy.einsum('ip,px->ix', rho, eri1)
 
-            print("shape:: dmtril= ", dmtril.shape, "eri1= ", eri1.shape, "rho= ", rho.shape, " vj= ",vj.shape)
-            for k in range(nset):
-                print("k= ", k, " dms= ", dms[k].shape)
-                buf1 = buf[0,:naux]
-                fdrv(ftrans, fmmm,
-                     buf1.ctypes.data_as(ctypes.c_void_p),
-                     eri1.ctypes.data_as(ctypes.c_void_p),
-                     dms[k].ctypes.data_as(ctypes.c_void_p),
-                     ctypes.c_int(naux), *rargs)
+                    print("shape:: dmtril= ", dmtril.shape, "eri1= ", eri1.shape, "rho= ", rho.shape, " vj= ",vj.shape)
+                    for k in range(nset):
+                        print("k= ", k, " dms= ", dms[k].shape)
+                        buf1 = buf[0,:naux]
+                        fdrv(ftrans, fmmm,
+                             buf1.ctypes.data_as(ctypes.c_void_p),
+                             eri1.ctypes.data_as(ctypes.c_void_p),
+                             dms[k].ctypes.data_as(ctypes.c_void_p),
+                             ctypes.c_int(naux), *rargs)
                 
-                buf2 = lib.unpack_tril(eri1, out=buf[1])
-
-                #HACK
-#                buf1 = buf1[0,:,:]
-#                buf2 = buf2[0,:,:]
+                        buf2 = lib.unpack_tril(eri1, out=buf[1])
                 
-                tmp1 = buf1.reshape(-1,nao).T
-                tmp2 = buf2.reshape(-1,nao)
-                #HACK
+                        vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
                 
-                vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
-
-                print("k= ", k, " shape:: buf12= ", buf1.shape, buf2.shape, " tmp12= ", tmp1.shape, tmp2.shape, "vk= ", vk.shape)
-#                print("tmp1[0,:]= ", tmp1[0,:])
-#                print("tmp2[:,0]= ", tmp2[:,0])
-#                print("dot= ", numpy.dot(tmp1[0,:], tmp2[:,0]))
-            if nset == 2:
-                print("vk[0,0,:]= ", vk[0,0,:])
-                print("vk[0,1,:]= ", vk[0,1,:])
-                print("vk[1,0,:]= ", vk[1,0,:])
-                print("vk[1,1,:]= ", vk[1,1,:])
-                
-            libgpu.libgpu_compute_get_jk(gpu, eri1, dmtril, vj, buf, dms, vk, with_j, blksize, nset, naux, nao)
         libgpu.libgpu_free_get_jk(gpu)
         
         t1 = log.timer_debug1('jk', *t1)

@@ -111,6 +111,7 @@ private:
   double total_t;
 
   double * t_array;
+  double * t_array_jk;
 #endif
 };
 
