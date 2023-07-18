@@ -140,19 +140,19 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                     rho = numpy.einsum('ix,px->ip', dmtril, eri1)
                     vj += numpy.einsum('ip,px->ix', rho, eri1)
 
-                    print("shape:: dmtril= ", dmtril.shape, "eri1= ", eri1.shape, "rho= ", rho.shape, " vj= ",vj.shape)
-                    for k in range(nset):
-                        print("k= ", k, " dms= ", dms[k].shape)
-                        buf1 = buf[0,:naux]
-                        fdrv(ftrans, fmmm,
-                             buf1.ctypes.data_as(ctypes.c_void_p),
-                             eri1.ctypes.data_as(ctypes.c_void_p),
-                             dms[k].ctypes.data_as(ctypes.c_void_p),
-                             ctypes.c_int(naux), *rargs)
-                
-                        buf2 = lib.unpack_tril(eri1, out=buf[1])
-                
-                        vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
+#                print("shape:: dmtril= ", dmtril.shape, "eri1= ", eri1.shape, "rho= ", rho.shape, " vj= ",vj.shape)
+                for k in range(nset):
+                    print("k= ", k, " dms= ", dms[k].shape)
+                    buf1 = buf[0,:naux]
+                    fdrv(ftrans, fmmm,
+                         buf1.ctypes.data_as(ctypes.c_void_p),
+                         eri1.ctypes.data_as(ctypes.c_void_p),
+                         dms[k].ctypes.data_as(ctypes.c_void_p),
+                         ctypes.c_int(naux), *rargs)
+                    
+                    buf2 = lib.unpack_tril(eri1, out=buf[1])
+
+                    vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
                 
         libgpu.libgpu_free_get_jk(gpu)
         
