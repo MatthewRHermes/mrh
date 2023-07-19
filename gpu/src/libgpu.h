@@ -24,7 +24,7 @@ extern "C"
   double libgpu_compute(void *, py::array_t<double>);
 
   void libgpu_init_get_jk(void *,
-			  py::array_t<double>, py::array_t<double>, int, int);
+			  py::array_t<double>, py::array_t<double>, int, int, int);
   
   void libgpu_free_get_jk(void *);
   

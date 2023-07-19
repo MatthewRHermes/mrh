@@ -41,7 +41,7 @@ Device::~Device()
   printf("LIBGPU::orbital_response\n");
   for(int i=0; i<14; ++i) printf("i= %i  t_array= %f s\n",i,t_array[i]);
 
-  printf("LIBGPU::et_jk\n");
+  printf("LIBGPU::get_jk\n");
   for(int i=0; i<10; ++i) printf("i= %i  t_array= %f s\n",i,t_array_jk[i]);
   
   free(t_array);

@@ -38,7 +38,7 @@ double Device::compute(double * data)
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int nset, int nao)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int blksize, int nset, int nao)
 {
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
@@ -57,6 +57,9 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   _vktmp = (double *) malloc(nset*nao*nao*sizeof(double));
   for(int i=0; i<nset*nao*nao; ++i) _vktmp[i] = 0.0;
 
+  buf3 = (double *) malloc(blksize*nao*nao*sizeof(double)); // (nao, blksize*nao)
+  buf4 = (double *) malloc(blksize*nao*nao*sizeof(double)); // (blksize*nao, nao)
+  
 #ifdef _SIMPLE_TIMER
   t_array_jk[0] += omp_get_wtime() - t0;
 #endif
@@ -72,7 +75,10 @@ void Device::free_get_jk()
 
   if(vj) free(vj);
   if(_vktmp) free(_vktmp);
- 
+
+  free(buf3);
+  free(buf4);
+  
 #ifdef _SIMPLE_TIMER
   t_array_jk[9] += omp_get_wtime() - t0;
 #endif 
@@ -316,8 +322,6 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   
     // buf3 = buf1.reshape(-1,nao).T
 
-    double * buf3 = (double *) malloc(blksize*nao*nao*sizeof(double)); // (nao, blksize*nao)
-
     for(int i=0; i<naux; ++i)
       for(int j=0; j<nao; ++j)
 	for(int k=0; k<nao; ++k) {
@@ -337,7 +341,6 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     // buf4 = buf2.reshape(-1,nao)
     
     double * buf2 = &(buf_tmp[blksize * nao * nao]);
-    double * buf4 = (double *) malloc(blksize*nao*nao*sizeof(double)); // (blksize*nao, nao)
     
     for(int i=0; i<naux; ++i)
       for(int j=0; j<nao; ++j)
@@ -376,11 +379,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     //    double * vkk = &(_vktmp[indxK * nao]);
     double * vkk = &(vk[indxK * nao]);
     
-    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf4, &ldb, buf3, &lda, &beta, vkk, &ldc);
-    
-    free(buf3);
-    free(buf4);
-    
+    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf4, &ldb, buf3, &lda, &beta, vkk, &ldc);    
 #endif
 
 #if 0
