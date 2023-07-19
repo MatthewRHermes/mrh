@@ -74,6 +74,7 @@ private:
   double * vj;
   double * _vktmp;
 
+  double * buf_tmp;
   double * buf3;
   double * buf4;
   

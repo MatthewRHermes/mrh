@@ -57,6 +57,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   _vktmp = (double *) malloc(nset*nao*nao*sizeof(double));
   for(int i=0; i<nset*nao*nao; ++i) _vktmp[i] = 0.0;
 
+  buf_tmp = (double*) malloc(2 * blksize * nao * nao * sizeof(double));
+  
   buf3 = (double *) malloc(blksize*nao*nao*sizeof(double)); // (nao, blksize*nao)
   buf4 = (double *) malloc(blksize*nao*nao*sizeof(double)); // (blksize*nao, nao)
   
@@ -76,11 +78,12 @@ void Device::free_get_jk()
   if(vj) free(vj);
   if(_vktmp) free(_vktmp);
 
+  free(buf_tmp);
   free(buf3);
   free(buf4);
   
 #ifdef _SIMPLE_TIMER
-  t_array_jk[9] += omp_get_wtime() - t0;
+  t_array_jk[10] += omp_get_wtime() - t0;
 #endif 
 }
 
@@ -93,7 +96,9 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 {
   int num_threads = 1;
 #pragma omp parallel
-  num_threads = omp_get_num_threads();
+  {
+    num_threads = omp_get_num_threads();
+  }
 
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
@@ -206,9 +211,8 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #ifdef _SIMPLE_TIMER
   t0 = omp_get_wtime();
 #endif
-    
-  double * buf_tmp = (double*) malloc(2 * blksize * nao * nao * sizeof(double));
-  for(int i=0; i<2*blksize*nao*nao; ++i) buf_tmp[i] = 0.0;
+ 
+  //  for(int i=0; i<2*blksize*nao*nao; ++i) buf_tmp[i] = 0.0;
   double * buf1 = buf_tmp;
 
   //printf("LIBGPU::shape: buf= (%i,%i,%i,%i)  vk= (%i,%i,%i)\n",2,blksize,nao,nao,nset,nao,nao);
@@ -365,6 +369,11 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     // C is (m, n) matrix
     // Column-ordered: (A.B)^T = B^T.A^T
     
+#ifdef _SIMPLE_TIMER
+    double t3 = omp_get_wtime();
+    t_array_jk[7] += t3 - t2;
+#endif
+    
     const double alpha = 1.0;
     const double beta = 1.0; // 0 when count == 0
     
@@ -455,8 +464,8 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #endif
    
 #ifdef _SIMPLE_TIMER
-    double t3 = omp_get_wtime();
-    t_array_jk[7] += t3 - t2;
+    double t4 = omp_get_wtime();
+    t_array_jk[8] += t4 - t3;
 #endif 
   }
   
@@ -500,12 +509,12 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #endif
   
   //free(_vktmp);
-  free(buf_tmp);
+  //  free(buf_tmp);
   free(rho);
   //free(vj);
   
 #ifdef _SIMPLE_TIMER
-  t_array_jk[8] += omp_get_wtime() - t0;
+  t_array_jk[9] += omp_get_wtime() - t0;
 #endif
 }
   
