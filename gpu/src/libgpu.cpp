@@ -81,10 +81,10 @@ double libgpu_compute(void * ptr, py::array_t<double> array)
 
 void libgpu_init_get_jk(void * ptr,
 			py::array_t<double> eri1, py::array_t<double> dmtril, 
-			int nset, int nao)
+			int blksize, int nset, int nao)
 { 
   Device * dev = (Device *) ptr;
-  dev->init_get_jk(eri1, dmtril, nset, nao);
+  dev->init_get_jk(eri1, dmtril, blksize, nset, nao);
 }
 
 /* ---------------------------------------------------------------------- */

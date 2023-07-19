@@ -127,7 +127,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             naux, nao_pair = eri1.shape
             if count == 0:
                 vj = numpy.zeros_like(dmtril)
-                libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, nset, nao)
+                libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao)
 #            print("count= ", count, " naux= ", naux, "  nao_pair= ", nao_pair, " nao= ", nao, " blksize= ", blksize, " nset= ", nset)
             count+=1
             
