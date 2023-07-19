@@ -54,7 +54,8 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             nb = cistring.num_strings (no, nelecb)
             zguess = np.zeros ((solver.nroots,na,nb))
             cguess = np.asarray (ci0[ix]).reshape (-1,na,nb)
-            zguess[:cguess.shape[0],:,:] = cguess[:,:,:]
+            ngroots = min (zguess.shape[0], cguess.shape[0])
+            zguess[:ngroots,:,:] = cguess[:ngroots,:,:]
             ci1.append (zguess)
             if solver.nroots>na*nb:
                 raise RuntimeError ("{} roots > {} determinants in fragment {}".format (

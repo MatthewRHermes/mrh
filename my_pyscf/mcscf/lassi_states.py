@@ -229,6 +229,21 @@ def count_excitations (las0):
     log.timer ("LAS excitation counting", *t)
     return nroots0, ncalls
 
+def filter_spaces (las, max_charges=None, min_charges=None, max_smults=None, min_smults=None):
+    log = logger.new_logger (las, las.verbose)
+    from mrh.my_pyscf.mcscf.lasci import get_space_info
+    charges, spins, smults, wfnsyms = get_space_info (las)
+    idx = np.ones (las.nroots, dtype=bool)
+    for i in range (las.nroots):
+        idx[i] = idx[i] & ((max_charges is None) or np.all(charges[i]<=max_charges))
+        idx[i] = idx[i] & ((min_charges is None) or np.all(charges[i]>=min_charges))
+        idx[i] = idx[i] & ((max_smults is None) or np.all(smults[i]<=max_smults))
+        idx[i] = idx[i] & ((min_smults is None) or np.all(smults[i]>=min_smults))
+    weights = list (np.asarray (las.weights)[idx])
+    if 1-np.sum (weights) > 1e-3: log.warn ("Filtered LAS spaces have less than unity weight!")
+    return las.state_average (weights=weights, charges=charges[idx], spins=spins[idx],
+                              smults=smults[idx], wfnsyms=wfnsyms[idx])
+
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h4n4_struct import structure as struct
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
