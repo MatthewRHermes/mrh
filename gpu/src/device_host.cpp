@@ -373,7 +373,8 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     const int ldb = nao;
     const int ldc = nset * nao;
 
-    double * vkk = &(_vktmp[indxK * nao]);
+    //    double * vkk = &(_vktmp[indxK * nao]);
+    double * vkk = &(vk[indxK * nao]);
     
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf4, &ldb, buf3, &lda, &beta, vkk, &ldc);
     
@@ -381,7 +382,8 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     free(buf4);
     
 #endif
-    
+
+#if 0
     //    double * buf2 = &(buf_tmp[blksize * nao * nao]);
     buf2 = &(buf_tmp[blksize * nao * nao]);
     
@@ -414,6 +416,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
       // printf("\nLIBGPU::buf2= \n");
       // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,buf2[k*nao + 0]);
     }
+#endif
     
 #if 0
     // for(int irow=0; irow<1; ++irow)
@@ -451,13 +454,12 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     printf("nset= %i  vk_err= %f\n",nset, vk_err);
     if(vk_err > 1e-8) abort();
 #endif
-    
-  }
-  
+   
 #ifdef _SIMPLE_TIMER
-  double t3 = omp_get_wtime();
-  t_array_jk[7] += t3 - t2;
-#endif
+    double t3 = omp_get_wtime();
+    t_array_jk[7] += t3 - t2;
+#endif 
+  }
   
   // printf("LIBGPU::vk[0,0,:]= \n");
   // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,vk[k]);
@@ -471,8 +473,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   // printf("LIBGPU::vk[1,1,:]= \n");
   // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,vk[nao*nao + nao + k]);
 
-  
-#if 1
+#if 0
   double vk_err = 0.0;
   for(int indxK=0; indxK<nset; ++indxK) {
     //    printf("indxK= %i  nset= %i\n",indxK,nset);

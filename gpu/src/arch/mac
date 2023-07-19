@@ -15,6 +15,7 @@ CXXFLAGS += $(PYTHON_INC)
 CXXFLAGS += -fopenmp
 
 CXXFLAGS += -D_USE_CPU
+#CXXFLAGS += -D_SIMPLE_TIMER
 
 LD = $(CXX)
 LDFLAGS = -fopenmp -fPIC -undefined dynamic_lookup -shared
