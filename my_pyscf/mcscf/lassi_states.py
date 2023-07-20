@@ -229,16 +229,30 @@ def count_excitations (las0):
     log.timer ("LAS excitation counting", *t)
     return nroots0, ncalls
 
-def filter_spaces (las, max_charges=None, min_charges=None, max_smults=None, min_smults=None):
+def filter_spaces (las, max_charges=None, min_charges=None, max_smults=None, min_smults=None,
+                   target_any_smult=None, target_all_smult=None):
     log = logger.new_logger (las, las.verbose)
     from mrh.my_pyscf.mcscf.lasci import get_space_info
     charges, spins, smults, wfnsyms = get_space_info (las)
     idx = np.ones (las.nroots, dtype=bool)
+    if target_any_smult is not None:
+        target_any_s2 = np.asarray (target_any_smult)-1
+    if target_all_smult is not None:
+        target_all_s2 = np.asarray (target_all_smult)-1
     for i in range (las.nroots):
         idx[i] = idx[i] & ((max_charges is None) or np.all(charges[i]<=max_charges))
         idx[i] = idx[i] & ((min_charges is None) or np.all(charges[i]>=min_charges))
         idx[i] = idx[i] & ((max_smults is None) or np.all(smults[i]<=max_smults))
         idx[i] = idx[i] & ((min_smults is None) or np.all(smults[i]>=min_smults))
+        s2 = smults[i]-1
+        max_s2 = np.sum (s2) 
+        min_s2 = 2*np.amax (s2) - max_s2
+        if target_any_smult is not None:
+            idx[i] = idx[i] & np.any (target_any_s2>=min_s2)
+            idx[i] = idx[i] & np.any (target_any_s2<=max_s2)
+        if target_all_smult is not None:
+            idx[i] = idx[i] & np.all (target_all_s2>=min_s2)
+            idx[i] = idx[i] & np.all (target_all_s2<=max_s2)
     weights = list (np.asarray (las.weights)[idx])
     if 1-np.sum (weights) > 1e-3: log.warn ("Filtered LAS spaces have less than unity weight!")
     return las.state_average (weights=weights, charges=charges[idx], spins=spins[idx],
