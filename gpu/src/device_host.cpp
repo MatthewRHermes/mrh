@@ -83,7 +83,7 @@ void Device::free_get_jk()
   free(buf4);
   
 #ifdef _SIMPLE_TIMER
-  t_array_jk[10] += omp_get_wtime() - t0;
+  t_array_jk[9] += omp_get_wtime() - t0;
 #endif 
 }
 
@@ -149,6 +149,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
 
+#pragma omp parallel for collapse(2)
     for(int i=0; i<info_dmtril.shape[0]; ++i)
       for(int j=0; j<info_eri1.shape[0]; ++j) {
 
@@ -169,6 +170,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
 
+#pragma omp parallel for collapse(2)
     for(int i=0; i<info_dmtril.shape[0]; ++i)
       for(int j=0; j<info_eri1.shape[1]; ++j) {
 
@@ -207,19 +209,8 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #if 0
   for(int i=0; i<size_vj; ++i) _vj[i] = vj[i];
 #endif
-
-#ifdef _SIMPLE_TIMER
-  t0 = omp_get_wtime();
-#endif
  
-  //  for(int i=0; i<2*blksize*nao*nao; ++i) buf_tmp[i] = 0.0;
   double * buf1 = buf_tmp;
-
-  //printf("LIBGPU::shape: buf= (%i,%i,%i,%i)  vk= (%i,%i,%i)\n",2,blksize,nao,nao,nset,nao,nao);
-
-#ifdef _SIMPLE_TIMER
-  t_array_jk[4] += omp_get_wtime() - t0;
-#endif
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
@@ -254,7 +245,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 
 #ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
-    t_array_jk[5] += t1 - t0;
+    t_array_jk[4] += t1 - t0;
 #endif
     
 #if 0
@@ -268,6 +259,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     
     // buf2 = lib.unpack_tril(eri1, out=buf[1])
 
+#pragma omp parallel for
     for(int i=0; i<naux; ++i) {
       // unpack lower-triangle to square
       
@@ -295,7 +287,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 
 #ifdef _SIMPLE_TIMER
     double t2 = omp_get_wtime();
-    t_array_jk[6] += t2 - t1;
+    t_array_jk[5] += t2 - t1;
 #endif
     
 #if 0
@@ -325,7 +317,11 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 //   0.08230595  0.         -0.23917498  0.13808774]
   
     // buf3 = buf1.reshape(-1,nao).T
-
+    // buf4 = buf2.reshape(-1,nao)
+    
+    double * buf2 = &(buf_tmp[blksize * nao * nao]);
+    
+#pragma omp parallel for
     for(int i=0; i<naux; ++i)
       for(int j=0; j<nao; ++j)
 	for(int k=0; k<nao; ++k) {
@@ -334,27 +330,12 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 	  const int indx3 = k * naux*nao + (i*nao+j);
 	  
 	  buf3[indx3] = buf1[indx1];
-	}
-
-    // for(int i=0; i<2; ++i)
-    //   for(int j=0; j<10; ++j) {
-    // 	const int indx = i * naux*nao + j;
-    // 	printf("buf3: (%i,%i) indx= %i  val= %f\n",i,j,indx,buf3[indx]);
-    //   }
-    
-    // buf4 = buf2.reshape(-1,nao)
-    
-    double * buf2 = &(buf_tmp[blksize * nao * nao]);
-    
-    for(int i=0; i<naux; ++i)
-      for(int j=0; j<nao; ++j)
-	for(int k=0; k<nao; ++k) {
-
+	  
 	  const int indx2 = i*nao*nao + j*nao + k;
 	  const int indx4 = (i*nao+j)*nao + k;
 	  
 	  buf4[indx4] = buf2[indx2];
-	}    
+	}
 
     // for(int i=0; i<2; ++i)
     //   for(int j=0; j<10; ++j) {
@@ -371,7 +352,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     
 #ifdef _SIMPLE_TIMER
     double t3 = omp_get_wtime();
-    t_array_jk[7] += t3 - t2;
+    t_array_jk[6] += t3 - t2;
 #endif
     
     const double alpha = 1.0;
@@ -465,7 +446,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
    
 #ifdef _SIMPLE_TIMER
     double t4 = omp_get_wtime();
-    t_array_jk[8] += t4 - t3;
+    t_array_jk[7] += t4 - t3;
 #endif 
   }
   
@@ -514,7 +495,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   //free(vj);
   
 #ifdef _SIMPLE_TIMER
-  t_array_jk[9] += omp_get_wtime() - t0;
+  t_array_jk[8] += omp_get_wtime() - t0;
 #endif
 }
   
