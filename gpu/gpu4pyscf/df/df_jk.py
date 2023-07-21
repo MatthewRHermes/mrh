@@ -154,7 +154,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
                     vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
                 
-        libgpu.libgpu_free_get_jk(gpu)
+        #libgpu.libgpu_free_get_jk(gpu)
         
         t1 = log.timer_debug1('jk', *t1)
 

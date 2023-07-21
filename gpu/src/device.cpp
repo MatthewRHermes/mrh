@@ -17,12 +17,25 @@ Device::Device()
   partial = nullptr;
   d_partial = nullptr;
 
+  size_rho = 0;
+  size_vj = 0;
+  size_vk = 0;
+  size_buf = 0;
+
+  rho = nullptr;
+  vj = nullptr;
+  _vktmp = nullptr;
+
+  buf_tmp = nullptr;
+  buf3 = nullptr;
+  buf4 = nullptr;
+  
 #ifdef _SIMPLE_TIMER
   t_array = (double *) malloc(14 * sizeof(double));
   for(int i=0; i<14; ++i) t_array[i] = 0.0;
   
-  t_array_jk = (double* ) malloc(10 * sizeof(double));
-  for(int i=0; i<10; ++i) t_array_jk[i] = 0.0;
+  t_array_jk = (double* ) malloc(9 * sizeof(double));
+  for(int i=0; i<9; ++i) t_array_jk[i] = 0.0;
 #endif
 }
 
@@ -38,11 +51,27 @@ Device::~Device()
   free(partial);
 
 #ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+
+  free(rho);
+  free(vj);
+  free(_vktmp);
+
+  free(buf_tmp);
+  free(buf3);
+  free(buf4);
+
+#ifdef _SIMPLE_TIMER
+  t_array_jk[8] += omp_get_wtime() - t0;
+#endif
+  
+#ifdef _SIMPLE_TIMER
   printf("LIBGPU::orbital_response\n");
   for(int i=0; i<14; ++i) printf("i= %i  t_array= %f s\n",i,t_array[i]);
 
   printf("LIBGPU::get_jk\n");
-  for(int i=0; i<10; ++i) printf("i= %i  t_array= %f s\n",i,t_array_jk[i]);
+  for(int i=0; i<9; ++i) printf("i= %i  t_array= %f s\n",i,t_array_jk[i]);
   
   free(t_array);
   free(t_array_jk);
