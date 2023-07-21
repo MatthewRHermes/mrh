@@ -515,27 +515,39 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
   envs.ao_loc = ao_loc;
   envs.mo_coeff = mo_coeff;
   
-// #pragma omp parallel default(none) shared(vout, vin, nij, envs, nao, orbs_slice, _buf)
-//   {
-//     const int it = omp_get_thread_num();
-//     double * buf = &(_buf[it * 4 * nao * nao]);
-// #pragma omp for schedule(dynamic)
-//     for (int i = 0; i < nij; i++) ftrans(i, vout, vin, buf, &envs);
-//   }
+  const int ij_pair = envs.bra_count * nao; //fmmm(NULL, NULL, buf, &envs, OUTPUTIJ);
+  const int nao2 = nao * (nao + 1) / 2; //fmmm(NULL, NULL, buf, &envs, INPUT_IJ);
+    
+#pragma omp parallel for
+  for (int i = 0; i < nij; i++) {
+    const int it = omp_get_thread_num();
+    double * buf = &(_buf[it * 4 * nao * nao]);
 
-  #pragma omp parallel default(none)					\
-  shared(vout, vin, nij, envs, nao, orbs_slice)
-  {
-    int i;
+    int _i, _j, _ij;
+    double * tril = vin + nao2*i;
+    for (_ij = 0, _i = 0; _i < nao; _i++) 
+      for (_j = 0; _j <= _i; _j++, _ij++) buf[_i*nao+_j] = tril[_ij];
+    
+#if 1
+    const double D0 = 0;
+    const double D1 = 1;
+    const char SIDE_L = 'L';
+    const char UPLO_U = 'U';
+    int i_start = envs.bra_start;
     int i_count = envs.bra_count;
-    int j_count = envs.ket_count;
-    double *buf = (double *) malloc(sizeof(double) * (nao+i_count) * (nao+j_count));
-#pragma omp for schedule(dynamic)
-    for (i = 0; i < nij; i++) {
-      ftrans(i, vout, vin, buf, &envs);
-    }
-    free(buf);
+
+    double * _vout = vout + ij_pair*i;
+    
+    dsymm_(&SIDE_L, &UPLO_U, &nao, &i_count,
+	   &D1, buf, &nao, mo_coeff+i_start*nao, &nao,
+	   &D0, _vout, &nao);
+    
+#else
+    ftrans(i, vout, vin, buf, &envs);
+#endif
+    
   }
+  
 }
 #else
 void Device::fdrv(double *vout, double *vin, double *mo_coeff,
