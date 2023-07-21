@@ -51,7 +51,7 @@ public :
   void get_jk(py::array_t<double>, py::array_t<double>, py::array_t<double>,
 	      py::array_t<double>,
 	      py::list &, py::array_t<double>,
-	      int, int, int, int, int);
+	      int, int, int, int, int, int);
   
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
