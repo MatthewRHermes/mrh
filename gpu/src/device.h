@@ -75,6 +75,7 @@ private:
   int size_vj;
   int size_vk;
   int size_buf;
+  int size_fdrv;
 
   double * rho;
   double * vj;
@@ -83,6 +84,7 @@ private:
   double * buf_tmp;
   double * buf3;
   double * buf4;
+  double * buf_fdrv;
   
   struct my_AO2MOEnvs {
     int natm;
@@ -103,10 +105,14 @@ private:
     //        CINTOpt *cintopt;
     //        CVHFOpt *vhfopt;
   };
-  
+#if 1
+  void fdrv(double *, double *, double *,
+	    int, int, int *, int *, int, double *);
+#else
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int);
-
+#endif
+  
   void ftrans(int,
 	      double *, double *, double *,
 	      struct my_AO2MOEnvs *);

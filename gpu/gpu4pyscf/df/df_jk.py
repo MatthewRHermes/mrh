@@ -32,7 +32,7 @@ import libgpu
 DEBUG = False
 
 def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
-    print(" -- -- Inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk() w/ use_gpu= ", dfobj.mol.use_gpu, " with_jk= ", with_j, with_k)
+#    print(" -- -- Inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk() w/ use_gpu= ", dfobj.mol.use_gpu, " with_jk= ", with_j, with_k)
     gpu = dfobj.mol.use_gpu
     
     assert (with_j or with_k)
@@ -110,7 +110,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                     vk[k] += lib.dot(buf1.T, buf1)
             t1 = log.timer_debug1('jk', *t1)
     else:
-        print(" -- -- Inside else branch inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk()")
+#        print(" -- -- Inside else branch inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk()")
         #:vk = numpy.einsum('pij,jk->pki', cderi, dm)
         #:vk = numpy.einsum('pki,pkj->ij', cderi, vk)
         rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao),
@@ -142,7 +142,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
 #                print("shape:: dmtril= ", dmtril.shape, "eri1= ", eri1.shape, "rho= ", rho.shape, " vj= ",vj.shape)
                 for k in range(nset):
-                    print("k= ", k, " dms= ", dms[k].shape)
+#                    print("k= ", k, " dms= ", dms[k].shape)
                     buf1 = buf[0,:naux]
                     fdrv(ftrans, fmmm,
                          buf1.ctypes.data_as(ctypes.c_void_p),
@@ -268,7 +268,7 @@ def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):
 
 def _get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
     
-    print(" -- -- Inside mrh/gpu/gpu4pyscf/df/df_jk.py::_get_jk()")
+#    print(" -- -- Inside mrh/gpu/gpu4pyscf/df/df_jk.py::_get_jk()")
     vj, vk = get_jk(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)
 
     return vj, vk

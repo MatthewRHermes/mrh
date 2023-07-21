@@ -21,7 +21,8 @@ Device::Device()
   size_vj = 0;
   size_vk = 0;
   size_buf = 0;
-
+  size_fdrv = 0;
+  
   rho = nullptr;
   vj = nullptr;
   _vktmp = nullptr;
@@ -29,6 +30,8 @@ Device::Device()
   buf_tmp = nullptr;
   buf3 = nullptr;
   buf4 = nullptr;
+
+  buf_fdrv = nullptr;
   
 #ifdef _SIMPLE_TIMER
   t_array = (double *) malloc(14 * sizeof(double));
@@ -61,6 +64,8 @@ Device::~Device()
   free(buf_tmp);
   free(buf3);
   free(buf4);
+
+  free(buf_fdrv);
 
 #ifdef _SIMPLE_TIMER
   t_array_jk[8] += omp_get_wtime() - t0;

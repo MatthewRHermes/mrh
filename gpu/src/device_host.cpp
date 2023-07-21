@@ -43,6 +43,12 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
+
+  int num_threads = 1;
+#pragma omp parallel
+  {
+    num_threads = omp_get_num_threads();
+  }
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
@@ -76,6 +82,13 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     buf_tmp = (double*) malloc(2*size_buf*sizeof(double));
     buf3 = (double *) malloc(size_buf*sizeof(double)); // (nao, blksize*nao)
     buf4 = (double *) malloc(size_buf*sizeof(double)); // (blksize*nao, nao)
+  }
+
+  int _size_fdrv = 4 * nao * nao * num_threads;
+  if(_size_fdrv > size_fdrv) {
+    size_fdrv = _size_fdrv;
+    if(buf_fdrv) free(buf_fdrv);
+    buf_fdrv = (double *) malloc(size_fdrv*sizeof(double));
   }
   
 #ifdef _SIMPLE_TIMER
@@ -247,7 +260,8 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     t0 = omp_get_wtime();
 #endif
     
-    fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0);
+    //    fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0);
+    fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0, buf_fdrv);
 
 #ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
@@ -487,6 +501,43 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 /* ---------------------------------------------------------------------- */
 
 // pyscf/pyscf/lib/ao2mo/nr_ao2mo.c::AO2MOnr_e2_drv()
+#if 1
+void Device::fdrv(double *vout, double *vin, double *mo_coeff,
+		  int nij, int nao, int *orbs_slice, int *ao_loc, int nbas, double * _buf)
+{
+  struct Device::my_AO2MOEnvs envs;
+  envs.bra_start = orbs_slice[0];
+  envs.bra_count = orbs_slice[1] - orbs_slice[0];
+  envs.ket_start = orbs_slice[2];
+  envs.ket_count = orbs_slice[3] - orbs_slice[2];
+  envs.nao = nao;
+  envs.nbas = nbas;
+  envs.ao_loc = ao_loc;
+  envs.mo_coeff = mo_coeff;
+  
+// #pragma omp parallel default(none) shared(vout, vin, nij, envs, nao, orbs_slice, _buf)
+//   {
+//     const int it = omp_get_thread_num();
+//     double * buf = &(_buf[it * 4 * nao * nao]);
+// #pragma omp for schedule(dynamic)
+//     for (int i = 0; i < nij; i++) ftrans(i, vout, vin, buf, &envs);
+//   }
+
+  #pragma omp parallel default(none)					\
+  shared(vout, vin, nij, envs, nao, orbs_slice)
+  {
+    int i;
+    int i_count = envs.bra_count;
+    int j_count = envs.ket_count;
+    double *buf = (double *) malloc(sizeof(double) * (nao+i_count) * (nao+j_count));
+#pragma omp for schedule(dynamic)
+    for (i = 0; i < nij; i++) {
+      ftrans(i, vout, vin, buf, &envs);
+    }
+    free(buf);
+  }
+}
+#else
 void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 	  int nij, int nao, int *orbs_slice, int *ao_loc, int nbas)
 {
@@ -514,6 +565,7 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
     free(buf);
   }
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 // pyscf/pyscf/lib/np_helper/pack_tril.c
