@@ -94,7 +94,7 @@ void Device::free_get_jk()
 void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::array_t<double> _vjtmp,
 		    py::array_t<double> _buftmp,
 		    py::list & _dms_list, py::array_t<double> _vk,
-		    int with_j, int blksize, int nset, int naux, int nao)
+		    int with_j, int blksize, int nset, int naux, int nao, int count)
 {  
   int num_threads = 1;
 #pragma omp parallel
@@ -280,14 +280,6 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 	  buf2[indx2] = eri1_[indx];
 	  indx++;
 	}
-
-      // if(i < 2) {
-      // 	for(int j=0; j<2; ++j) {
-      // 	  printf("\nLIBGPU::buf[%i,%i]= \n",i,j);
-      // 	  for(int k=0; k<nao; ++k) printf(" %f",buf2[j*nao+k]);
-      // 	  printf("\n");
-      // 	}
-      // }
       
     }
 
@@ -332,15 +324,15 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
       for(int j=0; j<nao; ++j)
 	for(int k=0; k<nao; ++k) {
 
-	  const int indx1 = i*nao*nao + j*nao + k;
+	  const int indx1 = (i*nao+j)*nao + k;
 	  const int indx3 = k * naux*nao + (i*nao+j);
 	  
 	  buf3[indx3] = buf1[indx1];
 	  
-	  const int indx2 = i*nao*nao + j*nao + k;
-	  const int indx4 = (i*nao+j)*nao + k;
+	  // const int indx2 = i*nao*nao + j*nao + k;
+	  // const int indx4 = (i*nao+j)*nao + k;
 	  
-	  buf4[indx4] = buf2[indx2];
+	  // buf4[indx4] = buf2[indx2];
 	}
 
     // for(int i=0; i<2; ++i)
@@ -362,7 +354,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #endif
     
     const double alpha = 1.0;
-    const double beta = 1.0; // 0 when count == 0
+    const double beta = (count == 0) ? 0.0 : 1.0; // 0 when count == 0
     
     const int m = nao; // # of rows of first matrix buf4^T
     const int n = nao; // # of cols of second matrix buf3^T
@@ -375,7 +367,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     //    double * vkk = &(_vktmp[indxK * nao]);
     double * vkk = &(vk[indxK * nao]);
     
-    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf4, &ldb, buf3, &lda, &beta, vkk, &ldc);    
+    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);    
 #endif
 
 #if 0

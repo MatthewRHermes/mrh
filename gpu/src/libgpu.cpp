@@ -101,13 +101,13 @@ void libgpu_compute_get_jk(void * ptr,
 			   py::array_t<double> eri1, py::array_t<double> dmtril, py::array_t<double> vj,
 			   py::array_t<double> buf,
 			   py::list & dms, py::array_t<double> vk,
-			   int with_j, int blksize, int nset, int naux, int nao)
+			   int with_j, int blksize, int nset, int naux, int nao, int count)
 { 
   Device * dev = (Device *) ptr;
   dev->get_jk(eri1, dmtril, vj,
 	      buf,
 	      dms, vk,
-	      with_j, blksize, nset, naux, nao);
+	      with_j, blksize, nset, naux, nao, count);
  
 }
 

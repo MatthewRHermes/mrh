@@ -32,7 +32,7 @@ extern "C"
 			     py::array_t<double>, py::array_t<double>, py::array_t<double>,
 			     py::array_t<double>,
 			     py::list &, py::array_t<double>,
-			     int, int, int, int, int);
+			     int, int, int, int, int, int);
   
   void libgpu_orbital_response(void *,
 			       py::array_t<double>,

@@ -132,7 +132,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             count+=1
             
             if gpu:
-                libgpu.libgpu_compute_get_jk(gpu, eri1, dmtril, vj, buf, dms, vk, with_j, blksize, nset, naux, nao)
+                libgpu.libgpu_compute_get_jk(gpu, eri1, dmtril, vj, buf, dms, vk, with_j, blksize, nset, naux, nao, count)
 
             else:
                 

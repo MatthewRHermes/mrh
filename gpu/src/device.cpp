@@ -68,10 +68,14 @@ Device::~Device()
   
 #ifdef _SIMPLE_TIMER
   printf("LIBGPU::orbital_response\n");
-  for(int i=0; i<14; ++i) printf("i= %i  t_array= %f s\n",i,t_array[i]);
+  double total = 0.0;
+  for(int i=0; i<14; ++i) {total += t_array[i]; printf("i= %i  t_array= %f s\n",i,t_array[i]); }
+  printf("  total= %f\n",total);
 
   printf("LIBGPU::get_jk\n");
-  for(int i=0; i<9; ++i) printf("i= %i  t_array= %f s\n",i,t_array_jk[i]);
+  total = 0.0;
+  for(int i=0; i<9; ++i) {total += t_array_jk[i]; printf("i= %i  t_array= %f s\n",i,t_array_jk[i]); }
+  printf("  total= %f\n",total);
   
   free(t_array);
   free(t_array_jk);
