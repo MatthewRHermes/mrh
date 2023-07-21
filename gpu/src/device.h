@@ -71,6 +71,12 @@ private:
 
   // get_jk
 
+  int size_rho;
+  int size_vj;
+  int size_vk;
+  int size_buf;
+
+  double * rho;
   double * vj;
   double * _vktmp;
 
