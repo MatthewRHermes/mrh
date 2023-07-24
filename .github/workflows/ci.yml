@@ -4,6 +4,9 @@
 name: mrh continuous integration
 
 on: [push, pull_request]
+  push:
+    branches-ignore:
+      - 'master'
 
 jobs:
   build:
