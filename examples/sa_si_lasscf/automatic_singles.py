@@ -37,15 +37,20 @@ las2 = las.state_average ([0.5,0.5,0,0],
     charges=[[0,0],[0,0],[-1,1],[1,-1]])
 las2.lasci ()
 las2.dump_spaces ()
-e_roots, si_hand = las2.lassi ()
+# Using LASSI Kernel
+#e_roots, si_hand = las2.lassi ()
+mylassi_hand = lassi.LASSI(las2)
+e_roots, si_hand = mylassi_hand.kernel()
 print ("LASSI(hand) energy =", e_roots[0])
 molden.from_lassi (las2, 'c2h4n4_las66si4_631g.molden', si=si_hand)
 
 from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
 las = all_single_excitations (las)
 las.lasci () # Optimize the CI vectors
-las.dump_spaces () # prints all space tables in the output file
-e_roots, si_s = las.lassi ()
+las.dump_spaces () # prints all state tables in the output file
+#e_roots, si_s = las.lassi ()
+mylassi = lassi.LASSI(las)
+e_roots, si_s = mylassi.kernel()
 
 print ("LASSI(S) energy =", e_roots[0])
 molden.from_lassi (las, 'c2h4n4_las66siS_631g.molden', si=si_s)

@@ -657,3 +657,14 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
                                       break_symmetry=break_symmetry, opt=opt)
     return rdm1s[0], rdm2s[0]
 
+class LASSI(lib.StreamObject):
+    def __init__(self, mf_or_mol_or_las, **kwargs):
+        from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
+        if isinstance(mf_or_mol_or_las, LASCINoSymm):
+            self._las = mf_or_mol_or_las
+        else:
+            raise RuntimeError("LASSI requires las instance")
+
+    def kernel(self, **kwargs):
+        e_roots, si = lassi(self._las, **kwargs)
+        return e_roots, si

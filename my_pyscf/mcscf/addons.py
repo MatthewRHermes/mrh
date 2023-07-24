@@ -165,8 +165,14 @@ def get_h1e_zipped_fcisolver (fcisolver):
             ci1 = []
             for solver, my_args, _ in self._loop_solver (_state_arg (ci0)):
                 ne = self._get_nelec (solver, nelec)
-                ci0_i = my_args[0].reshape ([special.comb (norb, n, exact=True) for n in ne])
-                ci1.append (solver.transform_ci_for_orbital_rotation (ci0_i, norb, ne, umat))
+                ndet = [special.comb (norb, n, exact=True) for n in ne]
+                try:
+                    ci0_i = my_args[0].reshape (ndet)
+                    ci1.append (solver.transform_ci_for_orbital_rotation (ci0_i, norb, ne, umat))
+                except ValueError as err:
+                    ci0_i = my_args[0].reshape ([-1,]+ndet)
+                    ci1.append (np.stack ([solver.transform_ci_for_orbital_rotation (c, norb, ne, umat)
+                                           for c in ci0_i], axis=0))
             return ci1
 
         def states_trans_rdm12s (self, ci1, ci0, norb, nelec, link_index=None, **kwargs):

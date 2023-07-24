@@ -8,7 +8,6 @@ from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile
-from mrh.my_pyscf.mcscf.lassi import lassi
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 from mrh.util.la import matrix_svd_control_options
 from itertools import combinations
@@ -360,11 +359,27 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
                   h2eff_sub=None, orbsym=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
-    if casdm1fs is None: casdm1fs = las.make_casdm1s_sub (ci=ci)
 
     # In-place safety
     mo_coeff = mo_coeff.copy ()
     ci = copy.deepcopy (ci)
+
+    # Temporary lroots safety
+    # The desired behavior is that the inactive and external orbitals should
+    # be canonicalized according to the density matrix used for orbital optimization
+    # TODO: once orbital optimization with lroots is enabled, change this behavior
+    # TODO: possibly move this logic to the make_casdm* functions
+    if casdm1fs is None:
+        ci_dm = []
+        for i in range (len (ci)):
+            ci_i = []
+            for j in range (len (ci[i])):
+                if ci[i][j].ndim>2:
+                    ci_i.append (ci[i][j][0])
+                else:
+                    ci_i.append (ci[i][j])
+            ci_dm.append (ci_i)
+        casdm1fs = las.make_casdm1s_sub (ci=ci_dm)
 
     nao, nmo = mo_coeff.shape
     ncore = las.ncore
@@ -1395,7 +1410,16 @@ class LASCINoSymm (casci.CASCI):
 
     state_average = state_average
     state_average_ = state_average_
-    lassi = lassi
+
+    def lassi(self, **kwargs):
+        #import warnings
+        #lassi_kernel_warn = "Now LASSI have kernel, which takes las instance as input. This [las.lassi()] function " \
+        #                    "will be removed soon."
+        #warnings.warn(lassi_kernel_warn, stacklevel=3)
+        from mrh.my_pyscf.mcscf import lassi
+        mylassi = lassi.LASSI(self, **kwargs)
+        return mylassi.kernel(**kwargs)
+
     las2cas_civec = las2cas_civec
     assert_no_duplicates = assert_no_duplicates
     get_init_guess_ci = get_init_guess_ci
