@@ -8,7 +8,6 @@ from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile
-from mrh.my_pyscf.mcscf.lassi import lassi
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 from mrh.util.la import matrix_svd_control_options
 from itertools import combinations
@@ -1395,7 +1394,16 @@ class LASCINoSymm (casci.CASCI):
 
     state_average = state_average
     state_average_ = state_average_
-    lassi = lassi
+
+    def lassi(self, **kwargs):
+        #import warnings
+        #lassi_kernel_warn = "Now LASSI have kernel, which takes las instance as input. This [las.lassi()] function " \
+        #                    "will be removed soon."
+        #warnings.warn(lassi_kernel_warn, stacklevel=3)
+        from mrh.my_pyscf.mcscf import lassi
+        mylassi = lassi.LASSI(self, **kwargs)
+        return mylassi.kernel(**kwargs)
+
     las2cas_civec = las2cas_civec
     assert_no_duplicates = assert_no_duplicates
     get_init_guess_ci = get_init_guess_ci
