@@ -58,6 +58,35 @@ def vector_error (test, ref, err_type='norm', ang_units='rad'):
     if 'DEG' in ang_units.upper (): theta *= 180.0 / math.pi
     return err, theta
 
+# For MKL bullshit
+def safe_svd (a, full_matrices=True):
+    ''' For error-handling the annoying, irreproducible "LinAlgError"s
+        by switching to a two-step algorithm. This algorithm breaks
+        the link between u and vH when degenerate singular values
+        exist, so it should not be used if the quantity u @ vH is
+        required. '''
+    try:
+        return scipy.linalg.svd (a, full_matrices=full_matrices)
+    except scipy.linalg.LinAlgError as err:
+        aTa = a.conj ().T @ a
+        evals_aTa, v = scipy.linalg.eigh (aTa)
+        N = len (evals_aTa)
+        idx = np.argsort (-evals_aTa)
+        evals_aTa = evals_aTa[idx]
+        v = v[:,idx]
+        aaT = a @ a.conj ().T
+        evals_aaT, u = scipy.linalg.eigh (aaT)
+        M = len (evals_aaT)
+        idx = np.argsort (-evals_aaT)
+        evals_aaT = evals_aaT[idx]
+        u = u[:,idx]
+        K = min (M,N)
+        assert (np.allclose (evals_aTa[:K], evals_aaT[:K]))
+        evals = np.maximum ((evals_aaT[:K] + evals_aTa[:K])*.5, 0)
+        if not full_matrices:
+            u, v = u[:,:K], v[:,:K]
+        return u, np.sqrt (evals), v.conj ().T
+
 # A collection of simple manipulations of matrices that I somehow can't find in numpy
 
 def is_matrix_zero (test_matrix, rtol=params.num_zero_rtol, atol=params.num_zero_atol):

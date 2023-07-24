@@ -21,7 +21,7 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
+from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
@@ -136,7 +136,7 @@ class KnownValues(unittest.TestCase):
 
     def test_casci_limit (self):
         from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
-        from mrh.my_pyscf.mcscf.lasci import get_state_info
+        from mrh.my_pyscf.mcscf.lasci import get_space_info
         xyz='''H 0 0 0
         H 1 0 0
         H 3 0 0
@@ -145,13 +145,14 @@ class KnownValues(unittest.TestCase):
         rmf = scf.RHF (rmol).run ()
 
         # Random Hamiltonian
-        rng = np.random.default_rng (seed=422)
+        rng = np.random.default_rng ()
         rmf._eri = rng.random (rmf._eri.shape)
         hcore = rng.random ((4,4))
         rmf.get_hcore = lambda *args: hcore
 
         # CASCI limit
         mc = mcscf.CASCI (rmf, 4, 4).run ()
+        casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
 
         # LASSCF
         rlas = LASSCF (rmf, (2,2), (2,2), spin_sub=(1,1))
@@ -159,14 +160,29 @@ class KnownValues(unittest.TestCase):
 
         # LASSI in the CASCI limit
         for i in range (2): rlas = all_single_excitations (rlas)
-        from mrh.my_pyscf.mcscf.lasci import get_state_info
-        charges, spins, smults, wfnsyms = get_state_info (rlas)
+        charges, spins, smults, wfnsyms = get_space_info (rlas)
         lroots = 4 - smults
         idx = (charges!=0) & (lroots==3)
         lroots[idx] = 1
         rlas.lasci (lroots=lroots.T)
         e_roots, si = rlas.lassi (opt=0)
-        self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
+        with self.subTest ("total energy"):
+            self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
+        lasdm1s, lasdm2s = root_make_rdm12s (rlas, rlas.ci, si, state=0, opt=0)
+        lasdm1 = lasdm1s.sum (0)
+        lasdm2 = lasdm2s.sum ((0,3))
+        with self.subTest ("casdm1"):
+            self.assertAlmostEqual (lib.fp (lasdm1), lib.fp (casdm1), 8)
+        with self.subTest ("casdm2"):
+            self.assertAlmostEqual (lib.fp (lasdm2), lib.fp (casdm2), 8)
+        stdm1s = make_stdm12s (rlas, opt=0)[0][9:13,:,:,:,9:13] # second rootspace
+        with self.subTest("state indexing"):
+            # column-major ordering for state excitation quantum numbers:
+            # earlier fragments advance faster than later fragments
+            self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
+                                    lib.fp (stdm1s[2,:,:2,:2,2]))
+            self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
+                                    lib.fp (stdm1s[1,:,2:,2:,1]))
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI")
