@@ -359,11 +359,27 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
                   h2eff_sub=None, orbsym=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
-    if casdm1fs is None: casdm1fs = las.make_casdm1s_sub (ci=ci)
 
     # In-place safety
     mo_coeff = mo_coeff.copy ()
     ci = copy.deepcopy (ci)
+
+    # Temporary lroots safety
+    # The desired behavior is that the inactive and external orbitals should
+    # be canonicalized according to the density matrix used for orbital optimization
+    # TODO: once orbital optimization with lroots is enabled, change this behavior
+    # TODO: possibly move this logic to the make_casdm* functions
+    if casdm1fs is None:
+        ci_dm = []
+        for i in range (len (ci)):
+            ci_i = []
+            for j in range (len (ci[i])):
+                if ci[i][j].ndim>2:
+                    ci_i.append (ci[i][j][0])
+                else:
+                    ci_i.append (ci[i][j])
+            ci_dm.append (ci_i)
+        casdm1fs = las.make_casdm1s_sub (ci=ci_dm)
 
     nao, nmo = mo_coeff.shape
     ncore = las.ncore
