@@ -3,10 +3,11 @@
 
 name: mrh continuous integration
 
-on: [push, pull_request]
+on: 
   push:
     branches-ignore:
       - 'master'
+  pull-request:
 
 jobs:
   build:
