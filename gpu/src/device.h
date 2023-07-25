@@ -31,6 +31,18 @@ namespace py = pybind11;
                 for (I = 0, j1 = MIN(j0+BLOCK_DIM, n); I < j1; I++) \
                         for (J = MAX(I,j0); J < j1; J++)
 
+extern "C" {
+  void dsymm_(const char*, const char*, const int*, const int*,
+	      const double*, const double*, const int*,
+	      const double*, const int*,
+	      const double*, double*, const int*);
+  
+  void dgemm_(const char * transa, const char * transb, const int * m, const int * n,
+	      const int * k, const double * alpha, const double * a, const int * lda,
+	      const double * b, const int * ldb, const double * beta, double * c,
+	      const int * ldc);
+}
+
 class Device {
   
 public :
@@ -85,6 +97,10 @@ private:
   double * buf3;
   double * buf4;
   double * buf_fdrv;
+
+  double * d_buf2;
+  double * d_buf3;
+  double * d_vkk;
   
   struct my_AO2MOEnvs {
     int natm;
@@ -105,13 +121,9 @@ private:
     //        CINTOpt *cintopt;
     //        CVHFOpt *vhfopt;
   };
-#if 1
+
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);
-#else
-  void fdrv(double *, double *, double *,
-	    int, int, int *, int *, int);
-#endif
   
   void ftrans(int,
 	      double *, double *, double *,
