@@ -4,7 +4,6 @@
 #define PM_HOST_H
 
 #include <iostream>
-#include <omp.h>
 
 extern int dev_num_devices();
 extern void dev_properties(int);

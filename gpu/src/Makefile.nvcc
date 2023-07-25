@@ -37,7 +37,7 @@ FOBJ = $(FSRC:.F=.o)
 # --		Rule to create target
 
 $(EXE): $(COBJ) $(CUDA_OBJ) $(FOBJ) $(MOD)
-	$(LD) $(LDFLAGS) -o $@ $(COBJ) $(LIB)
+	$(LD) $(LDFLAGS) -o $@ $(COBJ) $(CUDA_OBJ) $(LIB)
 
 install: $(EXE)
 	 cp $(EXE) $(INSTALL)/lib

@@ -6,18 +6,6 @@
 
 #include <stdio.h>
 
-extern "C" {
-  void dsymm_(const char*, const char*, const int*, const int*,
-	      const double*, const double*, const int*,
-	      const double*, const int*,
-	      const double*, double*, const int*);
-  
-  void dgemm_(const char * transa, const char * transb, const int * m, const int * n,
-	      const int * k, const double * alpha, const double * a, const int * lda,
-	      const double * b, const int * ldb, const double * beta, double * c,
-	      const int * ldc);
-}
-
 /* ---------------------------------------------------------------------- */
 
 double Device::compute(double * data)
@@ -53,8 +41,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
 
-  double * eri1 = static_cast<double*>(info_eri1.ptr);
-  double * dmtril = static_cast<double*>(info_dmtril.ptr);
+  // double * eri1 = static_cast<double*>(info_eri1.ptr);
+  // double * dmtril = static_cast<double*>(info_dmtril.ptr);
   
   int _size_vj = info_dmtril.shape[0] * info_eri1.shape[1];
   if(_size_vj > size_vj) {
@@ -109,11 +97,11 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 		    py::list & _dms_list, py::array_t<double> _vk,
 		    int with_j, int blksize, int nset, int naux, int nao, int count)
 {  
-  int num_threads = 1;
-#pragma omp parallel
-  {
-    num_threads = omp_get_num_threads();
-  }
+//   int num_threads = 1;
+// #pragma omp parallel
+//   {
+//     num_threads = omp_get_num_threads();
+//   }
 
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
@@ -127,7 +115,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 
   double * eri1 = static_cast<double*>(info_eri1.ptr);
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
-  double * _buf = static_cast<double*>(info_buf.ptr);
+  //  double * _buf = static_cast<double*>(info_buf.ptr);
   double * _vj = static_cast<double*>(info_vj.ptr);
   
   //double * vj; // = static_cast<double*>(info_vj.ptr);
