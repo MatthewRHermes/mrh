@@ -23,6 +23,10 @@ mcpdft_removal_warning = FutureWarning((
     "Most MC-PDFT and MC-DCFT modules have been moved to pyscf-forge "
     "(github.com/pyscf/pyscf-forge) and will be removed from mrh soon."
     ))
+lassi_dir_warning = FutureWarning((
+    "LASSI code is being moved from my_pyscf.mcscf.lassi_* module files "
+    "my_pyscf.lassi.* module files; the former will be removed soon."
+    ))
 warnings.filterwarnings ("once", message=str(mcpdft_removal_warning),
                          category=FutureWarning)
 def mcpdft_removal_warn (): warnings.warn (mcpdft_removal_warning,
