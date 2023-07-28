@@ -4,10 +4,6 @@
 
 #include "device.h"
 
-#include "cublas_v2.h"
-
-#include "nvToolsExt.h"
-
 #include <stdio.h>
 
 /* ---------------------------------------------------------------------- */
@@ -553,19 +549,36 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     size_vk = _size_vk;
     if(_vktmp) free(_vktmp);
     _vktmp = (double *) malloc(size_vk*sizeof(double));
+
+    nvtxRangePushA("Realloc");
+    
+    if(d_vkk) dev_free(d_vkk);
+    d_vkk = (double *) dev_malloc(size_vk * sizeof(double));
+    
+    nvtxRangePop();
   }
   for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
   int _size_buf = blksize * nao * nao;
   if(_size_buf > size_buf) {
     size_buf = _size_buf;
-    if(buf_tmp) free(buf_tmp);
-    if(buf3) free(buf3);
+    if(buf_tmp) dev_free_host(buf_tmp);
+    if(buf3) dev_free_host(buf3);
     if(buf4) free(buf4);
     
-    buf_tmp = (double*) malloc(2*size_buf*sizeof(double));
-    buf3 = (double *) malloc(size_buf*sizeof(double)); // (nao, blksize*nao)
+    buf_tmp = (double*) dev_malloc_host(2*size_buf*sizeof(double));
+    buf3 = (double *) dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
     buf4 = (double *) malloc(size_buf*sizeof(double)); // (blksize*nao, nao)
+
+    nvtxRangePushA("Realloc");
+
+    if(d_buf2) dev_free(d_buf2);
+    if(d_buf3) dev_free(d_buf3);
+    
+    d_buf2 = (double *) dev_malloc(size_buf * sizeof(double));
+    d_buf3 = (double *) dev_malloc(size_buf * sizeof(double));
+    
+    nvtxRangePop();
   }
 
   int _size_fdrv = 4 * nao * nao * num_threads;
@@ -573,6 +586,19 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     size_fdrv = _size_fdrv;
     if(buf_fdrv) free(buf_fdrv);
     buf_fdrv = (double *) malloc(size_fdrv*sizeof(double));
+  }
+  
+  // Create blas handle
+
+  if(handle == NULL) {
+    nvtxRangePushA("Create handle");
+    cublasCreate(&handle);
+    _CUDA_CHECK_ERRORS();
+    nvtxRangePop();
+  }
+
+  if(stream == NULL) {
+    dev_stream_create(stream);
   }
   
 #ifdef _SIMPLE_TIMER
@@ -868,29 +894,13 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #if 0
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);
 #else
-
-    // Create blas handle
-    
-    nvtxRangePushA("Create handle");
-    cublasHandle_t handle = NULL;
-    cublasCreate(&handle);
-    _CUDA_CHECK_ERRORS();
-    nvtxRangePop();
-    
-    // allocate
-
-    nvtxRangePushA("Allocate");
-    d_buf2 = (double *) dev_malloc(blksize * nao * nao * sizeof(double));
-    d_buf3 = (double *) dev_malloc(blksize * nao * nao * sizeof(double));   
-    d_vkk = (double *) dev_malloc(nset * nao * nao * sizeof(double));
-    nvtxRangePop();
-
     // transfer
 
     nvtxRangePushA("HtoD Transfer");
-    dev_push(d_buf2, buf2, blksize * nao * nao * sizeof(double));
-    dev_push(d_buf3, buf3, blksize * nao * nao * sizeof(double));
+    dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
+    dev_push_async(d_buf3, buf3, blksize * nao * nao * sizeof(double), stream);
     dev_push(d_vkk, vkk, nset * nao * nao * sizeof(double));
+    dev_stream_wait(stream);
     nvtxRangePop();
 
     nvtxRangePushA("DGEMM");
@@ -901,16 +911,6 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 
     nvtxRangePushA("DtoH Transfer");
     dev_pull(d_vkk, vkk, nset * nao * nao * sizeof(double));
-    nvtxRangePop();
-
-    // deallocate
-
-    nvtxRangePushA("Deallocate & Destroy");
-    dev_free(d_buf2);
-    dev_free(d_buf3);
-    dev_free(d_vkk);
-    
-    cublasDestroy(handle);
     nvtxRangePop();
 #endif
     

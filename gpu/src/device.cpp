@@ -33,6 +33,15 @@ Device::Device()
 
   buf_fdrv = nullptr;
   
+#if defined(_GPU_CUDA)
+  handle = NULL;
+  stream = NULL;
+  
+  d_buf2 = nullptr;
+  d_buf3 = nullptr;
+  d_vkk = nullptr;
+#endif
+  
 #ifdef _SIMPLE_TIMER
   t_array = (double *) malloc(14 * sizeof(double));
   for(int i=0; i<14; ++i) t_array[i] = 0.0;
@@ -61,8 +70,8 @@ Device::~Device()
   free(vj);
   free(_vktmp);
 
-  free(buf_tmp);
-  free(buf3);
+  dev_free_host(buf_tmp);
+  dev_free_host(buf3);
   free(buf4);
 
   free(buf_fdrv);
@@ -84,6 +93,20 @@ Device::~Device()
   
   free(t_array);
   free(t_array_jk);
+#endif
+
+#if defined (_GPU_CUDA)
+  nvtxRangePushA("Deallocate");
+  dev_free(d_buf2);
+  dev_free(d_buf3);
+  dev_free(d_vkk);
+  nvtxRangePop();  
+  
+  nvtxRangePushA("Destroy Handle");
+  cublasDestroy(handle);
+  nvtxRangePop();
+
+  dev_stream_destroy(stream);
 #endif
 }
 

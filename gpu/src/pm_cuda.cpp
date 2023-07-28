@@ -135,9 +135,21 @@ void dev_push(void * d_ptr, void * h_ptr, size_t N)
   _CUDA_CHECK_ERRORS();
 }
 
+void dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
+{
+  cudaMemcpyAsync(d_ptr, h_ptr, N, cudaMemcpyHostToDevice, s);
+  _CUDA_CHECK_ERRORS();
+}
+
 void dev_pull(void * d_ptr, void * h_ptr, size_t N)
 {
   cudaMemcpy(h_ptr, d_ptr, N, cudaMemcpyDeviceToHost);
+  _CUDA_CHECK_ERRORS();
+}
+
+void dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
+{
+  cudaMemcpyAsync(d_ptr, h_ptr, N, cudaMemcpyHostToDevice, s);
   _CUDA_CHECK_ERRORS();
 }
 
@@ -154,6 +166,24 @@ void dev_check_pointer(int rnk, const char * name, void * ptr)
   cudaPointerGetAttributes(&attributes, ptr);
   if(attributes.devicePointer != NULL) printf("(%i) ptr %s is devicePointer\n",rnk,name);
   if(attributes.hostPointer != NULL) printf("(%i) ptr %s is hostPointer\n",rnk,name);
+}
+
+void dev_stream_create(cudaStream_t & s)
+{
+  cudaStreamCreate(&s);
+  _CUDA_CHECK_ERRORS();
+}
+
+void dev_stream_destroy(cudaStream_t & s)
+{
+  cudaStreamDestroy(s);
+  _CUDA_CHECK_ERRORS();
+}
+
+void dev_stream_wait(cudaStream_t & s)
+{
+  cudaStreamSynchronize(s);
+  _CUDA_CHECK_ERRORS();
 }
 
 #endif
