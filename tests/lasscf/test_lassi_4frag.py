@@ -24,8 +24,8 @@ from pyscf.tools import molden
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.mcscf.lassi import root_make_rdm12s, roots_make_rdm12s
-from mrh.my_pyscf.mcscf.lassi import make_stdm12s, ham_2q, las_symm_tuple
+from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_make_rdm12s
+from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.mcscf import lassi_op_o0 as op_o0
 from mrh.my_pyscf.mcscf import lassi_op_o1 as op_o1
 

@@ -48,7 +48,7 @@ def from_lasscf (las, fname, state=None, natorb_casdm1=None, **kwargs):
 
 def from_lassi (las, fname, state=0, si=None, opt=1, **kwargs):
     if si is None: si = getattr (las, 'si', None)
-    from mrh.my_pyscf.mcscf.lassi import root_make_rdm12s
+    from mrh.my_pyscf.lassi.lassi import root_make_rdm12s
     natorb_casdm1 = root_make_rdm12s (las, las.ci, si, state=state, opt=opt)[0].sum (0)
     mo_coeff, mo_ene, mo_occ = las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
     return from_mo (las.mol, fname, mo_coeff, occ=mo_occ, ene=mo_ene, **kwargs)
