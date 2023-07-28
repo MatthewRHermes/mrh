@@ -44,7 +44,7 @@ e_roots, si_hand = mylassi_hand.kernel()
 print ("LASSI(hand) energy =", e_roots[0])
 molden.from_lassi (las2, 'c2h4n4_las66si4_631g.molden', si=si_hand)
 
-from mrh.my_pyscf.lassi.lassi_states import all_single_excitations
+from mrh.my_pyscf.lassi.states import all_single_excitations
 las = all_single_excitations (las)
 las.lasci () # Optimize the CI vectors
 las.dump_spaces () # prints all state tables in the output file
