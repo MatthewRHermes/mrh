@@ -21,7 +21,7 @@ from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.mcscf.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
+from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
@@ -105,7 +105,7 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (e1, e0, 8)
 
     def test_lassi_singles_constructor (self):
-        from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
+        from mrh.my_pyscf.lassi.lassi_states import all_single_excitations
         las2 = all_single_excitations (las)
         las2.check_sanity ()
         # Meaning of tuple: (na+nb,smult)
@@ -118,7 +118,7 @@ class KnownValues(unittest.TestCase):
         self.assertEqual (las2.nroots, 33)
 
     def test_lassi_spin_shuffle (self):
-        from mrh.my_pyscf.mcscf.lassi_states import spin_shuffle
+        from mrh.my_pyscf.lassi.lassi_states import spin_shuffle
         las3 = LASSCF (mf, (4,2,4), (4,2,4), spin_sub=(5,3,5))
         las3 = spin_shuffle (las3)
         las3.check_sanity ()
@@ -135,7 +135,7 @@ class KnownValues(unittest.TestCase):
         self.assertEqual (las3.nroots, 13)
 
     def test_casci_limit (self):
-        from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
+        from mrh.my_pyscf.lassi.lassi_states import all_single_excitations
         from mrh.my_pyscf.mcscf.lasci import get_space_info
         xyz='''H 0 0 0
         H 1 0 0

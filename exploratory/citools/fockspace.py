@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import product
-from mrh.my_pyscf.mcscf.lassi_op_o1 import fermion_spin_shuffle as _fss
+from mrh.my_pyscf.lassi.lassi_op_o1 import fermion_spin_shuffle as _fss
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 
 MAX_NORB = 26 # for now
@@ -51,7 +51,7 @@ def fermion_spin_shuffle (norb, norb_f):
     denote clusters of spatial orbitals ("fragments"). These factors
     must by multiplied into a direct-product wave function if the
     individual factors span different particle-number sectors.
-    Compare my_pyscf.mcscf.lassi_op_o1.fermion_spin_shuffle
+    Compare my_pyscf.lassi.lassi_op_o1.fermion_spin_shuffle
 
     Args:
         norb : integer
@@ -102,7 +102,7 @@ def fermion_frag_shuffle (norb, i, j):
     in the context of a spinless Fock-space FCI vector.
     These factors must be multiplied into a wave function when
     projecting into the smaller Fock space of [i,j<norb).
-    Compare my_pyscf.mcscf.lassi_op_o1.fermion_frag_shuffle
+    Compare my_pyscf.lassi.lassi_op_o1.fermion_frag_shuffle
 
     Args:
         norb : integer
@@ -215,7 +215,7 @@ if __name__ == '__main__':
     print ("Trying out smult = 9 manually:", hilbert_sector_weight (ci_f, 8, 8, 9))
 
     # Test outer-product stuff
-    from mrh.my_pyscf.mcscf.lassi_op_o0 import _ci_outer_product
+    from mrh.my_pyscf.lassi.lassi_op_o0 import _ci_outer_product
     ci_h_f = [np.random.rand (6,6), np.random.rand (2,2), np.random.rand (6,6)]
     ci_h_f = [c / linalg.norm (c) for c in ci_h_f]
     ci_h = _ci_outer_product (ci_h_f, [4,2,4], [[2,2],[1,1],[2,2]])

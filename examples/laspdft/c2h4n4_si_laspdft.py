@@ -5,7 +5,7 @@ from mrh.my_pyscf.mcscf import lassi
 from mrh.my_pyscf import mcpdft
 from mrh.my_pyscf.tools.molden import from_lasscf
 from c2h4n4_struct import structure as struct
-from mrh.my_pyscf.mcscf.lassi_states import all_single_excitations
+from mrh.my_pyscf.lassi.lassi_states import all_single_excitations
 
 # Mean field calculation
 mol = struct(0, 0, '6-31g')
