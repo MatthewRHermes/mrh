@@ -658,13 +658,32 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
     return rdm1s[0], rdm2s[0]
 
 class LASSI(lib.StreamObject):
-    def __init__(self, mf_or_mol_or_las, **kwargs):
+    '''
+    LASSI Method class
+    '''
+    def __init__(self, las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False, break_symmetry=False, opt=1,  **kwargs):
         from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
-        if isinstance(mf_or_mol_or_las, LASCINoSymm):
-            self._las = mf_or_mol_or_las
-        else:
-            raise RuntimeError("LASSI requires las instance")
+        if isinstance(las, LASCINoSymm): self._las = las
+        else: raise RuntimeError("LASSI requires las instance")
+        self.__dict__.update(las.__dict__)
+        keys = set(('e_roots', 'si', 's2', 's2_mat', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
+        self.e_roots = None
+        self.si = None
+        self.s2 = None
+        self.s2_mat = None
+        self.nelec = None
+        self.wfnsym = None
+        self.rootsym = None
+        self.break_symmetry = break_symmetry
+        self.soc = soc
+        self.opt = opt
+        self._keys = set((self.__dict__.keys())).union(keys)
 
-    def kernel(self, **kwargs):
-        e_roots, si = lassi(self._las, **kwargs)
-        return e_roots, si
+    def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,\
+               break_symmetry=False, opt=1,  **kwargs):
+        e_roots, si = lassi(self._las, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
+                            soc=soc, break_symmetry=break_symmetry, opt=opt)
+        self.e_roots = e_roots
+        self.si, self.s2, self.s2_mat, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
+            si, si.s2, si.s2_mat, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
+        return self.e_roots, self.si
