@@ -160,7 +160,7 @@ def las_symm_tuple (las, break_spin=False, break_symmetry=False, verbose=None):
         all_qns = [neleca, nelecb, neleca+nelecb, wfnsym]
         full_statesym.append (tuple (all_qns))
         statesym.append (tuple (qn for qn, incl in zip (all_qns, qn_filter) if incl))
-    log.info ('Symmetry analysis of LAS rootspaces:')
+    log.info ('Symmetry analysis of %d LAS rootspaces:', las.nroots)
     qn_lbls = ['Neleca', 'Nelecb', 'Nelec', 'Wfnsym']
     qn_fmts = ['{:6d}', '{:6d}', '{:6d}', '{:>6s}']
     lbls = ['ix', 'Energy', '<S**2>'] + qn_lbls
@@ -255,16 +255,19 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
     s2_mat = []
     idx_allprods = []
     dtype = complex if soc else np.float64
- 
+
     # Loop over symmetry blocks
     qn_lbls = ['nelec',] if soc else ['neleca','nelecb',]
     if not break_symmetry: qn_lbls.append ('irrep')
-    for las1, sym, indices, indexed in iterate_subspace_blocks (las, ci, statesym):
+    for it, (las1,sym,indices,indexed) in enumerate (iterate_subspace_blocks(las,ci,statesym)):
         idx_space, idx_prod = indices
         ci_blk, nelec_blk = indexed
         idx_allprods.extend (list(np.where(idx_prod)[0]))
-        lib.logger.debug (las,
-            'Diagonalizing LAS state symmetry block {} = {}'.format (qn_lbls, sym))
+        lib.logger.info (las, 'Diagonalizing LASSI symmetry block %d\n'
+                         + '{} = {}\n'.format (qn_lbls, sym)
+                         + '(%d rootspaces; %d states)', it,
+                         np.count_nonzero (idx_space), 
+                         np.count_nonzero (idx_prod))
         if np.count_nonzero (idx_prod) == 1:
             lib.logger.debug (las, 'Only one state in this symmetry block')
             e_roots.extend (las1.e_states - e0)
@@ -307,7 +310,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
                     rootsym=rootsym, break_symmetry=break_symmetry, soc=soc)
 
     # I/O
-    lib.logger.info (las, 'LASSI eigenvalues:')
+    lib.logger.info (las, 'LASSI eigenvalues (%d total):', len (e_roots))
     fmt_str = ' {:2s}  {:>16s}  {:6s}  '
     col_lbls = ['Nelec'] if soc else ['Neleca','Nelecb']
     if not break_symmetry: col_lbls.append ('Wfnsym')
