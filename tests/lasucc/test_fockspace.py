@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import lib
-from mrh.my_pyscf.lassi.lassi_op_o0 import _ci_outer_product
+from mrh.my_pyscf.lassi.op_o0 import _ci_outer_product
 from mrh.exploratory.citools.fockspace import *
 import unittest
 
