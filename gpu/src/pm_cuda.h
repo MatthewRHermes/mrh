@@ -3,6 +3,10 @@
 #ifndef PM_CUDA_H
 #define PM_CUDA_H
 
+#include "cublas_v2.h"
+
+#include "nvToolsExt.h"
+
 #include <iostream>
 
 #define _CUDA_CHECK_ERRORS()               \
@@ -36,8 +40,14 @@ extern void dev_push(void*, void*, size_t);
 extern void dev_pull(void*, void*, size_t);
 extern void dev_copy(void*, void*, size_t);
 
+extern void dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
+extern void dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
+
 extern void dev_check_pointer(int, const char *, void *);
 
+extern void dev_stream_create(cudaStream_t & s);
+extern void dev_stream_destroy(cudaStream_t & s);
+extern void dev_stream_wait(cudaStream_t & s);
 #endif
 
 #endif

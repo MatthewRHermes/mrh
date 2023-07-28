@@ -12,6 +12,7 @@ CXXFLAGS += -I$(NVIDIA_PATH)/cuda/include
 CXXFLAGS += $(PYTHON_INC)
 
 CXXFLAGS += -D_USE_GPU -D_GPU_CUDA
+CXXFLAGS += -I/soft/compilers/cudatoolkit/cuda-11.4.4/include
 CXXFLAGS += -D_SIMPLE_TIMER
 
 CUDA_CXXFLAGS = $(PYTHON_INC)

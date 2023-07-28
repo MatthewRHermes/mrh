@@ -141,6 +141,12 @@ private:
   double * t_array;
   double * t_array_jk;
 #endif
+
+#if defined(_GPU_CUDA)
+  cublasHandle_t handle;
+  cudaStream_t stream;
+#endif
+  
 };
 
 #endif
