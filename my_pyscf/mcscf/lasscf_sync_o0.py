@@ -166,6 +166,13 @@ class LASSCFSymm (lasci.LASCISymm):
     as_scanner = mc1step.as_scanner
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    # CHRIS: this is where we should go GPU init? This gets called twice: once by user and again with with_df to update las
+    # could write GPU python class with minimal number of helper functions for user to call in input script
+    for key,value in kwargs.items():
+        print(key, "(KEY)= ", value)
+    use_gpu = kwargs.get('use_gpu', None)
+    print("Inside lasscf_sync_o0.py::LASSCF() with use_gpu= ", use_gpu)
+    
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
     elif isinstance (mf_or_mol, scf.hf.SCF):
@@ -175,9 +182,12 @@ def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if mf.mol.symmetry: 
         las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     else:
+        print(" -- Calling LASSCFNoSymm")
         las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     if getattr (mf, 'with_df', None):
-        las = lasci.density_fit (las, with_df = mf.with_df) 
+        print(" -- Calling lasci.density_fit()")
+        las = lasci.density_fit (las, with_df = mf.with_df)
+        
     return las
 
 
