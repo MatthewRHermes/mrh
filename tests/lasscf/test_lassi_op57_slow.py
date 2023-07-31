@@ -25,8 +25,8 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
-from mrh.my_pyscf.mcscf import lassi_op_o0 as op_o0
-from mrh.my_pyscf.mcscf import lassi_op_o1 as op_o1
+from mrh.my_pyscf.lassi import op_o0
+from mrh.my_pyscf.lassi import op_o1
 
 # Build crazy state list
 states  = {'charges': [[0,0,0],],

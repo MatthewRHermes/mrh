@@ -26,8 +26,8 @@ from c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_make_rdm12s
 from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
-from mrh.my_pyscf.mcscf import lassi_op_o0 as op_o0
-from mrh.my_pyscf.mcscf import lassi_op_o1 as op_o1
+from mrh.my_pyscf.lassi import op_o0
+from mrh.my_pyscf.lassi import op_o1
 
 # State list contains a couple of different 4-frag interactions
 states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1]],

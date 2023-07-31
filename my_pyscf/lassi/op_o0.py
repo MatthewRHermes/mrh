@@ -9,7 +9,7 @@ from pyscf.fci.spin_op import contract_ss, spin_square
 from pyscf.data import nist
 from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
-from mrh.my_pyscf.mcscf import lassi_dms as lassi_dms 
+from mrh.my_pyscf.lassi import dms as lassi_dms
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions!'''

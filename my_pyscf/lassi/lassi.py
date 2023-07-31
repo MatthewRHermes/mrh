@@ -1,8 +1,8 @@
 import numpy as np
 import time
 from scipy import linalg
-from mrh.my_pyscf.mcscf import lassi_op_o0 as op_o0
-from mrh.my_pyscf.mcscf import lassi_op_o1 as op_o1
+from mrh.my_pyscf.lassi import op_o0
+from mrh.my_pyscf.lassi import op_o1
 from pyscf import lib, symm
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec

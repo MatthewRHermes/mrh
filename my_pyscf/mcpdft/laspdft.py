@@ -5,7 +5,7 @@ from scipy import linalg
 from types import MethodType
 from copy import deepcopy
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
-from mrh.my_pyscf.mcscf import lassi
+from mrh.my_pyscf.lassi import lassi
 
 try:
     from pyscf.mcpdft.mcpdft import _PDFT, _mcscf_env
