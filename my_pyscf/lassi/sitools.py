@@ -150,8 +150,9 @@ def analyze (las, si, state=0, print_all_but=1e-8):
             dens = sdm.diagonal ()
             navg = np.dot (np.arange (len (dens)), dens)
             maxw = np.amax (dens)
-            evecs, evals = linalg.eigh (sdm)
-            entr = abs(np.dot (evecs, np.log (evecs)))
+            evals, evecs = linalg.eigh (sdm)
+            evals = np.maximum (evals, 0)
+            entr = abs(np.dot (evals, np.log (evals)))
             nelec = "{}a+{}b".format ((nelelas[ifrag]-c[iroot,ifrag]+m[iroot,ifrag])//2,
                                       (nelelas[ifrag]-c[iroot,ifrag]-m[iroot,ifrag])//2)
             ir = symm.irrep_id2name (las.mol.groupname, w[iroot][ifrag])
