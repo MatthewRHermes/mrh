@@ -151,7 +151,7 @@ def analyze (las, si, state=0, print_all_but=1e-8):
             navg = np.dot (np.arange (len (dens)), dens)
             maxw = np.amax (dens)
             evals, evecs = linalg.eigh (sdm)
-            evals = np.maximum (evals, 0)
+            evals = evals[evals>0]
             entr = abs(np.dot (evals, np.log (evals)))
             nelec = "{}a+{}b".format ((nelelas[ifrag]-c[iroot,ifrag]+m[iroot,ifrag])//2,
                                       (nelelas[ifrag]-c[iroot,ifrag]-m[iroot,ifrag])//2)
