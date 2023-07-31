@@ -4,7 +4,7 @@ from pyscf import gto, scf, lib, mcscf
 from pyscf.tools import molden
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.mcscf import lassi
+from mrh.my_pyscf.lassi import lassi
 from c2h4n4_struct import structure as struct
 
 mol = struct (3.0, 3.0, '6-31g')

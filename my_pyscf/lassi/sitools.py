@@ -1,5 +1,5 @@
 import numpy as np
-from pyscf import lib
+from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 
@@ -10,6 +10,7 @@ def decompose_sivec_by_rootspace (las, si, ci=None):
 
     Where "i" indexes the "a"th state in rootspace "P"'''
     if ci is None: ci=las.ci
+    if si.ndim==1: si = si[:,None]
     lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
                          for c in ci_r]
                         for ci_r in ci])
@@ -95,5 +96,75 @@ def get_rootspace_central_moment (las, space_weights, n=1):
     s2 = lib.einsum ('frv,rv->vf', np.power (smults.T[:,:,None]-s1.T[:,None,:], n), space_weights)
     return c2, m2, s2
 
+
+def analyze (las, si, state=0, print_all_but=1e-8):
+    '''Print out analysis of LASSI result in terms of average quantum numbers
+    and density matrix analyses of the lroots in each rootspace
+
+    Args:
+        las: instance of :class:`LASCINoSymm`
+        si: ndarray of shape (nstates,nstates)
+
+    Kwargs:
+        state: integer or index array
+            indicates which columns of si to analyze. Indicated columns are
+            averaged together for the lroots analysis
+        print_all_but: continue density-matrix analysis printouts until all
+            but this weight of the wave function(s) is accounted for. Set
+            to zero to print everything.
+    '''
+    log = lib.logger.new_logger (las, las.verbose)
+    log.info ("Analyzing LASSI vectors for states = %s",str(state))
+
+    log.info ("Average quantum numbers:")
+    space_weights, state_coeffs = decompose_sivec_by_rootspace (las, si[:,state])
+    states = np.atleast_1d (state)
+    nelelas = np.array ([sum (n) for n in las.nelecas_sub])
+    c, m, smults = get_rootspace_central_moment (las, space_weights)
+    neleca = .5*(nelelas[None,:]-c+m)
+    nelecb = .5*(nelelas[None,:]-c-m)
+    for na, nb, s, st in zip (neleca, nelecb, smults, states):
+        log.info ("State %d:", st)
+        log.info ("Neleca = %s", str (na))
+        log.info ("Nelecb = %s", str (nb))
+        log.info ("Smult = %s", str (s))
+
+    log.info (("Analyzing rootspace fragment density matrices for LASSI "
+               "states %s averaged together"), str (states))
+    log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
+    nstates = len (states)
+    space_weights = space_weights.sum (1) / nstates
+    lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
+                         for c in ci_r]
+                        for ci_r in las.ci]).T
+    running_weight = 1
+    c, m, s, w = get_space_info (las)
+    fmt_str = " {:4s}  {:>7s}  {:>4s}  {:>3s}  {:>6s}  {:11s}  {:>8s}"
+    header = fmt_str.format ("Frag", "Nelec", "2S+1", "Ir", "<n>", "Max(weight)", "Entropy")
+    fmt_str = " {:4d}  {:>7s}  {:>4d}  {:>3s}  {:6.3f}  {:>11.4f}  {:8f}"
+    for ix, iroot in enumerate (np.argsort (-space_weights)):
+        log.info ("Rootspace %d with averaged weight %f", iroot, space_weights[iroot])
+        log.info (header)
+        for ifrag in range (las.nfrags):
+            sdm = make_sdm1 (state_coeffs[iroot], lroots[iroot], ifrag).sum (0) / nstates
+            dens = sdm.diagonal ()
+            navg = np.dot (np.arange (len (dens)), dens)
+            maxw = np.amax (dens)
+            evecs, evals = linalg.eigh (sdm)
+            entr = abs(np.dot (evecs, np.log (evecs)))
+            nelec = "{}a+{}b".format ((nelelas[ifrag]-c[iroot,ifrag]+m[iroot,ifrag])//2,
+                                      (nelelas[ifrag]-c[iroot,ifrag]-m[iroot,ifrag])//2)
+            ir = symm.irrep_id2name (las.mol.groupname, w[iroot][ifrag])
+            log.info (fmt_str.format (ifrag, nelec, s[iroot][ifrag], ir, navg, maxw, entr))
+        running_weight -= space_weights[iroot]
+        if running_weight < print_all_but: break
+
+    if ix+1<las.nroots:
+        log.info ("Remaining %d rootspaces have combined weight = %e",
+                  las.nroots-ix-1, running_weight)
+    else:
+        log.info ("All %d rootspaces accounted for", las.nroots)
+
+    return
 
 

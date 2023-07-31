@@ -3,7 +3,8 @@ from pyscf import gto, scf, mcscf
 from pyscf.lib import chkfile
 from pyscf.data import nist
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.mcscf import lassi, lassi_states
+from mrh.my_pyscf.lassi import lassi
+from mrh.my_pyscf.lassi import states as lassi_states
 
 au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
 def yamaguchi (e_roots, s2):
@@ -54,15 +55,6 @@ print (("Direct exchange only is modeled by {} states constructed with\n"
         "lassi_states.spin_shuffle.").format (las.nroots))
 print ("J(LASSI, direct) = %.2f cm^-1" % yamaguchi (e_roots, si.s2))
 
-# Direct exchange & kinetic exchange result
-las = lassi_states.all_single_excitations (las) # generate kinetic-exchange states
-las.lasci () # do not reoptimize orbitals at this step - not likely to converge
-e_roots, si = las.lassi ()
-print (("Use of lassi_states.all_single_excitations generates\n"
-        "{} additional kinetic-exchange (i.e., charge-transfer)\n"
-        "states.").format (las.nroots-4))
-print ("J(LASSI, direct & kinetic) = %.2f cm^-1" % yamaguchi (e_roots, si.s2))
-
 # CASCI result for reference
 mc = mcscf.CASCI (mf, 12, (6,0))
 mc.kernel (las.mo_coeff)
@@ -74,4 +66,25 @@ mc.kernel (las.mo_coeff)
 e_roots += [mc.e_tot]
 s2 += [0,]
 print ("J(CASCI) = %.2f cm^-1" % yamaguchi (np.asarray (e_roots), np.asarray (s2)))
+
+# Direct exchange & kinetic exchange result
+las = lassi_states.all_single_excitations (las) # generate kinetic-exchange states
+las.lasci () # do not reoptimize orbitals at this step - not likely to converge
+e_roots, si = las.lassi ()
+print (("Use of lassi_states.all_single_excitations generates\n"
+        "{} additional kinetic-exchange (i.e., charge-transfer)\n"
+        "states.").format (las.nroots-4))
+print ("J(LASSI, direct & kinetic) = %.2f cm^-1" % yamaguchi (e_roots, si.s2))
+
+# Locally excited states
+lroots = np.minimum (3, las.get_ugg ().ncsf_sub)
+las.lasci (lroots=lroots)
+e_roots, si = las.lassi (opt=0)
+print (("Including up to second locally-excited states improves\n"
+        "results still further"))
+print ("J(LASSI, direct & kinetic, nmax=2) = %.2f cm^-1" % yamaguchi (e_roots, si.s2))
+print ("See bottom of file {} for output of lassi.sitools.analyze".format (mol.output))
+from mrh.my_pyscf.lassi.sitools import analyze
+analyze (las, si, state=[0,1,2,3]) # Four states involved in this Yamaguchi manifold
+
 
