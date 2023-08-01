@@ -29,7 +29,7 @@ def memcheck (las, ci, soc=None):
             * np.amax ([c[iroot].dtype.itemsize for c in ci]) 
             for iroot in range (nroots)]) / 1e6
     max_memory = las.max_memory - lib.current_memory ()[0]
-    lib.logger.debug (las, 
+    lib.logger.info (las,
         "LASSI op_o0 memory check: {} MB needed of {} MB available ({} MB max)".format (mem,\
         max_memory, las.max_memory))
     return mem < max_memory
