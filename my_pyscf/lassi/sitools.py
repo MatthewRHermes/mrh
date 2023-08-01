@@ -97,6 +97,41 @@ def get_rootspace_central_moment (las, space_weights, n=1):
     return c2, m2, s2
 
 
+def _print_states (log, iroot, space_weights, state_coeffs, lroots, print_all_but=1e-8):
+    nstates = state_coeffs.shape[1]
+    space_coeffs = np.sqrt (space_weights)
+    nfrags = len (lroots)
+    nprods = np.prod (lroots)
+    state_weights = (state_coeffs*state_coeffs).sum (1)/nstates
+    running_weight = 1
+    idx = np.argsort (-state_weights)
+    addrs = np.stack (np.meshgrid (*[np.arange(l) for l in lroots[::-1]],
+                                  indexing='ij'), axis=0)
+    addrs = addrs.reshape (nfrags, nprods)[::-1,:].T
+    addrs_len = np.ceil (np.log10 (lroots.astype (float))).astype (int)
+    addrs_len = np.maximum (1, addrs_len)
+    lbl_len = sum (addrs_len)
+    if np.all (addrs_len==1):
+        fmt_str0 = ''.join (['{:1d}',]*nfrags)
+    else:
+        lbl_len += (nfrags-1) # periods between fragment indices
+        fmt_str0 = '.'.join (['{:' + str (l) + 'd}' for l in addrs_len])
+    lbl_len = max (3,lbl_len)
+    fmt_str1 = ' {:>' + str (lbl_len) + 's}: ' + ' '.join (['{:10.3e}',]*nstates)
+    log.info (fmt_str1.format ('Fac', *space_coeffs))
+    for ix, iprod in enumerate (idx):
+        lbl_str = fmt_str0.format (*addrs[iprod])
+        log.info (fmt_str1.format (lbl_str, *state_coeffs[iprod]))
+        running_weight -= state_weights[iprod]
+        if running_weight < print_all_but: break
+    if ix+1<nprods:
+        log.info ("Remaining %d ONVs in rootspace %d have combined average weight = %e",
+                  nprods-ix-1, iroot, running_weight)
+    else:
+        log.info ("All %d ONVs in rootspace %d accounted for", nprods, iroot)
+    return
+
+
 def analyze (las, si, state=0, print_all_but=1e-8):
     '''Print out analysis of LASSI result in terms of average quantum numbers
     and density matrix analyses of the lroots in each rootspace
@@ -133,7 +168,7 @@ def analyze (las, si, state=0, print_all_but=1e-8):
                "states %s averaged together"), str (states))
     log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
     nstates = len (states)
-    space_weights = space_weights.sum (1) / nstates
+    avg_weights = space_weights.sum (1) / nstates
     lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
                          for c in ci_r]
                         for ci_r in las.ci]).T
@@ -142,8 +177,8 @@ def analyze (las, si, state=0, print_all_but=1e-8):
     fmt_str = " {:4s}  {:>7s}  {:>4s}  {:>3s}  {:>6s}  {:11s}  {:>8s}"
     header = fmt_str.format ("Frag", "Nelec", "2S+1", "Ir", "<n>", "Max(weight)", "Entropy")
     fmt_str = " {:4d}  {:>7s}  {:>4d}  {:>3s}  {:6.3f}  {:>11.4f}  {:8f}"
-    for ix, iroot in enumerate (np.argsort (-space_weights)):
-        log.info ("Rootspace %d with averaged weight %f", iroot, space_weights[iroot])
+    for ix, iroot in enumerate (np.argsort (-avg_weights)):
+        log.info ("Rootspace %d with averaged weight %9.3e", iroot, avg_weights[iroot])
         log.info (header)
         for ifrag in range (las.nfrags):
             sdm = make_sdm1 (state_coeffs[iroot], lroots[iroot], ifrag).sum (0) / nstates
@@ -157,7 +192,10 @@ def analyze (las, si, state=0, print_all_but=1e-8):
                                       (nelelas[ifrag]-c[iroot,ifrag]-m[iroot,ifrag])//2)
             ir = symm.irrep_id2name (las.mol.groupname, w[iroot][ifrag])
             log.info (fmt_str.format (ifrag, nelec, s[iroot][ifrag], ir, navg, maxw, entr))
-        running_weight -= space_weights[iroot]
+        log.info ("Printing wave function(s) in rootspace %d:", iroot)
+        _print_states (log, iroot, space_weights[iroot], state_coeffs[iroot], lroots[iroot],
+                       print_all_but=print_all_but)
+        running_weight -= avg_weights[iroot]
         if running_weight < print_all_but: break
 
     if ix+1<las.nroots:
