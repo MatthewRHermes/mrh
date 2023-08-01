@@ -115,7 +115,7 @@ def _print_states (log, iroot, space_weights, state_coeffs, lroots, print_all_bu
         fmt_str0 = ''.join (['{:1d}',]*nfrags)
     else:
         lbl_len += (nfrags-1) # periods between fragment indices
-        fmt_str0 = '.'.join (['{:' + str (l) + 'd}' for l in addrs_len])
+        fmt_str0 = '.'.join (['{:d}',]*nfrags)
     lbl_len = max (3,lbl_len)
     fmt_str1 = ' {:>' + str (lbl_len) + 's}: ' + ' '.join (['{:10.3e}',]*nstates)
     log.info (fmt_str1.format ('Fac', *space_coeffs))
