@@ -10,6 +10,7 @@ import copy, json
 
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
+        print("Inside ImpurityMole() calling gto.Mole.__init__(self) w/ las.use_gpu= ", las.use_gpu)
         gto.Mole.__init__(self)
         self._las = las
         self._imporb_coeff = None
