@@ -182,6 +182,10 @@ class LASSCFSymm (lasci.LASCISymm):
     dump_flags = LASSCFNoSymm.dump_flags
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    
+    use_gpu = kwargs.get('use_gpu', None)
+    print("Inside lasscf_async.py::LASSCF() with use_gpu= ", use_gpu)
+    
     from pyscf import gto, scf
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
