@@ -39,7 +39,6 @@ from gpu4pyscf.lib.utils import patch_cpu_kernel
 #    return mol
 
 def _M(self, use_gpu=None, **kwargs):
-#def _M(use_gpu=None, **kwargs):
     r'''This is a shortcut to build up Mole object.
 
     Args: Same to :func:`Mole.build`

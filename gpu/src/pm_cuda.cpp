@@ -7,7 +7,7 @@
 #include <vector>
 #include <tuple>
 
-#include "pm_cuda.h"
+#include "pm.h"
 
 //https://stackoverflow.com/questions/68823023/set-cuda-device-by-uuid
 void uuid_print(cudaUUID_t a){

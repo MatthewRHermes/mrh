@@ -8,7 +8,7 @@
 #include <vector>
 #include <tuple>
 
-#include "pm_host.h"
+#include "pm.h"
 
 int dev_num_devices() {
 
