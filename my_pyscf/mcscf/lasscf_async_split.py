@@ -318,7 +318,7 @@ class LASImpurityOrbitalCallable (object):
         nelec = neleca + nelecb
         nelec_err = nelec - int (round (nelec))
         if abs(nelec_err)>self.nelec_int_thresh:
-            self.log.warn ("Non-integer number of electrons in impurity! (neleca,nelecb)=%f,%f",
+            self.log.warn ("Non-integer number of electrons in this subspace! (neleca,nelecb)=%f,%f",
                            neleca,nelecb)
         nelec = int (round (nelec))
         return nelec
