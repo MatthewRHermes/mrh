@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib
 from pyscf.df.df_jk import _DFHF
-from mrh.util.la import safe_svd
+from mrh.util.la import safe_svd_warner
 
 class FragSizeError (RuntimeError):
     pass
@@ -64,6 +64,7 @@ class LASImpurityOrbitalCallable (object):
         self.hcore = self.oo_coeff.conj ().T @ self._scf.get_hcore () @ self.oo_coeff
         self.soo_coeff = self.s0 @ self.oo_coeff
         self.log = lib.logger.new_logger (las, las.verbose)
+        self.svd = safe_svd_warner (self.log.warn)
 
         # For now, I WANT these to overlap for different atoms. That is why I am pretending that
         # self.s0 is block-diagonal (so that <*|f>.(<f|f>^-1).<f|*> ~> P_f <f|f> P_f).
@@ -155,7 +156,7 @@ class LASImpurityOrbitalCallable (object):
         uo = mo[:,idx]
 
         s1 = uo.conj ().T @ self.frag_umat
-        u, svals, vh = safe_svd (s1, full_matrices=True)
+        u, svals, vh = self.svd (s1, full_matrices=True)
         idx = np.zeros (u.shape[1], dtype=np.bool_)
         idx[:len(svals)][np.abs (svals)>=ovlp_tol] = True
         fo = np.append (fo, uo @ u[:,idx], axis=-1)
@@ -190,7 +191,7 @@ class LASImpurityOrbitalCallable (object):
         '''
         iGa = eo.conj ().T @ (fock1-fock1.T) @ fo[:,:self.nlas]
         if not (iGa.size and self.do_gradorbs): return fo, eo, fock1
-        u, svals, vh = safe_svd (iGa, full_matrices=True)
+        u, svals, vh = self.svd (iGa, full_matrices=True)
         ngrad = min (self.nlas, u.shape[1])
         fo = np.append (fo, eo @ u[:,:ngrad], axis=1)
         eo = eo @ u[:,ngrad:]
@@ -199,7 +200,7 @@ class LASImpurityOrbitalCallable (object):
         # Get an estimated active-orbital relaxation step size
         ao, uo = fo[:,:self.nlas], fo[:,self.nlas:]
         uGa = uo.conj ().T @ (fock1-fock1.T) @ ao
-        u, uGa, vh = safe_svd (uGa, full_matrices=False)
+        u, uGa, vh = self.svd (uGa, full_matrices=False)
         uo = uo @ u[:,:self.nlas]
         ao = ao @ vh[:self.nlas,:].conj ().T
         f0 = self.hcore[None,:,:] + veff
@@ -249,7 +250,7 @@ class LASImpurityOrbitalCallable (object):
         dm_core = mo_core @ mo_core.conj ().T
         s1 = eo.conj ().T @ dm_core @ fo[:,self.nlas:]
         if not s1.size: return fo, eo
-        u, svals, vh = safe_svd (s1)
+        u, svals, vh = self.svd (s1)
         svals = svals[:min(len(svals),nf)]
         idx = np.zeros (u.shape[1], dtype=np.bool_)
         idx[:len(svals)][np.abs(svals)>self.schmidt_thresh] = True
@@ -283,7 +284,7 @@ class LASImpurityOrbitalCallable (object):
         # Split environment orbitals into inactive and external
         eSi = eo.conj ().T @ mo[:,:self.ncore]
         if not eSi.size: return fo, eo
-        u, svals, vH = safe_svd (eSi, full_matrices=True)
+        u, svals, vH = self.svd (eSi, full_matrices=True)
         ni = np.count_nonzero (svals>0.5)
         eo = eo @ u
         eio = eo[:,:ni]
@@ -293,11 +294,11 @@ class LASImpurityOrbitalCallable (object):
         svals_i = svals_x = np.zeros (0)
         if eio.shape[1]:
             eGf = eio.conj ().T @ (fock1-fock1.T) @ fo
-            u_i, svals_i, vh = safe_svd (eGf, full_matrices=True)
+            u_i, svals_i, vh = self.svd (eGf, full_matrices=True)
             eio = eio @ u_i
         if exo.shape[1]:
             eGf = exo.conj ().T @ (fock1-fock1.T) @ fo
-            u_x, svals_x, vh = safe_svd (eGf, full_matrices=True)
+            u_x, svals_x, vh = self.svd (eGf, full_matrices=True)
             exo = exo @ u_x
         eo = np.append (eio, exo, axis=1)
         svals = np.append (svals_i, svals_x)
