@@ -84,11 +84,13 @@ def safe_svd_warner (warn=lambda *args: None):
             # Try to sort out degenerate-sval and sign issues by a second pass to
             # linalg.svd with the null space removed
             try:
-                a1 = u[:,:K].conj ().T @ a @ v[:,:K]
+                svals_rel = svals/np.amax(svals)
+                K1 = np.count_nonzero (svals_rel>1e-7)
+                a1 = u[:,:K1].conj ().T @ a @ v[:,:K1]
                 u1, svals1, v1h = scipy.linalg.svd (a1, full_matrices=False)
-                svals = svals1
-                u[:,:K] = u[:,:K] @ u1
-                v[:,:K] = v[:,:K] @ v1h.conj ().T
+                svals[:K1] = svals1
+                u[:,:K1] = u[:,:K1] @ u1
+                v[:,:K1] = v[:,:K1] @ v1h.conj ().T
             except scipy.linalg.LinAlgError as err1:
                 warn ("Second pass to scipy.linalg also failed: {}".format (err1))
                 warn ("Degenerate manifolds are mixed randomly!")
