@@ -430,6 +430,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         _ifrag = self._ifrag
         las = self.mol._las
         mf = las._scf
+        log = logger.new_logger(self, self.verbose)
 
         # Project mo_coeff and ci keyframe into impurity space and cache
         imporb_coeff = self.mol.get_imporb_coeff ()
@@ -439,7 +440,11 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         s0 = mf.get_ovlp ()
         ovlp = imporb_coeff.conj ().T @ s0 @ mo_core
         evals, self.mo_coeff = linalg.eigh (-(ovlp @ ovlp.conj().T))
-        self.ncore = np.count_nonzero (np.isclose (-evals, 1))
+        self.ncore = np.count_nonzero (evals<-.5)
+        if not (np.allclose (evals[:self.ncore],-1)):
+            idx = np.argmax (np.abs (evals[:self.ncore]+1))
+            log.warn ("Schmidt decomp may have failed: <i|P_emb|i> = %e",
+                      abs(evals[:ncore][idx]))
         # Active and virtual orbitals (note self.ncas must be set at construction)
         nocc = self.ncore + self.ncas
         i = las.ncore + sum (las.ncas_sub[:_ifrag])
