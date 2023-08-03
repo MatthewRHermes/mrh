@@ -11,6 +11,7 @@ def orth_orb (las, kf2_list):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     nfrags = len (kf2_list)
+    log = lib.logger.new_logger (las, las.verbose)
 
     # orthonormalize active orbitals
     mo_coeff = las.mo_coeff.copy ()
@@ -46,7 +47,12 @@ def orth_orb (las, kf2_list):
     
     # non-active orbitals
     mo1 = np.concatenate ([mo_cas, mo_coeff[:,:ncore], mo_coeff[:,nocc:]], axis=1)
-    mo1 = orth.vec_schmidt (mo1, s=s0)[:,ncas:]
+    mo1 = orth.vec_schmidt (mo1, s=s0)
+    errmat = (mo_cas.conj ().T @ s0 @ mo1[:,:ncas]) - np.eye (ncas)
+    errmax = np.amax (np.abs (errmat))
+    if errmax>1e-4:
+        log.warn ('Active orbitals leaking into non-active space = %e', errmax)
+    mo1 = mo1[:,ncas:]
     veff = sum ([kf2.veff for kf2 in kf2_list]) / nfrags
     dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / nfrags
     fock = las.get_hcore ()[None,:,:] + veff
