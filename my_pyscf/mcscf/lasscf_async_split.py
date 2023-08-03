@@ -104,15 +104,17 @@ class LASImpurityOrbitalCallable (object):
                 max_size = 2*fo.shape[1]
             fo, eo = self._schmidt (fo, eo, mo)
             self.log.info ("nfrag after schmidt = %d", fo.shape[1])
+            nelec_fo = self._get_nelec_fo (fo, dm1s, tag='pre-ia2x_gradorbs impurity')
+            self.log.info ("nelec in fragment = %d", nelec_fo)
             if isinstance (max_size, str) and "large" in max_size.lower():
                 max_size = 2*fo.shape[1]
             if max_size < fo.shape[1]:
                 raise FragSizeError ("max_size of {} is too small".format (max_size))
             fo, eo = self._ia2x_gradorbs (fo, eo, mo, fock1, max_size)
             self.log.info ("nfrag after gradorbs 2 = %d", fo.shape[1])
-            nelec_fo = self._get_nelec_fo (fo, dm1s)
+            nelec_fo = self._get_nelec_fo (fo, dm1s, tag='final impurity')
             self.log.info ("nelec in fragment = %d", nelec_fo)
-            nelec_eo = self._get_nelec_fo (eo, dm1s)
+            nelec_eo = self._get_nelec_fo (eo, dm1s, tag='final environment')
             self.log.info ("%d occupied and %d unoccupied inactive unentangled env orbs",
                            nelec_eo//2, eo.shape[1] - (nelec_eo//2))
             fo_coeff = self.oo_coeff @ fo
@@ -286,7 +288,7 @@ class LASImpurityOrbitalCallable (object):
         if not eSi.size: return fo, eo
         u, svals, vH = self.svd (eSi, full_matrices=True)
         ni = np.count_nonzero (svals>0.5)
-        idx = ~np.isclose (svals, np.around (svals)*2)
+        idx = ~np.isclose (svals, np.around (svals))
         if np.count_nonzero(idx):
             self.log.warn ((
                 "Can't separate env occ from env virt in async_split ia2x_gradorbs; "
@@ -318,14 +320,14 @@ class LASImpurityOrbitalCallable (object):
 
         return fo, eo
 
-    def _get_nelec_fo (self, fo, dm1s):
+    def _get_nelec_fo (self, fo, dm1s, tag='this'):
         neleca = (dm1s[0] @ fo).ravel ().dot (fo.conj ().ravel ())
         nelecb = (dm1s[1] @ fo).ravel ().dot (fo.conj ().ravel ())
         nelec = neleca + nelecb
         nelec_err = nelec - int (round (nelec))
         if abs(nelec_err)>self.nelec_int_thresh:
-            self.log.warn ("Non-integer number of electrons in this subspace! (neleca,nelecb)=%f,%f",
-                           neleca,nelecb)
+            self.log.warn ("Non-integer number of electrons in %s subspace! (neleca,nelecb)=%f,%f",
+                           tag,neleca,nelecb)
         nelec = int (round (nelec))
         return nelec
 
