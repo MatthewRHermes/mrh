@@ -253,7 +253,6 @@ class LASImpurityOrbitalCallable (object):
         s1 = eo.conj ().T @ dm_core @ fo[:,self.nlas:]
         if not s1.size: return fo, eo
         u, svals, vh = self.svd (s1)
-        svals = svals[:min(len(svals),nf)]
         idx = np.zeros (u.shape[1], dtype=np.bool_)
         idx[:len(svals)][np.abs(svals)>self.schmidt_thresh] = True
         eo = eo @ u
