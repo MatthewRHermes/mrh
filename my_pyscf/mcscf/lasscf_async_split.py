@@ -261,15 +261,36 @@ class LASImpurityOrbitalCallable (object):
         # TODO: edge case for eo.shape[1] < fo.shape[1]
         mo_core = mo[:,:self.ncore]
         dm_core = mo_core @ mo_core.conj ().T
+        self._schmidt_idempotency_check (dm_core)
         s1 = eo.conj ().T @ dm_core @ fo[:,self.nlas:]
         if not s1.size: return fo, eo
         u, svals, vh = self.svd (s1)
+        self._schmidt_svd_check (s1, u, svals, vh)
         idx = np.zeros (u.shape[1], dtype=np.bool_)
         idx[:len(svals)][np.abs(svals)>self.schmidt_thresh] = True
         eo = eo @ u
         fbo = np.append (fo, eo[:,idx], axis=-1)
         ueo = eo[:,~idx]
         return fbo, ueo
+
+    def _schmidt_idempotency_check (self, dm):
+        errmax = np.amax (np.abs (dm @ dm - dm))
+        if errmax>1e-4:
+            self.log.warn ("Schmidt of density matrix with idempotency error = %e", errmax)
+        else:
+            self.log.info ("Schmidt of density matrix with idempotency error = %e", errmax)
+        return
+
+    def _schmidt_svd_check (self, a, u, svals, vh):
+        K = len (svals)
+        u, vh = u[:,:K], vh[:K]
+        a1 = (u * svals[None,:]) @ vh
+        errmax = np.amax (np.abs (a1 - a))
+        if errmax>1e-4:
+            self.log.warn ("Schmidt decomp SVD error = %e", errmax)
+        else:
+            self.log.info ("Schmidt decomp SVD error = %e", errmax)
+        return
 
     def _ia2x_gradorbs (self, fo, eo, mo, fock1, ntarget):
         '''Augment fragment space with gradient/Hessian orbs
