@@ -353,9 +353,8 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         try:
             assert (ncore_unent==0 or np.amax (np.abs (evals[-ncore_unent:]))<1e-4)
         except AssertionError as err:
-            log.error ("ncore_unent = %d but max |evals[-ncore_unent:]| = %e",
-                       ncore_unent, np.amax (np.abs (evals[-ncore_unent:])))
-            raise (err)
+            log.warn ("push_keyframe imporb problem: ncore_unent = %d but max |evals[-ncore_unent:]| = %e",
+                      ncore_unent, np.amax (np.abs (evals[-ncore_unent:])))
         if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
         kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
         
@@ -380,9 +379,8 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         try:
             assert (nvirt_unent==0 or np.amax (np.abs (evals[-nvirt_unent:]))<1e-4)
         except AssertionError as err:
-            log.error ("nvirt_unent = %d but max |evals[-nvirt_unent:]| = %e",
-                       nvirt_unent, np.amax (np.abs (evals[-nvirt_unent:])))
-            raise (err)
+            log.warn ("push_keyframe imporb problem: nvirt_unent = %d but max |evals[-nvirt_unent:]| = %e",
+                      nvirt_unent, np.amax (np.abs (evals[-nvirt_unent:])))
         if nvirt_unent>0:
             kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
             kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
@@ -442,9 +440,9 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         evals, self.mo_coeff = linalg.eigh (-(ovlp @ ovlp.conj().T))
         self.ncore = np.count_nonzero (evals<-.5)
         evals = -evals[:self.ncore]
-        if not (np.allclose (evals,1.0)):
+        if (self.ncore>0) and not (np.allclose (evals,1.0)):
             idx = np.argmax (np.abs (evals-1.0))
-            log.warn ("Schmidt decomp may have failed: <i|P_emb|i> = %e", evals[idx])
+            log.warn ("pull_keyframe imporb problem: <i|P_emb|i> = %e", evals[idx])
         # Active and virtual orbitals (note self.ncas must be set at construction)
         nocc = self.ncore + self.ncas
         i = las.ncore + sum (las.ncas_sub[:_ifrag])
@@ -452,7 +450,9 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         mo_las = mo_coeff[:,i:j]
         ovlp = (imporb_coeff @ self.mo_coeff[:,self.ncore:]).conj ().T @ s0 @ mo_las
         u, svals, vh = linalg.svd (ovlp)
-        assert (np.allclose(svals[:self.ncas], 1))
+        if (self.ncas>0) and not (np.allclose (svals[:self.ncas],1)):
+            idx = np.argmax (np.abs (svals[:self.ncas]-1.0))
+            log.warn ("pull_keyframe imporb problem: <imp|active> = %e", svals[idx])
         u[:,:self.ncas] = u[:,:self.ncas] @ vh
         self.mo_coeff[:,self.ncore:] = self.mo_coeff[:,self.ncore:] @ u
 
