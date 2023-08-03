@@ -92,6 +92,7 @@ class LASImpurityOrbitalCallable (object):
         dm1s = dm1s_
         veff = veff_
         fock1 = mo @ fock1 @ mo.conj ().T
+        self._test_orthonormality (mo_coeff, mo)
         _ = self._get_nelec_fo (mo, dm1s, tag='whole molecule')
         # ^ This is a sanity test of the density matrix. If dm1s or mo somehow
         # diverged or were transformed improperly, it might show a non-integer
@@ -139,6 +140,15 @@ class LASImpurityOrbitalCallable (object):
             with lib.temporary_env (self, do_gradorbs=False):
                 fo_coeff, nelec_fo = build (max_size, fock1)
         return fo_coeff, nelec_fo
+
+    def _test_orthonormality (self, mo_coeff, mo):
+        def _test (s1, tag=None):
+            errmax = np.amax (np.abs (s1-np.eye(s1.shape[0])))
+            if errmax>1e-4:
+                self.log.warn ('MO coeffs in %s basis not orthonormal: %e',
+                               tag, errmax)
+        _test (mo_coeff.conj ().T @ self.s0 @ mo_coeff, 'AO')
+        _test (mo.conj ().T @ mo, 'OO')
 
     def _get_orthnorm_frag (self, mo, ovlp_tol=1e-4):
         '''Get an orthonormal basis spanning the union of the frag_idth active space and
