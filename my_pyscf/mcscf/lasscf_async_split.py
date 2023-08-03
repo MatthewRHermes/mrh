@@ -92,13 +92,24 @@ class LASImpurityOrbitalCallable (object):
         dm1s = dm1s_
         veff = veff_
         fock1 = mo @ fock1 @ mo.conj ().T
+        _ = self._get_nelec_fo (mo, dm1s, tag='whole molecule')
+        # ^ This is a sanity test of the density matrix. If dm1s or mo somehow
+        # diverged or were transformed improperly, it might show a non-integer
+        # total number of electrons.
 
         def build (max_size, fock1):
             fo, eo = self._get_orthnorm_frag (mo)
+            _ = self._get_nelec_fo (np.append (fo[:,self.nlas:], eo, axis=1),
+                                    dm1s, tag='whole-molecule non-active (first check)')
+            # ^ If the MOs are somehow not orthonormal, this sanity test might fail
+            # even if the one above passes
             self.log.info ("nfrag before gradorbs = %d", fo.shape[1])
             if isinstance (max_size, str) and "small" in max_size.lower():
                 max_size = 2*fo.shape[1]
             fo, eo, fock1 = self._a2i_gradorbs (fo, eo, fock1, veff, dm1s)
+            _ = self._get_nelec_fo (np.append (fo[:,self.nlas:], eo, axis=1),
+                                    dm1s, tag='whole-molecule non-active (second check)')
+            # ^ If a2i_gradorbs is broken somehow
             if self.do_gradorbs: self.log.info ("nfrag after gradorbs 1 = %d", fo.shape[1])
             if isinstance (max_size, str) and "mid" in max_size.lower():
                 max_size = 2*fo.shape[1]
