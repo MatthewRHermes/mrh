@@ -286,6 +286,11 @@ class LASImpurityOrbitalCallable (object):
         if not eSi.size: return fo, eo
         u, svals, vH = self.svd (eSi, full_matrices=True)
         ni = np.count_nonzero (svals>0.5)
+        idx = ~np.isclose (svals, np.around (svals)*2)
+        if np.count_nonzero(idx):
+            self.log.warn ((
+                "Can't separate env occ from env virt in async_split ia2x_gradorbs; "
+                "Schmidt failure? svals={}".format (svals[idx])))
         eo = eo @ u
         eio = eo[:,:ni]
         exo = eo[:,ni:]
