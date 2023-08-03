@@ -441,10 +441,10 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         ovlp = imporb_coeff.conj ().T @ s0 @ mo_core
         evals, self.mo_coeff = linalg.eigh (-(ovlp @ ovlp.conj().T))
         self.ncore = np.count_nonzero (evals<-.5)
-        if not (np.allclose (evals[:self.ncore],-1)):
-            idx = np.argmax (np.abs (evals[:self.ncore]+1))
-            log.warn ("Schmidt decomp may have failed: <i|P_emb|i> = %e",
-                      abs(evals[:ncore][idx]))
+        evals = -evals[:self.ncore]
+        if not (np.allclose (evals,1.0)):
+            idx = np.argmax (np.abs (evals-1.0))
+            log.warn ("Schmidt decomp may have failed: <i|P_emb|i> = %e", evals[idx])
         # Active and virtual orbitals (note self.ncas must be set at construction)
         nocc = self.ncore + self.ncas
         i = las.ncore + sum (las.ncas_sub[:_ifrag])
