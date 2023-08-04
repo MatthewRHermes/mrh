@@ -45,7 +45,6 @@ class LASImpurityOrbitalCallable (object):
         self.mol = las.mol
         self._scf = las._scf
         self.ncore, self.ncas_sub, self.ncas = las.ncore, las.ncas_sub, las.ncas
-        self.oo_coeff = las.mo_coeff.copy ()
         self.with_df = getattr (las, 'with_df', None)
         self.frag_id = frag_id
         self.schmidt_thresh = schmidt_thresh
@@ -61,13 +60,19 @@ class LASImpurityOrbitalCallable (object):
         self.ncas = sum (self.ncas_sub)
         self.nocc = self.ncore + self.ncas
         self.s0 = self._scf.get_ovlp ()
-        self.hcore = self.oo_coeff.conj ().T @ self._scf.get_hcore () @ self.oo_coeff
-        self.soo_coeff = self.s0 @ self.oo_coeff
         self.log = lib.logger.new_logger (las, las.verbose)
         self.svd = safe_svd_warner (self.log.warn)
 
         # For now, I WANT these to overlap for different atoms. That is why I am pretending that
         # self.s0 is block-diagonal (so that <*|f>.(<f|f>^-1).<f|*> ~> P_f <f|f> P_f).
+        self.frag_orbs = frag_orbs
+        self.set_utility_basis_(las.mo_coeff)
+
+    def set_utility_basis_(self, oo_coeff):
+        self.oo_coeff = oo_coeff.copy ()
+        frag_orbs = self.frag_orbs
+        self.hcore = self.oo_coeff.conj ().T @ self._scf.get_hcore () @ self.oo_coeff
+        self.soo_coeff = self.s0 @ self.oo_coeff
         self.nao_frag = len (frag_orbs)
         ovlp_frag = self.s0[frag_orbs,:][:,frag_orbs] # <f|f> in the comment above
         proj_oo = self.oo_coeff[frag_orbs,:] # P_f . oo_coeff in the comment above
@@ -75,12 +80,11 @@ class LASImpurityOrbitalCallable (object):
         w, u = linalg.eigh (-s1) # negative: sort from largest to smallest
         self.frag_umat = u[:,:self.nao_frag]
 
-
     def __call__(self, mo_coeff, dm1s, veff, fock1, max_size='mid'):
         # TODO: how to handle active/active rotations
         self.log.info ("nmo = %d", mo_coeff.shape[1])
 
-        # Everything in the orth-AO basis
+        # Everything in the utility basis
         oo, soo = self.oo_coeff, self.soo_coeff
         mo = soo.conj ().T @ mo_coeff
         dm1s_ = [0,0]

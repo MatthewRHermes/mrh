@@ -49,7 +49,8 @@ def make_sdm1 (sivec, lroots, site):
             One-site reduced density matrix
     '''
     nsites = len (lroots)
-    nroots = sivec.size // np.prod (lroots)
+    nroots, err = divmod (sivec.size, np.prod (lroots))
+    if err: raise ValueError ("sivec.size % prod(lroots) = {}".format (err))
     sivec = np.asfortranarray (sivec)
     sivec = sivec.reshape (list(lroots)+[nroots,], order='F')
     idx = [site,nsites]

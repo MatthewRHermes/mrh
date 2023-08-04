@@ -46,12 +46,23 @@ def orth_orb (las, kf2_list):
     mo_cas = np.concatenate (mo_las, axis=1)
     
     # non-active orbitals
-    mo1 = np.concatenate ([mo_cas, mo_coeff[:,:ncore], mo_coeff[:,nocc:]], axis=1)
+    mo0 = mo_coeff - (mo_cas @ mo_cas.conj ().T @ s0 @ mo_coeff)
+    mo0 = orth.vec_lowdin (mo0, s=s0)
+    # sadly, orth.vec_lowdin has too tight of an epsilon for this, and it can't be changed
+    ovlp = mo0.conj ().T @ s0 @ mo0
+    evals, evecs = linalg.eigh (-ovlp)
+    mo0 = mo0 @ evecs[:,:-ncas]
+    mo1 = np.concatenate ([mo_cas, mo0], axis=1)
     mo1 = orth.vec_schmidt (mo1, s=s0)
     errmat = (mo_cas.conj ().T @ s0 @ mo1[:,:ncas]) - np.eye (ncas)
     errmax = np.amax (np.abs (errmat))
-    if errmax>1e-4:
+    if errmax>1e-8:
         log.warn ('Active orbitals leaking into non-active space = %e', errmax)
+    errmat = (mo1.conj ().T @ s0 @ mo1) - np.eye (mo1.shape[1])
+    errmax = np.amax (np.abs (errmat))
+    if errmax>1e-8:
+        log.warn ('Non-orthogonal AOs in lasscf_async_combine.orth_orb: max ovlp error = %e', errmax)
+    errmax = np.max (np.abs (errmat))
     mo1 = mo1[:,ncas:]
     veff = sum ([kf2.veff for kf2 in kf2_list]) / nfrags
     dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / nfrags
@@ -93,6 +104,7 @@ class flas_stdout_env (object):
             self.las.with_df.stdout = self.las_stdout
 
 def relax (las, kf):
+    log = lib.logger.new_logger (las, las.verbose)
     flas_stdout = getattr (las, '_flas_stdout', None)
     if flas_stdout is None:
         output = getattr (las.mol, 'output', None)
@@ -112,6 +124,11 @@ def relax (las, kf):
         flas.__dict__.update (las.__dict__)
         e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
             flas.kernel (kf.mo_coeff, ci0=kf.ci)
+    ovlp = mo_coeff.conj ().T @ las._scf.get_ovlp () @ mo_coeff
+    errmat = ovlp - np.eye (ovlp.shape[0])
+    errmax = np.amax (np.abs (errmat))
+    if errmax>1e-8:
+        log.warn ('Non-orthogonal AOs in lasscf_async_combine.relax: max ovlp error = %e', errmax)
     return las.get_keyframe (mo_coeff, ci)
 
 def combine_o0 (las, kf2_list):
