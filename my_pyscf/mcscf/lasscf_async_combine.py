@@ -10,20 +10,22 @@ from mrh.my_pyscf.mcscf import lasci, _DFLASCI
 def orth_orb (las, kf2_list):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
+    nao, nmo = las.mo_coeff.shape
     nfrags = len (kf2_list)
     log = lib.logger.new_logger (las, las.verbose)
 
     # orthonormalize active orbitals
-    mo_coeff = las.mo_coeff.copy ()
+    mo_cas = np.empty ((nao, ncas), dtype=las.mo_coeff.dtype)
     ci = []
     for ifrag, kf2 in enumerate (kf2_list):
-        i = las.ncore + sum (las.ncas_sub[:ifrag])
+        i = sum (las.ncas_sub[:ifrag])
         j = i + las.ncas_sub[ifrag]
-        mo_coeff[:,i:j] = kf2.mo_coeff[:,i:j]
+        k, l = i + ncore, j + ncore
+        mo_cas[:,i:j] = kf2.mo_coeff[:,k:l]
         ci.append (kf2.ci[ifrag])
-    mo_cas_preorth = mo_coeff[:,ncore:nocc].copy ()
+    mo_cas_preorth = mo_cas.copy ()
     s0 = las._scf.get_ovlp ()
-    mo_cas = mo_coeff[:,ncore:nocc] = orth.vec_lowdin (mo_cas_preorth, s=s0)
+    mo_cas = orth.vec_lowdin (mo_cas_preorth, s=s0)
     
     # reassign orthonormalized active orbitals
     proj = []
@@ -31,7 +33,7 @@ def orth_orb (las, kf2_list):
         i = sum (las.ncas_sub[:ifrag])
         j = i + las.ncas_sub[ifrag]
         proj.append (mo_cas_preorth[:,i:j] @ mo_cas_preorth[:,i:j].conj ().T)
-    smo1 = s0 @ mo_coeff[:,ncore:nocc]
+    smo1 = s0 @ mo_cas
     frag_weights = np.stack ([((p @ smo1) * smo1.conjugate ()).sum (0)
                               for p in proj], axis=-1)
     idx = np.argsort (frag_weights, axis=1)[:,-1]
@@ -46,13 +48,13 @@ def orth_orb (las, kf2_list):
     mo_cas = np.concatenate (mo_las, axis=1)
     
     # non-active orbitals
-    ucas = mo_coeff.conj ().T @ s0 @ mo_cas
+    ucas = las.mo_coeff.conj ().T @ s0 @ mo_cas
     u, R = linalg.qr (ucas)
     # Isn't it weird that you do Gram-Schmidt by doing QR?
     errmax = np.amax (np.abs (np.abs (R[:ncas,:ncas]) - np.eye (ncas)))
     if errmax>1e-8:
         log.warn ('Active orbital orthogonalization may have failed: %e', errmax)
-    mo1 = mo_coeff @ u
+    mo1 = las.mo_coeff @ u
     errmax = np.amax (np.abs (np.abs (mo_cas.conj ().T @ s0 @ mo1[:,:ncas]) - np.eye (ncas)))
     if errmax>1e-8:
         log.warn ('Active orbitals leaking into non-active space: %e', errmax)
