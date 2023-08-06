@@ -46,23 +46,19 @@ def orth_orb (las, kf2_list):
     mo_cas = np.concatenate (mo_las, axis=1)
     
     # non-active orbitals
-    mo0 = mo_coeff - (mo_cas @ mo_cas.conj ().T @ s0 @ mo_coeff)
-    mo0 = orth.vec_lowdin (mo0, s=s0)
-    # sadly, orth.vec_lowdin has too tight of an epsilon for this, and it can't be changed
-    ovlp = mo0.conj ().T @ s0 @ mo0
-    evals, evecs = linalg.eigh (-ovlp)
-    mo0 = mo0 @ evecs[:,:-ncas]
-    mo1 = np.concatenate ([mo_cas, mo0], axis=1)
-    mo1 = orth.vec_schmidt (mo1, s=s0)
-    errmat = (mo_cas.conj ().T @ s0 @ mo1[:,:ncas]) - np.eye (ncas)
-    errmax = np.amax (np.abs (errmat))
+    ucas = mo_coeff.conj ().T @ s0 @ mo_cas
+    u, R = linalg.qr (ucas)
+    # Isn't it weird that you do Gram-Schmidt by doing QR?
+    errmax = np.amax (np.abs (np.abs (R[:ncas,:ncas]) - np.eye (ncas)))
     if errmax>1e-8:
-        log.warn ('Active orbitals leaking into non-active space = %e', errmax)
-    errmat = (mo1.conj ().T @ s0 @ mo1) - np.eye (mo1.shape[1])
-    errmax = np.amax (np.abs (errmat))
+        log.warn ('Active orbital orthogonalization may have failed: %e', errmax)
+    mo1 = mo_coeff @ u
+    errmax = np.amax (np.abs (np.abs (mo_cas.conj ().T @ s0 @ mo1[:,:ncas]) - np.eye (ncas)))
     if errmax>1e-8:
-        log.warn ('Non-orthogonal AOs in lasscf_async_combine.orth_orb: max ovlp error = %e', errmax)
-    errmax = np.max (np.abs (errmat))
+        log.warn ('Active orbitals leaking into non-active space: %e', errmax)
+    errmax = np.amax (np.abs ((mo1.conj ().T @ s0 @ mo1) - np.eye (mo1.shape[1])))
+    if errmax>1e-8:
+        log.warn ('Non-orthogonal AOs in lasscf_async_combine.orth_orb: %e', errmax)
     mo1 = mo1[:,ncas:]
     veff = sum ([kf2.veff for kf2 in kf2_list]) / nfrags
     dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / nfrags
