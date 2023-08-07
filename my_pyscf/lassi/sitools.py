@@ -193,7 +193,7 @@ def analyze (las, si, state=0, print_all_but=1e-8):
                                       (nelelas[ifrag]-c[iroot,ifrag]-m[iroot,ifrag])//2)
             ir = symm.irrep_id2name (las.mol.groupname, w[iroot][ifrag])
             log.info (fmt_str.format (ifrag, nelec, s[iroot][ifrag], ir, navg, maxw, entr))
-        log.info ("Printing wave function(s) in rootspace %d:", iroot)
+        log.info ("Wave function(s) in rootspace %d in local basis:", iroot)
         _print_states (log, iroot, space_weights[iroot], state_coeffs[iroot], lroots[iroot],
                        print_all_but=print_all_but)
         running_weight -= avg_weights[iroot]
@@ -206,5 +206,23 @@ def analyze (las, si, state=0, print_all_but=1e-8):
         log.info ("All %d rootspaces accounted for", las.nroots)
 
     return
+
+def analyze_basis (las, ci=None, space=0, frag=0, npr=10):
+    '''Print out the many-electron wave function(s) in terms of CSFs for a specific
+    fragment in a specific LAS rootspace'''
+    if ci is None: ci = las.ci
+    ci = ci[frag][space]
+    norb = las.ncas_sub[frag]
+    fcibox = las.fciboxes[frag]
+    fcisolver = fcibox.fcisolvers[space]
+    transformer = fcisolver.transformer
+    nelec = fcibox._get_nelec (fcisolver, las.nelecas_sub[frag])
+    log = lib.logger.new_logger (las, las.verbose)
+    l, c = transformer.printable_largest_csf (ci, 10, isdet=True)
+    nstates = len (l)
+    for state, (lbls, coeffs) in enumerate (zip (l, c)):
+        log.info ("State %d/%d", state, nstates)
+        for lbl, coeff in zip (lbls, coeffs):
+            log.info ("%s : %e", lbl, coeff)
 
 
