@@ -103,31 +103,44 @@ def addr_outer_product (norb_f, nelec_f):
 def _ci_outer_product (ci_f, norb_f, nelec_f):
     '''Compute outer-product CI vector for one space table from fragment LAS CI vectors.
     See "ci_outer_product"'''
+    nfrags = len (norb_f)
     neleca_f = [ne[0] for ne in nelec_f]
     nelecb_f = [ne[1] for ne in nelec_f]
     lroots_f = [1 if ci.ndim<3 else ci.shape[0] for ci in ci_f]
+    nprods = np.prod (lroots_f)
+    addrs_las = np.stack (np.meshgrid (*[np.arange(l) for l in lroots_f[::-1]],
+                                       indexing='ij'), axis=0)
+    addrs_las = addrs_las.reshape (nfrags, nprods)[::-1,:].T
     shape_f = [(lroots, cistring.num_strings (norb, neleca), cistring.num_strings (norb, nelecb))
               for lroots, norb, neleca, nelecb in zip (lroots_f, norb_f, neleca_f, nelecb_f)]
-    ci_dp = ci_f[-1].copy ().reshape (shape_f[-1])
-    for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
-        lroots, ndeta, ndetb = ci_dp.shape
-        ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
-        ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
-            lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
-        )
     addrs_a = addr_outer_product (norb_f, neleca_f)
     addrs_b = addr_outer_product (norb_f, nelecb_f)
-    nroots = ci_dp.shape[0]
-    ndet_a = cistring.num_strings (sum (norb_f), sum (neleca_f))
-    ndet_b = cistring.num_strings (sum (norb_f), sum (nelecb_f))
-    ci = np.zeros ((nroots,ndet_a,ndet_b), dtype=ci_dp.dtype)
-    idx = np.ix_(np.arange (nroots,dtype=int),addrs_a,addrs_b)
-    ci[idx] = ci_dp[:,:,:] / linalg.norm (ci_dp, axis=(1,2))[:,None,None]
-    if not np.allclose (linalg.norm (ci, axis=(1,2)), 1.0):
-        errstr = 'CI norm = {}\naddrs_a = {}\naddrs_b = {}'.format (
-            linalg.norm (ci, axis=(1,2)), addrs_a, addrs_b)
-        raise RuntimeError (errstr)
-    return list (ci)
+    idx = np.ix_(addrs_a,addrs_b)
+    addrs_a = addrs_b = None
+    def gen_ci_dp (buf=None):
+        if buf is None:
+            ndet_a = cistring.num_strings (sum (norb_f), sum (neleca_f))
+            ndet_b = cistring.num_strings (sum (norb_f), sum (nelecb_f))
+            ci = np.empty ((ndet_a,ndet_b), dtype=ci_f[-1].dtype)
+        else:
+            ci = np.asarray (buf)
+        for addr in addrs_las:
+            ci[:,:] = 0.0
+            ci_dp = ci_f[-1].reshape (shape_f[-1])[addr[-1]]
+            for ci_r, i, shape in zip (ci_f[-2::-1], addr[-2::-1], shape_f[-2::-1]):
+                ndeta, ndetb = ci_dp.shape
+                ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape)[i])
+                ci_dp = ci_dp.transpose (0,2,1,3).reshape (
+                    ndeta*shape[1], ndetb*shape[2]
+                )
+            ci[idx] = ci_dp[:,:] / linalg.norm (ci_dp)
+            if not np.allclose (linalg.norm (ci), 1.0):
+                errstr = 'CI norm = {}\naddrs_a = {}\naddrs_b = {}'.format (
+                    linalg.norm (ci), addrs_a, addrs_b)
+                raise RuntimeError (errstr)
+            ci_dp = None
+            yield ci
+    return gen_ci_dp, nprods
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):
     '''Compute outer-product CI vectors from fragment LAS CI vectors.
@@ -155,9 +168,9 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
         ci_f = [ci[space] for ci in ci_fr]
         nelec_f = [nelec[space] for nelec in nelec_fr]
         nelec = (sum ([ne[0] for ne in nelec_f]), sum ([ne[1] for ne in nelec_f]))
-        ci = _ci_outer_product (ci_f, norb_f, nelec_f)
-        ci_r.extend (ci)
-        nelec_r.extend ([nelec,]*len(ci))
+        gen_ci, nprods = _ci_outer_product (ci_f, norb_f, nelec_f)
+        ci_r.extend ([x.copy () for x in gen_ci ()])
+        nelec_r.extend ([nelec,]*nprods)
     return ci_r, nelec_r
 
 #def si_soc (las, h1, ci, nelec, norb):
