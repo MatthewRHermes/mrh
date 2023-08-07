@@ -16,18 +16,33 @@ def memcheck (las, ci, soc=None):
     nfrags = len (ci)
     nroots = len (ci[0])
     assert (all ([len (c) == nroots for c in ci]))
+    lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
+                            for c in ci_r]
+                           for ci_r in ci])
+    lroots_r = np.product (lroots_fr, axis=0)
+    nelec_frs = np.array ([[list (_unpack_nelec (fcibox._get_nelec (solver, nelecas)))
+                            for solver in fcibox.fcisolvers]
+                           for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)])
     if soc: # Complex numbers and spinless CI vectors
         itemsize = np.dtype (complex).itemsize
-        nelec_fr = [[sum (_unpack_nelec (fcibox._get_nelec (solver, nelecas)))
-                     for solver in fcibox.fcisolvers]
-                    for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-        nelec_r = np.asarray (nelec_fr).sum (0)
-        mem = sum ([cistring.num_strings (2*las.ncas, nelec) for nelec in nelec_r])
-        mem *= itemsize / 1e6
+        norb = 2*las.ncas
+        nelec_r = nelec_frs.sum ((0,2))
+        ndet_r = np.asarray ([cistring.num_strings (norb, nelec) for nelec in nelec_r])
     else:
-        mem = sum ([np.prod ([c[iroot].size for c in ci]) 
-            * np.amax ([c[iroot].dtype.itemsize for c in ci]) 
-            for iroot in range (nroots)]) / 1e6
+        itemsize = np.dtype (float).itemsize
+        norb = las.ncas
+        neleca_r = nelec_frs[:,:,0].sum (0)
+        nelecb_r = nelec_frs[:,:,1].sum (0)
+        ndet_r  = np.asarray ([cistring.num_strings (norb, neleca) for neleca in neleca_r])
+        ndet_r *= np.asarray ([cistring.num_strings (norb, nelecb) for nelecb in nelecb_r])
+    mem = np.dot (lroots_r, ndet_r) * itemsize / 1e6
+    # TODO: de-vectorize op_o0 and reinstate below version of the size calculation for
+    #       soc==False
+    # TODO: figure out how the memory cost for the devectorized version can be computed
+    #       with soc==True
+    #mem = sum ([np.prod ([c[iroot].size for c in ci])
+    #    * np.amax ([c[iroot].dtype.itemsize for c in ci])
+    #    for iroot in range (nroots)]) / 1e6
     max_memory = las.max_memory - lib.current_memory ()[0]
     lib.logger.info (las,
         "LASSI op_o0 memory check: {} MB needed of {} MB available ({} MB max)".format (mem,\
