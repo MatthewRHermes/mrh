@@ -94,7 +94,7 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
             # ... b2' b1' b0' .. a2' a1' a0' |vac>
             # i.e., strictly decreasing from left to right
             # (the ordinality of spin-down is conventionally greater than spin-up)
-            yield ci1
+            yield ci1[:,None]
             if istate+1==nstates: break
             ci0 = next (ci0_r_gen)
     return ci1_r_gen
@@ -398,7 +398,6 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
         nelec_r = nelec_r_spinless
         norb = 2 * norb
         if orbsym is not None: orbsym *= 2
-        dtype = np.dtype (complex)
 
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     stdm1s = np.zeros ((nroots, nroots, 2, norb, norb),
@@ -448,6 +447,114 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
 
     return stdm1s, stdm2s 
 
+def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
+    '''Build LAS state interaction reduced density matrices for 1 final
+    LASSI eigenstate.
+
+    Args:
+        las : instance of class LASSCF
+        ci_fr : nested list of shape (nfrags, nroots)
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (ndeta[i,j],ndetb[i,j])
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
+        si : ndarray of shape (nroots, nroots)
+            Unitary matrix defining final LASSI states in terms of
+            non-interacting LAS states
+        ix : integer
+            Index of column of si to use
+
+    Kwargs:
+        orbsym : list of int of length (ncas)
+            Irrep ID for each orbital
+        wfnsym : int
+            Irrep ID for target matrix block
+
+    Returns:
+        rdm1s : ndarray of shape (2, ncas, ncas) OR (2*ncas, 2*ncas)
+            One-body transition density matrices between LAS states
+            If states with different spin projections (i.e., neleca-nelecb) are present, the 2d
+            spinorbital array is returned. Otherwise, the 3d spatial-orbital array is returned.
+        rdm2s : ndarray of length (2, ncas, ncas, 2, ncas, ncas)
+            Two-body transition density matrices between LAS states
+    '''
+    mol = las.mol
+    norb_f = las.ncas_sub
+    ci_r_gen, nelec_r = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
+    nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
+    nroots = len (nelec_r)
+    norb = sum (norb_f)
+    if not len (set (nelec_r_spinless)) == 1:
+        raise NotImplementedError ("States with different numbers of electrons")
+    spin_pure = len (set (nelec_r)) == 1
+    if not spin_pure:
+        # Map to "spinless electrons": 
+        ci_r_gen = civec_spinless_repr_generator (ci_r_gen, norb, nelec_r)
+        nelec_r = nelec_r_spinless
+        norb = 2 * norb
+        if orbsym is not None: orbsym *= 2
+    nelec_r = nelec_r[0]
+
+    ndeta = cistring.num_strings (norb, nelec_r[0])
+    ndetb = cistring.num_strings (norb, nelec_r[1])
+    ci_r = np.zeros ((ndeta,ndetb), dtype=si.dtype)
+    for coeff, c in zip (si[:,ix], ci_r_gen ()):
+        try:
+            ci_r[:,:] += coeff * c
+        except ValueError as err:
+            print (ci_r.shape, ndeta, ndetb, c.shape)
+            raise (err)
+    ci_r_real = np.ascontiguousarray (ci_r.real)
+    rdm1s = np.zeros ((2, norb, norb), dtype=ci_r.dtype)
+    rdm2s = np.zeros ((2, norb, norb, 2, norb, norb), dtype=ci_r.dtype)
+    is_complex = np.iscomplexobj (ci_r)
+    if is_complex:
+        #solver = fci.fci_dhf_slow.FCISolver (mol)
+        #for ix, ci in enumerate (ci_r):
+        #    d1, d2 = solver.make_rdm12 (ci, norb, sum(nelec_r))
+        #    rdm1s[ix,0,:,:] = d1[:]
+        #    rdm2s[ix,0,:,:,0,:,:] = d2[:]
+        # ^ this is WAY too slow!
+        ci_r_imag = np.ascontiguousarray (ci_r.imag)
+    else:
+        ci_r_imag = [0,]*nroots
+        #solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
+    d1s, d2s = solver.make_rdm12s (ci_r_real, norb, nelec_r)
+    d2s = (d2s[0], d2s[1], d2s[1].transpose (2,3,0,1), d2s[2])
+    if is_complex:
+        d1s = np.asarray (d1s, dtype=complex)
+        d2s = np.asarray (d2s, dtype=complex)
+        d1s2, d2s2 = solver.make_rdm12s (ci_r_imag, norb, nelec_r)
+        d2s2 = (d2s2[0], d2s2[1], d2s2[1].transpose (2,3,0,1), d2s2[2])
+        d1s += np.asarray (d1s2)
+        d2s += np.asarray (d2s2)
+        d1s2, d2s2 = solver.trans_rdm12s (ci_r_real, ci_r_imag, norb, nelec_r)
+        d1s2 -= np.asarray (d1s2).transpose (0,2,1)
+        d2s2 -= np.asarray (d2s2).transpose (0,2,1,4,3)
+        d1s -= 1j * d1s2 
+        d2s += 1j * d2s2
+    rdm1s[0,:,:] = d1s[0]
+    rdm1s[1,:,:] = d1s[1]
+    rdm2s[0,:,:,0,:,:] = d2s[0]
+    rdm2s[0,:,:,1,:,:] = d2s[1]
+    rdm2s[1,:,:,0,:,:] = d2s[2]
+    rdm2s[1,:,:,1,:,:] = d2s[3]
+
+    if not spin_pure: # cleanup the "spinless mapping"
+        rdm1s = rdm1s[0,:,:]
+        # TODO: 2e- SOC
+        n = norb // 2
+        rdm2s_ = np.zeros ((2, n, n, 2, n, n), dtype=ci_r.dtype)
+        rdm2s_[0,:,:,0,:,:] = rdm2s[0,:n,:n,0,:n,:n]
+        rdm2s_[0,:,:,1,:,:] = rdm2s[0,:n,:n,0,n:,n:]
+        rdm2s_[1,:,:,0,:,:] = rdm2s[0,n:,n:,0,:n,:n]
+        rdm2s_[1,:,:,1,:,:] = rdm2s[0,n:,n:,0,n:,n:]
+        rdm2s = rdm2s_
+
+    return rdm1s, rdm2s
+
 def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
     '''Build LAS state interaction reduced density matrices for final
     LASSI eigenstates.
@@ -478,73 +585,13 @@ def roots_make_rdm12s (las, ci_fr, nelec_frs, si, orbsym=None, wfnsym=None):
         rdm2s : ndarray of length (nroots, 2, ncas, ncas, 2, ncas, ncas)
             Two-body transition density matrices between LAS states
     '''
-    mol = las.mol
-    norb_f = las.ncas_sub
-    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_frs)
-    nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
-    nroots = len (ci_r)
-    norb = sum (norb_f)
-    if not len (set (nelec_r_spinless)) == 1:
-        raise NotImplementedError ("States with different numbers of electrons")
-    spin_pure = len (set (nelec_r)) == 1
-    if not spin_pure:
-        # Map to "spinless electrons": 
-        ci_r = civec_spinless_repr (ci_r, norb, nelec_r)
-        nelec_r = nelec_r_spinless
-        norb = 2 * norb
-        if orbsym is not None: orbsym *= 2
-
-    ci_r = np.tensordot (si.T, np.stack (ci_r, axis=0), axes=1)
-    ci_r_real = np.ascontiguousarray (ci_r.real)
-    rdm1s = np.zeros ((nroots, 2, norb, norb), dtype=ci_r.dtype)
-    rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb), dtype=ci_r.dtype)
-    is_complex = np.iscomplexobj (ci_r)
-    if is_complex:
-        #solver = fci.fci_dhf_slow.FCISolver (mol)
-        #for ix, (ci, ne) in enumerate (zip (ci_r, nelec_r)):
-        #    d1, d2 = solver.make_rdm12 (ci, norb, sum(ne))
-        #    rdm1s[ix,0,:,:] = d1[:]
-        #    rdm2s[ix,0,:,:,0,:,:] = d2[:]
-        # ^ this is WAY too slow!
-        ci_r_imag = np.ascontiguousarray (ci_r.imag)
-    else:
-        ci_r_imag = [0,]*nroots
-        #solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
-    solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
-    for ix, (ci_re, ci_im, ne) in enumerate (zip (ci_r_real, ci_r_imag, nelec_r)):
-        d1s, d2s = solver.make_rdm12s (ci_re, norb, ne)
-        d2s = (d2s[0], d2s[1], d2s[1].transpose (2,3,0,1), d2s[2])
-        if is_complex:
-            d1s = np.asarray (d1s, dtype=complex)
-            d2s = np.asarray (d2s, dtype=complex)
-            d1s2, d2s2 = solver.make_rdm12s (ci_im, norb, ne)
-            d2s2 = (d2s2[0], d2s2[1], d2s2[1].transpose (2,3,0,1), d2s2[2])
-            d1s += np.asarray (d1s2)
-            d2s += np.asarray (d2s2)
-            d1s2, d2s2 = solver.trans_rdm12s (ci_re, ci_im, norb, ne)
-            d1s2 -= np.asarray (d1s2).transpose (0,2,1)
-            d2s2 -= np.asarray (d2s2).transpose (0,2,1,4,3)
-            d1s -= 1j * d1s2 
-            d2s += 1j * d2s2
-        rdm1s[ix,0,:,:] = d1s[0]
-        rdm1s[ix,1,:,:] = d1s[1]
-        rdm2s[ix,0,:,:,0,:,:] = d2s[0]
-        rdm2s[ix,0,:,:,1,:,:] = d2s[1]
-        rdm2s[ix,1,:,:,0,:,:] = d2s[2]
-        rdm2s[ix,1,:,:,1,:,:] = d2s[3]
-
-    if not spin_pure: # cleanup the "spinless mapping"
-        rdm1s = rdm1s[:,0,:,:]
-        # TODO: 2e- SOC
-        n = norb // 2
-        rdm2s_ = np.zeros ((nroots, 2, n, n, 2, n, n), dtype=ci_r.dtype)
-        rdm2s_[:,0,:,:,0,:,:] = rdm2s[:,0,:n,:n,0,:n,:n]
-        rdm2s_[:,0,:,:,1,:,:] = rdm2s[:,0,:n,:n,0,n:,n:]
-        rdm2s_[:,1,:,:,0,:,:] = rdm2s[:,0,n:,n:,0,:n,:n]
-        rdm2s_[:,1,:,:,1,:,:] = rdm2s[:,0,n:,n:,0,n:,n:]
-        rdm2s = rdm2s_
-
-    return rdm1s, rdm2s
+    rdm1s = []
+    rdm2s = []
+    for ix in range (si.shape[1]):
+        d1, d2 = root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=orbsym, wfnsym=wfnsym)
+        rdm1s.append (d1)
+        rdm2s.append (d2)
+    return np.stack (rdm1s, axis=0), np.stack (rdm2s, axis=0)
 
 if __name__ == '__main__':
     from pyscf import scf, lib
