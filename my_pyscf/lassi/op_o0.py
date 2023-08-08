@@ -38,6 +38,7 @@ def memcheck (las, ci, soc=None):
     else:
         nbytes = 3*nbytes_per_sfvec
     safety_factor = 1.2
+    # TODO: add back memory load of ci_dp vectors cached below
     mem = nbytes * safety_factor / 1e6
     max_memory = las.max_memory - lib.current_memory ()[0]
     lib.logger.info (las,
