@@ -55,7 +55,8 @@ class KnownValues(unittest.TestCase):
     def test_outer_product (self):
         ci_h_f = [np.random.rand (6,6), np.random.rand (2,2), np.random.rand (6,6)]
         ci_h_f = [c / linalg.norm (c) for c in ci_h_f]
-        ci_h_ref = _ci_outer_product (ci_h_f, [4,2,4], [[2,2],[1,1],[2,2]])
+        ci_h_ref_gen = _ci_outer_product (ci_h_f, [4,2,4], [[2,2],[1,1],[2,2]])[0]
+        ci_h_ref = [x.copy () for x in ci_h_ref_gen ()]
         ci_f = np.multiply.outer (np.squeeze (hilbert2fock (ci_h_f[2], 4, (2,2))),
                                   np.squeeze (hilbert2fock (ci_h_f[1], 2, (1,1))))
         ci_f = ci_f.transpose (0,2,1,3).reshape (2**6, 2**6)
