@@ -504,6 +504,8 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   t_array[11] += t12 - t11;
   t_array[12] += t13 - t12;
   t_array[13] += t14 - t13;
+
+  t_array_count++;
 #endif
   
 #if 0
@@ -991,6 +993,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #ifdef _SIMPLE_TIMER
     double t4 = omp_get_wtime();
     t_array_jk[7] += t4 - t3;
+    t_array_jk_count++;
 #endif 
   }
   

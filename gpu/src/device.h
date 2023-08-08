@@ -136,9 +136,10 @@ private:
   void NPdunpack_tril(int, double *, double *, int);
     
 #ifdef _SIMPLE_TIMER
-  double total_t;
-
+  int t_array_count;
   double * t_array;
+
+  int t_array_jk_count;
   double * t_array_jk;
 #endif
 
