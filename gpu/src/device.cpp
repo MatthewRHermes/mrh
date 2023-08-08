@@ -43,9 +43,11 @@ Device::Device()
 #endif
   
 #ifdef _SIMPLE_TIMER
+  t_array_count = 0;
   t_array = (double *) malloc(14 * sizeof(double));
   for(int i=0; i<14; ++i) t_array[i] = 0.0;
-  
+
+  t_array_jk_count = 0;
   t_array_jk = (double* ) malloc(9 * sizeof(double));
   for(int i=0; i<9; ++i) t_array_jk[i] = 0.0;
 #endif
