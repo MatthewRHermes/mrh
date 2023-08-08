@@ -49,7 +49,7 @@ def memcheck (las, ci, soc=None):
         max_memory, las.max_memory))
     return mem < max_memory
 
-def civec_spinless_repr (ci0_r, norb, nelec_r):
+def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
     ''' Put CI vectors in the spinless representation; i.e., map
             norb -> 2 * norb
             (neleca, nelecb) -> (neleca+nelecb, 0)
@@ -57,7 +57,6 @@ def civec_spinless_repr (ci0_r, norb, nelec_r):
         M == neleca-nelecb at the price of higher memory cost. This function
         does NOT change the datatype.
     '''
-    nroots = len (ci0_r)
     nelec_r_tot = [sum (n) for n in nelec_r]
     if len (set (nelec_r_tot)) > 1:
         raise NotImplementedError ("Different particle-number subspaces")
@@ -73,18 +72,29 @@ def civec_spinless_repr (ci0_r, norb, nelec_r):
         addrs[ne] = cistring.strs2addr (2*norb, nelec, strs)
     strs = strsa = strsb = None
     ndet = cistring.num_strings (2*norb, nelec)
-    ci1_r = np.zeros ((nroots, ndet), dtype=ci0_r[0].dtype)
-    for ci0, ci1, ne in zip (ci0_r, ci1_r, nelec_r):
-        ci1[addrs[ne]] = ci0[:,:].ravel ()
-        neleca, nelecb = _unpack_nelec (ne)
-        if abs(neleca*nelecb)%2: ci1[:] *= -1
-        # Sign comes from changing representation:
-        # ... a2' a1' a0' ... b2' b1' b0' |vac>
-        # ->
-        # ... b2' b1' b0' .. a2' a1' a0' |vac>
-        # i.e., strictly decreasing from left to right
-        # (the ordinality of spin-down is conventionally greater than spin-up)
-    return ci1_r[:,:,None]
+    def ci1_r_gen (buf=None):
+        if buf is None:
+            ci1 = np.empty (ndet, dtype=ci0_r[0].dtype)
+        else:
+            ci1 = np.asarray (buf).flat[:ndet]
+        for ci0, ne in zip (ci0_r, nelec_r):
+            ci1[:] = 0.0
+            ci1[addrs[ne]] = ci0[:,:].ravel ()
+            neleca, nelecb = _unpack_nelec (ne)
+            if abs(neleca*nelecb)%2: ci1[:] *= -1
+            # Sign comes from changing representation:
+            # ... a2' a1' a0' ... b2' b1' b0' |vac>
+            # ->
+            # ... b2' b1' b0' .. a2' a1' a0' |vac>
+            # i.e., strictly decreasing from left to right
+            # (the ordinality of spin-down is conventionally greater than spin-up)
+            yield ci1
+    return ci1_r_gen
+
+def civec_spinless_repr (ci0_r, norb, nelec_r):
+    ci1_r_gen = civec_spinless_repr_generator (ci0_r, norb, nelec_r)
+    ci1_r = np.stack ([x.copy () for x in ci1_r_gen ()], axis=0)
+    return ci1_r
 
 def addr_outer_product (norb_f, nelec_f):
     '''Build index arrays for reshaping a direct product of LAS CI
