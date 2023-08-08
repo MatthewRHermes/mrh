@@ -60,13 +60,13 @@ $(CUDA_OBJ): %.o: %.cpp
 #
 # -- Remove *.o and *~ from the directory
 clean:
-	rm -f *.o *.mod *~ ./$(LIB)
-	rm -rf $(EX).dSYM
+	rm -f *.o *.mod *~ ./$(EXE)
+	rm -rf $(EXE).dSYM
 #
 # -- Remove *.o, *~, and executable from the directory
 realclean:
-	rm -f *.o *.mod *~ ./$(LIB)
-	rm -rf $(EX).dSYM
+	rm -f *.o *.mod *~ ./$(EXE)
+	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
 
 #
