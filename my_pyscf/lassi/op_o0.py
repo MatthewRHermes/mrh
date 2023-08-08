@@ -57,6 +57,10 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
         M == neleca-nelecb at the price of higher memory cost. This function
         does NOT change the datatype.
     '''
+    if callable (ci0_r):
+        ci0_r_gen = ci0_r ()
+    else:
+        ci0_r_gen = (c for c in ci0_r)
     nelec_r_tot = [sum (n) for n in nelec_r]
     if len (set (nelec_r_tot)) > 1:
         raise NotImplementedError ("Different particle-number subspaces")
@@ -72,12 +76,14 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
         addrs[ne] = cistring.strs2addr (2*norb, nelec, strs)
     strs = strsa = strsb = None
     ndet = cistring.num_strings (2*norb, nelec)
+    nstates = len (nelec_r)
     def ci1_r_gen (buf=None):
+        ci0 = next (ci0_r_gen)
         if buf is None:
-            ci1 = np.empty (ndet, dtype=ci0_r[0].dtype)
+            ci1 = np.empty (ndet, dtype=ci0.dtype)
         else:
             ci1 = np.asarray (buf).flat[:ndet]
-        for ci0, ne in zip (ci0_r, nelec_r):
+        for istate, ne in enumerate (nelec_r):
             ci1[:] = 0.0
             ci1[addrs[ne]] = ci0[:,:].ravel ()
             neleca, nelecb = _unpack_nelec (ne)
@@ -89,6 +95,8 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
             # i.e., strictly decreasing from left to right
             # (the ordinality of spin-down is conventionally greater than spin-up)
             yield ci1
+            if istate+1==nstates: break
+            ci0 = next (ci0_r_gen)
     return ci1_r_gen
 
 def civec_spinless_repr (ci0_r, norb, nelec_r):
