@@ -62,17 +62,21 @@ def civec_spinless_repr (ci0_r, norb, nelec_r):
     if len (set (nelec_r_tot)) > 1:
         raise NotImplementedError ("Different particle-number subspaces")
     nelec = nelec_r_tot[0]
-    ndet = cistring.num_strings (2*norb, nelec)
-    ci1_r = np.zeros ((nroots, ndet), dtype=ci0_r[0].dtype)
-    for ci0, ci1, ne in zip (ci0_r, ci1_r, nelec_r):
+    addrs = {}
+    for ne in set (nelec_r):
         neleca, nelecb = _unpack_nelec (ne)
         ndeta = cistring.num_strings (norb, neleca)
         ndetb = cistring.num_strings (norb, nelecb)
         strsa = cistring.addrs2str (norb, neleca, list(range(ndeta)))
         strsb = cistring.addrs2str (norb, nelecb, list(range(ndetb)))
         strs = np.add.outer (strsa, np.left_shift (strsb, norb)).ravel ()
-        addrs = cistring.strs2addr (2*norb, nelec, strs)
-        ci1[addrs] = ci0[:,:].ravel ()
+        addrs[ne] = cistring.strs2addr (2*norb, nelec, strs)
+    strs = strsa = strsb = None
+    ndet = cistring.num_strings (2*norb, nelec)
+    ci1_r = np.zeros ((nroots, ndet), dtype=ci0_r[0].dtype)
+    for ci0, ci1, ne in zip (ci0_r, ci1_r, nelec_r):
+        ci1[addrs[ne]] = ci0[:,:].ravel ()
+        neleca, nelecb = _unpack_nelec (ne)
         if abs(neleca*nelecb)%2: ci1[:] *= -1
         # Sign comes from changing representation:
         # ... a2' a1' a0' ... b2' b1' b0' |vac>
