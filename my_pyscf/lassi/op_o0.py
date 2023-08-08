@@ -117,13 +117,13 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
     addrs_b = addr_outer_product (norb_f, nelecb_f)
     idx = np.ix_(addrs_a,addrs_b)
     addrs_a = addrs_b = None
+    ndet_a = cistring.num_strings (sum (norb_f), sum (neleca_f))
+    ndet_b = cistring.num_strings (sum (norb_f), sum (nelecb_f))
     def gen_ci_dp (buf=None):
         if buf is None:
-            ndet_a = cistring.num_strings (sum (norb_f), sum (neleca_f))
-            ndet_b = cistring.num_strings (sum (norb_f), sum (nelecb_f))
             ci = np.empty ((ndet_a,ndet_b), dtype=ci_f[-1].dtype)
         else:
-            ci = np.asarray (buf)
+            ci = np.asarray (buf.flat[:ndet_a*ndet_b]).reshape (ndet_a, ndet_b)
         for addr in addrs_las:
             ci[:,:] = 0.0
             ci_dp = ci_f[-1].reshape (shape_f[-1])[addr[-1]]
@@ -142,13 +142,56 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
             yield ci
     return gen_ci_dp, nprods
 
+def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
+    '''Compute outer-product CI vectors from fragment LAS CI vectors and return
+    result as a generator
+
+    Args:
+        ci_fr : nested list of shape (nfrags, nroots)
+            Contains CI vectors; element [i,j] is ndarray of shape
+            (lroots[i,j],ndeta[i,j],ndetb[i,j])
+        norb_f : list of length (nfrags)
+            Number of orbitals in each fragment
+        nelec_fr : ndarray-like of shape (nfrags, nroots, 2)
+            Number of spin-up and spin-down electrons in each fragment
+            and root
+
+    Returns:
+        ci_r_gen : generator of length (nroots)
+            Generates all direct-product CAS CI vectors
+        nelec_r : list of length (nroots) of tuple of length 2
+            (neleca, nelecb) for each product state
+    '''
+
+    norb = sum (norb_f)
+    ndet = max ([cistring.num_strings (norb, ne[0]) * cistring.num_strings (norb, ne[1])
+                for ne in np.sum (nelec_fr, axis=0)])
+    gen_ci_r = []
+    nelec_r = []
+    for space in range (len (ci_fr[0])):
+        ci_f = [ci[space] for ci in ci_fr]
+        nelec_f = [nelec[space] for nelec in nelec_fr]
+        nelec = (sum ([ne[0] for ne in nelec_f]), sum ([ne[1] for ne in nelec_f]))
+        gen_ci, nprods = _ci_outer_product (ci_f, norb_f, nelec_f)
+        gen_ci_r.append (gen_ci)
+        nelec_r.extend ([nelec,]*nprods)
+    def ci_r_gen (buf=None):
+        if buf is None:
+            buf1 = np.empty (ndet, dtype=ci_fr[-1][0].dtype)
+        else:
+            buf1 = np.asarray (buf.flat[:ndet])
+        for gen_ci in gen_ci_r:
+            for x in gen_ci (buf=buf1):
+                yield x
+    return ci_r_gen, nelec_r
+
 def ci_outer_product (ci_fr, norb_f, nelec_fr):
     '''Compute outer-product CI vectors from fragment LAS CI vectors.
 
     Args:
         ci_fr : nested list of shape (nfrags, nroots)
             Contains CI vectors; element [i,j] is ndarray of shape
-            (ndeta[i,j],ndetb[i,j])
+            (lroots[i,j],ndeta[i,j],ndetb[i,j])
         norb_f : list of length (nfrags)
             Number of orbitals in each fragment
         nelec_fr : ndarray-like of shape (nfrags, nroots, 2)
@@ -158,19 +201,11 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
     Returns:
         ci_r : list of length (nroots)
             Contains full CAS CI vector
-        nelec : tuple of length 2
-            (neleca, nelecb) for this batch of states
+        nelec_r : list of length (nroots) of tuple of length 2
+            (neleca, nelecb) for each product state
     '''
-
-    ci_r = []
-    nelec_r = []
-    for space in range (len (ci_fr[0])):
-        ci_f = [ci[space] for ci in ci_fr]
-        nelec_f = [nelec[space] for nelec in nelec_fr]
-        nelec = (sum ([ne[0] for ne in nelec_f]), sum ([ne[1] for ne in nelec_f]))
-        gen_ci, nprods = _ci_outer_product (ci_f, norb_f, nelec_f)
-        ci_r.extend ([x.copy () for x in gen_ci ()])
-        nelec_r.extend ([nelec,]*nprods)
+    ci_r_gen, nelec_r = ci_outer_product_generator (ci_fr, norb_f, nelec_fr)
+    ci_r = [x.copy () for x in ci_r_gen ()]
     return ci_r, nelec_r
 
 #def si_soc (las, h1, ci, nelec, norb):
