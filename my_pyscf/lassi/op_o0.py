@@ -59,6 +59,7 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
         raise NotImplementedError ("Different particle-number subspaces")
     nelec = nelec_r_tot[0]
     addrs = {}
+    ndet_sp = {}
     for ne in set (nelec_r):
         neleca, nelecb = _unpack_nelec (ne)
         ndeta = cistring.num_strings (norb, neleca)
@@ -67,6 +68,7 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
         strsb = cistring.addrs2str (norb, nelecb, list(range(ndetb)))
         strs = np.add.outer (strsa, np.left_shift (strsb, norb)).ravel ()
         addrs[ne] = cistring.strs2addr (2*norb, nelec, strs)
+        ndet_sp[ne] = tuple((ndeta,ndetb))
     strs = strsa = strsb = None
     ndet = cistring.num_strings (2*norb, nelec)
     nstates = len (nelec_r)
@@ -94,10 +96,21 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
             yield ci1[:,None]
             if istate+1==nstates: break
             ci0 = next (ci0_r_gen)
-    return ci1_r_gen
+    def reverser (ci2, ne):
+        ''' Generate the spin-separated CI vector in a particular M
+        Hilbert space from a spinless CI vector '''
+        try:
+            ci3 = ci2[addrs[ne]].reshape (ndet_sp[ne])
+        except IndexError as err:
+            print (ci2.shape, ndet_sp[ne], ne, norb)
+            raise (err)
+        neleca, nelecb = _unpack_nelec (ne)
+        if abs(neleca*nelecb)%2: ci3[:] *= -1
+        return ci3
+    return ci1_r_gen, reverser
 
 def civec_spinless_repr (ci0_r, norb, nelec_r):
-    ci1_r_gen = civec_spinless_repr_generator (ci0_r, norb, nelec_r)
+    ci1_r_gen, _ = civec_spinless_repr_generator (ci0_r, norb, nelec_r)
     ci1_r = np.stack ([x.copy () for x in ci1_r_gen ()], axis=0)
     return ci1_r
 
@@ -136,8 +149,11 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
     addrs_b = addr_outer_product (norb_f, nelecb_f)
     idx = np.ix_(addrs_a,addrs_b)
     addrs_a = addrs_b = None
-    ndet_a = cistring.num_strings (sum (norb_f), sum (neleca_f))
-    ndet_b = cistring.num_strings (sum (norb_f), sum (nelecb_f))
+    neleca = sum (neleca_f)
+    nelecb = sum (nelecb_f)
+    nelec = tuple ((neleca, nelecb))
+    ndet_a = cistring.num_strings (sum (norb_f), neleca)
+    ndet_b = cistring.num_strings (sum (norb_f), nelecb)
     ci_dp = ci_f[-1].reshape (shape_f[-1])
     for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
         lroots, ndeta, ndetb = ci_dp.shape
@@ -160,7 +176,15 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
             #        linalg.norm (ci), addrs_a, addrs_b)
             #    raise RuntimeError (errstr)
             yield ci
-    return gen_ci_dp, nprods
+    def dotter (c1, nelec1):
+        if nelec1 != nelec: return np.zeros (nprods)
+        try:
+            return np.dot (ci_dp.reshape (nprods, -1), 
+                           c1[idx].ravel ())
+        except ValueError as err:
+            print (ci_dp.shape, nprods, ndet_a, ndet_b)
+            raise (err)
+    return gen_ci_dp, nprods, dotter
 
 def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
     '''Compute outer-product CI vectors from fragment LAS CI vectors and return
@@ -181,6 +205,9 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
             Generates all direct-product CAS CI vectors
         nelec_r : list of length (nroots) of tuple of length 2
             (neleca, nelecb) for each product state
+        dotter : callable
+            Performs the dot product in the outer product basis
+            on a CAS CI vector
     '''
 
     norb = sum (norb_f)
@@ -188,13 +215,15 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
                 for ne in np.sum (nelec_fr, axis=0)])
     gen_ci_r = []
     nelec_r = []
+    dotter_r = []
     for space in range (len (ci_fr[0])):
         ci_f = [ci[space] for ci in ci_fr]
         nelec_f = [nelec[space] for nelec in nelec_fr]
         nelec = (sum ([ne[0] for ne in nelec_f]), sum ([ne[1] for ne in nelec_f]))
-        gen_ci, nprods = _ci_outer_product (ci_f, norb_f, nelec_f)
+        gen_ci, nprods, dotter = _ci_outer_product (ci_f, norb_f, nelec_f)
         gen_ci_r.append (gen_ci)
         nelec_r.extend ([nelec,]*nprods)
+        dotter_r.append ([dotter, nelec, nprods])
     def ci_r_gen (buf=None):
         if buf is None:
             buf1 = np.empty (ndet, dtype=ci_fr[-1][0].dtype)
@@ -203,7 +232,22 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
         for gen_ci in gen_ci_r:
             for x in gen_ci (buf=buf1):
                 yield x
-    return ci_r_gen, nelec_r
+    def dotter (c1, nelec1, reverser=None):
+        vec = []
+        for dot, ne, nprods in dotter_r:
+            wc1 = c1
+            if callable (reverser):
+                if sum (ne) == sum (nelec1):
+                    wc1 = reverser (c1, ne)
+                    vec.append (dot (wc1, ne))
+                else:
+                    vec.append (np.zeros (nprods))
+            elif ne==nelec1:
+                vec.append (dot (wc1, nelec1))
+            else:
+                vec.append (np.zeros (nprods))
+        return np.concatenate (vec)
+    return ci_r_gen, nelec_r, dotter
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):
     '''Compute outer-product CI vectors from fragment LAS CI vectors.
@@ -224,7 +268,7 @@ def ci_outer_product (ci_fr, norb_f, nelec_fr):
         nelec_r : list of length (nroots) of tuple of length 2
             (neleca, nelecb) for each product state
     '''
-    ci_r_gen, nelec_r = ci_outer_product_generator (ci_fr, norb_f, nelec_fr)
+    ci_r_gen, nelec_r, _ = ci_outer_product_generator (ci_fr, norb_f, nelec_fr)
     ci_r = [x.copy () for x in ci_r_gen ()]
     return ci_r, nelec_r
 
@@ -309,18 +353,17 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     norb = sum (norb_f)
 
     # The function below is the main workhorse of this whole implementation
-    ci_r_generator, nelec_r = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
+    ci_r_generator, nelec_r, dotter = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
     nroots = len(nelec_r)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     if not len (set (nelec_r_spinless)) == 1:
         raise NotImplementedError ("States with different numbers of electrons")
     # S2 best taken care of before "spinless representation"
+    reverser = None
     s2_eff = np.zeros ((nroots,nroots))
     for i, c, nelec_ket in zip(range(nroots), ci_r_generator (), nelec_r):
         s2c = contract_ss (c, norb, nelec_ket)
-        for j, c, nelec_bra in zip(range(nroots), ci_r_generator (), nelec_r):
-            if nelec_ket == nelec_bra:
-                s2_eff[i, j] = c.ravel ().dot (s2c.ravel ())
+        s2_eff[i,:] = dotter (s2c, nelec_ket, reverser=reverser)
     # Hamiltonian may be complex
     h1_re = h1.real
     h2_re = h2.real
@@ -333,7 +376,7 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         h2_re[0,:,0,:,1,:,1,:] = h2[:]
         h2_re[1,:,1,:,1,:,1,:] = h2[:]
         h2_re = h2_re.reshape ([2*norb,]*4)
-        ci_r_generator = civec_spinless_repr_generator (ci_r_generator, norb, nelec_r)
+        ci_r_generator, reverser = civec_spinless_repr_generator (ci_r_generator, norb, nelec_r)
         nelec_r = nelec_r_spinless
         norb = 2 * norb
         if orbsym is not None: orbsym *= 2
@@ -342,14 +385,12 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     ham_eff = np.zeros ((nroots, nroots), dtype=h1.dtype)
     ovlp_eff = np.zeros ((nroots, nroots))
     for i, ket, nelec_ket in zip(range(nroots), ci_r_generator (), nelec_r):
+        ovlp_eff[i,:] = dotter (ket, nelec_ket, reverser=reverser)
         h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec_ket, 0.5)
         hket = solver.contract_2e (h2eff, ket, norb, nelec_ket)
         if h1_im is not None:
             hket = hket + 1j*contract_1e_nosym (h1_im, ket, norb, nelec_ket)
-        for j, bra, nelec_bra in zip(range(nroots), ci_r_generator (), nelec_r):
-            if nelec_ket == nelec_bra:
-                ham_eff[i, j] = bra.ravel ().dot (hket.ravel ())
-                ovlp_eff[i,j] = bra.ravel ().dot (ket.ravel ())
+        ham_eff[i,:] = dotter (hket, nelec_ket, reverser=reverser)
     
     return ham_eff, s2_eff, ovlp_eff
 
@@ -382,7 +423,7 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     mol = las.mol
     norb_f = las.ncas_sub
     norb = sum (norb_f) 
-    ci_r_generator, nelec_r = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
+    ci_r_generator, nelec_r, dotter = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     nroots = len (nelec_r)
     if not len (set (nelec_r_spinless)) == 1:
@@ -392,7 +433,7 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     dtype = ci_fr[-1][0].dtype
     if not spin_pure:
         # Map to "spinless electrons": 
-        ci_r_generator = civec_spinless_repr_generator (ci_r_generator, norb, nelec_r)
+        ci_r_generator, reverser = civec_spinless_repr_generator (ci_r_generator, norb, nelec_r)
         nelec_r = nelec_r_spinless
         norb = 2 * norb
         if orbsym is not None: orbsym *= 2
@@ -479,7 +520,7 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
     '''
     mol = las.mol
     norb_f = las.ncas_sub
-    ci_r_gen, nelec_r = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
+    ci_r_gen, nelec_r, dotter = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     nroots = len (nelec_r)
     norb = sum (norb_f)
@@ -488,7 +529,7 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
     spin_pure = len (set (nelec_r)) == 1
     if not spin_pure:
         # Map to "spinless electrons": 
-        ci_r_gen = civec_spinless_repr_generator (ci_r_gen, norb, nelec_r)
+        ci_r_gen, reverser = civec_spinless_repr_generator (ci_r_gen, norb, nelec_r)
         nelec_r = nelec_r_spinless
         norb = 2 * norb
         if orbsym is not None: orbsym *= 2
