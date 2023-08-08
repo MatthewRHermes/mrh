@@ -57,10 +57,6 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
         M == neleca-nelecb at the price of higher memory cost. This function
         does NOT change the datatype.
     '''
-    if callable (ci0_r):
-        ci0_r_gen = ci0_r ()
-    else:
-        ci0_r_gen = (c for c in ci0_r)
     nelec_r_tot = [sum (n) for n in nelec_r]
     if len (set (nelec_r_tot)) > 1:
         raise NotImplementedError ("Different particle-number subspaces")
@@ -78,6 +74,10 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
     ndet = cistring.num_strings (2*norb, nelec)
     nstates = len (nelec_r)
     def ci1_r_gen (buf=None):
+        if callable (ci0_r):
+            ci0_r_gen = ci0_r ()
+        else:
+            ci0_r_gen = (c for c in ci0_r)
         ci0 = next (ci0_r_gen)
         if buf is None:
             ci1 = np.empty (ndet, dtype=ci0.dtype)
@@ -311,16 +311,16 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     norb = sum (norb_f)
 
     # The function below is the main workhorse of this whole implementation
-    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_frs)
-    nroots = len(ci_r)
+    ci_r_generator, nelec_r = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
+    nroots = len(nelec_r)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     if not len (set (nelec_r_spinless)) == 1:
         raise NotImplementedError ("States with different numbers of electrons")
     # S2 best taken care of before "spinless representation"
-    s2_ci = [contract_ss (c, norb, ne) for c, ne in zip(ci_r, nelec_r)]
     s2_eff = np.zeros ((nroots,nroots))
-    for i, s2c, nelec_ket in zip(range(nroots), s2_ci, nelec_r):
-        for j, c, nelec_bra in zip(range(nroots), ci_r, nelec_r):
+    for i, c, nelec_ket in zip(range(nroots), ci_r_generator (), nelec_r):
+        s2c = contract_ss (c, norb, nelec_ket)
+        for j, c, nelec_bra in zip(range(nroots), ci_r_generator (), nelec_r):
             if nelec_ket == nelec_bra:
                 s2_eff[i, j] = c.ravel ().dot (s2c.ravel ())
     # Hamiltonian may be complex
@@ -335,27 +335,23 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         h2_re[0,:,0,:,1,:,1,:] = h2[:]
         h2_re[1,:,1,:,1,:,1,:] = h2[:]
         h2_re = h2_re.reshape ([2*norb,]*4)
-        ci_r = civec_spinless_repr (ci_r, norb, nelec_r)
+        ci_r_generator = civec_spinless_repr_generator (ci_r_generator, norb, nelec_r)
         nelec_r = nelec_r_spinless
         norb = 2 * norb
         if orbsym is not None: orbsym *= 2
 
     solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
-    ham_ci = []
-    for ci, nelec in zip (ci_r, nelec_r):
-        h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec, 0.5)
-        ham_ci.append (solver.contract_2e (h2eff, ci, norb, nelec))
-    if h1_im is not None:
-        for i, (ci, nelec) in enumerate (zip (ci_r, nelec_r)):
-            ham_ci[i] = ham_ci[i] + 1j*contract_1e_nosym (h1_im, ci, norb, nelec)
-
-    ham_eff = np.zeros ((nroots, nroots), dtype=ham_ci[0].dtype)
+    ham_eff = np.zeros ((nroots, nroots), dtype=h1.dtype)
     ovlp_eff = np.zeros ((nroots, nroots))
-    for i, hc, ket, nelec_ket in zip(range(nroots), ham_ci, ci_r, nelec_r):
-        for j, c, nelec_bra in zip(range(nroots), ci_r, nelec_r):
+    for i, ket, nelec_ket in zip(range(nroots), ci_r_generator (), nelec_r):
+        h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec_ket, 0.5)
+        hket = solver.contract_2e (h2eff, ket, norb, nelec_ket)
+        if h1_im is not None:
+            hket = hket + 1j*contract_1e_nosym (h1_im, ket, norb, nelec_ket)
+        for j, bra, nelec_bra in zip(range(nroots), ci_r_generator (), nelec_r):
             if nelec_ket == nelec_bra:
-                ham_eff[i, j] = c.ravel ().dot (hc.ravel ())
-                ovlp_eff[i,j] = c.ravel ().dot (ket.ravel ())
+                ham_eff[i, j] = bra.ravel ().dot (hket.ravel ())
+                ovlp_eff[i,j] = bra.ravel ().dot (ket.ravel ())
     
     return ham_eff, s2_eff, ovlp_eff
 
