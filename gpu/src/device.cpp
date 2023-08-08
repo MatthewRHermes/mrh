@@ -86,12 +86,12 @@ Device::~Device()
   printf("LIBGPU::orbital_response\n");
   double total = 0.0;
   for(int i=0; i<14; ++i) {total += t_array[i]; printf("i= %i  t_array= %f s\n",i,t_array[i]); }
-  printf("  total= %f\n",total);
+  printf("  total= %f s  count= %i\n",total,t_array_count);
 
   printf("LIBGPU::get_jk\n");
   total = 0.0;
   for(int i=0; i<9; ++i) {total += t_array_jk[i]; printf("i= %i  t_array= %f s\n",i,t_array_jk[i]); }
-  printf("  total= %f\n",total);
+  printf("  total= %f s  count= %i\n",total,t_array_jk_count);
   
   free(t_array);
   free(t_array_jk);
