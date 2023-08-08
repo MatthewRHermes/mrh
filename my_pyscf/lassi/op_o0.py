@@ -384,25 +384,28 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     mol = las.mol
     norb_f = las.ncas_sub
     norb = sum (norb_f) 
-    ci_r, nelec_r = ci_outer_product (ci_fr, norb_f, nelec_frs)
+    ci_r_generator, nelec_r = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
-    nroots = len (ci_r)
+    nroots = len (nelec_r)
     if not len (set (nelec_r_spinless)) == 1:
         raise NotImplementedError ("States with different numbers of electrons")
     spin_pure = len (set (nelec_r)) == 1
+
+    dtype = ci_fr[-1][0].dtype
     if not spin_pure:
         # Map to "spinless electrons": 
-        ci_r = civec_spinless_repr (ci_r, norb, nelec_r)
+        ci_r_generator = civec_spinless_repr_generator (ci_r_generator, norb, nelec_r)
         nelec_r = nelec_r_spinless
         norb = 2 * norb
         if orbsym is not None: orbsym *= 2
+        dtype = np.dtype (complex)
 
     solver = fci.solver (mol).set (orbsym=orbsym, wfnsym=wfnsym)
     stdm1s = np.zeros ((nroots, nroots, 2, norb, norb),
-        dtype=ci_r[0].dtype).transpose (0,2,3,4,1)
+        dtype=dtype).transpose (0,2,3,4,1)
     stdm2s = np.zeros ((nroots, nroots, 2, norb, norb, 2, norb, norb),
-        dtype=ci_r[0].dtype).transpose (0,2,3,4,5,6,7,1)
-    for i, (ci, ne) in enumerate (zip (ci_r, nelec_r)):
+        dtype=dtype).transpose (0,2,3,4,5,6,7,1)
+    for i, (ci, ne) in enumerate (zip (ci_r_generator (), nelec_r)):
         rdm1s, rdm2s = solver.make_rdm12s (ci, norb, ne)
         stdm1s[i,0,:,:,i] = rdm1s[0]
         stdm1s[i,1,:,:,i] = rdm1s[1]
@@ -412,29 +415,31 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
         stdm2s[i,1,:,:,1,:,:,i] = rdm2s[2]
 
     spin_sector_offset = np.zeros ((nroots,nroots))
-    for (i,(ci_bra,ne_bra)), (j,(ci_ket,ne_ket)) in combinations(enumerate(zip(ci_r,nelec_r)),2):
-        M_bra = ne_bra[1] - ne_bra[0]
-        M_ket = ne_ket[0] - ne_ket[1]
-        N_bra = sum (ne_bra)
-        N_ket = sum (ne_ket)
-        if ne_bra == ne_ket:
-            tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, ne_bra)
-            stdm1s[i,0,:,:,j] = tdm1s[0]
-            stdm1s[i,1,:,:,j] = tdm1s[1]
-            stdm1s[j,0,:,:,i] = tdm1s[0].T
-            stdm1s[j,1,:,:,i] = tdm1s[1].T
-            for spin, tdm2 in enumerate (tdm2s):
-                p = spin // 2
-                q = spin % 2
-                stdm2s[i,p,:,:,q,:,:,j] = tdm2
-                stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
+    for i, (ci_bra, ne_bra) in enumerate (zip (ci_r_generator (), nelec_r)):
+        for j, (ci_ket, ne_ket) in enumerate (zip (ci_r_generator (), nelec_r)):
+            if j==i: break
+            M_bra = ne_bra[1] - ne_bra[0]
+            M_ket = ne_ket[0] - ne_ket[1]
+            N_bra = sum (ne_bra)
+            N_ket = sum (ne_ket)
+            if ne_bra == ne_ket:
+                tdm1s, tdm2s = solver.trans_rdm12s (ci_bra, ci_ket, norb, ne_bra)
+                stdm1s[i,0,:,:,j] = tdm1s[0]
+                stdm1s[i,1,:,:,j] = tdm1s[1]
+                stdm1s[j,0,:,:,i] = tdm1s[0].T
+                stdm1s[j,1,:,:,i] = tdm1s[1].T
+                for spin, tdm2 in enumerate (tdm2s):
+                    p = spin // 2
+                    q = spin % 2
+                    stdm2s[i,p,:,:,q,:,:,j] = tdm2
+                    stdm2s[j,p,:,:,q,:,:,i] = tdm2.transpose (1,0,3,2)
 
     if not spin_pure: # cleanup the "spinless mapping"
         stdm1s = stdm1s[:,0,:,:,:]
         # TODO: 2e- spin-orbit coupling support in caller
         n = norb // 2
         stdm2s_ = np.zeros ((nroots, nroots, 2, n, n, 2, n, n),
-            dtype=ci_r[0].dtype).transpose (0,2,3,4,5,6,7,1)
+            dtype=dtype).transpose (0,2,3,4,5,6,7,1)
         stdm2s_[:,0,:,:,0,:,:,:] = stdm2s[:,0,:n,:n,0,:n,:n,:]
         stdm2s_[:,0,:,:,1,:,:,:] = stdm2s[:,0,:n,:n,0,n:,n:,:]
         stdm2s_[:,1,:,:,0,:,:,:] = stdm2s[:,0,n:,n:,0,:n,:n,:]
