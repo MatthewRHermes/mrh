@@ -12,7 +12,8 @@ from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.lassi import dms as lassi_dms
 
 def memcheck (las, ci, soc=None):
-    '''Check if the system has enough memory to run these functions!'''
+    '''Check if the system has enough memory to run these functions! ONLY checks
+    if the CI vectors can be stored in memory!!!'''
     nfrags = len (ci)
     nroots = len (ci[0])
     assert (all ([len (c) == nroots for c in ci]))
@@ -23,26 +24,21 @@ def memcheck (las, ci, soc=None):
     nelec_frs = np.array ([[list (_unpack_nelec (fcibox._get_nelec (solver, nelecas)))
                             for solver in fcibox.fcisolvers]
                            for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)])
-    if soc: # Complex numbers and spinless CI vectors
-        itemsize = np.dtype (complex).itemsize
-        norb = 2*las.ncas
-        nelec_r = nelec_frs.sum ((0,2))
-        ndet_r = np.asarray ([cistring.num_strings (norb, nelec) for nelec in nelec_r])
+    nelec_rs = np.unique (nelec_frs.sum (0), axis=0)
+    ndet_spinfree = max ([cistring.num_strings (las.ncas, na) 
+                          *cistring.num_strings (las.ncas, nb)
+                          for na, nb in nelec_rs])
+    ndet_soc = max ([cistring.num_strings (2*las.ncas, nelec) for nelec in nelec_rs.sum (1)])
+    nbytes_per_sfvec = ndet_spinfree * np.dtype (float).itemsize 
+    nbytes_per_sovec = ndet_soc * np.dtype (complex).itemsize
+    # 3 vectors: the bra (from a generator), the ket (from a generator), and op|bra>
+    # for SOC, each generator must also store the spinfree version
+    if soc:
+        nbytes = 2*nbytes_per_sfvec + 3*nbytes_per_sovec
     else:
-        itemsize = np.dtype (float).itemsize
-        norb = las.ncas
-        neleca_r = nelec_frs[:,:,0].sum (0)
-        nelecb_r = nelec_frs[:,:,1].sum (0)
-        ndet_r  = np.asarray ([cistring.num_strings (norb, neleca) for neleca in neleca_r])
-        ndet_r *= np.asarray ([cistring.num_strings (norb, nelecb) for nelecb in nelecb_r])
-    mem = np.dot (lroots_r, ndet_r) * itemsize / 1e6
-    # TODO: de-vectorize op_o0 and reinstate below version of the size calculation for
-    #       soc==False
-    # TODO: figure out how the memory cost for the devectorized version can be computed
-    #       with soc==True
-    #mem = sum ([np.prod ([c[iroot].size for c in ci])
-    #    * np.amax ([c[iroot].dtype.itemsize for c in ci])
-    #    for iroot in range (nroots)]) / 1e6
+        nbytes = 3*nbytes_per_sfvec
+    safety_factor = 1.2
+    mem = nbytes * safety_factor / 1e6
     max_memory = las.max_memory - lib.current_memory ()[0]
     lib.logger.info (las,
         "LASSI op_o0 memory check: {} MB needed of {} MB available ({} MB max)".format (mem,\

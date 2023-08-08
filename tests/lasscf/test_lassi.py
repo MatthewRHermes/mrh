@@ -165,7 +165,6 @@ class KnownValues(unittest.TestCase):
         idx = (charges!=0) & (lroots==3)
         lroots[idx] = 1
         rlas.lasci (lroots=lroots.T)
-        print ("Starting casci_limit test")
         e_roots, si = rlas.lassi (opt=0)
         with self.subTest ("total energy"):
             self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
