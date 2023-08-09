@@ -175,28 +175,39 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
     nelec = tuple ((neleca, nelecb))
     ndet_a = cistring.num_strings (sum (norb_f), neleca)
     ndet_b = cistring.num_strings (sum (norb_f), nelecb)
-    ci_dp = ci_f[-1].reshape (shape_f[-1])
-    for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
-        lroots, ndeta, ndetb = ci_dp.shape
-        ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
-        ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
-            lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
-        )
-    norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
-    ci_dp /= norm_dp[:,None,None]
     def gen_ci_dp (buf=None):
         if buf is None:
             ci = np.empty ((ndet_a,ndet_b), dtype=ci_f[-1].dtype)
         else:
             ci = np.asarray (buf.flat[:ndet_a*ndet_b]).reshape (ndet_a, ndet_b)
+        ci_dp = ci_f[-1].reshape (shape_f[-1])
+        for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
+            lroots, ndeta, ndetb = ci_dp.shape
+            ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
+            ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
+                lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
+            )
+        norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
+        ci_dp /= norm_dp[:,None,None]
         for vec in ci_dp:
             ci[:,:] = 0.0
             ci[idx] = vec[:,:]
             yield ci
     def dotter (c1, nelec1):
-        if nelec1 != nelec: return np.zeros (nprods)
-        return np.dot (ci_dp.reshape (nprods, -1),
-                       c1[idx].ravel ())
+        c1_dp = c1[idx][None,:]
+        for ci_r, shape in zip (ci_f, shape_f):
+            new_shape = [x for s,t in zip (c1_dp.shape[1:],shape[1:]) for x in (s//t, t)]
+            new_shape = [c1_dp.shape[0],] + new_shape
+            c1_dp = c1_dp.reshape (*new_shape).transpose (0,1,3,2,4)
+            try:
+                c1_dp = np.tensordot (ci_r.reshape (shape), c1_dp, axes=((1,2),(3,4)))
+            except IndexError as err:
+                print (ci_r.shape, c1_dp.shape)
+                raise (err)
+            new_shape = [c1_dp.shape[0]*c1_dp.shape[1],] + list (c1_dp.shape[2:])
+            c1_dp = c1_dp.reshape (*new_shape)
+        c1_dp = c1_dp.reshape ((c1_dp.shape[0],))
+        return c1_dp
     return gen_ci_dp, nprods, dotter
 
 def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
