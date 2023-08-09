@@ -50,12 +50,34 @@ def memcheck (las, ci, soc=None):
     return mem < max_memory
 
 def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
-    ''' Put CI vectors in the spinless representation; i.e., map
-            norb -> 2 * norb
-            (neleca, nelecb) -> (neleca+nelecb, 0)
-        This permits linear combinations of CI vectors with different
-        M == neleca-nelecb at the price of higher memory cost. This function
-        does NOT change the datatype.
+    '''Put CI vectors in the spinless representation; i.e., map
+        norb -> 2 * norb
+        (neleca, nelecb) -> (neleca+nelecb, 0)
+    This permits linear combinations of CI vectors with different
+    M == neleca-nelecb at the price of higher memory cost. This function
+    does NOT change the datatype.
+
+    Args:
+        ci0_r: sequence or generator of ndarray of length nprods
+            CAS-CI vectors in the spin-pure representation
+        norb: integer
+            Number of orbitals
+        nelec_r: sequence of tuple of length (2)
+            (neleca, nelecb) for each element of ci0_r
+
+    Returns:
+        ci1_r_gen: callable that returns a generator of length nprods
+            generates spinless CAS-CI vectors
+        reverser: callable
+            Perform the reverse operation on a spinless CAS-CI vector
+            Args:
+                ci2: ndarray
+                    spinless CAS-CI vector
+                ne: tuple of length 2
+                    neleca, nelecb target Hilbert space
+            Returns:
+                ci3: ndarray
+                    CAS-CI vector of ci2 in the (neleca, nelecb) Hilbert space
     '''
     nelec_r_tot = [sum (n) for n in nelec_r]
     if len (set (nelec_r_tot)) > 1:
@@ -102,11 +124,7 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
     def reverser (ci2, ne):
         ''' Generate the spin-separated CI vector in a particular M
         Hilbert space from a spinless CI vector '''
-        try:
-            ci3 = ci2[addrs[ne]].reshape (ndet_sp[ne])
-        except IndexError as err:
-            print (ci2.shape, ndet_sp[ne], ne, norb)
-            raise (err)
+        ci3 = ci2[addrs[ne]].reshape (ndet_sp[ne])
         neleca, nelecb = _unpack_nelec (ne)
         if abs(neleca*nelecb)%2: ci3[:] *= -1
         return ci3
@@ -173,20 +191,12 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
             ci = np.asarray (buf.flat[:ndet_a*ndet_b]).reshape (ndet_a, ndet_b)
         for vec in ci_dp:
             ci[:,:] = 0.0
-            ci[idx] = vec[:,:]# / linalg.norm (vec)
-            #if not np.allclose (linalg.norm (ci), 1.0):
-            #    errstr = 'CI norm = {}\naddrs_a = {}\naddrs_b = {}'.format (
-            #        linalg.norm (ci), addrs_a, addrs_b)
-            #    raise RuntimeError (errstr)
+            ci[idx] = vec[:,:]
             yield ci
     def dotter (c1, nelec1):
         if nelec1 != nelec: return np.zeros (nprods)
-        try:
-            return np.dot (ci_dp.reshape (nprods, -1), 
-                           c1[idx].ravel ())
-        except ValueError as err:
-            print (ci_dp.shape, nprods, ndet_a, ndet_b)
-            raise (err)
+        return np.dot (ci_dp.reshape (nprods, -1),
+                       c1[idx].ravel ())
     return gen_ci_dp, nprods, dotter
 
 def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
@@ -204,13 +214,28 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
             and root
 
     Returns:
-        ci_r_gen : generator of length (nroots)
+        ci_r_gen : callable that returns a generator of length (nprods)
             Generates all direct-product CAS CI vectors
         nelec_r : list of length (nroots) of tuple of length 2
             (neleca, nelecb) for each product state
         dotter : callable
             Performs the dot product in the outer product basis
-            on a CAS CI vector
+            on a CAS CI vector, without explicitly constructing
+            any direct-product CAS CI vectors (again).
+            Args:
+                c1 : ndarray
+                    contains CAS-CI vector
+                nelec1 : tuple of length 2
+                    neleca, nelecb
+            Kwargs:
+                reverser : callable
+                    Converts ci back from the spinless representation
+                    into the (neleca,nelecb) representation. Takes c1
+                    and nelec1 and returns a new ci vector
+            Returns:
+                ndarray of length (nprods)
+                    Expansion coefficients for c1 in terms of direct-
+                    product states of ci_fr
     '''
 
     norb = sum (norb_f)
