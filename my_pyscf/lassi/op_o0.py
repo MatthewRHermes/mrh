@@ -236,22 +236,30 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
     Returns:
         ci_r_gen : callable that returns a generator of length (nprods)
             Generates all direct-product CAS CI vectors
-        nelec_r : list of length (nroots) of tuple of length 2
+        nelec_p : list of length (nprods) of tuple of length 2
             (neleca, nelecb) for each product state
         dotter : callable
             Performs the dot product in the outer product basis
             on a CAS CI vector, without explicitly constructing
             any direct-product CAS CI vectors (again).
             Args:
-                c1 : ndarray
+                ket : ndarray
                     contains CAS-CI vector
-                nelec1 : tuple of length 2
+                nelec_ket : tuple of length 2
                     neleca, nelecb
             Kwargs:
                 spinless2ss : callable
                     Converts ci back from the spinless representation
                     into the (neleca,nelecb) representation. Takes c1
                     and nelec1 and returns a new ci vector
+                iket : integer
+                    Used to filter zero sectors when passed with oporder
+                oporder: integer
+                    Used to filter zero sectors when passed with oporder
+                    ket is identified as product number iket, acted on by
+                    some operator of up to order oporder. Any rootspace
+                    which differs by more than oporder electron hops
+                    therefore has zero projection onto ket.
             Returns:
                 ndarray of length (nprods)
                     Expansion coefficients for c1 in terms of direct-
@@ -262,15 +270,17 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
     ndet = max ([cistring.num_strings (norb, ne[0]) * cistring.num_strings (norb, ne[1])
                 for ne in np.sum (nelec_fr, axis=0)])
     gen_ci_r = []
-    nelec_r = []
+    nelec_p = []
     dotter_r = []
+    space_p = []
     for space in range (len (ci_fr[0])):
         ci_f = [ci[space] for ci in ci_fr]
         nelec_f = [nelec[space] for nelec in nelec_fr]
         nelec = (sum ([ne[0] for ne in nelec_f]), sum ([ne[1] for ne in nelec_f]))
         gen_ci, nprods, dotter = _ci_outer_product (ci_f, norb_f, nelec_f)
         gen_ci_r.append (gen_ci)
-        nelec_r.extend ([nelec,]*nprods)
+        nelec_p.extend ([nelec,]*nprods)
+        space_p.extend ([space,]*nprods)
         dotter_r.append ([dotter, nelec, nprods])
     def ci_r_gen (buf=None):
         if buf is None:
@@ -280,21 +290,29 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
         for gen_ci in gen_ci_r:
             for x in gen_ci (buf=buf1):
                 yield x
-    def dotter (ket, nelec_ket, spinless2ss=None):
+    def dotter (ket, nelec_ket, spinless2ss=None, iket=None, oporder=None):
         vec = []
         if callable (spinless2ss):
             parse_nelec = lambda nelec: sum(nelec)
         else:
             parse_nelec = lambda nelec: nelec
             spinless2ss = lambda vec, ne: vec
+        filtbra = lambda *args: False
+        if iket is not None and oporder is not None:
+            iket = space_p[iket]
+            nelec_f_ket = nelec_fr[:,iket]
+            def filtbra (ibra):
+                nelec_f_bra = nelec_fr[:,ibra]
+                nhop_f = nelec_f_bra-nelec_f_ket
+                return np.sum (np.abs(nhop_f))>2*oporder
 
-        for dot, nelec_bra, nprods in dotter_r:
-            if parse_nelec (nelec_bra) != parse_nelec (nelec_ket):
+        for ibra, (dot, nelec_bra, nprods) in enumerate (dotter_r):
+            if parse_nelec (nelec_bra) != parse_nelec (nelec_ket) or filtbra (ibra):
                 vec.append (np.zeros (nprods))
                 continue
             vec.append (dot (spinless2ss (ket, nelec_bra), nelec_bra))
         return np.concatenate (vec)
-    return ci_r_gen, nelec_r, dotter
+    return ci_r_gen, nelec_p, dotter
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):
     '''Compute outer-product CI vectors from fragment LAS CI vectors.
@@ -433,9 +451,9 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     s2_eff = np.zeros ((nroots,nroots))
     for i, ket in zip(range(nroots), ci_r_generator ()):
         nelec_ket = nelec_r_ss[i]
-        ovlp_eff[i,:] = dotter (ket, nelec_ket)
+        ovlp_eff[i,:] = dotter (ket, nelec_ket, iket=i, oporder=0)
         s2ket = contract_ss (ket, norb_ss, nelec_ket)
-        s2_eff[i,:] = dotter (s2ket, nelec_ket)
+        s2_eff[i,:] = dotter (s2ket, nelec_ket, iket=i, oporder=2)
         s2ket, ket = None, ss2spinless (ket, nelec_ket)
         nelec_ket = nelec_r[i]
         h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec_ket, 0.5)
@@ -443,7 +461,7 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         if h1_im is not None:
             hket = hket + 1j*contract_1e_nosym (h1_im, ket, norb, nelec_ket)
         ket = None
-        ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss)
+        ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
     return ham_eff, s2_eff, ovlp_eff
 
