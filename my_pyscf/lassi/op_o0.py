@@ -211,12 +211,8 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
         for ci_r, shape in zip (ci_f, shape_f):
             new_shape = [x for s,t in zip (c1_dp.shape[1:],shape[1:]) for x in (s//t, t)]
             new_shape = [c1_dp.shape[0],] + new_shape
-            c1_dp = c1_dp.reshape (*new_shape).transpose (0,1,3,2,4)
-            try:
-                c1_dp = np.tensordot (ci_r.reshape (shape), c1_dp, axes=((1,2),(3,4)))
-            except IndexError as err:
-                print (ci_r.shape, c1_dp.shape)
-                raise (err)
+            c1_dp = c1_dp.reshape (*new_shape)
+            c1_dp = np.tensordot (ci_r.reshape (shape), c1_dp, axes=((1,2),(2,4)))
             new_shape = [c1_dp.shape[0]*c1_dp.shape[1],] + list (c1_dp.shape[2:])
             c1_dp = c1_dp.reshape (*new_shape)
         c1_dp = c1_dp.reshape ((c1_dp.shape[0],))
@@ -284,20 +280,19 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
         for gen_ci in gen_ci_r:
             for x in gen_ci (buf=buf1):
                 yield x
-    def dotter (c1, nelec1, spinless2ss=None):
+    def dotter (ket, nelec_ket, spinless2ss=None):
         vec = []
-        for dot, ne, nprods in dotter_r:
-            wc1 = c1
-            if callable (spinless2ss):
-                if sum (ne) == sum (nelec1):
-                    wc1 = spinless2ss (c1, ne)
-                    vec.append (dot (wc1, ne))
-                else:
-                    vec.append (np.zeros (nprods))
-            elif ne==nelec1:
-                vec.append (dot (wc1, nelec1))
-            else:
+        if callable (spinless2ss):
+            parse_nelec = lambda nelec: sum(nelec)
+        else:
+            parse_nelec = lambda nelec: nelec
+            spinless2ss = lambda vec, ne: vec
+
+        for dot, nelec_bra, nprods in dotter_r:
+            if parse_nelec (nelec_bra) != parse_nelec (nelec_ket):
                 vec.append (np.zeros (nprods))
+                continue
+            vec.append (dot (spinless2ss (ket, nelec_bra), nelec_bra))
         return np.concatenate (vec)
     return ci_r_gen, nelec_r, dotter
 
