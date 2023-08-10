@@ -31,14 +31,16 @@ def memcheck (las, ci, soc=None):
     ndet_soc = max ([cistring.num_strings (2*las.ncas, nelec) for nelec in nelec_rs.sum (1)])
     nbytes_per_sfvec = ndet_spinfree * np.dtype (float).itemsize 
     nbytes_per_sovec = ndet_soc * np.dtype (complex).itemsize
-    # 3 vectors: the bra (from a generator), the ket (from a generator), and op|bra>
-    # for SOC, each generator must also store the spinfree version
+    # 2 vectors: the ket (from a generator), and op|ket>
+    # for SOC, the generator also briefly stores the spinfree version but this
+    # should always be smaller
     if soc:
-        nbytes = 2*nbytes_per_sfvec + 3*nbytes_per_sovec
+        nbytes = 2*nbytes_per_sfvec
     else:
-        nbytes = 3*nbytes_per_sfvec
+        nbytes = 2*nbytes_per_sfvec
     # memory load of ci_dp vectors
-    nbytes += sum ([np.prod ([c[iroot].size for c in ci])
+    # Since they are computed JIT in generators, only the largest rootspace matters
+    nbytes += max ([np.prod ([c[iroot].size for c in ci])
                     * np.amax ([c[iroot].dtype.itemsize for c in ci])
                     for iroot in range (nroots)])
     safety_factor = 1.2
@@ -136,7 +138,9 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
         else:
             ci0_r_gen = (c for c in ci0_r)
         for ci0, ne in zip (ci0_r_gen, nelec_r):
-            yield ss2spinless (ci0, ne)
+            # Doing this in two lines saves memory: ci0 is overwritten
+            ci0 = ss2spinless (ci0, ne)
+            yield ci0
     return ci1_r_gen, ss2spinless, spinless2ss
 
 def civec_spinless_repr (ci0_r, norb, nelec_r):
