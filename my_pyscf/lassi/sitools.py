@@ -181,20 +181,31 @@ def analyze (las, si, state=0, print_all_but=1e-8):
     for ix, iroot in enumerate (np.argsort (-avg_weights)):
         log.info ("Rootspace %d with averaged weight %9.3e", iroot, avg_weights[iroot])
         log.info (header)
+        new_shape = list (lroots[iroot][::-1]) + [state_coeffs[iroot].shape[-1]]
+        schmidt_coeffs = state_coeffs[iroot].copy ().reshape (*new_shape)
         for ifrag in range (las.nfrags):
             sdm = make_sdm1 (state_coeffs[iroot], lroots[iroot], ifrag).sum (0) / nstates
             dens = sdm.diagonal ()
             navg = np.dot (np.arange (len (dens)), dens)
             maxw = np.amax (dens)
-            evals, evecs = linalg.eigh (sdm)
+            evals, evecs = linalg.eigh (-sdm)
+            evals = -evals
             evals = evals[evals>0]
             entr = abs(np.dot (evals, np.log (evals)))
             nelec = "{}a+{}b".format ((nelelas[ifrag]-c[iroot,ifrag]+m[iroot,ifrag])//2,
                                       (nelelas[ifrag]-c[iroot,ifrag]-m[iroot,ifrag])//2)
             ir = symm.irrep_id2name (las.mol.groupname, w[iroot][ifrag])
+            schmidt_coeffs = np.tensordot (schmidt_coeffs, evecs, axes=((las.nfrags-1-ifrag,),(0,)))
+            axes_order = list (range (las.nfrags))
+            axes_order.insert (las.nfrags-1-ifrag, las.nfrags)
+            schmidt_coeffs = schmidt_coeffs.transpose (*axes_order)
             log.info (fmt_str.format (ifrag, nelec, s[iroot][ifrag], ir, navg, maxw, entr))
+        schmidt_coeffs = schmidt_coeffs.reshape (*state_coeffs[iroot].shape)
         log.info ("Wave function(s) in rootspace %d in local basis:", iroot)
         _print_states (log, iroot, space_weights[iroot], state_coeffs[iroot], lroots[iroot],
+                       print_all_but=print_all_but)
+        log.info ("Wave function(s) in rootspace %d in Schmidt basis:", iroot)
+        _print_states (log, iroot, space_weights[iroot], schmidt_coeffs, lroots[iroot],
                        print_all_but=print_all_but)
         running_weight -= avg_weights[iroot]
         if running_weight < print_all_but: break
