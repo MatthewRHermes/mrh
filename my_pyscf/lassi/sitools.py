@@ -132,8 +132,10 @@ def _print_states (log, iroot, space_weights, state_coeffs, lroots, print_all_bu
         log.info ("All %d ONVs in rootspace %d accounted for", nprods, iroot)
     return
 
+def _print_basis (log, ci, norb, nelec, solver, npr=10):
+    pass
 
-def analyze (las, si, state=0, print_all_but=1e-8):
+def analyze (las, si, state=0, print_all_but=1e-8, lbasis='primitive', ncsf=10):
     '''Print out analysis of LASSI result in terms of average quantum numbers
     and density matrix analyses of the lroots in each rootspace
 
@@ -145,10 +147,24 @@ def analyze (las, si, state=0, print_all_but=1e-8):
         state: integer or index array
             indicates which columns of si to analyze. Indicated columns are
             averaged together for the lroots analysis
-        print_all_but: continue density-matrix analysis printouts until all
+        print_all_but: float
+            continue density-matrix analysis printouts until all
             but this weight of the wave function(s) is accounted for. Set
             to zero to print everything.
+        lbasis : 'primitive' or 'Schmidt'
+            Basis in which local fragment CI vectors are represented.
+            The primitive basis is the CI vectors literally stored on las.ci.
+            The Schmidt basis diagonalizes the one-site reduced density matrix.
+        ncsf : integer
+            Number of leading CSFs of each basis function to print.
     '''
+    if 'prim' in lbasis.lower (): lbasis = 'primitive'
+    elif 'schmidt' in lbasis.lower (): lbasis = 'Schmidt'
+    else:
+        raise RuntimeError (
+            f"lbasis = {lbasis} undefined (supported values: 'primitive' or 'Schmidt')"
+        )
+
     log = lib.logger.new_logger (las, las.verbose)
     log.info ("Analyzing LASSI vectors for states = %s",str(state))
 
@@ -181,8 +197,10 @@ def analyze (las, si, state=0, print_all_but=1e-8):
     for ix, iroot in enumerate (np.argsort (-avg_weights)):
         log.info ("Rootspace %d with averaged weight %9.3e", iroot, avg_weights[iroot])
         log.info (header)
-        new_shape = list (lroots[iroot][::-1]) + [state_coeffs[iroot].shape[-1]]
-        schmidt_coeffs = state_coeffs[iroot].copy ().reshape (*new_shape)
+        addr_shape = list (lroots[iroot][::-1]) + [state_coeffs[iroot].shape[-1]]
+        flat_shape = state_coeffs[iroot].shape
+        coeffs = state_coeffs[iroot].copy ().reshape (*addr_shape)
+        ci_f = []
         for ifrag in range (las.nfrags):
             sdm = make_sdm1 (state_coeffs[iroot], lroots[iroot], ifrag).sum (0) / nstates
             dens = sdm.diagonal ()
@@ -195,18 +213,25 @@ def analyze (las, si, state=0, print_all_but=1e-8):
             nelec = "{}a+{}b".format ((nelelas[ifrag]-c[iroot,ifrag]+m[iroot,ifrag])//2,
                                       (nelelas[ifrag]-c[iroot,ifrag]-m[iroot,ifrag])//2)
             ir = symm.irrep_id2name (las.mol.groupname, w[iroot][ifrag])
-            schmidt_coeffs = np.tensordot (schmidt_coeffs, evecs, axes=((las.nfrags-1-ifrag,),(0,)))
-            axes_order = list (range (las.nfrags))
-            axes_order.insert (las.nfrags-1-ifrag, las.nfrags)
-            schmidt_coeffs = schmidt_coeffs.transpose (*axes_order)
+            ci = np.asarray (las.ci[ifrag][iroot])
+            if ci.ndim==2: ci=ci[None,:,:]
+            if 'schmidt' in lbasis.lower ():
+                coeffs = np.tensordot (coeffs, evecs, axes=((las.nfrags-1-ifrag,),(0,)))
+                axes_order = list (range (las.nfrags))
+                axes_order.insert (las.nfrags-1-ifrag, las.nfrags)
+                coeffs = coeffs.transpose (*axes_order)
+                ci = np.tensordot (evecs.T, ci, axes=1)
+            ci_f.append (ci)
             log.info (fmt_str.format (ifrag, nelec, s[iroot][ifrag], ir, navg, maxw, entr))
-        schmidt_coeffs = schmidt_coeffs.reshape (*state_coeffs[iroot].shape)
-        log.info ("Wave function(s) in rootspace %d in local basis:", iroot)
-        _print_states (log, iroot, space_weights[iroot], state_coeffs[iroot], lroots[iroot],
+        coeffs = coeffs.reshape (flat_shape)
+        log.info ("Wave function(s) in rootspace %d in local %s basis:", iroot, lbasis)
+        _print_states (log, iroot, space_weights[iroot], coeffs, lroots[iroot],
                        print_all_but=print_all_but)
-        log.info ("Wave function(s) in rootspace %d in Schmidt basis:", iroot)
-        _print_states (log, iroot, space_weights[iroot], schmidt_coeffs, lroots[iroot],
-                       print_all_but=print_all_but)
+        if ncsf:
+            for ifrag, ci in enumerate (ci_f):
+                log.info (("Leading %d CSFs of %d local %s basis functions for fragment "
+                           "%d in rootspace %d:"), ncsf, len (ci), lbasis, ifrag, iroot)
+                analyze_basis (las, ci=ci, space=iroot, frag=ifrag, npr=ncsf)
         running_weight -= avg_weights[iroot]
         if running_weight < print_all_but: break
 
@@ -222,18 +247,36 @@ def analyze_basis (las, ci=None, space=0, frag=0, npr=10):
     '''Print out the many-electron wave function(s) in terms of CSFs for a specific
     fragment in a specific LAS rootspace'''
     if ci is None: ci = las.ci
-    ci = ci[frag][space]
+    if isinstance (ci, list): ci = ci[frag][space]
     norb = las.ncas_sub[frag]
     fcibox = las.fciboxes[frag]
     fcisolver = fcibox.fcisolvers[space]
     transformer = fcisolver.transformer
     nelec = fcibox._get_nelec (fcisolver, las.nelecas_sub[frag])
     log = lib.logger.new_logger (las, las.verbose)
-    l, c = transformer.printable_largest_csf (ci, 10, isdet=True)
+    l, c = transformer.printable_largest_csf (ci, npr, isdet=True)
     nstates = len (l)
-    for state, (lbls, coeffs) in enumerate (zip (l, c)):
-        log.info ("State %d/%d", state, nstates)
-        for lbl, coeff in zip (lbls, coeffs):
-            log.info ("%s : %e", lbl, coeff)
+    colwidth = 12 + norb
+    headlen = 7 + 2*int(np.ceil(np.log10(nstates)))
+    colwidth = max (colwidth, headlen)
+    ncols = 80 // (colwidth+3)
+    ntabs = (nstates + (ncols-1)) // ncols
+    fmt0 = '{:' + str(colwidth) + 's}'
+    fmt1_head = 'State {:d}/' + str (nstates)
+    fmt1_body = '{:' + str (norb) + 's} : {:9.2e}'
+    npr = min (npr, transformer.ncsf)
+    for itab in range (ntabs):
+        state_range = range (itab*ncols,min(nstates,(itab+1)*ncols))
+        line = ''
+        for state in state_range:
+            entry = fmt1_head.format (state)
+            line += fmt0.format (entry) + '   '
+        log.info (line)
+        for ipr in range (npr):
+            line = ''
+            for state in state_range:
+                entry = fmt1_body.format (l[state][ipr], c[state][ipr])
+                line += fmt0.format (entry) + '   '
+            log.info (line)
 
 
