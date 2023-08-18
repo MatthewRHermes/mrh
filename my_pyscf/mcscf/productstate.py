@@ -263,7 +263,7 @@ class ChargesepImpureProductStateFCISolver (ImpureProductStateFCISolver):
         ni, nj = env['ni'], env['nj']
         norb = np.sum (norb_f)
 
-        charges = np.asarray ([np.sum (nelec_f) - np.sum (self._get_nelec (s, ne))
+        charges = np.asarray ([np.sum (ne) - np.sum (self._get_nelec (s, ne))
                                for ne, s in zip (nelec_f, self.fcisolvers)])
         idx_ct = charges>0
         if not np.count_nonzero (idx_ct): return h1eff, h0eff
@@ -275,17 +275,14 @@ class ChargesepImpureProductStateFCISolver (ImpureProductStateFCISolver):
             i = ni[ifrag]
             j = nj[ifrag]
             orb_ct[i:j] = True
-        fcc_s = f1[:,np.ix_(orb_ct,orb_ct)]
+        fcc_s = f1[:,orb_ct,:][:,:,orb_ct]
         orb_an = np.zeros (norb, dtype=bool)
         for ifrag in np.where (idx_an)[0]:
             i = ni[ifrag]
             j = nj[ifrag]
             orb_an[i:j] = True
-        orb_an = np.ix_(orb_an,orb_an)
-        faa_s = f1[:,np.ix_(orb_an,orb_an)]
-        fca_s = f1[:,np.ix_(orb_ct,orb_an)]
-        orb_ct = np.ix_(orb_ct, orb_ct)
-        orb_an = np.ix_(orb_an, orb_an)
+        faa_s = f1[:,orb_an,:][:,:,orb_an]
+        fca_s = f1[:,orb_ct,:][:,:,orb_an]
 
         dh1_s = np.zeros_like (f1)
         for dh1, fcc, faa, fca in zip (dh1_s, fcc_s, faa_s, fca_s):
@@ -302,11 +299,11 @@ class ChargesepImpureProductStateFCISolver (ImpureProductStateFCISolver):
             fca = fca @ ua1
             ua = ua @ ua1
             v1 = (fca.conj () * fca) / np.subtract.outer (e_c, e_a)
-            dh1[orb_ct] += uc @ v1 @ uc.conj ().T
-            dh1[orb_an] -= ua @ v1 @ ua.conj ().T
+            dh1[np.ix_(orb_ct,orb_ct)] += uc @ v1 @ uc.conj ().T
+            dh1[np.ix_(orb_an,orb_an)] -= ua @ v1 @ ua.conj ().T
         de1 = np.tensordot (dm1s, dh1_s, axes=3)
         
-        for ifrag, i, j in enumerate (ni, nj):
+        for ifrag, (i, j) in enumerate (zip (ni, nj)):
             dm1s_i = dm1s[:,i:j,i:j]
             dh1_i = dh1_s[:,i:j,i:j]
             de1_i = de1 - np.tensordot (dm1s_i, dh1_i, axes=3)
