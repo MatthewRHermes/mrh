@@ -8,7 +8,7 @@ from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile
-from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
+from mrh.my_pyscf.mcscf.productstate import ChargesepImpureProductStateFCISolver
 from mrh.util.la import matrix_svd_control_options
 from itertools import combinations
 from scipy.sparse import linalg as sparse_linalg
@@ -731,7 +731,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
     for state in range (las.nroots):
         fcisolvers = [b.fcisolvers[state] for b in las.fciboxes]
         ci0_i = [c[state] for c in ci0]
-        solver = ImpureProductStateFCISolver (fcisolvers, stdout=las.stdout,
+        solver = ChargesepImpureProductStateFCISolver (fcisolvers, stdout=las.stdout,
             lweights=[l[state] for l in lweights], verbose=verbose)
         # TODO: better handling of CSF symmetry quantum numbers in general
         for ix, s in enumerate (solver.fcisolvers):

@@ -186,7 +186,12 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             e_i -= (np.tensordot (h1_i, dm1s_i, axes=3)
               + 0.5*np.tensordot (h2_i, dm2_i, axes=4))
             h0eff.append (e_i)
+        h1eff, h0eff = self._project_hfrag_extra (locals())
         return h1eff, h0eff
+
+    def _project_hfrag_extra (self, env):
+        # a hook for child methods to play with this
+        return env['h1eff'], env['h0eff']
 
     def make_rdm1s (self, ci, norb_f, nelec_f, **kwargs):
         norb = sum (norb_f)
@@ -250,5 +255,63 @@ class ImpureProductStateFCISolver (ProductStateFCISolver):
             if len (weights) > 1:
                 self.fcisolvers[ix] = state_average_fcisolver (fcisolver, weights=weights)
 
+class ChargesepImpureProductStateFCISolver (ImpureProductStateFCISolver):
+    def _project_hfrag_extra (self, env):
+        norb_f, nelec_f = env['norb_f'], env['nelec_f']
+        f1, dm1s = env['f1'], env['dm1s']
+        h1eff, h0eff = env['h1eff'], env['h0eff']
+        ni, nj = env['ni'], env['nj']
+        norb = np.sum (norb_f)
 
+        charges = np.asarray ([np.sum (nelec_f) - np.sum (self._get_nelec (s, ne))
+                               for ne, s in zip (nelec_f, self.fcisolvers)])
+        idx_ct = charges>0
+        if not np.count_nonzero (idx_ct): return h1eff, h0eff
+        idx_an = charges<0
+        if not np.count_nonzero (idx_an): return h1eff, h0eff
+
+        orb_ct = np.zeros (norb, dtype=bool)
+        for ifrag in np.where (idx_ct)[0]:
+            i = ni[ifrag]
+            j = nj[ifrag]
+            orb_ct[i:j] = True
+        fcc_s = f1[:,np.ix_(orb_ct,orb_ct)]
+        orb_an = np.zeros (norb, dtype=bool)
+        for ifrag in np.where (idx_an)[0]:
+            i = ni[ifrag]
+            j = nj[ifrag]
+            orb_an[i:j] = True
+        orb_an = np.ix_(orb_an,orb_an)
+        faa_s = f1[:,np.ix_(orb_an,orb_an)]
+        fca_s = f1[:,np.ix_(orb_ct,orb_an)]
+        orb_ct = np.ix_(orb_ct, orb_ct)
+        orb_an = np.ix_(orb_an, orb_an)
+
+        dh1_s = np.zeros_like (f1)
+        for dh1, fcc, faa, fca in zip (dh1_s, fcc_s, faa_s, fca_s):
+            uc, fca, uHa = linalg.svd (fca, full_matrices=False)
+            ua = uHa.conj ().T
+            uHc = uc.conj ().T
+            fcc = uHc @ fcc @ uc
+            faa = uHa @ faa @ ua
+            fca = np.diag (fca)
+            e_c, uc1 = linalg.eigh (fcc)
+            fca = uc1.conj ().T @ fca
+            uc = uc @ uc1
+            e_a, ua1 = linalg.eigh (faa)
+            fca = fca @ ua1
+            ua = ua @ ua1
+            v1 = (fca.conj () * fca) / np.subtract.outer (e_c, e_a)
+            dh1[orb_ct] += uc @ v1 @ uc.conj ().T
+            dh1[orb_an] -= ua @ v1 @ ua.conj ().T
+        de1 = np.tensordot (dm1s, dh1_s, axes=3)
+        
+        for ifrag, i, j in enumerate (ni, nj):
+            dm1s_i = dm1s[:,i:j,i:j]
+            dh1_i = dh1_s[:,i:j,i:j]
+            de1_i = de1 - np.tensordot (dm1s_i, dh1_i, axes=3)
+            h0eff[ifrag] += de1_i
+            h1eff[ifrag] += dh1_i
+
+        return h1eff, h0eff
 
