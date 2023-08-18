@@ -262,6 +262,8 @@ class ChargesepImpureProductStateFCISolver (ImpureProductStateFCISolver):
         h1eff, h0eff = env['h1eff'], env['h0eff']
         ni, nj = env['ni'], env['nj']
         norb = np.sum (norb_f)
+        if not env['kwargs'].get ('do_mbpt_correction', None):
+            return h1eff, h0eff
 
         charges = np.asarray ([np.sum (ne) - np.sum (self._get_nelec (s, ne))
                                for ne, s in zip (nelec_f, self.fcisolvers)])
@@ -302,7 +304,6 @@ class ChargesepImpureProductStateFCISolver (ImpureProductStateFCISolver):
             dh1[np.ix_(orb_ct,orb_ct)] += uc @ v1 @ uc.conj ().T
             dh1[np.ix_(orb_an,orb_an)] -= ua @ v1 @ ua.conj ().T
         de1 = np.tensordot (dm1s, dh1_s, axes=3)
-        
         for ifrag, (i, j) in enumerate (zip (ni, nj)):
             dm1s_i = dm1s[:,i:j,i:j]
             dh1_i = dh1_s[:,i:j,i:j]
@@ -311,4 +312,23 @@ class ChargesepImpureProductStateFCISolver (ImpureProductStateFCISolver):
             h1eff[ifrag] += dh1_i
 
         return h1eff, h0eff
+
+    def kernel (self, h1, h2, norb_f, nelec_f, ecore=0, ci0=None, orbsym=None,
+            conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
+            **kwargs):
+        converged, energy_elec, ci1 = ImpureProductStateFCISolver.kernel (
+            self, h1, h2, norb_f, nelec_f, ecore=ecore, ci0=ci0, orbsym=orbsym,
+            conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
+            max_cycle_macro=max_cycle_macro, **kwargs
+        )
+        project_kwargs = kwargs.copy ()
+        project_kwargs['do_mbpt_correction'] = True
+        h1eff, h0eff = self.project_hfrag (h1, h2, ci1, norb_f, nelec_f,
+            ecore=ecore, **project_kwargs)
+        e, ci1 = self._1shot (h0eff, h1eff, h2, ci1, norb_f, nelec_f,
+            orbsym=orbsym, **kwargs)
+        energy_elec = self.energy_elec (h1, h2, ci1, norb_f, nelec_f,
+            ecore=ecore, **kwargs)
+        return converged, energy_elec, ci1
+
 
