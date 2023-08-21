@@ -12,6 +12,7 @@
 namespace py = pybind11;
 
 #include "pm.h"
+#include "dev_array.h"
 
 #define _SIZE_GRID 32
 #define _SIZE_BLOCK 256
@@ -143,6 +144,8 @@ private:
   double * t_array_jk;
 #endif
 
+  int num_threads;
+  
 #if defined(_GPU_CUDA)
   cublasHandle_t handle;
   cudaStream_t stream;
