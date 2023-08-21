@@ -79,11 +79,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 			      py::array_t<double> _ppaa, py::array_t<double> _papa, py::array_t<double> _eri_paaa,
 			      py::array_t<double> _ocm2, py::array_t<double> _tcm2, py::array_t<double> _gorb,
 			      int ncore, int nocc, int nmo)
-{
-    int num_threads = 1;
-#pragma omp parallel
-  num_threads = omp_get_num_threads();
-  
+{  
   py::buffer_info info_ppaa = _ppaa.request(); // 4D array (26, 26, 2, 2)
   py::buffer_info info_papa = _papa.request(); // 4D array (26, 2, 26, 2)
   py::buffer_info info_paaa = _eri_paaa.request();
@@ -525,12 +521,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
-
-  int num_threads = 1;
-#pragma omp parallel
-  {
-    num_threads = omp_get_num_threads();
-  }
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
@@ -621,11 +611,6 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 		    py::list & _dms_list, py::array_t<double> _vk,
 		    int with_j, int blksize, int nset, int naux, int nao, int count)
 {  
-//   int num_threads = 1;
-// #pragma omp parallel
-//   {
-//     num_threads = omp_get_num_threads();
-//   }
 
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();

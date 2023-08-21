@@ -4,7 +4,6 @@
 
 #include "device.h"
 
-
 /* ---------------------------------------------------------------------- */
 
 Device::Device()
@@ -41,6 +40,10 @@ Device::Device()
   d_buf3 = nullptr;
   d_vkk = nullptr;
 #endif
+
+  num_threads = 1;
+#pragma omp parallel
+  num_threads = omp_get_num_threads();
   
 #ifdef _SIMPLE_TIMER
   t_array_count = 0;
