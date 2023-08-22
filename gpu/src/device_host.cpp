@@ -124,14 +124,16 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   //vj = (double *) malloc(_size_vj * sizeof(double));
   //for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
 
-  // printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i\n",blksize,naux,nao,nset);
-  // printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
-  //  	 info_dmtril.shape[0], info_dmtril.shape[1],
-  //  	 info_eri1.shape[0], info_eri1.shape[1],
-  //  	 info_dmtril.shape[0], info_eri1.shape[0],
-  //  	 info_dmtril.shape[0], info_eri1.shape[1],
-  //  	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
+   printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i\n",blksize,naux,nao,nset);
+   printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
+    	 info_dmtril.shape[0], info_dmtril.shape[1],
+    	 info_eri1.shape[0], info_eri1.shape[1],
+    	 info_dmtril.shape[0], info_eri1.shape[0],
+    	 info_dmtril.shape[0], info_eri1.shape[1],
+    	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
 
+   int nao_pair = nao * (nao+1) / 2;
+   
 #ifdef _SIMPLE_TIMER
   t_array_jk[1] += omp_get_wtime() - t0;
 #endif
@@ -141,45 +143,36 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #ifdef _SIMPLE_TIMER
     double t0 = omp_get_wtime();
 #endif
+
+    DevArray2D da_rho = DevArray2D(rho, nset, naux);
+    DevArray2D da_dmtril = DevArray2D(dmtril, nset, nao_pair);
+    DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
 
 #pragma omp parallel for collapse(2)
-    for(int i=0; i<info_dmtril.shape[0]; ++i)
-      for(int j=0; j<info_eri1.shape[0]; ++j) {
-
+    for(int i=0; i<nset; ++i)
+      for(int j=0; j<naux; ++j) {
 	double val = 0.0;
-	for(int k=0; k<dmtril_size_1d; ++k) {	  
-	  int indx1 = i * info_dmtril.shape[1] + k;
-	  int indx2 = j * info_eri1.shape[1] + k;
-	  
-	  // rho(i,j) += dmtril(i,k) * eri1(j,k)
-	  val += dmtril[indx1] * eri1[indx2];
-	}
-	rho[i * info_eri1.shape[0] + j] = val;
+	for(int k=0; k<nao_pair; ++k) val += da_dmtril(i,k) * da_eri1(j,k);
+	da_rho(i,j) = val;
       }
     
 #ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
 #endif
+
+    DevArray2D da_vj = DevArray2D(_vj, nset, nao_pair);
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
 
 #pragma omp parallel for collapse(2)
-    for(int i=0; i<info_dmtril.shape[0]; ++i)
-      for(int j=0; j<info_eri1.shape[1]; ++j) {
+    for(int i=0; i<nset; ++i)
+      for(int j=0; j<nao_pair; ++j) {
 
 	double val = 0.0;
-	for(int k=0; k<info_eri1.shape[0]; ++k) {
-	  int indx1 = i * info_eri1.shape[0] + k;
-	  int indx2 = k * info_eri1.shape[1] + j;
-
-	  // vj(i,j) += rho(i,k) * eri1(k,j)
-	  val += rho[indx1] * eri1[indx2];
-	  //printf("ijk= %i %i %i  indx= %i %i %i  rho= %f  eri1= %f  vj= %f\n",i,j,k,indx,indx1,indx2,rho[indx1],eri1[indx2],vj[indx]);
-	}
-	//	vj[i * info_eri1.shape[1] + j] += val;
-	_vj[i * info_eri1.shape[1] + j] += val;
+	for(int k=0; k<naux; ++k) val += da_rho(i,k) * da_eri1(k,j);
+	da_vj(i,j) += val;
       }
 
 #ifdef _SIMPLE_TIMER
@@ -255,19 +248,19 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     
     // buf2 = lib.unpack_tril(eri1, out=buf[1])
 
+    DevArray3D da_buf2 = DevArray3D(buf_tmp+(blksize*nao*nao), blksize, nao, nao);
+    
 #pragma omp parallel for
     for(int i=0; i<naux; ++i) {
       // unpack lower-triangle to square
       
       int indx = 0;
-      double * buf2 = &(buf_tmp[(blksize + i) * nao * nao]);
-      double * eri1_ = &(eri1[i * info_eri1.shape[1]]);
+      double * eri1_ = &(eri1[i * nao_pair]);
+
       for(int j=0; j<nao; ++j)
-	for(int k=0; k<=j; ++k) {
-	  int indx1 = j * nao + k;
-	  int indx2 = k * nao + j;
-	  buf2[indx1] = eri1_[indx];
-	  buf2[indx2] = eri1_[indx];
+	for(int k=0; k<=j; ++k) {	  
+	  da_buf2(i,j,k) = eri1_[indx];
+	  da_buf2(i,k,j) = eri1_[indx];
 	  indx++;
 	}
       
@@ -291,45 +284,20 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     // dgemm of (nao X blksize*nao) and (blksize*nao X nao) matrices - can refactor later...
     // vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))  // vk[k] is nao x nao array
 
-#if 1
-// tmp1 (26, 6032)
-// tmp1[0,:]=  [ 0.37899273  0.44554206 -0.07293677  0.22942478  0.20389119 -0.13458347
-//   0.0780132   0.         -0.0750426   0.04131208]
-// tmp1[1,:]=  [ 0.2371684   0.28718115 -0.0409389   0.2390464   0.22400913 -0.09478144
-//   0.05468187  0.         -0.05242745  0.02926458]
-
-// tmp2 (6032, 26)
-// tmp2[0,:]=  [ 0.91930255  0.44332476  0.01165171  0.16834878  0.24337649 -0.22437162
-//   0.12954101  0.         -0.31094366  0.1795234 ]
-// tmp2[1,:]=  [ 0.44332476  0.40159051  0.0295411   0.17964825  0.25563511 -0.14255808
-//   0.08230595  0.         -0.23917498  0.13808774]
-  
+#if 1  
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
     
     double * buf2 = &(buf_tmp[blksize * nao * nao]);
+
+    DevArray3D da_buf1 = DevArray3D(buf_tmp, naux, nao, nao);
+    DevArray3D da_buf3 = DevArray3D(buf3, nao, naux, nao); // swap 1st two dimensions
     
 #pragma omp parallel for
-    for(int i=0; i<naux; ++i)
+    for(int i=0; i<naux; ++i) {
       for(int j=0; j<nao; ++j)
-	for(int k=0; k<nao; ++k) {
-
-	  const int indx1 = (i*nao+j)*nao + k;
-	  const int indx3 = k * naux*nao + (i*nao+j);
-	  
-	  buf3[indx3] = buf1[indx1];
-	  
-	  // const int indx2 = i*nao*nao + j*nao + k;
-	  // const int indx4 = (i*nao+j)*nao + k;
-	  
-	  // buf4[indx4] = buf2[indx2];
-	}
-
-    // for(int i=0; i<2; ++i)
-    //   for(int j=0; j<10; ++j) {
-    // 	const int indx = i * nao + j;
-    // 	printf("buf4: (%i,%i) indx= %i  val= %f\n",i,j,indx,buf4[indx]);
-    //   }
+	for(int k=0; k<nao; ++k) da_buf3(k,i,j) = da_buf1(i,j,k);
+    }
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -439,18 +407,6 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #endif 
   }
   
-  // printf("LIBGPU::vk[0,0,:]= \n");
-  // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,vk[k]);
-  
-  // printf("LIBGPU::vk[0,1,:]= \n");
-  // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,vk[nao + k]);
-  
-  // printf("LIBGPU::vk[1,0,:]= \n");
-  // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,vk[nao*nao + k]);
-  
-  // printf("LIBGPU::vk[1,1,:]= \n");
-  // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,vk[nao*nao + nao + k]);
-
 #if 0
   double vk_err = 0.0;
   for(int indxK=0; indxK<nset; ++indxK) {
