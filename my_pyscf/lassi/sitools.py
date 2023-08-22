@@ -168,8 +168,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
             Fragment CI vectors from the analysis. If lbasis='Schmidt', they are
             rotated into the Schmidt basis
         si1: ndarray of shape (ndim, len (state))
-            SI vectors (only for the states analyzed). If lbasis='Schmidt', they
-            are rotated into the Schmidt basis
+            SI vectors. If lbasis='Schmidt', they are rotated into the Schmidt basis
     '''
     if 'prim' in lbasis.lower (): lbasis = 'primitive'
     elif 'schmidt' in lbasis.lower (): lbasis = 'Schmidt'
@@ -185,11 +184,11 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
 
     log.info ("Average quantum numbers:")
     space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
-        las, si[:,state]
+        las, si
     )
     states = np.atleast_1d (state)
     nelelas = np.array ([sum (n) for n in las.nelecas_sub])
-    c, m, smults = get_rootspace_central_moment (las, space_weights)
+    c, m, smults = get_rootspace_central_moment (las, space_weights[:,states])
     neleca = .5*(nelelas[None,:]-c+m)
     nelecb = .5*(nelelas[None,:]-c-m)
     for na, nb, s, st in zip (neleca, nelecb, smults, states):
@@ -202,7 +201,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
                "states %s averaged together"), str (states))
     log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
     nstates = len (states)
-    avg_weights = space_weights.sum (1) / nstates
+    avg_weights = space_weights[:,states].sum (1) / nstates
     lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
                          for c in ci_r]
                         for ci_r in ci0]).T
@@ -212,7 +211,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
     header = fmt_str.format ("Frag", "Nelec", "2S+1", "Ir", "<n>", "Max(weight)", "Entropy")
     fmt_str = " {:4d}  {:>7s}  {:>4d}  {:>3s}  {:6.3f}  {:>11.4f}  {:8f}"
     ci1 = [[ci0[ifrag][iroot].view () for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
-    si1 = si.copy ()[:,states]
+    si1 = si.copy ()
     for ix, iroot in enumerate (np.argsort (-avg_weights)):
         log.info ("Rootspace %d with averaged weight %9.3e", iroot, avg_weights[iroot])
         log.info (header)
@@ -221,7 +220,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         coeffs = state_coeffs[iroot].copy ().reshape (*addr_shape)
         ci_f = []
         for ifrag in range (las.nfrags):
-            sdm = make_sdm1 (state_coeffs[iroot], lroots[iroot], ifrag).sum (0) / nstates
+            sdm = make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
             dens = sdm.diagonal ()
             navg = np.dot (np.arange (len (dens)), dens)
             maxw = np.amax (dens)
@@ -246,7 +245,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         coeffs = coeffs.reshape (flat_shape)
         si1[idx_space[iroot],:] = np.sqrt (space_weights[iroot]) * coeffs[:,:]
         log.info ("Wave function(s) in rootspace %d in local %s basis:", iroot, lbasis)
-        _print_states (log, iroot, space_weights[iroot], coeffs, lroots[iroot],
+        _print_states (log, iroot, space_weights[iroot,states], coeffs[:,states], lroots[iroot],
                        print_all_but=print_all_but)
         if ncsf:
             for ifrag, ci in enumerate (ci_f):
