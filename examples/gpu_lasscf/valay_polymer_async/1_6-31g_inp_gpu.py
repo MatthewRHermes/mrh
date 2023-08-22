@@ -24,7 +24,7 @@ libgpu.libgpu_set_device(gpu, gpu_id)
 
 # -- this should all be inside of LASSCF() constructor
 
-nfrags=2
+nfrags=1
 basis='6-31g'
 outputfile='1_6-31g_out_gpu.log'
 mol=gto.M(use_gpu=gpu, atom=generator(nfrags),basis=basis,verbose=5,output=outputfile)

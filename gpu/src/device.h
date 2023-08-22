@@ -61,10 +61,10 @@ public :
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int);
   void free_get_jk();
   
-  void get_jk(py::array_t<double>, py::array_t<double>, py::array_t<double>,
-	      py::array_t<double>,
-	      py::list &, py::array_t<double>,
-	      int, int, int, int, int, int);
+  void get_jk(int, int, int,
+	      py::array_t<double>, py::array_t<double>, py::list &,
+	      py::array_t<double>, py::array_t<double>,
+	      int);
   
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -90,6 +90,8 @@ private:
   int size_buf;
   int size_fdrv;
 
+  int blksize;
+  
   double * rho;
   double * vj;
   double * _vktmp;

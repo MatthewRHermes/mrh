@@ -29,10 +29,10 @@ extern "C"
   void libgpu_free_get_jk(void *);
   
   void libgpu_compute_get_jk(void *,
-			     py::array_t<double>, py::array_t<double>, py::array_t<double>,
-			     py::array_t<double>,
-			     py::list &, py::array_t<double>,
-			     int, int, int, int, int, int);
+			     int, int, int,
+			     py::array_t<double>, py::array_t<double>, py::list &,
+			     py::array_t<double>, py::array_t<double>,
+			     int);
   
   void libgpu_orbital_response(void *,
 			       py::array_t<double>,
