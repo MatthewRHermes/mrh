@@ -26,12 +26,14 @@ double Device::compute(double * data)
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int blksize, int nset, int nao)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao)
 {
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
 
+  blksize = _blksize;
+  
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
 
@@ -86,28 +88,25 @@ void Device::free_get_jk()
 
 /* ---------------------------------------------------------------------- */
 
-void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::array_t<double> _vjtmp,
-		    py::array_t<double> _buftmp,
-		    py::list & _dms_list, py::array_t<double> _vk,
-		    int with_j, int blksize, int nset, int naux, int nao, int count)
+void Device::get_jk(int naux, int nao, int nset, 
+		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
+		    py::array_t<double> _vj, py::array_t<double> _vk,
+		    int count)
 {  
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
 
+  const int with_j = true;
+  
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
-  py::buffer_info info_buf = _buftmp.request();
-  py::buffer_info info_vj = _vjtmp.request(); // 2D array (1, 351)
+  py::buffer_info info_vj = _vj.request(); // 2D array (1, 351)
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, 26, 26)
 
   double * eri1 = static_cast<double*>(info_eri1.ptr);
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
-  //  double * _buf = static_cast<double*>(info_buf.ptr);
-  double * _vj = static_cast<double*>(info_vj.ptr);
-  
-  //double * vj; // = static_cast<double*>(info_vj.ptr);
-
+  double * vj = static_cast<double*>(info_vj.ptr);
   double * vk = static_cast<double*>(info_vk.ptr);
 
   int eri1_size_1d = info_eri1.shape[1];
@@ -119,18 +118,14 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     if(rho) free(rho);
     rho = (double *) malloc(size_rho * sizeof(double));
   }
-  
-  int _size_vj = info_dmtril.shape[0] * info_eri1.shape[1];
-  //vj = (double *) malloc(_size_vj * sizeof(double));
-  //for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
 
-   printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i\n",blksize,naux,nao,nset);
-   printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
-    	 info_dmtril.shape[0], info_dmtril.shape[1],
-    	 info_eri1.shape[0], info_eri1.shape[1],
-    	 info_dmtril.shape[0], info_eri1.shape[0],
-    	 info_dmtril.shape[0], info_eri1.shape[1],
-    	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
+  // printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i\n",blksize,naux,nao,nset);
+  // printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
+  //   	 info_dmtril.shape[0], info_dmtril.shape[1],
+  //   	 info_eri1.shape[0], info_eri1.shape[1],
+  //   	 info_dmtril.shape[0], info_eri1.shape[0],
+  //   	 info_dmtril.shape[0], info_eri1.shape[1],
+  //   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
 
    int nao_pair = nao * (nao+1) / 2;
    
@@ -162,7 +157,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     double t1 = omp_get_wtime();
 #endif
 
-    DevArray2D da_vj = DevArray2D(_vj, nset, nao_pair);
+    DevArray2D da_vj = DevArray2D(vj, nset, nao_pair);
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
 
@@ -181,37 +176,22 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #endif
   }
 
-#if 0
-  double err = 0.0;
-  for(int i=0; i<_size_vj; ++i) {
-    err += (vj[i] - _vj[i]) * (vj[i] - _vj[i]);
-    //    printf("LIBGPU:: i= %i  vj= %f\n",i,vj[i]);
-  }
-  printf("vj_error= %f\n",err);
-  if(err > 0.1) {
-    for(int i=0; i<_size_vj; ++i) printf("i= %i  vj_gpu= %f  vj_ref= %f\n",i,vj[i],_vj[i]);
-    abort();
-  }
-#endif
-
-#if 0
-  for(int i=0; i<_size_vj; ++i) _vj[i] = vj[i];
-#endif
- 
   double * buf1 = buf_tmp;
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
     py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, 26, 26)
     py::buffer_info info_dms = _dms.request(); // 2D
-  
-    // printf("  -- dms[k]: ndim= %i\n",info_dms.ndim);
-    // printf("  --        shape=");
-    // for(int i=0; i<info_dms.ndim; ++i) printf(" %i", info_dms.shape[i]);
-    // printf("\n");
 
     // rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao), null, ctypes.c_int(0))
 
+    int orbs_slice[4] = {0, nao, 0, nao};
+    double * dms = static_cast<double*>(info_dms.ptr);
+
+#ifdef _SIMPLE_TIMER
+    t0 = omp_get_wtime();
+#endif
+    
     //    fmmm = _ao2mo.libao2mo.AO2MOmmm_bra_nr_s2
     //    fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
     //    ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2
@@ -221,15 +201,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     //	       eri1.ctypes.data_as(ctypes.c_void_p),
     //	       dms[k].ctypes.data_as(ctypes.c_void_p),
     //	       ctypes.c_int(naux), *rargs)
-
-    int orbs_slice[4] = {0, nao, 0, nao};
-    double * dms = static_cast<double*>(info_dms.ptr);
-
-#ifdef _SIMPLE_TIMER
-    t0 = omp_get_wtime();
-#endif
     
-    //    fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0);
     fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0, buf_fdrv);
 
 #ifdef _SIMPLE_TIMER
@@ -237,26 +209,20 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     t_array_jk[4] += t1 - t0;
 #endif
     
-#if 0
-    double err = 0.0;
-    for(int i=0; i<naux*nao*nao; ++i) {
-      err += (buf1[i]-_buf[i]) * (buf1[i]-_buf[i]);
-      //      if(i < 2*nao) printf("i= %i  buf1_gpu= %f  buf1_ref= %f\n",i,buf1[i],_buf[i]);
-    }
-    printf("buf1_err= %f\n",err);
-#endif
-    
     // buf2 = lib.unpack_tril(eri1, out=buf[1])
 
-    DevArray3D da_buf2 = DevArray3D(buf_tmp+(blksize*nao*nao), blksize, nao, nao);
+    double * buf2 = &(buf_tmp[blksize * nao * nao]);
+    
+    DevArray3D da_buf2 = DevArray3D(buf2, blksize, nao, nao);
     
 #pragma omp parallel for
     for(int i=0; i<naux; ++i) {
-      // unpack lower-triangle to square
       
       int indx = 0;
       double * eri1_ = &(eri1[i * nao_pair]);
 
+      // unpack lower-triangle to square
+      
       for(int j=0; j<nao; ++j)
 	for(int k=0; k<=j; ++k) {	  
 	  da_buf2(i,j,k) = eri1_[indx];
@@ -271,27 +237,14 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     t_array_jk[5] += t2 - t1;
 #endif
     
-#if 0
-    err = 0.0;
-    for(int i=0; i<naux*nao*nao; ++i) {
-      int indx = blksize*nao*nao + i;
-      //      if(i < 2*nao) printf("i= %i  buf2_gpu= %f  buf2_ref= %f\n",i,buf_tmp[indx],_buf[indx]);
-      err += (buf_tmp[indx]-_buf[indx]) * (buf_tmp[indx]-_buf[indx]);
-    }
-    printf("buf2_err= %f\n",err);
-#endif
-    
     // dgemm of (nao X blksize*nao) and (blksize*nao X nao) matrices - can refactor later...
     // vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))  // vk[k] is nao x nao array
-
-#if 1  
+    
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
-    
-    double * buf2 = &(buf_tmp[blksize * nao * nao]);
 
     DevArray3D da_buf1 = DevArray3D(buf_tmp, naux, nao, nao);
-    DevArray3D da_buf3 = DevArray3D(buf3, nao, naux, nao); // swap 1st two dimensions
+    DevArray3D da_buf3 = DevArray3D(buf3, nao, naux, nao); // python swapped 1st two dimensions?
     
 #pragma omp parallel for
     for(int i=0; i<naux; ++i) {
@@ -322,83 +275,9 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     const int ldb = nao;
     const int ldc = nset * nao;
 
-    //    double * vkk = &(_vktmp[indxK * nao]);
     double * vkk = &(vk[indxK * nao]);
     
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);    
-#endif
-
-#if 0
-    //    double * buf2 = &(buf_tmp[blksize * nao * nao]);
-    buf2 = &(buf_tmp[blksize * nao * nao]);
-    
-    for(int i=0; i<naux; ++i) {
-      int offset = i * nao * nao;
-
-      for(int irow=0; irow<nao; ++irow)
-	for(int icol=0; icol<nao; ++icol) {
-	  double val = 0.0;
-	  for(int k=0; k<nao; ++k) {
-	    int indx1T = offset + k*nao + irow;
-	    int indx2  = offset + k*nao + icol;
-
-	    val += buf1[indx1T] * buf2[indx2];
-	  }
-	  //	  _vktmp[indxK*nao*nao + irow*nao + icol] += val;
-
-	  // seems like python has swapped order of first two indices in vk[i,j,k] to vk[j,i,k]
-
-	  //	  _vktmp[irow*nset*nao + indxK*nao + icol] += val;
-	  vk[irow*nset*nao + indxK*nao + icol] += val;
-	  
-	  // if(irow == 0 && icol == 0)
-	  //   printf("i= %i  ijk= %i %i val= %f\n",i,irow,icol,val);
-	}
-
-      // printf("LIBGPU::buf1= \n");
-      // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,buf1[k*nao + 0]);
-      
-      // printf("\nLIBGPU::buf2= \n");
-      // for(int k=0; k<nao; ++k) printf("%i: %f\n",k,buf2[k*nao + 0]);
-    }
-#endif
-    
-#if 0
-    // for(int irow=0; irow<1; ++irow)
-    //   for(int icol=0; icol<nao; ++icol) {
-    // 	double val = 0.0;
-    // 	for(int k=0; k<nao*naux; ++k) {
-    // 	  int indx3 = irow*nao + k;
-    // 	  int indx4 = k*nao + icol;
-	  
-    // 	  val += buf3[indx3] * buf4[indx4];
-    // 	}
-    // 	printf("vk :: irow= %i  icol= %i  vk_ref= %f  vk_gemm= %f  vk_val= %f\n",irow,icol,vk[irow*nao+icol],_vktmp[irow*nao+icol], val);
-    //   }
-    // abort();
-    
-    double vk_err = 0.0;
-    int count = 0;
-    printf("indxK= %i  nset= %i\n",indxK,nset);
-    for(int i=0; i<nao; ++i)
-      for(int j=0; j<nao; ++j) {
-	int indx1 = indxK*nao*nao + i*nao + j;
-	int indx2 = indxK*nao*nao + i*nao + j;
-	
-	const double diff = (vk[indx1] - _vktmp[indx2]) * (vk[indx1] - _vktmp[indx2]);
-	
-	if(diff > 1e-8 && count < 2*nao) {
-	  printf("ij= %i %i  indx= %i %i  vk= %f  _vktmp= %f  diff= %f\n",
-		 i,j,indx1,indx2,vk[indx1],_vktmp[indx2],diff);
-	  count++;
-	}
-	vk_err += diff;
-      }
-    // printf("indxK= %i  vk_err= %f\n",indxK,vk_err);
-    
-    printf("nset= %i  vk_err= %f\n",nset, vk_err);
-    if(vk_err > 1e-8) abort();
-#endif
    
 #ifdef _SIMPLE_TIMER
     double t4 = omp_get_wtime();
@@ -406,29 +285,7 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
     t_array_jk_count++;
 #endif 
   }
-  
-#if 0
-  double vk_err = 0.0;
-  for(int indxK=0; indxK<nset; ++indxK) {
-    //    printf("indxK= %i  nset= %i\n",indxK,nset);
-    for(int i=0; i<nao; ++i)
-      for(int j=0; j<nao; ++j) {
-	int indx1 = indxK*nao*nao + i*nao + j;
-	int indx2 = indxK*nao*nao + i*nao + j;
-	vk_err += (vk[indx1] - _vktmp[indx2]) * (vk[indx1] - _vktmp[indx2]);
-	if(vk_err > 1e-8) printf("indxK= %i  ij= %i %i  indx= %i %i  vk= %f  _vktmp= %f  vk_err= %f\n",
-				 indxK,i,j,indx1,indx2,vk[indx1],_vktmp[indx2],vk_err);
-      }
-    // printf("indxK= %i  vk_err= %f\n",indxK,vk_err);
-  }
-  
-  printf("nset= %i  vk_err= %f\n",nset, vk_err);
-  if(vk_err > 1e-8) abort();
-#endif
 
-#if 0
-  for(int i=0; i<nset*nao*nao; ++i) vk[i] = _vktmp[i];
-#endif
 }
   
 /* ---------------------------------------------------------------------- */
