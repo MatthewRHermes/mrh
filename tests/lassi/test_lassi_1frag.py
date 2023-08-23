@@ -4,7 +4,7 @@ import numpy as np
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.mcscf.addons import state_average_mix
 from mrh.my_pyscf.fci import csf_solver
-from me2n2_struct import structure as struct
+from mrh.tests.lasscf.me2n2_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 
 def setUpModule():

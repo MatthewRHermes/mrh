@@ -19,7 +19,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
-from c2h4n4_struct import structure as struct
+from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
 topdir = os.path.abspath (os.path.join (__file__, '..'))

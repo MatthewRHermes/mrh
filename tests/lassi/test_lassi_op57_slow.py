@@ -22,7 +22,7 @@ from itertools import product
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
 from pyscf.fci.direct_spin1 import _unpack_nelec
-from c2h4n4_struct import structure as struct
+from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi import op_o0

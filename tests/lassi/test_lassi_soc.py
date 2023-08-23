@@ -3,7 +3,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from pyscf.fci.direct_spin1 import _unpack_nelec
-from c2h6n4_struct import structure as struct
+from mrh.tests.lasscf.c2h6n4_struct import structure as struct
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.mcscf.soc_int import compute_hso, amfi_dm
