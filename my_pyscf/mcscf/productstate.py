@@ -152,10 +152,10 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                         + 0.5*np.tensordot (h2, dm2, axes=4))
         return energy_tot
 
-    def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
-        dm1s = np.stack (self.make_rdm1s (ci, norb_f, nelec_f), axis=0)
+    def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, dm1s=None, dm2=None, **kwargs):
+        if dm1s is None: dm1s = np.stack (self.make_rdm1s (ci, norb_f, nelec_f), axis=0)
         dm1 = dm1s.sum (0)
-        dm2 = self.make_rdm2 (ci, norb_f, nelec_f)
+        if dm2 is None: dm2 = self.make_rdm2 (ci, norb_f, nelec_f)
         energy_tot = (ecore + np.tensordot (h1, dm1, axes=2)
                         + 0.5*np.tensordot (h2, dm2, axes=4))
         v1  = np.tensordot (dm1s, h2, axes=2)

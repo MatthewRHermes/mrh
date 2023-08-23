@@ -231,6 +231,31 @@ def count_excitations (las0):
 
 def filter_spaces (las, max_charges=None, min_charges=None, max_smults=None, min_smults=None,
                    target_any_smult=None, target_all_smult=None):
+    '''Remove rootspaces from a LASSCF method instance that do not satisfy supplied constraints
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+
+    Kwargs:
+        max_charges: integer or ndarray of shape (nfrags,)
+            Rootspaces with local charges greater than this are removed
+        min_charges: integer or ndarray of shape (nfrags,)
+            Rootspaces with local charges less than this are removed
+        max_smults: integer or ndarray of shape (nfrags,)
+            Rootspaces with local spin magnitudes greater than this are removed
+        min_smults: integer or ndarray of shape (nfrags,)
+            Rootspaces with local spin magnitudes less than this are removed
+        target_any_smult: integer or list
+            Rootspaces that cannot couple to total spin magnitudes equaling at
+            least one of the supplied integers are removed
+        target_all_smult: integer or list
+            Rootspaces that cannot couple to total spin magnitudes equaling all
+            of the supplied integers are removed
+
+    Returns:
+        las : instance of :class:`LASCINoSymm`
+            A copy is created
+    '''
     log = logger.new_logger (las, las.verbose)
     from mrh.my_pyscf.mcscf.lasci import get_space_info
     charges, spins, smults, wfnsyms = get_space_info (las)
