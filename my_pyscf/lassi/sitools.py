@@ -135,9 +135,6 @@ def _print_states (log, iroot, space_weights, state_coeffs, lroots, print_all_bu
         log.info ("All %d ENVs in rootspace %d accounted for", nprods, iroot)
     return
 
-def _print_basis (log, ci, norb, nelec, solver, npr=10):
-    pass
-
 def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', ncsf=10):
     '''Print out analysis of LASSI result in terms of average quantum numbers
     and density matrix analyses of the lroots in each rootspace
@@ -298,5 +295,129 @@ def analyze_basis (las, ci=None, space=0, frag=0, npr=10):
                 entry = fmt1_body.format (l[state][ipr], c[state][ipr])
                 line += fmt0.format (entry) + '   '
             log.info (line)
+
+
+def analyze_ham (las, si, e_roots, ci=None, state=0, print_all_but=1e-8):
+    '''Print out analysis of LASSI result in terms of Hamiltonian matrix
+    elements
+
+    Args:
+        las: instance of :class:`LASCINoSymm`
+        si: ndarray of shape (nstates,nstates)
+            SI vectors
+        e_roots: sequence of length (nstates,)
+            energies
+
+    Kwargs:
+        ci: list of list of ndarray
+            Fragment CI vectors. Taken from las if not provided
+        state: integer or index array
+            indicates which columns of si to analyze. Indicated columns are
+            averaged together for the lroots analysis
+        print_all_but: float
+            continue density-matrix analysis printouts until all
+            but this weight of the wave function(s) is accounted for. Set
+            to zero to print everything.
+    '''
+    if ci is None: ci = las.ci
+    ci0 = ci
+    e_roots = np.asarray (e_roots)
+
+    log = lib.logger.new_logger (las, las.verbose)
+    log.info ("Analyzing LASSI Hamiltonian for states = %s",str(state))
+
+    log.info ("Average quantum numbers:")
+    space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
+        las, si
+    )
+    states = np.atleast_1d (state)
+    nelelas = np.array ([sum (n) for n in las.nelecas_sub])
+
+    log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
+    nstates = len (states)
+    avg_weights = space_weights[:,states].sum (1) / nstates
+    lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
+                         for c in ci_r]
+                        for ci_r in ci0]).T
+    c, m, s, w = get_space_info (las)
+    fmt_str = " {:4s}  {:>7s}  {:>4s}  {:>3s}  {:>6s}  {:11s}  {:>8s}"
+    header = fmt_str.format ("Frag", "Nelec", "2S+1", "Ir", "<n>", "Max(weight)", "Entropy")
+    fmt_str = " {:4d}  {:>7s}  {:>4d}  {:>3s}  {:6.3f}  {:>11.4f}  {:8f}"
+    h = (si * e_roots[None,:]) @ si.conj ().T
+    for iroot in range (las.nroots):
+        log.info ("Rootspace %d with averaged weight %9.3e", iroot, avg_weights[iroot])
+        log.info (header)
+        idx_p = idx_space[iroot]
+        idx_q = ~idx_p
+        h_pp = h[idx_p,:][:,idx_p]
+        h_pq = h[idx_p,:][:,idx_q]
+        h_qq = h[idx_q,:][:,idx_q]
+        hdiag0 = np.diag (h_pp)
+        hdiag_i = np.zeros ((h_pp.shape[0],len(states)))
+        for p, h_q in enumerate (h_pq):
+            for i, e_i in enumerate (e_roots[states]):
+                A = e_i*np.eye (h_qq.shape[0]) - h_qq
+                hdiag_i[p,i] = np.dot (h_q.conj (), linalg.solve (A, h_q))
+        h_pp = h_pq = h_qq = None 
+
+        for ifrag in range (las.nfrags):
+            sdm = make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
+            dens = sdm.diagonal ()
+            navg = np.dot (np.arange (len (dens)), dens)
+            maxw = np.amax (dens)
+            evals, evecs = linalg.eigh (-sdm)
+            evals = -evals
+            evals = evals[evals>0]
+            entr = abs(np.dot (evals, np.log (evals)))
+            nelec = "{}a+{}b".format ((nelelas[ifrag]-c[iroot,ifrag]+m[iroot,ifrag])//2,
+                                      (nelelas[ifrag]-c[iroot,ifrag]-m[iroot,ifrag])//2)
+            ir = symm.irrep_id2name (las.mol.groupname, w[iroot][ifrag])
+            log.info (fmt_str.format (ifrag, nelec, s[iroot][ifrag], ir, navg, maxw, entr))
+        log.info ("Diagonal Hamiltonian elements in rootspace %d:", iroot)
+        _print_hdiag (log, iroot, state_coeffs[iroot][:,states], lroots[iroot],
+                      hdiag0, hdiag_i, states, print_all_but=print_all_but)
+
+    return
+
+def _print_hdiag (log, iroot, state_coeffs, lroots, hdiag0, hdiag_i,
+                  states, print_all_but=1e-8):
+    e_ref = np.amin (hdiag0)
+    log.info ('E(ref) = %16.9e', e_ref)
+    hdiag0 = hdiag0 - e_ref
+    hdiag_i = hdiag0[:,None] + hdiag_i
+    nstates = state_coeffs.shape[1]
+    nfrags = len (lroots)
+    nprods = np.prod (lroots)
+    state_weights = (state_coeffs*state_coeffs).sum (1)/nstates
+    running_weight = 1
+    idx = np.argsort (-state_weights)
+    addrs = np.stack (np.meshgrid (*[np.arange(l) for l in lroots[::-1]],
+                                  indexing='ij'), axis=0)
+    addrs = addrs.reshape (nfrags, nprods)[::-1,:].T
+    addrs_len = np.ceil (np.log10 (lroots.astype (float))).astype (int)
+    addrs_len = np.maximum (1, addrs_len)
+    lbl_len = sum (addrs_len)
+    if np.all (addrs_len==1):
+        fmt_str0 = ''.join (['{:1d}',]*nfrags)
+    else:
+        lbl_len += (nfrags-1) # periods between fragment indices
+        fmt_str0 = '.'.join (['{:d}',]*nfrags)
+    lbl_len = max (3,lbl_len)
+    fmt_str1 = ' {:>' + str (lbl_len+1) + 's} ' + ' '.join (['{:>10s}',]*(nstates+1))
+    headers = ['heff[{:d}]'.format (state) for state in states]
+    log.info (fmt_str1.format ('Id', 'ham_pp', *headers))
+    fmt_str1 = ' {:>' + str (lbl_len) + 's}: ' + ' '.join (['{:10.3e}',]*(nstates+1))
+    for ix, iprod in enumerate (idx):
+        lbl_str = fmt_str0.format (*addrs[iprod])
+        log.info (fmt_str1.format (lbl_str, hdiag0[iprod], *list(hdiag_i[iprod,:])))
+        running_weight -= state_weights[iprod]
+        if running_weight < print_all_but: break
+    if ix+1<nprods:
+        log.info ("Remaining %d ENVs in rootspace %d have combined average weight = %e",
+                  nprods-ix-1, iroot, running_weight)
+    else:
+        log.info ("All %d ENVs in rootspace %d accounted for", nprods, iroot)
+    return
+
 
 
