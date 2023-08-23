@@ -39,8 +39,7 @@ def memcheck (las, ci, soc=None):
     else:
         nbytes = 2*nbytes_per_sfvec
     # memory load of ci_dp vectors
-    # Since they are computed JIT in generators, only the largest rootspace matters
-    nbytes += max ([np.prod ([c[iroot].size for c in ci])
+    nbytes += sum ([np.prod ([c[iroot].size for c in ci])
                     * np.amax ([c[iroot].dtype.itemsize for c in ci])
                     for iroot in range (nroots)])
     safety_factor = 1.2
@@ -174,9 +173,6 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
     nelecb_f = [ne[1] for ne in nelec_f]
     lroots_f = [1 if ci.ndim<3 else ci.shape[0] for ci in ci_f]
     nprods = np.prod (lroots_f)
-    #addrs_las = np.stack (np.meshgrid (*[np.arange(l) for l in lroots_f[::-1]],
-    #                                   indexing='ij'), axis=0)
-    #addrs_las = addrs_las.reshape (nfrags, nprods)[::-1,:].T
     shape_f = [(lroots, cistring.num_strings (norb, neleca), cistring.num_strings (norb, nelecb))
               for lroots, norb, neleca, nelecb in zip (lroots_f, norb_f, neleca_f, nelecb_f)]
     addrs_a = addr_outer_product (norb_f, neleca_f)
@@ -188,35 +184,47 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
     nelec = tuple ((neleca, nelecb))
     ndet_a = cistring.num_strings (sum (norb_f), neleca)
     ndet_b = cistring.num_strings (sum (norb_f), nelecb)
+    ci_dp = ci_f[-1].reshape (shape_f[-1])
+    for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
+        lroots, ndeta, ndetb = ci_dp.shape
+        ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
+        ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
+            lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
+        )
+    norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
+    ci_dp /= norm_dp[:,None,None]
     def gen_ci_dp (buf=None):
         if buf is None:
             ci = np.empty ((ndet_a,ndet_b), dtype=ci_f[-1].dtype)
         else:
             ci = np.asarray (buf.flat[:ndet_a*ndet_b]).reshape (ndet_a, ndet_b)
-        ci_dp = ci_f[-1].reshape (shape_f[-1])
-        for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
-            lroots, ndeta, ndetb = ci_dp.shape
-            ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
-            ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
-                lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
-            )
-        norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
-        ci_dp /= norm_dp[:,None,None]
+        #ci_dp = ci_f[-1].reshape (shape_f[-1])
+        #for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
+        #    lroots, ndeta, ndetb = ci_dp.shape
+        #    ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
+        #    ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
+        #        lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
+        #    )
+        #norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
+        #ci_dp /= norm_dp[:,None,None]
         for vec in ci_dp:
             ci[:,:] = 0.0
             ci[idx] = vec[:,:]
             yield ci
     def dotter (c1, nelec1):
-        c1_dp = c1[idx][None,:]
-        for ci_r, shape in zip (ci_f, shape_f):
-            new_shape = [x for s,t in zip (c1_dp.shape[1:],shape[1:]) for x in (s//t, t)]
-            new_shape = [c1_dp.shape[0],] + new_shape
-            c1_dp = c1_dp.reshape (*new_shape)
-            c1_dp = np.tensordot (ci_r.reshape (shape), c1_dp, axes=((1,2),(2,4)))
-            new_shape = [c1_dp.shape[0]*c1_dp.shape[1],] + list (c1_dp.shape[2:])
-            c1_dp = c1_dp.reshape (*new_shape)
-        c1_dp = c1_dp.reshape ((c1_dp.shape[0],))
-        return c1_dp
+        if nelec1 != nelec: return np.zeros (nprods)
+        return np.dot (ci_dp.reshape (nprods, -1),
+                       c1[idx].ravel ())
+        #c1_dp = c1[idx][None,:]
+        #for ci_r, shape in zip (ci_f, shape_f):
+        #    new_shape = [x for s,t in zip (c1_dp.shape[1:],shape[1:]) for x in (s//t, t)]
+        #    new_shape = [c1_dp.shape[0],] + new_shape
+        #    c1_dp = c1_dp.reshape (*new_shape)
+        #    c1_dp = np.tensordot (ci_r.reshape (shape), c1_dp, axes=((1,2),(2,4)))
+        #    new_shape = [c1_dp.shape[0]*c1_dp.shape[1],] + list (c1_dp.shape[2:])
+        #    c1_dp = c1_dp.reshape (*new_shape)
+        #c1_dp = c1_dp.reshape ((c1_dp.shape[0],))
+        #return c1_dp
     return gen_ci_dp, nprods, dotter
 
 def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
