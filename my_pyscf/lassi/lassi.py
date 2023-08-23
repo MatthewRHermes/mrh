@@ -329,6 +329,10 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         row = [ix,er,s2r] + list (nelec)
         if not break_symmetry: row.append (symm.irrep_id2name (las.mol.groupname, rsym[-1]))
         lib.logger.info (las, fmt_str.format (*row))
+        if ix>=99 and las.verbose < lib.logger.DEBUG:
+            lib.logger.info (las, ('Remaining %d eigenvalues truncated; '
+                                   'increase verbosity to print them all'), len (e_roots)-100)
+            break
     return e_roots, si
 
 def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
