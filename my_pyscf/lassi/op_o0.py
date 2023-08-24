@@ -211,20 +211,28 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
             ci[:,:] = 0.0
             ci[idx] = vec[:,:]
             yield ci
-    def dotter (c1, nelec1):
+    def dotter (c1, nelec1, skip=None):
         if nelec1 != nelec: return np.zeros (nprods)
-        return np.dot (ci_dp.reshape (nprods, -1),
-                       c1[idx].ravel ())
-        #c1_dp = c1[idx][None,:]
-        #for ci_r, shape in zip (ci_f, shape_f):
-        #    new_shape = [x for s,t in zip (c1_dp.shape[1:],shape[1:]) for x in (s//t, t)]
-        #    new_shape = [c1_dp.shape[0],] + new_shape
-        #    c1_dp = c1_dp.reshape (*new_shape)
-        #    c1_dp = np.tensordot (ci_r.reshape (shape), c1_dp, axes=((1,2),(2,4)))
-        #    new_shape = [c1_dp.shape[0]*c1_dp.shape[1],] + list (c1_dp.shape[2:])
-        #    c1_dp = c1_dp.reshape (*new_shape)
-        #c1_dp = c1_dp.reshape ((c1_dp.shape[0],))
-        #return c1_dp
+        if skip is None: return np.dot (ci_dp.reshape (nprods, -1),
+                                        c1[idx].ravel ())
+        skip = set (skip)
+        c1_dp = c1[idx][None,:]
+        skipdims = 1
+        for ifrag, ci_r, shape in enumerate (zip (ci_f, shape_f)):
+            new_shape = [x for s,t in zip (c1_dp.shape[skipdims:],shape[1:]) for x in (s//t, t)]
+            new_shape = c1_dp.shape[0:skipdims] + new_shape
+            c1_dp = c1_dp.reshape (*new_shape)
+            if ifrag in skip:
+                dimorder = [0,skipdims+1,skipdims+3,] + list (range(1, skipdims+1)) + [skipdims+2,]
+                c1_dp = c1_dp.transpose (*dimorder)
+                skipdims += 2
+            else:
+                c1_dp = np.tensordot (ci_r.reshape (shape), c1_dp,
+                                      axes=((1,2),(skipdims+1,skipdims+3)))
+                new_shape = [c1_dp.shape[0]*c1_dp.shape[1],] + list (c1_dp.shape[2:])
+                c1_dp = c1_dp.reshape (*new_shape)
+        c1_dp = c1_dp.reshape (c1_dp.shape[0:skipdims])
+        return c1_dp
     return gen_ci_dp, nprods, dotter
 
 def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
