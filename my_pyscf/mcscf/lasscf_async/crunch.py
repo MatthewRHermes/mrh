@@ -808,13 +808,13 @@ if __name__=='__main__':
 
     ###########################
     # Build the embedding space
-    from mrh.my_pyscf.mcscf.lasscf_async_split import get_impurity_space_constructor
+    from mrh.my_pyscf.mcscf.lasscf_async.split import get_impurity_space_constructor
     get_imporbs_0 = get_impurity_space_constructor (las, 0, list (range (3)))
     ###########################
 
     ###########################
     # Build the impurity method object
-    from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe
+    from mrh.my_pyscf.mcscf.lasscf_async.keyframe import LASKeyframe
     imc = get_impurity_casscf (las, 0, imporb_builder=get_imporbs_0)
     kf1 = LASKeyframe (las, las.mo_coeff, las.ci)
     imc._update_keyframe_(kf1)
@@ -834,5 +834,5 @@ if __name__=='__main__':
     for t, r in zip (imc.e_states, las.e_states):
         print (t, r, t-r)
     kf2 = imc._push_keyframe (kf1)
-    from mrh.my_pyscf.mcscf.lasscf_async_keyframe import approx_keyframe_ovlp
+    from mrh.my_pyscf.mcscf.lasscf_async.keyframe import approx_keyframe_ovlp
     print (approx_keyframe_ovlp (las, kf1, kf2))
