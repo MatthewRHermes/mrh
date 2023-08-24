@@ -306,7 +306,7 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
         for gen_ci in gen_ci_r:
             for x in gen_ci (buf=buf1):
                 yield x
-    def dotter (ket, nelec_ket, spinless2ss=None, iket=None, oporder=None):
+    def dotter (ket, nelec_ket, spinless2ss=None, iket=None, oporder=None, skip=None):
         vec = []
         if callable (spinless2ss):
             parse_nelec = lambda nelec: sum(nelec)
@@ -326,8 +326,9 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
             if parse_nelec (nelec_bra) != parse_nelec (nelec_ket) or filtbra (ibra):
                 vec.append (np.zeros (nprods))
                 continue
-            vec.append (dot (spinless2ss (ket, nelec_bra), nelec_bra))
-        return np.concatenate (vec)
+            vec.append (dot (spinless2ss (ket, nelec_bra), nelec_bra, skip=skip))
+        if skip is None: return np.concatenate (vec)
+        else: return vec
     return ci_r_gen, nelec_p, dotter
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):
@@ -420,11 +421,11 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
             Irrep ID for target matrix block
 
     Returns:
-        ham_eff : square ndarray of length (nroots)
+        ham_eff : square ndarray of length (ndim)
             Spin-orbit-free Hamiltonian in state-interaction basis
-        s2_eff : square ndarray of length (nroots)
+        s2_eff : square ndarray of length (ndim)
             S2 operator matrix in state-interaction basis
-        ovlp_eff : square ndarray of length (nroots)
+        ovlp_eff : square ndarray of length (ndim)
             Overlap matrix in state-interaction basis
     '''
     if soc>1:
@@ -432,10 +433,11 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
     mol = las.mol
     norb_f = las.ncas_sub
     norb = norb_ss = sum (norb_f)
+    nroots = len (ci_fr[0])
 
     # The function below is the main workhorse of this whole implementation
     ci_r_generator, nelec_r, dotter = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
-    nroots = len(nelec_r)
+    ndim = len(nelec_r)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
     nelec_r_ss = nelec_r
     if not len (set (nelec_r_spinless)) == 1:
@@ -462,10 +464,10 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         ss2spinless = lambda *args: args[0]
 
     solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
-    ham_eff = np.zeros ((nroots, nroots), dtype=h1.dtype)
-    ovlp_eff = np.zeros ((nroots, nroots))
-    s2_eff = np.zeros ((nroots,nroots))
-    for i, ket in zip(range(nroots), ci_r_generator ()):
+    ham_eff = np.zeros ((ndim, ndim), dtype=h1.dtype)
+    ovlp_eff = np.zeros ((ndim, ndim))
+    s2_eff = np.zeros ((ndim,ndim))
+    for i, ket in zip(range(ndim), ci_r_generator ()):
         nelec_ket = nelec_r_ss[i]
         ovlp_eff[i,:] = dotter (ket, nelec_ket, iket=i, oporder=0)
         s2ket = contract_ss (ket, norb_ss, nelec_ket)
@@ -480,6 +482,105 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
     return ham_eff, s2_eff, ovlp_eff
+
+def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
+                     soc=0, orbsym=None, wfnsym=None):
+    '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
+    projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
+
+    Args:
+        las : instance of class LASSCF
+        h1 : ndarray of shape (ncas, ncas)
+            Spin-orbit-free one-body CAS Hamiltonian
+        h2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            Spin-orbit-free two-body CAS Hamiltonian
+        ci_fr_ket : nested list of shape (nfrags, nroots_ket)
+            Contains CI vectors for the ket; element [i,j] is ndarray of shape
+            (ndeta_ket[i,j],ndetb_ket[i,j])
+        nelec_frs_ket : ndarray of shape (nfrags, nroots_ket, 2)
+            Number of electrons of each spin in each rootspace in each
+            fragment for the ket vectors
+        ci_fr_bra : nested list of shape (nfrags, nroots_bra)
+            Contains CI vectors for the bra; element [i,j] is ndarray of shape
+            (ndeta_bra[i,j],ndetb_bra[i,j])
+        nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
+            Number of electrons of each spin in each
+            fragment for the bra vectors
+
+    Kwargs:
+        soc : integer
+            Order of spin-orbit coupling included in the Hamiltonian
+        orbsym : list of int of length (ncas)
+            Irrep ID for each orbital
+        wfnsym : int
+            Irrep ID for target matrix block
+
+    Returns:
+        hket_fr_pabq : nested list of shape (nfrags, nroots_bra)
+            Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
+            ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket). 
+    '''
+    if soc>1:
+        raise NotImplementedError ("Two-electron spin-orbit coupling")
+    mol = las.mol
+    norb_f = las.ncas_sub
+    norb = norb_ss = sum (norb_f)
+    nfrags = len (norb_f)
+    nroots_ket = len (ci_fr_ket[0])
+    nroots_bra = len (ci_fr_bra[0])
+
+    # The function below is the main workhorse of this whole implementation
+    ci_r_ket_gen, nelec_r_ket, dotter_ket = ci_outer_product_generator (ci_fr_ket, norb_f, nelec_frs_ket)
+    ci_r_bra_gen, nelec_r_bra, dotter_bra = ci_outer_product_generator (ci_fr_bra, norb_f, nelec_frs_bra)
+    ndim_ket = len(nelec_r_ket)
+    ndim_bra = len(nelec_r_bra)
+    if not ndim_bra == 1:
+        raise NotImplementedError ("Other than 1 bra rootspace")
+    nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r_ket]
+    if not len (set (nelec_r_spinless)) == 1:
+        raise NotImplementedError ("States with different numbers of electrons")
+    # Hamiltonian may be complex
+    h1_re = h1.real
+    h2_re = h2.real
+    h1_im = None
+    if soc:
+        h1_im = h1.imag
+        h2_re = np.zeros ([2,norb,]*4, dtype=h1_re.dtype)
+        h2_re[0,:,0,:,0,:,0,:] = h2[:]
+        h2_re[1,:,1,:,0,:,0,:] = h2[:]
+        h2_re[0,:,0,:,1,:,1,:] = h2[:]
+        h2_re[1,:,1,:,1,:,1,:] = h2[:]
+        h2_re = h2_re.reshape ([2*norb,]*4)
+        ss2spinless_ket, spinless2ss_ket = civec_spinless_repr_generator (
+            ci_r_ket_gen, norb, nelec_r_ket)[1:3]
+        ss2spinless_bra, spinless2ss_bra = civec_spinless_repr_generator (
+            ci_r_bra_gen, norb, nelec_r_ket)[1:3]
+        nelec_r_ket = nelec_r_spinless
+        nelec_r_bra = [tuple ((n[0] + n[1], 0)) for n in nelec_r_bra]
+        norb = 2 * norb
+        if orbsym is not None: orbsym *= 2
+    else:
+        spinless2ss_ket = spinless2ss_bra = None
+        ss2spinless_ket = ss2spinless_bra = lambda *args: args[0]
+
+    solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
+    # <p|H|q>, but the space of p is partially uncontracted
+    hket_fr_pabq = [[[]*nroots_bra,]*nfrags]
+    for i, ket in zip(range(ndim_ket), ci_r_ket_gen ()):
+        ket = ss2spinless_ket (ket, nelec_ket)
+        nelec_ket = nelec_r_ket[i]
+        h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec_ket, 0.5)
+        hket = solver.contract_2e (h2eff, ket, norb, nelec_ket)
+        if h1_im is not None:
+            hket = hket + 1j*contract_1e_nosym (h1_im, ket, norb, nelec_ket)
+        for ifrag in range (nfrags):
+            hket = dotter_bra (hket, nelec_ket, spinless2ss=spinless2ss_bra, skip=ifrag)
+            for ibra in range (nroots_bra):
+                hket_fr_pabq[ifrag][ibra].append (hket)
+    for ifrag in range (nfrags):
+        for ibra in range (nroots_bra):
+            hket_fr_pabq[ifrag][ibra] = np.stack (hket_fr_pabq[ifrag][ibra], axis=-1)
+    return hket_fr_pabq
 
 def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
