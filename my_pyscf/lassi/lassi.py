@@ -694,3 +694,26 @@ class LASSI(lib.StreamObject):
         self.si, self.s2, self.s2_mat, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
             si, si.s2, si.s2_mat, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
         return self.e_roots, self.si
+
+    def ham_2q (self, mo_coeff=None, veff_c=None, h2eff_sub=None, soc=0):
+        if mo_coeff is None: mo_coeff = self._las.mo_coeff
+        return ham_2q (self._las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
+
+    def get_nelec_frs (self, las=None):
+        if las is None: las = self._las
+        nelec_frs = []
+        for fcibox, nelec in zip (las.fciboxes, las.nelecas_sub):
+            nelec_rs = []
+            for solver in fcibox.fcisolvers:
+                nelec_rs.append (_unpack_nelec (fcibox._get_nelec (solver, nelec)))
+            nelec_frs.append (nelec_rs)
+        return np.asarray (nelec_frs)
+
+    def get_lroots (self, ci=None):
+        if ci is None: ci = self._las.ci
+        lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
+                             for c in ci_r]
+                            for ci_r in ci])
+        return lroots
+
+

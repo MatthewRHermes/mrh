@@ -215,12 +215,15 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
         if nelec1 != nelec: return np.zeros (nprods)
         if skip is None: return np.dot (ci_dp.reshape (nprods, -1),
                                         c1[idx].ravel ())
-        skip = set (skip)
+        try:
+            skip = set (skip)
+        except TypeError as e:
+            skip = set ([skip])
         c1_dp = c1[idx][None,:]
         skipdims = 1
-        for ifrag, ci_r, shape in enumerate (zip (ci_f, shape_f)):
+        for ifrag, (ci_r, shape) in enumerate (zip (ci_f, shape_f)):
             new_shape = [x for s,t in zip (c1_dp.shape[skipdims:],shape[1:]) for x in (s//t, t)]
-            new_shape = c1_dp.shape[0:skipdims] + new_shape
+            new_shape = list(c1_dp.shape[0:skipdims]) + new_shape
             c1_dp = c1_dp.reshape (*new_shape)
             if ifrag in skip:
                 dimorder = [0,skipdims+1,skipdims+3,] + list (range(1, skipdims+1)) + [skipdims+2,]
@@ -534,8 +537,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     ci_r_bra_gen, nelec_r_bra, dotter_bra = ci_outer_product_generator (ci_fr_bra, norb_f, nelec_frs_bra)
     ndim_ket = len(nelec_r_ket)
     ndim_bra = len(nelec_r_bra)
-    if not ndim_bra == 1:
-        raise NotImplementedError ("Other than 1 bra rootspace")
+    nelec_r_ket_ss = nelec_r_ket
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r_ket]
     if not len (set (nelec_r_spinless)) == 1:
         raise NotImplementedError ("States with different numbers of electrons")
@@ -565,8 +567,9 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
 
     solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
     # <p|H|q>, but the space of p is partially uncontracted
-    hket_fr_pabq = [[[]*nroots_bra,]*nfrags]
+    hket_fr_pabq = [[[] for i in range (nroots_bra)] for j in range (nfrags)]
     for i, ket in zip(range(ndim_ket), ci_r_ket_gen ()):
+        nelec_ket = nelec_r_ket_ss[i]
         ket = ss2spinless_ket (ket, nelec_ket)
         nelec_ket = nelec_r_ket[i]
         h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec_ket, 0.5)
@@ -574,9 +577,9 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
         if h1_im is not None:
             hket = hket + 1j*contract_1e_nosym (h1_im, ket, norb, nelec_ket)
         for ifrag in range (nfrags):
-            hket = dotter_bra (hket, nelec_ket, spinless2ss=spinless2ss_bra, skip=ifrag)
+            hket_r = dotter_bra (hket, nelec_ket, spinless2ss=spinless2ss_bra, skip=ifrag)
             for ibra in range (nroots_bra):
-                hket_fr_pabq[ifrag][ibra].append (hket)
+                hket_fr_pabq[ifrag][ibra].append (hket_r[ibra])
     for ifrag in range (nfrags):
         for ibra in range (nroots_bra):
             hket_fr_pabq[ifrag][ibra] = np.stack (hket_fr_pabq[ifrag][ibra], axis=-1)
