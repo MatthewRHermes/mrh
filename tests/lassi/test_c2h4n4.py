@@ -28,8 +28,8 @@ def setUpModule ():
     global mol, mf, las, e_roots, si, rdm1s, rdm2s
     dr_nn = 2.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-    mol.verbose = lib.logger.DEBUG
-    mol.output = 'test_lassi.log'
+    mol.verbose = 0 #lib.logger.DEBUG
+    mol.output = '/dev/null' #'test_c2h4n4.log'
     mol.spin = 0
     mol.build ()
     mf = scf.RHF (mol).run ()
@@ -39,11 +39,11 @@ def setUpModule ():
         smults=[[1,1],[3,3],[3,3],[3,3],[3,3]])
     las.frozen = list (range (las.mo_coeff.shape[-1]))
     ugg = las.get_ugg ()
-    las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lassi_mo.dat'))
-    las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_lassi_ci.dat')))[1]
+    las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_c2h4n4_mo.dat'))
+    las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_c2h4n4_ci.dat')))[1]
     #las.set (conv_tol_grad=1e-8).run ()
-    #np.savetxt ('test_lassi_mo.dat', las.mo_coeff)
-    #np.savetxt ('test_lassi_ci.dat', ugg.pack (las.mo_coeff, las.ci))
+    #np.savetxt ('test_c2h4n4_mo.dat', las.mo_coeff)
+    #np.savetxt ('test_c2h4n4_ci.dat', ugg.pack (las.mo_coeff, las.ci))
     las.e_states = las.energy_nuc () + las.states_energy_elec ()
     e_roots, si = las.lassi ()
     rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
@@ -104,7 +104,7 @@ class KnownValues(unittest.TestCase):
         for e1, e0 in zip (e_roots_test, e_roots):
             self.assertAlmostEqual (e1, e0, 8)
 
-    def test_lassi_singles_constructor (self):
+    def test_singles_constructor (self):
         from mrh.my_pyscf.lassi.states import all_single_excitations
         las2 = all_single_excitations (las)
         las2.check_sanity ()
@@ -117,7 +117,7 @@ class KnownValues(unittest.TestCase):
         # 5 + 4 + 12 + 4 + 8 = 33
         self.assertEqual (las2.nroots, 33)
 
-    def test_lassi_spin_shuffle (self):
+    def test_spin_shuffle (self):
         from mrh.my_pyscf.lassi.states import spin_shuffle
         las3 = LASSCF (mf, (4,2,4), (4,2,4), spin_sub=(5,3,5))
         las3 = spin_shuffle (las3)
@@ -185,6 +185,6 @@ class KnownValues(unittest.TestCase):
                                     lib.fp (stdm1s[1,:,2:,2:,1]))
 
 if __name__ == "__main__":
-    print("Full Tests for SA-LASSI")
+    print("Full Tests for SA-LASSI of c2h4n4 molecule")
     unittest.main()
 

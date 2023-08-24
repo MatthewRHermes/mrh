@@ -22,34 +22,36 @@ from pyscf.tools import molden
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
-topdir = os.path.abspath (os.path.join (__file__, '..'))
 
-dr_nn = 2.0
-mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
-mol.verbose = lib.logger.DEBUG 
-mol.output = 'test_lassi_symm.log'
-mol.spin = 0 
-mol.symmetry = 'Cs'
-mol.build ()
-mf = scf.RHF (mol).run ()
-las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
-las.state_average_(weights=[1.0/7.0,]*7,
-    spins=[[0,0],[0,0],[2,-2],[-2,2],[0,0],[0,0],[2,2]],
-    smults=[[1,1],[3,3],[3,3],[3,3],[1,1],[1,1],[3,3]],
-    wfnsyms=[['A\'','A\''],]*4+[['A"','A\''],['A\'','A"'],['A\'','A\'']])
-las.frozen = list (range (las.mo_coeff.shape[-1]))
-ugg = las.get_ugg ()
-las.mo_coeff = las.label_symmetry_(np.loadtxt (os.path.join (topdir, 'test_lassi_symm_mo.dat')))
-las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_lassi_symm_ci.dat')))[1]
-#las.set (conv_tol_grad=1e-8).run ()
-las.e_states = las.energy_nuc () + las.states_energy_elec ()
-e_roots, si = las.lassi ()
-rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
+def setUpModule ():
+    global mol, mf, las, e_roots, si, rdm1s, rdm2s
+    topdir = os.path.abspath (os.path.join (__file__, '..'))
+    dr_nn = 2.0
+    mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
+    mol.verbose = 0 #lib.logger.DEBUG 
+    mol.output = '/dev/null' #'test_c2h4n4_symm.log'
+    mol.spin = 0 
+    mol.symmetry = 'Cs'
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
+    las.state_average_(weights=[1.0/7.0,]*7,
+                       spins=[[0,0],[0,0],[2,-2],[-2,2],[0,0],[0,0],[2,2]],
+                       smults=[[1,1],[3,3],[3,3],[3,3],[1,1],[1,1],[3,3]],
+                       wfnsyms=[['A\'','A\''],]*4+[['A"','A\''],['A\'','A"'],['A\'','A\'']])
+    las.frozen = list (range (las.mo_coeff.shape[-1]))
+    ugg = las.get_ugg ()
+    las.mo_coeff = las.label_symmetry_(np.loadtxt (os.path.join (topdir, 'test_c2h4n4_symm_mo.dat')))
+    las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_c2h4n4_symm_ci.dat')))[1]
+    #las.set (conv_tol_grad=1e-8).run ()
+    las.e_states = las.energy_nuc () + las.states_energy_elec ()
+    e_roots, si = las.lassi ()
+    rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
 
 def tearDownModule():
-    global mol, mf, las
+    global mol, mf, las, e_roots, si, rdm1s, rdm2s
     mol.stdout.close ()
-    del mol, mf, las
+    del mol, mf, las, e_roots, si, rdm1s, rdm2s
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
@@ -106,6 +108,6 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (e1, e0, 8)
 
 if __name__ == "__main__":
-    print("Full Tests for SA-LASSI with pointgroup symmetry")
+    print("Full Tests for SA-LASSI of c2h4n4 molecule with pointgroup symmetry")
     unittest.main()
 

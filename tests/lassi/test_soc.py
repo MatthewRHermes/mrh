@@ -19,8 +19,8 @@ def setUpModule():
         H  0.758602  0.000000  0.504284
         H  -0.758602  0.000000  0.504284
     """, basis='631g',symmetry=True,
-    output='test_lassi_soc1.log',
-    verbose=lib.logger.DEBUG)
+    output='/dev/null', #'test_soc1.log',
+    verbose=0) #lib.logger.DEBUG)
     mf1 = scf.RHF (mol1).run ()
    
     # NOTE: Test systems don't have to be scientifically meaningful, but they do need to
@@ -29,8 +29,8 @@ def setUpModule():
     # to be reproduced on any computer. Calculations that don't converge can't be used
     # as test cases for this reason.
     mol2 = struct (2.0, 2.0, '6-31g', symmetry=False)
-    mol2.output = 'test_lassi_soc2.log'
-    mol2.verbose = lib.logger.DEBUG
+    mol2.output = '/dev/null' #'test_soc2.log'
+    mol2.verbose = 0 #lib.logger.DEBUG
     mol2.build ()
     mf2 = scf.RHF (mol2).run ()
     las2 = LASSCF (mf2, (4,4), (4,4), spin_sub=(1,1))

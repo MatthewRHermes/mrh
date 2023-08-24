@@ -28,78 +28,80 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 
-# Build crazy state list
-states  = {'charges': [[0,0,0],],
-           'spins':   [[0,0,0],],
-           'smults':  [[1,1,1],],
-           'wfnsyms': [[0,0,0],]}
-states1 = {'charges': [[-1,1,0],[-1,1,0],[1,-1,0],[1,-1,0],[0,1,-1],[0,1,-1],[0,-1,1],[0,-1,1]],
-           'spins':   [[-1,1,0],[1,-1,0],[-1,1,0],[1,-1,0],[0,1,-1],[0,-1,1],[0,1,-1],[0,-1,1]],
-           'smults':  [[2,2,1], [2,2,1], [2,2,1], [2,2,1], [1,2,2], [1,2,2], [1,2,2], [1,2,2]],
-           'wfnsyms': [[1,1,0], [1,1,0], [1,1,0], [1,1,0], [0,1,1], [0,1,1], [0,1,1], [0,1,1]]}
-states2 = {'charges': [[0,0,0],]*6,
-           'spins':   [[2,-2,0],[0,0,0],[-2,2,0],[0,2,-2],[0,0,0],[0,-2,2]],
-           'smults':  [[3,3,1], [3,3,1],[3,3,1], [1,3,3], [1,3,3],[1,3,3]],
-           'wfnsyms': [[0,0,0],]*6}
-states3 = {'charges': [[-1,2,-1],[-1,2,-1],[1,-2,1],[1,-2,1],[-1,0,1],[-1,0,1],[1,0,-1],[1,0,-1]],
-           'spins':   [[1,0,-1], [-1,0,1], [1,0,-1],[-1,0,1],[1,0,-1],[-1,0,1],[1,0,-1],[-1,0,1]],
-           'smults':  [[2,1,2],  [2,1,2],  [2,1,2], [2,1,2], [2,1,2], [2,1,2], [2,1,2], [2,1,2]],
-           'wfnsyms': [[1,0,1],]*8}
-states4 = {'charges': [[0,0,0],]*10,
-           'spins':   [[-2,0,2],[0,0,0],[2,0,-2],[-2,0,2],[0,0,0],[2,0,-2],[2,-2,0],[-2,2,0],[0,2,-2],[0,-2,2]],
-           'smults':  [[3,1,3], [3,1,3],[3,1,3], [3,3,3], [3,3,3],[3,3,3], [3,3,3], [3,3,3], [3,3,3], [3,3,3]],
-           'wfnsyms': [[0,0,0],]*10}
-states5 = {'charges': [[-1,1,0],[-1,1,0], [-1,1,0],[-1,1,0],[1,-1,0],[1,-1,0], [1,-1,0],[1,-1,0]],
-         'spins':   [[1,1,-2],[-1,-1,2],[1,-1,0],[-1,1,0],[1,1,-2],[-1,-1,2],[1,-1,0],[-1,1,0]],
-         'smults':  [[2,2,3], [2,2,3],  [2,2,3], [2,2,3], [2,2,3], [2,2,3],  [2,2,3], [2,2,3]],
-         'wfnsyms': [[1,1,0],]*8}
-states6 = deepcopy (states5)
-states7 = deepcopy (states5)
-for field in ('charges', 'spins', 'smults', 'wfnsyms'):
-    states6[field] = [[row[1], row[2], row[0]] for row in states5[field]]
-    states7[field] = [[row[2], row[0], row[1]] for row in states5[field]]
-for d in [states1, states2, states3, states4, states5, states6, states7]:
+def setUpModule ():
+    global mol, mf, las, nroots, nelec_frs, si, orbsym, wfnsym
+    # Build crazy state list
+    states  = {'charges': [[0,0,0],],
+               'spins':   [[0,0,0],],
+               'smults':  [[1,1,1],],
+               'wfnsyms': [[0,0,0],]}
+    states1 = {'charges': [[-1,1,0],[-1,1,0],[1,-1,0],[1,-1,0],[0,1,-1],[0,1,-1],[0,-1,1],[0,-1,1]],
+               'spins':   [[-1,1,0],[1,-1,0],[-1,1,0],[1,-1,0],[0,1,-1],[0,-1,1],[0,1,-1],[0,-1,1]],
+               'smults':  [[2,2,1], [2,2,1], [2,2,1], [2,2,1], [1,2,2], [1,2,2], [1,2,2], [1,2,2]],
+               'wfnsyms': [[1,1,0], [1,1,0], [1,1,0], [1,1,0], [0,1,1], [0,1,1], [0,1,1], [0,1,1]]}
+    states2 = {'charges': [[0,0,0],]*6,
+               'spins':   [[2,-2,0],[0,0,0],[-2,2,0],[0,2,-2],[0,0,0],[0,-2,2]],
+               'smults':  [[3,3,1], [3,3,1],[3,3,1], [1,3,3], [1,3,3],[1,3,3]],
+               'wfnsyms': [[0,0,0],]*6}
+    states3 = {'charges': [[-1,2,-1],[-1,2,-1],[1,-2,1],[1,-2,1],[-1,0,1],[-1,0,1],[1,0,-1],[1,0,-1]],
+               'spins':   [[1,0,-1], [-1,0,1], [1,0,-1],[-1,0,1],[1,0,-1],[-1,0,1],[1,0,-1],[-1,0,1]],
+               'smults':  [[2,1,2],  [2,1,2],  [2,1,2], [2,1,2], [2,1,2], [2,1,2], [2,1,2], [2,1,2]],
+               'wfnsyms': [[1,0,1],]*8}
+    states4 = {'charges': [[0,0,0],]*10,
+               'spins':   [[-2,0,2],[0,0,0],[2,0,-2],[-2,0,2],[0,0,0],[2,0,-2],[2,-2,0],[-2,2,0],[0,2,-2],[0,-2,2]],
+               'smults':  [[3,1,3], [3,1,3],[3,1,3], [3,3,3], [3,3,3],[3,3,3], [3,3,3], [3,3,3], [3,3,3], [3,3,3]],
+               'wfnsyms': [[0,0,0],]*10}
+    states5 = {'charges': [[-1,1,0],[-1,1,0], [-1,1,0],[-1,1,0],[1,-1,0],[1,-1,0], [1,-1,0],[1,-1,0]],
+             'spins':   [[1,1,-2],[-1,-1,2],[1,-1,0],[-1,1,0],[1,1,-2],[-1,-1,2],[1,-1,0],[-1,1,0]],
+             'smults':  [[2,2,3], [2,2,3],  [2,2,3], [2,2,3], [2,2,3], [2,2,3],  [2,2,3], [2,2,3]],
+             'wfnsyms': [[1,1,0],]*8}
+    states6 = deepcopy (states5)
+    states7 = deepcopy (states5)
     for field in ('charges', 'spins', 'smults', 'wfnsyms'):
-        states[field] = states[field] + d[field]
-weights = [1.0,] + [0.0,]*56
-nroots = 57
-# End building crazy state list
-
-dr_nn = 2.0
-mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
-mol.verbose = lib.logger.INFO 
-mol.output = 'test_lassi_op.log'
-mol.spin = 0 
-mol.build ()
-mf = scf.RHF (mol).run ()
-las = LASSCF (mf, (4,2,4), (4,2,4))
-las.state_average_(weights=weights, **states)
-las.mo_coeff = las.localize_init_guess ((list (range (3)),
-    list (range (3,7)), list (range (7,10))), mf.mo_coeff)
-las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
-np.random.seed (1)
-for c in las.ci:
-    for iroot in range (len (c)):
-        c[iroot] = np.random.rand (*c[iroot].shape)
-        c[iroot] /= linalg.norm (c[iroot])
-orbsym = getattr (las.mo_coeff, 'orbsym', None)
-if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
-    orbsym = las.label_symmetry_(las.mo_coeff).orbsym
-if orbsym is not None:
-    orbsym = orbsym[las.ncore:las.ncore+las.ncas]
-wfnsym = 0
-nelec_frs = np.array (
-    [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
-     for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-)
-rand_mat = np.random.rand (57,57)
-rand_mat += rand_mat.T
-e, si = linalg.eigh (rand_mat)
+        states6[field] = [[row[1], row[2], row[0]] for row in states5[field]]
+        states7[field] = [[row[2], row[0], row[1]] for row in states5[field]]
+    for d in [states1, states2, states3, states4, states5, states6, states7]:
+        for field in ('charges', 'spins', 'smults', 'wfnsyms'):
+            states[field] = states[field] + d[field]
+    weights = [1.0,] + [0.0,]*56
+    nroots = 57
+    # End building crazy state list
+    
+    dr_nn = 2.0
+    mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
+    mol.verbose = 0 #lib.logger.INFO 
+    mol.output = '/dev/null' #'test_lassi_op.log'
+    mol.spin = 0 
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    las = LASSCF (mf, (4,2,4), (4,2,4))
+    las.state_average_(weights=weights, **states)
+    las.mo_coeff = las.localize_init_guess ((list (range (3)),
+        list (range (3,7)), list (range (7,10))), mf.mo_coeff)
+    las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
+    np.random.seed (1)
+    for c in las.ci:
+        for iroot in range (len (c)):
+            c[iroot] = np.random.rand (*c[iroot].shape)
+            c[iroot] /= linalg.norm (c[iroot])
+    orbsym = getattr (las.mo_coeff, 'orbsym', None)
+    if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
+        orbsym = las.label_symmetry_(las.mo_coeff).orbsym
+    if orbsym is not None:
+        orbsym = orbsym[las.ncore:las.ncore+las.ncas]
+    wfnsym = 0
+    nelec_frs = np.array (
+        [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
+         for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+    )
+    rand_mat = np.random.rand (57,57)
+    rand_mat += rand_mat.T
+    e, si = linalg.eigh (rand_mat)
 
 def tearDownModule():
-    global mol, mf, las
+    global mol, mf, las, nroots, nelec_frs, si, orbsym, wfnsym
     mol.stdout.close ()
-    del mol, mf, las
+    del mol, mf, las, nroots, nelec_frs, si, orbsym, wfnsym
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):
