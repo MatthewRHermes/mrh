@@ -60,7 +60,7 @@ def orth_orb (las, kf2_list):
         log.warn ('Active orbitals leaking into non-active space: %e', errmax)
     errmax = np.amax (np.abs ((mo1.conj ().T @ s0 @ mo1) - np.eye (mo1.shape[1])))
     if errmax>1e-8:
-        log.warn ('Non-orthogonal AOs in lasscf_async_combine.orth_orb: %e', errmax)
+        log.warn ('Non-orthogonal AOs in lasscf_async.combine.orth_orb: %e', errmax)
     mo1 = mo1[:,ncas:]
     veff = sum ([kf2.veff for kf2 in kf2_list]) / nfrags
     dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / nfrags
@@ -126,7 +126,7 @@ def relax (las, kf):
     errmat = ovlp - np.eye (ovlp.shape[0])
     errmax = np.amax (np.abs (errmat))
     if errmax>1e-8:
-        log.warn ('Non-orthogonal AOs in lasscf_async_combine.relax: max ovlp error = %e', errmax)
+        log.warn ('Non-orthogonal AOs in lasscf_async.combine.relax: max ovlp error = %e', errmax)
     return las.get_keyframe (mo_coeff, ci)
 
 def combine_o0 (las, kf2_list):

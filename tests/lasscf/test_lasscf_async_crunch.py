@@ -5,9 +5,9 @@ from scipy import linalg
 from pyscf import gto, scf, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lasci import get_grad_orb
-from mrh.my_pyscf.mcscf.lasscf_async_split import get_impurity_space_constructor
-from mrh.my_pyscf.mcscf.lasscf_async_crunch import get_impurity_casscf
-from mrh.my_pyscf.mcscf.lasscf_async_keyframe import LASKeyframe, approx_keyframe_ovlp
+from mrh.my_pyscf.mcscf.lasscf_async.split import get_impurity_space_constructor
+from mrh.my_pyscf.mcscf.lasscf_async.crunch import get_impurity_casscf
+from mrh.my_pyscf.mcscf.lasscf_async.keyframe import LASKeyframe, approx_keyframe_ovlp
 
 def setUpModule():
     global las, get_imporbs_0
@@ -80,5 +80,5 @@ class KnownValues (unittest.TestCase):
         _test_results (self, imc, 'optimization')
 
 if __name__ == "__main__":
-    print("Full Tests for lasscf_async_crunch")
+    print("Full Tests for lasscf_async.crunch")
     unittest.main()
