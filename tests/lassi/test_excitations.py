@@ -66,28 +66,22 @@ class KnownValues(unittest.TestCase):
         nelec_ref = [[1,1] for i in range (3)]
         psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref)
         charges, spins, smults, wfnsyms = get_space_info (lsi._las)
-        dneleca = np.pad ((charges + spins) // 2, ((0,0),(1,0)))
-        dnelecb = np.pad ((charges - spins) // 2, ((0,0),(1,0)))
-        dsmults = np.pad (smults - 1, ((0,0),(1,0)))
+        dneleca = (spins - charges) // 2
+        dnelecb = -(charges + spins) // 2
+        dsmults = smults - 1
         lroots = lsi.get_lroots ()
-        nelec_rfs = (np.stack ([dneleca, dnelecb], axis=-1)
-                     + np.asarray (nelec_ref)[None,:,:])
         smults_rf = dsmults + 1
 
         # TODO: remove the ci0 kwarg from the excitation solver and implement
         # get_init_guess in productstate solver. 
-        # TODO: rework set_excitation_character_ and active_frags so that
-        # spectator fragments can optionally have their relaxation included,
-        # whereupon it should become possible to iterate over all rootspaces in
-        # the loop below
-        for iroot in range (1, 5): #lsi._las.nroots):
+        h0, h1, h2 = LASSI (las).ham_2q ()
+        for iroot in range (1, lsi._las.nroots):
           with self.subTest (rootspace=iroot):
-            lweights = [None,] + [np.zeros (l) for l in lroots[:,iroot]]
-            for l in lweights[1:]:
-                l[0] = 1
-            psexc.set_excitation_character_(dneleca[iroot],dnelecb[iroot],dsmults[iroot],
-                                            lweights=lweights)
-            h0, h1, h2 = LASSI (las).ham_2q ()
+            for i in range (2):
+                weights = np.zeros (lroots[i,iroot])
+                weights[0] = 1
+                psexc.set_excited_fragment_(1+i, dneleca[iroot,i], dnelecb[iroot,i],
+                                            dsmults[iroot,i], weights=weights)
             ci0 = [None,] + [c[iroot] for c in lsi._las.ci]
             conv, energy_tot, ci1 = psexc.kernel (
                 h1, h2, las.ncas_sub, las.nelecas_sub, ecore=h0, ci0=ci0
