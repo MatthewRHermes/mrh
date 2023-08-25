@@ -82,9 +82,8 @@ class KnownValues(unittest.TestCase):
                 weights[0] = 1
                 psexc.set_excited_fragment_(1+i, dneleca[iroot,i], dnelecb[iroot,i],
                                             dsmults[iroot,i], weights=weights)
-            ci0 = [None,] + [c[iroot] for c in lsi._las.ci]
             conv, energy_tot, ci1 = psexc.kernel (
-                h1, h2, las.ncas_sub, las.nelecas_sub, ecore=h0, ci0=ci0
+                h1, h2, las.ncas_sub, las.nelecas_sub, ecore=h0,
             )
             self.assertTrue (conv)
             self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
