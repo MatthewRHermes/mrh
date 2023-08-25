@@ -219,6 +219,16 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         #assert (abs (lib.fp (ham_pq_test)-lib.fp (ham_pq_ref)) < 1e-8)
         #e0_test = linalg.eigh (ham_pq_test)[0]
         #assert (abs (lib.fp (e0_test)-lib.fp (e0)) < 1e-8)
+
+        # Something like the below?
+        #ham_pq[:p,:p] = h_pp
+        #ham_pq[:p,p:] = h_pq
+        #ham_pq[p:,:p] = h_pq.T
+        #idx = np.ones (len (ham_pq), dtype=bool)
+        #if p>1: idx[1:p] = False
+        #ham_pq = ham_pq[idx,:][:,idx]
+        #e0 = linalg.eigh (ham_pq)[0][0]
+        #print (ham_pq[0,0] - e0, e0)
         ci0 = self._check_init_guess (ci0, norb_f, nelec_f, h1, h2)
         return ci0
 
