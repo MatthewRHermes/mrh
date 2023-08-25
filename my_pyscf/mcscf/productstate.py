@@ -206,6 +206,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         ni = nj - norb_f
         for ix, (i, j, c, no, ne, s) in enumerate (zip (ni, nj, ci, norb_f, nelec_f, self.fcisolvers)):
             nelec = self._get_nelec (s, ne)
+            if getattr (c, 'ndim', 3) == 3: c = list (c)
             try:
                 a, b = s.make_rdm1s (c, no, nelec)
             except AssertionError as e:
@@ -253,9 +254,17 @@ def state_average_fcisolver (solver, weights=(.5,.5), wfnsym=None):
     return state_average_mcscf (dummy, weights=weights, wfnsym=wfnsym).fcisolver
 
 class ImpureProductStateFCISolver (ProductStateFCISolver):
-    def __init__(self, fcisolvers, stdout=None, verbose=0, lweights=None, **kwargs):
+    def __init__(self, fcisolvers, stdout=None, verbose=0, lroots=None, lweights=None, **kwargs):
         ProductStateFCISolver.__init__(self, fcisolvers, stdout=stdout, verbose=verbose, **kwargs)
-        if lweights is None: lweights = [[.5,.5],]*len(fcisolvers)
+        if lweights is None:
+            if lroots is not None:
+                lweights = []
+                for lroot in lroots:
+                    l = np.zeros (lroot)
+                    l[0] = 1
+                    lweights.append (l)
+            else:
+                lweights = [[.5,.5],]*len(fcisolvers)
         for ix, (fcisolver, weights) in enumerate (zip (self.fcisolvers, lweights)):
             if len (weights) > 1:
                 self.fcisolvers[ix] = state_average_fcisolver (fcisolver, weights=weights)

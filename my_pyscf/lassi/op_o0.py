@@ -10,6 +10,7 @@ from pyscf.data import nist
 from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.lassi import dms as lassi_dms
+from mrh.my_pyscf.fci.csf import unpack_h1e_cs
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions! ONLY checks
@@ -467,6 +468,20 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         ss2spinless = lambda *args: args[0]
 
     solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
+    h1_re_c, h1_re_s = h1_re, 0
+    if h1_re.ndim > 2:
+        h1_re_c, h1_re_s = unpack_h1e_cs (h1_re)
+    def contract_h_re (c, nel):
+        h2eff = solver.absorb_h1e (h1_re_c, h2_re, norb, nel, 0.5)
+        return solver.contract_2e (h2eff, c, norb, nel)
+    if h1_im is not None:
+        def contract_h (c, nel):
+            hc = contract_h_re (c, nel)
+            hc = hc + 1j*contract_1e_nosym (h1_im, c, norb, nel)
+            return hc
+    else:
+        contract_h = contract_h_re
+
     ham_eff = np.zeros ((ndim, ndim), dtype=h1.dtype)
     ovlp_eff = np.zeros ((ndim, ndim))
     s2_eff = np.zeros ((ndim,ndim))
@@ -477,10 +492,7 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         s2_eff[i,:] = dotter (s2ket, nelec_ket, iket=i, oporder=2)
         s2ket, ket = None, ss2spinless (ket, nelec_ket)
         nelec_ket = nelec_r[i]
-        h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec_ket, 0.5)
-        hket = solver.contract_2e (h2eff, ket, norb, nelec_ket)
-        if h1_im is not None:
-            hket = hket + 1j*contract_1e_nosym (h1_im, ket, norb, nelec_ket)
+        hket = contract_h (ket, nelec_ket)
         ket = None
         ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
@@ -566,16 +578,27 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
         ss2spinless_ket = ss2spinless_bra = lambda *args: args[0]
 
     solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
+    h1_re_c, h1_re_s = h1_re, 0
+    if h1_re.ndim > 2:
+        h1_re_c, h1_re_s = unpack_h1e_cs (h1_re)
+    def contract_h_re (c, nel):
+        h2eff = solver.absorb_h1e (h1_re_c, h2_re, norb, nel, 0.5)
+        return solver.contract_2e (h2eff, c, norb, nel)
+    if h1_im is not None:
+        def contract_h (c, nel):
+            hc = contract_h_re (c, nel)
+            hc = hc + 1j*contract_1e_nosym (h1_im, c, norb, nel)
+            return hc
+    else:
+        contract_h = contract_h_re
+
     # <p|H|q>, but the space of p is partially uncontracted
     hket_fr_pabq = [[[] for i in range (nroots_bra)] for j in range (nfrags)]
     for i, ket in zip(range(ndim_ket), ci_r_ket_gen ()):
         nelec_ket = nelec_r_ket_ss[i]
         ket = ss2spinless_ket (ket, nelec_ket)
         nelec_ket = nelec_r_ket[i]
-        h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec_ket, 0.5)
-        hket = solver.contract_2e (h2eff, ket, norb, nelec_ket)
-        if h1_im is not None:
-            hket = hket + 1j*contract_1e_nosym (h1_im, ket, norb, nelec_ket)
+        hket = contract_h (ket, nelec_ket)
         for ifrag in range (nfrags):
             hket_r = dotter_bra (hket, nelec_ket, spinless2ss=spinless2ss_bra, skip=ifrag)
             for ibra in range (nroots_bra):

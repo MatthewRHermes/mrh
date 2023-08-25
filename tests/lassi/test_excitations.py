@@ -23,7 +23,7 @@ from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.states import all_single_excitations
 from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
+from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 
 def setUpModule ():
     global mol, mf, lsi, op
@@ -36,7 +36,9 @@ def setUpModule ():
     mf = scf.RHF (mol).run ()
 
     # LASSCF with CASCI-limit model space
-    las = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1)).run ()
+    las = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1))
+    mo_coeff = las.localize_init_guess ([[1,2],[3,4]])
+    las.kernel (mo_coeff)
     for i in range (2): las = all_single_excitations (las)
     charges, spins, smults, wfnsyms = get_space_info (las)
     lroots = 4 - smults
@@ -58,10 +60,11 @@ class KnownValues(unittest.TestCase):
     def test_cs_excitation (self):
         las = LASSCF (mf, (1,2,2), (2,2,2), spin_sub=(1,1,1))
         las.mo_coeff = lsi._las.mo_coeff
-        las.lasci_()
+        ncsf = las.get_ugg ().ncsf_sub
+        las.lasci (lroots=ncsf)
         self.assertAlmostEqual (las.e_states[0], lsi._las.e_states[0])
-        psref = ProductStateFCISolver ([b.fcisolvers[0] for b in las.fciboxes],
-                                       stdout=mol.stdout, verbose=mol.verbose)
+        psref = ImpureProductStateFCISolver ([b.fcisolvers[0] for b in las.fciboxes],
+                                             stdout=mol.stdout, verbose=mol.verbose, lroots=ncsf)
         ci_ref = [c[0] for c in las.ci]
         nelec_ref = [[1,1] for i in range (3)]
         psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref)
@@ -82,9 +85,7 @@ class KnownValues(unittest.TestCase):
                 weights[0] = 1
                 psexc.set_excited_fragment_(1+i, dneleca[iroot,i], dnelecb[iroot,i],
                                             dsmults[iroot,i], weights=weights)
-            conv, energy_tot, ci1 = psexc.kernel (
-                h1, h2, las.ncas_sub, las.nelecas_sub, ecore=h0,
-            )
+            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
             self.assertTrue (conv)
             self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
 
