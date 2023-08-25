@@ -22,15 +22,15 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self.opt = opt
         ProductStateFCISolver.__init__(self, solver_ref.fcisolvers, stdout=stdout,
                                        verbose=verbose)
-        self.dm1s_ref = self.solver_ref.make_rdm1s (self.ci_ref, norb_ref, nelec_ref)
+        self.dm1s_ref = np.asarray (self.solver_ref.make_rdm1s (self.ci_ref, norb_ref, nelec_ref))
         self.dm2_ref = self.solver_ref.make_rdm2 (self.ci_ref, norb_ref, nelec_ref)
 
     def set_active_fragments_(self, active_frags):
         self.active_frags = active_frags
         nj = np.cumsum (self.norb_ref)
         ni = nj - self.norb_ref
-        idx = np.zeros (len (self.norb_ref), dtype=bool)
-        for ifrag in active_frag:
+        idx = np.zeros (sum (self.norb_ref), dtype=bool)
+        for ifrag in active_frags:
             i, j = ni[ifrag], nj[ifrag]
             idx[i:j] = True
         self.active_orb_idx = idx
@@ -50,7 +50,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
     def diag_ham_qq (self, h1, h2):
         ci_fr = [[c] for c in self.ci_ref]
-        nelec_frs = np.asarray ([[list(self.solver_ref._get_nelec (s, n))
+        nelec_frs = np.asarray ([[list(self._get_nelec (s, n))
                                   for s, n in zip (self.solver_ref.fcisolvers, self.nelec_ref)]])
         with temporary_env (self, ncas_sub=self.norb_ref):
             ham_qq = op[self.opt].ham (self, h1, h2, ci_fr, nelec_frs, soc=0,
@@ -67,34 +67,46 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         delta_charge = delta_neleca + delta_nelecb
         delta_spin = delta_neleca - delta_nelecb
         for ifrag in active_frags:
-            s_ref = self.solver_ref.fcisolvers[ifrag_ref]
+            s_ref = self.solver_ref.fcisolvers[ifrag]
             mol = s_ref.mol
             nelec_ref = _unpack_nelec (self.nelec_ref[ifrag])
             spin_ref = nelec_ref[0] - nelec_ref[1]
             charge = getattr (s_ref, 'charge', 0) + delta_charge[ifrag]
             spin = getattr (s_ref, 'spin', spin_ref) + delta_spin[ifrag]
             smult = getattr (s_ref, 'smult', abs(spin_ref)+1) + delta_smult[ifrag]
-            fcisolvers.append (csf_solver (mol, smult=smult).set (charge=charge, spin=spin))
+            nelec_a = nelec_ref[0] + (delta_spin[ifrag] - delta_charge[ifrag]) // 2 
+            nelec_b = nelec_ref[1] - (delta_spin[ifrag] + delta_charge[ifrag]) // 2 
+            nelec = tuple ((nelec_a, nelec_b))
+            fcisolvers.append (csf_solver (mol, smult=smult).set (charge=charge, spin=spin,
+                                                                  nelec=nelec, norb=s_ref.norb))
         if lweights is not None:
+            lweights = [lweights[ifrag] for ifrag in active_frags]
             for ix, (solver, weights) in enumerate (zip (fcisolvers, lweights)):
                 if len (weights) > 1:
                     fcisolvers[ix] = state_average_fcisolver (solver, weights=weights)
         self.fcisolvers = fcisolvers
 
-    def kernel (self, h1, h2, norb_f, nelec_f, ecore=0, ci0=None, orbsym=None,
+    def kernel (self, h1, h2, norb_f, nelec_f, ecore=0, ci0=None,
                 conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
                 **kwargs):
         dm1s_ref, dm2_ref = self.get_dm_spectator ()
         h1eff, h0eff = self.project_hfrag (h1, h2, self.ci_ref, norb_f, nelec_f, ecore=ecore,
                                            dm1s=dm1s_ref, dm2=dm2_ref)
+        h1eff = [h1eff[ifrag] for ifrag in self.active_frags]
+        h0eff = [h0eff[ifrag] for ifrag in self.active_frags]
+        ci0 = [ci0[ifrag] for ifrag in self.active_frags]
         idx = self.active_orb_idx
-        h2 = h[idx][:,idx][:,:,idx][:,:,:,idx]
-        h1 = linalg.block_diag (*[h1eff[ifrag] for ifrag in self.active_frags])
-        h0 = np.mean (h0eff) + ecore
+        norb_tot = len (idx)
+        h2 = h2[idx][:,idx][:,:,idx][:,:,:,idx]
+        h1a = linalg.block_diag (*[h[0] for h in h1eff])
+        h1b = linalg.block_diag (*[h[1] for h in h1eff])
+        h1 = np.stack ([h1a, h1b], axis=0)
+        h0 = np.mean (h0eff)
         norb_f = np.asarray ([norb_f[ifrag] for ifrag in self.active_frags])
         nelec_f = np.asarray ([nelec_f[ifrag] for ifrag in self.active_frags])
+        orbsym = self.orbsym_ref
         if orbsym is not None:
-            orbsym = [orbsym[iorb] if iorb in self.active_orbs]
+            orbsym = [orbsym[iorb] for iorb in range (norb_tot) if iorb in self.active_orbs]
         converged, energy_elec, ci1_active = ProductStateFCISolver.kernel (
             self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
             conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
@@ -102,7 +114,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         )
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.active_frags, ci1_active):
-            ci1[ifrag] = c
-        return converged, energy_elec, ci1_active
+            ci1[ifrag] = np.asarray (c)
+        return converged, energy_elec, ci1
 
 

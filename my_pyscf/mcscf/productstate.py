@@ -63,8 +63,8 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             if isinstance (solver, CSFFCISolver):
                 solver.check_transformer_cache ()
                 if solver.nroots>solver.transformer.ncsf:
-                    raise RuntimeError ("{} roots > {} CSFs in fragment {}".format (
-                        solver.nroots, solver.transformer.ncsf, ix))
+                    raise RuntimeError ("{} roots > {} CSFs in fragment {} (nelec={}, smult={})".format (
+                        solver.nroots, solver.transformer.ncsf, ix, solver.nelec, solver.smult))
         return ci1
                 
     def _debug_csfs (self, log, ci1, norb_f, nelec_f, grad):
@@ -146,22 +146,23 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         return np.concatenate (grad)
 
     def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
-        dm1 = np.stack (self.make_rdm1 (ci, norb_f, nelec_f), axis=0)
+        dm1s = np.stack (self.make_rdm1s (ci, norb_f, nelec_f), axis=0)
+        if h1.ndim < 3: h1 = np.stack ([h1, h1], axis=0)
         dm2 = self.make_rdm2 (ci, norb_f, nelec_f)
-        energy_tot = (ecore + np.tensordot (h1, dm1, axes=2)
+        energy_tot = (ecore + np.tensordot (h1, dm1s, axes=3)
                         + 0.5*np.tensordot (h2, dm2, axes=4))
         return energy_tot
 
     def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, dm1s=None, dm2=None, **kwargs):
         if dm1s is None: dm1s = np.stack (self.make_rdm1s (ci, norb_f, nelec_f), axis=0)
-        dm1 = dm1s.sum (0)
+        if h1.ndim < 3: h1 = np.stack ([h1,h1], axis=0)
         if dm2 is None: dm2 = self.make_rdm2 (ci, norb_f, nelec_f)
-        energy_tot = (ecore + np.tensordot (h1, dm1, axes=2)
+        energy_tot = (ecore + np.tensordot (h1, dm1s, axes=3)
                         + 0.5*np.tensordot (h2, dm2, axes=4))
         v1  = np.tensordot (dm1s, h2, axes=2)
         v1 += v1[::-1] # ja + jb
         v1 -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))
-        f1 = h1[None,:,:] + v1
+        f1 = h1 + v1
         h1eff = []
         h0eff = []
         nj = np.cumsum (norb_f)
@@ -181,7 +182,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             v1_i = v1_i[:,i:j,i:j] 
             h1eff.append (f1[:,i:j,i:j]-v1_i)
             # cancel diagonal energy double-counting
-            h1_i = h1[None,i:j,i:j] - v1_i # v1_i fixes overcorrect
+            h1_i = h1[:,i:j,i:j] - v1_i # v1_i fixes overcorrect
             h2_i = h2[i:j,i:j,i:j,i:j]
             e_i -= (np.tensordot (h1_i, dm1s_i, axes=3)
               + 0.5*np.tensordot (h2_i, dm2_i, axes=4))
