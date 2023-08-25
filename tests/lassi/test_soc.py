@@ -148,7 +148,7 @@ class KnownValues (unittest.TestCase):
         with self.subTest (deltaE='SO'):
             self.assertAlmostEqual (lib.fp (las2_e), 154.09559506105586, 8)
 
-    def test_soc_stdm12s (self):
+    def test_soc_stdm12s_slow (self):
         stdm1s_test, stdm2s_test = make_stdm12s (las2, soc=True, opt=0)    
         with self.subTest ('2-electron'):
             self.assertAlmostEqual (linalg.norm (stdm2s_test), 12.835690990485933)
@@ -215,7 +215,7 @@ class KnownValues (unittest.TestCase):
                 with self.subTest ('lassi_dms agreement', bra=i, ket=j, sector=m):
                     self.assertAlmostEqual (lib.fp (t_test), lib.fp (t_ref), 9)
 
-    def test_soc_rdm12s (self):
+    def test_soc_rdm12s_slow (self):
         rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, las2_si, opt=0)
         stdm1s, stdm2s = make_stdm12s (las2, soc=True, opt=0)    
         rdm1s_ref = lib.einsum ('ir,jr,jabi->rab', las2_si.conj (), las2_si, stdm1s)
