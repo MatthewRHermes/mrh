@@ -3,11 +3,13 @@ import time
 from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
+
 
 # TODO: fix stdm1 index convention in both o0 and o1
 
@@ -196,9 +198,7 @@ class _LASSI_subspace_env (object):
 
 def iterate_subspace_blocks (las, ci, spacesym, subset=None):
     if subset is None: subset = set (spacesym)
-    lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
-                         for c in ci_r]
-                        for ci_r in ci])
+    lroots = get_lroots (ci)
     nprods_r = np.product (lroots, axis=0)
     prod_off = np.cumsum (nprods_r) - nprods_r
     nprods = nprods_r.sum ()
@@ -391,9 +391,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     # Error catch: diagonal Hamiltonian elements
     # This diagnostic is simply not valid for local excitations;
     # the energies aren't supposed to be additive
-    lroots = np.array ([[1 if ci.ndim<3 else ci.shape[0]
-                         for ci in ci_r]
-                        for ci_r in ci_blk])
+    lroots = get_lroots (ci_blk)
     if np.all (lroots==1) and soc==False: # tmp?
         diag_test = np.diag (ham_blk)
         diag_ref = las.e_states - e0
@@ -711,9 +709,6 @@ class LASSI(lib.StreamObject):
 
     def get_lroots (self, ci=None):
         if ci is None: ci = self._las.ci
-        lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
-                             for c in ci_r]
-                            for ci_r in ci])
-        return lroots
+        return get_lroots (ci)
 
 

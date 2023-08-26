@@ -4,6 +4,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, ImpureProductStateFCISolver, state_average_fcisolver
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.lassi import op_o0, op_o1
+from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib
 from pyscf.lib import temporary_env
 op = (op_o0, op_o1)
@@ -156,7 +157,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.active_frags])
         ci0 = self._check_init_guess (None, norb_f, nelec_f, h1, h2)
         # Find lowest-energy ENV, including VRV contributions
-        lroots = np.asarray ([1 if c.ndim<3 else c.shape[0] for c in ci0])
+        lroots = get_lroots (ci0)
         ham_pq = self.get_ham_pq (h1, h2, ci0)
         p = np.prod (lroots)
         h_pp = ham_pq[:p,:p]
