@@ -71,28 +71,6 @@ void libgpu_set_device(void * ptr, int id)
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_setup(void * ptr, py::array_t<double> array, int N)
-{
-  py::buffer_info info = array.request();
-  auto data = static_cast<double*>(info.ptr);
-  
-  Device * dev = (Device *) ptr;
-  dev->setup(data,N);
-}
-
-/* ---------------------------------------------------------------------- */
-
-double libgpu_compute(void * ptr, py::array_t<double> array)
-{
-  py::buffer_info info = array.request();
-  auto data = static_cast<double*>(info.ptr);
-  
-  Device * dev = (Device *) ptr;
-  return dev->compute(data);
-}
-
-/* ---------------------------------------------------------------------- */
-
 void libgpu_init_get_jk(void * ptr,
 			py::array_t<double> eri1, py::array_t<double> dmtril, 
 			int blksize, int nset, int nao)

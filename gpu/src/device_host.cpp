@@ -8,24 +8,6 @@
 
 /* ---------------------------------------------------------------------- */
 
-double Device::compute(double * data)
-{ 
-  // do something useful
-  
-  double sum = 0.0;
-#pragma omp parallel for reduction(+:sum)
-  for(int i=0; i<n; ++i) {
-    sum += data[i];
-    data[i] += 1.0;
-  }
-    
-  printf(" C-Kernel : n= %i  sum= %f\n",n, sum);
-  
-  return sum;
-}
-
-/* ---------------------------------------------------------------------- */
-
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao)
 {
 #ifdef _SIMPLE_TIMER
@@ -43,36 +25,36 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int _size_vj = info_dmtril.shape[0] * info_eri1.shape[1];
   if(_size_vj > size_vj) {
     size_vj = _size_vj;
-    if(vj) free(vj);
-    vj = (double *) malloc(size_vj * sizeof(double));
+    if(vj) pm->dev_free_host(vj);
+    vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
   }
   for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
 
   int _size_vk = nset * nao * nao;
   if(_size_vk > size_vk) {
     size_vk = _size_vk;
-    if(_vktmp) free(_vktmp);
-    _vktmp = (double *) malloc(size_vk*sizeof(double));
+    if(_vktmp) pm->dev_free_host(_vktmp);
+    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
   }
   for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
   int _size_buf = blksize * nao * nao;
   if(_size_buf > size_buf) {
     size_buf = _size_buf;
-    if(buf_tmp) free(buf_tmp);
-    if(buf3) free(buf3);
-    if(buf4) free(buf4);
+    if(buf_tmp) pm->dev_free_host(buf_tmp);
+    if(buf3) pm->dev_free_host(buf3);
+    if(buf4) pm->dev_free_host(buf4);
     
-    buf_tmp = (double*) malloc(2*size_buf*sizeof(double));
-    buf3 = (double *) malloc(size_buf*sizeof(double)); // (nao, blksize*nao)
-    buf4 = (double *) malloc(size_buf*sizeof(double)); // (blksize*nao, nao)
+    buf_tmp = (double*) pm->dev_malloc_host(2*size_buf*sizeof(double));
+    buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
+    buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (blksize*nao, nao)
   }
 
   int _size_fdrv = 4 * nao * nao * num_threads;
   if(_size_fdrv > size_fdrv) {
     size_fdrv = _size_fdrv;
-    if(buf_fdrv) free(buf_fdrv);
-    buf_fdrv = (double *) malloc(size_fdrv*sizeof(double));
+    if(buf_fdrv) pm->dev_free_host(buf_fdrv);
+    buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
   }
   
 #ifdef _SIMPLE_TIMER
@@ -115,8 +97,8 @@ void Device::get_jk(int naux, int nao, int nset,
   int _size_rho = info_dmtril.shape[0] * info_eri1.shape[0];
   if(_size_rho > size_rho) {
     size_rho = _size_rho;
-    if(rho) free(rho);
-    rho = (double *) malloc(size_rho * sizeof(double));
+    if(rho) pm->dev_free_host(rho);
+    rho = (double *) pm->dev_malloc_host(size_rho * sizeof(double));
   }
 
   // printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i\n",blksize,naux,nao,nset);
@@ -359,12 +341,12 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
     int i;
     int i_count = envs.bra_count;
     int j_count = envs.ket_count;
-    double *buf = (double *) malloc(sizeof(double) * (nao+i_count) * (nao+j_count));
+    double *buf = (double *) pm->dev_malloc_host(sizeof(double) * (nao+i_count) * (nao+j_count));
 #pragma omp for schedule(dynamic)
     for (i = 0; i < nij; i++) {
       ftrans(i, vout, vin, buf, &envs);
     }
-    free(buf);
+    pm->dev_free_host(buf);
   }
 }
 #endif
@@ -473,7 +455,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   // for(int i=0; i<info_ppaa.ndim; ++i) printf(" %i", info_ppaa.shape[i]);
   // printf("\n");
 
-  double * f1_prime = (double *) malloc(nmo*nmo*sizeof(double));
+  double * f1_prime = (double *) pm->dev_malloc_host(nmo*nmo*sizeof(double));
   
   // loop over f1 (i<nmo)
 #pragma omp parallel for
@@ -737,8 +719,8 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   int _ocm2_size_3d = info_ocm2.shape[1] * ocm2_size_2d;
   int size_ecm = info_ocm2.shape[0] * info_ocm2.shape[1] * info_ocm2.shape[2] * (nocc-ncore);
   
-  double * _ocm2t = (double *) malloc(size_ecm * sizeof(double));
-  double * ecm2 = (double *) malloc(size_ecm * sizeof(double)); // tmp space and ecm2
+  double * _ocm2t = (double *) pm->dev_malloc_host(size_ecm * sizeof(double));
+  double * ecm2 = (double *) pm->dev_malloc_host(size_ecm * sizeof(double)); // tmp space and ecm2
   
   // ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
 
@@ -840,7 +822,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     
   // return gorb + (f1_prime - f1_prime.T)
 
-  double * g_f1_prime = (double *) malloc(nmo*nmo*sizeof(double));
+  double * g_f1_prime = (double *) pm->dev_malloc_host(nmo*nmo*sizeof(double));
   
   indx = 0;
   for(int i=0; i<nmo; ++i)
@@ -870,13 +852,13 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 #endif
   
 #if 0
-  free(ar_global);
+  pm->dev_free_host(ar_global);
 #endif
   
-  free(g_f1_prime);
-  free(ecm2);
-  free(_ocm2t);
-  free(f1_prime);
+  pm->dev_free_host(g_f1_prime);
+  pm->dev_free_host(ecm2);
+  pm->dev_free_host(_ocm2t);
+  pm->dev_free_host(f1_prime);
 }
 
 #endif
