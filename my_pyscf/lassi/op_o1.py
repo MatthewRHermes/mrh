@@ -555,10 +555,13 @@ class LSTDMint2 (object):
         self.ints = ints
         self.nlas = nlas
         self.norb = sum (nlas)
-        self.hopping_index = hopping_index
         self.lroots = lroots
+        nprods = np.prod (lroots, axis=0)
+        offs1 = np.cumsum (nprods)
+        offs0 = offs1 - nprods
+        self.offs_lroots = np.stack ([offs0, offs1], axis=1)
         self.nfrags, _, self.nroots, _ = nfrags, _, nroots, _ = hopping_index.shape
-        self.nstates = np.sum (np.prod (lroots, axis=0))
+        self.nstates = offs1[-1]
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
 
@@ -905,14 +908,21 @@ class LSTDMint2 (object):
             d2[s2,t:u,r:s,p:q,v:w] = -d2_ijkl.transpose (2,1,0,3)
         self._put_D2_(bra, ket, d2)
 
+    def _loop_lroots_(self, _crunch_fn, *row):
+        bra0, bra1 = self.offs_lroots[row[0]]
+        ket0, ket1 = self.offs_lroots[row[1]]
+        lrow = [l for l in row]
+        for lrow[0], lrow[1] in product (range (bra0, bra1), range (ket0, ket1)):
+            return _crunch_fn (*lrow)
+
     def _crunch_all_(self):
-        for row in self.exc_null: self._crunch_null_(*row)
-        for row in self.exc_1c: self._crunch_1c_(*row)
-        for row in self.exc_1s: self._crunch_1s_(*row)
-        for row in self.exc_1s1c: self._crunch_1s1c_(*row)
-        for row in self.exc_2c: self._crunch_2c_(*row)
+        for row in self.exc_null: self._loop_lroots_(self._crunch_null_, *row)
+        for row in self.exc_1c: self._loop_lroots_(self._crunch_1c_, *row)
+        for row in self.exc_1s: self._loop_lroots_(self._crunch_1s_, *row)
+        for row in self.exc_1s1c: self._loop_lroots_(self._crunch_1s1c_, *row)
+        for row in self.exc_2c: self._loop_lroots_(self._crunch_2c_, *row)
         self._add_transpose_()
-        for state in range (self.nroots): self._crunch_null_(state, state)
+        for state in range (self.nroots): self._loop_lroots_(self._crunch_null_, state, state)
 
     def _add_transpose_(self):
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
@@ -930,8 +940,8 @@ class LSTDMint2 (object):
                 timestamp of entry into this function, for profiling by caller
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-        self.tdm1s = np.zeros ([self.nroots,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
-        self.tdm2s = np.zeros ([self.nroots,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
+        self.tdm1s = np.zeros ([self.nstates,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
+        self.tdm2s = np.zeros ([self.nstates,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
         self._crunch_all_()
         return self.tdm1s, self.tdm2s, t0
 
@@ -998,8 +1008,6 @@ class HamS2ovlpint (LSTDMint2):
         self.s2 = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         self._crunch_all_()
         ovlp = np.zeros ([self.nstates,]*2, dtype=self.dtype)
-        nprods = np.prod (self.lroots, axis=0)
-        offs = np.cumsum (nprods)
         def crunch_ovlp (bra_sp, ket_sp):
             o = self.ints[-1].ovlp[bra_sp][ket_sp]
             for i in self.ints[-2::-1]:
@@ -1007,8 +1015,8 @@ class HamS2ovlpint (LSTDMint2):
                 o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
             o *= self.spin_shuffle[bra_sp]
             o *= self.spin_shuffle[ket_sp]
-            i1, j1 = offs[bra_sp], offs[ket_sp]
-            i0, j0 = i1 - nprods[bra_sp], j1 - nprods[ket_sp]
+            i0, i1 = self.offs_lroots[bra_sp]
+            j0, j1 = self.offs_lroots[ket_sp]
             ovlp[i0:i1,j0:j1] = o
         for bra_sp, ket_sp in self.exc_null: crunch_ovlp (bra_sp, ket_sp)
         ovlp += ovlp.T
