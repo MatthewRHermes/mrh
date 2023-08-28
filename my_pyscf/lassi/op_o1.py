@@ -201,7 +201,7 @@ class LSTDMint1 (object):
         self.dtype = dtype
         self.nelec_r = [_unpack_nelec (fcibox._get_nelec (solver, nelec))
                         for solver in self.fcisolvers]
-        self.ovlp = None
+        self.ovlp = [[None for i in range (nroots)] for j in range (nroots)]
         self._h = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
         self._hh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (-1,0,1)] 
         self._phh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
@@ -242,6 +242,11 @@ class LSTDMint1 (object):
                 self.idx_frag, ir, jr, s)
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
+
+    # 0-particle intermediate (overlap)
+
+    def get_ovlp (self, i, j):
+        return self.try_get (self.ovlp, i, j)
 
     # 1-particle 1-operator intermediate
 
@@ -365,19 +370,15 @@ class LSTDMint1 (object):
 
         # Overlap matrix
         offs = np.cumsum (lroots)
-        self.ovlp = np.zeros ((offs[-1], offs[-1]), dtype=self.dtype)
         for i, j in combinations (range (self.nroots), 2):
             if self.nelec_r[i] == self.nelec_r[j]:
-                i1, j1 = offs[i], offs[j]
-                i0, j0 = i1 - lroots[i], j1 - lroots[i]
                 ci_i = ci[i].reshape (lroots[i], -1)
                 ci_j = ci[j].reshape (lroots[j], -1)
-                self.ovlp[i0:i1,j0:j1] = np.dot (ci_i.conj (), ci_j.T)
-        self.ovlp += self.ovlp.T
+                self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
+                self.ovlp[j][i] = self.ovlp[i][j].conj ().T
         for i in range (self.nroots):
-            i1, i0 = offs[i], offs[i] - lroots[i]
             ci_i = ci[i].reshape (lroots[i], -1)
-            self.ovlp[i0:i1,i0:i1] = np.dot (ci_i.conj (), ci_i.T)
+            self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
 
         # Loop over lroots functions
         # TODO: lift the down-indexing for lroots == 1!
@@ -537,6 +538,8 @@ class LSTDMint2 (object):
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
                 element [i,j,k,l] reports the change of number of electrons of
                 spin j in fragment i between LAS states k and l
+            lroots: ndarray of ints of shape (nfrags, nroots)
+                Number of states within each fragment and rootspace
 
         Kwargs:
             dtype : instance of np.dtype
@@ -548,12 +551,14 @@ class LSTDMint2 (object):
     # (N.B.: "sp" is just the adjoint of "sm"). 
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
-    def __init__(self, ints, nlas, hopping_index, dtype=np.float64):
+    def __init__(self, ints, nlas, hopping_index, lroots, dtype=np.float64):
         self.ints = ints
         self.nlas = nlas
         self.norb = sum (nlas)
         self.hopping_index = hopping_index
+        self.lroots = lroots
         self.nfrags, _, self.nroots, _ = nfrags, _, nroots, _ = hopping_index.shape
+        self.nstates = np.sum (np.prod (lroots, axis=0))
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
 
@@ -664,7 +669,7 @@ class LSTDMint2 (object):
         if nfrags > 3: self.exc_2c = np.vstack ((self.exc_2c, exc_scatter))
 
         # overlap tensor
-        self.ovlp = np.stack ([i.ovlp for i in ints], axis=-1)
+        self.ovlp = [i.ovlp for i in ints]
 
         # spin-shuffle sign vector
         self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
@@ -681,7 +686,7 @@ class LSTDMint2 (object):
     def get_ovlp_fac (self, bra, ket, *inv):
         idx = np.ones (self.nfrags, dtype=np.bool_)
         idx[list (inv)] = False
-        wgt = np.prod (self.ovlp[bra,ket,idx])
+        wgt = np.prod ([i.get_ovlp (bra, ket) for i, ix in zip (self.ints, idx) if ix])
         uniq_frags = list (set (inv))
         wgt *= self.spin_shuffle[bra] * self.spin_shuffle[ket]
         wgt *= fermion_frag_shuffle (self.nelec_rf[bra], uniq_frags)
@@ -946,8 +951,8 @@ class HamS2ovlpint (LSTDMint2):
     # TODO: SO-LASSI o1 implementation: the one-body spin-orbit coupling part of the
     # Hamiltonian in addition to h1 and h2, which are spin-symmetric
 
-    def __init__(self, ints, nlas, hopping_index, h1, h2, dtype=np.float64):
-        LSTDMint2.__init__(self, ints, nlas, hopping_index, dtype=dtype)
+    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, dtype=np.float64):
+        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, dtype=dtype)
         self.h1 = h1.ravel ()
         self.h2 = h2.ravel ()
 
@@ -989,11 +994,25 @@ class HamS2ovlpint (LSTDMint2):
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
-        self.ham = np.zeros ([self.nroots,]*2, dtype=self.dtype)
-        self.s2 = np.zeros ([self.nroots,]*2, dtype=self.dtype)
+        self.ham = np.zeros ([self.nstates,]*2, dtype=self.dtype)
+        self.s2 = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         self._crunch_all_()
-        ovlp = np.prod (self.ovlp, axis=-1)
-        ovlp *= np.multiply.outer (self.spin_shuffle, self.spin_shuffle)
+        ovlp = np.zeros ([self.nstates,]*2, dtype=self.dtype)
+        nprods = np.prod (self.lroots, axis=0)
+        offs = np.cumsum (nprods)
+        def crunch_ovlp (bra_sp, ket_sp):
+            o = self.ints[-1].ovlp[bra_sp][ket_sp]
+            for i in self.ints[-2::-1]:
+                o = np.multiply.outer (o, i.ovlp[bra_sp][ket_sp]).transpose (0,2,1,3)
+                o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
+            o *= self.spin_shuffle[bra_sp]
+            o *= self.spin_shuffle[ket_sp]
+            i1, j1 = offs[bra_sp], offs[ket_sp]
+            i0, j0 = i1 - nprods[bra_sp], j1 - nprods[ket_sp]
+            ovlp[i0:i1,j0:j1] = o
+        for bra_sp, ket_sp in self.exc_null: crunch_ovlp (bra_sp, ket_sp)
+        ovlp += ovlp.T
+        for iroot in range (self.nroots): crunch_ovlp (iroot, iroot)
         return self.ham, self.s2, ovlp, t0
 
 class LRRDMint (LSTDMint2):
@@ -1012,8 +1031,8 @@ class LRRDMint (LSTDMint2):
     # TODO: SO-LASSI o1 implementation: these density matrices can only be defined in the full
     # spinorbital basis
 
-    def __init__(self, ints, nlas, hopping_index, si, dtype=np.float64):
-        LSTDMint2.__init__(self, ints, nlas, hopping_index, dtype=dtype)
+    def __init__(self, ints, nlas, hopping_index, lroots, si, dtype=np.float64):
+        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, dtype=dtype)
         self.nroots_si = si.shape[-1]
         self.si_dm = np.stack ([np.dot (si[:,i:i+1],si[:,i:i+1].conj ().T)
             for i in range (self.nroots_si)], axis=-1)
@@ -1071,6 +1090,8 @@ def make_ints (las, ci, nelec_frs):
             element [i,j,k,l] reports the change of number of electrons of
             spin j in fragment i between LAS rootspaces k and l
         ints : list of length nfrags of instances of :class:`LSTDMint1`
+        lroots: ndarray of ints of shape (nfrags, nroots)
+            Number of states within each fragment and rootspace
     '''
     fciboxes = las.fciboxes
     nfrags = len (fciboxes)
@@ -1089,7 +1110,7 @@ def make_ints (las, ci, nelec_frs):
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *t0)
         ints.append (tdmint)
-    return hopping_index, ints
+    return hopping_index, ints, lroots
 
 def make_stdm12s (las, ci, nelec_frs, **kwargs):
     ''' Build spin-separated LAS product-state 1- and 2-body transition density matrices
@@ -1113,11 +1134,11 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     nroots = nelec_frs.shape[1]
 
     # First pass: single-fragment intermediates
-    hopping_index, ints = make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LSTDMint2 (ints, nlas, hopping_index, dtype=ci[0][0].dtype)
+    outerprod = LSTDMint2 (ints, nlas, hopping_index, lroots, dtype=ci[0][0].dtype)
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)        
     tdm1s, tdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
@@ -1153,11 +1174,11 @@ def ham (las, h1, h2, ci, nelec_frs, **kwargs):
     nlas = las.ncas_sub
 
     # First pass: single-fragment intermediates
-    hopping_index, ints = make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = HamS2ovlpint (ints, nlas, hopping_index, h1, h2, dtype=ci[0][0].dtype)
+    outerprod = HamS2ovlpint (ints, nlas, hopping_index, lroots, h1, h2, dtype=ci[0][0].dtype)
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)        
     ham, s2, ovlp, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)        
@@ -1188,11 +1209,11 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     nroots_si = si.shape[-1]
 
     # First pass: single-fragment intermediates
-    hopping_index, ints = make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDMint (ints, nlas, hopping_index, si, dtype=ci[0][0].dtype)
+    outerprod = LRRDMint (ints, nlas, hopping_index, lroots, si, dtype=ci[0][0].dtype)
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
     rdm1s, rdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
