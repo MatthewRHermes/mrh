@@ -556,6 +556,7 @@ class LSTDMint2 (object):
         self.nlas = nlas
         self.norb = sum (nlas)
         self.lroots = lroots
+        self.rootaddr = envaddr2fragaddr (lroots)[0]
         nprods = np.prod (lroots, axis=0)
         offs1 = np.cumsum (nprods)
         offs0 = offs1 - nprods
@@ -691,6 +692,7 @@ class LSTDMint2 (object):
         idx[list (inv)] = False
         wgt = np.prod ([i.get_ovlp (bra, ket) for i, ix in zip (self.ints, idx) if ix])
         uniq_frags = list (set (inv))
+        bra, ket = self.rootaddr[bra], self.rootaddr[ket]
         wgt *= self.spin_shuffle[bra] * self.spin_shuffle[ket]
         wgt *= fermion_frag_shuffle (self.nelec_rf[bra], uniq_frags)
         wgt *= fermion_frag_shuffle (self.nelec_rf[ket], uniq_frags)
@@ -757,8 +759,10 @@ class LSTDMint2 (object):
         r, s = self.get_range (j)
         fac = 1
         fac = self.get_ovlp_fac (bra, ket, i, j)
-        fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j), i)
-        fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j), j)
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
         d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1),
                                    self.ints[j].get_h (bra, ket, s1))
         d1[s1,p:q,r:s] = fac * d1_ij
@@ -784,8 +788,8 @@ class LSTDMint2 (object):
         for k in range (self.nfrags):
             if k in (i, j): continue
             fac = self.get_ovlp_fac (bra, ket, i, j, k)
-            fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k), i)
-            fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k), j)
+            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
             t, u = self.get_range (k)
             d1_skk = self.ints[k].get_dm1 (bra, ket)
             d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
@@ -832,9 +836,11 @@ class LSTDMint2 (object):
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         t, u = self.get_range (k)
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
         fac = -1 * self.get_ovlp_fac (bra, ket, i, j, k) # a'bb'a -> a'ab'b sign
-        fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k), i)
-        fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k), j)
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
         sp = np.multiply.outer (self.ints[i].get_p (bra, ket, 0), self.ints[j].get_h (bra, ket, 1))
         sm = self.ints[k].get_sm (bra, ket)
         d2_ikkj = fac * np.multiply.outer (sp, sm).transpose (0,3,2,1) # a'bb'a -> a'ab'b transpose
@@ -874,6 +880,8 @@ class LSTDMint2 (object):
         s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
         s11 = s2 // 2
         s12 = s2 % 2
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
         d2 = self._get_D2_(bra, ket)
         fac = self.get_ovlp_fac (bra, ket, i, j, k, l)
         if i == k:
@@ -884,8 +892,8 @@ class LSTDMint2 (object):
             pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11),
                                     self.ints[k].get_p (bra, ket, s12))
             fac *= (1,-1)[int (i>k)]
-            fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k, l), i)
-            fac *= fermion_des_shuffle (self.nelec_rf[bra], (i, j, k, l), k)
+            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
+            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
         if j == l:
             hh = self.ints[j].get_hh (bra, ket, s2lt)
             if s2lt != 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (
@@ -894,8 +902,8 @@ class LSTDMint2 (object):
             hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12),
                                     self.ints[j].get_h (bra, ket, s11))
             fac *= (1,-1)[int (j>l)]
-            fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), j)
-            fac *= fermion_des_shuffle (self.nelec_rf[ket], (i, j, k, l), l)
+            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
+            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
         d2_ijkl = fac * np.multiply.outer (pp, hh).transpose (0,3,1,2) # Dirac -> Mulliken transp
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -921,8 +929,11 @@ class LSTDMint2 (object):
         for row in self.exc_1s: self._loop_lroots_(self._crunch_1s_, *row)
         for row in self.exc_1s1c: self._loop_lroots_(self._crunch_1s1c_, *row)
         for row in self.exc_2c: self._loop_lroots_(self._crunch_2c_, *row)
+        for i0, i1 in self.offs_lroots:
+            for bra, ket in combinations (range (i0, i1), 2):
+                self._crunch_null_(bra, ket)
         self._add_transpose_()
-        for state in range (self.nroots): self._loop_lroots_(self._crunch_null_, state, state)
+        for state in range (self.nstates): self._crunch_null_(state, state)
 
     def _add_transpose_(self):
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
@@ -1107,7 +1118,6 @@ def make_ints (las, ci, nelec_frs):
     nlas = las.ncas_sub
     nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
     lroots = get_lroots (ci)
-    if np.any(lroots>1): raise NotImplementedError ("LASSI o1 algorithm w/ local excitations")
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, nelec_frs)
     rootaddr, fragaddr = envaddr2fragaddr (lroots)
     ints = []

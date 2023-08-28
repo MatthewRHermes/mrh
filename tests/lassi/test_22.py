@@ -60,6 +60,15 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
 
+    def test_op_o1 (self):
+        e_roots, si = LASSI (lsi._las).kernel (opt=1)
+        #ham_o1 = (si * e_roots[None,:]) @ si.conj ().T
+        #ham_o0 = (lsi.si * lsi.e_roots[None,:]) @ lsi.si.conj ().T
+        #print (ham_o1)
+        #print (ham_o0)
+        self.assertAlmostEqual (lib.fp (e_roots), lib.fp (lsi.e_roots), 8)
+        self.assertAlmostEqual (lib.fp (si), lib.fp (lsi.si), 8)
+
     def test_casci_limit (self):
         # CASCI limit
         mc = mcscf.CASCI (mf, 4, 4).run ()
@@ -69,21 +78,23 @@ class KnownValues(unittest.TestCase):
         las, e_roots, si = lsi._las, lsi.e_roots, lsi.si
         with self.subTest ("total energy"):
             self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
-        lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=0)
-        lasdm1 = lasdm1s.sum (0)
-        lasdm2 = lasdm2s.sum ((0,3))
-        with self.subTest ("casdm1"):
-            self.assertAlmostEqual (lib.fp (lasdm1), lib.fp (casdm1), 8)
-        with self.subTest ("casdm2"):
-            self.assertAlmostEqual (lib.fp (lasdm2), lib.fp (casdm2), 8)
-        stdm1s = make_stdm12s (las, opt=0)[0][9:13,:,:,:,9:13] # second rootspace
-        with self.subTest("state indexing"):
-            # column-major ordering for state excitation quantum numbers:
-            # earlier fragments advance faster than later fragments
-            self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
-                                    lib.fp (stdm1s[2,:,:2,:2,2]))
-            self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
-                                    lib.fp (stdm1s[1,:,2:,2:,1]))
+        for opt in range (2):
+            with self.subTest (opt=opt):
+                lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=0)
+                lasdm1 = lasdm1s.sum (0)
+                lasdm2 = lasdm2s.sum ((0,3))
+                with self.subTest ("casdm1"):
+                    self.assertAlmostEqual (lib.fp (lasdm1), lib.fp (casdm1), 8)
+                with self.subTest ("casdm2"):
+                    self.assertAlmostEqual (lib.fp (lasdm2), lib.fp (casdm2), 8)
+                stdm1s = make_stdm12s (las, opt=0)[0][9:13,:,:,:,9:13] # second rootspace
+                with self.subTest("state indexing"):
+                    # column-major ordering for state excitation quantum numbers:
+                    # earlier fragments advance faster than later fragments
+                    self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
+                                            lib.fp (stdm1s[2,:,:2,:2,2]))
+                    self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
+                                            lib.fp (stdm1s[1,:,2:,2:,1]))
 
     def test_contract_hlas_ci (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
