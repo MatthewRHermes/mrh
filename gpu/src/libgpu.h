@@ -12,6 +12,7 @@ namespace py = pybind11;
 
 extern "C"
 {
+  void * libgpu_init();
   void * libgpu_create_device();
   void libgpu_destroy_device(void *);
   
@@ -45,6 +46,7 @@ extern "C"
 PYBIND11_MODULE(libgpu, m) {
   m.doc() = "gpu accelerator library example";
 
+  m.def("libgpu_init", &libgpu_init, py::return_value_policy::reference, "simple initialization of device");
   m.def("libgpu_create_device", &libgpu_create_device, py::return_value_policy::reference, "create Device object");
   m.def("libgpu_destroy_device", &libgpu_destroy_device, "destroy Device object");
   

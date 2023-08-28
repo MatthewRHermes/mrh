@@ -1,7 +1,8 @@
 #!/bin/bash
 
-#INPUT=1_6-31g_inp.py
-INPUT=1_6-31g_inp_gpu.py
+INPUT=1_6-31g_inp.py
+#INPUT=1_6-31g_inp_gpu.py
+#INPUT=1_6-31g_inp_gpu_simple.py
 
 # python -u is used with tee
 
