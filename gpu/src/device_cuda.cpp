@@ -7,71 +7,6 @@
 #include <stdio.h>
 
 /* ---------------------------------------------------------------------- */
-
-__global__ void _compute(double * d, int N, double * p)
-{
-  __shared__ double cache[_SIZE_BLOCK];
-  
-  int id = blockIdx.x * blockDim.x + threadIdx.x;
-  int cache_id = threadIdx.x;
-
-  // useful work
-  
-  double temp = 0.0;
-  while (id < N) {
-    temp += d[id];
-    d[id] += 1.0;
-    
-    id += blockDim.x * gridDim.x;
-  }
-
-  // set thread-local value
-  
-  cache[cache_id] = temp;
-
-  // block
-  
-  __syncthreads();
-
-  // manually reduce values from threads within block to master thread's value
-  
-  int i=blockDim.x / 2;
-  while(i != 0) {
-    if(cache_id < i) cache[cache_id] += cache[cache_id + i];
-    __syncthreads();
-    i /= 2;
-  }
-
-  // store master thread's value in global array for host
-  
-  if(cache_id == 0) p[blockIdx.x] = cache[0];
-}
-
-/* ---------------------------------------------------------------------- */
-
-double Device::compute(double * data)
-{ 
-  // update data on gpu
-
-  dev_push(d_data, data, size_data);
-  
-  // do something useful
-    
-  _compute<<<grid_size, block_size>>>(d_data,n,d_partial);
-  _CUDA_CHECK_ERRORS();
-
-  dev_pull(d_data, data, size_data);
-  dev_pull(d_partial, partial, grid_size*sizeof(double));
-    
-  double sum = 0.0;
-  for(int i=0; i<grid_size; ++i) sum+= partial[i];
-    
-  printf(" C-Kernel : N= %i  sum= %f\n",n, sum);
-
-  return sum;
-}
-
-/* ---------------------------------------------------------------------- */
 /* Host variant of orbital_response                                       */
 /* ---------------------------------------------------------------------- */
 
@@ -106,7 +41,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   // for(int i=0; i<info_ppaa.ndim; ++i) printf(" %i", info_ppaa.shape[i]);
   // printf("\n");
 
-  double * f1_prime = (double *) malloc(nmo*nmo*sizeof(double));
+  double * f1_prime = (double *) pm->dev_malloc_host(nmo*nmo*sizeof(double));
   
   // loop over f1 (i<nmo)
 #pragma omp parallel for
@@ -372,8 +307,8 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   int _ocm2_size_3d = info_ocm2.shape[1] * ocm2_size_2d;
   int size_ecm = info_ocm2.shape[0] * info_ocm2.shape[1] * info_ocm2.shape[2] * (nocc-ncore);
   
-  double * _ocm2t = (double *) malloc(size_ecm * sizeof(double));
-  double * ecm2 = (double *) malloc(size_ecm * sizeof(double)); // tmp space and ecm2
+  double * _ocm2t = (double *) pm->dev_malloc_host(size_ecm * sizeof(double));
+  double * ecm2 = (double *) pm->dev_malloc_host(size_ecm * sizeof(double)); // tmp space and ecm2
   
   // ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
 
@@ -475,7 +410,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     
   // return gorb + (f1_prime - f1_prime.T)
 
-  double * g_f1_prime = (double *) malloc(nmo*nmo*sizeof(double));
+  double * g_f1_prime = (double *) pm->dev_malloc_host(nmo*nmo*sizeof(double));
   
   indx = 0;
   for(int i=0; i<nmo; ++i)
@@ -505,13 +440,13 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 #endif
   
 #if 0
-  free(ar_global);
+  pm->dev_free_host(ar_global);
 #endif
   
-  free(g_f1_prime);
-  free(ecm2);
-  free(_ocm2t);
-  free(f1_prime);
+  pm->dev_free_host(g_f1_prime);
+  pm->dev_free_host(ecm2);
+  pm->dev_free_host(_ocm2t);
+  pm->dev_free_host(f1_prime);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -531,21 +466,21 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int _size_vj = info_dmtril.shape[0] * info_eri1.shape[1];
   if(_size_vj > size_vj) {
     size_vj = _size_vj;
-    if(vj) free(vj);
-    vj = (double *) malloc(size_vj * sizeof(double));
+    if(vj) pm->dev_free_host(vj);
+    vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
   }
   for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
 
   int _size_vk = nset * nao * nao;
   if(_size_vk > size_vk) {
     size_vk = _size_vk;
-    if(_vktmp) free(_vktmp);
-    _vktmp = (double *) malloc(size_vk*sizeof(double));
+    if(_vktmp) pm->dev_free_host(_vktmp);
+    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
 
     nvtxRangePushA("Realloc");
     
-    if(d_vkk) dev_free(d_vkk);
-    d_vkk = (double *) dev_malloc(size_vk * sizeof(double));
+    if(d_vkk) pm->dev_free(d_vkk);
+    d_vkk = (double *) pm->dev_malloc(size_vk * sizeof(double));
     
     nvtxRangePop();
   }
@@ -554,21 +489,21 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int _size_buf = blksize * nao * nao;
   if(_size_buf > size_buf) {
     size_buf = _size_buf;
-    if(buf_tmp) dev_free_host(buf_tmp);
-    if(buf3) dev_free_host(buf3);
-    if(buf4) free(buf4);
+    if(buf_tmp) pm->dev_free_host(buf_tmp);
+    if(buf3) pm->dev_free_host(buf3);
+    if(buf4) pm->dev_free_host(buf4);
     
-    buf_tmp = (double*) dev_malloc_host(2*size_buf*sizeof(double));
-    buf3 = (double *) dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
-    buf4 = (double *) malloc(size_buf*sizeof(double)); // (blksize*nao, nao)
+    buf_tmp = (double*) pm->dev_malloc_host(2*size_buf*sizeof(double));
+    buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
+    buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (blksize*nao, nao)
 
     nvtxRangePushA("Realloc");
 
-    if(d_buf2) dev_free(d_buf2);
-    if(d_buf3) dev_free(d_buf3);
+    if(d_buf2) pm->dev_free(d_buf2);
+    if(d_buf3) pm->dev_free(d_buf3);
     
-    d_buf2 = (double *) dev_malloc(size_buf * sizeof(double));
-    d_buf3 = (double *) dev_malloc(size_buf * sizeof(double));
+    d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
+    d_buf3 = (double *) pm->dev_malloc(size_buf * sizeof(double));
     
     nvtxRangePop();
   }
@@ -576,8 +511,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int _size_fdrv = 4 * nao * nao * num_threads;
   if(_size_fdrv > size_fdrv) {
     size_fdrv = _size_fdrv;
-    if(buf_fdrv) free(buf_fdrv);
-    buf_fdrv = (double *) malloc(size_fdrv*sizeof(double));
+    if(buf_fdrv) pm->def_free_host(buf_fdrv);
+    buf_fdrv = (double *) pm->def_malloc_host(size_fdrv*sizeof(double));
   }
   
   // Create blas handle
@@ -637,8 +572,8 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
   int _size_rho = info_dmtril.shape[0] * info_eri1.shape[0];
   if(_size_rho > size_rho) {
     size_rho = _size_rho;
-    if(rho) free(rho);
-    rho = (double *) malloc(size_rho * sizeof(double));
+    if(rho) pm->dev_free_host(rho);
+    rho = (double *) pm->dev_malloc_host(size_rho * sizeof(double));
   }
   
   int _size_vj = info_dmtril.shape[0] * info_eri1.shape[1];
