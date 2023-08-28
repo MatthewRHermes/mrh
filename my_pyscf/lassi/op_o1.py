@@ -2,6 +2,7 @@ import numpy as np
 from pyscf import lib, fci
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
+from pyscf.fci import cistring
 from itertools import product, combinations
 from mrh.my_pyscf.lassi.citools import get_lroots
 import time
@@ -155,8 +156,8 @@ class LSTDMint1 (object):
         get_pp (i,j,s): <i|s1's2'|j> = conj (<j|s2s1|i>)
         get_sm (i,j): <i|b'a|j>
         get_sp (i,j): <i|a'b|j> = conj (<j|b'a|i>)
-        get_phh (i,j): <i|t'ts|j>
-        get_pph (i,j): <i|s't't|j> = conj (<j|t'ts|i>)
+        get_phh (i,j,s): <i|t'ts|j>
+        get_pph (i,j,s): <i|s't't|j> = conj (<j|t'ts|i>)
         get_dm2 (i,j): <i|t1't2't2t1|j>
 
         TODO: two-electron spin-broken components
@@ -193,9 +194,10 @@ class LSTDMint1 (object):
         self.norb = norb
         self.nelec = nelec
         self.nroots = nroots
-        self.ovlp = np.zeros ((nroots, nroots), dtype=dtype)
+        self.dtype = dtype
         self.nelec_r = [_unpack_nelec (fcibox._get_nelec (solver, nelec))
                         for solver in self.fcisolvers]
+        self.ovlp = None
         self._h = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
         self._hh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (-1,0,1)] 
         self._phh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
@@ -345,25 +347,66 @@ class LSTDMint1 (object):
         nroots, norb = self.nroots, self.norb
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
 
+        # Consistent array shape
+        ndeta = [cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r]
+        ndetb = [cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r]
+        ci = [c.reshape (-1,na,nb) for c, na, nb in zip (ci, ndeta, ndetb)]
+        lroots = [c.shape[0] for c in ci]
+
         # Overlap matrix
+        offs = np.cumsum (lroots)
+        self.ovlp = np.zeros ((offs[-1], offs[-1]), dtype=self.dtype)
         for i, j in combinations (range (self.nroots), 2):
             if self.nelec_r[i] == self.nelec_r[j]:
-                self.ovlp[i,j] = ci[i].conj ().ravel ().dot (ci[j].ravel ())
+                i1, j1 = offs[i], offs[j]
+                i0, j0 = i1 - lroots[i], j1 - lroots[i]
+                ci_i = ci[i].reshape (lroots[i], -1)
+                ci_j = ci[j].reshape (lroots[j], -1)
+                self.ovlp[i0:i1,j0:j1] = np.dot (ci_i.conj (), ci_j.T)
         self.ovlp += self.ovlp.T
         for i in range (self.nroots):
-            self.ovlp[i,i] = ci[i].conj ().ravel ().dot (ci[i].ravel ())
+            i1, i0 = offs[i], offs[i] - lroots[i]
+            ci_i = ci[i].reshape (lroots[i], -1)
+            self.ovlp[i0:i1,i0:i1] = np.dot (ci_i.conj (), ci_i.T)
+
+        # Loop over lroots functions
+        # TODO: lift the down-indexing for lroots == 1!
+        def des_loop (des_fn, c, nelec, p):
+            na = cistring.num_strings (norb, nelec[0])
+            nb = cistring.num_strings (norb, nelec[1])
+            c = c.reshape (-1, na, nb)
+            des_c = [des_fn (c_i, norb, nelec, p) for c_i in c]
+            assert (c.ndim==3)
+            if len (c) == 1: des_c = des_c[0] # TODO: remove
+            return np.asarray (des_c)
+        def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
+        def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
+        def trans_rdm12s_loop (iroot, bra, ket):
+            nelec, linkstr = self.nelec_r[iroot], self.linkstr[iroot]
+            na, nb = ndeta[iroot], ndetb[iroot]
+            bra = bra.reshape (-1, na, nb)
+            ket = ket.reshape (-1, na, nb)
+            solver = self.fcisolvers[iroot]
+            tdm1s = np.zeros ((bra.shape[0],ket.shape[0],2,norb,norb), dtype=self.dtype)
+            tdm2s = np.zeros ((bra.shape[0],ket.shape[0],4,norb,norb,norb,norb), dtype=self.dtype)
+            for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
+                d1s, d2s = solver.trans_rdm12s (bra[i], ket[j], norb, nelec, link_index=linkstr)
+                # Transpose based on docstring of direct_spin1.trans_rdm12s
+                tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
+                tdm2s[i,j] = np.stack (d2s, axis=0)
+            if ket.shape[0] == 1:
+                tdm1s, tdm2s = tdm1s[:,0], tdm2s[:,0]
+            if bra.shape[0] == 1:
+                tdm1s, tdm2s = tdm1s[0], tdm2s[0]
+            return tdm1s, tdm2s
 
         # Spectator fragment contribution
         spectator_index = np.all (hopping_index == 0, axis=0)
         spectator_index[np.triu_indices (self.nroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
-            solver = self.fcisolvers[j]
-            linkstr = self.linkstr[j]
-            nelec = self.nelec_r[j]
-            dm1s, dm2s = solver.trans_rdm12s (ci[i], ci[j], norb, nelec, link_index=linkstr) 
-            self.set_dm1 (i, j, np.stack (dm1s, axis=0).transpose (0,2,1))
-            # Transpose based on docstring of direct_spin1.trans_rdm12s
+            dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j])
+            self.set_dm1 (i, j, dm1s)
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
 
         # Cache some b_p|i> beforehand for the sake of the spin-flip intermediate 
@@ -372,13 +415,13 @@ class LSTDMint1 (object):
         bpvec_list = [None for ket in range (nroots)]
         for ket in hidx_ket_b:
             if np.any (np.all (hopping_index[:,:,ket] == np.array ([1,-1])[:,None], axis=0)):
-                bpvec_list[ket] = np.stack ([des_b (ci[ket], norb, self.nelec_r[ket], p)
+                bpvec_list[ket] = np.stack ([des_b_loop (ci[ket], self.nelec_r[ket], p)
                                              for p in range (norb)], axis=0)
 
         # a_p|i>
         for ket in hidx_ket_a:
             nelec = self.nelec_r[ket]
-            apket = np.stack ([des_a (ci[ket], norb, nelec, p) for p in range (norb)], axis=0)
+            apket = np.stack ([des_a_loop (ci[ket], nelec, p) for p in range (norb)], axis=0)
             nelec = (nelec[0]-1, nelec[1])
             for bra in np.where (hopping_index[0,:,ket] < 0)[0]:
                 bravec = ci[bra].ravel ()
@@ -387,11 +430,8 @@ class LSTDMint1 (object):
                     self.set_h (bra, ket, 0, bravec.dot (apket.reshape (norb,-1).T))
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
-                        solver = self.fcisolvers[bra]
-                        linkstr = self.linkstr[bra]
-                        phh = np.stack ([solver.trans_rdm12s (ketmat, ci[bra], norb,
-                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in apket],
-                            axis=-1)# Arg order switched cf. docstring of direct_spin1.trans_rdm12s
+                        phh = np.stack ([trans_rdm12s_loop (bra, ci[bra], ketmat)[0]
+                                         for ketmat in apket], axis=-1)
                         err = np.abs (phh[0] + phh[0].transpose (0,2,1))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
                         # ^ Passing this assert proves that I have the correct index
@@ -403,12 +443,12 @@ class LSTDMint1 (object):
                     self.set_sm (bra, ket, np.dot (bqbra, apket.reshape (norb, -1).T))
                 # <j|b_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,-1]):
-                    hh = np.array ([[np.dot (bravec, des_b (pket, norb, nelec, q).ravel ())
+                    hh = np.array ([[np.dot (bravec, des_b_loop (pket, nelec, q).ravel ())
                         for pket in apket] for q in range (norb)])
                     self.set_hh (bra, ket, 1, hh)
                 # <j|a_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-2,0]):
-                    hh_triu = [bravec.dot (des_a (apket[p], norb, nelec, q).ravel ())
+                    hh_triu = [bravec.dot (des_a_loop (apket[p], nelec, q).ravel ())
                         for q, p in combinations (range (norb), 2)] 
                     hh = np.zeros ((norb, norb), dtype = apket.dtype)
                     hh[np.triu_indices (norb, k=1)] = hh_triu
@@ -418,7 +458,7 @@ class LSTDMint1 (object):
         # b_p|i>
         for ket in hidx_ket_b:
             nelec = self.nelec_r[ket]
-            bpket = np.stack ([des_b (ci[ket], norb, nelec, p)
+            bpket = np.stack ([des_b_loop (ci[ket], nelec, p)
                 for p in range (norb)], axis=0) if bpvec_list[ket] is None else bpvec_list[ket]
             nelec = (nelec[0], nelec[1]-1)
             for bra in np.where (hopping_index[1,:,ket] < 0)[0]:
@@ -428,11 +468,8 @@ class LSTDMint1 (object):
                     self.set_h (bra, ket, 1, bravec.dot (bpket.reshape (norb,-1).T))
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
-                        solver = self.fcisolvers[bra]
-                        linkstr = self.linkstr[bra]
-                        phh = np.stack ([solver.trans_rdm12s (ketmat, ci[bra], norb,
-                            self.nelec_r[bra], link_index=linkstr)[0] for ketmat in bpket],
-                            axis=-1) # Arg order switched cf. docstring direct_spin1.trans_rdm12s
+                        phh = np.stack ([trans_rdm12s_loop (bra, ci[bra], ketmat)[0]
+                                         for ketmat in bpket], axis=-1)
                         err = np.abs (phh[1] + phh[1].transpose (0,2,1))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
                         # ^ Passing this assert proves that I have the correct index
@@ -440,7 +477,7 @@ class LSTDMint1 (object):
                         self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
-                    hh_triu = [bravec.dot (des_b (bpket[p], norb, nelec, q).ravel ())
+                    hh_triu = [bravec.dot (des_b_loop (bpket[p], nelec, q).ravel ())
                         for q, p in combinations (range (norb), 2)]
                     hh = np.zeros ((norb, norb), dtype = bpket.dtype)
                     hh[np.triu_indices (norb, k=1)] = hh_triu
