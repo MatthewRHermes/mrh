@@ -478,8 +478,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   // loop over f1 (i<nmo)
 #pragma omp parallel for
   for(int p=0; p<nmo; ++p) {
-
-    int it = omp_get_thread_num();
     
     double * f1 = &(f1_prime[p * nmo]);
   

@@ -17,6 +17,20 @@
 #define F_3D(name, i, j, k, lda, ldb) name[(k-1)*lda*ldb + (j-1)*lda + i-1]
 #define F_4D(name, i, j, k, l, lda, ldb, ldc) name[(l-1)*lda*ldb*ldc + (k-1)*lda*ldb + (j-1)*lda + i-1]
 
+/* ---------------------------------------------------------------------- */
+
+void * libgpu_init()
+{
+  Device * ptr = (Device *) libgpu_create_device();
+
+  int device_id = 0;
+  libgpu_set_device(ptr, device_id);
+  
+  return (void *) ptr;
+}
+
+/* ---------------------------------------------------------------------- */
+
 void * libgpu_create_device()
 {
   Device * ptr = new Device();
