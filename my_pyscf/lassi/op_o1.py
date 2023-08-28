@@ -217,7 +217,7 @@ class LSTDMint1 (object):
     def try_get_dm (self, tab, i, j):
         try:
             assert (tab[i][j] is not None)
-            return tab[i][j]
+            return tab[i][j][0,0]
         except Exception as e:
             errstr = 'frag {} failure to get element {},{}'.format (self.idx_frag, i, j)
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,i,j])
@@ -226,7 +226,7 @@ class LSTDMint1 (object):
     def try_get_tdm (self, tab, s, i, j):
         try:
             assert (tab[s][i][j] is not None)
-            return tab[s][i][j]
+            return tab[s][i][j][0,0]
         except Exception as e:
             errstr = 'frag {} failure to get element {},{} w spin {}'.format (
                 self.idx_frag, i, j, s)
@@ -372,12 +372,11 @@ class LSTDMint1 (object):
         # Loop over lroots functions
         # TODO: lift the down-indexing for lroots == 1!
         def des_loop (des_fn, c, nelec, p):
-            na = cistring.num_strings (norb, nelec[0])
-            nb = cistring.num_strings (norb, nelec[1])
-            c = c.reshape (-1, na, nb)
+            #na = cistring.num_strings (norb, nelec[0])
+            #nb = cistring.num_strings (norb, nelec[1])
+            #c = c.reshape (-1, na, nb)
             des_c = [des_fn (c_i, norb, nelec, p) for c_i in c]
             assert (c.ndim==3)
-            if len (c) == 1: des_c = des_c[0] # TODO: remove
             return np.asarray (des_c)
         def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
         def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
@@ -394,10 +393,6 @@ class LSTDMint1 (object):
                 # Transpose based on docstring of direct_spin1.trans_rdm12s
                 tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
                 tdm2s[i,j] = np.stack (d2s, axis=0)
-            if ket.shape[0] == 1:
-                tdm1s, tdm2s = tdm1s[:,0], tdm2s[:,0]
-            if bra.shape[0] == 1:
-                tdm1s, tdm2s = tdm1s[0], tdm2s[0]
             return tdm1s, tdm2s
 
         # Spectator fragment contribution
@@ -410,6 +405,7 @@ class LSTDMint1 (object):
             if zerop_index[i,j]: self.set_dm2 (i, j, dm2s)
 
         # Cache some b_p|i> beforehand for the sake of the spin-flip intermediate 
+        # shape = (norb, lroots[ket], ndeta[ket], ndetb[*])
         hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
         hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
         bpvec_list = [None for ket in range (nroots)]
@@ -418,41 +414,49 @@ class LSTDMint1 (object):
                 bpvec_list[ket] = np.stack ([des_b_loop (ci[ket], self.nelec_r[ket], p)
                                              for p in range (norb)], axis=0)
 
-        # a_p|i>
+        # a_p|i>; shape = (norb, lroots[ket], ndeta[*], ndetb[ket])
         for ket in hidx_ket_a:
             nelec = self.nelec_r[ket]
             apket = np.stack ([des_a_loop (ci[ket], nelec, p) for p in range (norb)], axis=0)
             nelec = (nelec[0]-1, nelec[1])
             for bra in np.where (hopping_index[0,:,ket] < 0)[0]:
-                bravec = ci[bra].ravel ()
+                bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
-                    self.set_h (bra, ket, 0, bravec.dot (apket.reshape (norb,-1).T))
+                    self.set_h (bra, ket, 0, np.tensordot (
+                        bravec, apket.reshape (norb,lroots[ket],ndeta[bra]*ndetb[bra]).T, axes=1
+                    ))
                     # <j|a'_q a_r a_p|i>, <j|b'_q b_r a_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
                         phh = np.stack ([trans_rdm12s_loop (bra, ci[bra], ketmat)[0]
                                          for ketmat in apket], axis=-1)
-                        err = np.abs (phh[0] + phh[0].transpose (0,2,1))
+                        err = np.abs (phh[:,:,0] + phh[:,:,0].transpose (0,1,2,4,3))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err)) 
                         # ^ Passing this assert proves that I have the correct index
                         # and argument ordering for the call and return of trans_rdm12s
                         self.set_phh (bra, ket, 0, phh)
                 # <j|b'_q a_p|i> = <j|s-|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,1]):
-                    bqbra = bpvec_list[bra].reshape (norb, -1).conj ()
-                    self.set_sm (bra, ket, np.dot (bqbra, apket.reshape (norb, -1).T))
+                    bqbra = bpvec_list[bra].reshape (norb, lroots[bra], -1).conj ()
+                    self.set_sm (bra, ket, np.tensordot (
+                        bqbra, apket.reshape (norb, lroots[ket], -1).T, axes=1
+                    ).transpose (1,2,0,3))
                 # <j|b_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-1,-1]):
-                    hh = np.array ([[np.dot (bravec, des_b_loop (pket, nelec, q).ravel ())
-                        for pket in apket] for q in range (norb)])
+                    hh = np.zeros ((lroots[bra], lroots[ket], norb, norb), dtype = self.dtype)
+                    for q, p in product (range (norb), repeat=2):
+                        bq_ap_ket = des_b_loop (apket[p], nelec, q)
+                        bq_ap_ket = bq_ap_ket.reshape (lroots[ket], ndeta[bra]*ndetb[bra])
+                        hh[:,:,q,p] = np.dot (bravec, bq_ap_ket.T)
                     self.set_hh (bra, ket, 1, hh)
                 # <j|a_q a_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [-2,0]):
-                    hh_triu = [bravec.dot (des_a_loop (apket[p], nelec, q).ravel ())
-                        for q, p in combinations (range (norb), 2)] 
-                    hh = np.zeros ((norb, norb), dtype = apket.dtype)
-                    hh[np.triu_indices (norb, k=1)] = hh_triu
-                    hh -= hh.T
+                    hh = np.zeros ((lroots[bra], lroots[ket], norb, norb), dtype = self.dtype)
+                    for q, p in combinations (range (norb), 2):
+                        aq_ap_ket = des_a_loop (apket[p], nelec, q)
+                        aq_ap_ket = aq_ap_ket.reshape (lroots[ket], ndeta[bra]*ndetb[bra])
+                        hh[:,:,q,p] = np.dot (bravec, aq_ap_ket.T)
+                    hh -= hh.transpose (0,1,3,2)
                     self.set_hh (bra, ket, 0, hh)                
                 
         # b_p|i>
@@ -462,26 +466,29 @@ class LSTDMint1 (object):
                 for p in range (norb)], axis=0) if bpvec_list[ket] is None else bpvec_list[ket]
             nelec = (nelec[0], nelec[1]-1)
             for bra in np.where (hopping_index[1,:,ket] < 0)[0]:
-                bravec = ci[bra].ravel ()
+                bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
-                    self.set_h (bra, ket, 1, bravec.dot (bpket.reshape (norb,-1).T))
+                    self.set_h (bra, ket, 1, np.tensordot (
+                        bravec, bpket.reshape (norb,lroots[ket],ndeta[bra]*ndetb[bra]).T, axes=1
+                    ))
                     # <j|a'_q a_r b_p|i>, <j|b'_q b_r b_p|i> - how to tell if consistent sign rule?
                     if onep_index[bra,ket]:
                         phh = np.stack ([trans_rdm12s_loop (bra, ci[bra], ketmat)[0]
                                          for ketmat in bpket], axis=-1)
-                        err = np.abs (phh[1] + phh[1].transpose (0,2,1))
+                        err = np.abs (phh[:,:,1] + phh[:,:,1].transpose (0,1,2,4,3))
                         assert (np.amax (err) < 1e-8), '{}'.format (np.amax (err))
                         # ^ Passing this assert proves that I have the correct index
                         # and argument ordering for the call and return of trans_rdm12s
                         self.set_phh (bra, ket, 1, phh)
                 # <j|b_q b_p|i>
                 elif np.all (hopping_index[:,bra,ket] == [0,-2]):
-                    hh_triu = [bravec.dot (des_b_loop (bpket[p], nelec, q).ravel ())
-                        for q, p in combinations (range (norb), 2)]
-                    hh = np.zeros ((norb, norb), dtype = bpket.dtype)
-                    hh[np.triu_indices (norb, k=1)] = hh_triu
-                    hh -= hh.T
+                    hh = np.zeros ((lroots[bra], lroots[ket], norb, norb), dtype = self.dtype)
+                    for q, p in combinations (range (norb), 2):
+                        bq_bp_ket = des_b_loop (bpket[p], nelec, q)
+                        bq_bp_ket = bq_bp_ket.reshape (lroots[ket], ndeta[bra]*ndetb[bra])
+                        hh[:,:,q,p] = np.dot (bravec, bq_bp_ket.T)
+                    hh -= hh.transpose (0,1,3,2)
                     self.set_hh (bra, ket, 2, hh)                
         
         return t0
