@@ -104,15 +104,21 @@ Device::~Device()
 #endif
 
 #if defined (_GPU_CUDA)
+#ifdef _CUDA_NVTX
   nvtxRangePushA("Deallocate");
+#endif
   pm->dev_free(d_buf2);
   pm->dev_free(d_buf3);
   pm->dev_free(d_vkk);
-  nvtxRangePop();  
+#ifdef _CUDA_NVTX
+  nvtxRangePop();
   
   nvtxRangePushA("Destroy Handle");
+#endif
   cublasDestroy(handle);
+#ifdef _CUDA_NVTX
   nvtxRangePop();
+#endif
 
   pm->dev_stream_destroy(stream);
 #endif

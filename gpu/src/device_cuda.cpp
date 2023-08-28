@@ -477,12 +477,16 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     if(_vktmp) pm->dev_free_host(_vktmp);
     _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
 
+#ifdef _CUDA_NVTX
     nvtxRangePushA("Realloc");
+#endif
     
     if(d_vkk) pm->dev_free(d_vkk);
     d_vkk = (double *) pm->dev_malloc(size_vk * sizeof(double));
-    
+
+#ifdef _CUDA_NVTX
     nvtxRangePop();
+#endif
   }
   for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
@@ -497,15 +501,19 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
     buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (blksize*nao, nao)
 
+#ifdef _CUDA_NVTX
     nvtxRangePushA("Realloc");
+#endif
 
     if(d_buf2) pm->dev_free(d_buf2);
     if(d_buf3) pm->dev_free(d_buf3);
     
     d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
     d_buf3 = (double *) pm->dev_malloc(size_buf * sizeof(double));
-    
+
+#ifdef _CUDA_NVTX
     nvtxRangePop();
+#endif
   }
 
   int _size_fdrv = 4 * nao * nao * num_threads;
@@ -518,10 +526,14 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   // Create blas handle
 
   if(handle == NULL) {
+#ifdef _CUDA_NVTX
     nvtxRangePushA("Create handle");
+#endif
     cublasCreate(&handle);
     _CUDA_CHECK_ERRORS();
+#ifdef _CUDA_NVTX
     nvtxRangePop();
+#endif
   }
 
   if(stream == NULL) {
@@ -818,22 +830,30 @@ void Device::get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, py::
 #else
     // transfer
 
+#ifdef _CUDA_NVTX
     nvtxRangePushA("HtoD Transfer");
+#endif
     dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
     dev_push_async(d_buf3, buf3, blksize * nao * nao * sizeof(double), stream);
     dev_push(d_vkk, vkk, nset * nao * nao * sizeof(double));
     dev_stream_wait(stream);
+#ifdef _CUDA_NVTX
     nvtxRangePop();
 
     nvtxRangePushA("DGEMM");
+#endif
     cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk, ldc);
+#ifdef _CUDA_NVTX
     nvtxRangePop();
     
     // transfer
 
     nvtxRangePushA("DtoH Transfer");
+#endif
     dev_pull(d_vkk, vkk, nset * nao * nao * sizeof(double));
+#ifdef _CUDA_NVTX
     nvtxRangePop();
+#endif
 #endif
     
 #endif
