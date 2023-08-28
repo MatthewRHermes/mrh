@@ -19,10 +19,6 @@ extern "C"
   int libgpu_get_num_devices(void *);
   void libgpu_dev_properties(void *, int);
   void libgpu_set_device(void *, int);
-  
-
-  void libgpu_setup(void *, py::array_t<double>, int);
-  double libgpu_compute(void *, py::array_t<double>);
 
   void libgpu_init_get_jk(void *,
 			  py::array_t<double>, py::array_t<double>, int, int, int);
@@ -53,9 +49,6 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_get_num_devices", &libgpu_get_num_devices, "return number of devices present");
   m.def("libgpu_dev_properties", &libgpu_dev_properties, "info on available devices");
   m.def("libgpu_set_device", &libgpu_set_device, "select device");
-  
-  m.def("libgpu_setup", &libgpu_setup, "setup data structs on device");
-  m.def("libgpu_compute", &libgpu_compute, "compute something useful on device");
 
   m.def("libgpu_compute_get_jk", &libgpu_compute_get_jk, "pyscf/df/df_jk.py::get_jk()");
   m.def("libgpu_init_get_jk", &libgpu_init_get_jk, "alloc for get_jk()");

@@ -10,15 +10,22 @@
 
 #include "pm.h"
 
-int dev_num_devices() {
+using namespace PM_NS;
 
-  int num_threads = 0;
+PM::PM()
+{
+}
+
+int PM::dev_num_devices()
+{
+  
+  num_threads = 0;
   
 #pragma omp parallel
   num_threads = omp_get_num_threads();
-
+  
   const int date = _OPENMP;
-
+  
   double version;
   if     (date == 201107) version = 3.1;
   else if(date == 201307) version = 4.0;
@@ -36,29 +43,29 @@ int dev_num_devices() {
   return num_threads;
 }
 
-void dev_properties(int ndev) {}
+void PM::dev_properties(int ndev) {}
 
-int dev_check_peer(int rank, int ngpus) {return 0;}
+int PM::dev_check_peer(int rank, int ngpus) {return 0;}
 
-void dev_set_device(int id) {}
+void PM::dev_set_device(int id) {}
 
-int dev_get_device() {return 0;}
+int PM::dev_get_device() {return 0;}
 
-void * dev_malloc(size_t N) {return malloc(N);}
+void * PM::dev_malloc(size_t N) {return malloc(N);}
 
-void * dev_malloc_host(size_t N) {return malloc(N);}
+void * PM::dev_malloc_host(size_t N) {return malloc(N);}
 
-void dev_free(void * ptr) {free(ptr);}
+void PM::dev_free(void * ptr) {free(ptr);}
 
-void dev_free_host(void * ptr) {free(ptr);}
+void PM::dev_free_host(void * ptr) {free(ptr);}
 
-void dev_push(void * d_ptr, void * h_ptr, size_t N) {memcpy(d_ptr, h_ptr, N);}
+void PM::dev_push(void * d_ptr, void * h_ptr, size_t N) {memcpy(d_ptr, h_ptr, N);}
 
-void dev_pull(void * d_ptr, void * h_ptr, size_t N) {memcpy(h_ptr, d_ptr, N);}
+void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N) {memcpy(h_ptr, d_ptr, N);}
 
-void dev_copy(void * dest, void * src, size_t N) {memcpy(dest, src, N);}
+void PM::dev_copy(void * dest, void * src, size_t N) {memcpy(dest, src, N);}
 
-void dev_check_pointer(int rnk, const char * name, void * ptr)
+void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
 {
   if(ptr != nullptr) printf("(%i) ptr %s is hostPointer\n",rnk,name);
 }

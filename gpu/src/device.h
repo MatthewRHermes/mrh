@@ -14,6 +14,8 @@ namespace py = pybind11;
 #include "pm.h"
 #include "dev_array.h"
 
+using namespace PM_NS;
+
 #define _SIZE_GRID 32
 #define _SIZE_BLOCK 256
 
@@ -55,9 +57,6 @@ public :
   void get_dev_properties(int);
   void set_device(int);
 
-  void setup(double *, int);
-  double compute(double *);
-
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int);
   void free_get_jk();
   
@@ -72,6 +71,9 @@ public :
 			int, int, int);
   
 private:
+
+  class PM * pm;
+  
   double host_compute(double *);
   int n;
   int size_data;
