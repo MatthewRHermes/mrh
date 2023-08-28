@@ -4,7 +4,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
 from itertools import product, combinations
-from mrh.my_pyscf.lassi.citools import get_lroots
+from mrh.my_pyscf.lassi.citools import get_lroots, envaddr2fragaddr
 import time
 
 # NOTE: PySCF has a strange convention where
@@ -177,6 +177,10 @@ class LSTDMint1 (object):
             hopping_index: ndarray of ints of shape (2, nroots, nroots)
                 element [i,j,k] reports the change of number of electrons of
                 spin i in the current fragment between LAS states j and k
+            rootaddr: ndarray of shape (nstates):
+                Index array of LAS states into a given rootspace
+            fragaddr: ndarray of shape (nstates):
+                Index array of LAS states into this fragment's local basis
             idx_frag : integer
                 index label of current fragment
 
@@ -185,8 +189,8 @@ class LSTDMint1 (object):
                 Currently not used
     '''
 
-    def __init__(self, fcibox, norb, nelec, nroots, hopping_index, idx_frag,
-                 dtype=np.float64):
+    def __init__(self, fcibox, norb, nelec, nroots, hopping_index, rootaddr, fragaddr,
+                 idx_frag, dtype=np.float64):
         # I'm not sure I need linkstrl
         self.linkstrl = fcibox.states_gen_linkstr (norb, nelec, tril=True)
         self.linkstr = fcibox.states_gen_linkstr (norb, nelec, tril=False)
@@ -205,6 +209,8 @@ class LSTDMint1 (object):
         self.dm1 = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
         self.hopping_index = hopping_index
+        self.rootaddr = rootaddr
+        self.fragaddr = fragaddr
         self.idx_frag = idx_frag
 
     # Exception catching
@@ -215,22 +221,26 @@ class LSTDMint1 (object):
         else: raise RuntimeError (str (len (args)))
 
     def try_get_dm (self, tab, i, j):
+        ir, jr = self.rootaddr[i], self.rootaddr[j]
         try:
-            assert (tab[i][j] is not None)
-            return tab[i][j][0,0]
+            assert (tab[ir][jr] is not None)
+            ip, jp = self.fragaddr[i], self.fragaddr[j]
+            return tab[ir][jr][ip,jp]
         except Exception as e:
-            errstr = 'frag {} failure to get element {},{}'.format (self.idx_frag, i, j)
-            errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,i,j])
+            errstr = 'frag {} failure to get element {},{}'.format (self.idx_frag, ir, jr)
+            errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
 
     def try_get_tdm (self, tab, s, i, j):
+        ir, jr = self.rootaddr[i], self.rootaddr[j]
         try:
-            assert (tab[s][i][j] is not None)
-            return tab[s][i][j][0,0]
+            assert (tab[s][ir][jr] is not None)
+            ip, jp = self.fragaddr[i], self.fragaddr[j]
+            return tab[s][ir][jr][ip,jp]
         except Exception as e:
             errstr = 'frag {} failure to get element {},{} w spin {}'.format (
-                self.idx_frag, i, j, s)
-            errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,i,j])
+                self.idx_frag, ir, jr, s)
+            errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
 
     # 1-particle 1-operator intermediate
@@ -1059,7 +1069,7 @@ def make_ints (las, ci, nelec_frs):
     Returns:
         hopping_index : ndarray of ints of shape (nfrags, 2, nroots, nroots)
             element [i,j,k,l] reports the change of number of electrons of
-            spin j in fragment i between LAS states k and l
+            spin j in fragment i between LAS rootspaces k and l
         ints : list of length nfrags of instances of :class:`LSTDMint1`
     '''
     fciboxes = las.fciboxes
@@ -1070,10 +1080,11 @@ def make_ints (las, ci, nelec_frs):
     lroots = get_lroots (ci)
     if np.any(lroots>1): raise NotImplementedError ("LASSI o1 algorithm w/ local excitations")
     hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, nelec_frs)
+    rootaddr, fragaddr = envaddr2fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
         tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots,
-                            hopping_index[ifrag], ifrag)
+                            hopping_index[ifrag], rootaddr, fragaddr[ifrag], ifrag)
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *t0)

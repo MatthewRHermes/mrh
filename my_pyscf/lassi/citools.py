@@ -33,5 +33,34 @@ def get_lroots (ci):
             lroots.append (get_lroots (c))
     return np.asarray (lroots)
 
+def envaddr2fragaddr (lroots):
+    '''Generate an index array into a compressed fragment basis for a state in the LASSI model
+    space
+
+    Args:
+        lroots: ndarray of shape (nfrags, nroots)
+            Number of local roots in each fragment in each rootspace
+
+    Returns:
+        rootaddr: ndarray of shape (nstates,)
+            The rootspace associated with each state
+        fragaddr: ndarray of shape (nfrags, nstates)
+            The ordinal designation local to each fragment of each LAS state.
+    '''
+    nfrags, nroots = lroots.shape
+    nprods = np.product (lroots, axis=0)
+    fragaddr = np.zeros ((nfrags, sum(nprods)), dtype=int)
+    rootaddr = np.zeros (sum(nprods), dtype=int)
+    offs = np.cumsum (nprods)
+    for iroot in range (nroots):
+        j = offs[iroot]
+        i = j - nprods[iroot]
+        addrs = np.stack (np.meshgrid (*[np.arange(l) for l in lroots[::-1,iroot]],
+                                      indexing='ij'), axis=0).astype (int)
+        addrs = addrs.reshape (nfrags, nprods[iroot])[::-1,:]
+        fragaddr[:,i:j] = addrs
+        rootaddr[i:j] = iroot
+    return rootaddr, fragaddr
+
 
 
