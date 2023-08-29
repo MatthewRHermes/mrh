@@ -252,7 +252,6 @@ class LSTDMint1 (object):
 
     def get_h (self, i, j, s):
         return self.try_get (self._h, s, i, j)
-        #return self._h[s][i][j]
 
     def set_h (self, i, j, s, x):
         self._h[s][i][j] = x
@@ -260,7 +259,6 @@ class LSTDMint1 (object):
 
     def get_p (self, i, j, s):
         return self.try_get (self._h, s, j, i).conj ()
-        #return self._h[s][j][i].conj ()
 
     # 2-particle intermediate
 
@@ -274,13 +272,11 @@ class LSTDMint1 (object):
 
     def get_pp (self, i, j, s):
         return self.try_get (self._hh, s, j, i).conj ().T
-        #return self._hh[s][j][i].conj ().T
 
     # 1-particle 3-operator intermediate
 
     def get_phh (self, i, j, s):
         return self.try_get (self._phh, s, i, j)
-        #return self._phh[s][i][j]
 
     def set_phh (self, i, j, s, x):
         self._phh[s][i][j] = x
@@ -288,13 +284,11 @@ class LSTDMint1 (object):
 
     def get_pph (self, i, j, s):
         return self.try_get (self._phh, s, j, i).conj ().transpose (0,3,2,1)
-        #return self._phh[s][j][i].conj ().transpose (0,3,2,1)
 
     # spin-hop intermediate
 
     def get_sm (self, i, j):
         return self.try_get (self._sm, i, j)
-        #return self._sm[i][j]
 
     def set_sm (self, i, j, x):
         self._sm[i][j] = x
@@ -302,16 +296,13 @@ class LSTDMint1 (object):
 
     def get_sp (self, i, j):
         return self.try_get (self._sm, j, i).conj ().T
-        #return self._sm[j][i].conj ().T
 
     # 1-density intermediate
 
     def get_dm1 (self, i, j):
         if j > i:
             return self.try_get (self.dm1, j, i).conj ().transpose (0, 2, 1)
-            #return self.dm1[j][i].conj ().transpose (0, 2, 1)
         return self.try_get (self.dm1, i, j)
-        #return self.dm1[i][j]
 
     def set_dm1 (self, i, j, x):
         if j > i:
@@ -322,12 +313,13 @@ class LSTDMint1 (object):
     # 2-density intermediate
 
     def get_dm2 (self, i, j):
-        k, l = max (i, j), min (i, j)
-        return self.try_get (self.dm2, k, l)
-        #return self.dm2[k][l]
+        if j > i:
+            return self.try_get (self.dm2, j, i).conj ().transpose (0, 2, 1, 4, 3)
+        return self.try_get (self.dm2, i, j)
 
     def set_dm2 (self, i, j, x):
         if j > i:
+            assert (False)
             self.dm2[j][i] = x.conj ().transpose (0, 2, 1, 4, 3)
         else:
             self.dm2[i][j] = x
@@ -381,7 +373,6 @@ class LSTDMint1 (object):
             self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
 
         # Loop over lroots functions
-        # TODO: lift the down-indexing for lroots == 1!
         def des_loop (des_fn, c, nelec, p):
             #na = cistring.num_strings (norb, nelec[0])
             #nb = cistring.num_strings (norb, nelec[1])

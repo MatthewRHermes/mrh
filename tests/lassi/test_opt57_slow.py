@@ -21,15 +21,18 @@ from copy import deepcopy
 from itertools import product
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
+from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
+from mrh.my_pyscf.lassi.citools import get_lroots, envaddr2fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 
 def setUpModule ():
-    global mol, mf, las, nroots, nelec_frs, si, orbsym, wfnsym
+    global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
     # Build crazy state list
     states  = {'charges': [[0,0,0],],
                'spins':   [[0,0,0],],
@@ -57,14 +60,24 @@ def setUpModule ():
              'wfnsyms': [[1,1,0],]*8}
     states6 = deepcopy (states5)
     states7 = deepcopy (states5)
+    lroots = np.ones ((3, 57), dtype=int)
+    offs = [0,]
     for field in ('charges', 'spins', 'smults', 'wfnsyms'):
         states6[field] = [[row[1], row[2], row[0]] for row in states5[field]]
         states7[field] = [[row[2], row[0], row[1]] for row in states5[field]]
     for d in [states1, states2, states3, states4, states5, states6, states7]:
+        offs.append (len (states['charges']))
         for field in ('charges', 'spins', 'smults', 'wfnsyms'):
             states[field] = states[field] + d[field]
+    lroots[:,offs[0]] = [2, 2, 2]
+    lroots[:,offs[1]] = [2, 2, 2]
+    lroots[:,offs[2]] = [2, 1, 2]
+    lroots[:,offs[3]] = [2, 1, 2]
+    lroots[:,offs[4]] = [2, 2, 2]
+    lroots[:,offs[5]] = [2, 2, 2]
     weights = [1.0,] + [0.0,]*56
     nroots = 57
+    nstates = 91
     # End building crazy state list
     
     dr_nn = 2.0
@@ -79,37 +92,49 @@ def setUpModule ():
     las.mo_coeff = las.localize_init_guess ((list (range (3)),
         list (range (3,7)), list (range (7,10))), mf.mo_coeff)
     las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
+    nelec_frs = np.array (
+        [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
+         for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+    )
+    ndet_frs = np.array (
+        [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
+           cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
+          for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
+    )
     np.random.seed (1)
-    for c in las.ci:
-        for iroot in range (len (c)):
-            c[iroot] = np.random.rand (*c[iroot].shape)
-            c[iroot] /= linalg.norm (c[iroot])
+    for iroot in range (las.nroots):
+        for ifrag in range (las.nfrags):
+            lroots_r = lroots[ifrag,iroot]
+            ndet_s = ndet_frs[ifrag,iroot]
+            ci = np.random.rand (lroots_r, ndet_s[0], ndet_s[1])
+            ci /= linalg.norm (ci.reshape (lroots_r,-1), axis=1)[:,None,None]
+            if lroots_r==1: ci=ci[0]
+            las.ci[ifrag][iroot] = ci
     orbsym = getattr (las.mo_coeff, 'orbsym', None)
     if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
         orbsym = las.label_symmetry_(las.mo_coeff).orbsym
     if orbsym is not None:
         orbsym = orbsym[las.ncore:las.ncore+las.ncas]
     wfnsym = 0
-    nelec_frs = np.array (
-        [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
-         for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-    )
-    rand_mat = np.random.rand (57,57)
+    #las.lasci (lroots=lroots)
+    rand_mat = np.random.rand (nstates,nstates)
     rand_mat += rand_mat.T
     e, si = linalg.eigh (rand_mat)
 
 def tearDownModule():
-    global mol, mf, las, nroots, nelec_frs, si, orbsym, wfnsym
+    global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
     mol.stdout.close ()
-    del mol, mf, las, nroots, nelec_frs, si, orbsym, wfnsym
+    del mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):
         d12_o0 = make_stdm12s (las, opt=0)
         d12_o1 = make_stdm12s (las, opt=1)
+        rootaddr, fragaddr = envaddr2fragaddr (get_lroots (las.ci))
         for r in range (2):
-            for i, j in product (range (nroots), repeat=2):
-                with self.subTest (rank=r+1, bra=i, ket=j):
+            for i, j in product (range (nstates), repeat=2):
+                with self.subTest (rank=r+1, idx=(i,j), spaces=(rootaddr[i], rootaddr[j]),
+                                   envs=(list(fragaddr[:,i]),list(fragaddr[:,j]))):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
                         lib.fp (d12_o1[r][i,...,j]), 9)
 
@@ -127,12 +152,12 @@ class KnownValues(unittest.TestCase):
         d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
         d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
         for r in range (2):
-            for i in range (nroots):
+            for i in range (nstates):
                 with self.subTest (rank=r+1, root=i):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
 
 if __name__ == "__main__":
-    print("Full Tests for LASSI matrix elements of 57-state manifold")
+    print("Full Tests for LASSI matrix elements of 57-space (91-state) manifold")
     unittest.main()
 
