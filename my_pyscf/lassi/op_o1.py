@@ -1162,8 +1162,9 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
 
     # Put tdm1s in PySCF convention: [p,q] -> q'p
+    nstates = np.sum (np.prod (lroots, axis=0))
     tdm1s = tdm1s.transpose (0,2,4,3,1)
-    tdm2s = tdm2s.reshape (nroots,nroots,2,2,ncas,ncas,ncas,ncas).transpose (0,2,4,5,3,6,7,1)
+    tdm2s = tdm2s.reshape (nstates,nstates,2,2,ncas,ncas,ncas,ncas).transpose (0,2,4,5,3,6,7,1)
     return tdm1s, tdm2s
 
 def ham (las, h1, h2, ci, nelec_frs, **kwargs):

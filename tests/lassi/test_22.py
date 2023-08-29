@@ -16,7 +16,7 @@ import copy
 import unittest
 import numpy as np
 from scipy import linalg
-from pyscf import lib, gto, scf, mcscf
+from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
@@ -37,6 +37,7 @@ def setUpModule ():
     rng = np.random.default_rng ()
     mf._eri = rng.random (mf._eri.shape)
     hcore = rng.random ((4,4))
+    hcore = hcore + hcore.T
     mf.get_hcore = lambda *args: hcore
 
     # LASSCF with CASCI-limit model space
@@ -62,20 +63,10 @@ class KnownValues(unittest.TestCase):
 
     def test_op_o1 (self):
         e_roots, si = LASSI (lsi._las).kernel (opt=1)
-        ham_o1 = (si * e_roots[None,:]) @ si.conj ().T
-        ham_o0 = (lsi.si * lsi.e_roots[None,:]) @ lsi.si.conj ().T
-        ham_agree = np.isclose (ham_o1, ham_o0)
-        lroots = lsi.get_lroots ()
-        lroots_prod = np.prod (lroots, axis=0)
-        lroots_offs = np.cumsum (lroots_prod)
-        nelec_rfs = lsi.get_nelec_frs ().transpose (1,0,2)
-        for i in range (len (lroots_prod)):
-            i1 = lroots_offs[i]
-            i0 = i1 - lroots_prod[i] 
-            print (nelec_rfs[i], "\n", ham_agree[:9,i0:i1].astype (int))
-        print (lroots_prod)
         self.assertAlmostEqual (lib.fp (e_roots), lib.fp (lsi.e_roots), 8)
-        self.assertAlmostEqual (lib.fp (si), lib.fp (lsi.si), 8)
+        ovlp = si.conj ().T @ lsi.si
+        u, svals, vh = linalg.svd (ovlp)
+        self.assertAlmostEqual (lib.fp (svals), lib.fp (np.ones (len (svals))), 8)
 
     def test_casci_limit (self):
         # CASCI limit
@@ -88,14 +79,14 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
         for opt in range (2):
             with self.subTest (opt=opt):
-                lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=0)
+                lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=opt)
                 lasdm1 = lasdm1s.sum (0)
                 lasdm2 = lasdm2s.sum ((0,3))
                 with self.subTest ("casdm1"):
                     self.assertAlmostEqual (lib.fp (lasdm1), lib.fp (casdm1), 8)
                 with self.subTest ("casdm2"):
                     self.assertAlmostEqual (lib.fp (lasdm2), lib.fp (casdm2), 8)
-                stdm1s = make_stdm12s (las, opt=0)[0][9:13,:,:,:,9:13] # second rootspace
+                stdm1s = make_stdm12s (las, opt=opt)[0][9:13,:,:,:,9:13] # second rootspace
                 with self.subTest("state indexing"):
                     # column-major ordering for state excitation quantum numbers:
                     # earlier fragments advance faster than later fragments
