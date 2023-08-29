@@ -21,6 +21,7 @@ from copy import deepcopy
 from itertools import product
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
+from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
@@ -64,17 +65,26 @@ def setUpModule ():
     a = list (range (18))
     frags = [a[:5], a[5:9], a[9:13], a[13:18]]
     las.mo_coeff = las.localize_init_guess (frags, mf.mo_coeff)
-    np.random.seed (1)
     las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
-    for c in las.ci:
-        for iroot in range (len (c)):
-            c[iroot] = np.random.rand (*c[iroot].shape)
-            c[iroot] /= linalg.norm (c[iroot])
+    lroots = np.minimum (2, las.get_ugg ().ncsf_sub)
     nelec_frs = np.array (
         [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
          for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
     )
-    rand_mat = np.random.rand (7,7)
+    ndet_frs = np.array (
+        [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
+           cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
+          for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
+    )
+    np.random.seed (1)
+    for ifrag, c in enumerate (las.ci):
+        for iroot in range (len (c)):
+            lr = lroots[ifrag][iroot]
+            ndeta, ndetb = ndet_frs[ifrag][iroot]
+            ci = np.random.rand (lr, ndeta, ndetb)
+            ci /= linalg.norm (ci.reshape (lr,-1), axis=1)[:,None,None]
+            c[iroot] = ci
+    rand_mat = np.random.rand (96,96)
     rand_mat += rand_mat.T
     e, si = linalg.eigh (rand_mat)
     si = lib.tag_array (si, rootsym=las_symm_tuple (las)[0])
