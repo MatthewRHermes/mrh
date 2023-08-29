@@ -136,13 +136,13 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
                     f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(0,3,2))) # second index external
                     f1[ncore:nocc] += np.tensordot (ar, cm, axes=((0,1,2),(1,3,2))) # first index external
                                 
-                # (H.x_aa)_va, (H.x_aa)_ac
-                ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
-                ocm2 += ocm2.transpose (2,3,0,1)
-                ecm2 = ocm2 + tcm2
-                f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
-                f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
-                return gorb + (f1_prime - f1_prime.T)
+            # (H.x_aa)_va, (H.x_aa)_ac
+            ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
+            ocm2 += ocm2.transpose (2,3,0,1)
+            ecm2 = ocm2 + tcm2
+            f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
+            f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
+            return gorb + (f1_prime - f1_prime.T)
 
     def _update_h2eff_sub (self, mo1, umat, h2eff_sub):
         return self.las.ao2mo (mo1)
