@@ -921,7 +921,7 @@ class LSTDMint2 (object):
         ket0, ket1 = self.offs_lroots[row[1]]
         lrow = [l for l in row]
         for lrow[0], lrow[1] in product (range (bra0, bra1), range (ket0, ket1)):
-            return _crunch_fn (*lrow)
+            _crunch_fn (*lrow)
 
     def _crunch_all_(self):
         for row in self.exc_null: self._loop_lroots_(self._crunch_null_, *row)

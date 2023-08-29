@@ -62,10 +62,18 @@ class KnownValues(unittest.TestCase):
 
     def test_op_o1 (self):
         e_roots, si = LASSI (lsi._las).kernel (opt=1)
-        #ham_o1 = (si * e_roots[None,:]) @ si.conj ().T
-        #ham_o0 = (lsi.si * lsi.e_roots[None,:]) @ lsi.si.conj ().T
-        #print (ham_o1)
-        #print (ham_o0)
+        ham_o1 = (si * e_roots[None,:]) @ si.conj ().T
+        ham_o0 = (lsi.si * lsi.e_roots[None,:]) @ lsi.si.conj ().T
+        ham_agree = np.isclose (ham_o1, ham_o0)
+        lroots = lsi.get_lroots ()
+        lroots_prod = np.prod (lroots, axis=0)
+        lroots_offs = np.cumsum (lroots_prod)
+        nelec_rfs = lsi.get_nelec_frs ().transpose (1,0,2)
+        for i in range (len (lroots_prod)):
+            i1 = lroots_offs[i]
+            i0 = i1 - lroots_prod[i] 
+            print (nelec_rfs[i], "\n", ham_agree[:9,i0:i1].astype (int))
+        print (lroots_prod)
         self.assertAlmostEqual (lib.fp (e_roots), lib.fp (lsi.e_roots), 8)
         self.assertAlmostEqual (lib.fp (si), lib.fp (lsi.si), 8)
 
