@@ -272,8 +272,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             lib.logger.debug (las, 'Only one state in this symmetry block')
             e_roots.extend (las1.e_states - e0)
             si.append (np.ones ((1,1), dtype=dtype))
-            s2_mat.append (s2_states[idx_prod]*np.ones((1,1)))
-            s2_roots.extend (s2_states[idx_prod])
+            s2_mat.append (s2_states[idx_space]*np.ones((1,1)))
+            s2_roots.extend (s2_states[idx_space])
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
