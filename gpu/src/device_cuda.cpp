@@ -78,8 +78,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int _size_fdrv = 4 * nao * nao * num_threads;
   if(_size_fdrv > size_fdrv) {
     size_fdrv = _size_fdrv;
-    if(buf_fdrv) pm->def_free_host(buf_fdrv);
-    buf_fdrv = (double *) pm->def_malloc_host(size_fdrv*sizeof(double));
+    if(buf_fdrv) pm->dev_free_host(buf_fdrv);
+    buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
   }
   
   // Create blas handle
