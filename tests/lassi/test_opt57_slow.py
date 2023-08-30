@@ -128,8 +128,13 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):
+        t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         d12_o0 = make_stdm12s (las, opt=0)
+        t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         d12_o1 = make_stdm12s (las, opt=1)
+        t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        #print (t1-t0, t2-t1)
+        #print (w1-w0, w2-w1)
         rootaddr, fragaddr = envaddr2fragaddr (get_lroots (las.ci))
         for r in range (2):
             for i, j in product (range (nstates), repeat=2):
@@ -141,16 +146,26 @@ class KnownValues(unittest.TestCase):
     def test_ham_s2_ovlp (self):
         h1, h2 = ham_2q (las, las.mo_coeff, veff_c=None, h2eff_sub=None)[1:]
         lbls = ('ham','s2','ovlp')
+        t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         mats_o0 = op_o0.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
-        fps_o0 = [lib.fp (mat) for mat in mats_o0]
+        t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
+        t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        #print (t1-t0, t2-t1)
+        #print (w1-w0, w2-w1)
+        fps_o0 = [lib.fp (mat) for mat in mats_o0]
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
             with self.subTest(matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
     def test_rdm12s (self):
+        t0, w0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+        t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+        t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        #print (t1-t0, t2-t1)
+        #print (w1-w0, w2-w1)
         for r in range (2):
             for i in range (nstates):
                 with self.subTest (rank=r+1, root=i):
