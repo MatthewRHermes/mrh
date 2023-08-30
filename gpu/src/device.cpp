@@ -16,9 +16,6 @@ Device::Device()
 
   d_data = nullptr;
 
-  partial = nullptr;
-  d_partial = nullptr;
-
   size_rho = 0;
   size_vj = 0;
   size_vk = 0;
@@ -67,9 +64,6 @@ Device::~Device()
   
   pm->dev_free(d_data);
   
-  pm->dev_free(d_partial);
-  free(partial);
-
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
