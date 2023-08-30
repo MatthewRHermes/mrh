@@ -22,10 +22,11 @@ from pyscf.tools import molden
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
+from mrh.my_pyscf.lassi import LASSI
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
-    global mol, mf, las, e_roots, si, rdm1s, rdm2s
+    global lsi, rdm1s, rdm2s
     dr_nn = 2.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
     mol.verbose = 0 #lib.logger.DEBUG
@@ -45,26 +46,27 @@ def setUpModule ():
     #np.savetxt ('test_c2h4n4_mo.dat', las.mo_coeff)
     #np.savetxt ('test_c2h4n4_ci.dat', ugg.pack (las.mo_coeff, las.ci))
     las.e_states = las.energy_nuc () + las.states_energy_elec ()
-    e_roots, si = las.lassi ()
-    rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
+    lsi = LASSI (las).run ()
+    rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, lsi.si)
 
 def tearDownModule():
-    global mol, mf, las, e_roots, si, rdm1s, rdm2s
+    global lsi, rdm1s, rdm2s
+    mol = lsi._las.mol
     mol.stdout.close ()
-    del mol, mf, las, e_roots, si, rdm1s, rdm2s
+    del lsi, rdm1s, rdm2s
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
-        self.assertAlmostEqual (lib.fp (e_roots), 153.47664766268417, 6)
+        self.assertAlmostEqual (lib.fp (lsi.e_roots), 153.47664766268417, 6)
 
     def test_si (self):
         # Arbitrary signage in both the SI and CI vector, sadly
         # Actually this test seems really inconsistent overall...
-        dms = [np.dot (si[:,i:i+1], si[:,i:i+1].conj ().T) for i in range (7)]
+        dms = [np.dot (lsi.si[:,i:i+1], lsi.si[:,i:i+1].conj ().T) for i in range (7)]
         self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.371964339437981, 6)
 
     def test_nelec (self):
-        for ix, ne in enumerate (si.nelec):
+        for ix, ne in enumerate (lsi.nelec):
             if ix == 1:
                 self.assertEqual (ne, (6,2))
             else:
@@ -75,9 +77,10 @@ class KnownValues(unittest.TestCase):
         s2_array[1] = 6
         s2_array[2] = 6
         s2_array[3] = 2
-        self.assertAlmostEqual (lib.fp (si.s2), lib.fp (s2_array), 3)
+        self.assertAlmostEqual (lib.fp (lsi.s2), lib.fp (s2_array), 3)
 
     def test_tdms (self):
+        las, si = lsi._las, lsi.si
         stdm1s, stdm2s = make_stdm12s (las)
         nelec = float (sum (las.nelecas))
         for ix in range (stdm1s.shape[0]):
@@ -91,7 +94,8 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s), 9)
         self.assertAlmostEqual (lib.fp (rdm2s_test), lib.fp (rdm2s), 9)
 
-    def test_rdms (self):    
+    def test_rdms (self):
+        las, e_roots = lsi._las, lsi.e_roots
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         d1_r = rdm1s.sum (1)
         d2_r = rdm2s.sum ((1, 4))
@@ -106,7 +110,7 @@ class KnownValues(unittest.TestCase):
 
     def test_singles_constructor (self):
         from mrh.my_pyscf.lassi.states import all_single_excitations
-        las2 = all_single_excitations (las)
+        las2 = all_single_excitations (lsi._las)
         las2.check_sanity ()
         # Meaning of tuple: (na+nb,smult)
         # from state 0, (1+2,2)&(3+2,2) & a<->b & l<->r : 4 states
@@ -119,6 +123,7 @@ class KnownValues(unittest.TestCase):
 
     def test_spin_shuffle (self):
         from mrh.my_pyscf.lassi.states import spin_shuffle
+        mf = lsi._las._scf
         las3 = LASSCF (mf, (4,2,4), (4,2,4), spin_sub=(5,3,5))
         las3 = spin_shuffle (las3)
         las3.check_sanity ()
