@@ -17,6 +17,8 @@ def only_ground_states (ci0):
         ci1.append (c)
     return ci1
 
+
+
 class ExcitationPSFCISolver (ProductStateFCISolver):
     def __init__(self, solver_ref, ci_ref, norb_ref, nelec_ref, orbsym_ref=None,
                  wfnsym_ref=None, stdout=None, verbose=0, opt=0, **kwargs):
@@ -31,20 +33,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                        verbose=verbose)
         self.dm1s_ref = np.asarray (self.solver_ref.make_rdm1s (self.ci_ref, norb_ref, nelec_ref))
         self.dm2_ref = self.solver_ref.make_rdm2 (self.ci_ref, norb_ref, nelec_ref)
-        self.active_frags = {}
-
-    @property
-    def fcisolvers (self):
-        return [solver for ifrag, solver in self.active_frags.items ()]
-    @fcisolvers.setter
-    def fcisolvers (self, solvers):
-        self.active_frags = {i: s for i, s in enumerate (solvers)}
+        self.active_frags = []
+        self.fcisolvers = []
 
     def get_active_orb_idx (self):
         nj = np.cumsum (self.norb_ref)
         ni = nj - self.norb_ref
         idx = np.zeros (nj[-1], dtype=bool)
-        for ifrag, solver in self.active_frags.items ():
+        for ifrag, solver in zip (self.active_frags, self.fcisolvers):
             i, j = ni[ifrag], nj[ifrag]
             idx[i:j] = True
         return idx
@@ -88,7 +84,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                                        nelec=nelec, norb=s_ref.norb)
         if hasattr (weights, '__len__') and len (weights) > 1:
             fcisolver = state_average_fcisolver (fcisolver, weights=weights)
-        self.active_frags[ifrag] = fcisolver
+        if ifrag in self.active_frags:
+            self.fcisolvers[self.active_frags.index (ifrag)] = fcisolver
+        else:
+            self.active_frags.append (ifrag)
+            self.fcisolvers.append (fcisolver)
+            idx = np.argsort (self.active_frags)
+            self.active_frags = [self.active_frags[i] for i in idx]
+            self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
     def kernel (self, h1, h2, ecore=0,
                 conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
@@ -113,7 +116,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return converged, energy_elec, ci1
 
     def get_ham_pq (self, h1, h2, ci_p):
-        active_frags = [ifrag for ifrag in self.active_frags]
+        active_frags = self.active_frags
         fcisolvers, nelec_ref = self.solver_ref.fcisolvers, self.nelec_ref
         fcisolvers = [fcisolvers[ifrag] for ifrag in active_frags]
         nelec_ref = [nelec_ref[ifrag] for ifrag in active_frags]
@@ -156,6 +159,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.active_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.active_frags])
         ci0 = self._check_init_guess (None, norb_f, nelec_f, h1, h2)
+
         # Find lowest-energy ENV, including VRV contributions
         lroots = get_lroots (ci0)
         ham_pq = self.get_ham_pq (h1, h2, ci0)
@@ -172,6 +176,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         heff_pp = h_pp + np.dot (h_pq[:,idx].conj () / denom[None,idx], h_pq[:,idx].T)
         e_p = np.diag (heff_pp)
         idxmin = np.argmin (e_p)
+
         # ENV index to address
         idx, pj = idxmin, p
         addr = []
@@ -180,6 +185,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx, j = divmod (idx, pj)
             addr.append (j)
         addr.append (idx)
+
         # Sort against this reference state
         nfrag = len (addr)
         e_p_arr = e_p.reshape (*lroots[::-1]).T
@@ -222,6 +228,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         #assert (abs (lib.fp (e0_test)-lib.fp (e0)) < 1e-8)
 
         # Something like the below?
+
         #ham_pq[:p,:p] = h_pp
         #ham_pq[:p,p:] = h_pq
         #ham_pq[p:,:p] = h_pq.T
