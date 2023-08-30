@@ -328,8 +328,6 @@ void Device::get_jk(int naux, int nao, int nset,
     nvtxRangePop();
 #endif
 #endif
-    
-#endif
    
 #ifdef _SIMPLE_TIMER
     double t4 = omp_get_wtime();
