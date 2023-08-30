@@ -42,10 +42,16 @@ def setUpModule ():
     ugg = las.get_ugg ()
     las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_c2h4n4_mo.dat'))
     las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_c2h4n4_ci.dat')))[1]
+    lroots = 2 * np.ones ((2,7), dtype=int)
+    lroots[:,1] = 1 # <- that rootspace is responsible for spin contamination
+    las.conv_tol_grad = 1e-8
+    las.lasci (lroots=lroots)
+    # TODO: potentially save and load CI vectors
+    # requires extending features of ugg
     #las.set (conv_tol_grad=1e-8).run ()
     #np.savetxt ('test_c2h4n4_mo.dat', las.mo_coeff)
     #np.savetxt ('test_c2h4n4_ci.dat', ugg.pack (las.mo_coeff, las.ci))
-    las.e_states = las.energy_nuc () + las.states_energy_elec ()
+    #las.e_states = las.energy_nuc () + las.states_energy_elec ()
     lsi = LASSI (las).run ()
     rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, lsi.si)
 
@@ -57,26 +63,28 @@ def tearDownModule():
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
-        self.assertAlmostEqual (lib.fp (lsi.e_roots), 153.47664766268417, 6)
+        self.assertAlmostEqual (lib.fp (lsi.e_roots), 71.48678303162376, 6)
 
     def test_si (self):
         # Arbitrary signage in both the SI and CI vector, sadly
         # Actually this test seems really inconsistent overall...
-        dms = [np.dot (lsi.si[:,i:i+1], lsi.si[:,i:i+1].conj ().T) for i in range (7)]
-        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.371964339437981, 6)
+        dens = lsi.si.conj () * lsi.si
+        self.assertAlmostEqual (lib.fp (np.diag (dens)), 1.2321935065030327, 4)
 
     def test_nelec (self):
         for ix, ne in enumerate (lsi.nelec):
-            if ix == 1:
+          with self.subTest(ix):
+            if ix in (1,5,8,11):
                 self.assertEqual (ne, (6,2))
             else:
                 self.assertEqual (ne, (4,4))
 
     def test_s2 (self):
-        s2_array = np.zeros (7)
-        s2_array[1] = 6
-        s2_array[2] = 6
-        s2_array[3] = 2
+        s2_array = np.zeros (16)
+        quintets = [1,2,5,8,11]
+        for ix in quintets: s2_array[ix] = 6
+        triplets = [3,6,7,9,10,12,13]
+        for ix in triplets: s2_array[ix] = 2
         self.assertAlmostEqual (lib.fp (lsi.s2), lib.fp (s2_array), 3)
 
     def test_tdms (self):
