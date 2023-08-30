@@ -96,7 +96,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   }
 
   if(stream == NULL) {
-    dev_stream_create(stream);
+    pm->dev_stream_create(stream);
   }
   
 #ifdef _SIMPLE_TIMER
@@ -306,10 +306,10 @@ void Device::get_jk(int naux, int nao, int nset,
 #ifdef _CUDA_NVTX
     nvtxRangePushA("HtoD Transfer");
 #endif
-    dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
-    dev_push_async(d_buf3, buf3, blksize * nao * nao * sizeof(double), stream);
-    dev_push(d_vkk, vkk, nset * nao * nao * sizeof(double));
-    dev_stream_wait(stream);
+    pm->dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
+    pm->dev_push_async(d_buf3, buf3, blksize * nao * nao * sizeof(double), stream);
+    pm->dev_push(d_vkk, vkk, nset * nao * nao * sizeof(double));
+    pm->dev_stream_wait(stream);
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 
@@ -323,7 +323,7 @@ void Device::get_jk(int naux, int nao, int nset,
 
     nvtxRangePushA("DtoH Transfer");
 #endif
-    dev_pull(d_vkk, vkk, nset * nao * nao * sizeof(double));
+    pm->dev_pull(d_vkk, vkk, nset * nao * nao * sizeof(double));
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
