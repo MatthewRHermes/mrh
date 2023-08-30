@@ -81,9 +81,6 @@ private:
   double * d_data;
   size_t grid_size, block_size;
   
-  double * partial;
-  double * d_partial;
-
   // get_jk
 
   int size_rho;
