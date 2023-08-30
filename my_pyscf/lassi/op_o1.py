@@ -1233,3 +1233,42 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     rdm2s = rdm2s.reshape (nroots_si, 2, 2, ncas, ncas, ncas, ncas).transpose (0,1,3,4,2,5,6)
     return rdm1s, rdm2s
 
+def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
+                     soc=0, orbsym=None, wfnsym=None):
+    '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
+    projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
+
+    Args:
+        las : instance of class LASSCF
+        h1 : ndarray of shape (ncas, ncas)
+            Spin-orbit-free one-body CAS Hamiltonian
+        h2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            Spin-orbit-free two-body CAS Hamiltonian
+        ci_fr_ket : nested list of shape (nfrags, nroots_ket)
+            Contains CI vectors for the ket; element [i,j] is ndarray of shape
+            (ndeta_ket[i,j],ndetb_ket[i,j])
+        nelec_frs_ket : ndarray of shape (nfrags, nroots_ket, 2)
+            Number of electrons of each spin in each rootspace in each
+            fragment for the ket vectors
+        ci_fr_bra : nested list of shape (nfrags, nroots_bra)
+            Contains CI vectors for the bra; element [i,j] is ndarray of shape
+            (ndeta_bra[i,j],ndetb_bra[i,j])
+        nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
+            Number of electrons of each spin in each
+            fragment for the bra vectors
+
+    Kwargs:
+        soc : integer
+            Order of spin-orbit coupling included in the Hamiltonian
+        orbsym : list of int of length (ncas)
+            Irrep ID for each orbital
+        wfnsym : int
+            Irrep ID for target matrix block
+
+    Returns:
+        hket_fr_pabq : nested list of shape (nfrags, nroots_bra)
+            Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
+            ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
+    '''
+    raise NotImplementedError ("o1 version of contract_ham_ci")
+    return hket_fr_pabq
