@@ -22,9 +22,10 @@ from pyscf.tools import molden
 from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
+from mrh.my_pyscf.lassi import LASSI
 
 def setUpModule ():
-    global mol, mf, las, e_roots, si, rdm1s, rdm2s
+    global lsi, rdm1s, rdm2s
     topdir = os.path.abspath (os.path.join (__file__, '..'))
     dr_nn = 2.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
@@ -45,26 +46,27 @@ def setUpModule ():
     las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_c2h4n4_symm_ci.dat')))[1]
     #las.set (conv_tol_grad=1e-8).run ()
     las.e_states = las.energy_nuc () + las.states_energy_elec ()
-    e_roots, si = las.lassi ()
-    rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
+    lsi = LASSI (las).run ()
+    rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, lsi.si)
 
 def tearDownModule():
-    global mol, mf, las, e_roots, si, rdm1s, rdm2s
+    global lsi, rdm1s, rdm2s
+    mol = lsi._las.mol
     mol.stdout.close ()
-    del mol, mf, las, e_roots, si, rdm1s, rdm2s
+    del lsi, rdm1s, rdm2s
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
-        self.assertAlmostEqual (lib.fp (e_roots), -213.84185089228347, 6)
+        self.assertAlmostEqual (lib.fp (lsi.e_roots), -213.84185089228347, 6)
 
     def test_si (self):
         # Arbitrary signage in both the SI and CI vector, sadly
         # Actually this test seems really inconsistent overall...
-        dms = [np.dot (si[:,i:i+1], si[:,i:i+1].conj ().T) for i in range (7)]
+        dms = [np.dot (lsi.si[:,i:i+1], lsi.si[:,i:i+1].conj ().T) for i in range (7)]
         self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.5895141912171784, 6)
 
     def test_nelec (self):
-        for ix, ne in enumerate (si.nelec):
+        for ix, ne in enumerate (lsi.nelec):
             if ix == 1:
                 self.assertEqual (ne, (6,2))
             else:
@@ -75,12 +77,13 @@ class KnownValues(unittest.TestCase):
         s2_array[1] = 6
         s2_array[2] = 6
         s2_array[3] = 2
-        self.assertAlmostEqual (lib.fp (si.s2), lib.fp (s2_array), 3)
+        self.assertAlmostEqual (lib.fp (lsi.s2), lib.fp (s2_array), 3)
 
     def test_wfnsym (self):
-        self.assertEqual (si.wfnsym, [0,]*5 + [1,]*2)
+        self.assertEqual (lsi.wfnsym, [0,]*5 + [1,]*2)
 
     def test_tdms (self):
+        las, si = lsi._las, lsi.si
         stdm1s, stdm2s = make_stdm12s (las)
         nelec = float (sum (las.nelecas))
         for ix in range (stdm1s.shape[0]):
@@ -94,7 +97,8 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s), 9)
         self.assertAlmostEqual (lib.fp (rdm2s_test), lib.fp (rdm2s), 9)
 
-    def test_rdms (self):    
+    def test_rdms (self):
+        las, e_roots = lsi._las, lsi.e_roots
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         d1_r = rdm1s.sum (1)
         d2_r = rdm2s.sum ((1, 4))
