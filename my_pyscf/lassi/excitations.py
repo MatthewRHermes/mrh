@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 from scipy import linalg
 from pyscf.fci.direct_spin1 import _unpack_nelec
@@ -13,6 +14,7 @@ def only_ground_states (ci0):
     # TODO: examine whether this should be considered a limitation
     ci1 = []
     for c in ci0:
+        c = np.asarray (c)
         if c.ndim==3: c = c[0]
         ci1.append (c)
     return ci1
@@ -104,16 +106,66 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = self.get_active_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         # TODO: point group symmetry; I probably also have to do something to wfnsym
-        ci0 = self.get_init_guess (h1, h2)
+        ci0, h_qq = self.prepare_vrv (h1, h2)
         converged, energy_elec, ci1_active = ProductStateFCISolver.kernel (
             self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
             conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
             max_cycle_macro=max_cycle_macro, **kwargs
         )
+        hci_f_abq = self.op_ham_pq_ref (h1, h2, ci1_active)
+        h1eff, h0eff = self.project_hfrag (h1, h2, ci1_active, norb_f, nelec_f,
+                                           ecore=ecore, **kwargs)
+        e_vrv, ci1_vrv = self._1shot_with_vrv (
+            h0eff, h1eff, h2, hci_f_abq, h_qq,
+            ci1_active, norb_f, nelec_f, orbsym=orbsym, 
+            **kwargs
+        )  
+        #print (energy_elec, e_vrv)
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.active_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
         return converged, energy_elec, ci1
+
+    def _1shot_with_vrv (self, h0eff, h1eff, h2, hci_f_abq, h_qq,
+                         ci, norb_f, nelec_f, orbsym=None,
+                         **kwargs):
+        ham_pq = np.zeros ((h_qq.shape[0]+1, h_qq.shape[1]+1), dtype=h_qq.dtype)
+        ham_pq[1:,1:] = h_qq
+        
+        nj = np.cumsum (norb_f)
+        ni = nj - norb_f
+        zipper = [h0eff, h1eff, hci_f_abq, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
+        e1 = []
+        ci1 = []
+        e_q, si_q = linalg.eigh (h_qq)
+        for h0e, h1e, hc_abq, c, no, ne, solver, i, j in zip (*zipper):
+            nelec = self._get_nelec (solver, ne)
+            h2e = h2[i:j,i:j,i:j,i:j]
+            h2e = solver.absorb_h1e (h1e, h2e, no, nelec, 0.5)
+            c0 = c
+            if solver.nroots>1: c0 = c[0]
+            hc0 = solver.contract_2e (h2e, c0, no, nelec)
+            ham_pq[0,0] = np.dot (c0.conj ().ravel (), hc0.ravel ())
+            ndeta, ndetb, q = hc_abq.shape
+            ham_pq[0,1:] = np.dot (c0.conj ().ravel (), hc_abq.reshape (ndeta*ndetb, q))
+            ham_pq[1:,0] = ham_pq[0,1:].conj ().T
+            # TODO: get rid of sqrt so that denom can be other sign
+            denom = e_q - linalg.eigh (ham_pq)[0][0]
+            idx = denom > 1e-8
+            vrv_qab = np.tensordot (si_q[:,idx]/np.sqrt(denom[None,idx]),
+                                    hc_abq, axes=((0,),(-1,)))
+            nq = vrv_qab.shape[0]
+            def contract_vrv (obj, ket):
+                vrv_q = -np.dot (vrv_qab.reshape (nq,-1), ket.ravel ())
+                hket = np.tensordot (vrv_q, vrv_qab.conj (), axes=1)
+                return hket.reshape (ket.shape)
+            vrvsolver = vrv_fcisolver (solver, contract_vrv)
+            e, c1 = vrvsolver.kernel (h1e, h2e, no, nelec, ci0=c, ecore=h0e,
+                orbsym=orbsym, **kwargs)
+            e1.append (e) 
+            ci1.append (c1)
+        return e1, ci1
+
 
     def get_ham_pq (self, h1, h2, ci_p):
         active_frags = self.active_frags
@@ -152,10 +204,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
             hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
                                 soc=0, orbsym=None, wfnsym=None)
-        hci_f_abq = [hc[0] for hc in hci_fr_pabq]
+        hci_f_abq = [hc[0][0] for hc in hci_fr_pabq]
         return hci_f_abq
 
-    def get_init_guess (self, h1, h2):
+    def prepare_vrv (self, h1, h2):
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.active_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.active_frags])
         ci0 = self._check_init_guess (None, norb_f, nelec_f, h1, h2)
@@ -237,9 +289,31 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         #ham_pq = ham_pq[idx,:][:,idx]
         #e0 = linalg.eigh (ham_pq)[0][0]
         #print (ham_pq[0,0] - e0, e0)
-        ci0 = self._check_init_guess (ci0, norb_f, nelec_f, h1, h2)
-        return ci0
+        return ci0, h_qq
 
+class VRVDressedFCISolver (object):
+    pass
 
+def vrv_fcisolver (fciobj, contract_vrv):
+    if isinstance (fciobj, VRVDressedFCISolver):
+        fciobj.contract_vrv = contract_vrv
+        return fciobj
+    fciobj_class = fciobj.__class__
+    class FCISolver (fciobj_class, VRVDressedFCISolver):
+        def __init__(self, fcibase):
+            self.base = copy.copy (fcibase)
+            self.__dict__.update (fcibase.__dict__)
+            keys = set (('contract_vrv', 'base'))
+            self._keys = self._keys.union (keys)
+            self.davidson_only = self.base.davidson_only = True
+        def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
+            ci0 = self.base_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
+            ci1 = self.contract_vrv (fcivec)
+            return ci0 + ci1
+        def base_contract_2e (self, *args, **kwargs):
+            return fciobj_class.contract_2e (self, *args, **kwargs)
+    FCISolver.contract_vrv = contract_vrv
+    new_fciobj = FCISolver (fciobj)
+    return new_fciobj
 
 
