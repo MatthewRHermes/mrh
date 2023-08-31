@@ -78,7 +78,6 @@ private:
   int n;
   int size_data;
 
-  double * d_data;
   size_t grid_size, block_size;
   
   // get_jk

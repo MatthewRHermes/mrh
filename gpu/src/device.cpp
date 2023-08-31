@@ -14,8 +14,6 @@ Device::Device()
   
   n = 0;
 
-  d_data = nullptr;
-
   size_rho = 0;
   size_vj = 0;
   size_vk = 0;
@@ -62,21 +60,19 @@ Device::~Device()
 {
   printf("LIBGPU: destroying device\n");
   
-  pm->dev_free(d_data);
-  
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
 
-  free(rho);
-  free(vj);
-  free(_vktmp);
+  pm->dev_free_host(rho);
+  pm->dev_free_host(vj);
+  //  pm->dev_free_host(_vktmp);
 
   pm->dev_free_host(buf_tmp);
   pm->dev_free_host(buf3);
-  free(buf4);
+  pm->dev_free_host(buf4);
 
-  free(buf_fdrv);
+  pm->dev_free_host(buf_fdrv);
 
 #ifdef _SIMPLE_TIMER
   t_array_jk[8] += omp_get_wtime() - t0;
