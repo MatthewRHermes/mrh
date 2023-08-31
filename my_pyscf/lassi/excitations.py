@@ -303,9 +303,9 @@ def vrv_fcisolver (fciobj, vrv_qab, e_q):
             # converge on e0
             max_cycle_e0 = 100
             conv_tol_e0 = 1e-8
-            converged = False
             e0_last = 0
             e0 = ecore
+            converged = False
             if ci0 is not None:
                 c0 = ci0[0] if isinstance (ci0, (list,tuple)) else ci0
                 h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
@@ -324,6 +324,7 @@ def vrv_fcisolver (fciobj, vrv_qab, e_q):
                 if abs(e0-e0_last)<conv_tol_e0:
                     converged = True
                     break
+            self.converged = converged and self.converged
             return e, ci1
 
     new_fciobj = FCISolver (fciobj, vrv_qab, e_q)
