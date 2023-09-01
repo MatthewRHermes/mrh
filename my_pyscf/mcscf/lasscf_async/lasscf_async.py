@@ -188,6 +188,7 @@ class LASSCFSymm (lasci.LASCISymm):
     dump_flags = LASSCFNoSymm.dump_flags
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
+    # try grabbing gpu handle from mf_or_mol instead of additional argument
     use_gpu = kwargs.get('use_gpu', None)
     
     from pyscf import gto, scf
