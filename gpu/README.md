@@ -245,12 +245,16 @@ las.kernel(mo_coeff)
 libgpu.libgpu_destroy_device(gpu)
 ```
 
-Keep modifications to a "normal" LASSCF input file are as follows.
+Key modifications to a "normal" LASSCF input file are as follows.
 - `from gpu4pyscf import patch_pyscf` : enable monkey patching for a select number of PySCF source files, such as updating the Molecule object to track a new `use_gpu` variable.
 - `import libgpu` : enable access to the gpu library interface functions 
 - `gpu = libgpu.libgpu_init()` : initialize the gpu library and return a handle. This gpu handle is to be passed to a small number of functions (and likely made smaller in the future).
 - `mol=gto.M(use_gpu=gpu, atom=...` : this is the key usage of the gpu handle by which most of the underlying code and algorithms can access the gpu library.
 - `las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)` : this is currently required, but expected to be no longer necessary soon...
 - `libgpu.libgpu_destroy_device(gpu)` : always good to clean up after ourselves and prevent out-of-memory issues in more complex workflows.
+
+## Status
+
+The `Host` and `CUDA` backends currently give correct LASSCF energies for the asynchronous algorithm (and synchronous) for the valay_polymer_async input-deck for nfrags= 1, 2, 4, and 8. A numerical issue is being investigated where more calls to get_jk() and also more iterations are required to achieve convergence, resulting in overall increased total runtimes.
 
 *Last Updated : 8-31-2023*
