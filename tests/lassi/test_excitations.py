@@ -85,6 +85,7 @@ class KnownValues(unittest.TestCase):
                 weights[0] = 1
                 psexc.set_excited_fragment_(1+i, dneleca[iroot,i], dnelecb[iroot,i],
                                             dsmults[iroot,i], weights=weights)
+            psexc._deactivate_vrv = True
             conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
             self.assertTrue (conv)
             self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)

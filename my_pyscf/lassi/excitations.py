@@ -20,6 +20,19 @@ def only_ground_states (ci0):
         ci1.append (c)
     return ci1
 
+class _vrvloop_env (object):
+    def __init__(self, fciobj, vrvsolvers, e_q, si_q):
+        self.fciobj = fciobj
+        self.vrvsolvers = vrvsolvers
+        self.e_q = e_q
+        self.si_q = si_q
+    def __enter__(self):
+        self.fciobj.fcisolvers = self.vrvsolvers
+        self.fciobj._e_q = self.e_q
+        self.fciobj._si_q = self.si_q
+    def __exit__(self, type, value, traceback):
+        self.fciobj.revert_vrvsolvers_()
+
 class ExcitationPSFCISolver (ProductStateFCISolver):
     def __init__(self, solver_ref, ci_ref, norb_ref, nelec_ref, orbsym_ref=None,
                  wfnsym_ref=None, stdout=None, verbose=0, opt=0, **kwargs):
@@ -30,12 +43,15 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self.orbsym_ref = orbsym_ref
         self.wfnsym_ref = wfnsym_ref
         self.opt = opt
+        self._deactivate_vrv = False # for testing
         ProductStateFCISolver.__init__(self, solver_ref.fcisolvers, stdout=stdout,
                                        verbose=verbose)
         self.dm1s_ref = np.asarray (self.solver_ref.make_rdm1s (self.ci_ref, norb_ref, nelec_ref))
         self.dm2_ref = self.solver_ref.make_rdm2 (self.ci_ref, norb_ref, nelec_ref)
         self.active_frags = []
         self.fcisolvers = []
+        self._e_q = []
+        self._si_q = []
 
     def get_active_orb_idx (self):
         nj = np.cumsum (self.norb_ref)
@@ -105,30 +121,77 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = self.get_active_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         # TODO: point group symmetry; I probably also have to do something to wfnsym
-        ci0, h_qq = self.prepare_h_qq (h0, h1, h2)
-        converged, energy_elec, ci1_active = ProductStateFCISolver.kernel (
-            self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
-            conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
-            max_cycle_macro=max_cycle_macro, **kwargs
-        )
-        hci_f_abq = self.op_ham_pq_ref (h1, h2, ci1_active)
-        h1eff, h0eff = self.project_hfrag (h1, h2, ci1_active, norb_f, nelec_f,
-                                           ecore=h0)#, **kwargs)
-        e_vrv, ci1_vrv = self._1shot_with_vrv (
-            h0eff, h1eff, h2, hci_f_abq, h_qq,
-            ci1_active, norb_f, nelec_f, orbsym=orbsym, 
-            **kwargs
-        )  
-        for ix, (c_active, c_vrv) in enumerate (zip (ci1_active, ci1_vrv)):
-            c_active = np.asarray (c_active)
-            ndeta, ndetb = c_active.shape[-2:]
-            c_active = c_active.reshape (-1, ndeta*ndetb)
-            c_vrv = np.asarray (c_vrv).reshape (-1, ndeta*ndetb)
-            ovlp = np.dot (c_active.conj (), c_vrv.T)
+        ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2)
+        with _vrvloop_env (self, vrvsolvers, e_q, si_q):
+            converged, energy_elec, ci1_active = ProductStateFCISolver.kernel (
+                self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
+                conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
+                max_cycle_macro=max_cycle_macro, **kwargs
+            )
+        #hci_f_abq = self.op_ham_pq_ref (h1, h2, ci1_active)
+        #h1eff, h0eff = self.project_hfrag (h1, h2, ci1_active, norb_f, nelec_f,
+        #                                   ecore=h0)#, **kwargs)
+        #e_vrv, ci1_vrv = self._1shot_with_vrv (
+        #    h0eff, h1eff, h2, hci_f_abq, h_qq,
+        #    ci1_active, norb_f, nelec_f, orbsym=orbsym, 
+        #    **kwargs
+        #)  
+        #for ix, (c_active, c_vrv) in enumerate (zip (ci1_active, ci1_vrv)):
+        #    c_active = np.asarray (c_active)
+        #    ndeta, ndetb = c_active.shape[-2:]
+        #    c_active = c_active.reshape (-1, ndeta*ndetb)
+        #    c_vrv = np.asarray (c_vrv).reshape (-1, ndeta*ndetb)
+        #    ovlp = np.dot (c_active.conj (), c_vrv.T)
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.active_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
         return converged, energy_elec, ci1
+
+    def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, dm1s=None, dm2=None, **kwargs):
+        h1eff, h0eff = ProductStateFCISolver.project_hfrag (
+            self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, dm1s=dm1s, dm2=dm2, **kwargs
+        )
+        # hijack this function to set the perturber vectors within the productstate kernel loop
+        if len (self._e_q) and not self._deactivate_vrv:
+            hci_f_abq = self.op_ham_pq_ref (h1, h2, ci)
+            for hci_abq, solver in zip (hci_f_abq, self.fcisolvers):
+                solver.vrv_qab = np.tensordot (self._si_q, hci_abq, axes=((0),(-1)))
+        return h1eff, h0eff
+
+    def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
+        energy_tot = ProductStateFCISolver.energy_elec (
+            self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, **kwargs
+        )
+        # Also compute the vrv perturbation energy
+        if len (self._e_q) and not self._deactivate_vrv:
+            ci0 = []
+            # extract this from the putatively converged solver cycles
+            # if you attempt to recalculate it, then it has to be reconverged i guess
+            denom_q = 0
+            for c, solver in zip (ci, self.fcisolvers):
+                t = solver.transformer
+                c = np.asarray (c).reshape (-1, t.ndeta, t.ndetb)
+                ci0.append (c)
+                denom_q += solver.denom_q
+            denom_q /= len (ci)
+            lroots = get_lroots (ci0)
+            ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
+            e0, si = linalg.eigh (ham_pq)
+            p = np.prod (lroots)
+            h_pp = ham_pq[:p,:p]
+            h_pq = ham_pq[:p,p:]
+            h_pq = np.dot (h_pq, self._si_q)
+            idx = np.abs (denom_q) > 1e-16
+            e_p = np.diag (np.dot (h_pq[:,idx].conj () / denom_q[None,idx], h_pq[:,idx].T))
+            e_p = e_p.reshape (*lroots[::-1]).T
+            for solver in self.fcisolvers:
+                if hasattr (getattr (solver, 'weights', None), '__len__'):
+                    e_p = np.dot (solver.weights, e_p)
+                else:
+                    e_p = e_p[0]
+            energy_tot += e_p
+        return energy_tot
+
 
     def _1shot_with_vrv (self, h0eff, h1eff, h2, hci_f_abq, h_qq,
                          ci, norb_f, nelec_f, orbsym=None,
@@ -153,7 +216,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             e1.append (e) 
             ci1.append (c1)
         return e1, ci1
-
 
     def get_ham_pq (self, h0, h1, h2, ci_p):
         active_frags = self.active_frags
@@ -195,7 +257,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         hci_f_abq = [hc[0][0] for hc in hci_fr_pabq]
         return hci_f_abq
 
-    def prepare_h_qq (self, h0, h1, h2):
+    def prepare_vrvsolvers_(self, h0, h1, h2):
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.active_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.active_frags])
         ci0 = self._check_init_guess (None, norb_f, nelec_f, h1, h2)
@@ -257,11 +319,22 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             h_pq = h_pq.transpose (*dimorder)
         h_pp = h_pp.reshape (p, p)
         h_pq = h_pq.reshape (p, q)
-        return ci0, h_qq
+
+        vrvsolvers = []
+        for ix, solver in enumerate (self.fcisolvers):
+            vrvsolvers.append (vrv_fcisolver (solver, None, e_q))
+        return ci0, vrvsolvers, e_q, si_q
+
+    def revert_vrvsolvers_(self):
+        for ix, solver in enumerate (self.fcisolvers):
+            self.fcisolvers[ix] = solver.base
+        self._e_q = []
+        self._si_q = []
 
 class VRVDressedFCISolver (object):
     def contract_vrv (self, ket):
         vrv_qab, denom_q = self.vrv_qab, self.denom_q
+        if vrv_qab is None: return 0
         ket_shape = ket.shape
         idx = np.abs (denom_q) > 1e-8
         nq = np.count_nonzero (idx)
@@ -307,9 +380,13 @@ def vrv_fcisolver (fciobj, vrv_qab, e_q):
             e0 = ecore
             converged = False
             if ci0 is not None:
-                c0 = ci0[0] if isinstance (ci0, (list,tuple)) else ci0
+                c0 = np.asarray (ci0)
+                if c0.ndim > 2: c0 = c0[0]
                 h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
-                hc0 = self.contract_2e (h2eff, c0, norb, nelec)
+                try:
+                    hc0 = self.contract_2e (h2eff, c0, norb, nelec)
+                except AssertionError as err:
+                    raise AssertionError (str (np.asarray (c0).shape) + ' ' + str (norb) + ' ' + str (nelec) + ' ' + str (err))
                 e0 += np.dot (c0.conj ().ravel (), hc0.ravel ())
             e0_first = e0
             ci1 = ci0
