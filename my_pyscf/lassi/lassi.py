@@ -168,12 +168,16 @@ def las_symm_tuple (las, break_spin=False, break_symmetry=False, verbose=None):
     lbls = ['ix', 'Energy', '<S**2>'] + qn_lbls
     fmt_str = ' {:2s}  {:>16s}  {:6s}  ' + '  '.join (['{:6s}',]*len(qn_lbls))
     log.info (fmt_str.format (*lbls))
-    for ix, (e, sy, s2) in enumerate (zip (las.e_states, full_statesym, s2_states)):
-        data = [ix, e, s2] + list (sy)
-        data[-1] = symm.irrep_id2name (las.mol.groupname, data[-1])
-        fmts = ['{:2d}','{:16.10f}','{:6.3f}'] + qn_fmts
-        fmt_str = ' ' + '  '.join (fmts)
-        log.info (fmt_str.format (*data))
+    try:
+        for ix, (e, sy, s2) in enumerate (zip (las.e_states, full_statesym, s2_states)):
+            data = [ix, e, s2] + list (sy)
+            data[-1] = symm.irrep_id2name (las.mol.groupname, data[-1])
+            fmts = ['{:2d}','{:16.10f}','{:6.3f}'] + qn_fmts
+            fmt_str = ' ' + '  '.join (fmts)
+            log.info (fmt_str.format (*data))
+    except TypeError as err:
+        print (las.e_states, full_statesym, s2_states)
+        raise (err)
     if break_spin:
         log.info ("States with different neleca-nelecb can be mixed by LASSI")
     if break_symmetry:

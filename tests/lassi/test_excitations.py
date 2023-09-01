@@ -21,7 +21,7 @@ from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, op_o0, op_o1
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.states import all_single_excitations
-from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
+from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver, only_ground_states
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 
@@ -75,9 +75,30 @@ class KnownValues(unittest.TestCase):
         lroots = lsi.get_lroots ()
         smults_rf = dsmults + 1
 
-        # TODO: remove the ci0 kwarg from the excitation solver and implement
-        # get_init_guess in productstate solver. 
+        ci0_ref = only_ground_states (ci_ref)
+        def lassi_ref (ci1, iroot):
+            ci1 = only_ground_states (ci1)
+            ci2 = [[ci0_ref[ifrag], ci1[ifrag].copy ()] for ifrag in range (las.nfrags)]
+            las1 = LASSCF (mf, (1,2,2), (2,2,2), spin_sub=(1,1,1))
+            las1.mo_coeff = las.mo_coeff
+            las1.state_average_([1,0],
+                charges=[[0,0,0],[0,] + list(charges[iroot])],
+                spins=[[0,0,0],[0,] + list(spins[iroot])],
+                smults=[[1,1,1],[1,] + list(smults[iroot])],
+                wfnsyms=[[0,0,0],[0,0,0]]
+            )
+            las1.ci = ci2
+            las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
+            ci2 = [[ci_ref[ifrag], ci1[ifrag]] for ifrag in range (las.nfrags)]
+            las1.ci = ci2
+            lsi1 = LASSI (las1)
+            e_roots1, si1 = lsi1.kernel ()
+            idx = (si1[-1].conj () * si1[-1]) > 1e-16
+            return e_roots1[idx], si1[:,idx]
+
         h0, h1, h2 = LASSI (las).ham_2q ()
+        # In general, the Excitation Solver should return the same energy as LASSI with lroots=1
+        # in the excitation rootspace
         for iroot in range (1, lsi._las.nroots):
           with self.subTest (rootspace=iroot):
             for i in range (2):
@@ -85,7 +106,20 @@ class KnownValues(unittest.TestCase):
                 weights[0] = 1
                 psexc.set_excited_fragment_(1+i, dneleca[iroot,i], dnelecb[iroot,i],
                                             dsmults[iroot,i], weights=weights)
-            psexc._deactivate_vrv = True
+            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
+            self.assertTrue (conv)
+            e_roots1, si1 = lassi_ref (ci1, iroot)
+            self.assertAlmostEqual (energy_tot, e_roots1[0], 8)
+        # In the no-coupling limit, the Excitation solver should give the same result as the normal
+        # ImpureProductStateFCISolver
+        psexc._deactivate_vrv = True # spoof the no-coupling limit
+        for iroot in range (1, lsi._las.nroots):
+          with self.subTest ('no-coupling limit', rootspace=iroot):
+            for i in range (2):
+                weights = np.zeros (lroots[i,iroot])
+                weights[0] = 1
+                psexc.set_excited_fragment_(1+i, dneleca[iroot,i], dnelecb[iroot,i],
+                                            dsmults[iroot,i], weights=weights)
             conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
             self.assertTrue (conv)
             self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
