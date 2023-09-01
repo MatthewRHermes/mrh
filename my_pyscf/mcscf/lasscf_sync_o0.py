@@ -193,7 +193,6 @@ def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
         las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     if getattr (mf, 'with_df', None):
         las = lasci.density_fit (las, with_df = mf.with_df)
-        
     return las
 
 
