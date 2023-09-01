@@ -19,66 +19,81 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
-from c2h4n4_struct import structure as struct
+from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
-topdir = os.path.abspath (os.path.join (__file__, '..'))
+from mrh.my_pyscf.lassi import LASSI
 
-dr_nn = 2.0
-mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
-mol.verbose = lib.logger.DEBUG 
-mol.output = 'test_lassi_symm.log'
-mol.spin = 0 
-mol.symmetry = 'Cs'
-mol.build ()
-mf = scf.RHF (mol).run ()
-las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
-las.state_average_(weights=[1.0/7.0,]*7,
-    spins=[[0,0],[0,0],[2,-2],[-2,2],[0,0],[0,0],[2,2]],
-    smults=[[1,1],[3,3],[3,3],[3,3],[1,1],[1,1],[3,3]],
-    wfnsyms=[['A\'','A\''],]*4+[['A"','A\''],['A\'','A"'],['A\'','A\'']])
-las.frozen = list (range (las.mo_coeff.shape[-1]))
-ugg = las.get_ugg ()
-las.mo_coeff = las.label_symmetry_(np.loadtxt (os.path.join (topdir, 'test_lassi_symm_mo.dat')))
-las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_lassi_symm_ci.dat')))[1]
-#las.set (conv_tol_grad=1e-8).run ()
-las.e_states = las.energy_nuc () + las.states_energy_elec ()
-e_roots, si = las.lassi ()
-rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
+def setUpModule ():
+    global lsi, rdm1s, rdm2s
+    topdir = os.path.abspath (os.path.join (__file__, '..'))
+    dr_nn = 2.0
+    mol = struct (dr_nn, dr_nn, '6-31g', symmetry='Cs')
+    mol.verbose = 0 #lib.logger.DEBUG 
+    mol.output = '/dev/null' #'test_c2h4n4_symm.log'
+    mol.spin = 0 
+    mol.symmetry = 'Cs'
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    las = LASSCF (mf, (4,4), (4,4), spin_sub=(1,1))
+    las.state_average_(weights=[1.0/7.0,]*7,
+                       spins=[[0,0],[0,0],[2,-2],[-2,2],[0,0],[0,0],[2,2]],
+                       smults=[[1,1],[3,3],[3,3],[3,3],[1,1],[1,1],[3,3]],
+                       wfnsyms=[['A\'','A\''],]*4+[['A"','A\''],['A\'','A"'],['A\'','A\'']])
+    las.frozen = list (range (las.mo_coeff.shape[-1]))
+    ugg = las.get_ugg ()
+    las.mo_coeff = las.label_symmetry_(np.loadtxt (os.path.join (topdir, 'test_c2h4n4_symm_mo.dat')))
+    las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_c2h4n4_symm_ci.dat')))[1]
+    lroots = np.minimum (2, ugg.ncsf_sub)
+    lroots[:,1] = 1 # <- that rootspace is responsible for spin contamination
+    las.set (conv_tol_grad=1e-8)
+    las.lasci (lroots=lroots)
+    # TODO: potentially save and load CI vectors
+    # requires extending features of ugg
+    #las.e_states = las.energy_nuc () + las.states_energy_elec ()
+    lsi = LASSI (las).run ()
+    rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, lsi.si)
 
 def tearDownModule():
-    global mol, mf, las
+    global lsi, rdm1s, rdm2s
+    mol = lsi._las.mol
     mol.stdout.close ()
-    del mol, mf, las
+    del lsi, rdm1s, rdm2s
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
-        self.assertAlmostEqual (lib.fp (e_roots), -213.84185089228347, 6)
+        self.assertAlmostEqual (lib.fp (lsi.e_roots), 34.35944449251133, 6)
 
     def test_si (self):
         # Arbitrary signage in both the SI and CI vector, sadly
         # Actually this test seems really inconsistent overall...
-        dms = [np.dot (si[:,i:i+1], si[:,i:i+1].conj ().T) for i in range (7)]
-        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.5895141912171784, 6)
+        dens = lsi.si.conj () * lsi.si
+        self.assertAlmostEqual (lib.fp (np.diag (dens)), 1.9436044633659555, 4)
 
     def test_nelec (self):
-        for ix, ne in enumerate (si.nelec):
-            if ix == 1:
+        for ix, ne in enumerate (lsi.nelec):
+          with self.subTest (ix):
+            if ix in (1,5,8,11):
                 self.assertEqual (ne, (6,2))
             else:
                 self.assertEqual (ne, (4,4))
 
     def test_s2 (self):
-        s2_array = np.zeros (7)
-        s2_array[1] = 6
-        s2_array[2] = 6
-        s2_array[3] = 2
-        self.assertAlmostEqual (lib.fp (si.s2), lib.fp (s2_array), 3)
+        s2_array = np.zeros (25)
+        quintets = [1,2,5,8,11]
+        for ix in quintets: s2_array[ix] = 6
+        triplets = [3,6,7,9,10,12,13]
+        for ix in triplets: s2_array[ix] = 2
+        self.assertAlmostEqual (lib.fp (lsi.s2), lib.fp (s2_array), 3)
 
     def test_wfnsym (self):
-        self.assertEqual (si.wfnsym, [0,]*5 + [1,]*2)
+        wfnsym_ref = np.zeros (25, dtype=int)
+        wfnsym_ref[16:] = 1
+        wfnsym_ref[21] = 0
+        self.assertEqual (lsi.wfnsym, list (wfnsym_ref))
 
     def test_tdms (self):
+        las, si = lsi._las, lsi.si
         stdm1s, stdm2s = make_stdm12s (las)
         nelec = float (sum (las.nelecas))
         for ix in range (stdm1s.shape[0]):
@@ -92,7 +107,8 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s), 9)
         self.assertAlmostEqual (lib.fp (rdm2s_test), lib.fp (rdm2s), 9)
 
-    def test_rdms (self):    
+    def test_rdms (self):
+        las, e_roots = lsi._las, lsi.e_roots
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         d1_r = rdm1s.sum (1)
         d2_r = rdm2s.sum ((1, 4))
@@ -106,6 +122,6 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (e1, e0, 8)
 
 if __name__ == "__main__":
-    print("Full Tests for SA-LASSI with pointgroup symmetry")
+    print("Full Tests for SA-LASSI of c2h4n4 molecule with pointgroup symmetry")
     unittest.main()
 

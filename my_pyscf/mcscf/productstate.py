@@ -23,7 +23,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         log = self.log
         converged = False
         e_sigma = conv_tol_self + 1
-        ci1 = self._check_init_guess (ci0, norb_f, nelec_f) # TODO: get_init_guess
+        ci1 = self._check_init_guess (ci0, norb_f, nelec_f, h1, h2) # TODO: get_init_guess
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
             h1eff, h0eff = self.project_hfrag (h1, h2, ci1, norb_f, nelec_f,
@@ -32,7 +32,9 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; sigma = %e', it, grad_max,
                 e_sigma)
-            if ((grad_max < conv_tol_grad) and (e_sigma < conv_tol_self)):
+            solvers_converged = [np.all (np.asarray (s.converged)) for s in self.fcisolvers]
+            if ((grad_max < conv_tol_grad) and (e_sigma < conv_tol_self)
+                and all ([solvers_converged])):
                 converged = True
                 break
             e, ci1 = self._1shot (h0eff, h1eff, h2, ci1, norb_f, nelec_f,
@@ -46,10 +48,19 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             ecore=ecore, **kwargs)
         return converged, energy_elec, ci1
 
-    def _check_init_guess (self, ci0, norb_f, nelec_f):
+    def _check_init_guess (self, ci0, norb_f, nelec_f, h1, h2):
         ci1 = []
+        if ci0 is None: ci0 = [None for i in range (len (norb_f))]
+        if h1.ndim < 3: h1 = np.stack ([h1, h1], axis=0)
         for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
-            neleca, nelecb = self._get_nelec (solver, ne)
+            nelec = self._get_nelec (solver, ne)
+            if ci0[ix] is None:
+                i = sum (norb_f[:ix])
+                j = i + norb_f[ix]
+                hdiag_csf = solver.make_hdiag_csf (h1[:,i:j,i:j], h2[i:j,i:j,i:j,i:j],
+                                                   no, nelec)
+                ci0[ix] = solver.get_init_guess (no, nelec, solver.nroots, hdiag_csf)
+            neleca, nelecb = nelec
             na = cistring.num_strings (no, neleca)
             nb = cistring.num_strings (no, nelecb)
             zguess = np.zeros ((solver.nroots,na,nb))
@@ -63,8 +74,8 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             if isinstance (solver, CSFFCISolver):
                 solver.check_transformer_cache ()
                 if solver.nroots>solver.transformer.ncsf:
-                    raise RuntimeError ("{} roots > {} CSFs in fragment {}".format (
-                        solver.nroots, solver.transformer.ncsf, ix))
+                    raise RuntimeError ("{} roots > {} CSFs in fragment {} (nelec={}, smult={})".format (
+                        solver.nroots, solver.transformer.ncsf, ix, solver.nelec, solver.smult))
         return ci1
                 
     def _debug_csfs (self, log, ci1, norb_f, nelec_f, grad):
@@ -146,22 +157,23 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         return np.concatenate (grad)
 
     def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
-        dm1 = np.stack (self.make_rdm1 (ci, norb_f, nelec_f), axis=0)
+        dm1s = np.stack (self.make_rdm1s (ci, norb_f, nelec_f), axis=0)
+        if h1.ndim < 3: h1 = np.stack ([h1, h1], axis=0)
         dm2 = self.make_rdm2 (ci, norb_f, nelec_f)
-        energy_tot = (ecore + np.tensordot (h1, dm1, axes=2)
+        energy_tot = (ecore + np.tensordot (h1, dm1s, axes=3)
                         + 0.5*np.tensordot (h2, dm2, axes=4))
         return energy_tot
 
-    def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
-        dm1s = np.stack (self.make_rdm1s (ci, norb_f, nelec_f), axis=0)
-        dm1 = dm1s.sum (0)
-        dm2 = self.make_rdm2 (ci, norb_f, nelec_f)
-        energy_tot = (ecore + np.tensordot (h1, dm1, axes=2)
+    def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, dm1s=None, dm2=None, **kwargs):
+        if dm1s is None: dm1s = np.stack (self.make_rdm1s (ci, norb_f, nelec_f), axis=0)
+        if h1.ndim < 3: h1 = np.stack ([h1,h1], axis=0)
+        if dm2 is None: dm2 = self.make_rdm2 (ci, norb_f, nelec_f)
+        energy_tot = (ecore + np.tensordot (h1, dm1s, axes=3)
                         + 0.5*np.tensordot (h2, dm2, axes=4))
         v1  = np.tensordot (dm1s, h2, axes=2)
         v1 += v1[::-1] # ja + jb
         v1 -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))
-        f1 = h1[None,:,:] + v1
+        f1 = h1 + v1
         h1eff = []
         h0eff = []
         nj = np.cumsum (norb_f)
@@ -181,7 +193,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             v1_i = v1_i[:,i:j,i:j] 
             h1eff.append (f1[:,i:j,i:j]-v1_i)
             # cancel diagonal energy double-counting
-            h1_i = h1[None,i:j,i:j] - v1_i # v1_i fixes overcorrect
+            h1_i = h1[:,i:j,i:j] - v1_i # v1_i fixes overcorrect
             h2_i = h2[i:j,i:j,i:j,i:j]
             e_i -= (np.tensordot (h1_i, dm1s_i, axes=3)
               + 0.5*np.tensordot (h2_i, dm2_i, axes=4))
@@ -196,6 +208,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         ni = nj - norb_f
         for ix, (i, j, c, no, ne, s) in enumerate (zip (ni, nj, ci, norb_f, nelec_f, self.fcisolvers)):
             nelec = self._get_nelec (s, ne)
+            if getattr (c, 'ndim', 3) == 3: c = list (c)
             try:
                 a, b = s.make_rdm1s (c, no, nelec)
             except AssertionError as e:
@@ -243,9 +256,17 @@ def state_average_fcisolver (solver, weights=(.5,.5), wfnsym=None):
     return state_average_mcscf (dummy, weights=weights, wfnsym=wfnsym).fcisolver
 
 class ImpureProductStateFCISolver (ProductStateFCISolver):
-    def __init__(self, fcisolvers, stdout=None, verbose=0, lweights=None, **kwargs):
+    def __init__(self, fcisolvers, stdout=None, verbose=0, lroots=None, lweights=None, **kwargs):
         ProductStateFCISolver.__init__(self, fcisolvers, stdout=stdout, verbose=verbose, **kwargs)
-        if lweights is None: lweights = [[.5,.5],]*len(fcisolvers)
+        if lweights is None:
+            if lroots is not None:
+                lweights = []
+                for lroot in lroots:
+                    l = np.zeros (lroot)
+                    l[0] = 1
+                    lweights.append (l)
+            else:
+                lweights = [[.5,.5],]*len(fcisolvers)
         for ix, (fcisolver, weights) in enumerate (zip (self.fcisolvers, lweights)):
             if len (weights) > 1:
                 self.fcisolvers[ix] = state_average_fcisolver (fcisolver, weights=weights)

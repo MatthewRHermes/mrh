@@ -3,11 +3,13 @@ import time
 from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
+
 
 # TODO: fix stdm1 index convention in both o0 and o1
 
@@ -196,9 +198,7 @@ class _LASSI_subspace_env (object):
 
 def iterate_subspace_blocks (las, ci, spacesym, subset=None):
     if subset is None: subset = set (spacesym)
-    lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
-                         for c in ci_r]
-                        for ci_r in ci])
+    lroots = get_lroots (ci)
     nprods_r = np.product (lroots, axis=0)
     prod_off = np.cumsum (nprods_r) - nprods_r
     nprods = nprods_r.sum ()
@@ -272,8 +272,8 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
             lib.logger.debug (las, 'Only one state in this symmetry block')
             e_roots.extend (las1.e_states - e0)
             si.append (np.ones ((1,1), dtype=dtype))
-            s2_mat.append (s2_states[idx_prod]*np.ones((1,1)))
-            s2_roots.extend (s2_states[idx_prod])
+            s2_mat.append (s2_states[idx_space]*np.ones((1,1)))
+            s2_roots.extend (s2_states[idx_space])
             rootsym.extend ([sym,])
             continue
         wfnsym = None if break_symmetry else sym[-1]
@@ -329,6 +329,10 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         row = [ix,er,s2r] + list (nelec)
         if not break_symmetry: row.append (symm.irrep_id2name (las.mol.groupname, rsym[-1]))
         lib.logger.info (las, fmt_str.format (*row))
+        if ix>=99 and las.verbose < lib.logger.DEBUG:
+            lib.logger.info (las, ('Remaining %d eigenvalues truncated; '
+                                   'increase verbosity to print them all'), len (e_roots)-100)
+            break
     return e_roots, si
 
 def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
@@ -387,9 +391,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     # Error catch: diagonal Hamiltonian elements
     # This diagnostic is simply not valid for local excitations;
     # the energies aren't supposed to be additive
-    lroots = np.array ([[1 if ci.ndim<3 else ci.shape[0]
-                         for ci in ci_r]
-                        for ci_r in ci_blk])
+    lroots = get_lroots (ci_blk)
     if np.all (lroots==1) and soc==False: # tmp?
         diag_test = np.diag (ham_blk)
         diag_ref = las.e_states - e0
@@ -690,3 +692,23 @@ class LASSI(lib.StreamObject):
         self.si, self.s2, self.s2_mat, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
             si, si.s2, si.s2_mat, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
         return self.e_roots, self.si
+
+    def ham_2q (self, mo_coeff=None, veff_c=None, h2eff_sub=None, soc=0):
+        if mo_coeff is None: mo_coeff = self._las.mo_coeff
+        return ham_2q (self._las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
+
+    def get_nelec_frs (self, las=None):
+        if las is None: las = self._las
+        nelec_frs = []
+        for fcibox, nelec in zip (las.fciboxes, las.nelecas_sub):
+            nelec_rs = []
+            for solver in fcibox.fcisolvers:
+                nelec_rs.append (_unpack_nelec (fcibox._get_nelec (solver, nelec)))
+            nelec_frs.append (nelec_rs)
+        return np.asarray (nelec_frs)
+
+    def get_lroots (self, ci=None):
+        if ci is None: ci = self._las.ci
+        return get_lroots (ci)
+
+

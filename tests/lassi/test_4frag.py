@@ -21,66 +21,78 @@ from copy import deepcopy
 from itertools import product
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
+from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
-from c2h4n4_struct import structure as struct
+from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_make_rdm12s
 from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 
-# State list contains a couple of different 4-frag interactions
-states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1]],
-           'spins':   [[0,0,0,0],[1,1,-1,-1],[0,1,-1,0], [1,0,0,-1],[-1,-1,1,1],[0,-1,1,0], [-1,0,0,1]],
-           'smults':  [[1,1,1,1],[2,2,2,2],  [1,2,2,1],  [2,1,1,2], [2,2,2,2],  [1,2,2,1],  [2,1,1,2]],
-           'wfnsyms': [[0,0,0,0],]*7}
-weights = [1.0,] + [0.0,]*6
-nroots = 7
-xyz = '''6        2.215130000      3.670330000      0.000000000
-1        3.206320000      3.233120000      0.000000000
-1        2.161870000      4.749620000      0.000000000
-6        1.117440000      2.907720000      0.000000000
-1        0.141960000      3.387820000      0.000000000
-1       -0.964240000      1.208850000      0.000000000
-6        1.117440000      1.475850000      0.000000000
-1        2.087280000      0.983190000      0.000000000
-6        0.003700000      0.711910000      0.000000000
-6       -0.003700000     -0.711910000      0.000000000
-6       -1.117440000     -1.475850000      0.000000000
-1        0.964240000     -1.208850000      0.000000000
-1       -2.087280000     -0.983190000      0.000000000
-6       -1.117440000     -2.907720000      0.000000000
-6       -2.215130000     -3.670330000      0.000000000
-1       -0.141960000     -3.387820000      0.000000000
-1       -2.161870000     -4.749620000      0.000000000
-1       -3.206320000     -3.233120000      0.000000000'''
-
-mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False, verbose=0, output='/dev/null')
-mf = scf.RHF (mol).run ()
-las = LASSCF (mf, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
-las.state_average_(weights=weights, **states)
-a = list (range (18))
-frags = [a[:5], a[5:9], a[9:13], a[13:18]]
-las.mo_coeff = las.localize_init_guess (frags, mf.mo_coeff)
-np.random.seed (1)
-las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
-for c in las.ci:
-    for iroot in range (len (c)):
-        c[iroot] = np.random.rand (*c[iroot].shape)
-        c[iroot] /= linalg.norm (c[iroot])
-nelec_frs = np.array (
-    [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
-     for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
-)
-rand_mat = np.random.rand (7,7)
-rand_mat += rand_mat.T
-e, si = linalg.eigh (rand_mat)
-si = lib.tag_array (si, rootsym=las_symm_tuple (las)[0])
+def setUpModule ():
+    global mol, mf, las, nroots, nelec_frs, si
+    # State list contains a couple of different 4-frag interactions
+    states  = {'charges': [[0,0,0,0],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1],[1,1,-1,-1],[2,-1,-1,0],[1,0,0,-1]],
+               'spins':   [[0,0,0,0],[1,1,-1,-1],[0,1,-1,0], [1,0,0,-1],[-1,-1,1,1],[0,-1,1,0], [-1,0,0,1]],
+               'smults':  [[1,1,1,1],[2,2,2,2],  [1,2,2,1],  [2,1,1,2], [2,2,2,2],  [1,2,2,1],  [2,1,1,2]],
+               'wfnsyms': [[0,0,0,0],]*7}
+    weights = [1.0,] + [0.0,]*6
+    nroots = 7
+    xyz = '''6        2.215130000      3.670330000      0.000000000
+    1        3.206320000      3.233120000      0.000000000
+    1        2.161870000      4.749620000      0.000000000
+    6        1.117440000      2.907720000      0.000000000
+    1        0.141960000      3.387820000      0.000000000
+    1       -0.964240000      1.208850000      0.000000000
+    6        1.117440000      1.475850000      0.000000000
+    1        2.087280000      0.983190000      0.000000000
+    6        0.003700000      0.711910000      0.000000000
+    6       -0.003700000     -0.711910000      0.000000000
+    6       -1.117440000     -1.475850000      0.000000000
+    1        0.964240000     -1.208850000      0.000000000
+    1       -2.087280000     -0.983190000      0.000000000
+    6       -1.117440000     -2.907720000      0.000000000
+    6       -2.215130000     -3.670330000      0.000000000
+    1       -0.141960000     -3.387820000      0.000000000
+    1       -2.161870000     -4.749620000      0.000000000
+    1       -3.206320000     -3.233120000      0.000000000'''
+    
+    mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False, verbose=0, output='/dev/null')
+    mf = scf.RHF (mol).run ()
+    las = LASSCF (mf, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
+    las.state_average_(weights=weights, **states)
+    a = list (range (18))
+    frags = [a[:5], a[5:9], a[9:13], a[13:18]]
+    las.mo_coeff = las.localize_init_guess (frags, mf.mo_coeff)
+    las.ci = las.get_init_guess_ci (las.mo_coeff, las.get_h2eff (las.mo_coeff))
+    lroots = np.minimum (2, las.get_ugg ().ncsf_sub)
+    nelec_frs = np.array (
+        [[_unpack_nelec (fcibox._get_nelec (solver, nelecas)) for solver in fcibox.fcisolvers]
+         for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)]
+    )
+    ndet_frs = np.array (
+        [[[cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,0]),
+           cistring.num_strings (las.ncas_sub[ifrag], nelec_frs[ifrag,iroot,1])]
+          for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
+    )
+    np.random.seed (1)
+    for ifrag, c in enumerate (las.ci):
+        for iroot in range (len (c)):
+            lr = lroots[ifrag][iroot]
+            ndeta, ndetb = ndet_frs[ifrag][iroot]
+            ci = np.random.rand (lr, ndeta, ndetb)
+            ci /= linalg.norm (ci.reshape (lr,-1), axis=1)[:,None,None]
+            c[iroot] = ci
+    rand_mat = np.random.rand (96,96)
+    rand_mat += rand_mat.T
+    e, si = linalg.eigh (rand_mat)
+    si = lib.tag_array (si, rootsym=las_symm_tuple (las)[0])
 
 def tearDownModule():
-    global mol, mf, las
+    global mol, mf, las, nroots, nelec_frs, si
     mol.stdout.close ()
-    del mol, mf, las
+    del mol, mf, las, nroots, nelec_frs, si
 
 class KnownValues(unittest.TestCase):
     def test_stdm12s (self):

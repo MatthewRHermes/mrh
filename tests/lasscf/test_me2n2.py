@@ -48,7 +48,7 @@ def tearDownModule():
 
 
 class KnownValues(unittest.TestCase):
-    def test_energy (self):
+    def test_energy_slow (self):
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
         self.assertAlmostEqual (las.e_tot, mc.e_tot, 6)
         with self.subTest ('chkfile'):
@@ -59,7 +59,7 @@ class KnownValues(unittest.TestCase):
             las2.kernel ()
             self.assertAlmostEqual (las.e_tot, las2.e_tot, 8)
 
-    def test_energy_df (self):
+    def test_energy_df_slow (self):
         las = LASSCF (mf_df, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
         self.assertAlmostEqual (las.e_tot, mc_df.e_tot, 6)
 

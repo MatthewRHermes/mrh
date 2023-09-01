@@ -109,7 +109,7 @@ class KnownValues(unittest.TestCase):
         e_lexc = np.concatenate ([item for sublist in las_test.e_lexc for item in sublist])
         self.assertTrue (np.all (e_lexc>-1e-8))
 
-    def test_convergence (self):
+    def test_convergence_slow (self):
         _check_()
         las_test = las.state_average (weights=weights, **states)
         las_test.lasci (lroots=lroots)
@@ -129,7 +129,7 @@ class KnownValues(unittest.TestCase):
         e_lexc = np.concatenate ([item for sublist in las_test.e_lexc for item in sublist])
         self.assertTrue (np.all (e_lexc>-1e-8))
 
-    def test_convergence_symm (self):
+    def test_convergence_symm_slow (self):
         _check_()
         las_test = las_symm.state_average (weights=weights, **states_symm)
         las_test.lasci (lroots=lroots)

@@ -10,6 +10,7 @@ from pyscf.data import nist
 from itertools import combinations
 from mrh.my_pyscf.mcscf import soc_int as soc_int
 from mrh.my_pyscf.lassi import dms as lassi_dms
+from mrh.my_pyscf.fci.csf import unpack_h1e_cs
 
 def memcheck (las, ci, soc=None):
     '''Check if the system has enough memory to run these functions! ONLY checks
@@ -31,12 +32,13 @@ def memcheck (las, ci, soc=None):
     ndet_soc = max ([cistring.num_strings (2*las.ncas, nelec) for nelec in nelec_rs.sum (1)])
     nbytes_per_sfvec = ndet_spinfree * np.dtype (float).itemsize 
     nbytes_per_sovec = ndet_soc * np.dtype (complex).itemsize
-    # 3 vectors: the bra (from a generator), the ket (from a generator), and op|bra>
-    # for SOC, each generator must also store the spinfree version
+    # 2 vectors: the ket (from a generator), and op|ket>
+    # for SOC, the generator also briefly stores the spinfree version but this
+    # should always be smaller
     if soc:
-        nbytes = 2*nbytes_per_sfvec + 3*nbytes_per_sovec
+        nbytes = 2*nbytes_per_sfvec
     else:
-        nbytes = 3*nbytes_per_sfvec
+        nbytes = 2*nbytes_per_sfvec
     # memory load of ci_dp vectors
     nbytes += sum ([np.prod ([c[iroot].size for c in ci])
                     * np.amax ([c[iroot].dtype.itemsize for c in ci])
@@ -68,7 +70,17 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
     Returns:
         ci1_r_gen: callable that returns a generator of length nprods
             generates spinless CAS-CI vectors
-        reverser: callable
+        ss2spinless: callable
+            Put a CAS-CI vector in the spinless representation
+            Args:
+                ci0: ndarray
+                    CAS-CI vector
+                ne: tuple of length 2
+                    neleca, nelecb of target Hilbert space
+            Returns:
+                ci1: ndarray
+                    spinless CAS-CI vector
+        spinless2ss: callable
             Perform the reverse operation on a spinless CAS-CI vector
             Args:
                 ci2: ndarray
@@ -97,41 +109,42 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
     strs = strsa = strsb = None
     ndet = cistring.num_strings (2*norb, nelec)
     nstates = len (nelec_r)
-    def ci1_r_gen (buf=None):
-        if callable (ci0_r):
-            ci0_r_gen = ci0_r ()
-        else:
-            ci0_r_gen = (c for c in ci0_r)
-        ci0 = next (ci0_r_gen)
+    def ss2spinless (ci0, ne, buf=None):
         if buf is None:
             ci1 = np.empty (ndet, dtype=ci0.dtype)
         else:
             ci1 = np.asarray (buf).flat[:ndet]
-        for istate, ne in enumerate (nelec_r):
-            ci1[:] = 0.0
-            ci1[addrs[ne]] = ci0[:,:].ravel ()
-            neleca, nelecb = _unpack_nelec (ne)
-            if abs(neleca*nelecb)%2: ci1[:] *= -1
-            # Sign comes from changing representation:
-            # ... a2' a1' a0' ... b2' b1' b0' |vac>
-            # ->
-            # ... b2' b1' b0' .. a2' a1' a0' |vac>
-            # i.e., strictly decreasing from left to right
-            # (the ordinality of spin-down is conventionally greater than spin-up)
-            yield ci1[:,None]
-            if istate+1==nstates: break
-            ci0 = next (ci0_r_gen)
-    def reverser (ci2, ne):
+        ci1[:] = 0.0
+        ci1[addrs[ne]] = ci0[:,:].ravel ()
+        neleca, nelecb = _unpack_nelec (ne)
+        if abs(neleca*nelecb)%2: ci1[:] *= -1
+        # Sign comes from changing representation:
+        # ... a2' a1' a0' ... b2' b1' b0' |vac>
+        # ->
+        # ... b2' b1' b0' .. a2' a1' a0' |vac>
+        # i.e., strictly decreasing from left to right
+        # (the ordinality of spin-down is conventionally greater than spin-up)
+        return ci1[:,None]
+    def spinless2ss (ci2, ne):
         ''' Generate the spin-separated CI vector in a particular M
         Hilbert space from a spinless CI vector '''
         ci3 = ci2[addrs[ne]].reshape (ndet_sp[ne])
         neleca, nelecb = _unpack_nelec (ne)
         if abs(neleca*nelecb)%2: ci3[:] *= -1
         return ci3
-    return ci1_r_gen, reverser
+    def ci1_r_gen (buf=None):
+        if callable (ci0_r):
+            ci0_r_gen = ci0_r ()
+        else:
+            ci0_r_gen = (c for c in ci0_r)
+        for ci0, ne in zip (ci0_r_gen, nelec_r):
+            # Doing this in two lines saves memory: ci0 is overwritten
+            ci0 = ss2spinless (ci0, ne)
+            yield ci0
+    return ci1_r_gen, ss2spinless, spinless2ss
 
 def civec_spinless_repr (ci0_r, norb, nelec_r):
-    ci1_r_gen, _ = civec_spinless_repr_generator (ci0_r, norb, nelec_r)
+    ci1_r_gen, _, _ = civec_spinless_repr_generator (ci0_r, norb, nelec_r)
     ci1_r = np.stack ([x.copy () for x in ci1_r_gen ()], axis=0)
     return ci1_r
 
@@ -161,9 +174,6 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
     nelecb_f = [ne[1] for ne in nelec_f]
     lroots_f = [1 if ci.ndim<3 else ci.shape[0] for ci in ci_f]
     nprods = np.prod (lroots_f)
-    #addrs_las = np.stack (np.meshgrid (*[np.arange(l) for l in lroots_f[::-1]],
-    #                                   indexing='ij'), axis=0)
-    #addrs_las = addrs_las.reshape (nfrags, nprods)[::-1,:].T
     shape_f = [(lroots, cistring.num_strings (norb, neleca), cistring.num_strings (norb, nelecb))
               for lroots, norb, neleca, nelecb in zip (lroots_f, norb_f, neleca_f, nelecb_f)]
     addrs_a = addr_outer_product (norb_f, neleca_f)
@@ -189,14 +199,44 @@ def _ci_outer_product (ci_f, norb_f, nelec_f):
             ci = np.empty ((ndet_a,ndet_b), dtype=ci_f[-1].dtype)
         else:
             ci = np.asarray (buf.flat[:ndet_a*ndet_b]).reshape (ndet_a, ndet_b)
+        #ci_dp = ci_f[-1].reshape (shape_f[-1])
+        #for ci_r, shape in zip (ci_f[-2::-1], shape_f[-2::-1]):
+        #    lroots, ndeta, ndetb = ci_dp.shape
+        #    ci_dp = np.multiply.outer (ci_dp, ci_r.reshape (shape))
+        #    ci_dp = ci_dp.transpose (0,3,1,4,2,5).reshape (
+        #        lroots*shape[0], ndeta*shape[1], ndetb*shape[2]
+        #    )
+        #norm_dp = linalg.norm (ci_dp.reshape (ci_dp.shape[0],-1), axis=1)
+        #ci_dp /= norm_dp[:,None,None]
         for vec in ci_dp:
             ci[:,:] = 0.0
             ci[idx] = vec[:,:]
             yield ci
-    def dotter (c1, nelec1):
+    def dotter (c1, nelec1, skip=None):
         if nelec1 != nelec: return np.zeros (nprods)
-        return np.dot (ci_dp.reshape (nprods, -1),
-                       c1[idx].ravel ())
+        if skip is None: return np.dot (ci_dp.reshape (nprods, -1),
+                                        c1[idx].ravel ())
+        try:
+            skip = set (skip)
+        except TypeError as e:
+            skip = set ([skip])
+        c1_dp = c1[idx][None,:]
+        skipdims = 1
+        for ifrag, (ci_r, shape) in enumerate (zip (ci_f, shape_f)):
+            new_shape = [x for s,t in zip (c1_dp.shape[skipdims:],shape[1:]) for x in (s//t, t)]
+            new_shape = list(c1_dp.shape[0:skipdims]) + new_shape
+            c1_dp = c1_dp.reshape (*new_shape)
+            if ifrag in skip:
+                dimorder = [0,skipdims+1,skipdims+3,] + list (range(1, skipdims+1)) + [skipdims+2,]
+                c1_dp = c1_dp.transpose (*dimorder)
+                skipdims += 2
+            else:
+                c1_dp = np.tensordot (ci_r.reshape (shape), c1_dp,
+                                      axes=((1,2),(skipdims+1,skipdims+3)))
+                new_shape = [c1_dp.shape[0]*c1_dp.shape[1],] + list (c1_dp.shape[2:])
+                c1_dp = c1_dp.reshape (*new_shape)
+        c1_dp = c1_dp.reshape (c1_dp.shape[0:skipdims])
+        return c1_dp
     return gen_ci_dp, nprods, dotter
 
 def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
@@ -216,22 +256,30 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
     Returns:
         ci_r_gen : callable that returns a generator of length (nprods)
             Generates all direct-product CAS CI vectors
-        nelec_r : list of length (nroots) of tuple of length 2
+        nelec_p : list of length (nprods) of tuple of length 2
             (neleca, nelecb) for each product state
         dotter : callable
             Performs the dot product in the outer product basis
             on a CAS CI vector, without explicitly constructing
             any direct-product CAS CI vectors (again).
             Args:
-                c1 : ndarray
+                ket : ndarray
                     contains CAS-CI vector
-                nelec1 : tuple of length 2
+                nelec_ket : tuple of length 2
                     neleca, nelecb
             Kwargs:
-                reverser : callable
+                spinless2ss : callable
                     Converts ci back from the spinless representation
                     into the (neleca,nelecb) representation. Takes c1
                     and nelec1 and returns a new ci vector
+                iket : integer
+                    Used to filter zero sectors when passed with oporder
+                oporder: integer
+                    Used to filter zero sectors when passed with oporder
+                    ket is identified as product number iket, acted on by
+                    some operator of up to order oporder. Any rootspace
+                    which differs by more than oporder electron hops
+                    therefore has zero projection onto ket.
             Returns:
                 ndarray of length (nprods)
                     Expansion coefficients for c1 in terms of direct-
@@ -242,15 +290,17 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
     ndet = max ([cistring.num_strings (norb, ne[0]) * cistring.num_strings (norb, ne[1])
                 for ne in np.sum (nelec_fr, axis=0)])
     gen_ci_r = []
-    nelec_r = []
+    nelec_p = []
     dotter_r = []
+    space_p = []
     for space in range (len (ci_fr[0])):
         ci_f = [ci[space] for ci in ci_fr]
         nelec_f = [nelec[space] for nelec in nelec_fr]
         nelec = (sum ([ne[0] for ne in nelec_f]), sum ([ne[1] for ne in nelec_f]))
         gen_ci, nprods, dotter = _ci_outer_product (ci_f, norb_f, nelec_f)
         gen_ci_r.append (gen_ci)
-        nelec_r.extend ([nelec,]*nprods)
+        nelec_p.extend ([nelec,]*nprods)
+        space_p.extend ([space,]*nprods)
         dotter_r.append ([dotter, nelec, nprods])
     def ci_r_gen (buf=None):
         if buf is None:
@@ -260,22 +310,30 @@ def ci_outer_product_generator (ci_fr, norb_f, nelec_fr):
         for gen_ci in gen_ci_r:
             for x in gen_ci (buf=buf1):
                 yield x
-    def dotter (c1, nelec1, reverser=None):
+    def dotter (ket, nelec_ket, spinless2ss=None, iket=None, oporder=None, skip=None):
         vec = []
-        for dot, ne, nprods in dotter_r:
-            wc1 = c1
-            if callable (reverser):
-                if sum (ne) == sum (nelec1):
-                    wc1 = reverser (c1, ne)
-                    vec.append (dot (wc1, ne))
-                else:
-                    vec.append (np.zeros (nprods))
-            elif ne==nelec1:
-                vec.append (dot (wc1, nelec1))
-            else:
+        if callable (spinless2ss):
+            parse_nelec = lambda nelec: sum(nelec)
+        else:
+            parse_nelec = lambda nelec: nelec
+            spinless2ss = lambda vec, ne: vec
+        filtbra = lambda *args: False
+        if iket is not None and oporder is not None:
+            iket = space_p[iket]
+            nelec_f_ket = nelec_fr[:,iket]
+            def filtbra (ibra):
+                nelec_f_bra = nelec_fr[:,ibra]
+                nhop_f = nelec_f_bra-nelec_f_ket
+                return np.sum (np.abs(nhop_f))>2*oporder
+
+        for ibra, (dot, nelec_bra, nprods) in enumerate (dotter_r):
+            if parse_nelec (nelec_bra) != parse_nelec (nelec_ket) or filtbra (ibra):
                 vec.append (np.zeros (nprods))
-        return np.concatenate (vec)
-    return ci_r_gen, nelec_r, dotter
+                continue
+            vec.append (dot (spinless2ss (ket, nelec_bra), nelec_bra, skip=skip))
+        if skip is None: return np.concatenate (vec)
+        else: return vec
+    return ci_r_gen, nelec_p, dotter
 
 def ci_outer_product (ci_fr, norb_f, nelec_fr):
     '''Compute outer-product CI vectors from fragment LAS CI vectors.
@@ -367,31 +425,27 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
             Irrep ID for target matrix block
 
     Returns:
-        ham_eff : square ndarray of length (nroots)
+        ham_eff : square ndarray of length (ndim)
             Spin-orbit-free Hamiltonian in state-interaction basis
-        s2_eff : square ndarray of length (nroots)
+        s2_eff : square ndarray of length (ndim)
             S2 operator matrix in state-interaction basis
-        ovlp_eff : square ndarray of length (nroots)
+        ovlp_eff : square ndarray of length (ndim)
             Overlap matrix in state-interaction basis
     '''
     if soc>1:
         raise NotImplementedError ("Two-electron spin-orbit coupling")
     mol = las.mol
     norb_f = las.ncas_sub
-    norb = sum (norb_f)
+    norb = norb_ss = sum (norb_f)
+    nroots = len (ci_fr[0])
 
     # The function below is the main workhorse of this whole implementation
     ci_r_generator, nelec_r, dotter = ci_outer_product_generator (ci_fr, norb_f, nelec_frs)
-    nroots = len(nelec_r)
+    ndim = len(nelec_r)
     nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r]
+    nelec_r_ss = nelec_r
     if not len (set (nelec_r_spinless)) == 1:
         raise NotImplementedError ("States with different numbers of electrons")
-    # S2 best taken care of before "spinless representation"
-    reverser = None
-    s2_eff = np.zeros ((nroots,nroots))
-    for i, c, nelec_ket in zip(range(nroots), ci_r_generator (), nelec_r):
-        s2c = contract_ss (c, norb, nelec_ket)
-        s2_eff[i,:] = dotter (s2c, nelec_ket, reverser=reverser)
     # Hamiltonian may be complex
     h1_re = h1.real
     h2_re = h2.real
@@ -404,23 +458,155 @@ def ham (las, h1, h2, ci_fr, nelec_frs, soc=0, orbsym=None, wfnsym=None):
         h2_re[0,:,0,:,1,:,1,:] = h2[:]
         h2_re[1,:,1,:,1,:,1,:] = h2[:]
         h2_re = h2_re.reshape ([2*norb,]*4)
-        ci_r_generator, reverser = civec_spinless_repr_generator (ci_r_generator, norb, nelec_r)
+        ss2spinless, spinless2ss = civec_spinless_repr_generator (
+            ci_r_generator, norb, nelec_r)[1:3]
         nelec_r = nelec_r_spinless
         norb = 2 * norb
         if orbsym is not None: orbsym *= 2
+    else:
+        spinless2ss = None
+        ss2spinless = lambda *args: args[0]
 
     solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
-    ham_eff = np.zeros ((nroots, nroots), dtype=h1.dtype)
-    ovlp_eff = np.zeros ((nroots, nroots))
-    for i, ket, nelec_ket in zip(range(nroots), ci_r_generator (), nelec_r):
-        ovlp_eff[i,:] = dotter (ket, nelec_ket, reverser=reverser)
-        h2eff = solver.absorb_h1e (h1_re, h2_re, norb, nelec_ket, 0.5)
-        hket = solver.contract_2e (h2eff, ket, norb, nelec_ket)
-        if h1_im is not None:
-            hket = hket + 1j*contract_1e_nosym (h1_im, ket, norb, nelec_ket)
-        ham_eff[i,:] = dotter (hket, nelec_ket, reverser=reverser)
+    h1_re_c, h1_re_s = h1_re, 0
+    if h1_re.ndim > 2:
+        h1_re_c, h1_re_s = unpack_h1e_cs (h1_re)
+    def contract_h_re (c, nel):
+        h2eff = solver.absorb_h1e (h1_re_c, h2_re, norb, nel, 0.5)
+        return solver.contract_2e (h2eff, c, norb, nel)
+    if h1_im is not None:
+        def contract_h (c, nel):
+            hc = contract_h_re (c, nel)
+            hc = hc + 1j*contract_1e_nosym (h1_im, c, norb, nel)
+            return hc
+    else:
+        contract_h = contract_h_re
+
+    ham_eff = np.zeros ((ndim, ndim), dtype=h1.dtype)
+    ovlp_eff = np.zeros ((ndim, ndim))
+    s2_eff = np.zeros ((ndim,ndim))
+    for i, ket in zip(range(ndim), ci_r_generator ()):
+        nelec_ket = nelec_r_ss[i]
+        ovlp_eff[i,:] = dotter (ket, nelec_ket, iket=i, oporder=0)
+        s2ket = contract_ss (ket, norb_ss, nelec_ket)
+        s2_eff[i,:] = dotter (s2ket, nelec_ket, iket=i, oporder=2)
+        s2ket, ket = None, ss2spinless (ket, nelec_ket)
+        nelec_ket = nelec_r[i]
+        hket = contract_h (ket, nelec_ket)
+        ket = None
+        ham_eff[i,:] = dotter (hket, nelec_ket, spinless2ss=spinless2ss, iket=i, oporder=2)
     
     return ham_eff, s2_eff, ovlp_eff
+
+def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra, 
+                     soc=0, orbsym=None, wfnsym=None):
+    '''Evaluate the action of the state interaction Hamiltonian on a set of ket CI vectors,
+    projected onto a basis of bra CI vectors, leaving one fragment of the bra uncontracted.
+
+    Args:
+        las : instance of class LASSCF
+        h1 : ndarray of shape (ncas, ncas)
+            Spin-orbit-free one-body CAS Hamiltonian
+        h2 : ndarray of shape (ncas, ncas, ncas, ncas)
+            Spin-orbit-free two-body CAS Hamiltonian
+        ci_fr_ket : nested list of shape (nfrags, nroots_ket)
+            Contains CI vectors for the ket; element [i,j] is ndarray of shape
+            (ndeta_ket[i,j],ndetb_ket[i,j])
+        nelec_frs_ket : ndarray of shape (nfrags, nroots_ket, 2)
+            Number of electrons of each spin in each rootspace in each
+            fragment for the ket vectors
+        ci_fr_bra : nested list of shape (nfrags, nroots_bra)
+            Contains CI vectors for the bra; element [i,j] is ndarray of shape
+            (ndeta_bra[i,j],ndetb_bra[i,j])
+        nelec_frs_bra : ndarray of shape (nfrags, nroots_bra, 2)
+            Number of electrons of each spin in each
+            fragment for the bra vectors
+
+    Kwargs:
+        soc : integer
+            Order of spin-orbit coupling included in the Hamiltonian
+        orbsym : list of int of length (ncas)
+            Irrep ID for each orbital
+        wfnsym : int
+            Irrep ID for target matrix block
+
+    Returns:
+        hket_fr_pabq : nested list of shape (nfrags, nroots_bra)
+            Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
+            ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket). 
+    '''
+    if soc>1:
+        raise NotImplementedError ("Two-electron spin-orbit coupling")
+    mol = las.mol
+    norb_f = las.ncas_sub
+    norb = norb_ss = sum (norb_f)
+    nfrags = len (norb_f)
+    nroots_ket = len (ci_fr_ket[0])
+    nroots_bra = len (ci_fr_bra[0])
+
+    # The function below is the main workhorse of this whole implementation
+    ci_r_ket_gen, nelec_r_ket, dotter_ket = ci_outer_product_generator (ci_fr_ket, norb_f, nelec_frs_ket)
+    ci_r_bra_gen, nelec_r_bra, dotter_bra = ci_outer_product_generator (ci_fr_bra, norb_f, nelec_frs_bra)
+    ndim_ket = len(nelec_r_ket)
+    ndim_bra = len(nelec_r_bra)
+    nelec_r_ket_ss = nelec_r_ket
+    nelec_r_spinless = [tuple((n[0] + n[1], 0)) for n in nelec_r_ket]
+    if not len (set (nelec_r_spinless)) == 1:
+        raise NotImplementedError ("States with different numbers of electrons")
+    # Hamiltonian may be complex
+    h1_re = h1.real
+    h2_re = h2.real
+    h1_im = None
+    if soc:
+        h1_im = h1.imag
+        h2_re = np.zeros ([2,norb,]*4, dtype=h1_re.dtype)
+        h2_re[0,:,0,:,0,:,0,:] = h2[:]
+        h2_re[1,:,1,:,0,:,0,:] = h2[:]
+        h2_re[0,:,0,:,1,:,1,:] = h2[:]
+        h2_re[1,:,1,:,1,:,1,:] = h2[:]
+        h2_re = h2_re.reshape ([2*norb,]*4)
+        ss2spinless_ket, spinless2ss_ket = civec_spinless_repr_generator (
+            ci_r_ket_gen, norb, nelec_r_ket)[1:3]
+        ss2spinless_bra, spinless2ss_bra = civec_spinless_repr_generator (
+            ci_r_bra_gen, norb, nelec_r_ket)[1:3]
+        nelec_r_ket = nelec_r_spinless
+        nelec_r_bra = [tuple ((n[0] + n[1], 0)) for n in nelec_r_bra]
+        norb = 2 * norb
+        if orbsym is not None: orbsym *= 2
+    else:
+        spinless2ss_ket = spinless2ss_bra = None
+        ss2spinless_ket = ss2spinless_bra = lambda *args: args[0]
+
+    solver = fci.solver (mol, symm=(wfnsym is not None)).set (orbsym=orbsym, wfnsym=wfnsym)
+    h1_re_c, h1_re_s = h1_re, 0
+    if h1_re.ndim > 2:
+        h1_re_c, h1_re_s = unpack_h1e_cs (h1_re)
+    def contract_h_re (c, nel):
+        h2eff = solver.absorb_h1e (h1_re_c, h2_re, norb, nel, 0.5)
+        return solver.contract_2e (h2eff, c, norb, nel)
+    if h1_im is not None:
+        def contract_h (c, nel):
+            hc = contract_h_re (c, nel)
+            hc = hc + 1j*contract_1e_nosym (h1_im, c, norb, nel)
+            return hc
+    else:
+        contract_h = contract_h_re
+
+    # <p|H|q>, but the space of p is partially uncontracted
+    hket_fr_pabq = [[[] for i in range (nroots_bra)] for j in range (nfrags)]
+    for i, ket in zip(range(ndim_ket), ci_r_ket_gen ()):
+        nelec_ket = nelec_r_ket_ss[i]
+        ket = ss2spinless_ket (ket, nelec_ket)
+        nelec_ket = nelec_r_ket[i]
+        hket = contract_h (ket, nelec_ket)
+        for ifrag in range (nfrags):
+            hket_r = dotter_bra (hket, nelec_ket, spinless2ss=spinless2ss_bra, skip=ifrag)
+            for ibra in range (nroots_bra):
+                hket_fr_pabq[ifrag][ibra].append (hket_r[ibra])
+    for ifrag in range (nfrags):
+        for ibra in range (nroots_bra):
+            hket_fr_pabq[ifrag][ibra] = np.stack (hket_fr_pabq[ifrag][ibra], axis=-1)
+    return hket_fr_pabq
 
 def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     '''Build LAS state interaction transition density matrices
@@ -461,7 +647,7 @@ def make_stdm12s (las, ci_fr, nelec_frs, orbsym=None, wfnsym=None):
     dtype = ci_fr[-1][0].dtype
     if not spin_pure:
         # Map to "spinless electrons": 
-        ci_r_generator, reverser = civec_spinless_repr_generator (ci_r_generator, norb, nelec_r)
+        ci_r_generator = civec_spinless_repr_generator (ci_r_generator, norb, nelec_r)[0]
         nelec_r = nelec_r_spinless
         norb = 2 * norb
         if orbsym is not None: orbsym *= 2
@@ -557,7 +743,7 @@ def root_make_rdm12s (las, ci_fr, nelec_frs, si, ix, orbsym=None, wfnsym=None):
     spin_pure = len (set (nelec_r)) == 1
     if not spin_pure:
         # Map to "spinless electrons": 
-        ci_r_gen, reverser = civec_spinless_repr_generator (ci_r_gen, norb, nelec_r)
+        ci_r_gen = civec_spinless_repr_generator (ci_r_gen, norb, nelec_r)[0]
         nelec_r = nelec_r_spinless
         norb = 2 * norb
         if orbsym is not None: orbsym *= 2

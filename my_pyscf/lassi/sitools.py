@@ -2,6 +2,8 @@ import numpy as np
 from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
+from mrh.my_pyscf.lassi.lassi import ham_2q
+from mrh.my_pyscf.lassi.citools import get_lroots
 
 def decompose_sivec_by_rootspace (las, si, ci=None):
     '''Decompose a set of LASSI vectors as
@@ -11,9 +13,7 @@ def decompose_sivec_by_rootspace (las, si, ci=None):
     Where "i" indexes the "a"th state in rootspace "P"'''
     if ci is None: ci=las.ci
     if si.ndim==1: si = si[:,None]
-    lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
-                         for c in ci_r]
-                        for ci_r in ci])
+    lroots = get_lroots (ci)
     nstates = np.product (lroots, axis=0)
     jj = np.cumsum (nstates)
     ii = jj - nstates
@@ -199,9 +199,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
     log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
     nstates = len (states)
     avg_weights = space_weights[:,states].sum (1) / nstates
-    lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
-                         for c in ci_r]
-                        for ci_r in ci0]).T
+    lroots = get_lroots (ci0).T
     running_weight = 1
     c, m, s, w = get_space_info (las)
     fmt_str = " {:4s}  {:>7s}  {:>4s}  {:>3s}  {:>6s}  {:11s}  {:>8s}"
@@ -297,7 +295,7 @@ def analyze_basis (las, ci=None, space=0, frag=0, npr=10):
             log.info (line)
 
 
-def analyze_ham (las, si, e_roots, ci=None, state=0, print_all_but=1e-8):
+def analyze_ham (las, si, e_roots, ci=None, state=0, soc=0, print_all_but=1e-8):
     '''Print out analysis of LASSI result in terms of Hamiltonian matrix
     elements
 
@@ -307,6 +305,9 @@ def analyze_ham (las, si, e_roots, ci=None, state=0, print_all_but=1e-8):
             SI vectors
         e_roots: sequence of length (nstates,)
             energies
+        soc: integer
+            Order of spin-orbit coupling included in the Hamiltonian. Currently
+            only 0 or 1 is supported.
 
     Kwargs:
         ci: list of list of ndarray
@@ -321,12 +322,12 @@ def analyze_ham (las, si, e_roots, ci=None, state=0, print_all_but=1e-8):
     '''
     if ci is None: ci = las.ci
     ci0 = ci
-    e_roots = np.asarray (e_roots)
+    h0 = ham_2q (las, las.mo_coeff, soc=soc)[0]
+    e_roots = np.asarray (e_roots) - h0
 
     log = lib.logger.new_logger (las, las.verbose)
     log.info ("Analyzing LASSI Hamiltonian for states = %s",str(state))
 
-    log.info ("Average quantum numbers:")
     space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
         las, si
     )
@@ -336,13 +337,12 @@ def analyze_ham (las, si, e_roots, ci=None, state=0, print_all_but=1e-8):
     log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
     nstates = len (states)
     avg_weights = space_weights[:,states].sum (1) / nstates
-    lroots = np.array ([[1 if c.ndim<3 else c.shape[0]
-                         for c in ci_r]
-                        for ci_r in ci0]).T
+    lroots = get_lroots (ci0).T
     c, m, s, w = get_space_info (las)
     fmt_str = " {:4s}  {:>7s}  {:>4s}  {:>3s}  {:>6s}  {:11s}  {:>8s}"
     header = fmt_str.format ("Frag", "Nelec", "2S+1", "Ir", "<n>", "Max(weight)", "Entropy")
     fmt_str = " {:4d}  {:>7s}  {:>4d}  {:>3s}  {:6.3f}  {:>11.4f}  {:8f}"
+    log.info ("E(core) = %16.9e", h0)
     h = (si * e_roots[None,:]) @ si.conj ().T
     for iroot in range (las.nroots):
         log.info ("Rootspace %d with averaged weight %9.3e", iroot, avg_weights[iroot])
@@ -381,8 +381,8 @@ def analyze_ham (las, si, e_roots, ci=None, state=0, print_all_but=1e-8):
 
 def _print_hdiag (log, iroot, state_coeffs, lroots, hdiag0, hdiag_i,
                   states, print_all_but=1e-8):
-    e_ref = np.amin (hdiag0)
-    log.info ('E(ref) = %16.9e', e_ref)
+    e_ref = np.mean (hdiag0) # insensitive to changes in basis -> easier to read
+    log.info ('E(ref) - E(core) = %16.9e', e_ref)
     hdiag0 = hdiag0 - e_ref
     hdiag_i = hdiag0[:,None] + hdiag_i
     nstates = state_coeffs.shape[1]

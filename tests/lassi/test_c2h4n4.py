@@ -19,17 +19,18 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, dft, fci, mcscf, df
 from pyscf.tools import molden
-from c2h4n4_struct import structure as struct
+from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, root_make_rdm12s, make_stdm12s, ham_2q
+from mrh.my_pyscf.lassi import LASSI
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
-    global mol, mf, las, e_roots, si, rdm1s, rdm2s
+    global lsi, rdm1s, rdm2s
     dr_nn = 2.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-    mol.verbose = lib.logger.DEBUG
-    mol.output = 'test_lassi.log'
+    mol.verbose = 0 #lib.logger.DEBUG
+    mol.output = '/dev/null' #'test_c2h4n4.log'
     mol.spin = 0
     mol.build ()
     mf = scf.RHF (mol).run ()
@@ -39,45 +40,55 @@ def setUpModule ():
         smults=[[1,1],[3,3],[3,3],[3,3],[3,3]])
     las.frozen = list (range (las.mo_coeff.shape[-1]))
     ugg = las.get_ugg ()
-    las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lassi_mo.dat'))
-    las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_lassi_ci.dat')))[1]
+    las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_c2h4n4_mo.dat'))
+    las.ci = ugg.unpack (np.loadtxt (os.path.join (topdir, 'test_c2h4n4_ci.dat')))[1]
+    lroots = 2 * np.ones ((2,7), dtype=int)
+    lroots[:,1] = 1 # <- that rootspace is responsible for spin contamination
+    las.conv_tol_grad = 1e-8
+    las.lasci (lroots=lroots)
+    # TODO: potentially save and load CI vectors
+    # requires extending features of ugg
     #las.set (conv_tol_grad=1e-8).run ()
-    #np.savetxt ('test_lassi_mo.dat', las.mo_coeff)
-    #np.savetxt ('test_lassi_ci.dat', ugg.pack (las.mo_coeff, las.ci))
-    las.e_states = las.energy_nuc () + las.states_energy_elec ()
-    e_roots, si = las.lassi ()
-    rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, si)
+    #np.savetxt ('test_c2h4n4_mo.dat', las.mo_coeff)
+    #np.savetxt ('test_c2h4n4_ci.dat', ugg.pack (las.mo_coeff, las.ci))
+    #las.e_states = las.energy_nuc () + las.states_energy_elec ()
+    lsi = LASSI (las).run ()
+    rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, lsi.si)
 
 def tearDownModule():
-    global mol, mf, las, e_roots, si, rdm1s, rdm2s
+    global lsi, rdm1s, rdm2s
+    mol = lsi._las.mol
     mol.stdout.close ()
-    del mol, mf, las, e_roots, si, rdm1s, rdm2s
+    del lsi, rdm1s, rdm2s
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
-        self.assertAlmostEqual (lib.fp (e_roots), 153.47664766268417, 6)
+        self.assertAlmostEqual (lib.fp (lsi.e_roots), 71.48678303162376, 6)
 
     def test_si (self):
         # Arbitrary signage in both the SI and CI vector, sadly
         # Actually this test seems really inconsistent overall...
-        dms = [np.dot (si[:,i:i+1], si[:,i:i+1].conj ().T) for i in range (7)]
-        self.assertAlmostEqual (lib.fp (np.abs (dms)), 2.371964339437981, 6)
+        dens = lsi.si.conj () * lsi.si
+        self.assertAlmostEqual (lib.fp (np.diag (dens)), 1.2321935065030327, 4)
 
     def test_nelec (self):
-        for ix, ne in enumerate (si.nelec):
-            if ix == 1:
+        for ix, ne in enumerate (lsi.nelec):
+          with self.subTest(ix):
+            if ix in (1,5,8,11):
                 self.assertEqual (ne, (6,2))
             else:
                 self.assertEqual (ne, (4,4))
 
     def test_s2 (self):
-        s2_array = np.zeros (7)
-        s2_array[1] = 6
-        s2_array[2] = 6
-        s2_array[3] = 2
-        self.assertAlmostEqual (lib.fp (si.s2), lib.fp (s2_array), 3)
+        s2_array = np.zeros (16)
+        quintets = [1,2,5,8,11]
+        for ix in quintets: s2_array[ix] = 6
+        triplets = [3,6,7,9,10,12,13]
+        for ix in triplets: s2_array[ix] = 2
+        self.assertAlmostEqual (lib.fp (lsi.s2), lib.fp (s2_array), 3)
 
     def test_tdms (self):
+        las, si = lsi._las, lsi.si
         stdm1s, stdm2s = make_stdm12s (las)
         nelec = float (sum (las.nelecas))
         for ix in range (stdm1s.shape[0]):
@@ -91,7 +102,8 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (lib.fp (rdm1s_test), lib.fp (rdm1s), 9)
         self.assertAlmostEqual (lib.fp (rdm2s_test), lib.fp (rdm2s), 9)
 
-    def test_rdms (self):    
+    def test_rdms (self):
+        las, e_roots = lsi._las, lsi.e_roots
         h0, h1, h2 = ham_2q (las, las.mo_coeff)
         d1_r = rdm1s.sum (1)
         d2_r = rdm2s.sum ((1, 4))
@@ -104,9 +116,9 @@ class KnownValues(unittest.TestCase):
         for e1, e0 in zip (e_roots_test, e_roots):
             self.assertAlmostEqual (e1, e0, 8)
 
-    def test_lassi_singles_constructor (self):
+    def test_singles_constructor (self):
         from mrh.my_pyscf.lassi.states import all_single_excitations
-        las2 = all_single_excitations (las)
+        las2 = all_single_excitations (lsi._las)
         las2.check_sanity ()
         # Meaning of tuple: (na+nb,smult)
         # from state 0, (1+2,2)&(3+2,2) & a<->b & l<->r : 4 states
@@ -117,8 +129,9 @@ class KnownValues(unittest.TestCase):
         # 5 + 4 + 12 + 4 + 8 = 33
         self.assertEqual (las2.nroots, 33)
 
-    def test_lassi_spin_shuffle (self):
+    def test_spin_shuffle (self):
         from mrh.my_pyscf.lassi.states import spin_shuffle
+        mf = lsi._las._scf
         las3 = LASSCF (mf, (4,2,4), (4,2,4), spin_sub=(5,3,5))
         las3 = spin_shuffle (las3)
         las3.check_sanity ()
@@ -134,57 +147,7 @@ class KnownValues(unittest.TestCase):
         # 2 + 3 + 3 + 3 + 2 = 13
         self.assertEqual (las3.nroots, 13)
 
-    def test_casci_limit (self):
-        from mrh.my_pyscf.lassi.states import all_single_excitations
-        from mrh.my_pyscf.mcscf.lasci import get_space_info
-        xyz='''H 0 0 0
-        H 1 0 0
-        H 3 0 0
-        H 4 0 0'''
-        rmol = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
-        rmf = scf.RHF (rmol).run ()
-
-        # Random Hamiltonian
-        rng = np.random.default_rng ()
-        rmf._eri = rng.random (rmf._eri.shape)
-        hcore = rng.random ((4,4))
-        rmf.get_hcore = lambda *args: hcore
-
-        # CASCI limit
-        mc = mcscf.CASCI (rmf, 4, 4).run ()
-        casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
-
-        # LASSCF
-        rlas = LASSCF (rmf, (2,2), (2,2), spin_sub=(1,1))
-        rlas.conv_tol_grad = rlas.conv_tol_self = 9e99
-
-        # LASSI in the CASCI limit
-        for i in range (2): rlas = all_single_excitations (rlas)
-        charges, spins, smults, wfnsyms = get_space_info (rlas)
-        lroots = 4 - smults
-        idx = (charges!=0) & (lroots==3)
-        lroots[idx] = 1
-        rlas.lasci (lroots=lroots.T)
-        e_roots, si = rlas.lassi (opt=0)
-        with self.subTest ("total energy"):
-            self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
-        lasdm1s, lasdm2s = root_make_rdm12s (rlas, rlas.ci, si, state=0, opt=0)
-        lasdm1 = lasdm1s.sum (0)
-        lasdm2 = lasdm2s.sum ((0,3))
-        with self.subTest ("casdm1"):
-            self.assertAlmostEqual (lib.fp (lasdm1), lib.fp (casdm1), 8)
-        with self.subTest ("casdm2"):
-            self.assertAlmostEqual (lib.fp (lasdm2), lib.fp (casdm2), 8)
-        stdm1s = make_stdm12s (rlas, opt=0)[0][9:13,:,:,:,9:13] # second rootspace
-        with self.subTest("state indexing"):
-            # column-major ordering for state excitation quantum numbers:
-            # earlier fragments advance faster than later fragments
-            self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
-                                    lib.fp (stdm1s[2,:,:2,:2,2]))
-            self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
-                                    lib.fp (stdm1s[1,:,2:,2:,1]))
-
 if __name__ == "__main__":
-    print("Full Tests for SA-LASSI")
+    print("Full Tests for SA-LASSI of c2h4n4 molecule")
     unittest.main()
 

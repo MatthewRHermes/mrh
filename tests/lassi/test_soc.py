@@ -3,7 +3,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import gto, scf, lib, mcscf
 from pyscf.fci.direct_spin1 import _unpack_nelec
-from c2h6n4_struct import structure as struct
+from mrh.tests.lasscf.c2h6n4_struct import structure as struct
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.lassi import dms as lassi_dms
 from mrh.my_pyscf.mcscf.soc_int import compute_hso, amfi_dm
@@ -19,8 +19,8 @@ def setUpModule():
         H  0.758602  0.000000  0.504284
         H  -0.758602  0.000000  0.504284
     """, basis='631g',symmetry=True,
-    output='test_lassi_soc1.log',
-    verbose=lib.logger.DEBUG)
+    output='/dev/null', #'test_soc1.log',
+    verbose=0) #lib.logger.DEBUG)
     mf1 = scf.RHF (mol1).run ()
    
     # NOTE: Test systems don't have to be scientifically meaningful, but they do need to
@@ -29,8 +29,8 @@ def setUpModule():
     # to be reproduced on any computer. Calculations that don't converge can't be used
     # as test cases for this reason.
     mol2 = struct (2.0, 2.0, '6-31g', symmetry=False)
-    mol2.output = 'test_lassi_soc2.log'
-    mol2.verbose = lib.logger.DEBUG
+    mol2.output = '/dev/null' #'test_soc2.log'
+    mol2.verbose = 0 #lib.logger.DEBUG
     mol2.build ()
     mf2 = scf.RHF (mol2).run ()
     las2 = LASSCF (mf2, (4,4), (4,4), spin_sub=(1,1))
@@ -148,7 +148,7 @@ class KnownValues (unittest.TestCase):
         with self.subTest (deltaE='SO'):
             self.assertAlmostEqual (lib.fp (las2_e), 154.09559506105586, 8)
 
-    def test_soc_stdm12s (self):
+    def test_soc_stdm12s_slow (self):
         stdm1s_test, stdm2s_test = make_stdm12s (las2, soc=True, opt=0)    
         with self.subTest ('2-electron'):
             self.assertAlmostEqual (linalg.norm (stdm2s_test), 12.835690990485933)
@@ -215,7 +215,7 @@ class KnownValues (unittest.TestCase):
                 with self.subTest ('lassi_dms agreement', bra=i, ket=j, sector=m):
                     self.assertAlmostEqual (lib.fp (t_test), lib.fp (t_ref), 9)
 
-    def test_soc_rdm12s (self):
+    def test_soc_rdm12s_slow (self):
         rdm1s_test, rdm2s_test = roots_make_rdm12s (las2, las2.ci, las2_si, opt=0)
         stdm1s, stdm2s = make_stdm12s (las2, soc=True, opt=0)    
         rdm1s_ref = lib.einsum ('ir,jr,jabi->rab', las2_si.conj (), las2_si, stdm1s)
