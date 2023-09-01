@@ -16,7 +16,6 @@ from scipy import linalg
 import numpy as np
 import copy
 
-# CHRIS: need a cleaner way of doing this
 import libgpu
 
 def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
@@ -196,7 +195,6 @@ def get_grad_ci (las, mo_coeff=None, ci=None, h1eff_sub=None, h2eff_sub=None, ve
 def density_fit (las, auxbasis=None, with_df=None):
     ''' Here I ONLY need to attach the tag and the df object because I put conditionals in
         LASCINoSymm to make my life easier '''
-    #print("Inside of lasci.py::density_fit()")
     las_class = las.__class__
     if with_df is None:
         if (getattr(las._scf, 'with_df', None) and
@@ -470,7 +468,6 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
     # TODO: come up with a better algorithm? This might be working better than what I had before
     # but it omits inter-active Coulomb and exchange interactions altogether. Is there a
     # non-outer-product algorithm for finding the lowest-energy single product of CSFs?
-    #print(" -- Inside lasci.py::get_init_guess_ci() w/ use_gpu= ", las.use_gpu)
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci0 is None: ci0 = [[None for i in range (las.nroots)] for j in range (las.nfrags)]
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
@@ -478,9 +475,7 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     dm1_core= 2 * mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
-    #print(" -- -- Calling las._scf.get_fock() from lasci.py::get_init_guess_ci()")
     h1e_ao = las._scf.get_fock (dm=dm1_core)
-    #print(" -- -- Calling las._scf.get_fock() from lasci.py::get_init_guess_ci() -- Done!!")
     eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2))
     eri_cas = eri_cas.reshape (nmo, ncas, ncas, ncas)
     eri_cas = eri_cas[ncore:nocc]
@@ -772,8 +767,6 @@ class LASCINoSymm (casci.CASCI):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, **kwargs):
         self.use_gpu = kwargs.get('use_gpu', None)
-        #print("Inside lasci.py::LASCINoSymm()::init() with self.use_gpu= ", self.use_gpu)
-        #libgpu.libgpu_get_num_devices(self.use_gpu)
             
         if isinstance(ncas,int):
             ncas = [ncas]
@@ -921,7 +914,6 @@ class LASCINoSymm (casci.CASCI):
 
     def kernel(self, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=None,
             assert_no_dupes=False, verbose=None, _kern=None):
-        #print("Inside lasci.py::LASCINoSymm::kernel() with self.use_gpu= ", self.use_gpu)
         if mo_coeff is None:
             mo_coeff = self.mo_coeff
         else:
@@ -953,7 +945,6 @@ class LASCINoSymm (casci.CASCI):
                         ci0_i[j] = ci0_ij[0]
         if do_warn: log.warn ("Discarding all but the first root of guess CI vectors!")
 
-        #print(" -- Calling _kern()")
         self.converged, self.e_tot, self.e_states, self.mo_energy, self.mo_coeff, self.e_cas, \
                 self.ci, h2eff_sub, veff = _kern(mo_coeff=mo_coeff, ci0=ci0, verbose=verbose, \
                 casdm0_fr=casdm0_fr, conv_tol_grad=conv_tol_grad, assert_no_dupes=assert_no_dupes)
