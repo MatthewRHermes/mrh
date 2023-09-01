@@ -10,7 +10,6 @@ from pyscf.lo import orth
 from pyscf.lib import tag_array, with_doc, logger
 from functools import partial
 
-# CHRIS: need a cleaner way of doing this
 import libgpu
 
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
@@ -103,14 +102,11 @@ class LASSCF_HessianOperator (lasci_sync.LASCI_HessianOperator):
     def orbital_response (self, kappa, odm1s, ocm2, tdm1frs, tcm2, veff_prime):
         ''' Parent class does everything except va/ac degrees of freedom
         (c: closed; a: active; v: virtual; p: any) '''
-        #print("Inside lasscf_sync_o0.py::LASSCF_HessianOperator::orbital_response() w/ use_gpu= ", self.las.use_gpu)
         ncore, nocc, nmo = self.ncore, self.nocc, self.nmo
         gorb = lasci_sync.LASCI_HessianOperator.orbital_response (self, kappa, odm1s,
             ocm2, tdm1frs, tcm2, veff_prime)
         f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
         # (H.x_va)_pp, (H.x_ac)_pp sector
-        #print("ncore= ", ncore, " nocc= ", nocc, "  nmo= ", nmo)
-        #print("f1_prime= ", f1_prime.shape, "shape(ppaa)= ", self.cas_type_eris.ppaa.shape, "shape(papa)= ", self.cas_type_eris.papa.shape, "shape(ocm2)= ", ocm2.shape)
         if self.las.use_gpu:
             g_f1_prime = np.zeros ((self.nmo, self.nmo), dtype=self.dtype)
             libgpu.libgpu_orbital_response(self.las.use_gpu,
@@ -182,12 +178,8 @@ class LASSCFSymm (lasci.LASCISymm):
     as_scanner = mc1step.as_scanner
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
-    # CHRIS: this is where we should go GPU init? This gets called twice: once by user and again with with_df to update las
-    # could write GPU python class with minimal number of helper functions for user to call in input script
-    for key,value in kwargs.items():
-        print(key, "(KEY)= ", value)
+    # try grabbing gpu handle from mf_or_mol instead of additional argument
     use_gpu = kwargs.get('use_gpu', None)
-    #print("Inside lasscf_sync_o0.py::LASSCF() with use_gpu= ", use_gpu)
     
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
@@ -198,10 +190,8 @@ def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if mf.mol.symmetry: 
         las = LASSCFSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     else:
-        #print(" -- Calling LASSCFNoSymm")
         las = LASSCFNoSymm (mf, ncas_sub, nelecas_sub, **kwargs)
     if getattr (mf, 'with_df', None):
-        #print(" -- Calling lasci.density_fit()")
         las = lasci.density_fit (las, with_df = mf.with_df)
         
     return las

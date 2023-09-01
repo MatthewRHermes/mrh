@@ -13,7 +13,6 @@ class MicroIterInstabilityException (Exception):
 
 def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4, 
         assert_no_dupes=False, verbose=lib.logger.NOTE):
-    print("Inside lasci_sync.py::kernel() with use_gpu= ", las.use_gpu)
     from mrh.my_pyscf.mcscf.lasci import _eig_inactive_virtual
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if assert_no_dupes: las.assert_no_duplicates ()
@@ -45,16 +44,13 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     else:
         if (ci0 is None or any ([c is None for c in ci0]) or
           any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
-            #print(" -- Calling las.get_init_guess_ci() in branch 2")
             ci0 = las.get_init_guess_ci (mo_coeff, h2eff_sub, ci0)
         if (ci0 is None or any ([c is None for c in ci0]) or
           any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
             raise RuntimeError ("failed to populate get_init_guess")
-        #print(" -- Calling las.get_veff() in branch 2")
         veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, ci=ci0))
         casdm1s_sub = las.make_casdm1s_sub (ci=ci0)
         casdm1frs = las.states_make_casdm1s_sub (ci=ci0)
-        #print(" -- Calling las.split_veff() in branch 2")
         veff = las.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, ci=ci0, casdm1s_sub=casdm1s_sub)
     t1 = log.timer('LASCI initial get_veff', *t1)
 
