@@ -93,6 +93,7 @@ class KnownValues(unittest.TestCase):
             las1.ci = ci2
             lsi1 = LASSI (las1)
             e_roots1, si1 = lsi1.kernel ()
+            ham_pq = (si1 * e_roots1[None,:]) @ si1.conj ().T
             idx = (si1[-1].conj () * si1[-1]) > 1e-16
             return e_roots1[idx], si1[:,idx]
 

@@ -66,21 +66,18 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         idx = self.get_active_orb_idx ()
         dm1s = self.dm1s_ref.copy ()
         dm2 = self.dm2_ref.copy ()
-        dm1s[:,idx,:] = 0
-        dm1s[:,:,idx] = 0
-        dm2[idx,:,:,:] = 0
-        dm2[:,idx,:,:] = 0
-        dm2[:,:,idx,:] = 0
-        dm2[:,:,:,idx] = 0
-        h1eff, h0eff = self.project_hfrag (h1, h2, self.ci_ref, self.norb_ref, self.nelec_ref, 
-                                           ecore=h0, dm1s=dm1s, dm2=dm2)
-        h1eff = [h1eff[ifrag] for ifrag in self.active_frags]
-        h0eff = [h0eff[ifrag] for ifrag in self.active_frags]
+        norb_active = np.count_nonzero (idx)
+        idx = list (np.where (idx)[0]) + list (np.where (~idx)[0])
+        dm1s = dm1s[:,idx][:,:,idx]
+        h1 = h1[idx][:,idx]
+        dm2 = dm2[idx][:,idx][:,:,idx][:,:,:,idx]
         h2 = h2[idx][:,idx][:,:,idx][:,:,:,idx]
-        h1a = linalg.block_diag (*[h[0] for h in h1eff])
-        h1b = linalg.block_diag (*[h[1] for h in h1eff])
-        h1 = np.stack ([h1a, h1b], axis=0)
-        h0 = np.mean (h0eff)
+        norb_ref = [norb_active,] + [n for ifrag, n in enumerate (self.norb_ref)
+                                     if not (ifrag in self.active_frags)]
+        h1eff, h0eff = self.project_hfrag (h1, h2, self.ci_ref, norb_ref, self.nelec_ref, 
+                                           ecore=h0, dm1s=dm1s, dm2=dm2)
+        h0, h1 = h0eff[0], h1eff[0]
+        h2 = h2[:norb_active][:,:norb_active][:,:,:norb_active][:,:,:,:norb_active]
         return h0, h1, h2
 
     def set_excited_fragment_(self, ifrag, delta_neleca, delta_nelecb, delta_smult, weights=None):
@@ -175,12 +172,19 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 denom_q += solver.denom_q
             denom_q /= len (ci)
             lroots = get_lroots (ci0)
-            ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
-            e0, si = linalg.eigh (ham_pq)
             p = np.prod (lroots)
+            ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
+            idx = np.ones (len (ham_pq), dtype=bool)
+            idx[1:p] = False
+            e0, si = linalg.eigh (ham_pq[idx,:][:,idx])
+            #idx = (si[0].conj () * si[0]) > 1e-16
+            #e0, si = e0[idx], si[:,idx]
             h_pp = ham_pq[:p,:p]
             h_pq = ham_pq[:p,p:]
+            h_qq = ham_pq[p:,p:]
+            h_qq = self._si_q.conj ().T @ h_qq @ self._si_q
             h_pq = np.dot (h_pq, self._si_q)
+            ham_pq = ham_pq[idx,:][:,idx]
             idx = np.abs (denom_q) > 1e-16
             e_p = np.diag (np.dot (h_pq[:,idx].conj () / denom_q[None,idx], h_pq[:,idx].T))
             e_p = e_p.reshape (*lroots[::-1]).T
@@ -336,7 +340,7 @@ class VRVDressedFCISolver (object):
         vrv_qab, denom_q = self.vrv_qab, self.denom_q
         if vrv_qab is None: return 0
         ket_shape = ket.shape
-        idx = np.abs (denom_q) > 1e-8
+        idx = np.abs (denom_q) > 1e-16
         nq = np.count_nonzero (idx)
         if not nq: return 0
         vrv_qab, denom_q = vrv_qab[idx].reshape (nq,-1), denom_q[idx]
@@ -383,10 +387,7 @@ def vrv_fcisolver (fciobj, vrv_qab, e_q):
                 c0 = np.asarray (ci0)
                 if c0.ndim > 2: c0 = c0[0]
                 h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
-                try:
-                    hc0 = self.contract_2e (h2eff, c0, norb, nelec)
-                except AssertionError as err:
-                    raise AssertionError (str (np.asarray (c0).shape) + ' ' + str (norb) + ' ' + str (nelec) + ' ' + str (err))
+                hc0 = self.contract_2e (h2eff, c0, norb, nelec)
                 e0 += np.dot (c0.conj ().ravel (), hc0.ravel ())
             e0_first = e0
             ci1 = ci0
