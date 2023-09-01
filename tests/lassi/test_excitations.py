@@ -110,7 +110,9 @@ class KnownValues(unittest.TestCase):
             conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
             self.assertTrue (conv)
             e_roots1, si1 = lassi_ref (ci1, iroot)
-            self.assertAlmostEqual (energy_tot, e_roots1[0], 8)
+            idx_match = np.argmin (np.abs (e_roots1-energy_tot))
+            self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 8)
+            self.assertEqual (idx_match, 0) # local minimum problems
         # In the no-coupling limit, the Excitation solver should give the same result as the normal
         # ImpureProductStateFCISolver
         psexc._deactivate_vrv = True # spoof the no-coupling limit
