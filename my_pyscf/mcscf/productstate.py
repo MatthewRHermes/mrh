@@ -10,6 +10,12 @@ from itertools import combinations
 
 # TODO: linkstr support
 class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
+    '''Minimize the energy of a wave function of the form
+
+    |Psi> = A \prod_K |ci_K>
+
+    Self-consistently over all ci_K.
+    '''
 
     def __init__(self, fcisolvers, stdout=None, verbose=0, **kwargs):
         self.fcisolvers = fcisolvers
@@ -256,6 +262,12 @@ def state_average_fcisolver (solver, weights=(.5,.5), wfnsym=None):
     return state_average_mcscf (dummy, weights=weights, wfnsym=wfnsym).fcisolver
 
 class ImpureProductStateFCISolver (ProductStateFCISolver):
+    '''Minimize the energy of an impure state:
+
+    E = \sum_n1 w_n1 \sum_n2 w_n2 \sum_n3 w_n3 ... <n1n2n3...|H|n1n2n3...>
+
+    over orthonormal sets of CI vectors {nK} for fragment K.'''
+
     def __init__(self, fcisolvers, stdout=None, verbose=0, lroots=None, lweights=None, **kwargs):
         ProductStateFCISolver.__init__(self, fcisolvers, stdout=stdout, verbose=verbose, **kwargs)
         if lweights is None:

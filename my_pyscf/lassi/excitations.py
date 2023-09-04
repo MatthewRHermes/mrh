@@ -12,6 +12,9 @@ from pyscf.lib import temporary_env
 op = (op_o0, op_o1)
 
 def only_ground_states (ci0):
+    '''For a list of sequences of CI vectors in the same Hilbert space,
+    generate a list in which all but the first element of each sequence
+    is discarded.''' 
     # TODO: examine whether this should be considered a limitation
     ci1 = []
     for c in ci0:
@@ -55,6 +58,14 @@ class _vrvloop_env (object):
         self.fciobj.revert_vrvsolvers_()
 
 class ExcitationPSFCISolver (ProductStateFCISolver):
+    '''Minimize the energy of a normalized wave function of the form
+
+    |Psi> = |exc> si_exc + sum_i |ref(i)> si_ref(i)
+    |ref(i)> = A prod_K |ci(ref(i))_K>
+    |exc> = A prod_{K in excited} |ci(exc)_K> prod_{K not in excited} |ci(ref(0))_K>
+
+    with {ci(ref(i))_K} fixed.'''
+
     def __init__(self, solver_ref, ci_ref, norb_ref, nelec_ref, orbsym_ref=None,
                  wfnsym_ref=None, stdout=None, verbose=0, opt=0, **kwargs):
         self.solver_ref = solver_ref
@@ -177,7 +188,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self._e_q = e_q
             self._si_q = si_q
             for ifrag, (c, hci_abq, solver) in enumerate (zip (ci0, hci_f_abq, self.fcisolvers)):
-                solver.vrv_qab = np.tensordot (si_q, hci_abq, axes=((0),(-1)))
+                solver.v_qab = np.tensordot (si_q, hci_abq, axes=((0),(-1)))
                 solver.e0_p = e_p
                 solver.e_q = e_q
                 ci[ifrag] = c
@@ -240,8 +251,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     #    for h0e, h1e, hc_abq, c, no, ne, solver, i, j in zip (*zipper):
     #        nelec = self._get_nelec (solver, ne)
     #        h2e = h2[i:j,i:j,i:j,i:j]
-    #        vrv_qab = np.tensordot (si_q, hc_abq, axes=((0,),(-1,)))
-    #        vrvsolver = vrv_fcisolver (solver, vrv_qab, e_q)
+    #        v_qab = np.tensordot (si_q, hc_abq, axes=((0,),(-1,)))
+    #        vrvsolver = vrv_fcisolver (solver, v_qab, e_q)
     #        e, c1 = vrvsolver.kernel (h1e, h2e, no, nelec, ci0=c, ecore=h0e,
     #            orbsym=orbsym, **kwargs)
     #        e1.append (e) 
@@ -373,70 +384,119 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self._si_q = []
 
 class VRVDressedFCISolver (object):
+    '''Minimize the energy of a wave function of the form
+
+    |Psi> = |P> + \sum_i |Q(i)>
+
+    expressed in intermediate normalization <P|Psi> = 1, <P|Q(i)> = 0,
+    <Q(i)|Q(j)> = delta_ij, with {|Q(i)>} fixed, using self-energy downfolding:
+
+    _______________     _______
+    |      |      |     |     |
+    | H_PP | V_PQ |     | |P> |
+    |      |      |     |     |
+    --------------- = E -------
+    |      |      |     |     |
+    | V_QP | H_QQ |     | |Q> |
+    |      |      |     |     |
+    ---------------     -------
+  
+    ------>
+
+    (H_PP + V_PQ (E - H_QQ)^-1 V_QP) |P> = E|P>
+
+    The inverted quantity is sometimes called the "resolvent," R,
+
+    (H_PP + V_PQ R_QQ(E) V_QP) |P> = E|P>
+
+    hence the term "VRV".
+
+    The self-consistency is only determined for the lowest energy. H_QQ is assumed
+    to be diagonal for simplicity.
+
+    Additional attributes:
+        v_qab: ndarray of shape (nq, ndeta, ndetb)
+            Contains the CI vector V_PQ |Q> in the |P> Hilbert space
+        e_q: ndarray of shape (nq,)
+            Eigenenergies of the QQ sector of the Hamiltonian
+        e0_p: float
+            Initial guess for the lowest energy solution of the self-consistent
+            eigenproblem
+        denom_q: ndarray of shape (nq,)
+            Contains E-e_q with the current guess E solution of the self-consistent
+            eigenproblem
+    '''
+    def __init__(self, fcibase, my_vrv, my_eq, my_e0):
+        self.base = copy.copy (fcibase)
+        if isinstance (fcibase, StateAverageFCISolver):
+            self._undressed_class = fcibase._base_class
+        else:
+            self._undressed_class = fcibase.__class__
+        self.__dict__.update (fcibase.__dict__)
+        keys = set (('contract_vrv', 'base', 'v_qab', 'denom_q', 'e_q'))
+        self.denom_q = 0
+        self.e0_p = my_e0
+        self.e_q = my_eq
+        self.v_qab = my_vrv
+        self._keys = self._keys.union (keys)
+        self.davidson_only = self.base.davidson_only = True
+    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
+        ci0 = self.undressed_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
+        ci0 += self.contract_vrv (fcivec)
+        return ci0
     def contract_vrv (self, ket):
-        vrv_qab, denom_q = self.vrv_qab, self.denom_q
-        if vrv_qab is None: return 0
+        v_qab, denom_q = self.v_qab, self.denom_q
+        if v_qab is None: return 0
         ket_shape = ket.shape
         idx = np.abs (denom_q) > 1e-16
         nq = np.count_nonzero (idx)
         if not nq: return 0
-        vrv_qab, denom_q = vrv_qab[idx].reshape (nq,-1), denom_q[idx]
-        vrv_q = np.dot (vrv_qab.conj (), ket.ravel ()) / denom_q
-        hket = np.dot (vrv_q, vrv_qab).reshape (ket_shape)
+        v_qab, denom_q = v_qab[idx].reshape (nq,-1), denom_q[idx]
+        vrv_q = np.dot (v_qab.conj (), ket.ravel ()) / denom_q
+        hket = np.dot (vrv_q, v_qab).reshape (ket_shape)
         return hket
-        
-def vrv_fcisolver (fciobj, e_p, e_q, vrv_qab):
+    def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
+        # converge on e0
+        max_cycle_e0 = 1 
+        conv_tol_e0 = 1e-8
+        e0_last = 0
+        converged = False
+        e0 = self.e0_p
+        ci1 = ci0
+        for it in range (max_cycle_e0):
+            self.denom_q = e0 - self.e_q
+            e, ci1 = self.undressed_kernel (
+                h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
+            )
+            e0_last = e0
+            e0 = e[0] if isinstance (e, (list,tuple,np.ndarray)) else e
+            ci0 = ci1
+            if abs(e0-e0_last)<conv_tol_e0:
+                converged = True
+                break
+        self.converged = converged and self.converged
+        return e, ci1
+    # I don't feel like futzing around with MRO
+    def undressed_kernel (self, *args, **kwargs):
+        return self._undressed_class.kernel (self, *args, **kwargs)
+    def undressed_contract_2e (self, *args, **kwargs):
+        return self._undressed_class.contract_2e (self, *args, **kwargs)
+
+def vrv_fcisolver (fciobj, e_p, e_q, v_qab):
     if isinstance (fciobj, VRVDressedFCISolver):
-        fciobj.vrv_qab = vrv_qab
+        fciobj.v_qab = v_qab
         fciobj.e_q = e_q
         return fciobj
-    # Should be injected below the state-averaged layer
+    # VRV should be injected below the state-averaged layer
     if isinstance (fciobj, StateAverageFCISolver):
         fciobj_class = fciobj._base_class
         weights = fciobj.weights
     else:
         fciobj_class = fciobj.__class__
         weights = None
-    class FCISolver (fciobj_class, VRVDressedFCISolver):
-        def __init__(self, fcibase, my_vrv, my_eq, my_e0):
-            self.base = copy.copy (fcibase)
-            self.__dict__.update (fcibase.__dict__)
-            keys = set (('contract_vrv', 'base', 'vrv_qab', 'denom_q', 'e_q'))
-            self.denom_q = 0
-            self.e0_p = my_e0
-            self.e_q = my_eq
-            self.vrv_qab = my_vrv
-            self._keys = self._keys.union (keys)
-            self.davidson_only = self.base.davidson_only = True
-        def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
-            ci0 = self.base_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
-            ci0 += self.contract_vrv (fcivec)
-            return ci0
-        def base_contract_2e (self, *args, **kwargs):
-            return fciobj_class.contract_2e (self, *args, **kwargs)
-        def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
-            # converge on e0
-            max_cycle_e0 = 1 
-            conv_tol_e0 = 1e-8
-            e0_last = 0
-            converged = False
-            e0 = self.e0_p
-            ci1 = ci0
-            for it in range (max_cycle_e0):
-                self.denom_q = e0 - self.e_q
-                e, ci1 = fciobj_class.kernel (
-                    self, h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
-                )
-                e0_last = e0
-                e0 = e[0] if isinstance (e, (list,tuple,np.ndarray)) else e
-                ci0 = ci1
-                if abs(e0-e0_last)<conv_tol_e0:
-                    converged = True
-                    break
-            self.converged = converged and self.converged
-            return e, ci1
-
-    new_fciobj = FCISolver (fciobj, vrv_qab, e_q, e_p)
+    class FCISolver (VRVDressedFCISolver, fciobj_class):
+        pass
+    new_fciobj = FCISolver (fciobj, v_qab, e_q, e_p)
     if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
     return new_fciobj
 
