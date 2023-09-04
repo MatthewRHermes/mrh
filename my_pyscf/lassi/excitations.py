@@ -425,19 +425,27 @@ class VRVDressedFCISolver (object):
         denom_q: ndarray of shape (nq,)
             Contains E-e_q with the current guess E solution of the self-consistent
             eigenproblem
+        max_cycle_e0: integer
+            Maximum number of cycles allowed to attempt to converge the self-consistent
+            eigenproblem
+        conv_tol_e0: float
+            Convergence threshold for the self-consistent eigenenergy
     '''
-    def __init__(self, fcibase, my_vrv, my_eq, my_e0):
+    def __init__(self, fcibase, my_vrv, my_eq, my_e0, max_cycle_e0=100, conv_tol_e0=1e-8):
         self.base = copy.copy (fcibase)
         if isinstance (fcibase, StateAverageFCISolver):
             self._undressed_class = fcibase._base_class
         else:
             self._undressed_class = fcibase.__class__
         self.__dict__.update (fcibase.__dict__)
-        keys = set (('contract_vrv', 'base', 'v_qab', 'denom_q', 'e_q'))
+        keys = set (('contract_vrv', 'base', 'v_qab', 'denom_q', 'e_q', 'max_cycle_e0',
+                     'conv_tol_e0', 'e0_p', 'charge'))
         self.denom_q = 0
         self.e0_p = my_e0
         self.e_q = my_eq
         self.v_qab = my_vrv
+        self.max_cycle_e0 = max_cycle_e0
+        self.conv_tol_e0 = conv_tol_e0
         self._keys = self._keys.union (keys)
         self.davidson_only = self.base.davidson_only = True
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
@@ -452,13 +460,14 @@ class VRVDressedFCISolver (object):
         nq = np.count_nonzero (idx)
         if not nq: return 0
         v_qab, denom_q = v_qab[idx].reshape (nq,-1), denom_q[idx]
-        vrv_q = np.dot (v_qab.conj (), ket.ravel ()) / denom_q
-        hket = np.dot (vrv_q, v_qab).reshape (ket_shape)
+        rv_q = np.dot (v_qab.conj (), ket.ravel ()) / denom_q
+        hket = np.dot (rv_q, v_qab).reshape (ket_shape)
         return hket
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         # converge on e0
-        max_cycle_e0 = 1 
-        conv_tol_e0 = 1e-8
+        log = lib.logger.new_logger (self, self.verbose)
+        max_cycle_e0 = self.max_cycle_e0
+        conv_tol_e0 = self.conv_tol_e0
         e0_last = 0
         converged = False
         e0 = self.e0_p
@@ -474,6 +483,21 @@ class VRVDressedFCISolver (object):
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
                 break
+        ket = ci1 if isinstance (ci1, np.ndarray) else ci1[0]
+        vrvket = self.contract_vrv (ket)
+        try:
+            vrv = np.dot (ket.conj ().ravel (), vrvket.ravel ())
+            e_p = e0 - vrv
+            if abs (vrv) > 1e-16:
+                h_pq = np.tensordot (self.v_qab, ket, axes=2)
+                idx = np.abs (h_pq) > 1e-8
+                e_q = self.e_q[idx]
+                h_diagmin = min (e_p, np.amin (e_q))
+                if e0>h_diagmin:
+                    log.warn ("Apparent local minimum in VRVSolver: min (h_diag) = %e < e0 = %e",
+                              h_diagmin, e0)
+        except AttributeError as err:
+            assert (vrvket is 0)
         self.converged = converged and self.converged
         return e, ci1
     # I don't feel like futzing around with MRO
@@ -482,10 +506,12 @@ class VRVDressedFCISolver (object):
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
 
-def vrv_fcisolver (fciobj, e_p, e_q, v_qab):
+def vrv_fcisolver (fciobj, e_p, e_q, v_qab, max_cycle_e0=100, conv_tol_e0=1e-8):
     if isinstance (fciobj, VRVDressedFCISolver):
         fciobj.v_qab = v_qab
         fciobj.e_q = e_q
+        fciobj.max_cycle_e0 = max_cycle_e0
+        fciobj.conv_tol_e0 = conv_tol_e0
         return fciobj
     # VRV should be injected below the state-averaged layer
     if isinstance (fciobj, StateAverageFCISolver):
@@ -496,7 +522,8 @@ def vrv_fcisolver (fciobj, e_p, e_q, v_qab):
         weights = None
     class FCISolver (VRVDressedFCISolver, fciobj_class):
         pass
-    new_fciobj = FCISolver (fciobj, v_qab, e_q, e_p)
+    new_fciobj = FCISolver (fciobj, v_qab, e_q, e_p, max_cycle_e0=max_cycle_e0,
+                            conv_tol_e0=conv_tol_e0)
     if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
     return new_fciobj
 
