@@ -80,23 +80,23 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                                        verbose=verbose)
         self.dm1s_ref = np.asarray (self.solver_ref.make_rdm1s (self.ci_ref, norb_ref, nelec_ref))
         self.dm2_ref = self.solver_ref.make_rdm2 (self.ci_ref, norb_ref, nelec_ref)
-        self.active_frags = []
+        self.excited_frags = []
         self.fcisolvers = []
         self._e_q = []
         self._si_q = []
 
-    def get_active_orb_idx (self):
+    def get_excited_orb_idx (self):
         nj = np.cumsum (self.norb_ref)
         ni = nj - self.norb_ref
         idx = np.zeros (nj[-1], dtype=bool)
-        for ifrag, solver in zip (self.active_frags, self.fcisolvers):
+        for ifrag, solver in zip (self.excited_frags, self.fcisolvers):
             i, j = ni[ifrag], nj[ifrag]
             idx[i:j] = True
         return idx
 
-    def get_active_h (self, h0, h1, h2):
-        '''Reduce the CAS Hamiltonian to the current active fragments. Only some
-        fragments are active at any given time (nact <= ncas).
+    def get_excited_h (self, h0, h1, h2):
+        '''Reduce the CAS Hamiltonian to the current excited fragments. Only some
+        fragments are excited at any given time (nexc <= ncas).
 
         Args:
             h0: float
@@ -108,14 +108,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         Args:
             h0: float
-                Constant part of the active-fragment Hamiltonian
-            h1: ndarray of shape (2,nact,nact)
-                Spin-separated 1-electron part of the active-fragment Hamiltonian
-            h2: ndarray of shape [nact,]*4
-                2-electron part of the active-fragment Hamiltonian
+                Constant part of the excited-fragment Hamiltonian
+            h1: ndarray of shape (2,nexc,nexc)
+                Spin-separated 1-electron part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
 
         '''
-        idx = self.get_active_orb_idx ()
+        idx = self.get_excited_orb_idx ()
         dm1s = self.dm1s_ref.copy ()
         dm2 = self.dm2_ref.copy ()
         norb_active = np.count_nonzero (idx)
@@ -125,49 +125,54 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         dm2 = dm2[idx][:,idx][:,:,idx][:,:,:,idx]
         h2 = h2[idx][:,idx][:,:,idx][:,:,:,idx]
         norb_ref = [norb_active,] + [n for ifrag, n in enumerate (self.norb_ref)
-                                     if not (ifrag in self.active_frags)]
+                                     if not (ifrag in self.excited_frags)]
         h1eff, h0eff = self.project_hfrag (h1, h2, self.ci_ref, norb_ref, self.nelec_ref, 
                                            ecore=h0, dm1s=dm1s, dm2=dm2)
         h0, h1 = h0eff[0], h1eff[0]
         h2 = h2[:norb_active][:,:norb_active][:,:,:norb_active][:,:,:,:norb_active]
         return h0, h1, h2
 
-    def set_excited_fragment_(self, ifrag, delta_neleca, delta_nelecb, delta_smult, weights=None):
+    def set_excited_fragment_(self, ifrag, nelec, smult, weights=None):
+        '''Indicate that the a fragment is excited and set its quantum numbers in the
+        P-space
+
+        Args:
+            ifrag: integer
+                Index of excited fragment
+            nelec: tuple of length 2
+                Nelectron tuple of fragment ifrag in P-space
+            smult: integer
+                spin-multiplicity of fragment ifrag in P-space'''
         # TODO: point group symmetry
-        delta_charge = -(delta_neleca + delta_nelecb)
-        delta_spin = delta_neleca - delta_nelecb
+        nelec = _unpack_nelec (nelec)
+        spin = nelec[0] - nelec[1]
         s_ref = self.solver_ref.fcisolvers[ifrag]
         mol = s_ref.mol
         nelec_ref = _unpack_nelec (self.nelec_ref[ifrag])
-        spin_ref = nelec_ref[0] - nelec_ref[1]
-        charge = getattr (s_ref, 'charge', 0) + delta_charge
-        spin = getattr (s_ref, 'spin', spin_ref) + delta_spin
-        smult = getattr (s_ref, 'smult', abs(spin_ref)+1) + delta_smult
-        nelec_a = nelec_ref[0] + (delta_spin - delta_charge) // 2 
-        nelec_b = nelec_ref[1] - (delta_spin + delta_charge) // 2 
-        nelec = tuple ((nelec_a, nelec_b))
+        charge = (nelec_ref[0]+nelec_ref[1]) - (nelec[0]+nelec[1])
+        nelec = tuple (nelec)
         fcisolver = csf_solver (mol, smult=smult).set (charge=charge, spin=spin,
                                                        nelec=nelec, norb=s_ref.norb)
         if hasattr (weights, '__len__') and len (weights) > 1:
             fcisolver = state_average_fcisolver (fcisolver, weights=weights)
-        if ifrag in self.active_frags:
-            self.fcisolvers[self.active_frags.index (ifrag)] = fcisolver
+        if ifrag in self.excited_frags:
+            self.fcisolvers[self.excited_frags.index (ifrag)] = fcisolver
         else:
-            self.active_frags.append (ifrag)
+            self.excited_frags.append (ifrag)
             self.fcisolvers.append (fcisolver)
-            idx = np.argsort (self.active_frags)
-            self.active_frags = [self.active_frags[i] for i in idx]
+            idx = np.argsort (self.excited_frags)
+            self.excited_frags = [self.excited_frags[i] for i in idx]
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
     def kernel (self, h1, h2, ecore=0,
                 conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
                 **kwargs):
-        h0, h1, h2 = self.get_active_h (ecore, h1, h2)
-        norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.active_frags])
-        nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.active_frags])
+        h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
+        norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
+        nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
         orbsym = self.orbsym_ref
         if orbsym is not None:
-            idx = self.get_active_orb_idx ()
+            idx = self.get_excited_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         # TODO: point group symmetry; I probably also have to do something to wfnsym
         ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2)
@@ -178,7 +183,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 max_cycle_macro=max_cycle_macro, **kwargs
             )
         ci1 = [c for c in self.ci_ref]
-        for ifrag, c in zip (self.active_frags, ci1_active):
+        for ifrag, c in zip (self.excited_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
         return converged, energy_elec, ci1
 
@@ -246,23 +251,23 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         Args:
             h0: float
-                Constant part of the active-fragment Hamiltonian
-            h1: ndarray of shape (2,nact,nact)
-                Spin-separated 1-electron part of the active-fragment Hamiltonian
-            h2: ndarray of shape [nact,]*4
-                2-electron part of the active-fragment Hamiltonian
+                Constant part of the excited-fragment Hamiltonian
+            h1: ndarray of shape (2,nexc,nexc)
+                Spin-separated 1-electron part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
             ci_p: list of ndarray
                 CI vectors for the active fragments in the P-space
 
         Returns:
             ham_pq: ndarray of shape (np+nq,np+nq)
                 Model space Hamiltonian matrix'''
-        active_frags = self.active_frags
+        excited_frags = self.excited_frags
         fcisolvers, nelec_ref = self.solver_ref.fcisolvers, self.nelec_ref
-        fcisolvers = [fcisolvers[ifrag] for ifrag in active_frags]
-        nelec_ref = [nelec_ref[ifrag] for ifrag in active_frags]
-        norb_ref = [self.norb_ref[ifrag] for ifrag in active_frags]
-        ci_q = [self.ci_ref[ifrag] for ifrag in active_frags]
+        fcisolvers = [fcisolvers[ifrag] for ifrag in excited_frags]
+        nelec_ref = [nelec_ref[ifrag] for ifrag in excited_frags]
+        norb_ref = [self.norb_ref[ifrag] for ifrag in excited_frags]
+        ci_q = [self.ci_ref[ifrag] for ifrag in excited_frags]
         ci_fr = [[cp, cq] for cp, cq in zip (ci_p, ci_q)]
         nelec_fs_q = np.asarray ([list(self._get_nelec (s, n)) 
                                    for s, n in zip (fcisolvers, nelec_ref)])
@@ -280,10 +285,10 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ground state of all but one active fragment, for each active fragment.
 
         Args:
-            h1: ndarray of shape (2,nact,nact)
-                1-electron part of the active-fragment Hamiltonian
-            h2: ndarray of shape [nact,]*4
-                2-electron part of the active-fragment Hamiltonian
+            h1: ndarray of shape (2,nexc,nexc)
+                1-electron part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
             ci: list of ndarray
                 CI vectors of the active fragments in the P-space
 
@@ -291,11 +296,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_f_abq: list of ndarray
                 Contains H|q>, projected onto all but one fragment, for each fragment'''
         # TODO: point group symmetry
-        active_frags = [ifrag for ifrag in self.active_frags]
-        norb_f = [self.norb_ref[ifrag] for ifrag in active_frags]
-        nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in active_frags])
-        ref_fcisolvers = [self.solver_ref.fcisolvers[ifrag] for ifrag in active_frags]
-        ci_fr_ket = [[self.ci_ref[ifrag]] for ifrag in active_frags]
+        excited_frags = [ifrag for ifrag in self.excited_frags]
+        norb_f = [self.norb_ref[ifrag] for ifrag in excited_frags]
+        nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in excited_frags])
+        ref_fcisolvers = [self.solver_ref.fcisolvers[ifrag] for ifrag in excited_frags]
+        ci_fr_ket = [[self.ci_ref[ifrag]] for ifrag in excited_frags]
         nelec_rfs_ket = np.asarray ([[list(self._get_nelec (s, n))
                                      for s, n in zip (ref_fcisolvers, nelec_f)]])
         nelec_frs_ket = nelec_rfs_ket.transpose (1,0,2)
@@ -319,11 +324,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
         Args:
             h0: float
-                Constant part of the active-fragment Hamiltonian
-            h1: ndarray of shape (2,nact,nact)
-                Spin-separated 1-electron part of the active-fragment Hamiltonian
-            h2: ndarray of shape [nact,]*4
-                2-electron part of the active-fragment Hamiltonian
+                Constant part of the excited-fragment Hamiltonian
+            h1: ndarray of shape (2,nexc,nexc)
+                Spin-separated 1-electron part of the excited-fragment Hamiltonian
+            h2: ndarray of shape [nexc,]*4
+                2-electron part of the excited-fragment Hamiltonian
             ci0: list of ndarray
                 CI vectors for the active fragments
 
@@ -405,8 +410,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return ci0, e0_p, e_q, si_q
 
     def prepare_vrvsolvers_(self, h0, h1, h2):
-        norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.active_frags])
-        nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.active_frags])
+        norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
+        nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
         ci0 = self._check_init_guess (None, norb_f, nelec_f, h1, h2)
         ci0, e_p, e_q, si_q = self.sort_ci0 (h0, h1, h2, ci0)
         vrvsolvers = []

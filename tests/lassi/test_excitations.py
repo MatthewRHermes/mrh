@@ -17,6 +17,7 @@ import unittest
 import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, mcscf
+from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, op_o0, op_o1
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
@@ -72,6 +73,11 @@ class KnownValues(unittest.TestCase):
         dneleca = (spins - charges) // 2
         dnelecb = -(charges + spins) // 2
         dsmults = smults - 1
+        nelec = [_unpack_nelec (n) for n in las.nelecas_sub]
+        neleca = np.array ([n[0] for n in nelec]) 
+        nelecb = np.array ([n[1] for n in nelec]) 
+        neleca = dneleca + neleca[None,1:]
+        nelecb = dnelecb + nelecb[None,1:]
         lroots = lsi.get_lroots ()
         smults_rf = dsmults + 1
 
@@ -111,8 +117,8 @@ class KnownValues(unittest.TestCase):
             for i in range (2):
                 weights = np.zeros (lroots[i,iroot])
                 weights[0] = 1
-                psexc.set_excited_fragment_(1+i, dneleca[iroot,i], dnelecb[iroot,i],
-                                            dsmults[iroot,i], weights=weights)
+                psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
+                                            smults[iroot,i], weights=weights)
             conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
             self.assertTrue (conv)
             e_roots1, si1 = lassi_ref (ci1, iroot)
@@ -127,8 +133,8 @@ class KnownValues(unittest.TestCase):
             for i in range (2):
                 weights = np.zeros (lroots[i,iroot])
                 weights[0] = 1
-                psexc.set_excited_fragment_(1+i, dneleca[iroot,i], dnelecb[iroot,i],
-                                            dsmults[iroot,i], weights=weights)
+                psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
+                                            smults[iroot,i], weights=weights)
             conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
             self.assertTrue (conv)
             self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
