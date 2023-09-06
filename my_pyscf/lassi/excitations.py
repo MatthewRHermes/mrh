@@ -157,20 +157,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
                 max_cycle_macro=max_cycle_macro, **kwargs
             )
-        #hci_f_abq = self.op_ham_pq_ref (h1, h2, ci1_active)
-        #h1eff, h0eff = self.project_hfrag (h1, h2, ci1_active, norb_f, nelec_f,
-        #                                   ecore=h0)#, **kwargs)
-        #e_vrv, ci1_vrv = self._1shot_with_vrv (
-        #    h0eff, h1eff, h2, hci_f_abq, h_qq,
-        #    ci1_active, norb_f, nelec_f, orbsym=orbsym, 
-        #    **kwargs
-        #)  
-        #for ix, (c_active, c_vrv) in enumerate (zip (ci1_active, ci1_vrv)):
-        #    c_active = np.asarray (c_active)
-        #    ndeta, ndetb = c_active.shape[-2:]
-        #    c_active = c_active.reshape (-1, ndeta*ndetb)
-        #    c_vrv = np.asarray (c_vrv).reshape (-1, ndeta*ndetb)
-        #    ovlp = np.dot (c_active.conj (), c_vrv.T)
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.active_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
@@ -234,30 +220,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                     e_p = e_p[0]
             energy_tot += e_p
         return energy_tot
-
-    #def _1shot_with_vrv (self, h0eff, h1eff, h2, hci_f_abq, h_qq,
-    #                     ci, norb_f, nelec_f, orbsym=None,
-    #                     **kwargs):
-    #    ham_pq = np.zeros ((h_qq.shape[0]+1, h_qq.shape[1]+1), dtype=h_qq.dtype)
-    #    ham_pq[1:,1:] = h_qq
-    #    
-    #    nj = np.cumsum (norb_f)
-    #    ni = nj - norb_f
-    #    zipper = [h0eff, h1eff, hci_f_abq, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
-    #    e1 = []
-    #    ci1 = []
-    #    e_q, si_q = linalg.eigh (h_qq)
-    #    i, j = ni[1], nj[1]
-    #    for h0e, h1e, hc_abq, c, no, ne, solver, i, j in zip (*zipper):
-    #        nelec = self._get_nelec (solver, ne)
-    #        h2e = h2[i:j,i:j,i:j,i:j]
-    #        v_qab = np.tensordot (si_q, hc_abq, axes=((0,),(-1,)))
-    #        vrvsolver = vrv_fcisolver (solver, v_qab, e_q)
-    #        e, c1 = vrvsolver.kernel (h1e, h2e, no, nelec, ci0=c, ecore=h0e,
-    #            orbsym=orbsym, **kwargs)
-    #        e1.append (e) 
-    #        ci1.append (c1)
-    #    return e1, ci1
 
     def get_ham_pq (self, h0, h1, h2, ci_p):
         active_frags = self.active_frags
