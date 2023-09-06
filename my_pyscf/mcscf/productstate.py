@@ -218,7 +218,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             try:
                 a, b = s.make_rdm1s (c, no, nelec)
             except AssertionError as e:
-                print (type (c), np.asarray (c).shape)
+                print (type (c), np.asarray (c).shape, no, nelec, ix, type (s), getattr (s, 'weights', None))
                 raise (e)
             except ValueError as e:
                 print ("frag=",ix,"nroots=",s.nroots,"no=",no,"ne=",nelec,'c.shape=',np.asarray(c).shape)

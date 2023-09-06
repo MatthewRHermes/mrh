@@ -18,6 +18,7 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, mcscf
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, op_o0, op_o1
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
@@ -138,6 +139,90 @@ class KnownValues(unittest.TestCase):
             conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
             self.assertTrue (conv)
             self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
+
+    def test_multiref (self):
+        # The same as above but treating the triplet manifold as the reference
+        las = LASSCF (mf, (1,2,2), (2,(1,1),(1,1)), spin_sub=(1,1,1))
+        las.state_average_(weights=[1,0,0],
+                           charges=[[0,0,0],]*3,
+                           spins=[[0,0,0],[0,-2,2],[0,2,-2]],
+                           smults=[[1,3,3],]*3,
+                           wfnsyms=[[0,0,0],]*3)
+        las.mo_coeff = lsi._las.mo_coeff
+        ncsf = las.get_ugg ().ncsf_sub
+        las.lasci (lroots=ncsf)
+        self.assertAlmostEqual (las.e_states[0], lsi._las.e_states[7])
+        self.assertAlmostEqual (las.e_states[1], lsi._las.e_states[9])
+        self.assertAlmostEqual (las.e_states[1], lsi._las.e_states[10])
+        s0m0 = csf_solver (las.mol, smult=0).set (nelec=tuple([1,1]),charge=0,spin=0,norb=1)
+        s1mm = csf_solver (las.mol, smult=3).set (nelec=tuple([0,2]),charge=0,spin=-2,norb=2)
+        s1m0 = csf_solver (las.mol, smult=3).set (nelec=tuple([1,1]),charge=0,spin=0,norb=2)
+        s1mp = csf_solver (las.mol, smult=3).set (nelec=tuple([2,0]),charge=0,spin=2,norb=2)
+        fcisolvers = [[s0m0, s1m0, s1m0],
+                      [s0m0, s1mm, s1mp],
+                      [s0m0, s1mp, s1mm]]
+        psref = [ImpureProductStateFCISolver (fcisolvers[i], stdout=mol.stdout,
+                                              verbose=mol.verbose, lroots=ncsf)
+                 for i in range (3)]
+        ci_ref = las.ci
+        nelec_ref = [[1,1] for i in range (3)]
+        psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref)
+        charges, spins, smults, wfnsyms = get_space_info (lsi._las)
+        dneleca = (spins - charges) // 2
+        dnelecb = -(charges + spins) // 2
+        dsmults = smults - 1
+        nelec = [_unpack_nelec (n) for n in las.nelecas_sub]
+        neleca = np.array ([n[0] for n in nelec]) 
+        nelecb = np.array ([n[1] for n in nelec]) 
+        neleca = dneleca + neleca[None,1:]
+        nelecb = dnelecb + nelecb[None,1:]
+        lroots = lsi.get_lroots ()
+        smults_rf = dsmults + 1
+
+        ci0_ref = [only_ground_states (c) for c in ci_ref]
+        def lassi_ref (ci1, iroot):
+            ci1 = only_ground_states (ci1)
+            ci2 = [ci0_ref[ifrag]+[ci1[ifrag].copy (),] for ifrag in range (las.nfrags)]
+            las1 = LASSCF (mf, (1,2,2), (2,2,2), spin_sub=(1,1,1))
+            las1.mo_coeff = las.mo_coeff
+            las1.state_average_([1,0,0,0],
+                charges=[[0,0,0],]*3+[[0,] + list(charges[iroot])],
+                spins=[[0,0,0],[0,-2,2],[0,2,-2],[0,] + list(spins[iroot])],
+                smults=[[1,3,3],]*3+[[1,] + list(smults[iroot])],
+                wfnsyms=[[0,0,0],]*4
+            )
+            las1.ci = ci2
+            las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
+            ci2 = [ci_ref[ifrag]+[ci1[ifrag],] for ifrag in range (las.nfrags)]
+            las1.ci = ci2
+            lsi1 = LASSI (las1)
+            e_roots1, si1 = lsi1.kernel ()
+            ham_pq = (si1 * e_roots1[None,:]) @ si1.conj ().T
+            w = si1[-1].conj () * si1[-1]
+            idx = (w) > 1e-7 # See comment below
+            return e_roots1[idx], si1[:,idx]
+
+        h0, h1, h2 = LASSI (las).ham_2q ()
+        # In general, the Excitation Solver should return the same energy as LASSI with lroots=1
+        # in the excitation rootspace. However, the differentiation between overlapping and
+        # orthogonal states breaks down in the limit of weak coupling between the reference and
+        # excited rootspace. For the doubly-charge-transferred states, the weight of the root that
+        # the VRV solver misses is just barely below 1e-8; that of the root which it catches is
+        # about 1e-6. The moral of the story is that we should probably not use the excitation
+        # solver for double excitations directly.
+        for iroot in range (1, 5): #lsi._las.nroots):
+          with self.subTest (rootspace=iroot):
+            for i in range (2):
+                weights = np.zeros (lroots[i,iroot])
+                weights[0] = 1
+                psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
+                                            smults[iroot,i], weights=weights)
+            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
+            self.assertTrue (conv)
+            e_roots1, si1 = lassi_ref (ci1, iroot)
+            idx_match = np.argmin (np.abs (e_roots1-energy_tot))
+            self.assertAlmostEqual (energy_tot, e_roots1[idx_match], 6)
+            self.assertEqual (idx_match, 0) # local minimum problems
 
 if __name__ == "__main__":
     print("Full Tests for LASSI excitation constructor")
