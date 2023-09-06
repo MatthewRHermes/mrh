@@ -95,6 +95,26 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return idx
 
     def get_active_h (self, h0, h1, h2):
+        '''Reduce the CAS Hamiltonian to the current active fragments. Only some
+        fragments are active at any given time (nact <= ncas).
+
+        Args:
+            h0: float
+                Constant part of the CAS Hamiltonian
+            h1: ndarray of shape (2,ncas,ncas)
+                Spin-separated 1-electron part of the CAS Hamiltonian
+            h2: ndarray of shape [ncas,]*4
+                2-electron part of the CAS Hamiltonian
+
+        Args:
+            h0: float
+                Constant part of the active-fragment Hamiltonian
+            h1: ndarray of shape (2,nact,nact)
+                Spin-separated 1-electron part of the active-fragment Hamiltonian
+            h2: ndarray of shape [nact,]*4
+                2-electron part of the active-fragment Hamiltonian
+
+        '''
         idx = self.get_active_orb_idx ()
         dm1s = self.dm1s_ref.copy ()
         dm2 = self.dm2_ref.copy ()
@@ -222,6 +242,21 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return energy_tot
 
     def get_ham_pq (self, h0, h1, h2, ci_p):
+        '''Build the model-space Hamiltonian matrix for the current state of the P-space.
+
+        Args:
+            h0: float
+                Constant part of the active-fragment Hamiltonian
+            h1: ndarray of shape (2,nact,nact)
+                Spin-separated 1-electron part of the active-fragment Hamiltonian
+            h2: ndarray of shape [nact,]*4
+                2-electron part of the active-fragment Hamiltonian
+            ci_p: list of ndarray
+                CI vectors for the active fragments in the P-space
+
+        Returns:
+            ham_pq: ndarray of shape (np+nq,np+nq)
+                Model space Hamiltonian matrix'''
         active_frags = self.active_frags
         fcisolvers, nelec_ref = self.solver_ref.fcisolvers, self.nelec_ref
         fcisolvers = [fcisolvers[ifrag] for ifrag in active_frags]
@@ -241,6 +276,20 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return ham_pq + (h0*ovlp_pq)
 
     def op_ham_pq_ref (self, h1, h2, ci):
+        '''Act the Hamiltonian on the reference CI vectors and project onto the current
+        ground state of all but one active fragment, for each active fragment.
+
+        Args:
+            h1: ndarray of shape (2,nact,nact)
+                1-electron part of the active-fragment Hamiltonian
+            h2: ndarray of shape [nact,]*4
+                2-electron part of the active-fragment Hamiltonian
+            ci: list of ndarray
+                CI vectors of the active fragments in the P-space
+
+        Returns:
+            hci_f_abq: list of ndarray
+                Contains H|q>, projected onto all but one fragment, for each fragment'''
         # TODO: point group symmetry
         active_frags = [ifrag for ifrag in self.active_frags]
         norb_f = [self.norb_ref[ifrag] for ifrag in active_frags]
@@ -262,6 +311,32 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci_f_abq
 
     def sort_ci0 (self, h0, h1, h2, ci0):
+        '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
+        and eigenvectors. Sort ci0 so that the ENV |0000...> is the state with the
+        minimum guess energy for the downfolded eigenproblem
+
+        (h_pp + h_pq (e_p - e_q)^-1 h_qp) |p> = e_p|p>
+
+        Args:
+            h0: float
+                Constant part of the active-fragment Hamiltonian
+            h1: ndarray of shape (2,nact,nact)
+                Spin-separated 1-electron part of the active-fragment Hamiltonian
+            h2: ndarray of shape [nact,]*4
+                2-electron part of the active-fragment Hamiltonian
+            ci0: list of ndarray
+                CI vectors for the active fragments
+
+        Returns:
+            ci0: list of ndarray
+                Resorted on each fragment so that |0000...> has the lowest downfolded
+                guess energy
+            e0_p: float
+                Downfolded guess energy of |0000....>
+            e_q: ndarray of shape (nq,)
+                Eigenvalues of the Q-space Hamiltonian
+            si_q: ndarray of shape (nq,nq)
+                Eigenvectors of the Q-space Hamiltonian'''
         # Find lowest-energy ENV, including VRV contributions
         lroots = get_lroots (ci0)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
