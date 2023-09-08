@@ -8,13 +8,15 @@
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao, int count)
 {
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
 
   blksize = _blksize;
+
+  const int nao_pair = nao * (nao+1) / 2;
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
@@ -22,21 +24,23 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   // double * eri1 = static_cast<double*>(info_eri1.ptr);
   // double * dmtril = static_cast<double*>(info_dmtril.ptr);
   
-  int _size_vj = info_dmtril.shape[0] * info_eri1.shape[1];
+  int _size_vj = nset * nao_pair;
   if(_size_vj > size_vj) {
     size_vj = _size_vj;
     if(vj) pm->dev_free_host(vj);
     vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
+    
+    if(count > 0) printf("WARNING:: Reallocating vj with count= %i  nset= %i  nao_pair= %i\n",count, nset, nao_pair);
   }
   for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
 
-  //  int _size_vk = nset * nao * nao;
-  //  if(_size_vk > size_vk) {
-  //    size_vk = _size_vk;
-  //    if(_vktmp) pm->dev_free_host(_vktmp);
-  //    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
-  //  }
-  //  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
+  int _size_vk = nset * nao * nao;
+  if(_size_vk > size_vk) {
+    size_vk = _size_vk;
+    if(_vktmp) pm->dev_free_host(_vktmp);
+    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
+  }
+  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
   int _size_buf = blksize * nao * nao;
   if(_size_buf > size_buf) {
@@ -48,6 +52,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     buf_tmp = (double*) pm->dev_malloc_host(2*size_buf*sizeof(double));
     buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
     buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (blksize*nao, nao)
+    
+    if(count > 0) printf("WARNING:: Reallocating bufs with count= %i  blksize= %i  nao= %i\n",count, blksize, nao);
   }
 
   int _size_fdrv = 4 * nao * nao * num_threads;
@@ -55,6 +61,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     size_fdrv = _size_fdrv;
     if(buf_fdrv) pm->dev_free_host(buf_fdrv);
     buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
+
+    if(count > 0) printf("WARNING:: Reallocating buf_fdrv with count= %i nao= %i  num_threads= %i\n",count, nao, num_threads);
   }
   
 #ifdef _SIMPLE_TIMER
@@ -81,17 +89,17 @@ void Device::get_jk(int naux, int nao, int nset,
 
   const int with_j = true;
   
-  py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
-  py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
-  py::buffer_info info_vj = _vj.request(); // 2D array (1, 351)
-  py::buffer_info info_vk = _vk.request(); // 3D array (nset, 26, 26)
-
+  py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair)
+  py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, nao_pair)
+  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
+  
   double * eri1 = static_cast<double*>(info_eri1.ptr);
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
   double * vj = static_cast<double*>(info_vj.ptr);
   double * vk = static_cast<double*>(info_vk.ptr);
-
-  int _size_rho = info_dmtril.shape[0] * info_eri1.shape[0];
+  
+  int _size_rho = nset * naux;
   if(_size_rho > size_rho) {
     size_rho = _size_rho;
     if(rho) pm->dev_free_host(rho);
@@ -156,6 +164,13 @@ void Device::get_jk(int naux, int nao, int nset,
   }
 
   double * buf1 = buf_tmp;
+  double * buf2 = &(buf_tmp[blksize * nao * nao]);
+    
+  DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
+  DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
+  DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
+
+  double * vkk;
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
@@ -189,10 +204,6 @@ void Device::get_jk(int naux, int nao, int nset,
 #endif
     
     // buf2 = lib.unpack_tril(eri1, out=buf[1])
-
-    double * buf2 = &(buf_tmp[blksize * nao * nao]);
-    
-    DevArray3D da_buf2 = DevArray3D(buf2, blksize, nao, nao);
     
 #pragma omp parallel for
     for(int i=0; i<naux; ++i) {
@@ -203,9 +214,9 @@ void Device::get_jk(int naux, int nao, int nset,
       // unpack lower-triangle to square
       
       for(int j=0; j<nao; ++j)
-	for(int k=0; k<=j; ++k) {	  
-	  da_buf2(i,j,k) = eri1_[indx];
-	  da_buf2(i,k,j) = eri1_[indx];
+	for(int k=0; k<=j; ++k) {
+	  da_buf2(i*nao+j,k) = eri1_[indx];
+	  da_buf2(i*nao+k,j) = eri1_[indx];
 	  indx++;
 	}
       
@@ -221,14 +232,11 @@ void Device::get_jk(int naux, int nao, int nset,
     
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
-
-    DevArray3D da_buf1 = DevArray3D(buf_tmp, naux, nao, nao);
-    DevArray3D da_buf3 = DevArray3D(buf3, nao, naux, nao); // python swapped 1st two dimensions?
     
 #pragma omp parallel for
     for(int i=0; i<naux; ++i) {
       for(int j=0; j<nao; ++j)
-	for(int k=0; k<nao; ++k) da_buf3(k,i,j) = da_buf1(i,j,k);
+	for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
     }
     
     // vk[k] += lib.dot(buf3, buf4)
@@ -244,7 +252,7 @@ void Device::get_jk(int naux, int nao, int nset,
 #endif
     
     const double alpha = 1.0;
-    const double beta = (count == 0) ? 0.0 : 1.0; // 0 when count == 0
+    const double beta = (count == 0) ? 0.0 : 1.0;
     
     const int m = nao; // # of rows of first matrix buf4^T
     const int n = nao; // # of cols of second matrix buf3^T
@@ -252,21 +260,22 @@ void Device::get_jk(int naux, int nao, int nset,
 
     const int lda = naux * nao;
     const int ldb = nao;
-    const int ldc = nset * nao;
+    const int ldc = (mode_getjk == 0) ? nset * nao : nao;
 
-    double * vkk = &(vk[indxK * nao]);
+    if(mode_getjk == 0) vkk = &(vk[indxK * nao]); // this is ugly...
+    else vkk = &(vk[indxK * nao*nao]);
     
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);    
-   
+
 #ifdef _SIMPLE_TIMER
     double t4 = omp_get_wtime();
     t_array_jk[7] += t4 - t3;
     t_array_jk_count++;
 #endif 
   }
-
-}
   
+}
+
 /* ---------------------------------------------------------------------- */
 
 // pyscf/pyscf/lib/ao2mo/nr_ao2mo.c::AO2MOnr_e2_drv()

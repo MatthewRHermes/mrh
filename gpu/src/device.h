@@ -57,7 +57,8 @@ public :
   void get_dev_properties(int);
   void set_device(int);
 
-  void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int);
+  void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int);
+  void set_mode_get_jk(int);
   void free_get_jk();
   
   void get_jk(int, int, int,
@@ -89,6 +90,8 @@ private:
   int size_fdrv;
 
   int blksize;
+
+  int mode_getjk;
   
   double * rho;
   double * vj;

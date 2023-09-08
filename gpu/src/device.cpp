@@ -14,6 +14,8 @@ Device::Device()
   
   n = 0;
 
+  mode_getjk = 0;
+  
   size_rho = 0;
   size_vj = 0;
   size_vk = 0;
@@ -66,7 +68,7 @@ Device::~Device()
 
   pm->dev_free_host(rho);
   pm->dev_free_host(vj);
-  //  pm->dev_free_host(_vktmp);
+  pm->dev_free_host(_vktmp);
 
   pm->dev_free_host(buf_tmp);
   pm->dev_free_host(buf3);
@@ -138,6 +140,14 @@ void Device::set_device(int id)
 {
   printf("LIBGPU: setting device id= %i\n",id);
   pm->dev_set_device(id);
+}
+
+/* ---------------------------------------------------------------------- */
+    
+void Device::set_mode_get_jk(int mode)
+{
+  //  printf("LIBGPU: setting mode for get_jk() to %i\n",mode);
+  mode_getjk = mode;
 }
 
 /* ---------------------------------------------------------------------- */

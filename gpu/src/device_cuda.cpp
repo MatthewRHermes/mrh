@@ -15,6 +15,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
 
   blksize = _blksize;
+
+  const int nao_pair = nao * (nao+1) / 2;
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
@@ -22,7 +24,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //  double * eri1 = static_cast<double*>(info_eri1.ptr);
   //  double * dmtril = static_cast<double*>(info_dmtril.ptr);
   
-  int _size_vj = info_dmtril.shape[0] * info_eri1.shape[1];
+  int _size_vj = nset * nao_pair;
   if(_size_vj > size_vj) {
     size_vj = _size_vj;
     if(vj) pm->dev_free_host(vj);
