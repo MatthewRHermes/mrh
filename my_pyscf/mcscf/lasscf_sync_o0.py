@@ -10,7 +10,7 @@ from pyscf.lo import orth
 from pyscf.lib import tag_array, with_doc, logger
 from functools import partial
 
-import libgpu
+from mrh.my_pyscf.gpu import libgpu
 
 # An implementation that carries out vLASSCF, but without utilizing Schmidt decompositions
 # or "fragment" subspaces, so that the orbital-optimization part scales no better than

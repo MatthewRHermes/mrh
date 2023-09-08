@@ -51,7 +51,6 @@ module load cudatoolkit-standalone
 
 export PYTHONPATH=${WORKDIR}/pyscf:$PYTHONPATH
 export PYTHONPATH=${WORKDIR}/mrh/gpu:$PYTHONPATH
-export PYTHONPATH=${WORKDIR}/mrh/gpu/lib:$PYTHONPATH
 export PYTHONPATH=${WORKDIR}:$PYTHONPATH
 
 # -- should probably replace this with job-specific tmp (and probably node-local?)
@@ -124,10 +123,10 @@ $ cd mrh/gpu/src
 $ make clean
 $ make ARCH=polaris-cpu-gnu install
 ```
-The generated `libgpu.so` library will be installed into the specificed `lib` directory, which currently resides in `mrh/gpu/lib/libgpu.so`. Wherever it is installed, the `PYTHONPATH` environment variable (and similar) needs to be appropriately updated as in the example script above setting up the environment. For reference, the architecture file `gpu/src/arch/polaris-cpu-gnu` is defined as follows.
+The generated `libgpu.so` library will be installed into the specificed `INSTALL` directory, which currently resides in `mrh/my_pyscf/gpu/libgpu.so`. When this library is not installed, there is a STUB `mrh/my_pyscf/gpu/libgpu.py` that will be used instead. For reference, the architecture file `gpu/src/arch/polaris-cpu-gnu` is defined as follows.
 ```
 $ cat ./arch/polaris-cpu-gnu
-INSTALL = ../
+INSTALL = ../../my_pyscf/gpu
 
 PYTHON_INC=$(shell python -m pybind11 --includes)
 
@@ -151,6 +150,8 @@ LIB = -lstdc++
 
 The `-D_USE_CPU` preprocessor flag is key here for enabling the Host backend and CPU-only runs. The `-D_SIMPLE_TIME` flag is enabling a very lightweight timer for select portions of the code useful only for developing the code. This timer is likely to be removed/altered as code development progresses.
 
+When needed, the `libgpu.so` library can be uninstalled by running the `make ARCH=polaris-cpu-gnu clean` command (or similar). Input files attempting to use functions within the `libgpu` module will receive an error to help catch unintended usage.
+
 ### Building libGPU with CUDA backend
 
 The environment setup by the script above provides the necessary CUDA software components. To build with the CUDA backend to enable runs on NVIDIA GPUs, one can simply build as follows.
@@ -161,7 +162,7 @@ $ make -f Makefile.nvcc ARCH=polaris-gnu-nvcc install
 ```
 Use of the `Makefile.nvcc` Makefile is because two separate compilers are being used to compile source in this build: GNU compilers for CPU-only code and NVIDIA's nvcc compiler for GPU code. For reference, the architecture file `gpu/src/arch/polaris-gnu-nvcc` is defined as follows.
 ```
-INSTALL = ../
+INSTALL = ../../my_pyscf/gpu
 
 PYTHON_INC=$(shell python -m pybind11 --includes)
 
@@ -203,9 +204,9 @@ This is likely to be the main production backend for GPU-accelerated runs, but i
 
 ## Running GPU-enabled LASSCF calculations
 
-The primary input-deck for development work thus far has been the `valay_polymer_async` benchmark in the following directory.
+The primary input-deck for development work thus far has been the `polymer_async` benchmark in the following directory.
 ```
-mrh/examples/gpu_lasscf/valay_polymer_async
+mrh/examples/gpu_lasscf/polymer_async
 ```
 
 Usage will evolve as the code develops, but the following is the `1_6-31g_inp_gpu_simple.py` input script for reference.
@@ -219,7 +220,7 @@ from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
 
-import libgpu
+from mrh.my_pyscf.gpu import libgpu
 gpu = libgpu.libgpu_init()
 
 lib.logger.TIMER_LEVEL=lib.logger.INFO
@@ -247,7 +248,7 @@ libgpu.libgpu_destroy_device(gpu)
 
 Key modifications to a "normal" LASSCF input file are as follows.
 - `from gpu4pyscf import patch_pyscf` : enable monkey patching for a select number of PySCF source files, such as updating the Molecule object to track a new `use_gpu` variable.
-- `import libgpu` : enable access to the gpu library interface functions 
+- `from mrh.my_pyscf.gpu import libgpu` : enable access to the gpu library interface functions 
 - `gpu = libgpu.libgpu_init()` : initialize the gpu library and return a handle. This gpu handle is to be passed to a small number of functions (and likely made smaller in the future).
 - `mol=gto.M(use_gpu=gpu, atom=...` : this is the key usage of the gpu handle by which most of the underlying code and algorithms can access the gpu library.
 - `las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)` : this is currently required, but expected to be no longer necessary soon...
@@ -255,6 +256,6 @@ Key modifications to a "normal" LASSCF input file are as follows.
 
 ## Status
 
-The `Host` and `CUDA` backends currently give correct LASSCF energies for the asynchronous algorithm (and synchronous) for the valay_polymer_async input-deck for nfrags= 1, 2, 4, and 8. A numerical issue is being investigated where more calls to get_jk() and also more iterations are required to achieve convergence, resulting in overall increased total runtimes.
+The `Host` and `CUDA` backends tested on Polaris currently yield consistent LASSCF energies and number of iterations for the asynchronous algorithm for the polymer\_async input-deck for nfrags= 1, 2, 4, and 8. Any differences observed should be reported as a bug.
 
-*Last Updated : 8-31-2023*
+*Last Updated : 9-08-2023*

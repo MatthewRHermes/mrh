@@ -27,7 +27,7 @@ from pyscf.lib import logger
 from pyscf.ao2mo import _ao2mo
 from gpu4pyscf.lib.utils import patch_cpu_kernel
 
-import libgpu
+from mrh.my_pyscf.gpu import libgpu
 
 #import math
 #import sys
