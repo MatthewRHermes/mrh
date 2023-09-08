@@ -8,7 +8,7 @@
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao, int count)
 {
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
@@ -125,10 +125,10 @@ void Device::get_jk(int naux, int nao, int nset,
 
   const int with_j = true;
   
-  py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
-  py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
-  py::buffer_info info_vj = _vj.request(); // 2D array (1, 351)
-  py::buffer_info info_vk = _vk.request(); // 3D array (nset, 26, 26)
+  py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair)
+  py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, nao_pair)
+  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
 
   double * eri1 = static_cast<double*>(info_eri1.ptr);
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
@@ -200,6 +200,13 @@ void Device::get_jk(int naux, int nao, int nset,
   }
  
   double * buf1 = buf_tmp;
+  double * buf2 = &(buf_tmp[blksize * nao * nao]);
+    
+  DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
+  DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
+  DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
+
+  double * vkk;
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
@@ -233,10 +240,6 @@ void Device::get_jk(int naux, int nao, int nset,
 #endif
     
     // buf2 = lib.unpack_tril(eri1, out=buf[1])
-
-    double * buf2 = &(buf_tmp[blksize * nao * nao]);
-    
-    DevArray3D da_buf2 = DevArray3D(buf2, blksize, nao, nao);
     
 #pragma omp parallel for
     for(int i=0; i<naux; ++i) {
@@ -248,8 +251,8 @@ void Device::get_jk(int naux, int nao, int nset,
       
       for(int j=0; j<nao; ++j)
 	for(int k=0; k<=j; ++k) {	  
-	  da_buf2(i,j,k) = eri1_[indx];
-	  da_buf2(i,k,j) = eri1_[indx];
+	  da_buf2(i*nao+j,k) = eri1_[indx];
+	  da_buf2(i*nao+k,j) = eri1_[indx];
 	  indx++;
 	}
       
@@ -266,13 +269,10 @@ void Device::get_jk(int naux, int nao, int nset,
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
     
-    DevArray3D da_buf1 = DevArray3D(buf_tmp, naux, nao, nao);
-    DevArray3D da_buf3 = DevArray3D(buf3, nao, naux, nao); // python swapped 1st two dimensions?
-    
 #pragma omp parallel for
     for(int i=0; i<naux; ++i) {
       for(int j=0; j<nao; ++j)
-	for(int k=0; k<nao; ++k) da_buf3(k,i,j) = da_buf1(i,j,k);
+	for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
     }
     
     // vk[k] += lib.dot(buf3, buf4)
@@ -288,7 +288,7 @@ void Device::get_jk(int naux, int nao, int nset,
 #endif
     
     const double alpha = 1.0;
-    const double beta = (count == 0) ? 0.0 : 1.0; // 0 when count == 0
+    const double beta = (count == 0) ? 0.0 : 1.0;
     
     const int m = nao; // # of rows of first matrix buf4^T
     const int n = nao; // # of cols of second matrix buf3^T
@@ -296,9 +296,10 @@ void Device::get_jk(int naux, int nao, int nset,
 
     const int lda = naux * nao;
     const int ldb = nao;
-    const int ldc = nset * nao;
+    const int ldc = (mode_getjk == 0) ? nset * nao: nao;
 
-    double * vkk = &(vk[indxK * nao]);
+    if(mode_getjk == 0) vkk = &(vk[indxK * nao]); // this is ugly...
+    else vkk = &(vk[indxK * nao*nao]);
 
 #if 0
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);

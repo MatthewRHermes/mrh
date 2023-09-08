@@ -37,10 +37,10 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int _size_vk = nset * nao * nao;
   if(_size_vk > size_vk) {
     size_vk = _size_vk;
-    if(_vktmp) pm->dev_free_host(_vktmp);
-    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
+    // if(_vktmp) pm->dev_free_host(_vktmp);
+    // _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
   }
-  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
+  //  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
   int _size_buf = blksize * nao * nao;
   if(_size_buf > size_buf) {
