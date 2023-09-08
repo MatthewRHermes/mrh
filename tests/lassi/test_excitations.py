@@ -141,7 +141,8 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
 
     def test_multiref (self):
-        # The same as above but treating the triplet manifold as the reference
+        # Similar to test_cs_excitation, but treating the triplet manifold as the reference
+        # Only look at the 4 1e hop states
         las = LASSCF (mf, (1,2,2), (2,(1,1),(1,1)), spin_sub=(1,1,1))
         las.state_average_(weights=[1,0,0],
                            charges=[[0,0,0],]*3,
@@ -199,18 +200,11 @@ class KnownValues(unittest.TestCase):
             e_roots1, si1 = lsi1.kernel ()
             ham_pq = (si1 * e_roots1[None,:]) @ si1.conj ().T
             w = si1[-1].conj () * si1[-1]
-            idx = (w) > 1e-7 # See comment below
+            idx = (w) > 1e-7 
             return e_roots1[idx], si1[:,idx]
 
         h0, h1, h2 = LASSI (las).ham_2q ()
-        # In general, the Excitation Solver should return the same energy as LASSI with lroots=1
-        # in the excitation rootspace. However, the differentiation between overlapping and
-        # orthogonal states breaks down in the limit of weak coupling between the reference and
-        # excited rootspace. For the doubly-charge-transferred states, the weight of the root that
-        # the VRV solver misses is just barely below 1e-8; that of the root which it catches is
-        # about 1e-6. The moral of the story is that we should probably not use the excitation
-        # solver for double excitations directly.
-        for iroot in range (1, 5): #lsi._las.nroots):
+        for iroot in range (1, 5): 
           with self.subTest (rootspace=iroot):
             for i in range (2):
                 weights = np.zeros (lroots[i,iroot])

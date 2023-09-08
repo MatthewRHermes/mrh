@@ -370,7 +370,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx[:p] = False
             idx[ip] = True
             return ham_pq[idx,:][:,idx]
-        e_p = [lowest_refovlp_eigval (project_1p (i)) for i in range (p)]
+        e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (p)])
         idxmin = np.argmin (e_p)
         e0_p = e_p[idxmin]
         h_pq = np.dot (h_pq, si_q)
@@ -379,21 +379,18 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = np.abs (denom) > 1e-16
             return np.dot (h_pq[:,idx].conj () / denom[None,idx], h_pq[:,idx].T)
         heff_pp = h_pp + sigma_pp (e0_p)
-        e_p = np.diag (heff_pp)
+        assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-8)
 
         # ENV index to address
-        idx, pj = idxmin, p
+        idx = idxmin
         addr = []
-        for ifrag, lroot in enumerate (lroots[:-1]):
-            pj = pj // lroot
-            idx, j = divmod (idx, pj)
+        for ifrag, lroot in enumerate (lroots):
+            idx, j = divmod (idx, lroot)
             addr.append (j)
-        addr.append (idx)
 
         # Sort against this reference state
         nfrag = len (addr)
         e_p_arr = e_p.reshape (*lroots[::-1]).T
-        sort_idxs = []
         h_pp = h_pp.reshape (*(list(lroots[::-1])*2))
         h_pq = ham_pq[:p,p:].reshape (*(list(lroots[::-1])+[q,]))
         for ifrag in range (nfrag):
