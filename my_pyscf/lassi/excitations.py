@@ -1,6 +1,7 @@
 import copy
 import numpy as np
 from scipy import linalg
+from pyscf.fci import cistring
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageFCISolver
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, ImpureProductStateFCISolver, state_average_fcisolver
@@ -41,6 +42,9 @@ def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None):
         return np.dot (numer, 1/denom)
     e_all, u_all = linalg.eigh (ham_pq)
     err = np.array ([e - (h_pp + sigma_pp (e)) for e in e_all])
+    #idx = np.argmin (np.abs (err))
+    #return e_all[idx]
+    # TODO: figure out why the above doesn't work!
     idx_valid = np.abs (err) < 1e-8
     return np.amin (e_all[idx_valid])
 
@@ -516,6 +520,29 @@ class VRVDressedFCISolver (object):
         rv_q = np.dot (v_qab.conj (), ket.ravel ()) / denom_q
         hket = np.dot (rv_q, v_qab).reshape (ket_shape)
         return hket
+    def test_locmin (self, e0, ci, warntag='Apparent local minimum'):
+        log = lib.logger.new_logger (self, self.verbose)
+        if self.v_qab is not None:
+            na, nb = self.v_qab.shape[1:]
+            ci = np.asarray (ci).reshape (-1,na,nb)[0]
+        ket = ci if isinstance (ci, np.ndarray) else ci[0]
+        vrvket = self.contract_vrv (ket)
+        try:
+            vrv = np.dot (ket.conj ().ravel (), vrvket.ravel ())
+            e_p = e0 - vrv
+            if abs (vrv) > 1e-16:
+                h_pq = np.tensordot (self.v_qab, ket, axes=2)
+                idx = np.abs (h_pq) > 1e-8
+                e_q = self.e_q[idx]
+                e_pq = np.append ([e_p,], e_q)
+                h_diagmin = np.amin (e_pq)
+                if e0>h_diagmin:
+                    log.warn ("%s in VRVSolver: min (hdiag) = %e < e0 = %e",
+                              warntag, np.amin (e_pq - self.e0_p), e0 - self.e0_p)
+                return True
+        except AttributeError as err:
+            assert (vrvket is 0)
+        return False
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         # converge on e0
         log = lib.logger.new_logger (self, self.verbose)
@@ -525,32 +552,28 @@ class VRVDressedFCISolver (object):
         converged = False
         e0 = self.e0_p
         ci1 = ci0
+        self.denom_q = e0 - self.e_q
+        self.test_locmin (e0, ci1, warntag='Saddle-point initial guess')
+        warn_swap = True
         for it in range (max_cycle_e0):
             self.denom_q = e0 - self.e_q
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
             )
             e0_last = e0
-            e0 = e[0] if isinstance (e, (list,tuple,np.ndarray)) else e
+            if isinstance (e, (list,tuple,np.ndarray)):
+                delta_e0 = np.array (e) - e0
+                if warn_swap and np.argmin (np.abs (delta_e0)) != 0:
+                    log.warn ("Possible rootswapping in H(E)|Psi> = E|Psi> fixed-point iteration")
+                    warn_swap = False
+                e0 = e[0]
+            else:
+                e0 = e
             ci0 = ci1
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
                 break
-        ket = ci1 if isinstance (ci1, np.ndarray) else ci1[0]
-        vrvket = self.contract_vrv (ket)
-        try:
-            vrv = np.dot (ket.conj ().ravel (), vrvket.ravel ())
-            e_p = e0 - vrv
-            if abs (vrv) > 1e-16:
-                h_pq = np.tensordot (self.v_qab, ket, axes=2)
-                idx = np.abs (h_pq) > 1e-8
-                e_q = self.e_q[idx]
-                h_diagmin = min (e_p, np.amin (e_q))
-                if e0>h_diagmin:
-                    log.warn ("Apparent local minimum in VRVSolver: min (h_diag) = %e < e0 = %e",
-                              h_diagmin, e0)
-        except AttributeError as err:
-            assert (vrvket is 0)
+        self.test_locmin (e0, ci1)
         self.converged = converged and self.converged
         return e, ci1
     # I don't feel like futzing around with MRO
