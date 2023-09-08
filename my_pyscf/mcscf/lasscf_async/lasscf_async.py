@@ -8,7 +8,7 @@ from mrh.my_pyscf.mcscf.lasscf_async.crunch import get_impurity_casscf
 from mrh.my_pyscf.mcscf.lasscf_async.keyframe import LASKeyframe
 from mrh.my_pyscf.mcscf.lasscf_async.combine import combine_o0
 
-import libgpu
+from mrh.my_pyscf.gpu import libgpu
 
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             assert_no_dupes=False, verbose=lib.logger.NOTE, frags_orbs=None,

@@ -14,7 +14,7 @@ from pyscf import lib
 lib.logger.TIME_LEVEL = lib.logger.INFO
 
 # -- this should all be inside of LASSCF() constructor
-import libgpu
+from mrh.my_pyscf.gpu import libgpu
 gpu = libgpu.libgpu_create_device()
 
 num_gpus = libgpu.libgpu_get_num_devices(gpu)

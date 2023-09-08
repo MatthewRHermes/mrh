@@ -1,5 +1,4 @@
-#INSTALL = /Users/cjknight/Documents/Projects/Gagliardi/soft/mrh/gpu/lib
-INSTALL = ../
+INSTALL = ../../my_pyscf/gpu
 
 BLAS=/Users/cjknight/Documents/soft/lib/lapack
 

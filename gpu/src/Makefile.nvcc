@@ -40,7 +40,7 @@ $(EXE): $(COBJ) $(CUDA_OBJ) $(FOBJ) $(MOD)
 	$(LD) $(LDFLAGS) -o $@ $(COBJ) $(CUDA_OBJ) $(LIB)
 
 install: $(EXE)
-	 cp $(EXE) $(INSTALL)/lib
+	 cp $(EXE) $(INSTALL)
 #	 cp $(MOD) $(FOBJ) $(INSTALL)/include
 
 ####################################################################
@@ -61,11 +61,13 @@ $(CUDA_OBJ): %.o: %.cpp
 # -- Remove *.o and *~ from the directory
 clean:
 	rm -f *.o *.mod *~ ./$(EXE)
+	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 #
 # -- Remove *.o, *~, and executable from the directory
 realclean:
 	rm -f *.o *.mod *~ ./$(EXE)
+	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
 

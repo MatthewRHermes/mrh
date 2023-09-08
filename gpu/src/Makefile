@@ -44,7 +44,7 @@ $(EXE):	$(COBJ) $(FOBJ) $(MOD)
 	$(LD) $(LDFLAGS) -o $@ $(COBJ) $(LIB)
 
 install: $(EXE)
-	cp $(EXE) $(INSTALL)/lib
+	cp $(EXE) $(INSTALL)
 #	cp $(MOD) $(FOBJ) $(INSTALL)/include
 
 ####################################################################
@@ -61,12 +61,14 @@ $(MOD): %.mod: %.F90
 #
 # -- Remove *.o and *~ from the directory
 clean:
-	rm -f *.o *.mod *~ ./$(EXE)
+	rm -f *.o *.mod *~ $(EXE)
+	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 #
 # -- Remove *.o, *~, and executable from the directory
 realclean:
-	rm -f *.o *.mod *~ ./$(EXE)
+	rm -f *.o *.mod *~ $(EXE)
+	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
 

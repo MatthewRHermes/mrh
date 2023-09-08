@@ -1,4 +1,4 @@
-INSTALL = ../
+INSTALL = ../../my_pyscf/gpu
 
 CUDA=/soft/compilers/cudatoolkit/cuda-11.4.4/
 
