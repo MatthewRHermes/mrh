@@ -256,6 +256,6 @@ Key modifications to a "normal" LASSCF input file are as follows.
 
 ## Status
 
-The `Host` and `CUDA` backends tested on Polaris currently yield consistent LASSCF energies and number of iterations for the asynchronous algorithm for the polymer\_async input-deck for nfrags= 1, 2, 4, and 8. Any differences observed should be reported as a bug.
+The `Host` and `CUDA` backends tested on Polaris currently yield consistent LASSCF energies and number of iterations for the asynchronous algorithm for the polymer\_async input-deck for nfrags= 1, 2, and 4. There is currently a 0.0253 energy difference for nfrags = 8 that is being debugged. Any differences observed should be reported as a bug.
 
 *Last Updated : 9-08-2023*
