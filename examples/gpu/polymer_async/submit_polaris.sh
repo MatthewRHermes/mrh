@@ -6,12 +6,12 @@
 #PBS -A Catalyst
 #PBS -l filesystems=home:grand:eagle
 
-cd /lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/examples/gpu_lasscf/valay_polymer_async
+cd /lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/examples/gpu/polymer_async
 
 # MPI example w/ 16 MPI ranks per node spread evenly across cores
 NNODES=`wc -l < $PBS_NODEFILE`
 NRANKS_PER_NODE=1
-NTHREADS=1
+NTHREADS=32
 NDEPTH=${NTHREADS}
 
 NTOTRANKS=$(( NNODES * NRANKS_PER_NODE ))
@@ -25,15 +25,15 @@ OMP_ARGS=" "
 OMP_ARGS=" --env OMP_NUM_THREADS=${NTHREADS} --env OMP_PROC_BIND=spread --env OMP_PLACES=threads "
 #OMP_ARGS+=" --env OMP_WAIT_POLICY=ACTIVE "
 
-INPUT="1_6-31g_inp.py"
-#INPUT="1_6-31g_inp_gpu.py"
+#INPUT="1_6-31g_inp.py"
+INPUT="1_6-31g_inp_gpu.py"
 #INPUT="1_6-31g_inp_scf_gpu.py"
 
 export CUDA_VISIBLE_DEVICES=0
 
 #EXE=/home/knight/repos/GettingStarted/Examples/Polaris/affinity_omp/hello_affinity
 EXE="python ${INPUT} "
-EXE="python my_profile.py ${INPUT} "
+#EXE="python my_profile.py ${INPUT} "
 
 #mpiexec ${MPI_ARGS} ${OMP_ARGS} /home/knight/repos/GettingStarted/Examples/Polaris/affinity_omp/hello_affinity 
 

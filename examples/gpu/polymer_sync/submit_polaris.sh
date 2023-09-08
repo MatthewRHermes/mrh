@@ -6,7 +6,7 @@
 #PBS -A Catalyst
 #PBS -l filesystems=home:grand:eagle
 
-cd /lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/examples/gpu_lasscf/valay_polymer
+cd /lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/examples/gpu/polymer_sync
 
 # MPI example w/ 16 MPI ranks per node spread evenly across cores
 NNODES=`wc -l < $PBS_NODEFILE`
