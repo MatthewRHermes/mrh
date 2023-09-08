@@ -73,10 +73,18 @@ void libgpu_set_device(void * ptr, int id)
 
 void libgpu_init_get_jk(void * ptr,
 			py::array_t<double> eri1, py::array_t<double> dmtril, 
-			int blksize, int nset, int nao)
+			int blksize, int nset, int nao, int count)
 { 
   Device * dev = (Device *) ptr;
-  dev->init_get_jk(eri1, dmtril, blksize, nset, nao);
+  dev->init_get_jk(eri1, dmtril, blksize, nset, nao, count);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void libgpu_set_mode_get_jk(void * ptr, int mode)
+{
+  Device * dev = (Device *) ptr;
+  dev->set_mode_get_jk(mode);
 }
 
 /* ---------------------------------------------------------------------- */

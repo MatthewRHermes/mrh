@@ -21,7 +21,9 @@ extern "C"
   void libgpu_set_device(void *, int);
 
   void libgpu_init_get_jk(void *,
-			  py::array_t<double>, py::array_t<double>, int, int, int);
+			  py::array_t<double>, py::array_t<double>, int, int, int, int);
+
+  void libgpu_set_mode_get_jk(void *, int);
   
   void libgpu_free_get_jk(void *);
   
@@ -52,6 +54,7 @@ PYBIND11_MODULE(libgpu, m) {
 
   m.def("libgpu_compute_get_jk", &libgpu_compute_get_jk, "pyscf/df/df_jk.py::get_jk()");
   m.def("libgpu_init_get_jk", &libgpu_init_get_jk, "alloc for get_jk()");
+  m.def("libgpu_set_mode_get_jk", &libgpu_set_mode_get_jk, "set indexing scheme for vk in get_jk()");
   m.def("libgpu_free_get_jk", &libgpu_free_get_jk, "free for get_jk()");
   
   m.def("libgpu_orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");

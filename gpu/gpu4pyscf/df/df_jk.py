@@ -29,6 +29,10 @@ from gpu4pyscf.lib.utils import patch_cpu_kernel
 
 import libgpu
 
+#import math
+#import sys
+#import traceback
+
 DEBUG = False
 
 def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
@@ -121,17 +125,25 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         buf = numpy.empty((2,blksize,nao,nao))
         
 #        print(" -- -- -- blksize= ", blksize, " blockdim= ", dfobj.blockdim, "  nao= ", nao)
+#        traceback.print_stack()
+#        traceback.print_stack(file=sys.stdout)
         
         count = 0
         vj = numpy.zeros_like(dmtril)
+
+#        vj_tmp = numpy.zeros_like(vj)
+#        vk_tmp = numpy.zeros_like(vk)
+
+#        buf2_tmp = numpy.zeros_like(buf[1])
+#        buf2_err = 0.0
         for eri1 in dfobj.loop(blksize):
             naux, nao_pair = eri1.shape
             if count == 0:
-                libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao)
-#            print("count= ", count, " naux= ", naux, "  nao_pair= ", nao_pair, " nao= ", nao, " blksize= ", blksize, " nset= ", nset)
-            count+=1
+                libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, count)
+#            print("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", blksize, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms), " vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
             
             if gpu:
+
                 libgpu.libgpu_compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj, vk, count)
 
             else:
@@ -139,10 +151,8 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                 if with_j:
                     rho = numpy.einsum('ix,px->ip', dmtril, eri1)
                     vj += numpy.einsum('ip,px->ix', rho, eri1)
-
-#                print("shape:: dmtril= ", dmtril.shape, "eri1= ", eri1.shape, "rho= ", rho.shape, " vj= ",vj.shape)
+                
                 for k in range(nset):
-#                    print("k= ", k, " dms= ", dms[k].shape)
                     buf1 = buf[0,:naux]
                     fdrv(ftrans, fmmm,
                          buf1.ctypes.data_as(ctypes.c_void_p),
@@ -151,9 +161,54 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                          ctypes.c_int(naux), *rargs)
                     
                     buf2 = lib.unpack_tril(eri1, out=buf[1])
+#                print("buf2= ", buf2.shape)
+#                for i in range(buf2.shape[1]):
+#                    print(i," buf2[0,i,:]= ", buf2[0,i,:])
 
+#                buf2_err = 0.0
+#                if k == 1:
+#                    for i in range(buf2.shape[0]):
+#                        for j in range(buf2.shape[1]):
+#                            for l in range(buf2.shape[2]):
+#                                buf2_err += (buf2[i,j,l] - buf2_tmp[i,j,l]) * (buf2[i,j,l] - buf2_tmp[i,j,l])
+
+#                print("buf1= ", buf1.shape, "  buf2= ", buf2.shape)
+#                _buf1_tmp = buf1.reshape(-1,nao)
+#                _buf2_tmp = buf2.reshape(-1,nao)
+#                print("buf1_reshape= ", _buf1_tmp.shape, "  buf2_reshape= ", _buf2_tmp.shape)
+                                
                     vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
-                
+
+            count+=1
+
+#        print("vj= ", vj.shape, " vk= ", vk.shape)
+#        vj_err = 0.0
+#        for i in range(nset):
+#            for j in range(vj.shape[1]):
+##                print("ij= ", i, j, "  vj= ", vj[i,j], "  vj_tmp= ", vj_tmp[i,j])
+#                vj_err += (vj[i,j] - vj_tmp[i,j]) * (vj[i,j] - vj_tmp[i,j])
+
+#        vk_err = 0.0
+#        for i in range(nset):
+#            for j in range(vk.shape[1]):
+#                for k in range(vk.shape[2]):
+#                    vk_err += (vk[i,j,k] - vk_tmp[i,j,k]) * (vk[i,j,k] - vk_tmp[i,j,k])                    
+#                    #print("ijk= ", i, j, k, "  vk= ", vk[i,j,k], "  vk_tmp= ", vk_tmp[i,j,k], "  vk_err= ", vk_err)
+
+#        stop = False
+#        if(vj_err > 1e-8): stop = True
+#        if(vk_err > 1e-8): stop = True
+#        if(buf2_err > 1e-8): stop = True
+#        if(nset > 1): stop = True
+        
+#        vj_err = "{:e}".format( math.sqrt(vj_err) )
+#        vk_err = "{:e}".format( math.sqrt(vk_err) )
+#        buf2_err = "{:e}".format( math.sqrt(buf2_err) )
+#        print("count= ", count, "  vj_err= ", vj_err,"  vk_err= ", vk_err, " buf2_err= ", buf2_err)
+
+#        if stop:
+#            print("ERROR:: Results don't agree!!")
+#            quit()    
         #libgpu.libgpu_free_get_jk(gpu)
         
         t1 = log.timer_debug1('jk', *t1)
