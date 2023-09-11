@@ -25,6 +25,8 @@ class ImpurityMole (gto.Mole):
         self.spin = None
         self._imporb_coeff = np.array ([0])
         self.build ()
+        add_gpu = {"use_gpu":las.use_gpu}
+        self.__dict__.update(add_gpu)
 
     def _update_space_(self, imporb_coeff, nelec_imp):
         self._imporb_coeff = imporb_coeff
@@ -38,7 +40,7 @@ class ImpurityMole (gto.Mole):
     def dumps (mol):
         '''Subclassing this to eliminate annoying warning message
         '''
-        exclude_keys = set(('output', 'stdout', '_keys',
+        exclude_keys = set(('output', 'stdout', '_keys', 'use_gpu',
                             # Constructing in function loads
                             'symm_orb', 'irrep_id', 'irrep_name',
                             # LASSCF hook to rest of molecule

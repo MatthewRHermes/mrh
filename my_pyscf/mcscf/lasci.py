@@ -16,6 +16,8 @@ from scipy import linalg
 import numpy as np
 import copy
 
+from mrh.my_pyscf.gpu import libgpu
+
 def LASCI (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):
         mf = scf.RHF(mf_or_mol)
@@ -764,6 +766,8 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
 class LASCINoSymm (casci.CASCI):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, **kwargs):
+        self.use_gpu = kwargs.get('use_gpu', None)
+            
         if isinstance(ncas,int):
             ncas = [ncas]
         ncas_tot = sum (ncas)
