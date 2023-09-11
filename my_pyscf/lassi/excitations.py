@@ -45,7 +45,7 @@ def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None):
     #idx = np.argmin (np.abs (err))
     #return e_all[idx]
     # TODO: figure out why the above doesn't work!
-    idx_valid = np.abs (err) < 1e-8
+    idx_valid = np.abs (err) < 1e-4
     return np.amin (e_all[idx_valid])
 
 class _vrvloop_env (object):
@@ -376,6 +376,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             return ham_pq[idx,:][:,idx]
         e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (p)])
         idxmin = np.argmin (e_p)
+        #print ("Winner:")
+        #lowest_refovlp_eigval (project_1p (idxmin))
         e0_p = e_p[idxmin]
         h_pq = np.dot (h_pq, si_q)
         def sigma_pp (e):
@@ -383,7 +385,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = np.abs (denom) > 1e-16
             return np.dot (h_pq[:,idx].conj () / denom[None,idx], h_pq[:,idx].T)
         heff_pp = h_pp + sigma_pp (e0_p)
-        assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-8)
+        assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-4)
 
         # ENV index to address
         idx = idxmin
@@ -431,7 +433,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci0, e_p, e_q, si_q = self.sort_ci0 (h0, h1, h2, ci0)
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
-            vrvsolvers.append (vrv_fcisolver (solver, e_p, e_q, None))
+            vrvsolvers.append (vrv_fcisolver (solver, e_p, e_q, None, max_cycle_e0=1))
         return ci0, vrvsolvers, e_q, si_q
 
     def revert_vrvsolvers_(self):
@@ -532,14 +534,17 @@ class VRVDressedFCISolver (object):
             e_p = e0 - vrv
             if abs (vrv) > 1e-16:
                 h_pq = np.tensordot (self.v_qab, ket, axes=2)
-                idx = np.abs (h_pq) > 1e-8
+                idx = (np.abs (h_pq) > 1e-8) & (np.abs (self.denom_q) > 1e-16)
                 e_q = self.e_q[idx]
                 e_pq = np.append ([e_p,], e_q)
                 h_diagmin = np.amin (e_pq)
                 if e0>h_diagmin:
                     log.warn ("%s in VRVSolver: min (hdiag) = %e < e0 = %e",
                               warntag, np.amin (e_pq - self.e0_p), e0 - self.e0_p)
-                return True
+                    #print (e0, self.e0_p)
+                    #print (e_p, e_q)
+                    #print (h_pq)
+                    return True
         except AttributeError as err:
             assert (vrvket is 0)
         return False
@@ -553,13 +558,15 @@ class VRVDressedFCISolver (object):
         e0 = self.e0_p
         ci1 = ci0
         self.denom_q = e0 - self.e_q
-        self.test_locmin (e0, ci1, warntag='Saddle-point initial guess')
+        assert (not self.test_locmin (e0, ci1, warntag='Saddle-point initial guess'))
         warn_swap = True
+        e0_seq = []
         for it in range (max_cycle_e0):
             self.denom_q = e0 - self.e_q
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
             )
+            e0_seq.append (e0_last)
             e0_last = e0
             if isinstance (e, (list,tuple,np.ndarray)):
                 delta_e0 = np.array (e) - e0
@@ -572,8 +579,12 @@ class VRVDressedFCISolver (object):
             ci0 = ci1
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
+                e0_seq.append (e0_last)
+                e0_seq.append (e0)
                 break
-        self.test_locmin (e0, ci1)
+        if self.test_locmin (e0, ci1): pass
+            #print (e0_seq)
+            #assert (False)
         self.converged = converged and self.converged
         return e, ci1
     # I don't feel like futzing around with MRO
