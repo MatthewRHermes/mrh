@@ -571,13 +571,12 @@ class VRVDressedFCISolver (object):
         self.denom_q = e0 - self.e_q
         assert (not self.test_locmin (e0, ci1, warntag='Saddle-point initial guess'))
         warn_swap = True
-        e0_seq = []
+        e0_seq = [e0]
         for it in range (max_cycle_e0):
             self.denom_q = e0 - self.e_q
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
             )
-            e0_seq.append (e0_last)
             e0_last = e0
             if isinstance (e, (list,tuple,np.ndarray)):
                 delta_e0 = np.array (e) - e0
@@ -587,11 +586,10 @@ class VRVDressedFCISolver (object):
                 e0 = self.solve_e0 (ci1[0], e[0])
             else:
                 e0 = self.solve_e0 (ci1, e)
+            e0_seq.append (e0)
             ci0 = ci1
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
-                e0_seq.append (e0_last)
-                e0_seq.append (e0)
                 break
         if self.test_locmin (e0, ci1): pass
             #print (e0_seq)
