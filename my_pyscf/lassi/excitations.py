@@ -437,8 +437,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return ci0, vrvsolvers, e_q, si_q
 
     def revert_vrvsolvers_(self):
-        for ix, solver in enumerate (self.fcisolvers):
-            self.fcisolvers[ix] = solver.base
+        #for ix, solver in enumerate (self.fcisolvers):
+        #    self.fcisolvers[ix] = solver.base
         self._e_q = []
         self._si_q = []
 
@@ -587,7 +587,7 @@ class VRVDressedFCISolver (object):
                 converged = True
                 break
         assert (not self.test_locmin (e0, ci1))
-        self.converged = converged and self.converged
+        self.converged = (converged and self.converged)
         return e, ci1
     # I don't feel like futzing around with MRO
     def undressed_kernel (self, *args, **kwargs):
