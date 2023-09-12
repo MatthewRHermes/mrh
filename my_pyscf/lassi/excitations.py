@@ -278,6 +278,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         Returns:
             ham_pq: ndarray of shape (np+nq,np+nq)
                 Model space Hamiltonian matrix'''
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         excited_frags, nelec_ref = self.excited_frags, self.nelec_ref
         nelec_ref = [nelec_ref[ifrag] for ifrag in excited_frags]
         norb_ref = [self.norb_ref[ifrag] for ifrag in excited_frags]
@@ -295,6 +296,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         with temporary_env (self, ncas_sub=norb_ref, mol=fcisolvers[0].mol):
             ham_pq, _, ovlp_pq = op[self.opt].ham (self, h1, h2, ci_fr, nelec_frs, soc=0,
                                                    orbsym=self.orbsym_ref, wfnsym=self.wfnsym_ref)
+        t1 = self.log.timer ('get_ham_pq', *t0)
         return ham_pq + (h0*ovlp_pq)
 
     def op_ham_pq_ref (self, h1, h2, ci):
@@ -313,6 +315,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_f_abq: list of ndarray
                 Contains H|q>, projected onto all but one fragment, for each fragment'''
         # TODO: point group symmetry
+        t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         excited_frags = [ifrag for ifrag in self.excited_frags]
         norb_f = [self.norb_ref[ifrag] for ifrag in excited_frags]
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in excited_frags])
@@ -331,6 +334,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
                                 soc=0, orbsym=None, wfnsym=None)
         hci_f_abq = [hc[0][0] for hc in hci_fr_pabq]
+        t1 = self.log.timer ('op_ham_pq_ref', *t0)
         return hci_f_abq
 
     def sort_ci0 (self, h0, h1, h2, ci0):
@@ -507,6 +511,7 @@ class VRVDressedFCISolver (object):
         self.conv_tol_e0 = conv_tol_e0
         self._keys = self._keys.union (keys)
         self.davidson_only = self.base.davidson_only = True
+        # TODO: Relaxing this ^ requires accounting for pspace, precond, and/or hdiag
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
         ci0 = self.undressed_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
         ci0 += self.contract_vrv (fcivec)
