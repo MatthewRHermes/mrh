@@ -31,7 +31,7 @@ def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None):
     h_pp = ham_pq[0,0]
     h_pq = ham_pq[0,1:]
     h_qq = ham_pq[1:,1:]
-    if e_q is None or si_q is None:
+    if e_q is None or u_q is None:
         e_q, u_q = linalg.eigh (h_qq)
     h_pq = np.dot (h_pq, u_q)
     v_pq = h_pq.conj () * h_pq
@@ -45,7 +45,7 @@ def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None):
     #idx = np.argmin (np.abs (err))
     #return e_all[idx]
     # TODO: figure out why the above doesn't work!
-    idx_valid = np.abs (err) < 1e-8
+    idx_valid = np.abs (err) < 1e-4
     return np.amin (e_all[idx_valid])
 
 class _vrvloop_env (object):
@@ -383,7 +383,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = np.abs (denom) > 1e-16
             return np.dot (h_pq[:,idx].conj () / denom[None,idx], h_pq[:,idx].T)
         heff_pp = h_pp + sigma_pp (e0_p)
-        assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-8)
+        assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-4)
 
         # ENV index to address
         idx = idxmin
@@ -431,7 +431,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci0, e_p, e_q, si_q = self.sort_ci0 (h0, h1, h2, ci0)
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
-            vrvsolvers.append (vrv_fcisolver (solver, e_p, e_q, None))
+            vrvsolvers.append (vrv_fcisolver (solver, e_p, e_q, None, max_cycle_e0=1))
         return ci0, vrvsolvers, e_q, si_q
 
     def revert_vrvsolvers_(self):
@@ -511,11 +511,11 @@ class VRVDressedFCISolver (object):
         return ci0
     def contract_vrv (self, ket):
         v_qab, denom_q = self.v_qab, self.denom_q
-        if v_qab is None: return 0
+        if v_qab is None: return np.zeros_like (ket)
         ket_shape = ket.shape
         idx = np.abs (denom_q) > 1e-16
         nq = np.count_nonzero (idx)
-        if not nq: return 0
+        if not nq: return np.zeros_like (ket)
         v_qab, denom_q = v_qab[idx].reshape (nq,-1), denom_q[idx]
         rv_q = np.dot (v_qab.conj (), ket.ravel ()) / denom_q
         hket = np.dot (rv_q, v_qab).reshape (ket_shape)
@@ -543,6 +543,17 @@ class VRVDressedFCISolver (object):
         except AttributeError as err:
             assert (vrvket is 0)
         return False
+    def solve_e0 (self, ket, e):
+        vrv = np.dot (np.ravel (ket), np.ravel (self.contract_vrv (ket)))
+        if vrv==0: return e
+        e_p = e - vrv
+        nq = self.v_qab.shape[0]
+        v_q = np.dot (self.v_qab.reshape (nq,-1), np.ravel (ket))
+        e_pq = np.append ([e_p,], self.e_q)
+        ham_pq = np.diag (e_pq)
+        ham_pq[0,1:] = v_q
+        ham_pq[1:,0] = v_q
+        return lowest_refovlp_eigval (ham_pq, e_q=self.e_q, u_q=np.eye(nq))
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         # converge on e0
         log = lib.logger.new_logger (self, self.verbose)
@@ -566,9 +577,9 @@ class VRVDressedFCISolver (object):
                 if warn_swap and np.argmin (np.abs (delta_e0)) != 0:
                     log.warn ("Possible rootswapping in H(E)|Psi> = E|Psi> fixed-point iteration")
                     warn_swap = False
-                e0 = e[0]
+                e0 = self.solve_e0 (ci1[0], e[0])
             else:
-                e0 = e
+                e0 = self.solve_e0 (ci1, e)
             ci0 = ci1
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
