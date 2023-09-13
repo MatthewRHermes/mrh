@@ -24,7 +24,7 @@ def only_ground_states (ci0):
         ci1.append (c)
     return ci1
 
-def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None):
+def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None, sceig_thresh=1e-4):
     ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
     eigenvector has nonzero overlap with the first basis function, as
     determined by self-consistency with the corresponding Green's function. '''
@@ -42,10 +42,7 @@ def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None):
         return np.dot (numer, 1/denom)
     e_all, u_all = linalg.eigh (ham_pq)
     err = np.array ([e - (h_pp + sigma_pp (e)) for e in e_all])
-    #idx = np.argmin (np.abs (err))
-    #return e_all[idx]
-    # TODO: figure out why the above doesn't work!
-    idx_valid = np.abs (err) < 1e-4
+    idx_valid = np.abs (err) < sceig_thresh
     return np.amin (e_all[idx_valid])
 
 class _vrvloop_env (object):
@@ -207,16 +204,16 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         h1eff, h0eff = ProductStateFCISolver.project_hfrag (
             self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, dm1s=dm1s, dm2=dm2, **kwargs
         )
-        # hijack this function to set the perturber vectors within the productstate kernel loop
+        # Project the part coupling the p and q rootspaces
         if len (self._e_q) and not self._deactivate_vrv:
             ci0 = [np.asarray (c) for c in ci]
-            ci0, e_p, e_q, si_q = self.sort_ci0 (ecore, h1, h2, ci0)
+            ci0, e0, e_q, si_q = self.sort_ci0 (ecore, h1, h2, ci0)
             hci_f_abq = self.op_ham_pq_ref (h1, h2, ci0)
             self._e_q = e_q
             self._si_q = si_q
             for ifrag, (c, hci_abq, solver) in enumerate (zip (ci0, hci_f_abq, self.fcisolvers)):
                 solver.v_qab = np.tensordot (si_q, hci_abq, axes=((0),(-1)))
-                solver.e0_p = e_p
+                solver.e0_p = e0
                 solver.e_q = e_q
                 ci[ifrag] = c
         return h1eff, h0eff
@@ -243,8 +240,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = np.ones (len (ham_pq), dtype=bool)
             idx[1:p] = False
             e0, si = linalg.eigh (ham_pq[idx,:][:,idx])
-            #idx = (si[0].conj () * si[0]) > 1e-16
-            #e0, si = e0[idx], si[:,idx]
             h_pp = ham_pq[:p,:p]
             h_pq = ham_pq[:p,p:]
             h_qq = ham_pq[p:,p:]
@@ -342,7 +337,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         and eigenvectors. Sort ci0 so that the ENV |0000...> is the state with the
         minimum guess energy for the downfolded eigenproblem
 
-        (h_pp + h_pq (e_p - e_q)^-1 h_qp) |p> = e_p|p>
+        (h_pp + h_pq (e0 - e_q)^-1 h_qp) |p> = e0|p>
 
         Args:
             h0: float
@@ -434,15 +429,13 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
         ci0 = self._check_init_guess (None, norb_f, nelec_f, h1, h2)
-        ci0, e_p, e_q, si_q = self.sort_ci0 (h0, h1, h2, ci0)
+        ci0, e0, e_q, si_q = self.sort_ci0 (h0, h1, h2, ci0)
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
-            vrvsolvers.append (vrv_fcisolver (solver, e_p, e_q, None, max_cycle_e0=1))
+            vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=1))
         return ci0, vrvsolvers, e_q, si_q
 
     def revert_vrvsolvers_(self):
-        #for ix, solver in enumerate (self.fcisolvers):
-        #    self.fcisolvers[ix] = solver.base
         self._e_q = []
         self._si_q = []
 
@@ -600,7 +593,7 @@ class VRVDressedFCISolver (object):
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
 
-def vrv_fcisolver (fciobj, e_p, e_q, v_qab, max_cycle_e0=100, conv_tol_e0=1e-8):
+def vrv_fcisolver (fciobj, e0, e_q, v_qab, max_cycle_e0=100, conv_tol_e0=1e-8):
     if isinstance (fciobj, VRVDressedFCISolver):
         fciobj.v_qab = v_qab
         fciobj.e_q = e_q
@@ -616,7 +609,7 @@ def vrv_fcisolver (fciobj, e_p, e_q, v_qab, max_cycle_e0=100, conv_tol_e0=1e-8):
         weights = None
     class FCISolver (VRVDressedFCISolver, fciobj_class):
         pass
-    new_fciobj = FCISolver (fciobj, v_qab, e_q, e_p, max_cycle_e0=max_cycle_e0,
+    new_fciobj = FCISolver (fciobj, v_qab, e_q, e0, max_cycle_e0=max_cycle_e0,
                             conv_tol_e0=conv_tol_e0)
     if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
     return new_fciobj
