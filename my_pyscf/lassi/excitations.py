@@ -207,14 +207,14 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # Project the part coupling the p and q rootspaces
         if len (self._e_q) and not self._deactivate_vrv:
             ci0 = [np.asarray (c) for c in ci]
-            ci0, e0, e_q, si_q = self.sort_ci0 (ecore, h1, h2, ci0)
+            ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
+            # TODO: optimize this so that we only need one op_ham_pq_ref call each time we land here,
+            # and not get_ham_pq
+            ci0, e0 = self.sort_ci0 (ham_pq, ci0)
             hci_f_abq = self.op_ham_pq_ref (h1, h2, ci0)
-            self._e_q = e_q
-            self._si_q = si_q
             for ifrag, (c, hci_abq, solver) in enumerate (zip (ci0, hci_f_abq, self.fcisolvers)):
-                solver.v_qab = np.tensordot (si_q, hci_abq, axes=((0),(-1)))
+                solver.v_qab = np.tensordot (self._si_q, hci_abq, axes=((0),(-1)))
                 solver.e0_p = e0
-                solver.e_q = e_q
                 ci[ifrag] = c
         return h1eff, h0eff
 
@@ -332,7 +332,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         t1 = self.log.timer ('op_ham_pq_ref', *t0)
         return hci_f_abq
 
-    def sort_ci0 (self, h0, h1, h2, ci0):
+    def sort_ci0 (self, ham_pq, ci0):
         '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
         and eigenvectors. Sort ci0 so that the ENV |0000...> is the state with the
         minimum guess energy for the downfolded eigenproblem
@@ -340,12 +340,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         (h_pp + h_pq (e0 - e_q)^-1 h_qp) |p> = e0|p>
 
         Args:
-            h0: float
-                Constant part of the excited-fragment Hamiltonian
-            h1: ndarray of shape (2,nexc,nexc)
-                Spin-separated 1-electron part of the excited-fragment Hamiltonian
-            h2: ndarray of shape [nexc,]*4
-                2-electron part of the excited-fragment Hamiltonian
+            ham_pq: ndarray of shape (p+q,p+q)
+                Hamiltonian matrix in model-space basis
             ci0: list of ndarray
                 CI vectors for the active fragments
 
@@ -354,14 +350,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 Resorted on each fragment so that |0000...> has the lowest downfolded
                 guess energy
             e0_p: float
-                Downfolded guess energy of |0000....>
-            e_q: ndarray of shape (nq,)
-                Eigenvalues of the Q-space Hamiltonian
-            si_q: ndarray of shape (nq,nq)
-                Eigenvectors of the Q-space Hamiltonian'''
+                Downfolded guess energy of |0000....>'''
         # Find lowest-energy ENV, including VRV contributions
         lroots = get_lroots (ci0)
-        ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         p = np.prod (lroots)
         h_pp = ham_pq[:p,:p]
         h_pq = ham_pq[:p,p:]
@@ -375,8 +366,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             return ham_pq[idx,:][:,idx]
         e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (p)])
         idxmin = np.argmin (e_p)
-        #print ("Winner:")
-        #lowest_refovlp_eigval (project_1p (idxmin))
         e0_p = e_p[idxmin]
         h_pq = np.dot (h_pq, si_q)
         def sigma_pp (e):
@@ -396,8 +385,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # Sort against this reference state
         nfrag = len (addr)
         e_p_arr = e_p.reshape (*lroots[::-1]).T
-        h_pp = h_pp.reshape (*(list(lroots[::-1])*2))
-        h_pq = ham_pq[:p,p:].reshape (*(list(lroots[::-1])+[q,]))
+        #h_pp = h_pp.reshape (*(list(lroots[::-1])*2))
+        #h_pq = ham_pq[:p,p:].reshape (*(list(lroots[::-1])+[q,]))
         for ifrag in range (nfrag):
             if lroots[ifrag]<2: continue
             e_p_slice = e_p_arr
@@ -408,28 +397,32 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             sort_idx = np.argsort (e_p_slice)
             assert (sort_idx[0] == addr[ifrag])
             ci0[ifrag] = np.stack ([ci0[ifrag][i] for i in sort_idx], axis=0)
-            dimorder = list(range(h_pp.ndim))
-            dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
-            dimorder.insert (1, dimorder.pop (2*nfrag-(1+ifrag)))
-            h_pp = h_pp.transpose (*dimorder)
-            h_pp = h_pp[sort_idx,...][:,sort_idx,...]
-            dimorder = np.argsort (dimorder)
-            h_pp = h_pp.transpose (*dimorder)
-            dimorder = list(range(h_pq.ndim))
-            dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
-            h_pq = h_pq.transpose (*dimorder)
-            h_pq = h_pq[sort_idx,...]
-            dimorder = np.argsort (dimorder)
-            h_pq = h_pq.transpose (*dimorder)
-        h_pp = h_pp.reshape (p, p)
-        h_pq = h_pq.reshape (p, q)
-        return ci0, e0_p, e_q, si_q
+            #dimorder = list(range(h_pp.ndim))
+            #dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
+            #dimorder.insert (1, dimorder.pop (2*nfrag-(1+ifrag)))
+            #h_pp = h_pp.transpose (*dimorder)
+            #h_pp = h_pp[sort_idx,...][:,sort_idx,...]
+            #dimorder = np.argsort (dimorder)
+            #h_pp = h_pp.transpose (*dimorder)
+            #dimorder = list(range(h_pq.ndim))
+            #dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
+            #h_pq = h_pq.transpose (*dimorder)
+            #h_pq = h_pq[sort_idx,...]
+            #dimorder = np.argsort (dimorder)
+            #h_pq = h_pq.transpose (*dimorder)
+        #h_pp = h_pp.reshape (p, p)
+        #h_pq = h_pq.reshape (p, q)
+        return ci0, e0_p
 
     def prepare_vrvsolvers_(self, h0, h1, h2):
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
-        ci0 = self._check_init_guess (None, norb_f, nelec_f, h1, h2)
-        ci0, e0, e_q, si_q = self.sort_ci0 (h0, h1, h2, ci0)
+        ci0 = self.get_init_guess (None, norb_f, nelec_f, h1, h2)
+        ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
+        p = np.prod (get_lroots (ci0))
+        h_qq = ham_pq[p:,p:]
+        e_q, si_q = linalg.eigh (h_qq)
+        ci0, e0 = self.sort_ci0 (ham_pq, ci0)
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
             vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=1))

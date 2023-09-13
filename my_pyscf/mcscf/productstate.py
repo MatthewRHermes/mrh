@@ -29,7 +29,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         log = self.log
         converged = False
         e_sigma = conv_tol_self + 1
-        ci1 = self._check_init_guess (ci0, norb_f, nelec_f, h1, h2) # TODO: get_init_guess
+        ci1 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
             h1eff, h0eff = self.project_hfrag (h1, h2, ci1, norb_f, nelec_f,
@@ -54,18 +54,25 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             ecore=ecore, **kwargs)
         return converged, energy_elec, ci1
 
-    def _check_init_guess (self, ci0, norb_f, nelec_f, h1, h2):
-        ci1 = []
+    def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2):
         if ci0 is None: ci0 = [None for i in range (len (norb_f))]
+        ci1 = [c for c in ci0] # reference safety
         if h1.ndim < 3: h1 = np.stack ([h1, h1], axis=0)
         for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
             nelec = self._get_nelec (solver, ne)
-            if ci0[ix] is None:
+            if ci1[ix] is None:
                 i = sum (norb_f[:ix])
                 j = i + norb_f[ix]
                 hdiag_csf = solver.make_hdiag_csf (h1[:,i:j,i:j], h2[i:j,i:j,i:j,i:j],
                                                    no, nelec)
-                ci0[ix] = solver.get_init_guess (no, nelec, solver.nroots, hdiag_csf)
+                ci1[ix] = solver.get_init_guess (no, nelec, solver.nroots, hdiag_csf)
+        return self._check_init_guess (ci1, norb_f, nelec_f)
+
+    def _check_init_guess (self, ci0, norb_f, nelec_f):
+        ci1 = []
+        if ci0 is None: ci0 = [None for i in range (len (norb_f))]
+        for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
+            nelec = self._get_nelec (solver, ne)
             neleca, nelecb = nelec
             na = cistring.num_strings (no, neleca)
             nb = cistring.num_strings (no, nelecb)
