@@ -551,16 +551,17 @@ class VRVDressedFCISolver (object):
             return True
         return False
     def solve_e0 (self, ket, e):
+        # TODO: figure out how to modify this for p>1
         vrv = np.dot (np.ravel (ket), np.ravel (self.contract_vrv (ket)))
         if vrv==0: return e
         e_p = e - vrv
-        nq = self.v_qpab.shape[0]
-        v_q = np.dot (self.v_qpab.reshape (nq,-1), np.ravel (ket))
+        q, p = self.v_qpab.shape[0:2]
+        v_q = np.dot (self.v_qpab.reshape (q,p,-1), np.ravel (ket)).sum (1)
         e_pq = np.append ([e_p,], self.e_q)
         ham_pq = np.diag (e_pq)
         ham_pq[0,1:] = v_q
         ham_pq[1:,0] = v_q
-        return lowest_refovlp_eigval (ham_pq, e_q=self.e_q, u_q=np.eye(nq))
+        return lowest_refovlp_eigval (ham_pq, e_q=self.e_q, u_q=np.eye(q))
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         log = lib.logger.new_logger (self, self.verbose)
         max_cycle_e0 = self.max_cycle_e0
