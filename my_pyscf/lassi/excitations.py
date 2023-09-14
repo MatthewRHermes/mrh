@@ -556,12 +556,13 @@ class VRVDressedFCISolver (object):
         if vrv==0: return e
         e_p = e - vrv
         q, p = self.v_qpab.shape[0:2]
-        v_q = np.dot (self.v_qpab.reshape (q,p,-1), np.ravel (ket)).sum (1)
-        e_pq = np.append ([e_p,], self.e_q)
+        v_q = np.dot (self.v_qpab.reshape (q,p,-1), np.ravel (ket)).T.ravel ()
+        e_pq = np.append ([e_p,], list(self.e_q)*p)
         ham_pq = np.diag (e_pq)
         ham_pq[0,1:] = v_q
         ham_pq[1:,0] = v_q
-        return lowest_refovlp_eigval (ham_pq, e_q=self.e_q, u_q=np.eye(q))
+        e0 = lowest_refovlp_eigval (ham_pq, e_q=np.asarray(list(self.e_q)*p), u_q=np.eye(p*q))
+        return e0
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         log = lib.logger.new_logger (self, self.verbose)
         max_cycle_e0 = self.max_cycle_e0
@@ -584,11 +585,16 @@ class VRVDressedFCISolver (object):
                 if warn_swap and np.argmin (np.abs (delta_e0)) != 0:
                     log.warn ("Possible rootswapping in H(E)|Psi> = E|Psi> fixed-point iteration")
                     warn_swap = False
-                e0 = self.solve_e0 (ci1[0], e[0])
+                ket, e0 = ci1[0], e[0]
             else:
-                e0 = self.solve_e0 (ci1, e)
+                ket, e0 = ci1, e
+            e0 = self.solve_e0 (ket, e0)
             self.denom_q = e0 - self.e_q
-            ci0 = ci1
+            #hket = self.contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5), ket, norb, nelec)
+            #brahket = np.dot (ket.ravel (), hket.ravel ())
+            #e0_test = ecore + brahket
+            #g_test = hket - ket*brahket
+            #print (self.e0_p, e, e0, e0_test, linalg.norm (g_test))
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
                 break
