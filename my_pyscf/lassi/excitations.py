@@ -211,9 +211,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             # TODO: optimize this so that we only need one op_ham_pq_ref call each time we land here,
             # and not get_ham_pq
             ci0, e0 = self.sort_ci0 (ham_pq, ci0)
-            hci_f_abq = self.op_ham_pq_ref (h1, h2, ci0)
-            for ifrag, (c, hci_abq, solver) in enumerate (zip (ci0, hci_f_abq, self.fcisolvers)):
-                solver.v_qab = np.tensordot (self._si_q, hci_abq, axes=((0),(-1)))
+            hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
+            for ifrag, (c, hci_pabq, solver) in enumerate (zip (ci0, hci_f_pabq, self.fcisolvers)):
+                solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
                 solver.e0_p = e0
                 ci[ifrag] = c
         return h1eff, h0eff
@@ -307,8 +307,9 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 CI vectors of the active fragments in the P-space
 
         Returns:
-            hci_f_abq: list of ndarray
-                Contains H|q>, projected onto all but one fragment, for each fragment'''
+            hci_f_pabq: list of ndarray
+                Contains H|q>, projected onto <p| for all but one fragment, for each fragment.
+                Vectors are multiplied by the sqrt of the weight of p.'''
         # TODO: point group symmetry
         t0 = lib.logger.process_clock (), lib.logger.perf_counter ()
         excited_frags = [ifrag for ifrag in self.excited_frags]
@@ -320,7 +321,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             fcisolvers = [solver_ref.fcisolvers[ifrag] for ifrag in excited_frags]
             for ifrag, (s, n) in enumerate (zip (fcisolvers, nelec_f)):
                 nelec_frs_ket[ifrag,iq,:] = self._get_nelec (s, n)
-        ci_fr_bra = [[c] for c in only_ground_states (ci)]
+        ci_fr_bra = [[np.asarray (c)] for c in ci]
         nelec_rfs_bra = np.asarray ([[list(self._get_nelec (s, n))
                                      for s, n in zip (self.fcisolvers, nelec_f)]])
         nelec_frs_bra = nelec_rfs_bra.transpose (1,0,2)
@@ -328,9 +329,21 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
             hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
                                 soc=0, orbsym=None, wfnsym=None)
-        hci_f_abq = [hc[0][0] for hc in hci_fr_pabq]
+        # weights for p
+        weights = getattr (self.fcisolvers[0], 'weights', np.array ([1.0]))
+        for s in self.fcisolvers[1:]:
+            w = getattr (s, 'weights', np.array ([1.0]))
+            weights = np.multiply.outer (w, weights)
+        hci_f_pabq = []
+        for ifrag, hc in enumerate (hci_fr_pabq):
+            # column-major order
+            w = weights.sum (-ifrag-1).ravel ()
+            assert (np.count_nonzero (w<0)==0)
+            idx = w > 0
+            hc = hc[0][idx] * np.sqrt (w[idx])[:,None,None,None]
+            hci_f_pabq.append (hc)
         t1 = self.log.timer ('op_ham_pq_ref', *t0)
-        return hci_f_abq
+        return hci_f_pabq
 
     def sort_ci0 (self, ham_pq, ci0):
         '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
@@ -464,7 +477,7 @@ class VRVDressedFCISolver (object):
     to be diagonal for simplicity.
 
     Additional attributes:
-        v_qab: ndarray of shape (nq, ndeta, ndetb)
+        v_qpab: ndarray of shape (nq, np, ndeta, ndetb)
             Contains the CI vector V_PQ |Q> in the |P> Hilbert space
         e_q: ndarray of shape (nq,)
             Eigenenergies of the QQ sector of the Hamiltonian
@@ -487,12 +500,12 @@ class VRVDressedFCISolver (object):
         else:
             self._undressed_class = fcibase.__class__
         self.__dict__.update (fcibase.__dict__)
-        keys = set (('contract_vrv', 'base', 'v_qab', 'denom_q', 'e_q', 'max_cycle_e0',
+        keys = set (('contract_vrv', 'base', 'v_qpab', 'denom_q', 'e_q', 'max_cycle_e0',
                      'conv_tol_e0', 'e0_p', 'charge'))
         self.denom_q = 0
         self.e0_p = my_e0
         self.e_q = my_eq
-        self.v_qab = my_vrv
+        self.v_qpab = my_vrv
         self.max_cycle_e0 = max_cycle_e0
         self.conv_tol_e0 = conv_tol_e0
         self._keys = self._keys.union (keys)
@@ -503,30 +516,31 @@ class VRVDressedFCISolver (object):
         ci0 += self.contract_vrv (fcivec)
         return ci0
     def contract_vrv (self, ket):
-        v_qab, denom_q = self.v_qab, self.denom_q
-        if v_qab is None: return np.zeros_like (ket)
+        v_qpab, denom_q = self.v_qpab, self.denom_q
+        if v_qpab is None: return np.zeros_like (ket)
         ket_shape = ket.shape
         idx = np.abs (denom_q) > 1e-16
-        nq = np.count_nonzero (idx)
-        if not nq: return np.zeros_like (ket)
-        v_qab, denom_q = v_qab[idx].reshape (nq,-1), denom_q[idx]
-        rv_q = np.dot (v_qab.conj (), ket.ravel ()) / denom_q
-        hket = np.dot (rv_q, v_qab).reshape (ket_shape)
+        p = v_qpab.shape[1]
+        q = np.count_nonzero (idx)
+        if (not q) or (not p): return np.zeros_like (ket)
+        v_qpab, denom_q = v_qpab[idx].reshape (q,p,-1), denom_q[idx]
+        rv_qp = np.ravel (np.dot (v_qpab.conj (), ket.ravel ()) / denom_q[:,None])
+        hket = np.dot (rv_qp, v_qpab.reshape(p*q,-1)).reshape (ket_shape)
         return hket
     def test_locmin (self, e0, ci, warntag='Apparent local minimum'):
         log = lib.logger.new_logger (self, self.verbose)
-        if self.v_qab is not None:
-            na, nb = self.v_qab.shape[1:]
+        if self.v_qpab is not None:
+            p, na, nb = self.v_qpab.shape[1:]
             ci = np.asarray (ci).reshape (-1,na,nb)[0]
         ket = ci if isinstance (ci, np.ndarray) else ci[0]
         vrvket = self.contract_vrv (ket)
         vrv = np.dot (ket.conj ().ravel (), vrvket.ravel ())
         if abs (vrv) < 1e-16: return False
         e_p = e0 - vrv
-        h_pq = np.tensordot (self.v_qab, ket, axes=2)
-        de_pq = np.zeros_like (h_pq)
+        h_qp = np.tensordot (self.v_qpab, ket, axes=2)
+        de_pq = np.zeros_like (self.denom_q)
         idx = np.abs (self.denom_q) > 1e-16
-        de_pq[idx] = (h_pq.conj () * h_pq)[idx] / self.denom_q[idx]
+        de_pq[idx] = np.diag (np.dot (h_qp.conj (), h_qp.T))[idx] / self.denom_q[idx]
         idx = np.abs (de_pq) > 1e-8
         e_q = self.e_q[idx]
         e_pq = np.append ([e_p,], e_q)
@@ -540,8 +554,8 @@ class VRVDressedFCISolver (object):
         vrv = np.dot (np.ravel (ket), np.ravel (self.contract_vrv (ket)))
         if vrv==0: return e
         e_p = e - vrv
-        nq = self.v_qab.shape[0]
-        v_q = np.dot (self.v_qab.reshape (nq,-1), np.ravel (ket))
+        nq = self.v_qpab.shape[0]
+        v_q = np.dot (self.v_qpab.reshape (nq,-1), np.ravel (ket))
         e_pq = np.append ([e_p,], self.e_q)
         ham_pq = np.diag (e_pq)
         ham_pq[0,1:] = v_q
@@ -586,9 +600,9 @@ class VRVDressedFCISolver (object):
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
 
-def vrv_fcisolver (fciobj, e0, e_q, v_qab, max_cycle_e0=100, conv_tol_e0=1e-8):
+def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=100, conv_tol_e0=1e-8):
     if isinstance (fciobj, VRVDressedFCISolver):
-        fciobj.v_qab = v_qab
+        fciobj.v_qpab = v_qpab
         fciobj.e_q = e_q
         fciobj.max_cycle_e0 = max_cycle_e0
         fciobj.conv_tol_e0 = conv_tol_e0
@@ -602,7 +616,7 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qab, max_cycle_e0=100, conv_tol_e0=1e-8):
         weights = None
     class FCISolver (VRVDressedFCISolver, fciobj_class):
         pass
-    new_fciobj = FCISolver (fciobj, v_qab, e_q, e0, max_cycle_e0=max_cycle_e0,
+    new_fciobj = FCISolver (fciobj, v_qpab, e_q, e0, max_cycle_e0=max_cycle_e0,
                             conv_tol_e0=conv_tol_e0)
     if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
     return new_fciobj
