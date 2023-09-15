@@ -303,7 +303,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             for ifrag, (c, hci_pabq, solver) in enumerate (zip (ci0, hci_f_pabq, self.fcisolvers)):
                 solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
                 # The slight disagreement here is causing massive convergence problems!
-                solver.e0_p = e0
                 ci[ifrag] = c
         return h1eff, h0eff
 
@@ -491,9 +490,6 @@ class VRVDressedFCISolver (object):
             Contains the CI vector V_PQ |Q> in the |P> Hilbert space
         e_q: ndarray of shape (nq,)
             Eigenenergies of the QQ sector of the Hamiltonian
-        e0_p: float
-            Initial guess for the lowest energy solution of the self-consistent
-            eigenproblem
         denom_q: ndarray of shape (nq,)
             Contains E-e_q with the current guess E solution of the self-consistent
             eigenproblem
@@ -511,9 +507,8 @@ class VRVDressedFCISolver (object):
             self._undressed_class = fcibase.__class__
         self.__dict__.update (fcibase.__dict__)
         keys = set (('contract_vrv', 'base', 'v_qpab', 'denom_q', 'e_q', 'max_cycle_e0',
-                     'conv_tol_e0', 'e0_p', 'charge'))
+                     'conv_tol_e0', 'charge'))
         self.denom_q = 0
-        self.e0_p = my_e0
         self.e_q = my_eq
         self.v_qpab = my_vrv
         self.max_cycle_e0 = max_cycle_e0
@@ -557,14 +552,15 @@ class VRVDressedFCISolver (object):
         h_diagmin = np.amin (e_pq)
         if e0>h_diagmin:
             log.warn ("%s in VRVSolver: min (hdiag) = %e < e0 = %e",
-                      warntag, np.amin (e_pq - self.e0_p), e0 - self.e0_p)
+                      warntag, np.amin (e_pq), e0)
             return True
         return False
-    def solve_e0 (self, ket, e):
+    def solve_e0 (self, h0e, h1e, h2e, norb, nelec, ket):
         # TODO: figure out how to modify this for p>1
-        vrv = np.dot (np.ravel (ket), np.ravel (self.contract_vrv (ket)))
-        if vrv==0: return e
-        e_p = e - vrv
+        hket_p = self.undressed_contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5),
+                                             ket, norb, nelec)
+        e_p = np.dot (np.ravel (ket), np.ravel (hket_p)) + h0e
+        if self.v_qpab is None: return e_p
         q, p = self.v_qpab.shape[0:2]
         v_q = np.dot (self.v_qpab.reshape (q,p,-1), np.ravel (ket)).T.ravel ()
         e_pq = np.append ([e_p,], list(self.e_q)*p)
@@ -579,7 +575,8 @@ class VRVDressedFCISolver (object):
         conv_tol_e0 = self.conv_tol_e0
         e0_last = 0
         converged = False
-        e0 = self.e0_p
+        ket = ci0[0] if self.nroots>1 else ci0
+        e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
         ci1 = ci0
         self.denom_q = e0 - self.e_q
         assert (not self.test_locmin (e0, ci1, warntag='Saddle-point initial guess'))
@@ -598,19 +595,18 @@ class VRVDressedFCISolver (object):
                 ket, e0 = ci1[0], e[0]
             else:
                 ket, e0 = ci1, e
-            e0 = self.solve_e0 (ket, e0)
+            e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
             self.denom_q = e0 - self.e_q
             #hket = self.contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5), ket, norb, nelec)
             #brahket = np.dot (ket.ravel (), hket.ravel ())
             #e0_test = ecore + brahket
             #g_test = hket - ket*brahket
-            #print (self.e0_p, e, e0, e0_test, linalg.norm (g_test))
+            #print (e, e0, e0_test, linalg.norm (g_test))
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
                 break
         assert (not self.test_locmin (e0, ci1))
         self.converged = (converged and self.converged)
-        self.e0_p = e0
         #print (lib.fp (ci1), self.denom_q)#np.stack ([ci1[0].ravel (), ci1[1].ravel ()], axis=-1))
         return e, ci1
     # I don't feel like futzing around with MRO
