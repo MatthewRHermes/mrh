@@ -19,8 +19,8 @@ mf=scf.RHF(mol)
 mf=mf.density_fit()
 mf.run()
 
-ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2p'])
-#ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
+#ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2p'])
+ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
 
 las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)
 
