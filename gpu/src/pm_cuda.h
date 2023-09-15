@@ -3,6 +3,7 @@
 #ifndef PM_CUDA_H
 #define PM_CUDA_H
 
+#include <cuda_runtime_api.h>
 #include "cublas_v2.h"
 
 #include "nvToolsExt.h"

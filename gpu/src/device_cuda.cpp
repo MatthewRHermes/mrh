@@ -10,6 +10,7 @@
 
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao, int count)
 {
+  //  printf("Inside init_get_jk()\n");
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
@@ -104,6 +105,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #ifdef _SIMPLE_TIMER
   t_array_jk[0] += omp_get_wtime() - t0;
 #endif
+  //  printf("Leaving init_get_jk()\n");
 }
 
 /* ---------------------------------------------------------------------- */
@@ -119,6 +121,7 @@ void Device::get_jk(int naux, int nao, int nset,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
 		    int count)
 {
+  //  printf("Inside get_jk()\n");
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
@@ -194,8 +197,9 @@ void Device::get_jk(int naux, int nao, int nset,
       }
 
 #ifdef _SIMPLE_TIMER
+    double t2 = omp_get_wtime();
     t_array_jk[2] += t1 - t0;
-    t_array_jk[3] += omp_get_wtime() - t1;
+    t_array_jk[3] += t2 - t1;
 #endif
   }
  
@@ -205,8 +209,35 @@ void Device::get_jk(int naux, int nao, int nset,
   DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
   DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
   DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
+  
+#ifdef _SIMPLE_TIMER
+  double t2 = omp_get_wtime();
+#endif
+    
+  // buf2 = lib.unpack_tril(eri1, out=buf[1])
+    
+#pragma omp parallel for
+    for(int i=0; i<naux; ++i) {
+      
+      int indx = 0;
+      double * eri1_ = &(eri1[i * nao_pair]);
 
-  double * vkk;
+      // unpack lower-triangle to square
+      
+      for(int j=0; j<nao; ++j)
+	for(int k=0; k<=j; ++k) {	  
+	  da_buf2(i*nao+j,k) = eri1_[indx];
+	  da_buf2(i*nao+k,j) = eri1_[indx];
+	  indx++;
+	}
+      
+    }
+    
+    pm->dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
+    
+#ifdef _SIMPLE_TIMER
+    t_array_jk[5] += omp_get_wtime() - t2;
+#endif
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
@@ -239,30 +270,6 @@ void Device::get_jk(int naux, int nao, int nset,
     t_array_jk[4] += t1 - t0;
 #endif
     
-    // buf2 = lib.unpack_tril(eri1, out=buf[1])
-    
-#pragma omp parallel for
-    for(int i=0; i<naux; ++i) {
-      
-      int indx = 0;
-      double * eri1_ = &(eri1[i * nao_pair]);
-
-      // unpack lower-triangle to square
-      
-      for(int j=0; j<nao; ++j)
-	for(int k=0; k<=j; ++k) {	  
-	  da_buf2(i*nao+j,k) = eri1_[indx];
-	  da_buf2(i*nao+k,j) = eri1_[indx];
-	  indx++;
-	}
-      
-    }
-    
-#ifdef _SIMPLE_TIMER
-    double t2 = omp_get_wtime();
-    t_array_jk[5] += t2 - t1;
-#endif
-    
     // dgemm of (nao X blksize*nao) and (blksize*nao X nao) matrices - can refactor later...
     // vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))  // vk[k] is nao x nao array
   
@@ -284,7 +291,7 @@ void Device::get_jk(int naux, int nao, int nset,
     
 #ifdef _SIMPLE_TIMER
     double t3 = omp_get_wtime();
-    t_array_jk[6] += t3 - t2;
+    t_array_jk[6] += t3 - t1;
 #endif
     
     const double alpha = 1.0;
@@ -297,11 +304,11 @@ void Device::get_jk(int naux, int nao, int nset,
     const int lda = naux * nao;
     const int ldb = nao;
     const int ldc = (mode_getjk == 0) ? nset * nao: nao;
-
-    if(mode_getjk == 0) vkk = &(vk[indxK * nao]); // this is ugly...
-    else vkk = &(vk[indxK * nao*nao]);
+    
+    const int vk_offset = (mode_getjk == 0) ? indxK * nao : indxK * nao*nao; // this is ugly...
 
 #if 0
+    double * vkk = vk + vk_offset;
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);
 #else
     // transfer
@@ -309,16 +316,15 @@ void Device::get_jk(int naux, int nao, int nset,
 #ifdef _CUDA_NVTX
     nvtxRangePushA("HtoD Transfer");
 #endif
-    pm->dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
     pm->dev_push_async(d_buf3, buf3, blksize * nao * nao * sizeof(double), stream);
-    pm->dev_push(d_vkk, vkk, nset * nao * nao * sizeof(double));
+    //    pm->dev_push(d_vkk, vkk, nset * nao * nao * sizeof(double));
     pm->dev_stream_wait(stream);
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 
     nvtxRangePushA("DGEMM");
 #endif
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk, ldc);
+    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
 #ifdef _CUDA_NVTX
     nvtxRangePop();
     
@@ -326,7 +332,7 @@ void Device::get_jk(int naux, int nao, int nset,
 
     nvtxRangePushA("DtoH Transfer");
 #endif
-    pm->dev_pull(d_vkk, vkk, nset * nao * nao * sizeof(double));
+    //    pm->dev_pull(d_vkk, vkk, nset * nao * nao * sizeof(double));
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
@@ -338,6 +344,9 @@ void Device::get_jk(int naux, int nao, int nset,
     t_array_jk_count++;
 #endif 
   }
+  
+  pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+  //  printf("Leaving get_jk()\n");
 }
   
 /* ---------------------------------------------------------------------- */
