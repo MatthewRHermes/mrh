@@ -26,6 +26,7 @@ nfrags=1
 basis='6-31g'
 outputfile='1_6-31g_out_gpu.log'
 mol=gto.M(use_gpu=gpu, atom=generator(nfrags),basis=basis,verbose=5,output=outputfile)
+#mol.max_memory = 8000
 
 print("\nCalling scf.RHF(mol) ; mol.use_gpu= ", mol.use_gpu)
 mf=scf.RHF(mol)
@@ -33,8 +34,8 @@ mf=mf.density_fit()
 mf.run()
 
 print("\nCalling avas.kernel w/ mf.mol.use_gpu= ", mf.mol.use_gpu)
-ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2p'])
-#ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
+#ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2p'])
+ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
 
 print("\nStarting the LASSCF calculation with use_gpu= ", gpu)
 las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)

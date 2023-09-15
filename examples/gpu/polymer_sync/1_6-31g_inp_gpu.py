@@ -40,7 +40,7 @@ mf=mf.density_fit()
 mf.run()
 
 print("\nCalling avas.kernel")
-ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2p'])
+ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
 
 print("\nStarting the LASSCF calculation with use_gpu= ", gpu)
 las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)

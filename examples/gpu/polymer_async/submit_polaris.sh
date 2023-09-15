@@ -38,6 +38,6 @@ EXE="python ${INPUT} "
 #mpiexec ${MPI_ARGS} ${OMP_ARGS} /home/knight/repos/GettingStarted/Examples/Polaris/affinity_omp/hello_affinity 
 
 #python -m cProfile -o out.prof ${INPUT}
-#time ${EXE} | tee profile.txt
-time mpiexec ${MPI_ARGS} ${OMP_ARGS} ${EXE} | tee profile.txt
-#nsys profile --stats=true -t cuda,nvtx mpiexec ${MPI_ARGS} ${OMP_ARGS} ${EXE} | tee profile.txt
+#{ time ${EXE} ;} 2>&1 | tee profile.txt
+{ time mpiexec ${MPI_ARGS} ${OMP_ARGS} ${EXE} ;} 2>&1 | tee profile.txt
+#nsys profile --stats=true -t cuda,nvtx mpiexec ${MPI_ARGS} ${OMP_ARGS} ${EXE} 2>&1 | tee profile.txt
