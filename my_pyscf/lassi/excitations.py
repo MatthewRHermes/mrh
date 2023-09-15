@@ -45,6 +45,94 @@ def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None, sceig_thresh=1e-4):
     idx_valid = np.abs (err) < sceig_thresh
     return np.amin (e_all[idx_valid])
 
+def sort_ci0 (ham_pq, ci0):
+    '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
+    and eigenvectors. Sort ci0 so that the ENV |00...0> is the state with the
+    minimum guess energy for the downfolded eigenproblem
+
+    (h_pp + h_pq (e0 - e_q)^-1 h_qp) |p> = e0|p>
+
+    Args:
+        ham_pq: ndarray of shape (p+q,p+q)
+            Hamiltonian matrix in model-space basis. In the p-space, ENVs ascend in
+            column-major order: |00...0>, |10...0>, |20...0>, ... |0100...0>, |1100...0>, ...
+        ci0: list of ndarray
+            CI vectors for the active fragments
+
+    Returns:
+        ci0: list of ndarray
+            Resorted on each fragment so that |00...0> has the lowest downfolded
+            guess energy
+        e0_p: float
+            Downfolded guess energy of |00...0>
+        ham_pq: ndarray of shape (p+q,p+q)
+            Copy of the input matrix sorted so that |00...0> is the first basis state and
+            individual fragment states "i" are sorted in ascending order of the energy of
+            |00...0i00...0>.'''
+    # Find lowest-energy ENV, including VRV contributions
+    lroots = get_lroots (ci0)
+    p = np.prod (lroots)
+    h_pp = ham_pq[:p,:p]
+    h_pq = ham_pq[:p,p:]
+    h_qq = ham_pq[p:,p:]
+    q = ham_pq.shape[-1] - p
+    e_q, si_q = linalg.eigh (h_qq)
+    def project_1p (ip):
+        idx = np.ones (len (ham_pq), dtype=bool)
+        idx[:p] = False
+        idx[ip] = True
+        return ham_pq[idx,:][:,idx]
+    e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (p)])
+    idxmin = np.argmin (e_p)
+    e0_p = e_p[idxmin]
+    h_pq = np.dot (h_pq, si_q)
+    def sigma_pp (e):
+        denom = e - e_q
+        idx = np.abs (denom) > 1e-16
+        return np.dot (h_pq[:,idx].conj () / denom[None,idx], h_pq[:,idx].T)
+    heff_pp = h_pp + sigma_pp (e0_p)
+    assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-4)
+
+    # ENV index to address
+    idx = idxmin
+    addr = []
+    for ifrag, lroot in enumerate (lroots):
+        idx, j = divmod (idx, lroot)
+        addr.append (j)
+
+    # Sort against this reference state
+    nfrag = len (addr)
+    e_p_arr = e_p.reshape (*lroots[::-1]).T
+    h_pp = h_pp.reshape (*(list(lroots[::-1])*2))
+    h_pq = ham_pq[:p,p:].reshape (*(list(lroots[::-1])+[q,]))
+    for ifrag in range (nfrag):
+        if lroots[ifrag]<2: continue
+        e_p_slice = e_p_arr
+        for jfrag in range (ifrag):
+            e_p_slice = e_p_slice[addr[jfrag]]
+        for jfrag in range (ifrag+1,nfrag):
+            e_p_slice = e_p_slice[:,addr[jfrag]]
+        sort_idx = np.argsort (e_p_slice)
+        assert (sort_idx[0] == addr[ifrag])
+        ci0[ifrag] = np.stack ([ci0[ifrag][i] for i in sort_idx], axis=0)
+        dimorder = list(range(h_pp.ndim))
+        dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
+        dimorder.insert (1, dimorder.pop (2*nfrag-(1+ifrag)))
+        h_pp = h_pp.transpose (*dimorder)
+        h_pp = h_pp[sort_idx,...][:,sort_idx,...]
+        dimorder = np.argsort (dimorder)
+        h_pp = h_pp.transpose (*dimorder)
+        dimorder = list(range(h_pq.ndim))
+        dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
+        h_pq = h_pq.transpose (*dimorder)
+        h_pq = h_pq[sort_idx,...]
+        dimorder = np.argsort (dimorder)
+        h_pq = h_pq.transpose (*dimorder)
+    h_pp = h_pp.reshape (p, p)
+    h_pq = h_pq.reshape (p, q)
+    ham_pq = np.block ([[h_pp, h_pq],[h_pq.conj ().T, h_qq]])
+    return ci0, e0_p, ham_pq
+
 class _vrvloop_env (object):
     def __init__(self, fciobj, vrvsolvers, e_q, si_q):
         self.fciobj = fciobj
@@ -214,6 +302,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
             for ifrag, (c, hci_pabq, solver) in enumerate (zip (ci0, hci_f_pabq, self.fcisolvers)):
                 solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
+                # The slight disagreement here is causing massive convergence problems!
                 solver.e0_p = e0
                 ci[ifrag] = c
         return h1eff, h0eff
@@ -346,86 +435,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci_f_pabq
 
     def sort_ci0 (self, ham_pq, ci0):
-        '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
-        and eigenvectors. Sort ci0 so that the ENV |0000...> is the state with the
-        minimum guess energy for the downfolded eigenproblem
-
-        (h_pp + h_pq (e0 - e_q)^-1 h_qp) |p> = e0|p>
-
-        Args:
-            ham_pq: ndarray of shape (p+q,p+q)
-                Hamiltonian matrix in model-space basis
-            ci0: list of ndarray
-                CI vectors for the active fragments
-
-        Returns:
-            ci0: list of ndarray
-                Resorted on each fragment so that |0000...> has the lowest downfolded
-                guess energy
-            e0_p: float
-                Downfolded guess energy of |0000....>'''
-        # Find lowest-energy ENV, including VRV contributions
-        lroots = get_lroots (ci0)
-        p = np.prod (lroots)
-        h_pp = ham_pq[:p,:p]
-        h_pq = ham_pq[:p,p:]
-        h_qq = ham_pq[p:,p:]
-        q = ham_pq.shape[-1] - p
-        e_q, si_q = linalg.eigh (h_qq)
-        def project_1p (ip):
-            idx = np.ones (len (ham_pq), dtype=bool)
-            idx[:p] = False
-            idx[ip] = True
-            return ham_pq[idx,:][:,idx]
-        e_p = np.array ([lowest_refovlp_eigval (project_1p (i)) for i in range (p)])
-        idxmin = np.argmin (e_p)
-        e0_p = e_p[idxmin]
-        h_pq = np.dot (h_pq, si_q)
-        def sigma_pp (e):
-            denom = e - e_q
-            idx = np.abs (denom) > 1e-16
-            return np.dot (h_pq[:,idx].conj () / denom[None,idx], h_pq[:,idx].T)
-        heff_pp = h_pp + sigma_pp (e0_p)
-        assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-4)
-
-        # ENV index to address
-        idx = idxmin
-        addr = []
-        for ifrag, lroot in enumerate (lroots):
-            idx, j = divmod (idx, lroot)
-            addr.append (j)
-
-        # Sort against this reference state
-        nfrag = len (addr)
-        e_p_arr = e_p.reshape (*lroots[::-1]).T
-        #h_pp = h_pp.reshape (*(list(lroots[::-1])*2))
-        #h_pq = ham_pq[:p,p:].reshape (*(list(lroots[::-1])+[q,]))
-        for ifrag in range (nfrag):
-            if lroots[ifrag]<2: continue
-            e_p_slice = e_p_arr
-            for jfrag in range (ifrag):
-                e_p_slice = e_p_slice[addr[jfrag]]
-            for jfrag in range (ifrag+1,nfrag):
-                e_p_slice = e_p_slice[:,addr[jfrag]]
-            sort_idx = np.argsort (e_p_slice)
-            assert (sort_idx[0] == addr[ifrag])
-            ci0[ifrag] = np.stack ([ci0[ifrag][i] for i in sort_idx], axis=0)
-            #dimorder = list(range(h_pp.ndim))
-            #dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
-            #dimorder.insert (1, dimorder.pop (2*nfrag-(1+ifrag)))
-            #h_pp = h_pp.transpose (*dimorder)
-            #h_pp = h_pp[sort_idx,...][:,sort_idx,...]
-            #dimorder = np.argsort (dimorder)
-            #h_pp = h_pp.transpose (*dimorder)
-            #dimorder = list(range(h_pq.ndim))
-            #dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
-            #h_pq = h_pq.transpose (*dimorder)
-            #h_pq = h_pq[sort_idx,...]
-            #dimorder = np.argsort (dimorder)
-            #h_pq = h_pq.transpose (*dimorder)
-        #h_pp = h_pp.reshape (p, p)
-        #h_pq = h_pq.reshape (p, q)
-        return ci0, e0_p
+        return sort_ci0 (ham_pq, ci0)[:2]
 
     def prepare_vrvsolvers_(self, h0, h1, h2):
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
@@ -574,7 +584,7 @@ class VRVDressedFCISolver (object):
         self.denom_q = e0 - self.e_q
         assert (not self.test_locmin (e0, ci1, warntag='Saddle-point initial guess'))
         warn_swap = True
-        self.denom_q = e0 - self.e_q
+        #print (lib.fp (ci0), self.denom_q)
         for it in range (max_cycle_e0):
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
@@ -600,6 +610,8 @@ class VRVDressedFCISolver (object):
                 break
         assert (not self.test_locmin (e0, ci1))
         self.converged = (converged and self.converged)
+        self.e0_p = e0
+        #print (lib.fp (ci1), self.denom_q)#np.stack ([ci1[0].ravel (), ci1[1].ravel ()], axis=-1))
         return e, ci1
     # I don't feel like futzing around with MRO
     def undressed_kernel (self, *args, **kwargs):
