@@ -32,9 +32,10 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         ci1 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
-            h1eff, h0eff = self.project_hfrag (h1, h2, ci1, norb_f, nelec_f,
+            ci0 = ci1
+            h1eff, h0eff = self.project_hfrag (h1, h2, ci0, norb_f, nelec_f,
                 ecore=ecore, **kwargs)
-            grad = self._get_grad (h1eff, h2, ci1, norb_f, nelec_f, **kwargs)
+            grad = self._get_grad (h1eff, h2, ci0, norb_f, nelec_f, **kwargs)
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; sigma = %e', it, grad_max,
                 e_sigma)
@@ -43,13 +44,13 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                 and all ([solvers_converged])):
                 converged = True
                 break
-            e, ci1 = self._1shot (h0eff, h1eff, h2, ci1, norb_f, nelec_f,
+            e, ci1 = self._1shot (h0eff, h1eff, h2, ci0, norb_f, nelec_f,
                 orbsym=orbsym, **kwargs)
             e_sigma = np.amax (e) - np.amin (e)
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
-        if not converged: self._debug_csfs (log, ci1, norb_f, nelec_f, grad)
+        if not converged: self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
         energy_elec = self.energy_elec (h1, h2, ci1, norb_f, nelec_f,
             ecore=ecore, **kwargs)
         return converged, energy_elec, ci1
@@ -91,7 +92,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                         solver.nroots, solver.transformer.ncsf, ix, solver.nelec, solver.smult))
         return ci1
                 
-    def _debug_csfs (self, log, ci1, norb_f, nelec_f, grad):
+    def _debug_csfs (self, log, ci0, ci1, norb_f, nelec_f, grad):
         if not all ([isinstance (s, CSFFCISolver) for s in self.fcisolvers]):
             return
         if log.verbose < lib.logger.INFO: return
@@ -103,20 +104,27 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             grad = grad[offs:]
         assert (len (grad) == 0)
         log.info ('Debugging CI and gradient vectors...')
-        for ix, (grad, ci, s, t) in enumerate (zip (grad_f, ci1, self.fcisolvers, transformers)):
+        for ix, (grad, c0, c1, s, t) in enumerate (zip (grad_f, ci0, ci1, self.fcisolvers, transformers)):
             log.info ('Fragment %d', ix)
-            ci_csf, ci_norm = t.vec_det2csf (ci, normalize=True, return_norm=True)
-            log.info ('CI vector norm = %s', str(ci_norm))
+            c0_csf, c0_norm = t.vec_det2csf (c0, normalize=True, return_norm=True)
+            c1_csf, c1_norm = t.vec_det2csf (c1, normalize=True, return_norm=True)
+            log.info ('CI vector norm = %s', str(c1_norm))
             grad_norm = linalg.norm (grad)
             log.info ('Gradient norm = %e', grad_norm)
-            log.info ('CI vector leading components:')
-            lbls, coeffs = t.printable_largest_csf (ci_csf, 10)
-            for l, c in zip (lbls[0], coeffs[0]):
-                log.info ('%s : %e', l, c)
-            log.info ('Grad vector leading components:')
-            lbls, coeffs = t.printable_largest_csf (grad, 10, normalize=False)
-            for l, c in zip (lbls[0], coeffs[0]):
-                log.info ('%s : %e', l, c)
+            c0_lbls, c0_coeffs = t.printable_largest_csf (c0_csf, 10)
+            c1_lbls, c1_coeffs = t.printable_largest_csf (c1_csf, 10)
+            g_lbls, g_coeffs = t.printable_largest_csf (grad, 10, normalize=False)
+            nroots = len (c0_lbls)
+            for i in range (nroots):
+                log.info ('Previous CI vector leading components (%d/%d):', i, nroots)
+                for l, c in zip (c0_lbls[i], c0_coeffs[i]):
+                    log.info ('%s : %e', l, c)
+                log.info ('Current CI vector leading components (%d/%d):', i, nroots)
+                for l, c in zip (c1_lbls[i], c1_coeffs[i]):
+                    log.info ('%s : %e', l, c)
+                log.info ('Grad vector leading components (%d/%d):', i, nroots)
+                for l, c in zip (g_lbls[i], g_coeffs[i]):
+                    log.info ('%s : %e', l, c)
 
     def _1shot (self, h0eff, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
             **kwargs):
