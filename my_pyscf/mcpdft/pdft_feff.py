@@ -7,11 +7,13 @@ from pyscf.dft.gen_grid import BLKSIZE
 from pyscf.dft.numint import _contract_rho
 from pyscf.mcscf import mc1step
 from pyscf.scf import hf
+from pyscf.mcpdft._dms import dm2_cumulant
 from pyscf.mcpdft.otpd import *
 from pyscf.mcpdft.otpd import _grid_ao2mo
 from pyscf.mcpdft.tfnal_derivs import contract_fot, _unpack_sigma_vector
-from pyscf.mcpdft.pdft_veff import _contract_vot_ao, _contract_vot_rho
-from pyscf.mcpdft.pdft_veff import _dot_ao_mo
+from pyscf.mcpdft.pdft_eff import _contract_kern_ao as _contract_vot_ao
+from pyscf.mcpdft.pdft_eff import _contract_eff_rho as _contract_vot_rho
+from pyscf.mcpdft.pdft_eff import _dot_ao_mo
 
 def _contract_rho_all (bra, ket):
     # Apply the product rule when computing density & derivs on a grid
