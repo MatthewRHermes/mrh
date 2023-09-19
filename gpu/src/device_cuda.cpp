@@ -290,6 +290,17 @@ void Device::get_jk(int naux,
       for(int j=0; j<nao; ++j)
 	for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
     }
+
+    // transfer
+
+#ifdef _CUDA_NVTX
+    nvtxRangePushA("HtoD Transfer");
+#endif
+    pm->dev_push_async(d_buf3, buf3, naux * nao * nao * sizeof(double), stream);
+    pm->dev_stream_wait(stream);
+#ifdef _CUDA_NVTX
+    nvtxRangePop();
+#endif
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -315,17 +326,8 @@ void Device::get_jk(int naux,
     const int ldc = (mode_getjk == 0) ? nset * nao: nao;
     
     const int vk_offset = (mode_getjk == 0) ? indxK * nao : indxK * nao*nao; // this is ugly...
-
-    // transfer
-
+    
 #ifdef _CUDA_NVTX
-    nvtxRangePushA("HtoD Transfer");
-#endif
-    pm->dev_push_async(d_buf3, buf3, blksize * nao * nao * sizeof(double), stream);
-    pm->dev_stream_wait(stream);
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-
     nvtxRangePushA("DGEMM");
 #endif
     
