@@ -8,7 +8,7 @@
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao, int count)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int count)
 {
   //  printf("Inside init_get_jk()\n");
 #ifdef _SIMPLE_TIMER
@@ -16,6 +16,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
 
   blksize = _blksize;
+  nset = _nset;
+  nao = _nao;
 
   const int nao_pair = nao * (nao+1) / 2;
   
@@ -123,7 +125,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 
 /* ---------------------------------------------------------------------- */
 
-void Device::get_jk(int naux, int nao, int nset,
+void Device::get_jk(int naux,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
 		    int count)
@@ -138,12 +140,12 @@ void Device::get_jk(int naux, int nao, int nset,
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, nao_pair)
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
-  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
+  //  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
 
   double * eri1 = static_cast<double*>(info_eri1.ptr);
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
   double * vj = static_cast<double*>(info_vj.ptr);
-  double * vk = static_cast<double*>(info_vk.ptr);
+  //  double * vk = static_cast<double*>(info_vk.ptr);
 
   int _size_rho = info_dmtril.shape[0] * info_eri1.shape[0];
   if(_size_rho > size_rho) {
@@ -340,7 +342,7 @@ void Device::get_jk(int naux, int nao, int nset,
 #endif 
   }
   
-  pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+  //  pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
   //  printf("Leaving get_jk()\n");
 }
   

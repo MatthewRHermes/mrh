@@ -89,26 +89,26 @@ void libgpu_set_mode_get_jk(void * ptr, int mode)
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> vk)
-{ 
-  Device * dev = (Device *) ptr;
-  dev->pull_get_jk(vj, vk);
-}
-
-/* ---------------------------------------------------------------------- */
-
 void libgpu_compute_get_jk(void * ptr,
-			   int naux, int nao, int nset,
+			   int naux,
 			   py::array_t<double> eri1, py::array_t<double> dmtril, py::list & dms,
 			   py::array_t<double> vj, py::array_t<double> vk,
 			   int count)
 { 
   Device * dev = (Device *) ptr;
-  dev->get_jk(naux, nao, nset,
+  dev->get_jk(naux,
 	      eri1, dmtril, dms,
 	      vj, vk,
 	      count);
  
+}
+
+/* ---------------------------------------------------------------------- */
+
+void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> vk)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->pull_get_jk(vj, vk);
 }
 
 /* ---------------------------------------------------------------------- */

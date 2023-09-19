@@ -8,13 +8,15 @@
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao, int count)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int count)
 {
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
 
   blksize = _blksize;
+  nset = _nset;
+  nao = _nao;
 
   const int nao_pair = nao * (nao+1) / 2;
   
@@ -76,7 +78,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk) {}
 
 /* ---------------------------------------------------------------------- */
 
-void Device::get_jk(int naux, int nao, int nset, 
+void Device::get_jk(int naux,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
 		    int count)
