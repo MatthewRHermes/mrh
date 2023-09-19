@@ -120,7 +120,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
   //  double * vj = static_cast<double*>(info_vj.ptr);
   double * vk = static_cast<double*>(info_vk.ptr);
 
-  //  pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+  pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
 }
 
 /* ---------------------------------------------------------------------- */
@@ -342,7 +342,7 @@ void Device::get_jk(int naux,
 #endif 
   }
   
-  //  pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+  //pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
   //  printf("Leaving get_jk()\n");
 }
   
