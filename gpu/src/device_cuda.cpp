@@ -276,7 +276,7 @@ void Device::get_jk(int naux, int nao, int nset,
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
     
-#pragma omp parallel for
+#pragma omp parallel for collapse(3)
     for(int i=0; i<naux; ++i) {
       for(int j=0; j<nao; ++j)
 	for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
@@ -307,35 +307,23 @@ void Device::get_jk(int naux, int nao, int nset,
     
     const int vk_offset = (mode_getjk == 0) ? indxK * nao : indxK * nao*nao; // this is ugly...
 
-#if 0
-    double * vkk = vk + vk_offset;
-    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);
-#else
     // transfer
 
 #ifdef _CUDA_NVTX
     nvtxRangePushA("HtoD Transfer");
 #endif
     pm->dev_push_async(d_buf3, buf3, blksize * nao * nao * sizeof(double), stream);
-    //    pm->dev_push(d_vkk, vkk, nset * nao * nao * sizeof(double));
     pm->dev_stream_wait(stream);
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 
     nvtxRangePushA("DGEMM");
 #endif
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
     
-    // transfer
+    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
 
-    nvtxRangePushA("DtoH Transfer");
-#endif
-    //    pm->dev_pull(d_vkk, vkk, nset * nao * nao * sizeof(double));
 #ifdef _CUDA_NVTX
     nvtxRangePop();
-#endif
 #endif
    
 #ifdef _SIMPLE_TIMER

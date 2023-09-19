@@ -169,8 +169,6 @@ void Device::get_jk(int naux, int nao, int nset,
   DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
   DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
   DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
-
-  double * vkk;
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
@@ -262,10 +260,10 @@ void Device::get_jk(int naux, int nao, int nset,
     const int ldb = nao;
     const int ldc = (mode_getjk == 0) ? nset * nao : nao;
 
-    if(mode_getjk == 0) vkk = &(vk[indxK * nao]); // this is ugly...
-    else vkk = &(vk[indxK * nao*nao]);
+    const int vk_offset = (mode_getjk == 0) ? indxK * nao : indxK * nao*nao; // this is ugly...
     
-    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);    
+    double * vkk = vk + vk_offset;
+    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);
 
 #ifdef _SIMPLE_TIMER
     double t4 = omp_get_wtime();
