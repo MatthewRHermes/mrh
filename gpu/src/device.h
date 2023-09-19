@@ -59,7 +59,7 @@ public :
 
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int);
   void set_mode_get_jk(int);
-  void get_jk(int, int, int,
+  void get_jk(int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
 	      py::array_t<double>, py::array_t<double>,
 	      int);
@@ -89,6 +89,8 @@ private:
   int size_fdrv;
 
   int blksize;
+  int nao;
+  int nset;
 
   int mode_getjk;
   

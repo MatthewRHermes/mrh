@@ -26,7 +26,7 @@ extern "C"
   void libgpu_set_mode_get_jk(void *, int);
   
   void libgpu_compute_get_jk(void *,
-			     int, int, int,
+			     int,
 			     py::array_t<double>, py::array_t<double>, py::list &,
 			     py::array_t<double>, py::array_t<double>,
 			     int);
