@@ -89,10 +89,10 @@ void libgpu_set_mode_get_jk(void * ptr, int mode)
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_free_get_jk(void * ptr)
+void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> vk)
 { 
   Device * dev = (Device *) ptr;
-  dev->free_get_jk();
+  dev->pull_get_jk(vj, vk);
 }
 
 /* ---------------------------------------------------------------------- */

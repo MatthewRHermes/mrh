@@ -110,8 +110,15 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
 /* ---------------------------------------------------------------------- */
 
-void Device::free_get_jk()
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 {
+  //  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
+  
+  //  double * vj = static_cast<double*>(info_vj.ptr);
+  double * vk = static_cast<double*>(info_vk.ptr);
+
+  //  pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
 }
 
 /* ---------------------------------------------------------------------- */

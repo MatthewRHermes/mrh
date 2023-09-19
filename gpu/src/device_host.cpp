@@ -72,9 +72,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
 /* ---------------------------------------------------------------------- */
 
-void Device::free_get_jk()
-{
-}
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk) {}
 
 /* ---------------------------------------------------------------------- */
 
