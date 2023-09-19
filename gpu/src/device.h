@@ -59,12 +59,11 @@ public :
 
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int);
   void set_mode_get_jk(int);
-  void free_get_jk();
-  
   void get_jk(int, int, int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
 	      py::array_t<double>, py::array_t<double>,
 	      int);
+  void pull_get_jk(py::array_t<double>, py::array_t<double>);
   
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,

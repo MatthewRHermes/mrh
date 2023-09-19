@@ -213,6 +213,9 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         
         t1 = log.timer_debug1('jk', *t1)
 
+        if gpu:
+            libgpu.libgpu_pull_get_jk(gpu, vj, vk)
+        
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
     if with_k: vk = vk.reshape(dm_shape)
 #    print("vj.shape= ", vj.shape)
