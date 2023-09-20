@@ -80,7 +80,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
   }
 
-  int _size_fdrv = 4 * nao * nao * num_threads;
+  int _size_fdrv = nao * nao * num_threads;
   if(_size_fdrv > size_fdrv) {
     size_fdrv = _size_fdrv;
     if(buf_fdrv) pm->dev_free_host(buf_fdrv);
@@ -272,7 +272,7 @@ void Device::get_jk(int naux,
     //	       dms[k].ctypes.data_as(ctypes.c_void_p),
     //	       ctypes.c_int(naux), *rargs)
     
-    fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0, buf_fdrv);
+    fdrv(buf1, eri1, dms, naux, nao, nullptr, nullptr, 0, buf_fdrv);
 
 #ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
@@ -355,23 +355,13 @@ void Device::get_jk(int naux,
 void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 		  int nij, int nao, int *orbs_slice, int *ao_loc, int nbas, double * _buf)
 {
-  struct Device::my_AO2MOEnvs envs;
-  envs.bra_start = orbs_slice[0];
-  envs.bra_count = orbs_slice[1] - orbs_slice[0];
-  envs.ket_start = orbs_slice[2];
-  envs.ket_count = orbs_slice[3] - orbs_slice[2];
-  envs.nao = nao;
-  envs.nbas = nbas;
-  envs.ao_loc = ao_loc;
-  envs.mo_coeff = mo_coeff;
-  
-  const int ij_pair = envs.bra_count * nao; //fmmm(NULL, NULL, buf, &envs, OUTPUTIJ);
-  const int nao2 = nao * (nao + 1) / 2; //fmmm(NULL, NULL, buf, &envs, INPUT_IJ);
+  const int ij_pair = nao * nao;
+  const int nao2 = nao * (nao + 1) / 2;
     
 #pragma omp parallel for
   for (int i = 0; i < nij; i++) {
     const int it = omp_get_thread_num();
-    double * buf = &(_buf[it * 4 * nao * nao]);
+    double * buf = &(_buf[it * nao * nao]);
 
     int _i, _j, _ij;
     double * tril = vin + nao2*i;
@@ -382,16 +372,11 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
     const double D1 = 1;
     const char SIDE_L = 'L';
     const char UPLO_U = 'U';
-    int i_start = envs.bra_start;
-    int i_count = envs.bra_count;
 
     double * _vout = vout + ij_pair*i;
     
-    dsymm_(&SIDE_L, &UPLO_U, &nao, &i_count,
-	   &D1, buf, &nao, mo_coeff+i_start*nao, &nao,
-	   &D0, _vout, &nao);    
+    dsymm_(&SIDE_L, &UPLO_U, &nao, &nao, &D1, buf, &nao, mo_coeff, &nao, &D0, _vout, &nao);    
   }
-  
 }
 
 #endif
