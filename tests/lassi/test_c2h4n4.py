@@ -130,9 +130,10 @@ class KnownValues(unittest.TestCase):
         self.assertEqual (las2.nroots, 33)
 
     def test_spin_shuffle (self):
-        from mrh.my_pyscf.lassi.states import spin_shuffle
+        from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
         mf = lsi._las._scf
         las3 = LASSCF (mf, (4,2,4), (4,2,4), spin_sub=(5,3,5))
+        las3.lasci ()
         las3 = spin_shuffle (las3)
         las3.check_sanity ()
         # The number of states is the number of graphs connecting one number
@@ -145,7 +146,13 @@ class KnownValues(unittest.TestCase):
         # and three paths each sum to -1, 0, +1. Each partial sum then has one
         # remaining option to complete the path, so
         # 2 + 3 + 3 + 3 + 2 = 13
-        self.assertEqual (las3.nroots, 13)
+        with self.subTest ("state construction"):
+            self.assertEqual (las3.nroots, 13)
+        las3.ci = spin_shuffle_ci (las3, las3.ci)
+        lsi2 = LASSI (las3).run ()
+        errvec = lsi2.s2 - np.around (lsi2.s2)
+        with self.subTest ("CI vector rotation"):
+            self.assertLess (np.amax (np.abs (errvec)), 1e-8)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")
