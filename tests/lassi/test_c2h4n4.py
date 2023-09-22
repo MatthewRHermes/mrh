@@ -26,7 +26,7 @@ from mrh.my_pyscf.lassi import LASSI
 topdir = os.path.abspath (os.path.join (__file__, '..'))
 
 def setUpModule ():
-    global lsi, rdm1s, rdm2s
+    global las, lsi, rdm1s, rdm2s
     dr_nn = 2.0
     mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
     mol.verbose = 0 #lib.logger.DEBUG
@@ -54,12 +54,17 @@ def setUpModule ():
     #las.e_states = las.energy_nuc () + las.states_energy_elec ()
     lsi = LASSI (las).run ()
     rdm1s, rdm2s = roots_make_rdm12s (las, las.ci, lsi.si)
+    las = LASSCF (mf, (4,2,4), ((4,0),(1,1),(0,4)), spin_sub=(5,3,5))
+    ci_quin = np.array ([[1.0,],])
+    ci_sing = np.diag ([1,-1])[::-1] / np.sqrt (2)
+    las.ci = [[ci_quin], [ci_sing], [ci_quin.copy ()]]
+    las.e_states = las.energy_nuc () + las.states_energy_elec ()
 
 def tearDownModule():
-    global lsi, rdm1s, rdm2s
+    global las, lsi, rdm1s, rdm2s
     mol = lsi._las.mol
     mol.stdout.close ()
-    del lsi, rdm1s, rdm2s
+    del las, lsi, rdm1s, rdm2s
 
 class KnownValues(unittest.TestCase):
     def test_evals (self):
@@ -132,11 +137,7 @@ class KnownValues(unittest.TestCase):
     def test_spin_shuffle (self):
         from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
         mf = lsi._las._scf
-        las3 = LASSCF (mf, (4,2,4), ((4,0),(1,1),(0,4)), spin_sub=(5,3,5))
-        ci_quin = np.array ([[1.0,],])
-        ci_sing = np.diag ([1,-1])[::-1] / np.sqrt (2)
-        las3.ci = [[ci_quin], [ci_sing], [ci_quin.copy ()]]
-        las3 = spin_shuffle (las3)
+        las3 = spin_shuffle (las)
         las3.check_sanity ()
         # The number of states is the number of graphs connecting one number
         # in each row which sum to zero:
@@ -155,6 +156,12 @@ class KnownValues(unittest.TestCase):
         errvec = lsi2.s2 - np.around (lsi2.s2)
         with self.subTest ("CI vector rotation"):
             self.assertLess (np.amax (np.abs (errvec)), 1e-8)
+
+    def test_lassis (self):
+        # TODO: investigate here if the VRVSolver is actually doing anything
+        from mrh.my_pyscf.lassi.lassis import LASSIS
+        lsis = LASSIS (las).run (max_cycle_macro=1)
+        self.assertLess (lsis.e_roots[0], las.e_states[0])
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")

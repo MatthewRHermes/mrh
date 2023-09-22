@@ -457,7 +457,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 class VRVDressedFCISolver (object):
     '''Minimize the energy of a wave function of the form
 
-    |Psi> = |P> + \sum_i |Q(i)>
+    |Psi> = |P> + sum_i |Q(i)>
 
     expressed in intermediate normalization <P|Psi> = 1, <P|Q(i)> = 0,
     <Q(i)|Q(j)> = delta_ij, with {|Q(i)>} fixed, using self-energy downfolding:
@@ -550,7 +550,7 @@ class VRVDressedFCISolver (object):
         e_q = self.e_q[idx]
         e_pq = np.append ([e_p,], e_q)
         h_diagmin = np.amin (e_pq)
-        if e0>h_diagmin:
+        if e0-h_diagmin > 1e-8:
             log.warn ("%s in VRVSolver: min (hdiag) = %e < e0 = %e",
                       warntag, np.amin (e_pq), e0)
             return True

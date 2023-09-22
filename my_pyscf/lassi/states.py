@@ -207,15 +207,17 @@ class SingleLASRootspace (object):
         if np.any (dsmults != 1): return False
         return True
 
+    def is_spin_shuffle_of (self, other):
+        if np.any (self.nelec != other.nelec): return False
+        if np.any (self.smults != other.smults): return False
+        return self.spins.sum () == other.spins.sum ()
+
     def excited_fragments (self, other):
         dneleca = self.neleca - other.neleca
         dnelecb = self.nelecb - other.nelecb
         dsmults = self.smults - other.smults
         idx_same = (dneleca==0) & (dnelecb==0) & (dsmults==0)
         return ~idx_same
-
-    def list_excited_fragments (self, other):
-        return np.where (self.excited_fragments (other))[0]
 
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment

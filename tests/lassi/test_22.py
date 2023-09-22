@@ -22,10 +22,10 @@ from mrh.my_pyscf.lassi import LASSI
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.states import all_single_excitations
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi import op_o0, op_o1
+from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
 
 def setUpModule ():
-    global mol, mf, lsi, op
+    global mol, mf, lsi, las, op
     xyz='''H 0 0 0
     H 1 0 0
     H 3 0 0
@@ -42,22 +42,24 @@ def setUpModule ():
 
     # LASSCF with CASCI-limit model space
     las = LASSCF (mf, (2,2), (2,2), spin_sub=(1,1))
-    for i in range (2): las = all_single_excitations (las)
-    charges, spins, smults, wfnsyms = get_space_info (las)
+    las.lasci ()
+    las1 = las
+    for i in range (2): las1 = all_single_excitations (las1)
+    charges, spins, smults, wfnsyms = get_space_info (las1)
     lroots = 4 - smults
     idx = (charges!=0) & (lroots==3)
     lroots[idx] = 1
-    las.conv_tol_grad = las.conv_tol_self = 9e99
-    las.lasci (lroots=lroots.T)
-    lsi = LASSI (las)
+    las1.conv_tol_grad = las.conv_tol_self = 9e99
+    las1.lasci (lroots=lroots.T)
+    lsi = LASSI (las1)
     lsi.kernel (opt=0)
 
     op = (op_o0, op_o1)
 
 def tearDownModule():
-    global mol, mf, lsi, op
+    global mol, mf, lsi, las, op
     mol.stdout.close ()
-    del mol, mf, lsi, op
+    del mol, mf, lsi, las, op
 
 class KnownValues(unittest.TestCase):
 
@@ -123,6 +125,13 @@ class KnownValues(unittest.TestCase):
                 hket_pq = hket_pq.reshape ((lroots_prod[r], ndim))
                 hket_ref = ham[ni[r]:nj[r]]
                 self.assertAlmostEqual (lib.fp (hket_pq), lib.fp (hket_ref), 8)
+
+    def test_lassis (self):
+        lsis = lassis.LASSIS (las).run ()
+        e_upper = las.e_states[0]
+        e_lower = lsi.e_roots[0]
+        self.assertLessEqual (e_lower, lsis.e_roots[0])
+        self.assertLessEqual (lsis.e_roots[0], e_upper)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI of random 2,2 system")
