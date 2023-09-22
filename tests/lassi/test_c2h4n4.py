@@ -132,8 +132,10 @@ class KnownValues(unittest.TestCase):
     def test_spin_shuffle (self):
         from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
         mf = lsi._las._scf
-        las3 = LASSCF (mf, (4,2,4), (4,2,4), spin_sub=(5,3,5))
-        las3.lasci ()
+        las3 = LASSCF (mf, (4,2,4), ((4,0),(1,1),(0,4)), spin_sub=(5,3,5))
+        ci_quin = np.array ([[1.0,],])
+        ci_sing = np.diag ([1,-1])[::-1] / np.sqrt (2)
+        las3.ci = [[ci_quin], [ci_sing], [ci_quin.copy ()]]
         las3 = spin_shuffle (las3)
         las3.check_sanity ()
         # The number of states is the number of graphs connecting one number

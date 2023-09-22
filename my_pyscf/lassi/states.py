@@ -188,7 +188,35 @@ class SingleLASRootspace (object):
         return [(cistring.num_strings (self.nlas[i], self.neleca[i]),
                  cistring.num_strings (self.nlas[i], self.nelecb[i]))
                 for i in range (self.nfrag)]
-            
+
+    def is_single_excitation_of (self, other):
+        # Same charge sector
+        if self.nelec.sum () != other.nelec.sum (): return False
+        # Same spinpol sector
+        if self.spins.sum () != other.spins.sum (): return False
+        # Only 2 fragments involved
+        idx_exc = self.excited_fragments (other)
+        if np.count_nonzero (idx_exc) != 2: return False
+        # Only 1 electron hops
+        dnelec = self.nelec[idx_exc] - other.nelec[idx_exc]
+        if tuple (np.sort (dnelec)) != (-1,1): return False
+        # No additional spin fluctuation between the two excited fragments
+        dspins = self.spins[idx_exc] - other.spins[idx_exc]
+        if tuple (np.sort (dspins)) != (-1,1): return False
+        dsmults = np.abs (self.smults[idx_exc] - other.smults[idx_exc])
+        if np.any (dsmults != 1): return False
+        return True
+
+    def excited_fragments (self, other):
+        dneleca = self.neleca - other.neleca
+        dnelecb = self.nelecb - other.nelecb
+        dsmults = self.smults - other.smults
+        idx_same = (dneleca==0) & (dnelecb==0) & (dsmults==0)
+        return ~idx_same
+
+    def list_excited_fragments (self, other):
+        return np.where (self.excited_fragments (other))[0]
+
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
     in all possible ways. Uses all states already present as reference states, so that calling
@@ -255,6 +283,13 @@ def spin_shuffle (las, verbose=None):
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
 def spin_shuffle_ci (las, ci):
+    '''Fill out the CI vectors for rootspaces constructed by the spin_shuffle function.
+    Unallocated CI vectors (None elements in ci) for rootspaces which have the same
+    charge and spin-magnitude strings of rootspaces that do have allocated CI
+    vectors are set to the appropriate rotations of the latter. In the event that
+    more than one reference state for an unallocated rootspace is identified, the
+    rotated vectors are combined and orthogonalized. Unlike running las.lasci (),
+    doing this should ALWAYS guarantee good spin quantum number.'''
     from mrh.my_pyscf.mcscf.lasci import get_space_info
     spaces = [SingleLASRootspace (las, m, s, c, 0, ci=[c[ix] for c in ci])
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las)))]

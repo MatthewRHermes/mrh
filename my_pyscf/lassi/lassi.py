@@ -677,6 +677,7 @@ class LASSI(lib.StreamObject):
         else: raise RuntimeError("LASSI requires las instance")
         self.__dict__.update(las.__dict__)
         self.ncore = las.ncore
+        self.nfrags = las.nfrags
         keys = set(('e_roots', 'si', 's2', 's2_mat', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
         self.e_roots = None
         self.si = None
