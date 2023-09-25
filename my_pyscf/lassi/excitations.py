@@ -581,7 +581,7 @@ class VRVDressedFCISolver (object):
         self.denom_q = e0 - self.e_q
         log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
         assert (not self.test_locmin (e0, ci1, warntag='Saddle-point initial guess'))
-        warn_swap = True
+        warn_swap = False # annoying loud warning not necessary
         #print (lib.fp (ci0), self.denom_q)
         for it in range (max_cycle_e0):
             e, ci1 = self.undressed_kernel (
