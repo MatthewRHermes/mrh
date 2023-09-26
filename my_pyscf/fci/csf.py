@@ -478,9 +478,11 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
         self.check_transformer_cache ()
         return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
 
-    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
+    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None, smult=None):
         self.norb = norb
         self.nelec = nelec
+        if smult is not None:
+            self.smult = smult
         self.check_transformer_cache ()
         return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
 
@@ -506,6 +508,9 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
         self.norb = norb
         self.nelec = nelec
+        if 'smult' in kwargs:
+            self.smult = kwargs['smult']
+            kwargs.pop ('smult')
         self.check_transformer_cache ()
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
             hdiag_csf=hdiag_csf, npsp=npsp)
