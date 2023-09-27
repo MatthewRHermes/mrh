@@ -114,15 +114,53 @@ def get_init_guess_rdm (las, mo_coeff=None, h2eff_sub=None):
     casdm2fr = [[r[1] for r in f] for f in fakeci]
     return casdm1frs, casdm2fr
 
-def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log):
+def _ddm (dm1frs0, dm1frs1):
+    return np.concatenate ([(d1 - d0).ravel () for d1, d0 in zip (dm1frs0, dm1frs1)])
+
+
+def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3, conv_tol_rdmjkddm=3e-4,
+               conv_tol_rdmjkde=1e-8):
     ''' "fcibox.kernel" should return e_cas, (casdm1rs, casdm2r) '''
+    def get_veff (my_casdm1frs):
+        casdm1fs = las.make_casdm1s_sub (casdm1frs=my_casdm1frs)
+        my_veff = las.get_veff (dm1s=las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
+        my_veff = las.split_veff (my_veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
+        return my_veff
+    converged = False
     e_cas, fakeci = lasci_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
     casdm1frs = [f[0] for f in fakeci]
     casdm2fr = [f[1] for f in fakeci]
-    return e_cas, casdm1frs, casdm2fr
+    veff = get_veff (casdm1frs)
+    e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, h2eff=h2eff_sub,
+                                                 casdm1frs=casdm1frs, casdm2fr=casdm2fr)
+    log.info ("LASSCF rdm-jk init : E = %.15g", e_tot)
+    for it in range (max_cycle_rdmjk):
+        casdm1frs_old = casdm1frs
+        casdm2fr_old = casdm2fr
+        e_old = e_tot
+        e_cas, fakeci = lasci_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
+        casdm1frs = [f[0] for f in fakeci]
+        casdm2fr = [f[1] for f in fakeci]
+        veff = get_veff (casdm1frs)
+        e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, h2eff=h2eff_sub,
+                                                     casdm1frs=casdm1frs, casdm2fr=casdm2fr)
+        ddm = np.concatenate ([(d1 - d0).ravel () for d1, d0 in zip (casdm1frs, casdm1frs_old)])
+        ddm = np.append (ddm, np.concatenate (
+            [(d1 - d0).ravel () for d1, d0 in zip (casdm2fr, casdm2fr_old)]
+        ))
+        ddm = linalg.norm (ddm)
+        log.info ("LASSCF rdm-jk %d : E = %.15g ; dE = %.15g ; |ddm| = %.15g", it+1, e_tot,
+                  e_tot-e_old, ddm)
+        if (ddm < conv_tol_rdmjkddm) and (abs(e_tot-e_old) < conv_tol_rdmjkde):
+            converged = True
+            break
+    log.info ("LASSCF rdm-jk {}".format (('not converged','converged')[int(converged)]))
+    return e_cas, casdm1frs, casdm2fr, converged
 
 def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
+    conv_tol_rdmjkde = 1e-8
+    conv_tol_rdmjkddm = las.conv_tol_rdmjkddm or 3*conv_tol_grad
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     log.debug('Start LASSCF')
@@ -142,8 +180,10 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     t2 = (t1[0], t1[1])
     it = 0
     for it in range (las.max_cycle_macro):
-        e_cas, casdm1frs, casdm2fr = rdm_cycle (las, mo_coeff, casdm1frs,
-            veff, h2eff_sub, log)
+        e_cas, casdm1frs, casdm2fr, rdmjk_conv = rdm_cycle (las, mo_coeff, casdm1frs,
+            veff, h2eff_sub, log, max_cycle_rdmjk=las.max_cycle_rdmjk,
+            conv_tol_rdmjkddm=conv_tol_rdmjkddm,
+            conv_tol_rdmjkde=conv_tol_rdmjkde)
         if ugg is None: ugg = las.get_ugg (mo_coeff)
         log.info ('LASSCF subspace CI energies: {}'.format (e_cas))
         t1 = log.timer ('LASSCF rdm_cycle', *t1)
@@ -176,7 +216,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
         norm_xorb = linalg.norm (x0) if x0.size else 0.0
         lib.logger.info (las, 'LASSCF macro %d : E = %.15g ; |g_int| = %.15g ; |g_x| = %.15g',
             it, H_op.e_tot, norm_gorb, norm_gx)
-        if (norm_gorb < conv_tol_grad) or (norm_gorb < norm_gx/10):
+        if ((norm_gorb < conv_tol_grad) or (norm_gorb < norm_gx/10)) and rdmjk_conv:
             converged = True
             break
         H_op._init_eri_() # Take this part out of the true initialization b/c 
@@ -413,7 +453,11 @@ class LASSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
     def __init__(self, *args, **kwargs):
         self.casdm1frs = None
         self.casdm2fr = None
+        self.max_cycle_rdmjk = 3
+        self.conv_tol_rdmjkddm = None
+        self.conv_tol_rdmjkde = 1e-8
         lasscf_sync_o0.LASSCFNoSymm.__init__(self, *args, **kwargs)
+        self.max_cycle_micro = 3
 
     _ugg = LASSCF_UnitaryGroupGenerators
     _hop = LASSCF_HessianOperator
