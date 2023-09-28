@@ -225,7 +225,7 @@ def _debug_g2e (fci, g2e, eri, norb):
     raise ValueError ('g2e has {} infs and {} nans (norb = {}; shape = {})'.format (g2e_ninf, g2e_nnan, norb, g2e.shape))
     return
 
-def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=None, npsp=200):
+def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=None, npsp=200, max_memory=None):
     ''' Note that getting pspace for npsp CSFs is substantially more costly than getting it for npsp determinants,
     until I write code than can evaluate Hamiltonian matrix elements of CSFs directly. On the other hand
     a pspace of determinants contains many redundant degrees of freedom for the same reason. Therefore I have
@@ -266,6 +266,12 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     stra = cistring.addrs2str(norb, neleca, addra)
     strb = cistring.addrs2str(norb, nelecb, addrb)
     npsp_det = len(det_addr)
+    safety_factor = 1.2
+    mem_h0 = safety_factor * (npsp_det**2 * np.dtype (float).itemsize) / 1e6
+    mem_remaining = max_memory - lib.current_memory ()[0]
+    if mem_h0 > mem_remaining:
+        raise MemoryError (("pspace_size of {} CSFs -> {} determinants requires {} MB > {} MB "
+                            "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining))
     h0 = np.zeros((npsp_det,npsp_det))
     h1e_ab = unpack_h1e_ab (h1e)
     h1e_a = np.ascontiguousarray(h1e_ab[0])
@@ -512,8 +518,9 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
             self.smult = kwargs['smult']
             kwargs.pop ('smult')
         self.check_transformer_cache ()
+        max_memory = kwargs.get ('max_memory', self.max_memory)
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
-            hdiag_csf=hdiag_csf, npsp=npsp)
+            hdiag_csf=hdiag_csf, npsp=npsp, max_memory=max_memory)
         
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         self.norb = norb
