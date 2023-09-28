@@ -232,6 +232,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     reduced the default pspace size by a factor of 2.'''
     if norb > 63:
         raise NotImplementedError('norb > 63')
+    if max_memory is None: max_memory=2000
 
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     neleca, nelecb = _unpack_nelec(nelec)
