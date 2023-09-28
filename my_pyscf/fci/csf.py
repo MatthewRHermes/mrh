@@ -268,7 +268,8 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     strb = cistring.addrs2str(norb, nelecb, addrb)
     npsp_det = len(det_addr)
     safety_factor = 1.2
-    mem_h0 = safety_factor * (npsp_det**2 * np.dtype (float).itemsize) / 1e6
+    nfloats_h0 = (npsp_det+npsp)**2
+    mem_h0 = safety_factor * nfloats_h0 * np.dtype (float).itemsize / 1e6
     mem_remaining = max_memory - lib.current_memory ()[0]
     if mem_h0 > mem_remaining:
         raise MemoryError (("pspace_size of {} CSFs -> {} determinants requires {} MB > {} MB "
@@ -297,7 +298,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     h0 = lib.hermi_triu(h0)
 
     try:
-        if fci.verbose >= lib.logger.DEBUG: evals_before = scipy.linalg.eigh (h0)[0]
+        if fci.verbose > lib.logger.DEBUG1: evals_before = scipy.linalg.eigh (h0)[0]
     except ValueError as e:
         lib.logger.debug1 (fci, ("ERROR: h0 has {} infs, {} nans; h1e_a has {} infs, {} nans; "
             "h1e_b has {} infs, {} nans; g2e has {} infs, {} nans, norb = {}, npsp_det = {}").format (
@@ -311,7 +312,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     h0, csf_addr = transformer.mat_det2csf_confspace (h0, econf_addr)
     t0 = lib.logger.timer_debug1 (fci, "csf.pspace: transform pspace Hamiltonian into CSF basis", *t0)
 
-    if fci.verbose > lib.logger.DEBUG:
+    if fci.verbose > lib.logger.DEBUG1:
         lib.logger.debug1 (fci, "csf.pspace: eigenvalues of h0 before transformation %s", evals_before)
         evals_after = scipy.linalg.eigh (h0)[0]
         lib.logger.debug1 (fci, "csf.pspace: eigenvalues of h0 after transformation %s", evals_after)
