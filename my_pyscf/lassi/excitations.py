@@ -267,7 +267,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
     def kernel (self, h1, h2, ecore=0,
                 conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
-                **kwargs):
+                serialfrag=False, **kwargs):
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
@@ -281,7 +281,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             converged, energy_elec, ci1_active = ProductStateFCISolver.kernel (
                 self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
                 conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
-                max_cycle_macro=max_cycle_macro, **kwargs
+                max_cycle_macro=max_cycle_macro, serialfrag=serialfrag, **kwargs
             )
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.excited_frags, ci1_active):

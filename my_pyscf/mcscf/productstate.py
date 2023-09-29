@@ -25,10 +25,11 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
 
     def kernel (self, h1, h2, norb_f, nelec_f, ecore=0, ci0=None, orbsym=None,
             conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
-            **kwargs):
+            serialfrag=False, **kwargs):
         log = self.log
         converged = False
         e_sigma = conv_tol_self + 1
+        e = [0 for n in norb_f]
         ci1 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
@@ -44,8 +45,8 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                 and all ([solvers_converged])):
                 converged = True
                 break
-            e, ci1 = self._1shot (h0eff, h1eff, h2, ci0, norb_f, nelec_f,
-                orbsym=orbsym, **kwargs)
+            e, ci1 = self._1shot (it, h0eff, h1eff, h2, e, ci0, norb_f, nelec_f,
+                orbsym=orbsym, serialfrag=serialfrag, **kwargs)
             e_sigma = np.amax (e) - np.amin (e)
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
@@ -126,22 +127,24 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                 for l, c in zip (g_lbls[i], g_coeffs[i]):
                     log.info ('%s : %e', l, c)
 
-    def _1shot (self, h0eff, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
-            **kwargs):
+    def _1shot (self, it, h0eff, h1eff, h2, e0, ci0, norb_f, nelec_f, orbsym=None,
+                serialfrag=False, **kwargs):
+        nfrag = len (norb_f)
         nj = np.cumsum (norb_f)
         ni = nj - norb_f
-        zipper = [h0eff, h1eff, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
-        e1 = []
-        ci1 = []
-        for h0e, h1e, c, no, ne, solver, i, j in zip (*zipper):
+        zipper = [h0eff, h1eff, ci0, norb_f, nelec_f, self.fcisolvers, ni, nj]
+        e1 = [e for e in e0]
+        ci1 = [c for c in ci0]
+        for ifrag, (h0e, h1e, c, no, ne, solver, i, j) in enumerate (zip (*zipper)):
+            if serialfrag and it % nfrag != ifrag: continue
             h2e = h2[i:j,i:j,i:j,i:j]
             osym = getattr (solver, 'orbsym', None)
             if orbsym is not None: osym=orbsym[i:j]
             nelec = self._get_nelec (solver, ne)
             e, c1 = solver.kernel (h1e, h2e, no, nelec, ci0=c, ecore=h0e,
                 orbsym=osym, **kwargs)
-            e1.append (e)
-            ci1.append (c1)
+            e1[ifrag] = e
+            ci1[ifrag] = c1
         return e1, ci1
 
     def _get_grad (self, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
