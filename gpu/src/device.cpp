@@ -32,9 +32,9 @@ Device::Device()
 
   buf_fdrv = nullptr;
   
-#if defined(_GPU_CUDA)
-  handle = NULL;
-  stream = NULL;
+#if defined(_USE_GPU)
+  handle = nullptr;
+  stream = nullptr;
   
   d_buf2 = nullptr;
   d_buf3 = nullptr;
@@ -95,7 +95,7 @@ Device::~Device()
   free(t_array_jk);
 #endif
 
-#if defined (_GPU_CUDA)
+#if defined(_USE_GPU)
 #ifdef _CUDA_NVTX
   nvtxRangePushA("Deallocate");
 #endif
