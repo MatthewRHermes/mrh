@@ -1,3 +1,5 @@
+from mrh.my_pyscf.gpu import libgpu
+
 import pyscf 
 from gpu4pyscf import patch_pyscf
 
@@ -6,7 +8,6 @@ from pyscf import gto, scf, tools, mcscf, lib
 from mrh.my_pyscf.mcscf.lasscf_async import LASSCF
 from pyscf.mcscf import avas	
 
-from mrh.my_pyscf.gpu import libgpu
 gpu = libgpu.libgpu_init()
 
 lib.logger.TIMER_LEVEL=lib.logger.INFO
@@ -19,8 +20,8 @@ mf=scf.RHF(mol)
 mf=mf.density_fit()
 mf.run()
 
-ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2p'])
-#ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
+#ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2p'])
+ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
 
 las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)
 

@@ -59,12 +59,11 @@ public :
 
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int);
   void set_mode_get_jk(int);
-  void free_get_jk();
-  
-  void get_jk(int, int, int,
+  void get_jk(int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
 	      py::array_t<double>, py::array_t<double>,
 	      int);
+  void pull_get_jk(py::array_t<double>, py::array_t<double>);
   
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -90,6 +89,8 @@ private:
   int size_fdrv;
 
   int blksize;
+  int nao;
+  int nset;
 
   int mode_getjk;
   
@@ -149,7 +150,7 @@ private:
 
   int num_threads;
   
-#if defined(_GPU_CUDA)
+#if defined(_USE_GPU)
   cublasHandle_t handle;
   cudaStream_t stream;
 #endif

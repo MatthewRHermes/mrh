@@ -1,13 +1,16 @@
 import numpy as np
 from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.fci import cistring
 from pyscf.lib import logger
+from pyscf.lo.orth import vec_lowdin
+from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
 import itertools
 
 class SingleLASRootspace (object):
     def __init__(self, las, spins, smults, charges, weight, nlas=None, nelelas=None, stdout=None,
-                 verbose=None):
+                 verbose=None, ci=None):
         if nlas is None: nlas = las.ncas_sub
         if nelelas is None: nelelas = [sum (_unpack_nelec (x)) for x in las.nelecas_sub]
         if stdout is None: stdout = las.stdout
@@ -19,7 +22,8 @@ class SingleLASRootspace (object):
         self.charges = np.asarray (charges)
         self.weight = weight
         self.stdout, self.verbose = stdout, verbose
-        
+        self.ci = ci
+
         self.nelec = self.nelelas - self.charges
         self.neleca = (self.nelec + self.spins) // 2
         self.nelecb = (self.nelec - self.spins) // 2
@@ -146,6 +150,74 @@ class SingleLASRootspace (object):
             yield SingleLASRootspace (self.las, spins, self.smults, self.charges, 0, nlas=self.nlas,
                                   nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
 
+    def has_ci (self):
+        if self.ci is None: return False
+        return all ([c is not None for c in self.ci])
+
+    def get_ci_szrot (self):
+        '''Generate the sets of CI vectors in which each vector for each fragment
+        has the sz axis rotated in all possible ways.
+
+        Returns:
+            ci_sz: list of dict of type {integer: ndarray}
+                dict keys are integerified "spin" quantum numbers; i.e., neleca-nelecb.
+                dict vals are the corresponding CI vectors
+        '''
+        ci_sz = []
+        for ifrag in range (self.nfrag):
+            norb, sz, ci = self.nlas[ifrag], self.spins[ifrag], self.ci[ifrag]
+            nelec = self.neleca[ifrag], self.nelecb[ifrag]
+            smult = self.smults[ifrag]
+            ci_sz_ = {sz: ci}
+            ci1 = ci
+            nelec1 = nelec
+            for sz1 in range (sz-2, -(1+smult), -2):
+                ci1 = contract_sdown (ci1, norb, nelec1)
+                nelec1 = nelec1[0]-1, nelec1[1]+1
+                ci_sz_[sz1] = ci1
+            ci1 = ci
+            nelec1 = nelec
+            for sz1 in range (sz+2, (1+smult), 2):
+                ci1 = contract_sup (ci1, norb, nelec1)
+                nelec1 = nelec1[0]+1, nelec1[1]-1
+                ci_sz_[sz1] = ci1
+            ci_sz.append (ci_sz_)
+        return ci_sz
+
+    def get_ndet (self):
+        return [(cistring.num_strings (self.nlas[i], self.neleca[i]),
+                 cistring.num_strings (self.nlas[i], self.nelecb[i]))
+                for i in range (self.nfrag)]
+
+    def is_single_excitation_of (self, other):
+        # Same charge sector
+        if self.nelec.sum () != other.nelec.sum (): return False
+        # Same spinpol sector
+        if self.spins.sum () != other.spins.sum (): return False
+        # Only 2 fragments involved
+        idx_exc = self.excited_fragments (other)
+        if np.count_nonzero (idx_exc) != 2: return False
+        # Only 1 electron hops
+        dnelec = self.nelec[idx_exc] - other.nelec[idx_exc]
+        if tuple (np.sort (dnelec)) != (-1,1): return False
+        # No additional spin fluctuation between the two excited fragments
+        dspins = self.spins[idx_exc] - other.spins[idx_exc]
+        if tuple (np.sort (dspins)) != (-1,1): return False
+        dsmults = np.abs (self.smults[idx_exc] - other.smults[idx_exc])
+        if np.any (dsmults != 1): return False
+        return True
+
+    def is_spin_shuffle_of (self, other):
+        if np.any (self.nelec != other.nelec): return False
+        if np.any (self.smults != other.smults): return False
+        return self.spins.sum () == other.spins.sum ()
+
+    def excited_fragments (self, other):
+        dneleca = self.neleca - other.neleca
+        dnelecb = self.nelecb - other.nelecb
+        dsmults = self.smults - other.smults
+        idx_same = (dneleca==0) & (dnelecb==0) & (dsmults==0)
+        return ~idx_same
 
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
@@ -211,6 +283,51 @@ def spin_shuffle (las, verbose=None):
     if len (all_states) == len (ref_states):
         log.warn ("no spin-shuffling options found for given LAS states")
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
+
+def spin_shuffle_ci (las, ci):
+    '''Fill out the CI vectors for rootspaces constructed by the spin_shuffle function.
+    Unallocated CI vectors (None elements in ci) for rootspaces which have the same
+    charge and spin-magnitude strings of rootspaces that do have allocated CI
+    vectors are set to the appropriate rotations of the latter. In the event that
+    more than one reference state for an unallocated rootspace is identified, the
+    rotated vectors are combined and orthogonalized. Unlike running las.lasci (),
+    doing this should ALWAYS guarantee good spin quantum number.'''
+    from mrh.my_pyscf.mcscf.lasci import get_space_info
+    spaces = [SingleLASRootspace (las, m, s, c, 0, ci=[c[ix] for c in ci])
+              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las)))]
+    old_ci_sz = []
+    old_idx = []
+    new_idx = []
+    nfrag = las.nfrags
+    for ix, space in enumerate (spaces):
+        if space.has_ci ():
+            old_idx.append (ix)
+            old_ci_sz.append (space.get_ci_szrot ())
+        else:
+            new_idx.append (ix)
+    def is_spin_shuffle_ref (sp1, sp2):
+        return (np.all (sp1.charges==sp2.charges) and
+                np.all (sp1.smults==sp2.smults))
+    for ix in new_idx:
+        ndet = spaces[ix].get_ndet ()
+        ci_ix = [np.zeros ((0,ndet[i][0],ndet[i][1]))
+                 for i in range (nfrag)]
+        for ci_sz, jx in zip (old_ci_sz, old_idx):
+            if not is_spin_shuffle_ref (spaces[ix], spaces[jx]): continue
+            for ifrag in range (nfrag):
+                c = ci_sz[ifrag][spaces[ix].spins[ifrag]]
+                if c.ndim < 3: c = c[None,:,:]
+                ci_ix[ifrag] = np.append (ci_ix[ifrag], c, axis=0)
+        for ifrag in range (nfrag):
+            if ci_ix[ifrag].size==0:
+                ci[ifrag][ix] = None
+                continue
+            lroots, ndeti = ci_ix[ifrag].shape[0], ndet[ifrag]
+            if lroots > 1:
+                c = vec_lowdin (ci_ix[ifrag].reshape (lroots, ndeti[0]*ndeti[1]))
+                ci_ix[ifrag] = c.reshape (lroots, ndeti[0], ndeti[1])
+            ci[ifrag][ix] = ci_ix[ifrag]
+    return ci
 
 def count_excitations (las0):
     log = logger.new_logger (las0, las0.verbose)

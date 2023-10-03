@@ -1,3 +1,5 @@
+from mrh.my_pyscf.gpu import libgpu
+
 import pyscf
 from gpu4pyscf import patch_pyscf
 
@@ -14,7 +16,6 @@ from pyscf import lib
 lib.logger.TIME_LEVEL = lib.logger.INFO
 
 # -- this should all be inside of LASSCF() constructor
-from mrh.my_pyscf.gpu import libgpu
 gpu = libgpu.libgpu_create_device()
 
 num_gpus = libgpu.libgpu_get_num_devices(gpu)
@@ -40,7 +41,7 @@ mf=mf.density_fit()
 mf.run()
 
 print("\nCalling avas.kernel")
-ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2p'])
+ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
 
 print("\nStarting the LASSCF calculation with use_gpu= ", gpu)
 las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)

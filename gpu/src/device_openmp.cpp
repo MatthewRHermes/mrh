@@ -8,13 +8,18 @@
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int nset, int nao)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int count)
 {
+  printf("Inside init_get_jk()\n");
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
 
   blksize = _blksize;
+  nset = _nset;
+  nao = _nao;
+
+  const int nao_pair = nao * (nao+1) / 2;
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
@@ -22,7 +27,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //  double * eri1 = static_cast<double*>(info_eri1.ptr);
   //  double * dmtril = static_cast<double*>(info_dmtril.ptr);
   
-  int _size_vj = info_dmtril.shape[0] * info_eri1.shape[1];
+  int _size_vj = nset * nao_pair;
   if(_size_vj > size_vj) {
     size_vj = _size_vj;
     if(vj) pm->dev_free_host(vj);
@@ -33,8 +38,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int _size_vk = nset * nao * nao;
   if(_size_vk > size_vk) {
     size_vk = _size_vk;
-    if(_vktmp) pm->dev_free_host(_vktmp);
-    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
+    //    if(_vktmp) pm->dev_free_host(_vktmp);
+    //    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
 
 #ifdef _CUDA_NVTX
     nvtxRangePushA("Realloc");
@@ -47,7 +52,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     nvtxRangePop();
 #endif
   }
-  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
+  //  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
   int _size_buf = blksize * nao * nao;
   if(_size_buf > size_buf) {
@@ -75,16 +80,16 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
   }
 
-  int _size_fdrv = 4 * nao * nao * num_threads;
+  int _size_fdrv = nao * nao * num_threads;
   if(_size_fdrv > size_fdrv) {
     size_fdrv = _size_fdrv;
-    if(buf_fdrv) pm->def_free_host(buf_fdrv);
-    buf_fdrv = (double *) pm->def_malloc_host(size_fdrv*sizeof(double));
+    if(buf_fdrv) pm->dev_free_host(buf_fdrv);
+    buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
   }
   
   // Create blas handle
 
-  if(handle == NULL) {
+  if(handle == nullptr) {
 #ifdef _CUDA_NVTX
     nvtxRangePushA("Create handle");
 #endif
@@ -95,43 +100,56 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
   }
 
-  if(stream == NULL) {
-    dev_stream_create(stream);
+  if(stream == nullptr) {
+    pm->dev_stream_create(stream);
   }
   
 #ifdef _SIMPLE_TIMER
   t_array_jk[0] += omp_get_wtime() - t0;
 #endif
+  printf("Leaving init_get_jk()\n");
 }
 
 /* ---------------------------------------------------------------------- */
 
-void Device::free_get_jk()
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 {
+  printf("Inside pull_get_jk()\n");
+  
+  //  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
+  
+  //  double * vj = static_cast<double*>(info_vj.ptr);
+  double * vk = static_cast<double*>(info_vk.ptr);
+
+  pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+
+  printf("Leaving pull_get_jk()\n");
 }
 
 /* ---------------------------------------------------------------------- */
 
-void Device::get_jk(int naux, int nao, int nset,
+void Device::get_jk(int naux,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
 		    int count)
 {
+  printf("Inside get_jk()\n");
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
 
   const int with_j = true;
   
-  py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
-  py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
-  py::buffer_info info_vj = _vj.request(); // 2D array (1, 351)
-  py::buffer_info info_vk = _vk.request(); // 3D array (nset, 26, 26)
+  py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair)
+  py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, nao_pair)
+  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  //  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
 
   double * eri1 = static_cast<double*>(info_eri1.ptr);
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
   double * vj = static_cast<double*>(info_vj.ptr);
-  double * vk = static_cast<double*>(info_vk.ptr);
+  //  double * vk = static_cast<double*>(info_vk.ptr);
 
   int _size_rho = info_dmtril.shape[0] * info_eri1.shape[0];
   if(_size_rho > size_rho) {
@@ -192,12 +210,49 @@ void Device::get_jk(int naux, int nao, int nset,
       }
 
 #ifdef _SIMPLE_TIMER
+    double t2 = omp_get_wtime();
     t_array_jk[2] += t1 - t0;
-    t_array_jk[3] += omp_get_wtime() - t1;
+    t_array_jk[3] += t2 - t1;
 #endif
   }
  
   double * buf1 = buf_tmp;
+  double * buf2 = &(buf_tmp[blksize * nao * nao]);
+    
+  DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
+  DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
+  DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
+  
+#ifdef _SIMPLE_TIMER
+  double t2 = omp_get_wtime();
+#endif
+    
+  // buf2 = lib.unpack_tril(eri1, out=buf[1])
+    
+#pragma omp parallel for
+    for(int i=0; i<naux; ++i) {
+      
+      int indx = 0;
+      double * eri1_ = &(eri1[i * nao_pair]);
+
+      // unpack lower-triangle to square
+      
+      for(int j=0; j<nao; ++j)
+	for(int k=0; k<=j; ++k) {	  
+	  da_buf2(i*nao+j,k) = eri1_[indx];
+	  da_buf2(i*nao+k,j) = eri1_[indx];
+	  indx++;
+	}
+      
+    }
+
+    printf("Calling dev_push_async() for buf2\n");
+    pm->dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream); // stream is nullptr
+    printf(" -- finished\n");
+    
+#ifdef _SIMPLE_TIMER
+    t_array_jk[5] += omp_get_wtime() - t2;
+#endif
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
@@ -223,39 +278,11 @@ void Device::get_jk(int naux, int nao, int nset,
     //	       dms[k].ctypes.data_as(ctypes.c_void_p),
     //	       ctypes.c_int(naux), *rargs)
     
-    fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0, buf_fdrv);
+    fdrv(buf1, eri1, dms, naux, nao, nullptr, nullptr, 0, buf_fdrv);
 
 #ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
     t_array_jk[4] += t1 - t0;
-#endif
-    
-    // buf2 = lib.unpack_tril(eri1, out=buf[1])
-
-    double * buf2 = &(buf_tmp[blksize * nao * nao]);
-    
-    DevArray3D da_buf2 = DevArray3D(buf2, blksize, nao, nao);
-    
-#pragma omp parallel for
-    for(int i=0; i<naux; ++i) {
-      
-      int indx = 0;
-      double * eri1_ = &(eri1[i * nao_pair]);
-
-      // unpack lower-triangle to square
-      
-      for(int j=0; j<nao; ++j)
-	for(int k=0; k<=j; ++k) {	  
-	  da_buf2(i,j,k) = eri1_[indx];
-	  da_buf2(i,k,j) = eri1_[indx];
-	  indx++;
-	}
-      
-    }
-    
-#ifdef _SIMPLE_TIMER
-    double t2 = omp_get_wtime();
-    t_array_jk[5] += t2 - t1;
 #endif
     
     // dgemm of (nao X blksize*nao) and (blksize*nao X nao) matrices - can refactor later...
@@ -264,14 +291,26 @@ void Device::get_jk(int naux, int nao, int nset,
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
     
-    DevArray3D da_buf1 = DevArray3D(buf_tmp, naux, nao, nao);
-    DevArray3D da_buf3 = DevArray3D(buf3, nao, naux, nao); // python swapped 1st two dimensions?
-    
-#pragma omp parallel for
+#pragma omp parallel for collapse(3)
     for(int i=0; i<naux; ++i) {
       for(int j=0; j<nao; ++j)
-	for(int k=0; k<nao; ++k) da_buf3(k,i,j) = da_buf1(i,j,k);
+	for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
     }
+
+    // transfer
+
+#ifdef _CUDA_NVTX
+    nvtxRangePushA("HtoD Transfer");
+#endif
+    
+    printf("Calling dev_push_async() for buf3\n");
+    pm->dev_push_async(d_buf3, buf3, naux * nao * nao * sizeof(double), stream); // stream is nullptr
+    printf(" -- finished\n");
+    
+    pm->dev_stream_wait(stream); // stream is nullptr
+#ifdef _CUDA_NVTX
+    nvtxRangePop();
+#endif
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -282,11 +321,11 @@ void Device::get_jk(int naux, int nao, int nset,
     
 #ifdef _SIMPLE_TIMER
     double t3 = omp_get_wtime();
-    t_array_jk[6] += t3 - t2;
+    t_array_jk[6] += t3 - t1;
 #endif
     
     const double alpha = 1.0;
-    const double beta = (count == 0) ? 0.0 : 1.0; // 0 when count == 0
+    const double beta = (count == 0) ? 0.0 : 1.0;
     
     const int m = nao; // # of rows of first matrix buf4^T
     const int n = nao; // # of cols of second matrix buf3^T
@@ -294,39 +333,19 @@ void Device::get_jk(int naux, int nao, int nset,
 
     const int lda = naux * nao;
     const int ldb = nao;
-    const int ldc = nset * nao;
-
-    double * vkk = &(vk[indxK * nao]);
-
-#if 0
-    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);
-#else
-    // transfer
-
+    const int ldc = (mode_getjk == 0) ? nset * nao: nao;
+    
+    const int vk_offset = (mode_getjk == 0) ? indxK * nao : indxK * nao*nao; // this is ugly...
+    
 #ifdef _CUDA_NVTX
-    nvtxRangePushA("HtoD Transfer");
-#endif
-    dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
-    dev_push_async(d_buf3, buf3, blksize * nao * nao * sizeof(double), stream);
-    dev_push(d_vkk, vkk, nset * nao * nao * sizeof(double));
-    dev_stream_wait(stream);
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-
     nvtxRangePushA("DGEMM");
 #endif
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk, ldc);
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
     
-    // transfer
-
-    nvtxRangePushA("DtoH Transfer");
-#endif
-    dev_pull(d_vkk, vkk, nset * nao * nao * sizeof(double));
+    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
+    pm->dev_barrier();
+    
 #ifdef _CUDA_NVTX
     nvtxRangePop();
-#endif
 #endif
    
 #ifdef _SIMPLE_TIMER
@@ -336,6 +355,8 @@ void Device::get_jk(int naux, int nao, int nset,
 #endif 
   }
   
+  //pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+  printf("Leaving get_jk()\n");
 }
   
 /* ---------------------------------------------------------------------- */
@@ -345,23 +366,13 @@ void Device::get_jk(int naux, int nao, int nset,
 void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 		  int nij, int nao, int *orbs_slice, int *ao_loc, int nbas, double * _buf)
 {
-  struct Device::my_AO2MOEnvs envs;
-  envs.bra_start = orbs_slice[0];
-  envs.bra_count = orbs_slice[1] - orbs_slice[0];
-  envs.ket_start = orbs_slice[2];
-  envs.ket_count = orbs_slice[3] - orbs_slice[2];
-  envs.nao = nao;
-  envs.nbas = nbas;
-  envs.ao_loc = ao_loc;
-  envs.mo_coeff = mo_coeff;
-  
-  const int ij_pair = envs.bra_count * nao; //fmmm(NULL, NULL, buf, &envs, OUTPUTIJ);
-  const int nao2 = nao * (nao + 1) / 2; //fmmm(NULL, NULL, buf, &envs, INPUT_IJ);
+  const int ij_pair = nao * nao;
+  const int nao2 = nao * (nao + 1) / 2;
     
 #pragma omp parallel for
   for (int i = 0; i < nij; i++) {
     const int it = omp_get_thread_num();
-    double * buf = &(_buf[it * 4 * nao * nao]);
+    double * buf = &(_buf[it * nao * nao]);
 
     int _i, _j, _ij;
     double * tril = vin + nao2*i;
@@ -372,16 +383,11 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
     const double D1 = 1;
     const char SIDE_L = 'L';
     const char UPLO_U = 'U';
-    int i_start = envs.bra_start;
-    int i_count = envs.bra_count;
 
     double * _vout = vout + ij_pair*i;
     
-    dsymm_(&SIDE_L, &UPLO_U, &nao, &i_count,
-	   &D1, buf, &nao, mo_coeff+i_start*nao, &nao,
-	   &D0, _vout, &nao);    
+    dsymm_(&SIDE_L, &UPLO_U, &nao, &nao, &D1, buf, &nao, mo_coeff, &nao, &D0, _vout, &nao);    
   }
-  
 }
 
 #endif

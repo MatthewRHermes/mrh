@@ -140,11 +140,12 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             naux, nao_pair = eri1.shape
             if count == 0:
                 libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, count)
-#            print("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", blksize, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms), " vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
+#            print("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", blksize, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
+#            print("vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
             
             if gpu:
-
-                libgpu.libgpu_compute_get_jk(gpu, naux, nao, nset, eri1, dmtril, dms, vj, vk, count)
+                
+                libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, count)
 
             else:
                 
@@ -213,6 +214,9 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         
         t1 = log.timer_debug1('jk', *t1)
 
+        if gpu:
+            libgpu.libgpu_pull_get_jk(gpu, vj, vk)
+        
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
     if with_k: vk = vk.reshape(dm_shape)
 #    print("vj.shape= ", vj.shape)
