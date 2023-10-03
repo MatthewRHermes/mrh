@@ -8,7 +8,7 @@ from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
 from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.lassi.lassi import LASSI
 
-def prepare_states (lsi, nmax_charge=0):
+def prepare_states (lsi, nmax_charge=0, sa_heff=True):
     las = lsi._las
     las1 = spin_shuffle (las)
     las1.ci = spin_shuffle_ci (las1, las1.ci)
@@ -16,10 +16,10 @@ def prepare_states (lsi, nmax_charge=0):
     # between definition of e_states array for neutral and charge-separated rootspaces
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
     las2 = all_single_excitations (las1)
-    converged, las2.ci, las2.e_states = single_excitations_ci (lsi, las2, las1, nmax_charge=nmax_charge)
+    converged, las2.ci, las2.e_states = single_excitations_ci (lsi, las2, las1, nmax_charge=nmax_charge, sa_heff=sa_heff)
     return converged, las2
 
-def single_excitations_ci (lsi, las2, las1, nmax_charge=0):
+def single_excitations_ci (lsi, las2, las1, nmax_charge=0, sa_heff=True):
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
     nfrags = lsi.nfrags
@@ -53,7 +53,9 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=0):
         nelecb = spaces[i].nelecb
         smults = spaces[i].smults
         for k in np.where (excfrags)[0]:
-            weights = np.ones (lroots[k,i]) / lroots[k,i]
+            weights = np.zeros (lroots[k,i])
+            if sa_heff: weights[:] = 1.0 / len (weights)
+            else: weights[0] = 1.0
             psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k], weights=weights)
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0,
                                               max_cycle_macro=lsi.max_cycle_macro,
@@ -82,15 +84,17 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=0):
     return converged, ci, e_roots
 
 class LASSIS (LASSI):
-    def __init__(self, las, nmax_charge=0, **kwargs):
+    def __init__(self, las, nmax_charge=0, sa_heff=True, **kwargs):
         self.nmax_charge = nmax_charge
+        self.sa_heff = sa_heff
         LASSI.__init__(self, las, **kwargs)
         if las.nroots>1:
             logger.warn (self, ("LASSIS builds the model space for you! I don't know what will "
                                 "happen if you build a model space by hand!"))
-    def kernel (self, nmax_charge=None, **kwargs):
+    def kernel (self, nmax_charge=None, sa_heff=None, **kwargs):
         if nmax_charge is None: nmax_charge = self.nmax_charge
-        self.converged, las = prepare_states (self, nmax_charge=nmax_charge)
+        if sa_heff is None: sa_heff = self.sa_heff
+        self.converged, las = prepare_states (self, nmax_charge=nmax_charge, sa_heff=sa_heff)
         self.__dict__.update(las.__dict__)
         return LASSI.kernel (self, **kwargs)
 
