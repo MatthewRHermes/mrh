@@ -10,6 +10,12 @@ from itertools import combinations
 
 # TODO: linkstr support
 class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
+    '''Minimize the energy of a wave function of the form
+
+    |Psi> = A \prod_K |ci_K>
+
+    Self-consistently over all ci_K.
+    '''
 
     def __init__(self, fcisolvers, stdout=None, verbose=0, **kwargs):
         self.fcisolvers = fcisolvers
@@ -19,16 +25,18 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
 
     def kernel (self, h1, h2, norb_f, nelec_f, ecore=0, ci0=None, orbsym=None,
             conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
-            **kwargs):
+            serialfrag=False, **kwargs):
         log = self.log
         converged = False
         e_sigma = conv_tol_self + 1
-        ci1 = self._check_init_guess (ci0, norb_f, nelec_f, h1, h2) # TODO: get_init_guess
+        e = [0 for n in norb_f]
+        ci1 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
-            h1eff, h0eff = self.project_hfrag (h1, h2, ci1, norb_f, nelec_f,
+            ci0 = ci1
+            h1eff, h0eff = self.project_hfrag (h1, h2, ci0, norb_f, nelec_f,
                 ecore=ecore, **kwargs)
-            grad = self._get_grad (h1eff, h2, ci1, norb_f, nelec_f, **kwargs)
+            grad = self._get_grad (h1eff, h2, ci0, norb_f, nelec_f, **kwargs)
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; sigma = %e', it, grad_max,
                 e_sigma)
@@ -37,29 +45,36 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                 and all ([solvers_converged])):
                 converged = True
                 break
-            e, ci1 = self._1shot (h0eff, h1eff, h2, ci1, norb_f, nelec_f,
-                orbsym=orbsym, **kwargs)
+            e, ci1 = self._1shot (it, h0eff, h1eff, h2, e, ci0, norb_f, nelec_f,
+                orbsym=orbsym, serialfrag=serialfrag, **kwargs)
             e_sigma = np.amax (e) - np.amin (e)
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
-        if not converged: self._debug_csfs (log, ci1, norb_f, nelec_f, grad)
+        if not converged: self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
         energy_elec = self.energy_elec (h1, h2, ci1, norb_f, nelec_f,
             ecore=ecore, **kwargs)
         return converged, energy_elec, ci1
 
-    def _check_init_guess (self, ci0, norb_f, nelec_f, h1, h2):
-        ci1 = []
+    def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2):
         if ci0 is None: ci0 = [None for i in range (len (norb_f))]
+        ci1 = [c for c in ci0] # reference safety
         if h1.ndim < 3: h1 = np.stack ([h1, h1], axis=0)
         for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
             nelec = self._get_nelec (solver, ne)
-            if ci0[ix] is None:
+            if ci1[ix] is None:
                 i = sum (norb_f[:ix])
                 j = i + norb_f[ix]
                 hdiag_csf = solver.make_hdiag_csf (h1[:,i:j,i:j], h2[i:j,i:j,i:j,i:j],
                                                    no, nelec)
-                ci0[ix] = solver.get_init_guess (no, nelec, solver.nroots, hdiag_csf)
+                ci1[ix] = solver.get_init_guess (no, nelec, solver.nroots, hdiag_csf)
+        return self._check_init_guess (ci1, norb_f, nelec_f)
+
+    def _check_init_guess (self, ci0, norb_f, nelec_f):
+        ci1 = []
+        if ci0 is None: ci0 = [None for i in range (len (norb_f))]
+        for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
+            nelec = self._get_nelec (solver, ne)
             neleca, nelecb = nelec
             na = cistring.num_strings (no, neleca)
             nb = cistring.num_strings (no, nelecb)
@@ -78,7 +93,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                         solver.nroots, solver.transformer.ncsf, ix, solver.nelec, solver.smult))
         return ci1
                 
-    def _debug_csfs (self, log, ci1, norb_f, nelec_f, grad):
+    def _debug_csfs (self, log, ci0, ci1, norb_f, nelec_f, grad):
         if not all ([isinstance (s, CSFFCISolver) for s in self.fcisolvers]):
             return
         if log.verbose < lib.logger.INFO: return
@@ -90,37 +105,46 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             grad = grad[offs:]
         assert (len (grad) == 0)
         log.info ('Debugging CI and gradient vectors...')
-        for ix, (grad, ci, s, t) in enumerate (zip (grad_f, ci1, self.fcisolvers, transformers)):
+        for ix, (grad, c0, c1, s, t) in enumerate (zip (grad_f, ci0, ci1, self.fcisolvers, transformers)):
             log.info ('Fragment %d', ix)
-            ci_csf, ci_norm = t.vec_det2csf (ci, normalize=True, return_norm=True)
-            log.info ('CI vector norm = %s', str(ci_norm))
+            c0_csf, c0_norm = t.vec_det2csf (c0, normalize=True, return_norm=True)
+            c1_csf, c1_norm = t.vec_det2csf (c1, normalize=True, return_norm=True)
+            log.info ('CI vector norm = %s', str(c1_norm))
             grad_norm = linalg.norm (grad)
             log.info ('Gradient norm = %e', grad_norm)
-            log.info ('CI vector leading components:')
-            lbls, coeffs = t.printable_largest_csf (ci_csf, 10)
-            for l, c in zip (lbls[0], coeffs[0]):
-                log.info ('%s : %e', l, c)
-            log.info ('Grad vector leading components:')
-            lbls, coeffs = t.printable_largest_csf (grad, 10, normalize=False)
-            for l, c in zip (lbls[0], coeffs[0]):
-                log.info ('%s : %e', l, c)
+            c0_lbls, c0_coeffs = t.printable_largest_csf (c0_csf, 10)
+            c1_lbls, c1_coeffs = t.printable_largest_csf (c1_csf, 10)
+            g_lbls, g_coeffs = t.printable_largest_csf (grad, 10, normalize=False)
+            nroots = len (c0_lbls)
+            for i in range (nroots):
+                log.info ('Previous CI vector leading components (%d/%d):', i, nroots)
+                for l, c in zip (c0_lbls[i], c0_coeffs[i]):
+                    log.info ('%s : %e', l, c)
+                log.info ('Current CI vector leading components (%d/%d):', i, nroots)
+                for l, c in zip (c1_lbls[i], c1_coeffs[i]):
+                    log.info ('%s : %e', l, c)
+                log.info ('Grad vector leading components (%d/%d):', i, nroots)
+                for l, c in zip (g_lbls[i], g_coeffs[i]):
+                    log.info ('%s : %e', l, c)
 
-    def _1shot (self, h0eff, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
-            **kwargs):
+    def _1shot (self, it, h0eff, h1eff, h2, e0, ci0, norb_f, nelec_f, orbsym=None,
+                serialfrag=False, **kwargs):
+        nfrag = len (norb_f)
         nj = np.cumsum (norb_f)
         ni = nj - norb_f
-        zipper = [h0eff, h1eff, ci, norb_f, nelec_f, self.fcisolvers, ni, nj]
-        e1 = []
-        ci1 = []
-        for h0e, h1e, c, no, ne, solver, i, j in zip (*zipper):
+        zipper = [h0eff, h1eff, ci0, norb_f, nelec_f, self.fcisolvers, ni, nj]
+        e1 = [e for e in e0]
+        ci1 = [c for c in ci0]
+        for ifrag, (h0e, h1e, c, no, ne, solver, i, j) in enumerate (zip (*zipper)):
+            if serialfrag and it % nfrag != ifrag: continue
             h2e = h2[i:j,i:j,i:j,i:j]
             osym = getattr (solver, 'orbsym', None)
             if orbsym is not None: osym=orbsym[i:j]
             nelec = self._get_nelec (solver, ne)
             e, c1 = solver.kernel (h1e, h2e, no, nelec, ci0=c, ecore=h0e,
                 orbsym=osym, **kwargs)
-            e1.append (e)
-            ci1.append (c1)
+            e1[ifrag] = e
+            ci1[ifrag] = c1
         return e1, ci1
 
     def _get_grad (self, h1eff, h2, ci, norb_f, nelec_f, orbsym=None,
@@ -212,7 +236,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             try:
                 a, b = s.make_rdm1s (c, no, nelec)
             except AssertionError as e:
-                print (type (c), np.asarray (c).shape)
+                print (type (c), np.asarray (c).shape, no, nelec, ix, type (s), getattr (s, 'weights', None))
                 raise (e)
             except ValueError as e:
                 print ("frag=",ix,"nroots=",s.nroots,"no=",no,"ne=",nelec,'c.shape=',np.asarray(c).shape)
@@ -256,6 +280,12 @@ def state_average_fcisolver (solver, weights=(.5,.5), wfnsym=None):
     return state_average_mcscf (dummy, weights=weights, wfnsym=wfnsym).fcisolver
 
 class ImpureProductStateFCISolver (ProductStateFCISolver):
+    '''Minimize the energy of an impure state:
+
+    E = \sum_n1 w_n1 \sum_n2 w_n2 \sum_n3 w_n3 ... <n1n2n3...|H|n1n2n3...>
+
+    over orthonormal sets of CI vectors {nK} for fragment K.'''
+
     def __init__(self, fcisolvers, stdout=None, verbose=0, lroots=None, lweights=None, **kwargs):
         ProductStateFCISolver.__init__(self, fcisolvers, stdout=stdout, verbose=verbose, **kwargs)
         if lweights is None:

@@ -690,7 +690,7 @@ def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd
     _, npair_csf_offset, _, _, npair_csf_size = get_csfvec_shape (norb, neleca, nelecb, smult)
     npair_econf_size = npair_dconf_size * npair_sconf_size
     max_npair = min (neleca, nelecb)
-    csf_idx = np.zeros (ncsf_all, dtype=np.bool_)
+    assert (np.count_nonzero (reduced_csd_mask[1:] - reduced_csd_mask[:-1] - 1)==0)
     def ax_b (mat):
         nrow = mat.shape[0]
         assert (mat.shape[1] == ndet_all)
@@ -710,15 +710,17 @@ def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd
             if nconf == 0 or ncsf == 0 or ndet == 0:
                 continue
 
-            csf_idx[:] = False
-            csf_idx[csf_offset:csf_offset+nconf*ncsf] = True
+            ci = csf_offset
+            cj = ci + nconf*ncsf
 
-            det_idx = reduced_csd_mask[det_offset:det_offset+nconf*ndet].reshape (nconf, ndet, order='C')
-    
+            di = reduced_csd_mask[det_offset]
+            dj = di + nconf*ndet
+            mat_ij = mat[:,di:dj].reshape (nrow, nconf, ndet)
+
             nspin = neleca + nelecb - 2*npair
             umat = np.asarray_chkfinite (get_spin_evecs (nspin, neleca, nelecb, smult))
 
-            outmat[:,csf_idx] = np.tensordot (mat[:,det_idx], umat, axes=1).reshape (nrow, ncsf*nconf, order='C')
+            outmat[:,ci:cj] = np.tensordot (mat_ij, umat, axes=1).reshape (nrow, ncsf*nconf, order='C')
 
             det_offset += nconf*ndet
             csf_offset += nconf*ncsf
@@ -727,7 +729,8 @@ def transform_opmat_det2csf_pspace (op, econfs, norb, neleca, nelecb, smult, csd
         assert (csf_offset == ncsf_all), "{} {}".format (csf_offset, ncsf_all)
         return outmat
 
-    op = ax_b (ax_b (op).conj ().T).conj ().T
+    op = ax_b (op).conj ().T
+    op = ax_b (op).conj ().T
     return op, csf_addrs
             
 

@@ -225,13 +225,14 @@ def _debug_g2e (fci, g2e, eri, norb):
     raise ValueError ('g2e has {} infs and {} nans (norb = {}; shape = {})'.format (g2e_ninf, g2e_nnan, norb, g2e.shape))
     return
 
-def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=None, npsp=200):
+def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=None, npsp=200, max_memory=None):
     ''' Note that getting pspace for npsp CSFs is substantially more costly than getting it for npsp determinants,
     until I write code than can evaluate Hamiltonian matrix elements of CSFs directly. On the other hand
     a pspace of determinants contains many redundant degrees of freedom for the same reason. Therefore I have
     reduced the default pspace size by a factor of 2.'''
     if norb > 63:
         raise NotImplementedError('norb > 63')
+    if max_memory is None: max_memory=2000
 
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     neleca, nelecb = _unpack_nelec(nelec)
@@ -266,6 +267,13 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     stra = cistring.addrs2str(norb, neleca, addra)
     strb = cistring.addrs2str(norb, nelecb, addrb)
     npsp_det = len(det_addr)
+    safety_factor = 1.2
+    nfloats_h0 = (npsp_det+npsp)**2
+    mem_h0 = safety_factor * nfloats_h0 * np.dtype (float).itemsize / 1e6
+    mem_remaining = max_memory - lib.current_memory ()[0]
+    if mem_h0 > mem_remaining:
+        raise MemoryError (("pspace_size of {} CSFs -> {} determinants requires {} MB > {} MB "
+                            "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining))
     h0 = np.zeros((npsp_det,npsp_det))
     h1e_ab = unpack_h1e_ab (h1e)
     h1e_a = np.ascontiguousarray(h1e_ab[0])
@@ -290,7 +298,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     h0 = lib.hermi_triu(h0)
 
     try:
-        if fci.verbose >= lib.logger.DEBUG: evals_before = scipy.linalg.eigh (h0)[0]
+        if fci.verbose > lib.logger.DEBUG1: evals_before = scipy.linalg.eigh (h0)[0]
     except ValueError as e:
         lib.logger.debug1 (fci, ("ERROR: h0 has {} infs, {} nans; h1e_a has {} infs, {} nans; "
             "h1e_b has {} infs, {} nans; g2e has {} infs, {} nans, norb = {}, npsp_det = {}").format (
@@ -304,7 +312,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     h0, csf_addr = transformer.mat_det2csf_confspace (h0, econf_addr)
     t0 = lib.logger.timer_debug1 (fci, "csf.pspace: transform pspace Hamiltonian into CSF basis", *t0)
 
-    if fci.verbose > lib.logger.DEBUG:
+    if fci.verbose > lib.logger.DEBUG1:
         lib.logger.debug1 (fci, "csf.pspace: eigenvalues of h0 before transformation %s", evals_before)
         evals_after = scipy.linalg.eigh (h0)[0]
         lib.logger.debug1 (fci, "csf.pspace: eigenvalues of h0 after transformation %s", evals_after)
@@ -478,9 +486,11 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
         self.check_transformer_cache ()
         return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
 
-    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
+    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None, smult=None):
         self.norb = norb
         self.nelec = nelec
+        if smult is not None:
+            self.smult = smult
         self.check_transformer_cache ()
         return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
 
@@ -506,9 +516,13 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
         self.norb = norb
         self.nelec = nelec
+        if 'smult' in kwargs:
+            self.smult = kwargs['smult']
+            kwargs.pop ('smult')
         self.check_transformer_cache ()
+        max_memory = kwargs.get ('max_memory', self.max_memory)
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
-            hdiag_csf=hdiag_csf, npsp=npsp)
+            hdiag_csf=hdiag_csf, npsp=npsp, max_memory=max_memory)
         
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         self.norb = norb

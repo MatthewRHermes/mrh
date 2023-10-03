@@ -69,6 +69,7 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
     #              + (lx + i*ly).b'a
     #              + lz.(a'a - b'b)
     #             )
+    if isinstance (las, LASSI): las = las._las
     if soc>1: raise NotImplementedError ("Two-electron spin-orbit coupling")
     ncore, ncas, nocc = las.ncore, las.ncas, las.ncore + las.ncas
     norb = sum(las.ncas_sub)
@@ -168,12 +169,16 @@ def las_symm_tuple (las, break_spin=False, break_symmetry=False, verbose=None):
     lbls = ['ix', 'Energy', '<S**2>'] + qn_lbls
     fmt_str = ' {:2s}  {:>16s}  {:6s}  ' + '  '.join (['{:6s}',]*len(qn_lbls))
     log.info (fmt_str.format (*lbls))
-    for ix, (e, sy, s2) in enumerate (zip (las.e_states, full_statesym, s2_states)):
-        data = [ix, e, s2] + list (sy)
-        data[-1] = symm.irrep_id2name (las.mol.groupname, data[-1])
-        fmts = ['{:2d}','{:16.10f}','{:6.3f}'] + qn_fmts
-        fmt_str = ' ' + '  '.join (fmts)
-        log.info (fmt_str.format (*data))
+    try:
+        for ix, (e, sy, s2) in enumerate (zip (las.e_states, full_statesym, s2_states)):
+            data = [ix, e, s2] + list (sy)
+            data[-1] = symm.irrep_id2name (las.mol.groupname, data[-1])
+            fmts = ['{:2d}','{:16.10f}','{:6.3f}'] + qn_fmts
+            fmt_str = ' ' + '  '.join (fmts)
+            log.info (fmt_str.format (*data))
+    except TypeError as err:
+        print (las.e_states, full_statesym, s2_states)
+        raise (err)
     if break_spin:
         log.info ("States with different neleca-nelecb can be mixed by LASSI")
     if break_symmetry:
@@ -671,6 +676,8 @@ class LASSI(lib.StreamObject):
         if isinstance(las, LASCINoSymm): self._las = las
         else: raise RuntimeError("LASSI requires las instance")
         self.__dict__.update(las.__dict__)
+        self.ncore = las.ncore
+        self.nfrags = las.nfrags
         keys = set(('e_roots', 'si', 's2', 's2_mat', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
         self.e_roots = None
         self.si = None
@@ -686,7 +693,7 @@ class LASSI(lib.StreamObject):
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,\
                break_symmetry=False, opt=1,  **kwargs):
-        e_roots, si = lassi(self._las, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
+        e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
                             soc=soc, break_symmetry=break_symmetry, opt=opt)
         self.e_roots = e_roots
         self.si, self.s2, self.s2_mat, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
@@ -694,11 +701,11 @@ class LASSI(lib.StreamObject):
         return self.e_roots, self.si
 
     def ham_2q (self, mo_coeff=None, veff_c=None, h2eff_sub=None, soc=0):
-        if mo_coeff is None: mo_coeff = self._las.mo_coeff
-        return ham_2q (self._las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        return ham_2q (self, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
 
     def get_nelec_frs (self, las=None):
-        if las is None: las = self._las
+        if las is None: las = self
         nelec_frs = []
         for fcibox, nelec in zip (las.fciboxes, las.nelecas_sub):
             nelec_rs = []
@@ -708,7 +715,7 @@ class LASSI(lib.StreamObject):
         return np.asarray (nelec_frs)
 
     def get_lroots (self, ci=None):
-        if ci is None: ci = self._las.ci
+        if ci is None: ci = self.ci
         return get_lroots (ci)
 
 
