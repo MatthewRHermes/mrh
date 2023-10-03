@@ -14,7 +14,8 @@ PM::PM()
 int PM::dev_num_devices()
 {
   int num_devices = omp_get_num_devices();
-  _OMP_CHECK_ERRORS();
+  bool err = (num_devices < 0);
+  _OMP_CHECK_ERRORS(err);
   
   return num_devices;
 }
@@ -82,7 +83,7 @@ int PM::dev_check_peer(int rank, int ngpus)
 void PM::dev_set_device(int id)
 {
   omp_set_default_device(id);
-  _OMP_CHECK_ERRORS();
+//  _OMP_CHECK_ERRORS();
 }
 
 
@@ -95,15 +96,18 @@ void * PM::dev_malloc(int N)
 {
   int id = omp_get_default_device();
   void * ptr = omp_target_alloc(N, id);
-  if(ptr == nullptr) printf("dev_malloc() failed to allocate id= %i  N= %i\n",id,N);
-  _OMP_CHECK_ERRORS();
+  bool err = (ptr == nullptr);
+  if(err) printf("dev_malloc() failed to allocate id= %i  N= %i\n",id,N);
+  _OMP_CHECK_ERRORS(err);
   return ptr;
 }
 
 void * PM::dev_malloc_host(int N)
 {
   void * ptr = omp_alloc(N, omp_default_mem_alloc);
-  _OMP_CHECK_ERRORS();
+  bool err = (ptr == nullptr);
+  if(err) printf("dev_malloc_host() failed to allocate N= %i\n",N);
+  _OMP_CHECK_ERRORS(err);
   return ptr;
 }
 
@@ -111,13 +115,13 @@ void PM::dev_free(void * ptr)
 {
   int id = omp_get_default_device();
   omp_target_free(ptr, id);
-  _OMP_CHECK_ERRORS();
+  //_OMP_CHECK_ERRORS();
 }
 
 void PM::dev_free_host(void * ptr)
 {
   omp_free(ptr, omp_default_mem_alloc);
-  _OMP_CHECK_ERRORS();
+  //_OMP_CHECK_ERRORS();
 }
 
 void PM::dev_push(void * d_ptr, void * h_ptr, int N)
@@ -125,8 +129,8 @@ void PM::dev_push(void * d_ptr, void * h_ptr, int N)
   int gpu = omp_get_default_device();
   int host = omp_get_initial_device();
   int err = omp_target_memcpy(d_ptr, h_ptr, N, 0, 0, gpu, host);
-  if(err != 0) printf("dev_push() : err= %i\n",err);
-  _OMP_CHECK_ERRORS();
+  if(err) printf("dev_push() : err= %i  d_ptr= %p  h_ptr= %p  N= %i\n",err, &d_ptr, &h_ptr, N);
+  _OMP_CHECK_ERRORS(err);
 }
 
 void PM::dev_pull(void * d_ptr, void * h_ptr, int N)
@@ -134,15 +138,16 @@ void PM::dev_pull(void * d_ptr, void * h_ptr, int N)
   int gpu = omp_get_default_device();
   int host = omp_get_initial_device();
   int err = omp_target_memcpy(h_ptr, d_ptr, N, 0, 0, host, gpu);
-  if(err != 0) printf("dev_pull() : err= %i\n",err);
-  _OMP_CHECK_ERRORS();
+  if(err) printf("dev_pull() : err= %i  d_ptr= %p  h_ptr= %p  N= %i\n",err, &d_ptr, &h_ptr, N);
+  _OMP_CHECK_ERRORS(err);
 }
 
 void PM::dev_copy(void * a_ptr, void * b_ptr, int N)
 {
   int gpu = omp_get_default_device();
-  omp_target_memcpy(b_ptr, a_ptr, N, 0, 0, gpu, gpu);
-  _OMP_CHECK_ERRORS();
+  int err = omp_target_memcpy(b_ptr, a_ptr, N, 0, 0, gpu, gpu);
+  if(err) printf("dev_copy() : err= %i  a_ptr= %p  b_ptr= %p  N= %i\n",err, &a_ptr, &b_ptr, N);
+  _OMP_CHECK_ERRORS(err);
 }
 
 void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
@@ -160,8 +165,8 @@ void PM::dev_push_async(void * d_ptr, void * h_ptr, int N, void * s)
   int gpu = omp_get_default_device();
   int host = omp_get_initial_device();
   int err = omp_target_memcpy(d_ptr, h_ptr, N, 0, 0, gpu, host);
-  if(err != 0) printf("dev_push_async() : err= %i  gpu= %i  host= %i  N= %i\n",err,gpu,host,N);
-  _OMP_CHECK_ERRORS();
+  if(err) printf("dev_push_async() : err= %i  gpu= %i  host= %i  d_ptr= %p  h_ptr= %p  N= %i\n",err, gpu, host, &d_ptr, &h_ptr, N);
+  _OMP_CHECK_ERRORS(err);
 }
 
 void PM::dev_pull_async(void * d_ptr, void * h_ptr, int N, void * s)
@@ -169,8 +174,8 @@ void PM::dev_pull_async(void * d_ptr, void * h_ptr, int N, void * s)
   int gpu = omp_get_default_device();
   int host = omp_get_initial_device();
   int err = omp_target_memcpy(h_ptr, d_ptr, N, 0, 0, host, gpu);
-  if(err != 0) printf("dev_pull_async() : err= %i\n",err);
-  _OMP_CHECK_ERRORS();
+  if(err) printf("dev_pull_async() : err= %i  gpu= %i  host= %i  d_ptr= %p  h_ptr= %p  N= %i\n",err,gpu, host, &d_ptr, &h_ptr, N);
+  _OMP_CHECK_ERRORS(err);
 }
 
 void PM::dev_stream_create(void * s) {};

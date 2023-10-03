@@ -17,18 +17,30 @@
 
 namespace PM_NS {
   
-#define _OMP_CHECK_ERRORS()                \
+#define _OMP_CHECK_ERRORS(err)             \
   {					   \
-    cudaError err = cudaGetLastError();	   \
-    if(err != cudaSuccess) {		   \
+    if(err) {		                   \
       std::cout				   \
-	<< "CUDA error with code "	   \
-	<< cudaGetErrorString(err)	   \
+	<< "OpenMPTarget error with code " \
 	<< " in file " << __FILE__	   \
 	<< " at line " << __LINE__	   \
 	<< ". Exiting...\n";		   \
       exit(1);				   \
     }					   \
+  }
+
+#define _CUDA_CHECK_ERRORS()               \
+  {                                        \
+    cudaError err = cudaGetLastError();    \
+    if(err != cudaSuccess) {               \
+      std::cout                            \
+        << "CUDA error with code "         \
+        << cudaGetErrorString(err)         \
+        << " in file " << __FILE__         \
+        << " at line " << __LINE__         \
+        << ". Exiting...\n";               \
+      exit(1);                             \
+    }                                      \
   }
 
   class PM {

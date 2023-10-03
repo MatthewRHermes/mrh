@@ -94,7 +94,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     nvtxRangePushA("Create handle");
 #endif
     cublasCreate(&handle);
-    _OMP_CHECK_ERRORS();
+    _CUDA_CHECK_ERRORS();
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
