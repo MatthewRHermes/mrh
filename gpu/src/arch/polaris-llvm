@@ -1,18 +1,24 @@
 INSTALL = ../../my_pyscf/gpu
 
-CUDA=/soft/compilers/cudatoolkit/cuda-11.4.4/
-
 PYTHON_INC=$(shell python -m pybind11 --includes)
+
+PATH_TO_NVCC = $(shell which nvcc)
+CUDA = $(shell echo ${PATH_TO_NVCC} | rev | cut -d '/' -f 3- | rev)
+
+$(info PYTHON_INC= [${PYTHON_INC}])
+$(info NVHPC= [${CUDA}])
+
+GPU_FLAGS = -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda
 
 FC = ftn
 FCFLAGS = -g -fopenmp -O3
 
 CXX = mpicxx
-CXXFLAGS = -g -fPIC -fopenmp -O3
-#CXXFLAGS += -I$(NVIDIA_PATH)/cuda/include
-
+CXXFLAGS = -g -fPIC -O3
+CXXFLAGS += $(PYTHON_INC)
 CXXFLAGS += -D_USE_GPU -D_GPU_OPENMP
-CXXFLAGS += -I$(CUDA)/include
+CXXFLAGS += $(GPU_FLAGS)
+#CXXFLAGS += -I$(CUDA)/include
 CXXFLAGS += -D_SIMPLE_TIMER
 CXXFLAGS += -D_CUDA_NVTX
 
@@ -23,7 +29,7 @@ CUDA_CXXFLAGS += -D_SIMPLE_TIMER
 CUDA_CXXFLAGS += -D_CUDA_NVTX
 
 LD = $(CXX)
-LDFLAGS = -fPIC -shared
+LDFLAGS = -fPIC -shared $(GPU_FLAGS)
 LIB = -lstdc++
-LIB += -L$(CUDA)/lib64 -lcublas
+LIB += -L$(CUDA)/lib64 -lcublas -lcudart
 LIB += -lnvToolsExt

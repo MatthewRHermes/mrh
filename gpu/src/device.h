@@ -150,7 +150,7 @@ private:
 
   int num_threads;
   
-#if defined(_GPU_CUDA)
+#if defined(_USE_GPU)
   cublasHandle_t handle;
   cudaStream_t stream;
 #endif
