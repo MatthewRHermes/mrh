@@ -8,7 +8,7 @@ from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
 from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.lassi.lassi import LASSI
 
-def prepare_states (lsi, nmax_charge=0, sa_heff=True):
+def prepare_states (lsi, nmax_charge=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
     las = lsi._las
     las1 = spin_shuffle (las)
     las1.ci = spin_shuffle_ci (las1, las1.ci)
@@ -16,10 +16,14 @@ def prepare_states (lsi, nmax_charge=0, sa_heff=True):
     # between definition of e_states array for neutral and charge-separated rootspaces
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
     las2 = all_single_excitations (las1)
-    converged, las2.ci, las2.e_states = single_excitations_ci (lsi, las2, las1, nmax_charge=nmax_charge, sa_heff=sa_heff)
+    converged, las2.ci, las2.e_states = single_excitations_ci (
+        lsi, las2, las1, nmax_charge=nmax_charge, sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
+        crash_locmin=crash_locmin
+    )
     return converged, las2
 
-def single_excitations_ci (lsi, las2, las1, nmax_charge=0, sa_heff=True):
+def single_excitations_ci (lsi, las2, las1, nmax_charge=0, sa_heff=True, deactivate_vrv=False,
+                           crash_locmin=False):
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
     nfrags = lsi.nfrags
@@ -48,7 +52,9 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=0, sa_heff=True):
             for k in range (nfrags):
                 ciref[k].append (las1.ci[k][j])
         psexc = ExcitationPSFCISolver (psref, ciref, las2.ncas_sub, las2.nelecas_sub,
-                                       stdout=mol.stdout, verbose=mol.verbose)
+                                       stdout=mol.stdout, verbose=mol.verbose,
+                                       crash_locmin=crash_locmin)
+        psexc._deactivate_vrv = deactivate_vrv
         neleca = spaces[i].neleca
         nelecb = spaces[i].nelecb
         smults = spaces[i].smults
@@ -84,17 +90,25 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=0, sa_heff=True):
     return converged, ci, e_roots
 
 class LASSIS (LASSI):
-    def __init__(self, las, nmax_charge=0, sa_heff=True, **kwargs):
+    def __init__(self, las, nmax_charge=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False, 
+                 **kwargs):
         self.nmax_charge = nmax_charge
         self.sa_heff = sa_heff
+        self.deactivate_vrv = deactivate_vrv
+        self.crash_locmin = crash_locmin
         LASSI.__init__(self, las, **kwargs)
         if las.nroots>1:
             logger.warn (self, ("LASSIS builds the model space for you! I don't know what will "
                                 "happen if you build a model space by hand!"))
-    def kernel (self, nmax_charge=None, sa_heff=None, **kwargs):
+    def kernel (self, nmax_charge=None, sa_heff=None, deactivate_vrv=None, crash_locmin=None, 
+                **kwargs):
         if nmax_charge is None: nmax_charge = self.nmax_charge
         if sa_heff is None: sa_heff = self.sa_heff
-        self.converged, las = prepare_states (self, nmax_charge=nmax_charge, sa_heff=sa_heff)
+        if deactivate_vrv is None: deactivate_vrv = self.deactivate_vrv
+        if crash_locmin is None: crash_locmin = self.crash_locmin
+        self.converged, las = prepare_states (self, nmax_charge=nmax_charge, sa_heff=sa_heff,
+                                              deactivate_vrv=deactivate_vrv,
+                                              crash_locmin=crash_locmin)
         self.__dict__.update(las.__dict__)
         return LASSI.kernel (self, **kwargs)
 

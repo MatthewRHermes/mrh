@@ -156,7 +156,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     with {ci(ref(i))_K} fixed.'''
 
     def __init__(self, solvers_ref, ci_ref, norb_ref, nelec_ref, orbsym_ref=None,
-                 wfnsym_ref=None, stdout=None, verbose=0, opt=0, ref_weights=None, **kwargs):
+                 wfnsym_ref=None, stdout=None, verbose=0, opt=0, ref_weights=None, 
+                 crash_locmin=False, **kwargs):
         if isinstance (solvers_ref, ProductStateFCISolver):
             solvers_ref = [solvers_ref]
             ci_ref = [[c] for c in ci_ref]
@@ -170,6 +171,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         self.nelec_ref = nelec_ref
         self.orbsym_ref = orbsym_ref
         self.wfnsym_ref = wfnsym_ref
+        self.crash_locmin = crash_locmin
         self.opt = opt
         self._deactivate_vrv = False # for testing
         ProductStateFCISolver.__init__(self, solvers_ref[0].fcisolvers, stdout=stdout,
@@ -447,7 +449,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci0, e0 = self.sort_ci0 (ham_pq, ci0)
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
-            vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=1))
+            vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=1,
+                                              crash_locmin=self.crash_locmin))
         return ci0, vrvsolvers, e_q, si_q
 
     def revert_vrvsolvers_(self):
@@ -499,7 +502,8 @@ class VRVDressedFCISolver (object):
         conv_tol_e0: float
             Convergence threshold for the self-consistent eigenenergy
     '''
-    def __init__(self, fcibase, my_vrv, my_eq, my_e0, max_cycle_e0=100, conv_tol_e0=1e-8):
+    def __init__(self, fcibase, my_vrv, my_eq, my_e0, max_cycle_e0=100, conv_tol_e0=1e-8,
+                 crash_locmin=False):
         self.base = copy.copy (fcibase)
         if isinstance (fcibase, StateAverageFCISolver):
             self._undressed_class = fcibase._base_class
@@ -507,12 +511,13 @@ class VRVDressedFCISolver (object):
             self._undressed_class = fcibase.__class__
         self.__dict__.update (fcibase.__dict__)
         keys = set (('contract_vrv', 'base', 'v_qpab', 'denom_q', 'e_q', 'max_cycle_e0',
-                     'conv_tol_e0', 'charge'))
+                     'conv_tol_e0', 'charge', 'crash_locmin'))
         self.denom_q = 0
         self.e_q = my_eq
         self.v_qpab = my_vrv
         self.max_cycle_e0 = max_cycle_e0
         self.conv_tol_e0 = conv_tol_e0
+        self.crash_locmin = crash_locmin
         self._keys = self._keys.union (keys)
         self.davidson_only = self.base.davidson_only = True
         # TODO: Relaxing this ^ requires accounting for pspace, precond, and/or hdiag
@@ -553,6 +558,10 @@ class VRVDressedFCISolver (object):
         if e0-h_diagmin > 1e-8:
             log.warn ("%s in VRVSolver: min (hdiag) = %e < e0 = %e",
                       warntag, np.amin (e_pq), e0)
+            if self.crash_locmin:
+                errstr = "locmin crashed as requested (crash_locmin=True)"
+                log.error (errstr)
+                raise RuntimeError (errstr)
             return True
         return False
     def solve_e0 (self, h0e, h1e, h2e, norb, nelec, ket):
@@ -580,7 +589,7 @@ class VRVDressedFCISolver (object):
         ci1 = ci0
         self.denom_q = e0 - self.e_q
         log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
-        assert (not self.test_locmin (e0, ci1, warntag='Saddle-point initial guess'))
+        self.test_locmin (e0, ci1, warntag='Saddle-point initial guess')
         warn_swap = False # annoying loud warning not necessary
         #print (lib.fp (ci0), self.denom_q)
         for it in range (max_cycle_e0):
@@ -606,7 +615,7 @@ class VRVDressedFCISolver (object):
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
                 break
-        assert (not self.test_locmin (e0, ci1))
+        self.test_locmin (e0, ci1)
         self.converged = (converged and self.converged)
         #print (lib.fp (ci1), self.denom_q)#np.stack ([ci1[0].ravel (), ci1[1].ravel ()], axis=-1))
         return e, ci1
@@ -616,12 +625,14 @@ class VRVDressedFCISolver (object):
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
 
-def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=100, conv_tol_e0=1e-8):
+def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=100, conv_tol_e0=1e-8,
+                   crash_locmin=False):
     if isinstance (fciobj, VRVDressedFCISolver):
         fciobj.v_qpab = v_qpab
         fciobj.e_q = e_q
         fciobj.max_cycle_e0 = max_cycle_e0
         fciobj.conv_tol_e0 = conv_tol_e0
+        fciobj.crash_locmin = crash_locmin
         return fciobj
     # VRV should be injected below the state-averaged layer
     if isinstance (fciobj, StateAverageFCISolver):
@@ -633,7 +644,7 @@ def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=100, conv_tol_e0=1e-8):
     class FCISolver (VRVDressedFCISolver, fciobj_class):
         pass
     new_fciobj = FCISolver (fciobj, v_qpab, e_q, e0, max_cycle_e0=max_cycle_e0,
-                            conv_tol_e0=conv_tol_e0)
+                            conv_tol_e0=conv_tol_e0, crash_locmin=crash_locmin)
     if weights is not None: new_fciobj = state_average_fcisolver (new_fciobj, weights=weights)
     return new_fciobj
 
