@@ -51,7 +51,7 @@ def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None, ovlp_thresh=1e-8):
     #    err_choice, u_valid[0,idx_choice]**2))
     return e_valid[idx_choice]
 
-def sort_ci0 (ham_pq, ci0):
+def sort_ci0 (obj, ham_pq, ci0):
     '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
     and eigenvectors. Sort ci0 so that the ENV |00...0> is the state with the
     minimum guess energy for the downfolded eigenproblem
@@ -76,6 +76,7 @@ def sort_ci0 (ham_pq, ci0):
             individual fragment states "i" are sorted in ascending order of the energy of
             |00...0i00...0>.'''
     # Find lowest-energy ENV, including VRV contributions
+    log = lib.logger.new_logger (obj, obj.verbose)
     lroots = get_lroots (ci0)
     p = np.prod (lroots)
     h_pp = ham_pq[:p,:p]
@@ -97,8 +98,13 @@ def sort_ci0 (ham_pq, ci0):
         idx = np.abs (denom) > 1e-16
         return np.dot (h_pq[:,idx].conj () / denom[None,idx], h_pq[:,idx].T)
     heff_pp = h_pp + sigma_pp (e0_p)
-    assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-4)
-
+    try:
+        assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-4)
+    except AssertionError as err:
+        log.warn (("Weak coupling to reference space detected: "
+                   "e - (h_pp+sigma_pp (e)) = %e > 1e-4"),
+                  heff_pp[idxmin,idxmin] - e0_p)
+                
     # ENV index to address
     idx = idxmin
     addr = []
@@ -442,7 +448,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci_f_pabq
 
     def sort_ci0 (self, ham_pq, ci0):
-        return sort_ci0 (ham_pq, ci0)[:2]
+        return sort_ci0 (self, ham_pq, ci0)[:2]
 
     def prepare_vrvsolvers_(self, h0, h1, h2):
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
