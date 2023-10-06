@@ -24,31 +24,15 @@ def only_ground_states (ci0):
         ci1.append (c)
     return ci1
 
-def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None, ovlp_thresh=1e-8):
+def lowest_refovlp_eigval (ham_pq, ovlp_thresh=1e-8):
     ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
     eigenvector has nonzero overlap with the first basis function. '''
-    h_pp = ham_pq[0,0]
-    h_pq = ham_pq[0,1:]
-    h_qq = ham_pq[1:,1:]
-    if e_q is None or u_q is None:
-        e_q, u_q = linalg.eigh (h_qq)
-    h_pq = np.dot (h_pq, u_q)
-    v_pq = h_pq.conj () * h_pq
-    def sigma_pp (e0):
-        denom = e0 - e_q
-        idx = np.abs (denom) > 1e-16
-        denom, numer = denom[idx], v_pq[idx]
-        return np.dot (numer, 1/denom)
     e_all, u_all = linalg.eigh (ham_pq)
-    err = np.array ([e - (h_pp + sigma_pp (e)) for e in e_all])
     w = u_all[0,:].conj () * u_all[0,:]
     idx_valid = w > ovlp_thresh
     e_valid = e_all[idx_valid]
     u_valid = u_all[:,idx_valid]
     idx_choice = np.argmin (e_valid)
-    err_choice = err[np.where(idx_valid)[0][idx_choice]]
-    #print ("err_choice = {}, u0^2_choice = {}".format (
-    #    err_choice, u_valid[0,idx_choice]**2))
     return e_valid[idx_choice]
 
 def sort_ci0 (obj, ham_pq, ci0):
@@ -588,7 +572,7 @@ class VRVDressedFCISolver (object):
         ham_pq = np.diag (e_pq)
         ham_pq[0,1:] = v_q
         ham_pq[1:,0] = v_q
-        e0 = lowest_refovlp_eigval (ham_pq, e_q=np.asarray(list(self.e_q)*p), u_q=np.eye(p*q))
+        e0 = lowest_refovlp_eigval (ham_pq)
         return e0
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         log = lib.logger.new_logger (self, self.verbose)
