@@ -40,6 +40,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; sigma = %e', it, grad_max,
                 e_sigma)
+            log.debug ('e vector = {}'.format (e))
             solvers_converged = [np.all (np.asarray (s.converged)) for s in self.fcisolvers]
             if ((grad_max < conv_tol_grad) and (e_sigma < conv_tol_self)
                 and all ([solvers_converged])):

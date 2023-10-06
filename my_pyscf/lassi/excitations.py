@@ -589,6 +589,7 @@ class VRVDressedFCISolver (object):
         ci1 = ci0
         self.denom_q = e0 - self.e_q
         log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
+        log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
         self.test_locmin (e0, ci1, warntag='Saddle-point initial guess')
         warn_swap = False # annoying loud warning not necessary
         #print (lib.fp (ci0), self.denom_q)
@@ -607,6 +608,7 @@ class VRVDressedFCISolver (object):
                 ket, e0 = ci1, e
             e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
             self.denom_q = e0 - self.e_q
+            log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
             #hket = self.contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5), ket, norb, nelec)
             #brahket = np.dot (ket.ravel (), hket.ravel ())
             #e0_test = ecore + brahket
