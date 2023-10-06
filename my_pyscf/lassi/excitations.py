@@ -24,28 +24,18 @@ def only_ground_states (ci0):
         ci1.append (c)
     return ci1
 
-def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None, sceig_thresh=1e-4):
+def lowest_refovlp_eigval (ham_pq, ovlp_thresh=1e-8):
     ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
-    eigenvector has nonzero overlap with the first basis function, as
-    determined by self-consistency with the corresponding Green's function. '''
-    h_pp = ham_pq[0,0]
-    h_pq = ham_pq[0,1:]
-    h_qq = ham_pq[1:,1:]
-    if e_q is None or u_q is None:
-        e_q, u_q = linalg.eigh (h_qq)
-    h_pq = np.dot (h_pq, u_q)
-    v_pq = h_pq.conj () * h_pq
-    def sigma_pp (e0):
-        denom = e0 - e_q
-        idx = np.abs (denom) > 1e-16
-        denom, numer = denom[idx], v_pq[idx]
-        return np.dot (numer, 1/denom)
+    eigenvector has nonzero overlap with the first basis function. '''
     e_all, u_all = linalg.eigh (ham_pq)
-    err = np.array ([e - (h_pp + sigma_pp (e)) for e in e_all])
-    idx_valid = np.abs (err) < sceig_thresh
-    return np.amin (e_all[idx_valid])
+    w = u_all[0,:].conj () * u_all[0,:]
+    idx_valid = w > ovlp_thresh
+    e_valid = e_all[idx_valid]
+    u_valid = u_all[:,idx_valid]
+    idx_choice = np.argmin (e_valid)
+    return e_valid[idx_choice]
 
-def sort_ci0 (ham_pq, ci0):
+def sort_ci0 (obj, ham_pq, ci0):
     '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
     and eigenvectors. Sort ci0 so that the ENV |00...0> is the state with the
     minimum guess energy for the downfolded eigenproblem
@@ -70,6 +60,7 @@ def sort_ci0 (ham_pq, ci0):
             individual fragment states "i" are sorted in ascending order of the energy of
             |00...0i00...0>.'''
     # Find lowest-energy ENV, including VRV contributions
+    log = lib.logger.new_logger (obj, obj.verbose)
     lroots = get_lroots (ci0)
     p = np.prod (lroots)
     h_pp = ham_pq[:p,:p]
@@ -91,8 +82,13 @@ def sort_ci0 (ham_pq, ci0):
         idx = np.abs (denom) > 1e-16
         return np.dot (h_pq[:,idx].conj () / denom[None,idx], h_pq[:,idx].T)
     heff_pp = h_pp + sigma_pp (e0_p)
-    assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-4)
-
+    try:
+        assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-4)
+    except AssertionError as err:
+        log.warn (("Weak coupling to reference space detected: "
+                   "e - (h_pp+sigma_pp (e)) = %e > 1e-4"),
+                  heff_pp[idxmin,idxmin] - e0_p)
+                
     # ENV index to address
     idx = idxmin
     addr = []
@@ -436,7 +432,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return hci_f_pabq
 
     def sort_ci0 (self, ham_pq, ci0):
-        return sort_ci0 (ham_pq, ci0)[:2]
+        return sort_ci0 (self, ham_pq, ci0)[:2]
 
     def prepare_vrvsolvers_(self, h0, h1, h2):
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
@@ -576,7 +572,7 @@ class VRVDressedFCISolver (object):
         ham_pq = np.diag (e_pq)
         ham_pq[0,1:] = v_q
         ham_pq[1:,0] = v_q
-        e0 = lowest_refovlp_eigval (ham_pq, e_q=np.asarray(list(self.e_q)*p), u_q=np.eye(p*q))
+        e0 = lowest_refovlp_eigval (ham_pq)
         return e0
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         log = lib.logger.new_logger (self, self.verbose)
