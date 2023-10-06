@@ -24,10 +24,9 @@ def only_ground_states (ci0):
         ci1.append (c)
     return ci1
 
-def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None, sceig_thresh=1e-4):
+def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None, ovlp_thresh=1e-8):
     ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
-    eigenvector has nonzero overlap with the first basis function, as
-    determined by self-consistency with the corresponding Green's function. '''
+    eigenvector has nonzero overlap with the first basis function. '''
     h_pp = ham_pq[0,0]
     h_pq = ham_pq[0,1:]
     h_qq = ham_pq[1:,1:]
@@ -42,8 +41,15 @@ def lowest_refovlp_eigval (ham_pq, e_q=None, u_q=None, sceig_thresh=1e-4):
         return np.dot (numer, 1/denom)
     e_all, u_all = linalg.eigh (ham_pq)
     err = np.array ([e - (h_pp + sigma_pp (e)) for e in e_all])
-    idx_valid = np.abs (err) < sceig_thresh
-    return np.amin (e_all[idx_valid])
+    w = u_all[0,:].conj () * u_all[0,:]
+    idx_valid = w > ovlp_thresh
+    e_valid = e_all[idx_valid]
+    u_valid = u_all[:,idx_valid]
+    idx_choice = np.argmin (e_valid)
+    err_choice = err[np.where(idx_valid)[0][idx_choice]]
+    #print ("err_choice = {}, u0^2_choice = {}".format (
+    #    err_choice, u_valid[0,idx_choice]**2))
+    return e_valid[idx_choice]
 
 def sort_ci0 (ham_pq, ci0):
     '''Prepare guess CI vectors, guess energy, and Q-space Hamiltonian eigenvalues
