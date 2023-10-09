@@ -96,6 +96,7 @@ class LASSIS (LASSI):
         self.sa_heff = sa_heff
         self.deactivate_vrv = deactivate_vrv
         self.crash_locmin = crash_locmin
+        self.e_states_meaningless = True # a tag to silence an invalid warning
         LASSI.__init__(self, las, **kwargs)
         if las.nroots>1:
             logger.warn (self, ("LASSIS builds the model space for you! I don't know what will "

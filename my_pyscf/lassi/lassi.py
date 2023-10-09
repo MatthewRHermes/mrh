@@ -397,7 +397,10 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     # This diagnostic is simply not valid for local excitations;
     # the energies aren't supposed to be additive
     lroots = get_lroots (ci_blk)
-    if np.all (lroots==1) and soc==False: # tmp?
+    e_states_meaningful = not getattr (las, 'e_states_meaningless', False)
+    e_states_meaningful &= np.all (lroots==1)
+    e_states_meaningful &= not (soc) # TODO: fix?
+    if e_states_meaningful:
         diag_test = np.diag (ham_blk)
         diag_ref = las.e_states - e0
         maxerr = np.max (np.abs (diag_test-diag_ref))
