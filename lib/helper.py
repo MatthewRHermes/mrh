@@ -1,10 +1,15 @@
 import sys, os
 import numpy
 
+
+def version_tuple(version):
+    return tuple(map(int, version.split('.')))[:2]
+
+
 ''' This bit copied from PySCF '''
 def load_library(libname):
 # numpy 1.6 has bug in ctypeslib.load_library, see numpy/distutils/misc_util.py
-    if '1.6' in numpy.__version__:
+    if version_tuple(numpy.__version__) == version_tuple('1.6.2'):
         if (sys.platform.startswith('linux') or
             sys.platform.startswith('gnukfreebsd')):
             so_ext = '.so'
