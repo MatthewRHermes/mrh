@@ -9,7 +9,7 @@ def version_tuple(version):
 ''' This bit copied from PySCF '''
 def load_library(libname):
 # numpy 1.6 has bug in ctypeslib.load_library, see numpy/distutils/misc_util.py
-    if version_tuple(numpy.__version__) <= version_tuple('1.6'):
+    if version_tuple(numpy.__version__) <= version_tuple('1.6.2'):
     #if '1.6' in numpy.__version__:
         if (sys.platform.startswith('linux') or
             sys.platform.startswith('gnukfreebsd')):
