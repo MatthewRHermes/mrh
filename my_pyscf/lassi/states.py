@@ -3,6 +3,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci import cistring
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
+from pyscf import symm
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
@@ -218,6 +219,20 @@ class SingleLASRootspace (object):
         dsmults = self.smults - other.smults
         idx_same = (dneleca==0) & (dnelecb==0) & (dsmults==0)
         return ~idx_same
+
+    def table_printlog (self):
+        log = logger.new_logger (self, self.verbose)
+        fmt_str = " {:4s}  {:>11s}  {:>4s}  {:>3s}"
+        header = fmt_str.format ("Frag", "Nelec,Norb", "2S+1", "Ir")
+        log.info (header)
+        fmt_str = " {:4d}  {:>11s}  {:>4d}  {:>3s}"
+        for ifrag in range (self.nfrag):
+            na, nb = self.neleca[ifrag], self.nelecb[ifrag]
+            sm, no = self.smults[ifrag], self.nlas[ifrag]
+            irid = 0 # TODO: symmetry
+            nelec_norb = '{}a+{}b,{}o'.format (na,nb,no)
+            irname = symm.irrep_id2name (self.las.mol.groupname, irid)
+            log.info (fmt_str.format (ifrag, nelec_norb, sm, irname))
 
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment

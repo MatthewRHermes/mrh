@@ -12,6 +12,11 @@ def prepare_states (lsi, nmax_charge=0, sa_heff=True, deactivate_vrv=False, cras
     las = lsi._las
     las1 = spin_shuffle (las)
     las1.ci = spin_shuffle_ci (las1, las1.ci)
+    log = logger.new_logger (lsi, lsi.verbose)
+    log.info ("LASSIS reference spaces: 0-%d", las1.nroots-1)
+    for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las1))):
+        log.info ("Reference space %d:", ix)
+        SingleLASRootspace (las1, m, s, c, 0).table_printlog ()
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
     # between definition of e_states array for neutral and charge-separated rootspaces
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
@@ -41,12 +46,23 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=0, sa_heff=True, deactiv
     h0, h1, h2 = lsi.ham_2q ()
     t0 = (logger.process_clock (), logger.perf_counter ())
     converged = True
+    log.info ("LASSIS electron hop spaces: %d-%d", las1.nroots, las2.nroots-1)
     for i in range (las1.nroots, las2.nroots):
         psref = []
         ciref = [[] for j in range (nfrags)]
         excfrags = np.zeros (nfrags, dtype=bool)
+        log.info ("Electron hop space %d:", i)
+        spaces[i].table_printlog ()
+        log.info ("is connected to reference spaces:")
         for j in range (las1.nroots):
             if not spaces[i].is_single_excitation_of (spaces[j]): continue
+            src_frag = np.where ((spaces[i].nelec-spaces[j].nelec)==-1)[0][0]
+            dest_frag = np.where ((spaces[i].nelec-spaces[j].nelec)==1)[0][0]
+            e_spin = 'a' if np.any (spaces[i].neleca!=spaces[j].neleca) else 'b'
+            src_ds = 'u' if spaces[i].smults[src_frag]>spaces[j].smults[src_frag] else 'd'
+            dest_ds = 'u' if spaces[i].smults[dest_frag]>spaces[j].smults[dest_frag] else 'd'
+            log.info ('%d: %d(%s) --%s--> %d(%s)', j, src_frag, src_ds, e_spin,
+                      dest_frag, dest_ds)
             excfrags[spaces[i].excited_fragments (spaces[j])] = True
             psref.append (psrefs[j])
             for k in range (nfrags):
