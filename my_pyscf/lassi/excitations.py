@@ -533,7 +533,7 @@ class VRVDressedFCISolver (object):
         rv_qp = np.ravel (np.dot (v_qpab.conj (), ket.ravel ()) / denom_q[:,None])
         hket = np.dot (rv_qp, v_qpab.reshape(p*q,-1)).reshape (ket_shape)
         return hket
-    def test_locmin (self, e0, ci, warntag='Apparent local minimum'):
+    def test_locmin (self, e0, ci, norb, nelec, h0e, h1e, h2e, warntag='Apparent local minimum'):
         log = lib.logger.new_logger (self, self.verbose)
         if self.v_qpab is not None:
             p, na, nb = self.v_qpab.shape[1:]
@@ -552,8 +552,24 @@ class VRVDressedFCISolver (object):
         e_pq = np.append ([e_p,], e_q)
         h_diagmin = np.amin (e_pq)
         if e0-h_diagmin > 1e-8:
-            log.warn ("%s in VRVSolver: min (hdiag) = %e < e0 = %e",
+            log.warn ("%s in VRVSolver: min (hdiag) = %.6f < e0 = %.6f",
                       warntag, np.amin (e_pq), e0)
+            log.debug ('e_p = %.6f ; vrv = %.6f', e_p, vrv)
+            log.debug ('e_q = {}'.format (e_q))
+            log.debug ('valid de_pq = {}'.format (de_pq[idx]))
+            log.debug ('invalid de_pq = {}'.format (de_pq[~idx]))
+            log.debug ('%d valid q poles ; %d invalid q poles',
+                       np.count_nonzero (idx),
+                       np.count_nonzero (~idx))
+            log.debug ('valid denominators: {}'.format (self.denom_q[idx]))
+            log.debug ('invalid denominators: {}'.format (self.denom_q[~idx]))
+            h2_q = np.diag (np.dot (h_qp.conj (), h_qp.T))
+            log.debug ('valid numerators: {}'.format (h2_q[idx]))
+            log.debug ('invalid numerators: {}'.format (h2_q[~idx]))
+            hket_p = self.undressed_contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5),
+                                                 ket, norb, nelec)
+            e_p_test = np.dot (np.ravel (ket), np.ravel (hket_p)) + h0e
+            log.debug ('e_p error: %.6f', e_p_test - e_p)
             if self.crash_locmin:
                 errstr = "locmin crashed as requested (crash_locmin=True)"
                 log.error (errstr)
@@ -586,7 +602,7 @@ class VRVDressedFCISolver (object):
         self.denom_q = e0 - self.e_q
         log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
         log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
-        self.test_locmin (e0, ci1, warntag='Saddle-point initial guess')
+        self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e, warntag='Saddle-point initial guess')
         warn_swap = False # annoying loud warning not necessary
         #print (lib.fp (ci0), self.denom_q)
         for it in range (max_cycle_e0):
@@ -613,7 +629,7 @@ class VRVDressedFCISolver (object):
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
                 break
-        self.test_locmin (e0, ci1)
+        self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
         self.converged = (converged and self.converged)
         #print (lib.fp (ci1), self.denom_q)#np.stack ([ci1[0].ravel (), ci1[1].ravel ()], axis=-1))
         return e, ci1
