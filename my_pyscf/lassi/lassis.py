@@ -8,7 +8,7 @@ from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
 from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.lassi.lassi import LASSI
 
-def prepare_states (lsi, nmax_charge=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
+def prepare_states (lsi, nmax_charge=1, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
     las = lsi._las
     las1 = spin_shuffle (las)
     las1.ci = spin_shuffle_ci (las1, las1.ci)
@@ -20,14 +20,17 @@ def prepare_states (lsi, nmax_charge=0, sa_heff=True, deactivate_vrv=False, cras
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
     # between definition of e_states array for neutral and charge-separated rootspaces
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
-    las2 = all_single_excitations (las1)
-    converged, las2.ci, las2.e_states = single_excitations_ci (
-        lsi, las2, las1, nmax_charge=nmax_charge, sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
-        crash_locmin=crash_locmin
-    )
+    if nmax_charge:
+        las2 = all_single_excitations (las1)
+        converged, las2.ci, las2.e_states = single_excitations_ci (
+            lsi, las2, las1, nmax_charge=nmax_charge, sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
+            crash_locmin=crash_locmin
+        )
+    else:
+        converged, las2 = las1.converged, las1
     return converged, las2
 
-def single_excitations_ci (lsi, las2, las1, nmax_charge=0, sa_heff=True, deactivate_vrv=False,
+def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactivate_vrv=False,
                            crash_locmin=False):
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
@@ -42,7 +45,7 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=0, sa_heff=True, deactiv
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
     ncsf = las2.get_ugg ().ncsf_sub
     if isinstance (nmax_charge, np.ndarray): nmax_charge=nmax_charge[None,:]
-    lroots = np.minimum (1+nmax_charge, ncsf)
+    lroots = np.minimum (nmax_charge, ncsf)
     h0, h1, h2 = lsi.ham_2q ()
     t0 = (logger.process_clock (), logger.perf_counter ())
     converged = True
@@ -106,7 +109,7 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=0, sa_heff=True, deactiv
     return converged, ci, e_roots
 
 class LASSIS (LASSI):
-    def __init__(self, las, nmax_charge=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False, 
+    def __init__(self, las, nmax_charge=1, sa_heff=True, deactivate_vrv=False, crash_locmin=False, 
                  **kwargs):
         self.nmax_charge = nmax_charge
         self.sa_heff = sa_heff
