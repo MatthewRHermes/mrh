@@ -234,6 +234,19 @@ class SingleLASRootspace (object):
             irname = symm.irrep_id2name (self.las.mol.groupname, irid)
             log.info (fmt_str.format (ifrag, nelec_norb, sm, irname))
 
+    def single_fragment_spin_change (self, ifrag, new_smult, new_spin, ci=None):
+        smults1 = self.smults.copy ()
+        spins1 = self.spins.copy ()
+        smults1[ifrag] = new_smult
+        spins1[ifrag] = new_spin
+        ci1 = None
+        if ci is not None:
+            ci1 = [c for c in self.ci]
+            ci1[ifrag] = ci
+        return SingleLASRootspace (self.las, spins1, smults1, self.charges, 0, nlas=self.nlas,
+                                   nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
+                                   ci=ci1)
+
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
     in all possible ways. Uses all states already present as reference states, so that calling
@@ -265,7 +278,7 @@ def all_single_excitations (las, verbose=None):
                    "no singly-excited states could be constructed"), len (ref_states))
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
-def spin_shuffle (las, verbose=None):
+def spin_shuffle (las, verbose=None, equal_weights=False):
     '''Add states characterized by varying local Sz in all possible ways without changing
     local neleca+nelecb, local S**2, or global Sz (== sum local Sz) for each reference state.
     After calling this function, assuming no spin-orbit coupling is included, all LASSI
@@ -289,6 +302,8 @@ def spin_shuffle (las, verbose=None):
                 all_states.append (new_state)
                 seen.add (new_state)
     weights = [state.weight for state in all_states]
+    if equal_weights:
+        weights = [1.0/len(all_states),]*len(all_states)
     charges = [state.charges for state in all_states]
     spins = [state.spins for state in all_states]
     smults = [state.smults for state in all_states]
