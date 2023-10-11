@@ -76,9 +76,9 @@ namespace PM_NS {
     void dev_push_async(void*, void*, int, void*);
     void dev_pull_async(void*, void*, int, void*);
 
-    void dev_stream_create(void*);
-    void dev_stream_destroy(void*);
-    void dev_stream_wait(void*);
+    void dev_stream_create(cudaStream_t & s);
+    void dev_stream_destroy(cudaStream_t & s);
+    void dev_stream_wait(cudaStream_t & s);
   };
 
 }

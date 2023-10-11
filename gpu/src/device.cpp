@@ -112,7 +112,9 @@ Device::~Device()
   nvtxRangePop();
 #endif
 
-  pm->dev_stream_destroy(stream);
+  printf("need to destroy stream correctly...\n");
+  //pm->dev_stream_destroy(stream);
+  printf(" -- finished\n");
 #endif
 
   delete pm;
