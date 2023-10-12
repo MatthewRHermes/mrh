@@ -15,6 +15,7 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
     las = lsi._las
     las1 = spin_shuffle (las, equal_weights=True)
     las1.ci = spin_shuffle_ci (las1, las1.ci)
+    las1.converged = las.converged
     log = logger.new_logger (lsi, lsi.verbose)
     log.info ("LASSIS reference spaces: 0-%d", las1.nroots-1)
     for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las1))):
@@ -38,6 +39,7 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
         las3 = spin_halfexcitation_products (las2, spins3, smults3, ci3)
     else:
         las3 = las2
+    las3.lasci (_dry_run=True)
     return converged, las3
 
 def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactivate_vrv=False,
