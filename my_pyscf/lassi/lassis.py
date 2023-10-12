@@ -37,6 +37,9 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
     if nmax_spin:
         spins3, smults3, ci3 = all_spin_halfexcitations (lsi, las1, nmax_spin=nmax_spin)
         las3 = spin_halfexcitation_products (las2, spins3, smults3, ci3)
+        if lsi.nfrags > 2: # A second spin shuffle to get the coupled spin-charge excitations
+            las3 = spin_shuffle (las3)
+            las3.ci = spin_shuffle_ci (las3, las3.ci)
     else:
         las3 = las2
     las3.lasci (_dry_run=True)
@@ -214,9 +217,9 @@ def spin_halfexcitation_products (las2, spins3, smults3, ci3):
     log.info ("LASSIS spin-excitation spaces: %d-%d", las2.nroots, las3.nroots-1)
     for i, space in enumerate (spaces[las2.nroots:]):
         if np.any (space.nelec != nelec0):
-            log.info ("Spin/charge-excitation space %d:", i)
+            log.info ("Spin/charge-excitation space %d:", i+las2.nroots)
         else:
-            log.info ("Spin-excitation space %d:", i)
+            log.info ("Spin-excitation space %d:", i+las2.nroots)
         space.table_printlog ()
     return las3
 

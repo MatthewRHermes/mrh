@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import linalg
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci import cistring
 from pyscf.lib import logger
@@ -165,23 +166,28 @@ class SingleLASRootspace (object):
                 dict vals are the corresponding CI vectors
         '''
         ci_sz = []
+        ndet = self.get_ndet ()
         for ifrag in range (self.nfrag):
             norb, sz, ci = self.nlas[ifrag], self.spins[ifrag], self.ci[ifrag]
+            ndeta, ndetb = ndet[ifrag]
             nelec = self.neleca[ifrag], self.nelecb[ifrag]
             smult = self.smults[ifrag]
             ci_sz_ = {sz: ci}
-            ci1 = ci
+            ci1 = np.asarray (ci).reshape (-1, ndeta, ndetb)
+            nvecs = ci1.shape[0]
             nelec1 = nelec
             for sz1 in range (sz-2, -(1+smult), -2):
-                ci1 = contract_sdown (ci1, norb, nelec1)
+                ci1 = [contract_sdown (c, norb, nelec1) for c in ci1]
                 nelec1 = nelec1[0]-1, nelec1[1]+1
-                ci_sz_[sz1] = ci1
-            ci1 = ci
+                if nvecs==1: ci_sz_[sz1] = ci1[0]
+                else: ci_sz_[sz1] = np.asarray (ci1)
+            ci1 = np.asarray (ci).reshape (nvecs, ndeta, ndetb)
             nelec1 = nelec
             for sz1 in range (sz+2, (1+smult), 2):
-                ci1 = contract_sup (ci1, norb, nelec1)
+                ci1 = [contract_sup (c, norb, nelec1) for c in ci1]
                 nelec1 = nelec1[0]+1, nelec1[1]-1
-                ci_sz_[sz1] = ci1
+                if nvecs==1: ci_sz_[sz1] = ci1[0]
+                else: ci_sz_[sz1] = np.asarray (ci1)
             ci_sz.append (ci_sz_)
         return ci_sz
 
@@ -354,8 +360,13 @@ def spin_shuffle_ci (las, ci):
                 continue
             lroots, ndeti = ci_ix[ifrag].shape[0], ndet[ifrag]
             if lroots > 1:
-                c = vec_lowdin (ci_ix[ifrag].reshape (lroots, ndeti[0]*ndeti[1]))
-                ci_ix[ifrag] = c.reshape (lroots, ndeti[0], ndeti[1])
+                c = (ci_ix[ifrag].reshape (lroots, ndeti[0]*ndeti[1])).T
+                ovlp = c.conj ().T @ c
+                w, v = linalg.eigh (ovlp)
+                idx = w>1e-8
+                v = v[:,idx] / np.sqrt (w[idx])[None,:]
+                c = (c @ v).T
+                ci_ix[ifrag] = c.reshape (-1, ndeti[0], ndeti[1])
             ci[ifrag][ix] = ci_ix[ifrag]
     return ci
 
