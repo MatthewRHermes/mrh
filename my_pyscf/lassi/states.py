@@ -226,19 +226,29 @@ class SingleLASRootspace (object):
         idx_same = (dneleca==0) & (dnelecb==0) & (dsmults==0)
         return ~idx_same
 
-    def table_printlog (self):
+    def table_printlog (self, lroots=None):
+        if lroots is None and self.has_ci ():
+            lroots = []
+            for c, n in zip (self.ci, self.get_ndet ()):
+                c = np.asarray (c).reshape (-1, n[0], n[1])
+                lroots.append (c.shape[0])
         log = logger.new_logger (self, self.verbose)
         fmt_str = " {:4s}  {:>11s}  {:>4s}  {:>3s}"
         header = fmt_str.format ("Frag", "Nelec,Norb", "2S+1", "Ir")
-        log.info (header)
         fmt_str = " {:4d}  {:>11s}  {:>4d}  {:>3s}"
+        if lroots is not None:
+            header += '  Nroots'
+            fmt_str += '  {:>6d}'
+        log.info (header)
         for ifrag in range (self.nfrag):
             na, nb = self.neleca[ifrag], self.nelecb[ifrag]
             sm, no = self.smults[ifrag], self.nlas[ifrag]
             irid = 0 # TODO: symmetry
             nelec_norb = '{}a+{}b,{}o'.format (na,nb,no)
             irname = symm.irrep_id2name (self.las.mol.groupname, irid)
-            log.info (fmt_str.format (ifrag, nelec_norb, sm, irname))
+            row = [ifrag, nelec_norb, sm, irname]
+            if lroots is not None: row += [lroots[ifrag]]
+            log.info (fmt_str.format (*row))
 
     def single_fragment_spin_change (self, ifrag, new_smult, new_spin, ci=None):
         smults1 = self.smults.copy ()

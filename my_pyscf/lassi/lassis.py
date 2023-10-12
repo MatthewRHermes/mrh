@@ -13,14 +13,21 @@ from mrh.my_pyscf.lassi.lassi import LASSI
 
 def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
     las = lsi._las
-    las1 = spin_shuffle (las, equal_weights=True)
-    las1.ci = spin_shuffle_ci (las1, las1.ci)
-    las1.converged = las.converged
+    if np.all (get_space_info (las)[2]==1):
+        # If all singlets, skip the spin shuffle and the unnecessary warning below
+        las1 = las
+    else:
+        las1 = spin_shuffle (las, equal_weights=True)
+        las1.ci = spin_shuffle_ci (las1, las1.ci)
+        las1.converged = las.converged
     log = logger.new_logger (lsi, lsi.verbose)
-    log.info ("LASSIS reference spaces: 0-%d", las1.nroots-1)
+    if las1.nroots==1:
+        log.info ("LASSIS reference spaces: 0")
+    else:
+        log.info ("LASSIS reference spaces: 0-%d", las1.nroots-1)
     for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las1))):
         log.info ("Reference space %d:", ix)
-        SingleLASRootspace (las1, m, s, c, 0).table_printlog ()
+        SingleLASRootspace (las1, m, s, c, 0, ci=[c[ix] for c in las1.ci]).table_printlog ()
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
     # between definition of e_states array for neutral and charge-separated rootspaces
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
@@ -37,9 +44,6 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
     if nmax_spin:
         spins3, smults3, ci3 = all_spin_halfexcitations (lsi, las1, nmax_spin=nmax_spin)
         las3 = spin_halfexcitation_products (las2, spins3, smults3, ci3)
-        if lsi.nfrags > 2: # A second spin shuffle to get the coupled spin-charge excitations
-            las3 = spin_shuffle (las3)
-            las3.ci = spin_shuffle_ci (las3, las3.ci)
     else:
         las3 = las2
     las3.lasci (_dry_run=True)
@@ -70,7 +74,7 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
         ciref = [[] for j in range (nfrags)]
         excfrags = np.zeros (nfrags, dtype=bool)
         log.info ("Electron hop space %d:", i)
-        spaces[i].table_printlog ()
+        spaces[i].table_printlog (lroots=lroots[:,i])
         log.info ("is connected to reference spaces:")
         for j in range (las1.nroots):
             if not spaces[i].is_single_excitation_of (spaces[j]): continue
@@ -159,11 +163,12 @@ def all_spin_halfexcitations (lsi, las, nmax_spin=1):
             ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), nroots=nroots)[1]
             if nroots==1: ci_list = [ci_list,]
             ci_arrlist = [np.array (ci_list),]
-            for ms in range (sm):
-                ci_list = [contract_sdown (ci, norb, (neleca,nelecb)) for ci in ci_list]
-                neleca -= 1
-                nelecb += 1
-                ci_arrlist.append (np.array (ci_list))
+            if sm>1:
+                for ms in range (sm-1):
+                    ci_list = [contract_sdown (ci, norb, (neleca,nelecb)) for ci in ci_list]
+                    neleca -= 1
+                    nelecb += 1
+                    ci_arrlist.append (np.array (ci_list))
             return ci_arrlist
         smults1_i = []
         spins1_i = []
@@ -214,6 +219,11 @@ def spin_halfexcitation_products (las2, spins3, smults3, ci3):
     ci3 = [[space.ci[ifrag] for space in spaces] for ifrag in range (nfrags)]
     las3 = las2.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
     las3.ci = ci3
+    if las3.nfrags > 2: # A second spin shuffle to get the coupled spin-charge excitations
+        las3 = spin_shuffle (las3)
+        las3.ci = spin_shuffle_ci (las3, las3.ci)
+    spaces = [SingleLASRootspace (las3, m, s, c, las3.weights[ix], ci=[c[ix] for c in las3.ci])
+              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las3)))]
     log.info ("LASSIS spin-excitation spaces: %d-%d", las2.nroots, las3.nroots-1)
     for i, space in enumerate (spaces[las2.nroots:]):
         if np.any (space.nelec != nelec0):
