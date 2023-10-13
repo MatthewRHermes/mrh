@@ -56,11 +56,7 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
     mol = lsi.mol
     nfrags = lsi.nfrags
     e_roots = np.append (las1.e_states, np.zeros (las2.nroots-las1.nroots))
-    #psrefs = []
     ci = [[ci_ij for ci_ij in ci_i] for ci_i in las2.ci]
-    #for j in range (las1.nroots):
-    #    solvers = [b.fcisolvers[j] for b in las1.fciboxes]
-    #    psrefs.append (ProductStateFCISolver (solvers, stdout=mol.stdout, verbose=mol.verbose))
     spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in ci])
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
     ncsf = las2.get_ugg ().ncsf_sub
@@ -87,8 +83,6 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
                       dest_frag, dest_ds)
             excfrags[spaces[i].excited_fragments (spaces[j])] = True
             psref.append (spaces[j])
-            #for k in range (nfrags):
-            #    ciref[k].append (las1.ci[k][j])
         #psref = _spin_halfexcitation_products (psref, spin_halfexcs, nroots_ref=len(psref),
         #                                       frozen_frags=(~excfrags))
         ciref = [[] for j in range (nfrags)]

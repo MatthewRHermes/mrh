@@ -9,7 +9,7 @@ from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
-from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
+from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 import itertools
 
 class SingleLASRootspace (object):
@@ -228,12 +228,17 @@ class SingleLASRootspace (object):
         idx_same = (dneleca==0) & (dnelecb==0) & (dsmults==0)
         return ~idx_same
 
+    def get_lroots (self):
+        if not self.has_ci (): return None
+        lroots = []
+        for c, n in zip (self.ci, self.get_ndet ()):
+            c = np.asarray (c).reshape (-1, n[0], n[1])
+            lroots.append (c.shape[0])
+        return lroots
+
+
     def table_printlog (self, lroots=None):
-        if lroots is None and self.has_ci ():
-            lroots = []
-            for c, n in zip (self.ci, self.get_ndet ()):
-                c = np.asarray (c).reshape (-1, n[0], n[1])
-                lroots.append (c.shape[0])
+        if lroots is None: lroots = self.get_lroots ()
         log = logger.new_logger (self, self.verbose)
         fmt_str = " {:4s}  {:>11s}  {:>4s}  {:>3s}"
         header = fmt_str.format ("Frag", "Nelec,Norb", "2S+1", "Ir")
@@ -287,9 +292,19 @@ class SingleLASRootspace (object):
             fcisolvers.append (solver)
         return fcisolvers
 
-    def get_product_state_solver (self):
+    def get_product_state_solver (self, lroots=None, lweights='gs'):
         fcisolvers = self.get_fcisolvers ()
-        return ProductStateFCISolver (fcisolvers, stdout=self.stdout, verbose=self.verbose)
+        if lroots is None: lroots = self.get_lroots ()
+        lw = [np.zeros (l) for l in lroots]
+        if 'gs' in lweights.lower ():
+            for l in lw: l[0] = 1.0
+        elif 'sa' in lweights.lower ():
+            for l in lw: l[:] = 1.0/len (l)
+        else:
+            raise RuntimeError ('valid lweights are "gs" and "sa"')
+        lweights=lw
+        return ImpureProductStateFCISolver (fcisolvers, stdout=self.stdout, lweights=lweights, 
+                                            verbose=self.verbose)
 
 
 def all_single_excitations (las, verbose=None):
