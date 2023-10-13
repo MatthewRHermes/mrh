@@ -12,6 +12,7 @@ from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.lassi.lassi import LASSI
 
 def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
+    log = logger.new_logger (lsi, lsi.verbose)
     las = lsi._las
     if np.all (get_space_info (las)[2]==1):
         # If all singlets, skip the spin shuffle and the unnecessary warning below
@@ -20,11 +21,12 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
         las1 = spin_shuffle (las, equal_weights=True)
         las1.ci = spin_shuffle_ci (las1, las1.ci)
         las1.converged = las.converged
-    log = logger.new_logger (lsi, lsi.verbose)
+    nroots_ref = las1.nroots
+    spin_halfexcs = all_spin_halfexcitations (lsi, las1, nmax_spin=nmax_spin) if nmax_spin else None
     if las1.nroots==1:
         log.info ("LASSIS reference spaces: 0")
     else:
-        log.info ("LASSIS reference spaces: 0-%d", las1.nroots-1)
+        log.info ("LASSIS reference spaces: 0-%d", nroots_ref-1)
     for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las1))):
         log.info ("Reference space %d:", ix)
         SingleLASRootspace (las1, m, s, c, 0, ci=[c[ix] for c in las1.ci]).table_printlog ()
@@ -35,22 +37,21 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
         las2 = all_single_excitations (las1)
         converged, las2.ci, las2.e_states = single_excitations_ci (
             lsi, las2, las1, nmax_charge=nmax_charge, sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
-            crash_locmin=crash_locmin
+            spin_halfexcs=spin_halfexcs, crash_locmin=crash_locmin
         )
     else:
         converged, las2 = las1.converged, las1
     if lsi.nfrags > 3:
         las2 = charge_excitation_products (las2, las1)
     if nmax_spin:
-        spins3, smults3, ci3 = all_spin_halfexcitations (lsi, las1, nmax_spin=nmax_spin)
-        las3 = spin_halfexcitation_products (las2, spins3, smults3, ci3)
+        las3 = spin_halfexcitation_products (las2, spin_halfexcs, nroots_ref=nroots_ref)
     else:
         las3 = las2
     las3.lasci (_dry_run=True)
     return converged, las3
 
 def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactivate_vrv=False,
-                           crash_locmin=False):
+                           spin_halfexcs=None, crash_locmin=False):
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
     nfrags = lsi.nfrags
@@ -127,6 +128,12 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
         t0 = log.timer ("Space {} excitations".format (i), *t0)
     return converged, ci, e_roots
 
+class SpinHalfexcitations (object):
+    def __init__(self, ci, spins, smults):
+        self.ci = ci
+        self.spins = spins
+        self.smults = smults
+
 def all_spin_halfexcitations (lsi, las, nmax_spin=1):
     log = logger.new_logger (lsi, lsi.verbose)
     norb_f = las.ncas_sub
@@ -191,12 +198,14 @@ def all_spin_halfexcitations (lsi, las, nmax_spin=1):
         spins1.append (spins1_i)
         ci1.append (ci1_i)
         i = j
-    return spins1, smults1, ci1
+    spin_halfexcs = [SpinHalfexcitations (c,m,s) for c, m, s in zip (ci1, spins1, smults1)]
+    return spin_halfexcs
 
-def spin_halfexcitation_products (las2, spins3, smults3, ci3):
-    log = logger.new_logger (las2, las2.verbose)
-    spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in las2.ci])
-              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
+def _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=1):
+    spaces_ref = spaces[:nroots_ref]
+    spins3 = [she.spins for she in spin_halfexcs]
+    smults3 = [she.smults for she in spin_halfexcs]
+    ci3 = [she.ci for she in spin_halfexcs]
     nelec0 = spaces[0].nelec
     smults0 = spaces[0].smults
     nfrags = spaces[0].nfrag
@@ -211,7 +220,19 @@ def spin_halfexcitation_products (las2, spins3, smults3, ci3):
                 new_spaces.append (space.single_fragment_spin_change (
                     ifrag, s3i, m3i, ci=c3i))
         spaces += new_spaces
+    # Filter by ms orthogonality
     spaces = [space for space in spaces if space.spins.sum () == spin]
+    # Filter by smult orthogonality
+    spaces = [space for space in spaces 
+              if (not (all (space.is_orthogonal_by_smult (spaces_ref))))]
+    return spaces
+
+def spin_halfexcitation_products (las2, spin_halfexcs, nroots_ref=1):
+    log = logger.new_logger (las2, las2.verbose)
+    spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in las2.ci])
+              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
+    spaces = _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=nroots_ref)
+    nfrags = spaces[0].nfrag
     weights = [space.weight for space in spaces]
     charges = [space.charges for space in spaces]
     spins = [space.spins for space in spaces]
@@ -226,7 +247,7 @@ def spin_halfexcitation_products (las2, spins3, smults3, ci3):
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las3)))]
     log.info ("LASSIS spin-excitation spaces: %d-%d", las2.nroots, las3.nroots-1)
     for i, space in enumerate (spaces[las2.nroots:]):
-        if np.any (space.nelec != nelec0):
+        if np.any (space.nelec != spaces[0].nelec):
             log.info ("Spin/charge-excitation space %d:", i+las2.nroots)
         else:
             log.info ("Spin-excitation space %d:", i+las2.nroots)

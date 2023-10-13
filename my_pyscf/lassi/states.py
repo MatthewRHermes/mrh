@@ -263,6 +263,17 @@ class SingleLASRootspace (object):
                                    nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
                                    ci=ci1)
 
+    def is_orthogonal_by_smult (self, other):
+        if isinstance (other, (list, tuple)):
+            return [self.is_orthogonal_by_smult (o) for o in other]
+        s2_self = self.smults-1
+        max_self = np.sum (s2_self) 
+        min_self = 2*np.amax (s2_self) - max_self
+        s2_other = other.smults-1
+        max_other = np.sum (s2_other) 
+        min_other = 2*np.amax (s2_other) - max_other
+        return (max_self < min_other) or (max_other < min_self)
+
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
     in all possible ways. Uses all states already present as reference states, so that calling
