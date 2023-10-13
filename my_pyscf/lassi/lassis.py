@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import linalg
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
 from mrh.my_pyscf.fci import csf_solver
@@ -83,8 +84,8 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
                       dest_frag, dest_ds)
             excfrags[spaces[i].excited_fragments (spaces[j])] = True
             psref.append (spaces[j])
-        #psref = _spin_halfexcitation_products (psref, spin_halfexcs, nroots_ref=len(psref),
-        #                                       frozen_frags=(~excfrags))
+        psref = _spin_halfexcitation_products (psref, spin_halfexcs, nroots_ref=len(psref),
+                                               frozen_frags=(~excfrags))
         ciref = [[] for j in range (nfrags)]
         for k in range (nfrags):
             for space in psref: ciref[k].append (space.ci[k])
@@ -108,15 +109,20 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
                                  for j in range (1,las1.nroots)])
         for k in np.where (~excfrags)[0]:
             # ci vector shape issues
-            if las1.nroots==1:
+            if len (psref)==1:
                 ci1[k] = np.asarray (ci1[k])
             elif spin_shuffle_ref:
                 # NOTE: This logic fails if the user does spin_shuffle -> lasci -> LASSIS
                 ci1[k] = np.asarray (ci1[k][0])
             else:
                 ndeta, ndetb = space[i].get_ndet (k)
-                ci1[k] = np.concatenate ([c.reshape (-1,ndeta,ndetb) for c in ci1[k]], axis=0)
-                ci1[k] = vec_lowdin (ci1[k])
+                c = np.concatenate ([c.reshape (-1,ndeta*ndetb) for c in ci1[k]], axis=0)
+                w, v = linalg.eigh (c.conj () @ c.T)
+                print (w)
+                idx = w>1e-8
+                ci1[k] = (v[:,idx].T @ c).reshape (-1,ndeta,ndetb)
+                c = ci1[k].reshape (-1,ndeta*ndetb)
+                print (c.conj () @ c.T)
         for k in range (nfrags):
             if isinstance (ci1[k], list):
                 print (k, len (ci1[k]), np.asarray (ci1[k]).shape, type (ciref[k]), [c.shape for c in ciref[k]])
