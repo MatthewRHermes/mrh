@@ -56,11 +56,11 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
     mol = lsi.mol
     nfrags = lsi.nfrags
     e_roots = np.append (las1.e_states, np.zeros (las2.nroots-las1.nroots))
-    psrefs = []
+    #psrefs = []
     ci = [[ci_ij for ci_ij in ci_i] for ci_i in las2.ci]
-    for j in range (las1.nroots):
-        solvers = [b.fcisolvers[j] for b in las1.fciboxes]
-        psrefs.append (ProductStateFCISolver (solvers, stdout=mol.stdout, verbose=mol.verbose))
+    #for j in range (las1.nroots):
+    #    solvers = [b.fcisolvers[j] for b in las1.fciboxes]
+    #    psrefs.append (ProductStateFCISolver (solvers, stdout=mol.stdout, verbose=mol.verbose))
     spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in ci])
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
     ncsf = las2.get_ugg ().ncsf_sub
@@ -72,7 +72,6 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
     log.info ("LASSIS electron hop spaces: %d-%d", las1.nroots, las2.nroots-1)
     for i in range (las1.nroots, las2.nroots):
         psref = []
-        ciref = [[] for j in range (nfrags)]
         excfrags = np.zeros (nfrags, dtype=bool)
         log.info ("Electron hop space %d:", i)
         spaces[i].table_printlog (lroots=lroots[:,i])
@@ -87,9 +86,15 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
             log.info ('%d: %d(%s) --%s--> %d(%s)', j, src_frag, src_ds, e_spin,
                       dest_frag, dest_ds)
             excfrags[spaces[i].excited_fragments (spaces[j])] = True
-            psref.append (psrefs[j])
-            for k in range (nfrags):
-                ciref[k].append (las1.ci[k][j])
+            psref.append (spaces[j])
+            #for k in range (nfrags):
+            #    ciref[k].append (las1.ci[k][j])
+        #psref = _spin_halfexcitation_products (psref, spin_halfexcs, nroots_ref=len(psref),
+        #                                       frozen_frags=(~excfrags))
+        ciref = [[] for j in range (nfrags)]
+        for k in range (nfrags):
+            for space in psref: ciref[k].append (space.ci[k])
+        psref = [space.get_product_state_solver () for space in psref]
         psexc = ExcitationPSFCISolver (psref, ciref, las2.ncas_sub, las2.nelecas_sub,
                                        stdout=mol.stdout, verbose=mol.verbose,
                                        crash_locmin=crash_locmin)
@@ -201,7 +206,8 @@ def all_spin_halfexcitations (lsi, las, nmax_spin=1):
     spin_halfexcs = [SpinHalfexcitations (c,m,s) for c, m, s in zip (ci1, spins1, smults1)]
     return spin_halfexcs
 
-def _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=1):
+def _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=1, frozen_frags=None):
+    if spin_halfexcs is None or len (spin_halfexcs)==0: return spaces
     spaces_ref = spaces[:nroots_ref]
     spins3 = [she.spins for she in spin_halfexcs]
     smults3 = [she.smults for she in spin_halfexcs]
@@ -210,7 +216,9 @@ def _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=1):
     smults0 = spaces[0].smults
     nfrags = spaces[0].nfrag
     spin = spaces[0].spins.sum ()
+    if frozen_frags is None: frozen_frags = np.zeros (nfrags, dtype=bool)
     for ifrag in range (nfrags):
+        if frozen_frags[ifrag]: continue
         new_spaces = []
         m3, s3, c3 = spins3[ifrag], smults3[ifrag], ci3[ifrag]
         for space in spaces:

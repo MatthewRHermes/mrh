@@ -5,9 +5,11 @@ from pyscf.fci import cistring
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
 from pyscf import symm
+from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
+from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
 import itertools
 
 class SingleLASRootspace (object):
@@ -273,6 +275,22 @@ class SingleLASRootspace (object):
         max_other = np.sum (s2_other) 
         min_other = 2*np.amax (s2_other) - max_other
         return (max_self < min_other) or (max_other < min_self)
+
+    def get_fcisolvers (self):
+        fcisolvers = []
+        for ifrag in range (self.nfrag):
+            solver = csf_solver (self.las.mol, smult=self.smults[ifrag])
+            solver.nelec = (self.neleca[ifrag],self.nelecb[ifrag])
+            solver.norb = self.nlas[ifrag]
+            solver.spin = self.spins[ifrag]
+            solver.check_transformer_cache ()
+            fcisolvers.append (solver)
+        return fcisolvers
+
+    def get_product_state_solver (self):
+        fcisolvers = self.get_fcisolvers ()
+        return ProductStateFCISolver (fcisolvers, stdout=self.stdout, verbose=self.verbose)
+
 
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
