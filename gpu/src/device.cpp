@@ -215,7 +215,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     
     double * ra = praa; // (ncore,2,2)
     
-    int indx = 0;
+    //int indx = 0;
    
     double * cm = ocm2; // (2, 2, 2, ncore)
     
