@@ -189,7 +189,7 @@ def all_spin_halfexcitations (lsi, las, nmax_spin=1):
             log.info ("LASSIS fragment %d spin down (%de,%do;2S+1=%d)",
                       ifrag, nelec, norb, smult-2)
             smults1_i.extend ([smult-2,]*(smult-2))
-            spins1_i.extend (list (range (smult-1, -(smult-1)-1, -2)))
+            spins1_i.extend (list (range (smult-3, -(smult-3)-1, -2)))
             ci1_i.extend (cisolve (smult-2))
         min_npair = max (0, nelec-norb)
         max_smult = (nelec - 2*min_npair) + 1
@@ -233,6 +233,9 @@ def _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=1, frozen_f
     # Filter by smult orthogonality
     spaces = [space for space in spaces 
               if (not (all (space.is_orthogonal_by_smult (spaces_ref))))]
+    seen = set ()
+    # Filter duplicates!
+    spaces = [space for space in spaces if not ((space in seen) or seen.add (space))]
     return spaces
 
 def spin_halfexcitation_products (las2, spin_halfexcs, nroots_ref=1):

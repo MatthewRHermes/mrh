@@ -578,6 +578,7 @@ class VRVDressedFCISolver (object):
         return False
     def solve_e0 (self, h0e, h1e, h2e, norb, nelec, ket):
         # TODO: figure out how to modify this for p>1
+        log = lib.logger.new_logger (self, self.verbose)
         hket_p = self.undressed_contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5),
                                              ket, norb, nelec)
         e_p = np.dot (np.ravel (ket), np.ravel (hket_p)) + h0e
@@ -588,6 +589,8 @@ class VRVDressedFCISolver (object):
         ham_pq = np.diag (e_pq)
         ham_pq[0,1:] = v_q
         ham_pq[1:,0] = v_q
+        log.debug2 ('v_q = {}'.format (v_q))
+        log.debug2 ('e_pq = {}'.format (e_pq))
         e0 = lowest_refovlp_eigval (ham_pq)
         return e0
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
@@ -630,7 +633,7 @@ class VRVDressedFCISolver (object):
                 converged = True
                 break
         self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
-        self.converged = (converged and self.converged)
+        self.converged = (converged and np.all (self.converged))
         #print (lib.fp (ci1), self.denom_q)#np.stack ([ci1[0].ravel (), ci1[1].ravel ()], axis=-1))
         return e, ci1
     # I don't feel like futzing around with MRO
