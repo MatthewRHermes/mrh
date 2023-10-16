@@ -6,6 +6,8 @@
 
 #include <stdio.h>
 
+#define _TRANSPOSE_BLOCK_SIZE 32
+
 /* ---------------------------------------------------------------------- */
 
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int count)
@@ -69,9 +71,11 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     nvtxRangePushA("Realloc");
 #endif
 
+    if(d_buf1) pm->dev_free(d_buf1);
     if(d_buf2) pm->dev_free(d_buf2);
     if(d_buf3) pm->dev_free(d_buf3);
     
+    d_buf1 = (double *) pm->dev_malloc(size_buf * sizeof(double));
     d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
     d_buf3 = (double *) pm->dev_malloc(size_buf * sizeof(double));
 
@@ -86,6 +90,12 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     if(buf_fdrv) pm->dev_free_host(buf_fdrv);
     buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
   }
+
+  // Create cuda stream
+  
+  if(stream == nullptr) {
+    pm->dev_stream_create(stream);
+  }
   
   // Create blas handle
 
@@ -95,13 +105,11 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
     cublasCreate(&handle);
     _CUDA_CHECK_ERRORS();
+    cublasSetStream(handle, stream);
+    _CUDA_CHECK_ERRORS();
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
-  }
-
-  if(stream == nullptr) {
-    pm->dev_stream_create(stream);
   }
   
 #ifdef _SIMPLE_TIMER
@@ -121,6 +129,31 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
   double * vk = static_cast<double*>(info_vk.ptr);
 
   pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+}
+
+/* ---------------------------------------------------------------------- */
+
+__global__ void _transpose_buf1_buf3(double * buf3, double * buf1, int naux, int nao)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(i > naux) return;
+  if(j > nao) return;
+
+#if 1
+
+  for(int k=0; k<nao; ++k) buf3[k * (naux*nao) + (i*nao+j)] = buf1[(i * nao + j) * nao + k];
+  
+#else
+  DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
+  DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
+  
+  //  for(int i=0; i<naux; ++i) {
+  for(int j=0; j<nao; ++j)
+    for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
+    //  }
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -284,13 +317,41 @@ void Device::get_jk(int naux,
   
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
+
+#if 1
+
+#ifdef _CUDA_NVTX
+    nvtxRangePushA("HtoD Transfer");
+#endif
+    pm->dev_push_async(d_buf1, buf1, naux * nao * nao * sizeof(double), stream);
+    pm->dev_stream_wait(stream); // why do we need to wait???
+#ifdef _CUDA_NVTX
+    nvtxRangePop();
+#endif
+
+    dim3 grid_size((naux + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE,
+		      (nao + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE, 1);
+    dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_BLOCK_SIZE, 1);
+    
+    _transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
+
+// #ifdef _CUDA_NVTX
+//     nvtxRangePushA("HtoD Transfer");
+// #endif
+//     pm->dev_push_async(d_buf3, buf3, naux * nao * nao * sizeof(double), stream);
+//     pm->dev_stream_wait(stream);
+// #ifdef _CUDA_NVTX
+//     nvtxRangePop();
+// #endif
+    
+#else
     
 #pragma omp parallel for collapse(3)
     for(int i=0; i<naux; ++i) {
       for(int j=0; j<nao; ++j)
 	for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
     }
-
+    
     // transfer
 
 #ifdef _CUDA_NVTX
@@ -300,6 +361,8 @@ void Device::get_jk(int naux,
     pm->dev_stream_wait(stream);
 #ifdef _CUDA_NVTX
     nvtxRangePop();
+#endif
+
 #endif
     
     // vk[k] += lib.dot(buf3, buf4)

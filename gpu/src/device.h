@@ -103,6 +103,7 @@ private:
   double * buf4;
   double * buf_fdrv;
 
+  double * d_buf1;
   double * d_buf2;
   double * d_buf3;
   double * d_vkk;
