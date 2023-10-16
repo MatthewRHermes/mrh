@@ -305,7 +305,8 @@ void Device::get_jk(int naux,
     //	       dms[k].ctypes.data_as(ctypes.c_void_p),
     //	       ctypes.c_int(naux), *rargs)
     
-    fdrv(buf1, eri1, dms, naux, nao, nullptr, nullptr, 0, buf_fdrv);
+    //    fdrv(buf1, eri1, dms, naux, nao, nullptr, nullptr, 0, buf_fdrv); // buf per thread
+    fdrv(buf1, eri1, dms, naux, nao, nullptr, nullptr, 0, buf3); // buf per state
 
 #ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
@@ -317,8 +318,6 @@ void Device::get_jk(int naux,
   
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
-
-#if 1
 
 #ifdef _CUDA_NVTX
     nvtxRangePushA("HtoD Transfer");
@@ -334,36 +333,6 @@ void Device::get_jk(int naux,
     dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_BLOCK_SIZE, 1);
     
     _transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
-
-// #ifdef _CUDA_NVTX
-//     nvtxRangePushA("HtoD Transfer");
-// #endif
-//     pm->dev_push_async(d_buf3, buf3, naux * nao * nao * sizeof(double), stream);
-//     pm->dev_stream_wait(stream);
-// #ifdef _CUDA_NVTX
-//     nvtxRangePop();
-// #endif
-    
-#else
-    
-#pragma omp parallel for collapse(3)
-    for(int i=0; i<naux; ++i) {
-      for(int j=0; j<nao; ++j)
-	for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
-    }
-    
-    // transfer
-
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("HtoD Transfer");
-#endif
-    pm->dev_push_async(d_buf3, buf3, naux * nao * nao * sizeof(double), stream);
-    pm->dev_stream_wait(stream);
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
-
-#endif
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -423,13 +392,17 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
     
 #pragma omp parallel for
   for (int i = 0; i < nij; i++) {
-    const int it = omp_get_thread_num();
-    double * buf = &(_buf[it * nao * nao]);
+    double * buf = &(_buf[i * nao * nao]);
 
     int _i, _j, _ij;
     double * tril = vin + nao2*i;
     for (_ij = 0, _i = 0; _i < nao; _i++) 
-      for (_j = 0; _j <= _i; _j++, _ij++) buf[_i*nao+_j] = tril[_ij];
+      for (_j = 0; _j <= _i; _j++, _ij++) buf[_i*nao+_j] = tril[_ij];  
+  }
+  
+#pragma omp parallel for
+  for (int i = 0; i < nij; i++) {
+    double * buf = &(_buf[i * nao * nao]);
     
     const double D0 = 0;
     const double D1 = 1;
@@ -440,6 +413,7 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
     
     dsymm_(&SIDE_L, &UPLO_U, &nao, &nao, &D1, buf, &nao, mo_coeff, &nao, &D0, _vout, &nao);    
   }
+  
 }
 
 #endif
