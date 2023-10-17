@@ -91,6 +91,13 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
   }
 
+  int _size_dms = nao * nao;
+  if(_size_dms > size_dms) {
+    size_dms = _size_dms;
+    if(d_dms) pm->dev_free(d_dms);
+    d_dms = (double *) pm->dev_malloc(size_dms * sizeof(double));
+  }
+  
   // Create cuda stream
   
   if(stream == nullptr) {
@@ -133,7 +140,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 
 /* ---------------------------------------------------------------------- */
 
-__global__ void _transpose_buf1_buf3(double * buf3, double * buf1, int naux, int nao)
+__global__ void _getjk_transpose_buf1_buf3(double * buf3, double * buf1, int naux, int nao)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -290,6 +297,8 @@ void Device::get_jk(int naux,
 
     int orbs_slice[4] = {0, nao, 0, nao};
     double * dms = static_cast<double*>(info_dms.ptr);
+
+    pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), stream);
     
 #ifdef _SIMPLE_TIMER
     t0 = omp_get_wtime();
@@ -305,9 +314,47 @@ void Device::get_jk(int naux,
     //	       dms[k].ctypes.data_as(ctypes.c_void_p),
     //	       ctypes.c_int(naux), *rargs)
     
-    //    fdrv(buf1, eri1, dms, naux, nao, nullptr, nullptr, 0, buf_fdrv); // buf per thread
-    fdrv(buf1, eri1, dms, naux, nao, nullptr, nullptr, 0, buf3); // buf per state
+    fdrv(buf1, eri1, dms, naux, nao, nullptr, nullptr, 0, buf3);
 
+    
+
+    pm->dev_push_async(d_buf3, buf3, naux * nao * nao * sizeof(double), stream);
+    pm->dev_stream_wait(stream); // remove later
+
+#if 1
+    {
+      const double alpha = 1.0;
+      const double beta = 0.0;
+      const int nao2 = nao * nao;
+      
+      cublasDgemmStridedBatched(handle, CUBLAS_OP_T, CUBLAS_OP_T, nao, nao, nao,
+				&alpha, d_buf3, nao, nao2,
+				d_dms, nao, 0,
+				&beta, d_buf1, nao, nao2, naux);
+    }
+#else
+    
+#pragma omp parallel for
+    for (int i = 0; i < naux; i++) {
+      double * buf = &(buf3[i * nao * nao]);
+
+      const double alpha = 1.0;
+      const double beta = 0.0;
+
+      const int m = nao;
+      const int n = nao;
+      const int k = nao;
+
+      const int lda = nao;
+      const int ldb = nao;
+      const int ldc = nao;
+
+      double * _vout = buf1 + nao*nao * i;
+
+      dgemm_((char *) "T", (char *) "T", &m, &n, &k, &alpha, buf, &ldb, dms, &lda, &beta, _vout, &ldc);
+    }
+#endif
+    
 #ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
     t_array_jk[4] += t1 - t0;
@@ -322,7 +369,7 @@ void Device::get_jk(int naux,
 #ifdef _CUDA_NVTX
     nvtxRangePushA("HtoD Transfer");
 #endif
-    pm->dev_push_async(d_buf1, buf1, naux * nao * nao * sizeof(double), stream);
+    //pm->dev_push_async(d_buf1, buf1, naux * nao * nao * sizeof(double), stream);
     pm->dev_stream_wait(stream); // why do we need to wait???
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -332,7 +379,7 @@ void Device::get_jk(int naux,
 		      (nao + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE, 1);
     dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_BLOCK_SIZE, 1);
     
-    _transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
+    _getjk_transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -364,7 +411,8 @@ void Device::get_jk(int naux,
 #endif
     
     cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
-
+    pm->dev_stream_wait(stream);
+    
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
@@ -382,8 +430,6 @@ void Device::get_jk(int naux,
   
 /* ---------------------------------------------------------------------- */
 
-// pyscf/pyscf/lib/ao2mo/nr_ao2mo.c::AO2MOnr_e2_drv()
-
 void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 		  int nij, int nao, int *orbs_slice, int *ao_loc, int nbas, double * _buf)
 {
@@ -397,22 +443,25 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
     int _i, _j, _ij;
     double * tril = vin + nao2*i;
     for (_ij = 0, _i = 0; _i < nao; _i++) 
-      for (_j = 0; _j <= _i; _j++, _ij++) buf[_i*nao+_j] = tril[_ij];  
+      for (_j = 0; _j <= _i; _j++, _ij++) {
+	buf[_i*nao+_j] = tril[_ij];
+	buf[_i+nao*_j] = tril[_ij]; // because going to use batched dgemm call on gpu
+      }
   }
   
-#pragma omp parallel for
-  for (int i = 0; i < nij; i++) {
-    double * buf = &(_buf[i * nao * nao]);
+// #pragma omp parallel for
+//   for (int i = 0; i < nij; i++) {
+//     double * buf = &(_buf[i * nao * nao]);
     
-    const double D0 = 0;
-    const double D1 = 1;
-    const char SIDE_L = 'L';
-    const char UPLO_U = 'U';
+//     const double D0 = 0;
+//     const double D1 = 1;
+//     const char SIDE_L = 'L';
+//     const char UPLO_U = 'U';
 
-    double * _vout = vout + ij_pair*i;
+//     double * _vout = vout + ij_pair*i;
     
-    dsymm_(&SIDE_L, &UPLO_U, &nao, &nao, &D1, buf, &nao, mo_coeff, &nao, &D0, _vout, &nao);    
-  }
+//     dsymm_(&SIDE_L, &UPLO_U, &nao, &nao, &D1, buf, &nao, mo_coeff, &nao, &D0, _vout, &nao);    
+//   }
   
 }
 

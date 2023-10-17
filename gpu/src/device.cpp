@@ -21,6 +21,7 @@ Device::Device()
   size_vk = 0;
   size_buf = 0;
   size_fdrv = 0;
+  size_dms = 0;
   
   rho = nullptr;
   vj = nullptr;
@@ -40,6 +41,7 @@ Device::Device()
   d_buf2 = nullptr;
   d_buf3 = nullptr;
   d_vkk = nullptr;
+  d_dms = nullptr;
 #endif
 
   num_threads = 1;
@@ -104,6 +106,8 @@ Device::~Device()
   pm->dev_free(d_buf2);
   pm->dev_free(d_buf3);
   pm->dev_free(d_vkk);
+  pm->dev_free(d_dms);
+  
 #ifdef _CUDA_NVTX
   nvtxRangePop();
   
