@@ -88,6 +88,7 @@ private:
   int size_buf;
   int size_fdrv;
   int size_dms;
+  int size_tril_map;
 
   int blksize;
   int nao;
@@ -109,6 +110,9 @@ private:
   double * d_buf3;
   double * d_vkk;
   double * d_dms;
+
+  int * tril_map;
+  int * d_tril_map;
   
   struct my_AO2MOEnvs {
     int natm;

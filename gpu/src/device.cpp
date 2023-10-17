@@ -22,6 +22,7 @@ Device::Device()
   size_buf = 0;
   size_fdrv = 0;
   size_dms = 0;
+  size_tril_map = 0;
   
   rho = nullptr;
   vj = nullptr;
@@ -32,6 +33,7 @@ Device::Device()
   buf4 = nullptr;
 
   buf_fdrv = nullptr;
+  tril_map = nullptr;
   
 #if defined(_USE_GPU)
   handle = nullptr;
@@ -42,6 +44,8 @@ Device::Device()
   d_buf3 = nullptr;
   d_vkk = nullptr;
   d_dms = nullptr;
+
+  d_tril_map = nullptr;
 #endif
 
   num_threads = 1;
@@ -79,6 +83,8 @@ Device::~Device()
 
   pm->dev_free_host(buf_fdrv);
 
+  pm->dev_free_host(tril_map);
+
 #ifdef _SIMPLE_TIMER
   t_array_jk[8] += omp_get_wtime() - t0;
 #endif
@@ -107,6 +113,7 @@ Device::~Device()
   pm->dev_free(d_buf3);
   pm->dev_free(d_vkk);
   pm->dev_free(d_dms);
+  pm->dev_free(d_tril_map);
   
 #ifdef _CUDA_NVTX
   nvtxRangePop();
