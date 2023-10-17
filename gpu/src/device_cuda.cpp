@@ -169,8 +169,8 @@ __global__ void _getjk_transpose_buf1_buf3(double * buf3, double * buf1, int nau
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-  if(i > naux) return;
-  if(j > nao) return;
+  if(i >= naux) return;
+  if(j >= nao) return;
 
 #if 1
 
@@ -290,22 +290,12 @@ void Device::get_jk(int naux,
 #endif
     
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
-    
+
 #pragma omp parallel for
     for(int i=0; i<naux; ++i) {
-      
-      int indx = 0;
-      double * eri1_ = &(eri1[i * nao_pair]);
-
-      // unpack lower-triangle to square
-      
-      for(int j=0; j<nao; ++j)
-	for(int k=0; k<=j; ++k) {	  
-	  da_buf2(i*nao+j,k) = eri1_[indx];
-	  da_buf2(i*nao+k,j) = eri1_[indx];
-	  indx++;
-	}
-      
+      double * buf = &(buf2[i * nao * nao]);
+      double * tril = &(eri1[i * nao_pair]);
+      for(int j=0; j<nao*nao; ++j) buf[j] = tril[ tril_map[j] ];
     }
     
     pm->dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
@@ -319,8 +309,6 @@ void Device::get_jk(int naux,
     py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, nao, nao)
     py::buffer_info info_dms = _dms.request(); // 2D
 
-    // rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao), null, ctypes.c_int(0))
-
     double * dms = static_cast<double*>(info_dms.ptr);
 
     pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), stream);
@@ -329,26 +317,6 @@ void Device::get_jk(int naux,
     t0 = omp_get_wtime();
 #endif
     
-    //    fmmm = _ao2mo.libao2mo.AO2MOmmm_bra_nr_s2
-    //    fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
-    //    ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2
-      
-    //    fdrv(ftrans, fmmm,
-    //	       buf1.ctypes.data_as(ctypes.c_void_p),
-    //	       eri1.ctypes.data_as(ctypes.c_void_p),
-    //	       dms[k].ctypes.data_as(ctypes.c_void_p),
-    //	       ctypes.c_int(naux), *rargs)
-
-    const int nao2 = nao * (nao + 1) / 2;
-    
-#pragma omp parallel for
-    for (int i = 0; i < naux; i++) {
-      double * buf = &(buf3[i * nao * nao]);
-      double * tril = eri1 + nao2*i;
-      for(int j=0; j<nao*nao; ++j) buf[j] = tril[ tril_map[j] ];
-    }
-
-    pm->dev_push_async(d_buf3, buf3, naux * nao * nao * sizeof(double), stream);
     pm->dev_stream_wait(stream); // remove later
 
     {
@@ -357,7 +325,7 @@ void Device::get_jk(int naux,
       const int nao2 = nao * nao;
       
       cublasDgemmStridedBatched(handle, CUBLAS_OP_T, CUBLAS_OP_T, nao, nao, nao,
-				&alpha, d_buf3, nao, nao2,
+				&alpha, d_buf2, nao, nao2,
 				d_dms, nao, 0,
 				&beta, d_buf1, nao, nao2, naux);
     }
