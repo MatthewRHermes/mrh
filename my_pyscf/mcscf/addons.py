@@ -22,10 +22,11 @@ def get_sanmix_fcisolver (samix_fcisolver):
     if isinstance (samix_fcisolver, StateAverageNMixFCISolver):
         return samix_fcisolver
 
+    fcisolvers, weights = samix_fcisolver.fcisolvers, samix_fcisolver.weights
     class FCISolver (samix_fcisolver.__class__, StateAverageNMixFCISolver):
         _get_nelec = StateAverageNMixFCISolver._get_nelec
 
-    sanmix_fcisolver = FCISolver (samix_fcisolver.mol)
+    sanmix_fcisolver = FCISolver (fcisolvers, weights)
     sanmix_fcisolver.__dict__.update (samix_fcisolver.__dict__)
     return sanmix_fcisolver
 
@@ -192,7 +193,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
         contract_2e = states_contract_2e
         make_hdiag = states_make_hdiag
 
-    h1ezipped_fcisolver = FCISolver (fcisolver.mol)
+    h1ezipped_fcisolver = FCISolver (fcisolver.fcisolvers, fcisolver.weights)
     h1ezipped_fcisolver.__dict__.update (fcisolver.__dict__)
     return h1ezipped_fcisolver
 
