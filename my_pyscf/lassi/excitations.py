@@ -13,7 +13,8 @@ from pyscf.lib import temporary_env
 from pyscf import __config__
 op = (op_o0, op_o1)
 
-LOWEST_REFOVLP_EIGVAL_THRESH = getattr (__config__, 'lassi_excitations_refovlp_eigval_thresh', 1e-8)
+LOWEST_REFOVLP_EIGVAL_THRESH = getattr (__config__, 'lassi_excitations_refovlp_eigval_thresh', 1e-9)
+IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 0.0001)
 
 def only_ground_states (ci0):
     '''For a list of sequences of CI vectors in the same Hilbert space,
@@ -512,6 +513,7 @@ class VRVDressedFCISolver (object):
         keys = set (('contract_vrv', 'base', 'v_qpab', 'denom_q', 'e_q', 'max_cycle_e0',
                      'conv_tol_e0', 'charge', 'crash_locmin'))
         self.denom_q = 0
+        self.imag_shift = IMAG_SHIFT
         self.e_q = my_eq
         self.v_qpab = my_vrv
         self.max_cycle_e0 = max_cycle_e0
@@ -533,7 +535,9 @@ class VRVDressedFCISolver (object):
         q = np.count_nonzero (idx)
         if (not q) or (not p): return np.zeros_like (ket)
         v_qpab, denom_q = v_qpab[idx].reshape (q,p,-1), denom_q[idx]
-        rv_qp = np.ravel (np.dot (v_qpab.conj (), ket.ravel ()) / denom_q[:,None])
+        denom_q = denom_q + 1j*self.imag_shift
+        denom_fac_q = np.real (1.0 / denom_q)
+        rv_qp = np.ravel (np.dot (v_qpab.conj (), ket.ravel ()) * denom_fac_q[:,None])
         hket = np.dot (rv_qp, v_qpab.reshape(p*q,-1)).reshape (ket_shape)
         return hket
     def test_locmin (self, e0, ci, norb, nelec, h0e, h1e, h2e, warntag='Apparent local minimum'):
