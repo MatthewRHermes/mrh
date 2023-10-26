@@ -13,8 +13,11 @@ from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.lassi.lassi import LASSI
 
 def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
+    # TODO: make states_energy_elec capable of handling lroots and address inconsistency
+    # between definition of e_states array for neutral and charge-separated rootspaces
     log = logger.new_logger (lsi, lsi.verbose)
     las = lsi._las
+    # 1. Spin shuffle step
     if np.all (get_space_info (las)[2]==1):
         # If all singlets, skip the spin shuffle and the unnecessary warning below
         las1 = las
@@ -23,7 +26,6 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
         las1.ci = spin_shuffle_ci (las1, las1.ci)
         las1.converged = las.converged
     nroots_ref = las1.nroots
-    spin_halfexcs = all_spin_halfexcitations (lsi, las1, nmax_spin=nmax_spin) if nmax_spin else None
     if las1.nroots==1:
         log.info ("LASSIS reference spaces: 0")
     else:
@@ -31,9 +33,10 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
     for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las1))):
         log.info ("Reference space %d:", ix)
         SingleLASRootspace (las1, m, s, c, 0, ci=[c[ix] for c in las1.ci]).table_printlog ()
-    # TODO: make states_energy_elec capable of handling lroots and address inconsistency
-    # between definition of e_states array for neutral and charge-separated rootspaces
+    # 2. Spin excitations part 1
+    spin_halfexcs = all_spin_halfexcitations (lsi, las1, nmax_spin=nmax_spin) if nmax_spin else None
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
+    # 3. Charge excitations
     if nmax_charge:
         las2 = all_single_excitations (las1)
         converged, las2.ci, las2.e_states = single_excitations_ci (
@@ -44,6 +47,7 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
         converged, las2 = las1.converged, las1
     if lsi.nfrags > 3:
         las2 = charge_excitation_products (las2, las1)
+    # 4. Spin excitations part 2
     if nmax_spin:
         las3 = spin_halfexcitation_products (las2, spin_halfexcs, nroots_ref=nroots_ref)
     else:
@@ -86,6 +90,10 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
             psref.append (spaces[j])
         psref = _spin_halfexcitation_products (psref, spin_halfexcs, nroots_ref=len(psref),
                                                frozen_frags=(~excfrags))
+        if len (psref) > las1.nroots:
+            log.info ("as well as spin-excited spaces:")
+            for space in psref[las1.nroots:]:
+                space.table_printlog ()
         ciref = [[] for j in range (nfrags)]
         for k in range (nfrags):
             for space in psref: ciref[k].append (space.ci[k])
