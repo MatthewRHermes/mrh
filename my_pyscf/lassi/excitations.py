@@ -14,7 +14,7 @@ from pyscf import __config__
 op = (op_o0, op_o1)
 
 LOWEST_REFOVLP_EIGVAL_THRESH = getattr (__config__, 'lassi_excitations_refovlp_eigval_thresh', 1e-9)
-IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 0.0001)
+IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 1e-6)
 
 def only_ground_states (ci0):
     '''For a list of sequences of CI vectors in the same Hilbert space,
