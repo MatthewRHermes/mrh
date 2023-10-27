@@ -35,6 +35,12 @@ class SingleLASRootspace (object):
         self.nholea = self.nlas - self.neleca
         self.nholeb = self.nlas - self.nelecb
 
+        # "u", "d": like "a", "b", but presuming spins+1==smults everywhere
+        self.nelecu = (self.nelec + (self.smults-1)) // 2
+        self.nelecd = (self.nelec + (self.smults-1)) // 2
+        self.nholeu = self.nlas - self.nelecu
+        self.nholed = self.nlas - self.nelecd
+
     def __eq__(self, other):
         if self.nfrag != other.nfrag: return False
         return (np.all (self.spins==other.spins) and 

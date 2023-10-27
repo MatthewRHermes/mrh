@@ -179,8 +179,8 @@ def all_spin_halfexcitations (lsi, las, nspin=1):
     f1 = f1[None,:,:] - np.tensordot (casdm1s, h2, axes=((1,2),(2,1)))
     i = 0
     auto_singles = isinstance (nspin, str) and 's' in nspin.lower ()
-    nup0 = np.minimum (spaces[0].nelecb, spaces[0].nholea)
-    ndn0 = np.minimum (spaces[0].neleca, spaces[0].nholeb)
+    nup0 = np.minimum (spaces[0].nelecd, spaces[0].nholeu)
+    ndn0 = np.minimum (spaces[0].nelecu, spaces[0].nholed)
     if not auto_singles: # integer supplied by caller
         nup0[:] = nspin
         ndn0[:] = nspin
@@ -214,7 +214,11 @@ def all_spin_halfexcitations (lsi, las, nspin=1):
                       ifrag, nelec, norb, smult-2)
             smults1_i.extend ([smult-2,]*(smult-2))
             spins1_i.extend (list (range (smult-3, -(smult-3)-1, -2)))
-            ci1_i.extend (cisolve (smult-2, ndn0[ifrag]))
+            try:
+                ci1_i.extend (cisolve (smult-2, ndn0[ifrag]))
+            except ValueError as err:
+                print (ndn0[ifrag], nelec, norb, smult)
+                raise (err)
         min_npair = max (0, nelec-norb)
         max_smult = (nelec - 2*min_npair) + 1
         if smult < max_smult: # spin-raised
