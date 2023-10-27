@@ -65,35 +65,44 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
     spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in ci])
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
     ncsf = las2.get_ugg ().ncsf_sub
-    if isinstance (ncharge, np.ndarray): ncharge=ncharge[None,:]
+    auto_singles = False
+    if isinstance (ncharge, np.ndarray):
+        ncharge=ncharge[None,:]
+    elif isinstance (ncharge, str):
+        if 's' in ncharge.lower ():
+            auto_singles = True
+            ncharge = np.ones_like (ncsf)
+        else:
+            raise RuntimeError ("Valid ncharge values are integers or 's'")
     lroots = np.minimum (ncharge, ncsf)
     h0, h1, h2 = lsi.ham_2q ()
     t0 = (logger.process_clock (), logger.perf_counter ())
     converged = True
     log.info ("LASSIS electron hop spaces: %d-%d", las1.nroots, las2.nroots-1)
     for i in range (las1.nroots, las2.nroots):
-        psref = []
+        psref_ix = [j for j, space in enumerate (spaces[:las1.nroots])
+                    if spaces[i].is_single_excitation_of (space)]
+        psref = [spaces[j] for j in psref_ix]
         excfrags = np.zeros (nfrags, dtype=bool)
+        for space in psref: excfrags[spaces[i].excited_fragments (space)] = True
+        nref_pure = len (psref)
+        psref = _spin_halfexcitation_products (psref, spin_halfexcs, nroots_ref=len(psref),
+                                               frozen_frags=(~excfrags))
+        if auto_singles:
+            lr = spaces[i].compute_single_excitation_lroots (psref)
+            lroots[:,i] = np.minimum (lroots[:,i], lr)
+        # logging after setup
         log.info ("Electron hop space %d:", i)
         spaces[i].table_printlog (lroots=lroots[:,i])
         log.info ("is connected to reference spaces:")
-        for j in range (las1.nroots):
-            if not spaces[i].is_single_excitation_of (spaces[j]): continue
-            src_frag = np.where ((spaces[i].nelec-spaces[j].nelec)==-1)[0][0]
-            dest_frag = np.where ((spaces[i].nelec-spaces[j].nelec)==1)[0][0]
-            e_spin = 'a' if np.any (spaces[i].neleca!=spaces[j].neleca) else 'b'
-            src_ds = 'u' if spaces[i].smults[src_frag]>spaces[j].smults[src_frag] else 'd'
-            dest_ds = 'u' if spaces[i].smults[dest_frag]>spaces[j].smults[dest_frag] else 'd'
-            log.info ('%d: %d(%s) --%s--> %d(%s)', j, src_frag, src_ds, e_spin,
-                      dest_frag, dest_ds)
-            excfrags[spaces[i].excited_fragments (spaces[j])] = True
-            psref.append (spaces[j])
-        psref = _spin_halfexcitation_products (psref, spin_halfexcs, nroots_ref=len(psref),
-                                               frozen_frags=(~excfrags))
-        if len (psref) > las1.nroots:
+        for j in psref_ix:
+            log.info ('%d: %s', j, spaces[i].single_excitation_description_string (spaces[j]))
+        if len (psref) > nref_pure:
             log.info ("as well as spin-excited spaces:")
-            for space in psref[las1.nroots:]:
+            for space in psref[nref_pure:]:
                 space.table_printlog ()
+                #log.info ('by hop %s', spaces[i].single_excitation_description_string (space))
+        # throat-clearing into ExcitationPSFCISolver
         ciref = [[] for j in range (nfrags)]
         for k in range (nfrags):
             for space in psref: ciref[k].append (space.ci[k])
@@ -168,18 +177,24 @@ def all_spin_halfexcitations (lsi, las, nspin=1):
     f1 = h1 + np.tensordot (h2, casdm1s.sum (0), axes=2)
     f1 = f1[None,:,:] - np.tensordot (casdm1s, h2, axes=((1,2),(2,1)))
     i = 0
+    auto_singles = isinstance (nspin, str) and 's' in nspin.lower ()
+    nup0 = np.minimum (spaces[0].nelecb, spaces[0].nholea)
+    ndn0 = np.minimum (spaces[0].neleca, spaces[0].nholeb)
+    if not auto_singles: # integer supplied by caller
+        nup0[:] = nspin
+        ndn0[:] = nspin
     for ifrag, (norb, nelec, spin, smult) in enumerate (zip (norb0, nelec0, spins0, smults0)):
         j = i + norb
         h2_i = h2[i:j,i:j,i:j,i:j]
         lasdm1s = casdm1s[:,i:j,i:j]
         h1_i = (f1[:,i:j,i:j] - np.tensordot (h2_i, lasdm1s.sum (0))[None,:,:]
                 + np.tensordot (lasdm1s, h2_i, axes=((1,2),(2,1))))
-        def cisolve (sm):
+        def cisolve (sm, nroots):
             neleca = (nelec + (sm-1)) // 2
             nelecb = (nelec - (sm-1)) // 2
             solver = csf_solver (las.mol, smult=sm).set (nelec=(neleca,nelecb), norb=norb)
             solver.check_transformer_cache ()
-            nroots = min (nspin, solver.transformer.ncsf)
+            nroots = min (nroots, solver.transformer.ncsf)
             ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), nroots=nroots)[1]
             if nroots==1: ci_list = [ci_list,]
             ci_arrlist = [np.array (ci_list),]
@@ -198,7 +213,7 @@ def all_spin_halfexcitations (lsi, las, nspin=1):
                       ifrag, nelec, norb, smult-2)
             smults1_i.extend ([smult-2,]*(smult-2))
             spins1_i.extend (list (range (smult-3, -(smult-3)-1, -2)))
-            ci1_i.extend (cisolve (smult-2))
+            ci1_i.extend (cisolve (smult-2, ndn0[ifrag]))
         min_npair = max (0, nelec-norb)
         max_smult = (nelec - 2*min_npair) + 1
         if smult < max_smult: # spin-raised
@@ -206,7 +221,7 @@ def all_spin_halfexcitations (lsi, las, nspin=1):
                       ifrag, nelec, norb, smult+2)
             smults1_i.extend ([smult+2,]*(smult+2))
             spins1_i.extend (list (range (smult+1, -(smult+1)-1, -2)))
-            ci1_i.extend (cisolve (smult+2))
+            ci1_i.extend (cisolve (smult+2, nup0[ifrag]))
         smults1.append (smults1_i)
         spins1.append (spins1_i)
         ci1.append (ci1_i)
@@ -290,6 +305,7 @@ class LASSIS (LASSI):
         if las.nroots>1:
             logger.warn (self, ("LASSIS builds the model space for you! I don't know what will "
                                 "happen if you build a model space by hand!"))
+
     def kernel (self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
                 crash_locmin=None, **kwargs):
         if ncharge is None: ncharge = self.ncharge
