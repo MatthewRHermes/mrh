@@ -88,6 +88,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         nref_pure = len (psref)
         psref = _spin_halfexcitation_products (psref, spin_halfexcs, nroots_ref=len(psref),
                                                frozen_frags=(~excfrags))
+        psref = [space for space in psref if spaces[i].is_single_excitation_of (space)]
         if auto_singles:
             lr = spaces[i].compute_single_excitation_lroots (psref)
             lroots[:,i] = np.minimum (lroots[:,i], lr)
@@ -101,7 +102,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             log.info ("as well as spin-excited spaces:")
             for space in psref[nref_pure:]:
                 space.table_printlog ()
-                #log.info ('by hop %s', spaces[i].single_excitation_description_string (space))
+                log.info ('by hop %s', spaces[i].single_excitation_description_string (space))
         # throat-clearing into ExcitationPSFCISolver
         ciref = [[] for j in range (nfrags)]
         for k in range (nfrags):
