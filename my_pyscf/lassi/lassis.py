@@ -12,7 +12,7 @@ from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
 from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.lassi.lassi import LASSI
 
-def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
+def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
     # between definition of e_states array for neutral and charge-separated rootspaces
     log = logger.new_logger (lsi, lsi.verbose)
@@ -34,13 +34,13 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
         log.info ("Reference space %d:", ix)
         SingleLASRootspace (las1, m, s, c, 0, ci=[c[ix] for c in las1.ci]).table_printlog ()
     # 2. Spin excitations part 1
-    spin_halfexcs = all_spin_halfexcitations (lsi, las1, nmax_spin=nmax_spin) if nmax_spin else None
+    spin_halfexcs = all_spin_halfexcitations (lsi, las1, nspin=nspin) if nspin else None
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
     # 3. Charge excitations
-    if nmax_charge:
+    if ncharge:
         las2 = all_single_excitations (las1)
         converged, las2.ci, las2.e_states = single_excitations_ci (
-            lsi, las2, las1, nmax_charge=nmax_charge, sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
+            lsi, las2, las1, ncharge=ncharge, sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
             spin_halfexcs=spin_halfexcs, crash_locmin=crash_locmin
         )
     else:
@@ -48,14 +48,14 @@ def prepare_states (lsi, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vr
     if lsi.nfrags > 3:
         las2 = charge_excitation_products (las2, las1)
     # 4. Spin excitations part 2
-    if nmax_spin:
+    if nspin:
         las3 = spin_halfexcitation_products (las2, spin_halfexcs, nroots_ref=nroots_ref)
     else:
         las3 = las2
     las3.lasci (_dry_run=True)
     return converged, las3
 
-def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactivate_vrv=False,
+def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_vrv=False,
                            spin_halfexcs=None, crash_locmin=False):
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
@@ -65,8 +65,8 @@ def single_excitations_ci (lsi, las2, las1, nmax_charge=1, sa_heff=True, deactiv
     spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in ci])
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
     ncsf = las2.get_ugg ().ncsf_sub
-    if isinstance (nmax_charge, np.ndarray): nmax_charge=nmax_charge[None,:]
-    lroots = np.minimum (nmax_charge, ncsf)
+    if isinstance (ncharge, np.ndarray): ncharge=ncharge[None,:]
+    lroots = np.minimum (ncharge, ncsf)
     h0, h1, h2 = lsi.ham_2q ()
     t0 = (logger.process_clock (), logger.perf_counter ())
     converged = True
@@ -147,7 +147,7 @@ class SpinHalfexcitations (object):
         self.spins = spins
         self.smults = smults
 
-def all_spin_halfexcitations (lsi, las, nmax_spin=1):
+def all_spin_halfexcitations (lsi, las, nspin=1):
     log = logger.new_logger (lsi, lsi.verbose)
     norb_f = las.ncas_sub
     spaces = [SingleLASRootspace (las, m, s, c, las.weights[ix], ci=[c[ix] for c in las.ci])
@@ -179,7 +179,7 @@ def all_spin_halfexcitations (lsi, las, nmax_spin=1):
             nelecb = (nelec - (sm-1)) // 2
             solver = csf_solver (las.mol, smult=sm).set (nelec=(neleca,nelecb), norb=norb)
             solver.check_transformer_cache ()
-            nroots = min (nmax_spin, solver.transformer.ncsf)
+            nroots = min (nspin, solver.transformer.ncsf)
             ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), nroots=nroots)[1]
             if nroots==1: ci_list = [ci_list,]
             ci_arrlist = [np.array (ci_list),]
@@ -278,10 +278,10 @@ def charge_excitation_products (las2, las1):
     raise NotImplementedError (">3-frag LASSIS")
 
 class LASSIS (LASSI):
-    def __init__(self, las, nmax_charge=1, nmax_spin=0, sa_heff=True, deactivate_vrv=False,
+    def __init__(self, las, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
                  crash_locmin=False, **kwargs):
-        self.nmax_charge = nmax_charge
-        self.nmax_spin = nmax_spin
+        self.ncharge = ncharge
+        self.nspin = nspin
         self.sa_heff = sa_heff
         self.deactivate_vrv = deactivate_vrv
         self.crash_locmin = crash_locmin
@@ -290,14 +290,14 @@ class LASSIS (LASSI):
         if las.nroots>1:
             logger.warn (self, ("LASSIS builds the model space for you! I don't know what will "
                                 "happen if you build a model space by hand!"))
-    def kernel (self, nmax_charge=None, nmax_spin=None, sa_heff=None, deactivate_vrv=None,
+    def kernel (self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
                 crash_locmin=None, **kwargs):
-        if nmax_charge is None: nmax_charge = self.nmax_charge
-        if nmax_spin is None: nmax_spin = self.nmax_spin
+        if ncharge is None: ncharge = self.ncharge
+        if nspin is None: nspin = self.nspin
         if sa_heff is None: sa_heff = self.sa_heff
         if deactivate_vrv is None: deactivate_vrv = self.deactivate_vrv
         if crash_locmin is None: crash_locmin = self.crash_locmin
-        self.converged, las = prepare_states (self, nmax_charge=nmax_charge, nmax_spin=nmax_spin,
+        self.converged, las = prepare_states (self, ncharge=ncharge, nspin=nspin,
                                               sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
                                               crash_locmin=crash_locmin)
         self.__dict__.update(las.__dict__)
