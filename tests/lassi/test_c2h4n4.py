@@ -160,8 +160,11 @@ class KnownValues(unittest.TestCase):
     def test_lassis (self):
         # TODO: investigate here if the VRVSolver is actually doing anything
         from mrh.my_pyscf.lassi.lassis import LASSIS
-        lsis = LASSIS (las).run (max_cycle_macro=1)
-        self.assertLess (lsis.e_roots[0], las.e_states[0])
+        las1 = LASSCF (las._scf, (4,4), (4,4), spin_sub=(1,1))
+        las1.mo_coeff = las.mo_coeff
+        las1.lasci ()
+        lsis = LASSIS (las1).run (max_cycle_macro=1)
+        self.assertLess (lsis.e_roots[0], las1.e_states[0])
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")
