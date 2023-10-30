@@ -71,7 +71,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
     elif isinstance (ncharge, str):
         if 's' in ncharge.lower ():
             auto_singles = True
-            ncharge = np.ones_like (ncsf)
+            ncharge = ncsf
         else:
             raise RuntimeError ("Valid ncharge values are integers or 's'")
     lroots = np.minimum (ncharge, ncsf)
@@ -214,11 +214,7 @@ def all_spin_halfexcitations (lsi, las, nspin=1):
                       ifrag, nelec, norb, smult-2)
             smults1_i.extend ([smult-2,]*(smult-2))
             spins1_i.extend (list (range (smult-3, -(smult-3)-1, -2)))
-            try:
-                ci1_i.extend (cisolve (smult-2, ndn0[ifrag]))
-            except ValueError as err:
-                print (ndn0[ifrag], nelec, norb, smult)
-                raise (err)
+            ci1_i.extend (cisolve (smult-2, ndn0[ifrag]))
         min_npair = max (0, nelec-norb)
         max_smult = (nelec - 2*min_npair) + 1
         if smult < max_smult: # spin-raised

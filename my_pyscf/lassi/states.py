@@ -37,7 +37,7 @@ class SingleLASRootspace (object):
 
         # "u", "d": like "a", "b", but presuming spins+1==smults everywhere
         self.nelecu = (self.nelec + (self.smults-1)) // 2
-        self.nelecd = (self.nelec + (self.smults-1)) // 2
+        self.nelecd = (self.nelec - (self.smults-1)) // 2
         self.nholeu = self.nlas - self.nelecu
         self.nholed = self.nlas - self.nelecd
 
