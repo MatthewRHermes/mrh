@@ -158,12 +158,25 @@ class KnownValues(unittest.TestCase):
             self.assertLess (np.amax (np.abs (errvec)), 1e-8)
 
     def test_lassis (self):
-        # TODO: investigate here if the VRVSolver is actually doing anything
         from mrh.my_pyscf.lassi.lassis import LASSIS
         las1 = LASSCF (las._scf, (4,4), (4,4), spin_sub=(1,1))
         las1.mo_coeff = las.mo_coeff
         las1.lasci ()
         lsis = LASSIS (las1).run (max_cycle_macro=1)
+
+    def test_lassis_slow (self):
+        from mrh.my_pyscf.lassi.lassis import LASSIS
+        # TODO: optimize implementation and eventually merge with test_lassis
+        mol = struct (2.0, 2.0, '6-31g', symmetry=False)
+        mol.output = '/dev/null'
+        mol.verbose = 0
+        mol.spin = 8
+        mol.build ()
+        mf = scf.RHF (mol).run () 
+        las1 = LASSCF (mf, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
+        mo_coeff = las1.localize_init_guess ((list (range (5)), list (range (5,10))))
+        las1.kernel (mo_coeff)
+        lsis = LASSIS (las1).run ()
         self.assertLess (lsis.e_roots[0], las1.e_states[0])
 
 if __name__ == "__main__":

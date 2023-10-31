@@ -127,7 +127,7 @@ class KnownValues(unittest.TestCase):
                 self.assertAlmostEqual (lib.fp (hket_pq), lib.fp (hket_ref), 8)
 
     def test_lassis (self):
-        lsis = lassis.LASSIS (las).run (ncharge=1, nspin=1)
+        lsis = lassis.LASSIS (las).run ()
         e_upper = las.e_states[0]
         e_lower = lsi.e_roots[0]
         self.assertLessEqual (e_lower, lsis.e_roots[0])
