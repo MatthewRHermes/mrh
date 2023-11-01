@@ -80,6 +80,22 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
     converged = True
     log.info ("LASSIS electron hop spaces: %d-%d", las1.nroots, las2.nroots-1)
     for i in range (las1.nroots, las2.nroots):
+        # spin shuffle escape
+        i_ssref = None
+        for i0 in range (las1.nroots, i):
+            if spaces[i].is_spin_shuffle_of (spaces[i0]):
+                i_ssref = i0
+                break
+        if i_ssref is not None:
+            spaces[i].ci = spaces[i].get_spin_shuffle_civecs (spaces[i_ssref])
+            log.info ("Electron hop space %d:", i)
+            spaces[i].table_printlog ()
+            log.info ("is a spin shuffle of space %d", i_ssref)
+            for k in range (nfrags):
+                ci[k][i] = spaces[i].ci[k]
+            t0 = log.timer ("Space {} excitations".format (i), *t0)
+            continue
+        # end spin shuffle escape
         psref_ix = [j for j, space in enumerate (spaces[:las1.nroots])
                     if spaces[i].is_single_excitation_of (space)]
         psref = [spaces[j] for j in psref_ix]
@@ -132,18 +148,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             elif spin_shuffle_ref:
                 # NOTE: This logic fails if the user does spin_shuffle -> lasci -> LASSIS
                 ci1[k] = np.asarray (ci1[k][0])
-            else:
-                ndeta, ndetb = space[i].get_ndet (k)
-                c = np.concatenate ([c.reshape (-1,ndeta*ndetb) for c in ci1[k]], axis=0)
-                w, v = linalg.eigh (c.conj () @ c.T)
-                print (w)
-                idx = w>1e-8
-                ci1[k] = (v[:,idx].T @ c).reshape (-1,ndeta,ndetb)
-                c = ci1[k].reshape (-1,ndeta*ndetb)
-                print (c.conj () @ c.T)
-        for k in range (nfrags):
-            if isinstance (ci1[k], list):
-                print (k, len (ci1[k]), np.asarray (ci1[k]).shape, type (ciref[k]), [c.shape for c in ciref[k]])
+        spaces[i].ci = ci1
         if not conv: log.warn ("CI vectors for charge-separated rootspace %d not converged", i)
         converged = converged and conv
         for k in range (nfrags):

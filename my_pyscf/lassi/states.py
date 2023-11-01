@@ -253,6 +253,11 @@ class SingleLASRootspace (object):
         if np.any (self.smults != other.smults): return False
         return self.spins.sum () == other.spins.sum ()
 
+    def get_spin_shuffle_civecs (self, other):
+        assert (self.is_spin_shuffle_of (other) and other.has_ci ())
+        ci_sz = other.get_ci_szrot ()
+        return [ci_sz[ifrag][self.spins[ifrag]] for ifrag in range (self.nfrag)]
+
     def excited_fragments (self, other):
         dneleca = self.neleca - other.neleca
         dnelecb = self.nelecb - other.nelecb
@@ -267,7 +272,6 @@ class SingleLASRootspace (object):
             c = np.asarray (c).reshape (-1, n[0], n[1])
             lroots.append (c.shape[0])
         return lroots
-
 
     def table_printlog (self, lroots=None):
         if lroots is None: lroots = self.get_lroots ()
