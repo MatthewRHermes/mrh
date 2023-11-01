@@ -177,7 +177,8 @@ class KnownValues(unittest.TestCase):
         mo_coeff = las1.localize_init_guess ((list (range (5)), list (range (5,10))))
         las1.kernel (mo_coeff)
         lsis = LASSIS (las1).run ()
-        self.assertLess (lsis.e_roots[0], las1.e_states[0])
+        self.assertAlmostEqual (lsis.e_roots[0], -295.52103109, 7)
+        self.assertTrue (lsis.converged)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")

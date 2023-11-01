@@ -34,7 +34,7 @@ def setUpModule ():
     mf = scf.RHF (mol).run ()
 
     # Random Hamiltonian
-    rng = np.random.default_rng ()
+    rng = np.random.default_rng (424)
     mf._eri = rng.random (mf._eri.shape)
     hcore = rng.random ((4,4))
     hcore = hcore + hcore.T
@@ -132,6 +132,9 @@ class KnownValues(unittest.TestCase):
         e_lower = lsi.e_roots[0]
         self.assertLessEqual (e_lower, lsis.e_roots[0])
         self.assertLessEqual (lsis.e_roots[0], e_upper)
+        self.assertEqual (len (lsis.e_roots), 20)
+        # Reference depends on rng seed obviously b/c this is not casci limit
+        self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI of random 2,2 system")
