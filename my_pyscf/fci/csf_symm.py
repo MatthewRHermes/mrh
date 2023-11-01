@@ -59,7 +59,7 @@ class FCISolver (direct_spin1_symm.FCISolver, CSFFCISolver):
         self.norb, self.nelec = norb, nelec
         self.check_transformer_cache ()
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
-            hdiag_csf=hdiag_csf, npsp=npsp)
+            hdiag_csf=hdiag_csf, npsp=npsp, max_memory=self.max_memory)
 
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         ''' Over the top of the existing kernel, I just need to set the parameters and cache values related to spin.
