@@ -953,6 +953,7 @@ class HamS2ovlpint (LSTDMint2):
 
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, dtype=dtype)
+        if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = h1.ravel ()
         self.h2 = h2.ravel ()
 
@@ -965,9 +966,9 @@ class HamS2ovlpint (LSTDMint2):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1):
+        self.ham[bra,ket] += np.dot (self.h1, D1.ravel ())
         M1 = D1[0] - D1[1]
         D1 = D1.sum (0)
-        self.ham[bra,ket] += np.dot (self.h1, D1.ravel ())
         self.s2[bra,ket] += (np.trace (M1)/2)**2 + np.trace (D1)/2
 
     def _put_D2_(self, bra, ket, D2):
