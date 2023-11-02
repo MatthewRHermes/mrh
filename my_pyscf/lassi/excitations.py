@@ -81,17 +81,6 @@ def sort_ci0 (obj, ham_pq, ci0):
     idxmin = np.argmin (e_p)
     e0_p = e_p[idxmin]
     h_pq = np.dot (h_pq, si_q)
-    def sigma_pp (e):
-        denom = e - e_q
-        idx = np.abs (denom) > 1e-16
-        return np.dot (h_pq[:,idx].conj () / denom[None,idx], h_pq[:,idx].T)
-    heff_pp = h_pp + sigma_pp (e0_p)
-    try:
-        assert (abs (heff_pp[idxmin,idxmin] - e0_p) < 1e-4)
-    except AssertionError as err:
-        log.warn (("Weak coupling to reference space detected: "
-                   "e - (h_pp+sigma_pp (e)) = %e > 1e-4"),
-                  heff_pp[idxmin,idxmin] - e0_p)
                 
     # ENV index to address
     idx = idxmin
