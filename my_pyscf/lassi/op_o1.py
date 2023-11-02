@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import lib, fci
-from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
 from itertools import product, combinations
@@ -165,14 +165,14 @@ class LSTDMint1 (object):
         Req'd for 2e- relativistic (i.e., spin-breaking) operators
 
         Args:
-            fcibox: instance of :class:`H1EZipFCISolver`
-                fcisolvers for the current fragment
             norb : integer
                 number of active orbitals in the current fragment
             nelec : integer or sequence of length 2
                 base number of electrons in the current fragment
             nroots : integer
                 number of states considered
+            nelec_rs : ndarray of ints of shape (nroots, 2)
+                number of spin-up and spin-down electrons in each root
             hopping_index: ndarray of ints of shape (2, nroots, nroots)
                 element [i,j,k] reports the change of number of electrons of
                 spin i in the current fragment between LAS states j and k
@@ -188,18 +188,14 @@ class LSTDMint1 (object):
                 Currently not used
     '''
 
-    def __init__(self, fcibox, norb, nelec, nroots, hopping_index, rootaddr, fragaddr,
+    def __init__(self, norb, nelec, nroots, nelec_rs, hopping_index, rootaddr, fragaddr,
                  idx_frag, dtype=np.float64):
-        # I'm not sure I need linkstrl
-        self.linkstrl = fcibox.states_gen_linkstr (norb, nelec, tril=True)
-        self.linkstr = fcibox.states_gen_linkstr (norb, nelec, tril=False)
-        self.fcisolvers = fcibox.fcisolvers
+        # TODO: if it actually helps, cache the "linkstr" arrays
         self.norb = norb
         self.nelec = nelec
         self.nroots = nroots
         self.dtype = dtype
-        self.nelec_r = [_unpack_nelec (fcibox._get_nelec (solver, nelec))
-                        for solver in self.fcisolvers]
+        self.nelec_r = [tuple (n) for n in nelec_rs]
         self.ovlp = [[None for i in range (nroots)] for j in range (nroots)]
         self._h = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
         self._hh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (-1,0,1)] 
@@ -382,15 +378,14 @@ class LSTDMint1 (object):
         def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
         def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
         def trans_rdm12s_loop (iroot, bra, ket):
-            nelec, linkstr = self.nelec_r[iroot], self.linkstr[iroot]
+            nelec = self.nelec_r[iroot]
             na, nb = ndeta[iroot], ndetb[iroot]
             bra = bra.reshape (-1, na, nb)
             ket = ket.reshape (-1, na, nb)
-            solver = self.fcisolvers[iroot]
             tdm1s = np.zeros ((bra.shape[0],ket.shape[0],2,norb,norb), dtype=self.dtype)
             tdm2s = np.zeros ((bra.shape[0],ket.shape[0],4,norb,norb,norb,norb), dtype=self.dtype)
             for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                d1s, d2s = solver.trans_rdm12s (bra[i], ket[j], norb, nelec, link_index=linkstr)
+                d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec)
                 # Transpose based on docstring of direct_spin1.trans_rdm12s
                 tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
                 tdm2s[i,j] = np.stack (d2s, axis=0)
@@ -1102,9 +1097,7 @@ def make_ints (las, ci, nelec_frs):
         lroots: ndarray of ints of shape (nfrags, nroots)
             Number of states within each fragment and rootspace
     '''
-    fciboxes = las.fciboxes
-    nfrags = len (fciboxes)
-    nroots = nelec_frs.shape[1]
+    nfrags, nroots = nelec_frs.shape[:2]
     nlas = las.ncas_sub
     nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
     lroots = get_lroots (ci)
@@ -1112,7 +1105,7 @@ def make_ints (las, ci, nelec_frs):
     rootaddr, fragaddr = envaddr2fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots,
+        tdmint = LSTDMint1 (nlas[ifrag], nelelas[ifrag], nroots, nelec_frs[ifrag],
                             hopping_index[ifrag], rootaddr, fragaddr[ifrag], ifrag)
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
