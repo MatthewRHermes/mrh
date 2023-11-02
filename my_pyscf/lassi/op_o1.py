@@ -101,12 +101,10 @@ def fermion_des_shuffle (nelec_f, frag_list, i):
     nperms = sum (nelec_f[:i]) if i else 0
     return (1,-1)[nperms%2]
 
-def lst_hopping_index (nlas, nelelas, nelec_frs):
+def lst_hopping_index (nelec_frs):
     ''' Build the LAS state transition hopping index
 
         Args:
-            nlas: list of norbs for each fragment
-            nelelas: list of neleca + nelecb for each fragment
             nelec_frs : ndarray of shape (nfrags,nroots,2)
                 Number of electrons of each spin in each rootspace in each
                 fragment
@@ -128,7 +126,6 @@ def lst_hopping_index (nlas, nelelas, nelec_frs):
                 within spectator fragments and phh/pph modes within
                 source/dest fragments.
     '''
-    nelelas = [sum (_unpack_nelec (ne)) for ne in nelelas]
     nelec_fsr = nelec_frs.transpose (0,2,1)
     hopping_index = np.array ([[np.subtract.outer (spin, spin)
         for spin in frag] for frag in nelec_fsr])
@@ -167,8 +164,6 @@ class LSTDMint1 (object):
         Args:
             norb : integer
                 number of active orbitals in the current fragment
-            nelec : integer or sequence of length 2
-                base number of electrons in the current fragment
             nroots : integer
                 number of states considered
             nelec_rs : ndarray of ints of shape (nroots, 2)
@@ -188,11 +183,10 @@ class LSTDMint1 (object):
                 Currently not used
     '''
 
-    def __init__(self, norb, nelec, nroots, nelec_rs, hopping_index, rootaddr, fragaddr,
+    def __init__(self, norb, nroots, nelec_rs, hopping_index, rootaddr, fragaddr,
                  idx_frag, dtype=np.float64):
         # TODO: if it actually helps, cache the "linkstr" arrays
         self.norb = norb
-        self.nelec = nelec
         self.nroots = nroots
         self.dtype = dtype
         self.nelec_r = [tuple (n) for n in nelec_rs]
@@ -1099,13 +1093,12 @@ def make_ints (las, ci, nelec_frs):
     '''
     nfrags, nroots = nelec_frs.shape[:2]
     nlas = las.ncas_sub
-    nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
     lroots = get_lroots (ci)
-    hopping_index, zerop_index, onep_index = lst_hopping_index (nlas, nelelas, nelec_frs)
+    hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
     rootaddr, fragaddr = envaddr2fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = LSTDMint1 (nlas[ifrag], nelelas[ifrag], nroots, nelec_frs[ifrag],
+        tdmint = LSTDMint1 (nlas[ifrag], nroots, nelec_frs[ifrag],
                             hopping_index[ifrag], rootaddr, fragaddr[ifrag], ifrag)
         t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (

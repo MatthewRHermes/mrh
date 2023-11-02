@@ -404,7 +404,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         nelec_rfs_bra = np.asarray ([[list(self._get_nelec (s, n))
                                      for s, n in zip (self.fcisolvers, nelec_f)]])
         nelec_frs_bra = nelec_rfs_bra.transpose (1,0,2)
-        h_op = op[0].contract_ham_ci
+        h_op = op[0].contract_ham_ci # TODO: op[1] version of this fn
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
             hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
                                 soc=0, orbsym=None, wfnsym=None)
