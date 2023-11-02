@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 from scipy import linalg
 from pyscf.lib import logger
@@ -126,7 +127,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         psref = [space.get_product_state_solver () for space in psref]
         psexc = ExcitationPSFCISolver (psref, ciref, las2.ncas_sub, las2.nelecas_sub,
                                        stdout=mol.stdout, verbose=mol.verbose,
-                                       crash_locmin=crash_locmin)
+                                       crash_locmin=crash_locmin, opt=lsi.opt)
         psexc._deactivate_vrv = deactivate_vrv
         neleca = spaces[i].neleca
         nelecb = spaces[i].nelecb
@@ -138,7 +139,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k], weights=weights)
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0,
                                               max_cycle_macro=lsi.max_cycle_macro,
-                                              conv_tol_self=9e99)
+                                              conv_tol_self=sys.float_info.max)
         spin_shuffle_ref = all ([spaces[j].is_spin_shuffle_of (spaces[0])
                                  for j in range (1,las1.nroots)])
         for k in np.where (~excfrags)[0]:
@@ -300,14 +301,14 @@ def charge_excitation_products (las2, las1):
 
 class LASSIS (LASSI):
     def __init__(self, las, ncharge='s', nspin='s', sa_heff=True, deactivate_vrv=False,
-                 crash_locmin=False, **kwargs):
+                 crash_locmin=False, opt=0, **kwargs):
         self.ncharge = ncharge
         self.nspin = nspin
         self.sa_heff = sa_heff
         self.deactivate_vrv = deactivate_vrv
         self.crash_locmin = crash_locmin
         self.e_states_meaningless = True # a tag to silence an invalid warning
-        LASSI.__init__(self, las, **kwargs)
+        LASSI.__init__(self, las, opt=opt, **kwargs)
         if las.nroots>1:
             logger.warn (self, ("LASSIS builds the model space for you! I don't know what will "
                                 "happen if you build a model space by hand!"))

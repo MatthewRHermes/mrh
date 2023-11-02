@@ -101,11 +101,10 @@ def fermion_des_shuffle (nelec_f, frag_list, i):
     nperms = sum (nelec_f[:i]) if i else 0
     return (1,-1)[nperms%2]
 
-def lst_hopping_index (fciboxes, nlas, nelelas, nelec_frs):
+def lst_hopping_index (nlas, nelelas, nelec_frs):
     ''' Build the LAS state transition hopping index
 
         Args:
-            fciboxes: list of h1e_zipped_fcisolvers
             nlas: list of norbs for each fragment
             nelelas: list of neleca + nelecb for each fragment
             nelec_frs : ndarray of shape (nfrags,nroots,2)
@@ -1109,7 +1108,7 @@ def make_ints (las, ci, nelec_frs):
     nlas = las.ncas_sub
     nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
     lroots = get_lroots (ci)
-    hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, nelec_frs)
+    hopping_index, zerop_index, onep_index = lst_hopping_index (nlas, nelelas, nelec_frs)
     rootaddr, fragaddr = envaddr2fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
