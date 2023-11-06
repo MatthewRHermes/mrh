@@ -521,6 +521,12 @@ class LSTDMint2 (object):
                 Number of states within each fragment and rootspace
 
         Kwargs:
+            mask_bra_space : sequence of int or mask array of shape (nroots,)
+                If included, only matrix elements involving the corresponding bra rootspaces are
+                computed.
+            mask_ket_space : sequence of int or mask array of shape (nroots,)
+                If included, only matrix elements involving the corresponding ket rootspaces are
+                computed.
             dtype : instance of np.dtype
                 Currently not used; TODO: generalize to ms-broken fragment-local states?
         '''
@@ -530,7 +536,8 @@ class LSTDMint2 (object):
     # (N.B.: "sp" is just the adjoint of "sm"). 
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
-    def __init__(self, ints, nlas, hopping_index, lroots, dtype=np.float64):
+    def __init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=None, mask_ket_space=None,
+                 dtype=np.float64):
         self.ints = ints
         self.nlas = nlas
         self.norb = sum (nlas)
@@ -540,21 +547,52 @@ class LSTDMint2 (object):
         offs1 = np.cumsum (nprods)
         offs0 = offs1 - nprods
         self.offs_lroots = np.stack ([offs0, offs1], axis=1)
-        self.nfrags, _, self.nroots, _ = nfrags, _, nroots, _ = hopping_index.shape
+        self.nfrags, _, self.nroots, _ = hopping_index.shape
         self.nstates = offs1[-1]
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
 
-        # The primary index arrays
-        # The nth column of each array is the (n+1)th argument of the corresponding _crunch_*_
-        # member function below. The first two columns are always the bra and the ket. Further
-        # columns identify fragments whose quantum numbers are changed by the interaction. If
-        # necessary (i.e., for 1c and 2c), the last column identifies spin case.
-        self.exc_null = np.empty ((0,2), dtype=int)
-        self.exc_1c = np.empty ((0,5), dtype=int)
-        self.exc_1s = np.empty ((0,4), dtype=int)
-        self.exc_1s1c = np.empty ((0,5), dtype=int)
-        self.exc_2c = np.empty ((0,7), dtype=int)
+        # overlap tensor
+        self.ovlp = [i.ovlp for i in ints]
+
+        # spin-shuffle sign vector
+        self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
+                                     for ket in range (self.nroots)]).transpose (0,2,1)
+        self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
+                             for nelec_sf in self.nelec_rf]
+        self.nelec_rf = self.nelec_rf.sum (1)
+
+        exc = self.make_exc_tables (hopping_index)
+        self.exc_null = exc['null']
+        self.exc_1c = exc['1c']
+        self.exc_1s = exc['1s']
+        self.exc_1s1c = exc['1s1c']
+        self.exc_2c = exc['2c']
+
+    def make_exc_tables (self, hopping_index):
+        ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
+        corresponding _crunch_*_ member function below. The first two columns are always the bra
+        rootspace index and the ket rootspace index, respectively. Further columns identify
+        fragments whose quantum numbers are changed by the interaction. If necessary (i.e., for 1c
+        and 2c), the last column identifies spin case.
+
+        Args:
+            hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
+                element [i,j,k,l] reports the change of number of electrons of
+                spin j in fragment i between LAS states k and l
+
+        Returns:
+            exc: dict with str keys and ndarray-of-int values. Each row of each ndarray is the
+                argument list for 1 call to the LSTDMint2._crunch_*_ function with the name that
+                corresponds to the key str (_crunch_null_, _crunch_1s_, etc.).
+        '''
+        exc = {}
+        exc['null'] = np.empty ((0,2), dtype=int)
+        exc['1c'] = np.empty ((0,5), dtype=int)
+        exc['1s'] = np.empty ((0,4), dtype=int)
+        exc['1s1c'] = np.empty ((0,5), dtype=int)
+        exc['2c'] = np.empty ((0,7), dtype=int)
+        nfrags = hopping_index.shape[0]
 
         # Process connectivity data to quickly distinguish interactions
 
@@ -594,16 +632,15 @@ class LSTDMint2 (object):
         # fragments of the charge or spin units that are transferred in that interaction,
         # and store those fragment indices along with the state indices.
 
-
         # Zero-electron interactions
         tril_index = np.zeros_like (conserv_index)
         tril_index[np.tril_indices (self.nroots,k=-1)] = True
         idx = conserv_index & tril_index & (nop == 0)
-        self.exc_null = np.vstack (list (np.where (idx))).T
+        exc['null'] = np.vstack (list (np.where (idx))).T
  
         # One-electron interactions
         idx = conserv_index & (nop == 2) & tril_index
-        if nfrags > 1: self.exc_1c = np.vstack (
+        if nfrags > 1: exc['1c'] = np.vstack (
             list (np.where (idx)) + [findf[-1][idx], findf[0][idx], ispin[idx]]
         ).T
 
@@ -619,7 +656,7 @@ class LSTDMint2 (object):
 
         # Two-electron interaction: k(a)j(b) -> i(a)k(b) ("1s1c")
         idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amin(spin_index,axis=0)==-2)
-        if nfrags > 2: self.exc_1s1c = np.vstack (
+        if nfrags > 2: exc['1s1c'] = np.vstack (
             list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]
         ).T
 
@@ -628,7 +665,7 @@ class LSTDMint2 (object):
 
         # Two-electron interaction: i(a)j(b) -> j(a)i(b) ("1s") 
         idx = idx_2e & (ncharge_index == 0) & (nspin_index == 2)
-        if nfrags > 1: self.exc_1s = np.vstack (
+        if nfrags > 1: exc['1s'] = np.vstack (
             list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]
         ).T
 
@@ -647,19 +684,11 @@ class LSTDMint2 (object):
         ).T
 
         # Combine "split", "pair", and "scatter" into "2c"
-        if nfrags > 1: self.exc_2c = exc_pair
-        if nfrags > 2: self.exc_2c = np.vstack ((self.exc_2c, exc_split))
-        if nfrags > 3: self.exc_2c = np.vstack ((self.exc_2c, exc_scatter))
+        if nfrags > 1: exc['2c'] = exc_pair
+        if nfrags > 2: exc['2c'] = np.vstack ((exc['2c'], exc_split))
+        if nfrags > 3: exc['2c'] = np.vstack ((exc['2c'], exc_scatter))
 
-        # overlap tensor
-        self.ovlp = [i.ovlp for i in ints]
-
-        # spin-shuffle sign vector
-        self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
-                                     for ket in range (self.nroots)]).transpose (0,2,1)
-        self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
-                             for nelec_sf in self.nelec_rf]
-        self.nelec_rf = self.nelec_rf.sum (1)
+        return exc
 
     def get_range (self, i):
         p = sum (self.nlas[:i])
