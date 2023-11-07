@@ -112,15 +112,15 @@ def lst_hopping_index (nelec_frs):
         Returns:
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
                 element [i,j,k,l] reports the change of number of electrons of
-                spin j in fragment i between LAS states k and l
+                spin j in fragment i between LAS rootspaces k and l
             zerop_index: ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS states are
+                element [i,j] is true where the ith and jth LAS spaces are
                 connected by a null excitation; i.e., no electron, pair,
                 or spin hopping or pair splitting/coalescence. This implies
                 nonzero 1- and 2-body transition density matrices within
                 all fragments.
             onep_index: ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS states
+                element [i,j] is true where the ith and jth LAS spaces
                 are connected by exactly one electron hop from i to j or vice
                 versa, implying nonzero 1-body transition density matrices
                 within spectator fragments and phh/pph modes within
@@ -141,9 +141,12 @@ class LSTDMint1 (object):
         intermediates. Stores all local transition density matrix factors. Run the `kernel` method
         to compute all data, and run the get_* methods to return the computed intermediates:
 
-        (s and t are spin: a,b for 1 operator; aa, ab, bb for 2 operators
+        s and t are spin: a,b for 1 operator; aa, ab, bb for 2 operators
         s is a spin argument passed to the "get" function
-        t is a spin index on the returned array)
+        t is a spin index on the returned array
+        i and j are single state indices with
+            rootaddr[i] = index of the rootspace for state i
+            fragaddr[i] = index in this fragment's local rootaddr[i] basis of state i
 
         get_h (i,j,s): <i|s|j>
         get_p (i,j,s): <i|s'|j> = conj (<j|s|i>)
@@ -161,6 +164,10 @@ class LSTDMint1 (object):
             <i|a'a'bb|j> & a<->b
         Req'd for 2e- relativistic (i.e., spin-breaking) operators
 
+        NOTE: in the put_* functions, unlike the get_* funcitons, the indices i,j are
+        rootspace indices and the tdm data argument must contain the local-basis state
+        index dimension.
+
         Args:
             norb : integer
                 number of active orbitals in the current fragment
@@ -170,7 +177,7 @@ class LSTDMint1 (object):
                 number of spin-up and spin-down electrons in each root
             hopping_index: ndarray of ints of shape (2, nroots, nroots)
                 element [i,j,k] reports the change of number of electrons of
-                spin i in the current fragment between LAS states j and k
+                spin i in the current fragment between LAS rootspaces j and k
             rootaddr: ndarray of shape (nstates):
                 Index array of LAS states into a given rootspace
             fragaddr: ndarray of shape (nstates):
@@ -321,15 +328,15 @@ class LSTDMint1 (object):
                 Contains CI vectors for the current fragment
             hopping_index: ndarray of ints of shape (2, nroots, nroots)
                 element [i,j,k] reports the change of number of electrons of
-                spin i in the current fragment between LAS states j and k
+                spin i in the current fragment between LAS rootspaces j and k
             zerop_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS states are
+                element [i,j] is true where the ith and jth LAS spaces are
                 connected by a null excitation; i.e., no electron, pair,
                 or spin hopping or pair splitting/coalescence. This implies
                 nonzero 1- and 2-body transition density matrices within
                 all fragments.
             onep_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS states
+                element [i,j] is true where the ith and jth LAS spaces
                 are connected by exactly one electron hop from i to j or vice
                 versa, implying nonzero 1-body transition density matrices
                 within spectator fragments and phh/pph modes within
@@ -524,7 +531,7 @@ class LSTDMint2 (object):
                 numbers of active orbitals in each fragment
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
                 element [i,j,k,l] reports the change of number of electrons of
-                spin j in fragment i between LAS states k and l
+                spin j in fragment i between LAS rootspaces k and l
             lroots: ndarray of ints of shape (nfrags, nroots)
                 Number of states within each fragment and rootspace
 
@@ -587,7 +594,7 @@ class LSTDMint2 (object):
         Args:
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
                 element [i,j,k,l] reports the change of number of electrons of
-                spin j in fragment i between LAS states k and l
+                spin j in fragment i between LAS rootspaces k and l
 
         Returns:
             exc: dict with str keys and ndarray-of-int values. Each row of each ndarray is the
@@ -993,8 +1000,10 @@ class HamS2ovlpint (LSTDMint2):
     # TODO: SO-LASSI o1 implementation: the one-body spin-orbit coupling part of the
     # Hamiltonian in addition to h1 and h2, which are spin-symmetric
 
-    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, dtype=np.float64):
-        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, dtype=dtype)
+    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
+                 mask_ket_space=None, dtype=np.float64):
+        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
+                           mask_ket_space=mask_ket_space, dtype=dtype)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = h1.ravel ()
         self.h2 = h2.ravel ()
@@ -1072,8 +1081,10 @@ class LRRDMint (LSTDMint2):
     # TODO: SO-LASSI o1 implementation: these density matrices can only be defined in the full
     # spinorbital basis
 
-    def __init__(self, ints, nlas, hopping_index, lroots, si, dtype=np.float64):
-        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, dtype=dtype)
+    def __init__(self, ints, nlas, hopping_index, lroots, si, mask_bra_space=None,
+                 mask_ket_space=None, dtype=np.float64):
+        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
+                           mask_ket_space=mask_ket_space, dtype=dtype)
         self.nroots_si = si.shape[-1]
         self.si_dm = np.stack ([np.dot (si[:,i:i+1],si[:,i:i+1].conj ().T)
             for i in range (self.nroots_si)], axis=-1)
