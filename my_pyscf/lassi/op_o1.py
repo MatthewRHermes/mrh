@@ -483,6 +483,14 @@ class LSTDMint1 (object):
         
         return t0
 
+def mask_exc_table (exc, col=0, mask_space=None):
+    if mask_space is None: return exc
+    mask_space = np.asarray (mask_space)
+    if mask_space.dtype in (bool, np.bool_):
+        mask_space = np.where (mask_space)[0]
+    idx = np.isin (exc[:,col], mask_space)
+    return exc[idx]
+
 class LSTDMint2 (object):
     ''' LAS state transition density matrix intermediate 2 - whole-system DMs
         Carry out multiplications such as
@@ -563,11 +571,11 @@ class LSTDMint2 (object):
         self.nelec_rf = self.nelec_rf.sum (1)
 
         exc = self.make_exc_tables (hopping_index)
-        self.exc_null = exc['null']
-        self.exc_1c = exc['1c']
-        self.exc_1s = exc['1s']
-        self.exc_1s1c = exc['1s1c']
-        self.exc_2c = exc['2c']
+        self.exc_null = self.mask_exc_table (exc['null'], mask_bra_space, mask_ket_space)
+        self.exc_1c = self.mask_exc_table (exc['1c'], mask_bra_space, mask_ket_space)
+        self.exc_1s = self.mask_exc_table (exc['1s'], mask_bra_space, mask_ket_space)
+        self.exc_1s1c = self.mask_exc_table (exc['1s1c'], mask_bra_space, mask_ket_space)
+        self.exc_2c = self.mask_exc_table (exc['2c'], mask_bra_space, mask_ket_space)
 
     def make_exc_tables (self, hopping_index):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
@@ -688,6 +696,11 @@ class LSTDMint2 (object):
         if nfrags > 2: exc['2c'] = np.vstack ((exc['2c'], exc_split))
         if nfrags > 3: exc['2c'] = np.vstack ((exc['2c'], exc_scatter))
 
+        return exc
+
+    def mask_exc_table (self, exc, mask_bra_space=None, mask_ket_space=None):
+        exc = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
+        exc = mask_exc_table (exc, col=1, mask_space=mask_ket_space)
         return exc
 
     def get_range (self, i):
