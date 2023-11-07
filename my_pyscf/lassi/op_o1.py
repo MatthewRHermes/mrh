@@ -169,15 +169,29 @@ class LSTDMint1 (object):
         index dimension.
 
         Args:
+            ci : list of ndarray of length nroots
+                Contains CI vectors for the current fragment
+            hopping_index: ndarray of ints of shape (2, nroots, nroots)
+                element [i,j,k] reports the change of number of electrons of
+                spin i in the current fragment between LAS rootspaces j and k
+            zerop_index : ndarray of bools of shape (nroots, nroots)
+                element [i,j] is true where the ith and jth LAS spaces are
+                connected by a null excitation; i.e., no electron, pair,
+                or spin hopping or pair splitting/coalescence. This implies
+                nonzero 1- and 2-body transition density matrices within
+                all fragments.
+            onep_index : ndarray of bools of shape (nroots, nroots)
+                element [i,j] is true where the ith and jth LAS spaces
+                are connected by exactly one electron hop from i to j or vice
+                versa, implying nonzero 1-body transition density matrices
+                within spectator fragments and phh/pph modes within
+                source/dest fragments.
             norb : integer
                 number of active orbitals in the current fragment
             nroots : integer
                 number of states considered
             nelec_rs : ndarray of ints of shape (nroots, 2)
                 number of spin-up and spin-down electrons in each root
-            hopping_index: ndarray of ints of shape (2, nroots, nroots)
-                element [i,j,k] reports the change of number of electrons of
-                spin i in the current fragment between LAS rootspaces j and k
             rootaddr: ndarray of shape (nstates):
                 Index array of LAS states into a given rootspace
             fragaddr: ndarray of shape (nstates):
@@ -190,9 +204,13 @@ class LSTDMint1 (object):
                 Currently not used
     '''
 
-    def __init__(self, norb, nroots, nelec_rs, hopping_index, rootaddr, fragaddr,
-                 idx_frag, dtype=np.float64):
+    def __init__(self, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
+                 rootaddr, fragaddr, idx_frag, dtype=np.float64):
         # TODO: if it actually helps, cache the "linkstr" arrays
+        self.ci = ci
+        self.hopping_index = hopping_index
+        self.zerop_index = zerop_index
+        self.onep_index = onep_index
         self.norb = norb
         self.nroots = nroots
         self.dtype = dtype
@@ -204,10 +222,10 @@ class LSTDMint1 (object):
         self._sm = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm1 = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
-        self.hopping_index = hopping_index
         self.rootaddr = rootaddr
         self.fragaddr = fragaddr
         self.idx_frag = idx_frag
+        self.time_crunch = self._init_crunch_()
 
     # Exception catching
 
@@ -320,32 +338,17 @@ class LSTDMint1 (object):
         else:
             self.dm2[i][j] = x
 
-    def kernel (self, ci, hopping_index, zerop_index, onep_index):
+    def _init_crunch_(self):
         ''' Compute the transition density matrix factors.
-
-        Args:
-            ci : list of ndarray of length nroots
-                Contains CI vectors for the current fragment
-            hopping_index: ndarray of ints of shape (2, nroots, nroots)
-                element [i,j,k] reports the change of number of electrons of
-                spin i in the current fragment between LAS rootspaces j and k
-            zerop_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces are
-                connected by a null excitation; i.e., no electron, pair,
-                or spin hopping or pair splitting/coalescence. This implies
-                nonzero 1- and 2-body transition density matrices within
-                all fragments.
-            onep_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS spaces
-                are connected by exactly one electron hop from i to j or vice
-                versa, implying nonzero 1-body transition density matrices
-                within spectator fragments and phh/pph modes within
-                source/dest fragments.
 
         Returns:
             t0 : tuple of length 2
                 timestamp of entry into this function, for profiling by caller
         '''
+        ci = self.ci
+        hopping_index = self.hopping_index
+        zerop_index = self.zerop_index
+        onep_index = self.onep_index
 
         nroots, norb = self.nroots, self.norb
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
@@ -489,6 +492,24 @@ class LSTDMint1 (object):
                     self.set_hh (bra, ket, 2, hh)                
         
         return t0
+
+        def contract_h00 (self, h_00, h_11, h_22, ket):
+            pass
+
+        def contract_h10 (self, spin, h_10, h_21, ket):
+            pass
+
+        def contract_h01 (self, spin, h_01, h_12, ket):
+            pass
+
+        def contract_h20 (self, spin, h_20, ket):
+            pass
+
+        def contract_h02 (self, spin, h_02, ket):
+            pass
+
+        def contract_h11 (self, spin, h_11, ket):
+            pass
 
 def mask_exc_table (exc, col=0, mask_space=None):
     if mask_space is None: return exc
@@ -1152,11 +1173,10 @@ def make_ints (las, ci, nelec_frs):
     rootaddr, fragaddr = envaddr2fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = LSTDMint1 (nlas[ifrag], nroots, nelec_frs[ifrag],
-                            hopping_index[ifrag], rootaddr, fragaddr[ifrag], ifrag)
-        t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
+        tdmint = LSTDMint1 (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index, nlas[ifrag],
+                            nroots, nelec_frs[ifrag], rootaddr, fragaddr[ifrag], ifrag)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
-            ifrag), *t0)
+            ifrag), *tdmint.time_crunch)
         ints.append (tdmint)
     return hopping_index, ints, lroots
 
