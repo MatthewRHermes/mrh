@@ -114,12 +114,12 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         spaces[i].table_printlog (lroots=lroots[:,i])
         log.info ("is connected to reference spaces:")
         for j in psref_ix:
-            log.info ('%d: %s', j, spaces[i].single_excitation_description_string (spaces[j]))
+            log.info ('%d by %s', j, spaces[i].single_excitation_description_string (spaces[j]))
         if len (psref) > nref_pure:
             log.info ("as well as spin-excited spaces:")
             for space in psref[nref_pure:]:
                 space.table_printlog ()
-                log.info ('by hop %s', spaces[i].single_excitation_description_string (space))
+                log.info ('by %s', spaces[i].single_excitation_description_string (space))
         # throat-clearing into ExcitationPSFCISolver
         ciref = [[] for j in range (nfrags)]
         for k in range (nfrags):

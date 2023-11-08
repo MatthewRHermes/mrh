@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf import lib, fci
-from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s
+from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, contract_1e
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
 from itertools import product, combinations
@@ -494,22 +494,42 @@ class LSTDMint1 (object):
         return t0
 
         def contract_h00 (self, h_00, h_11, h_22, ket):
-            pass
+            raise NotImplementedError
 
         def contract_h10 (self, spin, h_10, h_21, ket):
-            pass
+            norb, nelec = self.norb, self.nelec_r[ket]
+            cre_op = (cre_a, cre_b)[spin]
+            hket = []
+            for ci in self.ci[ket]:
+                hci = 0
+                for p in range (self.norb):
+                    hci += h_10[p] * cre_op (ci, norb, nelec, p)
+                    hci += cre_op (contract_1e (h_21[p], ci, norb, nelec),
+                                   norb, nelec, p)
+                hket.append (hci)
+            return hket
 
         def contract_h01 (self, spin, h_01, h_12, ket):
-            pass
+            norb, nelec = self.norb, self.nelec_r[ket]
+            des_op = (des_a, des_b)[spin]
+            hket = []
+            for ci in self.ci[ket]:
+                hci = 0
+                for p in range (self.norb):
+                    hci += h_01[p] * des_op (ci, norb, nelec, p)
+                    hci += contract_1e (h_12[p], des_op (ci, norb, nelec, p),
+                                        norb, nelec)
+                hket.append (hci)
+            return hket
 
         def contract_h20 (self, spin, h_20, ket):
-            pass
+            raise NotImplementedError
 
         def contract_h02 (self, spin, h_02, ket):
-            pass
+            raise NotImplementedError
 
         def contract_h11 (self, spin, h_11, ket):
-            pass
+            raise NotImplementedError
 
 def mask_exc_table (exc, col=0, mask_space=None):
     if mask_space is None: return exc
@@ -1013,8 +1033,9 @@ class HamS2ovlpint (LSTDMint2):
     `kernel` call returns operator matrices without cacheing stdm12s array
 
     Additional args:
-        h1 : ndarray of size ncas**2
-            Contains effective 1-electron Hamiltonian amplitudes in second quantization
+        h1 : ndarray of size ncas**2 or 2*(ncas**2)
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization,
+            optionally spin-separated
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
@@ -1146,6 +1167,120 @@ class LRRDMint (LSTDMint2):
         self.rdm2s = np.zeros ([self.nroots_si,] + list (self.d2.shape), dtype=self.dtype)
         self._crunch_all_()
         return self.rdm1s, self.rdm2s, t0
+
+class ContractHam (LSTDMint2):
+    __doc__ = LSTDMint2.__doc__ + '''
+
+    SUBCLASS: Contract Hamiltonian on CI vectors and integrate over all but one fragment,
+    for all fragments.
+
+    Additional args:
+        h1 : ndarray of size ncas**2 or 2*(ncas**2)
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization,
+            optionally spin-separated
+        h2 : ndarray of size ncas**4
+            Contains 2-electron Hamiltonian amplitudes in second quantization
+    '''
+    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, nbra=1, dtype=np.float64):
+        nfrags, _, nroots, _ = hopping_index.shape
+        if nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
+        HamS2ovlpint.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
+                              mask_bra_space = list (range (nbra)),
+                              mask_ket_space = list (range (nbra, nroots)),
+                              dtype=dtype)
+        self.hci_fr_pabq, self.bra_offsets, self.ket_offset = self._init_vecs (nbra=nbra)
+
+    def _init_vecs (self, nbra=1):
+        hci_fr_pabq = []
+        nfrags, nroots = self.nfrags, self.nroots
+        nprods_ket = np.sum (np.prod (self.lroots[:,nbra:], axis=0))
+        bra_offsets = np.prod (self.lroots[:,:nbra], axis=0)
+        ket_offset = np.sum (bra_offsets)
+        for i in range (nfrags):
+            lroots_bra = self.lroots.copy ()[:,:nbra]
+            lroots_bra[i,:] = 1
+            nprods_bra = np.prod (lroots_bra, axis=0)
+            hci_r_pabq = []
+            norb = self.ints[i].norb
+            for r in range (nbra):
+                nelec = self.ints[i].nelec_r[r]
+                ndeta = cistring.num_strings (norb, nelec[0])
+                ndetb = cistring.num_strings (norb, nelec[1])
+                hci_r_pabq.append (np.zeros ((nprods_ket, ndeta, ndetb, nprods_bra[r]),
+                                             dtype=self.dtype).transpose (1,2,3,0))
+            hci_fr_pabq.append (hci_r_pabq)
+        return hci_fr_pabq, bra_offsets, ket_offset
+
+    def _crunch_null_(self, bra, ket):
+        raise NotImplementedError
+
+    def _crunch_1c_(self, bra, ket, i, j, s1):
+        '''Perform a single electron hop; i.e.,
+        
+        <bra|j'(s1)i(s1)|ket>
+        
+        i.e.,
+        
+        j ---s1---> i
+        '''
+        hci_f_ab, excfrags = self._get_vecs_(bra, ket)
+        excfrags = excfrags.intersection ({i, j})
+        if self.nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
+        if not len (excfrags): return
+        if i in excfrags:
+            raise NotImplementedError
+        if j in excfrags:
+            raise NotImplementedError
+        self._put_vecs_(bra, ket, hci_f_ab)
+
+    def _crunch_1s_(self, bra, ket, i, j):
+        raise NotImplementedError
+
+    def _crunch_1s1c_(self, bra, ket, i, j, k):
+        raise NotImplementedError
+
+    def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
+        raise NotImplementedError
+
+    def env_addr_fragpop (bra, i, r):
+        rem = 0
+        if i>1:
+            div = np.prod (self.lroots[:i,r], axis=0)
+            bra, rem = divmod (bra, div)
+        bra, err = divmod (bra, self.lroots[i,r])
+        assert (err==0)
+        return bra + rem
+
+    def _get_vecs_(self, bra, ket):
+        ket = ket - ket_offset
+        hci_f_ab = []
+        excfrags = set ()
+        for i, hci_r_pabq in enumerate (self.ints, self.hci_fr_pabq):
+            if self.ints[i].fragaddr[bra] != 0:
+                hci_fr_ab.append (None)
+                continue
+            excfrags.add (i)
+            for r, bra_offset in enumerate (self.bra_offsets):
+                if bra < bra_offset:
+                    break
+                bra = bra - bra_offset
+            env_i = self.env_addr_fragpop (bra, i, r)
+            hci_f_ab.append (hci_r_pabq[r][env_i,:,:,ket])
+        return hci_f_ab, set (excfrags)
+
+    def _put_vecs_(self, bra, ket, vecs):
+        pass
+
+    def kernel (self):
+        ''' Main driver method of class.
+
+        Returns:
+            hci_fr_pabq : list of length nfrags of list of length nroots of ndarray
+        '''
+        for hci_r_pabq in self.hci_fr_pabq:
+            for hci_pabq in hci_r_pabq:
+                hci_pabq[:,:,:,:] = 0.0
+
 
 def make_ints (las, ci, nelec_frs):
     ''' Build fragment-local intermediates (`LSTDMint1`) for LASSI o1
