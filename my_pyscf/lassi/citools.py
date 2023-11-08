@@ -55,10 +55,12 @@ def envaddr2fragaddr (lroots):
     for iroot in range (nroots):
         j = offs[iroot]
         i = j - nprods[iroot]
-        addrs = np.stack (np.meshgrid (*[np.arange(l) for l in lroots[::-1,iroot]],
-                                      indexing='ij'), axis=0).astype (int)
-        addrs = addrs.reshape (nfrags, nprods[iroot])[::-1,:]
-        fragaddr[:,i:j] = addrs
+        for ifrag in range (nfrags):
+            prods_before = np.product (lroots[:ifrag,iroot], axis=0)
+            prods_after = np.product (lroots[ifrag+1:,iroot], axis=0)
+            addrs = np.repeat (np.arange (lroots[ifrag,iroot]), prods_before)
+            addrs = np.tile (addrs, prods_after)
+            fragaddr[ifrag,i:j] = addrs
         rootaddr[i:j] = iroot
     return rootaddr, fragaddr
 
