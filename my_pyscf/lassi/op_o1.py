@@ -493,43 +493,43 @@ class LSTDMint1 (object):
         
         return t0
 
-        def contract_h00 (self, h_00, h_11, h_22, ket):
-            raise NotImplementedError
+    def contract_h00 (self, h_00, h_11, h_22, ket):
+        raise NotImplementedError
 
-        def contract_h10 (self, spin, h_10, h_21, ket):
-            norb, nelec = self.norb, self.nelec_r[ket]
-            cre_op = (cre_a, cre_b)[spin]
-            hket = []
-            for ci in self.ci[ket]:
-                hci = 0
-                for p in range (self.norb):
-                    hci += h_10[p] * cre_op (ci, norb, nelec, p)
-                    hci += cre_op (contract_1e (h_21[p], ci, norb, nelec),
-                                   norb, nelec, p)
-                hket.append (hci)
-            return hket
+    def contract_h10 (self, spin, h_10, h_21, ket):
+        r = self.rootaddr[ket]
+        n = self.fragaddr[ket]
+        norb, nelec = self.norb, self.nelec_r[r]
+        cre_op = (cre_a, cre_b)[spin]
+        ci = self.ci[r][n]
+        hci = 0
+        for p in range (self.norb):
+            hci += h_10[p] * cre_op (ci, norb, nelec, p)
+            hci += cre_op (contract_1e (h_21[p], ci, norb, nelec),
+                           norb, nelec, p)
+        return hci
 
-        def contract_h01 (self, spin, h_01, h_12, ket):
-            norb, nelec = self.norb, self.nelec_r[ket]
-            des_op = (des_a, des_b)[spin]
-            hket = []
-            for ci in self.ci[ket]:
-                hci = 0
-                for p in range (self.norb):
-                    hci += h_01[p] * des_op (ci, norb, nelec, p)
-                    hci += contract_1e (h_12[p], des_op (ci, norb, nelec, p),
-                                        norb, nelec)
-                hket.append (hci)
-            return hket
+    def contract_h01 (self, spin, h_01, h_12, ket):
+        r = self.rootaddr[ket]
+        n = self.fragaddr[ket]
+        norb, nelec = self.norb, self.nelec_r[r]
+        des_op = (des_a, des_b)[spin]
+        ci = self.ci[r][n]
+        hci = 0
+        for p in range (self.norb):
+            hci += h_01[p] * des_op (ci, norb, nelec, p)
+            hci += contract_1e (h_12[p], des_op (ci, norb, nelec, p),
+                                norb, nelec)
+        return hci
 
-        def contract_h20 (self, spin, h_20, ket):
-            raise NotImplementedError
+    def contract_h20 (self, spin, h_20, ket):
+        raise NotImplementedError
 
-        def contract_h02 (self, spin, h_02, ket):
-            raise NotImplementedError
+    def contract_h02 (self, spin, h_02, ket):
+        raise NotImplementedError
 
-        def contract_h11 (self, spin, h_11, ket):
-            raise NotImplementedError
+    def contract_h11 (self, spin, h_11, ket):
+        raise NotImplementedError
 
 def mask_exc_table (exc, col=0, mask_space=None):
     if mask_space is None: return exc
@@ -747,8 +747,9 @@ class LSTDMint2 (object):
         return exc
 
     def mask_exc_table (self, exc, mask_bra_space=None, mask_ket_space=None):
-        exc = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
-        exc = mask_exc_table (exc, col=1, mask_space=mask_ket_space)
+        # TODO: PROBLEM: this transposes "bra" and "ket"
+        exc = mask_exc_table (exc, col=1, mask_space=mask_bra_space)
+        exc = mask_exc_table (exc, col=0, mask_space=mask_ket_space)
         return exc
 
     def get_range (self, i):
@@ -1047,8 +1048,8 @@ class HamS2ovlpint (LSTDMint2):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
                            mask_ket_space=mask_ket_space, dtype=dtype)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
-        self.h1 = h1.ravel ()
-        self.h2 = h2.ravel ()
+        self.h1 = h1
+        self.h2 = h2
 
     def _get_D1_(self, bra, ket):
         self.d1[:] = 0.0
@@ -1059,13 +1060,13 @@ class HamS2ovlpint (LSTDMint2):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1):
-        self.ham[bra,ket] += np.dot (self.h1, D1.ravel ())
+        self.ham[bra,ket] += np.dot (self.h1.ravel (), D1.ravel ())
         M1 = D1[0] - D1[1]
         D1 = D1.sum (0)
         self.s2[bra,ket] += (np.trace (M1)/2)**2 + np.trace (D1)/2
 
     def _put_D2_(self, bra, ket, D2):
-        self.ham[bra,ket] += np.dot (self.h2, D2.sum (0).ravel ()) / 2
+        self.ham[bra,ket] += np.dot (self.h2.ravel (), D2.sum (0).ravel ()) / 2
         self.s2[bra,ket] -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
 
     def _add_transpose_(self):
@@ -1168,7 +1169,7 @@ class LRRDMint (LSTDMint2):
         self._crunch_all_()
         return self.rdm1s, self.rdm2s, t0
 
-class ContractHam (LSTDMint2):
+class ContractHamCI (LSTDMint2):
     __doc__ = LSTDMint2.__doc__ + '''
 
     SUBCLASS: Contract Hamiltonian on CI vectors and integrate over all but one fragment,
@@ -1206,7 +1207,7 @@ class ContractHam (LSTDMint2):
                 nelec = self.ints[i].nelec_r[r]
                 ndeta = cistring.num_strings (norb, nelec[0])
                 ndetb = cistring.num_strings (norb, nelec[1])
-                hci_r_pabq.append (np.zeros ((nprods_ket, ndeta, ndetb, nprods_bra[r]),
+                hci_r_pabq.append (np.zeros ((nprods_ket, nprods_bra[r], ndeta, ndetb),
                                              dtype=self.dtype).transpose (1,2,3,0))
             hci_fr_pabq.append (hci_r_pabq)
         return hci_fr_pabq, bra_offsets, ket_offset
@@ -1227,11 +1228,33 @@ class ContractHam (LSTDMint2):
         excfrags = excfrags.intersection ({i, j})
         if self.nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
         if not len (excfrags): return
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        fac = 1
+        fac = self.get_ovlp_fac (bra, ket, i, j)
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
+        h1_ij = self.h1[s1,p:q,r:s]
+        h2_ijjj = self.h2[p:q,r:s,r:s,r:s]
+        h2_iiij = self.h2[p:q,p:q,p:q,r:s]
         if i in excfrags:
-            raise NotImplementedError
+            D_j = self.ints[j].get_h (bra, ket, s1)
+            h_10 = np.dot (h1_ij, D_j) + np.tensordot (
+                h2_ijjj, self.ints[j].get_phh (bra, ket, s1),
+                axes=((1,2,3),(2,0,1)))
+            h_21 = np.dot (h2_iiij, D_j)
+            hci_f_ab[i] += self.ints[i].contract_h10 (s1, h_10, h_21, ket)
         if j in excfrags:
-            raise NotImplementedError
+            D_i = self.ints[i].get_p (bra, ket, s1)
+            h_01 = np.dot (D_i, h1_ij) + np.tensordot (
+                self.ints[i].get_pph (bra, ket, s1), h_iiij,
+                axes=((0,2,1),(0,1,2)))
+            h_12 = np.dot (D_i, h2_ijjj)
+            hci_f_ab[j] += self.ints[j].contract_h01 (s1, h_01, h_12, ket)
         self._put_vecs_(bra, ket, hci_f_ab)
+        return
 
     def _crunch_1s_(self, bra, ket, i, j):
         raise NotImplementedError
@@ -1242,7 +1265,7 @@ class ContractHam (LSTDMint2):
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         raise NotImplementedError
 
-    def env_addr_fragpop (bra, i, r):
+    def env_addr_fragpop (self, bra, i, r):
         rem = 0
         if i>1:
             div = np.prod (self.lroots[:i,r], axis=0)
@@ -1252,10 +1275,10 @@ class ContractHam (LSTDMint2):
         return bra + rem
 
     def _get_vecs_(self, bra, ket):
-        ket = ket - ket_offset
+        ket = ket - self.ket_offset
         hci_f_ab = []
         excfrags = set ()
-        for i, hci_r_pabq in enumerate (self.ints, self.hci_fr_pabq):
+        for i, hci_r_pabq in enumerate (self.hci_fr_pabq):
             if self.ints[i].fragaddr[bra] != 0:
                 hci_fr_ab.append (None)
                 continue
@@ -1271,15 +1294,21 @@ class ContractHam (LSTDMint2):
     def _put_vecs_(self, bra, ket, vecs):
         pass
 
+    def _crunch_all_(self):
+        for row in self.exc_1c: self._loop_lroots_(self._crunch_1c_, *row)
+
     def kernel (self):
         ''' Main driver method of class.
 
         Returns:
             hci_fr_pabq : list of length nfrags of list of length nroots of ndarray
         '''
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         for hci_r_pabq in self.hci_fr_pabq:
             for hci_pabq in hci_r_pabq:
                 hci_pabq[:,:,:,:] = 0.0
+        self._crunch_all_()
+        return self.hci_fr_pabq, t0
 
 
 def make_ints (las, ci, nelec_frs):
@@ -1464,5 +1493,21 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
-    raise NotImplementedError ("o1 version of contract_ham_ci")
+    nlas = las.ncas_sub
+    nfrags, nbra = nelec_frs_bra.shape[:2]
+    nket = nelec_frs_ket.shape[1]
+    ci = [ci_r_bra + ci_r_ket for ci_r_bra, ci_r_ket in zip (ci_fr_bra, ci_fr_ket)]
+    nelec_frs = np.append (nelec_frs_bra, nelec_frs_ket, axis=1)
+
+    # First pass: single-fragment intermediates
+    hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
+
+    # Second pass: upper-triangle
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    contracter = ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2, nbra=nbra,
+                                dtype=ci[0][0].dtype)
+    lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
+    hket_fr_pabq, t0 = contracter.kernel ()
+    lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
+
     return hket_fr_pabq
