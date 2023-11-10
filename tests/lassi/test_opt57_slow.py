@@ -27,7 +27,7 @@ from mrh.tests.lasscf.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
-from mrh.my_pyscf.lassi.citools import get_lroots, envaddr2fragaddr
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 
@@ -135,7 +135,7 @@ class KnownValues(unittest.TestCase):
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #print (t1-t0, t2-t1)
         #print (w1-w0, w2-w1)
-        rootaddr, fragaddr = envaddr2fragaddr (get_lroots (las.ci))
+        rootaddr, fragaddr = get_rootaddr_fragaddr (get_lroots (las.ci))
         for r in range (2):
             for i, j in product (range (nstates), repeat=2):
                 with self.subTest (rank=r+1, idx=(i,j), spaces=(rootaddr[i], rootaddr[j]),

@@ -33,7 +33,7 @@ def get_lroots (ci):
             lroots.append (get_lroots (c))
     return np.asarray (lroots)
 
-def envaddr2fragaddr (lroots):
+def get_rootaddr_fragaddr (lroots):
     '''Generate an index array into a compressed fragment basis for a state in the LASSI model
     space
 
@@ -63,6 +63,5 @@ def envaddr2fragaddr (lroots):
             fragaddr[ifrag,i:j] = addrs
         rootaddr[i:j] = iroot
     return rootaddr, fragaddr
-
 
 
