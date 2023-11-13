@@ -465,7 +465,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
         return e+ecore, c.reshape(na,nb)
 
 class CSFFCISolver: # tag class
-    pass
+    _keys = {'smult', 'transformer'}
 
 class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
@@ -477,7 +477,6 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
     def __init__(self, mol=None, smult=None):
         self.smult = smult
         self.transformer = None
-        self.mask_cache = [0, 0, 0, 0]
         super().__init__(mol)
 
     def get_init_guess(self, norb, nelec, nroots, hdiag_csf, **kwargs):
