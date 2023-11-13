@@ -721,4 +721,8 @@ class LASSI(lib.StreamObject):
         if ci is None: ci = self.ci
         return get_lroots (ci)
 
+    def analyze (self, state=None):
+        from mrh.my_pyscf.lassi.sitools import analyze
+        analyze (self, self.si, state=state)
+
 

@@ -491,6 +491,8 @@ class VRVDressedFCISolver (object):
         conv_tol_e0: float
             Convergence threshold for the self-consistent eigenenergy
     '''
+    _keys = {'contract_vrv', 'base', 'v_qpab', 'denom_q', 'e_q', 'max_cycle_e0', 'conv_tol_e0',
+             'charge', 'crash_locmin', 'imag_shift'}
     def __init__(self, fcibase, my_vrv, my_eq, my_e0, max_cycle_e0=100, conv_tol_e0=1e-8,
                  crash_locmin=False):
         self.base = copy.copy (fcibase)
@@ -499,8 +501,6 @@ class VRVDressedFCISolver (object):
         else:
             self._undressed_class = fcibase.__class__
         self.__dict__.update (fcibase.__dict__)
-        keys = set (('contract_vrv', 'base', 'v_qpab', 'denom_q', 'e_q', 'max_cycle_e0',
-                     'conv_tol_e0', 'charge', 'crash_locmin'))
         self.denom_q = 0
         self.imag_shift = IMAG_SHIFT
         self.e_q = my_eq
@@ -508,7 +508,6 @@ class VRVDressedFCISolver (object):
         self.max_cycle_e0 = max_cycle_e0
         self.conv_tol_e0 = conv_tol_e0
         self.crash_locmin = crash_locmin
-        self._keys = self._keys.union (keys)
         self.davidson_only = self.base.davidson_only = True
         # TODO: Relaxing this ^ requires accounting for pspace, precond, and/or hdiag
     def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):

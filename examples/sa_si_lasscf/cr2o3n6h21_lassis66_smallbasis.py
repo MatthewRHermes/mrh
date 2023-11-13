@@ -3,8 +3,7 @@ from pyscf import gto, scf, mcscf
 from pyscf.lib import chkfile
 from pyscf.data import nist
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.lassi import lassi
-from mrh.my_pyscf.lassi import states as lassi_states
+from mrh.my_pyscf import lassi
 
 au2cm = nist.HARTREE2J / nist.PLANCK / nist.LIGHT_SPEED_SI * 1e-2
 def yamaguchi (e_roots, s2):
@@ -47,13 +46,14 @@ except (OSError, TypeError, KeyError) as e: # First time through you have to mak
     mo_coeff = las.localize_init_guess (([0],[1]), mo_coeff)
 
 # Direct exchange only result
-las = lassi_states.spin_shuffle (las) # generate direct-exchange states
+las = lassi.states.spin_shuffle (las) # generate direct-exchange states
 las.weights = [1.0/las.nroots,]*las.nroots # set equal weights
 las.kernel (mo_coeff) # optimize orbitals
-e_roots, si = las.lassi ()
-print (("Direct exchange only is modeled by {} states constructed with\n"
-        "lassi_states.spin_shuffle.").format (las.nroots))
-print ("J(LASSI, direct) = %.2f cm^-1" % yamaguchi (e_roots, si.s2))
+lsi0 = lassi.LASSI (las).run ()
+print (("Direct exchange only is modeled by {} states constructed with "
+        "lassi.states.spin_shuffle").format (las.nroots))
+print ("J(LASSI, direct) = %.2f cm^-1" % yamaguchi (lsi0.e_roots, lsi0.s2))
+print ("{} rootspaces and {} product states total\n".format (lsi0.nroots, lsi0.si.shape[1]))
 
 # CASCI result for reference
 mc = mcscf.CASCI (mf, 12, (6,0))
@@ -66,25 +66,44 @@ mc.kernel (las.mo_coeff)
 e_roots += [mc.e_tot]
 s2 += [0,]
 print ("J(CASCI) = %.2f cm^-1" % yamaguchi (np.asarray (e_roots), np.asarray (s2)))
+print ("{} spin-alpha determinants * {} spin-beta determinants = {} determinants total\n".format (
+    mc.ci.shape[0], mc.ci.shape[1], mc.ci.size))
 
 # Direct exchange & kinetic exchange result
-las = lassi_states.all_single_excitations (las) # generate kinetic-exchange states
+las = lassi.states.all_single_excitations (las) # generate kinetic-exchange states
+print (("Use of lassi.states.all_single_excitations generates "
+        "{} additional kinetic-exchange (i.e., charge-transfer) "
+        "states").format (las.nroots-4))
 las.lasci () # do not reoptimize orbitals at this step - not likely to converge
-e_roots, si = las.lassi ()
-print (("Use of lassi_states.all_single_excitations generates\n"
-        "{} additional kinetic-exchange (i.e., charge-transfer)\n"
-        "states.").format (las.nroots-4))
-print ("J(LASSI, direct & kinetic) = %.2f cm^-1" % yamaguchi (e_roots, si.s2))
+lsi1 = lassi.LASSI (las).run ()
+print ("J(LASSI, direct & kinetic) = %.2f cm^-1" % yamaguchi (lsi1.e_roots, lsi1.s2))
+print ("{} rootspaces and {} product states total\n".format (lsi1.nroots, lsi1.si.shape[1]))
 
 # Locally excited states
+print (("Including up to second locally-excited states improves "
+        "results still further"))
 lroots = np.minimum (3, las.get_ugg ().ncsf_sub)
 las.lasci (lroots=lroots)
-e_roots, si = las.lassi (opt=0)
-print (("Including up to second locally-excited states improves\n"
-        "results still further"))
-print ("J(LASSI, direct & kinetic, nmax=2) = %.2f cm^-1" % yamaguchi (e_roots, si.s2))
-print ("See bottom of file {} for output of lassi.sitools.analyze".format (mol.output))
-from mrh.my_pyscf.lassi.sitools import analyze
-analyze (las, si, state=[0,1,2,3]) # Four states involved in this Yamaguchi manifold
+lsi2 = lassi.LASSI (las).run ()
+print ("J(LASSI, direct & kinetic, nmax=2) = %.2f cm^-1" % yamaguchi (lsi2.e_roots, lsi2.s2))
+print ("{} rootspaces and {} product states total".format (lsi2.nroots, lsi2.si.shape[1]))
+print (("The first occurrence of the line 'Analyzing LASSI vectors for states = [0, 1, 2, 3]' "
+        "in file {} begins the output of lassi.sitools.analyze for this calculation\n").format (
+        mol.output))
+lsi2.analyze (state=[0,1,2,3]) # Four states involved in this Yamaguchi manifold
+
+# LASSIS
+print ("LASSIS builds the entire model space automatically for you.")
+print ("Because of this, you must initialize it with a LAS reference that has only 1 state in it")
+las1 = LASSCF(mf,(6,6),((3,0),(0,3)),spin_sub=(4,4))
+las1.lasci_(las.mo_coeff) # trailing underscore sets las1.mo_coeff = las.mo_coeff
+lsi3 = lassi.LASSIS (las1).run (opt=0)
+print ("J(LASSIS) = %.2f cm^-1" % yamaguchi (lsi3.e_roots, lsi3.s2))
+print ("{} rootspaces and {} product states total".format (lsi3.nroots, lsi3.si.shape[1]))
+print (("The second occurrence of the line 'Analyzing LASSI vectors for states = [0, 1, 2, 3]' "
+        "in file {} begins the output of lassi.sitools.analyze for this calculation").format (
+        mol.output))
+lsi3.analyze (state=[0,1,2,3]) # Four states involved in this Yamaguchi manifold
+
 
 
