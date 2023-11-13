@@ -260,7 +260,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     econf_addr = np.unique (transformer.econf_csf_mask[csf_addr])
     det_addr = np.concatenate ([np.nonzero (transformer.econf_det_mask == conf)[0]
         for conf in econf_addr])
-    lib.logger.debug1 (fci, ("csf.pspace: Lowest-energy %s CSFs correspond to %s configurations"
+    lib.logger.debug (fci, ("csf.pspace: Lowest-energy %s CSFs correspond to %s configurations"
         " which are spanned by %s determinants"), npsp, econf_addr.size, det_addr.size)
 
     addra, addrb = divmod(det_addr, nb)
@@ -271,9 +271,11 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     nfloats_h0 = (npsp_det+npsp)**2
     mem_h0 = safety_factor * nfloats_h0 * np.dtype (float).itemsize / 1e6
     mem_remaining = max_memory - lib.current_memory ()[0]
+    memstr = ("pspace_size of {} CSFs -> {} determinants requires {} MB > {} MB "
+              "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining)
     if mem_h0 > mem_remaining:
-        raise MemoryError (("pspace_size of {} CSFs -> {} determinants requires {} MB > {} MB "
-                            "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining))
+        raise MemoryError (memstr)
+    lib.logger.debug (fci, memstr)
     h0 = np.zeros((npsp_det,npsp_det))
     h1e_ab = unpack_h1e_ab (h1e)
     h1e_a = np.ascontiguousarray(h1e_ab[0])
