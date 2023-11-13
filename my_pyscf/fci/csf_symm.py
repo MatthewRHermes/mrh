@@ -50,10 +50,10 @@ class FCISolver (direct_spin1_symm.FCISolver, CSFFCISolver):
            hc += direct_uhf.contract_1e ([eri.h1e_s, -eri.h1e_s], fcivec, norb, nelec, link_index)  
         return hc
 
-    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None):
+    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None, max_memory=2000):
         self.norb, self.nelec = norb, nelec
         self.check_transformer_cache ()
-        return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
+        return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det, max_memory=max_memory)
 
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
         self.norb, self.nelec = norb, nelec
