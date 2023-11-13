@@ -286,7 +286,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     nfloats_h0 = (npsp_det+npsp)**2
     mem_h0 = safety_factor * nfloats_h0 * np.dtype (float).itemsize / 1e6
     mem_remaining = max_memory - lib.current_memory ()[0]
-    memstr = ("pspace_size of {} CSFs -> {} determinants requires {} MB > {} MB "
+    memstr = ("pspace_size of {} CSFs -> {} determinants requires {} MB, cf {} MB "
               "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining)
     if mem_h0 > mem_remaining:
         raise MemoryError (memstr)
