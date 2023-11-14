@@ -26,7 +26,7 @@ Device::Device()
   size_tril_map = 0;
   
   rho = nullptr;
-  vj = nullptr;
+  //vj = nullptr;
   _vktmp = nullptr;
 
   buf_tmp = nullptr;
@@ -76,7 +76,7 @@ Device::~Device()
 #endif
 
   pm->dev_free_host(rho);
-  pm->dev_free_host(vj);
+  //pm->dev_free_host(vj);
   pm->dev_free_host(_vktmp);
 
   pm->dev_free_host(buf_tmp);

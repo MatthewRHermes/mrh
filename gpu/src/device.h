@@ -99,7 +99,7 @@ private:
   int mode_getjk;
   
   double * rho;
-  double * vj;
+  //double * vj;
   double * _vktmp;
 
   double * buf_tmp;

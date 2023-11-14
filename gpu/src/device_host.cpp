@@ -30,12 +30,12 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   int _size_vj = nset * nao_pair;
   if(_size_vj > size_vj) {
     size_vj = _size_vj;
-    if(vj) pm->dev_free_host(vj);
-    vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
+    //if(vj) pm->dev_free_host(vj);
+    //vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
     
     if(count > 0) printf("WARNING:: Reallocating vj with count= %i  nset= %i  nao_pair= %i\n",count, nset, nao_pair);
   }
-  for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
+  //for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
 
   int _size_vk = nset * nao * nao;
   if(_size_vk > size_vk) {
