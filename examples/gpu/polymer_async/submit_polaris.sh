@@ -6,6 +6,8 @@
 #PBS -A Catalyst
 #PBS -l filesystems=home:grand:eagle
 
+#export NV_ACC_DEBUG=1
+
 cd /lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/examples/gpu/polymer_async
 
 # MPI example w/ 16 MPI ranks per node spread evenly across cores
@@ -39,5 +41,6 @@ EXE="python ${INPUT} "
 
 #python -m cProfile -o out.prof ${INPUT}
 #{ time ${EXE} ;} 2>&1 | tee profile.txt
+#cuda-gdb --args ${EXE}
 { time mpiexec ${MPI_ARGS} ${OMP_ARGS} ${EXE} ;} 2>&1 | tee profile.txt
 #nsys profile --stats=true -t cuda,nvtx mpiexec ${MPI_ARGS} ${OMP_ARGS} ${EXE} 2>&1 | tee profile.txt

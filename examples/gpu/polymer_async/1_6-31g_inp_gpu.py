@@ -40,6 +40,7 @@ ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
 
 print("\nStarting the LASSCF calculation with use_gpu= ", gpu)
 las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags), use_gpu=gpu)
+#las.max_cycle_macro = 1
 
 frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
 #print(frag_atom_list)
