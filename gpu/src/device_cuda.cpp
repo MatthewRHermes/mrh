@@ -7,10 +7,11 @@
 #include <stdio.h>
 
 #define _TRANSPOSE_BLOCK_SIZE 32
+#define _UNPACK_BLOCK_SIZE 32
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int count)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int _naux, int count)
 {
   //  printf("Inside init_get_jk()\n");
 #ifdef _SIMPLE_TIMER
@@ -20,6 +21,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   blksize = _blksize;
   nset = _nset;
   nao = _nao;
+  naux = _naux;
 
   const int nao_pair = nao * (nao+1) / 2;
   
@@ -98,6 +100,13 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     d_dms = (double *) pm->dev_malloc(size_dms * sizeof(double));
   }
 
+  int _size_eri1 = naux * nao_pair;
+  if(_size_eri1 > size_eri1) {
+    size_eri1 = _size_eri1;
+    if(d_eri1) pm->dev_free(d_eri1);
+    d_eri1 = (double *) pm->dev_malloc(size_eri1 * sizeof(double));
+  }
+  
   int _size_tril_map = nao * nao;
   //  if(_size_tril_map > size_tril_map) {
   if(_size_tril_map != size_tril_map) {
@@ -164,6 +173,23 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 
 /* ---------------------------------------------------------------------- */
 
+__global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int naux, int nao, int nao_pair)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(i >= naux) return;
+  if(j >= nao*nao) return;
+
+  double * buf = &(buf2[i * nao * nao]);
+  double * tril = &(eri1[i * nao_pair]);
+
+  buf[j] = tril[ map[j] ];
+  //  for(int j=0; j<nao*nao; ++j) buf[j] = tril[ map[j] ];
+}
+
+/* ---------------------------------------------------------------------- */
+
 __global__ void _getjk_transpose_buf1_buf3(double * buf3, double * buf1, int naux, int nao)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -209,6 +235,10 @@ void Device::get_jk(int naux,
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
   double * vj = static_cast<double*>(info_vj.ptr);
 
+  int nao_pair = nao * (nao+1) / 2;
+  
+  pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
+  
   int _size_rho = info_dmtril.shape[0] * info_eri1.shape[0];
   if(_size_rho > size_rho) {
     size_rho = _size_rho;
@@ -227,8 +257,6 @@ void Device::get_jk(int naux,
   	 info_dmtril.shape[0], info_eri1.shape[1],
   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
 #endif
-  
-  int nao_pair = nao * (nao+1) / 2;
   
 #ifdef _SIMPLE_TIMER
   t_array_jk[1] += omp_get_wtime() - t0;
@@ -291,6 +319,17 @@ void Device::get_jk(int naux,
     
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
 
+#if 1
+  {
+    //    pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
+    
+    dim3 grid_size((naux + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
+    dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
+    
+    _getjk_unpack_buf2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_eri1, d_tril_map, naux, nao, nao_pair);
+  }
+#else
+  
 #pragma omp parallel for
     for(int i=0; i<naux; ++i) {
       double * buf = &(buf2[i * nao * nao]);
@@ -299,6 +338,8 @@ void Device::get_jk(int naux,
     }
     
     pm->dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
+
+#endif
     
 #ifdef _SIMPLE_TIMER
     t_array_jk[5] += omp_get_wtime() - t2;
@@ -342,12 +383,14 @@ void Device::get_jk(int naux,
     double t1 = omp_get_wtime();
     t_array_jk[4] += t1 - t0;
 #endif
-    
-    dim3 grid_size((naux + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE,
-		      (nao + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE, 1);
-    dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_BLOCK_SIZE, 1);
-    
-    _getjk_transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
+
+    {
+      dim3 grid_size((naux + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE,
+		     (nao + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE, 1);
+      dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_BLOCK_SIZE, 1);
+      
+      _getjk_transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
+    }
     //    pm->dev_stream_wait(stream);
     
     // vk[k] += lib.dot(buf3, buf4)

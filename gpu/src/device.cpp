@@ -22,6 +22,7 @@ Device::Device()
   size_buf = 0;
   size_fdrv = 0;
   size_dms = 0;
+  size_eri1 = 0;
   size_tril_map = 0;
   
   rho = nullptr;
@@ -44,6 +45,7 @@ Device::Device()
   d_buf3 = nullptr;
   d_vkk = nullptr;
   d_dms = nullptr;
+  d_eri1 = nullptr;
 
   d_tril_map = nullptr;
 #endif
@@ -113,6 +115,7 @@ Device::~Device()
   pm->dev_free(d_buf3);
   pm->dev_free(d_vkk);
   pm->dev_free(d_dms);
+  pm->dev_free(d_eri1);
   pm->dev_free(d_tril_map);
   
 #ifdef _CUDA_NVTX

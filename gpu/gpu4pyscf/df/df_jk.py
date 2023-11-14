@@ -139,12 +139,11 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         for eri1 in dfobj.loop(blksize):
             naux, nao_pair = eri1.shape
             if count == 0:
-                libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, count)
+                libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
 #            print("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", blksize, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
 #            print("vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
             
             if gpu:
-                
                 libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, count)
 
             else:

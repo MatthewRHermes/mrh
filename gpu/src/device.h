@@ -57,7 +57,7 @@ public :
   void get_dev_properties(int);
   void set_device(int);
 
-  void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int);
+  void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int, int);
   void set_mode_get_jk(int);
   void get_jk(int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
@@ -88,10 +88,12 @@ private:
   int size_buf;
   int size_fdrv;
   int size_dms;
+  int size_eri1;
   int size_tril_map;
 
   int blksize;
   int nao;
+  int naux;
   int nset;
 
   int mode_getjk;
@@ -110,7 +112,8 @@ private:
   double * d_buf3;
   double * d_vkk;
   double * d_dms;
-
+  double * d_eri1;
+  
   int * tril_map;
   int * d_tril_map;
   
