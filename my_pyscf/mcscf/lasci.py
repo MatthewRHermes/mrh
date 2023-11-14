@@ -491,7 +491,7 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
             if isinstance (ci0[ix][iy], np.ndarray) and ci0[ix][iy].size==ndet[0]*ndet[1]: continue
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
-            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec)
+            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=las.max_memory)
             ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0]
     return ci0
 

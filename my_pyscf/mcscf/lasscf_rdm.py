@@ -365,7 +365,7 @@ class RDMSolver (lib.StreamObject):
         self._get_init_guess = get_init_guess
         self._kernel = kernel
 
-    def make_hdiag_csf (self, h1s, h2, norb, nelec):
+    def make_hdiag_csf (self, h1s, h2, norb, nelec, max_memory):
         ''' spoof! '''
         return (h1s, h2)
 
