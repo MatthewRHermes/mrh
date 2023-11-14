@@ -158,7 +158,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
   
   //  double * vj = static_cast<double*>(info_vj.ptr);
   double * vk = static_cast<double*>(info_vk.ptr);
-
+ 
   pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
 }
 
@@ -317,7 +317,7 @@ void Device::get_jk(int naux,
     t0 = omp_get_wtime();
 #endif
     
-    pm->dev_stream_wait(stream); // remove later
+    //    pm->dev_stream_wait(stream); // remove later
 
     {
       const double alpha = 1.0;
@@ -336,7 +336,7 @@ void Device::get_jk(int naux,
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
 
-    pm->dev_stream_wait(stream);
+    //pm->dev_stream_wait(stream);
 
 #ifdef _SIMPLE_TIMER
     double t1 = omp_get_wtime();
@@ -348,7 +348,7 @@ void Device::get_jk(int naux,
     dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_BLOCK_SIZE, 1);
     
     _getjk_transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
-    pm->dev_stream_wait(stream);
+    //    pm->dev_stream_wait(stream);
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -393,7 +393,6 @@ void Device::get_jk(int naux,
 #endif 
   }
   
-  //pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
   //  printf("Leaving get_jk()\n");
 }
   
