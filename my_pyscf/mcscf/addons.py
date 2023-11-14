@@ -149,7 +149,7 @@ def get_h1e_zipped_fcisolver (fcisolver):
             for solver, my_args, _ in self._loop_solver (_solver_arg (h1)):
                 h1e = my_args[0]
                 with temporary_env (solver, orbsym=self.orbsym):
-                    hdiag.append (solver.make_hdiag_csf (h1e, h2, norb, self._get_nelec (solver, nelec)))
+                    hdiag.append (solver.make_hdiag_csf (h1e, h2, norb, self._get_nelec (solver, nelec), max_memory=self.max_memory))
             return hdiag
 
         # The below can conceivably be added to pyscf.mcscf.addons.StateAverageMixFCISolver in future
