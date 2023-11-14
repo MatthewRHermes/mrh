@@ -95,6 +95,7 @@ private:
   int nao;
   int naux;
   int nset;
+  int nao_pair;
 
   int mode_getjk;
   
@@ -107,6 +108,8 @@ private:
   double * buf4;
   double * buf_fdrv;
 
+  double * d_rho;
+  double * d_vj;
   double * d_buf1;
   double * d_buf2;
   double * d_buf3;

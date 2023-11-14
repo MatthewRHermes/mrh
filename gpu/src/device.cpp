@@ -40,6 +40,8 @@ Device::Device()
   handle = nullptr;
   stream = nullptr;
 
+  d_rho = nullptr;
+  d_vj = nullptr;
   d_buf1 = nullptr;
   d_buf2 = nullptr;
   d_buf3 = nullptr;
@@ -110,6 +112,9 @@ Device::~Device()
 #ifdef _CUDA_NVTX
   nvtxRangePushA("Deallocate");
 #endif
+
+  pm->dev_free(d_rho);
+  pm->dev_free(d_vj);
   pm->dev_free(d_buf1);
   pm->dev_free(d_buf2);
   pm->dev_free(d_buf3);

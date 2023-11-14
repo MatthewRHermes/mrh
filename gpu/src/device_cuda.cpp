@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 
+#define _DOT_BLOCK_SIZE 32
 #define _TRANSPOSE_BLOCK_SIZE 32
 #define _UNPACK_BLOCK_SIZE 32
 
@@ -23,7 +24,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   nao = _nao;
   naux = _naux;
 
-  const int nao_pair = nao * (nao+1) / 2;
+  nao_pair = nao * (nao+1) / 2;
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
@@ -36,6 +37,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     size_vj = _size_vj;
     //if(vj) pm->dev_free_host(vj);
     //vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
+    if(d_vj) pm->dev_free(d_vj);
+    d_vj = (double *) pm->dev_malloc(size_vj * sizeof(double));
   }
   //for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
 
@@ -162,13 +165,31 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
 void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 {
-  //  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   
-  //  double * vj = static_cast<double*>(info_vj.ptr);
+  double * vj = static_cast<double*>(info_vj.ptr);
   double * vk = static_cast<double*>(info_vk.ptr);
  
   pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+  pm->dev_pull(d_vj, vj, nset * nao_pair * sizeof(double));
+}
+
+/* ---------------------------------------------------------------------- */
+
+__global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int count)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(i >= nset) return;
+  if(j >= nao_pair) return;
+
+  double val = 0.0;
+  for(int k=0; k<naux; ++k) val += rho[i * naux + k] * eri1[k * nao_pair + j];
+  
+  if(count == 0) vj[i * nao_pair + j] = val;
+  else vj[i * nao_pair + j] += val;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -243,7 +264,9 @@ void Device::get_jk(int naux,
   if(_size_rho > size_rho) {
     size_rho = _size_rho;
     if(rho) pm->dev_free_host(rho);
+    if(d_rho) pm->dev_free(d_rho);
     rho = (double *) pm->dev_malloc_host(size_rho * sizeof(double));
+    d_rho = (double *) pm->dev_malloc(size_rho * sizeof(double));
   }
 
 #if 0
@@ -290,6 +313,18 @@ void Device::get_jk(int naux,
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
 
+
+#if 1
+ {
+   pm->dev_push_async(d_rho, rho, nset * naux * sizeof(double), stream);
+
+   dim3 grid_size((nset + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
+   dim3 block_size(_DOT_BLOCK_SIZE, _DOT_BLOCK_SIZE, 1);
+
+   _getjk_vj<<<grid_size, block_size, 0, stream>>>(d_vj, d_rho, d_eri1, nset, nao_pair, naux, count);
+  }
+#else
+
 #pragma omp parallel for collapse(2)
     for(int i=0; i<nset; ++i)
       for(int j=0; j<nao_pair; ++j) {
@@ -298,6 +333,7 @@ void Device::get_jk(int naux,
 	for(int k=0; k<naux; ++k) val += da_rho(i,k) * da_eri1(k,j);
 	da_vj(i,j) += val;
       }
+#endif
 
 #ifdef _SIMPLE_TIMER
     double t2 = omp_get_wtime();
