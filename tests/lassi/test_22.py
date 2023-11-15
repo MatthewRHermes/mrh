@@ -36,7 +36,6 @@ def setUpModule ():
     # Random Hamiltonian
     rng = np.random.default_rng (424)
     mf._eri = rng.random (mf._eri.shape)
-    #mf._eri[:] = 0
     hcore = rng.random ((4,4))
     hcore = hcore + hcore.T
     mf.get_hcore = lambda *args: hcore
@@ -115,6 +114,8 @@ class KnownValues(unittest.TestCase):
         ni = nj - lroots_prod
         # TODO: opt = 1 version
         # The single excitation sector is currently failing: 2-electron component incorrect
+        # It passes, however, if all ERIs are set to the same number, which suggests that I
+        # am indexing the ERIs incorrectly in op_o1.
         for opt in range (2):
             if opt==1: continue
             hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
