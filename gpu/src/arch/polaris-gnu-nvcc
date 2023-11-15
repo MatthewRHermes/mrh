@@ -25,6 +25,7 @@ CUDA_CXXFLAGS += -D_CUDA_NVTX
 
 LD = $(CXX)
 LDFLAGS = -fopenmp -fPIC -shared
+
 LIB = -lstdc++
 LIB += -L/home/knight/soft/polaris/lapack/lib -llapack -lrefblas -lgfortran
 LIB += -L/soft/compilers/cudatoolkit/cuda-11.4.4/lib64 -lcublas

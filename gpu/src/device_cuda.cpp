@@ -255,7 +255,7 @@ void Device::get_jk(int naux,
   double * eri1 = static_cast<double*>(info_eri1.ptr);
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
   double * vj = static_cast<double*>(info_vj.ptr);
-
+  
   int nao_pair = nao * (nao+1) / 2;
   
   pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
@@ -312,7 +312,6 @@ void Device::get_jk(int naux,
     DevArray2D da_vj = DevArray2D(vj, nset, nao_pair);
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
-
 
 #if 1
  {

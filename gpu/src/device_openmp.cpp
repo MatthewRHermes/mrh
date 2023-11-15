@@ -11,6 +11,7 @@
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int count)
 {
   //printf("Inside init_get_jk()\n");
+
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
@@ -106,6 +107,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     _CUDA_CHECK_ERRORS();
     cublasSetStream(handle, stream);
     _CUDA_CHECK_ERRORS();
+
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
@@ -144,6 +146,7 @@ void Device::get_jk(int naux,
 		    int count)
 {
   //printf("Inside get_jk()\n");
+  
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
@@ -320,6 +323,7 @@ void Device::get_jk(int naux,
     //printf(" -- finished\n");
     
     //pm->dev_barrier();
+
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif

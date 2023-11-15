@@ -86,7 +86,6 @@ Device::~Device()
   pm->dev_free_host(buf4);
 
   pm->dev_free_host(buf_fdrv);
-
   pm->dev_free_host(tril_map);
 
 #ifdef _SIMPLE_TIMER
@@ -136,6 +135,7 @@ Device::~Device()
   printf("need to destroy stream correctly...\n");
   //pm->dev_stream_destroy(stream);
   printf(" -- finished\n");
+
 #endif
 
   delete pm;
