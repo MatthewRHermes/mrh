@@ -1259,14 +1259,14 @@ class ContractHamCI (LSTDMint2):
             h_10 = np.dot (h1_ij, D_j) + np.tensordot (h2_ijjj, D_jjj,
                 axes=((1,2,3),(2,0,1)))
             h_21 = np.dot (h2_iiij, D_j)
-            hci_f_ab[i] += self.ints[i].contract_h10 (s1, h_10, h_21, ket)
+            hci_f_ab[i] += fac * self.ints[i].contract_h10 (s1, h_10, h_21, ket)
         if j in excfrags:
             D_i = self.ints[i].get_p (bra, ket, s1)
             D_iii = self.ints[i].get_pph (bra, ket, s1).sum (0)
             h_01 = np.dot (D_i, h1_ij) + np.tensordot (D_iii, h2_iiij,
                 axes=((0,1,2),(0,1,2)))
             h_12 = np.dot (D_i, h2_ijjj)
-            hci_f_ab[j] += self.ints[j].contract_h01 (s1, h_01, h_12, ket)
+            hci_f_ab[j] += fac * self.ints[j].contract_h01 (s1, h_01, h_12, ket)
         self._put_vecs_(bra, ket, hci_f_ab)
         return
 

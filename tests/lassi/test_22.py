@@ -36,6 +36,7 @@ def setUpModule ():
     # Random Hamiltonian
     rng = np.random.default_rng (424)
     mf._eri = rng.random (mf._eri.shape)
+    #mf._eri[:] = 0
     hcore = rng.random ((4,4))
     hcore = hcore + hcore.T
     mf.get_hcore = lambda *args: hcore
@@ -113,8 +114,7 @@ class KnownValues(unittest.TestCase):
         nj = np.cumsum (lroots_prod)
         ni = nj - lroots_prod
         # TODO: opt = 1 version
-        # The single excitation sector is currently failing even with 1-electron Hamiltonian
-        # only due to ANTICOMMUTATION-INDUCED SIGN ISSUES
+        # The single excitation sector is currently failing: 2-electron component incorrect
         for opt in range (2):
             if opt==1: continue
             hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
@@ -136,7 +136,7 @@ class KnownValues(unittest.TestCase):
                         hket_ref_s = hket_ref[:,k:l]
                         # TODO: opt=1 for things other than single excitation
                         if opt==1 and not spaces[r].is_single_excitation_of (spaces[s]): continue
-                        elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
+                        #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
                         with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s):
                             self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
 
