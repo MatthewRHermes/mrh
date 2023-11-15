@@ -10,6 +10,8 @@ nfrags=1
 basis='6-31g'
 outputfile='1_6-31g_out.log'
 mol=gto.M(atom=generator(nfrags),basis=basis,verbose=5,output=outputfile)
+#mol.max_memory = 8000
+
 mf=scf.RHF(mol)
 mf=mf.density_fit()
 mf.run()
@@ -18,6 +20,7 @@ mf.run()
 ncas,nelecas,guess_mo_coeff = avas.kernel(mf, ['C 2pz'])
 
 las=LASSCF(mf, list((2,)*nfrags),list((2,)*nfrags))
+#las.max_cycle_macro = 1
 
 frag_atom_list=[list(range(1+4*nfrag,3+4*nfrag)) for nfrag in range(nfrags)]
 #print(frag_atom_list)

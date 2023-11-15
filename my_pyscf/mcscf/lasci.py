@@ -493,7 +493,7 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
             if isinstance (ci0[ix][iy], np.ndarray) and ci0[ix][iy].size==ndet[0]*ndet[1]: continue
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
-            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec)
+            hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=las.max_memory)
             ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0]
     return ci0
 
@@ -654,7 +654,8 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
     return state_average_(new_las, weights=weights, charges=charges, spins=spins,
         smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
 
-def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose=0, assert_no_dupes=False):
+def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose=0,
+               assert_no_dupes=False, _dry_run=False):
     '''Self-consistently optimize the CI vectors of a LAS state with 
     frozen orbitals using a fixed-point algorithm. "lasci_" (with the
     trailing underscore) sets self.mo_coeff from the kwarg if it is passed;
@@ -676,6 +677,9 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
             See pyscf.lib.logger.
         assert_no_dupes : logical
             If True, checks state list for duplicate states
+        _dry_run : logical
+            If True, sets up the fcisolvers with the appropriate tags, but does
+            not run fcisolver kernels.
 
     Returns:
         converged : list of length nroots of logical
@@ -743,6 +747,7 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
             s.norb = ncas_sub[ix]
             s.nelec = solver._get_nelec (s, nelecas_sub[ix])
             s.check_transformer_cache ()
+        if _dry_run: continue
         conv, e_i, ci_i = solver.kernel (h1eff, eri_cas, ncas_sub, nelecas_sub,
             ecore=0, ci0=ci0_i, orbsym=orbsym, conv_tol_grad=las.conv_tol_grad,
             conv_tol_self=las.conv_tol_self, max_cycle_macro=las.max_cycle_macro)
@@ -1388,13 +1393,14 @@ class LASCINoSymm (casci.CASCI):
 
     @lib.with_doc(run_lasci.__doc__)
     def lasci (self, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose=None,
-               assert_no_dupes=False):
+               assert_no_dupes=False, _dry_run=False):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci0 is None: ci0 = self.ci
         if verbose is None: verbose = self.verbose
         converged, e_tot, e_states, e_cas, e_lexc, ci = run_lasci (
             self, mo_coeff=mo_coeff, ci0=ci0, lroots=lroots, lweights=lweights,
-            verbose=verbose, assert_no_dupes=assert_no_dupes)
+            verbose=verbose, assert_no_dupes=assert_no_dupes, _dry_run=_dry_run)
+        if _dry_run: return
         self.converged, self.ci = converged, ci
         self.e_tot, self.e_states, self.e_cas, self.e_lexc = e_tot, e_states, e_cas, e_lexc
         if mo_coeff is self.mo_coeff:
@@ -1406,11 +1412,11 @@ class LASCINoSymm (casci.CASCI):
 
     @lib.with_doc(run_lasci.__doc__)
     def lasci_(self, mo_coeff=None, ci0=None, verbose=None,
-            assert_no_dupes=False):
+            assert_no_dupes=False, _dry_run=False):
         if mo_coeff is not None:
             self.mo_coeff = mo_coeff
         return self.lasci (mo_coeff=mo_coeff, ci0=ci0, verbose=verbose,
-                           assert_no_dupes=assert_no_dupes)
+                           assert_no_dupes=assert_no_dupes, _dry_run=_dry_run)
 
     state_average = state_average
     state_average_ = state_average_

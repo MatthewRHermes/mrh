@@ -65,7 +65,8 @@ def make_hdiag_det (fci, h1e, eri, norb, nelec):
     ''' Wrap to the uhf version in order to use two-component h1e '''
     return direct_uhf.make_hdiag (unpack_h1e_ab (h1e), [eri, eri, eri], norb, nelec)
 
-def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None):
+def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memory=2000):
+    if max_memory is None: max_memory=2000
     smult = transformer.smult
     if hdiag_det is None:
         hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
@@ -89,11 +90,25 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None):
         ncsf = npair_csf_size[ipair]
         if ncsf == 0:
             continue
-        nspin = neleca + nelecb - 2*npair
         csd_offset = npair_csd_offset[ipair]
+        det_addr = transformer.csd_mask[csd_offset:][:nconf*ndet]
+        # mem safety
+        mem_remaining = max_memory - lib.current_memory ()[0]
+        safety_factor = 1.2
+        nfloats = nconf*ndet*ndet + det_addr.size 
+        mem_floats = nfloats * np.dtype (float).itemsize / 1e6
+        mem_ints = det_addr.dtype.itemsize * det_addr.size * 3 / 1e6
+        mem = safety_factor * (mem_floats + mem_ints)
+        memstr = ("hdiag_csf of {} orbitals, ({},{}) electrons and smult={} with {} "
+                  "doubly-occupied orbitals ({} configurations and {} determinants) requires {} "
+                  "MB > {} MB remaining memory").format (
+            norb, neleca, nelecb, smult, npair, nconf, ndet, mem, mem_remaining)
+        if mem > mem_remaining:
+            raise MemoryError (memstr)
+        # end mem safety
+        nspin = neleca + nelecb - 2*npair
         csf_offset = npair_csf_offset[ipair]
         hdiag_conf = np.ascontiguousarray (np.zeros ((nconf, ndet, ndet), dtype=np.float64))
-        det_addr = transformer.csd_mask[csd_offset:][:nconf*ndet]
         if ndet == 1:
             # Closed-shell singlets
             assert (ncsf == 1)
@@ -126,7 +141,7 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None):
     return hdiag_csf
 
 
-def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None):
+def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memory=2000):
     ''' This is tricky because I need the diagonal blocks for each configuration in order to get
     the correct csf hdiag values, not just the diagonal elements for each determinant. '''
     smult = transformer.smult
@@ -242,7 +257,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     if hdiag_det is None:
         hdiag_det = fci.make_hdiag(h1e, eri, norb, nelec)
     if hdiag_csf is None:
-        hdiag_csf = fci.make_hdiag_csf(h1e, eri, norb, nelec, hdiag_det=hdiag_det)
+        hdiag_csf = fci.make_hdiag_csf(h1e, eri, norb, nelec, hdiag_det=hdiag_det, max_memory=max_memory)
     csf_addr = np.arange (hdiag_csf.size, dtype=np.int32)
     if transformer.wfnsym is None:
         ncsf_sym = hdiag_csf.size
@@ -260,7 +275,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     econf_addr = np.unique (transformer.econf_csf_mask[csf_addr])
     det_addr = np.concatenate ([np.nonzero (transformer.econf_det_mask == conf)[0]
         for conf in econf_addr])
-    lib.logger.debug1 (fci, ("csf.pspace: Lowest-energy %s CSFs correspond to %s configurations"
+    lib.logger.debug (fci, ("csf.pspace: Lowest-energy %s CSFs correspond to %s configurations"
         " which are spanned by %s determinants"), npsp, econf_addr.size, det_addr.size)
 
     addra, addrb = divmod(det_addr, nb)
@@ -271,9 +286,11 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     nfloats_h0 = (npsp_det+npsp)**2
     mem_h0 = safety_factor * nfloats_h0 * np.dtype (float).itemsize / 1e6
     mem_remaining = max_memory - lib.current_memory ()[0]
+    memstr = ("pspace_size of {} CSFs -> {} determinants requires {} MB, cf {} MB "
+              "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining)
     if mem_h0 > mem_remaining:
-        raise MemoryError (("pspace_size of {} CSFs -> {} determinants requires {} MB > {} MB "
-                            "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining))
+        raise MemoryError (memstr)
+    lib.logger.debug (fci, memstr)
     h0 = np.zeros((npsp_det,npsp_det))
     h1e_ab = unpack_h1e_ab (h1e)
     h1e_a = np.ascontiguousarray(h1e_ab[0])
@@ -355,7 +372,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     t0 = lib.logger.timer_debug1 (fci, "csf.kernel: throat-clearing", *t0)
     hdiag_det = fci.make_hdiag (h1e, eri, norb, nelec)
     t0 = lib.logger.timer_debug1 (fci, "csf.kernel: hdiag_det", *t0)
-    hdiag_csf = fci.make_hdiag_csf (h1e, eri, norb, nelec, hdiag_det=hdiag_det)
+    hdiag_csf = fci.make_hdiag_csf (h1e, eri, norb, nelec, hdiag_det=hdiag_det, max_memory=max_memory)
     t0 = lib.logger.timer_debug1 (fci, "csf.kernel: hdiag_csf", *t0)
     ncsf_all = count_all_csfs (norb, neleca, nelecb, smult)
     if idx_sym is None:
@@ -465,7 +482,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
         return e+ecore, c.reshape(na,nb)
 
 class CSFFCISolver: # tag class
-    pass
+    _keys = {'smult', 'transformer'}
 
 class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
@@ -477,7 +494,6 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
     def __init__(self, mol=None, smult=None):
         self.smult = smult
         self.transformer = None
-        self.mask_cache = [0, 0, 0, 0]
         super().__init__(mol)
 
     def get_init_guess(self, norb, nelec, nroots, hdiag_csf, **kwargs):
@@ -486,13 +502,13 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
         self.check_transformer_cache ()
         return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
 
-    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None, smult=None):
+    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None, smult=None, max_memory=2000):
         self.norb = norb
         self.nelec = nelec
         if smult is not None:
             self.smult = smult
         self.check_transformer_cache ()
-        return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det)
+        return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det, max_memory=max_memory)
 
     make_hdiag = make_hdiag_det
 

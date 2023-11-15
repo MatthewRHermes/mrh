@@ -1,11 +1,15 @@
 import numpy as np
+from scipy import linalg
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci import cistring
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
+from pyscf import symm
+from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
+from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 import itertools
 
 class SingleLASRootspace (object):
@@ -30,6 +34,12 @@ class SingleLASRootspace (object):
         self.nhole = 2*self.nlas - self.nelec 
         self.nholea = self.nlas - self.neleca
         self.nholeb = self.nlas - self.nelecb
+
+        # "u", "d": like "a", "b", but presuming spins+1==smults everywhere
+        self.nelecu = (self.nelec + (self.smults-1)) // 2
+        self.nelecd = (self.nelec - (self.smults-1)) // 2
+        self.nholeu = self.nlas - self.nelecu
+        self.nholed = self.nlas - self.nelecd
 
     def __eq__(self, other):
         if self.nfrag != other.nfrag: return False
@@ -164,23 +174,28 @@ class SingleLASRootspace (object):
                 dict vals are the corresponding CI vectors
         '''
         ci_sz = []
+        ndet = self.get_ndet ()
         for ifrag in range (self.nfrag):
             norb, sz, ci = self.nlas[ifrag], self.spins[ifrag], self.ci[ifrag]
+            ndeta, ndetb = ndet[ifrag]
             nelec = self.neleca[ifrag], self.nelecb[ifrag]
             smult = self.smults[ifrag]
             ci_sz_ = {sz: ci}
-            ci1 = ci
+            ci1 = np.asarray (ci).reshape (-1, ndeta, ndetb)
+            nvecs = ci1.shape[0]
             nelec1 = nelec
             for sz1 in range (sz-2, -(1+smult), -2):
-                ci1 = contract_sdown (ci1, norb, nelec1)
+                ci1 = [contract_sdown (c, norb, nelec1) for c in ci1]
                 nelec1 = nelec1[0]-1, nelec1[1]+1
-                ci_sz_[sz1] = ci1
-            ci1 = ci
+                if nvecs==1: ci_sz_[sz1] = ci1[0]
+                else: ci_sz_[sz1] = np.asarray (ci1)
+            ci1 = np.asarray (ci).reshape (nvecs, ndeta, ndetb)
             nelec1 = nelec
             for sz1 in range (sz+2, (1+smult), 2):
-                ci1 = contract_sup (ci1, norb, nelec1)
+                ci1 = [contract_sup (c, norb, nelec1) for c in ci1]
                 nelec1 = nelec1[0]+1, nelec1[1]-1
-                ci_sz_[sz1] = ci1
+                if nvecs==1: ci_sz_[sz1] = ci1[0]
+                else: ci_sz_[sz1] = np.asarray (ci1)
             ci_sz.append (ci_sz_)
         return ci_sz
 
@@ -207,10 +222,41 @@ class SingleLASRootspace (object):
         if np.any (dsmults != 1): return False
         return True
 
+    def describe_single_excitation (self, other):
+        if not self.is_single_excitation_of (other): return None
+        src_frag = np.where ((self.nelec-other.nelec)==-1)[0][0]
+        dest_frag = np.where ((self.nelec-other.nelec)==1)[0][0]
+        e_spin = 'a' if np.any (self.neleca!=other.neleca) else 'b'
+        src_ds = 'u' if self.smults[src_frag]>other.smults[src_frag] else 'd'
+        dest_ds = 'u' if self.smults[dest_frag]>other.smults[dest_frag] else 'd'
+        return src_frag, dest_frag, e_spin, src_ds, dest_ds
+
+    def single_excitation_description_string (self, other):
+        src, dest, e_spin, src_ds, dest_ds = self.describe_single_excitation (other)
+        fmt_str = '{:d}({:s}) --{:s}--> {:d}({:s})'
+        return fmt_str.format (src, src_ds, e_spin, dest, dest_ds)
+
+    def compute_single_excitation_lroots (self, ref):
+        if isinstance (ref, (list, tuple)):
+            lroots = np.array ([self.compute_single_excitation_lroots (r) for r in ref])
+            return np.amax (lroots)
+        assert (self.is_single_excitation_of (ref))
+        src, dest, e_spin = self.describe_single_excitation (ref)[:3]
+        if e_spin == 'a':
+            nelec, nhole = ref.neleca, ref.nholea
+        else:
+            nelec, nhole = ref.nelecb, ref.nholeb
+        return min (nelec[src], nhole[dest])
+
     def is_spin_shuffle_of (self, other):
         if np.any (self.nelec != other.nelec): return False
         if np.any (self.smults != other.smults): return False
         return self.spins.sum () == other.spins.sum ()
+
+    def get_spin_shuffle_civecs (self, other):
+        assert (self.is_spin_shuffle_of (other) and other.has_ci ())
+        ci_sz = other.get_ci_szrot ()
+        return [ci_sz[ifrag][self.spins[ifrag]] for ifrag in range (self.nfrag)]
 
     def excited_fragments (self, other):
         dneleca = self.neleca - other.neleca
@@ -218,6 +264,84 @@ class SingleLASRootspace (object):
         dsmults = self.smults - other.smults
         idx_same = (dneleca==0) & (dnelecb==0) & (dsmults==0)
         return ~idx_same
+
+    def get_lroots (self):
+        if not self.has_ci (): return None
+        lroots = []
+        for c, n in zip (self.ci, self.get_ndet ()):
+            c = np.asarray (c).reshape (-1, n[0], n[1])
+            lroots.append (c.shape[0])
+        return lroots
+
+    def table_printlog (self, lroots=None):
+        if lroots is None: lroots = self.get_lroots ()
+        log = logger.new_logger (self, self.verbose)
+        fmt_str = " {:4s}  {:>11s}  {:>4s}  {:>3s}"
+        header = fmt_str.format ("Frag", "Nelec,Norb", "2S+1", "Ir")
+        fmt_str = " {:4d}  {:>11s}  {:>4d}  {:>3s}"
+        if lroots is not None:
+            header += '  Nroots'
+            fmt_str += '  {:>6d}'
+        log.info (header)
+        for ifrag in range (self.nfrag):
+            na, nb = self.neleca[ifrag], self.nelecb[ifrag]
+            sm, no = self.smults[ifrag], self.nlas[ifrag]
+            irid = 0 # TODO: symmetry
+            nelec_norb = '{}a+{}b,{}o'.format (na,nb,no)
+            irname = symm.irrep_id2name (self.las.mol.groupname, irid)
+            row = [ifrag, nelec_norb, sm, irname]
+            if lroots is not None: row += [lroots[ifrag]]
+            log.info (fmt_str.format (*row))
+
+    def single_fragment_spin_change (self, ifrag, new_smult, new_spin, ci=None):
+        smults1 = self.smults.copy ()
+        spins1 = self.spins.copy ()
+        smults1[ifrag] = new_smult
+        spins1[ifrag] = new_spin
+        ci1 = None
+        if ci is not None:
+            ci1 = [c for c in self.ci]
+            ci1[ifrag] = ci
+        return SingleLASRootspace (self.las, spins1, smults1, self.charges, 0, nlas=self.nlas,
+                                   nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
+                                   ci=ci1)
+
+    def is_orthogonal_by_smult (self, other):
+        if isinstance (other, (list, tuple)):
+            return [self.is_orthogonal_by_smult (o) for o in other]
+        s2_self = self.smults-1
+        max_self = np.sum (s2_self) 
+        min_self = 2*np.amax (s2_self) - max_self
+        s2_other = other.smults-1
+        max_other = np.sum (s2_other) 
+        min_other = 2*np.amax (s2_other) - max_other
+        return (max_self < min_other) or (max_other < min_self)
+
+    def get_fcisolvers (self):
+        fcisolvers = []
+        for ifrag in range (self.nfrag):
+            solver = csf_solver (self.las.mol, smult=self.smults[ifrag])
+            solver.nelec = (self.neleca[ifrag],self.nelecb[ifrag])
+            solver.norb = self.nlas[ifrag]
+            solver.spin = self.spins[ifrag]
+            solver.check_transformer_cache ()
+            fcisolvers.append (solver)
+        return fcisolvers
+
+    def get_product_state_solver (self, lroots=None, lweights='gs'):
+        fcisolvers = self.get_fcisolvers ()
+        if lroots is None: lroots = self.get_lroots ()
+        lw = [np.zeros (l) for l in lroots]
+        if 'gs' in lweights.lower ():
+            for l in lw: l[0] = 1.0
+        elif 'sa' in lweights.lower ():
+            for l in lw: l[:] = 1.0/len (l)
+        else:
+            raise RuntimeError ('valid lweights are "gs" and "sa"')
+        lweights=lw
+        return ImpureProductStateFCISolver (fcisolvers, stdout=self.stdout, lweights=lweights, 
+                                            verbose=self.verbose)
+
 
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
@@ -250,7 +374,7 @@ def all_single_excitations (las, verbose=None):
                    "no singly-excited states could be constructed"), len (ref_states))
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
-def spin_shuffle (las, verbose=None):
+def spin_shuffle (las, verbose=None, equal_weights=False):
     '''Add states characterized by varying local Sz in all possible ways without changing
     local neleca+nelecb, local S**2, or global Sz (== sum local Sz) for each reference state.
     After calling this function, assuming no spin-orbit coupling is included, all LASSI
@@ -274,6 +398,8 @@ def spin_shuffle (las, verbose=None):
                 all_states.append (new_state)
                 seen.add (new_state)
     weights = [state.weight for state in all_states]
+    if equal_weights:
+        weights = [1.0/len(all_states),]*len(all_states)
     charges = [state.charges for state in all_states]
     spins = [state.spins for state in all_states]
     smults = [state.smults for state in all_states]
@@ -324,8 +450,13 @@ def spin_shuffle_ci (las, ci):
                 continue
             lroots, ndeti = ci_ix[ifrag].shape[0], ndet[ifrag]
             if lroots > 1:
-                c = vec_lowdin (ci_ix[ifrag].reshape (lroots, ndeti[0]*ndeti[1]))
-                ci_ix[ifrag] = c.reshape (lroots, ndeti[0], ndeti[1])
+                c = (ci_ix[ifrag].reshape (lroots, ndeti[0]*ndeti[1])).T
+                ovlp = c.conj ().T @ c
+                w, v = linalg.eigh (ovlp)
+                idx = w>1e-8
+                v = v[:,idx] / np.sqrt (w[idx])[None,:]
+                c = (c @ v).T
+                ci_ix[ifrag] = c.reshape (-1, ndeti[0], ndeti[1])
             ci[ifrag][ix] = ci_ix[ifrag]
     return ci
 

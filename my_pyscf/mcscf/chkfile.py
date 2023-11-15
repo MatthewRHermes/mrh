@@ -2,15 +2,18 @@ import h5py
 from pyscf.lib.chkfile import load
 from pyscf.lib.chkfile import load_mol, save_mol
 
-keys_config = ['ncas', 'nelecas', 'ncore', 'ncas_sub', 'nelecas_sub']
-keys_saconstr = ['weights', 'charges', 'spins', 'smults', 'wfnsyms']
-keys_results = ['e_states', 'states_converged', 'e_tot', 'mo_coeff']
+KEYS_CONFIG_LASSCF = ['ncas', 'nelecas', 'ncore', 'ncas_sub', 'nelecas_sub']
+KEYS_SACONSTR_LASSCF = ['weights', 'charges', 'spins', 'smults', 'wfnsyms']
+KEYS_RESULTS_LASSCF = ['e_states', 'states_converged', 'e_tot', 'mo_coeff']
 
-def load_las_(mc, chkfile=None):
+def load_las_(mc, chkfile=None, method_key='las', 
+              keys_config=KEYS_CONFIG_LASSCF,
+              keys_saconstr=KEYS_SACONSTR_LASSCF,
+              keys_results=KEYS_RESULTS_LASSCF):
     if chkfile is None: chkfile = mc.chkfile
     if chkfile is None: raise RuntimeError ('chkfile not specified')
-    data = load (chkfile, 'las')
-    if data is None: raise KeyError ('LAS record not in chkfile')
+    data = load (chkfile, method_key)
+    if data is None: raise KeyError ('{} record not in chkfile'.format (method_key.upper()))
 
     # conditionals for backwards compatibility with older chkfiles that
     # only stored mo_coeff and ci
@@ -20,7 +23,13 @@ def load_las_(mc, chkfile=None):
     # this needs to happen before some of the results attributes
     if all ([key in data for key in keys_saconstr]):
         sakwargs = {key: data[key] for key in keys_saconstr}
-        mc.state_average_(**sakwargs)
+        try:
+            mc.state_average_(**sakwargs)
+        except AttributeError as err:
+            las = mc._las.state_average (**sakwargs)
+            mc.fciboxes = las.fciboxes
+            mc.nroots=las.nroots
+            mc.weights=las.weights
     for key in keys_results:
         if key in data:
             setattr (mc, key, data[key])
@@ -47,7 +56,10 @@ def load_las_(mc, chkfile=None):
     return mc
 
 def dump_las (mc, chkfile=None, method_key='las', mo_coeff=None, ci=None,
-              overwrite_mol=True, **kwargs):
+              overwrite_mol=True, keys_config=KEYS_CONFIG_LASSCF,
+              keys_saconstr=KEYS_SACONSTR_LASSCF,
+              keys_results=KEYS_RESULTS_LASSCF,
+              **kwargs):
     if chkfile is None: chkfile = mc.chkfile
     if not chkfile: return mc
     if mo_coeff is None: mo_coeff = mc.mo_coeff

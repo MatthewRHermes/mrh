@@ -1,10 +1,10 @@
 import numpy as np
 from pyscf import lib, fci
-from pyscf.fci.direct_spin1 import _unpack_nelec
+from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, contract_1e
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
 from itertools import product, combinations
-from mrh.my_pyscf.lassi.citools import get_lroots, envaddr2fragaddr
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 import time
 
 # NOTE: PySCF has a strange convention where
@@ -101,13 +101,10 @@ def fermion_des_shuffle (nelec_f, frag_list, i):
     nperms = sum (nelec_f[:i]) if i else 0
     return (1,-1)[nperms%2]
 
-def lst_hopping_index (fciboxes, nlas, nelelas, nelec_frs):
+def lst_hopping_index (nelec_frs):
     ''' Build the LAS state transition hopping index
 
         Args:
-            fciboxes: list of h1e_zipped_fcisolvers
-            nlas: list of norbs for each fragment
-            nelelas: list of neleca + nelecb for each fragment
             nelec_frs : ndarray of shape (nfrags,nroots,2)
                 Number of electrons of each spin in each rootspace in each
                 fragment
@@ -115,21 +112,20 @@ def lst_hopping_index (fciboxes, nlas, nelelas, nelec_frs):
         Returns:
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
                 element [i,j,k,l] reports the change of number of electrons of
-                spin j in fragment i between LAS states k and l
+                spin j in fragment i between LAS rootspaces k and l
             zerop_index: ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS states are
+                element [i,j] is true where the ith and jth LAS spaces are
                 connected by a null excitation; i.e., no electron, pair,
                 or spin hopping or pair splitting/coalescence. This implies
                 nonzero 1- and 2-body transition density matrices within
                 all fragments.
             onep_index: ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS states
+                element [i,j] is true where the ith and jth LAS spaces
                 are connected by exactly one electron hop from i to j or vice
                 versa, implying nonzero 1-body transition density matrices
                 within spectator fragments and phh/pph modes within
                 source/dest fragments.
     '''
-    nelelas = [sum (_unpack_nelec (ne)) for ne in nelelas]
     nelec_fsr = nelec_frs.transpose (0,2,1)
     hopping_index = np.array ([[np.subtract.outer (spin, spin)
         for spin in frag] for frag in nelec_fsr])
@@ -145,9 +141,12 @@ class LSTDMint1 (object):
         intermediates. Stores all local transition density matrix factors. Run the `kernel` method
         to compute all data, and run the get_* methods to return the computed intermediates:
 
-        (s and t are spin: a,b for 1 operator; aa, ab, bb for 2 operators
+        s and t are spin: a,b for 1 operator; aa, ab, bb for 2 operators
         s is a spin argument passed to the "get" function
-        t is a spin index on the returned array)
+        t is a spin index on the returned array
+        i and j are single state indices with
+            rootaddr[i] = index of the rootspace for state i
+            fragaddr[i] = index in this fragment's local rootaddr[i] basis of state i
 
         get_h (i,j,s): <i|s|j>
         get_p (i,j,s): <i|s'|j> = conj (<j|s|i>)
@@ -165,18 +164,34 @@ class LSTDMint1 (object):
             <i|a'a'bb|j> & a<->b
         Req'd for 2e- relativistic (i.e., spin-breaking) operators
 
+        NOTE: in the put_* functions, unlike the get_* funcitons, the indices i,j are
+        rootspace indices and the tdm data argument must contain the local-basis state
+        index dimension.
+
         Args:
-            fcibox: instance of :class:`H1EZipFCISolver`
-                fcisolvers for the current fragment
-            norb : integer
-                number of active orbitals in the current fragment
-            nelec : integer or sequence of length 2
-                base number of electrons in the current fragment
-            nroots : integer
-                number of states considered
+            ci : list of ndarray of length nroots
+                Contains CI vectors for the current fragment
             hopping_index: ndarray of ints of shape (2, nroots, nroots)
                 element [i,j,k] reports the change of number of electrons of
-                spin i in the current fragment between LAS states j and k
+                spin i in the current fragment between LAS rootspaces j and k
+            zerop_index : ndarray of bools of shape (nroots, nroots)
+                element [i,j] is true where the ith and jth LAS spaces are
+                connected by a null excitation; i.e., no electron, pair,
+                or spin hopping or pair splitting/coalescence. This implies
+                nonzero 1- and 2-body transition density matrices within
+                all fragments.
+            onep_index : ndarray of bools of shape (nroots, nroots)
+                element [i,j] is true where the ith and jth LAS spaces
+                are connected by exactly one electron hop from i to j or vice
+                versa, implying nonzero 1-body transition density matrices
+                within spectator fragments and phh/pph modes within
+                source/dest fragments.
+            norb : integer
+                number of active orbitals in the current fragment
+            nroots : integer
+                number of states considered
+            nelec_rs : ndarray of ints of shape (nroots, 2)
+                number of spin-up and spin-down electrons in each root
             rootaddr: ndarray of shape (nstates):
                 Index array of LAS states into a given rootspace
             fragaddr: ndarray of shape (nstates):
@@ -189,18 +204,17 @@ class LSTDMint1 (object):
                 Currently not used
     '''
 
-    def __init__(self, fcibox, norb, nelec, nroots, hopping_index, rootaddr, fragaddr,
-                 idx_frag, dtype=np.float64):
-        # I'm not sure I need linkstrl
-        self.linkstrl = fcibox.states_gen_linkstr (norb, nelec, tril=True)
-        self.linkstr = fcibox.states_gen_linkstr (norb, nelec, tril=False)
-        self.fcisolvers = fcibox.fcisolvers
+    def __init__(self, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
+                 rootaddr, fragaddr, idx_frag, dtype=np.float64):
+        # TODO: if it actually helps, cache the "linkstr" arrays
+        self.ci = ci
+        self.hopping_index = hopping_index
+        self.zerop_index = zerop_index
+        self.onep_index = onep_index
         self.norb = norb
-        self.nelec = nelec
         self.nroots = nroots
         self.dtype = dtype
-        self.nelec_r = [_unpack_nelec (fcibox._get_nelec (solver, nelec))
-                        for solver in self.fcisolvers]
+        self.nelec_r = [tuple (n) for n in nelec_rs]
         self.ovlp = [[None for i in range (nroots)] for j in range (nroots)]
         self._h = [[[None for i in range (nroots)] for j in range (nroots)] for s in (0,1)]
         self._hh = [[[None for i in range (nroots)] for j in range (nroots)] for s in (-1,0,1)] 
@@ -208,10 +222,16 @@ class LSTDMint1 (object):
         self._sm = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm1 = [[None for i in range (nroots)] for j in range (nroots)]
         self.dm2 = [[None for i in range (nroots)] for j in range (nroots)]
-        self.hopping_index = hopping_index
         self.rootaddr = rootaddr
         self.fragaddr = fragaddr
         self.idx_frag = idx_frag
+
+        # Consistent array shape
+        self.ndeta_r = [cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r]
+        self.ndetb_r = [cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r]
+        self.ci = [c.reshape (-1,na,nb) for c, na, nb in zip (self.ci, self.ndeta_r, self.ndetb_r)]
+
+        self.time_crunch = self._init_crunch_()
 
     # Exception catching
 
@@ -324,40 +344,22 @@ class LSTDMint1 (object):
         else:
             self.dm2[i][j] = x
 
-    def kernel (self, ci, hopping_index, zerop_index, onep_index):
+    def _init_crunch_(self):
         ''' Compute the transition density matrix factors.
-
-        Args:
-            ci : list of ndarray of length nroots
-                Contains CI vectors for the current fragment
-            hopping_index: ndarray of ints of shape (2, nroots, nroots)
-                element [i,j,k] reports the change of number of electrons of
-                spin i in the current fragment between LAS states j and k
-            zerop_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS states are
-                connected by a null excitation; i.e., no electron, pair,
-                or spin hopping or pair splitting/coalescence. This implies
-                nonzero 1- and 2-body transition density matrices within
-                all fragments.
-            onep_index : ndarray of bools of shape (nroots, nroots)
-                element [i,j] is true where the ith and jth LAS states
-                are connected by exactly one electron hop from i to j or vice
-                versa, implying nonzero 1-body transition density matrices
-                within spectator fragments and phh/pph modes within
-                source/dest fragments.
 
         Returns:
             t0 : tuple of length 2
                 timestamp of entry into this function, for profiling by caller
         '''
+        ci = self.ci
+        ndeta, ndetb = self.ndeta_r, self.ndetb_r
+        hopping_index = self.hopping_index
+        zerop_index = self.zerop_index
+        onep_index = self.onep_index
 
         nroots, norb = self.nroots, self.norb
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
 
-        # Consistent array shape
-        ndeta = [cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r]
-        ndetb = [cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r]
-        ci = [c.reshape (-1,na,nb) for c, na, nb in zip (ci, ndeta, ndetb)]
         lroots = [c.shape[0] for c in ci]
 
         # Overlap matrix
@@ -383,15 +385,14 @@ class LSTDMint1 (object):
         def des_a_loop (c, nelec, p): return des_loop (des_a, c, nelec, p)
         def des_b_loop (c, nelec, p): return des_loop (des_b, c, nelec, p)
         def trans_rdm12s_loop (iroot, bra, ket):
-            nelec, linkstr = self.nelec_r[iroot], self.linkstr[iroot]
+            nelec = self.nelec_r[iroot]
             na, nb = ndeta[iroot], ndetb[iroot]
             bra = bra.reshape (-1, na, nb)
             ket = ket.reshape (-1, na, nb)
-            solver = self.fcisolvers[iroot]
             tdm1s = np.zeros ((bra.shape[0],ket.shape[0],2,norb,norb), dtype=self.dtype)
             tdm2s = np.zeros ((bra.shape[0],ket.shape[0],4,norb,norb,norb,norb), dtype=self.dtype)
             for i, j in product (range (bra.shape[0]), range (ket.shape[0])):
-                d1s, d2s = solver.trans_rdm12s (bra[i], ket[j], norb, nelec, link_index=linkstr)
+                d1s, d2s = trans_rdm12s (bra[i], ket[j], norb, nelec)
                 # Transpose based on docstring of direct_spin1.trans_rdm12s
                 tdm1s[i,j] = np.stack (d1s, axis=0).transpose (0, 2, 1)
                 tdm2s[i,j] = np.stack (d2s, axis=0)
@@ -495,6 +496,63 @@ class LSTDMint1 (object):
         
         return t0
 
+    def contract_h00 (self, h_00, h_11, h_22, ket):
+        raise NotImplementedError
+
+    def contract_h10 (self, spin, h_10, h_21, ket):
+        r = self.rootaddr[ket]
+        n = self.fragaddr[ket]
+        norb, nelec = self.norb, self.nelec_r[r]
+        cre_op = (cre_a, cre_b)[spin]
+        ci = self.ci[r][n]
+        hci = 0
+        nelecp = list (nelec)
+        nelecp[spin] = nelecp[spin] + 1
+        nelecp = tuple (nelecp)
+        for p in range (self.norb):
+            hci += h_10[p] * cre_op (ci, norb, nelec, p)
+            hci += cre_op (contract_1e (h_21[p], ci, norb, nelec),
+                           norb, nelec, p)
+        return hci
+
+    def contract_h01 (self, spin, h_01, h_12, ket):
+        r = self.rootaddr[ket]
+        n = self.fragaddr[ket]
+        norb, nelec = self.norb, self.nelec_r[r]
+        des_op = (des_a, des_b)[spin]
+        ci = self.ci[r][n]
+        hci = 0
+        nelecp = list (nelec)
+        nelecp[spin] = nelecp[spin] - 1
+        nelecp = tuple (nelecp)
+        for p in range (self.norb):
+            try:
+                hci += h_01[p] * des_op (ci, norb, nelec, p)
+            except ValueError as err:
+                print (ci.shape, norb, nelec, p)
+                print (type (self.ci[r]))
+                raise (err)
+            hci += contract_1e (h_12[p], des_op (ci, norb, nelec, p),
+                                norb, nelecp)
+        return hci
+
+    def contract_h20 (self, spin, h_20, ket):
+        raise NotImplementedError
+
+    def contract_h02 (self, spin, h_02, ket):
+        raise NotImplementedError
+
+    def contract_h11 (self, spin, h_11, ket):
+        raise NotImplementedError
+
+def mask_exc_table (exc, col=0, mask_space=None):
+    if mask_space is None: return exc
+    mask_space = np.asarray (mask_space)
+    if mask_space.dtype in (bool, np.bool_):
+        mask_space = np.where (mask_space)[0]
+    idx = np.isin (exc[:,col], mask_space)
+    return exc[idx]
+
 class LSTDMint2 (object):
     ''' LAS state transition density matrix intermediate 2 - whole-system DMs
         Carry out multiplications such as
@@ -528,11 +586,17 @@ class LSTDMint2 (object):
                 numbers of active orbitals in each fragment
             hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
                 element [i,j,k,l] reports the change of number of electrons of
-                spin j in fragment i between LAS states k and l
+                spin j in fragment i between LAS rootspaces k and l
             lroots: ndarray of ints of shape (nfrags, nroots)
                 Number of states within each fragment and rootspace
 
         Kwargs:
+            mask_bra_space : sequence of int or mask array of shape (nroots,)
+                If included, only matrix elements involving the corresponding bra rootspaces are
+                computed.
+            mask_ket_space : sequence of int or mask array of shape (nroots,)
+                If included, only matrix elements involving the corresponding ket rootspaces are
+                computed.
             dtype : instance of np.dtype
                 Currently not used; TODO: generalize to ms-broken fragment-local states?
         '''
@@ -542,31 +606,63 @@ class LSTDMint2 (object):
     # (N.B.: "sp" is just the adjoint of "sm"). 
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
-    def __init__(self, ints, nlas, hopping_index, lroots, dtype=np.float64):
+    def __init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=None, mask_ket_space=None,
+                 dtype=np.float64):
         self.ints = ints
         self.nlas = nlas
         self.norb = sum (nlas)
         self.lroots = lroots
-        self.rootaddr = envaddr2fragaddr (lroots)[0]
+        self.rootaddr = get_rootaddr_fragaddr (lroots)[0]
         nprods = np.prod (lroots, axis=0)
         offs1 = np.cumsum (nprods)
         offs0 = offs1 - nprods
         self.offs_lroots = np.stack ([offs0, offs1], axis=1)
-        self.nfrags, _, self.nroots, _ = nfrags, _, nroots, _ = hopping_index.shape
+        self.nfrags, _, self.nroots, _ = hopping_index.shape
         self.nstates = offs1[-1]
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
 
-        # The primary index arrays
-        # The nth column of each array is the (n+1)th argument of the corresponding _crunch_*_
-        # member function below. The first two columns are always the bra and the ket. Further
-        # columns identify fragments whose quantum numbers are changed by the interaction. If
-        # necessary (i.e., for 1c and 2c), the last column identifies spin case.
-        self.exc_null = np.empty ((0,2), dtype=int)
-        self.exc_1c = np.empty ((0,5), dtype=int)
-        self.exc_1s = np.empty ((0,4), dtype=int)
-        self.exc_1s1c = np.empty ((0,5), dtype=int)
-        self.exc_2c = np.empty ((0,7), dtype=int)
+        # overlap tensor
+        self.ovlp = [i.ovlp for i in ints]
+
+        # spin-shuffle sign vector
+        self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
+                                     for ket in range (self.nroots)]).transpose (0,2,1)
+        self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
+                             for nelec_sf in self.nelec_rf]
+        self.nelec_rf = self.nelec_rf.sum (1)
+
+        exc = self.make_exc_tables (hopping_index)
+        self.exc_null = self.mask_exc_table (exc['null'], mask_bra_space, mask_ket_space)
+        self.exc_1c = self.mask_exc_table (exc['1c'], mask_bra_space, mask_ket_space)
+        self.exc_1s = self.mask_exc_table (exc['1s'], mask_bra_space, mask_ket_space)
+        self.exc_1s1c = self.mask_exc_table (exc['1s1c'], mask_bra_space, mask_ket_space)
+        self.exc_2c = self.mask_exc_table (exc['2c'], mask_bra_space, mask_ket_space)
+
+    def make_exc_tables (self, hopping_index):
+        ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
+        corresponding _crunch_*_ member function below. The first two columns are always the bra
+        rootspace index and the ket rootspace index, respectively. Further columns identify
+        fragments whose quantum numbers are changed by the interaction. If necessary (i.e., for 1c
+        and 2c), the last column identifies spin case.
+
+        Args:
+            hopping_index: ndarray of ints of shape (nfrags, 2, nroots, nroots)
+                element [i,j,k,l] reports the change of number of electrons of
+                spin j in fragment i between LAS rootspaces k and l
+
+        Returns:
+            exc: dict with str keys and ndarray-of-int values. Each row of each ndarray is the
+                argument list for 1 call to the LSTDMint2._crunch_*_ function with the name that
+                corresponds to the key str (_crunch_null_, _crunch_1s_, etc.).
+        '''
+        exc = {}
+        exc['null'] = np.empty ((0,2), dtype=int)
+        exc['1c'] = np.empty ((0,5), dtype=int)
+        exc['1s'] = np.empty ((0,4), dtype=int)
+        exc['1s1c'] = np.empty ((0,5), dtype=int)
+        exc['2c'] = np.empty ((0,7), dtype=int)
+        nfrags = hopping_index.shape[0]
 
         # Process connectivity data to quickly distinguish interactions
 
@@ -606,16 +702,15 @@ class LSTDMint2 (object):
         # fragments of the charge or spin units that are transferred in that interaction,
         # and store those fragment indices along with the state indices.
 
-
         # Zero-electron interactions
         tril_index = np.zeros_like (conserv_index)
         tril_index[np.tril_indices (self.nroots,k=-1)] = True
         idx = conserv_index & tril_index & (nop == 0)
-        self.exc_null = np.vstack (list (np.where (idx))).T
+        exc['null'] = np.vstack (list (np.where (idx))).T
  
         # One-electron interactions
         idx = conserv_index & (nop == 2) & tril_index
-        if nfrags > 1: self.exc_1c = np.vstack (
+        if nfrags > 1: exc['1c'] = np.vstack (
             list (np.where (idx)) + [findf[-1][idx], findf[0][idx], ispin[idx]]
         ).T
 
@@ -631,7 +726,7 @@ class LSTDMint2 (object):
 
         # Two-electron interaction: k(a)j(b) -> i(a)k(b) ("1s1c")
         idx = idx_2e & (nspin_index==3) & (ncharge_index==2) & (np.amin(spin_index,axis=0)==-2)
-        if nfrags > 2: self.exc_1s1c = np.vstack (
+        if nfrags > 2: exc['1s1c'] = np.vstack (
             list (np.where (idx)) + [findf[-1][idx], findf[1][idx], findf[0][idx]]
         ).T
 
@@ -640,7 +735,7 @@ class LSTDMint2 (object):
 
         # Two-electron interaction: i(a)j(b) -> j(a)i(b) ("1s") 
         idx = idx_2e & (ncharge_index == 0) & (nspin_index == 2)
-        if nfrags > 1: self.exc_1s = np.vstack (
+        if nfrags > 1: exc['1s'] = np.vstack (
             list (np.where (idx)) + [findf[-1][idx], findf[0][idx]]
         ).T
 
@@ -659,19 +754,17 @@ class LSTDMint2 (object):
         ).T
 
         # Combine "split", "pair", and "scatter" into "2c"
-        if nfrags > 1: self.exc_2c = exc_pair
-        if nfrags > 2: self.exc_2c = np.vstack ((self.exc_2c, exc_split))
-        if nfrags > 3: self.exc_2c = np.vstack ((self.exc_2c, exc_scatter))
+        if nfrags > 1: exc['2c'] = exc_pair
+        if nfrags > 2: exc['2c'] = np.vstack ((exc['2c'], exc_split))
+        if nfrags > 3: exc['2c'] = np.vstack ((exc['2c'], exc_scatter))
 
-        # overlap tensor
-        self.ovlp = [i.ovlp for i in ints]
+        return exc
 
-        # spin-shuffle sign vector
-        self.nelec_rf = np.asarray ([[list (i.nelec_r[ket]) for i in ints]
-                                     for ket in range (self.nroots)]).transpose (0,2,1)
-        self.spin_shuffle = [fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
-                             for nelec_sf in self.nelec_rf]
-        self.nelec_rf = self.nelec_rf.sum (1)
+    def mask_exc_table (self, exc, mask_bra_space=None, mask_ket_space=None):
+        # TODO: PROBLEM: this transposes "bra" and "ket"
+        exc = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
+        exc = mask_exc_table (exc, col=1, mask_space=mask_ket_space)
+        return exc
 
     def get_range (self, i):
         p = sum (self.nlas[:i])
@@ -955,18 +1048,22 @@ class HamS2ovlpint (LSTDMint2):
     `kernel` call returns operator matrices without cacheing stdm12s array
 
     Additional args:
-        h1 : ndarray of size ncas**2
-            Contains effective 1-electron Hamiltonian amplitudes in second quantization
+        h1 : ndarray of size ncas**2 or 2*(ncas**2)
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization,
+            optionally spin-separated
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
     # TODO: SO-LASSI o1 implementation: the one-body spin-orbit coupling part of the
     # Hamiltonian in addition to h1 and h2, which are spin-symmetric
 
-    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, dtype=np.float64):
-        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, dtype=dtype)
-        self.h1 = h1.ravel ()
-        self.h2 = h2.ravel ()
+    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
+                 mask_ket_space=None, dtype=np.float64):
+        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
+                           mask_ket_space=mask_ket_space, dtype=dtype)
+        if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
+        self.h1 = h1
+        self.h2 = h2
 
     def _get_D1_(self, bra, ket):
         self.d1[:] = 0.0
@@ -977,13 +1074,13 @@ class HamS2ovlpint (LSTDMint2):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1):
+        self.ham[bra,ket] += np.dot (self.h1.ravel (), D1.ravel ())
         M1 = D1[0] - D1[1]
         D1 = D1.sum (0)
-        self.ham[bra,ket] += np.dot (self.h1, D1.ravel ())
         self.s2[bra,ket] += (np.trace (M1)/2)**2 + np.trace (D1)/2
 
     def _put_D2_(self, bra, ket, D2):
-        self.ham[bra,ket] += np.dot (self.h2, D2.sum (0).ravel ()) / 2
+        self.ham[bra,ket] += np.dot (self.h2.ravel (), D2.sum (0).ravel ()) / 2
         self.s2[bra,ket] -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
 
     def _add_transpose_(self):
@@ -1041,8 +1138,10 @@ class LRRDMint (LSTDMint2):
     # TODO: SO-LASSI o1 implementation: these density matrices can only be defined in the full
     # spinorbital basis
 
-    def __init__(self, ints, nlas, hopping_index, lroots, si, dtype=np.float64):
-        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, dtype=dtype)
+    def __init__(self, ints, nlas, hopping_index, lroots, si, mask_bra_space=None,
+                 mask_ket_space=None, dtype=np.float64):
+        LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
+                           mask_ket_space=mask_ket_space, dtype=dtype)
         self.nroots_si = si.shape[-1]
         self.si_dm = np.stack ([np.dot (si[:,i:i+1],si[:,i:i+1].conj ().T)
             for i in range (self.nroots_si)], axis=-1)
@@ -1084,6 +1183,148 @@ class LRRDMint (LSTDMint2):
         self._crunch_all_()
         return self.rdm1s, self.rdm2s, t0
 
+class ContractHamCI (LSTDMint2):
+    __doc__ = LSTDMint2.__doc__ + '''
+
+    SUBCLASS: Contract Hamiltonian on CI vectors and integrate over all but one fragment,
+    for all fragments.
+
+    Additional args:
+        h1 : ndarray of size ncas**2 or 2*(ncas**2)
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization,
+            optionally spin-separated
+        h2 : ndarray of size ncas**4
+            Contains 2-electron Hamiltonian amplitudes in second quantization
+    '''
+    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, nbra=1, dtype=np.float64):
+        nfrags, _, nroots, _ = hopping_index.shape
+        if nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
+        nket = nroots - nbra
+        HamS2ovlpint.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
+                              mask_bra_space = list (range (nket, nroots)),
+                              mask_ket_space = list (range (nket)),
+                              dtype=dtype)
+        self.nbra = nbra
+        self.hci_fr_pabq = self._init_vecs ()
+
+    def _init_vecs (self):
+        hci_fr_pabq = []
+        nfrags, nroots, nbra = self.nfrags, self.nroots, self.nbra
+        nprods_ket = np.sum (np.prod (self.lroots[:,:-nbra], axis=0))
+        for i in range (nfrags):
+            lroots_bra = self.lroots.copy ()[:,-nbra:]
+            lroots_bra[i,:] = 1
+            nprods_bra = np.prod (lroots_bra, axis=0)
+            hci_r_pabq = []
+            norb = self.ints[i].norb
+            for r in range (self.nbra):
+                nelec = self.ints[i].nelec_r[r+self.nroots-self.nbra]
+                ndeta = cistring.num_strings (norb, nelec[0])
+                ndetb = cistring.num_strings (norb, nelec[1])
+                hci_r_pabq.append (np.zeros ((nprods_ket, nprods_bra[r], ndeta, ndetb),
+                                             dtype=self.dtype).transpose (1,2,3,0))
+            hci_fr_pabq.append (hci_r_pabq)
+        return hci_fr_pabq
+
+    def _crunch_null_(self, bra, ket):
+        raise NotImplementedError
+
+    def _crunch_1c_(self, bra, ket, i, j, s1):
+        '''Perform a single electron hop; i.e.,
+        
+        <bra|j'(s1)i(s1)|ket>
+        
+        i.e.,
+        
+        j ---s1---> i
+        '''
+        hci_f_ab, excfrags = self._get_vecs_(bra, ket)
+        excfrags = excfrags.intersection ({i, j})
+        if self.nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
+        if not len (excfrags): return
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        fac = 1
+        fac = self.get_ovlp_fac (bra, ket, i, j)
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
+        h1_ij = self.h1[s1,p:q,r:s]
+        h2_ijjj = self.h2[p:q,r:s,r:s,r:s]
+        h2_iiij = self.h2[p:q,p:q,p:q,r:s]
+        if i in excfrags:
+            D_j = self.ints[j].get_h (bra, ket, s1)
+            D_jjj = self.ints[j].get_phh (bra, ket, s1).sum (0)
+            h_10 = np.dot (h1_ij, D_j) + np.tensordot (h2_ijjj, D_jjj,
+                axes=((1,2,3),(2,0,1)))
+            h_21 = np.dot (h2_iiij, D_j)
+            hci_f_ab[i] += self.ints[i].contract_h10 (s1, h_10, h_21, ket)
+        if j in excfrags:
+            D_i = self.ints[i].get_p (bra, ket, s1)
+            D_iii = self.ints[i].get_pph (bra, ket, s1).sum (0)
+            h_01 = np.dot (D_i, h1_ij) + np.tensordot (D_iii, h2_iiij,
+                axes=((0,1,2),(0,1,2)))
+            h_12 = np.dot (D_i, h2_ijjj)
+            hci_f_ab[j] += self.ints[j].contract_h01 (s1, h_01, h_12, ket)
+        self._put_vecs_(bra, ket, hci_f_ab)
+        return
+
+    def _crunch_1s_(self, bra, ket, i, j):
+        raise NotImplementedError
+
+    def _crunch_1s1c_(self, bra, ket, i, j, k):
+        raise NotImplementedError
+
+    def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
+        raise NotImplementedError
+
+    def env_addr_fragpop (self, bra, i, r):
+        rem = 0
+        if i>1:
+            div = np.prod (self.lroots[:i,r], axis=0)
+            bra, rem = divmod (bra, div)
+        bra, err = divmod (bra, self.lroots[i,r])
+        assert (err==0)
+        return bra + rem
+
+    def _get_vecs_(self, bra, ket):
+        bra_r = self.rootaddr[bra]
+        bra_env = np.array ([inti.fragaddr[bra] for inti in self.ints])
+        lroots_bra_r = self.lroots[:,bra_r]
+        bra_r = bra_r + self.nbra - self.nroots
+        hci_f_ab = []
+        excfrags = set (np.where (bra_env==0)[0])
+        hci_f_ab = [None for i in range (self.nfrags)]
+        for i in excfrags:
+            hci_r_pabq = self.hci_fr_pabq[i]
+            lroots_i = lroots_bra_r.copy ()
+            lroots_i[i] = 1
+            strides = np.append ([1], np.cumprod (lroots_i[:-1]))
+            bra_envaddr = np.dot (strides, bra_env)
+            hci_f_ab[i] = hci_r_pabq[bra_r][bra_envaddr,:,:,ket]
+        return hci_f_ab, set (excfrags)
+
+    def _put_vecs_(self, bra, ket, vecs):
+        pass
+
+    def _crunch_all_(self):
+        for row in self.exc_1c: self._loop_lroots_(self._crunch_1c_, *row)
+
+    def kernel (self):
+        ''' Main driver method of class.
+
+        Returns:
+            hci_fr_pabq : list of length nfrags of list of length nroots of ndarray
+        '''
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        for hci_r_pabq in self.hci_fr_pabq:
+            for hci_pabq in hci_r_pabq:
+                hci_pabq[:,:,:,:] = 0.0
+        self._crunch_all_()
+        return self.hci_fr_pabq, t0
+
+
 def make_ints (las, ci, nelec_frs):
     ''' Build fragment-local intermediates (`LSTDMint1`) for LASSI o1
 
@@ -1103,21 +1344,17 @@ def make_ints (las, ci, nelec_frs):
         lroots: ndarray of ints of shape (nfrags, nroots)
             Number of states within each fragment and rootspace
     '''
-    fciboxes = las.fciboxes
-    nfrags = len (fciboxes)
-    nroots = nelec_frs.shape[1]
+    nfrags, nroots = nelec_frs.shape[:2]
     nlas = las.ncas_sub
-    nelelas = [sum (_unpack_nelec (ne)) for ne in las.nelecas_sub]
     lroots = get_lroots (ci)
-    hopping_index, zerop_index, onep_index = lst_hopping_index (fciboxes, nlas, nelelas, nelec_frs)
-    rootaddr, fragaddr = envaddr2fragaddr (lroots)
+    hopping_index, zerop_index, onep_index = lst_hopping_index (nelec_frs)
+    rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = LSTDMint1 (fciboxes[ifrag], nlas[ifrag], nelelas[ifrag], nroots,
-                            hopping_index[ifrag], rootaddr, fragaddr[ifrag], ifrag)
-        t0 = tdmint.kernel (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index)
+        tdmint = LSTDMint1 (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index, nlas[ifrag],
+                            nroots, nelec_frs[ifrag], rootaddr, fragaddr[ifrag], ifrag)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
-            ifrag), *t0)
+            ifrag), *tdmint.time_crunch)
         ints.append (tdmint)
     return hopping_index, ints, lroots
 
@@ -1270,5 +1507,21 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
-    raise NotImplementedError ("o1 version of contract_ham_ci")
+    nlas = las.ncas_sub
+    nfrags, nbra = nelec_frs_bra.shape[:2]
+    nket = nelec_frs_ket.shape[1]
+    ci = [ci_r_ket + ci_r_bra for ci_r_bra, ci_r_ket in zip (ci_fr_bra, ci_fr_ket)]
+    nelec_frs = np.append (nelec_frs_ket, nelec_frs_bra, axis=1)
+
+    # First pass: single-fragment intermediates
+    hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
+
+    # Second pass: upper-triangle
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    contracter = ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2, nbra=nbra,
+                                dtype=ci[0][0].dtype)
+    lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
+    hket_fr_pabq, t0 = contracter.kernel ()
+    lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
+
     return hket_fr_pabq

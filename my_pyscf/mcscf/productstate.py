@@ -28,7 +28,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             serialfrag=False, **kwargs):
         log = self.log
         converged = False
-        e_sigma = conv_tol_self + 1
+        e_sigma = 0
         e = [0 for n in norb_f]
         ci1 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
         log.info ('Entering product-state fixed-point CI iteration')
@@ -40,9 +40,10 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             grad_max = np.amax (np.abs (grad))
             log.info ('Cycle %d: max grad = %e ; sigma = %e', it, grad_max,
                 e_sigma)
+            log.debug ('e vector = {}'.format (e))
             solvers_converged = [np.all (np.asarray (s.converged)) for s in self.fcisolvers]
             if ((grad_max < conv_tol_grad) and (e_sigma < conv_tol_self)
-                and all ([solvers_converged])):
+                and all ([solvers_converged]) and it>0):
                 converged = True
                 break
             e, ci1 = self._1shot (it, h0eff, h1eff, h2, e, ci0, norb_f, nelec_f,

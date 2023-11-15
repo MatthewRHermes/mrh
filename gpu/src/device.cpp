@@ -21,9 +21,12 @@ Device::Device()
   size_vk = 0;
   size_buf = 0;
   size_fdrv = 0;
+  size_dms = 0;
+  size_eri1 = 0;
+  size_tril_map = 0;
   
   rho = nullptr;
-  vj = nullptr;
+  //vj = nullptr;
   _vktmp = nullptr;
 
   buf_tmp = nullptr;
@@ -31,14 +34,22 @@ Device::Device()
   buf4 = nullptr;
 
   buf_fdrv = nullptr;
+  tril_map = nullptr;
   
 #if defined(_USE_GPU)
   handle = nullptr;
   stream = nullptr;
-  
+
+  d_rho = nullptr;
+  d_vj = nullptr;
+  d_buf1 = nullptr;
   d_buf2 = nullptr;
   d_buf3 = nullptr;
   d_vkk = nullptr;
+  d_dms = nullptr;
+  d_eri1 = nullptr;
+
+  d_tril_map = nullptr;
 #endif
 
   num_threads = 1;
@@ -67,7 +78,7 @@ Device::~Device()
 #endif
 
   pm->dev_free_host(rho);
-  pm->dev_free_host(vj);
+  //pm->dev_free_host(vj);
   pm->dev_free_host(_vktmp);
 
   pm->dev_free_host(buf_tmp);
@@ -75,6 +86,7 @@ Device::~Device()
   pm->dev_free_host(buf4);
 
   pm->dev_free_host(buf_fdrv);
+  pm->dev_free_host(tril_map);
 
 #ifdef _SIMPLE_TIMER
   t_array_jk[8] += omp_get_wtime() - t0;
@@ -99,9 +111,17 @@ Device::~Device()
 #ifdef _CUDA_NVTX
   nvtxRangePushA("Deallocate");
 #endif
+
+  pm->dev_free(d_rho);
+  pm->dev_free(d_vj);
+  pm->dev_free(d_buf1);
   pm->dev_free(d_buf2);
   pm->dev_free(d_buf3);
   pm->dev_free(d_vkk);
+  pm->dev_free(d_dms);
+  pm->dev_free(d_eri1);
+  pm->dev_free(d_tril_map);
+  
 #ifdef _CUDA_NVTX
   nvtxRangePop();
   
@@ -112,7 +132,10 @@ Device::~Device()
   nvtxRangePop();
 #endif
 
-  pm->dev_stream_destroy(stream);
+  printf("need to destroy stream correctly...\n");
+  //pm->dev_stream_destroy(stream);
+  printf(" -- finished\n");
+
 #endif
 
   delete pm;
@@ -213,7 +236,7 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     
     double * ra = praa; // (ncore,2,2)
     
-    int indx = 0;
+    //int indx = 0;
    
     double * cm = ocm2; // (2, 2, 2, ncore)
     

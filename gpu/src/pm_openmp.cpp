@@ -28,10 +28,15 @@ void PM::dev_properties(int ndev)
 
   int num_teams = -1;
   int num_threads = -1;
+  int num_dev_threads = -1;
+#pragma omp parallel
+  {
+    num_threads = omp_get_num_threads();
+  }
 #pragma omp target teams map(tofrom: num_teams, num_threads)
   {
     num_teams = omp_get_num_teams();
-    num_threads = omp_get_num_threads();
+    num_dev_threads = omp_get_num_threads();
   }
   
   const int date = _OPENMP;
@@ -53,6 +58,7 @@ void PM::dev_properties(int ndev)
   printf("  Default device=  %i\n",default_device);
   printf("  Host=            %i\n",host);
   printf("  num_teams=       %i\n",num_teams);
+  printf("  num_dev_threads= %i\n",num_dev_threads);
   printf("  num_threads=     %i\n",num_threads);
 }
 
@@ -94,11 +100,12 @@ int PM::dev_get_device()
 
 void * PM::dev_malloc(int N)
 {
-  int id = omp_get_default_device();
-  void * ptr = omp_target_alloc(N, id);
+  int gpu = omp_get_default_device();
+  void * ptr = omp_target_alloc(N, gpu);
   bool err = (ptr == nullptr);
-  if(err) printf("dev_malloc() failed to allocate id= %i  N= %i\n",id,N);
+  if(err) printf("dev_malloc() failed to allocate gpu= %i  N= %i\n",gpu,N);
   _OMP_CHECK_ERRORS(err);
+  //printf("PM::dev_malloc() allocated N= %i  ptr= %p  gpu= %i\n",N,ptr,gpu);
   return ptr;
 }
 
@@ -128,6 +135,7 @@ void PM::dev_push(void * d_ptr, void * h_ptr, int N)
 {
   int gpu = omp_get_default_device();
   int host = omp_get_initial_device();
+  //printf("PM::dev_push() transferring N= %i  d_ptr= %p  h_ptr= %p  gpu= %i  host= %i\n",N,d_ptr,h_ptr,gpu,host);
   int err = omp_target_memcpy(d_ptr, h_ptr, N, 0, 0, gpu, host);
   if(err) printf("dev_push() : err= %i  d_ptr= %p  h_ptr= %p  N= %i\n",err, &d_ptr, &h_ptr, N);
   _OMP_CHECK_ERRORS(err);
@@ -137,6 +145,7 @@ void PM::dev_pull(void * d_ptr, void * h_ptr, int N)
 {
   int gpu = omp_get_default_device();
   int host = omp_get_initial_device();
+  //printf("PM::dev_pull() transferring N= %i  d_ptr= %p  h_ptr= %p  gpu= %i  host= %i\n",N,d_ptr,h_ptr,gpu,host);
   int err = omp_target_memcpy(h_ptr, d_ptr, N, 0, 0, host, gpu);
   if(err) printf("dev_pull() : err= %i  d_ptr= %p  h_ptr= %p  N= %i\n",err, &d_ptr, &h_ptr, N);
   _OMP_CHECK_ERRORS(err);
@@ -165,6 +174,7 @@ void PM::dev_push_async(void * d_ptr, void * h_ptr, int N, void * s)
   int gpu = omp_get_default_device();
   int host = omp_get_initial_device();
   int err = omp_target_memcpy(d_ptr, h_ptr, N, 0, 0, gpu, host);
+  //int err = omp_target_memcpy_async(d_ptr, h_ptr, N, 0, 0, gpu, host, 1, s);
   if(err) printf("dev_push_async() : err= %i  gpu= %i  host= %i  d_ptr= %p  h_ptr= %p  N= %i\n",err, gpu, host, &d_ptr, &h_ptr, N);
   _OMP_CHECK_ERRORS(err);
 }
@@ -174,14 +184,30 @@ void PM::dev_pull_async(void * d_ptr, void * h_ptr, int N, void * s)
   int gpu = omp_get_default_device();
   int host = omp_get_initial_device();
   int err = omp_target_memcpy(h_ptr, d_ptr, N, 0, 0, host, gpu);
+  //int err = omp_target_memcpy_async(h_ptr, d_ptr, N, 0, 0, host, gpu, 1, s);
   if(err) printf("dev_pull_async() : err= %i  gpu= %i  host= %i  d_ptr= %p  h_ptr= %p  N= %i\n",err,gpu, host, &d_ptr, &h_ptr, N);
   _OMP_CHECK_ERRORS(err);
 }
 
-void PM::dev_stream_create(void * s) {};
+void PM::dev_stream_create(cudaStream_t & s)
+{
+//  cudaStreamCreate(&s);
+  int gpu = omp_get_default_device();
+  int nowait = 0;
+  s = (cudaStream_t) ompx_get_cuda_stream(gpu, nowait);
+  _CUDA_CHECK_ERRORS();
+}
 
-void PM::dev_stream_destroy(void * s) {};
+void PM::dev_stream_destroy(cudaStream_t & s)
+{
+  cudaStreamDestroy(s);
+  _CUDA_CHECK_ERRORS();
+}
 
-void PM::dev_stream_wait(void * s) {};
-			
+void PM::dev_stream_wait(cudaStream_t & s)
+{
+  cudaStreamSynchronize(s);
+  _CUDA_CHECK_ERRORS();
+}
+
 #endif

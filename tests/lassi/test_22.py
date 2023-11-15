@@ -34,7 +34,7 @@ def setUpModule ():
     mf = scf.RHF (mol).run ()
 
     # Random Hamiltonian
-    rng = np.random.default_rng ()
+    rng = np.random.default_rng (424)
     mf._eri = rng.random (mf._eri.shape)
     hcore = rng.random ((4,4))
     hcore = hcore + hcore.T
@@ -110,21 +110,24 @@ class KnownValues(unittest.TestCase):
         nj = np.cumsum (lroots_prod)
         ni = nj - lroots_prod
         # TODO: opt = 1 version
-        hket_fr_pabq = op[0].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
-        for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
-            current_order = list (range (las.nfrags-1, -1, -1)) + [las.nfrags]
-            current_order.insert (0, current_order.pop (f))
-            for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
-                if ci.ndim < 3: ci = ci[None,:,:]
-                proper_shape = np.append (lroots[:,r], ndim)
-                current_shape = proper_shape[current_order]
-                to_proper_order = list (np.argsort (current_order))
-                hket_pq = lib.einsum ('rab,pabq->rpq', ci.conj (), hket_pabq)
-                hket_pq = hket_pq.reshape (current_shape)
-                hket_pq = hket_pq.transpose (*to_proper_order)
-                hket_pq = hket_pq.reshape ((lroots_prod[r], ndim))
-                hket_ref = ham[ni[r]:nj[r]]
-                self.assertAlmostEqual (lib.fp (hket_pq), lib.fp (hket_ref), 8)
+        for opt in range (2):
+            if opt==1: continue
+            with self.subTest (opt=opt):
+                hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
+                for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
+                    current_order = list (range (las.nfrags-1, -1, -1)) + [las.nfrags]
+                    current_order.insert (0, current_order.pop (f))
+                    for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
+                        if ci.ndim < 3: ci = ci[None,:,:]
+                        proper_shape = np.append (lroots[:,r], ndim)
+                        current_shape = proper_shape[current_order]
+                        to_proper_order = list (np.argsort (current_order))
+                        hket_pq = lib.einsum ('rab,pabq->rpq', ci.conj (), hket_pabq)
+                        hket_pq = hket_pq.reshape (current_shape)
+                        hket_pq = hket_pq.transpose (*to_proper_order)
+                        hket_pq = hket_pq.reshape ((lroots_prod[r], ndim))
+                        hket_ref = ham[ni[r]:nj[r]]
+                        self.assertAlmostEqual (lib.fp (hket_pq), lib.fp (hket_ref), 8)
 
     def test_lassis (self):
         lsis = lassis.LASSIS (las).run ()
@@ -132,6 +135,9 @@ class KnownValues(unittest.TestCase):
         e_lower = lsi.e_roots[0]
         self.assertLessEqual (e_lower, lsis.e_roots[0])
         self.assertLessEqual (lsis.e_roots[0], e_upper)
+        self.assertEqual (len (lsis.e_roots), 20)
+        # Reference depends on rng seed obviously b/c this is not casci limit
+        self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI of random 2,2 system")
