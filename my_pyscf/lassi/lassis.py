@@ -301,7 +301,7 @@ def charge_excitation_products (las2, las1):
 
 class LASSIS (LASSI):
     def __init__(self, las, ncharge='s', nspin='s', sa_heff=True, deactivate_vrv=False,
-                 crash_locmin=False, opt=0, **kwargs):
+                 crash_locmin=False, opt=1, **kwargs):
         self.ncharge = ncharge
         self.nspin = nspin
         self.sa_heff = sa_heff

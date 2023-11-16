@@ -137,14 +137,16 @@ class KnownValues(unittest.TestCase):
                             self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
 
     def test_lassis (self):
-        lsis = lassis.LASSIS (las).run ()
-        e_upper = las.e_states[0]
-        e_lower = lsi.e_roots[0]
-        self.assertLessEqual (e_lower, lsis.e_roots[0])
-        self.assertLessEqual (lsis.e_roots[0], e_upper)
-        self.assertEqual (len (lsis.e_roots), 20)
-        # Reference depends on rng seed obviously b/c this is not casci limit
-        self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
+        for opt in (0,1):
+            with self.subTest (opt=opt):
+                lsis = lassis.LASSIS (las).run (opt=opt)
+                e_upper = las.e_states[0]
+                e_lower = lsi.e_roots[0]
+                self.assertLessEqual (e_lower, lsis.e_roots[0])
+                self.assertLessEqual (lsis.e_roots[0], e_upper)
+                self.assertEqual (len (lsis.e_roots), 20)
+                # Reference depends on rng seed obviously b/c this is not casci limit
+                self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI of random 2,2 system")

@@ -97,7 +97,7 @@ print ("LASSIS builds the entire model space automatically for you.")
 print ("Because of this, you must initialize it with a LAS reference that has only 1 state in it")
 las1 = LASSCF(mf,(6,6),((3,0),(0,3)),spin_sub=(4,4))
 las1.lasci_(las.mo_coeff) # trailing underscore sets las1.mo_coeff = las.mo_coeff
-lsi3 = lassi.LASSIS (las1).run (opt=0)
+lsi3 = lassi.LASSIS (las1).run ()
 print ("J(LASSIS) = %.2f cm^-1" % yamaguchi (lsi3.e_roots, lsi3.s2))
 print ("{} rootspaces and {} product states total".format (lsi3.nroots, lsi3.si.shape[1]))
 print (("The second occurrence of the line 'Analyzing LASSI vectors for states = [0, 1, 2, 3]' "
