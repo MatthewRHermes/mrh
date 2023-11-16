@@ -506,9 +506,6 @@ class LSTDMint1 (object):
         cre_op = (cre_a, cre_b)[spin]
         ci = self.ci[r][n]
         hci = 0
-        nelecp = list (nelec)
-        nelecp[spin] = nelecp[spin] + 1
-        nelecp = tuple (nelecp)
         for p in range (self.norb):
             hci += h_10[p] * cre_op (ci, norb, nelec, p)
             hci += cre_op (contract_1e (h_21[p], ci, norb, nelec),
@@ -1255,11 +1252,11 @@ class ContractHamCI (LSTDMint2):
                 axes=((1,2,3),(2,0,1)))
             h_21 = np.dot (h2_iiij, D_j).transpose (2,0,1)
             hci_f_ab[i] += fac * self.ints[i].contract_h10 (s1, h_10, h_21, ket)
-        if j in excfrags:
+        if j in excfrags: # Bug narrowed down to, essentially, h_12
             D_i = self.ints[i].get_p (bra, ket, s1)
             D_iii = self.ints[i].get_pph (bra, ket, s1).sum (0)
             h_01 = np.dot (D_i, h1_ij) + np.tensordot (D_iii, h2_iiij,
-                axes=((0,1,2),(0,2,1)))
+                axes=((0,1,2),(2,0,1)))
             h_12 = np.dot (D_i, h2_ijjj).transpose (1,2,0)
             hci_f_ab[j] += fac * self.ints[j].contract_h01 (s1, h_01, h_12, ket)
         self._put_vecs_(bra, ket, hci_f_ab)
