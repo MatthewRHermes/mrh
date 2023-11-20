@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 
+#define _RHO_BLOCK_SIZE 32
 #define _DOT_BLOCK_SIZE 32
 #define _TRANSPOSE_BLOCK_SIZE 32
 #define _UNPACK_BLOCK_SIZE 32
@@ -41,7 +42,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     d_vj = (double *) pm->dev_malloc(size_vj * sizeof(double));
   }
   //for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
-
+  
   int _size_vk = nset * nao * nao;
   if(_size_vk > size_vk) {
     size_vk = _size_vk;
@@ -103,6 +104,13 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     d_dms = (double *) pm->dev_malloc(size_dms * sizeof(double));
   }
 
+  int _size_dmtril = nset * nao_pair;
+  if(_size_dmtril > size_dmtril) {
+    size_dmtril = _size_dmtril;
+    if(d_dmtril) pm->dev_free(d_dmtril);
+    d_dmtril = (double *) pm->dev_malloc(size_dmtril * sizeof(double));
+  }
+  
   int _size_eri1 = naux * nao_pair;
   if(_size_eri1 > size_eri1) {
     size_eri1 = _size_eri1;
@@ -177,6 +185,22 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 
 /* ---------------------------------------------------------------------- */
 
+__global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nset, int naux, int nao_pair)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(i >= nset) return;
+  if(j >= naux) return;
+
+  double val = 0.0;
+  for(int k=0; k<nao_pair; ++k) val += dmtril[i * nao_pair + k] * eri1[j * nao_pair + k];
+  
+  rho[i * naux + j] = val;
+}
+
+/* ---------------------------------------------------------------------- */
+
 __global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int count)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -246,30 +270,36 @@ void Device::get_jk(int naux,
   double t0 = omp_get_wtime();
 #endif
 
+#ifdef _CUDA_NVTX
+    nvtxRangePushA("GetJK::Init");
+#endif
+  
   const int with_j = true;
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, nao_pair)
-  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
 
   double * eri1 = static_cast<double*>(info_eri1.ptr);
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
-  double * vj = static_cast<double*>(info_vj.ptr);
   
   int nao_pair = nao * (nao+1) / 2;
   
   pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
+  if(count == 0) pm->dev_push_async(d_dmtril, dmtril, nset * nao_pair * sizeof(double), stream);
   
-  int _size_rho = info_dmtril.shape[0] * info_eri1.shape[0];
+  int _size_rho = nset * naux;
   if(_size_rho > size_rho) {
     size_rho = _size_rho;
-    if(rho) pm->dev_free_host(rho);
+    //    if(rho) pm->dev_free_host(rho);
     if(d_rho) pm->dev_free(d_rho);
-    rho = (double *) pm->dev_malloc_host(size_rho * sizeof(double));
+    //    rho = (double *) pm->dev_malloc_host(size_rho * sizeof(double));
     d_rho = (double *) pm->dev_malloc(size_rho * sizeof(double));
   }
 
 #if 0
+  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
+  double * vj = static_cast<double*>(info_vj.ptr);
+  
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   //  double * vk = static_cast<double*>(info_vk.ptr);
   printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i\n",blksize,naux,nao,nset);
@@ -280,81 +310,45 @@ void Device::get_jk(int naux,
   	 info_dmtril.shape[0], info_eri1.shape[1],
   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
 #endif
-  
-#ifdef _SIMPLE_TIMER
-  t_array_jk[1] += omp_get_wtime() - t0;
+
+#ifdef _CUDA_NVTX
+    nvtxRangePop();
 #endif
   
   if(with_j) {
-
-#ifdef _SIMPLE_TIMER
-    double t0 = omp_get_wtime();
+    
+#ifdef _CUDA_NVTX
+    nvtxRangePushA("GetJK::RHO+J");
 #endif
-
-    DevArray2D da_rho = DevArray2D(rho, nset, naux);
-    DevArray2D da_dmtril = DevArray2D(dmtril, nset, nao_pair);
-    DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
-
-#pragma omp parallel for collapse(2)
-    for(int i=0; i<nset; ++i)
-      for(int j=0; j<naux; ++j) {
-	double val = 0.0;
-	for(int k=0; k<nao_pair; ++k) val += da_dmtril(i,k) * da_eri1(j,k);
-	da_rho(i,j) = val;
-      }
-    
-#ifdef _SIMPLE_TIMER
-    double t1 = omp_get_wtime();
-#endif
-    
-    DevArray2D da_vj = DevArray2D(vj, nset, nao_pair);
+    {
+      dim3 grid_size(nset, (naux + (_RHO_BLOCK_SIZE - 1)) / _RHO_BLOCK_SIZE, 1);
+      dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
+      
+      _getjk_rho<<<grid_size, block_size, 0, stream>>>(d_rho, d_dmtril, d_eri1, nset, naux, nao_pair);
+    }
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
-
-#if 1
- {
-   pm->dev_push_async(d_rho, rho, nset * naux * sizeof(double), stream);
-
-   dim3 grid_size((nset + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
-   dim3 block_size(_DOT_BLOCK_SIZE, _DOT_BLOCK_SIZE, 1);
-
-   _getjk_vj<<<grid_size, block_size, 0, stream>>>(d_vj, d_rho, d_eri1, nset, nao_pair, naux, count);
-  }
-#else
-
-#pragma omp parallel for collapse(2)
-    for(int i=0; i<nset; ++i)
-      for(int j=0; j<nao_pair; ++j) {
-
-	double val = 0.0;
-	for(int k=0; k<naux; ++k) val += da_rho(i,k) * da_eri1(k,j);
-	da_vj(i,j) += val;
-      }
-#endif
-
-#ifdef _SIMPLE_TIMER
-    double t2 = omp_get_wtime();
-    t_array_jk[2] += t1 - t0;
-    t_array_jk[3] += t2 - t1;
-#endif
-  }
- 
-  double * buf1 = buf_tmp;
-  double * buf2 = &(buf_tmp[blksize * nao * nao]);
+   
+    {
+      dim3 grid_size(nset, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
+      dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
+      
+      _getjk_vj<<<grid_size, block_size, 0, stream>>>(d_vj, d_rho, d_eri1, nset, nao_pair, naux, count);
+    }
     
-  DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
-  DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
-  DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
-  
-#ifdef _SIMPLE_TIMER
-  double t2 = omp_get_wtime();
+#ifdef _CUDA_NVTX
+    nvtxRangePop();
 #endif
+  }
     
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
 
-#if 1
+#ifdef _CUDA_NVTX
+    nvtxRangePushA("GetJK::TRIL_MAP");
+#endif
+    
   {
     //    pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
     
@@ -363,25 +357,17 @@ void Device::get_jk(int naux,
     
     _getjk_unpack_buf2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_eri1, d_tril_map, naux, nao, nao_pair);
   }
-#else
-  
-#pragma omp parallel for
-    for(int i=0; i<naux; ++i) {
-      double * buf = &(buf2[i * nao * nao]);
-      double * tril = &(eri1[i * nao_pair]);
-      for(int j=0; j<nao*nao; ++j) buf[j] = tril[ tril_map[j] ];
-    }
     
-    pm->dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream);
-
+#ifdef _CUDA_NVTX
+    nvtxRangePop();
 #endif
     
-#ifdef _SIMPLE_TIMER
-    t_array_jk[5] += omp_get_wtime() - t2;
-#endif
-  
   for(int indxK=0; indxK<nset; ++indxK) {
 
+#ifdef _CUDA_NVTX
+    nvtxRangePushA("GetJK::Transfer DMS");
+#endif
+    
     py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, nao, nao)
     py::buffer_info info_dms = _dms.request(); // 2D
 
@@ -389,11 +375,10 @@ void Device::get_jk(int naux,
 
     pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), stream);
     
-#ifdef _SIMPLE_TIMER
-    t0 = omp_get_wtime();
+#ifdef _CUDA_NVTX
+    nvtxRangePop();
+    nvtxRangePushA("GetJK::Batched DGEMM");
 #endif
-    
-    //    pm->dev_stream_wait(stream); // remove later
 
     {
       const double alpha = 1.0;
@@ -412,11 +397,9 @@ void Device::get_jk(int naux,
     // buf3 = buf1.reshape(-1,nao).T
     // buf4 = buf2.reshape(-1,nao)
 
-    //pm->dev_stream_wait(stream);
-
-#ifdef _SIMPLE_TIMER
-    double t1 = omp_get_wtime();
-    t_array_jk[4] += t1 - t0;
+#ifdef _CUDA_NVTX
+    nvtxRangePop();
+    nvtxRangePushA("GetJK::Transpose");
 #endif
 
     {
@@ -426,7 +409,6 @@ void Device::get_jk(int naux,
       
       _getjk_transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
     }
-    //    pm->dev_stream_wait(stream);
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -434,11 +416,6 @@ void Device::get_jk(int naux,
     // B is (k, n) matrix
     // C is (m, n) matrix
     // Column-ordered: (A.B)^T = B^T.A^T
-    
-#ifdef _SIMPLE_TIMER
-    double t3 = omp_get_wtime();
-    t_array_jk[6] += t3 - t1;
-#endif
     
     const double alpha = 1.0;
     const double beta = (count == 0) ? 0.0 : 1.0;
@@ -454,10 +431,17 @@ void Device::get_jk(int naux,
     const int vk_offset = (mode_getjk == 0) ? indxK * nao : indxK * nao*nao; // this is ugly...
     
 #ifdef _CUDA_NVTX
+    nvtxRangePop();
     nvtxRangePushA("DGEMM");
 #endif
     
     cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
+
+#ifdef _CUDA_NVTX
+    nvtxRangePop();
+    nvtxRangePushA("SYNC");
+#endif
+    
     pm->dev_stream_wait(stream);
     
 #ifdef _CUDA_NVTX
@@ -465,8 +449,8 @@ void Device::get_jk(int naux,
 #endif
    
 #ifdef _SIMPLE_TIMER
-    double t4 = omp_get_wtime();
-    t_array_jk[7] += t4 - t3;
+    double t1 = omp_get_wtime();
+    t_array_jk[7] += t1 - t0;
     t_array_jk_count++;
 #endif 
   }

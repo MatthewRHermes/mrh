@@ -88,6 +88,7 @@ private:
   int size_buf;
   int size_fdrv;
   int size_dms;
+  int size_dmtril;
   int size_eri1;
   int size_tril_map;
 
@@ -115,6 +116,7 @@ private:
   double * d_buf3;
   double * d_vkk;
   double * d_dms;
+  double * d_dmtril;
   double * d_eri1;
   
   int * tril_map;
