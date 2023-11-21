@@ -3,12 +3,14 @@
 #PBS -l place=scatter
 #PBS -l walltime=0:30:00
 #PBS -q debug 
-#PBS -A Catalyst
-#PBS -l filesystems=home:grand:eagle
+#PBS -A LASSCF_gpudev
+#PBS -l filesystems=home:grand
 
 #export NV_ACC_DEBUG=1
 
 cd /lus/grand/projects/LASSCF_gpudev/knight/soft/mrh/examples/gpu/polymer_async
+
+#. /lus/grand/projects/LASSCF_gpudev/knight/scripts/polaris/setup_polaris.sh
 
 # MPI example w/ 16 MPI ranks per node spread evenly across cores
 NNODES=`wc -l < $PBS_NODEFILE`
@@ -44,3 +46,6 @@ EXE="python ${INPUT} "
 #cuda-gdb --args ${EXE}
 { time mpiexec ${MPI_ARGS} ${OMP_ARGS} ${EXE} ;} 2>&1 | tee profile.txt
 #nsys profile --stats=true -t cuda,nvtx mpiexec ${MPI_ARGS} ${OMP_ARGS} ${EXE} 2>&1 | tee profile.txt
+
+#export OMP_NUM_THREADS=$NTHREADS
+#ncu --print-summary per-kernel ${EXE} 2>&1 | tee profile.txt

@@ -302,7 +302,7 @@ void Device::get_jk(int naux,
   
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   //  double * vk = static_cast<double*>(info_vk.ptr);
-  printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i\n",blksize,naux,nao,nset);
+  printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i  count= %i\n",blksize,naux,nao,nset,count);
   printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
   	 info_dmtril.shape[0], info_dmtril.shape[1],
   	 info_eri1.shape[0], info_eri1.shape[1],

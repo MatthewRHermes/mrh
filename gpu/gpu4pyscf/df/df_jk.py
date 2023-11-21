@@ -122,6 +122,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         dms = [numpy.asarray(x, order='F') for x in dms]
         max_memory = dfobj.max_memory - lib.current_memory()[0]
         blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
+#        print(" dfobj.blockdim= ", dfobj.blockdim, "  max_memory*.22e6/8/nao**2= ", max_memory*.22e6/8/nao**2, " blksize= ", blksize)
         buf = numpy.empty((2,blksize,nao,nao))
         
 #        print(" -- -- -- blksize= ", blksize, " blockdim= ", dfobj.blockdim, "  nao= ", nao)
