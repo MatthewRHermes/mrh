@@ -318,11 +318,59 @@ void Device::get_jk(int naux,
   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
   
   DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
-  printf("LIBGPU:: eri1= \n");
+  printf("LIBGPU:: eri1= %p\n",eri1);
   printf("LIBGPU::     0:      %f %f %f %f\n",da_eri1(0,0), da_eri1(0,1), da_eri1(0,nao_pair-2), da_eri1(0,nao_pair-1));
   printf("LIBGPU::     1:      %f %f %f %f\n",da_eri1(1,0), da_eri1(1,1), da_eri1(1,nao_pair-2), da_eri1(1,nao_pair-1));
   printf("LIBGPU::     naux-2: %f %f %f %f\n",da_eri1(naux-2,0), da_eri1(naux-2,1), da_eri1(naux-2,nao_pair-2), da_eri1(naux-2,nao_pair-1));
   printf("LIBGPU::     naux-1: %f %f %f %f\n",da_eri1(naux-1,0), da_eri1(naux-1,1), da_eri1(naux-1,nao_pair-2), da_eri1(naux-1,nao_pair-1));
+#endif
+
+#ifdef _USE_ERI_CACHE
+  // retrieve or cache eri block
+  int id = eri_list.size();
+  for(int i=0; i<eri_list.size(); ++i)
+    if(eri_list[i] == eri1) {
+      id = i;
+      break;
+    }
+
+  if(id < eri_list.size()) {
+    eri_count[id]++;
+
+    int diff_size = eri_size[id] - naux * nao_pair;
+    if(diff_size != 0) {
+      printf("LIBGPU:: Error: eri_cache size != 0  diff_size= %i\n",diff_size);
+      exit(1);
+    }
+
+    double * eri_ = d_eri_cache[id];
+    double diff_eri = sqrt( (eri_[0] + eri_[nao_pair] - eri1[0] - eri1[nao_pair]) * (eri_[0] + eri_[nao_pair] - eri1[0] - eri1[nao_pair]) ); // this is dangerous; need something better
+    if(diff_eri > 1e-10) {
+      for(int i=0; i<naux * nao_pair; ++i) eri_[i] = eri1[i];
+      eri_update[id]++;
+    }
+    
+    double diffsq = 0.0;
+    for(int i=0; i<naux * nao_pair; ++i) diffsq += (eri_[i] - eri1[i]) * (eri_[i] - eri1[i]);
+    double diff = sqrt(diffsq);
+    printf("LIBGPU:: eri_cache diff= %f\n",diff);
+    if(diff > 1e-10) {
+      printf("LIBGPU:: Error: eri_cache diff > TOL :: diff= %f\n",diff);
+      exit(1);
+    }
+    
+  }
+  else
+    {
+      eri_list.push_back(eri1);
+      eri_count.push_back(1);
+      eri_update.push_back(0);
+      eri_size.push_back(naux * nao_pair);
+
+      d_eri_cache.push_back( (double *) pm->dev_malloc_host(naux * nao_pair * sizeof(double)) );
+      double * eri_ = d_eri_cache[id];
+      for(int i=0; i<naux * nao_pair; ++i) eri_[i] = eri1[i];
+    }
 #endif
 
 #ifdef _CUDA_NVTX

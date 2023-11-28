@@ -19,6 +19,8 @@ using namespace PM_NS;
 #define _SIZE_GRID 32
 #define _SIZE_BLOCK 256
 
+//#define _USE_ERI_CACHE
+
 #define OUTPUTIJ        1
 #define INPUT_IJ        2
 
@@ -121,6 +123,13 @@ private:
   
   int * tril_map;
   int * d_tril_map;
+
+  std::vector<double *> eri_list;
+  std::vector<int> eri_count;
+  std::vector<int> eri_update;
+  std::vector<int> eri_size;
+
+  std::vector<double *> d_eri_cache;
   
   struct my_AO2MOEnvs {
     int natm;

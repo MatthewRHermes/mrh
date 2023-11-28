@@ -55,7 +55,7 @@ Device::Device()
 
   d_tril_map = nullptr;
 #endif
-
+  
   num_threads = 1;
 #pragma omp parallel
   num_threads = omp_get_num_threads();
@@ -117,6 +117,20 @@ Device::~Device()
   free(t_array_jk);
 #endif
 
+  // print summary of cached eri blocks
+
+#ifdef _USE_ERI_CACHE
+  printf("LIBGPU::eri cache :: size= %i\n",eri_list.size());
+  for(int i=0; i<eri_list.size(); ++i)
+    printf("%i : eri= %p  Mbytes= %f  count= %i  update= %i\n", i, eri_list[i],
+	   eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i]);
+  
+  eri_count.clear();
+  eri_size.clear();
+  for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free_host( d_eri_cache[i] );
+  eri_list.clear();
+#endif
+  
 #if defined(_USE_GPU)
 #ifdef _CUDA_NVTX
   nvtxRangePushA("Deallocate");
