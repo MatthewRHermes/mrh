@@ -142,6 +142,11 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     pm->dev_push_async(d_tril_map, tril_map, size_tril_map*sizeof(int), stream);
   }
   
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array_jk[0] += t1 - t0;
+#endif
+  
   // Create cuda stream
   
   if(stream == nullptr) {
@@ -161,11 +166,13 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
+    
+#ifdef _SIMPLE_TIMER
+  double t2 = omp_get_wtime();
+  t_array_jk[1] += t2 - t1;
+#endif
   }
   
-#ifdef _SIMPLE_TIMER
-  t_array_jk[0] += omp_get_wtime() - t0;
-#endif
   //  printf("Leaving init_get_jk()\n");
 }
 
@@ -309,10 +316,22 @@ void Device::get_jk(int naux,
   	 info_dmtril.shape[0], info_eri1.shape[0],
   	 info_dmtril.shape[0], info_eri1.shape[1],
   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
+  
+  DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
+  printf("LIBGPU:: eri1= \n");
+  printf("LIBGPU::     0:      %f %f %f %f\n",da_eri1(0,0), da_eri1(0,1), da_eri1(0,nao_pair-2), da_eri1(0,nao_pair-1));
+  printf("LIBGPU::     1:      %f %f %f %f\n",da_eri1(1,0), da_eri1(1,1), da_eri1(1,nao_pair-2), da_eri1(1,nao_pair-1));
+  printf("LIBGPU::     naux-2: %f %f %f %f\n",da_eri1(naux-2,0), da_eri1(naux-2,1), da_eri1(naux-2,nao_pair-2), da_eri1(naux-2,nao_pair-1));
+  printf("LIBGPU::     naux-1: %f %f %f %f\n",da_eri1(naux-1,0), da_eri1(naux-1,1), da_eri1(naux-1,nao_pair-2), da_eri1(naux-1,nao_pair-1));
 #endif
 
 #ifdef _CUDA_NVTX
     nvtxRangePop();
+#endif
+
+#ifdef _SIMPLE_TIMER
+    double t1 = omp_get_wtime();
+    t_array_jk[2] += t1 - t0;
 #endif
   
   if(with_j) {
@@ -341,10 +360,20 @@ void Device::get_jk(int naux,
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
+    
+#ifdef _SIMPLE_TIMER
+    double t2 = omp_get_wtime();
+    t_array_jk[3] += t2 - t1;
+#endif
   }
     
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
 
+  
+#ifdef _SIMPLE_TIMER
+    double t2 = omp_get_wtime();
+#endif
+    
 #ifdef _CUDA_NVTX
     nvtxRangePushA("GetJK::TRIL_MAP");
 #endif
@@ -362,8 +391,17 @@ void Device::get_jk(int naux,
     nvtxRangePop();
 #endif
     
+#ifdef _SIMPLE_TIMER
+    double t3 = omp_get_wtime();
+    t_array_jk[4] += t3 - t2;
+#endif
+    
   for(int indxK=0; indxK<nset; ++indxK) {
 
+#ifdef _SIMPLE_TIMER
+    double t4 = omp_get_wtime();
+#endif
+    
 #ifdef _CUDA_NVTX
     nvtxRangePushA("GetJK::Transfer DMS");
 #endif
@@ -380,6 +418,11 @@ void Device::get_jk(int naux,
     nvtxRangePushA("GetJK::Batched DGEMM");
 #endif
 
+#ifdef _SIMPLE_TIMER
+    double t5 = omp_get_wtime();
+    t_array_jk[5] += t5 - t4;
+#endif
+    
     {
       const double alpha = 1.0;
       const double beta = 0.0;
@@ -402,6 +445,11 @@ void Device::get_jk(int naux,
     nvtxRangePushA("GetJK::Transpose");
 #endif
 
+#ifdef _SIMPLE_TIMER
+    double t6 = omp_get_wtime();
+    t_array_jk[6] += t6 - t5;
+#endif
+    
     {
       dim3 grid_size((naux + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE,
 		     (nao + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE, 1);
@@ -435,11 +483,21 @@ void Device::get_jk(int naux,
     nvtxRangePushA("DGEMM");
 #endif
     
+#ifdef _SIMPLE_TIMER
+    double t7 = omp_get_wtime();
+    t_array_jk[7] += t7 - t6;
+#endif
+    
     cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
 
 #ifdef _CUDA_NVTX
     nvtxRangePop();
     nvtxRangePushA("SYNC");
+#endif
+    
+#ifdef _SIMPLE_TIMER
+    double t8 = omp_get_wtime();
+    t_array_jk[8] += t8 - t7;
 #endif
     
     pm->dev_stream_wait(stream);
@@ -449,8 +507,9 @@ void Device::get_jk(int naux,
 #endif
    
 #ifdef _SIMPLE_TIMER
-    double t1 = omp_get_wtime();
-    t_array_jk[7] += t1 - t0;
+    double t9 = omp_get_wtime();
+    t_array_jk[9] += t9 - t8;
+    t_array_jk[10] += t9 - t0;
     t_array_jk_count++;
 #endif 
   }
