@@ -130,6 +130,7 @@ private:
   std::vector<int> eri_size;
 
   std::vector<double *> d_eri_cache;
+  std::vector<double *> d_eri_host;
   
   struct my_AO2MOEnvs {
     int natm;

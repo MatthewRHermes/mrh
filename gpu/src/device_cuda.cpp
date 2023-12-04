@@ -293,6 +293,8 @@ void Device::get_jk(int naux,
 
   double * d_eri;
 #ifndef _USE_ERI_CACHE
+   // if not caching, then eri block always transferred
+  
   pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
   d_eri = d_eri1;
 #endif
@@ -347,13 +349,19 @@ void Device::get_jk(int naux,
       exit(1);
     }
 
-    double * eri_ = d_eri_cache[id];
-    double diff_eri = sqrt( (eri_[0] + eri_[nao_pair] - eri1[0] - eri1[nao_pair]) * (eri_[0] + eri_[nao_pair] - eri1[0] - eri1[nao_pair]) ); // this is dangerous; need something better
+    d_eri = d_eri_cache[id];
+    double * eri_host = d_eri_host[id];
+    double diff_eri = sqrt( (eri_host[0] + eri_host[1] - eri1[0] - eri1[nao_pair]) * (eri_host[0] + eri_host[1] - eri1[0] - eri1[nao_pair]) ); // this is dangerous; need something better
     if(diff_eri > 1e-10) {
-      for(int i=0; i<naux * nao_pair; ++i) eri_[i] = eri1[i];
+      eri_host[0] = eri1[0];
+      eri_host[1] = eri1[nao_pair];
+      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
+      //      for(int i=0; i<naux * nao_pair; ++i) eri_[i] = eri1[i];
       eri_update[id]++;
     }
-    
+
+#if 0
+    // debug eri cache on host
     double diffsq = 0.0;
     for(int i=0; i<naux * nao_pair; ++i) diffsq += (eri_[i] - eri1[i]) * (eri_[i] - eri1[i]);
     double diff = sqrt(diffsq);
@@ -362,6 +370,7 @@ void Device::get_jk(int naux,
       printf("LIBGPU:: Error: eri_cache diff > TOL :: diff= %f\n",diff);
       exit(1);
     }
+#endif
     
   }
   else
@@ -371,9 +380,17 @@ void Device::get_jk(int naux,
       eri_update.push_back(0);
       eri_size.push_back(naux * nao_pair);
 
-      d_eri_cache.push_back( (double *) pm->dev_malloc_host(naux * nao_pair * sizeof(double)) );
-      double * eri_ = d_eri_cache[id];
-      for(int i=0; i<naux * nao_pair; ++i) eri_[i] = eri1[i];
+      d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
+      int id = d_eri_cache.size() - 1;
+      d_eri = d_eri_cache[ id ];
+      
+      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
+      //      for(int i=0; i<naux * nao_pair; ++i) eri_[i] = eri1[i];
+
+      d_eri_host.push_back( (double *) pm->dev_malloc_host(2 * sizeof(double)) );
+      double * d_eri_host_ = d_eri_host[id];
+      d_eri_host_[0] = eri1[0];
+      d_eri_host_[1] = eri1[nao_pair];
     }
 #endif
 

@@ -127,7 +127,8 @@ Device::~Device()
   
   eri_count.clear();
   eri_size.clear();
-  for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free_host( d_eri_cache[i] );
+  for(int i=0; i<d_eri_host.size(); ++i) pm->dev_free_host( d_eri_host[i] );
+  for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free( d_eri_cache[i] );
   eri_list.clear();
 #endif
   
