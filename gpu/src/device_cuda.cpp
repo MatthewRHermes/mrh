@@ -290,8 +290,12 @@ void Device::get_jk(int naux,
   double * dmtril = static_cast<double*>(info_dmtril.ptr);
   
   int nao_pair = nao * (nao+1) / 2;
-  
+
+  double * d_eri;
+#ifndef _USE_ERI_CACHE
   pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
+  d_eri = d_eri1;
+#endif
   if(count == 0) pm->dev_push_async(d_dmtril, dmtril, nset * nao_pair * sizeof(double), stream);
   
   int _size_rho = nset * naux;
@@ -393,7 +397,7 @@ void Device::get_jk(int naux,
       dim3 grid_size(nset, (naux + (_RHO_BLOCK_SIZE - 1)) / _RHO_BLOCK_SIZE, 1);
       dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
       
-      _getjk_rho<<<grid_size, block_size, 0, stream>>>(d_rho, d_dmtril, d_eri1, nset, naux, nao_pair);
+      _getjk_rho<<<grid_size, block_size, 0, stream>>>(d_rho, d_dmtril, d_eri, nset, naux, nao_pair);
     }
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -402,7 +406,7 @@ void Device::get_jk(int naux,
       dim3 grid_size(nset, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
       dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
       
-      _getjk_vj<<<grid_size, block_size, 0, stream>>>(d_vj, d_rho, d_eri1, nset, nao_pair, naux, count);
+      _getjk_vj<<<grid_size, block_size, 0, stream>>>(d_vj, d_rho, d_eri, nset, nao_pair, naux, count);
     }
     
 #ifdef _CUDA_NVTX
@@ -426,13 +430,11 @@ void Device::get_jk(int naux,
     nvtxRangePushA("GetJK::TRIL_MAP");
 #endif
     
-  {
-    //    pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
-    
+  {    
     dim3 grid_size((naux + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
     dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
     
-    _getjk_unpack_buf2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_eri1, d_tril_map, naux, nao, nao_pair);
+    _getjk_unpack_buf2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_eri, d_tril_map, naux, nao, nao_pair);
   }
     
 #ifdef _CUDA_NVTX
