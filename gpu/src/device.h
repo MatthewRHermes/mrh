@@ -19,7 +19,7 @@ using namespace PM_NS;
 #define _SIZE_GRID 32
 #define _SIZE_BLOCK 256
 
-//#define _USE_ERI_CACHE
+#define _USE_ERI_CACHE
 
 #define OUTPUTIJ        1
 #define INPUT_IJ        2
@@ -64,7 +64,7 @@ public :
   void get_jk(int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
 	      py::array_t<double>, py::array_t<double>,
-	      int);
+	      int, size_t);
   void pull_get_jk(py::array_t<double>, py::array_t<double>);
   
   void orbital_response(py::array_t<double>,

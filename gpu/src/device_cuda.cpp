@@ -270,7 +270,7 @@ __global__ void _getjk_transpose_buf1_buf3(double * buf3, double * buf1, int nau
 void Device::get_jk(int naux,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
-		    int count)
+		    int count, size_t addr_dfobj)
 {
   //  printf("Inside get_jk()\n");
 #ifdef _SIMPLE_TIMER
@@ -309,9 +309,9 @@ void Device::get_jk(int naux,
     d_rho = (double *) pm->dev_malloc(size_rho * sizeof(double));
   }
 
-#if 0
+#if 1
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
-  double * vj = static_cast<double*>(info_vj.ptr);
+  //  double * vj = static_cast<double*>(info_vj.ptr);
   
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   //  double * vk = static_cast<double*>(info_vk.ptr);
@@ -320,11 +320,11 @@ void Device::get_jk(int naux,
   	 info_dmtril.shape[0], info_dmtril.shape[1],
   	 info_eri1.shape[0], info_eri1.shape[1],
   	 info_dmtril.shape[0], info_eri1.shape[0],
-  	 info_dmtril.shape[0], info_eri1.shape[1],
+  	 info_vj.shape[0], info_vj.shape[1],
   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
   
   DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
-  printf("LIBGPU:: eri1= %p\n",eri1);
+  printf("LIBGPU:: eri1= %p  dfobj= %lu  count= %i\n",eri1,addr_dfobj,count);
   printf("LIBGPU::     0:      %f %f %f %f\n",da_eri1(0,0), da_eri1(0,1), da_eri1(0,nao_pair-2), da_eri1(0,nao_pair-1));
   printf("LIBGPU::     1:      %f %f %f %f\n",da_eri1(1,0), da_eri1(1,1), da_eri1(1,nao_pair-2), da_eri1(1,nao_pair-1));
   printf("LIBGPU::     naux-2: %f %f %f %f\n",da_eri1(naux-2,0), da_eri1(naux-2,1), da_eri1(naux-2,nao_pair-2), da_eri1(naux-2,nao_pair-1));
