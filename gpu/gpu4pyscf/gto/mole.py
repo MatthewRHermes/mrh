@@ -20,24 +20,6 @@ from pyscf.gto.mole import *
 
 from gpu4pyscf.lib.utils import patch_cpu_kernel
 
-#def M(use_gpu=None, **kwargs):
-#    r'''This is a shortcut to build up Mole object.
-#
-#    Args: Same to :func:`Mole.build`
-#
-#    Examples:
-#
-#    >>> from pyscf import gto
-#    >>> mol = gto.M(atom='H 0 0 0; F 0 0 1', basis='6-31g')
-#    '''
-#
-#    print("Inside gpu4pyscf::mole.py")
-#    mol = 0
-#    #    mol = Mole()
-##    mol.build(**kwargs)
-#
-#    return mol
-
 def _M(self, use_gpu=None, **kwargs):
     r'''This is a shortcut to build up Mole object.
 
