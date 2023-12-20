@@ -100,8 +100,8 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memo
         mem = safety_factor * (mem_floats + mem_ints)
         memstr = ("hdiag_csf of {} orbitals, ({},{}) electrons and smult={} with {} "
                   "doubly-occupied orbitals ({} configurations and {} determinants) requires {} "
-                  "MB > {} MB remaining memory").format (
-            norb, neleca, nelecb, smult, npair, nconf, ndet, mem, mem_remaining)
+                  "MB > {} MB remaining of {} MB max").format (
+            norb, neleca, nelecb, smult, npair, nconf, ndet, mem, mem_remaining, max_memory)
         if mem > mem_remaining:
             raise MemoryError (memstr)
         # end mem safety
@@ -483,7 +483,6 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
 class CSFFCISolver: # parent class
     _keys = {'smult', 'transformer'}
     pspace_size = getattr(__config__, 'fci_csf_FCI_pspace_size', 200)
-    max_memory = getattr(__config__, 'fci_csf_max_memory', 2000)
     make_hdiag = make_hdiag_det
 
     def __init__(self, mol=None, smult=None):
