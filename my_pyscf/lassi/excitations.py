@@ -15,6 +15,8 @@ op = (op_o0, op_o1)
 
 LOWEST_REFOVLP_EIGVAL_THRESH = getattr (__config__, 'lassi_excitations_refovlp_eigval_thresh', 1e-9)
 IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 1e-6)
+MAX_CYCLE_E0 = getattr (__config__, 'lassi_excitations_max_cycle_e0', 1)
+CONV_TOL_E0 = getattr (__config__, 'lassi_excitations_conv_tol_e0', 1e-8)
 
 def only_ground_states (ci0):
     '''For a list of sequences of CI vectors in the same Hilbert space,
@@ -438,7 +440,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci0, e0 = self.sort_ci0 (ham_pq, ci0)
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
-            vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=1,
+            vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=MAX_CYCLE_E0,
                                               crash_locmin=self.crash_locmin))
         return ci0, vrvsolvers, e_q, si_q
 
@@ -493,8 +495,8 @@ class VRVDressedFCISolver (object):
     '''
     _keys = {'contract_vrv', 'base', 'v_qpab', 'denom_q', 'e_q', 'max_cycle_e0', 'conv_tol_e0',
              'charge', 'crash_locmin', 'imag_shift'}
-    def __init__(self, fcibase, my_vrv, my_eq, my_e0, max_cycle_e0=100, conv_tol_e0=1e-8,
-                 crash_locmin=False):
+    def __init__(self, fcibase, my_vrv, my_eq, my_e0, max_cycle_e0=MAX_CYCLE_E0,
+                 conv_tol_e0=CONV_TOL_E0, crash_locmin=False):
         self.base = copy.copy (fcibase)
         if isinstance (fcibase, StateAverageFCISolver):
             self._undressed_class = fcibase._base_class
@@ -637,7 +639,7 @@ class VRVDressedFCISolver (object):
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
 
-def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=100, conv_tol_e0=1e-8,
+def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_e0=CONV_TOL_E0,
                    crash_locmin=False):
     if isinstance (fciobj, VRVDressedFCISolver):
         fciobj.v_qpab = v_qpab
