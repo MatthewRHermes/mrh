@@ -681,7 +681,9 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
     rootsym = [rootsym[s] for s in states]
     rdm1s, rdm2s = roots_make_rdm12s (las, ci, si_column, orbsym=orbsym, soc=soc,
                                       break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
-    return rdm1s[0], rdm2s[0]
+    if len (states) == 1:
+        rdm1s, rdm2s = rdm1s[0], rdm2s[0]
+    return rdm1s, rdm2s
 
 class LASSI(lib.StreamObject):
     '''

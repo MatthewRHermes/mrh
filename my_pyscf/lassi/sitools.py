@@ -189,22 +189,26 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         )
     if ci is None: ci = las.ci
     ci0 = ci
-
-    log.info ("Natural-orbital analysis for state(s) %s", str (state))
-    casdm1 = root_make_rdm12s (las, ci, si, state=state)[0].sum (0)
-    if isinstance (las, LASSI):
-        no_coeff, no_ene, no_occ = las._las.canonicalize (natorb_casdm1=casdm1)
-    else:
-        no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)
+    states = np.atleast_1d (state)
+    nstates = len (states)
 
     log = lib.logger.new_logger (las, las.verbose)
+    log.info ("Natural-orbital analysis for state(s) %s", str (state))
+    casdm1s = root_make_rdm12s (las, ci, si, state=state)[0]
+    if nstates > 1:
+        casdm1s = casdm1s.sum (0) / nstates
+    casdm1 = casdm1s.sum (0)
+    if isinstance (las, LASSI):
+        no_coeff, no_ene, no_occ = las._las.canonicalize (natorb_casdm1=casdm1)[:3]
+    else:
+        no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
+
     log.info ("Analyzing LASSI vectors for states = %s",str(state))
 
     log.info ("Average quantum numbers:")
     space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
         las, si
     )
-    states = np.atleast_1d (state)
     nelelas = np.array ([sum (n) for n in las.nelecas_sub])
     c, m, smults = get_rootspace_central_moment (las, space_weights[:,states])
     neleca = .5*(nelelas[None,:]-c+m)
@@ -218,7 +222,6 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
     log.info (("Analyzing rootspace fragment density matrices for LASSI "
                "states %s averaged together"), str (states))
     log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
-    nstates = len (states)
     avg_weights = space_weights[:,states].sum (1) / nstates
     lroots = get_lroots (ci0).T
     running_weight = 1
