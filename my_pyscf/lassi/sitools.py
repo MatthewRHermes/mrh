@@ -2,7 +2,7 @@ import numpy as np
 from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi.lassi import ham_2q
+from mrh.my_pyscf.lassi.lassi import ham_2q, root_make_rdm12s, LASSI
 from mrh.my_pyscf.lassi.citools import get_lroots
 
 def decompose_sivec_by_rootspace (las, si, ci=None):
@@ -189,6 +189,13 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         )
     if ci is None: ci = las.ci
     ci0 = ci
+
+    log.info ("Natural-orbital analysis for state(s) %s", str (state))
+    casdm1 = root_make_rdm12s (las, ci, si, state=state)[0].sum (0)
+    if isinstance (las, LASSI):
+        no_coeff, no_ene, no_occ = las._las.canonicalize (natorb_casdm1=casdm1)
+    else:
+        no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)
 
     log = lib.logger.new_logger (las, las.verbose)
     log.info ("Analyzing LASSI vectors for states = %s",str(state))
