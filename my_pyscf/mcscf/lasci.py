@@ -1407,12 +1407,12 @@ class LASCINoSymm (casci.CASCI):
         return self.converged, self.e_tot, self.e_states, self.e_cas, e_lexc, self.ci
 
     @lib.with_doc(run_lasci.__doc__)
-    def lasci_(self, mo_coeff=None, ci0=None, verbose=None,
-            assert_no_dupes=False, _dry_run=False):
+    def lasci_(self, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose=None,
+               assert_no_dupes=False, _dry_run=False):
         if mo_coeff is not None:
             self.mo_coeff = mo_coeff
-        return self.lasci (mo_coeff=mo_coeff, ci0=ci0, verbose=verbose,
-                           assert_no_dupes=assert_no_dupes, _dry_run=_dry_run)
+        return self.lasci (mo_coeff=mo_coeff, ci0=ci0, lroots=lroots, lweights=lweights,
+                           verbose=verbose, assert_no_dupes=assert_no_dupes, _dry_run=_dry_run)
 
     state_average = state_average
     state_average_ = state_average_
