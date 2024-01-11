@@ -1,6 +1,7 @@
 from pyscf.scf.rohf import get_roothaan_fock
 from pyscf.fci import cistring
 from pyscf.mcscf import casci, casci_symm, df
+from pyscf.tools import dump_mat
 from pyscf import symm, gto, scf, ao2mo, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
@@ -409,7 +410,8 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
         i = sum (ncas_sub[:ix])
         j = i + ncas
         check_diag[i:j,i:j] = 0.0
-    if np.amax (np.abs (check_diag)) < 1e-8:
+    is_block_diag = np.amax (np.abs (check_diag)) < 1e-8
+    if is_block_diag:
         # No off-diagonal RDM elements -> extra effort to prevent diagonalizer from breaking frags
         for isub, (ncas, nelecas) in enumerate (zip (ncas_sub, nelecas_sub)):
             i = sum (ncas_sub[:isub])
@@ -460,6 +462,28 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
         h2eff_sub = np.tensordot (ucas, h2eff_sub, axes=((0),(3))).transpose (1,2,3,0)
         h2eff_sub = h2eff_sub.reshape (nmo*las.ncas, las.ncas, las.ncas)
         h2eff_sub = lib.numpy_helper.pack_tril (h2eff_sub).reshape (nmo, -1)
+
+    # I/O
+    log = lib.logger.new_logger (las, las.verbose)
+    if las.verbose >= lib.logger.INFO:
+        if is_block_diag:
+            for isub, nlas in enumerate (ncas_sub):
+                log.info ("Fragment %d natural orbitals", isub)
+                i = ncore + sum (ncas_sub[:isub])
+                j = i + nlas
+                log.info ('Natural occ %s', str (mo_occ[i:j]))
+                log.info ('Natural orbital (expansion on AOs) in CAS space')
+                label = las.mol.ao_labels()
+                mo_las = mo_coeff[:,i:j]
+                dump_mat.dump_rec(log.stdout, mo_las, label, start=1)
+        else:
+            log.info ("Delocalized natural orbitals do not reflect LAS fragmentation")
+            log.info ('Natural occ %s', str (mo_occ[ncore:nocc]))
+            log.info ('Natural orbital (expansion on AOs) in CAS space')
+            label = las.mol.ao_labels()
+            mo_las = mo_coeff[:,ncore:nocc]
+            dump_mat.dump_rec(log.stdout, mo_las, label, start=1)
+
     return mo_coeff, mo_ene, mo_occ, ci, h2eff_sub
 
 def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
