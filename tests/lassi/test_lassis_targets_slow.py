@@ -198,8 +198,63 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 6), -12.45, 2)
 
     def test_alfefe (self):
-        # I can't do this without cacheing the orbitals. The optimization is too involved.
-        pass
+        xyz='''O -2.2201982441 0.3991903003 1.6944716989
+        O -1.6855532446 -1.7823063217 1.4313995072
+        C -2.2685178651 -0.8319550379 1.983951274
+        H -2.9133420167 -1.0767285885 2.8437868053
+        O 1.3882880809 2.0795561562 -1.3470856753
+        O -0.7599088595 2.5809236347 -0.849227704
+        C 0.3465674686 2.753895325 -1.438835699
+        H 0.3723796145 3.6176996598 -2.1230911503
+        O 1.0469609081 -2.6425342 0.9613246722
+        O -0.3991903003 2.2201982441 1.6944716989
+        O 1.7823063217 1.6855532446 1.4313995072
+        C 0.8319550379 2.2685178651 1.983951274
+        H 1.0767285885 2.9133420167 2.8437868053
+        O -2.0795561562 -1.3882880809 -1.3470856753
+        O -2.5809236347 0.7599088595 -0.849227704
+        C -2.753895325 -0.3465674686 -1.438835699
+        H -3.6176996598 -0.3723796145 -2.1230911503
+        Fe -0.3798741893 -1.7926033629 -0.2003377303
+        O 0.6422231803 -2.237796553 -1.8929145176
+        Fe 1.7926033629 0.3798741893 -0.2003377303
+        O 2.237796553 -0.6422231803 -1.8929145176
+        O 2.6425342 -1.0469609081 0.9613246722
+        Al -1.2362716421 1.2362716421 0.350650148
+        O -0.0449501954 0.0449501954 0.0127621413
+        C 1.645528685 -1.645528685 -2.3571124654
+        H 2.0569062984 -2.0569062984 -3.2945712916
+        C 2.1609242811 -2.1609242811 1.2775841868
+        H 2.7960805433 -2.7960805433 1.9182443024'''
+        basis = {'C': 'sto-3g','H': 'sto-3g','O': 'sto-3g','Al': 'cc-pvdz','Fe': 'cc-pvdz'}
+        mol = gto.M (atom=xyz, spin=9, charge=0, basis=basis, max_memory=10000, verbose=0,
+                     output='/dev/null')
+        mf = scf.ROHF(mol)
+        mf.init_guess='chk'
+        mf.chkfile='test_lassis_targets_slow.alfefe.chk'
+        mf = mf.density_fit()
+        mf.max_cycle=100
+        mf.kernel()
+        las = LASSCF (mf, (5,5), ((5,1),(5,0)), spin_sub=(5,6))
+        try:
+            las.load_chk_()
+            las.kernel ()
+        except (OSError, TypeError, KeyError) as e:
+            ncas, nelecas, mo_coeff = avas.kernel (mf, ['Fe 3d'], openshell_option=3)
+            mo_coeff = las.localize_init_guess (([17],[19]), mo_coeff)
+            las.kernel (mo_coeff)
+        with self.subTest ('LASSCF convergence'):
+            self.assertTrue (las.converged)
+        with self.subTest ('same LASSCF result'):
+            self.assertAlmostEqual (las.e_tot, -3955.98148841553, 6)
+        mf.chkfile = None # prevent the spins flips down there from messing things up
+        las2 = LASSCF (mf, (5,5), ((1,5),(5,0)), spin_sub=(5,6))
+        las2.lasci_(las.mo_coeff)
+        lsi = lassi.LASSIS (las2).run ()
+        with self.subTest('LASSI convergence'):
+            self.assertTrue (lsi.converged)
+        self.assertAlmostEqual (yamaguchi (lsi.e_roots, lsi.s2, 9), -4.40, 2)
+
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")
