@@ -16,9 +16,20 @@ Makefile
 *.molden
 *.npy
 *.log
+*.log.*
 *.dat
 *.out
 *.err
 *.swp
 *.chk
+
+# assorted garbage
+test_all.sh
+*.status
+*.rasscf.h5
+*.inp
+*.timing
+*.ods
+*.tab
+*.txt
 
