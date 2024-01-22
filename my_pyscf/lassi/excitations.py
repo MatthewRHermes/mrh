@@ -291,7 +291,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
             # TODO: optimize this so that we only need one op_ham_pq_ref call each time we land here,
             # and not get_ham_pq
-            ci0, e0 = self.sort_ci0 (ham_pq, ci0)
+            ci0, e0 = ci0, None #self.sort_ci0 (ham_pq, ci0)
             hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
             for ifrag, (c, hci_pabq, solver) in enumerate (zip (ci0, hci_f_pabq, self.fcisolvers)):
                 solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
