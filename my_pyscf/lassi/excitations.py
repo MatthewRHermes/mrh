@@ -285,6 +285,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         h1eff, h0eff = ProductStateFCISolver.project_hfrag (
             self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, dm1s=dm1s, dm2=dm2, **kwargs
         )
+        nj = np.cumsum (norb_f)
+        ni = nj - norb_f
         # Project the part coupling the p and q rootspaces
         if len (self._e_q) and not self._deactivate_vrv:
             ci0 = [np.asarray (c) for c in ci]
@@ -295,8 +297,15 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
             for ifrag, (c, hci_pabq, solver) in enumerate (zip (ci0, hci_f_pabq, self.fcisolvers)):
                 solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
-                # The slight disagreement here is causing massive convergence problems!
-                ci[ifrag] = c
+                ci[ifrag] = c # TODO: return ci properly instead of changing it in-place!
+                h1e = h1eff[ifrag]
+                h0e = h0eff[ifrag]
+                i, j = ni[ifrag], nj[ifrag]
+                h2e = h2[i:j,i:j,i:j,i:j]
+                ket = c[0] if solver.nroots>1 else c
+                ne = self._get_nelec (solver, nelec_f[ifrag])
+                e0 = solver.solve_e0 (h0e, h1e, h2e, norb_f[ifrag], ne, ket)
+                solver.denom_q = e0 - solver.e_q
         return h1eff, h0eff
 
     def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
