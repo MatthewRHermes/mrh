@@ -302,10 +302,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 h0e = h0eff[ifrag]
                 i, j = ni[ifrag], nj[ifrag]
                 h2e = h2[i:j,i:j,i:j,i:j]
-                ket = c[0] if solver.nroots>1 else c
                 ne = self._get_nelec (solver, nelec_f[ifrag])
-                e0 = solver.solve_e0 (h0e, h1e, h2e, norb_f[ifrag], ne, ket)
-                solver.denom_q = e0 - solver.e_q
+                ci[ifrag] = solver.sort_ci_(h0e, h1e, h2e, norb_f[ifrag], ne, c)
+                #ket = c[0] if solver.nroots>1 else c
+                #e0 = solver.solve_e0 (h0e, h1e, h2e, norb_f[ifrag], ne, ket)
+                #solver.denom_q = e0 - solver.e_q
         return h1eff, h0eff
 
     def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
@@ -599,6 +600,22 @@ class VRVDressedFCISolver (object):
         log.debug2 ('e_pq = {}'.format (e_pq))
         e0 = lowest_refovlp_eigval (ham_pq)
         return e0
+    def sort_ci_(self, h0e, h1e, h2e, norb, nelec, ci):
+        if self.nroots==1: ci = [ci]
+        e0 = [self.solve_e0 (h0e, h1e, h2e, norb, nelec, ket) for ket in ci]
+        idx = np.argsort (e0)
+        e0 = [e0[ix] for ix in idx]
+        ci = [ci[ix] for ix in idx]
+        self.denom_q = e0[0] - self.e_q
+        h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
+        e = [np.dot (ket.ravel (), self.contract_2e (h2eff, ket, norb, nelec).ravel ())
+             for ket in ci]
+        if self.nroots > 1:
+            idx = np.argsort (e[1:])
+            ci = [ci[0]] + [ci[1:][ix] for ix in idx]
+        else:
+            ci = ci[0]
+        return ci
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         log = lib.logger.new_logger (self, self.verbose)
         max_cycle_e0 = self.max_cycle_e0
