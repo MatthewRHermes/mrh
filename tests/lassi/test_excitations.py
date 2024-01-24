@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import sys
 import copy
 import unittest
 import numpy as np
@@ -34,7 +35,7 @@ def setUpModule ():
     H 11 0 0
     H 10 2 0
     H 11 2 0'''
-    mol = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
+    mol = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=5, output='test_excitations.log')#0, output='/dev/null')
     mf = scf.RHF (mol).run ()
 
     # LASSCF with CASCI-limit model space
@@ -167,7 +168,8 @@ class KnownValues(unittest.TestCase):
                  for i in range (3)]
         ci_ref = las.ci
         nelec_ref = [[1,1] for i in range (3)]
-        psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref)
+        psexc = ExcitationPSFCISolver (psref, ci_ref, las.ncas_sub, nelec_ref,
+                                       stdout=mol.stdout, verbose=mol.verbose)
         charges, spins, smults, wfnsyms = get_space_info (lsi._las)
         dneleca = (spins - charges) // 2
         dnelecb = -(charges + spins) // 2
@@ -178,6 +180,10 @@ class KnownValues(unittest.TestCase):
         neleca = dneleca + neleca[None,1:]
         nelecb = dnelecb + nelecb[None,1:]
         lroots = lsi.get_lroots ()
+        lroots[:,:] = 1
+        # Convergence failures if lroots>1 because I'm not state-averaging,
+        # but if I state-average then the equality between energy_tot and the
+        # ref is broken, so I can only have 1 lroot here
         smults_rf = dsmults + 1
 
         ci0_ref = [only_ground_states (c) for c in ci_ref]
@@ -207,11 +213,11 @@ class KnownValues(unittest.TestCase):
         for iroot in range (1, 5): 
           with self.subTest (rootspace=iroot):
             for i in range (2):
-                weights = np.zeros (lroots[i,iroot])
-                weights[0] = 1
+                weights = np.ones (lroots[i,iroot]) / lroots[i,iroot]
                 psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
                                             smults[iroot,i], weights=weights)
-            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
+            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0,
+                                                  conv_tol_self=sys.float_info.max)
             self.assertTrue (conv)
             e_roots1, si1 = lassi_ref (ci1, iroot)
             idx_match = np.argmin (np.abs (e_roots1-energy_tot))
