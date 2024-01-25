@@ -291,22 +291,16 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         if len (self._e_q) and not self._deactivate_vrv:
             ci0 = [np.asarray (c) for c in ci]
             ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
-            # TODO: optimize this so that we only need one op_ham_pq_ref call each time we land here,
-            # and not get_ham_pq
-            ci0, e0 = ci0, None #self.sort_ci0 (ham_pq, ci0)
             hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
             for ifrag, (c, hci_pabq, solver) in enumerate (zip (ci0, hci_f_pabq, self.fcisolvers)):
                 solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
-                ci[ifrag] = c # TODO: return ci properly instead of changing it in-place!
                 h1e = h1eff[ifrag]
                 h0e = h0eff[ifrag]
                 i, j = ni[ifrag], nj[ifrag]
                 h2e = h2[i:j,i:j,i:j,i:j]
                 ne = self._get_nelec (solver, nelec_f[ifrag])
                 ci[ifrag] = solver.sort_ci_(h0e, h1e, h2e, norb_f[ifrag], ne, c)
-                #ket = c[0] if solver.nroots>1 else c
-                #e0 = solver.solve_e0 (h0e, h1e, h2e, norb_f[ifrag], ne, ket)
-                #solver.denom_q = e0 - solver.e_q
+        # TODO: return ci properly instead of changing it in-place!
         return h1eff, h0eff
 
     def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
