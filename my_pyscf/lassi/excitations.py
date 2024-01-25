@@ -299,7 +299,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 i, j = ni[ifrag], nj[ifrag]
                 h2e = h2[i:j,i:j,i:j,i:j]
                 ne = self._get_nelec (solver, nelec_f[ifrag])
-                ci[ifrag] = solver.sort_ci_(h0e, h1e, h2e, norb_f[ifrag], ne, c)
+                e0, ci[ifrag] = solver.sort_ci (h0e, h1e, h2e, norb_f[ifrag], ne, c)
+                solver.denom_q = e0 - solver.e_q
         # TODO: return ci properly instead of changing it in-place!
         return h1eff, h0eff
 
@@ -516,12 +517,14 @@ class VRVDressedFCISolver (object):
         self.crash_locmin = crash_locmin
         self.davidson_only = self.base.davidson_only = True
         # TODO: Relaxing this ^ requires accounting for pspace, precond, and/or hdiag
-    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
+    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, v_qpab=None, denom_q=None,
+                    **kwargs):
         ci0 = self.undressed_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
-        ci0 += self.contract_vrv (fcivec)
+        ci0 += self.contract_vrv (fcivec, v_qpab=v_qpab, denom_q=denom_q)
         return ci0
-    def contract_vrv (self, ket):
-        v_qpab, denom_q = self.v_qpab, self.denom_q
+    def contract_vrv (self, ket, v_qpab=None, denom_q=None):
+        if v_qpab is None: v_qpab = self.v_qpab
+        if denom_q is None: denom_q = self.denom_q
         if v_qpab is None: return np.zeros_like (ket)
         ket_shape = ket.shape
         idx = np.abs (denom_q) > 1e-16
@@ -594,22 +597,22 @@ class VRVDressedFCISolver (object):
         log.debug2 ('e_pq = {}'.format (e_pq))
         e0 = lowest_refovlp_eigval (ham_pq)
         return e0
-    def sort_ci_(self, h0e, h1e, h2e, norb, nelec, ci):
+    def sort_ci (self, h0e, h1e, h2e, norb, nelec, ci):
         if self.nroots==1: ci = [ci]
         e0 = [self.solve_e0 (h0e, h1e, h2e, norb, nelec, ket) for ket in ci]
         idx = np.argsort (e0)
         e0 = [e0[ix] for ix in idx]
         ci = [ci[ix] for ix in idx]
-        self.denom_q = e0[0] - self.e_q
+        den = e0[0] - self.e_q
         h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
-        e = [np.dot (ket.ravel (), self.contract_2e (h2eff, ket, norb, nelec).ravel ())
+        e = [np.dot (ket.ravel(), self.contract_2e (h2eff, ket, norb, nelec, denom_q=den).ravel())
              for ket in ci]
         if self.nroots > 1:
             idx = np.argsort (e[1:])
             ci = [ci[0]] + [ci[1:][ix] for ix in idx]
         else:
             ci = ci[0]
-        return ci
+        return e0[0], ci
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         log = lib.logger.new_logger (self, self.verbose)
         max_cycle_e0 = self.max_cycle_e0
