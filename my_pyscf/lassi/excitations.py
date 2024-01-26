@@ -36,6 +36,9 @@ def sort_ci0 (obj, ham_pq, ci0):
 
     (h_pp + h_pq (e0 - e_q)^-1 h_qp) |p> = e0|p>
 
+    NOTE: in the current LASSIS method, this isn't how the converged vectors should be
+    sorted: this arrangement only for the initial guess.
+
     Args:
         ham_pq: ndarray of shape (p+q,p+q)
             Hamiltonian matrix in model-space basis. In the p-space, ENVs ascend in
@@ -611,8 +614,6 @@ class VRVDressedFCISolver (object):
         log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
         log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
         self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e, warntag='Saddle-point initial guess')
-        warn_swap = False # annoying loud warning not necessary
-        #print (lib.fp (ci0), self.denom_q)
         for it in range (max_cycle_e0):
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
@@ -620,28 +621,18 @@ class VRVDressedFCISolver (object):
             e0_last = e0
             if isinstance (e, (list,tuple,np.ndarray)):
                 delta_e0 = np.array (e) - e0
-                if warn_swap and np.argmin (np.abs (delta_e0)) != 0:
-                    log.warn ("Possible rootswapping in H(E)|Psi> = E|Psi> fixed-point iteration")
-                    warn_swap = False
                 ket, e0 = ci1[0], e[0]
             else:
                 ket, e0 = ci1, e
             e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
             self.denom_q = e0 - self.e_q
             log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
-            #hket = self.contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5), ket, norb, nelec)
-            #brahket = np.dot (ket.ravel (), hket.ravel ())
-            #e0_test = ecore + brahket
-            #g_test = hket - ket*brahket
-            #print (e, e0, e0_test, linalg.norm (g_test))
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
                 break
         self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
         self.converged = (converged and np.all (self.converged))
-        #print (lib.fp (ci1), self.denom_q)#np.stack ([ci1[0].ravel (), ci1[1].ravel ()], axis=-1))
         return e, ci1
-    # I don't feel like futzing around with MRO
     def undressed_kernel (self, *args, **kwargs):
         return self._undressed_class.kernel (self, *args, **kwargs)
     def undressed_contract_2e (self, *args, **kwargs):
