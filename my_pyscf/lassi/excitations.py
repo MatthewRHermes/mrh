@@ -291,15 +291,17 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         if len (self._e_q) and not self._deactivate_vrv:
             ci0 = [np.asarray (c) for c in ci]
             hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
-            for ifrag, (c, hci_pabq, solver) in enumerate (zip (ci0, hci_f_pabq, self.fcisolvers)):
-                solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
-                h1e = h1eff[ifrag]
-                h0e = h0eff[ifrag]
-                i, j = ni[ifrag], nj[ifrag]
+            zipper = zip (hci_f_pabq, self.fcisolvers, ci0, norb_f, nelec_f, h1eff, h0eff, ni, nj)
+            for ifrag, (hci_pabq, solver, c, norb, nelec, h1e, h0e, i, j) in enumerate (zipper):
                 h2e = h2[i:j,i:j,i:j,i:j]
-                ne = self._get_nelec (solver, nelec_f[ifrag])
-                e0, ci[ifrag] = solver.sort_ci (h0e, h1e, h2e, norb_f[ifrag], ne, c)
+                ne = self._get_nelec (solver, nelec)
+                solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
+                e0, ci[ifrag] = solver.sort_ci (h0e, h1e, h2e, norb, ne, c)
                 solver.denom_q = e0 - solver.e_q
+                # The reason I do the above two lines here and not in the fragment-solver kernel is
+                # that between this function and the start of the fragment-solver kernel, the
+                # wrapper needs to compute the current gradient for the whole system. The fragment
+                # solvers need to already know the correct e0 for that gradient calculation.
         # TODO: return ci properly instead of changing it in-place!
         return h1eff, h0eff
 
@@ -308,6 +310,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, **kwargs
         )
         # Also compute the vrv perturbation energy
+        # The only purpose this serves is test_excitations.py
         if len (self._e_q) and not self._deactivate_vrv:
             ci0 = []
             # extract this from the putatively converged solver cycles
@@ -322,15 +325,11 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             lroots = get_lroots (ci0)
             p = np.prod (lroots)
             ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
-            idx = np.ones (len (ham_pq), dtype=bool)
-            idx[1:p] = False
-            e0, si = linalg.eigh (ham_pq[idx,:][:,idx])
             h_pp = ham_pq[:p,:p]
             h_pq = ham_pq[:p,p:]
             h_qq = ham_pq[p:,p:]
             h_qq = self._si_q.conj ().T @ h_qq @ self._si_q
             h_pq = np.dot (h_pq, self._si_q)
-            ham_pq = ham_pq[idx,:][:,idx]
             idx = np.abs (denom_q) > 1e-16
             e_p = np.diag (np.dot (h_pq[:,idx].conj () / denom_q[None,idx], h_pq[:,idx].T))
             e_p = e_p.reshape (*lroots[::-1]).T
