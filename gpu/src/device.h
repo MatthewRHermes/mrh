@@ -124,13 +124,16 @@ private:
   int * tril_map;
   int * d_tril_map;
 
-  std::vector<double *> eri_list;
-  std::vector<int> eri_count;
-  std::vector<int> eri_update;
-  std::vector<int> eri_size;
+  // eri caching on device
+  
+  std::vector<size_t> eri_list; // addr of dfobj+eri1 for key-value pair
+  
+  std::vector<int> eri_count; // # times particular cache used
+  std::vector<int> eri_update; // # times particular cache updated
+  std::vector<int> eri_size; // # size of particular cache
 
-  std::vector<double *> d_eri_cache;
-  std::vector<double *> d_eri_host;
+  std::vector<double *> d_eri_cache; // pointers for device caches
+  std::vector<double *> d_eri_host; // values on host for checking if update
   
   struct my_AO2MOEnvs {
     int natm;

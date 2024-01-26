@@ -324,7 +324,8 @@ void Device::get_jk(int naux,
   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
   
   DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
-  printf("LIBGPU:: eri1= %p  dfobj= %lu  count= %i\n",eri1,addr_dfobj,count);
+  //  printf("LIBGPU:: eri1= %p  dfobj= %lu  count= %i  combined= %lu\n",eri1,addr_dfobj,count,addr_dfobj+count);
+  printf("LIBGPU:: dfobj= %lu  count= %i  combined= %lu\n",addr_dfobj,count,addr_dfobj+count);
   printf("LIBGPU::     0:      %f %f %f %f\n",da_eri1(0,0), da_eri1(0,1), da_eri1(0,nao_pair-2), da_eri1(0,nao_pair-1));
   printf("LIBGPU::     1:      %f %f %f %f\n",da_eri1(1,0), da_eri1(1,1), da_eri1(1,nao_pair-2), da_eri1(1,nao_pair-1));
   printf("LIBGPU::     naux-2: %f %f %f %f\n",da_eri1(naux-2,0), da_eri1(naux-2,1), da_eri1(naux-2,nao_pair-2), da_eri1(naux-2,nao_pair-1));
@@ -335,7 +336,7 @@ void Device::get_jk(int naux,
   // retrieve or cache eri block
   int id = eri_list.size();
   for(int i=0; i<eri_list.size(); ++i)
-    if(eri_list[i] == eri1) {
+    if(eri_list[i] == addr_dfobj+count) {
       id = i;
       break;
     }
@@ -375,7 +376,7 @@ void Device::get_jk(int naux,
   }
   else
     {
-      eri_list.push_back(eri1);
+      eri_list.push_back(addr_dfobj+count);
       eri_count.push_back(1);
       eri_update.push_back(0);
       eri_size.push_back(naux * nao_pair);
