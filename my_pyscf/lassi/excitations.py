@@ -290,7 +290,6 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # Project the part coupling the p and q rootspaces
         if len (self._e_q) and not self._deactivate_vrv:
             ci0 = [np.asarray (c) for c in ci]
-            ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
             hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
             for ifrag, (c, hci_pabq, solver) in enumerate (zip (ci0, hci_f_pabq, self.fcisolvers)):
                 solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
