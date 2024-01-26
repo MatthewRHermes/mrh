@@ -260,7 +260,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
 
     def kernel (self, h1, h2, ecore=0,
                 conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
-                serialfrag=False, **kwargs):
+                serialfrag=False, _add_vrv_energy=False, **kwargs):
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
@@ -276,6 +276,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
                 max_cycle_macro=max_cycle_macro, serialfrag=serialfrag, **kwargs
             )
+            if _add_vrv_energy: # for a sanity check in unittests only
+                energy_elec += self._energy_vrv (h1, h2, ci1_active)
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.excited_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
@@ -305,41 +307,38 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         # TODO: return ci properly instead of changing it in-place!
         return h1eff, h0eff
 
-    def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
-        energy_tot = ProductStateFCISolver.energy_elec (
-            self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, **kwargs
-        )
-        # Also compute the vrv perturbation energy
-        # The only purpose this serves is test_excitations.py
-        if len (self._e_q) and not self._deactivate_vrv:
-            ci0 = []
-            # extract this from the putatively converged solver cycles
-            # if you attempt to recalculate it, then it has to be reconverged i guess
-            denom_q = 0
-            for c, solver in zip (ci, self.fcisolvers):
-                t = solver.transformer
-                c = np.asarray (c).reshape (-1, t.ndeta, t.ndetb)
-                ci0.append (c)
-                denom_q += solver.denom_q
-            denom_q /= len (ci)
-            lroots = get_lroots (ci0)
-            p = np.prod (lroots)
-            ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
-            h_pp = ham_pq[:p,:p]
-            h_pq = ham_pq[:p,p:]
-            h_qq = ham_pq[p:,p:]
-            h_qq = self._si_q.conj ().T @ h_qq @ self._si_q
-            h_pq = np.dot (h_pq, self._si_q)
-            idx = np.abs (denom_q) > 1e-16
-            e_p = np.diag (np.dot (h_pq[:,idx].conj () / denom_q[None,idx], h_pq[:,idx].T))
-            e_p = e_p.reshape (*lroots[::-1]).T
-            for solver in self.fcisolvers:
-                if hasattr (getattr (solver, 'weights', None), '__len__'):
-                    e_p = np.dot (solver.weights, e_p)
-                else:
-                    e_p = e_p[0]
-            energy_tot += e_p
-        return energy_tot
+    def _energy_vrv (self, h1, h2, ci):
+        # The only purpose this serves is for a sanity test in test_excitations.py
+        # It can be reattached to energy_elec if I can figure out how to define a whole-system
+        # energy for this step in LASSIS that makes sense.
+        # If so, I should rewrite it so that it can be called outside of this class's kernel
+        # function
+        if (len (self._e_q) == 0) or self._deactivate_vrv: return 0
+        ci0 = []
+        denom_q = 0
+        for c, solver in zip (ci, self.fcisolvers):
+            t = solver.transformer
+            c = np.asarray (c).reshape (-1, t.ndeta, t.ndetb)
+            ci0.append (c)
+            denom_q += solver.denom_q
+        denom_q /= len (ci)
+        lroots = get_lroots (ci0)
+        p = np.prod (lroots)
+        ham_pq = self.get_ham_pq (0, h1, h2, ci0)
+        h_pp = ham_pq[:p,:p]
+        h_pq = ham_pq[:p,p:]
+        h_qq = ham_pq[p:,p:]
+        h_qq = self._si_q.conj ().T @ h_qq @ self._si_q
+        h_pq = np.dot (h_pq, self._si_q)
+        idx = np.abs (denom_q) > 1e-16
+        e_p = np.diag (np.dot (h_pq[:,idx].conj () / denom_q[None,idx], h_pq[:,idx].T))
+        e_p = e_p.reshape (*lroots[::-1]).T
+        for solver in self.fcisolvers:
+            if hasattr (getattr (solver, 'weights', None), '__len__'):
+                e_p = np.dot (solver.weights, e_p)
+            else:
+                e_p = e_p[0]
+        return e_p
 
     def get_ham_pq (self, h0, h1, h2, ci_p):
         '''Build the model-space Hamiltonian matrix for the current state of the P-space.

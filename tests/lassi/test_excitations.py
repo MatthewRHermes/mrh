@@ -121,7 +121,7 @@ class KnownValues(unittest.TestCase):
                 weights[0] = 1
                 psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
                                             smults[iroot,i], weights=weights)
-            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
+            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True)
             self.assertTrue (conv)
             e_roots1, si1 = lassi_ref (ci1, iroot)
             idx_match = np.argmin (np.abs (e_roots1-energy_tot))
@@ -137,7 +137,7 @@ class KnownValues(unittest.TestCase):
                 weights[0] = 1
                 psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
                                             smults[iroot,i], weights=weights)
-            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0)
+            conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0, _add_vrv_energy=True)
             self.assertTrue (conv)
             self.assertAlmostEqual (energy_tot, lsi._las.e_states[iroot], 8)
 
@@ -217,7 +217,7 @@ class KnownValues(unittest.TestCase):
                 psexc.set_excited_fragment_(1+i, (neleca[iroot,i], nelecb[iroot,i]),
                                             smults[iroot,i], weights=weights)
             conv, energy_tot, ci1 = psexc.kernel (h1, h2, ecore=h0,
-                                                  conv_tol_self=sys.float_info.max)
+                                                  _add_vrv_energy=True)
             self.assertTrue (conv)
             e_roots1, si1 = lassi_ref (ci1, iroot)
             idx_match = np.argmin (np.abs (e_roots1-energy_tot))
