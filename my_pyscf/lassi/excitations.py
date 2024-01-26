@@ -250,7 +250,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
     def kernel (self, h1, h2, ecore=0,
-                conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
+                conv_tol_grad=1e-4, conv_tol_self=1e-8, max_cycle_macro=50,
                 serialfrag=False, _add_vrv_energy=False, **kwargs):
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])

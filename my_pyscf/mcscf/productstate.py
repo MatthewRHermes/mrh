@@ -24,7 +24,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         self.log = lib.logger.new_logger (self, verbose)
 
     def kernel (self, h1, h2, norb_f, nelec_f, ecore=0, ci0=None, orbsym=None,
-            conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
+            conv_tol_grad=1e-4, conv_tol_self=1e-8, max_cycle_macro=50,
             serialfrag=False, **kwargs):
         log = self.log
         converged = False
