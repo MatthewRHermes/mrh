@@ -21,11 +21,14 @@ Patch pyscf SCF modules to make all subclass of SCF class support GPU mode.
 
 from gpu4pyscf.df.df_jk import _get_jk
 from pyscf.df import df_jk
-from gpu4pyscf.lib.utils import patch_cpu_kernel
 
-# The device attribute is patched to the pyscf base SCF module. It will be
-# seen by all subclasses.
-#SCF.device = 'gpu'
+#from gpu4pyscf.df import df as mrh_df
+#from pyscf import df
+
+#from gpu4pyscf.lib.utils import patch_cpu_kernel
 
 print(f'{df_jk} monkey-patched')
 df_jk.get_jk = patch_cpu_kernel(df_jk.get_jk)(_get_jk)
+
+#print(f'{df.DF.build} monkey-patched')
+#df.DF.build = mrh_df._build.__get__(df)
