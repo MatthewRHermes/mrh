@@ -18,18 +18,6 @@ IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 1e-6)
 MAX_CYCLE_E0 = getattr (__config__, 'lassi_excitations_max_cycle_e0', 1)
 CONV_TOL_E0 = getattr (__config__, 'lassi_excitations_conv_tol_e0', 1e-8)
 
-def only_ground_states (ci0):
-    '''For a list of sequences of CI vectors in the same Hilbert space,
-    generate a list in which all but the first element of each sequence
-    is discarded.''' 
-    # TODO: examine whether this should be considered a limitation
-    ci1 = []
-    for c in ci0:
-        c = np.asarray (c)
-        if c.ndim==3: c = c[0]
-        ci1.append (c)
-    return ci1
-
 def lowest_refovlp_eigval (ham_pq, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
     ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
     eigenvector has nonzero overlap with the first basis function. '''

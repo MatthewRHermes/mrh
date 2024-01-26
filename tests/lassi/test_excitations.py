@@ -24,9 +24,20 @@ from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI, op_o0, op_o1
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.states import all_single_excitations
-from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver, only_ground_states
+from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
+
+def only_ground_states (ci0):
+    '''For a list of sequences of CI vectors in the same Hilbert space,
+    generate a list in which all but the first element of each sequence
+    is discarded.'''
+    ci1 = []
+    for c in ci0:
+        c = np.asarray (c)
+        if c.ndim==3: c = c[0]
+        ci1.append (c)
+    return ci1
 
 def setUpModule ():
     global mol, mf, lsi, op
