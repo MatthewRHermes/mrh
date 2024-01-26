@@ -212,7 +212,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         norb_ref = [norb_excited,] + [n for ifrag, n in enumerate (self.norb_ref)
                                       if not (ifrag in self.excited_frags)]
         h1eff, h0eff = self.project_hfrag (h1, h2, self.ci_ref, norb_ref, self.nelec_ref, 
-                                           ecore=h0, dm1s=dm1s, dm2=dm2)
+                                           ecore=h0, dm1s=dm1s, dm2=dm2)[:2]
         h0, h1 = h0eff[0], h1eff[0]
         h2 = h2[:norb_excited][:,:norb_excited][:,:,:norb_excited][:,:,:,:norb_excited]
         return h0, h1, h2
@@ -275,12 +275,13 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         return converged, energy_elec, ci1
 
     def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, dm1s=None, dm2=None, **kwargs):
-        h1eff, h0eff = ProductStateFCISolver.project_hfrag (
+        h1eff, h0eff, ci = ProductStateFCISolver.project_hfrag (
             self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, dm1s=dm1s, dm2=dm2, **kwargs
         )
         nj = np.cumsum (norb_f)
         ni = nj - norb_f
         # Project the part coupling the p and q rootspaces
+        ci1 = [c for c in ci]
         if len (self._e_q) and not self._deactivate_vrv:
             ci0 = [np.asarray (c) for c in ci]
             hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
@@ -289,14 +290,13 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 h2e = h2[i:j,i:j,i:j,i:j]
                 ne = self._get_nelec (solver, nelec)
                 solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
-                e0, ci[ifrag] = solver.sort_ci (h0e, h1e, h2e, norb, ne, c)
+                e0, ci1[ifrag] = solver.sort_ci (h0e, h1e, h2e, norb, ne, c)
                 solver.denom_q = e0 - solver.e_q
                 # The reason I do the above two lines here and not in the fragment-solver kernel is
                 # that between this function and the start of the fragment-solver kernel, the
                 # wrapper needs to compute the current gradient for the whole system. The fragment
                 # solvers need to already know the correct e0 for that gradient calculation.
-        # TODO: return ci properly instead of changing it in-place!
-        return h1eff, h0eff
+        return h1eff, h0eff, ci1
 
     def _energy_vrv (self, h1, h2, ci):
         # The only purpose this serves is for a sanity test in test_excitations.py
