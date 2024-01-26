@@ -618,12 +618,14 @@ class VRVDressedFCISolver (object):
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
             )
-            e0_last = e0
+            # Subtract the vrv energy so that agreement between different fragments can
+            # be checked in the impure-state case
             if isinstance (e, (list,tuple,np.ndarray)):
-                delta_e0 = np.array (e) - e0
-                ket, e0 = ci1[0], e[0]
+                for i in range (len (e)):
+                    e[i] -= np.dot (ci1[i].ravel (), self.contract_vrv (ci1[i]).ravel ())
             else:
-                ket, e0 = ci1, e
+                e -= np.dot (ci1.ravel (), self.contract_vrv (ci1).ravel ())
+            e0_last = e0
             e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
             self.denom_q = e0 - self.e_q
             log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))

@@ -138,8 +138,8 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             else: weights[0] = 1.0
             psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k], weights=weights)
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0,
-                                              max_cycle_macro=lsi.max_cycle_macro,
-                                              conv_tol_self=sys.float_info.max)
+                                              max_cycle_macro=lsi.max_cycle_macro)
+                                              #conv_tol_self=sys.float_info.max)
         spin_shuffle_ref = all ([spaces[j].is_spin_shuffle_of (spaces[0])
                                  for j in range (1,las1.nroots)])
         for k in np.where (~excfrags)[0]:
