@@ -817,7 +817,7 @@ class LASCINoSymm (casci.CASCI):
         assert (len (self.nelecas_sub) == self.nfrags)
         self.frozen = frozen
         self.conv_tol_grad = 1e-4
-        self.conv_tol_self = 1e-8
+        self.conv_tol_self = 1e-10
         self.ah_level_shift = 1e-8
         self.max_cycle_macro = 50
         self.max_cycle_micro = 5

@@ -113,8 +113,8 @@ class KnownValues(unittest.TestCase):
         # equil
         mol = struct (0.0, 0.0, '6-31g', symmetry=False)
         mol.spin = 0
-        mol.verbose = 5 #0
-        mol.output = 'equil.log' #'/dev/null'
+        mol.verbose = 0
+        mol.output = '/dev/null'
         mol.build ()
         mf = scf.RHF (mol).run ()
         las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))

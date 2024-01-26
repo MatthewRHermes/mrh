@@ -250,7 +250,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
     def kernel (self, h1, h2, ecore=0,
-                conv_tol_grad=1e-4, conv_tol_self=1e-8, max_cycle_macro=50,
+                conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
                 serialfrag=False, _add_vrv_energy=False, **kwargs):
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
@@ -614,6 +614,7 @@ class VRVDressedFCISolver (object):
         log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
         log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
         self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e, warntag='Saddle-point initial guess')
+        h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
         for it in range (max_cycle_e0):
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
@@ -622,9 +623,11 @@ class VRVDressedFCISolver (object):
             # be checked in the impure-state case
             if isinstance (e, (list,tuple,np.ndarray)):
                 for i in range (len (e)):
-                    e[i] -= np.dot (ci1[i].ravel (), self.contract_vrv (ci1[i]).ravel ())
+                    hci = self.undressed_contract_2e (h2eff, ci1[i], norb, nelec)
+                    e[i] = ecore + np.dot (ci1[i].ravel (), hci.ravel ())
             else:
-                e -= np.dot (ci1.ravel (), self.contract_vrv (ci1).ravel ())
+                hci = self.undressed_contract_2e (h2eff, ci1, norb, nelec)
+                e = ecore + np.dot (ci1.ravel (), hci.ravel ())
             e0_last = e0
             e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
             self.denom_q = e0 - self.e_q

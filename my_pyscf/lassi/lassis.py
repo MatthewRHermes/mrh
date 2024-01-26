@@ -138,8 +138,8 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             else: weights[0] = 1.0
             psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k], weights=weights)
         conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0,
-                                              max_cycle_macro=lsi.max_cycle_macro)
-                                              #conv_tol_self=sys.float_info.max)
+                                              max_cycle_macro=lsi.max_cycle_macro,
+                                              conv_tol_self=lsi.conv_tol_self)
         spin_shuffle_ref = all ([spaces[j].is_spin_shuffle_of (spaces[0])
                                  for j in range (1,las1.nroots)])
         for k in np.where (~excfrags)[0]:
@@ -309,6 +309,7 @@ class LASSIS (LASSI):
         self.crash_locmin = crash_locmin
         self.e_states_meaningless = True # a tag to silence an invalid warning
         LASSI.__init__(self, las, opt=opt, **kwargs)
+        self.conv_tol_self = 1e-6
         if las.nroots>1:
             logger.warn (self, ("LASSIS builds the model space for you! I don't know what will "
                                 "happen if you build a model space by hand!"))
