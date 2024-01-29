@@ -1,6 +1,6 @@
 import numpy as np
 from pyscf.lo import orth
-from pyscf.lib import tag_array
+from pyscf.lib import tag_array, logger
 
 def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=False):
     ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
@@ -44,6 +44,7 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
     # by PySCF's own code. Therefore, I'm going to keep the symmetry tags on mo_coeff
     # and make sure the SVD engine sees them and doesn't try to figure it out itself.
     # Hopefully this never becomes a problem with the lo_coeff.
+    log = logger.new_logger (las, las.verbose)
     ncore, ncas, ncas_sub = las.ncore, las.ncas, las.ncas_sub
     nocc = ncore + ncas
     nfrags = len (frags_orbs)
@@ -54,6 +55,21 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
     mo_orbsym = getattr (mo_coeff, 'orbsym', np.zeros (nmo))
     mo_coeff = mo_coeff.copy () # Safety
 
+    # Duplicate AO handling
+    dupeAOerr = ValueError (("Cannot assign 1 AO to more than 1 fragment unless active orbitals "
+                             "are built from the MO guess (freeze_cas_spaces=True)"))
+    if np.count_nonzero (~unused_aos) < len (np.concatenate (frags_orbs)):
+        dupes, cnts = np.unique (np.concatenate (frags_orbs), return_counts=True)
+        dupes = dupes[cnts>1]
+        for dupe in dupes:
+            dupestr = 'AO "{}" in multiple frags: '.format (las.mol.ao_labels ()[dupe])
+            for ix, frag_orb in enumerate (frags_orbs):
+                if dupe in frag_orb:
+                    dupestr = dupestr + '{}, '.format (ix)
+            log.warn (dupestr[:-2])
+        if not freeze_cas_spaces:
+            raise (dupeAOerr)
+
     # SVD to pick active orbitals
     mo_cas = tag_array (mo_coeff[:,ncore:nocc], orbsym=mo_orbsym[ncore:nocc])
     if freeze_cas_spaces:
@@ -61,12 +77,14 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
     else:
         null_coeff = lo_coeff[:,unused_aos]
     for ix, (nlas, frag_orbs) in enumerate (zip (las.ncas_sub, frags_orbs)):
-        try:
-            mo_proj, sval, mo_cas = las._svd (lo_coeff[:,frag_orbs], mo_cas, s=ao_ovlp)
-        except ValueError as e:
-            print (ix, lo_coeff[:,frag_orbs].shape, ao_ovlp.shape, mo_cas.shape)
-            print (mo_cas.orbsym)
-            raise (e)
+        if nlas > len (frag_orbs):
+            inadAOs = '{} active orbitals using only {} AOs for fragment {}'.format (
+                nlas, len (frag_orbs), ix)
+            if freeze_cas_spaces:
+                log.warn ('Trying to localize ' + inadAOs)
+            else:
+                raise ValueError ("Cannot make " + inadAOs)
+        mo_proj, sval, mo_cas = las._svd (lo_coeff[:,frag_orbs], mo_cas, s=ao_ovlp)
         i, j = ncore + sum (las.ncas_sub[:ix]), ncore + sum (las.ncas_sub[:ix]) + nlas
         mo_las = mo_cas if freeze_cas_spaces else mo_proj
         mo_coeff[:,i:j] = mo_las[:,:nlas]

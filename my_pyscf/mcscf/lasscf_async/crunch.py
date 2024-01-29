@@ -115,6 +115,8 @@ class ImpuritySCF (scf.hf.SCF):
         nimp = self.mol.nao ()
         mf = self.mol._las._scf
         # Two-electron integrals
+        log = logger.new_logger (self, self.verbose)
+        t0 = (logger.process_clock(), logger.perf_counter())
         if getattr (mf, '_eri', None) is not None:
             self._eri = ao2mo.full (mf._eri, imporb_coeff, 4)
         if getattr (mf, 'with_df', None) is not None:
@@ -130,6 +132,7 @@ class ImpuritySCF (scf.hf.SCF):
                 eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
                                            out=eri2)
                 b0 = b1
+        t0 = log.timer ("Two-electron integrals in embedding subspace", *t0)
         # External mean-field; potentially spin-broken
         h1s = mf.get_hcore ()[None,:,:] + veff
         h1s = np.dot (imporb_coeff.conj ().T, np.dot (h1s, imporb_coeff)).transpose (1,0,2)

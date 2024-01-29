@@ -1,6 +1,7 @@
 from pyscf.scf.rohf import get_roothaan_fock
 from pyscf.fci import cistring
 from pyscf.mcscf import casci, casci_symm, df
+from pyscf.tools import dump_mat
 from pyscf import symm, gto, scf, ao2mo, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
@@ -411,7 +412,8 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
         i = sum (ncas_sub[:ix])
         j = i + ncas
         check_diag[i:j,i:j] = 0.0
-    if np.amax (np.abs (check_diag)) < 1e-8:
+    is_block_diag = np.amax (np.abs (check_diag)) < 1e-8
+    if is_block_diag:
         # No off-diagonal RDM elements -> extra effort to prevent diagonalizer from breaking frags
         for isub, (ncas, nelecas) in enumerate (zip (ncas_sub, nelecas_sub)):
             i = sum (ncas_sub[:isub])
@@ -462,6 +464,28 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
         h2eff_sub = np.tensordot (ucas, h2eff_sub, axes=((0),(3))).transpose (1,2,3,0)
         h2eff_sub = h2eff_sub.reshape (nmo*las.ncas, las.ncas, las.ncas)
         h2eff_sub = lib.numpy_helper.pack_tril (h2eff_sub).reshape (nmo, -1)
+
+    # I/O
+    log = lib.logger.new_logger (las, las.verbose)
+    if las.verbose >= lib.logger.INFO:
+        if is_block_diag:
+            for isub, nlas in enumerate (ncas_sub):
+                log.info ("Fragment %d natural orbitals", isub)
+                i = ncore + sum (ncas_sub[:isub])
+                j = i + nlas
+                log.info ('Natural occ %s', str (mo_occ[i:j]))
+                log.info ('Natural orbital (expansion on AOs) in CAS space')
+                label = las.mol.ao_labels()
+                mo_las = mo_coeff[:,i:j]
+                dump_mat.dump_rec(log.stdout, mo_las, label, start=1)
+        else:
+            log.info ("Delocalized natural orbitals do not reflect LAS fragmentation")
+            log.info ('Natural occ %s', str (mo_occ[ncore:nocc]))
+            log.info ('Natural orbital (expansion on AOs) in CAS space')
+            label = las.mol.ao_labels()
+            mo_las = mo_coeff[:,ncore:nocc]
+            dump_mat.dump_rec(log.stdout, mo_las, label, start=1)
+
     return mo_coeff, mo_ene, mo_occ, ci, h2eff_sub
 
 def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
@@ -1072,10 +1096,11 @@ class LASCINoSymm (casci.CASCI):
     def states_make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm1frs=None, casdm2fr=None, **kwargs):
         ''' Make the full-dimensional casdm2 spanning the collective active space '''
-        log = lib.logger.new_logger (self, self.verbose)
-        log.warn (("You have found yourself in states_make_casdm2, which is "
-                   "a very bad piece of code that Matt should be avoiding. "
-                   "Please yell at him about this at earliest convenience."))
+        raise DeprecationWarning (
+            ("states_make_casdm2 is BANNED. There is no reason to EVER make an array this huge.\n"
+             "Use states_make_casdm*_sub instead, and substitute the factorization into your "
+             "expressions.")
+        )
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
@@ -1121,10 +1146,36 @@ class LASCINoSymm (casci.CASCI):
     def state_make_casdm2(self, ci=None, state=0, ncas_sub=None, nelecas_sub=None, 
             casdm1frs=None, casdm2fr=None, **kwargs):
         ''' State wise casdm2 spanning the collective active space. '''
-        # This is producing the casdm2 for all states, but need to generate only for one state
-        casdm2r = self.states_make_casdm2(ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, 
-            casdm1frs=casdm1frs, casdm2fr=casdm2fr, **kwargs)
-        return casdm2r[state] 
+        if ci is None: ci = self.ci
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
+        if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci)
+        if casdm2fr is None: casdm2fr = self.states_make_casdm2_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        ncas = sum (ncas_sub)
+        ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
+        casdm2 = np.zeros ((ncas,ncas,ncas,ncas))
+        # Diagonal 
+        for isub, dm2_r in enumerate (casdm2fr):
+            i = ncas_cum[isub]
+            j = ncas_cum[isub+1]
+            casdm2[i:j, i:j, i:j, i:j] = dm2_r[state]
+        # Off-diagonal
+        for (isub1, dm1s1_r), (isub2, dm1s2_r) in combinations (enumerate (casdm1frs), 2):
+            i = ncas_cum[isub1]
+            j = ncas_cum[isub1+1]
+            k = ncas_cum[isub2]
+            l = ncas_cum[isub2+1]
+            dma1, dmb1 = dm1s1_r[state][0], dm1s1_r[state][1]
+            dma2, dmb2 = dm1s2_r[state][0], dm1s2_r[state][1]
+            # Coulomb slice
+            casdm2[i:j, i:j, k:l, k:l] = np.multiply.outer (dma1+dmb1, dma2+dmb2)
+            casdm2[k:l, k:l, i:j, i:j] = casdm2[i:j, i:j, k:l, k:l].transpose (2,3,0,1)
+            # Exchange slice
+            casdm2[i:j, k:l, k:l, i:j] = -(np.multiply.outer (dma1, dma2)
+                                           +np.multiply.outer (dmb1, dmb2)).transpose (0,3,2,1)
+            casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
+        return casdm2 
     
     def make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm2r=None, casdm2f=None, casdm1frs=None, casdm2fr=None,
@@ -1411,12 +1462,12 @@ class LASCINoSymm (casci.CASCI):
         return self.converged, self.e_tot, self.e_states, self.e_cas, e_lexc, self.ci
 
     @lib.with_doc(run_lasci.__doc__)
-    def lasci_(self, mo_coeff=None, ci0=None, verbose=None,
-            assert_no_dupes=False, _dry_run=False):
+    def lasci_(self, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose=None,
+               assert_no_dupes=False, _dry_run=False):
         if mo_coeff is not None:
             self.mo_coeff = mo_coeff
-        return self.lasci (mo_coeff=mo_coeff, ci0=ci0, verbose=verbose,
-                           assert_no_dupes=assert_no_dupes, _dry_run=_dry_run)
+        return self.lasci (mo_coeff=mo_coeff, ci0=ci0, lroots=lroots, lweights=lweights,
+                           verbose=verbose, assert_no_dupes=assert_no_dupes, _dry_run=_dry_run)
 
     state_average = state_average
     state_average_ = state_average_

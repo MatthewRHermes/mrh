@@ -263,7 +263,6 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
                                                                       las.nelecas_sub, h1eff_sub,
                                                                       ci0)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
-        max_memory = max(400, las.max_memory-lib.current_memory()[0])
         orbsym = getattr (mo, 'orbsym', None)
         if orbsym is not None:
             i = ncas_cum[isub]
@@ -289,7 +288,6 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
 
         e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
                                       ci0=fcivec, verbose=log,
-                                      max_memory=max_memory,
                                       ecore=e0, orbsym=orbsym)
         e_cas.append (e_sub)
         ci1.append (fcivec)

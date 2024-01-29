@@ -2,7 +2,7 @@ import numpy as np
 from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi.lassi import ham_2q
+from mrh.my_pyscf.lassi.lassi import ham_2q, root_make_rdm12s, LASSI
 from mrh.my_pyscf.lassi.citools import get_lroots
 
 def decompose_sivec_by_rootspace (las, si, ci=None):
@@ -135,7 +135,8 @@ def _print_states (log, iroot, space_weights, state_coeffs, lroots, print_all_bu
         log.info ("All %d ENVs in rootspace %d accounted for", nprods, iroot)
     return
 
-def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', ncsf=10):
+def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', ncsf=10,
+             return_metrics=False):
     '''Print out analysis of LASSI result in terms of average quantum numbers
     and density matrix analyses of the lroots in each rootspace
 
@@ -152,13 +153,15 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         print_all_but: float
             continue density-matrix analysis printouts until all
             but this weight of the wave function(s) is accounted for. Set
-            to zero to print everything.
+            to less than zero to print everything.
         lbasis : 'primitive' or 'Schmidt'
             Basis in which local fragment CI vectors are represented.
             The primitive basis is the CI vectors literally stored on ci.
             The Schmidt basis diagonalizes the one-site reduced density matrix.
         ncsf : integer
             Number of leading CSFs of each basis function to print.
+        return_metrics: logical
+            If True, returns space_weights, navg, maxw, and entr arrays; see below.
 
     Returns:
         ci1: list of list of ndarray
@@ -166,6 +169,17 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
             rotated into the Schmidt basis
         si1: ndarray of shape (ndim, len (state))
             SI vectors. If lbasis='Schmidt', they are rotated into the Schmidt basis
+        space_weights: ndarray of shape (nroots); optional
+            Average weight in each rootspace
+        navg: ndarray of shape (nroots, nfrags); optional
+            Expectation value of the principal quantum number of each fragment in each rootspace
+            If print_all_but >= 0, some rows may be omitted (set to -1)
+        maxw: ndarray of shape (nroots, nfrags); optional
+            Value of the maximum weight on any one eigenstate for each fragment in each rootspace
+            If print_all_but >= 0, some rows may be omitted (set to -1)
+        entr: ndarray of shape (nroots, nfrags); optional
+            Von Neumann entropy of each fragment, considering each rootspace separately
+            If print_all_but >= 0, some rows may be omitted (set to -1)
     '''
     if 'prim' in lbasis.lower (): lbasis = 'primitive'
     elif 'schmidt' in lbasis.lower (): lbasis = 'Schmidt'
@@ -175,15 +189,26 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         )
     if ci is None: ci = las.ci
     ci0 = ci
+    states = np.atleast_1d (state)
+    nstates = len (states)
 
     log = lib.logger.new_logger (las, las.verbose)
+    log.info ("Natural-orbital analysis for state(s) %s", str (state))
+    casdm1s = root_make_rdm12s (las, ci, si, state=state)[0]
+    if nstates > 1:
+        casdm1s = casdm1s.sum (0) / nstates
+    casdm1 = casdm1s.sum (0)
+    if isinstance (las, LASSI):
+        no_coeff, no_ene, no_occ = las._las.canonicalize (natorb_casdm1=casdm1)[:3]
+    else:
+        no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
+
     log.info ("Analyzing LASSI vectors for states = %s",str(state))
 
     log.info ("Average quantum numbers:")
     space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
         las, si
     )
-    states = np.atleast_1d (state)
     nelelas = np.array ([sum (n) for n in las.nelecas_sub])
     c, m, smults = get_rootspace_central_moment (las, space_weights[:,states])
     neleca = .5*(nelelas[None,:]-c+m)
@@ -197,7 +222,6 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
     log.info (("Analyzing rootspace fragment density matrices for LASSI "
                "states %s averaged together"), str (states))
     log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
-    nstates = len (states)
     avg_weights = space_weights[:,states].sum (1) / nstates
     lroots = get_lroots (ci0).T
     running_weight = 1
@@ -207,6 +231,9 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
     fmt_str = " {:4d}  {:>7s}  {:>4d}  {:>3s}  {:6.3f}  {:>11.4f}  {:8f}"
     ci1 = [[ci0[ifrag][iroot].view () for iroot in range (las.nroots)] for ifrag in range (las.nfrags)]
     si1 = si.copy ()
+    navg = -np.ones ((las.nroots, las.nfrags), dtype=float)
+    maxw = -np.ones ((las.nroots, las.nfrags), dtype=float)
+    entr = -np.ones ((las.nroots, las.nfrags), dtype=float)
     for ix, iroot in enumerate (np.argsort (-avg_weights)):
         log.info ("Rootspace %d with averaged weight %9.3e", iroot, avg_weights[iroot])
         log.info (header)
@@ -217,12 +244,12 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         for ifrag in range (las.nfrags):
             sdm = make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
             dens = sdm.diagonal ()
-            navg = np.dot (np.arange (len (dens)), dens)
-            maxw = np.amax (dens)
+            navg[iroot,ifrag] = np.dot (np.arange (len (dens)), dens)
+            maxw[iroot,ifrag] = np.amax (dens)
             evals, evecs = linalg.eigh (-sdm)
             evals = -evals
             evals = evals[evals>0]
-            entr = abs(np.dot (evals, np.log (evals)))
+            entr[iroot,ifrag] = abs(np.dot (evals, np.log (evals)))
             nelec = "{}a+{}b".format ((nelelas[ifrag]-c[iroot,ifrag]+m[iroot,ifrag])//2,
                                       (nelelas[ifrag]-c[iroot,ifrag]-m[iroot,ifrag])//2)
             ir = symm.irrep_id2name (las.mol.groupname, w[iroot][ifrag])
@@ -236,7 +263,8 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
                 ci = np.tensordot (evecs.T, ci, axes=1)
             ci_f.append (ci)
             ci1[ifrag][iroot] = ci
-            log.info (fmt_str.format (ifrag, nelec, s[iroot][ifrag], ir, navg, maxw, entr))
+            log.info (fmt_str.format (ifrag, nelec, s[iroot][ifrag], ir, navg[iroot,ifrag],
+                      maxw[iroot,ifrag], entr[iroot,ifrag]))
         coeffs = coeffs.reshape (flat_shape)
         si1[idx_space[iroot],:] = np.sqrt (space_weights[iroot]) * coeffs[:,:]
         log.info ("Wave function(s) in rootspace %d in local %s basis:", iroot, lbasis)
@@ -253,10 +281,18 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
     if ix+1<las.nroots:
         log.info ("Remaining %d rootspaces have combined weight = %e",
                   las.nroots-ix-1, running_weight)
+        if return_metrics:
+            log.warn (("Not all rootspaces examined because their weights are too small. Metrics "
+                       "for omitted rootspaces are set to -1. Set print_all_but=-1 to ensure all "
+                       "rootspaces are examined."))
     else:
         log.info ("All %d rootspaces accounted for", las.nroots)
 
-    return ci1, si1
+    if return_metrics:
+        space_weights = avg_weights
+        return ci1, si1, space_weights, navg, maxw, entr
+    else:
+        return ci1, si1
 
 def analyze_basis (las, ci=None, space=0, frag=0, npr=10):
     '''Print out the many-electron wave function(s) in terms of CSFs for a specific

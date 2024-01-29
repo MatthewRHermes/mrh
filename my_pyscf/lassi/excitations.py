@@ -15,18 +15,8 @@ op = (op_o0, op_o1)
 
 LOWEST_REFOVLP_EIGVAL_THRESH = getattr (__config__, 'lassi_excitations_refovlp_eigval_thresh', 1e-9)
 IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 1e-6)
-
-def only_ground_states (ci0):
-    '''For a list of sequences of CI vectors in the same Hilbert space,
-    generate a list in which all but the first element of each sequence
-    is discarded.''' 
-    # TODO: examine whether this should be considered a limitation
-    ci1 = []
-    for c in ci0:
-        c = np.asarray (c)
-        if c.ndim==3: c = c[0]
-        ci1.append (c)
-    return ci1
+MAX_CYCLE_E0 = getattr (__config__, 'lassi_excitations_max_cycle_e0', 1)
+CONV_TOL_E0 = getattr (__config__, 'lassi_excitations_conv_tol_e0', 1e-8)
 
 def lowest_refovlp_eigval (ham_pq, ovlp_thresh=LOWEST_REFOVLP_EIGVAL_THRESH):
     ''' Return the lowest eigenvalue of the matrix ham_pq, whose corresponding
@@ -45,6 +35,9 @@ def sort_ci0 (obj, ham_pq, ci0):
     minimum guess energy for the downfolded eigenproblem
 
     (h_pp + h_pq (e0 - e_q)^-1 h_qp) |p> = e0|p>
+
+    NOTE: in the current LASSIS method, this isn't how the converged vectors should be
+    sorted: this arrangement only for the initial guess.
 
     Args:
         ham_pq: ndarray of shape (p+q,p+q)
@@ -219,7 +212,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         norb_ref = [norb_excited,] + [n for ifrag, n in enumerate (self.norb_ref)
                                       if not (ifrag in self.excited_frags)]
         h1eff, h0eff = self.project_hfrag (h1, h2, self.ci_ref, norb_ref, self.nelec_ref, 
-                                           ecore=h0, dm1s=dm1s, dm2=dm2)
+                                           ecore=h0, dm1s=dm1s, dm2=dm2)[:2]
         h0, h1 = h0eff[0], h1eff[0]
         h2 = h2[:norb_excited][:,:norb_excited][:,:,:norb_excited][:,:,:,:norb_excited]
         return h0, h1, h2
@@ -257,8 +250,8 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
     def kernel (self, h1, h2, ecore=0,
-                conv_tol_grad=1e-4, conv_tol_self=1e-10, max_cycle_macro=50,
-                serialfrag=False, **kwargs):
+                conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
+                serialfrag=False, _add_vrv_energy=False, **kwargs):
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
@@ -274,67 +267,69 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
                 conv_tol_grad=conv_tol_grad, conv_tol_self=conv_tol_self,
                 max_cycle_macro=max_cycle_macro, serialfrag=serialfrag, **kwargs
             )
+            if _add_vrv_energy: # for a sanity check in unittests only
+                energy_elec += self._energy_vrv (h1, h2, ci1_active)
         ci1 = [c for c in self.ci_ref]
         for ifrag, c in zip (self.excited_frags, ci1_active):
             ci1[ifrag] = np.asarray (c)
         return converged, energy_elec, ci1
 
     def project_hfrag (self, h1, h2, ci, norb_f, nelec_f, ecore=0, dm1s=None, dm2=None, **kwargs):
-        h1eff, h0eff = ProductStateFCISolver.project_hfrag (
+        h1eff, h0eff, ci = ProductStateFCISolver.project_hfrag (
             self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, dm1s=dm1s, dm2=dm2, **kwargs
         )
+        nj = np.cumsum (norb_f)
+        ni = nj - norb_f
         # Project the part coupling the p and q rootspaces
+        ci1 = [c for c in ci]
         if len (self._e_q) and not self._deactivate_vrv:
             ci0 = [np.asarray (c) for c in ci]
-            ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
-            # TODO: optimize this so that we only need one op_ham_pq_ref call each time we land here,
-            # and not get_ham_pq
-            ci0, e0 = self.sort_ci0 (ham_pq, ci0)
             hci_f_pabq = self.op_ham_pq_ref (h1, h2, ci0)
-            for ifrag, (c, hci_pabq, solver) in enumerate (zip (ci0, hci_f_pabq, self.fcisolvers)):
+            zipper = zip (hci_f_pabq, self.fcisolvers, ci0, norb_f, nelec_f, h1eff, h0eff, ni, nj)
+            for ifrag, (hci_pabq, solver, c, norb, nelec, h1e, h0e, i, j) in enumerate (zipper):
+                h2e = h2[i:j,i:j,i:j,i:j]
+                ne = self._get_nelec (solver, nelec)
                 solver.v_qpab = np.tensordot (self._si_q, hci_pabq, axes=((0),(-1)))
-                # The slight disagreement here is causing massive convergence problems!
-                ci[ifrag] = c
-        return h1eff, h0eff
+                e0, ci1[ifrag] = solver.sort_ci (h0e, h1e, h2e, norb, ne, c)
+                solver.denom_q = e0 - solver.e_q
+                # The reason I do the above two lines here and not in the fragment-solver kernel is
+                # that between this function and the start of the fragment-solver kernel, the
+                # wrapper needs to compute the current gradient for the whole system. The fragment
+                # solvers need to already know the correct e0 for that gradient calculation.
+        return h1eff, h0eff, ci1
 
-    def energy_elec (self, h1, h2, ci, norb_f, nelec_f, ecore=0, **kwargs):
-        energy_tot = ProductStateFCISolver.energy_elec (
-            self, h1, h2, ci, norb_f, nelec_f, ecore=ecore, **kwargs
-        )
-        # Also compute the vrv perturbation energy
-        if len (self._e_q) and not self._deactivate_vrv:
-            ci0 = []
-            # extract this from the putatively converged solver cycles
-            # if you attempt to recalculate it, then it has to be reconverged i guess
-            denom_q = 0
-            for c, solver in zip (ci, self.fcisolvers):
-                t = solver.transformer
-                c = np.asarray (c).reshape (-1, t.ndeta, t.ndetb)
-                ci0.append (c)
-                denom_q += solver.denom_q
-            denom_q /= len (ci)
-            lroots = get_lroots (ci0)
-            p = np.prod (lroots)
-            ham_pq = self.get_ham_pq (ecore, h1, h2, ci0)
-            idx = np.ones (len (ham_pq), dtype=bool)
-            idx[1:p] = False
-            e0, si = linalg.eigh (ham_pq[idx,:][:,idx])
-            h_pp = ham_pq[:p,:p]
-            h_pq = ham_pq[:p,p:]
-            h_qq = ham_pq[p:,p:]
-            h_qq = self._si_q.conj ().T @ h_qq @ self._si_q
-            h_pq = np.dot (h_pq, self._si_q)
-            ham_pq = ham_pq[idx,:][:,idx]
-            idx = np.abs (denom_q) > 1e-16
-            e_p = np.diag (np.dot (h_pq[:,idx].conj () / denom_q[None,idx], h_pq[:,idx].T))
-            e_p = e_p.reshape (*lroots[::-1]).T
-            for solver in self.fcisolvers:
-                if hasattr (getattr (solver, 'weights', None), '__len__'):
-                    e_p = np.dot (solver.weights, e_p)
-                else:
-                    e_p = e_p[0]
-            energy_tot += e_p
-        return energy_tot
+    def _energy_vrv (self, h1, h2, ci):
+        # The only purpose this serves is for a sanity test in test_excitations.py
+        # It can be reattached to energy_elec if I can figure out how to define a whole-system
+        # energy for this step in LASSIS that makes sense.
+        # If so, I should rewrite it so that it can be called outside of this class's kernel
+        # function
+        if (len (self._e_q) == 0) or self._deactivate_vrv: return 0
+        ci0 = []
+        denom_q = 0
+        for c, solver in zip (ci, self.fcisolvers):
+            t = solver.transformer
+            c = np.asarray (c).reshape (-1, t.ndeta, t.ndetb)
+            ci0.append (c)
+            denom_q += solver.denom_q
+        denom_q /= len (ci)
+        lroots = get_lroots (ci0)
+        p = np.prod (lroots)
+        ham_pq = self.get_ham_pq (0, h1, h2, ci0)
+        h_pp = ham_pq[:p,:p]
+        h_pq = ham_pq[:p,p:]
+        h_qq = ham_pq[p:,p:]
+        h_qq = self._si_q.conj ().T @ h_qq @ self._si_q
+        h_pq = np.dot (h_pq, self._si_q)
+        idx = np.abs (denom_q) > 1e-16
+        e_p = np.diag (np.dot (h_pq[:,idx].conj () / denom_q[None,idx], h_pq[:,idx].T))
+        e_p = e_p.reshape (*lroots[::-1]).T
+        for solver in self.fcisolvers:
+            if hasattr (getattr (solver, 'weights', None), '__len__'):
+                e_p = np.dot (solver.weights, e_p)
+            else:
+                e_p = e_p[0]
+        return e_p
 
     def get_ham_pq (self, h0, h1, h2, ci_p):
         '''Build the model-space Hamiltonian matrix for the current state of the P-space.
@@ -404,7 +399,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         nelec_rfs_bra = np.asarray ([[list(self._get_nelec (s, n))
                                      for s, n in zip (self.fcisolvers, nelec_f)]])
         nelec_frs_bra = nelec_rfs_bra.transpose (1,0,2)
-        h_op = op[0].contract_ham_ci # TODO: op[1] version of this fn
+        h_op = op[self.opt].contract_ham_ci
         with temporary_env (self, ncas_sub=norb_f, mol=self.fcisolvers[0].mol):
             hci_fr_pabq = h_op (self, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs_bra,
                                 soc=0, orbsym=None, wfnsym=None)
@@ -438,7 +433,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
         ci0, e0 = self.sort_ci0 (ham_pq, ci0)
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
-            vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=1,
+            vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=MAX_CYCLE_E0,
                                               crash_locmin=self.crash_locmin))
         return ci0, vrvsolvers, e_q, si_q
 
@@ -493,8 +488,8 @@ class VRVDressedFCISolver (object):
     '''
     _keys = {'contract_vrv', 'base', 'v_qpab', 'denom_q', 'e_q', 'max_cycle_e0', 'conv_tol_e0',
              'charge', 'crash_locmin', 'imag_shift'}
-    def __init__(self, fcibase, my_vrv, my_eq, my_e0, max_cycle_e0=100, conv_tol_e0=1e-8,
-                 crash_locmin=False):
+    def __init__(self, fcibase, my_vrv, my_eq, my_e0, max_cycle_e0=MAX_CYCLE_E0,
+                 conv_tol_e0=CONV_TOL_E0, crash_locmin=False):
         self.base = copy.copy (fcibase)
         if isinstance (fcibase, StateAverageFCISolver):
             self._undressed_class = fcibase._base_class
@@ -510,12 +505,14 @@ class VRVDressedFCISolver (object):
         self.crash_locmin = crash_locmin
         self.davidson_only = self.base.davidson_only = True
         # TODO: Relaxing this ^ requires accounting for pspace, precond, and/or hdiag
-    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
+    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, v_qpab=None, denom_q=None,
+                    **kwargs):
         ci0 = self.undressed_contract_2e (eri, fcivec, norb, nelec, link_index, **kwargs)
-        ci0 += self.contract_vrv (fcivec)
+        ci0 += self.contract_vrv (fcivec, v_qpab=v_qpab, denom_q=denom_q)
         return ci0
-    def contract_vrv (self, ket):
-        v_qpab, denom_q = self.v_qpab, self.denom_q
+    def contract_vrv (self, ket, v_qpab=None, denom_q=None):
+        if v_qpab is None: v_qpab = self.v_qpab
+        if denom_q is None: denom_q = self.denom_q
         if v_qpab is None: return np.zeros_like (ket)
         ket_shape = ket.shape
         idx = np.abs (denom_q) > 1e-16
@@ -588,6 +585,22 @@ class VRVDressedFCISolver (object):
         log.debug2 ('e_pq = {}'.format (e_pq))
         e0 = lowest_refovlp_eigval (ham_pq)
         return e0
+    def sort_ci (self, h0e, h1e, h2e, norb, nelec, ci):
+        if self.nroots==1: ci = [ci]
+        e0 = [self.solve_e0 (h0e, h1e, h2e, norb, nelec, ket) for ket in ci]
+        idx = np.argsort (e0)
+        e0 = [e0[ix] for ix in idx]
+        ci = [ci[ix] for ix in idx]
+        den = e0[0] - self.e_q
+        h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
+        e = [np.dot (ket.ravel(), self.contract_2e (h2eff, ket, norb, nelec, denom_q=den).ravel())
+             for ket in ci]
+        if self.nroots > 1:
+            idx = np.argsort (e[1:])
+            ci = [ci[0]] + [ci[1:][ix] for ix in idx]
+        else:
+            ci = ci[0]
+        return e0[0], ci
     def kernel (self, h1e, h2e, norb, nelec, ecore=0, ci0=None, orbsym=None, **kwargs):
         log = lib.logger.new_logger (self, self.verbose)
         max_cycle_e0 = self.max_cycle_e0
@@ -601,43 +614,36 @@ class VRVDressedFCISolver (object):
         log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
         log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
         self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e, warntag='Saddle-point initial guess')
-        warn_swap = False # annoying loud warning not necessary
-        #print (lib.fp (ci0), self.denom_q)
+        h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
         for it in range (max_cycle_e0):
             e, ci1 = self.undressed_kernel (
                 h1e, h2e, norb, nelec, ecore=ecore, ci0=ci1, orbsym=orbsym, **kwargs
             )
-            e0_last = e0
+            # Subtract the vrv energy so that agreement between different fragments can
+            # be checked in the impure-state case
             if isinstance (e, (list,tuple,np.ndarray)):
-                delta_e0 = np.array (e) - e0
-                if warn_swap and np.argmin (np.abs (delta_e0)) != 0:
-                    log.warn ("Possible rootswapping in H(E)|Psi> = E|Psi> fixed-point iteration")
-                    warn_swap = False
-                ket, e0 = ci1[0], e[0]
+                for i in range (len (e)):
+                    hci = self.undressed_contract_2e (h2eff, ci1[i], norb, nelec)
+                    e[i] = ecore + np.dot (ci1[i].ravel (), hci.ravel ())
             else:
-                ket, e0 = ci1, e
+                hci = self.undressed_contract_2e (h2eff, ci1, norb, nelec)
+                e = ecore + np.dot (ci1.ravel (), hci.ravel ())
+            e0_last = e0
             e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
             self.denom_q = e0 - self.e_q
             log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
-            #hket = self.contract_2e (self.absorb_h1e (h1e, h2e, norb, nelec, 0.5), ket, norb, nelec)
-            #brahket = np.dot (ket.ravel (), hket.ravel ())
-            #e0_test = ecore + brahket
-            #g_test = hket - ket*brahket
-            #print (e, e0, e0_test, linalg.norm (g_test))
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True
                 break
         self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e)
         self.converged = (converged and np.all (self.converged))
-        #print (lib.fp (ci1), self.denom_q)#np.stack ([ci1[0].ravel (), ci1[1].ravel ()], axis=-1))
         return e, ci1
-    # I don't feel like futzing around with MRO
     def undressed_kernel (self, *args, **kwargs):
         return self._undressed_class.kernel (self, *args, **kwargs)
     def undressed_contract_2e (self, *args, **kwargs):
         return self._undressed_class.contract_2e (self, *args, **kwargs)
 
-def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=100, conv_tol_e0=1e-8,
+def vrv_fcisolver (fciobj, e0, e_q, v_qpab, max_cycle_e0=MAX_CYCLE_E0, conv_tol_e0=CONV_TOL_E0,
                    crash_locmin=False):
     if isinstance (fciobj, VRVDressedFCISolver):
         fciobj.v_qpab = v_qpab

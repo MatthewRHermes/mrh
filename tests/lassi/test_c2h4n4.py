@@ -158,11 +158,13 @@ class KnownValues(unittest.TestCase):
             self.assertLess (np.amax (np.abs (errvec)), 1e-8)
 
     def test_lassis (self):
-        from mrh.my_pyscf.lassi.lassis import LASSIS
-        las1 = LASSCF (las._scf, (4,4), (4,4), spin_sub=(1,1))
-        las1.mo_coeff = las.mo_coeff
-        las1.lasci ()
-        lsis = LASSIS (las1).run (max_cycle_macro=1)
+        for opt in (0,1):
+            with self.subTest (opt=opt):
+                from mrh.my_pyscf.lassi.lassis import LASSIS
+                las1 = LASSCF (las._scf, (4,4), (4,4), spin_sub=(1,1))
+                las1.mo_coeff = las.mo_coeff
+                las1.lasci ()
+                lsis = LASSIS (las1).run (opt=opt, max_cycle_macro=1)
 
     def test_lassis_slow (self):
         from mrh.my_pyscf.lassi.lassis import LASSIS
@@ -176,9 +178,11 @@ class KnownValues(unittest.TestCase):
         las1 = LASSCF (mf, (5,5), ((3,2),(2,3)), spin_sub=(2,2))
         mo_coeff = las1.localize_init_guess ((list (range (5)), list (range (5,10))))
         las1.kernel (mo_coeff)
-        lsis = LASSIS (las1).run ()
-        self.assertAlmostEqual (lsis.e_roots[0], -295.52103109, 7)
-        self.assertTrue (lsis.converged)
+        for opt in (0,1):
+            with self.subTest (opt=opt):
+                lsis = LASSIS (las1).run (opt=opt)
+                self.assertAlmostEqual (lsis.e_roots[0], -295.52103116343307, 7)
+                self.assertTrue (lsis.converged)
 
 if __name__ == "__main__":
     print("Full Tests for SA-LASSI of c2h4n4 molecule")

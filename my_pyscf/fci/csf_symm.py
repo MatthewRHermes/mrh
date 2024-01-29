@@ -20,46 +20,13 @@ from mrh.my_pyscf.fci.csf import kernel, pspace, get_init_guess, make_hdiag_csf,
 '''
 
 
-class FCISolver (direct_spin1_symm.FCISolver, CSFFCISolver):
+class FCISolver (CSFFCISolver, direct_spin1_symm.FCISolver):
     r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
     out in the CSF basis. However, the ci attribute is put in the determinant basis at the end of it all, and "ci0" is also assumed
     to be in the determinant basis.
 
     ...However, I want to also do point-group symmetry better than direct_spin1_symm...
     '''
-
-    pspace_size = getattr(__config__, 'fci_csf_FCI_pspace_size', 200)
-
-    def __init__(self, mol=None, smult=None):
-        self.smult = smult
-        self.transformer = None
-        super().__init__(mol)
-
-    make_hdiag = make_hdiag_det
-
-    def absorb_h1e (self, h1e, eri, norb, nelec, fac=1):
-        h1e_c, h1e_s = unpack_h1e_cs (h1e)
-        h2eff = super().absorb_h1e (h1e_c, eri, norb, nelec, fac)
-        if h1e_s is not None:
-            h2eff = tag_array (h2eff, h1e_s=h1e_s)
-        return h2eff
-
-    def contract_2e(self, eri, fcivec, norb, nelec, link_index=None, **kwargs):
-        hc = super().contract_2e(eri, fcivec, norb, nelec, link_index, **kwargs)
-        if hasattr (eri, 'h1e_s'):
-           hc += direct_uhf.contract_1e ([eri.h1e_s, -eri.h1e_s], fcivec, norb, nelec, link_index)  
-        return hc
-
-    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None, max_memory=2000):
-        self.norb, self.nelec = norb, nelec
-        self.check_transformer_cache ()
-        return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det, max_memory=max_memory)
-
-    def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
-        self.norb, self.nelec = norb, nelec
-        self.check_transformer_cache ()
-        return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
-            hdiag_csf=hdiag_csf, npsp=npsp, max_memory=self.max_memory)
 
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         ''' Over the top of the existing kernel, I just need to set the parameters and cache values related to spin.

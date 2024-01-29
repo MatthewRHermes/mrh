@@ -65,8 +65,7 @@ def make_hdiag_det (fci, h1e, eri, norb, nelec):
     ''' Wrap to the uhf version in order to use two-component h1e '''
     return direct_uhf.make_hdiag (unpack_h1e_ab (h1e), [eri, eri, eri], norb, nelec)
 
-def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memory=2000):
-    if max_memory is None: max_memory=2000
+def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memory=None):
     smult = transformer.smult
     if hdiag_det is None:
         hdiag_det = make_hdiag_det (None, h1e, eri, norb, nelec)
@@ -101,8 +100,8 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memo
         mem = safety_factor * (mem_floats + mem_ints)
         memstr = ("hdiag_csf of {} orbitals, ({},{}) electrons and smult={} with {} "
                   "doubly-occupied orbitals ({} configurations and {} determinants) requires {} "
-                  "MB > {} MB remaining memory").format (
-            norb, neleca, nelecb, smult, npair, nconf, ndet, mem, mem_remaining)
+                  "MB > {} MB remaining of {} MB max").format (
+            norb, neleca, nelecb, smult, npair, nconf, ndet, mem, mem_remaining, max_memory)
         if mem > mem_remaining:
             raise MemoryError (memstr)
         # end mem safety
@@ -141,7 +140,7 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memo
     return hdiag_csf
 
 
-def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memory=2000):
+def make_hdiag_csf_slower (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memory=None):
     ''' This is tricky because I need the diagonal blocks for each configuration in order to get
     the correct csf hdiag values, not just the diagonal elements for each determinant. '''
     smult = transformer.smult
@@ -247,7 +246,7 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     reduced the default pspace size by a factor of 2.'''
     if norb > 63:
         raise NotImplementedError('norb > 63')
-    if max_memory is None: max_memory=2000
+    if max_memory is None: max_memory=fci.max_memory
 
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     neleca, nelecb = _unpack_nelec(nelec)
@@ -367,6 +366,7 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     if pspace_size is None: pspace_size = fci.pspace_size
     if davidson_only is None: davidson_only = fci.davidson_only
     if transformer is None: transformer = fci.transformer
+    if max_memory is None: max_memory = fci.max_memory
     nelec = _unpack_nelec(nelec, fci.spin)
     neleca, nelecb = nelec
     t0 = lib.logger.timer_debug1 (fci, "csf.kernel: throat-clearing", *t0)
@@ -464,7 +464,6 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     if lindep is None: lindep = fci.lindep
     if max_cycle is None: max_cycle = fci.max_cycle
     if max_space is None: max_space = fci.max_space
-    if max_memory is None: max_memory = fci.max_memory
     tol_residual = getattr(fci, 'conv_tol_residual', None)
 
     #with lib.with_omp_threads(fci.threads):
@@ -481,36 +480,24 @@ def kernel(fci, h1e, eri, norb, nelec, smult=None, idx_sym=None, ci0=None,
     else:
         return e+ecore, c.reshape(na,nb)
 
-class CSFFCISolver: # tag class
+class CSFFCISolver: # parent class
     _keys = {'smult', 'transformer'}
-
-class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
-    r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
-    out in the CSF basis. However, the ci attribute is put in the determinant basis at the end of it all, and "ci0" is also assumed
-    to be in the determinant basis.'''
-
     pspace_size = getattr(__config__, 'fci_csf_FCI_pspace_size', 200)
+    make_hdiag = make_hdiag_det
 
     def __init__(self, mol=None, smult=None):
         self.smult = smult
         self.transformer = None
         super().__init__(mol)
 
-    def get_init_guess(self, norb, nelec, nroots, hdiag_csf, **kwargs):
-        self.norb = norb
-        self.nelec = nelec
-        self.check_transformer_cache ()
-        return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
-
-    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None, smult=None, max_memory=2000):
+    def make_hdiag_csf (self, h1e, eri, norb, nelec, hdiag_det=None, smult=None, max_memory=None):
         self.norb = norb
         self.nelec = nelec
         if smult is not None:
             self.smult = smult
         self.check_transformer_cache ()
+        if max_memory is None: max_memory = self.max_memory
         return make_hdiag_csf (h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det, max_memory=max_memory)
-
-    make_hdiag = make_hdiag_det
 
     def absorb_h1e (self, h1e, eri, norb, nelec, fac=1):
         h1e_c, h1e_s = unpack_h1e_cs (h1e)
@@ -525,10 +512,6 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
            hc += direct_uhf.contract_1e ([eri.h1e_s, -eri.h1e_s], fcivec, norb, nelec, link_index)  
         return hc
 
-    '''
-    01/14/2019: Changing strategy; I'm now replacing the kernel and pspace functions instead of make_precond and eig
-    '''
-
     def pspace (self, h1e, eri, norb, nelec, hdiag_det=None, hdiag_csf=None, npsp=200, **kwargs):
         self.norb = norb
         self.nelec = nelec
@@ -539,7 +522,20 @@ class FCISolver (direct_spin1.FCISolver, CSFFCISolver):
         max_memory = kwargs.get ('max_memory', self.max_memory)
         return pspace (self, h1e, eri, norb, nelec, self.transformer, hdiag_det=hdiag_det,
             hdiag_csf=hdiag_csf, npsp=npsp, max_memory=max_memory)
-        
+
+class FCISolver (CSFFCISolver, direct_spin1.FCISolver):
+    r''' get_init_guess uses csfstring.py and csdstring.py to construct a spin-symmetry-adapted initial guess, and the Davidson algorithm is carried
+    out in the CSF basis. However, the ci attribute is put in the determinant basis at the end of it all, and "ci0" is also assumed
+    to be in the determinant basis.'''
+
+    def get_init_guess(self, norb, nelec, nroots, hdiag_csf, **kwargs):
+        self.norb = norb
+        self.nelec = nelec
+        self.check_transformer_cache ()
+        return get_init_guess (norb, nelec, nroots, hdiag_csf, self.transformer)
+
+
+
     def kernel(self, h1e, eri, norb, nelec, ci0=None, **kwargs):
         self.norb = norb
         self.nelec = nelec
