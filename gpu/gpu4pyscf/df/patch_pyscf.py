@@ -25,7 +25,7 @@ from pyscf.df import df_jk
 #from gpu4pyscf.df import df as mrh_df
 #from pyscf import df
 
-#from gpu4pyscf.lib.utils import patch_cpu_kernel
+from gpu4pyscf.lib.utils import patch_cpu_kernel
 
 print(f'{df_jk} monkey-patched')
 df_jk.get_jk = patch_cpu_kernel(df_jk.get_jk)(_get_jk)

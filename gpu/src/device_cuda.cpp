@@ -309,7 +309,7 @@ void Device::get_jk(int naux,
     d_rho = (double *) pm->dev_malloc(size_rho * sizeof(double));
   }
 
-#if 1
+#if 0
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   //  double * vj = static_cast<double*>(info_vj.ptr);
   
