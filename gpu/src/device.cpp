@@ -4,6 +4,8 @@
 
 #include "device.h"
 
+#define _NUM_TIMER_JK 12
+
 /* ---------------------------------------------------------------------- */
 
 Device::Device()
@@ -22,6 +24,7 @@ Device::Device()
   size_buf = 0;
   size_fdrv = 0;
   size_dms = 0;
+  size_dmtril = 0;
   size_eri1 = 0;
   size_tril_map = 0;
   
@@ -47,11 +50,12 @@ Device::Device()
   d_buf3 = nullptr;
   d_vkk = nullptr;
   d_dms = nullptr;
+  d_dmtril = nullptr;
   d_eri1 = nullptr;
 
   d_tril_map = nullptr;
 #endif
-
+  
   num_threads = 1;
 #pragma omp parallel
   num_threads = omp_get_num_threads();
@@ -62,8 +66,8 @@ Device::Device()
   for(int i=0; i<14; ++i) t_array[i] = 0.0;
 
   t_array_jk_count = 0;
-  t_array_jk = (double* ) malloc(9 * sizeof(double));
-  for(int i=0; i<9; ++i) t_array_jk[i] = 0.0;
+  t_array_jk = (double* ) malloc(_NUM_TIMER_JK * sizeof(double));
+  for(int i=0; i<_NUM_TIMER_JK; ++i) t_array_jk[i] = 0.0;
 #endif
 }
 
@@ -89,24 +93,45 @@ Device::~Device()
   pm->dev_free_host(tril_map);
 
 #ifdef _SIMPLE_TIMER
-  t_array_jk[8] += omp_get_wtime() - t0;
+  t_array_jk[11] += omp_get_wtime() - t0;
 #endif
   
 #ifdef _SIMPLE_TIMER
   printf("LIBGPU::orbital_response\n");
   double total = 0.0;
-  for(int i=0; i<14; ++i) {total += t_array[i]; printf("i= %i  t_array= %f s\n",i,t_array[i]); }
+  for(int i=0; i<14; ++i) {
+    total += t_array[i];
+    printf("i= %i  t_array= %f s\n",i,t_array[i]);
+  }
   printf("  total= %f s  count= %i\n",total,t_array_count);
 
   printf("LIBGPU::get_jk\n");
   total = 0.0;
-  for(int i=0; i<9; ++i) {total += t_array_jk[i]; printf("i= %i  t_array= %f s\n",i,t_array_jk[i]); }
+  for(int i=0; i<_NUM_TIMER_JK; ++i) {
+    total += t_array_jk[i];
+    printf("i= %i  t_array= %f s\n",i,t_array_jk[i]);
+  }
   printf("  total= %f s  count= %i\n",total,t_array_jk_count);
   
   free(t_array);
   free(t_array_jk);
 #endif
 
+  // print summary of cached eri blocks
+
+#ifdef _USE_ERI_CACHE
+  printf("LIBGPU::eri cache :: size= %i\n",eri_list.size());
+  for(int i=0; i<eri_list.size(); ++i)
+    printf("%i : eri= %p  Mbytes= %f  count= %i  update= %i\n", i, eri_list[i],
+	   eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i]);
+  
+  eri_count.clear();
+  eri_size.clear();
+  for(int i=0; i<d_eri_host.size(); ++i) pm->dev_free_host( d_eri_host[i] );
+  for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free( d_eri_cache[i] );
+  eri_list.clear();
+#endif
+  
 #if defined(_USE_GPU)
 #ifdef _CUDA_NVTX
   nvtxRangePushA("Deallocate");
@@ -119,6 +144,7 @@ Device::~Device()
   pm->dev_free(d_buf3);
   pm->dev_free(d_vkk);
   pm->dev_free(d_dms);
+  pm->dev_free(d_dmtril);
   pm->dev_free(d_eri1);
   pm->dev_free(d_tril_map);
   

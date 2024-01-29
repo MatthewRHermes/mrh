@@ -19,6 +19,8 @@ using namespace PM_NS;
 #define _SIZE_GRID 32
 #define _SIZE_BLOCK 256
 
+#define _USE_ERI_CACHE
+
 #define OUTPUTIJ        1
 #define INPUT_IJ        2
 
@@ -62,7 +64,7 @@ public :
   void get_jk(int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
 	      py::array_t<double>, py::array_t<double>,
-	      int);
+	      int, size_t);
   void pull_get_jk(py::array_t<double>, py::array_t<double>);
   
   void orbital_response(py::array_t<double>,
@@ -88,6 +90,7 @@ private:
   int size_buf;
   int size_fdrv;
   int size_dms;
+  int size_dmtril;
   int size_eri1;
   int size_tril_map;
 
@@ -115,10 +118,22 @@ private:
   double * d_buf3;
   double * d_vkk;
   double * d_dms;
+  double * d_dmtril;
   double * d_eri1;
   
   int * tril_map;
   int * d_tril_map;
+
+  // eri caching on device
+  
+  std::vector<size_t> eri_list; // addr of dfobj+eri1 for key-value pair
+  
+  std::vector<int> eri_count; // # times particular cache used
+  std::vector<int> eri_update; // # times particular cache updated
+  std::vector<int> eri_size; // # size of particular cache
+
+  std::vector<double *> d_eri_cache; // pointers for device caches
+  std::vector<double *> d_eri_host; // values on host for checking if update
   
   struct my_AO2MOEnvs {
     int natm;

@@ -122,6 +122,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         dms = [numpy.asarray(x, order='F') for x in dms]
         max_memory = dfobj.max_memory - lib.current_memory()[0]
         blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
+#        print(" dfobj.blockdim= ", dfobj.blockdim, "  max_memory*.22e6/8/nao**2= ", max_memory*.22e6/8/nao**2, " blksize= ", blksize)
         buf = numpy.empty((2,blksize,nao,nao))
         
 #        print(" -- -- -- blksize= ", blksize, " blockdim= ", dfobj.blockdim, "  nao= ", nao)
@@ -138,15 +139,12 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 #        buf2_err = 0.0
         for eri1 in dfobj.loop(blksize):
             naux, nao_pair = eri1.shape
-            if count == 0:
-                libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
-
 #            print("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", blksize, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
 #            print("vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
-            
+            #print("addr of dfobj= ", hex(id(dfobj)), "  addr of eri1= ", hex(id(eri1)), " count= ", count)
             if gpu:
-
-                libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, count)
+                if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
+                libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, count, id(dfobj))
 
             else:
                 
