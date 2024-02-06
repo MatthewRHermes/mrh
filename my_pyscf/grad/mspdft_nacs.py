@@ -1,4 +1,5 @@
 import numpy as np
+from pyscf import mcpdft
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.fci import direct_spin1
@@ -6,11 +7,11 @@ from pyscf.mcscf import newton_casscf
 from pyscf.grad import casscf as casscf_grad
 from pyscf.grad import sacasscf as sacasscf_grad
 from pyscf.grad import mspdft as mspdft_grad
-from mrh.my_pyscf.grad import sacasscf_nacs
+from pyscf.nac import sacasscf as sacasscf_nac
 from functools import reduce
 
 _unpack_state = mspdft_grad._unpack_state
-_nac_csf = sacasscf_nacs._nac_csf
+_nac_csf = sacasscf_nac._nac_csf
 
 def nac_model (mc_grad, mo_coeff=None, ci=None, si_bra=None, si_ket=None,
                mf_grad=None, atmlst=None):
