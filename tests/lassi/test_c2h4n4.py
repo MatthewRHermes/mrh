@@ -181,7 +181,7 @@ class KnownValues(unittest.TestCase):
         for opt in (0,1):
             with self.subTest (opt=opt):
                 lsis = LASSIS (las1).run (opt=opt)
-                self.assertAlmostEqual (lsis.e_roots[0], -295.52103109, 7)
+                self.assertAlmostEqual (lsis.e_roots[0], -295.52103116343307, 7)
                 self.assertTrue (lsis.converged)
 
 if __name__ == "__main__":

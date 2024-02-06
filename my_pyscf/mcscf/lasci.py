@@ -181,7 +181,6 @@ def get_grad_ci (las, mo_coeff=None, ci=None, h1eff_sub=None, h2eff_sub=None, ve
     for isub, (fcibox, h1e, ci0, ncas, nelecas) in enumerate (zip (
             las.fciboxes, h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
-        max_memory = max(400, las.max_memory-lib.current_memory()[0])
         linkstrl = fcibox.states_gen_linkstr (ncas, nelecas, True)
         linkstr  = fcibox.states_gen_linkstr (ncas, nelecas, False)
         h2eff = fcibox.states_absorb_h1e(h1e, eri_cas, ncas, nelecas, .5)
@@ -1092,10 +1091,11 @@ class LASCINoSymm (casci.CASCI):
     def states_make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm1frs=None, casdm2fr=None, **kwargs):
         ''' Make the full-dimensional casdm2 spanning the collective active space '''
-        log = lib.logger.new_logger (self, self.verbose)
-        log.warn (("You have found yourself in states_make_casdm2, which is "
-                   "a very bad piece of code that Matt should be avoiding. "
-                   "Please yell at him about this at earliest convenience."))
+        raise DeprecationWarning (
+            ("states_make_casdm2 is BANNED. There is no reason to EVER make an array this huge.\n"
+             "Use states_make_casdm*_sub instead, and substitute the factorization into your "
+             "expressions.")
+        )
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
@@ -1141,10 +1141,36 @@ class LASCINoSymm (casci.CASCI):
     def state_make_casdm2(self, ci=None, state=0, ncas_sub=None, nelecas_sub=None, 
             casdm1frs=None, casdm2fr=None, **kwargs):
         ''' State wise casdm2 spanning the collective active space. '''
-        # This is producing the casdm2 for all states, but need to generate only for one state
-        casdm2r = self.states_make_casdm2(ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, 
-            casdm1frs=casdm1frs, casdm2fr=casdm2fr, **kwargs)
-        return casdm2r[state] 
+        if ci is None: ci = self.ci
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
+        if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci)
+        if casdm2fr is None: casdm2fr = self.states_make_casdm2_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        ncas = sum (ncas_sub)
+        ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
+        casdm2 = np.zeros ((ncas,ncas,ncas,ncas))
+        # Diagonal 
+        for isub, dm2_r in enumerate (casdm2fr):
+            i = ncas_cum[isub]
+            j = ncas_cum[isub+1]
+            casdm2[i:j, i:j, i:j, i:j] = dm2_r[state]
+        # Off-diagonal
+        for (isub1, dm1s1_r), (isub2, dm1s2_r) in combinations (enumerate (casdm1frs), 2):
+            i = ncas_cum[isub1]
+            j = ncas_cum[isub1+1]
+            k = ncas_cum[isub2]
+            l = ncas_cum[isub2+1]
+            dma1, dmb1 = dm1s1_r[state][0], dm1s1_r[state][1]
+            dma2, dmb2 = dm1s2_r[state][0], dm1s2_r[state][1]
+            # Coulomb slice
+            casdm2[i:j, i:j, k:l, k:l] = np.multiply.outer (dma1+dmb1, dma2+dmb2)
+            casdm2[k:l, k:l, i:j, i:j] = casdm2[i:j, i:j, k:l, k:l].transpose (2,3,0,1)
+            # Exchange slice
+            casdm2[i:j, k:l, k:l, i:j] = -(np.multiply.outer (dma1, dma2)
+                                           +np.multiply.outer (dmb1, dmb2)).transpose (0,3,2,1)
+            casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
+        return casdm2 
     
     def make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm2r=None, casdm2f=None, casdm1frs=None, casdm2fr=None,
