@@ -268,7 +268,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         idx_space, idx_prod = indices
         ci_blk, nelec_blk = indexed
         idx_allprods.extend (list(np.where(idx_prod)[0]))
-        lib.logger.info (las, 'Diagonalizing LASSI symmetry block %d\n'
+        lib.logger.info (las, 'Build + diag H matrix LASSI symmetry block %d\n'
                          + '{} = {}\n'.format (qn_lbls, sym)
                          + '(%d rootspaces; %d states)', it,
                          np.count_nonzero (idx_space), 

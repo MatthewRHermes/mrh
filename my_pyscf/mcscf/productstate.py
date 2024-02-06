@@ -34,7 +34,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
             ci0 = ci1
-            h1eff, h0eff = self.project_hfrag (h1, h2, ci0, norb_f, nelec_f,
+            h1eff, h0eff, ci0 = self.project_hfrag (h1, h2, ci0, norb_f, nelec_f,
                 ecore=ecore, **kwargs)
             grad = self._get_grad (h1eff, h2, ci0, norb_f, nelec_f, **kwargs)
             grad_max = np.amax (np.abs (grad))
@@ -223,7 +223,8 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             e_i -= (np.tensordot (h1_i, dm1s_i, axes=3)
               + 0.5*np.tensordot (h2_i, dm2_i, axes=4))
             h0eff.append (e_i)
-        return h1eff, h0eff
+        return h1eff, h0eff, ci
+        # A child class will modify ci in this function
 
     def make_rdm1s (self, ci, norb_f, nelec_f, **kwargs):
         norb = sum (norb_f)
