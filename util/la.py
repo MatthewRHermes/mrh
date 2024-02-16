@@ -73,38 +73,47 @@ def safe_svd_warner (warn=lambda *args: None):
         except scipy.linalg.LinAlgError as err:
             warn ("Encountered scipy.linalg.LinAlgError during SVD: {}".format (err))
             warn ("attempting fake SVD using eigh")
-            aTa = a.conj ().T @ a
-            evals_aTa, v = scipy.linalg.eigh (-aTa)
-            N = len (evals_aTa)
-            aaT = a @ a.conj ().T
-            evals_aaT, u = scipy.linalg.eigh (-aaT)
-            M = len (evals_aaT)
-            K = min (M,N)
-            svals = np.sqrt (np.maximum ((evals_aaT[:K] + evals_aTa[:K])*-.5, 0))
-            # Try to sort out degenerate-sval and sign issues by a second pass to
-            # linalg.svd with the null space removed
-            try:
-                svals_rel = svals/np.amax(svals)
-                K1 = np.count_nonzero (svals_rel>1e-7)
-                a1 = u[:,:K1].conj ().T @ a @ v[:,:K1]
-                u1, svals1, v1h = scipy.linalg.svd (a1, full_matrices=False)
-                svals[:K1] = svals1
-                u[:,:K1] = u[:,:K1] @ u1
-                v[:,:K1] = v[:,:K1] @ v1h.conj ().T
-            except scipy.linalg.LinAlgError as err1:
-                warn ("Second pass to scipy.linalg also failed: {}".format (err1))
-                warn ("Degenerate manifolds are mixed randomly!")
-                # Assign sign flips to u arbitrarily!
-                idx_signflip = ((a @ v[:,:K]) * u[:,:K].conj ()).sum (0) < 0
-                u[:,:K][:,idx_signflip] = -u[:,:K][:,idx_signflip]
-            vH = v.conj ().T
-            a_test = (u[:,:K] * svals[None,:]) @ vH[:K]
-            a_err = np.amax (np.abs (a_test-a))
-            warn ("Checking fake svd accuracy")
-            warn ("max(abs(u.s.vh - a)) = %e", a_err)
-            if not full_matrices:
-                u, v = u[:,:K], v[:,:K]
-            return u, svals, vH
+            return fake_svd (a, full_matrices=full_matrices)
+        except ValueError as err:
+            warn ("Encountered ValueError during SVD: {}".format (err))
+            warn ("Matrix contains {} infs and {} nans".format (
+                np.count_nonzero (np.isinf (a)), np.count_nonzero (np.isnan (a)))
+            warn ("attempting fake SVD using eigh")
+            return fake_svd (a, full_matrices=full_matrices)
+
+    def fake_svd (a, full_matrices=True):
+        aTa = a.conj ().T @ a
+        evals_aTa, v = scipy.linalg.eigh (-aTa)
+        N = len (evals_aTa)
+        aaT = a @ a.conj ().T
+        evals_aaT, u = scipy.linalg.eigh (-aaT)
+        M = len (evals_aaT)
+        K = min (M,N)
+        svals = np.sqrt (np.maximum ((evals_aaT[:K] + evals_aTa[:K])*-.5, 0))
+        # Try to sort out degenerate-sval and sign issues by a second pass to
+        # linalg.svd with the null space removed
+        try:
+            svals_rel = svals/np.amax(svals)
+            K1 = np.count_nonzero (svals_rel>1e-7)
+            a1 = u[:,:K1].conj ().T @ a @ v[:,:K1]
+            u1, svals1, v1h = scipy.linalg.svd (a1, full_matrices=False)
+            svals[:K1] = svals1
+            u[:,:K1] = u[:,:K1] @ u1
+            v[:,:K1] = v[:,:K1] @ v1h.conj ().T
+        except scipy.linalg.LinAlgError as err1:
+            warn ("Second pass to scipy.linalg also failed: {}".format (err1))
+            warn ("Degenerate manifolds are mixed randomly!")
+            # Assign sign flips to u arbitrarily!
+            idx_signflip = ((a @ v[:,:K]) * u[:,:K].conj ()).sum (0) < 0
+            u[:,:K][:,idx_signflip] = -u[:,:K][:,idx_signflip]
+        vH = v.conj ().T
+        a_test = (u[:,:K] * svals[None,:]) @ vH[:K]
+        a_err = np.amax (np.abs (a_test-a))
+        warn ("Checking fake svd accuracy")
+        warn ("max(abs(u.s.vh - a)) = %e", a_err)
+        if not full_matrices:
+            u, v = u[:,:K], v[:,:K]
+        return u, svals, vH
     return safe_svd
 
 safe_svd = safe_svd_warner ()
