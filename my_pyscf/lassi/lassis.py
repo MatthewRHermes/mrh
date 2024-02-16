@@ -34,6 +34,7 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
     else:
         if lsi.nfrags > 2:
             log.warn ("Behavior for >2 nonsinglet fragments may not be well-defined.")
+            # Within single excitations, Sz of spectator fragments is seemingly arbitrary.
         las1 = spin_shuffle (las, equal_weights=True)
         las1.ci = spin_shuffle_ci (las1, las1.ci)
         las1.converged = las.converged
