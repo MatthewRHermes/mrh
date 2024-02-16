@@ -77,7 +77,7 @@ def safe_svd_warner (warn=lambda *args: None):
         except ValueError as err:
             warn ("Encountered ValueError during SVD: {}".format (err))
             warn ("Matrix contains {} infs and {} nans".format (
-                np.count_nonzero (np.isinf (a)), np.count_nonzero (np.isnan (a)))
+                np.count_nonzero (np.isinf (a)), np.count_nonzero (np.isnan (a))))
             warn ("attempting fake SVD using eigh")
             return fake_svd (a, full_matrices=full_matrices)
 
