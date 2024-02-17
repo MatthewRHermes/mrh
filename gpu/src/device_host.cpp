@@ -259,9 +259,9 @@ void Device::get_jk(int naux,
 
     const int lda = naux * nao;
     const int ldb = nao;
-    const int ldc = (mode_getjk == 0) ? nset * nao : nao;
+    const int ldc = nao;
 
-    const int vk_offset = (mode_getjk == 0) ? indxK * nao : indxK * nao*nao; // this is ugly...
+    const int vk_offset = indxK * nao*nao;
     
     double * vkk = vk + vk_offset;
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);

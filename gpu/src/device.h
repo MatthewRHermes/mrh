@@ -60,7 +60,6 @@ public :
   void set_device(int);
 
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int, int);
-  void set_mode_get_jk(int);
   void get_jk(int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
 	      py::array_t<double>, py::array_t<double>,
@@ -100,8 +99,6 @@ private:
   int nset;
   int nao_pair;
 
-  int mode_getjk;
-  
   double * rho;
   //double * vj;
   double * _vktmp;

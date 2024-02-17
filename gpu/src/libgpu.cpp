@@ -81,14 +81,6 @@ void libgpu_init_get_jk(void * ptr,
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_set_mode_get_jk(void * ptr, int mode)
-{
-  Device * dev = (Device *) ptr;
-  dev->set_mode_get_jk(mode);
-}
-
-/* ---------------------------------------------------------------------- */
-
 void libgpu_compute_get_jk(void * ptr,
 			   int naux,
 			   py::array_t<double> eri1, py::array_t<double> dmtril, py::list & dms,

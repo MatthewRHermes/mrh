@@ -54,10 +54,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         # 2. CASSCF on each fragment
         kf2_list = []
         for impurity in impurities:
-            # is there something inside get_jk that could be tested insted of setting a "mode" here??
-            if las.use_gpu: libgpu.libgpu_set_mode_get_jk(las.use_gpu, 1) # change indexing for vk ?? 
             impurity.kernel ()
-            if las.use_gpu: libgpu.libgpu_set_mode_get_jk(las.use_gpu, 0) # restore original vk indexing
             kf2_list.append (impurity._push_keyframe (kf1))
 
             

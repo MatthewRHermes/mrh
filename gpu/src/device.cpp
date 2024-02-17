@@ -16,8 +16,6 @@ Device::Device()
   
   n = 0;
 
-  mode_getjk = 0;
-  
   size_rho = 0;
   size_vj = 0;
   size_vk = 0;
@@ -193,14 +191,6 @@ void Device::set_device(int id)
 
 /* ---------------------------------------------------------------------- */
     
-void Device::set_mode_get_jk(int mode)
-{
-  //  printf("LIBGPU: setting mode for get_jk() to %i\n",mode);
-  mode_getjk = mode;
-}
-
-/* ---------------------------------------------------------------------- */
-
 // Is both _ocm2 in/out as it get over-written and resized?
 
 void Device::orbital_response(py::array_t<double> _f1_prime,
