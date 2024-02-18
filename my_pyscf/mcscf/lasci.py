@@ -183,7 +183,6 @@ def get_grad_ci (las, mo_coeff=None, ci=None, h1eff_sub=None, h2eff_sub=None, ve
     for isub, (fcibox, h1e, ci0, ncas, nelecas) in enumerate (zip (
             las.fciboxes, h1eff_sub, ci, las.ncas_sub, las.nelecas_sub)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
-        max_memory = max(400, las.max_memory-lib.current_memory()[0])
         linkstrl = fcibox.states_gen_linkstr (ncas, nelecas, True)
         linkstr  = fcibox.states_gen_linkstr (ncas, nelecas, False)
         h2eff = fcibox.states_absorb_h1e(h1e, eri_cas, ncas, nelecas, .5)

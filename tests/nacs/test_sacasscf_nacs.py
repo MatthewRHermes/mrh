@@ -1,6 +1,5 @@
 import numpy as np
-from pyscf import gto, scf, df, mcscf, lib
-from mrh.my_pyscf.grad.sacasscf_nacs import NonAdiabaticCouplings
+from pyscf import gto, scf, mcscf
 import unittest
 
 
@@ -31,7 +30,7 @@ def diatomic(atom1, atom2, r, basis, ncas, nelecas, nstates,
 
     mc.kernel(mo)
 
-    return NonAdiabaticCouplings(mc)
+    return mc.nac_method()
 
 
 def tearDownModule():

@@ -294,10 +294,11 @@ def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None)
                            (mo_coeff.shape[1], casci.ncore, ncas))
 
     # FCI
-    max_memory = max(400, casci.max_memory-lib.current_memory()[0])
+    #max_memory = max(400, casci.max_memory-lib.current_memory()[0])
+    # Issue #54: count memory here, or in FCISolver?
     e_tot, fcivec = casci.fcisolver.kernel(h1eff, eri_cas, ncas, nelecas,
                                            ci0=ci0, verbose=log,
-                                           max_memory=max_memory,
+                                           #max_memory=max_memory,
                                            ecore=energy_core)
 
     t1 = log.timer('FCI solver', *t1)
