@@ -58,7 +58,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
     dms = dms.reshape(-1,nao,nao)
     nset = dms.shape[0]
     vj = 0
-    vk = numpy.zeros_like(dms)
+    vk = numpy.zeros(dms.shape)
 
     if with_j:
         idx = numpy.arange(nao)

@@ -13,6 +13,15 @@ from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
 from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.lassi.lassi import LASSI
 
+# TODO: split prepare_states into three steps
+# 1. Compute the number of unique fragment CI vectors to be computed (including sz-flips but not
+#    including repeated references in the final CI table), the total number of model states in the
+#    final step, and report the memory footprint. Prepare the corresponding tables of CI vectors.
+# 2. Optimize the unique, unfrozen CI vectors. Include the option to initialize them from stored
+#    values.
+# 3. Combine the optimized CI vectors into a single ci table in the format the LASSI kernel expects.
+#    Use references, not copies.
+
 def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
     # between definition of e_states array for neutral and charge-separated rootspaces
@@ -23,6 +32,9 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
         # If all singlets, skip the spin shuffle and the unnecessary warning below
         las1 = las
     else:
+        if lsi.nfrags > 2:
+            log.warn ("Behavior for >2 nonsinglet fragments may not be well-defined.")
+            # Within single excitations, Sz of spectator fragments is seemingly arbitrary.
         las1 = spin_shuffle (las, equal_weights=True)
         las1.ci = spin_shuffle_ci (las1, las1.ci)
         las1.converged = las.converged
@@ -35,14 +47,16 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
         log.info ("Reference space %d:", ix)
         SingleLASRootspace (las1, m, s, c, 0, ci=[c[ix] for c in las1.ci]).table_printlog ()
     # 2. Spin excitations part 1
-    spin_halfexcs = all_spin_halfexcitations (lsi, las1, nspin=nspin) if nspin else None
+    spin_flips = all_spin_flips (lsi, las1, nspin=nspin) if nspin else None
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
     # 3. Charge excitations
+    # TODO: Store the irreducible degrees of freedom of the charge excitations more transparently,
+    # like spin_flips above.
     if ncharge:
         las2 = all_single_excitations (las1)
         converged, las2.ci, las2.e_states = single_excitations_ci (
             lsi, las2, las1, ncharge=ncharge, sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
-            spin_halfexcs=spin_halfexcs, crash_locmin=crash_locmin
+            spin_flips=spin_flips, crash_locmin=crash_locmin
         )
     else:
         converged, las2 = las1.converged, las1
@@ -50,14 +64,14 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
         las2 = charge_excitation_products (las2, las1)
     # 4. Spin excitations part 2
     if nspin:
-        las3 = spin_halfexcitation_products (las2, spin_halfexcs, nroots_ref=nroots_ref)
+        las3 = spin_flip_products (las2, spin_flips, nroots_ref=nroots_ref)
     else:
         las3 = las2
     las3.lasci (_dry_run=True)
     return converged, las3
 
 def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_vrv=False,
-                           spin_halfexcs=None, crash_locmin=False):
+                           spin_flips=None, crash_locmin=False):
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
     nfrags = lsi.nfrags
@@ -103,7 +117,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         excfrags = np.zeros (nfrags, dtype=bool)
         for space in psref: excfrags[spaces[i].excited_fragments (space)] = True
         nref_pure = len (psref)
-        psref = _spin_halfexcitation_products (psref, spin_halfexcs, nroots_ref=len(psref),
+        psref = _spin_flip_products (psref, spin_flips, nroots_ref=len(psref),
                                                frozen_frags=(~excfrags))
         psref = [space for space in psref if spaces[i].is_single_excitation_of (space)]
         if auto_singles:
@@ -157,13 +171,16 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         t0 = log.timer ("Space {} excitations".format (i), *t0)
     return converged, ci, e_roots
 
-class SpinHalfexcitations (object):
+class SpinFlips (object):
+    '''For a single fragment, bundle the ci vectors of various spin-flipped states with their
+       corresponding quantum numbers. Instances of this object are stored together in a list
+       where position indicates fragment identity.'''
     def __init__(self, ci, spins, smults):
         self.ci = ci
         self.spins = spins
         self.smults = smults
 
-def all_spin_halfexcitations (lsi, las, nspin=1):
+def all_spin_flips (lsi, las, nspin=1):
     log = logger.new_logger (lsi, lsi.verbose)
     norb_f = las.ncas_sub
     spaces = [SingleLASRootspace (las, m, s, c, las.weights[ix], ci=[c[ix] for c in las.ci])
@@ -233,15 +250,16 @@ def all_spin_halfexcitations (lsi, las, nspin=1):
         spins1.append (spins1_i)
         ci1.append (ci1_i)
         i = j
-    spin_halfexcs = [SpinHalfexcitations (c,m,s) for c, m, s in zip (ci1, spins1, smults1)]
-    return spin_halfexcs
+    spin_flips = [SpinFlips (c,m,s) for c, m, s in zip (ci1, spins1, smults1)]
+    return spin_flips
 
-def _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=1, frozen_frags=None):
-    if spin_halfexcs is None or len (spin_halfexcs)==0: return spaces
+def _spin_flip_products (spaces, spin_flips, nroots_ref=1, frozen_frags=None):
+    '''Combine spin-flip excitations in all symmetrically permissible ways'''
+    if spin_flips is None or len (spin_flips)==0: return spaces
     spaces_ref = spaces[:nroots_ref]
-    spins3 = [she.spins for she in spin_halfexcs]
-    smults3 = [she.smults for she in spin_halfexcs]
-    ci3 = [she.ci for she in spin_halfexcs]
+    spins3 = [she.spins for she in spin_flips]
+    smults3 = [she.smults for she in spin_flips]
+    ci3 = [she.ci for she in spin_flips]
     nelec0 = spaces[0].nelec
     smults0 = spaces[0].smults
     nfrags = spaces[0].nfrag
@@ -252,6 +270,9 @@ def _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=1, frozen_f
         new_spaces = []
         m3, s3, c3 = spins3[ifrag], smults3[ifrag], ci3[ifrag]
         for space in spaces:
+            # I want to inject the spin-flip into all distinct references,
+            # but if two references differ only in ifrag then this would
+            # generate duplicates. The two lines below filter this case.
             if space.nelec[ifrag] != nelec0[ifrag]: continue
             if space.smults[ifrag] != smults0[ifrag]: continue
             for m3i, s3i, c3i in zip (m3, s3, c3):
@@ -268,11 +289,12 @@ def _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=1, frozen_f
     spaces = [space for space in spaces if not ((space in seen) or seen.add (space))]
     return spaces
 
-def spin_halfexcitation_products (las2, spin_halfexcs, nroots_ref=1):
+def spin_flip_products (las2, spin_flips, nroots_ref=1):
+    '''Inject spin-flips into las2 in all possible ways'''
     log = logger.new_logger (las2, las2.verbose)
     spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in las2.ci])
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
-    spaces = _spin_halfexcitation_products (spaces, spin_halfexcs, nroots_ref=nroots_ref)
+    spaces = _spin_flip_products (spaces, spin_flips, nroots_ref=nroots_ref)
     nfrags = spaces[0].nfrag
     weights = [space.weight for space in spaces]
     charges = [space.charges for space in spaces]
