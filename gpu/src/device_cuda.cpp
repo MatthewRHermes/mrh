@@ -267,6 +267,7 @@ __global__ void _getjk_transpose_buf1_buf3(double * buf3, double * buf1, int nau
 
 /* ---------------------------------------------------------------------- */
 
+// The _vj and _vk arguements aren't actually used anymore and could be removed. 
 void Device::get_jk(int naux,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
@@ -620,6 +621,16 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 //     dsymm_(&SIDE_L, &UPLO_U, &nao, &nao, &D1, buf, &nao, mo_coeff, &nao, &D0, _vout, &nao);    
 //   }
   
+}
+
+
+/* ---------------------------------------------------------------------- */
+
+// The _vj and _vk arguements aren't actually used anymore and could be removed. 
+void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
+		    py::array_t<double> _bPbi, py::array_t<double> _vPji, py::array_t<double> _vk_bj)
+{
+
 }
 
 #endif

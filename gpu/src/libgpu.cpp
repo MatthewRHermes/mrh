@@ -105,6 +105,16 @@ void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> 
 
 /* ---------------------------------------------------------------------- */
 
+void libgpu_hessop_get_veff(void * ptr,
+			    int naux, int nmo, int ncore, int nocc,
+			    py::array_t<double> bPbi, py::array_t<double> vPji, py::array_t<double> vk_bj)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->hessop_get_veff(naux, nmo, ncore, nocc, bPbi, vPji, vk_bj);
+}
+
+/* ---------------------------------------------------------------------- */
+
 void libgpu_orbital_response(void * ptr,
 			     py::array_t<double> f1_prime,
 			     py::array_t<double> ppaa, py::array_t<double> papa, py::array_t<double> eri_paaa,

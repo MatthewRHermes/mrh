@@ -65,6 +65,9 @@ public :
 	      py::array_t<double>, py::array_t<double>,
 	      int, size_t);
   void pull_get_jk(py::array_t<double>, py::array_t<double>);
+
+  void hessop_get_veff(int, int, int, int,
+		       py::array_t<double>, py::array_t<double>, py::array_t<double>);
   
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,

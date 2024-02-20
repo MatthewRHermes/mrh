@@ -30,6 +30,10 @@ extern "C"
 			     int, size_t);
   
   void libgpu_pull_get_jk(void *, py::array_t<double>, py::array_t<double>);
+
+  void libgpu_hessop_get_veff(void *,
+			      int, int, int, int,
+			      py::array_t<double>, py::array_t<double>, py::array_t<double>);
   
   void libgpu_orbital_response(void *,
 			       py::array_t<double>,
@@ -53,6 +57,8 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_compute_get_jk", &libgpu_compute_get_jk, "pyscf/df/df_jk.py::get_jk()");
   m.def("libgpu_init_get_jk", &libgpu_init_get_jk, "alloc for get_jk()");
   m.def("libgpu_pull_get_jk", &libgpu_pull_get_jk, "retrieve vj & vk from get_jk()");
+
+  m.def("libgpu_hessop_get_veff", &libgpu_hessop_get_veff, "lasci_sync.cp::get_veff() for HessianOperator");
   
   m.def("libgpu_orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
 }
