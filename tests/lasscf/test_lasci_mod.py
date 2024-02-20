@@ -70,30 +70,32 @@ def build (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcn
     # --------------------------------------------------------------------------------------------------------------------
     return c2h4n4_dmet
 
-dr_nn = 2.0
-mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-mol.verbose = lib.logger.DEBUG 
-mol.output = '/dev/null'
-mol.spin = 0 
-mol.build ()
-mf = scf.RHF (mol).run ()
-dmet = build (mf, 1, -1, active_first=False)
-dmet.conv_tol_grad = 1e-5
-try:
-    e_tot = dmet.doselfconsistent ()
-except RuntimeError as e:
-    e_tot = 0.0
-
-#np.savetxt ('test_lasci_mo.dat', dmet.las.mo_coeff)
-#np.savetxt ('test_lasci_ci0.dat', dmet.las.ci0)
-#np.savetxt ('test_lasci_ci1.dat', dmet.las.ci[1])
-dmet.las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lasci_mo.dat'))
-dmet.las.ci[0] = [np.loadtxt (os.path.join (topdir, 'test_lasci_ci0.dat'))]
-dmet.las.ci[1] = [-np.loadtxt (os.path.join (topdir, 'test_lasci_ci1.dat')).T]
-ugg = LASCI_UnitaryGroupGenerators (dmet.las, dmet.las.mo_coeff, dmet.las.ci)
-h_op = LASCI_HessianOperator (dmet.las, ugg)
-np.random.seed (0)
-x = np.random.rand (ugg.nvar_tot)
+def setUpModule():
+    global mol, mf, dmet, ugg, h_op, x
+    dr_nn = 2.0
+    mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
+    mol.verbose = lib.logger.DEBUG 
+    mol.output = '/dev/null'
+    mol.spin = 0 
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    dmet = build (mf, 1, -1, active_first=False)
+    dmet.conv_tol_grad = 1e-5
+    try:
+        e_tot = dmet.doselfconsistent ()
+    except RuntimeError as e:
+        e_tot = 0.0
+    
+    #np.savetxt ('test_lasci_mo.dat', dmet.las.mo_coeff)
+    #np.savetxt ('test_lasci_ci0.dat', dmet.las.ci0)
+    #np.savetxt ('test_lasci_ci1.dat', dmet.las.ci[1])
+    dmet.las.mo_coeff = np.loadtxt (os.path.join (topdir, 'test_lasci_mo.dat'))
+    dmet.las.ci[0] = [np.loadtxt (os.path.join (topdir, 'test_lasci_ci0.dat'))]
+    dmet.las.ci[1] = [-np.loadtxt (os.path.join (topdir, 'test_lasci_ci1.dat')).T]
+    ugg = LASCI_UnitaryGroupGenerators (dmet.las, dmet.las.mo_coeff, dmet.las.ci)
+    h_op = LASCI_HessianOperator (dmet.las, ugg)
+    np.random.seed (0)
+    x = np.random.rand (ugg.nvar_tot)
 
 def tearDownModule():
     global mol, mf, dmet, ugg, h_op, x
