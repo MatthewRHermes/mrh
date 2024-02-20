@@ -855,6 +855,9 @@ class LASCINoSymm (casci.CASCI):
     @property
     def fcisolver (self):
         return self._fcisolver_interface
+    @fcisolver.setter
+    def fcisolver (self, x):
+        pass # do nothing so that super().__init__ can finish
 
     def _init_fcibox (self, smult, nel): 
         s = csf_solver (self.mol, smult=smult)
