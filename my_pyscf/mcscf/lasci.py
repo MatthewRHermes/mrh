@@ -850,14 +850,8 @@ class LASCINoSymm (casci.CASCI):
         self.weights = [1.0]
         self.e_states = [0.0]
         self.e_lexc = [[np.array ([0]),],]
-        self._fcisolver_interface = FCISolverInterface (self)
-
-    @property
-    def fcisolver (self):
-        return self._fcisolver_interface
-    @fcisolver.setter
-    def fcisolver (self, x):
-        pass # do nothing so that super().__init__ can finish
+        # TODO: make the below immutable, which conflicts with super().__init__
+        self.fcisolver = FCISolverInterface (self)
 
     def _init_fcibox (self, smult, nel): 
         s = csf_solver (self.mol, smult=smult)
