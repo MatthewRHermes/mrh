@@ -623,14 +623,47 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
   
 }
 
-
 /* ---------------------------------------------------------------------- */
 
-// The _vj and _vk arguements aren't actually used anymore and could be removed. 
 void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
-		    py::array_t<double> _bPbi, py::array_t<double> _vPji, py::array_t<double> _vk_bj)
+		    py::array_t<double> _bPbj, py::array_t<double> _vPpj, py::array_t<double> _vk_bj)
 {
+  py::buffer_info info_bPbj = _bPbj.request(); // 3D array (naux, nmo, nocc) : read-only
+  py::buffer_info info_vPpj = _vPpj.request(); // 3D array (naux, nmo, nocc) : read-only 
+  py::buffer_info info_vk_bj = _vk_bj.request(); // 2D array (nmo-ncore, nocc) : accumulate
+  
+  double * bPbj = static_cast<double*>(info_bPbj.ptr);
+  double * vPpj = static_cast<double*>(info_vPpj.ptr);
+  double * vk_bj = static_cast<double*>(info_vk_bj.ptr);
+  
+  int nvirt = nmo - ncore;
 
+#if 0
+  printf("LIBGPU:: naux= %i  nmo= %i  ncore= %i  nocc= %i  nvirt= %i\n",naux, nmo, ncore, nocc, nvirt);
+  printf("LIBGPU:: shape : bPbj= (%i, %i, %i)  vPj= (%i, %i, %i)  vk_bj= (%i, %i)\n",
+	 info_bPbj.shape[0],info_bPbj.shape[1],info_bPbj.shape[2],
+	 info_vPpj.shape[0],info_vPpj.shape[1],info_vPpj.shape[2],
+	 info_vk_bj.shape[0], info_vk_bj.shape[1]);
+#endif
+  
+  DevArray3D da_bPbj = DevArray3D(bPbj, naux, nmo, nocc);
+  DevArray3D da_vPpj = DevArray3D(vPpj, naux, nmo, nocc);
+  DevArray2D da_vk_bj = DevArray2D(vk_bj, nvirt, nocc);
+
+  // vPji = vPpj[:,:nocc,:ncore]
+  // bPbi = self.bPpj[:,ncore:,:ncore]
+  // vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
+
+  for(int i=0; i<nvirt; ++i)
+    for(int j=0; j<nocc; ++j) {
+      
+      double tmp = 0.0;
+      for(int k=0; k<naux; ++k)
+	for(int l=0; l<ncore; ++l)
+	  tmp += da_bPbj(k,ncore+i,l) * da_vPpj(k,j,l);
+      da_vk_bj(i,j) += tmp;
+    }
+  
 }
 
 #endif

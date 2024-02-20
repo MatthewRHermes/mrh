@@ -1016,30 +1016,34 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
         t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
         # vk (ai|ai), (ui|av)
-        dm_ai = dm1_mo[nocc:,:ncore]
-        vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
-        # I think this works only because there is no dm_ui in this case, so I've eliminated all
-        # the dm_uv by choosing this range
-        bPbi = self.bPpj[:,ncore:,:ncore]
-
-        print("naux, nmo, ncore, nocc, ncas= ",self.bPpj.shape[0], nmo, ncore, nocc, ncas)
-        print("bPpj= ", self.bPpj.shape) # (naux, nmo, nocc)
-        print("bPbi= ", bPbi.shape) # (naux, nmo-ncore, ncore)
-        print("vPji= ", vPji.shape) # (naux, nocc, ncore)
-        print("vk_bj= ", vk_bj.shape) # (nmo-ncore, nocc)
+        #dm_ai = dm1_mo[nocc:,:ncore] # CHRIS: this isn't used for anything
 
         #if gpu:
         naux = self.bPpj.shape[0]
         vk_bj_tmp = vk_bj.copy()
-        libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, bPbi, vPji, vk_bj_tmp)
+    
+        libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj_tmp)
 
+        #else:
+        
+        vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
+        # I think this works only because there is no dm_ui in this case, so I've eliminated all
+        # the dm_uv by choosing this range
+        bPbi = self.bPpj[:,ncore:,:ncore]
         vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
 
+        print("naux, nmo, ncore, nocc, ncas= ",self.bPpj.shape[0], nmo, ncore, nocc, ncas)
+        print("bPpj= ", self.bPpj.shape) # (naux, nmo, nocc)
+        print("bPbi= ", bPbi.shape) # (naux, nmo-ncore, ncore)
+        print("vPpj= ", vPpj.shape) # (naux, nmo, nocc)
+        print("vPji= ", vPji.shape) # (naux, nocc, ncore)
+        print("vk_bj= ", vk_bj.shape) # (nmo-ncore, nocc)
+        
         vk_bj_err = 0
         for i in range(nmo-ncore):
             for j in range(nocc):
                 vk_bj_err += (vk_bj[i,j] - vk_bj_tmp[i,j]) * (vk_bj[i,j] - vk_bj_tmp[i,j])                    
-                #print("ij= ", i, j, "  vk_bj= ", vk_bj[i,j], "  vk_bj_tmp= ", vk_bj_tmp[i,j], "  vk_bj_err= ", vk_bj_err)
+                #if i < 2: print("ij= ", i, j, "  vk_bj= ", vk_bj[i,j], "  vk_bj_tmp= ", vk_bj_tmp[i,j], "  vk_bj_err= ", vk_bj_err)
 
         stop = False
         if(vk_bj_err > 1e-8): stop = True
