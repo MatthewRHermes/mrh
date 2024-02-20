@@ -789,6 +789,22 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
     e_tot = np.dot (las.weights, e_states)
     return converged, e_tot, e_states, e_cas, e_lexc, ci1
 
+class FCISolverInterface (object):
+    '''An interface to globally set kernel config parameters of all nested FCISolvers across
+    fragments and rootspaces. To fine-tune the parameter for, e.g., the ith fragment in the
+    jth rootspace, address las.fciboxes[i].fcisolvers[j] individually.'''
+    def __init__(self, las):
+        self.las = las
+    @property
+    def pspace_size (self):
+        return [[s.pspace_size for s in b.fcisolvers] for b in self.las.fciboxes]
+    @pspace_size.setter
+    def pspace_size (self, x):
+        for fcibox in self.las.fciboxes:
+            fcibox.pspace_size = x
+            for solver in fcibox.fcisolvers:
+                solver.pspace_size = x
+
 class LASCINoSymm (casci.CASCI):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, **kwargs):
@@ -834,6 +850,11 @@ class LASCINoSymm (casci.CASCI):
         self.weights = [1.0]
         self.e_states = [0.0]
         self.e_lexc = [[np.array ([0]),],]
+        self._fcisolver_interface = FCISolverInterface (self)
+
+    @property
+    def fcisolver (self):
+        return self._fcisolver_interface
 
     def _init_fcibox (self, smult, nel): 
         s = csf_solver (self.mol, smult=smult)
