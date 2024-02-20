@@ -515,7 +515,11 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
             hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=las.max_memory)
-            ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0]
+            ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)
+            if solver.nroots==1:
+                ci0[ix][iy] = ci0[ix][iy][0]
+            else:
+                ci0[ix][iy] = np.stack (ci0[ix][iy], axis=0)
     return ci0
 
 def get_space_info (las):

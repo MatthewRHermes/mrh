@@ -63,12 +63,25 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         if h1.ndim < 3: h1 = np.stack ([h1, h1], axis=0)
         for ix, (no, ne, solver) in enumerate (zip (norb_f, nelec_f, self.fcisolvers)):
             nelec = self._get_nelec (solver, ne)
+            i = sum (norb_f[:ix])
+            j = i + norb_f[ix]
+            hdiag_csf = solver.make_hdiag_csf (h1[:,i:j,i:j], h2[i:j,i:j,i:j,i:j],
+                                               no, nelec)
+            ci1_guess = solver.get_init_guess (no, nelec, solver.nroots, hdiag_csf)
+            na = cistring.num_strings (no, nelec[0])
+            nb = cistring.num_strings (no, nelec[1])
             if ci1[ix] is None:
-                i = sum (norb_f[:ix])
-                j = i + norb_f[ix]
-                hdiag_csf = solver.make_hdiag_csf (h1[:,i:j,i:j], h2[i:j,i:j,i:j,i:j],
-                                                   no, nelec)
-                ci1[ix] = solver.get_init_guess (no, nelec, solver.nroots, hdiag_csf)
+                ci1[ix] = ci1_guess
+            elif np.asarray (ci1[ix]).reshape (-1,na*nb).shape[0] < solver.nroots:
+                ci1_inp = np.asarray (ci1[ix]).reshape (-1,na*nb)
+                ci1_guess = np.asarray (ci1_guess).reshape (-1,na*nb)
+                ovlp = ci1_inp.conj () @ ci1_guess.T
+                ci1_guess -= ovlp @ ci1_guess
+                ovlp = ci1_guess.conj () @ ci1_guess.T
+                Q, R = linalg.qr (ovlp)
+                ci1_guess = Q.T @ ci1_guess
+                ci1[ix] = np.append (ci1_inp, ci1_guess, axis=0)[:solver.nroots].reshape (
+                    solver.nroots, na, nb)
         return self._check_init_guess (ci1, norb_f, nelec_f)
 
     def _check_init_guess (self, ci0, norb_f, nelec_f):
