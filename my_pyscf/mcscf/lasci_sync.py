@@ -1011,21 +1011,21 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:]@dm_bj, compact=False))
         # Don't ask my why this is faster than doing the two degrees of freedom separately...
         t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
+
+        #if gpu:
+        naux = self.bPpj.shape[0]
+        vk_bj_tmp = np.zeros( (nmo-ncore, nocc) )
+    
+        libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj_tmp)
+
+        #else:
+
         # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
         vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
         vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
         t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
         # vk (ai|ai), (ui|av)
         #dm_ai = dm1_mo[nocc:,:ncore] # CHRIS: this isn't used for anything
-
-        #if gpu:
-        naux = self.bPpj.shape[0]
-        vk_bj_tmp = vk_bj.copy()
-    
-        libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj_tmp)
-
-        #else:
-        
         vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
         # I think this works only because there is no dm_ui in this case, so I've eliminated all
         # the dm_uv by choosing this range

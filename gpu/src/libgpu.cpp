@@ -107,10 +107,10 @@ void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> 
 
 void libgpu_hessop_get_veff(void * ptr,
 			    int naux, int nmo, int ncore, int nocc,
-			    py::array_t<double> bPbj, py::array_t<double> vPpj, py::array_t<double> vk_bj)
+			    py::array_t<double> bPpj, py::array_t<double> vPpj, py::array_t<double> vk_bj)
 { 
   Device * dev = (Device *) ptr;
-  dev->hessop_get_veff(naux, nmo, ncore, nocc, bPbj, vPpj, vk_bj);
+  dev->hessop_get_veff(naux, nmo, ncore, nocc, bPpj, vPpj, vk_bj);
 }
 
 /* ---------------------------------------------------------------------- */
