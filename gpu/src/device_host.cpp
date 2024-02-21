@@ -82,7 +82,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk) {}
 void Device::get_jk(int naux,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
-		    int count)
+		    int count, size_t addr_dfobj)
 {  
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
