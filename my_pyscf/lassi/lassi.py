@@ -694,9 +694,19 @@ class LASSI(lib.StreamObject):
         from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
         if isinstance(las, LASCINoSymm): self._las = las
         else: raise RuntimeError("LASSI requires las instance")
-        self.__dict__.update(las.__dict__)
-        self.ncore = las.ncore
-        self.nfrags = las.nfrags
+        # indiscriminate "dict update" from las is bad practice. not doing that anymore
+        # Wave function configuration data from las parent
+        self.mol = las.mol
+        self.ncore, self.ncas = las.ncore, las.ncas
+        self.nfrags, self.nroots = las.nfrags, las.nroots
+        self.ncas_sub, self.nelecas_sub, self.fciboxes = las.ncas_sub, las.nelecas_sub, las.fciboxes
+        self.mo_coeff, self.ci = las.mo_coeff, las.ci
+        self.weights, self.e_states, self.e_lexc = las.weights, las.e_states, las.e_lexc
+        self.converged = las.converged
+        # I/O data from las parent
+        self.stdout, self.verbose, self.chkfile = las.stdout, las.verbose, las.chkfile
+        # General config data from las parent
+        self.max_memory = las.max_memory
         keys = set(('e_roots', 'si', 's2', 's2_mat', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
         self.e_roots = None
         self.si = None
@@ -712,6 +722,9 @@ class LASSI(lib.StreamObject):
 
     def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,\
                break_symmetry=False, opt=1,  **kwargs):
+        log = lib.logger.new_logger (self, self.verbose)
+        if not self.converged:
+            log.warn ('LASSI state preparation step not converged!')
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
                             soc=soc, break_symmetry=break_symmetry, opt=opt)
         self.e_roots = e_roots
