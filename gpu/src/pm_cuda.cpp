@@ -140,7 +140,7 @@ void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N)
 
 void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
 {
-  cudaMemcpyAsync(d_ptr, h_ptr, N, cudaMemcpyHostToDevice, s);
+  cudaMemcpyAsync(h_ptr, d_ptr, N, cudaMemcpyDeviceToHost, s);
   _CUDA_CHECK_ERRORS();
 }
 
