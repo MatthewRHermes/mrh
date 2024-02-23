@@ -919,16 +919,20 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 omits double-counting).
         '''
 
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
         tdm1s_sa = np.einsum ('rspq,r->spq', tdm1rs, self.weights)
         dm1s_mo = odm1s + odm1s.transpose (0,2,1)
         dm1s_mo[:,ncore:nocc,ncore:nocc] += tdm1s_sa
         mo = self.mo_coeff
         moH = mo.conjugate ().T
-
+        t1 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 1', *t0)
+        
         # Overall veff for gradient: the one and only jk call per microcycle that I will allow.
         veff_mo = self.get_veff (dm1s_mo=dm1s_mo)
+        t2 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 2', *t1)
         veff_mo = self.split_veff (veff_mo, dm1s_mo)
+        t3 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 3', *t2)
 
         # Core-orbital-effect only for individual CI problems
         odm1s_core = np.copy (odm1s)
@@ -945,6 +949,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         veff_ci += veff_ci.transpose (0,2,1)
         veff_ci /= 2.0
         veff_ci += veff_mo[:,ncore:nocc,ncore:nocc]
+        t4 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 4', *t3)
         
         # SO, individual CI problems!
         # 1) There is NO constant term. Constant terms immediately drop out via the ugg defs!
@@ -970,7 +975,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             #err_h1rs += err_h1rs[:,::-1] # ja + jb
             #err_h1rs -= np.tensordot (err_dm1rs, self.eri_cas, axes=((2,3),(0,3)))
             h1frs[isub][:,:,:,:] += err_h1rs[:,:,i:j,i:j]
-
+        t5 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 5', *t4)
+        
         return veff_mo, h1frs
         
     def get_veff_debug (self, dm1s_mo=None):
@@ -1159,7 +1165,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def _matvec (self, x):
         log = lib.logger.new_logger (self.las, self.las.verbose)
-        extra_timing = getattr (self.las, '_extra_hessian_timing', False)
+#        extra_timing = getattr (self.las, '_extra_hessian_timing', False)
+        extra_timing = getattr (self.las, '_extra_hessian_timing', True)
         extra_timer = log.timer if extra_timing else log.timer_debug1
         t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
         kappa1, ci1 = self.ugg.unpack (x)
