@@ -516,9 +516,13 @@ def _init_df_(h_op):
     from mrh.my_pyscf.mcscf.lasci import _DFLASCI
     if isinstance (h_op.las, _DFLASCI):
         h_op.with_df = h_op.las.with_df
-        if h_op.bPpj is None: h_op.bPpj = np.ascontiguousarray (
-            h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
-            compact=False))
+        if h_op.bPpj is None:
+            h_op.bPpj = np.ascontiguousarray (
+                h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
+                                      compact=False))
+            gpu = h_op.las.use_gpu
+            if gpu:
+                libgpu.libgpu_hessop_push_bPpj(gpu, h_op.bPpj)
 
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     ''' The Hessian-vector product for a `LASCI' energy minimization, implemented as a linear

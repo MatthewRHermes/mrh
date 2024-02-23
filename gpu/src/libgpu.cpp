@@ -115,6 +115,15 @@ void libgpu_hessop_get_veff(void * ptr,
 
 /* ---------------------------------------------------------------------- */
 
+void libgpu_hessop_push_bPpj(void * ptr,
+			     py::array_t<double> bPpj)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->hessop_push_bPpj(bPpj);
+}
+
+/* ---------------------------------------------------------------------- */
+
 void libgpu_orbital_response(void * ptr,
 			     py::array_t<double> f1_prime,
 			     py::array_t<double> ppaa, py::array_t<double> papa, py::array_t<double> eri_paaa,

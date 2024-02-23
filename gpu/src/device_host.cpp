@@ -427,6 +427,10 @@ int Device::fmmm(double *vout, double *vin, double *buf,
 
 /* ---------------------------------------------------------------------- */
 
+void Device::hessop_push_bPpj(py::array_t<double> _bPpj) {}
+
+/* ---------------------------------------------------------------------- */
+
 void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 		    py::array_t<double> _bPpj, py::array_t<double> _vPpj, py::array_t<double> _vk_bj)
 {

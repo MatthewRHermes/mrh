@@ -68,6 +68,8 @@ public :
 
   void hessop_get_veff(int, int, int, int,
 		       py::array_t<double>, py::array_t<double>, py::array_t<double>);
+
+  void hessop_push_bPpj(py::array_t<double>);
   
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,

@@ -663,6 +663,41 @@ __global__ void _hessop_get_veff_vk_2(double * vPpj, double * bPpj, double * vk_
 
 /* ---------------------------------------------------------------------- */
 
+void Device::hessop_push_bPpj(py::array_t<double> _bPpj)
+{
+  py::buffer_info info_bPpj = _bPpj.request(); // 3D array (naux, nmo, nocc) : read-only
+  
+  double * bPpj = static_cast<double*>(info_bPpj.ptr);
+
+#if 0
+  printf("LIBGPU:: naux= %i  nmo= %i  nocc= %i\n",naux, nmo, nocc);
+  printf("LIBGPU:: hessop_push_bPpj : bPpj= (%i, %i, %i)\n",
+	 info_bPpj.shape[0],info_bPpj.shape[1],info_bPpj.shape[2]);
+  
+  DevArray3D da_bPpj = DevArray3D(bPpj, naux, nmo, nocc);
+  printf("LIBGPU :: hessop_push_bPpj :: bPpj= %f %f %f %f\n", da_bPpj(0,0,0), da_bPpj(0,1,0), da_bPpj(1,0,0), da_bPpj(naux-1,0,0));
+#endif
+
+  // really need to clean up initializing naux, nmo, nocc, ncore, etc... if really constants for duration of calculation
+  
+  int _naux = info_bPpj.shape[0];
+  int _nmo = info_bPpj.shape[1];
+  int _nocc = info_bPpj.shape[2];
+  
+  // this should all be wrapped in a new pm->dev_smalloc() w/ a very simple struct
+  
+  int _size_bPpj = _naux * _nmo * _nocc;
+  if(_size_bPpj > size_bPpj) {
+    size_bPpj = _size_bPpj;
+    if(d_bPpj) pm->dev_free(d_bPpj);
+    d_bPpj = (double *) pm->dev_malloc(size_bPpj * sizeof(double));
+  }
+  
+  pm->dev_push_async(d_bPpj, bPpj, _size_bPpj*sizeof(double), stream);
+}
+
+/* ---------------------------------------------------------------------- */
+
 void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 		    py::array_t<double> _bPpj, py::array_t<double> _vPpj, py::array_t<double> _vk_bj)
 {
@@ -688,12 +723,12 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   DevArray3D da_vPpj = DevArray3D(vPpj, naux, nmo, nocc);
   DevArray2D da_vk_bj = DevArray2D(vk_bj, nvirt, nocc);
 
-  int _size_bPpj = naux * nmo * nocc;
-  if(_size_bPpj > size_bPpj) {
-    size_bPpj = _size_bPpj;
-    if(d_bPpj) pm->dev_free(d_bPpj);
-    d_bPpj = (double *) pm->dev_malloc(size_bPpj * sizeof(double));
-  }
+  // int _size_bPpj = naux * nmo * nocc;
+  // if(_size_bPpj > size_bPpj) {
+  //   size_bPpj = _size_bPpj;
+  //   if(d_bPpj) pm->dev_free(d_bPpj);
+  //   d_bPpj = (double *) pm->dev_malloc(size_bPpj * sizeof(double));
+  // }
 
   int _size_vPpj = naux * nmo * nocc;
   if(_size_vPpj > size_vPpj) {
@@ -709,10 +744,20 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     d_vk_bj = (double *) pm->dev_malloc(size_vk_bj * sizeof(double));
   }
 
-  pm->dev_push_async(d_bPpj, bPpj, _size_bPpj*sizeof(double), stream);
+  printf("LIBGPU :: hessop_get_veff :: bPpj= %f %f %f %f\n", da_bPpj(0,0,0), da_bPpj(0,1,0), da_bPpj(1,0,0), da_bPpj(naux-1,0,0));
+  printf("LIBGPU :: hessop_get_veff :: vPpj= %f %f %f %f\n", da_vPpj(0,0,0), da_vPpj(0,1,0), da_vPpj(1,0,0), da_vPpj(naux-1,0,0));
+  
+  
+#ifdef _CUDA_NVTX
+  nvtxRangePushA("HessOP_get_veff_H2D");
+#endif
+  //  pm->dev_push_async(d_bPpj, bPpj, _size_bPpj*sizeof(double), stream);
   pm->dev_push_async(d_vPpj, vPpj, _size_vPpj*sizeof(double), stream);
   //  pm->dev_push_async(d_vk_bj, vk_bj, _size_vk_bj*sizeof(double), stream);
   
+#ifdef _CUDA_NVTX
+  nvtxRangePop();
+#endif
   
   // vk_mo (bb|jj) in microcycle
   // vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
@@ -735,9 +780,6 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 #ifdef _CUDA_NVTX
   nvtxRangePop();
 #endif
-
-  // pm->dev_pull_async(d_vk_bj, vk_bj, _size_vk_bj*sizeof(double), stream);
-  // pm->dev_stream_wait(stream);
   
 #else
 
