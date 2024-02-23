@@ -427,16 +427,14 @@ int Device::fmmm(double *vout, double *vin, double *buf,
 
 /* ---------------------------------------------------------------------- */
 
-/* ---------------------------------------------------------------------- */
-
 void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
-		    py::array_t<double> _bPbj, py::array_t<double> _vPpj, py::array_t<double> _vk_bj)
+		    py::array_t<double> _bPpj, py::array_t<double> _vPpj, py::array_t<double> _vk_bj)
 {
-  py::buffer_info info_bPbj = _bPbj.request(); // 3D array (naux, nmo, nocc) : read-only
+  py::buffer_info info_bPpj = _bPpj.request(); // 3D array (naux, nmo, nocc) : read-only
   py::buffer_info info_vPpj = _vPpj.request(); // 3D array (naux, nmo, nocc) : read-only 
   py::buffer_info info_vk_bj = _vk_bj.request(); // 2D array (nmo-ncore, nocc) : accumulate
   
-  double * bPbj = static_cast<double*>(info_bPbj.ptr);
+  double * bPpj = static_cast<double*>(info_bPpj.ptr);
   double * vPpj = static_cast<double*>(info_vPpj.ptr);
   double * vk_bj = static_cast<double*>(info_vk_bj.ptr);
   
@@ -444,27 +442,45 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 
 #if 0
   printf("LIBGPU:: naux= %i  nmo= %i  ncore= %i  nocc= %i  nvirt= %i\n",naux, nmo, ncore, nocc, nvirt);
-  printf("LIBGPU:: shape : bPbj= (%i, %i, %i)  vPj= (%i, %i, %i)  vk_bj= (%i, %i)\n",
-	 info_bPbj.shape[0],info_bPbj.shape[1],info_bPbj.shape[2],
+  printf("LIBGPU:: shape : bPpj= (%i, %i, %i)  vPj= (%i, %i, %i)  vk_bj= (%i, %i)\n",
+	 info_bPpj.shape[0],info_bPpj.shape[1],info_bPpj.shape[2],
 	 info_vPpj.shape[0],info_vPpj.shape[1],info_vPpj.shape[2],
 	 info_vk_bj.shape[0], info_vk_bj.shape[1]);
 #endif
   
-  DevArray3D da_bPbj = DevArray3D(bPbj, naux, nmo, nocc);
+  DevArray3D da_bPpj = DevArray3D(bPpj, naux, nmo, nocc);
   DevArray3D da_vPpj = DevArray3D(vPpj, naux, nmo, nocc);
   DevArray2D da_vk_bj = DevArray2D(vk_bj, nvirt, nocc);
 
+  // vk_mo (bb|jj) in microcycle
+  // vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
+  // vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
+
+#pragma omp parallel for collapse(2)
+  for(int i=0; i<nvirt; ++i)
+    for(int j=0; j<nocc; ++j) {
+
+      double tmp = 0.0;
+      for(int k=0; k<naux; ++k)
+	for(int l=0; l<nocc; ++l)
+	  tmp += da_vPpj(k,ncore+i,l) * da_bPpj(k,l,j);
+      da_vk_bj(i,j) = tmp;
+      
+    }
+  
+  // vk_mo (bi|aj) in microcycle
   // vPji = vPpj[:,:nocc,:ncore]
   // bPbi = self.bPpj[:,ncore:,:ncore]
   // vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
 
+#pragma omp parallel for collapse(2)
   for(int i=0; i<nvirt; ++i)
     for(int j=0; j<nocc; ++j) {
       
       double tmp = 0.0;
       for(int k=0; k<naux; ++k)
 	for(int l=0; l<ncore; ++l)
-	  tmp += da_bPbj(k,ncore+i,l) * da_vPpj(k,j,l);
+	  tmp += da_bPpj(k,ncore+i,l) * da_vPpj(k,j,l);
       da_vk_bj(i,j) += tmp;
     }
   

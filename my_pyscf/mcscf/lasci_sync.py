@@ -9,7 +9,7 @@ import numpy as np
 from mrh.my_pyscf.gpu import libgpu
 
 # Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
-DEBUG = False
+DEBUG = True
 
 if DEBUG:
     import math
@@ -1000,6 +1000,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
         # vj
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+
         veff_mo = np.zeros_like (dm1_mo)
         dm1_rect = dm1_mo + dm1_mo.T
         dm1_rect[ncore:nocc,ncore:nocc] /= 2
@@ -1007,23 +1008,17 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         rho = np.tensordot (self.bPpj, dm1_rect, axes=2)
         vj_pj = np.tensordot (rho, self.bPpj, axes=((0),(0)))
         t1 = lib.logger.timer (self.las, 'vj_mo in microcycle', *t0)
+
         dm_bj = dm1_mo[ncore:,:nocc]
         vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:]@dm_bj, compact=False))
         # Don't ask my why this is faster than doing the two degrees of freedom separately...
         t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
 
-        #if gpu:
-        naux = self.bPpj.shape[0]
-        vk_bj_tmp = np.zeros( (nmo-ncore, nocc) )
-    
-        libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj_tmp)
-
-        #else:
-
         # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
         vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
         vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
         t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
+        
         # vk (ai|ai), (ui|av)
         #dm_ai = dm1_mo[nocc:,:ncore] # CHRIS: this isn't used for anything
         vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
@@ -1031,13 +1026,31 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # the dm_uv by choosing this range
         bPbi = self.bPpj[:,ncore:,:ncore]
         vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
-
+        t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+        
+        # veff
+        vj_bj = vj_pj[ncore:,:]
+        veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
+        veff_mo[:nocc,ncore:] = veff_mo[ncore:,:nocc].T
+        t1 = lib.logger.timer (self.las, 'veff_mo in microcycle', *t1)
+        #vj_ai = vj_bj[ncas:,:ncore]
+        #vk_ai = vk_bj[ncas:,:ncore]
+        #veff_mo[ncore:,:nocc] = vj_bj
+        #veff_mo[:ncore,nocc:] = vj_ai.T
+        #veff_mo[ncore:,:nocc] -= vk_bj/2
+        #veff_mo[:ncore,nocc:] -= vk_ai.T/2
+        
         print("naux, nmo, ncore, nocc, ncas= ",self.bPpj.shape[0], nmo, ncore, nocc, ncas)
         print("bPpj= ", self.bPpj.shape) # (naux, nmo, nocc)
         print("bPbi= ", bPbi.shape) # (naux, nmo-ncore, ncore)
         print("vPpj= ", vPpj.shape) # (naux, nmo, nocc)
         print("vPji= ", vPji.shape) # (naux, nocc, ncore)
         print("vk_bj= ", vk_bj.shape) # (nmo-ncore, nocc)
+        
+        naux = self.bPpj.shape[0]
+        vk_bj_tmp = np.zeros( (nmo-ncore, nocc) )
+    
+        libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj_tmp)
         
         vk_bj_err = 0
         for i in range(nmo-ncore):
@@ -1054,18 +1067,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         if stop:
             print("ERROR:: Results don't agree!!")
             quit()
-                    
-        t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
-        # veff
-        vj_bj = vj_pj[ncore:,:]
-        veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
-        veff_mo[:nocc,ncore:] = veff_mo[ncore:,:nocc].T
-        #vj_ai = vj_bj[ncas:,:ncore]
-        #vk_ai = vk_bj[ncas:,:ncore]
-        #veff_mo[ncore:,:nocc] = vj_bj
-        #veff_mo[:ncore,nocc:] = vj_ai.T
-        #veff_mo[ncore:,:nocc] -= vk_bj/2
-        #veff_mo[:ncore,nocc:] -= vk_ai.T/2
+        
         return veff_mo
     
     def get_veff (self, dm1s_mo=None):

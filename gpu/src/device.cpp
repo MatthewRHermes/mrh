@@ -25,6 +25,10 @@ Device::Device()
   size_dmtril = 0;
   size_eri1 = 0;
   size_tril_map = 0;
+
+  size_bPpj = 0;
+  size_vPpj = 0;
+  size_vk_bj = 0;
   
   rho = nullptr;
   //vj = nullptr;
@@ -52,6 +56,10 @@ Device::Device()
   d_eri1 = nullptr;
 
   d_tril_map = nullptr;
+
+  d_bPpj = nullptr;
+  d_vPpj = nullptr;
+  d_vk_bj = nullptr;
 #endif
   
   num_threads = 1;
@@ -145,6 +153,10 @@ Device::~Device()
   pm->dev_free(d_dmtril);
   pm->dev_free(d_eri1);
   pm->dev_free(d_tril_map);
+
+  pm->dev_free(d_bPpj);
+  pm->dev_free(d_vPpj);
+  pm->dev_free(d_vk_bj);
   
 #ifdef _CUDA_NVTX
   nvtxRangePop();

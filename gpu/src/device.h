@@ -102,10 +102,12 @@ private:
   int nset;
   int nao_pair;
 
+  // get_jk
+  
   double * rho;
   //double * vj;
   double * _vktmp;
-
+  
   double * buf_tmp;
   double * buf3;
   double * buf4;
@@ -124,6 +126,16 @@ private:
   int * tril_map;
   int * d_tril_map;
 
+  // hessop_get_veff
+
+  int size_bPpj;
+  int size_vPpj;
+  int size_vk_bj;
+  
+  double * d_bPpj;
+  double * d_vPpj;
+  double * d_vk_bj;
+  
   // eri caching on device
   
   std::vector<size_t> eri_list; // addr of dfobj+eri1 for key-value pair
