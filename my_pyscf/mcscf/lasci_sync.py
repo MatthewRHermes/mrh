@@ -8,7 +8,7 @@ import numpy as np
 from mrh.my_pyscf.gpu import libgpu
 
 # Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
-DEBUG = True
+DEBUG = False
 
 if DEBUG:
     import math
