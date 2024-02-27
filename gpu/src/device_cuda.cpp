@@ -13,11 +13,16 @@
 
 #define _DEFAULT_BLOCK_SIZE 32
 
+//#define _DEBUG_DEVICE
+
 /* ---------------------------------------------------------------------- */
 
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int _naux, int count)
 {
-  //  printf("Inside init_get_jk()\n");
+#ifdef _DEBUG_DEVICE
+  printf("Inside Device::init_get_jk()\n");
+#endif
+  
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
@@ -175,13 +180,19 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
   }
   
-  //  printf("Leaving init_get_jk()\n");
+#ifdef _DEBUG_DEVICE
+  printf(" -- Leaving Device::init_get_jk()\n");
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
 
 void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 {
+#ifdef _DEBUG_DEVICE
+  printf(" -- Inside Device::pull_get_jk()\n");
+#endif
+  
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   
@@ -190,6 +201,12 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
  
   pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
   pm->dev_pull(d_vj, vj, nset * nao_pair * sizeof(double));
+
+  update_dfobj = 0;
+  
+#ifdef _DEBUG_DEVICE
+  printf(" -- Leaving Device::pull_get_jk()\n");
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -275,7 +292,10 @@ void Device::get_jk(int naux,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
 		    int count, size_t addr_dfobj)
 {
-  //  printf("Inside get_jk()\n");
+#ifdef _DEBUG_DEVICE
+  printf("Inside Device::get_jk()\n");
+#endif
+  
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
@@ -328,7 +348,7 @@ void Device::get_jk(int naux,
   
   DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
   //  printf("LIBGPU:: eri1= %p  dfobj= %lu  count= %i  combined= %lu\n",eri1,addr_dfobj,count,addr_dfobj+count);
-  printf("LIBGPU:: dfobj= %lu  count= %i  combined= %lu\n",addr_dfobj,count,addr_dfobj+count);
+  printf("LIBGPU:: dfobj= %#012x  count= %i  combined= %#012x  update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count, update_dfobj);
   printf("LIBGPU::     0:      %f %f %f %f\n",da_eri1(0,0), da_eri1(0,1), da_eri1(0,nao_pair-2), da_eri1(0,nao_pair-1));
   printf("LIBGPU::     1:      %f %f %f %f\n",da_eri1(1,0), da_eri1(1,1), da_eri1(1,nao_pair-2), da_eri1(1,nao_pair-1));
   printf("LIBGPU::     naux-2: %f %f %f %f\n",da_eri1(naux-2,0), da_eri1(naux-2,1), da_eri1(naux-2,nao_pair-2), da_eri1(naux-2,nao_pair-1));
@@ -336,6 +356,7 @@ void Device::get_jk(int naux,
 #endif
 
 #ifdef _USE_ERI_CACHE
+
   // retrieve or cache eri block
   int id = eri_list.size();
   for(int i=0; i<eri_list.size(); ++i)
@@ -344,58 +365,75 @@ void Device::get_jk(int naux,
       break;
     }
 
+  //  printf("id= %i  eri_list.size= %i  update_dfobj= %i\n", id, eri_list.size(), update_dfobj);
   if(id < eri_list.size()) {
     eri_count[id]++;
-
-    int diff_size = eri_size[id] - naux * nao_pair;
-    if(diff_size != 0) {
-      printf("LIBGPU:: Error: eri_cache size != 0  diff_size= %i\n",diff_size);
-      exit(1);
-    }
-
     d_eri = d_eri_cache[id];
-    double * eri_host = d_eri_host[id];
-    double diff_eri = sqrt( (eri_host[0] + eri_host[1] - eri1[0] - eri1[nao_pair]) * (eri_host[0] + eri_host[1] - eri1[0] - eri1[nao_pair]) ); // this is dangerous; need something better
-    if(diff_eri > 1e-10) {
-      eri_host[0] = eri1[0];
-      eri_host[1] = eri1[nao_pair];
-      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
-      //      for(int i=0; i<naux * nao_pair; ++i) eri_[i] = eri1[i];
+
+    //#ifdef _DEBUG_ERI_CACHE
+//     int diff_size = eri_size[id] - naux * nao_pair;
+//     if(diff_size != 0) {
+//       printf("LIBGPU:: Error: eri_cache size != 0  diff_size= %i\n",diff_size);
+//       exit(1);
+//     }
+
+//     d_eri = d_eri_cache[id];
+//     double * eri_host = d_eri_host[id];
+//     double diff_eri = 0.0;
+//     for(int i=0; i<naux*nao_pair; ++i) diff_eri += (eri_host[i] - eri1[i]) * (eri_host[i] - eri1[i]);
+
+//     if(diff_eri > 1e-10) {
+//       for(int i=0; i<naux*nao_pair; ++i) eri_host[i] = eri1[i];
+//       pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
+//       eri_update[id]++;
+
+//       // update_dfobj fails to correctly update device ; this is an error
+//       if(!update_dfobj) {
+// 	printf("LIBGPU:: Warning: ERI updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
+// 	count = -1;
+// 	return;
+// 	//exit(1);
+//       }
+//     } else {
+
+//       // update_dfobj falsely updates device ; this is loss of performance
+//       if(update_dfobj) {
+// 	printf("LIBGPU:: Warning: ERI not updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
+// 	count = -1;
+// 	return;
+// 	//exit(1);
+//       }
+//     }
+// #else
+    if(update_dfobj) {
+      d_eri = d_eri_cache[id];
       eri_update[id]++;
-    }
-
-#if 0
-    // debug eri cache on host
-    double diffsq = 0.0;
-    for(int i=0; i<naux * nao_pair; ++i) diffsq += (eri_[i] - eri1[i]) * (eri_[i] - eri1[i]);
-    double diff = sqrt(diffsq);
-    printf("LIBGPU:: eri_cache diff= %f\n",diff);
-    if(diff > 1e-10) {
-      printf("LIBGPU:: Error: eri_cache diff > TOL :: diff= %f\n",diff);
-      exit(1);
-    }
-#endif
-    
-  }
-  else
-    {
-      eri_list.push_back(addr_dfobj+count);
-      eri_count.push_back(1);
-      eri_update.push_back(0);
-      eri_size.push_back(naux * nao_pair);
-
-      d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
-      int id = d_eri_cache.size() - 1;
-      d_eri = d_eri_cache[ id ];
       
+      //      printf(" -- calling dev_push_async() to move data into old space\n");
       pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
-      //      for(int i=0; i<naux * nao_pair; ++i) eri_[i] = eri1[i];
-
-      d_eri_host.push_back( (double *) pm->dev_malloc_host(2 * sizeof(double)) );
-      double * d_eri_host_ = d_eri_host[id];
-      d_eri_host_[0] = eri1[0];
-      d_eri_host_[1] = eri1[nao_pair];
     }
+    //#endif
+    
+  } else {
+    eri_list.push_back(addr_dfobj+count);
+    eri_count.push_back(1);
+    eri_update.push_back(0);
+    eri_size.push_back(naux * nao_pair);
+    
+    //    printf(" -- calling dev_malloc() to create new space\n");
+    d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
+    int id = d_eri_cache.size() - 1;
+    d_eri = d_eri_cache[ id ];
+    
+    //    printf(" -- calling dev_push_async() to move data into new space\n");
+    pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
+    
+#ifdef _DEBUG_ERI_CACHE
+    d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
+    double * d_eri_host_ = d_eri_host[id];
+    for(int i=0; i<naux*nao_pair; ++i) d_eri_host_[i] = eri1[i];
+#endif
+  }
 #endif
 
 #ifdef _CUDA_NVTX
@@ -417,7 +455,8 @@ void Device::get_jk(int naux,
     {
       dim3 grid_size(nset, (naux + (_RHO_BLOCK_SIZE - 1)) / _RHO_BLOCK_SIZE, 1);
       dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
-      
+
+      //      printf(" -- calling _getjk_rho()\n");
       _getjk_rho<<<grid_size, block_size, 0, stream>>>(d_rho, d_dmtril, d_eri, nset, naux, nao_pair);
     }
     
@@ -427,6 +466,7 @@ void Device::get_jk(int naux,
       dim3 grid_size(nset, (nao_pair + (_DOT_BLOCK_SIZE - 1)) / _DOT_BLOCK_SIZE, 1);
       dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
       
+      //      printf(" -- calling _getjk_vj()\n");
       _getjk_vj<<<grid_size, block_size, 0, stream>>>(d_vj, d_rho, d_eri, nset, nao_pair, naux, count);
     }
     
@@ -455,6 +495,7 @@ void Device::get_jk(int naux,
     dim3 grid_size((naux + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
     dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
     
+    //    printf(" -- calling _unpack_buf2()\n");
     _getjk_unpack_buf2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_eri, d_tril_map, naux, nao, nao_pair);
   }
     
@@ -482,6 +523,7 @@ void Device::get_jk(int naux,
 
     double * dms = static_cast<double*>(info_dms.ptr);
 
+    //    printf(" -- calling _dev_push_async(dms)\n");
     pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), stream);
     
 #ifdef _CUDA_NVTX
@@ -570,7 +612,8 @@ void Device::get_jk(int naux,
     double t8 = omp_get_wtime();
     t_array_jk[8] += t8 - t7;
 #endif
-    
+
+    //    printf(" -- calling dev_stream_wait()\n");
     pm->dev_stream_wait(stream);
     
 #ifdef _CUDA_NVTX
@@ -585,7 +628,9 @@ void Device::get_jk(int naux,
 #endif 
   }
   
-  //  printf("Leaving get_jk()\n");
+#ifdef _DEBUG_DEVICE
+  printf(" -- Leaving Device::get_jk()\n");
+#endif
 }
   
 /* ---------------------------------------------------------------------- */
@@ -744,9 +789,8 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     d_vk_bj = (double *) pm->dev_malloc(size_vk_bj * sizeof(double));
   }
 
-  printf("LIBGPU :: hessop_get_veff :: bPpj= %f %f %f %f\n", da_bPpj(0,0,0), da_bPpj(0,1,0), da_bPpj(1,0,0), da_bPpj(naux-1,0,0));
-  printf("LIBGPU :: hessop_get_veff :: vPpj= %f %f %f %f\n", da_vPpj(0,0,0), da_vPpj(0,1,0), da_vPpj(1,0,0), da_vPpj(naux-1,0,0));
-  
+  //  printf("LIBGPU :: hessop_get_veff :: bPpj= %f %f %f %f\n", da_bPpj(0,0,0), da_bPpj(0,1,0), da_bPpj(1,0,0), da_bPpj(naux-1,0,0));
+  //  printf("LIBGPU :: hessop_get_veff :: vPpj= %f %f %f %f\n", da_vPpj(0,0,0), da_vPpj(0,1,0), da_vPpj(1,0,0), da_vPpj(naux-1,0,0));
   
 #ifdef _CUDA_NVTX
   nvtxRangePushA("HessOP_get_veff_H2D");

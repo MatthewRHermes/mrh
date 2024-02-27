@@ -8,6 +8,8 @@ from pyscf.mcscf.addons import _state_average_mcscf_solver
 from mrh.my_pyscf.mcscf import _DFLASCI
 import copy, json
 
+from mrh.my_pyscf.gpu import libgpu
+
 class ImpurityMole (gto.Mole):
     def __init__(self, las, stdout=None, output=None):
         gto.Mole.__init__(self)
@@ -132,6 +134,7 @@ class ImpuritySCF (scf.hf.SCF):
                 eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
                                            out=eri2)
                 b0 = b1
+
         t0 = log.timer ("Two-electron integrals in embedding subspace", *t0)
         # External mean-field; potentially spin-broken
         h1s = mf.get_hcore ()[None,:,:] + veff
@@ -478,6 +481,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
         impurity objects'''
         las = self.mol._las
+        gpu = las.use_gpu
         _ifrag = self._ifrag
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
@@ -498,6 +502,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
+        if gpu: libgpu.libgpu_set_update_dfobj_(gpu, 1)
         self._scf._update_impham_2_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
 
         # Set state-separated Hamiltonian 1-body

@@ -34,6 +34,8 @@ DEBUG = False
 
 if DEBUG:
     import math
+    import traceback
+    import sys
 
 def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
     gpu = dfobj.mol.use_gpu
@@ -164,6 +166,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
     return vj, vk
 
 def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
+    #traceback.print_stack(file=sys.stdout)
     gpu = dfobj.mol.use_gpu
     
     assert (with_j or with_k)
@@ -270,6 +273,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             #if gpu:
             if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
             libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj_tmp, vk_tmp, count, id(dfobj))
+            if count == -1: quit()
 
             #else:
                 

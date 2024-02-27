@@ -105,6 +105,14 @@ void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> 
 
 /* ---------------------------------------------------------------------- */
 
+void libgpu_set_update_dfobj_(void * ptr, int update_dfobj)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->set_update_dfobj_(update_dfobj);
+}
+
+/* ---------------------------------------------------------------------- */
+
 void libgpu_hessop_get_veff(void * ptr,
 			    int naux, int nmo, int ncore, int nocc,
 			    py::array_t<double> bPpj, py::array_t<double> vPpj, py::array_t<double> vk_bj)

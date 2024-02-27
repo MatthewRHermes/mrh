@@ -16,6 +16,8 @@ Device::Device()
   
   n = 0;
 
+  update_dfobj = 0;
+  
   size_rho = 0;
   size_vj = 0;
   size_vk = 0;
@@ -133,7 +135,9 @@ Device::~Device()
   
   eri_count.clear();
   eri_size.clear();
+#ifdef _DEBUG_ERI_CACHE
   for(int i=0; i<d_eri_host.size(); ++i) pm->dev_free_host( d_eri_host[i] );
+#endif
   for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free( d_eri_cache[i] );
   eri_list.clear();
 #endif
@@ -199,6 +203,13 @@ void Device::set_device(int id)
 {
   printf("LIBGPU: setting device id= %i\n",id);
   pm->dev_set_device(id);
+}
+
+/* ---------------------------------------------------------------------- */
+    
+void Device::set_update_dfobj_(int _val)
+{
+  update_dfobj = _val; // this is reset to zero in Device::pull_get_jk
 }
 
 /* ---------------------------------------------------------------------- */

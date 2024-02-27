@@ -20,6 +20,7 @@ using namespace PM_NS;
 #define _SIZE_BLOCK 256
 
 #define _USE_ERI_CACHE
+//#define _DEBUG_ERI_CACHE
 
 #define OUTPUTIJ        1
 #define INPUT_IJ        2
@@ -65,7 +66,8 @@ public :
 	      py::array_t<double>, py::array_t<double>,
 	      int, size_t);
   void pull_get_jk(py::array_t<double>, py::array_t<double>);
-
+  void set_update_dfobj_(int);
+  
   void hessop_get_veff(int, int, int, int,
 		       py::array_t<double>, py::array_t<double>, py::array_t<double>);
 
@@ -88,6 +90,8 @@ private:
   
   // get_jk
 
+  int update_dfobj;
+  
   int size_rho;
   int size_vj;
   int size_vk;
