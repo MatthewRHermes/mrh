@@ -293,9 +293,13 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         s2_roots.extend (list (np.diag (s2_blk)))
         rootsym.extend ([sym,]*c.shape[1])
 
-    # Sort results by energy
+    # The matrix blocks were evaluated in idx_allprods order
+    # Therefore, I need to ~invert~ idx_allprods to get the proper order
+    idx_allprods = np.argsort (idx_allprods)
     si = linalg.block_diag (*si)[idx_allprods,:]
     s2_mat = linalg.block_diag (*s2_mat)[np.ix_(idx_allprods,idx_allprods)]
+
+    # Sort results by energy
     idx = np.argsort (e_roots)
     rootsym = np.asarray (rootsym)[idx]
     e_roots = np.asarray (e_roots)[idx] + e0
