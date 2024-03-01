@@ -326,9 +326,7 @@ void Device::get_jk(int naux,
   int _size_rho = nset * naux;
   if(_size_rho > size_rho) {
     size_rho = _size_rho;
-    //    if(rho) pm->dev_free_host(rho);
     if(d_rho) pm->dev_free(d_rho);
-    //    rho = (double *) pm->dev_malloc_host(size_rho * sizeof(double));
     d_rho = (double *) pm->dev_malloc(size_rho * sizeof(double));
   }
 
@@ -365,54 +363,49 @@ void Device::get_jk(int naux,
       break;
     }
 
-  //  printf("id= %i  eri_list.size= %i  update_dfobj= %i\n", id, eri_list.size(), update_dfobj);
   if(id < eri_list.size()) {
     eri_count[id]++;
     d_eri = d_eri_cache[id];
-
-    //#ifdef _DEBUG_ERI_CACHE
-//     int diff_size = eri_size[id] - naux * nao_pair;
-//     if(diff_size != 0) {
-//       printf("LIBGPU:: Error: eri_cache size != 0  diff_size= %i\n",diff_size);
-//       exit(1);
-//     }
-
-//     d_eri = d_eri_cache[id];
-//     double * eri_host = d_eri_host[id];
-//     double diff_eri = 0.0;
-//     for(int i=0; i<naux*nao_pair; ++i) diff_eri += (eri_host[i] - eri1[i]) * (eri_host[i] - eri1[i]);
-
-//     if(diff_eri > 1e-10) {
-//       for(int i=0; i<naux*nao_pair; ++i) eri_host[i] = eri1[i];
-//       pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
-//       eri_update[id]++;
-
-//       // update_dfobj fails to correctly update device ; this is an error
-//       if(!update_dfobj) {
-// 	printf("LIBGPU:: Warning: ERI updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
-// 	count = -1;
-// 	return;
-// 	//exit(1);
-//       }
-//     } else {
-
-//       // update_dfobj falsely updates device ; this is loss of performance
-//       if(update_dfobj) {
-// 	printf("LIBGPU:: Warning: ERI not updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
-// 	count = -1;
-// 	return;
-// 	//exit(1);
-//       }
-//     }
-// #else
-    if(update_dfobj) {
-      d_eri = d_eri_cache[id];
+    
+#ifdef _DEBUG_ERI_CACHE
+    int diff_size = eri_size[id] - naux * nao_pair;
+    if(diff_size != 0) {
+      printf("LIBGPU:: Error: eri_cache size != 0  diff_size= %i\n",diff_size);
+      exit(1);
+    }
+    
+    double * eri_host = d_eri_host[id];
+    double diff_eri = 0.0;
+    for(int i=0; i<naux*nao_pair; ++i) diff_eri += (eri_host[i] - eri1[i]) * (eri_host[i] - eri1[i]);
+    
+    if(diff_eri > 1e-10) {
+      for(int i=0; i<naux*nao_pair; ++i) eri_host[i] = eri1[i];
+      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
       eri_update[id]++;
       
-      //      printf(" -- calling dev_push_async() to move data into old space\n");
+      // update_dfobj fails to correctly update device ; this is an error
+      if(!update_dfobj) {
+ 	printf("LIBGPU:: Warning: ERI updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
+ 	//count = -1;
+ 	//return;
+ 	//exit(1);
+      }
+    } else {
+      
+      // update_dfobj falsely updates device ; this is loss of performance
+      if(update_dfobj) {
+ 	printf("LIBGPU:: Warning: ERI not updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
+ 	//count = -1;
+ 	//return;
+ 	//exit(1);
+      }
+    }
+#else
+    if(update_dfobj) {
+      eri_update[id]++;
       pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
     }
-    //#endif
+#endif
     
   } else {
     eri_list.push_back(addr_dfobj+count);
@@ -420,12 +413,10 @@ void Device::get_jk(int naux,
     eri_update.push_back(0);
     eri_size.push_back(naux * nao_pair);
     
-    //    printf(" -- calling dev_malloc() to create new space\n");
     d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
     int id = d_eri_cache.size() - 1;
     d_eri = d_eri_cache[ id ];
     
-    //    printf(" -- calling dev_push_async() to move data into new space\n");
     pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
     
 #ifdef _DEBUG_ERI_CACHE
@@ -788,9 +779,6 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     if(d_vk_bj) pm->dev_free(d_vk_bj);
     d_vk_bj = (double *) pm->dev_malloc(size_vk_bj * sizeof(double));
   }
-
-  //  printf("LIBGPU :: hessop_get_veff :: bPpj= %f %f %f %f\n", da_bPpj(0,0,0), da_bPpj(0,1,0), da_bPpj(1,0,0), da_bPpj(naux-1,0,0));
-  //  printf("LIBGPU :: hessop_get_veff :: vPpj= %f %f %f %f\n", da_vPpj(0,0,0), da_vPpj(0,1,0), da_vPpj(1,0,0), da_vPpj(naux-1,0,0));
   
 #ifdef _CUDA_NVTX
   nvtxRangePushA("HessOP_get_veff_H2D");
