@@ -130,6 +130,8 @@ class ImpuritySCF (scf.hf.SCF):
                 eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
                                            out=eri2)
                 b0 = b1
+        if getattr (mf, '_eri', None) is None and getattr (mf, 'with_df', None) is None:
+            raise NotImplementedError ("Conventional integral-direct asynchronous LASSCF")
         t0 = log.timer ("Two-electron integrals in embedding subspace", *t0)
         # External mean-field; potentially spin-broken
         h1s = mf.get_hcore ()[None,:,:] + veff
