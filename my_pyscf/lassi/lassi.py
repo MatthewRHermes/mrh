@@ -726,8 +726,11 @@ class LASSI(lib.StreamObject):
         self.opt = opt
         self._keys = set((self.__dict__.keys())).union(keys)
 
-    def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,\
-               break_symmetry=False, opt=1,  **kwargs):
+    def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
+               break_symmetry=None, opt=None,  **kwargs):
+        if soc is None: soc = self.soc
+        if break_symmetry is None: break_symmetry = self.break_symmetry
+        if opt is None: opt = self.opt
         log = lib.logger.new_logger (self, self.verbose)
         if not self.converged:
             log.warn ('LASSI state preparation step not converged!')
