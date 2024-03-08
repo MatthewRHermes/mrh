@@ -348,6 +348,12 @@ class LASSIS (LASSI):
         self.converged, las = prepare_states (self, ncharge=ncharge, nspin=nspin,
                                               sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
                                               crash_locmin=crash_locmin)
-        self.__dict__.update(las.__dict__)
+        #self.__dict__.update(las.__dict__) # Unsafe
+        self.fciboxes = las.fciboxes
+        self.ci = las.ci
+        self.nroots = las.nroots
+        self.weights = las.weights
+        self.e_lexc = las.e_lexc
+        self.e_states = las.e_states
         return LASSI.kernel (self, **kwargs)
 
