@@ -32,9 +32,6 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
         # If all singlets, skip the spin shuffle and the unnecessary warning below
         las1 = las
     else:
-        if lsi.nfrags > 2:
-            log.warn ("Behavior for >2 nonsinglet fragments may not be well-defined.")
-            # Within single excitations, Sz of spectator fragments is seemingly arbitrary.
         las1 = spin_shuffle (las, equal_weights=True)
         las1.ci = spin_shuffle_ci (las1, las1.ci)
         las1.converged = las.converged
@@ -181,6 +178,8 @@ class SpinFlips (object):
         self.smults = smults
 
 def all_spin_flips (lsi, las, nspin=1):
+    # NOTE: this actually only uses the -first- rootspace in las, so it can be done before
+    # the initial spin shuffle
     log = logger.new_logger (lsi, lsi.verbose)
     norb_f = las.ncas_sub
     spaces = [SingleLASRootspace (las, m, s, c, las.weights[ix], ci=[c[ix] for c in las.ci])
@@ -254,6 +253,8 @@ def all_spin_flips (lsi, las, nspin=1):
     return spin_flips
 
 def _spin_flip_products (spaces, spin_flips, nroots_ref=1, frozen_frags=None):
+    # NOTE: this actually only uses the -first- rootspace in las, so it can be done before
+    # the initial spin shuffle
     '''Combine spin-flip excitations in all symmetrically permissible ways'''
     if spin_flips is None or len (spin_flips)==0: return spaces
     spaces_ref = spaces[:nroots_ref]
