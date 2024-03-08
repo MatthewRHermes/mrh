@@ -86,6 +86,13 @@ class ImpurityMole (gto.Mole):
 
 class ImpuritySCF (scf.hf.SCF):
 
+    def _is_mem_enough (self, df_naux=None):
+        nao = self.mol.nao ()
+        if df_naux is not None:
+            return 4*df_naux*nao*(nao+1)/1e6+lib.current_memory()[0] < self.max_memory*.95
+        else:
+            return 2*(nao**4)/1e6+lib.current_memory()[0] < self.max_memory*.95
+
     def _update_space_(self, imporb_coeff, nelec_imp):
         '''Syntactic sugar for updating the impurity orbital subspace in the encapsulated
         ImpurityMole object.'''
@@ -115,10 +122,15 @@ class ImpuritySCF (scf.hf.SCF):
         # Two-electron integrals
         log = logger.new_logger (self, self.verbose)
         t0 = (logger.process_clock(), logger.perf_counter())
-        if getattr (mf, '_eri', None) is not None:
-            self._eri = ao2mo.full (mf._eri, imporb_coeff, 4)
+        conv_eris_mem_error = MemoryError (("Conventional two-electron integrals in asynchronous "
+                                            "LASSCF (integral-direct algorithm is not yet "
+                                            "supported)"))
+        df_eris_mem_error = MemoryError (("Density-fitted two-electron integrals in asynchronous "
+                                          "LASSCF (outcore algorithm is not yet supported"))
         if getattr (mf, 'with_df', None) is not None:
             # TODO: impurity outcore cderi
+            if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
+                raise df_eris_mem_error
             self.with_df._cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
                                             dtype=imporb_coeff.dtype)
             ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
@@ -130,8 +142,14 @@ class ImpuritySCF (scf.hf.SCF):
                 eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
                                            out=eri2)
                 b0 = b1
-        if getattr (mf, '_eri', None) is None and getattr (mf, 'with_df', None) is None:
-            raise NotImplementedError ("Conventional integral-direct asynchronous LASSCF")
+        else:
+            if getattr (mf, '_eri', None) is None:
+                if not mf._is_mem_enough ():
+                    raise conv_eris_mem_error
+                mf._eri = mf.mol.intor('int2e', aosym='s8')
+            if not self._is_mem_enough ():
+                raise conv_eris_mem_error
+            self._eri = ao2mo.full (mf._eri, imporb_coeff, 4)
         t0 = log.timer ("Two-electron integrals in embedding subspace", *t0)
         # External mean-field; potentially spin-broken
         h1s = mf.get_hcore ()[None,:,:] + veff
