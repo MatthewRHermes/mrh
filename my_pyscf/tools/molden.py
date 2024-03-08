@@ -54,7 +54,7 @@ def from_lassi (lsi, fname, state=0, si=None, opt=1, **kwargs):
     if isinstance (lsi, LASSI):
         mo_coeff, mo_ene, mo_occ = lsi._las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
     else:
-        mo_coeff, mo_ene, mo_occ = las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
+        mo_coeff, mo_ene, mo_occ = lsi.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
     return from_mo (lsi.mol, fname, mo_coeff, occ=mo_occ, ene=mo_ene, **kwargs)
 
 def from_mcscf (mc, filename, ignore_h=IGNORE_H, cas_natorb=False):

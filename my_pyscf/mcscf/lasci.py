@@ -1471,14 +1471,17 @@ class LASCINoSymm (casci.CASCI):
     state_average = state_average
     state_average_ = state_average_
 
-    def lassi(self, **kwargs):
+    def lassi(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None,
+              soc=False, break_symmetry=False, opt=1, **kwargs):
         #import warnings
         #lassi_kernel_warn = "Now LASSI have kernel, which takes las instance as input. This [las.lassi()] function " \
         #                    "will be removed soon."
         #warnings.warn(lassi_kernel_warn, stacklevel=3)
         from mrh.my_pyscf.lassi import lassi
-        mylassi = lassi.LASSI(self, **kwargs)
-        return mylassi.kernel(**kwargs)
+        mylassi = lassi.LASSI(self, mo_coeff=mo_coeff, ci=ci, soc=soc, opt=opt,
+                              break_symmetry=break_symmetry, **kwargs)
+        return mylassi.kernel(mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub,
+                              orbsym=orbsym)
 
     las2cas_civec = las2cas_civec
     assert_no_duplicates = assert_no_duplicates
