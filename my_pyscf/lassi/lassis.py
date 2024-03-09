@@ -148,9 +148,11 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             if sa_heff: weights[:] = 1.0 / len (weights)
             else: weights[0] = 1.0
             psexc.set_excited_fragment_(k, (neleca[k],nelecb[k]), smults[k], weights=weights)
-        conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0,
+        ci0 = lsi.ci_charge_hops.get (hash (spaces[i]), None)
+        conv, e_roots[i], ci1 = psexc.kernel (h1, h2, ecore=h0, ci0=ci0,
                                               max_cycle_macro=lsi.max_cycle_macro,
                                               conv_tol_self=lsi.conv_tol_self)
+        lsi.ci_charge_hops[hash (spaces[i])] = [ci1[ifrag] for ifrag in psexc.excited_frags]
         spin_shuffle_ref = all ([spaces[j].is_spin_shuffle_of (spaces[0])
                                  for j in range (1,las1.nroots)])
         for k in np.where (~excfrags)[0]:
@@ -212,13 +214,13 @@ def all_spin_flips (lsi, las, nspin=1):
         lasdm1s = casdm1s[:,i:j,i:j]
         h1_i = (f1[:,i:j,i:j] - np.tensordot (h2_i, lasdm1s.sum (0))[None,:,:]
                 + np.tensordot (lasdm1s, h2_i, axes=((1,2),(2,1))))
-        def cisolve (sm, nroots):
+        def cisolve (sm, nroots, ci0):
             neleca = (nelec + (sm-1)) // 2
             nelecb = (nelec - (sm-1)) // 2
             solver = csf_solver (las.mol, smult=sm).set (nelec=(neleca,nelecb), norb=norb)
             solver.check_transformer_cache ()
             nroots = min (nroots, solver.transformer.ncsf)
-            ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), nroots=nroots)[1]
+            ci_list = solver.kernel (h1_i, h2_i, norb, (neleca,nelecb), ci0=ci0, nroots=nroots)[1]
             if nroots==1: ci_list = [ci_list,]
             ci_arrlist = [np.array (ci_list),]
             if sm>1:
@@ -236,7 +238,10 @@ def all_spin_flips (lsi, las, nspin=1):
                       ifrag, nelec, norb, smult-2)
             smults1_i.extend ([smult-2,]*(smult-2))
             spins1_i.extend (list (range (smult-3, -(smult-3)-1, -2)))
-            ci1_i.extend (cisolve (smult-2, ndn0[ifrag]))
+            ci0 = lsi.ci_spin_flips.get ((ifrag,'d'), None)
+            ci1_i_down = cisolve (smult-2, ndn0[ifrag], ci0)
+            lsi.ci_spin_flips[(ifrag,'d')] = ci1_i_down[0]
+            ci1_i.extend (ci1_i_down)
         min_npair = max (0, nelec-norb)
         max_smult = (nelec - 2*min_npair) + 1
         if smult < max_smult: # spin-raised
@@ -244,7 +249,10 @@ def all_spin_flips (lsi, las, nspin=1):
                       ifrag, nelec, norb, smult+2)
             smults1_i.extend ([smult+2,]*(smult+2))
             spins1_i.extend (list (range (smult+1, -(smult+1)-1, -2)))
-            ci1_i.extend (cisolve (smult+2, nup0[ifrag]))
+            ci0 = lsi.ci_spin_flips.get ((ifrag,'u'), None)
+            ci1_i_up = cisolve (smult+2, nup0[ifrag], ci0)
+            lsi.ci_spin_flips[(ifrag,'u')] = ci1_i_up[0]
+            ci1_i.extend (ci1_i_up)
         smults1.append (smults1_i)
         spins1.append (spins1_i)
         ci1.append (ci1_i)
@@ -334,6 +342,8 @@ class LASSIS (LASSI):
         LASSI.__init__(self, las, opt=opt, **kwargs)
         self.max_cycle_macro = 50
         self.conv_tol_self = 1e-6
+        self.ci_spin_flips = {}
+        self.ci_charge_hops = {}
         if las.nroots>1:
             logger.warn (self, ("LASSIS builds the model space for you! I don't know what will "
                                 "happen if you build a model space by hand!"))
