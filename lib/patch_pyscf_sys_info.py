@@ -1,7 +1,7 @@
 import os
 import pyscf.lib.misc
 
-if not hasattr (pyscf.lib.misc, 'mrh_patched'):
+if not hasattr (pyscf.lib.misc, 'mrh_patched') and hasattr (pyscf.lib.misc, 'format_sys_info'):
     from pyscf.lib.misc import format_sys_info as pyscf_format_sys_info
     from pyscf.lib.misc import repo_info
     
