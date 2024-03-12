@@ -26,7 +26,7 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
     # between definition of e_states array for neutral and charge-separated rootspaces
     log = logger.new_logger (lsi, lsi.verbose)
-    las = lsi._las
+    las = lsi._las.get_single_state_las (state=0)
     # 1. Spin shuffle step
     if np.all (get_space_info (las)[2]==1):
         # If all singlets, skip the spin shuffle and the unnecessary warning below
@@ -345,8 +345,8 @@ class LASSIS (LASSI):
         self.ci_spin_flips = {}
         self.ci_charge_hops = {}
         if las.nroots>1:
-            logger.warn (self, ("LASSIS builds the model space for you! I don't know what will "
-                                "happen if you build a model space by hand!"))
+            logger.warn (self, ("Only the first LASSCF state is used by LASSIS! "
+                                "Other states are discarded!"))
 
     def kernel (self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
                 crash_locmin=None, **kwargs):
