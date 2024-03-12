@@ -679,6 +679,17 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
     return state_average_(new_las, weights=weights, charges=charges, spins=spins,
         smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
 
+def get_single_state_las (las, state=0):
+    ''' Quickly extract a state-specific las calculation from a state-average one '''
+    charges, spins, smults, wfnsyms = get_space_info (las)
+    charges = charges[state:state+1]
+    spins = spins[state:state+1]
+    smults = smults[state:state+1]
+    wfnsyms = wfnsyms[state:state+1]
+    weights = [1,]
+    return state_average (las, weights=weights, charges=charges, spins=spins, smults=smults,
+                          wfnsyms=wfnsyms)
+
 def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose=0,
                assert_no_dupes=False, _dry_run=False):
     '''Self-consistently optimize the CI vectors of a LAS state with 
@@ -1470,6 +1481,7 @@ class LASCINoSymm (casci.CASCI):
 
     state_average = state_average
     state_average_ = state_average_
+    get_single_state_las = get_single_state_las
 
     def lassi(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None,
               soc=False, break_symmetry=False, opt=1, **kwargs):
