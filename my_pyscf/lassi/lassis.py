@@ -1,6 +1,7 @@
 import sys
 import numpy as np
 from scipy import linalg
+from pyscf import lib, gto
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
 from mrh.my_pyscf.fci import csf_solver
@@ -21,6 +22,7 @@ from mrh.my_pyscf.lassi.lassi import LASSI
 #    values.
 # 3. Combine the optimized CI vectors into a single ci table in the format the LASSI kernel expects.
 #    Use references, not copies.
+
 
 def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
@@ -330,6 +332,53 @@ def charge_excitation_products (las2, las1):
     # TODO: direct product of single-electron hops
     raise NotImplementedError (">3-frag LASSIS")
 
+def as_scanner(lsi):
+    '''Generating a scanner for LASSIS PES.
+    
+    The returned solver is a function. This function requires one argument
+    "mol" as input and returns total LASSIS energy.
+
+    The solver will automatically use the results of last calculation as the
+    initial guess of the new calculation.  All parameters of LASSIS object
+    are automatically applied in the solver.
+    
+    Note scanner has side effects.  It may change many underlying objects
+    (_scf, with_df, with_x2c, ...) during calculation.
+    ''' 
+    if isinstance(lsi, lib.SinglePointScanner):
+        return lsi
+        
+    logger.info(lsi, 'Create scanner for %s', lsi.__class__)
+    name = lsi.__class__.__name__ + LASSIS_Scanner.__name_mixin__
+    return lib.set_class(LASSIS_Scanner(lsi), (LASSIS_Scanner, lsi.__class__), name)
+        
+class LASSIS_Scanner(lib.SinglePointScanner):
+    def __init__(self, lsi, state=0):
+        self.__dict__.update(lsi.__dict__)
+        self._las = lsi._las.as_scanner()
+        self._scan_state = state
+
+    def __call__(self, mol_or_geom, **kwargs):
+        if isinstance(mol_or_geom, gto.MoleBase):
+            mol = mol_or_geom
+        else:
+            mol = self.mol.set_geom_(mol_or_geom, inplace=False)
+    
+        self.reset (mol)
+        for key in ('with_df', 'with_x2c', 'with_solvent', 'with_dftd3'):
+            sub_mod = getattr(self, key, None)
+            if sub_mod:
+                sub_mod.reset(mol)
+
+        las_scanner = self._las
+        las_scanner(mol)
+        self.mol = mol
+        self.mo_coeff = las_scanner.mo_coeff
+        e_tot = self.kernel()[0][self._scan_state]
+        if hasattr (e_tot, '__len__'):
+            e_tot = np.average (e_tot)
+        return e_tot
+
 class LASSIS (LASSI):
     def __init__(self, las, ncharge='s', nspin='s', sa_heff=True, deactivate_vrv=False,
                  crash_locmin=False, opt=1, **kwargs):
@@ -366,4 +415,6 @@ class LASSIS (LASSI):
         self.e_lexc = las.e_lexc
         self.e_states = las.e_states
         return LASSI.kernel (self, **kwargs)
+
+    as_scanner = as_scanner
 

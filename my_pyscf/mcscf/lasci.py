@@ -666,6 +666,8 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
     See lasci.state_average_ docstring below:\n\n''' + state_average_.__doc__)
 def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
         smults=None, wfnsyms=None, assert_no_dupes=True):
+    is_scanner = isinstance (las, lib.SinglePointScanner)
+    if is_scanner: las = las.undo_scanner ()
     new_las = las.__class__(las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
     new_las.mo_coeff = las.mo_coeff.copy ()
@@ -676,8 +678,10 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
     if las.ci is not None:
         new_las.ci = [[c2.copy () if isinstance (c2, np.ndarray) else None
             for c2 in c1] for c1 in las.ci]
-    return state_average_(new_las, weights=weights, charges=charges, spins=spins,
-        smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
+    las = state_average_(new_las, weights=weights, charges=charges, spins=spins,
+                         smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
+    if is_scanner: las = las.as_scanner ()
+    return las
 
 def get_single_state_las (las, state=0):
     ''' Quickly extract a state-specific las calculation from a state-average one '''

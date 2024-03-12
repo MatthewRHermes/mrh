@@ -763,4 +763,8 @@ class LASSI(lib.StreamObject):
         from mrh.my_pyscf.lassi.sitools import analyze
         analyze (self, self.si, state=state)
 
+    def reset (self, mol=None):
+        if mol is not None:
+            self.mol = mol
+        self._las.reset (mol)
 
