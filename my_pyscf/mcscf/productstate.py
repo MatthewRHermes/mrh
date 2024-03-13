@@ -38,10 +38,11 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                 ecore=ecore, **kwargs)
             grad = self._get_grad (h1eff, h2, ci0, norb_f, nelec_f, **kwargs)
             grad_max = np.amax (np.abs (grad))
-            log.info ('Cycle %d: max grad = %e ; sigma = %e', it, grad_max,
-                e_sigma)
-            log.debug ('e vector = {}'.format (e))
             solvers_converged = [np.all (np.asarray (s.converged)) for s in self.fcisolvers]
+            nconv = sum ([int (c) for c in solvers_converged])
+            log.info ('Cycle %d: max grad = %e ; sigma = %e ; %d/%d fragment CI solvers converged',
+                      it, grad_max, e_sigma, nconv, len (solvers_converged))
+            log.debug ('e vector = {}'.format (e))
             if ((grad_max < conv_tol_grad) and (e_sigma < conv_tol_self)
                 and all ([solvers_converged]) and it>0):
                 converged = True
