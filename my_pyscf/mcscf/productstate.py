@@ -41,8 +41,10 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             solvers_converged = [np.all (np.asarray (s.converged)) for s in self.fcisolvers]
             nconv = sum ([int (c) for c in solvers_converged])
             log.info ('Cycle %d: max grad = %e ; sigma = %e ; %d/%d fragment CI solvers converged',
-                      it, grad_max, e_sigma, nconv, len (solvers_converged))
+                      it, grad_max, e_sigma, nconv, len (self.fcisolvers))
             log.debug ('e vector = {}'.format (e))
+            if nconv<len(self.fcisolvers): log.debug ('unconverged fragment CI solvers: {}'.format (
+                list(np.where (np.logical_not (solvers_converged))[0])))
             if ((grad_max < conv_tol_grad) and (e_sigma < conv_tol_self)
                 and all ([solvers_converged]) and it>0):
                 converged = True
