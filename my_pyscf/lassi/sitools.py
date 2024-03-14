@@ -3,7 +3,7 @@ from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi.lassi import ham_2q, root_make_rdm12s, LASSI
-from mrh.my_pyscf.lassi.citools import get_lroots
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 
 def decompose_sivec_by_rootspace (las, si, ci=None):
     '''Decompose a set of LASSI vectors as
@@ -455,5 +455,35 @@ def _print_hdiag (log, iroot, state_coeffs, lroots, hdiag0, hdiag_i,
         log.info ("All %d ENVs in rootspace %d accounted for", nprods, iroot)
     return
 
+def sivec_fermion_spin_shuffle (si0, nelec_frs, lroots):
+    '''Permute the signs of rows of the SI vector to account for the difference in convention
+    between
 
+    ... a2' a1' a0' ... b2' b1' b0' |vac>
+
+    and
+
+    ... a2' b2' a1' b1' a0' b0' |vac>
+
+    Args:
+        si0: ndarray of shape (ndim,*)
+            Contains SI vecotr
+        nelec_frs: ndarray of shape (nfrags, nroots, 2)
+            Number of electrons of each spin in each fragment in each rootspace
+        lroots: ndarray of shape (nfrags, nroots)
+            Number of states in each fragment in each rootspace
+
+
+    Returns:
+        si1: ndarray of shape (ndim,*)
+            si0 with permuted row signs
+    '''
+    from mrh.my_pyscf.lassi.op_o1 import fermion_spin_shuffle
+    nelec_rsf = np.asarray (nelec_frs).transpose (1,2,0)
+    rootaddr = get_rootaddr_fragaddr (lroots)[0]
+    si1 = si0.copy ()
+    for iroot, nelec_sf in enumerate (nelec_rsf):
+        idx = (rootaddr==iroot)
+        si1[idx,:] *= fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
+    return si1
 

@@ -759,6 +759,13 @@ class LASSI(lib.StreamObject):
         if ci is None: ci = self.ci
         return get_lroots (ci)
 
+    def get_sivec_fermion_spin_shuffle (self, si=None, ci=None):
+        from mrh.my_pyscf.lassi.sitools import sivec_fermion_spin_shuffle
+        if si is None: si = self.si
+        lroots = self.get_lroots (ci=ci)
+        nelec_frs = self.get_nelec_frs ()
+        return sivec_fermion_spin_shuffle (si, nelec_frs, lroots)
+
     def analyze (self, state=None):
         from mrh.my_pyscf.lassi.sitools import analyze
         analyze (self, self.si, state=state)
