@@ -490,6 +490,8 @@ def sivec_fermion_spin_shuffle (si0, nelec_frs, lroots):
         si1[idx,:] *= fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
     return si1
 
+# TODO: resort to spin-major order within the new vacuum! Will probably be
+# necessary to make sense of excitons!
 def sivec_vacuum_shuffle (si0, nelec_frs, lroots, nelec_vac=None, state=None):
     '''Define a particular number of electrons in each fragment as the vacuum,
     set the signs of the LAS basis functions accordingly and in fragment-major
