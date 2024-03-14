@@ -766,6 +766,35 @@ class LASSI(lib.StreamObject):
         nelec_frs = self.get_nelec_frs ()
         return sivec_fermion_spin_shuffle (si, nelec_frs, lroots)
 
+    def get_sivec_vacuum_shuffle (self, state=None, nelec_vac=None, si=None, ci=None):
+        '''Define a particular number of electrons in each fragment as the vacuum,
+        set the signs of the LAS basis functions accordingly and in fragment-major
+        order, and return the correspondingly-modified SI vector.
+    
+        Kwargs:
+            state: integer
+                Index of the rootspace identified as the new vacuum. Required if
+                nelec_vac is unset.
+            nelec_vac: ndarray of shape (nfrags)
+                Number of electrons (spinless) in each fragment in the new vacuum.
+                Defaults to self.get_nelec_frs ()[:,state,:].sum (1)
+            si: ndarray of shape (nstates,*)
+                SI vectors; taken from self if omitted
+            ci: list of list of ndarrays
+                CI vectors; taken from self if omitted
+ 
+        Returns:
+            si1: ndarray of shape (nstates,*)
+                si0 with permuted row signs corresponding to nelec_vac electrons in
+                each fragment in the vacuum and the fermion creation operators in
+                fragment-major order
+        '''
+        from mrh.my_pyscf.lassi.sitools import sivec_vacuum_shuffle
+        if si is None: si = self.si
+        lroots = self.get_lroots (ci=ci)
+        nelec_frs = self.get_nelec_frs ()
+        return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
+
     def analyze (self, state=None):
         from mrh.my_pyscf.lassi.sitools import analyze
         analyze (self, self.si, state=state)
