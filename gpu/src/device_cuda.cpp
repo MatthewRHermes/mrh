@@ -296,6 +296,28 @@ __global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, in
 
 /* ---------------------------------------------------------------------- */
 
+#if 0
+
+__global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int naux, int nao, int nao_pair)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if(i >= naux) return;
+  
+  int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  double * buf = &(buf2[i * nao * nao]);
+  double * tril = &(eri1[i * nao_pair]);
+
+  while (j < nao*nao) {
+    buf[j] = tril[ map[j] ];
+    j += blockDim.y;  // * gridDim.y; // gridDim.y is just 1
+  }
+  
+}
+
+#else
+
 __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int naux, int nao, int nao_pair)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -310,6 +332,7 @@ __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int 
   buf[j] = tril[ map[j] ];
   //  for(int j=0; j<nao*nao; ++j) buf[j] = tril[ map[j] ];
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -563,13 +586,20 @@ void Device::get_jk(int naux,
     nvtxRangePushA("GetJK::TRIL_MAP");
 #endif
     
-  {    
-    dim3 grid_size((naux + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
-    dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-    
-    //    printf(" -- calling _unpack_buf2()\n");
-    _getjk_unpack_buf2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_eri, d_tril_map, naux, nao, nao_pair);
-  }
+    {
+#if 0
+      dim3 grid_size(naux, 1, 1);
+      dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+#else
+      dim3 grid_size(naux, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
+      dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+      // dim3 grid_size((naux + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
+      // dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
+#endif
+      
+      //    printf(" -- calling _unpack_buf2()\n");
+      _getjk_unpack_buf2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_eri, d_tril_map, naux, nao, nao_pair);
+    }
     
 #ifdef _CUDA_NVTX
     nvtxRangePop();
