@@ -212,6 +212,56 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 
 /* ---------------------------------------------------------------------- */
 
+#if 1
+__global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nset, int naux, int nao_pair)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+
+  if(i >= nset) return;
+  if(j >= naux) return;
+
+  __shared__ double cache[_RHO_BLOCK_SIZE];
+
+  int k = blockIdx.z * blockDim.z + threadIdx.z;
+  int cache_id = threadIdx.z;
+
+  // thread-local work
+
+  const int indxi = i * nao_pair;
+  const int indxj = j * nao_pair;
+  
+  double tmp = 0.0;
+  while (k < nao_pair) {
+    tmp += dmtril[indxi + k] * eri1[indxj + k];
+    k += blockDim.z; // * gridDim.z; // gridDim.z is just 1
+  }
+
+  cache[cache_id] = tmp;
+
+  // block
+
+  __syncthreads();
+
+  // manually reduce values from threads within block
+
+  int l = blockDim.z / 2;
+  while (l != 0) {
+    if(cache_id < l)
+      cache[cache_id] += cache[cache_id + l];
+
+    __syncthreads();
+    l /= 2;
+  }
+
+  // store result in global array
+  
+  if(cache_id == 0)
+    rho[i * naux + j] = cache[0];
+}
+
+#else
+
 __global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nset, int naux, int nao_pair)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -225,6 +275,7 @@ __global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nse
   
   rho[i * naux + j] = val;
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -337,7 +388,7 @@ void Device::get_jk(int naux,
   
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   //  double * vk = static_cast<double*>(info_vk.ptr);
-  printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i  count= %i\n",blksize,naux,nao,nset,count);
+  printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i  nao_pair= %i  count= %i\n",blksize,naux,nao,nset,nao_pair,count);
   printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
   	 info_dmtril.shape[0], info_dmtril.shape[1],
   	 info_eri1.shape[0], info_eri1.shape[1],
@@ -445,8 +496,13 @@ void Device::get_jk(int naux,
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
     {
+#if 1
+      dim3 grid_size(nset, naux, 1);
+      dim3 block_size(1, 1, _RHO_BLOCK_SIZE);
+#else
       dim3 grid_size(nset, (naux + (_RHO_BLOCK_SIZE - 1)) / _RHO_BLOCK_SIZE, 1);
       dim3 block_size(1, _RHO_BLOCK_SIZE, 1);
+#endif
 
       //      printf(" -- calling _getjk_rho()\n");
       _getjk_rho<<<grid_size, block_size, 0, stream>>>(d_rho, d_dmtril, d_eri, nset, naux, nao_pair);
