@@ -3,7 +3,7 @@ from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi.lassi import ham_2q, root_make_rdm12s, LASSI
-from mrh.my_pyscf.lassi.citools import get_lroots
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 
 def decompose_sivec_by_rootspace (las, si, ci=None):
     '''Decompose a set of LASSI vectors as
@@ -454,6 +454,92 @@ def _print_hdiag (log, iroot, state_coeffs, lroots, hdiag0, hdiag_i,
     else:
         log.info ("All %d ENVs in rootspace %d accounted for", nprods, iroot)
     return
+
+def sivec_fermion_spin_shuffle (si0, nelec_frs, lroots):
+    '''Permute the signs of rows of the SI vector to account for the difference in convention
+    between
+
+    ... a2' a1' a0' ... b2' b1' b0' |vac> (spin-major order)
+
+    and
+
+    ... a2' b2' a1' b1' a0' b0' |vac> (fragment-major order)
+
+    Operators and SI vectors in LASSI use spin-major order by default. However, fragment-major
+    order is sometimes more useful when computing various properties.
+
+    Args:
+        si0: ndarray of shape (ndim,*)
+            Contains SI vecotr
+        nelec_frs: ndarray of shape (nfrags, nroots, 2)
+            Number of electrons of each spin in each fragment in each rootspace
+        lroots: ndarray of shape (nfrags, nroots)
+            Number of states in each fragment in each rootspace
+
+
+    Returns:
+        si1: ndarray of shape (ndim,*)
+            si0 with permuted row signs
+    '''
+    from mrh.my_pyscf.lassi.op_o1 import fermion_spin_shuffle
+    nelec_rsf = np.asarray (nelec_frs).transpose (1,2,0)
+    rootaddr = get_rootaddr_fragaddr (lroots)[0]
+    si1 = si0.copy ()
+    for iroot, nelec_sf in enumerate (nelec_rsf):
+        idx = (rootaddr==iroot)
+        si1[idx,:] *= fermion_spin_shuffle (nelec_sf[0], nelec_sf[1])
+    return si1
+
+# TODO: resort to spin-major order within the new vacuum! Will probably be
+# necessary to make sense of excitons!
+def sivec_vacuum_shuffle (si0, nelec_frs, lroots, nelec_vac=None, state=None):
+    '''Define a particular number of electrons in each fragment as the vacuum,
+    set the signs of the LAS basis functions accordingly and in fragment-major
+    order, and return the correspondingly-modified SI vector.
+
+    Args:
+        si0: ndarray of shape (ndim,*)
+            Contains SI vecotr
+        nelec_frs: ndarray of shape (nfrags, nroots, 2)
+            Number of electrons of each spin in each fragment in each rootspace
+        lroots: ndarray of shape (nfrags, nroots)
+            Number of states in each fragment in each rootspace
+
+    Kwargs:
+        nelec_vac: ndarray of shape (nfrags)
+            Number of electrons (spinless) in each fragment in the new vacuum.
+            Defaults to nelec_frs[:,state,:].sum (1)
+        state: integer
+            Index of the rootspace identified as the new vacuum. Required if
+            nelec_vac is unset.
+
+    Returns:
+        si1: ndarray of shape (ndim,*)
+            si0 with permuted row signs corresponding to nelec_vac electrons in
+            each fragment in the vacuum and the fermion creation operators in
+            fragment-major order
+    '''
+    assert ((nelec_vac is not None) or (state is not None))
+    nfrags, nroots = nelec_frs.shape[:2]
+    si1 = sivec_fermion_spin_shuffle (si0, nelec_frs, lroots)
+    nelec_rf = nelec_frs.sum (2).T
+    if nelec_vac is None: nelec_vac = nelec_rf[state]
+    nelec_vac = np.asarray (nelec_vac)
+    dparity_rf = np.remainder (nelec_rf - nelec_vac[None,:], 2)
+    parity_vac = np.remainder (nelec_vac, 2)
+    rootaddr = get_rootaddr_fragaddr (lroots)[0]
+    for iroot, dparity_f in enumerate (dparity_rf):
+        odd_frags = np.where (dparity_f)[0]
+        nperms = 0
+        # Remember: c2' c1' c0' |vac>
+        for ifrag in odd_frags[::-1]:
+            if ifrag == nfrags-1: continue
+            nperms += sum (parity_vac[ifrag+1:])
+        idx = (rootaddr==iroot)
+        si1[idx,:] *= (1,-1)[nperms%2]
+    return si1
+
+
 
 
 
