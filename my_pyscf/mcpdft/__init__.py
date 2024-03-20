@@ -78,9 +78,9 @@ def _laspdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI
 def _lassipdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI=False, ncore=None, spin_sub=None,
                    frozen=None, **kwargs):
 
-    from mrh.my_pyscf.lassi import lassi, lassis
+    from mrh.my_pyscf.lassi import lassi
 
-    if isinstance(mc_or_mf_or_mol, (lassi.LASSI, lassis.LASSIS)):
+    if isinstance(mc_or_mf_or_mol, lassi.LASSI):
         mc0 = mc_or_mf_or_mol._las
         mf_or_mol = mc_or_mf_or_mol._las._scf
     else:
@@ -116,7 +116,7 @@ def LASSIPDFT(mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, ncore=None, spin_sub=N
 
 LASSCF = LASSCFPDFT
 LASSI = LASSIPDFT
-LASSIS = LASSIPDFT
+LASSIS = LASSIPDFT # Not Sure acc. to issue #34 of mrh
 
 def CIMCPDFT (*args, **kwargs):
     from mrh.my_pyscf.mcpdft.var_mcpdft import CIMCPDFT as fn
