@@ -452,6 +452,22 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 	 info_vk_bj.shape[0], info_vk_bj.shape[1]);
 #endif
   
+  int _size_buf = naux * nmo * nocc;
+  if(_size_buf > size_buf) {
+    size_buf = _size_buf;
+    if(buf_tmp) pm->dev_free_host(buf_tmp);
+    if(buf3) pm->dev_free_host(buf3);
+    
+    buf_tmp = (double*) pm->dev_malloc_host(size_buf*sizeof(double));
+    buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double));
+
+    if(d_buf1) pm->dev_free(d_buf1);
+    if(d_buf2) pm->dev_free(d_buf2);
+    
+    d_buf1 = (double *) pm->dev_malloc(size_buf * sizeof(double));
+    d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
+  }
+  
   DevArray3D da_bPpj = DevArray3D(bPpj, naux, nmo, nocc);
   DevArray3D da_vPpj = DevArray3D(vPpj, naux, nmo, nocc);
   DevArray2D da_vk_bj = DevArray2D(vk_bj, nvirt, nocc);
@@ -460,33 +476,92 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   // vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
   // vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
 
+  double * buf_vPpj = buf_tmp;
+
 #pragma omp parallel for collapse(2)
   for(int i=0; i<nvirt; ++i)
-    for(int j=0; j<nocc; ++j) {
-
-      double tmp = 0.0;
-      for(int k=0; k<naux; ++k)
-	for(int l=0; l<nocc; ++l)
-	  tmp += da_vPpj(k,ncore+i,l) * da_bPpj(k,l,j);
-      da_vk_bj(i,j) = tmp;
+    for(int l=0; l<nocc; ++l) {
       
+      const int indx = i*nocc*naux + l*naux;
+      for(int k=0; k<naux; ++k)
+	buf_vPpj[indx + k] = da_vPpj(k,ncore+i,l); // (nvirt, nocc, naux)
+
     }
+
+  double * buf_bPpj = buf3;
+
+  //#if 1
+
+#pragma omp parallel for collapse(2)
+  for(int l=0; l<nocc; ++l)
+    for(int k=0; k<naux; ++k) {
+
+      const int indx = l*naux*nocc + k*nocc;
+      for(int j=0; j<nocc; ++j)
+	//	buf_bPpj[indx++] = da_bPpj(k,l,j);
+	buf_bPpj[indx + j] = da_bPpj(k,l,j);
+    }
+
+  // To compute A.B w/ Fortran ordering, we ask for B.A as if B and A were transposed
+  // Computing A.B, where A = vPpj and B = bPpj
+  // Ask for A=bPpj, B= vPpj, m= # columns of bPpj, n= # rows of vPpj, k= # rows of bPpj
+
+  {
+    const double alpha = 1.0;
+    const double beta = 0.0;
+    
+    const int m = nocc; // # of rows in first matrix
+    const int n = nvirt; // # of columns in second matrix
+    const int k = naux*nocc; // # of columns in first matrix
+    
+    const int lda = nocc;
+    const int ldb = nocc*naux;
+    const int ldc = nocc;
+    
+    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf_bPpj, &lda, buf_vPpj, &ldb, &beta, vk_bj, &ldc);
+  }
   
   // vk_mo (bi|aj) in microcycle
   // vPji = vPpj[:,:nocc,:ncore]
   // bPbi = self.bPpj[:,ncore:,:ncore]
   // vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
+  
+  DevArray2D da_buf_bPpj = DevArray2D(buf_bPpj, nvirt, naux*ncore);
+  DevArray2D da_buf_vPpj = DevArray2D(buf_vPpj, naux*ncore, nocc);
 
 #pragma omp parallel for collapse(2)
   for(int i=0; i<nvirt; ++i)
-    for(int j=0; j<nocc; ++j) {
+    for(int k=0; k<naux; ++k) {
       
-      double tmp = 0.0;
-      for(int k=0; k<naux; ++k)
-	for(int l=0; l<ncore; ++l)
-	  tmp += da_bPpj(k,ncore+i,l) * da_vPpj(k,j,l);
-      da_vk_bj(i,j) += tmp;
+      const int indx = i*naux*ncore + k*ncore;
+      for(int l=0; l<ncore; ++l)
+	buf_bPpj[indx+l] = da_bPpj(k,ncore+i,l);
     }
+
+#pragma omp parallel for collapse(2)
+  for(int k=0; k<naux; ++k)
+    for(int l=0; l<ncore; ++l) {
+
+      const int indx = k*ncore*nocc + l*nocc;
+      for(int j=0; j<nocc; ++j)
+	buf_vPpj[indx+j] = da_vPpj(k,j,l);
+
+    }
+  
+  {
+    const double alpha = 1.0;
+    const double beta = 1.0;
+    
+    const int m = nocc; // # of rows in first matrix
+    const int n = nvirt; // # of columns in second matrix
+    const int k = naux*ncore; // # of columns in first matrix
+    
+    const int lda = nocc;
+    const int ldb = ncore*naux;
+    const int ldc = nocc;
+    
+    dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf_vPpj, &lda, buf_bPpj, &ldb, &beta, vk_bj, &ldc);
+  }
   
 }
 
