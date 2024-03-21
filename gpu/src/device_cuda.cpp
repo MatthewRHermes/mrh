@@ -779,94 +779,110 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 
 /* ---------------------------------------------------------------------- */
 
-#if 1
-
-__global__ void _hessop_get_veff_vk_1(double * vPpj, double * bPpj, double * vk_bj, int nvirt, int nocc, int naux, int ncore, int nmo)
+__global__ void _hessop_get_veff_reshape1(double * vPpj, double * buf, int nmo, int nocc, int ncore, int nvirt, int naux)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-  __shared__ double cache[_HESSOP_BLOCK_SIZE];
-  
   int k = blockIdx.z * blockDim.z + threadIdx.z;
-  int cache_id = threadIdx.z;
   
   if(i >= nvirt) return;
   if(j >= nocc) return;
 
   // thread-local work
+
+  const int indx1 = i*nocc*naux + j*naux;
+  const int indx2 = (ncore+i)*nocc + j;
   
-  double tmp = 0.0;
   while (k < naux) {
-
-    for(int l=0; l<nocc; ++l)
-      tmp += vPpj[k*nmo*nocc + (ncore+i)*nocc + l] * bPpj[k*nmo*nocc + l*nocc + j];
-
-    for(int l=0; l<ncore; ++l)
-      tmp += bPpj[k*nmo*nocc + (ncore+i)*nocc + l] * vPpj[k*nmo*nocc + j*nocc + l];
-    
+    vPpj[indx1 + k] = buf[k * nmo*nocc + indx2];
     k += blockDim.z; // * gridDim.z; // gridDim.z is just 1
   }
 
-  cache[cache_id] = tmp;
-
   // block
 
-  __syncthreads();
-
-  // manually reduce values from threads within block
-
-  int l = blockDim.z / 2;
-  while(l != 0) {
-    if(cache_id < l) 
-      cache[cache_id] += cache[cache_id + l];
-    
-    __syncthreads();
-    l /= 2;
-  }
-
-  // store result in global array
-  
-  if(cache_id == 0)
-    vk_bj[i*nocc+j] = cache[0];
+  //__syncthreads(); // needed?
 }
-
-#else
-
-__global__ void _hessop_get_veff_vk_1(double * vPpj, double * bPpj, double * vk_bj, int nvirt, int nocc, int naux, int ncore, int nmo)
-{
-  const int i = blockIdx.x * blockDim.x + threadIdx.x;
-  const int j = blockIdx.y * blockDim.y + threadIdx.y;
-
-  if(i >= nvirt) return;
-  if(j >= nocc) return;
-
-  double tmp = 0.0;
-  for(int k=0; k<naux; ++k)
-    for(int l=0; l<nocc; ++l)
-      tmp += vPpj[k*nmo*nocc + (ncore+i)*nocc + l] * bPpj[k*nmo*nocc + l*nocc + j];
-  vk_bj[i*nocc + j] = tmp;
-
-}
-
-#endif
 
 /* ---------------------------------------------------------------------- */
 
-__global__ void _hessop_get_veff_vk_2(double * vPpj, double * bPpj, double * vk_bj, int nvirt, int nocc, int naux, int ncore, int nmo)
+__global__ void _hessop_get_veff_reshape2(double * bPpj, double * buf, int nmo, int nocc, int ncore, int nvirt, int naux)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+  
+  int k = blockIdx.z * blockDim.z + threadIdx.z;
+  
+  if(i >= nocc) return;
+  if(j >= naux) return;
+
+  // thread-local work
+
+  const int indx1 = i*naux*nocc + j*nocc;
+  const int indx2 = j*nmo*nocc + i*nocc;
+  
+  while (k < nocc) {
+    bPpj[indx1 + k] = buf[indx2 + k];
+    k += blockDim.z; // * gridDim.z; // gridDim.z is just 1
+  }
+
+  // block
+
+  //__syncthreads(); // needed?
+}
+
+/* ---------------------------------------------------------------------- */
+
+__global__ void _hessop_get_veff_reshape3(double * bPpj, double * buf, int nmo, int nocc, int ncore, int nvirt, int naux)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  const int j = blockIdx.y * blockDim.y + threadIdx.y;
+  
+  int k = blockIdx.z * blockDim.z + threadIdx.z;
+  
+  if(i >= nvirt) return;
+  if(j >= naux) return;
+
+  // thread-local work
+
+  const int indx1 = i*naux*ncore + j*ncore;
+  const int indx2 = j*nmo*nocc + (ncore+i)*nocc;
+  
+  while (k < ncore) {
+    bPpj[indx1 + k] = buf[indx2 + k];
+    k += blockDim.z; // * gridDim.z; // gridDim.z is just 1
+  }
+
+  // block
+
+  //__syncthreads(); // needed?
+}
+
+/* ---------------------------------------------------------------------- */
+
+__global__ void _hessop_get_veff_reshape4(double * vPpj, double * buf, int nmo, int nocc, int ncore, int nvirt, int naux)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-  if(i >= nvirt) return;
-  if(j >= nocc) return;
+  int k = blockIdx.z * blockDim.z + threadIdx.z;
+  
+  if(i >= naux) return;
+  if(j >= ncore) return;
 
-  double tmp = 0.0;
-  for(int k=0; k<naux; ++k)
-    for(int l=0; l<ncore; ++l)
-      tmp += bPpj[k*nmo*nocc + (ncore+i)*nocc + l] * vPpj[k*nmo*nocc + j*nocc + l];
-  vk_bj[i*nocc + j] += tmp;
+  // thread-local work
 
+  const int indx1 = i*ncore*nocc + j*nocc;
+  const int indx2 = i*nmo*nocc + j;
+  
+  while (k < nocc) {
+    vPpj[indx1 + k] = buf[indx2 + k * nocc];
+    k += blockDim.z; // * gridDim.z; // gridDim.z is just 1
+  }
+
+  // block
+
+  //__syncthreads(); // needed?
 }
 
 /* ---------------------------------------------------------------------- */
@@ -874,33 +890,33 @@ __global__ void _hessop_get_veff_vk_2(double * vPpj, double * bPpj, double * vk_
 void Device::hessop_push_bPpj(py::array_t<double> _bPpj)
 {
   py::buffer_info info_bPpj = _bPpj.request(); // 3D array (naux, nmo, nocc) : read-only
-  
+
   double * bPpj = static_cast<double*>(info_bPpj.ptr);
 
 #if 0
   printf("LIBGPU:: naux= %i  nmo= %i  nocc= %i\n",naux, nmo, nocc);
   printf("LIBGPU:: hessop_push_bPpj : bPpj= (%i, %i, %i)\n",
 	 info_bPpj.shape[0],info_bPpj.shape[1],info_bPpj.shape[2]);
-  
+
   DevArray3D da_bPpj = DevArray3D(bPpj, naux, nmo, nocc);
   printf("LIBGPU :: hessop_push_bPpj :: bPpj= %f %f %f %f\n", da_bPpj(0,0,0), da_bPpj(0,1,0), da_bPpj(1,0,0), da_bPpj(naux-1,0,0));
 #endif
 
   // really need to clean up initializing naux, nmo, nocc, ncore, etc... if really constants for duration of calculation
-  
+
   int _naux = info_bPpj.shape[0];
   int _nmo = info_bPpj.shape[1];
   int _nocc = info_bPpj.shape[2];
-  
+
   // this should all be wrapped in a new pm->dev_smalloc() w/ a very simple struct
-  
+
   int _size_bPpj = _naux * _nmo * _nocc;
   if(_size_bPpj > size_bPpj) {
     size_bPpj = _size_bPpj;
     if(d_bPpj) pm->dev_free(d_bPpj);
     d_bPpj = (double *) pm->dev_malloc(size_bPpj * sizeof(double));
   }
-  
+
   pm->dev_push_async(d_bPpj, bPpj, _size_bPpj*sizeof(double), stream);
 }
 
@@ -1038,15 +1054,73 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
   }
   
-  DevArray3D da_bPpj = DevArray3D(bPpj, naux, nmo, nocc);
-  DevArray3D da_vPpj = DevArray3D(vPpj, naux, nmo, nocc);
-  DevArray2D da_vk_bj = DevArray2D(vk_bj, nvirt, nocc);
+   int _size_vPpj = naux * nmo * nocc;
+   if(_size_vPpj > size_vPpj) {
+     size_vPpj = _size_vPpj;
+     if(d_vPpj) pm->dev_free(d_vPpj);
+     d_vPpj = (double *) pm->dev_malloc(size_vPpj * sizeof(double));
+   }
 
+   // handled inside hessop_push_bPpj()
+   // int _size_bPpj = naux * nmo * nocc;
+   // if(_size_bPpj > size_bPpj) {
+   //   size_bPpj = _size_bPpj;
+   //   if(d_bPpj) pm->dev_free(d_bPpj);
+   //   d_bPpj = (double *) pm->dev_malloc(size_bPpj * sizeof(double));
+   // }
+  
+  int _size_vk_bj = (nmo-ncore) * nocc;
+  if(_size_vk_bj > size_vk_bj) {
+    size_vk_bj = _size_vk_bj;
+    if(d_vk_bj) pm->dev_free(d_vk_bj);
+    d_vk_bj = (double *) pm->dev_malloc(size_vk_bj * sizeof(double));
+  }
+  
   // vk_mo (bb|jj) in microcycle
   // vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
   // vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
 
   double * buf_vPpj = buf_tmp;
+  double * buf_bPpj = buf3;
+  
+#if 1
+  pm->dev_push_async(d_buf1, vPpj, naux*nmo*nocc*sizeof(double), stream);
+  //  pm->dev_push_async(d_buf2, bPpj, naux*nmo*nocc*sizeof(double), stream);
+
+  {
+    dim3 grid_size(nvirt, nocc, 1);
+    dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
+    
+    _hessop_get_veff_reshape1<<<grid_size, block_size, 0, stream>>>(d_vPpj, d_buf1, nmo, nocc, ncore, nvirt, naux);
+  }
+
+  {
+    dim3 grid_size(nocc, naux, 1);
+    dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
+    
+    _hessop_get_veff_reshape2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
+  }
+
+  {
+    const double alpha = 1.0;
+    const double beta = 0.0;
+    
+    const int m = nocc; // # of rows in first matrix
+    const int n = nvirt; // # of columns in second matrix
+    const int k = naux*nocc; // # of columns in first matrix
+    
+    const int lda = nocc;
+    const int ldb = nocc*naux;
+    const int ldc = nocc;
+    
+    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, lda, d_vPpj, ldb, &beta, d_vk_bj, ldc);
+
+    //    pm->dev_pull(d_vk_bj, vk_bj, _size_vk_bj*sizeof(double));
+  }
+  
+  //  pm->dev_stream_wait(stream); // because reusing buffers for now...
+  
+#else
 
 #pragma omp parallel for collapse(2)
   for(int i=0; i<nvirt; ++i)
@@ -1058,10 +1132,6 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 	buf_vPpj[indx1 + k] = vPpj[k * nmo*nocc + indx2]; // (nvirt, nocc, naux)
       
     }
-
-  double * buf_bPpj = buf3;
-
-  //#if 1
 
 #pragma omp parallel for collapse(2)
   for(int i=0; i<nocc; ++i)
@@ -1092,11 +1162,49 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf_bPpj, &lda, buf_vPpj, &ldb, &beta, vk_bj, &ldc);
   }
   
+#endif
+  
   // vk_mo (bi|aj) in microcycle
   // vPji = vPpj[:,:nocc,:ncore]
   // bPbi = self.bPpj[:,ncore:,:ncore]
   // vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
 
+#if 1
+  {
+    dim3 grid_size(nvirt, naux, 1);
+    dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
+    
+    _hessop_get_veff_reshape3<<<grid_size, block_size, 0, stream>>>(d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
+  }
+  
+  {
+    dim3 grid_size(naux, ncore, 1);
+    dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
+    
+    _hessop_get_veff_reshape4<<<grid_size, block_size, 0, stream>>>(d_vPpj, d_buf1, nmo, nocc, ncore, nvirt, naux);
+  }
+
+
+  {
+    const double alpha = 1.0;
+    const double beta = 1.0;
+    
+    const int m = nocc; // # of rows in first matrix
+    const int n = nvirt; // # of columns in second matrix
+    const int k = naux*ncore; // # of columns in first matrix
+    
+    const int lda = nocc;
+    const int ldb = ncore*naux;
+    const int ldc = nocc;
+    
+    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_vPpj, lda, d_buf2, ldb, &beta, d_vk_bj, ldc);
+  }
+
+  pm->dev_stream_wait(stream);
+  pm->dev_pull(d_vk_bj, vk_bj, _size_vk_bj*sizeof(double));
+    
+#else
+  
 #pragma omp parallel for collapse(2)
   for(int i=0; i<nvirt; ++i)
     for(int j=0; j<naux; ++j) {
@@ -1117,6 +1225,8 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 	buf_vPpj[indx1 + k] = vPpj[indx2 + k*nocc];
 
     }
+
+  pm->dev_pull(d_vk_bj, vk_bj, _size_vk_bj*sizeof(double));
   
   {
     const double alpha = 1.0;
@@ -1132,6 +1242,7 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf_vPpj, &lda, buf_bPpj, &ldb, &beta, vk_bj, &ldc);
   }
+#endif
   
 }
 
