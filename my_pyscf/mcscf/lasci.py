@@ -779,8 +779,11 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
         ci0_i = [c[state] for c in ci0]
         solver = ImpureProductStateFCISolver (fcisolvers, stdout=las.stdout,
             lweights=[l[state] for l in lweights], verbose=verbose)
-        # TODO: better handling of CSF symmetry quantum numbers in general
         for ix, s in enumerate (solver.fcisolvers):
+            # Set the calling las objects local bottom-layer fcisolvers to the
+            # locally-state-averaged ones I just made so that I can more easily get
+            # locally-state-averaged density matrices after this function exits
+            las.fciboxes[ix].fcisolvers[state] = s
             i = sum (ncas_sub[:ix])
             j = i + ncas_sub[ix]
             if orbsym is not None: s.orbsym = orbsym[i:j]
