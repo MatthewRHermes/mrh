@@ -29,14 +29,15 @@ from gpu4pyscf.lib.utils import patch_cpu_kernel
 
 from mrh.my_pyscf.gpu import libgpu
 
-#import math
-#import sys
-#import traceback
-
+# Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
 DEBUG = False
 
+if DEBUG:
+    import math
+    import traceback
+    import sys
+
 def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
-#    print(" -- -- Inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk() w/ use_gpu= ", dfobj.mol.use_gpu, " with_jk= ", with_j, with_k)
     gpu = dfobj.mol.use_gpu
     
     assert (with_j or with_k)
@@ -70,78 +71,68 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             rho = numpy.einsum('ix,px->ip', dmtril, eri1)
             vj += numpy.einsum('ip,px->ix', rho, eri1)
 
-    elif getattr(dm, 'mo_coeff', None) is not None:
-        #TODO: test whether dm.mo_coeff matching dm
-        mo_coeff = numpy.asarray(dm.mo_coeff, order='F')
-        mo_occ   = numpy.asarray(dm.mo_occ)
-        nmo = mo_occ.shape[-1]
-        mo_coeff = mo_coeff.reshape(-1,nao,nmo)
-        mo_occ   = mo_occ.reshape(-1,nmo)
-        if mo_occ.shape[0] * 2 == nset: # handle ROHF DM
-            mo_coeff = numpy.vstack((mo_coeff, mo_coeff))
-            mo_occa = numpy.array(mo_occ> 0, dtype=numpy.double)
-            mo_occb = numpy.array(mo_occ==2, dtype=numpy.double)
-            assert (mo_occa.sum() + mo_occb.sum() == mo_occ.sum())
-            mo_occ = numpy.vstack((mo_occa, mo_occb))
-
-        orbo = []
-        for k in range(nset):
-            c = numpy.einsum('pi,i->pi', mo_coeff[k][:,mo_occ[k]>0],
-                             numpy.sqrt(mo_occ[k][mo_occ[k]>0]))
-            orbo.append(numpy.asarray(c, order='F'))
-
-        max_memory = dfobj.max_memory - lib.current_memory()[0]
-        blksize = max(4, int(min(dfobj.blockdim, max_memory*.3e6/8/nao**2)))
-        buf = numpy.empty((blksize*nao,nao))
-        for eri1 in dfobj.loop(blksize):
-            naux, nao_pair = eri1.shape
-            assert (nao_pair == nao*(nao+1)//2)
-            if with_j:
-                rho = numpy.einsum('ix,px->ip', dmtril, eri1)
-                vj += numpy.einsum('ip,px->ix', rho, eri1)
-
-            for k in range(nset):
-                nocc = orbo[k].shape[1]
-                if nocc > 0:
-                    buf1 = buf[:naux*nocc]
-                    fdrv(ftrans, fmmm,
-                         buf1.ctypes.data_as(ctypes.c_void_p),
-                         eri1.ctypes.data_as(ctypes.c_void_p),
-                         orbo[k].ctypes.data_as(ctypes.c_void_p),
-                         ctypes.c_int(naux), ctypes.c_int(nao),
-                         (ctypes.c_int*4)(0, nocc, 0, nao),
-                         null, ctypes.c_int(0))
-                    vk[k] += lib.dot(buf1.T, buf1)
-            t1 = log.timer_debug1('jk', *t1)
+# Commented 2-19-2024 in favor of accelerated implementation below
+# Can offload this if need arises.
+#    elif getattr(dm, 'mo_coeff', None) is not None:
+#        #TODO: test whether dm.mo_coeff matching dm
+#        mo_coeff = numpy.asarray(dm.mo_coeff, order='F')
+#        mo_occ   = numpy.asarray(dm.mo_occ)
+#        nmo = mo_occ.shape[-1]
+#        mo_coeff = mo_coeff.reshape(-1,nao,nmo)
+#        mo_occ   = mo_occ.reshape(-1,nmo)
+#        if mo_occ.shape[0] * 2 == nset: # handle ROHF DM
+#            mo_coeff = numpy.vstack((mo_coeff, mo_coeff))
+#            mo_occa = numpy.array(mo_occ> 0, dtype=numpy.double)
+#            mo_occb = numpy.array(mo_occ==2, dtype=numpy.double)
+#            assert (mo_occa.sum() + mo_occb.sum() == mo_occ.sum())
+#            mo_occ = numpy.vstack((mo_occa, mo_occb))
+#
+#        orbo = []
+#        for k in range(nset):
+#            c = numpy.einsum('pi,i->pi', mo_coeff[k][:,mo_occ[k]>0],
+#                             numpy.sqrt(mo_occ[k][mo_occ[k]>0]))
+#            orbo.append(numpy.asarray(c, order='F'))
+#
+#        max_memory = dfobj.max_memory - lib.current_memory()[0]
+#        blksize = max(4, int(min(dfobj.blockdim, max_memory*.3e6/8/nao**2)))
+#        buf = numpy.empty((blksize*nao,nao))
+#        for eri1 in dfobj.loop(blksize):
+#            naux, nao_pair = eri1.shape
+#            assert (nao_pair == nao*(nao+1)//2)
+#            if with_j:
+#                rho = numpy.einsum('ix,px->ip', dmtril, eri1)
+#                vj += numpy.einsum('ip,px->ix', rho, eri1)
+#
+#            for k in range(nset):
+#                nocc = orbo[k].shape[1]
+#                if nocc > 0:
+#                    buf1 = buf[:naux*nocc]
+#                    fdrv(ftrans, fmmm,
+#                         buf1.ctypes.data_as(ctypes.c_void_p),
+#                         eri1.ctypes.data_as(ctypes.c_void_p),
+#                         orbo[k].ctypes.data_as(ctypes.c_void_p),
+#                         ctypes.c_int(naux), ctypes.c_int(nao),
+#                         (ctypes.c_int*4)(0, nocc, 0, nao),
+#                         null, ctypes.c_int(0))
+#                    vk[k] += lib.dot(buf1.T, buf1)
+#            t1 = log.timer_debug1('jk', *t1)
     else:
-#        print(" -- -- Inside else branch inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk()")
         #:vk = numpy.einsum('pij,jk->pki', cderi, dm)
         #:vk = numpy.einsum('pki,pkj->ij', cderi, vk)
         rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao),
                  null, ctypes.c_int(0))
         dms = [numpy.asarray(x, order='F') for x in dms]
         max_memory = dfobj.max_memory - lib.current_memory()[0]
-        blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
-#        print(" dfobj.blockdim= ", dfobj.blockdim, "  max_memory*.22e6/8/nao**2= ", max_memory*.22e6/8/nao**2, " blksize= ", blksize)
+        #blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
+        blksize = dfobj.blockdim # hard-coded to constant size for now
         buf = numpy.empty((2,blksize,nao,nao))
-        
-#        print(" -- -- -- blksize= ", blksize, " blockdim= ", dfobj.blockdim, "  nao= ", nao)
-#        traceback.print_stack()
-#        traceback.print_stack(file=sys.stdout)
         
         count = 0
         vj = numpy.zeros_like(dmtril)
 
-#        vj_tmp = numpy.zeros_like(vj)
-#        vk_tmp = numpy.zeros_like(vk)
-
-#        buf2_tmp = numpy.zeros_like(buf[1])
-#        buf2_err = 0.0
         for eri1 in dfobj.loop(blksize):
             naux, nao_pair = eri1.shape
-#            print("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", blksize, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
-#            print("vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
-            #print("addr of dfobj= ", hex(id(dfobj)), "  addr of eri1= ", hex(id(eri1)), " count= ", count)
+
             if gpu:
                 if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
                 libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, count, id(dfobj))
@@ -161,55 +152,9 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                          ctypes.c_int(naux), *rargs)
                     
                     buf2 = lib.unpack_tril(eri1, out=buf[1])
-#                print("buf2= ", buf2.shape)
-#                for i in range(buf2.shape[1]):
-#                    print(i," buf2[0,i,:]= ", buf2[0,i,:])
-
-#                buf2_err = 0.0
-#                if k == 1:
-#                    for i in range(buf2.shape[0]):
-#                        for j in range(buf2.shape[1]):
-#                            for l in range(buf2.shape[2]):
-#                                buf2_err += (buf2[i,j,l] - buf2_tmp[i,j,l]) * (buf2[i,j,l] - buf2_tmp[i,j,l])
-
-#                print("buf1= ", buf1.shape, "  buf2= ", buf2.shape)
-#                _buf1_tmp = buf1.reshape(-1,nao)
-#                _buf2_tmp = buf2.reshape(-1,nao)
-#                print("buf1_reshape= ", _buf1_tmp.shape, "  buf2_reshape= ", _buf2_tmp.shape)
-                                
                     vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
 
             count+=1
-
-#        print("vj= ", vj.shape, " vk= ", vk.shape)
-#        vj_err = 0.0
-#        for i in range(nset):
-#            for j in range(vj.shape[1]):
-##                print("ij= ", i, j, "  vj= ", vj[i,j], "  vj_tmp= ", vj_tmp[i,j])
-#                vj_err += (vj[i,j] - vj_tmp[i,j]) * (vj[i,j] - vj_tmp[i,j])
-
-#        vk_err = 0.0
-#        for i in range(nset):
-#            for j in range(vk.shape[1]):
-#                for k in range(vk.shape[2]):
-#                    vk_err += (vk[i,j,k] - vk_tmp[i,j,k]) * (vk[i,j,k] - vk_tmp[i,j,k])                    
-#                    #print("ijk= ", i, j, k, "  vk= ", vk[i,j,k], "  vk_tmp= ", vk_tmp[i,j,k], "  vk_err= ", vk_err)
-
-#        stop = False
-#        if(vj_err > 1e-8): stop = True
-#        if(vk_err > 1e-8): stop = True
-#        if(buf2_err > 1e-8): stop = True
-#        if(nset > 1): stop = True
-        
-#        vj_err = "{:e}".format( math.sqrt(vj_err) )
-#        vk_err = "{:e}".format( math.sqrt(vk_err) )
-#        buf2_err = "{:e}".format( math.sqrt(buf2_err) )
-#        print("count= ", count, "  vj_err= ", vj_err,"  vk_err= ", vk_err, " buf2_err= ", buf2_err)
-
-#        if stop:
-#            print("ERROR:: Results don't agree!!")
-#            quit()    
-        #libgpu.libgpu_free_get_jk(gpu)
         
         t1 = log.timer_debug1('jk', *t1)
 
@@ -218,12 +163,173 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
     if with_k: vk = vk.reshape(dm_shape)
-#    print("vj.shape= ", vj.shape)
-#    print("vj= ", vj)
-#    print("vk.shape= ", vk.shape)
-#    print("vk= ", vk)
     logger.timer(dfobj, 'df vj and vk', *t0)
-#    quit()
+    return vj, vk
+
+def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
+    #traceback.print_stack(file=sys.stdout)
+    gpu = dfobj.mol.use_gpu
+    
+    assert (with_j or with_k)
+    if (not with_k and not dfobj.mol.incore_anyway and
+        # 3-center integral tensor is not initialized
+        dfobj._cderi is None):
+        return get_j(dfobj, dm, hermi, direct_scf_tol), None
+
+    t0 = t1 = (logger.process_clock(), logger.perf_counter())
+    log = logger.Logger(dfobj.stdout, dfobj.verbose)
+    fmmm = _ao2mo.libao2mo.AO2MOmmm_bra_nr_s2
+    fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
+    ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2
+    null = lib.c_null_ptr()
+
+    dms = numpy.asarray(dm)
+    dm_shape = dms.shape
+    nao = dm_shape[-1]
+    dms = dms.reshape(-1,nao,nao)
+    nset = dms.shape[0]
+    vj = 0
+    vk = numpy.zeros(dms.shape)
+
+    if with_j:
+        idx = numpy.arange(nao)
+        dmtril = lib.pack_tril(dms + dms.conj().transpose(0,2,1))
+        dmtril[:,idx*(idx+1)//2+idx] *= .5
+
+    if not with_k:
+        for eri1 in dfobj.loop():
+            rho = numpy.einsum('ix,px->ip', dmtril, eri1)
+            vj += numpy.einsum('ip,px->ix', rho, eri1)
+
+# Commented 2-19-2024 in favor of accelerated implementation below
+# Can offload this if need arises.
+#    elif getattr(dm, 'mo_coeff', None) is not None:
+#        #TODO: test whether dm.mo_coeff matching dm
+#        mo_coeff = numpy.asarray(dm.mo_coeff, order='F')
+#        mo_occ   = numpy.asarray(dm.mo_occ)
+#        nmo = mo_occ.shape[-1]
+#        mo_coeff = mo_coeff.reshape(-1,nao,nmo)
+#        mo_occ   = mo_occ.reshape(-1,nmo)
+#        if mo_occ.shape[0] * 2 == nset: # handle ROHF DM
+#            mo_coeff = numpy.vstack((mo_coeff, mo_coeff))
+#            mo_occa = numpy.array(mo_occ> 0, dtype=numpy.double)
+#            mo_occb = numpy.array(mo_occ==2, dtype=numpy.double)
+#            assert (mo_occa.sum() + mo_occb.sum() == mo_occ.sum())
+#            mo_occ = numpy.vstack((mo_occa, mo_occb))
+#
+#        orbo = []
+#        for k in range(nset):
+#            c = numpy.einsum('pi,i->pi', mo_coeff[k][:,mo_occ[k]>0],
+#                             numpy.sqrt(mo_occ[k][mo_occ[k]>0]))
+#            orbo.append(numpy.asarray(c, order='F'))
+#
+#        max_memory = dfobj.max_memory - lib.current_memory()[0]
+#        blksize = max(4, int(min(dfobj.blockdim, max_memory*.3e6/8/nao**2)))
+#        buf = numpy.empty((blksize*nao,nao))
+#        for eri1 in dfobj.loop(blksize):
+#            naux, nao_pair = eri1.shape
+#            assert (nao_pair == nao*(nao+1)//2)
+#            if with_j:
+#                rho = numpy.einsum('ix,px->ip', dmtril, eri1)
+#                vj += numpy.einsum('ip,px->ix', rho, eri1)
+#
+#            for k in range(nset):
+#                nocc = orbo[k].shape[1]
+#                if nocc > 0:
+#                    buf1 = buf[:naux*nocc]
+#                    fdrv(ftrans, fmmm,
+#                         buf1.ctypes.data_as(ctypes.c_void_p),
+#                         eri1.ctypes.data_as(ctypes.c_void_p),
+#                         orbo[k].ctypes.data_as(ctypes.c_void_p),
+#                         ctypes.c_int(naux), ctypes.c_int(nao),
+#                         (ctypes.c_int*4)(0, nocc, 0, nao),
+#                         null, ctypes.c_int(0))
+#                    vk[k] += lib.dot(buf1.T, buf1)
+#            t1 = log.timer_debug1('jk', *t1)
+    else:
+#        print(" -- -- Inside else branch inside mrh/gpu/gpu4pyscf/df/df_jk.py::get_jk()")
+        #:vk = numpy.einsum('pij,jk->pki', cderi, dm)
+        #:vk = numpy.einsum('pki,pkj->ij', cderi, vk)
+        rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao),
+                 null, ctypes.c_int(0))
+        dms = [numpy.asarray(x, order='F') for x in dms]
+        max_memory = dfobj.max_memory - lib.current_memory()[0]
+        blksize = max(4, int(min(dfobj.blockdim, max_memory*.22e6/8/nao**2)))
+#        print(" dfobj.blockdim= ", dfobj.blockdim, "  max_memory*.22e6/8/nao**2= ", max_memory*.22e6/8/nao**2, " blksize= ", blksize)
+        buf = numpy.empty((2,blksize,nao,nao))
+        
+        print(" -- -- -- blksize= ", blksize, " blockdim= ", dfobj.blockdim, "  nao= ", nao)
+        
+        count = 0
+        vj = numpy.zeros_like(dmtril)
+
+        vj_tmp = numpy.zeros_like(vj)
+        vk_tmp = numpy.zeros_like(vk)
+
+        for eri1 in dfobj.loop(blksize):
+            naux, nao_pair = eri1.shape
+            print("count= ", count, "nao= ", nao, " naux= ", naux, "  nao_pair= ", nao_pair, " blksize= ", blksize, " nset= ", nset, " eri1= ", eri1.shape, " dmtril= ", dmtril.shape, " dms= ", numpy.shape(dms))
+            print("vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
+            print("addr of dfobj= ", hex(id(dfobj)), "  addr of eri1= ", hex(id(eri1)), " count= ", count)
+            #if gpu:
+            if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
+            libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj_tmp, vk_tmp, count, id(dfobj))
+            if count == -1: quit()
+
+            #else:
+                
+            if with_j:
+                rho = numpy.einsum('ix,px->ip', dmtril, eri1)
+                vj += numpy.einsum('ip,px->ix', rho, eri1)
+                
+            for k in range(nset):
+                buf1 = buf[0,:naux]
+                fdrv(ftrans, fmmm,
+                     buf1.ctypes.data_as(ctypes.c_void_p),
+                     eri1.ctypes.data_as(ctypes.c_void_p),
+                     dms[k].ctypes.data_as(ctypes.c_void_p),
+                     ctypes.c_int(naux), *rargs)
+                
+                buf2 = lib.unpack_tril(eri1, out=buf[1])
+                                
+                vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
+
+            count+=1
+
+        #if gpu:
+        libgpu.libgpu_pull_get_jk(gpu, vj_tmp, vk_tmp)
+            
+        print("vj= ", vj.shape, " vk= ", vk.shape)
+        vj_err = 0.0
+        for i in range(nset):
+            for j in range(vj.shape[1]):
+                vj_err += (vj[i,j] - vj_tmp[i,j]) * (vj[i,j] - vj_tmp[i,j])
+                #print("ij= ", i, j, "  vj= ", vj[i,j], "  vj_tmp= ", vj_tmp[i,j], "  vj_err= ", vj_err)
+
+        vk_err = 0.0
+        for i in range(nset):
+            for j in range(vk.shape[1]):
+                for k in range(vk.shape[2]):
+                    vk_err += (vk[i,j,k] - vk_tmp[i,j,k]) * (vk[i,j,k] - vk_tmp[i,j,k])                    
+                    #print("ijk= ", i, j, k, "  vk= ", vk[i,j,k], "  vk_tmp= ", vk_tmp[i,j,k], "  vk_err= ", vk_err)
+
+        stop = False
+        if(vj_err > 1e-8): stop = True
+        if(vk_err > 1e-8): stop = True
+        
+        vj_err = "{:e}".format( math.sqrt(vj_err) )
+        vk_err = "{:e}".format( math.sqrt(vk_err) )
+        print("count= ", count, "  vj_err= ", vj_err,"  vk_err= ", vk_err)
+
+        if stop:
+            print("ERROR:: Results don't agree!!")
+            quit()
+        
+        t1 = log.timer_debug1('jk', *t1)
+        
+    if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
+    if with_k: vk = vk.reshape(dm_shape)
+    logger.timer(dfobj, 'df vj and vk', *t0)
     return vj, vk
 
 def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):
@@ -325,8 +431,10 @@ def get_j(dfobj, dm, hermi=1, direct_scf_tol=1e-13):
     return numpy.asarray(vj).reshape(dm_shape)
 
 def _get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
-    
-#    print(" -- -- Inside mrh/gpu/gpu4pyscf/df/df_jk.py::_get_jk()")
-    vj, vk = get_jk(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)
+
+    if DEBUG:
+        vj, vk = get_jk_debug(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)
+    else: 
+        vj, vk = get_jk(dfobj, dm, hermi, with_j, with_k, direct_scf_tol)
 
     return vj, vk

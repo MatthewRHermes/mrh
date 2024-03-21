@@ -9,6 +9,8 @@
 
 #include "pm.h"
 
+//#define _DEBUG_PM
+
 using namespace PM_NS;
 
 PM::PM()
@@ -29,16 +31,27 @@ void PM::uuid_print(cudaUUID_t a){
 
 int PM::dev_num_devices()
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_num_devices()\n");
+#endif
   int num_devices;
-
+  
   cudaGetDeviceCount(&num_devices);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_num_devices() : num_devices= %i\n",num_devices);
+#endif
   
   return num_devices;
 }
 
 void PM::dev_properties(int ndev)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_properties()\n");
+#endif
+  
   for(int i=0; i<ndev; ++i) {
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, i);
@@ -52,10 +65,17 @@ void PM::dev_properties(int ndev)
     printf("\n");
   }
 
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_properties()\n");
+#endif
 }
 
 int PM::dev_check_peer(int rank, int ngpus)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_check_peer()\n");
+#endif
+  
   int err = 0;
   if(rank == 0) printf("\nChecking P2P Access\n");
   for(int ig=0; ig<ngpus; ++ig) {
@@ -75,106 +95,233 @@ int PM::dev_check_peer(int rank, int ngpus)
     if(n != ngpus) err += 1;
   }
 
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_check_peer()\n");
+#endif
+  
   return err;
 }
 
 void PM::dev_set_device(int id)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_set_device()\n");
+#endif
+  
   cudaSetDevice(id);
   _CUDA_CHECK_ERRORS();
+
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_num_devices()\n");
+#endif
 }
 
 int PM::dev_get_device()
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_get_device()\n");
+#endif
+  
   int id;
   cudaGetDevice(&id);
   _CUDA_CHECK_ERRORS();
+
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_get_device() : id= %i\n",id);
+#endif
+  
   return id;
 }
 
 void * PM::dev_malloc(size_t N)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_malloc()\n");
+#endif
+  
   void * ptr;
   cudaMalloc((void**) &ptr, N);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_malloc()\n");
+#endif
+  
   return ptr;
 }
 
 void * PM::dev_malloc_host(size_t N)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_malloc_host()\n");
+#endif
+  
   void * ptr;
   cudaMallocHost((void**) &ptr, N);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_malloc_host()\n");
+#endif
+  
   return ptr;
 }
 
 void PM::dev_free(void * ptr)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_free()\n");
+#endif
+  
   cudaFree(ptr);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_free()\n");
+#endif
 }
 
 void PM::dev_free_host(void * ptr)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_free_host()\n");
+#endif
+  
   cudaFreeHost(ptr);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_free_host()\n");
+#endif
 }
 
 void PM::dev_push(void * d_ptr, void * h_ptr, size_t N)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_push()\n");
+#endif
+  
   cudaMemcpy(d_ptr, h_ptr, N, cudaMemcpyHostToDevice);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_push()\n");
+#endif
 }
 
 void PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_push_async()\n");
+#endif
+  
   cudaMemcpyAsync(d_ptr, h_ptr, N, cudaMemcpyHostToDevice, s);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_push_async()\n");
+#endif
 }
 
 void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_pull()\n");
+#endif
+  
   cudaMemcpy(h_ptr, d_ptr, N, cudaMemcpyDeviceToHost);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_pull()\n");
+#endif
 }
 
 void PM::dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
 {
-  cudaMemcpyAsync(d_ptr, h_ptr, N, cudaMemcpyHostToDevice, s);
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_pull_async()\n");
+#endif
+  
+  cudaMemcpyAsync(h_ptr, d_ptr, N, cudaMemcpyDeviceToHost, s);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_pull_async()\n");
+#endif
 }
 
 void PM::dev_copy(void * dest, void * src, size_t N)
-{
+{ 
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_copy()\n");
+#endif
+  
   printf("correct usage dest vs. src??]n");
   cudaMemcpy(dest, src, N, cudaMemcpyDeviceToDevice);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_copy()\n");
+#endif
 }
 
 void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_check_pointer()\n");
+#endif
+  
   cudaPointerAttributes attributes;
   cudaPointerGetAttributes(&attributes, ptr);
   if(attributes.devicePointer != NULL) printf("(%i) ptr %s is devicePointer\n",rnk,name);
   if(attributes.hostPointer != NULL) printf("(%i) ptr %s is hostPointer\n",rnk,name);
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_check_pointer()\n");
+#endif
 }
 
 void PM::dev_stream_create(cudaStream_t & s)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_create()\n");
+#endif
+  
   cudaStreamCreate(&s);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_create()\n");
+#endif
 }
 
 void PM::dev_stream_destroy(cudaStream_t & s)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_destroy()\n");
+#endif
+  
   cudaStreamDestroy(s);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_destroy()\n");
+#endif
 }
 
 void PM::dev_stream_wait(cudaStream_t & s)
 {
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_stream_wait()\n");
+#endif
+  
   cudaStreamSynchronize(s);
   _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_stream_wait()\n");
+#endif
 }
 
 #endif

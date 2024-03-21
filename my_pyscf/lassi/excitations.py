@@ -87,6 +87,7 @@ def sort_ci0 (obj, ham_pq, ci0):
     e_p_arr = e_p.reshape (*lroots[::-1]).T
     h_pp = h_pp.reshape (*(list(lroots[::-1])*2))
     h_pq = ham_pq[:p,p:].reshape (*(list(lroots[::-1])+[q,]))
+    ci1 = [c.copy () for c in ci0]
     for ifrag in range (nfrag):
         if lroots[ifrag]<2: continue
         e_p_slice = e_p_arr
@@ -96,7 +97,7 @@ def sort_ci0 (obj, ham_pq, ci0):
             e_p_slice = e_p_slice[:,addr[jfrag]]
         sort_idx = np.argsort (e_p_slice)
         assert (sort_idx[0] == addr[ifrag])
-        ci0[ifrag] = np.stack ([ci0[ifrag][i] for i in sort_idx], axis=0)
+        ci1[ifrag] = np.stack ([ci1[ifrag][i] for i in sort_idx], axis=0)
         dimorder = list(range(h_pp.ndim))
         dimorder.insert (0, dimorder.pop (nfrag-(1+ifrag)))
         dimorder.insert (1, dimorder.pop (2*nfrag-(1+ifrag)))
@@ -113,7 +114,7 @@ def sort_ci0 (obj, ham_pq, ci0):
     h_pp = h_pp.reshape (p, p)
     h_pq = h_pq.reshape (p, q)
     ham_pq = np.block ([[h_pp, h_pq],[h_pq.conj ().T, h_qq]])
-    return ci0, e0_p, ham_pq
+    return ci1, e0_p, ham_pq
 
 class _vrvloop_env (object):
     def __init__(self, fciobj, vrvsolvers, e_q, si_q):
@@ -249,7 +250,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             self.excited_frags = [self.excited_frags[i] for i in idx]
             self.fcisolvers = [self.fcisolvers[i] for i in idx]
 
-    def kernel (self, h1, h2, ecore=0,
+    def kernel (self, h1, h2, ecore=0, ci0=None,
                 conv_tol_grad=1e-4, conv_tol_self=1e-6, max_cycle_macro=50,
                 serialfrag=False, _add_vrv_energy=False, **kwargs):
         h0, h1, h2 = self.get_excited_h (ecore, h1, h2)
@@ -260,7 +261,7 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
             idx = self.get_excited_orb_idx ()
             orbsym = [orbsym[iorb] for iorb in range (norb_tot) if idx[iorb]]
         # TODO: point group symmetry; I probably also have to do something to wfnsym
-        ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2)
+        ci0, vrvsolvers, e_q, si_q = self.prepare_vrvsolvers_(h0, h1, h2, ci0=ci0)
         with _vrvloop_env (self, vrvsolvers, e_q, si_q):
             converged, energy_elec, ci1_active = ProductStateFCISolver.kernel (
                 self, h1, h2, norb_f, nelec_f, ecore=h0, ci0=ci0, orbsym=orbsym,
@@ -422,15 +423,17 @@ class ExcitationPSFCISolver (ProductStateFCISolver):
     def sort_ci0 (self, ham_pq, ci0):
         return sort_ci0 (self, ham_pq, ci0)[:2]
 
-    def prepare_vrvsolvers_(self, h0, h1, h2):
+    def prepare_vrvsolvers_(self, h0, h1, h2, ci0=None):
+        do_sort_ci0 = (ci0 is None)
         norb_f = np.asarray ([self.norb_ref[ifrag] for ifrag in self.excited_frags])
         nelec_f = np.asarray ([self.nelec_ref[ifrag] for ifrag in self.excited_frags])
-        ci0 = self.get_init_guess (None, norb_f, nelec_f, h1, h2)
+        ci0 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
         ham_pq = self.get_ham_pq (h0, h1, h2, ci0)
         p = np.prod (get_lroots (ci0))
         h_qq = ham_pq[p:,p:]
         e_q, si_q = linalg.eigh (h_qq)
-        ci0, e0 = self.sort_ci0 (ham_pq, ci0)
+        ci0_sorted, e0 = self.sort_ci0 (ham_pq, ci0)
+        if do_sort_ci0: ci0 = ci0_sorted
         vrvsolvers = []
         for ix, solver in enumerate (self.fcisolvers):
             vrvsolvers.append (vrv_fcisolver (solver, e0, e_q, None, max_cycle_e0=MAX_CYCLE_E0,
@@ -612,6 +615,7 @@ class VRVDressedFCISolver (object):
         ci1 = ci0
         self.denom_q = e0 - self.e_q
         log.debug ("Self-energy singularities in VRVSolver: {}".format (self.e_q))
+        log.debug ("e0 = %.8g", e0)
         log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
         self.test_locmin (e0, ci1, norb, nelec, ecore, h1e, h2e, warntag='Saddle-point initial guess')
         h2eff = self.absorb_h1e (h1e, h2e, norb, nelec, 0.5)
@@ -631,6 +635,7 @@ class VRVDressedFCISolver (object):
             e0_last = e0
             e0 = self.solve_e0 (ecore, h1e, h2e, norb, nelec, ket)
             self.denom_q = e0 - self.e_q
+            log.debug ("e0 = %.8g", e0)
             log.debug ("Denominators in VRVSolver: {}".format (self.denom_q))
             if abs(e0-e0_last)<conv_tol_e0:
                 converged = True

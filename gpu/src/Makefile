@@ -75,15 +75,13 @@ realclean:
 #
 # -- Simple dependencies
 
-#libgpu_fc_interface.mod : libgpu_fc_interface.F90
-#libgpu_fc_interface.o : libgpu_fc_interface.F90
+libgpu.o : libgpu.cpp libgpu.h
 
-libgpu.o : libgpu.cpp
-libgpu.o : libgpu.h
+pm_cuda.o : pm_cuda.cpp pm_cuda.h pm.h
+pm_host.o : pm_host.cpp pm_host.h pm.h
+pm_openmp.o : pm_openmp.cpp pm_openmp.h pm.h
 
-pm_cuda.o : pm_cuda.cpp
-pm_cuda.o : pm_cuda.h
-
-device_cuda.o : device_cuda.cpp
-device_cuda.o : device.h
-device.o : device.h
+device_cuda.o : device_cuda.cpp device.h
+device_host.o : device_host.cpp device.h
+device_openmp.o : device_openmp.cpp device.h
+device.o : device.cpp device.h

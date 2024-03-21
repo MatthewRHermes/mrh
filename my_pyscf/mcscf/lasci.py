@@ -517,7 +517,11 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
             hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=las.max_memory)
-            ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)[0]
+            ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)
+            if solver.nroots==1:
+                ci0[ix][iy] = ci0[ix][iy][0]
+            else:
+                ci0[ix][iy] = np.stack (ci0[ix][iy], axis=0)
     return ci0
 
 def get_space_info (las):
@@ -664,6 +668,8 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
     See lasci.state_average_ docstring below:\n\n''' + state_average_.__doc__)
 def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
         smults=None, wfnsyms=None, assert_no_dupes=True):
+    is_scanner = isinstance (las, lib.SinglePointScanner)
+    if is_scanner: las = las.undo_scanner ()
     new_las = las.__class__(las._scf, las.ncas_sub, las.nelecas_sub)
     new_las.__dict__.update (las.__dict__)
     new_las.mo_coeff = las.mo_coeff.copy ()
@@ -674,8 +680,21 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
     if las.ci is not None:
         new_las.ci = [[c2.copy () if isinstance (c2, np.ndarray) else None
             for c2 in c1] for c1 in las.ci]
-    return state_average_(new_las, weights=weights, charges=charges, spins=spins,
-        smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
+    las = state_average_(new_las, weights=weights, charges=charges, spins=spins,
+                         smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
+    if is_scanner: las = las.as_scanner ()
+    return las
+
+def get_single_state_las (las, state=0):
+    ''' Quickly extract a state-specific las calculation from a state-average one '''
+    charges, spins, smults, wfnsyms = get_space_info (las)
+    charges = charges[state:state+1]
+    spins = spins[state:state+1]
+    smults = smults[state:state+1]
+    wfnsyms = wfnsyms[state:state+1]
+    weights = [1,]
+    return state_average (las, weights=weights, charges=charges, spins=spins, smults=smults,
+                          wfnsyms=wfnsyms)
 
 def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose=0,
                assert_no_dupes=False, _dry_run=False):
@@ -1470,15 +1489,19 @@ class LASCINoSymm (casci.CASCI):
 
     state_average = state_average
     state_average_ = state_average_
+    get_single_state_las = get_single_state_las
 
-    def lassi(self, **kwargs):
+    def lassi(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None,
+              soc=False, break_symmetry=False, opt=1, **kwargs):
         #import warnings
         #lassi_kernel_warn = "Now LASSI have kernel, which takes las instance as input. This [las.lassi()] function " \
         #                    "will be removed soon."
         #warnings.warn(lassi_kernel_warn, stacklevel=3)
         from mrh.my_pyscf.lassi import lassi
-        mylassi = lassi.LASSI(self, **kwargs)
-        return mylassi.kernel(**kwargs)
+        mylassi = lassi.LASSI(self, mo_coeff=mo_coeff, ci=ci, soc=soc, opt=opt,
+                              break_symmetry=break_symmetry, **kwargs)
+        return mylassi.kernel(mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub,
+                              orbsym=orbsym)
 
     las2cas_civec = las2cas_civec
     assert_no_duplicates = assert_no_duplicates

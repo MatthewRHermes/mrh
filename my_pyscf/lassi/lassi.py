@@ -293,9 +293,13 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         s2_roots.extend (list (np.diag (s2_blk)))
         rootsym.extend ([sym,]*c.shape[1])
 
-    # Sort results by energy
+    # The matrix blocks were evaluated in idx_allprods order
+    # Therefore, I need to ~invert~ idx_allprods to get the proper order
+    idx_allprods = np.argsort (idx_allprods)
     si = linalg.block_diag (*si)[idx_allprods,:]
     s2_mat = linalg.block_diag (*s2_mat)[np.ix_(idx_allprods,idx_allprods)]
+
+    # Sort results by energy
     idx = np.argsort (e_roots)
     rootsym = np.asarray (rootsym)[idx]
     e_roots = np.asarray (e_roots)[idx] + e0
@@ -689,14 +693,26 @@ class LASSI(lib.StreamObject):
     '''
     LASSI Method class
     '''
-    def __init__(self, las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None,
-                 soc=False, break_symmetry=False, opt=1,  **kwargs):
+    def __init__(self, las, mo_coeff=None, ci=None, soc=False, break_symmetry=False, opt=1,
+                 **kwargs):
         from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
         if isinstance(las, LASCINoSymm): self._las = las
         else: raise RuntimeError("LASSI requires las instance")
-        self.__dict__.update(las.__dict__)
-        self.ncore = las.ncore
-        self.nfrags = las.nfrags
+        if mo_coeff is None: mo_coeff = las.mo_coeff
+        if ci is None: ci = las.ci
+        self.mo_coeff, self.ci = mo_coeff, ci
+        # indiscriminate "dict update" from las is bad practice. not doing that anymore
+        # Wave function configuration data from las parent
+        self.mol = las.mol
+        self.ncore, self.ncas = las.ncore, las.ncas
+        self.nfrags, self.nroots = las.nfrags, las.nroots
+        self.ncas_sub, self.nelecas_sub, self.fciboxes = las.ncas_sub, las.nelecas_sub, las.fciboxes
+        self.weights, self.e_states, self.e_lexc = las.weights, las.e_states, las.e_lexc
+        self.converged = las.converged
+        # I/O data from las parent
+        self.stdout, self.verbose, self.chkfile = las.stdout, las.verbose, las.chkfile
+        # General config data from las parent
+        self.max_memory = las.max_memory
         keys = set(('e_roots', 'si', 's2', 's2_mat', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
         self.e_roots = None
         self.si = None
@@ -710,8 +726,14 @@ class LASSI(lib.StreamObject):
         self.opt = opt
         self._keys = set((self.__dict__.keys())).union(keys)
 
-    def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,\
-               break_symmetry=False, opt=1,  **kwargs):
+    def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
+               break_symmetry=None, opt=None,  **kwargs):
+        if soc is None: soc = self.soc
+        if break_symmetry is None: break_symmetry = self.break_symmetry
+        if opt is None: opt = self.opt
+        log = lib.logger.new_logger (self, self.verbose)
+        if not self.converged:
+            log.warn ('LASSI state preparation step not converged!')
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
                             soc=soc, break_symmetry=break_symmetry, opt=opt)
         self.e_roots = e_roots
@@ -737,8 +759,48 @@ class LASSI(lib.StreamObject):
         if ci is None: ci = self.ci
         return get_lroots (ci)
 
+    def get_sivec_fermion_spin_shuffle (self, si=None, ci=None):
+        from mrh.my_pyscf.lassi.sitools import sivec_fermion_spin_shuffle
+        if si is None: si = self.si
+        lroots = self.get_lroots (ci=ci)
+        nelec_frs = self.get_nelec_frs ()
+        return sivec_fermion_spin_shuffle (si, nelec_frs, lroots)
+
+    def get_sivec_vacuum_shuffle (self, state=None, nelec_vac=None, si=None, ci=None):
+        '''Define a particular number of electrons in each fragment as the vacuum,
+        set the signs of the LAS basis functions accordingly and in fragment-major
+        order, and return the correspondingly-modified SI vector.
+    
+        Kwargs:
+            state: integer
+                Index of the rootspace identified as the new vacuum. Required if
+                nelec_vac is unset.
+            nelec_vac: ndarray of shape (nfrags)
+                Number of electrons (spinless) in each fragment in the new vacuum.
+                Defaults to self.get_nelec_frs ()[:,state,:].sum (1)
+            si: ndarray of shape (nstates,*)
+                SI vectors; taken from self if omitted
+            ci: list of list of ndarrays
+                CI vectors; taken from self if omitted
+ 
+        Returns:
+            si1: ndarray of shape (nstates,*)
+                si0 with permuted row signs corresponding to nelec_vac electrons in
+                each fragment in the vacuum and the fermion creation operators in
+                fragment-major order
+        '''
+        from mrh.my_pyscf.lassi.sitools import sivec_vacuum_shuffle
+        if si is None: si = self.si
+        lroots = self.get_lroots (ci=ci)
+        nelec_frs = self.get_nelec_frs ()
+        return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
+
     def analyze (self, state=None):
         from mrh.my_pyscf.lassi.sitools import analyze
         analyze (self, self.si, state=state)
 
+    def reset (self, mol=None):
+        if mol is not None:
+            self.mol = mol
+        self._las.reset (mol)
 

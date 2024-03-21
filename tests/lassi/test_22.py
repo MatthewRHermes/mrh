@@ -18,14 +18,14 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
-from mrh.my_pyscf.lassi import LASSI
+from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
 
 def setUpModule ():
-    global mol, mf, lsi, las, op
+    global mol, mf, lsi, las, mc, op
     xyz='''H 0 0 0
     H 1 0 0
     H 3 0 0
@@ -55,12 +55,15 @@ def setUpModule ():
     lsi = LASSI (las1)
     lsi.kernel (opt=0)
 
+    # CASCI limit
+    mc = mcscf.CASCI (mf, 4, 4).run ()
+
     op = (op_o0, op_o1)
 
 def tearDownModule():
-    global mol, mf, lsi, las, op
+    global mol, mf, lsi, las, mc, op
     mol.stdout.close ()
-    del mol, mf, lsi, las, op
+    del mol, mf, lsi, las, mc, op
 
 class KnownValues(unittest.TestCase):
 
@@ -73,7 +76,6 @@ class KnownValues(unittest.TestCase):
 
     def test_casci_limit (self):
         # CASCI limit
-        mc = mcscf.CASCI (mf, 4, 4).run ()
         casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
 
         # LASSI in the CASCI limit
@@ -97,6 +99,14 @@ class KnownValues(unittest.TestCase):
                                             lib.fp (stdm1s[2,:,:2,:2,2]))
                     self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
                                             lib.fp (stdm1s[1,:,2:,2:,1]))
+
+    def test_lassirq (self):
+        lsi1 = LASSIrq (las, 2, 3).run ()
+        self.assertAlmostEqual (lsi1.e_roots[0], mc.e_tot, 8)
+
+    def test_lassirqct (self):
+        lsi1 = LASSIrqCT (las, 2, 3).run ()
+        self.assertAlmostEqual (lsi1.e_roots[0], -4.2879945248402445, 8)
 
     def test_contract_hlas_ci (self):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las

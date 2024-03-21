@@ -5,6 +5,14 @@ from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg 
 import numpy as np
 
+from mrh.my_pyscf.gpu import libgpu
+
+# Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
+DEBUG = False
+
+if DEBUG:
+    import math
+
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to
 # handle spin-breaking potentials while retaining spin constraint
 
@@ -507,9 +515,13 @@ def _init_df_(h_op):
     from mrh.my_pyscf.mcscf.lasci import _DFLASCI
     if isinstance (h_op.las, _DFLASCI):
         h_op.with_df = h_op.las.with_df
-        if h_op.bPpj is None: h_op.bPpj = np.ascontiguousarray (
-            h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
-            compact=False))
+        if h_op.bPpj is None:
+            h_op.bPpj = np.ascontiguousarray (
+                h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
+                                      compact=False))
+            gpu = h_op.las.use_gpu
+            if gpu:
+                libgpu.libgpu_hessop_push_bPpj(gpu, h_op.bPpj)
 
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     ''' The Hessian-vector product for a `LASCI' energy minimization, implemented as a linear
@@ -906,16 +918,20 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 omits double-counting).
         '''
 
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
         tdm1s_sa = np.einsum ('rspq,r->spq', tdm1rs, self.weights)
         dm1s_mo = odm1s + odm1s.transpose (0,2,1)
         dm1s_mo[:,ncore:nocc,ncore:nocc] += tdm1s_sa
         mo = self.mo_coeff
         moH = mo.conjugate ().T
-
+        t1 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 1', *t0)
+        
         # Overall veff for gradient: the one and only jk call per microcycle that I will allow.
         veff_mo = self.get_veff (dm1s_mo=dm1s_mo)
+        t2 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 2', *t1)
         veff_mo = self.split_veff (veff_mo, dm1s_mo)
+        t3 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 3', *t2)
 
         # Core-orbital-effect only for individual CI problems
         odm1s_core = np.copy (odm1s)
@@ -932,6 +948,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         veff_ci += veff_ci.transpose (0,2,1)
         veff_ci /= 2.0
         veff_ci += veff_mo[:,ncore:nocc,ncore:nocc]
+        t4 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 4', *t3)
         
         # SO, individual CI problems!
         # 1) There is NO constant term. Constant terms immediately drop out via the ugg defs!
@@ -957,9 +974,111 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             #err_h1rs += err_h1rs[:,::-1] # ja + jb
             #err_h1rs -= np.tensordot (err_dm1rs, self.eri_cas, axes=((2,3),(0,3)))
             h1frs[isub][:,:,:,:] += err_h1rs[:,:,i:j,i:j]
-
+        t5 = lib.logger.timer (self.las, 'LASCI get_veff_Heff 5', *t4)
+        
         return veff_mo, h1frs
+        
+    def get_veff_debug (self, dm1s_mo=None):
+        '''THIS FUNCTION IS OVERWRITTEN WITH A CALL TO LAS.GET_VEFF IN THE LASSCF_O0 CLASS. IT IS
+        ONLY RELEVANT TO THE "LASCI" STEP OF THE OLDER, DEPRECATED, DMET-BASED ALGORITHM.
 
+        Compute the effective potential from a 1-RDM in the MO basis (presumptively the first-order
+        effective 1-RDM which is proportional to a step vector in MO and CI rotation coordinates).
+        If density fitting is used, the effective potential is approximate: it omits the
+        unoccupied-unoccupied lower-diagonal block.
+
+        Kwargs:
+            dm1s_mo : ndarray of shape (2,nmo,nmo)
+                Contains spin-separated 1-RDM
+
+        Returns:
+            veff_mo : ndarray of shape (nmo,nmo)
+                Spin-symmetric effective potential in the MO basis
+        '''        
+        gpu = self.las.use_gpu
+        print("Inside get_veff():: gpu= ", gpu)
+        
+        mo = self.mo_coeff
+        moH = mo.conjugate ().T
+        nmo = mo.shape[-1]
+        dm1_mo = dm1s_mo.sum (0)
+        if getattr (self, 'bPpj', None) is None:
+            dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
+            veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
+            return np.dot (moH, np.dot (veff_ao, mo)) 
+        ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
+        # vj
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+
+        veff_mo = np.zeros_like (dm1_mo)
+        dm1_rect = dm1_mo + dm1_mo.T
+        dm1_rect[ncore:nocc,ncore:nocc] /= 2
+        dm1_rect = dm1_rect[:,:nocc]
+        rho = np.tensordot (self.bPpj, dm1_rect, axes=2)
+        vj_pj = np.tensordot (rho, self.bPpj, axes=((0),(0)))
+        t1 = lib.logger.timer (self.las, 'vj_mo in microcycle', *t0)
+
+        dm_bj = dm1_mo[ncore:,:nocc]
+        vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:]@dm_bj, compact=False))
+        # Don't ask my why this is faster than doing the two degrees of freedom separately...
+        t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
+
+        # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
+        vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
+        vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
+        t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
+        
+        # vk (ai|ai), (ui|av)
+        #dm_ai = dm1_mo[nocc:,:ncore] # CHRIS: this isn't used for anything
+        vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
+        # I think this works only because there is no dm_ui in this case, so I've eliminated all
+        # the dm_uv by choosing this range
+        bPbi = self.bPpj[:,ncore:,:ncore]
+        vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
+        t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+        
+        # veff
+        vj_bj = vj_pj[ncore:,:]
+        veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
+        veff_mo[:nocc,ncore:] = veff_mo[ncore:,:nocc].T
+        t1 = lib.logger.timer (self.las, 'veff_mo in microcycle', *t1)
+        #vj_ai = vj_bj[ncas:,:ncore]
+        #vk_ai = vk_bj[ncas:,:ncore]
+        #veff_mo[ncore:,:nocc] = vj_bj
+        #veff_mo[:ncore,nocc:] = vj_ai.T
+        #veff_mo[ncore:,:nocc] -= vk_bj/2
+        #veff_mo[:ncore,nocc:] -= vk_ai.T/2
+        
+        print("naux, nmo, ncore, nocc, ncas= ",self.bPpj.shape[0], nmo, ncore, nocc, ncas)
+        print("bPpj= ", self.bPpj.shape) # (naux, nmo, nocc)
+        print("bPbi= ", bPbi.shape) # (naux, nmo-ncore, ncore)
+        print("vPpj= ", vPpj.shape) # (naux, nmo, nocc)
+        print("vPji= ", vPji.shape) # (naux, nocc, ncore)
+        print("vk_bj= ", vk_bj.shape) # (nmo-ncore, nocc)
+        
+        naux = self.bPpj.shape[0]
+        vk_bj_tmp = np.zeros( (nmo-ncore, nocc) )
+    
+        libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj_tmp)
+        
+        vk_bj_err = 0
+        for i in range(nmo-ncore):
+            for j in range(nocc):
+                vk_bj_err += (vk_bj[i,j] - vk_bj_tmp[i,j]) * (vk_bj[i,j] - vk_bj_tmp[i,j])                    
+                if i < 2: print("ij= ", i, j, "  vk_bj= ", vk_bj[i,j], "  vk_bj_tmp= ", vk_bj_tmp[i,j], "  vk_bj_err= ", vk_bj_err)
+
+        stop = False
+        if(vk_bj_err > 1e-8): stop = True
+        
+        vk_bj_err = "{:e}".format( math.sqrt(vk_bj_err) )
+        print("vk_bj_err= ", vk_bj_err)
+
+        if stop:
+            print("ERROR:: Results don't agree!!")
+            quit()
+        
+        return veff_mo
+    
     def get_veff (self, dm1s_mo=None):
         '''THIS FUNCTION IS OVERWRITTEN WITH A CALL TO LAS.GET_VEFF IN THE LASSCF_O0 CLASS. IT IS
         ONLY RELEVANT TO THE "LASCI" STEP OF THE OLDER, DEPRECATED, DMET-BASED ALGORITHM.
@@ -977,6 +1096,12 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
             veff_mo : ndarray of shape (nmo,nmo)
                 Spin-symmetric effective potential in the MO basis
         '''
+
+        if DEBUG:
+            return self.get_veff_debug(dm1s_mo=dm1s_mo)
+        
+        gpu = self.las.use_gpu
+        
         mo = self.mo_coeff
         moH = mo.conjugate ().T
         nmo = mo.shape[-1]
@@ -999,18 +1124,28 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:]@dm_bj, compact=False))
         # Don't ask my why this is faster than doing the two degrees of freedom separately...
         t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
-        # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
-        vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
-        vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
-        t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
-        # vk (ai|ai), (ui|av)
-        dm_ai = dm1_mo[nocc:,:ncore]
-        vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
-        # I think this works only because there is no dm_ui in this case, so I've eliminated all
-        # the dm_uv by choosing this range
-        bPbi = self.bPpj[:,ncore:,:ncore]
-        vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
-        t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+
+        if gpu:
+            naux = self.bPpj.shape[0]
+            vk_bj = np.zeros( (nmo-ncore, nocc) )
+            libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj)
+            t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)   
+            t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1);
+
+        else: 
+            # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
+            vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
+            vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
+            t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
+            # vk (ai|ai), (ui|av)
+            dm_ai = dm1_mo[nocc:,:ncore]
+            vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
+            # I think this works only because there is no dm_ui in this case, so I've eliminated all
+            # the dm_uv by choosing this range
+            bPbi = self.bPpj[:,ncore:,:ncore]
+            vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))                    
+            t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+
         # veff
         vj_bj = vj_pj[ncore:,:]
         veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
@@ -1039,7 +1174,8 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
 
     def _matvec (self, x):
         log = lib.logger.new_logger (self.las, self.las.verbose)
-        extra_timing = getattr (self.las, '_extra_hessian_timing', False)
+#        extra_timing = getattr (self.las, '_extra_hessian_timing', False)
+        extra_timing = getattr (self.las, '_extra_hessian_timing', True)
         extra_timer = log.timer if extra_timing else log.timer_debug1
         t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
         kappa1, ci1 = self.ugg.unpack (x)

@@ -16,6 +16,8 @@ Device::Device()
   
   n = 0;
 
+  update_dfobj = 0;
+  
   size_rho = 0;
   size_vj = 0;
   size_vk = 0;
@@ -25,6 +27,10 @@ Device::Device()
   size_dmtril = 0;
   size_eri1 = 0;
   size_tril_map = 0;
+
+  size_bPpj = 0;
+  size_vPpj = 0;
+  size_vk_bj = 0;
   
   rho = nullptr;
   //vj = nullptr;
@@ -52,6 +58,10 @@ Device::Device()
   d_eri1 = nullptr;
 
   d_tril_map = nullptr;
+
+  d_bPpj = nullptr;
+  d_vPpj = nullptr;
+  d_vk_bj = nullptr;
 #endif
   
   num_threads = 1;
@@ -125,7 +135,9 @@ Device::~Device()
   
   eri_count.clear();
   eri_size.clear();
+#ifdef _DEBUG_ERI_CACHE
   for(int i=0; i<d_eri_host.size(); ++i) pm->dev_free_host( d_eri_host[i] );
+#endif
   for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free( d_eri_cache[i] );
   eri_list.clear();
 #endif
@@ -145,6 +157,10 @@ Device::~Device()
   pm->dev_free(d_dmtril);
   pm->dev_free(d_eri1);
   pm->dev_free(d_tril_map);
+
+  pm->dev_free(d_bPpj);
+  pm->dev_free(d_vPpj);
+  pm->dev_free(d_vk_bj);
   
 #ifdef _CUDA_NVTX
   nvtxRangePop();
@@ -187,6 +203,13 @@ void Device::set_device(int id)
 {
   printf("LIBGPU: setting device id= %i\n",id);
   pm->dev_set_device(id);
+}
+
+/* ---------------------------------------------------------------------- */
+    
+void Device::set_update_dfobj_(int _val)
+{
+  update_dfobj = _val; // this is reset to zero in Device::pull_get_jk
 }
 
 /* ---------------------------------------------------------------------- */
