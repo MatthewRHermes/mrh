@@ -487,7 +487,7 @@ void Device::get_jk(int naux,
  	printf("LIBGPU:: Warning: ERI updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
  	//count = -1;
  	//return;
- 	//exit(1);
+ 	exit(1);
       }
     } else {
       
@@ -496,7 +496,7 @@ void Device::get_jk(int naux,
  	printf("LIBGPU:: Warning: ERI not updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
  	//count = -1;
  	//return;
- 	//exit(1);
+ 	exit(1);
       }
     }
 #else
@@ -1050,12 +1050,13 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 
 #pragma omp parallel for collapse(2)
   for(int i=0; i<nvirt; ++i)
-    for(int l=0; l<nocc; ++l) {
+    for(int j=0; j<nocc; ++j) {
       
-      const int indx = i*nocc*naux + l*naux;
-      for(int k=0; k<naux; ++k)
-	buf_vPpj[indx + k] = da_vPpj(k,ncore+i,l); // (nvirt, nocc, naux)
-
+      const int indx1 = i*nocc*naux + j*naux;
+      const int indx2 = (ncore+i)*nocc + j;
+      for(int k=0; k<naux; ++k) 
+	buf_vPpj[indx1 + k] = vPpj[k * nmo*nocc + indx2]; // (nvirt, nocc, naux)
+      
     }
 
   double * buf_bPpj = buf3;
@@ -1063,13 +1064,13 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   //#if 1
 
 #pragma omp parallel for collapse(2)
-  for(int l=0; l<nocc; ++l)
-    for(int k=0; k<naux; ++k) {
+  for(int i=0; i<nocc; ++i)
+    for(int j=0; j<naux; ++j) {
 
-      const int indx = l*naux*nocc + k*nocc;
-      for(int j=0; j<nocc; ++j)
-	//	buf_bPpj[indx++] = da_bPpj(k,l,j);
-	buf_bPpj[indx + j] = da_bPpj(k,l,j);
+      const int indx1 = i*naux*nocc + j*nocc;
+      const int indx2 = j*nmo*nocc + i*nocc;
+      for(int k=0; k<nocc; ++k)
+	buf_bPpj[indx1 + k] = bPpj[indx2 + k];
     }
 
   // To compute A.B w/ Fortran ordering, we ask for B.A as if B and A were transposed
@@ -1095,26 +1096,25 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   // vPji = vPpj[:,:nocc,:ncore]
   // bPbi = self.bPpj[:,ncore:,:ncore]
   // vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))
-  
-  DevArray2D da_buf_bPpj = DevArray2D(buf_bPpj, nvirt, naux*ncore);
-  DevArray2D da_buf_vPpj = DevArray2D(buf_vPpj, naux*ncore, nocc);
 
 #pragma omp parallel for collapse(2)
   for(int i=0; i<nvirt; ++i)
-    for(int k=0; k<naux; ++k) {
+    for(int j=0; j<naux; ++j) {
       
-      const int indx = i*naux*ncore + k*ncore;
-      for(int l=0; l<ncore; ++l)
-	buf_bPpj[indx+l] = da_bPpj(k,ncore+i,l);
+      const int indx1 = i*naux*ncore + j*ncore;
+      const int indx2 = j*nmo*nocc + (ncore+i)*nocc;
+      for(int k=0; k<ncore; ++k)
+	buf_bPpj[indx1 + k] = bPpj[indx2 + k];
     }
 
 #pragma omp parallel for collapse(2)
-  for(int k=0; k<naux; ++k)
-    for(int l=0; l<ncore; ++l) {
+  for(int i=0; i<naux; ++i)
+    for(int j=0; j<ncore; ++j) {
 
-      const int indx = k*ncore*nocc + l*nocc;
-      for(int j=0; j<nocc; ++j)
-	buf_vPpj[indx+j] = da_vPpj(k,j,l);
+      const int indx1 = i*ncore*nocc + j*nocc;
+      const int indx2 = i*nmo*nocc + j;
+      for(int k=0; k<nocc; ++k)
+	buf_vPpj[indx1 + k] = vPpj[indx2 + k*nocc];
 
     }
   
