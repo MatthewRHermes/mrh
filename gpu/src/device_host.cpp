@@ -490,15 +490,12 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 
   double * buf_bPpj = buf3;
 
-  //#if 1
-
 #pragma omp parallel for collapse(2)
   for(int l=0; l<nocc; ++l)
     for(int k=0; k<naux; ++k) {
 
       const int indx = l*naux*nocc + k*nocc;
       for(int j=0; j<nocc; ++j)
-	//	buf_bPpj[indx++] = da_bPpj(k,l,j);
 	buf_bPpj[indx + j] = da_bPpj(k,l,j);
     }
 
