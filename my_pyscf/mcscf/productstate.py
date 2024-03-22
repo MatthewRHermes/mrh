@@ -79,7 +79,7 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                 ci1_inp = np.asarray (ci1[ix]).reshape (-1,na*nb)
                 ci1_guess = np.asarray (ci1_guess).reshape (-1,na*nb)
                 ovlp = ci1_inp.conj () @ ci1_guess.T
-                ci1_guess -= ovlp @ ci1_guess
+                ci1_guess -= ovlp.T @ ci1_inp
                 ovlp = ci1_guess.conj () @ ci1_guess.T
                 Q, R = linalg.qr (ovlp)
                 ci1_guess = Q.T @ ci1_guess
