@@ -518,7 +518,6 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
 def _combine_init_guess_ci (las, ci0i, ci0g, norb, nelec, nroots):
     ''' Function to handle the combination of a generated set of guess CI vectors (ci0g) with
     existing CI vectors (ci0i) already stored. '''
-    # TODO: lasscf_rdm version of this function to handle pending numpy deprecation noted below
     nroots0 = 0
     ndet = tuple ([cistring.num_strings (norb, n) for n in nelec])
     ci0g = np.asarray (ci0g) # TODO: this leads to deprecated behavior in lasscf_rdm
