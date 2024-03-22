@@ -9,7 +9,7 @@ from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile
-from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
+from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver, state_average_fcisolver
 from mrh.util.la import matrix_svd_control_options
 from itertools import combinations
 from scipy.sparse import linalg as sparse_linalg
@@ -486,9 +486,6 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
     return mo_coeff, mo_ene, mo_occ, ci, h2eff_sub
 
 def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
-    # TODO: come up with a better algorithm? This might be working better than what I had before
-    # but it omits inter-active Coulomb and exchange interactions altogether. Is there a
-    # non-outer-product algorithm for finding the lowest-energy single product of CSFs?
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci0 is None: ci0 = [[None for i in range (las.nroots)] for j in range (las.nfrags)]
     if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
@@ -515,6 +512,8 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
             hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=las.max_memory)
+            # TODO: implement the algorithm used by ProductState get_init_guess for the case of
+            # some, but not all, local state CI vectors available
             ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)
             if solver.nroots==1:
                 ci0[ix][iy] = ci0[ix][iy][0]
@@ -567,7 +566,8 @@ def assert_no_duplicates (las, tab=None):
         raise e from None
 
 def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
-        smults=None, wfnsyms=None, assert_no_dupes=True):
+        smults=None, wfnsyms=None, lroots=None, lweights=None,
+        assert_no_dupes=True):
     ''' Transform LASCI/LASSCF object into state-average LASCI/LASSCF 
 
     Args:
@@ -596,6 +596,15 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
             wfnsyms[i][j]
             identifies the point-group irreducible representation
             Defaults to all zeros (i.e., the totally-symmetric irrep)
+        lroots: ndarray of shape (nroots,nfrags)
+            Number of local roots in each fragment for each global state. 
+            The corresponding local weights are set to [1/n,1/n,1/n,...].
+            Note that this is transposed compared to the kwarg of run_lasci,
+            in order to be consistent with the other kwargs of this function!
+        lweights: list of length nfrags of list of length nroots of sequence
+            Weights of local roots in each fragment for each global state.
+            Passing lweights is incompatible with passing lroots. Defaults
+            to, i.e., np.ones (las.nfrags, las.nroots, 1).tolist ()
 
     Returns:
         las: LASCI/LASSCF instance
@@ -603,6 +612,7 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
             state-averaged LASCI/LASSCF instance.
 
     '''
+    # TODO: incorporate lroots counting into get_space_info and simplify this!
     old_states = np.stack (get_space_info (las), axis=-1)
     nroots = len (weights)
     nfrags = las.nfrags
@@ -610,6 +620,33 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
     if wfnsyms is None: wfnsyms = np.zeros ((nroots, nfrags), dtype=np.int32)
     if spins is None: spins = np.asarray ([[n[0]-n[1] for n in las.nelecas_sub] for i in weights]) 
     if smults is None: smults = np.abs (spins)+1 
+    # Can't import "get_lroots" because I will sometimes have ragged arrays here
+    old_lroots = np.ones (old_states.T.shape[1:], dtype=int)
+    if las.ci is not None:
+        for ifrag, ci_i in enumerate (las.ci):
+            if ci_i is None: continue
+            for iroot, ci_ij in enumerate (ci_i):
+                if ci_ij is None: continue
+                ci_ij_shape = np.asarray (ci_ij).shape
+                if len (ci_ij_shape) > 2:
+                    old_lroots[ifrag][iroot] = ci_ij_shape[0]
+    if lroots is not None and lweights is not None:
+        raise RuntimeError ("lroots sets lweights: pass either or none but not both")
+    elif lweights is None:
+        if lroots is None:
+            lroots = np.ones ((nfrags, nroots), dtype=int)
+        else:
+            lroots = np.asarray (lroots).T
+        lweights = []
+        for i in range (nfrags):
+            lwi = []
+            for j in range (nroots):
+                lwij = np.ones (lroots[i,j], dtype=float) / lroots[i,j]
+                lwi.append (lwij)
+            lweights.append (lwi)
+    else:
+        lroots = np.array ([[len (lwij) for lwij in lwi] for lwi in lweights])
+    if np.any (lroots>1): raise NotImplementedError ("Local state-averaged LASSCF")
 
     charges = np.asarray (charges)
     wfnsyms = np.asarray (wfnsyms)
@@ -631,14 +668,6 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
     new_states = np.stack ([charges, spins, smults, wfnsyms], axis=-1)
     if assert_no_dupes: assert_no_duplicates (las, tab=new_states)
 
-    las.fciboxes = [get_h1e_zipped_fcisolver (state_average_n_mix (
-        las, [csf_solver (las.mol, smult=s2p1).set (charge=c, spin=m2, wfnsym=ir)
-              for c, m2, s2p1, ir in zip (c_r, m2_r, s2p1_r, ir_r)], weights).fcisolver)
-        for c_r, m2_r, s2p1_r, ir_r in zip (charges.T, spins.T, smults.T, wfnsyms.T)]
-    las.e_states = np.zeros (nroots)
-    las.nroots = nroots
-    las.weights = weights
-
     if las.ci is not None:
         log = lib.logger.new_logger(las, las.verbose)
         log.debug (("lasci.state_average: Cached CI vectors may be present.\n"
@@ -653,10 +682,21 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
                 jroot = np.where (idx)[0][0] 
                 log.debug ("Old state {} -> New state {}".format (iroot, jroot))
                 for ifrag in range (nfrags):
-                    ci0[ifrag][jroot] = las.ci[ifrag][iroot]
+                    if old_lroots[ifrag][iroot] > lroots[ifrag][jroot]:
+                        ci0[ifrag][jroot] = las.ci[ifrag][iroot][:lroots[ifrag][jroot]]
+                    else:
+                        ci0[ifrag][jroot] = las.ci[ifrag][iroot]
             elif np.count_nonzero (idx) > 1:
                 raise RuntimeError ("Duplicate states specified?\n{}".format (idx))
         las.ci = ci0 
+
+    for ifrag, fcibox in enumerate (las.fciboxes):
+        for iroot in range (las.nroots):
+            if lroots[ifrag][iroot] == 1: continue
+            fcibox.fcisolvers[iroot] = state_average_fcisolver (
+                fcibox.fcisolvers[iroot], weights=lweights[ifrag][iroot]
+            )
+
     las.converged = False
     return las
 
@@ -665,7 +705,7 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
 
     See lasci.state_average_ docstring below:\n\n''' + state_average_.__doc__)
 def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
-        smults=None, wfnsyms=None, assert_no_dupes=True):
+        smults=None, wfnsyms=None, lroots=None, lweights=None, assert_no_dupes=True):
     is_scanner = isinstance (las, lib.SinglePointScanner)
     if is_scanner: las = las.undo_scanner ()
     new_las = las.__class__(las._scf, las.ncas_sub, las.nelecas_sub)
@@ -679,7 +719,8 @@ def state_average (las, weights=[0.5,0.5], charges=None, spins=None,
         new_las.ci = [[c2.copy () if isinstance (c2, np.ndarray) else None
             for c2 in c1] for c1 in las.ci]
     las = state_average_(new_las, weights=weights, charges=charges, spins=spins,
-                         smults=smults, wfnsyms=wfnsyms, assert_no_dupes=assert_no_dupes)
+                         smults=smults, wfnsyms=wfnsyms, lroots=lroots, lweights=lweights,
+                         assert_no_dupes=assert_no_dupes)
     if is_scanner: las = las.as_scanner ()
     return las
 
