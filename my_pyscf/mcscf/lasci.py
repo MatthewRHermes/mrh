@@ -508,17 +508,34 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
         for iy, solver in enumerate (fcibox.fcisolvers):
             nelec = fcibox._get_nelec (solver, nelecas)
             ndet = tuple ([cistring.num_strings (norb, n) for n in nelec])
-            if isinstance (ci0[ix][iy], np.ndarray) and ci0[ix][iy].size==ndet[0]*ndet[1]: continue
+            nroots0 = 0
+            if isinstance (ci0[ix][iy], np.ndarray):
+                if ci0[ix][iy].size % ndet[0]*ndet[1] == 0:
+                    ci0[ix][iy] = ci0[ix][iy].reshape (-1, ndet[0], ndet[1])
+                    nroots0 = ci0[ix][iy].shape[0]
+                    if nroots0 >= solver.nroots:
+                        ci0[ix][iy] = ci0[ix][iy][:solver.nroots]
+                        continue
+            elif ci0[ix][iy] is None:
+                ci0[ix][iy] = np.zeros ((0, ndet[0], ndet[1]))
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
             hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=las.max_memory)
-            # TODO: implement the algorithm used by ProductState get_init_guess for the case of
-            # some, but not all, local state CI vectors available
-            ci0[ix][iy] = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)
+            ci0g = np.stack (solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf), axis=0)
+            if nroots0 == 0:
+                ci0[ix][iy] = ci0g
+                continue
+            cg = ci0g.reshape (solver.nroots,-1)
+            cs = ci0[ix][iy].reshape (nroots0,-1)
+            ovlp = cg.conj () @ cs.T
+            cg -= ovlp @ cs
+            ovlp = cg.conj () @ cg.T
+            Q, R = linalg.qr (ovlp)
+            ci0g = Q.T @ ci0g
+            ci0[ix][iy] = np.append (ci0[ix][iy], ci0g, axis=0)[:solver.nroots]
+        for iy, solver in enumerate (fcibox.fcisolvers):
             if solver.nroots==1:
                 ci0[ix][iy] = ci0[ix][iy][0]
-            else:
-                ci0[ix][iy] = np.stack (ci0[ix][iy], axis=0)
     return ci0
 
 def get_space_info (las):
@@ -620,16 +637,6 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
     if wfnsyms is None: wfnsyms = np.zeros ((nroots, nfrags), dtype=np.int32)
     if spins is None: spins = np.asarray ([[n[0]-n[1] for n in las.nelecas_sub] for i in weights]) 
     if smults is None: smults = np.abs (spins)+1 
-    # Can't import "get_lroots" because I will sometimes have ragged arrays here
-    old_lroots = np.ones (old_states.T.shape[1:], dtype=int)
-    if las.ci is not None:
-        for ifrag, ci_i in enumerate (las.ci):
-            if ci_i is None: continue
-            for iroot, ci_ij in enumerate (ci_i):
-                if ci_ij is None: continue
-                ci_ij_shape = np.asarray (ci_ij).shape
-                if len (ci_ij_shape) > 2:
-                    old_lroots[ifrag][iroot] = ci_ij_shape[0]
     if lroots is not None and lweights is not None:
         raise RuntimeError ("lroots sets lweights: pass either or none but not both")
     elif lweights is None:
@@ -668,6 +675,20 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
     new_states = np.stack ([charges, spins, smults, wfnsyms], axis=-1)
     if assert_no_dupes: assert_no_duplicates (las, tab=new_states)
 
+    las.fciboxes = [get_h1e_zipped_fcisolver (state_average_n_mix (
+        las, [csf_solver (las.mol, smult=s2p1).set (charge=c, spin=m2, wfnsym=ir)
+              for c, m2, s2p1, ir in zip (c_r, m2_r, s2p1_r, ir_r)], weights).fcisolver)
+        for c_r, m2_r, s2p1_r, ir_r in zip (charges.T, spins.T, smults.T, wfnsyms.T)]
+    las.e_states = np.zeros (nroots)
+    las.nroots = nroots
+    las.weights = weights
+    for ifrag, fcibox in enumerate (las.fciboxes):
+        for iroot in range (las.nroots):
+            if lroots[ifrag][iroot] == 1: continue
+            fcibox.fcisolvers[iroot] = state_average_fcisolver (
+                fcibox.fcisolvers[iroot], weights=lweights[ifrag][iroot]
+            )
+
     if las.ci is not None:
         log = lib.logger.new_logger(las, las.verbose)
         log.debug (("lasci.state_average: Cached CI vectors may be present.\n"
@@ -682,20 +703,10 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
                 jroot = np.where (idx)[0][0] 
                 log.debug ("Old state {} -> New state {}".format (iroot, jroot))
                 for ifrag in range (nfrags):
-                    if old_lroots[ifrag][iroot] > lroots[ifrag][jroot]:
-                        ci0[ifrag][jroot] = las.ci[ifrag][iroot][:lroots[ifrag][jroot]]
-                    else:
-                        ci0[ifrag][jroot] = las.ci[ifrag][iroot]
+                    ci0[ifrag][jroot] = las.ci[ifrag][iroot]
             elif np.count_nonzero (idx) > 1:
                 raise RuntimeError ("Duplicate states specified?\n{}".format (idx))
         las.ci = ci0 
-
-    for ifrag, fcibox in enumerate (las.fciboxes):
-        for iroot in range (las.nroots):
-            if lroots[ifrag][iroot] == 1: continue
-            fcibox.fcisolvers[iroot] = state_average_fcisolver (
-                fcibox.fcisolvers[iroot], weights=lweights[ifrag][iroot]
-            )
 
     las.converged = False
     return las
