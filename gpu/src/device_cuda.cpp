@@ -909,38 +909,45 @@ void Device::hessop_push_bPpj(py::array_t<double> _bPpj)
 void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 		    py::array_t<double> _bPpj, py::array_t<double> _vPpj, py::array_t<double> _vk_bj)
 {
-  py::buffer_info info_bPpj = _bPpj.request(); // 3D array (naux, nmo, nocc) : read-only
   py::buffer_info info_vPpj = _vPpj.request(); // 3D array (naux, nmo, nocc) : read-only 
   py::buffer_info info_vk_bj = _vk_bj.request(); // 2D array (nmo-ncore, nocc) : accumulate
   
-  double * bPpj = static_cast<double*>(info_bPpj.ptr);
   double * vPpj = static_cast<double*>(info_vPpj.ptr);
   double * vk_bj = static_cast<double*>(info_vk_bj.ptr);
   
   int nvirt = nmo - ncore;
 
 #if 0
+  py::buffer_info info_bPpj = _bPpj.request(); // 3D array (naux, nmo, nocc) : read-only
+  double * bPpj = static_cast<double*>(info_bPpj.ptr);
+  
   printf("LIBGPU:: naux= %i  nmo= %i  ncore= %i  nocc= %i  nvirt= %i\n",naux, nmo, ncore, nocc, nvirt);
   printf("LIBGPU:: shape : bPpj= (%i, %i, %i)  vPj= (%i, %i, %i)  vk_bj= (%i, %i)\n",
 	 info_bPpj.shape[0],info_bPpj.shape[1],info_bPpj.shape[2],
 	 info_vPpj.shape[0],info_vPpj.shape[1],info_vPpj.shape[2],
 	 info_vk_bj.shape[0], info_vk_bj.shape[1]);
 #endif
+
+  // this buf realloc needs to be consistent with that in init_get_jk()
   
   int _size_buf = naux * nmo * nocc;
   if(_size_buf > size_buf) {
     size_buf = _size_buf;
     if(buf_tmp) pm->dev_free_host(buf_tmp);
     if(buf3) pm->dev_free_host(buf3);
+    if(buf4) pm->dev_free_host(buf4);
     
-    buf_tmp = (double*) pm->dev_malloc_host(size_buf*sizeof(double));
+    buf_tmp = (double*) pm->dev_malloc_host(2*size_buf*sizeof(double));
     buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double));
+    buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double));
 
     if(d_buf1) pm->dev_free(d_buf1);
     if(d_buf2) pm->dev_free(d_buf2);
+    if(d_buf3) pm->dev_free(d_buf3);
     
     d_buf1 = (double *) pm->dev_malloc(size_buf * sizeof(double));
     d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
+    d_buf3 = (double *) pm->dev_malloc(size_buf * sizeof(double));
   }
   
    int _size_vPpj = naux * nmo * nocc;
@@ -960,9 +967,6 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   // vk_mo (bb|jj) in microcycle
   // vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
   // vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
-
-  double * buf_vPpj = buf_tmp;
-  double * buf_bPpj = buf3;
   
 #if 1
   pm->dev_push_async(d_buf1, vPpj, naux*nmo*nocc*sizeof(double), stream);
@@ -998,6 +1002,9 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   
 #else
 
+  double * buf_vPpj = buf_tmp;
+  double * buf_bPpj = buf3;
+  
 #pragma omp parallel for collapse(2)
   for(int i=0; i<nvirt; ++i)
     for(int j=0; j<nocc; ++j) {

@@ -166,7 +166,11 @@ void Device::get_jk(int naux,
 
   double * buf1 = buf_tmp;
   double * buf2 = &(buf_tmp[blksize * nao * nao]);
-    
+
+  for(int i=0; i<blksize*nao*nao; ++i) buf1[i] = 0.0;
+  for(int i=0; i<blksize*nao*nao; ++i) buf2[i] = 0.0;
+  for(int i=0; i<nao*naux*nao; ++i) buf3[i] = 0.0;
+  
   DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
   DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
   DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
@@ -452,20 +456,18 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 	 info_vk_bj.shape[0], info_vk_bj.shape[1]);
 #endif
   
+  // this buf realloc needs to be consistent with that in init_get_jk()
+  
   int _size_buf = naux * nmo * nocc;
   if(_size_buf > size_buf) {
     size_buf = _size_buf;
     if(buf_tmp) pm->dev_free_host(buf_tmp);
     if(buf3) pm->dev_free_host(buf3);
-    
-    buf_tmp = (double*) pm->dev_malloc_host(size_buf*sizeof(double));
+    if(buf4) pm->dev_free_host(buf4);
+  
+    buf_tmp = (double*) pm->dev_malloc_host(2*size_buf*sizeof(double));
     buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double));
-
-    if(d_buf1) pm->dev_free(d_buf1);
-    if(d_buf2) pm->dev_free(d_buf2);
-    
-    d_buf1 = (double *) pm->dev_malloc(size_buf * sizeof(double));
-    d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
+    buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double));
   }
   
   DevArray3D da_bPpj = DevArray3D(bPpj, naux, nmo, nocc);
@@ -484,25 +486,25 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
       
       const int indx = i*nocc*naux + l*naux;
       for(int k=0; k<naux; ++k)
-	buf_vPpj[indx + k] = da_vPpj(k,ncore+i,l); // (nvirt, nocc, naux)
-
+ 	buf_vPpj[indx + k] = da_vPpj(k,ncore+i,l); // (nvirt, nocc, naux)
+      
     }
-
+  
   double * buf_bPpj = buf3;
 
 #pragma omp parallel for collapse(2)
   for(int l=0; l<nocc; ++l)
     for(int k=0; k<naux; ++k) {
-
+      
       const int indx = l*naux*nocc + k*nocc;
       for(int j=0; j<nocc; ++j)
-	buf_bPpj[indx + j] = da_bPpj(k,l,j);
+ 	buf_bPpj[indx + j] = da_bPpj(k,l,j);
     }
-
+  
   // To compute A.B w/ Fortran ordering, we ask for B.A as if B and A were transposed
   // Computing A.B, where A = vPpj and B = bPpj
   // Ask for A=bPpj, B= vPpj, m= # columns of bPpj, n= # rows of vPpj, k= # rows of bPpj
-
+  
   {
     const double alpha = 1.0;
     const double beta = 0.0;
@@ -534,15 +536,15 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
       for(int l=0; l<ncore; ++l)
 	buf_bPpj[indx+l] = da_bPpj(k,ncore+i,l);
     }
-
+  
 #pragma omp parallel for collapse(2)
   for(int k=0; k<naux; ++k)
     for(int l=0; l<ncore; ++l) {
-
+      
       const int indx = k*ncore*nocc + l*nocc;
       for(int j=0; j<nocc; ++j)
 	buf_vPpj[indx+j] = da_vPpj(k,j,l);
-
+      
     }
   
   {
