@@ -336,24 +336,21 @@ __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int 
 
 /* ---------------------------------------------------------------------- */
 
-#if 0
+#if 1
 
-__global__ void _getjk_transpose_buf1_buf3(double * buf3, double * buf1, int naux, int nao)
+__global__ void _transpose(double * buf3, double * buf1, int nrow, int ncol)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
-  const int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-  if(i >= naux) return;
-  if(j >= nao) return;
+  if(i >= nrow) return;
 
-  int k = blockIdx.z * blockDim.z + threadIdx.z;
-  const int indx = (i * nao + j) * nao;
+  int j = blockIdx.y * blockDim.y + threadIdx.y;
   
-  while (k < nao) {
-    buf3[k * (naux*nao) + (i*nao+j)] = buf1[indx + k]; // these writes should be to SLM and then contiguous chunks written to global memory
-    k += blockDim.z;
+  while (j < ncol) {
+    buf3[j*nrow + i] = buf1[i*ncol + j]; // these writes should be to SLM and then contiguous chunks written to global memory
+    j += blockDim.y;
   }
-
+  
 }
 
 #else
@@ -666,16 +663,19 @@ void Device::get_jk(int naux,
 #endif
     
     {
-#if 0
-      dim3 grid_size(naux, nao, 1);
-      dim3 block_size(1, 1,  _TRANSPOSE_BLOCK_SIZE);
+#if 1
+      dim3 grid_size(naux*nao, 1, 1);
+      dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
+      
+      _transpose<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux*nao, nao);
 #else
       dim3 grid_size((naux + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE,
 		     (nao + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE, 1);
       dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_BLOCK_SIZE, 1);
-#endif
       
       _getjk_transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
+#endif
+      
     }
     
     // vk[k] += lib.dot(buf3, buf4)
