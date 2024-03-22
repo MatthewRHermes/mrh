@@ -507,36 +507,37 @@ def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
         eri = eri_cas[i:j,i:j,i:j,i:j]
         for iy, solver in enumerate (fcibox.fcisolvers):
             nelec = fcibox._get_nelec (solver, nelecas)
-            ndet = tuple ([cistring.num_strings (norb, n) for n in nelec])
-            nroots0 = 0
-            if isinstance (ci0[ix][iy], np.ndarray):
-                if ci0[ix][iy].size % ndet[0]*ndet[1] == 0:
-                    ci0[ix][iy] = ci0[ix][iy].reshape (-1, ndet[0], ndet[1])
-                    nroots0 = ci0[ix][iy].shape[0]
-                    if nroots0 >= solver.nroots:
-                        ci0[ix][iy] = ci0[ix][iy][:solver.nroots]
-                        continue
-            elif ci0[ix][iy] is None:
-                ci0[ix][iy] = np.zeros ((0, ndet[0], ndet[1]))
             if hasattr (mo_coeff, 'orbsym'):
                 solver.orbsym = mo_coeff.orbsym[ncore+i:ncore+j]
             hdiag_csf = solver.make_hdiag_csf (h1e, eri, norb, nelec, max_memory=las.max_memory)
-            ci0g = np.stack (solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf), axis=0)
-            if nroots0 == 0:
-                ci0[ix][iy] = ci0g
-                continue
-            cg = ci0g.reshape (solver.nroots,-1)
-            cs = ci0[ix][iy].reshape (nroots0,-1)
-            ovlp = cg.conj () @ cs.T
-            cg -= ovlp @ cs
-            ovlp = cg.conj () @ cg.T
-            Q, R = linalg.qr (ovlp)
-            ci0g = Q.T @ ci0g
-            ci0[ix][iy] = np.append (ci0[ix][iy], ci0g, axis=0)[:solver.nroots]
-        for iy, solver in enumerate (fcibox.fcisolvers):
-            if solver.nroots==1:
-                ci0[ix][iy] = ci0[ix][iy][0]
+            ci0g = solver.get_init_guess (norb, nelec, solver.nroots, hdiag_csf)
+            ci0[ix][iy] = las._combine_init_guess_ci (ci0[ix][iy], ci0g, norb, nelec,
+                                                      solver.nroots)
     return ci0
+
+def _combine_init_guess_ci (las, ci0i, ci0g, norb, nelec, nroots):
+    ''' Function to handle the combination of a generated set of guess CI vectors (ci0g) with
+    existing CI vectors (ci0i) already stored. '''
+    # TODO: lasscf_rdm version of this function to handle pending numpy deprecation noted below
+    nroots0 = 0
+    ndet = tuple ([cistring.num_strings (norb, n) for n in nelec])
+    ci0g = np.asarray (ci0g) # TODO: this leads to deprecated behavior in lasscf_rdm
+    if isinstance (ci0i, np.ndarray) and ci0i.size % ndet[0]*ndet[1] == 0:
+        ci0i = ci0i.reshape (-1, ndet[0], ndet[1])
+        nroots0 = ci0i.shape[0]
+    if nroots0 == 0:
+        ci0i = ci0g
+    elif nroots0 < nroots:
+        cg = ci0g.reshape (nroots,-1)
+        cs = ci0i.reshape (nroots0,-1)
+        ovlp = cg.conj () @ cs.T
+        cg -= ovlp @ cs
+        ovlp = cg.conj () @ cg.T
+        Q, R = linalg.qr (ovlp)
+        ci0g = Q.T @ ci0g
+        ci0i = np.append (ci0i, ci0g, axis=0)[:nroots]
+    if nroots == 1: ci0i = ci0i[0]
+    return ci0i
 
 def get_space_info (las):
     ''' Retrieve the quantum numbers defining the states of a LASSCF calculation '''
@@ -1557,6 +1558,7 @@ class LASCINoSymm (casci.CASCI):
     las2cas_civec = las2cas_civec
     assert_no_duplicates = assert_no_duplicates
     get_init_guess_ci = get_init_guess_ci
+    _combine_init_guess_ci = _combine_init_guess_ci
     localize_init_guess=lasscf_guess.localize_init_guess
     def _svd (self, mo_lspace, mo_rspace, s=None, **kwargs):
         if s is None: s = self._scf.get_ovlp ()
