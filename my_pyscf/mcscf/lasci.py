@@ -548,9 +548,9 @@ def get_space_info (las):
         nelec = fcibox._get_nelec (solver, las.nelecas_sub[ifrag])
         charges[iroot,ifrag] = np.sum (las.nelecas_sub[ifrag]) - np.sum (nelec)
         spins[iroot,ifrag] = nelec[0]-nelec[1]
-        smults[iroot,ifrag] = solver.smult
+        smults[iroot,ifrag] = getattr (solver, 'smult', abs(spins[iroot,ifrag])+1)
         try:
-            wfnsyms[iroot,ifrag] = solver.wfnsym or 0
+            wfnsyms[iroot,ifrag] = getattr (solver, 'wfnsym', None) or 0
         except ValueError as e:
             wfnsyms[iroot,ifrag] = symm.irrep_name2id (las.mol.groupname, solver.wfnsym)
     return charges, spins, smults, wfnsyms

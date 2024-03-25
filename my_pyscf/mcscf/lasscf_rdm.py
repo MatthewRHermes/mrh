@@ -219,6 +219,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
         if ((norm_gorb < conv_tol_grad) or (norm_gorb < norm_gx/10)) and rdmjk_conv:
             converged = True
             break
+        las.dump_chk (mo_coeff=mo_coeff, ci=[casdm1frs, casdm2fr])
         H_op._init_eri_() # Take this part out of the true initialization b/c 
                           # if I'm already converged I don't want to waste the cycles
         t1 = log.timer ('LASSCF Hessian constructor', *t1)
