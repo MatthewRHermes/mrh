@@ -1051,7 +1051,22 @@ class LASCINoSymm (casci.CASCI):
         return self.e_tot, self.e_cas, self.ci, self.mo_coeff, self.mo_energy, h2eff_sub, veff
 
     def states_make_casdm1s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
-        ''' Spin-separated 1-RDMs in the MO basis for each subspace in sequence '''
+        ''' Get spin-separated, rootspace-separated, locally state-averaged 1-RDMs of the active
+        orbitals for each fragment in sequence.
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+
+        Returns:
+            casdm1frs: list of ndarray of shape (nroots, 2, ncas_sub[i], ncas_sub[i])
+                Spin-separated 1-body reduced density matrices for each fragment for each
+                rootspace, locally state-averaged if applicable.
+        '''
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
@@ -1068,6 +1083,22 @@ class LASCINoSymm (casci.CASCI):
 
     def make_casdm1s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None,
             casdm1frs=None, w=None, **kwargs):
+        ''' Get spin-separated, rootspace- and state-averaged 1-RDMs of the active orbitals for
+        each fragment in sequence.
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+
+        Returns:
+            casdm1fs: list of ndarray of shape (2, ncas_sub[i], ncas_sub[i])
+                Spin-separated 1-body reduced density matrices for each fragment,
+                rootspace-averaged and locally state-averaged if applicable.
+        '''
         if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci,
             ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
         if w is None: w = self.weights
@@ -1075,6 +1106,24 @@ class LASCINoSymm (casci.CASCI):
 
     def states_make_casdm1s (self, ci=None, ncas_sub=None, nelecas_sub=None,
             casdm1frs=None, **kwargs):
+        ''' Get spin-separated, rootspace-separated, locally state-averaged 1-RDMs of all active
+        orbitals collectively.
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+            casdm1frs: sequence of ndarrays of shape (nroots, 2, ncas_sub[i], ncas_sub[i])
+                output of states_make_casdm1s_sub
+
+        Returns:
+            casdm1rs: ndarray of shape (nroots, 2, ncas, ncas)
+                Spin-separated 1-body reduced density matrix for the active orbitals for each
+                rootspace, locally state-averaged if applicable.
+        '''
         if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci,
             ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
         return np.stack ([np.stack ([linalg.block_diag (*[dm1rs[iroot][ispin] 
@@ -1083,7 +1132,22 @@ class LASCINoSymm (casci.CASCI):
                           for iroot in range (self.nroots)], axis=0)
 
     def states_make_casdm2_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
-        ''' Spin-separated 1-RDMs in the MO basis for each subspace in sequence '''
+        ''' Get spin-summed, rootspace-separated, locally state-averaged 2-RDMs of the active
+        orbitals for each fragment in sequence.
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+
+        Returns:
+            casdm2fr: list of ndarray of shape [nroots,]+[ncas_sub[i]]*4
+                Spin-summed 2-body reduced density matrices for each fragment for each
+                rootspace, locally state-averaged if applicable.
+        '''
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
@@ -1093,6 +1157,24 @@ class LASCINoSymm (casci.CASCI):
         return casdm2
 
     def make_casdm2_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, casdm2fr=None, **kwargs):
+        ''' Get spin-summed, rootspace- and state-averaged 2-RDMs of the active orbitals for each
+        fragment in sequence.
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+            casdm2fr: sequence of ndarrays of shape [nroots,] + [ncas_sub[i],]*4
+                output of states_make_casdm2_sub
+
+        Returns:
+            casdm2f: list of ndarray of shape [nroots,]+[ncas_sub[i]]*4
+                Spin-summed 2-body reduced density matrices for each fragment, rootspace- and
+                state-averaged if applicable.
+        '''
         if casdm2fr is None: casdm2fr = self.states_make_casdm2_sub (ci=ci, ncas_sub=ncas_sub,
             nelecas_sub=nelecas_sub, **kwargs)
         return [np.einsum ('rijkl,r->ijkl', dm2, box.weights)
@@ -1100,6 +1182,26 @@ class LASCINoSymm (casci.CASCI):
 
     def states_make_rdm1s (self, mo_coeff=None, ci=None, ncas_sub=None,
             nelecas_sub=None, casdm1rs=None, casdm1frs=None, **kwargs):
+        ''' Get spin-separated, rootspace-separated, locally state-averaged 1-RDMs in the AO basis.
+
+        Kwargs:
+            mo_coeff: ndarray of shape (nao,nmo)
+                Contains MO coefficients
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace
+            casdm1rs: ndarray of shape (nroots,2,ncas,ncas)
+                output of states_make_casdm1s
+            casdm1frs: list of ndarray of shape (nroots,2,ncas_sub[i],ncas_sub[i])
+                output of states_make_casdm1s_sub
+
+        Returns:
+            dm1rs: ndarray of shape (nroots,2,nao,nao)
+                Rootspace-separated, locally state-averaged, spin-separated 1-RDMs
+        '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
@@ -1116,13 +1218,35 @@ class LASCINoSymm (casci.CASCI):
 
     def make_rdm1s_sub (self, mo_coeff=None, ci=None, ncas_sub=None,
             nelecas_sub=None, include_core=False, casdm1s_sub=None, **kwargs):
+        ''' Get spin-separated, rootspace- and state-averaged 1-RDMs of the active orbitals iun the
+        AO basis for each fragment in sequence. This function is suboptimal but retained for
+        compatibility with the old DMET-based LASSCF implementation.
+
+        Kwargs:
+            mo_coeff: ndarray of shape (nao,nmo)
+                Contains MO coefficients
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+            include_core: logical
+                If true, density of inactive orbitals is included on return
+            casdm1s_sub: list of ndarray of shape (2, ncas_sub[i], ncas_sub[i])
+                Output of make_casdm1s_sub
+
+        Returns:
+            dm1fs: list of ndarray of shape (2, nao, nao)
+                Spin-separated 1-body reduced density matrices for each fragment in the AO basis,
+                rootspace-averaged and locally state-averaged if applicable.
+        '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         if casdm1s_sub is None: casdm1s_sub = self.make_casdm1s_sub (ci=ci,
             ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
-        ''' Same as make_casdm1s_sub, but in the ao basis '''
         rdm1s = []
         for idx, casdm1s in enumerate (casdm1s_sub):
             mo = self.get_mo_slice (idx, mo_coeff=mo_coeff)
@@ -1137,9 +1261,44 @@ class LASCINoSymm (casci.CASCI):
         return rdm1s
 
     def make_rdm1_sub (self, **kwargs):
+        ''' Get spin-summed, rootspace- and state-averaged 1-RDMs of the active orbitals iun the
+        AO basis for each fragment in sequence. This function is suboptimal but retained for
+        compatibility with the old DMET-based LASSCF implementation.
+
+        Kwargs:
+            mo_coeff: ndarray of shape (nao,nmo)
+                Contains MO coefficients
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+            include_core: logical
+                If true, density of inactive orbitals is included on return
+            casdm1fs: list of ndarray of shape (2, ncas_sub[i], ncas_sub[i])
+                Output of make_casdm1s_sub
+
+        Returns:
+            dm1f: list of ndarray of shape (nao, nao)
+                Spin-summed, 1-body reduced density matrices for each fragment in the AO basis,
+                rootspace-averaged and locally state-averaged if applicable.
+        '''
         return self.make_rdm1s_sub (**kwargs).sum (1)
 
     def make_rdm1s (self, mo_coeff=None, ncore=None, **kwargs):
+        ''' Get spin-separated, rootspace- and locally state-averaged 1-RDMs in the AO basis.
+
+        Kwargs:
+            mo_coeff: ndarray of shape (nao,nmo)
+                Contains MO coefficients
+            ncore: integer
+                Number of core orbitals
+
+        Returns:
+            dm1s: ndarray of shape (2,nao,nao)
+                Rootspace- and locally state-averaged, spin-separated 1-RDM
+        '''
         if mo_coeff is None: mo_coeff = self.mo_coeff
         if ncore is None: ncore = self.ncore
         mo = mo_coeff[:,:ncore]
@@ -1149,22 +1308,65 @@ class LASCINoSymm (casci.CASCI):
         return dm_core[None,:,:] + dm_cas
 
     def make_rdm1 (self, mo_coeff=None, ci=None, **kwargs):
+        ''' Get spin-summed, rootspace- and locally state-averaged 1-RDM in the AO basis.
+
+        Kwargs:
+            mo_coeff: ndarray of shape (nao,nmo)
+                Contains MO coefficients
+            ci: list of list of ndarrays
+                Contains CI vectors
+
+        Returns:
+            dm1: ndarray of shape (nao,nao)
+                Rootspace- and locally state-averaged, spin-summed 1-RDM
+        '''
         return self.make_rdm1s (mo_coeff=mo_coeff, ci=ci, **kwargs).sum (0)
 
     def make_casdm1s (self, ci=None, **kwargs):
-        ''' Make the full-dimensional casdm1s spanning the collective active space '''
+        ''' Get spin-separated, rootspace- and state-averaged 1-RDMs of all active
+        orbitals collectively.
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+
+        Returns:
+            casdm1s: ndarray of shape (2, ncas, ncas)
+                Spin-separated, rootspace- and state-averaged 1-body reduced density matrix for the
+                active orbitals.
+        '''
         casdm1s_sub = self.make_casdm1s_sub (ci=ci, **kwargs)
         casdm1a = linalg.block_diag (*[dm[0] for dm in casdm1s_sub])
         casdm1b = linalg.block_diag (*[dm[1] for dm in casdm1s_sub])
         return np.stack ([casdm1a, casdm1b], axis=0)
 
     def make_casdm1 (self, ci=None, **kwargs):
-        ''' Spin-sum make_casdm1s '''
+        ''' Get spin-summed, rootspace- and state-averaged 1-RDMs of all active
+        orbitals collectively.
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+
+        Returns:
+            casdm1s: ndarray of shape (ncas, ncas)
+                Spin-summed, rootspace- and state-averaged 1-body reduced density matrix for the
+                active orbitals.
+        '''
         return self.make_casdm1s (ci=ci, **kwargs).sum (0)
 
     def states_make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm1frs=None, casdm2fr=None, **kwargs):
-        ''' Make the full-dimensional casdm2 spanning the collective active space '''
+        ''' Make the full-dimensional casdm2 spanning the collective active space. ILLEGAL FUNCTION
+        DO NOT USE. '''
         raise DeprecationWarning (
             ("states_make_casdm2 is BANNED. There is no reason to EVER make an array this huge.\n"
              "Use states_make_casdm*_sub instead, and substitute the factorization into your "
@@ -1204,6 +1406,26 @@ class LASCINoSymm (casci.CASCI):
 
     def state_make_casdm1s(self, ci=None, state=0,  ncas_sub=None, nelecas_sub=None,
         casdm1frs=None, **kwargs):
+        ''' Get spin-separated, locally state-averaged 1-RDM of all active orbitals collectively
+        for a single rootspace.
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            state: integer
+                Index of rootspace to return
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+            casdm1frs: sequence of ndarrays of shape (nroots, 2, ncas_sub[i], ncas_sub[i])
+                output of states_make_casdm1s_sub
+
+        Returns:
+            casdm1s: ndarray of shape (2, ncas, ncas)
+                Spin-separated 1-body reduced density matrix for the active orbitals for the chosen
+                rootspace, locally state-averaged if applicable.
+        '''
         if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci,
             ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
         casdm1s = np.stack([np.stack ([linalg.block_diag (*[dm1rs[iroot][ispin] 
@@ -1214,7 +1436,33 @@ class LASCINoSymm (casci.CASCI):
     
     def state_make_casdm2(self, ci=None, state=0, ncas_sub=None, nelecas_sub=None, 
             casdm1frs=None, casdm2fr=None, **kwargs):
-        ''' State wise casdm2 spanning the collective active space. '''
+        ''' Get spin-summed, locally state-averaged 2-RDM of all active orbitals for a single
+        rootspace. The formulas for nonzero elements are (state=r):
+
+        casdm2r[p1,p2,p3,p4] = casdm2fr[p][r,p1,p2,p3,p4]
+        casdm2r[p1,p2,q1,q2] = casdm1fr[p][r,p1,p2] * casdm1fr[q][r,q1,q2]
+        casdm2r[p1,q2,q1,p2] = -(casdm1frs[p][r,0,p1,p2] * casdm1frs[q][r,0,q1,q2]
+                                 + casdm1frs[p][r,1,p1,p2] * casdm1frs[q][r,1,q1,q2])
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            state: integer
+                Index of the chosen rootspace
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+            casdm1frs: sequence of ndarrays of shape [nroots,] + [ncas_sub[i],]*2
+                output of states_make_casdm1s_sub
+            casdm2fr: sequence of ndarrays of shape [nroots,] + [ncas_sub[i],]*4
+                output of states_make_casdm2_sub
+
+        Returns:
+            casdm2: ndarray of shape [ncas,]*4
+                Spin-summed 2-body reduced density matrices for all active orbitals for the
+                rootspace identified by "state", locally state-averaged if applicable.
+        '''
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
@@ -1249,7 +1497,36 @@ class LASCINoSymm (casci.CASCI):
     def make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm2r=None, casdm2f=None, casdm1frs=None, casdm2fr=None,
             **kwargs):
-        ''' Make the full-dimensional casdm2 spanning the collective active space '''
+        ''' Get spin-summed, rootspace- and state-averaged 2-RDM of all active orbitals. The
+        formulas for nonzero elements are
+
+        casdm2r[r,p1,p2,p3,p4] = casdm2fr[p][r,p1,p2,p3,p4]
+        casdm2r[r,p1,p2,q1,q2] = casdm1fr[p][r,p1,p2] * casdm1fr[q][r,q1,q2]
+        casdm2r[r,p1,q2,q1,p2] = -(casdm1frs[p][r,0,p1,p2] * casdm1frs[q][r,0,q1,q2]
+                                 + casdm1frs[p][r,1,p1,p2] * casdm1frs[q][r,1,q1,q2])
+        casdm2 = sum_r casdm2r[r]
+
+        Kwargs:
+            ci: list of list of ndarrays
+                Contains CI vectors
+            ncas_sub: sequence of integers
+                number of orbitals in each fragment
+            nelecas_sub: sequence of integers
+                number of orbitals in each fragment in the reference rootspace 
+            casdm2r: ndarray of shape [nroots,] + [ncas,]*4
+                output of states_make_casdm2
+            casdm2f: sequence of ndarrays of shape [ncas_sub[i],]*4
+                output of make_casdm2_sub
+            casdm1frs: sequence of ndarrays of shape [nroots,] + [ncas_sub[i],]*2
+                output of states_make_casdm1s_sub
+            casdm2fr: sequence of ndarrays of shape [nroots,] + [ncas_sub[i],]*4
+                output of states_make_casdm2_sub
+
+        Returns:
+            casdm2: ndarray of shape [ncas,]*4
+                Spin-summed 2-body reduced density matrices for all active orbitals, rootspace-
+                and state-averaged if applicable.
+        '''
         if casdm2r is not None: 
             return np.einsum ('rijkl,r->ijkl', casdm2r, self.weights)
         if ci is None: ci = self.ci
