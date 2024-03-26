@@ -227,12 +227,18 @@ class SingleLASRootspace (object):
         src_frag = np.where ((self.nelec-other.nelec)==-1)[0][0]
         dest_frag = np.where ((self.nelec-other.nelec)==1)[0][0]
         e_spin = 'a' if np.any (self.neleca!=other.neleca) else 'b'
-        src_ds = 'u' if self.smults[src_frag]>other.smults[src_frag] else 'd'
-        dest_ds = 'u' if self.smults[dest_frag]>other.smults[dest_frag] else 'd'
-        if e_spin == 'a':
-            nelec, nhole = other.neleca, other.nholea
+        if self.smults[src_frag]>other.smults[src_frag]:
+            src_ds = 'u'
+            nelec = other.nelecd
         else:
-            nelec, nhole = other.nelecb, other.nholeb
+            src_ds = 'd'
+            nelec = other.nelecu
+        if self.smults[dest_frag]>other.smults[dest_frag]:
+            dest_ds = 'u'
+            nhole = other.nholeu
+        else:
+            dest_ds = 'd'
+            nhole = other.nholed
         lroots_s = min (nelec[src_frag], nhole[dest_frag])
         return src_frag, dest_frag, e_spin, src_ds, dest_ds, lroots_s
 
