@@ -94,22 +94,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
     converged = True
     log.info ("LASSIS electron hop spaces: %d-%d", las1.nroots, las2.nroots-1)
     for i in range (las1.nroots, las2.nroots):
-        # spin shuffle escape
-        i_ssref = None
-        for i0 in range (las1.nroots, i):
-            if spaces[i].is_spin_shuffle_of (spaces[i0]):
-                i_ssref = i0
-                break
-        if i_ssref is not None:
-            spaces[i].ci = spaces[i].get_spin_shuffle_civecs (spaces[i_ssref])
-            log.info ("Electron hop space %d:", i)
-            spaces[i].table_printlog ()
-            log.info ("is a spin shuffle of space %d", i_ssref)
-            for k in range (nfrags):
-                ci[k][i] = spaces[i].ci[k]
-            t0 = log.timer ("Space {} excitations".format (i), *t0)
-            continue
-        # end spin shuffle escape
+        # compute lroots
         psref_ix = [j for j, space in enumerate (spaces[:las1.nroots])
                     if spaces[i].is_single_excitation_of (space)]
         psref = [spaces[j] for j in psref_ix]
@@ -133,6 +118,19 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             for space in psref[nref_pure:]:
                 space.table_printlog ()
                 log.info ('by %s', spaces[i].single_excitation_description_string (space))
+        # spin shuffle escape
+        i_ssref = None
+        for i0 in range (las1.nroots, i):
+            if spaces[i].is_spin_shuffle_of (spaces[i0]):
+                i_ssref = i0
+                break
+        if i_ssref is not None:
+            spaces[i].ci = spaces[i].get_spin_shuffle_civecs (spaces[i_ssref])
+            log.info ("and is a spin shuffle of space %d", i_ssref)
+            for k in range (nfrags):
+                ci[k][i] = spaces[i].ci[k]
+            t0 = log.timer ("Space {} excitations".format (i), *t0)
+            continue
         # throat-clearing into ExcitationPSFCISolver
         ciref = [[] for j in range (nfrags)]
         for k in range (nfrags):
