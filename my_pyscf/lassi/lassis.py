@@ -106,7 +106,8 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         psref = [space for space in psref if spaces[i].is_single_excitation_of (space)]
         if auto_singles:
             lr = spaces[i].compute_single_excitation_lroots (psref)
-            lroots[:,i] = np.minimum (lroots[:,i], lr)
+            lroots[:,i][excfrags] = np.minimum (lroots[:,i][excfrags], lr)
+            lroots[:,i][~excfrags] = 1
         # logging after setup
         log.info ("Electron hop space %d:", i)
         spaces[i].table_printlog (lroots=lroots[:,i])
@@ -130,6 +131,9 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             for k in range (nfrags):
                 ci[k][i] = spaces[i].ci[k]
             t0 = log.timer ("Space {} excitations".format (i), *t0)
+            lroots_i = spaces[i].get_lroots ()
+            assert (np.all (lroots_i==lroots[:,i])), "{} {} {} {}".format (
+                i_ssref, lroots_i, i, lroots[:,i])
             continue
         # throat-clearing into ExcitationPSFCISolver
         ciref = [[] for j in range (nfrags)]
