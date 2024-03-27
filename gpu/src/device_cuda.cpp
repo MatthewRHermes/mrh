@@ -8,13 +8,16 @@
 
 #define _RHO_BLOCK_SIZE 64
 #define _DOT_BLOCK_SIZE 32
-#define _TRANSPOSE_BLOCK_SIZE 32
+#define _TRANSPOSE_BLOCK_SIZE 16
+#define _TRANSPOSE_NUM_ROWS 16
 #define _UNPACK_BLOCK_SIZE 32
 
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
 
 //#define _DEBUG_DEVICE
+
+#define _TILE(A,B) (A + B - 1) / B
 
 /* ---------------------------------------------------------------------- */
 
@@ -338,6 +341,43 @@ __global__ void _getjk_unpack_buf2(double * buf2, double * eri1, int * map, int 
 
 #if 1
 
+//https://github.com/NVIDIA-developer-blog/code-samples/blob/master/series/cuda-cpp/transpose/transpose.cu
+// modified to support nonsquare matrices
+__global__ void _transpose(double * out, double * in, int nrow, int ncol)
+{
+  __shared__ double cache[_TRANSPOSE_BLOCK_SIZE][_TRANSPOSE_BLOCK_SIZE+1];
+  
+  int irow = blockIdx.x * _TRANSPOSE_BLOCK_SIZE + threadIdx.x;
+  int icol = blockIdx.y * _TRANSPOSE_BLOCK_SIZE + threadIdx.y;
+
+  // load tile into fast local memory
+
+  const int indxi = irow * ncol + icol;
+  for(int i=0; i<_TRANSPOSE_BLOCK_SIZE; i+= _TRANSPOSE_NUM_ROWS) {
+    if(irow < nrow && (icol+i) < ncol) // nonsquare
+      cache[threadIdx.y + i][threadIdx.x] = in[indxi + i]; // threads read chunk of a row and write as a column
+  }
+
+  // block to ensure reads finish
+  
+  __syncthreads();
+
+  // swap indices
+  
+  irow = blockIdx.y * _TRANSPOSE_BLOCK_SIZE + threadIdx.x;
+  icol = blockIdx.x * _TRANSPOSE_BLOCK_SIZE + threadIdx.y;
+
+  // write tile to global memory
+
+  const int indxo = irow * nrow + icol;
+  for(int i=0; i<_TRANSPOSE_BLOCK_SIZE; i+= _TRANSPOSE_NUM_ROWS) {
+    if(irow < ncol && (icol + i) < nrow) // nonsquare
+      out[indxo + i] = cache[threadIdx.x][threadIdx.y + i];
+  }
+}
+
+#else
+
 __global__ void _transpose(double * buf3, double * buf1, int nrow, int ncol)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -351,31 +391,6 @@ __global__ void _transpose(double * buf3, double * buf1, int nrow, int ncol)
     j += blockDim.y;
   }
   
-}
-
-#else
-
-__global__ void _getjk_transpose_buf1_buf3(double * buf3, double * buf1, int naux, int nao)
-{
-  const int i = blockIdx.x * blockDim.x + threadIdx.x;
-  const int j = blockIdx.y * blockDim.y + threadIdx.y;
-
-  if(i >= naux) return;
-  if(j >= nao) return;
-
-#if 1
-
-  for(int k=0; k<nao; ++k) buf3[k * (naux*nao) + (i*nao+j)] = buf1[(i * nao + j) * nao + k];
-  
-#else
-  DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
-  DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
-  
-  //  for(int i=0; i<naux; ++i) {
-  for(int j=0; j<nao; ++j)
-    for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
-    //  }
-#endif
 }
 
 #endif
@@ -664,16 +679,15 @@ void Device::get_jk(int naux,
     
     {
 #if 1
+      dim3 grid_size( _TILE(naux*nao, _TRANSPOSE_BLOCK_SIZE), _TILE(nao, _TRANSPOSE_BLOCK_SIZE), 1);
+      dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS);
+      
+      _transpose<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux*nao, nao);
+#else
       dim3 grid_size(naux*nao, 1, 1);
       dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
       
       _transpose<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux*nao, nao);
-#else
-      dim3 grid_size((naux + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE,
-		     (nao + (_TRANSPOSE_BLOCK_SIZE - 1)) / _TRANSPOSE_BLOCK_SIZE, 1);
-      dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_BLOCK_SIZE, 1);
-      
-      _getjk_transpose_buf1_buf3<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux, nao);
 #endif
       
     }
