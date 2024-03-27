@@ -100,14 +100,14 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         psref = [spaces[j] for j in psref_ix]
         excfrags = np.zeros (nfrags, dtype=bool)
         for space in psref: excfrags[spaces[i].excited_fragments (space)] = True
-        nref_pure = len (psref)
-        psref = _spin_flip_products (psref, spin_flips, nroots_ref=len(psref),
-                                               frozen_frags=(~excfrags))
-        psref = [space for space in psref if spaces[i].is_single_excitation_of (space)]
         if auto_singles:
             lr = spaces[i].compute_single_excitation_lroots (psref)
             lroots[:,i][excfrags] = np.minimum (lroots[:,i][excfrags], lr)
             lroots[:,i][~excfrags] = 1
+        nref_pure = len (psref)
+        psref = _spin_flip_products (psref, spin_flips, nroots_ref=len(psref),
+                                               frozen_frags=(~excfrags))
+        psref = [space for space in psref if spaces[i].is_single_excitation_of (space)]
         # logging after setup
         log.info ("Electron hop space %d:", i)
         spaces[i].table_printlog (lroots=lroots[:,i])
