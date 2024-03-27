@@ -1,7 +1,7 @@
 # RDM-based variant of LASSCF in which internal electronic structure of each
 # localized active subspace is decoupled from orbital rotation and the kernel
 # for obtaining RDMs given LAS Hamiltonians can be subclassed arbitrarily
-
+import h5py
 import time
 import numpy as np
 from scipy import linalg, sparse
@@ -117,45 +117,55 @@ def get_init_guess_rdm (las, mo_coeff=None, h2eff_sub=None):
 def _ddm (dm1frs0, dm1frs1):
     return np.concatenate ([(d1 - d0).ravel () for d1, d0 in zip (dm1frs0, dm1frs1)])
 
-
-def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3, conv_tol_rdmjkddm=3e-4,
-               conv_tol_rdmjkde=1e-8):
-    ''' "fcibox.kernel" should return e_cas, (casdm1rs, casdm2r) '''
-    def get_veff (my_casdm1frs):
-        casdm1fs = las.make_casdm1s_sub (casdm1frs=my_casdm1frs)
-        my_veff = las.get_veff (dm1s=las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
-        my_veff = las.split_veff (my_veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
-        return my_veff
-    converged = False
-    e_cas, fakeci = lasci_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
-    casdm1frs = [f[0] for f in fakeci]
-    casdm2fr = [f[1] for f in fakeci]
-    veff = get_veff (casdm1frs)
-    e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, h2eff=h2eff_sub,
-                                                 casdm1frs=casdm1frs, casdm2fr=casdm2fr)
-    log.info ("LASSCF rdm-jk init : E = %.15g", e_tot)
-    for it in range (max_cycle_rdmjk):
-        casdm1frs_old = casdm1frs
-        casdm2fr_old = casdm2fr
-        e_old = e_tot
+class LASSCF_rdm(lasci.LASCINoSymm):
+    #no extra init function  since we inherit everything from this class
+    
+    def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3, conv_tol_rdmjkddm=3e-4,
+                   conv_tol_rdmjkde=1e-8):
+        ''' "fcibox.kernel" should return e_cas, (casdm1rs, casdm2r) '''
+        def get_veff (my_casdm1frs):
+            casdm1fs = las.make_casdm1s_sub (casdm1frs=my_casdm1frs)
+            my_veff = las.get_veff (dm1s=las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
+            my_veff = las.split_veff (my_veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
+            return my_veff
+        ################edits#############
+        if os.path.exists("../RDMS"):
+             with h5py.File("../RDMS/casdm1frs.h5", 'r') as f:
+                casdm1frs = f['data'][:] 
+        else:
+            casdm1frs = casdm1frs
+            ##todo: incorporate orbtals, look into dumb_chk
+        ########################################
+        converged = False
         e_cas, fakeci = lasci_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
         casdm1frs = [f[0] for f in fakeci]
         casdm2fr = [f[1] for f in fakeci]
         veff = get_veff (casdm1frs)
         e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, h2eff=h2eff_sub,
+                                                 casdm1frs=casdm1frs, casdm2fr=casdm2fr)
+        log.info ("LASSCF rdm-jk init : E = %.15g", e_tot)
+        for it in range (max_cycle_rdmjk):
+            casdm1frs_old = casdm1frs
+            casdm2fr_old = casdm2fr
+            e_old = e_tot
+            e_cas, fakeci = lasci_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
+            casdm1frs = [f[0] for f in fakeci]
+            casdm2fr = [f[1] for f in fakeci]
+            veff = get_veff (casdm1frs)
+            e_tot = las.energy_nuc () + las.energy_elec (mo_coeff=mo_coeff, h2eff=h2eff_sub,
                                                      casdm1frs=casdm1frs, casdm2fr=casdm2fr)
-        ddm = np.concatenate ([(d1 - d0).ravel () for d1, d0 in zip (casdm1frs, casdm1frs_old)])
-        ddm = np.append (ddm, np.concatenate (
-            [(d1 - d0).ravel () for d1, d0 in zip (casdm2fr, casdm2fr_old)]
-        ))
-        ddm = linalg.norm (ddm)
-        log.info ("LASSCF rdm-jk %d : E = %.15g ; dE = %.15g ; |ddm| = %.15g", it+1, e_tot,
-                  e_tot-e_old, ddm)
-        if (ddm < conv_tol_rdmjkddm) and (abs(e_tot-e_old) < conv_tol_rdmjkde):
-            converged = True
-            break
-    log.info ("LASSCF rdm-jk {}".format (('not converged','converged')[int(converged)]))
-    return e_cas, casdm1frs, casdm2fr, converged
+            ddm = np.concatenate ([(d1 - d0).ravel () for d1, d0 in zip (casdm1frs, casdm1frs_old)])
+            ddm = np.append (ddm, np.concatenate (
+                [(d1 - d0).ravel () for d1, d0 in zip (casdm2fr, casdm2fr_old)]
+            ))
+            ddm = linalg.norm (ddm)
+            log.info ("LASSCF rdm-jk %d : E = %.15g ; dE = %.15g ; |ddm| = %.15g", it+1, e_tot,
+                      e_tot-e_old, ddm)
+            if (ddm < conv_tol_rdmjkddm) and (abs(e_tot-e_old) < conv_tol_rdmjkde):
+                converged = True
+                break
+        log.info ("LASSCF rdm-jk {}".format (('not converged','converged')[int(converged)]))
+        return e_cas, casdm1frs, casdm2fr, converged
 
 def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff
@@ -179,8 +189,8 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     converged = False
     t2 = (t1[0], t1[1])
     it = 0
-    for it in range (las.max_cycle_macro):
-        e_cas, casdm1frs, casdm2fr, rdmjk_conv = rdm_cycle (las, mo_coeff, casdm1frs,
+    for it in range (las.max_cycle_macro): ###las.rdm_cycle
+        e_cas, casdm1frs, casdm2fr, rdmjk_conv = las.rdm_cycle (las, mo_coeff, casdm1frs,
             veff, h2eff_sub, log, max_cycle_rdmjk=las.max_cycle_rdmjk,
             conv_tol_rdmjkddm=conv_tol_rdmjkddm,
             conv_tol_rdmjkde=conv_tol_rdmjkde)

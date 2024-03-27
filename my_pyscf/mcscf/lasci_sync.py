@@ -4,7 +4,7 @@ from mrh.my_pyscf.mcscf import _DFLASCI
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg 
 import numpy as np
-
+import h5py
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to
 # handle spin-breaking potentials while retaining spin constraint
 
@@ -251,6 +251,15 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, ci1, h2eff_sub, veff
 
 def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
+    #########edits#########
+    if not os.path.exists("../RDMS"):
+    with h5py.File('h1eff_sub.h5', 'w') as f:
+        f.create_dataset('h1eff', data=h1eff_sub)
+
+    with h5py.File('h2eff_sub.h5', 'w') as f:
+        f.create_dataset('h2eff', data=h2eff_sub)
+    ########################
+    
     if ci0 is None: ci0 = [None for idx in range (las.nfrags)]
     # CI problems
     t1 = (lib.logger.process_clock(), lib.logger.perf_counter())
