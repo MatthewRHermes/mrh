@@ -32,7 +32,8 @@ CXXFLAGS += -D_SIMPLE_TIMER
 CXXFLAGS += -D_CUDA_NVTX
 
 LD = $(CXX)
-LDFLAGS = $(GPU_FLAGS) -fPIC -shared
+LDFLAGS = $(GPU_FLAGS)
+#LDFLAGS += -fPIC -shared
 LIB = -lstdc++
 LIB += $(PYTHON_LIB)
 LIB += -L/home/knight/soft/polaris/lapack/lib -llapack -lrefblas -lgfortran
