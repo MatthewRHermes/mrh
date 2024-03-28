@@ -409,7 +409,7 @@ void Device::get_jk(int naux,
 		    int with_k, int count, size_t addr_dfobj)
 {
 #ifdef _DEBUG_DEVICE
-  printf("Inside Device::get_jk()\n");
+  printf("Inside Device::get_jk() w/ with_k= %i\n",with_k);
 #endif
   
 #ifdef _SIMPLE_TIMER
@@ -592,7 +592,12 @@ void Device::get_jk(int naux,
 #endif
   }
 
-  if(!with_k) return;
+  if(!with_k) {
+#ifdef _DEBUG_DEVICE
+    printf(" -- Leaving Device::get_jk()\n");
+#endif
+    return;
+  }
   
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
   
