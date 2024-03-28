@@ -128,6 +128,10 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     if(d_eri1) pm->dev_free(d_eri1);
     d_eri1 = (double *) pm->dev_malloc(size_eri1 * sizeof(double));
   }
+
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+#endif
   
   int _size_tril_map = nao * nao;
   //  if(_size_tril_map > size_tril_map) {
@@ -154,8 +158,10 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   }
   
 #ifdef _SIMPLE_TIMER
-  double t1 = omp_get_wtime();
-  t_array_jk[0] += t1 - t0;
+  double t2 = omp_get_wtime();
+  t_array_jk[0] += t2 - t0;
+
+  t_array_jk[12] += t2 - t1;
 #endif
   
   // Create cuda stream
@@ -746,7 +752,7 @@ void Device::get_jk(int naux,
 #endif
 
     //    printf(" -- calling dev_stream_wait()\n");
-    pm->dev_stream_wait(stream);
+    //    pm->dev_stream_wait(stream);
     
 #ifdef _CUDA_NVTX
     nvtxRangePop();

@@ -4,7 +4,7 @@
 
 #include "device.h"
 
-#define _NUM_TIMER_JK 12
+#define _NUM_TIMER_JK 13
 
 /* ---------------------------------------------------------------------- */
 
