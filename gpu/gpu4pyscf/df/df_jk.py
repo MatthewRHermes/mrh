@@ -187,6 +187,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
         if gpu:
             libgpu.libgpu_pull_get_jk(gpu, vj, vk, 1)
+        t5 = lib.logger.timer(dfobj, 'get_jk with_k pull',*t4)
         
     t2 = (logger.process_clock(), logger.perf_counter())
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
