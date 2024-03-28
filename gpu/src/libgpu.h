@@ -27,9 +27,9 @@ extern "C"
 			     int,
 			     py::array_t<double>, py::array_t<double>, py::list &,
 			     py::array_t<double>, py::array_t<double>,
-			     int, size_t);
+			     int, int, size_t);
   
-  void libgpu_pull_get_jk(void *, py::array_t<double>, py::array_t<double>);
+  void libgpu_pull_get_jk(void *, py::array_t<double>, py::array_t<double>, int);
   void libgpu_set_update_dfobj_(void *, int);
   
   void libgpu_hessop_get_veff(void *,

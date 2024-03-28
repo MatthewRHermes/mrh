@@ -61,10 +61,13 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
     vj = 0
     vk = numpy.zeros(dms.shape)
 
+    t2 = lib.logger.timer(dfobj, 'get_jk setup', *t0)
+    
     if with_j:
         idx = numpy.arange(nao)
         dmtril = lib.pack_tril(dms + dms.conj().transpose(0,2,1))
         dmtril[:,idx*(idx+1)//2+idx] *= .5
+    t3 = lib.logger.timer(dfobj, 'get_jk with_j',*t2)
 
     if not with_k:
         for eri1 in dfobj.loop():
@@ -130,12 +133,13 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         count = 0
         vj = numpy.zeros_like(dmtril)
 
-        for eri1 in dfobj.loop(blksize):
+        t4 = lib.logger.timer(dfobj, 'get_jk with_k setup',*t3)
+        for eri1 in dfobj.loop(blksize): # how much time spent unnecessarily copying eri1 data?
             naux, nao_pair = eri1.shape
 
             if gpu:
                 if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
-                libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, count, id(dfobj))
+                libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
 
             else:
                 
@@ -157,12 +161,14 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             count+=1
         
         t1 = log.timer_debug1('jk', *t1)
+        t5 = lib.logger.timer(dfobj, 'get_jk with_k loop',*t4)
 
         if gpu:
-            libgpu.libgpu_pull_get_jk(gpu, vj, vk)
+            libgpu.libgpu_pull_get_jk(gpu, vj, vk, 1)
         
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
     if with_k: vk = vk.reshape(dm_shape)
+    lib.logger.timer(dfobj, 'get_jk finalize',*t5)
     logger.timer(dfobj, 'df vj and vk', *t0)
     return vj, vk
 

@@ -64,8 +64,8 @@ public :
   void get_jk(int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
 	      py::array_t<double>, py::array_t<double>,
-	      int, size_t);
-  void pull_get_jk(py::array_t<double>, py::array_t<double>);
+	      int, int, size_t);
+  void pull_get_jk(py::array_t<double>, py::array_t<double>, int);
   void set_update_dfobj_(int);
   
   void hessop_get_veff(int, int, int, int,

@@ -191,21 +191,26 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
 /* ---------------------------------------------------------------------- */
 
-void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int with_k)
 {
 #ifdef _DEBUG_DEVICE
   printf(" -- Inside Device::pull_get_jk()\n");
 #endif
   
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
-  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   
   double * vj = static_cast<double*>(info_vj.ptr);
-  double * vk = static_cast<double*>(info_vk.ptr);
  
-  pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
   pm->dev_pull(d_vj, vj, nset * nao_pair * sizeof(double));
 
+  if(with_k) {
+    py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
+    
+    double * vk = static_cast<double*>(info_vk.ptr);
+    
+    pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+  }
+  
   update_dfobj = 0;
   
 #ifdef _DEBUG_DEVICE
@@ -401,7 +406,7 @@ __global__ void _transpose(double * buf3, double * buf1, int nrow, int ncol)
 void Device::get_jk(int naux,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
-		    int count, size_t addr_dfobj)
+		    int with_k, int count, size_t addr_dfobj)
 {
 #ifdef _DEBUG_DEVICE
   printf("Inside Device::get_jk()\n");
@@ -415,7 +420,7 @@ void Device::get_jk(int naux,
     nvtxRangePushA("GetJK::Init");
 #endif
   
-  const int with_j = true;
+  const int with_j = 1;
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, nao_pair)
@@ -586,9 +591,10 @@ void Device::get_jk(int naux,
     t_array_jk[3] += t2 - t1;
 #endif
   }
-    
-  // buf2 = lib.unpack_tril(eri1, out=buf[1])
 
+  if(!with_k) return;
+  
+  // buf2 = lib.unpack_tril(eri1, out=buf[1])
   
 #ifdef _SIMPLE_TIMER
     double t2 = omp_get_wtime();

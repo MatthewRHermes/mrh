@@ -85,22 +85,22 @@ void libgpu_compute_get_jk(void * ptr,
 			   int naux,
 			   py::array_t<double> eri1, py::array_t<double> dmtril, py::list & dms,
 			   py::array_t<double> vj, py::array_t<double> vk,
-			   int count, size_t addr_dfobj)
+			   int with_k, int count, size_t addr_dfobj)
 { 
   Device * dev = (Device *) ptr;
   dev->get_jk(naux,
 	      eri1, dmtril, dms,
 	      vj, vk,
-	      count, addr_dfobj);
+	      with_k, count, addr_dfobj);
  
 }
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> vk)
+void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> vk, int with_k)
 { 
   Device * dev = (Device *) ptr;
-  dev->pull_get_jk(vj, vk);
+  dev->pull_get_jk(vj, vk, with_k);
 }
 
 /* ---------------------------------------------------------------------- */
