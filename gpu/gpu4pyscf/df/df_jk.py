@@ -157,6 +157,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
         t3 = lib.logger.timer(dfobj, 'get_jk with_k setup',*t2)
         for eri1 in dfobj.loop(blksize): # how much time spent unnecessarily copying eri1 data?
+            t6 = (logger.process_clock(), logger.perf_counter())
             naux, nao_pair = eri1.shape
 
             if gpu:
@@ -181,6 +182,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                     vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
 
             count+=1
+            lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
         
         t1 = log.timer_debug1('jk', *t1)
         t4 = lib.logger.timer(dfobj, 'get_jk with_k loop',*t3)
