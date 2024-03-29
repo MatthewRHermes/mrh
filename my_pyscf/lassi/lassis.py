@@ -27,6 +27,7 @@ from mrh.my_pyscf.lassi.lassi import LASSI
 def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False, crash_locmin=False):
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
     # between definition of e_states array for neutral and charge-separated rootspaces
+    t0 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (lsi, lsi.verbose)
     las = lsi._las.get_single_state_las (state=0)
     # 1. Spin shuffle step
@@ -67,6 +68,7 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
     else:
         las3 = las2
     las3.lasci (_dry_run=True)
+    log.timer ("LASSIS model space preparation", *t0)
     return converged, las3
 
 def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_vrv=False,
@@ -384,6 +386,18 @@ class LASSIS_Scanner(lib.SinglePointScanner):
 class LASSIS (LASSI):
     def __init__(self, las, ncharge='s', nspin='s', sa_heff=True, deactivate_vrv=False,
                  crash_locmin=False, opt=1, **kwargs):
+        '''
+        Key attributes:
+            _las : instance of class `LASCINoSymm`
+                The encapsulated LASSCF wave function. The CI vectors of the reference state are,
+                i.e., _las.get_single_state_las (state=0).ci.
+            ci_spin_flips : dict
+                Keys are (i,s) with integer i and string s = 'u' or 'd'. Values are the spin-up
+                (s='u') or spin-down (s='d') CI vectors of the ith fragment.
+            ci_charge_hops: dict
+                Keys are hash strings for particular charge-hop rootspaces, and values are the CI
+                vectors of the involved fragments.
+        '''
         self.ncharge = ncharge
         self.nspin = nspin
         self.sa_heff = sa_heff
@@ -406,6 +420,8 @@ class LASSIS (LASSI):
         if sa_heff is None: sa_heff = self.sa_heff
         if deactivate_vrv is None: deactivate_vrv = self.deactivate_vrv
         if crash_locmin is None: crash_locmin = self.crash_locmin
+        t0 = (logger.process_clock (), logger.perf_counter ())
+        log = logger.new_logger (self, self.verbose)
         self.converged, las = prepare_states (self, ncharge=ncharge, nspin=nspin,
                                               sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
                                               crash_locmin=crash_locmin)
@@ -416,7 +432,9 @@ class LASSIS (LASSI):
         self.weights = las.weights
         self.e_lexc = las.e_lexc
         self.e_states = las.e_states
-        return LASSI.kernel (self, **kwargs)
+        self.e_roots, self.si = LASSI.kernel (self, **kwargs)
+        log.timer ("LASSIS", *t0)
+        return self.e_roots, self.si
 
     as_scanner = as_scanner
 

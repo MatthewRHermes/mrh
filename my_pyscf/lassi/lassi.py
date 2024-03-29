@@ -732,6 +732,7 @@ class LASSI(lib.StreamObject):
         if break_symmetry is None: break_symmetry = self.break_symmetry
         if opt is None: opt = self.opt
         log = lib.logger.new_logger (self, self.verbose)
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if not self.converged:
             log.warn ('LASSI state preparation step not converged!')
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
@@ -739,6 +740,7 @@ class LASSI(lib.StreamObject):
         self.e_roots = e_roots
         self.si, self.s2, self.s2_mat, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
             si, si.s2, si.s2_mat, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
+        log.timer ('LASSI matrix-diagonalization kernel', *t0)
         return self.e_roots, self.si
 
     def ham_2q (self, mo_coeff=None, veff_c=None, h2eff_sub=None, soc=0):
