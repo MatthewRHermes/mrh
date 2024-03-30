@@ -477,7 +477,8 @@ void Device::get_jk(int naux,
 
 #ifdef _USE_ERI_CACHE
 
-  // retrieve or cache eri block
+  // retrieve id of cached eri block
+
   int id = eri_list.size();
   for(int i=0; i<eri_list.size(); ++i)
     if(eri_list[i] == addr_dfobj+count) {
@@ -485,6 +486,8 @@ void Device::get_jk(int naux,
       break;
     }
 
+  // grab/update cached data
+  
   if(id < eri_list.size()) {
     eri_count[id]++;
     d_eri = d_eri_cache[id];
@@ -534,6 +537,12 @@ void Device::get_jk(int naux,
     eri_count.push_back(1);
     eri_update.push_back(0);
     eri_size.push_back(naux * nao_pair);
+
+    eri_num_blocks.push_back(0); // grow array
+    eri_num_blocks[id-count]++;  // increment # of blocks for this dfobj
+
+    eri_extra.push_back(naux);
+    eri_extra.push_back(nao_pair);
     
     d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
     int id = d_eri_cache.size() - 1;

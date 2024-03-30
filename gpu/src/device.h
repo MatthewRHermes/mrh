@@ -20,6 +20,7 @@ using namespace PM_NS;
 #define _SIZE_BLOCK 256
 
 #define _USE_ERI_CACHE
+#define _ERI_CACHE_EXTRA 2
 //#define _DEBUG_ERI_CACHE
 
 #define OUTPUTIJ        1
@@ -66,7 +67,9 @@ public :
 	      py::array_t<double>, py::array_t<double>,
 	      int, int, size_t);
   void pull_get_jk(py::array_t<double>, py::array_t<double>, int);
+  
   void set_update_dfobj_(int);
+  void get_dfobj_status(size_t, py::array_t<int>);
   
   void hessop_get_veff(int, int, int, int,
 		       py::array_t<double>, py::array_t<double>, py::array_t<double>);
@@ -149,6 +152,9 @@ private:
   std::vector<int> eri_count; // # times particular cache used
   std::vector<int> eri_update; // # times particular cache updated
   std::vector<int> eri_size; // # size of particular cache
+
+  std::vector<int> eri_num_blocks; // # of eri blocks for each dfobj (i.e. trip-count from `for eri1 in dfobj.loop(blksize)`)
+  std::vector<int> eri_extra; // per-block data: {naux, nao_pair}
 
   std::vector<double *> d_eri_cache; // pointers for device caches
   std::vector<double *> d_eri_host; // values on host for checking if update

@@ -113,6 +113,14 @@ void libgpu_set_update_dfobj_(void * ptr, int update_dfobj)
 
 /* ---------------------------------------------------------------------- */
 
+void libgpu_get_dfobj_status(void * ptr, size_t addr_dfobj, py::array_t<int> arg)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->get_dfobj_status(addr_dfobj, arg);
+}
+
+/* ---------------------------------------------------------------------- */
+
 void libgpu_hessop_get_veff(void * ptr,
 			    int naux, int nmo, int ncore, int nocc,
 			    py::array_t<double> bPpj, py::array_t<double> vPpj, py::array_t<double> vk_bj)

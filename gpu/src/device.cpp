@@ -213,6 +213,89 @@ void Device::set_update_dfobj_(int _val)
 }
 
 /* ---------------------------------------------------------------------- */
+
+// return stored values for Python side to make decisions
+// update_dfobj == true :: nothing useful to return if need to update eri blocks on device
+// count_ == -1 :: return # of blocks cached for dfobj
+// count_ >= 0 :: return extra data for cached block
+
+void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
+{
+  py::buffer_info info_arg = _arg.request();
+  int * arg = static_cast<int*>(info_arg.ptr);
+  
+  int naux_ = arg[0];
+  int nao_pair_ = arg[1];
+  int count_ = arg[2];
+  int update_dfobj_ = arg[3];
+  
+  // printf("Inside get_dfobj_status(): addr_dfobj= %#012x  naux_= %i  nao_pair_= %i  count_= %i  update_dfobj_= %i\n",
+  // 	 addr_dfobj, naux_, nao_pair_, count_, update_dfobj_);
+  
+  update_dfobj_ = update_dfobj;
+
+  // nothing useful to return if need to update eri blocks on device
+  
+  if(update_dfobj) { 
+    // printf("Leaving get_dfobj_status(): addr_dfobj= %#012x  update_dfobj_= %i\n", addr_dfobj, update_dfobj_);
+    
+    arg[3] = update_dfobj_;
+    return;
+  }
+  
+  // return # of blocks cached for dfobj
+
+  if(count_ == -1) {
+    int id = eri_list.size();
+    for(int i=0; i<eri_list.size(); ++i)
+      if(eri_list[i] == addr_dfobj) {
+	id = i;
+	break;
+      }
+
+    if(id < eri_list.size()) count_ = eri_num_blocks[id];
+    
+    // printf("Leaving get_dfobj_status(): addr_dfobj= %#012x  count_= %i  update_dfobj_= %i\n", addr_dfobj, count_, update_dfobj_);
+
+    arg[2] = count_;
+    arg[3] = update_dfobj_;
+    return;
+  }
+
+  // return extra data for cached block
+  
+  int id = eri_list.size();
+  for(int i=0; i<eri_list.size(); ++i)
+    if(eri_list[i] == addr_dfobj+count_) {
+      id = i;
+      break;
+    }
+
+  // printf("eri_list.size()= %i  id= %i\n",eri_list.size(), id);
+  
+  naux_ = -1;
+  nao_pair_ = -1;
+  
+  if(id < eri_list.size()) {
+  
+    naux_     = eri_extra[id * _ERI_CACHE_EXTRA    ];
+    nao_pair_ = eri_extra[id * _ERI_CACHE_EXTRA + 1];
+
+  }
+
+  arg[0] = naux_;
+  arg[1] = nao_pair_;
+  arg[2] = count_;
+  arg[3] = update_dfobj_;
+  
+  // printf("Leaving get_dfobj_status(): addr_dfobj= %#012x  id= %i  naux_= %i  nao_pair_= %i  count_= %i  update_dfobj_= %i\n",
+  // 	 addr_dfobj, id, naux_, nao_pair_, count_, update_dfobj_);
+  
+  // printf("Leaving get_dfobj_status(): addr_dfobj= %#012x  id= %i  arg= %i %i %i %i\n",
+  // 	 addr_dfobj, id, arg[0], arg[1], arg[2], arg[3]);
+}
+
+/* ---------------------------------------------------------------------- */
     
 // Is both _ocm2 in/out as it get over-written and resized?
 

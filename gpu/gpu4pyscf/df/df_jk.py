@@ -80,6 +80,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 #        dms = [numpy.asarray(x, order='F') for x in dms]
         count = 0
         for eri1 in dfobj.loop():
+            t6 = (logger.process_clock(), logger.perf_counter())
             naux, nao_pair = eri1.shape
             if gpu:
                 if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
@@ -88,11 +89,13 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                 rho = numpy.einsum('ix,px->ip', dmtril, eri1)
                 vj += numpy.einsum('ip,px->ix', rho, eri1)
 
+            lib.logger.timer(dfobj, 'get_jk not with_k loop iteration',*t6)
+
             count += 1
 
         if gpu:
             libgpu.libgpu_pull_get_jk(gpu, vj, vk, 0)
-        t3 = lib.logger.timer(dfobj, 'get_jk not with_k',*t2)
+        t3 = lib.logger.timer(dfobj, 'get_jk not with_k loop full',*t2)
 
 # Commented 2-19-2024 in favor of accelerated implementation below
 # Can offload this if need arises.
@@ -156,36 +159,62 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         vj = numpy.zeros_like(dmtril)
 
         t3 = lib.logger.timer(dfobj, 'get_jk with_k setup',*t2)
-        for eri1 in dfobj.loop(blksize): # how much time spent unnecessarily copying eri1 data?
-            t6 = (logger.process_clock(), logger.perf_counter())
-            naux, nao_pair = eri1.shape
 
-            if gpu:
+        load_eri = True
+
+        if gpu:
+            arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
+            libgpu.libgpu_get_dfobj_status(gpu, id(dfobj), arg)
+            if arg[2] > -1: load_eri = False
+
+        if load_eri:
+        
+            for eri1 in dfobj.loop(blksize): # how much time spent unnecessarily copying eri1 data?
+                t6 = (logger.process_clock(), logger.perf_counter())
+                naux, nao_pair = eri1.shape
+
+                if gpu:
+                    if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
+                    libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
+                
+                else:
+                
+                    if with_j:
+                        rho = numpy.einsum('ix,px->ip', dmtril, eri1)
+                        vj += numpy.einsum('ip,px->ix', rho, eri1)
+                    
+                    for k in range(nset):
+                        buf1 = buf[0,:naux]
+                        fdrv(ftrans, fmmm,
+                             buf1.ctypes.data_as(ctypes.c_void_p),
+                             eri1.ctypes.data_as(ctypes.c_void_p),
+                             dms[k].ctypes.data_as(ctypes.c_void_p),
+                             ctypes.c_int(naux), *rargs)
+                        
+                        buf2 = lib.unpack_tril(eri1, out=buf[1])
+                        vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
+
+                count+=1
+                lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
+
+        else:
+            
+            nblk = arg[2]
+            for count in range( arg[2] ):
+                t6 = (logger.process_clock(), logger.perf_counter())
+                arg = numpy.array([-1, -1, count, -1], dtype=numpy.int32)
+                libgpu.libgpu_get_dfobj_status(gpu, id(dfobj), arg)
+                naux = arg[0]
+                nao_pair = arg[1]
+
+                eri1 = numpy.zeros(1)
                 if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
                 libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
-
-            else:
                 
-                if with_j:
-                    rho = numpy.einsum('ix,px->ip', dmtril, eri1)
-                    vj += numpy.einsum('ip,px->ix', rho, eri1)
+                lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
                 
-                for k in range(nset):
-                    buf1 = buf[0,:naux]
-                    fdrv(ftrans, fmmm,
-                         buf1.ctypes.data_as(ctypes.c_void_p),
-                         eri1.ctypes.data_as(ctypes.c_void_p),
-                         dms[k].ctypes.data_as(ctypes.c_void_p),
-                         ctypes.c_int(naux), *rargs)
-                    
-                    buf2 = lib.unpack_tril(eri1, out=buf[1])
-                    vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
-
-            count+=1
-            lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
-        
+        t4 = lib.logger.timer(dfobj, 'get_jk with_k loop full',*t3)
         t1 = log.timer_debug1('jk', *t1)
-        t4 = lib.logger.timer(dfobj, 'get_jk with_k loop',*t3)
 
         if gpu:
             libgpu.libgpu_pull_get_jk(gpu, vj, vk, 1)
