@@ -146,6 +146,8 @@ private:
   double * d_vk_bj;
   
   // eri caching on device
+
+  bool use_eri_cache;
   
   std::vector<size_t> eri_list; // addr of dfobj+eri1 for key-value pair
   

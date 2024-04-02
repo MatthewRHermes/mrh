@@ -437,12 +437,13 @@ void Device::get_jk(int naux,
   int nao_pair = nao * (nao+1) / 2;
 
   double * d_eri;
-#ifndef _USE_ERI_CACHE
-   // if not caching, then eri block always transferred
-  
-  pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
-  d_eri = d_eri1;
-#endif
+  if(!use_eri_cache) {
+    // if not caching, then eri block always transferred
+    
+    pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
+    d_eri = d_eri1;
+  }
+
   if(count == 0) pm->dev_push_async(d_dmtril, dmtril, nset * nao_pair * sizeof(double), stream);
   
   int _size_rho = nset * naux;
@@ -475,88 +476,88 @@ void Device::get_jk(int naux,
   printf("LIBGPU::     naux-1: %f %f %f %f\n",da_eri1(naux-1,0), da_eri1(naux-1,1), da_eri1(naux-1,nao_pair-2), da_eri1(naux-1,nao_pair-1));
 #endif
 
-#ifdef _USE_ERI_CACHE
+  if(use_eri_cache) {
 
-  // retrieve id of cached eri block
+    // retrieve id of cached eri block
 
-  int id = eri_list.size();
-  for(int i=0; i<eri_list.size(); ++i)
-    if(eri_list[i] == addr_dfobj+count) {
-      id = i;
-      break;
-    }
-
-  // grab/update cached data
-  
-  if(id < eri_list.size()) {
-    eri_count[id]++;
-    d_eri = d_eri_cache[id];
+    int id = eri_list.size();
+    for(int i=0; i<eri_list.size(); ++i)
+      if(eri_list[i] == addr_dfobj+count) {
+	id = i;
+	break;
+      }
     
+    // grab/update cached data
+    
+    if(id < eri_list.size()) {
+      eri_count[id]++;
+      d_eri = d_eri_cache[id];
+      
 #ifdef _DEBUG_ERI_CACHE
-    int diff_size = eri_size[id] - naux * nao_pair;
-    if(diff_size != 0) {
-      printf("LIBGPU:: Error: eri_cache size != 0  diff_size= %i\n",diff_size);
-      exit(1);
-    }
-    
-    double * eri_host = d_eri_host[id];
-    double diff_eri = 0.0;
-    for(int i=0; i<naux*nao_pair; ++i) diff_eri += (eri_host[i] - eri1[i]) * (eri_host[i] - eri1[i]);
-    
-    if(diff_eri > 1e-10) {
-      for(int i=0; i<naux*nao_pair; ++i) eri_host[i] = eri1[i];
-      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
-      eri_update[id]++;
-      
-      // update_dfobj fails to correctly update device ; this is an error
-      if(!update_dfobj) {
- 	printf("LIBGPU:: Warning: ERI updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
- 	//count = -1;
- 	//return;
- 	exit(1);
+      int diff_size = eri_size[id] - naux * nao_pair;
+      if(diff_size != 0) {
+	printf("LIBGPU:: Error: eri_cache size != 0  diff_size= %i\n",diff_size);
+	exit(1);
       }
-    } else {
       
-      // update_dfobj falsely updates device ; this is loss of performance
-      if(update_dfobj) {
- 	printf("LIBGPU:: Warning: ERI not updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
- 	//count = -1;
- 	//return;
- 	exit(1);
+      double * eri_host = d_eri_host[id];
+      double diff_eri = 0.0;
+      for(int i=0; i<naux*nao_pair; ++i) diff_eri += (eri_host[i] - eri1[i]) * (eri_host[i] - eri1[i]);
+      
+      if(diff_eri > 1e-10) {
+	for(int i=0; i<naux*nao_pair; ++i) eri_host[i] = eri1[i];
+	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
+	eri_update[id]++;
+	
+	// update_dfobj fails to correctly update device ; this is an error
+	if(!update_dfobj) {
+	  printf("LIBGPU:: Warning: ERI updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
+	  //count = -1;
+	  //return;
+	  exit(1);
+	}
+      } else {
+	
+	// update_dfobj falsely updates device ; this is loss of performance
+	if(update_dfobj) {
+	  printf("LIBGPU:: Warning: ERI not updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
+	  //count = -1;
+	  //return;
+	  exit(1);
+	}
       }
-    }
 #else
-    if(update_dfobj) {
-      eri_update[id]++;
+      if(update_dfobj) {
+	eri_update[id]++;
+	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
+      }
+#endif
+      
+    } else {
+      eri_list.push_back(addr_dfobj+count);
+      eri_count.push_back(1);
+      eri_update.push_back(0);
+      eri_size.push_back(naux * nao_pair);
+      
+      eri_num_blocks.push_back(0); // grow array
+      eri_num_blocks[id-count]++;  // increment # of blocks for this dfobj
+      
+      eri_extra.push_back(naux);
+      eri_extra.push_back(nao_pair);
+      
+      d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
+      int id = d_eri_cache.size() - 1;
+      d_eri = d_eri_cache[ id ];
+      
       pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
-    }
-#endif
-    
-  } else {
-    eri_list.push_back(addr_dfobj+count);
-    eri_count.push_back(1);
-    eri_update.push_back(0);
-    eri_size.push_back(naux * nao_pair);
-
-    eri_num_blocks.push_back(0); // grow array
-    eri_num_blocks[id-count]++;  // increment # of blocks for this dfobj
-
-    eri_extra.push_back(naux);
-    eri_extra.push_back(nao_pair);
-    
-    d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
-    int id = d_eri_cache.size() - 1;
-    d_eri = d_eri_cache[ id ];
-    
-    pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
-    
+      
 #ifdef _DEBUG_ERI_CACHE
-    d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
-    double * d_eri_host_ = d_eri_host[id];
-    for(int i=0; i<naux*nao_pair; ++i) d_eri_host_[i] = eri1[i];
+      d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
+      double * d_eri_host_ = d_eri_host[id];
+      for(int i=0; i<naux*nao_pair; ++i) d_eri_host_[i] = eri1[i];
 #endif
-  }
-#endif
+    }
+  } // if(use_eri_cache)
 
 #ifdef _CUDA_NVTX
     nvtxRangePop();

@@ -62,6 +62,8 @@ Device::Device()
   d_bPpj = nullptr;
   d_vPpj = nullptr;
   d_vk_bj = nullptr;
+
+  use_eri_cache = true;
 #endif
   
   num_threads = 1;
@@ -127,20 +129,20 @@ Device::~Device()
 
   // print summary of cached eri blocks
 
-#ifdef _USE_ERI_CACHE
-  printf("LIBGPU::eri cache :: size= %i\n",eri_list.size());
-  for(int i=0; i<eri_list.size(); ++i)
-    printf("%i : eri= %p  Mbytes= %f  count= %i  update= %i\n", i, eri_list[i],
-	   eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i]);
-  
-  eri_count.clear();
-  eri_size.clear();
+  if(use_eri_cache) {
+    printf("LIBGPU::eri cache :: size= %i\n",eri_list.size());
+    for(int i=0; i<eri_list.size(); ++i)
+      printf("%i : eri= %p  Mbytes= %f  count= %i  update= %i\n", i, eri_list[i],
+	     eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i]);
+    
+    eri_count.clear();
+    eri_size.clear();
 #ifdef _DEBUG_ERI_CACHE
-  for(int i=0; i<d_eri_host.size(); ++i) pm->dev_free_host( d_eri_host[i] );
+    for(int i=0; i<d_eri_host.size(); ++i) pm->dev_free_host( d_eri_host[i] );
 #endif
-  for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free( d_eri_cache[i] );
-  eri_list.clear();
-#endif
+    for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free( d_eri_cache[i] );
+    eri_list.clear();
+  }
   
 #if defined(_USE_GPU)
 #ifdef _CUDA_NVTX
