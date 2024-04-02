@@ -335,25 +335,26 @@ def spin_flip_products (las2, spin_flips, nroots_ref=1):
     return las3
 
 def charge_excitation_products (lsi, las2, las1):
-    # TODO: direct product of single-electron hops
-    raise NotImplementedError (">3-frag LASSIS")
     t0 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
     nfrags = lsi.nfrags
-    spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in ci])
+    spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in las2.ci])
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
     space0 = spaces[0]
     i0, j0 = i, j = las1.nroots, las2.nroots
     space1 = spaces[i:j]
     for _ in range (1, nfrags//2):
+        seen = set ()
         for ip,iq in itertools.product (range (i,j), range (i0,j0)):
             if ip <= iq: continue
             p, q = spaces[ip], spaces[iq]
             if not orthogonal_excitations (p, q, space0): continue
             r = combine_orthogonal_excitations (p, q, space0)
+            if r in seen: continue
             ir = len (spaces)
             spaces.append (r)
+            seen.add (r)
             log.info ("Electron hop space %d:", ir)
             r.table_printlog ()
             log.info ("is a product of spaces %d and %d", ip, iq)
