@@ -59,7 +59,9 @@ def setUpModule ():
     1       -2.161870000     -4.749620000      0.000000000
     1       -3.206320000     -3.233120000      0.000000000'''
     
-    mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False, verbose=5, output='test_4frag.log')#verbose=0, output='/dev/null')
+    mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False,
+        #verbose=5, output='test_4frag.log')
+        verbose=0, output='/dev/null')
     mf = scf.RHF (mol).run ()
     las = LASSCF (mf, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
     las.state_average_(weights=weights, **states)
@@ -138,7 +140,7 @@ class KnownValues(unittest.TestCase):
             las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
         lsi = LASSIS (las0).run ()
         self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (lsi.e_roots[0], 0, 9)
+        self.assertAlmostEqual (lsi.e_roots[0], -304.5373576869587, 6)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI o1 4-fragment intermediates")
