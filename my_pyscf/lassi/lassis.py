@@ -209,8 +209,8 @@ def all_spin_flips (lsi, las, nspin=1):
     f1 = f1[None,:,:] - np.tensordot (casdm1s, h2, axes=((1,2),(2,1)))
     i = 0
     auto_singles = isinstance (nspin, str) and 's' in nspin.lower ()
-    nup0 = np.minimum (spaces[0].nelecd, spaces[0].nholeu)
-    ndn0 = np.minimum (spaces[0].nelecu, spaces[0].nholed)
+    nup0 = norb0 #np.minimum (spaces[0].nelecd, spaces[0].nholeu)
+    ndn0 = norb0 #np.minimum (spaces[0].nelecu, spaces[0].nholed)
     if not auto_singles: # integer supplied by caller
         nup0[:] = nspin
         ndn0[:] = nspin
