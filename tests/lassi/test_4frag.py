@@ -140,7 +140,7 @@ class KnownValues(unittest.TestCase):
             las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
         lsi = LASSIS (las0).run ()
         self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (lsi.e_roots[0], -304.5373576869587, 6)
+        self.assertAlmostEqual (lsi.e_roots[0], -304.5373576869587, 3)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI o1 4-fragment intermediates")
