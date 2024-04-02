@@ -162,10 +162,11 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
         load_eri = True
 
-        if gpu:
-            arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
-            libgpu.libgpu_get_dfobj_status(gpu, id(dfobj), arg)
-            if arg[2] > -1: load_eri = False
+        # load_eri = False doesn't offer benefit unless deep-copies and so on. disable for now
+#        if gpu:
+#            arg = numpy.array([-1, -1, -1, -1], dtype=numpy.int32)
+#            libgpu.libgpu_get_dfobj_status(gpu, id(dfobj), arg)
+#            if arg[2] > -1: load_eri = False
 
         if load_eri:
         

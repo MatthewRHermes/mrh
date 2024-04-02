@@ -60,6 +60,7 @@ public :
   int get_num_devices();
   void get_dev_properties(int);
   void set_device(int);
+  void disable_eri_cache_();
 
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int, int);
   void get_jk(int,

@@ -71,6 +71,14 @@ void libgpu_set_device(void * ptr, int id)
 
 /* ---------------------------------------------------------------------- */
 
+void libgpu_disable_eri_cache_(void * ptr)
+{ 
+  Device * dev = (Device *) ptr;
+  dev->disable_eri_cache_();
+}
+
+/* ---------------------------------------------------------------------- */
+
 void libgpu_init_get_jk(void * ptr,
 			py::array_t<double> eri1, py::array_t<double> dmtril, 
 			int blksize, int nset, int nao, int naux, int count)

@@ -215,6 +215,13 @@ void Device::set_update_dfobj_(int _val)
 }
 
 /* ---------------------------------------------------------------------- */
+    
+void Device::disable_eri_cache_()
+{
+  use_eri_cache = false;
+}
+
+/* ---------------------------------------------------------------------- */
 
 // return stored values for Python side to make decisions
 // update_dfobj == true :: nothing useful to return if need to update eri blocks on device
