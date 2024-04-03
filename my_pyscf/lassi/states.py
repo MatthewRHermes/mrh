@@ -350,6 +350,33 @@ class SingleLASRootspace (object):
         return ImpureProductStateFCISolver (fcisolvers, stdout=self.stdout, lweights=lweights, 
                                             verbose=self.verbose)
 
+def orthogonal_excitations (exc1, exc2, ref):
+    if exc1.nfrag != ref.nfrag: return False
+    if exc2.nfrag != ref.nfrag: return False
+    idx1 = exc1.excited_fragments (ref)
+    if not np.count_nonzero (idx1): return False
+    idx2 = exc2.excited_fragments (ref)
+    if not np.count_nonzero (idx2): return False
+    if np.count_nonzero (idx1 & idx2): return False
+    return True
+
+def combine_orthogonal_excitations (exc1, exc2, ref):
+    nfrag = ref.nfrag
+    spins = exc1.spins.copy ()
+    smults = exc1.smults.copy ()
+    charges = exc1.charges.copy ()
+    idx2 = exc2.excited_fragments (ref)
+    spins[idx2] = exc2.spins[idx2]
+    smults[idx2] = exc2.smults[idx2]
+    charges[idx2] = exc2.charges[idx2]
+    ci = None
+    if exc1.has_ci () and exc2.has_ci ():
+        ci = [exc2.ci[ifrag] if idx2[ifrag] else exc1.ci[ifrag] for ifrag in range (nfrag)]
+    product = SingleLASRootspace (
+        ref.las, spins, smults, charges, 0, ci=ci,
+        nlas=ref.nlas, nelelas=ref.nelelas, stdout=ref.stdout, verbose=ref.verbose
+    )
+    return product
 
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
