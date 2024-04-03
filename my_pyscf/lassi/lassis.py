@@ -455,9 +455,15 @@ class LASSIS (LASSI):
         if crash_locmin is None: crash_locmin = self.crash_locmin
         t0 = (logger.process_clock (), logger.perf_counter ())
         log = logger.new_logger (self, self.verbose)
-        self.converged, las = prepare_states (self, ncharge=ncharge, nspin=nspin,
+        self.converged = self.prepare_states_(ncharge=ncharge, nspin=nspin,
                                               sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
                                               crash_locmin=crash_locmin)
+        self.e_roots, self.si = self.eig (**kwargs)
+        log.timer ("LASSIS", *t0)
+        return self.e_roots, self.si
+
+    def prepare_states_(self, **kwargs):
+        self.converged, las = self.prepare_states (**kwargs)
         #self.__dict__.update(las.__dict__) # Unsafe
         self.fciboxes = las.fciboxes
         self.ci = las.ci
@@ -465,9 +471,9 @@ class LASSIS (LASSI):
         self.weights = las.weights
         self.e_lexc = las.e_lexc
         self.e_states = las.e_states
-        self.e_roots, self.si = LASSI.kernel (self, **kwargs)
-        log.timer ("LASSIS", *t0)
-        return self.e_roots, self.si
+        return self.converged
 
+    eig = LASSI.kernel
     as_scanner = as_scanner
+    prepare_states = prepare_states
 
