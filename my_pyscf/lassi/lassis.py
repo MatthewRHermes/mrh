@@ -351,14 +351,17 @@ def charge_excitation_products (lsi, las2, las1):
             p, q = spaces[ip], spaces[iq]
             if not orthogonal_excitations (p, q, space0): continue
             r = combine_orthogonal_excitations (p, q, space0)
-            if r in seen: continue
+            if r in seen:
+                s = spaces[spaces.index (r)]
+                s.merge_(r, ref=space0)
+                continue
             ir = len (spaces)
             spaces.append (r)
             seen.add (r)
-            log.info ("Electron hop space %d:", ir)
-            r.table_printlog ()
-            log.info ("is a product of spaces %d and %d", ip, iq)
         i, j = j, len (spaces)
+        for ir in range (i, j):
+            log.info ("Electron hop product %d space %d:", _+1, ir)
+            spaces[ir].table_printlog ()
     weights = [space.weight for space in spaces]
     charges = [space.charges for space in spaces]
     spins = [space.spins for space in spaces]
@@ -448,11 +451,6 @@ class LASSIS (LASSI):
 
     def kernel (self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
                 crash_locmin=None, **kwargs):
-        if ncharge is None: ncharge = self.ncharge
-        if nspin is None: nspin = self.nspin
-        if sa_heff is None: sa_heff = self.sa_heff
-        if deactivate_vrv is None: deactivate_vrv = self.deactivate_vrv
-        if crash_locmin is None: crash_locmin = self.crash_locmin
         t0 = (logger.process_clock (), logger.perf_counter ())
         log = logger.new_logger (self, self.verbose)
         self.converged = self.prepare_states_(ncharge=ncharge, nspin=nspin,
@@ -462,8 +460,17 @@ class LASSIS (LASSI):
         log.timer ("LASSIS", *t0)
         return self.e_roots, self.si
 
-    def prepare_states_(self, **kwargs):
-        self.converged, las = self.prepare_states (**kwargs)
+    def prepare_states_(self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
+                        crash_locmin=None, **kwargs):
+        if ncharge is None: ncharge = self.ncharge
+        if nspin is None: nspin = self.nspin
+        if sa_heff is None: sa_heff = self.sa_heff
+        if deactivate_vrv is None: deactivate_vrv = self.deactivate_vrv
+        if crash_locmin is None: crash_locmin = self.crash_locmin
+        log = logger.new_logger (self, self.verbose)
+        self.converged, las = self.prepare_states (ncharge=ncharge, nspin=nspin,
+                                                   sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
+                                                   crash_locmin=crash_locmin)
         #self.__dict__.update(las.__dict__) # Unsafe
         self.fciboxes = las.fciboxes
         self.ci = las.ci
@@ -471,6 +478,8 @@ class LASSIS (LASSI):
         self.weights = las.weights
         self.e_lexc = las.e_lexc
         self.e_states = las.e_states
+        log.info ('LASSIS model state summary: %d rootspaces; %d model states; converged? %s',
+                  self.nroots, self.get_lroots ().prod (0).sum (), str (self.converged))
         return self.converged
 
     eig = LASSI.kernel
