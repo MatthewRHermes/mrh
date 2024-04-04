@@ -134,6 +134,14 @@ class KnownValues(unittest.TestCase):
                                                     break_symmetry=False, opt=1)[r]
                     self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
 
+    def test_lassis (self):
+        las0 = las.get_single_state_las (state=0)
+        for ifrag in range (len (las0.ci)):
+            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+        lsi = LASSIS (las0)
+        lsi.prepare_states_()
+        self.assertTrue (lsi.converged)
+
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0)
         for ifrag in range (len (las0.ci)):
