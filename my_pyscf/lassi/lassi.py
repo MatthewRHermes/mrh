@@ -9,7 +9,7 @@ from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
-
+from pyscf import __config__
 
 # TODO: fix stdm1 index convention in both o0 and o1
 
@@ -21,7 +21,7 @@ from mrh.my_pyscf.mcscf import soc_int as soc_int
 # instance is severed, remove the dangerous "_LASSI_subspace_env"
 # temporary environment.
 
-LINDEP_THRESHOLD = 1.0e-5
+LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
 op = (op_o0, op_o1)
 
@@ -422,7 +422,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         ovlp_det = linalg.det (ovlp_blk)
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
         lib.logger.info (las, 'Caught error %s, %s', str (e), lc)
-        if ovlp_det < LINDEP_THRESHOLD:
+        if ovlp_det < LINDEP_THRESH:
             err_str = ('LASSI basis appears to have linear dependencies; '
                        'double-check your state list.\n'
                        '|ovlp| = {:.6e}').format (ovlp_det)
