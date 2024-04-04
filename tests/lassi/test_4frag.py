@@ -29,6 +29,7 @@ from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_make_rdm12s
 from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi import LASSIS
 
 def setUpModule ():
     global mol, mf, las, nroots, nelec_frs, si
@@ -58,7 +59,9 @@ def setUpModule ():
     1       -2.161870000     -4.749620000      0.000000000
     1       -3.206320000     -3.233120000      0.000000000'''
     
-    mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False, verbose=0, output='/dev/null')
+    mol = gto.M (atom = xyz, basis='STO-3G', symmetry=False,
+        #verbose=5, output='test_4frag.log')
+        verbose=0, output='/dev/null')
     mf = scf.RHF (mol).run ()
     las = LASSCF (mf, (2,2,2,2),((1,1),(1,1),(1,1),(1,1)))
     las.state_average_(weights=weights, **states)
@@ -130,6 +133,22 @@ class KnownValues(unittest.TestCase):
                     d12_o1_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
                                                     break_symmetry=False, opt=1)[r]
                     self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
+
+    def test_lassis (self):
+        las0 = las.get_single_state_las (state=0)
+        for ifrag in range (len (las0.ci)):
+            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+        lsi = LASSIS (las0)
+        lsi.prepare_states_()
+        self.assertTrue (lsi.converged)
+
+    def test_lassis_slow (self):
+        las0 = las.get_single_state_las (state=0)
+        for ifrag in range (len (las0.ci)):
+            las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
+        lsi = LASSIS (las0).run ()
+        self.assertTrue (lsi.converged)
+        self.assertAlmostEqual (lsi.e_roots[0], -304.5373576869587, 3)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI o1 4-fragment intermediates")
