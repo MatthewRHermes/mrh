@@ -227,8 +227,8 @@ class LSTDMint1 (object):
         self.idx_frag = idx_frag
 
         # Consistent array shape
-        self.ndeta_r = [cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r]
-        self.ndetb_r = [cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r]
+        self.ndeta_r = np.array ([cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r])
+        self.ndetb_r = np.array ([cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r])
         self.ci = [c.reshape (-1,na,nb) for c, na, nb in zip (self.ci, self.ndeta_r, self.ndetb_r)]
 
         self.time_crunch = self._init_crunch_()
@@ -241,7 +241,7 @@ class LSTDMint1 (object):
         else: raise RuntimeError (str (len (args)))
 
     def try_get_dm (self, tab, i, j):
-        ir, jr = self.rootaddr[i], self.rootaddr[j]
+        ir, jr = self.unique_root[self.rootaddr[i]], self.unique_root[self.rootaddr[j]]
         try:
             assert (tab[ir][jr] is not None)
             ip, jp = self.fragaddr[i], self.fragaddr[j]
@@ -252,7 +252,7 @@ class LSTDMint1 (object):
             raise RuntimeError (errstr)
 
     def try_get_tdm (self, tab, s, i, j):
-        ir, jr = self.rootaddr[i], self.rootaddr[j]
+        ir, jr = self.unique_root[self.rootaddr[i]], self.unique_root[self.rootaddr[j]]
         try:
             assert (tab[s][ir][jr] is not None)
             ip, jp = self.fragaddr[i], self.fragaddr[j]
@@ -320,7 +320,7 @@ class LSTDMint1 (object):
     # 1-density intermediate
 
     def get_dm1 (self, i, j):
-        if j > i:
+        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
             return self.try_get (self.dm1, j, i).conj ().transpose (0, 2, 1)
         return self.try_get (self.dm1, i, j)
 
@@ -333,7 +333,7 @@ class LSTDMint1 (object):
     # 2-density intermediate
 
     def get_dm2 (self, i, j):
-        if j > i:
+        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
             return self.try_get (self.dm2, j, i).conj ().transpose (0, 2, 1, 4, 3)
         return self.try_get (self.dm2, i, j)
 
@@ -362,15 +362,34 @@ class LSTDMint1 (object):
 
         lroots = [c.shape[0] for c in ci]
 
+        # index down to only the unique rootspaces
+        self.root_unique = np.ones (self.nroots, dtype=bool)
+        self.unique_root = np.arange (self.nroots, dtype=int)
+        for i, j in combinations (range (self.nroots), 2):
+            if not self.root_unique[i]: continue
+            if not self.root_unique[j]: continue
+            if self.nelec_r[i] != self.nelec_r[j]: continue
+            if ci[i].shape != ci[j].shape: continue
+            if np.all (ci[i] == ci[j]):
+                self.root_unique[j] = False
+                self.unique_root[j] = i
+                self.onep_index[i] |= self.onep_index[j]
+                self.onep_index[:,i] |= self.onep_index[:,j]
+                self.zerop_index[i] |= self.zerop_index[j]
+                self.zerop_index[:,i] |= self.zerop_index[:,j]
+        for i in range (self.nroots):
+            assert (self.root_unique[self.unique_root[i]])
+        idx_uniq = self.root_unique
+
         # Overlap matrix
         offs = np.cumsum (lroots)
-        for i, j in combinations (range (self.nroots), 2):
+        for i, j in combinations (np.where (idx_uniq)[0], 2):
             if self.nelec_r[i] == self.nelec_r[j]:
                 ci_i = ci[i].reshape (lroots[i], -1)
                 ci_j = ci[j].reshape (lroots[j], -1)
                 self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
                 self.ovlp[j][i] = self.ovlp[i][j].conj ().T
-        for i in range (self.nroots):
+        for i in np.where (idx_uniq)[0]:
             ci_i = ci[i].reshape (lroots[i], -1)
             self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
 
@@ -400,7 +419,9 @@ class LSTDMint1 (object):
 
         # Spectator fragment contribution
         spectator_index = np.all (hopping_index == 0, axis=0)
-        spectator_index[np.triu_indices (self.nroots, k=1)] = False
+        spectator_index[~idx_uniq,:] = False
+        spectator_index[:,~idx_uniq] = False
+        spectator_index[np.triu_indices (nroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
             dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j])
@@ -409,8 +430,8 @@ class LSTDMint1 (object):
 
         # Cache some b_p|i> beforehand for the sake of the spin-flip intermediate 
         # shape = (norb, lroots[ket], ndeta[ket], ndetb[*])
-        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
-        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
+        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0) & idx_uniq)[0]
+        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0) & idx_uniq)[0]
         bpvec_list = [None for ket in range (nroots)]
         for ket in hidx_ket_b:
             if np.any (np.all (hopping_index[:,:,ket] == np.array ([1,-1])[:,None], axis=0)):
@@ -422,7 +443,7 @@ class LSTDMint1 (object):
             nelec = self.nelec_r[ket]
             apket = np.stack ([des_a_loop (ci[ket], nelec, p) for p in range (norb)], axis=0)
             nelec = (nelec[0]-1, nelec[1])
-            for bra in np.where (hopping_index[0,:,ket] < 0)[0]:
+            for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
@@ -468,7 +489,7 @@ class LSTDMint1 (object):
             bpket = np.stack ([des_b_loop (ci[ket], nelec, p)
                 for p in range (norb)], axis=0) if bpvec_list[ket] is None else bpvec_list[ket]
             nelec = (nelec[0], nelec[1]-1)
-            for bra in np.where (hopping_index[1,:,ket] < 0)[0]:
+            for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
@@ -1100,9 +1121,12 @@ class HamS2ovlpint (LSTDMint2):
         self._crunch_all_()
         ovlp = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         def crunch_ovlp (bra_sp, ket_sp):
-            o = self.ints[-1].ovlp[bra_sp][ket_sp]
+            i = self.ints[-1]
+            b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
+            o = i.ovlp[b][k]
             for i in self.ints[-2::-1]:
-                o = np.multiply.outer (o, i.ovlp[bra_sp][ket_sp]).transpose (0,2,1,3)
+                b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
+                o = np.multiply.outer (o, i.ovlp[b][k]).transpose (0,2,1,3)
                 o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
             o *= self.spin_shuffle[bra_sp]
             o *= self.spin_shuffle[ket_sp]
@@ -1347,6 +1371,7 @@ def make_ints (las, ci, nelec_frs):
                             nroots, nelec_frs[ifrag], rootaddr, fragaddr[ifrag], ifrag)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
+        lib.logger.info (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag, np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
     return hopping_index, ints, lroots
 
