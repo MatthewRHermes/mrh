@@ -158,6 +158,7 @@ private:
 
   std::vector<int> eri_num_blocks; // # of eri blocks for each dfobj (i.e. trip-count from `for eri1 in dfobj.loop(blksize)`)
   std::vector<int> eri_extra; // per-block data: {naux, nao_pair}
+  std::vector<int> eri_device; // device id holding cache
 
   std::vector<double *> d_eri_cache; // pointers for device caches
   std::vector<double *> d_eri_host; // values on host for checking if update
@@ -204,10 +205,14 @@ private:
 #endif
 
   int num_threads;
-  
+  int num_devices;
+
 #if defined(_USE_GPU)
   cublasHandle_t handle;
   cudaStream_t stream;
+  
+  cublasHandle_t * handle_;
+  cudaStream_t * stream_;
 #endif
   
 };

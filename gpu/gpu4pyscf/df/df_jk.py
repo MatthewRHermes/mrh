@@ -175,7 +175,8 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                 naux, nao_pair = eri1.shape
 
                 if gpu:
-                    if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
+                    #if count == 0:
+                    libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
                     libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
                 
                 else:
@@ -376,7 +377,8 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             print("vj= ", vj_tmp.shape, " vk= ", vk_tmp.shape)
             print("addr of dfobj= ", hex(id(dfobj)), "  addr of eri1= ", hex(id(eri1)), " count= ", count)
             #if gpu:
-            if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
+            #if count == 0:
+            libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
             libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj_tmp, vk_tmp, 1, count, id(dfobj))
             if count == -1: quit()
 

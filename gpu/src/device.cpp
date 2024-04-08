@@ -47,6 +47,9 @@ Device::Device()
   handle = nullptr;
   stream = nullptr;
 
+  handle_ = nullptr;
+  stream_ = nullptr;
+
   d_rho = nullptr;
   d_vj = nullptr;
   d_buf1 = nullptr;
@@ -69,6 +72,8 @@ Device::Device()
   num_threads = 1;
 #pragma omp parallel
   num_threads = omp_get_num_threads();
+
+  num_devices = pm->dev_num_devices();
   
 #ifdef _SIMPLE_TIMER
   t_array_count = 0;
@@ -132,8 +137,8 @@ Device::~Device()
   if(use_eri_cache) {
     printf("LIBGPU::eri cache :: size= %i\n",eri_list.size());
     for(int i=0; i<eri_list.size(); ++i)
-      printf("%i : eri= %p  Mbytes= %f  count= %i  update= %i\n", i, eri_list[i],
-	     eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i]);
+      printf("%i : eri= %p  Mbytes= %f  count= %i  update= %i device= %i\n", i, eri_list[i],
+	     eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i], eri_device[i]);
     
     eri_count.clear();
     eri_size.clear();
@@ -170,12 +175,15 @@ Device::~Device()
   nvtxRangePushA("Destroy Handle");
 #endif
   cublasDestroy(handle);
+
+  for(int i=0; i<num_devices; ++i) cublasDestroy(handle_[i]);
 #ifdef _CUDA_NVTX
   nvtxRangePop();
 #endif
 
   printf("need to destroy stream correctly...\n");
   //pm->dev_stream_destroy(stream);
+  //for(int i=0; i<num_devices; ++i) pm->dev_stream_destroy(stream_[i]);
   printf(" -- finished\n");
 
 #endif

@@ -31,6 +31,9 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   double t0 = omp_get_wtime();
 #endif
 
+  const int device_id = count % num_devices;
+  pm->dev_set_device(device_id);
+  
   blksize = _blksize;
   nset = _nset;
   nao = _nao;
@@ -154,7 +157,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     	tril_map[_i + nao*_j] = _ij;
       }
     
-    pm->dev_push_async(d_tril_map, tril_map, size_tril_map*sizeof(int), stream);
+    //pm->dev_push_async(d_tril_map, tril_map, size_tril_map*sizeof(int), stream); // how did this work w/o stream creation?
+    pm->dev_push(d_tril_map, tril_map, size_tril_map*sizeof(int));
   }
   
 #ifdef _SIMPLE_TIMER
@@ -168,6 +172,11 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   if(stream == nullptr) {
     pm->dev_stream_create(stream);
+
+    stream_ = (cudaStream_t*) pm->dev_malloc_host(num_devices * sizeof(cudaStream_t));
+
+    //    for(int i=0; i<num_devices; ++i) stream_[i] = stream; // tempory
+    for(int i=0; i<num_devices; ++i) pm->dev_stream_create(stream_[i]);
   }
   
   // Create blas handle
@@ -180,6 +189,15 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     _CUDA_CHECK_ERRORS();
     cublasSetStream(handle, stream);
     _CUDA_CHECK_ERRORS();
+
+    handle_ = (cublasHandle_t*) pm->dev_malloc_host(num_devices * sizeof(cublasHandle_t));
+    for(int i=0; i<num_devices; ++i) {
+      cublasCreate(&(handle_[i]));
+      _CUDA_CHECK_ERRORS();
+      cublasSetStream(handle_[i], stream_[i]);
+      _CUDA_CHECK_ERRORS();
+    }
+    
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
@@ -423,9 +441,11 @@ void Device::get_jk(int naux,
 #endif
 
 #ifdef _CUDA_NVTX
-    nvtxRangePushA("GetJK::Init");
+  nvtxRangePushA("GetJK::Init");
 #endif
-  
+
+  const int device_id = count % num_devices;
+    
   const int with_j = 1;
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair)
@@ -440,11 +460,11 @@ void Device::get_jk(int naux,
   if(!use_eri_cache) {
     // if not caching, then eri block always transferred
     
-    pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream);
+    pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream_[device_id]);
     d_eri = d_eri1;
   }
 
-  if(count == 0) pm->dev_push_async(d_dmtril, dmtril, nset * nao_pair * sizeof(double), stream);
+  if(count == 0) pm->dev_push_async(d_dmtril, dmtril, nset * nao_pair * sizeof(double), stream_[device_id]);
   
   int _size_rho = nset * naux;
   if(_size_rho > size_rho) {
@@ -506,7 +526,7 @@ void Device::get_jk(int naux,
       
       if(diff_eri > 1e-10) {
 	for(int i=0; i<naux*nao_pair; ++i) eri_host[i] = eri1[i];
-	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
+	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream_[device_id]);
 	eri_update[id]++;
 	
 	// update_dfobj fails to correctly update device ; this is an error
@@ -529,7 +549,7 @@ void Device::get_jk(int naux,
 #else
       if(update_dfobj) {
 	eri_update[id]++;
-	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
+	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream_[device_id]);
       }
 #endif
       
@@ -538,6 +558,7 @@ void Device::get_jk(int naux,
       eri_count.push_back(1);
       eri_update.push_back(0);
       eri_size.push_back(naux * nao_pair);
+      eri_device.push_back(device_id);
       
       eri_num_blocks.push_back(0); // grow array
       eri_num_blocks[id-count]++;  // increment # of blocks for this dfobj
@@ -549,7 +570,7 @@ void Device::get_jk(int naux,
       int id = d_eri_cache.size() - 1;
       d_eri = d_eri_cache[ id ];
       
-      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream);
+      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream_[device_id]);
       
 #ifdef _DEBUG_ERI_CACHE
       d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
@@ -585,7 +606,7 @@ void Device::get_jk(int naux,
 #endif
 
       //      printf(" -- calling _getjk_rho()\n");
-      _getjk_rho<<<grid_size, block_size, 0, stream>>>(d_rho, d_dmtril, d_eri, nset, naux, nao_pair);
+      _getjk_rho<<<grid_size, block_size, 0, stream_[device_id]>>>(d_rho, d_dmtril, d_eri, nset, naux, nao_pair);
     }
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -595,7 +616,7 @@ void Device::get_jk(int naux,
       dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
       
       //      printf(" -- calling _getjk_vj()\n");
-      _getjk_vj<<<grid_size, block_size, 0, stream>>>(d_vj, d_rho, d_eri, nset, nao_pair, naux, count);
+      _getjk_vj<<<grid_size, block_size, 0, stream_[device_id]>>>(d_vj, d_rho, d_eri, nset, nao_pair, naux, count);
     }
     
 #ifdef _CUDA_NVTX
@@ -637,7 +658,7 @@ void Device::get_jk(int naux,
 #endif
       
       //    printf(" -- calling _unpack_buf2()\n");
-      _getjk_unpack_buf2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_eri, d_tril_map, naux, nao, nao_pair);
+      _getjk_unpack_buf2<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf2, d_eri, d_tril_map, naux, nao, nao_pair);
     }
     
 #ifdef _CUDA_NVTX
@@ -665,7 +686,7 @@ void Device::get_jk(int naux,
     double * dms = static_cast<double*>(info_dms.ptr);
 
     //    printf(" -- calling _dev_push_async(dms)\n");
-    pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), stream);
+    pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), stream_[device_id]);
     
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -682,7 +703,7 @@ void Device::get_jk(int naux,
       const double beta = 0.0;
       const int nao2 = nao * nao;
       
-      cublasDgemmStridedBatched(handle, CUBLAS_OP_T, CUBLAS_OP_T, nao, nao, nao,
+      cublasDgemmStridedBatched(handle_[device_id], CUBLAS_OP_T, CUBLAS_OP_T, nao, nao, nao,
 				&alpha, d_buf2, nao, nao2,
 				d_dms, nao, 0,
 				&beta, d_buf1, nao, nao2, naux);
@@ -709,12 +730,12 @@ void Device::get_jk(int naux,
       dim3 grid_size( _TILE(naux*nao, _TRANSPOSE_BLOCK_SIZE), _TILE(nao, _TRANSPOSE_BLOCK_SIZE), 1);
       dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS);
       
-      _transpose<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux*nao, nao);
+      _transpose<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf3, d_buf1, naux*nao, nao);
 #else
       dim3 grid_size(naux*nao, 1, 1);
       dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
       
-      _transpose<<<grid_size, block_size, 0, stream>>>(d_buf3, d_buf1, naux*nao, nao);
+      _transpose<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf3, d_buf1, naux*nao, nao);
 #endif
       
     }
@@ -749,7 +770,7 @@ void Device::get_jk(int naux,
     t_array_jk[7] += t7 - t6;
 #endif
     
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
+    cublasDgemm(handle_[device_id], CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
 
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -918,6 +939,8 @@ void Device::hessop_push_bPpj(py::array_t<double> _bPpj)
 
   double * bPpj = static_cast<double*>(info_bPpj.ptr);
 
+  const int device_id = 0; //count % num_devices;
+  
 #if 0
   printf("LIBGPU:: naux= %i  nmo= %i  nocc= %i\n",naux, nmo, nocc);
   printf("LIBGPU:: hessop_push_bPpj : bPpj= (%i, %i, %i)\n",
@@ -942,7 +965,7 @@ void Device::hessop_push_bPpj(py::array_t<double> _bPpj)
     d_bPpj = (double *) pm->dev_malloc(size_bPpj * sizeof(double));
   }
 
-  pm->dev_push_async(d_bPpj, bPpj, _size_bPpj*sizeof(double), stream);
+  pm->dev_push_async(d_bPpj, bPpj, _size_bPpj*sizeof(double), stream_[device_id]);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -955,6 +978,8 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   
   double * vPpj = static_cast<double*>(info_vPpj.ptr);
   double * vk_bj = static_cast<double*>(info_vk_bj.ptr);
+
+  const int device_id = 0; //count % num_devices;
   
   int nvirt = nmo - ncore;
 
@@ -1010,20 +1035,20 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   // vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
   
 #if 1
-  pm->dev_push_async(d_buf1, vPpj, naux*nmo*nocc*sizeof(double), stream);
+  pm->dev_push_async(d_buf1, vPpj, naux*nmo*nocc*sizeof(double), stream_[device_id]);
 
   {
     dim3 grid_size(nvirt, nocc, 1);
     dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
     
-    _hessop_get_veff_reshape1<<<grid_size, block_size, 0, stream>>>(d_vPpj, d_buf1, nmo, nocc, ncore, nvirt, naux);
+    _hessop_get_veff_reshape1<<<grid_size, block_size, 0, stream_[device_id]>>>(d_vPpj, d_buf1, nmo, nocc, ncore, nvirt, naux);
   }
 
   {
     dim3 grid_size(nocc, naux, 1);
     dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
     
-    _hessop_get_veff_reshape2<<<grid_size, block_size, 0, stream>>>(d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
+    _hessop_get_veff_reshape2<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
   }
 
   {
@@ -1038,7 +1063,7 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     const int ldb = nocc*naux;
     const int ldc = nocc;
     
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, lda, d_vPpj, ldb, &beta, d_vk_bj, ldc);
+    cublasDgemm(handle_[device_id], CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, lda, d_vPpj, ldb, &beta, d_vk_bj, ldc);
   }
   
 #else
@@ -1098,14 +1123,14 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     dim3 grid_size(nvirt, naux, 1);
     dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
     
-    _hessop_get_veff_reshape3<<<grid_size, block_size, 0, stream>>>(d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
+    _hessop_get_veff_reshape3<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
   }
   
   {
     dim3 grid_size(naux, ncore, 1);
     dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
     
-    _hessop_get_veff_reshape4<<<grid_size, block_size, 0, stream>>>(d_vPpj, d_buf1, nmo, nocc, ncore, nvirt, naux);
+    _hessop_get_veff_reshape4<<<grid_size, block_size, 0, stream_[device_id]>>>(d_vPpj, d_buf1, nmo, nocc, ncore, nvirt, naux);
   }
 
 
@@ -1121,10 +1146,10 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     const int ldb = ncore*naux;
     const int ldc = nocc;
     
-    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_vPpj, lda, d_buf2, ldb, &beta, d_vk_bj, ldc);
+    cublasDgemm(handle_[device_id], CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_vPpj, lda, d_buf2, ldb, &beta, d_vk_bj, ldc);
   }
 
-  pm->dev_stream_wait(stream);
+  pm->dev_stream_wait(stream_[device_id]);
   pm->dev_pull(d_vk_bj, vk_bj, _size_vk_bj*sizeof(double));
     
 #else
