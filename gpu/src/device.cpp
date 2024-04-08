@@ -74,6 +74,26 @@ Device::Device()
   num_threads = omp_get_num_threads();
 
   num_devices = pm->dev_num_devices();
+
+  size_rho_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
+  size_vj_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
+  size_vk_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
+  size_buf_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
+  size_dms_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
+  size_dmtril_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
+  size_eri1_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
+  size_tril_map_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
+
+  for(int i=0; i<num_devices; ++i) {
+    size_rho_[i] = 0;
+    size_vj_[i] = 0;
+    size_vk_[i] = 0;
+    size_buf_[i] = 0;
+    size_dms_[i] = 0;
+    size_dmtril_[i] = 0;
+    size_eri1_[i] = 0;
+    size_tril_map_[i] = 0;
+  }
   
 #ifdef _SIMPLE_TIMER
   t_array_count = 0;
@@ -168,6 +188,8 @@ Device::~Device()
   pm->dev_free(d_bPpj);
   pm->dev_free(d_vPpj);
   pm->dev_free(d_vk_bj);
+
+  pm->dev_free_host(size_vj_);
   
 #ifdef _CUDA_NVTX
   nvtxRangePop();

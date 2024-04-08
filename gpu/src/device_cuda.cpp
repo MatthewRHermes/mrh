@@ -48,18 +48,18 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //  double * dmtril = static_cast<double*>(info_dmtril.ptr);
   
   int _size_vj = nset * nao_pair;
-  if(_size_vj > size_vj) {
-    size_vj = _size_vj;
+  if(_size_vj > size_vj_[device_id]) {
+    size_vj_[device_id] = _size_vj;
     //if(vj) pm->dev_free_host(vj);
     //vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
     if(d_vj) pm->dev_free(d_vj);
-    d_vj = (double *) pm->dev_malloc(size_vj * sizeof(double));
+    d_vj = (double *) pm->dev_malloc(_size_vj * sizeof(double));
   }
   //for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
   
   int _size_vk = nset * nao * nao;
-  if(_size_vk > size_vk) {
-    size_vk = _size_vk;
+  if(_size_vk > size_vk_[device_id]) {
+    size_vk_[device_id] = _size_vk;
     //    if(_vktmp) pm->dev_free_host(_vktmp);
     //    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
 
@@ -68,7 +68,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
     
     if(d_vkk) pm->dev_free(d_vkk);
-    d_vkk = (double *) pm->dev_malloc(size_vk * sizeof(double));
+    d_vkk = (double *) pm->dev_malloc(_size_vk * sizeof(double));
 
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -77,15 +77,15 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
   int _size_buf = blksize * nao * nao;
-  if(_size_buf > size_buf) {
-    size_buf = _size_buf;
+  if(_size_buf > size_buf_[device_id]) {
+    size_buf_[device_id] = _size_buf;
     if(buf_tmp) pm->dev_free_host(buf_tmp);
     if(buf3) pm->dev_free_host(buf3);
     if(buf4) pm->dev_free_host(buf4);
     
-    buf_tmp = (double*) pm->dev_malloc_host(2*size_buf*sizeof(double));
-    buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
-    buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (blksize*nao, nao)
+    buf_tmp = (double*) pm->dev_malloc_host(2*_size_buf*sizeof(double));
+    buf3 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (nao, blksize*nao)
+    buf4 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (blksize*nao, nao)
 
 #ifdef _CUDA_NVTX
     nvtxRangePushA("Realloc");
@@ -95,41 +95,41 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     if(d_buf2) pm->dev_free(d_buf2);
     if(d_buf3) pm->dev_free(d_buf3);
     
-    d_buf1 = (double *) pm->dev_malloc(size_buf * sizeof(double));
-    d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
-    d_buf3 = (double *) pm->dev_malloc(size_buf * sizeof(double));
+    d_buf1 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    d_buf2 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    d_buf3 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
 
 #ifdef _CUDA_NVTX
     nvtxRangePop();
 #endif
   }
 
-  int _size_fdrv = nao * nao * num_threads;
-  if(_size_fdrv > size_fdrv) {
-    size_fdrv = _size_fdrv;
-    if(buf_fdrv) pm->dev_free_host(buf_fdrv);
-    buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
-  }
+  // int _size_fdrv = nao * nao * num_threads;
+  // if(_size_fdrv > size_fdrv) {
+  //   size_fdrv = _size_fdrv;
+  //   if(buf_fdrv) pm->dev_free_host(buf_fdrv);
+  //   buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
+  // }
 
   int _size_dms = nao * nao;
-  if(_size_dms > size_dms) {
-    size_dms = _size_dms;
+  if(_size_dms > size_dms_[device_id]) {
+    size_dms_[device_id] = _size_dms;
     if(d_dms) pm->dev_free(d_dms);
-    d_dms = (double *) pm->dev_malloc(size_dms * sizeof(double));
+    d_dms = (double *) pm->dev_malloc(_size_dms * sizeof(double));
   }
 
   int _size_dmtril = nset * nao_pair;
-  if(_size_dmtril > size_dmtril) {
-    size_dmtril = _size_dmtril;
+  if(_size_dmtril > size_dmtril_[device_id]) {
+    size_dmtril_[device_id] = _size_dmtril;
     if(d_dmtril) pm->dev_free(d_dmtril);
-    d_dmtril = (double *) pm->dev_malloc(size_dmtril * sizeof(double));
+    d_dmtril = (double *) pm->dev_malloc(_size_dmtril * sizeof(double));
   }
   
   int _size_eri1 = naux * nao_pair;
-  if(_size_eri1 > size_eri1) {
-    size_eri1 = _size_eri1;
+  if(_size_eri1 > size_eri1_[device_id]) {
+    size_eri1_[device_id] = _size_eri1;
     if(d_eri1) pm->dev_free(d_eri1);
-    d_eri1 = (double *) pm->dev_malloc(size_eri1 * sizeof(double));
+    d_eri1 = (double *) pm->dev_malloc(_size_eri1 * sizeof(double));
   }
 
 #ifdef _SIMPLE_TIMER
@@ -138,15 +138,15 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   int _size_tril_map = nao * nao;
   //  if(_size_tril_map > size_tril_map) {
-  if(_size_tril_map != size_tril_map) {
+  if(_size_tril_map != size_tril_map_[device_id]) {
     // nao can change between calls, so mapping needs to be updated...
     // I think there are only two mappings needed
     
-    size_tril_map = _size_tril_map;
+    size_tril_map_[device_id] = _size_tril_map;
     if(tril_map) pm->dev_free_host(tril_map);
     if(d_tril_map) pm->dev_free(d_tril_map);
-    tril_map = (int *) pm->dev_malloc_host(size_tril_map * sizeof(int));
-    d_tril_map = (int *) pm->dev_malloc(size_tril_map * sizeof(int));
+    tril_map = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
+    d_tril_map = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
 
     // optimize map later...
 
@@ -158,7 +158,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
       }
     
     //pm->dev_push_async(d_tril_map, tril_map, size_tril_map*sizeof(int), stream); // how did this work w/o stream creation?
-    pm->dev_push(d_tril_map, tril_map, size_tril_map*sizeof(int));
+    pm->dev_push(d_tril_map, tril_map, _size_tril_map*sizeof(int));
   }
   
 #ifdef _SIMPLE_TIMER
@@ -167,6 +167,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   t_array_jk[12] += t2 - t1;
 #endif
+
+  // 1-time initialization
   
   // Create cuda stream
   
@@ -176,7 +178,10 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     stream_ = (cudaStream_t*) pm->dev_malloc_host(num_devices * sizeof(cudaStream_t));
 
     //    for(int i=0; i<num_devices; ++i) stream_[i] = stream; // tempory
-    for(int i=0; i<num_devices; ++i) pm->dev_stream_create(stream_[i]);
+    for(int i=0; i<num_devices; ++i) {
+      pm->dev_set_device(i);
+      pm->dev_stream_create(stream_[i]);
+    }
   }
   
   // Create blas handle
@@ -187,13 +192,18 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
     cublasCreate(&handle);
     _CUDA_CHECK_ERRORS();
+    
     cublasSetStream(handle, stream);
     _CUDA_CHECK_ERRORS();
 
     handle_ = (cublasHandle_t*) pm->dev_malloc_host(num_devices * sizeof(cublasHandle_t));
+    
     for(int i=0; i<num_devices; ++i) {
+      pm->dev_set_device(i);
+      
       cublasCreate(&(handle_[i]));
       _CUDA_CHECK_ERRORS();
+      
       cublasSetStream(handle_[i], stream_[i]);
       _CUDA_CHECK_ERRORS();
     }
@@ -445,6 +455,7 @@ void Device::get_jk(int naux,
 #endif
 
   const int device_id = count % num_devices;
+  pm->dev_set_device(device_id);
     
   const int with_j = 1;
   
@@ -464,13 +475,13 @@ void Device::get_jk(int naux,
     d_eri = d_eri1;
   }
 
-  if(count == 0) pm->dev_push_async(d_dmtril, dmtril, nset * nao_pair * sizeof(double), stream_[device_id]);
+  if(count < num_devices) pm->dev_push_async(d_dmtril, dmtril, nset * nao_pair * sizeof(double), stream_[device_id]);
   
   int _size_rho = nset * naux;
-  if(_size_rho > size_rho) {
-    size_rho = _size_rho;
+  if(_size_rho > size_rho_[device_id]) {
+    size_rho_[device_id] = _size_rho;
     if(d_rho) pm->dev_free(d_rho);
-    d_rho = (double *) pm->dev_malloc(size_rho * sizeof(double));
+    d_rho = (double *) pm->dev_malloc(_size_rho * sizeof(double));
   }
 
 #if 0
@@ -980,6 +991,7 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   double * vk_bj = static_cast<double*>(info_vk_bj.ptr);
 
   const int device_id = 0; //count % num_devices;
+  pm->dev_set_device(device_id);
   
   int nvirt = nmo - ncore;
 
@@ -997,23 +1009,23 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   // this buf realloc needs to be consistent with that in init_get_jk()
   
   int _size_buf = naux * nmo * nocc;
-  if(_size_buf > size_buf) {
-    size_buf = _size_buf;
+  if(_size_buf > size_buf_[device_id]) {
+    size_buf_[device_id] = _size_buf;
     if(buf_tmp) pm->dev_free_host(buf_tmp);
     if(buf3) pm->dev_free_host(buf3);
     if(buf4) pm->dev_free_host(buf4);
     
-    buf_tmp = (double*) pm->dev_malloc_host(2*size_buf*sizeof(double));
-    buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double));
-    buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double));
+    buf_tmp = (double*) pm->dev_malloc_host(2*_size_buf*sizeof(double));
+    buf3 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double));
+    buf4 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double));
 
     if(d_buf1) pm->dev_free(d_buf1);
     if(d_buf2) pm->dev_free(d_buf2);
     if(d_buf3) pm->dev_free(d_buf3);
     
-    d_buf1 = (double *) pm->dev_malloc(size_buf * sizeof(double));
-    d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
-    d_buf3 = (double *) pm->dev_malloc(size_buf * sizeof(double));
+    d_buf1 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    d_buf2 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    d_buf3 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
   }
   
    int _size_vPpj = naux * nmo * nocc;

@@ -95,6 +95,15 @@ private:
   // get_jk
 
   int update_dfobj;
+
+  int * size_rho_;
+  int * size_vj_;
+  int * size_vk_;
+  int * size_buf_;
+  int * size_dms_;
+  int * size_dmtril_;
+  int * size_eri1_;
+  int * size_tril_map_;
   
   int size_rho;
   int size_vj;
