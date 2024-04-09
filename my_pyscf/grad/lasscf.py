@@ -251,8 +251,7 @@ class Gradients(casci_grad.Gradients):
 
     to_gpu = lib.to_gpu
 
-Grad = Gradients
+#Grad = Gradients
 
-from pyscf import mcscf
-mcscf.mc1step.CASSCF.Gradients = lib.class_as_method(Gradients)
-~                                                                                                                                             
+#from pyscf import mcscf
+#mcscf.mc1step.CASSCF.Gradients = lib.class_as_method(Gradients)                                                                                                                                             
