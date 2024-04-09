@@ -159,7 +159,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         lasci.LASCINoSymm.dump_flags (self, verbose=verbose, _method_name=_method_name)
     #SV
     def nuc_grad_method(self):
-        from pyscf.grad import lasscf
+        from mrh.my_pyscf.grad import lasscf
         return lasscf.Gradients(self)
 
     #SV
