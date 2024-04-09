@@ -224,22 +224,7 @@ class Gradients(casci_grad.Gradients):
             self.de = self.symmetrize(self.de, atmlst)
         self._finalize()
         return self.de
-    '''
-    #SV Added hcore_generator and grad_nuc
-    # Initialize hcore_deriv with the underlying SCF object because some
-    # extensions (e.g. x2c, QM/MM, solvent) modifies the SCF object only.
-    def hcore_generator(self, mol=None):
-        mf_grad = self.base._scf.nuc_grad_method()
-        return mf_grad.hcore_generator(mol)
-
-    # Calling the underlying SCF nuclear gradients because it may be modified
-    # by external modules (e.g. QM/MM, solvent)
-    def grad_nuc(self, mol=None, atmlst=None):
-        mf_grad = self.base._scf.nuc_grad_method()
-        return mf_grad.grad_nuc(mol, atmlst)
-
-    #SV addition ended
-    '''
+   
     def _finalize(self):
         if self.verbose >= logger.NOTE:
             logger.note(self, '--------------- %s gradients ---------------',
