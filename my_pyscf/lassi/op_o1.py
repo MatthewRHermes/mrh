@@ -393,6 +393,12 @@ class LSTDMint1 (object):
         for i in np.where (idx_uniq)[0]:
             ci_i = ci[i].reshape (lroots[i], -1)
             self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
+            errmat = self.ovlp[i][i] - np.eye (lroots[i])
+            if np.amax (np.abs (errmat)) > 1e-3:
+                w, v = np.linalg.eigh (self.ovlp[i][i])
+                errmsg = ('States w/in single Hilbert space must be orthonormal; '
+                          'eigvals (ovlp) = {}')
+                raise RuntimeError (errmsg.format (w))
 
         # Loop over lroots functions
         def des_loop (des_fn, c, nelec, p):
