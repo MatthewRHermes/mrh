@@ -175,11 +175,11 @@ def as_scanner(mcscf_grad):
         return mcscf_grad
 
     logger.info(mcscf_grad, 'Create scanner for %s', mcscf_grad.__class__)
-    name = mcscf_grad.__class__.__name__ + CASSCF_GradScanner.__name_mixin__
-    return lib.set_class(CASSCF_GradScanner(mcscf_grad),
-                         (CASSCF_GradScanner, mcscf_grad.__class__), name)
+    name = mcscf_grad.__class__.__name__ + LASSCF_GradScanner.__name_mixin__
+    return lib.set_class(LASSCF_GradScanner(mcscf_grad),
+                         (LASSCF_GradScanner, mcscf_grad.__class__), name)
 
-class CASSCF_GradScanner(lib.GradScanner):
+class LASSCF_GradScanner(lib.GradScanner):
     def __init__(self, g):
         lib.GradScanner.__init__(self, g)
 
