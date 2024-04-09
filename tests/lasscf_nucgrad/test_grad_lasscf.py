@@ -66,9 +66,7 @@ class KnownValues(unittest.TestCase):
         de_las = las_grad.kernel()
         de_cas = mc_grad.kernel()
 
-        [self.assertAlmostEqual(de_cas[i][j], de_las[i][j]) for i in range(2) for j in range(2)]
-
-
+        self.assertAlmostEqual (lib.fp (de_cas), lib.fp (de_las), 6)
 
     def test_grad_scanner(self):
         # Tests and Scanner capabilities
