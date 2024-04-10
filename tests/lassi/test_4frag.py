@@ -92,7 +92,10 @@ def setUpModule ():
                 idx = w > 0
                 w, v = w[idx], v[:,idx]
                 v /= np.sqrt (w)[None,:]
-                ci = np.dot (v.T, ci).reshape (lr, ndeta, ndetb)
+                x = np.dot (v.T, ci)
+                u = x.conj () @ ci.T
+                Q, R = linalg.qr (u)
+                ci = (Q.T @ x).reshape (lr, ndeta, ndetb)
             c[iroot] = ci
     rand_mat = np.random.rand (96,96)
     rand_mat += rand_mat.T
@@ -155,7 +158,7 @@ class KnownValues(unittest.TestCase):
             las0.ci[ifrag][0] = las0.ci[ifrag][0][0]
         lsi = LASSIS (las0).run ()
         self.assertTrue (lsi.converged)
-        self.assertAlmostEqual (lsi.e_roots[0], -304.54180590377297, 3)
+        self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI o1 4-fragment intermediates")
