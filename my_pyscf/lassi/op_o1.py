@@ -1,5 +1,6 @@
 import numpy as np
 from pyscf import lib, fci
+from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, contract_1e
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
@@ -392,6 +393,12 @@ class LSTDMint1 (object):
         for i in np.where (idx_uniq)[0]:
             ci_i = ci[i].reshape (lroots[i], -1)
             self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
+            errmat = self.ovlp[i][i] - np.eye (lroots[i])
+            if np.amax (np.abs (errmat)) > 1e-3:
+                w, v = np.linalg.eigh (self.ovlp[i][i])
+                errmsg = ('States w/in single Hilbert space must be orthonormal; '
+                          'eigvals (ovlp) = {}')
+                raise RuntimeError (errmsg.format (w))
 
         # Loop over lroots functions
         def des_loop (des_fn, c, nelec, p):
@@ -651,6 +658,14 @@ class LSTDMint2 (object):
         self.exc_1s = self.mask_exc_table (exc['1s'], mask_bra_space, mask_ket_space)
         self.exc_1s1c = self.mask_exc_table (exc['1s1c'], mask_bra_space, mask_ket_space)
         self.exc_2c = self.mask_exc_table (exc['2c'], mask_bra_space, mask_ket_space)
+        self.init_profiling ()
+
+    def init_profiling (self):
+        self.dt_null, self.dw_null = 0.0, 0.0
+        self.dt_1c, self.dw_1c = 0.0, 0.0
+        self.dt_1s, self.dw_1s = 0.0, 0.0
+        self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
+        self.dt_2c, self.dw_2c = 0.0, 0.0
 
     def make_exc_tables (self, hopping_index):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
@@ -812,6 +827,7 @@ class LSTDMint2 (object):
         '''Compute the reduced density matrix elements between states bra and ket which have the
         the same spin-up and spin-down electron numbers on all fragments (For instance, bra=ket)
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d1 = self._get_D1_(bra, ket)
         d2 = self._get_D2_(bra, ket)
         nlas = self.nlas
@@ -837,6 +853,8 @@ class LSTDMint2 (object):
                 d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
         self._put_D1_(bra, ket, d1)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
         '''Compute the reduced density matrix elements of a single electron hop; i.e.,
@@ -849,6 +867,7 @@ class LSTDMint2 (object):
 
         and conjugate transpose
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d1 = self._get_D1_(bra, ket)
         d2 = self._get_D2_(bra, ket)
         inti, intj = self.ints[i], self.ints[j]
@@ -893,6 +912,8 @@ class LSTDMint2 (object):
             _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
         self._put_D1_(bra, ket, d1)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
 
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
@@ -906,6 +927,7 @@ class LSTDMint2 (object):
 
         and conjugate transpose
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -916,6 +938,8 @@ class LSTDMint2 (object):
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
 
     def _crunch_1s1c_(self, bra, ket, i, j, k):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
@@ -929,6 +953,7 @@ class LSTDMint2 (object):
 
         and conjugate transpose
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -944,6 +969,8 @@ class LSTDMint2 (object):
         d2[1,p:q,t:u,t:u,r:s] = d2_ikkj
         d2[2,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
@@ -971,6 +998,7 @@ class LSTDMint2 (object):
         s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
         s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
         s2  = (0, 1, 3)[s2lt] # aa, ab, bb
@@ -1012,6 +1040,8 @@ class LSTDMint2 (object):
             d2[s2,p:q,v:w,t:u,r:s] = -d2_ijkl.transpose (0,3,2,1)
             d2[s2,t:u,r:s,p:q,v:w] = -d2_ijkl.transpose (2,1,0,3)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
 
     def _loop_lroots_(self, _crunch_fn, *row):
         bra0, bra1 = self.offs_lroots[row[0]]
@@ -1048,10 +1078,20 @@ class LSTDMint2 (object):
                 timestamp of entry into this function, for profiling by caller
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
         self.tdm1s = np.zeros ([self.nstates,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
         self.tdm2s = np.zeros ([self.nstates,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
         self._crunch_all_()
         return self.tdm1s, self.tdm2s, t0
+
+    def sprint_profile (self):
+        fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
+        profile = fmt_str.format ('null', self.dt_null, self.dw_null)
+        profile += '\n' + fmt_str.format ('1c', self.dt_1c, self.dw_1c)
+        profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
+        profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
+        profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
+        return profile
 
 class HamS2ovlpint (LSTDMint2):
     __doc__ = LSTDMint2.__doc__ + '''
@@ -1114,6 +1154,7 @@ class HamS2ovlpint (LSTDMint2):
                 timestamp of entry into this function, for profiling by caller
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
         self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
         self.ham = np.zeros ([self.nstates,]*2, dtype=self.dtype)
@@ -1192,6 +1233,7 @@ class LRRDMint (LSTDMint2):
                 timestamp of entry into this function, for profiling by caller
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
         self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
         self.rdm1s = np.zeros ([self.nroots_si,] + list (self.d1.shape), dtype=self.dtype)
@@ -1334,6 +1376,7 @@ class ContractHamCI (LSTDMint2):
             hci_fr_pabq : list of length nfrags of list of length nroots of ndarray
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
         for hci_r_pabq in self.hci_fr_pabq:
             for hci_pabq in hci_r_pabq:
                 hci_pabq[:,:,:,:] = 0.0
@@ -1405,6 +1448,8 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)        
     tdm1s, tdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
+    if las.verbose >= lib.logger.TIMER_LEVEL:
+        lib.logger.info (las, 'LAS-state TDM12s crunching profile:\n%s', outerprod.sprint_profile ())
 
     # Put tdm1s in PySCF convention: [p,q] -> q'p
     nstates = np.sum (np.prod (lroots, axis=0))
@@ -1446,6 +1491,8 @@ def ham (las, h1, h2, ci, nelec_frs, **kwargs):
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)        
     ham, s2, ovlp, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)        
+    if las.verbose >= lib.logger.TIMER_LEVEL:
+        lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
     return ham, s2, ovlp
 
 
@@ -1481,6 +1528,8 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
     rdm1s, rdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
+    if las.verbose >= lib.logger.TIMER_LEVEL:
+        lib.logger.info (las, 'LASSI root RDM12s crunching profile:\n%s', outerprod.sprint_profile ())
 
     # Put rdm1s in PySCF convention: [p,q] -> q'p
     rdm1s = rdm1s.transpose (0,1,3,2)
@@ -1537,8 +1586,8 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     contracter = ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2, nbra=nbra,
                                 dtype=ci[0][0].dtype)
-    lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
+    lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate indexing setup', *t0)        
     hket_fr_pabq, t0 = contracter.kernel ()
-    lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
+    lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
 
     return hket_fr_pabq

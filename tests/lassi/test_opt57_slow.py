@@ -108,7 +108,15 @@ def setUpModule ():
             ndet_s = ndet_frs[ifrag,iroot]
             ci = np.random.rand (lroots_r, ndet_s[0], ndet_s[1])
             ci /= linalg.norm (ci.reshape (lroots_r,-1), axis=1)[:,None,None]
-            if lroots_r==1: ci=ci[0]
+            if lroots_r==1:
+                ci=ci[0]
+            else:
+                ci = ci.reshape (lroots_r,-1)
+                w, v = linalg.eigh (ci.conj () @ ci.T)
+                idx = w > 0
+                w, v = w[idx], v[:,idx]
+                v /= np.sqrt (w)[None,:]
+                ci = np.dot (v.T, ci).reshape (lroots_r, ndet_s[0], ndet_s[1])
             las.ci[ifrag][iroot] = ci
     orbsym = getattr (las.mo_coeff, 'orbsym', None)
     if orbsym is None and callable (getattr (las, 'label_symmetry_', None)):
