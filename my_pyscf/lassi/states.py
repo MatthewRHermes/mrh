@@ -4,13 +4,15 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci import cistring
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
-from pyscf import symm
+from pyscf import symm, __config__
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 import itertools
+
+LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
 class SingleLASRootspace (object):
     def __init__(self, las, spins, smults, charges, weight, nlas=None, nelelas=None, stdout=None,
@@ -255,6 +257,7 @@ class SingleLASRootspace (object):
         return [ci_sz[ifrag][self.spins[ifrag]] for ifrag in range (self.nfrag)]
 
     def excited_fragments (self, other):
+        if other is None: return np.ones (self.nfrag, dtype=bool)
         dneleca = self.neleca - other.neleca
         dnelecb = self.nelecb - other.nelecb
         dsmults = self.smults - other.smults
@@ -338,6 +341,51 @@ class SingleLASRootspace (object):
         return ImpureProductStateFCISolver (fcisolvers, stdout=self.stdout, lweights=lweights, 
                                             verbose=self.verbose)
 
+    def merge_(self, other, ref=None, lindep_thresh=LINDEP_THRESH):
+        idx = self.excited_fragments (ref)
+        ndet = self.get_ndet ()
+        for ifrag in np.where (idx)[0]:
+            self.ci[ifrag] = np.append (
+                np.asarray (self.ci[ifrag]).reshape (-1, ndet[ifrag][0], ndet[ifrag][1]),
+                np.asarray (other.ci[ifrag]).reshape (-1, ndet[ifrag][0], ndet[ifrag][1]),
+                axis=0
+            )
+            ovlp = np.tensordot (self.ci[ifrag].conj (), self.ci[ifrag],
+                                 axes=((1,2),(1,2)))
+            if linalg.det (ovlp) < LINDEP_THRESH:
+                evals, evecs = linalg.eigh (ovlp)
+                idx = evals>LINDEP_THRESH
+                evals, evecs = evals[idx], evecs[:,idx]
+                evecs /= np.sqrt (evals)[None,:]
+                self.ci[ifrag] = np.tensordot (evecs.T, self.ci[ifrag], axes=1)
+
+def orthogonal_excitations (exc1, exc2, ref):
+    if exc1.nfrag != ref.nfrag: return False
+    if exc2.nfrag != ref.nfrag: return False
+    idx1 = exc1.excited_fragments (ref)
+    if not np.count_nonzero (idx1): return False
+    idx2 = exc2.excited_fragments (ref)
+    if not np.count_nonzero (idx2): return False
+    if np.count_nonzero (idx1 & idx2): return False
+    return True
+
+def combine_orthogonal_excitations (exc1, exc2, ref):
+    nfrag = ref.nfrag
+    spins = exc1.spins.copy ()
+    smults = exc1.smults.copy ()
+    charges = exc1.charges.copy ()
+    idx2 = exc2.excited_fragments (ref)
+    spins[idx2] = exc2.spins[idx2]
+    smults[idx2] = exc2.smults[idx2]
+    charges[idx2] = exc2.charges[idx2]
+    ci = None
+    if exc1.has_ci () and exc2.has_ci ():
+        ci = [exc2.ci[ifrag] if idx2[ifrag] else exc1.ci[ifrag] for ifrag in range (nfrag)]
+    product = SingleLASRootspace (
+        ref.las, spins, smults, charges, 0, ci=ci,
+        nlas=ref.nlas, nelelas=ref.nelelas, stdout=ref.stdout, verbose=ref.verbose
+    )
+    return product
 
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment

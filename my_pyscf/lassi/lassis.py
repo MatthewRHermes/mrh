@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+import itertools
 from scipy import linalg
 from pyscf import lib, gto
 from pyscf.lib import logger
@@ -12,6 +13,7 @@ from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
 from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
 from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
 from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
+from mrh.my_pyscf.lassi.states import orthogonal_excitations, combine_orthogonal_excitations
 from mrh.my_pyscf.lassi.lassi import LASSI
 
 # TODO: split prepare_states into three steps
@@ -61,7 +63,7 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
     else:
         converged, las2 = las1.converged, las1
     if lsi.nfrags > 3:
-        las2 = charge_excitation_products (las2, las1)
+        las2 = charge_excitation_products (lsi, las2, las1)
     # 4. Spin excitations part 2
     if nspin:
         las3 = spin_flip_products (las2, spin_flips, nroots_ref=nroots_ref)
@@ -332,9 +334,43 @@ def spin_flip_products (las2, spin_flips, nroots_ref=1):
         space.table_printlog ()
     return las3
 
-def charge_excitation_products (las2, las1):
-    # TODO: direct product of single-electron hops
-    raise NotImplementedError (">3-frag LASSIS")
+def charge_excitation_products (lsi, las2, las1):
+    t0 = (logger.process_clock (), logger.perf_counter ())
+    log = logger.new_logger (lsi, lsi.verbose)
+    mol = lsi.mol
+    nfrags = lsi.nfrags
+    spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in las2.ci])
+              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
+    space0 = spaces[0]
+    i0, j0 = i, j = las1.nroots, las2.nroots
+    space1 = spaces[i:j]
+    for _ in range (1, nfrags//2):
+        seen = set ()
+        for ip,iq in itertools.product (range (i,j), range (i0,j0)):
+            if ip <= iq: continue
+            p, q = spaces[ip], spaces[iq]
+            if not orthogonal_excitations (p, q, space0): continue
+            r = combine_orthogonal_excitations (p, q, space0)
+            if r in seen:
+                s = spaces[spaces.index (r)]
+                s.merge_(r, ref=space0)
+                continue
+            ir = len (spaces)
+            spaces.append (r)
+            seen.add (r)
+        i, j = j, len (spaces)
+        for ir in range (i, j):
+            log.info ("Electron hop product %d space %d:", _+1, ir)
+            spaces[ir].table_printlog ()
+    weights = [space.weight for space in spaces]
+    charges = [space.charges for space in spaces]
+    spins = [space.spins for space in spaces]
+    smults = [space.smults for space in spaces]
+    ci3 = [[space.ci[ifrag] for space in spaces] for ifrag in range (nfrags)]
+    las3 = las2.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
+    las3.ci = ci3
+    log.timer ("LASSIS charge-hop product generation", *t0)
+    return las3
 
 def as_scanner(lsi):
     '''Generating a scanner for LASSIS PES.
@@ -415,16 +451,26 @@ class LASSIS (LASSI):
 
     def kernel (self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
                 crash_locmin=None, **kwargs):
+        t0 = (logger.process_clock (), logger.perf_counter ())
+        log = logger.new_logger (self, self.verbose)
+        self.converged = self.prepare_states_(ncharge=ncharge, nspin=nspin,
+                                              sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
+                                              crash_locmin=crash_locmin)
+        self.e_roots, self.si = self.eig (**kwargs)
+        log.timer ("LASSIS", *t0)
+        return self.e_roots, self.si
+
+    def prepare_states_(self, ncharge=None, nspin=None, sa_heff=None, deactivate_vrv=None,
+                        crash_locmin=None, **kwargs):
         if ncharge is None: ncharge = self.ncharge
         if nspin is None: nspin = self.nspin
         if sa_heff is None: sa_heff = self.sa_heff
         if deactivate_vrv is None: deactivate_vrv = self.deactivate_vrv
         if crash_locmin is None: crash_locmin = self.crash_locmin
-        t0 = (logger.process_clock (), logger.perf_counter ())
         log = logger.new_logger (self, self.verbose)
-        self.converged, las = prepare_states (self, ncharge=ncharge, nspin=nspin,
-                                              sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
-                                              crash_locmin=crash_locmin)
+        self.converged, las = self.prepare_states (ncharge=ncharge, nspin=nspin,
+                                                   sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
+                                                   crash_locmin=crash_locmin)
         #self.__dict__.update(las.__dict__) # Unsafe
         self.fciboxes = las.fciboxes
         self.ci = las.ci
@@ -432,9 +478,11 @@ class LASSIS (LASSI):
         self.weights = las.weights
         self.e_lexc = las.e_lexc
         self.e_states = las.e_states
-        self.e_roots, self.si = LASSI.kernel (self, **kwargs)
-        log.timer ("LASSIS", *t0)
-        return self.e_roots, self.si
+        log.info ('LASSIS model state summary: %d rootspaces; %d model states; converged? %s',
+                  self.nroots, self.get_lroots ().prod (0).sum (), str (self.converged))
+        return self.converged
 
+    eig = LASSI.kernel
     as_scanner = as_scanner
+    prepare_states = prepare_states
 

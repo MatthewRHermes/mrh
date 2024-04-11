@@ -1,5 +1,6 @@
 import numpy as np
 from pyscf import lib, fci
+from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, contract_1e
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
@@ -227,8 +228,8 @@ class LSTDMint1 (object):
         self.idx_frag = idx_frag
 
         # Consistent array shape
-        self.ndeta_r = [cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r]
-        self.ndetb_r = [cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r]
+        self.ndeta_r = np.array ([cistring.num_strings (norb, nelec[0]) for nelec in self.nelec_r])
+        self.ndetb_r = np.array ([cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r])
         self.ci = [c.reshape (-1,na,nb) for c, na, nb in zip (self.ci, self.ndeta_r, self.ndetb_r)]
 
         self.time_crunch = self._init_crunch_()
@@ -241,7 +242,7 @@ class LSTDMint1 (object):
         else: raise RuntimeError (str (len (args)))
 
     def try_get_dm (self, tab, i, j):
-        ir, jr = self.rootaddr[i], self.rootaddr[j]
+        ir, jr = self.unique_root[self.rootaddr[i]], self.unique_root[self.rootaddr[j]]
         try:
             assert (tab[ir][jr] is not None)
             ip, jp = self.fragaddr[i], self.fragaddr[j]
@@ -252,7 +253,7 @@ class LSTDMint1 (object):
             raise RuntimeError (errstr)
 
     def try_get_tdm (self, tab, s, i, j):
-        ir, jr = self.rootaddr[i], self.rootaddr[j]
+        ir, jr = self.unique_root[self.rootaddr[i]], self.unique_root[self.rootaddr[j]]
         try:
             assert (tab[s][ir][jr] is not None)
             ip, jp = self.fragaddr[i], self.fragaddr[j]
@@ -320,7 +321,7 @@ class LSTDMint1 (object):
     # 1-density intermediate
 
     def get_dm1 (self, i, j):
-        if j > i:
+        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
             return self.try_get (self.dm1, j, i).conj ().transpose (0, 2, 1)
         return self.try_get (self.dm1, i, j)
 
@@ -333,7 +334,7 @@ class LSTDMint1 (object):
     # 2-density intermediate
 
     def get_dm2 (self, i, j):
-        if j > i:
+        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
             return self.try_get (self.dm2, j, i).conj ().transpose (0, 2, 1, 4, 3)
         return self.try_get (self.dm2, i, j)
 
@@ -362,17 +363,42 @@ class LSTDMint1 (object):
 
         lroots = [c.shape[0] for c in ci]
 
+        # index down to only the unique rootspaces
+        self.root_unique = np.ones (self.nroots, dtype=bool)
+        self.unique_root = np.arange (self.nroots, dtype=int)
+        for i, j in combinations (range (self.nroots), 2):
+            if not self.root_unique[i]: continue
+            if not self.root_unique[j]: continue
+            if self.nelec_r[i] != self.nelec_r[j]: continue
+            if ci[i].shape != ci[j].shape: continue
+            if np.all (ci[i] == ci[j]):
+                self.root_unique[j] = False
+                self.unique_root[j] = i
+                self.onep_index[i] |= self.onep_index[j]
+                self.onep_index[:,i] |= self.onep_index[:,j]
+                self.zerop_index[i] |= self.zerop_index[j]
+                self.zerop_index[:,i] |= self.zerop_index[:,j]
+        for i in range (self.nroots):
+            assert (self.root_unique[self.unique_root[i]])
+        idx_uniq = self.root_unique
+
         # Overlap matrix
         offs = np.cumsum (lroots)
-        for i, j in combinations (range (self.nroots), 2):
+        for i, j in combinations (np.where (idx_uniq)[0], 2):
             if self.nelec_r[i] == self.nelec_r[j]:
                 ci_i = ci[i].reshape (lroots[i], -1)
                 ci_j = ci[j].reshape (lroots[j], -1)
                 self.ovlp[i][j] = np.dot (ci_i.conj (), ci_j.T)
                 self.ovlp[j][i] = self.ovlp[i][j].conj ().T
-        for i in range (self.nroots):
+        for i in np.where (idx_uniq)[0]:
             ci_i = ci[i].reshape (lroots[i], -1)
             self.ovlp[i][i] = np.dot (ci_i.conj (), ci_i.T)
+            errmat = self.ovlp[i][i] - np.eye (lroots[i])
+            if np.amax (np.abs (errmat)) > 1e-3:
+                w, v = np.linalg.eigh (self.ovlp[i][i])
+                errmsg = ('States w/in single Hilbert space must be orthonormal; '
+                          'eigvals (ovlp) = {}')
+                raise RuntimeError (errmsg.format (w))
 
         # Loop over lroots functions
         def des_loop (des_fn, c, nelec, p):
@@ -400,7 +426,9 @@ class LSTDMint1 (object):
 
         # Spectator fragment contribution
         spectator_index = np.all (hopping_index == 0, axis=0)
-        spectator_index[np.triu_indices (self.nroots, k=1)] = False
+        spectator_index[~idx_uniq,:] = False
+        spectator_index[:,~idx_uniq] = False
+        spectator_index[np.triu_indices (nroots, k=1)] = False
         spectator_index = np.stack (np.where (spectator_index), axis=1)
         for i, j in spectator_index:
             dm1s, dm2s = trans_rdm12s_loop (j, ci[i], ci[j])
@@ -409,8 +437,8 @@ class LSTDMint1 (object):
 
         # Cache some b_p|i> beforehand for the sake of the spin-flip intermediate 
         # shape = (norb, lroots[ket], ndeta[ket], ndetb[*])
-        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0))[0]
-        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0))[0]
+        hidx_ket_a = np.where (np.any (hopping_index[0] < 0, axis=0) & idx_uniq)[0]
+        hidx_ket_b = np.where (np.any (hopping_index[1] < 0, axis=0) & idx_uniq)[0]
         bpvec_list = [None for ket in range (nroots)]
         for ket in hidx_ket_b:
             if np.any (np.all (hopping_index[:,:,ket] == np.array ([1,-1])[:,None], axis=0)):
@@ -422,7 +450,7 @@ class LSTDMint1 (object):
             nelec = self.nelec_r[ket]
             apket = np.stack ([des_a_loop (ci[ket], nelec, p) for p in range (norb)], axis=0)
             nelec = (nelec[0]-1, nelec[1])
-            for bra in np.where (hopping_index[0,:,ket] < 0)[0]:
+            for bra in np.where ((hopping_index[0,:,ket] < 0) & idx_uniq)[0]:
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|a_p|i>
                 if np.all (hopping_index[:,bra,ket] == [-1,0]):
@@ -468,7 +496,7 @@ class LSTDMint1 (object):
             bpket = np.stack ([des_b_loop (ci[ket], nelec, p)
                 for p in range (norb)], axis=0) if bpvec_list[ket] is None else bpvec_list[ket]
             nelec = (nelec[0], nelec[1]-1)
-            for bra in np.where (hopping_index[1,:,ket] < 0)[0]:
+            for bra in np.where ((hopping_index[1,:,ket] < 0) & idx_uniq)[0]:
                 bravec = ci[bra].reshape (lroots[bra], ndeta[bra]*ndetb[bra]).conj ()
                 # <j|b_p|i>
                 if np.all (hopping_index[:,bra,ket] == [0,-1]):
@@ -630,6 +658,14 @@ class LSTDMint2 (object):
         self.exc_1s = self.mask_exc_table (exc['1s'], mask_bra_space, mask_ket_space)
         self.exc_1s1c = self.mask_exc_table (exc['1s1c'], mask_bra_space, mask_ket_space)
         self.exc_2c = self.mask_exc_table (exc['2c'], mask_bra_space, mask_ket_space)
+        self.init_profiling ()
+
+    def init_profiling (self):
+        self.dt_null, self.dw_null = 0.0, 0.0
+        self.dt_1c, self.dw_1c = 0.0, 0.0
+        self.dt_1s, self.dw_1s = 0.0, 0.0
+        self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
+        self.dt_2c, self.dw_2c = 0.0, 0.0
 
     def make_exc_tables (self, hopping_index):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
@@ -791,6 +827,7 @@ class LSTDMint2 (object):
         '''Compute the reduced density matrix elements between states bra and ket which have the
         the same spin-up and spin-down electron numbers on all fragments (For instance, bra=ket)
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d1 = self._get_D1_(bra, ket)
         d2 = self._get_D2_(bra, ket)
         nlas = self.nlas
@@ -816,6 +853,8 @@ class LSTDMint2 (object):
                 d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
         self._put_D1_(bra, ket, d1)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
         '''Compute the reduced density matrix elements of a single electron hop; i.e.,
@@ -828,6 +867,7 @@ class LSTDMint2 (object):
 
         and conjugate transpose
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d1 = self._get_D1_(bra, ket)
         d2 = self._get_D2_(bra, ket)
         inti, intj = self.ints[i], self.ints[j]
@@ -872,6 +912,8 @@ class LSTDMint2 (object):
             _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
         self._put_D1_(bra, ket, d1)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
 
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
@@ -885,6 +927,7 @@ class LSTDMint2 (object):
 
         and conjugate transpose
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -895,6 +938,8 @@ class LSTDMint2 (object):
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
 
     def _crunch_1s1c_(self, bra, ket, i, j, k):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
@@ -908,6 +953,7 @@ class LSTDMint2 (object):
 
         and conjugate transpose
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -923,6 +969,8 @@ class LSTDMint2 (object):
         d2[1,p:q,t:u,t:u,r:s] = d2_ikkj
         d2[2,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
@@ -950,6 +998,7 @@ class LSTDMint2 (object):
         s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
         s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
         s2  = (0, 1, 3)[s2lt] # aa, ab, bb
@@ -991,6 +1040,8 @@ class LSTDMint2 (object):
             d2[s2,p:q,v:w,t:u,r:s] = -d2_ijkl.transpose (0,3,2,1)
             d2[s2,t:u,r:s,p:q,v:w] = -d2_ijkl.transpose (2,1,0,3)
         self._put_D2_(bra, ket, d2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
 
     def _loop_lroots_(self, _crunch_fn, *row):
         bra0, bra1 = self.offs_lroots[row[0]]
@@ -1027,10 +1078,20 @@ class LSTDMint2 (object):
                 timestamp of entry into this function, for profiling by caller
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
         self.tdm1s = np.zeros ([self.nstates,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
         self.tdm2s = np.zeros ([self.nstates,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
         self._crunch_all_()
         return self.tdm1s, self.tdm2s, t0
+
+    def sprint_profile (self):
+        fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
+        profile = fmt_str.format ('null', self.dt_null, self.dw_null)
+        profile += '\n' + fmt_str.format ('1c', self.dt_1c, self.dw_1c)
+        profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
+        profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
+        profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
+        return profile
 
 class HamS2ovlpint (LSTDMint2):
     __doc__ = LSTDMint2.__doc__ + '''
@@ -1093,6 +1154,7 @@ class HamS2ovlpint (LSTDMint2):
                 timestamp of entry into this function, for profiling by caller
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
         self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
         self.ham = np.zeros ([self.nstates,]*2, dtype=self.dtype)
@@ -1100,9 +1162,12 @@ class HamS2ovlpint (LSTDMint2):
         self._crunch_all_()
         ovlp = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         def crunch_ovlp (bra_sp, ket_sp):
-            o = self.ints[-1].ovlp[bra_sp][ket_sp]
+            i = self.ints[-1]
+            b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
+            o = i.ovlp[b][k]
             for i in self.ints[-2::-1]:
-                o = np.multiply.outer (o, i.ovlp[bra_sp][ket_sp]).transpose (0,2,1,3)
+                b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
+                o = np.multiply.outer (o, i.ovlp[b][k]).transpose (0,2,1,3)
                 o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
             o *= self.spin_shuffle[bra_sp]
             o *= self.spin_shuffle[ket_sp]
@@ -1168,6 +1233,7 @@ class LRRDMint (LSTDMint2):
                 timestamp of entry into this function, for profiling by caller
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
         self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
         self.rdm1s = np.zeros ([self.nroots_si,] + list (self.d1.shape), dtype=self.dtype)
@@ -1310,6 +1376,7 @@ class ContractHamCI (LSTDMint2):
             hci_fr_pabq : list of length nfrags of list of length nroots of ndarray
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
         for hci_r_pabq in self.hci_fr_pabq:
             for hci_pabq in hci_r_pabq:
                 hci_pabq[:,:,:,:] = 0.0
@@ -1347,6 +1414,7 @@ def make_ints (las, ci, nelec_frs):
                             nroots, nelec_frs[ifrag], rootaddr, fragaddr[ifrag], ifrag)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
+        lib.logger.info (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag, np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
     return hopping_index, ints, lroots
 
@@ -1380,6 +1448,8 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)        
     tdm1s, tdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
+    if las.verbose >= lib.logger.TIMER_LEVEL:
+        lib.logger.info (las, 'LAS-state TDM12s crunching profile:\n%s', outerprod.sprint_profile ())
 
     # Put tdm1s in PySCF convention: [p,q] -> q'p
     nstates = np.sum (np.prod (lroots, axis=0))
@@ -1421,6 +1491,8 @@ def ham (las, h1, h2, ci, nelec_frs, **kwargs):
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)        
     ham, s2, ovlp, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)        
+    if las.verbose >= lib.logger.TIMER_LEVEL:
+        lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
     return ham, s2, ovlp
 
 
@@ -1456,6 +1528,8 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
     rdm1s, rdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
+    if las.verbose >= lib.logger.TIMER_LEVEL:
+        lib.logger.info (las, 'LASSI root RDM12s crunching profile:\n%s', outerprod.sprint_profile ())
 
     # Put rdm1s in PySCF convention: [p,q] -> q'p
     rdm1s = rdm1s.transpose (0,1,3,2)
@@ -1512,8 +1586,8 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     contracter = ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2, nbra=nbra,
                                 dtype=ci[0][0].dtype)
-    lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
+    lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate indexing setup', *t0)        
     hket_fr_pabq, t0 = contracter.kernel ()
-    lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
+    lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
 
     return hket_fr_pabq
