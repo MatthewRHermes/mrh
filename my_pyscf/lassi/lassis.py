@@ -111,7 +111,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         if auto_singles:
             lr = spaces[i].compute_single_excitation_lroots (psref)
             lroots[:,i][excfrags] = np.minimum (lroots[:,i][excfrags], lr)
-            lroots[:,i][~excfrags] = 1
+        lroots[:,i][~excfrags] = 1
         # logging after setup
         log.info ("Electron hop space %d:", i)
         spaces[i].table_printlog (lroots=lroots[:,i])
