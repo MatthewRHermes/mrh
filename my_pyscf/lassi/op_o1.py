@@ -828,33 +828,43 @@ class LSTDMint2 (object):
         the same spin-up and spin-down electron numbers on all fragments (For instance, bra=ket)
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        d1 = self._get_D1_(bra, ket)
-        d2 = self._get_D2_(bra, ket)
-        nlas = self.nlas
         for i, inti in enumerate (self.ints):
-            p = sum (nlas[:i])
-            q = p + nlas[i]
-            d1_s_ii = inti.get_dm1 (bra, ket)
-            fac = self.get_ovlp_fac (bra, ket, i)
-            d1[:,p:q,p:q] = fac * np.asarray (d1_s_ii)
-            d2[:,p:q,p:q,p:q,p:q] = fac * np.asarray (inti.get_dm2 (bra, ket))
+            self._crunch_1d_(bra, ket, i)
             for j, intj in enumerate (self.ints[:i]):
                 assert (i>j)
-                r = sum (nlas[:j])
-                s = r + nlas[j]
-                d1_s_jj = intj.get_dm1 (bra, ket)
-                d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,1,2,4,5)
-                d2_s_iijj = d2_s_iijj.reshape (4, q-p, q-p, s-r, s-r)
-                d2_s_iijj *= self.get_ovlp_fac (bra, ket, i, j)
-                d2[:,p:q,p:q,r:s,r:s] = d2_s_iijj
-                d2[(0,3),r:s,r:s,p:q,p:q] = d2_s_iijj[(0,3),...].transpose (0,3,4,1,2)
-                d2[(1,2),r:s,r:s,p:q,p:q] = d2_s_iijj[(2,1),...].transpose (0,3,4,1,2)
-                d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
-                d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
-        self._put_D1_(bra, ket, d1)
-        self._put_D2_(bra, ket, d2)
+                self._crunch_2d_(bra, ket, i, j)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
+
+    def _crunch_1d_(self, bra, ket, i):
+        d1 = self._get_D1_(bra, ket)
+        d2 = self._get_D2_(bra, ket)
+        p, q = self.get_range (i)
+        inti = self.ints[i]
+        d1_s_ii = inti.get_dm1 (bra, ket)
+        fac = self.get_ovlp_fac (bra, ket, i)
+        d1[:,p:q,p:q] = fac * np.asarray (d1_s_ii)
+        d2[:,p:q,p:q,p:q,p:q] = fac * np.asarray (inti.get_dm2 (bra, ket))
+        self._put_D1_(bra, ket, d1)
+        self._put_D2_(bra, ket, d2)
+
+    def _crunch_2d_(self, bra, ket, i, j):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        d2 = self._get_D2_(bra, ket)
+        inti, intj = self.ints[i], self.ints[j]
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        d1_s_ii = inti.get_dm1 (bra, ket)
+        d1_s_jj = intj.get_dm1 (bra, ket)
+        d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,1,2,4,5)
+        d2_s_iijj = d2_s_iijj.reshape (4, q-p, q-p, s-r, s-r)
+        d2_s_iijj *= self.get_ovlp_fac (bra, ket, i, j)
+        d2[:,p:q,p:q,r:s,r:s] = d2_s_iijj
+        d2[(0,3),r:s,r:s,p:q,p:q] = d2_s_iijj[(0,3),...].transpose (0,3,4,1,2)
+        d2[(1,2),r:s,r:s,p:q,p:q] = d2_s_iijj[(2,1),...].transpose (0,3,4,1,2)
+        d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
+        d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
+        self._put_D2_(bra, ket, d2)
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
         '''Compute the reduced density matrix elements of a single electron hop; i.e.,
@@ -900,20 +910,44 @@ class LSTDMint2 (object):
         d2_ijjj = fac * np.multiply.outer (self.ints[i].get_p (bra,ket,s1),
                                            self.ints[j].get_phh (bra,ket,s1)).transpose (1,0,4,2,3)
         _crunch_1c_tdm2 (d2_ijjj, p, q, r, s, r, s)
+        self._put_D1_(bra, ket, d1)
+        self._put_D2_(bra, ket, d2)
         # spectator fragment mean-field (should automatically be in Mulliken order)
         for k in range (self.nfrags):
             if k in (i, j): continue
-            fac = self.get_ovlp_fac (bra, ket, i, j, k)
-            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
-            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
-            t, u = self.get_range (k)
-            d1_skk = self.ints[k].get_dm1 (bra, ket)
-            d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
-            _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
-        self._put_D1_(bra, ket, d1)
-        self._put_D2_(bra, ket, d2)
+            self._crunch_1c1d_(bra, ket, i, j, k, s1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
+
+    def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
+        d2 = self._get_D2_(bra, ket)
+        inti, intj, intk = self.ints[i], self.ints[j], self.ints[k]
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        t, u = self.get_range (k)
+        fac = self.get_ovlp_fac (bra, ket, i, j, k)
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
+        s12l = s1 * 2   # aa: 0 OR ba: 2
+        s12h = s12l + 1 # ab: 1 OR bb: 3 
+        s21l = s1       # aa: 0 OR ab: 1
+        s21h = s21l + 2 # ba: 2 OR bb: 3
+        s1s1 = s1 * 3   # aa: 0 OR bb: 3
+        def _crunch_1c_tdm2 (d2_ijkk, i0, i1, j0, j1, k0, k1):
+            d2[(s12l,s12h), i0:i1, j0:j1, k0:k1, k0:k1] = d2_ijkk
+            d2[(s21l,s21h), k0:k1, k0:k1, i0:i1, j0:j1] = d2_ijkk.transpose (0,3,4,1,2)
+            d2[s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_ijkk[s1,...].transpose (0,3,2,1)
+            d2[s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_ijkk[s1,...].transpose (2,1,0,3)
+        d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1),
+                                   self.ints[j].get_h (bra, ket, s1))
+        d1_skk = self.ints[k].get_dm1 (bra, ket)
+        d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
+        _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
+        err = np.einsum ('pqqp->', d2[1] + d2[2]) / 2
+        assert (err == 0), '{} {} {} {} {}'.format (bra, ket, i, j, err)
+        self._put_D2_(bra, ket, d2)
 
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
