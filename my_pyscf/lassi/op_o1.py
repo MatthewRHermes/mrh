@@ -837,6 +837,7 @@ class LSTDMint2 (object):
         self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
 
     def _crunch_1d_(self, bra, ket, i):
+        '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
         d1 = self._get_D1_(bra, ket)
         d2 = self._get_D2_(bra, ket)
         p, q = self.get_range (i)
@@ -849,6 +850,7 @@ class LSTDMint2 (object):
         self._put_D2_(bra, ket, d2)
 
     def _crunch_2d_(self, bra, ket, i, j):
+        '''Compute a two-fragment density fluctuation.'''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         d2 = self._get_D2_(bra, ket)
         inti, intj = self.ints[i], self.ints[j]
@@ -920,6 +922,8 @@ class LSTDMint2 (object):
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
 
     def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
+        '''Compute the reduced density matrix elements of a coupled electron-hop and
+        density fluctuation.'''
         d2 = self._get_D2_(bra, ket)
         inti, intj, intk = self.ints[i], self.ints[j], self.ints[k]
         p, q = self.get_range (i)
@@ -1164,10 +1168,13 @@ class HamS2ovlpint (LSTDMint2):
         self.ham[bra,ket] += np.dot (self.h1.ravel (), D1.ravel ())
         M1 = D1[0] - D1[1]
         D1 = D1.sum (0)
-        self.s2[bra,ket] += (np.trace (M1)/2)**2 + np.trace (D1)/2
+        #self.s2[bra,ket] += (np.trace (M1)/2)**2 + np.trace (D1)/2
+        self.s2[bra,ket] += 3*np.trace (D1)/4
 
     def _put_D2_(self, bra, ket, D2):
         self.ham[bra,ket] += np.dot (self.h2.ravel (), D2.sum (0).ravel ()) / 2
+        M2 = np.einsum ('sppqq->s', D2) / 4
+        self.s2[bra,ket] += M2[0] + M2[3] - M2[1] - M2[2]
         self.s2[bra,ket] -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
 
     def _add_transpose_(self):
