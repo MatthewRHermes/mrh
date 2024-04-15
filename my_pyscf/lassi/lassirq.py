@@ -1,4 +1,5 @@
 import numpy as np
+from pyscf import lib,gto
 from pyscf.lib import logger
 from mrh.my_pyscf.lassi import LASSI
 from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
@@ -30,6 +31,54 @@ def make_lroots (lsi, las, q=None):
     ncsf = las.get_ugg ().ncsf_sub
     return np.minimum (ncsf, q)
 
+def as_scanner(lsi):
+    '''Generating a scanner for LASSIrq PES.
+    
+    The returned solver is a function. This function requires one argument
+    "mol" as input and returns total LASSIrq energy.
+
+    The solver will automatically use the results of last calculation as the
+    initial guess of the new calculation.  All parameters of LASSIrq object
+    are automatically applied in the solver.
+    
+    Note scanner has side effects.  It may change many underlying objects
+    (_scf, with_df, with_x2c, ...) during calculation.
+    ''' 
+    if isinstance(lsi, lib.SinglePointScanner):
+        return lsi
+        
+    logger.info(lsi, 'Create scanner for %s', lsi.__class__)
+    name = lsi.__class__.__name__ + LASSIrq_Scanner.__name_mixin__
+    return lib.set_class(LASSIrq_Scanner(lsi), (LASSIrq_Scanner, lsi.__class__), name)
+        
+class LASSIrq_Scanner(lib.SinglePointScanner):
+    def __init__(self, lsi, state=0):
+        self.__dict__.update(lsi.__dict__)
+        self._las = lsi._las.as_scanner()
+        self._scan_state = state
+
+    def __call__(self, mol_or_geom, **kwargs):
+        if isinstance(mol_or_geom, gto.MoleBase):
+            mol = mol_or_geom
+        else:
+            mol = self.mol.set_geom_(mol_or_geom, inplace=False)
+    
+        self.reset (mol)
+        for key in ('with_df', 'with_x2c', 'with_solvent', 'with_dftd3'):
+            sub_mod = getattr(self, key, None)
+            if sub_mod:
+                sub_mod.reset(mol)
+
+        las_scanner = self._las
+        las_scanner(mol)
+        self.mol = mol
+        self.mo_coeff = las_scanner.mo_coeff
+        e_tot = self.kernel()[0][self._scan_state]
+        if hasattr (e_tot, '__len__'):
+            e_tot = np.average (e_tot)
+        return e_tot
+
+
 class LASSIrq (LASSI):
     def __init__(self, las, r=0, q=1, opt=1, **kwargs):
         self.r = r
@@ -53,7 +102,7 @@ class LASSIrq (LASSI):
 
     make_lroots = make_lroots
     prepare_states = prepare_states
-
+    as_scanner=as_scanner
 class LASSIrqCT (LASSIrq):
     def make_lroots (self, las, q=None):
         lroots = LASSIrq.make_lroots (self, las, q=q)
