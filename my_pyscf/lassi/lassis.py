@@ -107,7 +107,7 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         if auto_singles:
             lr = spaces[i].compute_single_excitation_lroots (psref)
             lroots[:,i][excfrags] = np.minimum (lroots[:,i][excfrags], lr)
-            lroots[:,i][~excfrags] = 1
+        lroots[:,i][~excfrags] = 1
         nref_pure = len (psref)
         psref = _spin_flip_products (psref, spin_flips, nroots_ref=len(psref),
                                                frozen_frags=(~excfrags))
