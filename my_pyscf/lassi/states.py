@@ -231,7 +231,19 @@ class SingleLASRootspace (object):
         e_spin = 'a' if np.any (self.neleca!=other.neleca) else 'b'
         src_ds = 'u' if self.smults[src_frag]>other.smults[src_frag] else 'd'
         dest_ds = 'u' if self.smults[dest_frag]>other.smults[dest_frag] else 'd'
-        lroots_s = min (other.nelecu[src_frag], other.nholed[dest_frag])
+        s_src_can_increase = (
+            (other.nelecd[src_frag]>0)
+            and (other.nholeu[src_frag]>0)
+            and (self.smults[src_frag]>other.smults[src_frag])
+        )
+        s_dest_can_increase = (
+            (other.nelecd[dest_frag]>0)
+            and (other.nholeu[dest_frag]>0)
+            and (self.smults[dest_frag]>other.smults[dest_frag])
+        )
+        nelec_eff = other.nelecu[src_frag] + int (s_src_can_increase)
+        nhole_eff = other.nholed[dest_frag] + int (s_dest_can_increase)
+        lroots_s = min (nelec_eff, nhole_eff)
         return src_frag, dest_frag, e_spin, src_ds, dest_ds, lroots_s
 
     def single_excitation_description_string (self, other):
