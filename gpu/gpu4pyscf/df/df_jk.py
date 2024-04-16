@@ -1,20 +1,4 @@
 #!/usr/bin/env python
-# Copyright 2014-2019 The PySCF Developers. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# Author: Qiming Sun <osirpt.sun@gmail.com>
-#
 
 import copy
 
@@ -419,7 +403,8 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
                     vk_err += (vk[i,j,k] - vk_tmp[i,j,k]) * (vk[i,j,k] - vk_tmp[i,j,k])                    
                     #print("ijk= ", i, j, k, "  vk= ", vk[i,j,k], "  vk_tmp= ", vk_tmp[i,j,k], "  vk_err= ", vk_err)
 
-        stop = False
+#        stop = False
+        stop = True
         if(vj_err > 1e-8): stop = True
         if(vk_err > 1e-8): stop = True
         
