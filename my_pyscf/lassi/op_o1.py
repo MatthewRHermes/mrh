@@ -814,6 +814,31 @@ class LSTDMint2 (object):
         wgt *= fermion_frag_shuffle (self.nelec_rf[ket], uniq_frags)
         return wgt
 
+    def _gen_addr_range (self, raddr, *inv):
+        addr0, addr1 = self.offs_lroots[raddr]
+        inv = list (set (inv))
+        lroots = self.lroots[:,raddr]
+        lroots_inv = lroots[inv]
+        lroots_inv_rng = [range (l) for l in lroots_inv]
+        strides = np.append ([1], np.cumprod (lroots[:-1]))
+        strides_inv = strides[inv]
+        for idx in product (*lroots_inv_rng):
+            ix = np.asarray (idx, dtype=int)
+            offs = np.dot (ix, strides_inv)
+            assert (addr0+offs < addr1)
+            yield addr0+offs
+
+    def _gen_addr_range_spectator (self, addr, *inv):
+        raddr = self.rootaddr[addr]
+        addr0, addr1 = self.offs_lroots[raddr]
+        daddr = addr - addr0
+        spec = np.ones (self.nfrags, dtype=bool)
+        for i in inv: spec[i] = False
+        spec = np.where (spec)[0]
+        for addr_spec in self._gen_addr_range (raddr, *spec):
+            assert (addr_spec + daddr < addr1)
+            yield addr_spec + daddr
+
     def _get_D1_(self, bra, ket):
         self.d1[:] = 0.0
         return self.d1
@@ -824,12 +849,22 @@ class LSTDMint2 (object):
 
     def _put_D1_(self, bra, ket, D1, *inv):
         self._put_SD1_(bra, ket, D1 * self.get_ovlp_fac (bra, ket, *inv))
+#        bra_rng = self._gen_addr_range_spectator (bra, *inv)
+#        ket_rng = self._gen_addr_range_spectator (ket, *inv)
+#        for bra1, ket1 in product (bra_rng, ket_rng):
+#            self._put_SD1_(bra1, ket1, D1 * self.get_ovlp_fac (bra1, ket1, *inv))
+
 
     def _put_SD1_(self, bra, ket, D1):    
         self.tdm1s[bra,ket] += D1
 
     def _put_D2_(self, bra, ket, D2, *inv):
         self._put_SD2_(bra, ket, D2 * self.get_ovlp_fac (bra, ket, *inv))
+#        bra_rng = self._gen_addr_range_spectator (bra, *inv)
+#        ket_rng = self._gen_addr_range_spectator (ket, *inv)
+#        for bra1, ket1 in product (bra_rng, ket_rng):
+#            self._put_SD2_(bra1, ket1, D2 * self.get_ovlp_fac (bra1, ket1, *inv))
+
 
     def _put_SD2_(self, bra, ket, D2, *inv):
         self.tdm2s[bra,ket] += D2
@@ -1093,6 +1128,12 @@ class LSTDMint2 (object):
     def _loop_lroots_(self, _crunch_fn, *row):
         bra0, bra1 = self.offs_lroots[row[0]]
         ket0, ket1 = self.offs_lroots[row[1]]
+#        if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
+#            inv = row[2:-1]
+#        else:
+#            inv = row[2:]
+#        bra_rng = self._gen_addr_range (row[0], *inv)
+#        ket_rng = self._gen_addr_range (row[1], *inv)
         lrow = [l for l in row]
         for lrow[0], lrow[1] in product (range (bra0, bra1), range (ket0, ket1)):
             _crunch_fn (*lrow)
