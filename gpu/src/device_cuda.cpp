@@ -24,7 +24,7 @@
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int _naux, int count)
 {
 #ifdef _DEBUG_DEVICE
-  printf("Inside Device::init_get_jk()\n");
+  printf("LIBGPU :: Inside Device::init_get_jk()\n");
 #endif
   
 #ifdef _SIMPLE_TIMER
@@ -33,6 +33,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   const int device_id = count % num_devices;
   pm->dev_set_device(device_id);
+
+  my_device_data * dd = &(device_data[device_id]);
   
   blksize = _blksize;
   nset = _nset;
@@ -48,18 +50,18 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //  double * dmtril = static_cast<double*>(info_dmtril.ptr);
   
   int _size_vj = nset * nao_pair;
-  if(_size_vj > size_vj_[device_id]) {
-    size_vj_[device_id] = _size_vj;
+  if(_size_vj > dd->size_vj) {
+    dd->size_vj = _size_vj;
     //if(vj) pm->dev_free_host(vj);
     //vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
-    if(d_vj) pm->dev_free(d_vj);
-    d_vj = (double *) pm->dev_malloc(_size_vj * sizeof(double));
+    if(dd->d_vj) pm->dev_free(dd->d_vj);
+    dd->d_vj = (double *) pm->dev_malloc(_size_vj * sizeof(double));
   }
   //for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
   
   int _size_vk = nset * nao * nao;
-  if(_size_vk > size_vk_[device_id]) {
-    size_vk_[device_id] = _size_vk;
+  if(_size_vk > dd->size_vk) {
+    dd->size_vk = _size_vk;
     //    if(_vktmp) pm->dev_free_host(_vktmp);
     //    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
 
@@ -67,8 +69,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     nvtxRangePushA("Realloc");
 #endif
     
-    if(d_vkk) pm->dev_free(d_vkk);
-    d_vkk = (double *) pm->dev_malloc(_size_vk * sizeof(double));
+    if(dd->d_vkk) pm->dev_free(dd->d_vkk);
+    dd->d_vkk = (double *) pm->dev_malloc(_size_vk * sizeof(double));
 
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -77,13 +79,13 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
   int _size_buf = blksize * nao * nao;
-  if(_size_buf > size_buf_[device_id]) {
-    size_buf_[device_id] = _size_buf;
+  if(_size_buf > dd->size_buf) {
+    dd->size_buf = _size_buf;
     if(buf_tmp) pm->dev_free_host(buf_tmp);
     if(buf3) pm->dev_free_host(buf3);
     if(buf4) pm->dev_free_host(buf4);
     
-    buf_tmp = (double*) pm->dev_malloc_host(2*_size_buf*sizeof(double));
+    buf_tmp = (double *) pm->dev_malloc_host(2*_size_buf*sizeof(double));
     buf3 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (nao, blksize*nao)
     buf4 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (blksize*nao, nao)
 
@@ -91,13 +93,13 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     nvtxRangePushA("Realloc");
 #endif
 
-    if(d_buf1) pm->dev_free(d_buf1);
-    if(d_buf2) pm->dev_free(d_buf2);
-    if(d_buf3) pm->dev_free(d_buf3);
+    if(dd->d_buf1) pm->dev_free(dd->d_buf1);
+    if(dd->d_buf2) pm->dev_free(dd->d_buf2);
+    if(dd->d_buf3) pm->dev_free(dd->d_buf3);
     
-    d_buf1 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
-    d_buf2 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
-    d_buf3 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    dd->d_buf1 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    dd->d_buf2 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    dd->d_buf3 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
 
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -112,24 +114,24 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   // }
 
   int _size_dms = nao * nao;
-  if(_size_dms > size_dms_[device_id]) {
-    size_dms_[device_id] = _size_dms;
-    if(d_dms) pm->dev_free(d_dms);
-    d_dms = (double *) pm->dev_malloc(_size_dms * sizeof(double));
+  if(_size_dms > dd->size_dms) {
+    dd->size_dms = _size_dms;
+    if(dd->d_dms) pm->dev_free(dd->d_dms);
+    dd->d_dms = (double *) pm->dev_malloc(_size_dms * sizeof(double));
   }
 
   int _size_dmtril = nset * nao_pair;
-  if(_size_dmtril > size_dmtril_[device_id]) {
-    size_dmtril_[device_id] = _size_dmtril;
-    if(d_dmtril) pm->dev_free(d_dmtril);
-    d_dmtril = (double *) pm->dev_malloc(_size_dmtril * sizeof(double));
+  if(_size_dmtril > dd->size_dmtril) {
+    dd->size_dmtril = _size_dmtril;
+    if(dd->d_dmtril) pm->dev_free(dd->d_dmtril);
+    dd->d_dmtril = (double *) pm->dev_malloc(_size_dmtril * sizeof(double));
   }
   
   int _size_eri1 = naux * nao_pair;
-  if(_size_eri1 > size_eri1_[device_id]) {
-    size_eri1_[device_id] = _size_eri1;
-    if(d_eri1) pm->dev_free(d_eri1);
-    d_eri1 = (double *) pm->dev_malloc(_size_eri1 * sizeof(double));
+  if(_size_eri1 > dd->size_eri1) {
+    dd->size_eri1 = _size_eri1;
+    if(dd->d_eri1) pm->dev_free(dd->d_eri1);
+    dd->d_eri1 = (double *) pm->dev_malloc(_size_eri1 * sizeof(double));
   }
 
 #ifdef _SIMPLE_TIMER
@@ -138,27 +140,27 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   int _size_tril_map = nao * nao;
   //  if(_size_tril_map > size_tril_map) {
-  if(_size_tril_map != size_tril_map_[device_id]) {
+  if(_size_tril_map != dd->size_tril_map) {
     // nao can change between calls, so mapping needs to be updated...
     // I think there are only two mappings needed
     
-    size_tril_map_[device_id] = _size_tril_map;
-    if(tril_map) pm->dev_free_host(tril_map);
-    if(d_tril_map) pm->dev_free(d_tril_map);
-    tril_map = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
-    d_tril_map = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
+    dd->size_tril_map = _size_tril_map;
+    if(dd->tril_map) pm->dev_free_host(dd->tril_map);
+    if(dd->d_tril_map) pm->dev_free(dd->d_tril_map);
+    dd->tril_map = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
+    dd->d_tril_map = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
 
     // optimize map later...
 
     int _i, _j, _ij;
     for(_ij = 0, _i = 0; _i < nao; _i++)
       for(_j = 0; _j<=_i; _j++, _ij++) {
-    	tril_map[_i*nao + _j] = _ij;
-    	tril_map[_i + nao*_j] = _ij;
+    	dd->tril_map[_i*nao + _j] = _ij;
+    	dd->tril_map[_i + nao*_j] = _ij;
       }
     
     //pm->dev_push_async(d_tril_map, tril_map, size_tril_map*sizeof(int), stream); // how did this work w/o stream creation?
-    pm->dev_push(d_tril_map, tril_map, _size_tril_map*sizeof(int));
+    pm->dev_push(dd->d_tril_map, dd->tril_map, _size_tril_map*sizeof(int));
   }
   
 #ifdef _SIMPLE_TIMER
@@ -172,41 +174,52 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   // Create cuda stream
   
-  if(stream == nullptr) {
-    pm->dev_stream_create(stream);
+  if(dd->stream == nullptr) {
+    pm->dev_stream_create(dd->stream);
 
-    stream_ = (cudaStream_t*) pm->dev_malloc_host(num_devices * sizeof(cudaStream_t));
+    //stream_ = (cudaStream_t*) pm->dev_malloc_host(num_devices * sizeof(cudaStream_t));
 
     //    for(int i=0; i<num_devices; ++i) stream_[i] = stream; // tempory
-    for(int i=0; i<num_devices; ++i) {
-      pm->dev_set_device(i);
-      pm->dev_stream_create(stream_[i]);
-    }
+    // for(int i=0; i<num_devices; ++i) {
+    //   pm->dev_set_device(i);
+    //   pm->dev_stream_create(stream_[i]);
+    // }
   }
   
   // Create blas handle
 
-  if(handle == nullptr) {
+  if(dd->handle == nullptr) {
 #ifdef _CUDA_NVTX
     nvtxRangePushA("Create handle");
 #endif
-    cublasCreate(&handle);
+#ifdef _DEBUG_DEVICE
+    printf(" -- calling cublasCreate(&handle)\n");
+#endif
+    cublasCreate(&(dd->handle));
     _CUDA_CHECK_ERRORS();
-    
-    cublasSetStream(handle, stream);
+#ifdef _DEBUG_DEVICE
+    printf(" -- calling cublasSetStream(handle, stream)\n");
+#endif
+    cublasSetStream(dd->handle, dd->stream);
     _CUDA_CHECK_ERRORS();
 
-    handle_ = (cublasHandle_t*) pm->dev_malloc_host(num_devices * sizeof(cublasHandle_t));
+    //    cudaDeviceSynchronize();
+  
+    //handle_ = (cublasHandle_t*) pm->dev_malloc_host(num_devices * sizeof(cublasHandle_t));
     
-    for(int i=0; i<num_devices; ++i) {
-      pm->dev_set_device(i);
+    // for(int i=0; i<num_devices; ++i) {
+    //   pm->dev_set_device(i);
       
-      cublasCreate(&(handle_[i]));
-      _CUDA_CHECK_ERRORS();
+    //   printf(" -- calling cublasCreate(&handle_[i]) for i= %i\n",i);
+    //   cublasCreate(&(handle_[i]));
+    //   _CUDA_CHECK_ERRORS();
       
-      cublasSetStream(handle_[i], stream_[i]);
-      _CUDA_CHECK_ERRORS();
-    }
+    //   printf(" -- calling cublasSetStream(handle_[i], stream_[i]) for i= %i\n",i);
+    //   cublasSetStream(handle_[i], stream_[i]);
+    //   _CUDA_CHECK_ERRORS();
+      
+    //   cudaDeviceSynchronize();
+    // }
     
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -217,9 +230,11 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   t_array_jk[1] += t2 - t1;
 #endif
   }
+
+  //  cudaDeviceSynchronize();
   
 #ifdef _DEBUG_DEVICE
-  printf(" -- Leaving Device::init_get_jk()\n");
+  printf("LIBGPU :: -- Leaving Device::init_get_jk()\n");
 #endif
 }
 
@@ -228,27 +243,61 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int with_k)
 {
 #ifdef _DEBUG_DEVICE
-  printf(" -- Inside Device::pull_get_jk()\n");
+  printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
 #endif
-  
+
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   
   double * vj = static_cast<double*>(info_vj.ptr);
- 
-  pm->dev_pull(d_vj, vj, nset * nao_pair * sizeof(double));
+  
+  double * tmp = (double *) pm->dev_malloc_host(nset * nao_pair * sizeof(double));
 
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+    
+    my_device_data * dd = &(device_data[i]);
+    
+    pm->dev_stream_wait(dd->stream);
+    
+    if(i == 0) pm->dev_pull(dd->d_vj, vj, nset * nao_pair * sizeof(double));
+    else {
+      pm->dev_pull(dd->d_vj, tmp, nset*nao_pair*sizeof(double));
+      for(int j=0; j<nset*nao_pair; ++j) vj[j] += tmp[j];
+    }
+  }
+  
+  pm->dev_free_host(tmp);
+  
   if(with_k) {
+    pm->dev_set_device(0);
+    
     py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
     
     double * vk = static_cast<double*>(info_vk.ptr);
     
-    pm->dev_pull(d_vkk, vk, nset * nao * nao * sizeof(double));
+    tmp = (double *) pm->dev_malloc_host(nset * nao * nao * sizeof(double));
+
+    for(int i=0; i<num_devices; ++i) {
+      pm->dev_set_device(i);
+      
+      my_device_data * dd = &(device_data[i]);
+      
+      pm->dev_stream_wait(dd->stream);
+
+      if(i == 0) pm->dev_pull(dd->d_vkk, vk, nset * nao * nao * sizeof(double));
+      else {
+	pm->dev_pull(dd->d_vkk, tmp, nset*nao*nao*sizeof(double));
+	for(int j=0; j<nset*nao*nao; ++j) vk[j] += tmp[j];
+      }
+    }
+
+    pm->dev_free_host(tmp);
   }
-  
+    
   update_dfobj = 0;
   
 #ifdef _DEBUG_DEVICE
-  printf(" -- Leaving Device::pull_get_jk()\n");
+  printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
 #endif
 }
 
@@ -321,7 +370,7 @@ __global__ void _getjk_rho(double * rho, double * dmtril, double * eri1, int nse
 
 /* ---------------------------------------------------------------------- */
 
-__global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int count)
+__global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, int nao_pair, int naux, int init)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -332,7 +381,7 @@ __global__ void _getjk_vj(double * vj, double * rho, double * eri1, int nset, in
   double val = 0.0;
   for(int k=0; k<naux; ++k) val += rho[i * naux + k] * eri1[k * nao_pair + j];
   
-  if(count == 0) vj[i * nao_pair + j] = val;
+  if(init) vj[i * nao_pair + j] = val;
   else vj[i * nao_pair + j] += val;
 }
 
@@ -443,7 +492,7 @@ void Device::get_jk(int naux,
 		    int with_k, int count, size_t addr_dfobj)
 {
 #ifdef _DEBUG_DEVICE
-  printf("Inside Device::get_jk() w/ with_k= %i\n",with_k);
+  printf("LIBGPU :: Inside Device::get_jk() w/ with_k= %i\n",with_k);
 #endif
   
 #ifdef _SIMPLE_TIMER
@@ -455,7 +504,10 @@ void Device::get_jk(int naux,
 #endif
 
   const int device_id = count % num_devices;
+  
   pm->dev_set_device(device_id);
+
+  my_device_data * dd = &(device_data[device_id]);
     
   const int with_j = 1;
   
@@ -471,17 +523,17 @@ void Device::get_jk(int naux,
   if(!use_eri_cache) {
     // if not caching, then eri block always transferred
     
-    pm->dev_push_async(d_eri1, eri1, naux * nao_pair * sizeof(double), stream_[device_id]);
-    d_eri = d_eri1;
+    pm->dev_push_async(dd->d_eri1, eri1, naux * nao_pair * sizeof(double), dd->stream);
+    d_eri = dd->d_eri1;
   }
 
-  if(count < num_devices) pm->dev_push_async(d_dmtril, dmtril, nset * nao_pair * sizeof(double), stream_[device_id]);
+  if(count < num_devices) pm->dev_push_async(dd->d_dmtril, dmtril, nset * nao_pair * sizeof(double), dd->stream);
   
   int _size_rho = nset * naux;
-  if(_size_rho > size_rho_[device_id]) {
-    size_rho_[device_id] = _size_rho;
-    if(d_rho) pm->dev_free(d_rho);
-    d_rho = (double *) pm->dev_malloc(_size_rho * sizeof(double));
+  if(_size_rho > dd->size_rho) {
+    dd->size_rho = _size_rho;
+    if(dd->d_rho) pm->dev_free(dd->d_rho);
+    dd->d_rho = (double *) pm->dev_malloc(_size_rho * sizeof(double));
   }
 
 #if 0
@@ -490,7 +542,7 @@ void Device::get_jk(int naux,
   
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   //  double * vk = static_cast<double*>(info_vk.ptr);
-  printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i  nao_pair= %i  count= %i\n",blksize,naux,nao,nset,nao_pair,count);
+  printf("LIBGPU:: device= %i  blksize= %i  naux= %i  nao= %i  nset= %i  nao_pair= %i  count= %i\n",device_id,blksize,naux,nao,nset,nao_pair,count);
   printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
   	 info_dmtril.shape[0], info_dmtril.shape[1],
   	 info_eri1.shape[0], info_eri1.shape[1],
@@ -506,8 +558,11 @@ void Device::get_jk(int naux,
   printf("LIBGPU::     naux-2: %f %f %f %f\n",da_eri1(naux-2,0), da_eri1(naux-2,1), da_eri1(naux-2,nao_pair-2), da_eri1(naux-2,nao_pair-1));
   printf("LIBGPU::     naux-1: %f %f %f %f\n",da_eri1(naux-1,0), da_eri1(naux-1,1), da_eri1(naux-1,nao_pair-2), da_eri1(naux-1,nao_pair-1));
 #endif
-
+  
   if(use_eri_cache) {
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU :: Starting eri_cache lookup\n");
+#endif
 
     // retrieve id of cached eri block
 
@@ -521,6 +576,10 @@ void Device::get_jk(int naux,
     // grab/update cached data
     
     if(id < eri_list.size()) {
+#ifdef _DEBUG_DEVICE
+      printf("LIBGPU :: -- eri block found: id= %i\n",id);
+#endif
+      
       eri_count[id]++;
       d_eri = d_eri_cache[id];
       
@@ -537,7 +596,7 @@ void Device::get_jk(int naux,
       
       if(diff_eri > 1e-10) {
 	for(int i=0; i<naux*nao_pair; ++i) eri_host[i] = eri1[i];
-	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream_[device_id]);
+	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
 	eri_update[id]++;
 	
 	// update_dfobj fails to correctly update device ; this is an error
@@ -559,8 +618,11 @@ void Device::get_jk(int naux,
       }
 #else
       if(update_dfobj) {
+#ifdef _DEBUG_DEVICE
+	printf("LIBGPU :: -- updating eri block: id= %i\n",id);
+#endif
 	eri_update[id]++;
-	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream_[device_id]);
+	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
       }
 #endif
       
@@ -577,11 +639,18 @@ void Device::get_jk(int naux,
       eri_extra.push_back(naux);
       eri_extra.push_back(nao_pair);
       
-      d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
-      int id = d_eri_cache.size() - 1;
-      d_eri = d_eri_cache[ id ];
+      int id = d_eri_cache.size();
+#ifdef _DEBUG_DEVICE
+      printf("LIBGPU :: -- allocating new eri block: %i\n",id);
+#endif
       
-      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), stream_[device_id]);
+      d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
+      d_eri = d_eri_cache[ id ];
+
+#ifdef _DEBUG_DEVICE
+      printf("LIBGPU :: -- initializing eri block\n");
+#endif
+      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
       
 #ifdef _DEBUG_ERI_CACHE
       d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
@@ -592,14 +661,18 @@ void Device::get_jk(int naux,
   } // if(use_eri_cache)
 
 #ifdef _CUDA_NVTX
-    nvtxRangePop();
+  nvtxRangePop();
 #endif
 
 #ifdef _SIMPLE_TIMER
-    double t1 = omp_get_wtime();
-    t_array_jk[2] += t1 - t0;
+  double t1 = omp_get_wtime();
+  t_array_jk[2] += t1 - t0;
 #endif
-  
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Starting with_j calculation\n");
+#endif
+	 
   if(with_j) {
     
 #ifdef _CUDA_NVTX
@@ -617,7 +690,7 @@ void Device::get_jk(int naux,
 #endif
 
       //      printf(" -- calling _getjk_rho()\n");
-      _getjk_rho<<<grid_size, block_size, 0, stream_[device_id]>>>(d_rho, d_dmtril, d_eri, nset, naux, nao_pair);
+      _getjk_rho<<<grid_size, block_size, 0, dd->stream>>>(dd->d_rho, dd->d_dmtril, d_eri, nset, naux, nao_pair);
     }
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -627,7 +700,8 @@ void Device::get_jk(int naux,
       dim3 block_size(1, _DOT_BLOCK_SIZE, 1);
       
       //      printf(" -- calling _getjk_vj()\n");
-      _getjk_vj<<<grid_size, block_size, 0, stream_[device_id]>>>(d_vj, d_rho, d_eri, nset, nao_pair, naux, count);
+      int init = (count < num_devices) ? 1 : 0;
+      _getjk_vj<<<grid_size, block_size, 0, dd->stream>>>(dd->d_vj, dd->d_rho, d_eri, nset, nao_pair, naux, init);
     }
     
 #ifdef _CUDA_NVTX
@@ -642,7 +716,7 @@ void Device::get_jk(int naux,
 
   if(!with_k) {
 #ifdef _DEBUG_DEVICE
-    printf(" -- Leaving Device::get_jk()\n");
+    printf("LIBGPU ::  -- Leaving Device::get_jk()\n");
 #endif
     return;
   }
@@ -650,37 +724,42 @@ void Device::get_jk(int naux,
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
   
 #ifdef _SIMPLE_TIMER
-    double t2 = omp_get_wtime();
+  double t2 = omp_get_wtime();
 #endif
     
 #ifdef _CUDA_NVTX
-    nvtxRangePushA("GetJK::TRIL_MAP");
+  nvtxRangePushA("GetJK::TRIL_MAP");
 #endif
     
-    {
+  {
 #if 0
-      dim3 grid_size(naux, 1, 1);
-      dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+    dim3 grid_size(naux, 1, 1);
+    dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
 #else
-      dim3 grid_size(naux, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
-      dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
-      // dim3 grid_size((naux + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
-      // dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
+    dim3 grid_size(naux, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
+    dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+    // dim3 grid_size((naux + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
+    // dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
 #endif
-      
-      //    printf(" -- calling _unpack_buf2()\n");
-      _getjk_unpack_buf2<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf2, d_eri, d_tril_map, naux, nao, nao_pair);
-    }
     
+    //    printf(" -- calling _unpack_buf2()\n");
+    _getjk_unpack_buf2<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_eri, dd->d_tril_map, naux, nao, nao_pair);
+  }
+  
 #ifdef _CUDA_NVTX
-    nvtxRangePop();
+  nvtxRangePop();
 #endif
-    
+  
 #ifdef _SIMPLE_TIMER
-    double t3 = omp_get_wtime();
-    t_array_jk[4] += t3 - t2;
+  double t3 = omp_get_wtime();
+  t_array_jk[4] += t3 - t2;
 #endif
-    
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- finished\n");
+  printf("LIBGPU :: Starting with_k calculation\n");
+#endif
+  
   for(int indxK=0; indxK<nset; ++indxK) {
 
 #ifdef _SIMPLE_TIMER
@@ -696,8 +775,10 @@ void Device::get_jk(int naux,
 
     double * dms = static_cast<double*>(info_dms.ptr);
 
-    //    printf(" -- calling _dev_push_async(dms)\n");
-    pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), stream_[device_id]);
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU ::  -- calling dev_push_async(dms) for indxK= %i  nset= %i\n",indxK,nset);
+#endif
+    pm->dev_push_async(dd->d_dms, dms, nao*nao*sizeof(double), dd->stream);
     
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -713,11 +794,14 @@ void Device::get_jk(int naux,
       const double alpha = 1.0;
       const double beta = 0.0;
       const int nao2 = nao * nao;
-      
-      cublasDgemmStridedBatched(handle_[device_id], CUBLAS_OP_T, CUBLAS_OP_T, nao, nao, nao,
-				&alpha, d_buf2, nao, nao2,
-				d_dms, nao, 0,
-				&beta, d_buf1, nao, nao2, naux);
+
+#ifdef _DEBUG_DEVICE
+      printf("LIBGPU ::  -- calling cublasDgemmStrideBatched()\n");
+#endif
+      cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_T, CUBLAS_OP_T, nao, nao, nao,
+				&alpha, dd->d_buf2, nao, nao2,
+				dd->d_dms, nao, 0,
+				&beta, dd->d_buf1, nao, nao2, naux);
     }
     
     // dgemm of (nao X blksize*nao) and (blksize*nao X nao) matrices - can refactor later...
@@ -737,29 +821,33 @@ void Device::get_jk(int naux,
 #endif
     
     {
+#ifdef _DEBUG_DEVICE
+      printf("LIBGPU ::  -- calling _transpose()\n");
+#endif
+      
 #if 1
       dim3 grid_size( _TILE(naux*nao, _TRANSPOSE_BLOCK_SIZE), _TILE(nao, _TRANSPOSE_BLOCK_SIZE), 1);
       dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS);
       
-      _transpose<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf3, d_buf1, naux*nao, nao);
+      _transpose<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf3, dd->d_buf1, naux*nao, nao);
 #else
       dim3 grid_size(naux*nao, 1, 1);
       dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
       
-      _transpose<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf3, d_buf1, naux*nao, nao);
+      _transpose<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf3, dd->d_buf1, naux*nao, nao);
 #endif
       
     }
     
     // vk[k] += lib.dot(buf3, buf4)
-    // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
+    // gemm(A,B,C) : C = alpha * A.B + beta * C
     // A is (m, k) matrix
     // B is (k, n) matrix
     // C is (m, n) matrix
     // Column-ordered: (A.B)^T = B^T.A^T
     
     const double alpha = 1.0;
-    const double beta = (count == 0) ? 0.0 : 1.0;
+    const double beta = (count < num_devices) ? 0.0 : 1.0; // first pass by each device initializes array, otherwise accumulate
     
     const int m = nao; // # of rows of first matrix buf4^T
     const int n = nao; // # of cols of second matrix buf3^T
@@ -780,8 +868,11 @@ void Device::get_jk(int naux,
     double t7 = omp_get_wtime();
     t_array_jk[7] += t7 - t6;
 #endif
-    
-    cublasDgemm(handle_[device_id], CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, ldb, d_buf3, lda, &beta, d_vkk+vk_offset, ldc);
+
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU ::  -- calling cublasDgemm()\n");
+#endif
+    cublasDgemm(dd->handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, dd->d_buf2, ldb, dd->d_buf3, lda, &beta, (dd->d_vkk)+vk_offset, ldc);
 
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -794,7 +885,7 @@ void Device::get_jk(int naux,
 #endif
 
     //    printf(" -- calling dev_stream_wait()\n");
-    //    pm->dev_stream_wait(stream);
+    //    pm->dev_stream_wait(dd->stream);
     
 #ifdef _CUDA_NVTX
     nvtxRangePop();
@@ -808,8 +899,11 @@ void Device::get_jk(int naux,
 #endif 
   }
   
+  //  cudaDeviceSynchronize();
+  
 #ifdef _DEBUG_DEVICE
-  printf(" -- Leaving Device::get_jk()\n");
+  printf("LIBGPU ::  -- finished\n");
+  printf("LIBGPU :: -- Leaving Device::get_jk()\n");
 #endif
 }
   
@@ -952,6 +1046,8 @@ void Device::hessop_push_bPpj(py::array_t<double> _bPpj)
 
   const int device_id = 0; //count % num_devices;
   
+  my_device_data * dd = &(device_data[device_id]);
+  
 #if 0
   printf("LIBGPU:: naux= %i  nmo= %i  nocc= %i\n",naux, nmo, nocc);
   printf("LIBGPU:: hessop_push_bPpj : bPpj= (%i, %i, %i)\n",
@@ -976,7 +1072,7 @@ void Device::hessop_push_bPpj(py::array_t<double> _bPpj)
     d_bPpj = (double *) pm->dev_malloc(size_bPpj * sizeof(double));
   }
 
-  pm->dev_push_async(d_bPpj, bPpj, _size_bPpj*sizeof(double), stream_[device_id]);
+  pm->dev_push_async(d_bPpj, bPpj, _size_bPpj*sizeof(double), dd->stream);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -991,7 +1087,10 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   double * vk_bj = static_cast<double*>(info_vk_bj.ptr);
 
   const int device_id = 0; //count % num_devices;
+  
   pm->dev_set_device(device_id);
+
+  my_device_data * dd = &(device_data[device_id]);
   
   int nvirt = nmo - ncore;
 
@@ -999,7 +1098,7 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   py::buffer_info info_bPpj = _bPpj.request(); // 3D array (naux, nmo, nocc) : read-only
   double * bPpj = static_cast<double*>(info_bPpj.ptr);
   
-  printf("LIBGPU:: naux= %i  nmo= %i  ncore= %i  nocc= %i  nvirt= %i\n",naux, nmo, ncore, nocc, nvirt);
+  printf("LIBGPU:: naux= %i  nmo= %i  ncore= %i  nocc= %i  nvirt= %i  dd->size_buf= %i\n",naux, nmo, ncore, nocc, nvirt,dd->size_buf);
   printf("LIBGPU:: shape : bPpj= (%i, %i, %i)  vPj= (%i, %i, %i)  vk_bj= (%i, %i)\n",
 	 info_bPpj.shape[0],info_bPpj.shape[1],info_bPpj.shape[2],
 	 info_vPpj.shape[0],info_vPpj.shape[1],info_vPpj.shape[2],
@@ -1009,8 +1108,11 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   // this buf realloc needs to be consistent with that in init_get_jk()
   
   int _size_buf = naux * nmo * nocc;
-  if(_size_buf > size_buf_[device_id]) {
-    size_buf_[device_id] = _size_buf;
+  if(_size_buf > dd->size_buf) {
+#if _DEBUG_DEVICE
+    printf("LIBGPU :: updating buffer sizes\n");
+#endif
+    dd->size_buf = _size_buf;
     if(buf_tmp) pm->dev_free_host(buf_tmp);
     if(buf3) pm->dev_free_host(buf3);
     if(buf4) pm->dev_free_host(buf4);
@@ -1019,13 +1121,13 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     buf3 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double));
     buf4 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double));
 
-    if(d_buf1) pm->dev_free(d_buf1);
-    if(d_buf2) pm->dev_free(d_buf2);
-    if(d_buf3) pm->dev_free(d_buf3);
+    if(dd->d_buf1) pm->dev_free(dd->d_buf1);
+    if(dd->d_buf2) pm->dev_free(dd->d_buf2);
+    if(dd->d_buf3) pm->dev_free(dd->d_buf3);
     
-    d_buf1 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
-    d_buf2 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
-    d_buf3 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    dd->d_buf1 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    dd->d_buf2 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
+    dd->d_buf3 = (double *) pm->dev_malloc(_size_buf * sizeof(double));
   }
   
    int _size_vPpj = naux * nmo * nocc;
@@ -1047,20 +1149,20 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   // vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
   
 #if 1
-  pm->dev_push_async(d_buf1, vPpj, naux*nmo*nocc*sizeof(double), stream_[device_id]);
+  pm->dev_push_async(dd->d_buf1, vPpj, naux*nmo*nocc*sizeof(double), dd->stream);
 
   {
     dim3 grid_size(nvirt, nocc, 1);
     dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
     
-    _hessop_get_veff_reshape1<<<grid_size, block_size, 0, stream_[device_id]>>>(d_vPpj, d_buf1, nmo, nocc, ncore, nvirt, naux);
+    _hessop_get_veff_reshape1<<<grid_size, block_size, 0, dd->stream>>>(d_vPpj, dd->d_buf1, nmo, nocc, ncore, nvirt, naux);
   }
 
   {
     dim3 grid_size(nocc, naux, 1);
     dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
     
-    _hessop_get_veff_reshape2<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
+    _hessop_get_veff_reshape2<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
   }
 
   {
@@ -1075,7 +1177,7 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     const int ldb = nocc*naux;
     const int ldc = nocc;
     
-    cublasDgemm(handle_[device_id], CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_buf2, lda, d_vPpj, ldb, &beta, d_vk_bj, ldc);
+    cublasDgemm(dd->handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, dd->d_buf2, lda, d_vPpj, ldb, &beta, d_vk_bj, ldc);
   }
   
 #else
@@ -1135,14 +1237,14 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     dim3 grid_size(nvirt, naux, 1);
     dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
     
-    _hessop_get_veff_reshape3<<<grid_size, block_size, 0, stream_[device_id]>>>(d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
+    _hessop_get_veff_reshape3<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_bPpj, nmo, nocc, ncore, nvirt, naux);
   }
   
   {
     dim3 grid_size(naux, ncore, 1);
     dim3 block_size(1, 1, _HESSOP_BLOCK_SIZE);
     
-    _hessop_get_veff_reshape4<<<grid_size, block_size, 0, stream_[device_id]>>>(d_vPpj, d_buf1, nmo, nocc, ncore, nvirt, naux);
+    _hessop_get_veff_reshape4<<<grid_size, block_size, 0, dd->stream>>>(d_vPpj, dd->d_buf1, nmo, nocc, ncore, nvirt, naux);
   }
 
 
@@ -1158,10 +1260,10 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     const int ldb = ncore*naux;
     const int ldc = nocc;
     
-    cublasDgemm(handle_[device_id], CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_vPpj, lda, d_buf2, ldb, &beta, d_vk_bj, ldc);
+    cublasDgemm(dd->handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_vPpj, lda, dd->d_buf2, ldb, &beta, d_vk_bj, ldc);
   }
 
-  pm->dev_stream_wait(stream_[device_id]);
+  pm->dev_stream_wait(dd->stream);
   pm->dev_pull(d_vk_bj, vk_bj, _size_vk_bj*sizeof(double));
     
 #else
@@ -1187,7 +1289,7 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 
     }
 
-  pm->dev_pull(d_vk_bj, vk_bj, _size_vk_bj*sizeof(double));
+  //  pm->dev_pull(d_vk_bj, vk_bj, _size_vk_bj*sizeof(double));
   
   {
     const double alpha = 1.0;

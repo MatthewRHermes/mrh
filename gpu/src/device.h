@@ -95,25 +95,16 @@ private:
   // get_jk
 
   int update_dfobj;
-
-  int * size_rho_;
-  int * size_vj_;
-  int * size_vk_;
-  int * size_buf_;
-  int * size_dms_;
-  int * size_dmtril_;
-  int * size_eri1_;
-  int * size_tril_map_;
   
-  int size_rho;
-  int size_vj;
-  int size_vk;
-  int size_buf;
-  int size_fdrv;
-  int size_dms;
-  int size_dmtril;
-  int size_eri1;
-  int size_tril_map;
+  // int size_rho;
+  // int size_vj;
+  // int size_vk;
+  // int size_buf;
+  // int size_fdrv;
+  // int size_dms;
+  // int size_dmtril;
+  // int size_eri1;
+  // int size_tril_map;
 
   int blksize;
   int nao;
@@ -132,18 +123,18 @@ private:
   double * buf4;
   double * buf_fdrv;
 
-  double * d_rho;
-  double * d_vj;
-  double * d_buf1;
-  double * d_buf2;
-  double * d_buf3;
-  double * d_vkk;
-  double * d_dms;
-  double * d_dmtril;
-  double * d_eri1;
+  // double * d_rho;
+  // double * d_vj;
+  // double * d_buf1;
+  // double * d_buf2;
+  // double * d_buf3;
+  // double * d_vkk;
+  // double * d_dms;
+  // double * d_dmtril;
+  // double * d_eri1;
   
-  int * tril_map;
-  int * d_tril_map;
+  // int * tril_map;
+  // int * d_tril_map;
 
   // hessop_get_veff
 
@@ -192,6 +183,35 @@ private:
     //        CVHFOpt *vhfopt;
   };
 
+  struct my_device_data {
+    int size_rho;
+    int size_vj;
+    int size_vk;
+    int size_buf;
+    int size_dms;
+    int size_dmtril;
+    int size_eri1;
+    int size_tril_map;
+    
+    double * d_rho;
+    double * d_vj;
+    double * d_buf1;
+    double * d_buf2;
+    double * d_buf3;
+    double * d_vkk;
+    double * d_dms;
+    double * d_dmtril;
+    double * d_eri1;
+
+    int * tril_map;
+    int * d_tril_map;
+    
+    cublasHandle_t handle;
+    cudaStream_t stream;
+  };
+
+  my_device_data * device_data;
+    
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);
   
@@ -217,11 +237,11 @@ private:
   int num_devices;
 
 #if defined(_USE_GPU)
-  cublasHandle_t handle;
-  cudaStream_t stream;
+  //  cublasHandle_t handle;
+  //  cudaStream_t stream;
   
-  cublasHandle_t * handle_;
-  cudaStream_t * stream_;
+  //  cublasHandle_t * handle_;
+  //  cudaStream_t * stream_;
 #endif
   
 };

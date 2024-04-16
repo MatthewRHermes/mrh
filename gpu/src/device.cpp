@@ -18,15 +18,15 @@ Device::Device()
 
   update_dfobj = 0;
   
-  size_rho = 0;
-  size_vj = 0;
-  size_vk = 0;
-  size_buf = 0;
-  size_fdrv = 0;
-  size_dms = 0;
-  size_dmtril = 0;
-  size_eri1 = 0;
-  size_tril_map = 0;
+  // size_rho = 0;
+  // size_vj = 0;
+  // size_vk = 0;
+  // size_buf = 0;
+  // size_fdrv = 0;
+  // size_dms = 0;
+  // size_dmtril = 0;
+  // size_eri1 = 0;
+  // size_tril_map = 0;
 
   size_bPpj = 0;
   size_vPpj = 0;
@@ -41,26 +41,26 @@ Device::Device()
   buf4 = nullptr;
 
   buf_fdrv = nullptr;
-  tril_map = nullptr;
+  //  tril_map = nullptr;
   
 #if defined(_USE_GPU)
-  handle = nullptr;
-  stream = nullptr;
+  //  handle = nullptr;
+  //  stream = nullptr;
 
-  handle_ = nullptr;
-  stream_ = nullptr;
+  //  handle_ = nullptr;
+  //  stream_ = nullptr;
 
-  d_rho = nullptr;
-  d_vj = nullptr;
-  d_buf1 = nullptr;
-  d_buf2 = nullptr;
-  d_buf3 = nullptr;
-  d_vkk = nullptr;
-  d_dms = nullptr;
-  d_dmtril = nullptr;
-  d_eri1 = nullptr;
+  // d_rho = nullptr;
+  // d_vj = nullptr;
+  // d_buf1 = nullptr;
+  // d_buf2 = nullptr;
+  // d_buf3 = nullptr;
+  // d_vkk = nullptr;
+  // d_dms = nullptr;
+  // d_dmtril = nullptr;
+  // d_eri1 = nullptr;
 
-  d_tril_map = nullptr;
+  // d_tril_map = nullptr;
 
   d_bPpj = nullptr;
   d_vPpj = nullptr;
@@ -74,25 +74,34 @@ Device::Device()
   num_threads = omp_get_num_threads();
 
   num_devices = pm->dev_num_devices();
-
-  size_rho_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
-  size_vj_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
-  size_vk_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
-  size_buf_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
-  size_dms_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
-  size_dmtril_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
-  size_eri1_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
-  size_tril_map_ = (int *) pm->dev_malloc_host(num_devices * sizeof(int));
+  
+  device_data = (my_device_data*) pm->dev_malloc_host(num_devices * sizeof(my_device_data));
 
   for(int i=0; i<num_devices; ++i) {
-    size_rho_[i] = 0;
-    size_vj_[i] = 0;
-    size_vk_[i] = 0;
-    size_buf_[i] = 0;
-    size_dms_[i] = 0;
-    size_dmtril_[i] = 0;
-    size_eri1_[i] = 0;
-    size_tril_map_[i] = 0;
+    device_data[i].size_rho = 0;
+    device_data[i].size_vj = 0;
+    device_data[i].size_vk = 0;
+    device_data[i].size_buf = 0;
+    device_data[i].size_dms = 0;
+    device_data[i].size_dmtril = 0;
+    device_data[i].size_eri1 = 0;
+    device_data[i].size_tril_map = 0;
+    
+    device_data[i].d_rho = nullptr;
+    device_data[i].d_vj = nullptr;
+    device_data[i].d_buf1 = nullptr;
+    device_data[i].d_buf2 = nullptr;
+    device_data[i].d_buf3 = nullptr;
+    device_data[i].d_vkk = nullptr;
+    device_data[i].d_dms = nullptr;
+    device_data[i].d_dmtril = nullptr;
+    device_data[i].d_eri1 = nullptr;
+    
+    device_data[i].tril_map = nullptr;
+    device_data[i].d_tril_map = nullptr;
+    
+    device_data[i].handle = nullptr;
+    device_data[i].stream = nullptr;
   }
   
 #ifdef _SIMPLE_TIMER
@@ -125,7 +134,7 @@ Device::~Device()
   pm->dev_free_host(buf4);
 
   pm->dev_free_host(buf_fdrv);
-  pm->dev_free_host(tril_map);
+  //  pm->dev_free_host(tril_map);
 
 #ifdef _SIMPLE_TIMER
   t_array_jk[11] += omp_get_wtime() - t0;
@@ -174,31 +183,34 @@ Device::~Device()
   nvtxRangePushA("Deallocate");
 #endif
 
-  pm->dev_free(d_rho);
-  pm->dev_free(d_vj);
-  pm->dev_free(d_buf1);
-  pm->dev_free(d_buf2);
-  pm->dev_free(d_buf3);
-  pm->dev_free(d_vkk);
-  pm->dev_free(d_dms);
-  pm->dev_free(d_dmtril);
-  pm->dev_free(d_eri1);
-  pm->dev_free(d_tril_map);
+  //  for(int i=0; i<num_devices; ++i) // free gpu objects
+  
+  // pm->dev_free(d_rho);
+  // pm->dev_free(d_vj);
+  // pm->dev_free(d_buf1);
+  // pm->dev_free(d_buf2);
+  // pm->dev_free(d_buf3);
+  // pm->dev_free(d_vkk);
+  // pm->dev_free(d_dms);
+  // pm->dev_free(d_dmtril);
+  // pm->dev_free(d_eri1);
+  // pm->dev_free(d_tril_map);
 
   pm->dev_free(d_bPpj);
   pm->dev_free(d_vPpj);
   pm->dev_free(d_vk_bj);
-
-  pm->dev_free_host(size_vj_);
   
 #ifdef _CUDA_NVTX
   nvtxRangePop();
   
   nvtxRangePushA("Destroy Handle");
 #endif
-  cublasDestroy(handle);
+  //  cublasDestroy(handle);
 
-  for(int i=0; i<num_devices; ++i) cublasDestroy(handle_[i]);
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    cublasDestroy(dd->handle);
+  }
 #ifdef _CUDA_NVTX
   nvtxRangePop();
 #endif

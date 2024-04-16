@@ -67,7 +67,8 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             t6 = (logger.process_clock(), logger.perf_counter())
             naux, nao_pair = eri1.shape
             if gpu:
-                if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
+                #if count == 0:
+                libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
                 libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, 0, count, id(dfobj))
             else:
                 rho = numpy.einsum('ix,px->ip', dmtril, eri1)
@@ -262,7 +263,8 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             print("vj= ", vj_tmp.shape)
             print("addr of dfobj= ", hex(id(dfobj)), "  addr of eri1= ", hex(id(eri1)), " count= ", count)
             
-            if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
+            #if count == 0:
+            libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
             libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj_tmp, vk_tmp, 0, count, id(dfobj))
             
             rho = numpy.einsum('ix,px->ip', dmtril, eri1)
@@ -403,8 +405,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
                     vk_err += (vk[i,j,k] - vk_tmp[i,j,k]) * (vk[i,j,k] - vk_tmp[i,j,k])                    
                     #print("ijk= ", i, j, k, "  vk= ", vk[i,j,k], "  vk_tmp= ", vk_tmp[i,j,k], "  vk_err= ", vk_err)
 
-#        stop = False
-        stop = True
+        stop = False
         if(vj_err > 1e-8): stop = True
         if(vk_err > 1e-8): stop = True
         
