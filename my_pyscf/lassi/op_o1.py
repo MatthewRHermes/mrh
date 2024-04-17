@@ -828,16 +828,20 @@ class LSTDMint2 (object):
             assert (addr0+offs < addr1)
             yield addr0+offs
 
-    def _gen_addr_range_spectator (self, addr, *inv):
-        raddr = self.rootaddr[addr]
-        addr0, addr1 = self.offs_lroots[raddr]
-        daddr = addr - addr0
+    def _gen_addr_range_spectator (self, bra, ket, *inv):
+        rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
+        bra0, bra1 = self.offs_lroots[rbra]
+        ket0, ket1 = self.offs_lroots[rket]
+        dbra, dket = bra - bra0, ket - ket0
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
-        for addr_spec in self._gen_addr_range (raddr, *spec):
-            assert (addr_spec + daddr < addr1)
-            yield addr_spec + daddr
+        bra_rng = self._gen_bra_range (rbra, *spec)
+        ket_rng = self._gen_ket_range (rket, *spec)
+        for bra_spec, ket_spec in zip (bra_rng, ket_rng)
+            assert (bra_spec + dbra < bra1)
+            assert (ket_spec + dket < ket1)
+            yield bra_spec + dbra, ket_spec + dket
 
     def _get_D1_(self, bra, ket):
         self.d1[:] = 0.0
@@ -849,9 +853,8 @@ class LSTDMint2 (object):
 
     def _put_D1_(self, bra, ket, D1, *inv):
         self._put_SD1_(bra, ket, D1 * self.get_ovlp_fac (bra, ket, *inv))
-#        bra_rng = self._gen_addr_range_spectator (bra, *inv)
-#        ket_rng = self._gen_addr_range_spectator (ket, *inv)
-#        for bra1, ket1 in product (bra_rng, ket_rng):
+#       if bra==ket: D1 /= 2
+#        for bra1, ket1 in self._gen_addr_range_spectator (bra, ket, *inv):
 #            self._put_SD1_(bra1, ket1, D1 * self.get_ovlp_fac (bra1, ket1, *inv))
 
 
@@ -860,9 +863,8 @@ class LSTDMint2 (object):
 
     def _put_D2_(self, bra, ket, D2, *inv):
         self._put_SD2_(bra, ket, D2 * self.get_ovlp_fac (bra, ket, *inv))
-#        bra_rng = self._gen_addr_range_spectator (bra, *inv)
-#        ket_rng = self._gen_addr_range_spectator (ket, *inv)
-#        for bra1, ket1 in product (bra_rng, ket_rng):
+#       if bra==ket: D1 /= 2
+#        for bra1, ket1 in self._gen_addr_range_spectator (bra, ket, *inv):
 #            self._put_SD2_(bra1, ket1, D2 * self.get_ovlp_fac (bra1, ket1, *inv))
 
 
