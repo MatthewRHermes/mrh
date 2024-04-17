@@ -4,7 +4,7 @@ from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, contract_1e
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
-from itertools import product, combinations
+from itertools import product, combinations, combinations_with_replacement
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 import time
 
@@ -836,12 +836,14 @@ class LSTDMint2 (object):
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
-        bra_rng = self._gen_bra_range (rbra, *spec)
-        ket_rng = self._gen_ket_range (rket, *spec)
-        for bra_spec, ket_spec in zip (bra_rng, ket_rng)
-            assert (bra_spec + dbra < bra1)
-            assert (ket_spec + dket < ket1)
-            yield bra_spec + dbra, ket_spec + dket
+        bra_rng = self._gen_addr_range (rbra, *spec)
+        ket_rng = self._gen_addr_range (rket, *spec)
+        for bra_spec, ket_spec in product (bra_rng, ket_rng):
+            bra2 = bra_spec + dbra
+            ket2 = ket_spec + dket
+            assert (bra2 < bra1)
+            assert (ket2 < ket1)
+            yield bra2, ket2
 
     def _get_D1_(self, bra, ket):
         self.d1[:] = 0.0
@@ -852,20 +854,18 @@ class LSTDMint2 (object):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1, *inv):
-        self._put_SD1_(bra, ket, D1 * self.get_ovlp_fac (bra, ket, *inv))
-#       if bra==ket: D1 /= 2
-#        for bra1, ket1 in self._gen_addr_range_spectator (bra, ket, *inv):
-#            self._put_SD1_(bra1, ket1, D1 * self.get_ovlp_fac (bra1, ket1, *inv))
+#        self._put_SD1_(bra, ket, D1 * self.get_ovlp_fac (bra, ket, *inv))
+        for bra1, ket1 in self._gen_addr_range_spectator (bra, ket, *inv):
+            self._put_SD1_(bra1, ket1, D1 * self.get_ovlp_fac (bra1, ket1, *inv))
 
 
     def _put_SD1_(self, bra, ket, D1):    
         self.tdm1s[bra,ket] += D1
 
     def _put_D2_(self, bra, ket, D2, *inv):
-        self._put_SD2_(bra, ket, D2 * self.get_ovlp_fac (bra, ket, *inv))
-#       if bra==ket: D1 /= 2
-#        for bra1, ket1 in self._gen_addr_range_spectator (bra, ket, *inv):
-#            self._put_SD2_(bra1, ket1, D2 * self.get_ovlp_fac (bra1, ket1, *inv))
+#        self._put_SD2_(bra, ket, D2 * self.get_ovlp_fac (bra, ket, *inv))
+        for bra1, ket1 in self._gen_addr_range_spectator (bra, ket, *inv):
+            self._put_SD2_(bra1, ket1, D2 * self.get_ovlp_fac (bra1, ket1, *inv))
 
 
     def _put_SD2_(self, bra, ket, D2, *inv):
@@ -877,11 +877,11 @@ class LSTDMint2 (object):
         the same spin-up and spin-down electron numbers on all fragments (For instance, bra=ket)
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        for i, inti in enumerate (self.ints):
-            self._crunch_1d_(bra, ket, i)
-            for j, intj in enumerate (self.ints[:i]):
+        for i in range (self.nfrags):
+            self._loop_lroots_(self._crunch_1d_, bra, ket, i)
+            for j in range (i):
                 assert (i>j)
-                self._crunch_2d_(bra, ket, i, j)
+                self._loop_lroots_(self._crunch_2d_, bra, ket, i, j)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
 
@@ -960,16 +960,13 @@ class LSTDMint2 (object):
         _crunch_1c_tdm2 (d2_ijjj, p, q, r, s, r, s)
         self._put_D1_(bra, ket, d1, i, j)
         self._put_D2_(bra, ket, d2, i, j)
-        # spectator fragment mean-field (should automatically be in Mulliken order)
-        for k in range (self.nfrags):
-            if k in (i, j): continue
-            self._crunch_1c1d_(bra, ket, i, j, k, s1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
 
     def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a coupled electron-hop and
         density fluctuation.'''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d2 = self._get_D2_(bra, ket)
         inti, intj, intk = self.ints[i], self.ints[j], self.ints[k]
         p, q = self.get_range (i)
@@ -995,9 +992,9 @@ class LSTDMint2 (object):
         d1_skk = self.ints[k].get_dm1 (bra, ket)
         d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
         _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
-        err = np.einsum ('pqqp->', d2[1] + d2[2]) / 2
-        assert (err == 0), '{} {} {} {} {}'.format (bra, ket, i, j, err)
         self._put_D2_(bra, ket, d2, i, j, k)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
 
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
@@ -1128,29 +1125,29 @@ class LSTDMint2 (object):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
 
     def _loop_lroots_(self, _crunch_fn, *row):
-        bra0, bra1 = self.offs_lroots[row[0]]
-        ket0, ket1 = self.offs_lroots[row[1]]
-#        if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
-#            inv = row[2:-1]
-#        else:
-#            inv = row[2:]
-#        bra_rng = self._gen_addr_range (row[0], *inv)
-#        ket_rng = self._gen_addr_range (row[1], *inv)
+        if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
+            inv = row[2:-1]
+        else:
+            inv = row[2:]
+        bra_rng = self._gen_addr_range (row[0], *inv)
+        ket_rng = self._gen_addr_range (row[1], *inv)
         lrow = [l for l in row]
-        for lrow[0], lrow[1] in product (range (bra0, bra1), range (ket0, ket1)):
+        for lrow[0], lrow[1] in product (bra_rng, ket_rng):
             _crunch_fn (*lrow)
 
     def _crunch_all_(self):
-        for row in self.exc_null: self._loop_lroots_(self._crunch_null_, *row)
-        for row in self.exc_1c: self._loop_lroots_(self._crunch_1c_, *row)
+        for row in self.exc_null: self._crunch_null_(*row)
+        for row in self.exc_1c: 
+            bra, ket, i, j, s = row
+            self._loop_lroots_(self._crunch_1c_, bra, ket, i, j, s)
+            for k in range (self.nfrags):
+                if k in (i, j): continue
+                self._loop_lroots_(self._crunch_1c1d_, bra, ket, i, j, k, s)
         for row in self.exc_1s: self._loop_lroots_(self._crunch_1s_, *row)
         for row in self.exc_1s1c: self._loop_lroots_(self._crunch_1s1c_, *row)
         for row in self.exc_2c: self._loop_lroots_(self._crunch_2c_, *row)
-        for i0, i1 in self.offs_lroots:
-            for bra, ket in combinations (range (i0, i1), 2):
-                self._crunch_null_(bra, ket)
         self._add_transpose_()
-        for state in range (self.nstates): self._crunch_null_(state, state)
+        for space in range (self.nroots): self._crunch_null_(space, space)
 
     def _add_transpose_(self):
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
