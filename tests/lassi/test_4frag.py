@@ -112,7 +112,7 @@ class KnownValues(unittest.TestCase):
         d12_o0 = make_stdm12s (las, opt=0)
         d12_o1 = make_stdm12s (las, opt=1)
         for r in range (2):
-            for i, j in product (range (nroots), repeat=2):
+            for i, j in product (range (si.shape[0]), repeat=2):
                 with self.subTest (rank=r+1, bra=i, ket=j):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i,...,j]),
                         lib.fp (d12_o1[r][i,...,j]), 9)
