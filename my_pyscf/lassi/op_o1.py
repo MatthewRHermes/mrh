@@ -912,22 +912,23 @@ class LSTDMint2 (object):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1, *inv):
-        for bra1, ket1, wgt in zip (*self._get_addr_ovlp_product (bra, ket, *inv)):
-            self._put_SD1_(bra1, ket1, D1 * wgt)
+        bra1, ket1, wgt = self._get_addr_ovlp_product (bra, ket, *inv)
+        self._put_SD1_(bra1, ket1, D1, wgt)
 
-    def _put_SD1_(self, bra, ket, D1):    
-        self.tdm1s[bra,ket] += D1
+    def _put_SD1_(self, bra, ket, D1, wgt):
+        self.tdm1s[bra,ket,:] += np.multiply.outer (wgt, D1)
 
     def _put_D2_(self, bra, ket, D2, *inv):
-        for bra1, ket1, wgt in zip (*self._get_addr_ovlp_product (bra, ket, *inv)):
-            self._put_SD2_(bra1, ket1, D2 * wgt)
+        bra1, ket1, wgt = self._get_addr_ovlp_product (bra, ket, *inv)
+        self._put_SD2_(bra1, ket1, D2, wgt)
 
-    def _put_SD2_(self, bra, ket, D2, *inv):
-        self.tdm2s[bra,ket] += D2
+    def _put_SD2_(self, bra, ket, D2, wgt):
+        self.tdm2s[bra,ket,:] += np.multiply.outer (wgt, D2)
 
     # Cruncher functions
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         d1 = self._get_D1_(bra, ket)
         d2 = self._get_D2_(bra, ket)
         p, q = self.get_range (i)
@@ -937,6 +938,8 @@ class LSTDMint2 (object):
         d2[:,p:q,p:q,p:q,p:q] = np.asarray (inti.get_dm2 (bra, ket))
         self._put_D1_(bra, ket, d1, i)
         self._put_D2_(bra, ket, d2, i)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
 
     def _crunch_2d_(self, bra, ket, i, j):
         '''Compute a two-fragment density fluctuation.'''
@@ -955,6 +958,8 @@ class LSTDMint2 (object):
         d2[(0,3),p:q,r:s,r:s,p:q] = -d2_s_iijj[(0,3),...].transpose (0,1,4,3,2)
         d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
         self._put_D2_(bra, ket, d2, i, j)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
         '''Compute the reduced density matrix elements of a single electron hop; i.e.,
@@ -1242,18 +1247,26 @@ class HamS2ovlpint (LSTDMint2):
         self.h1 = h1
         self.h2 = h2
 
-    def _put_SD1_(self, bra, ket, D1):
-        self.ham[bra,ket] += np.dot (self.h1.ravel (), D1.ravel ())
+    def _put_D1_(self, bra, ket, D1, *inv):
+        ham = np.dot (self.h1.ravel (), D1.ravel ())
         M1 = D1[0] - D1[1]
         D1 = D1.sum (0)
         #self.s2[bra,ket] += (np.trace (M1)/2)**2 + np.trace (D1)/2
-        self.s2[bra,ket] += 3*np.trace (D1)/4
+        s2 = 3*np.trace (D1)/4
+        bra1, ket1, wgt = self._get_addr_ovlp_product (bra, ket, *inv)
+        self._put_ham_s2_(bra1, ket1, ham, s2, wgt)
 
-    def _put_SD2_(self, bra, ket, D2):
-        self.ham[bra,ket] += np.dot (self.h2.ravel (), D2.sum (0).ravel ()) / 2
+    def _put_ham_s2_(self, bra, ket, ham, s2, wgt):
+        self.ham[bra,ket] += wgt * ham
+        self.s2[bra,ket] += wgt * s2
+
+    def _put_D2_(self, bra, ket, D2, *inv):
+        ham = np.dot (self.h2.ravel (), D2.sum (0).ravel ()) / 2
         M2 = np.einsum ('sppqq->s', D2) / 4
-        self.s2[bra,ket] += M2[0] + M2[3] - M2[1] - M2[2]
-        self.s2[bra,ket] -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
+        s2 = M2[0] + M2[3] - M2[1] - M2[2]
+        s2 -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
+        bra1, ket1, wgt = self._get_addr_ovlp_product (bra, ket, *inv)
+        self._put_ham_s2_(bra1, ket1, ham, s2, wgt)
 
     def _add_transpose_(self):
         self.ham += self.ham.T
@@ -1319,11 +1332,13 @@ class LRRDMint (LSTDMint2):
         self.si_dm = np.stack ([np.dot (si[:,i:i+1],si[:,i:i+1].conj ().T)
             for i in range (self.nroots_si)], axis=-1)
 
-    def _put_SD1_(self, bra, ket, D1):
-        self.rdm1s[:] += np.multiply.outer (self.si_dm[bra,ket,:], D1)
+    def _put_SD1_(self, bra, ket, D1, wgt):
+        fac = np.dot (wgt, self.si_dm[bra,ket])
+        self.rdm1s[:] += np.multiply.outer (fac, D1)
 
-    def _put_SD2_(self, bra, ket, D2):
-        self.rdm2s[:] += np.multiply.outer (self.si_dm[bra,ket,:], D2)
+    def _put_SD2_(self, bra, ket, D2, wgt):
+        wgt = np.dot (wgt, self.si_dm[bra,ket])
+        self.rdm2s[:] += np.multiply.outer (wgt, D2)
 
     def _add_transpose_(self):
         self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
