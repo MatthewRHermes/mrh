@@ -654,7 +654,10 @@ class LSTDMint2 (object):
 
         exc = self.make_exc_tables (hopping_index)
         self.exc_null = self.mask_exc_table (exc['null'], mask_bra_space, mask_ket_space)
+        self.exc_1d = self.mask_exc_table (exc['1d'], mask_bra_space, mask_ket_space)
+        self.exc_2d = self.mask_exc_table (exc['2d'], mask_bra_space, mask_ket_space)
         self.exc_1c = self.mask_exc_table (exc['1c'], mask_bra_space, mask_ket_space)
+        self.exc_1c1d = self.mask_exc_table (exc['1c1d'], mask_bra_space, mask_ket_space)
         self.exc_1s = self.mask_exc_table (exc['1s'], mask_bra_space, mask_ket_space)
         self.exc_1s1c = self.mask_exc_table (exc['1s1c'], mask_bra_space, mask_ket_space)
         self.exc_2c = self.mask_exc_table (exc['2c'], mask_bra_space, mask_ket_space)
@@ -690,7 +693,10 @@ class LSTDMint2 (object):
         '''
         exc = {}
         exc['null'] = np.empty ((0,2), dtype=int)
+        exc['1d'] = np.empty ((0,3), dtype=int)
+        exc['2d'] = np.empty ((0,4), dtype=int)
         exc['1c'] = np.empty ((0,5), dtype=int)
+        exc['1c1d'] = np.empty ((0,6), dtype=int)
         exc['1s'] = np.empty ((0,4), dtype=int)
         exc['1s1c'] = np.empty ((0,5), dtype=int)
         exc['2c'] = np.empty ((0,7), dtype=int)
@@ -740,11 +746,34 @@ class LSTDMint2 (object):
         idx = conserv_index & tril_index & (nop == 0)
         exc['null'] = np.vstack (list (np.where (idx))).T
  
+        # One-density interactions
+        fragrng = np.arange (nfrags, dtype=int)
+        exc['1d'] = np.append (np.repeat (exc['null'], nfrags, axis=0),
+                               np.tile (fragrng, len (exc['null']))[:,None],
+                               axis=1)
+
+        # Two-density interactions
+        if nfrags > 1:
+            fragrng = np.stack (np.tril_indices (nfrags, k=-1), axis=1)
+            exc['2d'] = np.append (np.repeat (exc['null'], len (fragrng), axis=0),
+                                   np.tile (fragrng, (len (exc['null']), 1)),
+                                   axis=1)
+
         # One-electron interactions
         idx = conserv_index & (nop == 2) & tril_index
         if nfrags > 1: exc['1c'] = np.vstack (
             list (np.where (idx)) + [findf[-1][idx], findf[0][idx], ispin[idx]]
         ).T
+
+        # One-electron, one-density interactions
+        if nfrags > 2:
+            fragrng = np.arange (nfrags, dtype=int)
+            exc['1c1d'] = np.append (np.repeat (exc['1c'], nfrags, axis=0),
+                                     np.tile (fragrng, len (exc['1c']))[:,None],
+                                     axis=1)
+            invalid = ((exc['1c1d'][:,2] == exc['1c1d'][:,5])
+                       | (exc['1c1d'][:,3] == exc['1c1d'][:,5]))
+            exc['1c1d'] = exc['1c1d'][~invalid,:][:,[0,1,2,3,5,4]]
 
         # Unsymmetric two-electron interactions: full square
         idx_2e = conserv_index & (nop == 4)
@@ -1149,13 +1178,10 @@ class LSTDMint2 (object):
             _crunch_fn (*lrow)
 
     def _crunch_all_(self):
-        for row in self.exc_null: self._crunch_null_(*row)
-        for row in self.exc_1c: 
-            bra, ket, i, j, s = row
-            self._loop_lroots_(self._crunch_1c_, bra, ket, i, j, s)
-            for k in range (self.nfrags):
-                if k in (i, j): continue
-                self._loop_lroots_(self._crunch_1c1d_, bra, ket, i, j, k, s)
+        for row in self.exc_1d: self._loop_lroots_(self._crunch_1d_, *row)
+        for row in self.exc_2d: self._loop_lroots_(self._crunch_2d_, *row)
+        for row in self.exc_1c: self._loop_lroots_(self._crunch_1c_, *row)
+        for row in self.exc_1c1d: self._loop_lroots_(self._crunch_1c1d_, *row)
         for row in self.exc_1s: self._loop_lroots_(self._crunch_1s_, *row)
         for row in self.exc_1s1c: self._loop_lroots_(self._crunch_1s1c_, *row)
         for row in self.exc_2c: self._loop_lroots_(self._crunch_2c_, *row)
@@ -1256,7 +1282,7 @@ class HamS2ovlpint (LSTDMint2):
         def crunch_ovlp (bra_sp, ket_sp):
             i = self.ints[-1]
             b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
-            o = i.ovlp[b][k]
+            o = i.ovlp[b][k] / (1 + int (bra_sp==ket_sp))
             for i in self.ints[-2::-1]:
                 b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
                 o = np.multiply.outer (o, i.ovlp[b][k]).transpose (0,2,1,3)
@@ -1268,7 +1294,6 @@ class HamS2ovlpint (LSTDMint2):
             ovlp[i0:i1,j0:j1] = o
         for bra_sp, ket_sp in self.exc_null: crunch_ovlp (bra_sp, ket_sp)
         ovlp += ovlp.T
-        for iroot in range (self.nroots): crunch_ovlp (iroot, iroot)
         return self.ham, self.s2, ovlp, t0
 
 class LRRDMint (LSTDMint2):
