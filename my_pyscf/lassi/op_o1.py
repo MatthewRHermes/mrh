@@ -689,7 +689,7 @@ class LSTDMint2 (object):
         Returns:
             exc: dict with str keys and ndarray-of-int values. Each row of each ndarray is the
                 argument list for 1 call to the LSTDMint2._crunch_*_ function with the name that
-                corresponds to the key str (_crunch_null_, _crunch_1s_, etc.).
+                corresponds to the key str (_crunch_1d_, _crunch_1s_, etc.).
         '''
         exc = {}
         exc['null'] = np.empty ((0,2), dtype=int)
@@ -894,39 +894,20 @@ class LSTDMint2 (object):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1, *inv):
-#        self._put_SD1_(bra, ket, D1 * self.get_ovlp_fac (bra, ket, *inv))
         for bra1, ket1, wgt in self._gen_addr_range_spectator (bra, ket, *inv):
-            #self._put_SD1_(bra1, ket1, D1 * self.get_ovlp_fac (bra1, ket1, *inv))
             self._put_SD1_(bra1, ket1, D1 * wgt)
-
 
     def _put_SD1_(self, bra, ket, D1):    
         self.tdm1s[bra,ket] += D1
 
     def _put_D2_(self, bra, ket, D2, *inv):
-#        self._put_SD2_(bra, ket, D2 * self.get_ovlp_fac (bra, ket, *inv))
         for bra1, ket1, wgt in self._gen_addr_range_spectator (bra, ket, *inv):
-            #self._put_SD2_(bra1, ket1, D2 * self.get_ovlp_fac (bra1, ket1, *inv))
             self._put_SD2_(bra1, ket1, D2 * wgt)
-
 
     def _put_SD2_(self, bra, ket, D2, *inv):
         self.tdm2s[bra,ket] += D2
 
     # Cruncher functions
-    def _crunch_null_(self, bra, ket):
-        '''Compute the reduced density matrix elements between states bra and ket which have the
-        the same spin-up and spin-down electron numbers on all fragments (For instance, bra=ket)
-        '''
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
-        for i in range (self.nfrags):
-            self._loop_lroots_(self._crunch_1d_, bra, ket, i)
-            for j in range (i):
-                assert (i>j)
-                self._loop_lroots_(self._crunch_2d_, bra, ket, i, j)
-        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
-
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
         d1 = self._get_D1_(bra, ket)
@@ -1116,8 +1097,8 @@ class LSTDMint2 (object):
         Note that this includes i=k and/or j=l cases, but no other coincident fragment indices. Any
         other coincident fragment index (that is, any coincident index between the bra and the ket)
         turns this into one of the other interactions implemented in the above _crunch_ functions:
-        s1 = s2  AND SORT (ik) = SORT (jl)                 : _crunch_null_
-        s1 = s2  AND (i = j XOR i = l XOR j = k XOR k = l) : _crunch_1c_
+        s1 = s2  AND SORT (ik) = SORT (jl)                 : _crunch_1d_ and _crunch_2d_
+        s1 = s2  AND (i = j XOR i = l XOR j = k XOR k = l) : _crunch_1c_ and _crunch_1c1d_
         s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
         s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
         '''
@@ -1390,9 +1371,6 @@ class ContractHamCI (LSTDMint2):
                                              dtype=self.dtype).transpose (1,2,3,0))
             hci_fr_pabq.append (hci_r_pabq)
         return hci_fr_pabq
-
-    def _crunch_null_(self, bra, ket):
-        raise NotImplementedError
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
         '''Perform a single electron hop; i.e.,
