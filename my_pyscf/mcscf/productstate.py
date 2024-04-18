@@ -30,10 +30,12 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         converged = False
         e_sigma = 0
         e = [0 for n in norb_f]
-        ci1 = self.get_init_guess (ci0, norb_f, nelec_f, h1, h2)
+        ci1 = ci0
         log.info ('Entering product-state fixed-point CI iteration')
         for it in range (max_cycle_macro):
-            ci0 = ci1
+            ci0 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2)
+            # Issue #86: put get_init_guess INSIDE the iteration in case _1shot below encounters
+            # linear dependencies and can't populate all CI vectors for all fragments.
             h1eff, h0eff, ci0 = self.project_hfrag (h1, h2, ci0, norb_f, nelec_f,
                 ecore=ecore, **kwargs)
             grad = self._get_grad (h1eff, h2, ci0, norb_f, nelec_f, **kwargs)
@@ -61,6 +63,26 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         return converged, energy_elec, ci1
 
     def get_init_guess (self, ci0, norb_f, nelec_f, h1, h2):
+        '''Generate CI guess vectors for all fragments.
+
+        Args:
+            ci0: list of length nfrag or None
+                Contains either None or ndarrays of guess CI vectors. Any new guess CI vectors
+                constructed by this function are constrained to be orthogonal to those already
+                provided here, if any.
+            norb_f: list of length nfrag of integers
+                Number of orbitals in each fragment
+            nelec_f: list of length nfrag of integers
+                Number of electrons (in reference state) in each fragment
+            h1: ndarray of shape (ncas,ncas) or (2,ncas,ncas)
+                One-electron Hamiltonian amplitudes
+            h2: ndarray of shape (ncas,ncas,ncas,ncas)
+                Two-electron Hamiltonian amplitudes
+
+        Returns:
+            ci1: list of length nfrag of ndarrays
+                Orthonormal guess CI vectors. Any vectors present in ci0 are preserved unaltered.
+        '''
         if ci0 is None: ci0 = [None for i in range (len (norb_f))]
         ci1 = [c for c in ci0] # reference safety
         if h1.ndim < 3: h1 = np.stack ([h1, h1], axis=0)
