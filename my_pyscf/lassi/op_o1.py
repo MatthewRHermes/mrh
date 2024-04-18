@@ -829,7 +829,11 @@ class LSTDMint2 (object):
             yield addr0+offs
 
     def _gen_addr_range_spectator (self, bra, ket, *inv):
+        inv = list (set (inv))
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
+        fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
+        fac *= fermion_frag_shuffle (self.nelec_rf[rbra], inv)
+        fac *= fermion_frag_shuffle (self.nelec_rf[rket], inv)
         bra0, bra1 = self.offs_lroots[rbra]
         ket0, ket1 = self.offs_lroots[rket]
         dbra, dket = bra - bra0, ket - ket0
@@ -838,12 +842,18 @@ class LSTDMint2 (object):
         spec = np.where (spec)[0]
         bra_rng = self._gen_addr_range (rbra, *spec)
         ket_rng = self._gen_addr_range (rket, *spec)
-        for bra_spec, ket_spec in product (bra_rng, ket_rng):
+        specints = [self.ints[i] for i in spec[::-1]]
+        o = fac * np.ones ((1,1), dtype=self.dtype)
+        for i in specints:
+            b, k = i.unique_root[rbra], i.unique_root[rket]
+            o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
+            o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
+        for (bra_spec, ket_spec), wgt in zip (product (bra_rng, ket_rng), o.ravel ()):
             bra2 = bra_spec + dbra
             ket2 = ket_spec + dket
             assert (bra2 < bra1)
             assert (ket2 < ket1)
-            yield bra2, ket2
+            yield bra2, ket2, wgt
 
     def _get_D1_(self, bra, ket):
         self.d1[:] = 0.0
@@ -855,8 +865,9 @@ class LSTDMint2 (object):
 
     def _put_D1_(self, bra, ket, D1, *inv):
 #        self._put_SD1_(bra, ket, D1 * self.get_ovlp_fac (bra, ket, *inv))
-        for bra1, ket1 in self._gen_addr_range_spectator (bra, ket, *inv):
-            self._put_SD1_(bra1, ket1, D1 * self.get_ovlp_fac (bra1, ket1, *inv))
+        for bra1, ket1, wgt in self._gen_addr_range_spectator (bra, ket, *inv):
+            #self._put_SD1_(bra1, ket1, D1 * self.get_ovlp_fac (bra1, ket1, *inv))
+            self._put_SD1_(bra1, ket1, D1 * wgt)
 
 
     def _put_SD1_(self, bra, ket, D1):    
@@ -864,8 +875,9 @@ class LSTDMint2 (object):
 
     def _put_D2_(self, bra, ket, D2, *inv):
 #        self._put_SD2_(bra, ket, D2 * self.get_ovlp_fac (bra, ket, *inv))
-        for bra1, ket1 in self._gen_addr_range_spectator (bra, ket, *inv):
-            self._put_SD2_(bra1, ket1, D2 * self.get_ovlp_fac (bra1, ket1, *inv))
+        for bra1, ket1, wgt in self._gen_addr_range_spectator (bra, ket, *inv):
+            #self._put_SD2_(bra1, ket1, D2 * self.get_ovlp_fac (bra1, ket1, *inv))
+            self._put_SD2_(bra1, ket1, D2 * wgt)
 
 
     def _put_SD2_(self, bra, ket, D2, *inv):
