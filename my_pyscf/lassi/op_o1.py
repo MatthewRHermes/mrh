@@ -627,8 +627,9 @@ class LSTDMint2 (object):
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
     def __init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=None, mask_ket_space=None,
-                 dtype=np.float64):
+                 log=None, dtype=np.float64):
         self.ints = ints
+        self.log = log
         self.nlas = nlas
         self.norb = sum (nlas)
         self.lroots = lroots
@@ -653,14 +654,14 @@ class LSTDMint2 (object):
         self.nelec_rf = self.nelec_rf.sum (1)
 
         exc = self.make_exc_tables (hopping_index)
-        self.exc_null = self.mask_exc_table (exc['null'], mask_bra_space, mask_ket_space)
-        self.exc_1d = self.mask_exc_table (exc['1d'], mask_bra_space, mask_ket_space)
-        self.exc_2d = self.mask_exc_table (exc['2d'], mask_bra_space, mask_ket_space)
-        self.exc_1c = self.mask_exc_table (exc['1c'], mask_bra_space, mask_ket_space)
-        self.exc_1c1d = self.mask_exc_table (exc['1c1d'], mask_bra_space, mask_ket_space)
-        self.exc_1s = self.mask_exc_table (exc['1s'], mask_bra_space, mask_ket_space)
-        self.exc_1s1c = self.mask_exc_table (exc['1s1c'], mask_bra_space, mask_ket_space)
-        self.exc_2c = self.mask_exc_table (exc['2c'], mask_bra_space, mask_ket_space)
+        self.exc_null = self.mask_exc_table (exc['null'], 'null', mask_bra_space, mask_ket_space)
+        self.exc_1d = self.mask_exc_table (exc['1d'], '1d', mask_bra_space, mask_ket_space)
+        self.exc_2d = self.mask_exc_table (exc['2d'], '2d', mask_bra_space, mask_ket_space)
+        self.exc_1c = self.mask_exc_table (exc['1c'], '1c', mask_bra_space, mask_ket_space)
+        self.exc_1c1d = self.mask_exc_table (exc['1c1d'], '1c1d', mask_bra_space, mask_ket_space)
+        self.exc_1s = self.mask_exc_table (exc['1s'], '1s', mask_bra_space, mask_ket_space)
+        self.exc_1s1c = self.mask_exc_table (exc['1s1c'], '1s1c', mask_bra_space, mask_ket_space)
+        self.exc_2c = self.mask_exc_table (exc['2c'], '2c', mask_bra_space, mask_ket_space)
         self.init_profiling ()
 
         # buffer
@@ -821,10 +822,26 @@ class LSTDMint2 (object):
 
         return exc
 
-    def mask_exc_table (self, exc, mask_bra_space=None, mask_ket_space=None):
+    def mask_exc_table (self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
         # TODO: PROBLEM: this transposes "bra" and "ket"
         exc = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         exc = mask_exc_table (exc, col=1, mask_space=mask_ket_space)
+        excp = exc[:,:-1] if lbl in ('1c', '1c1d', '2c') else exc
+        fprint = []
+        for row in excp:
+            frow = []
+            bra, ket = row[:2]
+            frags = row[2:]
+            for frag in frags:
+                intf = self.ints[frag]
+                frow.extend ([frag, intf.unique_root[bra], intf.unique_root[ket]])
+            fprint.append (frow)
+        fprint = np.asarray (fprint)
+        nexc = len (exc)
+        nuniq = len (np.unique (fprint, axis=0))
+        if self.log is not None:
+            self.log.info ('%d/%d unique interactions of %s type',
+                           nuniq, nexc, lbl)
         return exc
 
     def get_range (self, i):
@@ -1217,7 +1234,7 @@ class HamS2ovlpint (LSTDMint2):
     # Hamiltonian in addition to h1 and h2, which are spin-symmetric
 
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
-                 mask_ket_space=None, dtype=np.float64):
+                 mask_ket_space=None, log=None, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
                            mask_ket_space=mask_ket_space, dtype=dtype)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
@@ -1294,7 +1311,7 @@ class LRRDMint (LSTDMint2):
     # spinorbital basis
 
     def __init__(self, ints, nlas, hopping_index, lroots, si, mask_bra_space=None,
-                 mask_ket_space=None, dtype=np.float64):
+                 mask_ket_space=None, log=None, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
                            mask_ket_space=mask_ket_space, dtype=dtype)
         self.nroots_si = si.shape[-1]
@@ -1342,7 +1359,8 @@ class ContractHamCI (LSTDMint2):
         h2 : ndarray of size ncas**4
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
-    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, nbra=1, dtype=np.float64):
+    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, nbra=1,
+                 log=None, dtype=np.float64):
         nfrags, _, nroots, _ = hopping_index.shape
         if nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
         nket = nroots - nbra
@@ -1531,6 +1549,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
         tdm2s : ndarray of shape (nroots,2,ncas,ncas,2,ncas,ncas,nroots)
             Contains 2-body LAS state transition density matrices
     '''
+    log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
     nroots = nelec_frs.shape[1]
@@ -1540,7 +1559,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LSTDMint2 (ints, nlas, hopping_index, lroots, dtype=ci[0][0].dtype)
+    outerprod = LSTDMint2 (ints, nlas, hopping_index, lroots, dtype=ci[0][0].dtype, log=log)
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)        
     tdm1s, tdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
@@ -1576,6 +1595,7 @@ def ham (las, h1, h2, ci, nelec_frs, **kwargs):
         ovlp : ndarray of shape (nroots,nroots)
             Overlap matrix of LAS product states
     '''
+    log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
 
     # First pass: single-fragment intermediates
@@ -1583,7 +1603,7 @@ def ham (las, h1, h2, ci, nelec_frs, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = HamS2ovlpint (ints, nlas, hopping_index, lroots, h1, h2, dtype=ci[0][0].dtype)
+    outerprod = HamS2ovlpint (ints, nlas, hopping_index, lroots, h1, h2, dtype=ci[0][0].dtype, log=log)
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)        
     ham, s2, ovlp, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)        
@@ -1611,6 +1631,7 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
         rdm2s : ndarray of shape (nroots_si,2,ncas,ncas,2,ncas,ncas)
             Spin-separated 2-body reduced density matrices of LASSI states
     '''
+    log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     ncas = las.ncas
     nroots_si = si.shape[-1]
@@ -1620,7 +1641,7 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDMint (ints, nlas, hopping_index, lroots, si, dtype=ci[0][0].dtype)
+    outerprod = LRRDMint (ints, nlas, hopping_index, lroots, si, dtype=ci[0][0].dtype, log=log)
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
     rdm1s, rdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
@@ -1669,6 +1690,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
+    log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     nfrags, nbra = nelec_frs_bra.shape[:2]
     nket = nelec_frs_ket.shape[1]
@@ -1681,7 +1703,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
     contracter = ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2, nbra=nbra,
-                                dtype=ci[0][0].dtype)
+                                dtype=ci[0][0].dtype, log=log)
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate indexing setup', *t0)        
     hket_fr_pabq, t0 = contracter.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
