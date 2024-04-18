@@ -826,6 +826,7 @@ class LSTDMint2 (object):
         # TODO: PROBLEM: this transposes "bra" and "ket"
         exc = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         exc = mask_exc_table (exc, col=1, mask_space=mask_ket_space)
+        if lbl=='null': return exc
         excp = exc[:,:-1] if lbl in ('1c', '1c1d', '2c') else exc
         fprint = []
         for row in excp:
@@ -839,9 +840,8 @@ class LSTDMint2 (object):
         fprint = np.asarray (fprint)
         nexc = len (exc)
         nuniq = len (np.unique (fprint, axis=0))
-        if self.log is not None:
-            self.log.info ('%d/%d unique interactions of %s type',
-                           nuniq, nexc, lbl)
+        self.log.info ('%d/%d unique interactions of %s type',
+                       nuniq, nexc, lbl)
         return exc
 
     def get_range (self, i):
@@ -874,7 +874,7 @@ class LSTDMint2 (object):
             assert (addr0+offs < addr1)
             yield addr0+offs
 
-    def _gen_addr_range_spectator (self, bra, ket, *inv):
+    def _get_addr_ovlp_product (self, bra, ket, *inv):
         inv = list (set (inv))
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
@@ -886,21 +886,22 @@ class LSTDMint2 (object):
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
-        bra_rng = self._gen_addr_range (rbra, *spec)
-        ket_rng = self._gen_addr_range (rket, *spec)
+        bra_rng = np.array ([x for x in self._gen_addr_range (rbra, *spec)]) + dbra
+        ket_rng = np.array ([x for x in self._gen_addr_range (rket, *spec)]) + dket
         specints = [self.ints[i] for i in spec[::-1]]
         o = fac * np.ones ((1,1), dtype=self.dtype)
         for i in specints:
             b, k = i.unique_root[rbra], i.unique_root[rket]
             o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
-        if (rbra==rket): o *= 0.5
-        for (bra_spec, ket_spec), wgt in zip (product (bra_rng, ket_rng), o.ravel ()):
-            bra2 = bra_spec + dbra
-            ket2 = ket_spec + dket
-            assert (bra2 < bra1)
-            assert (ket2 < ket1)
-            yield bra2, ket2, wgt
+        idx = np.abs(o) > 1e-8
+        if (rbra==rket):
+            o[np.diag_indices_from (o)] *= 0.5
+            idx[np.triu_indices_from (idx, k=1)] = False
+        o = o[idx]
+        idx, idy = np.where (idx)
+        bra_rng, ket_rng = bra_rng[idx], ket_rng[idy]
+        return bra_rng, ket_rng, o
 
     def _get_D1_(self, bra, ket):
         self.d1[:] = 0.0
@@ -911,14 +912,14 @@ class LSTDMint2 (object):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1, *inv):
-        for bra1, ket1, wgt in self._gen_addr_range_spectator (bra, ket, *inv):
+        for bra1, ket1, wgt in zip (*self._get_addr_ovlp_product (bra, ket, *inv)):
             self._put_SD1_(bra1, ket1, D1 * wgt)
 
     def _put_SD1_(self, bra, ket, D1):    
         self.tdm1s[bra,ket] += D1
 
     def _put_D2_(self, bra, ket, D2, *inv):
-        for bra1, ket1, wgt in self._gen_addr_range_spectator (bra, ket, *inv):
+        for bra1, ket1, wgt in zip (*self._get_addr_ovlp_product (bra, ket, *inv)):
             self._put_SD2_(bra1, ket1, D2 * wgt)
 
     def _put_SD2_(self, bra, ket, D2, *inv):
@@ -1236,7 +1237,7 @@ class HamS2ovlpint (LSTDMint2):
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, log=None, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
-                           mask_ket_space=mask_ket_space, dtype=dtype)
+                           mask_ket_space=mask_ket_space, log=log, dtype=dtype)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = h1
         self.h2 = h2
@@ -1313,7 +1314,7 @@ class LRRDMint (LSTDMint2):
     def __init__(self, ints, nlas, hopping_index, lroots, si, mask_bra_space=None,
                  mask_ket_space=None, log=None, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
-                           mask_ket_space=mask_ket_space, dtype=dtype)
+                           mask_ket_space=mask_ket_space, log=log, dtype=dtype)
         self.nroots_si = si.shape[-1]
         self.si_dm = np.stack ([np.dot (si[:,i:i+1],si[:,i:i+1].conj ().T)
             for i in range (self.nroots_si)], axis=-1)
@@ -1367,7 +1368,7 @@ class ContractHamCI (LSTDMint2):
         HamS2ovlpint.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                               mask_bra_space = list (range (nket, nroots)),
                               mask_ket_space = list (range (nket)),
-                              dtype=dtype)
+                              log=log, dtype=dtype)
         self.nbra = nbra
         self.hci_fr_pabq = self._init_vecs ()
 
@@ -1690,6 +1691,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             Element i,j is an ndarray of shape (ndim_bra//ci_fr_bra[i][j].shape[0],
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
+    log = lib.logger.new_logger (las, las.verbose)
     log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     nfrags, nbra = nelec_frs_bra.shape[:2]
