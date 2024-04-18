@@ -736,7 +736,7 @@ class LSTDMint2 (object):
 
         # Zero-electron interactions
         tril_index = np.zeros_like (conserv_index)
-        tril_index[np.tril_indices (self.nroots,k=-1)] = True
+        tril_index[np.tril_indices (self.nroots)] = True
         idx = conserv_index & tril_index & (nop == 0)
         exc['null'] = np.vstack (list (np.where (idx))).T
  
@@ -1150,7 +1150,6 @@ class LSTDMint2 (object):
 
     def _crunch_all_(self):
         for row in self.exc_null: self._crunch_null_(*row)
-        for space in range (self.nroots): self._crunch_null_(space, space)
         for row in self.exc_1c: 
             bra, ket, i, j, s = row
             self._loop_lroots_(self._crunch_1c_, bra, ket, i, j, s)
