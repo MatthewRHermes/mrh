@@ -848,6 +848,7 @@ class LSTDMint2 (object):
             b, k = i.unique_root[rbra], i.unique_root[rket]
             o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
+        if (rbra==rket): o *= 0.5
         for (bra_spec, ket_spec), wgt in zip (product (bra_rng, ket_rng), o.ravel ()):
             bra2 = bra_spec + dbra
             ket2 = ket_spec + dket
@@ -1149,6 +1150,7 @@ class LSTDMint2 (object):
 
     def _crunch_all_(self):
         for row in self.exc_null: self._crunch_null_(*row)
+        for space in range (self.nroots): self._crunch_null_(space, space)
         for row in self.exc_1c: 
             bra, ket, i, j, s = row
             self._loop_lroots_(self._crunch_1c_, bra, ket, i, j, s)
@@ -1159,7 +1161,6 @@ class LSTDMint2 (object):
         for row in self.exc_1s1c: self._loop_lroots_(self._crunch_1s1c_, *row)
         for row in self.exc_2c: self._loop_lroots_(self._crunch_2c_, *row)
         self._add_transpose_()
-        for space in range (self.nroots): self._crunch_null_(space, space)
 
     def _add_transpose_(self):
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
