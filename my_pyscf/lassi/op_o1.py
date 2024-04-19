@@ -950,7 +950,7 @@ class LSTDMint2 (object):
                 Indices of model states in which fragments *inv have the same state as bra
             ket_rng: ndarray of integers
                 Indices of model states in which fragments *inv have the same state as ket
-            o: ndarray of floats
+            facs: ndarray of floats
                 Overlap * permutation factors (cf. get_ovlp_fac) corresponding to the interactions
                 bra_rng, ket_rng.
         '''
@@ -959,60 +959,61 @@ class LSTDMint2 (object):
         ketenv = self.envaddr[ket]
         key = tuple ((rbra,rket)) + inv
         braket_table = self.nonuniq_exc[key]
-        images = []
+        bra_rng = []
+        ket_rng = []
+        facs = []
         for rbra1, rket1 in braket_table:
             dbra = np.dot (braenv, self.strides[rbra1])
             bra1 = self.offs_lroots[rbra1][0] + dbra
             dket = np.dot (ketenv, self.strides[rket1])
             ket1 = self.offs_lroots[rket1][0] + dket
-            images.append (self._get_spec_addr_ovlp_1space (bra1, ket1, *inv))
-        bra_rng = np.concatenate ([i[0] for i in images])
-        ket_rng = np.concatenate ([i[1] for i in images])
-        o = np.concatenate ([i[2] for i in images])
-        return bra_rng, ket_rng, o
+            b, k, o = self._get_spec_addr_ovlp_1space (rbra1, rket1, *inv)
+            bra_rng.append (b+dbra)
+            ket_rng.append (k+dket)
+            facs.append (o)
+        bra_rng = np.concatenate (bra_rng)
+        ket_rng = np.concatenate (ket_rng)
+        facs = np.concatenate (facs)
+        return bra_rng, ket_rng, facs
 
-    def _get_spec_addr_ovlp_1space (self, bra, ket, *inv):
+    def _get_spec_addr_ovlp_1space (self, rbra, rket, *inv):
         '''Obtain the integer indices and overlap*permutation factors for all pairs of model states
         in the same rootspaces as bra, ket for which a specified list of nonspectator fragments are
         also in same state that they are in a provided input pair bra, ket.
 
         Args:
-            bra: integer
-                Index of a model state
-            ket: integer
-                Index of a model state
+            rbra: integer
+                Index of a rootspace
+            rket: integer
+                Index of a rootspace
             *inv: integers
                 Indices of nonspectator fragments.
 
         Returns:
             bra_rng: ndarray of integers
-                Indices of model states in the rootspace of bra in which fragments *inv have the
-                same state as bra
+                Indices of model states in the rootspace of bra in which fragments *inv are in the
+                zero state
             ket_rng: ndarray of integers
-                Indices of model states in the rootspace of ket in which fragments *inv have the
-                same state as ket
+                Indices of model states in the rootspace of ket in which fragments *inv are in the
+                zero_state
             o: ndarray of floats
                 Overlap * permutation factors (cf. get_ovlp_fac) corresponding to the interactions
                 bra_rng, ket_rng.
         '''
         inv = list (set (inv))
-        rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
         fac *= fermion_frag_shuffle (self.nelec_rf[rbra], inv)
         fac *= fermion_frag_shuffle (self.nelec_rf[rket], inv)
-        bra0, bra1 = self.offs_lroots[rbra]
-        ket0, ket1 = self.offs_lroots[rket]
-        dbra, dket = bra - bra0, ket - ket0
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
-        bra_rng = self._get_addr_range (rbra, *spec) + dbra
-        ket_rng = self._get_addr_range (rket, *spec) + dket
-        specints = [self.ints[i] for i in spec[::-1]]
+        bra_rng = self._get_addr_range (rbra, *spec)
+        ket_rng = self._get_addr_range (rket, *spec)
+        specints = [self.ints[i] for i in spec]
         o = fac * np.ones ((1,1), dtype=self.dtype)
         for i in specints:
             b, k = i.unique_root[rbra], i.unique_root[rket]
-            o = np.multiply.outer (o, i.ovlp[b][k]).transpose (0,2,1,3)
+            o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
         if (rbra==rket): # not bra==ket because _loop_lroots_ doesn't restrict to tril
