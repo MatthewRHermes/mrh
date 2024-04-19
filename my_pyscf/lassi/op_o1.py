@@ -654,14 +654,15 @@ class LSTDMint2 (object):
         self.nelec_rf = self.nelec_rf.sum (1)
 
         exc = self.make_exc_tables (hopping_index)
-        self.exc_null = self.mask_exc_table (exc['null'], 'null', mask_bra_space, mask_ket_space)
-        self.exc_1d = self.mask_exc_table (exc['1d'], '1d', mask_bra_space, mask_ket_space)
-        self.exc_2d = self.mask_exc_table (exc['2d'], '2d', mask_bra_space, mask_ket_space)
-        self.exc_1c = self.mask_exc_table (exc['1c'], '1c', mask_bra_space, mask_ket_space)
-        self.exc_1c1d = self.mask_exc_table (exc['1c1d'], '1c1d', mask_bra_space, mask_ket_space)
-        self.exc_1s = self.mask_exc_table (exc['1s'], '1s', mask_bra_space, mask_ket_space)
-        self.exc_1s1c = self.mask_exc_table (exc['1s1c'], '1s1c', mask_bra_space, mask_ket_space)
-        self.exc_2c = self.mask_exc_table (exc['2c'], '2c', mask_bra_space, mask_ket_space)
+        self.nonuniq_exc = {}
+        self.exc_null = self.mask_exc_table_(exc['null'], 'null', mask_bra_space, mask_ket_space)
+        self.exc_1d = self.mask_exc_table_(exc['1d'], '1d', mask_bra_space, mask_ket_space)
+        self.exc_2d = self.mask_exc_table_(exc['2d'], '2d', mask_bra_space, mask_ket_space)
+        self.exc_1c = self.mask_exc_table_(exc['1c'], '1c', mask_bra_space, mask_ket_space)
+        self.exc_1c1d = self.mask_exc_table_(exc['1c1d'], '1c1d', mask_bra_space, mask_ket_space)
+        self.exc_1s = self.mask_exc_table_(exc['1s'], '1s', mask_bra_space, mask_ket_space)
+        self.exc_1s1c = self.mask_exc_table_(exc['1s1c'], '1s1c', mask_bra_space, mask_ket_space)
+        self.exc_2c = self.mask_exc_table_(exc['2c'], '2c', mask_bra_space, mask_ket_space)
         self.init_profiling ()
 
         # buffer
@@ -822,7 +823,7 @@ class LSTDMint2 (object):
 
         return exc
 
-    def mask_exc_table (self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
+    def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
         # TODO: PROBLEM: this transposes "bra" and "ket"
         exc = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         exc = mask_exc_table (exc, col=1, mask_space=mask_ket_space)
@@ -839,7 +840,14 @@ class LSTDMint2 (object):
             fprint.append (frow)
         fprint = np.asarray (fprint)
         nexc = len (exc)
-        nuniq = len (np.unique (fprint, axis=0))
+        _, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
+        eqmap = idx[inv]
+        for uniq_idx in idx:
+            row_uniq = excp[uniq_idx]
+            braket_images = exc[:,:2][eqmap==uniq_idx]
+            self.nonuniq_exc[tuple(row_uniq)] = braket_images
+        exc = exc[idx]
+        nuniq = len (idx)
         self.log.info ('%d/%d unique interactions of %s type',
                        nuniq, nexc, lbl)
         return exc
@@ -875,6 +883,26 @@ class LSTDMint2 (object):
             yield addr0+offs
 
     def _get_addr_ovlp_product (self, bra, ket, *inv):
+        rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
+        braenv = [inti.fragaddr[bra] for inti in self.ints]
+        ketenv = [inti.fragaddr[ket] for inti in self.ints]
+        key = tuple ((rbra,rket)) + inv
+        braket_table = self.nonuniq_exc[key]
+        images = []
+        for rbra1, rket1 in braket_table:
+            strides = np.append ([1], np.cumprod (self.lroots[:-1,rbra1]))
+            dbra = np.dot (braenv, strides)
+            bra1 = self.offs_lroots[rbra1][0] + dbra
+            strides = np.append ([1], np.cumprod (self.lroots[:-1,rket1]))
+            dket = np.dot (ketenv, strides)
+            ket1 = self.offs_lroots[rket1][0] + dket
+            images.append (self._get_addr_ovlp_product1 (bra1, ket1, *inv))
+        bra_rng = np.concatenate ([i[0] for i in images])
+        ket_rng = np.concatenate ([i[1] for i in images])
+        o = np.concatenate ([i[2] for i in images])
+        return bra_rng, ket_rng, o
+
+    def _get_addr_ovlp_product1 (self, bra, ket, *inv):
         inv = list (set (inv))
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
