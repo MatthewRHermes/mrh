@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import linalg
 from pyscf import lib
+from pyscf.scf.addons import canonical_orth_
 from pyscf.fci import cistring
 from pyscf.mcscf.addons import state_average as state_average_mcscf
 from mrh.my_pyscf.fci.csf import CSFFCISolver
@@ -103,13 +104,18 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
             elif np.asarray (ci1[ix]).reshape (-1,na*nb).shape[0] < solver.nroots:
                 ci1_inp = np.asarray (ci1[ix]).reshape (-1,na*nb)
                 ci1_guess = np.asarray (ci1_guess).reshape (-1,na*nb)
-                ovlp = ci1_inp.conj () @ ci1_guess.T
-                ci1_guess -= ovlp.T @ ci1_inp
-                ovlp = ci1_guess.conj () @ ci1_guess.T
-                Q, R = linalg.qr (ovlp)
-                ci1_guess = Q.T @ ci1_guess
-                ci1[ix] = np.append (ci1_inp, ci1_guess, axis=0)[:solver.nroots].reshape (
-                    solver.nroots, na, nb)
+                x = np.append (ci1_inp, ci1_guess, axis=0)
+                x = canonical_orth_(x.conj () @ x.T).T @ x
+                # ^ an orthonormal basis
+                assert (x.shape[0] >= solver.nroots)
+                x2inp = linalg.qr (x.conj () @ ci1_inp.T, mode='full')[0]
+                ci1_new = x2inp.conj ().T @ x
+                ninp, nnew = ci1_inp.shape[0], ci1_new.shape[0]
+                ovlp = ci1_new.conj () @ ci1_inp
+                assert (np.allclose (np.diag (ovlp[:ninp,:ninp]), 1))
+                ovlp = (ci1_new.conj () @ ci_new.T)
+                assert (np.all (np.abs (ovlp - np.eye (nnew)) < 1e-6))
+                ci1[ix] = ci1_new[:solver.nroots].reshape (solver.nroots, na, nb)
         return self._check_init_guess (ci1, norb_f, nelec_f)
 
     def _check_init_guess (self, ci0, norb_f, nelec_f):
