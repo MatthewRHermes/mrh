@@ -633,12 +633,17 @@ class LSTDMint2 (object):
         self.nlas = nlas
         self.norb = sum (nlas)
         self.lroots = lroots
-        self.rootaddr = get_rootaddr_fragaddr (lroots)[0]
+        self.rootaddr, self.envaddr = get_rootaddr_fragaddr (lroots)
+        self.envaddr = np.ascontiguousarray (self.envaddr.T)
         nprods = np.prod (lroots, axis=0)
         offs1 = np.cumsum (nprods)
         offs0 = offs1 - nprods
         self.offs_lroots = np.stack ([offs0, offs1], axis=1)
         self.nfrags, _, self.nroots, _ = hopping_index.shape
+        self.strides = np.append (np.ones (self.nroots, dtype=int)[None,:],
+                                  np.cumprod (lroots[:-1,:], axis=0),
+                                  axis=0).T
+        self.strides = np.ascontiguousarray (self.strides)
         self.nstates = offs1[-1]
         self.dtype = dtype
         self.tdm1s = self.tdm2s = None
@@ -874,8 +879,7 @@ class LSTDMint2 (object):
         lroots = self.lroots[:,raddr]
         lroots_inv = lroots[inv]
         lroots_inv_rng = [range (l) for l in lroots_inv]
-        strides = np.append ([1], np.cumprod (lroots[:-1]))
-        strides_inv = strides[inv]
+        strides_inv = self.strides[raddr][inv]
         for idx in product (*lroots_inv_rng):
             ix = np.asarray (idx, dtype=int)
             offs = np.dot (ix, strides_inv)
@@ -884,17 +888,15 @@ class LSTDMint2 (object):
 
     def _get_addr_ovlp_product (self, bra, ket, *inv):
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
-        braenv = [inti.fragaddr[bra] for inti in self.ints]
-        ketenv = [inti.fragaddr[ket] for inti in self.ints]
+        braenv = self.envaddr[bra]
+        ketenv = self.envaddr[ket]
         key = tuple ((rbra,rket)) + inv
         braket_table = self.nonuniq_exc[key]
         images = []
         for rbra1, rket1 in braket_table:
-            strides = np.append ([1], np.cumprod (self.lroots[:-1,rbra1]))
-            dbra = np.dot (braenv, strides)
+            dbra = np.dot (braenv, self.strides[rbra1])
             bra1 = self.offs_lroots[rbra1][0] + dbra
-            strides = np.append ([1], np.cumprod (self.lroots[:-1,rket1]))
-            dket = np.dot (ketenv, strides)
+            dket = np.dot (ketenv, self.strides[rket1])
             ket1 = self.offs_lroots[rket1][0] + dket
             images.append (self._get_addr_ovlp_product1 (bra1, ket1, *inv))
         bra_rng = np.concatenate ([i[0] for i in images])
