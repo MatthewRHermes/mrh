@@ -675,8 +675,10 @@ class LSTDMint2 (object):
         self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
 
     def init_profiling (self):
-        self.dt_null, self.dw_null = 0.0, 0.0
+        self.dt_1d, self.dw_1d = 0.0, 0.0
+        self.dt_2d, self.dw_2d = 0.0, 0.0
         self.dt_1c, self.dw_1c = 0.0, 0.0
+        self.dt_1c1d, self.dw_1c1d = 0.0, 0.0
         self.dt_1s, self.dw_1s = 0.0, 0.0
         self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
         self.dt_2c, self.dw_2c = 0.0, 0.0
@@ -829,9 +831,13 @@ class LSTDMint2 (object):
         return exc
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
-        # TODO: PROBLEM: this transposes "bra" and "ket"
+        # Part 1: restrict to the caller-specified rectangle
         exc = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
         exc = mask_exc_table (exc, col=1, mask_space=mask_ket_space)
+        # Part 2: identify interactions which are equivalent except for the overlap
+        # factor of spectator fragments. Reduce the exc table only to the unique
+        # interactions and populate self.nonuniq_exc with the corresponding
+        # nonunique images.
         if lbl=='null': return exc
         excp = exc[:,:-1] if lbl in ('1c', '1c1d', '2c') else exc
         fprint = []
@@ -858,11 +864,41 @@ class LSTDMint2 (object):
         return exc
 
     def get_range (self, i):
+        '''Get the orbital range for a fragment.
+
+        Args:
+            i: integer
+                index of a fragment
+
+        Returns:
+            p: integer
+                beginning of ith fragment orbital range
+            q: integer
+                end of ith fragment orbital range
+        '''
         p = sum (self.nlas[:i])
         q = p + self.nlas[i]
         return p, q
 
     def get_ovlp_fac (self, bra, ket, *inv):
+        '''Compute the overlap * permutation factor between two model states for a given list of
+        non-spectator fragments.
+
+        Args:
+            bra: integer
+                Index of a model state
+            ket: integer
+                Index of a model state
+            *inv: integers
+                Indices of nonspectator fragments
+
+        Returns:
+            wgt: float
+                The product of the overlap matrix elements between bra and ket for all fragments
+                not included in *inv, multiplied by the fermion permutation factor required to
+                bring the field operators of those in *inv adjacent to each other in normal
+                order.
+        '''
         idx = np.ones (self.nfrags, dtype=np.bool_)
         idx[list (inv)] = False
         wgt = np.prod ([i.get_ovlp (bra, ket) for i, ix in zip (self.ints, idx) if ix])
@@ -874,6 +910,21 @@ class LSTDMint2 (object):
         return wgt
 
     def _gen_addr_range (self, raddr, *inv):
+        '''Generate the integer offsets for successive ENVs in a particular rootspace in which some
+        fragments are frozen in the zero state.
+
+        Args:
+            raddr: integer
+                Index of a rootspace
+            *inv: integers
+                Indicies of fragments to be included in the iteration. All other fragments are
+                frozen in the zero state.
+
+        Yields:
+            addr: integer
+                Indices of states with different excitation numbers in the fragments in *inv, with
+                all other fragments frozen in the zero state.
+        '''
         addr0, addr1 = self.offs_lroots[raddr]
         inv = list (set (inv))
         lroots = self.lroots[:,raddr]
@@ -886,7 +937,28 @@ class LSTDMint2 (object):
             assert (addr0+offs < addr1)
             yield addr0+offs
 
-    def _get_addr_ovlp_product (self, bra, ket, *inv):
+    def _get_spec_addr_ovlp (self, bra, ket, *inv):
+        '''Obtain the integer indices and overlap*permutation factors for all pairs of model states
+        for which a specified list of nonspectator fragments are in same state that they are in a
+        provided input pair bra, ket.
+
+        Args:
+            bra: integer
+                Index of a model state
+            ket: integer
+                Index of a model state
+            *inv: integers
+                Indices of nonspectator fragments.
+
+        Returns:
+            bra_rng: ndarray of integers
+                Indices of model states in which fragments *inv have the same state as bra
+            ket_rng: ndarray of integers
+                Indices of model states in which fragments *inv have the same state as ket
+            o: ndarray of floats
+                Overlap * permutation factors (cf. get_ovlp_fac) corresponding to the interactions
+                bra_rng, ket_rng.
+        '''
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         braenv = self.envaddr[bra]
         ketenv = self.envaddr[ket]
@@ -898,13 +970,36 @@ class LSTDMint2 (object):
             bra1 = self.offs_lroots[rbra1][0] + dbra
             dket = np.dot (ketenv, self.strides[rket1])
             ket1 = self.offs_lroots[rket1][0] + dket
-            images.append (self._get_addr_ovlp_product1 (bra1, ket1, *inv))
+            images.append (self._get_spec_addr_ovlp_1space (bra1, ket1, *inv))
         bra_rng = np.concatenate ([i[0] for i in images])
         ket_rng = np.concatenate ([i[1] for i in images])
         o = np.concatenate ([i[2] for i in images])
         return bra_rng, ket_rng, o
 
-    def _get_addr_ovlp_product1 (self, bra, ket, *inv):
+    def _get_spec_addr_ovlp_1space (self, bra, ket, *inv):
+        '''Obtain the integer indices and overlap*permutation factors for all pairs of model states
+        in the same rootspaces as bra, ket for which a specified list of nonspectator fragments are
+        also in same state that they are in a provided input pair bra, ket.
+
+        Args:
+            bra: integer
+                Index of a model state
+            ket: integer
+                Index of a model state
+            *inv: integers
+                Indices of nonspectator fragments.
+
+        Returns:
+            bra_rng: ndarray of integers
+                Indices of model states in the rootspace of bra in which fragments *inv have the
+                same state as bra
+            ket_rng: ndarray of integers
+                Indices of model states in the rootspace of ket in which fragments *inv have the
+                same state as ket
+            o: ndarray of floats
+                Overlap * permutation factors (cf. get_ovlp_fac) corresponding to the interactions
+                bra_rng, ket_rng.
+        '''
         inv = list (set (inv))
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
@@ -925,7 +1020,7 @@ class LSTDMint2 (object):
             o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
-        if (rbra==rket):
+        if (rbra==rket): # not bra==ket because _loop_lroots_ doesn't restrict to tril
             o[np.diag_indices_from (o)] *= 0.5
             idx[np.triu_indices_from (idx, k=1)] = False
         o = o[idx]
@@ -942,14 +1037,14 @@ class LSTDMint2 (object):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1, *inv):
-        bra1, ket1, wgt = self._get_addr_ovlp_product (bra, ket, *inv)
+        bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_SD1_(bra1, ket1, D1, wgt)
 
     def _put_SD1_(self, bra, ket, D1, wgt):
         self.tdm1s[bra,ket,:] += np.multiply.outer (wgt, D1)
 
     def _put_D2_(self, bra, ket, D2, *inv):
-        bra1, ket1, wgt = self._get_addr_ovlp_product (bra, ket, *inv)
+        bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_SD2_(bra1, ket1, D2, wgt)
 
     def _put_SD2_(self, bra, ket, D2, wgt):
@@ -969,7 +1064,7 @@ class LSTDMint2 (object):
         self._put_D1_(bra, ket, d1, i)
         self._put_D2_(bra, ket, d2, i)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
+        self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
 
     def _crunch_2d_(self, bra, ket, i, j):
         '''Compute a two-fragment density fluctuation.'''
@@ -989,7 +1084,7 @@ class LSTDMint2 (object):
         d2[(0,3),r:s,p:q,p:q,r:s] = -d2_s_iijj[(0,3),...].transpose (0,3,2,1,4)
         self._put_D2_(bra, ket, d2, i, j)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_null, self.dw_null = self.dt_null + dt, self.dw_null + dw
+        self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
         '''Compute the reduced density matrix elements of a single electron hop; i.e.,
@@ -1070,7 +1165,7 @@ class LSTDMint2 (object):
         _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
         self._put_D2_(bra, ket, d2, i, j, k)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
+        self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
 
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
@@ -1245,8 +1340,10 @@ class LSTDMint2 (object):
 
     def sprint_profile (self):
         fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
-        profile = fmt_str.format ('null', self.dt_null, self.dw_null)
+        profile = fmt_str.format ('1d', self.dt_1d, self.dw_1d)
+        profile += '\n' + fmt_str.format ('2d', self.dt_2d, self.dw_2d)
         profile += '\n' + fmt_str.format ('1c', self.dt_1c, self.dw_1c)
+        profile += '\n' + fmt_str.format ('1c1d', self.dt_1c1d, self.dw_1c1d)
         profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
         profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
         profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
@@ -1283,7 +1380,7 @@ class HamS2ovlpint (LSTDMint2):
         D1 = D1.sum (0)
         #self.s2[bra,ket] += (np.trace (M1)/2)**2 + np.trace (D1)/2
         s2 = 3*np.trace (D1)/4
-        bra1, ket1, wgt = self._get_addr_ovlp_product (bra, ket, *inv)
+        bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_ham_s2_(bra1, ket1, ham, s2, wgt)
 
     def _put_ham_s2_(self, bra, ket, ham, s2, wgt):
@@ -1295,7 +1392,7 @@ class HamS2ovlpint (LSTDMint2):
         M2 = np.einsum ('sppqq->s', D2) / 4
         s2 = M2[0] + M2[3] - M2[1] - M2[2]
         s2 -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
-        bra1, ket1, wgt = self._get_addr_ovlp_product (bra, ket, *inv)
+        bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_ham_s2_(bra1, ket1, ham, s2, wgt)
 
     def _add_transpose_(self):
@@ -1496,7 +1593,7 @@ class ContractHamCI (LSTDMint2):
 
     def _bra_address (self, bra):
         bra_r = self.rootaddr[bra]
-        bra_env = np.array ([inti.fragaddr[bra] for inti in self.ints])
+        bra_env = self.envaddr[bra]
         lroots_bra_r = self.lroots[:,bra_r]
         bra_r = bra_r + self.nbra - self.nroots
         excfrags = set (np.where (bra_env==0)[0])
@@ -1518,8 +1615,9 @@ class ContractHamCI (LSTDMint2):
         return hci_f_ab, excfrags
 
     def _put_vecs_(self, bra, ket, vecs, *inv):
-        fac = self.get_ovlp_fac (bra, ket, *inv)
-        self._put_Svecs_(bra, ket, [fac*vec for vec in vecs])
+        bras, kets, facs = self._get_spec_addr_ovlp (bra, ket, *inv)
+        for bra, ket, fac in zip (bras, kets, facs):
+            self._put_Svecs_(bra, ket, [fac*vec for vec in vecs])
 
     def _put_Svecs_(self, bra, ket, vecs):
         bra_r, bra_envaddr, excfrags = self._bra_address (bra)
