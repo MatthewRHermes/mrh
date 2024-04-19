@@ -57,7 +57,10 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
         conv_str = ['NOT converged','converged'][int (converged)]
         log.info (('Product_state fixed-point CI iteration {} after {} '
                    'cycles').format (conv_str, it))
-        if not converged: self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
+        if not converged:
+            ci1 = self.get_init_guess (ci1, norb_f, nelec_f, h1, h2)
+            # Issue #86: see above, same problem
+            self._debug_csfs (log, ci0, ci1, norb_f, nelec_f, grad)
         energy_elec = self.energy_elec (h1, h2, ci1, norb_f, nelec_f,
             ecore=ecore, **kwargs)
         return converged, energy_elec, ci1
