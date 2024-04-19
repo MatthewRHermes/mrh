@@ -909,8 +909,8 @@ class LSTDMint2 (object):
         wgt *= fermion_frag_shuffle (self.nelec_rf[ket], uniq_frags)
         return wgt
 
-    def _gen_addr_range (self, raddr, *inv):
-        '''Generate the integer offsets for successive ENVs in a particular rootspace in which some
+    def _get_addr_range (self, raddr, *inv):
+        '''Get the integer offsets for successive ENVs in a particular rootspace in which some
         fragments are frozen in the zero state.
 
         Args:
@@ -920,22 +920,17 @@ class LSTDMint2 (object):
                 Indicies of fragments to be included in the iteration. All other fragments are
                 frozen in the zero state.
 
-        Yields:
-            addr: integer
+        Returns
+            addrs: ndarray of integers
                 Indices of states with different excitation numbers in the fragments in *inv, with
                 all other fragments frozen in the zero state.
         '''
         addr0, addr1 = self.offs_lroots[raddr]
         inv = list (set (inv))
-        lroots = self.lroots[:,raddr]
-        lroots_inv = lroots[inv]
-        lroots_inv_rng = [range (l) for l in lroots_inv]
+        lroots = self.lroots[:,raddr:raddr+1]
+        envaddr_inv = get_rootaddr_fragaddr (lroots[inv])[1]
         strides_inv = self.strides[raddr][inv]
-        for idx in product (*lroots_inv_rng):
-            ix = np.asarray (idx, dtype=int)
-            offs = np.dot (ix, strides_inv)
-            assert (addr0+offs < addr1)
-            yield addr0+offs
+        return addr0 + np.dot (strides_inv, envaddr_inv)
 
     def _get_spec_addr_ovlp (self, bra, ket, *inv):
         '''Obtain the integer indices and overlap*permutation factors for all pairs of model states
@@ -1011,13 +1006,13 @@ class LSTDMint2 (object):
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
-        bra_rng = np.array ([x for x in self._gen_addr_range (rbra, *spec)]) + dbra
-        ket_rng = np.array ([x for x in self._gen_addr_range (rket, *spec)]) + dket
+        bra_rng = self._get_addr_range (rbra, *spec) + dbra
+        ket_rng = self._get_addr_range (rket, *spec) + dket
         specints = [self.ints[i] for i in spec[::-1]]
         o = fac * np.ones ((1,1), dtype=self.dtype)
         for i in specints:
             b, k = i.unique_root[rbra], i.unique_root[rket]
-            o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
+            o = np.multiply.outer (o, i.ovlp[b][k]).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
         if (rbra==rket): # not bra==ket because _loop_lroots_ doesn't restrict to tril
@@ -1300,8 +1295,8 @@ class LSTDMint2 (object):
             inv = row[2:-1]
         else:
             inv = row[2:]
-        bra_rng = self._gen_addr_range (row[0], *inv)
-        ket_rng = self._gen_addr_range (row[1], *inv)
+        bra_rng = self._get_addr_range (row[0], *inv)
+        ket_rng = self._get_addr_range (row[1], *inv)
         lrow = [l for l in row]
         for lrow[0], lrow[1] in product (bra_rng, ket_rng):
             _crunch_fn (*lrow)
