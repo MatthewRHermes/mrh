@@ -108,13 +108,16 @@ class ProductStateFCISolver (StateAverageNMixFCISolver, lib.StreamObject):
                 x = canonical_orth_(x.conj () @ x.T).T @ x
                 # ^ an orthonormal basis
                 assert (x.shape[0] >= solver.nroots)
-                x2inp = linalg.qr (x.conj () @ ci1_inp.T, mode='full')[0]
-                ci1_new = x2inp.conj ().T @ x
-                ninp, nnew = ci1_inp.shape[0], ci1_new.shape[0]
-                ovlp = ci1_new.conj () @ ci1_inp
-                assert (np.allclose (np.diag (ovlp[:ninp,:ninp]), 1))
-                ovlp = (ci1_new.conj () @ ci_new.T)
-                assert (np.all (np.abs (ovlp - np.eye (nnew)) < 1e-6))
+                x2inp = x.conj () @ ci1_inp.T
+                ninp = ci1_inp.shape[0]
+                u, svals, vh = linalg.svd (x2inp, full_matrices=True)
+                u[:,:ninp] = u[:,:ninp] @ vh
+                ci1_new = u.T @ x
+                nnew = ci1_new.shape[0]
+                ovlp = ci1_new.conj () @ ci1_inp.T
+                assert (np.all (np.abs (ovlp[:ninp,:ninp] - np.eye (ninp)) < 1e-6)), '{}'.format (ovlp)
+                ovlp = (ci1_new.conj () @ ci1_new.T)
+                assert (np.all (np.abs (ovlp - np.eye (nnew)) < 1e-6)), '{}'.format (ovlp)
                 ci1[ix] = ci1_new[:solver.nroots].reshape (solver.nroots, na, nb)
         return self._check_init_guess (ci1, norb_f, nelec_f)
 
