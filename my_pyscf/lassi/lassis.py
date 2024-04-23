@@ -66,6 +66,15 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
         las2 = charge_excitation_products (lsi, las2, las1)
     # 4. Spin excitations part 2
     if nspin:
+        if lsi.nfrags > 4:
+            raise NotImplementedError ("LASSIS with more than 4 fragments")
+            # _spin_flip_products, spin_shuffle, and spin_shuffle_ci are all designed
+            # around the idea that rootspaces are unique. In this branch, however, they
+            # are not. To fix this, I could try to attach some data distinguishing the
+            # entanglements, but this disappears when I go back and forth between
+            # state_average and a list of rootspace objects. I could also separate the
+            # operations in spin_flip_products by rootspace in las2, which should work
+            # but which might be slow, idk.
         las3 = spin_flip_products (las2, spin_flips, nroots_ref=nroots_ref)
     else:
         las3 = las2
@@ -344,30 +353,28 @@ def charge_excitation_products (lsi, las2, las1):
     space0 = spaces[0]
     i0, j0 = i, j = las1.nroots, las2.nroots
     space1 = spaces[i:j]
-    for _ in range (1, nfrags//2):
+    for product_order in range (2, (nfrags//2)+1):
         seen = set ()
-        for ip,iq in itertools.product (range (i,j), range (i0,j0)):
-            if ip <= iq: continue
-            p, q = spaces[ip], spaces[iq]
-            if not orthogonal_excitations (p, q, space0): continue
-            r = combine_orthogonal_excitations (p, q, space0)
-            if r in seen:
-                s = spaces[spaces.index (r)]
-                s.merge_(r, ref=space0)
-                continue
-            ir = len (spaces)
-            spaces.append (r)
-            seen.add (r)
-        i, j = j, len (spaces)
-        for ir in range (i, j):
-            log.info ("Electron hop product %d space %d:", _+1, ir)
-            spaces[ir].table_printlog ()
+        for i_list in itertools.combinations (range (i,j), product_order):
+            p_list = [spaces[ip] for ip in i_list]
+            nonorth = False
+            for p, q in itertools.combinations (p_list, 2):
+                if not orthogonal_excitations (p, q, space0):
+                    nonorth = True
+                    break
+            if nonorth: continue
+            p = p_list[0]
+            for q in p_list[1:]:
+                p = combine_orthogonal_excitations (p, q, space0)
+            spaces.append (p)
+            log.info ("Electron hop product space %d (product of %s)", len (spaces) - 1, str (i_list))
+            spaces[-1].table_printlog ()
     weights = [space.weight for space in spaces]
     charges = [space.charges for space in spaces]
     spins = [space.spins for space in spaces]
     smults = [space.smults for space in spaces]
     ci3 = [[space.ci[ifrag] for space in spaces] for ifrag in range (nfrags)]
-    las3 = las2.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
+    las3 = las2.state_average (weights=weights, charges=charges, spins=spins, smults=smults, assert_no_dupes=False)
     las3.ci = ci3
     log.timer ("LASSIS charge-hop product generation", *t0)
     return las3
