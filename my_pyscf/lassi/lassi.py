@@ -425,6 +425,8 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         lib.logger.info (las, 'Caught error %s, %s', str (err), lc)
         if ovlp_det < LINDEP_THRESH:
             x = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
+            lib.logger.info (las, '%d/%d linearly independent model states',
+                             x.shape[1], x.shape[0])
             xhx = x.conj ().T @ ham_blk @ x
             e, c = linalg.eigh (xhx)
             c = x @ c
