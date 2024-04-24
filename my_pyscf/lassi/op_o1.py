@@ -379,7 +379,8 @@ class LSTDMint1 (object):
                 ci_i = ci[i].reshape (lroots[i],-1)
                 ci_j = ci[j].reshape (lroots[j],-1)
                 ovlp = ci_i.conj () @ ci_j.T
-                isequal = np.allclose (ovlp.diagonal (), 1)
+                isequal = np.allclose (ovlp.diagonal (), 1,
+                                       rtol=1e-8, atol=1e-8)
             if isequal:
                 self.root_unique[j] = False
                 self.unique_root[j] = i
