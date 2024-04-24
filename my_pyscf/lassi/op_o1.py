@@ -371,7 +371,7 @@ class LSTDMint1 (object):
             if not self.root_unique[j]: continue
             if self.nelec_r[i] != self.nelec_r[j]: continue
             if ci[i].shape != ci[j].shape: continue
-            if np.all (ci[i] == ci[j]):
+            if np.linalg.norm (ci[i]-ci[j]) < 1e-8: # spin-shuffle spoils bitwise agreement
                 self.root_unique[j] = False
                 self.unique_root[j] = i
                 self.onep_index[i] |= self.onep_index[j]
