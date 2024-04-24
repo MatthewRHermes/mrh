@@ -12,6 +12,7 @@ from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
 from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
 from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
+from mrh.my_pyscf.lassi.states import _spin_shuffle, _spin_shuffle_ci_
 from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.lassi.states import orthogonal_excitations, combine_orthogonal_excitations
 from mrh.my_pyscf.lassi.lassi import LASSI
@@ -332,19 +333,9 @@ def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     las2_nroots = len (spaces)
     spaces = _spin_flip_products (spaces, spin_flips, nroots_ref=nroots_ref)
     nfrags = spaces[0].nfrag
-    weights = [space.weight for space in spaces]
-    charges = [space.charges for space in spaces]
-    spins = [space.spins for space in spaces]
-    smults = [space.smults for space in spaces]
-    ci3 = [[space.ci[ifrag] for space in spaces] for ifrag in range (nfrags)]
-    las3 = las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
-    las3.ci = ci3
-    if las3.nfrags > 2: # A second spin shuffle to get the coupled spin-charge excitations
-        las3 = spin_shuffle (las3)
-        las3.ci = spin_shuffle_ci (las3, las3.ci)
-    spaces = [SingleLASRootspace (las3, m, s, c, las3.weights[ix], ci=[c[ix] for c in las3.ci])
-              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las3)))]
-    log.info ("LASSIS spin-excitation spaces: %d-%d", las2_nroots, las3.nroots-1)
+    spaces = _spin_shuffle (spaces)
+    spaces = _spin_shuffle_ci_(spaces)
+    log.info ("LASSIS spin-excitation spaces: %d-%d", las2_nroots, len (spaces)-1)
     for i, space in enumerate (spaces[las2_nroots:]):
         if np.any (space.nelec != spaces[0].nelec):
             log.info ("Spin/charge-excitation space %d:", i+las2_nroots)
@@ -377,7 +368,7 @@ def charge_excitation_products (lsi, spaces, las1):
             spaces.append (p)
             log.info ("Electron hop product space %d (product of %s)", len (spaces) - 1, str (i_list))
             spaces[-1].table_printlog ()
-    log.timer ("LASSIS charge-hop product generation", *t-1)
+    log.timer ("LASSIS charge-hop product generation", *t0)
     return spaces
 
 def as_scanner(lsi):
