@@ -43,6 +43,9 @@ class SingleLASRootspace (object):
         self.nholeu = self.nlas - self.nelecu
         self.nholed = self.nlas - self.nelecd
 
+        self.dtag = 0
+        # A "distinguishability tag" to hack the __hash__ method in case you want to
+
     def __eq__(self, other):
         if self.nfrag != other.nfrag: return False
         return (np.all (self.spins==other.spins) and 
@@ -50,7 +53,7 @@ class SingleLASRootspace (object):
                 np.all (self.charges==other.charges))
 
     def __hash__(self):
-        return hash (tuple ([self.nfrag,] + list (self.spins) + list (self.smults)
+        return hash (tuple ([self.dtag, self.nfrag,] + list (self.spins) + list (self.smults)
                             + list (self.charges)))
 
     def possible_excitation (self, i, a, s):

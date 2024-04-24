@@ -62,8 +62,12 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
         )
     else:
         converged, las2 = las1.converged, las1
+    # TODO: make all_single_excitations and single_excitations_ci return spaces2 instead of
+    # las2, so that you can delete this
+    spaces2 = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in las2.ci])
+               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
     if lsi.nfrags > 3:
-        las2 = charge_excitation_products (lsi, las2, las1)
+        spaces2 = charge_excitation_products (lsi, spaces2, las1)
     # 4. Spin excitations part 2
     if nspin:
         if lsi.nfrags > 4:
@@ -75,9 +79,16 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
             # state_average and a list of rootspace objects. I could also separate the
             # operations in spin_flip_products by rootspace in las2, which should work
             # but which might be slow, idk.
-        las3 = spin_flip_products (las2, spin_flips, nroots_ref=nroots_ref)
+        spaces3 = spin_flip_products (las1, spaces2, spin_flips, nroots_ref=nroots_ref)
     else:
-        las3 = las2
+        spaces3 = spaces2
+    weights = [space.weight for space in spaces3]
+    charges = [space.charges for space in spaces3]
+    spins = [space.spins for space in spaces3]
+    smults = [space.smults for space in spaces3]
+    ci3 = [[space.ci[ifrag] for space in spaces3] for ifrag in range (lsi.nfrags)]
+    las3 = las2.state_average (weights=weights, charges=charges, spins=spins, smults=smults, assert_no_dupes=False)
+    las3.ci = ci3
     las3.lasci (_dry_run=True)
     log.timer ("LASSIS model space preparation", *t0)
     return converged, las3
@@ -315,11 +326,10 @@ def _spin_flip_products (spaces, spin_flips, nroots_ref=1, frozen_frags=None):
     spaces = [space for space in spaces if not ((space in seen) or seen.add (space))]
     return spaces
 
-def spin_flip_products (las2, spin_flips, nroots_ref=1):
+def spin_flip_products (las, spaces, spin_flips, nroots_ref=1):
     '''Inject spin-flips into las2 in all possible ways'''
-    log = logger.new_logger (las2, las2.verbose)
-    spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in las2.ci])
-              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
+    log = logger.new_logger (las, las.verbose)
+    las2_nroots = len (spaces)
     spaces = _spin_flip_products (spaces, spin_flips, nroots_ref=nroots_ref)
     nfrags = spaces[0].nfrag
     weights = [space.weight for space in spaces]
@@ -327,31 +337,29 @@ def spin_flip_products (las2, spin_flips, nroots_ref=1):
     spins = [space.spins for space in spaces]
     smults = [space.smults for space in spaces]
     ci3 = [[space.ci[ifrag] for space in spaces] for ifrag in range (nfrags)]
-    las3 = las2.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
+    las3 = las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
     las3.ci = ci3
     if las3.nfrags > 2: # A second spin shuffle to get the coupled spin-charge excitations
         las3 = spin_shuffle (las3)
         las3.ci = spin_shuffle_ci (las3, las3.ci)
     spaces = [SingleLASRootspace (las3, m, s, c, las3.weights[ix], ci=[c[ix] for c in las3.ci])
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las3)))]
-    log.info ("LASSIS spin-excitation spaces: %d-%d", las2.nroots, las3.nroots-1)
-    for i, space in enumerate (spaces[las2.nroots:]):
+    log.info ("LASSIS spin-excitation spaces: %d-%d", las2_nroots, las3.nroots-1)
+    for i, space in enumerate (spaces[las2_nroots:]):
         if np.any (space.nelec != spaces[0].nelec):
-            log.info ("Spin/charge-excitation space %d:", i+las2.nroots)
+            log.info ("Spin/charge-excitation space %d:", i+las2_nroots)
         else:
-            log.info ("Spin-excitation space %d:", i+las2.nroots)
+            log.info ("Spin-excitation space %d:", i+las2_nroots)
         space.table_printlog ()
-    return las3
+    return spaces
 
-def charge_excitation_products (lsi, las2, las1):
+def charge_excitation_products (lsi, spaces, las1):
     t0 = (logger.process_clock (), logger.perf_counter ())
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
     nfrags = lsi.nfrags
-    spaces = [SingleLASRootspace (las2, m, s, c, las2.weights[ix], ci=[c[ix] for c in las2.ci])
-              for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las2)))]
     space0 = spaces[0]
-    i0, j0 = i, j = las1.nroots, las2.nroots
+    i0, j0 = i, j = las1.nroots, len (spaces)
     space1 = spaces[i:j]
     for product_order in range (2, (nfrags//2)+1):
         seen = set ()
@@ -369,15 +377,8 @@ def charge_excitation_products (lsi, las2, las1):
             spaces.append (p)
             log.info ("Electron hop product space %d (product of %s)", len (spaces) - 1, str (i_list))
             spaces[-1].table_printlog ()
-    weights = [space.weight for space in spaces]
-    charges = [space.charges for space in spaces]
-    spins = [space.spins for space in spaces]
-    smults = [space.smults for space in spaces]
-    ci3 = [[space.ci[ifrag] for space in spaces] for ifrag in range (nfrags)]
-    las3 = las2.state_average (weights=weights, charges=charges, spins=spins, smults=smults, assert_no_dupes=False)
-    las3.ci = ci3
-    log.timer ("LASSIS charge-hop product generation", *t0)
-    return las3
+    log.timer ("LASSIS charge-hop product generation", *t-1)
+    return spaces
 
 def as_scanner(lsi):
     '''Generating a scanner for LASSIS PES.
