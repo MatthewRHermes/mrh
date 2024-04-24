@@ -43,7 +43,7 @@ class SingleLASRootspace (object):
         self.nholeu = self.nlas - self.nelecu
         self.nholed = self.nlas - self.nelecd
 
-        self.entmap = np.zeros ((self.nfrag, self.nfrag), dtype=int)
+        self.entmap = tuple ()
 
     def __eq__(self, other):
         if self.nfrag != other.nfrag: return False
@@ -53,7 +53,7 @@ class SingleLASRootspace (object):
 
     def __hash__(self):
         return hash (tuple ([self.nfrag,] + list (self.spins) + list (self.smults)
-                            + list (self.charges) + list (self.entmap.ravel ())))
+                            + list (self.charges) + list (self.entmap)))
 
     def possible_excitation (self, i, a, s):
         i, a, s = np.atleast_1d (i, a, s)
@@ -240,9 +240,11 @@ class SingleLASRootspace (object):
 
     def set_entmap_(self, ref):
         idx = np.where (self.excited_fragments (ref))[0]
-        self.entmap[:,:] = 0
-        for i, j in itertools.combinations (idx, 2):
-            self.entmap[i,j] = self.entmap[j,i] = 1
+        idx = tuple (set (idx))
+        self.entmap = tuple ((idx,))
+        #self.entmap[:,:] = 0
+        #for i, j in itertools.combinations (idx, 2):
+        #    self.entmap[i,j] = self.entmap[j,i] = 1
 
     def single_excitation_description_string (self, other):
         src, dest, e_spin, src_ds, dest_ds, lroots_s = self.describe_single_excitation (other)
@@ -397,8 +399,9 @@ def combine_orthogonal_excitations (exc1, exc2, ref):
         ref.las, spins, smults, charges, 0, ci=ci,
         nlas=ref.nlas, nelelas=ref.nelelas, stdout=ref.stdout, verbose=ref.verbose
     )
-    product.entmap = exc1.entmap + exc2.entmap
-    assert (np.amax (product.entmap) < 2)
+    product.entmap = tuple (set (exc1.entmap + exc2.entmap))
+    #assert (np.amax (product.entmap) < 2)
+    assert (len (product.entmap) == len (set (product.entmap)))
     return product
 
 def all_single_excitations (las, verbose=None):
@@ -503,7 +506,7 @@ def _spin_shuffle_ci_(spaces):
     def is_spin_shuffle_ref (sp1, sp2):
         return (np.all (sp1.charges==sp2.charges) and
                 np.all (sp1.smults==sp2.smults) and
-                np.all (sp1.entmap==sp2.entmap))
+                sp1.entmap==sp2.entmap)
     for ix in new_idx:
         ndet = spaces[ix].get_ndet ()
         ci_ix = [np.zeros ((0,ndet[i][0],ndet[i][1]))
