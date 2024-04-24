@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import linalg
 from pyscf import lib, fci
 from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, contract_1e
@@ -371,7 +372,15 @@ class LSTDMint1 (object):
             if not self.root_unique[j]: continue
             if self.nelec_r[i] != self.nelec_r[j]: continue
             if ci[i].shape != ci[j].shape: continue
-            if np.all (ci[i] == ci[j]):
+            isequal = False
+            if np.all (ci[i]==ci[j]): isequal = True
+            elif np.all (np.abs (ci[i]-ci[j]) < 1e-8): isequal=True
+            else:
+                ci_i = ci[i].reshape (lroots[i],-1)
+                ci_j = ci[j].reshape (lroots[j],-1)
+                ovlp = ci_i.conj () @ ci_j.T
+                isequal = np.allclose (ovlp.diagonal (), 1)
+            if isequal:
                 self.root_unique[j] = False
                 self.unique_root[j] = i
                 self.onep_index[i] |= self.onep_index[j]
