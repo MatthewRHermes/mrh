@@ -43,8 +43,7 @@ class SingleLASRootspace (object):
         self.nholeu = self.nlas - self.nelecu
         self.nholed = self.nlas - self.nelecd
 
-        self.dtag = 0
-        # A "distinguishability tag" to hack the __hash__ method in case you want to
+        self.entmap = np.zeros ((self.nfrag, self.nfrag), dtype=int)
 
     def __eq__(self, other):
         if self.nfrag != other.nfrag: return False
@@ -53,8 +52,8 @@ class SingleLASRootspace (object):
                 np.all (self.charges==other.charges))
 
     def __hash__(self):
-        return hash (tuple ([self.dtag, self.nfrag,] + list (self.spins) + list (self.smults)
-                            + list (self.charges)))
+        return hash (tuple ([self.nfrag,] + list (self.spins) + list (self.smults)
+                            + list (self.charges) + list (self.entmap.ravel ())))
 
     def possible_excitation (self, i, a, s):
         i, a, s = np.atleast_1d (i, a, s)
@@ -162,8 +161,10 @@ class SingleLASRootspace (object):
             idx_valid = np.all (spins_table>-self.smults[None,:], axis=1)
             spins_table = spins_table[idx_valid,:]
         for spins in spins_table:
-            yield SingleLASRootspace (self.las, spins, self.smults, self.charges, 0, nlas=self.nlas,
-                                  nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
+            sp = SingleLASRootspace (self.las, spins, self.smults, self.charges, 0, nlas=self.nlas,
+                                     nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
+            sp.entmap = self.entmap
+            yield sp
 
     def has_ci (self):
         if self.ci is None: return False
@@ -237,6 +238,12 @@ class SingleLASRootspace (object):
         lroots_s = min (other.nelecu[src_frag], other.nholed[dest_frag])
         return src_frag, dest_frag, e_spin, src_ds, dest_ds, lroots_s
 
+    def set_entmap_(self, ref):
+        idx = np.where (self.excited_fragments (ref))[0]
+        self.entmap[:,:] = 0
+        for i, j in itertools.combinations (idx, 2):
+            self.entmap[i,j] = self.entmap[j,i] = 1
+
     def single_excitation_description_string (self, other):
         src, dest, e_spin, src_ds, dest_ds, lroots_s = self.describe_single_excitation (other)
         fmt_str = '{:d}({:s}) --{:s}--> {:d}({:s}) ({:d} lroots)'
@@ -304,9 +311,11 @@ class SingleLASRootspace (object):
         if ci is not None:
             ci1 = [c for c in self.ci]
             ci1[ifrag] = ci
-        return SingleLASRootspace (self.las, spins1, smults1, self.charges, 0, nlas=self.nlas,
-                                   nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
-                                   ci=ci1)
+        sp = SingleLASRootspace (self.las, spins1, smults1, self.charges, 0, nlas=self.nlas,
+                                 nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
+                                 ci=ci1)
+        sp.entmap = self.entmap
+        return sp
 
     def is_orthogonal_by_smult (self, other):
         if isinstance (other, (list, tuple)):
@@ -388,6 +397,8 @@ def combine_orthogonal_excitations (exc1, exc2, ref):
         ref.las, spins, smults, charges, 0, ci=ci,
         nlas=ref.nlas, nelelas=ref.nelelas, stdout=ref.stdout, verbose=ref.verbose
     )
+    product.entmap = exc1.entmap + exc2.entmap
+    assert (np.amax (product.entmap) < 2)
     return product
 
 def all_single_excitations (las, verbose=None):
@@ -491,7 +502,8 @@ def _spin_shuffle_ci_(spaces):
             space.ci = [None for ifrag in range (space.nfrag)]
     def is_spin_shuffle_ref (sp1, sp2):
         return (np.all (sp1.charges==sp2.charges) and
-                np.all (sp1.smults==sp2.smults))
+                np.all (sp1.smults==sp2.smults) and
+                np.all (sp1.entmap==sp2.entmap))
     for ix in new_idx:
         ndet = spaces[ix].get_ndet ()
         ci_ix = [np.zeros ((0,ndet[i][0],ndet[i][1]))
