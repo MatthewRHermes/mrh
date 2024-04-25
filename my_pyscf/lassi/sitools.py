@@ -540,6 +540,51 @@ def sivec_vacuum_shuffle (si0, nelec_frs, lroots, nelec_vac=None, state=None):
     return si1
 
 
+def umat_dot_1frag_(target, umat, lroots, ifrag, iroot, axis=0):
+    '''Apply a unitary transformation for 1 fragment in 1 rootspace to a tensor
+    whose target axis spans all model states.
+
+    Args:
+        target: ndarray whose length on axis 'axis' is nstates
+            The object to which the unitary transformation is to be applied.
+            Modified in-place.
+        umat: ndarray of shape (lroots[ifrag,iroot],lroots[ifrag,iroot])
+            A unitary matrix; the row axis is contracted
+        lroots: ndarray of shape (nfrags, nroots)
+            Number of basis states in each fragment in each rootspace
+        ifrag: integer
+            Fragment index for the targeted block
+        iroot: integer
+            Rootspace index for the targeted block
+
+    Kwargs:
+        axis: integer
+            The axis of target to which umat is to be applied
+
+    Returns:
+        target: same as input target
+            After application of unitary transformation'''
+    nprods = np.product (lroots, axis=0)
+    offs = [0,] + list (np.cumsum (nprods))
+    i, j = offs[iroot], offs[iroot+1]
+    newaxes = [axis,] + list (range (axis)) + list (range (axis+1, target.ndim))
+    oldaxes = list (np.argsort (newaxes))
+    target = target.transpose (*newaxes)
+    target[i:j] = _umat_dot_1frag (target[i:j], umat, lroots[:,iroot], ifrag)
+    target = target.transpose (*oldaxes)
+    return target
+
+def _umat_dot_1frag (target, umat, lroots, ifrag):
+    old_shape = target.shape
+    new_shape = tuple (lroots) + old_shape[1:]
+    target = target.reshape (*new_shape)
+    newaxes = [ifrag,] + list (range (ifrag)) + list (range (ifrag+1, target.ndim))
+    oldaxes = list (np.argsort (newaxes))
+    target = target.transpose (*newaxes)
+    target = np.tensordot (umat.T, target, axes=1).transpose (*oldaxes)
+    return target.reshape (*old_shape)
+
+
 
 
 
