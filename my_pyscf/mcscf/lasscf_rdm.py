@@ -2,6 +2,7 @@
 # localized active subspace is decoupled from orbital rotation and the kernel
 # for obtaining RDMs given LAS Hamiltonians can be subclassed arbitrarily
 import h5py
+import os
 import time
 import numpy as np
 from scipy import linalg, sparse
@@ -117,25 +118,14 @@ def get_init_guess_rdm (las, mo_coeff=None, h2eff_sub=None):
 def _ddm (dm1frs0, dm1frs1):
     return np.concatenate ([(d1 - d0).ravel () for d1, d0 in zip (dm1frs0, dm1frs1)])
 
-class LASSCF_rdm(lasci.LASCINoSymm):
-    #no extra init function  since we inherit everything from this class
     
-    def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3, conv_tol_rdmjkddm=3e-4,
-                   conv_tol_rdmjkde=1e-8):
+def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3, conv_tol_rdmjkddm=3e-4,conv_tol_rdmjkde=1e-8):
         ''' "fcibox.kernel" should return e_cas, (casdm1rs, casdm2r) '''
         def get_veff (my_casdm1frs):
             casdm1fs = las.make_casdm1s_sub (casdm1frs=my_casdm1frs)
             my_veff = las.get_veff (dm1s=las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
             my_veff = las.split_veff (my_veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
             return my_veff
-        ################edits#############
-        if os.path.exists("../RDMS"):
-             with h5py.File("../RDMS/casdm1frs.h5", 'r') as f:
-                casdm1frs = f['data'][:] 
-        else:
-            casdm1frs = casdm1frs
-            ##todo: incorporate orbtals, look into dumb_chk
-        ########################################
         converged = False
         e_cas, fakeci = lasci_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
         casdm1frs = [f[0] for f in fakeci]
@@ -168,7 +158,20 @@ class LASSCF_rdm(lasci.LASCINoSymm):
         return e_cas, casdm1frs, casdm2fr, converged
 
 def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
-    if mo_coeff is None: mo_coeff = las.mo_coeff
+    if mo_coeff is None: mo_coeff = las.mo_coeff#this would be our initial guess orbital,save
+    ################
+    if not os.path.exists("../orbital"):
+        os.makedirs("../orbital")
+        file_path = os.path.join("../orbital", 'guessOrb.h5')
+        with h5py.File(file_path, 'w') as f:
+             f.create_dataset('guessOrb', data=mo_coeff)
+    else:
+        directory_path = "../orbital"
+        file_path = os.path.join(directory_path, 'guessOrb.h5')
+        with h5py.File(file_path, 'r') as f:
+            mo_coeff = f['guessOrb'][:]
+            print("read the previous orbital")
+    ###############
     conv_tol_rdmjkde = 1e-8
     conv_tol_rdmjkddm = las.conv_tol_rdmjkddm or 3*conv_tol_grad
     log = lib.logger.new_logger(las, verbose)
@@ -190,7 +193,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
     t2 = (t1[0], t1[1])
     it = 0
     for it in range (las.max_cycle_macro): ###las.rdm_cycle
-        e_cas, casdm1frs, casdm2fr, rdmjk_conv = las.rdm_cycle (las, mo_coeff, casdm1frs,
+        e_cas, casdm1frs, casdm2fr, rdmjk_conv = las.rdm_cycle (mo_coeff, casdm1frs,
             veff, h2eff_sub, log, max_cycle_rdmjk=las.max_cycle_rdmjk,
             conv_tol_rdmjkddm=conv_tol_rdmjkddm,
             conv_tol_rdmjkde=conv_tol_rdmjkde)
@@ -270,6 +273,13 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
                                             callback=my_callback, M=prec_op)
             t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
             mo_coeff, h2eff_sub = H_op.update_mo_eri (x, h2eff_sub)
+            #######here I save the most recent orbitals######
+            output_dir = "../orbital"
+            file_path = os.path.join(output_dir, 'guessOrb.h5')
+            with h5py.File(file_path, 'w') as f:
+                 f.create_dataset('guessOrb', data=mo_coeff)
+                 print("saved orbs")
+            ################################################     
             t1 = log.timer ('LASSCF Hessian update', *t1)
 
             veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
@@ -468,10 +478,12 @@ class LASSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
         self.conv_tol_rdmjkde = 1e-8
         lasscf_sync_o0.LASSCFNoSymm.__init__(self, *args, **kwargs)
         self.max_cycle_micro = 3
-
+    ########making rdm_cycle a part of the class###
+    #LASSCFNoSymm.rdm_cycle = rdm_cycle()
     _ugg = LASSCF_UnitaryGroupGenerators
     _hop = LASSCF_HessianOperator
     canonicalize = canonicalize
+    rdm_cycle = rdm_cycle
 
     def _init_fcibox (self, smult, nel):
         return make_fcibox (self.mol, spin=nel[0]-nel[1])
@@ -502,6 +514,116 @@ class LASSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
                     verbose=verbose, conv_tol_grad=conv_tol_grad)
 
         return self.e_tot, self.e_cas, self.casdm1frs, self.casdm2fr, self.mo_coeff, self.mo_energy, h2eff_sub, veff
+
+class extremeAsynLASSCF (LASSCFNoSymm):
+    def __init__(self, *args, **kwargs):
+        LASSCFNoSymm.__init__(self,*args, **kwargs)
+
+    def rdm_cycle (self,mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3, conv_tol_rdmjkddm=3e-4,conv_tol_rdmjkde=1e-8):
+        ''' "fcibox.kernel" should return e_cas, (casdm1rs, casdm2r) '''
+        def get_veff (my_casdm1frs):
+            casdm1fs = self.make_casdm1s_sub (casdm1frs=my_casdm1frs)
+            my_veff = self.get_veff (dm1s=self.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
+            my_veff = self.split_veff (my_veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
+            return my_veff
+        ################edits#############
+        if os.path.exists("../RDMS"):
+             with h5py.File("../RDMS/casdm1frs.h5", 'r') as f:
+                datagroup= f['casdm1frs']
+                dm1_list = []
+                for i in datagroup:
+                    dm1 = np.asarray (datagroup[i][:])
+                    dm1_list.append(dm1)
+                casdm1frs = dm1_list
+                print("read in the previous rdm")
+        else:
+            casdm1frs = casdm1frs
+        ########################################
+        converged = False ######not sure how to deal with the ci_cycle, but re-write below
+        e_cas, fakeci = self.ci_cycle (mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
+        casdm1frs = [f[0] for f in fakeci]
+        casdm2fr = [f[1] for f in fakeci]
+        veff = get_veff (casdm1frs)
+        e_tot = self.energy_nuc () + self.energy_elec (mo_coeff=mo_coeff, h2eff=h2eff_sub,
+                                                 casdm1frs=casdm1frs, casdm2fr=casdm2fr)
+        log.info ("LASSCF rdm-jk init : E = %.15g", e_tot)
+        for it in range (max_cycle_rdmjk):
+            casdm1frs_old = casdm1frs
+            casdm2fr_old = casdm2fr
+            e_old = e_tot
+            e_cas, fakeci = self.ci_cycle (mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
+            casdm1frs = [f[0] for f in fakeci]
+            casdm2fr = [f[1] for f in fakeci]
+            veff = get_veff (casdm1frs)
+            e_tot = self.energy_nuc () + self.energy_elec (mo_coeff=mo_coeff, h2eff=h2eff_sub,
+                                                     casdm1frs=casdm1frs, casdm2fr=casdm2fr)
+            ddm = np.concatenate ([(d1 - d0).ravel () for d1, d0 in zip (casdm1frs, casdm1frs_old)])
+            ddm = np.append (ddm, np.concatenate (
+                [(d1 - d0).ravel () for d1, d0 in zip (casdm2fr, casdm2fr_old)]
+            ))
+            ddm = linalg.norm (ddm)
+            log.info ("LASSCF rdm-jk %d : E = %.15g ; dE = %.15g ; |ddm| = %.15g", it+1, e_tot,
+                      e_tot-e_old, ddm)
+            if (ddm < conv_tol_rdmjkddm) and (abs(e_tot-e_old) < conv_tol_rdmjkde):
+                converged = True
+                break
+        log.info ("LASSCF rdm-jk {}".format (('not converged','converged')[int(converged)]))
+        return e_cas, casdm1frs, casdm2fr, converged
+   ###defined ci_cycle as a function of las## 
+    def ci_cycle (self,mo, ci0, veff, h2eff_sub, casdm1frs, log):
+        if ci0 is None: ci0 = [None for idx in range (self.nfrags)]
+        # CI problems
+        t1 = (lib.logger.process_clock(), lib.logger.perf_counter())
+        h1eff_sub = self.get_h1eff (mo, veff=veff, h2eff_sub=h2eff_sub, casdm1frs=casdm1frs)
+        ncas_cum = np.cumsum ([0] + self.ncas_sub.tolist ()) + self.ncore
+        e_cas = []
+        ci1 = []
+        e0 = 0.0 
+        #########edits#########
+        if not os.path.exists("../RDMS"):
+            with h5py.File('h1eff_sub.h5', 'w') as f:
+                f.create_dataset('h1eff', data=h1eff_sub)
+            with h5py.File('h2eff_sub.h5', 'w') as f:
+                f.create_dataset('h2eff', data=h2eff_sub)
+            print("Wrote Hamiltonian, now break")
+            exit()
+        ########################
+        for isub, (fcibox, ncas, nelecas, h1e, fcivec) in enumerate (zip (self.fciboxes, self.ncas_sub,
+                                                                      self.nelecas_sub, h1eff_sub,
+                                                                      ci0)):
+            eri_cas = self.get_h2eff_slice (h2eff_sub, isub, compact=8)
+            orbsym = getattr (mo, 'orbsym', None)
+            if orbsym is not None:
+                i = ncas_cum[isub]
+                j = ncas_cum[isub+1]
+                orbsym = orbsym[i:j]
+                orbsym_io = orbsym.copy ()
+                if np.issubsctype (orbsym.dtype, np.integer):
+                    orbsym_io = np.asarray ([symm.irrep_id2name (self.mol.groupname, x)
+                                             for x in orbsym])
+                log.info ("LASCI subspace {} with orbsyms {}".format (isub, orbsym_io))
+            else:
+                log.info ("LASCI subspace {} with no orbsym information".format (isub))
+            if log.verbose > lib.logger.DEBUG:
+             for state, solver in enumerate (fcibox.fcisolvers):
+                wfnsym = getattr (solver, 'wfnsym', None)
+                if (wfnsym is not None) and (orbsym is not None):
+                    if isinstance (wfnsym, str):
+                        wfnsym_str = wfnsym
+                    else:
+                        wfnsym_str = symm.irrep_id2name (self.mol.groupname, wfnsym)
+                    log.debug1 ("LASCI subspace {} state {} with wfnsym {}".format (isub, state,
+                                                                                    wfnsym_str))
+
+            e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
+                                          ci0=fcivec, verbose=log,
+                                          ecore=e0, orbsym=orbsym)
+            e_cas.append (e_sub)
+            ci1.append (fcivec)
+            t1 = log.timer ('FCI box for subspace {}'.format (isub), *t1)
+        return e_cas, ci1
+
+
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
     if isinstance(mf_or_mol, gto.Mole):
