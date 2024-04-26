@@ -2,7 +2,6 @@ import numpy as np
 from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi.lassi import ham_2q, root_make_rdm12s, LASSI
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 
 def decompose_sivec_by_rootspace (las, si, ci=None):
@@ -181,6 +180,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
             Von Neumann entropy of each fragment, considering each rootspace separately
             If print_all_but >= 0, some rows may be omitted (set to -1)
     '''
+    from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, LASSI
     if 'prim' in lbasis.lower (): lbasis = 'primitive'
     elif 'schmidt' in lbasis.lower (): lbasis = 'Schmidt'
     else:
@@ -356,6 +356,7 @@ def analyze_ham (las, si, e_roots, ci=None, state=0, soc=0, print_all_but=1e-8):
             but this weight of the wave function(s) is accounted for. Set
             to zero to print everything.
     '''
+    from mrh.my_pyscf.lassi.lassi import ham_2q
     if ci is None: ci = las.ci
     ci0 = ci
     h0 = ham_2q (las, las.mo_coeff, soc=soc)[0]
@@ -575,10 +576,12 @@ def umat_dot_1frag_(target, umat, lroots, ifrag, iroot, axis=0):
     return target
 
 def _umat_dot_1frag (target, umat, lroots, ifrag):
+    # Remember: COLUMN-MAJOR ORDER!!
     old_shape = target.shape
-    new_shape = tuple (lroots) + old_shape[1:]
+    new_shape = tuple (lroots[::-1]) + old_shape[1:]
     target = target.reshape (*new_shape)
-    newaxes = [ifrag,] + list (range (ifrag)) + list (range (ifrag+1, target.ndim))
+    iifrag = len (lroots) - ifrag - 1
+    newaxes = [iifrag,] + list (range (iifrag)) + list (range (iifrag+1, target.ndim))
     oldaxes = list (np.argsort (newaxes))
     target = target.transpose (*newaxes)
     target = np.tensordot (umat.T, target, axes=1).transpose (*oldaxes)
