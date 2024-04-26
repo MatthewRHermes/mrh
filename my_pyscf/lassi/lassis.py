@@ -11,10 +11,10 @@ from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver
 from mrh.my_pyscf.lassi.excitations import ExcitationPSFCISolver
-from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
-from mrh.my_pyscf.lassi.states import _spin_shuffle, _spin_shuffle_ci_
-from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
-from mrh.my_pyscf.lassi.states import orthogonal_excitations, combine_orthogonal_excitations
+from mrh.my_pyscf.lassi.spaces import spin_shuffle, spin_shuffle_ci
+from mrh.my_pyscf.lassi.spaces import _spin_shuffle, _spin_shuffle_ci_
+from mrh.my_pyscf.lassi.spaces import all_single_excitations, SingleLASRootspace
+from mrh.my_pyscf.lassi.spaces import orthogonal_excitations, combine_orthogonal_excitations
 from mrh.my_pyscf.lassi.lassi import LASSI
 
 # TODO: split prepare_states into three steps

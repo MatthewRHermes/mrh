@@ -20,7 +20,7 @@ from pyscf import lib, gto, scf, mcscf, ao2mo
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf.lassi import LASSI
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
-from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
+from mrh.my_pyscf.lassi.spaces import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
 

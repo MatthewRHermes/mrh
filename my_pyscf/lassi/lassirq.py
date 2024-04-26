@@ -2,8 +2,8 @@ import numpy as np
 from pyscf import lib,gto
 from pyscf.lib import logger
 from mrh.my_pyscf.lassi import LASSI
-from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
-from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
+from mrh.my_pyscf.lassi.spaces import spin_shuffle, spin_shuffle_ci
+from mrh.my_pyscf.lassi.spaces import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 
 def prepare_states_spin_shuffle (lsi):

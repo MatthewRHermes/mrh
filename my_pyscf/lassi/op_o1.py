@@ -1411,9 +1411,9 @@ class LSTDMint2 (object):
         profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
         profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
         profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
-        profile += '\n' + fmt_str.format ('o', self.dt_o, self.dw_o)
-        profile += '\n' + fmt_str.format ('u', self.dt_u, self.dw_u)
-        profile += '\n' + fmt_str.format ('p', self.dt_p, self.dw_p)
+        profile += '\n' + fmt_str.format ('ovlp', self.dt_o, self.dw_o)
+        profile += '\n' + fmt_str.format ('umat', self.dt_u, self.dw_u)
+        profile += '\n' + fmt_str.format ('put', self.dt_p, self.dw_p)
         return profile
 
 class HamS2ovlpint (LSTDMint2):
@@ -1500,6 +1500,7 @@ class HamS2ovlpint (LSTDMint2):
         self.ham = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         self.s2 = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         self._crunch_all_()
+        t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         ovlp = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         def crunch_ovlp (bra_sp, ket_sp):
             i = self.ints[-1]
@@ -1516,6 +1517,8 @@ class HamS2ovlpint (LSTDMint2):
             ovlp[i0:i1,j0:j1] = o
         for bra_sp, ket_sp in self.exc_null: crunch_ovlp (bra_sp, ket_sp)
         ovlp += ovlp.T
+        dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
+        self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         self._umat_linequiv_loop_(ovlp)
         return self.ham, self.s2, ovlp, t0
 
