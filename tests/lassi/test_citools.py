@@ -2,7 +2,7 @@ import copy
 import unittest
 import numpy as np
 from scipy import linalg
-from mrh.my_pyscf.lassi import sitools
+from mrh.my_pyscf.lassi import citools
 from pyscf import lib
 from pyscf.scf.addons import canonical_orth_
 import itertools
@@ -33,12 +33,12 @@ def case_umat_dot_1frag (ks, rng, nroots, nfrags, nvecs, lroots):
         ks.assertEqual (umat.shape[1], lr)
         ks.assertAlmostEqual (lib.fp (umat.conj ().T @ umat), lib.fp (np.eye (lr)))
         ks.assertAlmostEqual (lib.fp (umat @ umat.conj ().T), lib.fp (np.eye (lr)))
-        si = sitools.umat_dot_1frag_(si, umat, lroots, ifrag, iroot, axis=0)
-        UUsi = sitools.umat_dot_1frag_(UUsi, umat, lroots, ifrag, iroot, axis=0)
-        UUsi = sitools.umat_dot_1frag_(UUsi, umat.conj ().T, lroots, ifrag, iroot, axis=0)
-        siT = sitools.umat_dot_1frag_(siT, umat, lroots, ifrag, iroot, axis=1)
-        UUsiT = sitools.umat_dot_1frag_(UUsiT, umat, lroots, ifrag, iroot, axis=1)
-        UUsiT = sitools.umat_dot_1frag_(UUsiT, umat.conj ().T, lroots, ifrag, iroot, axis=1)
+        si = citools.umat_dot_1frag_(si, umat, lroots, ifrag, iroot, axis=0)
+        UUsi = citools.umat_dot_1frag_(UUsi, umat, lroots, ifrag, iroot, axis=0)
+        UUsi = citools.umat_dot_1frag_(UUsi, umat.conj ().T, lroots, ifrag, iroot, axis=0)
+        siT = citools.umat_dot_1frag_(siT, umat, lroots, ifrag, iroot, axis=1)
+        UUsiT = citools.umat_dot_1frag_(UUsiT, umat, lroots, ifrag, iroot, axis=1)
+        UUsiT = citools.umat_dot_1frag_(UUsiT, umat.conj ().T, lroots, ifrag, iroot, axis=1)
     ovlp = si.conj ().T @ si
     ovlpT = siT.conj () @ siT.T
     ks.assertAlmostEqual (lib.fp (ovlp), lib.fp (np.eye (nvecs)))
@@ -59,7 +59,7 @@ class KnownValues(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    print("Full Tests for LASSI sitools module functions")
+    print("Full Tests for LASSI citools module functions")
     unittest.main()
 
 

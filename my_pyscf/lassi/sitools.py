@@ -3,6 +3,8 @@ from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
+from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, LASSI, ham_2q
+from mrh.my_pyscf.lassi.op_o1 import fermion_spin_shuffle
 
 def decompose_sivec_by_rootspace (las, si, ci=None):
     '''Decompose a set of LASSI vectors as
@@ -180,7 +182,6 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
             Von Neumann entropy of each fragment, considering each rootspace separately
             If print_all_but >= 0, some rows may be omitted (set to -1)
     '''
-    from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, LASSI
     if 'prim' in lbasis.lower (): lbasis = 'primitive'
     elif 'schmidt' in lbasis.lower (): lbasis = 'Schmidt'
     else:
@@ -356,7 +357,6 @@ def analyze_ham (las, si, e_roots, ci=None, state=0, soc=0, print_all_but=1e-8):
             but this weight of the wave function(s) is accounted for. Set
             to zero to print everything.
     '''
-    from mrh.my_pyscf.lassi.lassi import ham_2q
     if ci is None: ci = las.ci
     ci0 = ci
     h0 = ham_2q (las, las.mo_coeff, soc=soc)[0]
@@ -482,7 +482,6 @@ def sivec_fermion_spin_shuffle (si0, nelec_frs, lroots):
         si1: ndarray of shape (ndim,*)
             si0 with permuted row signs
     '''
-    from mrh.my_pyscf.lassi.op_o1 import fermion_spin_shuffle
     nelec_rsf = np.asarray (nelec_frs).transpose (1,2,0)
     rootaddr = get_rootaddr_fragaddr (lroots)[0]
     si1 = si0.copy ()
@@ -541,51 +540,6 @@ def sivec_vacuum_shuffle (si0, nelec_frs, lroots, nelec_vac=None, state=None):
     return si1
 
 
-def umat_dot_1frag_(target, umat, lroots, ifrag, iroot, axis=0):
-    '''Apply a unitary transformation for 1 fragment in 1 rootspace to a tensor
-    whose target axis spans all model states.
-
-    Args:
-        target: ndarray whose length on axis 'axis' is nstates
-            The object to which the unitary transformation is to be applied.
-            Modified in-place.
-        umat: ndarray of shape (lroots[ifrag,iroot],lroots[ifrag,iroot])
-            A unitary matrix; the row axis is contracted
-        lroots: ndarray of shape (nfrags, nroots)
-            Number of basis states in each fragment in each rootspace
-        ifrag: integer
-            Fragment index for the targeted block
-        iroot: integer
-            Rootspace index for the targeted block
-
-    Kwargs:
-        axis: integer
-            The axis of target to which umat is to be applied
-
-    Returns:
-        target: same as input target
-            After application of unitary transformation'''
-    nprods = np.product (lroots, axis=0)
-    offs = [0,] + list (np.cumsum (nprods))
-    i, j = offs[iroot], offs[iroot+1]
-    newaxes = [axis,] + list (range (axis)) + list (range (axis+1, target.ndim))
-    oldaxes = list (np.argsort (newaxes))
-    target = target.transpose (*newaxes)
-    target[i:j] = _umat_dot_1frag (target[i:j], umat, lroots[:,iroot], ifrag)
-    target = target.transpose (*oldaxes)
-    return target
-
-def _umat_dot_1frag (target, umat, lroots, ifrag):
-    # Remember: COLUMN-MAJOR ORDER!!
-    old_shape = target.shape
-    new_shape = tuple (lroots[::-1]) + old_shape[1:]
-    target = target.reshape (*new_shape)
-    iifrag = len (lroots) - ifrag - 1
-    newaxes = [iifrag,] + list (range (iifrag)) + list (range (iifrag+1, target.ndim))
-    oldaxes = list (np.argsort (newaxes))
-    target = target.transpose (*newaxes)
-    target = np.tensordot (umat.T, target, axes=1).transpose (*oldaxes)
-    return target.reshape (*old_shape)
 
 
 

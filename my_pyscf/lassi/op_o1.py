@@ -6,8 +6,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, contract_1e
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
 from itertools import product, combinations, combinations_with_replacement
-from mrh.my_pyscf.lassi.sitools import umat_dot_1frag_, _umat_dot_1frag
-from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, umat_dot_1frag_
 import time
 
 # NOTE: PySCF has a strange convention where
@@ -387,7 +386,8 @@ class LSTDMint1 (object):
                 ci_j = ci[j].reshape (lroots[j],-1)
                 ovlp = ci_i.conj () @ ci_j.T
                 isequal = np.allclose (ovlp.diagonal (), 1,
-                                       rtol=1e-8, atol=1e-8)
+                                       rtol=1e-10, atol=1e-10)
+                                       # need extremely high precision on this one
                 if screen_linequiv and (not isequal):
                     u, svals, vh = linalg.svd (ovlp)
                     assert (len (svals) == lroots[i])
@@ -704,6 +704,9 @@ class LSTDMint2 (object):
         self.dt_1s, self.dw_1s = 0.0, 0.0
         self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
         self.dt_2c, self.dw_2c = 0.0, 0.0
+        self.dt_o, self.dw_o = 0.0, 0.0
+        self.dt_u, self.dw_u = 0.0, 0.0
+        self.dt_p, self.dw_p = 0.0, 0.0
 
     def make_exc_tables (self, hopping_index):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
@@ -965,12 +968,15 @@ class LSTDMint2 (object):
             *inv: integers
                 Indices of nonspectator fragments
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         key = tuple ((rbra,rket)) + inv
         braket_table = self.nonuniq_exc[key]
         self._spec_addr_ovlp_cache = []
         for rbra1, rket1 in braket_table:
             b, k, o = self._get_spec_addr_ovlp_1space (rbra1, rket1, *inv)
             self._spec_addr_ovlp_cache.append ((rbra1, rket1, b, k, o))
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         return
 
     def _get_spec_addr_ovlp (self, bra, ket, *inv):
@@ -1073,15 +1079,21 @@ class LSTDMint2 (object):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_SD1_(bra1, ket1, D1, wgt)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_SD1_(self, bra, ket, D1, wgt):
         self.tdm1s[bra,ket,:] += np.multiply.outer (wgt, D1)
 
     def _put_D2_(self, bra, ket, D2, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_SD2_(bra1, ket1, D2, wgt)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_SD2_(self, bra, ket, D2, wgt):
         self.tdm2s[bra,ket,:] += np.multiply.outer (wgt, D2)
@@ -1165,10 +1177,10 @@ class LSTDMint2 (object):
         d2_ijjj = fac * np.multiply.outer (self.ints[i].get_p (bra,ket,s1),
                                            self.ints[j].get_phh (bra,ket,s1)).transpose (1,0,4,2,3)
         _crunch_1c_tdm2 (d2_ijjj, p, q, r, s, r, s)
-        self._put_D1_(bra, ket, d1, i, j)
-        self._put_D2_(bra, ket, d2, i, j)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
+        self._put_D1_(bra, ket, d1, i, j)
+        self._put_D2_(bra, ket, d2, i, j)
 
     def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a coupled electron-hop and
@@ -1199,9 +1211,9 @@ class LSTDMint2 (object):
         d1_skk = self.ints[k].get_dm1 (bra, ket)
         d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
         _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
-        self._put_D2_(bra, ket, d2, i, j, k)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
+        self._put_D2_(bra, ket, d2, i, j, k)
 
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
@@ -1225,9 +1237,9 @@ class LSTDMint2 (object):
                                            self.ints[j].get_sm (bra, ket))
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
-        self._put_D2_(bra, ket, d2, i, j)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
+        self._put_D2_(bra, ket, d2, i, j)
 
     def _crunch_1s1c_(self, bra, ket, i, j, k):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
@@ -1256,9 +1268,9 @@ class LSTDMint2 (object):
         d2_ikkj = fac * np.multiply.outer (sp, sm).transpose (0,3,2,1) # a'bb'a -> a'ab'b transpose
         d2[1,p:q,t:u,t:u,r:s] = d2_ikkj
         d2[2,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
-        self._put_D2_(bra, ket, d2, i, j, k)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
+        self._put_D2_(bra, ket, d2, i, j, k)
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
@@ -1327,9 +1339,9 @@ class LSTDMint2 (object):
         if s2 == s2T: # same-spin only: exchange happens
             d2[s2,p:q,v:w,t:u,r:s] = -d2_ijkl.transpose (0,3,2,1)
             d2[s2,t:u,r:s,p:q,v:w] = -d2_ijkl.transpose (2,1,0,3)
-        self._put_D2_(bra, ket, d2, i, j, k, l)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
+        self._put_D2_(bra, ket, d2, i, j, k, l)
 
     def _loop_lroots_(self, _crunch_fn, *row):
         if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
@@ -1358,9 +1370,12 @@ class LSTDMint2 (object):
         self.tdm2s += self.tdm2s.conj ().transpose (1,0,2,4,3,6,5)
 
     def _umat_linequiv_loop_(self, *args):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         for ifrag, inti in enumerate (self.ints):
             for iroot, umat in inti.umat_root.items ():
                 self._umat_linequiv_(ifrag, iroot, umat, *args)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_u, self.dw_u = self.dt_u + dt, self.dw_u + dw
 
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):
         self.tdm1s = umat_dot_1frag_(self.tdm1s, umat, self.lroots, ifrag, iroot, axis=0) 
@@ -1396,6 +1411,9 @@ class LSTDMint2 (object):
         profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
         profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
         profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
+        profile += '\n' + fmt_str.format ('o', self.dt_o, self.dw_o)
+        profile += '\n' + fmt_str.format ('u', self.dt_u, self.dw_u)
+        profile += '\n' + fmt_str.format ('p', self.dt_p, self.dw_p)
         return profile
 
 class HamS2ovlpint (LSTDMint2):
@@ -1424,6 +1442,7 @@ class HamS2ovlpint (LSTDMint2):
         self.h2 = h2
 
     def _put_D1_(self, bra, ket, D1, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         ham = np.dot (self.h1.ravel (), D1.ravel ())
         M1 = D1[0] - D1[1]
         D1 = D1.sum (0)
@@ -1431,18 +1450,23 @@ class HamS2ovlpint (LSTDMint2):
         s2 = 3*np.trace (D1)/4
         bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_ham_s2_(bra1, ket1, ham, s2, wgt)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_ham_s2_(self, bra, ket, ham, s2, wgt):
         self.ham[bra,ket] += wgt * ham
         self.s2[bra,ket] += wgt * s2
 
     def _put_D2_(self, bra, ket, D2, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         ham = np.dot (self.h2.ravel (), D2.sum (0).ravel ()) / 2
         M2 = np.einsum ('sppqq->s', D2) / 4
         s2 = M2[0] + M2[3] - M2[1] - M2[2]
         s2 -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
         bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_ham_s2_(bra1, ket1, ham, s2, wgt)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _add_transpose_(self):
         self.ham += self.ham.T
@@ -1681,9 +1705,12 @@ class ContractHamCI (LSTDMint2):
         return hci_f_ab, excfrags
 
     def _put_vecs_(self, bra, ket, vecs, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         bras, kets, facs = self._get_spec_addr_ovlp (bra, ket, *inv)
         for bra, ket, fac in zip (bras, kets, facs):
             self._put_Svecs_(bra, ket, [fac*vec for vec in vecs])
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_Svecs_(self, bra, ket, vecs):
         bra_r, bra_envaddr, excfrags = self._bra_address (bra)
