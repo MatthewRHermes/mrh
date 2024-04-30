@@ -15,7 +15,7 @@
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
 
-#define _DEBUG_DEVICE
+//#define _DEBUG_DEVICE
 
 #define _TILE(A,B) (A + B - 1) / B
 
@@ -260,7 +260,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int w
     pm->dev_stream_wait(dd->stream);
     
     if(i == 0) pm->dev_pull(dd->d_vj, vj, nset * nao_pair * sizeof(double));
-    else {
+    else if(dd->d_vj) {
       pm->dev_pull(dd->d_vj, tmp, nset*nao_pair*sizeof(double));
       for(int j=0; j<nset*nao_pair; ++j) vj[j] += tmp[j];
     }
@@ -285,7 +285,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int w
       pm->dev_stream_wait(dd->stream);
 
       if(i == 0) pm->dev_pull(dd->d_vkk, vk, nset * nao * nao * sizeof(double));
-      else {
+      else if(dd->d_vkk) {
 	pm->dev_pull(dd->d_vkk, tmp, nset*nao*nao*sizeof(double));
 	for(int j=0; j<nset*nao*nao; ++j) vk[j] += tmp[j];
       }
@@ -536,7 +536,7 @@ void Device::get_jk(int naux,
     dd->d_rho = (double *) pm->dev_malloc(_size_rho * sizeof(double));
   }
 
-#if 1
+#if 0
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   //  double * vj = static_cast<double*>(info_vj.ptr);
   
