@@ -15,7 +15,7 @@
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
 
-//#define _DEBUG_DEVICE
+#define _DEBUG_DEVICE
 
 #define _TILE(A,B) (A + B - 1) / B
 
@@ -536,7 +536,7 @@ void Device::get_jk(int naux,
     dd->d_rho = (double *) pm->dev_malloc(_size_rho * sizeof(double));
   }
 
-#if 0
+#if 1
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   //  double * vj = static_cast<double*>(info_vj.ptr);
   
@@ -1109,7 +1109,7 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
   
   int _size_buf = naux * nmo * nocc;
   if(_size_buf > dd->size_buf) {
-#if _DEBUG_DEVICE
+#ifdef _DEBUG_DEVICE
     printf("LIBGPU :: updating buffer sizes\n");
 #endif
     dd->size_buf = _size_buf;
