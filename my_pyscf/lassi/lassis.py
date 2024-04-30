@@ -105,13 +105,8 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
     h0, h1, h2 = lsi.ham_2q ()
     t0 = (logger.process_clock (), logger.perf_counter ())
     converged = True
-    # Prefilter spin-shuffles
-    spaces = [spi for i, spi in enumerate (spaces)
-              if (i<las1.nroots) or not any (
-                [spi.is_spin_shuffle_of (spj) for spj in spaces[:i]]
-              )]
-    log.info ("LASSIS electron hop spaces: %d-%d", las1.nroots, len (spaces)-1)
-    for i in range (las1.nroots, len (spaces)):
+    log.info ("LASSIS electron hop spaces: %d-%d", las1.nroots, las2.nroots-1)
+    for i in range (las1.nroots, las2.nroots):
         # compute lroots
         psref_ix = [j for j, space in enumerate (spaces[:las1.nroots])
                     if spaces[i].is_single_excitation_of (space)]
@@ -137,6 +132,20 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
             for space in psref[nref_pure:]:
                 space.table_printlog ()
                 log.info ('by %s', spaces[i].single_excitation_description_string (space))
+        # spin shuffle escape
+        i_ssref = None
+        for i0 in range (las1.nroots, i):
+            if spaces[i].is_spin_shuffle_of (spaces[i0]):
+                i_ssref = i0
+                break
+        if i_ssref is not None:
+            spaces[i].ci = spaces[i].get_spin_shuffle_civecs (spaces[i_ssref])
+            log.info ("and is a spin shuffle of space %d", i_ssref)
+            t0 = log.timer ("Space {} excitations".format (i), *t0)
+            lroots_i = spaces[i].get_lroots ()
+            assert (np.all (lroots_i==lroots[:,i])), "{} {} {} {}".format (
+                i_ssref, lroots_i, i, lroots[:,i])
+            continue
         # throat-clearing into ExcitationPSFCISolver
         ciref = [[] for j in range (nfrags)]
         for k in range (nfrags):
