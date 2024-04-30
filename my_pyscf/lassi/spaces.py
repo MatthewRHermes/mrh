@@ -317,6 +317,7 @@ class SingleLASRootspace (object):
                                  nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
                                  ci=ci1)
         sp.entmap = self.entmap
+        assert (ci is sp.ci[ifrag])
         return sp
 
     def is_orthogonal_by_smult (self, other):
@@ -402,6 +403,10 @@ def combine_orthogonal_excitations (exc1, exc2, ref):
     product.entmap = tuple (set (exc1.entmap + exc2.entmap))
     #assert (np.amax (product.entmap) < 2)
     assert (len (product.entmap) == len (set (product.entmap)))
+    for ifrag in range (nfrag):
+        assert ((product.ci[ifrag] is exc1.ci[ifrag]) or
+                (product.ci[ifrag] is exc2.ci[ifrag]) or
+                (product.ci[ifrag] is ref.ci[ifrag]))
     return product
 
 def all_single_excitations (las, verbose=None):
