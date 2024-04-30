@@ -884,8 +884,8 @@ class LSTDMint2 (object):
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
         nuniq = len (idx)
-        self.log.info ('%d/%d unique interactions of %s type',
-                       nuniq, nexc, lbl)
+        self.log.debug ('%d/%d unique interactions of %s type',
+                        nuniq, nexc, lbl)
         return exc
 
     def get_range (self, i):
@@ -1779,7 +1779,8 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=True):
                             screen_linequiv=screen_linequiv)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
-        lib.logger.info (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag, np.count_nonzero (tdmint.root_unique), nroots)
+        lib.logger.debug (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
+                          np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
     return hopping_index, ints, lroots
 
