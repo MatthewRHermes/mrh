@@ -268,7 +268,7 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         idx_space, idx_prod = indices
         ci_blk, nelec_blk = indexed
         idx_allprods.extend (list(np.where(idx_prod)[0]))
-        lib.logger.info (las, 'Diagonalizing LASSI symmetry block %d\n'
+        lib.logger.info (las, 'Build + diag H matrix LASSI symmetry block %d\n'
                          + '{} = {}\n'.format (qn_lbls, sym)
                          + '(%d rootspaces; %d states)', it,
                          np.count_nonzero (idx_space), 
@@ -293,9 +293,13 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         s2_roots.extend (list (np.diag (s2_blk)))
         rootsym.extend ([sym,]*c.shape[1])
 
-    # Sort results by energy
+    # The matrix blocks were evaluated in idx_allprods order
+    # Therefore, I need to ~invert~ idx_allprods to get the proper order
+    idx_allprods = np.argsort (idx_allprods)
     si = linalg.block_diag (*si)[idx_allprods,:]
     s2_mat = linalg.block_diag (*s2_mat)[np.ix_(idx_allprods,idx_allprods)]
+
+    # Sort results by energy
     idx = np.argsort (e_roots)
     rootsym = np.asarray (rootsym)[idx]
     e_roots = np.asarray (e_roots)[idx] + e0
@@ -535,7 +539,8 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
             stdm2s[a,...,b] = d2s[i,...,j]
     return stdm1s, stdm2s
 
-def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, opt=1):
+def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, rootsym=None,
+                       opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of LASSI states
 
         Args:
@@ -543,7 +548,6 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
             ci: list of list of ci vectors
             si: tagged ndarray of shape (nroots,nroots)
                Linear combination vectors defining LASSI states.
-               Requires tag "rootsym"
 
         Kwargs:
             orbsym: None or list of orbital symmetries spanning the whole orbital space
@@ -555,6 +559,11 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
+            rootsym: list of length nroots
+                Each element is a tuple describing all enforced symmetries of a LAS state. 
+                Grabbed first from si then from las if not supplied. Required from
+                somewhere.
+
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -575,6 +584,8 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
+    if rootsym is None:
+        rootsym = getattr (si, 'rootsym', getattr (las, 'rootsym', None))
 
     # Initialize matrices
     norb = las.ncas
@@ -591,7 +602,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
 
     # Loop over symmetry blocks
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
-    rootsym = [tuple (x) for x in si.rootsym]
+    rootsym = [tuple (x) for x in rootsym]
     for las1, sym, indcs, indxd in iterate_subspace_blocks(las,ci,statesym,subset=set(rootsym)):
         idx_ci, idx_prod = indcs
         ci_blk, nelec_blk = indxd
@@ -632,7 +643,8 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
             rdm2s[a] = d2s[i]
     return rdm1s, rdm2s
 
-def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None, opt=1):
+def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None,
+                      rootsym=None, opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of one single LASSI state
 
         Args:
@@ -640,7 +652,6 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
             ci: list of list of ci vectors
             si: tagged ndarray of shape (nroots,nroots)
                Linear combination vectors defining LASSI states.
-               Requires tag "rootsym"
 
         Kwargs:
             orbsym: None or list of orbital symmetries spanning the whole orbital space
@@ -652,6 +663,10 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
                 Whether to allow coupling between states of different point-group irreps
                 Overrides tag of si if provided by caller. I have no idea what will happen
                 if they contradict. This should probably be removed.
+            rootsym: list of length nroots
+                Each element is a tuple describing all enforced symmetries of a LAS state. 
+                Grabbed first from si then from las if not supplied. Required from
+                somewhere.
             opt: Optimization level, i.e.,  take outer product of
                 0: CI vectors
                 1: TDMs
@@ -661,26 +676,43 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
                 or of shape (2*ncas,2*ncas) if soc==True.
             rdm2s: ndarray of shape (2,ncas,ncas,2,ncas,ncas)
     '''
-    si_column = si[:,state:state+1]
+    states = np.atleast_1d (state)
+    si_column = si[:,states]
     if soc is None: soc = si.soc
     if break_symmetry is None: break_symmetry = si.break_symmetry
-    rootsym = si.rootsym[state]
-    si_column = tag_array (si_column, rootsym=[rootsym])
+    if rootsym is None:
+        rootsym = getattr (si, 'rootsym', getattr (las, 'rootsym', None))
+    rootsym = [rootsym[s] for s in states]
     rdm1s, rdm2s = roots_make_rdm12s (las, ci, si_column, orbsym=orbsym, soc=soc,
-                                      break_symmetry=break_symmetry, opt=opt)
-    return rdm1s[0], rdm2s[0]
+                                      break_symmetry=break_symmetry, rootsym=rootsym, opt=opt)
+    if len (states) == 1:
+        rdm1s, rdm2s = rdm1s[0], rdm2s[0]
+    return rdm1s, rdm2s
 
 class LASSI(lib.StreamObject):
     '''
     LASSI Method class
     '''
-    def __init__(self, las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False, break_symmetry=False, opt=1,  **kwargs):
+    def __init__(self, las, mo_coeff=None, ci=None, soc=False, break_symmetry=False, opt=1,
+                 **kwargs):
         from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
         if isinstance(las, LASCINoSymm): self._las = las
         else: raise RuntimeError("LASSI requires las instance")
-        self.__dict__.update(las.__dict__)
-        self.ncore = las.ncore
-        self.nfrags = las.nfrags
+        if mo_coeff is None: mo_coeff = las.mo_coeff
+        if ci is None: ci = las.ci
+        self.mo_coeff, self.ci = mo_coeff, ci
+        # indiscriminate "dict update" from las is bad practice. not doing that anymore
+        # Wave function configuration data from las parent
+        self.mol = las.mol
+        self.ncore, self.ncas = las.ncore, las.ncas
+        self.nfrags, self.nroots = las.nfrags, las.nroots
+        self.ncas_sub, self.nelecas_sub, self.fciboxes = las.ncas_sub, las.nelecas_sub, las.fciboxes
+        self.weights, self.e_states, self.e_lexc = las.weights, las.e_states, las.e_lexc
+        self.converged = las.converged
+        # I/O data from las parent
+        self.stdout, self.verbose, self.chkfile = las.stdout, las.verbose, las.chkfile
+        # General config data from las parent
+        self.max_memory = las.max_memory
         keys = set(('e_roots', 'si', 's2', 's2_mat', 'nelec', 'wfnsym', 'rootsym', 'break_symmetry', 'soc', 'opt'))
         self.e_roots = None
         self.si = None
@@ -694,13 +726,21 @@ class LASSI(lib.StreamObject):
         self.opt = opt
         self._keys = set((self.__dict__.keys())).union(keys)
 
-    def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,\
-               break_symmetry=False, opt=1,  **kwargs):
+    def kernel(self, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=None,\
+               break_symmetry=None, opt=None,  **kwargs):
+        if soc is None: soc = self.soc
+        if break_symmetry is None: break_symmetry = self.break_symmetry
+        if opt is None: opt = self.opt
+        log = lib.logger.new_logger (self, self.verbose)
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        if not self.converged:
+            log.warn ('LASSI state preparation step not converged!')
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
                             soc=soc, break_symmetry=break_symmetry, opt=opt)
         self.e_roots = e_roots
         self.si, self.s2, self.s2_mat, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
             si, si.s2, si.s2_mat, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
+        log.timer ('LASSI matrix-diagonalization kernel', *t0)
         return self.e_roots, self.si
 
     def ham_2q (self, mo_coeff=None, veff_c=None, h2eff_sub=None, soc=0):
@@ -721,8 +761,48 @@ class LASSI(lib.StreamObject):
         if ci is None: ci = self.ci
         return get_lroots (ci)
 
-    def analyze (self, state=None):
-        from mrh.my_pyscf.lassi.sitools import analyze
-        analyze (self, self.si, state=state)
+    def get_sivec_fermion_spin_shuffle (self, si=None, ci=None):
+        from mrh.my_pyscf.lassi.sitools import sivec_fermion_spin_shuffle
+        if si is None: si = self.si
+        lroots = self.get_lroots (ci=ci)
+        nelec_frs = self.get_nelec_frs ()
+        return sivec_fermion_spin_shuffle (si, nelec_frs, lroots)
 
+    def get_sivec_vacuum_shuffle (self, state=None, nelec_vac=None, si=None, ci=None):
+        '''Define a particular number of electrons in each fragment as the vacuum,
+        set the signs of the LAS basis functions accordingly and in fragment-major
+        order, and return the correspondingly-modified SI vector.
+    
+        Kwargs:
+            state: integer
+                Index of the rootspace identified as the new vacuum. Required if
+                nelec_vac is unset.
+            nelec_vac: ndarray of shape (nfrags)
+                Number of electrons (spinless) in each fragment in the new vacuum.
+                Defaults to self.get_nelec_frs ()[:,state,:].sum (1)
+            si: ndarray of shape (nstates,*)
+                SI vectors; taken from self if omitted
+            ci: list of list of ndarrays
+                CI vectors; taken from self if omitted
+ 
+        Returns:
+            si1: ndarray of shape (nstates,*)
+                si0 with permuted row signs corresponding to nelec_vac electrons in
+                each fragment in the vacuum and the fermion creation operators in
+                fragment-major order
+        '''
+        from mrh.my_pyscf.lassi.sitools import sivec_vacuum_shuffle
+        if si is None: si = self.si
+        lroots = self.get_lroots (ci=ci)
+        nelec_frs = self.get_nelec_frs ()
+        return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
+
+    def analyze (self, state=None, **kwargs):
+        from mrh.my_pyscf.lassi.sitools import analyze
+        analyze (self, self.si, state=state, **kwargs)
+
+    def reset (self, mol=None):
+        if mol is not None:
+            self.mol = mol
+        self._las.reset (mol)
 

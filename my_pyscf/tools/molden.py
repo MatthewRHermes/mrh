@@ -46,12 +46,16 @@ def from_lasscf (las, fname, state=None, natorb_casdm1=None, **kwargs):
     mo_coeff, mo_ene, mo_occ = las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
     return from_mo (las.mol, fname, mo_coeff, occ=mo_occ, ene=mo_ene, **kwargs)
 
-def from_lassi (las, fname, state=0, si=None, opt=1, **kwargs):
-    if si is None: si = getattr (las, 'si', None)
+def from_lassi (lsi, fname, state=0, si=None, opt=1, **kwargs):
+    if si is None: si = getattr (lsi, 'si', None)
     from mrh.my_pyscf.lassi.lassi import root_make_rdm12s
-    natorb_casdm1 = root_make_rdm12s (las, las.ci, si, state=state, opt=opt)[0].sum (0)
-    mo_coeff, mo_ene, mo_occ = las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
-    return from_mo (las.mol, fname, mo_coeff, occ=mo_occ, ene=mo_ene, **kwargs)
+    from mrh.my_pyscf.lassi import LASSI
+    natorb_casdm1 = root_make_rdm12s (lsi, lsi.ci, si, state=state, opt=opt)[0].sum (0)
+    if isinstance (lsi, LASSI):
+        mo_coeff, mo_ene, mo_occ = lsi._las.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
+    else:
+        mo_coeff, mo_ene, mo_occ = lsi.canonicalize (natorb_casdm1=natorb_casdm1)[:3]
+    return from_mo (lsi.mol, fname, mo_coeff, occ=mo_occ, ene=mo_ene, **kwargs)
 
 def from_mcscf (mc, filename, ignore_h=IGNORE_H, cas_natorb=False):
     ncore, ncas = mc.ncore, mc.ncas

@@ -1,9 +1,6 @@
 import numpy as np
-from pyscf import gto, scf, df, mcscf, lib, mcpdft
-from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.tools.molcas2pyscf import *
+from pyscf import gto, scf, mcpdft
 from mrh.my_pyscf.dft.openmolcas_grids import quasi_ultrafine
-from mrh.my_pyscf.grad.mspdft_nacs import NonAdiabaticCouplings
 import unittest
 
 
@@ -46,9 +43,7 @@ def diatomic(atom1, atom2, r, basis, ncas, nelecas, nstates,
         mo = mc.sort_mo_by_irrep(cas_irrep)
 
     mc.kernel(mo)
-
-
-    return NonAdiabaticCouplings(mc)
+    return mc.nac_method()
 
 
 def tearDownModule():

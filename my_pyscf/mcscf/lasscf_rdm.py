@@ -232,6 +232,7 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
         if ((norm_gorb < conv_tol_grad) or (norm_gorb < norm_gx/10)) and rdmjk_conv:
             converged = True
             break
+        las.dump_chk (mo_coeff=mo_coeff, ci=[casdm1frs, casdm2fr])
         H_op._init_eri_() # Take this part out of the true initialization b/c 
                           # if I'm already converged I don't want to waste the cycles
         t1 = log.timer ('LASSCF Hessian constructor', *t1)
@@ -390,7 +391,6 @@ class RDMSolver (lib.StreamObject):
         return (h1s, h2)
 
     def get_init_guess (self, norb, nelec, nroots, ham):
-        ''' Important: zeroth item selected in get_init_guess_ci '''
         h1s, h2 = ham
         if callable (self._get_init_guess):
             dm1s, dm2 = self._get_init_guess (norb, nelec, nroots, h1s, h2)
@@ -399,7 +399,7 @@ class RDMSolver (lib.StreamObject):
             hdiag = fci.make_hdiag_csf (h1s, h2, norb, nelec)
             ci = fci.get_init_guess (norb, nelec, nroots, hdiag)
             dm1s, dm2 = self._ci2rdm (fci, ci, norb, nelec)
-        return [dm1s, dm2], None
+        return dm1s, dm2
 
     def kernel (self, norb, nelec, h0, h1s, h2):
         h2 = ao2mo.restore (1, h2, norb)
@@ -468,6 +468,15 @@ def make_fcibox (mol, kernel=None, get_init_guess=None, spin=None):
     s.spin = spin
     return FCIBox ([s])
 
+def _combine_init_guess_ci (las, ci0i, ci0g, norb, nelec, nroots):
+    if nroots>1: raise NotImplementedError ("Multiple local roots for lasscf_rdm")
+    if getattr (ci0i, '__len__', None) is None: return ci0g
+    if len (ci0i) != 2: return ci0g
+    for n, ci0in in enumerate (ci0i):
+        if not isinstance (ci0in, np.ndarray): return ci0g
+        if ci0in.size != norb ** (2*n): return ci0g
+    return ci0i
+
 class LASSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
 
     def __init__(self, *args, **kwargs):
@@ -484,6 +493,7 @@ class LASSCFNoSymm (lasscf_sync_o0.LASSCFNoSymm):
     _hop = LASSCF_HessianOperator
     canonicalize = canonicalize
     rdm_cycle = rdm_cycle
+    _combine_init_guess_ci = _combine_init_guess_ci
 
     def _init_fcibox (self, smult, nel):
         return make_fcibox (self.mol, spin=nel[0]-nel[1])

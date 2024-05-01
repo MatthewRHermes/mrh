@@ -92,6 +92,10 @@ def make_hdiag_csf (h1e, eri, norb, nelec, transformer, hdiag_det=None, max_memo
         csd_offset = npair_csd_offset[ipair]
         det_addr = transformer.csd_mask[csd_offset:][:nconf*ndet]
         # mem safety
+        # Issue #54: PySCF wants "max_memory" on entrance to FCI to be "remaining memory". However,
+        # the first few lines of this function consume some memory, so that's difficult to
+        # implement consistently. "max_memory" here is currently the config parameter for the whole
+        # calculation.
         mem_remaining = max_memory - lib.current_memory ()[0]
         safety_factor = 1.2
         nfloats = nconf*ndet*ndet + det_addr.size 
@@ -284,6 +288,9 @@ def pspace (fci, h1e, eri, norb, nelec, transformer, hdiag_det=None, hdiag_csf=N
     safety_factor = 1.2
     nfloats_h0 = (npsp_det+npsp)**2
     mem_h0 = safety_factor * nfloats_h0 * np.dtype (float).itemsize / 1e6
+    # Issue #54: PySCF wants "max_memory" on entrance to FCI to be "remaining memory". However,
+    # the earlier lines of this function consume some memory, so that's difficult to implement
+    # consistently. "max_memory" here is currently the config parameter for the whole calculation.
     mem_remaining = max_memory - lib.current_memory ()[0]
     memstr = ("pspace_size of {} CSFs -> {} determinants requires {} MB, cf {} MB "
               "remaining memory").format (npsp, npsp_det, mem_h0, mem_remaining)

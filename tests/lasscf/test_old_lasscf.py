@@ -66,22 +66,24 @@ def build (mf, m1=0, m2=0, ir1=0, ir2=0, CASlist=None, active_first=False, calcn
     # --------------------------------------------------------------------------------------------------------------------
     return c2h4n4_dmet
 
-dr_nn = 3.0
-mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
-mol.verbose = lib.logger.DEBUG 
-mol.output = '/dev/null'
-mol.spin = 8
-mol.build ()
-mf = scf.RHF (mol).run ()
-dmet = build (mf, 1, -1, active_first=True)
-dmet.conv_tol_grad = 1e-6
-e_tot = dmet.doselfconsistent ()
+def setUpModule():
+    global mol, mf, dmet, e_tot
+    dr_nn = 3.0
+    mol = struct (dr_nn, dr_nn, '6-31g', symmetry=False)
+    mol.verbose = lib.logger.DEBUG 
+    mol.output = '/dev/null'
+    mol.spin = 8
+    mol.build ()
+    mf = scf.RHF (mol).run ()
+    dmet = build (mf, 1, -1, active_first=True)
+    dmet.conv_tol_grad = 1e-6
+    e_tot = dmet.doselfconsistent ()
 
 def tearDownModule():
-    global mol, mf, dmet
+    global mol, mf, dmet, e_tot
     mol.stdout.close ()
     dmet.lasci_log.close ()
-    del mol, mf, dmet
+    del mol, mf, dmet, e_tot
 
 
 class KnownValues(unittest.TestCase):

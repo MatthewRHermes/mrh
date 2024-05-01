@@ -263,6 +263,8 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
                                                                       las.nelecas_sub, h1eff_sub,
                                                                       ci0)):
         eri_cas = las.get_h2eff_slice (h2eff_sub, isub, compact=8)
+        #max_memory = max(400, las.max_memory-lib.current_memory()[0])
+        # Issue #54: compute max_memory here, or in fcisolver?
         orbsym = getattr (mo, 'orbsym', None)
         if orbsym is not None:
             i = ncas_cum[isub]
@@ -288,6 +290,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
 
         e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
                                       ci0=fcivec, verbose=log,
+                                      #max_memory = max_memory issue #54
                                       ecore=e0, orbsym=orbsym)
         e_cas.append (e_sub)
         ci1.append (fcivec)
@@ -508,6 +511,7 @@ def _init_df_(h_op):
             h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
             compact=False))
 
+# TODO: local state-average generalization
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
     ''' The Hessian-vector product for a `LASCI' energy minimization, implemented as a linear
     operator from the scipy.sparse.linalg module. `LASCI' here means that the CAS is frozen

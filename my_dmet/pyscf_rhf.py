@@ -115,14 +115,14 @@ def fix_my_RHF_for_nonsinglet_env (mf, h1e_s):
             self.__dict__.update (my_mf.__dict__)
 
         def get_fock (self, h1e=None, s1e=None, vhf=None, dm=None, cycle=1, diis=None,
-            diis_start_cycle=None, level_shift_factor=None, damp_factor=None):
+            diis_start_cycle=None, level_shift_factor=None, damp_factor=None, fock_last=None):
 
             if vhf is None: vhf = self.get_veff (self.mol, dm)
             vhf[0] += h1e_s
             vhf[1] -= h1e_s
             return super().get_fock (h1e=h1e, s1e=s1e, vhf=vhf, dm=dm, cycle=cycle, diis=diis,
                 diis_start_cycle=diis_start_cycle, level_shift_factor=level_shift_factor,
-                damp_factor=damp_factor)
+                damp_factor=damp_factor, fock_last=fock_last)
 
         def energy_elec (self, dm=None, h1e=None, vhf=None):
             if dm is None: dm = self.make_rdm1 ()

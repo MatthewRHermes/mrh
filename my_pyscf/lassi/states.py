@@ -229,24 +229,20 @@ class SingleLASRootspace (object):
         e_spin = 'a' if np.any (self.neleca!=other.neleca) else 'b'
         src_ds = 'u' if self.smults[src_frag]>other.smults[src_frag] else 'd'
         dest_ds = 'u' if self.smults[dest_frag]>other.smults[dest_frag] else 'd'
-        return src_frag, dest_frag, e_spin, src_ds, dest_ds
+        lroots_s = min (other.nelecu[src_frag], other.nholed[dest_frag])
+        return src_frag, dest_frag, e_spin, src_ds, dest_ds, lroots_s
 
     def single_excitation_description_string (self, other):
-        src, dest, e_spin, src_ds, dest_ds = self.describe_single_excitation (other)
-        fmt_str = '{:d}({:s}) --{:s}--> {:d}({:s})'
-        return fmt_str.format (src, src_ds, e_spin, dest, dest_ds)
+        src, dest, e_spin, src_ds, dest_ds, lroots_s = self.describe_single_excitation (other)
+        fmt_str = '{:d}({:s}) --{:s}--> {:d}({:s}) ({:d} lroots)'
+        return fmt_str.format (src, src_ds, e_spin, dest, dest_ds, lroots_s)
 
     def compute_single_excitation_lroots (self, ref):
         if isinstance (ref, (list, tuple)):
             lroots = np.array ([self.compute_single_excitation_lroots (r) for r in ref])
             return np.amax (lroots)
         assert (self.is_single_excitation_of (ref))
-        src, dest, e_spin = self.describe_single_excitation (ref)[:3]
-        if e_spin == 'a':
-            nelec, nhole = ref.neleca, ref.nholea
-        else:
-            nelec, nhole = ref.nelecb, ref.nholeb
-        return min (nelec[src], nhole[dest])
+        return self.describe_single_excitation (ref)[5]
 
     def is_spin_shuffle_of (self, other):
         if np.any (self.nelec != other.nelec): return False
