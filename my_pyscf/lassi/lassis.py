@@ -327,6 +327,7 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
         ifrag, jfrag = space.entmap[0] # must be a tuple of length 2
         ci_szrot_1c.append (space.get_ci_szrot (ifrags=(ifrag,jfrag)))
     charges0 = spaces[0].charges
+    smults0 = spaces[0].smults
     for ix in new_idx:
         idx = spaces[ix].excited_fragments (spaces[0])
         space = spaces[ix]
@@ -334,12 +335,17 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
             space.ci[ifrag] = spaces[0].ci[ifrag]
         for ifrag in np.where (idx)[0]:
             if space.charges[ifrag] != charges0[ifrag]: continue
-            sf = spin_flips[ifrag]
-            iflp = sf.smults == space.smults[ifrag]
-            iflp &= sf.spins == space.spins[ifrag]
-            assert (np.count_nonzero (iflp) == 1)
-            iflp = np.where (iflp)[0][0]
-            space.ci[ifrag] = sf.ci[iflp]
+            if space.smults[ifrag] != smults0[ifrag]:
+                sf = spin_flips[ifrag]
+                iflp = sf.smults == space.smults[ifrag]
+                iflp &= sf.spins == space.spins[ifrag]
+                assert (np.count_nonzero (iflp) == 1)
+                iflp = np.where (iflp)[0][0]
+                space.ci[ifrag] = sf.ci[iflp]
+            else: # Reference-state spin-shuffles
+                spaces0 = [sp for sp in spaces[:nroots_ref] if sp.spins[ifrag]==space.spins[ifrag]]
+                assert (len (spaces0))
+                space.ci[ifrag] = spaces0[0].ci[ifrag]
         for (ci_i, ci_j), sp_1c in zip (ci_szrot_1c, spaces_1c):
             ijfrag = sp_1c.entmap[0]
             if ijfrag not in spaces[ix].entmap: continue
