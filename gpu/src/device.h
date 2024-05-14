@@ -87,6 +87,8 @@ private:
   class PM * pm;
   
   double host_compute(double *);
+  void get_cores(char *);
+  
   int n;
   int size_data;
 

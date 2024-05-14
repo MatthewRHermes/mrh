@@ -6,6 +6,14 @@
 
 #define _NUM_TIMER_JK 13
 
+#define _DEBUG_OPENMP
+
+#ifdef _DEBUG_OPENMP
+#include <unistd.h>
+#include <string.h>
+#include <sched.h>
+#endif
+
 /* ---------------------------------------------------------------------- */
 
 Device::Device()
@@ -103,6 +111,22 @@ Device::Device()
     device_data[i].handle = nullptr;
     device_data[i].stream = nullptr;
   }
+
+#ifdef _DEBUG_OPENMP
+  char nname[16];
+  gethostname(nname, 16);
+  int rnk = 0;
+  
+#pragma omp parallel for ordered
+  for(int it=0; it<omp_get_num_threads(); ++it) {
+    char list_cores[7*CPU_SETSIZE];
+    get_cores(list_cores);
+#pragma omp ordered
+    printf("LIBGPU: To affinity and beyond!! nname= %s  rnk= %d  tid= %d: list_cores= (%s)\n",
+	   nname, rnk, omp_get_thread_num(), list_cores);
+  }
+
+#endif
   
 #ifdef _SIMPLE_TIMER
   t_array_count = 0;
@@ -223,6 +247,42 @@ Device::~Device()
 #endif
 
   delete pm;
+}
+
+/* ---------------------------------------------------------------------- */
+
+// xthi.c from http://docs.cray.com/books/S-2496-4101/html-S-2496-4101/cnlexamples.html
+
+// util-linux-2.13-pre7/schedutils/taskset.c
+void Device::get_cores(char *str)
+{
+  cpu_set_t mask;
+  sched_getaffinity(0, sizeof(cpu_set_t), &mask);
+
+  char *ptr = str;
+  int i, j, entry_made = 0;
+  for (i = 0; i < CPU_SETSIZE; i++) {
+    if (CPU_ISSET(i, &mask)) {
+      int run = 0;
+      entry_made = 1;
+      for (j = i + 1; j < CPU_SETSIZE; j++) {
+        if (CPU_ISSET(j, &mask)) run++;
+        else break;
+      }
+      if (!run)
+        sprintf(ptr, "%d,", i);
+      else if (run == 1) {
+        sprintf(ptr, "%d,%d,", i, i + 1);
+        i++;
+      } else {
+        sprintf(ptr, "%d-%d,", i, i + run);
+        i += run;
+      }
+      while (*ptr != 0) ptr++;
+    }
+  }
+  ptr -= entry_made;
+  *ptr = 0;
 }
 
 /* ---------------------------------------------------------------------- */
