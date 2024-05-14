@@ -5,11 +5,12 @@ from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm
+from pyscf.scf.addons import canonical_orth_
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from itertools import combinations, product
 from mrh.my_pyscf.mcscf import soc_int as soc_int
-
+from pyscf import __config__
 
 # TODO: fix stdm1 index convention in both o0 and o1
 
@@ -21,7 +22,7 @@ from mrh.my_pyscf.mcscf import soc_int as soc_int
 # instance is severed, remove the dangerous "_LASSI_subspace_env"
 # temporary environment.
 
-LINDEP_THRESHOLD = 1.0e-5
+LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
 op = (op_o0, op_o1)
 
@@ -418,16 +419,18 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
     # Error catch: linear dependencies in basis
     try:
         e, c = linalg.eigh (ham_blk, b=ovlp_blk)
-    except linalg.LinAlgError as e:
+    except linalg.LinAlgError as err:
         ovlp_det = linalg.det (ovlp_blk)
         lc = 'checking if LASSI basis has lindeps: |ovlp| = {:.6e}'.format (ovlp_det)
-        lib.logger.info (las, 'Caught error %s, %s', str (e), lc)
-        if ovlp_det < LINDEP_THRESHOLD:
-            err_str = ('LASSI basis appears to have linear dependencies; '
-                       'double-check your state list.\n'
-                       '|ovlp| = {:.6e}').format (ovlp_det)
-            raise RuntimeError (err_str) from e
-        else: raise (e) from None
+        lib.logger.info (las, 'Caught error %s, %s', str (err), lc)
+        if ovlp_det < LINDEP_THRESH:
+            x = canonical_orth_(ovlp_blk, thr=LINDEP_THRESH)
+            lib.logger.info (las, '%d/%d linearly independent model states',
+                             x.shape[1], x.shape[0])
+            xhx = x.conj ().T @ ham_blk @ x
+            e, c = linalg.eigh (xhx)
+            c = x @ c
+        else: raise (err) from None
     return e, c, s2_blk
 
 def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
@@ -732,6 +735,7 @@ class LASSI(lib.StreamObject):
         if break_symmetry is None: break_symmetry = self.break_symmetry
         if opt is None: opt = self.opt
         log = lib.logger.new_logger (self, self.verbose)
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         if not self.converged:
             log.warn ('LASSI state preparation step not converged!')
         e_roots, si = lassi(self, mo_coeff=mo_coeff, ci=ci, veff_c=veff_c, h2eff_sub=h2eff_sub, orbsym=orbsym, \
@@ -739,6 +743,7 @@ class LASSI(lib.StreamObject):
         self.e_roots = e_roots
         self.si, self.s2, self.s2_mat, self.nelec, self.wfnsym, self.rootsym, self.break_symmetry, self.soc  = \
             si, si.s2, si.s2_mat, si.nelec, si.wfnsym, si.rootsym, si.break_symmetry, si.soc
+        log.timer ('LASSI matrix-diagonalization kernel', *t0)
         return self.e_roots, self.si
 
     def ham_2q (self, mo_coeff=None, veff_c=None, h2eff_sub=None, soc=0):
@@ -795,9 +800,9 @@ class LASSI(lib.StreamObject):
         nelec_frs = self.get_nelec_frs ()
         return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
 
-    def analyze (self, state=None):
+    def analyze (self, state=None, **kwargs):
         from mrh.my_pyscf.lassi.sitools import analyze
-        analyze (self, self.si, state=state)
+        analyze (self, self.si, state=state, **kwargs)
 
     def reset (self, mol=None):
         if mol is not None:

@@ -60,6 +60,29 @@ def get_h1e_zipped_fcisolver (fcisolver):
 
     class FCISolver (fcisolver.__class__, H1EZipFCISolver):
 
+        # This is a hack designed to, i.e., set
+        # self.fcisolvers[i].nroots = 1 for all i
+        # in the context of StateAverageMixFCISolver._loop_civecs, so that local state-averaging
+        # in the ith Hilbert space can be totally abstracted away from the HIEZipFCISolver,
+        # StateAverageNMixFCISolver layer
+        def _loop_civecs (self, *args, **kwargs):
+            _solver_args = self._solver_args
+            _state_args = self._state_args
+            for i, solver in enumerate (self.fcisolvers):
+                my_args = []
+                for arg in args:
+                    if isinstance (arg, (_state_args, _solver_args)):
+                        my_args.append (arg[i])
+                    else:
+                        my_args.append (arg)
+                my_kwargs = {}
+                for key, item in kwargs.items ():
+                    if isinstance (arg, (_state_args, _solver_args)):
+                        my_kwargs[key] = item[i]
+                    else:
+                        my_kwargs[key] = item
+                yield solver, my_args, my_kwargs
+
         def kernel(self, h1, h2, norb, nelec, ci0=None, verbose=0, ecore=0, orbsym=None, **kwargs):
             # Note self.orbsym is initialized lazily in mc1step_symm.kernel function
             log = logger.new_logger(self, verbose)
