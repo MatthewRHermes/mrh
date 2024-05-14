@@ -7,9 +7,11 @@ PATH_TO_CUDA = $(shell echo ${PATH_TO_NVCC} | rev | cut -d '/' -f 3- | rev)
 $(info PATH_TO_CUDA= [${PATH_TO_CUDA}])
 
 FC = ftn
+#FC = gfortran 
 FCFLAGS = -g -fopenmp -O3
 
 CXX = CC
+#CXX = g++
 CXXFLAGS = -g -fPIC -fopenmp -O3
 CXXFLAGS += -I$(PATH_TO_CUDA)/include
 CXXFLAGS += $(PYTHON_INC)
@@ -20,6 +22,8 @@ CXXFLAGS += -I$(PATH_TO_CUDA)/include
 CXXFLAGS += -D_CUDA_NVTX
 
 CUDA_CXXFLAGS = $(PYTHON_INC)
+#CUDA_CXXFLAGS += --dryrun
+CUDA_CXXFLAGS += -ccbin=CC
 CUDA_CXXFLAGS += -Xcompiler -fopenmp
 #CUDA_CXXFLAGS += -shared -Xcompiler -fPIC 
 CUDA_CXXFLAGS += -D_USE_GPU -D_GPU_CUDA
@@ -32,6 +36,7 @@ LDFLAGS = -fopenmp
 LDFLAGS += -fPIC -shared
 
 LIB = -lstdc++
-LIB += -L/home/knight/soft/polaris/lapack/lib -llapack -lrefblas -lgfortran
+#LIB += -L/home/knight/soft/polaris/lapack/lib -llapack -lrefblas -lgfortran
+LIB += /grand/LASSCF_gpudev/knight/soft/openblas/lib/libopenblas.so
 LIB += -L$(PATH_TO_CUDA)/lib64 -lcublas -lcudart
 LIB += -lnvToolsExt
