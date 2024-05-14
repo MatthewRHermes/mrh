@@ -56,8 +56,8 @@ class KnownValues(unittest.TestCase):
     def test_c2h4n4_3frag (self):
         # str
         mol = struct (2.0, 2.0, '6-31g', symmetry=False)
-        mol.output = '/dev/null'
-        mol.verbose = 0
+        mol.output = 'c2h4n4_3frag_str.log'#'/dev/null'
+        mol.verbose = 5#0
         mol.spin = 8
         mol.build ()
         mf = scf.RHF (mol).run () 
@@ -71,8 +71,8 @@ class KnownValues(unittest.TestCase):
         # equil
         mol = struct (0.0, 0.0, '6-31g', symmetry=False)
         mol.spin = 0
-        mol.verbose = 0
-        mol.output = '/dev/null'
+        mol.output = 'c2h4n4_3frag_equil.log'#'/dev/null'
+        mol.verbose = 5#0
         mol.build ()
         mf = scf.RHF (mol).run ()
         las = LASSCF (mf, (4,2,4), ((2,2),(1,1),(2,2)), spin_sub=(1,1,1))
@@ -90,8 +90,8 @@ class KnownValues(unittest.TestCase):
     def test_c2h4n4_2frag (self):
         # str
         mol = struct (2.0, 2.0, '6-31g', symmetry=False)
-        mol.output = '/dev/null'
-        mol.verbose = 0
+        mol.output = 'c2h4n4_2frag_str.log'#'/dev/null'
+        mol.verbose = 5#0
         mol.spin = 8
         mol.build ()
         mf = scf.RHF (mol).run () 
@@ -113,8 +113,8 @@ class KnownValues(unittest.TestCase):
         # equil
         mol = struct (0.0, 0.0, '6-31g', symmetry=False)
         mol.spin = 0
-        mol.verbose = 0
-        mol.output = '/dev/null'
+        mol.output = 'c2h4n4_2frag_equil.log'#'/dev/null'
+        mol.verbose = 5#0
         mol.build ()
         mf = scf.RHF (mol).run ()
         las = lasscf_async.LASSCF (mf, (5,5), ((3,2),(2,3)))
@@ -172,7 +172,8 @@ class KnownValues(unittest.TestCase):
         H      3.367270000000  -0.612150000000  -1.514110000000'''
         basis = {'C': 'sto-3g','H': 'sto-3g','O': 'sto-3g','N': 'sto-3g','Cr': 'cc-pvdz'}
         mol = gto.M (atom=xyz, spin=6, charge=3, basis=basis,
-                   verbose=0, output='/dev/null')
+                     verbose=5, output='kremer.log')
+                     #verbose=0, output='/dev/null')
         mf = scf.ROHF(mol)
         mf.chkfile = 'test_lassis_targets_slow.kremer_cr2_model.chk'
         mf.kernel ()
@@ -227,8 +228,9 @@ class KnownValues(unittest.TestCase):
         C 2.1609242811 -2.1609242811 1.2775841868
         H 2.7960805433 -2.7960805433 1.9182443024'''
         basis = {'C': 'sto-3g','H': 'sto-3g','O': 'sto-3g','Al': 'cc-pvdz','Fe': 'cc-pvdz'}
-        mol = gto.M (atom=xyz, spin=9, charge=0, basis=basis, max_memory=10000, verbose=0,
-                     output='/dev/null')
+        mol = gto.M (atom=xyz, spin=9, charge=0, basis=basis, max_memory=10000,
+                     verbose=5, output='alfefe.log')
+                     #verbose=0, output='/dev/null')
         mf = scf.ROHF(mol)
         mf.init_guess='chk'
         mf.chkfile='test_lassis_targets_slow.alfefe.chk'

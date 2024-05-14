@@ -4,7 +4,15 @@
 
 #include "device.h"
 
-#define _NUM_TIMER_JK 12
+#define _NUM_TIMER_JK 13
+
+#define _DEBUG_OPENMP
+
+#ifdef _DEBUG_OPENMP
+#include <unistd.h>
+#include <string.h>
+#include <sched.h>
+#endif
 
 /* ---------------------------------------------------------------------- */
 
@@ -18,15 +26,15 @@ Device::Device()
 
   update_dfobj = 0;
   
-  size_rho = 0;
-  size_vj = 0;
-  size_vk = 0;
-  size_buf = 0;
-  size_fdrv = 0;
-  size_dms = 0;
-  size_dmtril = 0;
-  size_eri1 = 0;
-  size_tril_map = 0;
+  // size_rho = 0;
+  // size_vj = 0;
+  // size_vk = 0;
+  // size_buf = 0;
+  // size_fdrv = 0;
+  // size_dms = 0;
+  // size_dmtril = 0;
+  // size_eri1 = 0;
+  // size_tril_map = 0;
 
   size_bPpj = 0;
   size_vPpj = 0;
@@ -41,32 +49,84 @@ Device::Device()
   buf4 = nullptr;
 
   buf_fdrv = nullptr;
-  tril_map = nullptr;
+  //  tril_map = nullptr;
   
 #if defined(_USE_GPU)
-  handle = nullptr;
-  stream = nullptr;
+  //  handle = nullptr;
+  //  stream = nullptr;
 
-  d_rho = nullptr;
-  d_vj = nullptr;
-  d_buf1 = nullptr;
-  d_buf2 = nullptr;
-  d_buf3 = nullptr;
-  d_vkk = nullptr;
-  d_dms = nullptr;
-  d_dmtril = nullptr;
-  d_eri1 = nullptr;
+  //  handle_ = nullptr;
+  //  stream_ = nullptr;
 
-  d_tril_map = nullptr;
+  // d_rho = nullptr;
+  // d_vj = nullptr;
+  // d_buf1 = nullptr;
+  // d_buf2 = nullptr;
+  // d_buf3 = nullptr;
+  // d_vkk = nullptr;
+  // d_dms = nullptr;
+  // d_dmtril = nullptr;
+  // d_eri1 = nullptr;
+
+  // d_tril_map = nullptr;
 
   d_bPpj = nullptr;
   d_vPpj = nullptr;
   d_vk_bj = nullptr;
+
+  use_eri_cache = true;
 #endif
   
   num_threads = 1;
 #pragma omp parallel
   num_threads = omp_get_num_threads();
+
+  num_devices = pm->dev_num_devices();
+  
+  device_data = (my_device_data*) pm->dev_malloc_host(num_devices * sizeof(my_device_data));
+
+  for(int i=0; i<num_devices; ++i) {
+    device_data[i].size_rho = 0;
+    device_data[i].size_vj = 0;
+    device_data[i].size_vk = 0;
+    device_data[i].size_buf = 0;
+    device_data[i].size_dms = 0;
+    device_data[i].size_dmtril = 0;
+    device_data[i].size_eri1 = 0;
+    device_data[i].size_tril_map = 0;
+    
+    device_data[i].d_rho = nullptr;
+    device_data[i].d_vj = nullptr;
+    device_data[i].d_buf1 = nullptr;
+    device_data[i].d_buf2 = nullptr;
+    device_data[i].d_buf3 = nullptr;
+    device_data[i].d_vkk = nullptr;
+    device_data[i].d_dms = nullptr;
+    device_data[i].d_dmtril = nullptr;
+    device_data[i].d_eri1 = nullptr;
+    
+    device_data[i].tril_map = nullptr;
+    device_data[i].d_tril_map = nullptr;
+    
+    device_data[i].handle = nullptr;
+    device_data[i].stream = nullptr;
+  }
+
+#ifdef _DEBUG_OPENMP
+  char nname[16];
+  gethostname(nname, 16);
+  int rnk = 0;
+  
+#pragma omp parallel for ordered
+  for(int it=0; it<omp_get_num_threads(); ++it) {
+    char list_cores[7*CPU_SETSIZE];
+    get_cores(list_cores);
+#pragma omp ordered
+    printf("LIBGPU: To affinity and beyond!! nname= %s  rnk= %d  tid= %d: list_cores= (%s)\n",
+	   nname, rnk, omp_get_thread_num(), list_cores);
+  }
+
+#endif
   
 #ifdef _SIMPLE_TIMER
   t_array_count = 0;
@@ -98,7 +158,7 @@ Device::~Device()
   pm->dev_free_host(buf4);
 
   pm->dev_free_host(buf_fdrv);
-  pm->dev_free_host(tril_map);
+  //  pm->dev_free_host(tril_map);
 
 #ifdef _SIMPLE_TIMER
   t_array_jk[11] += omp_get_wtime() - t0;
@@ -127,36 +187,38 @@ Device::~Device()
 
   // print summary of cached eri blocks
 
-#ifdef _USE_ERI_CACHE
-  printf("LIBGPU::eri cache :: size= %i\n",eri_list.size());
-  for(int i=0; i<eri_list.size(); ++i)
-    printf("%i : eri= %p  Mbytes= %f  count= %i  update= %i\n", i, eri_list[i],
-	   eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i]);
-  
-  eri_count.clear();
-  eri_size.clear();
+  if(use_eri_cache) {
+    printf("LIBGPU::eri cache :: size= %i\n",eri_list.size());
+    for(int i=0; i<eri_list.size(); ++i)
+      printf("%i : eri= %p  Mbytes= %f  count= %i  update= %i device= %i\n", i, eri_list[i],
+	     eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i], eri_device[i]);
+    
+    eri_count.clear();
+    eri_size.clear();
 #ifdef _DEBUG_ERI_CACHE
-  for(int i=0; i<d_eri_host.size(); ++i) pm->dev_free_host( d_eri_host[i] );
+    for(int i=0; i<d_eri_host.size(); ++i) pm->dev_free_host( d_eri_host[i] );
 #endif
-  for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free( d_eri_cache[i] );
-  eri_list.clear();
-#endif
+    for(int i=0; i<d_eri_cache.size(); ++i) pm->dev_free( d_eri_cache[i] );
+    eri_list.clear();
+  }
   
 #if defined(_USE_GPU)
 #ifdef _CUDA_NVTX
   nvtxRangePushA("Deallocate");
 #endif
 
-  pm->dev_free(d_rho);
-  pm->dev_free(d_vj);
-  pm->dev_free(d_buf1);
-  pm->dev_free(d_buf2);
-  pm->dev_free(d_buf3);
-  pm->dev_free(d_vkk);
-  pm->dev_free(d_dms);
-  pm->dev_free(d_dmtril);
-  pm->dev_free(d_eri1);
-  pm->dev_free(d_tril_map);
+  //  for(int i=0; i<num_devices; ++i) // free gpu objects
+  
+  // pm->dev_free(d_rho);
+  // pm->dev_free(d_vj);
+  // pm->dev_free(d_buf1);
+  // pm->dev_free(d_buf2);
+  // pm->dev_free(d_buf3);
+  // pm->dev_free(d_vkk);
+  // pm->dev_free(d_dms);
+  // pm->dev_free(d_dmtril);
+  // pm->dev_free(d_eri1);
+  // pm->dev_free(d_tril_map);
 
   pm->dev_free(d_bPpj);
   pm->dev_free(d_vPpj);
@@ -167,18 +229,60 @@ Device::~Device()
   
   nvtxRangePushA("Destroy Handle");
 #endif
-  cublasDestroy(handle);
+  //  cublasDestroy(handle);
+
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    cublasDestroy(dd->handle);
+  }
 #ifdef _CUDA_NVTX
   nvtxRangePop();
 #endif
 
   printf("need to destroy stream correctly...\n");
   //pm->dev_stream_destroy(stream);
+  //for(int i=0; i<num_devices; ++i) pm->dev_stream_destroy(stream_[i]);
   printf(" -- finished\n");
 
 #endif
 
   delete pm;
+}
+
+/* ---------------------------------------------------------------------- */
+
+// xthi.c from http://docs.cray.com/books/S-2496-4101/html-S-2496-4101/cnlexamples.html
+
+// util-linux-2.13-pre7/schedutils/taskset.c
+void Device::get_cores(char *str)
+{
+  cpu_set_t mask;
+  sched_getaffinity(0, sizeof(cpu_set_t), &mask);
+
+  char *ptr = str;
+  int i, j, entry_made = 0;
+  for (i = 0; i < CPU_SETSIZE; i++) {
+    if (CPU_ISSET(i, &mask)) {
+      int run = 0;
+      entry_made = 1;
+      for (j = i + 1; j < CPU_SETSIZE; j++) {
+        if (CPU_ISSET(j, &mask)) run++;
+        else break;
+      }
+      if (!run)
+        sprintf(ptr, "%d,", i);
+      else if (run == 1) {
+        sprintf(ptr, "%d,%d,", i, i + 1);
+        i++;
+      } else {
+        sprintf(ptr, "%d-%d,", i, i + run);
+        i += run;
+      }
+      while (*ptr != 0) ptr++;
+    }
+  }
+  ptr -= entry_made;
+  *ptr = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -210,6 +314,96 @@ void Device::set_device(int id)
 void Device::set_update_dfobj_(int _val)
 {
   update_dfobj = _val; // this is reset to zero in Device::pull_get_jk
+}
+
+/* ---------------------------------------------------------------------- */
+    
+void Device::disable_eri_cache_()
+{
+  use_eri_cache = false;
+}
+
+/* ---------------------------------------------------------------------- */
+
+// return stored values for Python side to make decisions
+// update_dfobj == true :: nothing useful to return if need to update eri blocks on device
+// count_ == -1 :: return # of blocks cached for dfobj
+// count_ >= 0 :: return extra data for cached block
+
+void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
+{
+  py::buffer_info info_arg = _arg.request();
+  int * arg = static_cast<int*>(info_arg.ptr);
+  
+  int naux_ = arg[0];
+  int nao_pair_ = arg[1];
+  int count_ = arg[2];
+  int update_dfobj_ = arg[3];
+  
+  // printf("Inside get_dfobj_status(): addr_dfobj= %#012x  naux_= %i  nao_pair_= %i  count_= %i  update_dfobj_= %i\n",
+  // 	 addr_dfobj, naux_, nao_pair_, count_, update_dfobj_);
+  
+  update_dfobj_ = update_dfobj;
+
+  // nothing useful to return if need to update eri blocks on device
+  
+  if(update_dfobj) { 
+    // printf("Leaving get_dfobj_status(): addr_dfobj= %#012x  update_dfobj_= %i\n", addr_dfobj, update_dfobj_);
+    
+    arg[3] = update_dfobj_;
+    return;
+  }
+  
+  // return # of blocks cached for dfobj
+
+  if(count_ == -1) {
+    int id = eri_list.size();
+    for(int i=0; i<eri_list.size(); ++i)
+      if(eri_list[i] == addr_dfobj) {
+	id = i;
+	break;
+      }
+
+    if(id < eri_list.size()) count_ = eri_num_blocks[id];
+    
+    // printf("Leaving get_dfobj_status(): addr_dfobj= %#012x  count_= %i  update_dfobj_= %i\n", addr_dfobj, count_, update_dfobj_);
+
+    arg[2] = count_;
+    arg[3] = update_dfobj_;
+    return;
+  }
+
+  // return extra data for cached block
+  
+  int id = eri_list.size();
+  for(int i=0; i<eri_list.size(); ++i)
+    if(eri_list[i] == addr_dfobj+count_) {
+      id = i;
+      break;
+    }
+
+  // printf("eri_list.size()= %i  id= %i\n",eri_list.size(), id);
+  
+  naux_ = -1;
+  nao_pair_ = -1;
+  
+  if(id < eri_list.size()) {
+  
+    naux_     = eri_extra[id * _ERI_CACHE_EXTRA    ];
+    nao_pair_ = eri_extra[id * _ERI_CACHE_EXTRA + 1];
+
+  }
+
+  arg[0] = naux_;
+  arg[1] = nao_pair_;
+  arg[2] = count_;
+  arg[3] = update_dfobj_;
+  
+  // printf("Leaving get_dfobj_status(): addr_dfobj= %#012x  id= %i  naux_= %i  nao_pair_= %i  count_= %i  update_dfobj_= %i\n",
+  // 	 addr_dfobj, id, naux_, nao_pair_, count_, update_dfobj_);
+  
+  // printf("Leaving get_dfobj_status(): addr_dfobj= %#012x  id= %i  arg= %i %i %i %i\n",
+  // 	 addr_dfobj, id, arg[0], arg[1], arg[2], arg[3]);
 }
 
 /* ---------------------------------------------------------------------- */

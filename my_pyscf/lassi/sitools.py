@@ -2,8 +2,9 @@ import numpy as np
 from pyscf import lib, symm
 from scipy import linalg
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi.lassi import ham_2q, root_make_rdm12s, LASSI
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
+from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, LASSI, ham_2q
+from mrh.my_pyscf.lassi.op_o1 import fermion_spin_shuffle
 
 def decompose_sivec_by_rootspace (las, si, ci=None):
     '''Decompose a set of LASSI vectors as
@@ -481,7 +482,6 @@ def sivec_fermion_spin_shuffle (si0, nelec_frs, lroots):
         si1: ndarray of shape (ndim,*)
             si0 with permuted row signs
     '''
-    from mrh.my_pyscf.lassi.op_o1 import fermion_spin_shuffle
     nelec_rsf = np.asarray (nelec_frs).transpose (1,2,0)
     rootaddr = get_rootaddr_fragaddr (lroots)[0]
     si1 = si0.copy ()
@@ -538,6 +538,8 @@ def sivec_vacuum_shuffle (si0, nelec_frs, lroots, nelec_vac=None, state=None):
         idx = (rootaddr==iroot)
         si1[idx,:] *= (1,-1)[nperms%2]
     return si1
+
+
 
 
 

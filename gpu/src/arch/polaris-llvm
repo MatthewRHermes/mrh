@@ -29,7 +29,8 @@ CUDA_CXXFLAGS += -D_SIMPLE_TIMER
 CUDA_CXXFLAGS += -D_CUDA_NVTX
 
 LD = $(CXX)
-LDFLAGS = -fPIC -shared $(GPU_FLAGS)
+LDFLAGS = $(GPU_FLAGS)
+#LDFLAGS = -fPIC -shared
 LIB = -lstdc++
 LIB += -L$(CUDA)/lib64 -lcublas -lcudart
 LIB += -lnvToolsExt

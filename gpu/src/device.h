@@ -20,6 +20,7 @@ using namespace PM_NS;
 #define _SIZE_BLOCK 256
 
 #define _USE_ERI_CACHE
+#define _ERI_CACHE_EXTRA 2
 //#define _DEBUG_ERI_CACHE
 
 #define OUTPUTIJ        1
@@ -59,14 +60,17 @@ public :
   int get_num_devices();
   void get_dev_properties(int);
   void set_device(int);
+  void disable_eri_cache_();
 
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int, int);
   void get_jk(int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
 	      py::array_t<double>, py::array_t<double>,
-	      int, size_t);
-  void pull_get_jk(py::array_t<double>, py::array_t<double>);
+	      int, int, size_t);
+  void pull_get_jk(py::array_t<double>, py::array_t<double>, int);
+  
   void set_update_dfobj_(int);
+  void get_dfobj_status(size_t, py::array_t<int>);
   
   void hessop_get_veff(int, int, int, int,
 		       py::array_t<double>, py::array_t<double>, py::array_t<double>);
@@ -83,6 +87,8 @@ private:
   class PM * pm;
   
   double host_compute(double *);
+  void get_cores(char *);
+  
   int n;
   int size_data;
 
@@ -92,15 +98,15 @@ private:
 
   int update_dfobj;
   
-  int size_rho;
-  int size_vj;
-  int size_vk;
-  int size_buf;
-  int size_fdrv;
-  int size_dms;
-  int size_dmtril;
-  int size_eri1;
-  int size_tril_map;
+  // int size_rho;
+  // int size_vj;
+  // int size_vk;
+  // int size_buf;
+  // int size_fdrv;
+  // int size_dms;
+  // int size_dmtril;
+  // int size_eri1;
+  // int size_tril_map;
 
   int blksize;
   int nao;
@@ -119,18 +125,18 @@ private:
   double * buf4;
   double * buf_fdrv;
 
-  double * d_rho;
-  double * d_vj;
-  double * d_buf1;
-  double * d_buf2;
-  double * d_buf3;
-  double * d_vkk;
-  double * d_dms;
-  double * d_dmtril;
-  double * d_eri1;
+  // double * d_rho;
+  // double * d_vj;
+  // double * d_buf1;
+  // double * d_buf2;
+  // double * d_buf3;
+  // double * d_vkk;
+  // double * d_dms;
+  // double * d_dmtril;
+  // double * d_eri1;
   
-  int * tril_map;
-  int * d_tril_map;
+  // int * tril_map;
+  // int * d_tril_map;
 
   // hessop_get_veff
 
@@ -143,12 +149,18 @@ private:
   double * d_vk_bj;
   
   // eri caching on device
+
+  bool use_eri_cache;
   
   std::vector<size_t> eri_list; // addr of dfobj+eri1 for key-value pair
   
   std::vector<int> eri_count; // # times particular cache used
   std::vector<int> eri_update; // # times particular cache updated
   std::vector<int> eri_size; // # size of particular cache
+
+  std::vector<int> eri_num_blocks; // # of eri blocks for each dfobj (i.e. trip-count from `for eri1 in dfobj.loop(blksize)`)
+  std::vector<int> eri_extra; // per-block data: {naux, nao_pair}
+  std::vector<int> eri_device; // device id holding cache
 
   std::vector<double *> d_eri_cache; // pointers for device caches
   std::vector<double *> d_eri_host; // values on host for checking if update
@@ -173,6 +185,35 @@ private:
     //        CVHFOpt *vhfopt;
   };
 
+  struct my_device_data {
+    int size_rho;
+    int size_vj;
+    int size_vk;
+    int size_buf;
+    int size_dms;
+    int size_dmtril;
+    int size_eri1;
+    int size_tril_map;
+    
+    double * d_rho;
+    double * d_vj;
+    double * d_buf1;
+    double * d_buf2;
+    double * d_buf3;
+    double * d_vkk;
+    double * d_dms;
+    double * d_dmtril;
+    double * d_eri1;
+
+    int * tril_map;
+    int * d_tril_map;
+    
+    cublasHandle_t handle;
+    cudaStream_t stream;
+  };
+
+  my_device_data * device_data;
+    
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);
   
@@ -195,10 +236,14 @@ private:
 #endif
 
   int num_threads;
-  
+  int num_devices;
+
 #if defined(_USE_GPU)
-  cublasHandle_t handle;
-  cudaStream_t stream;
+  //  cublasHandle_t handle;
+  //  cudaStream_t stream;
+  
+  //  cublasHandle_t * handle_;
+  //  cudaStream_t * stream_;
 #endif
   
 };

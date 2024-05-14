@@ -1,4 +1,4 @@
-
+#
 # Definition of MACROS
 
 BINROOT=./
@@ -8,44 +8,46 @@ CXX = g++
 CXXFLAGS=
 FC=gfortran
 FCFLAGS=
-LD = $(CXX)
+LD = g++
 LDFLAGS = -fPIC -shared
 AR = ar rcs
-CPP = cpp -P -traditional
+CPP=cpp -P -traditional
 INSTALL=../
 
-CUDA_CXX = nvcc
-CUDA_CXXFLAGS = 
+ARCH ?= polaris
+include ../../src/arch/$(ARCH)
 
-ARCH ?= polaris-gnu
-include arch/$(ARCH)
+CXXFLAGS += -I../../src
 
-# couple more flags to build shared library (allows arch files to be used for general app building)
-CUDA_CXXFLAGS += -shared -Xcompiler -fPIC
-LDFLAGS += -fPIC -shared
+$(info ARCH is [${ARCH}])
 
-# -- subset of src files with cuda kernels
-CUDA_SRC = pm_cuda.cpp device_cuda.cpp
-CUDA_OBJ = $(CUDA_SRC:.cpp=.o)
-
-CSRC = $(filter-out $(CUDA_SRC), $(wildcard *.cpp))
+CSRC = $(wildcard *.cpp)
 INC = $(wildcard *.h)
 COBJ = $(CSRC:.cpp=.o)
 
-FSRC = $(wildcard *.F)
-MOD = $(FSRC:.F=.mod)
-FOBJ = $(FSRC:.F=.o)
+FSRC = $(wildcard *.F90)
+MOD = $(FSRC:.F90=.mod)
+FOBJ = $(FSRC:.F90=.o)
+
+#$(info CSRC is [${CSRC}])
+#$(info INC is [${INC}])
+#$(info COBJ is [${COBJ}])
+
+#$(info FSRC is [${FSRC}])
+#$(info MOD is [${MOD}])
+#$(info FOBJ is [${FOBJ}])
+
 
 #
 # -- target : 	Dependencies
 # --		Rule to create target
 
-$(EXE): $(COBJ) $(CUDA_OBJ) $(FOBJ) $(MOD)
-	$(LD) $(LDFLAGS) -o $@ $(COBJ) $(CUDA_OBJ) $(LIB)
+$(EXE):	$(COBJ) $(FOBJ) $(MOD)
+	$(LD) $(LDFLAGS) -o $@ $(COBJ) $(LIB)
 
 install: $(EXE)
-	 cp $(EXE) $(INSTALL)
-#	 cp $(MOD) $(FOBJ) $(INSTALL)/include
+	cp $(EXE) $(INSTALL)
+#	cp $(MOD) $(FOBJ) $(INSTALL)/include
 
 ####################################################################
 
@@ -58,19 +60,16 @@ $(FOBJ): %.o: %.F90
 $(MOD): %.mod: %.F90
 	$(FC) $(FCFLAGS) -c $<
 
-$(CUDA_OBJ): %.o: %.cpp
-	$(CUDA_CXX) -x cu $(CUDA_CXXFLAGS) -c $< -o $@
-
 #
 # -- Remove *.o and *~ from the directory
 clean:
-	rm -f *.o *.mod *~ ./$(EXE)
+	rm -f *.o *.mod *~ $(EXE)
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 #
 # -- Remove *.o, *~, and executable from the directory
 realclean:
-	rm -f *.o *.mod *~ ./$(EXE)
+	rm -f *.o *.mod *~ $(EXE)
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt

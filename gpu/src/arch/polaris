@@ -14,7 +14,8 @@ CXXFLAGS += -D_SIMPLE_TIMER
 CXXFLAGS += -D_CUDA_NVTX
 
 LD = $(CXX)
-LDFLAGS = -mp -cuda -fPIC -shared
+LDFLAGS = -mp -cuda
+#LDFLAGS += -fPIC -shared
 LIB = -lstdc++
 LIB += -L/soft/compilers/cudatoolkit/cuda-11.4.4/lib64 -lcublas
 LIB += -lnvToolsExt
