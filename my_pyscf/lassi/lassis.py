@@ -39,6 +39,7 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
         las1 = las
     else:
         las1 = spin_shuffle (las, equal_weights=True)
+        # TODO: memory efficiency; the line below makes copies
         las1.ci = spin_shuffle_ci (las1, las1.ci)
         las1.converged = las.converged
     nroots_ref = las1.nroots
@@ -328,6 +329,8 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
         ci_szrot_1c.append (space.get_ci_szrot (ifrags=(ifrag,jfrag)))
     charges0 = spaces[0].charges
     smults0 = spaces[0].smults
+    # Prepare reference szrots
+    ci_szrot_ref = spaces[0].get_ci_szrot ()
     for ix in new_idx:
         idx = spaces[ix].excited_fragments (spaces[0])
         space = spaces[ix]
@@ -343,9 +346,7 @@ def _spin_shuffle_ci_(spaces, spin_flips, nroots_ref, nroots_refc):
                 iflp = np.where (iflp)[0][0]
                 space.ci[ifrag] = sf.ci[iflp]
             else: # Reference-state spin-shuffles
-                spaces0 = [sp for sp in spaces[:nroots_ref] if sp.spins[ifrag]==space.spins[ifrag]]
-                assert (len (spaces0))
-                space.ci[ifrag] = spaces0[0].ci[ifrag]
+                space.ci[ifrag] = ci_szrot_ref[ifrag][space.spins[ifrag]]
         for (ci_i, ci_j), sp_1c in zip (ci_szrot_1c, spaces_1c):
             ijfrag = sp_1c.entmap[0]
             if ijfrag not in spaces[ix].entmap: continue
