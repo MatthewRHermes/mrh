@@ -934,8 +934,7 @@ class LASCINoSymm (casci.CASCI):
         mo = [mo_coeff, mo_cas, mo_cas, mo_cas]
         if getattr (self, 'with_df', None) is not None:
             # Store intermediate with one contracted ao index for faster calculation of exchange!
-            for cderi in self.with_df.loop (blksize=self.with_df.get_naoaux ()):
-                pass
+            cderi = np.concatenate ([c for c in self.with_df.loop ()], axis=0)
             bPmn = sparsedf_array (cderi)
             bmuP = bPmn.contract1 (mo_cas)
             buvP = np.tensordot (mo_cas.conjugate (), bmuP, axes=((0),(0)))
