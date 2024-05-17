@@ -5,7 +5,7 @@ from pyscf.tools import dump_mat
 from pyscf import symm, gto, scf, ao2mo, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
-from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
+from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess, las_ao2mo
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile
@@ -925,53 +925,9 @@ class LASCINoSymm (casci.CASCI):
         mo = mo[:,:self.ncas_sub[idx]]
         return mo
 
-    def ao2mo (self, mo_coeff=None):
-        if mo_coeff is None: mo_coeff = self.mo_coeff
-        nao, nmo = mo_coeff.shape
-        ncore, ncas = self.ncore, self.ncas
-        nocc = ncore + ncas
-        mo_cas = mo_coeff[:,ncore:nocc]
-        mo = [mo_coeff, mo_cas, mo_cas, mo_cas]
-        if getattr (self, 'with_df', None) is not None:
-            # Store intermediate with one contracted ao index for faster calculation of exchange!
-            cderi = np.concatenate ([c for c in self.with_df.loop ()], axis=0)
-            bPmn = sparsedf_array (cderi)
-            bmuP = bPmn.contract1 (mo_cas)
-            buvP = np.tensordot (mo_cas.conjugate (), bmuP, axes=((0),(0)))
-            eri_muxy = np.tensordot (bmuP, buvP, axes=((2),(2)))
-            eri = np.tensordot (mo_coeff.conjugate (), eri_muxy, axes=((0),(0)))
-            eri = lib.pack_tril (eri.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
-            eri = lib.tag_array (eri, bmPu=bmuP.transpose (0,2,1))
-            if self.verbose > lib.logger.DEBUG:
-                eri_comp = self.with_df.ao2mo (mo, compact=True)
-                lib.logger.debug(self,"CDERI two-step error: {}".format(linalg.norm(eri-eri_comp)))
-        elif getattr (self._scf, '_eri', None) is not None:
-            eri = ao2mo.incore.general (self._scf._eri, mo, compact=True)
-        else:
-            eri = ao2mo.outcore.general_iofree (self.mol, mo, compact=True)
-        if eri.shape != (nmo,ncas*ncas*(ncas+1)//2):
-            try:
-                eri = eri.reshape (nmo, ncas*ncas*(ncas+1)//2)
-            except ValueError as e:
-                assert (nmo == ncas), str (e)
-                eri = ao2mo.restore ('2kl', eri, nmo).reshape (nmo, ncas*ncas*(ncas+1)//2)
-        return eri
-
-    def get_h2eff_slice (self, h2eff, idx, compact=None):
-        ncas_cum = np.cumsum ([0] + self.ncas_sub.tolist ())
-        i = ncas_cum[idx] 
-        j = ncas_cum[idx+1]
-        ncore = self.ncore
-        nocc = ncore + self.ncas
-        eri = h2eff[ncore:nocc,:].reshape (self.ncas*self.ncas, -1)
-        ix_i, ix_j = np.tril_indices (self.ncas)
-        eri = eri[(ix_i*self.ncas)+ix_j,:]
-        eri = ao2mo.restore (1, eri, self.ncas)[i:j,i:j,i:j,i:j]
-        if compact: eri = ao2mo.restore (compact, eri, j-i)
-        return eri
-
     get_h1eff = get_h1las = h1e_for_las = h1e_for_las
-    get_h2eff = ao2mo
+    get_h2eff = ao2mo = las_ao2mo.get_h2eff
+    get_h2eff_slice = las_ao2mo.get_h2eff_slice
     '''
     def get_h2eff (self, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
