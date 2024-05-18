@@ -3,6 +3,32 @@ from scipy import linalg
 from pyscf import ao2mo, lib
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 
+def get_h2eff_df (las, mo_coeff):
+    # Store intermediate with one contracted ao index for faster calculation of exchange!
+    nao, nmo = mo_coeff.shape
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    mo_cas = mo_coeff[:,ncore:nocc]
+    naux = las.with_df.get_naoaux ()
+    mem_eris = 8*nmo*ncas*ncas*(ncas+1) // 2 // 1e6
+    mem_av = las.max_memory - lib.current_memory ()[0] - mem_eris
+    mem_int = 8*naux*ncas*nao // 1e6
+    mem_enough_int = mem_av > mem_int
+    if mem_enough_int:
+        mem_av -= mem_int
+    cderi = np.concatenate ([c for c in las.with_df.loop ()], axis=0)
+    bPmn = sparsedf_array (cderi)
+    bmuP = bPmn.contract1 (mo_cas)
+    buvP = np.tensordot (mo_cas.conjugate (), bmuP, axes=((0),(0)))
+    eri_muxy = np.tensordot (bmuP, buvP, axes=((2),(2)))
+    eri = np.tensordot (mo_coeff.conjugate (), eri_muxy, axes=((0),(0)))
+    eri = lib.pack_tril (eri.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
+    eri = lib.tag_array (eri, bmPu=bmuP.transpose (0,2,1))
+    if las.verbose > lib.logger.DEBUG:
+        eri_comp = las.with_df.ao2mo (mo, compact=True)
+        lib.logger.debug(las,"CDERI two-step error: {}".format(linalg.norm(eri-eri_comp)))
+    return eri
+
 def get_h2eff (las, mo_coeff=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     nao, nmo = mo_coeff.shape
@@ -10,19 +36,13 @@ def get_h2eff (las, mo_coeff=None):
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
     mo = [mo_coeff, mo_cas, mo_cas, mo_cas]
+    mem_eris = 8*nmo*ncas*ncas*(ncas+1) // 2 // 1e6
+    mem_remaining = las.max_memory - lib.current_memory ()[0]
+    if mem_eris > mem_remaining:
+        raise MemoryError ("{} MB of {}/{} MB av/total for ERI array".format (
+            mem_eris, mem_remaining, las.max_memory))
     if getattr (las, 'with_df', None) is not None:
-        # Store intermediate with one contracted ao index for faster calculation of exchange!
-        cderi = np.concatenate ([c for c in las.with_df.loop ()], axis=0)
-        bPmn = sparsedf_array (cderi)
-        bmuP = bPmn.contract1 (mo_cas)
-        buvP = np.tensordot (mo_cas.conjugate (), bmuP, axes=((0),(0)))
-        eri_muxy = np.tensordot (bmuP, buvP, axes=((2),(2)))
-        eri = np.tensordot (mo_coeff.conjugate (), eri_muxy, axes=((0),(0)))
-        eri = lib.pack_tril (eri.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
-        eri = lib.tag_array (eri, bmPu=bmuP.transpose (0,2,1))
-        if las.verbose > lib.logger.DEBUG:
-            eri_comp = las.with_df.ao2mo (mo, compact=True)
-            lib.logger.debug(las,"CDERI two-step error: {}".format(linalg.norm(eri-eri_comp)))
+        eri = get_h2eff_df (las, mo_coeff)
     elif getattr (las._scf, '_eri', None) is not None:
         eri = ao2mo.incore.general (las._scf._eri, mo, compact=True)
     else:
