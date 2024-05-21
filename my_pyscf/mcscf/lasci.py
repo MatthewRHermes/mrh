@@ -485,18 +485,19 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
 
     return mo_coeff, mo_ene, mo_occ, ci, h2eff_sub
 
-def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
+def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None, eri_cas=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci0 is None: ci0 = [[None for i in range (las.nroots)] for j in range (las.nfrags)]
-    if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     nmo = mo_coeff.shape[-1]
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
+    if eri_cas is None:
+        if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
+        eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2))
+        eri_cas = eri_cas.reshape (nmo, ncas, ncas, ncas)
+        eri_cas = eri_cas[ncore:nocc]
     dm1_core= 2 * mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
     h1e_ao = las._scf.get_fock (dm=dm1_core)
-    eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2))
-    eri_cas = eri_cas.reshape (nmo, ncas, ncas, ncas)
-    eri_cas = eri_cas[ncore:nocc]
     for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes,las.ncas_sub,las.nelecas_sub)):
         i = sum (las.ncas_sub[:ix])
         j = i + norb
@@ -812,13 +813,10 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
 
     h1eff, energy_core = las.h1e_for_cas (mo_coeff=mo_coeff,
         ncas=las.ncas, ncore=las.ncore)
-    h2eff = las.get_h2eff (mo_coeff) 
+    eri_cas = las.get_h2cas (mo_coeff) 
     if (ci0 is None or any ([c is None for c in ci0]) or
             any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
-        ci0 = las.get_init_guess_ci (mo_coeff, h2eff, ci0)
-    eri_cas = lib.numpy_helper.unpack_tril (
-            h2eff.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas,
-            ncas, ncas)[ncore:nocc]
+        ci0 = las.get_init_guess_ci (mo_coeff, ci0=ci0, eri_cas=eri_cas)
 
     e_cas = np.empty (las.nroots)
     e_states = np.empty (las.nroots)
@@ -927,6 +925,7 @@ class LASCINoSymm (casci.CASCI):
 
     get_h1eff = get_h1las = h1e_for_las = h1e_for_las
     get_h2eff = ao2mo = las_ao2mo.get_h2eff
+    get_h2cas = las_ao2mo.get_h2cas
     get_h2eff_slice = las_ao2mo.get_h2eff_slice
     '''
     def get_h2eff (self, mo_coeff=None):

@@ -100,3 +100,20 @@ def get_h2eff_slice (las, h2eff, idx, compact=None):
     if compact: eri = ao2mo.restore (compact, eri, j-i)
     return eri
 
+def get_h2cas (las, mo_coeff=None):
+    ''' Get the 2-electron integral of the active orbitals only '''
+    if mo_coeff is None: mo_coeff = las.mo_coeff
+    nao, nmo = mo_coeff.shape
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    mo_cas = mo_coeff[:,ncore:nocc]
+    if getattr (las, 'with_df', None) is not None:
+        eri = las.with_df.ao2mo (mo_cas)
+    elif getattr (las._scf, '_eri', None) is not None:
+        eri = ao2mo.full (las._scf._eri, mo_cas, max_memory=las.max_memory)
+    else:
+        eri = ao2mo.full (las.mol, mo_cas, verbose=las.verbose, max_memory=las.max_memory)
+    return ao2mo.restore (1, eri, ncas)
+
+
+

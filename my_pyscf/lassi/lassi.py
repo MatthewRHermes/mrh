@@ -4,7 +4,7 @@ from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi.citools import get_lroots
-from pyscf import lib, symm
+from pyscf import lib, symm, ao2mo
 from pyscf.scf.addons import canonical_orth_
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
@@ -80,8 +80,6 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
     if veff_c is None: 
         dm_core = 2 * mo_core @ mo_core.conj ().T
         veff_c = las.get_veff (dm1s=dm_core)
-    if h2eff_sub is None:
-        h2eff_sub = las.ao2mo (mo_coeff)
 
     h0 = las._scf.energy_nuc () + 2 * (((hcore + veff_c/2) @ mo_core) * mo_core).sum ()
 
@@ -97,8 +95,11 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
         h1[0:ncas,0:ncas] += hso[2] # a'a
         h1[ncas:2*ncas,ncas:2*ncas] -= hso[2] # b'b
 
-    h2 = h2eff_sub[ncore:nocc].reshape (ncas*ncas, ncas * (ncas+1) // 2)
-    h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
+    if h2eff_sub is None:
+        h2 = las.get_h2cas (mo_coeff)
+    else:
+        h2 = h2eff_sub[ncore:nocc].reshape (ncas*ncas, ncas * (ncas+1) // 2)
+        h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
 
     return h0, h1, h2
 
