@@ -31,6 +31,7 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
     # TODO: make states_energy_elec capable of handling lroots and address inconsistency
     # between definition of e_states array for neutral and charge-separated rootspaces
     t0 = (logger.process_clock (), logger.perf_counter ())
+    ham_2q = lsi.ham_2q ()
     log = logger.new_logger (lsi, lsi.verbose)
     las = lsi._las.get_single_state_las (state=0)
     # 1. Spin shuffle step
@@ -51,7 +52,7 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
         log.info ("Reference space %d:", ix)
         SingleLASRootspace (las1, m, s, c, 0, ci=[c[ix] for c in las1.ci]).table_printlog ()
     # 2. Spin excitations part 1
-    spin_flips = all_spin_flips (lsi, las1, nspin=nspin) if nspin else None
+    spin_flips = all_spin_flips (lsi, las1, nspin=nspin, ham_2q=ham_2q) if nspin else None
     las1.e_states = las1.energy_nuc () + np.array (las1.states_energy_elec ())
     # 3. Charge excitations
     # TODO: Store the irreducible degrees of freedom of the charge excitations more transparently,
@@ -60,7 +61,7 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
         las2 = all_single_excitations (las1)
         converged, spaces2 = single_excitations_ci (
             lsi, las2, las1, ncharge=ncharge, sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
-            spin_flips=spin_flips, crash_locmin=crash_locmin
+            spin_flips=spin_flips, crash_locmin=crash_locmin, ham_2q=ham_2q
         )
     else:
         converged = las1.converged
@@ -85,7 +86,7 @@ def prepare_states (lsi, ncharge=1, nspin=0, sa_heff=True, deactivate_vrv=False,
     return converged, las3
 
 def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_vrv=False,
-                           spin_flips=None, crash_locmin=False):
+                           spin_flips=None, crash_locmin=False, ham_2q=None):
     log = logger.new_logger (lsi, lsi.verbose)
     mol = lsi.mol
     nfrags = lsi.nfrags
@@ -103,7 +104,10 @@ def single_excitations_ci (lsi, las2, las1, ncharge=1, sa_heff=True, deactivate_
         else:
             raise RuntimeError ("Valid ncharge values are integers or 's'")
     lroots = np.minimum (ncharge, ncsf)
-    h0, h1, h2 = lsi.ham_2q ()
+    if ham_2q is None:
+        h0, h1, h2 = lsi.ham_2q ()
+    else:
+        h0, h1, h2 = ham_2q
     t0 = (logger.process_clock (), logger.perf_counter ())
     converged = True
     # Prefilter spin-shuffles
@@ -185,7 +189,7 @@ class SpinFlips (object):
         self.spins = spins
         self.smults = smults
 
-def all_spin_flips (lsi, las, nspin=1):
+def all_spin_flips (lsi, las, nspin=1, ham_2q=None):
     # NOTE: this actually only uses the -first- rootspace in las, so it can be done before
     # the initial spin shuffle
     log = logger.new_logger (lsi, lsi.verbose)
@@ -203,7 +207,10 @@ def all_spin_flips (lsi, las, nspin=1):
     smults1 = []
     spins1 = []
     ci1 = []
-    h0, h1, h2 = lsi.ham_2q ()
+    if ham_2q is None:
+        h0, h1, h2 = lsi.ham_2q ()
+    else:
+        h0, h1, h2 = ham_2q
     casdm1s = las.make_casdm1s ()
     f1 = h1 + np.tensordot (h2, casdm1s.sum (0), axes=2)
     f1 = f1[None,:,:] - np.tensordot (casdm1s, h2, axes=((1,2),(2,1)))
@@ -485,10 +492,15 @@ class LASSIS (LASSI):
                 crash_locmin=None, **kwargs):
         t0 = (logger.process_clock (), logger.perf_counter ())
         log = logger.new_logger (self, self.verbose)
-        self.converged = self.prepare_states_(ncharge=ncharge, nspin=nspin,
-                                              sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
-                                              crash_locmin=crash_locmin)
-        self.e_roots, self.si = self.eig (**kwargs)
+        h0, h1, h2 = self.ham_2q ()
+        t1 = log.timer ("LASSIS integral transformation", *t0)
+        with lib.temporary_env (self, ham_2q=lambda *args, **kwargs: (h0, h1, h2)):
+            self.converged = self.prepare_states_(ncharge=ncharge, nspin=nspin,
+                                                  sa_heff=sa_heff, deactivate_vrv=deactivate_vrv,
+                                                  crash_locmin=crash_locmin)
+            t1 = log.timer ("LASSIS state preparation", *t1)
+            self.e_roots, self.si = self.eig (**kwargs)
+            t1 = log.timer ("LASSIS diagonalization", *t1)
         log.timer ("LASSIS", *t0)
         return self.e_roots, self.si
 

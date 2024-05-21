@@ -249,7 +249,10 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     # Construct second-quantization Hamiltonian
-    e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
+    if callable (getattr (las, 'ham_2q', None)):
+        e0, h1, h2 = las.ham_2q (mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
+    else:
+        e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
 
     # Symmetry tuple: neleca, nelecb, irrep
     statesym, s2_states = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)
