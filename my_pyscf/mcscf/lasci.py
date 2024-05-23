@@ -1070,7 +1070,7 @@ class LASCINoSymm (casci.CASCI):
             if ci_i is None:
                 dm2aa = dm2ab, dm2bb = np.zeros ((ncas, ncas,ncas,ncas))
             else:
-                dm2aa, dm2ab, dm2bb = fcibox.states_make_rdm12s (ci_i, ncas, nelecas)[-1] # IDK what this third ncas*4 matrix is, so just created a placeholder for it
+                dm2aa, dm2ab, dm2bb = fcibox.states_make_rdm12s (ci_i, ncas, nelecas)[-1]
             casdm2s.append (np.stack ([dm2aa, dm2ab, dm2bb], axis=1))
         return casdm2s
     
@@ -1433,7 +1433,7 @@ class LASCINoSymm (casci.CASCI):
             i = ncas_cum[isub]
             j = ncas_cum[isub+1]
             casdm3[i:j, i:j, i:j, i:j, i:j, i:j] = dm3
-            #print ("SV casdm3 = ", casdm3)
+        
         # Off-diagonal
         for (isub1, dm1rs1), (isub2, dm1rs2), (isub3,dm1rs3) in combinations (enumerate (casdm1frs), 3):
             i = ncas_cum[isub1]
@@ -1442,11 +1442,12 @@ class LASCINoSymm (casci.CASCI):
             l = ncas_cum[isub2+1]
             m = ncas_cum[isub3]
             n = ncas_cum[isub3+1]
-            dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1] # size of 2-RDMs 
-            dma2r, dmb2r = dm1rs2[:,0], dm1rs2[:,1] # size of 2-RDMs
+            dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1]
+            dma2r, dmb2r = dm1rs2[:,0], dm1rs2[:,1]
             dma3r, dmb3r = dm1rs3[:,0], dm1rs3[:,1]
             dm1r = dma1r + dmb1r
             dm2r = dma2r + dmb2r
+            dm3r = dma3r + dmb3r
             #print ("SV dm1r, dm2r = ", dm1rs1, dma2r)
             print ("SV dma1r[:,0] = ", dm1rs1[:,0], dm1r)
             
@@ -1459,8 +1460,8 @@ class LASCINoSymm (casci.CASCI):
             casdm3[k:l, k:l, m:n, m:n, i:j, i:j] = casdm3[i:j, i:j, k:l, k:l, m:n, m:n].transpose (2,3,4,5,0,1)
             
             # Term 2- 62b
-            d3sigma = (lib.einsum('r,rkl,rmn->rknml',weights,dma2r,dma3r)+lib.einsum('r,rkl,rmn->rknml',weights,dmb2r,dmb3r))
-            casdm3[i:j, i:j, k:l, m:n, m:n, k:l] -= lib.einsum('ij,klmn->ijklmn', dm1r, d3sigma)
+            d2sigma = (lib.einsum('r,rij,rkl,rmn->rijknml',weights,dm1r,dma2r,dma3r)+lib.einsum('r,rij,rkl,rmn->rijknml',weights,dm1r,dmb2r,dmb3r))
+            casdm3[i:j, i:j, k:l, m:n, m:n, k:l] -= lib.einsum('ij,klmn->ijklmn', weights, d2sigma)
             casdm3[i:j, i:j, m:n, k:l, k:l, m:n] = casdm3[i:j, i:j, k:l, m:n, m:n, k:l].transpose (0,1,4,5,2,3)
             casdm3[k:l, m:n, i:j, i:j, m:n, k:l] = casdm3[i:j, i:j, k:l, m:n, m:n, k:l].transpose (2,3,0,1,4,5)
             casdm3[k:l, m:n, m:n, k:l, i:j, i:j] = casdm3[i:j, i:j, k:l, m:n, m:n, k:l].transpose (2,3,4,5,0,1)
@@ -1469,8 +1470,8 @@ class LASCINoSymm (casci.CASCI):
 
 
             #Terms 4- 62c
-            d3sigma = (lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dma1r,dma2r,dm3ar)+lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dmb1r,dmb2r,dm3br))
-            casdm3[i:j, k:l, k:l, m:n, m:n, i:j] = np.tensordot (weights, d3sigma, axes=1)
+            d3sigma = (lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dma1r,dma2r,dma3r)+lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dmb1r,dmb2r,dmb3r))
+            casdm3[i:j, k:l, k:l, m:n, m:n, i:j] += np.tensordot (weights, d3sigma, axes=1)
             casdm3[i:j, k:l, m:n, i:j, k:l, m:n] = casdm3[i:j, k:l, k:l, m:n, m:n, i:j].transpose(0,1,4,5,2,3)
             casdm3[m:n, i:j, i:j, k:l, k:l, m:n] = casdm3[i:j, k:l, k:l, m:n, m:n, i:j].transpose(4,5,0,1,2,3)
             casdm3[m:n, i:j, k:l, m:n, i:j, k:l] = casdm3[i:j, k:l, k:l, m:n, m:n, i:j].transpose(4,5,2,3,0,1)
@@ -1479,37 +1480,37 @@ class LASCINoSymm (casci.CASCI):
 
         #Last 2 terms - combs of f1+f1+f2: dm1rs1=f1, dm2rs2=f2
 
-        for (isub1, dm2rs1), (isub2, dm1rs1) in product(enumerate(casdm2frs), enumerate(casdm1frs)):
+        for (isub1, dm2rs2), (isub2, dm1rs1) in product(enumerate(casdm2frs), enumerate(casdm1frs)):
             # isub1 must not be the same as isub2, else 1-rdm and 2-rdm will come from same fragment but they must come from different frags!
-            i = ncas_cum[isub1]
-            j = ncas_cum[isub1+1]
-            k = ncas_cum[isub1]
-            l = ncas_cum[isub1+1]
-            m = ncas_cum[isub2]
-            n = ncas_cum[isub2+1]
-            
-            if isub1 != isub2:
 
+            if isub1 != isub2:
+                i = ncas_cum[isub1]
+                j = ncas_cum[isub1+1]
+                k = ncas_cum[isub1]
+                l = ncas_cum[isub1+1]
+                m = ncas_cum[isub2]
+                n = ncas_cum[isub2+1]
+            
                 print ("SV ijklmn = ", i,j,k,l,m,n)
-                dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1] # size of 2-RDMs 
-                #print ("SV dm2rs2 = ", dm2rs2, dm2rs2.shape, dm2rs2[:,1])
-                dmaa2r, dmab2r, dmbb2r = dm2rs1[:,0], dm2rs1[:,1], dm2rs1[:,2] # size of 2-RDMs
+                dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1] 
                 dm1r = dma1r + dmb1r
+                #print ("SV dm1rs1 = ", dm1rs1, dm1rs1[:,0], dm1rs1[:,1])
+                dmaa2r, dmab2r, dmbb2r = dm2rs2[:,0], dm2rs2[:,1], dm2rs2[:,2]
                 print ("SV dm1r = ", dm1rs1, dm1r)
-                print ("SV dm2rs1 = ", dm2rs1, dmaa2r)
+                print ("SV dm2rs1 = ", dm2rs2, dmaa2r)
 
                 # Term 4 - 62d
-                d4sigma = (lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmaa2r)+lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmab2r)+lib.einsum('r,rmn,rijkl->rijklmn',weights,dmb1r,dmab2r)+lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmbb2r))
-                #print ("SV d9sigma = ", d9sigma)
+                d4sigma = (lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmaa2r)+lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmab2r)+lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmab2r)+lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmbb2r))
+                print ("SV d4sigma = ", d4sigma)
                 casdm3[i:j, i:j, k:l, k:l, m:n, m:n] += np.tensordot (weights, d4sigma, axes=1)
                 casdm3[i:j, i:j, m:n, m:n, k:l, k:l] = casdm3[i:j, i:j, k:l, k:l, m:n, m:n].transpose(0,1,4,5,2,3)
                 casdm3[m:n, m:n, i:j, i:j, k:l, k:l] = casdm3[i:j, i:j, k:l, k:l, m:n, m:n].transpose(4,5,0,1,2,3)
-                casdm3[m:n, m:n, k:l, k:l, i:j, i:j] = casdm3[i:j, i:j, k:l, k:l, m:n, m:n].transpose(4,5,2,3,0,1)
-                casdm3[k:l, k:l, m:n, m:n, i:j, i:j] = casdm3[i:j, i:j, k:l, k:l, m:n, m:n].transpose(2,3,4,5,0,1)
-                casdm3[k:l, k:l, i:j, i:j, m:n, m:n] = casdm3[i:j, i:j, k:l, k:l, m:n, m:n].transpose(2,3,0,1,4,5)
+                #casdm3[m:n, m:n, k:l, k:l, i:j, i:j] = casdm3[i:j, i:j, k:l, k:l, m:n, m:n].transpose(4,5,2,3,0,1)
+                #casdm3[k:l, k:l, m:n, m:n, i:j, i:j] = casdm3[i:j, i:j, k:l, k:l, m:n, m:n].transpose(2,3,4,5,0,1)
+                #casdm3[k:l, k:l, i:j, i:j, m:n, m:n] = casdm3[i:j, i:j, k:l, k:l, m:n, m:n].transpose(2,3,0,1,4,5)
 
                 # Term 5 - 62e
-                d5sigma = (lib.einsum('r,rmn,rilkj->rijknml',weights,dma1r,dmaa2r)+lib.einsum('r,rmn,rilkj->rijknml',weights,dmb1r,dmbb2r))
+                d5sigma = (lib.einsum('r,rmn,rijkl->rijknml',weights,dma1r,dmaa2r)+lib.einsum('r,rmn,rijkl->rijknml',weights,dmb1r,dmab2r)+lib.einsum('r,rmn,rijkl->rijknml',weights,dma1r,dmab2r)+lib.einsum('r,rmn,rijkl->rijknml',weights,dmb1r,dmbb2r))
                 casdm3[i:j, i:j, k:l, m:n, m:n, k:l] -= np.tensordot (weights, d5sigma, axes=1)
                 casdm3[i:j, i:j, m:n, k:l, k:l, m:n] = casdm3[i:j, i:j, k:l, m:n, m:n, k:l].transpose(0,1,4,5,2,3)
                 casdm3[m:n, k:l, i:j, i:j, k:l, m:n] = casdm3[i:j, i:j, k:l, m:n, m:n, k:l].transpose(4,5,0,1,2,3)
