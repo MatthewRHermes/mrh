@@ -1153,7 +1153,9 @@ class LASCINoSymm (casci.CASCI):
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         casdm3 = []
         for ci_i, ncas, nel in zip (ci, ncas_sub, nelecas_sub):
-            casdm3.append (fci.rdm.make_dm123 ('FCI3pdm_kern_sf',ci_i,ci_i, ncas, nel)[-1])
+            dm1_not_no, dm2_not_no, dm3_not_no = fci.rdm.make_dm123 ('FCI3pdm_kern_sf',ci_i,ci_i, ncas, nel) # not normal ordered
+            dm3_no = fci.rdm.reorder_dm123(dm1_not_no, dm2_not_no, dm3_not_no)[-1]
+            casdm3.append (dm3_no)
         #print ("SV casdm3_sub = ", casdm3_sub
         return casdm3
 
