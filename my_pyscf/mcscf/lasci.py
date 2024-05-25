@@ -1056,8 +1056,6 @@ class LASCINoSymm (casci.CASCI):
         return [np.einsum ('rsijkl,r->sijkl', dm2, w) for dm2 in casdm2frs]
 
     #SV states_make_casdm2s_sub
-    #There are two ways to construct states_make_casdm2s_sub, one is thisi coming from states_make_casdm1s_sub
-    
     def states_make_casdm2s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
    #      Spin-separated 2-RDMs in the MO basis for each subspace in sequence 
         if ci is None: ci = self.ci
@@ -1074,42 +1072,25 @@ class LASCINoSymm (casci.CASCI):
             casdm2s.append (np.stack ([dm2aa, dm2ab, dm2bb], axis=1))
         return casdm2s
     
-    #SV states_make_casdm2s_sub
-    #This is the second coming from states_make_casdm2_sub. I think the above one must be the one to be used but the problem is IDK whether states_make_rdm2s exists or not, maybe states_make_rdm12s exists
-    '''
-    def states_make_casdm2s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
-    #Spin-separated 1-RDMs in the MO basis for each subspace in sequence 
-        if ci is None: ci = self.ci
-        if ncas_sub is None: ncas_sub = self.ncas_sub
-        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
-        casdm2s = []
-        for fcibox, ci_i, ncas, nel in zip (self.fciboxes, ci, ncas_sub, nelecas_sub):
-            casdm2.append (fcibox.states_make_rdm12 (ci_i, ncas, nel)[-1])
-        return casdm2
-    '''
-
     #SV states_make_casdm2s
     def states_make_casdm2s (self, ci=None, ncas_sub=None, nelecas_sub=None,
             casdm1frs=None, casdm2fr=None, casdm2frs=None, **kwargs):
         ''' Make the full-dimensional casdm2s spanning the collective active space '''
-        print ("SV entering states_make_casdm2s")
         if ci is None: ci = self.ci
         if ncas_sub is None: ncas_sub = self.ncas_sub
         if nelecas_sub is None: nelecas_sub = self.nelecas_sub
         if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci)
         if casdm2fr is None: casdm2fr = self.states_make_casdm2_sub (ci=ci,
             ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
-        print ("SV shape of casdm2fr = ", casdm2fr)
         if casdm2frs is None: casdm2frs = self.states_make_casdm2s_sub (ci=ci,
             ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
-        print ("SV casdm2frs =", casdm2frs, "and ", casdm2frs[0] ) # casdm2frs[i] -- [0]=faa, [1]=fab, [2]=fbb for fragment i
     
         ncas = sum (ncas_sub)
         ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
 
         casdm2rs = np.zeros ((self.nroots,3,ncas,ncas,ncas,ncas))
         for isub, dm2 in enumerate (casdm2frs):
-            print ("SV dm2 = ", dm2, dm2.shape, isub, dm2[:,1]) # dm2 = root,spin,ncas,ncas,ncas,ncas | dm2[:,x] = x spin part of ncas,ncas,ncas,ncas
+        #    print ("SV dm2 = ", dm2, dm2.shape, isub, dm2[:,1]) # dm2 = root,spin,ncas,ncas,ncas,ncas | dm2[:,x] = x spin part of ncas,ncas,ncas,ncas
             i = ncas_cum[isub]
             j = ncas_cum[isub+1]
             for spin in [0,1,2]:#0=aa, 1=ab, 2=bb
@@ -1139,7 +1120,7 @@ class LASCINoSymm (casci.CASCI):
         if casdm3fr is None: casdm3fr = self.states_make_casdm3_sub (ci=ci, ncas_sub=ncas_sub,
             nelecas_sub=nelecas_sub, **kwargs)
         for dm3, box in zip(casdm3fr, self.fciboxes):
-            print ("SV dm3, box = ", dm3, box.weights)
+            #print ("SV dm3, box = ", dm3, box.weights)
             casdm3_sub = np.einsum('rijklmn,r->ijklmn', dm3, box.weights)
             #casdm3_sub = np.einsum('rijklmn,r->ijklpq', dm3, box.weights)
         return casdm3_sub
