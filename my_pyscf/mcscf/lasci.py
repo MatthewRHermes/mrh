@@ -1435,6 +1435,7 @@ class LASCINoSymm (casci.CASCI):
             casdm3[i:j, i:j, i:j, i:j, i:j, i:j] = dm3
         
         # Off-diagonal
+        from itertools import permutations
         for (isub1, dm1rs1), (isub2, dm1rs2), (isub3,dm1rs3) in combinations (enumerate (casdm1frs), 3):
             i = ncas_cum[isub1]
             j = ncas_cum[isub1+1]
@@ -1477,6 +1478,34 @@ class LASCINoSymm (casci.CASCI):
             casdm3[m:n, k:l, k:l, i:j, i:j, m:n] = casdm3[i:j, m:n, k:l, i:j, m:n, k:l].transpose (4,5,2,3,0,1)
             casdm3[k:l, i:j, m:n, k:l, i:j, m:n] = casdm3[i:j, m:n, k:l, i:j, m:n, k:l].transpose (2,3,4,5,0,1)
             casdm3[k:l, i:j, i:j, m:n, m:n, k:l] = casdm3[i:j, m:n, k:l, i:j, m:n, k:l].transpose (2,3,0,1,4,5)
+
+            # Term 4- 62d
+            d4sigma = (lib.einsum('r,rij,rkl,rmn->rilkjmn',weights,dma1r,dma2r,dm3r)+lib.einsum('r,rij,rkl,rmn->rilkjmn',weights,dmb1r,dmb2r,dm3r))
+            casdm3[i:j, k:l, k:l, i:j, m:n, m:n] -= np.tensordot(weights, d4sigma, axes=1)
+            casdm3[i:j, k:l, m:n, m:n, k:l, i:j] = casdm3[i:j, k:l, k:l, i:j, m:n, m:n].transpose (0,1,4,5,2,3)
+            casdm3[m:n, m:n, i:j, k:l, k:l, i:j] = casdm3[i:j, k:l, k:l, i:j, m:n, m:n].transpose (4,5,0,1,2,3)
+            casdm3[m:n, m:n, k:l, i:j, i:j, k:l] = casdm3[i:j, k:l, k:l, i:j, m:n, m:n].transpose (4,5,2,3,0,1)
+            casdm3[k:l, i:j, m:n, m:n, i:j, k:l] = casdm3[i:j, k:l, k:l, i:j, m:n, m:n].transpose (2,3,4,5,0,1)
+            casdm3[k:l, i:j, i:j, k:l, m:n, m:n] = casdm3[i:j, k:l, k:l, i:j, m:n, m:n].transpose (2,3,0,1,4,5)
+
+            # Term 5- 62e
+            d5sigma = (lib.einsum('r,rij,rkl,rmn->rinklmj',weights,dma1r,dm2r,dma3r)+lib.einsum('r,rij,rkl,rmn->rinklmj',weights,dmb1r,dm2r,dmb3r))
+            casdm3[i:j, m:n, k:l, k:l, m:n, i:j] -= np.tensordot(weights, d5sigma, axes=1)
+            casdm3[i:j, m:n, m:n, i:j, k:l, k:l] = casdm3[i:j, m:n, k:l, k:l, m:n, i:j].transpose (0,1,4,5,2,3)
+            casdm3[m:n, i:j, i:j, m:n, k:l, k:l] = casdm3[i:j, m:n, k:l, k:l, m:n, i:j].transpose (4,5,0,1,2,3)
+            casdm3[m:n, i:j, k:l, k:l, i:j, m:n] = casdm3[i:j, m:n, k:l, k:l, m:n, i:j].transpose (4,5,2,3,0,1)
+            casdm3[k:l, k:l, m:n, i:j, i:j, m:n] = casdm3[i:j, m:n, k:l, k:l, m:n, i:j].transpose (2,3,4,5,0,1)
+            casdm3[k:l, k:l, i:j, m:n, m:n, i:j] = casdm3[i:j, m:n, k:l, k:l, m:n, i:j].transpose (2,3,0,1,4,5)
+
+            # Term 6- 62f
+            d6sigma = (lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dma1r,dma2r,dma3r)+lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dmb1r,dmb2r,dmb3r))
+            casdm3[i:j, k:l, k:l, m:n, m:n, i:j] += np.tensordot(weights, d6sigma, axes=1)
+            casdm3[i:j, k:l, m:n, i:j, k:l, m:n] = casdm3[i:j, k:l, k:l, m:n, m:n, i:j].transpose (0,1,4,5,2,3)
+            casdm3[m:n, i:j, i:j, k:l, k:l, m:n] = casdm3[i:j, k:l, k:l, m:n, m:n, i:j].transpose (4,5,0,1,2,3)
+            casdm3[m:n, i:j, k:l, m:n, i:j, k:l] = casdm3[i:j, k:l, k:l, m:n, m:n, i:j].transpose (4,5,2,3,0,1)
+            casdm3[k:l, m:n, m:n, i:j, i:j, k:l] = casdm3[i:j, k:l, k:l, m:n, m:n, i:j].transpose (2,3,4,5,0,1)
+            casdm3[k:l, m:n, i:j, k:l, m:n, i:j] = casdm3[i:j, k:l, k:l, m:n, m:n, i:j].transpose (2,3,0,1,4,5)
+
             
 
         #Last 2 terms - combs of f1+f1+f2: dm1rs1=f1, dm2rs2=f2
