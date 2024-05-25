@@ -89,7 +89,7 @@ class KnownValues(unittest.TestCase):
         frag_atom_list = ((0, 1), (2, 3), (4, 5), (6,7))
         nelesub = (2,2,2,2)
         norbsub = (2,2,2,2)
-        rdm3_las, rdm3_no = mult_frags(nelesub, norbsub, charge=None, spin_sub=None, density_fit=False)
+        rdm3_las, rdm3_no = mult_frags(nelesub, norbsub, charge=None, spin_sub=spin_sub, density_fit=False)
 
         self.assertAlmostEqual (lib.fp (rdm3_las), lib.fp (rdm3_las), 12)
 
