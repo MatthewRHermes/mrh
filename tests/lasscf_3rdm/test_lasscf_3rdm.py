@@ -2,9 +2,9 @@
 #
 # Author: Shreya Verma <shreyav@uchicago.edu>
 
-# The following tests are broken down into a couple of different categories.
-#   1. Check accuracy of LASSCF analytical gradients with single fragment to CASSCF gradients for a diatomic molecule.
-#   2. Check the implemmentation as scanner object.
+# The tests are performed for the following purposes:
+#   1. Check accuracy of LASSCF 3-RDMs against 3-RDMs created by LAS ci vectors using the PySCF rdm generator- only for H8 with 4 fragments
+#   2. Check the same for different sub-spins of LASSCF fragments
 
 import unittest
 
@@ -54,44 +54,44 @@ def mult_frags(nelesub, norbsub, charge=None, spin_sub=None, frag_atom_list=None
 class KnownValues(unittest.TestCase):
 
     def test_rdm3_h8_sto3g_spin1(self):
-        """Spin case 1"""
+        """Spin cas 1"""
         spin_sub = (1,1,1,1)
         frag_atom_list = ((0, 1), (2, 3), (4, 5), (6,7))
         nelesub = (2,2,2,2)
         norbsub = (2,2,2,2)
-        rdm3_las, rdm3_no = mult_frags(nelesub, norbsub, charge=None, spin_sub=None, density_fit=False)
+        rdm3_las, rdm3_no = mult_frags(nelesub, norbsub, charge=None, spin_sub=spin_sub, density_fit=False)
         
-        self.assertAlmostEqual (lib.fp (rdm3_las), lib.fp (rdm3_las), 12)
+        self.assertAlmostEqual (lib.fp (rdm3_las), lib.fp (rdm3_no), 12)
 
     def test_rdm3_h8_sto3g_spin2(self):
-        """Spin case 2"""
+        """Spin cas 2"""
         spin_sub = (1,3,1,3)
         frag_atom_list = ((0, 1), (2, 3), (4, 5), (6,7))
         nelesub = (2,2,2,2)
         norbsub = (2,2,2,2)
         rdm3_las, rdm3_no = mult_frags(nelesub, norbsub, charge=None, spin_sub=spin_sub, density_fit=False)
 
-        self.assertAlmostEqual (lib.fp (rdm3_las), lib.fp (rdm3_las), 12)
+        self.assertAlmostEqual (lib.fp (rdm3_las), lib.fp (rdm3_no), 12)
 
     def test_rdm3_h8_sto3g_spin3(self):
-        """Spin case 3"""
+        """Spin cas 3"""
         spin_sub = (1,3,3,3)
         frag_atom_list = ((0, 1), (2, 3), (4, 5), (6,7))
         nelesub = (2,2,2,2)
         norbsub = (2,2,2,2)
         rdm3_las, rdm3_no = mult_frags(nelesub, norbsub, charge=None, spin_sub=spin_sub, density_fit=False)
 
-        self.assertAlmostEqual (lib.fp (rdm3_las), lib.fp (rdm3_las), 12)
+        self.assertAlmostEqual (lib.fp (rdm3_las), lib.fp (rdm3_no), 12)
 
     def test_rdm3_h8_sto3g_spin4(self):
-        """Spin case 4"""
+        """Spin cas 4"""
         spin_sub = (3,3,3,3)
         frag_atom_list = ((0, 1), (2, 3), (4, 5), (6,7))
         nelesub = (2,2,2,2)
         norbsub = (2,2,2,2)
         rdm3_las, rdm3_no = mult_frags(nelesub, norbsub, charge=None, spin_sub=spin_sub, density_fit=False)
 
-        self.assertAlmostEqual (lib.fp (rdm3_las), lib.fp (rdm3_las), 12)
+        self.assertAlmostEqual (lib.fp (rdm3_las), lib.fp (rdm3_no), 12)
 
 if __name__ == "__main__":
     print("Full Tests for LASSCF 3-RDMs")
