@@ -2,9 +2,8 @@
 #
 # Author: Shreya Verma <shreyav@uchicago.edu>
 
-# The following tests are broken down into a couple of different categories.
-#   1. Check accuracy of LASSCF analytical gradients with single fragment to CASSCF gradients for a diatomic molecule.
-#   2. Check the implemmentation as scanner object.
+# The following test is performed for different spin states:
+#   1. Check accuracy of LASSCF 3-RDMs against 3-RDMs from exact ci-vectors for H8 with 4 fragments.
 
 import unittest
 
