@@ -97,16 +97,6 @@ private:
   // get_jk
 
   int update_dfobj;
-  
-  // int size_rho;
-  // int size_vj;
-  // int size_vk;
-  // int size_buf;
-  // int size_fdrv;
-  // int size_dms;
-  // int size_dmtril;
-  // int size_eri1;
-  // int size_tril_map;
 
   int blksize;
   int nao;
@@ -124,19 +114,6 @@ private:
   double * buf3;
   double * buf4;
   double * buf_fdrv;
-
-  // double * d_rho;
-  // double * d_vj;
-  // double * d_buf1;
-  // double * d_buf2;
-  // double * d_buf3;
-  // double * d_vkk;
-  // double * d_dms;
-  // double * d_dmtril;
-  // double * d_eri1;
-  
-  // int * tril_map;
-  // int * d_tril_map;
 
   // hessop_get_veff
 
@@ -193,7 +170,6 @@ private:
     int size_dms;
     int size_dmtril;
     int size_eri1;
-    int size_tril_map;
     
     double * d_rho;
     double * d_vj;
@@ -205,8 +181,10 @@ private:
     double * d_dmtril;
     double * d_eri1;
 
-    int * tril_map;
-    int * d_tril_map;
+    std::vector<int> size_tril_map;
+    std::vector<int *> tril_map;
+    std::vector<int *> d_tril_map;
+    int * d_tril_map_ptr;
     
     cublasHandle_t handle;
     cudaStream_t stream;

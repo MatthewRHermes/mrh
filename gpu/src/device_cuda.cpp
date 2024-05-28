@@ -139,30 +139,32 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
   
   int _size_tril_map = nao * nao;
-  //  if(_size_tril_map > size_tril_map) {
-  if(_size_tril_map != dd->size_tril_map) {
-    // nao can change between calls, so mapping needs to be updated...
-    // I think there are only two mappings needed
+
+  auto it = std::find(dd->size_tril_map.begin(), dd->size_tril_map.end(), _size_tril_map);
+
+  int indx = it - dd->size_tril_map.begin();
+
+  if(indx == dd->size_tril_map.size()) {
+    dd->size_tril_map.push_back(_size_tril_map);
+    dd->tril_map.push_back(nullptr);
+    dd->d_tril_map.push_back(nullptr);
+
+    dd->tril_map[indx] = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
+    dd->d_tril_map[indx] = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
     
-    dd->size_tril_map = _size_tril_map;
-    if(dd->tril_map) pm->dev_free_host(dd->tril_map);
-    if(dd->d_tril_map) pm->dev_free(dd->d_tril_map);
-    dd->tril_map = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
-    dd->d_tril_map = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
-
-    // optimize map later...
-
     int _i, _j, _ij;
+    int * tm = dd->tril_map[indx];
     for(_ij = 0, _i = 0; _i < nao; _i++)
       for(_j = 0; _j<=_i; _j++, _ij++) {
-    	dd->tril_map[_i*nao + _j] = _ij;
-    	dd->tril_map[_i + nao*_j] = _ij;
+    	tm[_i*nao + _j] = _ij;
+    	tm[_i + nao*_j] = _ij;
       }
     
-    //pm->dev_push_async(d_tril_map, tril_map, size_tril_map*sizeof(int), stream); // how did this work w/o stream creation?
-    pm->dev_push(dd->d_tril_map, dd->tril_map, _size_tril_map*sizeof(int));
+    pm->dev_push(dd->d_tril_map[indx], dd->tril_map[indx], _size_tril_map*sizeof(int));
   }
-  
+
+  dd->d_tril_map_ptr = dd->d_tril_map[indx];
+
 #ifdef _SIMPLE_TIMER
   double t2 = omp_get_wtime();
   t_array_jk[0] += t2 - t0;
@@ -757,7 +759,7 @@ void Device::get_jk(int naux,
 #endif
     
     //    printf(" -- calling _unpack_buf2()\n");
-    _getjk_unpack_buf2<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_eri, dd->d_tril_map, naux, nao, nao_pair);
+    _getjk_unpack_buf2<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_eri, dd->d_tril_map_ptr, naux, nao, nao_pair);
   }
   
 #ifdef _CUDA_NVTX

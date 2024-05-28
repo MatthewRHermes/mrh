@@ -93,7 +93,6 @@ Device::Device()
     device_data[i].size_dms = 0;
     device_data[i].size_dmtril = 0;
     device_data[i].size_eri1 = 0;
-    device_data[i].size_tril_map = 0;
     
     device_data[i].d_rho = nullptr;
     device_data[i].d_vj = nullptr;
@@ -105,8 +104,7 @@ Device::Device()
     device_data[i].d_dmtril = nullptr;
     device_data[i].d_eri1 = nullptr;
     
-    device_data[i].tril_map = nullptr;
-    device_data[i].d_tril_map = nullptr;
+    device_data[i].d_tril_map_ptr = nullptr;
     
     device_data[i].handle = nullptr;
     device_data[i].stream = nullptr;
@@ -158,6 +156,15 @@ Device::~Device()
   pm->dev_free_host(buf4);
 
   pm->dev_free_host(buf_fdrv);
+
+  // for(int i=0; i<size_tril_map.size(); ++i) {
+  //   pm->dev_free_host(tril_map[i]);
+  //   pm->dev_free(d_tril_map[i]);
+  // }
+  // size_tril_map.clear();
+  // tril_map.clear();
+  // d_tril_map.clear();
+  
   //  pm->dev_free_host(tril_map);
 
 #ifdef _SIMPLE_TIMER
