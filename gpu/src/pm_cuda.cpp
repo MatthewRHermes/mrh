@@ -209,18 +209,20 @@ void PM::dev_push(void * d_ptr, void * h_ptr, size_t N)
 #endif
 }
 
-void PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
+int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_push_async()\n");
 #endif
   
   cudaMemcpyAsync(d_ptr, h_ptr, N, cudaMemcpyHostToDevice, s);
-  _CUDA_CHECK_ERRORS();
+  _CUDA_CHECK_ERRORS2();
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_push_async()\n");
 #endif
+  
+  return 0;
 }
 
 void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N)

@@ -26,6 +26,20 @@ namespace PM_NS {
     }					   \
   }
   
+#define _CUDA_CHECK_ERRORS2()               \
+  {					   \
+    cudaError err = cudaGetLastError();	   \
+    if(err != cudaSuccess) {		   \
+      std::cout				   \
+	<< "CUDA error with code "	   \
+	<< cudaGetErrorString(err)	   \
+	<< " in file " << __FILE__	   \
+	<< " at line " << __LINE__	   \
+	<< ". Exiting...\n";		   \
+      return 1;				   \
+    }					   \
+  }
+  
   class PM {
     
   public:
@@ -52,7 +66,7 @@ namespace PM_NS {
 
     // specific to cuda
     
-    void dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
+    int dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
     void dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
 
     void dev_check_pointer(int, const char *, void *);

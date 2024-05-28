@@ -527,7 +527,13 @@ void Device::get_jk(int naux,
     d_eri = dd->d_eri1;
   }
 
-  if(count < num_devices) pm->dev_push_async(dd->d_dmtril, dmtril, nset * nao_pair * sizeof(double), dd->stream);
+  if(count < num_devices) {
+    int err = pm->dev_push_async(dd->d_dmtril, dmtril, nset * nao_pair * sizeof(double), dd->stream);
+    if(err) {
+      printf("LIBGPU:: dev_push_async(d_dmtril) failed on count= %i\n",count);
+      exit(1);
+    }
+  }
   
   int _size_rho = nset * naux;
   if(_size_rho > dd->size_rho) {
@@ -622,7 +628,11 @@ void Device::get_jk(int naux,
 	printf("LIBGPU :: -- updating eri block: id= %i\n",id);
 #endif
 	eri_update[id]++;
-	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
+	int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
+	if(err) {
+	  printf("LIBGPU:: dev_push_async(d_eri) updating eri block\n");
+	  exit(1);
+	}
       }
 #endif
       
@@ -650,7 +660,11 @@ void Device::get_jk(int naux,
 #ifdef _DEBUG_DEVICE
       printf("LIBGPU :: -- initializing eri block\n");
 #endif
-      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
+      int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
+      if(err) {
+	printf("LIBGPU:: dev_push_async(d_eri) initializing new eri block\n");
+	exit(1);
+      }
       
 #ifdef _DEBUG_ERI_CACHE
       d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
@@ -770,6 +784,7 @@ void Device::get_jk(int naux,
     nvtxRangePushA("GetJK::Transfer DMS");
 #endif
     
+    pm->dev_stream_wait(dd->stream);
     py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, nao, nao)
     py::buffer_info info_dms = _dms.request(); // 2D
 
@@ -778,7 +793,12 @@ void Device::get_jk(int naux,
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU ::  -- calling dev_push_async(dms) for indxK= %i  nset= %i\n",indxK,nset);
 #endif
-    pm->dev_push_async(dd->d_dms, dms, nao*nao*sizeof(double), dd->stream);
+    
+    int err = pm->dev_push_async(dd->d_dms, dms, nao*nao*sizeof(double), dd->stream);
+    if(err) {
+      printf("LIBGPU:: dev_push_async(d_dms) on indxK= %i\n",indxK);
+      exit(1);
+    }
     
 #ifdef _CUDA_NVTX
     nvtxRangePop();
