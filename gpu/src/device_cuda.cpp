@@ -113,7 +113,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //   buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
   // }
 
-  int _size_dms = nao * nao;
+  int _size_dms = nset * nao * nao;
   if(_size_dms > dd->size_dms) {
     dd->size_dms = _size_dms;
     if(dd->d_dms) pm->dev_free(dd->d_dms);
@@ -784,17 +784,19 @@ void Device::get_jk(int naux,
     nvtxRangePushA("GetJK::Transfer DMS");
 #endif
     
-    pm->dev_stream_wait(dd->stream);
+    //    pm->dev_stream_wait(dd->stream);
     py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, nao, nao)
     py::buffer_info info_dms = _dms.request(); // 2D
 
     double * dms = static_cast<double*>(info_dms.ptr);
 
+    double * d_dms = &(dd->d_dms[indxK*nao*nao]);
+    
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU ::  -- calling dev_push_async(dms) for indxK= %i  nset= %i\n",indxK,nset);
 #endif
     
-    int err = pm->dev_push_async(dd->d_dms, dms, nao*nao*sizeof(double), dd->stream);
+    int err = pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), dd->stream);
     if(err) {
       printf("LIBGPU:: dev_push_async(d_dms) on indxK= %i\n",indxK);
       exit(1);
@@ -820,7 +822,7 @@ void Device::get_jk(int naux,
 #endif
       cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_T, CUBLAS_OP_T, nao, nao, nao,
 				&alpha, dd->d_buf2, nao, nao2,
-				dd->d_dms, nao, 0,
+				d_dms, nao, 0,
 				&beta, dd->d_buf1, nao, nao2, naux);
     }
     
