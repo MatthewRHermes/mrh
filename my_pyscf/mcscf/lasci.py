@@ -1714,10 +1714,8 @@ class LASCINoSymm (casci.CASCI):
 
             i = ncas_cum[isub1]
             j = ncas_cum[isub1+1]
-            k = ncas_cum[isub1]
-            l = ncas_cum[isub1+1]
-            m = ncas_cum[isub2]
-            n = ncas_cum[isub2+1]
+            k = ncas_cum[isub2]
+            l = ncas_cum[isub2+1]
             
             dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1] 
             dm1r = dma1r + dmb1r
@@ -1728,18 +1726,18 @@ class LASCINoSymm (casci.CASCI):
                        +lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmab2r)
                        +lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmab2r)
                        +lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmbb2r))
-            casdm3[i:j, i:j, k:l, k:l, m:n, m:n] += np.tensordot (weights, d4sigma, axes=1)
-            d = casdm3[i:j, i:j, k:l, k:l, m:n, m:n]
-            casdm3[i:j, i:j, m:n, m:n, k:l, k:l] = d.transpose(0,1,4,5,2,3)
-            casdm3[m:n, m:n, i:j, i:j, k:l, k:l] = d.transpose(4,5,0,1,2,3)
+            casdm3[i:j, i:j, i:j, i:j, k:l, k:l] += np.tensordot (weights, d4sigma, axes=1)
+            d = casdm3[i:j, i:j, i:j, i:j, k:l, k:l]
+            casdm3[i:j, i:j, k:l, k:l, i:j, i:j] = d.transpose(0,1,4,5,2,3)
+            casdm3[k:l, k:l, i:j, i:j, i:j, i:j] = d.transpose(4,5,0,1,2,3)
 
             # Term 8 - 29h
             d5sigma = (lib.einsum('r,rmn,rijkl->rijknml',weights,dma1r,dmaa2r)
                        +lib.einsum('r,rmn,rijkl->rijknml',weights,dmb1r,dmab2r)
                        +lib.einsum('r,rmn,rijkl->rijknml',weights,dma1r,dmab2r)
                        +lib.einsum('r,rmn,rijkl->rijknml',weights,dmb1r,dmbb2r))
-            casdm3[i:j, i:j, k:l, m:n, m:n, k:l] -= np.tensordot (weights, d5sigma, axes=1)
-            _transpose_dm3_(i,j, i,j, k,l, m,n, m,n, k,l)
+            casdm3[i:j, i:j, i:j, k:l, k:l, i:j] -= np.tensordot (weights, d5sigma, axes=1)
+            _transpose_dm3_(i,j, i,j, i,j, k,l, k,l, i,j)
 
         return casdm3
 
