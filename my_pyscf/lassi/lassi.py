@@ -756,13 +756,8 @@ class LASSI(lib.StreamObject):
 
     def get_nelec_frs (self, las=None):
         if las is None: las = self
-        nelec_frs = []
-        for fcibox, nelec in zip (las.fciboxes, las.nelecas_sub):
-            nelec_rs = []
-            for solver in fcibox.fcisolvers:
-                nelec_rs.append (_unpack_nelec (fcibox._get_nelec (solver, nelec)))
-            nelec_frs.append (nelec_rs)
-        return np.asarray (nelec_frs)
+        from mrh.my_pyscf.mcscf.lasci import get_nelec_frs
+        return get_nelec_frs (las)
 
     def get_lroots (self, ci=None):
         if ci is None: ci = self.ci

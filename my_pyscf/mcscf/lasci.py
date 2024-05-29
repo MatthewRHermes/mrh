@@ -862,6 +862,22 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
     e_tot = np.dot (las.weights, e_states)
     return converged, e_tot, e_states, e_cas, e_lexc, ci1
 
+
+def get_nelec_frs (las):
+    ''' Getter function for all electron occupancies in all fragments in all rootspaces.
+
+    Returns:
+        nelec_frs: ndarray of shape (nfrags, nroots, 2)
+            number of electrons of each spin in each rootspace in each fragment
+    '''
+    nelec_frs = []
+    for fcibox, nelec in zip (las.fciboxes, las.nelecas_sub):
+        nelec_rs = []
+        for solver in fcibox.fcisolvers:
+            nelec_rs.append (_unpack_nelec (fcibox._get_nelec (solver, nelec)))
+        nelec_frs.append (nelec_rs)
+    return np.asarray (nelec_frs)
+
 class LASCINoSymm (casci.CASCI):
 
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, **kwargs):
@@ -924,6 +940,7 @@ class LASCINoSymm (casci.CASCI):
         mo = mo[:,:self.ncas_sub[idx]]
         return mo
 
+    get_nelec_frs = get_nelec_frs
     get_h1eff = get_h1las = h1e_for_las = h1e_for_las
     get_h2eff = ao2mo = las_ao2mo.get_h2eff
     get_h2cas = las_ao2mo.get_h2cas
@@ -2046,6 +2063,7 @@ class LASCINoSymm (casci.CASCI):
             self.states_converged = list (x)
         else:
             self.states_converged = [x,]*self.nroots
+
 
     def dump_spaces (self, nroots=None, sort_energy=False):
         log = lib.logger.new_logger (self, self.verbose)
