@@ -92,9 +92,6 @@ private:
   void profile_start(const char *);
   void profile_stop();
   void profile_next(const char *);
-  
-  int n;
-  int size_data;
 
   size_t grid_size, block_size;
   
@@ -108,6 +105,9 @@ private:
   int nset;
   int nao_pair;
 
+  int size_buf_vj;
+  int size_buf_vk;
+  
   // get_jk
   
   double * rho;
@@ -119,6 +119,9 @@ private:
   double * buf4;
   double * buf_fdrv;
 
+  double * buf_vj;
+  double * buf_vk;
+  
   // hessop_get_veff
 
   int size_bPpj;

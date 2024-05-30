@@ -138,6 +138,20 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   dd->d_tril_map_ptr = dd->d_tril_map[indx];
 
+  int _size_buf_vj = num_devices * nset * nao_pair;
+  if(_size_buf_vj > size_buf_vj) {
+    size_buf_vj = _size_buf_vj;
+    if(buf_vj) pm->dev_free_host(buf_vj);
+    buf_vj = (double *) pm->dev_malloc_host(_size_buf_vj*sizeof(double));
+  }
+
+  int _size_buf_vk = num_devices * nset * nao * nao;
+  if(_size_buf_vk > size_buf_vk) {
+    size_buf_vk = _size_buf_vk;
+    if(buf_vk) pm->dev_free_host(buf_vk);
+    buf_vk = (double *) pm->dev_malloc_host(_size_buf_vk*sizeof(double));
+  }
+  
 #ifdef _SIMPLE_TIMER
   double t2 = omp_get_wtime();
   t_array_jk[0] += t2 - t0;
@@ -191,52 +205,73 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int w
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   
   double * vj = static_cast<double*>(info_vj.ptr);
-  
-  double * tmp = (double *) pm->dev_malloc_host(nset * nao_pair * sizeof(double));
 
+  int size = nset * nao_pair * sizeof(double);
+
+  double * tmp;
+  
   for(int i=0; i<num_devices; ++i) {
     pm->dev_set_device(i);
     
     my_device_data * dd = &(device_data[i]);
+
+    if(i == 0) tmp = vj;
+    else tmp = &(buf_vj[i * nset * nao_pair]);
     
+    pm->dev_pull_async(dd->d_vj, tmp, size, dd->stream);
+  }
+  
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
     pm->dev_stream_wait(dd->stream);
-    
-    if(i == 0) pm->dev_pull(dd->d_vj, vj, nset * nao_pair * sizeof(double));
-    else if(dd->d_vj) {
-      pm->dev_pull(dd->d_vj, tmp, nset*nao_pair*sizeof(double));
+
+    if(i > 0) {
+      
+      tmp = &(buf_vj[i * nset * nao_pair]);
+#pragma omp parallel for
       for(int j=0; j<nset*nao_pair; ++j) vj[j] += tmp[j];
+      
     }
   }
-  
-  pm->dev_free_host(tmp);
-  
-  if(with_k) {
-    pm->dev_set_device(0);
-    
-    py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
-    
-    double * vk = static_cast<double*>(info_vk.ptr);
-    
-    tmp = (double *) pm->dev_malloc_host(nset * nao * nao * sizeof(double));
 
-    for(int i=0; i<num_devices; ++i) {
-      pm->dev_set_device(i);
-      
-      my_device_data * dd = &(device_data[i]);
-      
-      pm->dev_stream_wait(dd->stream);
-
-      if(i == 0) pm->dev_pull(dd->d_vkk, vk, nset * nao * nao * sizeof(double));
-      else if(dd->d_vkk) {
-	pm->dev_pull(dd->d_vkk, tmp, nset*nao*nao*sizeof(double));
-	for(int j=0; j<nset*nao*nao; ++j) vk[j] += tmp[j];
-      }
-    }
-
-    pm->dev_free_host(tmp);
-  }
-    
   update_dfobj = 0;
+  if(!with_k) {
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
+#endif
+    return;
+  }
+    
+  py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
+    
+  double * vk = static_cast<double*>(info_vk.ptr);
+
+  size = nset * nao * nao * sizeof(double);
+
+  for(int i=0; i<num_devices; ++i) {
+    pm->dev_set_device(i);
+      
+    my_device_data * dd = &(device_data[i]);
+
+    if(i == 0) tmp = vk;
+    else tmp = &(buf_vk[i * nset * nao * nao]);
+
+    pm->dev_pull_async(dd->d_vkk, tmp, size, dd->stream);
+  }
+
+  for(int i=0; i<num_devices; ++i) {
+    my_device_data * dd = &(device_data[i]);
+    pm->dev_stream_wait(dd->stream);
+
+    if(i > 0) {
+      
+      tmp = &(buf_vk[i * nset * nao * nao]);
+#pragma omp parallel for
+      for(int j=0; j<nset*nao*nao; ++j) vk[j] += tmp[j];
+    
+    }
+
+  }
   
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");

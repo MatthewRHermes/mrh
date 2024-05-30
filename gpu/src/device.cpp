@@ -21,8 +21,6 @@ Device::Device()
   printf("LIBGPU: created device\n");
   
   pm = new PM();
-  
-  n = 0;
 
   update_dfobj = 0;
 
@@ -39,6 +37,12 @@ Device::Device()
   buf4 = nullptr;
 
   buf_fdrv = nullptr;
+
+  size_buf_vj = 0;
+  size_buf_vk = 0;
+  
+  buf_vj = nullptr;
+  buf_vk = nullptr;
   
 #if defined(_USE_GPU)
   d_bPpj = nullptr;
@@ -126,6 +130,9 @@ Device::~Device()
   pm->dev_free_host(buf3);
   pm->dev_free_host(buf4);
 
+  pm->dev_free_host(buf_vj);
+  pm->dev_free_host(buf_vk);
+  
   pm->dev_free_host(buf_fdrv);
 
   // for(int i=0; i<size_tril_map.size(); ++i) {
