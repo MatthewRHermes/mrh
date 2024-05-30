@@ -793,15 +793,17 @@ void Device::get_jk(int naux,
     double * dms = static_cast<double*>(info_dms.ptr);
 
     double * d_dms = &(dd->d_dms[indxK*nao*nao]);
-    
+
+    if(count < num_devices) {
 #ifdef _DEBUG_DEVICE
-    printf("LIBGPU ::  -- calling dev_push_async(dms) for indxK= %i  nset= %i\n",indxK,nset);
+      printf("LIBGPU ::  -- calling dev_push_async(dms) for indxK= %i  nset= %i\n",indxK,nset);
 #endif
     
-    int err = pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), dd->stream);
-    if(err) {
-      printf("LIBGPU:: dev_push_async(d_dms) on indxK= %i\n",indxK);
-      exit(1);
+      int err = pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), dd->stream);
+      if(err) {
+	printf("LIBGPU:: dev_push_async(d_dms) on indxK= %i\n",indxK);
+	exit(1);
+      }
     }
     
 #ifdef _CUDA_NVTX
