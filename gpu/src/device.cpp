@@ -25,16 +25,6 @@ Device::Device()
   n = 0;
 
   update_dfobj = 0;
-  
-  // size_rho = 0;
-  // size_vj = 0;
-  // size_vk = 0;
-  // size_buf = 0;
-  // size_fdrv = 0;
-  // size_dms = 0;
-  // size_dmtril = 0;
-  // size_eri1 = 0;
-  // size_tril_map = 0;
 
   size_bPpj = 0;
   size_vPpj = 0;
@@ -49,27 +39,8 @@ Device::Device()
   buf4 = nullptr;
 
   buf_fdrv = nullptr;
-  //  tril_map = nullptr;
   
 #if defined(_USE_GPU)
-  //  handle = nullptr;
-  //  stream = nullptr;
-
-  //  handle_ = nullptr;
-  //  stream_ = nullptr;
-
-  // d_rho = nullptr;
-  // d_vj = nullptr;
-  // d_buf1 = nullptr;
-  // d_buf2 = nullptr;
-  // d_buf3 = nullptr;
-  // d_vkk = nullptr;
-  // d_dms = nullptr;
-  // d_dmtril = nullptr;
-  // d_eri1 = nullptr;
-
-  // d_tril_map = nullptr;
-
   d_bPpj = nullptr;
   d_vPpj = nullptr;
   d_vk_bj = nullptr;
@@ -230,8 +201,6 @@ Device::~Device()
   pm->dev_free(d_vk_bj);
 
   profile_next("Destroy Handle");
-  
-  //  cublasDestroy(handle);
 
   for(int i=0; i<num_devices; ++i) {
     my_device_data * dd = &(device_data[i]);

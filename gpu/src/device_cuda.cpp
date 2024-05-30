@@ -43,28 +43,17 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   nao_pair = nao * (nao+1) / 2;
   
-  py::buffer_info info_eri1 = _eri1.request(); // 2D array (232, 351)
-  py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, 351)
-
-  //  double * eri1 = static_cast<double*>(info_eri1.ptr);
-  //  double * dmtril = static_cast<double*>(info_dmtril.ptr);
-  
   int _size_vj = nset * nao_pair;
   if(_size_vj > dd->size_vj) {
     dd->size_vj = _size_vj;
-    //if(vj) pm->dev_free_host(vj);
-    //vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
     if(dd->d_vj) pm->dev_free(dd->d_vj);
     dd->d_vj = (double *) pm->dev_malloc(_size_vj * sizeof(double));
   }
-  //for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
   
   int _size_vk = nset * nao * nao;
   if(_size_vk > dd->size_vk) {
     dd->size_vk = _size_vk;
-    //    if(_vktmp) pm->dev_free_host(_vktmp);
-    //    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
-
+    
     profile_start("Realloc");
     
     if(dd->d_vkk) pm->dev_free(dd->d_vkk);
@@ -72,7 +61,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
     profile_stop();
   }
-  //  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
   int _size_buf = blksize * nao * nao;
   if(_size_buf > dd->size_buf) {
@@ -97,14 +85,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
     profile_stop();
   }
-
-  // int _size_fdrv = nao * nao * num_threads;
-  // if(_size_fdrv > size_fdrv) {
-  //   size_fdrv = _size_fdrv;
-  //   if(buf_fdrv) pm->dev_free_host(buf_fdrv);
-  //   buf_fdrv = (double *) pm->dev_malloc_host(size_fdrv*sizeof(double));
-  // }
-
+  
   int _size_dms = nset * nao * nao;
   if(_size_dms > dd->size_dms) {
     dd->size_dms = _size_dms;
@@ -168,17 +149,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   // Create cuda stream
   
-  if(dd->stream == nullptr) {
-    pm->dev_stream_create(dd->stream);
-
-    //stream_ = (cudaStream_t*) pm->dev_malloc_host(num_devices * sizeof(cudaStream_t));
-
-    //    for(int i=0; i<num_devices; ++i) stream_[i] = stream; // tempory
-    // for(int i=0; i<num_devices; ++i) {
-    //   pm->dev_set_device(i);
-    //   pm->dev_stream_create(stream_[i]);
-    // }
-  }
+  if(dd->stream == nullptr) pm->dev_stream_create(dd->stream);
   
   // Create blas handle
 
@@ -196,24 +167,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     cublasSetStream(dd->handle, dd->stream);
     _CUDA_CHECK_ERRORS();
 
-    //    cudaDeviceSynchronize();
-  
-    //handle_ = (cublasHandle_t*) pm->dev_malloc_host(num_devices * sizeof(cublasHandle_t));
-    
-    // for(int i=0; i<num_devices; ++i) {
-    //   pm->dev_set_device(i);
-      
-    //   printf(" -- calling cublasCreate(&handle_[i]) for i= %i\n",i);
-    //   cublasCreate(&(handle_[i]));
-    //   _CUDA_CHECK_ERRORS();
-      
-    //   printf(" -- calling cublasSetStream(handle_[i], stream_[i]) for i= %i\n",i);
-    //   cublasSetStream(handle_[i], stream_[i]);
-    //   _CUDA_CHECK_ERRORS();
-      
-    //   cudaDeviceSynchronize();
-    // }
-
     profile_stop();
     
 #ifdef _SIMPLE_TIMER
@@ -222,8 +175,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
   }
 
-  //  cudaDeviceSynchronize();
-  
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::init_get_jk()\n");
 #endif
@@ -533,10 +484,8 @@ void Device::get_jk(int naux,
 
 #if 0
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
-  //  double * vj = static_cast<double*>(info_vj.ptr);
-  
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
-  //  double * vk = static_cast<double*>(info_vk.ptr);
+  
   printf("LIBGPU:: device= %i  blksize= %i  naux= %i  nao= %i  nset= %i  nao_pair= %i  count= %i\n",device_id,blksize,naux,nao,nset,nao_pair,count);
   printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
   	 info_dmtril.shape[0], info_dmtril.shape[1],
@@ -737,7 +686,6 @@ void Device::get_jk(int naux,
     // dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
 #endif
     
-    //    printf(" -- calling _unpack_buf2()\n");
     _getjk_unpack_buf2<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_eri, dd->d_tril_map_ptr, naux, nao, nao_pair);
   }
 
@@ -761,7 +709,6 @@ void Device::get_jk(int naux,
     
     profile_start("GetJK::Transfer DMS");
     
-    //    pm->dev_stream_wait(dd->stream);
     py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, nao, nao)
     py::buffer_info info_dms = _dms.request(); // 2D
 
@@ -1228,7 +1175,6 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     
     _hessop_get_veff_reshape4<<<grid_size, block_size, 0, dd->stream>>>(d_vPpj, dd->d_buf1, nmo, nocc, ncore, nvirt, naux);
   }
-
 
   {
     const double alpha = 1.0;

@@ -219,15 +219,6 @@ private:
 
   int num_threads;
   int num_devices;
-
-#if defined(_USE_GPU)
-  //  cublasHandle_t handle;
-  //  cudaStream_t stream;
-  
-  //  cublasHandle_t * handle_;
-  //  cudaStream_t * stream_;
-#endif
-  
 };
 
 #endif
