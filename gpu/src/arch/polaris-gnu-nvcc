@@ -32,7 +32,7 @@ CUDA_CXXFLAGS += -I$(PATH_TO_CUDA)/include
 CUDA_CXXFLAGS += -D_CUDA_NVTX
 
 LD = $(CXX)
-LDFLAGS = -fopenmp 
+LDFLAGS = -g -fopenmp 
 LDFLAGS += -fPIC -shared
 
 LIB = -lstdc++
