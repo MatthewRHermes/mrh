@@ -210,9 +210,7 @@ Device::~Device()
   }
   
 #if defined(_USE_GPU)
-#ifdef _CUDA_NVTX
-  nvtxRangePushA("Deallocate");
-#endif
+  profile_start("Deallocate");
 
   //  for(int i=0; i<num_devices; ++i) // free gpu objects
   
@@ -230,21 +228,17 @@ Device::~Device()
   pm->dev_free(d_bPpj);
   pm->dev_free(d_vPpj);
   pm->dev_free(d_vk_bj);
+
+  profile_next("Destroy Handle");
   
-#ifdef _CUDA_NVTX
-  nvtxRangePop();
-  
-  nvtxRangePushA("Destroy Handle");
-#endif
   //  cublasDestroy(handle);
 
   for(int i=0; i<num_devices; ++i) {
     my_device_data * dd = &(device_data[i]);
     cublasDestroy(dd->handle);
   }
-#ifdef _CUDA_NVTX
-  nvtxRangePop();
-#endif
+
+  profile_stop();
 
   printf("need to destroy stream correctly...\n");
   //pm->dev_stream_destroy(stream);
@@ -852,6 +846,34 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   pm->dev_free_host(ecm2);
   pm->dev_free_host(_ocm2t);
   pm->dev_free_host(f1_prime);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::profile_start(const char * label)
+{
+#ifdef _USE_NVTX
+  nvtxRangePushA(label);
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::profile_stop()
+{
+#ifdef _USE_NVTX
+  nvtxRangePop();
+#endif
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::profile_next(const char * label)
+{
+#ifdef _USE_NVTX
+  nvtxRangePop();
+  nvtxRangePushA(label);
+#endif
 }
 
 /* ---------------------------------------------------------------------- */

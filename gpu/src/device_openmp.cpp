@@ -42,16 +42,12 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     //    if(_vktmp) pm->dev_free_host(_vktmp);
     //    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
 
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("Realloc");
-#endif
+    profile_start("Realloc");
     
     if(d_vkk) pm->dev_free(d_vkk);
     d_vkk = (double *) pm->dev_malloc(size_vk * sizeof(double));
 
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+    profile_stop();
   }
   //  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
@@ -66,9 +62,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
     buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (blksize*nao, nao)
 
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("Realloc");
-#endif
+    profile_start("Realloc");
 
     if(d_buf2) pm->dev_free(d_buf2);
     if(d_buf3) pm->dev_free(d_buf3);
@@ -76,9 +70,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
     d_buf3 = (double *) pm->dev_malloc(size_buf * sizeof(double));
 
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+    profile_stop();
   }
 
   int _size_fdrv = nao * nao * num_threads;
@@ -100,17 +92,14 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   // Create blas handle
 
   if(handle == nullptr) {
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("Create handle");
-#endif
+    profile_start("Create handle");
+
     cublasCreate(&handle);
     _CUDA_CHECK_ERRORS();
     cublasSetStream(handle, stream);
     _CUDA_CHECK_ERRORS();
 
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+    profile_stop();
   }
 
 #ifdef _SIMPLE_TIMER
@@ -312,9 +301,7 @@ void Device::get_jk(int naux,
 
     // transfer
 
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("HtoD Transfer");
-#endif
+    profile_start("HtoD Transfer");
     
     //printf("Calling dev_push_async() for buf3\n");
     //pm->dev_barrier();
@@ -324,9 +311,7 @@ void Device::get_jk(int naux,
     
     //pm->dev_barrier();
 
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+    profile_stop();
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -352,10 +337,9 @@ void Device::get_jk(int naux,
     const int ldc = nao;
     
     const int vk_offset = indxK * nao*nao;
-    
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("DGEMM");
-#endif
+
+    profile_start("DGEMM");
+
     //pm->dev_barrier();
     //printf("About to call cublasDgemm()\n");    
     
@@ -373,10 +357,8 @@ void Device::get_jk(int naux,
 
     //pm->dev_barrier();
     //printf(" -- finished\n");
-    
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+
+    profile_stop();
    
 #ifdef _SIMPLE_TIMER
     double t4 = omp_get_wtime();
