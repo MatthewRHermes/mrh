@@ -213,11 +213,7 @@ private:
   void NPdunpack_tril(int, double *, double *, int);
     
 #ifdef _SIMPLE_TIMER
-  int t_array_count;
   double * t_array;
-
-  int t_array_jk_count;
-  double * t_array_jk;
 #endif
 
   int num_threads;

@@ -4,7 +4,7 @@
 
 #include "device.h"
 
-#define _NUM_TIMER_JK 13
+#define _NUM_SIMPLE_TIMER 4
 
 #define _DEBUG_OPENMP
 
@@ -102,13 +102,8 @@ Device::Device()
 #endif
   
 #ifdef _SIMPLE_TIMER
-  t_array_count = 0;
-  t_array = (double *) malloc(14 * sizeof(double));
-  for(int i=0; i<14; ++i) t_array[i] = 0.0;
-
-  t_array_jk_count = 0;
-  t_array_jk = (double* ) malloc(_NUM_TIMER_JK * sizeof(double));
-  for(int i=0; i<_NUM_TIMER_JK; ++i) t_array_jk[i] = 0.0;
+  t_array = (double* ) malloc(_NUM_SIMPLE_TIMER * sizeof(double));
+  for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) t_array[i] = 0.0;
 #endif
 }
 
@@ -117,10 +112,6 @@ Device::Device()
 Device::~Device()
 {
   printf("LIBGPU: destroying device\n");
-  
-#ifdef _SIMPLE_TIMER
-  double t0 = omp_get_wtime();
-#endif
 
   pm->dev_free_host(rho);
   //pm->dev_free_host(vj);
@@ -144,38 +135,34 @@ Device::~Device()
   // d_tril_map.clear();
   
   //  pm->dev_free_host(tril_map);
-
-#ifdef _SIMPLE_TIMER
-  t_array_jk[11] += omp_get_wtime() - t0;
-#endif
   
 #ifdef _SIMPLE_TIMER
-  printf("LIBGPU::orbital_response\n");
   double total = 0.0;
-  for(int i=0; i<14; ++i) {
-    total += t_array[i];
-    printf("i= %i  t_array= %f s\n",i,t_array[i]);
-  }
-  printf("  total= %f s  count= %i\n",total,t_array_count);
-
-  printf("LIBGPU::get_jk\n");
-  total = 0.0;
-  for(int i=0; i<_NUM_TIMER_JK; ++i) {
-    total += t_array_jk[i];
-    printf("i= %i  t_array= %f s\n",i,t_array_jk[i]);
-  }
-  printf("  total= %f s  count= %i\n",total,t_array_jk_count);
+  for(int i=0; i<_NUM_SIMPLE_TIMER; ++i) total += t_array[i];
+  
+  printf("\nLIBGPU :: SIMPLE_TIMER\n");
+  printf("\nLIBGPU :: SIMPLE_TIMER :: get_jk\n");
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= init_get_jk()      time= %f s\n",0,t_array[0]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= pull_get_jk()      time= %f s\n",1,t_array[1]);
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= get_jk()           time= %f s\n",2,t_array[2]);
+    
+  printf("\nLIBGPU :: SIMPLE_TIMER :: hessop\n");
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= hessop_get_veff()  time= %f s\n",3,t_array[3]);
+  
+  printf("\nLIBGPU :: SIMPLE_TIMER :: orbital_response\n");
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= orbital_response() time= %f s\n",4,t_array[4]);
+  
+  printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
   
   free(t_array);
-  free(t_array_jk);
 #endif
 
   // print summary of cached eri blocks
 
   if(use_eri_cache) {
-    printf("LIBGPU::eri cache :: size= %i\n",eri_list.size());
+    printf("\nLIBGPU :: eri cache statistics :: count= %i\n",eri_list.size());
     for(int i=0; i<eri_list.size(); ++i)
-      printf("%i : eri= %p  Mbytes= %f  count= %i  update= %i device= %i\n", i, eri_list[i],
+      printf("LIBGPU :: %i : eri= %p  Mbytes= %f  count= %i  update= %i device= %i\n", i, eri_list[i],
 	     eri_size[i]*sizeof(double)/1024./1024., eri_count[i], eri_update[i], eri_device[i]);
     
     eri_count.clear();
@@ -391,7 +378,12 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 			      py::array_t<double> _ppaa, py::array_t<double> _papa, py::array_t<double> _eri_paaa,
 			      py::array_t<double> _ocm2, py::array_t<double> _tcm2, py::array_t<double> _gorb,
 			      int ncore, int nocc, int nmo)
-{  
+{
+  
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+    
   py::buffer_info info_ppaa = _ppaa.request(); // 4D array (26, 26, 2, 2)
   py::buffer_info info_papa = _papa.request(); // 4D array (26, 2, 26, 2)
   py::buffer_info info_paaa = _eri_paaa.request();
@@ -457,10 +449,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
     // printf("f1 += paaa{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
     // 	   nocc-ncore,info_ppaa.shape[2],info_ppaa.shape[3],
     // 	   info_ocm2.shape[0],info_ocm2.shape[1],info_ocm2.shape[2],ncore);
-
-#ifdef _SIMPLE_TIMER
-    double t0 = omp_get_wtime();
-#endif
     
     for(int i=0; i<ncore; ++i) {
       
@@ -476,10 +464,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[i] += val;
     }
-    
-#ifdef _SIMPLE_TIMER
-    double t1 = omp_get_wtime();
-#endif
     
     // tensordot(ra, cm, axes=((0,1,2), (3,0,1)))
     
@@ -502,10 +486,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1[ncore+i] += val;
     }
     
-#ifdef _SIMPLE_TIMER
-    double t2 = omp_get_wtime();
-#endif
-    
     // tensordot(ar, cm, axes=((0,1,2), (0,3,2)))
     
     // printf("f1 += ar{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
@@ -527,10 +507,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1[ncore+i] += val;
     }
     
-#ifdef _SIMPLE_TIMER
-    double t3 = omp_get_wtime();
-#endif
-    
     // tensordot(ar, cm, axes=((0,1,2), (1,3,2)))
     
     // printf("f1 += ar{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
@@ -551,10 +527,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[ncore+i] += val;
     }
-    
-#ifdef _SIMPLE_TIMER
-    double t4 = omp_get_wtime();
-#endif
     
     // ====================================================================
     // iteration (nocc, nmo)
@@ -587,10 +559,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1[i] += val;
     }
     
-#ifdef _SIMPLE_TIMER
-    double t5 = omp_get_wtime();
-#endif
-    
     // tensordot(ra, cm, axes=((0,1,2), (3,0,1)))
     
     // printf("f1 += ra{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
@@ -611,10 +579,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[ncore+i] += val;
     }
-    
-#ifdef _SIMPLE_TIMER
-    double t6 = omp_get_wtime();
-#endif
     
     // tensordot(ar, cm, axes=((0,1,2), (0,3,2)))
     
@@ -637,10 +601,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1[ncore+i] += val;
     }
     
-#ifdef _SIMPLE_TIMER
-    double t7 = omp_get_wtime();
-#endif
-    
     // tensordot(ar, cm, axes=((0,1,2), (1,3,2)))
     
     // printf("f1 += ar{%i, %i, %i} X cm{%i, %i, %i, %i}\n",
@@ -661,18 +621,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1[ncore+i] += val;
     }
-#ifdef _SIMPLE_TIMER
-    double t8 = omp_get_wtime();
-    
-    t_array[0] += t1  - t0;
-    t_array[1] += t2  - t1;
-    t_array[2] += t3  - t2;
-    t_array[3] += t4  - t3;
-    t_array[4] += t5  - t4;
-    t_array[5] += t6  - t5;
-    t_array[6] += t7  - t6;
-    t_array[7] += t8  - t7;
-#endif
   } // for(p<nmo)
 
   // # (H.x_aa)_va, (H.x_aa)_ac
@@ -687,10 +635,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   
   // ocm2 = ocm2[:,:,:,ncore:nocc] + ocm2[:,:,:,ncore:nocc].transpose (1,0,3,2)
 
-#ifdef _SIMPLE_TIMER
-  double t8 = omp_get_wtime();
-#endif
-  
   int indx = 0;
   double * _ocm2_tmp = ecm2;
   for(int i=0; i<info_ocm2.shape[0]; ++i)
@@ -702,10 +646,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 	    int indx2 = j * ocm2_size_3d + i * ocm2_size_2d + l * info_ocm2.shape[3] + (ncore+k);
 	    _ocm2_tmp[indx++] = ocm2[indx1] + ocm2[indx2];
 	  }
-  
-#ifdef _SIMPLE_TIMER
-  double t9 = omp_get_wtime();
-#endif
   
   // ocm2 += ocm2.transpose (2,3,0,1)
 
@@ -722,18 +662,10 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
 	    _ocm2t[indx] = _ocm2_tmp[indx1] + _ocm2_tmp[indx2];
 	    indx++;
 	  }
-  
-#ifdef _SIMPLE_TIMER
-  double t10 = omp_get_wtime();
-#endif
     
   // ecm2 = ocm2 + tcm2
   
   for(int i=0; i<size_ecm; ++i) ecm2[i] = _ocm2t[i] + tcm2[i];
-
-#ifdef _SIMPLE_TIMER
-  double t11 = omp_get_wtime();
-#endif
   
   // f1_prime[:ncore,ncore:nocc] += np.tensordot (self.eri_paaa[:ncore], ecm2, axes=((1,2,3),(1,2,3)))
   
@@ -756,10 +688,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       
       f1_prime[i*nmo+ncore+j] += val;
     }
-
-#ifdef _SIMPLE_TIMER
-  double t12 = omp_get_wtime();
-#endif
     
   // f1_prime[nocc:,ncore:nocc] += np.tensordot (self.eri_paaa[nocc:], ecm2, axes=((1,2,3),(1,2,3)))
 
@@ -779,10 +707,6 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
       f1_prime[i*nmo+ncore+j] += val;
     }
   
-#ifdef _SIMPLE_TIMER
-  double t13 = omp_get_wtime();
-#endif
-    
   // return gorb + (f1_prime - f1_prime.T)
 
   double * g_f1_prime = (double *) pm->dev_malloc_host(nmo*nmo*sizeof(double));
@@ -802,16 +726,8 @@ void Device::orbital_response(py::array_t<double> _f1_prime,
   for(int i=0; i<nmo*nmo; ++i) res[i] = g_f1_prime[i];
 
 #ifdef _SIMPLE_TIMER
-  double t14 = omp_get_wtime();
-
-  t_array[8]  += t9  - t8;
-  t_array[9]  += t10 - t9;
-  t_array[10] += t11 - t10;
-  t_array[11] += t12 - t11;
-  t_array[12] += t13 - t12;
-  t_array[13] += t14 - t13;
-
-  t_array_count++;
+  double t1 = omp_get_wtime();
+  t_array[4]  += t1  - t0;
 #endif
   
 #if 0

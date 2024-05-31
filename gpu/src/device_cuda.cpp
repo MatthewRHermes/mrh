@@ -106,10 +106,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     if(dd->d_eri1) pm->dev_free(dd->d_eri1);
     dd->d_eri1 = (double *) pm->dev_malloc(_size_eri1 * sizeof(double));
   }
-
-#ifdef _SIMPLE_TIMER
-  double t1 = omp_get_wtime();
-#endif
   
   int _size_tril_map = nao * nao;
 
@@ -151,13 +147,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     if(buf_vk) pm->dev_free_host(buf_vk);
     buf_vk = (double *) pm->dev_malloc_host(_size_buf_vk*sizeof(double));
   }
-  
-#ifdef _SIMPLE_TIMER
-  double t2 = omp_get_wtime();
-  t_array_jk[0] += t2 - t0;
-
-  t_array_jk[12] += t2 - t1;
-#endif
 
   // 1-time initialization
   
@@ -169,7 +158,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
   if(dd->handle == nullptr) {
     profile_start("Create handle");
-
+    
 #ifdef _DEBUG_DEVICE
     printf(" -- calling cublasCreate(&handle)\n");
 #endif
@@ -180,14 +169,14 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 #endif
     cublasSetStream(dd->handle, dd->stream);
     _CUDA_CHECK_ERRORS();
-
-    profile_stop();
     
-#ifdef _SIMPLE_TIMER
-  double t2 = omp_get_wtime();
-  t_array_jk[1] += t2 - t1;
-#endif
+    profile_stop();
   }
+  
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[0] += t1 - t0;
+#endif
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::init_get_jk()\n");
@@ -202,6 +191,10 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int w
   printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
 #endif
 
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+    
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   
   double * vj = static_cast<double*>(info_vj.ptr);
@@ -273,6 +266,11 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int w
 
   }
   
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[1] += t1 - t0;
+#endif
+    
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Leaving Device::pull_get_jk()\n");
 #endif
@@ -649,11 +647,6 @@ void Device::get_jk(int naux,
 
   profile_stop();
 
-#ifdef _SIMPLE_TIMER
-  double t1 = omp_get_wtime();
-  t_array_jk[2] += t1 - t0;
-#endif
-
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Starting with_j calculation\n");
 #endif
@@ -688,25 +681,23 @@ void Device::get_jk(int naux,
     }
 
     profile_stop();
-    
-#ifdef _SIMPLE_TIMER
-    double t2 = omp_get_wtime();
-    t_array_jk[3] += t2 - t1;
-#endif
   }
 
   if(!with_k) {
+    
+#ifdef _SIMPLE_TIMER
+    double t1 = omp_get_wtime();
+    t_array[2] += t1 - t0;
+#endif
+    
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU ::  -- Leaving Device::get_jk()\n");
 #endif
+    
     return;
   }
   
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
-  
-#ifdef _SIMPLE_TIMER
-  double t2 = omp_get_wtime();
-#endif
     
   profile_start("GetJK::TRIL_MAP");
     
@@ -725,11 +716,6 @@ void Device::get_jk(int naux,
   }
 
   profile_stop();
-  
-#ifdef _SIMPLE_TIMER
-  double t3 = omp_get_wtime();
-  t_array_jk[4] += t3 - t2;
-#endif
 
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- finished\n");
@@ -764,11 +750,6 @@ void Device::get_jk(int naux,
     }
 
     profile_next("GetJK::Batched DGEMM");
-
-#ifdef _SIMPLE_TIMER
-    double t5 = omp_get_wtime();
-    t_array_jk[5] += t5 - t4;
-#endif
     
     {
       const double alpha = 1.0;
@@ -791,11 +772,6 @@ void Device::get_jk(int naux,
     // buf4 = buf2.reshape(-1,nao)
 
     profile_next("GetJK::Transpose");
-
-#ifdef _SIMPLE_TIMER
-    double t6 = omp_get_wtime();
-    t_array_jk[6] += t6 - t5;
-#endif
     
     {
 #ifdef _DEBUG_DEVICE
@@ -837,11 +813,6 @@ void Device::get_jk(int naux,
     const int vk_offset = indxK * nao*nao;
 
     profile_next("DGEMM");
-    
-#ifdef _SIMPLE_TIMER
-    double t7 = omp_get_wtime();
-    t_array_jk[7] += t7 - t6;
-#endif
 
 #ifdef _DEBUG_DEVICE
     printf("LIBGPU ::  -- calling cublasDgemm()\n");
@@ -849,22 +820,15 @@ void Device::get_jk(int naux,
     cublasDgemm(dd->handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, dd->d_buf2, ldb, dd->d_buf3, lda, &beta, (dd->d_vkk)+vk_offset, ldc);
 
     profile_next("SYNC");
-    
-#ifdef _SIMPLE_TIMER
-    double t8 = omp_get_wtime();
-    t_array_jk[8] += t8 - t7;
-#endif
 
     profile_stop();
-   
-#ifdef _SIMPLE_TIMER
-    double t9 = omp_get_wtime();
-    t_array_jk[9] += t9 - t8;
-    t_array_jk[10] += t9 - t0;
-    t_array_jk_count++;
-#endif 
   }
   
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[2] += t1 - t0;
+#endif
+    
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- finished\n");
   printf("LIBGPU :: -- Leaving Device::get_jk()\n");
@@ -1044,6 +1008,10 @@ void Device::hessop_push_bPpj(py::array_t<double> _bPpj)
 void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 		    py::array_t<double> _bPpj, py::array_t<double> _vPpj, py::array_t<double> _vk_bj)
 {
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+  
   py::buffer_info info_vPpj = _vPpj.request(); // 3D array (naux, nmo, nocc) : read-only 
   py::buffer_info info_vk_bj = _vk_bj.request(); // 2D array (nmo-ncore, nocc) : accumulate
   
@@ -1268,6 +1236,11 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf_vPpj, &lda, buf_bPpj, &ldb, &beta, vk_bj, &ldc);
   }
+#endif
+  
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[3] += t1 - t0;
 #endif
   
 }
