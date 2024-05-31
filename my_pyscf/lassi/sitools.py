@@ -224,9 +224,9 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
 
     def log_qn_spread (qn_table, weights):
         qns = np.unique (qn_table)
-        fmt_str = '{:4d} ' + ' '.join (['{:10.3e}',]*nfrags)
+        fmt_str = '{:4d} ' + ' '.join (['{:10.3e}',]*las.nfrags)
         for qn in qns:
-            row = [np.sum (weights[qn_table[:,ifrag]==qn]) for ifrag in range (nfrags)]
+            row = [np.sum (weights[qn_table[:,ifrag]==qn]) for ifrag in range (las.nfrags)]
             log.info (fmt_str.format (qn, *row))
 
     c, m, s, w = get_space_info (las)
