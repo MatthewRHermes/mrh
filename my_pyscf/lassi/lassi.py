@@ -586,8 +586,10 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
-    if soc is None: soc = si.soc
-    if break_symmetry is None: break_symmetry = si.break_symmetry
+    if soc is None:
+        soc = getattr (si, 'soc', getattr (las, 'soc', False))
+    if break_symmetry is None:
+        break_symmetry = getattr (si, 'break_symmetry', getattr (las, 'break_symmetry', False))
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
@@ -685,8 +687,10 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
     '''
     states = np.atleast_1d (state)
     si_column = si[:,states]
-    if soc is None: soc = si.soc
-    if break_symmetry is None: break_symmetry = si.break_symmetry
+    if soc is None:
+        soc = getattr (si, 'soc', getattr (las, 'soc', False))
+    if break_symmetry is None:
+        break_symmetry = getattr (si, 'break_symmetry', getattr (las, 'break_symmetry', False))
     if rootsym is None:
         rootsym = getattr (si, 'rootsym', getattr (las, 'rootsym', None))
     rootsym = [rootsym[s] for s in states]
@@ -801,7 +805,7 @@ class LASSI(lib.StreamObject):
 
     def analyze (self, state=0, **kwargs):
         from mrh.my_pyscf.lassi.sitools import analyze
-        analyze (self, self.si, state=state, **kwargs)
+        return analyze (self, self.si, state=state, **kwargs)
 
     def reset (self, mol=None):
         if mol is not None:

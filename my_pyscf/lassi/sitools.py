@@ -222,13 +222,25 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         log.info ("Nelecb = %s", str (nb))
         log.info ("Smult = %s", str (s))
 
+    def log_qn_spread (qn_table, weights):
+        qns = np.unique (qn_table)
+        fmt_str = '{:4d} ' + ' '.join (['{:10.3e}',]*nfrags)
+        for qn in qns:
+            row = [np.sum (weights[qn_table[:,ifrag]==qn]) for ifrag in range (nfrags)]
+            log.info (fmt_str.format (qn, *row))
+
+    c, m, s, w = get_space_info (las)
+    avg_weights = space_weights[:,states].sum (1) / nstates
+    log.info ("Spread of charges:")
+    log_qn_spread (c, avg_weights)
+    log.info ("Spread of spin multiplicities:")
+    log_qn_spread (s, avg_weights)
+
     log.info (("Analyzing rootspace fragment density matrices for LASSI "
                "states %s averaged together"), str (states))
     log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
-    avg_weights = space_weights[:,states].sum (1) / nstates
     lroots = get_lroots (ci0).T
     running_weight = 1
-    c, m, s, w = get_space_info (las)
     fmt_str = " {:4s}  {:>7s}  {:>4s}  {:>3s}  {:>6s}  {:11s}  {:>8s}"
     header = fmt_str.format ("Frag", "Nelec", "2S+1", "Ir", "<n>", "Max(weight)", "Entropy")
     fmt_str = " {:4d}  {:>7s}  {:>4d}  {:>3s}  {:6.3f}  {:>11.4f}  {:8f}"
