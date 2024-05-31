@@ -205,6 +205,8 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
 
     log.info ("Analyzing LASSI vectors for states = %s",str(state))
+    for st in states:
+        print_wfn_leading (las, state=st, ci=ci0, si=si) 
 
     log.info ("Average quantum numbers:")
     space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
@@ -294,6 +296,25 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         return ci1, si1, space_weights, navg, maxw, entr
     else:
         return ci1, si1
+
+def print_wfn_leading (lsi, state=0, ci=None, si=None, ncoeffs=20):
+    if si is None: si = lsi.si
+    if ci is None: ci = lsi.ci
+    si = si[:,state]
+    log = lib.logger.new_logger (lsi, lsi.verbose)
+    rootaddr, envaddr = get_rootaddr_fragaddr (get_lroots (ci))
+    idx = np.argsort (-si*si)
+    idx = idx[:ncoeffs]
+    si, rootaddr, envaddr = si[idx], rootaddr[idx], envaddr[:,idx].T
+    log.info ("Printing leading %d SI addresses and coeffs of state %d (wgt = %9.3e)",
+              ncoeffs, state, np.dot (si, si))
+    if np.amax (envaddr) < 10:
+        env_fmt = ''.join (['{:1d}',]*lsi.nfrags)
+    else: 
+        env_fmt = '.'.join (['{:1d}',]*lsi.nfrags)
+    envaddr = [env_fmt.format (*env) for env in envaddr]
+    for coeff, root, env in zip (si, rootaddr, envaddr):
+        log.info ("%5d|%s : %10.3e", root, env, coeff)
 
 def analyze_basis (las, ci=None, space=0, frag=0, npr=10):
     '''Print out the many-electron wave function(s) in terms of CSFs for a specific
