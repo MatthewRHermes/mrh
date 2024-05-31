@@ -799,7 +799,7 @@ class LASSI(lib.StreamObject):
         nelec_frs = self.get_nelec_frs ()
         return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
 
-    def analyze (self, state=None, **kwargs):
+    def analyze (self, state=0, **kwargs):
         from mrh.my_pyscf.lassi.sitools import analyze
         analyze (self, self.si, state=state, **kwargs)
 

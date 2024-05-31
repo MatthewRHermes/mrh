@@ -1003,6 +1003,8 @@ class LSTDMint2 (object):
                 Overlap * permutation factors (cf. get_ovlp_fac) corresponding to the interactions
                 bra_rng, ket_rng.
         '''
+        # NOTE: from tests on triene 3frag LASSI[3,3], this function is 1/4 to 1/6 of the "put"
+        # runtime, and apparently it can sometimes multithread somehow???
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         braenv = self.envaddr[bra]
         ketenv = self.envaddr[ket]
