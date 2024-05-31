@@ -191,7 +191,7 @@ private:
     std::vector<int> size_tril_map;
     std::vector<int *> tril_map;
     std::vector<int *> d_tril_map;
-    int * d_tril_map_ptr;
+    int * d_tril_map_ptr; // no explicit allocation
     
     cublasHandle_t handle;
     cudaStream_t stream;

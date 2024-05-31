@@ -211,14 +211,14 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int w
     if(i == 0) tmp = vj;
     else tmp = &(buf_vj[i * nset * nao_pair]);
     
-    pm->dev_pull_async(dd->d_vj, tmp, size, dd->stream);
+    if(dd->d_vj) pm->dev_pull_async(dd->d_vj, tmp, size, dd->stream);
   }
   
   for(int i=0; i<num_devices; ++i) {
     my_device_data * dd = &(device_data[i]);
     pm->dev_stream_wait(dd->stream);
 
-    if(i > 0) {
+    if(i > 0 && dd->d_vj) {
       
       tmp = &(buf_vj[i * nset * nao_pair]);
 #pragma omp parallel for
@@ -249,14 +249,14 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int w
     if(i == 0) tmp = vk;
     else tmp = &(buf_vk[i * nset * nao * nao]);
 
-    pm->dev_pull_async(dd->d_vkk, tmp, size, dd->stream);
+    if(dd->d_vkk) pm->dev_pull_async(dd->d_vkk, tmp, size, dd->stream);
   }
 
   for(int i=0; i<num_devices; ++i) {
     my_device_data * dd = &(device_data[i]);
     pm->dev_stream_wait(dd->stream);
 
-    if(i > 0) {
+    if(i > 0 && dd->d_vkk) {
       
       tmp = &(buf_vk[i * nset * nao * nao]);
 #pragma omp parallel for

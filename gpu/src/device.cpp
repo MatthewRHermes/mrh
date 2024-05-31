@@ -125,16 +125,6 @@ Device::~Device()
   pm->dev_free_host(buf_vk);
   
   pm->dev_free_host(buf_fdrv);
-
-  // for(int i=0; i<size_tril_map.size(); ++i) {
-  //   pm->dev_free_host(tril_map[i]);
-  //   pm->dev_free(d_tril_map[i]);
-  // }
-  // size_tril_map.clear();
-  // tril_map.clear();
-  // d_tril_map.clear();
-  
-  //  pm->dev_free_host(tril_map);
   
 #ifdef _SIMPLE_TIMER
   double total = 0.0;
@@ -177,37 +167,41 @@ Device::~Device()
 #if defined(_USE_GPU)
   profile_start("Deallocate");
 
-  //  for(int i=0; i<num_devices; ++i) // free gpu objects
+  for(int i=0; i<num_devices; ++i) {
   
-  // pm->dev_free(d_rho);
-  // pm->dev_free(d_vj);
-  // pm->dev_free(d_buf1);
-  // pm->dev_free(d_buf2);
-  // pm->dev_free(d_buf3);
-  // pm->dev_free(d_vkk);
-  // pm->dev_free(d_dms);
-  // pm->dev_free(d_dmtril);
-  // pm->dev_free(d_eri1);
-  // pm->dev_free(d_tril_map);
-
+    pm->dev_set_device(i);
+    my_device_data * dd = &(device_data[i]);
+    
+    pm->dev_free(dd->d_rho);
+    pm->dev_free(dd->d_vj);
+    pm->dev_free(dd->d_buf1);
+    pm->dev_free(dd->d_buf2);
+    pm->dev_free(dd->d_buf3);
+    pm->dev_free(dd->d_vkk);
+    pm->dev_free(dd->d_dms);
+    pm->dev_free(dd->d_dmtril);
+    pm->dev_free(dd->d_eri1);
+    
+    for(int i=0; i<dd->size_tril_map.size(); ++i) {
+      pm->dev_free_host(dd->tril_map[i]);
+      pm->dev_free(dd->d_tril_map[i]);
+    }
+    dd->size_tril_map.clear();
+    dd->tril_map.clear();
+    dd->d_tril_map.clear();
+    
+    if(dd->handle) cublasDestroy(dd->handle);
+    
+    if(dd->stream) pm->dev_stream_destroy(dd->stream);
+  }
+  
   pm->dev_free(d_bPpj);
   pm->dev_free(d_vPpj);
   pm->dev_free(d_vk_bj);
 
-  profile_next("Destroy Handle");
-
-  for(int i=0; i<num_devices; ++i) {
-    my_device_data * dd = &(device_data[i]);
-    cublasDestroy(dd->handle);
-  }
-
   profile_stop();
 
-  printf("need to destroy stream correctly...\n");
-  //pm->dev_stream_destroy(stream);
-  //for(int i=0; i<num_devices; ++i) pm->dev_stream_destroy(stream_[i]);
-  printf(" -- finished\n");
-
+  printf("LIBGPU :: Finished\n");
 #endif
 
   delete pm;

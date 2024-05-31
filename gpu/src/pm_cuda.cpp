@@ -60,7 +60,7 @@ void PM::dev_properties(int ndev)
     char name[256];
     strcpy(name, prop.name);
 
-    printf("  [%i] Platform[ Nvidia ] Type[ GPU ] Device[ %s ]  uuid= ", i, name);
+    printf("LIBGPU ::  [%i] Platform[ Nvidia ] Type[ GPU ] Device[ %s ]  uuid= ", i, name);
     uuid_print(prop.uuid);
     printf("\n");
   }
@@ -112,7 +112,7 @@ void PM::dev_set_device(int id)
   _CUDA_CHECK_ERRORS();
 
 #ifdef _DEBUG_PM
-  printf(" -- Leaving PM::dev_num_devices()\n");
+  printf(" -- Leaving PM::dev_set_devices()\n");
 #endif
 }
 
@@ -173,7 +173,7 @@ void PM::dev_free(void * ptr)
   printf("Inside PM::dev_free()\n");
 #endif
   
-  cudaFree(ptr);
+  if(ptr) cudaFree(ptr);
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
@@ -187,7 +187,7 @@ void PM::dev_free_host(void * ptr)
   printf("Inside PM::dev_free_host()\n");
 #endif
   
-  cudaFreeHost(ptr);
+  if(ptr) cudaFreeHost(ptr);
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
