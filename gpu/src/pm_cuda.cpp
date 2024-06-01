@@ -284,6 +284,20 @@ void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
 #endif
 }
 
+void PM::dev_barrier()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_barrier()\n");
+#endif
+  
+  cudaDeviceSynchronize();
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_barrier()\n");
+#endif
+}
+
 void PM::dev_stream_create(cudaStream_t & s)
 {
 #ifdef _DEBUG_PM
