@@ -165,8 +165,6 @@ Device::~Device()
   }
   
 #if defined(_USE_GPU)
-  profile_start("Deallocate");
-
   for(int i=0; i<num_devices; ++i) {
   
     pm->dev_set_device(i);
@@ -198,8 +196,6 @@ Device::~Device()
   pm->dev_free(d_bPpj);
   pm->dev_free(d_vPpj);
   pm->dev_free(d_vk_bj);
-
-  profile_stop();
 
   printf("LIBGPU :: Finished\n");
 #endif
