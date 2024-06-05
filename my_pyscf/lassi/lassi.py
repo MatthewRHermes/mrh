@@ -763,6 +763,11 @@ class LASSI(lib.StreamObject):
         from mrh.my_pyscf.mcscf.lasci import get_nelec_frs
         return get_nelec_frs (las)
 
+    def get_smult_fr (self, las=None):
+        if las is None: las = self
+        from mrh.my_pyscf.mcscf.lasci import get_space_info
+        return get_space_info (las)[2].T
+
     def get_lroots (self, ci=None):
         if ci is None: ci = self.ci
         return get_lroots (ci)
