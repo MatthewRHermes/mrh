@@ -1545,18 +1545,18 @@ class LRRDMint (LSTDMint2):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
                            mask_ket_space=mask_ket_space, log=log, dtype=dtype)
         self.nroots_si = si.shape[-1]
-        si = si.copy ()
-        self._umat_linequiv_loop_(si)
-        self.si_dm = np.stack ([np.dot (si[:,i:i+1],si[:,i:i+1].conj ().T)
-            for i in range (self.nroots_si)], axis=-1)
+        self.si = si.copy ()
+        self._umat_linequiv_loop_(self.si)
 
     def _put_SD1_(self, bra, ket, D1, wgt):
-        fac = np.dot (wgt, self.si_dm[bra,ket])
+        si_dm = self.si[bra,:] * self.si[ket,:].conj ()
+        fac = np.dot (wgt, si_dm)
         self.rdm1s[:] += np.multiply.outer (fac, D1)
 
     def _put_SD2_(self, bra, ket, D2, wgt):
-        wgt = np.dot (wgt, self.si_dm[bra,ket])
-        self.rdm2s[:] += np.multiply.outer (wgt, D2)
+        si_dm = self.si[bra,:] * self.si[ket,:].conj ()
+        fac = np.dot (wgt, si_dm)
+        self.rdm2s[:] += np.multiply.outer (fac, D2)
 
     def _add_transpose_(self):
         self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
