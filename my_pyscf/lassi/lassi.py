@@ -3,6 +3,7 @@ import time
 from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi import chkfile
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm, ao2mo
 from pyscf.scf.addons import canonical_orth_
@@ -718,6 +719,7 @@ class LASSI(lib.StreamObject):
         self.ncore, self.ncas = las.ncore, las.ncas
         self.nfrags, self.nroots = las.nfrags, las.nroots
         self.ncas_sub, self.nelecas_sub, self.fciboxes = las.ncas_sub, las.nelecas_sub, las.fciboxes
+        self.nelecas = sum (self.nelecas_sub)
         self.weights, self.e_states, self.e_lexc = las.weights, las.e_states, las.e_lexc
         self.converged = las.converged
         # I/O data from las parent
@@ -816,4 +818,7 @@ class LASSI(lib.StreamObject):
         if mol is not None:
             self.mol = mol
         self._las.reset (mol)
+
+    dump_chk = chkfile.dump_lsi
+    load_chk = load_chk_ = chkfile.load_lsi_
 
