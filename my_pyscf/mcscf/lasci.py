@@ -1,17 +1,18 @@
 from pyscf.scf.rohf import get_roothaan_fock
+from pyscf import fci
 from pyscf.fci import cistring
 from pyscf.mcscf import casci, casci_symm, df
 from pyscf.tools import dump_mat
 from pyscf import symm, gto, scf, ao2mo, lib
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix, get_h1e_zipped_fcisolver, las2cas_civec
-from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess
+from mrh.my_pyscf.mcscf import lasci_sync, _DFLASCI, lasscf_guess, las_ao2mo
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.mcscf import chkfile
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver, state_average_fcisolver
 from mrh.util.la import matrix_svd_control_options
-from itertools import combinations
+from itertools import combinations, permutations, product
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg
 import numpy as np
@@ -487,18 +488,19 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
 
     return mo_coeff, mo_ene, mo_occ, ci, h2eff_sub
 
-def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None):
+def get_init_guess_ci (las, mo_coeff=None, h2eff_sub=None, ci0=None, eri_cas=None):
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci0 is None: ci0 = [[None for i in range (las.nroots)] for j in range (las.nfrags)]
-    if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
     nmo = mo_coeff.shape[-1]
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
+    if eri_cas is None:
+        if h2eff_sub is None: h2eff_sub = las.get_h2eff (mo_coeff)
+        eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2))
+        eri_cas = eri_cas.reshape (nmo, ncas, ncas, ncas)
+        eri_cas = eri_cas[ncore:nocc]
     dm1_core= 2 * mo_coeff[:,:ncore] @ mo_coeff[:,:ncore].conj ().T
     h1e_ao = las._scf.get_fock (dm=dm1_core)
-    eri_cas = lib.numpy_helper.unpack_tril (h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2))
-    eri_cas = eri_cas.reshape (nmo, ncas, ncas, ncas)
-    eri_cas = eri_cas[ncore:nocc]
     for ix, (fcibox, norb, nelecas) in enumerate (zip (las.fciboxes,las.ncas_sub,las.nelecas_sub)):
         i = sum (las.ncas_sub[:ix])
         j = i + norb
@@ -814,13 +816,10 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
 
     h1eff, energy_core = las.h1e_for_cas (mo_coeff=mo_coeff,
         ncas=las.ncas, ncore=las.ncore)
-    h2eff = las.get_h2eff (mo_coeff) 
+    eri_cas = las.get_h2cas (mo_coeff) 
     if (ci0 is None or any ([c is None for c in ci0]) or
             any ([any ([c2 is None for c2 in c1]) for c1 in ci0])):
-        ci0 = las.get_init_guess_ci (mo_coeff, h2eff, ci0)
-    eri_cas = lib.numpy_helper.unpack_tril (
-            h2eff.reshape (nmo*ncas, ncas*(ncas+1)//2)).reshape (nmo, ncas,
-            ncas, ncas)[ncore:nocc]
+        ci0 = las.get_init_guess_ci (mo_coeff, ci0=ci0, eri_cas=eri_cas)
 
     e_cas = np.empty (las.nroots)
     e_states = np.empty (las.nroots)
@@ -864,6 +863,22 @@ def run_lasci (las, mo_coeff=None, ci0=None, lroots=None, lweights=None, verbose
 
     e_tot = np.dot (las.weights, e_states)
     return converged, e_tot, e_states, e_cas, e_lexc, ci1
+
+
+def get_nelec_frs (las):
+    ''' Getter function for all electron occupancies in all fragments in all rootspaces.
+
+    Returns:
+        nelec_frs: ndarray of shape (nfrags, nroots, 2)
+            number of electrons of each spin in each rootspace in each fragment
+    '''
+    nelec_frs = []
+    for fcibox, nelec in zip (las.fciboxes, las.nelecas_sub):
+        nelec_rs = []
+        for solver in fcibox.fcisolvers:
+            nelec_rs.append (_unpack_nelec (fcibox._get_nelec (solver, nelec)))
+        nelec_frs.append (nelec_rs)
+    return np.asarray (nelec_frs)
 
 class LASCINoSymm (casci.CASCI):
 
@@ -929,52 +944,11 @@ class LASCINoSymm (casci.CASCI):
         mo = mo[:,:self.ncas_sub[idx]]
         return mo
 
-    def ao2mo (self, mo_coeff=None):
-        if mo_coeff is None: mo_coeff = self.mo_coeff
-        nao, nmo = mo_coeff.shape
-        ncore, ncas = self.ncore, self.ncas
-        nocc = ncore + ncas
-        mo_cas = mo_coeff[:,ncore:nocc]
-        mo = [mo_coeff, mo_cas, mo_cas, mo_cas]
-        if getattr (self, 'with_df', None) is not None:
-            # Store intermediate with one contracted ao index for faster calculation of exchange!
-            bPmn = sparsedf_array (self.with_df._cderi)
-            bmuP = bPmn.contract1 (mo_cas)
-            buvP = np.tensordot (mo_cas.conjugate (), bmuP, axes=((0),(0)))
-            eri_muxy = np.tensordot (bmuP, buvP, axes=((2),(2)))
-            eri = np.tensordot (mo_coeff.conjugate (), eri_muxy, axes=((0),(0)))
-            eri = lib.pack_tril (eri.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
-            eri = lib.tag_array (eri, bmPu=bmuP.transpose (0,2,1))
-            if self.verbose > lib.logger.DEBUG:
-                eri_comp = self.with_df.ao2mo (mo, compact=True)
-                lib.logger.debug(self,"CDERI two-step error: {}".format(linalg.norm(eri-eri_comp)))
-        elif getattr (self._scf, '_eri', None) is not None:
-            eri = ao2mo.incore.general (self._scf._eri, mo, compact=True)
-        else:
-            eri = ao2mo.outcore.general_iofree (self.mol, mo, compact=True)
-        if eri.shape != (nmo,ncas*ncas*(ncas+1)//2):
-            try:
-                eri = eri.reshape (nmo, ncas*ncas*(ncas+1)//2)
-            except ValueError as e:
-                assert (nmo == ncas), str (e)
-                eri = ao2mo.restore ('2kl', eri, nmo).reshape (nmo, ncas*ncas*(ncas+1)//2)
-        return eri
-
-    def get_h2eff_slice (self, h2eff, idx, compact=None):
-        ncas_cum = np.cumsum ([0] + self.ncas_sub.tolist ())
-        i = ncas_cum[idx] 
-        j = ncas_cum[idx+1]
-        ncore = self.ncore
-        nocc = ncore + self.ncas
-        eri = h2eff[ncore:nocc,:].reshape (self.ncas*self.ncas, -1)
-        ix_i, ix_j = np.tril_indices (self.ncas)
-        eri = eri[(ix_i*self.ncas)+ix_j,:]
-        eri = ao2mo.restore (1, eri, self.ncas)[i:j,i:j,i:j,i:j]
-        if compact: eri = ao2mo.restore (compact, eri, j-i)
-        return eri
-
+    get_nelec_frs = get_nelec_frs
     get_h1eff = get_h1las = h1e_for_las = h1e_for_las
-    get_h2eff = ao2mo
+    get_h2eff = ao2mo = las_ao2mo.get_h2eff
+    get_h2cas = las_ao2mo.get_h2cas
+    get_h2eff_slice = las_ao2mo.get_h2eff_slice
     '''
     def get_h2eff (self, mo_coeff=None):
         if mo_coeff is None: mo_coeff = self.mo_coeff
@@ -1080,7 +1054,7 @@ class LASCINoSymm (casci.CASCI):
         for fcibox, ci_i, ncas, nelecas in zip (self.fciboxes, ci, ncas_sub, nelecas_sub):
             if ci_i is None:
                 dm1a = dm1b = np.zeros ((ncas, ncas))
-            else: 
+            else:
                 dm1a, dm1b = fcibox.states_make_rdm1s (ci_i, ncas, nelecas)
             casdm1s.append (np.stack ([dm1a, dm1b], axis=1))
         return casdm1s
@@ -1183,6 +1157,52 @@ class LASCINoSymm (casci.CASCI):
             nelecas_sub=nelecas_sub, **kwargs)
         return [np.einsum ('rijkl,r->ijkl', dm2, box.weights)
                 for dm2, box in zip (casdm2fr, self.fciboxes)]
+
+
+    def make_casdm2s_sub(self, ci=None, ncas_sub=None, nelecas_sub=None,
+            casdm2frs=None, w=None, **kwargs):
+        if casdm2frs is None: casdm2frs = self.states_make_casdm2s_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, **kwargs)
+        if w is None: w = self.weights
+        return [np.einsum ('rsijkl,r->sijkl', dm2, w) for dm2 in casdm2frs]
+
+    def states_make_casdm2s_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
+        '''Spin-separated 2-RDMs in the MO basis for each subspace in sequence'''
+        if ci is None: ci = self.ci
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
+        if ci is None:
+            return [np.zeros ((self.nroots,2,ncas,ncas,ncas,ncas)) for ncas in ncas_sub]
+        casdm2s = []
+        for fcibox, ci_i, ncas, nelecas in zip (self.fciboxes, ci, ncas_sub, nelecas_sub):
+            if ci_i is None:
+                dm2aa = dm2ab, dm2bb = np.zeros ((ncas, ncas,ncas,ncas))
+            else:
+                dm2aa, dm2ab, dm2bb = fcibox.states_make_rdm12s (ci_i, ncas, nelecas)[-1]
+            casdm2s.append (np.stack ([dm2aa, dm2ab, dm2bb], axis=1))
+        return casdm2s
+    
+    #def make_casdm3_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, casdm3fr=None, **kwargs):
+    #    if casdm3fr is None: casdm3fr = self.states_make_casdm3_sub (ci=ci, ncas_sub=ncas_sub,
+    #        nelecas_sub=nelecas_sub, **kwargs)
+    #    for dm3, box in zip(casdm3fr, self.fciboxes):
+    #        casdm3_sub = np.einsum('rijklmn,r->ijklmn', dm3, box.weights)
+    #    return casdm3_sub
+
+
+    def states_make_casdm3_sub (self, ci=None, ncas_sub=None, nelecas_sub=None, **kwargs):
+        ''' Spin-separated 3-RDMs in the MO basis for each subspace in sequence, currently this
+        does not have weights so it's not really a STATES '''
+        if ci is None: ci = self.ci
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
+        casdm3 = []
+        for ci_i, ncas, nel in zip (ci, ncas_sub, nelecas_sub):
+            dm1_not_no, dm2_not_no, dm3_not_no = fci.rdm.make_dm123 (
+                'FCI3pdm_kern_sf',ci_i,ci_i, ncas, nel) # not normal ordered
+            dm3_no = fci.rdm.reorder_dm123(dm1_not_no, dm2_not_no, dm3_not_no)[-1]
+            casdm3.append (dm3_no)
+        return casdm3
 
     def states_make_rdm1s (self, mo_coeff=None, ci=None, ncas_sub=None,
             nelecas_sub=None, casdm1rs=None, casdm1frs=None, **kwargs):
@@ -1497,7 +1517,55 @@ class LASCINoSymm (casci.CASCI):
                                            +np.multiply.outer (dmb1, dmb2)).transpose (0,3,2,1)
             casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
         return casdm2 
-    
+     
+    def make_casdm2s (self, ci=None, ncas_sub=None, nelecas_sub=None,
+            casdm2rs=None, casdm2fs=None, casdm1frs=None, casdm2frs=None,
+            **kwargs):
+
+        if casdm2rs is not None:
+            return np.einsum ('rsijkl,r->sijkl', casdm2rs, self.weights)
+        if ci is None: ci = self.ci
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
+        if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        if casdm2fs is None: casdm2fs = self.make_casdm2s_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm2frs=casdm2frs)
+        ncas = sum (ncas_sub)
+        ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
+        weights = self.weights
+        casdm2s = np.zeros ((3,ncas,ncas,ncas,ncas))
+
+        # Diagonal of aa,ab,bb
+        for isub, dm2 in enumerate (casdm2fs):
+            i = ncas_cum[isub]
+            j = ncas_cum[isub+1]
+            for spin in [0,1,2]:
+                casdm2s[spin][i:j, i:j, i:j, i:j] = dm2[spin]
+        
+        # Off-diagonal
+        for (isub1, dm1rs1), (isub2, dm1rs2) in combinations (enumerate (casdm1frs), 2):
+            i = ncas_cum[isub1]
+            j = ncas_cum[isub1+1]
+            k = ncas_cum[isub2]
+            l = ncas_cum[isub2+1]
+            dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1]
+            dma2r, dmb2r = dm1rs2[:,0], dm1rs2[:,1]
+            dm1r = dma1r + dmb1r
+            dm2r = dma2r + dmb2r
+            for spin in [0,1,2]:
+                # Coulomb slice
+                casdm2s[spin][i:j,i:j,k:l,k:l] = lib.einsum ('r,rij,rkl->ijkl', weights,dm1r,dm2r)
+                casdm2s[spin][k:l,k:l,i:j,i:j] = casdm2s[spin][i:j,i:j,k:l,k:l].transpose (2,3,0,1)
+                # Exchange slice
+                d2exc = (lib.einsum ('rij,rkl->rilkj', dma1r, dma2r)
+                       + lib.einsum ('rij,rkl->rilkj', dmb1r, dmb2r))
+                casdm2s[spin][i:j,k:l,k:l,i:j] -= np.tensordot (weights, d2exc, axes=1)
+                casdm2s[spin][k:l,i:j,i:j,k:l] = casdm2s[spin][i:j,k:l,k:l,i:j].transpose (1,0,3,2)
+
+        return casdm2s
+
+
     def make_casdm2 (self, ci=None, ncas_sub=None, nelecas_sub=None, 
             casdm2r=None, casdm2f=None, casdm1frs=None, casdm2fr=None,
             **kwargs):
@@ -1567,7 +1635,133 @@ class LASCINoSymm (casci.CASCI):
                    + lib.einsum ('rij,rkl->rilkj', dmb1r, dmb2r))
             casdm2[i:j, k:l, k:l, i:j] -= np.tensordot (weights, d2exc, axes=1)
             casdm2[k:l, i:j, i:j, k:l] = casdm2[i:j, k:l, k:l, i:j].transpose (1,0,3,2)
-        return casdm2 
+            # IDU my eqn says [2,3,0,1] --> it's same!
+        return casdm2
+
+    def make_casdm3 (self, ci=None, ncas_sub=None, nelecas_sub=None,
+            casdm3r=None, casdm3f=None, casdm2frs=None, casdm3fr=None, casdm2r=None, casdm2f=None,
+            casdm1frs=None, casdm2fr=None, **kwargs):
+        ''' Make the full-dimensional casdm3 spanning the collective active space '''
+        if casdm3r is not None:
+            return np.einsum ('rijklmn,r->ijklmn', casdm3r, self.weights)
+        if ci is None: ci = self.ci
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        if nelecas_sub is None: nelecas_sub = self.nelecas_sub
+        if casdm1frs is None: casdm1frs = self.states_make_casdm1s_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        if casdm2frs is None: casdm2frs = self.states_make_casdm2s_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+        if casdm2f is None: casdm2f = self.make_casdm2_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, casdm2fr=casdm2fr)
+        if casdm3f is None: casdm3f = self.states_make_casdm3_sub (ci=ci,
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub)
+
+        ncas = sum (ncas_sub)
+        ncas_cum = np.cumsum ([0] + ncas_sub.tolist ())
+        weights = self.weights
+        casdm3 = np.zeros ((ncas,ncas,ncas,ncas,ncas,ncas))
+        # Diagonal 
+        for isub, dm3 in enumerate (casdm3f):
+            i = ncas_cum[isub]
+            j = ncas_cum[isub+1]
+            casdm3[i:j, i:j, i:j, i:j, i:j, i:j] = dm3
+
+        def _transpose_dm3_(i0, i1, i2, i3, j0, j1, j2, j3, k0, k1, k2, k3):
+            d = casdm3[i0:i1, i2:i3, j0:j1, j2:j3, k0:k1, k2:k3]
+            casdm3[i0:i1, i2:i3, k0:k1, k2:k3, j0:j1, j2:j3] = d.transpose (0,1,4,5,2,3)
+            casdm3[k0:k1, k2:k3, i0:i1, i2:i3, j0:j1, j2:j3] = d.transpose (4,5,0,1,2,3)
+            casdm3[k0:k1, k2:k3, j0:j1, j2:j3, i0:i1, i2:i3] = d.transpose (4,5,2,3,0,1)
+            casdm3[j0:j1, j2:j3, k0:k1, k2:k3, i0:i1, i2:i3] = d.transpose (2,3,4,5,0,1)
+            casdm3[j0:j1, j2:j3, i0:i1, i2:i3, k0:k1, k2:k3] = d.transpose (2,3,0,1,4,5)
+
+        # Off-diagonal
+        # First 6 terms - combs of f1+f2+f3: dm1rs1=f1, dm1rs2=f2, dm1rs3=f3
+        from itertools import permutations
+        for (isub1,dm1rs1),(isub2,dm1rs2),(isub3,dm1rs3) in combinations (enumerate(casdm1frs), 3):
+            i = ncas_cum[isub1]
+            j = ncas_cum[isub1+1]
+            k = ncas_cum[isub2]
+            l = ncas_cum[isub2+1]
+            m = ncas_cum[isub3]
+            n = ncas_cum[isub3+1]
+            dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1]
+            dma2r, dmb2r = dm1rs2[:,0], dm1rs2[:,1]
+            dma3r, dmb3r = dm1rs3[:,0], dm1rs3[:,1]
+            dm1r = dma1r + dmb1r
+            dm2r = dma2r + dmb2r
+            dm3r = dma3r + dmb3r
+            
+            # Term 1- 29a
+            d1sigma = lib.einsum('r,rij,rkl,rmn->rijklmn',weights,dm1r,dm2r,dm3r)
+            casdm3[i:j, i:j, k:l, k:l, m:n, m:n] += np.tensordot(weights, d1sigma, axes=1)
+            #lib.einsum ('r,rij,rkl,rmn->ijklmn', weights, dm1r, dm2r, dm3r)
+            _transpose_dm3_(i,j, i,j, k,l, k,l, m,n, m,n)
+            
+            # Term 2- 29b
+            d2sigma = (lib.einsum('r,rij,rkl,rmn->rijknml',weights,dm1r,dma2r,dma3r)
+                       +lib.einsum('r,rij,rkl,rmn->rijknml',weights,dm1r,dmb2r,dmb3r))
+            casdm3[i:j, i:j, k:l, m:n, m:n, k:l] -= np.tensordot(weights, d2sigma, axes=1)
+            _transpose_dm3_(i,j, i,j, k,l, m,n, m,n, k,l)
+            
+            # Term 3- 29c
+            d3sigma = (lib.einsum('r,rij,rkl,rmn->rinkjml',weights,dma1r,dma2r,dma3r)
+                       +lib.einsum('r,rij,rkl,rmn->rinkjml',weights,dmb1r,dmb2r,dmb3r))
+            casdm3[i:j, m:n, k:l, i:j, m:n, k:l] += np.tensordot (weights, d3sigma, axes=1)
+            _transpose_dm3_(i,j, m,n, k,l, i,j, m,n, k,l)
+
+            # Term 4- 29d
+            d4sigma = (lib.einsum('r,rij,rkl,rmn->rilkjmn',weights,dma1r,dma2r,dm3r)
+                       +lib.einsum('r,rij,rkl,rmn->rilkjmn',weights,dmb1r,dmb2r,dm3r))
+            casdm3[i:j, k:l, k:l, i:j, m:n, m:n] -= np.tensordot(weights, d4sigma, axes=1)
+            _transpose_dm3_(i,j, k,l, k,l, i,j, m,n, m,n)
+
+            # Term 5- 29e
+            d5sigma = (lib.einsum('r,rij,rkl,rmn->rinklmj',weights,dma1r,dm2r,dma3r)
+                       +lib.einsum('r,rij,rkl,rmn->rinklmj',weights,dmb1r,dm2r,dmb3r))
+            casdm3[i:j, m:n, k:l, k:l, m:n, i:j] -= np.tensordot(weights, d5sigma, axes=1)
+            _transpose_dm3_(i,j, m,n, k,l, k,l, m,n, i,j)
+
+            # Term 6- 29f
+            d6sigma = (lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dma1r,dma2r,dma3r)
+                       +lib.einsum('r,rij,rkl,rmn->rilknmj',weights,dmb1r,dmb2r,dmb3r))
+            casdm3[i:j, k:l, k:l, m:n, m:n, i:j] += np.tensordot(weights, d6sigma, axes=1)
+            _transpose_dm3_(i,j, k,l, k,l, m,n, m,n, i,j)
+
+        #Last 2 terms - combs of f1+f1+f2: dm1rs1=f1, dm2rs2=f2
+
+        for isub1, isub2 in permutations (range (self.nfrags), 2):
+            dm2rs2 = casdm2frs[isub1]
+            dm1rs1 = casdm1frs[isub2]
+
+            i = ncas_cum[isub1]
+            j = ncas_cum[isub1+1]
+            k = ncas_cum[isub2]
+            l = ncas_cum[isub2+1]
+            
+            dma1r, dmb1r = dm1rs1[:,0], dm1rs1[:,1] 
+            dm1r = dma1r + dmb1r
+            dmaa2r, dmab2r, dmbb2r = dm2rs2[:,0], dm2rs2[:,1], dm2rs2[:,2]
+
+            # Term 7 - 29g
+            d4sigma = (lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmaa2r)
+                       +lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmab2r)
+                       +lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmab2r)
+                       +lib.einsum('r,rmn,rijkl->rijklmn',weights,dm1r,dmbb2r))
+            casdm3[i:j, i:j, i:j, i:j, k:l, k:l] += np.tensordot (weights, d4sigma, axes=1)
+            d = casdm3[i:j, i:j, i:j, i:j, k:l, k:l]
+            casdm3[i:j, i:j, k:l, k:l, i:j, i:j] = d.transpose(0,1,4,5,2,3)
+            casdm3[k:l, k:l, i:j, i:j, i:j, i:j] = d.transpose(4,5,0,1,2,3)
+
+            # Term 8 - 29h
+            d5sigma = (lib.einsum('r,rmn,rijkl->rijknml',weights,dma1r,dmaa2r)
+                       +lib.einsum('r,rmn,rijkl->rijknml',weights,dmb1r,dmab2r)
+                       +lib.einsum('r,rmn,rijkl->rijknml',weights,dma1r,dmab2r)
+                       +lib.einsum('r,rmn,rijkl->rijknml',weights,dmb1r,dmbb2r))
+            casdm3[i:j, i:j, i:j, k:l, k:l, i:j] -= np.tensordot (weights, d5sigma, axes=1)
+            _transpose_dm3_(i,j, i,j, i,j, k,l, k,l, i,j)
+
+        return casdm3
+
 
     def get_veff (self, mol=None, dm1s=None, hermi=1, spin_sep=False, **kwargs):
         ''' Returns a spin-summed veff! If dm1s isn't provided, builds from self.mo_coeff, self.ci
@@ -1873,6 +2067,7 @@ class LASCINoSymm (casci.CASCI):
             self.states_converged = list (x)
         else:
             self.states_converged = [x,]*self.nroots
+
 
     def dump_spaces (self, nroots=None, sort_energy=False):
         log = lib.logger.new_logger (self, self.verbose)

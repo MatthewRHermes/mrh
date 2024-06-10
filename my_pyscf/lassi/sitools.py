@@ -205,6 +205,8 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
 
     log.info ("Analyzing LASSI vectors for states = %s",str(state))
+    for st in states:
+        print_wfn_leading (las, state=st, ci=ci0, si=si) 
 
     log.info ("Average quantum numbers:")
     space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
@@ -220,13 +222,25 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         log.info ("Nelecb = %s", str (nb))
         log.info ("Smult = %s", str (s))
 
+    def log_qn_spread (qn_table, weights):
+        qns = np.unique (qn_table)
+        fmt_str = '{:4d} ' + ' '.join (['{:10.3e}',]*las.nfrags)
+        for qn in qns:
+            row = [np.sum (weights[qn_table[:,ifrag]==qn]) for ifrag in range (las.nfrags)]
+            log.info (fmt_str.format (qn, *row))
+
+    c, m, s, w = get_space_info (las)
+    avg_weights = space_weights[:,states].sum (1) / nstates
+    log.info ("Spread of charges:")
+    log_qn_spread (c, avg_weights)
+    log.info ("Spread of spin multiplicities:")
+    log_qn_spread (s, avg_weights)
+
     log.info (("Analyzing rootspace fragment density matrices for LASSI "
                "states %s averaged together"), str (states))
     log.info ("Continue until 1-%e of wave function(s) accounted for", print_all_but)
-    avg_weights = space_weights[:,states].sum (1) / nstates
     lroots = get_lroots (ci0).T
     running_weight = 1
-    c, m, s, w = get_space_info (las)
     fmt_str = " {:4s}  {:>7s}  {:>4s}  {:>3s}  {:>6s}  {:11s}  {:>8s}"
     header = fmt_str.format ("Frag", "Nelec", "2S+1", "Ir", "<n>", "Max(weight)", "Entropy")
     fmt_str = " {:4d}  {:>7s}  {:>4d}  {:>3s}  {:6.3f}  {:>11.4f}  {:8f}"
@@ -294,6 +308,25 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         return ci1, si1, space_weights, navg, maxw, entr
     else:
         return ci1, si1
+
+def print_wfn_leading (lsi, state=0, ci=None, si=None, ncoeffs=20):
+    if si is None: si = lsi.si
+    if ci is None: ci = lsi.ci
+    si = si[:,state]
+    log = lib.logger.new_logger (lsi, lsi.verbose)
+    rootaddr, envaddr = get_rootaddr_fragaddr (get_lroots (ci))
+    idx = np.argsort (-si*si)
+    idx = idx[:ncoeffs]
+    si, rootaddr, envaddr = si[idx], rootaddr[idx], envaddr[:,idx].T
+    log.info ("Printing leading %d SI addresses and coeffs of state %d (wgt = %9.3e)",
+              ncoeffs, state, np.dot (si, si))
+    if np.amax (envaddr) < 10:
+        env_fmt = ''.join (['{:1d}',]*lsi.nfrags)
+    else: 
+        env_fmt = '.'.join (['{:1d}',]*lsi.nfrags)
+    envaddr = [env_fmt.format (*env) for env in envaddr]
+    for coeff, root, env in zip (si, rootaddr, envaddr):
+        log.info ("%5d|%s : %10.3e", root, env, coeff)
 
 def analyze_basis (las, ci=None, space=0, frag=0, npr=10):
     '''Print out the many-electron wave function(s) in terms of CSFs for a specific
