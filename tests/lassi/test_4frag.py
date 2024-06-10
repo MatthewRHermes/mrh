@@ -165,6 +165,7 @@ class KnownValues(unittest.TestCase):
         las1.lasci_(mo_coeff)
         lsi = LASSIS (las1).run ()
         self.assertTrue (lsi.converged)
+        self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
 
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0)

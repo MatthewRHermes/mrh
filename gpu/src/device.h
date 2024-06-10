@@ -88,25 +88,16 @@ private:
   
   double host_compute(double *);
   void get_cores(char *);
-  
-  int n;
-  int size_data;
+
+  void profile_start(const char *);
+  void profile_stop();
+  void profile_next(const char *);
 
   size_t grid_size, block_size;
   
   // get_jk
 
   int update_dfobj;
-  
-  // int size_rho;
-  // int size_vj;
-  // int size_vk;
-  // int size_buf;
-  // int size_fdrv;
-  // int size_dms;
-  // int size_dmtril;
-  // int size_eri1;
-  // int size_tril_map;
 
   int blksize;
   int nao;
@@ -114,6 +105,9 @@ private:
   int nset;
   int nao_pair;
 
+  int size_buf_vj;
+  int size_buf_vk;
+  
   // get_jk
   
   double * rho;
@@ -125,19 +119,9 @@ private:
   double * buf4;
   double * buf_fdrv;
 
-  // double * d_rho;
-  // double * d_vj;
-  // double * d_buf1;
-  // double * d_buf2;
-  // double * d_buf3;
-  // double * d_vkk;
-  // double * d_dms;
-  // double * d_dmtril;
-  // double * d_eri1;
+  double * buf_vj;
+  double * buf_vk;
   
-  // int * tril_map;
-  // int * d_tril_map;
-
   // hessop_get_veff
 
   int size_bPpj;
@@ -193,7 +177,6 @@ private:
     int size_dms;
     int size_dmtril;
     int size_eri1;
-    int size_tril_map;
     
     double * d_rho;
     double * d_vj;
@@ -205,8 +188,10 @@ private:
     double * d_dmtril;
     double * d_eri1;
 
-    int * tril_map;
-    int * d_tril_map;
+    std::vector<int> size_tril_map;
+    std::vector<int *> tril_map;
+    std::vector<int *> d_tril_map;
+    int * d_tril_map_ptr; // no explicit allocation
     
     cublasHandle_t handle;
     cudaStream_t stream;
@@ -228,24 +213,11 @@ private:
   void NPdunpack_tril(int, double *, double *, int);
     
 #ifdef _SIMPLE_TIMER
-  int t_array_count;
   double * t_array;
-
-  int t_array_jk_count;
-  double * t_array_jk;
 #endif
 
   int num_threads;
   int num_devices;
-
-#if defined(_USE_GPU)
-  //  cublasHandle_t handle;
-  //  cudaStream_t stream;
-  
-  //  cublasHandle_t * handle_;
-  //  cudaStream_t * stream_;
-#endif
-  
 };
 
 #endif

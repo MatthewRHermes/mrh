@@ -42,16 +42,12 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     //    if(_vktmp) pm->dev_free_host(_vktmp);
     //    _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
 
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("Realloc");
-#endif
+    profile_start("Realloc");
     
     if(d_vkk) pm->dev_free(d_vkk);
     d_vkk = (double *) pm->dev_malloc(size_vk * sizeof(double));
 
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+    profile_stop();
   }
   //  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
@@ -66,9 +62,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
     buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (blksize*nao, nao)
 
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("Realloc");
-#endif
+    profile_start("Realloc");
 
     if(d_buf2) pm->dev_free(d_buf2);
     if(d_buf3) pm->dev_free(d_buf3);
@@ -76,9 +70,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
     d_buf3 = (double *) pm->dev_malloc(size_buf * sizeof(double));
 
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+    profile_stop();
   }
 
   int _size_fdrv = nao * nao * num_threads;
@@ -100,22 +92,21 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   // Create blas handle
 
   if(handle == nullptr) {
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("Create handle");
-#endif
+    profile_start("Create handle");
+
     cublasCreate(&handle);
     _CUDA_CHECK_ERRORS();
     cublasSetStream(handle, stream);
     _CUDA_CHECK_ERRORS();
 
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+    profile_stop();
   }
 
 #ifdef _SIMPLE_TIMER
-  t_array_jk[0] += omp_get_wtime() - t0;
+  double t1 = omp_get_wtime();
+  t_array[0] += t1 - t0;
 #endif
+  
   //pm->dev_barrier();
   //printf("Leaving init_get_jk()\n");
 }
@@ -125,6 +116,10 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
 {
   //printf("Inside pull_get_jk()\n");
+  
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
   
   //  py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
@@ -136,6 +131,11 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk)
   //pm->dev_barrier();
 
   //printf("Leaving pull_get_jk()\n");
+  
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[1] += t1 - t0;
+#endif
 }
 
 /* ---------------------------------------------------------------------- */
@@ -180,15 +180,7 @@ void Device::get_jk(int naux,
 
   int nao_pair = nao * (nao+1) / 2;
   
-#ifdef _SIMPLE_TIMER
-  t_array_jk[1] += omp_get_wtime() - t0;
-#endif
-  
   if(with_j) {
-
-#ifdef _SIMPLE_TIMER
-    double t0 = omp_get_wtime();
-#endif
 
     DevArray2D da_rho = DevArray2D(rho, nset, naux);
     DevArray2D da_dmtril = DevArray2D(dmtril, nset, nao_pair);
@@ -204,10 +196,6 @@ void Device::get_jk(int naux,
 	da_rho(i,j) = val;
       }
     
-#ifdef _SIMPLE_TIMER
-    double t1 = omp_get_wtime();
-#endif
-    
     DevArray2D da_vj = DevArray2D(vj, nset, nao_pair);
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -220,12 +208,6 @@ void Device::get_jk(int naux,
 	for(int k=0; k<naux; ++k) val += da_rho(i,k) * da_eri1(k,j);
 	da_vj(i,j) += val;
       }
-
-#ifdef _SIMPLE_TIMER
-    double t2 = omp_get_wtime();
-    t_array_jk[2] += t1 - t0;
-    t_array_jk[3] += t2 - t1;
-#endif
   }
  
   double * buf1 = buf_tmp;
@@ -235,40 +217,32 @@ void Device::get_jk(int naux,
   DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
   DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
   
-#ifdef _SIMPLE_TIMER
-  double t2 = omp_get_wtime();
-#endif
-    
   // buf2 = lib.unpack_tril(eri1, out=buf[1])
-    
+  
 #pragma omp parallel for
-    for(int i=0; i<naux; ++i) {
-      
-      int indx = 0;
-      double * eri1_ = &(eri1[i * nao_pair]);
-
-      // unpack lower-triangle to square
-      
-      for(int j=0; j<nao; ++j)
-	for(int k=0; k<=j; ++k) {	  
-	  da_buf2(i*nao+j,k) = eri1_[indx];
-	  da_buf2(i*nao+k,j) = eri1_[indx];
-	  indx++;
-	}
-      
-    }
-
-    //printf("Calling dev_push_async() for buf2\n");
-    //pm->dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream); // stream is nullptr
-    pm->dev_push(d_buf2, buf2, blksize * nao * nao * sizeof(double));
-    //printf(" -- finished\n");
+  for(int i=0; i<naux; ++i) {
     
-#ifdef _SIMPLE_TIMER
-    t_array_jk[5] += omp_get_wtime() - t2;
-#endif
+    int indx = 0;
+    double * eri1_ = &(eri1[i * nao_pair]);
+    
+    // unpack lower-triangle to square
+    
+    for(int j=0; j<nao; ++j)
+      for(int k=0; k<=j; ++k) {	  
+	da_buf2(i*nao+j,k) = eri1_[indx];
+	da_buf2(i*nao+k,j) = eri1_[indx];
+	indx++;
+      }
+    
+  }
+  
+  //printf("Calling dev_push_async() for buf2\n");
+  //pm->dev_push_async(d_buf2, buf2, blksize * nao * nao * sizeof(double), stream); // stream is nullptr
+  pm->dev_push(d_buf2, buf2, blksize * nao * nao * sizeof(double));
+  //printf(" -- finished\n");
   
   for(int indxK=0; indxK<nset; ++indxK) {
-
+    
     py::array_t<double> _dms = static_cast<py::array_t<double>>(_dms_list[indxK]); // element of 3D array (nset, nao, nao)
     py::buffer_info info_dms = _dms.request(); // 2D
 
@@ -276,10 +250,6 @@ void Device::get_jk(int naux,
 
     int orbs_slice[4] = {0, nao, 0, nao};
     double * dms = static_cast<double*>(info_dms.ptr);
-    
-#ifdef _SIMPLE_TIMER
-    t0 = omp_get_wtime();
-#endif
     
     //    fmmm = _ao2mo.libao2mo.AO2MOmmm_bra_nr_s2
     //    fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
@@ -292,11 +262,6 @@ void Device::get_jk(int naux,
     //	       ctypes.c_int(naux), *rargs)
     
     fdrv(buf1, eri1, dms, naux, nao, nullptr, nullptr, 0, buf_fdrv);
-
-#ifdef _SIMPLE_TIMER
-    double t1 = omp_get_wtime();
-    t_array_jk[4] += t1 - t0;
-#endif
     
     // dgemm of (nao X blksize*nao) and (blksize*nao X nao) matrices - can refactor later...
     // vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))  // vk[k] is nao x nao array
@@ -312,9 +277,7 @@ void Device::get_jk(int naux,
 
     // transfer
 
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("HtoD Transfer");
-#endif
+    profile_start("HtoD Transfer");
     
     //printf("Calling dev_push_async() for buf3\n");
     //pm->dev_barrier();
@@ -324,9 +287,7 @@ void Device::get_jk(int naux,
     
     //pm->dev_barrier();
 
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+    profile_stop();
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -334,11 +295,6 @@ void Device::get_jk(int naux,
     // B is (k, n) matrix
     // C is (m, n) matrix
     // Column-ordered: (A.B)^T = B^T.A^T
-    
-#ifdef _SIMPLE_TIMER
-    double t3 = omp_get_wtime();
-    t_array_jk[6] += t3 - t1;
-#endif
     
     const double alpha = 1.0;
     const double beta = (count == 0) ? 0.0 : 1.0;
@@ -352,10 +308,9 @@ void Device::get_jk(int naux,
     const int ldc = nao;
     
     const int vk_offset = indxK * nao*nao;
-    
-#ifdef _CUDA_NVTX
-    nvtxRangePushA("DGEMM");
-#endif
+
+    profile_start("DGEMM");
+
     //pm->dev_barrier();
     //printf("About to call cublasDgemm()\n");    
     
@@ -373,15 +328,12 @@ void Device::get_jk(int naux,
 
     //pm->dev_barrier();
     //printf(" -- finished\n");
-    
-#ifdef _CUDA_NVTX
-    nvtxRangePop();
-#endif
+
+    profile_stop();
    
 #ifdef _SIMPLE_TIMER
-    double t4 = omp_get_wtime();
-    t_array_jk[7] += t4 - t3;
-    t_array_jk_count++;
+    double t1 = omp_get_wtime();
+    t_array[2] += t1 - t0;
 #endif 
   }
   
