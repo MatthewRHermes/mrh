@@ -20,16 +20,17 @@ CXXFLAGS += -D_USE_GPU -D_GPU_OPENMP
 CXXFLAGS += $(GPU_FLAGS)
 #CXXFLAGS += -I$(CUDA)/include
 CXXFLAGS += -D_SIMPLE_TIMER
-CXXFLAGS += -D_CUDA_NVTX
+CXXFLAGS += -D_USE_NVTX
 
 CUDA_CXX = mpicxx
 CUDA_CXXFLAGS += -fopenmp -fopenmp-targets=nvptx64-nvidia-cuda
 CUDA_CXXFLAGS += -D_USE_GPU -D_GPU_OPENMP
 CUDA_CXXFLAGS += -D_SIMPLE_TIMER
-CUDA_CXXFLAGS += -D_CUDA_NVTX
+CUDA_CXXFLAGS += -D_USE_NVTX
 
 LD = $(CXX)
-LDFLAGS = -fPIC -shared $(GPU_FLAGS)
+LDFLAGS = $(GPU_FLAGS)
+#LDFLAGS = -fPIC -shared
 LIB = -lstdc++
 LIB += -L$(CUDA)/lib64 -lcublas -lcudart
 LIB += -lnvToolsExt

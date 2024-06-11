@@ -547,8 +547,9 @@ class VRVDressedFCISolver (object):
         e_pq = np.append ([e_p,], e_q)
         h_diagmin = np.amin (e_pq)
         if e0-h_diagmin > 1e-8:
-            log.warn ("%s in VRVSolver: min (hdiag) = %.6f < e0 = %.6f",
-                      warntag, np.amin (e_pq), e0)
+            if self.verbose >= lib.logger.DEBUG:
+                log.warn ("%s in VRVSolver: min (hdiag) = %.6f < e0 = %.6f",
+                          warntag, np.amin (e_pq), e0)
             log.debug ('e_p = %.6f ; vrv = %.6f', e_p, vrv)
             log.debug ('e_q = {}'.format (e_q))
             log.debug ('valid de_pq = {}'.format (de_pq[idx]))

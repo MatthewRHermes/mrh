@@ -21,7 +21,8 @@ CXXFLAGS += -D_USE_CPU
 #CXXFLAGS += -I$(BLAS)/include
 
 LD = $(CXX)
-LDFLAGS = -fopenmp -fPIC -undefined dynamic_lookup -shared
+LDFLAGS = -fopenmp 
+#LDFLAGS += -fPIC -undefined dynamic_lookup -shared
 LIB =
 #LIB += -L$(BLAS)/lib -lrefblas 
 LIB += -lstdc++

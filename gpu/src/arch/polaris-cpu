@@ -15,5 +15,6 @@ CXXFLAGS += -D_USE_CPU
 
 LD = $(FC)
 #LDFLAGS = -mp -fPIC -undefined dynamic_lookup -shared
-LDFLAGS = -mp -fPIC -shared
+LDFLAGS = -mp
+#LDFLAGS += -fPIC -shared
 LIB = -lstdc++

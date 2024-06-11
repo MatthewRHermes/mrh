@@ -22,7 +22,8 @@ CXXFLAGS += -D_USE_CPU
 CXXFLAGS += -D_SIMPLE_TIMER
 
 LD = $(FC)
-LDFLAGS = -fopenmp -fPIC -shared
+LDFLAGS = -fopenmp 
+#LDFLAGS += -fPIC -shared
 LIB = -lstdc++
 LIB += -L$(PATH_TO_NVHPC)/compilers/lib64 -llapack -lblas
 #LIB += -L/home/knight/soft/polaris/lapack/lib -llapack -lrefblas -lgfortran

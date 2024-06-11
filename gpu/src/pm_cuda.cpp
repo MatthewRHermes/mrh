@@ -60,7 +60,7 @@ void PM::dev_properties(int ndev)
     char name[256];
     strcpy(name, prop.name);
 
-    printf("  [%i] Platform[ Nvidia ] Type[ GPU ] Device[ %s ]  uuid= ", i, name);
+    printf("LIBGPU ::  [%i] Platform[ Nvidia ] Type[ GPU ] Device[ %s ]  uuid= ", i, name);
     uuid_print(prop.uuid);
     printf("\n");
   }
@@ -112,7 +112,7 @@ void PM::dev_set_device(int id)
   _CUDA_CHECK_ERRORS();
 
 #ifdef _DEBUG_PM
-  printf(" -- Leaving PM::dev_num_devices()\n");
+  printf(" -- Leaving PM::dev_set_devices()\n");
 #endif
 }
 
@@ -173,7 +173,7 @@ void PM::dev_free(void * ptr)
   printf("Inside PM::dev_free()\n");
 #endif
   
-  cudaFree(ptr);
+  if(ptr) cudaFree(ptr);
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
@@ -187,7 +187,7 @@ void PM::dev_free_host(void * ptr)
   printf("Inside PM::dev_free_host()\n");
 #endif
   
-  cudaFreeHost(ptr);
+  if(ptr) cudaFreeHost(ptr);
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM
@@ -209,18 +209,20 @@ void PM::dev_push(void * d_ptr, void * h_ptr, size_t N)
 #endif
 }
 
-void PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
+int PM::dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s)
 {
 #ifdef _DEBUG_PM
   printf("Inside PM::dev_push_async()\n");
 #endif
   
   cudaMemcpyAsync(d_ptr, h_ptr, N, cudaMemcpyHostToDevice, s);
-  _CUDA_CHECK_ERRORS();
+  _CUDA_CHECK_ERRORS2();
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_push_async()\n");
 #endif
+  
+  return 0;
 }
 
 void PM::dev_pull(void * d_ptr, void * h_ptr, size_t N)
@@ -279,6 +281,20 @@ void PM::dev_check_pointer(int rnk, const char * name, void * ptr)
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_check_pointer()\n");
+#endif
+}
+
+void PM::dev_barrier()
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_barrier()\n");
+#endif
+  
+  cudaDeviceSynchronize();
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_barrier()\n");
 #endif
 }
 

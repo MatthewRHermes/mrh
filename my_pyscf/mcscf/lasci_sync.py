@@ -1131,7 +1131,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:]@dm_bj, compact=False))
         # Don't ask my why this is faster than doing the two degrees of freedom separately...
         t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
-        
+
         #if gpu:
         #    naux = self.bPpj.shape[0]
         #    vk_bj = np.zeros( (nmo-ncore, nocc) )
