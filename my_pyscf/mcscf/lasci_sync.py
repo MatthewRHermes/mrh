@@ -1110,62 +1110,61 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         moH = mo.conjugate ().T
         nmo = mo.shape[-1]
         dm1_mo = dm1s_mo.sum (0)
-        if gpu:
-            dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
-            veff_ao=np.squeeze(self.las.get_veff(dm1s=dm1_ao))
-            return np.dot(moH,np.dot(veff_ao,mo))
-        else:
-            if getattr (self, 'bPpj', None) is None:
-                dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
-                veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
-                return np.dot (moH, np.dot (veff_ao, mo)) 
-            ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
-            # vj
-            t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-            veff_mo = np.zeros_like (dm1_mo)
-            dm1_rect = dm1_mo + dm1_mo.T
-            dm1_rect[ncore:nocc,ncore:nocc] /= 2
-            dm1_rect = dm1_rect[:,:nocc]
-            rho = np.tensordot (self.bPpj, dm1_rect, axes=2)
-            vj_pj = np.tensordot (rho, self.bPpj, axes=((0),(0)))
-            t1 = lib.logger.timer (self.las, 'vj_mo in microcycle', *t0)
-            dm_bj = dm1_mo[ncore:,:nocc]
-            vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:]@dm_bj, compact=False))
-            # Don't ask my why this is faster than doing the two degrees of freedom separately...
-            t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
-            
-            #if gpu:
-            #    naux = self.bPpj.shape[0]
-            #    vk_bj = np.zeros( (nmo-ncore, nocc) )
-            #    libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj)
-            #    t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)   
-            #    t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1);
-            
-            #else: 
-            # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
-            vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
-            vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
-            t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
-            # vk (ai|ai), (ui|av)
-            dm_ai = dm1_mo[nocc:,:ncore]
-            vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
-            # I think this works only because there is no dm_ui in this case, so I've eliminated all
-            # the dm_uv by choosing this range
-            bPbi = self.bPpj[:,ncore:,:ncore]
-            vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))                    
-            t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+        #if gpu:
+        #    dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
+        #    veff_ao=np.squeeze(self.las.get_veff(dm1s=dm1_ao))
+        #    return np.dot(moH,np.dot(veff_ao,mo))
+        if gpu or (getattr (self, 'bPpj', None) is None):
+            dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
+            veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
+            return np.dot (moH, np.dot (veff_ao, mo)) 
+        ncore, nocc, ncas = self.ncore, self.nocc, self.ncas
+        # vj
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        veff_mo = np.zeros_like (dm1_mo)
+        dm1_rect = dm1_mo + dm1_mo.T
+        dm1_rect[ncore:nocc,ncore:nocc] /= 2
+        dm1_rect = dm1_rect[:,:nocc]
+        rho = np.tensordot (self.bPpj, dm1_rect, axes=2)
+        vj_pj = np.tensordot (rho, self.bPpj, axes=((0),(0)))
+        t1 = lib.logger.timer (self.las, 'vj_mo in microcycle', *t0)
+        dm_bj = dm1_mo[ncore:,:nocc]
+        vPpj = np.ascontiguousarray (self.las.cderi_ao2mo (mo, mo[:,ncore:]@dm_bj, compact=False))
+        # Don't ask my why this is faster than doing the two degrees of freedom separately...
+        t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
+        
+        #if gpu:
+        #    naux = self.bPpj.shape[0]
+        #    vk_bj = np.zeros( (nmo-ncore, nocc) )
+        #    libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj)
+        #    t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)   
+        #    t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1);
+        
+        #else: 
+        # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
+        vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
+        vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
+        t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
+        # vk (ai|ai), (ui|av)
+        dm_ai = dm1_mo[nocc:,:ncore]
+        vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
+        # I think this works only because there is no dm_ui in this case, so I've eliminated all
+        # the dm_uv by choosing this range
+        bPbi = self.bPpj[:,ncore:,:ncore]
+        vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))                    
+        t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
 
-            # veff
-            vj_bj = vj_pj[ncore:,:]
-            veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
-            veff_mo[:nocc,ncore:] = veff_mo[ncore:,:nocc].T
-            #vj_ai = vj_bj[ncas:,:ncore]
-            #vk_ai = vk_bj[ncas:,:ncore]
-            #veff_mo[ncore:,:nocc] = vj_bj
-            #veff_mo[:ncore,nocc:] = vj_ai.T
-            #veff_mo[ncore:,:nocc] -= vk_bj/2
-            #veff_mo[:ncore,nocc:] -= vk_ai.T/2
-            return veff_mo
+        # veff
+        vj_bj = vj_pj[ncore:,:]
+        veff_mo[ncore:,:nocc] = vj_bj - 0.5*vk_bj
+        veff_mo[:nocc,ncore:] = veff_mo[ncore:,:nocc].T
+        #vj_ai = vj_bj[ncas:,:ncore]
+        #vk_ai = vk_bj[ncas:,:ncore]
+        #veff_mo[ncore:,:nocc] = vj_bj
+        #veff_mo[:ncore,nocc:] = vj_ai.T
+        #veff_mo[ncore:,:nocc] -= vk_bj/2
+        #veff_mo[:ncore,nocc:] -= vk_ai.T/2
+        return veff_mo
 
     def split_veff (self, veff_mo, dm1s_mo):
         # This function seems orphaned? Is it used anywhere?
