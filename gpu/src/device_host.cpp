@@ -69,7 +69,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   }
   
 #ifdef _SIMPLE_TIMER
-  t_array_jk[0] += omp_get_wtime() - t0;
+  double t1 = omp_get_wtime();
+  t_array[0] += t1 - t0;
 #endif
 }
 
@@ -82,7 +83,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk) {}
 void Device::get_jk(int naux,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
-		    int count, size_t addr_dfobj)
+		    int with_k, int count, size_t addr_dfobj)
 {  
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
@@ -106,7 +107,7 @@ void Device::get_jk(int naux,
     if(rho) pm->dev_free_host(rho);
     rho = (double *) pm->dev_malloc_host(size_rho * sizeof(double));
   }
-
+  
   // printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i\n",blksize,naux,nao,nset);
   // printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
   //   	 info_dmtril.shape[0], info_dmtril.shape[1],
@@ -114,25 +115,17 @@ void Device::get_jk(int naux,
   //   	 info_dmtril.shape[0], info_eri1.shape[0],
   //   	 info_dmtril.shape[0], info_eri1.shape[1],
   //   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
-
-   int nao_pair = nao * (nao+1) / 2;
-   
-#ifdef _SIMPLE_TIMER
-  t_array_jk[1] += omp_get_wtime() - t0;
-#endif
+  
+  int nao_pair = nao * (nao+1) / 2;
   
   if(with_j) {
-
-#ifdef _SIMPLE_TIMER
-    double t0 = omp_get_wtime();
-#endif
-
+    
     DevArray2D da_rho = DevArray2D(rho, nset, naux);
     DevArray2D da_dmtril = DevArray2D(dmtril, nset, nao_pair);
     DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
-
+    
 #pragma omp parallel for collapse(2)
     for(int i=0; i<nset; ++i)
       for(int j=0; j<naux; ++j) {
@@ -141,33 +134,38 @@ void Device::get_jk(int naux,
 	da_rho(i,j) = val;
       }
     
-#ifdef _SIMPLE_TIMER
-    double t1 = omp_get_wtime();
-#endif
-
     DevArray2D da_vj = DevArray2D(vj, nset, nao_pair);
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
-
+    
 #pragma omp parallel for collapse(2)
     for(int i=0; i<nset; ++i)
       for(int j=0; j<nao_pair; ++j) {
-
+	
 	double val = 0.0;
 	for(int k=0; k<naux; ++k) val += da_rho(i,k) * da_eri1(k,j);
 	da_vj(i,j) += val;
       }
-
-#ifdef _SIMPLE_TIMER
-    t_array_jk[2] += t1 - t0;
-    t_array_jk[3] += omp_get_wtime() - t1;
-#endif
   }
 
+  if(!with_k) {
+
+#ifdef _SIMPLE_TIMER
+    double t1 = omp_get_wtime();
+    t_array[2] += t1 - t0;
+#endif
+  
+    return;
+  }
+  
   double * buf1 = buf_tmp;
   double * buf2 = &(buf_tmp[blksize * nao * nao]);
-    
-  DevArray3D da_buf1 = DevArray3D(buf1, naux, nao, nao);
+
+  // for(int i=0; i<blksize*nao*nao; ++i) buf1[i] = 0.0;
+  // for(int i=0; i<blksize*nao*nao; ++i) buf2[i] = 0.0;
+  // for(int i=0; i<nao*naux*nao; ++i) buf3[i] = 0.0;
+  
+  DevArray2D da_buf1 = DevArray2D(buf1, naux * nao, nao);
   DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
   DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
   
@@ -180,10 +178,6 @@ void Device::get_jk(int naux,
 
     int orbs_slice[4] = {0, nao, 0, nao};
     double * dms = static_cast<double*>(info_dms.ptr);
-
-#ifdef _SIMPLE_TIMER
-    t0 = omp_get_wtime();
-#endif
     
     //    fmmm = _ao2mo.libao2mo.AO2MOmmm_bra_nr_s2
     //    fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
@@ -196,11 +190,6 @@ void Device::get_jk(int naux,
     //	       ctypes.c_int(naux), *rargs)
     
     fdrv(buf1, eri1, dms, naux, nao, orbs_slice, nullptr, 0, buf_fdrv);
-
-#ifdef _SIMPLE_TIMER
-    double t1 = omp_get_wtime();
-    t_array_jk[4] += t1 - t0;
-#endif
     
     // buf2 = lib.unpack_tril(eri1, out=buf[1])
     
@@ -221,11 +210,6 @@ void Device::get_jk(int naux,
       
     }
 
-#ifdef _SIMPLE_TIMER
-    double t2 = omp_get_wtime();
-    t_array_jk[5] += t2 - t1;
-#endif
-    
     // dgemm of (nao X blksize*nao) and (blksize*nao X nao) matrices - can refactor later...
     // vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))  // vk[k] is nao x nao array
     
@@ -233,10 +217,8 @@ void Device::get_jk(int naux,
     // buf4 = buf2.reshape(-1,nao)
     
 #pragma omp parallel for
-    for(int i=0; i<naux; ++i) {
-      for(int j=0; j<nao; ++j)
-	for(int k=0; k<nao; ++k) da_buf3(k,i*nao+j) = da_buf1(i,j,k);
-    }
+    for(int i=0; i<naux*nao; ++i)
+      for(int k=0; k<nao; ++k) da_buf3(k,i) = da_buf1(i,k);
     
     // vk[k] += lib.dot(buf3, buf4)
     // gemm(A,B,C) : C = 1.0 * A.B + 0.0 * C
@@ -245,14 +227,9 @@ void Device::get_jk(int naux,
     // C is (m, n) matrix
     // Column-ordered: (A.B)^T = B^T.A^T
     
-#ifdef _SIMPLE_TIMER
-    double t3 = omp_get_wtime();
-    t_array_jk[6] += t3 - t2;
-#endif
-    
     const double alpha = 1.0;
     const double beta = (count == 0) ? 0.0 : 1.0;
-    
+
     const int m = nao; // # of rows of first matrix buf4^T
     const int n = nao; // # of cols of second matrix buf3^T
     const int k = naux*nao; // # of cols of first matrix buf4^
@@ -265,14 +242,12 @@ void Device::get_jk(int naux,
     
     double * vkk = vk + vk_offset;
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf2, &ldb, buf3, &lda, &beta, vkk, &ldc);
-
-#ifdef _SIMPLE_TIMER
-    double t4 = omp_get_wtime();
-    t_array_jk[7] += t4 - t3;
-    t_array_jk_count++;
-#endif 
   }
   
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[2] += t1 - t0;
+#endif 
 }
 
 /* ---------------------------------------------------------------------- */
@@ -434,6 +409,11 @@ void Device::hessop_push_bPpj(py::array_t<double> _bPpj) {}
 void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 		    py::array_t<double> _bPpj, py::array_t<double> _vPpj, py::array_t<double> _vk_bj)
 {
+  
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+  
   py::buffer_info info_bPpj = _bPpj.request(); // 3D array (naux, nmo, nocc) : read-only
   py::buffer_info info_vPpj = _vPpj.request(); // 3D array (naux, nmo, nocc) : read-only 
   py::buffer_info info_vk_bj = _vk_bj.request(); // 2D array (nmo-ncore, nocc) : accumulate
@@ -452,20 +432,18 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 	 info_vk_bj.shape[0], info_vk_bj.shape[1]);
 #endif
   
+  // this buf realloc needs to be consistent with that in init_get_jk()
+  
   int _size_buf = naux * nmo * nocc;
   if(_size_buf > size_buf) {
     size_buf = _size_buf;
     if(buf_tmp) pm->dev_free_host(buf_tmp);
     if(buf3) pm->dev_free_host(buf3);
-    
-    buf_tmp = (double*) pm->dev_malloc_host(size_buf*sizeof(double));
+    if(buf4) pm->dev_free_host(buf4);
+  
+    buf_tmp = (double*) pm->dev_malloc_host(2*size_buf*sizeof(double));
     buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double));
-
-    if(d_buf1) pm->dev_free(d_buf1);
-    if(d_buf2) pm->dev_free(d_buf2);
-    
-    d_buf1 = (double *) pm->dev_malloc(size_buf * sizeof(double));
-    d_buf2 = (double *) pm->dev_malloc(size_buf * sizeof(double));
+    buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double));
   }
   
   DevArray3D da_bPpj = DevArray3D(bPpj, naux, nmo, nocc);
@@ -484,25 +462,25 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
       
       const int indx = i*nocc*naux + l*naux;
       for(int k=0; k<naux; ++k)
-	buf_vPpj[indx + k] = da_vPpj(k,ncore+i,l); // (nvirt, nocc, naux)
-
+ 	buf_vPpj[indx + k] = da_vPpj(k,ncore+i,l); // (nvirt, nocc, naux)
+      
     }
-
+  
   double * buf_bPpj = buf3;
 
 #pragma omp parallel for collapse(2)
   for(int l=0; l<nocc; ++l)
     for(int k=0; k<naux; ++k) {
-
+      
       const int indx = l*naux*nocc + k*nocc;
       for(int j=0; j<nocc; ++j)
-	buf_bPpj[indx + j] = da_bPpj(k,l,j);
+ 	buf_bPpj[indx + j] = da_bPpj(k,l,j);
     }
-
+  
   // To compute A.B w/ Fortran ordering, we ask for B.A as if B and A were transposed
   // Computing A.B, where A = vPpj and B = bPpj
   // Ask for A=bPpj, B= vPpj, m= # columns of bPpj, n= # rows of vPpj, k= # rows of bPpj
-
+  
   {
     const double alpha = 1.0;
     const double beta = 0.0;
@@ -534,15 +512,15 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
       for(int l=0; l<ncore; ++l)
 	buf_bPpj[indx+l] = da_bPpj(k,ncore+i,l);
     }
-
+  
 #pragma omp parallel for collapse(2)
   for(int k=0; k<naux; ++k)
     for(int l=0; l<ncore; ++l) {
-
+      
       const int indx = k*ncore*nocc + l*nocc;
       for(int j=0; j<nocc; ++j)
 	buf_vPpj[indx+j] = da_vPpj(k,j,l);
-
+      
     }
   
   {
@@ -559,7 +537,11 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
     
     dgemm_((char *) "N", (char *) "N", &m, &n, &k, &alpha, buf_vPpj, &lda, buf_bPpj, &ldb, &beta, vk_bj, &ldc);
   }
-  
+ 
+#ifdef _SIMPLE_TIMER
+  double t1 = omp_get_wtime();
+  t_array[3] += t1 - t0;
+#endif
 }
 
 #endif

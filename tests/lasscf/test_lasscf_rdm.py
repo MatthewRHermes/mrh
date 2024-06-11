@@ -20,16 +20,20 @@ from pyscf import lib, gto, scf
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF as LASSCFRef
 from mrh.my_pyscf.mcscf.lasscf_rdm import LASSCF as LASSCFTest
 
-xyz = '''H 0.0 0.0 0.0
-         H 1.0 0.0 0.0
-         H 0.2 3.9 0.1
-         H 1.159166 4.1 -0.1'''
-mol = gto.M (atom = xyz, basis = '6-31g', output='lasscf_rdm.log',
-    verbose=lib.logger.INFO)
-mf = scf.RHF (mol).run ()
-las_ref = LASSCFRef (mf, (2,2), (2,2), spin_sub=(1,1))
-las_test = LASSCFTest (mf, (2,2), (2,2), spin_sub=(1,1))
-mo_loc = las_ref.localize_init_guess (((0,1),(2,3)), mf.mo_coeff)
+def setUpModule():
+    global mol, mf, las_test, las_ref, mo_loc
+    xyz = '''H 0.0 0.0 0.0
+             H 1.0 0.0 0.0
+             H 0.2 3.9 0.1
+             H 1.159166 4.1 -0.1'''
+    mol = gto.M (atom = xyz, basis = '6-31g', output='lasscf_rdm.log',
+        verbose=lib.logger.INFO)
+    mf = scf.RHF (mol).run ()
+    las_ref = LASSCFRef (mf, (2,2), (2,2), spin_sub=(1,1))
+    las_ref.chkfile = 'lasscf_rdm_ref.chk'
+    las_test = LASSCFTest (mf, (2,2), (2,2), spin_sub=(1,1))
+    las_test.chkfile = 'lasscf_rdm_test.chk'
+    mo_loc = las_ref.localize_init_guess (((0,1),(2,3)), mf.mo_coeff)
 
 def tearDownModule():
     global mol, mf, las_test, las_ref, mo_loc

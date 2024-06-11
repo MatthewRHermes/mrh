@@ -17,6 +17,10 @@ INSTALL=../
 ARCH ?= polaris
 include arch/$(ARCH)
 
+# couple more flags to build shared library (allows arch files to be used for general app building)
+CUDA_CXXFLAGS += -shared -Xcompiler -fPIC
+LDFLAGS += -fPIC -shared
+
 $(info ARCH is [${ARCH}])
 
 CSRC = $(wildcard *.cpp)
@@ -34,7 +38,6 @@ FOBJ = $(FSRC:.F90=.o)
 #$(info FSRC is [${FSRC}])
 #$(info MOD is [${MOD}])
 #$(info FOBJ is [${FOBJ}])
-
 
 #
 # -- target : 	Dependencies

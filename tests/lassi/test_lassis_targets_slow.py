@@ -185,7 +185,7 @@ class KnownValues(unittest.TestCase):
             mo_list = mc_avas.ncore + np.array ([5,6,7,8,9,10,15,16,17,18,19,20])
             mo_coeff = las.sort_mo (mo_list, mo_coeff)
             mo_coeff = las.localize_init_guess (([0],[1]), mo_coeff)
-        las = lassi.states.spin_shuffle (las) # generate direct-exchange states
+        las = lassi.spaces.spin_shuffle (las) # generate direct-exchange states
         las.weights = [1.0/las.nroots,]*las.nroots # set equal weights
         nroots_ref = las.nroots
         las.kernel (mo_coeff) # optimize orbitals

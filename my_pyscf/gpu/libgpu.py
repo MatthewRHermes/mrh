@@ -5,3 +5,6 @@
 
 def libgpu_create_device():
     raise RuntimeError("ERROR: You're attempting to use the libgpu library, but haven't correctly installed/copied it to mrh/my_pyscf/gpu/libgpu.so.")
+
+def libgpu_init():
+    raise RuntimeError("ERROR: You're attempting to use the libgpu library, but haven't correctly installed/copied it to mrh/my_pyscf/gpu/libgpu.so.")
