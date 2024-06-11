@@ -27,7 +27,6 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     log.debug('Start LASCI')
-    gpu=las.use_gpu
     h2eff_sub = las.get_h2eff (mo_coeff)
     t1 = log.timer('integral transformation to LAS space', *t0)
 
