@@ -27,7 +27,6 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     log.debug('Start LASCI')
-
     h2eff_sub = las.get_h2eff (mo_coeff)
     t1 = log.timer('integral transformation to LAS space', *t0)
 
@@ -513,15 +512,18 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
 
 def _init_df_(h_op):
     from mrh.my_pyscf.mcscf.lasci import _DFLASCI
+    gpu=h_op.las.use_gpu #VA
     if isinstance (h_op.las, _DFLASCI):
         h_op.with_df = h_op.las.with_df
-        if h_op.bPpj is None:
+        if gpu:
+           pass
+        elif h_op.bPpj is None:
             h_op.bPpj = np.ascontiguousarray (
                 h_op.las.cderi_ao2mo (h_op.mo_coeff, h_op.mo_coeff[:,:h_op.nocc],
                                       compact=False))
-            gpu = h_op.las.use_gpu
-            if gpu:
-                libgpu.libgpu_hessop_push_bPpj(gpu, h_op.bPpj)
+    #        gpu = h_op.las.use_gpu
+    #        if gpu:
+    #            libgpu.libgpu_hessop_push_bPpj(gpu, h_op.bPpj)
 
 # TODO: local state-average generalization
 class LASCI_HessianOperator (sparse_linalg.LinearOperator):
@@ -1107,7 +1109,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         moH = mo.conjugate ().T
         nmo = mo.shape[-1]
         dm1_mo = dm1s_mo.sum (0)
-        if getattr (self, 'bPpj', None) is None:
+        #if gpu:
+        #    dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
+        #    veff_ao=np.squeeze(self.las.get_veff(dm1s=dm1_ao))
+        #    return np.dot(moH,np.dot(veff_ao,mo))
+        if gpu or (getattr (self, 'bPpj', None) is None):
             dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
             veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
             return np.dot (moH, np.dot (veff_ao, mo)) 
@@ -1126,26 +1132,26 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         # Don't ask my why this is faster than doing the two degrees of freedom separately...
         t1 = lib.logger.timer (self.las, 'vk_mo vPpj in microcycle', *t1)
 
-        if gpu:
-            naux = self.bPpj.shape[0]
-            vk_bj = np.zeros( (nmo-ncore, nocc) )
-            libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj)
-            t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)   
-            t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1);
-
-        else: 
+        #if gpu:
+        #    naux = self.bPpj.shape[0]
+        #    vk_bj = np.zeros( (nmo-ncore, nocc) )
+        #    libgpu.libgpu_hessop_get_veff(gpu, naux, nmo, ncore, nocc, self.bPpj, vPpj, vk_bj)
+        #    t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)   
+        #    t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1);
+        
+        #else: 
         # vk (aa|ii), (uv|xy), (ua|iv), (au|vi)
-            vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
-            vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
-            t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
-            # vk (ai|ai), (ui|av)
-            dm_ai = dm1_mo[nocc:,:ncore]
-            vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
-            # I think this works only because there is no dm_ui in this case, so I've eliminated all
-            # the dm_uv by choosing this range
-            bPbi = self.bPpj[:,ncore:,:ncore]
-            vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))                    
-            t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
+        vPbj = vPpj[:,ncore:,:] #np.dot (self.bPpq[:,ncore:,ncore:], dm_ai)
+        vk_bj = np.tensordot (vPbj, self.bPpj[:,:nocc,:], axes=((0,2),(0,1)))
+        t1 = lib.logger.timer (self.las, 'vk_mo (bb|jj) in microcycle', *t1)
+        # vk (ai|ai), (ui|av)
+        dm_ai = dm1_mo[nocc:,:ncore]
+        vPji = vPpj[:,:nocc,:ncore] #np.dot (self.bPpq[:,:nocc, nocc:], dm_ai)
+        # I think this works only because there is no dm_ui in this case, so I've eliminated all
+        # the dm_uv by choosing this range
+        bPbi = self.bPpj[:,ncore:,:ncore]
+        vk_bj += np.tensordot (bPbi, vPji, axes=((0,2),(0,2)))                    
+        t1 = lib.logger.timer (self.las, 'vk_mo (bi|aj) in microcycle', *t1)
 
         # veff
         vj_bj = vj_pj[ncore:,:]
