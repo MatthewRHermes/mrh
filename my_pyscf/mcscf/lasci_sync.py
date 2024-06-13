@@ -27,6 +27,7 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     log.debug('Start LASCI')
+    gpu=las.use_gpu
     h2eff_sub = las.get_h2eff (mo_coeff)
     t1 = log.timer('integral transformation to LAS space', *t0)
 
@@ -137,6 +138,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         if (norm_gorb<conv_tol_grad and norm_gci<conv_tol_grad)or((norm_gorb+norm_gci)<norm_gx/10):
             converged = True
             break
+        if gpu:
+            log.info('bPpj construction is bypassed in Hessian constructor')
         H_op._init_eri_() 
         # ^ This is down here to save time in case I am already converged at initialization
         t1 = log.timer ('LASCI Hessian constructor', *t1)
@@ -1005,7 +1008,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         moH = mo.conjugate ().T
         nmo = mo.shape[-1]
         dm1_mo = dm1s_mo.sum (0)
-        if getattr (self, 'bPpj', None) is None:
+        if gpu or (getattr (self, 'bPpj', None) is None):
             dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
             veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
             return np.dot (moH, np.dot (veff_ao, mo)) 
@@ -1423,15 +1426,21 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         return np.concatenate ([self._get_Horb_diag ()] + self._get_Hci_diag ())
 
     def update_mo_ci_eri (self, x, h2eff_sub):
+        log = lib.logger.new_logger(self.las, self.las.verbose)
+        t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
         kappa, dci = self.ugg.unpack (x)
         umat = linalg.expm (kappa/2)
+        t0=log.timer('update_init',*t0)
         # The 1/2 here is because my actual variables are just the lower-triangular
         # part of kappa, or equivalently 1/2 k^p_q (E^p_q - E^q_p). I can simplify
         # this to k^p_q E^p_q when evaluating derivatives, but not when exponentiating,
         # because the operator part has to be anti-hermitian.
         mo1 = self._update_mo (umat)
+        t0=log.timer('update_mo',*t0)
         ci1 = self._update_ci (dci)
+        t0=log.timer('update_ci',*t0)
         h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub)
+        t0=log.timer('update_h2eff_sub',*t0)
         return mo1, ci1, h2eff_sub
 
     def _update_mo (self, umat):

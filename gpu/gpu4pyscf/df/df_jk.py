@@ -45,26 +45,26 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 #    vj = 0
     vk = numpy.zeros(dms.shape)
 
-    t2 = lib.logger.timer(dfobj, 'get_jk setup', *t0)
+    #t2 = lib.logger.timer(dfobj, 'get_jk setup', *t0)
     blksize = dfobj.blockdim # hard-coded to constant size for now
     
     if with_j:
-        t2 = (logger.process_clock(), logger.perf_counter())
+        #t2 = (logger.process_clock(), logger.perf_counter())
         idx = numpy.arange(nao)
         dmtril = lib.pack_tril(dms + dms.conj().transpose(0,2,1))
         dmtril[:,idx*(idx+1)//2+idx] *= .5
-        t3 = lib.logger.timer(dfobj, 'get_jk with_j',*t2)
+        #t3 = lib.logger.timer(dfobj, 'get_jk with_j',*t2)
 
     vj = numpy.zeros_like(dmtril)
     dms = [numpy.asarray(x, order='F') for x in dms]
     
     if not with_k:
-        t2 = (logger.process_clock(), logger.perf_counter())
+        #t2 = (logger.process_clock(), logger.perf_counter())
 
 #        dms = [numpy.asarray(x, order='F') for x in dms]
         count = 0
         for eri1 in dfobj.loop():
-            t6 = (logger.process_clock(), logger.perf_counter())
+            #t6 = (logger.process_clock(), logger.perf_counter())
             naux, nao_pair = eri1.shape
             if gpu:
                 #if count == 0:
@@ -74,13 +74,13 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                 rho = numpy.einsum('ix,px->ip', dmtril, eri1)
                 vj += numpy.einsum('ip,px->ix', rho, eri1)
 
-            lib.logger.timer(dfobj, 'get_jk not with_k loop iteration',*t6)
+            #lib.logger.timer(dfobj, 'get_jk not with_k loop iteration',*t6)
 
             count += 1
 
         if gpu:
             libgpu.libgpu_pull_get_jk(gpu, vj, vk, 0)
-        t3 = lib.logger.timer(dfobj, 'get_jk not with_k loop full',*t2)
+        #t3 = lib.logger.timer(dfobj, 'get_jk not with_k loop full',*t2)
 
 # Commented 2-19-2024 in favor of accelerated implementation below
 # Can offload this if need arises.
@@ -131,7 +131,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         #:vk = numpy.einsum('pij,jk->pki', cderi, dm)
         #:vk = numpy.einsum('pki,pkj->ij', cderi, vk)
         
-        t2 = (logger.process_clock(), logger.perf_counter())
+        #t2 = (logger.process_clock(), logger.perf_counter())
         rargs = (ctypes.c_int(nao), (ctypes.c_int*4)(0, nao, 0, nao),
                  null, ctypes.c_int(0))
 #        dms = [numpy.asarray(x, order='F') for x in dms]
@@ -143,7 +143,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         count = 0
         vj = numpy.zeros_like(dmtril)
 
-        t3 = lib.logger.timer(dfobj, 'get_jk with_k setup',*t2)
+        #t3 = lib.logger.timer(dfobj, 'get_jk with_k setup',*t2)
 
         load_eri = True
 
@@ -156,7 +156,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         if load_eri:
         
             for eri1 in dfobj.loop(blksize): # how much time spent unnecessarily copying eri1 data?
-                t6 = (logger.process_clock(), logger.perf_counter())
+                #t6 = (logger.process_clock(), logger.perf_counter())
                 naux, nao_pair = eri1.shape
 
                 if gpu:
@@ -182,13 +182,13 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                         vk[k] += lib.dot(buf1.reshape(-1,nao).T, buf2.reshape(-1,nao))
 
                 count+=1
-                lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
+                #lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
 
         else:
             
             nblk = arg[2]
             for count in range( arg[2] ):
-                t6 = (logger.process_clock(), logger.perf_counter())
+                #t6 = (logger.process_clock(), logger.perf_counter())
                 arg = numpy.array([-1, -1, count, -1], dtype=numpy.int32)
                 libgpu.libgpu_get_dfobj_status(gpu, id(dfobj), arg)
                 naux = arg[0]
@@ -198,19 +198,19 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                 if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
                 libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
                 
-                lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
+                #lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
                 
-        t4 = lib.logger.timer(dfobj, 'get_jk with_k loop full',*t3)
+        #t4 = lib.logger.timer(dfobj, 'get_jk with_k loop full',*t3)
         t1 = log.timer_debug1('jk', *t1)
 
         if gpu:
             libgpu.libgpu_pull_get_jk(gpu, vj, vk, 1)
-        t5 = lib.logger.timer(dfobj, 'get_jk with_k pull',*t4)
+        #t5 = lib.logger.timer(dfobj, 'get_jk with_k pull',*t4)
         
-    t2 = (logger.process_clock(), logger.perf_counter())
+    #t2 = (logger.process_clock(), logger.perf_counter())
     if with_j: vj = lib.unpack_tril(vj, 1).reshape(dm_shape)
     if with_k: vk = vk.reshape(dm_shape)
-    lib.logger.timer(dfobj, 'get_jk finalize',*t2)
+    #lib.logger.timer(dfobj, 'get_jk finalize',*t2)
     logger.timer(dfobj, 'df vj and vk', *t0)
     return vj, vk
 
