@@ -367,20 +367,21 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         kf2.mo_coeff[:,i:j] = mo_self[:,k:l]
 
         # Unentangled inactive orbitals
+        s0 = las._scf.get_ovlp ()
         ncore_unent = las.ncore - self.ncore
         assert (ncore_unent>=0), '{} {}'.format (las.ncore, self.ncore)
-        mo_full_core = kf2.mo_coeff[:,:las.ncore]
-        s0 = las._scf.get_ovlp ()
-        ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
-        proj = ovlp @ ovlp.conj ().T
-        evals, u = linalg.eigh (-proj)
-        try:
-            assert (ncore_unent==0 or np.amax (np.abs (evals[-ncore_unent:]))<1e-4)
-        except AssertionError as err:
-            log.warn ("push_keyframe imporb problem: ncore_unent = %d but max |evals[-ncore_unent:]| = %e",
-                      ncore_unent, np.amax (np.abs (evals[-ncore_unent:])))
-        if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
-        kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
+        if las.ncore:
+            mo_full_core = kf2.mo_coeff[:,:las.ncore]
+            ovlp = mo_full_core.conj ().T @ s0 @ imporb_coeff
+            proj = ovlp @ ovlp.conj ().T
+            evals, u = linalg.eigh (-proj)
+            try:
+                assert (ncore_unent==0 or np.amax (np.abs (evals[-ncore_unent:]))<1e-4)
+            except AssertionError as err:
+                log.warn ("push_keyframe imporb problem: ncore_unent = %d but max |evals[-ncore_unent:]| = %e",
+                          ncore_unent, np.amax (np.abs (evals[-ncore_unent:])))
+            if ncore_unent>0: kf2.mo_coeff[:,:ncore_unent] = mo_full_core @ u[:,-ncore_unent:]
+            kf2.mo_coeff[:,ncore_unent:las.ncore] = mo_self[:,:self.ncore]
         
         # Canonicalize unentangled inactive orbitals
         # Be careful not to touch kf2.h2eff_sub or kf2.fock1 until we're done
@@ -395,26 +396,27 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         nvirt_full = kf2.mo_coeff.shape[1] - las.ncore - las.ncas
         nvirt_self = mo_coeff.shape[1] - self.ncore - self.ncas
         nvirt_unent = nvirt_full - nvirt_self
-        assert (nvirt_unent>=0), '{} {}'.format (nvirt_full, nvirt_self)
-        mo_full_virt = kf2.mo_coeff[:,las.ncore+las.ncas:]
-        ovlp = mo_full_virt.conj ().T @ s0 @ imporb_coeff
-        proj = ovlp @ ovlp.conj ().T
-        evals, u = linalg.eigh (-proj)
-        try:
-            assert (nvirt_unent==0 or np.amax (np.abs (evals[-nvirt_unent:]))<1e-4)
-        except AssertionError as err:
-            log.warn ("push_keyframe imporb problem: nvirt_unent = %d but max |evals[-nvirt_unent:]| = %e",
-                      nvirt_unent, np.amax (np.abs (evals[-nvirt_unent:])))
-        if nvirt_unent>0:
-            kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
-            kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
-            # Canonicalize unentangled virtual orbitals
-            mo_a = kf2.mo_coeff[:,-nvirt_unent:]
-            f0_ab = mo_a.conj ().T @ f0 @ mo_a
-            w, u = linalg.eigh (f0_ab)
-            kf2.mo_coeff[:,-nvirt_unent:] = mo_a @ u
-        else:
-            kf2.mo_coeff[:,las.ncore+las.ncas:] = mo_self[:,self.ncore+self.ncas:]
+        if nvirt_full:
+            assert (nvirt_unent>=0), '{} {}'.format (nvirt_full, nvirt_self)
+            mo_full_virt = kf2.mo_coeff[:,las.ncore+las.ncas:]
+            ovlp = mo_full_virt.conj ().T @ s0 @ imporb_coeff
+            proj = ovlp @ ovlp.conj ().T
+            evals, u = linalg.eigh (-proj)
+            try:
+                assert (nvirt_unent==0 or np.amax (np.abs (evals[-nvirt_unent:]))<1e-4)
+            except AssertionError as err:
+                log.warn ("push_keyframe imporb problem: nvirt_unent = %d but max |evals[-nvirt_unent:]| = %e",
+                          nvirt_unent, np.amax (np.abs (evals[-nvirt_unent:])))
+            if nvirt_unent>0:
+                kf2.mo_coeff[:,-nvirt_unent:] = mo_full_virt @ u[:,-nvirt_unent:]
+                kf2.mo_coeff[:,las.ncore+las.ncas:-nvirt_unent] = mo_self[:,self.ncore+self.ncas:]
+                # Canonicalize unentangled virtual orbitals
+                mo_a = kf2.mo_coeff[:,-nvirt_unent:]
+                f0_ab = mo_a.conj ().T @ f0 @ mo_a
+                w, u = linalg.eigh (f0_ab)
+                kf2.mo_coeff[:,-nvirt_unent:] = mo_a @ u
+            else:
+                kf2.mo_coeff[:,las.ncore+las.ncas:] = mo_self[:,self.ncore+self.ncas:]
 
         return kf2
 
@@ -483,14 +485,16 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         # Canonicalize core and virtual spaces
         fock = las.get_fock (veff=veff, dm1s=dm1s)
         fock = imporb_coeff.conj ().T @ fock @ imporb_coeff
-        mo_core = self.mo_coeff[:,:self.ncore]
-        fock_core = mo_core.conj ().T @ fock @ mo_core
-        w, c = linalg.eigh (fock_core)
-        self.mo_coeff[:,:self.ncore] = mo_core @ c
-        mo_virt = self.mo_coeff[:,nocc:]
-        fock_virt = mo_virt.conj ().T @ fock @ mo_virt
-        w, c = linalg.eigh (fock_virt)
-        self.mo_coeff[:,nocc:] = mo_virt @ c
+        if self.ncore:
+            mo_core = self.mo_coeff[:,:self.ncore]
+            fock_core = mo_core.conj ().T @ fock @ mo_core
+            w, c = linalg.eigh (fock_core)
+            self.mo_coeff[:,:self.ncore] = mo_core @ c
+        if (self.mo_coeff.shape[1] - nocc):
+            mo_virt = self.mo_coeff[:,nocc:]
+            fock_virt = mo_virt.conj ().T @ fock @ mo_virt
+            w, c = linalg.eigh (fock_virt)
+            self.mo_coeff[:,nocc:] = mo_virt @ c
 
     def _update_impurity_hamiltonian_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
