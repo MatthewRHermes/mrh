@@ -3,6 +3,7 @@ from scipy import linalg
 from pyscf import lib
 from pyscf.mcscf import mc1step
 from mrh.my_pyscf.mcscf import lasci, lasscf_sync_o0
+from mrh.my_pyscf.mcscf.lasscf_guess import interpret_frags_atoms
 from mrh.my_pyscf.mcscf.lasscf_async.split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async.crunch import get_impurity_casscf
 from mrh.my_pyscf.mcscf.lasscf_async.keyframe import LASKeyframe
@@ -145,16 +146,34 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         return LASKeyframe (self, mo_coeff, ci)
     as_scanner = mc1step.as_scanner
     def set_fragments_(self, frags_atoms=None, mo_coeff=None, localize_init_guess=True,
-                       **kwargs):
-        # TODO: frags_orbs on input (requires refactoring localize_init_guess)
-        ao_offset = self.mol.offset_ao_by_atom ()
-        frags_orbs = [[orb for atom in frag_atom
-                       for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
-                      for frag_atom in frags_atoms]
-        self.frags_orbs = frags_orbs
+                       frags_by_AOs=False, **kwargs):
+        ''' Project active orbitals into sets of orthonormal "fragments" defined by frags_atoms,
+        cache the resulting frags_orbs member, and call localize_init_guess. Passes on unlisted
+        kwargs to localize_init_guess call.
+    
+        Kwargs:
+            frags_atoms: list of length nfrags
+                Contains either lists of integer atom indices, or lists of
+                strings which are passed to mol.search_ao_label, which define
+                fragments into which the active orbitals are to be localized
+            mo_coeff: ndarray of shape (nao, nmo)
+                Molecular orbital coefficients containing active orbitals
+                on columns ncore:ncore+ncas
+            localize_init_guess: logical
+                If false, this step is skipped and mo_coeff is returned unaltered
+            frags_by_AOs: logical
+                If True, interpret integer frags_atoms as AOs rather than atoms
+    
+        Returns:
+            mo_coeff: ndarray of shape (nao,nmo)
+                Orbital coefficients after localization of the active space;
+                columns in the order (inactive,las1,las2,...,lasn,external)
+        '''
+        self.frags_orbs = interpret_frags_atoms (self.mol, frags_atoms, frags_by_AOs=frags_by_AOs)
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if localize_init_guess:
-            mo_coeff = self.localize_init_guess (frags_atoms, mo_coeff=mo_coeff, **kwargs) 
+            mo_coeff = self.localize_init_guess (self.frags_orbs, mo_coeff=mo_coeff,
+                                                 frags_by_AOs=True, **kwargs) 
         return mo_coeff
     def dump_flags (self, verbose=None, _method_name='LASSCF'):
         lasci.LASCINoSymm.dump_flags (self, verbose=verbose, _method_name=_method_name)
