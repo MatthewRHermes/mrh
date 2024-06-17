@@ -663,7 +663,7 @@ def state_average_(las, weights=[0.5,0.5], charges=None, spins=None,
     wfnsyms = np.asarray (wfnsyms)
     spins = np.asarray (spins)
     smults = np.asarray (smults)
-    if np.issubsctype (wfnsyms.dtype, np.str_):
+    if np.issubdtype (wfnsyms.dtype, np.str_):
         wfnsyms_str = wfnsyms
         wfnsyms = np.zeros (wfnsyms_str.shape, dtype=np.int32)
         for ix, wfnsym in enumerate (wfnsyms_str.flat):
