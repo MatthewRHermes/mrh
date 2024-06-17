@@ -177,7 +177,7 @@ def localize_init_guess (las, frags_atoms, mo_coeff=None, spin=None, lo_coeff=No
     return _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=freeze_cas_spaces)
 
 def interpret_frags_atoms (mol, frags_atoms, frags_by_AOs=False):
-    frags_atoms_int = all ([all ([isinstance (i, int) for i in j]) for j in frags_atoms])
+    frags_atoms_int = all ([all ([isinstance (i, (int,np.integer)) for i in j]) for j in frags_atoms])
     frags_atoms_str = all ([all ([isinstance (i, str) for i in j]) for j in frags_atoms])
     if frags_atoms_int:
         if frags_by_AOs: return frags_atoms
@@ -186,7 +186,7 @@ def interpret_frags_atoms (mol, frags_atoms, frags_by_AOs=False):
                        for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
                       for frags_atoms in frags_atoms]
     elif frags_atoms_str:
-        frags_orbs = [mol.search_ao_label (i) for i in frags_atoms]
+        frags_orbs = [list (mol.search_ao_label (i)) for i in frags_atoms]
     else:
         raise RuntimeError ('localize_init_guess requires either all integers or all strings to identify fragments')
     return frags_orbs
