@@ -137,7 +137,7 @@ def _print_states (log, iroot, space_weights, state_coeffs, lroots, print_all_bu
     return
 
 def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', ncsf=10,
-             return_metrics=False):
+             return_metrics=False, do_natorb=True):
     '''Print out analysis of LASSI result in terms of average quantum numbers
     and density matrix analyses of the lroots in each rootspace
 
@@ -163,6 +163,9 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
             Number of leading CSFs of each basis function to print.
         return_metrics: logical
             If True, returns space_weights, navg, maxw, and entr arrays; see below.
+        do_natorb: logical
+            If True, include a natural-orbital analysis (which is sometimes very
+            slow due to poor optimization of LASSI op_o1 RDM build functions)
 
     Returns:
         ci1: list of list of ndarray
@@ -194,15 +197,16 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
     nstates = len (states)
 
     log = lib.logger.new_logger (las, las.verbose)
-    log.info ("Natural-orbital analysis for state(s) %s", str (state))
-    casdm1s = root_make_rdm12s (las, ci, si, state=state)[0]
-    if nstates > 1:
-        casdm1s = casdm1s.sum (0) / nstates
-    casdm1 = casdm1s.sum (0)
-    if isinstance (las, LASSI):
-        no_coeff, no_ene, no_occ = las._las.canonicalize (natorb_casdm1=casdm1)[:3]
-    else:
-        no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
+    if do_natorb:
+        log.info ("Natural-orbital analysis for state(s) %s", str (state))
+        casdm1s = root_make_rdm12s (las, ci, si, state=state)[0]
+        if nstates > 1:
+            casdm1s = casdm1s.sum (0) / nstates
+        casdm1 = casdm1s.sum (0)
+        if isinstance (las, LASSI):
+            no_coeff, no_ene, no_occ = las._las.canonicalize (natorb_casdm1=casdm1)[:3]
+        else:
+            no_coeff, no_ene, no_occ = las.canonicalize (natorb_casdm1=casdm1)[:3]
 
     log.info ("Analyzing LASSI vectors for states = %s",str(state))
     for st in states:
