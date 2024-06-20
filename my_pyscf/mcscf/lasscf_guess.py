@@ -178,7 +178,7 @@ def localize_init_guess (las, frags_atoms, mo_coeff=None, spin=None, lo_coeff=No
 
 def interpret_frags_atoms (mol, frags_atoms, frags_by_AOs=False):
     frags_atoms_int = all ([all ([isinstance (i, (int,np.integer)) for i in j]) for j in frags_atoms])
-    frags_atoms_str = all ([all ([isinstance (i, str) for i in j]) for j in frags_atoms])
+    frags_atoms_str = all ([all ([isinstance (i, (str,np.character)) for i in j]) for j in frags_atoms])
     if frags_atoms_int:
         if frags_by_AOs: return frags_atoms
         ao_offset = mol.offset_ao_by_atom ()
