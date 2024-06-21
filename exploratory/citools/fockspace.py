@@ -78,7 +78,7 @@ def fermion_spin_shuffle (norb, norb_f):
     nelec_f = np.zeros ((ndet, nfrag), dtype=np.int8)
     for ifrag, n in enumerate (ndet_f):
         addrs, fragaddrs = np.divmod (addrs, n)
-        nelec_f[:,ifrag] = ADDRS_NELEC[fragaddrs]
+        nelec_f[:,ifrag] = ADDRS_NELEC[fragaddrs.astype (int)]
     ne_f, ne_f_idx = np.unique (nelec_f, return_inverse=True, axis=0)
     for (ia, na_f), (ib, nb_f) in product (enumerate (ne_f), repeat=2):
         idx_a = ne_f_idx == ia
