@@ -81,8 +81,8 @@ def fermion_spin_shuffle (norb, norb_f):
         nelec_f[:,ifrag] = ADDRS_NELEC[fragaddrs.astype (int)]
     ne_f, ne_f_idx = np.unique (nelec_f, return_inverse=True, axis=0)
     for (ia, na_f), (ib, nb_f) in product (enumerate (ne_f), repeat=2):
-        idx_a = ne_f_idx == ia
-        idx_b = ne_f_idx == ib
+        idx_a = np.squeeze (ne_f_idx == ia)
+        idx_b = np.squeeze (ne_f_idx == ib)
         idx = np.ix_(idx_a,idx_b)
         sgn[idx] = _fss (na_f, nb_f)
     assert (np.count_nonzero (sgn==0) == 0)
