@@ -15,7 +15,7 @@ def decompose_sivec_by_rootspace (las, si, ci=None):
     if ci is None: ci=las.ci
     if si.ndim==1: si = si[:,None]
     lroots = get_lroots (ci)
-    nstates = np.product (lroots, axis=0)
+    nstates = np.prod (lroots, axis=0)
     jj = np.cumsum (nstates)
     ii = jj - nstates
     nspaces = las.nroots

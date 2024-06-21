@@ -207,7 +207,7 @@ class _LASSI_subspace_env (object):
 def iterate_subspace_blocks (las, ci, spacesym, subset=None):
     if subset is None: subset = set (spacesym)
     lroots = get_lroots (ci)
-    nprods_r = np.product (lroots, axis=0)
+    nprods_r = np.prod (lroots, axis=0)
     prod_off = np.cumsum (nprods_r) - nprods_r
     nprods = nprods_r.sum ()
     for sym in subset:

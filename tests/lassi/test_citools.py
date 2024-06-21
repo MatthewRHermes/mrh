@@ -14,7 +14,7 @@ def tearDownModule():
     pass
 
 def case_umat_dot_1frag (ks, rng, nroots, nfrags, nvecs, lroots):
-    nstates = np.product (lroots, axis=0).sum ()
+    nstates = np.prod (lroots, axis=0).sum ()
     if nvecs > nstates: return
     si = np.empty ((0,0))
     for i in range (100):

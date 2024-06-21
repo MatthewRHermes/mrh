@@ -48,7 +48,7 @@ def get_rootaddr_fragaddr (lroots):
             The ordinal designation local to each fragment of each LAS state.
     '''
     nfrags, nroots = lroots.shape
-    nprods = np.product (lroots, axis=0)
+    nprods = np.prod (lroots, axis=0)
     fragaddr = np.zeros ((nfrags, sum(nprods)), dtype=int)
     rootaddr = np.zeros (sum(nprods), dtype=int)
     offs = np.cumsum (nprods)
@@ -56,8 +56,8 @@ def get_rootaddr_fragaddr (lroots):
         j = offs[iroot]
         i = j - nprods[iroot]
         for ifrag in range (nfrags):
-            prods_before = np.product (lroots[:ifrag,iroot], axis=0)
-            prods_after = np.product (lroots[ifrag+1:,iroot], axis=0)
+            prods_before = np.prod (lroots[:ifrag,iroot], axis=0)
+            prods_after = np.prod (lroots[ifrag+1:,iroot], axis=0)
             addrs = np.repeat (np.arange (lroots[ifrag,iroot]), prods_before)
             addrs = np.tile (addrs, prods_after)
             fragaddr[ifrag,i:j] = addrs
@@ -88,7 +88,7 @@ def umat_dot_1frag_(target, umat, lroots, ifrag, iroot, axis=0):
     Returns:
         target: same as input target
             After application of unitary transformation'''
-    nprods = np.product (lroots, axis=0)
+    nprods = np.prod (lroots, axis=0)
     offs = [0,] + list (np.cumsum (nprods))
     i, j = offs[iroot], offs[iroot+1]
     newaxes = [axis,] + list (range (axis)) + list (range (axis+1, target.ndim))
