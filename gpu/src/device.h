@@ -75,6 +75,10 @@ public :
   void hessop_get_veff(int, int, int, int,
 		       py::array_t<double>, py::array_t<double>, py::array_t<double>);
 
+  void df_ao2mo_pass1_fdrv (int, int, int, int,
+		       py::array_t<double>, py::array_t<double>,
+		       py::array_t<double>);
+ 
   void hessop_push_bPpj(py::array_t<double>);
   
   void orbital_response(py::array_t<double>,
@@ -209,9 +213,10 @@ private:
   int fmmm(double *, double *, double *,
 	   struct my_AO2MOEnvs *, int);
   
+
   void NPdsymm_triu(int, double *, int);
   void NPdunpack_tril(int, double *, double *, int);
-    
+/*--------------------------------------------*/
 #ifdef _SIMPLE_TIMER
   double * t_array;
 #endif

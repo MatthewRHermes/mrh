@@ -399,13 +399,84 @@ int Device::fmmm(double *vout, double *vin, double *buf,
          &D0, vout, &nao);
   return 0;
 }
-
 /* ---------------------------------------------------------------------- */
+void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize, 
+			py::array_t<double> _bufpp, py::array_t<double> _mo_coeff, py::array_t<double> _eri1)
+{
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+  int orbs_slice[4] = {0, nao, 0, nao};
+  //fmmm = _ao2mo.libao2mo.AO2MOmmm_nr_s2_iltj
+  //fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
+  //ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2
+  //fdrv(ftrans, fmmm,
+  //     bufpp.ctypes.data_as(ctypes.c_void_p),
+  //     eri1.ctypes.data_as(ctypes.c_void_p),
+  //     mo.ctypes.data_as(ctypes.c_void_p),
+  //     ctypes.c_int(naux), ctypes.c_int(nao),
+  //     (ctypes.c_int*4)(0, nmo, 0, nmo),
+  //     ctypes.c_void_p(0), ctypes.c_int(0))
+  {
+  py::buffer_info info_eri1 = _eri1.request(); // 2D array (blksize, nao_pair) nao_pair= nao*(nao+1)/2
+  py::buffer_info info_bufpp = _bufpp.request(); // 3D array (blksize,nmo,nmo)
+  py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (nmo, nmo)
+  double * eri1 = static_cast<double*>(info_eri1.ptr);
+  double * bufpp = static_cast<double*>(info_bufpp.ptr);
+  double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
+  int bra_start = orbs_slice[0];
+  int bra_count = orbs_slice[1] - orbs_slice[0];
+  int ket_start = orbs_slice[2];
+  int ket_count = orbs_slice[3] - orbs_slice[2];
+  {
+    int i_count = bra_count;
+    int j_count = ket_count;
+    double *buf = (double *) malloc(sizeof(double) * (nao+i_count) * (nao+j_count));//always (2*nao x 2*nao)?
+    for (int i = 0; i < naux; i++) {
+    //const int it = omp_get_thread_num();
+    //double * buf = &(_buf[it * 4 * nao * nao]);
+    //(*ftrans)(fmmm, i, vout, vin, buf, &envs);//vout=bufpp,vin=eri1
+      //AO2MOtranse2_nr_s2(fmmm, row_id,vout,vin,buf,envs)//row_id=i,vout=bufpp,vin=eri1
+        //AO2MOtranse2_nr_s2kl(fmmm, row_id, vout, vin, buf, envs);//row_id=i,vout=bufpp,vim=eri1
+        const int ij_pair = i_count*j_count;//(*fmmm)(NULL, NULL, buf, envs, OUTPUTIJ);//ij_pair=nmo*nmo
+        const int nao2 = nao*(nao+1)/2;//(*fmmm)(NULL, NULL, buf, envs, INPUT_IJ);//
+         //NPdunpack_tril(nao, vin+nao2*row_id, buf, 0);//vin=eri1,row_id=i
+           int _i, _j, _ij;
+           //double * vin = eri1
+           double * tril = eri1 + nao2*i;
+           for (_ij = 0, _i = 0; _i < nao; _i++) 
+             for (_j = 0; _j <= _i; _j++, _ij++) buf[_i*nao+_j] = tril[_ij];
+         //(*fmmm)(vout+ij_pair*row_id, buf, buf+nao*nao, envs, 0);//vout=bufpp,row_id=i,buf=reshaped eri row
+           double * _buf = buf + nao*nao;
+           double * _eri = buf ;
+           double * _vout = bufpp + ij_pair*i;
+	   const double DO = 0;
+	   const double D1 = 1;
+	   const char SIDE_L = 'L';
+           const char UPLO_U = 'U';
+           const char TRANS_T = 'T';
+           const char TRANS_N = 'N';
+           int i_start = bra_start;
+           int j_start = ket_start;
+        // C_pi (pq| = (iq|, where (pq| is in C-order
+           dsymm_(&SIDE_L, &UPLO_U, &nao, &i_count,
+               &D1, _eri, &nao, mo_coeff+i_start*nao, &nao,
+               &D0, _buf, &nao);
+        // C_qj (iq| = (ij|
+        dgemm_(&TRANS_T, &TRANS_N, &j_count, &i_count, &nao,
+               &D1, mo_coeff+j_start*nao, &nao, _buf, &nao,
+               &D0, _vout, &j_count);
+        return 0;
+}
+
+
+
 
 void Device::hessop_push_bPpj(py::array_t<double> _bPpj) {}
 
-/* ---------------------------------------------------------------------- */
 
+
+/* ---------------------------------------------------------------------- */
 void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 		    py::array_t<double> _bPpj, py::array_t<double> _vPpj, py::array_t<double> _vk_bj)
 {
