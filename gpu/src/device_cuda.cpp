@@ -113,8 +113,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     dd->d_tril_map.push_back(nullptr);
 
     dd->tril_map[indx] = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
-    dd->d_tril_map[indx] = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
-    
     int _i, _j, _ij;
     int * tm = dd->tril_map[indx];
     for(_ij = 0, _i = 0; _i < nao; _i++)
@@ -861,7 +859,157 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 }
 
 /* ---------------------------------------------------------------------- */
+void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize, 
+			py::array_t<double> _bufpp, py::array_t<double> _mo_coeff, py::array_t<double> _eri1)
+{
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Inside Device::df_ao2mo_pass1_fdrv()\n");
+#endif
 
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+  profile_start(" df_ao2mo_pass1_fdrv ");
+  const int device_id = count % num_devices;
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
+
+  int orbs_slice[4] = {0, nao, 0, nao};
+  //fmmm = _ao2mo.libao2mo.AO2MOmmm_nr_s2_iltj
+  //fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
+  //ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2
+  //fdrv(ftrans, fmmm,
+  //     bufpp.ctypes.data_as(ctypes.c_void_p),
+  //     eri1.ctypes.data_as(ctypes.c_void_p),
+  //     mo.ctypes.data_as(ctypes.c_void_p),
+  //     ctypes.c_int(naux), ctypes.c_int(nao),
+  //     (ctypes.c_int*4)(0, nmo, 0, nmo),
+  //     ctypes.c_void_p(0), ctypes.c_int(0))
+  {
+  py::buffer_info info_eri1 = _eri1.request(); // 2D array (blksize, nao_pair) nao_pair= nao*(nao+1)/2
+  py::buffer_info info_bufpp = _bufpp.request(); // 3D array (blksize,nmo,nmo)
+  py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (nmo, nmo)
+  double * eri1 = static_cast<double*>(info_eri1.ptr);//Is this needed?
+  int _size_eri = blksize * nao_pair; 
+  if (_size_eri1 > dd->size_eri1){
+    dd->size_eri1 = _size_eri1;
+    if (dd->d_eri1) pm->dev_free(dd->d_eri1);
+    dd->d_eri1 = (double *) pm->dev_malloc(_size_eri1 *sizeof(double));
+  } //Allocating eri
+  double * bufpp = static_cast<double*>(info_bufpp.ptr);
+  int _size_bufpp = blksize * nmo * nmo;
+  if (_size_bufpp > dd->size_bufpp){
+    dd->size_bufpp = _size_bufpp;
+    if (dd->d_bufpp) pm->dev_free(dd->d_bufpp);
+    dd->d_bufpp = (double *) pm->dev_malloc(_size_bufpp *sizeof(double));
+  } //Allocating bufpp (can be not used since it seems update of bufpp is done rowwise)
+  double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
+  int _size_mo_coeff = nmo * nmo;
+  if (_size_mo_coeff > dd->size_mo_coeff){
+    dd->size_mo_coeff = _size_mo_coeff;
+    if (dd->d_mo_coeff) pm->dev_free(dd->d_mo_coeff);
+    dd->d_mo_coeff = (double *) pm->dev_malloc(_size_mo_coeff *sizeof(double));
+  } //Allocating mo_coeff
+  int bra_start = orbs_slice[0];
+  int bra_count = orbs_slice[1] - orbs_slice[0];
+  int ket_start = orbs_slice[2];
+  int ket_count = orbs_slice[3] - orbs_slice[2];
+  // 1-time initialization
+  // Create cuda stream
+  if(dd->stream == nullptr) pm->dev_stream_create(dd->stream);
+  // Create blas handle
+  if(dd->handle == nullptr) {
+#ifdef _DEBUG_DEVICE
+    printf(" -- calling cublasCreate(&handle)\n");
+#endif
+    cublasCreate(&(dd->handle));
+    _CUDA_CHECK_ERRORS();
+#ifdef _DEBUG_DEVICE
+    printf(" -- calling cublasSetStream(handle, stream)\n");
+#endif
+    cublasSetStream(dd->handle, dd->stream);
+    _CUDA_CHECK_ERRORS();
+  }
+  {
+    int i_count = bra_count;
+    int j_count = ket_count;
+    int _size_buf = (nao + i_count)* (nao + j_count);
+    double *buf = (double *) malloc(sizeof(double) * _size_buf);//always (2*nao x 2*nao)
+    if (_size_buf > dd-> size_buf){
+      dd->size_buf = _size_buf;
+      if (dd->d_buf) pm->dev_free(dd->d_buf);
+      dd->d_buf= (double *) pm->dev_malloc(_size_buf *sizeof(double));
+    }
+    for (int i = 0; i < naux; i++) {
+    //(*ftrans)(fmmm, i, vout, vin, buf, &envs);//vout=bufpp,vin=eri1
+      //AO2MOtranse2_nr_s2(fmmm, row_id,vout,vin,buf,envs)//row_id=i,vout=bufpp,vin=eri1
+        //AO2MOtranse2_nr_s2kl(fmmm, row_id, vout, vin, buf, envs);//row_id=i,vout=bufpp,vim=eri1
+        const int ij_pair = i_count*j_count;//(*fmmm)(NULL, NULL, buf, envs, OUTPUTIJ);//ij_pair=nmo*nmo
+        const int nao2 = nao*(nao+1)/2;//(*fmmm)(NULL, NULL, buf, envs, INPUT_IJ);//
+         //NPdunpack_tril(nao, vin+nao2*row_id, buf, 0);//vin=eri1,row_id=i
+           int _i, _j, _ij;
+           //double * vin = eri1
+           double * tril = eri1 + nao2*i;
+           for (_ij = 0, _i = 0; _i < nao; _i++) 
+             for (_j = 0; _j <= _i; _j++, _ij++) buf[_i*nao+_j] = tril[_ij];
+         //(*fmmm)(vout+ij_pair*row_id, buf, buf+nao*nao, envs, 0);//vout=bufpp,row_id=i,buf=reshaped eri row
+           double * _buf = buf + nao*nao;
+           double * _eri = buf ;
+           double * _vout = bufpp + ij_pair*i;
+	   //const double DO = 0;
+	   //const double D1 = 1;
+	   //const char SIDE_L = 'L';
+           //const char UPLO_U = 'U';
+           //const char TRANS_T = 'T';
+           //const char TRANS_N = 'N';
+           int i_start = bra_start;
+           int j_start = ket_start;
+           double alpha = 1.0;
+           double beta = 0.0;
+
+        // C_pi (pq| = (iq|, where (pq| is in C-order
+           //dsymm_(&SIDE_L, &UPLO_U, &nao, &i_count,
+           //    &D1, _eri, &nao, mo_coeff+i_start*nao, &nao,
+           //    &D0, _buf, &nao);
+           cublasDsymm(dd->handle, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, nao, i_count,
+                    &alpha, dd->d_eri1, nao, dd->d_mo_coeff + i_start * nao, nao,
+                    &beta, dd->d_buf, nao);
+        _CUDA_CHECK_ERRORS();
+
+        // C_qj (iq| = (ij|
+           //dgemm_(&TRANS_T, &TRANS_N, &j_count, &i_count, &nao,
+           //    &D1, mo_coeff+j_start*nao, &nao, _buf, &nao,
+           //    &D0, _vout, &j_count);
+           cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N, j_count, i_count, nao,
+                    &alpha, dd->d_mo_coeff + j_start * nao, nao, dd->d_buf, nao,
+                    &beta, dd->d_bufpp + ij_pair * i, j_count);
+        _CUDA_CHECK_ERRORS();
+	   //pm->dev_push(dd->d_eri1, h_buf.data(), nao * nao * sizeof(double));
+
+
+        // C_pi (pq| = (iq|
+        // C_qj (iq| = (ij|
+    }
+   	{
+    const double alpha = 1.0;
+    const double beta = 0.0;
+    
+    const int m = nocc; // # of rows in first matrix
+    const int n = nvirt; // # of columns in second matrix
+    const int k = naux*nocc; // # of columns in first matrix
+    
+    const int lda = nocc;
+    const int ldb = nocc*naux;
+    const int ldc = nocc;
+    
+    cublasDgemm(dd->handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, dd->d_buf2, lda, d_vPpj, ldb, &beta, d_vk_bj, ldc);
+  }
+  
+     return 0;
+    }
+  }
+  }
+}
 __global__ void _hessop_get_veff_reshape1(double * vPpj, double * buf, int nmo, int nocc, int ncore, int nvirt, int naux)
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;

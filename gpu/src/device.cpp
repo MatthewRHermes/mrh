@@ -4,7 +4,7 @@
 
 #include "device.h"
 
-#define _NUM_SIMPLE_TIMER 4
+#define _NUM_SIMPLE_TIMER 5
 
 #define _DEBUG_OPENMP
 
@@ -141,6 +141,9 @@ Device::~Device()
   
   printf("\nLIBGPU :: SIMPLE_TIMER :: orbital_response\n");
   printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= orbital_response() time= %f s\n",4,t_array[4]);
+
+  printf("\nLIBGPU :: SIMPLE_TIMER :: df_ao2mo_pass1_fdrv\n");
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= df_ao2mo_pass1_fdrv() time= %f s\n",5,t_array[5]);
   
   printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
   
@@ -759,3 +762,5 @@ void Device::profile_next(const char * label)
 }
 
 /* ---------------------------------------------------------------------- */
+
+

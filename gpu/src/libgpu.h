@@ -39,7 +39,10 @@ extern "C"
   void libgpu_hessop_get_veff(void *,
 			      int, int, int, int,
 			      py::array_t<double>, py::array_t<double>, py::array_t<double>);
-  
+  void libgpu_df_ao2mo_pass1_fdrv (void *,
+			      int, int, int, int,
+			      py::array_t<double>, py::array_t<double>,
+			      py::array_t<double>); 
   void libgpu_hessop_push_bPpj(void *,
 			       py::array_t<double>);
   
@@ -71,6 +74,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_get_dfobj_status", &libgpu_get_dfobj_status, "retrieve info on dfobj and cached eri blocks on device");
 
   m.def("libgpu_hessop_get_veff", &libgpu_hessop_get_veff, "lasci_sync.py::get_veff() for HessianOperator");
+  m.def("libgpu_df_ao2mo_pass1_fdrv", &libgpu_df_ao2mo_pass1_fdrv, "pyscf/mcscf/df.py::_ERIS.__init__() part 1");
   m.def("libgpu_hessop_push_bPpj", &libgpu_hessop_push_bPpj, "bPpj array for HessianOperator");
   
   m.def("libgpu_orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
