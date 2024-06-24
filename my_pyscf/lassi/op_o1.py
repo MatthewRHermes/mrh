@@ -880,11 +880,11 @@ class LSTDMint2 (object):
         eqmap = idx[inv]
         for uniq_idx in idx:
             row_uniq = excp[uniq_idx]
-            try:
-                braket_images = exc[:,:2][eqmap==uniq_idx]
-            except IndexError as err:
-                uniq_idxs = np.tile (eqmap==uniq_idx, [1,2])
-                braket_images = exc[:,:2][uniq_idxs].reshape (-1,2)
+            #try:
+            #    braket_images = exc[:,:2][eqmap==uniq_idx]
+            #except IndexError as err:
+            uniq_idxs = np.tile (eqmap==uniq_idx, [1,2])
+            braket_images = exc[:,:2][uniq_idxs].reshape (-1,2)
             assert (braket_images.ndim==2), '{} {}'.format (np.count_nonzero (eqmap==uniq_idx), braket_images.shape)
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
