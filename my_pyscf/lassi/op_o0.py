@@ -21,7 +21,7 @@ def memcheck (las, ci, soc=None):
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
                             for c in ci_r]
                            for ci_r in ci])
-    lroots_r = np.product (lroots_fr, axis=0)
+    lroots_r = np.prod (lroots_fr, axis=0)
     nelec_frs = np.array ([[list (_unpack_nelec (fcibox._get_nelec (solver, nelecas)))
                             for solver in fcibox.fcisolvers]
                            for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)])

@@ -46,7 +46,7 @@ def spincases (p_idxs, norb):
     m = np.array ([0])
     for ielec in range (nelec):
         q_idxs = p_idxs.copy ()
-        q_idxs[:,ielec] += norb
+        q_idxs[:,ielec] += np.array ([norb], dtype=q_idxs.dtype)
         p_idxs = np.append (p_idxs, q_idxs, axis=0)
         m = np.append (m, m+1)
     p_sorted = np.stack ([np.sort (prow) for prow in p_idxs], axis=0)
