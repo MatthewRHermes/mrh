@@ -880,7 +880,10 @@ class LSTDMint2 (object):
         eqmap = idx[inv]
         for uniq_idx in idx:
             row_uniq = excp[uniq_idx]
-            braket_images = exc[:,:2][(eqmap==uniq_idx)[:,None]]
+            try:
+                braket_images = exc[:,:2][eqmap==uniq_idx]
+            except IndexError as err:
+                raise IndexError ('{} {} {} {}'.format (exc.shape, eqmap.shape, uniq_idx.shape, (eqmap==uniq_idx).shape))
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
         nuniq = len (idx)
