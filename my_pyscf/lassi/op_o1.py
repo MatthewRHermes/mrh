@@ -882,7 +882,7 @@ class LSTDMint2 (object):
             row_uniq = excp[uniq_idx]
             # crazy numpy v1 vs v2 dimensionality issue here
             uniq_idxs = np.where (eqmap==uniq_idx)[0]
-            braket_images = exc[np.ix_(uniq_idxs,[0,2])]
+            braket_images = exc[np.ix_(uniq_idxs,[0,1])]
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
         nuniq = len (idx)
