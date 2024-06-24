@@ -877,14 +877,12 @@ class LSTDMint2 (object):
         fprint = np.asarray (fprint)
         nexc = len (exc)
         _, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
-        eqmap = idx[inv]
+        eqmap = np.squeeze (idx[inv])
         for uniq_idx in idx:
             row_uniq = excp[uniq_idx]
             # crazy numpy v1 vs v2 dimensionality issue here
-            uniq_idxs = eqmap==uniq_idx
-            if uniq_idxs.ndim==1: uniq_idxs = uniq_idxs[:,None]
-            uniq_idxs = np.tile (uniq_idxs, [1,2])
-            braket_images = exc[:,:2][uniq_idxs].reshape (-1,2)
+            uniq_idxs = np.where (eqmap==uniq_idx)[0]
+            braket_images = exc[np.ix_(uniq_idxs,[0,1])]
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
         nuniq = len (idx)
