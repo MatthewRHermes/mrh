@@ -880,7 +880,10 @@ class LSTDMint2 (object):
         eqmap = idx[inv]
         for uniq_idx in idx:
             row_uniq = excp[uniq_idx]
-            uniq_idxs = np.tile (eqmap==uniq_idx, [1,2])
+            # crazy numpy v1 vs v2 dimensionality issue here
+            uniq_idxs = eqmap==uniq_idx
+            if uniq_idxs.ndim==1: uniq_idxs = uniq_idxs[:,None]
+            uniq_idxs = np.tile (uniq_idxs, [1,2])
             braket_images = exc[:,:2][uniq_idxs].reshape (-1,2)
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
