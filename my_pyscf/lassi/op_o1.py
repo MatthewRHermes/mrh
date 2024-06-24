@@ -877,13 +877,14 @@ class LSTDMint2 (object):
         fprint = np.asarray (fprint)
         nexc = len (exc)
         _, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
-        eqmap = np.squeeze (idx[inv])
+        eqmap = idx[inv]
         for uniq_idx in idx:
             row_uniq = excp[uniq_idx]
             try:
                 braket_images = exc[:,:2][eqmap==uniq_idx]
             except IndexError as err:
-                raise IndexError ('{} {} {} {} {}'.format (exc.shape, eqmap.shape, uniq_idx, (eqmap==uniq_idx).shape), np.count_nonzero (eqmap==uniq_idx))
+                braket_images = exc[:,:2][np.squeeze (eqmap==uniq_idx)]
+            assert (braket_images.ndim==2)
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
         nuniq = len (idx)
