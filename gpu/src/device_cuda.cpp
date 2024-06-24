@@ -913,10 +913,10 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
     double *buf = (double *) malloc(sizeof(double) * _size_buf);//
     int _size_buf_eri = (nao)* (nao);
     double *buf_eri = (double *) malloc(sizeof(double) * _size_buf_eri);//
-    double *d_mo_coeff=pm->dev_malloc(size_mo_coeff*sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
-    pm->dev_push(d_mo_coeff, _mo_coeff, size_mo_coeff * sizeof(double));
+    double *d_mo_coeff=pm->dev_malloc(_size_mo_coeff*sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
+    pm->dev_push(d_mo_coeff, mo_coeff, size_mo_coeff * sizeof(double));
     for (int i = 0; i < naux; i++) {
-        const int ij_pair = i_count*j_count;//(*fmmm)(NULL, NULL, buf, envs, OUTPUTIJ);//ij_pair=nmo*nmo
+        const int ij_pair = nao*nao;//(*fmmm)(NULL, NULL, buf, envs, OUTPUTIJ);//ij_pair=nmo*nmo
         const int nao2 = nao*(nao+1)/2;//(*fmmm)(NULL, NULL, buf, envs, INPUT_IJ);//
 	 //_getjk_unpack_buf2(double * buf_eri, double * eri1 + nao2*i, int * map, int naux, int nao, int nao_pair)
            int _i, _j, _ij;
@@ -932,10 +932,10 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
          // eri, buf and bufpp are all nao*nao
 	 //buf=mo_coeff*buf_eri; //nao**2=(nao**2)@(nao**2)
 	 //bufpp=buf*mo_coeff; //nao**2=(nao**2)@(nao**2)
-	 double *d_buf_eri=pm->dev_malloc( _size_buf_eri*sizeof(double)); 
-	 double *d_buf=pm->dev_malloc(_size_buf*sizeof(double));
-	 double *d_buf_bufpp=pm->dev_malloc(_size_buf_bufpp*sizeof(double));
-	 pm->dev_push(d_buf_eri, buf_eri, size_buf_eri * sizeof(double));
+	 double * d_buf_eri = pm->dev_malloc( _size_buf_eri*sizeof(double)); 
+	 double * d_buf = pm->dev_malloc(_size_buf*sizeof(double));
+	 double * d_buf_bufpp = pm->dev_malloc(_size_buf_bufpp*sizeof(double));
+	 pm->dev_push(d_buf_eri, buf_eri, _size_buf_eri * sizeof(double));
 	 //pm->dev_push(d_buf, buf, size_buf * sizeof(double));//don't push it, it's all zero. 
 	 //pm->dev_push(d_bufpp, _bufpp, size_bufpp * sizeof(double));//don't push it, it's all zero. 
 	 // buf=eri*mo_coeff (nao*nao)@(nao*nao)
@@ -949,7 +949,7 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
                   &beta, d_buf_bufpp, nao); // j_start is 0, omitting j_start * nao term in mo_coeff
          _CUDA_CHECK_ERRORS();
 	 pm->dev_pull(d_buf_bufpp, bufpp + i * nao * nao, _size_buf_bufpp * sizeof(double));
-	 pm->dev_free(d_eri1);//does it need to be freed? or can we overwrite?
+	 pm->dev_free(d_buf_eri1);//does it need to be freed? or can we overwrite?
 	 //pm->dev_free(d_buf);//does it need to be freed? or can we overwrite?
 	 //pm->dev_free(d_bufpp);//does it need to be freed? or can we overwrite?
 	 // CPU code (needs to be rewritten)#else
@@ -971,7 +971,7 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
     }
 	   pm->dev_free(d_mo_coeff);
 	   pm->dev_free(d_buf);
-	   pm->dev_free(d_bufpp);
+	   pm->dev_free(d_buf_bufpp);
      //return 0;
     }
 }
