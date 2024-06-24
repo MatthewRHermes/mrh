@@ -883,8 +883,9 @@ class LSTDMint2 (object):
             try:
                 braket_images = exc[:,:2][eqmap==uniq_idx]
             except IndexError as err:
-                braket_images = exc[:,:2][np.ix_(np.squeeze (eqmap==uniq_idx),[0,1])]
-            assert (braket_images.ndim==2)
+                uniq_idxs = np.tile (eqmap==uniq_idx, [1,2])
+                braket_images = exc[:,:2][uniq_idxs].reshape (-1,2)
+            assert (braket_images.ndim==2), '{} {}'.format (np.count_nonzero (eqmap==uniq_idx), braket_images.shape)
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
         nuniq = len (idx)
