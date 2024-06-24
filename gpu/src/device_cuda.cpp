@@ -870,9 +870,6 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   double t0 = omp_get_wtime();
 #endif
   profile_start(" df_ao2mo_pass1_fdrv ");
-  const int device_id = count % num_devices;
-  pm->dev_set_device(device_id);
-  my_device_data * dd = &(device_data[device_id]);
 
   int orbs_slice[4] = {0, nao, 0, nao};
   //fmmm = _ao2mo.libao2mo.AO2MOmmm_nr_s2_iltj
@@ -890,35 +887,15 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   py::buffer_info info_bufpp = _bufpp.request(); // 3D array (blksize,nmo,nmo)
   py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (nmo, nmo)
   double * eri1 = static_cast<double*>(info_eri1.ptr);//Is this needed?
-  int _size_eri = blksize * nao_pair; 
-  if (_size_eri1 > dd->size_eri1){
-    dd->size_eri1 = _size_eri1;
-    if (dd->d_eri1) pm->dev_free(dd->d_eri1);
-    dd->d_eri1 = (double *) pm->dev_malloc(_size_eri1 *sizeof(double));
-  } //Allocating eri
+  int _size_eri1 = blksize * nao_pair; 
   double * bufpp = static_cast<double*>(info_bufpp.ptr);
   int _size_bufpp = blksize * nmo * nmo;
-  if (_size_bufpp > dd->size_bufpp){
-    dd->size_bufpp = _size_bufpp;
-    if (dd->d_bufpp) pm->dev_free(dd->d_bufpp);
-    dd->d_bufpp = (double *) pm->dev_malloc(_size_bufpp *sizeof(double));
-  } //Allocating bufpp (can be not used since it seems update of bufpp is done rowwise)
   double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
   int _size_mo_coeff = nmo * nmo;
-  if (_size_mo_coeff > dd->size_mo_coeff){
-    dd->size_mo_coeff = _size_mo_coeff;
-    if (dd->d_mo_coeff) pm->dev_free(dd->d_mo_coeff);
-    dd->d_mo_coeff = (double *) pm->dev_malloc(_size_mo_coeff *sizeof(double));
-  } //Allocating mo_coeff
   int bra_start = orbs_slice[0];
   int bra_count = orbs_slice[1] - orbs_slice[0];
   int ket_start = orbs_slice[2];
   int ket_count = orbs_slice[3] - orbs_slice[2];
-  // 1-time initialization
-  // Create cuda stream
-  if(dd->stream == nullptr) pm->dev_stream_create(dd->stream);
-  // Create blas handle
-  if(dd->handle == nullptr) {
 #ifdef _DEBUG_DEVICE
     printf(" -- calling cublasCreate(&handle)\n");
 #endif
@@ -931,84 +908,72 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
     _CUDA_CHECK_ERRORS();
   }
   {
-    int i_count = bra_count;
-    int j_count = ket_count;
-    int _size_buf = (nao + i_count)* (nao + j_count);
-    double *buf = (double *) malloc(sizeof(double) * _size_buf);//always (2*nao x 2*nao)
-    if (_size_buf > dd-> size_buf){
-      dd->size_buf = _size_buf;
-      if (dd->d_buf) pm->dev_free(dd->d_buf);
-      dd->d_buf= (double *) pm->dev_malloc(_size_buf *sizeof(double));
-    }
+    int _size_buf_bufpp = (nao)* (nao);
+    int _size_buf = (nao)* (nao);
+    double *buf = (double *) malloc(sizeof(double) * _size_buf);//
+    int _size_buf_eri = (nao)* (nao);
+    double *buf_eri = (double *) malloc(sizeof(double) * _size_buf_eri);//
+    double *d_mo_coeff=pm->dev_malloc(size_mo_coeff*sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
+    pm->dev_push(d_mo_coeff, _mo_coeff, size_mo_coeff * sizeof(double));
     for (int i = 0; i < naux; i++) {
-    //(*ftrans)(fmmm, i, vout, vin, buf, &envs);//vout=bufpp,vin=eri1
-      //AO2MOtranse2_nr_s2(fmmm, row_id,vout,vin,buf,envs)//row_id=i,vout=bufpp,vin=eri1
-        //AO2MOtranse2_nr_s2kl(fmmm, row_id, vout, vin, buf, envs);//row_id=i,vout=bufpp,vim=eri1
         const int ij_pair = i_count*j_count;//(*fmmm)(NULL, NULL, buf, envs, OUTPUTIJ);//ij_pair=nmo*nmo
         const int nao2 = nao*(nao+1)/2;//(*fmmm)(NULL, NULL, buf, envs, INPUT_IJ);//
-         //NPdunpack_tril(nao, vin+nao2*row_id, buf, 0);//vin=eri1,row_id=i
+	 //_getjk_unpack_buf2(double * buf_eri, double * eri1 + nao2*i, int * map, int naux, int nao, int nao_pair)
            int _i, _j, _ij;
-           //double * vin = eri1
            double * tril = eri1 + nao2*i;
            for (_ij = 0, _i = 0; _i < nao; _i++) 
-             for (_j = 0; _j <= _i; _j++, _ij++) buf[_i*nao+_j] = tril[_ij];
-         //(*fmmm)(vout+ij_pair*row_id, buf, buf+nao*nao, envs, 0);//vout=bufpp,row_id=i,buf=reshaped eri row
-           double * _buf = buf + nao*nao;
-           double * _eri = buf ;
-           double * _vout = bufpp + ij_pair*i;
-	   //const double DO = 0;
-	   //const double D1 = 1;
-	   //const char SIDE_L = 'L';
-           //const char UPLO_U = 'U';
-           //const char TRANS_T = 'T';
-           //const char TRANS_N = 'N';
-           int i_start = bra_start;
-           int j_start = ket_start;
-           double alpha = 1.0;
-           double beta = 0.0;
-
-        // C_pi (pq| = (iq|, where (pq| is in C-order
-           //dsymm_(&SIDE_L, &UPLO_U, &nao, &i_count,
-           //    &D1, _eri, &nao, mo_coeff+i_start*nao, &nao,
-           //    &D0, _buf, &nao);
-           cublasDsymm(dd->handle, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, nao, i_count,
-                    &alpha, dd->d_eri1, nao, dd->d_mo_coeff + i_start * nao, nao,
-                    &beta, dd->d_buf, nao);
-        _CUDA_CHECK_ERRORS();
-
-        // C_qj (iq| = (ij|
-           //dgemm_(&TRANS_T, &TRANS_N, &j_count, &i_count, &nao,
-           //    &D1, mo_coeff+j_start*nao, &nao, _buf, &nao,
-           //    &D0, _vout, &j_count);
-           cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N, j_count, i_count, nao,
-                    &alpha, dd->d_mo_coeff + j_start * nao, nao, dd->d_buf, nao,
-                    &beta, dd->d_bufpp + ij_pair * i, j_count);
-        _CUDA_CHECK_ERRORS();
-	   //pm->dev_push(dd->d_eri1, h_buf.data(), nao * nao * sizeof(double));
-
-
-        // C_pi (pq| = (iq|
-        // C_qj (iq| = (ij|
+             for (_j = 0; _j <= _i; _j++, _ij++) buf_eri[_i*nao+_j] = tril[_ij];
+	 //GPU code starts#if 1
+  	 const int device_id = 0;//count % num_devices;
+         pm->dev_set_device(device_id);
+         my_device_data * dd = &(device_data[device_id]);
+         double alpha = 1.0;
+         double beta = 0.0;
+         // eri, buf and bufpp are all nao*nao
+	 //buf=mo_coeff*buf_eri; //nao**2=(nao**2)@(nao**2)
+	 //bufpp=buf*mo_coeff; //nao**2=(nao**2)@(nao**2)
+	 double *d_buf_eri=pm->dev_malloc( _size_buf_eri*sizeof(double)); 
+	 double *d_buf=pm->dev_malloc(_size_buf*sizeof(double));
+	 double *d_buf_bufpp=pm->dev_malloc(_size_buf_bufpp*sizeof(double));
+	 pm->dev_push(d_buf_eri, buf_eri, size_buf_eri * sizeof(double));
+	 //pm->dev_push(d_buf, buf, size_buf * sizeof(double));//don't push it, it's all zero. 
+	 //pm->dev_push(d_bufpp, _bufpp, size_bufpp * sizeof(double));//don't push it, it's all zero. 
+	 // buf=eri*mo_coeff (nao*nao)@(nao*nao)
+         cublasDsymm(dd->handle, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, nao, nao,
+                  &alpha, d_buf_eri, nao, d_mo_coeff , nao,
+                  &beta, d_buf, nao);//i_start is 0, omitting i_start * nao term in mo_coeff 
+         _CUDA_CHECK_ERRORS();
+	 // buf=mo_coeff*buf (nao*nao)@(nao*nao)
+         cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N, nao, nao, nao,
+                  &alpha, d_mo_coeff , nao, d_buf, nao,
+                  &beta, d_buf_bufpp, nao); // j_start is 0, omitting j_start * nao term in mo_coeff
+         _CUDA_CHECK_ERRORS();
+	 pm->dev_pull(d_buf_bufpp, bufpp + i * nao * nao, _size_buf_bufpp * sizeof(double));
+	 pm->dev_free(d_eri1);//does it need to be freed? or can we overwrite?
+	 //pm->dev_free(d_buf);//does it need to be freed? or can we overwrite?
+	 //pm->dev_free(d_bufpp);//does it need to be freed? or can we overwrite?
+	 // CPU code (needs to be rewritten)#else
+	 //const double DO = 0;
+	 //const double D1 = 1;
+	 //const char SIDE_L = 'L';
+         //const char UPLO_U = 'U';
+         //const char TRANS_T = 'T';
+         //const char TRANS_N = 'N';
+         //C_pi (pq| = (iq|
+         //dsymm_(&SIDE_L, &UPLO_U, &nao, nao,
+         //    &D1, _eri, nao, mo_coeff, nao,
+         //    &D0, _buf, nao);
+         //C_qj (iq| = (ij|
+         //dgemm_(&TRANS_T, &TRANS_N, nao, nao, nao,
+         //    &D1, mo_coeff, nao, _buf, nao,
+         //    &D0, _vout, nao);
+	 // end of CPU code #endif
     }
-   	{
-    const double alpha = 1.0;
-    const double beta = 0.0;
-    
-    const int m = nocc; // # of rows in first matrix
-    const int n = nvirt; // # of columns in second matrix
-    const int k = naux*nocc; // # of columns in first matrix
-    
-    const int lda = nocc;
-    const int ldb = nocc*naux;
-    const int ldc = nocc;
-    
-    cublasDgemm(dd->handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, dd->d_buf2, lda, d_vPpj, ldb, &beta, d_vk_bj, ldc);
-  }
-  
-     return 0;
+	   pm->dev_free(d_mo_coeff);
+	   pm->dev_free(d_buf);
+	   pm->dev_free(d_bufpp);
+     //return 0;
     }
-  }
-  }
 }
 __global__ void _hessop_get_veff_reshape1(double * vPpj, double * buf, int nmo, int nocc, int ncore, int nvirt, int naux)
 {
