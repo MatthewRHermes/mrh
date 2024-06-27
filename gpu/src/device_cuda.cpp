@@ -5,6 +5,7 @@
 #include "device.h"
 
 #include <stdio.h>
+//#include <cuda_runtime_api.h>
 
 #define _RHO_BLOCK_SIZE 64
 #define _DOT_BLOCK_SIZE 32
@@ -869,15 +870,17 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
-  profile_start(" df_ao2mo_pass1_fdrv ");
+  profile_start(" df_ao2mo_pass1_fdrv setup\n");
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair) nao_pair= nao*(nao+1)/2
   py::buffer_info info_bufpp = _bufpp.request(); // 3D array (naux,nmo,nmo)
   py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (nmo, nmo)
+#ifdef _DEBUG_DEVICE
   printf("LIBGPU::: naux= %i  nmo= %i  nao= %i  blksize=%i \n",naux,nmo,nao,blksize);//,   vj= (%i,%i)  vk= (%i,%i,%i)\n",
   printf("LIBGPU::shape: _eri1= (%i,%i)  _mo_coeff= (%i,%i)  _bufpp= (%i, %i, %i)\n",//,   vj= (%i,%i)  vk= (%i,%i,%i)\n",
   	 info_eri1.shape[0], info_eri1.shape[1],
   	 info_mo_coeff.shape[0], info_mo_coeff.shape[1],
   	 info_bufpp.shape[0], info_bufpp.shape[1],info_bufpp.shape[2]);
+#endif
   double * eri1 = static_cast<double*>(info_eri1.ptr);
   int _size_eri_unpacked = naux * nao * nao; 
   double * bufpp = static_cast<double*>(info_bufpp.ptr);
@@ -887,18 +890,22 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   const int device_id = 0;//count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
+//#ifdef _DEBUG_DEVICE
+//  printf(" -- calling cublasCreate(&handle)\n");
+//#endif
+//  cublasCreate(&(dd->handle));
+//  _CUDA_CHECK_ERRORS();
+//#ifdef _DEBUG_DEVICE
+//  printf(" -- calling cublasSetStream(handle, stream)\n");
+//#endif
+//  cublasSetStream(dd->handle, dd->stream);
+//  _CUDA_CHECK_ERRORS();
 #ifdef _DEBUG_DEVICE
-  printf(" -- calling cublasCreate(&handle)\n");
+  size_t freeMem;size_t totalMem;
+  freeMem=0;totalMem=0;
+  cudaMemGetInfo(&freeMem, &totalMem);
+  printf("Starting ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
 #endif
-  cublasCreate(&(dd->handle));
-  _CUDA_CHECK_ERRORS();
-#ifdef _DEBUG_DEVICE
-  printf(" -- calling cublasSetStream(handle, stream)\n");
-#endif
-  cublasSetStream(dd->handle, dd->stream);
-  _CUDA_CHECK_ERRORS();
-  double *d_mo_coeff= (double*) pm->dev_malloc(_size_mo_coeff*sizeof(double));//allocate mo_coeff (might be able to avoid if already used in get_jk)
-  pm->dev_push(d_mo_coeff, mo_coeff, _size_mo_coeff * sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
   #if 1
   {
   double * h_eri_unpacked = (double*) malloc (sizeof(double)* _size_eri_unpacked);//set memory for the entire eri array on CPU side (temporary until we get getjk_unpack working
@@ -917,14 +924,20 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
       }
     }
   }
+  profile_stop();
+  profile_start(" df_ao2mo_pass1_fdrv data transfer\n");
   pm->dev_push(d_eri_unpacked, h_eri_unpacked, _size_eri_unpacked * sizeof(double));//push entire eri array
+  double *d_mo_coeff= (double*) pm->dev_malloc(_size_mo_coeff*sizeof(double));//allocate mo_coeff (might be able to avoid if already used in get_jk)
+  pm->dev_push(d_mo_coeff, mo_coeff, _size_mo_coeff * sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
+  free(h_eri_unpacked);
   double alpha = 1.0;
   double beta = 0.0;
   //bufpp = mo.T @ eri @ mo 
-
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- calling cublasDgemmStrideBatched() in ao2mo_fdrv\n");
 #endif
+  profile_stop();
+  profile_start(" df_ao2mo_pass1_fdrv StridedBatchedDgemm\n");
   //buf = np.einsum('ijk,kl->ijl',eri_unpacked,mo_coeff),i=naux,j=nao,l=nao 
   cublasDgemmStridedBatched(dd->handle, 
                       CUBLAS_OP_N, CUBLAS_OP_N,
@@ -951,12 +964,18 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
                       d_bufpp, nao, nao*nao,
                       naux);
   _CUDA_CHECK_ERRORS();
+  profile_stop();
+  profile_start(" df_ao2mo_pass1_fdrv Data pull\n");
   pm->dev_pull(d_bufpp, bufpp, _size_bufpp * sizeof(double));
   pm->dev_free(d_mo_coeff);
   pm->dev_free(d_bufpp);
   pm->dev_free(d_buf);
   pm->dev_free(d_eri_unpacked);
-  //free(h_eri_unpacked);
+  profile_stop();
+#ifdef _DEBUG_DEVICE
+  cudaMemGetInfo(&freeMem, &totalMem);
+  printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
   //free(mo_coeff);
   //free(eri1);
   //free(bufpp);
@@ -1007,6 +1026,8 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   pm->dev_free(d_mo_coeff);
   pm->dev_free(d_buf);
   pm->dev_free(d_buf_bufpp);
+  cudaMemGetInfo(&freeMem, &totalMem);
+  printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
    //return 0;
   }
   #endif

@@ -306,18 +306,13 @@ class _DFHessianCASSCF:
 
 class _ERIS:
     def __init__(self, casscf, mo, with_df):
-        #gpu = self.use_gpu  #VA
-        print(self)  #VA
-        print('mo_shape',mo.shape) #VA
         log = logger.Logger(casscf.stdout, casscf.verbose)
-
         mol = casscf.mol
         nao, nmo = mo.shape
         ncore = casscf.ncore
         ncas = casscf.ncas
         nocc = ncore + ncas
         naoaux = with_df.get_naoaux()
-        print('nao ',nao,' nmo ',nmo,' ncore ',ncore,' ncas ',ncas,' nocc ',nocc,' naux ',naoaux) #VA
         mem_incore, mem_outcore, mem_basic = _mem_usage(ncore, ncas, nmo)
         mem_now = lib.current_memory()[0]
         max_memory = max(3000, casscf.max_memory*.9-mem_now)
@@ -347,27 +342,39 @@ class _ERIS:
             naux = eri1.shape[0]
             bufpp = bufs1[:naux]
             gpu=casscf.mol.use_gpu#print(bufpp)
-            if gpu:
-                libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo, eri1)
-            else:
+            if DEBUG:
+                bufpp2 = numpy.empty((naux,nmo,nmo))#bufs1[:naux]
+
+                libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo,eri1)
                 fdrv(ftrans, fmmm,
+                 bufpp2.ctypes.data_as(ctypes.c_void_p),
+                 eri1.ctypes.data_as(ctypes.c_void_p),
+                 mo.ctypes.data_as(ctypes.c_void_p),
+                 ctypes.c_int(naux), ctypes.c_int(nao),
+                 (ctypes.c_int*4)(0, nmo, 0, nmo),
+                 ctypes.c_void_p(0), ctypes.c_int(0))
+                if (numpy.allclose(bufpp,bufpp2,atol=1e-13)):print("ao2mo fdrv check passed!");pass
+                else:print("ao2mo fdrv bug")#;print(bufpp);print(bufpp2)#;exit()          
+
+            else:
+                if gpu:
+                    libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo, eri1)
+                else:
+                    fdrv(ftrans, fmmm,
                      bufpp.ctypes.data_as(ctypes.c_void_p),
                      eri1.ctypes.data_as(ctypes.c_void_p),
                      mo.ctypes.data_as(ctypes.c_void_p),
                      ctypes.c_int(naux), ctypes.c_int(nao),
                      (ctypes.c_int*4)(0, nmo, 0, nmo),
                      ctypes.c_void_p(0), ctypes.c_int(0))
+
             fxpp_keys.append([str(k), b0, b0+naux])
-            #for row,row2 in zip(bufpp,bufpp2):
-            #    print(row)#.all()) 
-            #    print(row2)#.all()) 
-            #    print('next row')#.all()) 
             fxpp[str(k)] = bufpp.transpose(1,2,0)
             bufpa[b0:b0+naux] = bufpp[:,:,ncore:nocc]
             bufd = numpy.einsum('kii->ki', bufpp)
             self.j_pc += numpy.einsum('ki,kj->ij', bufd, bufd[:,:ncore])
             k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
-            print(k,blksize,eri1.shape,bufpp.transpose(1,2,0).shape,mo.shape,self.j_pc.shape,k_cp.shape)
+            #print(k,blksize,eri1.shape,bufpp.transpose(1,2,0).shape,mo.shape,self.j_pc.shape,k_cp.shape)
             b0 += naux
             t1 = log.timer_debug1('j_pc and k_pc', *t1)
         self.k_pc = k_cp.T.copy()
