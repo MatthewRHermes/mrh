@@ -67,7 +67,6 @@ namespace PM_NS {
     void dev_barrier();
     
     // specific to cuda
-    
     int dev_push_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
     void dev_pull_async(void * d_ptr, void * h_ptr, size_t N, cudaStream_t &s);
 
