@@ -139,12 +139,12 @@ void libgpu_hessop_get_veff(void * ptr,
 
 /* ---------------------------------------------------------------------- */
 void libgpu_df_ao2mo_pass1_fdrv(void * ptr,
-			    int naux, int nmo, int ncore, int blksize,
+			    int naux, int nmo, int nao, int blksize,
 			py::array_t<double> bufpp, py::array_t<double> mo,
 			py::array_t<double> eri1)
 { 
   Device * dev = (Device *) ptr;
-  dev->df_ao2mo_pass1_fdrv(naux, nmo, ncore, blksize, bufpp, mo, eri1);
+  dev->df_ao2mo_pass1_fdrv(naux, nmo, nao, blksize, bufpp, mo, eri1);
 }
 /* ---------------------------------------------------------------------- */
 
