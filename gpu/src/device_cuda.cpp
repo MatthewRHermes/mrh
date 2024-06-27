@@ -113,6 +113,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     dd->d_tril_map.push_back(nullptr);
 
     dd->tril_map[indx] = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
+    dd->d_tril_map[indx] = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
     int _i, _j, _ij;
     int * tm = dd->tril_map[indx];
     for(_ij = 0, _i = 0; _i < nao; _i++)
@@ -865,115 +866,154 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device::df_ao2mo_pass1_fdrv()\n");
 #endif
-
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
   profile_start(" df_ao2mo_pass1_fdrv ");
-
-  int orbs_slice[4] = {0, nao, 0, nao};
-  //fmmm = _ao2mo.libao2mo.AO2MOmmm_nr_s2_iltj
-  //fdrv = _ao2mo.libao2mo.AO2MOnr_e2_drv
-  //ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2
-  //fdrv(ftrans, fmmm,
-  //     bufpp.ctypes.data_as(ctypes.c_void_p),
-  //     eri1.ctypes.data_as(ctypes.c_void_p),
-  //     mo.ctypes.data_as(ctypes.c_void_p),
-  //     ctypes.c_int(naux), ctypes.c_int(nao),
-  //     (ctypes.c_int*4)(0, nmo, 0, nmo),
-  //     ctypes.c_void_p(0), ctypes.c_int(0))
-  {
-  py::buffer_info info_eri1 = _eri1.request(); // 2D array (blksize, nao_pair) nao_pair= nao*(nao+1)/2
-  py::buffer_info info_bufpp = _bufpp.request(); // 3D array (blksize,nmo,nmo)
+  py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair) nao_pair= nao*(nao+1)/2
+  py::buffer_info info_bufpp = _bufpp.request(); // 3D array (naux,nmo,nmo)
   py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (nmo, nmo)
-  double * eri1 = static_cast<double*>(info_eri1.ptr);//Is this needed?
-  int _size_eri1 = blksize * nao_pair; 
+  printf("LIBGPU::: naux= %i  nmo= %i  nao= %i  blksize=%i \n",naux,nmo,nao,blksize);//,   vj= (%i,%i)  vk= (%i,%i,%i)\n",
+  printf("LIBGPU::shape: _eri1= (%i,%i)  _mo_coeff= (%i,%i)  _bufpp= (%i, %i, %i)\n",//,   vj= (%i,%i)  vk= (%i,%i,%i)\n",
+  	 info_eri1.shape[0], info_eri1.shape[1],
+  	 info_mo_coeff.shape[0], info_mo_coeff.shape[1],
+  	 info_bufpp.shape[0], info_bufpp.shape[1],info_bufpp.shape[2]);
+  double * eri1 = static_cast<double*>(info_eri1.ptr);
+  int _size_eri_unpacked = naux * nao * nao; 
   double * bufpp = static_cast<double*>(info_bufpp.ptr);
-  int _size_bufpp = blksize * nmo * nmo;
+  int _size_bufpp = naux * nao * nao;
   double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
-  int _size_mo_coeff = nmo * nmo;
-  int bra_start = orbs_slice[0];
-  int bra_count = orbs_slice[1] - orbs_slice[0];
-  int ket_start = orbs_slice[2];
-  int ket_count = orbs_slice[3] - orbs_slice[2];
+  int _size_mo_coeff = nao * nao;
+  const int device_id = 0;//count % num_devices;
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
 #ifdef _DEBUG_DEVICE
-    printf(" -- calling cublasCreate(&handle)\n");
+  printf(" -- calling cublasCreate(&handle)\n");
 #endif
-    cublasCreate(&(dd->handle));
-    _CUDA_CHECK_ERRORS();
+  cublasCreate(&(dd->handle));
+  _CUDA_CHECK_ERRORS();
 #ifdef _DEBUG_DEVICE
-    printf(" -- calling cublasSetStream(handle, stream)\n");
+  printf(" -- calling cublasSetStream(handle, stream)\n");
 #endif
-    cublasSetStream(dd->handle, dd->stream);
-    _CUDA_CHECK_ERRORS();
-  }
+  cublasSetStream(dd->handle, dd->stream);
+  _CUDA_CHECK_ERRORS();
+  double *d_mo_coeff= (double*) pm->dev_malloc(_size_mo_coeff*sizeof(double));//allocate mo_coeff (might be able to avoid if already used in get_jk)
+  pm->dev_push(d_mo_coeff, mo_coeff, _size_mo_coeff * sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
+  #if 1
   {
-    int _size_buf_bufpp = (nao)* (nao);
-    int _size_buf = (nao)* (nao);
-    double *buf = (double *) malloc(sizeof(double) * _size_buf);//
-    int _size_buf_eri = (nao)* (nao);
-    double *buf_eri = (double *) malloc(sizeof(double) * _size_buf_eri);//
-    double *d_mo_coeff=pm->dev_malloc(_size_mo_coeff*sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
-    pm->dev_push(d_mo_coeff, mo_coeff, size_mo_coeff * sizeof(double));
-    for (int i = 0; i < naux; i++) {
-        const int ij_pair = nao*nao;//(*fmmm)(NULL, NULL, buf, envs, OUTPUTIJ);//ij_pair=nmo*nmo
-        const int nao2 = nao*(nao+1)/2;//(*fmmm)(NULL, NULL, buf, envs, INPUT_IJ);//
-	 //_getjk_unpack_buf2(double * buf_eri, double * eri1 + nao2*i, int * map, int naux, int nao, int nao_pair)
-           int _i, _j, _ij;
-           double * tril = eri1 + nao2*i;
-           for (_ij = 0, _i = 0; _i < nao; _i++) 
-             for (_j = 0; _j <= _i; _j++, _ij++) buf_eri[_i*nao+_j] = tril[_ij];
-	 //GPU code starts#if 1
-  	 const int device_id = 0;//count % num_devices;
-         pm->dev_set_device(device_id);
-         my_device_data * dd = &(device_data[device_id]);
-         double alpha = 1.0;
-         double beta = 0.0;
-         // eri, buf and bufpp are all nao*nao
-	 //buf=mo_coeff*buf_eri; //nao**2=(nao**2)@(nao**2)
-	 //bufpp=buf*mo_coeff; //nao**2=(nao**2)@(nao**2)
-	 double * d_buf_eri = pm->dev_malloc( _size_buf_eri*sizeof(double)); 
-	 double * d_buf = pm->dev_malloc(_size_buf*sizeof(double));
-	 double * d_buf_bufpp = pm->dev_malloc(_size_buf_bufpp*sizeof(double));
-	 pm->dev_push(d_buf_eri, buf_eri, _size_buf_eri * sizeof(double));
-	 //pm->dev_push(d_buf, buf, size_buf * sizeof(double));//don't push it, it's all zero. 
-	 //pm->dev_push(d_bufpp, _bufpp, size_bufpp * sizeof(double));//don't push it, it's all zero. 
-	 // buf=eri*mo_coeff (nao*nao)@(nao*nao)
-         cublasDsymm(dd->handle, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, nao, nao,
-                  &alpha, d_buf_eri, nao, d_mo_coeff , nao,
-                  &beta, d_buf, nao);//i_start is 0, omitting i_start * nao term in mo_coeff 
-         _CUDA_CHECK_ERRORS();
-	 // buf=mo_coeff*buf (nao*nao)@(nao*nao)
-         cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N, nao, nao, nao,
-                  &alpha, d_mo_coeff , nao, d_buf, nao,
-                  &beta, d_buf_bufpp, nao); // j_start is 0, omitting j_start * nao term in mo_coeff
-         _CUDA_CHECK_ERRORS();
-	 pm->dev_pull(d_buf_bufpp, bufpp + i * nao * nao, _size_buf_bufpp * sizeof(double));
-	 pm->dev_free(d_buf_eri1);//does it need to be freed? or can we overwrite?
-	 //pm->dev_free(d_buf);//does it need to be freed? or can we overwrite?
-	 //pm->dev_free(d_bufpp);//does it need to be freed? or can we overwrite?
-	 // CPU code (needs to be rewritten)#else
-	 //const double DO = 0;
-	 //const double D1 = 1;
-	 //const char SIDE_L = 'L';
-         //const char UPLO_U = 'U';
-         //const char TRANS_T = 'T';
-         //const char TRANS_N = 'N';
-         //C_pi (pq| = (iq|
-         //dsymm_(&SIDE_L, &UPLO_U, &nao, nao,
-         //    &D1, _eri, nao, mo_coeff, nao,
-         //    &D0, _buf, nao);
-         //C_qj (iq| = (ij|
-         //dgemm_(&TRANS_T, &TRANS_N, nao, nao, nao,
-         //    &D1, mo_coeff, nao, _buf, nao,
-         //    &D0, _vout, nao);
-	 // end of CPU code #endif
+  double * h_eri_unpacked = (double*) malloc (sizeof(double)* _size_eri_unpacked);//set memory for the entire eri array on CPU side (temporary until we get getjk_unpack working
+  double * d_eri_unpacked = (double*) pm->dev_malloc (sizeof(double)* _size_eri_unpacked);//set memory for the entire eri array on GPU
+  double * d_bufpp = (double*) pm->dev_malloc (sizeof(double)* _size_bufpp);//set memory for the entire bufpp array, no pushing needed 
+  double * d_buf = (double*) pm->dev_malloc(_size_bufpp*sizeof(double)); //for eri*mo_coeff (don't pull or push)
+  //unpack 2D eri of size naux * nao(nao+1)/2 to a full naux*nao*nao 3D matrix
+  const int nao2 = nao*(nao+1)/2;
+  for (int i = 0; i < naux; i++) {
+    int _i, _j, _ij;
+    double * tril = eri1 + nao2*i;
+    for (_ij = 0, _i = 0; _i < nao; _i++){ 
+      for (_j = 0; _j <= _i; _j++, _ij++){ 
+        h_eri_unpacked[i*nao*nao+_i*nao+_j] = tril[_ij];
+        h_eri_unpacked[i*nao*nao+_j*nao+_i] = tril[_ij];
+      }
     }
-	   pm->dev_free(d_mo_coeff);
-	   pm->dev_free(d_buf);
-	   pm->dev_free(d_buf_bufpp);
-     //return 0;
-    }
+  }
+  pm->dev_push(d_eri_unpacked, h_eri_unpacked, _size_eri_unpacked * sizeof(double));//push entire eri array
+  double alpha = 1.0;
+  double beta = 0.0;
+  //bufpp = mo.T @ eri @ mo 
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- calling cublasDgemmStrideBatched() in ao2mo_fdrv\n");
+#endif
+  //buf = np.einsum('ijk,kl->ijl',eri_unpacked,mo_coeff),i=naux,j=nao,l=nao 
+  cublasDgemmStridedBatched(dd->handle, 
+                      CUBLAS_OP_N, CUBLAS_OP_N,
+                      nao, nao, nao, 
+                      &alpha,
+                      d_eri_unpacked, nao, nao*nao, 
+                      d_mo_coeff, nao, 0,//nao*nao, 
+                      &beta,
+                      d_buf, nao, nao*nao,
+                      naux);
+  _CUDA_CHECK_ERRORS();
+
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU ::  -- calling cublasDgemmStrideBatched() in ao2mo_fdrv \n");
+#endif
+  //bufpp = np.einsum('jk,ikl->ijl',mo_coeff.T,buf),i=naux,j=nao,l=nao 
+  cublasDgemmStridedBatched(dd->handle, 
+                      CUBLAS_OP_T, CUBLAS_OP_N,
+                      nao, nao, nao, 
+                      &alpha,
+                      d_mo_coeff, nao, 0, 
+                      d_buf, nao, nao*nao, 
+                      &beta,
+                      d_bufpp, nao, nao*nao,
+                      naux);
+  _CUDA_CHECK_ERRORS();
+  pm->dev_pull(d_bufpp, bufpp, _size_bufpp * sizeof(double));
+  pm->dev_free(d_mo_coeff);
+  pm->dev_free(d_bufpp);
+  pm->dev_free(d_buf);
+  pm->dev_free(d_eri_unpacked);
+  //free(h_eri_unpacked);
+  //free(mo_coeff);
+  //free(eri1);
+  //free(bufpp);
+  }
+  #else
+  {
+  int _size_buf_bufpp = (nao)* (nao);
+  int _size_buf = (nao)* (nao);
+  int _size_buf_eri = (nao)* (nao);
+  double *buf_eri = (double *) malloc(sizeof(double) * _size_buf_eri);//to convert eri slices to nao*nao (right now on cpu)
+  double * d_buf_eri = (double*) pm->dev_malloc( _size_buf_eri*sizeof(double)); //for eri slices converted to nao*nao (push this) 
+  double * d_buf = (double*) pm->dev_malloc(_size_buf*sizeof(double)); //for eri*mo_coeff (don't pull or push)
+  double * h_buf = (double*) malloc(_size_buf*sizeof(double)); //for eri*mo_coeff (don't pull or push)
+  double * d_buf_bufpp = (double*) pm->dev_malloc(_size_buf_bufpp*sizeof(double));  //for mo_coeff*d_buf (pull this)
+  for (int i = 0; i < naux; i++) {
+    const int ij_pair = nao*nao;//(*fmmm)(NULL, NULL, buf, envs, OUTPUTIJ);//ij_pair=nmo*nmo
+    const int nao2 = nao*(nao+1)/2;//(*fmmm)(NULL, NULL, buf, envs, INPUT_IJ);//
+     //_getjk_unpack_buf2(double * buf_eri, double * eri1 + nao2*i, int * map, int naux, int nao, int nao_pair)
+       int _i, _j, _ij;
+       double * tril = eri1 + nao2*i;
+       for (_ij = 0, _i = 0; _i < nao; _i++) 
+         for (_j = 0; _j <= _i; _j++, _ij++) buf_eri[_i*nao+_j] = tril[_ij];
+     //GPU code starts#if 1
+     double alpha = 1.0;
+     double beta = 0.0;
+     //eri, buf and bufpp are all nao*nao
+     //buf=mo_coeff*buf_eri; //nao**2=(nao**2)@(nao**2)
+     //bufpp=buf*mo_coeff; //nao**2=(nao**2)@(nao**2)
+     pm->dev_push(d_buf_eri, buf_eri, _size_buf_eri * sizeof(double));
+     // buf=eri*mo_coeff (nao*nao)@(nao*nao)
+     cublasDsymm(dd->handle, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, nao, nao,
+              &alpha, d_buf_eri, nao, d_mo_coeff , nao,
+              &beta, d_buf, nao);//i_start is 0, omitting i_start * nao term in mo_coeff 
+     if (i==0){
+     pm->dev_pull(d_buf, h_buf, _size_buf * sizeof(double));
+     for(int x1=0;x1<nao;++x1){for(int x2=0;x2<=x1;++x2){printf("%f  ",buf_eri[x1 * nao + x2]);}printf("\n");}
+     for(int x1=0;x1<nao;++x1){for(int x2=0;x2<=nao;++x2){printf("%f  ",h_buf[x1 * nao + x2]);}printf("\n");}
+     }
+     
+     _CUDA_CHECK_ERRORS();
+     // buf=mo_coeff*buf (nao*nao)@(nao*nao)
+     cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N, nao, nao, nao,
+              &alpha, d_mo_coeff , nao, d_buf, nao,
+              &beta, d_buf_bufpp, nao); // j_start is 0, omitting j_start * nao term in mo_coeff
+     _CUDA_CHECK_ERRORS();
+     pm->dev_pull(d_buf_bufpp, bufpp + i * nao * nao, _size_buf_bufpp * sizeof(double));
+     }
+  pm->dev_free(d_mo_coeff);
+  pm->dev_free(d_buf);
+  pm->dev_free(d_buf_bufpp);
+   //return 0;
+  }
+  #endif
+//#ifdef _SIMPLE_TIMER
+//    double t1 = omp_get_wtime();
+//    t_array[4] += t1 - t0;
+//#endif
 }
 __global__ void _hessop_get_veff_reshape1(double * vPpj, double * buf, int nmo, int nocc, int ncore, int nvirt, int naux)
 {

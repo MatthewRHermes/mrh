@@ -213,7 +213,6 @@ private:
   int fmmm(double *, double *, double *,
 	   struct my_AO2MOEnvs *, int);
   
-
   void NPdsymm_triu(int, double *, int);
   void NPdunpack_tril(int, double *, double *, int);
 /*--------------------------------------------*/
