@@ -169,6 +169,7 @@ def count_common_orbitals (las, kf1, kf2, verbose=None):
         ncommon_virt : int
     '''
     if verbose is None: verbose=las.verbose
+    nao, nmo = kf1.mo_coeff.shape    
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     nvirt = nmo - nocc
@@ -179,7 +180,7 @@ def count_common_orbitals (las, kf1, kf2, verbose=None):
     fmt_str = '{:s} orbitals: {:d}/{:d} in common'
     def _count (lbl, i, j):
         ncommon = np.count_nonzero (np.isclose (svals[i:j], 1))
-        log.info (fmt_string.format (lbl, ncommon, j-i))
+        log.info (fmt_str.format (lbl, ncommon, j-i))
         return ncommon
 
     ncommon_core = _count ('Inactive', 0, ncore)

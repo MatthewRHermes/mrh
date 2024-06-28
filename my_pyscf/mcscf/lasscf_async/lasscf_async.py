@@ -1,12 +1,13 @@
+import itertools
 import numpy as np
 from scipy import linalg
 from pyscf import lib
 from pyscf.mcscf import mc1step
 from mrh.my_pyscf.mcscf import lasci, lasscf_sync_o0
 from mrh.my_pyscf.mcscf.lasscf_guess import interpret_frags_atoms
+from mrh.my_pyscf.mcscf.lasscf_async import keyframe
 from mrh.my_pyscf.mcscf.lasscf_async.split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async.crunch import get_impurity_casscf
-from mrh.my_pyscf.mcscf.lasscf_async.keyframe import LASKeyframe
 from mrh.my_pyscf.mcscf.lasscf_async.combine import combine_o0
 
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
@@ -55,6 +56,16 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         for impurity in impurities:
             impurity.kernel ()
             kf2_list.append (impurity._push_keyframe (kf1))
+
+        # EXPERIMENTAL: examining differences in keyframes
+        for i in range (len (kf2_list)):
+            kfi = kf2_list[i]
+            log.info ('Comparing reference keyframe to fragment %d', i)
+            keyframe.count_common_orbitals (las, kf1, kfi)
+        for i, j in itertools.combinations (range (len (kf2_list)), 2):
+            kfi, kfj = kf2_list[i], kf2_list[j]
+            log.info ('Comparing keyframes for fragments %d and %d:', i, j)
+            keyframe.count_common_orbitals (las, kfi, kfj)
 
         # 3. Combine from fragments. TODO: smaller chunks instead of one whole-molecule function
         kf1 = combine_o0 (las, kf2_list)
@@ -140,7 +151,7 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
     def get_keyframe (self, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci is None: ci=self.ci
-        return LASKeyframe (self, mo_coeff, ci)
+        return keyframe.LASKeyframe (self, mo_coeff, ci)
     as_scanner = mc1step.as_scanner
     def set_fragments_(self, frags_atoms=None, mo_coeff=None, localize_init_guess=True,
                        frags_by_AOs=False, **kwargs):
