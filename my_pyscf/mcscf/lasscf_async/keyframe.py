@@ -1,4 +1,5 @@
 import numpy as np
+from pyscf.lib import logger
 from scipy import linalg
 
 class LASKeyframe (object):
@@ -75,6 +76,42 @@ def approx_keyframe_ovlp (las, kf1, kf2):
             if mo_ovlp deviates significantly from 1.
     '''
 
+    u, svals, vh = orbital_block_svd (las, kf1, kf2)
+    mo_ovlp = np.prod (svals)
+
+    ci_ovlp = []
+    for ifrag, (fcibox, c1_r, c2_r) in enumerate (zip (las.fciboxes, kf1.ci, kf2.ci)):
+        nlas, nelelas = las.ncas_sub[ifrag], las.nelecas_sub[ifrag]
+        i = las.ncore + sum (las.ncas_sub[:ifrag])
+        j = i + las.ncas_sub[ifrag]
+        umat = u[i:j,i:j] @ vh[i:j,i:j]
+        c1_r = fcibox.states_transform_ci_for_orbital_rotation (c1_r, nlas, nelelas, umat)
+        ci_ovlp.append ([abs (c1.conj ().ravel ().dot (c2.ravel ()))
+                         for c1, c2 in zip (c1_r, c2_r)])
+
+    return mo_ovlp, ci_ovlp
+    
+def orbital_block_svd (las, kf1, kf2):
+    '''Evaluate the block-SVD of the orbitals of two keyframes. Blocks are inactive (core), active
+    of each fragment, and virtual.
+
+    Args:
+        las : object of :class:`LASCINoSymm`
+        kf1 : object of :class:`LASKeyframe`
+        kf2 : object of :class:`LASKeyframe`
+
+    Returns:
+        u : array of shape (nao,nmo)
+            Block-diagonal unitary matrix of orbital rotations for kf1, keeping each subspace
+            unchanged but aligning the orbitals to identify the spaces the two keyframes have in
+            common, if any
+        svals : array of shape (nmo)
+            Singular values.
+        vh: array of shape (nmo,nao)
+            Transpose of block-diagonal unitary matrix of orbital rotations for kf2, keeping each
+            subspace unchanged but aligning the orbitals to identify the spaces the two keyframes
+            have in common, if any
+    '''
     nao, nmo = kf1.mo_coeff.shape    
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -84,15 +121,11 @@ def approx_keyframe_ovlp (las, kf1, kf2):
     mo1 = kf1.mo_coeff[:,:ncore]
     mo2 = kf2.mo_coeff[:,:ncore]
     s1 = mo1.conj ().T @ s0 @ mo2
-    u, svals, vh = linalg.svd (s1)
-    mo_ovlp = np.prod (svals) # inactive orbitals
-    mo1 = kf1.mo_coeff[:,nocc:]
-    mo2 = kf2.mo_coeff[:,nocc:]
-    s1 = mo1.conj ().T @ s0 @ mo2
-    u, svals, vh = linalg.svd (s1)
-    mo_ovlp *= np.prod (svals) # virtual orbitals
+    u_core, svals_core, vh_core = linalg.svd (s1)
 
-    ci_ovlp = []
+    u = [u_core,]
+    svals = [svals_core,]
+    vh = [vh_core,]
     for ifrag, (fcibox, c1_r, c2_r) in enumerate (zip (las.fciboxes, kf1.ci, kf2.ci)):
         nlas, nelelas = las.ncas_sub[ifrag], las.nelecas_sub[ifrag]
         i = ncore + sum (las.ncas_sub[:ifrag])
@@ -100,12 +133,72 @@ def approx_keyframe_ovlp (las, kf1, kf2):
         mo1 = kf1.mo_coeff[:,i:j]
         mo2 = kf2.mo_coeff[:,i:j]
         s1 = mo1.conj ().T @ s0 @ mo2
-        u, svals, vh = linalg.svd (s1)
-        mo_ovlp *= np.prod (svals) # ifrag active orbitals
-        c1_r = fcibox.states_transform_ci_for_orbital_rotation (c1_r, nlas, nelelas, u @ vh)
-        ci_ovlp.append ([abs (c1.conj ().ravel ().dot (c2.ravel ()))
-                         for c1, c2 in zip (c1_r, c2_r)])
+        u_i, svals_i, vh_i = linalg.svd (s1)
+        u.append (u_i)
+        svals.append (svals_i)
+        vh.append (vh_i)
 
-    return mo_ovlp, ci_ovlp
-    
+    mo1 = kf1.mo_coeff[:,nocc:]
+    mo2 = kf2.mo_coeff[:,nocc:]
+    s1 = mo1.conj ().T @ s0 @ mo2
+    u_virt, svals_virt, vh_virt = linalg.svd (s1)
+    u.append (u_virt)
+    svals.append (svals_virt)
+    vh.append (vh_virt)
+
+    u = linalg.block_diag (*u)
+    svals = np.concatenate (svals)
+    vh = linalg.block_diag (*vh)
+
+    return u, svals, vh
+
+def count_common_orbitals (las, kf1, kf2, verbose=None):
+    '''Evaluate how many orbitals in each subspace two keyframes have in common
+
+    Args:
+        las : object of :class:`LASCINoSymm`
+        kf1 : object of :class:`LASKeyframe`
+        kf2 : object of :class:`LASKeyframe`
+
+    Kwargs:
+        verbose: integer or None
+
+    Returns:
+        ncommon_core : int
+        ncommon_active : list of length nfrags
+        ncommon_virt : int
+    '''
+    if verbose is None: verbose=las.verbose
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    nvirt = nmo - nocc
+    log = logger.new_logger (las, verbose)
+
+    u, svals, vh = orbital_block_svd (las, kf1, kf2)
+
+    fmt_str = '{:s} orbitals: {:d}/{:d} in common'
+    def _count (lbl, i, j):
+        ncommon = np.count_nonzero (np.isclose (svals[i:j], 1))
+        log.info (fmt_string.format (lbl, ncommon, j-i))
+        return ncommon
+
+    ncommon_core = _count ('Inactive', 0, ncore)
+    ncommon_active = []
+    j_list = np.cumsum (las.ncas_sub) + ncore
+    i_list = j_list - np.asarray (las.ncas_sub)
+    for ifrag, (i, j) in enumerate (zip (i_list, j_list)):
+        lbl = 'Active {:d}'.format (ifrag)
+        ncommon_active.append (_count (lbl, i, j))
+    ncommon_virt = _count ('Virtual', nocc, nmo)
+
+    return ncommon_core, ncommon_active, ncommon_virt
+
+
+
+
+
+
+
+
+
 
