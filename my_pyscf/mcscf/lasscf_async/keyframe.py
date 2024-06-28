@@ -179,7 +179,7 @@ def count_common_orbitals (las, kf1, kf2, verbose=None):
 
     fmt_str = '{:s} orbitals: {:d}/{:d} in common'
     def _count (lbl, i, j):
-        ncommon = np.count_nonzero (np.isclose (svals[i:j], 1))
+        ncommon = np.count_nonzero (np.isclose (svals[i:j], 1, rtol=1e-8))
         log.info (fmt_str.format (lbl, ncommon, j-i))
         return ncommon
 
@@ -192,9 +192,73 @@ def count_common_orbitals (las, kf1, kf2, verbose=None):
         ncommon_active.append (_count (lbl, i, j))
     ncommon_virt = _count ('Virtual', nocc, nmo)
 
+    # Playing around
+
+    idx = ~np.isclose (svals,1,rtol=1e-16,atol=1e-16)
+    idx[:] = True
+    u_diff, vh_diff = u[:,idx], vh[idx,:]
+    mo1 = kf1.mo_coeff @ u_diff
+    mo2 = kf2.mo_coeff @ vh_diff.conj ().T
+    nblk = [ncore]#-ncommon_core,]
+    nblk += [nlas for nlas, ncommon_las in zip (las.ncas_sub, ncommon_active)]
+    nblk += [nvirt]#-ncommon_virt]
+    nblk = np.asarray (nblk)
+    nblk = list (nblk[nblk!=0])
+    if len (nblk): get_kappa (las, mo1, mo2, nblk)
+
     return ncommon_core, ncommon_active, ncommon_virt
 
-
+def get_kappa (las, mo1, mo2, nblk):
+    s0 = las._scf.get_ovlp ()
+    ovlp = mo1.conj ().T @ s0 @ mo2
+    uniterr = (ovlp.conj ().T @ ovlp) - np.eye (mo2.shape[1])
+    print ("nonunitarity:", linalg.norm (uniterr))
+    print ("nblk:", nblk)
+    kappa = linalg.logm (ovlp)
+    blknrm = np.zeros ((len (nblk),len (nblk)))
+    blkoff = np.cumsum (nblk)
+    print ("kappa norm:")
+    for i in range (len (nblk)):
+        for j in range (len (nblk)):
+            i1, j1 = blkoff[i], blkoff[j]
+            i0 = i1 - nblk[i]
+            j0 = j1 - nblk[j]
+            blknrm[i,j] = linalg.norm (kappa[i0:i1,j0:j1])
+    print (blknrm)
+    kappa_symm = (kappa + kappa.T) / 2
+    print ("kappa symmetric part norm:")
+    for i in range (len (nblk)):
+        for j in range (len (nblk)):
+            i1, j1 = blkoff[i], blkoff[j]
+            i0 = i1 - nblk[i]
+            j0 = j1 - nblk[j]
+            blknrm[i,j] = linalg.norm (kappa_symm[i0:i1,j0:j1])
+    print (blknrm)
+    kappa_clean = (kappa - kappa.T) / 2
+    for i in range (len (nblk)):
+        i1 = blkoff[i]
+        i0 = i1 - nblk[i]
+        kappa_clean[i0:i1,i0:i1] = 0
+    umat = linalg.expm (kappa_clean)
+    # cleanup?
+    uovlp = umat @ ovlp.conj ().T
+    umo1 = linalg.block_diag (*[uovlp[i1-ni:i1,i1-ni:i1] for i1, ni in zip (blkoff, nblk)])
+    kappa_clean = umo1.conj ().T @ kappa_clean @ umo1
+    umat = linalg.expm (kappa_clean)
+    uovlp = umat.conj ().T @ ovlp
+    inverr = (uovlp) - np.eye (mo2.shape[1])
+    print ("inversion error:", linalg.norm (inverr))
+    print ("blockwise inversion error:")
+    for i in range (len (nblk)):
+        for j in range (len (nblk)):
+            i1, j1 = blkoff[i], blkoff[j]
+            i0 = i1 - nblk[i]
+            j0 = j1 - nblk[j]
+            svals = linalg.svd (uovlp[i0:i1,j0:j1])[1]
+            # the "cleanup" seems to help this ^ even though it doesn't help the inversion error
+            blknrm[i,j] = np.prod (svals)
+            if i==j: blknrm[i,j] -= 1
+    print (blknrm)
 
 
 
