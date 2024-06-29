@@ -16,7 +16,7 @@
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
 
-//#define _DEBUG_DEVICE
+#define _DEBUG_DEVICE
 
 #define _TILE(A,B) (A + B - 1) / B
 
@@ -875,13 +875,14 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   py::buffer_info info_bufpp = _bufpp.request(); // 3D array (naux,nmo,nmo)
   py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (nmo, nmo)
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU::: naux= %i  nmo= %i  nao= %i  blksize=%i \n",naux,nmo,nao,blksize);//,   vj= (%i,%i)  vk= (%i,%i,%i)\n",
-  printf("LIBGPU::shape: _eri1= (%i,%i)  _mo_coeff= (%i,%i)  _bufpp= (%i, %i, %i)\n",//,   vj= (%i,%i)  vk= (%i,%i,%i)\n",
+  printf("LIBGPU::: naux= %i  nmo= %i  nao= %i  blksize=%i \n",naux,nmo,nao,blksize);
+  printf("LIBGPU::shape: _eri1= (%i,%i)  _mo_coeff= (%i,%i)  _bufpp= (%i, %i, %i)\n",
   	 info_eri1.shape[0], info_eri1.shape[1],
   	 info_mo_coeff.shape[0], info_mo_coeff.shape[1],
   	 info_bufpp.shape[0], info_bufpp.shape[1],info_bufpp.shape[2]);
 #endif
-  double * eri1 = static_cast<double*>(info_eri1.ptr);
+  const int nao_pair = nao*(nao+1)/2;
+  double * eri = static_cast<double*>(info_eri1.ptr);
   int _size_eri_unpacked = naux * nao * nao; 
   double * bufpp = static_cast<double*>(info_bufpp.ptr);
   int _size_bufpp = naux * nao * nao;
@@ -890,46 +891,69 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   const int device_id = 0;//count % num_devices;
   pm->dev_set_device(device_id);
   my_device_data * dd = &(device_data[device_id]);
-//#ifdef _DEBUG_DEVICE
-//  printf(" -- calling cublasCreate(&handle)\n");
-//#endif
-//  cublasCreate(&(dd->handle));
-//  _CUDA_CHECK_ERRORS();
-//#ifdef _DEBUG_DEVICE
-//  printf(" -- calling cublasSetStream(handle, stream)\n");
-//#endif
-//  cublasSetStream(dd->handle, dd->stream);
-//  _CUDA_CHECK_ERRORS();
 #ifdef _DEBUG_DEVICE
   size_t freeMem;size_t totalMem;
   freeMem=0;totalMem=0;
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Starting ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
 #endif
-  #if 1
+#if 1 //for fastest
   {
-  double * h_eri_unpacked = (double*) malloc (sizeof(double)* _size_eri_unpacked);//set memory for the entire eri array on CPU side (temporary until we get getjk_unpack working
-  double * d_eri_unpacked = (double*) pm->dev_malloc (sizeof(double)* _size_eri_unpacked);//set memory for the entire eri array on GPU
   double * d_bufpp = (double*) pm->dev_malloc (sizeof(double)* _size_bufpp);//set memory for the entire bufpp array, no pushing needed 
   double * d_buf = (double*) pm->dev_malloc(_size_bufpp*sizeof(double)); //for eri*mo_coeff (don't pull or push)
+  double * d_eri_unpacked = (double*) pm->dev_malloc (sizeof(double)* _size_eri_unpacked);//set memory for the entire eri array on GPU
   //unpack 2D eri of size naux * nao(nao+1)/2 to a full naux*nao*nao 3D matrix
-  const int nao2 = nao*(nao+1)/2;
+  #if 0 //for unpacking
+  {
+  double * d_eri = (double*) pm->dev_malloc (sizeof(double)* _size_eri);//set memory for the entire eri array on GPU
+  pm->dev_push(d_eri, eri, _size_eri * sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
+  //int _size_tril_map = naux * nao * nao;
+  int _size_tril_map = nao * nao;
+  int * my_tril_map = (int*) malloc (_size_tril_map * sizeof(int));
+  int * my_d_tril_map = (int*) pm->dev_malloc (_size_tril_map * sizeof(int));
+  //for (int indx =0; indx<naux;++indx){
+    int _i, _j, _ij;
+    for(_ij = 0, _i = 0; _i < nao; ++_i)
+      for(_j = 0; _j<=_i; ++_j, ++_ij) {
+    	//my_tril_map[indx*nao*nao + _i*nao + _j] = _ij;
+    	//my_tril_map[indx*nao*nao + _i + nao*_j] = _ij;
+    	my_tril_map[_i*nao + _j] = _ij;
+    	my_tril_map[_i + nao*_j] = _ij;
+    } //}
+  #ifdef _DEBUG_DEVICE
+    printf("LIBGPU ::  -- map created in ao2mo_fdrv\n");
+  #endif
+  int * my_d_tril_map_ptr=my_d_tril_map;
+  pm->dev_push(my_d_tril_map,my_tril_map,_size_tril_map*sizeof(int));
+  dim3 grid_size(naux, (nao*nao + (_UNPACK_BLOCK_SIZE - 1)) / _UNPACK_BLOCK_SIZE, 1);
+  dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+  //_getjk_unpack_buf2<<<grid_size, block_size, 0, dd->stream>>>(eri1, d_eri_unpacked, dd->d_tril_map_ptr, naux, nao, nao_pair);
+  _getjk_unpack_buf2<<<grid_size,block_size,0,dd->stream>>>(d_eri_unpacked, d_eri, my_d_tril_map_ptr, naux, nao, nao_pair);
+  }
+  #else  //for unpacking
+  {
+  double * h_eri_unpacked = (double*) malloc (sizeof(double)* _size_eri_unpacked);//set memory for the entire eri array on CPU side (temporary until we get getjk_unpack working)
+  //#ifdef _DEBUG_DEVICE
+  //double * h_eri_unpacked_reference = (double*) malloc (sizeof(double)* _size_eri_unpacked);//set memory for the entire eri array on CPU side for checking getjk unpack results
+  //#endif
   for (int i = 0; i < naux; i++) {
     int _i, _j, _ij;
-    double * tril = eri1 + nao2*i;
+    double * tril = eri + nao_pair*i;
     for (_ij = 0, _i = 0; _i < nao; _i++){ 
       for (_j = 0; _j <= _i; _j++, _ij++){ 
         h_eri_unpacked[i*nao*nao+_i*nao+_j] = tril[_ij];
         h_eri_unpacked[i*nao*nao+_j*nao+_i] = tril[_ij];
-      }
-    }
+  } } }
+  pm->dev_push(d_eri_unpacked,h_eri_unpacked,_size_eri_unpacked*sizeof(double));
   }
-  profile_stop();
-  profile_start(" df_ao2mo_pass1_fdrv data transfer\n");
-  pm->dev_push(d_eri_unpacked, h_eri_unpacked, _size_eri_unpacked * sizeof(double));//push entire eri array
+  #endif //for unpacking
+  //#ifdef _DEBUG_DEVICE
+  //pm->dev_pull(h_eri_unpacked_reference, d_eri_unpacked, _size_eri_unpacked * sizeof(double));//push entire eri array
+  //for(int aux=0;aux<1;++aux){for(int x1=0;x1<=nao;++x1){for(int x2=0;x2<=nao;++x2){printf("%f  ",h_eri_unpacked_reference[aux*nao*nao + x1*nao + x2]);}printf("\n");}printf("\n");}
+  //for(int aux=0;aux<1;++aux){for(int x1=0;x1<=nao;++x1){for(int x2=0;x2<=nao;++x2){printf("%f  ",h_eri_unpacked[aux*nao*nao + x1*nao + x2]);}printf("\n");}printf("\n");}
+  //#endif
   double *d_mo_coeff= (double*) pm->dev_malloc(_size_mo_coeff*sizeof(double));//allocate mo_coeff (might be able to avoid if already used in get_jk)
   pm->dev_push(d_mo_coeff, mo_coeff, _size_mo_coeff * sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
-  free(h_eri_unpacked);
   double alpha = 1.0;
   double beta = 0.0;
   //bufpp = mo.T @ eri @ mo 
@@ -940,29 +964,17 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   profile_start(" df_ao2mo_pass1_fdrv StridedBatchedDgemm\n");
   //buf = np.einsum('ijk,kl->ijl',eri_unpacked,mo_coeff),i=naux,j=nao,l=nao 
   cublasDgemmStridedBatched(dd->handle, 
-                      CUBLAS_OP_N, CUBLAS_OP_N,
-                      nao, nao, nao, 
-                      &alpha,
-                      d_eri_unpacked, nao, nao*nao, 
-                      d_mo_coeff, nao, 0,//nao*nao, 
-                      &beta,
-                      d_buf, nao, nao*nao,
-                      naux);
+                      CUBLAS_OP_N, CUBLAS_OP_N,nao, nao, nao, 
+                      &alpha,d_eri_unpacked, nao, nao*nao,d_mo_coeff, nao, 0, 
+                      &beta,d_buf, nao, nao*nao,naux);
   _CUDA_CHECK_ERRORS();
-
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU ::  -- calling cublasDgemmStrideBatched() in ao2mo_fdrv \n");
 #endif
   //bufpp = np.einsum('jk,ikl->ijl',mo_coeff.T,buf),i=naux,j=nao,l=nao 
-  cublasDgemmStridedBatched(dd->handle, 
-                      CUBLAS_OP_T, CUBLAS_OP_N,
-                      nao, nao, nao, 
-                      &alpha,
-                      d_mo_coeff, nao, 0, 
-                      d_buf, nao, nao*nao, 
-                      &beta,
-                      d_bufpp, nao, nao*nao,
-                      naux);
+  cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N, nao, nao, nao, 
+                      &alpha,d_mo_coeff, nao, 0, d_buf, nao, nao*nao, 
+                      &beta, d_bufpp, nao, nao*nao,naux);
   _CUDA_CHECK_ERRORS();
   profile_stop();
   profile_start(" df_ao2mo_pass1_fdrv Data pull\n");
@@ -971,16 +983,15 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   pm->dev_free(d_bufpp);
   pm->dev_free(d_buf);
   pm->dev_free(d_eri_unpacked);
+  //pm->dev_free(d_eri);
   profile_stop();
-#ifdef _DEBUG_DEVICE
-  cudaMemGetInfo(&freeMem, &totalMem);
-  printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
-#endif
-  //free(mo_coeff);
-  //free(eri1);
-  //free(bufpp);
+  #ifdef _DEBUG_DEVICE
+    printf("LIBGPU :: Leaving Device::df_ao2mo_pass1_fdrv()\n"); 
+    cudaMemGetInfo(&freeMem, &totalMem);
+    printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+  #endif
   }
-  #else
+#else //for fastest
   {
   int _size_buf_bufpp = (nao)* (nao);
   int _size_buf = (nao)* (nao);
@@ -1030,10 +1041,10 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   printf("Ending ao2mo fdrv Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
    //return 0;
   }
-  #endif
+#endif //for fastest
 //#ifdef _SIMPLE_TIMER
 //    double t1 = omp_get_wtime();
-//    t_array[4] += t1 - t0;
+//    t_array[5] += t1 - t0;
 //#endif
 }
 __global__ void _hessop_get_veff_reshape1(double * vPpj, double * buf, int nmo, int nocc, int ncore, int nvirt, int naux)

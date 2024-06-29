@@ -353,6 +353,10 @@ class _ERIS:
                  ctypes.c_int(naux), ctypes.c_int(nao),
                  (ctypes.c_int*4)(0, nmo, 0, nmo),
                  ctypes.c_void_p(0), ctypes.c_int(0))
+                #print('bufpp')
+                #print(bufpp)
+                #print('bufpp2')
+                #print(bufpp2)
                 if (numpy.allclose(bufpp,bufpp2,atol=1e-13)):print("ao2mo fdrv check passed!");pass
                 else:print("ao2mo fdrv bug")#;print(bufpp);print(bufpp2)#;exit()          
 
