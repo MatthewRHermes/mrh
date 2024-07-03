@@ -363,6 +363,11 @@ void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
   // 	 addr_dfobj, id, arg[0], arg[1], arg[2], arg[3]);
 }
 
+
+
+
+
+
 /* ---------------------------------------------------------------------- */
     
 // Is both _ocm2 in/out as it get over-written and resized?

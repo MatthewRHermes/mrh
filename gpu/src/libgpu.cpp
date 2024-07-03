@@ -169,3 +169,13 @@ void libgpu_orbital_response(void * ptr,
 			ocm2, tcm2, gorb,
 			ncore, nocc, nmo);
 }
+/* ---------------------------------------------------------------------- */
+
+void libgpu_update_h2eff_sub(void * ptr, 
+                             int ncore, int ncas, int nocc, int nmo, 
+			     py::array_t<double> h2eff_sub, py::array_t<double> umat)
+{
+  Device * dev = (Device *) ptr;
+  dev->update_h2eff_sub(ncore,ncas,nocc,nmo,h2eff_sub,umat);
+}
+/* ---------------------------------------------------------------------- */

@@ -1439,7 +1439,16 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         t0=log.timer('update_mo',*t0)
         ci1 = self._update_ci (dci)
         t0=log.timer('update_ci',*t0)
-        h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub)
+        gpu=self.las.use_gpu
+        if DEBUG:
+          h2eff_sub2 = self._update_h2eff_sub (mo1, umat, h2eff_sub) 
+          libgpu.libgpu_update_h2eff_sub(gpu,self.ncore,self.ncas,self.nocc,self.nmo,umat, h2eff_sub)
+          if(np.allclose(h2eff_sub,h2eff_sub2)): print('H2eff test passed')
+          else:print('H2eff gpu kernel is not working');exit()
+        elif gpu:
+          libgpu.libgpu_update_h2eff_sub(gpu,self.ncore,self.ncas,self.nocc,self.nmo,umat, h2eff_sub)
+        else:
+          h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub) 
         t0=log.timer('update_h2eff_sub',*t0)
         return mo1, ci1, h2eff_sub
 
@@ -1477,6 +1486,10 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         h2eff_sub = np.tensordot (umat, h2eff_sub, axes=((0),(1))) # qbaa
         h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbab
         h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbbb
+        #h2eff_sub=h2eff_sub.transpose((2,3,1,0))#new  #gpu code does qbab and qbbb lines first, and then does the next four lines because batching is easier.
+        #h2eff_sub=np.einsum('iI,JKip->JKIp',ucas,h2eff_sub)#,ucas)
+        #h2eff_sub=np.einsum('JKIp,pP->JKIP',h2eff_sub,umat)#new
+        #h2eff_sub=h2eff_sub.transpose((3,2,0,1))#new
         ix_i, ix_j = np.tril_indices (ncas)
         h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas*ncas)
         h2eff_sub = h2eff_sub[:,:,(ix_i*ncas)+ix_j]
