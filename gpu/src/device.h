@@ -85,7 +85,9 @@ public :
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
 			int, int, int);
-  
+
+  void update_h2eff_sub(int, int, int, int,
+                        py::array_t<double>,py::array_t<double>); 
 private:
 
   class PM * pm;

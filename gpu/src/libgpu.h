@@ -51,6 +51,9 @@ extern "C"
 			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
 			       py::array_t<double>, py::array_t<double>, py::array_t<double>,
 			       int, int, int); 
+  void libgpu_update_h2eff_sub(void *, 
+                               int, int, int, int, 
+			       py::array_t<double>, py::array_t<double>);
 }
 
 
@@ -75,6 +78,7 @@ PYBIND11_MODULE(libgpu, m) {
 
   m.def("libgpu_hessop_get_veff", &libgpu_hessop_get_veff, "lasci_sync.py::get_veff() for HessianOperator");
   m.def("libgpu_df_ao2mo_pass1_fdrv", &libgpu_df_ao2mo_pass1_fdrv, "pyscf/mcscf/df.py::_ERIS.__init__() part 1");
+  m.def("libgpu_update_h2eff_sub", &libgpu_update_h2eff_sub, "lasci_sync.py::_update_h2_eff()");
   m.def("libgpu_hessop_push_bPpj", &libgpu_hessop_push_bPpj, "bPpj array for HessianOperator");
   
   m.def("libgpu_orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");

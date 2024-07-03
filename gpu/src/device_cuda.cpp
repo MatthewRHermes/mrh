@@ -12,12 +12,11 @@
 #define _TRANSPOSE_BLOCK_SIZE 16
 #define _TRANSPOSE_NUM_ROWS 16
 #define _UNPACK_BLOCK_SIZE 32
-
 #define _HESSOP_BLOCK_SIZE 32
 #define _DEFAULT_BLOCK_SIZE 32
 
-#define _DEBUG_DEVICE
-
+//#define _DEBUG_DEVICE
+#define _DEBUG_H2EFF
 #define _TILE(A,B) (A + B - 1) / B
 
 /* ---------------------------------------------------------------------- */
@@ -1448,3 +1447,251 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 }
 
 #endif
+/* ---------------------------------------------------------------------- */
+
+__global__ void extract_submatrix(const double* big_mat, double* small_mat, int start, int end, int big_stride, int small_stride) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    int size = end - start;
+    if (row < size && col < size) {
+        small_mat[row * small_stride + col] = big_mat[(start + row) * big_stride + (start + col)];
+    }
+}
+
+__global__ void transpose_2310(double* a, double* a_transposed, int dim0, int dim1, int dim2, int dim3) {
+    //a.transpose(2,3,1,0)
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int idy = blockIdx.y * blockDim.y + threadIdx.y;
+    int idz = blockIdx.z * blockDim.z + threadIdx.z;
+    int idw = threadIdx.z;
+
+    if (idx < dim0 && idy < dim1 && idz < dim2 && idw < dim3) {
+        int inputIndex = ((idx * dim1 + idy) * dim2 + idz) * dim3 + idw;
+        int outputIndex = ((idz * dim3 + idw) * dim1 + idy) * dim0 + idx;
+        a[outputIndex] = a_transposed[inputIndex];
+    }
+}
+
+void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
+                              py::array_t<double> _umat, py::array_t<double> _h2eff_sub)
+{
+#ifdef _SIMPLE_TIMER
+  double t0 = omp_get_wtime();
+#endif
+#ifdef _DEBUG_H2EFF
+  printf("Starting update function");
+#endif
+  py::buffer_info info_umat = _umat.request(); // 2d array nmo*nmo
+  py::buffer_info info_h2eff_sub = _h2eff_sub.request();// 2d array nmo * (ncas*(ncas*(ncas+1)/2))
+  const int device_id = 0;//count % num_devices;
+  pm->dev_set_device(device_id);
+  my_device_data * dd = &(device_data[device_id]);
+  const int ncas_pair = ncas * (ncas+1)/2;
+  double * umat = static_cast<double*>(info_umat.ptr);
+  double * h2eff_sub = static_cast<double*>(info_h2eff_sub.ptr);
+
+  int _size_h2eff_unpacked=nmo*ncas*ncas*ncas;
+  double * h_h2eff_unpacked=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  double * d_h2eff_unpacked=(double*) pm->dev_malloc (_size_h2eff_unpacked*sizeof(double));
+  double * d_ucas=(double*) pm->dev_malloc(ncas*ncas*sizeof(double));
+  double * d_umat=(double *) pm->dev_malloc(nmo*nmo*sizeof(double));
+  pm->dev_push(d_umat,umat,nmo*nmo*sizeof(double));
+
+#ifdef _DEBUG_H2EFF
+  printf("Setup update function\n");
+#endif
+  //ucas = umat[ncore:nocc, ncore:nocc]
+#if 0
+  dim3 blockDim(_UNPACK_BLOCK_SIZE);
+  dim3 gridDim(_TILE(nocc-ncore,blockDim.x), _TILE(ncore-nocc,blockDim.y));//
+  extract_submatrix<<<gridDim, blockDim>>>(d_umat, d_ucas, ncore, nocc, nmo, nocc-ncore);
+#ifdef _DEBUG_H2EFF
+  double * h_ucas = (double*) malloc(ncas*ncas*sizeof(double)); 
+  pm->dev_pull(d_ucas,h_ucas,ncas*ncas*sizeof(double));
+  for(int x1=0;x1<nocc-ncore;++x1){for(int x2=0;x2<nocc-ncore;++x2){printf("%f  ",h_ucas[x1*(nocc-ncore)+x2]);}printf("\n");}
+  printf("Extract function");
+#endif
+#else
+      printf("ucas \n");
+  double * h_ucas = (double*) malloc(ncas*ncas*sizeof(double)); 
+  for (int x1=0;x1<ncas;++x1){
+    for (int x2=0;x2<ncas;++x2){
+      h_ucas[x1*ncas+x2]=umat[(x1+ncore)*nmo+(x2+ncore)];
+    }
+  }
+  pm->dev_push(d_ucas,h_ucas,ncas*ncas*sizeof(double));
+  for(int x1=0;x1<nmo;++x1){for(int x2=0;x2<nmo;++x2){printf("%f,  ",umat[x1*nmo+x2]);}printf("\n");}
+  for(int x1=0;x1<ncas;++x1){for(int x2=0;x2<ncas;++x2){printf("%f  ",h_ucas[x1*ncas+x2]);}printf("\n");}
+  free(h_ucas);
+#endif
+#ifdef _DEBUG_H2EFF
+  printf("Extract function\n");
+#endif
+  //h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
+  //h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
+  //h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
+  for (int x1=0;x1<nmo;++x1)
+    for (int x2=0;x2<ncas;++x2)
+      for (int x3=0,x3x4=0;x3<ncas;++x3)
+        for (int x4=0;x4<=x3;++x4,++x3x4){
+          //if (x1*x2*x3*x4<_size_h2eff_unpacked){ 
+            h_h2eff_unpacked[((x1*ncas+x2)*ncas+x3)*ncas+x4]=h2eff_sub[x1*ncas_pair*ncas+x2*ncas_pair+x3x4];
+            h_h2eff_unpacked[((x1*ncas+x2)*ncas+x4)*ncas+x3]=h2eff_sub[x1*ncas_pair*ncas+x2*ncas_pair+x3x4];
+          } //else printf("some indexing issue");
+//Print h2eff_unpacked
+  printf("unpacked h2eff_sub \n");
+  //for (int x1=0;x1<nmo;++x1){for (int x2=0;x2<ncas;++x2){for (int x3=0;x3<ncas;++x3){for (int x4=0;x4<ncas;++x4){
+  //int cum_idx_0=(((x1*ncas+x2)*ncas+x3)*ncas +x4); printf("%f ",h_h2eff_unpacked[cum_idx_0]);}printf("\n");}printf("\n");}printf("\n");} 
+
+  //for(int x1=0;x1<ncas;++x1){for(int x2=0;x2<ncas;++x2){printf("%f  ",h_h2eff_unpacked[0*ncas*ncas*ncas+0*ncas*ncas+x1*ncas+x2]);}printf("\n");}
+#ifdef _DEBUG_H2EFF
+  printf("Unpack function\n");
+#endif
+  pm->dev_push(d_h2eff_unpacked,h_h2eff_unpacked,_size_h2eff_unpacked*sizeof(double));
+  //free(h_h2eff_unpacked);
+  //1. h2eff_sub = np.tensordot (ucas, h2eff_sub, axes=((0),(1))) # bpaa
+  //2. h2eff_sub = np.tensordot (umat, h2eff_sub, axes=((0),(1))) # qbaa
+  //3. h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbab
+  //4. h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbbb
+  // doing 3,4,tranpose, 1,2, tranpose
+  const double alpha=1.0;
+  const double beta=0.0;
+  //h2eff_step1=([pi]jk,jJ->[pi]kJ)
+  double * d_h2eff_step1 = (double*) pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+  cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_N,ncas,ncas,ncas,
+	&alpha, 
+        d_ucas, ncas, 0,
+        d_h2eff_unpacked, ncas,ncas*ncas, 
+	&beta, d_h2eff_step1, ncas, ncas*ncas, ncas*nmo);
+  _CUDA_CHECK_ERRORS();
+  pm->dev_free(d_h2eff_unpacked);
+  //double * h_h2eff_step1 = (double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  //pm->dev_pull(d_h2eff_step1,h_h2eff_step1,_size_h2eff_unpacked*sizeof(double));
+  //printf("Pulling h_h2eff_step1\n");
+  //for(int x1=0;x1<nmo;++x1){for(int x2=0;x2<ncas;++x2){for(int x3=0;x3<ncas;++x3){for(int x4=0;x4<ncas;++x4){
+  //  int cum_idx_1=x1*ncas*ncas*ncas+x2*ncas*ncas+x3*ncas+x4;
+  //  printf("%f  ",h_h2eff_step1[cum_idx_1]);}printf("\n");}printf("\n");}printf("\n");}
+  //h2eff_step2=([pi]kJ,kK->[pi]JK
+  double * d_h2eff_step2 = (double*) pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+  cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_T,ncas,ncas,ncas,
+	&alpha, 
+        d_h2eff_step1, ncas,ncas*ncas, 
+        d_ucas, ncas, 0,
+	&beta, d_h2eff_step2, ncas, ncas*ncas, ncas*nmo);
+  _CUDA_CHECK_ERRORS();
+  pm->dev_free(d_h2eff_step1);
+  double * h_h2eff_step2 = (double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  pm->dev_pull(d_h2eff_step2,h_h2eff_step2,_size_h2eff_unpacked*sizeof(double));
+  pm->dev_free(d_h2eff_step2);
+  //printf("Pulling h_h2eff_step2\n");
+  //for(int x1=0;x1<nmo;++x1){for(int x2=0;x2<ncas;++x2){for(int x3=0;x3<ncas;++x3){for(int x4=0;x4<ncas;++x4){
+  //  int cum_idx_2=x1*ncas*ncas*ncas+x2*ncas*ncas+x3*ncas+x4;
+  //  printf("%f  ",h_h2eff_step2[cum_idx_2]);}printf("\n");}printf("\n");}printf("\n");}
+#ifdef _DEBUG_H2EFF
+  printf("Finished first 2 cublasDgemmStridedBatched Functions \n");
+#endif
+  //h2eff_tranposed=(piJK->JKpi)
+  //add transpose function
+  double * d_h2eff_transposed=(double*)pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+#if 0
+  //dim3 blockSize(_TRANSPOSE_BLOCK_SIZE,_TRANSPOSE_BLOCK_SIZE,_TRANSPOSE_BLOCK_SIZE);//,_TRANPOSE_BLOCK_SIZE);
+  //dim3 gridSize(_TILE(nmo,blockSize.x),_TILE(ncas,blockSize.y),_TILE(ncas,blockSize.z));//,_TILE(ncas,blockSize.w))
+  //transpose_2310<<<gridSize,blockSize>>>(d_h2eff_step2, d_h2eff_transposed, nmo,ncas,ncas,ncas);
+#else
+  //double * h_h2eff_step2=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  double * h_h2eff_transposed=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  pm->dev_pull (d_h2eff_step2,h_h2eff_step2,_size_h2eff_unpacked*sizeof(double));
+  for (int x1=0;x1<nmo;++x1)
+  for (int x2=0;x2<ncas;++x2)
+  for (int x3=0;x3<ncas;++x3)
+  for (int x4=0;x4<ncas;++x4){
+    int input_idx=((x1*ncas+x2)*ncas+x3)*ncas+x4;
+    int output_idx=x3*ncas*ncas*nmo + x4*ncas*nmo + x2*nmo + x1;//((x3*ncas+x4)*ncas+x2)*nmo+x1;
+    h_h2eff_transposed[output_idx]=h_h2eff_step2[input_idx];
+}
+  free(h_h2eff_step2);
+  printf("Transpose data\n");
+  //for(int x1=0;x1<ncas;++x1){for(int x2=0;x2<ncas;++x2){for(int x3=0;x3<ncas;++x3){for(int x4=0;x4<nmo;++x4){
+  //  int cum_idx_t=x1*ncas*nmo*ncas+x2*ncas*nmo+x3*nmo+x4;
+  //  printf("%f   ",h_h2eff_transposed[cum_idx_t]);}printf("\n");}printf("\n");}printf("\n");
+//}
+#endif
+#ifdef _DEBUG_H2EFF
+  pm->dev_push(d_h2eff_transposed,h_h2eff_transposed,_size_h2eff_unpacked*sizeof(double));
+  free(h_h2eff_transposed);
+#endif
+#ifdef _DEBUG_H2EFF
+  printf("Finished transposing\n");
+#endif
+  double * d_h2eff_step3=(double*)pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+  //h2eff_sub=np.einsum('iI,JKip->JKIp',ucas,h2eff_sub) h2eff=ncas,ncas,ncas,nmo; ucas=ncas,ncas
+  cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_T,nmo,ncas,ncas,
+	&alpha, 
+        d_h2eff_transposed, nmo, ncas*nmo, 
+        d_ucas, ncas, 0, 
+	&beta, d_h2eff_step3, nmo, ncas*nmo, ncas*ncas);
+  _CUDA_CHECK_ERRORS();
+  double * h_h2eff_step3 = (double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  //pm->dev_pull(d_h2eff_step3,h_h2eff_step3,_size_h2eff_unpacked*sizeof(double));
+  printf("Pulling h_h2eff_step3\n");
+  //for(int x1=0;x1<ncas;++x1){for(int x2=0;x2<ncas;++x2){for(int x3=0;x3<ncas;++x3){for(int x4=0;x4<nmo;++x4){
+  //  int cum_idx_3=x1*ncas*ncas*nmo+x2*ncas*nmo+x3*nmo+x4;
+  //  printf("%f,  ",h_h2eff_step3[cum_idx_3]);}printf("\n");}printf("\n");}printf("\n");}
+  pm->dev_free(d_h2eff_transposed);
+  //h2eff_step4=([JK]Ip,pP->[JK]IP)
+  double * d_h2eff_step4=(double*)pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+  cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_N,nmo,ncas,nmo,
+	&alpha, 
+        d_umat, nmo, 0, 
+        d_h2eff_step3, nmo, ncas*nmo, 
+	&beta, d_h2eff_step4, nmo, ncas*nmo, ncas*ncas);
+  pm->dev_free(d_h2eff_step3);
+  double * h_h2eff_step4 = (double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  pm->dev_pull(d_h2eff_step4,h_h2eff_step4,_size_h2eff_unpacked*sizeof(double));
+  printf("Pulling h_h2eff_step4\n");
+  for(int x1=0;x1<ncas;++x1){for(int x2=0;x2<ncas;++x2){for(int x3=0;x3<ncas;++x3){for(int x4=0;x4<nmo;++x4){
+    int cum_idx_4=x1*ncas*ncas*nmo+x2*ncas*nmo+x3*nmo+x4;
+    printf("%f  ",h_h2eff_step4[cum_idx_4]);}printf("\n");}printf("\n");}printf("\n");}
+#ifdef _DEBUG_H2EFF
+  printf("Finished last 2 cublasDgemmStridedBatched Functions \n");
+#endif
+  //h2eff_tranposed=(JKIP->PIJK)
+  //double * h_h2eff_step4=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  double * h_h2eff_transposed2=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  //pm->dev_pull (d_h2eff_step4,h_h2eff_step4,_size_h2eff_unpacked*sizeof(double));
+  for (int x1=0;x1<ncas;++x1)
+  for (int x2=0;x2<ncas;++x2)
+  for (int x3=0;x3<ncas;++x3)
+  for (int x4=0;x4<nmo;++x4){
+    int input_idx=x1*nmo*ncas*ncas+x2*ncas*nmo+x3*nmo+x4;
+    //int output_idx=x3*ncas*ncas*nmo+x4*ncas*ncas+x1*ncas+x2;
+    int output_idx=x4*ncas*ncas*ncas+x3*ncas*ncas+x2*ncas+x1;
+    h_h2eff_transposed2[output_idx]=h_h2eff_step4[input_idx];
+}
+  //for(int x1=0;x1<nmo;++x1){for(int x2=0;x2<ncas;++x2){for(int x3=0;x3<ncas;++x3){for(int x4=0;x4<ncas;++x4){
+  //  int cum_idx_5=x1*ncas*ncas*ncas+x2*ncas*ncas+x3*ncas+x4;
+  //  printf("%f  ",h_h2eff_transposed2[cum_idx_5]);}printf("\n");}printf("\n");}printf("\n");}
+  
+  free(h_h2eff_step4);
+  //pm->dev_push(d_h2eff_transposed,h_h2eff_transposed,_size_h2eff_unpacked*sizeof(double));
+  //free(h_h2eff_transposed2);
+
+  //double * d_h2eff_transposed2=(double*)pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+  //dim3 gridSize2(_TILE(nmo,blockSize.x),_TILE(ncas,blockSize.y),_TILE(ncas,blockSize.z));//,_TILE(ncas,blockSize.w))
+  //transpose_2310<<<gridSize2,blockSize>>>(d_h2eff_step4, d_h2eff_transposed2,ncas,ncas,nmo,ncas);
+  //pm->dev_free(d_h2eff_step4);
+  //double * h_h2eff_transposed = (double*) malloc(_size_h2eff_unpacked*sizeof(double));
+  //pm->dev_pull(h_h2eff_transposed,d_h2eff_transposed2,_size_h2eff_unpacked*sizeof(double));
+  //pm->dev_free(d_h2eff_transposed2);
+  //ix_i, ix_j = np.tril_indices (ncas)
+  //h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas*ncas)
+  //h2eff_sub = h2eff_sub[:,:,(ix_i*ncas)+ix_j]
+  //h2eff_sub = h2eff_sub.reshape (nmo, -1)
+  for (int x1=0;x1<nmo;++x1)
+    for (int x2=0;x2<ncas;++x2)
+      for (int x3=0,x3x4=0;x3<ncas;++x3)
+        for (int x4=0;x4<=x3;++x4,++x3x4)
+          h2eff_sub[x1*ncas*ncas_pair+x2*ncas_pair+x3x4]=h_h2eff_transposed2[x1*ncas*ncas*ncas+x2*ncas*ncas+x3*ncas+x4];
+  free(h_h2eff_transposed2);
+}
+
