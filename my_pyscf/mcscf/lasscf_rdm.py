@@ -275,13 +275,13 @@ def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-
                                             callback=my_callback, M=prec_op)
             t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
             mo_coeff, h2eff_sub = H_op.update_mo_eri (x, h2eff_sub)
-            #######here I save the most recent orbitals######
+            #------edit: #here I save the most recent orbitals------##
             output_dir = "../orbital"
             file_path = os.path.join(output_dir, 'guessOrb.h5')
             with h5py.File(file_path, 'w') as f:
                  f.create_dataset('guessOrb', data=mo_coeff)
-                 log.info("saved orbs")
-            ################################################     
+                 print("saved the previous orbs")
+            #-------------------------------------------------------##     
             t1 = log.timer ('LASSCF Hessian update', *t1)
 
             veff = las.get_veff (dm1s = las.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
@@ -591,6 +591,7 @@ class extremeAsynLASSCF (LASSCFNoSymm):
         ci1 = []
         e0 = 0.0 
         #------edit:first iteration (no rdm file), write h1 and h2 and exit---##
+        '''
         if not os.path.exists("../RDMS"):
             with h5py.File('h1eff_sub.h5', 'w') as f:
                 for i, arr in enumerate(h1eff_sub):
@@ -601,6 +602,7 @@ class extremeAsynLASSCF (LASSCFNoSymm):
             print("Wrote Hamiltonian, now break")
             exit()
         #----------------------------------------------------------------------##
+        '''
         for isub, (fcibox, ncas, nelecas, h1e, fcivec) in enumerate (zip (self.fciboxes, self.ncas_sub,
                                                                       self.nelecas_sub, h1eff_sub,
                                                                       ci0)):
