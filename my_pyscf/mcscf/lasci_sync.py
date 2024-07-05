@@ -4,7 +4,6 @@ from mrh.my_pyscf.mcscf import _DFLASCI
 from scipy.sparse import linalg as sparse_linalg
 from scipy import linalg 
 import numpy as np
-import h5py
 # This must be locked to CSF solver for the forseeable future, because I know of no other way to
 # handle spin-breaking potentials while retaining spin constraint
 
