@@ -127,7 +127,7 @@ def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3
             my_veff = las.split_veff (my_veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
             return my_veff
         converged = False
-        e_cas, fak:seeci = lasci_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
+        e_cas, fakeci = lasci_sync.ci_cycle (las, mo_coeff, None, veff, h2eff_sub, casdm1frs, log)
         casdm1frs = [f[0] for f in fakeci]
         casdm2fr = [f[1] for f in fakeci]
         veff = get_veff (casdm1frs)
@@ -159,21 +159,20 @@ def rdm_cycle (las, mo_coeff, casdm1frs, veff, h2eff_sub, log, max_cycle_rdmjk=3
 
 def kernel (las, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
     if mo_coeff is None: mo_coeff = las.mo_coeff#this would be our initial guess orbital,save
-    ################
-    '''
+    #------edit: save orbitals and update##
     if not os.path.exists("../orbital"):
         os.makedirs("../orbital")
         file_path = os.path.join("../orbital", 'guessOrb.h5')
         with h5py.File(file_path, 'w') as f:
              f.create_dataset('guessOrb', data=mo_coeff)
+             print("save the initial guess orbital")
     else:
         directory_path = "../orbital"
         file_path = os.path.join(directory_path, 'guessOrb.h5')
         with h5py.File(file_path, 'r') as f:
             mo_coeff = f['guessOrb'][:]
-            log.info("read the previous orbital")
-    '''
-    ###############
+            print("read the previous orbital")
+    #-------------------------------------##
     conv_tol_rdmjkde = 1e-8
     conv_tol_rdmjkddm = las.conv_tol_rdmjkddm or 3*conv_tol_grad
     log = lib.logger.new_logger(las, verbose)
@@ -547,7 +546,7 @@ class extremeAsynLASSCF (LASSCFNoSymm):
                     dm1 = np.asarray (datagroup[i][:])
                     dm1_list.append(dm1)
                 casdm1frs = dm1_list
-                log.info("read in the previous rdm")
+                print("read in the previous rdm")
         else:
             casdm1frs = casdm1frs
         #----------------------------------------------------------#
@@ -599,7 +598,7 @@ class extremeAsynLASSCF (LASSCFNoSymm):
             with h5py.File('h2eff_sub.h5', 'w') as f:
                 for i, arr in enumerate(h2eff_sub):
                     f.create_dataset(f'h2eff_{i}', data=arr)
-            log.info("Wrote Hamiltonian, now break")
+            print("Wrote Hamiltonian, now break")
             exit()
         #----------------------------------------------------------------------##
         for isub, (fcibox, ncas, nelecas, h1e, fcivec) in enumerate (zip (self.fciboxes, self.ncas_sub,
@@ -636,188 +635,189 @@ class extremeAsynLASSCF (LASSCFNoSymm):
             ci1.append (fcivec)
             t1 = log.timer ('FCI box for subspace {}'.format (isub), *t1)
         return e_cas, ci1
-
+'''
     def kernel (self, mo_coeff=None, casdm1frs=None, casdm2fr=None, conv_tol_grad=1e-4, verbose=lib.logger.NOTE):
-    if mo_coeff is None: mo_coeff = self.mo_coeff#this would be our initial guess orbital,save
-    #-----edit: save orbitals-----# 
-    if not os.path.exists("../orbital"):
-        os.makedirs("../orbital")
-        file_path = os.path.join("../orbital", 'guessOrb.h5')
-        with h5py.File(file_path, 'w') as f:
-             f.create_dataset('guessOrb', data=mo_coeff)
-    else:            
-        directory_path = "../orbital"
-        file_path = os.path.join(directory_path, 'guessOrb.h5')
-        with h5py.File(file_path, 'r') as f:
-            mo_coeff = f['guessOrb'][:]
-            log.info("read the previous orbital")
-    #--------------------------------##  
-    conv_tol_rdmjkde = 1e-8
-    conv_tol_rdmjkddm = self.conv_tol_rdmjkddm or 3*conv_tol_grad
-    log = lib.logger.new_logger(self, verbose)
-    t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
-    log.debug('Start LASSCF')
-                     
-    h2eff_sub = self.get_h2eff (mo_coeff)
-    t1 = log.timer('integral transformation to LAS space', *t0)
-                     
-    if casdm1frs is None: casdm1frs, casdm2fr = get_init_guess_rdm (self, mo_coeff, h2eff_sub)
-    casdm1fs = self.make_casdm1s_sub (casdm1frs=casdm1frs)
-    dm1 = self.make_rdm1 (casdm1s_sub=casdm1fs)
-    veff = sekf.get_veff (dm1s=dm1)
-    veff = self.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
-    t1 = log.timer('LASSCF initial get_veff', *t1)
-                     
-    ugg = None       
-    converged = False
-    t2 = (t1[0], t1[1])
-    it = 0           
-    for it in range (self.max_cycle_macro): ###las.rdm_cycle
-        e_cas, casdm1frs, casdm2fr, rdmjk_conv = self.rdm_cycle (mo_coeff, casdm1frs,
-            veff, h2eff_sub, log, max_cycle_rdmjk=self.max_cycle_rdmjk,
-            conv_tol_rdmjkddm=conv_tol_rdmjkddm,
-            conv_tol_rdmjkde=conv_tol_rdmjkde)
-        if ugg is None: ugg = self.get_ugg (mo_coeff)
-        log.info ('LASSCF subspace CI energies: {}'.format (e_cas))
-        t1 = log.timer ('LASSCF rdm_cycle', *t1)
-                     
-        casdm1fs_new = self.make_casdm1s_sub (casdm1frs=casdm1frs)
-        veff = veff.sum (0)/2
-        if not isinstance (self, _DFLASCI) or self.verbose > lib.logger.DEBUG:
-            dm1 = self.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
-            veff_new = self.get_veff (dm1s=dm1)
-            if not isinstance (self, _DFLASCI): veff = veff_new
-        if isinstance (self, _DFLASCI):
-            ddm = [dm_new - dm_old for dm_new, dm_old in zip (casdm1fs_new, casdm1fs)]
-            veff += self.fast_veffa (ddm, h2eff_sub, mo_coeff=mo_coeff)
-            if self.verbose > lib.logger.DEBUG:
-                errmat = veff - veff_new
-                lib.logger.debug (self, 'fast_veffa error: {}'.format (linalg.norm (errmat)))
-        veff = self.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
-        casdm1fs = casdm1fs_new
-                     
-        t1 = log.timer ('LASSCF get_veff after ci', *t1)
-        H_op = self.get_hop (ugg=ugg, mo_coeff=mo_coeff, casdm1frs=casdm1frs,
-            casdm2fr=casdm2fr, h2eff_sub=h2eff_sub, veff=veff, do_init_eri=False)
-        g_vec = H_op.get_grad ()
-        gx = H_op.get_gx ()
-        prec_op = H_op.get_prec ()
-        prec = prec_op (np.ones_like (g_vec)) # Check for divergences
-        norm_gorb = linalg.norm (g_vec) if g_vec.size else 0.0
-        norm_gx = linalg.norm (gx) if gx.size else 0.0
-        x0 = prec_op._matvec (-g_vec)
-        norm_xorb = linalg.norm (x0) if x0.size else 0.0
-        lib.logger.info (self, 'LASSCF macro %d : E = %.15g ; |g_int| = %.15g ; |g_x| = %.15g',
-            it, H_op.e_tot, norm_gorb, norm_gx)
-        if ((norm_gorb < conv_tol_grad) or (norm_gorb < norm_gx/10)) and rdmjk_conv:
-            converged = True
-            break    
-        self.dump_chk (mo_coeff=mo_coeff, ci=[casdm1frs, casdm2fr])
-        H_op._init_eri_() # Take this part out of the true initialization b/c 
-                          # if I'm already converged I don't want to waste the cycles
-        t1 = log.timer ('LASSCF Hessian constructor', *t1)
-        microit = [0]
-        last_x = [0] 
-        first_norm_x = [None]
-        def my_callback (x):
-            microit[0] += 1
-            norm_xorb = linalg.norm (x) if x.size else 0.0
-            addr_max = np.argmax (np.abs (x))
-            id_max = ugg.addr2idstr (addr_max)
-            x_max = x[addr_max]/np.pi
-            log.debug ('Maximum step vector element x[{}] = {}*pi ({})'.format (addr_max, x_max, id_max))
-            if self.verbose > lib.logger.INFO:
-                Hx = H_op._matvec (x) # This doubles the price of each iteration!!
-                resid = g_vec + Hx
-                norm_gorb = linalg.norm (resid) if resid.size else 0.0
-                Ecall = H_op.e_tot + x.dot (g_vec + (Hx/2))
-                log.info ('LASSCF micro %d : E = %.15g ; |g_orb| = %.15g ; |x_orb| = %.15g',
-                    microit[0], Ecall, norm_gorb, norm_xorb)                                                                          
-            else:    
-                log.info ('LASSCF micro %d : |x_orb| = %.15g', microit[0], norm_xorb)
-            if abs(x_max)>.5: # Nonphysical step vector element
-                if last_x[0] is 0:
-                    x[np.abs (x)>.5*np.pi] = 0
-                    last_x[0] = x
-                raise MicroIterInstabilityException ("|x[i]| > pi/2")
-            norm_x = linalg.norm (x)
-            if first_norm_x[0] is None:
-                first_norm_x[0] = norm_x
-            elif norm_x > 10*first_norm_x[0]:
-                raise MicroIterInstabilityException ("||x(n)|| > 10*||x(0)||")
-            last_x[0] = x.copy ()
-     
-        my_tol = max (conv_tol_grad, norm_gx/10)
-        try:
-            x, info_int = sparse.linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
-                                            maxiter=self.max_cycle_micro,
-                                            callback=my_callback, M=prec_op)
-            t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
-            mo_coeff, h2eff_sub = H_op.update_mo_eri (x, h2eff_sub)
-            #######here I save the most recent orbitals######
-            output_dir = "../orbital"
-            file_path = os.path.join(output_dir, 'guessOrb.h5')
+        if mo_coeff is None: mo_coeff = self.mo_coeff#this would be our initial guess orbital,save
+        #-----edit: save orbitals-----# 
+        log = lib.logger.new_logger(self, verbose)
+        if not os.path.exists("../orbital"):
+            os.makedirs("../orbital")
+            file_path = os.path.join("../orbital", 'guessOrb.h5')
             with h5py.File(file_path, 'w') as f:
-                 f.create_dataset('guessOrb', data=mo_coeff)
-                 log.info("saved orbs")
-            ################################################     
-            t1 = log.timer ('LASSCF Hessian update', *t1)
-     
-            veff = self.get_veff (dm1s = self.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
-            veff = self.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
-            t1 = log.timer ('LASSCF get_veff after secondorder', *t1)
-        except MicroIterInstabilityException as e:
-            log.info ('Unstable microiteration aborted: %s', str (e))
-            t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
-            x = last_x[0]
-            for i in range (3): # Make up to 3 attempts to scale-down x if necessary
-                mo2, h2eff_sub2 = H_op.update_mo_eri (x, h2eff_sub)
-                t1 = log.timer ('LASCF Hessian update', *t1)
-                veff2 = self.get_veff (dm1s = self.make_rdm1 (mo_coeff=mo2, casdm1s_sub=casdm1fs))
-                veff2 = self.split_veff (veff2, h2eff_sub2, mo_coeff=mo2, casdm1s_sub=casdm1fs)
+                f.create_dataset('guessOrb', data=mo_coeff)
+        else:            
+            directory_path = "../orbital"
+            file_path = os.path.join(directory_path, 'guessOrb.h5')
+            with h5py.File(file_path, 'r') as f:
+                mo_coeff = f['guessOrb'][:]
+                print("read the previous orbital")
+        #--------------------------------##  
+        conv_tol_rdmjkde = 1e-8
+        conv_tol_rdmjkddm = self.conv_tol_rdmjkddm or 3*conv_tol_grad
+        #log = lib.logger.new_logger(self, verbose)
+        t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
+        log.debug('Start LASSCF')
+                         
+        h2eff_sub = self.get_h2eff (mo_coeff)
+        t1 = log.timer('integral transformation to LAS space', *t0)
+                         
+        if casdm1frs is None: casdm1frs, casdm2fr = get_init_guess_rdm (self, mo_coeff, h2eff_sub)
+        casdm1fs = self.make_casdm1s_sub (casdm1frs=casdm1frs)
+        dm1 = self.make_rdm1 (casdm1s_sub=casdm1fs)
+        veff = self.get_veff (dm1s=dm1)
+        veff = self.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
+        t1 = log.timer('LASSCF initial get_veff', *t1)
+                         
+        ugg = None       
+        converged = False
+        t2 = (t1[0], t1[1])
+        it = 0           
+        for it in range (self.max_cycle_macro): ###las.rdm_cycle
+            e_cas, casdm1frs, casdm2fr, rdmjk_conv = self.rdm_cycle (mo_coeff, casdm1frs,
+                veff, h2eff_sub, log, max_cycle_rdmjk=self.max_cycle_rdmjk,
+                conv_tol_rdmjkddm=conv_tol_rdmjkddm,
+                conv_tol_rdmjkde=conv_tol_rdmjkde)
+            if ugg is None: ugg = self.get_ugg (mo_coeff)
+            log.info ('LASSCF subspace CI energies: {}'.format (e_cas))
+            t1 = log.timer ('LASSCF rdm_cycle', *t1)
+                         
+            casdm1fs_new = self.make_casdm1s_sub (casdm1frs=casdm1frs)
+            veff = veff.sum (0)/2
+            if not isinstance (self, _DFLASCI) or self.verbose > lib.logger.DEBUG:
+                dm1 = self.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
+                veff_new = self.get_veff (dm1s=dm1)
+                if not isinstance (self, _DFLASCI): veff = veff_new
+            if isinstance (self, _DFLASCI):
+                ddm = [dm_new - dm_old for dm_new, dm_old in zip (casdm1fs_new, casdm1fs)]
+                veff += self.fast_veffa (ddm, h2eff_sub, mo_coeff=mo_coeff)
+                if self.verbose > lib.logger.DEBUG:
+                    errmat = veff - veff_new
+                    lib.logger.debug (self, 'fast_veffa error: {}'.format (linalg.norm (errmat)))
+            veff = self.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs_new)
+            casdm1fs = casdm1fs_new
+                         
+            t1 = log.timer ('LASSCF get_veff after ci', *t1)
+            H_op = self.get_hop (ugg=ugg, mo_coeff=mo_coeff, casdm1frs=casdm1frs,
+                casdm2fr=casdm2fr, h2eff_sub=h2eff_sub, veff=veff, do_init_eri=False)
+            g_vec = H_op.get_grad ()
+            gx = H_op.get_gx ()
+            prec_op = H_op.get_prec ()
+            prec = prec_op (np.ones_like (g_vec)) # Check for divergences
+            norm_gorb = linalg.norm (g_vec) if g_vec.size else 0.0
+            norm_gx = linalg.norm (gx) if gx.size else 0.0
+            x0 = prec_op._matvec (-g_vec)
+            norm_xorb = linalg.norm (x0) if x0.size else 0.0
+            lib.logger.info (self, 'LASSCF macro %d : E = %.15g ; |g_int| = %.15g ; |g_x| = %.15g',
+                it, H_op.e_tot, norm_gorb, norm_gx)
+            if ((norm_gorb < conv_tol_grad) or (norm_gorb < norm_gx/10)) and rdmjk_conv:
+                converged = True
+                break    
+            self.dump_chk (mo_coeff=mo_coeff, ci=[casdm1frs, casdm2fr])
+            H_op._init_eri_() # Take this part out of the true initialization b/c 
+                              # if I'm already converged I don't want to waste the cycles
+            t1 = log.timer ('LASSCF Hessian constructor', *t1)
+            microit = [0]
+            last_x = [0] 
+            first_norm_x = [None]
+            def my_callback (x):
+                microit[0] += 1
+                norm_xorb = linalg.norm (x) if x.size else 0.0
+                addr_max = np.argmax (np.abs (x))
+                id_max = ugg.addr2idstr (addr_max)
+                x_max = x[addr_max]/np.pi
+                log.debug ('Maximum step vector element x[{}] = {}*pi ({})'.format (addr_max, x_max, id_max))
+                if self.verbose > lib.logger.INFO:
+                    Hx = H_op._matvec (x) # This doubles the price of each iteration!!
+                    resid = g_vec + Hx
+                    norm_gorb = linalg.norm (resid) if resid.size else 0.0
+                    Ecall = H_op.e_tot + x.dot (g_vec + (Hx/2))
+                    log.info ('LASSCF micro %d : E = %.15g ; |g_orb| = %.15g ; |x_orb| = %.15g',
+                        microit[0], Ecall, norm_gorb, norm_xorb)                                                                          
+                else:    
+                    log.info ('LASSCF micro %d : |x_orb| = %.15g', microit[0], norm_xorb)
+                if abs(x_max)>.5: # Nonphysical step vector element
+                    if last_x[0] is 0:
+                        x[np.abs (x)>.5*np.pi] = 0
+                        last_x[0] = x
+                    raise MicroIterInstabilityException ("|x[i]| > pi/2")
+                norm_x = linalg.norm (x)
+                if first_norm_x[0] is None:
+                    first_norm_x[0] = norm_x
+                elif norm_x > 10*first_norm_x[0]:
+                    raise MicroIterInstabilityException ("||x(n)|| > 10*||x(0)||")
+                last_x[0] = x.copy ()
+         
+            my_tol = max (conv_tol_grad, norm_gx/10)
+            try:
+                x, info_int = sparse.linalg.cg (H_op, -g_vec, x0=x0, atol=my_tol,
+                                                maxiter=self.max_cycle_micro,
+                                                callback=my_callback, M=prec_op)
+                t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
+                mo_coeff, h2eff_sub = H_op.update_mo_eri (x, h2eff_sub)
+                #######here I save the most recent orbitals######
+                output_dir = "../orbital"
+                file_path = os.path.join(output_dir, 'guessOrb.h5')
+                with h5py.File(file_path, 'w') as f:
+                     f.create_dataset('guessOrb', data=mo_coeff)
+                     print("saved orbs")
+                ################################################     
+                t1 = log.timer ('LASSCF Hessian update', *t1)
+         
+                veff = self.get_veff (dm1s = self.make_rdm1 (mo_coeff=mo_coeff, casdm1s_sub=casdm1fs))
+                veff = self.split_veff (veff, h2eff_sub, mo_coeff=mo_coeff, casdm1s_sub=casdm1fs)
                 t1 = log.timer ('LASSCF get_veff after secondorder', *t1)
-                e2 = self.energy_nuc () + self.energy_elec (mo_coeff=mo2, h2eff=h2eff_sub2,
-                                                          casdm1frs=casdm1frs,
-                                                          casdm2fr=casdm2fr,
-                                                          veff=veff2)
-                if e2 < H_op.e_tot:
-                    break
-                log.info ('New energy ({}) is higher than keyframe energy ({})'.format (
-                    e2, H_op.e_tot))
-                log.info ('Attempt {} of 3 to scale down trial step vector'.format (i+1))
-                x *= .5
-            mo_coeff, h2eff_sub, veff = mo2, h2eff_sub2, veff2
-     
-     
-    t2 = log.timer ('LASSCF {} macrocycles'.format (it), *t2)
-     
-    e_tot = self.energy_nuc () + self.energy_elec (mo_coeff=mo_coeff,
-        casdm1frs=casdm1frs, casdm2fr=casdm2fr, h2eff=h2eff_sub, veff=veff)
-    e_tot_test = self.get_hop (ugg=ugg, mo_coeff=mo_coeff, casdm1frs=casdm1frs,
-        casdm2fr=casdm2fr, h2eff_sub=h2eff_sub, veff=veff, do_init_eri=False).e_tot
-    veff_a = np.stack ([self.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub, mo_coeff=mo_coeff, _full=True)
-        for state in range (self.nroots)], axis=0)
-    veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, self.weights))/2 
-    veff = veff_c[None,None,:,:] + veff_a
-    veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff,self.weights))
-    e_states = self.energy_nuc () + np.array (self.states_energy_elec (
-        mo_coeff=mo_coeff, h2eff=h2eff_sub, veff=veff, casdm1frs=casdm1frs,
-        casdm2fr=casdm2fr))
-    assert (np.allclose (np.dot (self.weights, e_states), e_tot)), '{} {} {} {}'.format (
-        e_states, np.dot (self.weights, e_states), e_tot, e_tot_test)
-     
-    lib.logger.info (self, 'LASSCF %s after %d cycles', ('not converged', 'converged')[converged], it+1)
-    lib.logger.info (self, 'LASSCF E = %.15g ; |g_int| = %.15g ; |g_ext| = %.15g', e_tot, norm_gorb, norm_gx)
-    t1 = log.timer ('LASSCF wrap-up', *t1)
-     
-    mo_coeff, mo_energy, mo_occ, casdm1frs, casdm2fr, h2eff_sub = self.canonicalize (
-        mo_coeff, casdm1frs, casdm2fr, veff=veff.sa, h2eff_sub=h2eff_sub)
-    t1 = log.timer ('LASSCF canonicalization', *t1)
-     
-    t0 = log.timer ('LASSCF kernel function', *t0)
-     
-    return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, casdm1frs, casdm2fr, h2eff_sub, veff
-
+            except MicroIterInstabilityException as e:
+                log.info ('Unstable microiteration aborted: %s', str (e))
+                t1 = log.timer ('LASSCF {} microcycles'.format (microit[0]), *t1)
+                x = last_x[0]
+                for i in range (3): # Make up to 3 attempts to scale-down x if necessary
+                    mo2, h2eff_sub2 = H_op.update_mo_eri (x, h2eff_sub)
+                    t1 = log.timer ('LASCF Hessian update', *t1)
+                    veff2 = self.get_veff (dm1s = self.make_rdm1 (mo_coeff=mo2, casdm1s_sub=casdm1fs))
+                    veff2 = self.split_veff (veff2, h2eff_sub2, mo_coeff=mo2, casdm1s_sub=casdm1fs)
+                    t1 = log.timer ('LASSCF get_veff after secondorder', *t1)
+                    e2 = self.energy_nuc () + self.energy_elec (mo_coeff=mo2, h2eff=h2eff_sub2,
+                                                              casdm1frs=casdm1frs,
+                                                              casdm2fr=casdm2fr,
+                                                              veff=veff2)
+                    if e2 < H_op.e_tot:
+                        break
+                    log.info ('New energy ({}) is higher than keyframe energy ({})'.format (
+                        e2, H_op.e_tot))
+                    log.info ('Attempt {} of 3 to scale down trial step vector'.format (i+1))
+                    x *= .5
+                mo_coeff, h2eff_sub, veff = mo2, h2eff_sub2, veff2
+         
+         
+        t2 = log.timer ('LASSCF {} macrocycles'.format (it), *t2)
+         
+        e_tot = self.energy_nuc () + self.energy_elec (mo_coeff=mo_coeff,
+            casdm1frs=casdm1frs, casdm2fr=casdm2fr, h2eff=h2eff_sub, veff=veff)
+        e_tot_test = self.get_hop (ugg=ugg, mo_coeff=mo_coeff, casdm1frs=casdm1frs,
+            casdm2fr=casdm2fr, h2eff_sub=h2eff_sub, veff=veff, do_init_eri=False).e_tot
+        veff_a = np.stack ([self.fast_veffa ([d[state] for d in casdm1frs], h2eff_sub, mo_coeff=mo_coeff, _full=True)
+            for state in range (self.nroots)], axis=0)
+        veff_c = (veff.sum (0) - np.einsum ('rsij,r->ij', veff_a, self.weights))/2 
+        veff = veff_c[None,None,:,:] + veff_a
+        veff = lib.tag_array (veff, c=veff_c, sa=np.einsum ('rsij,r->sij', veff,self.weights))
+        e_states = self.energy_nuc () + np.array (self.states_energy_elec (
+            mo_coeff=mo_coeff, h2eff=h2eff_sub, veff=veff, casdm1frs=casdm1frs,
+            casdm2fr=casdm2fr))
+        assert (np.allclose (np.dot (self.weights, e_states), e_tot)), '{} {} {} {}'.format (
+            e_states, np.dot (self.weights, e_states), e_tot, e_tot_test)
+         
+        lib.logger.info (self, 'LASSCF %s after %d cycles', ('not converged', 'converged')[converged], it+1)
+        lib.logger.info (self, 'LASSCF E = %.15g ; |g_int| = %.15g ; |g_ext| = %.15g', e_tot, norm_gorb, norm_gx)
+        t1 = log.timer ('LASSCF wrap-up', *t1)
+         
+        mo_coeff, mo_energy, mo_occ, casdm1frs, casdm2fr, h2eff_sub = self.canonicalize (
+            mo_coeff, casdm1frs, casdm2fr, veff=veff.sa, h2eff_sub=h2eff_sub)
+        t1 = log.timer ('LASSCF canonicalization', *t1)
+         
+        t0 = log.timer ('LASSCF kernel function', *t0)
+         
+        return converged, e_tot, e_states, mo_energy, mo_coeff, e_cas, casdm1frs, casdm2fr, h2eff_sub, veff
+'''
 
 
 def LASSCF (mf_or_mol, ncas_sub, nelecas_sub, **kwargs):
