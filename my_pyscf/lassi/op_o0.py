@@ -21,7 +21,7 @@ def memcheck (las, ci, soc=None):
     lroots_fr = np.array ([[1 if c.ndim<3 else c.shape[0]
                             for c in ci_r]
                            for ci_r in ci])
-    lroots_r = np.product (lroots_fr, axis=0)
+    lroots_r = np.prod (lroots_fr, axis=0)
     nelec_frs = np.array ([[list (_unpack_nelec (fcibox._get_nelec (solver, nelecas)))
                             for solver in fcibox.fcisolvers]
                            for fcibox, nelecas in zip (las.fciboxes, las.nelecas_sub)])
@@ -144,6 +144,25 @@ def civec_spinless_repr_generator (ci0_r, norb, nelec_r):
     return ci1_r_gen, ss2spinless, spinless2ss
 
 def civec_spinless_repr (ci0_r, norb, nelec_r):
+    '''Put CI vectors in the spinless representation; i.e., map
+        norb -> 2 * norb
+        (neleca, nelecb) -> (neleca+nelecb, 0)
+    This permits linear combinations of CI vectors with different
+    M == neleca-nelecb at the price of higher memory cost. This function
+    does NOT change the datatype.
+
+    Args:
+        ci0_r: sequence or generator of ndarray of length nprods
+            CAS-CI vectors in the spin-pure representation
+        norb: integer
+            Number of orbitals
+        nelec_r: sequence of tuple of length (2)
+            (neleca, nelecb) for each element of ci0_r
+
+    Returns:
+        ci1_r: ndarray of shape (nprods, ndet_spinless)
+            spinless CAS-CI vectors
+    '''
     ci1_r_gen, _, _ = civec_spinless_repr_generator (ci0_r, norb, nelec_r)
     ci1_r = np.stack ([x.copy () for x in ci1_r_gen ()], axis=0)
     return ci1_r

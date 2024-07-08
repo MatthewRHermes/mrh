@@ -123,7 +123,7 @@ def _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_
     return mo_coeff
 
 def localize_init_guess (las, frags_atoms, mo_coeff=None, spin=None, lo_coeff=None, fock=None,
-                         freeze_cas_spaces=False):
+                         freeze_cas_spaces=False, frags_by_AOs=False):
     ''' Project active orbitals into sets of orthonormal "fragments" defined by lo_coeff
     and frags_orbs, and orthonormalize inactive and virtual orbitals in the orthogonal complement
     space. Beware that unless freeze_cas_spaces=True, frozen orbitals will not be preserved.
@@ -155,6 +155,8 @@ def localize_init_guess (las, frags_atoms, mo_coeff=None, spin=None, lo_coeff=No
             orbitals are projected into the localized-orbital space and
             the inactive and external orbitals are reconstructed as closely
             as possible using SVD.
+        frags_by_AOs: logical
+            If True, interpret integer frags_atoms as AOs rather than atoms
 
     Returns:
         mo_coeff: ndarray of shape (nao,nmo)
@@ -169,20 +171,23 @@ def localize_init_guess (las, frags_atoms, mo_coeff=None, spin=None, lo_coeff=No
         spin = las.nelecas[0] - las.nelecas[1]
     assert (spin % 2 == sum (las.nelecas) % 2)
     assert (len (frags_atoms) == len (las.ncas_sub))
-    frags_atoms_int = all ([all ([isinstance (i, int) for i in j]) for j in frags_atoms])
-    frags_atoms_str = all ([all ([isinstance (i, str) for i in j]) for j in frags_atoms])
-    if frags_atoms_int:
-        ao_offset = las.mol.offset_ao_by_atom ()
-        frags_orbs = [[orb for atom in frags_atoms 
-                       for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
-                      for frags_atoms in frags_atoms]
-    elif frags_atoms_str:
-        frags_orbs = [las.mol.search_ao_label (i) for i in frags_atoms]
-    else:
-        raise RuntimeError ('localize_init_guess requires either all integers or all strings to identify fragments')
+    frags_orbs = interpret_frags_atoms (las.mol, frags_atoms, frags_by_AOs=frags_by_AOs)
     if fock is None: fock = las._scf.get_fock ()
     ao_ovlp = las._scf.get_ovlp ()
     return _localize (las, frags_orbs, mo_coeff, spin, lo_coeff, fock, ao_ovlp, freeze_cas_spaces=freeze_cas_spaces)
 
-
+def interpret_frags_atoms (mol, frags_atoms, frags_by_AOs=False):
+    frags_atoms_int = all ([all ([isinstance (i, (int,np.integer)) for i in j]) for j in frags_atoms])
+    frags_atoms_str = all ([all ([isinstance (i, (str,np.character)) for i in j]) for j in frags_atoms])
+    if frags_atoms_int:
+        if frags_by_AOs: return frags_atoms
+        ao_offset = mol.offset_ao_by_atom ()
+        frags_orbs = [[orb for atom in frags_atoms 
+                       for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
+                      for frags_atoms in frags_atoms]
+    elif frags_atoms_str:
+        frags_orbs = [list (mol.search_ao_label (i)) for i in frags_atoms]
+    else:
+        raise RuntimeError ('localize_init_guess requires either all integers or all strings to identify fragments')
+    return frags_orbs
 

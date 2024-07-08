@@ -28,6 +28,11 @@ def load_las_(mc, chkfile=None, method_key='las',
         except AttributeError as err:
             las = mc._las.state_average (**sakwargs)
             mc.fciboxes = las.fciboxes
+            for fcibox, norb, ne in zip (mc.fciboxes, mc.ncas_sub, mc.nelecas_sub):
+                for solver in fcibox.fcisolvers:
+                    solver.norb = norb
+                    solver.nelec = fcibox._get_nelec (solver, ne)
+                    solver.check_transformer_cache ()
             mc.nroots=las.nroots
             mc.weights=las.weights
     for key in keys_results:

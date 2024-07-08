@@ -4,13 +4,15 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.fci import cistring
 from pyscf.lib import logger
 from pyscf.lo.orth import vec_lowdin
-from pyscf import symm
+from pyscf import symm, __config__
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.fci.spin_op import contract_sdown, contract_sup
 from mrh.my_pyscf.fci.csfstring import CSFTransformer
 from mrh.my_pyscf.fci.csfstring import ImpossibleSpinError
 from mrh.my_pyscf.mcscf.productstate import ImpureProductStateFCISolver
 import itertools
+
+LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
 class SingleLASRootspace (object):
     def __init__(self, las, spins, smults, charges, weight, nlas=None, nelelas=None, stdout=None,
@@ -41,6 +43,8 @@ class SingleLASRootspace (object):
         self.nholeu = self.nlas - self.nelecu
         self.nholed = self.nlas - self.nelecd
 
+        self.entmap = tuple ()
+
     def __eq__(self, other):
         if self.nfrag != other.nfrag: return False
         return (np.all (self.spins==other.spins) and 
@@ -49,7 +53,7 @@ class SingleLASRootspace (object):
 
     def __hash__(self):
         return hash (tuple ([self.nfrag,] + list (self.spins) + list (self.smults)
-                            + list (self.charges)))
+                            + list (self.charges) + list (self.entmap)))
 
     def possible_excitation (self, i, a, s):
         i, a, s = np.atleast_1d (i, a, s)
@@ -157,16 +161,22 @@ class SingleLASRootspace (object):
             idx_valid = np.all (spins_table>-self.smults[None,:], axis=1)
             spins_table = spins_table[idx_valid,:]
         for spins in spins_table:
-            yield SingleLASRootspace (self.las, spins, self.smults, self.charges, 0, nlas=self.nlas,
-                                  nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
+            sp = SingleLASRootspace (self.las, spins, self.smults, self.charges, 0, nlas=self.nlas,
+                                     nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose)
+            sp.entmap = self.entmap
+            yield sp
 
     def has_ci (self):
         if self.ci is None: return False
         return all ([c is not None for c in self.ci])
 
-    def get_ci_szrot (self):
+    def get_ci_szrot (self, ifrags=None):
         '''Generate the sets of CI vectors in which each vector for each fragment
         has the sz axis rotated in all possible ways.
+
+        Kwargs:
+            ifrags: list of integers
+                Optionally restrict ci_sz to particular fragments identified by ifrags
 
         Returns:
             ci_sz: list of dict of type {integer: ndarray}
@@ -175,7 +185,8 @@ class SingleLASRootspace (object):
         '''
         ci_sz = []
         ndet = self.get_ndet ()
-        for ifrag in range (self.nfrag):
+        if ifrags is None: ifrags = range (self.nfrag)
+        for ifrag in ifrags:
             norb, sz, ci = self.nlas[ifrag], self.spins[ifrag], self.ci[ifrag]
             ndeta, ndetb = ndet[ifrag]
             nelec = self.neleca[ifrag], self.nelecb[ifrag]
@@ -232,6 +243,14 @@ class SingleLASRootspace (object):
         lroots_s = min (other.nelecu[src_frag], other.nholed[dest_frag])
         return src_frag, dest_frag, e_spin, src_ds, dest_ds, lroots_s
 
+    def set_entmap_(self, ref):
+        idx = np.where (self.excited_fragments (ref))[0]
+        idx = tuple (set (idx))
+        self.entmap = tuple ((idx,))
+        #self.entmap[:,:] = 0
+        #for i, j in itertools.combinations (idx, 2):
+        #    self.entmap[i,j] = self.entmap[j,i] = 1
+
     def single_excitation_description_string (self, other):
         src, dest, e_spin, src_ds, dest_ds, lroots_s = self.describe_single_excitation (other)
         fmt_str = '{:d}({:s}) --{:s}--> {:d}({:s}) ({:d} lroots)'
@@ -255,6 +274,7 @@ class SingleLASRootspace (object):
         return [ci_sz[ifrag][self.spins[ifrag]] for ifrag in range (self.nfrag)]
 
     def excited_fragments (self, other):
+        if other is None: return np.ones (self.nfrag, dtype=bool)
         dneleca = self.neleca - other.neleca
         dnelecb = self.nelecb - other.nelecb
         dsmults = self.smults - other.smults
@@ -298,9 +318,12 @@ class SingleLASRootspace (object):
         if ci is not None:
             ci1 = [c for c in self.ci]
             ci1[ifrag] = ci
-        return SingleLASRootspace (self.las, spins1, smults1, self.charges, 0, nlas=self.nlas,
-                                   nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
-                                   ci=ci1)
+        sp = SingleLASRootspace (self.las, spins1, smults1, self.charges, 0, nlas=self.nlas,
+                                 nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
+                                 ci=ci1)
+        sp.entmap = self.entmap
+        assert (ci is sp.ci[ifrag])
+        return sp
 
     def is_orthogonal_by_smult (self, other):
         if isinstance (other, (list, tuple)):
@@ -338,6 +361,58 @@ class SingleLASRootspace (object):
         return ImpureProductStateFCISolver (fcisolvers, stdout=self.stdout, lweights=lweights, 
                                             verbose=self.verbose)
 
+    def merge_(self, other, ref=None, lindep_thresh=LINDEP_THRESH):
+        idx = self.excited_fragments (ref)
+        ndet = self.get_ndet ()
+        for ifrag in np.where (idx)[0]:
+            self.ci[ifrag] = np.append (
+                np.asarray (self.ci[ifrag]).reshape (-1, ndet[ifrag][0], ndet[ifrag][1]),
+                np.asarray (other.ci[ifrag]).reshape (-1, ndet[ifrag][0], ndet[ifrag][1]),
+                axis=0
+            )
+            ovlp = np.tensordot (self.ci[ifrag].conj (), self.ci[ifrag],
+                                 axes=((1,2),(1,2)))
+            if linalg.det (ovlp) < LINDEP_THRESH:
+                evals, evecs = linalg.eigh (ovlp)
+                idx = evals>LINDEP_THRESH
+                evals, evecs = evals[idx], evecs[:,idx]
+                evecs /= np.sqrt (evals)[None,:]
+                self.ci[ifrag] = np.tensordot (evecs.T, self.ci[ifrag], axes=1)
+
+def orthogonal_excitations (exc1, exc2, ref):
+    if exc1.nfrag != ref.nfrag: return False
+    if exc2.nfrag != ref.nfrag: return False
+    idx1 = exc1.excited_fragments (ref)
+    if not np.count_nonzero (idx1): return False
+    idx2 = exc2.excited_fragments (ref)
+    if not np.count_nonzero (idx2): return False
+    if np.count_nonzero (idx1 & idx2): return False
+    return True
+
+def combine_orthogonal_excitations (exc1, exc2, ref):
+    nfrag = ref.nfrag
+    spins = exc1.spins.copy ()
+    smults = exc1.smults.copy ()
+    charges = exc1.charges.copy ()
+    idx2 = exc2.excited_fragments (ref)
+    spins[idx2] = exc2.spins[idx2]
+    smults[idx2] = exc2.smults[idx2]
+    charges[idx2] = exc2.charges[idx2]
+    ci = None
+    if exc1.has_ci () and exc2.has_ci ():
+        ci = [exc2.ci[ifrag] if idx2[ifrag] else exc1.ci[ifrag] for ifrag in range (nfrag)]
+    product = SingleLASRootspace (
+        ref.las, spins, smults, charges, 0, ci=ci,
+        nlas=ref.nlas, nelelas=ref.nelelas, stdout=ref.stdout, verbose=ref.verbose
+    )
+    product.entmap = tuple (set (exc1.entmap + exc2.entmap))
+    #assert (np.amax (product.entmap) < 2)
+    assert (len (product.entmap) == len (set (product.entmap)))
+    for ifrag in range (nfrag):
+        assert ((product.ci[ifrag] is exc1.ci[ifrag]) or
+                (product.ci[ifrag] is exc2.ci[ifrag]) or
+                (product.ci[ifrag] is ref.ci[ifrag]))
+    return product
 
 def all_single_excitations (las, verbose=None):
     '''Add states characterized by one electron hopping from one fragment to another fragment
@@ -358,16 +433,16 @@ def all_single_excitations (las, verbose=None):
         new_states.extend (ref_state.get_singles ())
     seen = set (ref_states)
     all_states = ref_states + [state for state in new_states if not ((state in seen) or seen.add (state))]
-    weights = [state.weight for state in all_states]
-    charges = [state.charges for state in all_states]
-    spins = [state.spins for state in all_states]
-    smults = [state.smults for state in all_states]
-    #wfnsyms = [state.wfnsyms for state in all_states]
     log.info ('Built {} singly-excited LAS states from {} reference LAS states'.format (
         len (all_states) - len (ref_states), len (ref_states)))
     if len (all_states) == len (ref_states):
         log.warn (("%d reference LAS states exhaust current active space specifications; "
                    "no singly-excited states could be constructed"), len (ref_states))
+    weights = [state.weight for state in all_states]
+    charges = [state.charges for state in all_states]
+    spins = [state.spins for state in all_states]
+    smults = [state.smults for state in all_states]
+    #wfnsyms = [state.wfnsyms for state in all_states]
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
 
 def spin_shuffle (las, verbose=None, equal_weights=False):
@@ -386,16 +461,8 @@ def spin_shuffle (las, verbose=None, equal_weights=False):
         raise NotImplementedError ("Point-group symmetry for LASSI state generator")
     ref_states = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_space_info (las))]
     for weight, state in zip (las.weights, ref_states): state.weight = weight
-    seen = set (ref_states)
-    all_states = [state for state in ref_states]
-    for ref_state in ref_states:
-        for new_state in ref_state.gen_spin_shuffles ():
-            if not new_state in seen:
-                all_states.append (new_state)
-                seen.add (new_state)
+    all_states = _spin_shuffle (ref_states, equal_weights=equal_weights)
     weights = [state.weight for state in all_states]
-    if equal_weights:
-        weights = [1.0/len(all_states),]*len(all_states)
     charges = [state.charges for state in all_states]
     spins = [state.spins for state in all_states]
     smults = [state.smults for state in all_states]
@@ -405,6 +472,19 @@ def spin_shuffle (las, verbose=None, equal_weights=False):
     if len (all_states) == len (ref_states):
         log.warn ("no spin-shuffling options found for given LAS states")
     return las.state_average (weights=weights, charges=charges, spins=spins, smults=smults)
+
+def _spin_shuffle (ref_spaces, equal_weights=False):
+    seen = set (ref_spaces)
+    all_spaces = [space for space in ref_spaces]
+    for ref_space in ref_spaces:
+        for new_space in ref_space.gen_spin_shuffles ():
+            if not new_space in seen:
+                all_spaces.append (new_space)
+                seen.add (new_space)
+    if equal_weights:
+        w = 1.0/len(all_spaces)
+        for space in all_spaces: space.weight = w
+    return all_spaces
 
 def spin_shuffle_ci (las, ci):
     '''Fill out the CI vectors for rootspaces constructed by the spin_shuffle function.
@@ -417,19 +497,26 @@ def spin_shuffle_ci (las, ci):
     from mrh.my_pyscf.mcscf.lasci import get_space_info
     spaces = [SingleLASRootspace (las, m, s, c, 0, ci=[c[ix] for c in ci])
               for ix, (c, m, s, w) in enumerate (zip (*get_space_info (las)))]
+    spaces = _spin_shuffle_ci_(spaces)
+    ci = [[space.ci[ifrag] for space in spaces] for ifrag in range (las.nfrags)]
+    return ci
+
+def _spin_shuffle_ci_(spaces):
     old_ci_sz = []
     old_idx = []
     new_idx = []
-    nfrag = las.nfrags
+    nfrag = spaces[0].nfrag
     for ix, space in enumerate (spaces):
         if space.has_ci ():
             old_idx.append (ix)
             old_ci_sz.append (space.get_ci_szrot ())
         else:
             new_idx.append (ix)
+            space.ci = [None for ifrag in range (space.nfrag)]
     def is_spin_shuffle_ref (sp1, sp2):
         return (np.all (sp1.charges==sp2.charges) and
-                np.all (sp1.smults==sp2.smults))
+                np.all (sp1.smults==sp2.smults) and
+                sp1.entmap==sp2.entmap)
     for ix in new_idx:
         ndet = spaces[ix].get_ndet ()
         ci_ix = [np.zeros ((0,ndet[i][0],ndet[i][1]))
@@ -442,7 +529,7 @@ def spin_shuffle_ci (las, ci):
                 ci_ix[ifrag] = np.append (ci_ix[ifrag], c, axis=0)
         for ifrag in range (nfrag):
             if ci_ix[ifrag].size==0:
-                ci[ifrag][ix] = None
+                spaces[ix].ci[ifrag] = None
                 continue
             lroots, ndeti = ci_ix[ifrag].shape[0], ndet[ifrag]
             if lroots > 1:
@@ -453,8 +540,8 @@ def spin_shuffle_ci (las, ci):
                 v = v[:,idx] / np.sqrt (w[idx])[None,:]
                 c = (c @ v).T
                 ci_ix[ifrag] = c.reshape (-1, ndeti[0], ndeti[1])
-            ci[ifrag][ix] = ci_ix[ifrag]
-    return ci
+            spaces[ix].ci[ifrag] = ci_ix[ifrag]
+    return spaces
 
 def count_excitations (las0):
     log = logger.new_logger (las0, las0.verbose)

@@ -181,6 +181,7 @@ class LASImpurityOrbitalCallable (object):
         idx = np.ones (mo.shape[1], dtype=np.bool_)
         idx[self.ncore:self.nocc] = False
         uo = mo[:,idx]
+        if uo.size==0: return fo, uo
 
         s1 = uo.conj ().T @ self.frag_umat
         u, svals, vh = self.svd (s1, full_matrices=True)

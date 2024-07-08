@@ -157,7 +157,14 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         return veff
     def dump_flags (self, verbose=None, _method_name='LASSCF'):
         lasci.LASCINoSymm.dump_flags (self, verbose=verbose, _method_name=_method_name)
+    #SV
+    def nuc_grad_method(self):
+        from mrh.my_pyscf.grad import lasscf
+        return lasscf.Gradients(self)
 
+    #SV
+    Gradients = nuc_grad_method
+    
 class LASSCFSymm (lasci.LASCISymm):
     _ugg = LASSCFSymm_UnitaryGroupGenerators    
     _hop = LASSCF_HessianOperator
