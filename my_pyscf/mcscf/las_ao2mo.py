@@ -56,7 +56,9 @@ def get_h2eff_df (las, mo_coeff):
     if mem_enough_int:
         eri = lib.tag_array (eri, bmPu=np.concatenate (bmuP, axis=-1).transpose (0,2,1))
     if las.verbose > lib.logger.DEBUG:
-        eri_comp = las.with_df.ao2mo (mo, compact=True)
+        eri_comp = las.with_df.ao2mo (mo_coeff, compact=True)
+        eri_comp = eri_comp[:,ncore:nocc,ncore:nocc,ncore:nocc]
+        eri_comp = lib.pack_tril (eri_comp.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
         lib.logger.debug(las,"CDERI two-step error: {}".format(linalg.norm(eri-eri_comp)))
     return eri
 
