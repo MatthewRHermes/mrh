@@ -80,7 +80,7 @@ def get_mo_from_h5 (mol, h5fname, symmetry=None):
         nmo_irrep = np.asarray (nmo_irrep)
         usymm_irrep_offset = np.cumsum (nmo_irrep) - nmo_irrep
         coeff_irrep_offset = np.cumsum (nmo_irrep**2) - nmo_irrep**2
-        mo_coeff = np.zeros ((nao, nao), dtype=np.float_)
+        mo_coeff = np.zeros ((nao, nao), dtype=np.float64)
         for m_ir, usymm_off, coeff_off in zip (nmo_irrep, usymm_irrep_offset, coeff_irrep_offset):
             i, j = usymm_off, usymm_off+m_ir
             u, v = coeff_off, coeff_off+(m_ir**2)

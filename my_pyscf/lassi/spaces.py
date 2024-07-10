@@ -170,9 +170,13 @@ class SingleLASRootspace (object):
         if self.ci is None: return False
         return all ([c is not None for c in self.ci])
 
-    def get_ci_szrot (self):
+    def get_ci_szrot (self, ifrags=None):
         '''Generate the sets of CI vectors in which each vector for each fragment
         has the sz axis rotated in all possible ways.
+
+        Kwargs:
+            ifrags: list of integers
+                Optionally restrict ci_sz to particular fragments identified by ifrags
 
         Returns:
             ci_sz: list of dict of type {integer: ndarray}
@@ -181,7 +185,8 @@ class SingleLASRootspace (object):
         '''
         ci_sz = []
         ndet = self.get_ndet ()
-        for ifrag in range (self.nfrag):
+        if ifrags is None: ifrags = range (self.nfrag)
+        for ifrag in ifrags:
             norb, sz, ci = self.nlas[ifrag], self.spins[ifrag], self.ci[ifrag]
             ndeta, ndetb = ndet[ifrag]
             nelec = self.neleca[ifrag], self.nelecb[ifrag]
@@ -329,6 +334,7 @@ class SingleLASRootspace (object):
                                  nelelas=self.nelelas, stdout=self.stdout, verbose=self.verbose,
                                  ci=ci1)
         sp.entmap = self.entmap
+        assert (ci is sp.ci[ifrag])
         return sp
 
     def is_orthogonal_by_smult (self, other):
@@ -414,6 +420,10 @@ def combine_orthogonal_excitations (exc1, exc2, ref):
     product.entmap = tuple (set (exc1.entmap + exc2.entmap))
     #assert (np.amax (product.entmap) < 2)
     assert (len (product.entmap) == len (set (product.entmap)))
+    for ifrag in range (nfrag):
+        assert ((product.ci[ifrag] is exc1.ci[ifrag]) or
+                (product.ci[ifrag] is exc2.ci[ifrag]) or
+                (product.ci[ifrag] is ref.ci[ifrag]))
     return product
 
 def all_single_excitations (las, verbose=None):

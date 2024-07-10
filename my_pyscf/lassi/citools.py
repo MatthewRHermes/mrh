@@ -48,7 +48,7 @@ def get_rootaddr_fragaddr (lroots):
             The ordinal designation local to each fragment of each LAS state.
     '''
     nfrags, nroots = lroots.shape
-    nprods = np.product (lroots, axis=0)
+    nprods = np.prod (lroots, axis=0)
     fragaddr = np.zeros ((nfrags, sum(nprods)), dtype=int)
     rootaddr = np.zeros (sum(nprods), dtype=int)
     offs = np.cumsum (nprods)
@@ -56,12 +56,56 @@ def get_rootaddr_fragaddr (lroots):
         j = offs[iroot]
         i = j - nprods[iroot]
         for ifrag in range (nfrags):
-            prods_before = np.product (lroots[:ifrag,iroot], axis=0)
-            prods_after = np.product (lroots[ifrag+1:,iroot], axis=0)
+            prods_before = np.prod (lroots[:ifrag,iroot], axis=0)
+            prods_after = np.prod (lroots[ifrag+1:,iroot], axis=0)
             addrs = np.repeat (np.arange (lroots[ifrag,iroot]), prods_before)
             addrs = np.tile (addrs, prods_after)
             fragaddr[ifrag,i:j] = addrs
         rootaddr[i:j] = iroot
     return rootaddr, fragaddr
 
+def umat_dot_1frag_(target, umat, lroots, ifrag, iroot, axis=0):
+    '''Apply a unitary transformation for 1 fragment in 1 rootspace to a tensor
+    whose target axis spans all model states.
 
+    Args:
+        target: ndarray whose length on axis 'axis' is nstates
+            The object to which the unitary transformation is to be applied.
+            Modified in-place.
+        umat: ndarray of shape (lroots[ifrag,iroot],lroots[ifrag,iroot])
+            A unitary matrix; the row axis is contracted
+        lroots: ndarray of shape (nfrags, nroots)
+            Number of basis states in each fragment in each rootspace
+        ifrag: integer
+            Fragment index for the targeted block
+        iroot: integer
+            Rootspace index for the targeted block
+
+    Kwargs:
+        axis: integer
+            The axis of target to which umat is to be applied
+
+    Returns:
+        target: same as input target
+            After application of unitary transformation'''
+    nprods = np.prod (lroots, axis=0)
+    offs = [0,] + list (np.cumsum (nprods))
+    i, j = offs[iroot], offs[iroot+1]
+    newaxes = [axis,] + list (range (axis)) + list (range (axis+1, target.ndim))
+    oldaxes = list (np.argsort (newaxes))
+    target = target.transpose (*newaxes)
+    target[i:j] = _umat_dot_1frag (target[i:j], umat, lroots[:,iroot], ifrag)
+    target = target.transpose (*oldaxes)
+    return target
+
+def _umat_dot_1frag (target, umat, lroots, ifrag):
+    # Remember: COLUMN-MAJOR ORDER!!
+    old_shape = target.shape
+    new_shape = tuple (lroots[::-1]) + old_shape[1:]
+    target = target.reshape (*new_shape)
+    iifrag = len (lroots) - ifrag - 1
+    newaxes = [iifrag,] + list (range (iifrag)) + list (range (iifrag+1, target.ndim))
+    oldaxes = list (np.argsort (newaxes))
+    target = target.transpose (*newaxes)
+    target = np.tensordot (umat.T, target, axes=1).transpose (*oldaxes)
+    return target.reshape (*old_shape)
