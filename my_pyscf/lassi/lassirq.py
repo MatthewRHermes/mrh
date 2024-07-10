@@ -2,8 +2,8 @@ import numpy as np
 from pyscf import lib,gto
 from pyscf.lib import logger
 from mrh.my_pyscf.lassi import LASSI
-from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
-from mrh.my_pyscf.lassi.states import all_single_excitations, SingleLASRootspace
+from mrh.my_pyscf.lassi.spaces import spin_shuffle, spin_shuffle_ci
+from mrh.my_pyscf.lassi.spaces import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 
 def prepare_states_spin_shuffle (lsi):
@@ -85,7 +85,7 @@ class LASSIrq (LASSI):
         self.q = q
         LASSI.__init__(self, las, opt=opt, **kwargs)
 
-    def kernel (self, **kwargs):
+    def prepare_states_(self):
         self.converged, las = self.prepare_states ()
         #self.__dict__.update(las.__dict__) # Unsafe
         self.fciboxes = las.fciboxes
@@ -94,6 +94,9 @@ class LASSIrq (LASSI):
         self.weights = las.weights
         self.e_lexc = las.e_lexc
         self.e_states = las.e_states
+
+    def kernel (self, **kwargs):
+        self.prepare_states_()
         return LASSI.kernel (self, **kwargs)
 
     def filter_spaces (self, las):
@@ -103,6 +106,8 @@ class LASSIrq (LASSI):
     make_lroots = make_lroots
     prepare_states = prepare_states
     as_scanner=as_scanner
+
+
 class LASSIrqCT (LASSIrq):
     def make_lroots (self, las, q=None):
         lroots = LASSIrq.make_lroots (self, las, q=q)

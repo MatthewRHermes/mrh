@@ -271,7 +271,7 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
             j = ncas_cum[isub+1]
             orbsym = orbsym[i:j]
             orbsym_io = orbsym.copy ()
-            if np.issubsctype (orbsym.dtype, np.integer):
+            if np.issubdtype (orbsym.dtype, np.integer):
                 orbsym_io = np.asarray ([symm.irrep_id2name (las.mol.groupname, x)
                                          for x in orbsym])
             log.info ("LASCI subspace {} with orbsyms {}".format (isub, orbsym_io))

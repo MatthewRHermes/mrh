@@ -152,6 +152,21 @@ class KnownValues(unittest.TestCase):
         lsi.prepare_states_()
         self.assertTrue (lsi.converged)
 
+    def test_lassis_1111 (self):
+        xyz='''H 0 0 0
+        H 3 0 0
+        H 6 0 0
+        H 9 0 0'''
+        mol1 = gto.M (atom=xyz, basis='sto3g', symmetry=False, verbose=0, output='/dev/null')
+        mf1 = scf.RHF (mol1).run ()
+
+        las1 = LASSCF (mf1, (1,1,1,1), ((0,1),(1,0),(0,1),(1,0)))
+        mo_coeff = las1.localize_init_guess ([[0,],[1,],[2,],[3,]])
+        las1.lasci_(mo_coeff)
+        lsi = LASSIS (las1).run ()
+        self.assertTrue (lsi.converged)
+        self.assertAlmostEqual (lsi.e_roots[0], -1.867291372401379, 6)
+
     def test_lassis_slow (self):
         las0 = las.get_single_state_las (state=0)
         for ifrag in range (len (las0.ci)):

@@ -1,11 +1,13 @@
+import itertools
 import numpy as np
 from scipy import linalg
 from pyscf import lib
 from pyscf.mcscf import mc1step
 from mrh.my_pyscf.mcscf import lasci, lasscf_sync_o0
+from mrh.my_pyscf.mcscf.lasscf_guess import interpret_frags_atoms
+from mrh.my_pyscf.mcscf.lasscf_async import keyframe
 from mrh.my_pyscf.mcscf.lasscf_async.split import get_impurity_space_constructor
 from mrh.my_pyscf.mcscf.lasscf_async.crunch import get_impurity_casscf
-from mrh.my_pyscf.mcscf.lasscf_async.keyframe import LASKeyframe
 from mrh.my_pyscf.mcscf.lasscf_async.combine import combine_o0
 
 def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
@@ -54,6 +56,16 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         for impurity in impurities:
             impurity.kernel ()
             kf2_list.append (impurity._push_keyframe (kf1))
+
+        # EXPERIMENTAL: examining differences in keyframes
+        for i in range (len (kf2_list)):
+            kfi = kf2_list[i]
+            log.info ('Comparing reference keyframe to fragment %d', i)
+            keyframe.count_common_orbitals (las, kf1, kfi)
+        for i, j in itertools.combinations (range (len (kf2_list)), 2):
+            kfi, kfj = kf2_list[i], kf2_list[j]
+            log.info ('Comparing keyframes for fragments %d and %d:', i, j)
+            keyframe.count_common_orbitals (las, kfi, kfj)
 
         # 3. Combine from fragments. TODO: smaller chunks instead of one whole-molecule function
         kf1 = combine_o0 (las, kf2_list)
@@ -139,19 +151,37 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
     def get_keyframe (self, mo_coeff=None, ci=None):
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if ci is None: ci=self.ci
-        return LASKeyframe (self, mo_coeff, ci)
+        return keyframe.LASKeyframe (self, mo_coeff, ci)
     as_scanner = mc1step.as_scanner
     def set_fragments_(self, frags_atoms=None, mo_coeff=None, localize_init_guess=True,
-                       **kwargs):
-        # TODO: frags_orbs on input (requires refactoring localize_init_guess)
-        ao_offset = self.mol.offset_ao_by_atom ()
-        frags_orbs = [[orb for atom in frag_atom
-                       for orb in list (range (ao_offset[atom,2], ao_offset[atom,3]))]
-                      for frag_atom in frags_atoms]
-        self.frags_orbs = frags_orbs
+                       frags_by_AOs=False, **kwargs):
+        ''' Project active orbitals into sets of orthonormal "fragments" defined by frags_atoms,
+        cache the resulting frags_orbs member, and call localize_init_guess. Passes on unlisted
+        kwargs to localize_init_guess call.
+    
+        Kwargs:
+            frags_atoms: list of length nfrags
+                Contains either lists of integer atom indices, or lists of
+                strings which are passed to mol.search_ao_label, which define
+                fragments into which the active orbitals are to be localized
+            mo_coeff: ndarray of shape (nao, nmo)
+                Molecular orbital coefficients containing active orbitals
+                on columns ncore:ncore+ncas
+            localize_init_guess: logical
+                If false, this step is skipped and mo_coeff is returned unaltered
+            frags_by_AOs: logical
+                If True, interpret integer frags_atoms as AOs rather than atoms
+    
+        Returns:
+            mo_coeff: ndarray of shape (nao,nmo)
+                Orbital coefficients after localization of the active space;
+                columns in the order (inactive,las1,las2,...,lasn,external)
+        '''
+        self.frags_orbs = interpret_frags_atoms (self.mol, frags_atoms, frags_by_AOs=frags_by_AOs)
         if mo_coeff is None: mo_coeff=self.mo_coeff
         if localize_init_guess:
-            mo_coeff = self.localize_init_guess (frags_atoms, mo_coeff=mo_coeff, **kwargs) 
+            mo_coeff = self.localize_init_guess (self.frags_orbs, mo_coeff=mo_coeff,
+                                                 frags_by_AOs=True, **kwargs) 
         return mo_coeff
     def dump_flags (self, verbose=None, _method_name='LASSCF'):
         lasci.LASCINoSymm.dump_flags (self, verbose=verbose, _method_name=_method_name)

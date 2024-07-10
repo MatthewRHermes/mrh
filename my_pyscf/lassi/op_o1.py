@@ -6,7 +6,7 @@ from pyscf.fci.direct_spin1 import _unpack_nelec, trans_rdm12s, contract_1e
 from pyscf.fci.addons import cre_a, cre_b, des_a, des_b
 from pyscf.fci import cistring
 from itertools import product, combinations, combinations_with_replacement
-from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
+from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, umat_dot_1frag_
 import time
 
 # NOTE: PySCF has a strange convention where
@@ -204,10 +204,13 @@ class LSTDMint1 (object):
         Kwargs:
             dtype : instance of np.dtype
                 Currently not used
+            screen_linequiv : logical
+                Whether to compress data by aggressively identifying linearly equivalent
+                rootspaces and storing the relevant unitary matrices.
     '''
 
     def __init__(self, ci, hopping_index, zerop_index, onep_index, norb, nroots, nelec_rs,
-                 rootaddr, fragaddr, idx_frag, dtype=np.float64):
+                 rootaddr, fragaddr, idx_frag, dtype=np.float64, screen_linequiv=True):
         # TODO: if it actually helps, cache the "linkstr" arrays
         self.ci = ci
         self.hopping_index = hopping_index
@@ -233,7 +236,7 @@ class LSTDMint1 (object):
         self.ndetb_r = np.array ([cistring.num_strings (norb, nelec[1]) for nelec in self.nelec_r])
         self.ci = [c.reshape (-1,na,nb) for c, na, nb in zip (self.ci, self.ndeta_r, self.ndetb_r)]
 
-        self.time_crunch = self._init_crunch_()
+        self.time_crunch = self._init_crunch_(screen_linequiv)
 
     # Exception catching
 
@@ -346,7 +349,7 @@ class LSTDMint1 (object):
         else:
             self.dm2[i][j] = x
 
-    def _init_crunch_(self):
+    def _init_crunch_(self, screen_linequiv):
         ''' Compute the transition density matrix factors.
 
         Returns:
@@ -367,20 +370,29 @@ class LSTDMint1 (object):
         # index down to only the unique rootspaces
         self.root_unique = np.ones (self.nroots, dtype=bool)
         self.unique_root = np.arange (self.nroots, dtype=int)
+        self.umat_root = {}
         for i, j in combinations (range (self.nroots), 2):
             if not self.root_unique[i]: continue
             if not self.root_unique[j]: continue
             if self.nelec_r[i] != self.nelec_r[j]: continue
+            if lroots[i] != lroots[j]: continue
             if ci[i].shape != ci[j].shape: continue
             isequal = False
-            if np.all (ci[i]==ci[j]): isequal = True
+            if ci[i] is ci[j]: isequal = True
+            elif np.all (ci[i]==ci[j]): isequal = True
             elif np.all (np.abs (ci[i]-ci[j]) < 1e-8): isequal=True
             else:
                 ci_i = ci[i].reshape (lroots[i],-1)
                 ci_j = ci[j].reshape (lroots[j],-1)
                 ovlp = ci_i.conj () @ ci_j.T
                 isequal = np.allclose (ovlp.diagonal (), 1,
-                                       rtol=1e-8, atol=1e-8)
+                                       rtol=1e-10, atol=1e-10)
+                                       # need extremely high precision on this one
+                if screen_linequiv and (not isequal):
+                    u, svals, vh = linalg.svd (ovlp)
+                    assert (len (svals) == lroots[i])
+                    isequal = np.allclose (svals, 1, rtol=1e-8, atol=1e-8)
+                    if isequal: self.umat_root[j] = u @ vh
             if isequal:
                 self.root_unique[j] = False
                 self.unique_root[j] = i
@@ -692,6 +704,9 @@ class LSTDMint2 (object):
         self.dt_1s, self.dw_1s = 0.0, 0.0
         self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
         self.dt_2c, self.dw_2c = 0.0, 0.0
+        self.dt_o, self.dw_o = 0.0, 0.0
+        self.dt_u, self.dw_u = 0.0, 0.0
+        self.dt_p, self.dw_p = 0.0, 0.0
 
     def make_exc_tables (self, hopping_index):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
@@ -862,15 +877,17 @@ class LSTDMint2 (object):
         fprint = np.asarray (fprint)
         nexc = len (exc)
         _, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
-        eqmap = idx[inv]
+        eqmap = np.squeeze (idx[inv])
         for uniq_idx in idx:
             row_uniq = excp[uniq_idx]
-            braket_images = exc[:,:2][eqmap==uniq_idx]
+            # crazy numpy v1 vs v2 dimensionality issue here
+            uniq_idxs = np.where (eqmap==uniq_idx)[0]
+            braket_images = exc[np.ix_(uniq_idxs,[0,1])]
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
         exc = exc[idx]
         nuniq = len (idx)
-        self.log.info ('%d/%d unique interactions of %s type',
-                       nuniq, nexc, lbl)
+        self.log.debug ('%d/%d unique interactions of %s type',
+                        nuniq, nexc, lbl)
         return exc
 
     def get_range (self, i):
@@ -953,12 +970,15 @@ class LSTDMint2 (object):
             *inv: integers
                 Indices of nonspectator fragments
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         key = tuple ((rbra,rket)) + inv
         braket_table = self.nonuniq_exc[key]
         self._spec_addr_ovlp_cache = []
         for rbra1, rket1 in braket_table:
             b, k, o = self._get_spec_addr_ovlp_1space (rbra1, rket1, *inv)
             self._spec_addr_ovlp_cache.append ((rbra1, rket1, b, k, o))
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         return
 
     def _get_spec_addr_ovlp (self, bra, ket, *inv):
@@ -985,6 +1005,8 @@ class LSTDMint2 (object):
                 Overlap * permutation factors (cf. get_ovlp_fac) corresponding to the interactions
                 bra_rng, ket_rng.
         '''
+        # NOTE: from tests on triene 3frag LASSI[3,3], this function is 1/4 to 1/6 of the "put"
+        # runtime, and apparently it can sometimes multithread somehow???
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         braenv = self.envaddr[bra]
         ketenv = self.envaddr[ket]
@@ -1061,15 +1083,21 @@ class LSTDMint2 (object):
         return self.d2
 
     def _put_D1_(self, bra, ket, D1, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_SD1_(bra1, ket1, D1, wgt)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_SD1_(self, bra, ket, D1, wgt):
         self.tdm1s[bra,ket,:] += np.multiply.outer (wgt, D1)
 
     def _put_D2_(self, bra, ket, D2, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_SD2_(bra1, ket1, D2, wgt)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_SD2_(self, bra, ket, D2, wgt):
         self.tdm2s[bra,ket,:] += np.multiply.outer (wgt, D2)
@@ -1153,10 +1181,10 @@ class LSTDMint2 (object):
         d2_ijjj = fac * np.multiply.outer (self.ints[i].get_p (bra,ket,s1),
                                            self.ints[j].get_phh (bra,ket,s1)).transpose (1,0,4,2,3)
         _crunch_1c_tdm2 (d2_ijjj, p, q, r, s, r, s)
-        self._put_D1_(bra, ket, d1, i, j)
-        self._put_D2_(bra, ket, d2, i, j)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
+        self._put_D1_(bra, ket, d1, i, j)
+        self._put_D2_(bra, ket, d2, i, j)
 
     def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a coupled electron-hop and
@@ -1187,9 +1215,9 @@ class LSTDMint2 (object):
         d1_skk = self.ints[k].get_dm1 (bra, ket)
         d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
         _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
-        self._put_D2_(bra, ket, d2, i, j, k)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
+        self._put_D2_(bra, ket, d2, i, j, k)
 
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
@@ -1213,9 +1241,9 @@ class LSTDMint2 (object):
                                            self.ints[j].get_sm (bra, ket))
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
-        self._put_D2_(bra, ket, d2, i, j)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
+        self._put_D2_(bra, ket, d2, i, j)
 
     def _crunch_1s1c_(self, bra, ket, i, j, k):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
@@ -1244,9 +1272,9 @@ class LSTDMint2 (object):
         d2_ikkj = fac * np.multiply.outer (sp, sm).transpose (0,3,2,1) # a'bb'a -> a'ab'b transpose
         d2[1,p:q,t:u,t:u,r:s] = d2_ikkj
         d2[2,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
-        self._put_D2_(bra, ket, d2, i, j, k)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
+        self._put_D2_(bra, ket, d2, i, j, k)
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
@@ -1315,9 +1343,9 @@ class LSTDMint2 (object):
         if s2 == s2T: # same-spin only: exchange happens
             d2[s2,p:q,v:w,t:u,r:s] = -d2_ijkl.transpose (0,3,2,1)
             d2[s2,t:u,r:s,p:q,v:w] = -d2_ijkl.transpose (2,1,0,3)
-        self._put_D2_(bra, ket, d2, i, j, k, l)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
+        self._put_D2_(bra, ket, d2, i, j, k, l)
 
     def _loop_lroots_(self, _crunch_fn, *row):
         if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
@@ -1345,6 +1373,20 @@ class LSTDMint2 (object):
         self.tdm1s += self.tdm1s.conj ().transpose (1,0,2,4,3)
         self.tdm2s += self.tdm2s.conj ().transpose (1,0,2,4,3,6,5)
 
+    def _umat_linequiv_loop_(self, *args):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        for ifrag, inti in enumerate (self.ints):
+            for iroot, umat in inti.umat_root.items ():
+                self._umat_linequiv_(ifrag, iroot, umat, *args)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_u, self.dw_u = self.dt_u + dt, self.dw_u + dw
+
+    def _umat_linequiv_(self, ifrag, iroot, umat, *args):
+        self.tdm1s = umat_dot_1frag_(self.tdm1s, umat, self.lroots, ifrag, iroot, axis=0) 
+        self.tdm1s = umat_dot_1frag_(self.tdm1s, umat, self.lroots, ifrag, iroot, axis=1) 
+        self.tdm2s = umat_dot_1frag_(self.tdm2s, umat, self.lroots, ifrag, iroot, axis=0) 
+        self.tdm2s = umat_dot_1frag_(self.tdm2s, umat, self.lroots, ifrag, iroot, axis=1) 
+
     def kernel (self):
         ''' Main driver method of class.
 
@@ -1361,6 +1403,7 @@ class LSTDMint2 (object):
         self.tdm1s = np.zeros ([self.nstates,]*2 + [2,] + [self.norb,]*2, dtype=self.dtype)
         self.tdm2s = np.zeros ([self.nstates,]*2 + [4,] + [self.norb,]*4, dtype=self.dtype)
         self._crunch_all_()
+        self._umat_linequiv_loop_()
         return self.tdm1s, self.tdm2s, t0
 
     def sprint_profile (self):
@@ -1372,6 +1415,9 @@ class LSTDMint2 (object):
         profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
         profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
         profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
+        profile += '\n' + fmt_str.format ('ovlp', self.dt_o, self.dw_o)
+        profile += '\n' + fmt_str.format ('umat', self.dt_u, self.dw_u)
+        profile += '\n' + fmt_str.format ('put', self.dt_p, self.dw_p)
         return profile
 
 class HamS2ovlpint (LSTDMint2):
@@ -1400,6 +1446,7 @@ class HamS2ovlpint (LSTDMint2):
         self.h2 = h2
 
     def _put_D1_(self, bra, ket, D1, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         ham = np.dot (self.h1.ravel (), D1.ravel ())
         M1 = D1[0] - D1[1]
         D1 = D1.sum (0)
@@ -1407,22 +1454,37 @@ class HamS2ovlpint (LSTDMint2):
         s2 = 3*np.trace (D1)/4
         bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_ham_s2_(bra1, ket1, ham, s2, wgt)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_ham_s2_(self, bra, ket, ham, s2, wgt):
         self.ham[bra,ket] += wgt * ham
         self.s2[bra,ket] += wgt * s2
 
     def _put_D2_(self, bra, ket, D2, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         ham = np.dot (self.h2.ravel (), D2.sum (0).ravel ()) / 2
         M2 = np.einsum ('sppqq->s', D2) / 4
         s2 = M2[0] + M2[3] - M2[1] - M2[2]
         s2 -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
         bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_ham_s2_(bra1, ket1, ham, s2, wgt)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _add_transpose_(self):
         self.ham += self.ham.T
         self.s2 += self.s2.T
+
+    def _umat_linequiv_(self, ifrag, iroot, umat, *args):
+        ovlp = args[0]
+        self.ham = umat_dot_1frag_(self.ham, umat, self.lroots, ifrag, iroot, axis=0) 
+        self.ham = umat_dot_1frag_(self.ham, umat, self.lroots, ifrag, iroot, axis=1) 
+        self.s2 = umat_dot_1frag_(self.s2, umat, self.lroots, ifrag, iroot, axis=0) 
+        self.s2 = umat_dot_1frag_(self.s2, umat, self.lroots, ifrag, iroot, axis=1) 
+        ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=0) 
+        ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=1) 
+        return ovlp
 
     def kernel (self):
         ''' Main driver method of class.
@@ -1442,6 +1504,7 @@ class HamS2ovlpint (LSTDMint2):
         self.ham = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         self.s2 = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         self._crunch_all_()
+        t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         ovlp = np.zeros ([self.nstates,]*2, dtype=self.dtype)
         def crunch_ovlp (bra_sp, ket_sp):
             i = self.ints[-1]
@@ -1458,6 +1521,9 @@ class HamS2ovlpint (LSTDMint2):
             ovlp[i0:i1,j0:j1] = o
         for bra_sp, ket_sp in self.exc_null: crunch_ovlp (bra_sp, ket_sp)
         ovlp += ovlp.T
+        dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
+        self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
+        self._umat_linequiv_loop_(ovlp)
         return self.ham, self.s2, ovlp, t0
 
 class LRRDMint (LSTDMint2):
@@ -1481,20 +1547,26 @@ class LRRDMint (LSTDMint2):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
                            mask_ket_space=mask_ket_space, log=log, dtype=dtype)
         self.nroots_si = si.shape[-1]
-        self.si_dm = np.stack ([np.dot (si[:,i:i+1],si[:,i:i+1].conj ().T)
-            for i in range (self.nroots_si)], axis=-1)
+        self.si = si.copy ()
+        self._umat_linequiv_loop_(self.si)
 
     def _put_SD1_(self, bra, ket, D1, wgt):
-        fac = np.dot (wgt, self.si_dm[bra,ket])
+        si_dm = self.si[bra,:] * self.si[ket,:].conj ()
+        fac = np.dot (wgt, si_dm)
         self.rdm1s[:] += np.multiply.outer (fac, D1)
 
     def _put_SD2_(self, bra, ket, D2, wgt):
-        wgt = np.dot (wgt, self.si_dm[bra,ket])
-        self.rdm2s[:] += np.multiply.outer (wgt, D2)
+        si_dm = self.si[bra,:] * self.si[ket,:].conj ()
+        fac = np.dot (wgt, si_dm)
+        self.rdm2s[:] += np.multiply.outer (fac, D2)
 
     def _add_transpose_(self):
         self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
         self.rdm2s += self.rdm2s.conj ().transpose (0,1,3,2,5,4)
+
+    def _umat_linequiv_(self, ifrag, iroot, umat, *args):
+        si = args[0]
+        return umat_dot_1frag_(si, umat.conj ().T, self.lroots, ifrag, iroot, axis=0) 
 
     def kernel (self):
         ''' Main driver method of class.
@@ -1640,9 +1712,12 @@ class ContractHamCI (LSTDMint2):
         return hci_f_ab, excfrags
 
     def _put_vecs_(self, bra, ket, vecs, *inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         bras, kets, facs = self._get_spec_addr_ovlp (bra, ket, *inv)
         for bra, ket, fac in zip (bras, kets, facs):
             self._put_Svecs_(bra, ket, [fac*vec for vec in vecs])
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_Svecs_(self, bra, ket, vecs):
         bra_r, bra_envaddr, excfrags = self._bra_address (bra)
@@ -1651,6 +1726,10 @@ class ContractHamCI (LSTDMint2):
 
     def _crunch_all_(self):
         for row in self.exc_1c: self._loop_lroots_(self._crunch_1c_, *row)
+
+    def _umat_linequiv_(self, ifrag, iroot, umat, *args):
+        # TODO: is this even possible?
+        pass
 
     def kernel (self):
         ''' Main driver method of class.
@@ -1664,10 +1743,11 @@ class ContractHamCI (LSTDMint2):
             for hci_pabq in hci_r_pabq:
                 hci_pabq[:,:,:,:] = 0.0
         self._crunch_all_()
+        self._umat_linequiv_loop_()
         return self.hci_fr_pabq, t0
 
 
-def make_ints (las, ci, nelec_frs):
+def make_ints (las, ci, nelec_frs, screen_linequiv=True):
     ''' Build fragment-local intermediates (`LSTDMint1`) for LASSI o1
 
     Args:
@@ -1677,6 +1757,11 @@ def make_ints (las, ci, nelec_frs):
         nelec_frs : ndarray of shape (nfrags,nroots,2)
             Number of electrons of each spin in each rootspace in each
             fragment
+
+    Kwargs:
+        screen_linequiv : logical
+            Whether to compress data by aggressively identifying linearly equivalent
+            rootspaces and storing the relevant unitary matrices.
 
     Returns:
         hopping_index : ndarray of ints of shape (nfrags, 2, nroots, nroots)
@@ -1694,10 +1779,12 @@ def make_ints (las, ci, nelec_frs):
     ints = []
     for ifrag in range (nfrags):
         tdmint = LSTDMint1 (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index, nlas[ifrag],
-                            nroots, nelec_frs[ifrag], rootaddr, fragaddr[ifrag], ifrag)
+                            nroots, nelec_frs[ifrag], rootaddr, fragaddr[ifrag], ifrag,
+                            screen_linequiv=screen_linequiv)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
-        lib.logger.info (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag, np.count_nonzero (tdmint.root_unique), nroots)
+        lib.logger.debug (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
+                          np.count_nonzero (tdmint.root_unique), nroots)
         ints.append (tdmint)
     return hopping_index, ints, lroots
 
@@ -1868,7 +1955,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     nelec_frs = np.append (nelec_frs_ket, nelec_frs_bra, axis=1)
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = make_ints (las, ci, nelec_frs, screen_linequiv=False)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
