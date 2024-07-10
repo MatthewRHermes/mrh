@@ -62,16 +62,19 @@ def orth_orb (las, kf2_list):
     if errmax>1e-8:
         log.warn ('Non-orthogonal AOs in lasscf_async.combine.orth_orb: %e', errmax)
     mo1 = mo1[:,ncas:]
-    veff = sum ([kf2.veff for kf2 in kf2_list]) / nfrags
-    dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / nfrags
-    fock = las.get_hcore ()[None,:,:] + veff
-    fock = get_roothaan_fock (fock, dm1s, s0)
-    orbsym = None # TODO: symmetry
-    fock = mo1.conj ().T @ fock @ mo1
-    ene, umat = las._eig (fock, 0, 0, orbsym)
-    mo_core = mo1 @ umat[:,:ncore]
-    mo_virt = mo1 @ umat[:,ncore:]
-    mo_coeff = np.concatenate ([mo_core, mo_cas, mo_virt], axis=1)
+    if mo1.size:
+        veff = sum ([kf2.veff for kf2 in kf2_list]) / nfrags
+        dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / nfrags
+        fock = las.get_hcore ()[None,:,:] + veff
+        fock = get_roothaan_fock (fock, dm1s, s0)
+        orbsym = None # TODO: symmetry
+        fock = mo1.conj ().T @ fock @ mo1
+        ene, umat = las._eig (fock, 0, 0, orbsym)
+        mo_core = mo1 @ umat[:,:ncore]
+        mo_virt = mo1 @ umat[:,ncore:]
+        mo_coeff = np.concatenate ([mo_core, mo_cas, mo_virt], axis=1)
+    else:
+        mo_coeff = mo_cas
 
     return las.get_keyframe (mo_coeff, ci)
 

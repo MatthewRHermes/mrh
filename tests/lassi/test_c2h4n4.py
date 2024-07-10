@@ -122,7 +122,7 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (e1, e0, 8)
 
     def test_singles_constructor (self):
-        from mrh.my_pyscf.lassi.states import all_single_excitations
+        from mrh.my_pyscf.lassi.spaces import all_single_excitations
         las2 = all_single_excitations (lsi._las)
         las2.check_sanity ()
         # Meaning of tuple: (na+nb,smult)
@@ -135,7 +135,7 @@ class KnownValues(unittest.TestCase):
         self.assertEqual (las2.nroots, 33)
 
     def test_spin_shuffle (self):
-        from mrh.my_pyscf.lassi.states import spin_shuffle, spin_shuffle_ci
+        from mrh.my_pyscf.lassi.spaces import spin_shuffle, spin_shuffle_ci
         mf = lsi._las._scf
         las3 = spin_shuffle (las)
         las3.check_sanity ()

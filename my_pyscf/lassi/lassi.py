@@ -3,8 +3,9 @@ import time
 from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi import chkfile
 from mrh.my_pyscf.lassi.citools import get_lroots
-from pyscf import lib, symm
+from pyscf import lib, symm, ao2mo
 from pyscf.scf.addons import canonical_orth_
 from pyscf.lib.numpy_helper import tag_array
 from pyscf.fci.direct_spin1 import _unpack_nelec
@@ -80,8 +81,6 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
     if veff_c is None: 
         dm_core = 2 * mo_core @ mo_core.conj ().T
         veff_c = las.get_veff (dm1s=dm_core)
-    if h2eff_sub is None:
-        h2eff_sub = las.ao2mo (mo_coeff)
 
     h0 = las._scf.energy_nuc () + 2 * (((hcore + veff_c/2) @ mo_core) * mo_core).sum ()
 
@@ -97,8 +96,11 @@ def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
         h1[0:ncas,0:ncas] += hso[2] # a'a
         h1[ncas:2*ncas,ncas:2*ncas] -= hso[2] # b'b
 
-    h2 = h2eff_sub[ncore:nocc].reshape (ncas*ncas, ncas * (ncas+1) // 2)
-    h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
+    if h2eff_sub is None:
+        h2 = las.get_h2cas (mo_coeff)
+    else:
+        h2 = h2eff_sub[ncore:nocc].reshape (ncas*ncas, ncas * (ncas+1) // 2)
+        h2 = lib.numpy_helper.unpack_tril (h2).reshape (ncas, ncas, ncas, ncas)
 
     return h0, h1, h2
 
@@ -205,7 +207,7 @@ class _LASSI_subspace_env (object):
 def iterate_subspace_blocks (las, ci, spacesym, subset=None):
     if subset is None: subset = set (spacesym)
     lroots = get_lroots (ci)
-    nprods_r = np.product (lroots, axis=0)
+    nprods_r = np.prod (lroots, axis=0)
     prod_off = np.cumsum (nprods_r) - nprods_r
     nprods = nprods_r.sum ()
     for sym in subset:
@@ -248,7 +250,10 @@ def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
 
     # Construct second-quantization Hamiltonian
-    e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
+    if callable (getattr (las, 'ham_2q', None)):
+        e0, h1, h2 = las.ham_2q (mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
+    else:
+        e0, h1, h2 = ham_2q (las, mo_coeff, veff_c=veff_c, h2eff_sub=h2eff_sub, soc=soc)
 
     # Symmetry tuple: neleca, nelecb, irrep
     statesym, s2_states = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry)
@@ -582,8 +587,10 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
             orbsym = las.label_symmetry_(las.mo_coeff).orbsym
         if orbsym is not None:
             orbsym = orbsym[las.ncore:las.ncore+las.ncas]
-    if soc is None: soc = si.soc
-    if break_symmetry is None: break_symmetry = si.break_symmetry
+    if soc is None:
+        soc = getattr (si, 'soc', getattr (las, 'soc', False))
+    if break_symmetry is None:
+        break_symmetry = getattr (si, 'break_symmetry', getattr (las, 'break_symmetry', False))
     o0_memcheck = op_o0.memcheck (las, ci, soc=soc)
     if opt == 0 and o0_memcheck == False:
         raise RuntimeError ('Insufficient memory to use o0 LASSI algorithm')
@@ -681,8 +688,10 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
     '''
     states = np.atleast_1d (state)
     si_column = si[:,states]
-    if soc is None: soc = si.soc
-    if break_symmetry is None: break_symmetry = si.break_symmetry
+    if soc is None:
+        soc = getattr (si, 'soc', getattr (las, 'soc', False))
+    if break_symmetry is None:
+        break_symmetry = getattr (si, 'break_symmetry', getattr (las, 'break_symmetry', False))
     if rootsym is None:
         rootsym = getattr (si, 'rootsym', getattr (las, 'rootsym', None))
     rootsym = [rootsym[s] for s in states]
@@ -710,6 +719,7 @@ class LASSI(lib.StreamObject):
         self.ncore, self.ncas = las.ncore, las.ncas
         self.nfrags, self.nroots = las.nfrags, las.nroots
         self.ncas_sub, self.nelecas_sub, self.fciboxes = las.ncas_sub, las.nelecas_sub, las.fciboxes
+        self.nelecas = sum (self.nelecas_sub)
         self.weights, self.e_states, self.e_lexc = las.weights, las.e_states, las.e_lexc
         self.converged = las.converged
         # I/O data from las parent
@@ -752,13 +762,13 @@ class LASSI(lib.StreamObject):
 
     def get_nelec_frs (self, las=None):
         if las is None: las = self
-        nelec_frs = []
-        for fcibox, nelec in zip (las.fciboxes, las.nelecas_sub):
-            nelec_rs = []
-            for solver in fcibox.fcisolvers:
-                nelec_rs.append (_unpack_nelec (fcibox._get_nelec (solver, nelec)))
-            nelec_frs.append (nelec_rs)
-        return np.asarray (nelec_frs)
+        from mrh.my_pyscf.mcscf.lasci import get_nelec_frs
+        return get_nelec_frs (las)
+
+    def get_smult_fr (self, las=None):
+        if las is None: las = self
+        from mrh.my_pyscf.mcscf.lasci import get_space_info
+        return get_space_info (las)[2].T
 
     def get_lroots (self, ci=None):
         if ci is None: ci = self.ci
@@ -800,12 +810,15 @@ class LASSI(lib.StreamObject):
         nelec_frs = self.get_nelec_frs ()
         return sivec_vacuum_shuffle (si, nelec_frs, lroots, nelec_vac=nelec_vac, state=state)
 
-    def analyze (self, state=None, **kwargs):
+    def analyze (self, state=0, **kwargs):
         from mrh.my_pyscf.lassi.sitools import analyze
-        analyze (self, self.si, state=state, **kwargs)
+        return analyze (self, self.si, state=state, **kwargs)
 
     def reset (self, mol=None):
         if mol is not None:
             self.mol = mol
         self._las.reset (mol)
+
+    dump_chk = chkfile.dump_lsi
+    load_chk = load_chk_ = chkfile.load_lsi_
 
