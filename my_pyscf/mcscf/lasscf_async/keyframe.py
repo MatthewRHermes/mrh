@@ -194,12 +194,50 @@ def count_common_orbitals (las, kf1, kf2, verbose=None):
 
     return ncommon_core, ncommon_active, ncommon_virt
 
+def get_kappa (las, kf1, kf2):
+    '''Decompose unitary matrix of orbital rotations between two keyframes as
 
+    | U11 U12 U13 ... |       | 0   -K'21 -K'31 ... |   | R11 0   0   ... |
+    | U21 U22 U23 ... | = exp | K21 0     -K'32 ... | * | 0   R22 0   ... |
+    | U31 U32 U33 ... |       | K31 K32   0     ... |   | 0   0   R33 ... |
+    | ... ... ... ... |       | ... ...   ...   ... |   | ... ... ... ... |
 
+    Where the first block is inactive orbitals, the next blocks are the active
+    orbitals of individual fragments, and the final block is virtual orbitals.
+    The lower triangle of the skew-symmetrix matrix gives the amplitudes of
+    the unitary group generators which transform the orbitals of kf1 into those
+    of kf2 after a decanonicalization of the latter given by the block-diagonal
+    matrix.
 
+    Args:
+        las : object of :class:`LASCINoSymm`
+        kf1 : object of :class:`LASKeyframe`
+        kf2 : object of :class:`LASKeyframe`
 
+    Returns:
+        kappa : ndarray of shape (nmo, nmo)
+            Skew-symmetric matrix of orbital rotation amplitudes whose lower
+            triangle gives the unitary generator amplitudes for transforming
+            from kf1 to kf2 (before orbital rotation given by ur
+        ur : ndarray of shape (nmo, nmo)
+            Block-diagonal unitary matrix. The overall unitary transformation
+            to go from the orbitals of kf1 to those of kf2 is expm(kappa)@ur
+    '''
+    mo1 = kf1.mo_coeff
+    mo2 = kf2.mo_coeff
+    s0 = las._scf.get_ovlp ()
+    ovlp = mo1.conj ().T @ s0 @ mo2
 
+    nao, nmo = mo1.shape
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    nvirt = nmo - nocc
+    nblk = [ncore,] + list (las.ncas_sub) + [nvirt,]
+    blkoff = np.cumsum (nblk)
 
-
-
+    kappa_raw = linalg.expm (ovlp)
+    idx_diag = np.zeros ((nmo,nmo), dtype=False)
+    skewerr = linalg.norm (kappa_raw + kappa_raw.T)
+    ur = np.eye (nmo)
+    
 
