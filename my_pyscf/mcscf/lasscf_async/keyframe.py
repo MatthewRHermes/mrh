@@ -1,6 +1,7 @@
 import numpy as np
 from pyscf.lib import logger
 from scipy import linalg
+from mrh.util.la import safe_svd_warner
 
 class LASKeyframe (object):
     '''Shallow struct for various intermediates. DON'T put complicated code in here Matt!!!'''
@@ -112,6 +113,8 @@ def orbital_block_svd (las, kf1, kf2):
             subspace unchanged but aligning the orbitals to identify the spaces the two keyframes
             have in common, if any
     '''
+    log = logger.new_logger (las, las.verbose)
+    svd = safe_svd_warner (log.warn)
     nao, nmo = kf1.mo_coeff.shape    
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
@@ -121,7 +124,7 @@ def orbital_block_svd (las, kf1, kf2):
     mo1 = kf1.mo_coeff[:,:ncore]
     mo2 = kf2.mo_coeff[:,:ncore]
     s1 = mo1.conj ().T @ s0 @ mo2
-    u_core, svals_core, vh_core = linalg.svd (s1)
+    u_core, svals_core, vh_core = svd (s1)
 
     u = [u_core,]
     svals = [svals_core,]
@@ -133,7 +136,7 @@ def orbital_block_svd (las, kf1, kf2):
         mo1 = kf1.mo_coeff[:,i:j]
         mo2 = kf2.mo_coeff[:,i:j]
         s1 = mo1.conj ().T @ s0 @ mo2
-        u_i, svals_i, vh_i = linalg.svd (s1)
+        u_i, svals_i, vh_i = svd (s1)
         u.append (u_i)
         svals.append (svals_i)
         vh.append (vh_i)
@@ -141,7 +144,7 @@ def orbital_block_svd (las, kf1, kf2):
     mo1 = kf1.mo_coeff[:,nocc:]
     mo2 = kf2.mo_coeff[:,nocc:]
     s1 = mo1.conj ().T @ s0 @ mo2
-    u_virt, svals_virt, vh_virt = linalg.svd (s1)
+    u_virt, svals_virt, vh_virt = svd (s1)
     u.append (u_virt)
     svals.append (svals_virt)
     vh.append (vh_virt)
