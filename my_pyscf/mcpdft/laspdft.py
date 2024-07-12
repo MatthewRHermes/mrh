@@ -1,4 +1,5 @@
 from pyscf import ao2mo, lib
+from pyscf.mcscf.addons import StateAverageMCSCFSolver
 import numpy as np
 import copy
 from scipy import linalg
@@ -32,21 +33,76 @@ class _LASPDFT(_PDFT):
             eri = ao2mo.full(self.mol, mo_coeff, verbose=self.verbose,
                                 max_memory=self.max_memory)
         return eri
+
+    def compute_pdft_energy_(self, mo_coeff=None, ci=None, ot=None, otxc=None,
+                             grids_level=None, grids_attr=None, **kwargs):
+        '''Compute the MC-PDFT energy(ies) (and update stored data)
+        with the MC-SCF wave function fixed. '''
+        '''
+        Instead of finding the energies of all the states, this can allow
+        to take state number for which you want to add the PDFT corrections
+        '''
+        if mo_coeff is not None: self.mo_coeff = mo_coeff
+        if ci is not None: self.ci = ci
+        if ot is not None: self.otfnal = ot
+        if otxc is not None: self.otxc = otxc
+        if grids_attr is None: grids_attr = {}
+        if grids_level is not None: grids_attr['level'] = grids_level
+        if len(grids_attr): self.grids.__dict__.update(**grids_attr)
+        nroots = getattr(self.fcisolver, 'nroots', 1)
+        if isinstance(nroots, list):
+            epdft = [self.energy_tot(mo_coeff=self.mo_coeff, ci=self.ci, state=ix,
+                                 logger_tag='MC-PDFT state {}'.format(ix))
+                                for ix in nroots]
+        else:
+            epdft = [self.energy_tot(mo_coeff=self.mo_coeff, ci=self.ci, state=ix,
+                                 logger_tag='MC-PDFT state {}'.format(ix))
+                                for ix in range(nroots)]
+
+        self.e_ot = [e_ot for e_tot, e_ot in epdft]
         
-def get_mcpdft_child_class(mc, ot, DoLASSI=False,  **kwargs):
+        if isinstance(self, StateAverageMCSCFSolver):
+            e_states = [e_tot for e_tot, e_ot in epdft]
+            try:
+                self.e_states = e_states
+            except AttributeError as e:
+                self.fcisolver.e_states = e_states
+                assert (self.e_states is e_states), str(e)
+            # TODO: redesign this. MC-SCF e_states is stapled to
+            # fcisolver.e_states, but I don't want MS-PDFT to be
+            # because that makes no sense
+            self.e_tot = np.dot(e_states, self.weights)
+            e_states = self.e_states
+        elif (len(nroots) > 1 if isinstance(nroots, list) else nroots > 1):
+            self.e_tot = [e_tot for e_tot, e_ot in epdft]
+            e_states = self.e_tot
+        else:  # nroots==1 not StateAverage class
+            self.e_tot, self.e_ot = epdft[0]
+            e_states = [self.e_tot]
+        return self.e_tot, self.e_ot, e_states
+
+def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
     mc_doc = (mc.__class__.__doc__ or 'No docstring for MC-SCF parent method')
    
     class PDFT(_LASPDFT, mc.__class__):
         __doc__= mc_doc + '\n\n' + _LASPDFT.__doc__
         _mc_class = mc.__class__
         setattr(_mc_class, 'DoLASSI', None)
+        setattr(_mc_class, 'states', None)
 
         def get_h2eff(self, mo_coeff=None):
             if self._in_mcscf_env: return mc.__class__.get_h2eff(self, mo_coeff=mo_coeff)
             else: return _LASPDFT.get_h2eff(self, mo_coeff=mo_coeff)
         
+        def compute_pdft_energy_(self, mo_coeff=None, ci=None, ot=None, otxc=None,
+                             grids_level=None, grids_attr=None, states=states, **kwargs):
+            return _LASPDFT.compute_pdft_energy_(self, mo_coeff=mo_coeff, ci=ci, ot=ot, otxc=otxc,
+                             grids_level=grids_level, grids_attr=grids_attr, **kwargs)
+
         if DoLASSI:  _mc_class.DoLASSI = True
         else: _mc_class.DoLASSI = False
+        
+        if states is not None: _mc_class.states=states
 
         if _mc_class.DoLASSI:
             # This code doesn't seem efficent, have to calculate the casdm1 and casdm2 in different functions.
@@ -69,7 +125,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,  **kwargs):
             Has the same calling signature as the parent kernel method. '''
             with _mcscf_env(self):
                 if self.DoLASSI:
-                    self.fcisolver.nroots = len(self.e_states)
+                    self.fcisolver.nroots = len(self.e_states) if self.states is None else self.states
                     self.e_states = self.e_roots
                 else:
                     self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
