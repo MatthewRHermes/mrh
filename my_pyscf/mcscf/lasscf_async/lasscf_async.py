@@ -62,10 +62,12 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             kfi = kf2_list[i]
             log.info ('Comparing reference keyframe to fragment %d', i)
             keyframe.count_common_orbitals (las, kf1, kfi)
+            keyframe.get_kappa (las, kf1, kfi)
         for i, j in itertools.combinations (range (len (kf2_list)), 2):
             kfi, kfj = kf2_list[i], kf2_list[j]
             log.info ('Comparing keyframes for fragments %d and %d:', i, j)
             keyframe.count_common_orbitals (las, kfi, kfj)
+            keyframe.get_kappa (las, kfi, kfj)
 
         # 3. Combine from fragments. TODO: smaller chunks instead of one whole-molecule function
         kf1 = combine_o0 (las, kf2_list)

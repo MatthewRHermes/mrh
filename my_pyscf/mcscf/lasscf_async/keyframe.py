@@ -197,6 +197,8 @@ def count_common_orbitals (las, kf1, kf2, verbose=None):
 def get_kappa (las, kf1, kf2):
     '''Decompose unitary matrix of orbital rotations between two keyframes as
 
+      <kf1|kf2>         = exp ( kappa )               *   rmat
+
     | U11 U12 U13 ... |       | 0   -K'21 -K'31 ... |   | R11 0   0   ... |
     | U21 U22 U23 ... | = exp | K21 0     -K'32 ... | * | 0   R22 0   ... |
     | U31 U32 U33 ... |       | K31 K32   0     ... |   | 0   0   R33 ... |
@@ -204,10 +206,16 @@ def get_kappa (las, kf1, kf2):
 
     Where the first block is inactive orbitals, the next blocks are the active
     orbitals of individual fragments, and the final block is virtual orbitals.
-    The lower triangle of the skew-symmetrix matrix gives the amplitudes of
-    the unitary group generators which transform the orbitals of kf1 into those
-    of kf2 after a decanonicalization of the latter given by the block-diagonal
-    matrix.
+    The skew-symmetric kappa matrix has zero diagonal blocks because the LASSCF
+    energy is invariant to those degrees of freedom, but it is not generally
+    possible to transform between any arbitrary pair of orbital bases without
+    them, so instead they are factorized via repeated BCH expansions:
+
+    kappa = lim n->infty kappa[n]
+    rmat = ... @ rmat[3] @ rmat[2] @ rmat[1] 
+
+    log ( ovlp[n-1] ) = kappa[n] + log ( rmat[n] )
+    ovlp[n] = ovlp[n-1] @ rmat[n].conj ().T
 
     Args:
         las : object of :class:`LASCINoSymm`
@@ -219,10 +227,16 @@ def get_kappa (las, kf1, kf2):
             Skew-symmetric matrix of orbital rotation amplitudes whose lower
             triangle gives the unitary generator amplitudes for transforming
             from kf1 to kf2 (before orbital rotation given by ur
-        ur : ndarray of shape (nmo, nmo)
+        rmat : ndarray of shape (nmo, nmo)
             Block-diagonal unitary matrix. The overall unitary transformation
             to go from the orbitals of kf1 to those of kf2 is expm(kappa)@ur
     '''
+    log = logger.new_logger (las, las.verbose)
+
+    # Initial guess for rmat using orbital_block_svd
+    u, svals, vh = orbital_block_svd (las, kf1, kf2)
+    rmat = u @ vh
+
     mo1 = kf1.mo_coeff
     mo2 = kf2.mo_coeff
     s0 = las._scf.get_ovlp ()
@@ -235,9 +249,35 @@ def get_kappa (las, kf1, kf2):
     nblk = [ncore,] + list (las.ncas_sub) + [nvirt,]
     blkoff = np.cumsum (nblk)
 
-    kappa_raw = linalg.expm (ovlp)
-    idx_diag = np.zeros ((nmo,nmo), dtype=False)
-    skewerr = linalg.norm (kappa_raw + kappa_raw.T)
-    ur = np.eye (nmo)
+    kappa = linalg.logm (ovlp @ rmat.conj ().T)
+    rmat1 = np.zeros_like (kappa)
+    skewerr = linalg.norm (kappa + kappa.T) 
+    if (skewerr/nmo)>1e-8:
+        log.error ('get_kappa matrix logarithm failed (skewerr = %e)', skewerr)
+    max_cycle = 100
+    log.debug ('get_kappa: iterating BCH expansion until maximum diagonal element is less than %e',
+               100*skewerr)
+    for it in range (max_cycle):
+        diagerr = 0
+        for i in range (len (nblk)):
+            i1 = blkoff[i]
+            i0 = i1 - nblk[i]
+            diagerr = max (diagerr, np.amax (np.abs (kappa[i0:i1,i0:i1])))
+            rmat1[i0:i1,i0:i1] = linalg.expm (kappa[i0:i1,i0:i1])
+        log.debug ('get_kappa iter %d diagerr: %e', it, diagerr)
+        if diagerr < 100*skewerr: break
+        rmat = rmat1 @ rmat
+        kappa = linalg.logm (ovlp @ rmat.conj ().T)
+    if diagerr > 100*skewerr:
+        log.warn ('get_kappa maxiter')
     
+    umat = linalg.expm (kappa) @ rmat
+    finalerr = linalg.norm ((umat.conj ().T @ ovlp) - np.eye (nmo))
+    log.debug ('get_kappa final error = %e (skewerr = %e)', finalerr, skewerr)
+
+    return kappa, rmat
+
+
+
+
 
