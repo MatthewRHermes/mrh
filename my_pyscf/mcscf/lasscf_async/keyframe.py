@@ -226,10 +226,10 @@ def get_kappa (las, kf1, kf2):
         kappa : ndarray of shape (nmo, nmo)
             Skew-symmetric matrix of orbital rotation amplitudes whose lower
             triangle gives the unitary generator amplitudes for transforming
-            from kf1 to kf2 (before orbital rotation given by ur
+            from kf1 to kf2
         rmat : ndarray of shape (nmo, nmo)
             Block-diagonal unitary matrix. The overall unitary transformation
-            to go from the orbitals of kf1 to those of kf2 is expm(kappa)@ur
+            to go from the orbitals of kf1 to those of kf2 is expm(kappa)@rmat
     '''
     log = logger.new_logger (las, las.verbose)
 
