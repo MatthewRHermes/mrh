@@ -214,8 +214,13 @@ def get_kappa (las, kf1, kf2):
     kappa = lim n->infty kappa[n]
     rmat = ... @ rmat[3] @ rmat[2] @ rmat[1] 
 
-    log ( ovlp[n-1] ) = kappa[n] + log ( rmat[n] )
+    ovlp[0] = (kf1.mo_coeff|kf2.mo_coeff)
+    log (ovlp[n-1]) = kappa[n] + log (rmat[n])
     ovlp[n] = ovlp[n-1] @ rmat[n].conj ().T
+
+    The first-order correction to log (rmat[n]) vanishes because the commutator
+    [kappa, log (rmat)] diagonal blocks are zero. So this should converge fast.
+    If it doesn't, maybe try solving for rmat[n] to second order in each cycle?
 
     Args:
         las : object of :class:`LASCINoSymm`
