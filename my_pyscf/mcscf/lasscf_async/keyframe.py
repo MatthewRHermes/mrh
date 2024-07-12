@@ -237,27 +237,33 @@ def get_kappa (las, kf1, kf2):
     u, svals, vh = orbital_block_svd (las, kf1, kf2)
     rmat = u @ vh
 
-    mo1 = kf1.mo_coeff
-    mo2 = kf2.mo_coeff
-    s0 = las._scf.get_ovlp ()
-    ovlp = mo1.conj ().T @ s0 @ mo2
+    # Iteration parameters
+    tol_strict = 1e-8
+    tol_target = 1e-10
+    max_cycle = 100
 
-    nao, nmo = mo1.shape
+    # Indexing
+    nao, nmo = kf1.mo_coeff.shape
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     nvirt = nmo - nocc
     nblk = [ncore,] + list (las.ncas_sub) + [nvirt,]
     blkoff = np.cumsum (nblk)
 
-    kappa = linalg.logm (ovlp @ rmat.conj ().T)
-    rmat1 = np.zeros_like (kappa)
-    skewerr = linalg.norm (kappa + kappa.T) 
-    if (skewerr/nmo)>1e-8:
-        log.error ('get_kappa matrix logarithm failed (skewerr = %e)', skewerr)
-    max_cycle = 100
+    # Iteration
+    mo1 = kf1.mo_coeff
+    mo2 = kf2.mo_coeff
+    s0 = las._scf.get_ovlp ()
+    ovlp = mo1.conj ().T @ s0 @ mo2
+    rmat1 = np.zeros_like (rmat)
+    lasterr = 1
     log.debug ('get_kappa: iterating BCH expansion until maximum diagonal element is less than %e',
-               100*skewerr)
+               tol_target)
     for it in range (max_cycle):
+        kappa = linalg.logm (ovlp @ rmat.conj ().T)
+        skewerr = linalg.norm (kappa + kappa.T) 
+        if (skewerr/nmo)>tol_strict:
+            log.error ('get_kappa matrix logarithm failed (skewerr = %e)', skewerr)
         diagerr = 0
         for i in range (len (nblk)):
             i1 = blkoff[i]
@@ -265,15 +271,20 @@ def get_kappa (las, kf1, kf2):
             diagerr = max (diagerr, np.amax (np.abs (kappa[i0:i1,i0:i1])))
             rmat1[i0:i1,i0:i1] = linalg.expm (kappa[i0:i1,i0:i1])
         log.debug ('get_kappa iter %d diagerr: %e', it, diagerr)
-        if diagerr < 100*skewerr: break
+        if (diagerr < tol_target) or ((diagerr<tol_strict) and (diagerr>lasterr)): break
+        # If you run this for infinity cycles it will always diverge. I'd like to get to
+        # 1e-10 but if 1e-8 is the best it can do then it should stop there.
+        lasterr = diagerr
         rmat = rmat1 @ rmat
-        kappa = linalg.logm (ovlp @ rmat.conj ().T)
-    if diagerr > 100*skewerr:
-        log.warn ('get_kappa maxiter')
+    if diagerr > tol_strict:
+        log.warn ('get_kappa iteration failed after %d cycles with err = %e',
+                  it, diagerr)
     
+    # Final check
     umat = linalg.expm (kappa) @ rmat
     finalerr = linalg.norm ((umat.conj ().T @ ovlp) - np.eye (nmo))
-    log.debug ('get_kappa final error = %e (skewerr = %e)', finalerr, skewerr)
+    log.debug ('get_kappa final error = %e', finalerr)
+    assert (finalerr < tol_strict)
 
     return kappa, rmat
 
