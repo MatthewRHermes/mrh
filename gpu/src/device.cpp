@@ -61,6 +61,8 @@ Device::Device()
   device_data = (my_device_data*) pm->dev_malloc_host(num_devices * sizeof(my_device_data));
 
   for(int i=0; i<num_devices; ++i) {
+    device_data[i].device_id = i;
+    
     device_data[i].size_rho = 0;
     device_data[i].size_vj = 0;
     device_data[i].size_vk = 0;
@@ -362,11 +364,6 @@ void Device::get_dfobj_status(size_t addr_dfobj, py::array_t<int> _arg)
   // printf("Leaving get_dfobj_status(): addr_dfobj= %#012x  id= %i  arg= %i %i %i %i\n",
   // 	 addr_dfobj, id, arg[0], arg[1], arg[2], arg[3]);
 }
-
-
-
-
-
 
 /* ---------------------------------------------------------------------- */
     
