@@ -22,6 +22,35 @@
 
 /* ---------------------------------------------------------------------- */
 
+void Device::dd_fetch_tril_map(my_device_data * dd, int _size_tril_map)
+{
+  auto it = std::find(dd->size_tril_map.begin(), dd->size_tril_map.end(), _size_tril_map);
+
+  int indx = it - dd->size_tril_map.begin();
+
+  if(indx == dd->size_tril_map.size()) {
+    dd->size_tril_map.push_back(_size_tril_map);
+    dd->tril_map.push_back(nullptr);
+    dd->d_tril_map.push_back(nullptr);
+
+    dd->tril_map[indx] = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
+    dd->d_tril_map[indx] = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
+    int _i, _j, _ij;
+    int * tm = dd->tril_map[indx];
+    for(_ij = 0, _i = 0; _i < nao; _i++)
+      for(_j = 0; _j<=_i; _j++, _ij++) {
+    	tm[_i*nao + _j] = _ij;
+    	tm[_i + nao*_j] = _ij;
+      }
+    
+    pm->dev_push(dd->d_tril_map[indx], dd->tril_map[indx], _size_tril_map*sizeof(int));
+  }
+
+  dd->d_tril_map_ptr = dd->d_tril_map[indx];
+}
+
+/* ---------------------------------------------------------------------- */
+
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int _naux, int count)
 {
 #ifdef _DEBUG_DEVICE
@@ -103,31 +132,9 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   }
   
   int _size_tril_map = nao * nao;
-
-  auto it = std::find(dd->size_tril_map.begin(), dd->size_tril_map.end(), _size_tril_map);
-
-  int indx = it - dd->size_tril_map.begin();
-
-  if(indx == dd->size_tril_map.size()) {
-    dd->size_tril_map.push_back(_size_tril_map);
-    dd->tril_map.push_back(nullptr);
-    dd->d_tril_map.push_back(nullptr);
-
-    dd->tril_map[indx] = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
-    dd->d_tril_map[indx] = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
-    int _i, _j, _ij;
-    int * tm = dd->tril_map[indx];
-    for(_ij = 0, _i = 0; _i < nao; _i++)
-      for(_j = 0; _j<=_i; _j++, _ij++) {
-    	tm[_i*nao + _j] = _ij;
-    	tm[_i + nao*_j] = _ij;
-      }
-    
-    pm->dev_push(dd->d_tril_map[indx], dd->tril_map[indx], _size_tril_map*sizeof(int));
-  }
-
-  dd->d_tril_map_ptr = dd->d_tril_map[indx];
-
+  
+  dd_fetch_tril_map(dd, _size_tril_map);
+  
   int _size_buf_vj = num_devices * nset * nao_pair;
   if(_size_buf_vj > size_buf_vj) {
     size_buf_vj = _size_buf_vj;

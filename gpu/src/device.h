@@ -204,7 +204,9 @@ private:
   };
 
   my_device_data * device_data;
-    
+
+  void dd_fetch_tril_map(my_device_data *, int);
+  
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);
   
