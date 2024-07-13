@@ -304,12 +304,14 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     if(dd->d_dmtril) pm->dev_free(dd->d_dmtril);
     dd->d_dmtril = (double *) pm->dev_malloc(_size_dmtril * sizeof(double));
   }
-  
-  int _size_eri1 = naux * nao_pair;
-  if(_size_eri1 > dd->size_eri1) {
-    dd->size_eri1 = _size_eri1;
-    if(dd->d_eri1) pm->dev_free(dd->d_eri1);
-    dd->d_eri1 = (double *) pm->dev_malloc(_size_eri1 * sizeof(double));
+
+  if(!use_eri_cache) {
+    int _size_eri1 = naux * nao_pair;
+    if(_size_eri1 > dd->size_eri1) {
+      dd->size_eri1 = _size_eri1;
+      if(dd->d_eri1) pm->dev_free(dd->d_eri1);
+      dd->d_eri1 = (double *) pm->dev_malloc(_size_eri1 * sizeof(double));
+    }
   }
   
   int _size_tril_map = nao * nao;
@@ -715,7 +717,7 @@ void Device::get_jk(int naux,
   	 info_vj.shape[0], info_vj.shape[1],
   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
   
-  DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
+  DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair, pm, DA_HOST);
   //  printf("LIBGPU:: eri1= %p  dfobj= %lu  count= %i  combined= %lu\n",eri1,addr_dfobj,count,addr_dfobj+count);
   printf("LIBGPU:: dfobj= %#012x  count= %i  combined= %#012x  update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count, update_dfobj);
   printf("LIBGPU::     0:      %f %f %f %f\n",da_eri1(0,0), da_eri1(0,1), da_eri1(0,nao_pair-2), da_eri1(0,nao_pair-1));

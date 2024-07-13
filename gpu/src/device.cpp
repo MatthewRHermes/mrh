@@ -79,7 +79,7 @@ Device::Device()
     device_data[i].d_vkk = nullptr;
     device_data[i].d_dms = nullptr;
     device_data[i].d_dmtril = nullptr;
-    device_data[i].d_eri1 = nullptr;
+    device_data[i].d_eri1 = nullptr; // when not using eri cache
     
     device_data[i].d_tril_map_ptr = nullptr;
     
