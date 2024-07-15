@@ -356,6 +356,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         kf2 = kf1.copy ()
         imporb_coeff = self.mol.get_imporb_coeff ()
         mo_self = imporb_coeff @ mo_coeff
+        las = self.mol._las
 
         # impweights for combining updates
         s0 = las._scf.get_ovlp ()
@@ -364,7 +365,6 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
         # active orbital part should be easy
         kf2.ci[self._ifrag] = self.ci
-        las = self.mol._las
         i = las.ncore + sum (las.ncas_sub[:self._ifrag])
         j = i + las.ncas_sub[self._ifrag]
         k = self.ncore
