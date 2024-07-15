@@ -5,6 +5,7 @@ from pyscf import lib
 from pyscf.lo import orth
 from pyscf.scf.rohf import get_roothaan_fock
 from mrh.my_pyscf.mcscf import lasci, _DFLASCI
+from mrh.my_pyscf.mcscf.lasscf_async import keyframe
 
 # TODO: symmetry
 def orth_orb (las, kf2_list):
@@ -155,4 +156,57 @@ def impweights (las, mo_coeff, impurities):
         weights.append ((a @ a.conj ().T).diagonal ())
     return np.stack (weights, axis=1)
 
+def combine_impweighted (las, kf1, kf2, kf_ref):
+    '''Combine two keyframes (without relaxing the active orbitals) by weighting the kappa matrices
+    with respect to a third reference keyframe by the impweights parameter
 
+    Args:
+        las : object of :class:`LASCINoSymm`
+        kf1 : object of :class:`LASKeyframe`
+        kf2 : object of :class:`LASKeyframe`
+        kf_ref : object of :class:`LASKeyframe`
+            Reference point for the kappa matrices
+
+    Returns:
+        kf3 : object of :class:`LASKeyframe`
+    '''
+    kf3 = kf_ref.copy ()
+    w1 = np.add.outer (kf1.impweights, kf2.impweights)
+    w2 = np.add.outer (kf1.impweights, kf2.impweights)
+    kappa1, rmat1 = keyframe.get_kappa (las, kf1, kf_ref)
+    kappa2, rmat2 = keyframe.get_kappa (las, kf2, kf_ref)
+    kappa = (w1*kappa1) + (w2*kappa2)
+    rmat = np.eye (kf_ref.mo_coeff.shape[1])
+
+    # Figure out which fragments are associated w the two keyframes
+    offs = np.cumsum (las.ncas_sub) + ncore
+    kf1_frags = []
+    kf2_frags = []
+    for i in range (len (las.nfrags)):
+        i1 = offs[i]
+        i0 = i1 - las.ncas_sub[i]
+        # kf1
+        w = sum (kf1.impweights[i0:i1]) / las.ncas_sub[i]
+        if np.isclose (w, 1):
+            kf3.ci[i] = kf1.ci[i]
+            rmat[i0:i1,i0:i1] = rmat1[i0:i1,i0:i1]
+        elif abs (w) > 1e-4:
+            raise RuntimeError ("fragment split between impurities? ({})".format (w))
+        # kf2
+        w = sum (kf2.impweights[i0:i1]) / las.ncas_sub[i]
+        if np.isclose (w, 1):
+            kf3.ci[i] = kf2.ci[i]
+            rmat[i0:i1,i0:i1] = rmat2[i0:i1,i0:i1]
+        elif abs (w) > 1e-4:
+            raise RuntimeError ("fragment split between impurities? ({})".format (w))
+
+    # set orbitals and impweights
+    umat = linalg.expm (kappa) @ rmat
+    kf3.mo_coeff = kf_ref.mo_coeff @ umat
+    kf3.impweights = kf1.impweights + kf2.impweights
+    
+    return kf3
+
+
+
+    
