@@ -11,6 +11,7 @@ class LASKeyframe (object):
         self.mo_coeff = mo_coeff
         self.ci = ci
         self._dm1s = self._veff = self._fock1 = self._h1eff_sub = self._h2eff_sub = None
+        self.impweights = None
 
     @property
     def dm1s (self):
