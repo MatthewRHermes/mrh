@@ -137,4 +137,22 @@ def combine_o0 (las, kf2_list):
     kf1 = relax (las, kf1)
     return kf1
 
+def impweights (las, mo_coeff, impurities):
+    '''Compute the weights of each MO in mo_coeff on the various impurities.
+
+    Args:
+        las : object of :class:`LASCINoSymm`
+        mo_coeff : ndarray of shape (nao,nmo)
+        impurities: list of length nfrag of objects of :class:`ImpurityCASSCF`
+
+    Returns:
+        weights: ndarray of shape (nmo, nfrag)
+    '''
+    smoH = mo_coeff.conj ().T @ las._scf.get_ovlp ()
+    weights = []
+    for imp in impurities:
+        a = smoH @ imp.mol.get_imporb_coeff ()
+        weights.append ((a @ a.conj ().T).diagonal ())
+    return np.stack (weights, axis=1)
+
 
