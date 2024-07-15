@@ -175,7 +175,9 @@ def combine_impweighted (las, kf1, kf2, kf_ref):
     w2 = np.add.outer (kf1.impweights, kf2.impweights)
     kappa1, rmat1 = keyframe.get_kappa (las, kf1, kf_ref)
     kappa2, rmat2 = keyframe.get_kappa (las, kf2, kf_ref)
-    kappa = (w1*kappa1) + (w2*kappa2)
+    denom = w1 + w2
+    denom[denom<1e-8] = 1e-8
+    kappa = ((w1*kappa1) + (w2*kappa2)) / denom
     rmat = np.eye (kf_ref.mo_coeff.shape[1])
 
     # Figure out which fragments are associated w the two keyframes
