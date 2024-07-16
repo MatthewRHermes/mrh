@@ -242,14 +242,13 @@ def get_kappa (las, kf1, kf2):
     '''
     log = logger.new_logger (las, las.verbose)
 
-    # Initial guess for rmat using orbital_block_svd
+    # Work in orbital block svd basis for numerical stability
     u, svals, vh = orbital_block_svd (las, kf1, kf2)
-    rmat = u @ vh
 
     # Iteration parameters
     tol_strict = 1e-6
     tol_target = 1e-10
-    max_cycle = 100
+    max_cycle = 1000
 
     # Indexing
     nao, nmo = kf1.mo_coeff.shape
@@ -260,20 +259,21 @@ def get_kappa (las, kf1, kf2):
     blkoff = np.cumsum (nblk)
 
     # Iteration
-    mo1 = kf1.mo_coeff
-    mo2 = kf2.mo_coeff
+    mo1 = kf1.mo_coeff @ u
+    mo2 = kf2.mo_coeff @ vh.conj ().T
     s0 = las._scf.get_ovlp ()
     ovlp = mo1.conj ().T @ s0 @ mo2
-    rmat1 = np.zeros_like (rmat)
+    rmat = np.eye (nmo)
     lasterr = 1
     log.debug ('get_kappa: iterating BCH expansion until maximum diagonal element is less than %e',
                tol_target)
     for it in range (max_cycle):
         kappa = linalg.logm (ovlp @ rmat.conj ().T)
-        skewerr = linalg.norm (kappa + kappa.T) 
+        rmat1 = np.zeros_like (kappa)
+        skewerr = linalg.norm (kappa + kappa.conj ().T) 
         if (skewerr/nmo)>tol_strict:
             log.error ('get_kappa matrix logarithm failed (skewerr = %e)', skewerr)
-        kappa = .5 * (kappa - kappa.T)
+        kappa = .5 * (kappa - kappa.conj ().T)
         diagerr = 0
         for i in range (len (nblk)):
             i1 = blkoff[i]
@@ -289,12 +289,23 @@ def get_kappa (las, kf1, kf2):
     if diagerr > tol_strict:
         log.warn ('get_kappa iteration failed after %d cycles with err = %e',
                   it, diagerr)
-    
+
+    # Rollback from orbital_block_svd basis into original basis
+    kappa = u @ kappa @ u.conj ().T
+    rmat = u @ rmat @ vh
+
     # Final check
-    umat = linalg.expm (kappa) @ rmat
-    finalerr = linalg.norm ((umat.conj ().T @ ovlp) - np.eye (nmo))
+    mo1 = kf1.mo_coeff @ linalg.expm (kappa) @ rmat
+    fovlp = mo1.conj ().T @ s0 @ kf2.mo_coeff
+    finalerr = linalg.norm ((fovlp) - np.eye (nmo))
     log.debug ('get_kappa final error = %e', finalerr)
-    assert (finalerr < tol_strict)
+    try:
+        assert (finalerr < tol_strict), '{}'.format (finalerr)
+    except AssertionError as err:
+        np.save ('ovlp.npy', ovlp)
+        np.save ('fovlp.npy', fovlp)
+        print (ovlp.diagonal ())
+        raise (err)
 
     return kappa, rmat
 

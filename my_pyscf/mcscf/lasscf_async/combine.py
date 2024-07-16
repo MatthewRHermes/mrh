@@ -177,6 +177,8 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
     Returns:
         kf3 : object of :class:`LASKeyframe`
     '''
+    log = lib.logger.new_logger (las, las.verbose)
+    nmo = las.mo_coeff.shape[1]
     kf3 = kf_ref.copy ()
     w1 = np.add.outer (kf1.impweights, kf2.impweights)
     w2 = np.add.outer (kf1.impweights, kf2.impweights)
@@ -184,8 +186,9 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
     kappa2, rmat2 = keyframe.get_kappa (las, kf2, kf_ref)
     denom = w1 + w2
     denom[denom<1e-8] = 1e-8
-    kappa = ((w1*kappa1) + (w2*kappa2)) / denom
-    rmat = np.eye (kf_ref.mo_coeff.shape[1])
+    #kappa = ((w1*kappa1) + (w2*kappa2)) / denom
+    kappa = kappa1 + kappa2
+    rmat = np.eye (nmo) + np.zeros_like (rmat1) + np.zeros_like (rmat2) # complex safety
 
     # Figure out which fragments are associated w the two keyframes
     offs = np.cumsum (las.ncas_sub) + las.ncore
@@ -211,6 +214,14 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
 
     # set orbitals and impweights
     umat = linalg.expm (kappa) @ rmat
+    if np.iscomplexobj (umat):
+        log.warn ('Complex umat constructed. Discarding imaginary part; norm: %e',
+                  linalg.norm (umat.imag))
+        print ("Rmat's fault or kappa's fault or both?",
+               linalg.norm (kappa.imag),
+               linalg.norm (linalg.expm (kappa).imag),
+               linalg.norm (rmat.imag))
+        umat = umat.real
     kf3.mo_coeff = kf_ref.mo_coeff @ umat
     kf3.impweights = kf1.impweights + kf2.impweights
     
