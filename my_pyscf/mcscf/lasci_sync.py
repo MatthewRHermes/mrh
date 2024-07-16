@@ -1444,7 +1444,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
           h2eff_sub2 = self._update_h2eff_sub (mo1, umat, h2eff_sub) 
           h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub) 
           if(np.allclose(h2eff_sub,h2eff_sub2,atol=1e-13)): print('H2eff test passed')
-          else:print('H2eff gpu kernel is not working');print(np.max(abs(h2eff_sub)-abs(h2eff_sub2)));exit()
+          else:print('H2eff gpu kernel is not working');print(np.max((h2eff_sub-h2eff_sub2)*(h2eff_sub-h2eff_sub2)));exit()
         elif gpu:
           h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub) 
         else:

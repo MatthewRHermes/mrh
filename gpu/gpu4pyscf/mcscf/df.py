@@ -342,7 +342,7 @@ class _ERIS:
             naux = eri1.shape[0]
             bufpp = bufs1[:naux]
             gpu=casscf.mol.use_gpu#print(bufpp)
-            if DEBUG:
+            if DEBUG and gpu:
                 bufpp2 = numpy.empty((naux,nmo,nmo))#bufs1[:naux]
 
                 libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo,eri1)
@@ -358,7 +358,7 @@ class _ERIS:
                 #print('bufpp2')
                 #print(bufpp2)
                 if (numpy.allclose(bufpp,bufpp2,atol=1e-13)):print("ao2mo fdrv check passed!");pass
-                else:print("ao2mo fdrv bug")#;print(bufpp);print(bufpp2)#;exit()          
+                else:print("ao2mo fdrv bug");print(np.max((bufpp-bufpp2)*(bufpp-bufpp2)));exit()          
 
             else:
                 if gpu:

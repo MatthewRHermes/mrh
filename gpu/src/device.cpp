@@ -4,7 +4,7 @@
 
 #include "device.h"
 
-#define _NUM_SIMPLE_TIMER 5
+#define _NUM_SIMPLE_TIMER 6
 
 #define _DEBUG_OPENMP
 
@@ -145,6 +145,8 @@ Device::~Device()
   printf("\nLIBGPU :: SIMPLE_TIMER :: df_ao2mo_pass1_fdrv\n");
   printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= df_ao2mo_pass1_fdrv() time= %f s\n",5,t_array[5]);
   
+  printf("\nLIBGPU :: SIMPLE_TIMER :: _update_h2eff\n");
+  printf("LIBGPU :: SIMPLE_TIMER :: i= %i  name= update_h2eff_sub() time= %f s\n",5,t_array[6]);
   printf("LIBGPU :: SIMPLE_TIMER :: total= %f s\n",total);
   
   free(t_array);

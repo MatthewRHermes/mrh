@@ -179,3 +179,13 @@ void libgpu_update_h2eff_sub(void * ptr,
   dev->update_h2eff_sub(ncore,ncas,nocc,nmo,h2eff_sub,umat);
 }
 /* ---------------------------------------------------------------------- */
+
+void libgpu_get_h2eff_df(void * ptr, 
+                           py::array_t<double> cderi, py::array_t<double> mo_cas, py::array_t<double> mo_coeff, 
+                           bool mem_enough_int, int nao, int nmo, int ncore, int ncas, int naux, int blksize,
+                           py::array_t<double> bmuP1, py::array_t<double> eri1) 
+{
+  Device * dev = (Device *) ptr;
+  dev->get_h2eff_df(cderi, mo_cas, mo_coeff, mem_enough_int, nao, nmo, ncore, ncas, naux, blksize, bmuP1, eri1);
+}
+/* ---------------------------------------------------------------------- */

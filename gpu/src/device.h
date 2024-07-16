@@ -88,6 +88,9 @@ public :
 
   void update_h2eff_sub(int, int, int, int,
                         py::array_t<double>,py::array_t<double>); 
+  void get_h2eff_df(py::array_t<double>, py::array_t<double>,py::array_t<double>,
+                     bool, int, int, int, int, int,int,  
+                     py::array_t<double>, py::array_t<double>);
 private:
 
   class PM * pm;
