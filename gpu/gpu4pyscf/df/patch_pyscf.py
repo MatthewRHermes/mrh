@@ -11,7 +11,6 @@ print(f'{df_jk} monkey-patched')
 df_jk.get_jk = patch_cpu_kernel(df_jk.get_jk)(_get_jk)
 
 ao2mo=df.DF.ao2mo
-print(f'{df_ao2mo} monkey-patched')
 DF.ao2mo=patch_cpu_kernel(DF.ao2mo)(ao2mo)
 #print('DF ao2mo patched')
 #print(f'{df.DF.build} monkey-patched')
