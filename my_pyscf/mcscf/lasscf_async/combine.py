@@ -186,8 +186,7 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
     kappa2, rmat2 = keyframe.get_kappa (las, kf2, kf_ref)
     denom = w1 + w2
     denom[denom<1e-8] = 1e-8
-    #kappa = ((w1*kappa1) + (w2*kappa2)) / denom
-    kappa = kappa1 + kappa2
+    kappa = ((w1*kappa1) + (w2*kappa2)) / denom
     rmat = np.eye (nmo) + np.zeros_like (rmat1) + np.zeros_like (rmat2) # complex safety
 
     # Figure out which fragments are associated w the two keyframes
@@ -200,6 +199,7 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
         # kf1
         w = sum (kf1.impweights[i0:i1]) / las.ncas_sub[i]
         if np.isclose (w, 1):
+            kf1_frags.append (i)
             kf3.ci[i] = kf1.ci[i]
             rmat[i0:i1,i0:i1] = rmat1[i0:i1,i0:i1]
         elif abs (w) > 1e-4:
@@ -207,6 +207,7 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
         # kf2
         w = sum (kf2.impweights[i0:i1]) / las.ncas_sub[i]
         if np.isclose (w, 1):
+            kf2_frags.append (i)
             kf3.ci[i] = kf2.ci[i]
             rmat[i0:i1,i0:i1] = rmat2[i0:i1,i0:i1]
         elif abs (w) > 1e-4:
@@ -221,6 +222,16 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
     kf3.mo_coeff = kf_ref.mo_coeff @ umat
     kf3.impweights = kf1.impweights + kf2.impweights
     
+    # Double-check active orbitals
+    s0 = las._scf.get_ovlp ()
+    for k, frags in zip ([kf1,kf2], [kf1_frags, kf2_frags]):
+        for i in frags:
+            i1 = offs[i]
+            i0 = i1 - las.ncas_sub[i]
+            ovlp = k.mo_coeff[:,i0:i1].conj ().T @ s0 @ kf3.mo_coeff[:,i0:i1]
+            u, svals, vh = linalg.svd (ovlp)
+            print (sum (ovlp.diagonal ()), sum (svals))
+
     return kf3
 
 

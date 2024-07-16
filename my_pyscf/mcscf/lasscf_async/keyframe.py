@@ -121,15 +121,20 @@ def orbital_block_svd (las, kf1, kf2):
     nocc = ncore + ncas
     nvirt = nmo - nocc
 
-    s0 = las._scf.get_ovlp ()
-    mo1 = kf1.mo_coeff[:,:ncore]
-    mo2 = kf2.mo_coeff[:,:ncore]
-    s1 = mo1.conj ().T @ s0 @ mo2
-    u_core, svals_core, vh_core = svd (s1)
+    u = []
+    svals = []
+    vh = []
 
-    u = [u_core,]
-    svals = [svals_core,]
-    vh = [vh_core,]
+    s0 = las._scf.get_ovlp ()
+    if ncore:
+        mo1 = kf1.mo_coeff[:,:ncore]
+        mo2 = kf2.mo_coeff[:,:ncore]
+        s1 = mo1.conj ().T @ s0 @ mo2
+        u_core, svals_core, vh_core = svd (s1)
+        u.append (u_core)
+        svals.append (svals_core)
+        vh.append (vh_core)
+
     for ifrag, (fcibox, c1_r, c2_r) in enumerate (zip (las.fciboxes, kf1.ci, kf2.ci)):
         nlas, nelelas = las.ncas_sub[ifrag], las.nelecas_sub[ifrag]
         i = ncore + sum (las.ncas_sub[:ifrag])
@@ -142,13 +147,14 @@ def orbital_block_svd (las, kf1, kf2):
         svals.append (svals_i)
         vh.append (vh_i)
 
-    mo1 = kf1.mo_coeff[:,nocc:]
-    mo2 = kf2.mo_coeff[:,nocc:]
-    s1 = mo1.conj ().T @ s0 @ mo2
-    u_virt, svals_virt, vh_virt = svd (s1)
-    u.append (u_virt)
-    svals.append (svals_virt)
-    vh.append (vh_virt)
+    if nvirt:
+        mo1 = kf1.mo_coeff[:,nocc:]
+        mo2 = kf2.mo_coeff[:,nocc:]
+        s1 = mo1.conj ().T @ s0 @ mo2
+        u_virt, svals_virt, vh_virt = svd (s1)
+        u.append (u_virt)
+        svals.append (svals_virt)
+        vh.append (vh_virt)
 
     u = linalg.block_diag (*u)
     svals = np.concatenate (svals)
@@ -255,7 +261,10 @@ def get_kappa (las, kf1, kf2):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     nvirt = nmo - nocc
-    nblk = [ncore,] + list (las.ncas_sub) + [nvirt,]
+    nblk = []
+    if ncore: nblk.append (ncore)
+    nblk += list (las.ncas_sub)
+    if nvirt: nblk.append (nvirt)
     blkoff = np.cumsum (nblk)
 
     # Iteration
@@ -299,13 +308,7 @@ def get_kappa (las, kf1, kf2):
     fovlp = mo1.conj ().T @ s0 @ kf2.mo_coeff
     finalerr = linalg.norm ((fovlp) - np.eye (nmo))
     log.debug ('get_kappa final error = %e', finalerr)
-    try:
-        assert (finalerr < tol_strict), '{}'.format (finalerr)
-    except AssertionError as err:
-        np.save ('ovlp.npy', ovlp)
-        np.save ('fovlp.npy', fovlp)
-        print (ovlp.diagonal ())
-        raise (err)
+    assert (finalerr < tol_strict), '{}'.format (finalerr)
 
     return kappa, rmat
 
