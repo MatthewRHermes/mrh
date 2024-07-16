@@ -22,6 +22,216 @@
 
 /* ---------------------------------------------------------------------- */
 
+void Device::dd_fetch_tril_map(my_device_data * dd, int _size_tril_map)
+{
+  auto it = std::find(dd->size_tril_map.begin(), dd->size_tril_map.end(), _size_tril_map);
+
+  int indx = it - dd->size_tril_map.begin();
+
+  if(indx == dd->size_tril_map.size()) {
+    dd->size_tril_map.push_back(_size_tril_map);
+    dd->tril_map.push_back(nullptr);
+    dd->d_tril_map.push_back(nullptr);
+
+    dd->tril_map[indx] = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
+    dd->d_tril_map[indx] = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
+    int _i, _j, _ij;
+    int * tm = dd->tril_map[indx];
+    for(_ij = 0, _i = 0; _i < nao; _i++)
+      for(_j = 0; _j<=_i; _j++, _ij++) {
+    	tm[_i*nao + _j] = _ij;
+    	tm[_i + nao*_j] = _ij;
+      }
+    
+    pm->dev_push(dd->d_tril_map[indx], dd->tril_map[indx], _size_tril_map*sizeof(int));
+  }
+
+  dd->d_tril_map_ptr = dd->d_tril_map[indx];
+}
+
+/* ---------------------------------------------------------------------- */
+
+double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, size_t addr_dfobj, int count)
+{
+#if defined(_DEBUG_DEVICE) || defined(_DEBUG_ERI_CACHE)
+  return dd_fetch_eri_debug(dd, eri1, addr_dfobj, count);
+#endif
+
+  double * d_eri;
+  
+  // retrieve id of cached eri block
+  
+  int id = eri_list.size();
+  for(int i=0; i<eri_list.size(); ++i)
+    if(eri_list[i] == addr_dfobj+count) {
+      id = i;
+      break;
+    }
+  
+  // grab/update cached data
+  
+  if(id < eri_list.size()) {
+    
+    eri_count[id]++;
+    d_eri = d_eri_cache[id];
+    
+    if(update_dfobj) {
+      eri_update[id]++;
+      int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
+      if(err) {
+	printf("LIBGPU:: dev_push_async(d_eri) updating eri block\n");
+	exit(1);
+      }
+    }
+    
+  } else {
+    
+    eri_list.push_back(addr_dfobj+count);
+    eri_count.push_back(1);
+    eri_update.push_back(0);
+    eri_size.push_back(naux * nao_pair);
+    eri_device.push_back(dd->device_id);
+    
+    eri_num_blocks.push_back(0); // grow array
+    eri_num_blocks[id-count]++;  // increment # of blocks for this dfobj
+    
+    eri_extra.push_back(naux);
+    eri_extra.push_back(nao_pair);
+    
+    int id = d_eri_cache.size();
+    
+    d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
+    d_eri = d_eri_cache[ id ];
+    
+    int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
+    if(err) {
+      printf("LIBGPU:: dev_push_async(d_eri) initializing new eri block\n");
+      exit(1);
+    }
+    
+  }
+
+  return d_eri;
+}
+
+/* ---------------------------------------------------------------------- */
+
+double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, size_t addr_dfobj, int count)
+{   
+#ifdef _DEBUG_DEVICE
+  printf("LIBGPU :: Starting eri_cache lookup\n");
+#endif
+
+  double * d_eri;
+  
+  // retrieve id of cached eri block
+  
+  int id = eri_list.size();
+  for(int i=0; i<eri_list.size(); ++i)
+    if(eri_list[i] == addr_dfobj+count) {
+      id = i;
+      break;
+    }
+  
+  // grab/update cached data
+  
+  if(id < eri_list.size()) {
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU :: -- eri block found: id= %i\n",id);
+#endif
+    
+    eri_count[id]++;
+    d_eri = d_eri_cache[id];
+    
+#ifdef _DEBUG_ERI_CACHE
+    int diff_size = eri_size[id] - naux * nao_pair;
+    if(diff_size != 0) {
+      printf("LIBGPU:: Error: eri_cache size != 0  diff_size= %i\n",diff_size);
+      exit(1);
+    }
+    
+    double * eri_host = d_eri_host[id];
+    double diff_eri = 0.0;
+    for(int i=0; i<naux*nao_pair; ++i) diff_eri += (eri_host[i] - eri1[i]) * (eri_host[i] - eri1[i]);
+    
+    if(diff_eri > 1e-10) {
+      for(int i=0; i<naux*nao_pair; ++i) eri_host[i] = eri1[i];
+      pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
+      eri_update[id]++;
+      
+      // update_dfobj fails to correctly update device ; this is an error
+      if(!update_dfobj) {
+	printf("LIBGPU:: Warning: ERI updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
+	//count = -1;
+	//return;
+	exit(1);
+      }
+    } else {
+      
+      // update_dfobj falsely updates device ; this is loss of performance
+      if(update_dfobj) {
+	printf("LIBGPU:: Warning: ERI not updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
+	//count = -1;
+	//return;
+	exit(1);
+      }
+    }
+#else
+    if(update_dfobj) {
+#ifdef _DEBUG_DEVICE
+      printf("LIBGPU :: -- updating eri block: id= %i\n",id);
+#endif
+      eri_update[id]++;
+      int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
+      if(err) {
+	printf("LIBGPU:: dev_push_async(d_eri) updating eri block\n");
+	exit(1);
+      }
+    }
+#endif
+    
+  } else {
+    eri_list.push_back(addr_dfobj+count);
+    eri_count.push_back(1);
+    eri_update.push_back(0);
+    eri_size.push_back(naux * nao_pair);
+    eri_device.push_back(dd->device_id);
+    
+    eri_num_blocks.push_back(0); // grow array
+    eri_num_blocks[id-count]++;  // increment # of blocks for this dfobj
+    
+    eri_extra.push_back(naux);
+    eri_extra.push_back(nao_pair);
+    
+    int id = d_eri_cache.size();
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU :: -- allocating new eri block: %i\n",id);
+#endif
+    
+    d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
+    d_eri = d_eri_cache[ id ];
+    
+#ifdef _DEBUG_DEVICE
+    printf("LIBGPU :: -- initializing eri block\n");
+#endif
+    int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
+    if(err) {
+      printf("LIBGPU:: dev_push_async(d_eri) initializing new eri block\n");
+      exit(1);
+    }
+    
+#ifdef _DEBUG_ERI_CACHE
+    d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
+    double * d_eri_host_ = d_eri_host[id];
+    for(int i=0; i<naux*nao_pair; ++i) d_eri_host_[i] = eri1[i];
+#endif
+  }
+
+  return d_eri;
+}
+
+/* ---------------------------------------------------------------------- */
+
 void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int _naux, int count)
 {
 #ifdef _DEBUG_DEVICE
@@ -94,40 +304,20 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     if(dd->d_dmtril) pm->dev_free(dd->d_dmtril);
     dd->d_dmtril = (double *) pm->dev_malloc(_size_dmtril * sizeof(double));
   }
-  
-  int _size_eri1 = naux * nao_pair;
-  if(_size_eri1 > dd->size_eri1) {
-    dd->size_eri1 = _size_eri1;
-    if(dd->d_eri1) pm->dev_free(dd->d_eri1);
-    dd->d_eri1 = (double *) pm->dev_malloc(_size_eri1 * sizeof(double));
+
+  if(!use_eri_cache) {
+    int _size_eri1 = naux * nao_pair;
+    if(_size_eri1 > dd->size_eri1) {
+      dd->size_eri1 = _size_eri1;
+      if(dd->d_eri1) pm->dev_free(dd->d_eri1);
+      dd->d_eri1 = (double *) pm->dev_malloc(_size_eri1 * sizeof(double));
+    }
   }
   
   int _size_tril_map = nao * nao;
-
-  auto it = std::find(dd->size_tril_map.begin(), dd->size_tril_map.end(), _size_tril_map);
-
-  int indx = it - dd->size_tril_map.begin();
-
-  if(indx == dd->size_tril_map.size()) {
-    dd->size_tril_map.push_back(_size_tril_map);
-    dd->tril_map.push_back(nullptr);
-    dd->d_tril_map.push_back(nullptr);
-
-    dd->tril_map[indx] = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
-    dd->d_tril_map[indx] = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
-    int _i, _j, _ij;
-    int * tm = dd->tril_map[indx];
-    for(_ij = 0, _i = 0; _i < nao; _i++)
-      for(_j = 0; _j<=_i; _j++, _ij++) {
-    	tm[_i*nao + _j] = _ij;
-    	tm[_i + nao*_j] = _ij;
-      }
-    
-    pm->dev_push(dd->d_tril_map[indx], dd->tril_map[indx], _size_tril_map*sizeof(int));
-  }
-
-  dd->d_tril_map_ptr = dd->d_tril_map[indx];
-
+  
+  dd_fetch_tril_map(dd, _size_tril_map);
+  
   int _size_buf_vj = num_devices * nset * nao_pair;
   if(_size_buf_vj > size_buf_vj) {
     size_buf_vj = _size_buf_vj;
@@ -527,7 +717,7 @@ void Device::get_jk(int naux,
   	 info_vj.shape[0], info_vj.shape[1],
   	 info_vk.shape[0],info_vk.shape[1],info_vk.shape[2]);
   
-  DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
+  DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair, pm, DA_HOST);
   //  printf("LIBGPU:: eri1= %p  dfobj= %lu  count= %i  combined= %lu\n",eri1,addr_dfobj,count,addr_dfobj+count);
   printf("LIBGPU:: dfobj= %#012x  count= %i  combined= %#012x  update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count, update_dfobj);
   printf("LIBGPU::     0:      %f %f %f %f\n",da_eri1(0,0), da_eri1(0,1), da_eri1(0,nao_pair-2), da_eri1(0,nao_pair-1));
@@ -536,114 +726,8 @@ void Device::get_jk(int naux,
   printf("LIBGPU::     naux-1: %f %f %f %f\n",da_eri1(naux-1,0), da_eri1(naux-1,1), da_eri1(naux-1,nao_pair-2), da_eri1(naux-1,nao_pair-1));
 #endif
   
-  if(use_eri_cache) {
-#ifdef _DEBUG_DEVICE
-    printf("LIBGPU :: Starting eri_cache lookup\n");
-#endif
-
-    // retrieve id of cached eri block
-
-    int id = eri_list.size();
-    for(int i=0; i<eri_list.size(); ++i)
-      if(eri_list[i] == addr_dfobj+count) {
-	id = i;
-	break;
-      }
-    
-    // grab/update cached data
-    
-    if(id < eri_list.size()) {
-#ifdef _DEBUG_DEVICE
-      printf("LIBGPU :: -- eri block found: id= %i\n",id);
-#endif
-      
-      eri_count[id]++;
-      d_eri = d_eri_cache[id];
-      
-#ifdef _DEBUG_ERI_CACHE
-      int diff_size = eri_size[id] - naux * nao_pair;
-      if(diff_size != 0) {
-	printf("LIBGPU:: Error: eri_cache size != 0  diff_size= %i\n",diff_size);
-	exit(1);
-      }
-      
-      double * eri_host = d_eri_host[id];
-      double diff_eri = 0.0;
-      for(int i=0; i<naux*nao_pair; ++i) diff_eri += (eri_host[i] - eri1[i]) * (eri_host[i] - eri1[i]);
-      
-      if(diff_eri > 1e-10) {
-	for(int i=0; i<naux*nao_pair; ++i) eri_host[i] = eri1[i];
-	pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
-	eri_update[id]++;
-	
-	// update_dfobj fails to correctly update device ; this is an error
-	if(!update_dfobj) {
-	  printf("LIBGPU:: Warning: ERI updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
-	  //count = -1;
-	  //return;
-	  exit(1);
-	}
-      } else {
-	
-	// update_dfobj falsely updates device ; this is loss of performance
-	if(update_dfobj) {
-	  printf("LIBGPU:: Warning: ERI not updated on device w/ diff_eri= %f, but update_dfobj= %i\n",diff_eri,update_dfobj);
-	  //count = -1;
-	  //return;
-	  exit(1);
-	}
-      }
-#else
-      if(update_dfobj) {
-#ifdef _DEBUG_DEVICE
-	printf("LIBGPU :: -- updating eri block: id= %i\n",id);
-#endif
-	eri_update[id]++;
-	int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
-	if(err) {
-	  printf("LIBGPU:: dev_push_async(d_eri) updating eri block\n");
-	  exit(1);
-	}
-      }
-#endif
-      
-    } else {
-      eri_list.push_back(addr_dfobj+count);
-      eri_count.push_back(1);
-      eri_update.push_back(0);
-      eri_size.push_back(naux * nao_pair);
-      eri_device.push_back(device_id);
-      
-      eri_num_blocks.push_back(0); // grow array
-      eri_num_blocks[id-count]++;  // increment # of blocks for this dfobj
-      
-      eri_extra.push_back(naux);
-      eri_extra.push_back(nao_pair);
-      
-      int id = d_eri_cache.size();
-#ifdef _DEBUG_DEVICE
-      printf("LIBGPU :: -- allocating new eri block: %i\n",id);
-#endif
-      
-      d_eri_cache.push_back( (double *) pm->dev_malloc(naux * nao_pair * sizeof(double)) );
-      d_eri = d_eri_cache[ id ];
-
-#ifdef _DEBUG_DEVICE
-      printf("LIBGPU :: -- initializing eri block\n");
-#endif
-      int err = pm->dev_push_async(d_eri, eri1, naux * nao_pair * sizeof(double), dd->stream);
-      if(err) {
-	printf("LIBGPU:: dev_push_async(d_eri) initializing new eri block\n");
-	exit(1);
-      }
-      
-#ifdef _DEBUG_ERI_CACHE
-      d_eri_host.push_back( (double *) pm->dev_malloc_host(naux*nao_pair * sizeof(double)) );
-      double * d_eri_host_ = d_eri_host[id];
-      for(int i=0; i<naux*nao_pair; ++i) d_eri_host_[i] = eri1[i];
-#endif
-    }
-  } // if(use_eri_cache)
+  if(use_eri_cache)
+    d_eri = dd_fetch_eri(dd, eri1, addr_dfobj, count);
 
   profile_stop();
 
@@ -1500,8 +1584,6 @@ __global__ void _unpack_h2eff(double * in, double * out, int * map, int nmo, int
 }
 /* ---------------------------------------------------------------------- */
 
-
-
 void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
                               py::array_t<double> _umat, py::array_t<double> _h2eff_sub)
 {
@@ -1853,56 +1935,3 @@ void Device::get_h2eff_df(py::array_t<double> _cderi, py::array_t<double> _mo_ca
   //pm->dev_free(d_mo_cas);
   //pm->dev_free(d_mo_coeff);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

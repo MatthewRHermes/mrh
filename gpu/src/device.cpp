@@ -61,6 +61,8 @@ Device::Device()
   device_data = (my_device_data*) pm->dev_malloc_host(num_devices * sizeof(my_device_data));
 
   for(int i=0; i<num_devices; ++i) {
+    device_data[i].device_id = i;
+    
     device_data[i].size_rho = 0;
     device_data[i].size_vj = 0;
     device_data[i].size_vk = 0;
@@ -77,7 +79,7 @@ Device::Device()
     device_data[i].d_vkk = nullptr;
     device_data[i].d_dms = nullptr;
     device_data[i].d_dmtril = nullptr;
-    device_data[i].d_eri1 = nullptr;
+    device_data[i].d_eri1 = nullptr; // when not using eri cache
     
     device_data[i].d_tril_map_ptr = nullptr;
     

@@ -179,6 +179,8 @@ private:
   };
 
   struct my_device_data {
+    int device_id;
+    
     int size_rho;
     int size_vj;
     int size_vk;
@@ -207,7 +209,11 @@ private:
   };
 
   my_device_data * device_data;
-    
+
+  void dd_fetch_tril_map(my_device_data *, int);
+  double * dd_fetch_eri(my_device_data *, double *, size_t, int);
+  double * dd_fetch_eri_debug(my_device_data *, double *, size_t, int); // we'll trash this after some time
+  
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);
   
