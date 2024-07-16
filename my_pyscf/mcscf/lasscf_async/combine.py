@@ -217,10 +217,6 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
     if np.iscomplexobj (umat):
         log.warn ('Complex umat constructed. Discarding imaginary part; norm: %e',
                   linalg.norm (umat.imag))
-        print ("Rmat's fault or kappa's fault or both?",
-               linalg.norm (kappa.imag),
-               linalg.norm (linalg.expm (kappa).imag),
-               linalg.norm (rmat.imag))
         umat = umat.real
     kf3.mo_coeff = kf_ref.mo_coeff @ umat
     kf3.impweights = kf1.impweights + kf2.impweights
