@@ -247,7 +247,7 @@ def get_kappa (las, kf1, kf2):
     rmat = u @ vh
 
     # Iteration parameters
-    tol_strict = 1e-8
+    tol_strict = 1e-6
     tol_target = 1e-10
     max_cycle = 100
 
@@ -273,6 +273,7 @@ def get_kappa (las, kf1, kf2):
         skewerr = linalg.norm (kappa + kappa.T) 
         if (skewerr/nmo)>tol_strict:
             log.error ('get_kappa matrix logarithm failed (skewerr = %e)', skewerr)
+        kappa = .5 * (kappa - kappa.T)
         diagerr = 0
         for i in range (len (nblk)):
             i1 = blkoff[i]
@@ -280,7 +281,7 @@ def get_kappa (las, kf1, kf2):
             diagerr = max (diagerr, np.amax (np.abs (kappa[i0:i1,i0:i1])))
             rmat1[i0:i1,i0:i1] = linalg.expm (kappa[i0:i1,i0:i1])
         log.debug ('get_kappa iter %d diagerr: %e', it, diagerr)
-        if (diagerr < tol_target) or ((diagerr<tol_strict) and (diagerr>lasterr)): break
+        if (diagerr < tol_target) or ((lasterr<tol_strict) and (diagerr>lasterr)): break
         # If you run this for infinity cycles it will always diverge. I'd like to get to
         # 1e-10 but if 1e-8 is the best it can do then it should stop there.
         lasterr = diagerr

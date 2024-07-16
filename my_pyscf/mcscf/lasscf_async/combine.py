@@ -138,6 +138,13 @@ def combine_o0 (las, kf2_list):
     kf1 = relax (las, kf1)
     return kf1
 
+def combine_o1 (las, kf2_list, kf_ref):
+    kf1 = kf2_list[0]
+    for kf2 in kf2_list[1:]:
+        kf1 = combine_o1_rigid (las, kf1, kf2, kf_ref)
+    kf1 = relax (las, kf1)
+    return kf1
+
 def impweights (las, mo_coeff, impurities):
     '''Compute the weights of each MO in mo_coeff on the various impurities.
 
@@ -156,7 +163,7 @@ def impweights (las, mo_coeff, impurities):
         weights.append ((a @ a.conj ().T).diagonal ())
     return np.stack (weights, axis=1)
 
-def combine_impweighted (las, kf1, kf2, kf_ref):
+def combine_o1_rigid (las, kf1, kf2, kf_ref):
     '''Combine two keyframes (without relaxing the active orbitals) by weighting the kappa matrices
     with respect to a third reference keyframe by the impweights parameter
 
@@ -181,10 +188,10 @@ def combine_impweighted (las, kf1, kf2, kf_ref):
     rmat = np.eye (kf_ref.mo_coeff.shape[1])
 
     # Figure out which fragments are associated w the two keyframes
-    offs = np.cumsum (las.ncas_sub) + ncore
+    offs = np.cumsum (las.ncas_sub) + las.ncore
     kf1_frags = []
     kf2_frags = []
-    for i in range (len (las.nfrags)):
+    for i in range (las.nfrags):
         i1 = offs[i]
         i0 = i1 - las.ncas_sub[i]
         # kf1
