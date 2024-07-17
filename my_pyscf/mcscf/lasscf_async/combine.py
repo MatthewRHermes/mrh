@@ -18,12 +18,13 @@ def orth_orb (las, kf2_list):
     # orthonormalize active orbitals
     mo_cas = np.empty ((nao, ncas), dtype=las.mo_coeff.dtype)
     ci = []
-    for ifrag, kf2 in enumerate (kf2_list):
-        i = sum (las.ncas_sub[:ifrag])
-        j = i + las.ncas_sub[ifrag]
-        k, l = i + ncore, j + ncore
-        mo_cas[:,i:j] = kf2.mo_coeff[:,k:l]
-        ci.append (kf2.ci[ifrag])
+    for kf2 in kf2_list:
+        for ifrag in kf2.frags:
+            i = sum (las.ncas_sub[:ifrag])
+            j = i + las.ncas_sub[ifrag]
+            k, l = i + ncore, j + ncore
+            mo_cas[:,i:j] = kf2.mo_coeff[:,k:l]
+            ci.append (kf2.ci[ifrag])
     mo_cas_preorth = mo_cas.copy ()
     s0 = las._scf.get_ovlp ()
     mo_cas = orth.vec_lowdin (mo_cas_preorth, s=s0)
@@ -64,8 +65,8 @@ def orth_orb (las, kf2_list):
         log.warn ('Non-orthogonal AOs in lasscf_async.combine.orth_orb: %e', errmax)
     mo1 = mo1[:,ncas:]
     if mo1.size:
-        veff = sum ([kf2.veff for kf2 in kf2_list]) / nfrags
-        dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / nfrags
+        veff = sum ([kf2.veff for kf2 in kf2_list]) / len (kf2_list)
+        dm1s = sum ([kf2.dm1s for dm1s in kf2_list]) / len (kf2_list)
         fock = las.get_hcore ()[None,:,:] + veff
         fock = get_roothaan_fock (fock, dm1s, s0)
         orbsym = None # TODO: symmetry
@@ -105,7 +106,8 @@ class flas_stdout_env (object):
         if getattr (self.las, 'with_df', None):
             self.las.with_df.stdout = self.las_stdout
 
-def relax (las, kf):
+def relax (las, kf, freeze_inactive=False, frozen_frags=None):
+    if frozen_frags is None: frozen_frags = []
     log = lib.logger.new_logger (las, las.verbose)
     flas_stdout = getattr (las, '_flas_stdout', None)
     if flas_stdout is None:
@@ -124,6 +126,17 @@ def relax (las, kf):
     with flas_stdout_env (las, flas_stdout):
         flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
         flas.__dict__.update (las.__dict__)
+        flas.frozen = []
+        if freeze_inactive:
+            flas.frozen.extend (list (range (las.ncore)))
+        for ifrag in frozen_frags:
+            i0 = las.ncore + sum (las.ncas_sub[:ifrag])
+            i1 = i0 + las.ncas_sub[ifrag]
+            flas.frozen.extend (list (range (i0,i1)))
+        if freeze_inactive:
+            nocc = las.ncore + las.ncas
+            nmo = kf.mo_coeff.shape[1]
+            flas.frozen.extend (list (range (nocc,nmo)))
         e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
             flas.kernel (kf.mo_coeff, ci0=kf.ci)
     ovlp = mo_coeff.conj ().T @ las._scf.get_ovlp () @ mo_coeff
@@ -138,10 +151,12 @@ def combine_o0 (las, kf2_list):
     kf1 = relax (las, kf1)
     return kf1
 
-def combine_o1 (las, kf2_list, kf_ref):
+def combine_o1 (las, kf2_list):
     kf1 = kf2_list[0]
     for kf2 in kf2_list[1:]:
-        kf1 = combine_o1_rigid (las, kf1, kf2, kf_ref)
+        kf1_frags = kf1.frags
+        kf1 = orth_orb (las, [kf1,kf2])
+        kf1.frags = kf1_frags.union (kf2.frags)
     kf1 = relax (las, kf1)
     return kf1
 

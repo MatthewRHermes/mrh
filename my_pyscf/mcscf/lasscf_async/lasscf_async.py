@@ -69,7 +69,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             keyframe.get_kappa (las, kfi, kfj)
 
         # 3. Combine from fragments. TODO: smaller chunks instead of one whole-molecule function
-        kf1 = combine.combine_o1 (las, kf2_list, kf1)
+        kf1 = combine.combine_o1 (las, kf2_list)
 
         # Evaluate status and break if converged
         e_tot = las.energy_nuc () + las.energy_elec (
