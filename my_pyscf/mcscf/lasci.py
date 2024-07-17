@@ -880,7 +880,7 @@ def get_nelec_frs (las):
 
 class LASCINoSymm (casci.CASCI):
 
-    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, **kwargs):
+    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, frozen=None, frozen_ci=None, **kwargs):
         if isinstance(ncas,int):
             ncas = [ncas]
         ncas_tot = sum (ncas)
@@ -904,6 +904,7 @@ class LASCINoSymm (casci.CASCI):
         self.nelecas_sub = np.asarray (nelecas)
         assert (len (self.nelecas_sub) == self.nfrags)
         self.frozen = frozen
+        self.frozen_ci = frozen_ci
         self.conv_tol_grad = 1e-4
         self.conv_tol_self = 1e-10
         self.ah_level_shift = 1e-8

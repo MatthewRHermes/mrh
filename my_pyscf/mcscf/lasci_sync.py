@@ -252,6 +252,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
 
 def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
     if ci0 is None: ci0 = [None for idx in range (las.nfrags)]
+    frozen_ci = las.frozen_ci
+    if frozen_ci is None: frozen_ci = []
     # CI problems
     t1 = (lib.logger.process_clock(), lib.logger.perf_counter())
     h1eff_sub = las.get_h1eff (mo, veff=veff, h2eff_sub=h2eff_sub, casdm1frs=casdm1frs)
@@ -288,10 +290,13 @@ def ci_cycle (las, mo, ci0, veff, h2eff_sub, casdm1frs, log):
                 log.debug1 ("LASCI subspace {} state {} with wfnsym {}".format (isub, state,
                                                                                 wfnsym_str))
 
-        e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
-                                      ci0=fcivec, verbose=log,
-                                      #max_memory = max_memory issue #54
-                                      ecore=e0, orbsym=orbsym)
+        if isub not in frozen_ci:
+            e_sub, fcivec = fcibox.kernel(h1e, eri_cas, ncas, nelecas,
+                                          ci0=fcivec, verbose=log,
+                                          #max_memory = max_memory issue #54
+                                          ecore=e0, orbsym=orbsym)
+        else:
+            e_sub = 0 # TODO: proper energy calculation (probably doesn't matter tho)
         e_cas.append (e_sub)
         ci1.append (fcivec)
         t1 = log.timer ('FCI box for subspace {}'.format (isub), *t1)
@@ -342,6 +347,8 @@ class LASCI_UnitaryGroupGenerators (object):
             Number of molecular orbitals
         frozen : sequence of int or index mask array
             Identify orbitals which are frozen.
+        frozen_ci : sequence of int
+            Identify fragments whose CI vectors are frozen
         nfrz_orb_idx : index mask array
             Identifies all nonredundant orbital rotation amplitudes for non-frozen orbitals
         uniq_orb_idx : index mask array
@@ -363,6 +370,7 @@ class LASCI_UnitaryGroupGenerators (object):
     def __init__(self, las, mo_coeff, ci):
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
+        self.frozen_ci = las.frozen_ci
         self._init_orb (las, mo_coeff, ci)
         self._init_ci (las, mo_coeff, ci)
 
@@ -391,6 +399,7 @@ class LASCI_UnitaryGroupGenerators (object):
 
     def _init_ci (self, las, mo_coeff, ci):
         self.ci_transformers = []
+        if self.frozen_ci is None: self.frozen_ci = []
         for i, fcibox in enumerate (las.fciboxes):
             norb, nelec = las.ncas_sub[i], las.nelecas_sub[i]
             tf_list = []
@@ -407,7 +416,8 @@ class LASCI_UnitaryGroupGenerators (object):
 
     def pack (self, kappa, ci_sub):
         x = kappa[self.uniq_orb_idx]
-        for trans_frag, ci_frag in zip (self.ci_transformers, ci_sub):
+        for ix, (trans_frag, ci_frag) in enumerate (zip (self.ci_transformers, ci_sub)):
+            if ix in self.frozen_ci: continue
             for transformer, ci in zip (trans_frag, ci_frag):
                 x = np.append (x, transformer.vec_det2csf (ci, normalize=False))
         assert (x.shape[0] == self.nvar_tot)
@@ -420,12 +430,17 @@ class LASCI_UnitaryGroupGenerators (object):
 
         y = x[self.nvar_orb:]
         ci_sub = []
-        for trans_frag in self.ci_transformers:
+        for ix, trans_frag in enumerate (self.ci_transformers):
             ci_frag = []
             for transformer in trans_frag:
-                ncsf = transformer.ncsf
-                ci_frag.append (transformer.vec_csf2det (y[:ncsf], normalize=False))
-                y = y[ncsf:]
+                if ix in self.frozen_ci:
+                    ndeta = transformer.ndeta
+                    ndetb = transformer.ndetb
+                    ci_frag.append (np.zeros ((ndeta,ndetb)))
+                else:
+                    ncsf = transformer.ncsf
+                    ci_frag.append (transformer.vec_csf2det (y[:ncsf], normalize=False))
+                    y = y[ncsf:]
             ci_sub.append (ci_frag)
 
         return kappa, ci_sub
@@ -438,6 +453,7 @@ class LASCI_UnitaryGroupGenerators (object):
             addr -= self.nvar_orb
             ncsf_frag = self.ncsf_sub.sum (1)
             for i, trans_frag in enumerate (self.ci_transformers):
+                if i in self.frozen_ci: continue
                 if addr >= ncsf_frag[i]:
                     addr -= ncsf_frag[i]
                     continue
@@ -458,7 +474,8 @@ class LASCI_UnitaryGroupGenerators (object):
     @property
     def ncsf_sub (self):
         return np.asarray ([[transformer.ncsf for transformer in trans_frag]
-                            for trans_frag in self.ci_transformers])
+                            for i,trans_frag in enumerate (self.ci_transformers)
+                            if i not in self.frozen_ci])
 
     @property
     def nvar_tot (self):
@@ -475,6 +492,7 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
     def __init__(self, las, mo_coeff, ci): 
         self.nmo = mo_coeff.shape[-1]
         self.frozen = las.frozen
+        self.frozen_ci = las.frozen_ci
         if getattr (mo_coeff, 'orbsym', None) is None:
             mo_coeff = las.label_symmetry_(mo_coeff)
         orbsym = mo_coeff.orbsym
@@ -488,6 +506,7 @@ class LASCISymm_UnitaryGroupGenerators (LASCI_UnitaryGroupGenerators):
         self.nfrz_orb_idx[self.symm_forbid] = False
 
     def _init_ci (self, las, mo_coeff, ci, orbsym):
+        if self.frozen_ci is None: self.frozen_ci = []
         sub_slice = np.cumsum ([0] + las.ncas_sub.tolist ()) + las.ncore
         orbsym_sub = [orbsym[i:sub_slice[isub+1]] for isub, i in enumerate (sub_slice[:-1])]
         self.ci_transformers = []
