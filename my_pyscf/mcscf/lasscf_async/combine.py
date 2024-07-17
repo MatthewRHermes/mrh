@@ -222,16 +222,6 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
     kf3.mo_coeff = kf_ref.mo_coeff @ umat
     kf3.impweights = kf1.impweights + kf2.impweights
     
-    # Double-check active orbitals
-    s0 = las._scf.get_ovlp ()
-    for k, frags in zip ([kf1,kf2], [kf1_frags, kf2_frags]):
-        for i in frags:
-            i1 = offs[i]
-            i0 = i1 - las.ncas_sub[i]
-            ovlp = k.mo_coeff[:,i0:i1].conj ().T @ s0 @ kf3.mo_coeff[:,i0:i1]
-            u, svals, vh = linalg.svd (ovlp)
-            print (sum (ovlp.diagonal ()), sum (svals))
-
     return kf3
 
 
