@@ -133,6 +133,8 @@ def relax (las, kf, freeze_inactive=False, frozen_frags=None):
         flas.__dict__.update (las.__dict__)
         flas.frozen = []
         flas.frozen_ci = frozen_frags
+        # TODO: ensure robust tolerance selection so things always make progress
+        flas.min_cycle_macro = 1
         if freeze_inactive:
             flas.frozen.extend (list (range (las.ncore)))
         for ifrag in frozen_frags:
@@ -196,7 +198,6 @@ def select_aa_block (las, frags1, frags2, fock1):
     gmax = np.argmax (gblk)
     i = frags1[gmax // len (frags2)]
     j = frags2[gmax % len (frags2)]
-    print (i, j, gblk[gmax])
     return i, j
 
 def combine_pair (las, kf1, kf2):

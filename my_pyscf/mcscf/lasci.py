@@ -910,6 +910,7 @@ class LASCINoSymm (casci.CASCI):
         self.ah_level_shift = 1e-8
         self.max_cycle_macro = 50
         self.max_cycle_micro = 5
+        self.min_cycle_macro = 0
         keys = set(('e_states', 'fciboxes', 'nroots', 'weights', 'ncas_sub', 'nelecas_sub',
                     'conv_tol_grad', 'conv_tol_self', 'max_cycle_macro', 'max_cycle_micro',
                     'ah_level_shift', 'states_converged', 'chkfile', 'e_lexc'))

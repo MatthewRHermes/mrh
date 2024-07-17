@@ -128,9 +128,11 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
         #    ('LASCI micro init : E = %.15g ; |g_orb| = %.15g ; |g_ci| = %.15g ; |x0_orb| = %.15g '
         #    '; |x0_ci| = %.15g'), H_op.e_tot, norm_gorb, norm_gci, norm_xorb, norm_xci)
         las.dump_chk (mo_coeff=mo_coeff, ci=ci1)
-        if (norm_gorb<conv_tol_grad and norm_gci<conv_tol_grad)or((norm_gorb+norm_gci)<norm_gx/10):
-            converged = True
-            break
+        if (((norm_gorb<conv_tol_grad and norm_gci<conv_tol_grad)
+             or ((norm_gorb+norm_gci)<norm_gx/10))
+            and (it>=las.min_cycle_macro)):
+                converged = True
+                break
         H_op._init_eri_() 
         # ^ This is down here to save time in case I am already converged at initialization
         t1 = log.timer ('LASCI Hessian constructor', *t1)
