@@ -165,7 +165,7 @@ def impweights (las, mo_coeff, impurities):
 
 def combine_o1_rigid (las, kf1, kf2, kf_ref):
     '''Combine two keyframes (without relaxing the active orbitals) by weighting the kappa matrices
-    with respect to a third reference keyframe by the impweights parameter
+    with respect to a third reference keyframe democratically
 
     Args:
         las : object of :class:`LASCINoSymm`
@@ -180,47 +180,33 @@ def combine_o1_rigid (las, kf1, kf2, kf_ref):
     log = lib.logger.new_logger (las, las.verbose)
     nmo = las.mo_coeff.shape[1]
     kf3 = kf_ref.copy ()
-    w1 = np.add.outer (kf1.impweights, kf2.impweights)
-    w2 = np.add.outer (kf1.impweights, kf2.impweights)
     kappa1, rmat1 = keyframe.get_kappa (las, kf1, kf_ref)
     kappa2, rmat2 = keyframe.get_kappa (las, kf2, kf_ref)
-    denom = w1 + w2
-    denom[denom<1e-8] = 1e-8
-    kappa = ((w1*kappa1) + (w2*kappa2)) / denom
+    kappa1 = keyframe.democratic_matrix (las, kappa1, kf1.frags, kf_ref.mo_coeff)
+    kappa2 = keyframe.democratic_matrix (las, kappa2, kf2.frags, kf_ref.mo_coeff)
+    kappa = kappa1 + kappa2
     rmat = np.eye (nmo) + np.zeros_like (rmat1) + np.zeros_like (rmat2) # complex safety
 
-    # Figure out which fragments are associated w the two keyframes
     offs = np.cumsum (las.ncas_sub) + las.ncore
-    kf1_frags = []
-    kf2_frags = []
-    for i in range (las.nfrags):
+    for i in kf1.frags:
         i1 = offs[i]
         i0 = i1 - las.ncas_sub[i]
-        # kf1
-        w = sum (kf1.impweights[i0:i1]) / las.ncas_sub[i]
-        if np.isclose (w, 1):
-            kf1_frags.append (i)
-            kf3.ci[i] = kf1.ci[i]
-            rmat[i0:i1,i0:i1] = rmat1[i0:i1,i0:i1]
-        elif abs (w) > 1e-4:
-            raise RuntimeError ("fragment split between impurities? ({})".format (w))
-        # kf2
-        w = sum (kf2.impweights[i0:i1]) / las.ncas_sub[i]
-        if np.isclose (w, 1):
-            kf2_frags.append (i)
-            kf3.ci[i] = kf2.ci[i]
-            rmat[i0:i1,i0:i1] = rmat2[i0:i1,i0:i1]
-        elif abs (w) > 1e-4:
-            raise RuntimeError ("fragment split between impurities? ({})".format (w))
+        kf3.ci[i] = kf1.ci[i]
+        rmat[i0:i1,i0:i1] = rmat1[i0:i1,i0:i1]
+    for i in kf2.frags:
+        i1 = offs[i]
+        i0 = i1 - las.ncas_sub[i]
+        kf3.ci[i] = kf2.ci[i]
+        rmat[i0:i1,i0:i1] = rmat2[i0:i1,i0:i1]
 
-    # set orbitals and impweights
+    # set orbitals and frag associations
     umat = linalg.expm (kappa) @ rmat
     if np.iscomplexobj (umat):
         log.warn ('Complex umat constructed. Discarding imaginary part; norm: %e',
                   linalg.norm (umat.imag))
         umat = umat.real
     kf3.mo_coeff = kf_ref.mo_coeff @ umat
-    kf3.impweights = kf1.impweights + kf2.impweights
+    kf3.frags = kf1.frags.union (kf2.frags)
     
     return kf3
 

@@ -11,7 +11,7 @@ class LASKeyframe (object):
         self.mo_coeff = mo_coeff
         self.ci = ci
         self._dm1s = self._veff = self._fock1 = self._h1eff_sub = self._h2eff_sub = None
-        self.impweights = None
+        self.frags = set ()
 
     @property
     def dm1s (self):
@@ -312,7 +312,40 @@ def get_kappa (las, kf1, kf2):
 
     return kappa, rmat
 
+def democratic_matrix (las, mat, frags, mo_coeff):
+    '''Weight a matrix in the "democratic DMET" way
 
+    Args:
+        las : object of :class:`LASCINoSymm`
+        mat : ndarray of shape (nmo, nmo)
+            In basis of mo_coeff
+        frags : sequence of integers
+            Identify fragments
+        mo_coeff : ndarray of shape (nao, nmo)
+            MO basis of mat
+
+    Returns:
+        mat : ndarray of shape (nmo, nmo)
+            Diagonal environment block eliminated; off-diagonal frag-env block halved
+    '''
+    assert (len (frags))
+    frag_orbs = []
+    for ifrag in frags:
+        frag_orbs.extend (las.frags_orbs[ifrag])
+    frag_orbs = list (set (frag_orbs))
+
+    s0 = las._scf.get_ovlp ()[frag_orbs,:][:,frag_orbs]
+    mo = mo_coeff[frag_orbs,:]
+    s1 = mo.conj ().T @ s0 @ mo
+    w, u = linalg.eigh (-s1)
+
+    mat = u.conj ().T @ mat @ u
+    n = len (frag_orbs)
+    mat[n:,:n] *= .5
+    mat[:n,n:] *= .5
+    mat[n:,n:] = 0
+
+    return u @ mat @ u.conj ().T
 
 
 

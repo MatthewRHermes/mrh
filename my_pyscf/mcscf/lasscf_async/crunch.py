@@ -354,14 +354,10 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         if ci is None: ci=self.ci
         log = logger.new_logger (self, self.verbose)
         kf2 = kf1.copy ()
+        kf2.frags = set ([self._ifrag,])
         imporb_coeff = self.mol.get_imporb_coeff ()
         mo_self = imporb_coeff @ mo_coeff
         las = self.mol._las
-
-        # impweights for combining updates
-        s0 = las._scf.get_ovlp ()
-        ovlp = kf1.mo_coeff.conj ().T @ s0 @ imporb_coeff
-        kf2.impweights = (ovlp @ ovlp.conj ().T).diagonal ()
 
         # active orbital part should be easy
         kf2.ci[self._ifrag] = self.ci
@@ -372,6 +368,7 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         kf2.mo_coeff[:,i:j] = mo_self[:,k:l]
 
         # Unentangled inactive orbitals
+        s0 = las._scf.get_ovlp ()
         ncore_unent = las.ncore - self.ncore
         assert (ncore_unent>=0), '{} {}'.format (las.ncore, self.ncore)
         if las.ncore:
