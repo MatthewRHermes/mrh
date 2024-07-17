@@ -12,15 +12,16 @@ def orth_orb (las, kf2_list, kf_ref=None):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     nao, nmo = las.mo_coeff.shape
-    nfrags = len (kf2_list)
+    nfrags = las.nfrags
     log = lib.logger.new_logger (las, las.verbose)
 
     # orthonormalize active orbitals
-    mo_cas = np.empty ((nao, ncas), dtype=las.mo_coeff.dtype)
     if kf_ref is not None:
         ci = [c for c in kf_ref.ci]
+        mo_cas = kf_ref.mo_coeff[:,ncore:nocc].copy ()
     else:
         ci = [None for i in range (las.nfrags)]
+        mo_cas = np.empty ((nao, ncas), dtype=las.mo_coeff.dtype)
     for kf2 in kf2_list:
         for ifrag in kf2.frags:
             i = sum (las.ncas_sub[:ifrag])
@@ -185,16 +186,17 @@ def select_aa_block (las, frags1, frags2, fock1):
     nocc = ncore + las.ncas
     g_orb = g_orb[ncore:nocc,ncore:nocc]
     gblk = []
-    for ix, i in enumerate (frags1):
-        i1 = sum (las.ncas_sub[:i])
-        i0 = i1 - las.ncas_sub[i]
-        for jx, j in enumerate (frags2):
-            j1 = sum (las.ncas_sub[:j])
-            j0 = j1 - las.ncas_sub[j]
+    for i in frags1:
+        i0 = sum (las.ncas_sub[:i])
+        i1 = i0 + las.ncas_sub[i]
+        for j in frags2:
+            j0 = sum (las.ncas_sub[:j])
+            j1 = j0 + las.ncas_sub[j]
             gblk.append (linalg.norm (g_orb[i0:i1,j0:j1]))
     gmax = np.argmax (gblk)
     i = frags1[gmax // len (frags2)]
     j = frags2[gmax % len (frags2)]
+    print (i, j, gblk[gmax])
     return i, j
 
 def combine_pair (las, kf1, kf2):

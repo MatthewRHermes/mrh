@@ -102,7 +102,8 @@ def kernel (las, mo_coeff=None, ci0=None, casdm0_fr=None, conv_tol_grad=1e-4,
                 err = linalg.norm (g_orb_test - g_vec[:ugg.nvar_orb])
                 log.debug ('GRADIENT IMPLEMENTATION TEST: |D g_orb| = %.15g', err)
                 assert (err < 1e-5), '{}'.format (err)
-            for isub in range (len (ci1)): # TODO: double-check that this code works in SA-LASSCF
+            for isub in range (len (ugg.ncsf_sub)):
+                # TODO: double-check that this code works in SA-LASSCF
                 i = ugg.ncsf_sub[:isub].sum ()
                 j = i + ugg.ncsf_sub[isub].sum ()
                 k = i + ugg.nvar_orb
@@ -436,7 +437,7 @@ class LASCI_UnitaryGroupGenerators (object):
                 if ix in self.frozen_ci:
                     ndeta = transformer.ndeta
                     ndetb = transformer.ndetb
-                    ci_frag.append (np.zeros ((ndeta,ndetb)))
+                    ci_frag.append (np.zeros ((ndeta*ndetb)))
                 else:
                     ncsf = transformer.ncsf
                     ci_frag.append (transformer.vec_csf2det (y[:ncsf], normalize=False))
@@ -1288,6 +1289,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         Hci_diag = []
         for ix, (fcibox, norb, nelec, h1rs, csf_list) in enumerate (zip (self.fciboxes, 
          self.ncas_sub, self.nelecas_sub, self.h1frs, self.ugg.ci_transformers)):
+            if ix in self.ugg.frozen_ci: continue
             i = sum (self.ncas_sub[:ix])
             j = i + norb
             h2 = self.eri_cas[i:j,i:j,i:j,i:j]
