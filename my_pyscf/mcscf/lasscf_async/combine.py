@@ -8,7 +8,7 @@ from mrh.my_pyscf.mcscf import lasci, _DFLASCI
 from mrh.my_pyscf.mcscf.lasscf_async import keyframe
 
 # TODO: symmetry
-def orth_orb (las, kf2_list):
+def orth_orb (las, kf2_list, kf_ref=None):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     nao, nmo = las.mo_coeff.shape
@@ -17,14 +17,17 @@ def orth_orb (las, kf2_list):
 
     # orthonormalize active orbitals
     mo_cas = np.empty ((nao, ncas), dtype=las.mo_coeff.dtype)
-    ci = []
+    if kf_ref is not None:
+        ci = [c for c in kf_ref.ci]
+    else:
+        ci = [None for i in range (las.nfrags)]
     for kf2 in kf2_list:
         for ifrag in kf2.frags:
             i = sum (las.ncas_sub[:ifrag])
             j = i + las.ncas_sub[ifrag]
             k, l = i + ncore, j + ncore
             mo_cas[:,i:j] = kf2.mo_coeff[:,k:l]
-            ci.append (kf2.ci[ifrag])
+            ci[ifrag] = kf2.ci[ifrag]
     mo_cas_preorth = mo_cas.copy ()
     s0 = las._scf.get_ovlp ()
     mo_cas = orth.vec_lowdin (mo_cas_preorth, s=s0)
@@ -154,11 +157,53 @@ def combine_o0 (las, kf2_list):
 def combine_o1 (las, kf2_list):
     kf1 = kf2_list[0]
     for kf2 in kf2_list[1:]:
-        kf1_frags = kf1.frags
-        kf1 = orth_orb (las, [kf1,kf2])
-        kf1.frags = kf1_frags.union (kf2.frags)
-    kf1 = relax (las, kf1)
+        kf1 = combine_pair (las, kf1, kf2)
     return kf1
+
+def select_aa_block (las, frags1, frags2, fock1):
+    '''Identify from two lists of candidate fragments the single active-active orbital-rotation
+    gradient block with the largest norm
+
+    Args:
+        las : object of :class:`LASCINoSymm`
+        frags1 : sequence of integers
+        frags2 : sequence of integers
+        fock1 : ndarray of shape (nmo,nmo)
+
+    Returns:
+        i : integer
+            From frags1.
+        j : integer
+            From frags2.
+'''
+    frags1 = list (frags1)
+    frags2 = list (frags2)
+    g_orb = fock1 - fock1.conj ().T
+    ncore = las.ncore
+    nocc = ncore + las.ncas
+    g_orb = g_orb[ncore:nocc,ncore:nocc]
+    gblk = []
+    for ix, i in enumerate (frags1):
+        i1 = sum (las.ncas_sub[:i])
+        i0 = i1 - las.ncas_sub[i]
+        for jx, j in enumerate (frags2):
+            j1 = sum (las.ncas_sub[:j])
+            j0 = j1 - las.ncas_sub[j]
+            gblk.append (linalg.norm (g_orb[i0:i1,j0:j1]))
+    gmax = np.argmax (gblk)
+    i = frags1[gmax // len (frags2)]
+    j = frags2[gmax % len (frags2)]
+    return i, j
+
+def combine_pair (las, kf1, kf2):
+    '''Combine two keyframes and relax one specific block of active-active orbital rotations
+    between the fragments assigned to each with the inactive and virtual orbitals frozen.'''
+    kf3 = orth_orb (las, [kf1, kf2], kf_ref=kf1)
+    i, j = select_aa_block (las, kf1.frags, kf2.frags, kf3.fock1)
+    frozen = [k for k in range (las.nfrags) if k not in (i,j)]
+    kf3 = relax (las, kf3, freeze_inactive=True, frozen_frags=frozen)
+    kf3.frags = kf1.frags.union (kf2.frags)
+    return kf3
 
 def impweights (las, mo_coeff, impurities):
     '''Compute the weights of each MO in mo_coeff on the various impurities.
