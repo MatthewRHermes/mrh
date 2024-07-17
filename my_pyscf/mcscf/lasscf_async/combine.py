@@ -110,7 +110,6 @@ class flas_stdout_env (object):
             self.las.with_df.stdout = self.las_stdout
 
 def relax (las, kf, freeze_inactive=False, frozen_frags=None):
-    # TODO: frozen CI-vector elements in flas subproblem solver
     # TODO: bottom-up 2-frag subproblem reimplementation
     if frozen_frags is None: frozen_frags = []
     log = lib.logger.new_logger (las, las.verbose)
@@ -132,6 +131,7 @@ def relax (las, kf, freeze_inactive=False, frozen_frags=None):
         flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
         flas.__dict__.update (las.__dict__)
         flas.frozen = []
+        flas.frozen_ci = frozen_frags
         if freeze_inactive:
             flas.frozen.extend (list (range (las.ncore)))
         for ifrag in frozen_frags:
