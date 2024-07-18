@@ -204,6 +204,7 @@ def count_common_orbitals (las, kf1, kf2, verbose=None):
 
     return ncommon_core, ncommon_active, ncommon_virt
 
+# Function from failed algorithm. May have a future use.
 def get_kappa (las, kf1, kf2):
     '''Decompose unitary matrix of orbital rotations between two keyframes as
 
@@ -312,6 +313,7 @@ def get_kappa (las, kf1, kf2):
 
     return kappa, rmat
 
+# Function from failed algorithm. May have a future use.
 def democratic_matrix (las, mat, frags, mo_coeff):
     '''Weight a matrix in the "democratic DMET" way
 

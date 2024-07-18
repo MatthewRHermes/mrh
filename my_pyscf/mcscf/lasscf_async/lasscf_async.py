@@ -56,20 +56,19 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             impurity.kernel ()
             kf2_list.append (impurity._push_keyframe (kf1))
 
-        # EXPERIMENTAL: examining differences in keyframes
-        for i in range (len (kf2_list)):
-            kfi = kf2_list[i]
-            log.info ('Comparing reference keyframe to fragment %d', i)
-            keyframe.count_common_orbitals (las, kf1, kfi)
-            keyframe.get_kappa (las, kf1, kfi)
-        for i, j in itertools.combinations (range (len (kf2_list)), 2):
-            kfi, kfj = kf2_list[i], kf2_list[j]
-            log.info ('Comparing keyframes for fragments %d and %d:', i, j)
-            keyframe.count_common_orbitals (las, kfi, kfj)
-            keyframe.get_kappa (las, kfi, kfj)
-
-        # 3. Combine from fragments. TODO: smaller chunks instead of one whole-molecule function
-        kf1 = combine.combine_o1 (las, kf2_list)
+        # 3. Combine from fragments. It should not be necessary to do this in any particular order,
+        #    and it should be possible to do March Madness tournament style; e.g.:
+        #
+        #       kf2_list[0] --- kf2_list[1]     kf2_list[2] --- kf2_list[3]
+        #                    |                               |
+        #                   kfi --------------------------- kfj
+        #                                    |
+        #                                   kf2
+        #
+        kf2 = kf2_list[0]
+        for kf3 in kf2_list[1:]:
+            kf2 = combine.combine_pair (las, kf2, kf3, kf_ref=kf1)
+        kf1 = kf2
 
         # Evaluate status and break if converged
         e_tot = las.energy_nuc () + las.energy_elec (

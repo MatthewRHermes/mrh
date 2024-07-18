@@ -169,12 +169,6 @@ def combine_o0 (las, kf2_list):
     kf1 = relax (las, kf1)
     return kf1
 
-def combine_o1 (las, kf2_list):
-    kf1 = kf2_list[0]
-    for kf2 in kf2_list[1:]:
-        kf1 = combine_pair (las, kf1, kf2)
-    return kf1
-
 def select_aa_block (las, frags1, frags2, fock1):
     '''Identify from two lists of candidate fragments the single active-active orbital-rotation
     gradient block with the largest norm
@@ -210,34 +204,18 @@ def select_aa_block (las, frags1, frags2, fock1):
     j = frags2[gmax % len (frags2)]
     return i, j
 
-def combine_pair (las, kf1, kf2):
+def combine_pair (las, kf1, kf2, kf_ref=None):
     '''Combine two keyframes and relax one specific block of active-active orbital rotations
     between the fragments assigned to each with the inactive and virtual orbitals frozen.'''
-    kf3 = orth_orb (las, [kf1, kf2], kf_ref=kf1)
+    if kf_ref is None: kf_ref=kf1
+    kf3 = orth_orb (las, [kf1, kf2], kf_ref=kf_ref)
     i, j = select_aa_block (las, kf1.frags, kf2.frags, kf3.fock1)
     kf3 = relax (las, kf3, freeze_inactive=True, unfrozen_frags=(i,j))
     kf3.frags = kf1.frags.union (kf2.frags)
     return kf3
 
-def impweights (las, mo_coeff, impurities):
-    '''Compute the weights of each MO in mo_coeff on the various impurities.
-
-    Args:
-        las : object of :class:`LASCINoSymm`
-        mo_coeff : ndarray of shape (nao,nmo)
-        impurities: list of length nfrag of objects of :class:`ImpurityCASSCF`
-
-    Returns:
-        weights: ndarray of shape (nmo, nfrag)
-    '''
-    smoH = mo_coeff.conj ().T @ las._scf.get_ovlp ()
-    weights = []
-    for imp in impurities:
-        a = smoH @ imp.mol.get_imporb_coeff ()
-        weights.append ((a @ a.conj ().T).diagonal ())
-    return np.stack (weights, axis=1)
-
-def combine_o1_rigid (las, kf1, kf2, kf_ref):
+# Function from failed algorithm. Retained for reference
+def combine_o1_kappa_rigid (las, kf1, kf2, kf_ref):
     '''Combine two keyframes (without relaxing the active orbitals) by weighting the kappa matrices
     with respect to a third reference keyframe democratically
 
