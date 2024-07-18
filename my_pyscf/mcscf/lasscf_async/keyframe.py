@@ -349,5 +349,24 @@ def democratic_matrix (las, mat, frags, mo_coeff):
 
     return u @ mat @ u.conj ().T
 
+# Thought I might need this; realize I don't. Might still be useful later.
+def fock_cycle (las, kf1):
+    '''For the inactive-virtual orbital rotations only, build and diagonalize the fock
+    matrix once'''
+    nao, nmo = kf1.mo_coeff.shape
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    nvirt = nmo - nocc
+    mo = np.append (kf1.mo_coeff[:,:ncore], kf1.mo_coeff[:,nocc:])
+    if not mo.shape[1]: return kf1
+    kf2 = kf1.copy ()
+    fock = las.get_hcore ()[None,:,:] + kf1.veff
+    fock = get_roothaan_fock (fock, kf1.dm1s, las._scf.get_ovlp())
+    orbsym = None # TODO: symmetry
+    fock = mo.conj ().T @ fock @ mo
+    ene, umat = las._eig (fock, 0, 0, orbsym)
+    if ncore: kf2.mo_coeff[:,:ncore] = mo @ umat[:,:ncore]
+    if nvirt: kf2.mo_coeff[:,nocc:] = mo @ umat[:,ncore:]
+    return kf2
 
 

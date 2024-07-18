@@ -208,6 +208,10 @@ def combine_pair (las, kf1, kf2, kf_ref=None):
     '''Combine two keyframes and relax one specific block of active-active orbital rotations
     between the fragments assigned to each with the inactive and virtual orbitals frozen.'''
     if kf_ref is None: kf_ref=kf1
+    if len (kf1.frags.intersection (kf2.frags)):
+        errstr = ("Cannot combine keyframes that are responsible for the same fragments "
+                  "({} {})").format (kf1.frags, kf2.frags)
+        raise RuntimeError (errstr)
     kf3 = orth_orb (las, [kf1, kf2], kf_ref=kf_ref)
     i, j = select_aa_block (las, kf1.frags, kf2.frags, kf3.fock1)
     kf3 = relax (las, kf3, freeze_inactive=True, unfrozen_frags=(i,j))
