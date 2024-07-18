@@ -29,7 +29,7 @@ from gpu4pyscf.lib.utils import patch_cpu_kernel
 from mrh.my_pyscf.gpu import libgpu
 
 # Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
-DEBUG = False
+DEBUG = True
 
 if DEBUG:
     import math
@@ -320,7 +320,6 @@ class _ERIS:
             log.warn('Calculation needs %d MB memory, over CASSCF.max_memory (%d MB) limit',
                      (mem_basic+mem_now)/.9, casscf.max_memory)
 
-        t1 = t0 = (logger.process_clock(), logger.perf_counter())
         self.feri = lib.H5TmpFile()
         self.ppaa = self.feri.create_dataset('ppaa', (nmo,nmo,ncas,ncas), 'f8')
         self.papa = self.feri.create_dataset('papa', (nmo,ncas,nmo,ncas), 'f8')
@@ -338,6 +337,7 @@ class _ERIS:
         ftrans = _ao2mo.libao2mo.AO2MOtranse2_nr_s2
         fxpp_keys = []
         b0 = 0
+        t1 = t0 = (logger.process_clock(), logger.perf_counter())
         for k, eri1 in enumerate(with_df.loop(blksize)):
             naux = eri1.shape[0]
             bufpp = bufs1[:naux]
@@ -363,6 +363,7 @@ class _ERIS:
             else:
                 if gpu:
                     libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo, eri1)
+                    t0 = log.timer('density fitting ao2mo pass1_loop', *t0)
                 else:
                     fdrv(ftrans, fmmm,
                      bufpp.ctypes.data_as(ctypes.c_void_p),
@@ -371,6 +372,7 @@ class _ERIS:
                      ctypes.c_int(naux), ctypes.c_int(nao),
                      (ctypes.c_int*4)(0, nmo, 0, nmo),
                      ctypes.c_void_p(0), ctypes.c_int(0))
+                    t0 = log.timer('density fitting ao2mo pass1_loop cpu', *t0)
 
             fxpp_keys.append([str(k), b0, b0+naux])
             fxpp[str(k)] = bufpp.transpose(1,2,0)
@@ -380,10 +382,10 @@ class _ERIS:
             k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
             #print(k,blksize,eri1.shape,bufpp.transpose(1,2,0).shape,mo.shape,self.j_pc.shape,k_cp.shape)
             b0 += naux
-            t1 = log.timer_debug1('j_pc and k_pc', *t1)
+            #t1 = log.timer_debug1('j_pc and k_pc', *t1)
         self.k_pc = k_cp.T.copy()
         bufs1 = bufpp = None
-        t1 = log.timer('density fitting ao2mo pass1', *t0)
+        t1 = log.timer('density fitting ao2mo pass1', *t1)
         #print(fxpp)
         mem_now = lib.current_memory()[0]
         nblk = int(max(8, min(nmo, ((max_memory-mem_now)*1e6/8-bufpa.size)/(ncas**2*nmo))))
