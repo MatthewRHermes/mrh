@@ -15,7 +15,14 @@ las_syn.state_average_(weights=[1,0,0,0,0],
                        smults=[[1,1],[3,1],[3,1],[1,3],[1,3]])
 las_syn.kernel (mo)
 print ("Synchronous calculation converged?", las_syn.converged)
+
 las_asyn = asyn.LASSCF (mf, (4,4), ((4,0),(0,4)), spin_sub=(5,5))
+# To fiddle with the optimization parameters of the various subproblems, use
+# the "impurity_params" and "relax_params" dictionaries
+las_asyn.max_cycle_macro = 50 # by default, all subproblems use this
+las_asyn.impurity_params['max_cycle_macro'] = 51 # all fragments
+las_asyn.impurity_params[1]['max_cycle_macro'] = 52 # second fragment only (has priority)
+las_asyn.relax_params['max_cycle_macro'] = 53
 mo = las_asyn.set_fragments_((list (range (3)), list (range (9,12))), mf.mo_coeff)
 las_asyn.state_average_(weights=[1,0,0,0,0],
                         spins=[[0,0],[2,0],[-2,0],[0,2],[0,-2]],

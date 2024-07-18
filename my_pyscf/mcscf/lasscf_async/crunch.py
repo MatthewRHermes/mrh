@@ -812,6 +812,10 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
     if imporb_builder is not None:
         imporb_builder.log = logger.new_logger (imc, imc.verbose)
     imc._imporb_builder = imporb_builder
+    params = getattr (las, 'impurity_params', {})
+    glob = {key: val for key, val in params.items () if isinstance (key, str)}
+    imc.__dict__.update (glob)
+    imc.__dict__.update (params.get (ifrag, {}))
     return imc
 
 if __name__=='__main__':

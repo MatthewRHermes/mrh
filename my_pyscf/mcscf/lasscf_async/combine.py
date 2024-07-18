@@ -131,6 +131,9 @@ def relax (las, kf, freeze_inactive=False, frozen_frags=None):
     with flas_stdout_env (las, flas_stdout):
         flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
         flas.__dict__.update (las.__dict__)
+        params = getattr (las, 'relax_params', {})
+        glob = {key: val for key, val in params.items () if isinstance (key, str)}
+        flas.__dict__.update (glob)
         flas.frozen = []
         flas.frozen_ci = frozen_frags
         # TODO: ensure robust tolerance selection so things always make progress

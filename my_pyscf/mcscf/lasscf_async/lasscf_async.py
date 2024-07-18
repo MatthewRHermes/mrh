@@ -146,6 +146,29 @@ def get_grad (las, mo_coeff=None, ci=None, ugg=None, kf=None):
     return ugg.pack (gorb, gci)
 
 class LASSCFNoSymm (lasci.LASCINoSymm):
+    '''Extra attributes:
+
+    frags_orbs : list of length nfrags of list of integers
+        Identifies the definition of fragments as lists of AOs
+    impurity_params : list of length nfrags of dict
+        Key/value pairs are assigned as attributes of the impurity solver CASSCF object.
+        Use this to address, e.g., conv_tol_grad, max_cycle_macro, etc. of the impurity
+        subproblems
+    relax_params : dict
+        Key/value pairs are assigned as attributes to the active-active relaxation (``LASCI'')
+        subproblem, similar to impurity_params. Use this to, e.g., set a different max_cycle_macro
+        for the ``LASCI'' step.
+    '''
+    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, **kwargs):
+        lasci.LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub,
+                                   **kwargs)
+        self.impurity_params = {}
+        for i in range (self.nfrags):
+            self.impurity_params[i] = {}
+        self.relax_params = {}
+        keys = set (('frags_orbs','impurity_params','relax_params'))
+        self._keys = self._keys.union (keys)
+
     _ugg = lasscf_sync_o0.LASSCF_UnitaryGroupGenerators
     _kern = kernel
     get_grad = get_grad
@@ -203,6 +226,13 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         return
 
 class LASSCFSymm (lasci.LASCISymm):
+    def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, **kwargs):
+        lasci.LASCISymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub, **kwargs)
+        self.impurity_params = [{} for i in range (self.nfrags)]
+        self.relax_params = {}
+        keys = set (('frags_orbs','impurity_params','relax_params'))
+        self._keys = self._keys.union (keys)
+
     _ugg = lasscf_sync_o0.LASSCFSymm_UnitaryGroupGenerators
     _kern = kernel
     _finalize = LASSCFNoSymm._finalize
