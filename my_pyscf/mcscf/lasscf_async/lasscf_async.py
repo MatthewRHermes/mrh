@@ -181,6 +181,8 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         for i in range (self.nfrags):
             self.impurity_params[i] = {}
         self.relax_params = {}
+        for i, j in itertools.combinations (range (self.nfrags), 2):
+            self.relax_params[(i,j)] = {}
         keys = set (('frags_orbs','impurity_params','relax_params'))
         self._keys = self._keys.union (keys)
 
