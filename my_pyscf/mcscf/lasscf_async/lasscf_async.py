@@ -145,6 +145,22 @@ def get_grad (las, mo_coeff=None, ci=None, ugg=None, kf=None):
                            veff=veff)
     return ugg.pack (gorb, gci)
 
+class SortedIndexDict (dict):
+    '''A dict, but all keys that are tuples are sorted so that, for instance, (1,2) is always
+    the same as (2,1)'''
+    def __setitem__(self, key, val):
+        if isinstance (key, tuple): key = tuple (sorted (key))
+        dict.__setitem__(self, key, val)
+    def __getitem__(self, key):
+        if isinstance (key, tuple): key = tuple (sorted (key))
+        return dict.__getitem__(self, key)
+    def get (self, key, *args):
+        if isinstance (key, tuple): key = tuple (sorted (key))
+        if len (args):
+            return dict.get (self, key, *args)
+        else:
+            return dict.get (self, key)
+
 class LASSCFNoSymm (lasci.LASCINoSymm):
     '''Extra attributes:
 
@@ -168,6 +184,14 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         self.relax_params = {}
         keys = set (('frags_orbs','impurity_params','relax_params'))
         self._keys = self._keys.union (keys)
+
+    @property
+    def relax_params (self): return self._relax_params
+    @relax_params.setter
+    def relax_params (self, d):
+        self._relax_params = SortedIndexDict ()
+        for key, val in d.items ():
+            self._relax_params[key] = val
 
     _ugg = lasscf_sync_o0.LASSCF_UnitaryGroupGenerators
     _kern = kernel

@@ -110,9 +110,10 @@ class flas_stdout_env (object):
         if getattr (self.las, 'with_df', None):
             self.las.with_df.stdout = self.las_stdout
 
-def relax (las, kf, freeze_inactive=False, frozen_frags=None):
-    # TODO: bottom-up 2-frag subproblem reimplementation
-    if frozen_frags is None: frozen_frags = []
+def relax (las, kf, freeze_inactive=False, unfrozen_frags=None):
+    if unfrozen_frags is None: frozen_frags = []
+    else:
+        frozen_frags = [i for i in range (las.nfrags) if i not in unfrozen_frags]
     log = lib.logger.new_logger (las, las.verbose)
     flas_stdout = getattr (las, '_flas_stdout', None)
     if flas_stdout is None:
@@ -131,13 +132,8 @@ def relax (las, kf, freeze_inactive=False, frozen_frags=None):
     with flas_stdout_env (las, flas_stdout):
         flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
         flas.__dict__.update (las.__dict__)
-        params = getattr (las, 'relax_params', {})
-        glob = {key: val for key, val in params.items () if isinstance (key, str)}
-        flas.__dict__.update (glob)
         flas.frozen = []
         flas.frozen_ci = frozen_frags
-        # TODO: ensure robust tolerance selection so things always make progress
-        flas.min_cycle_macro = 1
         if freeze_inactive:
             flas.frozen.extend (list (range (las.ncore)))
         for ifrag in frozen_frags:
@@ -148,6 +144,17 @@ def relax (las, kf, freeze_inactive=False, frozen_frags=None):
             nocc = las.ncore + las.ncas
             nmo = kf.mo_coeff.shape[1]
             flas.frozen.extend (list (range (nocc,nmo)))
+        # Default: scale down conv_tol_grad according to size of subproblem
+        scale = np.sqrt (flas.get_ugg ().nvar_tot / las.get_ugg ().nvar_tot)
+        flas.conv_tol_grad = scale * las.conv_tol_grad
+        flas.min_cycle_macro = 1
+        params = getattr (las, 'relax_params', {})
+        glob = {key: val for key, val in params.items () if isinstance (key, str)}
+        glob = {key: val for key, val in glob.items () if key not in ('frozen', 'frozen_ci')}
+        flas.__dict__.update (glob)
+        loc = params.get (tuple (unfrozen_frags), {})
+        loc = {key: val for key, val in loc.items () if key not in ('frozen', 'frozen_ci')}
+        flas.__dict__.update (loc)
         e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
             flas.kernel (kf.mo_coeff, ci0=kf.ci)
     ovlp = mo_coeff.conj ().T @ las._scf.get_ovlp () @ mo_coeff
@@ -208,8 +215,7 @@ def combine_pair (las, kf1, kf2):
     between the fragments assigned to each with the inactive and virtual orbitals frozen.'''
     kf3 = orth_orb (las, [kf1, kf2], kf_ref=kf1)
     i, j = select_aa_block (las, kf1.frags, kf2.frags, kf3.fock1)
-    frozen = [k for k in range (las.nfrags) if k not in (i,j)]
-    kf3 = relax (las, kf3, freeze_inactive=True, frozen_frags=frozen)
+    kf3 = relax (las, kf3, freeze_inactive=True, unfrozen_frags=(i,j))
     kf3.frags = kf1.frags.union (kf2.frags)
     return kf3
 
