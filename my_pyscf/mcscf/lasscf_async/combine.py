@@ -123,6 +123,9 @@ def relax (las, kf):
     with flas_stdout_env (las, flas_stdout):
         flas = lasci.LASCI (las._scf, las.ncas_sub, las.nelecas_sub)
         flas.__dict__.update (las.__dict__)
+        params = getattr (las, 'relax_params', {})
+        glob = {key: val for key, val in params.items () if isinstance (key, str)}
+        flas.__dict__.update (glob)
         e_tot, e_cas, ci, mo_coeff, mo_energy, h2eff_sub, veff = \
             flas.kernel (kf.mo_coeff, ci0=kf.ci)
     ovlp = mo_coeff.conj ().T @ las._scf.get_ovlp () @ mo_coeff

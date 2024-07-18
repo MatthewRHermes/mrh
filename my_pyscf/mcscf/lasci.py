@@ -2048,7 +2048,11 @@ class LASCINoSymm (casci.CASCI):
         for i, (no, ne) in enumerate (zip (self.ncas_sub, self.nelecas_sub)):
             log.info ('LAS %d : (%de+%de, %do)', i, ne[0], ne[1], no)
         log.info ('nroots = %d', self.nroots)
-        log.info ('max_memory %d (MB)', self.max_memory)
+        log.info ('max_cycle_macro = %d', self.max_cycle_macro)
+        log.info ('max_cycle_micro = %d', self.max_cycle_micro)
+        log.info ('conv_tol_grad = %s', self.conv_tol_grad)
+        log.info ('max_memory %d MB (current use %d MB)', self.max_memory,
+                  lib.current_memory()[0])
         for i, fcibox in enumerate (self.fciboxes):
             if getattr (fcibox, 'dump_flags', None):
                 log.info ('fragment %d FCI solver flags:', i)
