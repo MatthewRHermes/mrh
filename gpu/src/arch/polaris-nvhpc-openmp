@@ -21,7 +21,7 @@ FCFLAGS = -g -mp -O3
 GPU_FLAGS = -mp=gpu -Mcuda=cc80,cuda11.0
 
 CXX = CC
-CXXFLAGS = -g -fPIC -O3 -std=c++17
+CXXFLAGS = -g -O3 -std=c++17
 CXXFLAGS += -I$(PATH_TO_NVHPC)/cuda/include
 CXXFLAGS += $(PYTHON_INC)
 
@@ -33,7 +33,6 @@ CXXFLAGS += -D_USE_NVTX
 
 LD = $(CXX)
 LDFLAGS = $(GPU_FLAGS)
-#LDFLAGS += -fPIC -shared
 LIB = -lstdc++
 LIB += $(PYTHON_LIB)
 LIB += -L/home/knight/soft/polaris/lapack/lib -llapack -lrefblas -lgfortran

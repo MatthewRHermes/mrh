@@ -18,6 +18,7 @@ ARCH ?= polaris
 include arch/$(ARCH)
 
 # couple more flags to build shared library (allows arch files to be used for general app building)
+CXXFLAGS += -fPIC
 CUDA_CXXFLAGS += -shared -Xcompiler -fPIC
 LDFLAGS += -fPIC -shared
 
