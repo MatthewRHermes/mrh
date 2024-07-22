@@ -173,6 +173,9 @@ private:
     int size_dms;
     int size_dmtril;
     int size_eri1;
+    int size_ucas;
+    int size_umat;
+    int size_h2eff;
     
     double * d_rho;
     double * d_vj;
@@ -183,6 +186,9 @@ private:
     double * d_dms;
     double * d_dmtril;
     double * d_eri1;
+    double * d_ucas;
+    double * d_umat;
+    double * d_h2eff;
 
     std::vector<int> size_tril_map;
     std::vector<int *> tril_map;

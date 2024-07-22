@@ -62,6 +62,9 @@ Device::Device()
     device_data[i].size_dms = 0;
     device_data[i].size_dmtril = 0;
     device_data[i].size_eri1 = 0;
+    device_data[i].size_ucas = 0;
+    device_data[i].size_umat = 0;
+    device_data[i].size_h2eff = 0;
     
     device_data[i].d_rho = nullptr;
     device_data[i].d_vj = nullptr;
@@ -72,6 +75,9 @@ Device::Device()
     device_data[i].d_dms = nullptr;
     device_data[i].d_dmtril = nullptr;
     device_data[i].d_eri1 = nullptr; // when not using eri cache
+    device_data[i].d_ucas = nullptr;
+    device_data[i].d_umat = nullptr;
+    device_data[i].d_h2eff = nullptr;
     
     device_data[i].d_tril_map_ptr = nullptr;
     
