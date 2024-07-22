@@ -79,7 +79,7 @@ Device::Device()
     device_data[i].d_umat = nullptr;
     device_data[i].d_h2eff = nullptr;
     
-    device_data[i].d_tril_map_ptr = nullptr;
+    device_data[i].d_pumap_ptr = nullptr;
     
     device_data[i].handle = nullptr;
     device_data[i].stream = nullptr;
@@ -185,13 +185,14 @@ Device::~Device()
     pm->dev_free(dd->d_dmtril);
     pm->dev_free(dd->d_eri1);
     
-    for(int i=0; i<dd->size_tril_map.size(); ++i) {
-      pm->dev_free_host(dd->tril_map[i]);
-      pm->dev_free(dd->d_tril_map[i]);
+    for(int i=0; i<dd->size_pumap.size(); ++i) {
+      pm->dev_free_host(dd->pumap[i]);
+      pm->dev_free(dd->d_pumap[i]);
     }
-    dd->size_tril_map.clear();
-    dd->tril_map.clear();
-    dd->d_tril_map.clear();
+    dd->type_pumap.clear();
+    dd->size_pumap.clear();
+    dd->pumap.clear();
+    dd->d_pumap.clear();
     
     if(dd->handle) cublasDestroy(dd->handle);
     

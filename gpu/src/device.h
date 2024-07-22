@@ -23,6 +23,10 @@ using namespace PM_NS;
 #define _ERI_CACHE_EXTRA 2
 //#define _DEBUG_ERI_CACHE
 
+#define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
+#define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
+#define _PUMAP_H2EFF_PACK 2      // unpacking h2eff array (generic?)
+
 #define OUTPUTIJ        1
 #define INPUT_IJ        2
 
@@ -190,10 +194,11 @@ private:
     double * d_umat;
     double * d_h2eff;
 
-    std::vector<int> size_tril_map;
-    std::vector<int *> tril_map;
-    std::vector<int *> d_tril_map;
-    int * d_tril_map_ptr; // no explicit allocation
+    std::vector<int> type_pumap;
+    std::vector<int> size_pumap;
+    std::vector<int *> pumap;
+    std::vector<int *> d_pumap;
+    int * d_pumap_ptr; // no explicit allocation
     
     cublasHandle_t handle;
     cudaStream_t stream;
@@ -201,7 +206,7 @@ private:
 
   my_device_data * device_data;
 
-  void dd_fetch_tril_map(my_device_data *, int);
+  int * dd_fetch_pumap(my_device_data *, int, int);
   double * dd_fetch_eri(my_device_data *, double *, size_t, int);
   double * dd_fetch_eri_debug(my_device_data *, double *, size_t, int); // we'll trash this after some time
   

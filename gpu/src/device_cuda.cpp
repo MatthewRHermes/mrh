@@ -22,31 +22,89 @@
 
 /* ---------------------------------------------------------------------- */
 
-void Device::dd_fetch_tril_map(my_device_data * dd, int _size_tril_map)
+int * Device::dd_fetch_pumap(my_device_data * dd, int size_pumap_, int type_pumap = _PUMAP_2D_UNPACK)
 {
-  auto it = std::find(dd->size_tril_map.begin(), dd->size_tril_map.end(), _size_tril_map);
+  // search if pack/unpack map already created
 
-  int indx = it - dd->size_tril_map.begin();
+  int indx = -1;
+  for(int i=0; i<dd->size_pumap.size(); ++i)
+    if(dd->type_pumap[i] == type_pumap && dd->size_pumap[i] == size_pumap_) indx = i;
 
-  if(indx == dd->size_tril_map.size()) {
-    dd->size_tril_map.push_back(_size_tril_map);
-    dd->tril_map.push_back(nullptr);
-    dd->d_tril_map.push_back(nullptr);
+  // add unpack/pack map if not found
+  
+  if(indx < 0) {
+    dd->type_pumap.push_back(type_pumap);
+    dd->size_pumap.push_back(size_pumap_);
+    dd->pumap.push_back(nullptr);
+    dd->d_pumap.push_back(nullptr);
 
-    dd->tril_map[indx] = (int *) pm->dev_malloc_host(_size_tril_map * sizeof(int));
-    dd->d_tril_map[indx] = (int *) pm->dev_malloc(_size_tril_map * sizeof(int));
-    int _i, _j, _ij;
-    int * tm = dd->tril_map[indx];
-    for(_ij = 0, _i = 0; _i < nao; _i++)
-      for(_j = 0; _j<=_i; _j++, _ij++) {
-    	tm[_i*nao + _j] = _ij;
-    	tm[_i + nao*_j] = _ij;
-      }
+    indx = dd->type_pumap.size() - 1;
+
+    int size_pumap = -1;
     
-    pm->dev_push(dd->d_tril_map[indx], dd->tril_map[indx], _size_tril_map*sizeof(int));
-  }
+    if(type_pumap == _PUMAP_2D_UNPACK) {
+      int nao = size_pumap_;
+      size_pumap = nao * nao;
+      
+      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
+      dd->d_pumap[indx] = (int *) pm->dev_malloc(size_pumap * sizeof(int));
+      
+      int _i, _j, _ij;
+      int * tm = dd->pumap[indx];
+      for(_ij = 0, _i = 0; _i < nao; _i++)
+	for(_j = 0; _j<=_i; _j++, _ij++) {
+	  tm[_i*nao + _j] = _ij;
+	  tm[_i + nao*_j] = _ij;
+	}
+      
+    } else if(type_pumap == _PUMAP_H2EFF_UNPACK) {
 
-  dd->d_tril_map_ptr = dd->d_tril_map[indx];
+      int ncas = size_pumap_;
+      int ncas_pair = ncas * (ncas+1)/2;
+      size_pumap = ncas * ncas * ncas;
+
+      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
+      dd->d_pumap[indx] = (int *) pm->dev_malloc(size_pumap * sizeof(int));
+
+      int * tm = dd->pumap[indx];
+      for (int _i=0; _i<ncas;++_i){
+	for (int _j=0, _jk=0; _j<ncas; ++_j){
+	  for (int _k=0;_k<=_j;++_k,++_jk){
+	    tm[_i*ncas*ncas + _j*ncas+_k]=_i*ncas_pair+_jk;
+	    tm[_i*ncas*ncas + _k*ncas+_j]=_i*ncas_pair+_jk;
+	  }
+	}
+      }
+
+    } else if(type_pumap == _PUMAP_H2EFF_PACK) {
+
+      int ncas = size_pumap_;
+      int ncas_pair = ncas * (ncas+1)/2;
+      size_pumap = ncas * ncas_pair;
+
+      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
+      dd->d_pumap[indx] = (int *) pm->dev_malloc(size_pumap * sizeof(int));
+
+      int * tm = dd->pumap[indx];
+      int _i, _j, _k, _ijk;
+      for (_ijk=0, _i=0; _i<ncas;++_i){
+	for (_j=0; _j<ncas; ++_j){
+	  for (_k=0;_k<=_j;++_k,++_ijk){
+	    tm[_ijk] = _i*ncas*ncas + _j*ncas+_k;
+	  }
+	}
+      }
+      
+    } // if(type_pumap)
+    
+    pm->dev_push(dd->d_pumap[indx], dd->pumap[indx], size_pumap*sizeof(int));
+  } // if(map_not_found)
+  
+  // set device pointer to current map
+  
+  dd->d_pumap_ptr = dd->d_pumap[indx];
+
+  return dd->d_pumap_ptr;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -314,9 +372,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     }
   }
   
-  int _size_tril_map = nao * nao;
-  
-  dd_fetch_tril_map(dd, _size_tril_map);
+  dd_fetch_pumap(dd, nao);
   
   int _size_buf_vj = num_devices * nset * nao_pair;
   if(_size_buf_vj > size_buf_vj) {
@@ -796,7 +852,7 @@ void Device::get_jk(int naux,
     // dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
 #endif
     
-    _getjk_unpack_buf2<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_eri, dd->d_tril_map_ptr, naux, nao, nao_pair);
+    _getjk_unpack_buf2<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_eri, dd->d_pumap_ptr, naux, nao, nao_pair);
   }
 
 #ifdef _DEBUG_DEVICE
@@ -1267,8 +1323,6 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   //h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2) Initially h2eff_sub is nmo*(ncas*ncas_pair)
   //h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
   //h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
-  
-  profile_next("map creation");
 
   if(_size_h2eff_packed > dd->size_h2eff) {
     dd->size_h2eff = _size_h2eff_packed;
@@ -1280,24 +1334,9 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   
   pm->dev_push(d_h2eff_sub, h2eff_sub, _size_h2eff_packed*sizeof(double));
 
-  int _size_unpack_map = ncas*ncas*ncas;
-  int * my_unpack_map = (int*) malloc(_size_unpack_map*sizeof(int));
-  int * d_my_unpack_map = (int*) pm->dev_malloc(_size_unpack_map*sizeof(int));
+  profile_next("map creation");
   
-  for (int _i=0; _i<ncas;++_i){
-    for (int _j=0, _jk=0; _j<ncas; ++_j){
-      for (int _k=0;_k<=_j;++_k,++_jk){
-        my_unpack_map[_i*ncas*ncas + _j*ncas+_k]=_i*ncas_pair+_jk;
-        my_unpack_map[_i*ncas*ncas + _k*ncas+_j]=_i*ncas_pair+_jk;
-      }
-    }
-  }
-  
-  int * d_my_unpack_map_ptr = d_my_unpack_map;
-
-  profile_next("map push");
-
-  pm->dev_push(d_my_unpack_map, my_unpack_map,_size_unpack_map*sizeof(int)); 
+  int * d_my_unpack_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_H2EFF_UNPACK);
 
   profile_next("unpacking");
 
@@ -1311,9 +1350,6 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
     _unpack_h2eff<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_sub, d_h2eff_unpacked, d_my_unpack_map_ptr, nmo, ncas,ncas_pair);
     _CUDA_CHECK_ERRORS();
   }
-  
-  pm->dev_free(d_my_unpack_map);
-  free(my_unpack_map);
   
   profile_next("first two dgemms");
 
@@ -1415,21 +1451,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 
   profile_next("second map and packing");
   
-  int _size_pack_map = ncas*ncas_pair;
-  int * my_pack_map = (int*) malloc(_size_pack_map*sizeof(int));
-  int * d_my_pack_map = (int*) pm->dev_malloc(_size_pack_map*sizeof(int));
-  
-  int _i, _j, _k, _ijk;
-  for (_ijk=0, _i=0; _i<ncas;++_i){
-    for (_j=0; _j<ncas; ++_j){
-      for (_k=0;_k<=_j;++_k,++_ijk){
-        my_pack_map[_ijk] = _i*ncas*ncas + _j*ncas+_k;
-      }
-    }
-  }
-  
-  int * d_my_pack_map_ptr = d_my_pack_map;
-  pm->dev_push(d_my_pack_map, my_pack_map,_size_pack_map*sizeof(int));
+  int * d_my_pack_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_H2EFF_PACK);
 
   {
     dim3 blockDim(1, _UNPACK_BLOCK_SIZE, 1);
@@ -1437,13 +1459,10 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
     _pack_h2eff<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_transpose2, d_h2eff_sub, d_my_pack_map_ptr, nmo, ncas,ncas_pair);
   }
   
-  pm->dev_free(d_my_pack_map);
-  
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- Freed map\n");
 #endif
   
-  free (my_pack_map);
   pm->dev_pull(d_h2eff_sub, h2eff_sub, _size_h2eff_packed*sizeof(double));
   
   profile_stop();
