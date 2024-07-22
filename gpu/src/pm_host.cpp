@@ -53,9 +53,13 @@ int PM::dev_get_device() {return 0;}
 
 void * PM::dev_malloc(size_t N) {return malloc(N);}
 
+void * PM::dev_malloc(size_t N) {return dev_malloc(N);}
+
 void * PM::dev_malloc_host(size_t N) {return malloc(N);}
 
 void PM::dev_free(void * ptr) {free(ptr);}
+
+void PM::dev_free_async(void * ptr) {dev_free(ptr);}
 
 void PM::dev_free_host(void * ptr) {free(ptr);}
 
