@@ -204,7 +204,7 @@ void PM::dev_free_async(void * ptr, cudaStream_t &s)
   printf("Inside PM::dev_free_async()\n");
 #endif
   
-  if(ptr) cudaFreeAsync(ptr);
+  if(ptr) cudaFreeAsync(ptr, s);
   _CUDA_CHECK_ERRORS();
   
 #ifdef _DEBUG_PM

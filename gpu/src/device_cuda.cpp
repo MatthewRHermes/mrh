@@ -97,7 +97,7 @@ int * Device::dd_fetch_pumap(my_device_data * dd, int size_pumap_, int type_puma
       
     } // if(type_pumap)
     
-    pm->dev_push(dd->d_pumap[indx], dd->pumap[indx], size_pumap*sizeof(int));
+    pm->dev_push_async(dd->d_pumap[indx], dd->pumap[indx], size_pumap*sizeof(int), dd->stream);
   } // if(map_not_found)
   
   // set device pointer to current map
@@ -372,8 +372,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
     }
   }
   
-  dd_fetch_pumap(dd, nao);
-  
   int _size_buf_vj = num_devices * nset * nao_pair;
   if(_size_buf_vj > size_buf_vj) {
     size_buf_vj = _size_buf_vj;
@@ -393,6 +391,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   // Create cuda stream
   
   if(dd->stream == nullptr) pm->dev_stream_create(dd->stream);
+  
+  dd_fetch_pumap(dd, nao);
   
   // Create blas handle
 
@@ -1284,28 +1284,28 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   if(_size_h2eff_unpacked > dd->size_buf) {
     dd->size_buf = _size_h2eff_unpacked;
 
-    if(dd->d_buf1) pm->dev_free(dd->d_buf1);
-    if(dd->d_buf2) pm->dev_free(dd->d_buf2);
+    if(dd->d_buf1) pm->dev_free_async(dd->d_buf1, dd->stream);
+    if(dd->d_buf2) pm->dev_free_async(dd->d_buf2, dd->stream);
 
-    dd->d_buf1 = (double *) pm->dev_malloc(dd->size_buf * sizeof(double));
-    dd->d_buf2 = (double *) pm->dev_malloc(dd->size_buf * sizeof(double));
+    dd->d_buf1 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), dd->stream);
+    dd->d_buf2 = (double *) pm->dev_malloc_async(dd->size_buf * sizeof(double), dd->stream);
   }
 
   double * d_h2eff_unpacked = dd->d_buf1;
 
   if(ncas*ncas > dd->size_ucas) {
     dd->size_ucas = ncas * ncas;
-    if(dd->d_ucas) pm->dev_free(dd->d_ucas);
-    dd->d_ucas = (double *) pm->dev_malloc(dd->size_ucas * sizeof(double));
+    if(dd->d_ucas) pm->dev_free_async(dd->d_ucas, dd->stream);
+    dd->d_ucas = (double *) pm->dev_malloc_async(dd->size_ucas * sizeof(double), dd->stream);
   }
   
   if(nmo*nmo > dd->size_umat) {
     dd->size_umat = nmo * nmo;
-    if(dd->d_umat) pm->dev_free(dd->d_umat);
-    dd->d_umat = (double *) pm->dev_malloc(dd->size_umat * sizeof(double));
+    if(dd->d_umat) pm->dev_free_async(dd->d_umat, dd->stream);
+    dd->d_umat = (double *) pm->dev_malloc_async(dd->size_umat * sizeof(double), dd->stream);
   }
 
-  pm->dev_push(dd->d_umat, umat, nmo*nmo*sizeof(double));
+  pm->dev_push_async(dd->d_umat, umat, nmo*nmo*sizeof(double), dd->stream);
   
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- Setup update function\n");
@@ -1317,7 +1317,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   {
     dim3 blockDim(_UNPACK_BLOCK_SIZE);
     dim3 gridDim(_TILE(ncas,blockDim.x), _TILE(ncas,blockDim.y));
-    extract_submatrix<<<gridDim, blockDim>>>(dd->d_umat, dd->d_ucas, ncas, ncore, nmo);
+    extract_submatrix<<<gridDim, blockDim, 0, dd->stream>>>(dd->d_umat, dd->d_ucas, ncas, ncore, nmo);
   }
   
   //h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2) Initially h2eff_sub is nmo*(ncas*ncas_pair)
@@ -1326,13 +1326,13 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 
   if(_size_h2eff_packed > dd->size_h2eff) {
     dd->size_h2eff = _size_h2eff_packed;
-    if(dd->d_h2eff) pm->dev_free(dd->d_h2eff);
-    dd->d_h2eff = (double *) pm->dev_malloc(dd->size_h2eff * sizeof(double));
+    if(dd->d_h2eff) pm->dev_free_async(dd->d_h2eff, dd->stream);
+    dd->d_h2eff = (double *) pm->dev_malloc_async(dd->size_h2eff * sizeof(double), dd->stream);
   }
   
   double * d_h2eff_sub = dd->d_h2eff;
   
-  pm->dev_push(d_h2eff_sub, h2eff_sub, _size_h2eff_packed*sizeof(double));
+  pm->dev_push_async(d_h2eff_sub, h2eff_sub, _size_h2eff_packed*sizeof(double), dd->stream);
 
   profile_next("map creation");
   
@@ -1400,7 +1400,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   {
     dim3 blockDim(1,1,_DEFAULT_BLOCK_SIZE);
     dim3 gridDim(_TILE(nmo,blockDim.x),_TILE(ncas,blockDim.y),_TILE(ncas,blockDim.z));
-    transpose_2310<<<gridDim,blockDim>>>(d_h2eff_step2, d_h2eff_transposed, nmo,ncas);
+    transpose_2310<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_step2, d_h2eff_transposed, nmo,ncas);
   }
   
   profile_next("last 2 dgemm");
@@ -1437,7 +1437,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   {
     dim3 blockDim(1,1,_DEFAULT_BLOCK_SIZE);
     dim3 gridDim(_TILE(ncas,blockDim.x),_TILE(ncas,blockDim.y),_TILE(ncas,blockDim.z));
-    transpose_3210<<<gridDim,blockDim>>>(d_h2eff_step4, d_h2eff_transpose2, nmo, ncas);
+    transpose_3210<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_step4, d_h2eff_transpose2, nmo, ncas);
   }
   
 #ifdef _DEBUG_H2EFF
@@ -1463,7 +1463,9 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   printf("LIBGPU :: Inside Device :: -- Freed map\n");
 #endif
   
-  pm->dev_pull(d_h2eff_sub, h2eff_sub, _size_h2eff_packed*sizeof(double));
+  pm->dev_pull_async(d_h2eff_sub, h2eff_sub, _size_h2eff_packed*sizeof(double), dd->stream);
+
+  pm->dev_stream_wait(dd->stream);
   
   profile_stop();
   
