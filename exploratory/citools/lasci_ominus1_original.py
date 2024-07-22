@@ -13,7 +13,6 @@ import time, math
 import numpy as np
 from scipy import linalg, optimize
 from pyscf import lib, ao2mo
-from itertools import combinations
 from pyscf.fci import direct_spin1, cistring, spin_op
 from pyscf.fci import addons as fci_addons
 from itertools import product
@@ -22,11 +21,9 @@ from mrh.exploratory.unitary_cc.uccsd_sym1 import get_uccs_op
 from mrh.my_pyscf.mcscf.lasci_sync import all_nonredundant_idx
 from mrh.my_pyscf.fci import csf_solver
 from itertools import product
-# from mrh.exploratory.unitary_cc.uccsd_sym0 import get_uccs_op
-from mrh.exploratory.unitary_cc.uccsd_sym0 import get_uccsd_op
 
 verbose_lbjfgs = [-1,-1,-1,0,50,99,100,101,101,101]
-GLOBAL_MAX_CYCLE = None
+
 def _n_m_s (dm1s, dm2s, _print_fn=print):
     neleca = np.trace (dm1s[0])
     nelecb = np.trace (dm1s[1])
@@ -36,10 +33,9 @@ def _n_m_s (dm1s, dm2s, _print_fn=print):
     _print_fn ('<N>,<Sz>,<S^2> = %f, %f, %f', n, m, ss)
 
 def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
-            tol=1e-10, gtol=1e-4, max_cycle=None, 
+            tol=1e-8, gtol=1e-4, max_cycle=15000, 
             orbsym=None, wfnsym=None, ecore=0, **kwargs):
-    if max_cycle is None:
-        max_cycle = GLOBAL_MAX_CYCLE if GLOBAL_MAX_CYCLE is not None else 15000
+
     if norb_f is None: norb_f = getattr (fci, 'norb_f', [norb])
     if ci0_f is None: ci0_f = fci.get_init_guess (norb, nelec, norb_f, h1, h2)
     verbose = kwargs.get ('verbose', getattr (fci, 'verbose', 0))
@@ -48,6 +44,7 @@ def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
         verbose = log.verbose
     else:
         log = lib.logger.new_logger (fci, verbose)
+
     frozen = getattr (fci, 'frozen', None)
     psi = getattr (fci, 'psi', fci.build_psi (ci0_f, norb, norb_f, nelec,
         log=log, frozen=frozen))
@@ -58,8 +55,6 @@ def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
     log.info ('LASCI object has %d degrees of freedom', psi.nvar)
     h = [ecore, h1, h2]
     psi_callback = psi.get_solver_callback (h)
-    # print("psi.e_de",psi.e_de)
-    # print("psi.x",psi.x)
     res = optimize.minimize (psi.e_de, psi.x, args=(h,), method='BFGS',
         jac=True, callback=psi_callback, options=psi_options)
 
@@ -67,7 +62,7 @@ def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
     e_tot = psi.energy_tot (res.x, h)
     ci1 = psi.get_fcivec (res.x)
     if verbose>=lib.logger.DEBUG:
-        #psi.uop.print_tab (_print_fn=log.debug)
+        psi.uop.print_tab (_print_fn=log.debug)
         psi.print_x (res.x, h, _print_fn=log.debug)
     if verbose>=lib.logger.INFO:
         dm1s, dm2s = fci.make_rdm12s (ci1, norb, nelec)
@@ -199,9 +194,8 @@ class LASUCCTrialState (object):
     ''' Evaluate the energy and Jacobian of a LASSCF trial function parameterized in terms
         of unitary CC singles amplitudes and CI transfer operators. '''
 
-    def __init__(self, fcisolver, ci0_f, norb, norb_f, nelec, epsilon=0.0, log=None, frozen=None):
+    def __init__(self, fcisolver, ci0_f, norb, norb_f, nelec, log=None, frozen=None):
         self.fcisolver = fcisolver
-        self.epsilon = epsilon
         self.ci_f = [ci.copy () for ci in ci0_f]
         self.norb = norb
         self.norb_f = norb_f = np.asarray (norb_f)
@@ -419,199 +413,6 @@ class LASUCCTrialState (object):
             g.append (2*duc.ravel ().dot (uhuc_i.ravel ()))
         g = self.uop.product_rule_pack (g)
         return np.asarray (g)
-               
-    def get_grad_t1(self, x, h, c=None, huc=None, uhuc=None, epsilon=0.0):
-        """
-        Compute the gradients and relevant indices based on input values.
-
-        Parameters:
-        - x: array-like
-            Input array to unpack and set unique amplitudes.
-            
-        - h: array-like
-            Some form of input data to be used for computation.
-            
-        - c (optional): array-like
-            Precomputed value; if not provided, it will be computed using hc_x.
-            
-        - huc (optional): array-like
-            Precomputed value; if not provided, it will be computed using hc_x.
-            
-        - uhuc (optional): array-like
-            Precomputed value; if not provided, it will be computed using hc_x.
-            
-        - epsilon (optional): float, default=0.0
-            Threshold value for considering a gradient. If epsilon is 0, all gradients are considered.
-
-        Returns:
-        - tuple
-            all_g: list of all computed gradients
-            g: list of gradients above the epsilon threshold
-            gen_indices: list of indices representing a_idx and i_idx
-            a_idxs_lst: list of a_idx values
-            i_idxs_lst: list of i_idx values
-            len(a_idxs_lst): length of a_idx list
-            len(i_idxs_lst): length of i_idx list
-        """
-
-        g = []
-        all_g = []
-        
-        # Unpack and set unique amplitudes
-        xconstr, xcc, xci_f = self.unpack(x)
-        self.uop.set_uniq_amps_(xcc)
-
-        # Compute 'c' and 'uhuc' if not provided
-        if (c is None) or (uhuc is None):
-            c, _, _, uhuc = self.hc_x(x, h)[:4]
-        
-        gen_indices = []
-        a_idxs_lst = []
-        i_idxs_lst = []
-        # print("self.uop.init_a_idxs[i]",self.uop.init_a_idxs)
-        for i, (duc, uhuc_i) in enumerate(zip(self.uop.gen_deriv1(c, _full=False), self.uop.gen_partial(uhuc))):
-            gradient = 2 * duc.ravel().dot(uhuc_i.ravel())
-            all_g.append((gradient, i))
-            
-            # Allow all gradients if epsilon is 0, else use the abs gradient condition
-            if epsilon == 0.0 or abs(gradient) > epsilon:
-                g.append((gradient, i))
-                a_idx = self.uop.a_idxs[i]
-                i_idx = self.uop.i_idxs[i]
-
-                gen_indices.append((a_idx, i_idx))
-                a_idxs_lst.append(a_idx)
-                i_idxs_lst.append(i_idx)
-
-        return all_g, g, gen_indices, a_idxs_lst, i_idxs_lst, len(a_idxs_lst), len(i_idxs_lst)
-
-
-    def get_grad_exact(self, x, h, las_rdm1, las_rdm2, c=None, huc=None, uhuc=None, epsilon=0.0):
-        """
-        Compute the exact gradients and relevant indices based on input values.
-
-        Parameters:
-        - x: array-like
-            Input array to unpack and set unique amplitudes.
-            
-        - h: array-like
-            Some form of input data to be used for computation.
-            
-        - c (optional): array-like
-            Precomputed value; if not provided, it will be computed using hc_x.
-            
-        - epsilon (optional): float, default=0.0
-            Threshold value for considering a gradient. If epsilon is 0, all gradients are considered.
-
-        Returns:
-        - tuple
-            g: list of gradients above the epsilon threshold
-            gen_indices: list of indices representing a_idx and i_idx
-            a_idxs_lst: list of a_idx values
-            i_idxs_lst: list of i_idx values
-            len(a_idxs_lst): length of a_idx list
-            len(i_idxs_lst): length of i_idx list
-        """
-
-        g = []
-        #all_g = [] gradients is same as all_g
-
-        # Unpack and set unique amplitudes
-        xconstr, xcc, xci_f = self.unpack(x)
-        self.uop.set_uniq_amps_(xcc)
-
-        # Compute 'c' and 'uhuc' if not provided
-        if (c is None) or (uhuc is None):
-            c, _, _, uhuc = self.hc_x(x, h)[:4]
-
-        gen_indices = []
-        a_idxs_lst = []
-        i_idxs_lst = []
-        len_a_idx = len(self.uop.a_idxs)
-        gradients = self.get_grad_h1t1(las_rdm1, h)+self.get_grad_h1t2(las_rdm2, h)
-        for i in range(len_a_idx):
-            # Allow all gradients if epsilon is 0, else use the abs gradient condition
-            if epsilon == 0.0 or abs(gradients[i]) > epsilon:
-                g.append((gradients[i], i))
-                a_idx = self.uop.a_idxs[i]
-                i_idx = self.uop.i_idxs[i]
-
-                gen_indices.append((a_idx, i_idx))
-                a_idxs_lst.append(a_idx)
-                i_idxs_lst.append(i_idx)
-        return gradients, g, gen_indices, a_idxs_lst, i_idxs_lst, len(a_idxs_lst), len(i_idxs_lst)
-
-    def get_grad_h1t1(self, las_rdm1, h):
-
-        a_idxes = np.asarray(self.uop.a_idxs)
-        #print ("SV a_idxes = ", a_idxes, len(a_idxes))
-        t1a_arrays = [a for b in a_idxes if len(b)==1 for a in b]
-        i_idxes = np.asarray(self.uop.i_idxs)
-        t1i_arrays = [a for b in i_idxes if len(b)==1 for a in b]
-
-        h1 = h[1]
-
-        nao = h1.shape[0]
-        nso = 2*nao
-        h1 = h1/2
-        h1_mat = np.block([[h1,h1],[h1,h1]])
-
-        rdm1 = np.block([[las_rdm1/2,las_rdm1/2],[las_rdm1/2,las_rdm1/2]])
-
-
-        #print ("SV t1a_arrays = ", t1a_arrays)
-        #print ("SV t1i_arrays = ", t1i_arrays)
-
-        h1_t1 = []
-
-        for u,x in zip(t1a_arrays,t1i_arrays):
-            h1t1 = 0.0
-            for p in range(nso):
-                h1t1 = h1t1 + (h1_mat[p][u]*(rdm1[p][x]-rdm1[x][p]))+(h1_mat[p][x]*(rdm1[p][u]-rdm1[u][p]))
-                print (u,x,p, " --> ",h1t1)
-            h1_t1.append(h1t1)
-
-        h1_t1 = np.asarray(h1_t1)
-        h1_t1_rem = np.zeros(len(a_idxes)-nso)
-        h1_t1_full = np.concatenate((h1_t1,h1_t1_rem))
-        print (h1_t1_full)
-        return h1_t1_full
-
-    def get_grad_h1t2(self, las_rdm2, h):
-        h1 = h[1]
-        nao = h1.shape[0]
-        nso = 2*nao
-        a_idxes = np.asarray(self.uop.a_idxs)
-        #print ("SV a_idxes = ", a_idxes[8:])
-        t2a_arrays = a_idxes[nso:]
-        i_idxes = np.asarray(self.uop.i_idxs)
-        t2i_arrays = i_idxes[nso:]
-        print ("SV t2a_arrays = ", t2a_arrays, t2a_arrays[0][0])
-
-        h1 = h1/2
-        h1_mat = np.block([[h1,h1],[h1,h1]])
-
-        rdm2 = np.block([[[[las_rdm2,las_rdm2],[las_rdm2,las_rdm2]],[[las_rdm2,las_rdm2],[las_rdm2,las_rdm2]]],[[[las_rdm2,las_rdm2],[las_rdm2,las_rdm2]],[[las_rdm2,las_rdm2],[las_rdm2,las_rdm2]]]])
-        rdm2 =rdm2/2
-        print ("SV h1, rdm2 = ", h1_mat.shape,rdm2.shape)
-        h1_t2 = []
-
-        for a,i in zip(t2a_arrays, t2i_arrays):
-            h1t2 = 0.0
-            u = a[0]
-            x = a[1]
-            y = i[0]
-            v = i[1]
-            for p in range(nso):
-                h1t2 = h1t2 + (h1_mat[p,u]*(rdm2[p,x,v,y]+rdm2[v,y,p,x]))+(h1_mat[p,x]*(rdm2[u,p,v,y]-rdm2[v,y,u,p]))-(h1_mat[v,p]*(rdm2[u,x,p,y]-rdm2[p,y,u,x]))+(h1_mat[p,y]*(rdm2[v,p,u,x]-rdm2[u,x,v,p]))
-            print (u,x,y,v,p ,"--> ",h1t2)
-            h1_t2.append(h1t2)
-            print (h1t2)
-        h1_t2_rem = np.zeros(nso)
-        h1_t2_full = np.concatenate((h1_t2_rem,h1_t2))
-        print (h1_t2_full)
-        return h1_t2_full
-
 
     def get_jac_ci (self, x, h, uhuc=None, uci_f=None):
         # "uhuc": e^-T1 H e^T1 U|ci0>
@@ -635,8 +436,7 @@ class LASUCCTrialState (object):
             cuhuc_i = ci0.conj ().ravel ().dot (uhuc_i.ravel ())
             uhuc_i -= ci0 * cuhuc_i # subtract component along |0>
             xp = linalg.norm (xci)
-            # if xp > 1e-8:
-            if xp > 1e-10:
+            if xp > 1e-8:
                 xci = xci / xp
                 puhuc_i = xci.conj ().ravel ().dot (uhuc_i.ravel ())
                 uhuc_i -= xci * puhuc_i # subtract component along |p>
@@ -663,30 +463,6 @@ class LASUCCTrialState (object):
             self.it_cnt += 1
             log.timer ('callback', *t0)
         return my_call
-        
-    # def get_solver_callback(self, h):
-        # self.it_cnt = 0
-        # log = self.log
-
-        # def my_call(x):
-            # t0 = (time.process_time(), time.time())
-            # norm_x = linalg.norm(x)
-            # e, de = self._e_last, self._jac_last
-            # if (e is None) or (de is None): e, de = self.e_de(x, h)
-            # norm_g = linalg.norm(de)
-
-            ####Stopping criterion based on gradient norm
-            # if norm_g < 1e-8:  # setting the threshold to 10^-8
-                # raise Exception("Gradient norm below threshold, stopping optimization!")
-
-            # log.info('iteration %d, E = %f, |x| = %e, |g| = %e', self.it_cnt, e, norm_x, norm_g)
-            # if log.verbose >= lib.logger.DEBUG:
-                # self.check_x_symm(x, h, e_tot0=e)
-            # self.it_cnt += 1
-            # log.timer('callback', *t0)
-
-        # return my_call
-
 
     def get_fcivec (self, x=None):
         if x is None: x = self.x
@@ -808,5 +584,5 @@ class FCISolver (direct_spin1.FCISolver):
         for i,j in zip (np.cumsum (norb_f)-norb_f, np.cumsum(norb_f)):
             freeze_mask[i:j,i:j] = True
         return get_uccs_op (norb, freeze_mask=freeze_mask)
-        # return get_uccs_op (norb)
+
 
