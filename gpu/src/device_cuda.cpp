@@ -1505,6 +1505,7 @@ void Device::hessop_get_veff(int naux, int nmo, int ncore, int nocc,
 }
 
 #endif
+
 /* ---------------------------------------------------------------------- */
 
 __global__ void extract_submatrix(const double* big_mat, double* small_mat, int ncas, int ncore, int nmo) {
@@ -1516,6 +1517,7 @@ __global__ void extract_submatrix(const double* big_mat, double* small_mat, int 
 }
 
 /* ---------------------------------------------------------------------- */
+
 __global__ void transpose_2310(double * in, double * out, int nmo, int ncas) {
     //a.transpose(2,3,1,0)
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1531,8 +1533,10 @@ __global__ void transpose_2310(double * in, double * out, int nmo, int ncas) {
       int outputIndex = k*ncas*ncas*nmo + l*ncas*nmo + j*nmo + i;
       out[outputIndex] = in[inputIndex];
     }
-} 
+}
+
 /* ---------------------------------------------------------------------- */
+
 __global__ void transpose_3210(double* in, double* out, int nmo, int ncas) {
     //a.transpose(3,2,1,0)-ncas,ncas,ncas,nmo
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1590,56 +1594,73 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
+  
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Inside Device :: Starting update function\n");
+  printf("LIBGPU :: Inside Device :: Starting update_h2eff_sub function\n");
 #endif
+  
   profile_start("Setup initial h2eff_sub");
+  
   py::buffer_info info_umat = _umat.request(); // 2d array nmo*nmo
   py::buffer_info info_h2eff_sub = _h2eff_sub.request();// 2d array nmo * (ncas*(ncas*(ncas+1)/2))
+
   const int device_id = 0;//count % num_devices;
+
   pm->dev_set_device(device_id);
+
   my_device_data * dd = &(device_data[device_id]);
+
   const int ncas_pair = ncas * (ncas+1)/2;
+
   double * umat = static_cast<double*>(info_umat.ptr);
   double * h2eff_sub = static_cast<double*>(info_h2eff_sub.ptr);
+
+#ifdef _DEBUG_DEVICE
   size_t freeMem;size_t totalMem;
   freeMem=0;totalMem=0;
   cudaMemGetInfo(&freeMem, &totalMem);
   printf("Starting h2eff_update Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
+#endif
+  
   int _size_h2eff_unpacked=nmo*ncas*ncas*ncas;
   int _size_h2eff_packed=nmo*ncas*ncas_pair;
-#if 1
+
   double * d_buf_1 = (double *) pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
   double * d_buf_2 = (double *) pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
   double * d_h2eff_unpacked = d_buf_1;
-#else
-  double * d_h2eff_unpacked=(double*) pm->dev_malloc (_size_h2eff_unpacked*sizeof(double));
-#endif
+
   double * d_ucas=(double*) pm->dev_malloc(ncas*ncas*sizeof(double));
   double * d_umat=(double *) pm->dev_malloc(nmo*nmo*sizeof(double));
+
   pm->dev_push(d_umat,umat,nmo*nmo*sizeof(double));
-  profile_stop();
+  
 #ifdef _DEBUG_H2EFF
-  printf("Setup update function\n");
+  printf("LIBGPU :: Inside Device :: -- Setup update function\n");
 #endif
-  profile_start("extraction");
+  
+  profile_next("extraction");
+  
   //ucas = umat[ncore:nocc, ncore:nocc]
   {
-  dim3 blockDim(_UNPACK_BLOCK_SIZE);
-  dim3 gridDim(_TILE(ncas,blockDim.x), _TILE(ncas,blockDim.y));//
-  extract_submatrix<<<gridDim, blockDim>>>(d_umat, d_ucas, ncas, ncore, nmo);
+    dim3 blockDim(_UNPACK_BLOCK_SIZE);
+    dim3 gridDim(_TILE(ncas,blockDim.x), _TILE(ncas,blockDim.y));//
+    extract_submatrix<<<gridDim, blockDim>>>(d_umat, d_ucas, ncas, ncore, nmo);
   }
-  profile_stop();
+  
   //h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2) Initially h2eff_sub is nmo*(ncas*ncas_pair)
   //h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
   //h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
-  profile_start("map creation");
+  
+  profile_next("map creation");
+  
   double * d_h2eff_sub = (double*) pm->dev_malloc(_size_h2eff_packed*sizeof(double));
-#if 1
+  
   pm->dev_push(d_h2eff_sub, h2eff_sub, _size_h2eff_packed*sizeof(double));
+
   int _size_unpack_map = ncas*ncas*ncas;
   int * my_unpack_map = (int*) malloc(_size_unpack_map*sizeof(int));
   int * d_my_unpack_map = (int*) pm->dev_malloc(_size_unpack_map*sizeof(int));
+  
   for (int _i=0; _i<ncas;++_i){
     for (int _j=0, _jk=0; _j<ncas; ++_j){
       for (int _k=0;_k<=_j;++_k,++_jk){
@@ -1648,46 +1669,35 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
       }
     }
   }
+  
   int * d_my_unpack_map_ptr = d_my_unpack_map;
-  profile_stop();
-  profile_start("map push");
+
+  profile_next("map push");
+
   pm->dev_push(d_my_unpack_map, my_unpack_map,_size_unpack_map*sizeof(int)); 
-  profile_stop();
-  profile_start("unpacking");
+
+  profile_next("unpacking");
+
 #ifdef _DEBUG_H2EFF
-  printf("created and pushed unpacking map\n");
+  printf("LIBGPU :: Inside Device :: -- created and pushed unpacking map\n");
 #endif
+
   {
-  dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-  //dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
-  dim3 grid_size(_TILE(nmo,_UNPACK_BLOCK_SIZE), _TILE(ncas*ncas*ncas,_UNPACK_BLOCK_SIZE)); 
-  //dim3 grid_size(nmo, _TILE(ncas*ncas*ncas,_UNPACK_BLOCK_SIZE)); 
-  _unpack_h2eff<<<grid_size, block_size, 0, dd->stream>>>(d_h2eff_sub, d_h2eff_unpacked,d_my_unpack_map_ptr, nmo, ncas,ncas_pair);
+    dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
+    //dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
+    dim3 grid_size(_TILE(nmo,_UNPACK_BLOCK_SIZE), _TILE(ncas*ncas*ncas,_UNPACK_BLOCK_SIZE)); 
+    //dim3 grid_size(nmo, _TILE(ncas*ncas*ncas,_UNPACK_BLOCK_SIZE)); 
+    _unpack_h2eff<<<grid_size, block_size, 0, dd->stream>>>(d_h2eff_sub, d_h2eff_unpacked, d_my_unpack_map_ptr, nmo, ncas,ncas_pair);
+    _CUDA_CHECK_ERRORS();
   }
-  _CUDA_CHECK_ERRORS();
-  printf("done");
+  
   pm->dev_free(d_my_unpack_map);
-  _CUDA_CHECK_ERRORS();
-  profile_stop();
+  free(my_unpack_map);
+  
+  profile_next("first two dgemms");
+
 #ifdef _DEBUG_H2EFF
-  printf("freeing packing map\n");
-#endif
-  free (my_unpack_map);
-  profile_start("first two dgemms");
-#else
-  double * h_h2eff_unpacked=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
-  for (int x1=0;x1<nmo;++x1)
-    for (int x2=0;x2<ncas;++x2)
-      for (int x3=0,x3x4=0;x3<ncas;++x3)
-        for (int x4=0;x4<=x3;++x4,++x3x4){
-            h_h2eff_unpacked[((x1*ncas+x2)*ncas+x3)*ncas+x4]=h2eff_sub[x1*ncas_pair*ncas+x2*ncas_pair+x3x4];
-            h_h2eff_unpacked[((x1*ncas+x2)*ncas+x4)*ncas+x3]=h2eff_sub[x1*ncas_pair*ncas+x2*ncas_pair+x3x4];
-          }
-  pm->dev_push(d_h2eff_unpacked,h_h2eff_unpacked,_size_h2eff_unpacked*sizeof(double));
-  free(h_h2eff_unpacked);
-#endif 
-#ifdef _DEBUG_H2EFF
-  printf("unpacked h2eff_sub \n");
+  printf("LIBGPU :: Inside Device :: -- unpacked h2eff_sub \n");
 #endif
 
   //1. h2eff_sub = np.tensordot (ucas, h2eff_sub, axes=((0),(1))) # bpaa
@@ -1695,10 +1705,11 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   //3. h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbab
   //4. h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbbb
   // doing 3,4,tranpose, 1,2, tranpose
+  
   const double alpha=1.0;
   const double beta=0.0;
   //h2eff_step1=([pi]jk,jJ->[pi]kJ)
-  //double * d_h2eff_step1 = (double*) pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+
   double * d_h2eff_step1 = d_buf_2;
   cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_N,ncas,ncas,ncas,
 	&alpha, 
@@ -1706,10 +1717,9 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
         d_h2eff_unpacked, ncas,ncas*ncas, 
 	&beta, d_h2eff_step1, ncas, ncas*ncas, ncas*nmo);
   _CUDA_CHECK_ERRORS();
-  //pm->dev_free(d_h2eff_unpacked);
-  //pm->dev_free(buf);
+
   //h2eff_step2=([pi]kJ,kK->[pi]JK
-  //double * d_h2eff_step2 = (double*) pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+  
   double * d_h2eff_step2 =d_buf_1;
   cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_T,ncas,ncas,ncas,
 	&alpha, 
@@ -1717,110 +1727,76 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
         d_ucas, ncas, 0,
 	&beta, d_h2eff_step2, ncas, ncas*ncas, ncas*nmo);
   _CUDA_CHECK_ERRORS();
-  //pm->dev_free(d_h2eff_step1);
-  profile_stop();
-  profile_start("transpose");
+
+  profile_next("transpose");
+
 #ifdef _DEBUG_H2EFF
-  printf("Finished first 2 cublasDgemmStridedBatched Functions \n");
+  printf("LIBGPU :: Inside Device :: -- Finished first 2 cublasDgemmStridedBatched Functions \n");
 #endif
-  //double * d_h2eff_transposed=(double*)pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+  
   double * d_h2eff_transposed = d_buf_2;
-#if 1
+
   //h2eff_tranposed=(piJK->JKip)
   {
-  //dim3 blockDim(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE);//,_TRANPOSE_BLOCK_SIZE);
-  dim3 blockDim(1,1,_DEFAULT_BLOCK_SIZE);//,_TRANPOSE_BLOCK_SIZE);
-  dim3 gridDim(_TILE(nmo,blockDim.x),_TILE(ncas,blockDim.y),_TILE(ncas,blockDim.z));//,_TILE(ncas,blockSize.w))
-  transpose_2310<<<gridDim,blockDim>>>(d_h2eff_step2, d_h2eff_transposed, nmo,ncas);
+    dim3 blockDim(1,1,_DEFAULT_BLOCK_SIZE);
+    dim3 gridDim(_TILE(nmo,blockDim.x),_TILE(ncas,blockDim.y),_TILE(ncas,blockDim.z));
+    transpose_2310<<<gridDim,blockDim>>>(d_h2eff_step2, d_h2eff_transposed, nmo,ncas);
   }
-#else
-  double * h_h2eff_step2 = (double*) malloc(_size_h2eff_unpacked*sizeof(double));
-  pm->dev_pull(d_h2eff_step2,h_h2eff_step2,_size_h2eff_unpacked*sizeof(double));
-  double * h_h2eff_transposed=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
-  pm->dev_pull (d_h2eff_step2,h_h2eff_step2,_size_h2eff_unpacked*sizeof(double));
-  for (int x1=0;x1<nmo;++x1)
-  for (int x2=0;x2<ncas;++x2)
-  for (int x3=0;x3<ncas;++x3)
-  for (int x4=0;x4<ncas;++x4){
-    int input_idx=((x1*ncas+x2)*ncas+x3)*ncas+x4;
-    int output_idx=x3*ncas*ncas*nmo + x4*ncas*nmo + x2*nmo + x1;
-    h_h2eff_transposed[output_idx]=h_h2eff_step2[input_idx];
-}
-  free(h_h2eff_step2);
-  pm->dev_push(d_h2eff_transposed,h_h2eff_transposed,_size_h2eff_unpacked*sizeof(double));
-  free(h_h2eff_transposed);
-#endif
-  //pm->dev_free(d_h2eff_step2);
-  profile_stop();
-  profile_start("last 2 dgemm");
+  
+  profile_next("last 2 dgemm");
+  
 #ifdef _DEBUG_H2EFF
-  printf("Finished transposing\n");
+  printf("LIBGPU :: Inside Device :: -- Finished transposing\n");
 #endif
-  //double * d_h2eff_step3=(double*)pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+  
   double * d_h2eff_step3 = d_buf_1;
   //h2eff_sub=np.einsum('iI,JKip->JKIp',ucas,h2eff_sub) h2eff=ncas,ncas,ncas,nmo; ucas=ncas,ncas
+
   cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_T,nmo,ncas,ncas,
 	&alpha, d_h2eff_transposed, nmo, ncas*nmo, d_ucas, ncas, 0, 
 	&beta, d_h2eff_step3, nmo, ncas*nmo, ncas*ncas);
   _CUDA_CHECK_ERRORS();
-  //pm->dev_free(d_h2eff_transposed);
+
   //h2eff_step4=([JK]Ip,pP->[JK]IP)
+
   double * d_h2eff_step4 = d_buf_2;
-  //double * d_h2eff_step4=(double*)pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
   cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_N,nmo,ncas,nmo,
 	&alpha, d_umat, nmo, 0, d_h2eff_step3, nmo, ncas*nmo, 
 	&beta, d_h2eff_step4, nmo, ncas*nmo, ncas*ncas);
-  //pm->dev_free(d_h2eff_step3);
+  
   pm->dev_free(d_ucas);
   pm->dev_free(d_umat);
-  profile_stop();
-  profile_start("2nd transpose");
+  
+  profile_next("2nd transpose");
+  
 #ifdef _DEBUG_H2EFF
-  printf("Finished last 2 cublasDgemmStridedBatched Functions \n");
+  printf("LIBGPU :: Inside Device :: -- Finished last 2 cublasDgemmStridedBatched Functions \n");
 #endif
+  
   //h2eff_tranposed=(JKIP->PIJK) 3201
-#if 1
-  //double * d_h2eff_transpose2 = (double* ) pm->dev_malloc(_size_h2eff_unpacked*sizeof(double));
+
   double * d_h2eff_transpose2 = d_buf_1;
   {
-  dim3 blockDim(1,1,_DEFAULT_BLOCK_SIZE);//,_TRANPOSE_BLOCK_SIZE);
-  //dim3 blockDim(_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE,_DEFAULT_BLOCK_SIZE);//,_TRANPOSE_BLOCK_SIZE);
-  dim3 gridDim(_TILE(ncas,blockDim.x),_TILE(ncas,blockDim.y),_TILE(ncas,blockDim.z));
-  transpose_3210<<<gridDim,blockDim>>>(d_h2eff_step4, d_h2eff_transpose2, nmo,ncas);
+    dim3 blockDim(1,1,_DEFAULT_BLOCK_SIZE);
+    dim3 gridDim(_TILE(ncas,blockDim.x),_TILE(ncas,blockDim.y),_TILE(ncas,blockDim.z));
+    transpose_3210<<<gridDim,blockDim>>>(d_h2eff_step4, d_h2eff_transpose2, nmo,ncas);
   }
-  //pm->dev_free(d_h2eff_step4);
-   profile_stop();
-#else
-  double * h_h2eff_step4 = (double*) malloc(_size_h2eff_unpacked*sizeof(double));
-  double * h_h2eff_transposed2=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
-  pm->dev_pull(d_h2eff_step4,h_h2eff_step4,_size_h2eff_unpacked*sizeof(double));
-  pm->dev_free(d_h2eff_step4);
-  //double * h_h2eff_step4=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
-  //pm->dev_pull (d_h2eff_step4,h_h2eff_step4,_size_h2eff_unpacked*sizeof(double));
-  for (int x1=0;x1<ncas;++x1)
-  for (int x2=0;x2<ncas;++x2)
-  for (int x3=0;x3<ncas;++x3)
-  for (int x4=0;x4<nmo;++x4){
-    int input_idx=x1*nmo*ncas*ncas+x2*ncas*nmo+x3*nmo+x4;
-    int output_idx=x4*ncas*ncas*ncas+x3*ncas*ncas+x2*ncas+x1;
-    h_h2eff_transposed2[output_idx]=h_h2eff_step4[input_idx];
-}
-  free(h_h2eff_step4);
-#endif
+  
 #ifdef _DEBUG_H2EFF
-  printf("finished transposing back\n");
+  printf("LIBGPU :: Inside Device :: -- finished transposing back\n");
 #endif
+  
   //ix_i, ix_j = np.tril_indices (ncas)
   //h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas*ncas)
   //h2eff_sub = h2eff_sub[:,:,(ix_i*ncas)+ix_j]
   //h2eff_sub = h2eff_sub.reshape (nmo, -1)
-#if 1
-  profile_start("second map and packing");
+
+  profile_next("second map and packing");
+  
   int _size_pack_map = ncas*ncas_pair;
   int * my_pack_map = (int*) malloc(_size_pack_map*sizeof(int));
-  printf("finished transposing back\n");
   int * d_my_pack_map = (int*) pm->dev_malloc(_size_pack_map*sizeof(int));
-  printf("finished transposing back\n");
+  
   int _i, _j, _k, _ijk;
   for (_ijk=0, _i=0; _i<ncas;++_i){
     for (_j=0; _j<ncas; ++_j){
@@ -1829,50 +1805,41 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
       }
     }
   }
+  
   int * d_my_pack_map_ptr = d_my_pack_map;
-  pm->dev_push(d_my_pack_map, my_pack_map,_size_pack_map*sizeof(int)); 
+  pm->dev_push(d_my_pack_map, my_pack_map,_size_pack_map*sizeof(int));
+  
   dim3 block_size(1, _UNPACK_BLOCK_SIZE, 1);
-  //dim3 block_size(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-  //dim3 grid_size(_TILE(nmo,block_size.x), _TILE(ncas*ncas_pair,_UNPACK_BLOCK_SIZE)); 
   dim3 grid_size(nmo, _TILE(ncas*ncas_pair,_UNPACK_BLOCK_SIZE)); 
   _pack_h2eff<<<grid_size, block_size, 0, dd->stream>>>(d_h2eff_transpose2,d_h2eff_sub, d_my_pack_map_ptr, nmo, ncas,ncas_pair);
+  
   pm->dev_free(d_buf_1);
   pm->dev_free(d_buf_2);
   pm->dev_free(d_my_pack_map);
+  
 #ifdef _DEBUG_H2EFF
-  printf("Freed map\n");
+  printf("LIBGPU :: Inside Device :: -- Freed map\n");
 #endif
+  
   free (my_pack_map);
   pm->dev_pull(d_h2eff_sub, h2eff_sub, _size_h2eff_packed*sizeof(double));
   pm->dev_free(d_h2eff_sub);
+  
   profile_stop();
-#ifdef _DEBUG_H2EFF
-  printf("Freed h2eff_sub\n");
-#endif
-#else
-  double * h_h2eff_transposed2=(double*) malloc(_size_h2eff_unpacked*sizeof(double));
-  for (int x1=0;x1<nmo;++x1)
-    for (int x2=0;x2<ncas;++x2)
-      for (int x3=0,x3x4=0;x3<ncas;++x3)
-        for (int x4=0;x4<=x3;++x4,++x3x4)
-          h2eff_sub[x1*ncas*ncas_pair+x2*ncas_pair+x3x4]=h_h2eff_transposed2[x1*ncas*ncas*ncas+x2*ncas*ncas+x3*ncas+x4];
-  free(h_h2eff_transposed2);
-#endif
-#ifdef _DEBUG_H2EFF
-  printf("Finished packing in the end\n");
-#endif
+  
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Inside Device :: Leaving update function\n");
+  printf("LIBGPU :: Inside Device :: -- Leaving update function\n");
   cudaMemGetInfo(&freeMem, &totalMem);
+  
   printf("Ending h2eff_sub_update Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
 #endif
+  
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[6] += t1 - t0;
 #endif
-#endif
- 
 }
+#endif
 
 /* ---------------------------------------------------------------------- */
 void Device::get_h2eff_df(py::array_t<double> _cderi, py::array_t<double> _mo_cas, py::array_t<double> _mo_coeff,
