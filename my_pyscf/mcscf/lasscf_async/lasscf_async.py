@@ -28,7 +28,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     log = lib.logger.new_logger(las, verbose)
     t0 = (lib.logger.process_clock(), lib.logger.perf_counter())
     kf0 = las.get_keyframe (mo_coeff, ci0) 
-    las._flas_stdout = None # TODO: more elegant model for this
+    las._flas_stdout = {} # TODO: more elegant model for this
 
     ###############################################################################################
     ################################## Begin actual kernel logic ##################################
@@ -90,7 +90,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
     ################################### End actual kernel logic ###################################
     ###############################################################################################
 
-    if getattr (las, '_flas_stdout', None) is not None: las._flas_stdout.close ()
+    for key, val in las._flas_stdout.items (): val.close ()
     # TODO: more elegant model for this
     mo_coeff, ci1, h2eff_sub, veff = kf1.mo_coeff, kf1.ci, kf1.h2eff_sub, kf1.veff
     t1 = log.timer ('LASSCF {} macrocycles'.format (it), *t0)

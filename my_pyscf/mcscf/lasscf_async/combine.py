@@ -111,22 +111,28 @@ class flas_stdout_env (object):
             self.las.with_df.stdout = self.las_stdout
 
 def relax (las, kf, freeze_inactive=False, unfrozen_frags=None):
-    if unfrozen_frags is None: frozen_frags = []
-    else:
-        frozen_frags = [i for i in range (las.nfrags) if i not in unfrozen_frags]
-    log = lib.logger.new_logger (las, las.verbose)
     flas_stdout = getattr (las, '_flas_stdout', None)
+    if unfrozen_frags is None:
+        frozen_frags = []
+        flas_tail = '.flas'
+    else:
+        unfrozen_frags = tuple (sorted (unfrozen_frags)) # sorted
+        frozen_frags = [i for i in range (las.nfrags) if i not in unfrozen_frags]
+        flas_stdout = flas_stdout.get (unfrozen_frags, None)
+        flas_tail = '.' + '.'.join ([str (s) for s in unfrozen_frags])
+    log = lib.logger.new_logger (las, las.verbose)
     if flas_stdout is None:
         output = getattr (las.mol, 'output', None)
         if not ((output is None) or (output=='/dev/null')):
-            flas_output = output + '.flas'
+            flas_output = output + flas_tail
             if las.verbose > lib.logger.QUIET:
                 if os.path.isfile (flas_output):
                     print('overwrite output file: %s' % flas_output)
                 else:
                     print('output file: %s' % flas_output)
             flas_stdout = open (flas_output, 'w')
-            las._flas_stdout = flas_stdout
+            if unfrozen_frags is None: las._flas_stdout = flas_stdout
+            else: las._flas_stdout[unfrozen_frags] = flas_stdout
         else:
             flas_stdout = las.stdout
     with flas_stdout_env (las, flas_stdout):
