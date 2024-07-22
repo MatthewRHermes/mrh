@@ -71,15 +71,10 @@ public :
   
   void set_update_dfobj_(int);
   void get_dfobj_status(size_t, py::array_t<int>);
-  
-  void hessop_get_veff(int, int, int, int,
-		       py::array_t<double>, py::array_t<double>, py::array_t<double>);
-
+ 
   void df_ao2mo_pass1_fdrv (int, int, int, int,
 		       py::array_t<double>, py::array_t<double>,
 		       py::array_t<double>);
- 
-  void hessop_push_bPpj(py::array_t<double>);
   
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -130,16 +125,6 @@ private:
 
   double * buf_vj;
   double * buf_vk;
-  
-  // hessop_get_veff
-
-  int size_bPpj;
-  int size_vPpj;
-  int size_vk_bj;
-  
-  double * d_bPpj;
-  double * d_vPpj;
-  double * d_vk_bj;
   
   // eri caching on device
 

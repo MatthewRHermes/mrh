@@ -23,10 +23,6 @@ Device::Device()
   pm = new PM();
 
   update_dfobj = 0;
-
-  size_bPpj = 0;
-  size_vPpj = 0;
-  size_vk_bj = 0;
   
   rho = nullptr;
   //vj = nullptr;
@@ -45,10 +41,6 @@ Device::Device()
   buf_vk = nullptr;
   
 #if defined(_USE_GPU)
-  d_bPpj = nullptr;
-  d_vPpj = nullptr;
-  d_vk_bj = nullptr;
-
   use_eri_cache = true;
 #endif
   
@@ -199,10 +191,6 @@ Device::~Device()
     
     if(dd->stream) pm->dev_stream_destroy(dd->stream);
   }
-  
-  pm->dev_free(d_bPpj);
-  pm->dev_free(d_vPpj);
-  pm->dev_free(d_vk_bj);
 
   printf("LIBGPU :: Finished\n");
 #endif
