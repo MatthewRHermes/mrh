@@ -29,7 +29,7 @@ from gpu4pyscf.lib.utils import patch_cpu_kernel
 from mrh.my_pyscf.gpu import libgpu
 
 # Setting DEBUG = True will execute both CPU (original) and GPU (new) paths checking for consistency 
-DEBUG = True
+DEBUG = False
 
 if DEBUG:
     import math
@@ -338,10 +338,12 @@ class _ERIS:
         fxpp_keys = []
         b0 = 0
         t1 = t0 = (logger.process_clock(), logger.perf_counter())
+        gpu=casscf.mol.use_gpu#print(bufpp)
+        if gpu: 
+            libgpu.libgpu_transfer_mo_coeff(gpu, mo, nao*nmo)
         for k, eri1 in enumerate(with_df.loop(blksize)):
             naux = eri1.shape[0]
             bufpp = bufs1[:naux]
-            gpu=casscf.mol.use_gpu#print(bufpp)
             if DEBUG and gpu:
                 bufpp2 = numpy.empty((naux,nmo,nmo))#bufs1[:naux]
 
@@ -363,7 +365,7 @@ class _ERIS:
             else:
                 if gpu:
                     libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo, eri1)
-                    t0 = log.timer('density fitting ao2mo pass1_loop', *t0)
+                    t0 = log.timer('density fitting ao2mo pass1_loop gpu', *t0)
                 else:
                     fdrv(ftrans, fmmm,
                      bufpp.ctypes.data_as(ctypes.c_void_p),
@@ -382,6 +384,7 @@ class _ERIS:
             k_cp += numpy.einsum('kij,kij->ij', bufpp[:,:ncore], bufpp[:,:ncore])
             #print(k,blksize,eri1.shape,bufpp.transpose(1,2,0).shape,mo.shape,self.j_pc.shape,k_cp.shape)
             b0 += naux
+            t0 = log.timer('rest of the calculation', *t0)
             #t1 = log.timer_debug1('j_pc and k_pc', *t1)
         self.k_pc = k_cp.T.copy()
         bufs1 = bufpp = None
@@ -423,7 +426,10 @@ class _ERIS:
         dm_core = numpy.dot(mo[:,:ncore], mo[:,:ncore].T)
         vj, vk = casscf.get_jk(mol, dm_core)
         self.vhf_c = reduce(numpy.dot, (mo.T, vj*2-vk, mo))
+        fxpp.close()
         t0 = log.timer('density fitting ao2mo', *t0)
+    def __del__(self):
+        self.feri.close()
 
 def _mem_usage(ncore, ncas, nmo):
     outcore = basic = ncas**2*nmo**2*2 * 8/1e6

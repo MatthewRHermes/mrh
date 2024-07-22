@@ -39,6 +39,8 @@ extern "C"
   void libgpu_hessop_get_veff(void *,
 			      int, int, int, int,
 			      py::array_t<double>, py::array_t<double>, py::array_t<double>);
+  void libgpu_transfer_mo_coeff(void *, 
+                                py::array_t<double>, int);
   void libgpu_df_ao2mo_pass1_fdrv (void *,
 			      int, int, int, int,
 			      py::array_t<double>, py::array_t<double>,
@@ -54,10 +56,10 @@ extern "C"
   void libgpu_update_h2eff_sub(void *, 
                                int, int, int, int, 
 			       py::array_t<double>, py::array_t<double>);
-  void libgpu_get_h2eff_df(void *, 
-                           py::array_t<double>, py::array_t<double>, py::array_t<double>, 
-                           bool, int, int, int, int, int, int,
-                           py::array_t<double>, py::array_t<double>); 
+  void libgpu_h2eff_df_contract1(void * , 
+                           py::array_t<double> ,  
+                           int , int , int , int , int ,
+                           py::array_t<double> ,py::array_t<double> );
 }
 
 
@@ -81,9 +83,10 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_get_dfobj_status", &libgpu_get_dfobj_status, "retrieve info on dfobj and cached eri blocks on device");
 
   m.def("libgpu_hessop_get_veff", &libgpu_hessop_get_veff, "lasci_sync.py::get_veff() for HessianOperator");
+  m.def("libgpu_transfer_mo_coeff", &libgpu_transfer_mo_coeff, "pyscf/mcscf/df.py::_ERIS.__init__() part 0");
   m.def("libgpu_df_ao2mo_pass1_fdrv", &libgpu_df_ao2mo_pass1_fdrv, "pyscf/mcscf/df.py::_ERIS.__init__() part 1");
   m.def("libgpu_update_h2eff_sub", &libgpu_update_h2eff_sub, "my_pyscf/mcscf/lasci_sync.py::_update_h2_eff()");
-  m.def("libgpu_get_h2eff_df", &libgpu_get_h2eff_df, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df()");
+  m.def("libgpu_h2eff_df_contract1", &libgpu_h2eff_df_contract1, "my_pyscf/df/sparse_df.py::contract1");
   m.def("libgpu_hessop_push_bPpj", &libgpu_hessop_push_bPpj, "bPpj array for HessianOperator");
   
   m.def("libgpu_orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");

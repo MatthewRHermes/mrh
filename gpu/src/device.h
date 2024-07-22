@@ -88,9 +88,11 @@ public :
 
   void update_h2eff_sub(int, int, int, int,
                         py::array_t<double>,py::array_t<double>); 
-  void get_h2eff_df(py::array_t<double>, py::array_t<double>,py::array_t<double>,
-                     bool, int, int, int, int, int,int,  
+  void h2eff_df_contract1(py::array_t<double>, 
+                     int, int, int, int, int,
                      py::array_t<double>, py::array_t<double>);
+ 
+  void transfer_mo_coeff(py::array_t<double>, int);
 private:
 
   class PM * pm;
@@ -188,7 +190,8 @@ private:
     int size_dms;
     int size_dmtril;
     int size_eri1;
-    
+    int size_mo_coeff; 
+
     double * d_rho;
     double * d_vj;
     double * d_buf1;
@@ -198,12 +201,13 @@ private:
     double * d_dms;
     double * d_dmtril;
     double * d_eri1;
+    double * d_mo_coeff;
 
     std::vector<int> size_tril_map;
     std::vector<int *> tril_map;
     std::vector<int *> d_tril_map;
     int * d_tril_map_ptr; // no explicit allocation
-    
+
     cublasHandle_t handle;
     cudaStream_t stream;
   };
@@ -211,9 +215,9 @@ private:
   my_device_data * device_data;
 
   void dd_fetch_tril_map(my_device_data *, int);
+  void push_mo_coeff(my_device_data *, double *, int);
   double * dd_fetch_eri(my_device_data *, double *, size_t, int);
-  double * dd_fetch_eri_debug(my_device_data *, double *, size_t, int); // we'll trash this after some time
-  
+  double * dd_fetch_eri_debug(my_device_data *, double *, size_t, int); // we'll trash this after some time 
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);
   

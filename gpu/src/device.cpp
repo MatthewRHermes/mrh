@@ -70,6 +70,7 @@ Device::Device()
     device_data[i].size_dms = 0;
     device_data[i].size_dmtril = 0;
     device_data[i].size_eri1 = 0;
+    device_data[i].size_mo_coeff = 0;
     
     device_data[i].d_rho = nullptr;
     device_data[i].d_vj = nullptr;
@@ -78,6 +79,7 @@ Device::Device()
     device_data[i].d_buf3 = nullptr;
     device_data[i].d_vkk = nullptr;
     device_data[i].d_dms = nullptr;
+    device_data[i].d_mo_coeff=nullptr;
     device_data[i].d_dmtril = nullptr;
     device_data[i].d_eri1 = nullptr; // when not using eri cache
     
@@ -186,15 +188,18 @@ Device::~Device()
     pm->dev_free(dd->d_dms);
     pm->dev_free(dd->d_dmtril);
     pm->dev_free(dd->d_eri1);
-    
+    pm->dev_free(dd->d_mo_coeff);
+ 
     for(int i=0; i<dd->size_tril_map.size(); ++i) {
       pm->dev_free_host(dd->tril_map[i]);
       pm->dev_free(dd->d_tril_map[i]);
     }
+    
     dd->size_tril_map.clear();
     dd->tril_map.clear();
     dd->d_tril_map.clear();
-    
+    //dd->d_mo_coeff.clear();
+
     if(dd->handle) cublasDestroy(dd->handle);
     
     if(dd->stream) pm->dev_stream_destroy(dd->stream);
