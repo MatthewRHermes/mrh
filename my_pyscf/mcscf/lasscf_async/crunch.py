@@ -586,10 +586,11 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             vk = np.tensordot (vuiP, biPu, axes=((-3,-1),(-1,-2)))
         else: # Safety case: AO-basis SCF driver
             dm1 = np.dot (mo_ext, np.dot (dm1, mo_ext.conj().T)).transpose (1,0,2)
-            vk = self.mol._las._scf.get_k (dm=dm1)
+            #vk = self.mol._las._scf.get_k (dm=dm1) 
+            _,vk = self.mol._las._scf.get_jk (dm=dm1) #TODO: for gpu run, this has to be written as get_k (it is now written as get_jk)
             vk = np.dot (imporb_coeff.conj ().T, np.dot (vk, imporb_coeff)).transpose (1,0,2)
         return vk.reshape (*output_shape)
-
+            
     def get_hcore_rs (self):
         return self._scf.get_hcore_spinsep ()[None,:,:,:] + self._imporb_h1_stateshift
 
