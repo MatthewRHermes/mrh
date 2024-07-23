@@ -5,7 +5,7 @@ from pyscf import gto, scf, mcscf, ao2mo, lib, df
 from pyscf.lib import logger
 from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import _state_average_mcscf_solver
-from mrh.my_pyscf.mcscf import _DFLASCI
+from mrh.my_pyscf.mcscf import _DFLASCI, lasci_sync, lasci
 import copy, json
 
 class ImpurityMole (gto.Mole):
@@ -804,6 +804,82 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF, ImpuritySolver):
             return h_op (x) + self.pack_uniq_var (hx - hx.T)
 
         return g_orb, my_gorb_update, my_h_op, h_diag
+
+class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
+    def _init_ham_(self, h2eff_sub, veff):
+        lasci_sync.LASCI_HessianOperator._init_ham_(self, h2eff_sub, veff)
+        las, mo_coeff, ncore, nocc = self.las, self.mo_coeff, self.ncore, self.nocc
+        h1s_sz = mo_coeff.conj ().T @ las._scf.get_hcore_sz () @ mo_coeff
+        self.h1s[0] += h1s_sz
+        self.h1s[1] -= h1s_sz
+        self.h1s_cas[0] += h1s_sz[:,:,ncore:nocc]
+        self.h1s_cas[1] -= h1s_sz[:,:,ncore:nocc]
+        self.e_tot += np.dot (h1s_sz.ravel (), (dm1s[0] - dm1s[1]).ravel ())
+        self.h1rs = np.dot (las.get_hcore_rs (), mo_coeff)
+        self.h1rs = np.tensordot (mo_coeff.conj (), h1rs, axes=((0),(2))).reshape (1,2,0,3)
+        for ix, h1rs in enumerate (self.h1frs):
+            i = sum (self.ncas_sub[:ix])
+            j = i + self.ncas_sub[ix]
+            h1rs[:,:,:,:] += self.h1rs[:,:,i:j,i:j]
+
+    def _init_orb_(self):
+        lasci_sync.LASCI_HessianOperator._init_orb_()
+        for w, h1s, casdm1s in zip (self.weights, self.h1rs, self.casdm1rs):
+            dh1s = h1s[:,ncore:nocc,ncore:nocc] - self.h1s[:,ncore:nocc,ncore:nocc]
+            self.fock1[:,ncore:nocc] += w * (dh1s[0] @ casdm1s[0] + dh1s[1] @ casdm1s[1])
+
+    # TODO: update hessian-vector elements
+
+class ImpurityLASCI (lasci.LASCINoSymm):
+    _hop = ImpurityLASCI_HessianOperator
+    # TODO: get_grad_orb, but it's actually only used for debugging in the kernel
+
+    def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None,
+                     ncas_sub=None, nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None,
+                     casdm1frs=None):
+        h1e_fr = lasci.LASCINoSymm.h1e_for_las (
+            las, mo_coeff=mo_coeff, ncas=ncas, ncore=ncore, nelecas=nelecas, ci=ci, 
+            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, veff=veff, h2eff_sub=h2eff_sub,
+            casdm1s_sub=casdm1s_sub, casdm1frs=casdm1frs
+        )
+        if mo_coeff is None: mo_coeff = self.mo_coeff
+        if ncas_sub is None: ncas_sub = self.ncas_sub
+        dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_coeff)
+        dh1_rs = np.tensordot (mo_coeff.conj (), dh1_rs, axes=((0),(2))).transpose (1,2,0,3)
+        for ix in range (len (ncas_sub)):
+            i = sum (ncas_sub[:ix])
+            j = i + ncas_sub[ix]
+            h1e_fr[ix] += dh1_rs[:,:,i:j,i:j]
+        return h1e_fr
+
+    def states_energy_elec (self, **kwargs):
+        energy_elec = lasci.LASCINoSymm.states_energy_elec (self, **kwargs)
+        mo_coeff = kwargs.get ('mo_coeff', self.mo_coeff)
+        ci = kwargs.get ('ci', self.ci)
+        ncore = kwargs.get ('ncore', self.ncore)
+        ncas = kwargs.get ('nncas', self.ncas)
+        ncas_sub = kwargs.get ('ncas_sub', self.ncas_sub)
+        nelecas_sub = kwargs.get ('nelecas_sub', self.nelecas_sub)
+        casdm1frs = kwargs.get ('casdm1frs', self.states_make_casdm1s_sub (
+            ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub
+        ))
+        casdm1rs = self.states_make_casdm1s (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub,
+                                             casdm1frs=casdm1frs)
+        nao, nmo = mo_shape
+        nocc = ncore + ncas
+        mo_cas = mo_coeff[:,ncore:nocc]
+        dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_cas)
+        dh1_rs = np.tensordot (mo_cas.conj (), dh1_rs, axes=((0),(2))).transpose (1,2,0,3)
+        enuc_r = self.energy_nuc_r ()
+        for ix, (h, d) in enumerate (zip (dh1_rs, casdm1rs)):
+            energy_elec[ix] += np.dot (h.ravel (), d.ravel ())
+            energy_elec[ix] += enuc_r[ix] - self.energy_nuc ()
+        return energy_elec
+
+    def energy_elec (self, **kwargs):
+        energy_elec = self.states_energy_elec (**kwargs)
+        return np.dot (self.weights, energy_elec)
+
 
 def get_impurity_casscf (las, ifrag, imporb_builder=None):
     output = getattr (las.mol, 'output', None)
