@@ -113,6 +113,7 @@ private:
   int nset;
   int nao_pair;
 
+  int size_fdrv;
   int size_buf_vj;
   int size_buf_vk;
   
@@ -199,9 +200,11 @@ private:
     std::vector<int *> pumap;
     std::vector<int *> d_pumap;
     int * d_pumap_ptr; // no explicit allocation
-    
+
+#if defined (_USE_GPU)
     cublasHandle_t handle;
     cudaStream_t stream;
+#endif
   };
 
   my_device_data * device_data;

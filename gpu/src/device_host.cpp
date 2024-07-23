@@ -14,6 +14,9 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   double t0 = omp_get_wtime();
 #endif
 
+  const int device_id = 0;
+  my_device_data * dd = &(device_data[device_id]);
+  
   blksize = _blksize;
   nset = _nset;
   nao = _nao;
@@ -28,8 +31,8 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   // double * dmtril = static_cast<double*>(info_dmtril.ptr);
   
   int _size_vj = nset * nao_pair;
-  if(_size_vj > size_vj) {
-    size_vj = _size_vj;
+  if(_size_vj > dd->size_vj) {
+    dd->size_vj = _size_vj;
     //if(vj) pm->dev_free_host(vj);
     //vj = (double *) pm->dev_malloc_host(size_vj * sizeof(double));
     
@@ -38,23 +41,23 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   //for(int i=0; i<_size_vj; ++i) vj[i] = 0.0;
 
   int _size_vk = nset * nao * nao;
-  if(_size_vk > size_vk) {
-    size_vk = _size_vk;
+  if(_size_vk > dd->size_vk) {
+    dd->size_vk = _size_vk;
     // if(_vktmp) pm->dev_free_host(_vktmp);
     // _vktmp = (double *) pm->dev_malloc_host(size_vk*sizeof(double));
   }
   //  for(int i=0; i<_size_vk; ++i) _vktmp[i] = 0.0;
 
   int _size_buf = blksize * nao * nao;
-  if(_size_buf > size_buf) {
-    size_buf = _size_buf;
+  if(_size_buf > dd->size_buf) {
+    dd->size_buf = _size_buf;
     if(buf_tmp) pm->dev_free_host(buf_tmp);
     if(buf3) pm->dev_free_host(buf3);
     if(buf4) pm->dev_free_host(buf4);
     
-    buf_tmp = (double*) pm->dev_malloc_host(2*size_buf*sizeof(double));
-    buf3 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (nao, blksize*nao)
-    buf4 = (double *) pm->dev_malloc_host(size_buf*sizeof(double)); // (blksize*nao, nao)
+    buf_tmp = (double*) pm->dev_malloc_host(2*_size_buf*sizeof(double));
+    buf3 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (nao, blksize*nao)
+    buf4 = (double *) pm->dev_malloc_host(_size_buf*sizeof(double)); // (blksize*nao, nao)
     
     if(count > 0) printf("WARNING:: Reallocating bufs with count= %i  blksize= %i  nao= %i\n",count, blksize, nao);
   }
@@ -76,7 +79,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
 /* ---------------------------------------------------------------------- */
 
-void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk) {}
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int with_k) {}
 
 /* ---------------------------------------------------------------------- */
 
@@ -90,6 +93,9 @@ void Device::get_jk(int naux,
 #endif
 
   const int with_j = true;
+
+  const int device_id = 0;
+  my_device_data * dd = &(device_data[device_id]);
   
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair)
   py::buffer_info info_dmtril = _dmtril.request(); // 2D array (nset, nao_pair)
@@ -102,10 +108,10 @@ void Device::get_jk(int naux,
   double * vk = static_cast<double*>(info_vk.ptr);
   
   int _size_rho = nset * naux;
-  if(_size_rho > size_rho) {
-    size_rho = _size_rho;
+  if(_size_rho > dd->size_rho) {
+    dd->size_rho = _size_rho;
     if(rho) pm->dev_free_host(rho);
-    rho = (double *) pm->dev_malloc_host(size_rho * sizeof(double));
+    rho = (double *) pm->dev_malloc_host(dd->size_rho * sizeof(double));
   }
   
   // printf("LIBGPU:: blksize= %i  naux= %i  nao= %i  nset= %i\n",blksize,naux,nao,nset);
@@ -120,9 +126,9 @@ void Device::get_jk(int naux,
   
   if(with_j) {
     
-    DevArray2D da_rho = DevArray2D(rho, nset, naux);
-    DevArray2D da_dmtril = DevArray2D(dmtril, nset, nao_pair);
-    DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair);
+    DevArray2D da_rho = DevArray2D(rho, nset, naux, pm);
+    DevArray2D da_dmtril = DevArray2D(dmtril, nset, nao_pair, pm);
+    DevArray2D da_eri1 = DevArray2D(eri1, naux, nao_pair, pm);
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
     
@@ -134,7 +140,7 @@ void Device::get_jk(int naux,
 	da_rho(i,j) = val;
       }
     
-    DevArray2D da_vj = DevArray2D(vj, nset, nao_pair);
+    DevArray2D da_vj = DevArray2D(vj, nset, nao_pair, pm);
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
     
@@ -165,9 +171,9 @@ void Device::get_jk(int naux,
   // for(int i=0; i<blksize*nao*nao; ++i) buf2[i] = 0.0;
   // for(int i=0; i<nao*naux*nao; ++i) buf3[i] = 0.0;
   
-  DevArray2D da_buf1 = DevArray2D(buf1, naux * nao, nao);
-  DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao);
-  DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao); // python swapped 1st two dimensions?
+  DevArray2D da_buf1 = DevArray2D(buf1, naux * nao, nao, pm);
+  DevArray2D da_buf2 = DevArray2D(buf2, blksize * nao, nao, pm);
+  DevArray2D da_buf3 = DevArray2D(buf3, nao, naux * nao, pm); // python swapped 1st two dimensions?
   
   for(int indxK=0; indxK<nset; ++indxK) {
 
@@ -419,7 +425,7 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   //     ctypes.c_int(naux), ctypes.c_int(nao),
   //     (ctypes.c_int*4)(0, nmo, 0, nmo),
   //     ctypes.c_void_p(0), ctypes.c_int(0))
-  {
+  
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (blksize, nao_pair) nao_pair= nao*(nao+1)/2
   py::buffer_info info_bufpp = _bufpp.request(); // 3D array (blksize,nmo,nmo)
   py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (nmo, nmo)
@@ -430,45 +436,63 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   int bra_count = orbs_slice[1] - orbs_slice[0];
   int ket_start = orbs_slice[2];
   int ket_count = orbs_slice[3] - orbs_slice[2];
-  {
-    int i_count = bra_count;
-    int j_count = ket_count;
-    double *buf = (double *) malloc(sizeof(double) * (nao+i_count) * (nao+j_count));//always (2*nao x 2*nao)?
-    for (int i = 0; i < naux; i++) {
+  
+  int i_count = bra_count;
+  int j_count = ket_count;
+  double *buf = (double *) malloc(sizeof(double) * (nao+i_count) * (nao+j_count));//always (2*nao x 2*nao)?
+  for (int i = 0; i < naux; i++) {
     //const int it = omp_get_thread_num();
     //double * buf = &(_buf[it * 4 * nao * nao]);
     //(*ftrans)(fmmm, i, vout, vin, buf, &envs);//vout=bufpp,vin=eri1
-      //AO2MOtranse2_nr_s2(fmmm, row_id,vout,vin,buf,envs)//row_id=i,vout=bufpp,vin=eri1
-        //AO2MOtranse2_nr_s2kl(fmmm, row_id, vout, vin, buf, envs);//row_id=i,vout=bufpp,vim=eri1
-        const int ij_pair = i_count*j_count;//(*fmmm)(NULL, NULL, buf, envs, OUTPUTIJ);//ij_pair=nmo*nmo
-        const int nao2 = nao*(nao+1)/2;//(*fmmm)(NULL, NULL, buf, envs, INPUT_IJ);//
-         //NPdunpack_tril(nao, vin+nao2*row_id, buf, 0);//vin=eri1,row_id=i
-           int _i, _j, _ij;
-           //double * vin = eri1
-           double * tril = eri1 + nao2*i;
-           for (_ij = 0, _i = 0; _i < nao; _i++) 
-             for (_j = 0; _j <= _i; _j++, _ij++) buf[_i*nao+_j] = tril[_ij];
-         //(*fmmm)(vout+ij_pair*row_id, buf, buf+nao*nao, envs, 0);//vout=bufpp,row_id=i,buf=reshaped eri row
-           double * _buf = buf + nao*nao;
-           double * _eri = buf ;
-           double * _vout = bufpp + ij_pair*i;
-	   const double DO = 0;
-	   const double D1 = 1;
-	   const char SIDE_L = 'L';
-           const char UPLO_U = 'U';
-           const char TRANS_T = 'T';
-           const char TRANS_N = 'N';
-           int i_start = bra_start;
-           int j_start = ket_start;
-        // C_pi (pq| = (iq|, where (pq| is in C-order
-           dsymm_(&SIDE_L, &UPLO_U, &nao, &i_count,
-               &D1, _eri, &nao, mo_coeff+i_start*nao, &nao,
-               &D0, _buf, &nao);
-        // C_qj (iq| = (ij|
-        dgemm_(&TRANS_T, &TRANS_N, &j_count, &i_count, &nao,
-               &D1, mo_coeff+j_start*nao, &nao, _buf, &nao,
-               &D0, _vout, &j_count);
-        return 0;
+    //AO2MOtranse2_nr_s2(fmmm, row_id,vout,vin,buf,envs)//row_id=i,vout=bufpp,vin=eri1
+    //AO2MOtranse2_nr_s2kl(fmmm, row_id, vout, vin, buf, envs);//row_id=i,vout=bufpp,vim=eri1
+    const int ij_pair = i_count*j_count;//(*fmmm)(NULL, NULL, buf, envs, OUTPUTIJ);//ij_pair=nmo*nmo
+    const int nao2 = nao*(nao+1)/2;//(*fmmm)(NULL, NULL, buf, envs, INPUT_IJ);//
+    //NPdunpack_tril(nao, vin+nao2*row_id, buf, 0);//vin=eri1,row_id=i
+    int _i, _j, _ij;
+    //double * vin = eri1
+    double * tril = eri1 + nao2*i;
+    for (_ij = 0, _i = 0; _i < nao; _i++) 
+      for (_j = 0; _j <= _i; _j++, _ij++) buf[_i*nao+_j] = tril[_ij];
+    //(*fmmm)(vout+ij_pair*row_id, buf, buf+nao*nao, envs, 0);//vout=bufpp,row_id=i,buf=reshaped eri row
+    double * _buf = buf + nao*nao;
+    double * _eri = buf ;
+    double * _vout = bufpp + ij_pair*i;
+    const double D0 = 0;
+    const double D1 = 1;
+    const char SIDE_L = 'L';
+    const char UPLO_U = 'U';
+    const char TRANS_T = 'T';
+    const char TRANS_N = 'N';
+    int i_start = bra_start;
+    int j_start = ket_start;
+    // C_pi (pq| = (iq|, where (pq| is in C-order
+    dsymm_(&SIDE_L, &UPLO_U, &nao, &i_count,
+	   &D1, _eri, &nao, mo_coeff+i_start*nao, &nao,
+	   &D0, _buf, &nao);
+    // C_qj (iq| = (ij|
+    dgemm_(&TRANS_T, &TRANS_N, &j_count, &i_count, &nao,
+	   &D1, mo_coeff+j_start*nao, &nao, _buf, &nao,
+	   &D0, _vout, &j_count);
+  }
 }
 
+/* ---------------------------------------------------------------------- */
+
+void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
+                              py::array_t<double> _umat, py::array_t<double> _h2eff_sub)
+{
+  printf("LIBGPU :: Error missing update_h2eff_sub() for host...\n");
+  exit(1);
+}
+
+/* ---------------------------------------------------------------------- */
+
+void Device::get_h2eff_df(py::array_t<double> _cderi, py::array_t<double> _mo_cas, py::array_t<double> _mo_coeff,
+                          bool mem_enough_int, int nao, int nmo, int ncore, int ncas, int naux, int blksize, 
+                          py::array_t<double> _bmuP1, py::array_t<double> eri1)
+{
+  printf("LIBGPU :: Error missing get_h2eff_df() for host...\n");
+  exit(1);
+}
 #endif

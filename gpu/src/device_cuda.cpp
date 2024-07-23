@@ -1481,9 +1481,9 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   t_array[6] += t1 - t0;
 #endif
 }
-#endif
 
 /* ---------------------------------------------------------------------- */
+
 void Device::get_h2eff_df(py::array_t<double> _cderi, py::array_t<double> _mo_cas, py::array_t<double> _mo_coeff,
                           bool mem_enough_int, int nao, int nmo, int ncore, int ncas, int naux, int blksize, 
                           py::array_t<double> _bmuP1, py::array_t<double> eri1)
@@ -1544,3 +1544,4 @@ void Device::get_h2eff_df(py::array_t<double> _cderi, py::array_t<double> _mo_ca
   //pm->dev_free(d_mo_cas);
   //pm->dev_free(d_mo_coeff);
 }
+#endif

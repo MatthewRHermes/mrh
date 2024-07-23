@@ -81,8 +81,10 @@ Device::Device()
     
     device_data[i].d_pumap_ptr = nullptr;
     
+#if defined (_USE_GPU)
     device_data[i].handle = nullptr;
     device_data[i].stream = nullptr;
+#endif
   }
 
 #ifdef _DEBUG_OPENMP
@@ -193,10 +195,12 @@ Device::~Device()
     dd->size_pumap.clear();
     dd->pumap.clear();
     dd->d_pumap.clear();
-    
+
+#if defined (_USE_GPU)
     if(dd->handle) cublasDestroy(dd->handle);
     
     if(dd->stream) pm->dev_stream_destroy(dd->stream);
+#endif
   }
 
   printf("LIBGPU :: Finished\n");
