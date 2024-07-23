@@ -128,20 +128,23 @@ class ImpuritySCF (scf.hf.SCF):
         df_eris_mem_error = MemoryError (("Density-fitted two-electron integrals in asynchronous "
                                           "LASSCF (outcore algorithm is not yet supported"))
         if getattr (mf, 'with_df', None) is not None:
-            # TODO: impurity outcore cderi
-            if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
-                raise df_eris_mem_error
-            self.with_df._cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
-                                            dtype=imporb_coeff.dtype)
-            ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
-                                                                        compact=True)
-            b0 = 0
-            for eri1 in mf.with_df.loop ():
-                b1 = b0 + eri1.shape[0]
-                eri2 = self._cderi[b0:b1]
-                eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
-                                           out=eri2)
-                b0 = b1
+            if getattr (self, 'with_df', None) is not None:
+                # TODO: impurity outcore cderi
+                if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
+                    raise df_eris_mem_error
+                self.with_df._cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
+                                                dtype=imporb_coeff.dtype)
+                ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
+                                                                            compact=True)
+                b0 = 0
+                for eri1 in mf.with_df.loop ():
+                    b1 = b0 + eri1.shape[0]
+                    eri2 = self._cderi[b0:b1]
+                    eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
+                                               out=eri2)
+                    b0 = b1
+            else:
+                self._eri = self.with_df.ao2mo (imporb_coeff, compact=True)
         else:
             if getattr (mf, '_eri', None) is None:
                 if not mf._is_mem_enough ():
@@ -806,6 +809,12 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF, ImpuritySolver):
         return g_orb, my_gorb_update, my_h_op, h_diag
 
 class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
+    def _init_dms_(self, casdm1frs, casdm2fr):
+        lasci_sync.LASCI_HessianOperator._init_dms_(self, casdm1frs, casdm2fr)
+        ncore, nocc, nroots = self.ncore, self.nocc, self.nroots
+        self.dm1rs = np.stack ([self.dm1s,]*nroots, axis=0)
+        self.dm1rs[:,:,ncore:nocc,ncore:nocc] = self.casdm1rs
+
     def _init_ham_(self, h2eff_sub, veff):
         lasci_sync.LASCI_HessianOperator._init_ham_(self, h2eff_sub, veff)
         las, mo_coeff, ncore, nocc = self.las, self.mo_coeff, self.ncore, self.nocc
@@ -821,6 +830,7 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
             i = sum (self.ncas_sub[:ix])
             j = i + self.ncas_sub[ix]
             h1rs[:,:,:,:] += self.h1rs[:,:,i:j,i:j]
+            # NOTE: this accounts for ci_response_diag 
 
     def _init_orb_(self):
         lasci_sync.LASCI_HessianOperator._init_orb_()
@@ -828,11 +838,76 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
             dh1s = h1s[:,ncore:nocc,ncore:nocc] - self.h1s[:,ncore:nocc,ncore:nocc]
             self.fock1[:,ncore:nocc] += w * (dh1s[0] @ casdm1s[0] + dh1s[1] @ casdm1s[1])
 
-    # TODO: update hessian-vector elements
+    def ci_response_offdiag (self, kappa1, h1s_prime):
+        ncore, nocc, ncas_sub, nroots = self.ncore, self.nocc, self.ncas_sub, self.nroots
+        kappa1_cas = kappa1[ncore:nocc,:]
+        h1frs = [np.zeros_like (h1) for h1 in h1frs_prime]
+        ## edit begin for hcore_rs
+        h1rs_cas = self.h1rs[:,:,:,ncore:nocc]
+        h1_core = -np.tensordot (kappa1_cas, h1rs_cas, axes=((1),(2))).transpose (1,2,0,3)
+        h1_core += h1_core.transpose (0,1,3,2)
+        ## edit end for hcore_rs
+        h2 = -np.tensordot (kappa1_cas, self.eri_paaa, axes=1)
+        h2 += h2.transpose (2,3,0,1)
+        h2 += h2.transpose (1,0,3,2)
+        # ^ h2 should also include + h.c.
+        for j, casdm1s in enumerate (self.casdm1rs):
+            for i, (h1rs, h1rs_prime) in enumerate (zip (h1frs, h1frs_prime)):
+                k = sum (ncas_sub[:i])
+                l = k + ncas_sub[i]
+                h1s, h1s_prime = h1rs[j], h1rs_prime[j]
+                dm1s = casdm1s.copy ()
+                dm1s[:,k:l,k:l] = 0.0 # no double-counting
+                dm1 = dm1s.sum (0)
+                h1s[:,:,:] = h1_core[j][:,k:l,k:l].copy ()
+                h1s[:,:,:] += np.tensordot (h2, dm1, axes=2)[None,k:l,k:l]
+                h1s[:,:,:] -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))[:,k:l,k:l]
+                #h1s[:,:,:] += h1s.transpose (0,2,1)
+                h1s[:,:,:] += h1s_prime[:,:,:]
+        Kci0 = self.Hci_all (None, h1frs, h2, self.ci)
+        Kci0 = [[Kc - c*(c.dot (Kc)) for Kc, c in zip (Kcr, cr)]
+                for Kcr, cr in zip (Kci0, self.ci)]
+        # ^ The definition of the unitary group generator compels you to do this always!!!
+        return Kci0
+
+    def orbital_response (self, kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime):
+        kappa2 = lasci_sync.LASCI_Hessian_operator.orbital_response (
+            self, kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime
+        )
+        h1rs = self.h1rs - self.h1s[None,:,:,:]
+        odm1rs = -np.dot (self.dm1rs, kappa1)
+        odm1rs += odm1rs.transpose (0,1,3,2)
+        edm1rs = odm1rs + tdm1rs
+        for w, h, d in zip (self.weights, h1rs, edm1rs):
+            fock1 = h[0] @ d[0] + h[1] @ d[1]
+            kappa2 += w * (fock1 - fock1.T)
+        return kappa2
 
 class ImpurityLASCI (lasci.LASCINoSymm):
     _hop = ImpurityLASCI_HessianOperator
-    # TODO: get_grad_orb, but it's actually only used for debugging in the kernel
+
+    def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=None, hermi=-1):
+        gorb = lasci.LASCINoSymm.get_grad_orb (las, mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub,
+                                               veff=veff, dm1s=dm1s, hermi=hermi)
+        if mo_coeff is None: mo_coeff = las.mo_coeff
+        nao, nmo = las.mo_coeff.shape
+        ncore, ncas = las.ncore, las.ncas
+        nocc = ncore + ncas
+        mo_cas = mo_coeff[:,ncore:nocc]
+        dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_cas)
+        dh1_rs = np.tensordot (mo_coeff.conj (), dh1_rs, axes=((0),(2))).transpose (1,2,0,3)
+        casdm1rs = las.states_make_casdm1s (ci=ci)
+        f = np.zeros ((nmo,nmo), dtype=gorb.dtype)
+        for w, h, d in zip (las.weights, dh1_rs, casdm1rs):
+            f[:,ncore:nocc] += w * (h[0] @ d[0] + h[1] @ d[1])
+        if hermi == -1:
+            return gorb + f - f.T
+        elif hermi == 1:
+            return gorb + .5*(f+f.T)
+        elif hermi == 0:
+            return gorb + f
+        else:
+            raise ValueError ("kwarg 'hermi' must = -1, 0, or +1")
 
     def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None,
                      ncas_sub=None, nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None,
@@ -902,6 +977,39 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
     imc.__dict__.update (glob)
     imc.__dict__.update (params.get (ifrag, {}))
     return imc
+
+def get_pair_lasci (las, frags):
+    stdout = getattr (las, '_flas_stdout', None)
+    if stdout is not None: stdout = stdout.get (unfrozen_frags, None)
+    output = getattr (las.mol, 'output', None)
+    if not ((output is None) or (output=='/dev/null')):
+        output = output + '.' + '.'.join ([str (s) for s in frags])
+    imol = ImpurityMole (las, output=output, stdout=stdout)
+    imf = ImpurityHF (imol)
+    ncas_sub = [las.ncas_sub[i] for i in frags]
+    nelecas_sub = [las.nelecas_sub[i] for i in frags]
+    ilas = ImpurityLASCI (imf, ncas_sub, nelecas_sub)
+    charges, spins, smults, wfnsyms = lasci.get_space_info (las)
+    ilas.state_average_(weights=las.weights, charges=charges[:,frags], spins=spins[:,frags],
+                        smults=smults[:,frags], wfnsyms=wfnsyms[:,frags])
+    def imporb_builder (mo_coeff, dm1s, veff, fock1, **kwargs):
+        idx = np.zeros (mo_coeff.shape[1], dtype=bool)
+        for ix in frags:    
+            i = ncore + sum (las.ncas_sub[:ix])
+            j = i + las.ncas_sub[ix]
+            idx[i:j] = True
+        fo_coeff = mo_coeff[:,idx]
+        nelec_f = sum ([sum (n) for n in nelecas_sub])
+        return fo_coeff, nelec_f
+    ilas._imporb_builder = imporb_builder
+    params = getattr (las, 'relax_params', {})
+    glob = {key: val for key, val in params.items () if isinstance (key, str)}
+    glob = {key: val for key, val in glob.items () if key not in ('frozen', 'frozen_ci')}
+    ilas.__dict__.update (glob)
+    loc = params.get (tuple (frags), {})
+    loc = {key: val for key, val in loc.items () if key not in ('frozen', 'frozen_ci')}
+    ilas.__dict__.update (loc)
+    return ilas
 
 if __name__=='__main__':
     from mrh.tests.lasscf.c2h6n4_struct import structure as struct
