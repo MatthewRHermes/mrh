@@ -5,7 +5,7 @@ from pyscf import lib
 from pyscf.lo import orth
 from pyscf.scf.rohf import get_roothaan_fock
 from mrh.my_pyscf.mcscf import lasci, _DFLASCI
-from mrh.my_pyscf.mcscf.lasscf_async import keyframe
+from mrh.my_pyscf.mcscf.lasscf_async import keyframe, crunch
 
 # TODO: symmetry
 def orth_orb (las, kf2_list, kf_ref=None):
@@ -222,6 +222,10 @@ def combine_pair (las, kf1, kf2, kf_ref=None):
     kf3 = orth_orb (las, [kf1, kf2], kf_ref=kf_ref)
     i, j = select_aa_block (las, kf1.frags, kf2.frags, kf3.fock1)
     kf3 = relax (las, kf3, freeze_inactive=True, unfrozen_frags=(i,j))
+    #pair = crunch.get_pair_lasci (las, (i,j))
+    #pair._pull_keyframe_(kf3)
+    #pair.kernel ()
+    #kf3 = pair._push_keyframe (kf3)
     kf3.frags = kf1.frags.union (kf2.frags)
     return kf3
 

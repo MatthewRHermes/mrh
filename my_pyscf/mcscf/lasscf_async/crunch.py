@@ -883,7 +883,7 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
             kappa2 += w * (fock1 - fock1.T)
         return kappa2
 
-class ImpurityLASCI (lasci.LASCINoSymm):
+class ImpurityLASCI (lasci.LASCINoSymm, ImpuritySolver):
     _hop = ImpurityLASCI_HessianOperator
 
     def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=None, hermi=-1):
@@ -980,7 +980,7 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
 
 def get_pair_lasci (las, frags):
     stdout = getattr (las, '_flas_stdout', None)
-    if stdout is not None: stdout = stdout.get (unfrozen_frags, None)
+    if stdout is not None: stdout = stdout.get (frags, None)
     output = getattr (las.mol, 'output', None)
     if not ((output is None) or (output=='/dev/null')):
         output = output + '.' + '.'.join ([str (s) for s in frags])
@@ -995,13 +995,14 @@ def get_pair_lasci (las, frags):
     def imporb_builder (mo_coeff, dm1s, veff, fock1, **kwargs):
         idx = np.zeros (mo_coeff.shape[1], dtype=bool)
         for ix in frags:    
-            i = ncore + sum (las.ncas_sub[:ix])
+            i = las.ncore + sum (las.ncas_sub[:ix])
             j = i + las.ncas_sub[ix]
             idx[i:j] = True
         fo_coeff = mo_coeff[:,idx]
         nelec_f = sum ([sum (n) for n in nelecas_sub])
         return fo_coeff, nelec_f
     ilas._imporb_builder = imporb_builder
+    ilas._ifrags = frags
     params = getattr (las, 'relax_params', {})
     glob = {key: val for key, val in params.items () if isinstance (key, str)}
     glob = {key: val for key, val in glob.items () if key not in ('frozen', 'frozen_ci')}
