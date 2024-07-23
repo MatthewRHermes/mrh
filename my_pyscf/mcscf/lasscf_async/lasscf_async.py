@@ -57,7 +57,7 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
             kf2_list.append (impurity._push_keyframe (kf1))
 
         # 3. Combine from fragments. It should not be necessary to do this in any particular order,
-        #    and it should be possible to do March Madness tournament style; e.g.:
+        #    and the below does it March Madness tournament style; e.g.:
         #
         #       kf2_list[0] --- kf2_list[1]     kf2_list[2] --- kf2_list[3]
         #                    |                               |
@@ -65,10 +65,18 @@ def kernel (las, mo_coeff=None, ci0=None, conv_tol_grad=1e-4,
         #                                    |
         #                                   kf2
         #
-        kf2 = kf2_list[0]
-        for kf3 in kf2_list[1:]:
-            kf2 = combine.combine_pair (las, kf2, kf3, kf_ref=kf1)
-        kf1 = kf2
+        nkf = len (kf2_list)
+        ncyc = int (np.ceil (np.log2 (nkf)))
+        for i in range (int (np.ceil (np.log2 (nkf)))):
+            nkfi = len (kf2_list)
+            kf3_list = []
+            for kf2, kf3 in zip (kf2_list[::2],kf2_list[1::2]):
+                kf3_list.append (combine.combine_pair (las, kf2, kf3, kf_ref=kf1))
+            if nkfi%2: kf3_list.insert (len(kf3_list)-1, kf2_list[-1])
+            # Insert this at second-to-last position so that it gets "mixed in" next cycle
+            kf2_list = kf3_list
+        assert (len (kf2_list) == 1)
+        kf1 = kf2_list[0]
 
         # Evaluate status and break if converged
         e_tot = las.energy_nuc () + las.energy_elec (
