@@ -324,13 +324,7 @@ def casci_kernel(casci, mo_coeff=None, ci0=None, verbose=logger.NOTE, envs=None)
     return e_tot, e_cas, fcivec
 
 # This is the really tricky part
-class ImpurityCASSCF (mcscf.mc1step.CASSCF):
-
-    # make sure the fcisolver flag dump goes to the fragment output file,
-    # not the main output file
-    def dump_flags (self, verbose=None):
-        with lib.temporary_env (self.fcisolver, stdout=self.stdout):
-            mcscf.mc1step.CASSCF.dump_flags(self, verbose=verbose)
+class ImpuritySolver ():
 
     def _push_keyframe (self, kf1, mo_coeff=None, ci=None):
         '''Generate the whole-system MO and CI vectors corresponding to the current state of this
@@ -354,18 +348,20 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         if ci is None: ci=self.ci
         log = logger.new_logger (self, self.verbose)
         kf2 = kf1.copy ()
-        kf2.frags = set ([self._ifrag,])
+        kf2.frags = set (self._ifrags)
         imporb_coeff = self.mol.get_imporb_coeff ()
         mo_self = imporb_coeff @ mo_coeff
         las = self.mol._las
 
         # active orbital part should be easy
-        kf2.ci[self._ifrag] = self.ci
-        i = las.ncore + sum (las.ncas_sub[:self._ifrag])
-        j = i + las.ncas_sub[self._ifrag]
-        k = self.ncore
-        l = k + self.ncas
-        kf2.mo_coeff[:,i:j] = mo_self[:,k:l]
+        ci = self.ci if len (self._ifrags)>1 else [self.ci,]
+        for ix, ifrag in enumerate (self._ifrags):
+            kf2.ci[ifrag] = ci[ix]
+            i = las.ncore + sum (las.ncas_sub[:ifrag])
+            j = i + las.ncas_sub[ifrag]
+            k = self.ncore
+            l = k + self.ncas
+            kf2.mo_coeff[:,i:j] = mo_self[:,k:l]
 
         # Unentangled inactive orbitals
         s0 = las._scf.get_ovlp ()
@@ -452,14 +448,16 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
     def _update_trial_state_(self, mo_coeff, ci, veff, dm1s):
         '''Project whole-molecule MO coefficients and CI vectors into the
         impurity space and store on self.mo_coeff; self.ci.'''
-        _ifrag = self._ifrag
         las = self.mol._las
         mf = las._scf
         log = logger.new_logger(self, self.verbose)
 
+        ci = [ci[ifrag] for ifrag in self._ifrags]
+        if len (self._ifrags)==1: ci = ci[0]
+        self.ci = ci
+
         # Project mo_coeff and ci keyframe into impurity space and cache
         imporb_coeff = self.mol.get_imporb_coeff ()
-        self.ci = ci[_ifrag]
         # Inactive orbitals
         mo_core = mo_coeff[:,:las.ncore]
         s0 = mf.get_ovlp ()
@@ -472,9 +470,12 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
             log.warn ("pull_keyframe imporb problem: <i|P_emb|i> = %e", evals[idx])
         # Active and virtual orbitals (note self.ncas must be set at construction)
         nocc = self.ncore + self.ncas
-        i = las.ncore + sum (las.ncas_sub[:_ifrag])
-        j = i + las.ncas_sub[_ifrag]
-        mo_las = mo_coeff[:,i:j]
+        mo_las = []
+        for ifrag in self._ifrags:
+            i = las.ncore + sum (las.ncas_sub[:ifrag])
+            j = i + las.ncas_sub[ifrag]
+            mo_las.append (mo_coeff[:,i:j])
+        mo_las = np.concatenate (mo_las, axis=1)
         ovlp = (imporb_coeff @ self.mo_coeff[:,self.ncore:]).conj ().T @ s0 @ mo_las
         u, svals, vh = linalg.svd (ovlp)
         if (self.ncas>0) and not (np.allclose (svals[:self.ncas],1)):
@@ -501,7 +502,6 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
         impurity objects'''
         las = self.mol._las
-        _ifrag = self._ifrag
         if h2eff_sub is None: h2eff_sub = las.ao2mo (mo_coeff)
         if e_states is None: e_states = las.energy_nuc () + las.states_energy_elec (
             mo_coeff=mo_coeff, ci=ci, h2eff=h2eff_sub)
@@ -528,9 +528,10 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
         dm1rs_full = las.states_make_casdm1s (ci=ci)
         dm1s_full = np.tensordot (self.fcisolver.weights, dm1rs_full, axes=1)
         dm1rs_stateshift = dm1rs_full - dm1s_full
-        i = sum (las.ncas_sub[:_ifrag])
-        j = i + las.ncas_sub[_ifrag]
-        dm1rs_stateshift[:,:,i:j,:] = dm1rs_stateshift[:,:,:,i:j] = 0
+        for ifrag in self._ifrags:
+            i = sum (las.ncas_sub[:ifrag])
+            j = i + las.ncas_sub[ifrag]
+            dm1rs_stateshift[:,:,i:j,:] = dm1rs_stateshift[:,:,:,i:j] = 0
         bmPu = getattr (h2eff_sub, 'bmPu', None)
         vj_r = self.get_vj_ext (mo_cas_full, dm1rs_stateshift.sum(1), bmPu=bmPu)
         vk_rs = self.get_vk_ext (mo_cas_full, dm1rs_stateshift, bmPu=bmPu)
@@ -590,6 +591,14 @@ class ImpurityCASSCF (mcscf.mc1step.CASSCF):
 
     def energy_nuc_r (self):
         return self._scf.energy_nuc () + self._imporb_h0_stateshift
+
+class ImpurityCASSCF (mcscf.mc1step.CASSCF, ImpuritySolver):
+
+    # make sure the fcisolver flag dump goes to the fragment output file,
+    # not the main output file
+    def dump_flags (self, verbose=None):
+        with lib.temporary_env (self.fcisolver, stdout=self.stdout):
+            mcscf.mc1step.CASSCF.dump_flags(self, verbose=verbose)
 
     def get_h1eff (self, mo_coeff=None, ncas=None, ncore=None):
         ''' must needs change the dimension of h1eff '''
@@ -808,7 +817,7 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
     if isinstance (las, _DFLASCI):
         imc = df.density_fit (imc)
     imc = _state_average_mcscf_solver (imc, las.fciboxes[ifrag])
-    imc._ifrag = ifrag
+    imc._ifrags = [ifrag,]
     if imporb_builder is not None:
         imporb_builder.log = logger.new_logger (imc, imc.verbose)
     imc._imporb_builder = imporb_builder
