@@ -129,6 +129,15 @@ void libgpu_get_dfobj_status(void * ptr, size_t addr_dfobj, py::array_t<int> arg
 
 /* ---------------------------------------------------------------------- */
 
+void libgpu_transfer_mo_coeff(void * ptr,
+                              py::array_t<double> mo_coeff, int size_mo_coeff)
+{
+  Device * dev = (Device *) ptr;
+  dev->transfer_mo_coeff(mo_coeff, size_mo_coeff);
+}
+
+/* ---------------------------------------------------------------------- */
+
 void libgpu_df_ao2mo_pass1_fdrv(void * ptr,
 			    int naux, int nmo, int nao, int blksize,
 			py::array_t<double> bufpp, py::array_t<double> mo,
@@ -165,13 +174,13 @@ void libgpu_update_h2eff_sub(void * ptr,
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_get_h2eff_df(void * ptr, 
-                           py::array_t<double> cderi, py::array_t<double> mo_cas, py::array_t<double> mo_coeff, 
-                           bool mem_enough_int, int nao, int nmo, int ncore, int ncas, int naux, int blksize,
-                           py::array_t<double> bmuP1, py::array_t<double> eri1) 
+void libgpu_h2eff_df_contract1(void * ptr, 
+                           py::array_t<double> cderi, 
+                           int nao, int nmo, int ncas, int naux, int blksize,
+                           py::array_t<double> mo_cas,py::array_t<double> bmuP1)
 {
   Device * dev = (Device *) ptr;
-  dev->get_h2eff_df(cderi, mo_cas, mo_coeff, mem_enough_int, nao, nmo, ncore, ncas, naux, blksize, bmuP1, eri1);
+  dev->h2eff_df_contract1(cderi, nao, nmo, ncas, naux, blksize, mo_cas, bmuP1); 
 }
 
 /* ---------------------------------------------------------------------- */

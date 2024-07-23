@@ -1329,9 +1329,9 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
           if(np.allclose(h2eff_sub,h2eff_sub2,atol=1e-13)): print('H2eff test passed')
           else:print('H2eff gpu kernel is not working');print(np.max((h2eff_sub-h2eff_sub2)*(h2eff_sub-h2eff_sub2)));exit()
         elif gpu:
-          h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub) 
+          h2eff_sub = self._update_h2eff_sub_gpu (gpu, mo1, umat, h2eff_sub,log, t0) 
         else:
-          h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub) 
+          h2eff_sub = self._update_h2eff_sub (mo1, umat, h2eff_sub,log,t0) 
         t0=log.timer('update_h2eff_sub',*t0)
         return mo1, ci1, h2eff_sub
 
@@ -1356,23 +1356,27 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
                 ci1_r.append (c1)
             ci1.append (ci1_r)
         return ci1
-    
-    def _update_h2eff_sub_gpu(self,gpu,mo1,umat,h2eff_sub):
+
+    def _update_h2eff_sub_gpu(self,gpu,mo1,umat,h2eff_sub,log,t0):
         ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
         ucas = umat[ncore:nocc, ncore:nocc]
         bmPu = None
         if hasattr (h2eff_sub, 'bmPu'): bmPu = h2eff_sub.bmPu
+        t0 = log.timer('setup',*t0)
         libgpu.libgpu_update_h2eff_sub(gpu,self.ncore,self.ncas,self.nocc,self.nmo,umat, h2eff_sub)
+        t0 = log.timer('libgpu call to h2eff_update',*t0)
         if bmPu is not None:
             bmPu = np.dot (bmPu, ucas)
             h2eff_sub = lib.tag_array (h2eff_sub, bmPu = bmPu)
+        t0 = log.timer('bmPu work',*t0)
         return h2eff_sub
     
-    def _update_h2eff_sub (self, mo1, umat, h2eff_sub):
+    def _update_h2eff_sub (self, mo1, umat, h2eff_sub, log, t0):
         ncore, ncas, nocc, nmo = self.ncore, self.ncas, self.nocc, self.nmo
         ucas = umat[ncore:nocc, ncore:nocc]
         bmPu = None
         if hasattr (h2eff_sub, 'bmPu'): print('here');bmPu = h2eff_sub.bmPu
+        t0 = log.timer('setup',*t0)
         h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
         h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
         h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
@@ -1384,9 +1388,11 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas*ncas)
         h2eff_sub = h2eff_sub[:,:,(ix_i*ncas)+ix_j]
         h2eff_sub = h2eff_sub.reshape (nmo, -1)
+        t0 = log.timer('big math',*t0)
         if bmPu is not None:
             bmPu = np.dot (bmPu, ucas)
             h2eff_sub = lib.tag_array (h2eff_sub, bmPu = bmPu)
+        t0 = log.timer('bmPu work',*t0)
         return h2eff_sub
 
     def get_grad (self):
