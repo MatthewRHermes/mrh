@@ -40,12 +40,12 @@ def _run_mod (mod):
 class KnownValues (unittest.TestCase):
 
     def test_implementations (self):
-        las_syn = _run_mod (syn)
-        with self.subTest ('synchronous calculation converged'):
-            self.assertTrue (las_syn.converged)
         las_asyn = _run_mod (asyn)
         with self.subTest ('asynchronous calculation converged'):
             self.assertTrue (las_asyn.converged)
+        las_syn = _run_mod (syn)
+        with self.subTest ('synchronous calculation converged'):
+            self.assertTrue (las_syn.converged)
         with self.subTest ('average energy'):
             self.assertAlmostEqual (las_syn.e_tot, las_asyn.e_tot, 8)
         for i in range (5):

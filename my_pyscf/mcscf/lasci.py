@@ -465,7 +465,8 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
 
     # I/O
     log = lib.logger.new_logger (las, las.verbose)
-    if las.verbose >= lib.logger.INFO:
+    label = las.mol.ao_labels()
+    if las.verbose >= lib.logger.INFO and len (label) == mo_coeff.shape[0]:
         if is_block_diag:
             for isub, nlas in enumerate (ncas_sub):
                 log.info ("Fragment %d natural orbitals", isub)
@@ -473,14 +474,12 @@ def canonicalize (las, mo_coeff=None, ci=None, casdm1fs=None, natorb_casdm1=None
                 j = i + nlas
                 log.info ('Natural occ %s', str (mo_occ[i:j]))
                 log.info ('Natural orbital (expansion on AOs) in CAS space')
-                label = las.mol.ao_labels()
                 mo_las = mo_coeff[:,i:j]
                 dump_mat.dump_rec(log.stdout, mo_las, label, start=1)
         else:
             log.info ("Delocalized natural orbitals do not reflect LAS fragmentation")
             log.info ('Natural occ %s', str (mo_occ[ncore:nocc]))
             log.info ('Natural orbital (expansion on AOs) in CAS space')
-            label = las.mol.ao_labels()
             mo_las = mo_coeff[:,ncore:nocc]
             dump_mat.dump_rec(log.stdout, mo_las, label, start=1)
 

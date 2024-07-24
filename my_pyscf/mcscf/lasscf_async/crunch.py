@@ -66,8 +66,10 @@ class ImpurityMole (gto.Mole):
                 dic1 = {}
                 for k,v in dic.items():
                     if (v is None or
-                        isinstance(v, (str, unicode, bool, int, float))):
+                        isinstance(v, (str, bool, int, float))):
                         dic1[k] = v
+                    elif isinstance(v, np.integer):
+                        dic1[k] = int (v)
                     elif isinstance(v, (list, tuple)):
                         dic1[k] = v   # Should I recursively skip_vaule?
                     elif isinstance(v, set):
@@ -358,13 +360,13 @@ class ImpuritySolver ():
 
         # active orbital part should be easy
         ci = self.ci if len (self._ifrags)>1 else [self.ci,]
+        idx = []
         for ix, ifrag in enumerate (self._ifrags):
             kf2.ci[ifrag] = ci[ix]
             i = las.ncore + sum (las.ncas_sub[:ifrag])
             j = i + las.ncas_sub[ifrag]
-            k = self.ncore
-            l = k + self.ncas
-            kf2.mo_coeff[:,i:j] = mo_self[:,k:l]
+            idx.extend (list (range (i,j)))
+        kf2.mo_coeff[:,idx] = mo_self[:,self.ncore:self.ncore+self.ncas]
 
         # Unentangled inactive orbitals
         s0 = las._scf.get_ovlp ()
@@ -501,7 +503,8 @@ class ImpuritySolver ():
             w, c = linalg.eigh (fock_virt)
             self.mo_coeff[:,nocc:] = mo_virt @ c
 
-    def _update_impurity_hamiltonian_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None, dm1s=None):
+    def _update_impurity_hamiltonian_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None,
+                                      dm1s=None, casdm1rs=None, casdm2rs=None, weights=None):
         '''Update the Hamiltonian data contained within this impurity solver and all encapsulated
         impurity objects'''
         las = self.mol._las
@@ -513,15 +516,20 @@ class ImpuritySolver ():
         if veff is None: veff = las.get_veff (dm1s=dm1s, spin_sep=True)
         nocc = self.ncore + self.ncas
 
+        # Default these to the "CASSCF" way of making them
+        if weights is None: weights = self.fcisolver.weights
+        if casdm1rs is None or casdm2rs is None:
+            casdm1rs, casdm2rs = self.fcisolver.states_make_rdm12s (self.ci,self.ncas,self.nelecas)
+            casdm1rs = np.stack (casdm1rs, axis=1)
+            casdm2rs = np.stack (casdm2rs, axis=1)
+
         # Set underlying SCF object Hamiltonian to state-averaged Heff
         self._scf._update_impham_1_(veff, dm1s, e_tot=e_tot)
-        casdm1rs, casdm2rs = self.fcisolver.states_make_rdm12s (self.ci, self.ncas, self.nelecas)
-        casdm1rs = np.stack (casdm1rs, axis=1)
-        casdm2sr = np.stack (casdm2rs, axis=0)
+        casdm2sr = casdm2rs.transpose (1,0,2,3,4,5)
         casdm2r = casdm2sr[0] + casdm2sr[1] + casdm2sr[1].transpose (0,3,4,1,2) + casdm2sr[2]
-        casdm1s = np.tensordot (self.fcisolver.weights, casdm1rs, axes=1)
-        casdm2 = np.tensordot (self.fcisolver.weights, casdm2r, axes=1)
-        eri_cas = ao2mo.restore (1, self.get_h2eff (self.mo_coeff), self.ncas)
+        casdm1s = np.tensordot (weights, casdm1rs, axes=1)
+        casdm2 = np.tensordot (weights, casdm2r, axes=1)
+        eri_cas = ao2mo.restore (1, self.get_h2cas (self.mo_coeff), self.ncas)
         mo_core = self.mo_coeff[:,:self.ncore]
         mo_cas = self.mo_coeff[:,self.ncore:nocc]
         self._scf._update_impham_2_(mo_core, mo_cas, casdm1s, casdm2, eri_cas)
@@ -529,7 +537,7 @@ class ImpuritySolver ():
         # Set state-separated Hamiltonian 1-body
         mo_cas_full = mo_coeff[:,las.ncore:][:,:las.ncas]
         dm1rs_full = las.states_make_casdm1s (ci=ci)
-        dm1s_full = np.tensordot (self.fcisolver.weights, dm1rs_full, axes=1)
+        dm1s_full = np.tensordot (weights, dm1rs_full, axes=1)
         dm1rs_stateshift = dm1rs_full - dm1s_full
         for ifrag in self._ifrags:
             i = sum (las.ncas_sub[:ifrag])
@@ -821,11 +829,11 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
         h1s_sz = mo_coeff.conj ().T @ las._scf.get_hcore_sz () @ mo_coeff
         self.h1s[0] += h1s_sz
         self.h1s[1] -= h1s_sz
-        self.h1s_cas[0] += h1s_sz[:,:,ncore:nocc]
-        self.h1s_cas[1] -= h1s_sz[:,:,ncore:nocc]
-        self.e_tot += np.dot (h1s_sz.ravel (), (dm1s[0] - dm1s[1]).ravel ())
+        self.h1s_cas[0] += h1s_sz[:,ncore:nocc]
+        self.h1s_cas[1] -= h1s_sz[:,ncore:nocc]
+        self.e_tot += np.dot (h1s_sz.ravel (), (self.dm1s[0] - self.dm1s[1]).ravel ())
         self.h1rs = np.dot (las.get_hcore_rs (), mo_coeff)
-        self.h1rs = np.tensordot (mo_coeff.conj (), h1rs, axes=((0),(2))).reshape (1,2,0,3)
+        self.h1rs = np.tensordot (mo_coeff.conj (), self.h1rs, axes=((0),(2))).transpose (1,2,0,3)
         for ix, h1rs in enumerate (self.h1frs):
             i = sum (self.ncas_sub[:ix])
             j = i + self.ncas_sub[ix]
@@ -833,12 +841,13 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
             # NOTE: this accounts for ci_response_diag 
 
     def _init_orb_(self):
-        lasci_sync.LASCI_HessianOperator._init_orb_()
+        ncore, nocc = self.ncore, self.nocc
+        lasci_sync.LASCI_HessianOperator._init_orb_(self)
         for w, h1s, casdm1s in zip (self.weights, self.h1rs, self.casdm1rs):
             dh1s = h1s[:,ncore:nocc,ncore:nocc] - self.h1s[:,ncore:nocc,ncore:nocc]
             self.fock1[:,ncore:nocc] += w * (dh1s[0] @ casdm1s[0] + dh1s[1] @ casdm1s[1])
 
-    def ci_response_offdiag (self, kappa1, h1s_prime):
+    def ci_response_offdiag (self, kappa1, h1frs_prime):
         ncore, nocc, ncas_sub, nroots = self.ncore, self.nocc, self.ncas_sub, self.nroots
         kappa1_cas = kappa1[ncore:nocc,:]
         h1frs = [np.zeros_like (h1) for h1 in h1frs_prime]
@@ -871,7 +880,7 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
         return Kci0
 
     def orbital_response (self, kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime):
-        kappa2 = lasci_sync.LASCI_Hessian_operator.orbital_response (
+        kappa2 = lasci_sync.LASCI_HessianOperator.orbital_response (
             self, kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime
         )
         h1rs = self.h1rs - self.h1s[None,:,:,:]
@@ -885,6 +894,30 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
 
 class ImpurityLASCI (lasci.LASCINoSymm, ImpuritySolver):
     _hop = ImpurityLASCI_HessianOperator
+
+    def _update_impurity_hamiltonian_(self, mo_coeff, ci, h2eff_sub=None, e_states=None, veff=None,
+                                      dm1s=None, casdm1rs=None, casdm2rs=None, weights=None):
+        if weights is None: weights = self.weights
+        if casdm1rs is None: casdm1rs = self.states_make_casdm1s (ci=self.ci)
+        if casdm2rs is None: 
+            casdm2frs = self.states_make_casdm2s_sub (ci=self.ci)
+            nroots = len (casdm1rs)
+            ncas = casdm1rs[0][0].shape[0]
+            casdm2rs = np.zeros ((nroots,3,ncas,ncas,ncas,ncas), dtype=casdm1rs[0][0].dtype)
+            for d2, d1 in zip (casdm2rs, casdm1rs):
+                d1d1_aa = np.multiply.outer (d1[0], d1[0])
+                d2[0] = d1d1_aa - d1d1_aa.transpose (0,3,2,1)
+                d2[1] = np.multiply.outer (d1[0], d1[1])
+                d1d1_bb = np.multiply.outer (d1[1], d1[1])
+                d2[2] = d1d1_bb - d1d1_bb.transpose (0,3,2,1)
+            for ifrag, d2f in enumerate (casdm2frs):
+                i = sum (self.ncas_sub[:ifrag])
+                j = i + self.ncas_sub[ifrag]
+                casdm2rs[:,:,i:j,i:j,i:j,i:j] = d2f[:]
+        ImpuritySolver._update_impurity_hamiltonian_(
+            self, mo_coeff, ci, h2eff_sub=h2eff_sub, e_states=e_states, veff=veff, dm1s=dm1s,
+            casdm1rs=casdm1rs, casdm2rs=casdm2rs, weights=weights
+        )
 
     def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=None, hermi=-1):
         gorb = lasci.LASCINoSymm.get_grad_orb (las, mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub,
@@ -940,7 +973,7 @@ class ImpurityLASCI (lasci.LASCINoSymm, ImpuritySolver):
         ))
         casdm1rs = self.states_make_casdm1s (ci=ci, ncas_sub=ncas_sub, nelecas_sub=nelecas_sub,
                                              casdm1frs=casdm1frs)
-        nao, nmo = mo_shape
+        nao, nmo = mo_coeff.shape
         nocc = ncore + ncas
         mo_cas = mo_coeff[:,ncore:nocc]
         dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_cas)
