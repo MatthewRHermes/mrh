@@ -146,7 +146,7 @@ class ImpuritySCF (scf.hf.SCF):
                                                out=eri2)
                     b0 = b1
             else:
-                self._eri = self.with_df.ao2mo (imporb_coeff, compact=True)
+                self._eri = mf.with_df.ao2mo (imporb_coeff, compact=True)
         else:
             if getattr (mf, '_eri', None) is None:
                 if not mf._is_mem_enough ():
@@ -826,19 +826,23 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
     def _init_ham_(self, h2eff_sub, veff):
         lasci_sync.LASCI_HessianOperator._init_ham_(self, h2eff_sub, veff)
         las, mo_coeff, ncore, nocc = self.las, self.mo_coeff, self.ncore, self.nocc
+        h1rs = np.dot (las.get_hcore_rs (), mo_coeff)
+        h1rs = np.tensordot (mo_coeff.conj (), h1rs, axes=((0),(2))).transpose (1,2,0,3)
+        hcore = mo_coeff.conj ().T @ las.get_hcore () @ mo_coeff
+        dh1rs = h1rs - hcore[None,None,:,:]
+        for ix, h1rs in enumerate (self.h1frs):
+            i = sum (self.ncas_sub[:ix])
+            j = i + self.ncas_sub[ix]
+            h1rs[:,:,:,:] += dh1rs[:,:,i:j,i:j]
+            # NOTE: this accounts for ci_response_diag
+        self.h1rs = self.h1s[None,:,:,:] + dh1rs
+        self.h1rs_cas = self.h1s_cas[None,:,:,:] + dh1rs[:,:,:,ncore:nocc]
         h1s_sz = mo_coeff.conj ().T @ las._scf.get_hcore_sz () @ mo_coeff
         self.h1s[0] += h1s_sz
         self.h1s[1] -= h1s_sz
         self.h1s_cas[0] += h1s_sz[:,ncore:nocc]
         self.h1s_cas[1] -= h1s_sz[:,ncore:nocc]
-        self.e_tot += np.dot (h1s_sz.ravel (), (self.dm1s[0] - self.dm1s[1]).ravel ())
-        self.h1rs = np.dot (las.get_hcore_rs (), mo_coeff)
-        self.h1rs = np.tensordot (mo_coeff.conj (), self.h1rs, axes=((0),(2))).transpose (1,2,0,3)
-        for ix, h1rs in enumerate (self.h1frs):
-            i = sum (self.ncas_sub[:ix])
-            j = i + self.ncas_sub[ix]
-            h1rs[:,:,:,:] += self.h1rs[:,:,i:j,i:j]
-            # NOTE: this accounts for ci_response_diag 
+        self.e_tot += np.einsum ('rspq,rspq,r->', dh1rs, self.dm1rs, self.weights)
 
     def _init_orb_(self):
         ncore, nocc = self.ncore, self.nocc
@@ -852,8 +856,7 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
         kappa1_cas = kappa1[ncore:nocc,:]
         h1frs = [np.zeros_like (h1) for h1 in h1frs_prime]
         ## edit begin for hcore_rs
-        h1rs_cas = self.h1rs[:,:,:,ncore:nocc]
-        h1_core = -np.tensordot (kappa1_cas, h1rs_cas, axes=((1),(2))).transpose (1,2,0,3)
+        h1_core = -np.tensordot (kappa1_cas, self.h1rs_cas, axes=((1),(2))).transpose (1,2,0,3)
         h1_core += h1_core.transpose (0,1,3,2)
         ## edit end for hcore_rs
         h2 = -np.tensordot (kappa1_cas, self.eri_paaa, axes=1)
@@ -1012,16 +1015,22 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
     return imc
 
 def get_pair_lasci (las, frags):
-    stdout = getattr (las, '_flas_stdout', None)
+    stdout_dict = stdout = getattr (las, '_flas_stdout', None)
     if stdout is not None: stdout = stdout.get (frags, None)
     output = getattr (las.mol, 'output', None)
     if not ((output is None) or (output=='/dev/null')):
         output = output + '.' + '.'.join ([str (s) for s in frags])
     imol = ImpurityMole (las, output=output, stdout=stdout)
+    if stdout is None and stdout_dict is not None:
+        stdout_dict[frags] = imol.stdout
     imf = ImpurityHF (imol)
+    if isinstance (las, _DFLASCI):
+        imf = imf.density_fit ()
     ncas_sub = [las.ncas_sub[i] for i in frags]
     nelecas_sub = [las.nelecas_sub[i] for i in frags]
     ilas = ImpurityLASCI (imf, ncas_sub, nelecas_sub)
+    if isinstance (las, _DFLASCI):
+        ilas = lasci.density_fit (ilas, with_df=imf.with_df)
     charges, spins, smults, wfnsyms = lasci.get_space_info (las)
     ilas.state_average_(weights=las.weights, charges=charges[:,frags], spins=spins[:,frags],
                         smults=smults[:,frags], wfnsyms=wfnsyms[:,frags])
@@ -1036,6 +1045,8 @@ def get_pair_lasci (las, frags):
         return fo_coeff, nelec_f
     ilas._imporb_builder = imporb_builder
     ilas._ifrags = frags
+    ilas.conv_tol_grad = 'DEFAULT'
+    ilas.min_cycle_macro = 1
     params = getattr (las, 'relax_params', {})
     glob = {key: val for key, val in params.items () if isinstance (key, str)}
     glob = {key: val for key, val in glob.items () if key not in ('frozen', 'frozen_ci')}

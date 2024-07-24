@@ -221,11 +221,15 @@ def combine_pair (las, kf1, kf2, kf_ref=None):
         raise RuntimeError (errstr)
     kf3 = orth_orb (las, [kf1, kf2], kf_ref=kf_ref)
     i, j = select_aa_block (las, kf1.frags, kf2.frags, kf3.fock1)
-    kf3 = relax (las, kf3, freeze_inactive=True, unfrozen_frags=(i,j))
-    #pair = crunch.get_pair_lasci (las, (i,j))
-    #pair._pull_keyframe_(kf3)
-    #pair.kernel ()
-    #kf3 = pair._push_keyframe (kf3)
+    #kf3 = relax (las, kf3, freeze_inactive=True, unfrozen_frags=(i,j))
+    pair = crunch.get_pair_lasci (las, (i,j))
+    pair._pull_keyframe_(kf3)
+    if pair.conv_tol_grad == 'DEFAULT':
+        # Default: scale down conv_tol_grad according to size of subproblem
+        scale = np.sqrt (pair.get_ugg ().nvar_tot / las.get_ugg ().nvar_tot)
+        pair.conv_tol_grad = scale * las.conv_tol_grad
+    pair.kernel ()
+    kf3 = pair._push_keyframe (kf3)
     kf3.frags = kf1.frags.union (kf2.frags)
     return kf3
 

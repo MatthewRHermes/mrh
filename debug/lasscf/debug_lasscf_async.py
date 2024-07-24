@@ -29,6 +29,7 @@ def tearDownModule():
 
 def _run_mod (mod):
     las=mod.LASSCF(mf, (2,2), (2,2))
+    las.conv_tol_grad = 1e-7
     localize_fn = getattr (las, 'set_fragments_', las.localize_init_guess)
     mo_coeff=localize_fn (frag_atom_list, mo0)
     las.state_average_(weights=[.2,]*5,
