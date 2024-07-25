@@ -204,6 +204,20 @@ def count_common_orbitals (las, kf1, kf2, verbose=None):
 
     return ncommon_core, ncommon_active, ncommon_virt
 
+def gradient_analysis (las, kf, log):
+    ncore, ncas = las.ncore, las.ncas
+    nocc = ncore + ncas
+    gorb = kf.fock1 - kf.fock1.conj ().T
+    gci = las.get_grad_ci (mo_coeff=kf.mo_coeff, ci=kf.ci, h2eff_sub=kf.h2eff_sub, veff=kf.veff)
+    log.debug ('Inactive-virtual |g_orb|: %.15g', linalg.norm (gorb[:ncore,nocc:]))
+    for ifrag, gc in enumerate (gci):
+        i = ncore + sum (las.ncas_sub[:ifrag])
+        j = i + las.ncas_sub[ifrag]
+        log.debug ('Active fragment %d |g_orb|: %.15g ; |g_ci|: %.15g',
+                   ifrag, linalg.norm (gorb[i:j,:]), linalg.norm (gc))
+    return
+
+
 # Function from failed algorithm. May have a future use.
 def get_kappa (las, kf1, kf2):
     '''Decompose unitary matrix of orbital rotations between two keyframes as
