@@ -830,18 +830,16 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
         h1rs = np.tensordot (mo_coeff.conj (), h1rs, axes=((0),(2))).transpose (1,2,0,3)
         hcore = mo_coeff.conj ().T @ las.get_hcore () @ mo_coeff
         dh1rs = h1rs - hcore[None,None,:,:]
+        # _init_ci_ and ci_response_diag
         for ix, h1rs in enumerate (self.h1frs):
             i = sum (self.ncas_sub[:ix])
             j = i + self.ncas_sub[ix]
             h1rs[:,:,:,:] += dh1rs[:,:,i:j,i:j]
-            # NOTE: this accounts for ci_response_diag
+        # _init_orb_ and orbital_response 
         self.h1rs = self.h1s[None,:,:,:] + dh1rs
+        # ci_response_offdiag
         self.h1rs_cas = self.h1s_cas[None,:,:,:] + dh1rs[:,:,:,ncore:nocc]
-        h1s_sz = mo_coeff.conj ().T @ las._scf.get_hcore_sz () @ mo_coeff
-        self.h1s[0] += h1s_sz
-        self.h1s[1] -= h1s_sz
-        self.h1s_cas[0] += h1s_sz[:,ncore:nocc]
-        self.h1s_cas[1] -= h1s_sz[:,ncore:nocc]
+        # Energy reportback
         self.e_tot += np.einsum ('rspq,rspq,r->', dh1rs, self.dm1rs, self.weights)
 
     def _init_orb_(self):
@@ -851,36 +849,26 @@ class ImpurityLASCI_HessianOperator (lasci_sync.LASCI_HessianOperator):
             dh1s = h1s[:,ncore:nocc,ncore:nocc] - self.h1s[:,ncore:nocc,ncore:nocc]
             self.fock1[:,ncore:nocc] += w * (dh1s[0] @ casdm1s[0] + dh1s[1] @ casdm1s[1])
 
+    def _get_Horb_diag (self):
+        # It's unclear that this is even necessary...
+        Hdiag = 0
+        for w, h, d in zip (self.weights, self.h1rs, self.dm1rs):
+            with lib.temporary_env (self, h1s=h, dm1s=d):
+                Hdiag += w * lasci_sync.LASCI_HessianOperator._get_Horb_diag (self)
+        return Hdiag
+
     def ci_response_offdiag (self, kappa1, h1frs_prime):
-        ncore, nocc, ncas_sub, nroots = self.ncore, self.nocc, self.ncas_sub, self.nroots
+        ncore, nocc, ncas_sub = self.ncore, self.nocc, self.ncas_sub
         kappa1_cas = kappa1[ncore:nocc,:]
-        h1frs = [np.zeros_like (h1) for h1 in h1frs_prime]
-        ## edit begin for hcore_rs
-        h1_core = -np.tensordot (kappa1_cas, self.h1rs_cas, axes=((1),(2))).transpose (1,2,0,3)
-        h1_core += h1_core.transpose (0,1,3,2)
-        ## edit end for hcore_rs
-        h2 = -np.tensordot (kappa1_cas, self.eri_paaa, axes=1)
-        h2 += h2.transpose (2,3,0,1)
-        h2 += h2.transpose (1,0,3,2)
-        # ^ h2 should also include + h.c.
-        for j, casdm1s in enumerate (self.casdm1rs):
-            for i, (h1rs, h1rs_prime) in enumerate (zip (h1frs, h1frs_prime)):
-                k = sum (ncas_sub[:i])
-                l = k + ncas_sub[i]
-                h1s, h1s_prime = h1rs[j], h1rs_prime[j]
-                dm1s = casdm1s.copy ()
-                dm1s[:,k:l,k:l] = 0.0 # no double-counting
-                dm1 = dm1s.sum (0)
-                h1s[:,:,:] = h1_core[j][:,k:l,k:l].copy ()
-                h1s[:,:,:] += np.tensordot (h2, dm1, axes=2)[None,k:l,k:l]
-                h1s[:,:,:] -= np.tensordot (dm1s, h2, axes=((1,2),(2,1)))[:,k:l,k:l]
-                #h1s[:,:,:] += h1s.transpose (0,2,1)
-                h1s[:,:,:] += h1s_prime[:,:,:]
-        Kci0 = self.Hci_all (None, h1frs, h2, self.ci)
-        Kci0 = [[Kc - c*(c.dot (Kc)) for Kc, c in zip (Kcr, cr)]
-                for Kcr, cr in zip (Kci0, self.ci)]
-        # ^ The definition of the unitary group generator compels you to do this always!!!
-        return Kci0
+        dh1rs_cas = self.h1rs_cas - self.h1s_cas[None,:,:,:]
+        dh1_core = -np.tensordot (kappa1_cas, dh1rs_cas, axes=((1),(2)))
+        dh1_core = dh1_core.transpose (1,2,0,3) + dh1_core.transpose (1,2,3,0)
+        for i, h1rs in enumerate (h1frs_prime):
+            j = sum (ncas_sub[:i])
+            k = j + ncas_sub[i]
+            h1rs[:,:,:,:] += dh1_core[:,:,j:k,j:k]
+        return lasci_sync.LASCI_HessianOperator.ci_response_offdiag (
+            self, kappa1, h1frs_prime)
 
     def orbital_response (self, kappa1, odm1s, ocm2, tdm1rs, tcm2, veff_prime):
         kappa2 = lasci_sync.LASCI_HessianOperator.orbital_response (
