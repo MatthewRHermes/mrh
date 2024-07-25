@@ -130,23 +130,25 @@ class ImpuritySCF (scf.hf.SCF):
         df_eris_mem_error = MemoryError (("Density-fitted two-electron integrals in asynchronous "
                                           "LASSCF (outcore algorithm is not yet supported"))
         if getattr (mf, 'with_df', None) is not None:
+            # TODO: impurity outcore cderi
+            if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
+                raise df_eris_mem_error
+            _cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
+                               dtype=imporb_coeff.dtype)
+            ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
+                                                                        compact=True)
+            b0 = 0
+            for eri1 in mf.with_df.loop ():
+                b1 = b0 + eri1.shape[0]
+                eri2 = _cderi[b0:b1]
+                eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
+                                           out=eri2)
+                b0 = b1
             if getattr (self, 'with_df', None) is not None:
-                # TODO: impurity outcore cderi
-                if not self._is_mem_enough (df_naux = mf.with_df.get_naoaux ()):
-                    raise df_eris_mem_error
-                self.with_df._cderi = np.empty ((mf.with_df.get_naoaux (), nimp*(nimp+1)//2),
-                                                dtype=imporb_coeff.dtype)
-                ijmosym, mij_pair, moij, ijslice = ao2mo.incore._conc_mos (imporb_coeff, imporb_coeff,
-                                                                            compact=True)
-                b0 = 0
-                for eri1 in mf.with_df.loop ():
-                    b1 = b0 + eri1.shape[0]
-                    eri2 = self._cderi[b0:b1]
-                    eri2 = ao2mo._ao2mo.nr_e2 (eri1, moij, ijslice, aosym='s2', mosym=ijmosym,
-                                               out=eri2)
-                    b0 = b1
+                self.with_df._cderi = _cderi
             else:
-                self._eri = mf.with_df.ao2mo (imporb_coeff, compact=True)
+                self._cderi = _cderi
+                self._eri = np.dot (_cderi.conj ().T, _cderi)
         else:
             if getattr (mf, '_eri', None) is None:
                 if not mf._is_mem_enough ():
@@ -574,7 +576,7 @@ class ImpuritySolver ():
         if bmPu is not None:
             bPuu = np.tensordot (bmPu, mo_ext, axes=((0),(0)))
             rho = np.tensordot (dm1, bPuu, axes=((1,2),(1,2)))
-            bPii = self._scf.with_df._cderi
+            bPii = self._scf._cderi
             vj = lib.unpack_tril (np.tensordot (rho, bPii, axes=((-1),(0))))
         else: # Safety case: AO-basis SCF driver
             imporb_coeff = self.mol.get_imporb_coeff ()
@@ -996,7 +998,7 @@ def get_impurity_casscf (las, ifrag, imporb_builder=None):
     imc.__dict__.update (params.get (ifrag, {}))
     return imc
 
-def get_pair_lasci (las, frags):
+def get_pair_lasci (las, frags, inherit_df=False):
     stdout_dict = stdout = getattr (las, '_flas_stdout', None)
     if stdout is not None: stdout = stdout.get (frags, None)
     output = getattr (las.mol, 'output', None)
@@ -1006,12 +1008,12 @@ def get_pair_lasci (las, frags):
     if stdout is None and stdout_dict is not None:
         stdout_dict[frags] = imol.stdout
     imf = ImpurityHF (imol)
-    if isinstance (las, _DFLASCI):
+    if inherit_df and isinstance (las, _DFLASCI):
         imf = imf.density_fit ()
     ncas_sub = [las.ncas_sub[i] for i in frags]
     nelecas_sub = [las.nelecas_sub[i] for i in frags]
     ilas = ImpurityLASCI (imf, ncas_sub, nelecas_sub)
-    if isinstance (las, _DFLASCI):
+    if inherit_df and isinstance (las, _DFLASCI):
         ilas = lasci.density_fit (ilas, with_df=imf.with_df)
     charges, spins, smults, wfnsyms = lasci.get_space_info (las)
     ilas.state_average_(weights=las.weights, charges=charges[:,frags], spins=spins[:,frags],
