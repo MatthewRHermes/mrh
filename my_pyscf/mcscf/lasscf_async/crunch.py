@@ -910,10 +910,10 @@ class ImpurityLASCI (lasci.LASCINoSymm, ImpuritySolver):
             casdm1rs=casdm1rs, casdm2rs=casdm2rs, weights=weights
         )
 
-    def get_grad_orb (las, mo_coeff=None, ci=None, h2eff_sub=None, veff=None, dm1s=None, hermi=-1):
-        gorb = lasci.LASCINoSymm.get_grad_orb (las, mo_coeff=mo_coeff, ci=ci, h2eff_sub=h2eff_sub,
-                                               veff=veff, dm1s=dm1s, hermi=hermi)
-        if mo_coeff is None: mo_coeff = las.mo_coeff
+    def get_grad_orb (las, **kwargs):
+        gorb = lasci.LASCINoSymm.get_grad_orb (las, **kwargs)
+        mo_coeff = kwargs.get ('mo_coeff', self.mo_coeff)
+        hermi = kwargs.get ('hermi', -1)
         nao, nmo = las.mo_coeff.shape
         ncore, ncas = las.ncore, las.ncas
         nocc = ncore + ncas
@@ -933,16 +933,10 @@ class ImpurityLASCI (lasci.LASCINoSymm, ImpuritySolver):
         else:
             raise ValueError ("kwarg 'hermi' must = -1, 0, or +1")
 
-    def h1e_for_las (las, mo_coeff=None, ncas=None, ncore=None, nelecas=None, ci=None,
-                     ncas_sub=None, nelecas_sub=None, veff=None, h2eff_sub=None, casdm1s_sub=None,
-                     casdm1frs=None):
-        h1e_fr = lasci.LASCINoSymm.h1e_for_las (
-            las, mo_coeff=mo_coeff, ncas=ncas, ncore=ncore, nelecas=nelecas, ci=ci, 
-            ncas_sub=ncas_sub, nelecas_sub=nelecas_sub, veff=veff, h2eff_sub=h2eff_sub,
-            casdm1s_sub=casdm1s_sub, casdm1frs=casdm1frs
-        )
-        if mo_coeff is None: mo_coeff = self.mo_coeff
-        if ncas_sub is None: ncas_sub = self.ncas_sub
+    def h1e_for_las (las, **kwargs):
+        h1e_fr = lasci.LASCINoSymm.h1e_for_las (las, **kwargs)
+        mo_coeff = kwargs.get ('mo_coeff', self.mo_coeff)
+        ncas_sub = kwargs.get ('ncas_sub', self.ncas_sub)
         dh1_rs = np.dot (self.get_hcore_rs () - self.get_hcore ()[None,None,:,:], mo_coeff)
         dh1_rs = np.tensordot (mo_coeff.conj (), dh1_rs, axes=((0),(2))).transpose (1,2,0,3)
         for ix in range (len (ncas_sub)):
