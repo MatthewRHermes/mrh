@@ -176,7 +176,9 @@ def combine_o0 (las, kf2_list):
     kf1 = relax (las, kf1)
     return kf1
 
-def select_aa_block (las, frags1, frags2, fock1):
+# Relaxing the fragments pairwise slows down optimization way too much in general
+# However, I might be able to get clever w/ memory management...
+def select_aa_block (las, frags1, frags2, fock1, max_frags=None):
     '''Identify from two lists of candidate fragments the single active-active orbital-rotation
     gradient block with the largest norm
 
@@ -186,12 +188,15 @@ def select_aa_block (las, frags1, frags2, fock1):
         frags2 : sequence of integers
         fock1 : ndarray of shape (nmo,nmo)
 
+    Kwargs:
+        max_frags : integer
+
     Returns:
-        i : integer
-            From frags1.
-        j : integer
-            From frags2.
+        aa_frags : set of integers
+            From frags1 and frags2
 '''
+    if max_frags is None: max_frags = getattr (las, 'combine_pair_max_frags', None)
+    if max_frags is None: max_frags = las.nfrags
     frags1 = list (frags1)
     frags2 = list (frags2)
     g_orb = fock1 - fock1.conj ().T
@@ -209,7 +214,33 @@ def select_aa_block (las, frags1, frags2, fock1):
     gmax = np.argmax (gblk)
     i = frags1[gmax // len (frags2)]
     j = frags2[gmax % len (frags2)]
-    return i, j
+    aa_frags = set ((i,j))
+
+    all_frags = sorted (frags1 + frags2)
+    max_frags = min (len (all_frags), max_frags)
+
+    if max_frags < 3: return aa_frags
+
+    all_frags.remove (i)
+    all_frags.remove (j)
+    nextra = max_frags - 2
+    idx = np.zeros (las.ncas, dtype=bool)
+    i0 = sum (las.ncas_sub[:i])
+    i1 = i0 + las.ncas_sub[i]
+    idx[i0:i1] = True
+    j0 = sum (las.ncas_sub[:j])
+    j1 = j0 + las.ncas_sub[j]
+    idx[j0:j1] = True
+    gblk = []
+    for k in all_frags:
+        k0 = sum (las.ncas_sub[:k])
+        k1 = k0 + las.ncas_sub[k]
+        gblk.append (linalg.norm (g_orb[k0:k1,idx]))
+    idx = np.argsort (-np.asarray (gblk))
+    new_frags = set (np.asarray (all_frags)[idx][:nextra])
+    aa_frags = aa_frags.union (new_frags)
+
+    return aa_frags
 
 def combine_pair (las, kf1, kf2, kf_ref=None):
     '''Combine two keyframes and relax one specific block of active-active orbital rotations
@@ -220,9 +251,9 @@ def combine_pair (las, kf1, kf2, kf_ref=None):
                   "({} {})").format (kf1.frags, kf2.frags)
         raise RuntimeError (errstr)
     kf3 = orth_orb (las, [kf1, kf2], kf_ref=kf_ref)
-    i, j = select_aa_block (las, kf1.frags, kf2.frags, kf3.fock1)
+    aa_frags = select_aa_block (las, kf1.frags, kf2.frags, kf3.fock1)
     #kf3 = relax (las, kf3, freeze_inactive=True, unfrozen_frags=(i,j))
-    pair = crunch.get_pair_lasci (las, (i,j))
+    pair = crunch.get_pair_lasci (las, tuple (aa_frags))
     pair._pull_keyframe_(kf3)
     if pair.conv_tol_grad == 'DEFAULT':
         # Default: scale down conv_tol_grad according to size of subproblem
@@ -230,7 +261,6 @@ def combine_pair (las, kf1, kf2, kf_ref=None):
         pair.conv_tol_grad = scale * las.conv_tol_grad
     pair.kernel ()
     kf3 = pair._push_keyframe (kf3)
-    kf3.frags = kf1.frags.union (kf2.frags)
     return kf3
 
 # Function from failed algorithm. Retained for reference

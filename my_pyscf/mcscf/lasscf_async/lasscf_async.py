@@ -182,6 +182,8 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         Key/value pairs are assigned as attributes to the active-active relaxation (``LASCI'')
         subproblem, similar to impurity_params. Use this to, e.g., set a different max_cycle_macro
         for the ``LASCI'' step.
+    combine_pair_max_frags : integer
+        Maximum number of frags to simultaneously relax during the combine_pair step.
     '''
     def __init__(self, mf, ncas, nelecas, ncore=None, spin_sub=None, **kwargs):
         lasci.LASCINoSymm.__init__(self, mf, ncas, nelecas, ncore=ncore, spin_sub=spin_sub,
@@ -192,7 +194,8 @@ class LASSCFNoSymm (lasci.LASCINoSymm):
         self.relax_params = {}
         for i, j in itertools.combinations (range (self.nfrags), 2):
             self.relax_params[(i,j)] = {}
-        keys = set (('frags_orbs','impurity_params','relax_params'))
+        self.combine_pair_max_frags = self.nfrags
+        keys = set (('frags_orbs','impurity_params','relax_params','combine_pair_max_frags'))
         self._keys = self._keys.union (keys)
 
     @property
