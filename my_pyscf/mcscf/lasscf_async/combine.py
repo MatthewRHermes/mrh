@@ -221,6 +221,8 @@ def select_aa_block (las, frags1, frags2, fock1, max_frags=None):
 
     if max_frags < 3: return aa_frags
 
+    # TODO: In future, when this becomes relevant, improve the selection:
+    # use Hessian; add fragments one-at-a-time, etc.
     all_frags.remove (i)
     all_frags.remove (j)
     nextra = max_frags - 2
