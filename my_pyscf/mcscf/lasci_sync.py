@@ -1007,7 +1007,7 @@ class LASCI_HessianOperator (sparse_linalg.LinearOperator):
         #    dm1_ao=np.dot(mo,np.dot(dm1_mo,moH))
         #    veff_ao=np.squeeze(self.las.get_veff(dm1s=dm1_ao))
         #    return np.dot(moH,np.dot(veff_ao,mo))
-        if gpu or (getattr (self, 'bPpj', None) is None):
+        if self.las.use_gpu or (getattr (self, 'bPpj', None) is None):
             dm1_ao = np.dot (mo, np.dot (dm1_mo, moH))
             veff_ao = np.squeeze (self.las.get_veff (dm1s=dm1_ao))
             return np.dot (moH, np.dot (veff_ao, mo)) 

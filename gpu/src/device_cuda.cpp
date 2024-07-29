@@ -1376,11 +1376,10 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 
   //h2eff_tranposed=(piJK->JKip)
   {
-
     dim3 blockDim(1,1,_DEFAULT_BLOCK_SIZE);
     dim3 gridDim(_TILE(nmo,blockDim.x),_TILE(ncas,blockDim.y),_TILE(ncas,blockDim.z));
     transpose_2310<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_step2, d_h2eff_transposed, nmo,ncas);
-
+  }
  
   
   profile_next("last 2 dgemm");
