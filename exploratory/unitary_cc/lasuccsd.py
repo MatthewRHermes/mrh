@@ -1,12 +1,8 @@
 import numpy as np
 from mrh.exploratory.unitary_cc import uccsd_sym1
 from mrh.exploratory.unitary_cc import usccsd_sym1
-from mrh.exploratory.unitary_cc import uccsd_sym0
-from mrh.exploratory.unitary_cc import usccsd_sym0
 from mrh.exploratory.citools import lasci_ominus1
 from itertools import combinations, combinations_with_replacement
-import time
-from scipy.optimize import minimize
 
 
 def gen_uccsd_op (norb, nlas, t1_s2sym=True):
@@ -30,7 +26,6 @@ def gen_uccsd_op (norb, nlas, t1_s2sym=True):
             a_idxs.append (ab)
             i_idxs.append (ij)
     uop = uccsd_sym1.FSUCCOperator (norb, a_idxs, i_idxs, s2sym=t1_s2sym)
-    #uop = uccsd_sym0.FSUCCOperator (norb, a_idxs, i_idxs)
     return uop
        
 def gen_usccsd_op(norb, nlas, a_idxs, i_idxs,t1_s2sym=False):  
