@@ -184,3 +184,12 @@ void libgpu_h2eff_df_contract1(void * ptr,
 }
 
 /* ---------------------------------------------------------------------- */
+void libgpu_get_h2eff_df(void * ptr, 
+                           py::array_t<double> cderi, 
+                           int nao, int nmo, int ncas, int naux, int ncore,
+                           py::array_t<double> eri1)
+{
+  Device * dev = (Device *) ptr;
+  dev->get_h2eff_df(cderi, nao, nmo, ncas, naux, ncore, eri1); 
+}
+/* ---------------------------------------------------------------------- */

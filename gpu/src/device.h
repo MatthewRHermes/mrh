@@ -90,7 +90,10 @@ public :
   void h2eff_df_contract1(py::array_t<double>, 
                      int, int, int, int, int,
                      py::array_t<double>, py::array_t<double>);
- 
+ void get_h2eff_df( py::array_t<double> , 
+                    int , int , int , int , int ,
+                    py::array_t<double> );
+
   void transfer_mo_coeff(py::array_t<double>, int);
 private:
 
