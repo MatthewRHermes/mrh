@@ -476,8 +476,7 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int w
     else tmp = &(buf_vj[i * nset * nao_pair]);
     
     if(dd->d_vj) pm->dev_pull_async(dd->d_vj, tmp, size, dd->stream);
-  }
-  
+  } 
   for(int i=0; i<num_devices; ++i) {
     my_device_data * dd = &(device_data[i]);
     pm->dev_stream_wait(dd->stream);
@@ -490,7 +489,6 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int w
       
     }
   }
-
   update_dfobj = 0;
   if(!with_k) {
     profile_stop();
@@ -813,9 +811,8 @@ void Device::get_jk(int naux,
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Starting with_j calculation\n");
 #endif
+    if (with_j){
 	 
-  if(with_j) {
-    
     profile_start("get_jk :: with_j");
     
     // rho = numpy.einsum('ix,px->ip', dmtril, eri1)
@@ -845,7 +842,6 @@ void Device::get_jk(int naux,
 
     profile_stop();
   }
-
   if(!with_k) {
     
 #ifdef _SIMPLE_TIMER
