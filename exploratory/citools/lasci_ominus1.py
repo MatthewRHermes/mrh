@@ -23,7 +23,6 @@ from mrh.my_pyscf.fci import csf_solver
 from itertools import product
 
 verbose_lbjfgs = [-1,-1,-1,0,50,99,100,101,101,101]
-GLOBAL_MAX_CYCLE = None
 def _n_m_s (dm1s, dm2s, _print_fn=print):
     neleca = np.trace (dm1s[0])
     nelecb = np.trace (dm1s[1])
@@ -35,8 +34,6 @@ def _n_m_s (dm1s, dm2s, _print_fn=print):
 def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
             tol=1e-8, gtol=1e-4, max_cycle=15000, 
             orbsym=None, wfnsym=None, ecore=0, **kwargs):
-    if max_cycle is None:
-        max_cycle = GLOBAL_MAX_CYCLE if GLOBAL_MAX_CYCLE is not None else 15000
     if norb_f is None: norb_f = getattr (fci, 'norb_f', [norb])
     if ci0_f is None: ci0_f = fci.get_init_guess (norb, nelec, norb_f, h1, h2)
     verbose = kwargs.get ('verbose', getattr (fci, 'verbose', 0))
