@@ -24,9 +24,11 @@ namespace PM_NS {
     int dev_get_device();
 
     void* dev_malloc(size_t);
+    void* dev_malloc_async(size_t, size_t);
     void* dev_malloc_host(size_t);
 
     void dev_free(void*);
+    void dev_free_async(void*, size_t);
     void dev_free_host(void*);
 
     void dev_push(void*, void*, size_t);

@@ -18,7 +18,6 @@ PM::PM()
 
 int PM::dev_num_devices()
 {
-  
   num_threads = 0;
   
 #pragma omp parallel
@@ -40,7 +39,7 @@ int PM::dev_num_devices()
   printf("\n  Using OPENMP v%3.1f\n", version);
   printf("  num_threads= %i\n",num_threads);
   
-  return num_threads;
+  return 1;
 }
 
 void PM::dev_properties(int ndev) {}
@@ -53,9 +52,13 @@ int PM::dev_get_device() {return 0;}
 
 void * PM::dev_malloc(size_t N) {return malloc(N);}
 
+void * PM::dev_malloc_async(size_t N, size_t) {return dev_malloc(N);}
+
 void * PM::dev_malloc_host(size_t N) {return malloc(N);}
 
 void PM::dev_free(void * ptr) {free(ptr);}
+
+void PM::dev_free_async(void * ptr, size_t) {dev_free(ptr);}
 
 void PM::dev_free_host(void * ptr) {free(ptr);}
 

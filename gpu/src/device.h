@@ -23,6 +23,10 @@ using namespace PM_NS;
 #define _ERI_CACHE_EXTRA 2
 //#define _DEBUG_ERI_CACHE
 
+#define _PUMAP_2D_UNPACK 0       // generic unpacking of 1D array to 2D matrix
+#define _PUMAP_H2EFF_UNPACK 1    // unpacking h2eff array (generic?)
+#define _PUMAP_H2EFF_PACK 2      // unpacking h2eff array (generic?)
+
 #define OUTPUTIJ        1
 #define INPUT_IJ        2
 
@@ -71,15 +75,10 @@ public :
   
   void set_update_dfobj_(int);
   void get_dfobj_status(size_t, py::array_t<int>);
-  
-  void hessop_get_veff(int, int, int, int,
-		       py::array_t<double>, py::array_t<double>, py::array_t<double>);
-
+ 
   void df_ao2mo_pass1_fdrv (int, int, int, int,
 		       py::array_t<double>, py::array_t<double>,
 		       py::array_t<double>);
- 
-  void hessop_push_bPpj(py::array_t<double>);
   
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,
@@ -119,6 +118,7 @@ private:
   int nset;
   int nao_pair;
 
+  int size_fdrv;
   int size_buf_vj;
   int size_buf_vk;
   
@@ -135,16 +135,6 @@ private:
 
   double * buf_vj;
   double * buf_vk;
-  
-  // hessop_get_veff
-
-  int size_bPpj;
-  int size_vPpj;
-  int size_vk_bj;
-  
-  double * d_bPpj;
-  double * d_vPpj;
-  double * d_vk_bj;
   
   // eri caching on device
 
@@ -193,6 +183,9 @@ private:
     int size_dms;
     int size_dmtril;
     int size_eri1;
+    int size_ucas;
+    int size_umat;
+    int size_h2eff;
     int size_mo_coeff; 
 
     double * d_rho;
@@ -204,23 +197,31 @@ private:
     double * d_dms;
     double * d_dmtril;
     double * d_eri1;
+    double * d_ucas;
+    double * d_umat;
+    double * d_h2eff;
     double * d_mo_coeff;
 
-    std::vector<int> size_tril_map;
-    std::vector<int *> tril_map;
-    std::vector<int *> d_tril_map;
-    int * d_tril_map_ptr; // no explicit allocation
+    std::vector<int> type_pumap;
+    std::vector<int> size_pumap;
+    std::vector<int *> pumap;
+    std::vector<int *> d_pumap;
+    int * d_pumap_ptr; // no explicit allocation
 
+#if defined (_USE_GPU)
     cublasHandle_t handle;
     cudaStream_t stream;
+#endif
   };
 
   my_device_data * device_data;
-
-  void dd_fetch_tril_map(my_device_data *, int);
-  void push_mo_coeff(my_device_data *, double *, int);
+  
+  int * dd_fetch_pumap(my_device_data *, int, int);
   double * dd_fetch_eri(my_device_data *, double *, size_t, int);
-  double * dd_fetch_eri_debug(my_device_data *, double *, size_t, int); // we'll trash this after some time 
+  double * dd_fetch_eri_debug(my_device_data *, double *, size_t, int); // we'll trash this after some time
+  
+  void push_mo_coeff(my_device_data *, double *, int);
+  
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);
   

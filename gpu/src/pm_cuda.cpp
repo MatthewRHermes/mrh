@@ -150,6 +150,23 @@ void * PM::dev_malloc(size_t N)
   return ptr;
 }
 
+void * PM::dev_malloc_async(size_t N, cudaStream_t &s)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_malloc_async()\n");
+#endif
+  
+  void * ptr;
+  cudaMallocAsync((void**) &ptr, N, s);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_malloc_async()\n");
+#endif
+  
+  return ptr;
+}
+
 void * PM::dev_malloc_host(size_t N)
 {
 #ifdef _DEBUG_PM
@@ -178,6 +195,20 @@ void PM::dev_free(void * ptr)
   
 #ifdef _DEBUG_PM
   printf(" -- Leaving PM::dev_free()\n");
+#endif
+}
+
+void PM::dev_free_async(void * ptr, cudaStream_t &s)
+{
+#ifdef _DEBUG_PM
+  printf("Inside PM::dev_free_async()\n");
+#endif
+  
+  if(ptr) cudaFreeAsync(ptr, s);
+  _CUDA_CHECK_ERRORS();
+  
+#ifdef _DEBUG_PM
+  printf(" -- Leaving PM::dev_free_async()\n");
 #endif
 }
 

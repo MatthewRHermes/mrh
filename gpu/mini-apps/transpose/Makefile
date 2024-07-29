@@ -1,8 +1,10 @@
 #
 # Definition of MACROS
 
+BASE_LIBGPU=../../src
+
 BINROOT=./
-EXE=libgpu.so
+EXE=a.out
 SHELL=/bin/sh
 CXX = g++
 CXXFLAGS=
@@ -15,9 +17,9 @@ CPP=cpp -P -traditional
 INSTALL=../
 
 ARCH ?= polaris
-include ../../src/arch/$(ARCH)
+include $(BASE_LIBGPU)/arch/$(ARCH)
 
-CXXFLAGS += -I../../src
+CXXFLAGS += -I$(BASE_LIBGPU)
 
 $(info ARCH is [${ARCH}])
 
@@ -37,6 +39,8 @@ FOBJ = $(FSRC:.F90=.o)
 #$(info MOD is [${MOD}])
 #$(info FOBJ is [${FOBJ}])
 
+# -- only copy source files; headers referenced with compiler flag
+$(shell cp ../../src/pm*.cpp ./)
 
 #
 # -- target : 	Dependencies
@@ -73,17 +77,7 @@ realclean:
 	rm -f $(INSTALL)/$(EXE)
 	rm -rf $(EXE).dSYM
 	rm -f *.optrpt
+	rm -f pm*.h pm*.cpp
 
 #
 # -- Simple dependencies
-
-libgpu.o : libgpu.cpp libgpu.h
-
-pm_cuda.o : pm_cuda.cpp pm_cuda.h pm.h
-pm_host.o : pm_host.cpp pm_host.h pm.h
-pm_openmp.o : pm_openmp.cpp pm_openmp.h pm.h
-
-device_cuda.o : device_cuda.cpp device.h
-device_host.o : device_host.cpp device.h
-device_openmp.o : device_openmp.cpp device.h
-device.o : device.cpp device.h

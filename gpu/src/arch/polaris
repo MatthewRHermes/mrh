@@ -6,7 +6,7 @@ FC = ftn
 FCFLAGS = -g -O3
 
 CXX = CC
-CXXFLAGS = -g -fPIC -O3 -mp -cuda
+CXXFLAGS = -g -O3 -mp -cuda
 CXXFLAGS += $(PYTHON_INC)
 
 CXXFLAGS += -D_USE_GPU -D_GPU_CUDA

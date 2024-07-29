@@ -24,14 +24,9 @@
 #define _NUM_ROWS 50552
 #define _NUM_COLS 356
 
-#define _TRANSPOSE_BLOCK_SIZE 16
-#define _TRANSPOSE_NUM_ROWS 16
-
 #define _TOL 1e-8
 #define _NUM_ITERATIONS_CPU 20
-#define _NUM_ITERATIONS_GPU 10
-
-#define _TILE(A,B) (A + B - 1) / B
+#define _NUM_ITERATIONS_GPU 1000
 
 #ifdef _SINGLE_PRECISION
   typedef float real_t;
@@ -39,124 +34,22 @@
   typedef double real_t;
 #endif
 
+extern void transpose(real_t *, real_t *, const int, const int);
+extern void copy_naive_gpu(real_t *, real_t *, const int, const int);
+extern void transpose_naive_gpu(real_t *, real_t *, const int, const int);
+extern void transpose_gpu(real_t *, real_t *, const int, const int);
+extern void transpose_gpu_2(real_t *, real_t *, const int, const int);
+
 using namespace PM_NS;
 
 // ----------------------------------------------------------------
 
-//https://github.com/NVIDIA-developer-blog/code-samples/blob/master/series/cuda-cpp/transpose/transpose.cu
-// modified to support nonsquare matrices
-
-__global__ void _transpose_gpu(double * out, double * in, int nrow, int ncol)
-{
-  __shared__ double cache[_TRANSPOSE_BLOCK_SIZE][_TRANSPOSE_BLOCK_SIZE];
-  
-  int irow = blockIdx.x * _TRANSPOSE_BLOCK_SIZE + threadIdx.x;
-  int icol = blockIdx.y * _TRANSPOSE_BLOCK_SIZE + threadIdx.y;
-
-  // load tile into fast local memory
-
-  const int indxi = irow * ncol + icol;
-  for(int i=0; i<_TRANSPOSE_BLOCK_SIZE; i+= _TRANSPOSE_NUM_ROWS) {
-    if(irow < nrow && (icol+i) < ncol) // nonsquare
-      cache[threadIdx.y + i][threadIdx.x] = in[indxi + i]; // threads read chunk of a row and write as a column
-  }
-
-  // block to ensure reads finish
-  
-  __syncthreads();
-
-  // swap indices
-  
-  irow = blockIdx.y * _TRANSPOSE_BLOCK_SIZE + threadIdx.x;
-  icol = blockIdx.x * _TRANSPOSE_BLOCK_SIZE + threadIdx.y;
-
-  // write tile to global memory
-
-  const int indxo = irow * nrow + icol;
-  for(int i=0; i<_TRANSPOSE_BLOCK_SIZE; i+= _TRANSPOSE_NUM_ROWS) {
-    if(irow < ncol && (icol + i) < nrow) // nonsquare
-      out[indxo + i] = cache[threadIdx.x][threadIdx.y + i];
-  }
-}
-
-// ----------------------------------------------------------------
-
-__global__ void _transpose_gpu_2(double * out, double * in, int nrow, int ncol)
-{
-  __shared__ double cache[_TRANSPOSE_BLOCK_SIZE][_TRANSPOSE_BLOCK_SIZE+1];
-  
-  int irow = blockIdx.x * _TRANSPOSE_BLOCK_SIZE + threadIdx.x;
-  int icol = blockIdx.y * _TRANSPOSE_BLOCK_SIZE + threadIdx.y;
-
-  // load tile into fast local memory
-
-  const int indxi = irow * ncol + icol;
-  for(int i=0; i<_TRANSPOSE_BLOCK_SIZE; i+= _TRANSPOSE_NUM_ROWS) {
-    if(irow < nrow && (icol+i) < ncol) // nonsquare
-      cache[threadIdx.y + i][threadIdx.x] = in[indxi + i]; // threads read chunk of a row and write as a column
-  }
-
-  // block to ensure reads finish
-  
-  __syncthreads();
-
-  // swap indices
-  
-  irow = blockIdx.y * _TRANSPOSE_BLOCK_SIZE + threadIdx.x;
-  icol = blockIdx.x * _TRANSPOSE_BLOCK_SIZE + threadIdx.y;
-
-  // write tile to global memory
-
-  const int indxo = irow * nrow + icol;
-  for(int i=0; i<_TRANSPOSE_BLOCK_SIZE; i+= _TRANSPOSE_NUM_ROWS) {
-    if(irow < ncol && (icol + i) < nrow) // nonsquare
-      out[indxo + i] = cache[threadIdx.x][threadIdx.y + i];
-  }
-}
-
-// ----------------------------------------------------------------
-
-__global__ void _transpose_naive_gpu(double * out, double * in, int nrow, int ncol)
-{
-  const int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-  if(i >= nrow) return;
-
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
-  
-  while (j < ncol) {
-    out[j*nrow + i] = in[i*ncol + j];
-    j += blockDim.y;
-  }
-  
-}
-
-// ----------------------------------------------------------------
-
-__global__ void _copy_naive_gpu(double * out, double * in, int nrow, int ncol)
-{
-  const int i = blockIdx.x * blockDim.x + threadIdx.x;
-
-  if(i >= nrow) return;
-
-  int j = blockIdx.y * blockDim.y + threadIdx.y;
-  
-  while (j < ncol) {
-    out[i*ncol + j] = in[i*ncol + j];
-    j += blockDim.y;
-  }
-  
-}
-
-// ----------------------------------------------------------------
-
-void _transpose_naive_cpu(real_t * out, real_t * in, int num_rows, int num_cols)
+void transpose_naive_cpu(real_t * out, real_t * in, int num_rows, int num_cols)
 {
   for(int i=0; i<num_rows; ++i)
     for(int j=0; j<num_cols; ++j)
       out[j*num_rows + i] = in[i*num_cols + j];
 }
-
 
 // ----------------------------------------------------------------
 
@@ -187,15 +80,14 @@ void print_matrix(real_t * data, int num_rows, int num_cols, const char * name)
 
 // ----------------------------------------------------------------
 
-void print_summary(real_t t, int num_rows, int num_cols, int num_iter, const char * name)
+void print_summary(double t, int num_rows, int num_cols, int num_iter, const char * name)
 {
-  double time = t * 1000.0; // ms
   double size = num_rows * num_cols * sizeof(real_t) / 1024.0 / 1024.0 / 1024.0; // GB
 
-  double bandwidth = size * num_iter / t;
-  
+  double bandwidth = size * num_iter / t; // GB/s
+
   printf("\nMatrix[%s] : %i x %i  num_iter= %i  size= %f  [MB]  time= %f  [ms]  bandwidth= %f  [GB/s]\n",
-	 name, num_rows, num_cols, num_iter, size, time, bandwidth);
+	 name, num_rows, num_cols, num_iter, size, t*1000.0, bandwidth);
 }
 
 // ----------------------------------------------------------------
@@ -214,37 +106,6 @@ int main( int argc, char* argv[] )
   if(me == 0) printf("Using double-precision\n\n");
 #endif
   
-  real_t * a = (real_t*) malloc(_NUM_ROWS * _NUM_COLS * sizeof(real_t));
-  real_t * b = (real_t*) malloc(_NUM_ROWS * _NUM_COLS * sizeof(real_t));
-  real_t * r = (real_t*) malloc(_NUM_ROWS * _NUM_COLS * sizeof(real_t));
-
-  // Initialize host
-  
-  for(int i=0; i<_NUM_ROWS; ++i) {
-    for(int j=0; j<_NUM_COLS; ++j) {
-      a[i*_NUM_COLS + j] = i * _NUM_COLS + j;
-      r[j*_NUM_ROWS + i] = i * _NUM_COLS + j; // transposed reference
-    }
-  }
-
-  // ----------------------------------------------------------------
-  
-  _transpose_naive_cpu(b, a, _NUM_ROWS, _NUM_COLS);
-  double t0 = MPI_Wtime();
-  for(int i=0; i<_NUM_ITERATIONS_CPU; ++i)
-    _transpose_naive_cpu(b, a, _NUM_ROWS, _NUM_COLS);
-  double t = MPI_Wtime() - t0;
-
-  print_summary(t, _NUM_ROWS, _NUM_COLS, _NUM_ITERATIONS_CPU, "transpose_naive_cpu");
-
-  check_result(r, b, _NUM_ROWS*_NUM_COLS, "naive_cpu");
-  
-  //  print_matrix(a, _NUM_ROWS, _NUM_COLS, "Original a");
-
-  //  print_matrix(b, _NUM_COLS, _NUM_ROWS, "Transposed b");
-
-  //  print_matrix(r, _NUM_COLS, _NUM_ROWS, "Reference r");
-
   // ----------------------------------------------------------------
 
   class PM * pm = new PM();
@@ -266,6 +127,37 @@ int main( int argc, char* argv[] )
     MPI_Barrier(MPI_COMM_WORLD);
   }
 
+  real_t * a = (real_t*) malloc(_NUM_ROWS * _NUM_COLS * sizeof(real_t));
+  real_t * b = (real_t*) malloc(_NUM_ROWS * _NUM_COLS * sizeof(real_t));
+  real_t * r = (real_t*) malloc(_NUM_ROWS * _NUM_COLS * sizeof(real_t));
+
+  // Initialize host
+  
+  for(int i=0; i<_NUM_ROWS; ++i) {
+    for(int j=0; j<_NUM_COLS; ++j) {
+      a[i*_NUM_COLS + j] = i * _NUM_COLS + j;
+      r[j*_NUM_ROWS + i] = i * _NUM_COLS + j; // transposed reference
+    }
+  }
+
+  // ----------------------------------------------------------------
+  
+  transpose_naive_cpu(b, a, _NUM_ROWS, _NUM_COLS);
+  double t0 = MPI_Wtime();
+  for(int i=0; i<_NUM_ITERATIONS_CPU; ++i)
+    transpose_naive_cpu(b, a, _NUM_ROWS, _NUM_COLS);
+  double t = MPI_Wtime() - t0;
+
+  print_summary(t, _NUM_ROWS, _NUM_COLS, _NUM_ITERATIONS_CPU, "transpose_naive_cpu");
+
+  check_result(r, b, _NUM_ROWS*_NUM_COLS, "naive_cpu");
+  
+  //  print_matrix(a, _NUM_ROWS, _NUM_COLS, "Original a");
+
+  //  print_matrix(b, _NUM_COLS, _NUM_ROWS, "Transposed b");
+
+  //  print_matrix(r, _NUM_COLS, _NUM_ROWS, "Reference r");
+
   // Create device buffers and transfer data to device
 
   real_t * d_a = (real_t *) pm->dev_malloc(_NUM_ROWS * _NUM_COLS * sizeof(real_t));
@@ -279,43 +171,35 @@ int main( int argc, char* argv[] )
   
   // Execute kernel
 
-  {
-    dim3 grid_size(_NUM_ROWS, 1, 1);
-    dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
+  copy_naive_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  cudaDeviceSynchronize();
+  t0 = MPI_Wtime();
+  for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
+    copy_naive_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  cudaDeviceSynchronize();
+  t = MPI_Wtime() - t0;
 
-    _copy_naive_gpu<<<grid_size, block_size>>>(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-    t0 = MPI_Wtime();
-    for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
-      _copy_naive_gpu<<<grid_size, block_size>>>(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-    cudaDeviceSynchronize();
-    t = MPI_Wtime() - t0;
-  }
-  
   print_summary(t, _NUM_ROWS, _NUM_COLS, _NUM_ITERATIONS_GPU, "_copy_naive_gpu");
 
   // ----------------------------------------------------------------
   
   // Execute kernel
 
-  {
-    dim3 grid_size(_NUM_ROWS, 1, 1);
-    dim3 block_size(1, _TRANSPOSE_BLOCK_SIZE, 1);
-
-    _transpose_naive_gpu<<<grid_size, block_size>>>(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-    t0 = MPI_Wtime();
-    for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
-      _transpose_naive_gpu<<<grid_size, block_size>>>(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-    cudaDeviceSynchronize();
-    t = MPI_Wtime() - t0;
-  }
+  transpose_naive_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  cudaDeviceSynchronize();
+  t0 = MPI_Wtime();
+  for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
+    transpose_naive_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  cudaDeviceSynchronize();
+  t = MPI_Wtime() - t0;
   
   // Transfer data from device
 
   pm->dev_pull(d_b, b, _NUM_ROWS * _NUM_COLS * sizeof(real_t));
-  
-  check_result(r, b, _NUM_ROWS*_NUM_COLS, "transpose_naive_gpu");
 
   print_summary(t, _NUM_ROWS, _NUM_COLS, _NUM_ITERATIONS_GPU, "_transpose_naive_gpu");
+  
+  check_result(r, b, _NUM_ROWS*_NUM_COLS, "transpose_naive_gpu");
 
   //print_matrix(b, _NUM_COLS, _NUM_ROWS, "Transposed b from naive_gpu");
 
@@ -323,28 +207,21 @@ int main( int argc, char* argv[] )
   
   // Execute kernel
 
-  {
-    dim3 grid_size(_TILE(_NUM_ROWS, _TRANSPOSE_BLOCK_SIZE), _TILE(_NUM_COLS, _TRANSPOSE_BLOCK_SIZE), 1);
-    dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
-
-    printf("\ngrid_size= %i %i %i\n", _TILE(_NUM_ROWS, _TRANSPOSE_BLOCK_SIZE), _TILE(_NUM_COLS, _TRANSPOSE_BLOCK_SIZE), 1);
-    printf("block_size= %i %i %i\n",_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
-    
-    _transpose_gpu<<<grid_size, block_size>>>(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-    t0 = MPI_Wtime();
-    for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
-      _transpose_gpu<<<grid_size, block_size>>>(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-    cudaDeviceSynchronize();
-    t = MPI_Wtime() - t0;
-  }
+  transpose_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  cudaDeviceSynchronize();
+  t0 = MPI_Wtime();
+  for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
+    transpose_gpu(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  cudaDeviceSynchronize();
+  t = MPI_Wtime() - t0;
   
   // Transfer data from device
 
   pm->dev_pull(d_b, b, _NUM_ROWS * _NUM_COLS * sizeof(real_t));
-  
-  check_result(r, b, _NUM_ROWS*_NUM_COLS, "transpose_gpu");
 
   print_summary(t, _NUM_ROWS, _NUM_COLS, _NUM_ITERATIONS_GPU, "_transpose_gpu");
+  
+  check_result(r, b, _NUM_ROWS*_NUM_COLS, "transpose_gpu");
 
   //  print_matrix(b, _NUM_COLS, _NUM_ROWS, "Transposed b from transpose_gpu");
   
@@ -352,25 +229,21 @@ int main( int argc, char* argv[] )
   
   // Execute kernel
 
-  {
-    dim3 grid_size(_TILE(_NUM_ROWS, _TRANSPOSE_BLOCK_SIZE), _TILE(_NUM_COLS, _TRANSPOSE_BLOCK_SIZE), 1);
-    dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS, 1);
-    
-    _transpose_gpu_2<<<grid_size, block_size>>>(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-    t0 = MPI_Wtime();
-    for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
-      _transpose_gpu_2<<<grid_size, block_size>>>(d_b, d_a, _NUM_ROWS, _NUM_COLS);
-    cudaDeviceSynchronize();
-    t = MPI_Wtime() - t0;
-  }
+  transpose_gpu_2(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  cudaDeviceSynchronize();
+  t0 = MPI_Wtime();
+  for(int i=0; i<_NUM_ITERATIONS_GPU; ++i)
+    transpose_gpu_2(d_b, d_a, _NUM_ROWS, _NUM_COLS);
+  cudaDeviceSynchronize();
+  t = MPI_Wtime() - t0;
   
   // Transfer data from device
 
   pm->dev_pull(d_b, b, _NUM_ROWS * _NUM_COLS * sizeof(real_t));
-  
-  check_result(r, b, _NUM_ROWS*_NUM_COLS, "transpose_gpu_2");
 
   print_summary(t, _NUM_ROWS, _NUM_COLS, _NUM_ITERATIONS_GPU, "_transpose_gpu_2");
+  
+  check_result(r, b, _NUM_ROWS*_NUM_COLS, "transpose_gpu_2");
 
   //  print_matrix(b, _NUM_COLS, _NUM_ROWS, "Transposed b from transpose_gpu_2");
   

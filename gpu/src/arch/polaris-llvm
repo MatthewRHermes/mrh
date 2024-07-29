@@ -14,7 +14,7 @@ FC = ftn
 FCFLAGS = -g -fopenmp -O3
 
 CXX = mpicxx
-CXXFLAGS = -g -fPIC -O3
+CXXFLAGS = -g -O3
 CXXFLAGS += $(PYTHON_INC)
 CXXFLAGS += -D_USE_GPU -D_GPU_OPENMP
 CXXFLAGS += $(GPU_FLAGS)
@@ -30,7 +30,6 @@ CUDA_CXXFLAGS += -D_USE_NVTX
 
 LD = $(CXX)
 LDFLAGS = $(GPU_FLAGS)
-#LDFLAGS = -fPIC -shared
 LIB = -lstdc++
 LIB += -L$(CUDA)/lib64 -lcublas -lcudart
 LIB += -lnvToolsExt

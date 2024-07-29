@@ -23,10 +23,6 @@ Device::Device()
   pm = new PM();
 
   update_dfobj = 0;
-
-  size_bPpj = 0;
-  size_vPpj = 0;
-  size_vk_bj = 0;
   
   rho = nullptr;
   //vj = nullptr;
@@ -45,10 +41,6 @@ Device::Device()
   buf_vk = nullptr;
   
 #if defined(_USE_GPU)
-  d_bPpj = nullptr;
-  d_vPpj = nullptr;
-  d_vk_bj = nullptr;
-
   use_eri_cache = true;
 #endif
   
@@ -70,6 +62,9 @@ Device::Device()
     device_data[i].size_dms = 0;
     device_data[i].size_dmtril = 0;
     device_data[i].size_eri1 = 0;
+    device_data[i].size_ucas = 0;
+    device_data[i].size_umat = 0;
+    device_data[i].size_h2eff = 0;
     device_data[i].size_mo_coeff = 0;
     
     device_data[i].d_rho = nullptr;
@@ -82,11 +77,16 @@ Device::Device()
     device_data[i].d_mo_coeff=nullptr;
     device_data[i].d_dmtril = nullptr;
     device_data[i].d_eri1 = nullptr; // when not using eri cache
+    device_data[i].d_ucas = nullptr;
+    device_data[i].d_umat = nullptr;
+    device_data[i].d_h2eff = nullptr;
     
-    device_data[i].d_tril_map_ptr = nullptr;
+    device_data[i].d_pumap_ptr = nullptr;
     
+#if defined (_USE_GPU)
     device_data[i].handle = nullptr;
     device_data[i].stream = nullptr;
+#endif
   }
 
 #ifdef _DEBUG_OPENMP
@@ -195,25 +195,22 @@ Device::~Device()
     pm->dev_free(dd->d_dmtril);
     pm->dev_free(dd->d_eri1);
     pm->dev_free(dd->d_mo_coeff);
- 
-    for(int i=0; i<dd->size_tril_map.size(); ++i) {
-      pm->dev_free_host(dd->tril_map[i]);
-      pm->dev_free(dd->d_tril_map[i]);
-    }
     
-    dd->size_tril_map.clear();
-    dd->tril_map.clear();
-    dd->d_tril_map.clear();
-    //dd->d_mo_coeff.clear();
+    for(int i=0; i<dd->size_pumap.size(); ++i) {
+      pm->dev_free_host(dd->pumap[i]);
+      pm->dev_free(dd->d_pumap[i]);
+    }
+    dd->type_pumap.clear();
+    dd->size_pumap.clear();
+    dd->pumap.clear();
+    dd->d_pumap.clear();
 
+#if defined (_USE_GPU)
     if(dd->handle) cublasDestroy(dd->handle);
     
     if(dd->stream) pm->dev_stream_destroy(dd->stream);
+#endif
   }
-  
-  pm->dev_free(d_bPpj);
-  pm->dev_free(d_vPpj);
-  pm->dev_free(d_vk_bj);
 
   printf("LIBGPU :: Finished\n");
 #endif

@@ -10,12 +10,10 @@ $(info PATH_TO_NVHPC= [${PATH_TO_NVHPC}])
 
 FC = ftn
 FCFLAGS = -g -O3 -mp
-FCFLAGS += -fPIC
 
 CXX = CC
 CXXFLAGS = -g -O3 -mp -std=c++17
 CXXFLAGS += -fast
-CXXFLAGS += -fPIC
 CXXFLAGS += $(PYTHON_INC)
 
 CXXFLAGS += -D_USE_CPU
@@ -23,7 +21,6 @@ CXXFLAGS += -D_SIMPLE_TIMER
 
 LD = $(FC)
 LDFLAGS = -fopenmp 
-#LDFLAGS += -fPIC -shared
 LIB = -lstdc++
 LIB += -L$(PATH_TO_NVHPC)/compilers/lib64 -llapack -lblas
 #LIB += -L/home/knight/soft/polaris/lapack/lib -llapack -lrefblas -lgfortran

@@ -6,7 +6,7 @@ FC = mpif90
 FCFLAGS = -g -fopenmp -O3
 
 CXX = mpicxx
-CXXFLAGS = -g -fPIC -fopenmp -O3
+CXXFLAGS = -g -fopenmp -O3
 CXXFLAGS += $(PYTHON_INC)
 
 CXXFLAGS += -D_USE_GPU -D_GPU_CUDA
