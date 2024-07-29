@@ -63,7 +63,7 @@ def kernel (fci, h1, h2, norb, nelec, norb_f=None, ci0_f=None,
     e_tot = psi.energy_tot (res.x, h)
     ci1 = psi.get_fcivec (res.x)
     if verbose>=lib.logger.DEBUG:
-        #psi.uop.print_tab (_print_fn=log.debug)
+        psi.uop.print_tab (_print_fn=log.debug)
         psi.print_x (res.x, h, _print_fn=log.debug)
     if verbose>=lib.logger.INFO:
         dm1s, dm2s = fci.make_rdm12s (ci1, norb, nelec)

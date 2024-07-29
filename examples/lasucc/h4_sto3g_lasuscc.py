@@ -63,7 +63,7 @@ for epsilon in epsilons:
     lasci_ominus1.GLOBAL_MAX_CYCLE = 15000
     mc_uscc.fcisolver = lasuccsd.FCISolver2(mol, a_idxs_new, i_idxs_new)
     mc_uscc.fcisolver.norb_f = [2,2]
-    mc_uscc.verbose = 5
+    mc_uscc.verbose = 4
     mc_uscc.kernel()
     energies.append(mc_uscc.e_tot)
     print("Number of parameters: {:.0f} | LASUSCCSD energy: {:.9f}".format(len(a_idxs_new), mc_uscc.e_tot))
