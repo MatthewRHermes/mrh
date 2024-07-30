@@ -153,12 +153,13 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
                 rdmstmpfile = self.rdmstmpfile
                 with h5py.File(rdmstmpfile, 'w') as f:
                     for i in range (0, len (self.e_states), nblk):
-                        rdm1s, rdm2s = lassi.roots_make_rdm12s(self, self.ci, self.si[:,i:i+nblk])
-                        for j in range(i*nblk, min((i+1)*nblk,len(self.e_states))):
-                            rdm1s_dname = f'rdm1s_{j}'
-                            f.create_dataset(rdm1s_dname, data=rdm1s[j])
-                            rdm2s_dname = f'rdm2s_{j}'
-                            f.create_dataset(rdm2s_dname, data=rdm2s[j])
+                        j = min (i+nblk, len (self.e_states))
+                        rdm1s, rdm2s = lassi.roots_make_rdm12s(self, self.ci, self.si[:,i:j])
+                        for k in range (i, j):
+                            rdm1s_dname = f'rdm1s_{k}'
+                            f.create_dataset(rdm1s_dname, data=rdm1s[k])
+                            rdm2s_dname = f'rdm2s_{k}'
+                            f.create_dataset(rdm2s_dname, data=rdm2s[k])
                         rdm1s = rdm2s = None     
 
             # # This code doesn't seem efficent, have to calculate the casdm1 and casdm2 in different functions.
