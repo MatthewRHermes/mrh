@@ -194,6 +194,7 @@ Device::~Device()
     pm->dev_free(dd->d_dms);
     pm->dev_free(dd->d_dmtril);
     pm->dev_free(dd->d_eri1);
+    pm->dev_free(dd->d_h2eff);
     pm->dev_free(dd->d_mo_coeff);
     
     for(int i=0; i<dd->size_pumap.size(); ++i) {
