@@ -1760,13 +1760,20 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   free(h_bPvu);
 #endif
 
-
+#if 1
 //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
   //transpose bPmu 
-  double * d_bumP = (double*) pm->dev_malloc (_size_bPmu *sizeof(double));
+  double * d_bmuP = (double*) pm->dev_malloc (_size_bPmu *sizeof(double));
+#if 0
   {dim3 block_size(1,1,1);
   dim3 grid_size(_TILE(naux, block_size.x),_TILE(nao, block_size.y),_TILE(ncas, block_size.z));
   transpose_120<<<grid_size, block_size, 0, dd->stream>>>(d_bPmu, d_bumP, naux, ncas, nao);}
+#else 
+  {dim3 grid_size( _TILE(naux, _TRANSPOSE_BLOCK_SIZE), _TILE(nao*ncas, _TRANSPOSE_BLOCK_SIZE), 1);
+   dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS);
+   _transpose<<<grid_size, block_size, 0, dd->stream>>>(d_bmuP, d_bPmu, naux, ncas*ncas);
+  }
+#endif
 #ifdef _DEBUG_H2EFF_DF2
   printf("printing bPmu -> bumP\n");
   double * h_bumP = (double*) malloc (_size_bPmu *sizeof(double));
@@ -1777,12 +1784,18 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   free(h_bumP);
 #endif
 
-
-  //transpose bPvu
   double * d_buvP = (double*) pm->dev_malloc (_size_bPvu *sizeof(double));
+#if 0
+  //transpose bPvu
   {dim3 block_size(1,1,1);
   dim3 grid_size(_TILE(naux, block_size.x),_TILE(ncas, block_size.y),_TILE(ncas, block_size.z));
   transpose_210<<<grid_size, block_size, 0, dd->stream>>>(d_bPvu, d_buvP, naux, ncas, ncas);}
+#else
+  {dim3 grid_size( _TILE(naux, _TRANSPOSE_BLOCK_SIZE), _TILE(ncas*ncas, _TRANSPOSE_BLOCK_SIZE), 1);
+   dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS);
+   _transpose<<<grid_size, block_size, 0, dd->stream>>>(d_buvP, d_bPvu, naux, ncas*ncas);
+  }
+#endif
 #ifdef _DEBUG_H2EFF_DF2
   printf("printing bPvu -> bvuP\n");
   double * h_bvuP = (double*) malloc (_size_bPvu *sizeof(double));
@@ -1796,14 +1809,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
    //h_vuwm[i*ncas*nao+j]+=h_bvuP[i*naux + k]*h_bumP[j*naux+k];
   //dgemm (probably just simple, not strided/batched, contracted dimension = P)
   const int _size_mwvu = nao*ncas*ncas*ncas;
-  double * d_vuwm = (double*) pm ->dev_malloc( _size_mwvu*sizeof(double));
- // cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
- //             ncas*ncas, ncas*nao, naux,
- //             &alpha, 
- //             d_buvP, naux,
- //             d_bumP, naux,
- //             &beta, 
- //             d_vuwm, ncas*ncas);
+  double * d_vumw = (double*) pm ->dev_malloc( _size_mwvu*sizeof(double));
 cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
               ncas*nao, ncas*ncas, naux,
               &alpha, 
@@ -1877,6 +1883,118 @@ cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
         for (int l =0; l<nao; ++l){
           eri[k*ncas_pair*nao+l*ncas_pair+my_pack_map[i*ncas+j]]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
           //eri[i*ncas_pair*ncas+j*ncas_pair+kl]=h_vuwM[i*ncas*ncas*ncas+j*ncas*ncas+k*ncas+l];}}}}
+#else
+  //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
+    //transpose bPmu 
+  double * d_bmuP = (double*) pm->dev_malloc (_size_bPmu *sizeof(double));
+  {dim3 grid_size( _TILE(naux, _TRANSPOSE_BLOCK_SIZE), _TILE(nao*ncas, _TRANSPOSE_BLOCK_SIZE), 1);
+   dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS);
+   _transpose<<<grid_size, block_size, 0, dd->stream>>>(d_bmuP, d_bPmu, naux, ncas*ncas);
+  }
+  #ifdef _DEBUG_H2EFF_DF2
+  printf("printing bPmu -> bmuP\n");
+  double * h_bmuP = (double*) malloc (_size_bPmu *sizeof(double));
+  pm->dev_pull(d_bmuP, h_bmuP,_size_bPmu*sizeof(double));
+  for (int i =0; i<1; ++i){
+    for (int j =0; j<naux; ++j){
+      printf("%f \t",h_bmuP[i*naux+j]);}printf("\n");}
+  free(h_bumP);
+#endif
+
+  double * d_bvuP = (double*) pm->dev_malloc (_size_bPvu *sizeof(double));
+  {dim3 grid_size( _TILE(naux, _TRANSPOSE_BLOCK_SIZE), _TILE(ncas*ncas, _TRANSPOSE_BLOCK_SIZE), 1);
+   dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS);
+   _transpose<<<grid_size, block_size, 0, dd->stream>>>(d_bvuP, d_bPvu, naux, ncas*ncas);
+  }
+#ifdef _DEBUG_H2EFF_DF2
+  printf("printing bPvu -> bvuP\n");
+  double * h_bvuP = (double*) malloc (_size_bPvu *sizeof(double));
+  pm->dev_pull(d_bvuP, h_bvuP,_size_bPvu*sizeof(double));
+  for (int i =0; i<1; ++i){
+    for (int j =0; j<naux; ++j){
+      printf("%f \t",h_bvuP[i*naux+j]);}printf("\n");}
+  free(h_bvuP);
+#endif
+
+  //dgemm (probably just simple, not strided/batched, contracted dimension = P)
+  const int _size_mwvu = nao*ncas*ncas*ncas;
+  double * d_vumw = (double*) pm ->dev_malloc( _size_mwvu*sizeof(double));
+  cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
+              ncas*nao, ncas*ncas, naux,
+              &alpha, 
+              d_bmuP, naux,
+              d_bvuP, naux,
+              &beta, 
+              d_vumw, ncas*nao);
+#ifdef _DEBUG_H2EFF_DF2
+  printf("printing vuwM\n");
+  double * h_vuwm = (double*) malloc (_size_mwvu *sizeof(double));
+  pm->dev_pull(d_vuwm, h_vuwm,_size_mwvu*sizeof(double));
+  for (int i=0; i<ncas; ++i){
+  for (int j=0; j<ncas; ++j){
+  for (int k=0; k<ncas; ++k){
+  for (int l=0; l<nao; ++l){
+    printf("%f \t ", h_vuwm[((i*ncas+j)*ncas+k)*nao+l]);}printf("\n");}printf("\n");}printf("\n");}
+  free(h_vuwm);
+#endif
+
+
+
+//eri = np.einsum('mM,mwvu->Mwvu', mo_coeff.conjugate(),eri)
+  //cublasDgemmStridedBatched (batch = v*u, contracted dimenion = m)
+  double * d_vuwM = (double*) pm ->dev_malloc( _size_mwvu*sizeof(double));
+  cublasDgemmStridedBatched(dd->handle, CUBLAS_OP_T, CUBLAS_OP_C, 
+                            ncas, nao, nao, 
+                            &alpha, 
+                            d_vumw, nao, ncas*nao,
+                            d_mo_coeff, nao, 0,
+                            &beta, 
+                            d_vuwM, ncas, ncas*nao, ncas*ncas);
+#ifdef _DEBUG_H2EFF_DF
+  //printf("printing vuwM\n");
+  double * h_vuwM = (double*) malloc (_size_mwvu *sizeof(double));
+  pm->dev_pull(d_vuwM, h_vuwM,_size_mwvu*sizeof(double));
+  for (int i=0; i<ncas; ++i){
+  for (int j=0; j<ncas; ++j){
+  for (int k=0; k<ncas; ++k){
+  for (int l=0; l<nao; ++l){
+    printf("%f \t ", h_vuwM[((i*ncas+j)*ncas+k)*nao+l]);}printf("\n");}printf("\n");}printf("\n");}
+  //free(h_vuwm);
+#endif
+  int _size_pack_map = ncas*ncas;
+  int * my_pack_map = (int*) malloc(_size_pack_map*sizeof(int));
+    for (int _i = 0, _ij = 0; _i < ncas ; ++_i)
+    for (int _j = 0; _j <= _i; ++_j, ++_ij){
+      my_pack_map[_i*ncas + _j]= _ij;
+      my_pack_map[_j*ncas + _i]= _ij;
+    }
+  int * d_my_pack_map = (int*) pm->dev_malloc(_size_pack_map*sizeof(int));
+  int * d_my_pack_map_ptr = d_my_pack_map;
+  pm->dev_push(d_my_pack_map, my_pack_map,_size_pack_map*sizeof(int));  
+  const int _size_eri_packed=nao*ncas*ncas_pair;
+  double * d_eri_transposed = (double*) pm->dev_malloc(_size_mwvu*sizeof(double));
+  double * d_eri_packed = (double*) pm->dev_malloc(_size_eri_packed*sizeof(double));
+  //packing
+  {
+  //dim3 block_size (1,1,1);
+  //dim3 grid_size (_TILE(nao,block_size.x),_TILE(ncas*ncas*ncas,block_size.y),1);
+  //_transpose<<<grid_size,block_size, 0, dd->stream>>>(d_eri_transposed,d_vuwM,nao,ncas*ncas*ncas);
+  }
+  {dim3 block_size(1,1,1);
+  dim3 grid_size(_TILE(nao, block_size.x),_TILE(ncas, block_size.y), _TILE(ncas*ncas,block_size.z));
+  //pack_Mwuv<<<grid_size,block_size, 0, dd->stream>>>(d_vuwM, d_eri_packed, d_my_pack_map_ptr, nao, ncas, ncas_pair);
+  }
+  //pm->dev_pull(d_eri_packed, eri, _size_eri_packed*sizeof(double));
+  //pm->dev_free(d_mo_cas);
+  for (int i =0, ij=0; i<ncas; ++i){
+    for (int j =0; j<=i; ++j,++ij){
+      for (int k =0; k<ncas; ++k){
+        for (int l =0; l<nao; ++l){
+          eri[k*ncas_pair*nao+l*ncas_pair+my_pack_map[i*ncas+j]]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
+          //eri[i*ncas_pair*ncas+j*ncas_pair+kl]=h_vuwM[i*ncas*ncas*ncas+j*ncas*ncas+k*ncas+l];}}}}
+#
+#endif
+
   pm->dev_free(d_cderi);
   pm->dev_free(d_cderi_unpacked);
   pm->dev_free(d_bPmu);
