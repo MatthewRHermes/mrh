@@ -154,7 +154,8 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
                 with h5py.File(rdmstmpfile, 'w') as f:
                     for i in range (0, len (self.e_states), nblk):
                         j = min (i+nblk, len (self.e_states))
-                        rdm1s, rdm2s = lassi.roots_make_rdm12s(self, self.ci, self.si[:,i:j])
+                        rdm1s, rdm2s = lassi.root_make_rdm12s(self, self.ci, self.si,
+                                                              state=list(range(i,j)))
                         for k in range (i, j):
                             rdm1s_dname = f'rdm1s_{k}'
                             f.create_dataset(rdm1s_dname, data=rdm1s[k])
