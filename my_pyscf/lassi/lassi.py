@@ -664,6 +664,9 @@ def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetr
                Linear combination vectors defining LASSI states.
 
         Kwargs:
+            state: integer or sequence of integers
+                Identify the specific LASSI eigenstate(s) for which the density matrices are
+                to be computed.
             orbsym: None or list of orbital symmetries spanning the whole orbital space
             soc: logical
                 Whether to include the effects of spin-orbit coupling (in the 1-RDMs only)
