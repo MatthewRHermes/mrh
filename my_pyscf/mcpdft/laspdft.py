@@ -133,24 +133,34 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
         if _mc_class.DoLASSI:
             
             '''
-            Current RDM function for LASSI is generating the rdm1 and 2 for all the states.
-            The cost of this function is similar to LASSI diagonalization step. Therefore,
+            The cost of the RDM build is similar to LASSI diagonalization step. Therefore,
             calling it 2n time for n-states becomes prohibitively expensive. One alternative 
             can be just call it once and store all the generated casdm1 and casdm2 and later on
             just call a reader function which will read the rdms from this temp file.
-            I have to make sure to delete or close this tempfile after the calculation, I 
-            will do that later.
             '''
             def _store_rdms(self):
-                rdm1s, rdm2s = lassi.roots_make_rdm12s(self, self.ci, self.si)
+                # MRH: I made it loop over blocks of states to handle the O(N^5) memory cost
+                # If there's enough memory it'll still do them all at once
+                log = lib.logger.new_logger (self, self.verbose)
+                mem_per_state = (2*(self.ncas**2) + 4*(self.ncas**4)) / 1e6
+                current_mem = lib.current_memory ()[0]
+                if current_mem > self.max_memory:
+                    log.warn ("Current memory usage (%d MB) exceeds maximum memory (%d MB)",
+                              mem_per_state, current_mem)
+                    nblk = 1
+                else:
+                    nblk = int ((self.max_memory - current_mem) / mem_per_state)
                 rdmstmpfile = self.rdmstmpfile
                 with h5py.File(rdmstmpfile, 'w') as f:
-                    for i in range(len(self.e_states)):
-                        rdm1s_dname = f'rdm1s_{i}'
-                        f.create_dataset(rdm1s_dname, data=rdm1s[i])
-                        rdm2s_dname = f'rdm2s_{i}'
-                        f.create_dataset(rdm2s_dname, data=rdm2s[i])
-     
+                    for i in range (0, len (self.e_states), nblk):
+                        rdm1s, rdm2s = lassi.roots_make_rdm12s(self, self.ci, self.si[:,i:i+nblk])
+                        for j in range(i*nblk, min((i+1)*nblk,len(self.e_states))):
+                            rdm1s_dname = f'rdm1s_{j}'
+                            f.create_dataset(rdm1s_dname, data=rdm1s[j])
+                            rdm2s_dname = f'rdm2s_{j}'
+                            f.create_dataset(rdm2s_dname, data=rdm2s[j])
+                        rdm1s = rdm2s = None     
+
             # # This code doesn't seem efficent, have to calculate the casdm1 and casdm2 in different functions.
             # def make_one_casdm1s(self, ci=None, state=0, **kwargs):
                 # with lib.temporary_env (self, verbose=2):
