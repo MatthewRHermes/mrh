@@ -146,7 +146,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
                 current_mem = lib.current_memory ()[0]
                 if current_mem > self.max_memory:
                     log.warn ("Current memory usage (%d MB) exceeds maximum memory (%d MB)",
-                              mem_per_state, current_mem)
+                              current_mem, self.max_memory)
                     nblk = 1
                 else:
                     nblk = int ((self.max_memory - current_mem) / mem_per_state)
