@@ -707,6 +707,7 @@ class LSTDMint2 (object):
         self.dt_o, self.dw_o = 0.0, 0.0
         self.dt_u, self.dw_u = 0.0, 0.0
         self.dt_p, self.dw_p = 0.0, 0.0
+        self.dt_i, self.dw_i = 0.0, 0.0
 
     def make_exc_tables (self, hopping_index):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
@@ -952,11 +953,14 @@ class LSTDMint2 (object):
                 Indices of states with different excitation numbers in the fragments in *inv, with
                 all other fragments frozen in the zero state.
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         addr0, addr1 = self.offs_lroots[raddr]
         inv = list (set (inv))
         lroots = self.lroots[:,raddr:raddr+1]
         envaddr_inv = get_rootaddr_fragaddr (lroots[inv])[1]
         strides_inv = self.strides[raddr][inv]
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
         return addr0 + np.dot (strides_inv, envaddr_inv)
 
     def _prepare_spec_addr_ovlp_(self, rbra, rket, *inv):
@@ -1418,6 +1422,7 @@ class LSTDMint2 (object):
         profile += '\n' + fmt_str.format ('ovlp', self.dt_o, self.dw_o)
         profile += '\n' + fmt_str.format ('umat', self.dt_u, self.dw_u)
         profile += '\n' + fmt_str.format ('put', self.dt_p, self.dw_p)
+        profile += '\n' + fmt_str.format ('idx', self.dt_i, self.dw_i)
         return profile
 
 class HamS2ovlpint (LSTDMint2):
