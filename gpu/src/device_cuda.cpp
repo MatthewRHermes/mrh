@@ -62,6 +62,21 @@ int * Device::dd_fetch_pumap(my_device_data * dd, int size_pumap_, int type_puma
       
     } else if(type_pumap == _PUMAP_H2EFF_UNPACK) {
 
+#if 1
+      int ncas = size_pumap_;
+      size_pumap = ncas * ncas;
+
+      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
+      dd->d_pumap[indx] = (int *) pm->dev_malloc(size_pumap * sizeof(int));
+
+      int * tm = dd->pumap[indx];
+      int _ij, _i, _j;
+      for(_ij = 0, _i = 0; _i < ncas; _i++)
+	for(_j = 0; _j<=_i; _j++, _ij++) {
+	  tm[_i*ncas + _j] = _ij;
+	  tm[_i + ncas*_j] = _ij;
+	}
+#else
       int ncas = size_pumap_;
       int ncas_pair = ncas * (ncas+1)/2;
       size_pumap = ncas * ncas * ncas;
@@ -70,17 +85,32 @@ int * Device::dd_fetch_pumap(my_device_data * dd, int size_pumap_, int type_puma
       dd->d_pumap[indx] = (int *) pm->dev_malloc(size_pumap * sizeof(int));
 
       int * tm = dd->pumap[indx];
-      for (int _i=0; _i<ncas;++_i){
-	for (int _j=0, _jk=0; _j<ncas; ++_j){
-	  for (int _k=0;_k<=_j;++_k,++_jk){
+      for (int _i=0; _i<ncas;++_i) {
+	for (int _j=0, _jk=0; _j<ncas; ++_j) {
+	  for (int _k=0;_k<=_j;++_k,++_jk) {
 	    tm[_i*ncas*ncas + _j*ncas+_k]=_i*ncas_pair+_jk;
 	    tm[_i*ncas*ncas + _k*ncas+_j]=_i*ncas_pair+_jk;
 	  }
 	}
       }
-
+#endif
     } else if(type_pumap == _PUMAP_H2EFF_PACK) {
+#if 1
+      int ncas = size_pumap_;
+      int ncas_pair = ncas * (ncas+1)/2;
+      size_pumap = ncas_pair;
 
+      dd->pumap[indx] = (int *) pm->dev_malloc_host(size_pumap * sizeof(int));
+      dd->d_pumap[indx] = (int *) pm->dev_malloc(size_pumap * sizeof(int));
+
+      int * tm = dd->pumap[indx];
+      int _i, _j, _ij;
+      for (_i=0, _ij=0; _i<ncas; ++_i) {
+	for (_j=0; _j<=_i; ++_j, ++_ij) {
+	  tm[_ij] = _i*ncas + _j;
+	}
+      }
+#else
       int ncas = size_pumap_;
       int ncas_pair = ncas * (ncas+1)/2;
       size_pumap = ncas * ncas_pair;
@@ -97,14 +127,16 @@ int * Device::dd_fetch_pumap(my_device_data * dd, int size_pumap_, int type_puma
 	  }
 	}
       }
+#endif
       
     } // if(type_pumap)
     
     pm->dev_push_async(dd->d_pumap[indx], dd->pumap[indx], size_pumap*sizeof(int), dd->stream);
   } // if(map_not_found)
   
-  // set device pointer to current map
-  
+  // set pointers to current map
+
+  dd->pumap_ptr = dd->pumap[indx];
   dd->d_pumap_ptr = dd->d_pumap[indx];
 
   return dd->d_pumap_ptr;
@@ -1195,14 +1227,16 @@ __global__ void _pack_h2eff_2d(double * in, double * out, int * map, int nmo, in
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
+  const int k = blockIdx.z * blockDim.z + threadIdx.z;
 
-  if(i >= nmo*ncas) return;
-  if(j >= ncas*ncas) return;
+  if(i >= nmo) return;
+  if(j >= ncas) return;
+  if(k >= ncas_pair) return;
 
-  double * out_buf = &(out[i * ncas_pair]);
-  double * in_buf = &(in[i * ncas*ncas]);
+  double * out_buf = &(out[(i*ncas + j) * ncas_pair]);
+  double * in_buf = &(in[(i*ncas + j) * ncas*ncas]);
 
-  out_buf[map[j]] = in_buf[ j ];
+  out_buf[ k ] = in_buf[ map[k] ];
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1211,6 +1245,7 @@ __global__ void _unpack_h2eff_2d(double * in, double * out, int * map, int nmo, 
 {
   const int i = blockIdx.x * blockDim.x + threadIdx.x;
   const int j = blockIdx.y * blockDim.y + threadIdx.y;
+
   if(i >= nmo*ncas) return;
   if(j >= ncas*ncas) return;
 
@@ -1228,15 +1263,15 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
-  
+
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Starting update_h2eff_sub function\n");
 #endif
-  
+
   profile_start("Setup initial h2eff_sub");
   
   py::buffer_info info_umat = _umat.request(); // 2d array nmo*nmo
-  py::buffer_info info_h2eff_sub = _h2eff_sub.request();// 2d array nmo * (ncas*(ncas*(ncas+1)/2))
+  py::buffer_info info_h2eff_sub = _h2eff_sub.request();// 2d array (nmo * ncas) x (ncas*(ncas+1)/2)
 
   const int device_id = 0;//count % num_devices;
 
@@ -1245,7 +1280,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   my_device_data * dd = &(device_data[device_id]);
 
   const int ncas_pair = ncas * (ncas+1)/2;
-
+  
   double * umat = static_cast<double*>(info_umat.ptr);
   double * h2eff_sub = static_cast<double*>(info_h2eff_sub.ptr);
 
@@ -1256,8 +1291,8 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   printf("Starting h2eff_update Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);
 #endif
   
-  int _size_h2eff_unpacked=nmo*ncas*ncas*ncas;
-  int _size_h2eff_packed=nmo*ncas*ncas_pair;
+  int _size_h2eff_unpacked = nmo*ncas*ncas*ncas;
+  int _size_h2eff_packed = nmo*ncas*ncas_pair;
 
   if(_size_h2eff_unpacked > dd->size_buf) {
     dd->size_buf = _size_h2eff_unpacked;
@@ -1282,9 +1317,9 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
     if(dd->d_umat) pm->dev_free_async(dd->d_umat, dd->stream);
     dd->d_umat = (double *) pm->dev_malloc_async(dd->size_umat * sizeof(double), dd->stream);
   }
-
-  pm->dev_push_async(dd->d_umat, umat, nmo*nmo*sizeof(double), dd->stream);
   
+  pm->dev_push_async(dd->d_umat, umat, nmo*nmo*sizeof(double), dd->stream);
+
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- Setup update function\n");
 #endif
@@ -1293,12 +1328,12 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   
   //ucas = umat[ncore:nocc, ncore:nocc]
   {
-    dim3 blockDim(_UNPACK_BLOCK_SIZE);
+    dim3 blockDim(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE);
     dim3 gridDim(_TILE(ncas,blockDim.x), _TILE(ncas,blockDim.y));
     extract_submatrix<<<gridDim, blockDim, 0, dd->stream>>>(dd->d_umat, dd->d_ucas, ncas, ncore, nmo);
   }
   
-  //h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2) Initially h2eff_sub is nmo*(ncas*ncas_pair)
+  //h2eff_sub = h2eff_sub.reshape (nmo*ncas, ncas*(ncas+1)//2)
   //h2eff_sub = lib.numpy_helper.unpack_tril (h2eff_sub)
   //h2eff_sub = h2eff_sub.reshape (nmo, ncas, ncas, ncas)
 
@@ -1310,7 +1345,7 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   
   double * d_h2eff_sub = dd->d_h2eff;
   
-  pm->dev_push_async(d_h2eff_sub, h2eff_sub, _size_h2eff_packed*sizeof(double), dd->stream);
+  pm->dev_push_async(d_h2eff_sub, h2eff_sub, _size_h2eff_packed * sizeof(double), dd->stream);
 
   profile_next("map creation and pushed");
   
@@ -1321,33 +1356,33 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- created and pushed unpacking map\n");
 #endif
-
+  
   {
     dim3 blockDim(_UNPACK_BLOCK_SIZE, _UNPACK_BLOCK_SIZE, 1);
-    dim3 gridDim(_TILE(nmo,_UNPACK_BLOCK_SIZE), _TILE(ncas*ncas*ncas,_UNPACK_BLOCK_SIZE)); 
-    _unpack_h2eff_2d<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_sub, d_h2eff_unpacked, d_my_unpack_map_ptr, nmo, ncas,ncas_pair);
+    dim3 gridDim(_TILE(nmo*ncas,_UNPACK_BLOCK_SIZE), _TILE(ncas*ncas,_UNPACK_BLOCK_SIZE), 1); 
+    _unpack_h2eff_2d<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_sub, d_h2eff_unpacked, d_my_unpack_map_ptr, nmo, ncas, ncas_pair);
     _CUDA_CHECK_ERRORS();
   }
   
   profile_next("2 dgemms");
-
+  
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- unpacked h2eff_sub \n");
 #endif
-
+  
   //1. h2eff_sub = np.tensordot (ucas, h2eff_sub, axes=((0),(1))) # bpaa
   //2. h2eff_sub = np.tensordot (umat, h2eff_sub, axes=((0),(1))) # qbaa
   //3. h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbab
   //4. h2eff_sub = np.tensordot (h2eff_sub, ucas, axes=((2),(0))) # qbbb
   // doing 3,4,tranpose, 1,2, tranpose
-
+  
   const double alpha=1.0;
   const double beta=0.0;
-
+  
   //h2eff_step1=([pi]jk,jJ->[pi]kJ)
 
   double * d_h2eff_step1 = dd->d_buf2;
-
+  
   cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_N,ncas,ncas,ncas,
 			    &alpha, 
 			    dd->d_ucas, ncas, 0,
@@ -1367,20 +1402,20 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   _CUDA_CHECK_ERRORS();
 
   profile_next("transpose");
-
+  
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- Finished first 2 cublasDgemmStridedBatched Functions \n");
 #endif
   
+  //h2eff_tranposed=(piJK->JKpi)
+  
   double * d_h2eff_transposed = dd->d_buf2;
-
-  //h2eff_tranposed=(piJK->JKip)
+  
   {
     dim3 blockDim(1,1,_DEFAULT_BLOCK_SIZE);
     dim3 gridDim(_TILE(nmo,blockDim.x),_TILE(ncas,blockDim.y),_TILE(ncas,blockDim.z));
-    transpose_2310<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_step2, d_h2eff_transposed, nmo,ncas);
+    transpose_2310<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_step2, d_h2eff_transposed, nmo, ncas);
   }
- 
   
   profile_next("last 2 dgemm");
   
@@ -1389,31 +1424,36 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
 #endif
   
   double * d_h2eff_step3 = dd->d_buf1;
-  
+
   //h2eff_sub=np.einsum('iI,JKip->JKIp',ucas,h2eff_sub) h2eff=ncas,ncas,ncas,nmo; ucas=ncas,ncas
 
   cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_T,nmo,ncas,ncas,
-			    &alpha, d_h2eff_transposed, nmo, ncas*nmo, dd->d_ucas, ncas, 0, 
+			    &alpha, 
+			    d_h2eff_transposed, nmo, ncas*nmo, 
+			    dd->d_ucas, ncas, 0, 
 			    &beta, d_h2eff_step3, nmo, ncas*nmo, ncas*ncas);
   _CUDA_CHECK_ERRORS();
 
   //h2eff_step4=([JK]Ip,pP->[JK]IP)
 
   double * d_h2eff_step4 = dd->d_buf2;
-
+  
   cublasDgemmStridedBatched(dd->handle,CUBLAS_OP_N,CUBLAS_OP_N,nmo,ncas,nmo,
-	&alpha, dd->d_umat, nmo, 0, d_h2eff_step3, nmo, ncas*nmo, 
-	&beta, d_h2eff_step4, nmo, ncas*nmo, ncas*ncas);
+			    &alpha, 
+			    dd->d_umat, nmo, 0, 
+			    d_h2eff_step3, nmo, ncas*nmo, 
+			    &beta, d_h2eff_step4, nmo, ncas*nmo, ncas*ncas);
   
   profile_next("2nd transpose");
 
 #ifdef _DEBUG_H2EFF
   printf("LIBGPU :: Inside Device :: -- Finished last 2 cublasDgemmStridedBatched Functions \n");
 #endif
+
+  double * d_h2eff_transpose2 = dd->d_buf1;
   
   //h2eff_tranposed=(JKIP->PIJK) 3201
 
-  double * d_h2eff_transpose2 = dd->d_buf1;
   {
     dim3 blockDim(1,1,_DEFAULT_BLOCK_SIZE);
     dim3 gridDim(_TILE(ncas,blockDim.x),_TILE(ncas,blockDim.y),_TILE(ncas,blockDim.z));
@@ -1434,9 +1474,9 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   int * d_my_pack_map_ptr = dd_fetch_pumap(dd, ncas, _PUMAP_H2EFF_PACK);
 
   {
-    dim3 blockDim(1, _UNPACK_BLOCK_SIZE, 1);
-    dim3 gridDim(nmo, _TILE(ncas*ncas_pair,_UNPACK_BLOCK_SIZE)); 
-    _pack_h2eff_2d<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_transpose2, d_h2eff_sub, d_my_pack_map_ptr, nmo, ncas,ncas_pair);
+    dim3 blockDim(1, 1, _UNPACK_BLOCK_SIZE);
+    dim3 gridDim(nmo, ncas, _TILE(ncas_pair, _DEFAULT_BLOCK_SIZE));
+    _pack_h2eff_2d<<<gridDim, blockDim, 0, dd->stream>>>(d_h2eff_transpose2, d_h2eff_sub, d_my_pack_map_ptr, nmo, ncas, ncas_pair);
   }
   
 #ifdef _DEBUG_H2EFF
@@ -1448,9 +1488,9 @@ void Device::update_h2eff_sub(int ncore, int ncas, int nocc, int nmo,
   pm->dev_stream_wait(dd->stream);
   
   profile_stop();
-
+  
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Inside Device :: -- Leaving update function\n");
+  printf("LIBGPU :: Inside Device :: Leaving update function\n");
   cudaMemGetInfo(&freeMem, &totalMem);
   
   printf("Ending h2eff_sub_update Free memory %lu bytes, total memory %lu bytes\n",freeMem,totalMem);

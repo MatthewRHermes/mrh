@@ -207,6 +207,7 @@ private:
     std::vector<int *> pumap;
     std::vector<int *> d_pumap;
     int * d_pumap_ptr; // no explicit allocation
+    int * pumap_ptr; // no explicit allocation
 
 #if defined (_USE_GPU)
     cublasHandle_t handle;
