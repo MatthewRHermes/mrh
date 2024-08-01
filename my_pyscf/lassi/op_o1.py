@@ -9,6 +9,13 @@ from itertools import product, combinations, combinations_with_replacement
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr, umat_dot_1frag_
 import time
 
+# C interface
+import ctypes
+from mrh.lib.helper import load_library
+liblassi = load_library ('liblassi')
+def c_arr (arr): return arr.ctypes.data_as(ctypes.c_void_p)
+c_int = ctypes.c_int
+
 # NOTE: PySCF has a strange convention where
 # dm1[p,q] = <q'p>, but
 # dm2[p,q,r,s] = <p'r'sq>
@@ -1577,17 +1584,29 @@ class LRRDMint (LSTDMint2):
 
     def _put_SD1_(self, bra, ket, D1, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        si_dm = self.si[bra,:] * self.si[ket,:].conj ()
-        fac = np.dot (wgt, si_dm)
-        self.rdm1s[:] += np.multiply.outer (fac, D1)
+        #si_dm = self.si[bra,:] * self.si[ket,:].conj ()
+        #fac = np.dot (wgt, si_dm)
+        #self.rdm1s[:] += np.multiply.outer (fac, D1)
+        fn = liblassi.LASSIRDMdputSD
+        si_nrow, si_ncol = self.si.shape
+        fn (c_arr(self.rdm1s), c_arr(D1), c_int(D1.size),
+            c_arr(self.si), c_int(si_nrow), c_int(si_ncol),
+            c_arr(bra), c_arr(ket), c_arr (wgt),
+            c_int(len(wgt)))
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_SD2_(self, bra, ket, D2, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        si_dm = self.si[bra,:] * self.si[ket,:].conj ()
-        fac = np.dot (wgt, si_dm)
-        self.rdm2s[:] += np.multiply.outer (fac, D2)
+        #si_dm = self.si[bra,:] * self.si[ket,:].conj ()
+        #fac = np.dot (wgt, si_dm)
+        #self.rdm2s[:] += np.multiply.outer (fac, D2)
+        fn = liblassi.LASSIRDMdputSD
+        si_nrow, si_ncol = self.si.shape
+        fn (c_arr(self.rdm2s), c_arr(D2), c_int(D2.size),
+            c_arr(self.si), c_int(si_nrow), c_int(si_ncol),
+            c_arr(bra), c_arr(ket), c_arr (wgt),
+            c_int(len(wgt)))
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 

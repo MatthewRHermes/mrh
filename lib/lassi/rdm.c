@@ -36,7 +36,7 @@
 
 void LASSIRDMdputSD (double * SDsum, double * SDterm, int SDlen,
                      double * sivec, int sivec_nbas, int sivec_nroots,
-                     int * bra, int * ket, double * wgt, int nelem)
+                     long * bra, long * ket, double * wgt, int nelem)
 {
     double * sicol = sivec;
     double * SDtarget = SDsum;
