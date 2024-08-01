@@ -329,7 +329,9 @@ class _ERIS:
         mo = numpy.asarray(mo, order='F')
         fxpp = lib.H5TmpFile()
 
-        blksize = max(4, int(min(with_df.blockdim, (max_memory*.95e6/8-naoaux*nmo*ncas)/3/nmo**2)))
+#        blksize = max(4, int(min(with_df.blockdim, (max_memory*.95e6/8-naoaux*nmo*ncas)/3/nmo**2)))
+        blksize = with_df.blockdim
+
         bufpa = numpy.empty((naoaux,nmo,ncas))
         bufs1 = numpy.empty((blksize,nmo,nmo))
         fmmm = _ao2mo.libao2mo.AO2MOmmm_nr_s2_iltj
@@ -340,14 +342,14 @@ class _ERIS:
         t1 = t0 = (logger.process_clock(), logger.perf_counter())
         gpu=casscf.mol.use_gpu#print(bufpp)
         if gpu: 
-            libgpu.libgpu_transfer_mo_coeff(gpu, mo, nao*nmo)
+            libgpu.libgpu_push_mo_coeff(gpu, mo, nao*nmo)
+        count = 0
         for k, eri1 in enumerate(with_df.loop(blksize)):
             naux = eri1.shape[0]
             bufpp = bufs1[:naux]
             if DEBUG and gpu:
                 bufpp2 = numpy.empty((naux,nmo,nmo))#bufs1[:naux]
-
-                libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo,eri1)
+                libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo,eri1,count,id(with_df))
                 fdrv(ftrans, fmmm,
                  bufpp2.ctypes.data_as(ctypes.c_void_p),
                  eri1.ctypes.data_as(ctypes.c_void_p),
@@ -364,7 +366,7 @@ class _ERIS:
 
             else:
                 if gpu:
-                    libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo, eri1)
+                    libgpu.libgpu_df_ao2mo_pass1_fdrv(gpu,naux,nmo,nao,blksize,bufpp,mo, eri1,count,id(with_df))
                     t0 = log.timer('density fitting ao2mo pass1_loop gpu', *t0)
                 else:
                     fdrv(ftrans, fmmm,
@@ -386,6 +388,8 @@ class _ERIS:
             b0 += naux
             t0 = log.timer('rest of the calculation', *t0)
             #t1 = log.timer_debug1('j_pc and k_pc', *t1)
+            count += 1
+            
         self.k_pc = k_cp.T.copy()
         bufs1 = bufpp = None
         t1 = log.timer('density fitting ao2mo pass1', *t1)
