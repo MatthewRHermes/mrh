@@ -17,7 +17,7 @@ def weighted_average_densities(mc):
 	'''
     casdm1s = [mc.make_one_casdm1s(mc.ci, state=state) for state in mc.statlis]
     casdm2  = [mc.make_one_casdm2(mc.ci, state=state) for state in mc.statlis]
-    weights = [1/len(mc.statlis),]*mc.statlis
+    weights = [1/len(mc.statlis),]*len(mc.statlis)
     return (np.tensordot(weights, casdm1s, axes=1)),(np.tensordot(weights, casdm2, axes=1))
 
 
@@ -166,6 +166,9 @@ def get_transformed_h2eff_for_cas(mc, ncore=None, ncas=None):
     return mc.veff2.papa[ncore:nocc, :, ncore:nocc, :]
 
 
+from mrh.my_pyscf.lassi.lassi import las_symm_tuple, iterate_subspace_blocks
+from mrh.my_pyscf.lassi import op_o1
+
 def make_lpdft_ham_(mc, mo_coeff=None, ci=None, ot=None):
     '''Compute the L-PDFT Hamiltonian
 
@@ -204,7 +207,7 @@ def make_lpdft_ham_(mc, mo_coeff=None, ci=None, ot=None):
     cas_hyb = hyb[0]
 
     ncas = mc.ncas
-    casdm1s_0, casdm2_0 = mc.get_casdm12_0(ci=ci)
+    casdm1s_0, casdm2_0 = mc.get_casdm12_0()
 
     mc.veff1, mc.veff2, E_ot = mc.get_pdft_veff(mo=mo_coeff, casdm1s=casdm1s_0,
                                         casdm2=casdm2_0, drop_mcwfn=True, incl_energy=True)
@@ -214,9 +217,47 @@ def make_lpdft_ham_(mc, mo_coeff=None, ci=None, ot=None):
     h2 = mc.get_h2lpdft()
     
     # Using the h0, h1 and h2, I have to pass this to _eig_block of the lassi
-    # 
-    e, c, s2_blk = _eig_block (las1, e0, h1, h2, ci_blk, nelec_blk, sym, soc,
-                                   orbsym, wfnsym, o0_memcheck, opt)
+    #
+    statesym, s2_states = las_symm_tuple (mc)
+
+    # Initialize matrices
+    e_roots = []
+    s2_roots = []
+    rootsym = []
+    si = []
+    s2_mat = []
+    idx_allprods = []
+    # Loop over symmetry blocks
+    qn_lbls = ['neleca','nelecb',]
+    qn_lbls.append ('irrep')
+    for it, (las1,sym,indices,indexed) in enumerate (iterate_subspace_blocks(mc,ci,statesym)):
+        idx_space, idx_prod = indices
+        ci_blk, nelec_blk = indexed
+        idx_allprods.extend (list(np.where(idx_prod)[0]))
+        # lib.logger.info (las, 'Build + diag H matrix LASSI symmetry block %d\n'
+                         # + '{} = {}\n'.format (qn_lbls, sym)
+                         # + '(%d rootspaces; %d states)', it,
+                         # np.count_nonzero (idx_space), 
+                         # np.count_nonzero (idx_prod))
+        if np.count_nonzero (idx_prod) == 1:
+            lib.logger.debug (mc, 'Only one state in this symmetry block')
+            e_roots.extend (las1.e_states - e0)
+            si.append (np.ones ((1,1), dtype=dtype))
+            s2_mat.append (s2_states[idx_space]*np.ones((1,1)))
+            s2_roots.extend (s2_states[idx_space])
+            rootsym.extend ([sym,])
+            continue
+        wfnsym =  sym[-1]
+        ham_blk, s2_blk, ovlp_blk = op_o1.ham (mc, h1, h2, ci_blk, nelec_blk)
+        diag_idx = np.diag_indices_from(ham_blk)
+        ham_blk[diag_idx] += h0 + cas_hyb * mc.e_roots
+    
+        e, c = linalg.eigh(ham_blk,b=ovlp_blk)
+        print(c.conj ().T @ s2_blk @ c)
+        print(e)
+        exit()
+    #e, c, s2_blk = _eig_block (las1, h0, h1, h2, ci_blk, nelec_blk, sym, soc,
+    #                               orbsym, wfnsym, o0_memcheck, opt)
     # h2eff = direct_spin1.absorb_h1e(h1, h2, ncas, mc.nelecas, 0.5)
 
     # def construct_ham_slice(solver, slice, nelecas):
@@ -245,26 +286,18 @@ def make_lpdft_ham_(mc, mo_coeff=None, ci=None, ot=None):
             # for s, irrep in zip(mc.fcisolver.fcisolvers, mc._irrep_slices)]
 
 
-def kernel(mc, mo_coeff=None, ci0=None, ot=None, **kwargs):
+def kernel(mc, mo_coeff=None,ot=None, **kwargs):
     if ot is None: ot = mc.otfnal
     if mo_coeff is None: mo_coeff = mc.mo_coeff
-
-    mc.optimize_mcscf_(mo_coeff=mo_coeff, ci0=ci0)
+    mc.optimize_mcscf_(mo_coeff=mo_coeff, **kwargs)
     mc.ci_mcscf = mc.ci
     mc.lpdft_ham = mc.make_lpdft_ham_(ot=ot)
-    logger.debug(mc, f"L-PDFT Hamiltonian in MC-SCF Basis:\n{mc.get_lpdft_ham()}")
-
-    if hasattr(mc, "_irrep_slices"):
-        e_states, si_pdft = zip(*map(mc._eig_si, mc.lpdft_ham))
-        mc.e_states = np.concatenate(e_states)
-        mc.si_pdft = linalg.block_diag(*si_pdft)
-
-    else:
-        mc.e_states, mc.si_pdft = mc._eig_si(mc.lpdft_ham)
+    logger.debug(mc, f"L-PDFT Hamiltonian in LASSI Basis:\n{mc.get_lpdft_ham()}")
+    mc.e_states, mc.si_pdft = mc._eig_si(mc.lpdft_ham)
 
     logger.debug(mc, f"L-PDFT SI:\n{mc.si_pdft}")
 
-    mc.e_tot = np.dot(mc.e_states, mc.weights)
+    mc.e_tot = 0 #np.dot(mc.e_states, mc.weights)
     mc.ci = mc._get_ci_adiabats()
 
     return (
@@ -313,7 +346,7 @@ class _LPDFT(mcpdft.MultiStateMCPDFTSolver):
     @property
     def e_states(self):
         if self._in_mcscf_env:
-            return self.fcisolver.e_states
+            return self.e_roots
 
         else:
             return self._e_states
@@ -373,6 +406,7 @@ class _LPDFT(mcpdft.MultiStateMCPDFTSolver):
         They are attributes of the QLPDFT object, which can be accessed by
         .e_tot, .e_mcscf, .e_cas, .ci, .mo_coeff, .mo_energy
         '''
+        
         if ot is None: ot = self.otfnal
         ot.reset(mol=self.mol)  # scanner mode safety
 
@@ -386,7 +420,7 @@ class _LPDFT(mcpdft.MultiStateMCPDFTSolver):
         if ci0 is None and isinstance(getattr(self, 'ci', None), list):
             ci0 = [c.copy() for c in self.ci]
 
-        kernel(self, mo_coeff, ci0, ot=ot, verbose=log)
+        kernel(self, mo_coeff,ot=ot, verbose=log)
         self._finalize_lin()
         return (
             self.e_tot, self.e_mcscf, self.e_cas, self.ci,
@@ -467,75 +501,6 @@ class _LPDFT(mcpdft.MultiStateMCPDFTSolver):
         return Gradients(self, state=state)
 
 
-class _LPDFTMix(_LPDFT):
-    '''State Averaged Mixed Linerized PDFT
-
-    Saved Results
-
-        e_tot : float
-            Weighted-average L-PDFT final energy
-        e_states : ndarray of shape (nroots)
-            L-PDFT final energies of the adiabatic states
-        ci : list of length (nroots) of ndarrays
-            CI vectors in the optimized adiabatic basis of MC-SCF. Related to the
-            L-PDFT adiabat CI vectors by the expansion coefficients ``si_pdft''.
-        si_pdft : ndarray of shape (nroots, nroots)
-            Expansion coefficients of the L-PDFT adiabats in terms of the optimized
-            MC-SCF adiabats
-        e_mcscf : ndarray of shape (nroots)
-            Energies of the MC-SCF adiabatic states
-        lpdft_ham : list of ndarray of shape (nirreps, nroots, nroots)
-            L-PDFT Hamiltonian in the MC-SCF adiabatic basis within each irrep
-    '''
-
-    def __init__(self, mc):
-        super().__init__(mc)
-        # Holds the irrep slices for when we need to index into various quantities
-        self._irrep_slices = None
-
-    def get_lpdft_diag(self):
-        '''Diagonal elements of the L-PDFT Hamiltonian matrix
-            (H_00^L-PDFT, H_11^L-PDFT, H_22^L-PDFT, ...)
-
-        Returns:
-            lpdft_diag : ndarray of shape (nroots)
-                Contains the linear approximation to the MC-PDFT energy. These
-                are also the diagonal elements of the L-PDFT Hamiltonian
-                matrix.
-        '''
-        return np.concatenate([np.diagonal(irrep_ham).copy() for irrep_ham in self.lpdft_ham])
-
-    def get_lpdft_ham(self):
-        '''The L-PDFT effective Hamiltonian matrix
-
-            Returns:
-                lpdft_ham : ndarray of shape (nroots, nroots)
-                    Contains L-PDFT Hamiltonian elements on the off-diagonals
-                    and PDFT approx energies on the diagonals
-        '''
-        return linalg.block_diag(*self.lpdft_ham)
-
-    def _get_ci_adiabats(self, ci_mcscf=None):
-        '''Get the CI vertors in eigenbasis of L-PDFT Hamiltonian
-
-            Kwargs:
-                ci : list of length nroots
-                    MC-SCF ci vectors; defaults to self.ci_mcscf
-
-            Returns:
-                ci : list of length nroots
-                    CI vectors in basis of L-PDFT Hamiltonian eigenvectors
-        '''
-        if ci_mcscf is None: ci_mcscf = self.ci_mcscf
-        adiabat_ci = [np.tensordot(self.si_pdft[irrep_slice, irrep_slice],
-                                   np.asarray(ci_mcscf[irrep_slice]), axes=1) for irrep_slice in self._irrep_slices]
-        # Flattens it
-        return [c for ci_irrep in adiabat_ci for c in ci_irrep]
-
-    def nuc_grad_method(self, state=None):
-        raise NotImplementedError("MultiState Mix LPDFT nuclear gradients")
-
-
 def linear_multi_state(mc, **kwargs):
     ''' Build linearized multi-state MC-PDFT method object
 
@@ -549,8 +514,7 @@ def linear_multi_state(mc, **kwargs):
         si : instance of class _LPDFT
     '''
  
-    base_name = mc.__class__.bases__[0].__name__
-
+    base_name = mc.__class__.__name__
     mcbase_class = mc.__class__
 
     class LPDFT(_LPDFT, mcbase_class):
@@ -564,7 +528,7 @@ These two functions are required for the diagonalization of the
 LASSI States in the L-PDFT Hamiltonian format
 '''
 
-from mrh.my_pyscf.lassi.lassi import las_symm_tuple, iterate_subspace_blocks
+
 
 def lassi (las, e0, h1, h2, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,
            break_symmetry=False, opt=1):
@@ -681,52 +645,14 @@ def lassi (las, e0, h1, h2, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None,
 def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym, o0_memcheck, opt):
     # TODO: simplify
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    if (las.verbose > lib.logger.INFO) and (o0_memcheck):
-        ham_ref, s2_ref, ovlp_ref = op_o0.ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
-                                               orbsym=orbsym, wfnsym=wfnsym)
-        t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} CI algorithm'.format (
-            rootsym), *t0)
-
-        h1_sf = h1
-        if soc:
-            h1_sf = (h1[0:las.ncas,0:las.ncas]
-                     - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym,
-                                               wfnsym=wfnsym)
-        t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
-            rootsym), *t0)
-        lib.logger.debug (las,
-            'LASSI diagonalizer rootsym {}: ham o0-o1 algorithm disagreement = {}'.format (
-                rootsym, linalg.norm (ham_blk - ham_ref))) 
-        lib.logger.debug (las,
-            'LASSI diagonalizer rootsym {}: S2 o0-o1 algorithm disagreement = {}'.format (
-                rootsym, linalg.norm (s2_blk - s2_ref))) 
-        lib.logger.debug (las,
-            'LASSI diagonalizer rootsym {}: ovlp o0-o1 algorithm disagreement = {}'.format (
-                rootsym, linalg.norm (ovlp_blk - ovlp_ref))) 
-        errvec = np.concatenate ([(ham_blk-ham_ref).ravel (), (s2_blk-s2_ref).ravel (),
-                                  (ovlp_blk-ovlp_ref).ravel ()])
-        if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in op_o1
-            raise LASSIOop01DisagreementError ("Hamiltonian + S2 + Ovlp", errvec)
-        if opt == 0:
-            ham_blk = ham_ref
-            s2_blk = s2_ref
-            ovlp_blk = ovlp_ref
-    else:
-        if (las.verbose > lib.logger.INFO): lib.logger.debug (
-            las, 'Insufficient memory to test against o0 LASSI algorithm')
-        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
+    
+    ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1, h2, ci_blk, nelec_blk, soc=soc,
                                                  orbsym=orbsym, wfnsym=wfnsym)
-        t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
+    t0 = lib.logger.timer (las, 'LASSI H build rootsym {}'.format (rootsym), *t0)
+    
     log_debug = lib.logger.debug2 if las.nroots>10 else lib.logger.debug
-    if np.iscomplexobj (ham_blk):
-        log_debug (las, 'Block Hamiltonian - ecore (real):')
-        log_debug (las, '{}'.format (ham_blk.real.round (8)))
-        log_debug (las, 'Block Hamiltonian - ecore (imag):')
-        log_debug (las, '{}'.format (ham_blk.imag.round (8)))
-    else:
-        log_debug (las, 'Block Hamiltonian - ecore:')
-        log_debug (las, '{}'.format (ham_blk.round (8)))
+    log_debug (las, 'Block Hamiltonian - ecore:')
+    log_debug (las, '{}'.format (ham_blk.round (8)))
     log_debug (las, 'Block S**2:')
     log_debug (las, '{}'.format (s2_blk.round (8)))
     log_debug (las, 'Block overlap matrix:')

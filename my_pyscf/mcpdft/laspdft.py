@@ -118,6 +118,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
         _mc_class = mc.__class__
         setattr(_mc_class, 'DoLASSI', None)
         setattr(_mc_class, 'states', None)
+        setattr(_mc_class, 'statlis', None)
         setattr(_mc_class, 'rdmstmpfile', None)
         
         def get_h2eff(self, mo_coeff=None):
@@ -133,10 +134,10 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
             '''
             In future will have to change this to consider the modal space selection, weights...
             '''
-            assert _mc_class.DoLASSI, "multi_state is only defined for post LAS methods"
+            assert self.DoLASSI, "multi_state is only defined for post LAS methods"
             return _LASPDFT.multi_state(self, **kwargs)
         
-        self.multi_state_mix = self.multi_state
+        multi_state_mix = multi_state
                       
         if DoLASSI:  
             _mc_class.DoLASSI = True
@@ -145,7 +146,8 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
         else: _mc_class.DoLASSI = False
         
         if states is not None: _mc_class.states=states
-
+        
+        _mc_class.statlis = [0, 1, 2, 3, 4, 5]  
         if _mc_class.DoLASSI:
             
             '''
