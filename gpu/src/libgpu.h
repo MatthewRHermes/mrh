@@ -58,6 +58,10 @@ extern "C"
                            py::array_t<double> ,  
                            int , int , int , int , int ,
                            py::array_t<double> ,py::array_t<double> );
+  void libgpu_get_h2eff_df(void * , 
+                           py::array_t<double> , 
+                           int , int , int , int , int ,
+                           py::array_t<double> );
 }
 
 
@@ -84,6 +88,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_df_ao2mo_pass1_fdrv", &libgpu_df_ao2mo_pass1_fdrv, "pyscf/mcscf/df.py::_ERIS.__init__() part 1");
   m.def("libgpu_update_h2eff_sub", &libgpu_update_h2eff_sub, "my_pyscf/mcscf/lasci_sync.py::_update_h2_eff()");
   m.def("libgpu_h2eff_df_contract1", &libgpu_h2eff_df_contract1, "my_pyscf/df/sparse_df.py::contract1");
+  m.def("libgpu_get_h2eff_df", &libgpu_get_h2eff_df, "my_pyscf/mcscf/las_ao2mo.py::get_h2eff_df");
   
   m.def("libgpu_orbital_response", &libgpu_orbital_response, "mrh/lasscf_sync_o0.py::orbital_response");
 }
