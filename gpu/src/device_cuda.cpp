@@ -1631,7 +1631,7 @@ __global__ void get_mo_cas(const double* big_mat, double* small_mat, int ncas, i
     const int j = blockIdx.y * blockDim.y + threadIdx.y;
     const int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < ncas && j < nao) {
-        small_mat[i * nao + j] = big_mat[(j+ncore)*nao + i];
+        small_mat[i * nao + j] = big_mat[j*nao + i+ncore];
     }
 }
 __global__ void transpose_120(double * in, double * out, int naux, int nao, int ncas) {
@@ -1694,12 +1694,20 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   get_mo_cas<<<grid_size, block_size, 0, dd->stream>>>(d_mo_coeff, d_mo_cas, ncas, ncore, nao);}
   //
 #ifdef _DEBUG_H2EFF_DF2
+  printf("printing mo_cas\n");
   double * h_mo_cas = (double*) malloc (_size_mo_cas *sizeof(double));
   pm->dev_pull(d_mo_cas, h_mo_cas,_size_mo_cas*sizeof(double));
   for (int i =0; i<ncas; ++i){
     for (int j =0; j<nao; ++j){
       printf("%f \t",h_mo_cas[i*nao+j]);}printf("\n");}
   free(h_mo_cas);
+  printf("printing mo_coeff\n");
+  double * h_mo_coeff = (double*) malloc (nao*nao *sizeof(double));
+  pm->dev_pull(dd->d_mo_coeff, h_mo_coeff,nao*nao*sizeof(double));
+  for (int i =0; i<nao; ++i){
+    for (int j =0; j<nao; ++j){
+      printf("%f \t",h_mo_coeff[i*nao+j]);}printf("\n");}
+  free(h_mo_coeff);
 #endif
   // unpacking business that should really just have been done with stored map already and also with the stored eris
   double * d_cderi=(double*) pm->dev_malloc( _size_cderi * sizeof(double));
@@ -1763,12 +1771,13 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
 #if 1
 //eri = np.einsum('Pmw,Pvu->mwvu', bPmu, bPvu)
   //transpose bPmu 
-  double * d_bmuP = (double*) pm->dev_malloc (_size_bPmu *sizeof(double));
-#if 0
+#if 1
+  double * d_bumP = (double*) pm->dev_malloc (_size_bPmu *sizeof(double));
   {dim3 block_size(1,1,1);
   dim3 grid_size(_TILE(naux, block_size.x),_TILE(nao, block_size.y),_TILE(ncas, block_size.z));
   transpose_120<<<grid_size, block_size, 0, dd->stream>>>(d_bPmu, d_bumP, naux, ncas, nao);}
 #else 
+  double * d_bmuP = (double*) pm->dev_malloc (_size_bPmu *sizeof(double));
   {dim3 grid_size( _TILE(naux, _TRANSPOSE_BLOCK_SIZE), _TILE(nao*ncas, _TRANSPOSE_BLOCK_SIZE), 1);
    dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS);
    _transpose<<<grid_size, block_size, 0, dd->stream>>>(d_bmuP, d_bPmu, naux, ncas*ncas);
@@ -1784,13 +1793,14 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   free(h_bumP);
 #endif
 
+#if 1
   double * d_buvP = (double*) pm->dev_malloc (_size_bPvu *sizeof(double));
-#if 0
   //transpose bPvu
   {dim3 block_size(1,1,1);
   dim3 grid_size(_TILE(naux, block_size.x),_TILE(ncas, block_size.y),_TILE(ncas, block_size.z));
   transpose_210<<<grid_size, block_size, 0, dd->stream>>>(d_bPvu, d_buvP, naux, ncas, ncas);}
 #else
+  double * d_buvP = (double*) pm->dev_malloc (_size_bPvu *sizeof(double));
   {dim3 grid_size( _TILE(naux, _TRANSPOSE_BLOCK_SIZE), _TILE(ncas*ncas, _TRANSPOSE_BLOCK_SIZE), 1);
    dim3 block_size(_TRANSPOSE_BLOCK_SIZE, _TRANSPOSE_NUM_ROWS);
    _transpose<<<grid_size, block_size, 0, dd->stream>>>(d_buvP, d_bPvu, naux, ncas*ncas);
@@ -1809,7 +1819,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
    //h_vuwm[i*ncas*nao+j]+=h_bvuP[i*naux + k]*h_bumP[j*naux+k];
   //dgemm (probably just simple, not strided/batched, contracted dimension = P)
   const int _size_mwvu = nao*ncas*ncas*ncas;
-  double * d_vumw = (double*) pm ->dev_malloc( _size_mwvu*sizeof(double));
+  double * d_vuwm = (double*) pm ->dev_malloc( _size_mwvu*sizeof(double));
 cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
               ncas*nao, ncas*ncas, naux,
               &alpha, 
@@ -1845,11 +1855,11 @@ cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
   //printf("printing vuwM\n");
   double * h_vuwM = (double*) malloc (_size_mwvu *sizeof(double));
   pm->dev_pull(d_vuwM, h_vuwM,_size_mwvu*sizeof(double));
-  for (int i=0; i<ncas; ++i){
-  for (int j=0; j<ncas; ++j){
-  for (int k=0; k<ncas; ++k){
-  for (int l=0; l<nao; ++l){
-    printf("%f \t ", h_vuwM[((i*ncas+j)*ncas+k)*nao+l]);}printf("\n");}printf("\n");}printf("\n");}
+  //for (int i=0; i<ncas; ++i){
+  //for (int j=0; j<ncas; ++j){
+  //for (int k=0; k<ncas; ++k){
+  //for (int l=0; l<nao; ++l){
+  //  printf("%f \t ", h_vuwM[((i*ncas+j)*ncas+k)*nao+l]);}printf("\n");}printf("\n");}printf("\n");}
   //free(h_vuwm);
 #endif
   int _size_pack_map = ncas*ncas;

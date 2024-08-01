@@ -3,7 +3,7 @@ from scipy import linalg
 from pyscf import ao2mo, lib
 from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.gpu import libgpu
-DEBUG=True
+DEBUG=False
 def get_h2eff_df (las, mo_coeff):
     # Store intermediate with one contracted ao index for faster calculation of exchange!
     log = lib.logger.new_logger (las, las.verbose)
@@ -134,7 +134,7 @@ def get_h2eff_gpu (las,mo_coeff):
         eri1 = np.empty((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
         if DEBUG and gpu:
             libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1)
-            print('gpu',eri1)
+            #print('gpu',eri1)
             bPmu = np.einsum('Pmn,nu->Pmu',lib.unpack_tril(cderi),mo_cas)
 
             bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
@@ -143,9 +143,9 @@ def get_h2eff_gpu (las,mo_coeff):
             buvP = bPvu.transpose(2,1,0)
             eri2 = np.einsum('uvP,wmP->uvwm', buvP, bumP)
             eri2 = np.einsum('mM,uvwm->Mwvu', mo_coeff.conjugate(),eri2)
-            print('final matmul',eri2)
+            #print('final matmul',eri2)
             eri2 = lib.pack_tril (eri2.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
-            print('cpu',eri2)
+            #print('cpu',eri2)
             #bPmn = sparsedf_array (cderi)
             #bmuP1 = bPmn.contract1 (mo_cas)
             #bmuP1 = np.einsum('Pmn,nu->Pmu',lib.unpack_tril(bPmn),mo_cas)
