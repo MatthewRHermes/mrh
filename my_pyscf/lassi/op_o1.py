@@ -649,9 +649,10 @@ class LSTDMint2 (object):
     # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
 
     def __init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=None, mask_ket_space=None,
-                 log=None, dtype=np.float64):
+                 log=None, max_memory=2000, dtype=np.float64):
         self.ints = ints
         self.log = log
+        self.max_memory = max_memory
         self.nlas = nlas
         self.norb = sum (nlas)
         self.lroots = lroots
@@ -937,7 +938,7 @@ class LSTDMint2 (object):
         wgt *= fermion_frag_shuffle (self.nelec_rf[ket], uniq_frags)
         return wgt
 
-    def _get_addr_range (self, raddr, *inv):
+    def _get_addr_range (self, raddr, *inv, _profile=True):
         '''Get the integer offsets for successive ENVs in a particular rootspace in which some
         fragments are frozen in the zero state.
 
@@ -960,7 +961,7 @@ class LSTDMint2 (object):
         envaddr_inv = get_rootaddr_fragaddr (lroots[inv])[1]
         strides_inv = self.strides[raddr][inv]
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
+        if _profile: self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
         return addr0 + np.dot (strides_inv, envaddr_inv)
 
     def _prepare_spec_addr_ovlp_(self, rbra, rket, *inv):
@@ -981,6 +982,7 @@ class LSTDMint2 (object):
         for rbra1, rket1 in braket_table:
             b, k, o = self._get_spec_addr_ovlp_1space (rbra1, rket1, *inv)
             self._spec_addr_ovlp_cache.append ((rbra1, rket1, b, k, o))
+        current_memory = lib.current_memory ()[0]
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         return
@@ -1014,8 +1016,6 @@ class LSTDMint2 (object):
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         braenv = self.envaddr[bra]
         ketenv = self.envaddr[ket]
-        key = tuple ((rbra,rket)) + inv
-        braket_table = self.nonuniq_exc[key]
         bra_rng = []
         ket_rng = []
         facs = []
@@ -1061,8 +1061,8 @@ class LSTDMint2 (object):
         spec = np.ones (self.nfrags, dtype=bool)
         for i in inv: spec[i] = False
         spec = np.where (spec)[0]
-        bra_rng = self._get_addr_range (rbra, *spec)
-        ket_rng = self._get_addr_range (rket, *spec)
+        bra_rng = self._get_addr_range (rbra, *spec, _profile=False)
+        ket_rng = self._get_addr_range (rket, *spec, _profile=False)
         specints = [self.ints[i] for i in spec]
         o = fac * np.ones ((1,1), dtype=self.dtype)
         for i in specints:
@@ -1443,9 +1443,10 @@ class HamS2ovlpint (LSTDMint2):
     # Hamiltonian in addition to h1 and h2, which are spin-symmetric
 
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
-                 mask_ket_space=None, log=None, dtype=np.float64):
+                 mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
-                           mask_ket_space=mask_ket_space, log=log, dtype=dtype)
+                           mask_ket_space=mask_ket_space, log=log, max_memory=max_memory,
+                           dtype=dtype)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
         self.h1 = h1
         self.h2 = h2
@@ -1548,9 +1549,10 @@ class LRRDMint (LSTDMint2):
     # spinorbital basis
 
     def __init__(self, ints, nlas, hopping_index, lroots, si, mask_bra_space=None,
-                 mask_ket_space=None, log=None, dtype=np.float64):
+                 mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
         LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots, mask_bra_space=mask_bra_space,
-                           mask_ket_space=mask_ket_space, log=log, dtype=dtype)
+                           mask_ket_space=mask_ket_space, log=log, max_memory=max_memory,
+                           dtype=dtype)
         self.nroots_si = si.shape[-1]
         self.si = si.copy ()
         self._umat_linequiv_loop_(self.si)
@@ -1605,14 +1607,14 @@ class ContractHamCI (LSTDMint2):
             Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, nbra=1,
-                 log=None, dtype=np.float64):
+                 log=None, max_memory=2000, dtype=np.float64):
         nfrags, _, nroots, _ = hopping_index.shape
         if nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
         nket = nroots - nbra
         HamS2ovlpint.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                               mask_bra_space = list (range (nket, nroots)),
                               mask_ket_space = list (range (nket)),
-                              log=log, dtype=dtype)
+                              log=log, max_memory=max_memory, dtype=dtype)
         self.nbra = nbra
         self.hci_fr_pabq = self._init_vecs ()
 
@@ -1814,13 +1816,24 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     nlas = las.ncas_sub
     ncas = las.ncas
     nroots = nelec_frs.shape[1]
+    dtype = ci[0][0].dtype
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
+    nstates = np.sum (np.prod (lroots, axis=0))
+
+    # Memory check
+    current_memory = lib.current_memory ()[0]
+    required_memory = dtype.itemsize*nstates*nstates*(2*(ncas**2)+4*(ncas**4))/1e6
+    if current_memory + required_memory > max_memory:
+        raise MemoryError ("current: {}; required: {}; max: {}".format (
+            current_memory, required_memory, max_memory))
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LSTDMint2 (ints, nlas, hopping_index, lroots, dtype=ci[0][0].dtype, log=log)
+    outerprod = LSTDMint2 (ints, nlas, hopping_index, lroots, dtype=dtype,
+                           max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)        
     tdm1s, tdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate crunching', *t0)        
@@ -1828,7 +1841,6 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
         lib.logger.info (las, 'LAS-state TDM12s crunching profile:\n%s', outerprod.sprint_profile ())
 
     # Put tdm1s in PySCF convention: [p,q] -> q'p
-    nstates = np.sum (np.prod (lroots, axis=0))
     tdm1s = tdm1s.transpose (0,2,4,3,1)
     tdm2s = tdm2s.reshape (nstates,nstates,2,2,ncas,ncas,ncas,ncas).transpose (0,2,4,5,3,6,7,1)
     return tdm1s, tdm2s
@@ -1858,13 +1870,24 @@ def ham (las, h1, h2, ci, nelec_frs, **kwargs):
     '''
     log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
+    dtype = ci[0][0].dtype
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
+    nstates = np.sum (np.prod (lroots, axis=0))
+
+    # Memory check
+    current_memory = lib.current_memory ()[0]
+    required_memory = dtype.itemsize*nstates*nstates*3/1e6
+    if current_memory + required_memory > max_memory:
+        raise MemoryError ("current: {}; required: {}; max: {}".format (
+            current_memory, required_memory, max_memory))
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = HamS2ovlpint (ints, nlas, hopping_index, lroots, h1, h2, dtype=ci[0][0].dtype, log=log)
+    outerprod = HamS2ovlpint (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
+                              max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)        
     ham, s2, ovlp, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)        
@@ -1896,13 +1919,24 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
     nlas = las.ncas_sub
     ncas = las.ncas
     nroots_si = si.shape[-1]
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
+    dtype = ci[0][0].dtype
 
     # First pass: single-fragment intermediates
     hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
+    nstates = np.sum (np.prod (lroots, axis=0))
+
+    # Memory check
+    current_memory = lib.current_memory ()[0]
+    required_memory = dtype.itemsize*nroots_si*(2*(ncas**2)+4*(ncas**4))/1e6
+    if current_memory + required_memory > max_memory:
+        raise MemoryError ("current: {}; required: {}; max: {}".format (
+            current_memory, required_memory, max_memory))
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDMint (ints, nlas, hopping_index, lroots, si, dtype=ci[0][0].dtype, log=log)
+    outerprod = LRRDMint (ints, nlas, hopping_index, lroots, si, dtype=dtype,
+                          max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
     rdm1s, rdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
@@ -1964,8 +1998,9 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
     contracter = ContractHamCI (ints, nlas, hopping_index, lroots, h1, h2, nbra=nbra,
-                                dtype=ci[0][0].dtype, log=log)
+                                dtype=ci[0][0].dtype, max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate indexing setup', *t0)        
     hket_fr_pabq, t0 = contracter.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
