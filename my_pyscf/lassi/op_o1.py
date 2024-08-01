@@ -982,7 +982,6 @@ class LSTDMint2 (object):
         for rbra1, rket1 in braket_table:
             b, k, o = self._get_spec_addr_ovlp_1space (rbra1, rket1, *inv)
             self._spec_addr_ovlp_cache.append ((rbra1, rket1, b, k, o))
-        current_memory = lib.current_memory ()[0]
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         return
