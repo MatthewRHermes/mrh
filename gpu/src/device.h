@@ -77,8 +77,9 @@ public :
   void get_dfobj_status(size_t, py::array_t<int>);
  
   void df_ao2mo_pass1_fdrv (int, int, int, int,
-		       py::array_t<double>, py::array_t<double>,
-		       py::array_t<double>);
+			    py::array_t<double>, py::array_t<double>,
+			    py::array_t<double>,
+			    int, size_t);
   
   void orbital_response(py::array_t<double>,
 			py::array_t<double>, py::array_t<double>, py::array_t<double>,

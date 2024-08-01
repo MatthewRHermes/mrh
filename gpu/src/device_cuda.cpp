@@ -1061,20 +1061,29 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 
 /* ---------------------------------------------------------------------- */
 void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize, 
-			py::array_t<double> _bufpp, py::array_t<double> _mo_coeff, py::array_t<double> _eri1)
+				  py::array_t<double> _bufpp, py::array_t<double> _mo_coeff, py::array_t<double> _eri1,
+				  int count, size_t addr_dfobj)
 {
   const int device_id = 0;//count % num_devices;
+  
   pm->dev_set_device(device_id);
+  
   my_device_data * dd = &(device_data[device_id]);
+  
 #ifdef _DEBUG_DEVICE
-  printf("LIBGPU :: Inside Device::df_ao2mo_pass1_fdrv()\n");
+  printf("LIBGPU:: Inside Device::df_ao2mo_pass1_fdrv()\n");
+  printf("LIBGPU:: dfobj= %#012x  count= %i  combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
 #endif
+  
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
+  
   profile_start(" df_ao2mo_pass1_fdrv setup\n");
+  
   py::buffer_info info_eri1 = _eri1.request(); // 2D array (naux, nao_pair) nao_pair= nao*(nao+1)/2
   py::buffer_info info_bufpp = _bufpp.request(); // 3D array (naux,nmo,nmo)
+  
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU::: naux= %i  nmo= %i  nao= %i  blksize=%i \n",naux,nmo,nao,blksize);
   printf("LIBGPU::shape: _eri1= (%i,%i)  _mo_coeff= (%i,%i)  _bufpp= (%i, %i, %i)\n",
@@ -1082,12 +1091,17 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   	 info_mo_coeff.shape[0], info_mo_coeff.shape[1],
   	 info_bufpp.shape[0], info_bufpp.shape[1],info_bufpp.shape[2]);
 #endif
+  
   const int nao_pair = nao*(nao+1)/2;
+  
+
   double * eri = static_cast<double*>(info_eri1.ptr);
   int _size_eri = naux * nao_pair;
   int _size_eri_unpacked = naux * nao * nao; 
+
   double * bufpp = static_cast<double*>(info_bufpp.ptr);
   //int _size_bufpp = naux * nao * nao;
+
 #if 1
   double * d_mo_coeff = dd->d_mo_coeff;
 #else
@@ -1097,6 +1111,7 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
   int _size_mo_coeff = nao * nao;
 #endif
+  
 #ifdef _DEBUG_DEVICE
   size_t freeMem;size_t totalMem;
   freeMem=0;totalMem=0;
@@ -1108,9 +1123,19 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   double * d_buf_2 = (double*) pm->dev_malloc(_size_eri_unpacked*sizeof(double));//new
   double * d_buf = d_buf_1; //for eri*mo_coeff (don't pull or push) 
   double * d_eri_unpacked = d_buf_2;//set memory for the entire eri array on GPU
+  
   //unpack 2D eri of size naux * nao(nao+1)/2 to a full naux*nao*nao 3D matrix
-  double * d_eri = (double*) pm->dev_malloc (sizeof(double)* _size_eri);//set memory for the entire eri array on GPU
-  pm->dev_push(d_eri, eri, _size_eri * sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations. 
+  
+  double * d_eri;
+
+#if 1
+  if(use_eri_cache)
+    d_eri = dd_fetch_eri(dd, eri, addr_dfobj, count);
+#else
+  d_eri = (double*) pm->dev_malloc (sizeof(double)* _size_eri);//set memory for the entire eri array on GPU
+  pm->dev_push(d_eri, eri, _size_eri * sizeof(double));//doing this allocation and pushing first because it doesn't change over iterations.
+#endif
+  
   int _size_tril_map = nao * nao;
   int * my_tril_map = (int*) malloc (_size_tril_map * sizeof(int));
   int * my_d_tril_map = (int*) pm->dev_malloc (_size_tril_map * sizeof(int));
@@ -1157,7 +1182,9 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   profile_start(" df_ao2mo_pass1_fdrv Data pull\n");
   pm->dev_pull(d_bufpp, bufpp, _size_eri_unpacked * sizeof(double));
   pm->dev_free(my_d_tril_map);
+#if 0
   pm->dev_free(d_eri);
+#endif
   pm->dev_free(d_buf_1);
   pm->dev_free(d_buf_2);
   profile_stop();
