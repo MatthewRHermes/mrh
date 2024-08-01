@@ -156,7 +156,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
 
         if states is not None: _mc_class.states = states
 
-        _mc_class.statlis = [0, 1, 2, 3, 4, 5]
+
         if _mc_class.DoLASSI:
 
             '''
@@ -224,6 +224,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                     self._store_rdms()
                     self.fcisolver.nroots = len(self.e_states) if self.states is None else self.states
                     self.e_states = self.e_roots
+                    self.statlis = [x for x in range(len(self.e_states))]
                 else:
                     self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
                         self._mc_class.kernel(self, mo_coeff, ci0=ci0, **kwargs)[:-2]

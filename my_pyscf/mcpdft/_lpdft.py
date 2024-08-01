@@ -6,7 +6,6 @@ from pyscf.mcpdft import _dms
 from mrh.my_pyscf.lassi.lassi import las_symm_tuple, iterate_subspace_blocks
 from mrh.my_pyscf.lassi import op_o1
 
-
 '''
 This file is taken from pyscf-forge and adopted for the LAS wavefunctions.
 '''
@@ -215,7 +214,7 @@ def make_lpdft_ham_(mc, mo_coeff=None, ci=None, ot=None):
     h1, h0 = mc.get_h1lpdft(E_ot, casdm1s_0, casdm2_0, hyb=1.0 - cas_hyb)
     h2 = mc.get_h2lpdft()
 
-    statesym, s2_states = las_symm_tuple(mc)
+    statesym, s2_states = las_symm_tuple(mc, verbose=0)
 
     # Initialize matrices
     e_roots = []
@@ -271,32 +270,35 @@ def make_lpdft_ham_(mc, mo_coeff=None, ci=None, ot=None):
     idx = np.argsort(e_roots)
     rootsym = np.asarray(rootsym)[idx]
     s2_roots = np.asarray(s2_roots)[idx]
-    nelec_roots = [rs[0] for rs in rootsym]
-    wfnsym_roots = [rs[-1] for rs in rootsym]
     si = si[:, idx]
-    #si = tag_array(si, s2=s2_roots, s2_mat=s2_mat, nelec=nelec_roots, wfnsym=wfnsym_roots,
-    #               rootsym=rootsym, break_symmetry=break_symmetry, soc=soc)
-    print(e)
-    exit()
-    return ham_blk, e
+    return ham_blk, e, si, rootsym, s2_roots, s2_mat
+
 
 def kernel(mc, mo_coeff=None, ot=None, **kwargs):
     if ot is None: ot = mc.otfnal
     if mo_coeff is None: mo_coeff = mc.mo_coeff
     mc.optimize_mcscf_(mo_coeff=mo_coeff, **kwargs)
-    mc.ci_mcscf = mc.ci
-    mc.lpdft_ham = mc.make_lpdft_ham_(ot=ot)
+    mc.lpdft_ham, mc.e_states, mc.si_pdft, mc.rootsym, mc.s2_roots, s2_mat = mc.make_lpdft_ham_(ot=ot)
     logger.debug(mc, f"L-PDFT Hamiltonian in LASSI Basis:\n{mc.get_lpdft_ham()}")
-    mc.e_states, mc.si_pdft = mc._eig_si(mc.lpdft_ham)
 
     logger.debug(mc, f"L-PDFT SI:\n{mc.si_pdft}")
 
-    mc.e_tot = 0  # np.dot(mc.e_states, mc.weights)
-    mc.ci = mc._get_ci_adiabats()
+    mc.e_tot = mc.e_states[0]
+    logger.info(mc, 'LASSI-LPDFT eigenvalues (%d total):', len(mc.e_states))
 
-    return (
-        mc.e_tot, mc.e_mcscf, mc.e_cas, mc.ci,
-        mc.mo_coeff, mc.mo_energy)
+    fmt_str = '{:2s}   {:>16s}  {:2s}  '
+    col_lbls = ['ix', 'Energy', '<S**2>']
+    logger.info(mc, fmt_str.format(*col_lbls))
+    fmt_str = '{:2d}  {:16.10f}  {:6.3f}  '
+    for ix, (er, s2r) in enumerate(zip(mc.e_states, mc.s2_roots)):
+        row = [ix, er, s2r]
+        logger.info(mc, fmt_str.format(*row))
+        if ix >= 99 and mc.verbose < lib.logger.DEBUG:
+            lib.logger.info(mc, ('Remaining %d eigenvalues truncated; '
+                                 'increase verbosity to print them all'), len(mc.e_states) - 100)
+            break
+
+    return mc.e_tot, mc.e_states, mc.si_pdft, mc.s2_roots
 
 
 class _LPDFT(mcpdft.MultiStateMCPDFTSolver):
@@ -337,18 +339,6 @@ class _LPDFT(mcpdft.MultiStateMCPDFTSolver):
         self._e_states = None
         self._keys = set(self.__dict__.keys()).union(keys)
 
-    @property
-    def e_states(self):
-        if self._in_mcscf_env:
-            return self.e_roots
-
-        else:
-            return self._e_states
-
-    @e_states.setter
-    def e_states(self, x):
-        self._e_states = x
-
     make_lpdft_ham_ = make_lpdft_ham_
     make_lpdft_ham_.__doc__ = make_lpdft_ham_.__doc__
 
@@ -363,18 +353,6 @@ class _LPDFT(mcpdft.MultiStateMCPDFTSolver):
 
     get_casdm12_0 = weighted_average_densities
     get_casdm12_0.__doc__ = weighted_average_densities.__doc__
-
-    def get_lpdft_diag(self):
-        '''Diagonal elements of the L-PDFT Hamiltonian matrix
-            (H_00^L-PDFT, H_11^L-PDFT, H_22^L-PDFT, ...)
-
-        Returns:
-            lpdft_diag : ndarray of shape (nroots)
-                Contains the linear approximation to the MC-PDFT energy. These
-                are also the diagonal elements of the L-PDFT Hamiltonian
-                matrix.
-        '''
-        return np.diagonal(self.lpdft_ham).copy()
 
     def get_lpdft_ham(self):
         '''The L-PDFT effective Hamiltonian matrix
@@ -411,48 +389,11 @@ class _LPDFT(mcpdft.MultiStateMCPDFTSolver):
 
         log = logger.new_logger(self, verbose)
 
-        if ci0 is None and isinstance(getattr(self, 'ci', None), list):
-            ci0 = [c.copy() for c in self.ci]
-
         kernel(self, mo_coeff, ot=ot, verbose=log)
-        self._finalize_lin()
+
         return (
             self.e_tot, self.e_mcscf, self.e_cas, self.ci,
             self.mo_coeff, self.mo_energy)
-
-    def _finalize_lin(self):
-        log = logger.Logger(self.stdout, self.verbose)
-        nroots = len(self.e_states)
-        log.note("%s (final) states:", self.__class__.__name__)
-        if log.verbose >= logger.NOTE and getattr(self.fcisolver, 'spin_square',
-                                                  None):
-            ss = self.fcisolver.states_spin_square(self.ci, self.ncas, self.nelecas)[0]
-
-            for i in range(nroots):
-                log.note('  State %d weight %g  ELPDFT = %.15g  S^2 = %.7f',
-                         i, self.weights[i], self.e_states[i], ss[i])
-
-        else:
-            for i in range(nroots):
-                log.note('  State %d weight %g  ELPDFT = %.15g', i,
-                         self.weights[i], self.e_states[i])
-
-    def _get_ci_adiabats(self, ci_mcscf=None):
-        '''Get the CI vertors in eigenbasis of L-PDFT Hamiltonian
-
-            Kwargs:
-                ci : list of length nroots
-                    MC-SCF ci vectors; defaults to self.ci_mcscf
-
-            Returns:
-                ci : list of length nroots
-                    CI vectors in basis of L-PDFT Hamiltonian eigenvectors
-        '''
-        if ci_mcscf is None: ci_mcscf = self.ci_mcscf
-        return list(np.tensordot(self.si_pdft.T, np.asarray(ci_mcscf), axes=1))
-
-    def _eig_si(self, ham):
-        return linalg.eigh(ham)
 
     def get_lpdft_hcore_only(self, casdm1s_0, hyb=1.0):
         '''
