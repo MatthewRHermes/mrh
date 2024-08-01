@@ -6,9 +6,7 @@ from pyscf import mcpdft
 from pyscf.mcpdft import _dms
 
 '''
-This file is taken from pyscf-forge and adopted for the
-LAS wavefunctions.
-Author: Bhavnesh Jangid <jangidbhavnesh@uchicago.com>
+This file is taken from pyscf-forge and adopted for the LAS wavefunctions.
 '''
 
 
@@ -538,7 +536,7 @@ class _LPDFTMix(_LPDFT):
         raise NotImplementedError("MultiState Mix LPDFT nuclear gradients")
 
 
-def linear_multi_state(mc, weights=(0.5, 0.5), **kwargs):
+def linear_multi_state(mc, **kwargs):
     ''' Build linearized multi-state MC-PDFT method object
 
     Args:
@@ -550,21 +548,8 @@ def linear_multi_state(mc, weights=(0.5, 0.5), **kwargs):
     Returns:
         si : instance of class _LPDFT
     '''
-    from pyscf.mcscf.addons import StateAverageMCSCFSolver, \
-        StateAverageMixFCISolver
-
-    if isinstance(mc, mcpdft.MultiStateMCPDFTSolver):
-        raise RuntimeError('already a multi-state PDFT solver')
-
-    if isinstance(mc.fcisolver, StateAverageMixFCISolver):
-        raise RuntimeError("state-average mix type")
-
-    if not isinstance(mc, StateAverageMCSCFSolver):
-        base_name = mc.__class__.__name__
-        mc = mc.state_average(weights=weights, **kwargs)
-
-    else:
-        base_name = mc.__class__.bases__[0].__name__
+ 
+    base_name = mc.__class__.bases__[0].__name__
 
     mcbase_class = mc.__class__
 
@@ -573,45 +558,6 @@ def linear_multi_state(mc, weights=(0.5, 0.5), **kwargs):
 
     LPDFT.__name__ = "LIN" + base_name
     return LPDFT(mc)
-
-def linear_multi_state_mix(mc, fcisolvers, weights=(0.5, 0.5), **kwargs):
-    ''' Build SA Mix linearized multi-state MC-PDFT method object
-
-    Args:
-        mc : instance of class _PDFT
-
-        fcisolvers : fcisolvers to construct StateAverageMixSolver with
-
-    Kwargs:
-        weights : sequence of floats
-
-    Returns:
-        si : instance of class _LPDFT
-    '''
-    from pyscf.mcscf.addons import StateAverageMCSCFSolver, \
-        StateAverageMixFCISolver
-
-    if isinstance(mc, mcpdft.MultiStateMCPDFTSolver):
-        raise RuntimeError('already a multi-state PDFT solver')
-
-    if not isinstance(mc, StateAverageMCSCFSolver):
-        base_name = mc.__class__.__name__
-        mc = mc.state_average_mix(fcisolvers, weights=weights, **kwargs)
-
-    elif not isinstance(mc.fcisolver, StateAverageMixFCISolver):
-        raise RuntimeError("already a StateAverageMCSCF solver")
-
-    else:
-        base_name = mc.__class__.bases__[0].__name__
-
-    mcbase_class = mc.__class__
-
-    class LPDFT(_LPDFTMix, mcbase_class):
-        pass
-
-    LPDFT.__name__ = "LIN" + base_name
-    return LPDFT(mc)
-
 
 '''
 These two functions are required for the diagonalization of the 
