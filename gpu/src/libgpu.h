@@ -37,8 +37,8 @@ extern "C"
   void libgpu_get_dfobj_status(void *, size_t, py::array_t<int>);
   
 
-  void libgpu_transfer_mo_coeff(void *, 
-                                py::array_t<double>, int);
+  void libgpu_push_mo_coeff(void *, 
+			    py::array_t<double>, int);
   
   void libgpu_df_ao2mo_pass1_fdrv (void *,
 			      int, int, int, int,
@@ -84,7 +84,7 @@ PYBIND11_MODULE(libgpu, m) {
   m.def("libgpu_set_update_dfobj_", &libgpu_set_update_dfobj_, "ensure that eri is updated on device for get_jk");
   m.def("libgpu_get_dfobj_status", &libgpu_get_dfobj_status, "retrieve info on dfobj and cached eri blocks on device");
 
-  m.def("libgpu_transfer_mo_coeff", &libgpu_transfer_mo_coeff, "pyscf/mcscf/df.py::_ERIS.__init__() part 0");
+  m.def("libgpu_push_mo_coeff", &libgpu_push_mo_coeff, "pyscf/mcscf/df.py::_ERIS.__init__() part 0");
   m.def("libgpu_df_ao2mo_pass1_fdrv", &libgpu_df_ao2mo_pass1_fdrv, "pyscf/mcscf/df.py::_ERIS.__init__() part 1");
   m.def("libgpu_update_h2eff_sub", &libgpu_update_h2eff_sub, "my_pyscf/mcscf/lasci_sync.py::_update_h2_eff()");
   m.def("libgpu_h2eff_df_contract1", &libgpu_h2eff_df_contract1, "my_pyscf/df/sparse_df.py::contract1");

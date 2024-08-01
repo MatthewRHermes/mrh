@@ -95,7 +95,7 @@ public :
                     int , int , int , int , int ,
                     py::array_t<double> );
 
-  void transfer_mo_coeff(py::array_t<double>, int);
+  void push_mo_coeff(py::array_t<double>, int);
 private:
 
   class PM * pm;
@@ -221,8 +221,6 @@ private:
   int * dd_fetch_pumap(my_device_data *, int, int);
   double * dd_fetch_eri(my_device_data *, double *, size_t, int);
   double * dd_fetch_eri_debug(my_device_data *, double *, size_t, int); // we'll trash this after some time
-  
-  void push_mo_coeff(my_device_data *, double *, int);
   
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);

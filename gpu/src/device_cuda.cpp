@@ -143,33 +143,40 @@ int * Device::dd_fetch_pumap(my_device_data * dd, int size_pumap_, int type_puma
 }
 
 /* ---------------------------------------------------------------------- */
-void Device::transfer_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
+
+void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
 {
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
+
   py::buffer_info info_mo_coeff = _mo_coeff.request(); // 2D array (naux, nao_pair)
+
   double * mo_coeff = static_cast<double*>(info_mo_coeff.ptr);
-  const int device_id = 0;//count % num_devices;
-  pm->dev_set_device(device_id);
-  my_device_data * dd = &(device_data[device_id]);
-  push_mo_coeff(dd, mo_coeff, _size_mo_coeff);
+
+  // host pushes to each device; optimize later host->device0 plus device-device transfers (i.e. bcast)
+  
+  for(int id=0; id<num_devices; ++id) {
+    
+    pm->dev_set_device(id);
+
+    my_device_data * dd = &(device_data[id]);
+  
+    if (_size_mo_coeff > dd->size_mo_coeff){
+      dd->size_mo_coeff = _size_mo_coeff;
+      if (dd->d_mo_coeff) pm->dev_free_async(dd->d_mo_coeff, dd->stream);
+      dd->d_mo_coeff = (double *) pm->dev_malloc_async(_size_mo_coeff*sizeof(double), dd->stream);
+    }
+    
+    pm->dev_push_async(dd->d_mo_coeff, mo_coeff, _size_mo_coeff*sizeof(double), dd->stream);
+  }
+  
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   t_array[8] += t1 - t0;
 #endif
 }
-/* ---------------------------------------------------------------------- */
-void Device::push_mo_coeff(my_device_data * dd, double * mo_coeff, int _size_mo_coeff)
-{
-if (_size_mo_coeff > dd->size_mo_coeff){
-    dd->size_mo_coeff = _size_mo_coeff;
-    if (dd->d_mo_coeff) pm->dev_free(dd->d_mo_coeff);
-    dd->d_mo_coeff = (double *) pm->dev_malloc(_size_mo_coeff*sizeof(double));
-  } 
-  pm->dev_push(dd->d_mo_coeff,mo_coeff,_size_mo_coeff*sizeof(double));
-  //pm->dev_push_async(dd->d_mo_coeff,mo_coeff,_size_mo_coeff*sizeof(double));
-}
+
 /* ---------------------------------------------------------------------- */
 
 double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, size_t addr_dfobj, int count)
@@ -1060,6 +1067,7 @@ void Device::fdrv(double *vout, double *vin, double *mo_coeff,
 }
 
 /* ---------------------------------------------------------------------- */
+
 void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize, 
 				  py::array_t<double> _bufpp, py::array_t<double> _mo_coeff, py::array_t<double> _eri1,
 				  int count, size_t addr_dfobj)

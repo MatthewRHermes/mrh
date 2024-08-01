@@ -13,7 +13,7 @@ def get_h2eff_df (las, mo_coeff):
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
     if gpu: 
-        libgpu.libgpu_transfer_mo_coeff(gpu,mo_cas.copy(),mo_cas.size)#TODO: make it async 
+        libgpu.libgpu_push_mo_coeff(gpu,mo_cas.copy(),mo_cas.size)
     naux = las.with_df.get_naoaux ()
     log.debug2 ("LAS DF ERIs: %d MB used of %d MB total available", lib.current_memory ()[0], las.max_memory)
     mem_eris = 8*(nao+nmo)*ncas*ncas*ncas / 1e6
@@ -95,7 +95,7 @@ def get_h2eff_gpu (las,mo_coeff):
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
-    if gpu: libgpu.libgpu_transfer_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)#TODO: make it async 
+    if gpu: libgpu.libgpu_push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
     naux = las.with_df.get_naoaux ()
     if gpu: blksize = 50
     else:

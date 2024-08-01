@@ -129,11 +129,11 @@ void libgpu_get_dfobj_status(void * ptr, size_t addr_dfobj, py::array_t<int> arg
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_transfer_mo_coeff(void * ptr,
-                              py::array_t<double> mo_coeff, int size_mo_coeff)
+void libgpu_push_mo_coeff(void * ptr,
+			  py::array_t<double> mo_coeff, int size_mo_coeff)
 {
   Device * dev = (Device *) ptr;
-  dev->transfer_mo_coeff(mo_coeff, size_mo_coeff);
+  dev->push_mo_coeff(mo_coeff, size_mo_coeff);
 }
 
 /* ---------------------------------------------------------------------- */

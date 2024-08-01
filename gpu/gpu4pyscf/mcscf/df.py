@@ -342,7 +342,7 @@ class _ERIS:
         t1 = t0 = (logger.process_clock(), logger.perf_counter())
         gpu=casscf.mol.use_gpu#print(bufpp)
         if gpu: 
-            libgpu.libgpu_transfer_mo_coeff(gpu, mo, nao*nmo)
+            libgpu.libgpu_push_mo_coeff(gpu, mo, nao*nmo)
         count = 0
         for k, eri1 in enumerate(with_df.loop(blksize)):
             naux = eri1.shape[0]
