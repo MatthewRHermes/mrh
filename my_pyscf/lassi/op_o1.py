@@ -709,6 +709,8 @@ class LSTDMint2 (object):
         self.dt_u, self.dw_u = 0.0, 0.0
         self.dt_p, self.dw_p = 0.0, 0.0
         self.dt_i, self.dw_i = 0.0, 0.0
+        self.dt_g, self.dw_g = 0.0, 0.0
+        self.dt_s, self.dw_s = 0.0, 0.0
 
     def make_exc_tables (self, hopping_index):
         ''' Generate excitation tables. The nth column of each array is the (n+1)th argument of the
@@ -1013,6 +1015,7 @@ class LSTDMint2 (object):
         '''
         # NOTE: from tests on triene 3frag LASSI[3,3], this function is 1/4 to 1/6 of the "put"
         # runtime, and apparently it can sometimes multithread somehow???
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         rbra, rket = self.rootaddr[bra], self.rootaddr[ket]
         braenv = self.envaddr[bra]
         ketenv = self.envaddr[ket]
@@ -1028,6 +1031,8 @@ class LSTDMint2 (object):
         bra_rng = np.concatenate (bra_rng)
         ket_rng = np.concatenate (ket_rng)
         facs = np.concatenate (facs)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_g, self.dw_g = self.dt_g + dt, self.dw_g + dw
         return bra_rng, ket_rng, facs
 
     def _get_spec_addr_ovlp_1space (self, rbra, rket, *inv):
@@ -1094,7 +1099,10 @@ class LSTDMint2 (object):
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_SD1_(self, bra, ket, D1, wgt):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         self.tdm1s[bra,ket,:] += np.multiply.outer (wgt, D1)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_D2_(self, bra, ket, D2, *inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
@@ -1104,7 +1112,10 @@ class LSTDMint2 (object):
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_SD2_(self, bra, ket, D2, wgt):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         self.tdm2s[bra,ket,:] += np.multiply.outer (wgt, D2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     # Cruncher functions
     def _crunch_1d_(self, bra, ket, i):
@@ -1423,6 +1434,9 @@ class LSTDMint2 (object):
         profile += '\n' + fmt_str.format ('umat', self.dt_u, self.dw_u)
         profile += '\n' + fmt_str.format ('put', self.dt_p, self.dw_p)
         profile += '\n' + fmt_str.format ('idx', self.dt_i, self.dw_i)
+        profile += '\n' + 'Decomposing put:'
+        profile += '\n' + fmt_str.format ('gsao', self.dt_g, self.dw_g)
+        profile += '\n' + fmt_str.format ('putS', self.dt_s, self.dw_s)
         return profile
 
 class HamS2ovlpint (LSTDMint2):
@@ -1464,8 +1478,11 @@ class HamS2ovlpint (LSTDMint2):
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _put_ham_s2_(self, bra, ket, ham, s2, wgt):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         self.ham[bra,ket] += wgt * ham
         self.s2[bra,ket] += wgt * s2
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_D2_(self, bra, ket, D2, *inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
@@ -1556,16 +1573,23 @@ class LRRDMint (LSTDMint2):
         self.nroots_si = si.shape[-1]
         self.si = si.copy ()
         self._umat_linequiv_loop_(self.si)
+        self.si = np.asfortranarray (self.si)
 
     def _put_SD1_(self, bra, ket, D1, wgt):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         si_dm = self.si[bra,:] * self.si[ket,:].conj ()
         fac = np.dot (wgt, si_dm)
         self.rdm1s[:] += np.multiply.outer (fac, D1)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_SD2_(self, bra, ket, D2, wgt):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         si_dm = self.si[bra,:] * self.si[ket,:].conj ()
         fac = np.dot (wgt, si_dm)
         self.rdm2s[:] += np.multiply.outer (fac, D2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _add_transpose_(self):
         self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
