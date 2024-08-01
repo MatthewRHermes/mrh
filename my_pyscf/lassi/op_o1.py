@@ -960,9 +960,10 @@ class LSTDMint2 (object):
         lroots = self.lroots[:,raddr:raddr+1]
         envaddr_inv = get_rootaddr_fragaddr (lroots[inv])[1]
         strides_inv = self.strides[raddr][inv]
+        addrs = addr0 + np.dot (strides_inv, envaddr_inv)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         if _profile: self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
-        return addr0 + np.dot (strides_inv, envaddr_inv)
+        return addrs
 
     def _prepare_spec_addr_ovlp_(self, rbra, rket, *inv):
         '''Prepare the cache for _get_spec_addr_ovlp.
