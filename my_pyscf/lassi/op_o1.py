@@ -1469,8 +1469,8 @@ class HamS2ovlpint (LSTDMint2):
                            mask_ket_space=mask_ket_space, log=log, max_memory=max_memory,
                            dtype=dtype)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
-        self.h1 = h1
-        self.h2 = h2
+        self.h1 = np.ascontiguousarray (h1)
+        self.h2 = np.ascontiguousarray (h2)
 
     def _put_D1_(self, bra, ket, D1, *inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
@@ -1494,9 +1494,9 @@ class HamS2ovlpint (LSTDMint2):
     def _put_D2_(self, bra, ket, D2, *inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         ham = np.dot (self.h2.ravel (), D2.sum (0).ravel ()) / 2
-        M2 = np.einsum ('sppqq->s', D2) / 4
+        M2 = D2.diagonal (axis1=1,axis2=2).diagonal (axis1=1,axis2=2).sum ((1,2)) / 4
         s2 = M2[0] + M2[3] - M2[1] - M2[2]
-        s2 -= np.einsum ('pqqp->', D2[1] + D2[2]) / 2
+        s2 -= (D2[1]+D2[2]).diagonal (axis1=0,axis2=3).diagonal (axis1=0,axis2=1).sum () / 2
         bra1, ket1, wgt = self._get_spec_addr_ovlp (bra, ket, *inv)
         self._put_ham_s2_(bra1, ket1, ham, s2, wgt)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
