@@ -1109,8 +1109,9 @@ class LSTDMint2 (object):
     def _put_SD1_(self, bra, ket, D1, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         idx = self._orbidx
-        idx = np.ix_(bra,ket,[True,]*2,idx,idx)
-        self.tdm1s[idx] += np.multiply.outer (wgt, D1)
+        idx = np.ix_([True,]*2,idx,idx)
+        for b, k, w in zip (bra, ket, wgt):
+            self.tdm1s[b,k][idx] += np.multiply.outer (w, D1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
@@ -1124,8 +1125,9 @@ class LSTDMint2 (object):
     def _put_SD2_(self, bra, ket, D2, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         idx = self._orbidx
-        idx = np.ix_(bra,ket,[True,]*4,idx,idx,idx,idx)
-        self.tdm2s[idx] += np.multiply.outer (wgt, D2)
+        idx = np.ix_([True,]*4,idx,idx,idx,idx)
+        for b, k, w in zip (bra, ket, wgt):
+            self.tdm2s[b,k][idx] += np.multiply.outer (w, D2)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
