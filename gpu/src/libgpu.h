@@ -61,7 +61,7 @@ extern "C"
   void libgpu_get_h2eff_df(void * , 
                            py::array_t<double> , 
                            int , int , int , int , int ,
-                           py::array_t<double> );
+                           py::array_t<double>, int, size_t);
 }
 
 

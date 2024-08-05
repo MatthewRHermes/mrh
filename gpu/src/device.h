@@ -93,7 +93,7 @@ public :
                      py::array_t<double>, py::array_t<double>);
  void get_h2eff_df( py::array_t<double> , 
                     int , int , int , int , int ,
-                    py::array_t<double> );
+                    py::array_t<double>, int, size_t );
 
   void push_mo_coeff(py::array_t<double>, int);
 private:

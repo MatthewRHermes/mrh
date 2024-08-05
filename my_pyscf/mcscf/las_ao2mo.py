@@ -89,9 +89,7 @@ def get_h2eff_gpu (las,mo_coeff):
     log = lib.logger.new_logger (las, las.verbose)
     gpu=las.use_gpu
     nao, nmo = mo_coeff.shape
-    #mo_coeff=np.random.randint(0,2,size=mo_coeff.shape)#.reshape(mo_coeff.shape) ######################################################################
-    #mo_coeff[0,0]=100
-    #mo_coeff[0,3]=-100
+    count = 0
     ncore, ncas = las.ncore, las.ncas
     nocc = ncore + ncas
     mo_cas = mo_coeff[:,ncore:nocc]
@@ -116,13 +114,12 @@ def get_h2eff_gpu (las,mo_coeff):
         mem_per_aux += nao*lib.num_threads () # wrk in contract1
         if not isinstance (getattr (las.with_df, '_cderi', None), np.ndarray):
             mem_per_aux += 3*nao*(nao+1)//2 # cderi / bPmn
-            # NOTE: I think a linalg.norm operation in sparsedf_array might be doubling the memory
-            # footprint of bPmn below
         else:
             mem_per_aux += nao*(nao+1) # see note above
         mem_per_aux *= safety_factor * 8 / 1e6
         mem_per_aux = max (1, mem_per_aux)
-        blksize = max (1, min (naux, int (mem_av / mem_per_aux)))
+        #blksize = max (1, min (naux, int (mem_av / mem_per_aux)))
+        blksize=las.with_df.blockdim
         log.debug2 ("LAS DF ERI blksize = %d, mem_av = %d MB, mem_per_aux = %d MB", blksize, mem_av, mem_per_aux)
         log.debug2 ("LAS DF ERI naux = %d, nao = %d, nmo = %d", naux, nao, nmo)
     assert (blksize>1)
@@ -133,29 +130,17 @@ def get_h2eff_gpu (las,mo_coeff):
         naux = cderi.shape[0]
         eri1 = np.empty((nmo, int(ncas*ncas*(ncas+1)/2)),dtype='d')
         if DEBUG and gpu:
-            libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1)
-            #print('gpu',eri1)
+            libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
             bPmu = np.einsum('Pmn,nu->Pmu',lib.unpack_tril(cderi),mo_cas)
-
             bPvu = np.einsum('mv,Pmu->Pvu',mo_cas.conjugate(),bPmu)
-
             bumP = bPmu.transpose(2,1,0)
             buvP = bPvu.transpose(2,1,0)
             eri2 = np.einsum('uvP,wmP->uvwm', buvP, bumP)
             eri2 = np.einsum('mM,uvwm->Mwvu', mo_coeff.conjugate(),eri2)
-            #print('final matmul',eri2)
             eri2 = lib.pack_tril (eri2.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
-            #print('cpu',eri2)
-            #bPmn = sparsedf_array (cderi)
-            #bmuP1 = bPmn.contract1 (mo_cas)
-            #bmuP1 = np.einsum('Pmn,nu->Pmu',lib.unpack_tril(bPmn),mo_cas)
-            #bmuP1 = bmuP1.transpose(1,2,0)
-            #buvP = np.tensordot (mo_cas.conjugate (), bmuP1, axes=((0),(0)))
-            #eri2 = np.tensordot (bmuP1, buvP, axes=((2),(2)))
-            #eri2 = np.tensordot (mo_coeff.conjugate (), eri2, axes=((0),(0)))
             if np.allclose(eri1,eri2): print("h2eff is working")
             else: print("h2eff not working"); exit()
-        elif gpu: libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1)
+        elif gpu: libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
         else: 
             bPmn = sparsedf_array (cderi)
             bmuP1 = bPmn.contract1 (mo_cas)
@@ -166,6 +151,7 @@ def get_h2eff_gpu (las,mo_coeff):
             eri1 = lib.pack_tril (eri1.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
             cderi = bPmn = bmuP1 = buvP = None
         t1 = lib.logger.timer (las, 'contract1 gpu', *t1)
+        count+=1
         eri +=eri1
         eri1= None
     return eri
@@ -187,7 +173,7 @@ def get_h2eff (las, mo_coeff=None):
         raise MemoryError ("{} MB of {}/{} MB av/total for ERI array".format (
             mem_eris, mem_remaining, las.max_memory))
     if getattr (las, 'with_df', None) is not None:
-        if las.use_gpu: eri = get_h2eff_df (las,mo_coeff)#the full version is not working yet.
+        if las.use_gpu: eri = get_h2eff_gpu (las,mo_coeff)#the full version is not working yet.
         else: eri = get_h2eff_df (las, mo_coeff)
     elif getattr (las._scf, '_eri', None) is not None:
         eri = ao2mo.incore.general (las._scf._eri, mo, compact=True)

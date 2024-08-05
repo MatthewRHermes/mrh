@@ -1664,15 +1664,18 @@ __global__ void pack_Mwuv(double *in, double *out, int * map,int nao, int ncas,i
 
 void Device::get_h2eff_df(py::array_t<double> _cderi, 
                                 int nao, int nmo, int ncas, int naux, int ncore, 
-                                py::array_t<double> _eri) 
+                                py::array_t<double> _eri, int count, size_t addr_dfobj) 
 {
 #ifdef _SIMPLE_TIMER
   double t0 = omp_get_wtime();
 #endif
+
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device :: Starting h2eff_df_contract1 function");
+  printf("LIBGPU:: dfobj= %#012x count= %i combined= %#012x %p update_dfobj= %i\n",addr_dfobj,count,addr_dfobj+count,addr_dfobj+count,update_dfobj);
 #endif 
-  py::buffer_info info_cderi = _cderi.request(); // 2D array blksize * nao_pair
+  
+  profile_start("h2eff df setup");
   py::buffer_info info_eri = _eri.request(); //2D array nao * ncas
   const int device_id = 0;
   pm->dev_set_device(device_id);
@@ -1684,9 +1687,10 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   const int _size_cderi_unpacked = naux*nao*nao;
   const int _size_mo_cas = nao*ncas;
   double * eri = static_cast<double*>(info_eri.ptr);
-  double * cderi = static_cast<double*>(info_cderi.ptr);
   double * d_mo_coeff = dd->d_mo_coeff;
   double * d_mo_cas = (double*) pm->dev_malloc(_size_mo_cas*sizeof(double));
+  py::buffer_info info_cderi = _cderi.request(); // 2D array blksize * nao_pair
+  double * cderi = static_cast<double*>(info_cderi.ptr);
   // 
   // write code to extract d_mo_cas from d_mo_coeff
   {dim3 block_size(1,1,1);
@@ -1710,8 +1714,23 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   free(h_mo_coeff);
 #endif
   // unpacking business that should really just have been done with stored map already and also with the stored eris
+#if 0
+  double * d_cderi;
+  if(use_eri_cache) {
+    d_cderi = dd_fetch_eri(dd, eri, addr_dfobj, count);
+  } else {
+    if(_size_cderi > dd->size_eri1) {
+      dd->size_eri1 = _size_cderi;
+      if(dd->d_eri1) pm->dev_free_async(dd->d_eri1, dd->stream);
+      dd->d_eri1 = (double *) pm->dev_malloc_async(_size_cderi * sizeof(double), dd->stream);
+    }
+    
+    pm->dev_push(d_cderi, cderi, _size_cderi * sizeof(double));
+  }
+#else
   double * d_cderi=(double*) pm->dev_malloc( _size_cderi * sizeof(double));
   pm->dev_push(d_cderi,cderi,_size_cderi*sizeof(double));
+#endif
   double * d_cderi_unpacked=(double*) pm->dev_malloc( _size_cderi_unpacked * sizeof(double));
   int _size_unpack_map = nao*nao;
   int * my_unpack_map = (int*) malloc(_size_unpack_map*sizeof(int));
@@ -2004,12 +2023,14 @@ cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
           //eri[i*ncas_pair*ncas+j*ncas_pair+kl]=h_vuwM[i*ncas*ncas*ncas+j*ncas*ncas+k*ncas+l];}}}}
 #
 #endif
-
+#if 1
   pm->dev_free(d_cderi);
+#endif
   pm->dev_free(d_cderi_unpacked);
   pm->dev_free(d_bPmu);
   pm->dev_free(d_my_unpack_map);
   free(my_unpack_map);
+profile_stop();
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
   //t_array[8] += t1 - t0;//TODO: add the array size
