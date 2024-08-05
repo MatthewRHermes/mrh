@@ -1620,34 +1620,38 @@ class LRRDMint (LSTDMint2):
         self.si = si.copy ()
         self._umat_linequiv_loop_(self.si)
         self.si = np.asfortranarray (self.si)
+        self._si_c = c_arr (self.si)
+        self._si_c_nrow = c_int (self.si.shape[0])
+        self._si_c_ncol = c_int (self.si.shape[1])
+
+    def get_wgt_fac (self, bra, ket, wgt):
+        #si_dm = self.si[bra,:] * self.si[ket,:].conj ()
+        #fac = np.dot (wgt, si_dm)
+        fac = np.zeros (self.nroots_si, dtype=self.dtype)
+        fn = liblassi.LASSIRDMdgetwgtfac
+        fn (c_arr (fac), c_arr (wgt), self._si_c, self._si_c_nrow, self._si_c_ncol,
+            c_arr (bra), c_arr (ket), c_int (len (wgt)))
+        return fac
 
     def _put_SD1_(self, bra, ket, D1, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        si_dm = self.si[bra,:] * self.si[ket,:].conj ()
-        fac = np.dot (wgt, si_dm)
-        self.rdm1s[self.rdm1s_idx] += np.multiply.outer (fac, D1)
-        #fn = liblassi.LASSIRDMdputSD
-        #si_nrow, si_ncol = self.si.shape
-        #fn (c_arr(self.rdm1s), c_arr(D1), c_int(D1.size),
-        #    c_arr(self.si), c_int(si_nrow), c_int(si_ncol),
-        #    c_arr(bra), c_arr(ket), c_arr (wgt),
-        #    c_int(len(wgt)))
-        #dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        #self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
+        fac = self.get_wgt_fac (bra, ket, wgt)
+        fn = liblassi.LASSIRDMdputSD
+        fn (c_arr (fac), self._rdm1s_c, self._si_c_ncol, self._rdm1s_c_ncol,
+            c_arr (D1), self._rdm1s_idx_c, self._rdm1s_idx_c_len)
+        #self.rdm1s[self.rdm1s_idx] += np.multiply.outer (fac, D1)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_SD2_(self, bra, ket, D2, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        si_dm = self.si[bra,:] * self.si[ket,:].conj ()
-        fac = np.dot (wgt, si_dm)
-        self.rdm2s[self.rdm2s_idx] += np.multiply.outer (fac, D2)
-        #fn = liblassi.LASSIRDMdputSD
-        #si_nrow, si_ncol = self.si.shape
-        #fn (c_arr(self.rdm2s), c_arr(D2), c_int(D2.size),
-        #    c_arr(self.si), c_int(si_nrow), c_int(si_ncol),
-        #    c_arr(bra), c_arr(ket), c_arr (wgt),
-        #    c_int(len(wgt)))
-        #dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        #self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
+        fac = self.get_wgt_fac (bra, ket, wgt)
+        fn = liblassi.LASSIRDMdputSD
+        fn (c_arr (fac), self._rdm2s_c, self._si_c_ncol, self._rdm2s_c_ncol,
+            c_arr (D2), self._rdm2s_idx_c, self._rdm2s_idx_c_len)
+        #self.rdm2s[self.rdm2s_idx] += np.multiply.outer (fac, D2)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _add_transpose_(self):
         self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
@@ -1660,10 +1664,18 @@ class LRRDMint (LSTDMint2):
     def _orbrange_env_kwargs (self, inv):
         env_kwargs = super()._orbrange_env_kwargs (inv)
         _orbidx = env_kwargs['_orbidx']
-        idx = np.ix_([True,]*self.nroots_si,[True,]*2,_orbidx,_orbidx)
-        env_kwargs['rdm1s_idx'] = idx
-        idx = np.ix_([True,]*self.nroots_si,[True,]*4,_orbidx,_orbidx,_orbidx,_orbidx)
-        env_kwargs['rdm2s_idx'] = idx
+        idx = np.ix_([True,]*2,_orbidx,_orbidx)
+        mask = np.zeros ((2,self.norb,self.norb), dtype=bool)
+        mask[idx] = True
+        idx = np.where (mask.ravel ())[0]
+        env_kwargs['_rdm1s_idx_c'] = c_arr (idx)
+        env_kwargs['_rdm1s_idx_c_len'] = c_int (len (idx))
+        idx = np.ix_([True,]*4,_orbidx,_orbidx,_orbidx,_orbidx)
+        mask = np.zeros ((4,self.norb,self.norb,self.norb,self.norb), dtype=bool)
+        mask[idx] = True
+        idx = np.where (mask.ravel ())[0]
+        env_kwargs['_rdm2s_idx_c'] = c_arr (idx)
+        env_kwargs['_rdm2s_idx_c_len'] = c_int (len (idx))
         return env_kwargs
 
     def kernel (self):
@@ -1681,6 +1693,10 @@ class LRRDMint (LSTDMint2):
         self.init_profiling ()
         self.rdm1s = np.zeros ([self.nroots_si,] + list (self.d1.shape), dtype=self.dtype)
         self.rdm2s = np.zeros ([self.nroots_si,] + list (self.d2.shape), dtype=self.dtype)
+        self._rdm1s_c = c_arr (self.rdm1s)
+        self._rdm1s_c_ncol = c_int (self.d1.size)
+        self._rdm2s_c = c_arr (self.rdm2s)
+        self._rdm2s_c_ncol = c_int (self.d2.size)
         self._crunch_all_()
         return self.rdm1s, self.rdm2s, t0
 

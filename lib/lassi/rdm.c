@@ -40,37 +40,45 @@
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 */
 
-void LASSIRDMdputSD (double * SDsum, double * SDterm, int SDlen,
-                     double * sivec, int sivec_nbas, int sivec_nroots,
-                     long * bra, long * ket, double * wgt, int nelem)
+void LASSIRDMdgetwgtfac (double * fac, double * wgt, double * sivec,
+                         int nbas, int nroots,
+                         long * bra, long * ket, int nelem)
 {
-    const unsigned int i_one = 1;
-
-    double fac = 0;
-    double * sicol = sivec;
-    double * SDtarget = SDsum;
-
-    for (int iroot = 0; iroot < sivec_nroots; iroot++){
-        sicol = sivec + (iroot*sivec_nbas);
-        SDtarget = SDsum + (iroot*SDlen);
-
-        fac = 0;
-
-        #pragma omp parallel for schedule(static) reduction(+:fac)
-        for (int ielem = 0; ielem < nelem; ielem++){
-            fac += sicol[bra[ielem]] * sicol[ket[ielem]] * wgt[ielem];
-        }
-
-        //daxpy_(&SDlen, &fac, SDterm, &i_one, SDtarget, &i_one);
-        #pragma omp parallel
-        {
-            int nblk = omp_get_num_threads ();
-            nblk = (SDlen+nblk-1) / nblk;
-            int toff = nblk * omp_get_thread_num ();
-            nblk = MIN (SDlen, toff+nblk);
-            nblk = nblk - toff;
-            daxpy_(&nblk, &fac, SDterm+toff, &i_one, SDtarget+toff, &i_one);
+#pragma omp parallel
+{
+    double * sicol;
+    long bra_i, ket_i;
+    double * my_fac = malloc (nroots*sizeof(double));
+    for (int iroot = 0; iroot < nroots; iroot++){ my_fac[iroot] = 0; }
+    #pragma omp for schedule(static)
+    for (int ielem = 0; ielem < nelem; ielem++){
+        for (int iroot = 0; iroot < nroots; iroot++){
+            sicol = sivec + (iroot*nbas);
+            bra_i = bra[ielem];
+            ket_i = ket[ielem];
+            my_fac[iroot] += sicol[bra_i] * sicol[ket_i] * wgt[ielem];
         }
     }
+    #pragma omp critical
+    {
+        for (int iroot=0; iroot < nroots; iroot++){
+            fac[iroot] += my_fac[iroot];
+        }
+    }
+    free (my_fac);
+}
+}
 
+void LASSIRDMdputSD (double * fac, double * SDsum, int nroots, int nelem,
+                     double * SDterm, long * idx, int nidx)
+{
+const unsigned int i_one = 1;
+#pragma omp parallel
+{
+    #pragma omp for schedule(static)
+    for (int i = 0; i < nidx; i++){
+        daxpy_(&nroots, &(SDterm[i]), fac, &i_one, &(SDsum[idx[i]]), &nelem);
+    }
+
+}
 }
