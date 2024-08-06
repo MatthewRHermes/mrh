@@ -40,7 +40,7 @@ def memcheck (las, ci, soc=None):
     else:
         nbytes = 2*nbytes_per_sfvec
     # memory load of ci_dp vectors
-    nbytes += sum ([np.prod ([c[iroot].size for c in ci])
+    nbytes += sum ([np.prod ([float (c[iroot].size) for c in ci])
                     * np.amax ([c[iroot].dtype.itemsize for c in ci])
                     for iroot in range (nroots)])
     safety_factor = 1.2

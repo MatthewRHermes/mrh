@@ -4,25 +4,28 @@ from pyscf import gto, scf, mcscf, lib
 from mrh.my_pyscf.fci import csf_solver
 from mrh.my_pyscf.mcscf.addons import state_average_n_mix
 
-mol = gto.M (atom = 'O 0 0 0; H 1.145 0 0', basis='6-31g', symmetry=True, charge=-1, spin=0, verbose=0, output='/dev/null')
-mf = scf.RHF (mol).set (conv_tol=1e-10).run ()
-mc = mcscf.CASSCF (mf, 8, 8).set (conv_tol=1e-10).run ()
-
-anion = csf_solver (mol, smult=1)
-anion.wfnsym = 'A1'
-
-rad1 = csf_solver (mol, smult=2)
-rad1.spin = 1
-rad1.charge = 1
-rad1.wfnsym = 'E1x'
-
-rad2 = csf_solver (mol, smult=2)
-rad2.spin = 1
-rad2.charge = 1
-rad2.wfnsym = 'E1y'
-
-mc = state_average_n_mix (mc, [anion, rad1, rad2], [1.0/3.0,]*3)
-mc.kernel ()
+def setUpModule():
+    global mol, mf, mc, anion, rad1, rad2
+    mol = gto.M (atom = 'O 0 0 0; H 1.145 0 0', basis='6-31g', symmetry=True, charge=-1, spin=0, verbose=0, output='/dev/null')
+    mf = scf.RHF (mol).set (conv_tol=1e-10).run ()
+    mc = mcscf.CASSCF (mf, 8, 8).set (conv_tol=1e-10).run ()
+    mc.ci = None
+ 
+    anion = csf_solver (mol, smult=1)
+    anion.wfnsym = 'A1'
+    
+    rad1 = csf_solver (mol, smult=2)
+    rad1.spin = 1
+    rad1.charge = 1
+    rad1.wfnsym = 'E1x'
+    
+    rad2 = csf_solver (mol, smult=2)
+    rad2.spin = 1
+    rad2.charge = 1
+    rad2.wfnsym = 'E1y'
+    
+    mc = state_average_n_mix (mc, [anion, rad1, rad2], [1.0/3.0,]*3)
+    mc.kernel ()
 
 def tearDownModule():
     global mol, mf, mc, anion, rad1, rad2
