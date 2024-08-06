@@ -1676,7 +1676,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   
   py::buffer_info info_eri = _eri.request(); //2D array nao * ncas
   
-  const int device_id = 0; //count % num_devices;
+  const int device_id = count % num_devices;
   pm->dev_set_device(device_id);
   
   my_device_data * dd = &(device_data[device_id]);
@@ -1715,7 +1715,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
   free(h_mo_coeff);
 #endif
   // unpacking business that should really just have been done with stored map already and also with the stored eris
-#if 0
+#if 1
   double * d_cderi;
   if(use_eri_cache) {
     d_cderi = dd_fetch_eri(dd, cderi, naux, nao_pair, addr_dfobj, count);
@@ -2029,9 +2029,8 @@ cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
         for (int l =0; l<nao; ++l){
           eri[k*ncas_pair*nao+l*ncas_pair+my_pack_map[i*ncas+j]]=h_vuwM[i*ncas*ncas*nao+j*ncas*nao+k*nao+l];}}}}
           //eri[i*ncas_pair*ncas+j*ncas_pair+kl]=h_vuwM[i*ncas*ncas*ncas+j*ncas*ncas+k*ncas+l];}}}}
-#
 #endif
-#if 1
+#if 0
   pm->dev_free(d_cderi);
 #endif
   pm->dev_free(d_cderi_unpacked);
