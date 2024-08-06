@@ -140,11 +140,10 @@ def get_h2eff_gpu (las,mo_coeff):
             eri2 = lib.pack_tril (eri2.reshape (nmo*ncas, ncas, ncas)).reshape (nmo, -1)
             if np.allclose(eri1,eri2): print("h2eff is working")
             else: print("h2eff not working"); exit()
-        elif gpu: libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df))
+        elif gpu: libgpu.libgpu_get_h2eff_df(gpu, cderi, nao, nmo, ncas, naux, ncore,eri1, count, id(las.with_df)); print("finished h2eff loop")
         else: 
             bPmn = sparsedf_array (cderi)
             bmuP1 = bPmn.contract1 (mo_cas)
-            #bmuP1 = np.einsum('Pmn,nu->muP',unpack_tril(bPmn),mo_cas)
             buvP = np.tensordot (mo_cas.conjugate (), bmuP1, axes=((0),(0)))
             eri1 = np.tensordot (bmuP1, buvP, axes=((2),(2)))
             eri1 = np.tensordot (mo_coeff.conjugate (), eri1, axes=((0),(0)))
