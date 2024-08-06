@@ -115,7 +115,6 @@ private:
 
   int blksize;
   int nao;
-  int naux;
   int nset;
   int nao_pair;
 
@@ -219,8 +218,8 @@ private:
   my_device_data * device_data;
   
   int * dd_fetch_pumap(my_device_data *, int, int);
-  double * dd_fetch_eri(my_device_data *, double *, size_t, int);
-  double * dd_fetch_eri_debug(my_device_data *, double *, size_t, int); // we'll trash this after some time
+  double * dd_fetch_eri(my_device_data *, double *, int, int, size_t, int);
+  double * dd_fetch_eri_debug(my_device_data *, double *, int, int, size_t, int); // we'll trash this after some time
   
   void fdrv(double *, double *, double *,
 	    int, int, int *, int *, int, double *);

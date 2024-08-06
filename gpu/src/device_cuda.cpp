@@ -179,10 +179,10 @@ void Device::push_mo_coeff(py::array_t<double> _mo_coeff, int _size_mo_coeff)
 
 /* ---------------------------------------------------------------------- */
 
-double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, size_t addr_dfobj, int count)
+double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, int naux, int nao_pair, size_t addr_dfobj, int count)
 {
 #if defined(_DEBUG_DEVICE) || defined(_DEBUG_ERI_CACHE)
-  return dd_fetch_eri_debug(dd, eri1, addr_dfobj, count);
+  return dd_fetch_eri_debug(dd, eri1, naux, nao_pair, addr_dfobj, count);
 #endif
 
   double * d_eri;
@@ -244,7 +244,7 @@ double * Device::dd_fetch_eri(my_device_data * dd, double * eri1, size_t addr_df
 
 /* ---------------------------------------------------------------------- */
 
-double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, size_t addr_dfobj, int count)
+double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux, int nao_pair, size_t addr_dfobj, int count)
 {   
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Starting eri_cache lookup\n");
@@ -360,7 +360,7 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, size_t a
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int _naux, int count)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int naux, int count)
 {
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device::init_get_jk()\n");
@@ -380,7 +380,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   blksize = _blksize;
   nset = _nset;
   nao = _nao;
-  naux = _naux;
 
   nao_pair = nao * (nao+1) / 2;
   
@@ -851,7 +850,7 @@ void Device::get_jk(int naux,
 #endif
   
   if(use_eri_cache)
-    d_eri = dd_fetch_eri(dd, eri1, addr_dfobj, count);
+    d_eri = dd_fetch_eri(dd, eri1, naux, nao_pair, addr_dfobj, count);
 
   profile_stop();
 
@@ -1133,7 +1132,7 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   double * d_eri;
   
   if(use_eri_cache) {
-    d_eri = dd_fetch_eri(dd, eri, addr_dfobj, count);
+    d_eri = dd_fetch_eri(dd, eri, naux, nao_pair, addr_dfobj, count);
   } else {
     if(_size_eri > dd->size_eri1) {
       dd->size_eri1 = _size_eri;
@@ -1717,7 +1716,7 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
 #if 0
   double * d_cderi;
   if(use_eri_cache) {
-    d_cderi = dd_fetch_eri(dd, eri, addr_dfobj, count);
+    d_cderi = dd_fetch_eri(dd, cderi, naux, nao_pair, addr_dfobj, count);
   } else {
     if(_size_cderi > dd->size_eri1) {
       dd->size_eri1 = _size_cderi;
