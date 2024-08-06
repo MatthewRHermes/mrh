@@ -115,7 +115,6 @@ private:
 
   int blksize;
   int nset;
-  int nao_pair;
 
   int size_fdrv;
   int size_buf_vj;

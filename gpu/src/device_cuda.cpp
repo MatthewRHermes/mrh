@@ -380,7 +380,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   blksize = _blksize;
   nset = _nset;
 
-  nao_pair = nao * (nao+1) / 2;
+  int nao_pair = nao * (nao+1) / 2;
   
   int _size_vj = nset * nao_pair;
   if(_size_vj > dd->size_vj) {
@@ -508,6 +508,8 @@ void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int n
   
   double * vj = static_cast<double*>(info_vj.ptr);
 
+  int nao_pair = nao * (nao+1) / 2;
+  
   int size = nset * nao_pair * sizeof(double);
 
   double * tmp;
