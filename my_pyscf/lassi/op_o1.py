@@ -701,8 +701,9 @@ class LSTDMint2 (object):
         self.init_profiling ()
 
         # buffer
-        self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
-        self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
+        bigorb = np.sort (nlas)[::-1]
+        self.d1 = np.zeros (2*(sum(bigorb[:2])**2), dtype=self.dtype)
+        self.d2 = np.zeros (4*(sum(bigorb[:4])**4), dtype=self.dtype)
         self._orbidx = np.ones (self.norb, dtype=bool)
 
     def init_profiling (self):
@@ -1394,9 +1395,11 @@ class LSTDMint2 (object):
         nlas = np.array (self.nlas)
         nlas[~fragidx] = 0
         norb = sum (nlas)
-        d1_shape = [2,] + [norb,]*2
-        d1_size = np.prod (d1_shape)
-        d1 = self.d1.ravel ()[:d1_size].reshape (d1_shape)
+        d1 = self.d1
+        if len (inv) < 3: # Otherwise this won't be touched anyway
+            d1_shape = [2,] + [norb,]*2
+            d1_size = np.prod (d1_shape)
+            d1 = self.d1.ravel ()[:d1_size].reshape (d1_shape)
         d2_shape = [4,] + [norb,]*4
         d2_size = np.prod (d2_shape)
         d2 = self.d2.ravel ()[:d2_size].reshape (d2_shape)
@@ -1708,12 +1711,12 @@ class LRRDMint (LSTDMint2):
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
-        self.rdm1s = np.zeros ([self.nroots_si,] + list (self.d1.shape), dtype=self.dtype)
-        self.rdm2s = np.zeros ([self.nroots_si,] + list (self.d2.shape), dtype=self.dtype)
+        self.rdm1s = np.zeros ([self.nroots_si,2] + [self.norb,]*2, dtype=self.dtype)
+        self.rdm2s = np.zeros ([self.nroots_si,4] + [self.norb,]*4, dtype=self.dtype)
         self._rdm1s_c = c_arr (self.rdm1s)
-        self._rdm1s_c_ncol = c_int (self.d1.size)
+        self._rdm1s_c_ncol = c_int (self.rdm1s.size // self.nroots_si)
         self._rdm2s_c = c_arr (self.rdm2s)
-        self._rdm2s_c_ncol = c_int (self.d2.size)
+        self._rdm2s_c_ncol = c_int (self.rdm2s.size // self.nroots_si)
         self._crunch_all_()
         return self.rdm1s, self.rdm2s, t0
 
