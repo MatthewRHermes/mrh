@@ -90,13 +90,13 @@ void libgpu_init_get_jk(void * ptr,
 /* ---------------------------------------------------------------------- */
 
 void libgpu_compute_get_jk(void * ptr,
-			   int naux,
+			   int naux, int nao,
 			   py::array_t<double> eri1, py::array_t<double> dmtril, py::list & dms,
 			   py::array_t<double> vj, py::array_t<double> vk,
 			   int with_k, int count, size_t addr_dfobj)
 { 
   Device * dev = (Device *) ptr;
-  dev->get_jk(naux,
+  dev->get_jk(naux, nao,
 	      eri1, dmtril, dms,
 	      vj, vk,
 	      with_k, count, addr_dfobj);
@@ -105,10 +105,10 @@ void libgpu_compute_get_jk(void * ptr,
 
 /* ---------------------------------------------------------------------- */
 
-void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> vk, int with_k)
+void libgpu_pull_get_jk(void * ptr, py::array_t<double> vj, py::array_t<double> vk, int nao, int with_k)
 { 
   Device * dev = (Device *) ptr;
-  dev->pull_get_jk(vj, vk, with_k);
+  dev->pull_get_jk(vj, vk, nao, with_k);
 }
 
 /* ---------------------------------------------------------------------- */

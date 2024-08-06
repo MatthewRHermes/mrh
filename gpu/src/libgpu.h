@@ -26,12 +26,12 @@ extern "C"
 			  py::array_t<double>, py::array_t<double>, int, int, int, int, int);
 
   void libgpu_compute_get_jk(void *,
-			     int,
+			     int, int,
 			     py::array_t<double>, py::array_t<double>, py::list &,
 			     py::array_t<double>, py::array_t<double>,
 			     int, int, size_t);
   
-  void libgpu_pull_get_jk(void *, py::array_t<double>, py::array_t<double>, int);
+  void libgpu_pull_get_jk(void *, py::array_t<double>, py::array_t<double>, int, int);
   
   void libgpu_set_update_dfobj_(void *, int);
   void libgpu_get_dfobj_status(void *, size_t, py::array_t<int>);

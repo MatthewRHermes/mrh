@@ -67,11 +67,11 @@ public :
   void disable_eri_cache_();
 
   void init_get_jk(py::array_t<double>, py::array_t<double>, int, int, int, int, int);
-  void get_jk(int,
+  void get_jk(int, int,
 	      py::array_t<double>, py::array_t<double>, py::list &,
 	      py::array_t<double>, py::array_t<double>,
 	      int, int, size_t);
-  void pull_get_jk(py::array_t<double>, py::array_t<double>, int);
+  void pull_get_jk(py::array_t<double>, py::array_t<double>, int, int);
   
   void set_update_dfobj_(int);
   void get_dfobj_status(size_t, py::array_t<int>);
@@ -114,7 +114,6 @@ private:
   int update_dfobj;
 
   int blksize;
-  int nao;
   int nset;
   int nao_pair;
 

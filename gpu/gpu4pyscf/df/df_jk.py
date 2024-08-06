@@ -69,7 +69,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             if gpu:
                 #if count == 0:
                 libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
-                libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, 0, count, id(dfobj))
+                libgpu.libgpu_compute_get_jk(gpu, naux, nao, eri1, dmtril, dms, vj, vk, 0, count, id(dfobj))
             else:
                 rho = numpy.einsum('ix,px->ip', dmtril, eri1)
                 vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -79,7 +79,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
             count += 1
 
         if gpu:
-            libgpu.libgpu_pull_get_jk(gpu, vj, vk, 0)
+            libgpu.libgpu_pull_get_jk(gpu, vj, vk, nao, 0)
         #t3 = lib.logger.timer(dfobj, 'get_jk not with_k loop full',*t2)
 
 # Commented 2-19-2024 in favor of accelerated implementation below
@@ -162,7 +162,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
                 if gpu:
                     #if count == 0:
                     libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
-                    libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
+                    libgpu.libgpu_compute_get_jk(gpu, naux, nao, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
                 
                 else:
                 
@@ -196,7 +196,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
 
                 eri1 = numpy.zeros(1)
                 if count == 0: libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
-                libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
+                libgpu.libgpu_compute_get_jk(gpu, naux, nao, eri1, dmtril, dms, vj, vk, 1, count, id(dfobj))
                 
                 #lib.logger.timer(dfobj, 'get_jk with_k loop iteration',*t6)
                 
@@ -204,7 +204,7 @@ def get_jk(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e-13):
         t1 = log.timer_debug1('jk', *t1)
 
         if gpu:
-            libgpu.libgpu_pull_get_jk(gpu, vj, vk, 1)
+            libgpu.libgpu_pull_get_jk(gpu, vj, vk, nao, 1)
         #t5 = lib.logger.timer(dfobj, 'get_jk with_k pull',*t4)
         
     #t2 = (logger.process_clock(), logger.perf_counter())
@@ -265,7 +265,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             
             #if count == 0:
             libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, 0, count)
-            libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj_tmp, vk_tmp, 0, count, id(dfobj))
+            libgpu.libgpu_compute_get_jk(gpu, naux, nao, eri1, dmtril, dms, vj_tmp, vk_tmp, 0, count, id(dfobj))
             
             rho = numpy.einsum('ix,px->ip', dmtril, eri1)
             vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -273,7 +273,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             count += 1
 
             
-        libgpu.libgpu_pull_get_jk(gpu, vj_tmp, vk_tmp, 0)
+        libgpu.libgpu_pull_get_jk(gpu, vj_tmp, vk_tmp, nao, 0)
         
         print("vj= ", vj.shape)
         vj_err = 0.0
@@ -365,7 +365,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             #if gpu:
             #if count == 0:
             libgpu.libgpu_init_get_jk(gpu, eri1, dmtril, blksize, nset, nao, naux, count)
-            libgpu.libgpu_compute_get_jk(gpu, naux, eri1, dmtril, dms, vj_tmp, vk_tmp, 1, count, id(dfobj))
+            libgpu.libgpu_compute_get_jk(gpu, naux, nao, eri1, dmtril, dms, vj_tmp, vk_tmp, 1, count, id(dfobj))
             if count == -1: quit()
 
             #else:
@@ -389,7 +389,7 @@ def get_jk_debug(dfobj, dm, hermi=1, with_j=True, with_k=True, direct_scf_tol=1e
             count+=1
 
         #if gpu:
-        libgpu.libgpu_pull_get_jk(gpu, vj_tmp, vk_tmp, 1)
+        libgpu.libgpu_pull_get_jk(gpu, vj_tmp, vk_tmp, nao, 1)
             
         print("vj= ", vj.shape, " vk= ", vk.shape)
         vj_err = 0.0

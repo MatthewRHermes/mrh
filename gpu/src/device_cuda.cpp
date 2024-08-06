@@ -360,7 +360,7 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int _nao, int naux, int count)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int nao, int naux, int count)
 {
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device::init_get_jk()\n");
@@ -379,7 +379,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   
   blksize = _blksize;
   nset = _nset;
-  nao = _nao;
 
   nao_pair = nao * (nao+1) / 2;
   
@@ -493,7 +492,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
 /* ---------------------------------------------------------------------- */
 
-void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int with_k)
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int with_k)
 {
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
@@ -774,7 +773,7 @@ __global__ void _transpose(double * buf3, double * buf1, int nrow, int ncol)
 /* ---------------------------------------------------------------------- */
 
 // The _vj and _vk arguements aren't actually used anymore and could be removed. 
-void Device::get_jk(int naux,
+void Device::get_jk(int naux, int nao, 
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
 		    int with_k, int count, size_t addr_dfobj)
@@ -1675,10 +1674,14 @@ void Device::get_h2eff_df(py::array_t<double> _cderi,
 #endif 
   
   profile_start("h2eff df setup");
+  
   py::buffer_info info_eri = _eri.request(); //2D array nao * ncas
-  const int device_id = 0;
+  
+  const int device_id = 0; //count % num_devices;
   pm->dev_set_device(device_id);
+  
   my_device_data * dd = &(device_data[device_id]);
+  
   const int nao_pair = nao * (nao+1)/2;
   const int ncas_pair = ncas * (ncas+1)/2;
   const int _size_eri = nmo*ncas*ncas*ncas_pair;
@@ -2013,7 +2016,14 @@ cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
   //pack_Mwuv<<<grid_size,block_size, 0, dd->stream>>>(d_vuwM, d_eri_packed, d_my_pack_map_ptr, nao, ncas, ncas_pair);
   }
   //pm->dev_pull(d_eri_packed, eri, _size_eri_packed*sizeof(double));
-  //pm->dev_free(d_mo_cas);
+
+  pm->dev_free(d_mo_cas);
+  pm->dev_free(d_bPvu);
+  pm->dev_free(d_bmuP);
+  pm->dev_free(d_buvP);
+  pm->dev_free(d_vuwm);
+  pm->dev_free(d_vuwM);
+  
   for (int i =0, ij=0; i<ncas; ++i){
     for (int j =0; j<=i; ++j,++ij){
       for (int k =0; k<ncas; ++k){
@@ -2029,6 +2039,10 @@ cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
   pm->dev_free(d_bPmu);
   pm->dev_free(d_my_unpack_map);
   free(my_unpack_map);
+  free(my_pack_map);
+  pm->dev_free(d_my_pack_map);
+  pm->dev_free(d_eri_transposed);
+  pm->dev_free(d_eri_packed);
 profile_stop();
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
