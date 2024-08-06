@@ -1598,6 +1598,25 @@ class HamS2ovlpint (LSTDMint2):
         self._umat_linequiv_loop_(ovlp)
         return self.ham, self.s2, ovlp, t0
 
+def get_contig_blks (mask):
+    '''Get contiguous chunks from a mask index into an array'''
+    mask = np.ravel (mask)
+    prevm = np.append ([False], mask[:-1])
+    destblkstart = np.asarray (np.where (mask & (~prevm))[0])
+    nextm = np.append (mask[1:], [0])
+    destblkend = np.asarray (np.where (mask & (~nextm))[0])
+    blklen = destblkend - destblkstart + 1
+    srcblkstart = np.cumsum (np.append ([0], blklen[:-1]))
+    return srcblkstart, destblkstart, blklen
+
+def split_contig_array (arrlen, nthreads):
+    '''Divide a contiguous array into chunks to be handled by each thread'''
+    blklen = (arrlen + (nthreads-1)) // nthreads;
+    blklen = np.array ([blklen,]*nthreads)
+    blklen[-1] = arrlen - blklen[:-1].sum ()
+    blkstart = np.cumsum (np.append ([0],blklen[:-1]))
+    return blkstart, blklen
+
 class LRRDMint (LSTDMint2):
     __doc__ = LSTDMint2.__doc__ + '''
 
@@ -1640,10 +1659,12 @@ class LRRDMint (LSTDMint2):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         fac = self.get_wgt_fac (bra, ket, wgt)
         fn = liblassi.LASSIRDMdputSD
-        fn (c_arr (fac), self._rdm1s_c, self._si_c_ncol, self._rdm1s_c_ncol,
-            self._rdm1s_idx_c, self._rdm1s_idx_c_len,
-            c_arr (D1), self._dm_norb_c,
-            self._dm_blkstart_c, self._dm_blklen_c, self._dm_nblks_c)
+        fn (self._rdm1s_c, c_arr (fac), c_arr (D1),
+            self._si_c_ncol, self._rdm1s_c_ncol,
+            self._rdm1s_dblk_idx,
+            self._rdm1s_sblk_idx,
+            self._rdm1s_lblk,
+            self._rdm1s_nblk)
         #self.rdm1s[self.rdm1s_idx] += np.multiply.outer (fac, D1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
@@ -1652,10 +1673,12 @@ class LRRDMint (LSTDMint2):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         fac = self.get_wgt_fac (bra, ket, wgt)
         fn = liblassi.LASSIRDMdputSD
-        fn (c_arr (fac), self._rdm2s_c, self._si_c_ncol, self._rdm2s_c_ncol,
-            self._rdm2s_idx_c, self._rdm2s_idx_c_len,
-            c_arr (D2), self._dm_norb_c,
-            self._dm_blkstart_c, self._dm_blklen_c, self._dm_nblks_c)
+        fn (self._rdm2s_c, c_arr (fac), c_arr (D2),
+            self._si_c_ncol, self._rdm2s_c_ncol,
+            self._rdm2s_dblk_idx,
+            self._rdm2s_sblk_idx,
+            self._rdm2s_lblk,
+            self._rdm2s_nblk)
         #self.rdm2s[self.rdm2s_idx] += np.multiply.outer (fac, D2)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
@@ -1671,31 +1694,40 @@ class LRRDMint (LSTDMint2):
     def _orbrange_env_kwargs (self, inv):
         env_kwargs = super()._orbrange_env_kwargs (inv)
         _orbidx = env_kwargs['_orbidx']
-        _blkstart = [i for i in range (self.norb) 
-                     if (_orbidx[i] and (i==0 or (not _orbidx[i-1])))]
-        _blkend = [i+1 for i in range (self.norb)
-                   if (_orbidx[i] and ((i+1==self.norb) or (not _orbidx[i+1])))]
-        _blklen = [end - start for end, start in zip (_blkend, _blkstart)]
-        env_kwargs['_dm_blkstart_c'] = c_arr (np.array (_blkstart, dtype=np.int32) - _blkstart[0])
-        env_kwargs['_dm_blklen_c'] = c_arr (np.array (_blklen, dtype=np.int32))
-        env_kwargs['_dm_nblks_c'] = c_int (len (_blkstart))
-        env_kwargs['_dm_norb_c'] = c_int (np.count_nonzero (_orbidx))
-        idx = np.ix_([True,]*2,_orbidx,_orbidx)
-        mask = np.zeros ((2,self.norb,self.norb), dtype=bool)
-        mask[idx] = True
-        if _blkstart[0] > 0: mask[...,:_blkstart[0]] = False
-        if _blkstart[0] < self.norb-1: mask[...,_blkstart[0]+1:] = False
-        idx = np.array (np.where (mask.ravel ())[0], dtype=np.int32)
-        env_kwargs['_rdm1s_idx_c'] = c_arr (idx)
-        env_kwargs['_rdm1s_idx_c_len'] = c_int (len (idx))
-        idx = np.ix_([True,]*4,_orbidx,_orbidx,_orbidx,_orbidx)
-        mask = np.zeros ((4,self.norb,self.norb,self.norb,self.norb), dtype=bool)
-        mask[idx] = True
-        if _blkstart[0] > 0: mask[...,:_blkstart[0]] = False
-        if _blkstart[0] < self.norb-1: mask[...,_blkstart[0]+1:] = False
-        idx = np.array (np.where (mask.ravel ())[0], dtype=np.int32)
-        env_kwargs['_rdm2s_idx_c'] = c_arr (idx)
-        env_kwargs['_rdm2s_idx_c_len'] = c_int (len (idx))
+        ndest = self.norb
+        nsrc = np.count_nonzero (_orbidx)
+        if nsrc==ndest:
+            nthreads = lib.num_threads ()
+            dblk1, lblk1 = split_contig_array (2*(self.norb**2),nthreads)
+            dblk2, lblk2 = split_contig_array (4*(self.norb**4),nthreads)
+            sblk1, sblk2 = dblk1, dblk2
+        else:
+            idx = np.ix_(_orbidx,_orbidx)
+            mask = np.zeros ((self.norb,self.norb), dtype=bool)
+            mask[idx] = True
+            sblk1, dblk1, lblk1 = get_contig_blks (mask)
+            # from 1-RDM to 2-RDM
+            actpairs = np.where (mask.ravel ())[0]
+            sblk2 = np.arange (len(actpairs), dtype=sblk1.dtype)*(nsrc**2)
+            sblk2 = np.add.outer (sblk2, sblk1).ravel ()
+            dblk2 = np.add.outer (actpairs*(ndest**2), dblk1).ravel ()
+            lblk2 = np.tile (lblk1, len(actpairs))
+            # Spin dof 1-RDM
+            sblk1 = np.concatenate ([sblk1+(i*(nsrc**2)) for i in range (2)])
+            dblk1 = np.concatenate ([dblk1+(i*(ndest**2)) for i in range (2)])
+            lblk1 = np.concatenate ([lblk1,]*2)
+            # Spin dof 2-RDM
+            sblk2 = np.concatenate ([sblk2+(i*(nsrc**4)) for i in range (4)])
+            dblk2 = np.concatenate ([dblk2+(i*(ndest**4)) for i in range (4)])
+            lblk2 = np.concatenate ([lblk2,]*4)
+        env_kwargs['_rdm1s_dblk_idx'] = c_arr (dblk1.astype (np.int32))
+        env_kwargs['_rdm1s_sblk_idx'] = c_arr (sblk1.astype (np.int32))
+        env_kwargs['_rdm1s_lblk'] = c_arr (lblk1.astype (np.int32))
+        env_kwargs['_rdm1s_nblk'] = c_int (len (lblk1))
+        env_kwargs['_rdm2s_dblk_idx'] = c_arr (dblk2.astype (np.int32))
+        env_kwargs['_rdm2s_sblk_idx'] = c_arr (sblk2.astype (np.int32))
+        env_kwargs['_rdm2s_lblk'] = c_arr (lblk2.astype (np.int32))
+        env_kwargs['_rdm2s_nblk'] = c_int (len (lblk2))
         return env_kwargs
 
     def kernel (self):
