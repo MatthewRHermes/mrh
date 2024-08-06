@@ -149,7 +149,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
                               current_mem, self.max_memory)
                     nblk = 1
                 else:
-                    nblk = int ((self.max_memory - current_mem) / mem_per_state)
+                    nblk = max (1, int ((self.max_memory - current_mem) / mem_per_state)-1)
                 rdmstmpfile = self.rdmstmpfile
                 with h5py.File(rdmstmpfile, 'w') as f:
                     for i in range (0, len (self.e_states), nblk):
