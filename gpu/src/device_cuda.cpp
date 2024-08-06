@@ -360,7 +360,7 @@ double * Device::dd_fetch_eri_debug(my_device_data * dd, double * eri1, int naux
 
 /* ---------------------------------------------------------------------- */
 
-void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int _blksize, int _nset, int nao, int naux, int count)
+void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril, int blksize, int nset, int nao, int naux, int count)
 {
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: Inside Device::init_get_jk()\n");
@@ -376,9 +376,6 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
   pm->dev_set_device(device_id);
 
   my_device_data * dd = &(device_data[device_id]);
-  
-  blksize = _blksize;
-  nset = _nset;
 
   int nao_pair = nao * (nao+1) / 2;
   
@@ -492,7 +489,7 @@ void Device::init_get_jk(py::array_t<double> _eri1, py::array_t<double> _dmtril,
 
 /* ---------------------------------------------------------------------- */
 
-void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int with_k)
+void Device::pull_get_jk(py::array_t<double> _vj, py::array_t<double> _vk, int nao, int nset, int with_k)
 {
 #ifdef _DEBUG_DEVICE
   printf("LIBGPU :: -- Inside Device::pull_get_jk()\n");
@@ -775,7 +772,7 @@ __global__ void _transpose(double * buf3, double * buf1, int nrow, int ncol)
 /* ---------------------------------------------------------------------- */
 
 // The _vj and _vk arguements aren't actually used anymore and could be removed. 
-void Device::get_jk(int naux, int nao, 
+void Device::get_jk(int naux, int nao, int nset,
 		    py::array_t<double> _eri1, py::array_t<double> _dmtril, py::list & _dms_list,
 		    py::array_t<double> _vj, py::array_t<double> _vk,
 		    int with_k, int count, size_t addr_dfobj)
@@ -833,7 +830,7 @@ void Device::get_jk(int naux, int nao,
   py::buffer_info info_vj = _vj.request(); // 2D array (nset, nao_pair)
   py::buffer_info info_vk = _vk.request(); // 3D array (nset, nao, nao)
   
-  printf("LIBGPU:: device= %i  blksize= %i  naux= %i  nao= %i  nset= %i  nao_pair= %i  count= %i\n",device_id,blksize,naux,nao,nset,nao_pair,count);
+  printf("LIBGPU:: device= %i  naux= %i  nao= %i  nset= %i  nao_pair= %i  count= %i\n",device_id,naux,nao,nset,nao_pair,count);
   printf("LIBGPU::shape: dmtril= (%i,%i)  eri1= (%i,%i)  rho= (%i, %i)   vj= (%i,%i)  vk= (%i,%i,%i)\n",
   	 info_dmtril.shape[0], info_dmtril.shape[1],
   	 info_eri1.shape[0], info_eri1.shape[1],
