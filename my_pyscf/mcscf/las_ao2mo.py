@@ -95,7 +95,7 @@ def get_h2eff_gpu (las,mo_coeff):
     mo_cas = mo_coeff[:,ncore:nocc]
     if gpu: libgpu.libgpu_push_mo_coeff(gpu,mo_coeff.copy(),mo_coeff.size)
     naux = las.with_df.get_naoaux ()
-    if gpu: blksize = 50
+    if gpu: blksize = las.with_df.blockdim
     else:
         mem_eris = 8*(nao+nmo)*ncas*ncas*ncas / 1e6
         mem_eris += 8*lib.num_threads ()*nao*nmo / 1e6 
