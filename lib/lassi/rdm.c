@@ -69,7 +69,7 @@ void LASSIRDMdgetwgtfac (double * fac, double * wgt, double * sivec,
 }
 }
 
-void LASSIRDMdputSD (double * SDdest, double * fac, double * SDsrc,
+void LASSIRDMdsumSD (double * SDdest, double * fac, double * SDsrc,
                      int nroots, int nelem_dest,
                      int * SDdest_idx, int * SDsrc_idx, int * SDlen,
                      int nidx)
@@ -89,9 +89,31 @@ const unsigned int i_one = 1;
                    mySDdest+iroot*nelem_dest, &i_one);
         }
     }
-    //for (int i = 0; i < nidx; i++){
-    //    daxpy_(&nroots, &(SDterm[i]), fac, &i_one, &(SDsum[idx[i]]), &nelem);
-    //}
+
+}
+}
+
+void LASSIRDMdputSD (double * SDdest, double * SDsrc,
+                     int nroots, int nelem_dest, int nelem_src,
+                     int * SDdest_idx, int * SDsrc_idx, int * SDlen,
+                     int nidx)
+{
+const unsigned int i_one = 1;
+const double d_one = 1.0;
+#pragma omp parallel
+{
+    double * mySDsrc;
+    double * mySDdest;
+    #pragma omp for 
+    for (int iidx = 0; iidx < nidx; iidx++){
+        mySDsrc = SDsrc + SDsrc_idx[iidx];
+        mySDdest = SDdest + SDdest_idx[iidx];
+        for (int iroot = 0; iroot < nroots; iroot++){
+            daxpy_(SDlen+iidx, &d_one,
+                   mySDsrc+iroot*nelem_src, &i_one,
+                   mySDdest+iroot*nelem_dest, &i_one);
+        }
+    }
 
 }
 }
