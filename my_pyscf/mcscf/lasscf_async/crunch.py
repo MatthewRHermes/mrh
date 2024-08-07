@@ -1005,7 +1005,7 @@ def get_pair_lasci (las, frags, inherit_df=False):
     if not ((output is None) or (output=='/dev/null')):
         output = output + '.' + '.'.join ([str (s) for s in frags])
     imol = ImpurityMole (las, output=output, stdout=stdout)
-    if stdout is None and stdout_dict is not None:
+    if stdout is None and output is not None and stdout_dict is not None:
         stdout_dict[frags] = imol.stdout
     imf = ImpurityHF (imol)
     if inherit_df and isinstance (las, _DFLASCI):
