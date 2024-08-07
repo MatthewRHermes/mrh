@@ -70,26 +70,24 @@ void LASSIRDMdgetwgtfac (double * fac, double * wgt, double * sivec,
 }
 
 void LASSIRDMdsumSD (double * SDdest, double * fac, double * SDsrc,
-                     int nroots, int nelem_dest,
-                     int * SDdest_idx, int * SDsrc_idx, int * SDlen,
-                     int nidx)
+                     int nroots, int nelem_dest)
 {
 const unsigned int i_one = 1;
 #pragma omp parallel
 {
-    double * mySDsrc;
-    double * mySDdest;
-    #pragma omp for 
-    for (int iidx = 0; iidx < nidx; iidx++){
-        mySDsrc = SDsrc + SDsrc_idx[iidx];
-        mySDdest = SDdest + SDdest_idx[iidx];
-        for (int iroot = 0; iroot < nroots; iroot++){
-            daxpy_(SDlen+iidx, fac+iroot,
-                   mySDsrc, &i_one,
-                   mySDdest+iroot*nelem_dest, &i_one);
-        }
+    int nt = omp_get_num_threads ();
+    int it = omp_get_thread_num ();
+    int nel0 = nelem_dest / nt;
+    int nel1 = nelem_dest % nt;
+    int tstart = (nel0*it) + MIN(nel1,it);
+    int tlen = it<nel1 ? nel0+1 : nel0;
+    double * mySDsrc = SDsrc+tstart;
+    double * mySDdest = SDdest+tstart;
+    for (int iroot = 0; iroot < nroots; iroot++){
+        daxpy_(&(tlen), fac+iroot,
+               mySDsrc, &i_one,
+               mySDdest+iroot*nelem_dest, &i_one);
     }
-
 }
 }
 

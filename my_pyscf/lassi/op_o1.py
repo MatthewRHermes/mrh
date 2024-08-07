@@ -1673,28 +1673,22 @@ class LRRDMint (LSTDMint2):
     def _put_SD1_(self, bra, ket, D1, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         fac = self.get_wgt_fac (bra, ket, wgt)
+        # Note: shape of d1buf for commented slow version of code is wrong
         #self.d1buf += np.multiply.outer (fac, D1)
         fn = liblassi.LASSIRDMdsumSD
         fn (self._d1buf_c, c_arr (fac), c_arr (D1),
-            self._si_c_ncol, self._d1buf_ncol,
-            self._d1buf_dblk_idx,
-            self._d1buf_sblk_idx,
-            self._d1buf_lblk,
-            self._d1buf_nblk)
+            self._si_c_ncol, self._d1buf_ncol)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_SD2_(self, bra, ket, D2, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         fac = self.get_wgt_fac (bra, ket, wgt)
+        # Note: shape of d2buf for commented slow version of code is wrong
         #self.d2buf += np.multiply.outer (fac, D2)
         fn = liblassi.LASSIRDMdsumSD
         fn (self._d2buf_c, c_arr (fac), c_arr (D2),
-            self._si_c_ncol, self._d2buf_ncol,
-            self._d2buf_dblk_idx,
-            self._d2buf_sblk_idx,
-            self._d2buf_lblk,
-            self._d2buf_nblk)
+            self._si_c_ncol, self._d2buf_ncol)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
@@ -1737,32 +1731,9 @@ class LRRDMint (LSTDMint2):
         _orbidx = env_kwargs['_orbidx']
         ndest = self.norb
         nsrc = np.count_nonzero (_orbidx)
+        env_kwargs['_d1buf_ncol'] = c_int (2*(nsrc**2))
+        env_kwargs['_d2buf_ncol'] = c_int (4*(nsrc**4))
         nthreads = lib.num_threads ()
-        # buffer, always contiguous arrays
-        if len (inv) < 3: # Otherwise this won't be touched anyway
-            d1_shape = [self.nroots_si, 2] + [nsrc,]*2
-            d1_size = np.prod (d1_shape)
-            d1buf = self.d1buf.ravel ()[:d1_size].reshape (d1_shape)
-            d1_col = 2*(nsrc**2)
-            dblk1, lblk1 = split_contig_array (d1_col, nthreads)
-            env_kwargs['d1buf'] = d1buf
-            env_kwargs['_d1buf_dblk_idx'] = c_arr (dblk1.astype (np.int32))
-            env_kwargs['_d1buf_sblk_idx'] = c_arr (dblk1.astype (np.int32))
-            env_kwargs['_d1buf_lblk'] = c_arr (lblk1.astype (np.int32))
-            env_kwargs['_d1buf_nblk'] = c_int (len (lblk1))
-            env_kwargs['_d1buf_ncol'] = c_int (d1_col)
-        d2_shape = [self.nroots_si, 4,] + [nsrc,]*4
-        d2_size = np.prod (d2_shape)
-        d2buf = self.d2buf.ravel ()[:d2_size].reshape (d2_shape)
-        d2_col = 4*(nsrc**4)
-        dblk2, lblk2 = split_contig_array (d2_col, nthreads)
-        env_kwargs['d2buf'] = d2buf
-        env_kwargs['_d2buf_dblk_idx'] = c_arr (dblk2.astype (np.int32))
-        env_kwargs['_d2buf_sblk_idx'] = c_arr (dblk2.astype (np.int32))
-        env_kwargs['_d2buf_lblk'] = c_arr (lblk2.astype (np.int32))
-        env_kwargs['_d2buf_nblk'] = c_int (len (lblk2))
-        env_kwargs['_d2buf_ncol'] = c_int (d2_col)
-        # final, generally discontiguous arrays
         if nsrc==ndest:
             dblk1, lblk1 = split_contig_array (2*(self.norb**2),nthreads)
             dblk2, lblk2 = split_contig_array (4*(self.norb**4),nthreads)
