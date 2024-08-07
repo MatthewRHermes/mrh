@@ -701,8 +701,11 @@ class LSTDMint2 (object):
         self.init_profiling ()
 
         # buffer
-        self.d1 = np.zeros ([2,]+[self.norb,]*2, dtype=self.dtype)
-        self.d2 = np.zeros ([4,]+[self.norb,]*4, dtype=self.dtype)
+        bigorb = np.sort (nlas)[::-1]
+        self.d1 = np.zeros (2*(sum(bigorb[:2])**2), dtype=self.dtype)
+        self.d2 = np.zeros (4*(sum(bigorb[:4])**4), dtype=self.dtype)
+        self._norb_c = c_int (self.norb)
+        self._orbidx = np.ones (self.norb, dtype=bool)
 
     def init_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
@@ -1107,7 +1110,17 @@ class LSTDMint2 (object):
 
     def _put_SD1_(self, bra, ket, D1, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        self.tdm1s[bra,ket,:] += np.multiply.outer (wgt, D1)
+        #idx = self._orbidx
+        #idx = np.ix_([True,]*2,idx,idx)
+        #for b, k, w in zip (bra, ket, wgt):
+        fn = liblassi.LASSIRDMdputSD1
+        c_one = c_int (1)
+        for b, k, w in zip (bra, ket, wgt):
+            D1w = D1 * w
+            fn (c_arr (self.tdm1s[b,k]), c_arr (D1w),
+                c_one, self._norb_c, self._nsrc_c,
+                self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
+        #    self.tdm1s[b,k][idx] += np.multiply.outer (w, D1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
@@ -1120,7 +1133,17 @@ class LSTDMint2 (object):
 
     def _put_SD2_(self, bra, ket, D2, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        self.tdm2s[bra,ket,:] += np.multiply.outer (wgt, D2)
+        #idx = self._orbidx
+        #idx = np.ix_([True,]*4,idx,idx,idx,idx)
+        #for b, k, w in zip (bra, ket, wgt):
+        #    self.tdm2s[b,k][idx] += np.multiply.outer (w, D2)
+        fn = liblassi.LASSIRDMdputSD2
+        c_one = c_int (1)
+        for b, k, w in zip (bra, ket, wgt):
+            D2w = D2 * w
+            fn (c_arr (self.tdm2s[b,k]), c_arr (D2w),
+                c_one, self._norb_c, self._nsrc_c, self._pdest,
+                self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
@@ -1369,11 +1392,66 @@ class LSTDMint2 (object):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         self._put_D2_(bra, ket, d2, i, j, k, l)
 
-    def _loop_lroots_(self, _crunch_fn, *row):
+    def _crunch_env_(self, _crunch_fn, *row):
         if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
             inv = row[2:-1]
         else:
             inv = row[2:]
+        with lib.temporary_env (self, **self._orbrange_env_kwargs (inv)):
+            self._loop_lroots_(_crunch_fn, row, inv)
+            self._finalize_crunch_env_(_crunch_fn, row, inv)
+
+    def _finalize_crunch_env_(self, _crunch_fn, row, inv): pass
+
+    def _orbrange_env_kwargs (self, inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        fragidx = np.zeros (self.nfrags, dtype=bool)
+        _orbidx = np.zeros (self.norb, dtype=bool)
+        for frag in inv:
+            fragidx[frag] = True
+            p, q = self.get_range (frag)
+            _orbidx[p:q] = True
+        nlas = np.array (self.nlas)
+        nlas[~fragidx] = 0
+        norb = sum (nlas)
+        d1 = self.d1
+        if len (inv) < 3: # Otherwise this won't be touched anyway
+            d1_shape = [2,] + [norb,]*2
+            d1_size = np.prod (d1_shape)
+            d1 = self.d1.ravel ()[:d1_size].reshape (d1_shape)
+        d2_shape = [4,] + [norb,]*4
+        d2_size = np.prod (d2_shape)
+        d2 = self.d2.ravel ()[:d2_size].reshape (d2_shape)
+        env_kwargs = {'nlas': nlas, 'd1': d1, 'd2': d2, '_orbidx': _orbidx}
+        env_kwargs.update (self._orbrange_env_kwargs_orbidx (_orbidx))
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
+        return env_kwargs
+
+    def _orbrange_env_kwargs_orbidx (self, _orbidx):
+        ndest = self.norb
+        nsrc = np.count_nonzero (_orbidx)
+        nthreads = lib.num_threads ()
+        idx = np.ix_(_orbidx,_orbidx)
+        mask = np.zeros ((self.norb,self.norb), dtype=bool)
+        mask[idx] = True
+        actpairs = np.where (mask.ravel ())[0]
+        if nsrc==ndest:
+            dblk, lblk = split_contig_array (self.norb**2,nthreads)
+            sblk = dblk
+        else:
+            sblk, dblk, lblk = get_contig_blks (mask)
+        env_kwargs = {'_nsrc_c': c_int (nsrc),
+                      '_d1buf_ncol': c_int (2*(nsrc**2)),
+                      '_d2buf_ncol': c_int (4*(nsrc**4)),
+                      '_pdest': c_arr (actpairs.astype (np.int32)),
+                      '_dblk_idx': c_arr (dblk.astype (np.int32)),
+                      '_sblk_idx': c_arr (sblk.astype (np.int32)),
+                      '_lblk': c_arr (lblk.astype (np.int32)),
+                      '_nblk': c_int (len (lblk))}
+        return env_kwargs
+
+    def _loop_lroots_(self, _crunch_fn, row, inv):
         self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
         bra_rng = self._get_addr_range (row[0], *inv)
         ket_rng = self._get_addr_range (row[1], *inv)
@@ -1382,13 +1460,13 @@ class LSTDMint2 (object):
             _crunch_fn (*lrow)
 
     def _crunch_all_(self):
-        for row in self.exc_1d: self._loop_lroots_(self._crunch_1d_, *row)
-        for row in self.exc_2d: self._loop_lroots_(self._crunch_2d_, *row)
-        for row in self.exc_1c: self._loop_lroots_(self._crunch_1c_, *row)
-        for row in self.exc_1c1d: self._loop_lroots_(self._crunch_1c1d_, *row)
-        for row in self.exc_1s: self._loop_lroots_(self._crunch_1s_, *row)
-        for row in self.exc_1s1c: self._loop_lroots_(self._crunch_1s1c_, *row)
-        for row in self.exc_2c: self._loop_lroots_(self._crunch_2c_, *row)
+        for row in self.exc_1d: self._crunch_env_(self._crunch_1d_, *row)
+        for row in self.exc_2d: self._crunch_env_(self._crunch_2d_, *row)
+        for row in self.exc_1c: self._crunch_env_(self._crunch_1c_, *row)
+        for row in self.exc_1c1d: self._crunch_env_(self._crunch_1c1d_, *row)
+        for row in self.exc_1s: self._crunch_env_(self._crunch_1s_, *row)
+        for row in self.exc_1s1c: self._crunch_env_(self._crunch_1s1c_, *row)
+        for row in self.exc_2c: self._crunch_env_(self._crunch_2c_, *row)
         self._add_transpose_()
 
     def _add_transpose_(self):
@@ -1516,6 +1594,13 @@ class HamS2ovlpint (LSTDMint2):
         ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=1) 
         return ovlp
 
+    def _orbrange_env_kwargs_orbidx (self, _orbidx):
+        idx = np.ix_([True,True],_orbidx,_orbidx)
+        h1 = np.ascontiguousarray (self.h1[idx])
+        idx = np.ix_(_orbidx,_orbidx,_orbidx,_orbidx)
+        h2 = np.ascontiguousarray (self.h2[idx])
+        return {'h1': h1, 'h2': h2}
+
     def kernel (self):
         ''' Main driver method of class.
 
@@ -1556,6 +1641,27 @@ class HamS2ovlpint (LSTDMint2):
         self._umat_linequiv_loop_(ovlp)
         return self.ham, self.s2, ovlp, t0
 
+def get_contig_blks (mask):
+    '''Get contiguous chunks from a mask index into an array'''
+    mask = np.ravel (mask)
+    prevm = np.append ([False], mask[:-1])
+    destblkstart = np.asarray (np.where (mask & (~prevm))[0])
+    nextm = np.append (mask[1:], [0])
+    destblkend = np.asarray (np.where (mask & (~nextm))[0])
+    blklen = destblkend - destblkstart + 1
+    srcblkstart = np.cumsum (np.append ([0], blklen[:-1]))
+    return srcblkstart, destblkstart, blklen
+
+def split_contig_array (arrlen, nthreads):
+    '''Divide a contiguous array into chunks to be handled by each thread'''
+    blklen, rem = divmod (arrlen, nthreads);
+    blklen = np.array ([blklen,]*nthreads)
+    blklen[:rem] += 1
+    blkstart = np.cumsum (blklen)
+    assert (blkstart[-1] == arrlen), '{}'.format (blklen)
+    blkstart -= blklen
+    return blkstart, blklen
+
 class LRRDMint (LSTDMint2):
     __doc__ = LSTDMint2.__doc__ + '''
 
@@ -1581,32 +1687,42 @@ class LRRDMint (LSTDMint2):
         self.si = si.copy ()
         self._umat_linequiv_loop_(self.si)
         self.si = np.asfortranarray (self.si)
+        self._si_c = c_arr (self.si)
+        self._si_c_nrow = c_int (self.si.shape[0])
+        self._si_c_ncol = c_int (self.si.shape[1])
+        self.d1buf = np.empty ((self.nroots_si,self.d1.size), dtype=self.d1.dtype)
+        self.d2buf = np.empty ((self.nroots_si,self.d2.size), dtype=self.d2.dtype)
+        self._d1buf_c = c_arr (self.d1buf)
+        self._d2buf_c = c_arr (self.d2buf)
+
+    def get_wgt_fac (self, bra, ket, wgt):
+        #si_dm = self.si[bra,:] * self.si[ket,:].conj ()
+        #fac = np.dot (wgt, si_dm)
+        fac = np.zeros (self.nroots_si, dtype=self.dtype)
+        fn = liblassi.LASSIRDMdgetwgtfac
+        fn (c_arr (fac), c_arr (wgt), self._si_c, self._si_c_nrow, self._si_c_ncol,
+            c_arr (bra), c_arr (ket), c_int (len (wgt)))
+        return fac
 
     def _put_SD1_(self, bra, ket, D1, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        #si_dm = self.si[bra,:] * self.si[ket,:].conj ()
-        #fac = np.dot (wgt, si_dm)
-        #self.rdm1s[:] += np.multiply.outer (fac, D1)
-        fn = liblassi.LASSIRDMdputSD
-        si_nrow, si_ncol = self.si.shape
-        fn (c_arr(self.rdm1s), c_arr(D1), c_int(D1.size),
-            c_arr(self.si), c_int(si_nrow), c_int(si_ncol),
-            c_arr(bra), c_arr(ket), c_arr (wgt),
-            c_int(len(wgt)))
+        fac = self.get_wgt_fac (bra, ket, wgt)
+        # Note: shape of d1buf for commented slow version of code is wrong
+        #self.d1buf += np.multiply.outer (fac, D1)
+        fn = liblassi.LASSIRDMdsumSD
+        fn (self._d1buf_c, c_arr (fac), c_arr (D1),
+            self._si_c_ncol, self._d1buf_ncol)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_SD2_(self, bra, ket, D2, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        #si_dm = self.si[bra,:] * self.si[ket,:].conj ()
-        #fac = np.dot (wgt, si_dm)
-        #self.rdm2s[:] += np.multiply.outer (fac, D2)
-        fn = liblassi.LASSIRDMdputSD
-        si_nrow, si_ncol = self.si.shape
-        fn (c_arr(self.rdm2s), c_arr(D2), c_int(D2.size),
-            c_arr(self.si), c_int(si_nrow), c_int(si_ncol),
-            c_arr(bra), c_arr(ket), c_arr (wgt),
-            c_int(len(wgt)))
+        fac = self.get_wgt_fac (bra, ket, wgt)
+        # Note: shape of d2buf for commented slow version of code is wrong
+        #self.d2buf += np.multiply.outer (fac, D2)
+        fn = liblassi.LASSIRDMdsumSD
+        fn (self._d2buf_c, c_arr (fac), c_arr (D2),
+            self._si_c_ncol, self._d2buf_ncol)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
@@ -1617,6 +1733,26 @@ class LRRDMint (LSTDMint2):
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):
         si = args[0]
         return umat_dot_1frag_(si, umat.conj ().T, self.lroots, ifrag, iroot, axis=0) 
+
+    def _crunch_env_(self, _crunch_fn, *row):
+        self.d1buf[:] = 0
+        self.d2buf[:] = 0
+        super()._crunch_env_(_crunch_fn, *row)
+
+    def _finalize_crunch_env_(self, _crunch_fn, row, inv):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        fn1 = liblassi.LASSIRDMdputSD1
+        fn2 = liblassi.LASSIRDMdputSD2
+        if len (inv) < 3:
+            fn1 (self._rdm1s_c, self._d1buf_c,
+                 self._si_c_ncol, self._norb_c, self._nsrc_c,
+                 self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
+        fn2 (self._rdm2s_c, self._d2buf_c,
+             self._si_c_ncol, self._norb_c, self._nsrc_c, self._pdest,
+             self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
+        self.dt_p, self.dw_s = self.dt_p + dt, self.dw_s + dw
 
     def kernel (self):
         ''' Main driver method of class.
@@ -1631,8 +1767,12 @@ class LRRDMint (LSTDMint2):
         '''
         t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
         self.init_profiling ()
-        self.rdm1s = np.zeros ([self.nroots_si,] + list (self.d1.shape), dtype=self.dtype)
-        self.rdm2s = np.zeros ([self.nroots_si,] + list (self.d2.shape), dtype=self.dtype)
+        self.rdm1s = np.zeros ([self.nroots_si,2] + [self.norb,]*2, dtype=self.dtype)
+        self.rdm2s = np.zeros ([self.nroots_si,4] + [self.norb,]*4, dtype=self.dtype)
+        self._rdm1s_c = c_arr (self.rdm1s)
+        self._rdm1s_c_ncol = c_int (2*(self.norb**2))
+        self._rdm2s_c = c_arr (self.rdm2s)
+        self._rdm2s_c_ncol = c_int (4*(self.norb**4))
         self._crunch_all_()
         return self.rdm1s, self.rdm2s, t0
 
@@ -1775,7 +1915,9 @@ class ContractHamCI (LSTDMint2):
             self.hci_fr_pabq[i][bra_r][addr,:,:,ket] += vecs[i]
 
     def _crunch_all_(self):
-        for row in self.exc_1c: self._loop_lroots_(self._crunch_1c_, *row)
+        for row in self.exc_1c: self._crunch_env_(self._crunch_1c_, *row)
+
+    def _orbrange_env_kwargs (self, inv): return {}
 
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):
         # TODO: is this even possible?
