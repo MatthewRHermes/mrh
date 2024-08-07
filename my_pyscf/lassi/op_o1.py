@@ -1660,6 +1660,7 @@ class LRRDMint (LSTDMint2):
         self.d2buf = np.empty ((self.nroots_si,self.d2.size), dtype=self.d2.dtype)
         self._d1buf_c = c_arr (self.d1buf)
         self._d2buf_c = c_arr (self.d2buf)
+        self._norb_c = c_int (self.norb)
 
     def get_wgt_fac (self, bra, ket, wgt):
         #si_dm = self.si[bra,:] * self.si[ket,:].conj ()
@@ -1707,20 +1708,15 @@ class LRRDMint (LSTDMint2):
 
     def _finalize_crunch_env_(self, _crunch_fn, row, inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        fn = liblassi.LASSIRDMdputSD
+        fn1 = liblassi.LASSIRDMdputSD1
+        fn2 = liblassi.LASSIRDMdputSD2
         if len (inv) < 3:
-            fn (self._rdm1s_c, self._d1buf_c,
-                self._si_c_ncol, self._rdm1s_c_ncol, self._d1buf_ncol,
-                self._rdm1s_dblk_idx,
-                self._rdm1s_sblk_idx,
-                self._rdm1s_lblk,
-                self._rdm1s_nblk)
-        fn (self._rdm2s_c, self._d2buf_c,
-            self._si_c_ncol, self._rdm2s_c_ncol, self._d2buf_ncol,
-            self._rdm2s_dblk_idx,
-            self._rdm2s_sblk_idx,
-            self._rdm2s_lblk,
-            self._rdm2s_nblk)
+            fn1 (self._rdm1s_c, self._d1buf_c,
+                 self._si_c_ncol, self._norb_c, self._nsrc_c,
+                 self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
+        fn2 (self._rdm2s_c, self._d2buf_c,
+             self._si_c_ncol, self._norb_c, self._nsrc_c, self._pdest,
+             self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
         self.dt_p, self.dw_s = self.dt_p + dt, self.dw_s + dw
@@ -1731,40 +1727,25 @@ class LRRDMint (LSTDMint2):
         _orbidx = env_kwargs['_orbidx']
         ndest = self.norb
         nsrc = np.count_nonzero (_orbidx)
+        env_kwargs['_nsrc_c'] = c_int (nsrc)
         env_kwargs['_d1buf_ncol'] = c_int (2*(nsrc**2))
         env_kwargs['_d2buf_ncol'] = c_int (4*(nsrc**4))
         nthreads = lib.num_threads ()
+        idx = np.ix_(_orbidx,_orbidx)
+        mask = np.zeros ((self.norb,self.norb), dtype=bool)
+        mask[idx] = True
+        actpairs = np.where (mask.ravel ())[0]
+        env_kwargs['_pdest'] = c_arr (actpairs.astype (np.int32))
         if nsrc==ndest:
-            dblk1, lblk1 = split_contig_array (2*(self.norb**2),nthreads)
-            dblk2, lblk2 = split_contig_array (4*(self.norb**4),nthreads)
-            sblk1, sblk2 = dblk1, dblk2
+            dblk, lblk = split_contig_array (self.norb**2,nthreads)
+            sblk = dblk
         else:
-            idx = np.ix_(_orbidx,_orbidx)
-            mask = np.zeros ((self.norb,self.norb), dtype=bool)
-            mask[idx] = True
-            sblk1, dblk1, lblk1 = get_contig_blks (mask)
-            # from 1-RDM to 2-RDM
-            actpairs = np.where (mask.ravel ())[0]
-            sblk2 = np.arange (len(actpairs), dtype=sblk1.dtype)*(nsrc**2)
-            sblk2 = np.add.outer (sblk2, sblk1).ravel ()
-            dblk2 = np.add.outer (actpairs*(ndest**2), dblk1).ravel ()
-            lblk2 = np.tile (lblk1, len(actpairs))
-            # Spin dof 1-RDM
-            sblk1 = np.concatenate ([sblk1+(i*(nsrc**2)) for i in range (2)])
-            dblk1 = np.concatenate ([dblk1+(i*(ndest**2)) for i in range (2)])
-            lblk1 = np.concatenate ([lblk1,]*2)
-            # Spin dof 2-RDM
-            sblk2 = np.concatenate ([sblk2+(i*(nsrc**4)) for i in range (4)])
-            dblk2 = np.concatenate ([dblk2+(i*(ndest**4)) for i in range (4)])
-            lblk2 = np.concatenate ([lblk2,]*4)
-        env_kwargs['_rdm1s_dblk_idx'] = c_arr (dblk1.astype (np.int32))
-        env_kwargs['_rdm1s_sblk_idx'] = c_arr (sblk1.astype (np.int32))
-        env_kwargs['_rdm1s_lblk'] = c_arr (lblk1.astype (np.int32))
-        env_kwargs['_rdm1s_nblk'] = c_int (len (lblk1))
-        env_kwargs['_rdm2s_dblk_idx'] = c_arr (dblk2.astype (np.int32))
-        env_kwargs['_rdm2s_sblk_idx'] = c_arr (sblk2.astype (np.int32))
-        env_kwargs['_rdm2s_lblk'] = c_arr (lblk2.astype (np.int32))
-        env_kwargs['_rdm2s_nblk'] = c_int (len (lblk2))
+            sblk, dblk, lblk = get_contig_blks (mask)
+        env_kwargs['_dblk_idx'] = c_arr (dblk.astype (np.int32))
+        env_kwargs['_sblk_idx'] = c_arr (sblk.astype (np.int32))
+        env_kwargs['_lblk'] = c_arr (lblk.astype (np.int32))
+        env_kwargs['_nblk'] = c_int (len (lblk))
+        
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
         return env_kwargs
