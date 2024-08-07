@@ -704,6 +704,7 @@ class LSTDMint2 (object):
         bigorb = np.sort (nlas)[::-1]
         self.d1 = np.zeros (2*(sum(bigorb[:2])**2), dtype=self.dtype)
         self.d2 = np.zeros (4*(sum(bigorb[:4])**4), dtype=self.dtype)
+        self._norb_c = c_int (self.norb)
         self._orbidx = np.ones (self.norb, dtype=bool)
 
     def init_profiling (self):
@@ -1109,10 +1110,17 @@ class LSTDMint2 (object):
 
     def _put_SD1_(self, bra, ket, D1, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        idx = self._orbidx
-        idx = np.ix_([True,]*2,idx,idx)
+        #idx = self._orbidx
+        #idx = np.ix_([True,]*2,idx,idx)
+        #for b, k, w in zip (bra, ket, wgt):
+        fn = liblassi.LASSIRDMdputSD1
+        c_one = c_int (1)
         for b, k, w in zip (bra, ket, wgt):
-            self.tdm1s[b,k][idx] += np.multiply.outer (w, D1)
+            D1w = D1 * w
+            fn (c_arr (self.tdm1s[b,k]), c_arr (D1w),
+                c_one, self._norb_c, self._nsrc_c,
+                self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
+        #    self.tdm1s[b,k][idx] += np.multiply.outer (w, D1)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
@@ -1125,10 +1133,17 @@ class LSTDMint2 (object):
 
     def _put_SD2_(self, bra, ket, D2, wgt):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        idx = self._orbidx
-        idx = np.ix_([True,]*4,idx,idx,idx,idx)
+        #idx = self._orbidx
+        #idx = np.ix_([True,]*4,idx,idx,idx,idx)
+        #for b, k, w in zip (bra, ket, wgt):
+        #    self.tdm2s[b,k][idx] += np.multiply.outer (w, D2)
+        fn = liblassi.LASSIRDMdputSD2
+        c_one = c_int (1)
         for b, k, w in zip (bra, ket, wgt):
-            self.tdm2s[b,k][idx] += np.multiply.outer (w, D2)
+            D2w = D2 * w
+            fn (c_arr (self.tdm2s[b,k]), c_arr (D2w),
+                c_one, self._norb_c, self._nsrc_c, self._pdest,
+                self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
@@ -1408,8 +1423,32 @@ class LSTDMint2 (object):
         d2_size = np.prod (d2_shape)
         d2 = self.d2.ravel ()[:d2_size].reshape (d2_shape)
         env_kwargs = {'nlas': nlas, 'd1': d1, 'd2': d2, '_orbidx': _orbidx}
+        env_kwargs.update (self._orbrange_env_kwargs_orbidx (_orbidx))
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
+        return env_kwargs
+
+    def _orbrange_env_kwargs_orbidx (self, _orbidx):
+        ndest = self.norb
+        nsrc = np.count_nonzero (_orbidx)
+        nthreads = lib.num_threads ()
+        idx = np.ix_(_orbidx,_orbidx)
+        mask = np.zeros ((self.norb,self.norb), dtype=bool)
+        mask[idx] = True
+        actpairs = np.where (mask.ravel ())[0]
+        if nsrc==ndest:
+            dblk, lblk = split_contig_array (self.norb**2,nthreads)
+            sblk = dblk
+        else:
+            sblk, dblk, lblk = get_contig_blks (mask)
+        env_kwargs = {'_nsrc_c': c_int (nsrc),
+                      '_d1buf_ncol': c_int (2*(nsrc**2)),
+                      '_d2buf_ncol': c_int (4*(nsrc**4)),
+                      '_pdest': c_arr (actpairs.astype (np.int32)),
+                      '_dblk_idx': c_arr (dblk.astype (np.int32)),
+                      '_sblk_idx': c_arr (sblk.astype (np.int32)),
+                      '_lblk': c_arr (lblk.astype (np.int32)),
+                      '_nblk': c_int (len (lblk))}
         return env_kwargs
 
     def _loop_lroots_(self, _crunch_fn, row, inv):
@@ -1555,17 +1594,12 @@ class HamS2ovlpint (LSTDMint2):
         ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=1) 
         return ovlp
 
-    def _orbrange_env_kwargs (self, inv):
-        env_kwargs = super()._orbrange_env_kwargs (inv)
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
-        _orbidx = env_kwargs['_orbidx']
+    def _orbrange_env_kwargs_orbidx (self, _orbidx):
         idx = np.ix_([True,True],_orbidx,_orbidx)
-        env_kwargs['h1'] = np.ascontiguousarray (self.h1[idx])
+        h1 = np.ascontiguousarray (self.h1[idx])
         idx = np.ix_(_orbidx,_orbidx,_orbidx,_orbidx)
-        env_kwargs['h2'] = np.ascontiguousarray (self.h2[idx])
-        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
-        return env_kwargs
+        h2 = np.ascontiguousarray (self.h2[idx])
+        return {'h1': h1, 'h2': h2}
 
     def kernel (self):
         ''' Main driver method of class.
@@ -1660,7 +1694,6 @@ class LRRDMint (LSTDMint2):
         self.d2buf = np.empty ((self.nroots_si,self.d2.size), dtype=self.d2.dtype)
         self._d1buf_c = c_arr (self.d1buf)
         self._d2buf_c = c_arr (self.d2buf)
-        self._norb_c = c_int (self.norb)
 
     def get_wgt_fac (self, bra, ket, wgt):
         #si_dm = self.si[bra,:] * self.si[ket,:].conj ()
@@ -1720,35 +1753,6 @@ class LRRDMint (LSTDMint2):
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
         self.dt_p, self.dw_s = self.dt_p + dt, self.dw_s + dw
-
-    def _orbrange_env_kwargs (self, inv):
-        env_kwargs = super()._orbrange_env_kwargs (inv)
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
-        _orbidx = env_kwargs['_orbidx']
-        ndest = self.norb
-        nsrc = np.count_nonzero (_orbidx)
-        env_kwargs['_nsrc_c'] = c_int (nsrc)
-        env_kwargs['_d1buf_ncol'] = c_int (2*(nsrc**2))
-        env_kwargs['_d2buf_ncol'] = c_int (4*(nsrc**4))
-        nthreads = lib.num_threads ()
-        idx = np.ix_(_orbidx,_orbidx)
-        mask = np.zeros ((self.norb,self.norb), dtype=bool)
-        mask[idx] = True
-        actpairs = np.where (mask.ravel ())[0]
-        env_kwargs['_pdest'] = c_arr (actpairs.astype (np.int32))
-        if nsrc==ndest:
-            dblk, lblk = split_contig_array (self.norb**2,nthreads)
-            sblk = dblk
-        else:
-            sblk, dblk, lblk = get_contig_blks (mask)
-        env_kwargs['_dblk_idx'] = c_arr (dblk.astype (np.int32))
-        env_kwargs['_sblk_idx'] = c_arr (sblk.astype (np.int32))
-        env_kwargs['_lblk'] = c_arr (lblk.astype (np.int32))
-        env_kwargs['_nblk'] = c_int (len (lblk))
-        
-        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
-        return env_kwargs
 
     def kernel (self):
         ''' Main driver method of class.
