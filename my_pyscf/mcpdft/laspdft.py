@@ -170,7 +170,8 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                 # MRH: I made it loop over blocks of states to handle the O(N^5) memory cost
                 # If there's enough memory it'll still do them all at once
                 log = lib.logger.new_logger (self, self.verbose)
-                mem_per_state = 8*(2*(self.ncas**2) + 4*(self.ncas**4)) / 1e6
+                safety_factor = 1.3
+                mem_per_state = safety_factor*8*(2*(self.ncas**2) + 4*(self.ncas**4)) / 1e6
                 current_mem = lib.current_memory ()[0]
 
                 if current_mem > self.max_memory:
@@ -179,6 +180,9 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                     nblk = 1
                 else:
                     nblk = max (1, int ((self.max_memory - current_mem) / mem_per_state)-1)
+
+                log.debug ('_store_rdms: looping over %d states at a time of %d total', nblk,
+                           len (self.e_states))
 
                 rdmstmpfile = self.rdmstmpfile
                 with h5py.File(rdmstmpfile, 'w') as f:
