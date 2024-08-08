@@ -151,6 +151,8 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
                     nblk = 1
                 else:
                     nblk = max (1, int ((self.max_memory - current_mem) / mem_per_state)-1)
+                log.debug ('_store_rdms: looping over %d states at a time of %d total', nblk,
+                           len (self.e_states))
                 rdmstmpfile = self.rdmstmpfile
                 with h5py.File(rdmstmpfile, 'w') as f:
                     for i in range (0, len (self.e_states), nblk):
