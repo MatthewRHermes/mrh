@@ -152,17 +152,17 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,states=None,**kwargs):
                 else:
                     nblk = max (1, int ((self.max_memory - current_mem) / mem_per_state)-1)
                 rdmstmpfile = self.rdmstmpfile
-                with h5py.File(rdmstmpfile, 'w') as f:
-                    for i in range (0, len (self.e_states), nblk):
-                        j = min (i+nblk, len (self.e_states))
-                        rdm1s, rdm2s = lassi.root_make_rdm12s(self, self.ci, self.si,
-                                                              state=list(range(i,j)))
+                for i in range (0, len (self.e_states), nblk):
+                    j = min (i+nblk, len (self.e_states))
+                    rdm1s, rdm2s = lassi.root_make_rdm12s(self, self.ci, self.si,
+                                                          state=list(range(i,j)))
+                    with h5py.File(rdmstmpfile, 'w') as f:
                         for k in range (i, j):
                             rdm1s_dname = f'rdm1s_{k}'
                             f.create_dataset(rdm1s_dname, data=rdm1s[k])
                             rdm2s_dname = f'rdm2s_{k}'
                             f.create_dataset(rdm2s_dname, data=rdm2s[k])
-                        rdm1s = rdm2s = None     
+                    rdm1s = rdm2s = None     
 
             # # This code doesn't seem efficent, have to calculate the casdm1 and casdm2 in different functions.
             # def make_one_casdm1s(self, ci=None, state=0, **kwargs):
