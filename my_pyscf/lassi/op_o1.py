@@ -173,9 +173,9 @@ class LSTDMint1 (object):
             <i|a'a'bb|j> & a<->b
         Req'd for 2e- relativistic (i.e., spin-breaking) operators
 
-        NOTE: in the put_* functions, unlike the get_* funcitons, the indices i,j are
-        rootspace indices and the tdm data argument must contain the local-basis state
-        index dimension.
+        NOTE: in the set_* and get_* functions, the indices i,j are rootspace indices and the major
+        axis is the lroot axis. In the get_1_* functions, on the other hand, the indices i,j are
+        single model state indices.
 
         Args:
             ci : list of ndarray of length nroots
@@ -247,28 +247,33 @@ class LSTDMint1 (object):
 
     # Exception catching
 
+    def try_get_1 (self, tab, *args):
+        i, j = args[-2:]
+        ir, jr = self.rootaddr[i], self.rootaddr[j]
+        ip, jp = self.fragaddr[i], self.fragaddr[j]
+        rargs = [x for x in args[:-2]] + [ir,jr]
+        return self.try_get (tab, *rargs)[ip,jp]
+
     def try_get (self, tab, *args):
         if len (args) == 3: return self.try_get_tdm (tab, *args)
         elif len (args) == 2: return self.try_get_dm (tab, *args)
         else: raise RuntimeError (str (len (args)))
 
     def try_get_dm (self, tab, i, j):
-        ir, jr = self.unique_root[self.rootaddr[i]], self.unique_root[self.rootaddr[j]]
+        ir, jr = self.unique_root[i], self.unique_root[j]
         try:
             assert (tab[ir][jr] is not None)
-            ip, jp = self.fragaddr[i], self.fragaddr[j]
-            return tab[ir][jr][ip,jp]
+            return tab[ir][jr]
         except Exception as e:
             errstr = 'frag {} failure to get element {},{}'.format (self.idx_frag, ir, jr)
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
 
     def try_get_tdm (self, tab, s, i, j):
-        ir, jr = self.unique_root[self.rootaddr[i]], self.unique_root[self.rootaddr[j]]
+        ir, jr = self.unique_root[i], self.unique_root[j]
         try:
             assert (tab[s][ir][jr] is not None)
-            ip, jp = self.fragaddr[i], self.fragaddr[j]
-            return tab[s][ir][jr][ip,jp]
+            return tab[s][ir][jr]
         except Exception as e:
             errstr = 'frag {} failure to get element {},{} w spin {}'.format (
                 self.idx_frag, ir, jr, s)
@@ -279,6 +284,9 @@ class LSTDMint1 (object):
 
     def get_ovlp (self, i, j):
         return self.try_get (self.ovlp, i, j)
+
+    def get_1_ovlp (self, i, j):
+        return self.try_get_1 (self.ovlp, i, j)
 
     # 1-particle 1-operator intermediate
 
@@ -291,6 +299,12 @@ class LSTDMint1 (object):
 
     def get_p (self, i, j, s):
         return self.try_get (self._h, s, j, i).conj ()
+
+    def get_1_h (self, i, j, s):
+        return self.try_get_1 (self._h, s, i, j)
+
+    def get_1_p (self, i, j, s):
+        return self.try_get_1 (self._h, s, j, i).conj ()
 
     # 2-particle intermediate
 
@@ -305,6 +319,13 @@ class LSTDMint1 (object):
     def get_pp (self, i, j, s):
         return self.try_get (self._hh, s, j, i).conj ().T
 
+    def get_1_hh (self, i, j, s):
+        return self.try_get_1 (self._hh, s, i, j)
+        #return self._hh[s][i][j]
+
+    def get_1_pp (self, i, j, s):
+        return self.try_get_1 (self._hh, s, j, i).conj ().T
+
     # 1-particle 3-operator intermediate
 
     def get_phh (self, i, j, s):
@@ -316,6 +337,12 @@ class LSTDMint1 (object):
 
     def get_pph (self, i, j, s):
         return self.try_get (self._phh, s, j, i).conj ().transpose (0,3,2,1)
+
+    def get_1_phh (self, i, j, s):
+        return self.try_get_1 (self._phh, s, i, j)
+
+    def get_1_pph (self, i, j, s):
+        return self.try_get_1 (self._phh, s, j, i).conj ().transpose (0,3,2,1)
 
     # spin-hop intermediate
 
@@ -329,10 +356,16 @@ class LSTDMint1 (object):
     def get_sp (self, i, j):
         return self.try_get (self._sm, j, i).conj ().T
 
+    def get_1_sm (self, i, j):
+        return self.try_get_1 (self._sm, i, j)
+
+    def get_1_sp (self, i, j):
+        return self.try_get_1 (self._sm, j, i).conj ().T
+
     # 1-density intermediate
 
     def get_dm1 (self, i, j):
-        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
+        if self.unique_root[j] > self.unique_root[i]:
             return self.try_get (self.dm1, j, i).conj ().transpose (0, 2, 1)
         return self.try_get (self.dm1, i, j)
 
@@ -342,12 +375,22 @@ class LSTDMint1 (object):
         else:
             self.dm1[i][j] = x
 
+    def get_1_dm1 (self, i, j):
+        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
+            return self.try_get_1 (self.dm1, j, i).conj ().transpose (0, 2, 1)
+        return self.try_get_1 (self.dm1, i, j)
+
     # 2-density intermediate
 
     def get_dm2 (self, i, j):
-        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
+        if self.unique_root[j] > self.unique_root[i]:
             return self.try_get (self.dm2, j, i).conj ().transpose (0, 2, 1, 4, 3)
         return self.try_get (self.dm2, i, j)
+
+    def get_1_dm2 (self, i, j):
+        if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
+            return self.try_get_1 (self.dm2, j, i).conj ().transpose (0, 2, 1, 4, 3)
+        return self.try_get_1 (self.dm2, i, j)
 
     def set_dm2 (self, i, j, x):
         if j > i:
@@ -942,7 +985,7 @@ class LSTDMint2 (object):
         '''
         idx = np.ones (self.nfrags, dtype=np.bool_)
         idx[list (inv)] = False
-        wgt = np.prod ([i.get_ovlp (bra, ket) for i, ix in zip (self.ints, idx) if ix])
+        wgt = np.prod ([i.get_1_ovlp (bra, ket) for i, ix in zip (self.ints, idx) if ix])
         uniq_frags = list (set (inv))
         bra, ket = self.rootaddr[bra], self.rootaddr[ket]
         wgt *= self.spin_shuffle[bra] * self.spin_shuffle[ket]
@@ -1155,9 +1198,9 @@ class LSTDMint2 (object):
         d2 = self._get_D2_(bra, ket)
         p, q = self.get_range (i)
         inti = self.ints[i]
-        d1_s_ii = inti.get_dm1 (bra, ket)
+        d1_s_ii = inti.get_1_dm1 (bra, ket)
         d1[:,p:q,p:q] = np.asarray (d1_s_ii)
-        d2[:,p:q,p:q,p:q,p:q] = np.asarray (inti.get_dm2 (bra, ket))
+        d2[:,p:q,p:q,p:q,p:q] = np.asarray (inti.get_1_dm2 (bra, ket))
         self._put_D1_(bra, ket, d1, i)
         self._put_D2_(bra, ket, d2, i)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
@@ -1170,8 +1213,8 @@ class LSTDMint2 (object):
         inti, intj = self.ints[i], self.ints[j]
         p, q = self.get_range (i)
         r, s = self.get_range (j)
-        d1_s_ii = inti.get_dm1 (bra, ket)
-        d1_s_jj = intj.get_dm1 (bra, ket)
+        d1_s_ii = inti.get_1_dm1 (bra, ket)
+        d1_s_jj = intj.get_1_dm1 (bra, ket)
         d2_s_iijj = np.multiply.outer (d1_s_ii, d1_s_jj).transpose (0,3,1,2,4,5)
         d2_s_iijj = d2_s_iijj.reshape (4, q-p, q-p, s-r, s-r)
         d2[:,p:q,p:q,r:s,r:s] = d2_s_iijj
@@ -1205,8 +1248,8 @@ class LSTDMint2 (object):
         nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
-        d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1),
-                                   self.ints[j].get_h (bra, ket, s1))
+        d1_ij = np.multiply.outer (self.ints[i].get_1_p (bra, ket, s1),
+                                   self.ints[j].get_1_h (bra, ket, s1))
         d1[s1,p:q,r:s] = fac * d1_ij
         s12l = s1 * 2   # aa: 0 OR ba: 2
         s12h = s12l + 1 # ab: 1 OR bb: 3 
@@ -1219,12 +1262,12 @@ class LSTDMint2 (object):
             d2[s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_ijkk[s1,...].transpose (0,3,2,1)
             d2[s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_ijkk[s1,...].transpose (2,1,0,3)
         # pph (transpose from Dirac order to Mulliken order)
-        d2_ijii = fac * np.multiply.outer (self.ints[i].get_pph (bra,ket,s1),
-                                           self.ints[j].get_h (bra,ket,s1)).transpose (0,1,4,2,3)
+        d2_ijii = fac * np.multiply.outer (self.ints[i].get_1_pph (bra,ket,s1),
+                                           self.ints[j].get_1_h (bra,ket,s1)).transpose (0,1,4,2,3)
         _crunch_1c_tdm2 (d2_ijii, p, q, r, s, p, q)
         # phh (transpose to bring spin to outside and then from Dirac order to Mulliken order)
-        d2_ijjj = fac * np.multiply.outer (self.ints[i].get_p (bra,ket,s1),
-                                           self.ints[j].get_phh (bra,ket,s1)).transpose (1,0,4,2,3)
+        d2_ijjj = fac * np.multiply.outer (self.ints[i].get_1_p (bra,ket,s1),
+                                           self.ints[j].get_1_phh (bra,ket,s1)).transpose (1,0,4,2,3)
         _crunch_1c_tdm2 (d2_ijjj, p, q, r, s, r, s)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
@@ -1255,9 +1298,9 @@ class LSTDMint2 (object):
             d2[(s21l,s21h), k0:k1, k0:k1, i0:i1, j0:j1] = d2_ijkk.transpose (0,3,4,1,2)
             d2[s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_ijkk[s1,...].transpose (0,3,2,1)
             d2[s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_ijkk[s1,...].transpose (2,1,0,3)
-        d1_ij = np.multiply.outer (self.ints[i].get_p (bra, ket, s1),
-                                   self.ints[j].get_h (bra, ket, s1))
-        d1_skk = self.ints[k].get_dm1 (bra, ket)
+        d1_ij = np.multiply.outer (self.ints[i].get_1_p (bra, ket, s1),
+                                   self.ints[j].get_1_h (bra, ket, s1))
+        d1_skk = self.ints[k].get_1_dm1 (bra, ket)
         d2_ijkk = fac * np.multiply.outer (d1_ij, d1_skk).transpose (2,0,1,3,4)
         _crunch_1c_tdm2 (d2_ijkk, p, q, r, s, t, u)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
@@ -1282,8 +1325,8 @@ class LSTDMint2 (object):
         r, s = self.get_range (j)
         y, z = min (i, j), max (i, j)
         fac = -1
-        d2_spsm = fac * np.multiply.outer (self.ints[i].get_sp (bra, ket),
-                                           self.ints[j].get_sm (bra, ket))
+        d2_spsm = fac * np.multiply.outer (self.ints[i].get_1_sp (bra, ket),
+                                           self.ints[j].get_1_sm (bra, ket))
         d2[1,p:q,r:s,r:s,p:q] = d2_spsm.transpose (0,3,2,1)
         d2[2,r:s,p:q,p:q,r:s] = d2_spsm.transpose (2,1,0,3)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
@@ -1312,8 +1355,8 @@ class LSTDMint2 (object):
         fac = -1 # a'bb'a -> a'ab'b sign
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
-        sp = np.multiply.outer (self.ints[i].get_p (bra, ket, 0), self.ints[j].get_h (bra, ket, 1))
-        sm = self.ints[k].get_sm (bra, ket)
+        sp = np.multiply.outer (self.ints[i].get_1_p (bra, ket, 0), self.ints[j].get_1_h (bra, ket, 1))
+        sm = self.ints[k].get_1_sm (bra, ket)
         d2_ikkj = fac * np.multiply.outer (sp, sm).transpose (0,3,2,1) # a'bb'a -> a'ab'b transpose
         d2[1,p:q,t:u,t:u,r:s] = d2_ikkj
         d2[2,t:u,r:s,p:q,t:u] = d2_ikkj.transpose (2,3,0,1)
@@ -1359,22 +1402,22 @@ class LSTDMint2 (object):
         d2 = self._get_D2_(bra, ket)
         fac = 1
         if i == k:
-            pp = self.ints[i].get_pp (bra, ket, s2lt)
+            pp = self.ints[i].get_1_pp (bra, ket, s2lt)
             if s2lt != 1: assert (np.all (np.abs (pp + pp.T)) < 1e-8), '{}'.format (
                 np.amax (np.abs (pp + pp.T)))
         else:
-            pp = np.multiply.outer (self.ints[i].get_p (bra, ket, s11),
-                                    self.ints[k].get_p (bra, ket, s12))
+            pp = np.multiply.outer (self.ints[i].get_1_p (bra, ket, s11),
+                                    self.ints[k].get_1_p (bra, ket, s12))
             fac *= (1,-1)[int (i>k)]
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
         if j == l:
-            hh = self.ints[j].get_hh (bra, ket, s2lt)
+            hh = self.ints[j].get_1_hh (bra, ket, s2lt)
             if s2lt != 1: assert (np.all (np.abs (hh + hh.T)) < 1e-8), '{}'.format (
                 np.amax (np.abs (hh + hh.T)))
         else:
-            hh = np.multiply.outer (self.ints[l].get_h (bra, ket, s12),
-                                    self.ints[j].get_h (bra, ket, s11))
+            hh = np.multiply.outer (self.ints[l].get_1_h (bra, ket, s12),
+                                    self.ints[j].get_1_h (bra, ket, s11))
             fac *= (1,-1)[int (j>l)]
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
@@ -1844,15 +1887,15 @@ class ContractHamCI (LSTDMint2):
         h2_ijjj = self.h2[p:q,r:s,r:s,r:s]
         h2_iiij = self.h2[p:q,p:q,p:q,r:s]
         if i in excfrags:
-            D_j = self.ints[j].get_h (bra, ket, s1)
-            D_jjj = self.ints[j].get_phh (bra, ket, s1).sum (0)
+            D_j = self.ints[j].get_1_h (bra, ket, s1)
+            D_jjj = self.ints[j].get_1_phh (bra, ket, s1).sum (0)
             h_10 = np.dot (h1_ij, D_j) + np.tensordot (h2_ijjj, D_jjj,
                 axes=((1,2,3),(2,0,1)))
             h_21 = np.dot (h2_iiij, D_j).transpose (2,0,1)
             hci_f_ab[i] += fac * self.ints[i].contract_h10 (s1, h_10, h_21, ket)
         if j in excfrags:
-            D_i = self.ints[i].get_p (bra, ket, s1)
-            D_iii = self.ints[i].get_pph (bra, ket, s1).sum (0)
+            D_i = self.ints[i].get_1_p (bra, ket, s1)
+            D_iii = self.ints[i].get_1_pph (bra, ket, s1).sum (0)
             h_01 = np.dot (D_i, h1_ij) + np.tensordot (D_iii, h2_iiij,
                 axes=((0,1,2),(2,0,1)))
             h_12 = np.tensordot (D_i, h2_ijjj, axes=1).transpose (1,2,0)

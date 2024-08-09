@@ -168,7 +168,7 @@ void LASSIRDMdputSD2 (double * SDdest, double * SDsrc,
 /* Add to segmented elements of RDM2s arrays from a contiguous source array
 
    Input:
-        SDsrc : array of shape (nroots,2,nsrc*nsrc,nsrc*nsrc)
+        SDsrc : array of shape (nroots,4,nsrc*nsrc,nsrc*nsrc)
         pdest : array of shape (nsrc,nsrc)
             Indices of all addressed elements in the second-minor dimension of SDdest
         SDdest_idx : array of shape (nidx)
