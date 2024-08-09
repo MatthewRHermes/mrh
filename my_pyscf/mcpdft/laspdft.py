@@ -56,6 +56,9 @@ class _LASPDFT(_PDFT):
         if getattr(self._scf, '_eri', None) is not None:
             eri = ao2mo.full(self._scf._eri, mo_coeff,
                              max_memory=self.max_memory)
+        elif self.with_df:
+            eri = self.with_df.ao2mo(mo_coeff)
+
         else:
             eri = ao2mo.full(self.mol, mo_coeff, verbose=self.verbose,
                              max_memory=self.max_memory)
@@ -186,14 +189,16 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
 
                 rdmstmpfile = self.rdmstmpfile
                 with h5py.File(rdmstmpfile, 'w') as f:
-                    for i in range(0, len(self.e_states), nblk):
-                        j = min(i + nblk, len(self.e_states))
+                    for i in range(0, len(self.states), nblk):
+                        j = min(i + nblk, len(self.states))
+
                         rdm1s, rdm2s = lassi.root_make_rdm12s(self, self.ci, self.si,
-                                                              state=list(range(i, j)))
+                                state=self.states[i:j])
                         for k in range(i, j):
-                            rdm1s_dname = f'rdm1s_{k}'
+                            stateno = self.states[k]
+                            rdm1s_dname = f'rdm1s_{stateno}'
                             f.create_dataset(rdm1s_dname, data=rdm1s[k])
-                            rdm2s_dname = f'rdm2s_{k}'
+                            rdm2s_dname = f'rdm2s_{stateno}'
                             f.create_dataset(rdm2s_dname, data=rdm2s[k])
                         rdm1s = rdm2s = None
 
@@ -227,9 +232,12 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
             Has the same calling signature as the parent kernel method. '''
             with _mcscf_env(self):
                 if self.DoLASSI:
-                    self.e_states = self.e_roots
-                    self.statlis = [x for x in range(len(self.e_states))]
-                    self.fcisolver.nroots = len(self.e_states) if self.states is None else self.states
+                    self.statlis = [x for x in range(len(self.e_roots))] # LASSI-LPDFT
+                    if self.states is None:
+                        self.fcisolver.nroots = len(self.e_roots)
+                        self.states = list(range(len(self.e_roots)))
+                    else:
+                        self.fcisolver.nroots = self.states
                     self._store_rdms()
                 else:
                     self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
