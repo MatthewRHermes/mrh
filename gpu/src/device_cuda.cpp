@@ -1793,6 +1793,7 @@ cublasDgemm(dd->handle, CUBLAS_OP_T, CUBLAS_OP_N,
   pm->dev_free(d_bPvu);
   pm->dev_free(d_vuwm);
   pm->dev_free(d_vuwM);
+  free(h_vuwM);
 profile_stop();
 #ifdef _SIMPLE_TIMER
   double t1 = omp_get_wtime();
