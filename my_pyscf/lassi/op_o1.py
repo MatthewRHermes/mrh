@@ -173,7 +173,7 @@ class LSTDMint1 (object):
             <i|a'a'bb|j> & a<->b
         Req'd for 2e- relativistic (i.e., spin-breaking) operators
 
-        NOTE: in the put_* functions, unlike the get_* funcitons, the indices i,j are
+        NOTE: in the set_* functions, unlike the get_* funcitons, the indices i,j are
         rootspace indices and the tdm data argument must contain the local-basis state
         index dimension.
 
