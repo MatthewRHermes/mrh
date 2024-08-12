@@ -31,6 +31,8 @@ class LRRDMint (op_o1.LRRDMint):
         vecshape = list (self.lroots[:,iroot]) + [self.nroots_si,]
         return self.si[i:j,:].reshape (vecshape, order='F')
 
+    _lowertri = True
+
     def get_frag_transposed_sivec (self, iroot, *inv):
         '''A single-rootspace slice of the SI vectors, transposed so that involved fragments
         are slower-moving
@@ -53,7 +55,7 @@ class LRRDMint (op_o1.LRRDMint):
         ncols = nprods // nrows
         return np.asfortranarray (sivec).reshape ((ncols, nrows, self.nroots_si), order='F')
 
-    def get_fdms (self, rbra, rket, *inv, _lowertri=True):
+    def get_fdms (self, rbra, rket, *inv):
         '''Get the n-fragment density matrices for the fragments identified by inv in the bra and
         spaces given by rbra and rket, summing over nonunique excitations
 
@@ -76,7 +78,7 @@ class LRRDMint (op_o1.LRRDMint):
         braket_table = self.nonuniq_exc[key]
         fdm = 0
         for rbra1, rket1 in braket_table:
-            b, k, o = self._get_spec_addr_ovlp_1space (rbra1, rket1, *inv, _lowertri=_lowertri)
+            b, k, o = self._get_spec_addr_ovlp_1space (rbra1, rket1, *inv)
             # Numpy pads array dimension to the left, so transpose
             sibra = self.get_frag_transposed_sivec (rbra, *inv)[b,:,:].T * o
             siket = self.get_frag_transposed_sivec (rket, *inv)[k,:,:].T
@@ -90,7 +92,7 @@ class LRRDMint (op_o1.LRRDMint):
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         return np.asfortranarray (fdm)
 
-    def _get_spec_addr_ovlp_1space (self, rbra, rket, *inv, _lowertri=True):
+    def _get_spec_addr_ovlp_1space (self, rbra, rket, *inv):
         '''Obtain the integer indices and overlap*permutation factors for all pairs of model states
         in the same rootspaces as bra, ket for which a specified list of nonspectator fragments are
         also in same state that they are in a provided input pair bra, ket.
@@ -126,7 +128,7 @@ class LRRDMint (op_o1.LRRDMint):
             o = np.multiply.outer (i.ovlp[b][k], o).transpose (0,2,1,3)
             o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
         idx = np.abs(o) > 1e-8
-        if _lowertri and (rbra==rket): # not bra==ket because _loop_lroots_ doesn't restrict to tril
+        if self._lowertri and (rbra==rket): # not bra==ket because _loop_lroots_ doesn't restrict to tril
             o[np.diag_indices_from (o)] *= 0.5
             idx[np.triu_indices_from (idx, k=1)] = False
         o = o[idx]
@@ -134,7 +136,7 @@ class LRRDMint (op_o1.LRRDMint):
         return bra_rng, ket_rng, o
                 
 
-def get_sdm1_maker (las, ci, nelec_frs, si, **kwargs):
+def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     log = logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     ncas = las.ncas 
@@ -149,9 +151,17 @@ def get_sdm1_maker (las, ci, nelec_frs, si, **kwargs):
     # Second pass: upper-triangle
     outerprod = LRRDMint (ints, nlas, hopping_index, lroots, si, dtype=dtype,
                           max_memory=max_memory, log=log)
-    def make_sdm1 (iroot, ifrag):
-        return outerprod.get_fdms (iroot, iroot, ifrag, _lowertri=False)
-    return make_sdm1
+
+    # Spoof nonuniq_exc to avoid summing together things that need to be separate
+    for iroot in range (outerprod.nroots):
+        val = [[iroot,iroot]]
+        for ifrag in range (outerprod.nfrags):
+            key = (iroot, iroot, ifrag)
+            outerprod.nonuniq_exc[key] = val
+    outerprod._lowertri = False
+    def make_fdm1 (iroot, ifrag):
+        return outerprod.get_fdms (iroot, iroot, ifrag).transpose (2,0,1)
+    return make_fdm1
 
 
 

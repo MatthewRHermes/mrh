@@ -32,7 +32,7 @@ def decompose_sivec_by_rootspace (las, si, ci=None):
         state_coeffs[-1][:,idx] /= space_coeffs[space][idx]
     return space_coeffs**2, state_coeffs, idx_space
 
-def make_sdm1 (sivec, lroots, site):
+def _make_sdm1 (sivec, lroots, site):
     '''Compute the 1-site reduced density matrix(es) for (a) wave function(s) of type
 
     |Psi> = sum_n sivec[n] |n0n1n2n3....>
@@ -62,7 +62,18 @@ def make_sdm1 (sivec, lroots, site):
     if site>0: idx = list(range(site)) + idx
     sivec = sivec.transpose (*idx).reshape (-1, lroots[site],nroots)
     return lib.einsum ('api,aqi->ipq', sivec.conj(), sivec)
-    
+
+def make_sdm1 (lsi, iroot, ifrag, ci=None, si=None):
+    if ci is None: ci = lsi.ci
+    if si is None: si = lsi.si
+    lroots = get_lroots (ci).T[iroot]
+    space_weights, state_coeffs, idx_space = decompose_sivec_by_rootspace (
+        lsi, si
+    )
+    w = space_weights[iroot]
+    state_coeffs = state_coeffs[iroot]
+    return _make_sdm1 (state_coeffs, lroots, ifrag) * w[:,None,None]
+   
 def get_rootspace_central_moment (las, space_weights, n=1):
     '''Compute either the mean (if n==1) or the nth central moment
     of the quantum numbers that define the rootspaces of a LASSI
@@ -261,7 +272,7 @@ def analyze (las, si, ci=None, state=0, print_all_but=1e-8, lbasis='primitive', 
         coeffs = state_coeffs[iroot].copy ().reshape (*addr_shape)
         ci_f = []
         for ifrag in range (las.nfrags):
-            sdm = make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
+            sdm = _make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
             dens = sdm.diagonal ()
             navg[iroot,ifrag] = np.dot (np.arange (len (dens)), dens)
             maxw[iroot,ifrag] = np.amax (dens)
@@ -435,7 +446,7 @@ def analyze_ham (las, si, e_roots, ci=None, state=0, soc=0, print_all_but=1e-8):
         h_pp = h_pq = h_qq = None 
 
         for ifrag in range (las.nfrags):
-            sdm = make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
+            sdm = _make_sdm1 (state_coeffs[iroot][:,states], lroots[iroot], ifrag).sum (0) / nstates
             dens = sdm.diagonal ()
             navg = np.dot (np.arange (len (dens)), dens)
             maxw = np.amax (dens)

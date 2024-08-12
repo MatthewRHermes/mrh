@@ -23,6 +23,8 @@ from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.mcscf.lasci import get_space_info
 from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
+from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
+from mrh.my_pyscf.lassi.sitools import make_sdm1
 
 def setUpModule ():
     global mol, mf, lsi, las, mc, op
@@ -157,6 +159,15 @@ class KnownValues(unittest.TestCase):
                 self.assertEqual (len (lsis.e_roots), 20)
                 # Reference depends on rng seed obviously b/c this is not casci limit
                 self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
+
+    #def test_fdm1 (self):
+    #    make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)
+    #    for iroot in range (lsi.nroots):
+    #        for ifrag in range (lsi.nfrags):
+    #            with self.subTest (iroot=iroot, ifrag=ifrag):
+    #                fdm1 = make_fdm1 (iroot, ifrag)
+    #                sdm1 = make_sdm1 (lsi, iroot, ifrag)
+    #                self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI of random 2,2 system")

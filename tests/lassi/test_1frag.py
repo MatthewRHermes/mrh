@@ -7,6 +7,7 @@ from mrh.my_pyscf.fci import csf_solver
 from mrh.tests.lasscf.me2n2_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf import lassi
+from mrh.my_pyscf.lassi.sitools import make_sdm1
 
 def setUpModule():
     global mol, mf, mc_ss, mc_sa, mc_exc, las_exc
@@ -62,13 +63,15 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (e_si0, e_mc, 7)
             self.assertAlmostEqual (e_si1, e_mc, 7)
 
-    def test_sdm1 (self):
+    def test_fdm1 (self):
         lsi = lassi.LASSI (las_exc).run ()
-        from mrh.my_pyscf.lassi.op_o2 import get_sdm1_maker
-        sdm1 = get_sdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si) (0,0)
-        sdm1[0,0,0] -= 1
-        sdm1[1,1,1] -= 1
-        self.assertLess (np.amax (np.abs (sdm1)), 1e-8)
+        from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
+        fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si) (0,0)
+        sdm1 = make_sdm1 (lsi, 0, 0)
+        self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
+        fdm1[0,0,0] -= 1
+        fdm1[1,1,1] -= 1
+        self.assertLess (np.amax (np.abs (fdm1)), 1e-8)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI single-fragment edge case")
