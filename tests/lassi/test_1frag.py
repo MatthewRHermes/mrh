@@ -6,9 +6,10 @@ from pyscf.mcscf.addons import state_average_mix
 from mrh.my_pyscf.fci import csf_solver
 from mrh.tests.lasscf.me2n2_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+from mrh.my_pyscf import lassi
 
 def setUpModule():
-    global mol, mf, mc_ss, mc_sa, mc_exc
+    global mol, mf, mc_ss, mc_sa, mc_exc, las_exc
     r_nn = 3.0
     mol = struct (3.0, '6-31g')
     mol.output = '/dev/null'
@@ -24,11 +25,16 @@ def setUpModule():
     mc_exc.fcisolver.nroots = 2
     mc_exc.mo_coeff = mc_ss.mo_coeff
     mc_exc.kernel ()
+    las_exc = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5)
+    las_exc.mo_coeff = mc_exc.mo_coeff
+    lroots = np.array ([[2]])
+    las_exc.lasci (lroots=lroots)
+
 
 def tearDownModule():
-    global mol, mf, mc_ss, mc_sa, mc_exc
+    global mol, mf, mc_ss, mc_sa, mc_exc, las_exc
     mol.stdout.close ()
-    del mol, mf, mc_ss, mc_sa, mc_exc
+    del mol, mf, mc_ss, mc_sa, mc_exc, las_exc
 
 class KnownValues(unittest.TestCase):
 
@@ -49,15 +55,20 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (e_si1, e_mc, 7)
 
     def test_exc (self):
-        las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5)
-        las.mo_coeff = mc_exc.mo_coeff
-        lroots = np.array ([[2]])
-        las.lasci (lroots=lroots)
+        las = las_exc
         e_o0,si_o0=las.lassi(opt=0)
         e_o1,si_o1=las.lassi(opt=1)
         for e_si0, e_si1, e_mc in zip (e_o0, e_o1, mc_exc.e_tot):
             self.assertAlmostEqual (e_si0, e_mc, 7)
             self.assertAlmostEqual (e_si1, e_mc, 7)
+
+    def test_sdm1 (self):
+        lsi = lassi.LASSI (las_exc).run ()
+        from mrh.my_pyscf.lassi.op_o2 import get_sdm1_maker
+        sdm1 = get_sdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si) (0,0)
+        sdm1[0,0,0] -= 1
+        sdm1[1,1,1] -= 1
+        self.assertLess (np.amax (np.abs (sdm1)), 1e-8)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI single-fragment edge case")
