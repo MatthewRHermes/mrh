@@ -185,17 +185,17 @@ const unsigned int i_one = 1;
 const double d_one = 1.0;
 const int npdest = ndest*ndest;
 const int npsrc = nsrc*nsrc;
-const int ntdest = npdest*npdest;
-const int ntsrc = npsrc*npsrc;
+const long ntdest = npdest*npdest;
+const long ntsrc = npsrc*npsrc;
 const int nblk = nroots*4*npsrc*nidx;
 const int lroot = 4*npsrc*nidx;
 const int lspin = npsrc*nidx;
-const int SDsrc_size = nroots*4*ntsrc;
-const int SDdest_size = nroots*4*ntdest;
+const long SDsrc_size = nroots*4*ntsrc;
+const long SDdest_size = nroots*4*ntdest;
 #pragma omp parallel
 {
     int ipdest, iroot, ispin, iidx, j;
-    int sidx, didx;
+    long sidx, didx;
     #pragma omp for 
     for (int i = 0; i < nblk; i++){
         iroot = i/lroot;
@@ -208,8 +208,8 @@ const int SDdest_size = nroots*4*ntdest;
         assert (ispin < 4);
         assert (ipdest < npsrc);
         assert (iidx < nidx);
-        sidx = (iroot*4 + ispin)*ntsrc + ipdest*npsrc + SDsrc_idx[iidx];
-        didx = (iroot*4 + ispin)*ntdest + pdest[ipdest]*npdest + SDdest_idx[iidx];
+        sidx = ((long) (iroot*4 + ispin))*ntsrc + ((long) ipdest*npsrc + SDsrc_idx[iidx]);
+        didx = ((long) (iroot*4 + ispin))*ntdest + ((long) pdest[ipdest]*npdest + SDdest_idx[iidx]);
         assert (sidx < SDsrc_size);
         assert (didx < SDdest_size);
         daxpy_(SDlen+iidx, &d_one, SDsrc+sidx, &i_one, SDdest+didx, &i_one);

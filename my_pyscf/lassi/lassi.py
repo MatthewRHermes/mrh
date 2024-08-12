@@ -600,15 +600,17 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     # Initialize matrices
     norb = las.ncas
     nroots = si.shape[1]
-    if soc:
-        rdm1s = np.zeros ((nroots, 2*norb, 2*norb),
-            dtype=si.dtype)
-    else:
-        rdm1s = np.zeros ((nroots, 2, norb, norb),
-            dtype=si.dtype)
-    # TODO: 2e- SOC
-    rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
-        dtype=si.dtype)
+    rdm1s = [None for i in range (nroots)]
+    rdm2s = [None for i in range (nroots)]
+    #if soc:
+    #    rdm1s = np.zeros ((nroots, 2*norb, 2*norb),
+    #        dtype=si.dtype)
+    #else:
+    #    rdm1s = np.zeros ((nroots, 2, norb, norb),
+    #        dtype=si.dtype)
+    ## TODO: 2e- SOC
+    #rdm2s = np.zeros ((nroots, 2, norb, norb, 2, norb, norb),
+    #    dtype=si.dtype)
 
     # Loop over symmetry blocks
     statesym = las_symm_tuple (las, break_spin=soc, break_symmetry=break_symmetry, verbose=0)[0]
@@ -651,6 +653,8 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
         for (i,a) in enumerate (idx_int):
             rdm1s[a] = d1s[i]
             rdm2s[a] = d2s[i]
+    rdm1s = np.stack (rdm1s, axis=0)
+    rdm2s = np.stack (rdm2s, axis=0)
     return rdm1s, rdm2s
 
 def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None,
