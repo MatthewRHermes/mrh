@@ -1,6 +1,7 @@
 import time
 import numpy as np
 from scipy import linalg
+from pyscf import lib
 from pyscf.lib import logger
 from mrh.my_pyscf.lassi import op_o1
 
@@ -160,7 +161,11 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
             outerprod.nonuniq_exc[key] = val
     outerprod._lowertri = False
     def make_fdm1 (iroot, ifrag):
-        return outerprod.get_fdms (iroot, iroot, ifrag).transpose (2,0,1)
+        fdm = outerprod.get_fdms (iroot, iroot, ifrag).transpose (2,0,1)
+        if iroot in ints[ifrag].umat_root:
+            umat = ints[ifrag].umat_root[iroot]
+            fdm = lib.einsum ('rij,ik,jl->rkl',fdm,umat,umat)
+        return fdm
     return make_fdm1
 
 
