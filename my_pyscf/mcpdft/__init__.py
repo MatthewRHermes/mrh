@@ -76,7 +76,7 @@ def _laspdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI
 
 
 def _lassipdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI=False, ncore=None, spin_sub=None,
-                   frozen=None, **kwargs):
+                   frozen=None, states=None,**kwargs):
 
     from mrh.my_pyscf.lassi import lassi
 
@@ -89,7 +89,7 @@ def _lassipdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLAS
     mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub)
 
     from mrh.my_pyscf.mcpdft.laspdft import get_mcpdft_child_class
-    mc2 = get_mcpdft_child_class(mc1, ot, DoLASSI=DoLASSI, **kwargs)
+    mc2 = get_mcpdft_child_class(mc1, ot, DoLASSI=DoLASSI,states=states, **kwargs)
 
     if mc0 is not None:
         mc2.mo_coeff = mc_or_mf_or_mol.mo_coeff.copy()
@@ -107,11 +107,13 @@ def LASSCFPDFT(mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub,  ncore=None, spin_sub
     return _laspdftEnergy(LASSCF,  mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, ncore=ncore,
                           spin_sub=spin_sub, frozen=frozen, **kwargs)
 
-def LASSIPDFT(mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, ncore=None, spin_sub=None, frozen=None,
-               **kwargs):
+def LASSIPDFT(mc_or_mf_or_mol, ot, ncas_sub=None, nelecas_sub=None, ncore=None, spin_sub=None,
+              frozen=None, states=None, **kwargs):
+    if ncas_sub is None: ncas_sub = getattr (mc_or_mf_or_mol, 'ncas_sub', None)
+    if nelecas_sub is None: nelecas_sub = getattr (mc_or_mf_or_mol, 'nelecas_sub', None)
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     return _lassipdftEnergy(LASSCF,  mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI=True, ncore=ncore,
-                          spin_sub=spin_sub, frozen=frozen, **kwargs)
+                          spin_sub=spin_sub, frozen=frozen, states=states, **kwargs)
 
 
 LASSCF = LASSCFPDFT
