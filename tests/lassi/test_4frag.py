@@ -30,6 +30,8 @@ from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
 from mrh.my_pyscf.lassi import LASSIS
+from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
+from mrh.my_pyscf.lassi.sitools import make_sdm1
 
 def setUpModule ():
     global mol, mf, las, nroots, nelec_frs, si
@@ -174,6 +176,16 @@ class KnownValues(unittest.TestCase):
         lsi = LASSIS (las0).run ()
         self.assertTrue (lsi.converged)
         self.assertAlmostEqual (lsi.e_roots[0], -304.5372586630968, 3)
+
+    def test_fdm1 (self):
+        make_fdm1 = get_fdm1_maker (las, las.ci, nelec_frs, si)
+        for iroot in range (nroots):
+            for ifrag in range (4):
+                with self.subTest (iroot=iroot, ifrag=ifrag):
+                    fdm1 = make_fdm1 (iroot, ifrag)
+                    sdm1 = make_sdm1 (las, iroot, ifrag, si=si)
+                    self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
+
 
 if __name__ == "__main__":
     print("Full Tests for LASSI o1 4-fragment intermediates")
