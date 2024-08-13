@@ -84,7 +84,7 @@ class KnownValues(unittest.TestCase):
         las, e_roots, si = lsi._las, lsi.e_roots, lsi.si
         with self.subTest ("total energy"):
             self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
-        for opt in range (2):
+        for opt in range (3):
             with self.subTest (opt=opt):
                 lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=opt)
                 lasdm1 = lasdm1s.sum (0)

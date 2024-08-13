@@ -111,8 +111,8 @@ class LRRDMint (op_o1.LRRDMint):
         for rbra1, rket1 in braket_table:
             b, k, o = self._get_spec_addr_ovlp_1space (rbra1, rket1, *inv)
             # Numpy pads array dimension to the left, so transpose
-            sibra = self.get_frag_transposed_sivec (rbra, *inv)[b,:,:].T * o
-            siket = self.get_frag_transposed_sivec (rket, *inv)[k,:,:].T
+            sibra = self.get_frag_transposed_sivec (rbra1, *inv)[b,:,:].T * o
+            siket = self.get_frag_transposed_sivec (rket1, *inv)[k,:,:].T
             fdm += np.stack ([np.dot (b, k.T) for b, k in zip (sibra, siket)], axis=-1)
         fdm = np.asfortranarray (fdm)
         newshape = list (self.lroots[inv,rbra]) + list (self.lroots[inv,rket]) + [self.nroots_si,]
@@ -174,14 +174,12 @@ class LRRDMint (op_o1.LRRDMint):
         d1 = self._get_D1_(bra, ket)
         d2 = self._get_D2_(bra, ket)
         p, q = self.get_range (i)
-        d1_s_ii = np.tensordot (inti.get_dm1 (bra, ket),
-                                fdm,
+        d1_s_ii = np.tensordot (fdm, inti.get_dm1 (bra, ket),
                                 axes=((0,1),(0,1)))
-        d1[:,:,p:q,p:q] = d1_s_ii.transpose (3,0,1,2)
-        d2_s_iiii = np.tensordot (inti.get_dm2 (bra, ket),
-                                  fdm,
+        d1[:,:,p:q,p:q] = d1_s_ii
+        d2_s_iiii = np.tensordot (fdm, inti.get_dm2 (bra, ket),
                                   axes=((0,1),(0,1)))
-        d2[:,:,p:q,p:q,p:q,p:q] = d2_s_iiii.transpose (5,0,1,2,3,4) 
+        d2[:,:,p:q,p:q,p:q,p:q] = d2_s_iiii
         self._put_D1_()
         self._put_D2_()
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
@@ -233,8 +231,8 @@ class LRRDMint (op_o1.LRRDMint):
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         fac = 1                 
-        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
-        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
         d1_IIrJJ = fdm.transpose (0,1,4,2,3)
@@ -253,9 +251,9 @@ class LRRDMint (op_o1.LRRDMint):
             d2[:,s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d2_rsijkk[:,s1,...].transpose (0,1,4,3,2)
             d2[:,s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d2_rsijkk[:,s1,...].transpose (0,3,2,1,4)
         # phh (transpose to bring spin to outside and then from Dirac order to Mulliken order)
-        d2_rijsjj = np.tensordot (d1_riJJ, intj.get_phh (bra, ket, s1), axes=2)
-        d2_rsijjj = fac * d2_rijsjj.transpose (0,2,1,5,3,4)
-        _crunch_1c_tdm2 (d2_rsijjj, p, q, r, s, p, q)
+        d2_risjjj = np.tensordot (d1_riJJ, intj.get_phh (bra, ket, s1), axes=2)
+        d2_rsijjj = fac * d2_risjjj.transpose (0,2,1,5,3,4)
+        _crunch_1c_tdm2 (d2_rsijjj, p, q, r, s, r, s)
         # pph (transpose from Dirac order to Mulliken order)
         d2_rsiiiJJ = np.tensordot (inti.get_pph (bra, ket, s1), d1_IIrJJ,
                                    axes=((0,1),(0,1))).transpose (4,0,1,2,3,5,6)
@@ -331,8 +329,8 @@ class LRRDMint (op_o1.LRRDMint):
         s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
         s11 = s2 // 2
         s12 = s2 % 2
-        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
-        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
         d2 = self._get_D2_(bra, ket)
         fac = 1
         if i == k:
@@ -391,8 +389,6 @@ class LRRDMint (op_o1.LRRDMint):
         self.dt_p, self.dw_s = self.dt_p + dt, self.dw_s + dw
 
     def _crunch_env_(self, _crunch_fn, *row):
-        self.d1buf[:] = 0
-        self.d2buf[:] = 0
         if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
             inv = row[2:-1]
         else:

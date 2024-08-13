@@ -83,18 +83,22 @@ class KnownValues(unittest.TestCase):
 
         # LASSI in the CASCI limit
         las, e_roots, si = lsi._las, lsi.e_roots, lsi.si
+
+        casdm1s, casdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=0)
+        casdm1 = casdm1s.sum (0)
+        casdm2 = casdm2s.sum ((0,3))
         with self.subTest ("total energy"):
             self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
-        for opt in range (3):
+        for opt in range (1,3):
             lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=opt)
             lasdm1 = lasdm1s.sum (0)
             lasdm2 = lasdm2s.sum ((0,3))
-            for i, j in itertools.product (range (2), 2):
+            for i, j in itertools.product (range (2), repeat=2):
                 p, r = i*2, j*2
                 q, s = p+2, r+2
                 with self.subTest ("casdm1", opt=opt, sector=(i,j)):
                     self.assertAlmostEqual (lib.fp (lasdm1[p:q,r:s]), lib.fp (casdm1[p:q,r:s]), 8)
-            for i, j, k, l in itertools.product (range (2), 4):
+            for i, j, k, l in itertools.product (range (2), repeat=4):
                 p, r, t, v = i*2, j*2, k*2, l*2
                 q, s, u, w = p+2, r+2, t+2, v+2
                 with self.subTest ("casdm2", opt=opt, sector=(i,j,k,l)):
