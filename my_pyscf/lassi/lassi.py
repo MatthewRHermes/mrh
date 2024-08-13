@@ -3,6 +3,7 @@ import time
 from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi import op_o2
 from mrh.my_pyscf.lassi import chkfile
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm, ao2mo
@@ -25,7 +26,7 @@ from pyscf import __config__
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
-op = (op_o0, op_o1)
+op = (op_o0, op_o1, op_o2)
 
 def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
     '''Construct second-quantization Hamiltonian in CAS, using intermediates from
@@ -628,7 +629,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
                                                 wfnsym=wfnsym)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} CI algorithm'.format (sym),
                                    *t0)
-            d1s_test, d2s_test = op_o1.roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk)
+            d1s_test, d2s_test = op[opt].roots_make_rdm12s (las1, ci_blk, nelec_blk, si_blk)
             t0 = lib.logger.timer (las, 'LASSI make_rdm12s rootsym {} TDM algorithm'.format (sym),
                                    *t0)
             lib.logger.debug (las,
@@ -640,7 +641,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
             errvec = np.concatenate ([(d1s-d1s_test).ravel (), (d2s-d2s_test).ravel ()])
             if np.amax (np.abs (errvec)) > 1e-8 and soc == False: # tmp until SOC in for op_o1
                 raise LASSIOop01DisagreementError ("LASSI mixed-state RDMs", errvec)
-            if opt == 1:
+            if opt > 0:
                 d1s = d1s_test
                 d2s = d2s_test
         else:

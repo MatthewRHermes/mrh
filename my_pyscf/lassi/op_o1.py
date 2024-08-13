@@ -298,7 +298,7 @@ class LSTDMint1 (object):
         return x
 
     def get_p (self, i, j, s):
-        return self.try_get (self._h, s, j, i).conj ()
+        return self.try_get (self._h, s, j, i).conj ().transpose (1,0,2)
 
     def get_1_h (self, i, j, s):
         return self.try_get_1 (self._h, s, i, j)
@@ -317,7 +317,7 @@ class LSTDMint1 (object):
         return x
 
     def get_pp (self, i, j, s):
-        return self.try_get (self._hh, s, j, i).conj ().T
+        return self.try_get (self._hh, s, j, i).conj ().transpose (1,0,3,2)
 
     def get_1_hh (self, i, j, s):
         return self.try_get_1 (self._hh, s, i, j)
@@ -336,7 +336,7 @@ class LSTDMint1 (object):
         return x
 
     def get_pph (self, i, j, s):
-        return self.try_get (self._phh, s, j, i).conj ().transpose (0,3,2,1)
+        return self.try_get (self._phh, s, j, i).conj ().transpose (1,0,2,5,4,3)
 
     def get_1_phh (self, i, j, s):
         return self.try_get_1 (self._phh, s, i, j)
@@ -354,7 +354,7 @@ class LSTDMint1 (object):
         return x
 
     def get_sp (self, i, j):
-        return self.try_get (self._sm, j, i).conj ().T
+        return self.try_get (self._sm, j, i).conj ().transpose (1,0,3,2)
 
     def get_1_sm (self, i, j):
         return self.try_get_1 (self._sm, i, j)
@@ -366,7 +366,7 @@ class LSTDMint1 (object):
 
     def get_dm1 (self, i, j):
         if self.unique_root[j] > self.unique_root[i]:
-            return self.try_get (self.dm1, j, i).conj ().transpose (0, 2, 1)
+            return self.try_get (self.dm1, j, i).conj ().transpose (1,0,2,4,3)
         return self.try_get (self.dm1, i, j)
 
     def set_dm1 (self, i, j, x):
@@ -384,7 +384,7 @@ class LSTDMint1 (object):
 
     def get_dm2 (self, i, j):
         if self.unique_root[j] > self.unique_root[i]:
-            return self.try_get (self.dm2, j, i).conj ().transpose (0, 2, 1, 4, 3)
+            return self.try_get (self.dm2, j, i).conj ().transpose (1,0,2,4,3,6,5)
         return self.try_get (self.dm2, i, j)
 
     def get_1_dm2 (self, i, j):
@@ -2124,7 +2124,7 @@ def ham (las, h1, h2, ci, nelec_frs, **kwargs):
     return ham, s2, ovlp
 
 
-def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
+def roots_make_rdm12s (las, ci, nelec_frs, si, _LRRDMint_class=LRRDMint, **kwargs):
     ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
 
     Args:
@@ -2163,8 +2163,8 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LRRDMint (ints, nlas, hopping_index, lroots, si, dtype=dtype,
-                          max_memory=max_memory, log=log)
+    outerprod = _LRRDMint_class (ints, nlas, hopping_index, lroots, si, dtype=dtype,
+                                 max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)        
     rdm1s, rdm2s, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)

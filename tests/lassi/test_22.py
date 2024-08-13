@@ -93,14 +93,15 @@ class KnownValues(unittest.TestCase):
                     self.assertAlmostEqual (lib.fp (lasdm1), lib.fp (casdm1), 8)
                 with self.subTest ("casdm2"):
                     self.assertAlmostEqual (lib.fp (lasdm2), lib.fp (casdm2), 8)
-                stdm1s = make_stdm12s (las, opt=opt)[0][9:13,:,:,:,9:13] # second rootspace
-                with self.subTest("state indexing"):
-                    # column-major ordering for state excitation quantum numbers:
-                    # earlier fragments advance faster than later fragments
-                    self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
-                                            lib.fp (stdm1s[2,:,:2,:2,2]))
-                    self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
-                                            lib.fp (stdm1s[1,:,2:,2:,1]))
+                if opt<2:
+                    stdm1s = make_stdm12s (las, opt=opt)[0][9:13,:,:,:,9:13] # second rootspace
+                    with self.subTest("state indexing"):
+                        # column-major ordering for state excitation quantum numbers:
+                        # earlier fragments advance faster than later fragments
+                        self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
+                                                lib.fp (stdm1s[2,:,:2,:2,2]))
+                        self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
+                                                lib.fp (stdm1s[1,:,2:,2:,1]))
 
     def test_lassirq (self):
         lsi1 = LASSIrq (las, 2, 3).run ()

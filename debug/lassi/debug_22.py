@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import itertools
 import copy
 import unittest
 import numpy as np
@@ -76,31 +77,38 @@ class KnownValues(unittest.TestCase):
     #    u, svals, vh = linalg.svd (ovlp)
     #    self.assertAlmostEqual (lib.fp (svals), lib.fp (np.ones (len (svals))), 8)
 
-    #def test_casci_limit (self):
-    #    # CASCI limit
-    #    casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
+    def test_casci_limit (self):
+        # CASCI limit
+        casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
 
-    #    # LASSI in the CASCI limit
-    #    las, e_roots, si = lsi._las, lsi.e_roots, lsi.si
-    #    with self.subTest ("total energy"):
-    #        self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
-    #    for opt in range (2):
-    #        with self.subTest (opt=opt):
-    #            lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=opt)
-    #            lasdm1 = lasdm1s.sum (0)
-    #            lasdm2 = lasdm2s.sum ((0,3))
-    #            with self.subTest ("casdm1"):
-    #                self.assertAlmostEqual (lib.fp (lasdm1), lib.fp (casdm1), 8)
-    #            with self.subTest ("casdm2"):
-    #                self.assertAlmostEqual (lib.fp (lasdm2), lib.fp (casdm2), 8)
-    #            stdm1s = make_stdm12s (las, opt=opt)[0][9:13,:,:,:,9:13] # second rootspace
-    #            with self.subTest("state indexing"):
-    #                # column-major ordering for state excitation quantum numbers:
-    #                # earlier fragments advance faster than later fragments
-    #                self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
-    #                                        lib.fp (stdm1s[2,:,:2,:2,2]))
-    #                self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
-    #                                        lib.fp (stdm1s[1,:,2:,2:,1]))
+        # LASSI in the CASCI limit
+        las, e_roots, si = lsi._las, lsi.e_roots, lsi.si
+        with self.subTest ("total energy"):
+            self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
+        for opt in range (3):
+            lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=opt)
+            lasdm1 = lasdm1s.sum (0)
+            lasdm2 = lasdm2s.sum ((0,3))
+            for i, j in itertools.product (range (2), 2):
+                p, r = i*2, j*2
+                q, s = p+2, r+2
+                with self.subTest ("casdm1", opt=opt, sector=(i,j)):
+                    self.assertAlmostEqual (lib.fp (lasdm1[p:q,r:s]), lib.fp (casdm1[p:q,r:s]), 8)
+            for i, j, k, l in itertools.product (range (2), 4):
+                p, r, t, v = i*2, j*2, k*2, l*2
+                q, s, u, w = p+2, r+2, t+2, v+2
+                with self.subTest ("casdm2", opt=opt, sector=(i,j,k,l)):
+                    self.assertAlmostEqual (lib.fp (lasdm2[p:q,r:s,t:u,v:w]),
+                                            lib.fp (casdm2[p:q,r:s,t:u,v:w]), 8)
+            if opt<2:
+                stdm1s = make_stdm12s (las, opt=opt)[0][9:13,:,:,:,9:13] # second rootspace
+                with self.subTest("state indexing"):
+                    # column-major ordering for state excitation quantum numbers:
+                    # earlier fragments advance faster than later fragments
+                    self.assertAlmostEqual (lib.fp (stdm1s[0,:,:2,:2,0]),
+                                            lib.fp (stdm1s[2,:,:2,:2,2]))
+                    self.assertAlmostEqual (lib.fp (stdm1s[0,:,2:,2:,0]),
+                                            lib.fp (stdm1s[1,:,2:,2:,1]))
 
     #def test_lassirq (self):
     #    lsi1 = LASSIrq (las, 2, 3).run ()
@@ -160,19 +168,14 @@ class KnownValues(unittest.TestCase):
     #            # Reference depends on rng seed obviously b/c this is not casci limit
     #            self.assertAlmostEqual (lsis.e_roots[0], -4.134472877702426, 8)
 
-    def test_fdm1 (self):
-        make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)
-        for iroot in range (lsi.nroots):
-            for ifrag in range (lsi.nfrags):
-                fdm1 = make_fdm1 (iroot, ifrag)
-                sdm1 = make_sdm1 (lsi, iroot, ifrag)
-                for istate, (f, s) in enumerate (zip (fdm1, sdm1)):
-                    with self.subTest (iroot=iroot, ifrag=ifrag, istate=istate):
-                        if (abs (lib.fp (f) - lib.fp (s)) > 1e-7):
-                            print (iroot, ifrag, istate, lib.fp (f) - lib.fp (s))
-                            print (f)
-                            print (s)
-                        self.assertAlmostEqual (lib.fp (f), lib.fp (s), 7)
+    #def test_fdm1 (self):
+    #    make_fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si)
+    #    for iroot in range (lsi.nroots):
+    #        for ifrag in range (lsi.nfrags):
+    #            with self.subTest (iroot=iroot, ifrag=ifrag):
+    #                fdm1 = make_fdm1 (iroot, ifrag)
+    #                sdm1 = make_sdm1 (lsi, iroot, ifrag)
+    #                self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI of random 2,2 system")

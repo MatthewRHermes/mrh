@@ -8,9 +8,11 @@ from mrh.tests.lasscf.me2n2_struct import structure as struct
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf import lassi
 from mrh.my_pyscf.lassi.sitools import make_sdm1
+from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s
+from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
 
 def setUpModule():
-    global mol, mf, mc_ss, mc_sa, mc_exc, las_exc
+    global mol, mf, mc_ss, mc_sa, mc_exc, las_exc, lsi
     r_nn = 3.0
     mol = struct (3.0, '6-31g')
     mol.output = '/dev/null'
@@ -30,12 +32,13 @@ def setUpModule():
     las_exc.mo_coeff = mc_exc.mo_coeff
     lroots = np.array ([[2]])
     las_exc.lasci (lroots=lroots)
+    lsi = lassi.LASSI (las_exc).run ()
 
 
 def tearDownModule():
-    global mol, mf, mc_ss, mc_sa, mc_exc, las_exc
+    global mol, mf, mc_ss, mc_sa, mc_exc, las_exc, lsi
     mol.stdout.close ()
-    del mol, mf, mc_ss, mc_sa, mc_exc, las_exc
+    del mol, mf, mc_ss, mc_sa, mc_exc, las_exc, lsi
 
 class KnownValues(unittest.TestCase):
 
@@ -64,14 +67,20 @@ class KnownValues(unittest.TestCase):
             self.assertAlmostEqual (e_si1, e_mc, 7)
 
     def test_fdm1 (self):
-        lsi = lassi.LASSI (las_exc).run ()
-        from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
         fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si) (0,0)
         sdm1 = make_sdm1 (lsi, 0, 0)
         self.assertAlmostEqual (lib.fp (fdm1), lib.fp (sdm1), 7)
         fdm1[0,0,0] -= 1
         fdm1[1,1,1] -= 1
         self.assertLess (np.amax (np.abs (fdm1)), 1e-8)
+
+    def test_rdms (self):
+        d1_ref, d2_ref = roots_make_rdm12s (lsi, lsi.ci, lsi.si, opt=0)
+        for opt in range (1,3):
+            d1_test, d2_test = roots_make_rdm12s (lsi, lsi.ci, lsi.si, opt=opt)
+            with self.subTest (opt=opt):
+                self.assertAlmostEqual (lib.fp (d1_test), lib.fp (d1_ref), 7)
+                self.assertAlmostEqual (lib.fp (d2_test), lib.fp (d2_ref), 7)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI single-fragment edge case")
