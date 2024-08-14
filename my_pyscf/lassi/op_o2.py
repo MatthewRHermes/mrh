@@ -348,7 +348,7 @@ class LRRDMint (op_o1.LRRDMint):
         d_ = np.tensordot (d_, self.ints[k].get_sm (bra, ket), axes=((-4,-3),(0,1))) # _rijk'k
         d_ = fac * d_.transpose (0,1,4,3,2) # r_ikk'j (a'bb'a -> a'ab'b transpose)
         d2[:,1,p:q,t:u,t:u,r:s] = d_ #rikkj
-        d2[:,2,t:u,r:s,p:q,t:u] = d_.transpose (2,3,0,1)
+        d2[:,2,t:u,r:s,p:q,t:u] = d_.transpose (0,3,4,1,2)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
         self._put_D2_()

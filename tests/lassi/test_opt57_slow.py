@@ -30,6 +30,7 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi import op_o2
 
 def setUpModule ():
     global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
@@ -172,7 +173,7 @@ class KnownValues(unittest.TestCase):
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        d12_o2 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+        d12_o2 = op_o2.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
         t3, w3 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #print (t1-t0, t2-t1, t3-t2)
         #print (w1-w0, w2-w1, w3-w2)
