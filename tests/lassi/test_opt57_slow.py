@@ -172,13 +172,18 @@ class KnownValues(unittest.TestCase):
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        #print (t1-t0, t2-t1)
-        #print (w1-w0, w2-w1)
+        d12_o2 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
+        t3, w3 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        #print (t1-t0, t2-t1, t3-t2)
+        #print (w1-w0, w2-w1, w3-w2)
         for r in range (2):
             for i in range (nstates):
-                with self.subTest (rank=r+1, root=i):
+                with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
+                with self.subTest (rank=r+1, root=i, opt=2):
+                    self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
+                        lib.fp (d12_o2[r][i]), 9)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-space (91-state) manifold")

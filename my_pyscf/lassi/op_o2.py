@@ -188,13 +188,13 @@ class LRRDMint (op_o1.LRRDMint):
 
     def _crunch_2d_(self, bra, ket, i, j):
         '''Compute a two-fragment density fluctuation.'''
-        d_rJJII = self.get_fdm (bra, ket, i, j) # time-profiled by itself
+        d_ = self.get_fdm (bra, ket, i, j) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         d2 = self._get_D2_(bra, ket)
         inti, intj = self.ints[i], self.ints[j]
         p, q = self.get_range (i)
         r, s = self.get_range (j)
-        d_ = d_rJJII # avoid storing all intermediates
+        # d_rJJII
         d_ = np.tensordot (d_, inti.get_dm1 (bra, ket), axes=2) # _rJJsii
         d_ = np.tensordot (d_, intj.get_dm1 (bra, ket), axes=((1,2),(0,1))) # _rsiisjj
         d_ = d_.transpose (0,1,4,2,3,5,6).reshape (self.nroots_si, 4, q-p, q-p, s-r, s-r) # _rsiijj
@@ -257,6 +257,41 @@ class LRRDMint (op_o1.LRRDMint):
         self._put_D1_()
         self._put_D2_()
 
+    def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
+        '''Compute the reduced density matrix elements of a coupled electron-hop and
+        density fluctuation.'''
+        d_ = self.get_fdm (bra, ket, i, j, k) # time-profiled by itself
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        d2 = self._get_D2_(bra, ket)
+        inti, intj, intk = self.ints[i], self.ints[j], self.ints[k]
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        t, u = self.get_range (k)
+        fac = 1
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
+        s12l = s1 * 2   # aa: 0 OR ba: 2
+        s12h = s12l + 1 # ab: 1 OR bb: 3 
+        s21l = s1       # aa: 0 OR ab: 1
+        s21h = s21l + 2 # ba: 2 OR bb: 3
+        s1s1 = s1 * 3   # aa: 0 OR bb: 3
+        def _crunch_1c_tdm2 (d_rsijkk, i0, i1, j0, j1, k0, k1):
+            d2[:,(s12l,s12h), i0:i1, j0:j1, k0:k1, k0:k1] = d_rsijkk
+            d2[:,(s21l,s21h), k0:k1, k0:k1, i0:i1, j0:j1] = d_rsijkk.transpose (0,1,4,5,2,3)
+            d2[:,s1s1, i0:i1, k0:k1, k0:k1, j0:j1] = -d_rsijkk[:,s1,...].transpose (0,1,4,3,2)
+            d2[:,s1s1, k0:k1, j0:j1, i0:i1, k0:k1] = -d_rsijkk[:,s1,...].transpose (0,3,2,1,4)
+        # d_rKKJJII
+        d_ = np.tensordot (d_, inti.get_p (bra, ket, s1), axes=2) # d_rKKJJi
+        d_ = np.tensordot (d_, intj.get_h (bra, ket, s1), axes=((-3,-2),(0,1))) # d_rKKij
+        d_ = np.tensordot (d_, intk.get_dm1 (bra, ket), axes=((-4,-3),(0,1))) # d_rijskk
+        d_ = d_.transpose (0,3,1,2,4,5) # d_rsijkk
+        _crunch_1c_tdm2 (d_, p, q, r, s, t, u)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
+        self._put_D2_()
+
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
 
@@ -285,6 +320,39 @@ class LRRDMint (op_o1.LRRDMint):
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         self._put_D2_()
 
+    def _crunch_1s1c_(self, bra, ket, i, j, k):
+        '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
+
+        <bra|i'(a)k'(b)j(b)k(a)|ket>
+
+        i.e.,
+
+        k ---a---> i
+        j ---b---> k
+
+        and conjugate transpose
+        '''
+        d_ = self.get_fdm (bra, ket, i, j, k) # time-profiled by itself
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
+        p, q = self.get_range (i)
+        r, s = self.get_range (j)
+        t, u = self.get_range (k)
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac = -1 # a'bb'a -> a'ab'b sign
+        fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
+        fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
+        d_ = np.tensordot (d_, self.ints[i].get_p (bra, ket, 0), axes=2) # _rKKJJi
+        d_ = np.tensordot (d_, self.ints[j].get_h (bra, ket, 1), axes=((-3,-2),(0,1))) # _rKKij
+        d_ = np.tensordot (d_, self.ints[k].get_sm (bra, ket), axes=((-4,-3),(0,1))) # _rijk'k
+        d_ = fac * d_.transpose (0,1,4,3,2) # r_ikk'j (a'bb'a -> a'ab'b transpose)
+        d2[:,1,p:q,t:u,t:u,r:s] = d_ #rikkj
+        d2[:,2,t:u,r:s,p:q,t:u] = d_.transpose (2,3,0,1)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
+        self._put_D2_()
+
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
 
@@ -311,7 +379,7 @@ class LRRDMint (op_o1.LRRDMint):
         s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
         s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
         '''
-        d_ = self.get_fdm (bra, ket, i, k, j, l, keyorder=[i,j,k,l]) # time-profiled by itself
+        d_ = self.get_fdm (bra, ket, i, k, l, j, keyorder=[i,j,k,l]) # time-profiled by itself
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         # s2lt: 0, 1, 2 -> aa, ab, bb
         # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
@@ -325,21 +393,21 @@ class LRRDMint (op_o1.LRRDMint):
         fac = 1
         if i == k: # d_r...II
             d_ = np.tensordot (d_, self.ints[i].get_pp (bra, ket, s2lt), axes=2) # _r...ik
-            axesorder = [0,d_.ndim-2,d_.ndim-1] + list (range (1, d_.ndim-2))
-            d_ = d_.transpose (*axesorder) # _rik...
-        else:
-            assert (False) # TODO
-            pp = np.multiply.outer (self.ints[i].get_1_p (bra, ket, s11),
-                                    self.ints[k].get_1_p (bra, ket, s12))
+        else: # d_r...KKII
+            d_ = np.tensordot (d_, self.ints[i].get_p (bra, ket, s11), axes=2) # _r...KKi
+            d_ = np.tensordot (d_, self.ints[k].get_p (bra, ket, s12),
+                               axes=((-3,-2),(0,1))) # _r...ik
             fac *= (1,-1)[int (i>k)]
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
-        if j == l:
+        axesorder = [0,d_.ndim-2,d_.ndim-1] + list (range (1, d_.ndim-2))
+        d_ = d_.transpose (*axesorder) # _rik...
+        if j == l: # d_rikJJ
             d_ = np.tensordot (d_, self.ints[j].get_hh (bra, ket, s2lt), axes=2) # _riklj
-        else:
-            assert (False) # TODO
-            hh = np.multiply.outer (self.ints[l].get_1_h (bra, ket, s12),
-                                    self.ints[j].get_1_h (bra, ket, s11))
+        else: # d_rikJJLL
+            d_ = np.tensordot (d_, self.ints[l].get_h (bra, ket, s12), axes=2) # _rikJJl
+            d_ = np.tensordot (d_, self.ints[j].get_h (bra, ket, s11),
+                               axes=((-3,-2),(0,1))) # r_iklj
             fac *= (1,-1)[int (j>l)]
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
