@@ -187,20 +187,19 @@ class KnownValues(unittest.TestCase):
                     pass
                     #self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                     #    lib.fp (d12_o2[r][i]), 9)
-            n0 = [0,4,6]
-            n1 = [4,6,10]
-            for i, j, k, l in itertools.combinations_with_replacement (range (3), 4):
-                i0, i1 = n0[i], n1[i]
-                j0, j1 = n0[j], n1[j]
-                k0, k1 = n0[k], n1[k]
-                l0, l1 = n0[l], n1[l]
-                for s1,s2 in itertools.product (range (2), repeat=2):
-                    with self.subTest ('rdm2s', idx=(i,j,k,l), spin=(s1,s2)):
-                        self.assertAlmostEqual (
-                            lib.fp (d12_o0[1][:,s1,i0:i1,j0:j1,s2,k0:k1,l0:l1]),
-                            lib.fp (d12_o2[1][:,s1,i0:i1,j0:j1,s2,k0:k1,l0:l1])
-                        )
-        print (d12_o2[1].shape)
+        n0 = [0,4,6]
+        n1 = [4,6,10]
+        for i, j, k, l in itertools.combinations_with_replacement (range (3), 4):
+            i0, i1 = n0[i], n1[i]
+            j0, j1 = n0[j], n1[j]
+            k0, k1 = n0[k], n1[k]
+            l0, l1 = n0[l], n1[l]
+            for s1,s2 in itertools.product (range (2), repeat=2):
+                with self.subTest ('rdm2s', idx=(i,j,k,l), spin=(s1,s2)):
+                    self.assertAlmostEqual (
+                        lib.fp (d12_o0[1][:,s1,i0:i1,j0:j1,s2,k0:k1,l0:l1]),
+                        lib.fp (d12_o2[1][:,s1,i0:i1,j0:j1,s2,k0:k1,l0:l1])
+                    )
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-space (91-state) manifold")

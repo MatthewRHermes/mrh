@@ -268,8 +268,8 @@ class LRRDMint (op_o1.LRRDMint):
         r, s = self.get_range (j)
         t, u = self.get_range (k)
         fac = 1
-        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
-        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
         s12l = s1 * 2   # aa: 0 OR ba: 2
@@ -286,7 +286,7 @@ class LRRDMint (op_o1.LRRDMint):
         d_ = np.tensordot (d_, inti.get_p (bra, ket, s1), axes=2) # d_rKKJJi
         d_ = np.tensordot (d_, intj.get_h (bra, ket, s1), axes=((-3,-2),(0,1))) # d_rKKij
         d_ = np.tensordot (d_, intk.get_dm1 (bra, ket), axes=((-4,-3),(0,1))) # d_rijskk
-        d_ = d_.transpose (0,3,1,2,4,5) # d_rsijkk
+        d_ = fac * d_.transpose (0,3,1,2,4,5) # d_rsijkk
         _crunch_1c_tdm2 (d_, p, q, r, s, t, u)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
@@ -338,14 +338,14 @@ class LRRDMint (op_o1.LRRDMint):
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         t, u = self.get_range (k)
-        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
-        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        nelec_f_bra = self.nelec_rf[bra]
+        nelec_f_ket = self.nelec_rf[ket]
         fac = -1 # a'bb'a -> a'ab'b sign
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
         d_ = np.tensordot (d_, self.ints[i].get_p (bra, ket, 0), axes=2) # _rKKJJi
-        d_ = np.tensordot (d_, self.ints[j].get_h (bra, ket, 1), axes=((-3,-2),(0,1))) # _rKKij
-        d_ = np.tensordot (d_, self.ints[k].get_sm (bra, ket), axes=((-4,-3),(0,1))) # _rijk'k
+        d_ = np.tensordot (d_, self.ints[j].get_h (bra, ket, 1), axes=((3,4),(0,1))) # _rKKij
+        d_ = np.tensordot (d_, self.ints[k].get_sm (bra, ket), axes=((1,2),(0,1))) # _rijk'k
         d_ = fac * d_.transpose (0,1,4,3,2) # r_ikk'j (a'bb'a -> a'ab'b transpose)
         d2[:,1,p:q,t:u,t:u,r:s] = d_ #rikkj
         d2[:,2,t:u,r:s,p:q,t:u] = d_.transpose (0,3,4,1,2)
