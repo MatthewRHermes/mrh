@@ -2,7 +2,7 @@ from pyscf import gto, scf, lib, mcscf
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf import lassi
 from mrh.my_pyscf import mcpdft
-from c2h4n4_struct import structure as struct
+from mrh.examples.laspdft.c2h4n4_struct import structure as struct
 from mrh.my_pyscf.lassi.spaces import all_single_excitations
 
 '''
