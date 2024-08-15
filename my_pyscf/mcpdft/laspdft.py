@@ -20,7 +20,11 @@ def _store_rdms_forLAS(las):
     nrootspaces = len(las.ci[0])
     assert all(len(rtspace) == nrootspaces for rtspace in
                las.ci), "Uneven rootspace on different fragments. Behaviour undefined."
-
+    log = lib.logger.new_logger(las, las.verbose)
+    log.info("")
+    log.info("This system has the %d fragment and %d rootspaces per fragment.", len(las.ci), nrootspaces)
+    log.info("If you have locally excited states per rootspace, then this functionality is not defined.")
+    log.info("")
     rdmstmpfile = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
     with h5py.File(rdmstmpfile, 'w') as f:
         rdm1s = las.state_make_casdm1s()

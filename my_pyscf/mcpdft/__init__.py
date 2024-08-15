@@ -8,6 +8,7 @@ from pyscf.mcscf import mc1step, casci
 from mrh.util.io import mcpdft_removal_warn
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCFNoSymm, LASSCFSymm
 from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+
 mcpdft_removal_warn()
 
 
@@ -99,6 +100,7 @@ def _prelassipdftenergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, Do
     else:
         raise NotImplementedError
 
+    # Here I am storing the RDMs.
     rdmstmpfile = _store_rdms_forLAS(mc_or_mf_or_mol)
 
     if frozen is not None:
@@ -108,12 +110,11 @@ def _prelassipdftenergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, Do
 
     mc2 = get_mcpdft_child_class(mc1, ot, DoPreLASSI=DoPreLASSI, rdmstmpfile=rdmstmpfile, **kwargs)
 
-    # Don't have to make the copies of CI vectors. Unnecessarily will
+    # Do I have to make the copies of CI vectors. Unnecessarily will
     # increase the memory footprint.
-    if mc0 is not None:
-        mc2.mo_coeff = mc_or_mf_or_mol.mo_coeff.copy()
-        mc2.ci = copy.deepcopy(mc_or_mf_or_mol.ci)
-        mc2.converged = mc0.converged
+    mc2.mo_coeff = mc_or_mf_or_mol.mo_coeff
+    mc2.ci = mc_or_mf_or_mol.ci
+    mc2.converged = mc0.converged
     return mc2
 
 
