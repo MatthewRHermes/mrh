@@ -5,12 +5,9 @@ from pyscf.mcpdft.mcpdft import get_mcpdft_child_class
 from pyscf import mcscf, gto, lib
 from pyscf.lib import logger
 from pyscf.mcscf import mc1step, casci
-import h5py
 from mrh.util.io import mcpdft_removal_warn
 from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCFNoSymm, LASSCFSymm
-
-import tempfile
-
+from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 mcpdft_removal_warn()
 
 
@@ -19,6 +16,7 @@ mcpdft_removal_warn()
 
 def _MCPDFT(mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None,
             **kwargs):
+    mcpdft_removal_warn()
     if isinstance(mc_or_mf_or_mol, (mc1step.CASSCF, casci.CASCI)):
         mc0 = mc_or_mf_or_mol
         mf_or_mol = mc_or_mf_or_mol._scf
@@ -44,11 +42,14 @@ def _MCPDFT(mc_class, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=Non
 
 def CASSCFPDFT(mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, frozen=None,
                **kwargs):
+    mcpdft_removal_warn()
     return _MCPDFT(mcscf.CASSCF, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=ncore, frozen=frozen,
                    **kwargs)
 
 
 def CASCIPDFT(mc_or_mf_or_mol, ot, ncas, nelecas, ncore=None, **kwargs):
+    mcpdft_removal_warn()
+
     return _MCPDFT(mcscf.CASCI, mc_or_mf_or_mol, ot, ncas, nelecas, ncore=ncore,
                    **kwargs)
 
@@ -57,7 +58,7 @@ CASSCF = CASSCFPDFT
 CASCI = CASCIPDFT
 
 
-# LAS-PDFT
+# LASSCF-PDFT
 def _laspdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI=False, ncore=None, spin_sub=None,
                    frozen=None, **kwargs):
     if isinstance(mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)):
@@ -85,6 +86,38 @@ def _laspdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI
     return mc2
 
 
+# LAS-PDFT for rootspace before LASSI diagonalization
+def _prelassipdftenergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoPreLASSI=False, ncore=None,
+                        spin_sub=None,
+                        frozen=None, **kwargs):
+    from mrh.my_pyscf.mcpdft.laspdft import get_mcpdft_child_class
+    from mrh.my_pyscf.mcpdft.laspdft import _store_rdms_forLAS
+
+    if isinstance(mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)):
+        mc0 = mc_or_mf_or_mol
+        mf_or_mol = mc_or_mf_or_mol._scf
+    else:
+        raise NotImplementedError
+
+    rdmstmpfile = _store_rdms_forLAS(mc_or_mf_or_mol)
+
+    if frozen is not None:
+        mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub, frozen=frozen)
+    else:
+        mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub)
+
+    mc2 = get_mcpdft_child_class(mc1, ot, DoPreLASSI=DoPreLASSI, rdmstmpfile=rdmstmpfile, **kwargs)
+
+    # Don't have to make the copies of CI vectors. Unnecessarily will
+    # increase the memory footprint.
+    if mc0 is not None:
+        mc2.mo_coeff = mc_or_mf_or_mol.mo_coeff.copy()
+        mc2.ci = copy.deepcopy(mc_or_mf_or_mol.ci)
+        mc2.converged = mc0.converged
+    return mc2
+
+
+# LASSI-PDFT
 def _lassipdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI=False, ncore=None, spin_sub=None,
                      frozen=None, states=None, **kwargs):
     from mrh.my_pyscf.lassi import lassi
@@ -111,49 +144,13 @@ def _lassipdftEnergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLAS
     return mc2
 
 
-def _prelassipdftenergy(mc_class, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoPreLASSI=False, ncore=None,
-                        spin_sub=None,
-                        frozen=None, **kwargs):
-    if isinstance(mc_or_mf_or_mol, (LASSCFNoSymm, LASSCFSymm)):
-        mf_or_mol = mc_or_mf_or_mol._scf
-    else:
-        raise NotImplementedError
-
-    rdmstmpfile = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
-    with h5py.File(rdmstmpfile, 'w') as f:
-        rdm1s = mc_or_mf_or_mol.state_make_casdm1s()
-        for i in range(0, len(mc_or_mf_or_mol.ci[0])):
-            rdm1s_dname = f'rdm1s_{i}'
-            f.create_dataset(rdm1s_dname, data=rdm1s)
-            rdm2 = mc_or_mf_or_mol.state_make_casdm2(state=i)
-            rdm2s_dname = f'rdm2s_{i}'
-            f.create_dataset(rdm2s_dname, data=rdm2)
-
-    if frozen is not None:
-        mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub, frozen=frozen)
-    else:
-        mc1 = mc_class(mf_or_mol, ncas_sub, nelecas_sub, ncore=ncore, spin_sub=spin_sub)
-
-    from mrh.my_pyscf.mcpdft.laspdft import get_mcpdft_child_class
-    mc2 = get_mcpdft_child_class(mc1, ot, DoPreLASSI=DoPreLASSI, rdmstmpfile=rdmstmpfile, **kwargs)
-
-    # Don't have to make the copies of CI vectors. Unnecessarily will
-    # increase the memory footprint.
-    # if mc0 is not None:
-    #     mc2.mo_coeff = mc_or_mf_or_mol.mo_coeff.copy()
-    #     mc2.ci = copy.deepcopy(mc_or_mf_or_mol.ci)
-    #     mc2.converged = mc0.converged
-    return mc2
-
-
 def LASSCFPDFT(mc_or_mf_or_mol, ot, ncas_sub=None, nelecas_sub=None, ncore=None, DoPreLASSI=False,
                spin_sub=None, frozen=None, **kwargs):
     from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     if ncas_sub is None: ncas_sub = getattr(mc_or_mf_or_mol, 'ncas_sub', None)
     if nelecas_sub is None: nelecas_sub = getattr(mc_or_mf_or_mol, 'nelecas_sub', None)
     if DoPreLASSI:
-        
-        return _prelassipdftenergy(mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoPreLASSI=True, ncore=ncore,
+        return _prelassipdftenergy(LASSCF, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoPreLASSI=True, ncore=ncore,
                                    spin_sub=spin_sub, frozen=frozen, **kwargs)
     else:
         return _laspdftEnergy(LASSCF, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, ncore=ncore,
@@ -162,16 +159,17 @@ def LASSCFPDFT(mc_or_mf_or_mol, ot, ncas_sub=None, nelecas_sub=None, ncore=None,
 
 def LASSIPDFT(mc_or_mf_or_mol, ot, ncas_sub=None, nelecas_sub=None, ncore=None, spin_sub=None,
               frozen=None, states=None, **kwargs):
+    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
     if ncas_sub is None: ncas_sub = getattr(mc_or_mf_or_mol, 'ncas_sub', None)
     if nelecas_sub is None: nelecas_sub = getattr(mc_or_mf_or_mol, 'nelecas_sub', None)
-    from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
+
     return _lassipdftEnergy(LASSCF, mc_or_mf_or_mol, ot, ncas_sub, nelecas_sub, DoLASSI=True, ncore=ncore,
                             spin_sub=spin_sub, frozen=frozen, states=states, **kwargs)
 
 
 LASSCF = LASSCFPDFT
 LASSI = LASSIPDFT
-LASSIS = LASSIPDFT  # Not Sure acc. to issue #34 of mrh
+LASSIS = LASSIPDFT
 
 
 def CIMCPDFT(*args, **kwargs):

@@ -1,11 +1,7 @@
 from pyscf import ao2mo, lib
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
 import numpy as np
-import copy
-from scipy import linalg
-from types import MethodType
-from copy import deepcopy
-from mrh.my_pyscf.df.sparse_df import sparsedf_array
+from mrh.my_pyscf.mcscf.lasscf_sync_o0 import LASSCFNoSymm, LASSCFSymm
 from mrh.my_pyscf.lassi import lassi
 import h5py
 import tempfile
@@ -16,6 +12,25 @@ except ImportError:
     msg = "For performing LASPDFT, you will require pyscf-forge.\n" + \
           "pyscf-forge can be found at : https://github.com/pyscf/pyscf-forge"
     raise ImportError(msg)
+
+
+def _store_rdms_forLAS(las):
+    # Sanity Checks
+    assert isinstance(las, (LASSCFNoSymm, LASSCFSymm)), "Requires LAS"
+    nrootspaces = len(las.ci[0])
+    assert all(len(rtspace) == nrootspaces for rtspace in
+               las.ci), "Uneven rootspace on different fragments. Behaviour undefined."
+
+    rdmstmpfile = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
+    with h5py.File(rdmstmpfile, 'w') as f:
+        rdm1s = las.state_make_casdm1s()
+        for i in range(0, nrootspaces):
+            rdm1s_dname = f'rdm1s_{i}'
+            f.create_dataset(rdm1s_dname, data=rdm1s)
+            rdm2 = las.state_make_casdm2(state=i)
+            rdm2s_dname = f'rdm2s_{i}'
+            f.create_dataset(rdm2s_dname, data=rdm2)
+    return rdmstmpfile
 
 
 def make_casdm1s(filename, i):
@@ -119,17 +134,17 @@ class _LASPDFT(_PDFT):
             raise NotImplementedError(f"StateAverageMix not available for {method}")
 
 
-def get_mcpdft_child_class(mc, ot, DoLASSI=False,DoPreLASSI=False, states=None,rdmstmpfile=None, **kwargs):
+def get_mcpdft_child_class(mc, ot, DoLASSI=False, DoPreLASSI=False, states=None, rdmstmpfile=None, **kwargs):
     mc_doc = (mc.__class__.__doc__ or 'No docstring for MC-SCF parent method')
 
     class PDFT(_LASPDFT, mc.__class__):
         __doc__ = mc_doc + '\n\n' + _LASPDFT.__doc__
         _mc_class = mc.__class__
-        setattr(_mc_class, 'DoLASSI', None)
-        setattr(_mc_class, 'DoPreLASSI', None)
         setattr(_mc_class, 'states', None)
         setattr(_mc_class, 'statlis', None)
-        setattr(_mc_class, 'rdmstmpfile', None)
+        setattr(_mc_class, 'DoLASSI', DoLASSI)
+        setattr(_mc_class, 'DoPreLASSI', DoPreLASSI)
+        setattr(_mc_class, 'rdmstmpfile', rdmstmpfile)
 
         def get_h2eff(self, mo_coeff=None):
             if self._in_mcscf_env:
@@ -155,17 +170,15 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,DoPreLASSI=False, states=None,r
             _mc_class.DoLASSI = True
             _mc_class.rdmstmpfile = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
 
-        elif DOPreLASSI:
+        elif DoPreLASSI:
             _mc_class.DoLASSI = False
             _mc_class.DoPreLASSI = True
-            _mc_class.rdmstmpfile = rdmstmpfile if rdmstmpfile is None \
-                else tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
+            _mc_class.rdmstmpfile = rdmstmpfile
         else:
             _mc_class.DoLASSI = False
 
         if states is not None:
             _mc_class.states = states
-
 
         if _mc_class.DoLASSI:
 
@@ -179,20 +192,20 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,DoPreLASSI=False, states=None,r
             def _store_rdms(self):
                 # MRH: I made it loop over blocks of states to handle the O(N^5) memory cost
                 # If there's enough memory it'll still do them all at once
-                log = lib.logger.new_logger (self, self.verbose)
+                log = lib.logger.new_logger(self, self.verbose)
                 safety_factor = 1.3
-                mem_per_state = safety_factor*8*(2*(self.ncas**2) + 4*(self.ncas**4)) / 1e6
-                current_mem = lib.current_memory ()[0]
+                mem_per_state = safety_factor * 8 * (2 * (self.ncas ** 2) + 4 * (self.ncas ** 4)) / 1e6
+                current_mem = lib.current_memory()[0]
 
                 if current_mem > self.max_memory:
                     log.warn("Current memory usage (%d MB) exceeds maximum memory (%d MB)",
                              current_mem, self.max_memory)
                     nblk = 1
                 else:
-                    nblk = max (1, int ((self.max_memory - current_mem) / mem_per_state)-1)
+                    nblk = max(1, int((self.max_memory - current_mem) / mem_per_state) - 1)
 
-                log.debug ('_store_rdms: looping over %d states at a time of %d total', nblk,
-                           len (self.e_states))
+                log.debug('_store_rdms: looping over %d states at a time of %d total', nblk,
+                          len(self.e_states))
 
                 rdmstmpfile = self.rdmstmpfile
                 with h5py.File(rdmstmpfile, 'w') as f:
@@ -200,7 +213,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,DoPreLASSI=False, states=None,r
                         j = min(i + nblk, len(self.states))
 
                         rdm1s, rdm2s = lassi.root_make_rdm12s(self, self.ci, self.si,
-                                state=self.states[i:j])
+                                                              state=self.states[i:j])
                         for k in range(i, j):
                             stateno = self.states[k]
                             rdm1s_dname = f'rdm1s_{stateno}'
@@ -250,7 +263,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,DoPreLASSI=False, states=None,r
             Has the same calling signature as the parent kernel method. '''
             with _mcscf_env(self):
                 if self.DoLASSI:
-                    self.statlis = [x for x in range(len(self.e_roots))] # LASSI-LPDFT
+                    self.statlis = [x for x in range(len(self.e_roots))]  # LASSI-LPDFT
                     if self.states is None:
                         self.fcisolver.nroots = len(self.e_roots)
                         self.states = list(range(len(self.e_roots)))
@@ -262,7 +275,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False,DoPreLASSI=False, states=None,r
                     By defualt it will will calculate the energy of all the root-spaces.
                     Calculating it for the given number of states doesn't make sense.
                     '''
-                    nroots = len(self._mc_class.ci[0])
+                    nroots = len(self.ci[0])
                     self.states = [x for x in range(nroots)]  # LASSI-LPDFT
                     self.fcisolver.nroots = self.states
                 else:
