@@ -176,6 +176,7 @@ class LRRDMint (op_o1.LRRDMint):
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
         fac *= fermion_frag_shuffle (self.nelec_rf[rbra], sinv)
         fac *= fermion_frag_shuffle (self.nelec_rf[rket], sinv)
+        if self._lowertri and rbra==rket: fac *= 0.5
         spec = np.ones (self.nfrags, dtype=bool)
         for i in sinv: spec[i] = False
         spec = np.where (spec)[0]
@@ -185,9 +186,9 @@ class LRRDMint (op_o1.LRRDMint):
         nrows_bra, nrows_ket = sibra.shape[1], siket.shape[1]
         nspec = len (spec)
         if not nspec:
-            o = fac * np.ones ((1,1), dtype=self.dtype)
-            sibra = np.tensordot (sibra, o, axes=1)
-            return np.stack ([np.dot (b, k.T) for b, k in zip (sibra, siket)], axis=0)
+            assert (sibra.shape == (nroots_si, nrows_bra, 1))
+            assert (siket.shape == (nroots_si, nrows_ket, 1))
+            return fac * np.stack ([np.dot (b, k.T) for b, k in zip (sibra, siket)], axis=0)
         sibra_shape = [nroots_si, nrows_bra] + list (self.lroots[spec,rbra][::-1])
         siket_shape = [nroots_si, nrows_ket] + list (self.lroots[spec,rket][::-1])
         sibra = sibra.reshape (sibra_shape)
@@ -198,7 +199,7 @@ class LRRDMint (op_o1.LRRDMint):
         assert (fdm.ndim == 1 + 2*nspec)
         for i, inti in enumerate (specints[1:]):
             fdm = np.tensordot (fdm, inti.get_ovlp (rbra,rket), axes=((nspec-i,-1),(0,1)))
-        assert (fdm.ndim == 3)
+        assert (fdm.shape == (nroots_si,nrows_bra,nrows_ket))
         return fac * fdm
 
     def _crunch_1d_(self, bra, ket, i):
