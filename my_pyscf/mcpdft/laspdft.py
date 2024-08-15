@@ -26,9 +26,9 @@ def _store_rdms_forLAS(las):
     log.info("If you have locally excited states per rootspace, then this functionality is not defined.")
     log.info("")
     rdmstmpfile = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
-    with h5py.File(rdmstmpfile, 'w') as f:
-        rdm1s = las.state_make_casdm1s()
+    with h5py.File(rdmstmpfile, 'a') as f:
         for i in range(0, nrootspaces):
+            rdm1s = las.state_make_casdm1s(state=i)
             rdm1s_dname = f'rdm1s_{i}'
             f.create_dataset(rdm1s_dname, data=rdm1s)
             rdm2 = las.state_make_casdm2(state=i)
