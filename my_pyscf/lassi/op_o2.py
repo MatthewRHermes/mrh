@@ -18,6 +18,17 @@ contract_ham_ci = op_o1.contract_ham_ci
 fermion_frag_shuffle = op_o1.fermion_frag_shuffle
 fermion_des_shuffle = op_o1.fermion_des_shuffle
 
+class LSTDMint1_rdm (op_o1.LSTDMint1):
+    __doc__ = op_o1.LSTDMint1.__doc__ + '''
+
+    Transpose the transition density matrix arrays so that the lroots indices
+    are fastest-moving, since RDMs require contracting over these indices
+    '''
+
+    def setmanip (self, x):
+        x = np.ascontiguousarray (np.moveaxis (x, [0,1], [-2,-1]))
+        return np.moveaxis (x, [-2,-1], [0,1])
+
 class LRRDMint (op_o1.LRRDMint):
     __doc__ = op_o1.LRRDMint.__doc__ + '''
 
@@ -562,7 +573,10 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     return make_fdm1
 
 def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
-    return op_o1.roots_make_rdm12s (las, ci, nelec_frs, si, _LRRDMint_class=LRRDMint, **kwargs)
+    return op_o1.roots_make_rdm12s (las, ci, nelec_frs, si,
+                                    _LRRDMint_class=LRRDMint,
+                                    _LSTDMint1_class=LSTDMint1_rdm,
+                                    **kwargs)
 
         
 

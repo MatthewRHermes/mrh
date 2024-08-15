@@ -280,6 +280,8 @@ class LSTDMint1 (object):
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
 
+    def setmanip (self, x): return x
+
     # 0-particle intermediate (overlap)
 
     def get_ovlp (self, i, j):
@@ -294,6 +296,7 @@ class LSTDMint1 (object):
         return self.try_get (self._h, s, i, j)
 
     def set_h (self, i, j, s, x):
+        x = self.setmanip (x)
         self._h[s][i][j] = x
         return x
 
@@ -313,6 +316,7 @@ class LSTDMint1 (object):
         #return self._hh[s][i][j]
 
     def set_hh (self, i, j, s, x):
+        x = self.setmanip (x)
         self._hh[s][i][j] = x
         return x
 
@@ -332,6 +336,7 @@ class LSTDMint1 (object):
         return self.try_get (self._phh, s, i, j)
 
     def set_phh (self, i, j, s, x):
+        x = self.setmanip (x)
         self._phh[s][i][j] = x
         return x
 
@@ -350,6 +355,7 @@ class LSTDMint1 (object):
         return self.try_get (self._sm, i, j)
 
     def set_sm (self, i, j, x):
+        x = self.setmanip (x)
         self._sm[i][j] = x
         return x
 
@@ -370,10 +376,9 @@ class LSTDMint1 (object):
         return self.try_get (self.dm1, i, j)
 
     def set_dm1 (self, i, j, x):
-        if j > i:
-            self.dm1[j][i] = x.conj ().transpose (0, 2, 1)
-        else:
-            self.dm1[i][j] = x
+        assert (j <= i)
+        x = self.setmanip (x)
+        self.dm1[i][j] = x
 
     def get_1_dm1 (self, i, j):
         if self.unique_root[self.rootaddr[j]] > self.unique_root[self.rootaddr[i]]:
@@ -393,11 +398,9 @@ class LSTDMint1 (object):
         return self.try_get_1 (self.dm2, i, j)
 
     def set_dm2 (self, i, j, x):
-        if j > i:
-            assert (False)
-            self.dm2[j][i] = x.conj ().transpose (0, 2, 1, 4, 3)
-        else:
-            self.dm2[i][j] = x
+        assert (j <= i)
+        x = self.setmanip (x)
+        self.dm2[i][j] = x
 
     def _init_crunch_(self, screen_linequiv):
         ''' Compute the transition density matrix factors.
@@ -1982,7 +1985,7 @@ class ContractHamCI (LSTDMint2):
         return self.hci_fr_pabq, t0
 
 
-def make_ints (las, ci, nelec_frs, screen_linequiv=True):
+def make_ints (las, ci, nelec_frs, screen_linequiv=True, _LSTDMint1_class=LSTDMint1):
     ''' Build fragment-local intermediates (`LSTDMint1`) for LASSI o1
 
     Args:
@@ -2013,9 +2016,9 @@ def make_ints (las, ci, nelec_frs, screen_linequiv=True):
     rootaddr, fragaddr = get_rootaddr_fragaddr (lroots)
     ints = []
     for ifrag in range (nfrags):
-        tdmint = LSTDMint1 (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index, nlas[ifrag],
-                            nroots, nelec_frs[ifrag], rootaddr, fragaddr[ifrag], ifrag,
-                            screen_linequiv=screen_linequiv)
+        tdmint = _LSTDMint1_class (ci[ifrag], hopping_index[ifrag], zerop_index, onep_index,
+                                   nlas[ifrag], nroots, nelec_frs[ifrag], rootaddr,
+                                   fragaddr[ifrag], ifrag, screen_linequiv=screen_linequiv)
         lib.logger.timer (las, 'LAS-state TDM12s fragment {} intermediate crunching'.format (
             ifrag), *tdmint.time_crunch)
         lib.logger.debug (las, 'UNIQUE ROOTSPACES OF FRAG %d: %d/%d', ifrag,
@@ -2124,7 +2127,8 @@ def ham (las, h1, h2, ci, nelec_frs, **kwargs):
     return ham, s2, ovlp
 
 
-def roots_make_rdm12s (las, ci, nelec_frs, si, _LRRDMint_class=LRRDMint, **kwargs):
+def roots_make_rdm12s (las, ci, nelec_frs, si, _LRRDMint_class=LRRDMint,
+                       _LSTDMint1_class=LSTDMint1, **kwargs):
     ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
 
     Args:
@@ -2151,7 +2155,7 @@ def roots_make_rdm12s (las, ci, nelec_frs, si, _LRRDMint_class=LRRDMint, **kwarg
     dtype = ci[0][0].dtype
 
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = make_ints (las, ci, nelec_frs, _LSTDMint1_class=_LSTDMint1_class)
     nstates = np.sum (np.prod (lroots, axis=0))
 
     # Memory check
