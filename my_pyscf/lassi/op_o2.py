@@ -43,6 +43,34 @@ class LRRDMint (op_o1.LRRDMint):
         self._d1buf_c = c_arr (self.d1buf)
         self._d2buf_c = c_arr (self.d2buf)
 
+    def init_profiling (self):
+        self.dt_1d, self.dw_1d = 0.0, 0.0
+        self.dt_2d, self.dw_2d = 0.0, 0.0
+        self.dt_1c, self.dw_1c = 0.0, 0.0
+        self.dt_1c1d, self.dw_1c1d = 0.0, 0.0
+        self.dt_1s, self.dw_1s = 0.0, 0.0
+        self.dt_1s1c, self.dw_1s1c = 0.0, 0.0
+        self.dt_2c, self.dw_2c = 0.0, 0.0
+        self.dt_o, self.dw_o = 0.0, 0.0
+        self.dt_u, self.dw_u = 0.0, 0.0 
+        self.dt_p, self.dw_p = 0.0, 0.0 
+        self.dt_i, self.dw_i = 0.0, 0.0 
+
+    def sprint_profile (self):
+        fmt_str = '{:>5s} CPU: {:9.2f} ; wall: {:9.2f}'
+        profile = fmt_str.format ('1d', self.dt_1d, self.dw_1d)
+        profile += '\n' + fmt_str.format ('2d', self.dt_2d, self.dw_2d)
+        profile += '\n' + fmt_str.format ('1c', self.dt_1c, self.dw_1c)
+        profile += '\n' + fmt_str.format ('1c1d', self.dt_1c1d, self.dw_1c1d)
+        profile += '\n' + fmt_str.format ('1s', self.dt_1s, self.dw_1s)
+        profile += '\n' + fmt_str.format ('1s1c', self.dt_1s1c, self.dw_1s1c)
+        profile += '\n' + fmt_str.format ('2c', self.dt_2c, self.dw_2c)
+        profile += '\n' + fmt_str.format ('ovlp', self.dt_o, self.dw_o)
+        profile += '\n' + fmt_str.format ('umat', self.dt_u, self.dw_u)
+        profile += '\n' + fmt_str.format ('put', self.dt_p, self.dw_p)
+        profile += '\n' + fmt_str.format ('idx', self.dt_i, self.dw_i)
+        return profile
+
     def get_single_rootspace_sivec (self, iroot):
         '''A single-rootspace slice of the SI vectors, reshaped to expose the lroots.
 
@@ -441,7 +469,7 @@ class LRRDMint (op_o1.LRRDMint):
             self._si_c_ncol, self._norb_c, self._nsrc_c, self._pdest,
             self._dblk_idx, self._sblk_idx, self._lblk, self._nblk)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
-        self.dt_p, self.dw_s = self.dt_p + dt, self.dw_s + dw
+        self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def _crunch_env_(self, _crunch_fn, *row):
         if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
@@ -479,6 +507,30 @@ class LRRDMint (op_o1.LRRDMint):
 
 
 def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
+    ''' Get a function that can build the 1-fragment reduced density matrix
+    in a single rootspace. For unittesting purposes (make_sdm1 in sitools does the same thing)
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        ci : list of list of ndarrays 
+            Contains all CI vectors
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
+        si : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors
+        
+    Returns:
+        make_fdm1 : callable
+            Args:
+                i : integer
+                    Rootspace index
+                j : integer
+                    Fragment index
+            Returns:
+                fdm : ndarray of shape (si.shape[1], lroots[j,i], lroots[j,i])
+                    1-fragment reduced density matrix
+    ''' 
     log = logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     ncas = las.ncas 
