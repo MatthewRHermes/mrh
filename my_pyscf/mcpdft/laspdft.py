@@ -142,9 +142,9 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                                                  grids_level=grids_level, grids_attr=grids_attr, **kwargs)
 
         def multi_state(self, **kwargs):
-            '''
+            """
             In future will have to change this to consider the modal space selection, weights...
-            '''
+            """
             assert self.DoLASSI, "multi_state is only defined for post LAS methods"
             return _LASPDFT.multi_state(self, **kwargs)
 
@@ -156,6 +156,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
 
         else:
             _mc_class.DoLASSI = False
+            mc.fcisolver.nroots = len(mc.ci[0])
 
         if states is not None: _mc_class.states = states
 
