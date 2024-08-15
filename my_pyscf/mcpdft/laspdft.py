@@ -119,13 +119,14 @@ class _LASPDFT(_PDFT):
             raise NotImplementedError(f"StateAverageMix not available for {method}")
 
 
-def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
+def get_mcpdft_child_class(mc, ot, DoLASSI=False,DoPreLASSI=False, states=None,rdmstmpfile=None, **kwargs):
     mc_doc = (mc.__class__.__doc__ or 'No docstring for MC-SCF parent method')
 
     class PDFT(_LASPDFT, mc.__class__):
         __doc__ = mc_doc + '\n\n' + _LASPDFT.__doc__
         _mc_class = mc.__class__
         setattr(_mc_class, 'DoLASSI', None)
+        setattr(_mc_class, 'DoPreLASSI', None)
         setattr(_mc_class, 'states', None)
         setattr(_mc_class, 'statlis', None)
         setattr(_mc_class, 'rdmstmpfile', None)
@@ -154,10 +155,16 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
             _mc_class.DoLASSI = True
             _mc_class.rdmstmpfile = tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
 
+        elif DOPreLASSI:
+            _mc_class.DoLASSI = False
+            _mc_class.DoPreLASSI = True
+            _mc_class.rdmstmpfile = rdmstmpfile if rdmstmpfile is None \
+                else tempfile.NamedTemporaryFile(dir=lib.param.TMPDIR)
         else:
             _mc_class.DoLASSI = False
 
-        if states is not None: _mc_class.states = states
+        if states is not None:
+            _mc_class.states = states
 
 
         if _mc_class.DoLASSI:
@@ -221,6 +228,17 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                 rdmstmpfile = self.rdmstmpfile
                 return make_casdm2s(rdmstmpfile, state).sum((0, 3))
 
+        elif DoPreLASSI:
+            "Reading the RDMs stored in tmp files."
+
+            def make_one_casdm1s(self, ci=None, state=0, **kwargs):
+                rdmstmpfile = self.rdmstmpfile
+                return make_casdm1s(rdmstmpfile, state)
+
+            def make_one_casdm2(self, ci=None, state=0, **kwargs):
+                rdmstmpfile = self.rdmstmpfile
+                return make_casdm2s(rdmstmpfile, state)
+
         else:
             make_one_casdm1s = mc.__class__.state_make_casdm1s
             make_one_casdm2 = mc.__class__.state_make_casdm2
@@ -239,6 +257,14 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
                     else:
                         self.fcisolver.nroots = self.states
                     self._store_rdms()
+                elif DoPreLASSI:
+                    '''
+                    By defualt it will will calculate the energy of all the root-spaces.
+                    Calculating it for the given number of states doesn't make sense.
+                    '''
+                    nroots = len(self._mc_class.ci[0])
+                    self.states = [x for x in range(nroots)]  # LASSI-LPDFT
+                    self.fcisolver.nroots = self.states
                 else:
                     self.e_mcscf, self.e_cas, self.ci, self.mo_coeff, self.mo_energy = \
                         self._mc_class.kernel(self, mo_coeff, ci0=ci0, **kwargs)[:-2]
