@@ -1,11 +1,6 @@
 from pyscf import ao2mo, lib
 from pyscf.mcscf.addons import StateAverageMCSCFSolver
 import numpy as np
-import copy
-from scipy import linalg
-from types import MethodType
-from copy import deepcopy
-from mrh.my_pyscf.df.sparse_df import sparsedf_array
 from mrh.my_pyscf.lassi import lassi
 import h5py
 import tempfile
@@ -19,9 +14,9 @@ except ImportError:
 
 
 def make_casdm1s(filename, i):
-    '''
+    """
     This function stores the rdm1s for the given state 'i' in a tempfile
-    '''
+    """
     with h5py.File(filename, 'r') as f:
         rdm1s_key = f'rdm1s_{i}'
         rdm1s = f[rdm1s_key][:]
@@ -30,9 +25,9 @@ def make_casdm1s(filename, i):
 
 
 def make_casdm2s(filename, i):
-    '''
+    """
     This function stores the rdm2s for the given state 'i' in a tempfile
-    '''
+    """
     with h5py.File(filename, 'r') as f:
         rdm2s_key = f'rdm2s_{i}'
         rdm2s = f[rdm2s_key][:]
@@ -156,10 +151,12 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
 
         else:
             _mc_class.DoLASSI = False
-            mc.fcisolver.nroots = len(mc.ci[0])
+            if mc.ci is not None:
+                mc.fcisolver.nroots = mc.nroots
+            else:
+                mc.fcisolver.nroots = 1
 
         if states is not None: _mc_class.states = states
-
 
         if _mc_class.DoLASSI:
 
@@ -173,46 +170,36 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
             def _store_rdms(self):
                 # MRH: I made it loop over blocks of states to handle the O(N^5) memory cost
                 # If there's enough memory it'll still do them all at once
-                log = lib.logger.new_logger (self, self.verbose)
+                log = lib.logger.new_logger(self, self.verbose)
                 safety_factor = 1.3
-                mem_per_state = safety_factor*8*(2*(self.ncas**2) + 4*(self.ncas**4)) / 1e6
-                current_mem = lib.current_memory ()[0]
+                mem_per_state = safety_factor * 8 * (2 * (self.ncas ** 2) + 4 * (self.ncas ** 4)) / 1e6
+                current_mem = lib.current_memory()[0]
 
                 if current_mem > self.max_memory:
                     log.warn("Current memory usage (%d MB) exceeds maximum memory (%d MB)",
                              current_mem, self.max_memory)
                     nblk = 1
                 else:
-                    nblk = max (1, int ((self.max_memory - current_mem) / mem_per_state)-1)
+                    nblk = max(1, int((self.max_memory - current_mem) / mem_per_state) - 1)
 
-                log.debug ('_store_rdms: looping over %d states at a time of %d total', nblk,
-                           len (self.e_states))
+                log.debug('_store_rdms: looping over %d states at a time of %d total', len(self.states),
+                          nblk)
 
                 rdmstmpfile = self.rdmstmpfile
-                with h5py.File(rdmstmpfile, 'w') as f:
+                with h5py.File(rdmstmpfile, 'a') as f:
                     for i in range(0, len(self.states), nblk):
                         j = min(i + nblk, len(self.states))
 
                         rdm1s, rdm2s = lassi.root_make_rdm12s(self, self.ci, self.si,
-                                state=self.states[i:j])
+                                                              state=self.states[i:j])
                         for k in range(i, j):
                             stateno = self.states[k]
                             rdm1s_dname = f'rdm1s_{stateno}'
                             f.create_dataset(rdm1s_dname, data=rdm1s[k])
                             rdm2s_dname = f'rdm2s_{stateno}'
                             f.create_dataset(rdm2s_dname, data=rdm2s[k])
+
                         rdm1s = rdm2s = None
-
-                        # # This code doesn't seem efficent, have to calculate the casdm1 and casdm2 in different functions.
-
-            # def make_one_casdm1s(self, ci=None, state=0, **kwargs):
-            # with lib.temporary_env (self, verbose=2):
-            # casdm1s = lassi.root_make_rdm12s (self, ci=ci, si=self.si, state=state)[0]
-            # return casdm1s
-            # def make_one_casdm2(self, ci=None, state=0, **kwargs):
-            # with lib.temporary_env (self, verbose=2):
-            # casdm2s = lassi.root_make_rdm12s (self, ci=ci, si=self.si, state=state)[1]
-            # return casdm2s.sum ((0,3))
 
             def make_one_casdm1s(self, ci=None, state=0, **kwargs):
                 rdmstmpfile = self.rdmstmpfile
@@ -233,7 +220,7 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
             Has the same calling signature as the parent kernel method. '''
             with _mcscf_env(self):
                 if self.DoLASSI:
-                    self.statlis = [x for x in range(len(self.e_roots))] # LASSI-LPDFT
+                    self.statlis = [x for x in range(len(self.e_roots))]  # LASSI-LPDFT
                     if self.states is None:
                         self.fcisolver.nroots = len(self.e_roots)
                         self.states = list(range(len(self.e_roots)))
