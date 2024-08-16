@@ -29,6 +29,30 @@ class LSTDMint1_rdm (op_o1.LSTDMint1):
         x = np.ascontiguousarray (np.moveaxis (x, [0,1], [-2,-1]))
         return np.moveaxis (x, [-2,-1], [0,1])
 
+def dot_interleave (a, b):
+    ''' ab...cdx,ij...klx->aibj...ckdl '''
+    #c = np.tensordot (a, b, axes=((-1),(-1)))
+    #axesorder = np.asarray ([list (range (a.ndim-1)), list (range (b.ndim-1))])
+    #axesorder[1] += a.ndim-1
+    #axesorder = list (np.ravel (axesorder.T))
+    #c = c.transpose (*axesorder)
+    #return c
+    assert (a.ndim==b.ndim)
+    if np.iscomplexobj (a) or np.iscomplexobj (b):
+        a = a.astype (np.complex128)
+        b = b.astype (np.complex128)
+        fn = liblassi.LASSIRDMzdotinterleave
+    else:
+        fn = liblassi.LASSIRDMddotinterleave
+    c_shape = tuple (np.ravel (np.stack ((a.shape[:-1], b.shape[:-1]), axis=0).T))
+    c = np.zeros (c_shape, dtype=a.dtype)
+    a_shape = c_arr (np.asarray (a.shape).astype (np.int32))
+    b_shape = c_arr (np.asarray (b.shape).astype (np.int32))
+    ndim = c_int (a.ndim)
+    fn (c_arr (c), c_arr (a), c_arr (b), ndim, a_shape, b_shape)
+    return c
+
+
 class LRRDMint (op_o1.LRRDMint):
     __doc__ = op_o1.LRRDMint.__doc__ + '''
 
@@ -117,10 +141,7 @@ class LRRDMint (op_o1.LRRDMint):
         '''
         axesorder = [i for i in range (self.nfrags) if not (i in inv)] + list (inv) + [self.nfrags,]
         sivec = self.get_single_rootspace_sivec (iroot).transpose (*axesorder)
-        nprods = np.prod (self.lroots[:,iroot])
-        nrows = np.prod (self.lroots[inv,iroot])
-        ncols = nprods // nrows
-        return np.asfortranarray (sivec).reshape ((ncols, nrows, self.nroots_si), order='F').T
+        return np.asfortranarray (sivec).T
 
     def get_fdm (self, rbra, rket, *inv, keyorder=None):
         '''Get the n-fragment density matrices for the fragments identified by inv in the bra and
@@ -154,11 +175,6 @@ class LRRDMint (op_o1.LRRDMint):
         fdm = 0
         for rbra1, rket1 in braket_table:
             fdm += self._get_fdm_1space (rbra1, rket1, *inv)
-        fdm = np.ascontiguousarray (fdm)
-        newshape = [self.nroots_si,] + list (self.lroots[inv,rbra][::-1]) + list (self.lroots[inv,rket][::-1])
-        fdm = fdm.reshape (newshape)
-        axesorder = [0,] + sum ([[i+1, i+1+len(inv)] for i in range (len(inv))], [])
-        fdm = fdm.transpose (*axesorder)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         return np.ascontiguousarray (fdm)
@@ -194,19 +210,16 @@ class LRRDMint (op_o1.LRRDMint):
         specints = [self.ints[i] for i in spec]
         sibra = self.get_frag_transposed_sivec (rbra, *inv)
         siket = self.get_frag_transposed_sivec (rket, *inv)
-        nrows_bra, nrows_ket = sibra.shape[1], siket.shape[1]
         nspec = len (spec)
         if not nspec:
-            return fac * np.stack ([np.dot (b, k.T) for b, k in zip (sibra, siket)], axis=0)
-        sibra_shape = [nroots_si, nrows_bra] + list (self.lroots[spec,rbra][::-1])
-        siket_shape = [nroots_si, nrows_ket] + list (self.lroots[spec,rket][::-1])
-        sibra = sibra.reshape (sibra_shape)
-        siket = siket.reshape (siket_shape)
-        sibra = np.tensordot (sibra, specints[0].get_ovlp (rbra, rket), axes=1)
-        fdm = np.stack ([np.tensordot (b, k, axes=((-1),(-1))) for b, k in zip (sibra, siket)],
-                        axis=0)
-        for i, inti in enumerate (specints[1:]):
-            fdm = np.tensordot (fdm, inti.get_ovlp (rbra,rket), axes=((nspec-i,-1),(0,1)))
+            sibra = np.expand_dims (sibra, -1)
+            siket = np.expand_dims (siket, -1)
+        else:
+            sibra = np.tensordot (sibra, specints[0].get_ovlp (rbra, rket), axes=1)
+        fdm = np.stack ([dot_interleave (b, k) for b, k in zip (sibra, siket)], axis=0)
+        if nspec:
+            for i, inti in enumerate (specints[1:]):
+                fdm = np.tensordot (fdm, inti.get_ovlp (rbra,rket), axes=2)
         return fac * fdm
 
     def _crunch_1d_(self, bra, ket, i):

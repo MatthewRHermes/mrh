@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <omp.h>
 #include <time.h>
+#include <complex.h>
 #include "../fblas.h"
 
 #ifndef MINMAX
@@ -39,6 +40,142 @@
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 */
+
+void get_strides (long * arr_strides, int * arr_shape, int ndim)
+{
+    arr_strides[ndim-1] = 1;
+    for (int i=ndim-2; i >= 0; i--){
+        arr_strides[i] = arr_strides[i+1] * ((long) arr_shape[i+1]);
+    }
+}
+
+void LASSIRDMddotinterleave (double * c, double * a, double * b,
+                             int ndim, int * a_shape, int * b_shape)
+{
+/* evaluate, i.e., c=np.einsum ('ab...cdx,ij...klx->aibj...ckdl',a,b)
+
+   Input:
+        a : array of shape a_shape
+        b : array of shape b_shape
+        ndim : integer
+        a_shape : array of shape (ndim)
+        b_shape : array of shape (ndim)
+
+   Output:
+       c : array of shape given by a_shape and b_shape interleaved, omitting the last dimension
+*/
+const double d_one = 1.0;
+const int i_one = 1;
+const char tran = 'T';
+const char notr = 'N';
+#pragma omp parallel
+{
+    double * a_ptr;
+    double * b_ptr;
+    double * c_ptr;
+    int * c_shape = malloc (2*(ndim-1)*sizeof(int));
+    for (int i = 0; i < ndim-1; i++){
+        c_shape[2*i]     = a_shape[i];
+        c_shape[(2*i)+1] = b_shape[i];
+    }
+    long * a_strides = malloc (ndim*sizeof(long));
+    long * b_strides = malloc (ndim*sizeof(long));
+    long * c_strides = malloc (2*(ndim-1)*sizeof(long));
+    get_strides (a_strides, a_shape, ndim);
+    get_strides (b_strides, b_shape, ndim);
+    get_strides (c_strides, c_shape, 2*(ndim-1));
+
+    long c_size = c_strides[0] * c_shape[0];
+    long c_ncols = ndim > 2 ? c_strides[2*(ndim-1)-3] : c_size;
+    long idx, a_idx, b_idx;
+    #pragma omp for
+    for (long c_irow = 0; c_irow < c_size; c_irow += c_ncols){
+        c_ptr = c + c_irow;
+        a_ptr = a;
+        b_ptr = b;
+        idx = c_irow;
+        for (int idim = 0; idim < ndim-2; idim++){
+            a_idx = idx / c_strides[2*idim];
+            a_ptr += a_strides[idim] * a_idx;
+            idx = idx % c_strides[2*idim];
+            b_idx = idx / c_strides[(2*idim)+1];
+            b_ptr += b_strides[idim] * b_idx;
+            idx = idx % c_strides[(2*idim)+1];
+        }
+        dgemm_(&tran, &notr, &(b_shape[ndim-2]), &(a_shape[ndim-2]), &(a_shape[ndim-1]),
+               &d_one, b_ptr, &(b_shape[ndim-1]), a_ptr, &(a_shape[ndim-1]),
+               &d_one, c_ptr, &(b_shape[ndim-2]));
+    }
+    free (c_shape);
+    free (a_strides);
+    free (b_strides);
+    free (c_strides);
+}
+}
+
+void LASSIRDMzdotinterleave (double complex * c, double complex * a, double complex * b,
+                             int ndim, int * a_shape, int * b_shape)
+{
+/* evaluate, i.e., c=np.einsum ('ab...cdx,ij...klx->aibj...ckdl',a,b)
+
+   Input:
+        a : array of shape a_shape
+        b : array of shape b_shape
+        ndim : integer
+        a_shape : array of shape (ndim)
+        b_shape : array of shape (ndim)
+
+   Output:
+       c : array of shape given by a_shape and b_shape interleaved, omitting the last dimension
+*/
+const double complex z_one = 1.0;
+const int i_one = 1;
+const char tran = 'T';
+const char notr = 'N';
+#pragma omp parallel
+{
+    double complex * a_ptr;
+    double complex * b_ptr;
+    double complex * c_ptr;
+    int * c_shape = malloc (2*(ndim-1)*sizeof(int));
+    for (int i = 0; i < ndim-1; i++){
+        c_shape[2*i]     = a_shape[i];
+        c_shape[(2*i)+1] = b_shape[i];
+    }
+    long * a_strides = malloc (ndim*sizeof(long));
+    long * b_strides = malloc (ndim*sizeof(long));
+    long * c_strides = malloc (2*(ndim-1)*sizeof(long));
+    get_strides (a_strides, a_shape, ndim);
+    get_strides (b_strides, b_shape, ndim);
+    get_strides (c_strides, c_shape, 2*(ndim-1));
+
+    long c_ncols = c_strides[2*(ndim-1)-3];
+    long c_size = c_strides[0] * c_shape[0];
+    long idx, a_idx, b_idx;
+    #pragma omp for
+    for (long c_irow = 0; c_irow < c_size; c_irow += c_ncols){
+        c_ptr = c + c_irow;
+        a_ptr = a;
+        b_ptr = b;
+        idx = c_irow;
+        for (int idim = 0; idim < ndim-2; idim++){
+            a_idx = idx / c_strides[2*idim];
+            a_ptr += a_strides[idim] * a_idx;
+            idx = idx % c_strides[2*idim];
+            b_idx = idx / c_strides[(2*idim)+1];
+            b_ptr += b_strides[idim] * b_idx;
+            idx = idx % c_strides[(2*idim)+1];
+        }
+        zgemm_(&tran, &notr, &(b_shape[ndim-2]), &(a_shape[ndim-2]), &(a_shape[ndim-1]),
+               &z_one, b_ptr, &(b_shape[ndim-1]), a_ptr, &(a_shape[ndim-1]),
+               &z_one, c_ptr, &(b_shape[ndim-2]));
+    }
+    free (c_shape);
+    free (a_strides);
+    free (b_strides);
+    free (c_strides);
+}
+}
 
 void LASSIRDMdgetwgtfac (double * fac, double * wgt, double * sivec,
                          int nbas, int nroots,
