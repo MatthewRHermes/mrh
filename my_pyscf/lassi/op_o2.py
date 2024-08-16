@@ -46,10 +46,15 @@ def dot_interleave (a, b):
         fn = liblassi.LASSIRDMddotinterleave
     c_shape = tuple (np.ravel (np.stack ((a.shape[:-1], b.shape[:-1]), axis=0).T))
     c = np.zeros (c_shape, dtype=a.dtype)
-    a_shape = c_arr (np.asarray (a.shape).astype (np.int32))
-    b_shape = c_arr (np.asarray (b.shape).astype (np.int32))
+    a_strides = c_arr (np.asarray (a.strides) // a.itemsize)
+    b_strides = c_arr (np.asarray (b.strides) // b.itemsize)
+    c_strides = c_arr (np.asarray (c.strides) // c.itemsize)
     ndim = c_int (a.ndim)
-    fn (c_arr (c), c_arr (a), c_arr (b), ndim, a_shape, b_shape)
+    c_nrows = c_int (c.shape[0])
+    m = c_int (a.shape[-2])
+    n = c_int (b.shape[-2])
+    k = c_int (a.shape[-1])
+    fn (c_arr (c), c_arr (a), c_arr (b), c_strides, a_strides, b_strides, ndim, c_nrows, m, n, k)
     return c
 
 
@@ -135,13 +140,13 @@ class LRRDMint (op_o1.LRRDMint):
                 Indices of nonspectator fragments
 
         Returns:
-            sivec: ndarray of shape (nroots_si, nrows, ncols)
-                SI vectors with the faster dimension iterating over states of fragments not in
-                inv and the slower dimension iterating over states of fragments in inv 
+            sivec: ndarray of shape (nroots_si, lroots[inv[-1]], ...)
+                SI vectors with the minor dimensions iterating over states of fragments not in
+                inv and the major dimensions iterating over states of fragments in inv 
         '''
         axesorder = [i for i in range (self.nfrags) if not (i in inv)] + list (inv) + [self.nfrags,]
         sivec = self.get_single_rootspace_sivec (iroot).transpose (*axesorder)
-        return np.asfortranarray (sivec).T
+        return sivec.T
 
     def get_fdm (self, rbra, rket, *inv, keyorder=None):
         '''Get the n-fragment density matrices for the fragments identified by inv in the bra and
@@ -212,14 +217,18 @@ class LRRDMint (op_o1.LRRDMint):
         siket = self.get_frag_transposed_sivec (rket, *inv)
         nspec = len (spec)
         if not nspec:
-            sibra = np.expand_dims (sibra, -1)
-            siket = np.expand_dims (siket, -1)
+            sibra = np.expand_dims (sibra, (-2,-1))
+            siket = np.expand_dims (siket, (-2,-1))
         else:
-            sibra = np.tensordot (sibra, specints[0].get_ovlp (rbra, rket), axes=1)
+            o = specints[0].get_ovlp (rbra, rket)
+            sibra = np.tensordot (sibra, o, axes=1)
+            siket = np.ascontiguousarray (siket)
         fdm = np.stack ([dot_interleave (b, k) for b, k in zip (sibra, siket)], axis=0)
         if nspec:
             for i, inti in enumerate (specints[1:]):
                 fdm = np.tensordot (fdm, inti.get_ovlp (rbra,rket), axes=2)
+        else:
+            fdm = fdm[...,0,0]
         return fac * fdm
 
     def _crunch_1d_(self, bra, ket, i):
