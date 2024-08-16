@@ -197,8 +197,6 @@ class LRRDMint (op_o1.LRRDMint):
         nrows_bra, nrows_ket = sibra.shape[1], siket.shape[1]
         nspec = len (spec)
         if not nspec:
-            assert (sibra.shape == (nroots_si, nrows_bra, 1))
-            assert (siket.shape == (nroots_si, nrows_ket, 1))
             return fac * np.stack ([np.dot (b, k.T) for b, k in zip (sibra, siket)], axis=0)
         sibra_shape = [nroots_si, nrows_bra] + list (self.lroots[spec,rbra][::-1])
         siket_shape = [nroots_si, nrows_ket] + list (self.lroots[spec,rket][::-1])
@@ -207,10 +205,8 @@ class LRRDMint (op_o1.LRRDMint):
         sibra = np.tensordot (sibra, specints[0].get_ovlp (rbra, rket), axes=1)
         fdm = np.stack ([np.tensordot (b, k, axes=((-1),(-1))) for b, k in zip (sibra, siket)],
                         axis=0)
-        assert (fdm.ndim == 1 + 2*nspec)
         for i, inti in enumerate (specints[1:]):
             fdm = np.tensordot (fdm, inti.get_ovlp (rbra,rket), axes=((nspec-i,-1),(0,1)))
-        assert (fdm.shape == (nroots_si,nrows_bra,nrows_ket))
         return fac * fdm
 
     def _crunch_1d_(self, bra, ket, i):
