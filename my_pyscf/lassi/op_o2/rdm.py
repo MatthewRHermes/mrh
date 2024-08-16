@@ -12,9 +12,6 @@ liblassi = load_library ('liblassi')
 def c_arr (arr): return arr.ctypes.data_as(ctypes.c_void_p)
 c_int = ctypes.c_int
 
-make_stdm12s = op_o1.make_stdm12s
-ham = op_o1.ham
-contract_ham_ci = op_o1.contract_ham_ci
 fermion_frag_shuffle = op_o1.fermion_frag_shuffle
 fermion_des_shuffle = op_o1.fermion_des_shuffle
 
@@ -179,12 +176,12 @@ class LRRDMint (op_o1.LRRDMint):
         # must eliminate duplicates, but must also preserve order
         fdm = 0
         for rbra1, rket1 in braket_table:
-            fdm += self._get_fdm_1space (rbra1, rket1, *inv)
+            fdm += self.get_fdm_1space (rbra1, rket1, *inv)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         return np.ascontiguousarray (fdm)
 
-    def _get_fdm_1space (self, rbra, rket, *inv):
+    def get_fdm_1space (self, rbra, rket, *inv):
         '''Get the n-fragment density matrices for the fragments identified by inv in the bra and
         spaces given by rbra and rket. Not necessarily meaningful by itself because basis states
         can appear in multiple rootspaces, so there are multiple (bra,ket) tuples which can
@@ -580,7 +577,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
 
     outerprod._lowertri = False
     def make_fdm1 (iroot, ifrag):
-        fdm = outerprod._get_fdm_1space (iroot, iroot, ifrag)
+        fdm = outerprod.get_fdm_1space (iroot, iroot, ifrag)
         if iroot in ints[ifrag].umat_root:
             umat = ints[ifrag].umat_root[iroot]
             fdm = lib.einsum ('rij,ik,jl->rkl',fdm,umat,umat)
