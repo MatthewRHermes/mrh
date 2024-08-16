@@ -12,9 +12,6 @@ liblassi = load_library ('liblassi')
 def c_arr (arr): return arr.ctypes.data_as(ctypes.c_void_p)
 c_int = ctypes.c_int
 
-make_stdm12s = op_o1.make_stdm12s
-ham = op_o1.ham
-contract_ham_ci = op_o1.contract_ham_ci
 fermion_frag_shuffle = op_o1.fermion_frag_shuffle
 fermion_des_shuffle = op_o1.fermion_des_shuffle
 
