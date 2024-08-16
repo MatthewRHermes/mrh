@@ -153,11 +153,7 @@ class LRRDMint (op_o1.LRRDMint):
         # must eliminate duplicates, but must also preserve order
         fdm = 0
         for rbra1, rket1 in braket_table:
-            b, k, o = self._get_spec_addr_ovlp_1space (rbra1, rket1, *inv)
-            # Numpy pads array dimension to the left
-            sibra = self.get_frag_transposed_sivec (rbra1, *inv)[:,:,b] * o
-            siket = self.get_frag_transposed_sivec (rket1, *inv)[:,:,k]
-            fdm += np.stack ([np.dot (b, k.T) for b, k in zip (sibra, siket)], axis=0)
+            fdm += self.get_fdm_1space (rbra1, rket1, *inv)
         fdm = np.ascontiguousarray (fdm)
         newshape = [self.nroots_si,] + list (self.lroots[inv,rbra][::-1]) + list (self.lroots[inv,rket][::-1])
         fdm = fdm.reshape (newshape)
@@ -167,10 +163,11 @@ class LRRDMint (op_o1.LRRDMint):
         self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
         return np.ascontiguousarray (fdm)
 
-    def _get_spec_addr_ovlp_1space (self, rbra, rket, *inv):
-        '''Obtain the integer indices and overlap*permutation factors for all pairs of model states
-        in the same rootspaces as bra, ket for which a specified list of nonspectator fragments are
-        also in same state that they are in a provided input pair bra, ket.
+    def get_fdm_1space (self, rbra, rket, *inv):
+        '''Get the n-fragment density matrices for the fragments identified by inv in the bra and
+        spaces given by rbra and rket. Not necessarily meaningful by itself because basis states
+        can appear in multiple rootspaces, so there are multiple (bra,ket) tuples which can
+        correspond to the same interaction.
 
         Args:
             rbra: integer
@@ -181,14 +178,13 @@ class LRRDMint (op_o1.LRRDMint):
                 Indices of nonspectator fragments.
 
         Returns:
-            bra_rng: ndarray of integers
-                Indices corresponding to nonzero overlap factors for the ENVs of inv only
-            ket_rng: ndarray of integers
-                Indices corresponding to nonzero overlap factors for the ENVs of inv only
-            o: ndarray of floats
-                Overlap * permutation factors (cf. get_ovlp_fac) corresponding to the interactions
-                bra_rng, ket_rng.
+            fdm : ndarray of shape (nroots_si, prod (lroots[inv,rbra]), prod (lroots[inv,rket]))
+                len(inv)-fragment reduced density matrix
         '''
+        # TODO: get rid of the outer product of overlap matrices here? My first attempt made it
+        # slower though, I guess because of the line filtering out zero-overlap elements.
+        sibra = self.get_frag_transposed_sivec (rbra, *inv)
+        siket = self.get_frag_transposed_sivec (rket, *inv)
         inv = list (set (inv))
         fac = self.spin_shuffle[rbra] * self.spin_shuffle[rket]
         fac *= fermion_frag_shuffle (self.nelec_rf[rbra], inv)
@@ -207,8 +203,12 @@ class LRRDMint (op_o1.LRRDMint):
             o[np.diag_indices_from (o)] *= 0.5
             idx[np.triu_indices_from (idx, k=1)] = False
         o = o[idx]
-        bra_rng, ket_rng = np.where (idx)
-        return bra_rng, ket_rng, o
+        b, k = np.where (idx)
+        # Numpy pads array dimension to the left
+        sibra = sibra[:,:,b] * o
+        siket = siket[:,:,k]
+        fdm = np.stack ([np.dot (b, k.T) for b, k in zip (sibra, siket)], axis=0)
+        return fdm
                 
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
@@ -558,14 +558,9 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
                           max_memory=max_memory, log=log)
 
     # Spoof nonuniq_exc to avoid summing together things that need to be separate
-    for iroot in range (outerprod.nroots):
-        val = [[iroot,iroot]]
-        for ifrag in range (outerprod.nfrags):
-            key = (iroot, iroot, ifrag)
-            outerprod.nonuniq_exc[key] = val
     outerprod._lowertri = False
     def make_fdm1 (iroot, ifrag):
-        fdm = outerprod.get_fdm (iroot, iroot, ifrag)
+        fdm = outerprod.get_fdm_1space (iroot, iroot, ifrag)
         if iroot in ints[ifrag].umat_root:
             umat = ints[ifrag].umat_root[iroot]
             fdm = lib.einsum ('rij,ik,jl->rkl',fdm,umat,umat)
