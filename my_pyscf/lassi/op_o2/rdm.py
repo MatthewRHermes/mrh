@@ -346,7 +346,6 @@ class LRRDMint (op_o1.LRRDMint):
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
-        y, z = min (i, j), max (i, j)
         fac = -1
         d_ = np.tensordot (d_, inti.get_sp (bra, ket), axes=2).transpose (0,3,4,1,2)
         d_ = fac * np.tensordot (d_, intj.get_sm (bra, ket), axes=2)

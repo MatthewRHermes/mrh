@@ -1326,7 +1326,6 @@ class LSTDMint2 (object):
         d2 = self._get_D2_(bra, ket) # aa, ab, ba, bb -> 0, 1, 2, 3
         p, q = self.get_range (i)
         r, s = self.get_range (j)
-        y, z = min (i, j), max (i, j)
         fac = -1
         d2_spsm = fac * np.multiply.outer (self.ints[i].get_1_sp (bra, ket),
                                            self.ints[j].get_1_sm (bra, ket))
@@ -2076,7 +2075,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
     tdm2s = tdm2s.reshape (nstates,nstates,2,2,ncas,ncas,ncas,ncas).transpose (0,2,4,5,3,6,7,1)
     return tdm1s, tdm2s
 
-def ham (las, h1, h2, ci, nelec_frs, **kwargs):
+def ham (las, h1, h2, ci, nelec_frs, _HamS2ovlpint_class=HamS2ovlpint, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
     Args:
@@ -2117,8 +2116,8 @@ def ham (las, h1, h2, ci, nelec_frs, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = HamS2ovlpint (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
-                              max_memory=max_memory, log=log)
+    outerprod = _HamS2ovlpint_class (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
+                                     max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)        
     ham, s2, ovlp, t0 = outerprod.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)        
