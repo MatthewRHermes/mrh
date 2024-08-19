@@ -213,6 +213,9 @@ def get_mcpdft_child_class(mc, ot, DoLASSI=False, states=None, **kwargs):
             make_one_casdm1s = mc.__class__.state_make_casdm1s
             make_one_casdm2 = mc.__class__.state_make_casdm2
 
+        # TODO: compatibility with MC-PDFT checkpoint dumping
+        dump_chk = mc.__class__.dump_chk
+
         # TODO: in pyscf-forge/pyscf/mcpdft/mcpdft.py::optimize_mcscf_, generalize the number
         # of return arguments. Then the redefinition below will be unnecessary. 
         def optimize_mcscf_(self, mo_coeff=None, ci0=None, **kwargs):
