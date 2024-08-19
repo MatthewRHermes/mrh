@@ -217,10 +217,10 @@ class LRRDMint (op_o1.LRRDMint):
         p, q = self.get_range (i)
         d1[:,:,p:q,p:q] = np.tensordot (d_rII, inti.get_dm1 (bra, ket), axes=2)
         d2[:,:,p:q,p:q,p:q,p:q] = np.tensordot (d_rII, inti.get_dm2 (bra, ket), axes=2)
-        self._put_D1_()
-        self._put_D2_()
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
+        self._put_D1_()
+        self._put_D2_()
 
     def _crunch_2d_(self, bra, ket, i, j):
         '''Compute a two-fragment density fluctuation.'''
@@ -239,9 +239,9 @@ class LRRDMint (op_o1.LRRDMint):
         d2[:,(1,2),r:s,r:s,p:q,p:q] = d_[:,(2,1),...].transpose (0,1,4,5,2,3)
         d2[:,(0,3),p:q,r:s,r:s,p:q] = -d_[:,(0,3),...].transpose (0,1,2,5,4,3)
         d2[:,(0,3),r:s,p:q,p:q,r:s] = -d_[:,(0,3),...].transpose (0,1,4,3,2,5)
-        self._put_D2_()
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
+        self._put_D2_()
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
         '''Compute the reduced density matrix elements of a single electron hop; i.e.,
