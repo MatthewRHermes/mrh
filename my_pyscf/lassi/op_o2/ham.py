@@ -45,8 +45,6 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
             inv = row[2:-1]
         else:
             inv = row[2:]
-        if (0 in row[:2]) and (2 in row[:2]):
-            print (_crunch_fn.__name__, row)
         with lib.temporary_env (self, **self._orbrange_env_kwargs (inv)):
             self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
             ham, s2, ninv = _crunch_fn (*row)
@@ -283,22 +281,22 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         nelec_f_bra = self.nelec_rf[bra]
         nelec_f_ket = self.nelec_rf[ket]
         fac = (1,.5)[int ((i,j,s11)==(k,l,s12))] # 1/2 factor of h2 canceled by ijkl <-> klij
-        ham = self.get_ham_2q (l,k,j,i).transpose (2,0,1,3) # BEWARE CONJ
+        ham = self.get_ham_2q (l,k,j,i).transpose (0,2,3,1) # BEWARE CONJ
         if s11==s12 and i!=k and j!=l: # exchange
-            ham -= self.get_ham_2q (l,i,j,k).transpose (2,0,3,1) # BEWARE CONJ
+            ham -= self.get_ham_2q (l,i,j,k).transpose (0,2,1,3) # BEWARE CONJ
         if i == k:
             ham = np.tensordot (self.ints[i].get_pp (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
         else:
-            ham = np.tensordot (self.ints[i].get_p (bra, ket, s11), ham, axes=((-1),(-1)))
             ham = np.tensordot (self.ints[k].get_p (bra, ket, s12), ham, axes=((-1),(-1)))
+            ham = np.tensordot (self.ints[i].get_p (bra, ket, s11), ham, axes=((-1),(-1)))
             fac *= (1,-1)[int (i>k)]
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
         if j == l:
             ham = np.tensordot (self.ints[j].get_hh (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
         else:
-            ham = np.tensordot (self.ints[l].get_h (bra, ket, s12), ham, axes=((-1),(-1)))
             ham = np.tensordot (self.ints[j].get_h (bra, ket, s11), ham, axes=((-1),(-1)))
+            ham = np.tensordot (self.ints[l].get_h (bra, ket, s12), ham, axes=((-1),(-1)))
             fac *= (1,-1)[int (j>l)]
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
@@ -306,7 +304,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         s2 = np.zeros_like (ham)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
-        return ham, s2, (j, l, k, i)
+        return ham, s2, (l, j, i, k)
 
 #ham = op_o1.ham
 def ham (las, h1, h2, ci, nelec_frs, **kwargs):
