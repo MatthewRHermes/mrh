@@ -10,7 +10,7 @@ fermion_des_shuffle = op_o1.fermion_des_shuffle
 # S2 is:
 # (d2aa_ppqq + d2bb_ppqq - d2ab_ppqq - d2ba_ppqq)/4 - (d2ab_pqqp + d2ba_pqqp)/2
 # for two fragments this is (sign?)
-# ((d1a_pp - d1b_pp) * (d1a_qq - d1b_qq))/4 + (sp_pp*sm_qq + sm_pp*sp_qq)/2
+# ((d1a_pp - d1b_pp) * (d1a_qq - d1b_qq))/4 - (sp_pp*sm_qq + sm_pp*sp_qq)/2
 
 class HamS2ovlpint (op_o1.HamS2ovlpint):
     ___doc__ = op_o1.HamS2ovlpint.__doc__ + '''
@@ -45,6 +45,8 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
             inv = row[2:-1]
         else:
             inv = row[2:]
+        if (0 in row[:2]) and (2 in row[:2]):
+            print (_crunch_fn.__name__, row)
         with lib.temporary_env (self, **self._orbrange_env_kwargs (inv)):
             self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
             ham, s2, ninv = _crunch_fn (*row)
@@ -173,17 +175,17 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k), j)
         p_i = self.ints[i].get_p (bra, ket, s1)
         h_j = self.ints[j].get_h (bra, ket, s1)
-        d1s_k = self.ints[k].get_dm1 (bra, ket, s1)
+        d1s_k = self.ints[k].get_dm1 (bra, ket)
         d1_k = d1s_k.sum (2)
-        h_ = self.get_ham_2q (k, k, j, i) # BEWARE CONJ
+        h_ = self.get_ham_2q (k,k,j,i) # BEWARE CONJ
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
         ham = np.tensordot (d1_k, h_, axes=((-2,-1),(-2,-1)))
         d1_k = d1s_k[:,:,s1]
-        h_ = self.get_ham_2q (j,k,k,i).transpose (2,1,0,3) # BEWARE CONJ
+        h_ = self.get_ham_2q (j,k,k,i).transpose (1,2,0,3) # BEWARE CONJ
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
-        h_ = np.tensordot (d1_k, h_, axes=((-2,-1),(-2,-1)))
+        ham -= np.tensordot (d1_k, h_, axes=((-2,-1),(-2,-1)))
         ham *= fac
         s2 = np.zeros_like (ham)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
@@ -212,7 +214,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         ham *= fac
         sp_i = np.trace (sp_i, axis1=-2, axis2=-1)
         sm_j = np.trace (sm_j, axis1=-2, axis2=-1)
-        s2 = fac * np.multiply.outer (sm_j, sp_i)
+        s2 = -fac * np.multiply.outer (sm_j, sp_i)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         return ham, s2, (j, i)
@@ -282,12 +284,14 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         nelec_f_ket = self.nelec_rf[ket]
         fac = (1,.5)[int ((i,j,s11)==(k,l,s12))] # 1/2 factor of h2 canceled by ijkl <-> klij
         ham = self.get_ham_2q (l,k,j,i).transpose (2,0,1,3) # BEWARE CONJ
+        if s11==s12 and i!=k and j!=l: # exchange
+            ham -= self.get_ham_2q (l,i,j,k).transpose (2,0,3,1) # BEWARE CONJ
         if i == k:
             ham = np.tensordot (self.ints[i].get_pp (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
         else:
             ham = np.tensordot (self.ints[i].get_p (bra, ket, s11), ham, axes=((-1),(-1)))
             ham = np.tensordot (self.ints[k].get_p (bra, ket, s12), ham, axes=((-1),(-1)))
-            fac *= (2,-2)[int (i>k)]
+            fac *= (1,-1)[int (i>k)]
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
         if j == l:
@@ -295,14 +299,14 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         else:
             ham = np.tensordot (self.ints[l].get_h (bra, ket, s12), ham, axes=((-1),(-1)))
             ham = np.tensordot (self.ints[j].get_h (bra, ket, s11), ham, axes=((-1),(-1)))
-            fac *= (2,-2)[int (j>l)]
+            fac *= (1,-1)[int (j>l)]
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
         ham *= fac
         s2 = np.zeros_like (ham)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
-        return ham, s2, (l, j, k, i)
+        return ham, s2, (j, l, k, i)
 
 #ham = op_o1.ham
 def ham (las, h1, h2, ci, nelec_frs, **kwargs):

@@ -127,7 +127,11 @@ class KnownValues(unittest.TestCase):
         fps_o0 = [lib.fp (mat) for mat in mats_o0]
         mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
-            with self.subTest(matrix=lbl):
+            with self.subTest(opt=1, matrix=lbl):
+                self.assertAlmostEqual (lib.fp (mat), fp, 9)
+        mats_o2 = op_o2.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
+        for lbl, mat, fp in zip (lbls, mats_o2, fps_o0):
+            with self.subTest(opt=2, matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
     def test_rdm12s (self):
