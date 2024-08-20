@@ -460,7 +460,7 @@ class LASSIS_Scanner(lib.SinglePointScanner):
 
 class LASSIS (LASSI):
     def __init__(self, las, ncharge='s', nspin='s', sa_heff=True, deactivate_vrv=False,
-                 crash_locmin=False, opt=1, **kwargs):
+                 crash_locmin=False, opt=2, **kwargs):
         '''
         Key attributes:
             _las : instance of class `LASCINoSymm`

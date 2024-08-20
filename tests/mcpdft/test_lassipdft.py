@@ -30,11 +30,12 @@ class KnownValues(unittest.TestCase):
         # CASCI limit
         from pyscf import mcpdft
         mc = mcpdft.CASCI (mf, 'tPBE', 4, 4).run ()
-        lsi = LASSI (las1)
-        lsi.kernel ()
-        self.assertAlmostEqual (lsi.e_roots[0], mc.e_mcscf, 7)
         for opt in range (3):
             with self.subTest (opt=opt):
+                lsi = LASSI (las1)
+                lsi.opt = opt
+                lsi.kernel ()
+                self.assertAlmostEqual (lsi.e_roots[0], mc.e_mcscf, 7)
                 from mrh.my_pyscf import mcpdft
                 lsipdft = mcpdft.LASSI (lsi, 'tPBE')
                 lsipdft.opt = opt
