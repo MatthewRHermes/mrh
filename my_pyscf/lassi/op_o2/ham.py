@@ -37,7 +37,8 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         # ...ckbjai -> ...cba...kji
         axesorder = np.arange (arr.ndim, dtype=int).reshape (ndim, 2)
         axesorder = np.ravel (axesorder.T)
-        return arr.transpose (*axesorder)
+        arr = arr.transpose (*axesorder)
+        return arr
 
     def _crunch_env_(self, _crunch_fn, *row):
         if _crunch_fn.__name__ in ('_crunch_1c_', '_crunch_1c1d_', '_crunch_2c_'):
@@ -46,9 +47,9 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
             inv = row[2:]
         with lib.temporary_env (self, **self._orbrange_env_kwargs (inv)):
             self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
-            ham, s2 = _crunch_fn (*row)
-            ham = self.canonical_operator_order (ham, inv)
-            s2 = self.canonical_operator_order (s2, inv)
+            ham, s2, ninv = _crunch_fn (*row)
+            ham = self.canonical_operator_order (ham, ninv)
+            s2 = self.canonical_operator_order (s2, ninv)
             self._put_ham_s2_(row[0], row[1], ham, s2, *inv)
 
     _put_ham_s2_1state_ = op_o1.HamS2ovlpint._put_ham_s2_
@@ -96,7 +97,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         s2 -= m2.sum ((2,3)) / 2
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
-        return ham, s2
+        return ham, s2, (i)
     
     def _crunch_2d_(self, bra, ket, i, j):
         '''Compute a two-fragment density fluctuation.'''
@@ -122,7 +123,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         s2 = np.multiply.outer (mj, mi) / 2
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
-        return ham, s2
+        return ham, s2, (j, i)
 
     def _crunch_1c_(self, bra, ket, i, j, s1):
         '''Compute the reduced density matrix elements of a single electron hop; i.e.,
@@ -149,17 +150,17 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
         ham = h_
-        h_ = self.get_ham_2q (j,i,i,i) # BEWARE CONJ
-        h_ = np.tensordot (pph_i, h_, axes=((-3,-2,-1),(-3,-1,-2)))
-        ham += np.tensordot (h_j, h_, axes=((-1),(-1))) / 2
+        h_jiii = self.get_ham_2q (j,i,i,i) # BEWARE CONJ
+        h_ = np.tensordot (pph_i, h_jiii, axes=((-3,-2,-1),(-3,-1,-2)))
+        ham += np.tensordot (h_j, h_, axes=((-1),(-1)))
         h_ = self.get_ham_2q (j,j,j,i) # BEWARE CONJ
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
-        ham += np.tensordot (phh_j, h_, axes=((-3,-2,-1),(-2,-1,-3))) / 2
+        ham += np.tensordot (phh_j, h_, axes=((-3,-2,-1),(-2,-3,-1)))
         ham *= fac
         s2 = np.zeros_like (ham)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
-        return ham, s2
+        return ham, s2, (j, i)
 
     def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
         '''Compute the reduced density matrix elements of a coupled electron-hop and
@@ -187,7 +188,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         s2 = np.zeros_like (ham)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
-        return ham, s2
+        return ham, s2, (k, j, i)
 
     def _crunch_1s_(self, bra, ket, i, j):
         '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
@@ -214,7 +215,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         s2 = fac * np.multiply.outer (sm_j, sp_i)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
-        return ham, s2
+        return ham, s2, (j, i)
 
     def _crunch_1s1c_(self, bra, ket, i, j, k):
         '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
@@ -242,7 +243,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         s2 = np.zeros_like (ham)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
-        return ham, s2
+        return ham, s2, (k, j, i)
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
         '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
@@ -279,10 +280,8 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         s12 = s2 % 2
         nelec_f_bra = self.nelec_rf[bra]
         nelec_f_ket = self.nelec_rf[ket]
-        fac = 1 # 1/2 factor of h2 canceled by ijkl <-> klij
+        fac = (1,.5)[int ((i,j,s11)==(k,l,s12))] # 1/2 factor of h2 canceled by ijkl <-> klij
         ham = self.get_ham_2q (l,k,j,i).transpose (2,0,1,3) # BEWARE CONJ
-        if s2 == s2T: # same-spin only: exchange
-            ham -= self.get_ham_2q (j,k,l,i).transpose (0,2,1,3) # BEWARE CONJ     
         if i == k:
             ham = np.tensordot (self.ints[i].get_pp (bra, ket, s2lt), ham, axes=((-2,-1),(-2,-1)))
         else:
@@ -303,7 +302,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         s2 = np.zeros_like (ham)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
-        return ham, s2
+        return ham, s2, (l, j, k, i)
 
 #ham = op_o1.ham
 def ham (las, h1, h2, ci, nelec_frs, **kwargs):
