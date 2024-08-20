@@ -4,6 +4,9 @@ from pyscf import lib
 from pyscf.lib import logger
 from itertools import product
 
+fermion_frag_shuffle = op_o1.fermion_frag_shuffle
+fermion_des_shuffle = op_o1.fermion_des_shuffle
+
 # S2 is:
 # (d2aa_ppqq + d2bb_ppqq - d2ab_ppqq - d2ba_ppqq)/4 - (d2ab_pqqp + d2ba_pqqp)/2
 # for two fragments this is (sign?)
@@ -19,6 +22,8 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
     def canonical_operator_order (self, arr, inv):
         assert ((arr.ndim % 2) == 0)
         if arr.ndim < 3: return arr
+        invset = set ()
+        inv = [i for i in inv if not (i in invset or invset.add (i))]
         ndim = arr.ndim // 2
         # sort by fragments
         arr_shape = np.asarray (arr.shape).reshape (ndim, 2)
@@ -136,11 +141,11 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         nelec_f_ket = self.nelec_rf[ket]
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
-        h_ = self.get_ham_2q (j,i) # BEWARE CONJ
+        h_ = self.get_ham_2q (j,i)[s1] # BEWARE CONJ
         p_i = self.ints[i].get_p (bra, ket, s1)
         pph_i = self.ints[i].get_pph (bra, ket, s1).sum (2)
         h_j = self.ints[j].get_h (bra, ket, s1)
-        phh_j = self.ints[i].get_phh (bra, ket, s1).sum (2)
+        phh_j = self.ints[j].get_phh (bra, ket, s1).sum (2)
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
         ham = h_

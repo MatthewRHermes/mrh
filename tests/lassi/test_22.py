@@ -76,6 +76,13 @@ class KnownValues(unittest.TestCase):
         u, svals, vh = linalg.svd (ovlp)
         self.assertAlmostEqual (lib.fp (svals), lib.fp (np.ones (len (svals))), 8)
 
+    def test_op_o2 (self):
+        e_roots, si = LASSI (lsi._las).kernel (opt=2)
+        self.assertAlmostEqual (lib.fp (e_roots), lib.fp (lsi.e_roots), 8)
+        ovlp = si.conj ().T @ lsi.si
+        u, svals, vh = linalg.svd (ovlp)
+        self.assertAlmostEqual (lib.fp (svals), lib.fp (np.ones (len (svals))), 8)
+
     def test_casci_limit (self):
         # CASCI limit
         casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
