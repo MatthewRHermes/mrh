@@ -1,4 +1,8 @@
+import numpy as np
 from mrh.my_pyscf.lassi import op_o1
+from pyscf import lib
+from pyscf.lib import logger
+from itertools import product
 
 # S2 is:
 # (d2aa_ppqq + d2bb_ppqq - d2ab_ppqq - d2ba_ppqq)/4 - (d2ab_pqqp + d2ba_pqqp)/2
@@ -38,17 +42,17 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         with lib.temporary_env (self, **self._orbrange_env_kwargs (inv)):
             self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
             ham, s2 = _crunch_fn (*row)
-            ham = self.canonical_operator_order (ham)
-            s2 = self.canonical_operator_order (s2)
+            ham = self.canonical_operator_order (ham, inv)
+            s2 = self.canonical_operator_order (s2, inv)
             self._put_ham_s2_(row[0], row[1], ham, s2, *inv)
 
     _put_ham_s2_1state_ = op_o1.HamS2ovlpint._put_ham_s2_
 
     def _put_ham_s2_(self, bra, ket, ham, s2, *inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        7# TODO: vectorize this part
-        bra_rng = self._get_addr_range (row[0], *inv)
-        ket_rng = self._get_addr_range (row[1], *inv)
+        # TODO: vectorize this part
+        bra_rng = self._get_addr_range (bra, *inv)
+        ket_rng = self._get_addr_range (ket, *inv)
         ham = ham.ravel ()
         s2 = s2.ravel ()
         for ham_bk, s2_bk, (bra1, ket1) in zip (ham, s2, product (bra_rng, ket_rng)):
@@ -75,8 +79,8 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         inti = self.ints[i]
         d1s = inti.get_dm1 (bra, ket)
         d2s = inti.get_dm2 (bra, ket)
-        d2 = d2.sum (2)
-        ham  = np.tensordot (d1s, self.get_ham_2q (i,i), axes=2)
+        d2 = d2s.sum (2)
+        ham  = np.tensordot (d1s, self.get_ham_2q (i,i), axes=3)
         ham += np.tensordot (d2, self.get_ham_2q (i,i,i,i), axes=4) * .5
         s2 = 3 * np.trace (d1s, axis1=-2, axis2=-1).sum (-1) / 4
         m2 = d2s.diagonal (axis1=3,axis2=4).diagonal (axis1=3, axis2=4).sum ((3,4)) / 4
@@ -296,9 +300,9 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         return ham, s2
 
-ham = op_o1.ham
-#def ham (las, h1, h2, ci, nelec_frs, **kwargs):
-#    return op_o1.ham (las, h1, h2, ci, nelec_frs,
-#                      _HamS2ovlpint_class=HamS2ovlpint)
+#ham = op_o1.ham
+def ham (las, h1, h2, ci, nelec_frs, **kwargs):
+    return op_o1.ham (las, h1, h2, ci, nelec_frs,
+                      _HamS2ovlpint_class=HamS2ovlpint)
 
 

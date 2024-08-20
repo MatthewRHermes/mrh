@@ -364,7 +364,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         if soc:
             h1_sf = (h1[0:las.ncas,0:las.ncas]
                      - h1[las.ncas:2*las.ncas,las.ncas:2*las.ncas]).real/2
-        ham_blk, s2_blk, ovlp_blk = op_o1.ham (las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym,
+        ham_blk, s2_blk, ovlp_blk = op[opt].ham (las, h1_sf, h2, ci_blk, nelec_blk, orbsym=orbsym,
                                                wfnsym=wfnsym)
         t0 = lib.logger.timer (las, 'LASSI diagonalizer rootsym {} TDM algorithm'.format (
             rootsym), *t0)
