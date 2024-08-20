@@ -22,7 +22,7 @@ from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
+from mrh.my_pyscf.lassi import op_o0, op_o1, op_o2, lassis
 from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 
@@ -60,7 +60,7 @@ def setUpModule ():
     # CASCI limit
     mc = mcscf.CASCI (mf, 4, 4).run ()
 
-    op = (op_o0, op_o1)
+    op = (op_o0, op_o1, op_o2)
 
 def tearDownModule():
     global mol, mf, lsi, las, mc, op
@@ -132,7 +132,7 @@ class KnownValues(unittest.TestCase):
         lroots_prod = np.prod (lroots, axis=0)
         nj = np.cumsum (lroots_prod)
         ni = nj - lroots_prod
-        for opt in range (2):
+        for opt in range (3):
             hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
             for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
                 current_order = list (range (las.nfrags-1, -1, -1)) + [las.nfrags]
@@ -150,14 +150,14 @@ class KnownValues(unittest.TestCase):
                     for s, (k, l) in enumerate (zip (ni, nj)):
                         hket_pq_s = hket_pq[:,k:l]
                         hket_ref_s = hket_ref[:,k:l]
-                        # TODO: opt=1 for things other than single excitation
-                        if opt==1 and not spaces[r].is_single_excitation_of (spaces[s]): continue
+                        # TODO: opt>0 for things other than single excitation
+                        if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
                         #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
                         with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s):
                             self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
 
     def test_lassis (self):
-        for opt in (0,1):
+        for opt in (0,1,2):
             with self.subTest (opt=opt):
                 lsis = lassis.LASSIS (las).run (opt=opt)
                 e_upper = las.e_states[0]
