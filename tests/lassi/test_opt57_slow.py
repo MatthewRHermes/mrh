@@ -160,10 +160,15 @@ class KnownValues(unittest.TestCase):
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        mats_o2 = op_o2.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
+        t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #print (t1-t0, t2-t1)
         #print (w1-w0, w2-w1)
         fps_o0 = [lib.fp (mat) for mat in mats_o0]
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
+            with self.subTest(matrix=lbl):
+                self.assertAlmostEqual (lib.fp (mat), fp, 9)
+        for lbl, mat, fp in zip (lbls, mats_o2, fps_o0):
             with self.subTest(matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
