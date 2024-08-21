@@ -20,22 +20,33 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
     '''
 
     def canonical_operator_order (self, arr, inv):
+        ''' Transpose an operator array for an interaction involving a single pair of rootspaces
+        from fragment-major to fragment-minor (bra-ket major) order with decreasing fragment index
+        from left to right. No actual data transposition is carried out, only the strides are
+        permuted.
+
+        Args:
+            arr : ndarray of shape (lroots[inv[0],bra],lroots[inv[0],ket],
+                                    lroots[inv[1],bra],lroots[inv[1],ket],...)
+            inv : list of integers
+                Fragments involved in this array
+
+        Returns:
+            arr : discontiguous ndarray of shape (...,lroots[j,bra],lroots[i,bra],
+                                                  ...,lroots[j,ket],lroots[i,ket])
+                Where [i,j,...] = list (set (inv))
+        '''
+        if arr is None or arr.ndim < 3: return arr
         assert ((arr.ndim % 2) == 0)
-        if arr.ndim < 3: return arr
         invset = set ()
         inv = [i for i in inv if not (i in invset or invset.add (i))]
         ndim = arr.ndim // 2
         # sort by fragments
-        arr_shape = np.asarray (arr.shape).reshape (ndim, 2)
-        arr = arr.reshape (np.prod (arr_shape, axis=1))
+        axesorder = np.arange (arr.ndim, dtype=int).reshape (ndim, 2)
         inv = np.asarray (inv)
         idx = list (np.argsort (-inv))
-        arr = arr.transpose (*idx)
-        arr_shape = arr_shape[idx,:]
-        arr_shape = arr_shape.ravel ()
-        arr = arr.reshape (arr_shape)
+        axesorder = axesorder[idx]
         # ...ckbjai -> ...cba...kji
-        axesorder = np.arange (arr.ndim, dtype=int).reshape (ndim, 2)
         axesorder = np.ravel (axesorder.T)
         arr = arr.transpose (*axesorder)
         return arr
@@ -45,39 +56,48 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
             inv = row[2:-1]
         else:
             inv = row[2:]
-        with lib.temporary_env (self, **self._orbrange_env_kwargs (inv)):
-            self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
-            ham, s2, ninv = _crunch_fn (*row)
-            ham = self.canonical_operator_order (ham, ninv)
-            s2 = self.canonical_operator_order (s2, ninv)
-            self._put_ham_s2_(row[0], row[1], ham, s2, *inv)
+        self._prepare_spec_addr_ovlp_(row[0], row[1], *inv)
+        ham, s2, ninv = _crunch_fn (*row)
+        ham = self.canonical_operator_order (ham, ninv)
+        s2 = self.canonical_operator_order (s2, ninv)
+        self._put_ham_s2_(row[0], row[1], ham, s2, *inv)
 
-    _put_ham_s2_1state_ = op_o1.HamS2ovlpint._put_ham_s2_
+    def _put_op_(self, op, bra, ket, opval, wgt):
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        op[bra,ket] += wgt * opval
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_s, self.dw_s = self.dt_s + dt, self.dw_s + dw
 
     def _put_ham_s2_(self, bra, ket, ham, s2, *inv):
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
         # TODO: vectorize this part
-        bra_rng = self._get_addr_range (bra, *inv)
-        ket_rng = self._get_addr_range (ket, *inv)
-        ham = ham.ravel ()
-        s2 = s2.ravel ()
-        for ham_bk, s2_bk, (bra1, ket1) in zip (ham, s2, product (bra_rng, ket_rng)):
+        bra_rng = self._get_addr_range (bra, *inv) # profiled as idx
+        ket_rng = self._get_addr_range (ket, *inv) # profiled as idx
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        ham = ham.flat
+        if s2 is None:
+            def _put_s2_(b,k,i,w): pass
+        else:
+            s2 = s2.flat
+            def _put_s2_(b,k,i,w): self._put_op_(self.s2, b, k, s2[i], w)
+        for ix, (bra1, ket1) in enumerate (product (bra_rng, ket_rng)):
             bra2, ket2, wgt = self._get_spec_addr_ovlp (bra1, ket1, *inv)
-            self._put_ham_s2_1state_(bra2, ket2, ham_bk, s2_bk, wgt)
+            self._put_op_(self.ham, bra2, ket2, ham[ix], wgt)
+            _put_s2_(bra2, ket2, ix, wgt)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
     def get_ham_2q (self, *inv):
+        # IDK why np.ascontiguousarray is required, but I fail unittests w/o it
         assert (len (inv) in (2,4))
         i, j = inv[:2]
         p, q = self.get_range (i)
         r, s = self.get_range (j)
         if len (inv) == 2:
-            return self.h1[:,p:q,r:s]
+            return np.ascontiguousarray (self.h1[:,p:q,r:s])
         k, l = inv[2:]
         t, u = self.get_range (k)
         v, w = self.get_range (l)
-        return self.h2[p:q,r:s,t:u,v:w]
+        return np.ascontiguousarray (self.h2[p:q,r:s,t:u,v:w])
 
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
@@ -157,7 +177,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         h_ = np.tensordot (p_i, h_, axes=((-1),(-1)))
         ham += np.tensordot (phh_j, h_, axes=((-3,-2,-1),(-2,-3,-1)))
         ham *= fac
-        s2 = np.zeros_like (ham)
+        s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
         return ham, s2, (j, i)
@@ -185,7 +205,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         h_ = np.tensordot (h_j, h_, axes=((-1),(-1)))
         ham -= np.tensordot (d1_k, h_, axes=((-2,-1),(-2,-1)))
         ham *= fac
-        s2 = np.zeros_like (ham)
+        s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
         return ham, s2, (k, j, i)
@@ -240,7 +260,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         ham = np.tensordot (self.ints[j].get_h (bra, ket, 1), ham, axes=((-1),(-1)))
         ham = np.tensordot (self.ints[k].get_sm (bra, ket), ham, axes=((-2,-1),(-2,-1)))
         ham *= fac
-        s2 = np.zeros_like (ham)
+        s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
         return ham, s2, (k, j, i)
@@ -301,7 +321,7 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
             fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
         ham *= fac
-        s2 = np.zeros_like (ham)
+        s2 = None
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         return ham, s2, (l, j, i, k)
