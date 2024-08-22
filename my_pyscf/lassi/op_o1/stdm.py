@@ -3,8 +3,8 @@ from pyscf import lib
 from pyscf.lib import logger
 from itertools import product
 from mrh.my_pyscf.lassi.citools import get_rootaddr_fragaddr, umat_dot_1frag_
-from mrh.my_pyscf.lassi.op_o2 import frag
-from mrh.my_pyscf.lassi.op_o2.utilities import *
+from mrh.my_pyscf.lassi.op_o1 import frag
+from mrh.my_pyscf.lassi.op_o1.utilities import *
 
 # C interface
 import ctypes

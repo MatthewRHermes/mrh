@@ -80,7 +80,7 @@ class LASSIrq_Scanner(lib.SinglePointScanner):
 
 
 class LASSIrq (LASSI):
-    def __init__(self, las, r=0, q=1, opt=2, **kwargs):
+    def __init__(self, las, r=0, q=1, opt=1, **kwargs):
         self.r = r
         self.q = q
         LASSI.__init__(self, las, opt=opt, **kwargs)

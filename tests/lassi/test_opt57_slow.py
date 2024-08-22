@@ -30,7 +30,6 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
-from mrh.my_pyscf.lassi import op_o2
 
 def setUpModule ():
     global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
@@ -160,15 +159,10 @@ class KnownValues(unittest.TestCase):
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         mats_o1 = op_o1.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        mats_o2 = op_o2.ham (las, h1, h2, las.ci, nelec_frs, orbsym=orbsym, wfnsym=wfnsym)
-        t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #print (t1-t0, t2-t1)
         #print (w1-w0, w2-w1)
         fps_o0 = [lib.fp (mat) for mat in mats_o0]
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
-            with self.subTest(matrix=lbl):
-                self.assertAlmostEqual (lib.fp (mat), fp, 9)
-        for lbl, mat, fp in zip (lbls, mats_o2, fps_o0):
             with self.subTest(matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
@@ -178,8 +172,6 @@ class KnownValues(unittest.TestCase):
         t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
         d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
         t2, w2 = lib.logger.process_clock (), lib.logger.perf_counter ()
-        d12_o2 = op_o2.roots_make_rdm12s (las, las.ci, nelec_frs, si, orbsym=orbsym, wfnsym=wfnsym)
-        t3, w3 = lib.logger.process_clock (), lib.logger.perf_counter ()
         #print (t1-t0, t2-t1, t3-t2)
         #print (w1-w0, w2-w1, w3-w2)
         for r in range (2):
@@ -187,9 +179,6 @@ class KnownValues(unittest.TestCase):
                 with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
-                with self.subTest (rank=r+1, root=i, opt=2):
-                    self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
-                        lib.fp (d12_o2[r][i]), 9)
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-space (91-state) manifold")

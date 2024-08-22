@@ -9,7 +9,7 @@ from mrh.my_pyscf.mcscf.lasscf_o0 import LASSCF
 from mrh.my_pyscf import lassi
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s
-from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
+from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 
 def setUpModule():
     global mol, mf, mc_ss, mc_sa, mc_exc, las_exc, lsi
@@ -46,31 +46,25 @@ class KnownValues(unittest.TestCase):
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5).run ()
         e_o0,si_o0=las.lassi(opt=0)
         e_o1,si_o1=las.lassi(opt=1)
-        e_o2,si_o2=las.lassi(opt=2)
         self.assertAlmostEqual (e_o0[0], mc_ss.e_tot, 7)
         self.assertAlmostEqual (e_o1[0], mc_ss.e_tot, 7)
-        self.assertAlmostEqual (e_o2[0], mc_ss.e_tot, 7)
 
     def test_sa (self):
         las = LASSCF (mf, (4,), (4,), spin_sub=(1,)).set (conv_tol_grad=1e-5)
         las.state_average_(weights=[0.5,0.5], spins=[0,2]).run ()
         e_o0,si_o0=las.lassi(opt=0)
         e_o1,si_o1=las.lassi(opt=1)
-        e_o2,si_o2=las.lassi(opt=2)
-        for e_si0, e_si1, e_si2, e_mc in zip (e_o0, e_o1, e_o2, mc_sa.e_states):
+        for e_si0, e_si1, e_mc in zip (e_o0, e_o1, mc_sa.e_states):
             self.assertAlmostEqual (e_si0, e_mc, 7)
             self.assertAlmostEqual (e_si1, e_mc, 7)
-            self.assertAlmostEqual (e_si2, e_mc, 7)
 
     def test_exc (self):
         las = las_exc
         e_o0,si_o0=las.lassi(opt=0)
         e_o1,si_o1=las.lassi(opt=1)
-        e_o2,si_o2=las.lassi(opt=2)
-        for e_si0, e_si1, e_si2, e_mc in zip (e_o0, e_o1, e_o2, mc_exc.e_tot):
+        for e_si0, e_si1, e_mc in zip (e_o0, e_o1, mc_exc.e_tot):
             self.assertAlmostEqual (e_si0, e_mc, 7)
             self.assertAlmostEqual (e_si1, e_mc, 7)
-            self.assertAlmostEqual (e_si2, e_mc, 7)
 
     def test_fdm1 (self):
         fdm1 = get_fdm1_maker (lsi, lsi.ci, lsi.get_nelec_frs (), lsi.si) (0,0)
@@ -82,7 +76,7 @@ class KnownValues(unittest.TestCase):
 
     def test_rdms (self):
         d1_ref, d2_ref = roots_make_rdm12s (lsi, lsi.ci, lsi.si, opt=0)
-        for opt in range (1,3):
+        for opt in range (1,2):
             d1_test, d2_test = roots_make_rdm12s (lsi, lsi.ci, lsi.si, opt=opt)
             with self.subTest (opt=opt):
                 self.assertAlmostEqual (lib.fp (d1_test), lib.fp (d1_ref), 7)

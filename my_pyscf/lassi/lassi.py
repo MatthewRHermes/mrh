@@ -3,7 +3,6 @@ import time
 from scipy import linalg
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
-from mrh.my_pyscf.lassi import op_o2
 from mrh.my_pyscf.lassi import chkfile
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib, symm, ao2mo
@@ -26,7 +25,7 @@ from pyscf import __config__
 
 LINDEP_THRESH = getattr (__config__, 'lassi_lindep_thresh', 1.0e-5)
 
-op = (op_o0, op_o1, op_o2)
+op = (op_o0, op_o1)
 
 def ham_2q (las, mo_coeff, veff_c=None, h2eff_sub=None, soc=0):
     '''Construct second-quantization Hamiltonian in CAS, using intermediates from
@@ -236,7 +235,7 @@ class LASSIOop01DisagreementError (RuntimeError):
         return self.message
 
 def lassi (las, mo_coeff=None, ci=None, veff_c=None, h2eff_sub=None, orbsym=None, soc=False,
-           break_symmetry=False, opt=2):
+           break_symmetry=False, opt=1):
     ''' Diagonalize the state-interaction matrix of LASSCF '''
     if mo_coeff is None: mo_coeff = las.mo_coeff
     if ci is None: ci = las.ci
@@ -439,7 +438,7 @@ def _eig_block (las, e0, h1, h2, ci_blk, nelec_blk, rootsym, soc, orbsym, wfnsym
         else: raise (err) from None
     return e, c, s2_blk
 
-def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=2):
+def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, opt=1):
     ''' Evaluate <I|p'q|J> and <I|p'r'sq|J> where |I>, |J> are LAS states.
 
         Args:
@@ -549,7 +548,7 @@ def make_stdm12s (las, ci=None, orbsym=None, soc=False, break_symmetry=False, op
     return stdm1s, stdm2s
 
 def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, rootsym=None,
-                       opt=2):
+                       opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of LASSI states
 
         Args:
@@ -659,7 +658,7 @@ def roots_make_rdm12s (las, ci, si, orbsym=None, soc=None, break_symmetry=None, 
     return rdm1s, rdm2s
 
 def root_make_rdm12s (las, ci, si, state=0, orbsym=None, soc=None, break_symmetry=None,
-                      rootsym=None, opt=2):
+                      rootsym=None, opt=1):
     '''Evaluate 1- and 2-electron reduced density matrices of one single LASSI state
 
         Args:
@@ -713,7 +712,7 @@ class LASSI(lib.StreamObject):
     '''
     LASSI Method class
     '''
-    def __init__(self, las, mo_coeff=None, ci=None, soc=False, break_symmetry=False, opt=2,
+    def __init__(self, las, mo_coeff=None, ci=None, soc=False, break_symmetry=False, opt=1,
                  **kwargs):
         from mrh.my_pyscf.mcscf.lasci import LASCINoSymm
         if isinstance(las, LASCINoSymm): self._las = las

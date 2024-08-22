@@ -2,8 +2,8 @@ import numpy as np
 from pyscf import lib
 from pyscf.lib import logger
 from itertools import product
-from mrh.my_pyscf.lassi.op_o2 import frag, stdm
-from mrh.my_pyscf.lassi.op_o2.utilities import *
+from mrh.my_pyscf.lassi.op_o1 import frag, stdm
+from mrh.my_pyscf.lassi.op_o1.utilities import *
 
 # S2 is:
 # (d2aa_ppqq + d2bb_ppqq - d2ab_ppqq - d2ba_ppqq)/4 - (d2ab_pqqp + d2ba_pqqp)/2

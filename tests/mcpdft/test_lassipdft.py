@@ -30,7 +30,7 @@ class KnownValues(unittest.TestCase):
         # CASCI limit
         from pyscf import mcpdft
         mc = mcpdft.CASCI (mf, 'tPBE', 4, 4).run ()
-        for opt in range (3):
+        for opt in range (2):
             with self.subTest (opt=opt):
                 lsi = LASSI (las1)
                 lsi.opt = opt

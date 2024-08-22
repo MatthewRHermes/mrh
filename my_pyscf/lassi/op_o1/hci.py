@@ -2,8 +2,8 @@ import numpy as np
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.fci import cistring 
-from mrh.my_pyscf.lassi.op_o2 import stdm, frag, hams2ovlp
-from mrh.my_pyscf.lassi.op_o2.utilities import *
+from mrh.my_pyscf.lassi.op_o1 import stdm, frag, hams2ovlp
+from mrh.my_pyscf.lassi.op_o1.utilities import *
 
 class ContractHamCI (stdm.LSTDMint2):
     __doc__ = stdm.LSTDMint2.__doc__ + '''

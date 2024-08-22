@@ -29,9 +29,8 @@ from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, roots_make_rdm12s
 from mrh.my_pyscf.lassi.lassi import make_stdm12s, ham_2q, las_symm_tuple
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
-from mrh.my_pyscf.lassi import op_o2
 from mrh.my_pyscf.lassi import LASSIS
-from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
+from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 
 def setUpModule ():
@@ -129,23 +128,15 @@ class KnownValues(unittest.TestCase):
         for lbl, mat, fp in zip (lbls, mats_o1, fps_o0):
             with self.subTest(opt=1, matrix=lbl):
                 self.assertAlmostEqual (lib.fp (mat), fp, 9)
-        mats_o2 = op_o2.ham (las, h1, h2, las.ci, nelec_frs)#, orbsym=orbsym, wfnsym=wfnsym)
-        for lbl, mat, fp in zip (lbls, mats_o2, fps_o0):
-            with self.subTest(opt=2, matrix=lbl):
-                self.assertAlmostEqual (lib.fp (mat), fp, 9)
 
     def test_rdm12s (self):
         d12_o0 = op_o0.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
         d12_o1 = op_o1.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
-        d12_o2 = op_o2.roots_make_rdm12s (las, las.ci, nelec_frs, si)#, orbsym=orbsym, wfnsym=wfnsym)
         for r in range (2):
             for i in range (nroots):
                 with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
-                with self.subTest (rank=r+1, root=i, opt=2):
-                    self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
-                        lib.fp (d12_o2[r][i]), 9)
                 with self.subTest ('single matrix constructor', opt=0, rank=r+1, root=i):
                     d12_o0_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
                                                     break_symmetry=False, opt=0)[r]
@@ -154,12 +145,6 @@ class KnownValues(unittest.TestCase):
                     d12_o1_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
                                                     break_symmetry=False, opt=1)[r]
                     self.assertAlmostEqual (lib.fp (d12_o1_test), lib.fp (d12_o0[r][i]), 9)
-                # I don't need to test o2 with this separately because the index-down is
-                # entirely within the o1 parent function
-                #with self.subTest ('single matrix constructor', opt=2, rank=r+1, root=i):
-                #    d12_o2_test = root_make_rdm12s (las, las.ci, si, state=i, soc=False,
-                #                                    break_symmetry=False, opt=1)[r]
-                #    self.assertAlmostEqual (lib.fp (d12_o2_test), lib.fp (d12_o0[r][i]), 9)
 
     def test_lassis (self):
         las0 = las.get_single_state_las (state=0)

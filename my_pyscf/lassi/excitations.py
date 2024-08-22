@@ -6,12 +6,12 @@ from pyscf.fci.direct_spin1 import _unpack_nelec
 from pyscf.mcscf.addons import StateAverageFCISolver
 from mrh.my_pyscf.mcscf.productstate import ProductStateFCISolver, ImpureProductStateFCISolver, state_average_fcisolver
 from mrh.my_pyscf.fci import csf_solver
-from mrh.my_pyscf.lassi import op_o0, op_o1, op_o2
+from mrh.my_pyscf.lassi import op_o0, op_o1
 from mrh.my_pyscf.lassi.citools import get_lroots
 from pyscf import lib
 from pyscf.lib import temporary_env
 from pyscf import __config__
-op = (op_o0, op_o1, op_o2)
+op = (op_o0, op_o1)
 
 LOWEST_REFOVLP_EIGVAL_THRESH = getattr (__config__, 'lassi_excitations_refovlp_eigval_thresh', 1e-9)
 IMAG_SHIFT = getattr (__config__, 'lassi_excitations_imag_shift', 1e-6)

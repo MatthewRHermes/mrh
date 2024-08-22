@@ -1,7 +1,8 @@
-from mrh.my_pyscf.lassi.op_o2.stdm import make_stdm12s
-from mrh.my_pyscf.lassi.op_o2.hams2ovlp import ham
-from mrh.my_pyscf.lassi.op_o2.hci import contract_ham_ci
-from mrh.my_pyscf.lassi.op_o2.rdm import roots_make_rdm12s, get_fdm1_maker
+from mrh.my_pyscf.lassi.op_o1.stdm import make_stdm12s
+from mrh.my_pyscf.lassi.op_o1.hams2ovlp import ham
+from mrh.my_pyscf.lassi.op_o1.hci import contract_ham_ci
+from mrh.my_pyscf.lassi.op_o1.rdm import roots_make_rdm12s, get_fdm1_maker
+from mrh.my_pyscf.lassi.op_o1.utilities import *
 
 # NOTE: PySCF has a strange convention where
 # dm1[p,q] = <q'p>, but
