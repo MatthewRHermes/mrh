@@ -280,7 +280,7 @@ class LSTDMint1 (object):
             errstr = errstr + '\nhopping_index entry: {}'.format (self.hopping_index[:,ir,jr])
             raise RuntimeError (errstr)
 
-    def setmanip (self, x): return x
+    def setmanip (self, x): return np.ascontiguousarray (x)
 
     # 0-particle intermediate (overlap)
 
