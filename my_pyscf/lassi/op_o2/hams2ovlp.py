@@ -1,23 +1,94 @@
 import numpy as np
-from mrh.my_pyscf.lassi import op_o1
 from pyscf import lib
 from pyscf.lib import logger
 from itertools import product
-
-fermion_frag_shuffle = op_o1.fermion_frag_shuffle
-fermion_des_shuffle = op_o1.fermion_des_shuffle
+from mrh.my_pyscf.lassi.op_o2 import frag, stdm
+from mrh.my_pyscf.lassi.op_o2.utilities import *
 
 # S2 is:
 # (d2aa_ppqq + d2bb_ppqq - d2ab_ppqq - d2ba_ppqq)/4 - (d2ab_pqqp + d2ba_pqqp)/2
 # for two fragments this is (sign?)
 # ((d1a_pp - d1b_pp) * (d1a_qq - d1b_qq))/4 - (sp_pp*sm_qq + sm_pp*sp_qq)/2
 
-class HamS2ovlpint (op_o1.HamS2ovlpint):
-    ___doc__ = op_o1.HamS2ovlpint.__doc__ + '''
+class HamS2ovlpint (stdm.LSTDMint2):
+    __doc__ = stdm.LSTDMint2.__doc__ + '''
 
-    SUBCLASS: vectorize lroots
+    SUBCLASS: Hamiltonian, spin-squared, and overlap matrices
 
+    `kernel` call returns operator matrices without cacheing stdm12s array
+
+    Additional args:
+        h1 : ndarray of size ncas**2 or 2*(ncas**2)
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization,
+            optionally spin-separated
+        h2 : ndarray of size ncas**4
+            Contains 2-electron Hamiltonian amplitudes in second quantization
     '''
+    # TODO: SO-LASSI o1 implementation: the one-body spin-orbit coupling part of the
+    # Hamiltonian in addition to h1 and h2, which are spin-symmetric
+
+    def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
+                 mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
+        stdm.LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots,
+                                mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
+                                log=log, max_memory=max_memory, dtype=dtype)
+        if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
+        self.h1 = np.ascontiguousarray (h1)
+        self.h2 = np.ascontiguousarray (h2)
+
+    def _add_transpose_(self):
+        self.ham += self.ham.T
+        self.s2 += self.s2.T
+
+    def _umat_linequiv_(self, ifrag, iroot, umat, *args):
+        ovlp = args[0]
+        self.ham = umat_dot_1frag_(self.ham, umat, self.lroots, ifrag, iroot, axis=0)
+        self.ham = umat_dot_1frag_(self.ham, umat, self.lroots, ifrag, iroot, axis=1)
+        self.s2 = umat_dot_1frag_(self.s2, umat, self.lroots, ifrag, iroot, axis=0)
+        self.s2 = umat_dot_1frag_(self.s2, umat, self.lroots, ifrag, iroot, axis=1)
+        ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=0)
+        ovlp = umat_dot_1frag_(ovlp, umat, self.lroots, ifrag, iroot, axis=1)
+        return ovlp
+
+    def kernel (self):
+        ''' Main driver method of class.
+
+        Returns:
+            ham : ndarray of shape (nroots,nroots)
+                Hamiltonian in LAS product state basis
+            s2 : ndarray of shape (nroots,nroots)
+                Spin-squared operator in LAS product state basis
+            ovlp : ndarray of shape (nroots,nroots)
+                Overlap matrix of LAS product states
+            t0 : tuple of length 2
+                timestamp of entry into this function, for profiling by caller
+        '''
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
+        self.ham = np.zeros ([self.nstates,]*2, dtype=self.dtype)
+        self.s2 = np.zeros ([self.nstates,]*2, dtype=self.dtype)
+        self._crunch_all_()
+        t1, w1 = lib.logger.process_clock (), lib.logger.perf_counter ()
+        ovlp = np.zeros ([self.nstates,]*2, dtype=self.dtype)
+        def crunch_ovlp (bra_sp, ket_sp):
+            i = self.ints[-1]
+            b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
+            o = i.ovlp[b][k] / (1 + int (bra_sp==ket_sp))
+            for i in self.ints[-2::-1]:
+                b, k = i.unique_root[bra_sp], i.unique_root[ket_sp]
+                o = np.multiply.outer (o, i.ovlp[b][k]).transpose (0,2,1,3)
+                o = o.reshape (o.shape[0]*o.shape[1], o.shape[2]*o.shape[3])
+            o *= self.spin_shuffle[bra_sp]
+            o *= self.spin_shuffle[ket_sp]
+            i0, i1 = self.offs_lroots[bra_sp]
+            j0, j1 = self.offs_lroots[ket_sp]
+            ovlp[i0:i1,j0:j1] = o
+        for bra_sp, ket_sp in self.exc_null: crunch_ovlp (bra_sp, ket_sp)
+        ovlp += ovlp.T
+        dt, dw = logger.process_clock () - t1, logger.perf_counter () - w1
+        self.dt_o, self.dw_o = self.dt_o + dt, self.dw_o + dw
+        self._umat_linequiv_loop_(ovlp)
+        return self.ham, self.s2, ovlp, t0
 
     def canonical_operator_order (self, arr, inv):
         ''' Transpose an operator array for an interaction involving a single pair of rootspaces
@@ -326,9 +397,54 @@ class HamS2ovlpint (op_o1.HamS2ovlpint):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         return ham, s2, (l, j, i, k)
 
-#ham = op_o1.ham
-def ham (las, h1, h2, ci, nelec_frs, **kwargs):
-    return op_o1.ham (las, h1, h2, ci, nelec_frs,
-                      _HamS2ovlpint_class=HamS2ovlpint)
+def ham (las, h1, h2, ci, nelec_frs, _HamS2ovlpint_class=HamS2ovlpint, **kwargs):
+    ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        h1 : ndarray of size ncas**2
+            Contains effective 1-electron Hamiltonian amplitudes in second quantization
+        h2 : ndarray of size ncas**4
+            Contains 2-electron Hamiltonian amplitudes in second quantization
+        ci : list of list of ndarrays
+            Contains all CI vectors
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
+        
+    Returns: 
+        ham : ndarray of shape (nroots,nroots)
+            Hamiltonian in LAS product state basis
+        s2 : ndarray of shape (nroots,nroots)
+            Spin-squared operator in LAS product state basis
+        ovlp : ndarray of shape (nroots,nroots)
+            Overlap matrix of LAS product states 
+    '''     
+    log = lib.logger.new_logger (las, las.verbose) 
+    nlas = las.ncas_sub
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
+    dtype = ci[0][0].dtype
+        
+    # First pass: single-fragment intermediates
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs)
+    nstates = np.sum (np.prod (lroots, axis=0))
+        
+    # Memory check
+    current_memory = lib.current_memory ()[0]
+    required_memory = dtype.itemsize*nstates*nstates*3/1e6
+    if current_memory + required_memory > max_memory:
+        raise MemoryError ("current: {}; required: {}; max: {}".format (
+            current_memory, required_memory, max_memory))
+
+    # Second pass: upper-triangle
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    outerprod = _HamS2ovlpint_class (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
+                                     max_memory=max_memory, log=log)
+    lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)
+    ham, s2, ovlp, t0 = outerprod.kernel ()
+    lib.logger.timer (las, 'LASSI Hamiltonian second intermediate crunching', *t0)
+    if las.verbose >= lib.logger.TIMER_LEVEL:
+        lib.logger.info (las, 'LASSI Hamiltonian crunching profile:\n%s', outerprod.sprint_profile ())
+    return ham, s2, ovlp
 
 

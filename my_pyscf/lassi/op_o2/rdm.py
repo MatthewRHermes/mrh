@@ -3,7 +3,9 @@ import numpy as np
 from scipy import linalg
 from pyscf import lib
 from pyscf.lib import logger
-from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi.op_o2 import frag
+from mrh.my_pyscf.lassi.op_o2 import stdm
+from mrh.my_pyscf.lassi.op_o2.utilities import *
 
 # C interface
 import ctypes
@@ -12,11 +14,8 @@ liblassi = load_library ('liblassi')
 def c_arr (arr): return arr.ctypes.data_as(ctypes.c_void_p)
 c_int = ctypes.c_int
 
-fermion_frag_shuffle = op_o1.fermion_frag_shuffle
-fermion_des_shuffle = op_o1.fermion_des_shuffle
-
-class LSTDMint1_rdm (op_o1.LSTDMint1):
-    __doc__ = op_o1.LSTDMint1.__doc__ + '''
+class LSTDMint1 (frag.LSTDMint1):
+    __doc__ = frag.LSTDMint1.__doc__ + '''
 
     Transpose the transition density matrix arrays so that the lroots indices
     are fastest-moving, since RDMs require contracting over these indices
@@ -26,19 +25,29 @@ class LSTDMint1_rdm (op_o1.LSTDMint1):
         x = np.ascontiguousarray (np.moveaxis (x, [0,1], [-2,-1]))
         return np.moveaxis (x, [-2,-1], [0,1])
 
-class LRRDMint (op_o1.LRRDMint):
-    __doc__ = op_o1.LRRDMint.__doc__ + '''
+class LRRDMint (stdm.LSTDMint2):
+    __doc__ = stdm.LSTDMint2.__doc__ + '''
 
-    op_o2 reimplementation: get rid of outer products! This will take a while...
+    SUBCLASS: LASSI-root reduced density matrix
+
+    `kernel` call returns reduced density matrices for LASSI eigenstates (or linear combinations of
+    product states generally) without cacheing stdm12s array
+
+    Additional args:
+        si : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors
     '''
+    # TODO: at some point, if it ever becomes rate-limiting, make this multithread better
+    # TODO: SO-LASSI o1 implementation: these density matrices can only be defined in the full
+    # spinorbital basis
 
     def __init__(self, ints, nlas, hopping_index, lroots, si, mask_bra_space=None,
                  mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
-        op_o1.LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots,
-                                 mask_bra_space=mask_bra_space,
-                                 mask_ket_space=mask_ket_space,
-                                 log=log, max_memory=max_memory,
-                                 dtype=dtype)
+        stdm.LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots,
+                                mask_bra_space=mask_bra_space,
+                                mask_ket_space=mask_ket_space,
+                                log=log, max_memory=max_memory,
+                                dtype=dtype)
         self.nroots_si = si.shape[-1]
         self.si = si.copy ()
         self._umat_linequiv_loop_(self.si)
@@ -50,6 +59,36 @@ class LRRDMint (op_o1.LRRDMint):
         self.d2buf = self.d2 = np.empty ((self.nroots_si,self.d2.size), dtype=self.d2.dtype)
         self._d1buf_c = c_arr (self.d1buf)
         self._d2buf_c = c_arr (self.d2buf)
+
+    def _add_transpose_(self):
+        self.rdm1s += self.rdm1s.conj ().transpose (0,1,3,2)
+        self.rdm2s += self.rdm2s.conj ().transpose (0,1,3,2,5,4)
+
+    def _umat_linequiv_(self, ifrag, iroot, umat, *args):
+        si = args[0]
+        return umat_dot_1frag_(si, umat.conj ().T, self.lroots, ifrag, iroot, axis=0)
+
+    def kernel (self):
+        ''' Main driver method of class.
+
+        Returns:
+            rdm1s : ndarray of shape (nroots_si,2,ncas,ncas)
+                Spin-separated 1-body reduced density matrices of LASSI states
+            rdm2s : ndarray of shape (nroots_si,4,ncas,ncas,ncas,ncas)
+                Spin-separated 2-body reduced density matrices of LASSI states
+            t0 : tuple of length 2
+                timestamp of entry into this function, for profiling by caller
+        '''
+        t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+        self.init_profiling ()
+        self.rdm1s = np.zeros ([self.nroots_si,2] + [self.norb,]*2, dtype=self.dtype)
+        self.rdm2s = np.zeros ([self.nroots_si,4] + [self.norb,]*4, dtype=self.dtype)
+        self._rdm1s_c = c_arr (self.rdm1s)
+        self._rdm1s_c_ncol = c_int (2*(self.norb**2))
+        self._rdm2s_c = c_arr (self.rdm2s)
+        self._rdm2s_c_ncol = c_int (4*(self.norb**4))
+        self._crunch_all_()
+        return self.rdm1s, self.rdm2s, t0
 
     def init_profiling (self):
         self.dt_1d, self.dw_1d = 0.0, 0.0
@@ -511,8 +550,6 @@ class LRRDMint (op_o1.LRRDMint):
         self.dt_i, self.dw_i = self.dt_i + dt, self.dw_i + dw
         return env_kwargs
 
-
-
 def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     ''' Get a function that can build the 1-fragment reduced density matrix
     in a single rootspace. For unittesting purposes (make_sdm1 in sitools does the same thing)
@@ -546,7 +583,7 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     dtype = ci[0][0].dtype 
         
     # First pass: single-fragment intermediates
-    hopping_index, ints, lroots = op_o1.make_ints (las, ci, nelec_frs)
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs)
     nstates = np.sum (np.prod (lroots, axis=0))
         
     # Second pass: upper-triangle
@@ -564,10 +601,57 @@ def get_fdm1_maker (las, ci, nelec_frs, si, **kwargs):
     return make_fdm1
 
 def roots_make_rdm12s (las, ci, nelec_frs, si, **kwargs):
-    return op_o1.roots_make_rdm12s (las, ci, nelec_frs, si,
-                                    _LRRDMint_class=LRRDMint,
-                                    _LSTDMint1_class=LSTDMint1_rdm,
-                                    **kwargs)
+    ''' Build spin-separated LASSI 1- and 2-body reduced density matrices
+
+    Args:
+        las : instance of :class:`LASCINoSymm`
+        ci : list of list of ndarrays
+            Contains all CI vectors
+        nelec_frs : ndarray of shape (nfrags,nroots,2)
+            Number of electrons of each spin in each rootspace in each
+            fragment
+        si : ndarray of shape (nroots,nroots_si)
+            Contains LASSI eigenvectors
+
+    Returns:
+        rdm1s : ndarray of shape (nroots_si,2,ncas,ncas)
+            Spin-separated 1-body reduced density matrices of LASSI states
+        rdm2s : ndarray of shape (nroots_si,2,ncas,ncas,2,ncas,ncas)
+            Spin-separated 2-body reduced density matrices of LASSI states
+    '''
+    log = lib.logger.new_logger (las, las.verbose)
+    nlas = las.ncas_sub
+    ncas = las.ncas
+    nroots_si = si.shape[-1]
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
+    dtype = ci[0][0].dtype
+
+    # First pass: single-fragment intermediates
+    hopping_index, ints, lroots = frag.make_ints (las, ci, nelec_frs, _LSTDMint1_class=LSTDMint1)
+    nstates = np.sum (np.prod (lroots, axis=0))
+    
+    # Memory check
+    current_memory = lib.current_memory ()[0]
+    required_memory = dtype.itemsize*nroots_si*(2*(ncas**2)+4*(ncas**4))/1e6
+    if current_memory + required_memory > max_memory:
+        raise MemoryError ("current: {}; required: {}; max: {}".format (
+            current_memory, required_memory, max_memory))
+
+    # Second pass: upper-triangle
+    t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
+    outerprod = LRRDMint (ints, nlas, hopping_index, lroots, si, dtype=dtype,
+                          max_memory=max_memory, log=log)
+    lib.logger.timer (las, 'LASSI root RDM12s second intermediate indexing setup', *t0)
+    rdm1s, rdm2s, t0 = outerprod.kernel ()
+    lib.logger.timer (las, 'LASSI root RDM12s second intermediate crunching', *t0)
+    if las.verbose >= lib.logger.TIMER_LEVEL:
+        lib.logger.info (las, 'LASSI root RDM12s crunching profile:\n%s', outerprod.sprint_profile ())
+
+    # Put rdm1s in PySCF convention: [p,q] -> q'p
+    rdm1s = rdm1s.transpose (0,1,3,2)
+    rdm2s = rdm2s.reshape (nroots_si, 2, 2, ncas, ncas, ncas, ncas).transpose (0,1,3,4,2,5,6)
+    return rdm1s, rdm2s
+
 
         
 
