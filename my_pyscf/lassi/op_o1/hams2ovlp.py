@@ -10,8 +10,8 @@ from mrh.my_pyscf.lassi.op_o1.utilities import *
 # for two fragments this is (sign?)
 # ((d1a_pp - d1b_pp) * (d1a_qq - d1b_qq))/4 - (sp_pp*sm_qq + sm_pp*sp_qq)/2
 
-class HamS2ovlpint (stdm.LSTDMint2):
-    __doc__ = stdm.LSTDMint2.__doc__ + '''
+class HamS2Ovlp (stdm.LSTDM):
+    __doc__ = stdm.LSTDM.__doc__ + '''
 
     SUBCLASS: Hamiltonian, spin-squared, and overlap matrices
 
@@ -29,7 +29,7 @@ class HamS2ovlpint (stdm.LSTDMint2):
 
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, mask_bra_space=None,
                  mask_ket_space=None, log=None, max_memory=2000, dtype=np.float64):
-        stdm.LSTDMint2.__init__(self, ints, nlas, hopping_index, lroots,
+        stdm.LSTDM.__init__(self, ints, nlas, hopping_index, lroots,
                                 mask_bra_space=mask_bra_space, mask_ket_space=mask_ket_space,
                                 log=log, max_memory=max_memory, dtype=dtype)
         if h1.ndim==2: h1 = np.stack ([h1,h1], axis=0)
@@ -397,7 +397,7 @@ class HamS2ovlpint (stdm.LSTDMint2):
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
         return ham, s2, (l, j, i, k)
 
-def ham (las, h1, h2, ci, nelec_frs, _HamS2ovlpint_class=HamS2ovlpint, **kwargs):
+def ham (las, h1, h2, ci, nelec_frs, _HamS2Ovlp_class=HamS2Ovlp, **kwargs):
     ''' Build Hamiltonian, spin-squared, and overlap matrices in LAS product state basis
 
     Args:
@@ -438,7 +438,7 @@ def ham (las, h1, h2, ci, nelec_frs, _HamS2ovlpint_class=HamS2ovlpint, **kwargs)
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = _HamS2ovlpint_class (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
+    outerprod = _HamS2Ovlp_class (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
                                      max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LASSI Hamiltonian second intermediate indexing setup', *t0)
     ham, s2, ovlp, t0 = outerprod.kernel ()

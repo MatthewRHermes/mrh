@@ -14,14 +14,14 @@ def c_arr (arr): return arr.ctypes.data_as(ctypes.c_void_p)
 c_int = ctypes.c_int
 
 def mask_exc_table (exc, col=0, mask_space=None):
-    if mask_space is None: return exc
+    if mask_space is None: return np.ones (exc.shape[0], dtype=bool)
     mask_space = np.asarray (mask_space)
     if mask_space.dtype in (bool, np.bool_):
         mask_space = np.where (mask_space)[0]
     idx = np.isin (exc[:,col], mask_space)
-    return exc[idx]
+    return idx
 
-class LSTDMint2 (object):
+class LSTDM (object):
     ''' LAS state transition density matrix intermediate 2 - whole-system DMs
         Carry out multiplications such as
 
@@ -48,7 +48,7 @@ class LSTDMint2 (object):
         things (i.e. operators or DMs in different basis).
 
         Args:
-            ints : list of length nfrags of instances of :class:`LSTDMint1`
+            ints : list of length nfrags of instances of :class:`FragTDMInt`
                 fragment-local intermediates
             nlas : list of length nfrags of integers
                 numbers of active orbitals in each fragment
@@ -155,7 +155,7 @@ class LSTDMint2 (object):
 
         Returns:
             exc: dict with str keys and ndarray-of-int values. Each row of each ndarray is the
-                argument list for 1 call to the LSTDMint2._crunch_*_ function with the name that
+                argument list for 1 call to the LSTDM._crunch_*_ function with the name that
                 corresponds to the key str (_crunch_1d_, _crunch_1s_, etc.).
         '''
         exc = {}
@@ -289,9 +289,12 @@ class LSTDMint2 (object):
         return exc
 
     def mask_exc_table_(self, exc, lbl, mask_bra_space=None, mask_ket_space=None):
-        # Part 1: restrict to the caller-specified rectangle
-        exc = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
-        exc = mask_exc_table (exc, col=1, mask_space=mask_ket_space)
+        # Part 1: restrict to the caller-specified rectangle OR its transpose
+        idx1  = mask_exc_table (exc, col=0, mask_space=mask_bra_space)
+        idx1 &= mask_exc_table (exc, col=1, mask_space=mask_ket_space)
+        idx2  = mask_exc_table (exc, col=1, mask_space=mask_bra_space)
+        idx2 &= mask_exc_table (exc, col=0, mask_space=mask_ket_space)
+        exc = exc[idx1|idx2]
         # Part 2: identify interactions which are equivalent except for the overlap
         # factor of spectator fragments. Reduce the exc table only to the unique
         # interactions and populate self.nonuniq_exc with the corresponding
@@ -980,7 +983,7 @@ def make_stdm12s (las, ci, nelec_frs, **kwargs):
 
     # Second pass: upper-triangle
     t0 = (lib.logger.process_clock (), lib.logger.perf_counter ())
-    outerprod = LSTDMint2 (ints, nlas, hopping_index, lroots, dtype=dtype,
+    outerprod = LSTDM (ints, nlas, hopping_index, lroots, dtype=dtype,
                            max_memory=max_memory, log=log)
     lib.logger.timer (las, 'LAS-state TDM12s second intermediate indexing setup', *t0)
     tdm1s, tdm2s, t0 = outerprod.kernel ()

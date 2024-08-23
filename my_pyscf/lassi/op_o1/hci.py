@@ -4,9 +4,10 @@ from pyscf.lib import logger
 from pyscf.fci import cistring 
 from mrh.my_pyscf.lassi.op_o1 import stdm, frag, hams2ovlp
 from mrh.my_pyscf.lassi.op_o1.utilities import *
+from mrh.my_pyscf.lassi.citools import get_lroots
 
-class ContractHamCI (stdm.LSTDMint2):
-    __doc__ = stdm.LSTDMint2.__doc__ + '''
+class ContractHamCI (stdm.LSTDM):
+    __doc__ = stdm.LSTDM.__doc__ + '''
 
     SUBCLASS: Contract Hamiltonian on CI vectors and integrate over all but one fragment,
     for all fragments.
@@ -23,7 +24,7 @@ class ContractHamCI (stdm.LSTDMint2):
         nfrags, _, nroots, _ = hopping_index.shape
         if nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
         nket = nroots - nbra
-        hams2ovlp.HamS2ovlpint.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
+        hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                                         mask_bra_space = list (range (nket, nroots)),
                                         mask_ket_space = list (range (nket)),
                                         log=log, max_memory=max_memory, dtype=dtype)
@@ -49,6 +50,22 @@ class ContractHamCI (stdm.LSTDMint2):
             hci_fr_pabq.append (hci_r_pabq)
         return hci_fr_pabq
 
+    def _crunch_1d_(self, bra, ket, i):
+        '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        raise NotImplementedError
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
+        return
+
+    def _crunch_2d_(self, bra, ket, i, j):
+        '''Compute a two-fragment density fluctuation.'''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        raise NotImplementedError
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
+        return
+ 
     def _crunch_1c_(self, bra, ket, i, j, s1):
         '''Perform a single electron hop; i.e.,
         
@@ -58,9 +75,9 @@ class ContractHamCI (stdm.LSTDMint2):
         
         j ---s1---> i
         '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         hci_f_ab, excfrags = self._get_vecs_(bra, ket)
         excfrags = excfrags.intersection ({i, j})
-        if self.nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
         if not len (excfrags): return
         p, q = self.get_range (i)
         r, s = self.get_range (j)
@@ -86,17 +103,87 @@ class ContractHamCI (stdm.LSTDMint2):
                 axes=((0,1,2),(2,0,1)))
             h_12 = np.tensordot (D_i, h2_ijjj, axes=1).transpose (1,2,0)
             hci_f_ab[j] += fac * self.ints[j].contract_h01 (s1, h_01, h_12, ket)
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1c, self.dw_1c = self.dt_1c + dt, self.dw_1c + dw
         self._put_vecs_(bra, ket, hci_f_ab, i, j)
         return
 
-    def _crunch_1s_(self, bra, ket, i, j):
+    def _crunch_1c1d_(self, bra, ket, i, j, k, s1):
+        '''Compute the reduced density matrix elements of a coupled electron-hop and
+        density fluctuation.'''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         raise NotImplementedError
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
+        return
+
+    def _crunch_1s_(self, bra, ket, i, j):
+        '''Compute the reduced density matrix elements of a spin unit hop; i.e.,
+
+        <bra|i'(a)j'(b)i(b)j(a)|ket>
+
+        i.e.,
+
+        j ---a---> i
+        i ---b---> j
+
+        and conjugate transpose
+        '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
+        raise NotImplementedError
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
+        return
 
     def _crunch_1s1c_(self, bra, ket, i, j, k):
+        '''Compute the reduced density matrix elements of a spin-charge unit hop; i.e.,
+
+        <bra|i'(a)k'(b)j(b)k(a)|ket>
+
+        i.e.,
+
+        k ---a---> i
+        j ---b---> k
+
+        and conjugate transpose
+        '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         raise NotImplementedError
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
+        return
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
+        '''Compute the reduced density matrix elements of a two-electron hop; i.e.,
+
+        <bra|i'(s1)k'(s2)l(s2)j(s1)|ket>
+
+        i.e.,
+
+        j ---s1---> i
+        l ---s2---> k
+
+        with
+
+        s2lt = 0, 1, 2
+        s1   = a, a, b
+        s2   = a, b, b
+
+        and conjugate transpose
+
+        Note that this includes i=k and/or j=l cases, but no other coincident fragment indices. Any
+        other coincident fragment index (that is, any coincident index between the bra and the ket)
+        turns this into one of the other interactions implemented in the above _crunch_ functions:
+        s1 = s2  AND SORT (ik) = SORT (jl)                 : _crunch_1d_ and _crunch_2d_
+        s1 = s2  AND (i = j XOR i = l XOR j = k XOR k = l) : _crunch_1c_ and _crunch_1c1d_
+        s1 != s2 AND (i = l AND j = k)                     : _crunch_1s_
+        s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
+        '''
+        t0, w0 = logger.process_clock (), logger.perf_counter ()
         raise NotImplementedError
+        dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
+        self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
+        return
 
     def env_addr_fragpop (self, bra, i, r):
         rem = 0
@@ -125,15 +212,6 @@ class ContractHamCI (stdm.LSTDMint2):
         bra_r, bra_envaddr, excfrags = self._bra_address (bra)
         hci_f_ab = [0 for i in range (self.nfrags)]
         for i, addr in zip (excfrags, bra_envaddr):
-            hci_r_pabq = self.hci_fr_pabq[i]
-            # TODO: buffer
-            hci_f_ab[i] = np.zeros_like (hci_r_pabq[bra_r][addr,:,:,ket])
-        return hci_f_ab, excfrags
-
-    def _put_vecs_(self, bra, ket, vecs, *inv):
-        t0, w0 = logger.process_clock (), logger.perf_counter ()
-        bras, kets, facs = self._get_spec_addr_ovlp (bra, ket, *inv)
-        for bra, ket, fac in zip (bras, kets, facs):
             hci_r_pabq = self.hci_fr_pabq[i]
             # TODO: buffer
             hci_f_ab[i] = np.zeros_like (hci_r_pabq[bra_r][addr,:,:,ket])
@@ -214,7 +292,6 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
             ndeta_bra[i,j],ndetb_bra[i,j],ndim_ket).
     '''
     log = lib.logger.new_logger (las, las.verbose)
-    log = lib.logger.new_logger (las, las.verbose)
     nlas = las.ncas_sub
     nfrags, nbra = nelec_frs_bra.shape[:2]
     nket = nelec_frs_ket.shape[1]
@@ -233,6 +310,79 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     hket_fr_pabq, t0 = contracter.kernel ()
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
 
+    #for ifrag in range (nfrags):
+    #    gen_hket = gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=soc,
+    #                                          orbsym=orbsym, wfnsym=wfnsym)
+    #    for ibra, hket_pabq in enumerate (gen_hket):
+    #        hket_fr_pabq[ifrag][ibra][:] += hket_pabq[:]
     return hket_fr_pabq
 
+def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, orbsym=None,
+                               wfnsym=None):
+    '''Constant-term parts of contract_ham_ci for fragment ifrag'''
+    log = lib.logger.new_logger (las, las.verbose)
+    nlas = las.ncas_sub
+    nfrags, nroots = nelec_frs.shape[:2]
+    nket = nroots - nbra
+    dtype = ci[0][0].dtype
+    max_memory = getattr (las, 'max_memory', las.mol.max_memory)
+
+    lroots = get_lroots (ci)
+    nprods_ket = np.sum (np.prod (lroots[:,:-nbra], axis=0))
+    norb_i = nlas[ifrag]
+    ci_i = ci[ifrag]
+    nelec_i_rs = nelec_frs[ifrag]
+
+    # index down to omit fragment
+    idx = np.ones (las.nfrags, dtype=bool)
+    idx[ifrag] = False
+    nelec_frs = nelec_frs[idx]
+    ci_jfrag = [c for i,c in enumerate (ci) if i != ifrag]
+    j = sum (nlas[:ifrag+1])
+    i = j - nlas[ifrag]
+    ix = np.ones (h1.shape[0], dtype=bool)
+    ix[i:j] = False
+    h1 = h1[np.ix_(ix,ix)]
+    h2 = h2[np.ix_(ix,ix,ix,ix)]
+    nlas = nlas[idx]
+
+    # First pass: single-fragment intermediates
+    hopping_index, ints, lroots = frag.make_ints (las, ci_jfrag, nelec_frs, nlas=nlas)
+    nstates = np.sum (np.prod (lroots, axis=0))
+        
+    # Memory check
+    current_memory = lib.current_memory ()[0]
+    required_memory = dtype.itemsize*nstates*nstates*3/1e6
+    if current_memory + required_memory > max_memory:
+        raise MemoryError ("current: {}; required: {}; max: {}".format (
+            current_memory, required_memory, max_memory))
+
+    # Second pass: upper-triangle
+    outerprod = hams2ovlp.HamS2Ovlp (ints, nlas, hopping_index, lroots, h1, h2, dtype=dtype,
+                                     mask_bra_space = list (range (nket, nroots)),
+                                     mask_ket_space = list (range (nket)),
+                                     max_memory=max_memory, log=log)
+    ham = outerprod.kernel ()[0]
+    for ibra in range (nket, nroots):
+        i, j = outerprod.offs_lroots[ibra]
+        nelec_i = nelec_i_rs[ibra]
+        ndeta = cistring.num_strings (norb_i, nelec_i[0])
+        ndetb = cistring.num_strings (norb_i, nelec_i[1])
+        hket_pabq = np.zeros ((nprods_ket, j-i, ndeta, ndetb),
+                              dtype=outerprod.dtype).transpose (1,2,3,0)
+        m = 0
+        for iket in range (nket):
+            if tuple (nelec_i_rs[iket]) != tuple (nelec_i): continue
+            k, l = outerprod.offs_lroots[iket]
+            hket = np.multiply.outer (ci_i[iket], ham[i:j,k:l]) # qabpq
+            if ci_i[iket].ndim == 2: hket = hket[None,...]
+            nq1, na, nb, np1, nq2 = hket.shape
+            new_shape = [nq1,na,nb,np1] + list (outerprod.lroots[::-1,iket])
+            hket = np.moveaxis (hket.reshape (new_shape), 0, -ifrag)
+            new_shape = [na,nb,np1,nq1*nq2]
+            hket = hket.reshape (new_shape).transpose (2,0,1,3)
+            n = m + nq1*nq2
+            hket_pabq[:,:,:,m:n] = hket[:]
+            m = n
+        yield hket_pabq
 
