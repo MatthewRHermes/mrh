@@ -310,10 +310,11 @@ class LSTDMint2 (object):
         fprint = np.asarray (fprint)
         nexc = len (exc)
         _, idx, inv = np.unique (fprint, axis=0, return_index=True, return_inverse=True)
+        # for some reason this squeeze is necessary for some versions of numpy; however...
         eqmap = np.squeeze (idx[inv])
         for uniq_idx in idx:
             row_uniq = excp[uniq_idx]
-            # crazy numpy v1 vs v2 dimensionality issue here
+            # ...numpy.where (0==0) triggers a DeprecationWarning, so I have to atleast_1d it
             uniq_idxs = np.where (np.atleast_1d (eqmap==uniq_idx))[0]
             braket_images = exc[np.ix_(uniq_idxs,[0,1])]
             self.nonuniq_exc[tuple(row_uniq)] = braket_images
