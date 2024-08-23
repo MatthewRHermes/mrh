@@ -871,6 +871,12 @@ void Device::get_jk(int naux, int nao, int nset,
 
       //      printf(" -- calling _getjk_rho()\n");
       _getjk_rho<<<grid_size, block_size, 0, dd->stream>>>(dd->d_rho, dd->d_dmtril, d_eri, nset, naux, nao_pair);
+      
+#ifdef _DEBUG_DEVICE
+      printf("LIBGPU ::  -- _getjk_rho :: nset= %i  naux= %i  RHO_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	     nset, naux, _RHO_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+    _CUDA_CHECK_ERRORS();
+#endif
     }
     
     // vj += numpy.einsum('ip,px->ix', rho, eri1)
@@ -882,6 +888,12 @@ void Device::get_jk(int naux, int nao, int nset,
       //      printf(" -- calling _getjk_vj()\n");
       int init = (count < num_devices) ? 1 : 0;
       _getjk_vj<<<grid_size, block_size, 0, dd->stream>>>(dd->d_vj, dd->d_rho, d_eri, nset, nao_pair, naux, init);
+
+#ifdef _DEBUG_DEVICE
+      printf("LIBGPU ::  -- _getjk_vj :: nset= %i  nao_pair= %i _DOT_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	     nset, nao_pair, _DOT_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+    _CUDA_CHECK_ERRORS();
+#endif
     }
 
     profile_stop();
@@ -916,6 +928,12 @@ void Device::get_jk(int naux, int nao, int nset,
 #endif
     
     _getjk_unpack_buf2<<<grid_size, block_size, 0, dd->stream>>>(dd->d_buf2, d_eri, dd->d_pumap_ptr, naux, nao, nao_pair);
+    
+#ifdef _DEBUG_DEVICE
+      printf("LIBGPU ::  -- _getjk_unpack_buf2 :: naux= %i  nao= %i _UNPACK_BLOCK_SIZE= %i  grid_size= %i %i %i  block_size= %i %i %i\n",
+	     naux, nao, _UNPACK_BLOCK_SIZE, grid_size.x,grid_size.y,grid_size.z,block_size.x,block_size.y,block_size.z);
+    _CUDA_CHECK_ERRORS();
+#endif
   }
 
 #ifdef _DEBUG_DEVICE
@@ -944,6 +962,7 @@ void Device::get_jk(int naux, int nao, int nset,
       int err = pm->dev_push_async(d_dms, dms, nao*nao*sizeof(double), dd->stream);
       if(err) {
 	printf("LIBGPU:: dev_push_async(d_dms) on indxK= %i\n",indxK);
+	printf("LIBGPU:: d_dms= %#012x  dms= %#012x  nao= %i  stream= %#012x\n",d_dms,dms,nao,dd->stream);
 	exit(1);
       }
     }
@@ -1090,6 +1109,8 @@ void Device::df_ao2mo_pass1_fdrv (int naux, int nmo, int nao, int blksize,
   py::buffer_info info_bufpp = _bufpp.request(); // 3D array (naux,nmo,nmo)
   
 #ifdef _DEBUG_DEVICE
+  py::buffer_info info_mo_coeff = _mo_coeff.request();
+
   printf("LIBGPU::: naux= %i  nmo= %i  nao= %i  blksize=%i \n",naux,nmo,nao,blksize);
   printf("LIBGPU::shape: _eri1= (%i,%i)  _mo_coeff= (%i,%i)  _bufpp= (%i, %i, %i)\n",
   	 info_eri1.shape[0], info_eri1.shape[1],
