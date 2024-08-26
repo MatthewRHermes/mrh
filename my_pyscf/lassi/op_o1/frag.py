@@ -471,14 +471,14 @@ class FragTDMInt (object):
         norb, nelec = self.norb, self.nelec_r[r]
         ci = self.ci[r][n]
         h_uhf = (h_11[0] - h_11[1]) / 2
-        h_uhf = [h_uhf, -h.uhf]
+        h_uhf = [h_uhf, -h_uhf]
         h_11 = h_11.sum (0) / 2
         if h_22 is None:
             hci = h_00*ci + contract_1e (h_11, ci, norb, nelec)
         else:
             h2eff = absorb_h1e (h_11, h_22, norb, nelec, 0.5)
             hci = h_00*ci + contract_2e (h2eff, ci, norb, nelec)
-        hci += contract_uhf (h_uhf, ci, norb, nelec)
+        hci += contract_1e_uhf (h_uhf, ci, norb, nelec)
         return hci
 
     def contract_h10 (self, spin, h_10, h_21, ket):
@@ -518,13 +518,17 @@ class FragTDMInt (object):
         norb, nelec = self.norb, self.nelec_r[r]
         ci = self.ci[r][n]
         # 0, 1, 2 = aa, ab, bb
-        cre_op1 = (cre_a, cre_b)[int (spin>1)]
-        cre_op2 = (cre_a, cre_b)[int (spin>0)]
+        s11 = int (spin>1)
+        s12 = int (spin>0)
+        cre_op1 = (cre_a, cre_b)[s11]
+        cre_op2 = (cre_a, cre_b)[s12]
         hci = 0
+        nelecq = list (nelec)
+        nelecq[s12] = nelecq[s12] + 1
         for q in range (self.norb):
             qci = cre_op2 (ci, norb, nelec, q)
             for p in range (self.norb):
-                hci += h_20[p,q] * cre_op1 (qci, norb, nelec, p)
+                hci += h_20[p,q] * cre_op1 (qci, norb, nelecq, p)
         return hci
 
     def contract_h02 (self, spin, h_02, ket):
@@ -533,13 +537,17 @@ class FragTDMInt (object):
         norb, nelec = self.norb, self.nelec_r[r]
         ci = self.ci[r][n]
         # 0, 1, 2 = aa, ab, bb
-        des_op1 = (des_a, des_b)[int (spin>1)]
-        des_op2 = (des_a, des_b)[int (spin>0)]
+        s11 = int (spin>1)
+        s12 = int (spin>0)
+        des_op1 = (des_a, des_b)[s11]
+        des_op2 = (des_a, des_b)[s12]
         hci = 0
+        nelecq = list (nelec)
+        nelecq[s11] = nelecq[s11] - 1
         for q in range (self.norb):
             qci = des_op1 (ci, norb, nelec, q)
             for p in range (self.norb):
-                hci += h_02[p,q] * des_op2 (qci, norb, nelec, p)
+                hci += h_02[p,q] * des_op2 (qci, norb, nelecq, p)
         return hci
 
     def contract_h11 (self, spin, h_11, ket):

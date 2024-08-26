@@ -73,8 +73,8 @@ class ContractHamCI (stdm.LSTDM):
         hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j)
         if skip: return
         iad, jad = iad
-        def _perm (l, h2_kkll, h2_kllk):
-            d1s_ll = self.ints[l].get_1_dm (bra, ket)
+        def _perm (k, l, h2_kkll, h2_kllk):
+            d1s_ll = self.ints[l].get_1_dm1 (bra, ket)
             d1_ll = d1s_ll.sum (0)
             vj = np.tensordot (h2_kkll, d1_ll, axes=2)
             vk = np.tensordot (d1s_ll, h2_kllk.transpose (2,1,0,3), axes=2)
@@ -82,8 +82,8 @@ class ContractHamCI (stdm.LSTDM):
             return self.ints[k].contract_h00 (0, h_11, None, ket)
         h2j = self.get_ham_2q (i,i,j,j)
         h2k = self.get_ham_2q (i,j,j,i)
-        if iad: hci_f_ab[i] += _perm (j, h2j, h2k)
-        if jad: hci_f_ab[j] += _perm (i, h2j.transpose (2,3,0,1), h2k.transpose (2,3,0,1))
+        if iad: hci_f_ab[i] += _perm (i, j, h2j, h2k)
+        if jad: hci_f_ab[j] += _perm (j, i, h2j.transpose (2,3,0,1), h2k.transpose (2,3,0,1))
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
         self._put_vecs_(bra, ket, hci_f_ab, i, j)
@@ -232,14 +232,14 @@ class ContractHamCI (stdm.LSTDM):
         nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
         fac = 1
         h_iklj = self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
-        if s11==s22 and i!=k and j!=l: # exchange
+        if s11==s12 and i!=k and j!=l: # exchange
             h_iklj -= self.get_ham_2q (i,l,k,j).transpose (0,2,1,3)
         # First pass: Hamiltonians
         if i == k:
-            h02_jl = np.tensordot (self.ints[i].get_1_pp (bra, ket, s2lt), h_ikjl, axes=2)
+            h02_lj = np.tensordot (self.ints[i].get_1_pp (bra, ket, s2lt), h_iklj, axes=2)
         else:
-            h02_jl = np.tensordot (self.ints[i].get_1_p (bra, ket, s11), h_ikjl, axes=1)
-            h02_jl = np.tensordot (self.ints[k].get_1_p (bra, ket, s12), h02_jl, axes=1)
+            h02_lj = np.tensordot (self.ints[i].get_1_p (bra, ket, s11), h_iklj, axes=1)
+            h02_lj = np.tensordot (self.ints[k].get_1_p (bra, ket, s12), h02_lj, axes=1)
             fac *= (1,-1)[int (i>k)]
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
             fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
@@ -262,7 +262,7 @@ class ContractHamCI (stdm.LSTDM):
                 h10_k = np.tensordot (self.ints[i].get_1_p (bra, ket, s11), h20_ik, axes=1)
                 hci_f_ab[k] += fac * self.ints[k].contract_h10 (s12, h10_k, None, ket)
         if j == l:
-            if jad: hci_f_ab[j] += fac * self.ints[j].contract_h02 (s2lt, h02_jl, ket)
+            if jad: hci_f_ab[j] += fac * self.ints[j].contract_h02 (s2lt, h02_lj, ket)
         else:
             if jad:
                 h01_j = np.tensordot (h02_jl, self.ints[l].get_1_h (bra, ket, s12), axes=1)
@@ -323,10 +323,11 @@ class ContractHamCI (stdm.LSTDM):
         for i, addr in zip (addressible, bra_envaddr):
             self.hci_fr_pabq[i][bra_r][addr,:,:,ket] += vecs[i]
 
-    def _crunch_all_(self):
-        for row in self.exc_1c: self._crunch_env_(self._crunch_1c_, *row)
+    #def _crunch_all_(self):
+    #    for row in self.exc_1c: self._crunch_env_(self._crunch_1c_, *row)
 
     def _orbrange_env_kwargs (self, inv): return {}
+    def _add_transpose_(self): return
 
     def _umat_linequiv_(self, ifrag, iroot, umat, *args):
         # TODO: is this even possible?
@@ -408,7 +409,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
         gen_hket = gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=soc,
                                               orbsym=orbsym, wfnsym=wfnsym)
         for ibra, hket_pabq in enumerate (gen_hket):
-            hket_fr_pabq[ifrag][ibra][:] += hket_pabq[:]
+            hket_fr_pabq[ifrag][ibra][:] += 0#hket_pabq[:]
     return hket_fr_pabq
 
 def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, orbsym=None,
