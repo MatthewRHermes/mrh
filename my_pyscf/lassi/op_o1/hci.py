@@ -436,9 +436,12 @@ def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, o
     ci_jfrag = [c for i,c in enumerate (ci) if i != ifrag]
     j = sum (nlas[:ifrag+1])
     i = j - nlas[ifrag]
-    ix = np.ones (h1.shape[0], dtype=bool)
+    ix = np.ones (h1.shape[-1], dtype=bool)
     ix[i:j] = False
-    h1 = h1[np.ix_(ix,ix)]
+    if h1.ndim==3:
+        h1 = h1[np.ix_([True,True],ix,ix)]
+    else:
+        h1 = h1[np.ix_(ix,ix)]
     h2 = h2[np.ix_(ix,ix,ix,ix)]
     nlas = nlas[idx]
 
@@ -478,7 +481,7 @@ def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, o
             if tuple (nelec_i_rs[iket]) != tuple (nelec_i): continue
             hket = np.multiply.outer (ci_i_iket, ham[i:j,k:l]) # qabpq
             new_shape = [nq1,na,nb,np1] + list (outerprod.lroots[::-1,iket])
-            hket = np.moveaxis (hket.reshape (new_shape), 0, -ifrag)
+            hket = np.moveaxis (hket.reshape (new_shape), 0, -(1+ifrag))
             new_shape = [na,nb,np1,nq1*nq2]
             hket = hket.reshape (new_shape).transpose (2,0,1,3)
             hket_pabq[:,:,:,m:n] = hket[:]
