@@ -23,7 +23,7 @@ class ContractHamCI (stdm.LSTDM):
     def __init__(self, ints, nlas, hopping_index, lroots, h1, h2, nbra=1,
                  log=None, max_memory=2000, dtype=np.float64):
         nfrags, _, nroots, _ = hopping_index.shape
-        if nfrags > 2: raise NotImplementedError ("Spectator fragments in _crunch_1c_")
+        if nfrags > 2: raise NotImplementedError
         nket = nroots - nbra
         hams2ovlp.HamS2Ovlp.__init__(self, ints, nlas, hopping_index, lroots, h1, h2,
                                         mask_bra_space = list (range (nket, nroots)),
@@ -31,6 +31,8 @@ class ContractHamCI (stdm.LSTDM):
                                         log=log, max_memory=max_memory, dtype=dtype)
         self.nbra = nbra
         self.hci_fr_pabq = self._init_vecs ()
+
+    get_ham_2q = hams2ovlp.HamS2Ovlp.get_ham_2q
 
     def _init_vecs (self):
         hci_fr_pabq = []
@@ -54,17 +56,37 @@ class ContractHamCI (stdm.LSTDM):
     def _crunch_1d_(self, bra, ket, i):
         '''Compute a single-fragment density fluctuation, for both the 1- and 2-RDMs.'''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        raise NotImplementedError
+        hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i)
+        if skip: return
+        h_00 = 0
+        h_11 = self.get_ham_2q (i,i)
+        h_22 = self.get_ham_2q (i,i,i,i)
+        hci_f_ab[i] += self.ints[i].contract_h00 (h_00, h_11, h_22, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1d, self.dw_1d = self.dt_1d + dt, self.dw_1d + dw
+        self._put_vecs_(bra, ket, hci_f_ab, i)
         return
 
     def _crunch_2d_(self, bra, ket, i, j):
         '''Compute a two-fragment density fluctuation.'''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        raise NotImplementedError
+        hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j)
+        if skip: return
+        iad, jad = iad
+        def _perm (l, h2_kkll, h2_kllk):
+            d1s_ll = self.ints[l].get_1_dm (bra, ket)
+            d1_ll = d1s_ll.sum (0)
+            vj = np.tensordot (h2_kkll, d1_ll, axes=2)
+            vk = np.tensordot (d1s_ll, h2_kllk.transpose (2,1,0,3), axes=2)
+            h_11 = vj[None,:,:] - vk
+            return self.ints[k].contract_h00 (0, h_11, None, ket)
+        h2j = self.get_ham_2q (i,i,j,j)
+        h2k = self.get_ham_2q (i,j,j,i)
+        if iad: hci_f_ab[i] += _perm (j, h2j, h2k)
+        if jad: hci_f_ab[j] += _perm (i, h2j.transpose (2,3,0,1), h2k.transpose (2,3,0,1))
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
+        self._put_vecs_(bra, ket, hci_f_ab, i, j)
         return
  
     def _crunch_1c_(self, bra, ket, i, j, s1):
@@ -77,27 +99,25 @@ class ContractHamCI (stdm.LSTDM):
         j ---s1---> i
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        hci_f_ab, excfrags = self._get_vecs_(bra, ket)
-        excfrags = excfrags.intersection ({i, j})
-        if not len (excfrags): return
-        p, q = self.get_range (i)
-        r, s = self.get_range (j)
+        hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j)
+        if skip: return
+        iad, jad = iad
         fac = 1
         nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
         nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
         fac *= fermion_des_shuffle (nelec_f_bra, (i, j), i)
         fac *= fermion_des_shuffle (nelec_f_ket, (i, j), j)
-        h1_ij = self.h1[s1,p:q,r:s]
-        h2_ijjj = self.h2[p:q,r:s,r:s,r:s]
-        h2_iiij = self.h2[p:q,p:q,p:q,r:s]
-        if i in excfrags:
+        h1_ij = self.get_ham_2q (i,j)[s1]
+        h2_ijjj = self.get_ham_2q (i,j,j,j)
+        h2_iiij = self.get_ham_2q (i,i,i,j)
+        if iad:
             D_j = self.ints[j].get_1_h (bra, ket, s1)
             D_jjj = self.ints[j].get_1_phh (bra, ket, s1).sum (0)
             h_10 = np.dot (h1_ij, D_j) + np.tensordot (h2_ijjj, D_jjj,
                 axes=((1,2,3),(2,0,1)))
             h_21 = np.dot (h2_iiij, D_j).transpose (2,0,1)
             hci_f_ab[i] += fac * self.ints[i].contract_h10 (s1, h_10, h_21, ket)
-        if j in excfrags:
+        if jad:
             D_i = self.ints[i].get_1_p (bra, ket, s1)
             D_iii = self.ints[i].get_1_pph (bra, ket, s1).sum (0)
             h_01 = np.dot (D_i, h1_ij) + np.tensordot (D_iii, h2_iiij,
@@ -113,9 +133,13 @@ class ContractHamCI (stdm.LSTDM):
         '''Compute the reduced density matrix elements of a coupled electron-hop and
         density fluctuation.'''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j, k)
+        if skip: return
+        iad, jad, kad = iad
         raise NotImplementedError
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1c1d, self.dw_1c1d = self.dt_1c1d + dt, self.dw_1c1d + dw
+        self._put_vecs_(bra, ket, hci_f_ab, i,j,k)
         return
 
     def _crunch_1s_(self, bra, ket, i, j):
@@ -131,9 +155,19 @@ class ContractHamCI (stdm.LSTDM):
         and conjugate transpose
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        raise NotImplementedError
+        hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j)
+        if skip: return
+        iad, jad = iad
+        h2_ijji = self.get_ham_2q (i,j,j,i)
+        if iad:
+            h1 = lib.einsum ('psrq,rs->pq', h2_ijji, self.ints[j].get_1_sm (bra, ket))
+            hci_f_ab[i] -= self.ints[i].contract_h11 (0, h1, ket)
+        if jad:
+            h1 = lib.einsum ('psrq,pq->rs', h2_ijji, self.ints[i].get_1_sp (bra, ket))
+            hci_f_ab[j] -= self.ints[j].contract_h11 (1, h1, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
+        self._put_vecs_(bra, ket, hci_f_ab, i,j)
         return
 
     def _crunch_1s1c_(self, bra, ket, i, j, k):
@@ -149,9 +183,13 @@ class ContractHamCI (stdm.LSTDM):
         and conjugate transpose
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
+        hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j, k)
+        if skip: return
+        iad, jad, kad = iad
         raise NotImplementedError
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s1c, self.dw_1s1c = self.dt_1s1c + dt, self.dw_1s1c + dw
+        self._put_vecs_(bra, ket, hci_f_ab, i,j,k)
         return
 
     def _crunch_2c_(self, bra, ket, i, j, k, l, s2lt):
@@ -181,9 +219,60 @@ class ContractHamCI (stdm.LSTDM):
         s1 != s2 AND (i = l XOR j = k)                     : _crunch_1s1c_
         '''
         t0, w0 = logger.process_clock (), logger.perf_counter ()
-        raise NotImplementedError
+        hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j, k, l)
+        if skip: return
+        iad, jad, kad, lad = iad
+        # s2lt: 0, 1, 2 -> aa, ab, bb
+        # s2: 0, 1, 2, 3 -> aa, ab, ba, bb
+        s2  = (0, 1, 3)[s2lt] # aa, ab, bb
+        s2T = (0, 2, 3)[s2lt] # aa, ba, bb -> when you populate the e1 <-> e2 permutation
+        s11 = s2 // 2
+        s12 = s2 % 2
+        nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
+        nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
+        fac = 1
+        h_iklj = self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
+        if s11==s22 and i!=k and j!=l: # exchange
+            h_iklj -= self.get_ham_2q (i,l,k,j).transpose (0,2,1,3)
+        # First pass: Hamiltonians
+        if i == k:
+            h02_jl = np.tensordot (self.ints[i].get_1_pp (bra, ket, s2lt), h_ikjl, axes=2)
+        else:
+            h02_jl = np.tensordot (self.ints[i].get_1_p (bra, ket, s11), h_ikjl, axes=1)
+            h02_jl = np.tensordot (self.ints[k].get_1_p (bra, ket, s12), h02_jl, axes=1)
+            fac *= (1,-1)[int (i>k)]
+            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), i)
+            fac *= fermion_des_shuffle (nelec_f_bra, (i, j, k, l), k)
+        if j == l:
+            h20_ik = np.tensordot (h_iklj, self.ints[j].get_1_hh (bra, ket, s2lt), axes=2)
+        else:
+            h20_ik = np.tensordot (h_iklj, self.ints[j].get_1_h (bra, ket, s11), axes=1)
+            h20_ik = np.tensordot (h20_ik, self.ints[l].get_1_h (bra, ket, s12), axes=1)
+            fac *= (1,-1)[int (j>l)]
+            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), j)
+            fac *= fermion_des_shuffle (nelec_f_ket, (i, j, k, l), l)
+        # Second pass: apply to vectors
+        if i == k:
+            if iad: hci_f_ab[i] += fac * self.ints[i].contract_h20 (s2lt, h20_ik, ket)
+        else:
+            if iad:
+                h10_i = np.tensordot (h20_ik, self.ints[k].get_1_p (bra, ket, s12), axes=1)
+                hci_f_ab[i] += fac * self.ints[i].contract_h10 (s11, h10_i, None, ket)
+            if kad:
+                h10_k = np.tensordot (self.ints[i].get_1_p (bra, ket, s11), h20_ik, axes=1)
+                hci_f_ab[k] += fac * self.ints[k].contract_h10 (s12, h10_k, None, ket)
+        if j == l:
+            if jad: hci_f_ab[j] += fac * self.ints[j].contract_h02 (s2lt, h02_jl, ket)
+        else:
+            if jad:
+                h01_j = np.tensordot (h02_jl, self.ints[l].get_1_h (bra, ket, s12), axes=1)
+                hci_f_ab[j] += fac * self.ints[j].contract_h01 (s11, h01_j, None, ket)
+            if lad:
+                h01_l = np.tensordot (self.ints[j].get_1_h (bra, ket, s11), h02_jl, axes=1)
+                hci_f_ab[l] += fac * self.ints[l].contract_h01 (s12, h01_l, None, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2c, self.dw_2c = self.dt_2c + dt, self.dw_2c + dw
+        self._put_vecs_(bra, ket, hci_f_ab, i,j,k,l)
         return
 
     def env_addr_fragpop (self, bra, i, r):
@@ -195,40 +284,43 @@ class ContractHamCI (stdm.LSTDM):
         assert (err==0)
         return bra + rem
 
-    def _bra_address (self, bra):
+    def _bra_address (self, bra, *inv):
         bra_r = self.rootaddr[bra]
         bra_env = self.envaddr[bra]
         lroots_bra_r = self.lroots[:,bra_r]
         bra_r = bra_r + self.nbra - self.nroots
-        excfrags = set (np.where (bra_env==0)[0])
+        addressible = set (np.where (bra_env==0)[0])
+        addressible = addressible.intersection (set (inv))
         bra_envaddr = []
-        for i in excfrags:
+        for i in addressible:
             lroots_i = lroots_bra_r.copy ()
             lroots_i[i] = 1
             strides = np.append ([1], np.cumprod (lroots_i[:-1]))
             bra_envaddr.append (np.dot (strides, bra_env))
-        return bra_r, bra_envaddr, excfrags
+        return bra_r, bra_envaddr, addressible
 
-    def _get_vecs_(self, bra, ket):
-        bra_r, bra_envaddr, excfrags = self._bra_address (bra)
+    def _get_vecs_(self, bra, ket, *inv):
+        bra_r, bra_envaddr, addressible = self._bra_address (bra, *inv)
         hci_f_ab = [0 for i in range (self.nfrags)]
-        for i, addr in zip (excfrags, bra_envaddr):
+        for i, addr in zip (addressible, bra_envaddr):
             hci_r_pabq = self.hci_fr_pabq[i]
             # TODO: buffer
             hci_f_ab[i] = np.zeros_like (hci_r_pabq[bra_r][addr,:,:,ket])
-        return hci_f_ab, excfrags
+        iad = [i in addressible for i in inv]
+        skip = not any (iad)
+        return hci_f_ab, iad, skip
 
     def _put_vecs_(self, bra, ket, vecs, *inv):
         t0, w0 = logger.process_clock (), logger.perf_counter ()
         bras, kets, facs = self._get_spec_addr_ovlp (bra, ket, *inv)
         for bra, ket, fac in zip (bras, kets, facs):
-            self._put_Svecs_(bra, ket, [fac*vec for vec in vecs])
+            self._put_Svecs_(bra, ket, [fac*vec for vec in vecs], *inv)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_p, self.dw_p = self.dt_p + dt, self.dw_p + dw
 
-    def _put_Svecs_(self, bra, ket, vecs):
-        bra_r, bra_envaddr, excfrags = self._bra_address (bra)
-        for i, addr in zip (excfrags, bra_envaddr):
+    def _put_Svecs_(self, bra, ket, vecs, *inv):
+        bra_r, bra_envaddr, addressible = self._bra_address (bra, *inv)
+        for i, addr in zip (addressible, bra_envaddr):
             self.hci_fr_pabq[i][bra_r][addr,:,:,ket] += vecs[i]
 
     def _crunch_all_(self):
