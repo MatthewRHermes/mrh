@@ -405,11 +405,12 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
     lib.logger.timer (las, 'LASSI Hamiltonian contraction second intermediate crunching', *t0)
 
     # Third pass: multiplicative part
-    for ifrag in range (nfrags):
-        gen_hket = gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=soc,
-                                              orbsym=orbsym, wfnsym=wfnsym)
-        for ibra, hket_pabq in enumerate (gen_hket):
-            hket_fr_pabq[ifrag][ibra][:] += hket_pabq[:]
+    if nfrags>1:
+        for ifrag in range (nfrags):
+            gen_hket = gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=soc,
+                                                  orbsym=orbsym, wfnsym=wfnsym)
+            for ibra, hket_pabq in enumerate (gen_hket):
+                hket_fr_pabq[ifrag][ibra][:] += hket_pabq[:]
     return hket_fr_pabq
 
 def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, orbsym=None,
