@@ -409,7 +409,7 @@ def contract_ham_ci (las, h1, h2, ci_fr_ket, nelec_frs_ket, ci_fr_bra, nelec_frs
         gen_hket = gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=soc,
                                               orbsym=orbsym, wfnsym=wfnsym)
         for ibra, hket_pabq in enumerate (gen_hket):
-            hket_fr_pabq[ifrag][ibra][:] += 0#hket_pabq[:]
+            hket_fr_pabq[ifrag][ibra][:] += hket_pabq[:]
     return hket_fr_pabq
 
 def gen_contract_ham_ci_const (ifrag, nbra, las, h1, h2, ci, nelec_frs, soc=0, orbsym=None,
