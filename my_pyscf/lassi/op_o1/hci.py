@@ -230,7 +230,8 @@ class ContractHamCI (stdm.LSTDM):
         s12 = s2 % 2
         nelec_f_bra = self.nelec_rf[self.rootaddr[bra]]
         nelec_f_ket = self.nelec_rf[self.rootaddr[ket]]
-        fac = 1
+        # TODO: debug this for 3- and 4-fragment interactions
+        fac = 1 / (1 + int (s11==s12))
         h_iklj = self.get_ham_2q (i,j,k,l).transpose (0,2,3,1) # Dirac order
         if s11==s12 and i!=k and j!=l: # exchange
             h_iklj -= self.get_ham_2q (i,l,k,j).transpose (0,2,1,3)
