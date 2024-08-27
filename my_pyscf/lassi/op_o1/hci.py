@@ -164,7 +164,7 @@ class ContractHamCI (stdm.LSTDM):
             hci_f_ab[i] -= self.ints[i].contract_h11 (0, h1, ket)
         if jad:
             h1 = lib.einsum ('psrq,pq->rs', h2_ijji, self.ints[i].get_1_sp (bra, ket))
-            hci_f_ab[j] -= self.ints[j].contract_h11 (1, h1, ket)
+            hci_f_ab[j] += self.ints[j].contract_h11 (1, h1, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         self._put_vecs_(bra, ket, hci_f_ab, i,j)

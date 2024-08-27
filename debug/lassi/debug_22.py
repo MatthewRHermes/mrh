@@ -22,8 +22,8 @@ from mrh.my_pyscf.lassi import LASSI, LASSIrq, LASSIrqCT
 from mrh.my_pyscf.lassi.lassi import root_make_rdm12s, make_stdm12s
 from mrh.my_pyscf.lassi.spaces import all_single_excitations, SingleLASRootspace
 from mrh.my_pyscf.mcscf.lasci import get_space_info
-from mrh.my_pyscf.lassi import op_o0, op_o1, op_o2, lassis
-from mrh.my_pyscf.lassi.op_o2 import get_fdm1_maker
+from mrh.my_pyscf.lassi import op_o0, op_o1, lassis
+from mrh.my_pyscf.lassi.op_o1 import get_fdm1_maker
 from mrh.my_pyscf.lassi.sitools import make_sdm1
 
 def setUpModule ():
@@ -60,7 +60,7 @@ def setUpModule ():
     # CASCI limit
     mc = mcscf.CASCI (mf, 4, 4).run ()
 
-    op = (op_o0, op_o1, op_o2)
+    op = (op_o0, op_o1)
 
 def tearDownModule():
     global mol, mf, lsi, las, mc, op
@@ -76,13 +76,6 @@ class KnownValues(unittest.TestCase):
     #    u, svals, vh = linalg.svd (ovlp)
     #    self.assertAlmostEqual (lib.fp (svals), lib.fp (np.ones (len (svals))), 8)
 
-    #def test_op_o2 (self):
-    #    e_roots, si = LASSI (lsi._las).kernel (opt=2)
-    #    self.assertAlmostEqual (lib.fp (e_roots), lib.fp (lsi.e_roots), 8)
-    #    ovlp = si.conj ().T @ lsi.si
-    #    u, svals, vh = linalg.svd (ovlp)
-    #    self.assertAlmostEqual (lib.fp (svals), lib.fp (np.ones (len (svals))), 8)
-
     #def test_casci_limit (self):
     #    # CASCI limit
     #    casdm1, casdm2 = mc.fcisolver.make_rdm12 (mc.ci, mc.ncas, mc.nelecas)
@@ -91,7 +84,7 @@ class KnownValues(unittest.TestCase):
     #    las, e_roots, si = lsi._las, lsi.e_roots, lsi.si
     #    with self.subTest ("total energy"):
     #        self.assertAlmostEqual (e_roots[0], mc.e_tot, 8)
-    #    for opt in range (3):
+    #    for opt in range (2):
     #        with self.subTest (opt=opt):
     #            lasdm1s, lasdm2s = root_make_rdm12s (las, las.ci, si, state=0, opt=opt)
     #            lasdm1 = lasdm1s.sum (0)
@@ -122,6 +115,9 @@ class KnownValues(unittest.TestCase):
         e_roots, si, las = lsi.e_roots, lsi.si, lsi._las
         h0, h1, h2 = lsi.ham_2q ()
         nelec = lsi.get_nelec_frs ()
+        smults = get_space_info (las)[2]
+        for i in range (lsi.nroots):
+            print (i, nelec[0][i], nelec[1][i], smults[i])
         ci_fr = las.ci
         ham = (si * (e_roots[None,:]-h0)) @ si.conj ().T
         ndim = len (e_roots)        
@@ -132,7 +128,8 @@ class KnownValues(unittest.TestCase):
         lroots_prod = np.prod (lroots, axis=0)
         nj = np.cumsum (lroots_prod)
         ni = nj - lroots_prod
-        for opt in range (3):
+        for opt in range (2):
+            ham = op[opt].ham (las, h1, h2, ci_fr, nelec)[0]
             hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
             for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
                 current_order = list (range (las.nfrags-1, -1, -1)) + [las.nfrags]
@@ -151,13 +148,13 @@ class KnownValues(unittest.TestCase):
                         hket_pq_s = hket_pq[:,k:l]
                         hket_ref_s = hket_ref[:,k:l]
                         # TODO: opt>0 for things other than single excitation
-                        if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
+                        #if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
                         #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
                         with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s):
                             self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
 
     #def test_lassis (self):
-    #    for opt in (0,1,2):
+    #    for opt in (0,1):
     #        with self.subTest (opt=opt):
     #            lsis = lassis.LASSIS (las).run (opt=opt)
     #            e_upper = las.e_states[0]
