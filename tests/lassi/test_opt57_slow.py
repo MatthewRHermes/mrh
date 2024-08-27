@@ -30,6 +30,9 @@ from mrh.my_pyscf.lassi.lassi import roots_make_rdm12s, make_stdm12s, ham_2q
 from mrh.my_pyscf.lassi.citools import get_lroots, get_rootaddr_fragaddr
 from mrh.my_pyscf.lassi import op_o0
 from mrh.my_pyscf.lassi import op_o1
+from mrh.my_pyscf.lassi.spaces import SingleLASRootspace
+
+op = (op_o0, op_o1)
 
 def setUpModule ():
     global mol, mf, las, nstates, nelec_frs, si, orbsym, wfnsym
@@ -179,6 +182,45 @@ class KnownValues(unittest.TestCase):
                 with self.subTest (rank=r+1, root=i, opt=1):
                     self.assertAlmostEqual (lib.fp (d12_o0[r][i]),
                         lib.fp (d12_o1[r][i]), 9)
+
+    #def test_contract_hlas_ci (self):
+    #    h0, h1, h2 = ham_2q (las, las.mo_coeff)
+    #    nelec = nelec_frs
+    #    ci_fr = las.ci
+
+    #    spaces = [SingleLASRootspace (las, m, s, c, 0) for c,m,s,w in zip (*get_space_info (las))]
+
+    #    lroots = get_lroots (ci_fr)
+    #    lroots_prod = np.prod (lroots, axis=0)
+    #    nj = np.cumsum (lroots_prod)
+    #    ni = nj - lroots_prod
+    #    ndim = nj[-1]
+    #    for opt in range (2):
+    #        ham = op[opt].ham (las, h1, h2, ci_fr, nelec)[0]
+    #        hket_fr_pabq = op[opt].contract_ham_ci (las, h1, h2, ci_fr, nelec, ci_fr, nelec)
+    #        for f, (ci_r, hket_r_pabq) in enumerate (zip (ci_fr, hket_fr_pabq)):
+    #            current_order = list (range (las.nfrags-1, -1, -1)) + [las.nfrags]
+    #            current_order.insert (0, current_order.pop (f))
+    #            for r, (ci, hket_pabq) in enumerate (zip (ci_r, hket_r_pabq)):
+    #                if ci.ndim < 3: ci = ci[None,:,:]
+    #                proper_shape = np.append (lroots[:,r], ndim)
+    #                current_shape = proper_shape[current_order]
+    #                to_proper_order = list (np.argsort (current_order))
+    #                hket_pq = lib.einsum ('rab,pabq->rpq', ci.conj (), hket_pabq)
+    #                hket_pq = hket_pq.reshape (current_shape)
+    #                hket_pq = hket_pq.transpose (*to_proper_order)
+    #                hket_pq = hket_pq.reshape ((lroots_prod[r], ndim))
+    #                hket_ref = ham[ni[r]:nj[r]]
+    #                for s, (k, l) in enumerate (zip (ni, nj)):
+    #                    hket_pq_s = hket_pq[:,k:l]
+    #                    hket_ref_s = hket_ref[:,k:l]
+    #                    # TODO: opt>0 for things other than single excitation
+    #                    #if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
+    #                    #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
+    #                    with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s):
+    #                        self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)
+
+
 
 if __name__ == "__main__":
     print("Full Tests for LASSI matrix elements of 57-space (91-state) manifold")
