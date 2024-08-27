@@ -144,7 +144,7 @@ class KnownValues(unittest.TestCase):
                         hket_pq_s = hket_pq[:,k:l]
                         hket_ref_s = hket_ref[:,k:l]
                         # TODO: opt>0 for things other than single excitation
-                        if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
+                        #if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
                         #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
                         with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s):
                             self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)

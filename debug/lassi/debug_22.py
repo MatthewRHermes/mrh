@@ -51,6 +51,7 @@ def setUpModule ():
     lroots = 4 - smults
     idx = (charges!=0) & (lroots==3)
     lroots[idx] = 1
+    #lroots[:] = 1
     las1.conv_tol_grad = las.conv_tol_self = 9e99
     las1.lasci (lroots=lroots.T)
     las1.dump_spaces ()
@@ -116,8 +117,6 @@ class KnownValues(unittest.TestCase):
         h0, h1, h2 = lsi.ham_2q ()
         nelec = lsi.get_nelec_frs ()
         smults = get_space_info (las)[2]
-        for i in range (lsi.nroots):
-            print (i, nelec[0][i], nelec[1][i], smults[i])
         ci_fr = las.ci
         ham = (si * (e_roots[None,:]-h0)) @ si.conj ().T
         ndim = len (e_roots)        
@@ -148,7 +147,6 @@ class KnownValues(unittest.TestCase):
                         hket_pq_s = hket_pq[:,k:l]
                         hket_ref_s = hket_ref[:,k:l]
                         # TODO: opt>0 for things other than single excitation
-                        #if opt>0 and not spaces[r].is_single_excitation_of (spaces[s]): continue
                         #elif opt==1: print (r,s, round (lib.fp (hket_pq_s)-lib.fp (hket_ref_s),3))
                         with self.subTest (opt=opt, frag=f, bra_space=r, ket_space=s):
                             self.assertAlmostEqual (lib.fp (hket_pq_s), lib.fp (hket_ref_s), 8)

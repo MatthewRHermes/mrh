@@ -555,14 +555,19 @@ class FragTDMInt (object):
         n = self.fragaddr[ket]
         norb, nelec = self.norb, self.nelec_r[r]
         ci = self.ci[r][n]
-        # 0, 1 = ab, ba
-        cre_op = (cre_a, cre_b)[spin]
-        des_op = (des_b, des_a)[spin]
+        # 0, 1, 2, 3 = aa, ab, ba, bb
+        s11 = spin // 2
+        s12 = spin % 2
+        cre_op = (cre_a, cre_b)[s11]
+        des_op = (des_a, des_b)[s12]
         hci = 0
+        if nelec[s12] == 0: return hci
+        nelecq = list (nelec)
+        nelecq[s12] = nelecq[s12] - 1
         for q in range (self.norb):
             qci = des_op (ci, norb, nelec, q)
             for p in range (self.norb):
-                hci += h_11[p,q] * cre_op (qci, norb, nelec, p)
+                hci += h_11[p,q] * cre_op (qci, norb, nelecq, p)
         return hci
 
 def make_ints (las, ci, nelec_frs, screen_linequiv=True, nlas=None, _FragTDMInt_class=FragTDMInt):

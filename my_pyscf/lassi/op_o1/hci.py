@@ -73,17 +73,19 @@ class ContractHamCI (stdm.LSTDM):
         hci_f_ab, iad, skip = self._get_vecs_(bra, ket, i, j)
         if skip: return
         iad, jad = iad
-        def _perm (k, l, h2_kkll, h2_kllk):
+        def _perm (k, l):
+            h2_kkll = self.get_ham_2q (k,k,l,l)
+            h2_kllk = self.get_ham_2q (k,l,l,k)
             d1s_ll = self.ints[l].get_1_dm1 (bra, ket)
             d1_ll = d1s_ll.sum (0)
             vj = np.tensordot (h2_kkll, d1_ll, axes=2)
-            vk = np.tensordot (d1s_ll, h2_kllk.transpose (2,1,0,3), axes=2)
-            h_11 = vj[None,:,:] - vk
-            return self.ints[k].contract_h00 (0, h_11, None, ket)
-        h2j = self.get_ham_2q (i,i,j,j)
-        h2k = self.get_ham_2q (i,j,j,i)
-        if iad: hci_f_ab[i] += _perm (i, j, h2j, h2k)
-        if jad: hci_f_ab[j] += _perm (j, i, h2j.transpose (2,3,0,1), h2k.transpose (2,3,0,1))
+            vk = np.tensordot (d1s_ll, h2_kllk, axes=((1,2),(2,1)))
+            # NOTE: you cannot use contract_h00 here b/c d1s_ll is nonsymmetric
+            hket  = self.ints[k].contract_h11 (0, vj-vk[0], ket)
+            hket += self.ints[k].contract_h11 (3, vj-vk[1], ket)
+            return hket
+        if jad: hci_f_ab[j] += _perm (j,i)
+        if iad: hci_f_ab[i] += _perm (i,j)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_2d, self.dw_2d = self.dt_2d + dt, self.dw_2d + dw
         self._put_vecs_(bra, ket, hci_f_ab, i, j)
@@ -161,10 +163,10 @@ class ContractHamCI (stdm.LSTDM):
         h2_ijji = self.get_ham_2q (i,j,j,i)
         if iad:
             h1 = lib.einsum ('psrq,rs->pq', h2_ijji, self.ints[j].get_1_sm (bra, ket))
-            hci_f_ab[i] -= self.ints[i].contract_h11 (0, h1, ket)
+            hci_f_ab[i] -= self.ints[i].contract_h11 (1, h1, ket)
         if jad:
             h1 = lib.einsum ('psrq,pq->rs', h2_ijji, self.ints[i].get_1_sp (bra, ket))
-            hci_f_ab[j] += self.ints[j].contract_h11 (1, h1, ket)
+            hci_f_ab[j] -= self.ints[j].contract_h11 (2, h1, ket)
         dt, dw = logger.process_clock () - t0, logger.perf_counter () - w0
         self.dt_1s, self.dw_1s = self.dt_1s + dt, self.dw_1s + dw
         self._put_vecs_(bra, ket, hci_f_ab, i,j)
